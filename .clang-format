@@ -1,0 +1,31 @@
+# 使用 LLVM 风格作为基础
+BasedOnStyle: LLVM
+
+# 自定义样式以控制大括号换行和缩进
+IndentWidth: 4  # 缩进宽度为 4 个空格
+TabWidth: 4  # 每个制表符等于 4 个空格
+UseTab: Never  # 使用空格代替制表符
+
+#如果为false，函数调用的参数要么全部在同一行，要么各有一行。
+BinPackArguments: false
+AllowAllArgumentsOnNextLine: false
+#如果为false，函数声明或函数定义的参数将全部在同一行或各有一行。
+BinPackParameters: false
+
+# 配置大括号换行和缩进
+BreakBeforeBraces: Custom
+BraceWrapping:
+  AfterClass: true
+  AfterFunction: true
+  AfterEnum: true
+  AfterNamespace: true
+  SplitEmptyFunction: true
+  SplitEmptyRecord: true
+  SplitEmptyNamespace: true
+
+ColumnLimit: 100
+#访问权限顶格
+AccessModifierOffset: -4
+# 确保 lambda 函数内的代码正确缩进
+LambdaBodyIndentation: OuterScope
+AlignAfterOpenBracket: Align

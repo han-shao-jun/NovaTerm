@@ -1,0 +1,7 @@
+[submodule "third_party/qtermwidget"]
+	path = third_party/qtermwidget
+	url = https://github.com/lxqt/qtermwidget.git
+	branch = v1.4.0
+[submodule "third_party/lxqt-build-tools"]
+	path = third_party/lxqt-build-tools
+	url = https://github.com/lxqt/lxqt-build-tools.git

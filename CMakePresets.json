@@ -1,0 +1,81 @@
+{
+  "version": 5,
+  "configurePresets": [
+    {
+      "name": "ninja-msvc-debug",
+      "displayName": "Ninja + MSVC (Debug)",
+      "description": "Ninja generator with MSVC compiler — Debug build. Run from x64 Native Tools Command Prompt.",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/debug",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
+        "CMAKE_PREFIX_PATH": "C:/Programs/Qt/6.7.3/msvc2022_64"
+      }
+    },
+    {
+      "name": "ninja-msvc-release",
+      "displayName": "Ninja + MSVC (Release)",
+      "description": "Ninja generator with MSVC compiler — Release build. Run from x64 Native Tools Command Prompt.",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/release",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
+        "CMAKE_PREFIX_PATH": "C:/Programs/Qt/6.7.3/msvc2022_64"
+      }
+    },
+    {
+      "name": "ninja-msvc-relwithdebinfo",
+      "displayName": "Ninja + MSVC (RelWithDebInfo)",
+      "description": "Ninja generator with MSVC compiler — Release with debug info. Run from x64 Native Tools Command Prompt.",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/relwithdebinfo",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "RelWithDebInfo",
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
+        "CMAKE_PREFIX_PATH": "C:/Programs/Qt/6.7.3/msvc2022_64"
+      }
+    },
+    {
+      "name": "ninja-multi-msvc",
+      "displayName": "Ninja Multi-Config + MSVC",
+      "description": "Ninja Multi-Config generator — one build dir, switch configs via --config. Run from x64 Native Tools Command Prompt.",
+      "generator": "Ninja Multi-Config",
+      "binaryDir": "${sourceDir}/build/multi",
+      "cacheVariables": {
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
+        "CMAKE_PREFIX_PATH": "C:/Programs/Qt/6.7.3/msvc2022_64"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "debug",
+      "configurePreset": "ninja-msvc-debug",
+      "displayName": "Build Debug"
+    },
+    {
+      "name": "release",
+      "configurePreset": "ninja-msvc-release",
+      "displayName": "Build Release"
+    },
+    {
+      "name": "relwithdebinfo",
+      "configurePreset": "ninja-msvc-relwithdebinfo",
+      "displayName": "Build RelWithDebInfo"
+    },
+    {
+      "name": "multi-debug",
+      "configurePreset": "ninja-multi-msvc",
+      "displayName": "Build Debug (Multi-Config)",
+      "configuration": "Debug"
+    },
+    {
+      "name": "multi-release",
+      "configurePreset": "ninja-multi-msvc",
+      "displayName": "Build Release (Multi-Config)",
+      "configuration": "Release"
+    }
+  ]
+}
