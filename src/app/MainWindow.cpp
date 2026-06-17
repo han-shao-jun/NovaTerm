@@ -238,13 +238,18 @@ void MainWindow::showSessionDialog()
 {
     auto* dialog = new ElaDialog(this);
     dialog->setWindowTitle(tr("Session"));
-    dialog->resize(480, 400);
+    dialog->resize(1000, 600);
     dialog->setWindowModality(Qt::ApplicationModal);
     dialog->setWindowButtonFlags(ElaAppBarType::CloseButtonHint);
+    dialog->setAppBarHeight(30);
 
     auto* tabWidget = new ElaTabWidget(dialog);
     tabWidget->setTabPosition(QTabWidget::North);
     tabWidget->setIndicatorPosition(ElaTabBarType::Bottom);
+    tabWidget->setDocumentMode(true);
+    tabWidget->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+    tabWidget->tabBar()->setTabsClosable(false);
+    tabWidget->tabBar()->setExpanding(true);
 
     // 四个 Tab：本地终端、SSH、串口、Telnet
     const QList<QPair<QString, bool>> tabs = {
@@ -306,8 +311,10 @@ void MainWindow::showSessionDialog()
     }
 
     auto* mainLayout = new QVBoxLayout(dialog);
-    mainLayout->setContentsMargins(0, 30, 0, 0);
+    mainLayout->setContentsMargins(0, 0, 0, 0);
     mainLayout->addWidget(tabWidget);
+
+    dialog->setMinimumWidth(tabWidget->getTabSize().width() * 4);
 
     dialog->exec();
     dialog->deleteLater();
