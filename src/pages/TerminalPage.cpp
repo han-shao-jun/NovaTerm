@@ -4,31 +4,27 @@
 #include "core/LanguageManager.h"
 #include <QVBoxLayout>
 
-TerminalPage::TerminalPage(QWidget* parent) : ElaScrollPage(parent)
+TerminalPage::TerminalPage(QWidget* parent) : QWidget(parent)
 {
     setWindowTitle(tr("Terminal"));
 
     _tabWidget = new ElaTabWidget(this);
-    _tabWidget->setWindowTitle(tr("Terminal"));
     _tabWidget->setTabPosition(QTabWidget::North);
     _tabWidget->setIndicatorPosition(ElaTabBarType::Bottom);
     _tabWidget->setTabsClosable(true);
     _tabWidget->setMovable(true);
+    _tabWidget->setIsTabTransparent(true);
 
-    _centralWidget = new QWidget(this);
-    _centralWidget->setWindowTitle(tr("Terminal"));
-    auto* layout = new QVBoxLayout(_centralWidget);
+    // 中心就是纯粹的 ElaTabWidget：零边距、零间距的布局让其完全铺满，
+    // 四周不留空隙。标题栏由 ElaWindow 的 AppBar 单独绘制，不受影响。
+    auto* layout = new QVBoxLayout(this);
     layout->setContentsMargins(0, 0, 0, 0);
     layout->setSpacing(0);
     layout->addWidget(_tabWidget);
-    addCentralWidget(_centralWidget);
 
-    // 创建第一个终端标签页
-    addTerminalTab(tr("Terminal 1"));
-
-    // 通过 QTermWidget 内置 KPty 自动启动本地终端
-    // （Windows：ConPTY → cmd/pwsh，Unix：pty → bash/zsh）
-    openLocalTerminal();
+    // 启动第一个本地终端标签页
+    TerminalView* terminal = addTerminalTab(tr("Terminal"));
+    terminal->startLocalShell();
 
     // 动态语言切换
     connect(&LanguageManager::instance(), &LanguageManager::languageChanged,
@@ -38,7 +34,6 @@ TerminalPage::TerminalPage(QWidget* parent) : ElaScrollPage(parent)
 void TerminalPage::retranslateUi()
 {
     setWindowTitle(tr("Terminal"));
-    if (_centralWidget) _centralWidget->setWindowTitle(tr("Terminal"));
 }
 
 TerminalPage::~TerminalPage() = default;

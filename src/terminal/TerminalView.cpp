@@ -4,17 +4,22 @@
 #include "qtermwidget.h"
 #include <QVBoxLayout>
 #include "ElaMenu.h"
+#include "ElaTheme.h"
+#include <QApplication>
+#include <QCoreApplication>
 #include <QDebug>
+
+#ifdef _WIN32
+#include "WinConPty.h"
+#endif
 
 TerminalView::TerminalView(QWidget* parent)
     : QWidget(parent)
 {
-    // startnow=0：电传模式 — 由我们控制数据流
-    // （同时用于 ITransport 桥接和本地 KPty）
+    // startnow=0：不在构造时自动启动 shell，由调用方决定本地/远程模式
     _terminal = new QTermWidget(0, this);
-    _terminal->startTerminalTeletype();
 
-    _terminal->setColorScheme("system");
+    applyThemeColorScheme();
     _terminal->setScrollBarPosition(QTermWidgetInterface::ScrollBarRight);
     _terminal->setTerminalFont(QFont("Cascadia Code, Consolas, monospace", 12));
 
@@ -27,6 +32,10 @@ TerminalView::TerminalView(QWidget* parent)
     setContextMenuPolicy(Qt::CustomContextMenu);
     connect(this, &QWidget::customContextMenuRequested,
             this, &TerminalView::setupContextMenu);
+
+    // 跟随 ElaTheme 明暗切换同步终端配色方案
+    connect(eTheme, &ElaTheme::themeModeChanged,
+            this, &TerminalView::applyThemeColorScheme);
 }
 
 TerminalView::~TerminalView()
@@ -36,15 +45,18 @@ TerminalView::~TerminalView()
 }
 
 // ═══════════════════════════════════════════════════════════════════
-//  本地终端模式 — QTermWidget 内置 KPty
+//  本地终端模式
 //
-//  QTermWidget 内部通过 KPty 直接对接：
-//    Windows 10+：ConPTY (CreatePseudoConsole)
-//    Unix：       pty (posix_openpt/forkpty)
+//  Windows：使用 WinConPty（CreatePseudoConsole API），因为 QTermWidget
+//           内置的 KPty 在 Windows 上是空桩（pty_win32_stubs.cpp）。
+//           数据通过 QTermWidget 的电传模式桥接。
+//  Unix：   使用 QTermWidget 内置 KPty（posix_openpt/forkpty）。
 //
-//  数据流：键盘 → KPty → shell 进程 stdin
-//         shell stdout → KPty → QTermWidget VT 解析 → 渲染
-//  ⚠ 完全不经过 ITransport
+//  数据流：
+//    Windows：键盘 → Emulation → sendData 信号 → WinConPty::write
+//             WinConPty 读线程 → QTermWidget::receiveData → 渲染
+//    Unix：   键盘 → KPty → shell 进程 stdin
+//             shell stdout → KPty → VT 解析 → 渲染
 // ═══════════════════════════════════════════════════════════════════
 
 void TerminalView::startLocalShell()
@@ -52,16 +64,54 @@ void TerminalView::startLocalShell()
     stopLocalShell();
     detachTransport();
 
-    // QTermWidget::startShellProgram() 内部使用 KPty：
-    //   Windows：KPty → ConPTY → cmd.exe / pwsh.exe
-    //   Unix：   KPty → pty → $SHELL
+#ifdef Q_OS_WIN
+    // ── Windows：WinConPty（CreatePseudoConsole）────────────────
+    _winPty = new WinConPty(this);
+
+    // WinConPty 输出 → QTermWidget 渲染
+    connect(_winPty, &WinConPty::receivedData, _terminal,
+            [this](const char* data, int len) {
+        _terminal->receiveData(data, len);
+    });
+
+    // WinConPty 退出
+    connect(_winPty, &WinConPty::finished, this, [this](int) {
+        onLocalShellFinished();
+    });
+
+    // 切换到电传模式：将 Emulation::sendData 路由到 QTermWidget::sendData
+    // 信号，而非内部的 KPty（Windows 上是空桩）
+    _terminal->startTerminalTeletype();
+
+    // 键盘输入 → WinConPty → ConPTY → shell stdin
+    connect(_terminal, &QTermWidget::sendData, _winPty,
+            [this](const char* data, int len) {
+        if (_winPty && _winPty->isRunning())
+            _winPty->writeData(data, len);
+    });
+
+    QString comSpec = QString::fromLocal8Bit(qgetenv("ComSpec"));
+    QString shell = comSpec.isEmpty() ? QStringLiteral("powershell.exe") : comSpec;
+
+    if (!_winPty->start(shell)) {
+        qWarning() << "TerminalView: WinConPty 启动失败";
+        delete _winPty;
+        _winPty = nullptr;
+        emit shellFinished();
+        return;
+    }
+
+#else
+    // ── Unix：QTermWidget 内置 KPty ─────────────────────────────
     _terminal->startShellProgram();
+
     int pid = _terminal->getShellPID();
     if (pid <= 0) {
         qWarning() << "TerminalView: QTermWidget::startShellProgram() 失败";
         emit shellFinished();
         return;
     }
+#endif
 
     _isLocalShell = true;
 
@@ -77,11 +127,20 @@ void TerminalView::startLocalShell()
 
 void TerminalView::stopLocalShell()
 {
-    if (_isLocalShell) {
-        disconnect(_terminal, &QTermWidget::finished,
-                   this, &TerminalView::onLocalShellFinished);
-        _isLocalShell = false;
+    if (!_isLocalShell)
+        return;
+
+    disconnect(_terminal, &QTermWidget::finished,
+               this, &TerminalView::onLocalShellFinished);
+    _isLocalShell = false;
+
+#ifdef _WIN32
+    if (_winPty) {
+        _winPty->stop();
+        delete _winPty;
+        _winPty = nullptr;
     }
+#endif
 }
 
 void TerminalView::onLocalShellFinished()
@@ -107,6 +166,10 @@ void TerminalView::attachTransport(ITransport* transport)
     detachTransport();
     stopLocalShell();
     _transport = transport;
+
+    // 切换到电传模式：打开空 PTY，将 Emulation::sendData 重新路由到
+    // QTermWidget::sendData 信号（而非内部 PTY 进程）。
+    _terminal->startTerminalTeletype();
 
     connect(_transport, &ITransport::readyRead,
             this, &TerminalView::onTransportReadyRead);
@@ -151,6 +214,37 @@ void TerminalView::onTransportDisconnected()
         const char* msg = "\r\n[已断开连接]\r\n";
         _terminal->receiveData(msg, static_cast<int>(strlen(msg)));
     }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+//  主题适配 — 终端背景跟随 ElaTheme 明暗模式
+// ═══════════════════════════════════════════════════════════════════
+
+void TerminalView::applyThemeColorScheme()
+{
+    static const QString kSchemeDir =
+        QCoreApplication::applicationDirPath()
+        + QStringLiteral("/../../third_party/qtermwidget/lib/color-schemes/");
+
+    bool isDark = (eTheme->getThemeMode() == ElaThemeType::Dark);
+    _terminal->setColorScheme(kSchemeDir + (isDark
+        ? QStringLiteral("DarkPastels.colorscheme")
+        : QStringLiteral("BlackOnWhite.colorscheme")));
+
+    // 同步容器背景色，避免切换主题后边缘/顶部露出旧主题色。
+    // setAutoFillBackground 确保样式表环境下的容器也能用调色板填充。
+    QColor bg = isDark ? QColor(0x2C, 0x2C, 0x2C) : QColor(0xFD, 0xFD, 0xFD);
+    auto* app = static_cast<QApplication*>(QCoreApplication::instance());
+    auto applyBg = [bg, app](QWidget* w) {
+        w->setAutoFillBackground(true);
+        // 以 QApplication::palette() 为基准（已由 MainWindow 的
+        // themeModeChanged 处理器同步了所有角色），仅覆盖背景色。
+        QPalette p = app->palette();
+        p.setColor(w->backgroundRole(), bg);
+        w->setPalette(p);
+    };
+    applyBg(_terminal);
+    applyBg(this);
 }
 
 // ═══════════════════════════════════════════════════════════════════

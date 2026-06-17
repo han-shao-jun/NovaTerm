@@ -606,6 +606,11 @@ void* CompactHistoryLine::operator new (size_t size, CompactHistoryBlockList& bl
   return blockList.allocate(size);
 }
 
+void CompactHistoryLine::operator delete (void* ptr, CompactHistoryBlockList& blockList)
+{
+  blockList.deallocate(ptr);
+}
+
 CompactHistoryLine::CompactHistoryLine ( const TextLine& line, CompactHistoryBlockList& bList )
   : blockList(bList),
     formatLength(0)

@@ -3,6 +3,9 @@
 
 class ITransport;
 class QTermWidget;
+#ifdef _WIN32
+class WinConPty;
+#endif
 
 // 包装一个 QTermWidget，并将字节数据从两个互斥来源之一送入：
 //   • 本地  — QTermWidget 内置的 KPty 驱动真实 shell（ConPTY/pty）。
@@ -41,9 +44,13 @@ private slots:
     void onLocalShellFinished();
 
 private:
+    void applyThemeColorScheme();
     void setupContextMenu(const QPoint& pos);
 
     QTermWidget* _terminal{nullptr};
     ITransport* _transport{nullptr};
     bool _isLocalShell{false};
+#ifdef _WIN32
+    WinConPty*  _winPty{nullptr};
+#endif
 };

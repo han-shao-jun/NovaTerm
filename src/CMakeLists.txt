@@ -13,5 +13,6 @@ target_link_libraries(NovaTerm PRIVATE
 )
 
 if(WIN32)
+    target_compile_definitions(NovaTerm PRIVATE _WIN32 _WIN64)
     set_target_properties(NovaTerm PROPERTIES WIN32_EXECUTABLE TRUE)
 endif()

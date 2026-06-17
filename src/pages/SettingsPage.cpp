@@ -17,6 +17,8 @@
 #include "core/LanguageManager.h"
 #include "core/ConfigManager.h"
 
+bool SettingsPage::s_themeProgrammaticChange = false;
+
 // ── 系统主题检测 ──────────────────────────────────────
 
 bool SettingsPage::isSystemDarkTheme()
@@ -50,7 +52,9 @@ bool SettingsPage::isSystemDarkTheme()
 
 void SettingsPage::applyAutoTheme()
 {
+    s_themeProgrammaticChange = true;
     eTheme->setThemeMode(isSystemDarkTheme() ? ElaThemeType::Dark : ElaThemeType::Light);
+    s_themeProgrammaticChange = false;
 }
 
 void SettingsPage::onThemeComboChanged(int index)
@@ -65,53 +69,58 @@ void SettingsPage::onThemeComboChanged(int index)
     if (index == _themeAutoComboIndex) {
         _themeAutoMode = true;
         applyAutoTheme();
-#ifdef Q_OS_WIN
-        ThemeChangeWatcher::instance().setAutoPage(this);
-#endif
     } else {
         _themeAutoMode = false;
-#ifdef Q_OS_WIN
-        ThemeChangeWatcher::instance().setAutoPage(nullptr);
-#endif
         eTheme->setThemeMode(index == 0 ? ElaThemeType::Light : ElaThemeType::Dark);
     }
 }
 
-void SettingsPage::onElaThemeChanged(ElaThemeType::ThemeMode mode)
-{
-    _themeComboBox->blockSignals(true);
-    if (_themeAutoMode) {
-        _themeComboBox->setCurrentIndex(_themeAutoComboIndex);
-    } else {
-        _themeComboBox->setCurrentIndex(mode == ElaThemeType::Light ? 0 : 1);
-    }
-    _themeComboBox->blockSignals(false);
-}
-
-// ── Windows 主题变更监听器 ──────────────────────────────
+// ── Windows 主题变更监听器（全局，不依赖 SettingsPage）────
 
 #ifdef Q_OS_WIN
 #include <windows.h>
 #include <QAbstractNativeEventFilter>
-#include <QCoreApplication>
+#include <QApplication>
+#include <QPalette>
 
-ThemeChangeWatcher& ThemeChangeWatcher::instance()
-{
-    static ThemeChangeWatcher watcher;
-    return watcher;
-}
-
+bool ThemeChangeWatcher::nativeEventFilter(const QByteArray& eventType, void* message,
 #if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
-bool ThemeChangeWatcher::nativeEventFilter(const QByteArray& eventType, void* message, qintptr* result)
+                                           qintptr* result)
 #else
-bool ThemeChangeWatcher::nativeEventFilter(const QByteArray& eventType, void* message, long* result)
+                                           long* result)
 #endif
 {
-    Q_UNUSED(result)
     if (eventType == "windows_generic_MSG" || eventType == "windows_dispatcher_MSG") {
         MSG* msg = static_cast<MSG*>(message);
-        if (msg->message == WM_SETTINGCHANGE && _page) {
-            _page->applyAutoTheme();
+
+        if (msg->message == WM_SETTINGCHANGE) {
+            if (msg->lParam
+                && std::wcscmp(reinterpret_cast<const wchar_t*>(msg->lParam),
+                               L"ImmersiveColorSet") == 0) {
+                // 仅当配置为 "auto" 时跟随系统主题
+                QString saved = ConfigManager::get<QString>("ui.theme");
+                if (saved == QStringLiteral("auto") || saved.isEmpty()) {
+                    bool isDark = SettingsPage::isSystemDarkTheme();
+                    SettingsPage::s_themeProgrammaticChange = true;
+                    eTheme->setThemeMode(isDark ? ElaThemeType::Dark : ElaThemeType::Light);
+                    SettingsPage::s_themeProgrammaticChange = false;
+
+                    // 同步更新 QPalette，避免透明窗口背景闪烁
+                    auto* app = static_cast<QApplication*>(QCoreApplication::instance());
+                    if (isDark) {
+                        QPalette darkPal = app->palette();
+                        darkPal.setColor(QPalette::Window, QColor(0x20, 0x20, 0x20));
+                        darkPal.setColor(QPalette::Base, QColor(0x34, 0x34, 0x34));
+                        darkPal.setColor(QPalette::WindowText, QColor(0xF0, 0xF0, 0xF0));
+                        darkPal.setColor(QPalette::Text, QColor(0xF0, 0xF0, 0xF0));
+                        darkPal.setColor(QPalette::Button, QColor(0x34, 0x34, 0x34));
+                        darkPal.setColor(QPalette::ButtonText, QColor(0xF0, 0xF0, 0xF0));
+                        app->setPalette(darkPal);
+                    } else {
+                        app->setPalette(QApplication::style()->standardPalette());
+                    }
+                }
+            }
         }
     }
     return false;
@@ -173,15 +182,20 @@ SettingsPage::SettingsPage(QWidget* parent)
     _themeComboBox->addItem(tr("Auto (System)"));
     _themeAutoComboIndex = 2;
 
-    // 启动时应用系统主题
-    _themeAutoMode = true;
-    applyAutoTheme();
-    _themeComboBox->setCurrentIndex(_themeAutoComboIndex);
-
-#ifdef Q_OS_WIN
-    QCoreApplication::instance()->installNativeEventFilter(&ThemeChangeWatcher::instance());
-    ThemeChangeWatcher::instance().setAutoPage(this);
-#endif
+    // 从配置文件读取已保存的主题，使 UI 与 Application::init() 同步
+    QString savedTheme = ConfigManager::get<QString>("ui.theme");
+    if (savedTheme == QStringLiteral("dark")) {
+        _themeAutoMode = false;
+        _themeComboBox->setCurrentIndex(1);
+    } else if (savedTheme == QStringLiteral("light")) {
+        _themeAutoMode = false;
+        _themeComboBox->setCurrentIndex(0);
+    } else {
+        // "auto" 或缺失 → 跟随系统
+        _themeAutoMode = true;
+        _themeComboBox->setCurrentIndex(_themeAutoComboIndex);
+        applyAutoTheme();
+    }
 
     ElaScrollPageArea* themeSwitchArea = new ElaScrollPageArea(this);
     QHBoxLayout* themeSwitchLayout = new QHBoxLayout(themeSwitchArea);
@@ -194,7 +208,21 @@ SettingsPage::SettingsPage(QWidget* parent)
 
     connect(_themeComboBox, QOverload<int>::of(&ElaComboBox::currentIndexChanged),
             this, &SettingsPage::onThemeComboChanged);
-    connect(eTheme, &ElaTheme::themeModeChanged, this, &SettingsPage::onElaThemeChanged);
+
+    // 当标题栏主题按钮等外部来源改变主题时，同步下拉框
+    connect(eTheme, &ElaTheme::themeModeChanged, this, [this](ElaThemeType::ThemeMode mode) {
+        if (s_themeProgrammaticChange)
+            return;
+
+        int expectedIndex = (mode == ElaThemeType::Dark) ? 1 : 0;
+        if (_themeComboBox->currentIndex() == expectedIndex)
+            return;
+
+        _themeComboBox->blockSignals(true);
+        _themeComboBox->setCurrentIndex(expectedIndex);
+        _themeAutoMode = false;
+        _themeComboBox->blockSignals(false);
+    });
 
     // ── 窗口绘制模式 ────────────────────────────────
     _windowPaintText = new ElaText(tr("Window Paint Mode"), this);
@@ -448,9 +476,4 @@ void SettingsPage::retranslateUi()
     if (_blurButton)   _blurButton->setText(tr("Blur"));
 }
 
-SettingsPage::~SettingsPage()
-{
-#ifdef Q_OS_WIN
-    ThemeChangeWatcher::instance().setAutoPage(nullptr);
-#endif
-}
+SettingsPage::~SettingsPage() = default;

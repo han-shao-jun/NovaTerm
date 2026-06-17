@@ -9,18 +9,72 @@
 #include "ElaContentDialog.h"
 #include "ElaMessageBar.h"
 #include "ElaApplication.h"
+#include "ElaTabWidget.h"
+#include "ElaTabBar.h"
 #include "pages/TerminalPage.h"
 #include "pages/SettingsPage.h"
 #include "core/LanguageManager.h"
 #include "core/ConfigManager.h"
+#include <QApplication>
 #include <QEvent>
 #include <QHBoxLayout>
 #include <QIcon>
 #include <QLabel>
+#include <QPalette>
+#include <QStyle>
 #include <QVBoxLayout>
 
 MainWindow::MainWindow(QWidget* parent) : ElaWindow(parent)
 {
+    // 主题切换 → 持久化到配置 + 同步 QPalette（必须在 initContent 之前
+    // 连接，因为 TerminalView 在构造时也会连接 themeModeChanged，
+    // Qt 按连接顺序调用处理函数；若本处理器后连接，TerminalView
+    // 的 applyThemeColorScheme() 会先执行，此时 QApplication::palette()
+    // 仍为旧主题色，导致滚动条捕获错误的调色板，呈现白色边框）
+    connect(eTheme, &ElaTheme::themeModeChanged, this,
+            [this](ElaThemeType::ThemeMode mode) {
+        if (SettingsPage::s_themeProgrammaticChange)
+            return;
+        ConfigManager::set("ui.theme",
+                           mode == ElaThemeType::Dark ? "dark" : "light");
+
+        // 同步 QPalette — 必须以干净的 QPalette() 为基准构造，
+        // 不能从 app->palette() 复制，否则在上一次已切换为对端
+        // 主题的调色板基础上修改，未覆盖的角色（Mid / Dark / Shadow
+        // 等，恰为 QScrollBar 所使用）会残留旧主题色，表现为右侧黑边
+        // 或白边。
+        auto* app = static_cast<QApplication*>(QCoreApplication::instance());
+        if (mode == ElaThemeType::Dark) {
+            QPalette p;  // 干净基准（平台无关浅色默认值）
+            // ElaTheme 深色 WindowBase: #202020, BasicBase: #343434
+            p.setColor(QPalette::Window,          QColor(0x20, 0x20, 0x20));
+            p.setColor(QPalette::Base,            QColor(0x34, 0x34, 0x34));
+            p.setColor(QPalette::AlternateBase,   QColor(0x2A, 0x2A, 0x2A));
+            p.setColor(QPalette::WindowText,      QColor(0xF0, 0xF0, 0xF0));
+            p.setColor(QPalette::Text,            QColor(0xF0, 0xF0, 0xF0));
+            p.setColor(QPalette::Button,          QColor(0x34, 0x34, 0x34));
+            p.setColor(QPalette::ButtonText,      QColor(0xF0, 0xF0, 0xF0));
+            // 派生色 — QScrollBar 等原生控件用这些角色绘制
+            p.setColor(QPalette::Mid,             QColor(0x40, 0x40, 0x40));
+            p.setColor(QPalette::Dark,            QColor(0x18, 0x18, 0x18));
+            p.setColor(QPalette::Shadow,          QColor(0x10, 0x10, 0x10));
+            p.setColor(QPalette::Light,           QColor(0x48, 0x48, 0x48));
+            p.setColor(QPalette::Midlight,        QColor(0x3C, 0x3C, 0x3C));
+            p.setColor(QPalette::Highlight,       QColor(0x00, 0x78, 0xD4));
+            p.setColor(QPalette::HighlightedText, QColor(0xFF, 0xFF, 0xFF));
+            p.setColor(QPalette::BrightText,      QColor(0xFF, 0x44, 0x44));
+            p.setColor(QPalette::Link,            QColor(0x4D, 0xA6, 0xFF));
+            app->setPalette(p);
+            setPalette(p); // 同步 MainWindow 独立 palette
+        } else {
+            QPalette p;  // 干净基准（平台无关浅色默认值）
+            // ElaTheme 浅色 WindowBase: #ECECEC
+            p.setColor(QPalette::Window, QColor(0xEC, 0xEC, 0xEC));
+            p.setColor(QPalette::Base,   QColor(0xFF, 0xFF, 0xFF));
+            app->setPalette(p);
+            setPalette(p);
+        }
+    });
     initWindow();
     initContent();
 
@@ -55,7 +109,6 @@ void MainWindow::changeEvent(QEvent* event)
 void MainWindow::retranslateUi()
 {
     setWindowTitle(tr("NovaTerm"));
-    if (_centralStack) _centralStack->setText(tr("NovaTerm"));
 
     if (_menuTip) _menuTip->setToolTip(tr("Menu"));
 
@@ -102,12 +155,6 @@ void MainWindow::initWindow()
         connect(this, &QWidget::windowTitleChanged, appBar,
                 [hideAppBarLabels](const QString&) { hideAppBarLabels(); });
     }
-
-    // 中央占位区域
-    _centralStack = new ElaText(tr("NovaTerm"), this);
-    _centralStack->setTextPixelSize(32);
-    _centralStack->setAlignment(Qt::AlignCenter);
-    addCentralWidget(_centralStack);
 
     // ═══════════════════════════════════════════════════════════════
     // 菜单图标，放置在 LeftArea 中使其位于 Logo 右侧。
@@ -184,61 +231,83 @@ bool MainWindow::processHitTest()
 }
 
 // ═══════════════════════════════════════════════════════════════════
-//  会话选择器 — ElaDialog
+//  会话选择器 — 与 Settings 同模式的 ElaDialog + ElaTabWidget
 // ═══════════════════════════════════════════════════════════════════
 
 void MainWindow::showSessionDialog()
 {
     auto* dialog = new ElaDialog(this);
     dialog->setWindowTitle(tr("Session"));
-    dialog->setFixedSize(360, 320);
-    dialog->setIsFixedSize(true);
+    dialog->resize(480, 400);
     dialog->setWindowModality(Qt::ApplicationModal);
     dialog->setWindowButtonFlags(ElaAppBarType::CloseButtonHint);
 
-    auto* central = new QWidget(dialog);
-    auto* layout = new QVBoxLayout(central);
-    layout->setContentsMargins(40, 10, 40, 30);
-    layout->setSpacing(12);
+    auto* tabWidget = new ElaTabWidget(dialog);
+    tabWidget->setTabPosition(QTabWidget::North);
+    tabWidget->setIndicatorPosition(ElaTabBarType::Bottom);
 
-    auto* titleText = new ElaText(tr("New Session"), central);
-    titleText->setTextPixelSize(20);
-    layout->addWidget(titleText);
+    // 四个 Tab：本地终端、SSH、串口、Telnet
+    const QList<QPair<QString, bool>> tabs = {
+        {tr("Local Shell"), true},
+        {tr("SSH"),         false},
+        {tr("Serial"),      false},
+        {tr("Telnet"),      false},
+    };
 
-    auto* tipText = new ElaText(tr("Choose a session type"), central);
-    tipText->setTextPixelSize(13);
-    layout->addWidget(tipText);
-    layout->addSpacing(10);
+    for (const auto& [title, isLocal] : tabs) {
+        auto* page = new QWidget(tabWidget);
+        auto* pageLayout = new QVBoxLayout(page);
+        pageLayout->setContentsMargins(24, 28, 24, 20);
+        pageLayout->setSpacing(0);
 
-    // 本地终端 — 当前可用（QTermWidget 内置 KPty）
-    auto* localButton = new ElaPushButton(tr("Local Shell"), central);
-    layout->addWidget(localButton);
-    connect(localButton, &QPushButton::clicked, this, [this, dialog]() {
-        if (!_terminalKey.isEmpty())
-            navigation(_terminalKey);
-        dialog->close();
-    });
+        // ── 居中占位文本 ──
+        pageLayout->addStretch();
+        auto* placeholder = new ElaText(
+            isLocal
+                ? tr("Start a local terminal session.\n"
+                     "Full terminal emulation is provided by\n"
+                     "ConPTY (Windows) or PTY (Unix).")
+                : tr("This session type will be available\n"
+                     "in a future update."),
+            page);
+        placeholder->setTextPixelSize(14);
+        placeholder->setAlignment(Qt::AlignCenter);
+        placeholder->setWordWrap(true);
+        pageLayout->addWidget(placeholder, 0, Qt::AlignCenter);
+        pageLayout->addStretch();
 
-    // 远程协议 — 占位按钮，等待 ITransport 实现完成后可用
-    auto* sshButton = new ElaPushButton(tr("SSH"), central);
-    layout->addWidget(sshButton);
-    auto* serialButton = new ElaPushButton(tr("Serial"), central);
-    layout->addWidget(serialButton);
-    auto* telnetButton = new ElaPushButton(tr("Telnet"), central);
-    layout->addWidget(telnetButton);
+        // ── 确定 + 取消（右下角）──
+        auto* btnLayout = new QHBoxLayout();
+        btnLayout->setSpacing(8);
+        btnLayout->addStretch();
 
-    for (ElaPushButton* b : {sshButton, serialButton, telnetButton}) {
-        connect(b, &QPushButton::clicked, this, [b]() {
-            ElaMessageBar::information(ElaMessageBarType::BottomRight,
-                                       b->text(), tr("Not implemented yet"), 2000);
+        auto* cancelBtn = new ElaPushButton(tr("Cancel"), page);
+        btnLayout->addWidget(cancelBtn);
+
+        auto* confirmBtn = new ElaPushButton(tr("Confirm"), page);
+        btnLayout->addWidget(confirmBtn);
+
+        pageLayout->addLayout(btnLayout);
+
+        connect(cancelBtn, &QPushButton::clicked, dialog, &QDialog::reject);
+        connect(confirmBtn, &QPushButton::clicked, this, [this, dialog, isLocal]() {
+            if (isLocal) {
+                if (!_terminalKey.isEmpty())
+                    navigation(_terminalKey);
+                dialog->accept();
+            } else {
+                ElaMessageBar::information(ElaMessageBarType::BottomRight,
+                                           tr("Not implemented"),
+                                           tr("Not implemented yet"), 2000);
+            }
         });
+
+        tabWidget->addTab(page, title);
     }
 
-    layout->addStretch();
-
     auto* mainLayout = new QVBoxLayout(dialog);
-    mainLayout->setContentsMargins(0, 25, 0, 0);
-    mainLayout->addWidget(central);
+    mainLayout->setContentsMargins(0, 30, 0, 0);
+    mainLayout->addWidget(tabWidget);
 
     dialog->exec();
     dialog->deleteLater();

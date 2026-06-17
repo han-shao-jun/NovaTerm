@@ -340,7 +340,8 @@ public:
 
   // custom new operator to allocate memory from custom pool instead of heap
   static void *operator new( size_t size, CompactHistoryBlockList& blockList);
-  static void operator delete( void *) { /* do nothing, deallocation from pool is done in destructor*/ } ;
+  static void operator delete( void *) { /* do nothing, deallocation from pool is done in destructor*/ }
+  static void operator delete( void* ptr, CompactHistoryBlockList& blockList);
 
   virtual void getCharacters(Character* array, int length, int startColumn) ;
   virtual void getCharacter(int index, Character &r) ;

@@ -23,11 +23,14 @@ public:
     // 主题 — 跟随系统（在全局启动时使用）
     static bool isSystemDarkTheme();
 
+    // 由程序化主题变更（自动/跟随系统）设置，置 true 后
+    // themeModeChanged 处理函数将跳过，防止覆盖用户显式选择。
+    static bool s_themeProgrammaticChange;
+
 private:
     void retranslateUi();
 
     void onThemeComboChanged(int index);
-    void onElaThemeChanged(ElaThemeType::ThemeMode mode);
 
     ElaComboBox* _themeComboBox{nullptr};
     int _themeAutoComboIndex = 2; // 下拉框中 "Auto (System)" 的索引
@@ -81,22 +84,17 @@ private:
     QWidget* _centralWidget{nullptr};
 };
 
-// Windows 原生事件过滤器 — 监听 WM_SETTINGCHANGE 以检测主题变更
+// Windows 原生事件过滤器 — 监听 WM_SETTINGCHANGE（InmmersiveColorSet）
+// 以检测系统明暗主题切换，全局有效，不依赖 SettingsPage 实例。
 #ifdef Q_OS_WIN
 #include <QAbstractNativeEventFilter>
 class ThemeChangeWatcher : public QAbstractNativeEventFilter
 {
 public:
-    static ThemeChangeWatcher& instance();
-    void setAutoPage(SettingsPage* page) { _page = page; }
 #if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
     bool nativeEventFilter(const QByteArray& eventType, void* message, qintptr* result) override;
 #else
     bool nativeEventFilter(const QByteArray& eventType, void* message, long* result) override;
 #endif
-
-private:
-    ThemeChangeWatcher() = default;
-    SettingsPage* _page{nullptr};
 };
 #endif

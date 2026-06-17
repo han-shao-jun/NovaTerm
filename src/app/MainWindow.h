@@ -31,8 +31,6 @@ private:
     void initContent();
     void retranslateUi();
 
-    ElaText* _centralStack{nullptr};
-
     // ── 标题栏菜单（单个图标 → 弹出菜单）──
     ElaIconButton* _menuButton{nullptr};
     ElaToolTip* _menuTip{nullptr};
