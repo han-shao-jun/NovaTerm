@@ -13,6 +13,8 @@
 #include "ElaTabBar.h"
 #include "pages/TerminalPage.h"
 #include "pages/SettingsPage.h"
+#include "pages/SessionPage.h"
+#include "pages/AboutPage.h"
 #include "core/LanguageManager.h"
 #include "core/ConfigManager.h"
 #include <QApplication>
@@ -243,78 +245,20 @@ void MainWindow::showSessionDialog()
     dialog->setWindowButtonFlags(ElaAppBarType::CloseButtonHint);
     dialog->setAppBarHeight(30);
 
-    auto* tabWidget = new ElaTabWidget(dialog);
-    tabWidget->setTabPosition(QTabWidget::North);
-    tabWidget->setIndicatorPosition(ElaTabBarType::Bottom);
-    tabWidget->setDocumentMode(true);
-    tabWidget->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
-    tabWidget->tabBar()->setTabsClosable(false);
-    tabWidget->tabBar()->setExpanding(true);
+    // 以 MainWindow 作为父对象构造，使 SessionPage 内部控件正常工作
+    auto* sessionPage = new SessionPage(this);
+    sessionPage->setTitleVisible(false);
 
-    // 四个 Tab：本地终端、SSH、串口、Telnet
-    const QList<QPair<QString, bool>> tabs = {
-        {tr("Local Shell"), true},
-        {tr("SSH"),         false},
-        {tr("Serial"),      false},
-        {tr("Telnet"),      false},
-    };
-
-    for (const auto& [title, isLocal] : tabs) {
-        auto* page = new QWidget(tabWidget);
-        auto* pageLayout = new QVBoxLayout(page);
-        pageLayout->setContentsMargins(24, 28, 24, 20);
-        pageLayout->setSpacing(0);
-
-        // ── 居中占位文本 ──
-        pageLayout->addStretch();
-        auto* placeholder = new ElaText(
-            isLocal
-                ? tr("Start a local terminal session.\n"
-                     "Full terminal emulation is provided by\n"
-                     "ConPTY (Windows) or PTY (Unix).")
-                : tr("This session type will be available\n"
-                     "in a future update."),
-            page);
-        placeholder->setTextPixelSize(14);
-        placeholder->setAlignment(Qt::AlignCenter);
-        placeholder->setWordWrap(true);
-        pageLayout->addWidget(placeholder, 0, Qt::AlignCenter);
-        pageLayout->addStretch();
-
-        // ── 确定 + 取消（右下角）──
-        auto* btnLayout = new QHBoxLayout();
-        btnLayout->setSpacing(8);
-        btnLayout->addStretch();
-
-        auto* cancelBtn = new ElaPushButton(tr("Cancel"), page);
-        btnLayout->addWidget(cancelBtn);
-
-        auto* confirmBtn = new ElaPushButton(tr("Confirm"), page);
-        btnLayout->addWidget(confirmBtn);
-
-        pageLayout->addLayout(btnLayout);
-
-        connect(cancelBtn, &QPushButton::clicked, dialog, &QDialog::reject);
-        connect(confirmBtn, &QPushButton::clicked, this, [this, dialog, isLocal]() {
-            if (isLocal) {
-                if (!_terminalKey.isEmpty())
-                    navigation(_terminalKey);
-                dialog->accept();
-            } else {
-                ElaMessageBar::information(ElaMessageBarType::BottomRight,
-                                           tr("Not implemented"),
-                                           tr("Not implemented yet"), 2000);
-            }
-        });
-
-        tabWidget->addTab(page, title);
-    }
+    connect(sessionPage, &SessionPage::localSessionRequested, this, [this, dialog]() {
+        if (!_terminalKey.isEmpty())
+            navigation(_terminalKey);
+        dialog->accept();
+    });
+    connect(sessionPage, &SessionPage::dialogRejected, dialog, &QDialog::reject);
 
     auto* mainLayout = new QVBoxLayout(dialog);
     mainLayout->setContentsMargins(0, 0, 0, 0);
-    mainLayout->addWidget(tabWidget);
-
-    dialog->setMinimumWidth(tabWidget->getTabSize().width() * 4);
+    mainLayout->addWidget(sessionPage);
 
     dialog->exec();
     dialog->deleteLater();
@@ -372,56 +316,14 @@ void MainWindow::showAboutDialog()
         buttons[1]->hide(); // 中间按钮
     }
 
-    // ── 构建关于内容 ──
-    auto* centralWidget = new QWidget(dialog);
-    auto* layout = new QVBoxLayout(centralWidget);
-    layout->setContentsMargins(40, 40, 40, 40);
-    layout->setSpacing(12);
+    // ── 使用 AboutPage 构建关于内容 ──
+    auto* aboutPage = new AboutPage(dialog);
+    aboutPage->setTitleVisible(false);
+    dialog->setCentralWidget(aboutPage);
 
-    auto* titleText = new ElaText(tr("NovaTerm"), centralWidget);
-    titleText->setTextPixelSize(28);
-    layout->addWidget(titleText);
-
-    auto* versionText = new ElaText(tr("Version 0.1.0"), centralWidget);
-    versionText->setTextPixelSize(15);
-    layout->addWidget(versionText);
-
-    layout->addSpacing(20);
-
-    auto* descText = new ElaText(
-        tr("A cross-platform terminal emulator & SSH client\n"
-           "with FluentUI design, inspired by WindTerm.\n\n"
-           "Built with:\n"
-           "  • Qt 6.7  •  ElaWidgetTools (FluentUI)\n"
-           "  • QTermWidget (terminal emulation)\n"
-           "  • libssh (SSH/SFTP)"),
-        centralWidget);
-    descText->setTextPixelSize(13);
-    layout->addWidget(descText);
-
-    layout->addSpacing(20);
-
-    auto* licenseText = new ElaText(tr("License: GPLv2+"), centralWidget);
-    licenseText->setTextPixelSize(12);
-    layout->addWidget(licenseText);
-
-    layout->addStretch();
-
-    dialog->setCentralWidget(centralWidget);
-
-    // ── 语言切换支持 ──
+    // ── 语言切换支持：仅更新对话框外框，内容由 AboutPage 自行管理 ──
     connect(&LanguageManager::instance(), &LanguageManager::languageChanged,
-            dialog, [=](const QString&) {
-        titleText->setText(MainWindow::tr("NovaTerm"));
-        versionText->setText(MainWindow::tr("Version 0.1.0"));
-        descText->setText(
-            MainWindow::tr("A cross-platform terminal emulator & SSH client\n"
-                           "with FluentUI design, inspired by WindTerm.\n\n"
-                           "Built with:\n"
-                           "  • Qt 6.7  •  ElaWidgetTools (FluentUI)\n"
-                           "  • QTermWidget (terminal emulation)\n"
-                           "  • libssh (SSH/SFTP)"));
-        licenseText->setText(MainWindow::tr("License: GPLv2+"));
+            dialog, [dialog]() {
         dialog->setWindowTitle(MainWindow::tr("About"));
         dialog->setRightButtonText(MainWindow::tr("OK"));
     });
