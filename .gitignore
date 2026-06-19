@@ -2,6 +2,7 @@ build/
 .vs/
 *.user
 *.pro.user
+.idea
 CMakeUserPresets.json
 CMakeLists.txt.user
 cmake-build-debug/
