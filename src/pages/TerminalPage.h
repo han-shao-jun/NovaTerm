@@ -1,8 +1,9 @@
 #pragma once
+
+#include "terminal/TerminalView.h"
+#include <ElaTabWidget.h>
 #include <QWidget>
 
-class TerminalView;
-class ElaTabWidget;
 
 // 承载终端的导航页面。中心直接就是一个铺满的 ElaTabWidget（不经过
 // ElaScrollPage 的滚动包装），用于管理多个终端标签页，每个标签页内含

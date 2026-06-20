@@ -1,11 +1,10 @@
 #pragma once
+
 #include "ElaScrollPage.h"
 #include "ElaTheme.h"
-
-class ElaRadioButton;
-class ElaToggleSwitch;
-class ElaComboBox;
-class ElaText;
+#include <ElaComboBox.h>
+#include <ElaRadioButton.h>
+#include <ElaToggleSwitch.h>
 
 // 设置视图（ElaScrollPage）。管理语言、主题（含"自动 = 跟随系统"），
 // 以及宿主 ElaWindow 的外观（绘制模式、窗口特效、导航栏模式、页面切换动画）。

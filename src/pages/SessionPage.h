@@ -1,9 +1,9 @@
 #pragma once
-#include "ElaScrollPage.h"
 
-class ElaTabWidget;
-class ElaText;
-class ElaPushButton;
+#include "ElaScrollPage.h"
+#include <ElaComboBox.h>
+#include <ElaPushButton.h>
+#include <ElaTabWidget.h>
 
 // 会话选择页面（ElaScrollPage）。包含 4 个标签页（本地 Shell / SSH / 串口 / Telnet），
 // 每个标签页各有 Confirm / Cancel 按钮。嵌入 ElaDialog 中使用，与 SettingsPage
@@ -24,6 +24,10 @@ private:
 
     ElaTabWidget* _tabWidget{nullptr};
     QWidget* _centralWidget{nullptr};
+
+    // ── 本地 Shell：Shell 类型选择（cmd / PowerShell）──
+    ElaText* _localTypeLabel{nullptr};
+    ElaComboBox* _localShellTypeCombo{nullptr};
 
     // ── 各标签页的占位文本 ──
     ElaText* _localPlaceholder{nullptr};

@@ -1,8 +1,6 @@
 #pragma once
 #include "ElaScrollPage.h"
 
-class ElaText;
-
 // 全页"关于"视图（ElaScrollPage）。注意：应用中关于页面实际以模态对话框形式
 // 从 MainWindow::showAboutDialog() 弹出；本页面保留作为备选可嵌入视图，
 // 未注册到导航中。
