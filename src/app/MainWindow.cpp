@@ -25,9 +25,11 @@
 #include <QPalette>
 #include <QStyle>
 #include <QVBoxLayout>
+#include <QThread>
 
 MainWindow::MainWindow(QWidget* parent) : ElaWindow(parent)
 {
+    qDebug() << "main id: " << QThread::currentThreadId();
     // 主题切换 → 持久化到配置 + 同步 QPalette（必须在 initContent 之前
     // 连接，因为 TerminalView 在构造时也会连接 themeModeChanged，
     // Qt 按连接顺序调用处理函数；若本处理器后连接，TerminalView
@@ -35,10 +37,18 @@ MainWindow::MainWindow(QWidget* parent) : ElaWindow(parent)
     // 仍为旧主题色，导致滚动条捕获错误的调色板，呈现白色边框）
     connect(eTheme, &ElaTheme::themeModeChanged, this,
             [this](ElaThemeType::ThemeMode mode) {
-        if (SettingsPage::s_themeProgrammaticChange)
-            return;
-        ConfigManager::set("ui.theme",
-                           mode == ElaThemeType::Dark ? "dark" : "light");
+        // 配置持久化：仅在用户手动切换时写入；程序化切换（auto 模式 /
+        // 跟随系统）不应把配置里的 "auto" 覆盖成具体的 light/dark。
+        if (!SettingsPage::s_themeProgrammaticChange) {
+            ConfigManager::set("ui.theme",
+                               mode == ElaThemeType::Dark ? "dark" : "light");
+        }
+
+        // QPalette 同步必须无条件执行（手动与程序化切换都要同步）：终端右侧
+        // 的原生 QScrollBar 由 QApplication 调色板绘制，QTermWidget 在
+        // setColorScheme() 时执行 _scrollBar->setPalette(QApplication::palette())。
+        // 此前该同步与 ConfigManager 写入一起被 s_themeProgrammaticChange 的
+        // return 跳过，导致 auto / 跟随系统切换时右侧滚动条残留旧主题色。
 
         // 同步 QPalette — 必须以干净的 QPalette() 为基准构造，
         // 不能从 app->palette() 复制，否则在上一次已切换为对端
@@ -78,7 +88,6 @@ MainWindow::MainWindow(QWidget* parent) : ElaWindow(parent)
         }
     });
     initWindow();
-    initContent();
 
     // 语言切换
     connect(&LanguageManager::instance(), &LanguageManager::languageChanged,

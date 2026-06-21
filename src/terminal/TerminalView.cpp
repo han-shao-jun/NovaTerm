@@ -21,7 +21,17 @@ TerminalView::TerminalView(QWidget* parent)
 
     applyThemeColorScheme();
     _terminal->setScrollBarPosition(QTermWidgetInterface::ScrollBarRight);
-    _terminal->setTerminalFont(QFont("Cascadia Code, Consolas, monospace", 12));
+
+    // 终端必须使用等宽字体：QTermWidget 假定字符单元格等宽，否则光标
+    // 位置会与字符错位。QFont 单参构造不支持 "A, B, C" 形式的回退列表
+    // （会被当成一个不存在的字体名），必须用 setFamilies() 提供回退列表，
+    // 并显式声明 FixedPitch，确保系统回退时仍挑选等宽字体。
+    QFont terminalFont;
+    terminalFont.setFamilies({"Cascadia Code", "Consolas", "DejaVu Sans Mono", "monospace"});
+    terminalFont.setStyleHint(QFont::Monospace);
+    terminalFont.setFixedPitch(true);
+    terminalFont.setPointSize(12);
+    _terminal->setTerminalFont(terminalFont);
 
     auto* layout = new QVBoxLayout(this);
     layout->setContentsMargins(0, 0, 0, 0);
@@ -222,6 +232,12 @@ void TerminalView::onTransportDisconnected()
 
 void TerminalView::applyThemeColorScheme()
 {
+    // themeModeChanged 是全局信号：当某个标签页正在 deleteLater() 析构途中
+    // （对象尚存但 _terminal 可能已被清理）时切换主题，仍会回调到这里。
+    // 防止对空/半析构的终端调用 setColorScheme 造成崩溃。
+    if (!_terminal)
+        return;
+
     static const QString kSchemeDir =
         QCoreApplication::applicationDirPath()
         + QStringLiteral("/../../third_party/qtermwidget/lib/color-schemes/");

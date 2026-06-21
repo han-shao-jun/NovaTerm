@@ -67,6 +67,10 @@ Built with:
     <message><source>OK</source><translation>确定</translation></message>
 </context>
 <context>
+    <name>SessionPage</name>
+    <message><source>Type</source><translation>类型</translation></message>
+</context>
+<context>
     <name>SettingsPage</name>
     <message><source>Settings</source><translation>设置</translation></message>
     <message><source>Language</source><translation>语言</translation></message>

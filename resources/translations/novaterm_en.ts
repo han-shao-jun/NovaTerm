@@ -67,6 +67,10 @@ Built with:
     <message><source>OK</source><translation>OK</translation></message>
 </context>
 <context>
+    <name>SessionPage</name>
+    <message><source>Type</source><translation>Type</translation></message>
+</context>
+<context>
     <name>SettingsPage</name>
     <message><source>Settings</source><translation>Settings</translation></message>
     <message><source>Language</source><translation>Language</translation></message>

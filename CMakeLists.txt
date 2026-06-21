@@ -7,7 +7,17 @@ set(CMAKE_AUTOUIC ON)
 set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
 
-set(CMAKE_PREFIX_PATH "C:\\Programs\\Qt\\6.7.3\\msvc2022_64" CACHE PATH "Qt installation prefix")
+if(CMAKE_HOST_SYSTEM_NAME STREQUAL "Linux")
+    set(CMAKE_PREFIX_PATH /home/super/Qt/6.7.3/gcc_64/ CACHE PATH "Qt installation prefix")
+    message(STATUS "This is Linux OS")
+elseif(CMAKE_HOST_SYSTEM_NAME STREQUAL "Windows")
+    set(CMAKE_PREFIX_PATH "C:\\Programs\\Qt\\6.7.3\\msvc2022_64" CACHE PATH "Qt installation prefix")
+    message(STATUS "This is Windows")
+elseif(CMAKE_HOST_SYSTEM_NAME STREQUAL "Darwin")
+    message(STATUS "This is macOS")
+endif()
+
+message(STATUS "setting qt sdk path: ${CMAKE_PREFIX_PATH}")
 
 
 # 将所有运行时文件（exe、dll）输出到同一目录

@@ -2,6 +2,7 @@
 #include "ElaTabWidget.h"
 #include "ElaTabBar.h"
 #include "ElaText.h"
+#include "ElaComboBox.h"
 #include "ElaPushButton.h"
 #include "ElaMessageBar.h"
 #include "core/LanguageManager.h"
@@ -51,6 +52,27 @@ SessionPage::SessionPage(QWidget* parent)
         auto* pageLayout = new QVBoxLayout(page);
         pageLayout->setContentsMargins(24, 28, 24, 20);
         pageLayout->setSpacing(0);
+
+        // ── 本地 Shell：Shell 类型选择（类型标签 + 下拉框，水平布局）──
+        if (isLocal) {
+            auto* typeLayout = new QHBoxLayout();
+            typeLayout->setSpacing(8);
+
+            _localTypeLabel = new ElaText(tr("Type"), page);
+            _localTypeLabel->setWordWrap(false);
+            _localTypeLabel->setTextPixelSize(15);
+            typeLayout->addWidget(_localTypeLabel);
+
+            _localShellTypeCombo = new ElaComboBox(page);
+            _localShellTypeCombo->addItem(QStringLiteral("cmd"));
+            _localShellTypeCombo->addItem(QStringLiteral("PowerShell"));
+            _localShellTypeCombo->setMinimumWidth(160);
+            typeLayout->addWidget(_localShellTypeCombo);
+            typeLayout->addStretch();
+
+            pageLayout->addLayout(typeLayout);
+            pageLayout->addSpacing(12);
+        }
 
         // ── 居中占位文本 ──
         pageLayout->addStretch();
@@ -130,6 +152,10 @@ void SessionPage::retranslateUi()
         _tabWidget->setTabText(2, tr("Serial"));
         _tabWidget->setTabText(3, tr("Telnet"));
     }
+
+    // 更新本地 Shell 的类型标签
+    if (_localTypeLabel)
+        _localTypeLabel->setText(tr("Type"));
 
     // 更新占位文本
     if (_localPlaceholder)

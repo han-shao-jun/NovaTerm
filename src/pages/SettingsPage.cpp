@@ -105,20 +105,10 @@ bool ThemeChangeWatcher::nativeEventFilter(const QByteArray& eventType, void* me
                     eTheme->setThemeMode(isDark ? ElaThemeType::Dark : ElaThemeType::Light);
                     SettingsPage::s_themeProgrammaticChange = false;
 
-                    // 同步更新 QPalette，避免透明窗口背景闪烁
-                    auto* app = static_cast<QApplication*>(QCoreApplication::instance());
-                    if (isDark) {
-                        QPalette darkPal = app->palette();
-                        darkPal.setColor(QPalette::Window, QColor(0x20, 0x20, 0x20));
-                        darkPal.setColor(QPalette::Base, QColor(0x34, 0x34, 0x34));
-                        darkPal.setColor(QPalette::WindowText, QColor(0xF0, 0xF0, 0xF0));
-                        darkPal.setColor(QPalette::Text, QColor(0xF0, 0xF0, 0xF0));
-                        darkPal.setColor(QPalette::Button, QColor(0x34, 0x34, 0x34));
-                        darkPal.setColor(QPalette::ButtonText, QColor(0xF0, 0xF0, 0xF0));
-                        app->setPalette(darkPal);
-                    } else {
-                        app->setPalette(QApplication::style()->standardPalette());
-                    }
+                    // QApplication 调色板的同步由 MainWindow 的 themeModeChanged
+                    // 处理器统一完成（setThemeMode 时同步触发并覆盖全部角色），
+                    // 此处不再重复设置 —— 之前这里的调色板缺少 Mid/Dark/Shadow
+                    // 等 QScrollBar 角色，是右侧滚动条不跟随主题的根因之一。
                 }
             }
         }
