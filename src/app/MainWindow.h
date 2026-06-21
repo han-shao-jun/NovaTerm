@@ -1,17 +1,10 @@
 #pragma once
 #include "ElaWindow.h"
-
-class ElaContentDialog;
-class ElaDialog;
-class ElaIconButton;
-class ElaMenu;
-class ElaText;
-class ElaToolTip;
-class QAction;
-
-class TerminalPage;
-class SettingsPage;
-class SessionPage;
+#include "pages/TerminalPage.h"
+#include <ElaContentDialog.h>
+#include <ElaIconButton.h>
+#include <ElaMenu.h>
+#include <ElaToolTip.h>
 
 // 无边框主窗口（ElaWindow）。左侧导航栏已禁用；标题栏仅显示应用
 // Logo 和一个菜单按钮，其弹出菜单可导航至 会话 / 设置 / 关于。
@@ -29,7 +22,6 @@ protected:
 
 private:
     void initWindow();
-    void initContent();
     void retranslateUi();
 
     // ── 标题栏菜单（单个图标 → 弹出菜单）──
@@ -42,9 +34,8 @@ private:
 
     void buildMainMenu();
 
-    // 页面
+    // 主页面
     TerminalPage* _terminalPage{nullptr};
-    QString _terminalKey;
 
     // ── 会话选择器（ElaDialog）──
     void showSessionDialog();
