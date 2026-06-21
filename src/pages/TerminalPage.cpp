@@ -50,7 +50,7 @@ TerminalView* TerminalPage::currentTerminal() const
 
 TerminalView* TerminalPage::addTerminalTab(const QString& title)
 {
-    TerminalView* terminalView = new TerminalView(_tabWidget);
+    auto* terminalView = new TerminalView(_tabWidget);
     _terminalViews.append(terminalView);
 
     QString tabTitle = title.isEmpty() ? tr("Terminal %1").arg(_terminalViews.size()) : title;
