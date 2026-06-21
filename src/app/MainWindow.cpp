@@ -131,6 +131,9 @@ void MainWindow::initWindow()
     // 隐藏用户信息卡片
     setUserInfoCardVisible(false);
 
+    //隐藏导航栏
+    setIsNavigationBarEnable(false);
+
     // ── 标题栏左侧：仅显示应用 Logo + 菜单按钮 ──
     // 保留窗口图标用于任务栏 / Alt-Tab；标题栏上可见的 Logo 由下方的
     // QLabel 自行绘制，以便控制其尺寸。
