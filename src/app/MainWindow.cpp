@@ -212,17 +212,6 @@ void MainWindow::buildMainMenu()
     connect(_actAbout, &QAction::triggered, this, &MainWindow::showAboutDialog);
 }
 
-void MainWindow::initContent()
-{
-    _terminalPage = new TerminalPage(this);
-
-    // 仅注册终端（会话）页面；导航通过标题栏菜单进行，
-    // 因此左侧导航栏保持隐藏。
-    addPageNode(tr("Terminal"), _terminalPage, ElaIconType::Terminal);
-    _terminalKey = _terminalPage->property("ElaPageKey").toString();
-
-    setIsNavigationBarEnable(false);
-}
 
 bool MainWindow::processHitTest()
 {
