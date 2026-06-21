@@ -192,6 +192,12 @@ void MainWindow::initWindow()
     customLayout->addWidget(_menuButton);
     customLayout->addStretch();
     setCustomWidget(ElaAppBarType::LeftArea, customWidget, this, "processHitTest");
+
+    _terminalPage = new TerminalPage(this);
+
+    // 仅注册终端（会话）页面；导航通过标题栏菜单进行，
+    // 因此左侧导航栏保持隐藏。
+    addPageNode(tr("Terminal"), _terminalPage, ElaIconType::Terminal);
 }
 
 void MainWindow::buildMainMenu()
