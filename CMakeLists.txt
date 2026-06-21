@@ -36,8 +36,7 @@ find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS Widgets Sql Svg)
 message(STATUS "Using Qt ${QT_VERSION_MAJOR}.${QT_VERSION_MINOR}")
 
 # ElaWidgetTools - built as subdirectory (relative path from WindTermQt)
-add_subdirectory(${CMAKE_SOURCE_DIR}/../ElaWidgetTools/ElaWidgetTools
-                 ${CMAKE_BINARY_DIR}/ElaWidgetTools)
+add_subdirectory(third_party/ElaWidgetTools/ElaWidgetTools)
 
 # QTermWidget (Qt6) depends on lxqt2-build-tools CMake modules
 # Our cmake/lxqt2-build-toolsConfig.cmake points to the submodule modules directly
