@@ -239,8 +239,8 @@ void MainWindow::showSessionDialog()
     sessionPage->setTitleVisible(false);
 
     connect(sessionPage, &SessionPage::localSessionRequested, this, [this, dialog]() {
-        if (!_terminalKey.isEmpty())
-            navigation(_terminalKey);
+        qDebug() << "localSessionRequested";
+        _terminalPage->addTerminalTab(tr("Terminal"));
         dialog->accept();
     });
     connect(sessionPage, &SessionPage::dialogRejected, dialog, &QDialog::reject);
