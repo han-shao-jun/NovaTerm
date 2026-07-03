@@ -59,7 +59,8 @@ WinConPty::~WinConPty()
     stop();
 }
 
-bool WinConPty::start(const QString &shell, const QStringList &args)
+bool WinConPty::start(const QString &shell, const QStringList &args,
+                      int cols, int rows)
 {
     if (!resolveConPty()) {
         qWarning() << "WinConPty: ConPTY not available (need Windows 10 1809+)";
@@ -69,7 +70,7 @@ bool WinConPty::start(const QString &shell, const QStringList &args)
     if (_running) stop();
 
     if (!createPipes()) return false;
-    if (!createConPty(80, 24)) return false;
+    if (!createConPty(cols, rows)) return false;
 
     // build command line
     std::wstringstream cmdLine;

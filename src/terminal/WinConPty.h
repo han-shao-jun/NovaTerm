@@ -25,7 +25,8 @@ public:
     explicit WinConPty(QObject* parent = nullptr);
     ~WinConPty() override;
 
-    bool start(const QString& shell, const QStringList& args = {});
+    bool start(const QString& shell, const QStringList& args = {},
+               int cols = 80, int rows = 24);
     void stop();
     bool isRunning() const;
 

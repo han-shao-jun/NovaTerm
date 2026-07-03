@@ -19,8 +19,11 @@ public:
     void openLocalTerminal();
     TerminalView* currentTerminal() const;
 
-    // 添加一个新的终端标签页
-    TerminalView* addTerminalTab(const QString& title = QString());
+    // 添加一个新的终端标签页。type 指定本地 Shell 类型（cmd 关联 Clink /
+    // PowerShell），转发给内嵌 TerminalView 的 startLocalShell()。
+    TerminalView* addTerminalTab(
+        const QString& title = QString(),
+        TerminalView::LocalShellType type = TerminalView::LocalShellType::Cmd);
 
 private:
     void retranslateUi();

@@ -26,6 +26,7 @@
 #include <QStyle>
 #include <QVBoxLayout>
 #include <QThread>
+#include <QTimer>
 
 MainWindow::MainWindow(QWidget* parent) : ElaWindow(parent)
 {
@@ -93,14 +94,36 @@ MainWindow::MainWindow(QWidget* parent) : ElaWindow(parent)
     connect(&LanguageManager::instance(), &LanguageManager::languageChanged,
             this, [this](const QString&) { retranslateUi(); });
 
-    // 关闭确认对话框
+    // ── 关闭确认对话框 ──────────────────────────────────────────
     auto* closeDialog = new ElaContentDialog(this);
-    connect(closeDialog, &ElaContentDialog::rightButtonClicked,
-            this, &MainWindow::close);
+    closeDialog->setWindowTitle(tr("Exit"));
+    closeDialog->setLeftButtonText(tr("Cancel"));
+    closeDialog->setMiddleButtonText(tr("Minimize"));
+    closeDialog->setRightButtonText(tr("Exit"));
+
+    auto* closeCentral = new QWidget(closeDialog);
+    auto* closeLayout = new QVBoxLayout(closeCentral);
+    closeLayout->setContentsMargins(24, 20, 24, 20);
+    auto* closeLabel = new QLabel(tr("Are you sure you want to exit NovaTerm?"), closeCentral);
+    closeLabel->setWordWrap(true);
+    closeLayout->addWidget(closeLabel);
+    closeLayout->addStretch();
+    closeDialog->setCentralWidget(closeCentral);
+    // ElaContentDialog 构造函数内 resize(400, height()) 在内容添加前
+    // 执行，缓存了极小的高度初始值。adjustSize() 基于当前内容重新计算
+    // 正确的 sizeHint，避免 exec() 时触发 QWindowsWindow 几何体警告。
+    closeDialog->adjustSize();
+
+    connect(closeDialog, &ElaContentDialog::rightButtonClicked, this, [closeDialog, this]() {
+        closeDialog->done(QDialog::Accepted);
+        QTimer::singleShot(0, this, &QWidget::close);
+    });
     connect(closeDialog, &ElaContentDialog::middleButtonClicked, this, [=]() {
-        closeDialog->close();
+        closeDialog->done(QDialog::Accepted);
         showMinimized();
     });
+    connect(closeDialog, &ElaContentDialog::leftButtonClicked, closeDialog,
+            &ElaContentDialog::close);
     setIsDefaultClosed(false);
     connect(this, &MainWindow::closeButtonClicked, this, [=]() {
         closeDialog->exec();
@@ -256,9 +279,11 @@ void MainWindow::showSessionDialog()
     auto* sessionPage = new SessionPage(this);
     sessionPage->setTitleVisible(false);
 
-    connect(sessionPage, &SessionPage::localSessionRequested, this, [this, dialog]() {
-        qDebug() << "localSessionRequested";
-        _terminalPage->addTerminalTab(tr("Terminal"));
+    connect(sessionPage, &SessionPage::localSessionRequested, this,
+            [this, dialog](TerminalView::LocalShellType type) {
+        qDebug() << "localSessionRequested, type ="
+                 << (type == TerminalView::LocalShellType::PowerShell ? "PowerShell" : "cmd/Clink");
+        _terminalPage->addTerminalTab(tr("Terminal"), type);
         dialog->accept();
     });
     connect(sessionPage, &SessionPage::dialogRejected, dialog, &QDialog::reject);

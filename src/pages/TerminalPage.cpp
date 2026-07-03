@@ -44,7 +44,8 @@ TerminalView* TerminalPage::currentTerminal() const
     return _terminalViews.isEmpty() ? nullptr : _terminalViews.first();
 }
 
-TerminalView* TerminalPage::addTerminalTab(const QString& title)
+TerminalView* TerminalPage::addTerminalTab(const QString& title,
+                                           TerminalView::LocalShellType type)
 {
     auto* terminalView = new TerminalView(_tabWidget);
     _terminalViews.append(terminalView);
@@ -63,7 +64,7 @@ TerminalView* TerminalPage::addTerminalTab(const QString& title)
     int index = _tabWidget->addTab(terminalView, tabTitle);
     _tabWidget->setCurrentIndex(index);
 
-    terminalView->startLocalShell();
+    terminalView->startLocalShell(type);
     return terminalView;
 }
 

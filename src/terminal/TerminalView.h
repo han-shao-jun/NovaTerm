@@ -19,11 +19,16 @@ class TerminalView : public QWidget
 {
     Q_OBJECT
 public:
+    // 本地 Shell 类型。会话对话框（SessionPage）中由用户选择，决定 Windows
+    // 下启动哪个 shell：Cmd 关联到 Clink（chrisant996/clink，增强版 cmd），
+    // PowerShell 则启动 powershell.exe。Unix 下忽略该值（始终走默认 shell）。
+    enum class LocalShellType { Cmd, PowerShell };
+
     explicit TerminalView(QWidget* parent = nullptr);
     ~TerminalView() override;
 
     // ── 本地终端：QTermWidget 内置 KPty（Windows：ConPTY / Unix：pty）──
-    void startLocalShell();
+    void startLocalShell(LocalShellType type = LocalShellType::Cmd);
     void stopLocalShell();
     bool isLocalShell() const { return _isLocalShell; }
 
@@ -42,6 +47,8 @@ private slots:
     void onTransportReadyRead(const QByteArray& data);
     void onTransportDisconnected();
     void onLocalShellFinished();
+
+    bool eventFilter(QObject* obj, QEvent* event) override;
 
 private:
     void applyThemeColorScheme();

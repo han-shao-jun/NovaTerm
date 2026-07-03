@@ -64,7 +64,71 @@ else()
     message(FATAL_ERROR "QTermWidget submodule not found. Run: git submodule update --init")
 endif()
 
+# Clink (chrisant996/clink v1.9.27.83514e) —— 运行时工具，不参与编译。
+# 预编译的 release 目录 third_party/clink.1.9.27.83514e 在构建后事件中
+# 复制到 bin/（与 NovaTerm.exe 同级）。TerminalView::startLocalShell()
+# 的 cmd 类型通过 cmd.exe /k "clink.bat" inject 启动增强 cmd 会话；
+# 找不到 clink.bat 时回退裸 cmd.exe。
+
 # libssh
 find_package(libssh 0.10 QUIET)
 
-add_subdirectory(src)
+file(GLOB_RECURSE SOURCES "src/*.cpp" "src/*.h")
+
+add_executable(NovaTerm ${SOURCES} ${CMAKE_SOURCE_DIR}/resources/resources.qrc)
+
+target_include_directories(NovaTerm PRIVATE src)
+
+target_link_libraries(NovaTerm PRIVATE
+        Qt${QT_VERSION_MAJOR}::Widgets
+        Qt${QT_VERSION_MAJOR}::Sql
+        Qt${QT_VERSION_MAJOR}::Svg
+        ElaWidgetTools
+        ${QTERMWIDGET_TARGET}
+)
+
+if(WIN32)
+    if(CMAKE_BUILD_TYPE MATCHES "Release")
+        #发布版除去黑窗口，无qDebu打印
+        add_compile_definitions(QT_NO_DEBUG_OUTPUT)
+        set_target_properties(NovaTerm PROPERTIES WIN32_EXECUTABLE TRUE)
+    else ()
+        #调试版保留黑窗口,有qDebug打印
+    endif()
+    target_compile_definitions(NovaTerm PRIVATE _WIN32 _WIN64)
+
+    # ── 将 Clink 预编译 release 复制到 exe 同级目录 ──────────────
+    set(CLINK_SRC_DIR "${CMAKE_SOURCE_DIR}/third_party/clink.1.9.27.83514e")
+    if(EXISTS "${CLINK_SRC_DIR}/clink.bat")
+        add_custom_command(TARGET NovaTerm POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${CLINK_SRC_DIR}/clink.bat"
+                "${CLINK_SRC_DIR}/clink.lua"
+                "${CLINK_SRC_DIR}/clink_x64.exe"
+                "${CLINK_SRC_DIR}/clink_x86.exe"
+                "${CLINK_SRC_DIR}/clink_arm64.exe"
+                "${CLINK_SRC_DIR}/clink_dll_x64.dll"
+                "${CLINK_SRC_DIR}/clink_dll_x86.dll"
+                "${CLINK_SRC_DIR}/clink_dll_arm64.dll"
+                "${CLINK_SRC_DIR}/clink.html"
+                $<TARGET_FILE_DIR:NovaTerm>
+            COMMENT "Copying Clink release files next to NovaTerm.exe"
+        )
+        message(STATUS "Clink release will be deployed to output dir: ${CLINK_SRC_DIR}")
+    else()
+        message(WARNING "Clink release not found at ${CLINK_SRC_DIR} — cmd sessions will use bare cmd.exe")
+    endif()
+endif()
+
+
+set(TS_FILES
+        resources/translations/novaterm_en.ts
+        resources/translations/novaterm_zh_CN.ts
+)
+
+qt_add_translations(
+        TARGETS NovaTerm
+        TS_FILES ${TS_FILES}
+)
+
+

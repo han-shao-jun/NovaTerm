@@ -1,6 +1,7 @@
 #pragma once
 
 #include "ElaScrollPage.h"
+#include "terminal/TerminalView.h"   // TerminalView::LocalShellType（信号参数）
 #include <ElaComboBox.h>
 #include <ElaPushButton.h>
 #include <ElaTabWidget.h>
@@ -16,18 +17,24 @@ public:
     Q_INVOKABLE explicit SessionPage(QWidget* parent = nullptr);
 
 signals:
-    void localSessionRequested();   // 用户在本地 Shell 标签页点击了 Confirm
+    // 用户在本地 Shell 标签页点击了 Confirm，携带所选的 Shell 类型
+    // （cmd 关联 Clink / PowerShell）。
+    void localSessionRequested(TerminalView::LocalShellType type);
     void dialogRejected();          // 用户在任意标签页点击了 Cancel
 
 private:
     void retranslateUi();
 
-    ElaTabWidget* _tabWidget{nullptr};
     QWidget* _centralWidget{nullptr};
 
     // ── 本地 Shell：Shell 类型选择（cmd / PowerShell）──
     ElaText* _localTypeLabel{nullptr};
+    ElaText* _localLabel{nullptr};
+
     ElaComboBox* _localShellTypeCombo{nullptr};
+    ElaComboBox* _shhTypeCombo{nullptr};
+    ElaComboBox* _serialTypeCombo{nullptr};
+    ElaComboBox* _telnetTypeCombo{nullptr};
 
     // ── 各标签页的占位文本 ──
     ElaText* _localPlaceholder{nullptr};

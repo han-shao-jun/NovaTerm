@@ -8,6 +8,9 @@
 #include <QApplication>
 #include <QCoreApplication>
 #include <QDebug>
+#include <QDir>
+#include <QFileInfo>
+#include <QTimer>
 
 #ifdef _WIN32
 #include "WinConPty.h"
@@ -16,8 +19,42 @@
 TerminalView::TerminalView(QWidget* parent)
     : QWidget(parent)
 {
+    // ── 注册 QTermWidget 运行时数据目录 ──────────────────────────
+    // QTermWidget 编译时硬编码的 COLORSCHEMES_DIR / KB_LAYOUT_DIR 是
+    // 安装路径（如 /usr/share/qtermwidget6/），开发阶段从构建目录启动时
+    // 这些路径不存在会触发警告。这里主动指向源码树中绑定的数据文件。
+    {
+        const QString dataRoot = QDir(QCoreApplication::applicationDirPath()
+                + QStringLiteral("/../../third_party/qtermwidget/lib"))
+                .absolutePath();
+
+        const QString csDir = dataRoot + QStringLiteral("/color-schemes");
+        if (QDir().exists(csDir))
+            QTermWidget::addCustomColorSchemeDir(csDir);
+    }
+
     // startnow=0：不在构造时自动启动 shell，由调用方决定本地/远程模式
     _terminal = new QTermWidget(0, this);
+
+    // setCustomKeyBindingsDir 只能在 QTermWidget 构造后调用（是实例方法），
+    // 而此时 "Unable to load translator 'default'" 警告已在 init() 内部触发。
+    // 原因是 KeyboardTranslatorManager 标记为 KONSOLEPRIVATE_EXPORT（符号
+    // 不出 DLL），外部无法在构造前预设路径。该警告无害 —— qtermwidget 会回退
+    // 使用 DefaultTranslatorText.h 中的硬编码键盘映射。
+    {
+        const QString dataRoot = QDir(QCoreApplication::applicationDirPath()
+                + QStringLiteral("/../../third_party/qtermwidget/lib"))
+                .absolutePath();
+        const QString kbDir = dataRoot + QStringLiteral("/kb-layouts");
+        if (QDir().exists(kbDir))
+            _terminal->setCustomKeyBindingsDir(kbDir);
+    }
+
+#ifdef _WIN32
+    // ConPTY 尺寸须跟随终端显示区域变化，否则 shell 看到的行列数
+    // 与实际渲染尺寸不一致，导致右侧滚动条异常下拉。
+    _terminal->installEventFilter(this);
+#endif
 
     applyThemeColorScheme();
     _terminal->setScrollBarPosition(QTermWidgetInterface::ScrollBarRight);
@@ -54,6 +91,21 @@ TerminalView::~TerminalView()
     detachTransport();
 }
 
+#ifdef Q_OS_WIN
+// ── Clink 启动脚本定位（Windows）──────────────────────────────────
+// cmd 类型时，在 NovaTerm.exe 同级目录查找 clink.bat（由 CMake 在生成
+// 后事件中从 third_party/clink.1.9.27.83514e 复制过来）。找不到则返回
+// 空字符串，调用方回退到裸 cmd.exe。
+static QString resolveClinkBat()
+{
+    const QString bat = QCoreApplication::applicationDirPath()
+                        + QStringLiteral("/clink.bat");
+    QFileInfo fi(bat);
+    return (fi.exists() && fi.isFile()) ? QDir::toNativeSeparators(fi.absoluteFilePath())
+                                        : QString();
+}
+#endif // Q_OS_WIN
+
 // ═══════════════════════════════════════════════════════════════════
 //  本地终端模式
 //
@@ -69,10 +121,15 @@ TerminalView::~TerminalView()
 //             shell stdout → KPty → VT 解析 → 渲染
 // ═══════════════════════════════════════════════════════════════════
 
-void TerminalView::startLocalShell()
+void TerminalView::startLocalShell(LocalShellType type)
 {
     stopLocalShell();
     detachTransport();
+
+#ifndef Q_OS_WIN
+    // 非 Windows：shell 类型不适用（始终走 KPty 默认 shell），避免未使用参数告警。
+    Q_UNUSED(type)
+#endif
 
 #ifdef Q_OS_WIN
     // ── Windows：WinConPty（CreatePseudoConsole）────────────────
@@ -100,16 +157,72 @@ void TerminalView::startLocalShell()
             _winPty->writeData(data, len);
     });
 
-    QString comSpec = QString::fromLocal8Bit(qgetenv("ComSpec"));
-    QString shell = comSpec.isEmpty() ? QStringLiteral("powershell.exe") : comSpec;
+    // 按用户在会话对话框中选择的类型决定启动哪个 shell：
+    //   • Cmd        → 通过 clink.bat inject 启动 Clink 增强版 cmd；
+    //                   找不到 clink.bat 则回退裸 cmd.exe
+    //   • PowerShell → powershell.exe（行为保持不变）
+    QString shell;
+    QStringList args;
+    if (type == LocalShellType::PowerShell) {
+        shell = QStringLiteral("powershell.exe");
+    } else {
+        const QString clinkBat = resolveClinkBat();
+        if (!clinkBat.isEmpty()) {
+            // cmd.exe /k "<clink.bat>" inject — batPath 被引号包裹以处理路径空格
+            shell = QStringLiteral("cmd.exe");
+            args << QStringLiteral("/k")
+                 << (QLatin1Char('"') + clinkBat + QLatin1Char('"'))
+                 << QStringLiteral("inject");
+        } else {
+            const QString comSpec = QString::fromLocal8Bit(qgetenv("ComSpec"));
+            shell = comSpec.isEmpty() ? QStringLiteral("cmd.exe") : comSpec;
+            qWarning() << "TerminalView: 未找到 clink.bat，回退到 cmd.exe";
+        }
+    }
 
-    if (!_winPty->start(shell)) {
-        qWarning() << "TerminalView: WinConPty 启动失败";
+    // 强制完成布局后再查询终端尺寸。addTerminalTab 中加入 Tab 后立即
+    // 调用本方法，此时 Qt 布局尚未处理，_terminal 的 resizeEvent 未触发，
+    // Emulation 内 Screen 对象仍为构造函数默认的 40×80 而非实际可视尺寸。
+    // layout()->activate() 同步触发整个 resize 链：
+    //   QTermWidget::resizeEvent → TerminalDisplay::updateImageSize()
+    //   → changedContentSizeSignal → Session::updateTerminalSize()
+    //   → Emulation::setImageSize() → Screen::resizeImage()
+    // 此后 screenColumnsCount()/screenLinesCount() 返回的值与实际可视
+    // 区域一致，ConPTY 以正确尺寸创建，shell 输出不会溢出导致滚动条下拉。
+    if (auto* lay = layout())
+        lay->activate();
+
+    // ── 临时禁用 scrollback 以消除启动时的滚动条异常下拉 ──────────
+    // cmd.exe 通过 ConPTY 启动时会将 FillConsoleOutputCharacter 等
+    // Console API 调用翻译为 N 个 \r\n（N = 屏幕行数）来模拟清屏。
+    // 第 N 个 \r\n 会超出可视区域底线，触发一行 scrollback 写入。
+    // 这导致 setScroll(currentLine=1, lineCount=lines+1)，scrollbar
+    // 的 value 被设为 maximum（即 1），滑块瞬间跌到底部。
+    //
+    // 解法：ConPTY 启动前将历史缓冲区大小置零，待 shell 启动序列
+    // （约 1500ms）结束后恢复原值。期间 shell 输出仍正常渲染，只是
+    // 不会写入 scrollback；用户在此期间也无法输入，无实际影响。
+    const int savedHistorySize = _terminal->historySize();
+    _terminal->setHistorySize(0);
+
+    if (!_winPty->start(shell, args,
+                         _terminal->screenColumnsCount(),
+                         _terminal->screenLinesCount())) {
+        qWarning() << "TerminalView: WinConPty 启动失败:" << shell << args;
+        _terminal->setHistorySize(savedHistorySize);
         delete _winPty;
         _winPty = nullptr;
         emit shellFinished();
         return;
     }
+
+    // shell 启动序列完成后恢复历史缓冲区。若发生竞态
+    //（用户在恢复前通过 eventFilter resize 触发了更多输出），
+    // 这些输出同样不会进入 scrollback，没有功能损失。
+    QTimer::singleShot(1500, _terminal, [this, savedHistorySize]() {
+        if (_terminal)
+            _terminal->setHistorySize(savedHistorySize);
+    });
 
 #else
     // ── Unix：QTermWidget 内置 KPty ─────────────────────────────
@@ -239,8 +352,9 @@ void TerminalView::applyThemeColorScheme()
         return;
 
     static const QString kSchemeDir =
-        QCoreApplication::applicationDirPath()
-        + QStringLiteral("/../../third_party/qtermwidget/lib/color-schemes/");
+        QDir(QCoreApplication::applicationDirPath()
+             + QStringLiteral("/../../third_party/qtermwidget/lib/color-schemes"))
+            .absolutePath() + QLatin1Char('/');
 
     bool isDark = (eTheme->getThemeMode() == ElaThemeType::Dark);
     _terminal->setColorScheme(kSchemeDir + (isDark
@@ -293,3 +407,23 @@ void TerminalView::setupContextMenu(const QPoint& pos)
 
     menu->popup(mapToGlobal(pos));
 }
+
+#ifdef _WIN32
+bool TerminalView::eventFilter(QObject* obj, QEvent* event)
+{
+    if (obj == _terminal && event->type() == QEvent::Resize) {
+        // 延迟到事件循环下一轮再同步尺寸：QTermWidget 内部的
+        // TerminalDisplay 会在 resize 事件处理后重新计算行列数，
+        // 同步调用 screenColumnsCount()/screenLinesCount() 可能拿到旧值。
+        QMetaObject::invokeMethod(this, [this]() {
+            if (_winPty && _winPty->isRunning()) {
+                const int cols = _terminal->screenColumnsCount();
+                const int lines = _terminal->screenLinesCount();
+                if (cols > 0 && lines > 0)
+                    _winPty->resize(cols, lines);
+            }
+        }, Qt::QueuedConnection);
+    }
+    return QWidget::eventFilter(obj, event);
+}
+#endif
