@@ -9,6 +9,7 @@ class ElaTabBarStyle : public QProxyStyle
     Q_OBJECT
     Q_PRIVATE_CREATE(QSize, TabSize)
     Q_PRIVATE_CREATE(ElaTabBarType::IndicatorPosition, IndicatorPosition)
+    Q_PRIVATE_CREATE(ElaTabBarType::TabPosition, TabPosition)
 public:
     explicit ElaTabBarStyle(QStyle* style = nullptr);
     ~ElaTabBarStyle() override;

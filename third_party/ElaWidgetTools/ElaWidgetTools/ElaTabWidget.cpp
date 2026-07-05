@@ -59,10 +59,18 @@ ElaTabBarType::IndicatorPosition ElaTabWidget::getIndicatorPosition() const
 
 void ElaTabWidget::setTabPosition(TabPosition position)
 {
-    if (position == QTabWidget::North || position == QTabWidget::South)
+    Q_D(ElaTabWidget);
+    QTabWidget::setTabPosition(position);
+    // 同步方向到 ElaTabBar，使 style 能正确绘制垂直/水平布局
+    ElaTabBarType::TabPosition elaPos;
+    switch (position)
     {
-        QTabWidget::setTabPosition(position);
+    case QTabWidget::South: elaPos = ElaTabBarType::South; break;
+    case QTabWidget::West:  elaPos = ElaTabBarType::West;  break;
+    case QTabWidget::East:  elaPos = ElaTabBarType::East;  break;
+    default:                elaPos = ElaTabBarType::North; break;
     }
+    d->_tabBar->setTabPosition(elaPos);
 }
 
 void ElaTabWidget::paintEvent(QPaintEvent* event)

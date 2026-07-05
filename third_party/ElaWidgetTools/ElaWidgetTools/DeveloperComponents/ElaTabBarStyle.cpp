@@ -11,6 +11,7 @@ ElaTabBarStyle::ElaTabBarStyle(QStyle* style)
 {
     _pTabSize = QSize(220, 35);
     _pIndicatorPosition = ElaTabBarType::Left;
+    _pTabPosition = ElaTabBarType::North;
     _themeMode = eTheme->getThemeMode();
     connect(eTheme, &ElaTheme::themeModeChanged, this, [=](ElaThemeType::ThemeMode themeMode) {
         _themeMode = themeMode;
@@ -98,37 +99,71 @@ void ElaTabBarStyle::drawControl(ControlElement element, const QStyleOption* opt
             painter->save();
             painter->setRenderHints(QPainter::Antialiasing | QPainter::TextAntialiasing);
             painter->setPen(Qt::NoPen);
+            bool isVertical = (_pTabPosition == ElaTabBarType::West || _pTabPosition == ElaTabBarType::East);
+
             if (topt->state.testFlag(QStyle::State_Selected))
             {
-                //选中背景绘制
-                tabRect.setLeft(tabRect.left() - margin);
-                tabRect.setRight(tabRect.right() + margin + 1);
                 painter->setBrush(topt->state.testFlag(QStyle::State_Sunken) ? ElaThemeColor(_themeMode, BasicSelectedHover) : ElaThemeColor(_themeMode, BasicSelectedAlpha));
-                QPainterPath path;
-                path.moveTo(tabRect.x(), tabRect.bottom() + 1);
-                path.arcTo(QRectF(tabRect.x() - margin, tabRect.bottom() - margin * 2 + 1, margin * 2, margin * 2), -90, 90);
-                path.lineTo(tabRect.x() + margin, tabRect.y() + topRadius);
-                path.arcTo(QRectF(tabRect.x() + margin, tabRect.y(), topRadius * 2, topRadius * 2), 180, -90);
-                path.lineTo(tabRect.right() - margin - topRadius, tabRect.y());
-                path.arcTo(QRectF(tabRect.right() - margin - 2 * topRadius, tabRect.y(), topRadius * 2, topRadius * 2), 90, -90);
-                path.lineTo(tabRect.right() - margin, tabRect.bottom() - margin);
-                path.arcTo(QRectF(tabRect.right() - margin, tabRect.bottom() - 2 * margin + 1, margin * 2, margin * 2), -180, 90);
-                path.lineTo(tabRect.right(), tabRect.bottom() + 10);
-                path.lineTo(tabRect.x(), tabRect.bottom() + 10);
-                path.closeSubpath();
-                painter->drawPath(path);
+                if (isVertical)
+                {
+                    // 垂直方向：圆角矩形，选中状态拉伸到内容区
+                    tabRect.setTop(tabRect.top() - margin);
+                    tabRect.setBottom(tabRect.bottom() + margin + 1);
+                    painter->drawRoundedRect(tabRect, topRadius, topRadius);
+                }
+                else
+                {
+                    //选中背景绘制（水平）
+                    tabRect.setLeft(tabRect.left() - margin);
+                    tabRect.setRight(tabRect.right() + margin + 1);
+                    QPainterPath path;
+                    path.moveTo(tabRect.x(), tabRect.bottom() + 1);
+                    path.arcTo(QRectF(tabRect.x() - margin, tabRect.bottom() - margin * 2 + 1, margin * 2, margin * 2), -90, 90);
+                    path.lineTo(tabRect.x() + margin, tabRect.y() + topRadius);
+                    path.arcTo(QRectF(tabRect.x() + margin, tabRect.y(), topRadius * 2, topRadius * 2), 180, -90);
+                    path.lineTo(tabRect.right() - margin - topRadius, tabRect.y());
+                    path.arcTo(QRectF(tabRect.right() - margin - 2 * topRadius, tabRect.y(), topRadius * 2, topRadius * 2), 90, -90);
+                    path.lineTo(tabRect.right() - margin, tabRect.bottom() - margin);
+                    path.arcTo(QRectF(tabRect.right() - margin, tabRect.bottom() - 2 * margin + 1, margin * 2, margin * 2), -180, 90);
+                    path.lineTo(tabRect.right(), tabRect.bottom() + 10);
+                    path.lineTo(tabRect.x(), tabRect.bottom() + 10);
+                    path.closeSubpath();
+                    painter->drawPath(path);
+                }
                 // 选中指示器绘制
                 painter->setPen(Qt::NoPen);
                 painter->setBrush(ElaThemeColor(_themeMode, PrimaryNormal));
                 const int indicatorThickness = 3;
                 const int indicatorRadius = 2;
                 const int horizontalPadding = margin + 7; // 16
+                const int verticalPadding = 7;
 
                 switch (_pIndicatorPosition)
                 {
                 case ElaTabBarType::Left:
                     painter->drawRoundedRect(QRectF(tabRect.left() + horizontalPadding, tabRect.y() + 7, indicatorThickness, tabRect.height() - 14), indicatorRadius, indicatorRadius);
                     break;
+                case ElaTabBarType::Right:
+                {
+                    int indicatorX = tabRect.right() - horizontalPadding - indicatorThickness;
+                    int indicatorY = tabRect.top() + verticalPadding;
+                    int indicatorHeight = tabRect.height() - 2 * verticalPadding;
+                    const ElaTabBar* tabBar = qobject_cast<const ElaTabBar*>(widget);
+                    if (tabBar)
+                    {
+                        if (!tabBar->getIsIndicatorAnimationFinished())
+                        {
+                            indicatorY = tabBar->getIndicatorY();
+                            int animHeight = tabBar->getIndicatorAnimationHeight();
+                            if (animHeight > 0)
+                            {
+                                indicatorHeight = animHeight;
+                            }
+                        }
+                    }
+                    painter->drawRoundedRect(QRectF(indicatorX, indicatorY, indicatorThickness, indicatorHeight), indicatorRadius, indicatorRadius);
+                    break;
+                }
                 case ElaTabBarType::Top:
                 case ElaTabBarType::Bottom:
                 {
@@ -163,9 +198,18 @@ void ElaTabBarStyle::drawControl(ControlElement element, const QStyleOption* opt
                 {
                     painter->setBrush(Qt::transparent);
                 }
-                tabRect.setHeight(tabRect.height() + 10);
-                painter->drawRoundedRect(tabRect, 0, 0);
-                tabRect.setHeight(tabRect.height() - 10);
+                if (isVertical)
+                {
+                    tabRect.setWidth(tabRect.width() + 10);
+                    painter->drawRoundedRect(tabRect, 0, 0);
+                    tabRect.setWidth(tabRect.width() - 10);
+                }
+                else
+                {
+                    tabRect.setHeight(tabRect.height() + 10);
+                    painter->drawRoundedRect(tabRect, 0, 0);
+                    tabRect.setHeight(tabRect.height() - 10);
+                }
             }
             painter->restore();
             return;
@@ -176,15 +220,17 @@ void ElaTabBarStyle::drawControl(ControlElement element, const QStyleOption* opt
         //文字和图标绘制
         if (const QStyleOptionTab* topt = qstyleoption_cast<const QStyleOptionTab*>(option))
         {
+            bool vertical = (_pTabPosition == ElaTabBarType::West || _pTabPosition == ElaTabBarType::East);
             QRect textRect = subElementRect(QStyle::SE_TabBarTabText, topt, widget);
-            textRect.setLeft(textRect.left() + 10);
+            textRect.setLeft(textRect.left() + (vertical ? 2 : 10));
             painter->save();
             painter->setRenderHints(QPainter::Antialiasing | QPainter::TextAntialiasing | QPainter::SmoothPixmapTransform);
             //图标绘制
             QIcon icon = topt->icon;
             if (!icon.isNull())
             {
-                QRectF iconRect(topt->rect.x() + 15, textRect.center().y() - (qreal)topt->iconSize.height() / 2 + 1, topt->iconSize.width(), topt->iconSize.height());
+                int iconX = vertical ? (topt->rect.x() + 4) : (topt->rect.x() + 15);
+                QRectF iconRect(iconX, textRect.center().y() - (qreal)topt->iconSize.height() / 2 + 1, topt->iconSize.width(), topt->iconSize.height());
 #if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
                 QPixmap iconPix = icon.pixmap(topt->iconSize, painter->device()->devicePixelRatio(),
                                               (topt->state & State_Enabled) ? QIcon::Normal

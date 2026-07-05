@@ -4,6 +4,10 @@
 
 #ifdef Q_OS_WIN
 #include <windows.h>
+#include <dbghelp.h>
+#include <time.h>
+
+#pragma comment(lib, "dbghelp.lib")
 
 // DWMWA_CLOAK (13) 让 DWM 停止合成该窗口 —— 窗口仍然"可见"，
 // 但 DWM 不会将其绘制到屏幕上。Windows 8+ 可用。
@@ -22,6 +26,47 @@ static void setDwmCloak(HWND hwnd, bool cloak)
         BOOL value = cloak ? TRUE : FALSE;
         pDwmSetWindowAttribute(hwnd, DWMWA_CLOAK, &value, sizeof(value));
     }
+}
+
+// ── 未处理异常过滤器：崩溃时自动生成 MiniDump (.dmp 文件) ──────
+// 效果等同于 Linux 的 core dump，可用 Visual Studio 或 WinDbg 打开调试。
+static LONG WINAPI unhandledExceptionFilter(EXCEPTION_POINTERS* pExceptionInfo)
+{
+    // 在 exe 同目录生成带时间戳的 dump 文件名，如 NovaTerm_20260705_163025.dmp
+    wchar_t fileName[MAX_PATH];
+    wchar_t dir[MAX_PATH];
+    GetModuleFileNameW(nullptr, dir, MAX_PATH);
+    wchar_t* lastSlash = wcsrchr(dir, L'\\');
+    if (lastSlash) *(lastSlash + 1) = L'\0';
+
+    time_t now = time(nullptr);
+    struct tm tmNow;
+    localtime_s(&tmNow, &now);
+    swprintf_s(fileName, MAX_PATH, L"%sNovaTerm_%04d%02d%02d_%02d%02d%02d.dmp",
+               dir,
+               tmNow.tm_year + 1900, tmNow.tm_mon + 1, tmNow.tm_mday,
+               tmNow.tm_hour, tmNow.tm_min, tmNow.tm_sec);
+
+    HANDLE hFile = CreateFileW(fileName, GENERIC_WRITE, 0, nullptr,
+                               CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (hFile != INVALID_HANDLE_VALUE) {
+        MINIDUMP_EXCEPTION_INFORMATION mei;
+        mei.ThreadId = GetCurrentThreadId();
+        mei.ExceptionPointers = pExceptionInfo;
+        mei.ClientPointers = FALSE;
+
+        MiniDumpWriteDump(GetCurrentProcess(), GetCurrentProcessId(), hFile,
+                          MiniDumpWithFullMemory, &mei, nullptr, nullptr);
+
+        CloseHandle(hFile);
+    }
+
+    return EXCEPTION_EXECUTE_HANDLER; // 让系统继续执行默认处理（弹出错误对话框等）
+}
+
+static void enableMiniDump()
+{
+    SetUnhandledExceptionFilter(unhandledExceptionFilter);
 }
 
 #else
@@ -66,6 +111,8 @@ int main(int argc, char *argv[])
     auto& w = Application::instance().mainWindow();
 
 #ifdef Q_OS_WIN
+    enableMiniDump();  // 注册崩溃处理：程序崩溃时自动生成 .dmp 文件
+
     // ── 防止深色主题启动时的白底闪烁 ───────────────────
     // 策略：在窗口首次变为可见之前，用 DWMWA_CLOAK 将其从 DWM
     // 合成中隐藏，渲染完成后深色内容，再解除 Cloak 让 DWM 显示。

@@ -8,6 +8,7 @@
 
 #include "ElaScrollBar.h"
 #include "ElaTheme.h"
+
 ElaScrollBarStyle::ElaScrollBarStyle(QStyle* style)
 {
     _pIsExpand = false;
@@ -15,16 +16,21 @@ ElaScrollBarStyle::ElaScrollBarStyle(QStyle* style)
     _pScrollBar = nullptr;
     _pSliderExtent = 2.4;
     _themeMode = eTheme->getThemeMode();
-    connect(eTheme, &ElaTheme::themeModeChanged, this, [=](ElaThemeType::ThemeMode themeMode) {
+    // themeModeChanged 信号级联：仅记录当前主题模式，不主动触发 update()。
+    // ElaWindowPrivate::onThemeModeChanged 已通过 q->update() 触发全窗口
+    // 重绘，覆盖所有子控件。此处同步调用 _pScrollBar->update() 会在信号
+    // 级联中触发 widget 系统内部操作，偶发 0xDDDDDDDD use-after-free 崩溃。
+    connect(eTheme, &ElaTheme::themeModeChanged, this, [this](ElaThemeType::ThemeMode themeMode) {
         _themeMode = themeMode;
-        if (_pScrollBar) {
-            _pScrollBar->update();
-        }
     });
 }
 
 ElaScrollBarStyle::~ElaScrollBarStyle()
 {
+    // 显式断开与全局 eTheme 单例的连接。eTheme 生命周期远超任何 Style
+    // 对象；若依赖 QObject 自动断开，在 widget 树复杂销毁 / 信号级联期间
+    // 可能访问已释放对象（详见 DMP 分析：0xDDDDDDDD use-after-free）。
+    disconnect(eTheme, &ElaTheme::themeModeChanged, this, nullptr);
 }
 
 void ElaScrollBarStyle::drawComplexControl(ComplexControl control, const QStyleOptionComplex* option, QPainter* painter, const QWidget* widget) const

@@ -16,6 +16,7 @@ ElaLineEditStyle::ElaLineEditStyle(QStyle* style)
 
 ElaLineEditStyle::~ElaLineEditStyle()
 {
+    disconnect(eTheme, &ElaTheme::themeModeChanged, this, nullptr);
 }
 
 void ElaLineEditStyle::drawPrimitive(PrimitiveElement element, const QStyleOption* option, QPainter* painter, const QWidget* widget) const

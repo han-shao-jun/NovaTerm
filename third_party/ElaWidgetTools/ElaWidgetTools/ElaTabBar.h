@@ -13,17 +13,23 @@ class ELA_EXPORT ElaTabBar : public QTabBar
     Q_Q_CREATE(ElaTabBar)
     Q_PROPERTY_CREATE_Q_H(QSize, TabSize)
     Q_PROPERTY_CREATE_Q_H(ElaTabBarType::IndicatorPosition, IndicatorPosition)
+    Q_PROPERTY_CREATE_Q_H(ElaTabBarType::TabPosition, TabPosition)
 
     // Animation properties for horizontal indicator slide
     Q_PROPERTY_CREATE(int, IndicatorX)
     Q_PRIVATE_CREATE(int, IndicatorWidth)
     Q_PROPERTY_CREATE(int, IndicatorAnimationWidth)
+    // Animation properties for vertical indicator slide
+    Q_PROPERTY_CREATE(int, IndicatorY)
+    Q_PRIVATE_CREATE(int, IndicatorHeight)
+    Q_PROPERTY_CREATE(int, IndicatorAnimationHeight)
     Q_PROPERTY_CREATE(bool, IsIndicatorAnimationFinished)
     int _previousIndex{-1};
     QRect _previousTabRect;
 
 public:
     void doIndicatorAnimation(int previousIndex, int currentIndex);
+    bool isVertical() const;
     explicit ElaTabBar(QWidget* parent = nullptr);
     ~ElaTabBar() override;
 Q_SIGNALS:

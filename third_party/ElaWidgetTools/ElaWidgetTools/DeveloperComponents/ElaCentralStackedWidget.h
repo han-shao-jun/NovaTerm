@@ -6,7 +6,7 @@
 #include "ElaDef.h"
 #include <QVBoxLayout>
 class QGraphicsBlurEffect;
-class ElaCentralStackedWidget : public QWidget
+class ELA_EXPORT ElaCentralStackedWidget : public QWidget
 {
     Q_OBJECT
     Q_PROPERTY_CREATE(int, PopupAnimationYOffset)

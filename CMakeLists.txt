@@ -19,6 +19,7 @@ endif()
 
 message(STATUS "setting qt sdk path: ${CMAKE_PREFIX_PATH}")
 
+add_compile_options("$<$<CXX_COMPILER_ID:MSVC>:/utf-8>")
 
 # 将所有运行时文件（exe、dll）输出到同一目录
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
@@ -36,7 +37,7 @@ find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS Widgets Sql Svg)
 message(STATUS "Using Qt ${QT_VERSION_MAJOR}.${QT_VERSION_MINOR}")
 
 # ElaWidgetTools - built as subdirectory (relative path from WindTermQt)
-add_subdirectory(third_party/ElaWidgetTools/ElaWidgetTools)
+add_subdirectory(third_party/ElaWidgetTools)
 
 # QTermWidget (Qt6) depends on lxqt2-build-tools CMake modules
 # Our cmake/lxqt2-build-toolsConfig.cmake points to the submodule modules directly

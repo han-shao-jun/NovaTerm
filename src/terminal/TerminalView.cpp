@@ -384,6 +384,7 @@ void TerminalView::applyThemeColorScheme()
 void TerminalView::setupContextMenu(const QPoint& pos)
 {
     auto* menu = new ElaMenu(this);
+    menu->setAttribute(Qt::WA_DeleteOnClose);
     menu->setMenuItemHeight(27);
 
     connect(menu->addElaIconAction(ElaIconType::Copy, tr("Copy")),

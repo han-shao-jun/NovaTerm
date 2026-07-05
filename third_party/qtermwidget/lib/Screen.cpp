@@ -1406,7 +1406,14 @@ int Screen::copyLineToStream(int line ,
         }
 
         // count cannot be any greater than length
-        count = qBound(0,count,length-start);
+        // Guard against start > length: screenLines are not padded to terminal
+        // width, so a selection starting in the empty area past a short line's
+        // content (e.g. clicking to the right of a short cmd/clink prompt)
+        // yields length < start. The for-loop above already copies nothing in
+        // that case; without clamping, qBound(0,count,length-start) would trip
+        // Q_ASSERT(!(max < min)) in qminmax.h. The history branch clamps
+        // `start` (line 1366); the screen branch clamps the bound instead.
+        count = qBound(0,count,qMax(0,length-start));
 
         Q_ASSERT( screenLine < lineProperties.count() );
         currentLineProperties |= lineProperties[screenLine];

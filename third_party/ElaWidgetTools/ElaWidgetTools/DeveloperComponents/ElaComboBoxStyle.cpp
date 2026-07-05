@@ -18,6 +18,7 @@ ElaComboBoxStyle::ElaComboBoxStyle(QStyle* style)
 
 ElaComboBoxStyle::~ElaComboBoxStyle()
 {
+    disconnect(eTheme, &ElaTheme::themeModeChanged, this, nullptr);
 }
 
 void ElaComboBoxStyle::drawPrimitive(PrimitiveElement element, const QStyleOption* option, QPainter* painter, const QWidget* widget) const

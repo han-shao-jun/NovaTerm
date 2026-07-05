@@ -297,8 +297,17 @@ enum IndicatorPosition
     Left = 0x0000,
     Top = 0x0001,
     Bottom = 0x0002,
+    Right = 0x0003,
 };
 Q_ENUM_CREATE(IndicatorPosition)
+enum TabPosition
+{
+    North = 0x0000,
+    South = 0x0001,
+    West  = 0x0002,
+    East  = 0x0003,
+};
+Q_ENUM_CREATE(TabPosition)
 Q_END_ENUM_CREATE(ElaTabBarType)
 
 Q_BEGIN_ENUM_CREATE(ElaIconType)

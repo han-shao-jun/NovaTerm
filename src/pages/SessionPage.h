@@ -2,6 +2,7 @@
 
 #include "ElaScrollPage.h"
 #include "terminal/TerminalView.h"   // TerminalView::LocalShellType（信号参数）
+#include "widgets/VerticalTabWidget.h"
 #include <ElaComboBox.h>
 #include <ElaPushButton.h>
 #include <ElaTabWidget.h>
@@ -25,30 +26,11 @@ signals:
 private:
     void retranslateUi();
 
-    QWidget* _centralWidget{nullptr};
+    VerticalTabWidget* _tabWidget{nullptr};
 
     // ── 本地 Shell：Shell 类型选择（cmd / PowerShell）──
     ElaText* _localTypeLabel{nullptr};
     ElaText* _localLabel{nullptr};
 
     ElaComboBox* _localShellTypeCombo{nullptr};
-    ElaComboBox* _shhTypeCombo{nullptr};
-    ElaComboBox* _serialTypeCombo{nullptr};
-    ElaComboBox* _telnetTypeCombo{nullptr};
-
-    // ── 各标签页的占位文本 ──
-    ElaText* _localPlaceholder{nullptr};
-    ElaText* _sshPlaceholder{nullptr};
-    ElaText* _serialPlaceholder{nullptr};
-    ElaText* _telnetPlaceholder{nullptr};
-
-    // ── 各标签页的按钮 ──
-    ElaPushButton* _localConfirmBtn{nullptr};
-    ElaPushButton* _localCancelBtn{nullptr};
-    ElaPushButton* _sshConfirmBtn{nullptr};
-    ElaPushButton* _sshCancelBtn{nullptr};
-    ElaPushButton* _serialConfirmBtn{nullptr};
-    ElaPushButton* _serialCancelBtn{nullptr};
-    ElaPushButton* _telnetConfirmBtn{nullptr};
-    ElaPushButton* _telnetCancelBtn{nullptr};
 };
