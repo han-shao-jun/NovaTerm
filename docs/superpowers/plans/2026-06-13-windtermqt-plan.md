@@ -369,9 +369,9 @@ TerminalPage::TerminalPage(QWidget* parent) : ElaScrollPage(parent)
 {
     setWindowTitle("Terminal");
 
-    auto* centralWidget = new QWidget(this);
-    centralWidget->setWindowTitle("Terminal");
-    auto* layout = new QVBoxLayout(centralWidget);
+    auto* _centralWidget = new QWidget(this);
+    _centralWidget->setWindowTitle("Terminal");
+    auto* layout = new QVBoxLayout(_centralWidget);
     layout->setContentsMargins(0, 0, 0, 0);
 
     auto* placeholder = new ElaText("Terminal Area\n\nConnect to a session to begin", this);
@@ -379,7 +379,7 @@ TerminalPage::TerminalPage(QWidget* parent) : ElaScrollPage(parent)
     placeholder->setAlignment(Qt::AlignCenter);
     layout->addWidget(placeholder);
 
-    addCentralWidget(centralWidget);
+    addCentralWidget(_centralWidget);
 }
 ```
 
@@ -408,9 +408,9 @@ ConnectionsPage::ConnectionsPage(QWidget* parent) : ElaScrollPage(parent)
 {
     setWindowTitle("Connection Manager");
 
-    auto* centralWidget = new QWidget(this);
-    centralWidget->setWindowTitle("Connections");
-    auto* layout = new QVBoxLayout(centralWidget);
+    auto* _centralWidget = new QWidget(this);
+    _centralWidget->setWindowTitle("Connections");
+    auto* layout = new QVBoxLayout(_centralWidget);
     layout->setContentsMargins(20, 20, 20, 20);
 
     auto* title = new ElaText("Connection Manager", this);
@@ -423,7 +423,7 @@ ConnectionsPage::ConnectionsPage(QWidget* parent) : ElaScrollPage(parent)
     layout->addWidget(desc);
     layout->addStretch();
 
-    addCentralWidget(centralWidget);
+    addCentralWidget(_centralWidget);
 }
 ```
 
@@ -1024,7 +1024,7 @@ private:
     QString _host;
     int _port{22};
     QString _username;
-    QString _password;
+    QString _sshPassword;
     QString _keyPath;
     QString _keyPassphrase;
     AuthMethod _authMethod{Password};
@@ -1052,7 +1052,7 @@ SshTransport::~SshTransport()
 void SshTransport::setHost(const QString& host) { _host = host; }
 void SshTransport::setPort(int port) { _port = port; }
 void SshTransport::setUsername(const QString& username) { _username = username; }
-void SshTransport::setPassword(const QString& password) { _password = password; }
+void SshTransport::setPassword(const QString& password) { _sshPassword = password; }
 void SshTransport::setKeyFile(const QString& keyPath, const QString& passphrase)
 {
     _keyPath = keyPath;
@@ -1160,7 +1160,7 @@ bool SshTransport::authenticate()
     int rc;
     switch (_authMethod) {
     case Password:
-        rc = ssh_userauth_password(_session, nullptr, _password.toUtf8().constData());
+        rc = ssh_userauth_password(_session, nullptr, _sshPassword.toUtf8().constData());
         break;
     case PublicKey: {
         ssh_key key;

@@ -6,6 +6,8 @@
 #include <ElaComboBox.h>
 #include <ElaPushButton.h>
 #include <ElaTabWidget.h>
+#include <ElaLineEdit.h>
+
 
 // 会话选择页面（ElaScrollPage）。包含 4 个标签页（本地 Shell / SSH / 串口 / Telnet），
 // 每个标签页各有 Confirm / Cancel 按钮。嵌入 ElaDialog 中使用，与 SettingsPage
@@ -25,12 +27,31 @@ signals:
 
 private:
     void retranslateUi();
+    void initShellUi();
+    void initSshUi();
+    void initSerialUi();
+    void initTelnetUi();
 
+    QWidget* _centralWidget{nullptr};
     VerticalTabWidget* _tabWidget{nullptr};
 
     // ── 本地 Shell：Shell 类型选择（cmd / PowerShell）──
-    ElaText* _localTypeLabel{nullptr};
-    ElaText* _localLabel{nullptr};
+    ElaComboBox*_shellTypeCombo{nullptr};
 
-    ElaComboBox* _localShellTypeCombo{nullptr};
+    ElaLineEdit* _shellLabel{nullptr};
+
+    ElaLineEdit* _sshIp{nullptr};
+    ElaLineEdit* _sshUserName{nullptr};
+    ElaLineEdit* _sshPassword{nullptr};
+    ElaLineEdit* _sshLabel{nullptr};
+
+    ElaComboBox* _portCombo{nullptr};
+    ElaComboBox* _baudRateCombo{nullptr};
+    ElaComboBox* _checkCombo{nullptr};
+    ElaLineEdit* _serialLabel{nullptr};
+
+
+    ElaLineEdit* _telnetIp{nullptr};
+    ElaLineEdit* _telnetLabel{nullptr};
+
 };
