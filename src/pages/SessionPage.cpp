@@ -73,119 +73,93 @@ void SessionPage::initShellUi()
 {
     // ── 右侧 Stacked 页面：本地 Shell 配置 ──────────────
     auto* page = new QWidget(_tabWidget);
-    auto* pageLayout = new QVBoxLayout(page);
-    pageLayout->setContentsMargins(16, 16, 16, 16);
-    pageLayout->setSpacing(12);
 
-    auto* typeLayout = new QHBoxLayout();
-    typeLayout->setSpacing(8);
+    auto* grid = new QGridLayout(page);
+    grid->setContentsMargins(16, 16, 16, 16);
+    grid->setHorizontalSpacing(16);
+    grid->setVerticalSpacing(12);
+    grid->setColumnStretch(1, 1);   // 输入控件列撑满
 
-    // ── 本地 Shell：Shell 类型选择（cmd / PowerShell）──
+    // ── Shell 类型选择（cmd / PowerShell）──
     auto* localTypeLabel = new ElaText(tr("Type"), page);
     localTypeLabel->setWordWrap(false);
     localTypeLabel->setTextPixelSize(15);
-    typeLayout->addWidget(localTypeLabel);
+    grid->addWidget(localTypeLabel, 0, 0, Qt::AlignVCenter);
 
     _shellTypeCombo = new ElaComboBox(page);
     _shellTypeCombo->addItem(QStringLiteral("cmd"));
     _shellTypeCombo->addItem(QStringLiteral("PowerShell"));
     _shellTypeCombo->setMinimumWidth(160);
-    typeLayout->addWidget(_shellTypeCombo);
-    typeLayout->addStretch();
+    grid->addWidget(_shellTypeCombo, 0, 1);
 
-    pageLayout->addLayout(typeLayout);
-
-    //标签行
-    auto* labelLayout = new QHBoxLayout();
-    labelLayout->setSpacing(8);
+    // 标签行
     auto* localLabel = new ElaText(tr("Label"), page);
     localLabel->setWordWrap(false);
     localLabel->setTextPixelSize(15);
-    labelLayout->addWidget(localLabel);
+    grid->addWidget(localLabel, 1, 0, Qt::AlignVCenter);
 
     _shellLabel = new ElaLineEdit(page);
     _shellLabel->setText("sss");
-    labelLayout->addWidget(_shellLabel);
+    grid->addWidget(_shellLabel, 1, 1);
 
-    labelLayout->addStretch();
-
-    pageLayout->addLayout(labelLayout);
-    pageLayout->addStretch();
+    grid->setRowStretch(2, 1);      // 尾部留白
 
     _tabWidget->addTab(page, tr("local shell"));
 }
 
 void SessionPage::initSshUi()
 {
-    // ── 右侧 Stacked 页面：本地 ssh配置 ──────────────
+    // ── 右侧 Stacked 页面：本地 ssh 配置 ──────────────
     auto* page = new QWidget(_tabWidget);
-    auto* pageLayout = new QVBoxLayout(page);
-    pageLayout->setContentsMargins(16, 16, 16, 16);
-    pageLayout->setSpacing(12);
 
-    // ip地址
-    auto* ipLayout = new QHBoxLayout();
-    ipLayout->setSpacing(8);
+    auto* grid = new QGridLayout(page);
+    grid->setContentsMargins(16, 16, 16, 16);
+    grid->setHorizontalSpacing(16);
+    grid->setVerticalSpacing(12);
+    grid->setColumnStretch(1, 1);
+
+    // IP
     auto* ipLabel = new ElaText(tr("IP"), page);
     ipLabel->setWordWrap(false);
     ipLabel->setTextPixelSize(15);
-    ipLayout->addWidget(ipLabel);
+    grid->addWidget(ipLabel, 0, 0, Qt::AlignVCenter);
 
     _sshIp = new ElaLineEdit(page);
     _sshIp->setText("_ip");
-    ipLayout->addWidget(_sshIp);
-
-    ipLayout->addStretch();
-    pageLayout->addLayout(ipLayout);
+    grid->addWidget(_sshIp, 0, 1);
 
     // 用户名
-    auto* nameLayout = new QHBoxLayout();
-    nameLayout->setSpacing(8);
     auto* userNameLabel = new ElaText(tr("User Name"), page);
     userNameLabel->setWordWrap(false);
     userNameLabel->setTextPixelSize(15);
-    nameLayout->addWidget(userNameLabel);
+    grid->addWidget(userNameLabel, 1, 0, Qt::AlignVCenter);
 
     _sshUserName = new ElaLineEdit(page);
     _sshUserName->setText("_userName");
-    nameLayout->addWidget(_sshUserName);
-
-    nameLayout->addStretch();
-    pageLayout->addLayout(nameLayout);
+    grid->addWidget(_sshUserName, 1, 1);
 
     // 密码
-    auto* passwordLayout = new QHBoxLayout();
-    passwordLayout->setSpacing(8);
     auto* passwordLabel = new ElaText(tr("Password"), page);
     passwordLabel->setWordWrap(false);
     passwordLabel->setTextPixelSize(15);
-    passwordLayout->addWidget(passwordLabel);
+    grid->addWidget(passwordLabel, 2, 0, Qt::AlignVCenter);
 
     _sshPassword = new ElaLineEdit(page);
     _sshPassword->setText("_password");
-    passwordLayout->addWidget(_sshPassword);
+    grid->addWidget(_sshPassword, 2, 1);
 
-    passwordLayout->addStretch();
-    pageLayout->addLayout(passwordLayout);
-
-    //标签行
-    auto* labelLayout = new QHBoxLayout();
-    labelLayout->setSpacing(8);
-    auto* localLabel = new ElaText(tr("Label"), page);
-    localLabel->setWordWrap(false);
-    localLabel->setTextPixelSize(15);
-    labelLayout->addWidget(localLabel);
+    // 标签
+    auto* sshLabelHint = new ElaText(tr("Label"), page);
+    sshLabelHint->setWordWrap(false);
+    sshLabelHint->setTextPixelSize(15);
+    grid->addWidget(sshLabelHint, 3, 0, Qt::AlignVCenter);
 
     _sshLabel = new ElaLineEdit(page);
     _sshLabel->setText("sss");
-    labelLayout->addWidget(_sshLabel);
+    grid->addWidget(_sshLabel, 3, 1);
 
-    labelLayout->addStretch();
+    grid->setRowStretch(4, 1);
 
-    pageLayout->addLayout(labelLayout);
-    pageLayout->addStretch();
-
-    // 占位页面（后续实现）
     _tabWidget->addTab(page, tr("ssh"));
 }
 
@@ -194,80 +168,60 @@ void SessionPage::initSerialUi()
 {
     // ── 右侧 Stacked 页面：本地 serial 配置 ──────────────
     auto* page = new QWidget(_tabWidget);
-    auto* pageLayout = new QVBoxLayout(page);
-    pageLayout->setContentsMargins(16, 16, 16, 16);
-    pageLayout->setSpacing(12);
 
-    auto* portLayout = new QHBoxLayout();
-    portLayout->setSpacing(8);
+    auto* grid = new QGridLayout(page);
+    grid->setContentsMargins(16, 16, 16, 16);
+    grid->setHorizontalSpacing(16);
+    grid->setVerticalSpacing(12);
+    grid->setColumnStretch(1, 1);
 
     // 串口号
     auto* portLabel = new ElaText(tr("Port Num"), page);
     portLabel->setWordWrap(false);
     portLabel->setTextPixelSize(15);
-    portLayout->addWidget(portLabel);
+    grid->addWidget(portLabel, 0, 0, Qt::AlignVCenter);
 
     _portCombo = new ElaComboBox(page);
     _portCombo->addItem("sss");
     _portCombo->addItem("sss");
     _portCombo->addItem("sss");
-    portLayout->addWidget(_portCombo);
-
-    portLayout->addStretch();
-    pageLayout->addLayout(portLayout);
+    grid->addWidget(_portCombo, 0, 1);
 
     // 波特率
-    auto* baudRateLayout = new QHBoxLayout();
-    baudRateLayout->setSpacing(8);
-
     auto* baudRateLabel = new ElaText(tr("Baud Rate"), page);
     baudRateLabel->setWordWrap(false);
     baudRateLabel->setTextPixelSize(15);
-    baudRateLayout->addWidget(baudRateLabel);
+    grid->addWidget(baudRateLabel, 1, 0, Qt::AlignVCenter);
 
     _baudRateCombo = new ElaComboBox(page);
     _baudRateCombo->addItem("sss");
     _baudRateCombo->addItem("sss");
     _baudRateCombo->addItem("sss");
-    baudRateLayout->addWidget(_baudRateCombo);
-
-    baudRateLayout->addStretch();
-    pageLayout->addLayout(baudRateLayout);
+    grid->addWidget(_baudRateCombo, 1, 1);
 
     // 校验位
-    auto* checkLayout = new QHBoxLayout();
-    checkLayout->setSpacing(8);
-
     auto* checkLabel = new ElaText(tr("Check"), page);
     checkLabel->setWordWrap(false);
     checkLabel->setTextPixelSize(15);
-    checkLayout->addWidget(checkLabel);
+    grid->addWidget(checkLabel, 2, 0, Qt::AlignVCenter);
 
     _checkCombo = new ElaComboBox(page);
     _checkCombo->addItem("sss");
     _checkCombo->addItem("sss");
     _checkCombo->addItem("sss");
-    checkLayout->addWidget(_checkCombo);
+    grid->addWidget(_checkCombo, 2, 1);
 
-    checkLayout->addStretch();
-    pageLayout->addLayout(checkLayout);
-
-    //标签行
-    auto* labelLayout = new QHBoxLayout();
-    labelLayout->setSpacing(8);
-    auto* localLabel = new ElaText(tr("Label"), page);
-    localLabel->setWordWrap(false);
-    localLabel->setTextPixelSize(15);
-    labelLayout->addWidget(localLabel);
+    // 标签
+    auto* serialLabelHint = new ElaText(tr("Label"), page);
+    serialLabelHint->setWordWrap(false);
+    serialLabelHint->setTextPixelSize(15);
+    grid->addWidget(serialLabelHint, 3, 0, Qt::AlignVCenter);
 
     _serialLabel = new ElaLineEdit(page);
     _serialLabel->setText("sss");
-    labelLayout->addWidget(_serialLabel);
+    grid->addWidget(_serialLabel, 3, 1);
 
-    labelLayout->addStretch();
-
-    pageLayout->addLayout(labelLayout);
-    pageLayout->addStretch();
+    grid->setRowStretch(4, 1);
 
     _tabWidget->addTab(page, tr("serial port"));
 }
@@ -277,41 +231,34 @@ void SessionPage::initTelnetUi()
 {
     // ── 右侧 Stacked 页面：本地 telnet 配置 ──────────────
     auto* page = new QWidget(_tabWidget);
-    auto* pageLayout = new QVBoxLayout(page);
-    pageLayout->setContentsMargins(16, 16, 16, 16);
-    pageLayout->setSpacing(12);
 
-    // IP地址
-    auto* ipLayout = new QHBoxLayout();
-    ipLayout->setSpacing(8);
-    auto*ipLabel = new ElaText(tr("IP"), page);
+    auto* grid = new QGridLayout(page);
+    grid->setContentsMargins(16, 16, 16, 16);
+    grid->setHorizontalSpacing(16);
+    grid->setVerticalSpacing(12);
+    grid->setColumnStretch(1, 1);
+
+    // IP
+    auto* ipLabel = new ElaText(tr("IP"), page);
     ipLabel->setWordWrap(false);
     ipLabel->setTextPixelSize(15);
-    ipLayout->addWidget(ipLabel);
+    grid->addWidget(ipLabel, 0, 0, Qt::AlignVCenter);
 
     _telnetIp = new ElaLineEdit(page);
     _telnetIp->setText("sss");
-    ipLayout->addWidget(_telnetIp);
+    grid->addWidget(_telnetIp, 0, 1);
 
-    ipLayout->addStretch();
-    pageLayout->addLayout(ipLayout);
-
-    // Label 行
-    auto* labelLayout = new QHBoxLayout();
-    labelLayout->setSpacing(8);
-    auto* localLabel = new ElaText(tr("Label"), page);
-    localLabel->setWordWrap(false);
-    localLabel->setTextPixelSize(15);
-    labelLayout->addWidget(localLabel);
+    // 标签
+    auto* telnetLabelHint = new ElaText(tr("Label"), page);
+    telnetLabelHint->setWordWrap(false);
+    telnetLabelHint->setTextPixelSize(15);
+    grid->addWidget(telnetLabelHint, 1, 0, Qt::AlignVCenter);
 
     _telnetLabel = new ElaLineEdit(page);
     _telnetLabel->setText("sss");
-    labelLayout->addWidget(_telnetLabel);
+    grid->addWidget(_telnetLabel, 1, 1);
 
-    labelLayout->addStretch();
-
-    pageLayout->addLayout(labelLayout);
-    pageLayout->addStretch();
+    grid->setRowStretch(2, 1);
 
     _tabWidget->addTab(page, tr("telnet"));
 }
