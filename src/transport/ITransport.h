@@ -2,9 +2,11 @@
 #include <QObject>
 #include <QByteArray>
 
-// ITransport 仅用于远程协议（SSH/串口/Telnet）。
-// 本地终端由 QTermWidget 内置的 KPty 直接处理
-// （Windows 上为 ConPTY，Unix 上为 pty）—— 不经过本接口。
+// ITransport — 抽象传输接口，统一本地和远程数据通路。
+//   • LocalShellTransport : 本地 PTY（Unix: posix_openpt + fork, Windows: ConPTY）
+//   • SSH / Serial / Telnet : 远程协议实现
+// 所有实现均通过 ITransport 向 TerminalView 提供字节流，
+// 不再区分"本地走 KPty / 远程走 transport"两条路径。
 class ITransport : public QObject
 {
     Q_OBJECT

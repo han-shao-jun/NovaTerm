@@ -1,5 +1,6 @@
 #include "TerminalView.h"
 #include "transport/ITransport.h"
+#include "transport/LocalShellTransport.h"
 
 #include "qtermwidget.h"
 #include <QVBoxLayout>
@@ -11,10 +12,6 @@
 #include <QDir>
 #include <QFileInfo>
 #include <QTimer>
-
-#ifdef _WIN32
-#include "WinConPty.h"
-#endif
 
 TerminalView::TerminalView(QWidget* parent)
     : QWidget(parent)
@@ -50,12 +47,6 @@ TerminalView::TerminalView(QWidget* parent)
             _terminal->setCustomKeyBindingsDir(kbDir);
     }
 
-#ifdef _WIN32
-    // ConPTY 尺寸须跟随终端显示区域变化，否则 shell 看到的行列数
-    // 与实际渲染尺寸不一致，导致右侧滚动条异常下拉。
-    _terminal->installEventFilter(this);
-#endif
-
     applyThemeColorScheme();
     _terminal->setScrollBarPosition(QTermWidgetInterface::ScrollBarRight);
 
@@ -83,6 +74,9 @@ TerminalView::TerminalView(QWidget* parent)
     // 跟随 ElaTheme 明暗切换同步终端配色方案
     connect(eTheme, &ElaTheme::themeModeChanged,
             this, &TerminalView::applyThemeColorScheme);
+
+    // 监听终端 resize 事件，转发给当前 transport（跨平台通用）
+    _terminal->installEventFilter(this);
 }
 
 TerminalView::~TerminalView()
@@ -107,18 +101,18 @@ static QString resolveClinkBat()
 #endif // Q_OS_WIN
 
 // ═══════════════════════════════════════════════════════════════════
-//  本地终端模式
-//
-//  Windows：使用 WinConPty（CreatePseudoConsole API），因为 QTermWidget
-//           内置的 KPty 在 Windows 上是空桩（pty_win32_stubs.cpp）。
-//           数据通过 QTermWidget 的电传模式桥接。
-//  Unix：   使用 QTermWidget 内置 KPty（posix_openpt/forkpty）。
+//  本地终端模式 — 通过 LocalShellTransport 统一路径
 //
 //  数据流：
-//    Windows：键盘 → Emulation → sendData 信号 → WinConPty::write
-//             WinConPty 读线程 → QTermWidget::receiveData → 渲染
-//    Unix：   键盘 → KPty → shell 进程 stdin
-//             shell stdout → KPty → VT 解析 → 渲染
+//    键盘 → QTermWidget::sendData 信号 → LocalShellTransport::write()
+//         → PTY master fd / ConPTY input pipe → shell stdin
+//
+//    shell stdout → PTY master fd / ConPTY output pipe
+//         → LocalShellTransport::readyRead 信号
+//         → QTermWidget::receiveData → VT 解析 → 渲染
+//
+//  这条路径与远程传输（SSH/Serial/Telnet）完全一致，
+//  只是 ITransport 的具体实现不同。
 // ═══════════════════════════════════════════════════════════════════
 
 void TerminalView::startLocalShell(LocalShellType type)
@@ -126,125 +120,80 @@ void TerminalView::startLocalShell(LocalShellType type)
     stopLocalShell();
     detachTransport();
 
-#ifndef Q_OS_WIN
-    // 非 Windows：shell 类型不适用（始终走 KPty 默认 shell），避免未使用参数告警。
-    Q_UNUSED(type)
-#endif
+    auto* transport = new LocalShellTransport(this);
 
+    // ── 配置 shell ────────────────────────────────────────────
 #ifdef Q_OS_WIN
-    // ── Windows：WinConPty（CreatePseudoConsole）────────────────
-    _winPty = new WinConPty(this);
-
-    // WinConPty 输出 → QTermWidget 渲染
-    connect(_winPty, &WinConPty::receivedData, _terminal,
-            [this](const char* data, int len) {
-        _terminal->receiveData(data, len);
-    });
-
-    // WinConPty 退出
-    connect(_winPty, &WinConPty::finished, this, [this](int) {
-        onLocalShellFinished();
-    });
-
-    // 切换到电传模式：将 Emulation::sendData 路由到 QTermWidget::sendData
-    // 信号，而非内部的 KPty（Windows 上是空桩）
-    _terminal->startTerminalTeletype();
-
-    // 键盘输入 → WinConPty → ConPTY → shell stdin
-    connect(_terminal, &QTermWidget::sendData, _winPty,
-            [this](const char* data, int len) {
-        if (_winPty && _winPty->isRunning())
-            _winPty->writeData(data, len);
-    });
-
-    // 按用户在会话对话框中选择的类型决定启动哪个 shell：
-    //   • Cmd        → 通过 clink.bat inject 启动 Clink 增强版 cmd；
-    //                   找不到 clink.bat 则回退裸 cmd.exe
-    //   • PowerShell → powershell.exe（行为保持不变）
-    QString shell;
-    QStringList args;
     if (type == LocalShellType::PowerShell) {
-        shell = QStringLiteral("powershell.exe");
+        transport->setShellProgram(QStringLiteral("powershell.exe"));
     } else {
         const QString clinkBat = resolveClinkBat();
         if (!clinkBat.isEmpty()) {
-            // cmd.exe /k "<clink.bat>" inject — batPath 被引号包裹以处理路径空格
-            shell = QStringLiteral("cmd.exe");
-            args << QStringLiteral("/k")
-                 << (QLatin1Char('"') + clinkBat + QLatin1Char('"'))
-                 << QStringLiteral("inject");
+            // cmd.exe /k "<clink.bat>" inject — 引号包裹路径处理空格
+            transport->setShellProgram(QStringLiteral("cmd.exe"));
+            transport->setShellArgs({
+                QStringLiteral("/k"),
+                QLatin1Char('"') + clinkBat + QLatin1Char('"'),
+                QStringLiteral("inject")
+            });
         } else {
             const QString comSpec = QString::fromLocal8Bit(qgetenv("ComSpec"));
-            shell = comSpec.isEmpty() ? QStringLiteral("cmd.exe") : comSpec;
+            transport->setShellProgram(comSpec.isEmpty() ? QStringLiteral("cmd.exe") : comSpec);
             qWarning() << "TerminalView: 未找到 clink.bat，回退到 cmd.exe";
         }
     }
+#else
+    Q_UNUSED(type);
+    // Unix：使用用户默认 shell
+    QString shell = QString::fromLocal8Bit(qgetenv("SHELL"));
+    if (shell.isEmpty())
+        shell = QStringLiteral("/bin/bash");
+    transport->setShellProgram(shell);
+#endif
 
     // 强制完成布局后再查询终端尺寸。addTerminalTab 中加入 Tab 后立即
-    // 调用本方法，此时 Qt 布局尚未处理，_terminal 的 resizeEvent 未触发，
-    // Emulation 内 Screen 对象仍为构造函数默认的 40×80 而非实际可视尺寸。
-    // layout()->activate() 同步触发整个 resize 链：
-    //   QTermWidget::resizeEvent → TerminalDisplay::updateImageSize()
-    //   → changedContentSizeSignal → Session::updateTerminalSize()
-    //   → Emulation::setImageSize() → Screen::resizeImage()
-    // 此后 screenColumnsCount()/screenLinesCount() 返回的值与实际可视
-    // 区域一致，ConPTY 以正确尺寸创建，shell 输出不会溢出导致滚动条下拉。
+    // 调用本方法，此时 Qt 布局尚未处理，_terminal 的 resizeEvent 未触发。
+    // layout()->activate() 同步触发整个 resize 链，确保后续
+    // screenColumnsCount()/screenLinesCount() 返回实际可视尺寸。
     if (auto* lay = layout())
         lay->activate();
 
-    // ── 临时禁用 scrollback 以消除启动时的滚动条异常下拉 ──────────
-    // cmd.exe 通过 ConPTY 启动时会将 FillConsoleOutputCharacter 等
-    // Console API 调用翻译为 N 个 \r\n（N = 屏幕行数）来模拟清屏。
-    // 第 N 个 \r\n 会超出可视区域底线，触发一行 scrollback 写入。
-    // 这导致 setScroll(currentLine=1, lineCount=lines+1)，scrollbar
-    // 的 value 被设为 maximum（即 1），滑块瞬间跌到底部。
-    //
-    // 解法：ConPTY 启动前将历史缓冲区大小置零，待 shell 启动序列
-    // （约 1500ms）结束后恢复原值。期间 shell 输出仍正常渲染，只是
-    // 不会写入 scrollback；用户在此期间也无法输入，无实际影响。
+    // 将终端尺寸传给 transport，PTY 以正确尺寸创建
+    transport->resizeTerminal(_terminal->screenColumnsCount(),
+                              _terminal->screenLinesCount());
+
+    // ── 临时禁用 scrollback 以消除启动时滚动条异常下拉 ──────────
+    // shell 通过 PTY/ConPTY 启动时的清屏序列会将 scrollbar 推到底部。
+    // 解法：启动前将历史缓冲区大小置零，待 shell 启动序列（约 1500ms）
+    // 结束后恢复原值。期间输出仍正常渲染，只是不写入 scrollback。
     const int savedHistorySize = _terminal->historySize();
     _terminal->setHistorySize(0);
 
-    if (!_winPty->start(shell, args,
-                         _terminal->screenColumnsCount(),
-                         _terminal->screenLinesCount())) {
-        qWarning() << "TerminalView: WinConPty 启动失败:" << shell << args;
+    // 通过统一的 ITransport 路径桥接
+    attachTransport(transport);
+
+    if (!transport->connectToHost()) {
+        qWarning() << "TerminalView: LocalShellTransport 启动失败";
         _terminal->setHistorySize(savedHistorySize);
-        delete _winPty;
-        _winPty = nullptr;
+        detachTransport();
         emit shellFinished();
         return;
     }
 
-    // shell 启动序列完成后恢复历史缓冲区。若发生竞态
-    //（用户在恢复前通过 eventFilter resize 触发了更多输出），
-    // 这些输出同样不会进入 scrollback，没有功能损失。
+    _isLocalShell = true;
+
+    // shell 启动序列完成后恢复历史缓冲区
     QTimer::singleShot(1500, _terminal, [this, savedHistorySize]() {
         if (_terminal)
             _terminal->setHistorySize(savedHistorySize);
     });
 
-#else
-    // ── Unix：QTermWidget 内置 KPty ─────────────────────────────
-    _terminal->startShellProgram();
-
-    int pid = _terminal->getShellPID();
-    if (pid <= 0) {
-        qWarning() << "TerminalView: QTermWidget::startShellProgram() 失败";
-        emit shellFinished();
-        return;
-    }
-#endif
-
-    _isLocalShell = true;
-
-    connect(_terminal, &QTermWidget::finished,
-            this, &TerminalView::onLocalShellFinished);
-
-    // 转发标题变更（shell 可能通过转义序列设置终端标题）
-    connect(_terminal, &QTermWidget::titleChanged,
-            this, [this]() {
-        emit titleChanged(_terminal->title());
+    // transport 断开（shell 退出）→ 发射 shellFinished
+    connect(transport, &ITransport::disconnected, this, [this]() {
+        if (_isLocalShell) {
+            _isLocalShell = false;
+            emit shellFinished();
+        }
     });
 }
 
@@ -253,23 +202,8 @@ void TerminalView::stopLocalShell()
     if (!_isLocalShell)
         return;
 
-    disconnect(_terminal, &QTermWidget::finished,
-               this, &TerminalView::onLocalShellFinished);
     _isLocalShell = false;
-
-#ifdef _WIN32
-    if (_winPty) {
-        _winPty->stop();
-        delete _winPty;
-        _winPty = nullptr;
-    }
-#endif
-}
-
-void TerminalView::onLocalShellFinished()
-{
-    _isLocalShell = false;
-    emit shellFinished();
+    detachTransport();
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -277,11 +211,13 @@ void TerminalView::onLocalShellFinished()
 //
 //  数据流：键盘 → QTermWidget::sendData 信号
 //                 → ITransport::write(bytes)
-//                 → SshTransport::ssh_channel_write / SerialTransport::write / ...
+//                 → SshTransport / SerialTransport / ...
 //
 //         ITransport::readyRead 信号
 //                 → QTermWidget::receiveData
 //                 → VT 解析 → ScreenBuffer → 渲染
+//
+//  本地终端也走同一条路径，通过 LocalShellTransport 实现。
 // ═══════════════════════════════════════════════════════════════════
 
 void TerminalView::attachTransport(ITransport* transport)
@@ -295,11 +231,20 @@ void TerminalView::attachTransport(ITransport* transport)
     _terminal->startTerminalTeletype();
 
     connect(_transport, &ITransport::readyRead,
-            this, &TerminalView::onTransportReadyRead);
-    connect(_transport, &ITransport::disconnected,
-            this, &TerminalView::onTransportDisconnected);
+            this, [this](const QByteArray& data) {
+        if (_terminal)
+            _terminal->receiveData(data.constData(), data.size());
+    });
 
-    // 转发终端键盘输入 -> transport
+    connect(_transport, &ITransport::disconnected,
+            this, [this]() {
+        if (_terminal) {
+            const char* msg = "\r\n[已断开连接]\r\n";
+            _terminal->receiveData(msg, static_cast<int>(strlen(msg)));
+        }
+    });
+
+    // 转发终端键盘输入 → transport
     connect(_terminal, &QTermWidget::sendData,
             this, [this](const char* data, int len) {
         if (_transport && _transport->isConnected())
@@ -322,20 +267,6 @@ void TerminalView::detachTransport()
     if (_transport) {
         disconnect(_transport, nullptr, this, nullptr);
         _transport = nullptr;
-    }
-}
-
-void TerminalView::onTransportReadyRead(const QByteArray& data)
-{
-    if (_terminal)
-        _terminal->receiveData(data.constData(), data.size());
-}
-
-void TerminalView::onTransportDisconnected()
-{
-    if (_terminal) {
-        const char* msg = "\r\n[已断开连接]\r\n";
-        _terminal->receiveData(msg, static_cast<int>(strlen(msg)));
     }
 }
 
@@ -409,22 +340,23 @@ void TerminalView::setupContextMenu(const QPoint& pos)
     menu->popup(mapToGlobal(pos));
 }
 
-#ifdef _WIN32
+// ═══════════════════════════════════════════════════════════════════
+//  eventFilter — 终端尺寸变更转发给 transport
+// ═══════════════════════════════════════════════════════════════════
+
 bool TerminalView::eventFilter(QObject* obj, QEvent* event)
 {
     if (obj == _terminal && event->type() == QEvent::Resize) {
-        // 延迟到事件循环下一轮再同步尺寸：QTermWidget 内部的
-        // TerminalDisplay 会在 resize 事件处理后重新计算行列数，
-        // 同步调用 screenColumnsCount()/screenLinesCount() 可能拿到旧值。
+        // 延迟到事件循环下一轮同步尺寸：QTermWidget 内部 TerminalDisplay
+        // 在 resize 事件处理后才重新计算行列数，同步调用可能拿到旧值。
         QMetaObject::invokeMethod(this, [this]() {
-            if (_winPty && _winPty->isRunning()) {
+            if (_transport && _transport->isConnected()) {
                 const int cols = _terminal->screenColumnsCount();
                 const int lines = _terminal->screenLinesCount();
                 if (cols > 0 && lines > 0)
-                    _winPty->resize(cols, lines);
+                    _transport->resizeTerminal(cols, lines);
             }
         }, Qt::QueuedConnection);
     }
     return QWidget::eventFilter(obj, event);
 }
-#endif

@@ -39,6 +39,14 @@ message(STATUS "Using Qt ${QT_VERSION_MAJOR}.${QT_VERSION_MINOR}")
 # ElaWidgetTools - built as subdirectory (relative path from WindTermQt)
 add_subdirectory(third_party/ElaWidgetTools)
 
+# libvterm — VT/ANSI 终端解析器静态库（纯 C99，无外部依赖）
+if(EXISTS "${CMAKE_SOURCE_DIR}/third_party/libvterm-0.3.3/include/vterm.h")
+    message(STATUS "Building libvterm from third_party/libvterm-0.3.3")
+    add_subdirectory(third_party/libvterm-0.3.3)
+else()
+    message(FATAL_ERROR "libvterm not found at third_party/libvterm-0.3.3")
+endif()
+
 # QTermWidget (Qt6) depends on lxqt2-build-tools CMake modules
 # Our cmake/lxqt2-build-toolsConfig.cmake points to the submodule modules directly
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/cmake")
@@ -78,7 +86,10 @@ file(GLOB_RECURSE SOURCES "src/*.cpp" "src/*.h")
 
 add_executable(NovaTerm ${SOURCES} ${CMAKE_SOURCE_DIR}/resources/resources.qrc)
 
-target_include_directories(NovaTerm PRIVATE src)
+target_include_directories(NovaTerm PRIVATE
+    src
+    third_party/libvterm-0.3.3/include
+)
 
 target_link_libraries(NovaTerm PRIVATE
         Qt${QT_VERSION_MAJOR}::Widgets
@@ -86,6 +97,7 @@ target_link_libraries(NovaTerm PRIVATE
         Qt${QT_VERSION_MAJOR}::Svg
         ElaWidgetTools
         ${QTERMWIDGET_TARGET}
+        libvterm
 )
 
 if(WIN32)

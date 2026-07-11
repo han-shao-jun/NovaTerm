@@ -1,20 +1,19 @@
 #pragma once
 #include <QWidget>
+#include <QEvent>
 
 class ITransport;
 class QTermWidget;
-#ifdef _WIN32
-class WinConPty;
-#endif
 
-// 包装一个 QTermWidget，并将字节数据从两个互斥来源之一送入：
-//   • 本地  — QTermWidget 内置的 KPty 驱动真实 shell（ConPTY/pty）。
-//             数据不经过 ITransport。
-//   • 远程 — 字节通过 ITransport 桥接（SSH/串口/Telnet）：
-//             终端按键 -> transport->write，transport->readyRead
-//             -> terminal->receiveData。
-// startLocalShell() / attachTransport() 各自先分离对方模式，因此
-// 始终只有一个来源处于活动状态。
+// 包装一个 QTermWidget，将字节数据统一通过 ITransport 接口送入：
+//
+//   • 本地 — LocalShellTransport（Unix: posix_openpt + fork，Windows: ConPTY）
+//   • 远程 — SSH / Serial / Telnet 传输实现
+//
+// 两者均走同一条路径：键盘 → ITransport::write / 终端输出 ← ITransport::readyRead。
+// startLocalShell() 内部创建 LocalShellTransport 并通过 attachTransport() 桥接，
+// 不再区分"本地 KPty / 远程 transport"两套机制。
+//
 class TerminalView : public QWidget
 {
     Q_OBJECT
@@ -27,7 +26,7 @@ public:
     explicit TerminalView(QWidget* parent = nullptr);
     ~TerminalView() override;
 
-    // ── 本地终端：QTermWidget 内置 KPty（Windows：ConPTY / Unix：pty）──
+    // ── 本地终端：通过 LocalShellTransport 驱动真实 shell ──
     void startLocalShell(LocalShellType type = LocalShellType::Cmd);
     void stopLocalShell();
     bool isLocalShell() const { return _isLocalShell; }
@@ -43,21 +42,12 @@ signals:
     void activityDetected();
     void shellFinished();
 
-private slots:
-    void onTransportReadyRead(const QByteArray& data);
-    void onTransportDisconnected();
-    void onLocalShellFinished();
-
-    bool eventFilter(QObject* obj, QEvent* event) override;
-
 private:
     void applyThemeColorScheme();
     void setupContextMenu(const QPoint& pos);
+    bool eventFilter(QObject* obj, QEvent* event) override;
 
     QTermWidget* _terminal{nullptr};
     ITransport* _transport{nullptr};
     bool _isLocalShell{false};
-#ifdef _WIN32
-    WinConPty*  _winPty{nullptr};
-#endif
 };
