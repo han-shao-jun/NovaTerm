@@ -14,8 +14,8 @@
 #include "ElaTheme.h"
 #include "ElaToggleSwitch.h"
 #include "ElaWindow.h"
-#include "core/LanguageManager.h"
-#include "core/ConfigManager.h"
+#include "service/LanguageManager.h"
+#include "service/ConfigManager.h"
 
 bool SettingsPage::s_themeProgrammaticChange = false;
 

@@ -1,6 +1,6 @@
 #include "AboutPage.h"
 #include "ElaText.h"
-#include "core/LanguageManager.h"
+#include "service/LanguageManager.h"
 #include <QVBoxLayout>
 
 AboutPage::AboutPage(QWidget* parent) : ElaScrollPage(parent)

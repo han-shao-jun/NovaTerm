@@ -1,6 +1,6 @@
 #pragma once
 
-#include "terminal/TerminalView.h"
+#include "ui/terminal/TerminalView.h"
 #include <ElaTabWidget.h>
 #include <QWidget>
 

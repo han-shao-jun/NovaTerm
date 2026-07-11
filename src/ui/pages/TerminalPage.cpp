@@ -1,7 +1,7 @@
 #include "TerminalPage.h"
 #include "ElaTabWidget.h"
-#include "terminal/TerminalView.h"
-#include "core/LanguageManager.h"
+#include "ui/terminal/TerminalView.h"
+#include "service/LanguageManager.h"
 #include <QVBoxLayout>
 
 TerminalPage::TerminalPage(QWidget* parent) : QWidget(parent)

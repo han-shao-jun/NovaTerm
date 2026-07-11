@@ -1,8 +1,8 @@
 #pragma once
 
 #include "ElaScrollPage.h"
-#include "terminal/TerminalView.h"   // TerminalView::LocalShellType（信号参数）
-#include "widgets/VerticalTabWidget.h"
+#include "ui/terminal/TerminalView.h"   // TerminalView::LocalShellType（信号参数）
+#include "ui/widgets/VerticalTabWidget.h"
 #include <ElaComboBox.h>
 #include <ElaPushButton.h>
 #include <ElaTabWidget.h>

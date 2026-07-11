@@ -1,6 +1,6 @@
 #pragma once
 #include "ElaWindow.h"
-#include "pages/TerminalPage.h"
+#include "ui/pages/TerminalPage.h"
 #include <ElaContentDialog.h>
 #include <ElaIconButton.h>
 #include <ElaMenu.h>

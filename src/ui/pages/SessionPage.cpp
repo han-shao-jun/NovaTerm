@@ -2,7 +2,7 @@
 #include "ElaComboBox.h"
 #include "ElaPushButton.h"
 #include "ElaText.h"
-#include "core/LanguageManager.h"
+#include "service/LanguageManager.h"
 #include "ElaTabWidget.h"
 #include <QTabWidget>
 #include <QHBoxLayout>

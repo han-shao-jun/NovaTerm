@@ -2,9 +2,9 @@
 #include "MainWindow.h"
 #include "ElaApplication.h"
 #include "ElaTheme.h"
-#include "core/LanguageManager.h"
-#include "core/ConfigManager.h"
-#include "pages/SettingsPage.h"
+#include "service/LanguageManager.h"
+#include "service/ConfigManager.h"
+#include "ui/pages/SettingsPage.h"
 
 #include <QApplication>
 #include <QPalette>
