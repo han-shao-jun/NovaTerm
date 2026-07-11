@@ -1,5 +1,5 @@
-#include "app/Application.h"
-#include "app/MainWindow.h"
+#include "ui/app/Application.h"
+#include "ui/app/MainWindow.h"
 #include <QApplication>
 
 #ifdef Q_OS_WIN
