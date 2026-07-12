@@ -3,16 +3,23 @@
 #include <QEvent>
 
 class ITransport;
-class QTermWidget;
+class TerminalCore;
+class TerminalRenderer;
+class TerminalColorScheme;
+class QTimer;
 
-// 包装一个 QTermWidget，将字节数据统一通过 ITransport 接口送入：
+// 终端视图：组合 TerminalCore（libvterm 仿真引擎）+ TerminalRenderer（QPainter 渲染），
+// 通过 ITransport 接口统一桥接本地/远程终端数据通路。
 //
-//   • 本地 — LocalShellTransport（Unix: posix_openpt + fork，Windows: ConPTY）
-//   • 远程 — SSH / Serial / Telnet 传输实现
+// 数据流：
+//   键盘 → TerminalRenderer → TerminalCore::processKeyPress()
+//        → TerminalCore::outputData 信号 → ITransport::write()
 //
-// 两者均走同一条路径：键盘 → ITransport::write / 终端输出 ← ITransport::readyRead。
-// startLocalShell() 内部创建 LocalShellTransport 并通过 attachTransport() 桥接，
-// 不再区分"本地 KPty / 远程 transport"两套机制。
+//   PTY/shell 输出 → ITransport::readyRead 信号
+//        → TerminalCore::writeInput() → vterm_input_write()
+//        → libvterm 解析 → VTermScreenCallbacks → TerminalRenderer::update()
+//
+// 本地和远程均走同一条路径，不再区分"本地 KPty / 远程 transport"两套机制。
 //
 class TerminalView : public QWidget
 {
@@ -35,7 +42,9 @@ public:
     void attachTransport(ITransport* transport);
     void detachTransport();
     ITransport* transport() const { return _transport; }
-    QTermWidget* terminalWidget() const { return _terminal; }
+
+    // ── 渲染器访问（替代原来的 terminalWidget()）─────────────
+    TerminalRenderer* renderer() const { return _renderer; }
 
 signals:
     void titleChanged(const QString& title);
@@ -47,7 +56,12 @@ private:
     void setupContextMenu(const QPoint& pos);
     bool eventFilter(QObject* obj, QEvent* event) override;
 
-    QTermWidget* _terminal{nullptr};
-    ITransport* _transport{nullptr};
-    bool _isLocalShell{false};
+    TerminalCore*     _core{nullptr};
+    TerminalRenderer* _renderer{nullptr};
+    ITransport*       _transport{nullptr};
+    bool              _isLocalShell{false};
+
+    // PTY 尺寸变更去抖定时器：拖动窗口时密集的 resize 事件合并为一次
+    // SIGWINCH，避免 shell 被连续重绘请求轰击产生输出风暴。
+    QTimer*           _resizeDebounce{nullptr};
 };

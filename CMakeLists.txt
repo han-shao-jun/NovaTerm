@@ -36,7 +36,7 @@ find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS Widgets Sql Svg)
 
 message(STATUS "Using Qt ${QT_VERSION_MAJOR}.${QT_VERSION_MINOR}")
 
-# ElaWidgetTools - built as subdirectory (relative path from WindTermQt)
+# ElaWidgetTools - built as subdirectory
 add_subdirectory(third_party/ElaWidgetTools)
 
 # libvterm — VT/ANSI 终端解析器静态库（纯 C99，无外部依赖）
@@ -45,32 +45,6 @@ if(EXISTS "${CMAKE_SOURCE_DIR}/third_party/libvterm-0.3.3/include/vterm.h")
     add_subdirectory(third_party/libvterm-0.3.3)
 else()
     message(FATAL_ERROR "libvterm not found at third_party/libvterm-0.3.3")
-endif()
-
-# QTermWidget (Qt6) depends on lxqt2-build-tools CMake modules
-# Our cmake/lxqt2-build-toolsConfig.cmake points to the submodule modules directly
-list(APPEND CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/cmake")
-set(lxqt2-build-tools_DIR "${CMAKE_SOURCE_DIR}/cmake")
-
-# QTermWidget - build from submodule with Qt6
-if(EXISTS "${CMAKE_SOURCE_DIR}/third_party/qtermwidget/CMakeLists.txt")
-    message(STATUS "Building QTermWidget from submodule (Qt6)")
-
-    # MSVC compatibility — provide unistd.h stub for Windows
-    if(MSVC)
-        include_directories(BEFORE SYSTEM "${CMAKE_SOURCE_DIR}/cmake/msvc_compat")
-    endif()
-
-    add_subdirectory(third_party/qtermwidget)
-    set(QTERMWIDGET_TARGET qtermwidget6)
-
-    # Add Windows PTY stubs for linking
-    if(WIN32)
-        target_sources(${QTERMWIDGET_TARGET} PRIVATE
-            ${CMAKE_SOURCE_DIR}/third_party/qtermwidget/lib/pty_win32_stubs.cpp)
-    endif()
-else()
-    message(FATAL_ERROR "QTermWidget submodule not found. Run: git submodule update --init")
 endif()
 
 # Clink (chrisant996/clink v1.9.27.83514e) —— 运行时工具，不参与编译。
@@ -96,7 +70,6 @@ target_link_libraries(NovaTerm PRIVATE
         Qt${QT_VERSION_MAJOR}::Sql
         Qt${QT_VERSION_MAJOR}::Svg
         ElaWidgetTools
-        ${QTERMWIDGET_TARGET}
         libvterm
 )
 
@@ -134,14 +107,12 @@ if(WIN32)
 endif()
 
 
-set(TS_FILES
-        resources/translations/novaterm_en.ts
-        resources/translations/novaterm_zh_CN.ts
-)
-
-qt_add_translations(
-        TARGETS NovaTerm
-        TS_FILES ${TS_FILES}
-)
-
-
+# TODO: qt_add_translations requires Qt6::LinguistTools component
+# set(TS_FILES
+#         resources/translations/novaterm_en.ts
+#         resources/translations/novaterm_zh_CN.ts
+# )
+# qt_add_translations(
+#         TARGETS NovaTerm
+#         TS_FILES ${TS_FILES}
+# )
