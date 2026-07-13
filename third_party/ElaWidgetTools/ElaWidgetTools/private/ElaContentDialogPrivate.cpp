@@ -34,5 +34,8 @@ void ElaContentDialogPrivate::_moveToCenter()
     int width = q->width();
     int height = q->height();
     auto globalPos = _maskWidget->mapToGlobal(QPoint{0, 0});
-    q->setGeometry(globalPos.x() + (_maskWidget->width() - width) / 2, globalPos.y() + (_maskWidget->height() - height) / 2, width, height);
+    // 使用 move() 代替 setGeometry()，只改变位置，不触发 Windows
+    // MINMAXINFO 对内容尺寸的二次校验，避免 setGeometry 告警。
+    q->move(globalPos.x() + (_maskWidget->width() - width) / 2,
+            globalPos.y() + (_maskWidget->height() - height) / 2);
 }

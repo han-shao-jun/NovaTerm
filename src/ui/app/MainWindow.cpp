@@ -109,10 +109,8 @@ MainWindow::MainWindow(QWidget* parent) : ElaWindow(parent)
     closeLayout->addWidget(closeLabel);
     closeLayout->addStretch();
     closeDialog->setCentralWidget(closeCentral);
-    // ElaContentDialog 构造函数内 resize(400, height()) 在内容添加前
-    // 执行，缓存了极小的高度初始值。adjustSize() 基于当前内容重新计算
-    // 正确的 sizeHint，避免 exec() 时触发 QWindowsWindow 几何体警告。
-    closeDialog->adjustSize();
+    // setCentralWidget() 内部已调用 adjustSize()，基于当前内容
+    // 重新计算正确的 sizeHint，避免 exec() 时触发 QWindowsWindow 几何体警告。
 
     connect(closeDialog, &ElaContentDialog::rightButtonClicked, this, [closeDialog, this]() {
         closeDialog->done(QDialog::Accepted);

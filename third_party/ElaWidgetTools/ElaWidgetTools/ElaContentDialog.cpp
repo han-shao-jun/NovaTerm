@@ -27,17 +27,12 @@ ElaContentDialog::ElaContentDialog(QWidget* parent)
     d->_maskWidget->setFixedSize(parent->size());
     d->_maskWidget->setVisible(false);
 
-    resize(400, height());
     setWindowModality(Qt::ApplicationModal);
 
     d->_appBar = new ElaAppBar(this);
     d->_appBar->setWindowButtonFlags(ElaAppBarType::NoneButtonHint);
     d->_appBar->setIsFixedSize(true);
     d->_appBar->setAppBarHeight(0);
-#ifdef Q_OS_WIN
-    // 防止意外拉伸
-    createWinId();
-#endif
     d->_leftButton = new ElaPushButton("cancel", this);
     connect(d->_leftButton, &ElaPushButton::clicked, this, [=]() {
         onLeftButtonClicked();
@@ -105,6 +100,14 @@ ElaContentDialog::ElaContentDialog(QWidget* parent)
     d->_mainLayout->addWidget(d->_centralWidget);
     d->_mainLayout->addWidget(d->_buttonWidget);
 
+    // 在布局就绪后设置初始宽度，高度由布局自然决定，
+    // 避免 resize(400, height()) 在布局前缓存错误的极小高度。
+    resize(400, sizeHint().height());
+#ifdef Q_OS_WIN
+    // 防止意外拉伸
+    createWinId();
+#endif
+
     d->_themeMode = eTheme->getThemeMode();
     connect(eTheme, &ElaTheme::themeModeChanged, this, [=](ElaThemeType::ThemeMode themeMode) {
         d->_themeMode = themeMode;
@@ -138,6 +141,10 @@ void ElaContentDialog::setCentralWidget(QWidget* centralWidget)
     d->_centralWidget = centralWidget;
     d->_mainLayout->addWidget(centralWidget);
     d->_mainLayout->addWidget(d->_buttonWidget);
+    // 构造函数内 resize(400, height()) 在内容添加前执行，
+    // 缓存了极小的高度初始值。adjustSize() 基于新内容重新计算
+    // 正确的 sizeHint，避免后续显示时触发 setGeometry 告警。
+    adjustSize();
 }
 
 void ElaContentDialog::setLeftButtonText(QString text)
