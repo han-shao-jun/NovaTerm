@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.20)
 project(libvterm LANGUAGES C)
 
-set(CMAKE_C_STANDARD 99)
+set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 
 # ── 源文件 ──────────────────────────────────────────────
@@ -27,10 +27,10 @@ target_include_directories(libvterm
     PRIVATE src                   # vterm_internal.h / rect.h / utf8.h / *.inc
 )
 
-# 与原始 Makefile 保持一致的警告级别
-target_compile_options(libvterm PRIVATE -Wall -Wpedantic)
-
 # 隐藏内部符号，仅导出 vterm.h 中声明的 API
 if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
+    # 与原始 Makefile 保持一致的警告级别
+    target_compile_options(libvterm PRIVATE -Wall -Wpedantic)
+    
     target_compile_options(libvterm PRIVATE -fvisibility=hidden)
 endif()

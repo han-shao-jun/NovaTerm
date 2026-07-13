@@ -25,7 +25,7 @@ typedef struct
   unsigned int conceal   : 1;
   unsigned int strike    : 1;
   unsigned int font      : 4; /* 0 to 9 */
-  unsigned int small     : 1;
+  unsigned int small_font     : 1;
   unsigned int baseline  : 2;
 
   /* Extra state storage that isn't strictly pen-related */
@@ -439,7 +439,7 @@ static int setpenattr(VTermAttr attr, VTermValue *val, void *user)
     screen->pen.bg = val->color;
     return 1;
   case VTERM_ATTR_SMALL:
-    screen->pen.small = val->boolean;
+    screen->pen.small_font = val->boolean;
     return 1;
   case VTERM_ATTR_BASELINE:
     screen->pen.baseline = val->number;
@@ -699,7 +699,7 @@ static void resize_buffer(VTermScreen *screen, int bufidx, int new_rows, int new
         dst->pen.conceal   = src->attrs.conceal;
         dst->pen.strike    = src->attrs.strike;
         dst->pen.font      = src->attrs.font;
-        dst->pen.small     = src->attrs.small;
+        dst->pen.small_font     = src->attrs.small_font;
         dst->pen.baseline  = src->attrs.baseline;
 
         dst->pen.fg = src->fg;
@@ -988,7 +988,7 @@ int vterm_screen_get_cell(const VTermScreen *screen, VTermPos pos, VTermScreenCe
   cell->attrs.conceal   = intcell->pen.conceal;
   cell->attrs.strike    = intcell->pen.strike;
   cell->attrs.font      = intcell->pen.font;
-  cell->attrs.small     = intcell->pen.small;
+  cell->attrs.small_font     = intcell->pen.small_font;
   cell->attrs.baseline  = intcell->pen.baseline;
 
   cell->attrs.dwl = intcell->pen.dwl;
@@ -1116,7 +1116,7 @@ static int attrs_differ(VTermAttrMask attrs, ScreenCell *a, ScreenCell *b)
     return 1;
   if((attrs & VTERM_ATTR_BACKGROUND_MASK) && !vterm_color_is_equal(&a->pen.bg, &b->pen.bg))
     return 1;
-  if((attrs & VTERM_ATTR_SMALL_MASK)    && (a->pen.small != b->pen.small))
+  if((attrs & VTERM_ATTR_SMALL_MASK)    && (a->pen.small_font != b->pen.small_font))
     return 1;
   if((attrs & VTERM_ATTR_BASELINE_MASK)    && (a->pen.baseline != b->pen.baseline))
     return 1;
