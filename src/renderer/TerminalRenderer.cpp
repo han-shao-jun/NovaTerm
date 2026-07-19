@@ -13,9 +13,11 @@
 #include <QDebug>
 #include <algorithm>
 #include <cstring>
+#include <limits>
 
 // 滚动步长（行数）
 static constexpr int kScrollWheelLines = 3;
+static constexpr uint32_t kWideCharContinuation = std::numeric_limits<uint32_t>::max();
 
 TerminalRenderer::TerminalRenderer(TerminalCore* core, QWidget* parent)
     : QWidget(parent)
@@ -202,15 +204,23 @@ QString TerminalRenderer::selectedText() const
                 // Scrollback 区域
                 const int sbLine = _core->scrollbackLineCount() + row;  // row 是负值
                 ScrollbackCell sc;
-                if (_core->getScrollbackCell(sbLine, col, sc) && sc.chars[0]) {
+                if (_core->getScrollbackCell(sbLine, col, sc) && sc.chars[0] &&
+                    sc.chars[0] != kWideCharContinuation) {
                     result += cellCharsToString(sc.chars, VTERM_MAX_CHARS_PER_CELL);
+                } else if (_core->getScrollbackCell(sbLine, col, sc) &&
+                           sc.chars[0] == kWideCharContinuation) {
+                    continue;
                 } else {
                     result += QLatin1Char(' ');
                 }
             } else {
                 VTermScreenCell cell;
-                if (_core->getCell(row, col, cell) && cell.chars[0]) {
+                if (_core->getCell(row, col, cell) && cell.chars[0] &&
+                    cell.chars[0] != kWideCharContinuation) {
                     result += cellCharsToString(cell.chars, VTERM_MAX_CHARS_PER_CELL);
+                } else if (_core->getCell(row, col, cell) &&
+                           cell.chars[0] == kWideCharContinuation) {
+                    continue;
                 } else {
                     result += QLatin1Char(' ');
                 }
@@ -482,6 +492,8 @@ void TerminalRenderer::renderCells(QPainter& p, const QRect& dirty)
                 const int sbIdx = sbCount + screenRow;  // screenRow=-1 → sbCount-1
                 ScrollbackCell sc;
                 if (_core->getScrollbackCell(sbIdx, col, sc)) {
+                    if (sc.chars[0] == kWideCharContinuation)
+                        continue;
                     renderCell(p, x, y, sc.chars, sc.width, sc.attrs, sc.fg, sc.bg);
                 } else {
                     p.fillRect(x, y, _cellWidth, _cellHeight, _scheme.background);
@@ -490,6 +502,8 @@ void TerminalRenderer::renderCells(QPainter& p, const QRect& dirty)
                 // ── 活跃屏幕区域 ──────────────────────────────
                 VTermScreenCell cell;
                 if (_core->getCell(screenRow, col, cell)) {
+                    if (cell.chars[0] == kWideCharContinuation)
+                        continue;
                     renderCell(p, x, y, cell.chars, cell.width,
                                cell.attrs, cell.fg, cell.bg);
                 } else {
@@ -515,6 +529,9 @@ void TerminalRenderer::renderCell(QPainter& p, int x, int y,
                                    const VTermScreenCellAttrs& attrs,
                                    const VTermColor& fg_vc, const VTermColor& bg_vc)
 {
+    const int cellSpan = std::max(1, static_cast<int>(width));
+    const int paintWidth = _cellWidth * cellSpan;
+
     QColor fg = vtermColorToQColor(fg_vc);
     QColor bg = vtermColorToQColor(bg_vc);
 
@@ -522,7 +539,7 @@ void TerminalRenderer::renderCell(QPainter& p, int x, int y,
     if (attrs.reverse) std::swap(fg, bg);
 
     // ── 背景 ─────────────────────────────────────────────────
-    p.fillRect(x, y, _cellWidth, _cellHeight, bg);
+    p.fillRect(x, y, paintWidth, _cellHeight, bg);
 
     if (attrs.conceal)
         return;  // 隐藏文字
@@ -549,11 +566,11 @@ void TerminalRenderer::renderCell(QPainter& p, int x, int y,
         const int ulY = y + static_cast<int>(_fm->ascent()) + 2;
         p.setPen(fg);
         if (attrs.underline == VTERM_UNDERLINE_DOUBLE) {
-            p.drawLine(x, ulY, x + _cellWidth, ulY);
-            p.drawLine(x, ulY + 2, x + _cellWidth, ulY + 2);
+            p.drawLine(x, ulY, x + paintWidth, ulY);
+            p.drawLine(x, ulY + 2, x + paintWidth, ulY + 2);
         } else {
             // SINGLE or CURLY (curl 暂简化为单线)
-            p.drawLine(x, ulY, x + _cellWidth, ulY);
+            p.drawLine(x, ulY, x + paintWidth, ulY);
         }
     }
 
@@ -561,7 +578,7 @@ void TerminalRenderer::renderCell(QPainter& p, int x, int y,
     if (attrs.strike) {
         const int stY = y + _cellHeight / 2;
         p.setPen(fg);
-        p.drawLine(x, stY, x + _cellWidth, stY);
+        p.drawLine(x, stY, x + paintWidth, stY);
     }
 }
 
