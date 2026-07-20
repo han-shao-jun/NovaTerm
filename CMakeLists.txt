@@ -8,7 +8,7 @@ set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
 
 if(CMAKE_HOST_SYSTEM_NAME STREQUAL "Linux")
-    set(CMAKE_PREFIX_PATH /home/super/Qt/6.7.3/gcc_64/ CACHE PATH "Qt installation prefix")
+    set(CMAKE_PREFIX_PATH /home/super/Qt/6.8.3/gcc_64/ CACHE PATH "Qt installation prefix")
     message(STATUS "This is Linux OS")
 
     # RPATH: 让二进制文件在捆绑库目录中查找共享库（$ORIGIN 指向二进制所在目录）
