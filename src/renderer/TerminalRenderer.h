@@ -61,9 +61,11 @@ protected:
 private:
     // ── 渲染辅助 ──────────────────────────────────────────────
     void recalculateCellSize();
-    QPoint cellToWidget(int row, int col) const;
+    QPoint cellToWidget(int documentRow, int col) const;
     int cellRowAt(int widgetY) const;
     int cellColAt(int widgetX) const;
+    bool isDocumentPositionValid(const VTermPos& pos) const;
+    uint32_t documentCellCodepoint(int documentRow, int col) const;
 
     void renderCells(QPainter& p, const QRect& rect);
     void renderCell(QPainter& p, int x, int y,

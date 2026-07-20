@@ -44,9 +44,9 @@ TerminalRenderer::TerminalRenderer(TerminalCore* core, QWidget* parent)
     connect(_blinkTimer, &QTimer::timeout, this, [this]() {
         _cursorBlinkVisible = !_cursorBlinkVisible;
         // 只重绘光标所在行
-        if (_core->cursorVisible() && _core->cursorBlink()) {
+        if (_core->cursorVisible() && _core->cursorBlink() && _scrollLine == 0) {
             const auto cpos = _core->cursorPosition();
-            const int y = cellToWidget(cpos.row - _scrollLine, 0).y();
+            const int y = cellToWidget(cpos.row, 0).y();
             update(0, y, width(), _cellHeight);
         }
     });
@@ -54,11 +54,11 @@ TerminalRenderer::TerminalRenderer(TerminalCore* core, QWidget* parent)
 
     // ── 连接 TerminalCore 信号 ───────────────────────────────
     connect(_core, &TerminalCore::damage, this, [this](const VTermRect& rect) {
-        // libvterm 的 damage rect 在屏幕坐标中（含 scrollback 时需调整）
-        const int startRow = rect.start_row - _scrollLine;
-        const int endRow   = rect.end_row - _scrollLine;
+        // 活跃屏幕 documentRow 映射到 widgetRow 时需加上历史偏移。
+        const int startRow = rect.start_row + _scrollLine;
+        const int endRow   = rect.end_row + _scrollLine;
         const int visRows  = _core->rows();
-        if (endRow < 0 || startRow >= visRows) return;
+        if (endRow <= 0 || startRow >= visRows) return;
 
         const int clampedStart = std::max(0, startRow);
         const int clampedEnd   = std::min(visRows, endRow);
@@ -76,6 +76,17 @@ TerminalRenderer::TerminalRenderer(TerminalCore* core, QWidget* parent)
     });
 
     connect(_core, &TerminalCore::scrollbackChanged, this, [this]() {
+        const int historyCount = _core->scrollbackLineCount();
+        const int clampedOffset = std::clamp(_scrollLine, 0, historyCount);
+        if (clampedOffset != _scrollLine)
+            _scrollLine = clampedOffset;
+
+        if (!isDocumentPositionValid(_selStart) ||
+            !isDocumentPositionValid(_selEnd)) {
+            _selStart = {-1, -1};
+            _selEnd = {-1, -1};
+            _selecting = false;
+        }
         update();
     });
 }
@@ -183,8 +194,10 @@ void TerminalRenderer::scrollLines(int delta)
 
 QString TerminalRenderer::selectedText() const
 {
-    if (_selStart.row < 0 || _selEnd.row < 0)
+    if (!isDocumentPositionValid(_selStart) ||
+        !isDocumentPositionValid(_selEnd)) {
         return {};
+    }
 
     VTermPos start = _selStart;
     VTermPos end   = _selEnd;
@@ -204,23 +217,23 @@ QString TerminalRenderer::selectedText() const
                 // Scrollback 区域
                 const int sbLine = _core->scrollbackLineCount() + row;  // row 是负值
                 ScrollbackCell sc;
-                if (_core->getScrollbackCell(sbLine, col, sc) && sc.chars[0] &&
-                    sc.chars[0] != kWideCharContinuation) {
-                    result += cellCharsToString(sc.chars, VTERM_MAX_CHARS_PER_CELL);
-                } else if (_core->getScrollbackCell(sbLine, col, sc) &&
-                           sc.chars[0] == kWideCharContinuation) {
+                if (!_core->getScrollbackCell(sbLine, col, sc)) {
+                    result += QLatin1Char(' ');
+                } else if (sc.chars[0] == kWideCharContinuation) {
                     continue;
+                } else if (sc.chars[0]) {
+                    result += cellCharsToString(sc.chars, VTERM_MAX_CHARS_PER_CELL);
                 } else {
                     result += QLatin1Char(' ');
                 }
             } else {
                 VTermScreenCell cell;
-                if (_core->getCell(row, col, cell) && cell.chars[0] &&
-                    cell.chars[0] != kWideCharContinuation) {
-                    result += cellCharsToString(cell.chars, VTERM_MAX_CHARS_PER_CELL);
-                } else if (_core->getCell(row, col, cell) &&
-                           cell.chars[0] == kWideCharContinuation) {
+                if (!_core->getCell(row, col, cell)) {
+                    result += QLatin1Char(' ');
+                } else if (cell.chars[0] == kWideCharContinuation) {
                     continue;
+                } else if (cell.chars[0]) {
+                    result += cellCharsToString(cell.chars, VTERM_MAX_CHARS_PER_CELL);
                 } else {
                     result += QLatin1Char(' ');
                 }
@@ -232,7 +245,8 @@ QString TerminalRenderer::selectedText() const
 
 bool TerminalRenderer::hasSelection() const
 {
-    return _selStart.row >= 0 && _selEnd.row >= 0 &&
+    return isDocumentPositionValid(_selStart) &&
+           isDocumentPositionValid(_selEnd) &&
            !(_selStart.row == _selEnd.row && _selStart.col == _selEnd.col);
 }
 
@@ -256,8 +270,13 @@ void TerminalRenderer::clearSelection()
 
 QPoint TerminalRenderer::widgetToCell(const QPoint& pos) const
 {
-    return QPoint(pos.x() / _cellWidth,
-                  pos.y() / _cellHeight + _scrollLine);
+    const int col = std::clamp(pos.x() / std::max(1, _cellWidth),
+                               0, std::max(0, _core->columns() - 1));
+    const int widgetRow = pos.y() / std::max(1, _cellHeight);
+    const int documentRow = std::clamp(widgetRow - _scrollLine,
+                                       -_core->scrollbackLineCount(),
+                                       std::max(0, _core->rows() - 1));
+    return QPoint(col, documentRow);
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -301,6 +320,8 @@ void TerminalRenderer::resizeEvent(QResizeEvent* event)
         return;
 
     if (cols != _core->columns() || rows != _core->rows()) {
+        scrollToBottom();
+        clearSelection();
         _core->resize(cols, rows);
     }
 }
@@ -330,7 +351,7 @@ void TerminalRenderer::mousePressEvent(QMouseEvent* event)
     setFocus();
 
     const QPoint cell = widgetToCell(event->pos());
-    const int row = cell.y() - _scrollLine;
+    const int row = cell.y();
     const int col = cell.x();
 
     if (event->button() == Qt::LeftButton) {
@@ -352,7 +373,7 @@ void TerminalRenderer::mouseMoveEvent(QMouseEvent* event)
 {
     if (_selecting) {
         const QPoint cell = widgetToCell(event->pos());
-        _selEnd = {cell.y() - _scrollLine, cell.x()};
+        _selEnd = {cell.y(), cell.x()};
         update();
     }
 }
@@ -362,7 +383,7 @@ void TerminalRenderer::mouseReleaseEvent(QMouseEvent* event)
     if (_selecting && event->button() == Qt::LeftButton) {
         _selecting = false;
         const QPoint cell = widgetToCell(event->pos());
-        _selEnd = {cell.y() - _scrollLine, cell.x()};
+        _selEnd = {cell.y(), cell.x()};
         // 自动复制到剪贴板（xterm 行为）
         if (hasSelection())
             copySelection();
@@ -376,7 +397,7 @@ void TerminalRenderer::mouseDoubleClickEvent(QMouseEvent* event)
     if (event->button() == Qt::LeftButton) {
         // 按词选择：以空格/标点为分隔
         const QPoint cell = widgetToCell(event->pos());
-        const int row = cell.y() - _scrollLine;
+        const int row = cell.y();
         const int col = cell.x();
 
         VTermScreenCell centerCell;
@@ -413,11 +434,9 @@ void TerminalRenderer::wheelEvent(QWheelEvent* event)
     const int lines = _wheelAccum / 120 * kScrollWheelLines;  // 120 = 标准滚轮单位
     if (lines != 0) {
         _wheelAccum -= (lines / kScrollWheelLines) * 120;
-        if (lines < 0) {
-            scrollLines(-lines);  // 向下滚动查看更多历史
-        } else {
-            scrollLines(-lines);  // 向上滚动回到最新
-        }
+        // 正数 lines：向上滚动（回看历史），增加 _scrollLine
+        // 负数 lines：向下滚动（返回底部），减少 _scrollLine
+        scrollLines(lines);
     }
 }
 
@@ -463,6 +482,22 @@ int TerminalRenderer::cellColAt(int widgetX) const
     return widgetX / _cellWidth;
 }
 
+bool TerminalRenderer::isDocumentPositionValid(const VTermPos& pos) const
+{
+    if (pos.row < 0) {
+        // scrollback 区域：row 从 -1（最新回滚行）到 -scrollbackLineCount（最旧）
+        if (pos.row < -_core->scrollbackLineCount())
+            return false;
+    } else {
+        // 活跃屏幕：row 从 0 到 rows-1
+        if (pos.row >= _core->rows())
+            return false;
+    }
+    if (pos.col < 0 || pos.col >= _core->columns())
+        return false;
+    return true;
+}
+
 // ── 渲染 ─────────────────────────────────────────────────────
 
 void TerminalRenderer::renderCells(QPainter& p, const QRect& dirty)
@@ -476,7 +511,7 @@ void TerminalRenderer::renderCells(QPainter& p, const QRect& dirty)
     const int endWidgetRow   = std::min(visRows, (dirty.bottom() / _cellHeight) + 1);
 
     for (int widgetRow = startWidgetRow; widgetRow < endWidgetRow; ++widgetRow) {
-        const int screenRow = widgetRow + _scrollLine;
+        const int screenRow = widgetRow - _scrollLine;
 
         for (int col = 0; col < cols; ++col) {
             const int x = col * _cellWidth;
@@ -648,7 +683,7 @@ void TerminalRenderer::renderSelection(QPainter& p)
         : QColor(84, 107, 138, 128);
 
     for (int row = start.row; row <= end.row; ++row) {
-        const int widgetRow = row - _scrollLine;
+        const int widgetRow = row + _scrollLine;
         if (widgetRow < 0 || widgetRow >= _core->rows())
             continue;
 
