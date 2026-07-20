@@ -10,6 +10,9 @@ set(CMAKE_AUTORCC ON)
 if(CMAKE_HOST_SYSTEM_NAME STREQUAL "Linux")
     set(CMAKE_PREFIX_PATH /home/super/Qt/6.7.3/gcc_64/ CACHE PATH "Qt installation prefix")
     message(STATUS "This is Linux OS")
+
+    # RPATH: 让二进制文件在捆绑库目录中查找共享库（$ORIGIN 指向二进制所在目录）
+    set(CMAKE_INSTALL_RPATH "\$ORIGIN/../lib/novaterm")
 elseif(CMAKE_HOST_SYSTEM_NAME STREQUAL "Windows")
     set(CMAKE_PREFIX_PATH "C:\\Programs\\Qt\\6.8.3\\msvc2022_64" CACHE PATH "Qt installation prefix")
     message(STATUS "This is Windows")
@@ -104,6 +107,133 @@ if(WIN32)
     else()
         message(WARNING "Clink release not found at ${CLINK_SRC_DIR} — cmd sessions will use bare cmd.exe")
     endif()
+endif()
+
+
+# ═══════════════════════════════════════════════════════════════════
+#  安装规则
+# ═══════════════════════════════════════════════════════════════════
+
+# 安装主二进制文件
+install(TARGETS NovaTerm DESTINATION bin)
+
+# 安装桌面入口文件和图标（Linux 桌面集成）
+install(
+    FILES resources/novaterm.desktop
+    DESTINATION share/applications
+)
+install(
+    FILES resources/icons/app_logo.svg
+    DESTINATION share/icons/hicolor/scalable/apps
+    RENAME novaterm.svg
+)
+
+# ── Linux: 捆绑 Qt 运行时库 ──────────────────────────────────────
+if(CMAKE_HOST_SYSTEM_NAME STREQUAL "Linux")
+    # 从 Qt6::Core 导入目标中获取 Qt 库的安装目录
+    if(TARGET Qt6::Core)
+        get_target_property(_qt_core_location Qt6::Core LOCATION)
+        if(_qt_core_location)
+            cmake_path(GET _qt_core_location PARENT_PATH _qt_lib_dir)
+            message(STATUS "Qt shared libraries directory: ${_qt_lib_dir}")
+        endif()
+    endif()
+
+    # 如果无法从 target 获取，回退到 CMAKE_PREFIX_PATH
+    if(NOT _qt_lib_dir)
+        set(_qt_lib_dir "${CMAKE_PREFIX_PATH}/lib")
+    endif()
+
+    # 将 Qt 运行时 .so 安装到 lib/novaterm/（运行时由 RPATH 查找）
+    install(
+        DIRECTORY "${_qt_lib_dir}/"
+        DESTINATION lib/novaterm
+        FILES_MATCHING
+        PATTERN "libQt6Core.so*"
+        PATTERN "libQt6Gui.so*"
+        PATTERN "libQt6Widgets.so*"
+        PATTERN "libQt6Sql.so*"
+        PATTERN "libQt6Svg.so*"
+        PATTERN "libQt6DBus.so*"
+        PATTERN "libQt6Network.so*"
+        PATTERN "libQt6XcbQpa.so*"        # X11 平台插件（Linux 桌面必需）
+        PATTERN "libQt6OpenGL.so*"
+        PATTERN "libQt6OpenGLWidgets.so*"
+        PATTERN "libicui18n.so*"
+        PATTERN "libicuuc.so*"
+        PATTERN "libicudata.so*"
+        PATTERN "libxcb*.so*"              # XCB 平台插件依赖
+    )
+
+    # 安装 Qt 平台插件（libqxcb.so）
+    if(EXISTS "${_qt_lib_dir}/../plugins/platforms")
+        install(
+            DIRECTORY "${_qt_lib_dir}/../plugins/platforms"
+            DESTINATION lib/novaterm/plugins
+            FILES_MATCHING
+            PATTERN "libqxcb.so"
+        )
+    endif()
+endif()
+
+# ═══════════════════════════════════════════════════════════════════
+#  CPack DEB / RPM 打包配置
+# ═══════════════════════════════════════════════════════════════════
+
+set(CPACK_PACKAGE_NAME "novaterm")
+set(CPACK_PACKAGE_VERSION ${PROJECT_VERSION})
+set(CPACK_PACKAGE_FILE_NAME "${CPACK_PACKAGE_NAME}-${CPACK_PACKAGE_VERSION}-linux-amd64")
+set(CPACK_PACKAGE_VENDOR "NovaTerm Project")
+set(CPACK_PACKAGE_CONTACT "li ji")
+set(CPACK_PACKAGE_HOMEPAGE_URL "https://github.com/example/novaterm")
+
+set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "NovaTerm - A modern terminal emulator")
+set(CPACK_PACKAGE_DESCRIPTION
+    "NovaTerm is a feature-rich terminal emulator built with Qt6 and libvterm.
+It supports local and remote terminal sessions with SSH capabilities,
+VT/ANSI terminal emulation, and a modern UI powered by ElaWidgetTools."
+)
+
+# ── DEB 专属配置 ─────────────────────────────────────────────
+if(CMAKE_HOST_SYSTEM_NAME STREQUAL "Linux")
+    set(CPACK_GENERATOR "DEB")
+
+    set(CPACK_DEBIAN_PACKAGE_MAINTAINER "li ji")
+    set(CPACK_DEBIAN_PACKAGE_SECTION "utils")
+    set(CPACK_DEBIAN_PACKAGE_PRIORITY "optional")
+    set(CPACK_DEBIAN_PACKAGE_ARCHITECTURE "amd64")
+
+    # 声明系统级依赖（用户需自行安装或系统已有）
+    set(CPACK_DEBIAN_PACKAGE_DEPENDS
+        "libc6 (>= 2.34), libstdc++6 (>= 12), libgcc-s1 (>= 12), libgl1, libegl1, libfontconfig1, libfreetype6, libxkbcommon0, libdbus-1-3"
+    )
+
+    # 自动检测其他共享库依赖（生成 ${shlibs:Depends}）
+    set(CPACK_DEBIAN_PACKAGE_SHLIBDEPS ON)
+    set(CPACK_DEBIAN_PACKAGE_GENERATE_SHLIBDEPS ON)
+
+    # 安装后执行 ldconfig 更新库缓存（避免 dpkg 警告）
+    set(CPACK_DEBIAN_PACKAGE_CONTROL_EXTRA
+        "${CMAKE_BINARY_DIR}/postinst"
+    )
+
+    # 生成 postinst 维护脚本
+    file(WRITE "${CMAKE_BINARY_DIR}/postinst"
+        "#!/bin/sh\nset -e\n# Update shared library cache\nldconfig || true\n"
+    )
+endif()
+
+# ── 打包目标：make package 或 cpack ───────────────────────────
+include(CPack)
+
+# 辅助自定义目标：一步构建 DEB
+if(CMAKE_HOST_SYSTEM_NAME STREQUAL "Linux")
+    add_custom_target(deb
+        COMMAND ${CMAKE_COMMAND} --build ${CMAKE_BINARY_DIR} --target all
+        COMMAND ${CMAKE_CPACK_COMMAND} -G DEB
+        COMMENT "Building NovaTerm and packaging as .deb"
+    )
+    message(STATUS "DEB packaging enabled — run 'make deb' or 'cmake --build . --target deb' to produce a .deb package")
 endif()
 
 
