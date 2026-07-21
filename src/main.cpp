@@ -75,14 +75,49 @@ static void enableMiniDump()
 #include <unistd.h>
 #include <signal.h>
 #include <stdio.h>
+#include <time.h>
+
+static void generateCoreDump(int signo)
+{
+    time_t now = time(nullptr);
+    struct tm tmNow;
+    localtime_r(&now, &tmNow);
+    
+    char fileName[512];
+    snprintf(fileName, sizeof(fileName), "%s/NovaTerm_%04d%02d%02d_%02d%02d%02d_%d.core",
+             QCoreApplication::applicationDirPath().toLocal8Bit().constData(),
+             tmNow.tm_year + 1900, tmNow.tm_mon + 1, tmNow.tm_mday,
+             tmNow.tm_hour, tmNow.tm_min, tmNow.tm_sec,
+             getpid());
+    
+    FILE* fp = fopen(fileName, "w");
+    if (fp) {
+        fclose(fp);
+    }
+    
+    setenv("CORE_PATTERN", fileName, 1);
+    
+    signal(signo, SIG_DFL);
+    raise(signo);
+}
 
 static void enableCoreDump()
 {
     struct rlimit rl;
     rl.rlim_cur = RLIM_INFINITY;
     rl.rlim_max = RLIM_INFINITY;
-
     setrlimit(RLIMIT_CORE, &rl);
+    
+    struct sigaction sa;
+    sigemptyset(&sa.sa_mask);
+    sa.sa_flags = SA_RESTART;
+    sa.sa_handler = generateCoreDump;
+    
+    sigaction(SIGSEGV, &sa, nullptr);
+    sigaction(SIGABRT, &sa, nullptr);
+    sigaction(SIGILL, &sa, nullptr);
+    sigaction(SIGFPE, &sa, nullptr);
+    sigaction(SIGBUS, &sa, nullptr);
 }
 
 #endif
