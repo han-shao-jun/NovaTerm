@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=NovaTerm
+Comment=A modern terminal emulator
+Exec=novaterm
+Icon=novaterm
+Categories=System;TerminalEmulator;
+Terminal=false
+StartupNotify=true
