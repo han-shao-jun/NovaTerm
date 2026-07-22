@@ -205,23 +205,47 @@ void SessionPage::initSerialUi()
     checkLabel->setTextPixelSize(15);
     grid->addWidget(checkLabel, 2, 0, Qt::AlignVCenter);
 
-    _checkCombo = new ElaComboBox(page);
-    _checkCombo->addItem("sss");
-    _checkCombo->addItem("sss");
-    _checkCombo->addItem("sss");
-    grid->addWidget(_checkCombo, 2, 1);
+    _parityCombo = new ElaComboBox(page);
+    _parityCombo->addItem("sss");
+    _parityCombo->addItem("sss");
+    _parityCombo->addItem("sss");
+    grid->addWidget(_parityCombo, 2, 1);
+
+    // 数据位
+    auto* dataBitsLabel = new ElaText(tr("Data Bits"), page);
+    dataBitsLabel->setWordWrap(false);
+    dataBitsLabel->setTextPixelSize(15);
+    grid->addWidget(dataBitsLabel, 3, 0, Qt::AlignVCenter);
+
+    _dataBitsCombo = new ElaComboBox(page);
+    _dataBitsCombo->addItem("sss");
+    _dataBitsCombo->addItem("sss");
+    _dataBitsCombo->addItem("sss");
+    grid->addWidget(_dataBitsCombo, 3, 1);
+
+    // 停止位
+    auto* stopBitsLabel = new ElaText(tr("Stop Bits"), page);
+    stopBitsLabel->setWordWrap(false);
+    stopBitsLabel->setTextPixelSize(15);
+    grid->addWidget(stopBitsLabel, 4, 0, Qt::AlignVCenter);
+
+    _stopBitsCombo = new ElaComboBox(page);
+    _stopBitsCombo->addItem("sss");
+    _stopBitsCombo->addItem("sss");
+    _stopBitsCombo->addItem("sss");
+    grid->addWidget(_stopBitsCombo, 4, 1);
 
     // 标签
     auto* serialLabelHint = new ElaText(tr("Label"), page);
     serialLabelHint->setWordWrap(false);
     serialLabelHint->setTextPixelSize(15);
-    grid->addWidget(serialLabelHint, 3, 0, Qt::AlignVCenter);
+    grid->addWidget(serialLabelHint, 5, 0, Qt::AlignVCenter);
 
     _serialLabel = new ElaLineEdit(page);
     _serialLabel->setText("sss");
-    grid->addWidget(_serialLabel, 3, 1);
+    grid->addWidget(_serialLabel, 5, 1);
 
-    grid->setRowStretch(4, 1);
+    grid->setRowStretch(6, 1);  
 
     _tabWidget->addTab(page, tr("serial port"));
 }

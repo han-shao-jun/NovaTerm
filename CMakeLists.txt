@@ -35,7 +35,7 @@ set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 
 # Find Qt
 find_package(QT NAMES Qt6 Qt5 REQUIRED COMPONENTS Widgets Sql Svg)
-find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS Widgets Sql Svg)
+find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS Widgets Sql Svg LinguistTools)
 
 message(STATUS "Using Qt ${QT_VERSION_MAJOR}.${QT_VERSION_MINOR}")
 
@@ -237,12 +237,19 @@ if(CMAKE_HOST_SYSTEM_NAME STREQUAL "Linux")
 endif()
 
 
-# TODO: qt_add_translations requires Qt6::LinguistTools component
-# set(TS_FILES
-#         resources/translations/novaterm_en.ts
-#         resources/translations/novaterm_zh_CN.ts
-# )
-# qt_add_translations(
-#         TARGETS NovaTerm
-#         TS_FILES ${TS_FILES}
-# )
+set(TS_FILES
+        resources/translations/novaterm_en.ts
+        resources/translations/novaterm_zh_CN.ts
+)
+qt_add_translations(
+        TARGETS NovaTerm
+        TS_FILES ${TS_FILES}
+)
+
+# 安装 .qm 翻译文件到 bin 同级目录
+install(
+    DIRECTORY "${CMAKE_BINARY_DIR}/translations"
+    DESTINATION bin
+    FILES_MATCHING
+    PATTERN "*.qm"
+)

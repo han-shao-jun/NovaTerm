@@ -67,7 +67,7 @@ void LanguageManager::loadTranslations()
     for (const auto& loc : locales) {
         QTranslator* t = new QTranslator(this);
         // 使用完整资源路径并显式指定 .qm 后缀
-        QString qmPath = ":/translations/novaterm_" + loc.name + ".qm";
+        QString qmPath = ":/i18n/novaterm_" + loc.name + ".qm";
         if (t->load(qmPath)) {
             _translators.insert(loc.name, t);
             qDebug() << "已加载翻译：" << qmPath;

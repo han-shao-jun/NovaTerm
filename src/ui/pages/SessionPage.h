@@ -47,7 +47,9 @@ private:
 
     ElaComboBox* _portCombo{nullptr};
     ElaComboBox* _baudRateCombo{nullptr};
-    ElaComboBox* _checkCombo{nullptr};
+    ElaComboBox* _parityCombo{nullptr};
+    ElaComboBox* _dataBitsCombo{nullptr};
+    ElaComboBox* _stopBitsCombo{nullptr};
     ElaLineEdit* _serialLabel{nullptr};
 
 

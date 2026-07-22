@@ -68,7 +68,21 @@ Built with:
 </context>
 <context>
     <name>SessionPage</name>
+    <message><source>Session</source><translation>会话</translation></message>
+    <message><source>Cancel</source><translation>取消</translation></message>
+    <message><source>Confirm</source><translation>确认</translation></message>
     <message><source>Type</source><translation>类型</translation></message>
+    <message><source>Label</source><translation>标签</translation></message>
+    <message><source>local shell</source><translation>本地终端</translation></message>
+    <message><source>IP</source><translation>IP地址</translation></message>
+    <message><source>User Name</source><translation>用户名</translation></message>
+    <message><source>Password</source><translation>密码</translation></message>
+    <message><source>ssh</source><translation>SSH</translation></message>
+    <message><source>Port Num</source><translation>端口号</translation></message>
+    <message><source>Baud Rate</source><translation>波特率</translation></message>
+    <message><source>Check</source><translation>校验位</translation></message>
+    <message><source>serial port</source><translation>串口</translation></message>
+    <message><source>telnet</source><translation>Telnet</translation></message>
 </context>
 <context>
     <name>SettingsPage</name>

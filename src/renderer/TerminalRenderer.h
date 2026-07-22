@@ -17,6 +17,7 @@ class TerminalRenderer : public QWidget
     Q_OBJECT
 public:
     explicit TerminalRenderer(TerminalCore* core, QWidget* parent = nullptr);
+    ~TerminalRenderer() override;
 
     // ── 外观 ───────────────────────────────────────────────────
     void setColorScheme(const TerminalColorScheme& scheme);

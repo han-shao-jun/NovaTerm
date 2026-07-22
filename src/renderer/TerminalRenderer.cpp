@@ -91,6 +91,17 @@ TerminalRenderer::TerminalRenderer(TerminalCore* core, QWidget* parent)
     });
 }
 
+TerminalRenderer::~TerminalRenderer()
+{
+    if (_blinkTimer) {
+        _blinkTimer->stop();
+    }
+    // 不需要手动 disconnect _core：Qt 会在任意一方析构时自动断开所有连接。
+    // 在 deleteChildren() 过程中 _core 可能已先析构，此时 disconnect 会访问
+    // 半析构的 QObject 内部元数据导致 SIGSEGV。
+    delete _fm;
+}
+
 // ═══════════════════════════════════════════════════════════════════
 //  外观
 // ═══════════════════════════════════════════════════════════════════

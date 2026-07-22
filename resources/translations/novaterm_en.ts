@@ -68,7 +68,21 @@ Built with:
 </context>
 <context>
     <name>SessionPage</name>
+    <message><source>Session</source><translation>Session</translation></message>
+    <message><source>Cancel</source><translation>Cancel</translation></message>
+    <message><source>Confirm</source><translation>Confirm</translation></message>
     <message><source>Type</source><translation>Type</translation></message>
+    <message><source>Label</source><translation>Label</translation></message>
+    <message><source>local shell</source><translation>Local Shell</translation></message>
+    <message><source>IP</source><translation>IP</translation></message>
+    <message><source>User Name</source><translation>User Name</translation></message>
+    <message><source>Password</source><translation>Password</translation></message>
+    <message><source>ssh</source><translation>SSH</translation></message>
+    <message><source>Port Num</source><translation>Port Num</translation></message>
+    <message><source>Baud Rate</source><translation>Baud Rate</translation></message>
+    <message><source>Check</source><translation>Check</translation></message>
+    <message><source>serial port</source><translation>Serial Port</translation></message>
+    <message><source>telnet</source><translation>Telnet</translation></message>
 </context>
 <context>
     <name>SettingsPage</name>

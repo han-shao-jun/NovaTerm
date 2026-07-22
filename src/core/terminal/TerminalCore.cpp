@@ -56,6 +56,7 @@ TerminalCore::TerminalCore(int cols, int rows, QObject* parent)
 
 TerminalCore::~TerminalCore()
 {
+    disconnect();
     if (_vt) {
         vterm_free(_vt);
         _vt = nullptr;
@@ -199,8 +200,6 @@ void TerminalCore::pasteText(const QString& text)
 {
     if (!_vt || text.isEmpty()) return;
     vterm_keyboard_start_paste(_vt);
-    vterm_keyboard_unichar(_vt, text.toStdU32String()[0], VTERM_MOD_NONE); // TODO: proper text iteration
-    // Simple approach: write each character
     const auto u32 = text.toUcs4();
     for (const uint32_t cp : u32) {
         vterm_keyboard_unichar(_vt, cp, VTERM_MOD_NONE);
