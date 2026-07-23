@@ -241,6 +241,9 @@ set(TS_FILES
         resources/translations/novaterm_en.ts
         resources/translations/novaterm_zh_CN.ts
 )
+
+# 为 Qt6 添加翻译文件，使用翻译工具扫描代码中的字符串生成ts文件
+# 然后使用翻译工具翻译ts文件，生成qm文件
 qt_add_translations(
         TARGETS NovaTerm
         TS_FILES ${TS_FILES}
