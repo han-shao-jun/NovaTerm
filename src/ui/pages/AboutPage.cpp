@@ -27,8 +27,8 @@ AboutPage::AboutPage(QWidget* parent) : ElaScrollPage(parent)
         tr("A cross-platform terminal emulator & SSH client\n"
            "with FluentUI design, inspired by WindTerm.\n\n"
            "Built with:\n"
-           "  • Qt 6.7  •  ElaWidgetTools (FluentUI)\n"
-           "  • QTermWidget (terminal emulation)\n"
+           "  • Qt 6.8  •  ElaWidgetTools (FluentUI)\n"
+           "  • libvterm-0.3.3 (terminal emulation)\n"
            "  • libssh (SSH/SFTP)"),
         this);
     _descText->setTextPixelSize(13);

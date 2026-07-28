@@ -30,15 +30,15 @@
 with FluentUI design, inspired by WindTerm.
 
 Built with:
-  • Qt 6.7  •  ElaWidgetTools (FluentUI)
-  • QTermWidget (terminal emulation)
+  • Qt 6.8  •  ElaWidgetTools (FluentUI)
+  • libvterm-0.3.3 (terminal emulation)
   • libssh (SSH/SFTP)</source>
         <translation>跨平台终端模拟器及 SSH 客户端
 采用 FluentUI 设计，灵感源自 WindTerm。
 
 构建使用：
-  • Qt 6.7  •  ElaWidgetTools (FluentUI)
-  • QTermWidget (终端模拟)
+  • Qt 6.8  •  ElaWidgetTools (FluentUI)
+  • libvterm-0.3.3 (终端模拟)
   • libssh (SSH/SFTP)</translation>
     </message>
     <message>

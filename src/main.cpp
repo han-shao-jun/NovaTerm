@@ -190,7 +190,7 @@ int main(int argc, char *argv[])
     // 之前设置 Cloak 属性。
     HWND hwnd = reinterpret_cast<HWND>(w.winId());
     setDwmCloak(hwnd, true);   // 1. 从 DWM 合成中隐藏
-    w.show();                   // 2. 窗口"显示"（DWM 不合成，用户看不到）
+    w.show();                  // 2. 窗口"显示"（DWM 不合成，用户看不到）
 
     // 3. 同步完成擦除背景 + 首次绘制，将深色内容写入 DWM 表面
     RedrawWindow(hwnd, nullptr, nullptr,
