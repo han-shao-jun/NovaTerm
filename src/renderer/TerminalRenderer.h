@@ -1,18 +1,31 @@
 #pragma once
-#include <QWidget>
+#include <QRhiWidget>
 #include <QFont>
 #include <QTimer>
 #include <QPoint>
+#include <QImage>
+#include <QHash>
+#include <QRect>
+#include <QVector>
+#include <rhi/qshader.h>
+#include <memory>
 #include <vterm.h>
 #include "TerminalColorScheme.h"
 
 class TerminalCore;
 class ScrollbackCell;
+class QRhi;
+class QRhiBuffer;
+class QRhiCommandBuffer;
+class QRhiGraphicsPipeline;
+class QRhiSampler;
+class QRhiShaderResourceBindings;
+class QRhiTexture;
 
-// 基于 QPainter 的终端渲染 Widget。
+// 基于 QRhi 的终端渲染 Widget。
 // 从 TerminalCore 读取活跃屏幕 cell，从 ScrollbackBuffer 读取历史行，
-// 处理光标闪烁、鼠标选区和字体缩放。
-class TerminalRenderer : public QWidget
+// 使用 GPU 批量四边形和持久字形图集绘制，CPU 仅栅格化缓存未命中的字形。
+class TerminalRenderer : public QRhiWidget
 {
     Q_OBJECT
 public:
@@ -48,7 +61,9 @@ signals:
     void activityDetected();
 
 protected:
-    void paintEvent(QPaintEvent* event) override;
+    void initialize(QRhiCommandBuffer* cb) override;
+    void render(QRhiCommandBuffer* cb) override;
+    void releaseResources() override;
     void resizeEvent(QResizeEvent* event) override;
     void keyPressEvent(QKeyEvent* event) override;
     void mousePressEvent(QMouseEvent* event) override;
@@ -60,6 +75,23 @@ protected:
     void focusOutEvent(QFocusEvent* event) override;
 
 private:
+    struct GpuVertex
+    {
+        float x;
+        float y;
+        float u;
+        float v;
+        float r;
+        float g;
+        float b;
+        float a;
+    };
+
+    struct GlyphEntry
+    {
+        QRect pixelRect;
+    };
+
     // ── 渲染辅助 ──────────────────────────────────────────────
     void recalculateCellSize();
     QPoint cellToWidget(int documentRow, int col) const;
@@ -68,19 +100,32 @@ private:
     bool isDocumentPositionValid(const VTermPos& pos) const;
     uint32_t documentCellCodepoint(int documentRow, int col) const;
 
-    void renderCells(QPainter& p, const QRect& rect);
-    void renderCell(QPainter& p, int x, int y,
-                    const uint32_t* chars, char width,
+    void buildGpuFrame(const QSize& pixelSize);
+    void appendCell(int x, int y, const uint32_t* chars, char width,
                     const VTermScreenCellAttrs& attrs,
-                    const VTermColor& fg, const VTermColor& bg);
-    void renderCursor(QPainter& p);
-    void renderSelection(QPainter& p);
+                    const VTermColor& fg, const VTermColor& bg,
+                    const QSize& pixelSize);
+    void appendCursor(const QSize& pixelSize);
+    void appendSelection(const QSize& pixelSize);
+    void appendSolidRect(const QRectF& rect, const QColor& color,
+                         const QSize& pixelSize);
+    void appendTexturedRect(const QRectF& rect, const QRect& atlasRect,
+                            const QColor& color, const QSize& pixelSize);
+    void appendQuad(const QRectF& rect, const QRectF& uvRect,
+                    const QColor& color, const QSize& pixelSize);
+    const GlyphEntry& ensureGlyph(const QString& text, bool bold, int cellSpan);
+    void resetGlyphAtlas();
+
 
     // ── 颜色转换 ──────────────────────────────────────────────
     QColor vtermColorToQColor(const VTermColor& vc) const;
 
     // ── Unicode 转 UTF-8 ──────────────────────────────────────
     static QString cellCharsToString(const uint32_t* chars, int maxCount);
+    static QShader loadShader(const QString& path);
+    void releaseRhiResources();
+    void ensureAtlasTexture();
+    void ensurePipeline();
 
     TerminalCore* _core;
     TerminalColorScheme _scheme;
@@ -104,4 +149,20 @@ private:
 
     // 用于跟踪 wheel 事件累积
     int _wheelAccum{0};
+
+    QRhi* _rhi{nullptr};
+    QImage _atlasImage;
+    QHash<QString, GlyphEntry> _glyphs;
+    int _atlasX{1};
+    int _atlasY{1};
+    int _atlasRowHeight{0};
+    bool _atlasDirty{true};
+    qreal _atlasDpr{0.0};
+    QVector<GpuVertex> _vertices;
+    int _vertexBufferSize{0};
+    std::unique_ptr<QRhiTexture> _atlasTexture;
+    std::unique_ptr<QRhiSampler> _sampler;
+    std::unique_ptr<QRhiBuffer> _vertexBuffer;
+    std::unique_ptr<QRhiShaderResourceBindings> _srb;
+    std::unique_ptr<QRhiGraphicsPipeline> _pipeline;
 };

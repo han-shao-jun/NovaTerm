@@ -8,7 +8,7 @@ class TerminalRenderer;
 class TerminalColorScheme;
 class QTimer;
 
-// 终端视图：组合 TerminalCore（libvterm 仿真引擎）+ TerminalRenderer（QPainter 渲染），
+// 终端视图：组合 TerminalCore（libvterm 仿真引擎）+ TerminalRenderer（QRhi GPU 渲染），
 // 通过 ITransport 接口统一桥接本地/远程终端数据通路。
 //
 // 数据流：

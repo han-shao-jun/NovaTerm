@@ -3,14 +3,17 @@
 #include "core/terminal/KeyMapper.h"
 #include "core/terminal/ScrollbackBuffer.h"
 #include <QPainter>
-#include <QPaintEvent>
 #include <QKeyEvent>
 #include <QMouseEvent>
 #include <QWheelEvent>
 #include <QScrollBar>
 #include <QApplication>
+#include <QByteArray>
 #include <QClipboard>
 #include <QDebug>
+#include <QFile>
+#include <rhi/qshader.h>
+#include <rhi/qrhi.h>
 #include <algorithm>
 #include <cstring>
 #include <limits>
@@ -19,11 +22,47 @@
 static constexpr int kScrollWheelLines = 3;
 static constexpr uint32_t kWideCharContinuation = std::numeric_limits<uint32_t>::max();
 
+static QRhiWidget::Api preferredRhiApi()
+{
+    const QByteArray api = qgetenv("NOVATERM_RHI_API").trimmed().toLower();
+    if (api == "d3d11" || api == "direct3d11")
+        return QRhiWidget::Api::Direct3D11;
+    if (api == "d3d12" || api == "direct3d12")
+        return QRhiWidget::Api::Direct3D12;
+    if (api == "vulkan")
+        return QRhiWidget::Api::Vulkan;
+    if (api == "null")
+        return QRhiWidget::Api::Null;
+
+#ifdef Q_OS_WIN
+    return QRhiWidget::Api::Direct3D11;
+#elif defined(Q_OS_MACOS) || defined(Q_OS_IOS)
+    return QRhiWidget::Api::Metal;
+#else
+    return QRhiWidget::Api::OpenGL;
+#endif
+}
+
+static const char* rhiApiName(QRhiWidget::Api api)
+{
+    switch (api) {
+    case QRhiWidget::Api::Direct3D11: return "Direct3D 11";
+    case QRhiWidget::Api::Direct3D12: return "Direct3D 12";
+    case QRhiWidget::Api::Vulkan: return "Vulkan";
+    case QRhiWidget::Api::Metal: return "Metal";
+    case QRhiWidget::Api::OpenGL: return "OpenGL";
+    case QRhiWidget::Api::Null: return "Null";
+    }
+    return "Unknown";
+}
+
 TerminalRenderer::TerminalRenderer(TerminalCore* core, QWidget* parent)
-    : QWidget(parent)
+    : QRhiWidget(parent)
     , _core(core)
     , _scheme(TerminalColorScheme::defaultDark())
 {
+    setApi(preferredRhiApi());
+
     setFocusPolicy(Qt::StrongFocus);
     setAttribute(Qt::WA_OpaquePaintEvent);
     setMouseTracking(true);
@@ -37,6 +76,7 @@ TerminalRenderer::TerminalRenderer(TerminalCore* core, QWidget* parent)
     _font.setPointSize(12);
     _fm = new QFontMetricsF(_font);
     recalculateCellSize();
+    resetGlyphAtlas();
 
     // 光标闪烁定时器
     _blinkTimer = new QTimer(this);
@@ -89,6 +129,10 @@ TerminalRenderer::TerminalRenderer(TerminalCore* core, QWidget* parent)
         }
         update();
     });
+
+    connect(this, &QRhiWidget::renderFailed, this, []() {
+        qWarning() << "TerminalRenderer: QRhi render failed. Set NOVATERM_RHI_API=d3d11, d3d12, vulkan, or opengl to try another backend.";
+    });
 }
 
 TerminalRenderer::~TerminalRenderer()
@@ -96,6 +140,7 @@ TerminalRenderer::~TerminalRenderer()
     if (_blinkTimer) {
         _blinkTimer->stop();
     }
+    releaseRhiResources();
     // 不需要手动 disconnect _core：Qt 会在任意一方析构时自动断开所有连接。
     // 在 deleteChildren() 过程中 _core 可能已先析构，此时 disconnect 会访问
     // 半析构的 QObject 内部元数据导致 SIGSEGV。
@@ -154,6 +199,7 @@ void TerminalRenderer::zoomIn()
         delete _fm;
         _fm = new QFontMetricsF(_font);
         recalculateCellSize();
+        resetGlyphAtlas();
         updateGeometry();
         update();
     }
@@ -167,6 +213,7 @@ void TerminalRenderer::zoomOut()
         delete _fm;
         _fm = new QFontMetricsF(_font);
         recalculateCellSize();
+        resetGlyphAtlas();
         updateGeometry();
         update();
     }
@@ -294,16 +341,76 @@ QPoint TerminalRenderer::widgetToCell(const QPoint& pos) const
 //  paintEvent
 // ═══════════════════════════════════════════════════════════════════
 
-void TerminalRenderer::paintEvent(QPaintEvent* event)
+void TerminalRenderer::initialize(QRhiCommandBuffer* cb)
 {
-    QPainter p(this);
-    p.setRenderHint(QPainter::TextAntialiasing);
-    p.setRenderHint(QPainter::Antialiasing, false);
+    Q_UNUSED(cb);
 
-    const QRect dirty = event->rect();
-    renderCells(p, dirty);
-    renderSelection(p);
-    renderCursor(p);
+    if (_rhi != rhi()) {
+        releaseRhiResources();
+        _rhi = rhi();
+        qInfo() << "TerminalRenderer: GPU glyph renderer initialized with"
+                << rhiApiName(api());
+    }
+
+    ensureAtlasTexture();
+    ensurePipeline();
+}
+
+void TerminalRenderer::render(QRhiCommandBuffer* cb)
+{
+    if (!_rhi || !cb || !renderTarget())
+        return;
+
+    const QSize pixelSize = colorTexture() ? colorTexture()->pixelSize() : QSize();
+    if (pixelSize.isEmpty())
+        return;
+
+    ensureAtlasTexture();
+    ensurePipeline();
+
+    if (!_atlasTexture || !_pipeline || !_srb)
+        return;
+
+    buildGpuFrame(pixelSize);
+    if (_vertices.isEmpty())
+        return;
+
+    const int requiredBytes = int(_vertices.size() * sizeof(GpuVertex));
+    if (!_vertexBuffer || _vertexBufferSize < requiredBytes) {
+        _vertexBuffer.reset();
+        _vertexBufferSize = std::max(requiredBytes, 256 * 1024);
+        _vertexBuffer.reset(_rhi->newBuffer(QRhiBuffer::Dynamic,
+                                            QRhiBuffer::VertexBuffer,
+                                            _vertexBufferSize));
+        if (!_vertexBuffer->create()) {
+            qWarning() << "TerminalRenderer: failed to create QRhi vertex buffer";
+            _vertexBuffer.reset();
+            _vertexBufferSize = 0;
+            return;
+        }
+    }
+
+    QRhiResourceUpdateBatch* resourceUpdates = _rhi->nextResourceUpdateBatch();
+    resourceUpdates->updateDynamicBuffer(_vertexBuffer.get(), 0, requiredBytes, _vertices.constData());
+    if (_atlasDirty) {
+        resourceUpdates->uploadTexture(_atlasTexture.get(), _atlasImage);
+        _atlasDirty = false;
+    }
+
+    cb->beginPass(renderTarget(), _scheme.background, {1.0f, 0}, resourceUpdates);
+    cb->setGraphicsPipeline(_pipeline.get());
+    cb->setViewport(QRhiViewport(0, 0, pixelSize.width(), pixelSize.height()));
+    cb->setShaderResources(_srb.get());
+    const QRhiCommandBuffer::VertexInput vertexBinding(_vertexBuffer.get(), 0);
+    cb->setVertexInput(0, 1, &vertexBinding);
+    cb->draw(_vertices.size());
+    cb->endPass();
+}
+
+void TerminalRenderer::releaseResources()
+{
+    releaseRhiResources();
+    _rhi = nullptr;
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -312,7 +419,7 @@ void TerminalRenderer::paintEvent(QPaintEvent* event)
 
 void TerminalRenderer::resizeEvent(QResizeEvent* event)
 {
-    QWidget::resizeEvent(event);
+    QRhiWidget::resizeEvent(event);
 
     recalculateCellSize();
 
@@ -510,6 +617,347 @@ bool TerminalRenderer::isDocumentPositionValid(const VTermPos& pos) const
 }
 
 // ── 渲染 ─────────────────────────────────────────────────────
+
+QShader TerminalRenderer::loadShader(const QString& path)
+{
+    QFile file(path);
+    if (!file.open(QIODevice::ReadOnly)) {
+        qWarning() << "TerminalRenderer: failed to open shader" << path << file.errorString();
+        return {};
+    }
+    return QShader::fromSerialized(file.readAll());
+}
+
+void TerminalRenderer::releaseRhiResources()
+{
+    _pipeline.reset();
+    _srb.reset();
+    _vertexBuffer.reset();
+    _vertexBufferSize = 0;
+    _sampler.reset();
+    _atlasTexture.reset();
+}
+
+void TerminalRenderer::resetGlyphAtlas()
+{
+    constexpr int kAtlasSize = 2048;
+    _atlasImage = QImage(kAtlasSize, kAtlasSize, QImage::Format_RGBA8888);
+    _atlasImage.fill(Qt::transparent);
+    _atlasImage.setPixelColor(0, 0, Qt::white);
+    _glyphs.clear();
+    _atlasX = 1;
+    _atlasY = 1;
+    _atlasRowHeight = 0;
+    _atlasDpr = devicePixelRatioF();
+    _atlasDirty = true;
+}
+
+void TerminalRenderer::ensureAtlasTexture()
+{
+    if (!_rhi)
+        return;
+    if (_atlasImage.isNull() || !qFuzzyCompare(_atlasDpr, devicePixelRatioF()))
+        resetGlyphAtlas();
+    if (_atlasTexture)
+        return;
+
+    _atlasTexture.reset(_rhi->newTexture(QRhiTexture::RGBA8, _atlasImage.size()));
+    if (!_atlasTexture->create()) {
+        qWarning() << "TerminalRenderer: failed to create glyph atlas texture";
+        _atlasTexture.reset();
+        return;
+    }
+    _atlasDirty = true;
+}
+
+void TerminalRenderer::ensurePipeline()
+{
+    if (_pipeline || !_rhi || !_atlasTexture)
+        return;
+
+    if (!_sampler) {
+        _sampler.reset(_rhi->newSampler(QRhiSampler::Linear,
+                                        QRhiSampler::Linear,
+                                        QRhiSampler::None,
+                                        QRhiSampler::ClampToEdge,
+                                        QRhiSampler::ClampToEdge));
+        if (!_sampler->create()) {
+            qWarning() << "TerminalRenderer: failed to create QRhi sampler";
+            _sampler.reset();
+            return;
+        }
+    }
+
+    _srb.reset(_rhi->newShaderResourceBindings());
+    _srb->setBindings({
+        QRhiShaderResourceBinding::sampledTexture(0,
+                                                  QRhiShaderResourceBinding::FragmentStage,
+                                                  _atlasTexture.get(),
+                                                  _sampler.get())
+    });
+    if (!_srb->create()) {
+        qWarning() << "TerminalRenderer: failed to create QRhi shader bindings";
+        _srb.reset();
+        return;
+    }
+
+    _pipeline.reset(_rhi->newGraphicsPipeline());
+    _pipeline->setShaderStages({
+        {QRhiShaderStage::Vertex, loadShader(QStringLiteral(":/shaders/src/renderer/shaders/terminal_texture.vert.qsb"))},
+        {QRhiShaderStage::Fragment, loadShader(QStringLiteral(":/shaders/src/renderer/shaders/terminal_texture.frag.qsb"))}
+    });
+    QRhiVertexInputLayout inputLayout;
+    inputLayout.setBindings({{8 * int(sizeof(float))}});
+    inputLayout.setAttributes({
+        {0, 0, QRhiVertexInputAttribute::Float2, 0},
+        {0, 1, QRhiVertexInputAttribute::Float2, 2 * int(sizeof(float))},
+        {0, 2, QRhiVertexInputAttribute::Float4, 4 * int(sizeof(float))}
+    });
+    _pipeline->setVertexInputLayout(inputLayout);
+    _pipeline->setShaderResourceBindings(_srb.get());
+    _pipeline->setRenderPassDescriptor(renderTarget()->renderPassDescriptor());
+    _pipeline->setTopology(QRhiGraphicsPipeline::Triangles);
+    QRhiGraphicsPipeline::TargetBlend blend;
+    blend.enable = true;
+    blend.srcColor = QRhiGraphicsPipeline::SrcAlpha;
+    blend.dstColor = QRhiGraphicsPipeline::OneMinusSrcAlpha;
+    blend.srcAlpha = QRhiGraphicsPipeline::One;
+    blend.dstAlpha = QRhiGraphicsPipeline::OneMinusSrcAlpha;
+    _pipeline->setTargetBlends({blend});
+
+    if (!_pipeline->create()) {
+        qWarning() << "TerminalRenderer: failed to create QRhi graphics pipeline";
+        _pipeline.reset();
+        return;
+    }
+}
+
+const TerminalRenderer::GlyphEntry& TerminalRenderer::ensureGlyph(
+    const QString& text, bool bold, int cellSpan)
+{
+    const QString key = QString::number(bold ? 1 : 0) + QLatin1Char(':')
+        + QString::number(cellSpan) + QLatin1Char(':') + text;
+    auto found = _glyphs.constFind(key);
+    if (found != _glyphs.constEnd())
+        return found.value();
+
+    const qreal dpr = devicePixelRatioF();
+    const QSize logicalSize(_cellWidth * std::max(1, cellSpan), _cellHeight);
+    const QSize pixelSize(qCeil(logicalSize.width() * dpr),
+                          qCeil(logicalSize.height() * dpr));
+    const int paddedWidth = pixelSize.width() + 2;
+    const int paddedHeight = pixelSize.height() + 2;
+    if (_atlasX + paddedWidth > _atlasImage.width()) {
+        _atlasX = 1;
+        _atlasY += _atlasRowHeight;
+        _atlasRowHeight = 0;
+    }
+    if (_atlasY + paddedHeight > _atlasImage.height())
+        resetGlyphAtlas();
+
+    QImage glyphImage(pixelSize, QImage::Format_RGBA8888);
+    glyphImage.fill(Qt::transparent);
+    glyphImage.setDevicePixelRatio(dpr);
+    QPainter painter(&glyphImage);
+    painter.setRenderHint(QPainter::TextAntialiasing);
+    QFont glyphFont = _font;
+    glyphFont.setBold(bold);
+    painter.setFont(glyphFont);
+    painter.setPen(Qt::white);
+    painter.drawText(0, int(_fm->ascent()), text);
+    painter.end();
+
+    const QRect pixelRect(_atlasX + 1, _atlasY + 1,
+                          pixelSize.width(), pixelSize.height());
+    QPainter atlasPainter(&_atlasImage);
+    atlasPainter.setCompositionMode(QPainter::CompositionMode_Source);
+    atlasPainter.drawImage(pixelRect.topLeft(), glyphImage);
+    atlasPainter.end();
+
+    _atlasX += paddedWidth;
+    _atlasRowHeight = std::max(_atlasRowHeight, paddedHeight);
+    _atlasDirty = true;
+    return _glyphs.insert(key, GlyphEntry{pixelRect}).value();
+}
+
+void TerminalRenderer::appendQuad(const QRectF& rect, const QRectF& uvRect,
+                                  const QColor& color, const QSize& pixelSize)
+{
+    const qreal dpr = devicePixelRatioF();
+    const float left = float(rect.left() * dpr / pixelSize.width() * 2.0 - 1.0);
+    const float right = float(rect.right() * dpr / pixelSize.width() * 2.0 - 1.0);
+    const float top = float(1.0 - rect.top() * dpr / pixelSize.height() * 2.0);
+    const float bottom = float(1.0 - rect.bottom() * dpr / pixelSize.height() * 2.0);
+    const float red = color.redF();
+    const float green = color.greenF();
+    const float blue = color.blueF();
+    const float alpha = color.alphaF();
+    const GpuVertex topLeft{left, top, float(uvRect.left()), float(uvRect.top()),
+                            red, green, blue, alpha};
+    const GpuVertex topRight{right, top, float(uvRect.right()), float(uvRect.top()),
+                             red, green, blue, alpha};
+    const GpuVertex bottomLeft{left, bottom, float(uvRect.left()), float(uvRect.bottom()),
+                               red, green, blue, alpha};
+    const GpuVertex bottomRight{right, bottom, float(uvRect.right()), float(uvRect.bottom()),
+                                red, green, blue, alpha};
+    _vertices << topLeft << bottomLeft << topRight
+              << topRight << bottomLeft << bottomRight;
+}
+
+void TerminalRenderer::appendSolidRect(const QRectF& rect, const QColor& color,
+                                       const QSize& pixelSize)
+{
+    const qreal atlasWidth = _atlasImage.width();
+    const qreal atlasHeight = _atlasImage.height();
+    appendQuad(rect,
+               QRectF(0.25 / atlasWidth, 0.25 / atlasHeight,
+                      0.5 / atlasWidth, 0.5 / atlasHeight),
+               color, pixelSize);
+}
+
+void TerminalRenderer::appendTexturedRect(const QRectF& rect, const QRect& atlasRect,
+                                          const QColor& color, const QSize& pixelSize)
+{
+    const qreal atlasWidth = _atlasImage.width();
+    const qreal atlasHeight = _atlasImage.height();
+    appendQuad(rect,
+               QRectF(atlasRect.left() / atlasWidth,
+                      atlasRect.top() / atlasHeight,
+                      atlasRect.width() / atlasWidth,
+                      atlasRect.height() / atlasHeight),
+               color, pixelSize);
+}
+
+void TerminalRenderer::appendCell(int x, int y, const uint32_t* chars, char width,
+                                  const VTermScreenCellAttrs& attrs,
+                                  const VTermColor& fgColor,
+                                  const VTermColor& bgColor,
+                                  const QSize& pixelSize)
+{
+    const int cellSpan = std::max(1, static_cast<int>(width));
+    const int paintWidth = _cellWidth * cellSpan;
+    QColor foreground = vtermColorToQColor(fgColor);
+    QColor background = vtermColorToQColor(bgColor);
+    if (attrs.reverse)
+        std::swap(foreground, background);
+    appendSolidRect(QRectF(x, y, paintWidth, _cellHeight), background, pixelSize);
+
+    if (attrs.conceal)
+        return;
+    if (chars[0] != 0 && chars[0] != ' ') {
+        const QString text = cellCharsToString(chars, VTERM_MAX_CHARS_PER_CELL);
+        if (!text.isEmpty()) {
+            const auto& glyph = ensureGlyph(text, attrs.bold, cellSpan);
+            appendTexturedRect(QRectF(x, y, paintWidth, _cellHeight),
+                               glyph.pixelRect, foreground, pixelSize);
+        }
+    }
+    if (attrs.underline != VTERM_UNDERLINE_OFF) {
+        const int underlineY = y + static_cast<int>(_fm->ascent()) + 2;
+        appendSolidRect(QRectF(x, underlineY, paintWidth, 1), foreground, pixelSize);
+        if (attrs.underline == VTERM_UNDERLINE_DOUBLE)
+            appendSolidRect(QRectF(x, underlineY + 2, paintWidth, 1), foreground, pixelSize);
+    }
+    if (attrs.strike)
+        appendSolidRect(QRectF(x, y + _cellHeight / 2, paintWidth, 1),
+                        foreground, pixelSize);
+}
+
+void TerminalRenderer::buildGpuFrame(const QSize& pixelSize)
+{
+    _vertices.clear();
+    _vertices.reserve(_core->rows() * _core->columns() * 12);
+    const int rows = _core->rows();
+    const int columns = _core->columns();
+    const int scrollbackCount = _core->scrollbackLineCount();
+    for (int widgetRow = 0; widgetRow < rows; ++widgetRow) {
+        const int screenRow = widgetRow - _scrollLine;
+        for (int column = 0; column < columns; ++column) {
+            const int x = column * _cellWidth;
+            const int y = widgetRow * _cellHeight;
+            if (screenRow < 0) {
+                ScrollbackCell cell;
+                if (_core->getScrollbackCell(scrollbackCount + screenRow, column, cell)
+                    && cell.chars[0] != kWideCharContinuation) {
+                    appendCell(x, y, cell.chars, cell.width, cell.attrs,
+                               cell.fg, cell.bg, pixelSize);
+                }
+            } else {
+                VTermScreenCell cell;
+                if (_core->getCell(screenRow, column, cell)
+                    && cell.chars[0] != kWideCharContinuation) {
+                    appendCell(x, y, cell.chars, cell.width, cell.attrs,
+                               cell.fg, cell.bg, pixelSize);
+                }
+            }
+        }
+    }
+    appendSelection(pixelSize);
+    appendCursor(pixelSize);
+}
+
+void TerminalRenderer::appendCursor(const QSize& pixelSize)
+{
+    if (!_core->cursorVisible() || _scrollLine != 0
+        || (_core->cursorBlink() && !_cursorBlinkVisible))
+        return;
+    const auto position = _core->cursorPosition();
+    if (position.row < 0 || position.row >= _core->rows()
+        || position.col < 0 || position.col >= _core->columns())
+        return;
+
+    const QColor color = _scheme.cursorColor.isValid()
+        ? _scheme.cursorColor : _scheme.foreground;
+    const QPoint point = cellToWidget(position.row, position.col);
+    QRectF cursorRect(point.x(), point.y(), _cellWidth, _cellHeight);
+    if (_core->cursorShape() == VTERM_PROP_CURSORSHAPE_UNDERLINE)
+        cursorRect = QRectF(point.x(), point.y() + _cellHeight - 2, _cellWidth, 2);
+    else if (_core->cursorShape() == VTERM_PROP_CURSORSHAPE_BAR_LEFT)
+        cursorRect = QRectF(point.x(), point.y(), 2, _cellHeight);
+    appendSolidRect(cursorRect, color, pixelSize);
+}
+
+void TerminalRenderer::appendSelection(const QSize& pixelSize)
+{
+    if (!hasSelection())
+        return;
+    VTermPos start = _selStart;
+    VTermPos end = _selEnd;
+    if (vterm_pos_cmp(end, start) < 0)
+        std::swap(start, end);
+    const QColor selectionColor = _scheme.selectionColor.isValid()
+        ? _scheme.selectionColor : QColor(84, 107, 138, 128);
+    for (int row = start.row; row <= end.row; ++row) {
+        const int widgetRow = row + _scrollLine;
+        if (widgetRow < 0 || widgetRow >= _core->rows())
+            continue;
+        const int firstColumn = row == start.row ? start.col : 0;
+        const int lastColumn = row == end.row ? end.col : _core->columns() - 1;
+        const QPoint topLeft = cellToWidget(widgetRow, firstColumn);
+        const QPoint bottomRight = cellToWidget(widgetRow, lastColumn + 1);
+        appendSolidRect(QRectF(topLeft.x(), topLeft.y(),
+                               bottomRight.x() - topLeft.x(), _cellHeight),
+                        selectionColor, pixelSize);
+    }
+}
+
+#if 0
+void TerminalRenderer::renderTerminalFrame(QImage& frame)
+{
+    if (frame.isNull())
+        return;
+
+    frame.fill(_scheme.background);
+
+    QPainter p(&frame);
+    p.scale(devicePixelRatioF(), devicePixelRatioF());
+    p.setRenderHint(QPainter::TextAntialiasing);
+    p.setRenderHint(QPainter::Antialiasing, false);
+
+    renderCells(p, rect());
+    renderSelection(p);
+    renderCursor(p);
+}
 
 void TerminalRenderer::renderCells(QPainter& p, const QRect& dirty)
 {
@@ -710,6 +1158,8 @@ void TerminalRenderer::renderSelection(QPainter& p)
 }
 
 // ── 颜色转换 ─────────────────────────────────────────────────
+
+#endif
 
 QColor TerminalRenderer::vtermColorToQColor(const VTermColor& vc) const
 {

@@ -34,8 +34,8 @@ set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 
 # Find Qt
-find_package(QT NAMES Qt6 Qt5 REQUIRED COMPONENTS Widgets Sql Svg)
-find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS Widgets Sql Svg LinguistTools)
+find_package(QT NAMES Qt6 REQUIRED COMPONENTS Widgets Sql Svg ShaderTools)
+find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS Widgets Sql Svg ShaderTools LinguistTools)
 
 message(STATUS "Using Qt ${QT_VERSION_MAJOR}.${QT_VERSION_MINOR}")
 
@@ -66,6 +66,7 @@ add_executable(NovaTerm ${SOURCES} ${CMAKE_SOURCE_DIR}/resources/resources.qrc)
 target_include_directories(NovaTerm PRIVATE
     src
     third_party/libvterm-0.3.3/include
+    "${CMAKE_PREFIX_PATH}/include/QtGui/${Qt6_VERSION}/QtGui"
 )
 
 target_link_libraries(NovaTerm PRIVATE
@@ -74,6 +75,14 @@ target_link_libraries(NovaTerm PRIVATE
         Qt${QT_VERSION_MAJOR}::Svg
         ElaWidgetTools
         libvterm
+)
+
+qt_add_shaders(NovaTerm novaterm_renderer_shaders
+    PREFIX
+        "/shaders"
+    FILES
+        src/renderer/shaders/terminal_texture.vert
+        src/renderer/shaders/terminal_texture.frag
 )
 
 if(WIN32)
