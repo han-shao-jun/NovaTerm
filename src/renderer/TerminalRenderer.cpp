@@ -120,7 +120,7 @@ TerminalRenderer::TerminalRenderer(TerminalCore* core, QWidget* parent)
         if (_core->cursorVisible() && _core->cursorBlink() && _scrollLine == 0) {
             const auto cpos = _core->cursorPosition();
             const int y = cellToWidget(cpos.row, 0).y();
-            update(0, y, width(), _cellHeight);
+            update(0, y, width(), qCeil(_cellHeight));
         }
     });
     _blinkTimer->start();
@@ -136,10 +136,10 @@ TerminalRenderer::TerminalRenderer(TerminalCore* core, QWidget* parent)
 
         const int clampedStart = std::max(0, startRow);
         const int clampedEnd   = std::min(visRows, endRow);
-        const int y      = clampedStart * _cellHeight;
-        const int h      = (clampedEnd - clampedStart) * _cellHeight;
-        const int x      = region.startColumn * _cellWidth;
-        const int w      = (region.endColumn - region.startColumn) * _cellWidth;
+        const int y      = qFloor(clampedStart * _cellHeight);
+        const int h      = qCeil(clampedEnd * _cellHeight) - y;
+        const int x      = qFloor(region.startColumn * _cellWidth);
+        const int w      = qCeil(region.endColumn * _cellWidth) - x;
 
         update(x, y, std::max(1, w), std::max(1, h));
     });
@@ -379,9 +379,9 @@ void TerminalRenderer::clearSelection()
 
 QPoint TerminalRenderer::widgetToCell(const QPoint& pos) const
 {
-    const int col = std::clamp(pos.x() / std::max(1, _cellWidth),
+    const int col = std::clamp(qFloor(pos.x() / std::max<qreal>(1.0, _cellWidth)),
                                0, std::max(0, _core->columns() - 1));
-    const int widgetRow = pos.y() / std::max(1, _cellHeight);
+    const int widgetRow = qFloor(pos.y() / std::max<qreal>(1.0, _cellHeight));
     const int documentRow = std::clamp(widgetRow - _scrollLine,
                                        -_core->scrollbackLineCount(),
                                        std::max(0, _core->rows() - 1));
@@ -477,8 +477,8 @@ void TerminalRenderer::resizeEvent(QResizeEvent* event)
 
 void TerminalRenderer::resizeTerminalToViewport()
 {
-    const int cols = width()  / std::max(1, _cellWidth);
-    const int rows = height() / std::max(1, _cellHeight);
+    const int cols = qFloor(width()  / std::max<qreal>(1.0, _cellWidth));
+    const int rows = qFloor(height() / std::max<qreal>(1.0, _cellHeight));
 
     // 最小可显示行列数保护。窗口被拖到很小（但非 0）时，cols/rows 会
     // 跌到 2×1 这类病态尺寸：bash/readline 在其上重绘提示符会产生海量
@@ -663,25 +663,25 @@ void TerminalRenderer::recalculateCellSize()
 {
     // For a monospace terminal the cell width follows the font advance, not
     // the visual ink bounds of an individual glyph.
-    _cellWidth  = qCeil(_fm->horizontalAdvance(QLatin1Char('M')));
+    _cellWidth  = _fm->horizontalAdvance(QLatin1Char('M'));
     if (_cellWidth < 4) _cellWidth = 8;  // 安全下限
-    _cellHeight = qCeil(_fm->height());
+    _cellHeight = _fm->height();
     if (_cellHeight < 4) _cellHeight = 16;
 }
 
 QPoint TerminalRenderer::cellToWidget(int row, int col) const
 {
-    return QPoint(col * _cellWidth, row * _cellHeight);
+    return QPoint(qRound(col * _cellWidth), qRound(row * _cellHeight));
 }
 
 int TerminalRenderer::cellRowAt(int widgetY) const
 {
-    return widgetY / _cellHeight;
+    return qFloor(widgetY / _cellHeight);
 }
 
 int TerminalRenderer::cellColAt(int widgetX) const
 {
-    return widgetX / _cellWidth;
+    return qFloor(widgetX / _cellWidth);
 }
 
 bool TerminalRenderer::isDocumentPositionValid(
@@ -937,11 +937,11 @@ void TerminalRenderer::appendTexturedRect(const QRectF& rect, const QRect& atlas
                color, pixelSize);
 }
 
-void TerminalRenderer::appendCell(int x, int y, const NovaTerm::Cell& cell,
+void TerminalRenderer::appendCell(qreal x, qreal y, const NovaTerm::Cell& cell,
                                   const QSize& pixelSize, bool backgroundPass)
 {
     const int cellSpan = std::max(1, static_cast<int>(cell.width));
-    const int paintWidth = _cellWidth * cellSpan;
+    const qreal paintWidth = _cellWidth * cellSpan;
     QColor foreground = terminalColorToQColor(cell.foreground, true);
     QColor background = terminalColorToQColor(cell.background, false);
     if (cell.attributes.reverse)
@@ -964,7 +964,7 @@ void TerminalRenderer::appendCell(int x, int y, const NovaTerm::Cell& cell,
         }
     }
     if (cell.attributes.underline) {
-        const int underlineY = y + static_cast<int>(_fm->ascent()) + 2;
+        const qreal underlineY = y + _fm->ascent() + 2;
         appendSolidRect(QRectF(x, underlineY, paintWidth, 1), foreground, pixelSize);
         if (cell.attributes.underlineStyle == NovaTerm::UnderlineStyle::Double)
             appendSolidRect(QRectF(x, underlineY + 2, paintWidth, 1), foreground, pixelSize);
@@ -986,8 +986,8 @@ void TerminalRenderer::buildGpuFrame(const QSize& pixelSize)
         for (int widgetRow = 0; widgetRow < rows; ++widgetRow) {
             const int screenRow = widgetRow - _scrollLine;
             for (int column = 0; column < columns; ++column) {
-                const int x = column * _cellWidth;
-                const int y = widgetRow * _cellHeight;
+                const qreal x = column * _cellWidth;
+                const qreal y = widgetRow * _cellHeight;
                 if (screenRow < 0) {
                     NovaTerm::Cell cell;
                     if (_core->getScrollbackCell(scrollbackCount + screenRow, column, cell)
@@ -1024,7 +1024,7 @@ void TerminalRenderer::appendCursor(const QSize& pixelSize)
 
     const QColor color = _scheme.cursorColor.isValid()
         ? _scheme.cursorColor : _scheme.foreground;
-    const QPoint point = cellToWidget(position.row, position.col);
+    const QPointF point(position.col * _cellWidth, position.row * _cellHeight);
     QRectF cursorRect(point.x(), point.y(), _cellWidth, _cellHeight);
     if (_core->cursorShape() == NovaTerm::CursorShape::Underline)
         cursorRect = QRectF(point.x(), point.y() + _cellHeight - 2, _cellWidth, 2);
@@ -1049,8 +1049,9 @@ void TerminalRenderer::appendSelection(const QSize& pixelSize)
             continue;
         const int firstColumn = row == start.row ? start.col : 0;
         const int lastColumn = row == end.row ? end.col : _core->columns() - 1;
-        const QPoint topLeft = cellToWidget(widgetRow, firstColumn);
-        const QPoint bottomRight = cellToWidget(widgetRow, lastColumn + 1);
+        const QPointF topLeft(firstColumn * _cellWidth, widgetRow * _cellHeight);
+        const QPointF bottomRight((lastColumn + 1) * _cellWidth,
+                                  widgetRow * _cellHeight);
         appendSolidRect(QRectF(topLeft.x(), topLeft.y(),
                                bottomRight.x() - topLeft.x(), _cellHeight),
                         selectionColor, pixelSize);

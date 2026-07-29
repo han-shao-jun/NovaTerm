@@ -1,5 +1,35 @@
 #include "TerminalColorScheme.h"
 
+TerminalColorScheme TerminalColorScheme::windowsTerminalCampbell()
+{
+    TerminalColorScheme s;
+    s.name        = QStringLiteral("Windows Terminal Campbell");
+    s.foreground  = QColor(204, 204, 204); // #CCCCCC
+    s.background  = QColor( 12,  12,  12); // #0C0C0C
+    s.cursorColor = QColor(255, 255, 255);
+    s.selectionColor = QColor(255, 255, 255, 64);
+
+    // Windows Terminal's built-in Campbell ANSI palette.
+    s.palette[0]  = QColor( 12,  12,  12); // #0C0C0C
+    s.palette[1]  = QColor(197,  15,  31); // #C50F1F
+    s.palette[2]  = QColor( 19, 161,  14); // #13A10E
+    s.palette[3]  = QColor(193, 156,   0); // #C19C00
+    s.palette[4]  = QColor(  0,  55, 218); // #0037DA
+    s.palette[5]  = QColor(136,  23, 152); // #881798
+    s.palette[6]  = QColor( 58, 150, 221); // #3A96DD
+    s.palette[7]  = QColor(204, 204, 204); // #CCCCCC
+    s.palette[8]  = QColor(118, 118, 118); // #767676
+    s.palette[9]  = QColor(231,  72,  86); // #E74856
+    s.palette[10] = QColor( 22, 198,  12); // #16C60C
+    s.palette[11] = QColor(249, 241, 165); // #F9F1A5
+    s.palette[12] = QColor( 59, 120, 255); // #3B78FF
+    s.palette[13] = QColor(180,   0, 158); // #B4009E
+    s.palette[14] = QColor( 97, 214, 214); // #61D6D6
+    s.palette[15] = QColor(242, 242, 242); // #F2F2F2
+
+    return s;
+}
+
 TerminalColorScheme TerminalColorScheme::darkPastels()
 {
     TerminalColorScheme s;

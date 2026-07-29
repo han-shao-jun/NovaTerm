@@ -2,6 +2,7 @@
 #include <QCoreApplication>
 #include <QDir>
 #include <QFile>
+#include <QJsonArray>
 #include <QJsonDocument>
 #include <QDebug>
 
@@ -84,7 +85,19 @@ QJsonObject ConfigManager::defaults()
         {"terminal", QJsonObject{
             {"fontFamily", "Cascadia Code"},
             {"fontSize", 12},
-            {"colorScheme", "system"},
+            {"colorScheme", "windowsTerminalCampbell"},
+            {"colors", QJsonObject{
+                {"foreground", "#CCCCCC"},
+                {"background", "#0C0C0C"},
+                {"cursor", "#FFFFFF"},
+                {"selection", "#40FFFFFF"},
+                {"palette", QJsonArray{
+                    "#0C0C0C", "#C50F1F", "#13A10E", "#C19C00",
+                    "#0037DA", "#881798", "#3A96DD", "#CCCCCC",
+                    "#767676", "#E74856", "#16C60C", "#F9F1A5",
+                    "#3B78FF", "#B4009E", "#61D6D6", "#F2F2F2"
+                }}
+            }},
             {"scrollbackLines", 10000}
         }},
         {"window", QJsonObject{

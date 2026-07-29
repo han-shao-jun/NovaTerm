@@ -103,7 +103,7 @@ private:
     uint32_t documentCellCodepoint(int documentRow, int col) const;
 
     void buildGpuFrame(const QSize& pixelSize);
-    void appendCell(int x, int y, const NovaTerm::Cell& cell,
+    void appendCell(qreal x, qreal y, const NovaTerm::Cell& cell,
                     const QSize& pixelSize, bool backgroundPass);
     void appendCursor(const QSize& pixelSize);
     void appendSelection(const QSize& pixelSize);
@@ -133,8 +133,11 @@ private:
 
     QFont _font;
     QFontMetricsF* _fm{nullptr};
-    int _cellWidth{0};
-    int _cellHeight{0};
+    // Keep the font's fractional advances.  Rounding every cell separately
+    // makes the error accumulate across a line (Cascadia Mono at 16 px is
+    // typically 9.6 px wide, not 10 px).
+    qreal _cellWidth{0.0};
+    qreal _cellHeight{0.0};
 
     // 滚动
     int _scrollLine{0};   // 当前滚动到 scrollback 中的行偏移（0=底部最新）

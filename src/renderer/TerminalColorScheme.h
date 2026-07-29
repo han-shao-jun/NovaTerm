@@ -22,10 +22,13 @@ struct TerminalColorScheme {
     // 深色主题（对应原 DarkPastels.colorscheme）
     static TerminalColorScheme darkPastels();
 
+    // Windows Terminal 的默认 Campbell 配色。
+    static TerminalColorScheme windowsTerminalCampbell();
+
     // 浅色主题（对应原 BlackOnWhite.colorscheme）
     static TerminalColorScheme blackOnWhite();
 
     // 根据明暗选择默认方案
-    static TerminalColorScheme defaultDark()  { return darkPastels(); }
+    static TerminalColorScheme defaultDark()  { return windowsTerminalCampbell(); }
     static TerminalColorScheme defaultLight() { return blackOnWhite(); }
 };

@@ -4,6 +4,7 @@
 #include "core/terminal/TerminalCore.h"
 #include "renderer/TerminalRenderer.h"
 #include "renderer/TerminalColorScheme.h"
+#include "service/ConfigManager.h"
 
 #include <QVBoxLayout>
 #include "ElaMenu.h"
@@ -14,7 +15,52 @@
 #include <QDebug>
 #include <QDir>
 #include <QFileInfo>
+#include <QJsonArray>
 #include <QTimer>
+
+static QColor configuredColor(const QJsonObject& colors, const char* key,
+                              const QColor& fallback)
+{
+    const QJsonValue value = colors.value(QLatin1String(key));
+    if (!value.isString())
+        return fallback;
+    const QColor color = QColor::fromString(value.toString());
+    return color.isValid() ? color : fallback;
+}
+
+static TerminalColorScheme configuredTerminalScheme(bool isDark)
+{
+    TerminalColorScheme scheme = isDark
+        ? TerminalColorScheme::defaultDark()
+        : TerminalColorScheme::defaultLight();
+
+    const QJsonObject terminal =
+        ConfigManager::instance().root().value(QStringLiteral("terminal")).toObject();
+    const QString schemeName =
+        terminal.value(QStringLiteral("colorScheme")).toString();
+    if (schemeName.compare(QStringLiteral("system"), Qt::CaseInsensitive) == 0)
+        return scheme;
+
+    const QJsonObject colors = terminal.value(QStringLiteral("colors")).toObject();
+    scheme.name = schemeName.isEmpty() ? QStringLiteral("Custom") : schemeName;
+    scheme.foreground = configuredColor(colors, "foreground", scheme.foreground);
+    scheme.background = configuredColor(colors, "background", scheme.background);
+    scheme.cursorColor = configuredColor(colors, "cursor", scheme.cursorColor);
+    scheme.selectionColor =
+        configuredColor(colors, "selection", scheme.selectionColor);
+
+    const QJsonArray palette = colors.value(QStringLiteral("palette")).toArray();
+    if (palette.size() == 16) {
+        for (int i = 0; i < 16; ++i) {
+            if (!palette[i].isString())
+                continue;
+            const QColor color = QColor::fromString(palette[i].toString());
+            if (color.isValid())
+                scheme.palette[i] = color;
+        }
+    }
+    return scheme;
+}
 
 TerminalView::TerminalView(QWidget* parent)
     : QWidget(parent)
@@ -234,9 +280,7 @@ void TerminalView::applyThemeColorScheme()
         return;
 
     bool isDark = (eTheme->getThemeMode() == ElaThemeType::Dark);
-    const auto& scheme = isDark
-        ? TerminalColorScheme::defaultDark()
-        : TerminalColorScheme::defaultLight();
+    const TerminalColorScheme scheme = configuredTerminalScheme(isDark);
 
     _renderer->setColorScheme(scheme);
 
