@@ -9,11 +9,10 @@
 #include <QVector>
 #include <rhi/qshader.h>
 #include <memory>
-#include <vterm.h>
+#include "core/terminal/TerminalTypes.h"
 #include "TerminalColorScheme.h"
 
 class TerminalCore;
-class ScrollbackCell;
 class QRhi;
 class QRhiBuffer;
 class QRhiCommandBuffer;
@@ -100,13 +99,11 @@ private:
     QPoint cellToWidget(int documentRow, int col) const;
     int cellRowAt(int widgetY) const;
     int cellColAt(int widgetX) const;
-    bool isDocumentPositionValid(const VTermPos& pos) const;
+    bool isDocumentPositionValid(const NovaTerm::Position& pos) const;
     uint32_t documentCellCodepoint(int documentRow, int col) const;
 
     void buildGpuFrame(const QSize& pixelSize);
-    void appendCell(int x, int y, const uint32_t* chars, char width,
-                    const VTermScreenCellAttrs& attrs,
-                    const VTermColor& fg, const VTermColor& bg,
+    void appendCell(int x, int y, const NovaTerm::Cell& cell,
                     const QSize& pixelSize, bool backgroundPass);
     void appendCursor(const QSize& pixelSize);
     void appendSelection(const QSize& pixelSize);
@@ -121,7 +118,8 @@ private:
 
 
     // ── 颜色转换 ──────────────────────────────────────────────
-    QColor vtermColorToQColor(const VTermColor& vc) const;
+    QColor terminalColorToQColor(const NovaTerm::TerminalColor& color,
+                                 bool foreground) const;
 
     // ── Unicode 转 UTF-8 ──────────────────────────────────────
     static QString cellCharsToString(const uint32_t* chars, int maxCount);
@@ -147,8 +145,8 @@ private:
 
     // 鼠标选区
     bool _selecting{false};
-    VTermPos _selStart{-1, -1};
-    VTermPos _selEnd{-1, -1};
+    NovaTerm::Position _selStart{-1, -1};
+    NovaTerm::Position _selEnd{-1, -1};
 
     // 用于跟踪 wheel 事件累积
     int _wheelAccum{0};

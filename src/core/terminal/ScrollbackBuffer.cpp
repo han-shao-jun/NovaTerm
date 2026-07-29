@@ -1,6 +1,5 @@
 #include "ScrollbackBuffer.h"
 #include <algorithm>
-#include <cstring>
 
 ScrollbackBuffer::ScrollbackBuffer(int maxLines)
     : _maxLines(std::max(1, maxLines))
@@ -8,7 +7,7 @@ ScrollbackBuffer::ScrollbackBuffer(int maxLines)
     _lines.resize(_maxLines);
 }
 
-void ScrollbackBuffer::pushLine(const VTermScreenCell* cells, int cols)
+void ScrollbackBuffer::pushLine(const NovaTerm::Cell* cells, int cols)
 {
     if (_maxLines == 0 || cols <= 0)
         return;
@@ -18,22 +17,15 @@ void ScrollbackBuffer::pushLine(const VTermScreenCell* cells, int cols)
     // 分配/复用环形缓冲中的行
     auto& line = _lines[_writePos];
     line.resize(cols);
-    for (int c = 0; c < cols; ++c) {
-        auto& dst = line[c];
-        const auto& src = cells[c];
-        std::memcpy(dst.chars, src.chars, sizeof(src.chars));
-        dst.width = src.width;
-        dst.attrs = src.attrs;
-        dst.fg   = src.fg;
-        dst.bg   = src.bg;
-    }
+    for (int c = 0; c < cols; ++c)
+        line[c] = cells[c];
 
     _writePos = (_writePos + 1) % _maxLines;
     if (_count < _maxLines)
         ++_count;
 }
 
-bool ScrollbackBuffer::popLine(VTermScreenCell* cells, int cols)
+bool ScrollbackBuffer::popLine(NovaTerm::Cell* cells, int cols)
 {
     if (_count == 0)
         return false;
@@ -45,15 +37,8 @@ bool ScrollbackBuffer::popLine(VTermScreenCell* cells, int cols)
     const auto& line = _lines[oldestPos];
 
     const int copyCols = std::min(cols, static_cast<int>(line.size()));
-    for (int c = 0; c < copyCols; ++c) {
-        auto& dst = cells[c];
-        const auto& src = line[c];
-        std::memcpy(dst.chars, src.chars, sizeof(src.chars));
-        dst.width = src.width;
-        dst.attrs = src.attrs;
-        dst.fg   = src.fg;
-        dst.bg   = src.bg;
-    }
+    for (int c = 0; c < copyCols; ++c)
+        cells[c] = line[c];
 
     --_count;
     // 非满状态时需整体前移（简化实现；scrollback 通常在满状态下工作）

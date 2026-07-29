@@ -1,16 +1,8 @@
 #pragma once
-#include <vterm.h>
+#include "TerminalTypes.h"
 #include <QVector>
 
-// libvterm 的 sb_pushline 回调传入的 VTermScreenCell 副本。
-// 每个 cell 存储完整的字符 + 属性 + 颜色信息，供渲染器回看历史。
-struct ScrollbackCell {
-    uint32_t chars[VTERM_MAX_CHARS_PER_CELL];
-    char width;
-    VTermScreenCellAttrs attrs;
-    VTermColor fg;
-    VTermColor bg;
-};
+using ScrollbackCell = NovaTerm::Cell;
 
 // 环形缓冲区管理的终端回滚历史行。
 // sb_pushline → pushLine() 存入，sb_popline → popLine() 取出恢复。
@@ -18,9 +10,8 @@ class ScrollbackBuffer {
 public:
     explicit ScrollbackBuffer(int maxLines = 1000);
 
-    // ── libvterm 回调 ──
-    void pushLine(const VTermScreenCell* cells, int cols);
-    bool popLine(VTermScreenCell* cells, int cols);
+    void pushLine(const NovaTerm::Cell* cells, int cols);
+    bool popLine(NovaTerm::Cell* cells, int cols);
 
     // ── 查询 ──
     int lineCount() const;                           // 当前存储行数

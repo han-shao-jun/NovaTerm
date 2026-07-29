@@ -8,5 +8,3 @@
 - **Input Engine** — 键盘/鼠标输入处理，Escape 序列生成
 - **Selection & Search** — 文本选择与正则搜索
 - **Core Utils** — 编码转换（UTF-8）、日志、内存池
-
-当前状态：终端解析与渲染暂由 qtermwidget 第三方库提供。

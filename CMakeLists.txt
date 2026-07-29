@@ -59,7 +59,39 @@ endif()
 # libssh
 find_package(libssh 0.10 QUIET)
 
-file(GLOB_RECURSE SOURCES "src/*.cpp" "src/*.h")
+set(NOVATERM_CORE_SOURCES
+    src/core/terminal/KeyMapper.cpp
+    src/core/terminal/KeyMapper.h
+    src/core/terminal/ScreenBuffer.cpp
+    src/core/terminal/ScreenBuffer.h
+    src/core/terminal/ScrollbackBuffer.cpp
+    src/core/terminal/ScrollbackBuffer.h
+    src/core/terminal/TerminalCore.cpp
+    src/core/terminal/TerminalCore.h
+    src/core/terminal/TerminalTypes.h
+    src/core/terminal/VTAdapter.cpp
+    src/core/terminal/VTAdapter.h
+)
+
+add_library(novaterm_core STATIC ${NOVATERM_CORE_SOURCES})
+
+target_include_directories(novaterm_core
+    PUBLIC
+        src
+    PRIVATE
+        third_party/libvterm-0.3.3/include
+)
+
+target_link_libraries(novaterm_core
+    PUBLIC
+        Qt${QT_VERSION_MAJOR}::Core
+        Qt${QT_VERSION_MAJOR}::Gui
+    PRIVATE
+        libvterm
+)
+
+file(GLOB_RECURSE SOURCES CONFIGURE_DEPENDS "src/*.cpp" "src/*.h")
+list(FILTER SOURCES EXCLUDE REGEX "[/\\\\]src[/\\\\]core[/\\\\]")
 
 add_executable(NovaTerm ${SOURCES} ${CMAKE_SOURCE_DIR}/resources/resources.qrc)
 
@@ -74,7 +106,7 @@ target_link_libraries(NovaTerm PRIVATE
         Qt${QT_VERSION_MAJOR}::Sql
         Qt${QT_VERSION_MAJOR}::Svg
         ElaWidgetTools
-        libvterm
+        novaterm_core
 )
 
 qt_add_shaders(NovaTerm novaterm_renderer_shaders
@@ -257,6 +289,30 @@ qt_add_translations(
         TARGETS NovaTerm
         TS_FILES ${TS_FILES}
 )
+
+include(CTest)
+option(NOVATERM_BUILD_BENCHMARKS "Build NovaTerm performance baseline tools" ON)
+
+if(BUILD_TESTING)
+    find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS Test)
+
+    add_executable(novaterm_core_tests
+        tests/core/TerminalCoreTests.cpp
+    )
+    target_link_libraries(novaterm_core_tests
+        PRIVATE
+            novaterm_core
+            Qt${QT_VERSION_MAJOR}::Test
+    )
+    add_test(NAME novaterm_core_tests COMMAND novaterm_core_tests)
+endif()
+
+if(NOVATERM_BUILD_BENCHMARKS)
+    add_executable(novaterm_core_benchmark
+        benchmarks/CoreBenchmark.cpp
+    )
+    target_link_libraries(novaterm_core_benchmark PRIVATE novaterm_core)
+endif()
 
 # 安装 .qm 翻译文件到 bin 同级目录
 install(

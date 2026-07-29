@@ -1,7 +1,5 @@
 #include "TerminalRenderer.h"
 #include "core/terminal/TerminalCore.h"
-#include "core/terminal/KeyMapper.h"
-#include "core/terminal/ScrollbackBuffer.h"
 #include <QPainter>
 #include <QKeyEvent>
 #include <QMouseEvent>
@@ -15,14 +13,11 @@
 #include <rhi/qshader.h>
 #include <rhi/qrhi.h>
 #include <algorithm>
-#include <cstring>
-#include <limits>
 
 // 滚动步长（行数）
 static constexpr int kScrollWheelLines = 3;
 static constexpr int kMinTerminalFontSize = 8;
 static constexpr int kMaxTerminalFontSize = 32;
-static constexpr uint32_t kWideCharContinuation = std::numeric_limits<uint32_t>::max();
 
 static QImage alphaCoverageFromRgb(const QImage& rgbImage, qreal dpr)
 {
@@ -131,10 +126,11 @@ TerminalRenderer::TerminalRenderer(TerminalCore* core, QWidget* parent)
     _blinkTimer->start();
 
     // ── 连接 TerminalCore 信号 ───────────────────────────────
-    connect(_core, &TerminalCore::damage, this, [this](const VTermRect& rect) {
+    connect(_core, &TerminalCore::damage, this,
+            [this](const NovaTerm::DirtyRegion& region) {
         // 活跃屏幕 documentRow 映射到 widgetRow 时需加上历史偏移。
-        const int startRow = rect.start_row + _scrollLine;
-        const int endRow   = rect.end_row + _scrollLine;
+        const int startRow = region.startRow + _scrollLine;
+        const int endRow   = region.endRow + _scrollLine;
         const int visRows  = _core->rows();
         if (endRow <= 0 || startRow >= visRows) return;
 
@@ -142,8 +138,8 @@ TerminalRenderer::TerminalRenderer(TerminalCore* core, QWidget* parent)
         const int clampedEnd   = std::min(visRows, endRow);
         const int y      = clampedStart * _cellHeight;
         const int h      = (clampedEnd - clampedStart) * _cellHeight;
-        const int x      = rect.start_col * _cellWidth;
-        const int w      = (rect.end_col - rect.start_col) * _cellWidth;
+        const int x      = region.startColumn * _cellWidth;
+        const int w      = (region.endColumn - region.startColumn) * _cellWidth;
 
         update(x, y, std::max(1, w), std::max(1, h));
     });
@@ -193,21 +189,17 @@ void TerminalRenderer::setColorScheme(const TerminalColorScheme& scheme)
 {
     _scheme = scheme;
 
-    // 同步设置 libvterm 的默认颜色
-    VTermColor fg, bg;
-    std::memset(&fg, 0, sizeof(fg));
-    std::memset(&bg, 0, sizeof(bg));
-    fg.type = VTERM_COLOR_RGB;
-    fg.rgb.red   = static_cast<uint8_t>(_scheme.foreground.red());
-    fg.rgb.green = static_cast<uint8_t>(_scheme.foreground.green());
-    fg.rgb.blue  = static_cast<uint8_t>(_scheme.foreground.blue());
-    bg.type = VTERM_COLOR_RGB;
-    bg.rgb.red   = static_cast<uint8_t>(_scheme.background.red());
-    bg.rgb.green = static_cast<uint8_t>(_scheme.background.green());
-    bg.rgb.blue  = static_cast<uint8_t>(_scheme.background.blue());
-
-    if (_core->screen())
-        vterm_screen_set_default_colors(_core->screen(), &fg, &bg);
+    NovaTerm::TerminalColor foreground;
+    foreground.type = NovaTerm::ColorType::Rgb;
+    foreground.red = static_cast<uint8_t>(_scheme.foreground.red());
+    foreground.green = static_cast<uint8_t>(_scheme.foreground.green());
+    foreground.blue = static_cast<uint8_t>(_scheme.foreground.blue());
+    NovaTerm::TerminalColor background;
+    background.type = NovaTerm::ColorType::Rgb;
+    background.red = static_cast<uint8_t>(_scheme.background.red());
+    background.green = static_cast<uint8_t>(_scheme.background.green());
+    background.blue = static_cast<uint8_t>(_scheme.background.blue());
+    _core->setDefaultColors(foreground, background);
 
     // 容器背景色
     QPalette pal = palette();
@@ -314,9 +306,9 @@ QString TerminalRenderer::selectedText() const
         return {};
     }
 
-    VTermPos start = _selStart;
-    VTermPos end   = _selEnd;
-    if (vterm_pos_cmp(end, start) < 0)
+    NovaTerm::Position start = _selStart;
+    NovaTerm::Position end = _selEnd;
+    if (end < start)
         std::swap(start, end);
 
     QString result;
@@ -331,24 +323,26 @@ QString TerminalRenderer::selectedText() const
             if (row < 0) {
                 // Scrollback 区域
                 const int sbLine = _core->scrollbackLineCount() + row;  // row 是负值
-                ScrollbackCell sc;
+                NovaTerm::Cell sc;
                 if (!_core->getScrollbackCell(sbLine, col, sc)) {
                     result += QLatin1Char(' ');
-                } else if (sc.chars[0] == kWideCharContinuation) {
+                } else if (sc.isWideContinuation()) {
                     continue;
                 } else if (sc.chars[0]) {
-                    result += cellCharsToString(sc.chars, VTERM_MAX_CHARS_PER_CELL);
+                    result += cellCharsToString(sc.chars.data(),
+                                                NovaTerm::MaxCharsPerCell);
                 } else {
                     result += QLatin1Char(' ');
                 }
             } else {
-                VTermScreenCell cell;
+                NovaTerm::Cell cell;
                 if (!_core->getCell(row, col, cell)) {
                     result += QLatin1Char(' ');
-                } else if (cell.chars[0] == kWideCharContinuation) {
+                } else if (cell.isWideContinuation()) {
                     continue;
                 } else if (cell.chars[0]) {
-                    result += cellCharsToString(cell.chars, VTERM_MAX_CHARS_PER_CELL);
+                    result += cellCharsToString(cell.chars.data(),
+                                                NovaTerm::MaxCharsPerCell);
                 } else {
                     result += QLatin1Char(' ');
                 }
@@ -540,11 +534,7 @@ void TerminalRenderer::mousePressEvent(QMouseEvent* event)
         _selEnd    = {row, col};
         update();
     } else {
-        // 将鼠标事件转发给 libvterm（右键/中键用于终端程序如 vim）
-        const auto vmod = KeyMapper::qtModToVTermMod(event->modifiers());
-        const int button = (event->button() == Qt::RightButton)  ? 2
-                         : (event->button() == Qt::MiddleButton) ? 3
-                         : 1;
+        // Non-selection mouse buttons are encoded by TerminalCore.
         _core->processMousePress(event);
     }
 }
@@ -580,12 +570,12 @@ void TerminalRenderer::mouseDoubleClickEvent(QMouseEvent* event)
         const int row = cell.y();
         const int col = cell.x();
 
-        VTermScreenCell centerCell;
+        NovaTerm::Cell centerCell;
         if (_core->getCell(row, col, centerCell) && centerCell.chars[0]) {
             // 向左扩展到词边界
             int lc = col;
             while (lc > 0) {
-                VTermScreenCell c;
+                NovaTerm::Cell c;
                 if (!_core->getCell(row, lc - 1, c) || c.chars[0] == 0 || c.chars[0] == ' ')
                     break;
                 --lc;
@@ -594,7 +584,7 @@ void TerminalRenderer::mouseDoubleClickEvent(QMouseEvent* event)
             int rc = col;
             const int maxCol = _core->columns() - 1;
             while (rc < maxCol) {
-                VTermScreenCell c;
+                NovaTerm::Cell c;
                 if (!_core->getCell(row, rc + 1, c) || c.chars[0] == 0 || c.chars[0] == ' ')
                     break;
                 ++rc;
@@ -646,15 +636,13 @@ void TerminalRenderer::wheelEvent(QWheelEvent* event)
 void TerminalRenderer::focusInEvent(QFocusEvent* event)
 {
     QWidget::focusInEvent(event);
-    if (_core->state())
-        vterm_state_focus_in(_core->state());
+    _core->focusIn();
 }
 
 void TerminalRenderer::focusOutEvent(QFocusEvent* event)
 {
     QWidget::focusOutEvent(event);
-    if (_core->state())
-        vterm_state_focus_out(_core->state());
+    _core->focusOut();
 }
 
 bool TerminalRenderer::focusNextPrevChild(bool next)
@@ -696,7 +684,8 @@ int TerminalRenderer::cellColAt(int widgetX) const
     return widgetX / _cellWidth;
 }
 
-bool TerminalRenderer::isDocumentPositionValid(const VTermPos& pos) const
+bool TerminalRenderer::isDocumentPositionValid(
+    const NovaTerm::Position& pos) const
 {
     if (pos.row < 0) {
         // scrollback 区域：row 从 -1（最新回滚行）到 -scrollbackLineCount（最旧）
@@ -948,40 +937,39 @@ void TerminalRenderer::appendTexturedRect(const QRectF& rect, const QRect& atlas
                color, pixelSize);
 }
 
-void TerminalRenderer::appendCell(int x, int y, const uint32_t* chars, char width,
-                                  const VTermScreenCellAttrs& attrs,
-                                  const VTermColor& fgColor,
-                                  const VTermColor& bgColor,
+void TerminalRenderer::appendCell(int x, int y, const NovaTerm::Cell& cell,
                                   const QSize& pixelSize, bool backgroundPass)
 {
-    const int cellSpan = std::max(1, static_cast<int>(width));
+    const int cellSpan = std::max(1, static_cast<int>(cell.width));
     const int paintWidth = _cellWidth * cellSpan;
-    QColor foreground = vtermColorToQColor(fgColor);
-    QColor background = vtermColorToQColor(bgColor);
-    if (attrs.reverse)
+    QColor foreground = terminalColorToQColor(cell.foreground, true);
+    QColor background = terminalColorToQColor(cell.background, false);
+    if (cell.attributes.reverse)
         std::swap(foreground, background);
     if (backgroundPass) {
         appendSolidRect(QRectF(x, y, paintWidth, _cellHeight), background, pixelSize);
         return;
     }
 
-    if (attrs.conceal)
+    if (cell.attributes.conceal)
         return;
-    if (chars[0] != 0 && chars[0] != ' ') {
-        const QString text = cellCharsToString(chars, VTERM_MAX_CHARS_PER_CELL);
+    if (cell.chars[0] != 0 && cell.chars[0] != ' ') {
+        const QString text = cellCharsToString(cell.chars.data(),
+                                               NovaTerm::MaxCharsPerCell);
         if (!text.isEmpty()) {
-            const auto& glyph = ensureGlyph(text, attrs.bold, cellSpan);
+            const auto& glyph =
+                ensureGlyph(text, cell.attributes.bold, cellSpan);
             appendTexturedRect(glyph.logicalRect.translated(x, y),
                                glyph.pixelRect, foreground, pixelSize);
         }
     }
-    if (attrs.underline != VTERM_UNDERLINE_OFF) {
+    if (cell.attributes.underline) {
         const int underlineY = y + static_cast<int>(_fm->ascent()) + 2;
         appendSolidRect(QRectF(x, underlineY, paintWidth, 1), foreground, pixelSize);
-        if (attrs.underline == VTERM_UNDERLINE_DOUBLE)
+        if (cell.attributes.underlineStyle == NovaTerm::UnderlineStyle::Double)
             appendSolidRect(QRectF(x, underlineY + 2, paintWidth, 1), foreground, pixelSize);
     }
-    if (attrs.strike)
+    if (cell.attributes.strike)
         appendSolidRect(QRectF(x, y + _cellHeight / 2, paintWidth, 1),
                         foreground, pixelSize);
 }
@@ -1000,18 +988,16 @@ void TerminalRenderer::buildGpuFrame(const QSize& pixelSize)
                 const int x = column * _cellWidth;
                 const int y = widgetRow * _cellHeight;
                 if (screenRow < 0) {
-                    ScrollbackCell cell;
+                    NovaTerm::Cell cell;
                     if (_core->getScrollbackCell(scrollbackCount + screenRow, column, cell)
-                        && cell.chars[0] != kWideCharContinuation) {
-                        appendCell(x, y, cell.chars, cell.width, cell.attrs,
-                                   cell.fg, cell.bg, pixelSize, backgroundPass);
+                        && !cell.isWideContinuation()) {
+                        appendCell(x, y, cell, pixelSize, backgroundPass);
                     }
                 } else {
-                    VTermScreenCell cell;
+                    NovaTerm::Cell cell;
                     if (_core->getCell(screenRow, column, cell)
-                        && cell.chars[0] != kWideCharContinuation) {
-                        appendCell(x, y, cell.chars, cell.width, cell.attrs,
-                                   cell.fg, cell.bg, pixelSize, backgroundPass);
+                        && !cell.isWideContinuation()) {
+                        appendCell(x, y, cell, pixelSize, backgroundPass);
                     }
                 }
             }
@@ -1040,9 +1026,9 @@ void TerminalRenderer::appendCursor(const QSize& pixelSize)
         ? _scheme.cursorColor : _scheme.foreground;
     const QPoint point = cellToWidget(position.row, position.col);
     QRectF cursorRect(point.x(), point.y(), _cellWidth, _cellHeight);
-    if (_core->cursorShape() == VTERM_PROP_CURSORSHAPE_UNDERLINE)
+    if (_core->cursorShape() == NovaTerm::CursorShape::Underline)
         cursorRect = QRectF(point.x(), point.y() + _cellHeight - 2, _cellWidth, 2);
-    else if (_core->cursorShape() == VTERM_PROP_CURSORSHAPE_BAR_LEFT)
+    else if (_core->cursorShape() == NovaTerm::CursorShape::BarLeft)
         cursorRect = QRectF(point.x(), point.y(), 2, _cellHeight);
     appendSolidRect(cursorRect, color, pixelSize);
 }
@@ -1051,9 +1037,9 @@ void TerminalRenderer::appendSelection(const QSize& pixelSize)
 {
     if (!hasSelection())
         return;
-    VTermPos start = _selStart;
-    VTermPos end = _selEnd;
-    if (vterm_pos_cmp(end, start) < 0)
+    NovaTerm::Position start = _selStart;
+    NovaTerm::Position end = _selEnd;
+    if (end < start)
         std::swap(start, end);
     const QColor selectionColor = _scheme.selectionColor.isValid()
         ? _scheme.selectionColor : QColor(84, 107, 138, 128);
@@ -1116,20 +1102,21 @@ void TerminalRenderer::renderCells(QPainter& p, const QRect& dirty)
                 const int sbIdx = sbCount + screenRow;  // screenRow=-1 → sbCount-1
                 ScrollbackCell sc;
                 if (_core->getScrollbackCell(sbIdx, col, sc)) {
-                    if (sc.chars[0] == kWideCharContinuation)
+                    if (sc.isWideContinuation())
                         continue;
-                    renderCell(p, x, y, sc.chars, sc.width, sc.attrs, sc.fg, sc.bg);
+                    renderCell(p, x, y, sc.chars.data(), sc.width,
+                               sc.attributes, sc.foreground, sc.background);
                 } else {
                     p.fillRect(x, y, _cellWidth, _cellHeight, _scheme.background);
                 }
             } else {
                 // ── 活跃屏幕区域 ──────────────────────────────
-                VTermScreenCell cell;
+                NovaTerm::Cell cell;
                 if (_core->getCell(screenRow, col, cell)) {
-                    if (cell.chars[0] == kWideCharContinuation)
+                    if (cell.isWideContinuation())
                         continue;
-                    renderCell(p, x, y, cell.chars, cell.width,
-                               cell.attrs, cell.fg, cell.bg);
+                    renderCell(p, x, y, cell.chars.data(), cell.width,
+                               cell.attributes, cell.foreground, cell.background);
                 } else {
                     p.fillRect(x, y, _cellWidth, _cellHeight, _scheme.background);
                 }
@@ -1150,8 +1137,9 @@ void TerminalRenderer::renderCells(QPainter& p, const QRect& dirty)
 
 void TerminalRenderer::renderCell(QPainter& p, int x, int y,
                                    const uint32_t* chars, char width,
-                                   const VTermScreenCellAttrs& attrs,
-                                   const VTermColor& fg_vc, const VTermColor& bg_vc)
+                                   const NovaTerm::CellAttributes& attrs,
+                                   const NovaTerm::TerminalColor& fg_vc,
+                                   const NovaTerm::TerminalColor& bg_vc)
 {
     const int cellSpan = std::max(1, static_cast<int>(width));
     const int paintWidth = _cellWidth * cellSpan;
@@ -1178,7 +1166,8 @@ void TerminalRenderer::renderCell(QPainter& p, int x, int y,
     p.setFont(f);
     p.setPen(fg);
 
-    const QString text = cellCharsToString(chars, VTERM_MAX_CHARS_PER_CELL);
+    const QString text =
+        cellCharsToString(chars, NovaTerm::MaxCharsPerCell);
     if (text.isEmpty()) return;
 
     // 文字基线对齐
@@ -1229,10 +1218,10 @@ void TerminalRenderer::renderCursor(QPainter& p)
     p.save();
 
     // 读取光标位置的 cell 以获取前景色
-    VTermScreenCell cell;
+    NovaTerm::Cell cell;
     QColor cellFg = _scheme.foreground;
     if (_core->getCell(cpos.row, cpos.col, cell) && cell.chars[0]) {
-        cellFg = vtermColorToQColor(cell.fg);
+        cellFg = terminalColorToQColor(cell.foreground, true);
     }
 
     switch (_core->cursorShape()) {
@@ -1262,9 +1251,9 @@ void TerminalRenderer::renderSelection(QPainter& p)
 {
     if (!hasSelection()) return;
 
-    VTermPos start = _selStart;
-    VTermPos end   = _selEnd;
-    if (vterm_pos_cmp(end, start) < 0)
+    NovaTerm::Position start = _selStart;
+    NovaTerm::Position end = _selEnd;
+    if (end < start)
         std::swap(start, end);
 
     const QColor selColor = _scheme.selectionColor.isValid()
@@ -1291,13 +1280,14 @@ void TerminalRenderer::renderSelection(QPainter& p)
 
 #endif
 
-QColor TerminalRenderer::vtermColorToQColor(const VTermColor& vc) const
+QColor TerminalRenderer::terminalColorToQColor(
+    const NovaTerm::TerminalColor& color, bool foreground) const
 {
-    if (VTERM_COLOR_IS_RGB(&vc)) {
-        return QColor(vc.rgb.red, vc.rgb.green, vc.rgb.blue);
+    if (color.type == NovaTerm::ColorType::Rgb) {
+        return QColor(color.red, color.green, color.blue);
     }
-    if (VTERM_COLOR_IS_INDEXED(&vc)) {
-        const int idx = vc.indexed.idx;
+    if (color.type == NovaTerm::ColorType::Indexed) {
+        const int idx = color.index;
         if (idx < 16)
             return _scheme.palette[idx];
         if (idx < 232) {
@@ -1311,12 +1301,7 @@ QColor TerminalRenderer::vtermColorToQColor(const VTermColor& vc) const
         const int gray = (idx - 232) * 10 + 8;
         return QColor(gray, gray, gray);
     }
-    if (VTERM_COLOR_IS_DEFAULT_FG(&vc))
-        return _scheme.foreground;
-    if (VTERM_COLOR_IS_DEFAULT_BG(&vc))
-        return _scheme.background;
-
-    return _scheme.foreground;  // fallback
+    return foreground ? _scheme.foreground : _scheme.background;
 }
 
 // ── Unicode → QString ───────────────────────────────────────
