@@ -976,10 +976,11 @@ void TerminalRenderer::appendCell(int x, int y, const NovaTerm::Cell& cell,
 
 void TerminalRenderer::buildGpuFrame(const QSize& pixelSize)
 {
+    const NovaTerm::TerminalSnapshot screen = _core->snapshot();
     _vertices.clear();
-    _vertices.reserve(_core->rows() * _core->columns() * 18);
-    const int rows = _core->rows();
-    const int columns = _core->columns();
+    _vertices.reserve(screen.rows * screen.columns * 18);
+    const int rows = screen.rows;
+    const int columns = screen.columns;
     const int scrollbackCount = _core->scrollbackLineCount();
     const auto appendPass = [&](bool backgroundPass) {
         for (int widgetRow = 0; widgetRow < rows; ++widgetRow) {
@@ -994,10 +995,9 @@ void TerminalRenderer::buildGpuFrame(const QSize& pixelSize)
                         appendCell(x, y, cell, pixelSize, backgroundPass);
                     }
                 } else {
-                    NovaTerm::Cell cell;
-                    if (_core->getCell(screenRow, column, cell)
-                        && !cell.isWideContinuation()) {
-                        appendCell(x, y, cell, pixelSize, backgroundPass);
+                    const NovaTerm::Cell* cell = screen.cellAt(screenRow, column);
+                    if (cell && !cell->isWideContinuation()) {
+                        appendCell(x, y, *cell, pixelSize, backgroundPass);
                     }
                 }
             }

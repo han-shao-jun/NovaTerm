@@ -1,7 +1,7 @@
 #pragma once
 
+#include "BoundedByteQueue.h"
 #include "ScreenBuffer.h"
-#include "ScrollbackBuffer.h"
 
 #include <QByteArray>
 #include <QObject>
@@ -13,12 +13,8 @@ class QKeyEvent;
 class QMouseEvent;
 class QWheelEvent;
 
-namespace NovaTerm {
-class VTAdapter;
-}
-
-// Qt-facing terminal facade. libvterm is isolated behind VTAdapter; consumers
-// only observe NovaTerm-owned screen, cursor, color, and damage types.
+// Thread-safe Qt facade for the terminal parser runtime. Transport bytes and
+// control commands are queued; a dedicated worker exclusively owns VTAdapter.
 class TerminalCore : public QObject
 {
     Q_OBJECT
@@ -39,11 +35,10 @@ public:
     void pasteText(const QString& text);
 
     void resize(int cols, int rows);
-    int columns() const { return _screen.columns(); }
-    int rows() const { return _screen.rows(); }
+    int columns() const;
+    int rows() const;
 
     bool getCell(int row, int col, NovaTerm::Cell& out) const;
-    const NovaTerm::ScreenBuffer& screenBuffer() const { return _screen; }
     NovaTerm::TerminalSnapshot snapshot() const;
     void flushDamage();
     void setDefaultColors(const NovaTerm::TerminalColor& foreground,
@@ -54,12 +49,15 @@ public:
     void setScrollbackLimit(int lines);
     void clearScrollback();
 
-    NovaTerm::Position cursorPosition() const { return _cursor.position; }
-    bool cursorVisible() const { return _cursor.visible; }
-    NovaTerm::CursorShape cursorShape() const { return _cursor.shape; }
-    bool cursorBlink() const { return _cursor.blink; }
+    NovaTerm::Position cursorPosition() const;
+    bool cursorVisible() const;
+    NovaTerm::CursorShape cursorShape() const;
+    bool cursorBlink() const;
+    QString title() const;
 
-    QString title() const { return _title; }
+    // Test/benchmark synchronization; production rendering remains signal-driven.
+    bool waitForIdle(int timeoutMs = 5000) const;
+    NovaTerm::BoundedByteQueue::Statistics queueStatistics() const;
 
 signals:
     void outputData(const QByteArray& data);
@@ -70,9 +68,6 @@ signals:
     void scrollbackChanged();
 
 private:
-    NovaTerm::ScreenBuffer _screen;
-    ScrollbackBuffer _scrollback;
-    NovaTerm::CursorState _cursor;
-    QString _title;
-    std::unique_ptr<NovaTerm::VTAdapter> _adapter;
+    class Runtime;
+    std::unique_ptr<Runtime> _runtime;
 };

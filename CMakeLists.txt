@@ -60,6 +60,8 @@ endif()
 find_package(libssh 0.10 QUIET)
 
 set(NOVATERM_CORE_SOURCES
+    src/core/terminal/BoundedByteQueue.cpp
+    src/core/terminal/BoundedByteQueue.h
     src/core/terminal/KeyMapper.cpp
     src/core/terminal/KeyMapper.h
     src/core/terminal/ScreenBuffer.cpp
