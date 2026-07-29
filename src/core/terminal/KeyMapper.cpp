@@ -9,6 +9,7 @@ bool qtKeyToVTermKey(int qtKey, VTermKey& outKey)
     case Qt::Key_Enter:     outKey = VTERM_KEY_ENTER;     return true;
     case Qt::Key_Return:    outKey = VTERM_KEY_ENTER;     return true;
     case Qt::Key_Tab:       outKey = VTERM_KEY_TAB;       return true;
+    case Qt::Key_Backtab:   outKey = VTERM_KEY_TAB;       return true;
     case Qt::Key_Backspace: outKey = VTERM_KEY_BACKSPACE; return true;
     case Qt::Key_Escape:    outKey = VTERM_KEY_ESCAPE;    return true;
 

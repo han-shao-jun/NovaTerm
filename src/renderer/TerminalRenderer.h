@@ -21,7 +21,6 @@ class QRhiGraphicsPipeline;
 class QRhiSampler;
 class QRhiShaderResourceBindings;
 class QRhiTexture;
-
 // 基于 QRhi 的终端渲染 Widget。
 // 从 TerminalCore 读取活跃屏幕 cell，从 ScrollbackBuffer 读取历史行，
 // 使用 GPU 批量四边形和持久字形图集绘制，CPU 仅栅格化缓存未命中的字形。
@@ -59,6 +58,7 @@ public:
 
 signals:
     void activityDetected();
+    void terminalSizeChanged();
 
 protected:
     void initialize(QRhiCommandBuffer* cb) override;
@@ -73,6 +73,7 @@ protected:
     void wheelEvent(QWheelEvent* event) override;
     void focusInEvent(QFocusEvent* event) override;
     void focusOutEvent(QFocusEvent* event) override;
+    bool focusNextPrevChild(bool next) override;
 
 private:
     struct GpuVertex
@@ -90,10 +91,12 @@ private:
     struct GlyphEntry
     {
         QRect pixelRect;
+        QRectF logicalRect;
     };
 
     // ── 渲染辅助 ──────────────────────────────────────────────
     void recalculateCellSize();
+    void resizeTerminalToViewport();
     QPoint cellToWidget(int documentRow, int col) const;
     int cellRowAt(int widgetY) const;
     int cellColAt(int widgetX) const;
@@ -104,7 +107,7 @@ private:
     void appendCell(int x, int y, const uint32_t* chars, char width,
                     const VTermScreenCellAttrs& attrs,
                     const VTermColor& fg, const VTermColor& bg,
-                    const QSize& pixelSize);
+                    const QSize& pixelSize, bool backgroundPass);
     void appendCursor(const QSize& pixelSize);
     void appendSelection(const QSize& pixelSize);
     void appendSolidRect(const QRectF& rect, const QColor& color,
@@ -149,6 +152,7 @@ private:
 
     // 用于跟踪 wheel 事件累积
     int _wheelAccum{0};
+    int _zoomWheelAccum{0};
 
     QRhi* _rhi{nullptr};
     QImage _atlasImage;

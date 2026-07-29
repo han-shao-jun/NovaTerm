@@ -60,6 +60,8 @@ TerminalView::TerminalView(QWidget* parent)
                 _transport->resizeTerminal(cols, rows);
         }
     });
+    connect(_renderer, &TerminalRenderer::terminalSizeChanged,
+            _resizeDebounce, qOverload<>(&QTimer::start));
 }
 
 TerminalView::~TerminalView()

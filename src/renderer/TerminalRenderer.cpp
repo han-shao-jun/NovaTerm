@@ -20,7 +20,32 @@
 
 // 滚动步长（行数）
 static constexpr int kScrollWheelLines = 3;
+static constexpr int kMinTerminalFontSize = 8;
+static constexpr int kMaxTerminalFontSize = 32;
 static constexpr uint32_t kWideCharContinuation = std::numeric_limits<uint32_t>::max();
+
+static QImage alphaCoverageFromRgb(const QImage& rgbImage, qreal dpr)
+{
+    QImage coverage(rgbImage.size(), QImage::Format_RGBA8888);
+    coverage.setDevicePixelRatio(dpr);
+
+    // An opaque RGB paint device allows the Windows font engine to retain its
+    // per-channel sub-pixel coverage. The terminal shader needs one portable
+    // coverage value, so convert the RGB samples to luminance without applying
+    // a second sharpening or thresholding pass.
+    for (int y = 0; y < rgbImage.height(); ++y) {
+        const QRgb* source = reinterpret_cast<const QRgb*>(rgbImage.constScanLine(y));
+        uchar* destination = coverage.scanLine(y);
+        for (int x = 0; x < rgbImage.width(); ++x) {
+            const int alpha = qGray(source[x]);
+            destination[x * 4 + 0] = 255;
+            destination[x * 4 + 1] = 255;
+            destination[x * 4 + 2] = 255;
+            destination[x * 4 + 3] = static_cast<uchar>(alpha);
+        }
+    }
+    return coverage;
+}
 
 static QRhiWidget::Api preferredRhiApi()
 {
@@ -69,11 +94,24 @@ TerminalRenderer::TerminalRenderer(TerminalCore* core, QWidget* parent)
     setCursor(Qt::IBeamCursor);
     setAutoFillBackground(true);
 
-    // 默认等宽字体
-    _font.setFamilies({"Cascadia Code", "Consolas", "DejaVu Sans Mono", "monospace"});
+    // The application UI font is proportional and must not be used for a
+    // terminal grid. Keep a dedicated monospace font whose advance matches the
+    // fixed cell width.
+#ifdef Q_OS_WIN
+    _font.setFamilies({QStringLiteral("Cascadia Mono"),
+                       QStringLiteral("Consolas"),
+                       QStringLiteral("JetBrains Mono")});
+#elif defined(Q_OS_MACOS)
+    _font.setFamilies({QStringLiteral("Menlo"),
+                       QStringLiteral("Monaco")});
+#else
+    _font.setFamilies({QStringLiteral("DejaVu Sans Mono"),
+                       QStringLiteral("Noto Sans Mono"),
+                       QStringLiteral("monospace")});
+#endif
     _font.setStyleHint(QFont::Monospace);
     _font.setFixedPitch(true);
-    _font.setPointSize(12);
+    _font.setPixelSize(16);
     _fm = new QFontMetricsF(_font);
     recalculateCellSize();
     resetGlyphAtlas();
@@ -182,39 +220,58 @@ void TerminalRenderer::setColorScheme(const TerminalColorScheme& scheme)
 void TerminalRenderer::setFont(const QFont& font)
 {
     _font = font;
-    _font.setStyleHint(QFont::Monospace);
-    _font.setFixedPitch(true);
+    if (_font.pixelSize() > 0) {
+        _font.setPixelSize(std::clamp(_font.pixelSize(),
+                                      kMinTerminalFontSize,
+                                      kMaxTerminalFontSize));
+    } else if (_font.pointSize() > 0) {
+        _font.setPointSize(std::clamp(_font.pointSize(),
+                                      kMinTerminalFontSize,
+                                      kMaxTerminalFontSize));
+    }
     delete _fm;
     _fm = new QFontMetricsF(_font);
     recalculateCellSize();
+    resetGlyphAtlas();
     updateGeometry();
+    resizeTerminalToViewport();
     update();
 }
 
 void TerminalRenderer::zoomIn()
 {
-    int sz = _font.pointSize();
-    if (sz < 72) {
-        _font.setPointSize(sz + 1);
+    const bool usesPixelSize = _font.pixelSize() > 0;
+    const int sz = usesPixelSize ? _font.pixelSize() : _font.pointSize();
+    if (sz > 0 && sz < kMaxTerminalFontSize) {
+        if (usesPixelSize)
+            _font.setPixelSize(sz + 1);
+        else
+            _font.setPointSize(sz + 1);
         delete _fm;
         _fm = new QFontMetricsF(_font);
         recalculateCellSize();
         resetGlyphAtlas();
         updateGeometry();
+        resizeTerminalToViewport();
         update();
     }
 }
 
 void TerminalRenderer::zoomOut()
 {
-    int sz = _font.pointSize();
-    if (sz > 4) {
-        _font.setPointSize(sz - 1);
+    const bool usesPixelSize = _font.pixelSize() > 0;
+    const int sz = usesPixelSize ? _font.pixelSize() : _font.pointSize();
+    if (sz > kMinTerminalFontSize) {
+        if (usesPixelSize)
+            _font.setPixelSize(sz - 1);
+        else
+            _font.setPointSize(sz - 1);
         delete _fm;
         _fm = new QFontMetricsF(_font);
         recalculateCellSize();
         resetGlyphAtlas();
         updateGeometry();
+        resizeTerminalToViewport();
         update();
     }
 }
@@ -367,7 +424,6 @@ void TerminalRenderer::render(QRhiCommandBuffer* cb)
 
     ensureAtlasTexture();
     ensurePipeline();
-
     if (!_atlasTexture || !_pipeline || !_srb)
         return;
 
@@ -422,7 +478,11 @@ void TerminalRenderer::resizeEvent(QResizeEvent* event)
     QRhiWidget::resizeEvent(event);
 
     recalculateCellSize();
+    resizeTerminalToViewport();
+}
 
+void TerminalRenderer::resizeTerminalToViewport()
+{
     const int cols = width()  / std::max(1, _cellWidth);
     const int rows = height() / std::max(1, _cellHeight);
 
@@ -441,6 +501,7 @@ void TerminalRenderer::resizeEvent(QResizeEvent* event)
         scrollToBottom();
         clearSelection();
         _core->resize(cols, rows);
+        emit terminalSizeChanged();
     }
 }
 
@@ -457,6 +518,7 @@ void TerminalRenderer::keyPressEvent(QKeyEvent* event)
         scrollToBottom();
 
     _core->processKeyPress(event);
+    event->accept();
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -548,7 +610,29 @@ void TerminalRenderer::mouseDoubleClickEvent(QMouseEvent* event)
 
 void TerminalRenderer::wheelEvent(QWheelEvent* event)
 {
-    _wheelAccum += event->angleDelta().y();
+    const int angleDelta = event->angleDelta().y();
+    const int wheelDelta = angleDelta != 0
+        ? angleDelta
+        : event->pixelDelta().y() * 3;
+
+    if (event->modifiers().testFlag(Qt::ControlModifier)) {
+        _wheelAccum = 0;
+        _zoomWheelAccum += wheelDelta;
+        constexpr int kWheelStep = 120;
+        while (_zoomWheelAccum >= kWheelStep) {
+            zoomIn();
+            _zoomWheelAccum -= kWheelStep;
+        }
+        while (_zoomWheelAccum <= -kWheelStep) {
+            zoomOut();
+            _zoomWheelAccum += kWheelStep;
+        }
+        event->accept();
+        return;
+    }
+
+    _zoomWheelAccum = 0;
+    _wheelAccum += wheelDelta;
     const int lines = _wheelAccum / 120 * kScrollWheelLines;  // 120 = 标准滚轮单位
     if (lines != 0) {
         _wheelAccum -= (lines / kScrollWheelLines) * 120;
@@ -556,6 +640,7 @@ void TerminalRenderer::wheelEvent(QWheelEvent* event)
         // 负数 lines：向下滚动（返回底部），减少 _scrollLine
         scrollLines(lines);
     }
+    event->accept();
 }
 
 void TerminalRenderer::focusInEvent(QFocusEvent* event)
@@ -572,16 +657,27 @@ void TerminalRenderer::focusOutEvent(QFocusEvent* event)
         vterm_state_focus_out(_core->state());
 }
 
+bool TerminalRenderer::focusNextPrevChild(bool next)
+{
+    Q_UNUSED(next);
+    // Tab and Shift+Tab are terminal input (completion / reverse completion),
+    // not QWidget focus-navigation keys. Returning false makes QWidget::event()
+    // continue dispatching them to keyPressEvent(), so the renderer keeps
+    // keyboard focus and libvterm emits the corresponding escape sequence.
+    return false;
+}
+
 // ═══════════════════════════════════════════════════════════════════
 //  内部实现
 // ═══════════════════════════════════════════════════════════════════
 
 void TerminalRenderer::recalculateCellSize()
 {
-    // 等宽字体：所有字符宽度相同
-    _cellWidth  = static_cast<int>(_fm->horizontalAdvance(QLatin1Char('W')));
+    // For a monospace terminal the cell width follows the font advance, not
+    // the visual ink bounds of an individual glyph.
+    _cellWidth  = qCeil(_fm->horizontalAdvance(QLatin1Char('M')));
     if (_cellWidth < 4) _cellWidth = 8;  // 安全下限
-    _cellHeight = static_cast<int>(_fm->height());
+    _cellHeight = qCeil(_fm->height());
     if (_cellHeight < 4) _cellHeight = 16;
 }
 
@@ -676,8 +772,11 @@ void TerminalRenderer::ensurePipeline()
         return;
 
     if (!_sampler) {
-        _sampler.reset(_rhi->newSampler(QRhiSampler::Linear,
-                                        QRhiSampler::Linear,
+        // The glyph atlas is rasterized at the widget's physical DPR. Sampling
+        // it without interpolation keeps the cached coverage from being
+        // blurred a second time by the GPU.
+        _sampler.reset(_rhi->newSampler(QRhiSampler::Nearest,
+                                        QRhiSampler::Nearest,
                                         QRhiSampler::None,
                                         QRhiSampler::ClampToEdge,
                                         QRhiSampler::ClampToEdge));
@@ -742,9 +841,22 @@ const TerminalRenderer::GlyphEntry& TerminalRenderer::ensureGlyph(
         return found.value();
 
     const qreal dpr = devicePixelRatioF();
-    const QSize logicalSize(_cellWidth * std::max(1, cellSpan), _cellHeight);
-    const QSize pixelSize(qCeil(logicalSize.width() * dpr),
-                          qCeil(logicalSize.height() * dpr));
+    QFont glyphFont = _font;
+    glyphFont.setBold(bold);
+    const QFontMetricsF glyphMetrics(glyphFont);
+    const qreal advance = glyphMetrics.horizontalAdvance(text);
+    const qreal cellAdvance = _cellWidth * std::max(1, cellSpan);
+    // Atlas allocation follows typographic advance and line metrics. Using
+    // boundingRect() here would make each glyph quad depend on its visual ink
+    // width and break the fixed terminal grid.
+    const QRectF logicalRect(0.0, -glyphMetrics.ascent(),
+                             std::max(advance, cellAdvance),
+                             glyphMetrics.height());
+    const QSize pixelSize(qCeil(logicalRect.width() * dpr),
+                          qCeil(logicalRect.height() * dpr));
+    const QRectF textureLogicalRect(
+        QPointF(0.0, 0.0),
+        QSizeF(pixelSize.width() / dpr, pixelSize.height() / dpr));
     const int paddedWidth = pixelSize.width() + 2;
     const int paddedHeight = pixelSize.height() + 2;
     if (_atlasX + paddedWidth > _atlasImage.width()) {
@@ -755,29 +867,37 @@ const TerminalRenderer::GlyphEntry& TerminalRenderer::ensureGlyph(
     if (_atlasY + paddedHeight > _atlasImage.height())
         resetGlyphAtlas();
 
-    QImage glyphImage(pixelSize, QImage::Format_RGBA8888);
-    glyphImage.fill(Qt::transparent);
-    glyphImage.setDevicePixelRatio(dpr);
-    QPainter painter(&glyphImage);
+    // Paint onto an opaque RGB surface so Windows/Qt can produce sub-pixel
+    // antialiasing. Transparent images only receive grayscale antialiasing.
+    QImage rgbGlyphImage(pixelSize, QImage::Format_RGB32);
+    rgbGlyphImage.fill(Qt::black);
+    rgbGlyphImage.setDevicePixelRatio(dpr);
+    QPainter painter(&rgbGlyphImage);
     painter.setRenderHint(QPainter::TextAntialiasing);
-    QFont glyphFont = _font;
-    glyphFont.setBold(bold);
     painter.setFont(glyphFont);
     painter.setPen(Qt::white);
-    painter.drawText(0, int(_fm->ascent()), text);
+    painter.drawText(QPointF(-logicalRect.left(),
+                             glyphMetrics.ascent()), text);
     painter.end();
+    const QImage glyphImage = alphaCoverageFromRgb(rgbGlyphImage, dpr);
 
     const QRect pixelRect(_atlasX + 1, _atlasY + 1,
                           pixelSize.width(), pixelSize.height());
     QPainter atlasPainter(&_atlasImage);
     atlasPainter.setCompositionMode(QPainter::CompositionMode_Source);
-    atlasPainter.drawImage(pixelRect.topLeft(), glyphImage);
+    // The glyph image carries a device-pixel ratio, whereas the atlas is a
+    // raw DPR-1 GPU texture. Explicit rectangles avoid an implicit HiDPI
+    // downscale followed by a GPU upscale, which makes glyphs look blurry.
+    atlasPainter.drawImage(pixelRect, glyphImage, glyphImage.rect());
     atlasPainter.end();
 
     _atlasX += paddedWidth;
     _atlasRowHeight = std::max(_atlasRowHeight, paddedHeight);
     _atlasDirty = true;
-    return _glyphs.insert(key, GlyphEntry{pixelRect}).value();
+    // Use the exact physical texture extent when building the GPU quad. This
+    // prevents fractional DPR values from rescaling a ceil-rounded glyph by a
+    // fraction of a pixel.
+    return _glyphs.insert(key, GlyphEntry{pixelRect, textureLogicalRect}).value();
 }
 
 void TerminalRenderer::appendQuad(const QRectF& rect, const QRectF& uvRect,
@@ -832,7 +952,7 @@ void TerminalRenderer::appendCell(int x, int y, const uint32_t* chars, char widt
                                   const VTermScreenCellAttrs& attrs,
                                   const VTermColor& fgColor,
                                   const VTermColor& bgColor,
-                                  const QSize& pixelSize)
+                                  const QSize& pixelSize, bool backgroundPass)
 {
     const int cellSpan = std::max(1, static_cast<int>(width));
     const int paintWidth = _cellWidth * cellSpan;
@@ -840,7 +960,10 @@ void TerminalRenderer::appendCell(int x, int y, const uint32_t* chars, char widt
     QColor background = vtermColorToQColor(bgColor);
     if (attrs.reverse)
         std::swap(foreground, background);
-    appendSolidRect(QRectF(x, y, paintWidth, _cellHeight), background, pixelSize);
+    if (backgroundPass) {
+        appendSolidRect(QRectF(x, y, paintWidth, _cellHeight), background, pixelSize);
+        return;
+    }
 
     if (attrs.conceal)
         return;
@@ -848,7 +971,7 @@ void TerminalRenderer::appendCell(int x, int y, const uint32_t* chars, char widt
         const QString text = cellCharsToString(chars, VTERM_MAX_CHARS_PER_CELL);
         if (!text.isEmpty()) {
             const auto& glyph = ensureGlyph(text, attrs.bold, cellSpan);
-            appendTexturedRect(QRectF(x, y, paintWidth, _cellHeight),
+            appendTexturedRect(glyph.logicalRect.translated(x, y),
                                glyph.pixelRect, foreground, pixelSize);
         }
     }
@@ -866,32 +989,39 @@ void TerminalRenderer::appendCell(int x, int y, const uint32_t* chars, char widt
 void TerminalRenderer::buildGpuFrame(const QSize& pixelSize)
 {
     _vertices.clear();
-    _vertices.reserve(_core->rows() * _core->columns() * 12);
+    _vertices.reserve(_core->rows() * _core->columns() * 18);
     const int rows = _core->rows();
     const int columns = _core->columns();
     const int scrollbackCount = _core->scrollbackLineCount();
-    for (int widgetRow = 0; widgetRow < rows; ++widgetRow) {
-        const int screenRow = widgetRow - _scrollLine;
-        for (int column = 0; column < columns; ++column) {
-            const int x = column * _cellWidth;
-            const int y = widgetRow * _cellHeight;
-            if (screenRow < 0) {
-                ScrollbackCell cell;
-                if (_core->getScrollbackCell(scrollbackCount + screenRow, column, cell)
-                    && cell.chars[0] != kWideCharContinuation) {
-                    appendCell(x, y, cell.chars, cell.width, cell.attrs,
-                               cell.fg, cell.bg, pixelSize);
-                }
-            } else {
-                VTermScreenCell cell;
-                if (_core->getCell(screenRow, column, cell)
-                    && cell.chars[0] != kWideCharContinuation) {
-                    appendCell(x, y, cell.chars, cell.width, cell.attrs,
-                               cell.fg, cell.bg, pixelSize);
+    const auto appendPass = [&](bool backgroundPass) {
+        for (int widgetRow = 0; widgetRow < rows; ++widgetRow) {
+            const int screenRow = widgetRow - _scrollLine;
+            for (int column = 0; column < columns; ++column) {
+                const int x = column * _cellWidth;
+                const int y = widgetRow * _cellHeight;
+                if (screenRow < 0) {
+                    ScrollbackCell cell;
+                    if (_core->getScrollbackCell(scrollbackCount + screenRow, column, cell)
+                        && cell.chars[0] != kWideCharContinuation) {
+                        appendCell(x, y, cell.chars, cell.width, cell.attrs,
+                                   cell.fg, cell.bg, pixelSize, backgroundPass);
+                    }
+                } else {
+                    VTermScreenCell cell;
+                    if (_core->getCell(screenRow, column, cell)
+                        && cell.chars[0] != kWideCharContinuation) {
+                        appendCell(x, y, cell.chars, cell.width, cell.attrs,
+                                   cell.fg, cell.bg, pixelSize, backgroundPass);
+                    }
                 }
             }
         }
-    }
+    };
+    // Backgrounds must be submitted before all glyphs. Otherwise the next
+    // proportional-font cell can overwrite the previous glyph's antialiased
+    // overhang, which appears as missing vertical or curved edges.
+    appendPass(true);
+    appendPass(false);
     appendSelection(pixelSize);
     appendCursor(pixelSize);
 }
@@ -1052,8 +1182,8 @@ void TerminalRenderer::renderCell(QPainter& p, int x, int y,
     if (text.isEmpty()) return;
 
     // 文字基线对齐
-    const int textY = y + static_cast<int>(_fm->ascent());
-    p.drawText(x, textY, text);
+    const qreal textY = y + _fm->ascent();
+    p.drawText(QPointF(x, textY), text);
 
     // ── 下划线 ───────────────────────────────────────────────
     if (attrs.underline != VTERM_UNDERLINE_OFF) {
