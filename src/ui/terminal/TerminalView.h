@@ -59,6 +59,7 @@ private:
     TerminalCore*     _core{nullptr};
     TerminalRenderer* _renderer{nullptr};
     ITransport*       _transport{nullptr};
+    QByteArray        _pendingTransportInput;
     bool              _isLocalShell{false};
 
     // PTY 尺寸变更去抖定时器：拖动窗口时密集的 resize 事件合并为一次

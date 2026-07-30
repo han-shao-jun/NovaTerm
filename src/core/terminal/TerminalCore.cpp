@@ -25,7 +25,10 @@ namespace {
 
 constexpr qsizetype QueueCapacity = 8 * 1024 * 1024;
 constexpr qsizetype ParserBatchSize = 64 * 1024;
+constexpr qsizetype QueueHighWatermark = QueueCapacity * 3 / 4;
+constexpr qsizetype QueueLowWatermark = QueueCapacity / 2;
 constexpr size_t MaximumPendingCommands = 4096;
+constexpr qsizetype MaximumPendingCommandBytes = 8 * 1024 * 1024;
 
 enum class CommandType
 {
@@ -52,6 +55,7 @@ struct ParserCommand
     QString text;
     NovaTerm::TerminalColor foreground;
     NovaTerm::TerminalColor background;
+    uint64_t byteBarrier{0};
 };
 
 NovaTerm::DirtyRegion mergedRegion(const NovaTerm::DirtyRegion& first,
@@ -81,43 +85,75 @@ public:
 
     ~Runtime()
     {
+        accepting.store(false, std::memory_order_release);
+        waitForIdle(5000);
         stopping.store(true, std::memory_order_release);
         bytes.stop();
-        {
-            QMutexLocker locker(&commandMutex);
-            commands.clear();
-        }
         if (thread) {
             thread->wait();
             delete thread;
         }
     }
 
-    void enqueueBytes(const QByteArray& data)
+    bool enqueueBytes(const QByteArray& data)
     {
         qsizetype offset = 0;
         while (offset < data.size()
-               && !stopping.load(std::memory_order_acquire)) {
+               && accepting.load(std::memory_order_acquire)) {
             const qsizetype length =
                 std::min<qsizetype>(ParserBatchSize, data.size() - offset);
-            if (!bytes.enqueue(data.mid(offset, length)))
-                return;
+            if (!bytes.enqueue(data.mid(offset, length), 0)) {
+                setBackpressure(true);
+                return false;
+            }
             submittedBytes.fetch_add(uint64_t(length),
                                      std::memory_order_release);
             offset += length;
+            if (bytes.statistics().queuedBytes >= QueueHighWatermark)
+                setBackpressure(true);
         }
+        return offset == data.size();
     }
 
     bool enqueueCommand(ParserCommand command)
     {
         QMutexLocker locker(&commandMutex);
-        if (stopping.load(std::memory_order_acquire)
-            || commands.size() >= MaximumPendingCommands) {
+        if (!accepting.load(std::memory_order_acquire))
+            return false;
+        command.byteBarrier = submittedBytes.load(std::memory_order_acquire);
+        const qsizetype commandBytes =
+            qsizetype(sizeof(ParserCommand))
+            + command.text.size() * qsizetype(sizeof(QChar));
+
+        if ((command.type == CommandType::Resize
+             || command.type == CommandType::DefaultColors
+             || command.type == CommandType::SetScrollbackLimit
+             || command.type == CommandType::Flush)
+            && !commands.empty()
+            && commands.back().type == command.type) {
+            pendingCommandBytes -= estimatedCommandBytes(commands.back());
+            commands.back() = std::move(command);
+            pendingCommandBytes += commandBytes;
+            return true;
+        }
+
+        if (commands.size() >= MaximumPendingCommands
+            || commandBytes > MaximumPendingCommandBytes
+            || pendingCommandBytes
+                   > MaximumPendingCommandBytes - commandBytes) {
+            reportOverload(QStringLiteral("parser command queue is full"));
             return false;
         }
         commands.push_back(std::move(command));
+        pendingCommandBytes += commandBytes;
         submittedCommands.fetch_add(1, std::memory_order_release);
         return true;
+    }
+
+    static qsizetype estimatedCommandBytes(const ParserCommand& command)
+    {
+        return qsizetype(sizeof(ParserCommand))
+            + command.text.size() * qsizetype(sizeof(QChar));
     }
 
     bool waitForIdle(int timeoutMs) const
@@ -151,6 +187,8 @@ public:
 
             const QByteArray batch = bytes.take(ParserBatchSize, 5);
             if (!batch.isEmpty()) {
+                if (bytes.statistics().queuedBytes <= QueueLowWatermark)
+                    setBackpressure(false);
                 {
                     QMutexLocker modelLocker(&modelMutex);
                     adapter->writeInput(batch);
@@ -164,7 +202,28 @@ public:
         }
 
         adapter.reset();
+        setBackpressure(false);
         notifyCompletion();
+    }
+
+    void setBackpressure(bool paused)
+    {
+        if (backpressure.exchange(paused, std::memory_order_acq_rel) == paused)
+            return;
+        QMetaObject::invokeMethod(
+            owner,
+            [target = owner, paused]() {
+                emit target->inputBackpressureChanged(paused);
+            },
+            Qt::QueuedConnection);
+    }
+
+    void reportOverload(const QString& reason)
+    {
+        QMetaObject::invokeMethod(
+            owner,
+            [target = owner, reason]() { emit target->inputOverload(reason); },
+            Qt::QueuedConnection);
     }
 
     void createAdapter()
@@ -203,7 +262,15 @@ public:
         std::deque<ParserCommand> local;
         {
             QMutexLocker locker(&commandMutex);
-            local.swap(commands);
+            const uint64_t bytesDone =
+                completedBytes.load(std::memory_order_acquire);
+            while (!commands.empty()
+                   && commands.front().byteBarrier <= bytesDone) {
+                pendingCommandBytes -=
+                    estimatedCommandBytes(commands.front());
+                local.push_back(std::move(commands.front()));
+                commands.pop_front();
+            }
         }
         if (local.empty())
             return 0;
@@ -318,6 +385,7 @@ public:
     NovaTerm::BoundedByteQueue bytes;
     mutable QMutex commandMutex;
     std::deque<ParserCommand> commands;
+    qsizetype pendingCommandBytes{0};
 
     mutable QMutex completionMutex;
     mutable QWaitCondition completionChanged;
@@ -325,7 +393,9 @@ public:
     std::atomic<uint64_t> completedBytes{0};
     std::atomic<uint64_t> submittedCommands{0};
     std::atomic<uint64_t> completedCommands{0};
+    std::atomic<bool> accepting{true};
     std::atomic<bool> stopping{false};
+    std::atomic<bool> backpressure{false};
     QThread* thread{nullptr};
     std::unique_ptr<NovaTerm::VTAdapter> adapter;
 
@@ -345,10 +415,9 @@ TerminalCore::TerminalCore(int cols, int rows, QObject* parent)
 
 TerminalCore::~TerminalCore() = default;
 
-void TerminalCore::writeInput(const QByteArray& data)
+bool TerminalCore::writeInput(const QByteArray& data)
 {
-    if (!data.isEmpty())
-        _runtime->enqueueBytes(data);
+    return data.isEmpty() || _runtime->enqueueBytes(data);
 }
 
 void TerminalCore::processKeyPress(QKeyEvent* event)

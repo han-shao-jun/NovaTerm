@@ -3,6 +3,7 @@
 #include <QCoreApplication>
 #include <QElapsedTimer>
 #include <QTextStream>
+#include <QThread>
 
 #include <algorithm>
 
@@ -27,6 +28,12 @@ double mibPerSecond(qint64 bytes, qint64 nanoseconds)
         / (double(nanoseconds) / 1'000'000'000.0);
 }
 
+void enqueueWithoutLoss(TerminalCore& core, const QByteArray& data)
+{
+    while (!core.writeInput(data))
+        QThread::yieldCurrentThread();
+}
+
 } // namespace
 
 int main(int argc, char* argv[])
@@ -49,7 +56,7 @@ int main(int argc, char* argv[])
     parserTimer.start();
     qint64 parsedBytes = 0;
     while (parsedBytes < targetBytes) {
-        core.writeInput(parserChunk);
+        enqueueWithoutLoss(core, parserChunk);
         parsedBytes += parserChunk.size();
     }
     if (!core.waitForIdle(60'000))
@@ -60,7 +67,7 @@ int main(int argc, char* argv[])
     QElapsedTimer scrollbackTimer;
     scrollbackTimer.start();
     for (qint64 line = 0; line < targetLines; ++line)
-        core.writeInput(scrollbackLine);
+        enqueueWithoutLoss(core, scrollbackLine);
     if (!core.waitForIdle(60'000))
         return 3;
     const qint64 scrollbackNanoseconds = scrollbackTimer.nsecsElapsed();

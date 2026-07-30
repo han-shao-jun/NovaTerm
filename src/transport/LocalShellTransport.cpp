@@ -69,6 +69,7 @@ bool LocalShellTransport::connectToHost()
 {
     if (_connected)
         disconnect();
+    _readPaused.store(false, std::memory_order_release);
 
     // 确定要启动的 shell
     QString shell = _shellProgram;
@@ -155,6 +156,8 @@ bool LocalShellTransport::connectToHost()
     _notifier = new QSocketNotifier(_masterFd, QSocketNotifier::Read, this);
     QObject::connect(_notifier, &QSocketNotifier::activated,
                      this, [this](int /*fd*/) {
+        if (_readPaused.load(std::memory_order_acquire))
+            return;
         char buf[4096];
         for (;;) {
             ssize_t n = ::read(_masterFd, buf, sizeof(buf));
@@ -259,6 +262,14 @@ void LocalShellTransport::disconnect()
     emit disconnected();
 }
 
+bool LocalShellTransport::setReadPaused(bool paused)
+{
+    _readPaused.store(paused, std::memory_order_release);
+    if (_notifier)
+        _notifier->setEnabled(!paused);
+    return true;
+}
+
 void LocalShellTransport::write(const QByteArray& data)
 {
     if (_masterFd != -1) {
@@ -353,6 +364,7 @@ bool LocalShellTransport::connectToHost()
 
     if (_running.load())
         disconnect();
+    _readPaused.store(false, std::memory_order_release);
 
     if (!createPipes()) return false;
     if (!createConPty(_cols, _rows)) return false;
@@ -377,8 +389,19 @@ bool LocalShellTransport::connectToHost()
     _readerThread = QThread::create([this]() {
         char buf[4096];
         DWORD n;
-        while (_running.load() &&
-               ReadFile(_hOutputRead, buf, sizeof(buf), &n, nullptr) && n > 0) {
+        while (_running.load()) {
+            {
+                QMutexLocker locker(&_readPauseMutex);
+                while (_running.load()
+                       && _readPaused.load(std::memory_order_acquire)) {
+                    _readPauseChanged.wait(&_readPauseMutex);
+                }
+            }
+            if (!_running.load()
+                || !ReadFile(_hOutputRead, buf, sizeof(buf), &n, nullptr)
+                || n == 0) {
+                break;
+            }
             QByteArray data(buf, static_cast<int>(n));
             QMetaObject::invokeMethod(this, [this, d = std::move(data)]() {
                 if (_running.load())
@@ -402,6 +425,8 @@ bool LocalShellTransport::connectToHost()
 void LocalShellTransport::disconnect()
 {
     _running.store(false);
+    _readPaused.store(false, std::memory_order_release);
+    _readPauseChanged.wakeAll();
     _connected = false;
 
     // 移除待处理的事件
@@ -439,6 +464,14 @@ void LocalShellTransport::disconnect()
     if (_hOutputWrite) { CloseHandle(_hOutputWrite); _hOutputWrite = nullptr; }
 
     emit disconnected();
+}
+
+bool LocalShellTransport::setReadPaused(bool paused)
+{
+    _readPaused.store(paused, std::memory_order_release);
+    if (!paused)
+        _readPauseChanged.wakeAll();
+    return true;
 }
 
 void LocalShellTransport::write(const QByteArray& data)

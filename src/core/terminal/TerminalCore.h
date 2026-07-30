@@ -23,7 +23,7 @@ public:
     explicit TerminalCore(int cols, int rows, QObject* parent = nullptr);
     ~TerminalCore() override;
 
-    void writeInput(const QByteArray& data);
+    bool writeInput(const QByteArray& data);
 
     void processKeyPress(QKeyEvent* event);
     void processMousePress(QMouseEvent* event);
@@ -66,6 +66,8 @@ signals:
     void damage(const NovaTerm::DirtyRegion& region);
     void cursorMoved();
     void scrollbackChanged();
+    void inputBackpressureChanged(bool paused);
+    void inputOverload(const QString& reason);
 
 private:
     class Runtime;

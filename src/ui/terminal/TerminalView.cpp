@@ -18,6 +18,8 @@
 #include <QJsonArray>
 #include <QTimer>
 
+#include <algorithm>
+
 static QColor configuredColor(const QJsonObject& colors, const char* key,
                               const QColor& fallback)
 {
@@ -175,7 +177,7 @@ void TerminalView::startLocalShell(LocalShellType type)
 
     // ── 临时禁用 scrollback 以消除启动时滚动条异常 ──────────
     const int savedHistorySize = _core->scrollbackLineCount() > 0
-        ? std::max(1000, _core->scrollbackLineCount()) : 1000;
+        ? (std::max)(1000, _core->scrollbackLineCount()) : 1000;
     _core->setScrollbackLimit(0);
 
     // 通过统一的 ITransport 路径桥接
@@ -231,8 +233,51 @@ void TerminalView::attachTransport(ITransport* transport)
     // Transport 输出 → libvterm 解析器
     connect(_transport, &ITransport::readyRead,
             this, [this](const QByteArray& data) {
-        if (_core)
-            _core->writeInput(data);
+        if (!_core || data.isEmpty())
+            return;
+        if (!_pendingTransportInput.isEmpty()) {
+            _pendingTransportInput.append(data);
+            if (_transport && !_transport->setReadPaused(true))
+                emit _core->inputOverload(
+                    QStringLiteral("transport cannot pause reads"));
+            return;
+        }
+        for (qsizetype offset = 0; offset < data.size();
+             offset += 64 * 1024) {
+            const QByteArray chunk = data.mid(offset, 64 * 1024);
+            if (_core->writeInput(chunk))
+                continue;
+            _pendingTransportInput.append(data.mid(offset));
+            if (_transport && !_transport->setReadPaused(true))
+                emit _core->inputOverload(
+                    QStringLiteral("transport cannot pause reads"));
+            break;
+        }
+    });
+
+    connect(_core, &TerminalCore::inputBackpressureChanged,
+            this, [this](bool paused) {
+        if (!_transport)
+            return;
+        if (paused) {
+            if (!_transport->setReadPaused(true))
+                emit _core->inputOverload(
+                    QStringLiteral("transport cannot pause reads"));
+            return;
+        }
+
+        while (!_pendingTransportInput.isEmpty()) {
+            const qsizetype length =
+                qMin(qsizetype(64 * 1024),
+                     _pendingTransportInput.size());
+            const QByteArray chunk = _pendingTransportInput.left(length);
+            if (!_core->writeInput(chunk)) {
+                _transport->setReadPaused(true);
+                return;
+            }
+            _pendingTransportInput.remove(0, length);
+        }
+        _transport->setReadPaused(false);
     });
 
     // 断开提示
@@ -265,9 +310,11 @@ void TerminalView::attachTransport(ITransport* transport)
 void TerminalView::detachTransport()
 {
     if (_transport) {
+        _transport->setReadPaused(false);
         disconnect(_transport, nullptr, this, nullptr);
         _transport = nullptr;
     }
+    _pendingTransportInput.clear();
 }
 
 // ═══════════════════════════════════════════════════════════════════

@@ -6,6 +6,8 @@
 #include <QtTest>
 
 #include <memory>
+#include <atomic>
+#include <thread>
 #include <vector>
 
 class TerminalCoreTests final : public QObject
@@ -21,6 +23,8 @@ private slots:
     void publishesTerminalTitle();
     void scrollbackKeepsNewestLines();
     void boundedByteQueuePreservesOrderAndBackpressure();
+    void boundedByteQueueWakesBlockedProducer();
+    void parserInputBackpressureDoesNotBlockCaller();
     void parserWorkerBatchesAndPublishes();
     void resizeAndShutdownUnderLoad();
 };
@@ -146,6 +150,45 @@ void TerminalCoreTests::boundedByteQueuePreservesOrderAndBackpressure()
     QCOMPARE(statistics.capacity, qsizetype(8));
     QCOMPARE(statistics.highWatermark, qsizetype(8));
     QVERIFY(statistics.producerWaits >= 1);
+}
+
+void TerminalCoreTests::boundedByteQueueWakesBlockedProducer()
+{
+    NovaTerm::BoundedByteQueue queue(8);
+    QVERIFY(queue.enqueue(QByteArrayLiteral("12345678"), 0));
+
+    std::atomic<bool> completed{false};
+    std::thread producer([&]() {
+        const bool accepted = queue.enqueue(QByteArrayLiteral("x"));
+        completed.store(accepted, std::memory_order_release);
+    });
+
+    QTRY_VERIFY_WITH_TIMEOUT(queue.statistics().producerWaits > 0, 1000);
+    QVERIFY(!completed.load(std::memory_order_acquire));
+    QCOMPARE(queue.take(1, 0), QByteArrayLiteral("1"));
+    producer.join();
+    QVERIFY(completed.load(std::memory_order_acquire));
+    QCOMPARE(queue.take(8, 0), QByteArrayLiteral("2345678x"));
+}
+
+void TerminalCoreTests::parserInputBackpressureDoesNotBlockCaller()
+{
+    TerminalCore core(80, 24);
+    QSignalSpy backpressureSpy(
+        &core, &TerminalCore::inputBackpressureChanged);
+
+    QElapsedTimer timer;
+    timer.start();
+    const bool accepted = core.writeInput(QByteArray(64 * 1024 * 1024, 'x'));
+    QVERIFY(!accepted);
+    QVERIFY2(timer.elapsed() < 1000,
+             "writeInput blocked instead of reporting bounded overload");
+
+    QTRY_VERIFY_WITH_TIMEOUT(backpressureSpy.count() >= 1, 1000);
+    QCOMPARE(backpressureSpy.first().at(0).toBool(), true);
+    QVERIFY(core.waitForIdle(10'000));
+    QTRY_VERIFY_WITH_TIMEOUT(
+        backpressureSpy.last().at(0).toBool() == false, 1000);
 }
 
 void TerminalCoreTests::parserWorkerBatchesAndPublishes()

@@ -120,3 +120,37 @@ Release 吞吐较 P1 的 4.22 MiB/s 提升到 9.35 MiB/s，但仍低于计划中
 20 MiB/s 性能目标。后续应通过 profiler 定位 ScreenBuffer 同步、scrollback
 复制和 libvterm callback 成本；P3 则继续实现 RenderScheduler 与真正的增量
 Render Command，避免 Parser 更新与 GPU 帧一一对应。
+
+## 7. 背压补完（2026-07-30）
+
+初版 P2 仅在 `BoundedByteQueue` 满载时阻塞写端。由于 Transport 的
+`readyRead` 最终可能在 UI 线程调用 `TerminalCore::writeInput()`，该实现虽然限制了
+内存，却可能把 Parser 的压力传回 UI 事件循环，不满足“Parser 阻塞 UI 时间为
+0 ms”的目标。
+
+本次补完采用以下端到端流控：
+
+- `TerminalCore::writeInput()` 改为非阻塞入队，并返回数据是否完整接收；
+- 8 MiB 字节队列使用 6 MiB 高水位和 4 MiB 低水位，形成带滞回的暂停/恢复；
+- `ITransport` 新增 `setReadPaused()`，无法暂停的实现必须返回 `false`；
+- Unix PTY 在高水位禁用 `QSocketNotifier`，低水位重新启用；
+- Windows ConPTY reader 在高水位等待条件变量，低水位唤醒后继续 `ReadFile`；
+- `TerminalView` 暂存竞争窗口内尚未入队的片段，在低水位后按 64 KiB 重试，
+  不静默丢失普通终端输出；
+- 无法暂停的 Transport 和命令队列满载通过 `inputOverload` 显式报告；
+- 命令队列同时受 4096 项和 8 MiB 预算约束，相邻的 resize、默认颜色、
+  scrollback 上限和 flush 命令合并为最新值；
+- 命令记录入队时的字节完成屏障，避免 resize 等命令越过先前已接收的输出；
+- `TerminalCore` 销毁时先停止接收新任务并尝试排空已提交任务，再停止 Worker。
+
+补充测试覆盖：
+
+- 满队列生产者阻塞后由消费者正确唤醒；
+- 64 MiB 突发输入不会阻塞调用线程；
+- 高水位产生暂停信号，队列排空至低水位后产生恢复信号；
+- Release Core 自动化测试共 12 项通过；
+- Release `NovaTerm` 完整目标构建通过。
+
+至此 P2 的队列级和 Local PTY/ConPTY Transport 级背压形成闭环。后续
+SSH、Serial、Telnet Transport 接入时必须实现 `setReadPaused()`；如果底层协议
+不能暂停读取，则必须提供独立接收线程和明确的过载策略。

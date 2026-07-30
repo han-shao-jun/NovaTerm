@@ -245,8 +245,9 @@ Transport
 
 ### 实施结果
 
-- 新增固定容量环形 `BoundedByteQueue`，容量 8 MiB，支持批量读写、阻塞背压、
-  停止唤醒及容量/高水位/等待次数/累计流量统计；
+- 新增固定容量环形 `BoundedByteQueue`，容量 8 MiB，支持批量读写、停止唤醒及
+  容量/高水位/等待次数/累计流量统计；2026-07-30 补充 6 MiB/4 MiB 高低水位，
+  由 Transport 主动暂停/恢复读取，UI 数据入口不再阻塞；
 - 新增独立 Parser Worker，按最大 64 KiB 批次消费字节，并独占
   `VTAdapter` 及所有 libvterm 可变状态；
 - resize、键盘、鼠标、粘贴、焦点、配色和 scrollback 配置统一串行化到
@@ -256,8 +257,8 @@ Transport
 - damage、scrollback、title、bell 和 output 信号按解析批次合并后投递到
   Qt 对象线程；
 - 新增 `waitForIdle()` 完成屏障和队列统计接口，便于测试、基准与安全退出；
-- Core 自动化测试扩展到 10 项，覆盖环形回绕、满载背压、异步批处理、
-  resize 与高负载销毁；
+- Core 自动化测试扩展到 12 项，覆盖环形回绕、阻塞生产者唤醒、非阻塞高低水位
+  背压、异步批处理、resize 与高负载销毁；
 - Debug/Release Core 测试以及完整 Debug `NovaTerm` 构建均通过；
 - Release 20 MiB 基准结果为 9.35 MiB/s，10 万行 Scrollback 为
   490.63 ms。解析已完全移出 UI 线程，但吞吐尚未达到 20 MiB/s，因此

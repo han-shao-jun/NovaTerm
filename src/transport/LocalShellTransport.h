@@ -1,6 +1,9 @@
 #pragma once
 #include "ITransport.h"
+#include <QMutex>
 #include <QStringList>
+#include <QWaitCondition>
+#include <atomic>
 
 #ifdef _WIN32
 #include <windows.h>
@@ -45,6 +48,7 @@ public:
     void resizeTerminal(int cols, int rows) override;
     bool isConnected() const override;
     QString errorString() const override;
+    bool setReadPaused(bool paused) override;
 
 private:
     QString _shellProgram;
@@ -53,6 +57,7 @@ private:
     QStringList _environment;
     QString _errorString;
     bool _connected{false};
+    std::atomic<bool> _readPaused{false};
 
     // ── Unix 路径 ─────────────────────────────────
 #ifndef _WIN32
@@ -75,6 +80,8 @@ private:
     HANDLE _hThread{nullptr};
     QThread* _readerThread{nullptr};
     std::atomic<bool> _running{false};
+    QMutex _readPauseMutex;
+    QWaitCondition _readPauseChanged;
     int _cols{80};
     int _rows{24};
 

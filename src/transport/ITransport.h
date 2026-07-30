@@ -19,6 +19,11 @@ public:
     virtual void write(const QByteArray& data) = 0;   // 向对端发送原始字节（终端按键）
     virtual void resizeTerminal(int cols, int rows) = 0; // 转发窗口尺寸变更（如 SSH PTY 大小调整）
     virtual bool isConnected() const = 0;
+    virtual bool setReadPaused(bool paused)
+    {
+        Q_UNUSED(paused);
+        return false;
+    }
     virtual QString errorString() const = 0;     // 最近一次错误信息，供 UI 显示
 
 signals:
