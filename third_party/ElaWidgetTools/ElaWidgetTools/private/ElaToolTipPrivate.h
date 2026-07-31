@@ -7,6 +7,9 @@
 class ElaToolTip;
 class QVBoxLayout;
 class ElaText;
+class QTimer;
+class QPropertyAnimation;
+
 class ElaToolTipPrivate : public QObject
 {
     Q_OBJECT
@@ -31,6 +34,14 @@ private:
     QVBoxLayout* _mainLayout{nullptr};
     ElaThemeType::ThemeMode _themeMode;
     int _shadowBorderWidth{6};
+
+    // Timers to manage show/hide/display lifecycle so that pending singleShots
+    // can be cancelled and races between show/hide are avoided.
+    QTimer* _showTimer{nullptr};
+    QTimer* _hideTimer{nullptr};
+    QTimer* _displayTimer{nullptr};
+    QPropertyAnimation* _showAnimation{nullptr};
+
     void _doShowAnimation();
     void _updatePos();
 };
