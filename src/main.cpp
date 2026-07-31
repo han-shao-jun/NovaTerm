@@ -80,77 +80,16 @@ static void enableMiniDump()
 #include <stdio.h>
 #include <time.h>
 
-static void generateCoreDump(int signo)
-{
-    time_t now = time(nullptr);
-    struct tm tmNow;
-    localtime_r(&now, &tmNow);
-
-    char fileName[512];
-    const char* dir = QCoreApplication::applicationDirPath().toLocal8Bit().constData();
-    snprintf(fileName, sizeof(fileName), "%s/NovaTerm_%04d%02d%02d_%02d%02d%02d_%d.core",
-             dir,
-             tmNow.tm_year + 1900, tmNow.tm_mon + 1, tmNow.tm_mday,
-             tmNow.tm_hour, tmNow.tm_min, tmNow.tm_sec,
-             getpid());
-
-    fprintf(stderr,
-            "\n*** NovaTerm CRASH (signal %d) ***\n"
-            "Time: %04d-%02d-%02d %02d:%02d:%02d  PID: %d\n"
-            "Core dump: %s\n",
-            signo,
-            tmNow.tm_year + 1900, tmNow.tm_mon + 1, tmNow.tm_mday,
-            tmNow.tm_hour, tmNow.tm_min, tmNow.tm_sec, getpid(),
-            fileName);
-    fflush(stderr);
-
-    // Fork → 孙进程：等内核写出 core 文件后重命名为时间戳文件名。
-    // 不能直接用 gdb -p 生成 core：gdb 的 ptrace 会挂起父进程导致程序"卡死"。
-    // 这里让父进程立即 raise 死亡，内核异步写入 core，孙进程负责重命名。
-    pid_t child = fork();
-    if (child == 0) {
-        // 脱离父进程，避免成为僵尸
-        setsid();
-        pid_t gc = fork();
-        if (gc == 0) {
-            // 孙进程：轮询等待内核写出 core 文件，最多等 5 秒
-            char corePath[512];
-            snprintf(corePath, sizeof(corePath), "%s/core", dir);
-            for (int i = 0; i < 50; ++i) {
-                usleep(100000);  // 100ms
-                struct stat st;
-                if (stat(corePath, &st) == 0 && st.st_size > 0) {
-                    rename(corePath, fileName);
-                    break;
-                }
-            }
-            _exit(0);
-        }
-        _exit(0);  // 子进程立即退出，孙进程变为孤儿
-    }
-
-    // 父进程：恢复默认信号处理 → 立即死亡，内核生成 core 文件
-    signal(signo, SIG_DFL);
-    raise(signo);
-}
 
 static void enableCoreDump()
 {
-    struct rlimit rl;
-    rl.rlim_cur = RLIM_INFINITY;
-    rl.rlim_max = RLIM_INFINITY;
-    setrlimit(RLIMIT_CORE, &rl);
-    
-    struct sigaction sa;
-    sigemptyset(&sa.sa_mask);
-    sa.sa_flags = SA_RESTART;
-    sa.sa_handler = generateCoreDump;
-    
-    sigaction(SIGSEGV, &sa, nullptr);
-    sigaction(SIGABRT, &sa, nullptr);
-    sigaction(SIGILL, &sa, nullptr);
-    sigaction(SIGFPE, &sa, nullptr);
-    sigaction(SIGBUS, &sa, nullptr);
+    struct rlimit limit {};
+    limit.rlim_cur = RLIM_INFINITY;
+    limit.rlim_max = RLIM_INFINITY;
+
+    if (setrlimit(RLIMIT_CORE, &limit) != 0) {
+        std::perror("setrlimit");
+    }
 }
 
 #endif

@@ -228,7 +228,7 @@ set(CPACK_PACKAGE_VERSION ${PROJECT_VERSION})
 set(CPACK_PACKAGE_FILE_NAME "${CPACK_PACKAGE_NAME}-${CPACK_PACKAGE_VERSION}-linux-amd64")
 set(CPACK_PACKAGE_VENDOR "NovaTerm Project")
 set(CPACK_PACKAGE_CONTACT "li ji")
-set(CPACK_PACKAGE_HOMEPAGE_URL "https://github.com/example/novaterm")
+set(CPACK_PACKAGE_HOMEPAGE_URL "https://github.com/han-shao-jun/NovaTerm")
 
 set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "NovaTerm - A modern terminal emulator")
 set(CPACK_PACKAGE_DESCRIPTION

@@ -25,7 +25,6 @@
     </message>
     <message>
         <location filename="../../src/ui/pages/AboutPage.cpp" line="27"/>
-        <location filename="../../src/ui/pages/AboutPage.cpp" line="59"/>
         <source>A cross-platform terminal emulator &amp; SSH client
 with FluentUI design, inspired by WindTerm.
 
@@ -46,6 +45,17 @@ Built with:
         <location filename="../../src/ui/pages/AboutPage.cpp" line="65"/>
         <source>License: GPLv2+</source>
         <translation>许可证：GPLv2+</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/pages/AboutPage.cpp" line="59"/>
+        <source>A cross-platform terminal emulator &amp; SSH client
+with FluentUI design, inspired by WindTerm.
+
+Built with:
+  • Qt 6.7  •  ElaWidgetTools (FluentUI)
+  • QTermWidget (terminal emulation)
+  • libssh (SSH/SFTP)</source>
+        <translation type="unfinished"></translation>
     </message>
 </context>
 <context>
@@ -674,27 +684,27 @@ Built with:
 <context>
     <name>TerminalView</name>
     <message>
-        <location filename="../../src/ui/terminal/TerminalView.cpp" line="259"/>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="352"/>
         <source>Copy</source>
         <translation>复制</translation>
     </message>
     <message>
-        <location filename="../../src/ui/terminal/TerminalView.cpp" line="262"/>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="355"/>
         <source>Paste</source>
         <translation>粘贴</translation>
     </message>
     <message>
-        <location filename="../../src/ui/terminal/TerminalView.cpp" line="273"/>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="366"/>
         <source>Zoom In</source>
         <translation>放大</translation>
     </message>
     <message>
-        <location filename="../../src/ui/terminal/TerminalView.cpp" line="276"/>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="369"/>
         <source>Zoom Out</source>
         <translation>缩小</translation>
     </message>
     <message>
-        <location filename="../../src/ui/terminal/TerminalView.cpp" line="281"/>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="374"/>
         <source>Clear Scrollback</source>
         <translation>清除滚动回显</translation>
     </message>

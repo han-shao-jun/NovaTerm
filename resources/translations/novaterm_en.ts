@@ -25,6 +25,16 @@
     </message>
     <message>
         <location filename="../../src/ui/pages/AboutPage.cpp" line="27"/>
+        <source>A cross-platform terminal emulator &amp; SSH client
+with FluentUI design, inspired by WindTerm.
+
+Built with:
+  • Qt 6.8  •  ElaWidgetTools (FluentUI)
+  • libvterm-0.3.3 (terminal emulation)
+  • libssh (SSH/SFTP)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <location filename="../../src/ui/pages/AboutPage.cpp" line="59"/>
         <source>A cross-platform terminal emulator &amp; SSH client
 with FluentUI design, inspired by WindTerm.
@@ -668,27 +678,27 @@ Built with:
 <context>
     <name>TerminalView</name>
     <message>
-        <location filename="../../src/ui/terminal/TerminalView.cpp" line="259"/>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="352"/>
         <source>Copy</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/terminal/TerminalView.cpp" line="262"/>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="355"/>
         <source>Paste</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/terminal/TerminalView.cpp" line="273"/>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="366"/>
         <source>Zoom In</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/terminal/TerminalView.cpp" line="276"/>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="369"/>
         <source>Zoom Out</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/terminal/TerminalView.cpp" line="281"/>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="374"/>
         <source>Clear Scrollback</source>
         <translation type="unfinished"></translation>
     </message>
