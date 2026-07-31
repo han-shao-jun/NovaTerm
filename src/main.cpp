@@ -55,8 +55,17 @@ static LONG WINAPI unhandledExceptionFilter(EXCEPTION_POINTERS* pExceptionInfo)
         mei.ExceptionPointers = pExceptionInfo;
         mei.ClientPointers = FALSE;
 
+        // Keep crash reporting lightweight. Writing the complete address space
+        // synchronously from this exception filter can take a long time and
+        // makes a driver crash look like an application hang.
+        constexpr auto dumpType = static_cast<MINIDUMP_TYPE>(
+            MiniDumpNormal
+            | MiniDumpWithThreadInfo
+            | MiniDumpWithUnloadedModules
+            | MiniDumpScanMemory
+            | MiniDumpWithIndirectlyReferencedMemory);
         MiniDumpWriteDump(GetCurrentProcess(), GetCurrentProcessId(), hFile,
-                          MiniDumpWithFullMemory, &mei, nullptr, nullptr);
+                          dumpType, &mei, nullptr, nullptr);
 
         CloseHandle(hFile);
     }
@@ -97,10 +106,27 @@ static void enableCoreDump()
 
 int main(int argc, char *argv[])
 {
-    // QRhiWidget needs the top-level QWidget backing store to use QRhi
-    // composition. Configure it before QApplication initializes the platform.
+#ifdef Q_OS_WIN
+    // DirectWrite font-family enumeration crashes inside DWrite on some
+    // Windows installations when Qt inspects localized font metadata. Use
+    // Qt's supported FreeType font engine so terminal font matching bypasses
+    // that path. Preserve an explicit platform selection from users or tests.
+    if (qEnvironmentVariableIsEmpty("QT_QPA_PLATFORM"))
+        qputenv("QT_QPA_PLATFORM", "windows:fontengine=freetype");
+
+    // QRhiWidget can be created after the already-visible main window when a
+    // session starts. Qt 6.8 needs the top-level backing store prepared for
+    // RHI composition in that case. Keep the backing store and terminal on
+    // the same API. D3D11 is Qt's mature Windows default; the session dialog
+    // lifetime bug that previously exposed a driver teardown crash is fixed
+    // separately. Explicit environment overrides remain supported.
     if (qEnvironmentVariableIsEmpty("QT_WIDGETS_RHI"))
         qputenv("QT_WIDGETS_RHI", "1");
+    if (qEnvironmentVariableIsEmpty("QT_WIDGETS_RHI_BACKEND"))
+        qputenv("QT_WIDGETS_RHI_BACKEND", "d3d11");
+    if (qEnvironmentVariableIsEmpty("NOVATERM_RHI_API"))
+        qputenv("NOVATERM_RHI_API", "d3d11");
+#endif
 
     // 高 DPI 处理。Qt 6 默认启用高 DPI 缩放，以下属性仅在 Qt 5 上需要。
     // PassThrough 保留分数缩放比例（如 150%）而非取整，确保渲染清晰。

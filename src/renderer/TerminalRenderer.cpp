@@ -9,10 +9,13 @@
 #include <QByteArray>
 #include <QClipboard>
 #include <QDebug>
+#include <QElapsedTimer>
 #include <QFile>
+#include <QMutexLocker>
 #include <rhi/qshader.h>
 #include <rhi/qrhi.h>
 #include <algorithm>
+#include <utility>
 
 // 滚动步长（行数）
 static constexpr int kScrollWheelLines = 3;
@@ -49,6 +52,8 @@ static QRhiWidget::Api preferredRhiApi()
         return QRhiWidget::Api::Direct3D11;
     if (api == "d3d12" || api == "direct3d12")
         return QRhiWidget::Api::Direct3D12;
+    if (api == "opengl" || api == "gl")
+        return QRhiWidget::Api::OpenGL;
     if (api == "vulkan")
         return QRhiWidget::Api::Vulkan;
     if (api == "null")
@@ -77,7 +82,12 @@ static const char* rhiApiName(QRhiWidget::Api api)
 }
 
 TerminalRenderer::TerminalRenderer(TerminalCore* core, QWidget* parent)
-    : QRhiWidget(parent)
+    // QRhiWidget::setApi() must run before the widget is inserted into a
+    // widget hierarchy. Passing parent to the base constructor would attach
+    // the widget before the constructor body gets a chance to select an API,
+    // potentially leaving the top-level window and this widget with different
+    // QRhi backends.
+    : QRhiWidget(nullptr)
     , _core(core)
     , _scheme(TerminalColorScheme::defaultDark())
 {
@@ -110,6 +120,23 @@ TerminalRenderer::TerminalRenderer(TerminalCore* core, QWidget* parent)
     _fm = new QFontMetricsF(_font);
     recalculateCellSize();
     resetGlyphAtlas();
+    _renderScheduler = new NovaTerm::RenderScheduler(this);
+    _renderScheduler->setViewport(_core->columns(), _core->rows());
+    connect(_renderScheduler, &NovaTerm::RenderScheduler::frameRequested,
+            this,
+            [this](const QVector<NovaTerm::DirtyRegion>& regions,
+                   bool fullFrame,
+                   bool overlayDirty) {
+        const QMutexLocker lock(&_pendingFrameMutex);
+        if (fullFrame) {
+            _pendingDirtyRegions.clear();
+            _fullFramePending = true;
+        } else if (!_fullFramePending) {
+            _pendingDirtyRegions += regions;
+        }
+        _overlayPending = _overlayPending || overlayDirty;
+        update();
+    });
 
     // 光标闪烁定时器
     _blinkTimer = new QTimer(this);
@@ -118,9 +145,7 @@ TerminalRenderer::TerminalRenderer(TerminalCore* core, QWidget* parent)
         _cursorBlinkVisible = !_cursorBlinkVisible;
         // 只重绘光标所在行
         if (_core->cursorVisible() && _core->cursorBlink() && _scrollLine == 0) {
-            const auto cpos = _core->cursorPosition();
-            const int y = cellToWidget(cpos.row, 0).y();
-            update(0, y, width(), qCeil(_cellHeight));
+            requestOverlayFrame();
         }
     });
     _blinkTimer->start();
@@ -128,45 +153,58 @@ TerminalRenderer::TerminalRenderer(TerminalCore* core, QWidget* parent)
     // ── 连接 TerminalCore 信号 ───────────────────────────────
     connect(_core, &TerminalCore::damage, this,
             [this](const NovaTerm::DirtyRegion& region) {
-        // 活跃屏幕 documentRow 映射到 widgetRow 时需加上历史偏移。
-        const int startRow = region.startRow + _scrollLine;
-        const int endRow   = region.endRow + _scrollLine;
-        const int visRows  = _core->rows();
-        if (endRow <= 0 || startRow >= visRows) return;
-
-        const int clampedStart = std::max(0, startRow);
-        const int clampedEnd   = std::min(visRows, endRow);
-        const int y      = qFloor(clampedStart * _cellHeight);
-        const int h      = qCeil(clampedEnd * _cellHeight) - y;
-        const int x      = qFloor(region.startColumn * _cellWidth);
-        const int w      = qCeil(region.endColumn * _cellWidth) - x;
-
-        update(x, y, std::max(1, w), std::max(1, h));
+        _renderScheduler->setViewport(_core->columns(), _core->rows());
+        NovaTerm::DirtyRegion visible = region;
+        visible.startRow += _scrollLine;
+        visible.endRow += _scrollLine;
+        _renderScheduler->schedule(visible);
     });
 
     connect(_core, &TerminalCore::cursorMoved, this, [this]() {
-        // 重绘旧位置和新位置（全宽，简化处理）
-        update();
+        requestOverlayFrame();
     });
 
     connect(_core, &TerminalCore::scrollbackChanged, this, [this]() {
         const int historyCount = _core->scrollbackLineCount();
         const int clampedOffset = std::clamp(_scrollLine, 0, historyCount);
+        const bool viewportMappingChanged =
+            _scrollLine > 0 || clampedOffset != _scrollLine;
         if (clampedOffset != _scrollLine)
             _scrollLine = clampedOffset;
 
-        if (!isDocumentPositionValid(_selStart) ||
-            !isDocumentPositionValid(_selEnd)) {
+        bool selectionChanged = false;
+        const bool hasSelectionState =
+            _selecting || _selStart.col >= 0 || _selEnd.col >= 0;
+        if (hasSelectionState
+            && (!isDocumentPositionValid(_selStart)
+                || !isDocumentPositionValid(_selEnd))) {
             _selStart = {-1, -1};
             _selEnd = {-1, -1};
             _selecting = false;
+            selectionChanged = true;
         }
-        update();
+
+        // At the live bottom, a scrollback append is accompanied by damage for
+        // the active screen in the same parser publication. Scheduling a full
+        // frame here would turn every output batch (especially shell/Clink
+        // startup) into a complete CPU rebuild and GPU upload. A full rebuild
+        // is only required while history rows are actually mapped into the
+        // viewport or when clamping changed that mapping.
+        if (viewportMappingChanged)
+            requestFullFrame();
+        else if (selectionChanged)
+            requestOverlayFrame();
     });
 
     connect(this, &QRhiWidget::renderFailed, this, []() {
         qWarning() << "TerminalRenderer: QRhi render failed. Set NOVATERM_RHI_API=d3d11, d3d12, vulkan, or opengl to try another backend.";
     });
+
+    // The parent may already belong to a visible top-level window, and
+    // setParent() can synchronously deliver polish/layout events. Attach only
+    // after every renderer member and connection has been initialized.
+    if (parent)
+        setParent(parent);
 }
 
 TerminalRenderer::~TerminalRenderer()
@@ -179,6 +217,20 @@ TerminalRenderer::~TerminalRenderer()
     // 在 deleteChildren() 过程中 _core 可能已先析构，此时 disconnect 会访问
     // 半析构的 QObject 内部元数据导致 SIGSEGV。
     delete _fm;
+}
+
+TerminalRenderer::RenderStatistics TerminalRenderer::renderStatistics() const
+{
+    RenderStatistics result = _renderStatistics;
+    if (_renderScheduler)
+        result.scheduler = _renderScheduler->statistics();
+    return result;
+}
+
+void TerminalRenderer::setTargetRefreshRate(int hz)
+{
+    if (_renderScheduler)
+        _renderScheduler->setTargetRefreshRate(hz);
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -206,7 +258,7 @@ void TerminalRenderer::setColorScheme(const TerminalColorScheme& scheme)
     pal.setColor(QPalette::Window, _scheme.background);
     setPalette(pal);
 
-    update();
+    requestFullFrame();
 }
 
 void TerminalRenderer::setFont(const QFont& font)
@@ -227,7 +279,7 @@ void TerminalRenderer::setFont(const QFont& font)
     resetGlyphAtlas();
     updateGeometry();
     resizeTerminalToViewport();
-    update();
+    requestFullFrame();
 }
 
 void TerminalRenderer::zoomIn()
@@ -245,7 +297,7 @@ void TerminalRenderer::zoomIn()
         resetGlyphAtlas();
         updateGeometry();
         resizeTerminalToViewport();
-        update();
+        requestFullFrame();
     }
 }
 
@@ -264,7 +316,7 @@ void TerminalRenderer::zoomOut()
         resetGlyphAtlas();
         updateGeometry();
         resizeTerminalToViewport();
-        update();
+        requestFullFrame();
     }
 }
 
@@ -276,7 +328,7 @@ void TerminalRenderer::scrollToBottom()
 {
     if (_scrollLine != 0) {
         _scrollLine = 0;
-        update();
+        requestFullFrame();
     }
 }
 
@@ -286,7 +338,7 @@ void TerminalRenderer::scrollToLine(int line)
     const int clamped = std::max(0, std::min(line, maxScroll));
     if (clamped != _scrollLine) {
         _scrollLine = clamped;
-        update();
+        requestFullFrame();
     }
 }
 
@@ -370,7 +422,7 @@ void TerminalRenderer::clearSelection()
     _selStart = {-1, -1};
     _selEnd   = {-1, -1};
     _selecting = false;
-    update();
+    requestOverlayFrame();
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -409,6 +461,8 @@ void TerminalRenderer::initialize(QRhiCommandBuffer* cb)
 
 void TerminalRenderer::render(QRhiCommandBuffer* cb)
 {
+    QElapsedTimer frameTimer;
+    frameTimer.start();
     if (!_rhi || !cb || !renderTarget())
         return;
 
@@ -421,27 +475,58 @@ void TerminalRenderer::render(QRhiCommandBuffer* cb)
     if (!_atlasTexture || !_pipeline || !_srb)
         return;
 
-    buildGpuFrame(pixelSize);
-    if (_vertices.isEmpty())
+    const NovaTerm::TerminalSnapshot screen = _core->snapshot();
+    const int rows = screen.rows;
+    const int columns = screen.columns;
+    if (rows <= 0 || columns <= 0)
         return;
 
-    const int requiredBytes = int(_vertices.size() * sizeof(GpuVertex));
-    if (!_vertexBuffer || _vertexBufferSize < requiredBytes) {
-        _vertexBuffer.reset();
-        _vertexBufferSize = std::max(requiredBytes, 256 * 1024);
-        _vertexBuffer.reset(_rhi->newBuffer(QRhiBuffer::Dynamic,
-                                            QRhiBuffer::VertexBuffer,
-                                            _vertexBufferSize));
-        if (!_vertexBuffer->create()) {
-            qWarning() << "TerminalRenderer: failed to create QRhi vertex buffer";
-            _vertexBuffer.reset();
-            _vertexBufferSize = 0;
-            return;
+    // Take ownership of this frame's requests up front. New requests arriving
+    // while commands are built remain queued for the next frame instead of
+    // invalidating this iteration or being erased at the end of this one.
+    QVector<NovaTerm::DirtyRegion> pendingDirtyRegions;
+    bool fullFramePending = false;
+    bool overlayPending = false;
+    {
+        const QMutexLocker lock(&_pendingFrameMutex);
+        pendingDirtyRegions.swap(_pendingDirtyRegions);
+        fullFramePending = std::exchange(_fullFramePending, false);
+        overlayPending = std::exchange(_overlayPending, false);
+    }
+
+    if (_commandBuffer.rows() != rows || _commandBuffer.columns() != columns) {
+        _commandBuffer.resize(rows, columns);
+        fullFramePending = true;
+        overlayPending = true;
+    }
+
+    QVector<bool> dirtyRows(rows, fullFramePending);
+    if (!fullFramePending) {
+        for (const NovaTerm::DirtyRegion& region : std::as_const(pendingDirtyRegions)) {
+            const int start = std::clamp(region.startRow, 0, rows);
+            const int end = std::clamp(region.endRow, 0, rows);
+            for (int row = start; row < end; ++row)
+                dirtyRows[row] = true;
         }
     }
 
+    QElapsedTimer commandTimer;
+    commandTimer.start();
+    rebuildCommandRows(screen, dirtyRows);
+    if (overlayPending || fullFramePending)
+        rebuildOverlays();
+    _renderStatistics.commandGenerationNanoseconds +=
+        quint64(commandTimer.nsecsElapsed());
+    _renderStatistics.commandsGenerated +=
+        quint64(_commandBuffer.commandCount());
+
+    const bool bufferReallocated = ensureVertexBuffer(rows, columns);
+    if (!_vertexBuffer)
+        return;
+
     QRhiResourceUpdateBatch* resourceUpdates = _rhi->nextResourceUpdateBatch();
-    resourceUpdates->updateDynamicBuffer(_vertexBuffer.get(), 0, requiredBytes, _vertices.constData());
+    uploadCommands(resourceUpdates, pixelSize, dirtyRows, bufferReallocated,
+                   overlayPending || fullFramePending || bufferReallocated);
     if (_atlasDirty) {
         resourceUpdates->uploadTexture(_atlasTexture.get(), _atlasImage);
         _atlasDirty = false;
@@ -451,10 +536,44 @@ void TerminalRenderer::render(QRhiCommandBuffer* cb)
     cb->setGraphicsPipeline(_pipeline.get());
     cb->setViewport(QRhiViewport(0, 0, pixelSize.width(), pixelSize.height()));
     cb->setShaderResources(_srb.get());
-    const QRhiCommandBuffer::VertexInput vertexBinding(_vertexBuffer.get(), 0);
-    cb->setVertexInput(0, 1, &vertexBinding);
-    cb->draw(_vertices.size());
+
+    for (int row = 0; row < rows; ++row) {
+        const int vertexCount =
+            int(_commandBuffer.row(row).backgrounds.size()) * 6;
+        if (vertexCount <= 0)
+            continue;
+        const quint32 offset = quint32(row * _backgroundRowStrideVertices
+                                      * int(sizeof(GpuVertex)));
+        const QRhiCommandBuffer::VertexInput binding(_vertexBuffer.get(), offset);
+        cb->setVertexInput(0, 1, &binding);
+        cb->draw(vertexCount);
+        ++_renderStatistics.drawCalls;
+    }
+    const int contentBase = rows * _backgroundRowStrideVertices;
+    for (int row = 0; row < rows; ++row) {
+        const int vertexCount =
+            int(_commandBuffer.row(row).contents.size()) * 6;
+        if (vertexCount <= 0)
+            continue;
+        const quint32 offset = quint32(
+            (contentBase + row * _contentRowStrideVertices)
+            * int(sizeof(GpuVertex)));
+        const QRhiCommandBuffer::VertexInput binding(_vertexBuffer.get(), offset);
+        cb->setVertexInput(0, 1, &binding);
+        cb->draw(vertexCount);
+        ++_renderStatistics.drawCalls;
+    }
+    if (_overlayVertexCount > 0) {
+        const quint32 offset = quint32(_overlayBaseVertex
+                                      * int(sizeof(GpuVertex)));
+        const QRhiCommandBuffer::VertexInput binding(_vertexBuffer.get(), offset);
+        cb->setVertexInput(0, 1, &binding);
+        cb->draw(_overlayVertexCount);
+        ++_renderStatistics.drawCalls;
+    }
     cb->endPass();
+
+    _renderStatistics.cpuFrameNanoseconds += quint64(frameTimer.nsecsElapsed());
 }
 
 void TerminalRenderer::releaseResources()
@@ -473,6 +592,9 @@ void TerminalRenderer::resizeEvent(QResizeEvent* event)
 
     recalculateCellSize();
     resizeTerminalToViewport();
+    if (_renderScheduler)
+        _renderScheduler->setViewport(_core->columns(), _core->rows());
+    requestFullFrame();
 }
 
 void TerminalRenderer::resizeTerminalToViewport()
@@ -532,7 +654,7 @@ void TerminalRenderer::mousePressEvent(QMouseEvent* event)
         _selecting = true;
         _selStart  = {row, col};
         _selEnd    = {row, col};
-        update();
+        requestOverlayFrame();
     } else {
         // Non-selection mouse buttons are encoded by TerminalCore.
         _core->processMousePress(event);
@@ -544,7 +666,7 @@ void TerminalRenderer::mouseMoveEvent(QMouseEvent* event)
     if (_selecting) {
         const QPoint cell = widgetToCell(event->pos());
         _selEnd = {cell.y(), cell.x()};
-        update();
+        requestOverlayFrame();
     }
 }
 
@@ -593,7 +715,7 @@ void TerminalRenderer::mouseDoubleClickEvent(QMouseEvent* event)
             _selEnd   = {row, rc};
             _selecting = false;
             copySelection();
-            update();
+            requestOverlayFrame();
         }
     }
 }
@@ -719,6 +841,11 @@ void TerminalRenderer::releaseRhiResources()
     _srb.reset();
     _vertexBuffer.reset();
     _vertexBufferSize = 0;
+    {
+        const QMutexLocker lock(&_pendingFrameMutex);
+        _fullFramePending = true;
+        _overlayPending = true;
+    }
     _sampler.reset();
     _atlasTexture.reset();
 }
@@ -741,8 +868,14 @@ void TerminalRenderer::ensureAtlasTexture()
 {
     if (!_rhi)
         return;
-    if (_atlasImage.isNull() || !qFuzzyCompare(_atlasDpr, devicePixelRatioF()))
+    if (_atlasImage.isNull() || !qFuzzyCompare(_atlasDpr, devicePixelRatioF())) {
         resetGlyphAtlas();
+        // Cached glyph commands refer to atlas pixels generated at the old
+        // DPR. Rebuild every row before drawing against the new atlas.
+        const QMutexLocker lock(&_pendingFrameMutex);
+        _fullFramePending = true;
+        _overlayPending = true;
+    }
     if (_atlasTexture)
         return;
 
@@ -937,8 +1070,55 @@ void TerminalRenderer::appendTexturedRect(const QRectF& rect, const QRect& atlas
                color, pixelSize);
 }
 
-void TerminalRenderer::appendCell(qreal x, qreal y, const NovaTerm::Cell& cell,
-                                  const QSize& pixelSize, bool backgroundPass)
+NovaTerm::RenderCommand TerminalRenderer::makeSolidCommand(
+    NovaTerm::RenderCommandType type,
+    const QRectF& rect,
+    const QColor& color) const
+{
+    const qreal atlasWidth = _atlasImage.width();
+    const qreal atlasHeight = _atlasImage.height();
+    return {
+        type,
+        rect,
+        QRectF(0.25 / atlasWidth, 0.25 / atlasHeight,
+               0.5 / atlasWidth, 0.5 / atlasHeight),
+        color
+    };
+}
+
+void TerminalRenderer::requestFullFrame()
+{
+    if (_renderScheduler)
+        _renderScheduler->scheduleFullFrame();
+    else {
+        {
+            const QMutexLocker lock(&_pendingFrameMutex);
+            _fullFramePending = true;
+            _overlayPending = true;
+        }
+        update();
+    }
+}
+
+void TerminalRenderer::requestOverlayFrame()
+{
+    if (_renderScheduler)
+        _renderScheduler->scheduleOverlay();
+    else {
+        {
+            const QMutexLocker lock(&_pendingFrameMutex);
+            _overlayPending = true;
+        }
+        update();
+    }
+}
+
+void TerminalRenderer::appendCellCommands(
+    qreal x,
+    qreal y,
+    const NovaTerm::Cell& cell,
+    QVector<NovaTerm::RenderCommand>& backgrounds,
+    QVector<NovaTerm::RenderCommand>& contents)
 {
     const int cellSpan = std::max(1, static_cast<int>(cell.width));
     const qreal paintWidth = _cellWidth * cellSpan;
@@ -946,10 +1126,9 @@ void TerminalRenderer::appendCell(qreal x, qreal y, const NovaTerm::Cell& cell,
     QColor background = terminalColorToQColor(cell.background, false);
     if (cell.attributes.reverse)
         std::swap(foreground, background);
-    if (backgroundPass) {
-        appendSolidRect(QRectF(x, y, paintWidth, _cellHeight), background, pixelSize);
-        return;
-    }
+    backgrounds.push_back(makeSolidCommand(
+        NovaTerm::RenderCommandType::BackgroundRect,
+        QRectF(x, y, paintWidth, _cellHeight), background));
 
     if (cell.attributes.conceal)
         return;
@@ -959,60 +1138,89 @@ void TerminalRenderer::appendCell(qreal x, qreal y, const NovaTerm::Cell& cell,
         if (!text.isEmpty()) {
             const auto& glyph =
                 ensureGlyph(text, cell.attributes.bold, cellSpan);
-            appendTexturedRect(glyph.logicalRect.translated(x, y),
-                               glyph.pixelRect, foreground, pixelSize);
+            const qreal atlasWidth = _atlasImage.width();
+            const qreal atlasHeight = _atlasImage.height();
+            contents.push_back({
+                NovaTerm::RenderCommandType::GlyphInstance,
+                glyph.logicalRect.translated(x, y),
+                QRectF(glyph.pixelRect.left() / atlasWidth,
+                       glyph.pixelRect.top() / atlasHeight,
+                       glyph.pixelRect.width() / atlasWidth,
+                       glyph.pixelRect.height() / atlasHeight),
+                foreground
+            });
         }
     }
     if (cell.attributes.underline) {
         const qreal underlineY = y + _fm->ascent() + 2;
-        appendSolidRect(QRectF(x, underlineY, paintWidth, 1), foreground, pixelSize);
+        contents.push_back(makeSolidCommand(
+            NovaTerm::RenderCommandType::Underline,
+            QRectF(x, underlineY, paintWidth, 1), foreground));
         if (cell.attributes.underlineStyle == NovaTerm::UnderlineStyle::Double)
-            appendSolidRect(QRectF(x, underlineY + 2, paintWidth, 1), foreground, pixelSize);
+            contents.push_back(makeSolidCommand(
+                NovaTerm::RenderCommandType::Underline,
+                QRectF(x, underlineY + 2, paintWidth, 1), foreground));
     }
     if (cell.attributes.strike)
-        appendSolidRect(QRectF(x, y + _cellHeight / 2, paintWidth, 1),
-                        foreground, pixelSize);
+        contents.push_back(makeSolidCommand(
+            NovaTerm::RenderCommandType::Strike,
+            QRectF(x, y + _cellHeight / 2, paintWidth, 1), foreground));
 }
 
-void TerminalRenderer::buildGpuFrame(const QSize& pixelSize)
+void TerminalRenderer::rebuildCommandRows(
+    const NovaTerm::TerminalSnapshot& screen,
+    const QVector<bool>& dirtyRows)
 {
-    const NovaTerm::TerminalSnapshot screen = _core->snapshot();
-    _vertices.clear();
-    _vertices.reserve(screen.rows * screen.columns * 18);
-    const int rows = screen.rows;
-    const int columns = screen.columns;
-    const int scrollbackCount = _core->scrollbackLineCount();
-    const auto appendPass = [&](bool backgroundPass) {
-        for (int widgetRow = 0; widgetRow < rows; ++widgetRow) {
-            const int screenRow = widgetRow - _scrollLine;
-            for (int column = 0; column < columns; ++column) {
-                const qreal x = column * _cellWidth;
-                const qreal y = widgetRow * _cellHeight;
-                if (screenRow < 0) {
-                    NovaTerm::Cell cell;
-                    if (_core->getScrollbackCell(scrollbackCount + screenRow, column, cell)
-                        && !cell.isWideContinuation()) {
-                        appendCell(x, y, cell, pixelSize, backgroundPass);
-                    }
-                } else {
-                    const NovaTerm::Cell* cell = screen.cellAt(screenRow, column);
-                    if (cell && !cell->isWideContinuation()) {
-                        appendCell(x, y, *cell, pixelSize, backgroundPass);
-                    }
-                }
-            }
-        }
-    };
-    // Backgrounds must be submitted before all glyphs. Otherwise the next
-    // proportional-font cell can overwrite the previous glyph's antialiased
-    // overhang, which appears as missing vertical or curved edges.
-    appendPass(true);
-    appendPass(false);
-    appendSelection(pixelSize);
-    appendCursor(pixelSize);
+    for (int row = 0; row < dirtyRows.size(); ++row) {
+        if (!dirtyRows[row])
+            continue;
+        rebuildCommandRow(row, screen);
+        ++_renderStatistics.rowsRebuilt;
+    }
 }
 
-void TerminalRenderer::appendCursor(const QSize& pixelSize)
+void TerminalRenderer::rebuildCommandRow(
+    int widgetRow,
+    const NovaTerm::TerminalSnapshot& screen)
+{
+    QVector<NovaTerm::RenderCommand> backgrounds;
+    QVector<NovaTerm::RenderCommand> contents;
+    backgrounds.reserve(screen.columns);
+    contents.reserve(screen.columns);
+
+    const int scrollbackCount = _core->scrollbackLineCount();
+    const int screenRow = widgetRow - _scrollLine;
+    for (int column = 0; column < screen.columns; ++column) {
+        const qreal x = column * _cellWidth;
+        const qreal y = widgetRow * _cellHeight;
+        if (screenRow < 0) {
+            NovaTerm::Cell cell;
+            if (_core->getScrollbackCell(scrollbackCount + screenRow,
+                                         column, cell)
+                && !cell.isWideContinuation()) {
+                appendCellCommands(x, y, cell, backgrounds, contents);
+            }
+        } else {
+            const NovaTerm::Cell* cell = screen.cellAt(screenRow, column);
+            if (cell && !cell->isWideContinuation())
+                appendCellCommands(x, y, *cell, backgrounds, contents);
+        }
+    }
+    _commandBuffer.replaceRow(widgetRow, std::move(backgrounds),
+                              std::move(contents));
+}
+
+void TerminalRenderer::rebuildOverlays()
+{
+    QVector<NovaTerm::RenderCommand> overlays;
+    overlays.reserve(_core->rows() + 1);
+    appendSelectionCommands(overlays);
+    appendCursorCommand(overlays);
+    _commandBuffer.replaceOverlays(std::move(overlays));
+}
+
+void TerminalRenderer::appendCursorCommand(
+    QVector<NovaTerm::RenderCommand>& commands)
 {
     if (!_core->cursorVisible() || _scrollLine != 0
         || (_core->cursorBlink() && !_cursorBlinkVisible))
@@ -1030,10 +1238,12 @@ void TerminalRenderer::appendCursor(const QSize& pixelSize)
         cursorRect = QRectF(point.x(), point.y() + _cellHeight - 2, _cellWidth, 2);
     else if (_core->cursorShape() == NovaTerm::CursorShape::BarLeft)
         cursorRect = QRectF(point.x(), point.y(), 2, _cellHeight);
-    appendSolidRect(cursorRect, color, pixelSize);
+    commands.push_back(makeSolidCommand(
+        NovaTerm::RenderCommandType::Cursor, cursorRect, color));
 }
 
-void TerminalRenderer::appendSelection(const QSize& pixelSize)
+void TerminalRenderer::appendSelectionCommands(
+    QVector<NovaTerm::RenderCommand>& commands)
 {
     if (!hasSelection())
         return;
@@ -1052,9 +1262,113 @@ void TerminalRenderer::appendSelection(const QSize& pixelSize)
         const QPointF topLeft(firstColumn * _cellWidth, widgetRow * _cellHeight);
         const QPointF bottomRight((lastColumn + 1) * _cellWidth,
                                   widgetRow * _cellHeight);
-        appendSolidRect(QRectF(topLeft.x(), topLeft.y(),
-                               bottomRight.x() - topLeft.x(), _cellHeight),
-                        selectionColor, pixelSize);
+        commands.push_back(makeSolidCommand(
+            NovaTerm::RenderCommandType::SelectionOverlay,
+            QRectF(topLeft.x(), topLeft.y(),
+                   bottomRight.x() - topLeft.x(), _cellHeight),
+            selectionColor));
+    }
+}
+
+void TerminalRenderer::appendCommandVertices(
+    const NovaTerm::RenderCommand& command,
+    const QSize& pixelSize)
+{
+    appendQuad(command.rect, command.uvRect, command.color, pixelSize);
+}
+
+bool TerminalRenderer::ensureVertexBuffer(int rows, int columns)
+{
+    const int backgroundStride = columns * 6;
+    const int contentStride = columns * 24;
+    const int overlayBase = rows * (backgroundStride + contentStride);
+    const int overlayCapacity = (rows + 2) * 6;
+    const int requiredBytes =
+        (overlayBase + overlayCapacity) * int(sizeof(GpuVertex));
+    const bool layoutChanged =
+        _backgroundRowStrideVertices != backgroundStride
+        || _contentRowStrideVertices != contentStride
+        || _overlayBaseVertex != overlayBase;
+
+    _backgroundRowStrideVertices = backgroundStride;
+    _contentRowStrideVertices = contentStride;
+    _overlayBaseVertex = overlayBase;
+
+    if (_vertexBuffer && _vertexBufferSize >= requiredBytes)
+        return layoutChanged;
+
+    _vertexBuffer.reset();
+    _vertexBufferSize = std::max(requiredBytes, 256 * 1024);
+    _vertexBuffer.reset(_rhi->newBuffer(QRhiBuffer::Dynamic,
+                                        QRhiBuffer::VertexBuffer,
+                                        _vertexBufferSize));
+    if (!_vertexBuffer->create()) {
+        qWarning() << "TerminalRenderer: failed to create QRhi vertex buffer";
+        _vertexBuffer.reset();
+        _vertexBufferSize = 0;
+        return true;
+    }
+    ++_renderStatistics.vertexBufferReallocations;
+    return true;
+}
+
+void TerminalRenderer::uploadCommands(
+    QRhiResourceUpdateBatch* updates,
+    const QSize& pixelSize,
+    const QVector<bool>& dirtyRows,
+    bool uploadAllRows,
+    bool overlayDirty)
+{
+    const int rows = _commandBuffer.rows();
+    const int contentBase = rows * _backgroundRowStrideVertices;
+    for (int row = 0; row < rows; ++row) {
+        if (!uploadAllRows && !dirtyRows.value(row))
+            continue;
+
+        const NovaTerm::RenderCommandRow& commands = _commandBuffer.row(row);
+        _vertices.clear();
+        _vertices.reserve(commands.backgrounds.size() * 6);
+        for (const NovaTerm::RenderCommand& command : commands.backgrounds)
+            appendCommandVertices(command, pixelSize);
+        Q_ASSERT(_vertices.size() <= _backgroundRowStrideVertices);
+        if (!_vertices.isEmpty()) {
+            const int bytes = int(_vertices.size() * sizeof(GpuVertex));
+            const int offset = row * _backgroundRowStrideVertices
+                * int(sizeof(GpuVertex));
+            updates->updateDynamicBuffer(_vertexBuffer.get(), offset, bytes,
+                                         _vertices.constData());
+            _renderStatistics.gpuUploadBytes += quint64(bytes);
+        }
+
+        _vertices.clear();
+        _vertices.reserve(commands.contents.size() * 6);
+        for (const NovaTerm::RenderCommand& command : commands.contents)
+            appendCommandVertices(command, pixelSize);
+        Q_ASSERT(_vertices.size() <= _contentRowStrideVertices);
+        if (!_vertices.isEmpty()) {
+            const int bytes = int(_vertices.size() * sizeof(GpuVertex));
+            const int offset =
+                (contentBase + row * _contentRowStrideVertices)
+                * int(sizeof(GpuVertex));
+            updates->updateDynamicBuffer(_vertexBuffer.get(), offset, bytes,
+                                         _vertices.constData());
+            _renderStatistics.gpuUploadBytes += quint64(bytes);
+        }
+    }
+
+    if (!overlayDirty)
+        return;
+    _vertices.clear();
+    _vertices.reserve(_commandBuffer.overlays().size() * 6);
+    for (const NovaTerm::RenderCommand& command : _commandBuffer.overlays())
+        appendCommandVertices(command, pixelSize);
+    _overlayVertexCount = _vertices.size();
+    if (!_vertices.isEmpty()) {
+        const int bytes = int(_vertices.size() * sizeof(GpuVertex));
+        const int offset = _overlayBaseVertex * int(sizeof(GpuVertex));
+        updates->updateDynamicBuffer(_vertexBuffer.get(), offset, bytes,
+                                     _vertices.constData());
+        _renderStatistics.gpuUploadBytes += quint64(bytes);
     }
 }
 

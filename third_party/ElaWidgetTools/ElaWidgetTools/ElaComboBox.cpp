@@ -6,10 +6,8 @@
 #include "private/ElaComboBoxPrivate.h"
 #include <QAbstractItemView>
 #include <QApplication>
-#include <QLayout>
 #include <QLineEdit>
 #include <QListView>
-#include <QMouseEvent>
 #include <QPropertyAnimation>
 Q_PROPERTY_CREATE_Q_CPP(ElaComboBox, int, BorderRadius)
 ElaComboBox::ElaComboBox(QWidget* parent)
@@ -44,13 +42,6 @@ ElaComboBox::ElaComboBox(QWidget* parent)
         container->setAttribute(Qt::WA_TranslucentBackground);
         container->setObjectName("ElaComboBoxContainer");
         container->setStyle(d->_comboBoxStyle);
-        QLayout* layout = container->layout();
-        while (layout->count())
-        {
-            layout->takeAt(0);
-        }
-        layout->addWidget(view());
-        layout->setContentsMargins(6, 0, 6, 6);
 #ifndef Q_OS_WIN
 #if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
         container->setStyleSheet("background-color:transparent;");
@@ -87,47 +78,11 @@ void ElaComboBox::showPopup()
     qApp->setEffectEnabled(Qt::UI_AnimateCombo, oldAnimationEffects);
     if (count() > 0)
     {
-        QWidget* container = this->findChild<QFrame*>();
-        if (container)
-        {
-            int containerHeight = 0;
-            if (count() >= maxVisibleItems())
-            {
-                containerHeight = maxVisibleItems() * 35 + 8;
-            }
-            else
-            {
-                containerHeight = count() * 35 + 8;
-            }
-            view()->resize(view()->width(), containerHeight - 8);
-            container->move(container->x(), container->y() + 3);
-            QLayout* layout = container->layout();
-            while (layout->count())
-            {
-                layout->takeAt(0);
-            }
-            QPropertyAnimation* fixedSizeAnimation = new QPropertyAnimation(container, "maximumHeight");
-            connect(fixedSizeAnimation, &QPropertyAnimation::valueChanged, this, [=](const QVariant& value) {
-                container->setFixedHeight(value.toUInt());
-            });
-            fixedSizeAnimation->setStartValue(1);
-            fixedSizeAnimation->setEndValue(containerHeight);
-            fixedSizeAnimation->setEasingCurve(QEasingCurve::OutCubic);
-            fixedSizeAnimation->setDuration(400);
-            fixedSizeAnimation->start(QAbstractAnimation::DeleteWhenStopped);
+        // QComboBox owns the popup container layout. Reparenting its view or
+        // removing the private layout items leaves Qt with a null layout item
+        // and crashes in QLayout::activate() on subsequent popup operations.
+        d->_isAllowHidePopup = true;
 
-            QPropertyAnimation* viewPosAnimation = new QPropertyAnimation(view(), "pos");
-            connect(viewPosAnimation, &QPropertyAnimation::finished, this, [=]() {
-                d->_isAllowHidePopup = true;
-                layout->addWidget(view());
-            });
-            QPoint viewPos = view()->pos();
-            viewPosAnimation->setStartValue(QPoint(viewPos.x(), viewPos.y() - view()->height()));
-            viewPosAnimation->setEndValue(viewPos);
-            viewPosAnimation->setEasingCurve(QEasingCurve::OutCubic);
-            viewPosAnimation->setDuration(400);
-            viewPosAnimation->start(QAbstractAnimation::DeleteWhenStopped);
-        }
         //指示器动画
         QPropertyAnimation* rotateAnimation = new QPropertyAnimation(d->_comboBoxStyle, "pExpandIconRotate");
         connect(rotateAnimation, &QPropertyAnimation::valueChanged, this, [=](const QVariant& value) {
@@ -152,42 +107,9 @@ void ElaComboBox::hidePopup()
     Q_D(ElaComboBox);
     if (d->_isAllowHidePopup)
     {
-        QWidget* container = this->findChild<QFrame*>();
-        int containerHeight = container->height();
-        if (container)
-        {
-            QLayout* layout = container->layout();
-            while (layout->count())
-            {
-                layout->takeAt(0);
-            }
-            QPropertyAnimation* viewPosAnimation = new QPropertyAnimation(view(), "pos");
-            connect(viewPosAnimation, &QPropertyAnimation::finished, this, [=]() {
-                layout->addWidget(view());
-                QMouseEvent focusEvent(QEvent::MouseButtonPress, QPoint(-1, -1), QPoint(-1, -1), Qt::NoButton, Qt::NoButton, Qt::NoModifier);
-                QApplication::sendEvent(parentWidget(), &focusEvent);
-                QComboBox::hidePopup();
-                container->setFixedHeight(containerHeight);
-            });
-            QPoint viewPos = view()->pos();
-            connect(viewPosAnimation, &QPropertyAnimation::finished, this, [=]() {
-                view()->move(viewPos);
-            });
-            viewPosAnimation->setStartValue(viewPos);
-            viewPosAnimation->setEndValue(QPoint(viewPos.x(), viewPos.y() - view()->height()));
-            viewPosAnimation->setEasingCurve(QEasingCurve::InCubic);
-            viewPosAnimation->start(QAbstractAnimation::DeleteWhenStopped);
+        QComboBox::hidePopup();
+        d->_isAllowHidePopup = false;
 
-            QPropertyAnimation* fixedSizeAnimation = new QPropertyAnimation(container, "maximumHeight");
-            connect(fixedSizeAnimation, &QPropertyAnimation::valueChanged, this, [=](const QVariant& value) {
-                container->setFixedHeight(value.toUInt());
-            });
-            fixedSizeAnimation->setStartValue(container->height());
-            fixedSizeAnimation->setEndValue(1);
-            fixedSizeAnimation->setEasingCurve(QEasingCurve::InCubic);
-            fixedSizeAnimation->start(QAbstractAnimation::DeleteWhenStopped);
-            d->_isAllowHidePopup = false;
-        }
         //指示器动画
         QPropertyAnimation* rotateAnimation = new QPropertyAnimation(d->_comboBoxStyle, "pExpandIconRotate");
         connect(rotateAnimation, &QPropertyAnimation::valueChanged, this, [=](const QVariant& value) {

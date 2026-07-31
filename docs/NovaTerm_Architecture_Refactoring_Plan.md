@@ -268,6 +268,8 @@ Transport
 
 ## 6. P3：RenderScheduler 与增量 Render Command
 
+**状态：实现已完成，待实机 GPU/帧率验收（2026-07-30）**
+
 ### 目标
 
 让 Damage Rect 真正减少 CPU 帧构建和 GPU 数据上传，而不只是调用局部 `update()`。
@@ -325,6 +327,25 @@ Transport
 - 普通输出稳定达到 60 FPS；
 - 高频输出时允许合并中间状态，但最终屏幕内容必须正确；
 - 无明显 GPU 同步停顿。
+
+### 实施结果
+
+- 新增 `RenderScheduler`，支持 DirtyRegion 裁剪、重叠/相邻合并、60% 覆盖率与
+  32 区域全屏升级阈值，以及 60/120/144 Hz 精确定时帧节流；
+- Parser 的连续 damage 不再逐次直接触发 GPU 帧，同一帧间隔内合并为一次
+  `frameRequested`；
+- 新增后端无关 `RenderCommandBuffer`，按可见行缓存 Background、Glyph、
+  Underline、Strike 命令，并将 Cursor 与 Selection 作为独立 Overlay；
+- `TerminalRenderer` 改为只扫描和重建脏行，未变化行的 Render Command 保持不变；
+- QRhi 动态顶点缓冲改为固定行槽位，只对脏行背景区、内容区和独立 Overlay 区执行
+  `updateDynamicBuffer()`，保留未变化行的 GPU 数据；
+- 修复实时底部的 scrollback 追加被重复升级为全屏帧的问题，Shell/Clink 启动输出
+  保持使用同批 active-screen damage 的增量更新；
+- 保持“全部背景 → 全部内容 → Overlay”的提交顺序，避免相邻 Cell 背景覆盖字形边缘；
+- 新增调度、重建行、命令生成耗时、CPU 帧时间、上传字节、Draw Call 和 Buffer
+  重分配累计指标；
+- 新增 5 项 P3 renderer support 自动化测试；原有 12 项 Core 测试与完整 Debug
+  `NovaTerm` 构建均通过。
 
 ---
 

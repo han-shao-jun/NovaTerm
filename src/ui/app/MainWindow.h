@@ -5,6 +5,9 @@
 #include <ElaIconButton.h>
 #include <ElaMenu.h>
 #include <ElaToolTip.h>
+#include <optional>
+
+class ElaDialog;
 
 // 无边框主窗口（ElaWindow）。左侧导航栏已禁用；标题栏仅显示应用
 // Logo 和一个菜单按钮，其弹出菜单可导航至 会话 / 设置 / 关于。
@@ -38,6 +41,9 @@ private:
     TerminalPage* _terminalPage{nullptr};
 
     // ── 会话选择器（ElaDialog）──
+    // Active selector only; recreated after each accept/reject.
+    ElaDialog* _sessionDialog{nullptr};
+    std::optional<TerminalView::LocalShellType> _pendingLocalSession;
     void showSessionDialog();
 
     // ── 设置（模态 ElaDialog，内嵌现有 SettingsPage）──

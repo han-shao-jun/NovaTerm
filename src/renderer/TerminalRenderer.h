@@ -4,12 +4,15 @@
 #include <QTimer>
 #include <QPoint>
 #include <QImage>
+#include <QMutex>
 #include <QHash>
 #include <QRect>
 #include <QVector>
 #include <rhi/qshader.h>
 #include <memory>
 #include "core/terminal/TerminalTypes.h"
+#include "RenderCommandBuffer.h"
+#include "RenderScheduler.h"
 #include "TerminalColorScheme.h"
 
 class TerminalCore;
@@ -17,9 +20,13 @@ class QRhi;
 class QRhiBuffer;
 class QRhiCommandBuffer;
 class QRhiGraphicsPipeline;
+class QRhiResourceUpdateBatch;
 class QRhiSampler;
 class QRhiShaderResourceBindings;
 class QRhiTexture;
+namespace NovaTerm {
+struct TerminalSnapshot;
+}
 // 基于 QRhi 的终端渲染 Widget。
 // 从 TerminalCore 读取活跃屏幕 cell，从 ScrollbackBuffer 读取历史行，
 // 使用 GPU 批量四边形和持久字形图集绘制，CPU 仅栅格化缓存未命中的字形。
@@ -27,6 +34,18 @@ class TerminalRenderer : public QRhiWidget
 {
     Q_OBJECT
 public:
+    struct RenderStatistics
+    {
+        NovaTerm::RenderScheduleStatistics scheduler;
+        quint64 rowsRebuilt{0};
+        quint64 commandsGenerated{0};
+        quint64 commandGenerationNanoseconds{0};
+        quint64 cpuFrameNanoseconds{0};
+        quint64 gpuUploadBytes{0};
+        quint64 drawCalls{0};
+        quint64 vertexBufferReallocations{0};
+    };
+
     explicit TerminalRenderer(TerminalCore* core, QWidget* parent = nullptr);
     ~TerminalRenderer() override;
 
@@ -54,6 +73,8 @@ public:
 
     // ── 从 widget 坐标计算 cell 坐标（供外部使用）─────────────
     QPoint widgetToCell(const QPoint& pos) const;
+    RenderStatistics renderStatistics() const;
+    void setTargetRefreshRate(int hz);
 
 signals:
     void activityDetected();
@@ -102,11 +123,22 @@ private:
     bool isDocumentPositionValid(const NovaTerm::Position& pos) const;
     uint32_t documentCellCodepoint(int documentRow, int col) const;
 
-    void buildGpuFrame(const QSize& pixelSize);
-    void appendCell(qreal x, qreal y, const NovaTerm::Cell& cell,
-                    const QSize& pixelSize, bool backgroundPass);
-    void appendCursor(const QSize& pixelSize);
-    void appendSelection(const QSize& pixelSize);
+    void rebuildCommandRows(const NovaTerm::TerminalSnapshot& screen,
+                            const QVector<bool>& dirtyRows);
+    void rebuildCommandRow(int widgetRow,
+                           const NovaTerm::TerminalSnapshot& screen);
+    void rebuildOverlays();
+    void appendCellCommands(qreal x, qreal y, const NovaTerm::Cell& cell,
+                            QVector<NovaTerm::RenderCommand>& backgrounds,
+                            QVector<NovaTerm::RenderCommand>& contents);
+    void appendCursorCommand(QVector<NovaTerm::RenderCommand>& commands);
+    void appendSelectionCommands(QVector<NovaTerm::RenderCommand>& commands);
+    NovaTerm::RenderCommand makeSolidCommand(
+        NovaTerm::RenderCommandType type,
+        const QRectF& rect,
+        const QColor& color) const;
+    void appendCommandVertices(const NovaTerm::RenderCommand& command,
+                               const QSize& pixelSize);
     void appendSolidRect(const QRectF& rect, const QColor& color,
                          const QSize& pixelSize);
     void appendTexturedRect(const QRectF& rect, const QRect& atlasRect,
@@ -127,6 +159,14 @@ private:
     void releaseRhiResources();
     void ensureAtlasTexture();
     void ensurePipeline();
+    void requestFullFrame();
+    void requestOverlayFrame();
+    bool ensureVertexBuffer(int rows, int columns);
+    void uploadCommands(QRhiResourceUpdateBatch* updates,
+                        const QSize& pixelSize,
+                        const QVector<bool>& dirtyRows,
+                        bool uploadAllRows,
+                        bool overlayDirty);
 
     TerminalCore* _core;
     TerminalColorScheme _scheme;
@@ -144,6 +184,7 @@ private:
 
     // 光标闪烁
     QTimer* _blinkTimer;
+    NovaTerm::RenderScheduler* _renderScheduler{nullptr};
     bool _cursorBlinkVisible{true};
 
     // 鼠标选区
@@ -164,6 +205,18 @@ private:
     bool _atlasDirty{true};
     qreal _atlasDpr{0.0};
     QVector<GpuVertex> _vertices;
+    NovaTerm::RenderCommandBuffer _commandBuffer;
+    // QRhi may consume a frame while queued terminal damage is being
+    // published. Protect the hand-off and never iterate the live queue.
+    QMutex _pendingFrameMutex;
+    QVector<NovaTerm::DirtyRegion> _pendingDirtyRegions;
+    int _backgroundRowStrideVertices{0};
+    int _contentRowStrideVertices{0};
+    int _overlayBaseVertex{0};
+    int _overlayVertexCount{0};
+    bool _fullFramePending{true};
+    bool _overlayPending{true};
+    RenderStatistics _renderStatistics;
     int _vertexBufferSize{0};
     std::unique_ptr<QRhiTexture> _atlasTexture;
     std::unique_ptr<QRhiSampler> _sampler;

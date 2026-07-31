@@ -266,32 +266,52 @@ bool MainWindow::processHitTest()
 
 void MainWindow::showSessionDialog()
 {
-    auto* dialog = new ElaDialog(this);
-    dialog->setWindowTitle(tr("Session"));
-    dialog->resize(1000, 600);
-    dialog->setWindowModality(Qt::ApplicationModal);
-    dialog->setWindowButtonFlags(ElaAppBarType::CloseButtonHint);
-    dialog->setAppBarHeight(30);
+    if (!_sessionDialog) {
+        _sessionDialog = new ElaDialog(this);
+        _sessionDialog->setWindowTitle(tr("Session"));
+        _sessionDialog->resize(1000, 600);
+        _sessionDialog->setWindowModality(Qt::ApplicationModal);
+        _sessionDialog->setWindowButtonFlags(ElaAppBarType::CloseButtonHint);
+        _sessionDialog->setAppBarHeight(30);
 
-    // 以 MainWindow 作为父对象构造，使 SessionPage 内部控件正常工作
-    auto* sessionPage = new SessionPage(this);
-    sessionPage->setTitleVisible(false);
+        // SessionPage belongs to this dialog invocation. The dialog is
+        // destroyed after exec() returns and before a terminal/RHI widget is
+        // created, so their font and graphics teardown cannot overlap.
+        auto* sessionPage = new SessionPage(_sessionDialog);
+        sessionPage->setTitleVisible(false);
 
-    connect(sessionPage, &SessionPage::localSessionRequested, this,
-            [this, dialog](TerminalView::LocalShellType type) {
-        qDebug() << "localSessionRequested, type ="
-                 << (type == TerminalView::LocalShellType::PowerShell ? "PowerShell" : "cmd/Clink");
+        connect(sessionPage, &SessionPage::localSessionRequested, this,
+                [this](TerminalView::LocalShellType type) {
+            qDebug() << "localSessionRequested, type ="
+                     << (type == TerminalView::LocalShellType::PowerShell ? "PowerShell" : "cmd/Clink");
+            // Finish the modal event loop before constructing a QRhiWidget.
+            // This avoids re-entering font layout while the top-level window
+            // is switching to RHI-backed composition.
+            _pendingLocalSession = type;
+            _sessionDialog->accept();
+        });
+        connect(sessionPage, &SessionPage::dialogRejected,
+                _sessionDialog, &QDialog::reject);
+
+        auto* mainLayout = new QVBoxLayout(_sessionDialog);
+        mainLayout->setContentsMargins(0, 0, 0, 0);
+        mainLayout->addWidget(sessionPage);
+    }
+
+    _pendingLocalSession.reset();
+    const int result = _sessionDialog->exec();
+    // ElaDialog and its custom controls are not reliable when reused after
+    // accept(): a later QDialog::exec() can encounter stale entries while Qt
+    // recursively searches for the default button. Tear down the fully hidden
+    // dialog synchronously, before starting terminal/RHI initialization.
+    delete _sessionDialog;
+    _sessionDialog = nullptr;
+
+    if (result == QDialog::Accepted && _pendingLocalSession) {
+        const auto type = *_pendingLocalSession;
+        _pendingLocalSession.reset();
         _terminalPage->addTerminalTab(tr("Terminal"), type);
-        dialog->accept();
-    });
-    connect(sessionPage, &SessionPage::dialogRejected, dialog, &QDialog::reject);
-
-    auto* mainLayout = new QVBoxLayout(dialog);
-    mainLayout->setContentsMargins(0, 0, 0, 0);
-    mainLayout->addWidget(sessionPage);
-
-    dialog->exec();
-    dialog->deleteLater();
+    }
 }
 
 // ═══════════════════════════════════════════════════════════════════

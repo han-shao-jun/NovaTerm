@@ -307,6 +307,85 @@ if(BUILD_TESTING)
             Qt${QT_VERSION_MAJOR}::Test
     )
     add_test(NAME novaterm_core_tests COMMAND novaterm_core_tests)
+
+    add_executable(novaterm_renderer_tests
+        tests/renderer/RendererP3Tests.cpp
+        src/renderer/RenderCommandBuffer.cpp
+        src/renderer/RenderCommandBuffer.h
+        src/renderer/RenderScheduler.cpp
+        src/renderer/RenderScheduler.h
+        src/renderer/TerminalColorScheme.cpp
+        src/renderer/TerminalColorScheme.h
+        src/renderer/TerminalRenderer.cpp
+        src/renderer/TerminalRenderer.h
+    )
+    target_include_directories(novaterm_renderer_tests PRIVATE
+        src
+        "${CMAKE_PREFIX_PATH}/include/QtGui/${Qt6_VERSION}/QtGui"
+    )
+    target_link_libraries(novaterm_renderer_tests
+        PRIVATE
+            novaterm_core
+            Qt${QT_VERSION_MAJOR}::Core
+            Qt${QT_VERSION_MAJOR}::Gui
+            Qt${QT_VERSION_MAJOR}::Widgets
+            Qt${QT_VERSION_MAJOR}::Test
+    )
+    add_test(NAME novaterm_renderer_tests COMMAND novaterm_renderer_tests)
+
+    if(WIN32)
+        add_executable(novaterm_terminal_session_tests
+            tests/renderer/TerminalSessionSmokeTests.cpp
+            src/renderer/RenderCommandBuffer.cpp
+            src/renderer/RenderCommandBuffer.h
+            src/renderer/RenderScheduler.cpp
+            src/renderer/RenderScheduler.h
+            src/renderer/TerminalColorScheme.cpp
+            src/renderer/TerminalColorScheme.h
+            src/renderer/TerminalRenderer.cpp
+            src/renderer/TerminalRenderer.h
+            src/transport/ITransport.h
+            src/transport/LocalShellTransport.cpp
+            src/transport/LocalShellTransport.h
+            src/service/ConfigManager.cpp
+            src/service/ConfigManager.h
+            src/ui/terminal/TerminalView.cpp
+            src/ui/terminal/TerminalView.h
+        )
+        target_include_directories(novaterm_terminal_session_tests PRIVATE
+            src
+            "${CMAKE_PREFIX_PATH}/include/QtGui/${Qt6_VERSION}/QtGui"
+        )
+        target_link_libraries(novaterm_terminal_session_tests
+            PRIVATE
+                novaterm_core
+                ElaWidgetTools
+                Qt${QT_VERSION_MAJOR}::Core
+                Qt${QT_VERSION_MAJOR}::Gui
+                Qt${QT_VERSION_MAJOR}::Widgets
+                Qt${QT_VERSION_MAJOR}::Test
+        )
+        qt_add_shaders(novaterm_terminal_session_tests
+            novaterm_terminal_session_test_shaders
+            PREFIX "/shaders"
+            FILES
+                src/renderer/shaders/terminal_texture.vert
+                src/renderer/shaders/terminal_texture.frag
+        )
+        add_custom_command(TARGET novaterm_terminal_session_tests POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${CLINK_SRC_DIR}/clink.bat"
+                "${CLINK_SRC_DIR}/clink.lua"
+                "${CLINK_SRC_DIR}/clink_x64.exe"
+                "${CLINK_SRC_DIR}/clink_dll_x64.dll"
+                $<TARGET_FILE_DIR:novaterm_terminal_session_tests>
+        )
+        add_test(NAME novaterm_terminal_session_tests
+                 COMMAND novaterm_terminal_session_tests)
+        set_tests_properties(novaterm_terminal_session_tests
+                             PROPERTIES
+                                 TIMEOUT 20)
+    endif()
 endif()
 
 if(NOVATERM_BUILD_BENCHMARKS)
