@@ -40,6 +40,19 @@ struct TerminalSnapshot
     const Cell* cellAt(int row, int column) const;
 };
 
+// Renderer-facing sparse snapshot. Only requested widget rows contain cells;
+// active-screen and scrollback mapping is resolved while holding one model
+// lock, so a frame cannot mix different history generations.
+struct RendererSnapshot
+{
+    int columns{0};
+    int rows{0};
+    QVector<QVector<Cell>> visibleRows;
+    CursorState cursor;
+
+    const Cell* cellAt(int widgetRow, int column) const;
+};
+
 TerminalSnapshot makeSnapshot(const ScreenBuffer& screen,
                               const CursorState& cursor);
 

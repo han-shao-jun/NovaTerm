@@ -40,6 +40,9 @@ public:
 
     bool getCell(int row, int col, NovaTerm::Cell& out) const;
     NovaTerm::TerminalSnapshot snapshot() const;
+    NovaTerm::RendererSnapshot rendererSnapshot(
+        const QVector<bool>& dirtyRows, int scrollLine) const;
+    NovaTerm::CursorState cursorState() const;
     void flushDamage();
     void setDefaultColors(const NovaTerm::TerminalColor& foreground,
                           const NovaTerm::TerminalColor& background);

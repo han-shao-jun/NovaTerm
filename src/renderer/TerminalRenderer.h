@@ -25,7 +25,7 @@ class QRhiSampler;
 class QRhiShaderResourceBindings;
 class QRhiTexture;
 namespace NovaTerm {
-struct TerminalSnapshot;
+struct RendererSnapshot;
 }
 // 基于 QRhi 的终端渲染 Widget。
 // 从 TerminalCore 读取活跃屏幕 cell，从 ScrollbackBuffer 读取历史行，
@@ -123,15 +123,17 @@ private:
     bool isDocumentPositionValid(const NovaTerm::Position& pos) const;
     uint32_t documentCellCodepoint(int documentRow, int col) const;
 
-    void rebuildCommandRows(const NovaTerm::TerminalSnapshot& screen,
-                            const QVector<bool>& dirtyRows);
+    bool rebuildCommandRows(const NovaTerm::RendererSnapshot& screen,
+                            const QVector<bool>& dirtyRows,
+                            quint64& commandsGenerated);
     void rebuildCommandRow(int widgetRow,
-                           const NovaTerm::TerminalSnapshot& screen);
-    void rebuildOverlays();
+                           const NovaTerm::RendererSnapshot& screen);
+    quint64 rebuildOverlays(const NovaTerm::CursorState& cursor);
     void appendCellCommands(qreal x, qreal y, const NovaTerm::Cell& cell,
                             QVector<NovaTerm::RenderCommand>& backgrounds,
                             QVector<NovaTerm::RenderCommand>& contents);
-    void appendCursorCommand(QVector<NovaTerm::RenderCommand>& commands);
+    void appendCursorCommand(QVector<NovaTerm::RenderCommand>& commands,
+                             const NovaTerm::CursorState& cursor);
     void appendSelectionCommands(QVector<NovaTerm::RenderCommand>& commands);
     NovaTerm::RenderCommand makeSolidCommand(
         NovaTerm::RenderCommandType type,
@@ -203,6 +205,7 @@ private:
     int _atlasY{1};
     int _atlasRowHeight{0};
     bool _atlasDirty{true};
+    quint64 _atlasGeneration{0};
     qreal _atlasDpr{0.0};
     QVector<GpuVertex> _vertices;
     NovaTerm::RenderCommandBuffer _commandBuffer;
@@ -213,6 +216,7 @@ private:
     int _backgroundRowStrideVertices{0};
     int _contentRowStrideVertices{0};
     int _overlayBaseVertex{0};
+    int _overlayCapacityVertices{0};
     int _overlayVertexCount{0};
     bool _fullFramePending{true};
     bool _overlayPending{true};

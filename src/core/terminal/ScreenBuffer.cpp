@@ -64,6 +64,16 @@ const Cell* TerminalSnapshot::cellAt(int row, int column) const
     return &visibleCells[row * columns + column];
 }
 
+const Cell* RendererSnapshot::cellAt(int widgetRow, int column) const
+{
+    if (widgetRow < 0 || widgetRow >= visibleRows.size())
+        return nullptr;
+    const QVector<Cell>& row = visibleRows[widgetRow];
+    if (column < 0 || column >= row.size())
+        return nullptr;
+    return &row[column];
+}
+
 TerminalSnapshot makeSnapshot(const ScreenBuffer& screen,
                               const CursorState& cursor)
 {

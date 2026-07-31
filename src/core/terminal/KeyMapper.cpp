@@ -51,4 +51,39 @@ VTermModifier qtModToVTermMod(Qt::KeyboardModifiers mod)
     return static_cast<VTermModifier>(vmod);
 }
 
+bool qtKeyToControlCharacter(int qtKey, uint32_t& outCodepoint)
+{
+    if (qtKey >= Qt::Key_A && qtKey <= Qt::Key_Z) {
+        outCodepoint = uint32_t(qtKey - Qt::Key_A + 1);
+        return true;
+    }
+
+    switch (qtKey) {
+    case Qt::Key_Space:
+    case Qt::Key_At:
+        outCodepoint = 0x00;
+        return true;
+    case Qt::Key_BracketLeft:
+        outCodepoint = 0x1B;
+        return true;
+    case Qt::Key_Backslash:
+        outCodepoint = 0x1C;
+        return true;
+    case Qt::Key_BracketRight:
+        outCodepoint = 0x1D;
+        return true;
+    case Qt::Key_AsciiCircum:
+        outCodepoint = 0x1E;
+        return true;
+    case Qt::Key_Underscore:
+        outCodepoint = 0x1F;
+        return true;
+    case Qt::Key_Question:
+        outCodepoint = 0x7F;
+        return true;
+    default:
+        return false;
+    }
+}
+
 } // namespace KeyMapper

@@ -12,8 +12,12 @@ class RendererP3Tests : public QObject
 
 private slots:
     void schedulerMergesTouchingRegions();
+    void schedulerDoesNotMergeCornerOnlyRegions();
+    void schedulerClipsAndIgnoresEmptyRegions();
     void schedulerPromotesLargeDamage();
+    void schedulerPromotesTooManyRegions();
     void schedulerCoalescesFrameRequests();
+    void schedulerSubmitsOverlayOnlyFrame();
     void commandBufferReplacesOnlyDirtyRow();
     void commandBufferResizeInvalidatesRows();
     void scrollbackAtLiveBottomDoesNotRequestFullFrame();
@@ -27,7 +31,7 @@ void RendererP3Tests::schedulerMergesTouchingRegions()
     QSignalSpy spy(&scheduler, &NovaTerm::RenderScheduler::frameRequested);
 
     scheduler.schedule({2, 4, 3, 8});
-    scheduler.schedule({4, 6, 8, 12});
+    scheduler.schedule({4, 6, 7, 12});
 
     QVERIFY(spy.wait(100));
     QCOMPARE(spy.size(), 1);
@@ -40,6 +44,46 @@ void RendererP3Tests::schedulerMergesTouchingRegions()
     QCOMPARE(regions[0].startColumn, 3);
     QCOMPARE(regions[0].endColumn, 12);
     QCOMPARE(arguments.at(1).toBool(), false);
+}
+
+void RendererP3Tests::schedulerDoesNotMergeCornerOnlyRegions()
+{
+    NovaTerm::RenderScheduler scheduler;
+    scheduler.setViewport(80, 24);
+    scheduler.cancel();
+    QSignalSpy spy(&scheduler, &NovaTerm::RenderScheduler::frameRequested);
+
+    scheduler.schedule({2, 4, 3, 8});
+    scheduler.schedule({4, 6, 8, 12});
+
+    QVERIFY(spy.wait(100));
+    const auto arguments = spy.takeFirst();
+    const auto regions =
+        qvariant_cast<QVector<NovaTerm::DirtyRegion>>(arguments.at(0));
+    QCOMPARE(regions.size(), 2);
+}
+
+void RendererP3Tests::schedulerClipsAndIgnoresEmptyRegions()
+{
+    NovaTerm::RenderScheduler scheduler;
+    scheduler.setViewport(80, 24);
+    scheduler.cancel();
+    QSignalSpy spy(&scheduler, &NovaTerm::RenderScheduler::frameRequested);
+
+    scheduler.schedule({-5, 2, -10, 3});
+    scheduler.schedule({30, 40, 0, 5});
+    scheduler.schedule({5, 5, 1, 2});
+
+    QVERIFY(spy.wait(100));
+    const auto arguments = spy.takeFirst();
+    const auto regions =
+        qvariant_cast<QVector<NovaTerm::DirtyRegion>>(arguments.at(0));
+    QCOMPARE(regions.size(), 1);
+    QCOMPARE(regions[0].startRow, 0);
+    QCOMPARE(regions[0].endRow, 2);
+    QCOMPARE(regions[0].startColumn, 0);
+    QCOMPARE(regions[0].endColumn, 3);
+    QCOMPARE(scheduler.statistics().dirtyRegionsReceived, quint64(1));
 }
 
 void RendererP3Tests::schedulerPromotesLargeDamage()
@@ -57,6 +101,24 @@ void RendererP3Tests::schedulerPromotesLargeDamage()
     QCOMPARE(scheduler.statistics().fullFrames, quint64(1));
 }
 
+void RendererP3Tests::schedulerPromotesTooManyRegions()
+{
+    NovaTerm::RenderScheduler scheduler;
+    scheduler.setViewport(100, 100);
+    scheduler.cancel();
+    QSignalSpy spy(&scheduler, &NovaTerm::RenderScheduler::frameRequested);
+
+    for (int index = 0; index < 33; ++index) {
+        const int row = (index / 10) * 3;
+        const int column = (index % 10) * 3;
+        scheduler.schedule({row, row + 1, column, column + 1});
+    }
+
+    QVERIFY(spy.wait(100));
+    const auto arguments = spy.takeFirst();
+    QCOMPARE(arguments.at(1).toBool(), true);
+}
+
 void RendererP3Tests::schedulerCoalescesFrameRequests()
 {
     NovaTerm::RenderScheduler scheduler;
@@ -71,6 +133,24 @@ void RendererP3Tests::schedulerCoalescesFrameRequests()
     QCOMPARE(spy.size(), 1);
     QCOMPARE(scheduler.statistics().framesRequested, quint64(1));
     QVERIFY(scheduler.statistics().coalescedFrameRequests >= 9);
+}
+
+void RendererP3Tests::schedulerSubmitsOverlayOnlyFrame()
+{
+    NovaTerm::RenderScheduler scheduler;
+    scheduler.setViewport(80, 24);
+    scheduler.cancel();
+    QSignalSpy spy(&scheduler, &NovaTerm::RenderScheduler::frameRequested);
+
+    scheduler.scheduleOverlay();
+
+    QVERIFY(spy.wait(100));
+    const auto arguments = spy.takeFirst();
+    const auto regions =
+        qvariant_cast<QVector<NovaTerm::DirtyRegion>>(arguments.at(0));
+    QVERIFY(regions.isEmpty());
+    QCOMPARE(arguments.at(1).toBool(), false);
+    QCOMPARE(arguments.at(2).toBool(), true);
 }
 
 void RendererP3Tests::commandBufferReplacesOnlyDirtyRow()

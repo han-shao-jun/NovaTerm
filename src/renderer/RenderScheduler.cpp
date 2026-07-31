@@ -33,7 +33,10 @@ void RenderScheduler::setTargetRefreshRate(int hz)
 {
     if (hz != 60 && hz != 120 && hz != 144)
         hz = 60;
+    if (_targetRefreshRate == hz)
+        return;
     _targetRefreshRate = hz;
+    _frameIntervalRemainderMs = 0.0;
 }
 
 void RenderScheduler::schedule(const DirtyRegion& region)
@@ -90,9 +93,17 @@ void RenderScheduler::cancel()
 
 bool RenderScheduler::touches(const DirtyRegion& lhs, const DirtyRegion& rhs)
 {
-    return lhs.startRow <= rhs.endRow && rhs.startRow <= lhs.endRow
-        && lhs.startColumn <= rhs.endColumn
-        && rhs.startColumn <= lhs.endColumn;
+    const bool rowsOverlap = lhs.startRow < rhs.endRow
+        && rhs.startRow < lhs.endRow;
+    const bool columnsOverlap = lhs.startColumn < rhs.endColumn
+        && rhs.startColumn < lhs.endColumn;
+    const bool rowsAdjacent = lhs.endRow == rhs.startRow
+        || rhs.endRow == lhs.startRow;
+    const bool columnsAdjacent = lhs.endColumn == rhs.startColumn
+        || rhs.endColumn == lhs.startColumn;
+    return (rowsOverlap && columnsOverlap)
+        || (rowsAdjacent && columnsOverlap)
+        || (columnsAdjacent && rowsOverlap);
 }
 
 DirtyRegion RenderScheduler::united(const DirtyRegion& lhs,
@@ -108,8 +119,16 @@ DirtyRegion RenderScheduler::united(const DirtyRegion& lhs,
 
 void RenderScheduler::armTimer()
 {
-    if (!_timer.isActive())
-        _timer.start(qMax(1, qRound(1000.0 / _targetRefreshRate)));
+    if (_timer.isActive())
+        return;
+    // QTimer accepts integer milliseconds. Carry the rounding error between
+    // frames so 60/120/144 Hz converge to the requested average instead of
+    // being permanently rounded to 17/8/7 ms.
+    const double exactInterval = 1000.0 / _targetRefreshRate
+        + _frameIntervalRemainderMs;
+    const int interval = qMax(1, qRound(exactInterval));
+    _frameIntervalRemainderMs = exactInterval - interval;
+    _timer.start(interval);
 }
 
 void RenderScheduler::mergePending()

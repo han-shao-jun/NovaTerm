@@ -18,8 +18,10 @@ private slots:
     void parsesUtf8AndAttributes();
     void parsesFragmentedUtf8();
     void reportsDamage();
+    void ctrlCProducesInterruptCharacter();
     void resizesScreen();
     void snapshotsAreStableValues();
+    void rendererSnapshotCopiesOnlyDirtyRows();
     void publishesTerminalTitle();
     void scrollbackKeepsNewestLines();
     void boundedByteQueuePreservesOrderAndBackpressure();
@@ -58,6 +60,26 @@ void TerminalCoreTests::reportsDamage()
     core.writeInput(QByteArrayLiteral("damage"));
     QVERIFY(core.waitForIdle());
     QTRY_VERIFY(!damageSpy.isEmpty());
+}
+
+void TerminalCoreTests::ctrlCProducesInterruptCharacter()
+{
+    for (const QString& platformText : {QStringLiteral("c"),
+                                        QString(QChar(0x03)), QString()}) {
+        TerminalCore core(20, 4);
+        QSignalSpy outputSpy(&core, &TerminalCore::outputData);
+        QKeyEvent event(QEvent::KeyPress, Qt::Key_C,
+                        Qt::ControlModifier, platformText);
+
+        core.processKeyPress(&event);
+        QVERIFY(core.waitForIdle());
+        QTRY_VERIFY(!outputSpy.isEmpty());
+
+        QByteArray output;
+        for (const auto& arguments : outputSpy)
+            output += arguments.at(0).toByteArray();
+        QCOMPARE(output, QByteArray(1, '\x03'));
+    }
 }
 
 void TerminalCoreTests::parsesFragmentedUtf8()
@@ -102,6 +124,25 @@ void TerminalCoreTests::snapshotsAreStableValues()
     QVERIFY(after.cellAt(0, 0));
     QCOMPARE(before.cellAt(0, 0)->chars[0], uint32_t('A'));
     QCOMPARE(after.cellAt(0, 0)->chars[0], uint32_t('B'));
+}
+
+void TerminalCoreTests::rendererSnapshotCopiesOnlyDirtyRows()
+{
+    TerminalCore core(20, 4);
+    core.writeInput(QByteArrayLiteral("\x1b[2;1HX"));
+    QVERIFY(core.waitForIdle());
+
+    QVector<bool> dirtyRows(4, false);
+    dirtyRows[1] = true;
+    const NovaTerm::RendererSnapshot snapshot =
+        core.rendererSnapshot(dirtyRows, 0);
+
+    QCOMPARE(snapshot.columns, 20);
+    QCOMPARE(snapshot.rows, 4);
+    QVERIFY(snapshot.cellAt(0, 0) == nullptr);
+    QVERIFY(snapshot.cellAt(1, 0));
+    QCOMPARE(snapshot.cellAt(1, 0)->chars[0], uint32_t('X'));
+    QVERIFY(snapshot.cellAt(2, 0) == nullptr);
 }
 
 void TerminalCoreTests::publishesTerminalTitle()

@@ -17,6 +17,7 @@ public:
     int lineCount() const;                           // 当前存储行数
     int columns() const { return _cols; }
     const ScrollbackCell* lineAt(int index) const;   // index=0 是最旧的行
+    const QVector<ScrollbackCell>* lineVectorAt(int index) const;
     int maxLines() const { return _maxLines; }
 
     // ── 修改 ──

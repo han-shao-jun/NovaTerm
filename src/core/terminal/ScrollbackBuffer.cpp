@@ -96,10 +96,16 @@ int ScrollbackBuffer::lineCount() const
 
 const ScrollbackCell* ScrollbackBuffer::lineAt(int index) const
 {
+    const auto* line = lineVectorAt(index);
+    return line ? line->constData() : nullptr;
+}
+
+const QVector<ScrollbackCell>* ScrollbackBuffer::lineVectorAt(int index) const
+{
     if (index < 0 || index >= _count)
         return nullptr;
 
     const int oldestPos = (_count < _maxLines) ? 0 : _writePos;
     const int realIdx = (oldestPos + index) % _maxLines;
-    return _lines[realIdx].data();
+    return &_lines[realIdx];
 }

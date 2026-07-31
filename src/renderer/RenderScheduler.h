@@ -55,6 +55,7 @@ private:
     int _columns{0};
     int _rows{0};
     int _targetRefreshRate{60};
+    double _frameIntervalRemainderMs{0.0};
     QTimer _timer;
     QVector<DirtyRegion> _pending;
     bool _fullFramePending{false};

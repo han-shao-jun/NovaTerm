@@ -17,7 +17,6 @@
 #include <algorithm>
 #include <atomic>
 #include <deque>
-#include <optional>
 #include <utility>
 #include <vector>
 
@@ -57,15 +56,6 @@ struct ParserCommand
     NovaTerm::TerminalColor background;
     uint64_t byteBarrier{0};
 };
-
-NovaTerm::DirtyRegion mergedRegion(const NovaTerm::DirtyRegion& first,
-                                   const NovaTerm::DirtyRegion& second)
-{
-    return {std::min(first.startRow, second.startRow),
-            std::max(first.endRow, second.endRow),
-            std::min(first.startColumn, second.startColumn),
-            std::max(first.endColumn, second.endColumn)};
-}
 
 } // namespace
 
@@ -233,8 +223,10 @@ public:
             pendingOutput.push_back(data);
         };
         observer.damage = [this](const NovaTerm::DirtyRegion& region) {
-            pendingDamage = pendingDamage
-                ? mergedRegion(*pendingDamage, region) : region;
+            // Preserve sparse regions until RenderScheduler can merge them.
+            // A single bounding box makes distant cell changes look like a
+            // near-full-screen update.
+            pendingDamage.push_back(region);
         };
         observer.cursorChanged = [this](const NovaTerm::CursorState& value) {
             cursor = value;
@@ -329,8 +321,8 @@ public:
 
     void publishPendingSignals()
     {
-        const auto damageValue = pendingDamage;
-        pendingDamage.reset();
+        QVector<NovaTerm::DirtyRegion> damageValue;
+        damageValue.swap(pendingDamage);
         const bool cursorValue = std::exchange(cursorChanged, false);
         const bool titleValue = std::exchange(titleChanged, false);
         const bool bellValue = std::exchange(bellPending, false);
@@ -338,7 +330,7 @@ public:
         QVector<QByteArray> output;
         output.swap(pendingOutput);
 
-        if (!damageValue && !cursorValue && !titleValue && !bellValue
+        if (damageValue.isEmpty() && !cursorValue && !titleValue && !bellValue
             && !scrollbackValue && output.isEmpty()) {
             return;
         }
@@ -355,8 +347,8 @@ public:
              bellValue, scrollbackValue, output = std::move(output)]() {
                 for (const QByteArray& data : output)
                     emit target->outputData(data);
-                if (damageValue)
-                    emit target->damage(*damageValue);
+                for (const NovaTerm::DirtyRegion& region : damageValue)
+                    emit target->damage(region);
                 if (cursorValue)
                     emit target->cursorMoved();
                 if (titleValue)
@@ -399,7 +391,7 @@ public:
     QThread* thread{nullptr};
     std::unique_ptr<NovaTerm::VTAdapter> adapter;
 
-    std::optional<NovaTerm::DirtyRegion> pendingDamage;
+    QVector<NovaTerm::DirtyRegion> pendingDamage;
     QVector<QByteArray> pendingOutput;
     bool cursorChanged{false};
     bool titleChanged{false};
@@ -430,6 +422,21 @@ void TerminalCore::processKeyPress(QKeyEvent* event)
     const auto qtModifiers = event->modifiers();
     const int modifiers = int(KeyMapper::qtModToVTermMod(qtModifiers));
 
+    if (qtModifiers.testFlag(Qt::ControlModifier)) {
+        uint32_t controlCodepoint = 0;
+        if (KeyMapper::qtKeyToControlCharacter(qtKey, controlCodepoint)) {
+            ParserCommand command;
+            command.type = CommandType::KeyboardCharacter;
+            command.codepoint = controlCodepoint;
+            // The codepoint is already controlled. Retain Alt/Shift so
+            // libvterm can add their terminal semantics, but do not apply Ctrl
+            // a second time.
+            command.first = modifiers & ~int(VTERM_MOD_CTRL);
+            _runtime->enqueueCommand(std::move(command));
+            return;
+        }
+    }
+
     if (!text.isEmpty() && text[0].isPrint()) {
         for (const QChar& character : text) {
             ParserCommand command;
@@ -449,19 +456,6 @@ void TerminalCore::processKeyPress(QKeyEvent* event)
         command.second = modifiers;
         _runtime->enqueueCommand(std::move(command));
         return;
-    }
-
-    if (qtModifiers & Qt::ControlModifier && !text.isEmpty()) {
-        const uint32_t codepoint = text[0].unicode();
-        if ((codepoint >= 0x40 && codepoint <= 0x5F)
-            || (codepoint >= 0x61 && codepoint <= 0x7A)) {
-            ParserCommand command;
-            command.type = CommandType::KeyboardCharacter;
-            command.codepoint = codepoint >= 0x61 ? codepoint - 0x60
-                                                  : codepoint - 0x40;
-            _runtime->enqueueCommand(std::move(command));
-            return;
-        }
     }
 
     for (const QChar& character : text) {
@@ -584,6 +578,47 @@ NovaTerm::TerminalSnapshot TerminalCore::snapshot() const
 {
     QMutexLocker locker(&_runtime->modelMutex);
     return NovaTerm::makeSnapshot(_runtime->screen, _runtime->cursor);
+}
+
+NovaTerm::RendererSnapshot TerminalCore::rendererSnapshot(
+    const QVector<bool>& dirtyRows, int scrollLine) const
+{
+    QMutexLocker locker(&_runtime->modelMutex);
+    NovaTerm::RendererSnapshot snapshot;
+    snapshot.columns = _runtime->screen.columns();
+    snapshot.rows = _runtime->screen.rows();
+    snapshot.cursor = _runtime->cursor;
+    snapshot.visibleRows.resize(snapshot.rows);
+
+    const bool copyAllRows = dirtyRows.size() != snapshot.rows;
+    const int historyCount = _runtime->scrollback.lineCount();
+    for (int widgetRow = 0; widgetRow < snapshot.rows; ++widgetRow) {
+        if (!copyAllRows && !dirtyRows[widgetRow])
+            continue;
+        QVector<NovaTerm::Cell>& destination = snapshot.visibleRows[widgetRow];
+        destination.resize(snapshot.columns);
+        const int screenRow = widgetRow - scrollLine;
+        if (screenRow < 0) {
+            const auto* source =
+                _runtime->scrollback.lineVectorAt(historyCount + screenRow);
+            if (source) {
+                const int count = std::min(snapshot.columns,
+                                           int(source->size()));
+                std::copy_n(source->cbegin(), count, destination.begin());
+            }
+            continue;
+        }
+        const NovaTerm::Cell* source = _runtime->screen.cellAt(screenRow, 0);
+        if (source)
+            std::copy_n(source, snapshot.columns, destination.begin());
+    }
+    return snapshot;
+}
+
+NovaTerm::CursorState TerminalCore::cursorState() const
+{
+    QMutexLocker locker(&_runtime->modelMutex);
+    return _runtime->cursor;
 }
 
 void TerminalCore::flushDamage()

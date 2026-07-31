@@ -475,12 +475,6 @@ void TerminalRenderer::render(QRhiCommandBuffer* cb)
     if (!_atlasTexture || !_pipeline || !_srb)
         return;
 
-    const NovaTerm::TerminalSnapshot screen = _core->snapshot();
-    const int rows = screen.rows;
-    const int columns = screen.columns;
-    if (rows <= 0 || columns <= 0)
-        return;
-
     // Take ownership of this frame's requests up front. New requests arriving
     // while commands are built remain queued for the next frame instead of
     // invalidating this iteration or being erased at the end of this one.
@@ -493,6 +487,18 @@ void TerminalRenderer::render(QRhiCommandBuffer* cb)
         fullFramePending = std::exchange(_fullFramePending, false);
         overlayPending = std::exchange(_overlayPending, false);
     }
+
+    const bool contentPending = fullFramePending
+        || !pendingDirtyRegions.isEmpty()
+        || _commandBuffer.rows() <= 0 || _commandBuffer.columns() <= 0;
+    int rows = _commandBuffer.rows();
+    int columns = _commandBuffer.columns();
+    if (rows <= 0 || columns <= 0) {
+        rows = _core->rows();
+        columns = _core->columns();
+    }
+    if (rows <= 0 || columns <= 0)
+        return;
 
     if (_commandBuffer.rows() != rows || _commandBuffer.columns() != columns) {
         _commandBuffer.resize(rows, columns);
@@ -510,15 +516,37 @@ void TerminalRenderer::render(QRhiCommandBuffer* cb)
         }
     }
 
+    NovaTerm::RendererSnapshot screen;
+    if (contentPending) {
+        screen = _core->rendererSnapshot(dirtyRows, _scrollLine);
+        if (screen.rows != rows || screen.columns != columns) {
+            rows = screen.rows;
+            columns = screen.columns;
+            _commandBuffer.resize(rows, columns);
+            dirtyRows.fill(true, rows);
+            fullFramePending = true;
+            overlayPending = true;
+            screen = _core->rendererSnapshot(dirtyRows, _scrollLine);
+        }
+    }
+
     QElapsedTimer commandTimer;
     commandTimer.start();
-    rebuildCommandRows(screen, dirtyRows);
-    if (overlayPending || fullFramePending)
-        rebuildOverlays();
+    quint64 commandsGenerated = 0;
+    const bool atlasResetDuringBuild = contentPending
+        ? rebuildCommandRows(screen, dirtyRows, commandsGenerated) : false;
+    if (atlasResetDuringBuild) {
+        dirtyRows.fill(true);
+        fullFramePending = true;
+    }
+    if (overlayPending || fullFramePending) {
+        const NovaTerm::CursorState cursor = contentPending
+            ? screen.cursor : _core->cursorState();
+        commandsGenerated += rebuildOverlays(cursor);
+    }
     _renderStatistics.commandGenerationNanoseconds +=
         quint64(commandTimer.nsecsElapsed());
-    _renderStatistics.commandsGenerated +=
-        quint64(_commandBuffer.commandCount());
+    _renderStatistics.commandsGenerated += commandsGenerated;
 
     const bool bufferReallocated = ensureVertexBuffer(rows, columns);
     if (!_vertexBuffer)
@@ -862,6 +890,7 @@ void TerminalRenderer::resetGlyphAtlas()
     _atlasRowHeight = 0;
     _atlasDpr = devicePixelRatioF();
     _atlasDirty = true;
+    ++_atlasGeneration;
 }
 
 void TerminalRenderer::ensureAtlasTexture()
@@ -1167,65 +1196,73 @@ void TerminalRenderer::appendCellCommands(
             QRectF(x, y + _cellHeight / 2, paintWidth, 1), foreground));
 }
 
-void TerminalRenderer::rebuildCommandRows(
-    const NovaTerm::TerminalSnapshot& screen,
-    const QVector<bool>& dirtyRows)
+bool TerminalRenderer::rebuildCommandRows(
+    const NovaTerm::RendererSnapshot& screen,
+    const QVector<bool>& dirtyRows,
+    quint64& commandsGenerated)
 {
-    for (int row = 0; row < dirtyRows.size(); ++row) {
-        if (!dirtyRows[row])
-            continue;
-        rebuildCommandRow(row, screen);
-        ++_renderStatistics.rowsRebuilt;
+    bool rebuildAll = false;
+    bool atlasReset = false;
+    for (int attempt = 0; attempt < 3; ++attempt) {
+        const quint64 generationBefore = _atlasGeneration;
+        for (int row = 0; row < dirtyRows.size(); ++row) {
+            if (!rebuildAll && !dirtyRows[row])
+                continue;
+            rebuildCommandRow(row, screen);
+            const auto& commands = _commandBuffer.row(row);
+            commandsGenerated += quint64(commands.backgrounds.size()
+                                         + commands.contents.size());
+            ++_renderStatistics.rowsRebuilt;
+        }
+        if (_atlasGeneration == generationBefore)
+            return atlasReset;
+        atlasReset = true;
+        rebuildAll = true;
     }
+    qWarning() << "TerminalRenderer: glyph atlas repeatedly overflowed while rebuilding the visible grid";
+    return true;
 }
 
 void TerminalRenderer::rebuildCommandRow(
     int widgetRow,
-    const NovaTerm::TerminalSnapshot& screen)
+    const NovaTerm::RendererSnapshot& screen)
 {
     QVector<NovaTerm::RenderCommand> backgrounds;
     QVector<NovaTerm::RenderCommand> contents;
     backgrounds.reserve(screen.columns);
     contents.reserve(screen.columns);
 
-    const int scrollbackCount = _core->scrollbackLineCount();
-    const int screenRow = widgetRow - _scrollLine;
     for (int column = 0; column < screen.columns; ++column) {
         const qreal x = column * _cellWidth;
         const qreal y = widgetRow * _cellHeight;
-        if (screenRow < 0) {
-            NovaTerm::Cell cell;
-            if (_core->getScrollbackCell(scrollbackCount + screenRow,
-                                         column, cell)
-                && !cell.isWideContinuation()) {
-                appendCellCommands(x, y, cell, backgrounds, contents);
-            }
-        } else {
-            const NovaTerm::Cell* cell = screen.cellAt(screenRow, column);
-            if (cell && !cell->isWideContinuation())
-                appendCellCommands(x, y, *cell, backgrounds, contents);
-        }
+        const NovaTerm::Cell* cell = screen.cellAt(widgetRow, column);
+        if (cell && !cell->isWideContinuation())
+            appendCellCommands(x, y, *cell, backgrounds, contents);
     }
     _commandBuffer.replaceRow(widgetRow, std::move(backgrounds),
                               std::move(contents));
 }
 
-void TerminalRenderer::rebuildOverlays()
+quint64 TerminalRenderer::rebuildOverlays(
+    const NovaTerm::CursorState& cursor)
 {
     QVector<NovaTerm::RenderCommand> overlays;
     overlays.reserve(_core->rows() + 1);
     appendSelectionCommands(overlays);
-    appendCursorCommand(overlays);
+    appendCursorCommand(overlays, cursor);
+    const quint64 commandCount = quint64(overlays.size());
     _commandBuffer.replaceOverlays(std::move(overlays));
+    return commandCount;
 }
 
 void TerminalRenderer::appendCursorCommand(
-    QVector<NovaTerm::RenderCommand>& commands)
+    QVector<NovaTerm::RenderCommand>& commands,
+    const NovaTerm::CursorState& cursor)
 {
-    if (!_core->cursorVisible() || _scrollLine != 0
-        || (_core->cursorBlink() && !_cursorBlinkVisible))
+    if (!cursor.visible || _scrollLine != 0
+        || (cursor.blink && !_cursorBlinkVisible))
         return;
-    const auto position = _core->cursorPosition();
+    const auto position = cursor.position;
     if (position.row < 0 || position.row >= _core->rows()
         || position.col < 0 || position.col >= _core->columns())
         return;
@@ -1234,9 +1271,9 @@ void TerminalRenderer::appendCursorCommand(
         ? _scheme.cursorColor : _scheme.foreground;
     const QPointF point(position.col * _cellWidth, position.row * _cellHeight);
     QRectF cursorRect(point.x(), point.y(), _cellWidth, _cellHeight);
-    if (_core->cursorShape() == NovaTerm::CursorShape::Underline)
+    if (cursor.shape == NovaTerm::CursorShape::Underline)
         cursorRect = QRectF(point.x(), point.y() + _cellHeight - 2, _cellWidth, 2);
-    else if (_core->cursorShape() == NovaTerm::CursorShape::BarLeft)
+    else if (cursor.shape == NovaTerm::CursorShape::BarLeft)
         cursorRect = QRectF(point.x(), point.y(), 2, _cellHeight);
     commands.push_back(makeSolidCommand(
         NovaTerm::RenderCommandType::Cursor, cursorRect, color));
@@ -1279,20 +1316,38 @@ void TerminalRenderer::appendCommandVertices(
 
 bool TerminalRenderer::ensureVertexBuffer(int rows, int columns)
 {
-    const int backgroundStride = columns * 6;
-    const int contentStride = columns * 24;
+    int backgroundStride = columns * 6;
+    int contentStride = columns * 24;
+    for (int row = 0; row < _commandBuffer.rows(); ++row) {
+        backgroundStride = std::max(
+            backgroundStride,
+            int(_commandBuffer.row(row).backgrounds.size()) * 6);
+        contentStride = std::max(
+            contentStride,
+            int(_commandBuffer.row(row).contents.size()) * 6);
+    }
+    // Capacities only grow during a resource lifetime. A temporary complex
+    // row must not move every following row back and forth between offsets.
+    backgroundStride = std::max(backgroundStride,
+                                _backgroundRowStrideVertices);
+    contentStride = std::max(contentStride, _contentRowStrideVertices);
     const int overlayBase = rows * (backgroundStride + contentStride);
-    const int overlayCapacity = (rows + 2) * 6;
+    const int overlayCapacity = std::max(
+        std::max((rows + 2) * 6,
+                 int(_commandBuffer.overlays().size()) * 6),
+        _overlayCapacityVertices);
     const int requiredBytes =
         (overlayBase + overlayCapacity) * int(sizeof(GpuVertex));
     const bool layoutChanged =
         _backgroundRowStrideVertices != backgroundStride
         || _contentRowStrideVertices != contentStride
-        || _overlayBaseVertex != overlayBase;
+        || _overlayBaseVertex != overlayBase
+        || _overlayCapacityVertices != overlayCapacity;
 
     _backgroundRowStrideVertices = backgroundStride;
     _contentRowStrideVertices = contentStride;
     _overlayBaseVertex = overlayBase;
+    _overlayCapacityVertices = overlayCapacity;
 
     if (_vertexBuffer && _vertexBufferSize >= requiredBytes)
         return layoutChanged;
