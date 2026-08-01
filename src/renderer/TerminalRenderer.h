@@ -11,6 +11,8 @@
 #include <rhi/qshader.h>
 #include <memory>
 #include "core/terminal/TerminalTypes.h"
+#include "core/search/SearchEngine.h"
+#include "core/scrollback/LineLayout.h"
 #include "RenderCommandBuffer.h"
 #include "RenderScheduler.h"
 #include "TerminalColorScheme.h"
@@ -75,6 +77,16 @@ public:
     QPoint widgetToCell(const QPoint& pos) const;
     RenderStatistics renderStatistics() const;
     void setTargetRefreshRate(int hz);
+    void setSearchMatches(QVector<NovaTerm::SearchMatch> matches,
+                          quint64 generation);
+    void appendSearchMatches(QVector<NovaTerm::SearchMatch> matches,
+                             quint64 generation);
+    void clearSearchMatches();
+    qsizetype searchMatchCount() const;
+    qsizetype searchMatchedLineCount() const
+    {
+        return _searchMatchesByLine.size();
+    }
 
 signals:
     void activityDetected();
@@ -135,6 +147,7 @@ private:
     void appendCursorCommand(QVector<NovaTerm::RenderCommand>& commands,
                              const NovaTerm::CursorState& cursor);
     void appendSelectionCommands(QVector<NovaTerm::RenderCommand>& commands);
+    void appendSearchCommands(QVector<NovaTerm::RenderCommand>& commands);
     NovaTerm::RenderCommand makeSolidCommand(
         NovaTerm::RenderCommandType type,
         const QRectF& rect,
@@ -163,6 +176,7 @@ private:
     void ensurePipeline();
     void requestFullFrame();
     void requestOverlayFrame();
+    void scheduleReflow();
     bool ensureVertexBuffer(int rows, int columns);
     void uploadCommands(QRhiResourceUpdateBatch* updates,
                         const QSize& pixelSize,
@@ -183,9 +197,18 @@ private:
 
     // 滚动
     int _scrollLine{0};   // 当前滚动到 scrollback 中的行偏移（0=底部最新）
+    NovaTerm::LineId _scrollAnchorLine{0};
+    qsizetype _scrollAnchorWrap{0};
+    quint64 _reflowGeneration{0};
+    QVector<NovaTerm::DisplayLine> _historyLayout;
+    QVector<NovaTerm::DisplayLine> _pendingHistoryLayout;
+    quint64 _searchGeneration{0};
+    QHash<NovaTerm::LineId, QVector<NovaTerm::SearchMatch>>
+        _searchMatchesByLine;
 
     // 光标闪烁
     QTimer* _blinkTimer;
+    QTimer* _reflowDebounce{nullptr};
     NovaTerm::RenderScheduler* _renderScheduler{nullptr};
     bool _cursorBlinkVisible{true};
 

@@ -16,6 +16,9 @@
 #include <QDir>
 #include <QFileInfo>
 #include <QJsonArray>
+#include <QKeyEvent>
+#include <QKeySequence>
+#include <QLineEdit>
 #include <QTimer>
 
 #include <algorithm>
@@ -80,6 +83,11 @@ TerminalView::TerminalView(QWidget* parent)
     auto* layout = new QVBoxLayout(this);
     layout->setContentsMargins(0, 0, 0, 0);
     layout->setSpacing(0);
+    _searchLine = new QLineEdit(this);
+    _searchLine->setPlaceholderText(tr("Find in scrollback"));
+    _searchLine->setClearButtonEnabled(true);
+    _searchLine->hide();
+    layout->addWidget(_searchLine);
     layout->addWidget(_renderer);
 
     setFocusProxy(_renderer);
@@ -93,6 +101,29 @@ TerminalView::TerminalView(QWidget* parent)
 
     // 监听 renderer 的 resize 事件，转发给当前 transport
     _renderer->installEventFilter(this);
+    _searchLine->installEventFilter(this);
+
+    connect(_searchLine, &QLineEdit::textChanged, this,
+            [this](const QString& text) {
+        ++_searchGeneration;
+        _renderer->clearSearchMatches();
+        if (text.isEmpty()) {
+            _core->cancelSearch(_searchGeneration);
+            return;
+        }
+        NovaTerm::SearchRequest request;
+        request.query = text;
+        request.generation = _searchGeneration;
+        request.resultBatchSize = 128;
+        request.maximumResults = 100'000;
+        _core->searchScrollback(std::move(request));
+    });
+    connect(_core, &TerminalCore::searchResultsReady, this,
+            [this](const NovaTerm::SearchBatch& batch) {
+        if (batch.generation != _searchGeneration)
+            return;
+        _renderer->appendSearchMatches(batch.matches, batch.generation);
+    });
 
     // PTY 尺寸变更去抖：拖动窗口会产生密集的 resize 事件，每个都触发
     // 一次 SIGWINCH → shell 重绘，连续拖动即重绘风暴。合并为尺寸稳定后
@@ -361,6 +392,11 @@ void TerminalView::setupContextMenu(const QPoint& pos)
 
     menu->addSeparator();
 
+    connect(menu->addAction(tr("Find...")), &QAction::triggered,
+            this, &TerminalView::showSearch);
+
+    menu->addSeparator();
+
     connect(menu->addElaIconAction(ElaIconType::MagnifyingGlassPlus, tr("Zoom In")),
             &QAction::triggered, _renderer, &TerminalRenderer::zoomIn);
 
@@ -381,6 +417,18 @@ void TerminalView::setupContextMenu(const QPoint& pos)
 
 bool TerminalView::eventFilter(QObject* obj, QEvent* event)
 {
+    if (obj == _searchLine && event->type() == QEvent::KeyPress
+        && static_cast<QKeyEvent*>(event)->key() == Qt::Key_Escape) {
+        hideSearch();
+        return true;
+    }
+    if (obj == _renderer && event->type() == QEvent::KeyPress) {
+        auto* key = static_cast<QKeyEvent*>(event);
+        if (key->matches(QKeySequence::Find)) {
+            showSearch();
+            return true;
+        }
+    }
     if (obj == _renderer && event->type() == QEvent::Resize) {
         // 去抖：重启定时器，只在尺寸稳定（80ms 内无新 resize 事件）后
         // 把当前终端尺寸同步给 PTY。拖动期间不会反复发送 SIGWINCH。
@@ -390,4 +438,20 @@ bool TerminalView::eventFilter(QObject* obj, QEvent* event)
             _resizeDebounce->start();
     }
     return QWidget::eventFilter(obj, event);
+}
+
+void TerminalView::showSearch()
+{
+    _searchLine->show();
+    _searchLine->setFocus(Qt::ShortcutFocusReason);
+    _searchLine->selectAll();
+}
+
+void TerminalView::hideSearch()
+{
+    ++_searchGeneration;
+    _core->cancelSearch(_searchGeneration);
+    _renderer->clearSearchMatches();
+    _searchLine->hide();
+    _renderer->setFocus(Qt::ShortcutFocusReason);
 }

@@ -191,7 +191,7 @@ public:
         callbacks.settermprop = &Impl::onSetTermProperty;
         callbacks.bell = &Impl::onBell;
         callbacks.resize = &Impl::onResize;
-        callbacks.sb_pushline = &Impl::onScrollbackPush;
+        callbacks.sb_pushline_ex = &Impl::onScrollbackPush;
         callbacks.sb_popline = &Impl::onScrollbackPop;
         callbacks.sb_clear = &Impl::onScrollbackClear;
         vterm_screen_set_callbacks(vts, &callbacks, this);
@@ -311,7 +311,7 @@ public:
     }
 
     static int onScrollbackPush(int columns, const VTermScreenCell* cells,
-                                void* user)
+                                int softWrapped, void* user)
     {
         auto& self = *static_cast<Impl*>(user);
         int storedColumns = columns;
@@ -324,7 +324,9 @@ public:
             self.scrollback.beginPushLine(columns, storedColumns);
         for (int column = 0; column < storedColumns; ++column)
             populateCell(cells[column], converted[column]);
-        self.scrollback.commitPushLine();
+        self.scrollback.commitPushLine(self.nextScrollbackContinuation,
+                                       softWrapped == 0);
+        self.nextScrollbackContinuation = softWrapped != 0;
         if (self.observer.scrollbackChanged)
             self.observer.scrollbackChanged();
         return 1;
@@ -345,6 +347,7 @@ public:
     {
         auto& self = *static_cast<Impl*>(user);
         self.scrollback.clear();
+        self.nextScrollbackContinuation = false;
         if (self.observer.scrollbackChanged)
             self.observer.scrollbackChanged();
         return 1;
@@ -359,6 +362,7 @@ public:
     VTermScreen* vts{nullptr};
     VTermState* state{nullptr};
     VTermScreenCallbacks callbacks{};
+    bool nextScrollbackContinuation{false};
 };
 
 VTAdapter::VTAdapter(int columns, int rows, ScreenBuffer& screen,

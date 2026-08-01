@@ -1,121 +1,95 @@
 #include "ScrollbackBuffer.h"
+
 #include <algorithm>
 #include <utility>
 
 ScrollbackBuffer::ScrollbackBuffer(int maxLines)
-    : _maxLines(std::max(1, maxLines))
+    : _storage(std::max(0, maxLines),
+               NovaTerm::ChunkedScrollback::DefaultMaxBytes)
+    , _maxLines(std::max(0, maxLines))
 {
-    _lines.resize(_maxLines);
 }
 
 void ScrollbackBuffer::pushLine(const NovaTerm::Cell* cells, int cols)
 {
-    if (_maxLines == 0 || cols <= 0)
+    if (_maxLines == 0 || !cells || cols <= 0)
         return;
-
-    auto& line = beginPushLine(cols, cols);
-    for (int c = 0; c < cols; ++c)
-        line[c] = cells[c];
-    commitPushLine();
+    _cols = cols;
+    _storage.append(cells, cols, true);
 }
 
 QVector<NovaTerm::Cell>& ScrollbackBuffer::beginPushLine(int columns,
                                                          int storedColumns)
 {
-    _cols = columns;
-    QVector<NovaTerm::Cell>& line = _lines[_writePos];
-    line.resize(std::clamp(storedColumns, 0, columns));
-    return line;
+    _cols = std::max(0, columns);
+    _pendingLine.resize(std::clamp(storedColumns, 0, _cols));
+    return _pendingLine;
 }
 
-void ScrollbackBuffer::commitPushLine()
+void ScrollbackBuffer::commitPushLine(bool continuation, bool hardBreak)
 {
-    _writePos = (_writePos + 1) % _maxLines;
-    if (_count < _maxLines)
-        ++_count;
+    if (_maxLines > 0) {
+        NovaTerm::LogicalLine line;
+        line.cells = std::exchange(_pendingLine, {});
+        line.hardBreak = hardBreak;
+        if (continuation)
+            _storage.appendContinuation(std::move(line));
+        else
+            _storage.append(std::move(line));
+    } else {
+        _pendingLine.clear();
+    }
 }
 
 bool ScrollbackBuffer::popLine(NovaTerm::Cell* cells, int cols)
 {
-    if (_count == 0)
+    NovaTerm::LogicalLine line;
+    if (!_storage.popOldest(line))
         return false;
-
-    // 从最旧的行弹出（环形缓冲头部）
-    const int oldestPos = (_count < _maxLines)
-        ? 0
-        : _writePos;  // 环形满时，writePos 即是最旧位置
-    const auto& line = _lines[oldestPos];
-
-    const int copyCols = std::min(cols, static_cast<int>(line.size()));
-    for (int c = 0; c < copyCols; ++c)
-        cells[c] = line[c];
-
-    --_count;
-    // 非满状态时需整体前移（简化实现；scrollback 通常在满状态下工作）
-    if (_count < _maxLines) {
-        for (int i = 0; i < _count; ++i) {
-            const int srcIdx = (oldestPos + 1 + i) % _maxLines;
-            _lines[i].swap(_lines[srcIdx]);
-        }
-        _writePos = _count;
-    }
-
+    const int count = std::min(cols, int(line.cells.size()));
+    if (cells && count > 0)
+        std::copy_n(line.cells.cbegin(), count, cells);
     return true;
 }
 
 void ScrollbackBuffer::clear()
 {
-    _count = 0;
-    _writePos = 0;
+    _storage.clear();
+    _pendingLine.clear();
     _cols = 0;
 }
 
 void ScrollbackBuffer::setMaxLines(int max)
 {
-    max = std::max(1, max);
-    if (max == _maxLines)
-        return;
-
-    QVector<QVector<ScrollbackCell>> newLines(max);
-    if (_count > 0) {
-        const int keep = std::min(_count, max);
-        // 保留最新的 keep 行
-        const int start = (_count >= _maxLines)
-            ? (_writePos - _count + _maxLines) % _maxLines
-            : 0;
-        // 将最旧的 (_count - keep) 行丢弃，从相对旧的位置开始复制
-        const int copyStart = (start + (_count - keep)) % _maxLines;
-        for (int i = 0; i < keep; ++i) {
-            const int srcIdx = (copyStart + i) % _maxLines;
-            newLines[i].swap(_lines[srcIdx]);
-        }
-        _count = keep;
-        _writePos = (keep == max) ? 0 : keep;
-    } else {
-        _writePos = 0;
-    }
-
-    _lines.swap(newLines);
-    _maxLines = max;
+    _maxLines = std::clamp(max, 0,
+        int(NovaTerm::ChunkedScrollback::MaximumMaxLines));
+    _storage.setLimits(_maxLines,
+                       NovaTerm::ChunkedScrollback::DefaultMaxBytes);
 }
 
 int ScrollbackBuffer::lineCount() const
 {
-    return _count;
+    return int(_storage.lineCount());
 }
 
 const ScrollbackCell* ScrollbackBuffer::lineAt(int index) const
 {
-    const auto* line = lineVectorAt(index);
-    return line ? line->constData() : nullptr;
+    const NovaTerm::LogicalLine* line = _storage.lineAt(index);
+    return line ? line->cells.constData() : nullptr;
 }
 
 const QVector<ScrollbackCell>* ScrollbackBuffer::lineVectorAt(int index) const
 {
-    if (index < 0 || index >= _count)
-        return nullptr;
+    const NovaTerm::LogicalLine* line = _storage.lineAt(index);
+    return line ? &line->cells : nullptr;
+}
 
-    const int oldestPos = (_count < _maxLines) ? 0 : _writePos;
-    const int realIdx = (oldestPos + index) % _maxLines;
-    return &_lines[realIdx];
+NovaTerm::ScrollbackSnapshot ScrollbackBuffer::snapshot()
+{
+    return _storage.snapshot();
+}
+
+NovaTerm::ScrollbackStatistics ScrollbackBuffer::statistics() const
+{
+    return _storage.statistics();
 }

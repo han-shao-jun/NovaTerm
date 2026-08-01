@@ -1,12 +1,14 @@
 #pragma once
 #include <QWidget>
 #include <QEvent>
+#include "core/search/SearchEngine.h"
 
 class ITransport;
 class TerminalCore;
 class TerminalRenderer;
 class TerminalColorScheme;
 class QTimer;
+class QLineEdit;
 
 // 终端视图：组合 TerminalCore（libvterm 仿真引擎）+ TerminalRenderer（QRhi GPU 渲染），
 // 通过 ITransport 接口统一桥接本地/远程终端数据通路。
@@ -55,6 +57,8 @@ private:
     void applyThemeColorScheme();
     void setupContextMenu(const QPoint& pos);
     bool eventFilter(QObject* obj, QEvent* event) override;
+    void showSearch();
+    void hideSearch();
 
     TerminalCore*     _core{nullptr};
     TerminalRenderer* _renderer{nullptr};
@@ -65,4 +69,6 @@ private:
     // PTY 尺寸变更去抖定时器：拖动窗口时密集的 resize 事件合并为一次
     // SIGWINCH，避免 shell 被连续重绘请求轰击产生输出风暴。
     QTimer*           _resizeDebounce{nullptr};
+    QLineEdit*        _searchLine{nullptr};
+    quint64           _searchGeneration{0};
 };

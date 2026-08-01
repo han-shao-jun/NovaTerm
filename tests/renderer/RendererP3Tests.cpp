@@ -21,6 +21,8 @@ private slots:
     void commandBufferReplacesOnlyDirtyRow();
     void commandBufferResizeInvalidatesRows();
     void scrollbackAtLiveBottomDoesNotRequestFullFrame();
+    void coalescesScrollbackReflowRequests();
+    void searchMatchesAppendByGeneration();
 };
 
 void RendererP3Tests::schedulerMergesTouchingRegions()
@@ -201,6 +203,38 @@ void RendererP3Tests::scrollbackAtLiveBottomDoesNotRequestFullFrame()
 
     QCOMPARE(renderer.renderStatistics().scheduler.fullFrames,
              fullFramesBefore);
+}
+
+void RendererP3Tests::coalescesScrollbackReflowRequests()
+{
+    TerminalCore core(80, 24);
+    TerminalRenderer renderer(&core);
+    QTest::qWait(80);
+    QSignalSpy spy(&core, &TerminalCore::reflowBatchReady);
+
+    for (int i = 0; i < 100; ++i)
+        emit core.scrollbackChanged();
+
+    QTRY_VERIFY_WITH_TIMEOUT(!spy.isEmpty(), 1000);
+    QTest::qWait(80);
+    QCOMPARE(spy.size(), 1);
+}
+
+void RendererP3Tests::searchMatchesAppendByGeneration()
+{
+    TerminalCore core(80, 24);
+    TerminalRenderer renderer(&core);
+    renderer.appendSearchMatches({{1, 0, 1}, {1, 2, 3}}, 10);
+    renderer.appendSearchMatches({{2, 0, 1}}, 10);
+    QCOMPARE(renderer.searchMatchCount(), qsizetype(3));
+    QCOMPARE(renderer.searchMatchedLineCount(), qsizetype(2));
+
+    renderer.appendSearchMatches({{3, 0, 1}}, 9);
+    QCOMPARE(renderer.searchMatchCount(), qsizetype(3));
+
+    renderer.appendSearchMatches({{4, 0, 1}}, 11);
+    QCOMPARE(renderer.searchMatchCount(), qsizetype(1));
+    QCOMPARE(renderer.searchMatchedLineCount(), qsizetype(1));
 }
 
 QTEST_MAIN(RendererP3Tests)

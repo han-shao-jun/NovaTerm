@@ -22,12 +22,18 @@ struct SearchableLine
     QVector<qsizetype> utf16ToCell;
 };
 
-SearchableLine makeSearchable(const LogicalLine& line)
+template <typename Cancelled>
+std::optional<SearchableLine> makeSearchable(const LogicalLine& line,
+                                              Cancelled cancelled)
 {
+    if (line.cells.size() > MaximumSearchLineCharacters)
+        return std::nullopt;
     SearchableLine result;
     result.text.reserve(line.cells.size());
     result.utf16ToCell.reserve(line.cells.size() + 1);
     for (qsizetype cellIndex = 0; cellIndex < line.cells.size(); ++cellIndex) {
+        if ((cellIndex & 0xff) == 0 && cancelled())
+            return std::nullopt;
         const Cell& cell = line.cells[cellIndex];
         if (cell.isWideContinuation())
             continue;
@@ -36,6 +42,10 @@ SearchableLine makeSearchable(const LogicalLine& line)
                 break;
             const char32_t character = char32_t(codepoint);
             const QString encoded = QString::fromUcs4(&character, 1);
+            if (result.text.size() + encoded.size()
+                > MaximumSearchLineCharacters) {
+                return std::nullopt;
+            }
             result.text += encoded;
             for (qsizetype i = 0; i < encoded.size(); ++i)
                 result.utf16ToCell.push_back(cellIndex);
@@ -43,6 +53,16 @@ SearchableLine makeSearchable(const LogicalLine& line)
     }
     result.utf16ToCell.push_back(line.cells.size());
     return result;
+}
+
+bool potentiallyUnboundedRegex(const QString& expression)
+{
+    // Nested quantified groups are the common catastrophic-backtracking form.
+    // Qt/PCRE2 has internal limits too, but rejecting this shape gives worker
+    // teardown a deterministic bound across PCRE2 builds.
+    static const QRegularExpression nestedQuantifier(
+        QStringLiteral(R"(\([^)]*[+*][^)]*\)\s*[+*{])"));
+    return nestedQuantifier.match(expression).hasMatch();
 }
 
 SearchMatch toMatch(LineId lineId, const SearchableLine& line,
@@ -99,6 +119,10 @@ public:
                                                                previous)) {}
         {
             std::lock_guard<std::mutex> lock(mutex);
+            const quint64 latest = latestGeneration.load();
+            if (latest != 0 && work.request.generation <= latest)
+                return;
+            latestGeneration.store(work.request.generation);
             pending = std::move(work);
         }
         changed.notify_one();
@@ -115,15 +139,28 @@ public:
     bool cancelled(quint64 generation) const
     {
         return stopping.load()
+            || generation < latestGeneration.load()
             || (generation > 0
                 && cancelledGeneration.load() >= generation);
     }
 
     void publish(SearchBatch batch)
     {
-        QMetaObject::invokeMethod(owner, [target = owner, batch]() {
+        QMetaObject::invokeMethod(owner,
+        [target = owner, batch = std::move(batch)]() {
             emit target->resultsReady(batch);
         }, Qt::QueuedConnection);
+    }
+
+    void publishMatches(SearchBatch& batch)
+    {
+        SearchBatch emitted;
+        emitted.generation = batch.generation;
+        emitted.sourceVersion = batch.sourceVersion;
+        emitted.scannedLines = batch.scannedLines;
+        emitted.totalLines = batch.totalLines;
+        emitted.matches = std::move(batch.matches);
+        publish(std::move(emitted));
     }
 
     void runSearch(const Work& work)
@@ -148,6 +185,13 @@ public:
         QString expression = work.request.regularExpression
             ? work.request.query
             : QRegularExpression::escape(work.request.query);
+        if (work.request.regularExpression
+            && potentiallyUnboundedRegex(expression)) {
+            batch.completed = true;
+            batch.error = QStringLiteral("regular expression rejected: nested quantifier");
+            publish(std::move(batch));
+            return;
+        }
         if (work.request.wholeWord)
             expression = QStringLiteral("\\b(?:%1)\\b").arg(expression);
         QRegularExpression::PatternOptions options;
@@ -193,11 +237,25 @@ public:
             const LogicalLine* logical = work.snapshot.lineAt(row);
             if (!logical)
                 continue;
-            const SearchableLine line = makeSearchable(*logical);
-            if (line.text.size() > MaximumSearchLineCharacters)
+            const auto searchable = makeSearchable(*logical, [this, &work]() {
+                return cancelled(work.request.generation);
+            });
+            if (!searchable) {
+                if (cancelled(work.request.generation)) {
+                    batch.cancelled = true;
+                    publish(std::move(batch));
+                    return;
+                }
                 continue;
+            }
+            const SearchableLine& line = *searchable;
             QRegularExpressionMatchIterator matches = regex.globalMatch(line.text);
             while (matches.hasNext() && resultCount < maximumResults) {
+                if (cancelled(work.request.generation)) {
+                    batch.cancelled = true;
+                    publish(std::move(batch));
+                    return;
+                }
                 const QRegularExpressionMatch match = matches.next();
                 if (!match.hasMatch())
                     continue;
@@ -207,8 +265,7 @@ public:
                 ++resultCount;
                 if (batch.matches.size() >= batchSize) {
                     batch.scannedLines = row - startRow + 1;
-                    publish(batch);
-                    batch.matches.clear();
+                    publishMatches(batch);
                 }
             }
             if (resultCount >= maximumResults)
@@ -233,7 +290,23 @@ public:
                 work = std::move(*pending);
                 pending.reset();
             }
-            runSearch(work);
+            try {
+                runSearch(work);
+            } catch (const std::exception& exception) {
+                SearchBatch batch;
+                batch.generation = work.request.generation;
+                batch.sourceVersion = work.snapshot.version();
+                batch.completed = true;
+                batch.error = QString::fromUtf8(exception.what());
+                publish(std::move(batch));
+            } catch (...) {
+                SearchBatch batch;
+                batch.generation = work.request.generation;
+                batch.sourceVersion = work.snapshot.version();
+                batch.completed = true;
+                batch.error = QStringLiteral("unknown search worker failure");
+                publish(std::move(batch));
+            }
         }
     }
 
@@ -242,6 +315,7 @@ public:
     std::condition_variable changed;
     std::optional<Work> pending;
     std::atomic<quint64> cancelledGeneration{0};
+    std::atomic<quint64> latestGeneration{0};
     std::atomic<bool> stopping{false};
     std::thread worker;
 };

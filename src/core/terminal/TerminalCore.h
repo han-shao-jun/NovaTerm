@@ -2,6 +2,8 @@
 
 #include "BoundedByteQueue.h"
 #include "ScreenBuffer.h"
+#include "core/scrollback/LineLayout.h"
+#include "core/search/SearchEngine.h"
 
 #include <QByteArray>
 #include <QByteArrayView>
@@ -54,7 +56,9 @@ public:
     bool getCell(int row, int col, NovaTerm::Cell& out) const;
     NovaTerm::TerminalSnapshot snapshot() const;
     NovaTerm::RendererSnapshot rendererSnapshot(
-        const QVector<bool>& dirtyRows, int scrollLine) const;
+        const QVector<bool>& dirtyRows, int scrollLine,
+        NovaTerm::LineId anchorLine = 0,
+        qsizetype anchorWrap = 0) const;
     NovaTerm::CursorState cursorState() const;
     void flushDamage();
     void setDefaultColors(const NovaTerm::TerminalColor& foreground,
@@ -64,6 +68,13 @@ public:
     bool getScrollbackCell(int lineIndex, int col, NovaTerm::Cell& out) const;
     void setScrollbackLimit(int lines);
     void clearScrollback();
+    NovaTerm::ScrollbackSnapshot scrollbackSnapshot() const;
+    NovaTerm::ScrollbackStatistics scrollbackStatistics() const;
+    void searchScrollback(NovaTerm::SearchRequest request);
+    void cancelSearch(quint64 generation);
+    void requestScrollbackReflow(int columns, quint64 generation,
+                                 qsizetype batchLines = 1024);
+    void cancelScrollbackReflow(quint64 generation);
 
     NovaTerm::Position cursorPosition() const;
     bool cursorVisible() const;
@@ -84,8 +95,12 @@ signals:
     void scrollbackChanged();
     void inputBackpressureChanged(bool paused);
     void inputOverload(const QString& reason);
+    void searchResultsReady(const NovaTerm::SearchBatch& batch);
+    void reflowBatchReady(const NovaTerm::ReflowBatch& batch);
 
 private:
     class Runtime;
     std::unique_ptr<Runtime> _runtime;
+    std::unique_ptr<NovaTerm::SearchEngine> _searchEngine;
+    std::unique_ptr<NovaTerm::ReflowEngine> _reflowEngine;
 };

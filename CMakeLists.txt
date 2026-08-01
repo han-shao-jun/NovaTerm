@@ -82,6 +82,8 @@ set(NOVATERM_CORE_SOURCES
     src/core/scrollback/ScrollbackSnapshot.cpp
     src/core/scrollback/ScrollbackSnapshot.h
     src/core/scrollback/ScrollbackTypes.h
+    src/core/search/SearchEngine.cpp
+    src/core/search/SearchEngine.h
 )
 
 add_library(novaterm_core STATIC ${NOVATERM_CORE_SOURCES})
@@ -351,6 +353,21 @@ if(BUILD_TESTING)
     )
     add_dependencies(check novaterm_core_tests)
 
+    add_executable(novaterm_scrollback_tests
+        tests/core/ScrollbackTests.cpp
+    )
+    target_link_libraries(novaterm_scrollback_tests
+        PRIVATE
+            novaterm_core
+            Qt${QT_VERSION_MAJOR}::Test
+    )
+    add_test(NAME novaterm_scrollback_tests COMMAND novaterm_scrollback_tests)
+    set_tests_properties(novaterm_scrollback_tests PROPERTIES
+        LABELS "unit;core;scrollback"
+        TIMEOUT 60
+    )
+    add_dependencies(check novaterm_scrollback_tests)
+
     add_executable(novaterm_renderer_tests
         tests/renderer/RendererP3Tests.cpp
         src/renderer/RenderCommandBuffer.cpp
@@ -449,6 +466,18 @@ if(NOVATERM_BUILD_BENCHMARKS)
         tests/benchmarks/ScrollbackBenchmark.cpp
     )
     target_link_libraries(novaterm_scrollback_benchmark PRIVATE novaterm_core)
+
+    add_custom_target(scrollback_benchmark_matrix
+        COMMAND $<TARGET_FILE:novaterm_scrollback_benchmark>
+            --matrix
+            --matrix-lines 1000,10000,100000,1000000
+            --columns 80
+            --chunk-lines 1024
+            --max-bytes 268435456
+        DEPENDS novaterm_scrollback_benchmark
+        USES_TERMINAL
+        COMMENT "Running isolated NovaTerm P4 scrollback size/RSS/latency matrix"
+    )
 
     # Benchmark 使用自己的分区性能报告，不经过 CTest。参数对应 P2/P4
     # 设计文档中的 20 MiB Parser 与 10 万行 Scrollback 基线。

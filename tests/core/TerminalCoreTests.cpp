@@ -24,6 +24,9 @@ private slots:
     void rendererSnapshotCopiesOnlyDirtyRows();
     void publishesTerminalTitle();
     void scrollbackKeepsNewestLines();
+    void softWrappedRowsBecomeOneLogicalHistoryLine();
+    void rendererSnapshotUsesLogicalWrapAnchor();
+    void liveRendererSnapshotDoesNotPublishHistoryTail();
     void fullScreenScrollPreservesContent();
     void reverseIndexScrollPreservesContent();
     void partialScrollRegionPreservesOutsideRows();
@@ -178,6 +181,58 @@ void TerminalCoreTests::scrollbackKeepsNewestLines()
     QCOMPARE(buffer.lineAt(0)[0].chars[0], uint32_t('B'));
     QCOMPARE(buffer.lineAt(1)[0].chars[0], uint32_t('C'));
     QCOMPARE(buffer.lineAt(2)[0].chars[0], uint32_t('D'));
+}
+
+void TerminalCoreTests::softWrappedRowsBecomeOneLogicalHistoryLine()
+{
+    TerminalCore core(4, 2);
+    core.setScrollbackLimit(100);
+    QVERIFY(core.waitForIdle());
+    core.writeInput(QByteArrayLiteral("abcdefghijklmnopqr"));
+    QVERIFY(core.waitForIdle());
+
+    const auto history = core.scrollbackSnapshot();
+    QCOMPARE(history.lineCount(), qsizetype(1));
+    const auto* line = history.lineAt(0);
+    QVERIFY(line);
+    QCOMPARE(line->cells.size(), qsizetype(12));
+    QString text;
+    for (const auto& cell : line->cells)
+        text += QChar(cell.chars[0]);
+    QCOMPARE(text, QStringLiteral("abcdefghijkl"));
+    QVERIFY(!line->hardBreak);
+}
+
+void TerminalCoreTests::rendererSnapshotUsesLogicalWrapAnchor()
+{
+    TerminalCore core(4, 2);
+    core.writeInput(QByteArrayLiteral("abcdefghijklmnopqr"));
+    QVERIFY(core.waitForIdle());
+    const auto history = core.scrollbackSnapshot();
+    QVERIFY(!history.empty());
+    QVector<bool> dirty(2, true);
+    const auto rendered = core.rendererSnapshot(
+        dirty, 1, history.firstLineId(), 2);
+    QVERIFY(rendered.cellAt(0, 0));
+    QCOMPARE(rendered.cellAt(0, 0)->chars[0], uint32_t('i'));
+    QVERIFY(rendered.cellAt(0, 3));
+    QCOMPARE(rendered.cellAt(0, 3)->chars[0], uint32_t('l'));
+}
+
+void TerminalCoreTests::liveRendererSnapshotDoesNotPublishHistoryTail()
+{
+    TerminalCore core(8, 2);
+    core.writeInput(QByteArrayLiteral("first\r\nsecond\r\nthird"));
+    QVERIFY(core.waitForIdle());
+    const auto before = core.scrollbackStatistics();
+    QVERIFY(before.activeLines > 0);
+
+    QVector<bool> dirty(2, true);
+    const auto rendered = core.rendererSnapshot(dirty, 0);
+    QVERIFY(rendered.cellAt(0, 0));
+    const auto after = core.scrollbackStatistics();
+    QCOMPARE(after.activeLines, before.activeLines);
+    QCOMPARE(after.sealedChunks, before.sealedChunks);
 }
 
 void TerminalCoreTests::fullScreenScrollPreservesContent()

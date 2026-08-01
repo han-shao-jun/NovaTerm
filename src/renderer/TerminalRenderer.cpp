@@ -150,6 +150,12 @@ TerminalRenderer::TerminalRenderer(TerminalCore* core, QWidget* parent)
     });
     _blinkTimer->start();
 
+    _reflowDebounce = new QTimer(this);
+    _reflowDebounce->setSingleShot(true);
+    _reflowDebounce->setInterval(24);
+    connect(_reflowDebounce, &QTimer::timeout,
+            this, &TerminalRenderer::scheduleReflow);
+
     // ── 连接 TerminalCore 信号 ───────────────────────────────
     connect(_core, &TerminalCore::damage, this,
             [this](const NovaTerm::DirtyRegion& region) {
@@ -165,8 +171,9 @@ TerminalRenderer::TerminalRenderer(TerminalCore* core, QWidget* parent)
     });
 
     connect(_core, &TerminalCore::scrollbackChanged, this, [this]() {
-        const int historyCount = _core->scrollbackLineCount();
-        const int clampedOffset = std::clamp(_scrollLine, 0, historyCount);
+        const int historyCount = _historyLayout.isEmpty()
+            ? _core->scrollbackLineCount() : _historyLayout.size();
+        int clampedOffset = std::clamp(_scrollLine, 0, historyCount);
         const bool viewportMappingChanged =
             _scrollLine > 0 || clampedOffset != _scrollLine;
         if (clampedOffset != _scrollLine)
@@ -194,6 +201,32 @@ TerminalRenderer::TerminalRenderer(TerminalCore* core, QWidget* parent)
             requestFullFrame();
         else if (selectionChanged)
             requestOverlayFrame();
+        _reflowDebounce->start();
+    });
+
+    connect(_core, &TerminalCore::reflowBatchReady, this,
+            [this](const NovaTerm::ReflowBatch& batch) {
+        if (batch.generation != _reflowGeneration)
+            return;
+        if (batch.logicalStart == 0)
+            _pendingHistoryLayout.clear();
+        _pendingHistoryLayout += batch.rows;
+        if (!batch.completed || !batch.error.isEmpty())
+            return;
+        _historyLayout = std::move(_pendingHistoryLayout);
+        _scrollLine = std::clamp(_scrollLine, 0,
+                                 int(_historyLayout.size()));
+        if (_scrollLine > 0 && _scrollAnchorLine != 0) {
+            for (qsizetype i = 0; i < _historyLayout.size(); ++i) {
+                const auto& row = _historyLayout[i];
+                if (row.lineId == _scrollAnchorLine
+                    && row.wrapIndex == _scrollAnchorWrap) {
+                    _scrollLine = int(_historyLayout.size() - i);
+                    break;
+                }
+            }
+        }
+        requestFullFrame();
     });
 
     connect(this, &QRhiWidget::renderFailed, this, []() {
@@ -328,16 +361,34 @@ void TerminalRenderer::scrollToBottom()
 {
     if (_scrollLine != 0) {
         _scrollLine = 0;
+        _scrollAnchorLine = 0;
+        _scrollAnchorWrap = 0;
         requestFullFrame();
     }
 }
 
 void TerminalRenderer::scrollToLine(int line)
 {
-    const int maxScroll = _core->scrollbackLineCount();
+    const int maxScroll = _historyLayout.isEmpty()
+        ? _core->scrollbackLineCount() : _historyLayout.size();
     const int clamped = std::max(0, std::min(line, maxScroll));
     if (clamped != _scrollLine) {
         _scrollLine = clamped;
+        if (_scrollLine > 0 && !_historyLayout.isEmpty()) {
+            const qsizetype row = std::max<qsizetype>(
+                0, _historyLayout.size() - _scrollLine);
+            _scrollAnchorLine = _historyLayout[row].lineId;
+            _scrollAnchorWrap = _historyLayout[row].wrapIndex;
+        } else if (_scrollLine > 0) {
+            const auto history = _core->scrollbackSnapshot();
+            const auto* logical = history.lineAt(std::max<qsizetype>(
+                0, history.lineCount() - _scrollLine));
+            _scrollAnchorLine = logical ? logical->id : history.firstLineId();
+            _scrollAnchorWrap = 0;
+        } else {
+            _scrollAnchorLine = 0;
+            _scrollAnchorWrap = 0;
+        }
         requestFullFrame();
     }
 }
@@ -373,15 +424,23 @@ QString TerminalRenderer::selectedText() const
         // 根据 row 判断是 scrollback 还是活跃屏幕
         for (int col = c1; col <= c2; ++col) {
             if (row < 0) {
-                // Scrollback 区域
-                const int sbLine = _core->scrollbackLineCount() + row;  // row 是负值
-                NovaTerm::Cell sc;
-                if (!_core->getScrollbackCell(sbLine, col, sc)) {
+                const qsizetype displayIndex = _historyLayout.size() + row;
+                const auto history = _core->scrollbackSnapshot();
+                const NovaTerm::DisplayLine* display =
+                    displayIndex >= 0 && displayIndex < _historyLayout.size()
+                    ? &_historyLayout[displayIndex] : nullptr;
+                const NovaTerm::LogicalLine* logical = display
+                    ? history.lineById(display->lineId) : nullptr;
+                const qsizetype cellIndex = display
+                    ? display->startCell + col : -1;
+                if (!logical || cellIndex < display->startCell
+                    || cellIndex >= display->endCell) {
                     result += QLatin1Char(' ');
-                } else if (sc.isWideContinuation()) {
+                } else if (logical->cells[cellIndex].isWideContinuation()) {
                     continue;
-                } else if (sc.chars[0]) {
-                    result += cellCharsToString(sc.chars.data(),
+                } else if (logical->cells[cellIndex].chars[0]) {
+                    result += cellCharsToString(
+                        logical->cells[cellIndex].chars.data(),
                                                 NovaTerm::MaxCharsPerCell);
                 } else {
                     result += QLatin1Char(' ');
@@ -518,7 +577,9 @@ void TerminalRenderer::render(QRhiCommandBuffer* cb)
 
     NovaTerm::RendererSnapshot screen;
     if (contentPending) {
-        screen = _core->rendererSnapshot(dirtyRows, _scrollLine);
+        screen = _core->rendererSnapshot(dirtyRows, _scrollLine,
+                                         _scrollAnchorLine,
+                                         _scrollAnchorWrap);
         if (screen.rows != rows || screen.columns != columns) {
             rows = screen.rows;
             columns = screen.columns;
@@ -526,7 +587,9 @@ void TerminalRenderer::render(QRhiCommandBuffer* cb)
             dirtyRows.fill(true, rows);
             fullFramePending = true;
             overlayPending = true;
-            screen = _core->rendererSnapshot(dirtyRows, _scrollLine);
+            screen = _core->rendererSnapshot(dirtyRows, _scrollLine,
+                                             _scrollAnchorLine,
+                                             _scrollAnchorWrap);
         }
     }
 
@@ -620,9 +683,17 @@ void TerminalRenderer::resizeEvent(QResizeEvent* event)
 
     recalculateCellSize();
     resizeTerminalToViewport();
+    _reflowDebounce->start();
     if (_renderScheduler)
         _renderScheduler->setViewport(_core->columns(), _core->rows());
     requestFullFrame();
+}
+
+void TerminalRenderer::scheduleReflow()
+{
+    ++_reflowGeneration;
+    _pendingHistoryLayout.clear();
+    _core->requestScrollbackReflow(_core->columns(), _reflowGeneration, 256);
 }
 
 void TerminalRenderer::resizeTerminalToViewport()
@@ -839,7 +910,9 @@ bool TerminalRenderer::isDocumentPositionValid(
 {
     if (pos.row < 0) {
         // scrollback 区域：row 从 -1（最新回滚行）到 -scrollbackLineCount（最旧）
-        if (pos.row < -_core->scrollbackLineCount())
+        const qsizetype historyRows = _historyLayout.isEmpty()
+            ? _core->scrollbackLineCount() : _historyLayout.size();
+        if (pos.row < -historyRows)
             return false;
     } else {
         // 活跃屏幕：row 从 0 到 rows-1
@@ -1249,10 +1322,110 @@ quint64 TerminalRenderer::rebuildOverlays(
     QVector<NovaTerm::RenderCommand> overlays;
     overlays.reserve(_core->rows() + 1);
     appendSelectionCommands(overlays);
+    appendSearchCommands(overlays);
     appendCursorCommand(overlays, cursor);
     const quint64 commandCount = quint64(overlays.size());
     _commandBuffer.replaceOverlays(std::move(overlays));
     return commandCount;
+}
+
+void TerminalRenderer::setSearchMatches(
+    QVector<NovaTerm::SearchMatch> matches, quint64 generation)
+{
+    if (generation < _searchGeneration)
+        return;
+    _searchMatchesByLine.clear();
+    _searchGeneration = generation;
+    for (NovaTerm::SearchMatch& match : matches)
+        _searchMatchesByLine[match.lineId].push_back(std::move(match));
+    requestOverlayFrame();
+}
+
+void TerminalRenderer::appendSearchMatches(
+    QVector<NovaTerm::SearchMatch> matches, quint64 generation)
+{
+    if (generation < _searchGeneration)
+        return;
+    if (generation > _searchGeneration) {
+        _searchMatchesByLine.clear();
+        _searchGeneration = generation;
+    }
+    for (NovaTerm::SearchMatch& match : matches)
+        _searchMatchesByLine[match.lineId].push_back(std::move(match));
+    requestOverlayFrame();
+}
+
+void TerminalRenderer::clearSearchMatches()
+{
+    _searchMatchesByLine.clear();
+    requestOverlayFrame();
+}
+
+qsizetype TerminalRenderer::searchMatchCount() const
+{
+    qsizetype count = 0;
+    for (auto it = _searchMatchesByLine.cbegin();
+         it != _searchMatchesByLine.cend(); ++it) {
+        count += it.value().size();
+    }
+    return count;
+}
+
+void TerminalRenderer::appendSearchCommands(
+    QVector<NovaTerm::RenderCommand>& commands)
+{
+    if (_searchMatchesByLine.isEmpty() || _scrollLine <= 0)
+        return;
+    const QColor color(255, 196, 0, 105);
+    if (!_historyLayout.isEmpty() && _scrollLine > 0) {
+        const qsizetype first = std::max<qsizetype>(
+            0, _historyLayout.size() - _scrollLine);
+        const qsizetype last = std::min<qsizetype>(
+            _historyLayout.size(), first + _core->rows());
+        for (qsizetype row = first; row < last; ++row) {
+            const auto& display = _historyLayout[row];
+            const auto found = _searchMatchesByLine.constFind(display.lineId);
+            if (found == _searchMatchesByLine.cend())
+                continue;
+            for (const NovaTerm::SearchMatch& match : found.value()) {
+                if (match.endCell <= display.startCell
+                    || match.startCell >= display.endCell) {
+                    continue;
+                }
+                const qsizetype start = std::max(
+                    match.startCell, display.startCell) - display.startCell;
+                const qsizetype end = std::min(
+                    match.endCell, display.endCell) - display.startCell;
+                const int widgetRow = int(row - first);
+                commands.push_back(makeSolidCommand(
+                    NovaTerm::RenderCommandType::SearchOverlay,
+                    QRectF(start * _cellWidth, widgetRow * _cellHeight,
+                           (end - start) * _cellWidth, _cellHeight), color));
+            }
+        }
+        return;
+    }
+    const auto history = _core->scrollbackSnapshot();
+    for (auto it = _searchMatchesByLine.cbegin();
+         it != _searchMatchesByLine.cend(); ++it) {
+        const qsizetype documentRow = history.rowForLineId(it.key());
+        if (documentRow < 0)
+            continue;
+        const int widgetRow = int(documentRow - history.lineCount())
+            + _scrollLine;
+        if (widgetRow < 0 || widgetRow >= _core->rows())
+            continue;
+        for (const NovaTerm::SearchMatch& match : it.value()) {
+            const qsizetype start = std::clamp<qsizetype>(
+                match.startCell, 0, _core->columns());
+            const qsizetype end = std::clamp<qsizetype>(
+                match.endCell, start, _core->columns());
+            commands.push_back(makeSolidCommand(
+                NovaTerm::RenderCommandType::SearchOverlay,
+                QRectF(start * _cellWidth, widgetRow * _cellHeight,
+                       (end - start) * _cellWidth, _cellHeight), color));
+        }
+    }
 }
 
 void TerminalRenderer::appendCursorCommand(

@@ -541,6 +541,10 @@ typedef struct {
   int (*sb_pushline)(int cols, const VTermScreenCell *cells, void *user);
   int (*sb_popline)(int cols, VTermScreenCell *cells, void *user);
   int (*sb_clear)(void* user);
+  /* NovaTerm extension: preserves soft-wrap information while retaining the
+   * original callback for source compatibility with other libvterm users. */
+  int (*sb_pushline_ex)(int cols, const VTermScreenCell *cells,
+                        int soft_wrapped, void *user);
 } VTermScreenCallbacks;
 
 VTermScreen *vterm_obtain_screen(VTerm *vt);

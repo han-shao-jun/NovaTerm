@@ -219,14 +219,20 @@ static void sb_pushline_from_row(VTermScreen *screen, int row)
   for(pos.col = 0; pos.col < screen->cols; pos.col++)
     vterm_screen_get_cell(screen, pos, screen->sb_buffer + pos.col);
 
-  (screen->callbacks->sb_pushline)(screen->cols, screen->sb_buffer, screen->cbdata);
+  const VTermLineInfo *lineinfo = vterm_state_get_lineinfo(screen->state, row);
+  if(screen->callbacks->sb_pushline_ex)
+    (screen->callbacks->sb_pushline_ex)(screen->cols, screen->sb_buffer,
+        lineinfo && lineinfo->continuation, screen->cbdata);
+  else
+    (screen->callbacks->sb_pushline)(screen->cols, screen->sb_buffer, screen->cbdata);
 }
 
 static int moverect_internal(VTermRect dest, VTermRect src, void *user)
 {
   VTermScreen *screen = user;
 
-  if(screen->callbacks && screen->callbacks->sb_pushline &&
+  if(screen->callbacks &&
+     (screen->callbacks->sb_pushline || screen->callbacks->sb_pushline_ex) &&
      dest.start_row == 0 && dest.start_col == 0 &&        // starts top-left corner
      dest.end_col == screen->cols &&                      // full width
      screen->buffer == screen->buffers[BUFIDX_PRIMARY]) { // not altscreen
@@ -714,7 +720,8 @@ static void resize_buffer(VTermScreen *screen, int bufidx, int new_rows, int new
 
   if(old_row >= 0 && bufidx == BUFIDX_PRIMARY) {
     /* Push spare lines to scrollback buffer */
-    if(screen->callbacks && screen->callbacks->sb_pushline)
+    if(screen->callbacks &&
+       (screen->callbacks->sb_pushline || screen->callbacks->sb_pushline_ex))
       for(int row = 0; row <= old_row; row++)
         sb_pushline_from_row(screen, row);
     if(active)

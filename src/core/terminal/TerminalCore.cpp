@@ -408,7 +408,13 @@ public:
 TerminalCore::TerminalCore(int cols, int rows, QObject* parent)
     : QObject(parent)
     , _runtime(std::make_unique<Runtime>(this, cols, rows))
+    , _searchEngine(std::make_unique<NovaTerm::SearchEngine>())
+    , _reflowEngine(std::make_unique<NovaTerm::ReflowEngine>())
 {
+    connect(_searchEngine.get(), &NovaTerm::SearchEngine::resultsReady,
+            this, &TerminalCore::searchResultsReady);
+    connect(_reflowEngine.get(), &NovaTerm::ReflowEngine::batchReady,
+            this, &TerminalCore::reflowBatchReady);
 }
 
 TerminalCore::~TerminalCore() = default;
@@ -587,7 +593,8 @@ NovaTerm::TerminalSnapshot TerminalCore::snapshot() const
 }
 
 NovaTerm::RendererSnapshot TerminalCore::rendererSnapshot(
-    const QVector<bool>& dirtyRows, int scrollLine) const
+    const QVector<bool>& dirtyRows, int scrollLine,
+    NovaTerm::LineId anchorLine, qsizetype anchorWrap) const
 {
     QMutexLocker locker(&_runtime->modelMutex);
     NovaTerm::RendererSnapshot snapshot;
@@ -597,7 +604,23 @@ NovaTerm::RendererSnapshot TerminalCore::rendererSnapshot(
     snapshot.visibleRows.resize(snapshot.rows);
 
     const bool copyAllRows = dirtyRows.size() != snapshot.rows;
-    const int historyCount = _runtime->scrollback.lineCount();
+    NovaTerm::ScrollbackSnapshot history;
+    NovaTerm::ViewportSnapshot historyViewport;
+    if (scrollLine > 0) {
+        history = _runtime->scrollback.snapshot();
+    }
+    if (!history.empty()) {
+        const NovaTerm::LogicalLine* anchor = anchorLine != 0
+            ? history.lineById(anchorLine)
+            : history.lineAt(std::max<qsizetype>(
+                  0, history.lineCount() - scrollLine));
+        if (anchor) {
+            historyViewport = NovaTerm::LineLayout::viewport(
+                history, anchor->id, anchorWrap, snapshot.columns,
+                std::min<qsizetype>(scrollLine, snapshot.rows), 0,
+                history.version());
+        }
+    }
     for (int widgetRow = 0; widgetRow < snapshot.rows; ++widgetRow) {
         if (!copyAllRows && !dirtyRows[widgetRow])
             continue;
@@ -605,12 +628,15 @@ NovaTerm::RendererSnapshot TerminalCore::rendererSnapshot(
         destination.resize(snapshot.columns);
         const int screenRow = widgetRow - scrollLine;
         if (screenRow < 0) {
-            const auto* source =
-                _runtime->scrollback.lineVectorAt(historyCount + screenRow);
-            if (source) {
-                const int count = std::min(snapshot.columns,
-                                           int(source->size()));
-                std::copy_n(source->cbegin(), count, destination.begin());
+            if (widgetRow < historyViewport.rows.size()) {
+                const auto& display = historyViewport.rows[widgetRow];
+                const auto* logical = history.lineById(display.lineId);
+                if (logical) {
+                    const qsizetype count = std::min<qsizetype>(
+                        snapshot.columns, display.endCell - display.startCell);
+                    std::copy_n(logical->cells.cbegin() + display.startCell,
+                                count, destination.begin());
+                }
             }
             continue;
         }
@@ -675,6 +701,40 @@ void TerminalCore::clearScrollback()
     ParserCommand command;
     command.type = CommandType::ClearScrollback;
     _runtime->enqueueCommand(std::move(command));
+}
+
+NovaTerm::ScrollbackSnapshot TerminalCore::scrollbackSnapshot() const
+{
+    QMutexLocker locker(&_runtime->modelMutex);
+    return _runtime->scrollback.snapshot();
+}
+
+NovaTerm::ScrollbackStatistics TerminalCore::scrollbackStatistics() const
+{
+    QMutexLocker locker(&_runtime->modelMutex);
+    return _runtime->scrollback.statistics();
+}
+
+void TerminalCore::searchScrollback(NovaTerm::SearchRequest request)
+{
+    _searchEngine->search(scrollbackSnapshot(), std::move(request));
+}
+
+void TerminalCore::cancelSearch(quint64 generation)
+{
+    _searchEngine->cancel(generation);
+}
+
+void TerminalCore::requestScrollbackReflow(int columns, quint64 generation,
+                                           qsizetype batchLines)
+{
+    _reflowEngine->request(scrollbackSnapshot(), columns, generation,
+                           batchLines);
+}
+
+void TerminalCore::cancelScrollbackReflow(quint64 generation)
+{
+    _reflowEngine->cancel(generation);
 }
 
 NovaTerm::Position TerminalCore::cursorPosition() const
