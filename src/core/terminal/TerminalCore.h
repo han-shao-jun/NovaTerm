@@ -4,6 +4,7 @@
 #include "ScreenBuffer.h"
 
 #include <QByteArray>
+#include <QByteArrayView>
 #include <QObject>
 #include <QString>
 
@@ -20,10 +21,22 @@ class TerminalCore : public QObject
     Q_OBJECT
 
 public:
+    struct InputWriteResult
+    {
+        qsizetype requestedBytes{0};
+        qsizetype acceptedBytes{0};
+        bool backpressured{false};
+
+        bool fullyAccepted() const
+        {
+            return acceptedBytes == requestedBytes;
+        }
+    };
+
     explicit TerminalCore(int cols, int rows, QObject* parent = nullptr);
     ~TerminalCore() override;
 
-    bool writeInput(const QByteArray& data);
+    InputWriteResult writeInput(QByteArrayView data);
 
     void processKeyPress(QKeyEvent* event);
     void processMousePress(QMouseEvent* event);

@@ -1,5 +1,6 @@
 #include "ScrollbackBuffer.h"
 #include <algorithm>
+#include <utility>
 
 ScrollbackBuffer::ScrollbackBuffer(int maxLines)
     : _maxLines(std::max(1, maxLines))
@@ -12,14 +13,23 @@ void ScrollbackBuffer::pushLine(const NovaTerm::Cell* cells, int cols)
     if (_maxLines == 0 || cols <= 0)
         return;
 
-    _cols = cols;
-
-    // 分配/复用环形缓冲中的行
-    auto& line = _lines[_writePos];
-    line.resize(cols);
+    auto& line = beginPushLine(cols, cols);
     for (int c = 0; c < cols; ++c)
         line[c] = cells[c];
+    commitPushLine();
+}
 
+QVector<NovaTerm::Cell>& ScrollbackBuffer::beginPushLine(int columns,
+                                                         int storedColumns)
+{
+    _cols = columns;
+    QVector<NovaTerm::Cell>& line = _lines[_writePos];
+    line.resize(std::clamp(storedColumns, 0, columns));
+    return line;
+}
+
+void ScrollbackBuffer::commitPushLine()
+{
     _writePos = (_writePos + 1) % _maxLines;
     if (_count < _maxLines)
         ++_count;

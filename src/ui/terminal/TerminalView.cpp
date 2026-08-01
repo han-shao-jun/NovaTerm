@@ -242,16 +242,15 @@ void TerminalView::attachTransport(ITransport* transport)
                     QStringLiteral("transport cannot pause reads"));
             return;
         }
-        for (qsizetype offset = 0; offset < data.size();
-             offset += 64 * 1024) {
-            const QByteArray chunk = data.mid(offset, 64 * 1024);
-            if (_core->writeInput(chunk))
-                continue;
-            _pendingTransportInput.append(data.mid(offset));
+        const TerminalCore::InputWriteResult result =
+            _core->writeInput(data);
+        if (!result.fullyAccepted()) {
+            _pendingTransportInput.append(
+                data.constData() + result.acceptedBytes,
+                data.size() - result.acceptedBytes);
             if (_transport && !_transport->setReadPaused(true))
                 emit _core->inputOverload(
                     QStringLiteral("transport cannot pause reads"));
-            break;
         }
     });
 
@@ -267,15 +266,14 @@ void TerminalView::attachTransport(ITransport* transport)
         }
 
         while (!_pendingTransportInput.isEmpty()) {
-            const qsizetype length =
-                qMin(qsizetype(64 * 1024),
-                     _pendingTransportInput.size());
-            const QByteArray chunk = _pendingTransportInput.left(length);
-            if (!_core->writeInput(chunk)) {
+            const TerminalCore::InputWriteResult result =
+                _core->writeInput(_pendingTransportInput);
+            if (result.acceptedBytes > 0)
+                _pendingTransportInput.remove(0, result.acceptedBytes);
+            if (!result.fullyAccepted()) {
                 _transport->setReadPaused(true);
                 return;
             }
-            _pendingTransportInput.remove(0, length);
         }
         _transport->setReadPaused(false);
     });

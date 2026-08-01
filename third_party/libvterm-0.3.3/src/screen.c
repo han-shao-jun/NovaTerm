@@ -64,6 +64,11 @@ struct VTermScreen
   /* Primary and Altscreen. buffers[1] is lazily allocated as needed */
   ScreenCell *buffers[2];
 
+  /* Logical row zero may start at a different physical row after a
+   * full-screen scroll. This turns the overwhelmingly common vertical scroll
+   * into an O(1) ring rotation instead of copying the entire screen. */
+  int buffer_row_offset[2];
+
   /* buffer will == buffers[0] or buffers[1], depending on altscreen */
   ScreenCell *buffer;
 
@@ -85,7 +90,10 @@ static inline ScreenCell *getcell(const VTermScreen *screen, int row, int col)
     return NULL;
   if(col < 0 || col >= screen->cols)
     return NULL;
-  return screen->buffer + (screen->cols * row) + col;
+  int bufidx = screen->buffer == screen->buffers[BUFIDX_ALTSCREEN]
+    ? BUFIDX_ALTSCREEN : BUFIDX_PRIMARY;
+  int physical_row = (row + screen->buffer_row_offset[bufidx]) % screen->rows;
+  return screen->buffer + (screen->cols * physical_row) + col;
 }
 
 static ScreenCell *alloc_buffer(VTermScreen *screen, int rows, int cols)
@@ -228,6 +236,21 @@ static int moverect_internal(VTermRect dest, VTermRect src, void *user)
 
   int cols = src.end_col - src.start_col;
   int downward = src.start_row - dest.start_row;
+
+  /* A full-width vertical scroll is one contiguous overlapping memory range.
+   * Terminal output hits this path for nearly every completed line. Using one
+   * memmove avoids issuing a separate small copy for every screen row while
+   * preserving exactly the same overlap semantics. */
+  if(dest.start_col == 0 && src.start_col == 0 &&
+     dest.end_col == screen->cols && src.end_col == screen->cols &&
+     ((dest.start_row == 0 && src.end_row == screen->rows) ||
+      (src.start_row == 0 && dest.end_row == screen->rows))) {
+    int bufidx = screen->buffer == screen->buffers[BUFIDX_ALTSCREEN]
+      ? BUFIDX_ALTSCREEN : BUFIDX_PRIMARY;
+    int offset = (screen->buffer_row_offset[bufidx] + downward) % screen->rows;
+    screen->buffer_row_offset[bufidx] = offset < 0 ? offset + screen->rows : offset;
+    return 1;
+  }
 
   int init_row, test_row, inc_row;
   if(downward < 0) {
@@ -504,11 +527,35 @@ static int line_popcount(ScreenCell *buffer, int row, int rows, int cols)
 
 #define REFLOW (screen->reflow)
 
+static void normalize_buffer_rows(VTermScreen *screen, int bufidx)
+{
+  int offset = screen->buffer_row_offset[bufidx];
+  if(offset == 0 || !screen->buffers[bufidx])
+    return;
+
+  ScreenCell *old_buffer = screen->buffers[bufidx];
+  ScreenCell *normalized = vterm_allocator_malloc(
+      screen->vt, sizeof(ScreenCell) * screen->rows * screen->cols);
+  for(int row = 0; row < screen->rows; row++) {
+    int physical_row = (row + offset) % screen->rows;
+    memcpy(&normalized[row * screen->cols],
+           &old_buffer[physical_row * screen->cols],
+           (size_t)screen->cols * sizeof(ScreenCell));
+  }
+
+  if(screen->buffer == old_buffer)
+    screen->buffer = normalized;
+  screen->buffers[bufidx] = normalized;
+  screen->buffer_row_offset[bufidx] = 0;
+  vterm_allocator_free(screen->vt, old_buffer);
+}
+
 static void resize_buffer(VTermScreen *screen, int bufidx, int new_rows, int new_cols, bool active, VTermStateFields *statefields)
 {
   int old_rows = screen->rows;
   int old_cols = screen->cols;
 
+  normalize_buffer_rows(screen, bufidx);
   ScreenCell *old_buffer = screen->buffers[bufidx];
   VTermLineInfo *old_lineinfo = statefields->lineinfos[bufidx];
 
@@ -733,6 +780,7 @@ static void resize_buffer(VTermScreen *screen, int bufidx, int new_rows, int new
 
   vterm_allocator_free(screen->vt, old_buffer);
   screen->buffers[bufidx] = new_buffer;
+  screen->buffer_row_offset[bufidx] = 0;
 
   vterm_allocator_free(screen->vt, old_lineinfo);
   statefields->lineinfos[bufidx] = new_lineinfo;
@@ -878,6 +926,8 @@ static VTermScreen *screen_new(VTerm *vt)
   screen->cbdata    = NULL;
 
   screen->buffers[BUFIDX_PRIMARY] = alloc_buffer(screen, rows, cols);
+  screen->buffer_row_offset[BUFIDX_PRIMARY] = 0;
+  screen->buffer_row_offset[BUFIDX_ALTSCREEN] = 0;
 
   screen->buffer = screen->buffers[BUFIDX_PRIMARY];
 
@@ -1047,6 +1097,7 @@ void vterm_screen_enable_altscreen(VTermScreen *screen, int altscreen)
     vterm_get_size(screen->vt, &rows, &cols);
 
     screen->buffers[BUFIDX_ALTSCREEN] = alloc_buffer(screen, rows, cols);
+    screen->buffer_row_offset[BUFIDX_ALTSCREEN] = 0;
   }
 }
 

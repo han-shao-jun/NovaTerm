@@ -13,10 +13,16 @@ BoundedByteQueue::BoundedByteQueue(qsizetype capacityBytes)
 {
 }
 
-bool BoundedByteQueue::enqueue(const QByteArray& data, int timeoutMs)
+bool BoundedByteQueue::enqueue(QByteArrayView data, int timeoutMs,
+                               qsizetype* queuedBytesAfter)
 {
-    if (data.isEmpty())
+    if (data.isEmpty()) {
+        if (queuedBytesAfter) {
+            QMutexLocker locker(&_mutex);
+            *queuedBytesAfter = _size;
+        }
         return true;
+    }
     if (data.size() > _storage.size())
         return false;
 
@@ -25,16 +31,21 @@ bool BoundedByteQueue::enqueue(const QByteArray& data, int timeoutMs)
                                          : QDeadlineTimer(timeoutMs));
     while (!_stopped && writableBytes() < data.size()) {
         ++_producerWaits;
-        if (!_notFull.wait(&_mutex, deadline))
+        if (!_notFull.wait(&_mutex, deadline)) {
+            if (queuedBytesAfter)
+                *queuedBytesAfter = _size;
             return false;
+        }
     }
     if (_stopped)
         return false;
 
-    copyIntoRing(data.constData(), data.size());
+    copyIntoRing(data.data(), data.size());
     _size += data.size();
     _totalEnqueued += uint64_t(data.size());
     _highWatermark = std::max(_highWatermark, _size);
+    if (queuedBytesAfter)
+        *queuedBytesAfter = _size;
     _notEmpty.wakeOne();
     return true;
 }

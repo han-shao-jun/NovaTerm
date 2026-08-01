@@ -45,6 +45,39 @@ void ScreenBuffer::setCell(int row, int column, const Cell& cell)
         *destination = cell;
 }
 
+void ScreenBuffer::moveRect(const DirtyRegion& destination,
+                            const DirtyRegion& source)
+{
+    const int rowCount = std::min(destination.endRow - destination.startRow,
+                                  source.endRow - source.startRow);
+    const int columnCount =
+        std::min(destination.endColumn - destination.startColumn,
+                 source.endColumn - source.startColumn);
+    if (rowCount <= 0 || columnCount <= 0)
+        return;
+
+    // Source and destination commonly overlap during scrolling. Snapshot the
+    // source rectangle first so the copy has memmove semantics for every
+    // vertical and horizontal direction.
+    QVector<Cell> moved;
+    moved.reserve(rowCount * columnCount);
+    for (int row = 0; row < rowCount; ++row) {
+        for (int column = 0; column < columnCount; ++column) {
+            const Cell* cell = cellAt(source.startRow + row,
+                                      source.startColumn + column);
+            moved.push_back(cell ? *cell : Cell{});
+        }
+    }
+
+    for (int row = 0; row < rowCount; ++row) {
+        for (int column = 0; column < columnCount; ++column) {
+            setCell(destination.startRow + row,
+                    destination.startColumn + column,
+                    moved[row * columnCount + column]);
+        }
+    }
+}
+
 void ScreenBuffer::clear()
 {
     std::fill(_cells.begin(), _cells.end(), Cell{});

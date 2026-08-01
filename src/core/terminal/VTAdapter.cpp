@@ -92,15 +92,28 @@ VTermScreenCellAttrs toVTermAttributes(const CellAttributes& source)
     return attributes;
 }
 
-Cell fromVTermCell(const VTermScreenCell& source)
+void populateCell(const VTermScreenCell& source, Cell& cell)
 {
-    Cell cell;
     const int count = std::min(MaxCharsPerCell, VTERM_MAX_CHARS_PER_CELL);
-    std::copy_n(source.chars, count, cell.chars.begin());
+    // VTerm terminates the character sequence with zero. Most terminal cells
+    // contain zero or one code point, so copying all six slots multiplied the
+    // cost of every scrollback row and could also copy stale data past the
+    // terminator from callback-owned buffers.
+    int index = 0;
+    for (; index < count && source.chars[index] != 0; ++index)
+        cell.chars[index] = source.chars[index];
+    if (index < count)
+        cell.chars[index] = 0;
     cell.width = static_cast<uint8_t>(std::max(1, int(source.width)));
     cell.attributes = fromVTermAttributes(source.attrs);
     cell.foreground = fromVTermColor(source.fg);
     cell.background = fromVTermColor(source.bg);
+}
+
+Cell fromVTermCell(const VTermScreenCell& source)
+{
+    Cell cell;
+    populateCell(source, cell);
     return cell;
 }
 
@@ -114,6 +127,27 @@ VTermScreenCell toVTermCell(const Cell& source)
     cell.fg = toVTermColor(source.foreground, true);
     cell.bg = toVTermColor(source.background, false);
     return cell;
+}
+
+bool isDefaultBlankCell(const VTermScreenCell& cell)
+{
+    const VTermScreenCellAttrs& attributes = cell.attrs;
+    return cell.chars[0] == 0
+        && cell.width <= 1
+        && !attributes.bold
+        && attributes.underline == VTERM_UNDERLINE_OFF
+        && !attributes.italic
+        && !attributes.blink
+        && !attributes.reverse
+        && !attributes.conceal
+        && !attributes.strike
+        && !attributes.font
+        && !attributes.dwl
+        && !attributes.dhl
+        && !attributes.small_font
+        && attributes.baseline == VTERM_BASELINE_NORMAL
+        && VTERM_COLOR_IS_DEFAULT_FG(&cell.fg)
+        && VTERM_COLOR_IS_DEFAULT_BG(&cell.bg);
 }
 
 CursorShape fromVTermCursorShape(int shape)
@@ -208,8 +242,18 @@ public:
         return 1;
     }
 
-    static int onMoveRect(VTermRect, VTermRect, void*)
+    static int onMoveRect(VTermRect destination, VTermRect source, void* user)
     {
+        auto& self = *static_cast<Impl*>(user);
+        const DirtyRegion destinationRegion{
+            destination.start_row, destination.end_row,
+            destination.start_col, destination.end_col};
+        const DirtyRegion sourceRegion{
+            source.start_row, source.end_row,
+            source.start_col, source.end_col};
+        self.screen.moveRect(destinationRegion, sourceRegion);
+        if (self.observer.damage)
+            self.observer.damage(destinationRegion);
         return 1;
     }
 
@@ -270,10 +314,17 @@ public:
                                 void* user)
     {
         auto& self = *static_cast<Impl*>(user);
-        std::vector<Cell> converted(columns);
-        for (int column = 0; column < columns; ++column)
-            converted[column] = fromVTermCell(cells[column]);
-        self.scrollback.pushLine(converted.data(), columns);
+        int storedColumns = columns;
+        while (storedColumns > 0
+               && isDefaultBlankCell(cells[storedColumns - 1])) {
+            --storedColumns;
+        }
+
+        QVector<Cell>& converted =
+            self.scrollback.beginPushLine(columns, storedColumns);
+        for (int column = 0; column < storedColumns; ++column)
+            populateCell(cells[column], converted[column]);
+        self.scrollback.commitPushLine();
         if (self.observer.scrollbackChanged)
             self.observer.scrollbackChanged();
         return 1;

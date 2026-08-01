@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QByteArray>
+#include <QByteArrayView>
 #include <QMutex>
 #include <QWaitCondition>
 
@@ -23,7 +24,8 @@ public:
 
     explicit BoundedByteQueue(qsizetype capacityBytes = 8 * 1024 * 1024);
 
-    bool enqueue(const QByteArray& data, int timeoutMs = -1);
+    bool enqueue(QByteArrayView data, int timeoutMs = -1,
+                 qsizetype* queuedBytesAfter = nullptr);
     QByteArray take(qsizetype maxBytes, int timeoutMs = -1);
     void stop();
 

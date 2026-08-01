@@ -18,6 +18,7 @@ public:
     const Cell* cellAt(int row, int column) const;
     Cell* cellAt(int row, int column);
     void setCell(int row, int column, const Cell& cell);
+    void moveRect(const DirtyRegion& destination, const DirtyRegion& source);
     void clear();
 
     const QVector<Cell>& cells() const { return _cells; }

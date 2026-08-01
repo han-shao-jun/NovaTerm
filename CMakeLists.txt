@@ -73,6 +73,15 @@ set(NOVATERM_CORE_SOURCES
     src/core/terminal/TerminalTypes.h
     src/core/terminal/VTAdapter.cpp
     src/core/terminal/VTAdapter.h
+    src/core/scrollback/ChunkedScrollback.cpp
+    src/core/scrollback/ChunkedScrollback.h
+    src/core/scrollback/LineLayout.cpp
+    src/core/scrollback/LineLayout.h
+    src/core/scrollback/ScrollbackChunk.cpp
+    src/core/scrollback/ScrollbackChunk.h
+    src/core/scrollback/ScrollbackSnapshot.cpp
+    src/core/scrollback/ScrollbackSnapshot.h
+    src/core/scrollback/ScrollbackTypes.h
 )
 
 add_library(novaterm_core STATIC ${NOVATERM_CORE_SOURCES})
@@ -292,8 +301,37 @@ qt_add_translations(
         TS_FILES ${TS_FILES}
 )
 
+# 通过构建系统运行 `test` 目标时，始终显示测试命令及其输出；失败时保留
+# 完整日志，避免 CTest 默认摘要隐藏 Qt Test 给出的断言位置和诊断信息。
+set(CMAKE_CTEST_ARGUMENTS
+    "--output-on-failure"
+    "--verbose"
+    "--progress"
+)
+
 include(CTest)
 option(NOVATERM_BUILD_BENCHMARKS "Build NovaTerm performance baseline tools" ON)
+
+if(BUILD_TESTING)
+    # 提供一个输出更完整的统一测试入口：
+    #   cmake --build <build-dir> --target check
+    # 多配置生成器（Visual Studio、Ninja Multi-Config）需要显式传递配置。
+    set(_novaterm_ctest_config_args)
+    if(CMAKE_CONFIGURATION_TYPES)
+        list(APPEND _novaterm_ctest_config_args --build-config $<CONFIG>)
+    endif()
+
+    add_custom_target(check
+        COMMAND ${CMAKE_CTEST_COMMAND}
+            --test-dir "${CMAKE_BINARY_DIR}"
+            ${_novaterm_ctest_config_args}
+            --output-on-failure
+            --verbose
+            --progress
+        USES_TERMINAL
+        COMMENT "Running NovaTerm tests with detailed CTest output"
+    )
+endif()
 
 if(BUILD_TESTING)
     find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS Test)
@@ -307,6 +345,11 @@ if(BUILD_TESTING)
             Qt${QT_VERSION_MAJOR}::Test
     )
     add_test(NAME novaterm_core_tests COMMAND novaterm_core_tests)
+    set_tests_properties(novaterm_core_tests PROPERTIES
+        LABELS "unit;core"
+        TIMEOUT 60
+    )
+    add_dependencies(check novaterm_core_tests)
 
     add_executable(novaterm_renderer_tests
         tests/renderer/RendererP3Tests.cpp
@@ -332,6 +375,12 @@ if(BUILD_TESTING)
             Qt${QT_VERSION_MAJOR}::Test
     )
     add_test(NAME novaterm_renderer_tests COMMAND novaterm_renderer_tests)
+    set_tests_properties(novaterm_renderer_tests PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+        LABELS "unit;renderer"
+        TIMEOUT 60
+    )
+    add_dependencies(check novaterm_renderer_tests)
 
     if(WIN32)
         add_executable(novaterm_terminal_session_tests
@@ -384,15 +433,40 @@ if(BUILD_TESTING)
                  COMMAND novaterm_terminal_session_tests)
         set_tests_properties(novaterm_terminal_session_tests
                              PROPERTIES
+                                 LABELS "integration;terminal-session"
                                  TIMEOUT 20)
+        add_dependencies(check novaterm_terminal_session_tests)
     endif()
 endif()
 
 if(NOVATERM_BUILD_BENCHMARKS)
     add_executable(novaterm_core_benchmark
-        benchmarks/CoreBenchmark.cpp
+        tests/benchmarks/CoreBenchmark.cpp
     )
     target_link_libraries(novaterm_core_benchmark PRIVATE novaterm_core)
+
+    add_executable(novaterm_scrollback_benchmark
+        tests/benchmarks/ScrollbackBenchmark.cpp
+    )
+    target_link_libraries(novaterm_scrollback_benchmark PRIVATE novaterm_core)
+
+    # Benchmark 使用自己的分区性能报告，不经过 CTest。参数对应 P2/P4
+    # 设计文档中的 20 MiB Parser 与 10 万行 Scrollback 基线。
+    add_custom_target(benchmarks
+        COMMAND $<TARGET_FILE:novaterm_core_benchmark>
+            --bytes 20971520
+            --lines 100000
+        COMMAND $<TARGET_FILE:novaterm_scrollback_benchmark>
+            --lines 100000
+            --columns 80
+            --chunk-lines 1024
+            --max-bytes 268435456
+        DEPENDS
+            novaterm_core_benchmark
+            novaterm_scrollback_benchmark
+        USES_TERMINAL
+        COMMENT "Running NovaTerm P2/P4 performance benchmarks"
+    )
 endif()
 
 # 安装 .qm 翻译文件到 bin 同级目录

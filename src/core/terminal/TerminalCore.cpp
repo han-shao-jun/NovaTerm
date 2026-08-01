@@ -85,24 +85,30 @@ public:
         }
     }
 
-    bool enqueueBytes(const QByteArray& data)
+    TerminalCore::InputWriteResult enqueueBytes(QByteArrayView data)
     {
+        TerminalCore::InputWriteResult result;
+        result.requestedBytes = data.size();
         qsizetype offset = 0;
         while (offset < data.size()
                && accepting.load(std::memory_order_acquire)) {
             const qsizetype length =
                 std::min<qsizetype>(ParserBatchSize, data.size() - offset);
-            if (!bytes.enqueue(data.mid(offset, length), 0)) {
+            qsizetype queuedBytes = 0;
+            if (!bytes.enqueue(data.sliced(offset, length), 0,
+                               &queuedBytes)) {
                 setBackpressure(true);
-                return false;
+                result.backpressured = true;
+                break;
             }
             submittedBytes.fetch_add(uint64_t(length),
                                      std::memory_order_release);
             offset += length;
-            if (bytes.statistics().queuedBytes >= QueueHighWatermark)
+            result.acceptedBytes = offset;
+            if (queuedBytes >= QueueHighWatermark)
                 setBackpressure(true);
         }
-        return offset == data.size();
+        return result;
     }
 
     bool enqueueCommand(ParserCommand command)
@@ -407,9 +413,9 @@ TerminalCore::TerminalCore(int cols, int rows, QObject* parent)
 
 TerminalCore::~TerminalCore() = default;
 
-bool TerminalCore::writeInput(const QByteArray& data)
+TerminalCore::InputWriteResult TerminalCore::writeInput(QByteArrayView data)
 {
-    return data.isEmpty() || _runtime->enqueueBytes(data);
+    return _runtime->enqueueBytes(data);
 }
 
 void TerminalCore::processKeyPress(QKeyEvent* event)
@@ -649,10 +655,10 @@ bool TerminalCore::getScrollbackCell(int lineIndex, int col,
                                      NovaTerm::Cell& out) const
 {
     QMutexLocker locker(&_runtime->modelMutex);
-    const auto* line = _runtime->scrollback.lineAt(lineIndex);
+    const auto* line = _runtime->scrollback.lineVectorAt(lineIndex);
     if (!line || col < 0 || col >= _runtime->scrollback.columns())
         return false;
-    out = line[col];
+    out = col < line->size() ? line->at(col) : NovaTerm::Cell{};
     return true;
 }
 

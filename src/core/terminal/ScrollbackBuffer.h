@@ -11,6 +11,8 @@ public:
     explicit ScrollbackBuffer(int maxLines = 1000);
 
     void pushLine(const NovaTerm::Cell* cells, int cols);
+    QVector<NovaTerm::Cell>& beginPushLine(int columns, int storedColumns);
+    void commitPushLine();
     bool popLine(NovaTerm::Cell* cells, int cols);
 
     // ── 查询 ──

@@ -24,6 +24,10 @@ private slots:
     void rendererSnapshotCopiesOnlyDirtyRows();
     void publishesTerminalTitle();
     void scrollbackKeepsNewestLines();
+    void fullScreenScrollPreservesContent();
+    void reverseIndexScrollPreservesContent();
+    void partialScrollRegionPreservesOutsideRows();
+    void alternateScreenKeepsIndependentRowRing();
     void boundedByteQueuePreservesOrderAndBackpressure();
     void boundedByteQueueWakesBlockedProducer();
     void parserInputBackpressureDoesNotBlockCaller();
@@ -176,6 +180,92 @@ void TerminalCoreTests::scrollbackKeepsNewestLines()
     QCOMPARE(buffer.lineAt(2)[0].chars[0], uint32_t('D'));
 }
 
+void TerminalCoreTests::fullScreenScrollPreservesContent()
+{
+    TerminalCore core(8, 3);
+    core.setScrollbackLimit(10);
+    QVERIFY(core.waitForIdle());
+
+    core.writeInput(QByteArrayLiteral(
+        "line1\r\nline2\r\nline3\r\nline4"));
+    QVERIFY(core.waitForIdle());
+
+    NovaTerm::Cell cell;
+    QVERIFY(core.getCell(0, 4, cell));
+    QCOMPARE(cell.chars[0], uint32_t('2'));
+    QVERIFY(core.getCell(1, 4, cell));
+    QCOMPARE(cell.chars[0], uint32_t('3'));
+    QVERIFY(core.getCell(2, 4, cell));
+    QCOMPARE(cell.chars[0], uint32_t('4'));
+
+    QCOMPARE(core.scrollbackLineCount(), 1);
+    QVERIFY(core.getScrollbackCell(0, 4, cell));
+    QCOMPARE(cell.chars[0], uint32_t('1'));
+
+    // Resize forces libvterm to normalize its row ring before reallocation.
+    core.resize(10, 4);
+    QVERIFY(core.waitForIdle());
+    QCOMPARE(core.columns(), 10);
+    QCOMPARE(core.rows(), 4);
+}
+
+void TerminalCoreTests::reverseIndexScrollPreservesContent()
+{
+    TerminalCore core(8, 3);
+    core.writeInput(QByteArrayLiteral(
+        "\x1b[1;1HA\x1b[2;1HB\x1b[3;1HC\x1b[1;1H\x1bM"));
+    QVERIFY(core.waitForIdle());
+
+    NovaTerm::Cell cell;
+    QVERIFY(core.getCell(0, 0, cell));
+    QCOMPARE(cell.chars[0], uint32_t(0));
+    QVERIFY(core.getCell(1, 0, cell));
+    QCOMPARE(cell.chars[0], uint32_t('A'));
+    QVERIFY(core.getCell(2, 0, cell));
+    QCOMPARE(cell.chars[0], uint32_t('B'));
+}
+
+void TerminalCoreTests::partialScrollRegionPreservesOutsideRows()
+{
+    TerminalCore core(8, 4);
+    // First create a non-zero full-screen row offset, then overwrite the
+    // visible rows before exercising the conservative partial-scroll path.
+    core.writeInput(QByteArrayLiteral(
+        "1\r\n2\r\n3\r\n4\r\n5"
+        "\x1b[1;1HA\x1b[2;1HB\x1b[3;1HC\x1b[4;1HD"
+        "\x1b[2;4r\x1b[4;1H\n"));
+    QVERIFY(core.waitForIdle());
+
+    NovaTerm::Cell cell;
+    QVERIFY(core.getCell(0, 0, cell));
+    QCOMPARE(cell.chars[0], uint32_t('A'));
+    QVERIFY(core.getCell(1, 0, cell));
+    QCOMPARE(cell.chars[0], uint32_t('C'));
+    QVERIFY(core.getCell(2, 0, cell));
+    QCOMPARE(cell.chars[0], uint32_t('D'));
+    QVERIFY(core.getCell(3, 0, cell));
+    QCOMPARE(cell.chars[0], uint32_t(0));
+}
+
+void TerminalCoreTests::alternateScreenKeepsIndependentRowRing()
+{
+    TerminalCore core(8, 3);
+    core.writeInput(QByteArrayLiteral(
+        "p1\r\np2\r\np3\r\np4"
+        "\x1b[?1049h"
+        "a1\r\na2\r\na3\r\na4"
+        "\x1b[?1049l"));
+    QVERIFY(core.waitForIdle());
+
+    NovaTerm::Cell cell;
+    QVERIFY(core.getCell(0, 0, cell));
+    QCOMPARE(cell.chars[0], uint32_t('p'));
+    QVERIFY(core.getCell(0, 1, cell));
+    QCOMPARE(cell.chars[0], uint32_t('2'));
+    QVERIFY(core.getCell(2, 1, cell));
+    QCOMPARE(cell.chars[0], uint32_t('4'));
+}
+
 void TerminalCoreTests::boundedByteQueuePreservesOrderAndBackpressure()
 {
     NovaTerm::BoundedByteQueue queue(8);
@@ -220,14 +310,29 @@ void TerminalCoreTests::parserInputBackpressureDoesNotBlockCaller()
 
     QElapsedTimer timer;
     timer.start();
-    const bool accepted = core.writeInput(QByteArray(64 * 1024 * 1024, 'x'));
-    QVERIFY(!accepted);
+    const QByteArray input(64 * 1024 * 1024, 'x');
+    TerminalCore::InputWriteResult result = core.writeInput(input);
+    QVERIFY(!result.fullyAccepted());
+    QVERIFY(result.backpressured);
+    QVERIFY(result.acceptedBytes > 0);
+    QVERIFY(result.acceptedBytes < input.size());
     QVERIFY2(timer.elapsed() < 1000,
              "writeInput blocked instead of reporting bounded overload");
+
+    qsizetype offset = result.acceptedBytes;
+    while (offset < input.size()) {
+        result = core.writeInput(QByteArrayView(input).sliced(offset));
+        offset += result.acceptedBytes;
+        if (!result.fullyAccepted())
+            QTest::qWait(1);
+    }
 
     QTRY_VERIFY_WITH_TIMEOUT(backpressureSpy.count() >= 1, 1000);
     QCOMPARE(backpressureSpy.first().at(0).toBool(), true);
     QVERIFY(core.waitForIdle(10'000));
+    const auto statistics = core.queueStatistics();
+    QCOMPARE(statistics.totalEnqueued, uint64_t(input.size()));
+    QCOMPARE(statistics.totalDequeued, uint64_t(input.size()));
     QTRY_VERIFY_WITH_TIMEOUT(
         backpressureSpy.last().at(0).toBool() == false, 1000);
 }
