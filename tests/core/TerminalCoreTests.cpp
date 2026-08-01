@@ -21,7 +21,9 @@ private slots:
     void ctrlCProducesInterruptCharacter();
     void resizesScreen();
     void snapshotsAreStableValues();
+    void modelPublicationsHaveMonotonicRevisions();
     void rendererSnapshotCopiesOnlyDirtyRows();
+    void rendererSnapshotPublishesPerRowRevisions();
     void publishesTerminalTitle();
     void scrollbackKeepsNewestLines();
     void softWrappedRowsBecomeOneLogicalHistoryLine();
@@ -131,6 +133,30 @@ void TerminalCoreTests::snapshotsAreStableValues()
     QVERIFY(after.cellAt(0, 0));
     QCOMPARE(before.cellAt(0, 0)->chars[0], uint32_t('A'));
     QCOMPARE(after.cellAt(0, 0)->chars[0], uint32_t('B'));
+    QVERIFY(after.revision > before.revision);
+}
+
+void TerminalCoreTests::modelPublicationsHaveMonotonicRevisions()
+{
+    TerminalCore core(20, 4);
+    QSignalSpy damageSpy(&core, &TerminalCore::damage);
+
+    core.writeInput(QByteArrayLiteral("A"));
+    QVERIFY(core.waitForIdle());
+    QTRY_VERIFY(!damageSpy.isEmpty());
+    const quint64 firstSignalRevision =
+        damageSpy.last().at(1).toULongLong();
+    const quint64 firstSnapshotRevision = core.snapshot().revision;
+    QCOMPARE(firstSignalRevision, firstSnapshotRevision);
+
+    damageSpy.clear();
+    core.writeInput(QByteArrayLiteral("B"));
+    QVERIFY(core.waitForIdle());
+    QTRY_VERIFY(!damageSpy.isEmpty());
+    const quint64 secondSignalRevision =
+        damageSpy.last().at(1).toULongLong();
+    QVERIFY(secondSignalRevision > firstSignalRevision);
+    QCOMPARE(core.modelRevision(), secondSignalRevision);
 }
 
 void TerminalCoreTests::rendererSnapshotCopiesOnlyDirtyRows()
@@ -150,6 +176,24 @@ void TerminalCoreTests::rendererSnapshotCopiesOnlyDirtyRows()
     QVERIFY(snapshot.cellAt(1, 0));
     QCOMPARE(snapshot.cellAt(1, 0)->chars[0], uint32_t('X'));
     QVERIFY(snapshot.cellAt(2, 0) == nullptr);
+}
+
+void TerminalCoreTests::rendererSnapshotPublishesPerRowRevisions()
+{
+    TerminalCore core(20, 4);
+    core.writeInput(QByteArrayLiteral("A"));
+    QVERIFY(core.waitForIdle());
+    const quint64 firstRevision = core.modelRevision();
+
+    core.writeInput(QByteArrayLiteral("\x1b[3;1HZ"));
+    QVERIFY(core.waitForIdle());
+    QVector<bool> dirtyRows(4, true);
+    const auto snapshot = core.rendererSnapshot(dirtyRows, 0);
+
+    QCOMPARE(snapshot.visibleRowRevisions.size(), 4);
+    QVERIFY(snapshot.revision > firstRevision);
+    QCOMPARE(snapshot.visibleRowRevisions[2], snapshot.revision);
+    QVERIFY(snapshot.visibleRowRevisions[1] < snapshot.revision);
 }
 
 void TerminalCoreTests::publishesTerminalTitle()

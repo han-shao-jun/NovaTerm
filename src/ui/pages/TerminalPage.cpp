@@ -4,6 +4,8 @@
 #include "service/LanguageManager.h"
 #include <QVBoxLayout>
 
+#include <utility>
+
 TerminalPage::TerminalPage(QWidget* parent) : QWidget(parent)
 {
     setWindowTitle(tr("Terminal"));
@@ -32,7 +34,19 @@ void TerminalPage::retranslateUi()
     setWindowTitle(tr("Terminal"));
 }
 
-TerminalPage::~TerminalPage() = default;
+TerminalPage::~TerminalPage()
+{
+    // C++ members are destroyed before QWidget's destructor deletes child
+    // widgets.  The destroyed handlers below access _terminalViews, so they
+    // must not remain connected after this destructor body returns and the
+    // list's lifetime ends.  Closed tabs have already removed themselves;
+    // every remaining entry is still a live child at this point.
+    for (TerminalView* terminalView : std::as_const(_terminalViews)) {
+        if (terminalView)
+            disconnect(terminalView, nullptr, this, nullptr);
+    }
+    _terminalViews.clear();
+}
 
 TerminalView* TerminalPage::currentTerminal() const
 {
@@ -56,8 +70,11 @@ TerminalView* TerminalPage::addTerminalTab(const QString& title,
     // 遍历都会访问已释放对象，是切换主题/新建终端时偶发崩溃的根因。
     // 绑定 destroyed 信号确保无论以何种方式销毁（关闭、拖出、父对象析构）
     // 都能把指针从列表里摘掉。
-    connect(terminalView, &QObject::destroyed, this, [this](QObject* obj) {
-        _terminalViews.removeAll(static_cast<TerminalView*>(obj));
+    connect(terminalView, &QObject::destroyed, this, [this, terminalView]() {
+        // QObject::destroyed is emitted from QObject's destructor, after the
+        // TerminalView subobject lifetime has ended.  Retain the pointer value
+        // captured while it was alive instead of downcasting QObject* there.
+        _terminalViews.removeAll(terminalView);
     });
 
     QString tabTitle = title.isEmpty() ? tr("Terminal %1").arg(_terminalViews.size()) : title;

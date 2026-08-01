@@ -22,7 +22,7 @@ flowchart LR
 | --- | --- | --- | --- |
 | P0 | 已完成 | 测试、独立 Core、性能基线 | 基准可重复、Core 独立构建 |
 | P1 | 已完成 | Cell/ScreenBuffer/VTAdapter | Renderer 无 `VTerm*` |
-| P2 | 已完成；性能债务 | Worker、队列、背压、生命周期 | UI 不解析、无死锁/丢数据 |
+| P2 | 已完成 | Worker、队列、背压、生命周期 | UI 不解析、无死锁/丢数据 |
 | P3 | 实现完成；待实机验收 | 调度、脏行、局部上传 | 单 Cell 不全屏扫描，60 FPS 实测 |
 | P4 | 计划中 | Chunk、快照、reflow、搜索 | 百万行内存受控，搜索不阻塞 |
 | P5 | 计划中 | 多页 Atlas、fallback、instancing | CJK/Emoji/DPI 正确且上传增量化 |

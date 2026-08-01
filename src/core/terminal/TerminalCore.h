@@ -59,6 +59,7 @@ public:
         const QVector<bool>& dirtyRows, int scrollLine,
         NovaTerm::LineId anchorLine = 0,
         qsizetype anchorWrap = 0) const;
+    quint64 modelRevision() const;
     NovaTerm::CursorState cursorState() const;
     void flushDamage();
     void setDefaultColors(const NovaTerm::TerminalColor& foreground,
@@ -90,7 +91,10 @@ signals:
     void outputData(const QByteArray& data);
     void titleChanged(const QString& title);
     void bell();
-    void damage(const NovaTerm::DirtyRegion& region);
+    // The revision identifies the immutable model publication that produced
+    // this half-open damage region. Renderers can detect that a snapshot is
+    // newer than the damage delivered so far and conservatively rebuild.
+    void damage(const NovaTerm::DirtyRegion& region, quint64 revision);
     void cursorMoved();
     void scrollbackChanged();
     void inputBackpressureChanged(bool paused);

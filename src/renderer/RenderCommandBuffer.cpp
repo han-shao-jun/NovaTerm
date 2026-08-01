@@ -20,6 +20,7 @@ void RenderCommandBuffer::resize(int rows, int columns)
         row.backgrounds.clear();
         row.contents.clear();
         row.revision = ++_revision;
+        row.atlasGeneration = 0;
     }
     _overlays.clear();
     ++_revision;
@@ -34,7 +35,8 @@ const RenderCommandRow& RenderCommandBuffer::row(int index) const
 void RenderCommandBuffer::replaceRow(
     int index,
     QVector<RenderCommand> backgrounds,
-    QVector<RenderCommand> contents)
+    QVector<RenderCommand> contents,
+    quint64 atlasGeneration)
 {
     if (index < 0 || index >= _rowCommands.size())
         return;
@@ -43,6 +45,7 @@ void RenderCommandBuffer::replaceRow(
     destination.backgrounds = std::move(backgrounds);
     destination.contents = std::move(contents);
     destination.revision = ++_revision;
+    destination.atlasGeneration = atlasGeneration;
 }
 
 void RenderCommandBuffer::replaceOverlays(QVector<RenderCommand> overlays)
@@ -57,6 +60,16 @@ qsizetype RenderCommandBuffer::commandCount() const
     for (const RenderCommandRow& row : _rowCommands)
         count += row.backgrounds.size() + row.contents.size();
     return count;
+}
+
+bool RenderCommandBuffer::rowsUseAtlasGeneration(
+    quint64 atlasGeneration) const
+{
+    for (const RenderCommandRow& row : _rowCommands) {
+        if (row.atlasGeneration != atlasGeneration)
+            return false;
+    }
+    return true;
 }
 
 } // namespace NovaTerm

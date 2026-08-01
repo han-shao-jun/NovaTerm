@@ -3,6 +3,7 @@
 #include "core/terminal/TerminalTypes.h"
 
 #include <QObject>
+#include <QElapsedTimer>
 #include <QTimer>
 #include <QVector>
 
@@ -30,8 +31,8 @@ public:
     void setTargetRefreshRate(int hz);
     int targetRefreshRate() const { return _targetRefreshRate; }
 
-    void schedule(const DirtyRegion& region);
-    void scheduleFullFrame();
+    void schedule(const DirtyRegion& region, quint64 revision = 0);
+    void scheduleFullFrame(quint64 revision = 0);
     void scheduleOverlay();
     void cancel();
 
@@ -40,7 +41,8 @@ public:
 signals:
     void frameRequested(const QVector<NovaTerm::DirtyRegion>& regions,
                         bool fullFrame,
-                        bool overlayDirty);
+                        bool overlayDirty,
+                        quint64 contentRevision);
 
 private slots:
     void submitFrame();
@@ -55,11 +57,13 @@ private:
     int _columns{0};
     int _rows{0};
     int _targetRefreshRate{60};
-    double _frameIntervalRemainderMs{0.0};
+    QElapsedTimer _clock;
+    qint64 _nextDeadlineNanoseconds{0};
     QTimer _timer;
     QVector<DirtyRegion> _pending;
     bool _fullFramePending{false};
     bool _overlayPending{false};
+    quint64 _pendingContentRevision{0};
     RenderScheduleStatistics _statistics;
 };
 

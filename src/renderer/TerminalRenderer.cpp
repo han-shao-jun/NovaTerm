@@ -21,6 +21,8 @@
 static constexpr int kScrollWheelLines = 3;
 static constexpr int kMinTerminalFontSize = 8;
 static constexpr int kMaxTerminalFontSize = 32;
+static constexpr qsizetype kCpuFrameSampleCapacity = 2048;
+static constexpr quint64 kCpuFrameBudgetNanoseconds = 16666667;
 
 static QImage alphaCoverageFromRgb(const QImage& rgbImage, qreal dpr)
 {
@@ -120,13 +122,15 @@ TerminalRenderer::TerminalRenderer(TerminalCore* core, QWidget* parent)
     _fm = new QFontMetricsF(_font);
     recalculateCellSize();
     resetGlyphAtlas();
+    _cpuFrameSamples.reserve(kCpuFrameSampleCapacity);
     _renderScheduler = new NovaTerm::RenderScheduler(this);
     _renderScheduler->setViewport(_core->columns(), _core->rows());
     connect(_renderScheduler, &NovaTerm::RenderScheduler::frameRequested,
             this,
             [this](const QVector<NovaTerm::DirtyRegion>& regions,
                    bool fullFrame,
-                   bool overlayDirty) {
+                   bool overlayDirty,
+                   quint64 contentRevision) {
         const QMutexLocker lock(&_pendingFrameMutex);
         if (fullFrame) {
             _pendingDirtyRegions.clear();
@@ -135,6 +139,8 @@ TerminalRenderer::TerminalRenderer(TerminalCore* core, QWidget* parent)
             _pendingDirtyRegions += regions;
         }
         _overlayPending = _overlayPending || overlayDirty;
+        _pendingContentRevision = std::max(_pendingContentRevision,
+                                           contentRevision);
         update();
     });
 
@@ -158,12 +164,12 @@ TerminalRenderer::TerminalRenderer(TerminalCore* core, QWidget* parent)
 
     // ── 连接 TerminalCore 信号 ───────────────────────────────
     connect(_core, &TerminalCore::damage, this,
-            [this](const NovaTerm::DirtyRegion& region) {
+            [this](const NovaTerm::DirtyRegion& region, quint64 revision) {
         _renderScheduler->setViewport(_core->columns(), _core->rows());
         NovaTerm::DirtyRegion visible = region;
         visible.startRow += _scrollLine;
         visible.endRow += _scrollLine;
-        _renderScheduler->schedule(visible);
+        _renderScheduler->schedule(visible, revision);
     });
 
     connect(_core, &TerminalCore::cursorMoved, this, [this]() {
@@ -257,6 +263,19 @@ TerminalRenderer::RenderStatistics TerminalRenderer::renderStatistics() const
     RenderStatistics result = _renderStatistics;
     if (_renderScheduler)
         result.scheduler = _renderScheduler->statistics();
+    if (!_cpuFrameSamples.isEmpty()) {
+        QVector<quint64> sorted = _cpuFrameSamples;
+        std::sort(sorted.begin(), sorted.end());
+        const auto percentile = [&sorted](double value) {
+            const qsizetype index = std::min<qsizetype>(
+                sorted.size() - 1,
+                qsizetype(value * double(sorted.size() - 1)));
+            return sorted[index];
+        };
+        result.cpuFrameP50Nanoseconds = percentile(0.50);
+        result.cpuFrameP95Nanoseconds = percentile(0.95);
+        result.cpuFrameP99Nanoseconds = percentile(0.99);
+    }
     return result;
 }
 
@@ -540,11 +559,13 @@ void TerminalRenderer::render(QRhiCommandBuffer* cb)
     QVector<NovaTerm::DirtyRegion> pendingDirtyRegions;
     bool fullFramePending = false;
     bool overlayPending = false;
+    quint64 requestedContentRevision = 0;
     {
         const QMutexLocker lock(&_pendingFrameMutex);
         pendingDirtyRegions.swap(_pendingDirtyRegions);
         fullFramePending = std::exchange(_fullFramePending, false);
         overlayPending = std::exchange(_overlayPending, false);
+        requestedContentRevision = std::exchange(_pendingContentRevision, 0);
     }
 
     const bool contentPending = fullFramePending
@@ -580,6 +601,40 @@ void TerminalRenderer::render(QRhiCommandBuffer* cb)
         screen = _core->rendererSnapshot(dirtyRows, _scrollLine,
                                          _scrollAnchorLine,
                                          _scrollAnchorWrap);
+        // The parser may publish another batch after its model lock is
+        // released but before the queued damage signal reaches the GUI
+        // thread. If this snapshot is newer than all damage delivered to the
+        // scheduler, sparse rows are not a complete description of it.
+        if (!fullFramePending
+            && screen.revision > requestedContentRevision) {
+            if (screen.visibleRowRevisions.size() == rows) {
+                int recoveredRows = 0;
+                for (int row = 0; row < rows; ++row) {
+                    if (screen.visibleRowRevisions[row]
+                        <= requestedContentRevision) {
+                        continue;
+                    }
+                    if (!dirtyRows[row])
+                        ++recoveredRows;
+                    dirtyRows[row] = true;
+                }
+                _renderStatistics.revisionRecoveredRows +=
+                    quint64(recoveredRows);
+                if (recoveredRows > 0) {
+                    screen = _core->rendererSnapshot(
+                        dirtyRows, _scrollLine, _scrollAnchorLine,
+                        _scrollAnchorWrap);
+                }
+            } else {
+                dirtyRows.fill(true);
+                fullFramePending = true;
+                overlayPending = true;
+                ++_renderStatistics.revisionPromotedFullFrames;
+                screen = _core->rendererSnapshot(
+                    dirtyRows, _scrollLine, _scrollAnchorLine,
+                    _scrollAnchorWrap);
+            }
+        }
         if (screen.rows != rows || screen.columns != columns) {
             rows = screen.rows;
             columns = screen.columns;
@@ -596,11 +651,32 @@ void TerminalRenderer::render(QRhiCommandBuffer* cb)
     QElapsedTimer commandTimer;
     commandTimer.start();
     quint64 commandsGenerated = 0;
-    const bool atlasResetDuringBuild = contentPending
+    bool atlasResetDuringBuild = contentPending
         ? rebuildCommandRows(screen, dirtyRows, commandsGenerated) : false;
-    if (atlasResetDuringBuild) {
+    bool staleAtlasRows = contentPending
+        && !_commandBuffer.rowsUseAtlasGeneration(_atlasGeneration);
+    for (int attempt = 0;
+         attempt < 3 && (atlasResetDuringBuild || staleAtlasRows);
+         ++attempt) {
+        // Never draw cached UVs from a previous atlas generation. Reacquire a
+        // complete snapshot and repair every row in the same frame.
         dirtyRows.fill(true);
         fullFramePending = true;
+        overlayPending = true;
+        screen = _core->rendererSnapshot(dirtyRows, _scrollLine,
+                                         _scrollAnchorLine,
+                                         _scrollAnchorWrap);
+        atlasResetDuringBuild =
+            rebuildCommandRows(screen, dirtyRows, commandsGenerated);
+        staleAtlasRows =
+            !_commandBuffer.rowsUseAtlasGeneration(_atlasGeneration);
+    }
+    if (atlasResetDuringBuild || staleAtlasRows) {
+        qWarning() << "TerminalRenderer: could not stabilize glyph atlas "
+                      "generation for the visible grid";
+        requestFullFrame();
+        recordCpuFrame(quint64(frameTimer.nsecsElapsed()));
+        return;
     }
     if (overlayPending || fullFramePending) {
         const NovaTerm::CursorState cursor = contentPending
@@ -664,7 +740,25 @@ void TerminalRenderer::render(QRhiCommandBuffer* cb)
     }
     cb->endPass();
 
-    _renderStatistics.cpuFrameNanoseconds += quint64(frameTimer.nsecsElapsed());
+    if (contentPending)
+        _renderStatistics.lastRenderedRevision = screen.revision;
+    recordCpuFrame(quint64(frameTimer.nsecsElapsed()));
+}
+
+void TerminalRenderer::recordCpuFrame(quint64 elapsedNanoseconds)
+{
+    _renderStatistics.cpuFrameNanoseconds += elapsedNanoseconds;
+    ++_renderStatistics.framesRendered;
+    if (elapsedNanoseconds > kCpuFrameBudgetNanoseconds)
+        ++_renderStatistics.cpuFramesOverBudget;
+
+    if (_cpuFrameSamples.size() < kCpuFrameSampleCapacity) {
+        _cpuFrameSamples.push_back(elapsedNanoseconds);
+        return;
+    }
+    _cpuFrameSamples[_cpuFrameSampleCursor] = elapsedNanoseconds;
+    _cpuFrameSampleCursor =
+        (_cpuFrameSampleCursor + 1) % kCpuFrameSampleCapacity;
 }
 
 void TerminalRenderer::releaseResources()
@@ -1191,12 +1285,14 @@ NovaTerm::RenderCommand TerminalRenderer::makeSolidCommand(
 void TerminalRenderer::requestFullFrame()
 {
     if (_renderScheduler)
-        _renderScheduler->scheduleFullFrame();
+        _renderScheduler->scheduleFullFrame(_core->modelRevision());
     else {
         {
             const QMutexLocker lock(&_pendingFrameMutex);
             _fullFramePending = true;
             _overlayPending = true;
+            _pendingContentRevision = std::max(_pendingContentRevision,
+                                               _core->modelRevision());
         }
         update();
     }
@@ -1274,26 +1370,17 @@ bool TerminalRenderer::rebuildCommandRows(
     const QVector<bool>& dirtyRows,
     quint64& commandsGenerated)
 {
-    bool rebuildAll = false;
-    bool atlasReset = false;
-    for (int attempt = 0; attempt < 3; ++attempt) {
-        const quint64 generationBefore = _atlasGeneration;
-        for (int row = 0; row < dirtyRows.size(); ++row) {
-            if (!rebuildAll && !dirtyRows[row])
-                continue;
-            rebuildCommandRow(row, screen);
-            const auto& commands = _commandBuffer.row(row);
-            commandsGenerated += quint64(commands.backgrounds.size()
-                                         + commands.contents.size());
-            ++_renderStatistics.rowsRebuilt;
-        }
-        if (_atlasGeneration == generationBefore)
-            return atlasReset;
-        atlasReset = true;
-        rebuildAll = true;
+    const quint64 generationBefore = _atlasGeneration;
+    for (int row = 0; row < dirtyRows.size(); ++row) {
+        if (!dirtyRows[row])
+            continue;
+        rebuildCommandRow(row, screen);
+        const auto& commands = _commandBuffer.row(row);
+        commandsGenerated += quint64(commands.backgrounds.size()
+                                     + commands.contents.size());
+        ++_renderStatistics.rowsRebuilt;
     }
-    qWarning() << "TerminalRenderer: glyph atlas repeatedly overflowed while rebuilding the visible grid";
-    return true;
+    return _atlasGeneration != generationBefore;
 }
 
 void TerminalRenderer::rebuildCommandRow(
@@ -1313,7 +1400,7 @@ void TerminalRenderer::rebuildCommandRow(
             appendCellCommands(x, y, *cell, backgrounds, contents);
     }
     _commandBuffer.replaceRow(widgetRow, std::move(backgrounds),
-                              std::move(contents));
+                              std::move(contents), _atlasGeneration);
 }
 
 quint64 TerminalRenderer::rebuildOverlays(

@@ -457,6 +457,49 @@ if(BUILD_TESTING)
 endif()
 
 if(NOVATERM_BUILD_BENCHMARKS)
+    add_executable(novaterm_renderer_p3_gpu_benchmark
+        tests/benchmarks/RendererP3GpuBenchmark.cpp
+        src/renderer/RenderCommandBuffer.cpp
+        src/renderer/RenderCommandBuffer.h
+        src/renderer/RenderScheduler.cpp
+        src/renderer/RenderScheduler.h
+        src/renderer/TerminalColorScheme.cpp
+        src/renderer/TerminalColorScheme.h
+        src/renderer/TerminalRenderer.cpp
+        src/renderer/TerminalRenderer.h
+    )
+    target_include_directories(novaterm_renderer_p3_gpu_benchmark PRIVATE
+        src
+        "${CMAKE_PREFIX_PATH}/include/QtGui/${Qt6_VERSION}/QtGui"
+    )
+    target_link_libraries(novaterm_renderer_p3_gpu_benchmark
+        PRIVATE
+            novaterm_core
+            Qt${QT_VERSION_MAJOR}::Core
+            Qt${QT_VERSION_MAJOR}::Gui
+            Qt${QT_VERSION_MAJOR}::Widgets
+    )
+    qt_add_shaders(novaterm_renderer_p3_gpu_benchmark
+        novaterm_renderer_p3_gpu_benchmark_shaders
+        PREFIX "/shaders"
+        FILES
+            src/renderer/shaders/terminal_texture.vert
+            src/renderer/shaders/terminal_texture.frag
+    )
+
+    add_executable(novaterm_renderer_p3_benchmark
+        tests/benchmarks/RendererP3Benchmark.cpp
+        src/renderer/RenderCommandBuffer.cpp
+        src/renderer/RenderCommandBuffer.h
+    )
+    target_include_directories(novaterm_renderer_p3_benchmark PRIVATE src)
+    target_link_libraries(novaterm_renderer_p3_benchmark
+        PRIVATE
+            novaterm_core
+            Qt${QT_VERSION_MAJOR}::Core
+            Qt${QT_VERSION_MAJOR}::Gui
+    )
+
     add_executable(novaterm_core_benchmark
         tests/benchmarks/CoreBenchmark.cpp
     )
@@ -482,6 +525,8 @@ if(NOVATERM_BUILD_BENCHMARKS)
     # Benchmark 使用自己的分区性能报告，不经过 CTest。参数对应 P2/P4
     # 设计文档中的 20 MiB Parser 与 10 万行 Scrollback 基线。
     add_custom_target(benchmarks
+        COMMAND $<TARGET_FILE:novaterm_renderer_p3_benchmark>
+            --iterations 20000
         COMMAND $<TARGET_FILE:novaterm_core_benchmark>
             --bytes 20971520
             --lines 100000
@@ -492,6 +537,7 @@ if(NOVATERM_BUILD_BENCHMARKS)
             --max-bytes 268435456
         DEPENDS
             novaterm_core_benchmark
+            novaterm_renderer_p3_benchmark
             novaterm_scrollback_benchmark
         USES_TERMINAL
         COMMENT "Running NovaTerm P2/P4 performance benchmarks"

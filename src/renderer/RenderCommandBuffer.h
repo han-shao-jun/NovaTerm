@@ -33,6 +33,7 @@ struct RenderCommandRow
     QVector<RenderCommand> backgrounds;
     QVector<RenderCommand> contents;
     quint64 revision{0};
+    quint64 atlasGeneration{0};
 };
 
 class RenderCommandBuffer
@@ -45,12 +46,14 @@ public:
     const RenderCommandRow& row(int index) const;
     void replaceRow(int index,
                     QVector<RenderCommand> backgrounds,
-                    QVector<RenderCommand> contents);
+                    QVector<RenderCommand> contents,
+                    quint64 atlasGeneration = 0);
 
     const QVector<RenderCommand>& overlays() const { return _overlays; }
     void replaceOverlays(QVector<RenderCommand> overlays);
 
     qsizetype commandCount() const;
+    bool rowsUseAtlasGeneration(quint64 atlasGeneration) const;
     quint64 revision() const { return _revision; }
 
 private:

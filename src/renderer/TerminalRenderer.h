@@ -46,6 +46,14 @@ public:
         quint64 gpuUploadBytes{0};
         quint64 drawCalls{0};
         quint64 vertexBufferReallocations{0};
+        quint64 revisionPromotedFullFrames{0};
+        quint64 revisionRecoveredRows{0};
+        quint64 lastRenderedRevision{0};
+        quint64 framesRendered{0};
+        quint64 cpuFramesOverBudget{0};
+        quint64 cpuFrameP50Nanoseconds{0};
+        quint64 cpuFrameP95Nanoseconds{0};
+        quint64 cpuFrameP99Nanoseconds{0};
     };
 
     explicit TerminalRenderer(TerminalCore* core, QWidget* parent = nullptr);
@@ -183,6 +191,7 @@ private:
                         const QVector<bool>& dirtyRows,
                         bool uploadAllRows,
                         bool overlayDirty);
+    void recordCpuFrame(quint64 elapsedNanoseconds);
 
     TerminalCore* _core;
     TerminalColorScheme _scheme;
@@ -243,7 +252,10 @@ private:
     int _overlayVertexCount{0};
     bool _fullFramePending{true};
     bool _overlayPending{true};
+    quint64 _pendingContentRevision{0};
     RenderStatistics _renderStatistics;
+    QVector<quint64> _cpuFrameSamples;
+    qsizetype _cpuFrameSampleCursor{0};
     int _vertexBufferSize{0};
     std::unique_ptr<QRhiTexture> _atlasTexture;
     std::unique_ptr<QRhiSampler> _sampler;

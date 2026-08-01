@@ -33,6 +33,7 @@ private:
 
 struct TerminalSnapshot
 {
+    quint64 revision{0};
     int columns{0};
     int rows{0};
     QVector<Cell> visibleCells;
@@ -46,8 +47,10 @@ struct TerminalSnapshot
 // lock, so a frame cannot mix different history generations.
 struct RendererSnapshot
 {
+    quint64 revision{0};
     int columns{0};
     int rows{0};
+    QVector<quint64> visibleRowRevisions;
     QVector<QVector<Cell>> visibleRows;
     CursorState cursor;
 

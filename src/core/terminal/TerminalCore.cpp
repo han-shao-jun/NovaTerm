@@ -68,6 +68,7 @@ public:
         , scrollback(1000)
         , bytes(QueueCapacity)
     {
+        rowRevisions.fill(0, rows);
         thread = QThread::create([this]() { workerMain(); });
         thread->setObjectName(QStringLiteral("NovaTerm Parser Worker"));
         thread->start();
@@ -189,6 +190,7 @@ public:
                     QMutexLocker modelLocker(&modelMutex);
                     adapter->writeInput(batch);
                     adapter->flushDamage();
+                    commitPendingModelRevision();
                 }
                 publishPendingSignals();
                 completedBytes.fetch_add(uint64_t(batch.size()),
@@ -277,6 +279,7 @@ public:
             QMutexLocker modelLocker(&modelMutex);
             for (const ParserCommand& command : local)
                 executeCommand(command);
+            commitPendingModelRevision();
         }
         publishPendingSignals();
         return uint64_t(local.size());
@@ -335,6 +338,7 @@ public:
         const bool scrollbackValue = std::exchange(scrollbackChanged, false);
         QVector<QByteArray> output;
         output.swap(pendingOutput);
+        const quint64 revisionValue = std::exchange(pendingRevision, 0);
 
         if (damageValue.isEmpty() && !cursorValue && !titleValue && !bellValue
             && !scrollbackValue && output.isEmpty()) {
@@ -349,12 +353,13 @@ public:
 
         QMetaObject::invokeMethod(
             owner,
-            [target = owner, damageValue, cursorValue, titleValue, titleCopy,
-             bellValue, scrollbackValue, output = std::move(output)]() {
+            [target = owner, damageValue, revisionValue, cursorValue,
+             titleValue, titleCopy, bellValue, scrollbackValue,
+             output = std::move(output)]() {
                 for (const QByteArray& data : output)
                     emit target->outputData(data);
                 for (const NovaTerm::DirtyRegion& region : damageValue)
-                    emit target->damage(region);
+                    emit target->damage(region, revisionValue);
                 if (cursorValue)
                     emit target->cursorMoved();
                 if (titleValue)
@@ -365,6 +370,27 @@ public:
                     emit target->scrollbackChanged();
             },
             Qt::QueuedConnection);
+    }
+
+    void commitPendingModelRevision()
+    {
+        // Called with modelMutex held, after an adapter/command batch has
+        // finished. A single revision therefore describes one stable model
+        // publication and every damage region emitted for that publication.
+        if (pendingDamage.isEmpty() && !cursorChanged && !scrollbackChanged)
+            return;
+        pendingRevision = ++modelRevision;
+        if (rowRevisions.size() != screen.rows()) {
+            rowRevisions.fill(modelRevision, screen.rows());
+            return;
+        }
+        for (const NovaTerm::DirtyRegion& region :
+             std::as_const(pendingDamage)) {
+            const int start = std::clamp(region.startRow, 0, screen.rows());
+            const int end = std::clamp(region.endRow, 0, screen.rows());
+            for (int row = start; row < end; ++row)
+                rowRevisions[row] = modelRevision;
+        }
     }
 
     void notifyCompletion()
@@ -379,6 +405,9 @@ public:
     ScrollbackBuffer scrollback;
     NovaTerm::CursorState cursor;
     QString currentTitle;
+    quint64 modelRevision{0};
+    quint64 pendingRevision{0};
+    QVector<quint64> rowRevisions;
 
     NovaTerm::BoundedByteQueue bytes;
     mutable QMutex commandMutex;
@@ -589,7 +618,10 @@ bool TerminalCore::getCell(int row, int col, NovaTerm::Cell& out) const
 NovaTerm::TerminalSnapshot TerminalCore::snapshot() const
 {
     QMutexLocker locker(&_runtime->modelMutex);
-    return NovaTerm::makeSnapshot(_runtime->screen, _runtime->cursor);
+    NovaTerm::TerminalSnapshot result =
+        NovaTerm::makeSnapshot(_runtime->screen, _runtime->cursor);
+    result.revision = _runtime->modelRevision;
+    return result;
 }
 
 NovaTerm::RendererSnapshot TerminalCore::rendererSnapshot(
@@ -598,9 +630,11 @@ NovaTerm::RendererSnapshot TerminalCore::rendererSnapshot(
 {
     QMutexLocker locker(&_runtime->modelMutex);
     NovaTerm::RendererSnapshot snapshot;
+    snapshot.revision = _runtime->modelRevision;
     snapshot.columns = _runtime->screen.columns();
     snapshot.rows = _runtime->screen.rows();
     snapshot.cursor = _runtime->cursor;
+    snapshot.visibleRowRevisions.resize(snapshot.rows);
     snapshot.visibleRows.resize(snapshot.rows);
 
     const bool copyAllRows = dirtyRows.size() != snapshot.rows;
@@ -622,11 +656,15 @@ NovaTerm::RendererSnapshot TerminalCore::rendererSnapshot(
         }
     }
     for (int widgetRow = 0; widgetRow < snapshot.rows; ++widgetRow) {
+        const int screenRow = widgetRow - scrollLine;
+        snapshot.visibleRowRevisions[widgetRow] = screenRow >= 0
+            && screenRow < _runtime->rowRevisions.size()
+            ? _runtime->rowRevisions[screenRow]
+            : _runtime->modelRevision;
         if (!copyAllRows && !dirtyRows[widgetRow])
             continue;
         QVector<NovaTerm::Cell>& destination = snapshot.visibleRows[widgetRow];
         destination.resize(snapshot.columns);
-        const int screenRow = widgetRow - scrollLine;
         if (screenRow < 0) {
             if (widgetRow < historyViewport.rows.size()) {
                 const auto& display = historyViewport.rows[widgetRow];
@@ -645,6 +683,12 @@ NovaTerm::RendererSnapshot TerminalCore::rendererSnapshot(
             std::copy_n(source, snapshot.columns, destination.begin());
     }
     return snapshot;
+}
+
+quint64 TerminalCore::modelRevision() const
+{
+    QMutexLocker locker(&_runtime->modelMutex);
+    return _runtime->modelRevision;
 }
 
 NovaTerm::CursorState TerminalCore::cursorState() const

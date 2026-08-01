@@ -13,6 +13,7 @@ constexpr double FullFrameCoverage = 0.60;
 RenderScheduler::RenderScheduler(QObject* parent)
     : QObject(parent)
 {
+    _clock.start();
     _timer.setSingleShot(true);
     _timer.setTimerType(Qt::PreciseTimer);
     connect(&_timer, &QTimer::timeout, this, &RenderScheduler::submitFrame);
@@ -36,10 +37,10 @@ void RenderScheduler::setTargetRefreshRate(int hz)
     if (_targetRefreshRate == hz)
         return;
     _targetRefreshRate = hz;
-    _frameIntervalRemainderMs = 0.0;
+    _nextDeadlineNanoseconds = 0;
 }
 
-void RenderScheduler::schedule(const DirtyRegion& region)
+void RenderScheduler::schedule(const DirtyRegion& region, quint64 revision)
 {
     if (_columns <= 0 || _rows <= 0)
         return;
@@ -54,8 +55,13 @@ void RenderScheduler::schedule(const DirtyRegion& region)
         return;
 
     ++_statistics.dirtyRegionsReceived;
+    _pendingContentRevision = std::max(_pendingContentRevision, revision);
     if (_timer.isActive())
         ++_statistics.coalescedFrameRequests;
+    if (_fullFramePending) {
+        armTimer();
+        return;
+    }
     _pending.push_back(clipped);
     mergePending();
     if (shouldPromoteToFullFrame()) {
@@ -65,13 +71,14 @@ void RenderScheduler::schedule(const DirtyRegion& region)
     armTimer();
 }
 
-void RenderScheduler::scheduleFullFrame()
+void RenderScheduler::scheduleFullFrame(quint64 revision)
 {
     if (_timer.isActive())
         ++_statistics.coalescedFrameRequests;
     _pending.clear();
     _fullFramePending = true;
     _overlayPending = true;
+    _pendingContentRevision = std::max(_pendingContentRevision, revision);
     armTimer();
 }
 
@@ -89,6 +96,8 @@ void RenderScheduler::cancel()
     _pending.clear();
     _fullFramePending = false;
     _overlayPending = false;
+    _pendingContentRevision = 0;
+    _nextDeadlineNanoseconds = 0;
 }
 
 bool RenderScheduler::touches(const DirtyRegion& lhs, const DirtyRegion& rhs)
@@ -121,14 +130,19 @@ void RenderScheduler::armTimer()
 {
     if (_timer.isActive())
         return;
-    // QTimer accepts integer milliseconds. Carry the rounding error between
-    // frames so 60/120/144 Hz converge to the requested average instead of
-    // being permanently rounded to 17/8/7 ms.
-    const double exactInterval = 1000.0 / _targetRefreshRate
-        + _frameIntervalRemainderMs;
-    const int interval = qMax(1, qRound(exactInterval));
-    _frameIntervalRemainderMs = exactInterval - interval;
-    _timer.start(interval);
+    const qint64 frameIntervalNanoseconds =
+        1000000000LL / _targetRefreshRate;
+    const qint64 now = _clock.nsecsElapsed();
+    if (_nextDeadlineNanoseconds <= 0)
+        _nextDeadlineNanoseconds = now + frameIntervalNanoseconds;
+    const qint64 remainingNanoseconds = std::max<qint64>(
+        0, _nextDeadlineNanoseconds - now);
+    // QTimer accepts integer milliseconds. Round up so the target rate is an
+    // upper bound, while anchoring the deadline to the previous submission
+    // prevents one extra full interval from accumulating every frame.
+    const int remainingMilliseconds = qMax<int>(
+        1, int((remainingNanoseconds + 999999) / 1000000));
+    _timer.start(remainingMilliseconds);
 }
 
 void RenderScheduler::mergePending()
@@ -170,6 +184,18 @@ void RenderScheduler::submitFrame()
         return;
 
     ++_statistics.framesRequested;
+    const qint64 now = _clock.nsecsElapsed();
+    const qint64 frameIntervalNanoseconds =
+        1000000000LL / _targetRefreshRate;
+    // Preserve the fractional-millisecond phase when only timer rounding made
+    // this submission late. If an entire interval was missed, skip it and
+    // establish a new deadline instead of emitting catch-up frames.
+    if (_nextDeadlineNanoseconds <= 0
+        || now - _nextDeadlineNanoseconds >= frameIntervalNanoseconds) {
+        _nextDeadlineNanoseconds = now + frameIntervalNanoseconds;
+    } else {
+        _nextDeadlineNanoseconds += frameIntervalNanoseconds;
+    }
     if (_fullFramePending)
         ++_statistics.fullFrames;
     _statistics.dirtyRegionsSubmitted += quint64(_pending.size());
@@ -178,7 +204,8 @@ void RenderScheduler::submitFrame()
     _pending.clear();
     const bool fullFrame = std::exchange(_fullFramePending, false);
     const bool overlayDirty = std::exchange(_overlayPending, false);
-    emit frameRequested(regions, fullFrame, overlayDirty);
+    const quint64 contentRevision = std::exchange(_pendingContentRevision, 0);
+    emit frameRequested(regions, fullFrame, overlayDirty, contentRevision);
 }
 
 } // namespace NovaTerm

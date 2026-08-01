@@ -15,11 +15,18 @@ private slots:
     void schedulerDoesNotMergeCornerOnlyRegions();
     void schedulerClipsAndIgnoresEmptyRegions();
     void schedulerPromotesLargeDamage();
+    void schedulerPromotesAtExactCoverageThreshold();
     void schedulerPromotesTooManyRegions();
     void schedulerCoalescesFrameRequests();
     void schedulerSubmitsOverlayOnlyFrame();
+    void schedulerPublishesNewestContentRevision();
+    void schedulerCancelDropsContentRevision();
+    void schedulerFullFrameDominatesLaterDamage();
+    void schedulerRejectsUnsupportedRefreshRate();
     void commandBufferReplacesOnlyDirtyRow();
     void commandBufferResizeInvalidatesRows();
+    void commandRowsTrackAtlasGeneration();
+    void commandBufferValidatesAtlasGeneration();
     void scrollbackAtLiveBottomDoesNotRequestFullFrame();
     void coalescesScrollbackReflowRequests();
     void searchMatchesAppendByGeneration();
@@ -103,6 +110,19 @@ void RendererP3Tests::schedulerPromotesLargeDamage()
     QCOMPARE(scheduler.statistics().fullFrames, quint64(1));
 }
 
+void RendererP3Tests::schedulerPromotesAtExactCoverageThreshold()
+{
+    NovaTerm::RenderScheduler scheduler;
+    scheduler.setViewport(10, 10);
+    scheduler.cancel();
+    QSignalSpy spy(&scheduler, &NovaTerm::RenderScheduler::frameRequested);
+
+    scheduler.schedule({0, 6, 0, 10}, 1);
+
+    QVERIFY(spy.wait(100));
+    QCOMPARE(spy.first().at(1).toBool(), true);
+}
+
 void RendererP3Tests::schedulerPromotesTooManyRegions()
 {
     NovaTerm::RenderScheduler scheduler;
@@ -153,6 +173,66 @@ void RendererP3Tests::schedulerSubmitsOverlayOnlyFrame()
     QVERIFY(regions.isEmpty());
     QCOMPARE(arguments.at(1).toBool(), false);
     QCOMPARE(arguments.at(2).toBool(), true);
+    QCOMPARE(arguments.at(3).toULongLong(), quint64(0));
+}
+
+void RendererP3Tests::schedulerPublishesNewestContentRevision()
+{
+    NovaTerm::RenderScheduler scheduler;
+    scheduler.setViewport(80, 24);
+    scheduler.cancel();
+    QSignalSpy spy(&scheduler, &NovaTerm::RenderScheduler::frameRequested);
+
+    scheduler.schedule({0, 1, 0, 1}, 41);
+    scheduler.schedule({1, 2, 0, 1}, 43);
+
+    QVERIFY(spy.wait(100));
+    QCOMPARE(spy.size(), 1);
+    QCOMPARE(spy.first().at(3).toULongLong(), quint64(43));
+}
+
+void RendererP3Tests::schedulerCancelDropsContentRevision()
+{
+    NovaTerm::RenderScheduler scheduler;
+    scheduler.setViewport(80, 24);
+    scheduler.cancel();
+    QSignalSpy spy(&scheduler, &NovaTerm::RenderScheduler::frameRequested);
+
+    scheduler.schedule({0, 1, 0, 1}, 99);
+    scheduler.cancel();
+    scheduler.scheduleOverlay();
+
+    QVERIFY(spy.wait(100));
+    QCOMPARE(spy.first().at(3).toULongLong(), quint64(0));
+}
+
+void RendererP3Tests::schedulerFullFrameDominatesLaterDamage()
+{
+    NovaTerm::RenderScheduler scheduler;
+    scheduler.setViewport(80, 24);
+    scheduler.cancel();
+    QSignalSpy spy(&scheduler, &NovaTerm::RenderScheduler::frameRequested);
+
+    scheduler.schedule({0, 1, 0, 1}, 10);
+    scheduler.scheduleFullFrame(11);
+    scheduler.schedule({2, 3, 2, 3}, 12);
+
+    QVERIFY(spy.wait(100));
+    const auto arguments = spy.takeFirst();
+    const auto regions =
+        qvariant_cast<QVector<NovaTerm::DirtyRegion>>(arguments.at(0));
+    QVERIFY(regions.isEmpty());
+    QCOMPARE(arguments.at(1).toBool(), true);
+    QCOMPARE(arguments.at(3).toULongLong(), quint64(12));
+}
+
+void RendererP3Tests::schedulerRejectsUnsupportedRefreshRate()
+{
+    NovaTerm::RenderScheduler scheduler;
+    scheduler.setTargetRefreshRate(144);
+    QCOMPARE(scheduler.targetRefreshRate(), 144);
+    scheduler.setTargetRefreshRate(75);
+    QCOMPARE(scheduler.targetRefreshRate(), 60);
 }
 
 void RendererP3Tests::commandBufferReplacesOnlyDirtyRow()
@@ -188,6 +268,35 @@ void RendererP3Tests::commandBufferResizeInvalidatesRows()
     QCOMPARE(buffer.rows(), 4);
     QCOMPARE(buffer.columns(), 100);
     QCOMPARE(buffer.commandCount(), qsizetype(0));
+}
+
+void RendererP3Tests::commandRowsTrackAtlasGeneration()
+{
+    NovaTerm::RenderCommandBuffer buffer;
+    buffer.resize(2, 80);
+    NovaTerm::RenderCommand glyph;
+    glyph.type = NovaTerm::RenderCommandType::GlyphInstance;
+
+    buffer.replaceRow(0, {}, {glyph}, 7);
+    buffer.replaceRow(1, {}, {glyph}, 8);
+
+    QCOMPARE(buffer.row(0).atlasGeneration, quint64(7));
+    QCOMPARE(buffer.row(1).atlasGeneration, quint64(8));
+    buffer.resize(3, 80);
+    QCOMPARE(buffer.row(0).atlasGeneration, quint64(0));
+}
+
+void RendererP3Tests::commandBufferValidatesAtlasGeneration()
+{
+    NovaTerm::RenderCommandBuffer buffer;
+    buffer.resize(2, 80);
+    buffer.replaceRow(0, {}, {}, 4);
+    buffer.replaceRow(1, {}, {}, 4);
+    QVERIFY(buffer.rowsUseAtlasGeneration(4));
+
+    buffer.replaceRow(1, {}, {}, 5);
+    QVERIFY(!buffer.rowsUseAtlasGeneration(4));
+    QVERIFY(!buffer.rowsUseAtlasGeneration(5));
 }
 
 void RendererP3Tests::scrollbackAtLiveBottomDoesNotRequestFullFrame()
