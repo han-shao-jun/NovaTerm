@@ -26,6 +26,16 @@ struct RenderCommand
     QRectF rect;
     QRectF uvRect;
     QColor color;
+    int atlasPage{-1};
+    quint64 pageGeneration{0};
+    int cellColumn{-1};
+    bool colorGlyph{false};
+};
+
+struct DirtyColumnSpan
+{
+    int startColumn{0};
+    int endColumn{0};
 };
 
 struct RenderCommandRow
@@ -34,6 +44,8 @@ struct RenderCommandRow
     QVector<RenderCommand> contents;
     quint64 revision{0};
     quint64 atlasGeneration{0};
+    quint64 contentRevision{0};
+    QVector<DirtyColumnSpan> dirtySpans;
 };
 
 class RenderCommandBuffer
@@ -47,10 +59,13 @@ public:
     void replaceRow(int index,
                     QVector<RenderCommand> backgrounds,
                     QVector<RenderCommand> contents,
-                    quint64 atlasGeneration = 0);
+                    quint64 atlasGeneration = 0,
+                    quint64 contentRevision = 0,
+                    QVector<DirtyColumnSpan> dirtySpans = {});
 
     const QVector<RenderCommand>& overlays() const { return _overlays; }
     void replaceOverlays(QVector<RenderCommand> overlays);
+    void rotateRowsUp(int count);
 
     qsizetype commandCount() const;
     bool rowsUseAtlasGeneration(quint64 atlasGeneration) const;

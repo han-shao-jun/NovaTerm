@@ -1,6 +1,6 @@
 # P5：Glyph 系统与 GPU 提交管线
 
-**状态：计划中；以 P3 实机基线为入口**
+**状态：P5 实施完成，本机验收完成（Linux Vulkan/OpenGL，2026-08-01）；跨平台与长稳验收待完成**
 
 ## 1. 目标与范围
 
@@ -588,3 +588,118 @@ P5只有同时满足以下条件才能标记完成：
 - 60 Hz持续输出无CPU超预算帧，最终revision收敛；项目支持的高刷新率和后端完成记录；
 - Renderer继续与Parser、Transport和具体字体/QRhi后端实现解耦；
 - 自动化测试、Release构建、P3/P5前后跑分和本文档结果全部更新。
+
+## 21. 2026-08-01 实施记录
+
+### 21.1 A～E 落地结果
+
+- A：新增 `FontManager`、完整 cluster `GlyphKey`、fallback face 选择、QRhi 无关 Rasterizer、generation 化 `GlyphCache`。Key 包含 face、font generation、cluster scalar sequence、pixel size、DPR scale、weight/italic、cell span、fallback index、render mode/format 和 feature identity；不保存字体或 GPU 裸句柄。
+- B：新增灰度/彩色分层的多页 Atlas，按实际 RGBA bytes 执行 64 MiB 默认预算，页满后先扩页、再按 page LRU 与三帧安全退休回收。Glyph dirty rect 会裁剪、受膨胀率限制地合并并通过 QRhi subresource upload 上传；冷启动/字体、DPI、GPU 资源恢复才允许整页上传。Raster 请求经过容量 512、visible 优先、key 去重、generation 取消和 stop 清空的有界队列；当前可见 Glyph 使用文档允许的同步完成策略。
+- C：六顶点 Quad 热路径替换为 64-byte 实例和 shader 内单位 Quad；背景、正文与 Overlay 维持严格层级，Atlas 使用 texture array 跨 page 合批。固定实例槽位使 ASCII 正文为背景、内容两次 Draw，Overlay 需要时再增加一次。Buffer 使用 1.5 倍增长、64 MiB 预算，只在容量不足时重建；QRhi Dynamic Buffer 负责后端 frames-in-flight staging，Atlas slot 另按三帧退休。
+- D：行命令改为 row-local Y，增加 8-cell dirty block、稳定行内容 identity、row placement uniform、GPU row-slot 环和单调 `ViewportMappingRevision`。live-bottom scroll 旋转 CPU command row 与 GPU slot，只重建进入或 identity 校验不一致的行；reflow 在 live bottom 不再错误触发正文全屏失效。Renderer Snapshot 的脏行改为引用计数的 `const QVector<Cell>`，发布后不可变。
+- E：Cursor、Selection、Search 继续使用独立 Overlay revision/实例区。当前 Vulkan/OpenGL 能力探测结果未启用 persistent Base Texture，因为 QRhi 公共接口不能证明交换链或 Render Target 未触及像素的跨帧 preserved-load 语义；按第 10、14 节允许的确定性回退重提交已有实例，但 Overlay-only 的正文命令重建和正文 Buffer/Atlas 上传均为 0。字体/DPI 清除逻辑 Cache 并提升 generation；GPU 资源重建保留逻辑 Atlas bitmap、重建 Texture/Buffer/SRB/Pipeline 并整页恢复。
+
+### 21.2 测试环境与命令
+
+| 项目 | 值 |
+| --- | --- |
+| OS | Ubuntu 24.04，Linux 6.8.0-136-generic，X11 |
+| CPU | Intel Core i7-14700K，20 core / 28 thread |
+| GPU | NVIDIA GeForce RTX 4070 Ti，12 GiB |
+| Vulkan | Instance 1.3.275，NVIDIA 595.84，device API 1.4.329 |
+| OpenGL | 4.6 Core，NVIDIA 595.84，direct rendering |
+| Qt / 编译器 / CMake | Qt 6.8.3 / GCC 13.3.0 / CMake 3.28.3 |
+| 配置 | `Release`，119 × 40 初始 viewport，60 Hz，默认 16 px monospace，DPR 1.0，VSync |
+
+执行命令：
+
+```bash
+cmake -S . -B build-p5-release -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON -DNOVATERM_BUILD_BENCHMARKS=ON
+cmake --build build-p5-release -j4
+ctest --test-dir build-p5-release --output-on-failure --verbose
+NOVATERM_RHI_API=vulkan ./build-p5-release/bin/novaterm_renderer_p5_gpu_benchmark --duration-ms 60000
+NOVATERM_RHI_API=opengl ./build-p5-release/bin/novaterm_renderer_p5_gpu_benchmark --duration-ms 10000
+git diff --check
+```
+
+Release CTest 共 4 个 executable、86 个 QtTest case，全部通过（Core 26、Scrollback 17、P3 Renderer 21、P5 Renderer 22）。P5 case 覆盖 key、fallback、font/glyph generation、完整 cluster 与 color raster、glyph quad cell-local 原点/光标网格对齐、队列容量/去重/取消/stop、Atlas page class/局部上传/预算延期、warm hit 零上传、LRU 与 frames-in-flight、双页资源整页恢复、过期 generation、row-slot 单步/跳转/强制 remap、mapping revision、跨页 material batch、Buffer 溢出/预算/释放统计；Core 另增加 Snapshot 发布后行数据 COW 不可变测试。
+
+### 21.3 Vulkan 60 秒结果
+
+| 场景/指标 | 结果 |
+| --- | ---: |
+| 单 Cell | 1 行 / 1 block；正文 2,560 B；Atlas 2,448 B；总计 9,120 B；2 Draw |
+| Overlay-only | 正文 0 行、0 B；Atlas 0 B；placement/overlay 4,176 B；3 Draw |
+| warm cache 重复字符 | 新增 raster 0；Atlas upload 0；16 hit / 0 miss |
+| CJK + combining | 1 行 / 1 block；8 raster；45,792 B 局部 Atlas upload；最终画面/revision 收敛 |
+| 稳态滚屏 | 59.758 s，3,581 帧，59.925 FPS |
+| 滚屏重建 | 3,831 行；采样 P95 = 1 行/帧；3,480 新 slot，135,720 复用 |
+| 滚屏上传 | 正文 144,997,440 B；Atlas 41,616 B；总计 159,878,240 B |
+| 滚屏提交 | 8,945 Draw，2.498 Draw/帧；510,121 实例 |
+| Glyph cache | 52,432 hit / 34 miss；17 raster；0 eviction（预算内） |
+| CPU P50/P95/P99 | 0.429 / 0.871 / 0.930 ms；>16.67 ms 为 0 |
+| Buffer / 内存峰值 | Buffer 1,990,656 B，测量段 0 重分配；Renderer 统计峰值 18,767,872 B |
+| revision | published = rendered = 3,522，收敛 |
+
+字体/DPI 模拟热切换使用 16→17 px 字体：旧 generation 不复用，Atlas 允许一次 16,777,216 B 整页资源上传，之后重新进入 warm 状态。Resize、强制主题全屏和资源恢复路径均完成且画面 revision 收敛。冷启动/失效整页上传未计入稳态命中率。
+
+### 21.4 OpenGL 10 秒结果
+
+OpenGL 同一数据集运行 9.983 s、597 帧、59.802 FPS；滚屏 P95 1 行/帧，正文上传 22,684,480 B、总上传 25,199,968 B、1,492 Draw（2.499/帧），CPU P50/P95/P99 为 0.409/0.855/1.008 ms，0 次稳态 Buffer 重分配，最终 revision 594/594 收敛。单 Cell、warm cache、CJK/combining、Overlay-only、强制全屏、resize 和字体重建均在同一进程覆盖；Overlay-only 正文仍为 0 行/0 B。
+
+### 21.5 相对 P3 Vulkan 基线
+
+按每帧归一化，以第 2 节 P3 Vulkan 60.466 s 基线对比：
+
+| 指标 | P3 | P5 | 变化 |
+| --- | ---: | ---: | ---: |
+| 滚屏重建行/帧 | 39.91 | 1.070（P95 1） | -97.3% |
+| 滚屏总上传/帧 | 1,001,730 B | 44,646 B | -95.5% |
+| Draw/帧 | 80.47 | 2.498 | -96.9% |
+| CPU P50 | 2.932 ms | 0.429 ms | -85.4% |
+| CPU P95 | 4.412 ms | 0.871 ms | -80.3% |
+| CPU P99 | 4.564 ms | 0.930 ms | -79.6% |
+| FPS | 60.017 | 59.925 | -0.15% |
+
+单 Cell 冷 miss 总上传由 23,232 B 降至 9,120 B（-60.7%）；warm 后 Atlas 新增上传为 0。OpenGL FPS 从 P3 的 60.100 变为 59.802（-0.50%）。所有量化退出目标在本机 60 Hz Vulkan/OpenGL 范围内达到。
+
+### 21.6 未覆盖项与风险
+
+- 本轮没有 Windows D3D、macOS Metal、125%/150%/200% 真实屏幕 DPR、120/144 Hz 或 30 分钟压力环境；这些不能由当前 Linux/X11 机器代替，状态保持为待补跨平台验收。
+- Emoji 已走独立 RGBA page class 和 shader color 分支，ZWJ/variation cluster 不按 codepoint 截断；但具体彩色外观依赖系统 fallback 是否提供 color font，本机自动化只验证结构、缓存和提交，仍需人工 golden 抽检。
+- persistent Base Texture 在本机使用显式回退；因此 Overlay-only 仍重提交既有基础实例（没有正文重建或上传）。若后续后端能证明 preserved-load/store，再启用独立 Base Texture，不能直接假设 swapchain 内容跨帧保留。
+- 当前 raster 队列已具备容量、去重、优先级、generation 取消与停止语义，但可见 miss 仍同步消费；复杂冷启动的后台 worker 化仍可继续降低首屏尖峰，不能改变最终 Glyph/revision 语义。
+
+### 21.7 补充回归与 Unicode 实机跑分
+
+在上述 60 秒主基线之外，增加简繁中文、日文、韩文、box drawing、Powerline、combining mark、ZWJ Emoji 和肤色 ZWJ 序列，并在同一进程紧接一次完全相同的 warm corpus。补充测试还覆盖双 Atlas page 的资源恢复、普通局部上传超预算延期以及 pending upload 自动续帧。
+
+补充跑分发现并修复了一个真实回归：新建/回收 page 曾被错误标记为 `fullDirty`，导致 color page 的首次局部更新可能在下一帧产生 16 MiB 整页上传。修复后，新页和 LRU 回收页只上传实际插入的 dirty rect；仅 GPU Texture 重建的 `markAllDirty()` 允许整页恢复。若存在整页恢复，所有 resident page 在独立冷路径原子上传，避免 frames-in-flight 期间命令采样尚未恢复的页；普通增量 dirty rect 继续受每帧预算约束，延期时由 Scheduler 自动请求后续 Overlay 帧。
+
+启动画面人工反馈还暴露了 glyph 与 cursor 网格错位：Rasterizer 已把文字按 `baseline=ascent` 绘入位图，却将 GPU `logicalRect.top` 再设为 `-ascent`，使正文相对 cell/cursor 整体上移并裁切首行。修复后 quad 恢复为 cell-local `(0,0)` 原点，物理像素尺寸再反算逻辑尺寸以保持 fractional DPR 对齐；新增 `rasterizedQuadStartsAtCellLocalOrigin` 回归测试。修复后 Release 全量 86 case 通过，Vulkan/OpenGL 实机短跑均完成复杂字符、Overlay-only、滚屏、resize、字体切换且最终 revision 收敛。
+
+最终命令：
+
+```bash
+cmake --build build-p5-release -j2
+ctest --test-dir build-p5-release --output-on-failure
+NOVATERM_RHI_API=vulkan ./build-p5-release/bin/novaterm_renderer_p5_gpu_benchmark --duration-ms 10000
+NOVATERM_RHI_API=opengl ./build-p5-release/bin/novaterm_renderer_p5_gpu_benchmark --duration-ms 10000
+git diff --check
+```
+
+| 指标 | Vulkan | OpenGL |
+| --- | ---: | ---: |
+| 实际滚屏时长 / 帧 / FPS | 10.384 s / 623 / 59.996 | 9.788 s / 587 / 59.971 |
+| 滚屏重建行 / block | 611 / 611 | 614 / 614 |
+| 滚屏 row-slot P95 | 1 | 1 |
+| 滚屏正文 / Atlas / 总上传 | 22,146,240 / 41,616 / 24,769,152 B | 22,260,480 / 41,616 / 24,735,360 B |
+| 滚屏 Draw / 实例 | 1,552 / 80,848 | 1,479 / 81,245 |
+| CPU P50/P95/P99 | 0.432 / 0.902 / 1.114 ms | 0.412 / 0.831 / 0.995 ms |
+| 稳态 >16.67 ms / Buffer 重分配 | 0 / 0 | 0 / 0 |
+| Buffer 当前/峰值；Renderer 内存峰值 | 1,990,656 / 1,990,656；35,545,088 B | 1,990,656 / 1,990,656；35,545,088 B |
+| 最终 revision | 619 / 619，收敛 | 584 / 584，收敛 |
+
+场景级断言：单 Cell 为 1 行/1 block，Vulkan 总上传 9,120 B、2 Draw，OpenGL 9,184 B、3 Draw；ASCII warm cache 为 16 hit、0 miss、0 raster、0 Atlas upload；复杂 warm corpus 为 17 hit、0 miss、0 raster、0 Atlas upload；Overlay-only 为 0 正文行、0 block、0 正文/Atlas upload；强制全屏、resize 和 16→17 px 字体/DPI模拟切换均完成，字体切换旧 generation 不复用并执行一次 16,777,216 B 冷路径 Atlas 恢复。两后端均 0 eviction、稳态 0 Buffer 重分配，最终 revision 收敛。
+
+按 P3 Vulkan 每帧基线归一化，本次补充 Vulkan 的滚屏重建由 39.912 降至 0.981 行/帧（-97.54%），总上传由 1,001,730 降至 39,758 B/帧（-96.03%），Draw 由 80.476 降至 2.491/帧（-96.90%）。P99 为 P3 的 24.4%，明显低于“不高于 110%”上限；补充数据再次满足 P95 ≤ 2、上传降低 ≥90%、ASCII ≤6 Draw、Overlay-only 正文为 0、warm cache 零新增 raster/upload 和 revision 收敛退出条件。

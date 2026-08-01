@@ -15,6 +15,8 @@
 #include <rhi/qshader.h>
 #include <rhi/qrhi.h>
 #include <algorithm>
+#include <numeric>
+#include <limits>
 #include <utility>
 
 // 滚动步长（行数）
@@ -119,6 +121,12 @@ TerminalRenderer::TerminalRenderer(TerminalCore* core, QWidget* parent)
     _font.setStyleHint(QFont::Monospace);
     _font.setFixedPitch(true);
     _font.setPixelSize(16);
+    _fontManager.setPrimaryFont(_font);
+#ifdef Q_OS_LINUX
+    _fontManager.setFallbackFamilies({QStringLiteral("Noto Sans Mono CJK SC"),
+                                      QStringLiteral("Noto Color Emoji"),
+                                      QStringLiteral("DejaVu Sans")});
+#endif
     _fm = new QFontMetricsF(_font);
     recalculateCellSize();
     resetGlyphAtlas();
@@ -203,10 +211,18 @@ TerminalRenderer::TerminalRenderer(TerminalCore* core, QWidget* parent)
         // startup) into a complete CPU rebuild and GPU upload. A full rebuild
         // is only required while history rows are actually mapped into the
         // viewport or when clamping changed that mapping.
-        if (viewportMappingChanged)
+        if (viewportMappingChanged) {
+            ++_viewportMappingRevision;
             requestFullFrame();
-        else if (selectionChanged)
-            requestOverlayFrame();
+        } else {
+            // A scrollback push at the live bottom means the active screen
+            // ring advanced. The damage still carries final revision data,
+            // while the row-slot map can retain all but the entering row.
+            ++_pendingLiveScrollRows;
+            ++_viewportMappingRevision;
+            if (selectionChanged)
+                requestOverlayFrame();
+        }
         _reflowDebounce->start();
     });
 
@@ -232,7 +248,13 @@ TerminalRenderer::TerminalRenderer(TerminalCore* core, QWidget* parent)
                 }
             }
         }
-        requestFullFrame();
+        // Reflow changes only historical mapping. At the live bottom the
+        // active screen identity and placement are unchanged, so rebuilding
+        // base content would violate the mapping-only contract.
+        if (_scrollLine > 0) {
+            ++_viewportMappingRevision;
+            requestFullFrame();
+        }
     });
 
     connect(this, &QRhiWidget::renderFailed, this, []() {
@@ -248,6 +270,7 @@ TerminalRenderer::TerminalRenderer(TerminalCore* core, QWidget* parent)
 
 TerminalRenderer::~TerminalRenderer()
 {
+    _glyphRasterQueue.stop();
     if (_blinkTimer) {
         _blinkTimer->stop();
     }
@@ -327,6 +350,7 @@ void TerminalRenderer::setFont(const QFont& font)
     }
     delete _fm;
     _fm = new QFontMetricsF(_font);
+    _fontManager.setPrimaryFont(_font);
     recalculateCellSize();
     resetGlyphAtlas();
     updateGeometry();
@@ -345,6 +369,7 @@ void TerminalRenderer::zoomIn()
             _font.setPointSize(sz + 1);
         delete _fm;
         _fm = new QFontMetricsF(_font);
+        _fontManager.setPrimaryFont(_font);
         recalculateCellSize();
         resetGlyphAtlas();
         updateGeometry();
@@ -364,6 +389,7 @@ void TerminalRenderer::zoomOut()
             _font.setPointSize(sz - 1);
         delete _fm;
         _fm = new QFontMetricsF(_font);
+        _fontManager.setPrimaryFont(_font);
         recalculateCellSize();
         resetGlyphAtlas();
         updateGeometry();
@@ -382,6 +408,7 @@ void TerminalRenderer::scrollToBottom()
         _scrollLine = 0;
         _scrollAnchorLine = 0;
         _scrollAnchorWrap = 0;
+        ++_viewportMappingRevision;
         requestFullFrame();
     }
 }
@@ -393,6 +420,7 @@ void TerminalRenderer::scrollToLine(int line)
     const int clamped = std::max(0, std::min(line, maxScroll));
     if (clamped != _scrollLine) {
         _scrollLine = clamped;
+        ++_viewportMappingRevision;
         if (_scrollLine > 0 && !_historyLayout.isEmpty()) {
             const qsizetype row = std::max<qsizetype>(
                 0, _historyLayout.size() - _scrollLine);
@@ -529,6 +557,9 @@ void TerminalRenderer::initialize(QRhiCommandBuffer* cb)
     if (_rhi != rhi()) {
         releaseRhiResources();
         _rhi = rhi();
+        _capabilities = NovaTerm::RendererCapabilities::detect(_rhi);
+        if (!_capabilities.fallbackReason.isEmpty())
+            ++_renderStatistics.capabilityFallbacks;
         qInfo() << "TerminalRenderer: GPU glyph renderer initialized with"
                 << rhiApiName(api());
     }
@@ -559,11 +590,13 @@ void TerminalRenderer::render(QRhiCommandBuffer* cb)
     QVector<NovaTerm::DirtyRegion> pendingDirtyRegions;
     bool fullFramePending = false;
     bool overlayPending = false;
+    bool explicitFullPending = false;
     quint64 requestedContentRevision = 0;
     {
         const QMutexLocker lock(&_pendingFrameMutex);
         pendingDirtyRegions.swap(_pendingDirtyRegions);
         fullFramePending = std::exchange(_fullFramePending, false);
+        explicitFullPending = std::exchange(_explicitFullPending, false);
         overlayPending = std::exchange(_overlayPending, false);
         requestedContentRevision = std::exchange(_pendingContentRevision, 0);
     }
@@ -585,14 +618,64 @@ void TerminalRenderer::render(QRhiCommandBuffer* cb)
         fullFramePending = true;
         overlayPending = true;
     }
+    if (_widgetRowToSlot.size() != rows) {
+        _widgetRowToSlot.resize(rows);
+        std::iota(_widgetRowToSlot.begin(), _widgetRowToSlot.end(), 0);
+        ++_viewportMappingRevision;
+    }
+    if (_rowContentIdentities.size() != rows)
+        _rowContentIdentities.fill(0, rows);
+
+
+    // A live-bottom terminal scroll commonly arrives as full-screen damage.
+    // Rotate row-local CPU commands and GPU slots, then rebuild only entering
+    // rows. Explicit font/theme/resize/resource invalidation still wins.
+    if (!explicitFullPending && _pendingLiveScrollRows > 0
+        && _commandBuffer.rows() == rows) {
+        const int scrollRows = std::min(_pendingLiveScrollRows, rows);
+        _pendingLiveScrollRows = 0;
+        _commandBuffer.rotateRowsUp(scrollRows);
+        if (_widgetRowToSlot.size() != rows) {
+            _widgetRowToSlot.resize(rows);
+            std::iota(_widgetRowToSlot.begin(), _widgetRowToSlot.end(), 0);
+        }
+        std::rotate(_widgetRowToSlot.begin(),
+                    _widgetRowToSlot.begin() + scrollRows,
+                    _widgetRowToSlot.end());
+        std::rotate(_rowContentIdentities.begin(),
+                    _rowContentIdentities.begin() + scrollRows,
+                    _rowContentIdentities.end());
+        std::fill(_rowContentIdentities.end() - scrollRows,
+                  _rowContentIdentities.end(), quint64(0));
+        fullFramePending = false;
+        pendingDirtyRegions.clear();
+        pendingDirtyRegions.push_back(
+            {rows - scrollRows, rows, 0, columns});
+        _renderStatistics.rowSlotsReused += quint64(rows - scrollRows);
+        _renderStatistics.rowSlotsCreated += quint64(scrollRows);
+        ++_renderStatistics.mappingOnlyUpdates;
+    } else if (_pendingLiveScrollRows > 0 && explicitFullPending) {
+        _pendingLiveScrollRows = 0;
+    }
 
     QVector<bool> dirtyRows(rows, fullFramePending);
+    QVector<QVector<NovaTerm::DirtyColumnSpan>> dirtySpans(rows);
+    if (fullFramePending) {
+        for (int row = 0; row < rows; ++row)
+            dirtySpans[row].push_back({0, columns});
+    }
     if (!fullFramePending) {
         for (const NovaTerm::DirtyRegion& region : std::as_const(pendingDirtyRegions)) {
             const int start = std::clamp(region.startRow, 0, rows);
             const int end = std::clamp(region.endRow, 0, rows);
-            for (int row = start; row < end; ++row)
+            const int startColumn = std::clamp(
+                (region.startColumn / 8) * 8, 0, columns);
+            const int endColumn = std::clamp(
+                ((region.endColumn + 7) / 8) * 8, 0, columns);
+            for (int row = start; row < end; ++row) {
                 dirtyRows[row] = true;
+                dirtySpans[row].push_back({startColumn, endColumn});
+            }
         }
     }
 
@@ -607,16 +690,20 @@ void TerminalRenderer::render(QRhiCommandBuffer* cb)
         // scheduler, sparse rows are not a complete description of it.
         if (!fullFramePending
             && screen.revision > requestedContentRevision) {
-            if (screen.visibleRowRevisions.size() == rows) {
+            if (screen.visibleRowRevisions.size() == rows
+                && screen.visibleRowIdentities.size() == rows) {
                 int recoveredRows = 0;
                 for (int row = 0; row < rows; ++row) {
                     if (screen.visibleRowRevisions[row]
-                        <= requestedContentRevision) {
+                            <= requestedContentRevision
+                        || screen.visibleRowIdentities[row]
+                            == _rowContentIdentities.value(row)) {
                         continue;
                     }
                     if (!dirtyRows[row])
                         ++recoveredRows;
                     dirtyRows[row] = true;
+                    dirtySpans[row] = {{0, columns}};
                 }
                 _renderStatistics.revisionRecoveredRows +=
                     quint64(recoveredRows);
@@ -627,6 +714,8 @@ void TerminalRenderer::render(QRhiCommandBuffer* cb)
                 }
             } else {
                 dirtyRows.fill(true);
+                for (int row = 0; row < rows; ++row)
+                    dirtySpans[row] = {{0, columns}};
                 fullFramePending = true;
                 overlayPending = true;
                 ++_renderStatistics.revisionPromotedFullFrames;
@@ -640,6 +729,9 @@ void TerminalRenderer::render(QRhiCommandBuffer* cb)
             columns = screen.columns;
             _commandBuffer.resize(rows, columns);
             dirtyRows.fill(true, rows);
+            dirtySpans.resize(rows);
+            for (int row = 0; row < rows; ++row)
+                dirtySpans[row] = {{0, columns}};
             fullFramePending = true;
             overlayPending = true;
             screen = _core->rendererSnapshot(dirtyRows, _scrollLine,
@@ -652,7 +744,8 @@ void TerminalRenderer::render(QRhiCommandBuffer* cb)
     commandTimer.start();
     quint64 commandsGenerated = 0;
     bool atlasResetDuringBuild = contentPending
-        ? rebuildCommandRows(screen, dirtyRows, commandsGenerated) : false;
+        ? rebuildCommandRows(screen, dirtyRows, dirtySpans,
+                             commandsGenerated) : false;
     bool staleAtlasRows = contentPending
         && !_commandBuffer.rowsUseAtlasGeneration(_atlasGeneration);
     for (int attempt = 0;
@@ -661,13 +754,16 @@ void TerminalRenderer::render(QRhiCommandBuffer* cb)
         // Never draw cached UVs from a previous atlas generation. Reacquire a
         // complete snapshot and repair every row in the same frame.
         dirtyRows.fill(true);
+        for (int row = 0; row < rows; ++row)
+            dirtySpans[row] = {{0, columns}};
         fullFramePending = true;
         overlayPending = true;
         screen = _core->rendererSnapshot(dirtyRows, _scrollLine,
                                          _scrollAnchorLine,
                                          _scrollAnchorWrap);
         atlasResetDuringBuild =
-            rebuildCommandRows(screen, dirtyRows, commandsGenerated);
+            rebuildCommandRows(screen, dirtyRows, dirtySpans,
+                               commandsGenerated);
         staleAtlasRows =
             !_commandBuffer.rowsUseAtlasGeneration(_atlasGeneration);
     }
@@ -692,56 +788,54 @@ void TerminalRenderer::render(QRhiCommandBuffer* cb)
         return;
 
     QRhiResourceUpdateBatch* resourceUpdates = _rhi->nextResourceUpdateBatch();
-    uploadCommands(resourceUpdates, pixelSize, dirtyRows, bufferReallocated,
+    uploadCommands(resourceUpdates, pixelSize, dirtyRows, dirtySpans,
+                   bufferReallocated,
                    overlayPending || fullFramePending || bufferReallocated);
-    if (_atlasDirty) {
-        resourceUpdates->uploadTexture(_atlasTexture.get(), _atlasImage);
-        _atlasDirty = false;
-    }
+    updatePlacementBuffer(resourceUpdates, pixelSize);
+    uploadAtlasChanges(resourceUpdates);
 
     cb->beginPass(renderTarget(), _scheme.background, {1.0f, 0}, resourceUpdates);
     cb->setGraphicsPipeline(_pipeline.get());
     cb->setViewport(QRhiViewport(0, 0, pixelSize.width(), pixelSize.height()));
     cb->setShaderResources(_srb.get());
 
-    for (int row = 0; row < rows; ++row) {
-        const int vertexCount =
-            int(_commandBuffer.row(row).backgrounds.size()) * 6;
-        if (vertexCount <= 0)
-            continue;
-        const quint32 offset = quint32(row * _backgroundRowStrideVertices
-                                      * int(sizeof(GpuVertex)));
-        const QRhiCommandBuffer::VertexInput binding(_vertexBuffer.get(), offset);
+    if (_backgroundRowStrideVertices > 0) {
+        const QRhiCommandBuffer::VertexInput binding(_vertexBuffer.get(), 0);
         cb->setVertexInput(0, 1, &binding);
-        cb->draw(vertexCount);
+        cb->draw(4, rows * _backgroundRowStrideVertices);
         ++_renderStatistics.drawCalls;
     }
     const int contentBase = rows * _backgroundRowStrideVertices;
-    for (int row = 0; row < rows; ++row) {
-        const int vertexCount =
-            int(_commandBuffer.row(row).contents.size()) * 6;
-        if (vertexCount <= 0)
-            continue;
+    if (_contentRowStrideVertices > 0) {
         const quint32 offset = quint32(
-            (contentBase + row * _contentRowStrideVertices)
-            * int(sizeof(GpuVertex)));
+            contentBase * int(sizeof(GpuInstance)));
         const QRhiCommandBuffer::VertexInput binding(_vertexBuffer.get(), offset);
         cb->setVertexInput(0, 1, &binding);
-        cb->draw(vertexCount);
+        cb->draw(4, rows * _contentRowStrideVertices);
         ++_renderStatistics.drawCalls;
     }
     if (_overlayVertexCount > 0) {
         const quint32 offset = quint32(_overlayBaseVertex
-                                      * int(sizeof(GpuVertex)));
+                                      * int(sizeof(GpuInstance)));
         const QRhiCommandBuffer::VertexInput binding(_vertexBuffer.get(), offset);
         cb->setVertexInput(0, 1, &binding);
-        cb->draw(_overlayVertexCount);
+        cb->draw(4, _overlayVertexCount);
         ++_renderStatistics.drawCalls;
     }
     cb->endPass();
 
     if (contentPending)
         _renderStatistics.lastRenderedRevision = screen.revision;
+    ++_frameNumber;
+    _renderStatistics.glyphCacheHits = _glyphCache.statistics().hits;
+    _renderStatistics.glyphCacheMisses = _glyphCache.statistics().misses;
+    _renderStatistics.glyphEvictions =
+        _glyphCache.atlas().statistics().pageEvictions;
+    _renderStatistics.viewportMappingRevision = _viewportMappingRevision;
+    _renderStatistics.memoryPeakBytes = std::max(
+        _renderStatistics.memoryPeakBytes,
+        _renderStatistics.bufferPeakBytes
+            + _glyphCache.atlas().statistics().peakBytes);
     recordCpuFrame(quint64(frameTimer.nsecsElapsed()));
 }
 
@@ -1035,10 +1129,13 @@ void TerminalRenderer::releaseRhiResources()
     _pipeline.reset();
     _srb.reset();
     _vertexBuffer.reset();
+    _placementBuffer.reset();
     _vertexBufferSize = 0;
+    _bufferBudget.release();
     {
         const QMutexLocker lock(&_pendingFrameMutex);
         _fullFramePending = true;
+        _explicitFullPending = true;
         _overlayPending = true;
     }
     _sampler.reset();
@@ -1047,24 +1144,31 @@ void TerminalRenderer::releaseRhiResources()
 
 void TerminalRenderer::resetGlyphAtlas()
 {
-    constexpr int kAtlasSize = 2048;
-    _atlasImage = QImage(kAtlasSize, kAtlasSize, QImage::Format_RGBA8888);
-    _atlasImage.fill(Qt::transparent);
-    _atlasImage.setPixelColor(0, 0, Qt::white);
-    _glyphs.clear();
-    _atlasX = 1;
-    _atlasY = 1;
-    _atlasRowHeight = 0;
+    _glyphRasterQueue.cancelBeforeGeneration(_fontManager.generation());
+    _glyphCache.clear();
+    NovaTerm::GlyphBitmap solid;
+    solid.key.faceId = 1;
+    solid.key.fontGeneration = _fontManager.generation();
+    solid.key.cluster = QStringLiteral("__novaterm_solid__");
+    solid.key.pixelSize = 1;
+    solid.sourceGeneration = solid.key.fontGeneration;
+    solid.image = QImage(1, 1, QImage::Format_RGBA8888);
+    solid.image.fill(Qt::white);
+    solid.logicalRect = QRectF(0, 0, 1, 1);
+    _solidGlyph = _glyphCache.insert(solid, _frameNumber).value_or(
+        NovaTerm::GlyphLocation{});
     _atlasDpr = devicePixelRatioF();
-    _atlasDirty = true;
-    ++_atlasGeneration;
+    _atlasGeneration = _glyphCache.atlas().generation();
+    _atlasTexture.reset();
+    _pipeline.reset();
+    _srb.reset();
 }
 
 void TerminalRenderer::ensureAtlasTexture()
 {
     if (!_rhi)
         return;
-    if (_atlasImage.isNull() || !qFuzzyCompare(_atlasDpr, devicePixelRatioF())) {
+    if (!qFuzzyCompare(_atlasDpr, devicePixelRatioF())) {
         resetGlyphAtlas();
         // Cached glyph commands refer to atlas pixels generated at the old
         // DPR. Rebuild every row before drawing against the new atlas.
@@ -1075,19 +1179,35 @@ void TerminalRenderer::ensureAtlasTexture()
     if (_atlasTexture)
         return;
 
-    _atlasTexture.reset(_rhi->newTexture(QRhiTexture::RGBA8, _atlasImage.size()));
+    const auto& config = _glyphCache.atlas().config();
+    const quint64 bytesPerPage = quint64(config.pageSize.width())
+        * config.pageSize.height() * 4;
+    const int layers = std::max(1, int(config.byteBudget / bytesPerPage));
+    _atlasTexture.reset(_rhi->newTextureArray(QRhiTexture::RGBA8, layers,
+                                               config.pageSize));
     if (!_atlasTexture->create()) {
         qWarning() << "TerminalRenderer: failed to create glyph atlas texture";
         _atlasTexture.reset();
         return;
     }
-    _atlasDirty = true;
+    _glyphCache.atlas().markAllDirty();
 }
 
 void TerminalRenderer::ensurePipeline()
 {
     if (_pipeline || !_rhi || !_atlasTexture)
         return;
+
+    if (!_placementBuffer) {
+        constexpr int placementBytes = int(sizeof(float) * 4 * 257);
+        _placementBuffer.reset(_rhi->newBuffer(QRhiBuffer::Dynamic,
+                                               QRhiBuffer::UniformBuffer,
+                                               placementBytes));
+        if (!_placementBuffer->create()) {
+            _placementBuffer.reset();
+            return;
+        }
+    }
 
     if (!_sampler) {
         // The glyph atlas is rasterized at the widget's physical DPR. Sampling
@@ -1110,7 +1230,10 @@ void TerminalRenderer::ensurePipeline()
         QRhiShaderResourceBinding::sampledTexture(0,
                                                   QRhiShaderResourceBinding::FragmentStage,
                                                   _atlasTexture.get(),
-                                                  _sampler.get())
+                                                  _sampler.get()),
+        QRhiShaderResourceBinding::uniformBuffer(
+            1, QRhiShaderResourceBinding::VertexStage,
+            _placementBuffer.get())
     });
     if (!_srb->create()) {
         qWarning() << "TerminalRenderer: failed to create QRhi shader bindings";
@@ -1124,16 +1247,18 @@ void TerminalRenderer::ensurePipeline()
         {QRhiShaderStage::Fragment, loadShader(QStringLiteral(":/shaders/src/renderer/shaders/terminal_texture.frag.qsb"))}
     });
     QRhiVertexInputLayout inputLayout;
-    inputLayout.setBindings({{8 * int(sizeof(float))}});
+    inputLayout.setBindings({{int(sizeof(GpuInstance)),
+                              QRhiVertexInputBinding::PerInstance}});
     inputLayout.setAttributes({
-        {0, 0, QRhiVertexInputAttribute::Float2, 0},
-        {0, 1, QRhiVertexInputAttribute::Float2, 2 * int(sizeof(float))},
-        {0, 2, QRhiVertexInputAttribute::Float4, 4 * int(sizeof(float))}
+        {0, 0, QRhiVertexInputAttribute::Float4, 0},
+        {0, 1, QRhiVertexInputAttribute::Float4, 4 * int(sizeof(float))},
+        {0, 2, QRhiVertexInputAttribute::Float4, 8 * int(sizeof(float))},
+        {0, 3, QRhiVertexInputAttribute::Float4, 12 * int(sizeof(float))}
     });
     _pipeline->setVertexInputLayout(inputLayout);
     _pipeline->setShaderResourceBindings(_srb.get());
     _pipeline->setRenderPassDescriptor(renderTarget()->renderPassDescriptor());
-    _pipeline->setTopology(QRhiGraphicsPipeline::Triangles);
+    _pipeline->setTopology(QRhiGraphicsPipeline::TriangleStrip);
     QRhiGraphicsPipeline::TargetBlend blend;
     blend.enable = true;
     blend.srcColor = QRhiGraphicsPipeline::SrcAlpha;
@@ -1149,115 +1274,70 @@ void TerminalRenderer::ensurePipeline()
     }
 }
 
-const TerminalRenderer::GlyphEntry& TerminalRenderer::ensureGlyph(
+NovaTerm::GlyphLocation TerminalRenderer::ensureGlyph(
     const QString& text, bool bold, int cellSpan)
 {
-    const QString key = QString::number(bold ? 1 : 0) + QLatin1Char(':')
-        + QString::number(cellSpan) + QLatin1Char(':') + text;
-    auto found = _glyphs.constFind(key);
-    if (found != _glyphs.constEnd())
-        return found.value();
-
-    const qreal dpr = devicePixelRatioF();
-    QFont glyphFont = _font;
-    glyphFont.setBold(bold);
-    const QFontMetricsF glyphMetrics(glyphFont);
-    const qreal advance = glyphMetrics.horizontalAdvance(text);
-    const qreal cellAdvance = _cellWidth * std::max(1, cellSpan);
-    // Atlas allocation follows typographic advance and line metrics. Using
-    // boundingRect() here would make each glyph quad depend on its visual ink
-    // width and break the fixed terminal grid.
-    const QRectF logicalRect(0.0, -glyphMetrics.ascent(),
-                             std::max(advance, cellAdvance),
-                             glyphMetrics.height());
-    const QSize pixelSize(qCeil(logicalRect.width() * dpr),
-                          qCeil(logicalRect.height() * dpr));
-    const QRectF textureLogicalRect(
-        QPointF(0.0, 0.0),
-        QSizeF(pixelSize.width() / dpr, pixelSize.height() / dpr));
-    const int paddedWidth = pixelSize.width() + 2;
-    const int paddedHeight = pixelSize.height() + 2;
-    if (_atlasX + paddedWidth > _atlasImage.width()) {
-        _atlasX = 1;
-        _atlasY += _atlasRowHeight;
-        _atlasRowHeight = 0;
+    bool emoji = false;
+    for (char32_t scalar : text.toUcs4()) {
+        if (scalar >= 0x1f000) {
+            emoji = true;
+            break;
+        }
     }
-    if (_atlasY + paddedHeight > _atlasImage.height())
-        resetGlyphAtlas();
-
-    // Paint onto an opaque RGB surface so Windows/Qt can produce sub-pixel
-    // antialiasing. Transparent images only receive grayscale antialiasing.
-    QImage rgbGlyphImage(pixelSize, QImage::Format_RGB32);
-    rgbGlyphImage.fill(Qt::black);
-    rgbGlyphImage.setDevicePixelRatio(dpr);
-    QPainter painter(&rgbGlyphImage);
-    painter.setRenderHint(QPainter::TextAntialiasing);
-    painter.setFont(glyphFont);
-    painter.setPen(Qt::white);
-    painter.drawText(QPointF(-logicalRect.left(),
-                             glyphMetrics.ascent()), text);
-    painter.end();
-    const QImage glyphImage = alphaCoverageFromRgb(rgbGlyphImage, dpr);
-
-    const QRect pixelRect(_atlasX + 1, _atlasY + 1,
-                          pixelSize.width(), pixelSize.height());
-    QPainter atlasPainter(&_atlasImage);
-    atlasPainter.setCompositionMode(QPainter::CompositionMode_Source);
-    // The glyph image carries a device-pixel ratio, whereas the atlas is a
-    // raw DPR-1 GPU texture. Explicit rectangles avoid an implicit HiDPI
-    // downscale followed by a GPU upscale, which makes glyphs look blurry.
-    atlasPainter.drawImage(pixelRect, glyphImage, glyphImage.rect());
-    atlasPainter.end();
-
-    _atlasX += paddedWidth;
-    _atlasRowHeight = std::max(_atlasRowHeight, paddedHeight);
-    _atlasDirty = true;
-    // Use the exact physical texture extent when building the GPU quad. This
-    // prevents fractional DPR values from rescaling a ceil-rounded glyph by a
-    // fraction of a pixel.
-    return _glyphs.insert(key, GlyphEntry{pixelRect, textureLogicalRect}).value();
+    const NovaTerm::GlyphKey key = _fontManager.makeKey(
+        text, bold, false, cellSpan, devicePixelRatioF(),
+        emoji ? NovaTerm::GlyphRenderMode::Color
+              : NovaTerm::GlyphRenderMode::Grayscale);
+    if (auto found = _glyphCache.find(key, _frameNumber))
+        return *found;
+    const auto selection = _fontManager.select(text, bold, false);
+    _glyphRasterQueue.enqueue({key, selection.font, _cellWidth,
+                               _cellHeight, true});
+    const auto task = _glyphRasterQueue.take();
+    NovaTerm::GlyphBitmap bitmap = task
+        ? _glyphRasterizer.rasterize(task->key, task->font,
+                                     task->cellWidth, task->cellHeight)
+        : _glyphRasterizer.rasterize(key, selection.font,
+                                     _cellWidth, _cellHeight);
+    ++_renderStatistics.glyphRasters;
+    const auto inserted = _glyphCache.insert(bitmap, _frameNumber);
+    _atlasGeneration = _glyphCache.atlas().generation();
+    return inserted.value_or(_solidGlyph);
 }
 
 void TerminalRenderer::appendQuad(const QRectF& rect, const QRectF& uvRect,
                                   const QColor& color, const QSize& pixelSize)
 {
-    const qreal dpr = devicePixelRatioF();
-    const float left = float(rect.left() * dpr / pixelSize.width() * 2.0 - 1.0);
-    const float right = float(rect.right() * dpr / pixelSize.width() * 2.0 - 1.0);
-    const float top = float(1.0 - rect.top() * dpr / pixelSize.height() * 2.0);
-    const float bottom = float(1.0 - rect.bottom() * dpr / pixelSize.height() * 2.0);
+    Q_UNUSED(pixelSize);
     const float red = color.redF();
     const float green = color.greenF();
     const float blue = color.blueF();
     const float alpha = color.alphaF();
-    const GpuVertex topLeft{left, top, float(uvRect.left()), float(uvRect.top()),
-                            red, green, blue, alpha};
-    const GpuVertex topRight{right, top, float(uvRect.right()), float(uvRect.top()),
-                             red, green, blue, alpha};
-    const GpuVertex bottomLeft{left, bottom, float(uvRect.left()), float(uvRect.bottom()),
-                               red, green, blue, alpha};
-    const GpuVertex bottomRight{right, bottom, float(uvRect.right()), float(uvRect.bottom()),
-                                red, green, blue, alpha};
-    _vertices << topLeft << bottomLeft << topRight
-              << topRight << bottomLeft << bottomRight;
+    _instances.push_back({float(rect.left()), float(rect.top()),
+                          float(rect.right()), float(rect.bottom()),
+                          float(uvRect.left()), float(uvRect.top()),
+                          float(uvRect.right()), float(uvRect.bottom()),
+                          red, green, blue, alpha, 0.0f, -1.0f, 0.0f, 0.0f});
 }
 
 void TerminalRenderer::appendSolidRect(const QRectF& rect, const QColor& color,
                                        const QSize& pixelSize)
 {
-    const qreal atlasWidth = _atlasImage.width();
-    const qreal atlasHeight = _atlasImage.height();
+    const qreal atlasWidth = _glyphCache.atlas().config().pageSize.width();
+    const qreal atlasHeight = _glyphCache.atlas().config().pageSize.height();
     appendQuad(rect,
-               QRectF(0.25 / atlasWidth, 0.25 / atlasHeight,
-                      0.5 / atlasWidth, 0.5 / atlasHeight),
+               QRectF(_solidGlyph.pixelRect.left() / atlasWidth,
+                      _solidGlyph.pixelRect.top() / atlasHeight,
+                      _solidGlyph.pixelRect.width() / atlasWidth,
+                      _solidGlyph.pixelRect.height() / atlasHeight),
                color, pixelSize);
 }
 
 void TerminalRenderer::appendTexturedRect(const QRectF& rect, const QRect& atlasRect,
                                           const QColor& color, const QSize& pixelSize)
 {
-    const qreal atlasWidth = _atlasImage.width();
-    const qreal atlasHeight = _atlasImage.height();
+    const qreal atlasWidth = _glyphCache.atlas().config().pageSize.width();
+    const qreal atlasHeight = _glyphCache.atlas().config().pageSize.height();
     appendQuad(rect,
                QRectF(atlasRect.left() / atlasWidth,
                       atlasRect.top() / atlasHeight,
@@ -1271,19 +1351,27 @@ NovaTerm::RenderCommand TerminalRenderer::makeSolidCommand(
     const QRectF& rect,
     const QColor& color) const
 {
-    const qreal atlasWidth = _atlasImage.width();
-    const qreal atlasHeight = _atlasImage.height();
+    const qreal atlasWidth = _glyphCache.atlas().config().pageSize.width();
+    const qreal atlasHeight = _glyphCache.atlas().config().pageSize.height();
     return {
         type,
         rect,
-        QRectF(0.25 / atlasWidth, 0.25 / atlasHeight,
-               0.5 / atlasWidth, 0.5 / atlasHeight),
-        color
+        QRectF(_solidGlyph.pixelRect.left() / atlasWidth,
+               _solidGlyph.pixelRect.top() / atlasHeight,
+               _solidGlyph.pixelRect.width() / atlasWidth,
+               _solidGlyph.pixelRect.height() / atlasHeight),
+        color,
+        _solidGlyph.pageId,
+        _solidGlyph.pageGeneration
     };
 }
 
 void TerminalRenderer::requestFullFrame()
 {
+    {
+        const QMutexLocker lock(&_pendingFrameMutex);
+        _explicitFullPending = true;
+    }
     if (_renderScheduler)
         _renderScheduler->scheduleFullFrame(_core->modelRevision());
     else {
@@ -1318,6 +1406,7 @@ void TerminalRenderer::appendCellCommands(
     QVector<NovaTerm::RenderCommand>& backgrounds,
     QVector<NovaTerm::RenderCommand>& contents)
 {
+    const int cellColumn = qRound(x / std::max<qreal>(1.0, _cellWidth));
     const int cellSpan = std::max(1, static_cast<int>(cell.width));
     const qreal paintWidth = _cellWidth * cellSpan;
     QColor foreground = terminalColorToQColor(cell.foreground, true);
@@ -1327,6 +1416,7 @@ void TerminalRenderer::appendCellCommands(
     backgrounds.push_back(makeSolidCommand(
         NovaTerm::RenderCommandType::BackgroundRect,
         QRectF(x, y, paintWidth, _cellHeight), background));
+    backgrounds.last().cellColumn = cellColumn;
 
     if (cell.attributes.conceal)
         return;
@@ -1334,10 +1424,12 @@ void TerminalRenderer::appendCellCommands(
         const QString text = cellCharsToString(cell.chars.data(),
                                                NovaTerm::MaxCharsPerCell);
         if (!text.isEmpty()) {
-            const auto& glyph =
+            const auto glyph =
                 ensureGlyph(text, cell.attributes.bold, cellSpan);
-            const qreal atlasWidth = _atlasImage.width();
-            const qreal atlasHeight = _atlasImage.height();
+            const qreal atlasWidth =
+                _glyphCache.atlas().config().pageSize.width();
+            const qreal atlasHeight =
+                _glyphCache.atlas().config().pageSize.height();
             contents.push_back({
                 NovaTerm::RenderCommandType::GlyphInstance,
                 glyph.logicalRect.translated(x, y),
@@ -1345,7 +1437,11 @@ void TerminalRenderer::appendCellCommands(
                        glyph.pixelRect.top() / atlasHeight,
                        glyph.pixelRect.width() / atlasWidth,
                        glyph.pixelRect.height() / atlasHeight),
-                foreground
+                foreground,
+                glyph.pageId,
+                glyph.pageGeneration,
+                cellColumn,
+                glyph.format == NovaTerm::GlyphPixelFormat::Rgba8
             });
         }
     }
@@ -1354,53 +1450,97 @@ void TerminalRenderer::appendCellCommands(
         contents.push_back(makeSolidCommand(
             NovaTerm::RenderCommandType::Underline,
             QRectF(x, underlineY, paintWidth, 1), foreground));
+        contents.last().cellColumn = cellColumn;
         if (cell.attributes.underlineStyle == NovaTerm::UnderlineStyle::Double)
             contents.push_back(makeSolidCommand(
                 NovaTerm::RenderCommandType::Underline,
                 QRectF(x, underlineY + 2, paintWidth, 1), foreground));
+        if (!contents.isEmpty())
+            contents.last().cellColumn = cellColumn;
     }
     if (cell.attributes.strike)
         contents.push_back(makeSolidCommand(
             NovaTerm::RenderCommandType::Strike,
             QRectF(x, y + _cellHeight / 2, paintWidth, 1), foreground));
+    if (!contents.isEmpty() && contents.last().cellColumn < 0)
+        contents.last().cellColumn = cellColumn;
 }
 
 bool TerminalRenderer::rebuildCommandRows(
     const NovaTerm::RendererSnapshot& screen,
     const QVector<bool>& dirtyRows,
+    const QVector<QVector<NovaTerm::DirtyColumnSpan>>& dirtySpans,
     quint64& commandsGenerated)
 {
     const quint64 generationBefore = _atlasGeneration;
     for (int row = 0; row < dirtyRows.size(); ++row) {
         if (!dirtyRows[row])
             continue;
-        rebuildCommandRow(row, screen);
+        rebuildCommandRow(row, screen, dirtySpans.value(row));
         const auto& commands = _commandBuffer.row(row);
         commandsGenerated += quint64(commands.backgrounds.size()
                                      + commands.contents.size());
         ++_renderStatistics.rowsRebuilt;
+        _renderStatistics.dirtyBlocksRebuilt += quint64(
+            std::max<qsizetype>(1, dirtySpans.value(row).size()));
     }
     return _atlasGeneration != generationBefore;
 }
 
 void TerminalRenderer::rebuildCommandRow(
     int widgetRow,
-    const NovaTerm::RendererSnapshot& screen)
+    const NovaTerm::RendererSnapshot& screen,
+    const QVector<NovaTerm::DirtyColumnSpan>& dirtySpans)
 {
     QVector<NovaTerm::RenderCommand> backgrounds;
     QVector<NovaTerm::RenderCommand> contents;
     backgrounds.reserve(screen.columns);
     contents.reserve(screen.columns);
 
+    const bool replaceAll = dirtySpans.isEmpty()
+        || (dirtySpans.size() == 1 && dirtySpans.front().startColumn <= 0
+            && dirtySpans.front().endColumn >= screen.columns);
+    auto isDirty = [&dirtySpans, replaceAll](int column) {
+        if (replaceAll)
+            return true;
+        for (const auto& span : dirtySpans) {
+            if (column >= span.startColumn && column < span.endColumn)
+                return true;
+        }
+        return false;
+    };
+    if (!replaceAll && widgetRow < _commandBuffer.rows()) {
+        const auto& old = _commandBuffer.row(widgetRow);
+        for (const auto& command : old.backgrounds) {
+            if (!isDirty(command.cellColumn))
+                backgrounds.push_back(command);
+        }
+        for (const auto& command : old.contents) {
+            if (!isDirty(command.cellColumn))
+                contents.push_back(command);
+        }
+    }
+
     for (int column = 0; column < screen.columns; ++column) {
+        if (!isDirty(column))
+            continue;
         const qreal x = column * _cellWidth;
-        const qreal y = widgetRow * _cellHeight;
+        const qreal y = 0.0;
         const NovaTerm::Cell* cell = screen.cellAt(widgetRow, column);
         if (cell && !cell->isWideContinuation())
             appendCellCommands(x, y, *cell, backgrounds, contents);
     }
+    const auto byColumn = [](const NovaTerm::RenderCommand& a,
+                             const NovaTerm::RenderCommand& b) {
+        return a.cellColumn < b.cellColumn;
+    };
+    std::stable_sort(backgrounds.begin(), backgrounds.end(), byColumn);
+    std::stable_sort(contents.begin(), contents.end(), byColumn);
     _commandBuffer.replaceRow(widgetRow, std::move(backgrounds),
                               std::move(contents), _atlasGeneration);
+    if (widgetRow >= 0 && widgetRow < _rowContentIdentities.size())
+        _rowContentIdentities[widgetRow] =
+            screen.visibleRowIdentities.value(widgetRow);
 }
 
 quint64 TerminalRenderer::rebuildOverlays(
@@ -1576,15 +1716,15 @@ void TerminalRenderer::appendCommandVertices(
 
 bool TerminalRenderer::ensureVertexBuffer(int rows, int columns)
 {
-    int backgroundStride = columns * 6;
-    int contentStride = columns * 24;
+    int backgroundStride = columns;
+    int contentStride = columns * 4;
     for (int row = 0; row < _commandBuffer.rows(); ++row) {
         backgroundStride = std::max(
             backgroundStride,
-            int(_commandBuffer.row(row).backgrounds.size()) * 6);
+            int(_commandBuffer.row(row).backgrounds.size()));
         contentStride = std::max(
             contentStride,
-            int(_commandBuffer.row(row).contents.size()) * 6);
+            int(_commandBuffer.row(row).contents.size()));
     }
     // Capacities only grow during a resource lifetime. A temporary complex
     // row must not move every following row back and forth between offsets.
@@ -1593,11 +1733,11 @@ bool TerminalRenderer::ensureVertexBuffer(int rows, int columns)
     contentStride = std::max(contentStride, _contentRowStrideVertices);
     const int overlayBase = rows * (backgroundStride + contentStride);
     const int overlayCapacity = std::max(
-        std::max((rows + 2) * 6,
-                 int(_commandBuffer.overlays().size()) * 6),
+        std::max(rows + 2,
+                 int(_commandBuffer.overlays().size())),
         _overlayCapacityVertices);
     const int requiredBytes =
-        (overlayBase + overlayCapacity) * int(sizeof(GpuVertex));
+        (overlayBase + overlayCapacity) * int(sizeof(GpuInstance));
     const bool layoutChanged =
         _backgroundRowStrideVertices != backgroundStride
         || _contentRowStrideVertices != contentStride
@@ -1612,8 +1752,14 @@ bool TerminalRenderer::ensureVertexBuffer(int rows, int columns)
     if (_vertexBuffer && _vertexBufferSize >= requiredBytes)
         return layoutChanged;
 
+    const auto capacity = _bufferBudget.capacityFor(quint64(requiredBytes));
+    if (!capacity) {
+        qWarning() << "TerminalRenderer: instance buffer budget exceeded"
+                   << requiredBytes << "bytes required";
+        return false;
+    }
     _vertexBuffer.reset();
-    _vertexBufferSize = std::max(requiredBytes, 256 * 1024);
+    _vertexBufferSize = int(*capacity);
     _vertexBuffer.reset(_rhi->newBuffer(QRhiBuffer::Dynamic,
                                         QRhiBuffer::VertexBuffer,
                                         _vertexBufferSize));
@@ -1624,13 +1770,74 @@ bool TerminalRenderer::ensureVertexBuffer(int rows, int columns)
         return true;
     }
     ++_renderStatistics.vertexBufferReallocations;
+    _renderStatistics.bufferCurrentBytes = quint64(_vertexBufferSize);
+    _renderStatistics.bufferPeakBytes = std::max(
+        _renderStatistics.bufferPeakBytes, quint64(_vertexBufferSize));
     return true;
+}
+
+void TerminalRenderer::updatePlacementBuffer(
+    QRhiResourceUpdateBatch* updates, const QSize& pixelSize)
+{
+    if (!_placementBuffer || !updates)
+        return;
+    constexpr int maxRows = 256;
+    QVector<float> values(4 * (maxRows + 1), 0.0f);
+    values[0] = float(pixelSize.width());
+    values[1] = float(pixelSize.height());
+    values[2] = float(devicePixelRatioF());
+    values[3] = float(std::min(maxRows, _commandBuffer.rows()));
+    for (int widgetRow = 0;
+         widgetRow < _widgetRowToSlot.size() && widgetRow < maxRows;
+         ++widgetRow) {
+        const int slot = _widgetRowToSlot[widgetRow];
+        if (slot >= 0 && slot < maxRows)
+            values[4 + slot * 4] = float(widgetRow * _cellHeight);
+    }
+    updates->updateDynamicBuffer(_placementBuffer.get(), 0,
+                                 int(values.size() * sizeof(float)),
+                                 values.constData());
+    _renderStatistics.gpuUploadBytes +=
+        quint64(values.size() * sizeof(float));
+}
+
+void TerminalRenderer::uploadAtlasChanges(QRhiResourceUpdateBatch* updates)
+{
+    if (!_atlasTexture || !updates)
+        return;
+    NovaTerm::GlyphAtlas& atlas = _glyphCache.atlas();
+    // Resource recovery/full invalidation is a separately measured cold path.
+    // Complete it atomically so no valid command samples a not-yet-resident
+    // page; ordinary incremental rects retain the configured frame budget.
+    const quint64 uploadBudget = atlas.hasFullPageUploads()
+        ? std::numeric_limits<quint64>::max() : 0;
+    const auto uploads = atlas.takeUploads(uploadBudget);
+    for (const NovaTerm::GlyphAtlasUpload& upload : uploads) {
+        QRhiTextureSubresourceUploadDescription subresource(upload.image);
+        subresource.setDestinationTopLeft(upload.rect.topLeft());
+        QRhiTextureUploadDescription description(
+            QRhiTextureUploadEntry(upload.pageId, 0, subresource));
+        updates->uploadTexture(_atlasTexture.get(), description);
+        const quint64 bytes = upload.bytes();
+        _renderStatistics.atlasUploadBytes += bytes;
+        _renderStatistics.gpuUploadBytes += bytes;
+    }
+    // Upload budgets may defer a page/rect. Ensure eventual residency even
+    // when no new terminal Damage or Overlay event arrives.
+    if (atlas.hasPendingUploads()) {
+        // QRhiWidget may coalesce update() called from inside its active
+        // render callback. Queue it onto the GUI event loop so it represents
+        // a distinct follow-up frame.
+        QMetaObject::invokeMethod(this, [this]() { requestOverlayFrame(); },
+                                  Qt::QueuedConnection);
+    }
 }
 
 void TerminalRenderer::uploadCommands(
     QRhiResourceUpdateBatch* updates,
     const QSize& pixelSize,
     const QVector<bool>& dirtyRows,
+    const QVector<QVector<NovaTerm::DirtyColumnSpan>>& dirtySpans,
     bool uploadAllRows,
     bool overlayDirty)
 {
@@ -1641,48 +1848,94 @@ void TerminalRenderer::uploadCommands(
             continue;
 
         const NovaTerm::RenderCommandRow& commands = _commandBuffer.row(row);
-        _vertices.clear();
-        _vertices.reserve(commands.backgrounds.size() * 6);
-        for (const NovaTerm::RenderCommand& command : commands.backgrounds)
-            appendCommandVertices(command, pixelSize);
-        Q_ASSERT(_vertices.size() <= _backgroundRowStrideVertices);
-        if (!_vertices.isEmpty()) {
-            const int bytes = int(_vertices.size() * sizeof(GpuVertex));
-            const int offset = row * _backgroundRowStrideVertices
-                * int(sizeof(GpuVertex));
-            updates->updateDynamicBuffer(_vertexBuffer.get(), offset, bytes,
-                                         _vertices.constData());
-            _renderStatistics.gpuUploadBytes += quint64(bytes);
-        }
+        const int slot = _widgetRowToSlot.value(row, row);
+        QVector<NovaTerm::DirtyColumnSpan> spans = uploadAllRows
+            ? QVector<NovaTerm::DirtyColumnSpan>{{0, _commandBuffer.columns()}}
+            : dirtySpans.value(row);
+        if (spans.isEmpty())
+            spans.push_back({0, _commandBuffer.columns()});
+        for (const auto& rawSpan : std::as_const(spans)) {
+            const int start = std::clamp(rawSpan.startColumn, 0,
+                                         _commandBuffer.columns());
+            const int end = std::clamp(rawSpan.endColumn, start,
+                                       _commandBuffer.columns());
+            if (start >= end)
+                continue;
+            const int cellCount = end - start;
+            _instances.fill(GpuInstance{}, cellCount);
+            for (const NovaTerm::RenderCommand& command : commands.backgrounds) {
+                if (command.cellColumn < start || command.cellColumn >= end)
+                    continue;
+                const int index = command.cellColumn - start;
+                const int oldSize = _instances.size();
+                _instances.resize(index);
+                appendCommandVertices(command, pixelSize);
+                GpuInstance value = _instances.takeLast();
+                _instances.resize(oldSize);
+                value.atlasPage = float(command.atlasPage);
+                value.rowSlot = float(slot);
+                value.flags = command.colorGlyph ? 1.0f : 0.0f;
+                _instances[index] = value;
+            }
+            const int backgroundBytes = int(_instances.size()
+                                            * sizeof(GpuInstance));
+            const int backgroundOffset =
+                (slot * _backgroundRowStrideVertices + start)
+                * int(sizeof(GpuInstance));
+            updates->updateDynamicBuffer(_vertexBuffer.get(), backgroundOffset,
+                                         backgroundBytes,
+                                         _instances.constData());
+            _renderStatistics.gpuUploadBytes += quint64(backgroundBytes);
+            _renderStatistics.contentUploadBytes += quint64(backgroundBytes);
 
-        _vertices.clear();
-        _vertices.reserve(commands.contents.size() * 6);
-        for (const NovaTerm::RenderCommand& command : commands.contents)
-            appendCommandVertices(command, pixelSize);
-        Q_ASSERT(_vertices.size() <= _contentRowStrideVertices);
-        if (!_vertices.isEmpty()) {
-            const int bytes = int(_vertices.size() * sizeof(GpuVertex));
-            const int offset =
-                (contentBase + row * _contentRowStrideVertices)
-                * int(sizeof(GpuVertex));
-            updates->updateDynamicBuffer(_vertexBuffer.get(), offset, bytes,
-                                         _vertices.constData());
-            _renderStatistics.gpuUploadBytes += quint64(bytes);
+            _instances.fill(GpuInstance{}, cellCount * 4);
+            QVector<int> perCell(cellCount, 0);
+            for (const NovaTerm::RenderCommand& command : commands.contents) {
+                if (command.cellColumn < start || command.cellColumn >= end)
+                    continue;
+                const int cell = command.cellColumn - start;
+                if (perCell[cell] >= 4)
+                    continue;
+                const int index = cell * 4 + perCell[cell]++;
+                const int oldSize = _instances.size();
+                _instances.resize(index);
+                appendCommandVertices(command, pixelSize);
+                GpuInstance value = _instances.takeLast();
+                _instances.resize(oldSize);
+                value.atlasPage = float(command.atlasPage);
+                value.rowSlot = float(slot);
+                value.flags = command.colorGlyph ? 1.0f : 0.0f;
+                _instances[index] = value;
+            }
+            const int contentBytes = int(_instances.size()
+                                         * sizeof(GpuInstance));
+            const int contentOffset =
+                (contentBase + slot * _contentRowStrideVertices + start * 4)
+                * int(sizeof(GpuInstance));
+            updates->updateDynamicBuffer(_vertexBuffer.get(), contentOffset,
+                                         contentBytes,
+                                         _instances.constData());
+            _renderStatistics.gpuUploadBytes += quint64(contentBytes);
+            _renderStatistics.contentUploadBytes += quint64(contentBytes);
         }
     }
 
     if (!overlayDirty)
         return;
-    _vertices.clear();
-    _vertices.reserve(_commandBuffer.overlays().size() * 6);
-    for (const NovaTerm::RenderCommand& command : _commandBuffer.overlays())
+    _instances.clear();
+    _instances.reserve(_commandBuffer.overlays().size());
+    for (const NovaTerm::RenderCommand& command : _commandBuffer.overlays()) {
         appendCommandVertices(command, pixelSize);
-    _overlayVertexCount = _vertices.size();
-    if (!_vertices.isEmpty()) {
-        const int bytes = int(_vertices.size() * sizeof(GpuVertex));
-        const int offset = _overlayBaseVertex * int(sizeof(GpuVertex));
+        _instances.last().atlasPage = float(command.atlasPage);
+        _instances.last().rowSlot = -1.0f;
+        _instances.last().flags = command.colorGlyph ? 1.0f : 0.0f;
+    }
+    _overlayVertexCount = _instances.size();
+    if (!_instances.isEmpty()) {
+        const int bytes = int(_instances.size() * sizeof(GpuInstance));
+        const int offset = _overlayBaseVertex * int(sizeof(GpuInstance));
         updates->updateDynamicBuffer(_vertexBuffer.get(), offset, bytes,
-                                     _vertices.constData());
+                                     _instances.constData());
         _renderStatistics.gpuUploadBytes += quint64(bytes);
     }
 }

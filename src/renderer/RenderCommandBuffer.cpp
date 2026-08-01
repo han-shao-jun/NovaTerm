@@ -3,6 +3,7 @@
 #include <QtGlobal>
 
 #include <utility>
+#include <algorithm>
 
 namespace NovaTerm {
 
@@ -21,6 +22,8 @@ void RenderCommandBuffer::resize(int rows, int columns)
         row.contents.clear();
         row.revision = ++_revision;
         row.atlasGeneration = 0;
+        row.contentRevision = 0;
+        row.dirtySpans.clear();
     }
     _overlays.clear();
     ++_revision;
@@ -36,7 +39,9 @@ void RenderCommandBuffer::replaceRow(
     int index,
     QVector<RenderCommand> backgrounds,
     QVector<RenderCommand> contents,
-    quint64 atlasGeneration)
+    quint64 atlasGeneration,
+    quint64 contentRevision,
+    QVector<DirtyColumnSpan> dirtySpans)
 {
     if (index < 0 || index >= _rowCommands.size())
         return;
@@ -46,12 +51,30 @@ void RenderCommandBuffer::replaceRow(
     destination.contents = std::move(contents);
     destination.revision = ++_revision;
     destination.atlasGeneration = atlasGeneration;
+    destination.contentRevision = contentRevision;
+    destination.dirtySpans = std::move(dirtySpans);
 }
 
 void RenderCommandBuffer::replaceOverlays(QVector<RenderCommand> overlays)
 {
     _overlays = std::move(overlays);
     ++_revision;
+}
+
+void RenderCommandBuffer::rotateRowsUp(int count)
+{
+    if (_rowCommands.isEmpty())
+        return;
+    count = qBound(0, count, _rowCommands.size());
+    if (count == 0)
+        return;
+    std::rotate(_rowCommands.begin(), _rowCommands.begin() + count,
+                _rowCommands.end());
+    for (int row = _rowCommands.size() - count;
+         row < _rowCommands.size(); ++row) {
+        _rowCommands[row] = RenderCommandRow{};
+        _rowCommands[row].revision = ++_revision;
+    }
 }
 
 qsizetype RenderCommandBuffer::commandCount() const

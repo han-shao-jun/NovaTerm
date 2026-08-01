@@ -314,6 +314,17 @@ set(CMAKE_CTEST_ARGUMENTS
 include(CTest)
 option(NOVATERM_BUILD_BENCHMARKS "Build NovaTerm performance baseline tools" ON)
 
+set(NOVATERM_P5_RENDERER_SOURCES
+    src/renderer/font/FontManager.cpp
+    src/renderer/glyph/GlyphAtlas.cpp
+    src/renderer/glyph/GlyphCache.cpp
+    src/renderer/glyph/GlyphRasterizer.cpp
+    src/renderer/gpu/BufferBudget.cpp
+    src/renderer/gpu/MaterialBatcher.cpp
+    src/renderer/gpu/RendererCapabilities.cpp
+    src/renderer/gpu/RowSlotMap.cpp
+)
+
 if(BUILD_TESTING)
     # 提供一个输出更完整的统一测试入口：
     #   cmake --build <build-dir> --target check
@@ -378,6 +389,7 @@ if(BUILD_TESTING)
         src/renderer/TerminalColorScheme.h
         src/renderer/TerminalRenderer.cpp
         src/renderer/TerminalRenderer.h
+        ${NOVATERM_P5_RENDERER_SOURCES}
     )
     target_include_directories(novaterm_renderer_tests PRIVATE
         src
@@ -399,6 +411,33 @@ if(BUILD_TESTING)
     )
     add_dependencies(check novaterm_renderer_tests)
 
+    add_executable(novaterm_renderer_p5_tests
+        tests/renderer/RendererP5Tests.cpp
+        src/renderer/RenderCommandBuffer.cpp
+        src/renderer/font/FontManager.cpp
+        src/renderer/glyph/GlyphAtlas.cpp
+        src/renderer/glyph/GlyphCache.cpp
+        src/renderer/glyph/GlyphRasterizer.cpp
+        src/renderer/gpu/BufferBudget.cpp
+        src/renderer/gpu/MaterialBatcher.cpp
+        src/renderer/gpu/RowSlotMap.cpp
+    )
+    target_include_directories(novaterm_renderer_p5_tests PRIVATE src)
+    target_link_libraries(novaterm_renderer_p5_tests
+        PRIVATE
+            Qt${QT_VERSION_MAJOR}::Core
+            Qt${QT_VERSION_MAJOR}::Gui
+            Qt${QT_VERSION_MAJOR}::Test
+    )
+    add_test(NAME novaterm_renderer_p5_tests
+             COMMAND novaterm_renderer_p5_tests)
+    set_tests_properties(novaterm_renderer_p5_tests PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+        LABELS "unit;renderer;p5"
+        TIMEOUT 60
+    )
+    add_dependencies(check novaterm_renderer_p5_tests)
+
     if(WIN32)
         add_executable(novaterm_terminal_session_tests
             tests/renderer/TerminalSessionSmokeTests.cpp
@@ -410,6 +449,7 @@ if(BUILD_TESTING)
             src/renderer/TerminalColorScheme.h
             src/renderer/TerminalRenderer.cpp
             src/renderer/TerminalRenderer.h
+            ${NOVATERM_P5_RENDERER_SOURCES}
             src/transport/ITransport.h
             src/transport/LocalShellTransport.cpp
             src/transport/LocalShellTransport.h
@@ -457,6 +497,32 @@ if(BUILD_TESTING)
 endif()
 
 if(NOVATERM_BUILD_BENCHMARKS)
+    add_executable(novaterm_renderer_p5_gpu_benchmark
+        tests/benchmarks/RendererP5GpuBenchmark.cpp
+        src/renderer/RenderCommandBuffer.cpp
+        src/renderer/RenderScheduler.cpp
+        src/renderer/TerminalColorScheme.cpp
+        src/renderer/TerminalRenderer.cpp
+        ${NOVATERM_P5_RENDERER_SOURCES}
+    )
+    target_include_directories(novaterm_renderer_p5_gpu_benchmark PRIVATE
+        src
+        "${CMAKE_PREFIX_PATH}/include/QtGui/${Qt6_VERSION}/QtGui"
+    )
+    target_link_libraries(novaterm_renderer_p5_gpu_benchmark PRIVATE
+        novaterm_core
+        Qt${QT_VERSION_MAJOR}::Core
+        Qt${QT_VERSION_MAJOR}::Gui
+        Qt${QT_VERSION_MAJOR}::Widgets
+    )
+    qt_add_shaders(novaterm_renderer_p5_gpu_benchmark
+        novaterm_renderer_p5_gpu_benchmark_shaders
+        PREFIX "/shaders"
+        FILES
+            src/renderer/shaders/terminal_texture.vert
+            src/renderer/shaders/terminal_texture.frag
+    )
+
     add_executable(novaterm_renderer_p3_gpu_benchmark
         tests/benchmarks/RendererP3GpuBenchmark.cpp
         src/renderer/RenderCommandBuffer.cpp
@@ -467,6 +533,7 @@ if(NOVATERM_BUILD_BENCHMARKS)
         src/renderer/TerminalColorScheme.h
         src/renderer/TerminalRenderer.cpp
         src/renderer/TerminalRenderer.h
+        ${NOVATERM_P5_RENDERER_SOURCES}
     )
     target_include_directories(novaterm_renderer_p3_gpu_benchmark PRIVATE
         src

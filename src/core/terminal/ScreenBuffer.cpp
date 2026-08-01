@@ -101,7 +101,10 @@ const Cell* RendererSnapshot::cellAt(int widgetRow, int column) const
 {
     if (widgetRow < 0 || widgetRow >= visibleRows.size())
         return nullptr;
-    const QVector<Cell>& row = visibleRows[widgetRow];
+    const auto& sharedRow = visibleRows[widgetRow];
+    if (!sharedRow)
+        return nullptr;
+    const QVector<Cell>& row = *sharedRow;
     if (column < 0 || column >= row.size())
         return nullptr;
     return &row[column];

@@ -24,6 +24,7 @@ private slots:
     void modelPublicationsHaveMonotonicRevisions();
     void rendererSnapshotCopiesOnlyDirtyRows();
     void rendererSnapshotPublishesPerRowRevisions();
+    void rendererSnapshotRowsRemainImmutableAcrossPublication();
     void publishesTerminalTitle();
     void scrollbackKeepsNewestLines();
     void softWrappedRowsBecomeOneLogicalHistoryLine();
@@ -194,6 +195,30 @@ void TerminalCoreTests::rendererSnapshotPublishesPerRowRevisions()
     QVERIFY(snapshot.revision > firstRevision);
     QCOMPARE(snapshot.visibleRowRevisions[2], snapshot.revision);
     QVERIFY(snapshot.visibleRowRevisions[1] < snapshot.revision);
+}
+
+void TerminalCoreTests::rendererSnapshotRowsRemainImmutableAcrossPublication()
+{
+    TerminalCore core(20, 4);
+    core.writeInput(QByteArrayLiteral("A"));
+    QVERIFY(core.waitForIdle());
+    QVector<bool> dirtyRows(4, false);
+    dirtyRows[0] = true;
+    const auto before = core.rendererSnapshot(dirtyRows, 0);
+    QVERIFY(before.visibleRows[0]);
+    const auto retainedRow = before.visibleRows[0];
+    const quint64 beforeIdentity = before.visibleRowIdentities[0];
+
+    core.writeInput(QByteArrayLiteral("\rB"));
+    QVERIFY(core.waitForIdle());
+    const auto after = core.rendererSnapshot(dirtyRows, 0);
+
+    QCOMPARE(retainedRow->at(0).chars[0], uint32_t('A'));
+    QCOMPARE(before.cellAt(0, 0)->chars[0], uint32_t('A'));
+    QCOMPARE(after.cellAt(0, 0)->chars[0], uint32_t('B'));
+    QVERIFY(after.visibleRows[0] != retainedRow);
+    QVERIFY(after.visibleRowIdentities[0] != beforeIdentity);
+    QVERIFY(after.revision > before.revision);
 }
 
 void TerminalCoreTests::publishesTerminalTitle()

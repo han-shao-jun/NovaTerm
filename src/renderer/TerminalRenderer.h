@@ -16,6 +16,12 @@
 #include "RenderCommandBuffer.h"
 #include "RenderScheduler.h"
 #include "TerminalColorScheme.h"
+#include "font/FontManager.h"
+#include "glyph/GlyphCache.h"
+#include "glyph/GlyphRasterizer.h"
+#include "gpu/BufferBudget.h"
+#include "gpu/RendererCapabilities.h"
+#include "gpu/RowSlotMap.h"
 
 class TerminalCore;
 class QRhi;
@@ -44,6 +50,8 @@ public:
         quint64 commandGenerationNanoseconds{0};
         quint64 cpuFrameNanoseconds{0};
         quint64 gpuUploadBytes{0};
+        quint64 contentUploadBytes{0};
+        quint64 atlasUploadBytes{0};
         quint64 drawCalls{0};
         quint64 vertexBufferReallocations{0};
         quint64 revisionPromotedFullFrames{0};
@@ -54,6 +62,19 @@ public:
         quint64 cpuFrameP50Nanoseconds{0};
         quint64 cpuFrameP95Nanoseconds{0};
         quint64 cpuFrameP99Nanoseconds{0};
+        quint64 dirtyBlocksRebuilt{0};
+        quint64 mappingOnlyUpdates{0};
+        quint64 rowSlotsReused{0};
+        quint64 rowSlotsCreated{0};
+        quint64 glyphCacheHits{0};
+        quint64 glyphCacheMisses{0};
+        quint64 glyphRasters{0};
+        quint64 glyphEvictions{0};
+        quint64 bufferCurrentBytes{0};
+        quint64 bufferPeakBytes{0};
+        quint64 memoryPeakBytes{0};
+        quint64 capabilityFallbacks{0};
+        quint64 viewportMappingRevision{0};
     };
 
     explicit TerminalRenderer(TerminalCore* core, QWidget* parent = nullptr);
@@ -116,22 +137,24 @@ protected:
     bool focusNextPrevChild(bool next) override;
 
 private:
-    struct GpuVertex
+    struct GpuInstance
     {
-        float x;
-        float y;
-        float u;
-        float v;
+        float left;
+        float top;
+        float right;
+        float bottom;
+        float u0;
+        float v0;
+        float u1;
+        float v1;
         float r;
         float g;
         float b;
         float a;
-    };
-
-    struct GlyphEntry
-    {
-        QRect pixelRect;
-        QRectF logicalRect;
+        float atlasPage;
+        float rowSlot;
+        float flags;
+        float reserved;
     };
 
     // ── 渲染辅助 ──────────────────────────────────────────────
@@ -145,9 +168,11 @@ private:
 
     bool rebuildCommandRows(const NovaTerm::RendererSnapshot& screen,
                             const QVector<bool>& dirtyRows,
+                            const QVector<QVector<NovaTerm::DirtyColumnSpan>>& dirtySpans,
                             quint64& commandsGenerated);
     void rebuildCommandRow(int widgetRow,
-                           const NovaTerm::RendererSnapshot& screen);
+                           const NovaTerm::RendererSnapshot& screen,
+                           const QVector<NovaTerm::DirtyColumnSpan>& dirtySpans);
     quint64 rebuildOverlays(const NovaTerm::CursorState& cursor);
     void appendCellCommands(qreal x, qreal y, const NovaTerm::Cell& cell,
                             QVector<NovaTerm::RenderCommand>& backgrounds,
@@ -168,7 +193,8 @@ private:
                             const QColor& color, const QSize& pixelSize);
     void appendQuad(const QRectF& rect, const QRectF& uvRect,
                     const QColor& color, const QSize& pixelSize);
-    const GlyphEntry& ensureGlyph(const QString& text, bool bold, int cellSpan);
+    NovaTerm::GlyphLocation ensureGlyph(const QString& text, bool bold,
+                                        int cellSpan);
     void resetGlyphAtlas();
 
 
@@ -186,9 +212,13 @@ private:
     void requestOverlayFrame();
     void scheduleReflow();
     bool ensureVertexBuffer(int rows, int columns);
+    void updatePlacementBuffer(QRhiResourceUpdateBatch* updates,
+                               const QSize& pixelSize);
+    void uploadAtlasChanges(QRhiResourceUpdateBatch* updates);
     void uploadCommands(QRhiResourceUpdateBatch* updates,
                         const QSize& pixelSize,
                         const QVector<bool>& dirtyRows,
+                        const QVector<QVector<NovaTerm::DirtyColumnSpan>>& dirtySpans,
                         bool uploadAllRows,
                         bool overlayDirty);
     void recordCpuFrame(quint64 elapsedNanoseconds);
@@ -198,6 +228,11 @@ private:
 
     QFont _font;
     QFontMetricsF* _fm{nullptr};
+    NovaTerm::FontManager _fontManager;
+    NovaTerm::GlyphRasterizer _glyphRasterizer;
+    NovaTerm::BoundedGlyphRasterQueue _glyphRasterQueue{512};
+    NovaTerm::GlyphCache _glyphCache;
+    NovaTerm::GlyphLocation _solidGlyph;
     // Keep the font's fractional advances.  Rounding every cell separately
     // makes the error accumulate across a line (Cascadia Mono at 16 px is
     // typically 9.6 px wide, not 10 px).
@@ -231,15 +266,17 @@ private:
     int _zoomWheelAccum{0};
 
     QRhi* _rhi{nullptr};
-    QImage _atlasImage;
-    QHash<QString, GlyphEntry> _glyphs;
-    int _atlasX{1};
-    int _atlasY{1};
-    int _atlasRowHeight{0};
-    bool _atlasDirty{true};
     quint64 _atlasGeneration{0};
     qreal _atlasDpr{0.0};
-    QVector<GpuVertex> _vertices;
+    quint64 _frameNumber{0};
+    QVector<GpuInstance> _instances;
+    NovaTerm::BufferBudget _bufferBudget;
+    NovaTerm::RendererCapabilities _capabilities;
+    NovaTerm::RowSlotMap _rowSlotMap;
+    QVector<int> _widgetRowToSlot;
+    QVector<quint64> _rowContentIdentities;
+    quint64 _viewportMappingRevision{0};
+    int _pendingLiveScrollRows{0};
     NovaTerm::RenderCommandBuffer _commandBuffer;
     // QRhi may consume a frame while queued terminal damage is being
     // published. Protect the hand-off and never iterate the live queue.
@@ -251,6 +288,7 @@ private:
     int _overlayCapacityVertices{0};
     int _overlayVertexCount{0};
     bool _fullFramePending{true};
+    bool _explicitFullPending{true};
     bool _overlayPending{true};
     quint64 _pendingContentRevision{0};
     RenderStatistics _renderStatistics;
@@ -260,6 +298,7 @@ private:
     std::unique_ptr<QRhiTexture> _atlasTexture;
     std::unique_ptr<QRhiSampler> _sampler;
     std::unique_ptr<QRhiBuffer> _vertexBuffer;
+    std::unique_ptr<QRhiBuffer> _placementBuffer;
     std::unique_ptr<QRhiShaderResourceBindings> _srb;
     std::unique_ptr<QRhiGraphicsPipeline> _pipeline;
 };

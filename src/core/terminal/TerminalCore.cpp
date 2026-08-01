@@ -57,6 +57,47 @@ struct ParserCommand
     uint64_t byteBarrier{0};
 };
 
+quint64 rowContentIdentity(const NovaTerm::Cell* cells, int columns)
+{
+    quint64 hash = 1469598103934665603ull;
+    const auto mix = [&hash](quint64 value) {
+        hash ^= value;
+        hash *= 1099511628211ull;
+    };
+    for (int column = 0; cells && column < columns; ++column) {
+        const NovaTerm::Cell& cell = cells[column];
+        for (uint32_t scalar : cell.chars)
+            mix(scalar);
+        mix(cell.width);
+        mix(quint8(cell.foreground.type));
+        mix(cell.foreground.index);
+        mix(cell.foreground.red | (cell.foreground.green << 8)
+            | (cell.foreground.blue << 16));
+        mix(quint8(cell.background.type));
+        mix(cell.background.index);
+        mix(cell.background.red | (cell.background.green << 8)
+            | (cell.background.blue << 16));
+        const auto& a = cell.attributes;
+        quint64 attributes = a.bold
+            | (quint64(a.underline) << 1)
+            | (quint64(a.italic) << 2)
+            | (quint64(a.blink) << 3)
+            | (quint64(a.reverse) << 4)
+            | (quint64(a.strike) << 5)
+            | (quint64(a.font) << 6)
+            | (quint64(a.dwl) << 7)
+            | (quint64(a.dhl) << 8)
+            | (quint64(a.smallFont) << 9)
+            | (quint64(a.baseline) << 10)
+            | (quint64(a.protectedCell) << 11)
+            | (quint64(a.dim) << 12)
+            | (quint64(a.conceal) << 13)
+            | (quint64(a.underlineStyle) << 14);
+        mix(attributes);
+    }
+    return hash;
+}
+
 } // namespace
 
 class TerminalCore::Runtime
@@ -635,6 +676,7 @@ NovaTerm::RendererSnapshot TerminalCore::rendererSnapshot(
     snapshot.rows = _runtime->screen.rows();
     snapshot.cursor = _runtime->cursor;
     snapshot.visibleRowRevisions.resize(snapshot.rows);
+    snapshot.visibleRowIdentities.resize(snapshot.rows);
     snapshot.visibleRows.resize(snapshot.rows);
 
     const bool copyAllRows = dirtyRows.size() != snapshot.rows;
@@ -661,9 +703,15 @@ NovaTerm::RendererSnapshot TerminalCore::rendererSnapshot(
             && screenRow < _runtime->rowRevisions.size()
             ? _runtime->rowRevisions[screenRow]
             : _runtime->modelRevision;
-        if (!copyAllRows && !dirtyRows[widgetRow])
+        if (!copyAllRows && !dirtyRows[widgetRow]) {
+            if (screenRow >= 0)
+                snapshot.visibleRowIdentities[widgetRow] =
+                    rowContentIdentity(
+                        _runtime->screen.cellAt(screenRow, 0),
+                        snapshot.columns);
             continue;
-        QVector<NovaTerm::Cell>& destination = snapshot.visibleRows[widgetRow];
+        }
+        QVector<NovaTerm::Cell> destination;
         destination.resize(snapshot.columns);
         if (screenRow < 0) {
             if (widgetRow < historyViewport.rows.size()) {
@@ -676,11 +724,19 @@ NovaTerm::RendererSnapshot TerminalCore::rendererSnapshot(
                                 count, destination.begin());
                 }
             }
+            snapshot.visibleRows[widgetRow] =
+                QSharedPointer<const QVector<NovaTerm::Cell>>::create(
+                    std::move(destination));
             continue;
         }
         const NovaTerm::Cell* source = _runtime->screen.cellAt(screenRow, 0);
         if (source)
             std::copy_n(source, snapshot.columns, destination.begin());
+        snapshot.visibleRowIdentities[widgetRow] =
+            rowContentIdentity(destination.constData(), destination.size());
+        snapshot.visibleRows[widgetRow] =
+            QSharedPointer<const QVector<NovaTerm::Cell>>::create(
+                std::move(destination));
     }
     return snapshot;
 }

@@ -40,7 +40,7 @@ flowchart TB
     C -->|hit| CMD[GlyphInstance]
 ```
 
-P5 前当前 Atlas 仍有整图上传和单一缓存实现限制。P5 需要多页、LRU、局部上传、CJK fallback、组合字符、Emoji、高 DPI 和资源失效测试。
+P5 的多页 Atlas、LRU、局部上传、CJK fallback、组合字符、Emoji、DPI/generation 失效与资源恢复已完成 Linux Vulkan/OpenGL 本机验收；跨平台、多档真实 DPR 与长稳验收状态以 P5 阶段文档为准。
 
 ## 6. 退化与恢复
 
@@ -53,4 +53,3 @@ P5 前当前 Atlas 仍有整图上传和单一缓存实现限制。P5 需要多�
 ## 7. 指标
 
 记录原始/合并 Dirty 数、调度/合并/全屏帧、重建行、命令数、命令生成时间、CPU 帧时间、上传字节、Draw Call 和 Buffer 重分配。GPU 时间应使用后端时间戳或外部工具测量，禁止为统计引入同步等待。
-

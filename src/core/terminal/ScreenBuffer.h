@@ -3,6 +3,7 @@
 #include "TerminalTypes.h"
 
 #include <QVector>
+#include <QSharedPointer>
 
 namespace NovaTerm {
 
@@ -51,7 +52,11 @@ struct RendererSnapshot
     int columns{0};
     int rows{0};
     QVector<quint64> visibleRowRevisions;
-    QVector<QVector<Cell>> visibleRows;
+    // Stable content fingerprints are calculated under the model lock. They
+    // let the renderer prove row reuse across a screen-ring rotation without
+    // treating a mutable array index as identity.
+    QVector<quint64> visibleRowIdentities;
+    QVector<QSharedPointer<const QVector<Cell>>> visibleRows;
     CursorState cursor;
 
     const Cell* cellAt(int widgetRow, int column) const;
