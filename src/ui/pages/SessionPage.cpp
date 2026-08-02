@@ -3,10 +3,55 @@
 #include "ElaPushButton.h"
 #include "ElaText.h"
 #include "service/LanguageManager.h"
+#include "transport/serialport_info.h"
 #include "ElaTabWidget.h"
-#include <QTabWidget>
+#include <QFileDialog>
 #include <QHBoxLayout>
+#include <QIntValidator>
+#include <QLineEdit>
+#include <QRegularExpression>
+#include <QRegularExpressionValidator>
+#include <QSerialPort>
+#include <QSignalBlocker>
 #include <QVBoxLayout>
+
+namespace {
+
+void setIpv4Validator(QLineEdit* lineEdit)
+{
+    static const QRegularExpression ipv4Pattern(QStringLiteral(
+        R"(^(?:(?:25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])\.){3}(?:25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])$)"));
+
+    lineEdit->setMaxLength(15);
+    lineEdit->setValidator(new QRegularExpressionValidator(ipv4Pattern, lineEdit));
+}
+
+ElaText* addFormLabel(QGridLayout* grid, int row, const QString& text,
+                      QWidget* parent)
+{
+    auto* label = new ElaText(text, parent);
+    label->setWordWrap(false);
+    label->setTextPixelSize(15);
+    grid->addWidget(label, row, 0, Qt::AlignVCenter);
+    return label;
+}
+
+void configurePortSpinBox(ElaSpinBox* spinBox, int defaultPort)
+{
+    spinBox->setRange(1, 65535);
+    spinBox->setValue(defaultPort);
+    spinBox->setAlignment(Qt::AlignLeft);
+}
+
+void populateTerminalTypes(ElaComboBox* comboBox)
+{
+    comboBox->setEditable(true);
+    comboBox->addItems({QStringLiteral("xterm-256color"),
+                        QStringLiteral("xterm"),
+                        QStringLiteral("vt100")});
+}
+
+} // namespace
 
 SessionPage::SessionPage(QWidget* parent)
     : ElaScrollPage(parent)
@@ -99,7 +144,7 @@ void SessionPage::initShellUi()
     grid->addWidget(localLabel, 1, 0, Qt::AlignVCenter);
 
     _shellLabel = new ElaLineEdit(page);
-    _shellLabel->setText("sss");
+    _shellLabel->setPlaceholderText(tr("Optional session name"));
     grid->addWidget(_shellLabel, 1, 1);
 
     grid->setRowStretch(2, 1);      // 尾部留白
@@ -118,47 +163,94 @@ void SessionPage::initSshUi()
     grid->setVerticalSpacing(12);
     grid->setColumnStretch(1, 1);
 
-    // IP
-    auto* ipLabel = new ElaText(tr("IP"), page);
-    ipLabel->setWordWrap(false);
-    ipLabel->setTextPixelSize(15);
-    grid->addWidget(ipLabel, 0, 0, Qt::AlignVCenter);
-
+    // Connection
+    addFormLabel(grid, 0, tr("IPv4 Address"), page);
     _sshIp = new ElaLineEdit(page);
-    _sshIp->setText("_ip");
+    _sshIp->setPlaceholderText(tr("IPv4 address, e.g. 192.168.0.1"));
+    _sshIp->setClearButtonEnabled(true);
+    setIpv4Validator(_sshIp);
     grid->addWidget(_sshIp, 0, 1);
 
-    // 用户名
-    auto* userNameLabel = new ElaText(tr("User Name"), page);
-    userNameLabel->setWordWrap(false);
-    userNameLabel->setTextPixelSize(15);
-    grid->addWidget(userNameLabel, 1, 0, Qt::AlignVCenter);
+    addFormLabel(grid, 1, tr("Port"), page);
+    _sshPort = new ElaSpinBox(page);
+    configurePortSpinBox(_sshPort, 22);
+    grid->addWidget(_sshPort, 1, 1);
 
+    // Authentication
+    addFormLabel(grid, 2, tr("User Name"), page);
     _sshUserName = new ElaLineEdit(page);
-    _sshUserName->setText("_userName");
-    grid->addWidget(_sshUserName, 1, 1);
+    _sshUserName->setPlaceholderText(tr("User name"));
+    _sshUserName->setClearButtonEnabled(true);
+    grid->addWidget(_sshUserName, 2, 1);
 
-    // 密码
-    auto* passwordLabel = new ElaText(tr("Password"), page);
-    passwordLabel->setWordWrap(false);
-    passwordLabel->setTextPixelSize(15);
-    grid->addWidget(passwordLabel, 2, 0, Qt::AlignVCenter);
+    addFormLabel(grid, 3, tr("Authentication"), page);
+    _sshAuthMethod = new ElaComboBox(page);
+    _sshAuthMethod->addItem(tr("Password"), QStringLiteral("password"));
+    _sshAuthMethod->addItem(tr("Private Key"), QStringLiteral("publickey"));
+    grid->addWidget(_sshAuthMethod, 3, 1);
 
+    addFormLabel(grid, 4, tr("Password"), page);
     _sshPassword = new ElaLineEdit(page);
-    _sshPassword->setText("_password");
-    grid->addWidget(_sshPassword, 2, 1);
+    _sshPassword->setPlaceholderText(tr("Password"));
+    _sshPassword->setEchoMode(QLineEdit::Password);
+    grid->addWidget(_sshPassword, 4, 1);
 
-    // 标签
-    auto* sshLabelHint = new ElaText(tr("Label"), page);
-    sshLabelHint->setWordWrap(false);
-    sshLabelHint->setTextPixelSize(15);
-    grid->addWidget(sshLabelHint, 3, 0, Qt::AlignVCenter);
+    addFormLabel(grid, 5, tr("Private Key"), page);
+    auto* privateKeyLayout = new QHBoxLayout();
+    privateKeyLayout->setContentsMargins(0, 0, 0, 0);
+    privateKeyLayout->setSpacing(8);
+    _sshPrivateKey = new ElaLineEdit(page);
+    _sshPrivateKey->setPlaceholderText(tr("Private key file"));
+    _sshPrivateKey->setClearButtonEnabled(true);
+    auto* browseKeyButton = new ElaPushButton(tr("Browse..."), page);
+    privateKeyLayout->addWidget(_sshPrivateKey, 1);
+    privateKeyLayout->addWidget(browseKeyButton);
+    grid->addLayout(privateKeyLayout, 5, 1);
 
+    addFormLabel(grid, 6, tr("Key Passphrase"), page);
+    _sshKeyPassphrase = new ElaLineEdit(page);
+    _sshKeyPassphrase->setPlaceholderText(tr("Optional passphrase"));
+    _sshKeyPassphrase->setEchoMode(QLineEdit::Password);
+    grid->addWidget(_sshKeyPassphrase, 6, 1);
+
+    // Terminal behavior
+    addFormLabel(grid, 7, tr("Terminal Type"), page);
+    _sshTerminalType = new ElaComboBox(page);
+    populateTerminalTypes(_sshTerminalType);
+    grid->addWidget(_sshTerminalType, 7, 1);
+
+    addFormLabel(grid, 8, tr("Keep Alive"), page);
+    _sshKeepAlive = new ElaSpinBox(page);
+    _sshKeepAlive->setRange(0, 3600);
+    _sshKeepAlive->setValue(30);
+    _sshKeepAlive->setSuffix(tr(" s"));
+    _sshKeepAlive->setSpecialValueText(tr("Disabled"));
+    grid->addWidget(_sshKeepAlive, 8, 1);
+
+    addFormLabel(grid, 9, tr("Label"), page);
     _sshLabel = new ElaLineEdit(page);
-    _sshLabel->setText("sss");
-    grid->addWidget(_sshLabel, 3, 1);
+    _sshLabel->setPlaceholderText(tr("Optional session name"));
+    grid->addWidget(_sshLabel, 9, 1);
 
-    grid->setRowStretch(4, 1);
+    const auto updateAuthenticationFields = [this, browseKeyButton](int index) {
+        const bool usePrivateKey = index == 1;
+        _sshPassword->setEnabled(!usePrivateKey);
+        _sshPrivateKey->setEnabled(usePrivateKey);
+        _sshKeyPassphrase->setEnabled(usePrivateKey);
+        browseKeyButton->setEnabled(usePrivateKey);
+    };
+    connect(_sshAuthMethod, qOverload<int>(&QComboBox::currentIndexChanged),
+            this, updateAuthenticationFields);
+    connect(browseKeyButton, &QPushButton::clicked, this, [this, page]() {
+        const QString path = QFileDialog::getOpenFileName(
+            page, tr("Select SSH Private Key"), QString(),
+            tr("Private keys (*)"));
+        if (!path.isEmpty())
+            _sshPrivateKey->setText(path);
+    });
+    updateAuthenticationFields(_sshAuthMethod->currentIndex());
+
+    grid->setRowStretch(10, 1);
 
     _tabWidget->addTab(page, tr("ssh"));
 }
@@ -175,77 +267,102 @@ void SessionPage::initSerialUi()
     grid->setVerticalSpacing(12);
     grid->setColumnStretch(1, 1);
 
-    // 串口号
-    auto* portLabel = new ElaText(tr("Port Num"), page);
-    portLabel->setWordWrap(false);
-    portLabel->setTextPixelSize(15);
-    grid->addWidget(portLabel, 0, 0, Qt::AlignVCenter);
-
+    // Serial device and framing
+    addFormLabel(grid, 0, tr("Port"), page);
     _portCombo = new ElaComboBox(page);
-    _portCombo->addItem("sss");
-    _portCombo->addItem("sss");
-    _portCombo->addItem("sss");
     grid->addWidget(_portCombo, 0, 1);
 
-    // 波特率
-    auto* baudRateLabel = new ElaText(tr("Baud Rate"), page);
-    baudRateLabel->setWordWrap(false);
-    baudRateLabel->setTextPixelSize(15);
-    grid->addWidget(baudRateLabel, 1, 0, Qt::AlignVCenter);
+    const auto refreshSerialPorts = [this](const QStringList& ports,
+                                           bool preserveSelection) {
+        const QString selectedPort =
+            _portCombo->currentText().section(QLatin1Char(':'), 0, 0);
+        const QSignalBlocker blocker(_portCombo);
 
+        _portCombo->clear();
+        _portCombo->addItems(ports);
+        _portCombo->setPlaceholderText(
+            ports.isEmpty() ? tr("No serial ports detected")
+                            : tr("Select a serial port"));
+
+        if (!preserveSelection) {
+            _portCombo->setCurrentIndex(ports.isEmpty() ? -1 : 0);
+            return;
+        }
+
+        int selectedIndex = -1;
+        for (int index = 0; index < ports.size(); ++index) {
+            const QString port = ports.at(index).section(QLatin1Char(':'), 0, 0);
+            if (port == selectedPort) {
+                selectedIndex = index;
+                break;
+            }
+        }
+        _portCombo->setCurrentIndex(selectedIndex);
+    };
+
+    auto* serialPortInfo = new SerialPortInfo(page);
+    connect(serialPortInfo, &SerialPortInfo::update, this,
+            [refreshSerialPorts](const QStringList& ports) {
+                refreshSerialPorts(ports, true);
+            });
+    refreshSerialPorts(SerialPortInfo::availablePorts(), false);
+
+    addFormLabel(grid, 1, tr("Baud Rate"), page);
     _baudRateCombo = new ElaComboBox(page);
-    _baudRateCombo->addItem("sss");
-    _baudRateCombo->addItem("sss");
-    _baudRateCombo->addItem("sss");
+    _baudRateCombo->setEditable(true);
+    _baudRateCombo->setInsertPolicy(QComboBox::NoInsert);
+    _baudRateCombo->addItems({QStringLiteral("110"), QStringLiteral("300"),
+                              QStringLiteral("600"), QStringLiteral("1200"),
+                              QStringLiteral("2400"), QStringLiteral("4800"),
+                              QStringLiteral("9600"), QStringLiteral("19200"),
+                              QStringLiteral("38400"), QStringLiteral("57600"),
+                              QStringLiteral("115200"), QStringLiteral("230400"),
+                              QStringLiteral("460800"), QStringLiteral("921600")});
+    _baudRateCombo->lineEdit()->setValidator(
+        new QIntValidator(1, 4000000, _baudRateCombo));
+    _baudRateCombo->setCurrentText(QStringLiteral("115200"));
     grid->addWidget(_baudRateCombo, 1, 1);
 
-    // 校验位
-    auto* checkLabel = new ElaText(tr("Check"), page);
-    checkLabel->setWordWrap(false);
-    checkLabel->setTextPixelSize(15);
-    grid->addWidget(checkLabel, 2, 0, Qt::AlignVCenter);
-
+    addFormLabel(grid, 2, tr("Parity"), page);
     _parityCombo = new ElaComboBox(page);
-    _parityCombo->addItem("sss");
-    _parityCombo->addItem("sss");
-    _parityCombo->addItem("sss");
+    _parityCombo->addItem(tr("None"), QSerialPort::NoParity);
+    _parityCombo->addItem(tr("Even"), QSerialPort::EvenParity);
+    _parityCombo->addItem(tr("Odd"), QSerialPort::OddParity);
+    _parityCombo->addItem(tr("Mark"), QSerialPort::MarkParity);
+    _parityCombo->addItem(tr("Space"), QSerialPort::SpaceParity);
     grid->addWidget(_parityCombo, 2, 1);
 
-    // 数据位
-    auto* dataBitsLabel = new ElaText(tr("Data Bits"), page);
-    dataBitsLabel->setWordWrap(false);
-    dataBitsLabel->setTextPixelSize(15);
-    grid->addWidget(dataBitsLabel, 3, 0, Qt::AlignVCenter);
-
+    addFormLabel(grid, 3, tr("Data Bits"), page);
     _dataBitsCombo = new ElaComboBox(page);
-    _dataBitsCombo->addItem("sss");
-    _dataBitsCombo->addItem("sss");
-    _dataBitsCombo->addItem("sss");
+    _dataBitsCombo->addItem(QStringLiteral("5"), QSerialPort::Data5);
+    _dataBitsCombo->addItem(QStringLiteral("6"), QSerialPort::Data6);
+    _dataBitsCombo->addItem(QStringLiteral("7"), QSerialPort::Data7);
+    _dataBitsCombo->addItem(QStringLiteral("8"), QSerialPort::Data8);
+    _dataBitsCombo->setCurrentIndex(3);
     grid->addWidget(_dataBitsCombo, 3, 1);
 
-    // 停止位
-    auto* stopBitsLabel = new ElaText(tr("Stop Bits"), page);
-    stopBitsLabel->setWordWrap(false);
-    stopBitsLabel->setTextPixelSize(15);
-    grid->addWidget(stopBitsLabel, 4, 0, Qt::AlignVCenter);
-
+    addFormLabel(grid, 4, tr("Stop Bits"), page);
     _stopBitsCombo = new ElaComboBox(page);
-    _stopBitsCombo->addItem("sss");
-    _stopBitsCombo->addItem("sss");
-    _stopBitsCombo->addItem("sss");
+    _stopBitsCombo->addItem(QStringLiteral("1"), QSerialPort::OneStop);
+    _stopBitsCombo->addItem(QStringLiteral("1.5"), QSerialPort::OneAndHalfStop);
+    _stopBitsCombo->addItem(QStringLiteral("2"), QSerialPort::TwoStop);
     grid->addWidget(_stopBitsCombo, 4, 1);
 
-    // 标签
-    auto* serialLabelHint = new ElaText(tr("Label"), page);
-    serialLabelHint->setWordWrap(false);
-    serialLabelHint->setTextPixelSize(15);
-    grid->addWidget(serialLabelHint, 5, 0, Qt::AlignVCenter);
+    addFormLabel(grid, 5, tr("Flow Control"), page);
+    _flowControlCombo = new ElaComboBox(page);
+    _flowControlCombo->addItem(tr("None"), QSerialPort::NoFlowControl);
+    _flowControlCombo->addItem(tr("Hardware (RTS/CTS)"),
+                               QSerialPort::HardwareControl);
+    _flowControlCombo->addItem(tr("Software (XON/XOFF)"),
+                               QSerialPort::SoftwareControl);
+    grid->addWidget(_flowControlCombo, 5, 1);
 
+    addFormLabel(grid, 6, tr("Label"), page);
     _serialLabel = new ElaLineEdit(page);
-    _serialLabel->setText("sss");
-    grid->addWidget(_serialLabel, 5, 1);
+    _serialLabel->setPlaceholderText(tr("Optional session name"));
+    grid->addWidget(_serialLabel, 6, 1);
 
-    grid->setRowStretch(6, 1);  
+    grid->setRowStretch(7, 1);
 
     _tabWidget->addTab(page, tr("serial port"));
 }
@@ -262,28 +379,55 @@ void SessionPage::initTelnetUi()
     grid->setVerticalSpacing(12);
     grid->setColumnStretch(1, 1);
 
-    // IP
-    auto* ipLabel = new ElaText(tr("IP"), page);
-    ipLabel->setWordWrap(false);
-    ipLabel->setTextPixelSize(15);
-    grid->addWidget(ipLabel, 0, 0, Qt::AlignVCenter);
+    auto* securityWarning = new ElaText(
+        tr("Warning: Telnet sends all data without encryption."), page);
+    securityWarning->setWordWrap(true);
+    securityWarning->setTextPixelSize(14);
+    grid->addWidget(securityWarning, 0, 0, 1, 2);
 
+    addFormLabel(grid, 1, tr("IPv4 Address"), page);
     _telnetIp = new ElaLineEdit(page);
-    _telnetIp->setText("sss");
-    grid->addWidget(_telnetIp, 0, 1);
+    _telnetIp->setPlaceholderText(tr("IPv4 address, e.g. 192.168.0.1"));
+    _telnetIp->setClearButtonEnabled(true);
+    setIpv4Validator(_telnetIp);
+    grid->addWidget(_telnetIp, 1, 1);
 
-    // 标签
-    auto* telnetLabelHint = new ElaText(tr("Label"), page);
-    telnetLabelHint->setWordWrap(false);
-    telnetLabelHint->setTextPixelSize(15);
-    grid->addWidget(telnetLabelHint, 1, 0, Qt::AlignVCenter);
+    addFormLabel(grid, 2, tr("Port"), page);
+    _telnetPort = new ElaSpinBox(page);
+    configurePortSpinBox(_telnetPort, 23);
+    grid->addWidget(_telnetPort, 2, 1);
 
+    addFormLabel(grid, 3, tr("Terminal Type"), page);
+    _telnetTerminalType = new ElaComboBox(page);
+    populateTerminalTypes(_telnetTerminalType);
+    grid->addWidget(_telnetTerminalType, 3, 1);
+
+    addFormLabel(grid, 4, tr("Negotiation"), page);
+    auto* negotiationLayout = new QHBoxLayout();
+    negotiationLayout->setContentsMargins(0, 0, 0, 0);
+    negotiationLayout->setSpacing(16);
+    _telnetNaws = new ElaCheckBox(tr("Window size (NAWS)"), page);
+    _telnetNaws->setChecked(true);
+    _telnetBinaryMode = new ElaCheckBox(tr("Binary mode"), page);
+    negotiationLayout->addWidget(_telnetNaws);
+    negotiationLayout->addWidget(_telnetBinaryMode);
+    negotiationLayout->addStretch();
+    grid->addLayout(negotiationLayout, 4, 1);
+
+    addFormLabel(grid, 5, tr("Keep Alive"), page);
+    _telnetKeepAlive = new ElaSpinBox(page);
+    _telnetKeepAlive->setRange(0, 3600);
+    _telnetKeepAlive->setValue(0);
+    _telnetKeepAlive->setSuffix(tr(" s"));
+    _telnetKeepAlive->setSpecialValueText(tr("Disabled"));
+    grid->addWidget(_telnetKeepAlive, 5, 1);
+
+    addFormLabel(grid, 6, tr("Label"), page);
     _telnetLabel = new ElaLineEdit(page);
-    _telnetLabel->setText("sss");
-    grid->addWidget(_telnetLabel, 1, 1);
+    _telnetLabel->setPlaceholderText(tr("Optional session name"));
+    grid->addWidget(_telnetLabel, 6, 1);
 
-    grid->setRowStretch(2, 1);
+    grid->setRowStretch(7, 1);
 
     _tabWidget->addTab(page, tr("telnet"));
 }
-

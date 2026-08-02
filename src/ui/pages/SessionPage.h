@@ -4,15 +4,16 @@
 #include "ui/terminal/TerminalView.h"   // TerminalView::LocalShellType（信号参数）
 #include "ui/widgets/VerticalTabWidget.h"
 #include <ElaComboBox.h>
+#include <ElaCheckBox.h>
 #include <ElaPushButton.h>
+#include <ElaSpinBox.h>
 #include <ElaTabWidget.h>
 #include <ElaLineEdit.h>
 
 
 // 会话选择页面（ElaScrollPage）。包含 4 个标签页（本地 Shell / SSH / 串口 / Telnet），
-// 每个标签页各有 Confirm / Cancel 按钮。嵌入 ElaDialog 中使用，与 SettingsPage
-// 模式一致。本地 Shell 的 Confirm 通过 localSessionRequested() 信号通知 MainWindow
-// 导航到终端页面；其他协议显示 "Not implemented" 消息。
+// 页面底部提供统一的 Confirm / Cancel 按钮。嵌入 ElaDialog 中使用，与
+// SettingsPage 模式一致。各协议控件将作为后续 SessionConfig 的输入来源。
 class SessionPage : public ElaScrollPage
 {
     Q_OBJECT
@@ -41,8 +42,14 @@ private:
     ElaLineEdit* _shellLabel{nullptr};
 
     ElaLineEdit* _sshIp{nullptr};
+    ElaSpinBox* _sshPort{nullptr};
     ElaLineEdit* _sshUserName{nullptr};
+    ElaComboBox* _sshAuthMethod{nullptr};
     ElaLineEdit* _sshPassword{nullptr};
+    ElaLineEdit* _sshPrivateKey{nullptr};
+    ElaLineEdit* _sshKeyPassphrase{nullptr};
+    ElaComboBox* _sshTerminalType{nullptr};
+    ElaSpinBox* _sshKeepAlive{nullptr};
     ElaLineEdit* _sshLabel{nullptr};
 
     ElaComboBox* _portCombo{nullptr};
@@ -50,10 +57,16 @@ private:
     ElaComboBox* _parityCombo{nullptr};
     ElaComboBox* _dataBitsCombo{nullptr};
     ElaComboBox* _stopBitsCombo{nullptr};
+    ElaComboBox* _flowControlCombo{nullptr};
     ElaLineEdit* _serialLabel{nullptr};
 
 
     ElaLineEdit* _telnetIp{nullptr};
+    ElaSpinBox* _telnetPort{nullptr};
+    ElaComboBox* _telnetTerminalType{nullptr};
+    ElaCheckBox* _telnetNaws{nullptr};
+    ElaCheckBox* _telnetBinaryMode{nullptr};
+    ElaSpinBox* _telnetKeepAlive{nullptr};
     ElaLineEdit* _telnetLabel{nullptr};
 
 };

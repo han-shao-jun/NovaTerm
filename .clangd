@@ -1,0 +1,7 @@
+CompileFlags:
+  CompilationDatabase: build/Debug
+  Add:
+    - -std=c++17
+    - -fPIC
+    - -Wno-deprecated-declarations
+    - -Wno-unknown-pragmas

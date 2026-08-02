@@ -336,34 +336,34 @@ Built with:
     <message>
         <location filename="../../src/ui/app/MainWindow.cpp" line="148"/>
         <location filename="../../src/ui/app/MainWindow.cpp" line="242"/>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="270"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="271"/>
         <source>Session</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
         <location filename="../../src/ui/app/MainWindow.cpp" line="149"/>
         <location filename="../../src/ui/app/MainWindow.cpp" line="246"/>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="304"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="324"/>
         <source>Settings</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
         <location filename="../../src/ui/app/MainWindow.cpp" line="150"/>
         <location filename="../../src/ui/app/MainWindow.cpp" line="250"/>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="338"/>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="357"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="358"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="377"/>
         <source>About</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
         <location filename="../../src/ui/app/MainWindow.cpp" line="233"/>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="284"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="313"/>
         <source>Terminal</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="339"/>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="358"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="359"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="378"/>
         <source>OK</source>
         <translation type="unfinished"></translation>
     </message>
@@ -371,91 +371,250 @@ Built with:
 <context>
     <name>SessionPage</name>
     <message>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="14"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="59"/>
         <source>Session</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="40"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="85"/>
         <source>Cancel</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="43"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="88"/>
         <source>Confirm</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="84"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="129"/>
         <source>Type</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="96"/>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="152"/>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="239"/>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="276"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="141"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="230"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="360"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="425"/>
         <source>Label</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="107"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="147"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="232"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="362"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="427"/>
+        <source>Optional session name</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="152"/>
         <source>local shell</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="122"/>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="266"/>
-        <source>IP</source>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="167"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="388"/>
+        <source>IPv4 Address</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="132"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="169"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="390"/>
+        <source>IPv4 address, e.g. 192.168.0.1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="174"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="271"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="395"/>
+        <source>Port</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="180"/>
         <source>User Name</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="142"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="182"/>
+        <source>User name</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="186"/>
+        <source>Authentication</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="188"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="192"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="194"/>
         <source>Password</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="163"/>
-        <source>ssh</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="179"/>
-        <source>Port Num</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="191"/>
-        <source>Baud Rate</source>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="189"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="198"/>
+        <source>Private Key</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
         <location filename="../../src/ui/pages/SessionPage.cpp" line="203"/>
-        <source>Check</source>
+        <source>Private key file</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="215"/>
-        <source>Data Bits</source>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="205"/>
+        <source>Browse...</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="210"/>
+        <source>Key Passphrase</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="212"/>
+        <source>Optional passphrase</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="217"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="400"/>
+        <source>Terminal Type</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="222"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="417"/>
+        <source>Keep Alive</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="226"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="421"/>
+        <source> s</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
         <location filename="../../src/ui/pages/SessionPage.cpp" line="227"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="422"/>
+        <source>Disabled</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="246"/>
+        <source>Select SSH Private Key</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="247"/>
+        <source>Private keys (*)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="255"/>
+        <source>ssh</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="284"/>
+        <source>No serial ports detected</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="285"/>
+        <source>Select a serial port</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="326"/>
+        <source>Parity</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="328"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="353"/>
+        <source>None</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="329"/>
+        <source>Even</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="330"/>
+        <source>Odd</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="331"/>
+        <source>Mark</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="332"/>
+        <source>Space</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="310"/>
+        <source>Baud Rate</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="335"/>
+        <source>Data Bits</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="344"/>
         <source>Stop Bits</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="250"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="351"/>
+        <source>Flow Control</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="354"/>
+        <source>Hardware (RTS/CTS)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="356"/>
+        <source>Software (XON/XOFF)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="367"/>
         <source>serial port</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="287"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="383"/>
+        <source>Warning: Telnet sends all data without encryption.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="405"/>
+        <source>Negotiation</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="409"/>
+        <source>Window size (NAWS)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="411"/>
+        <source>Binary mode</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="432"/>
         <source>telnet</source>
         <translation type="unfinished"></translation>
     </message>
@@ -664,13 +823,13 @@ Built with:
 <context>
     <name>TerminalPage</name>
     <message>
-        <location filename="../../src/ui/pages/TerminalPage.cpp" line="9"/>
-        <location filename="../../src/ui/pages/TerminalPage.cpp" line="32"/>
+        <location filename="../../src/ui/pages/TerminalPage.cpp" line="11"/>
+        <location filename="../../src/ui/pages/TerminalPage.cpp" line="34"/>
         <source>Terminal</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/TerminalPage.cpp" line="63"/>
+        <location filename="../../src/ui/pages/TerminalPage.cpp" line="80"/>
         <source>Terminal %1</source>
         <translation type="unfinished"></translation>
     </message>
@@ -678,27 +837,37 @@ Built with:
 <context>
     <name>TerminalView</name>
     <message>
-        <location filename="../../src/ui/terminal/TerminalView.cpp" line="352"/>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="87"/>
+        <source>Find in scrollback</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="381"/>
         <source>Copy</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/terminal/TerminalView.cpp" line="355"/>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="384"/>
         <source>Paste</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/terminal/TerminalView.cpp" line="366"/>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="395"/>
+        <source>Find...</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="400"/>
         <source>Zoom In</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/terminal/TerminalView.cpp" line="369"/>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="403"/>
         <source>Zoom Out</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/terminal/TerminalView.cpp" line="374"/>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="408"/>
         <source>Clear Scrollback</source>
         <translation type="unfinished"></translation>
     </message>
