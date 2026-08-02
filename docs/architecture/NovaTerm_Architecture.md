@@ -6,8 +6,8 @@ NovaTerm 是基于 Qt 6、libvterm 和 QRhi 的跨平台 GPU 终端。核心目�
 
 本文同时描述三类内容：
 
-- **当前实现**：P0～P2 已完成，P3 已实现并等待实机验收；
-- **近期目标**：P4～P6；
+- **当前实现**：P0～P5 已完成；P5 已完成 Linux Vulkan/OpenGL、Windows D3D11/D3D12 与 Windows 30 分钟长稳验收，macOS Metal 和真实高刷硬件仍待补充；
+- **近期目标**：P6；
 - **远期扩展**：P7。
 
 ## 2. 架构原则
@@ -67,7 +67,7 @@ flowchart TB
 
 ### 3.5 Renderer
 
-Renderer 读取稳定 Snapshot，把 DirtyRegion 转为按行缓存的 Render Command，仅上传变化的 GPU Buffer 区间。Glyph Atlas 和 GPU 资源只属于 Renderer。
+Renderer 读取稳定 Snapshot，把 DirtyRegion 转为 row-local、按 8-cell block 缓存的 Render Command，仅上传变化的 GPU Buffer 区间。P5 Renderer 使用完整 cluster GlyphKey、字体 fallback、灰度/彩色多页 Atlas、局部纹理上传、实例化 Quad、material batch 和 GPU 行槽位环；Glyph Atlas 和 GPU 资源只属于 Renderer。live-bottom 不构建全历史 reflow，用户进入回看时才惰性生成历史布局。
 
 ### 3.6 Transport
 

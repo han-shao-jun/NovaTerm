@@ -223,7 +223,21 @@ TerminalRenderer::TerminalRenderer(TerminalCore* core, QWidget* parent)
             if (selectionChanged)
                 requestOverlayFrame();
         }
-        _reflowDebounce->start();
+        if (_scrollLine > 0) {
+            _reflowDebounce->start();
+        } else {
+            // Historical layout is not part of the live-bottom viewport.
+            // Reflowing an ever-growing scrollback here can eventually steal
+            // enough CPU to make the renderer miss damage publications and
+            // promote otherwise incremental scrolls to full-row recovery.
+            // Invalidate the cached layout and rebuild it lazily when the
+            // user actually enters history.
+            _reflowDebounce->stop();
+            _core->cancelScrollbackReflow(_reflowGeneration);
+            ++_reflowGeneration;
+            _historyLayout.clear();
+            _pendingHistoryLayout.clear();
+        }
     });
 
     connect(_core, &TerminalCore::reflowBatchReady, this,
@@ -437,6 +451,7 @@ void TerminalRenderer::scrollToLine(int line)
             _scrollAnchorWrap = 0;
         }
         requestFullFrame();
+        _reflowDebounce->start();
     }
 }
 
@@ -832,10 +847,25 @@ void TerminalRenderer::render(QRhiCommandBuffer* cb)
     _renderStatistics.glyphEvictions =
         _glyphCache.atlas().statistics().pageEvictions;
     _renderStatistics.viewportMappingRevision = _viewportMappingRevision;
+    const auto& atlasStatistics = _glyphCache.atlas().statistics();
+    const auto& rasterQueueStatistics = _glyphRasterQueue.statistics();
+    _renderStatistics.atlasCurrentBytes = atlasStatistics.currentBytes;
+    _renderStatistics.atlasPeakBytes = atlasStatistics.peakBytes;
+    _renderStatistics.memoryCurrentBytes =
+        _renderStatistics.bufferCurrentBytes + atlasStatistics.currentBytes;
     _renderStatistics.memoryPeakBytes = std::max(
         _renderStatistics.memoryPeakBytes,
-        _renderStatistics.bufferPeakBytes
-            + _glyphCache.atlas().statistics().peakBytes);
+        _renderStatistics.bufferPeakBytes + atlasStatistics.peakBytes);
+    _renderStatistics.glyphRasterQueueDepth =
+        quint64(_glyphRasterQueue.size());
+    _renderStatistics.glyphRasterQueuePeakDepth =
+        quint64(rasterQueueStatistics.peakDepth);
+    _renderStatistics.glyphRasterQueueRejected =
+        rasterQueueStatistics.rejected;
+    _renderStatistics.glyphRasterQueueCancelled =
+        rasterQueueStatistics.cancelled;
+    _renderStatistics.glyphRasterQueueStaleDropped =
+        rasterQueueStatistics.staleDropped;
     recordCpuFrame(quint64(frameTimer.nsecsElapsed()));
 }
 
@@ -880,6 +910,7 @@ void TerminalRenderer::resizeEvent(QResizeEvent* event)
 void TerminalRenderer::scheduleReflow()
 {
     ++_reflowGeneration;
+    ++_renderStatistics.scrollbackReflowRequests;
     _pendingHistoryLayout.clear();
     _core->requestScrollbackReflow(_core->columns(), _reflowGeneration, 256);
 }

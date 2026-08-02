@@ -78,7 +78,7 @@ quint64 rowContentIdentity(const NovaTerm::Cell* cells, int columns)
         mix(cell.background.red | (cell.background.green << 8)
             | (cell.background.blue << 16));
         const auto& a = cell.attributes;
-        quint64 attributes = a.bold
+        quint64 attributes = quint64(a.bold)
             | (quint64(a.underline) << 1)
             | (quint64(a.italic) << 2)
             | (quint64(a.blink) << 3)

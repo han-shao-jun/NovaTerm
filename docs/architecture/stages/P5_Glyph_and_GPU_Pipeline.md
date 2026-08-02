@@ -1,6 +1,6 @@
 # P5：Glyph 系统与 GPU 提交管线
 
-**状态：P5 实施完成，本机验收完成（Linux Vulkan/OpenGL，2026-08-01）；跨平台与长稳验收待完成**
+**状态：P5 实施完成；Linux Vulkan/OpenGL 与 Windows D3D11/D3D12 本机验收、Windows 30 分钟长稳验收完成（2026-08-02）；macOS Metal、真实多屏 DPR 与真实 120/144 Hz 验收待完成**
 
 ## 1. 目标与范围
 
@@ -665,7 +665,7 @@ OpenGL 同一数据集运行 9.983 s、597 帧、59.802 FPS；滚屏 P95 1 行/�
 
 ### 21.6 未覆盖项与风险
 
-- 本轮没有 Windows D3D、macOS Metal、125%/150%/200% 真实屏幕 DPR、120/144 Hz 或 30 分钟压力环境；这些不能由当前 Linux/X11 机器代替，状态保持为待补跨平台验收。
+- Linux 本轮没有 macOS Metal、125%/150%/200% 真实屏幕 DPR 或真实 120/144 Hz 环境。2026-08-02 已在 Windows 补齐 D3D11/D3D12、Qt PassThrough 1.25/1.5/2.0 DPR 渲染路径和 30 分钟 D3D11 长稳验收；合成缩放不能替代对应物理屏幕，60 Hz 屏幕也不能替代真实高刷验收。
 - Emoji 已走独立 RGBA page class 和 shader color 分支，ZWJ/variation cluster 不按 codepoint 截断；但具体彩色外观依赖系统 fallback 是否提供 color font，本机自动化只验证结构、缓存和提交，仍需人工 golden 抽检。
 - persistent Base Texture 在本机使用显式回退；因此 Overlay-only 仍重提交既有基础实例（没有正文重建或上传）。若后续后端能证明 preserved-load/store，再启用独立 Base Texture，不能直接假设 swapchain 内容跨帧保留。
 - 当前 raster 队列已具备容量、去重、优先级、generation 取消与停止语义，但可见 miss 仍同步消费；复杂冷启动的后台 worker 化仍可继续降低首屏尖峰，不能改变最终 Glyph/revision 语义。
@@ -703,3 +703,47 @@ git diff --check
 场景级断言：单 Cell 为 1 行/1 block，Vulkan 总上传 9,120 B、2 Draw，OpenGL 9,184 B、3 Draw；ASCII warm cache 为 16 hit、0 miss、0 raster、0 Atlas upload；复杂 warm corpus 为 17 hit、0 miss、0 raster、0 Atlas upload；Overlay-only 为 0 正文行、0 block、0 正文/Atlas upload；强制全屏、resize 和 16→17 px 字体/DPI模拟切换均完成，字体切换旧 generation 不复用并执行一次 16,777,216 B 冷路径 Atlas 恢复。两后端均 0 eviction、稳态 0 Buffer 重分配，最终 revision 收敛。
 
 按 P3 Vulkan 每帧基线归一化，本次补充 Vulkan 的滚屏重建由 39.912 降至 0.981 行/帧（-97.54%），总上传由 1,001,730 降至 39,758 B/帧（-96.03%），Draw 由 80.476 降至 2.491/帧（-96.90%）。P99 为 P3 的 24.4%，明显低于“不高于 110%”上限；补充数据再次满足 P95 ≤ 2、上传降低 ≥90%、ASCII ≤6 Draw、Overlay-only 正文为 0、warm cache 零新增 raster/upload 和 revision 收敛退出条件。
+
+### 21.8 Windows D3D、DPR 与 30 分钟长稳验收（2026-08-02）
+
+Windows 验收环境：Windows NT 10.0 build 26200（25H2）、Intel Core i7-14700K、NVIDIA GeForce RTX 4070 Ti 12 GiB（610.88）、Qt 6.8.3、MSVC 19.51.36252、CMake 3.26.4、Ninja、Release。物理屏幕为 59.997 Hz、原生 DPR 1.75，viewport 初始为 119 × 40；Windows resize 后稳定网格为 106 × 35。
+
+为使未覆盖项可重复验收，`RendererP5GpuBenchmark` 新增 `--refresh-rate`、`--scrollback-limit` 和 `--prefill-lines`，输出实际屏幕刷新率、DPR、Atlas/Buffer 当前与峰值、raster 队列深度/拒绝/取消/过期、scrollback 淘汰和 reflow 请求。基准默认保持窗口置顶，避免 Windows/DWM 因窗口遮挡而节流 QRhiWidget；停止输入后按目标 revision/帧条件等待，不再使用可能产生假阴性的固定延迟。warm cache、Overlay-only、P95、CPU 预算、Buffer 重分配、raster 队列和最终 revision 现加入硬性 acceptance，失败返回非零。
+
+执行命令：
+
+```powershell
+cmake --build cmake-build-release --parallel 4
+ctest --test-dir cmake-build-release --output-on-failure -C Release
+$env:NOVATERM_RHI_API='d3d11'
+$env:QT_SCALE_FACTOR='1'
+& .\cmake-build-release\bin\novaterm_renderer_p5_gpu_benchmark.exe --duration-ms 1800000 --refresh-rate 60
+```
+
+Windows Release CTest 共 5 个 executable，全部通过。Renderer 自动化新增两条回归语义：live-bottom 连续新增历史行不得请求全历史 reflow；用户进入回看后必须惰性请求 reflow。
+
+30 分钟 D3D11 最终有效结果：
+
+| 指标 | 结果 |
+| --- | ---: |
+| 实际时长 / 帧 / FPS | 1,799.987 s / 103,634 / 57.575 |
+| 滚屏重建行 / block | 110,528 / 110,528；P95 = 1 行/帧 |
+| 正文 / Atlas / 总上传 | 4,318,817,920 / 38,148 / 4,748,328,164 B |
+| Draw / 实例 | 259,287 / 15,188,725 |
+| CPU P50/P95/P99 | 0.226 / 0.437 / 0.625 ms |
+| CPU >16.67 ms / 稳态 Buffer 重分配 | 0 / 0 |
+| Buffer 当前/峰值 | 1,990,656 / 1,990,656 B |
+| Atlas 当前/峰值 | 16,777,216 / 33,554,432 B |
+| Renderer 当前/峰值 | 18,767,872 / 35,545,088 B |
+| raster queue | depth 0、peak 1、reject/cancel/stale 0 |
+| live-bottom reflow | 0 次 |
+| scrollback | 保持 100,000 行；淘汰 5,842 行 |
+| 最终 revision | 105,880 / 105,880，收敛；`acceptance=pass` |
+
+收紧门禁后另以 5 秒 D3D11 短跑确认恢复场景：forced-full 重建 40 行、resize 重建 37 行、font/DPI 重建 35 行并恢复 16,777,216 B Atlas，整体 `acceptance=pass`。
+
+长稳过程中发现并修复一项真实缺陷：live-bottom 的 `scrollbackChanged` 曾不断重启 24 ms 全历史 reflow debounce；历史接近 100,000 行后，偶发事件循环延迟会启动昂贵 reflow，并通过 revision 补偿放大成全行重建。现在 live-bottom 会取消 reflow、丢弃无用历史布局并继续使用 GPU 行槽位环；只有用户进入回看才惰性 reflow。使用 `--prefill-lines 100000 --scrollback-limit 100000 --duration-ms 10000` 从满历史直接进入淘汰的边界回归中，D3D11 为 59.724 FPS、P95 1 行、淘汰 520 行、0 reflow、0 revision recovery，最终 627/627 收敛。
+
+D3D12 在原生 DPR 1.75、60 Hz 的短跑为 59.411 FPS、P95 1 行、0 Buffer 重分配、最终 126/126 收敛。Qt PassThrough 合成 DPR 1.25/1.5/2.0 的 D3D11 短跑均为 P95 1 行、warm cache 零 raster/upload、Overlay-only 零正文上传且最终收敛。合成缩放验证了 fractional-DPR 渲染与资源路径，但不替代对应真实屏幕的人工视觉 golden。
+
+在 59.997 Hz 物理屏幕上配置 144 Hz 时，程序能正确进入配置路径，但呈现率仍受物理 VSync 限制，因此该结果不计作 120/144 Hz 验收。剩余外部验收项为 macOS Metal、真实 1.25/1.5/2.0 DPR 屏幕人工视觉抽检，以及真实 120/144 Hz 设备；它们不属于当前 Windows 主机可完成范围。

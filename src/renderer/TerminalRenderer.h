@@ -72,7 +72,16 @@ public:
         quint64 glyphEvictions{0};
         quint64 bufferCurrentBytes{0};
         quint64 bufferPeakBytes{0};
+        quint64 atlasCurrentBytes{0};
+        quint64 atlasPeakBytes{0};
+        quint64 memoryCurrentBytes{0};
         quint64 memoryPeakBytes{0};
+        quint64 glyphRasterQueueDepth{0};
+        quint64 glyphRasterQueuePeakDepth{0};
+        quint64 glyphRasterQueueRejected{0};
+        quint64 glyphRasterQueueCancelled{0};
+        quint64 glyphRasterQueueStaleDropped{0};
+        quint64 scrollbackReflowRequests{0};
         quint64 capabilityFallbacks{0};
         quint64 viewportMappingRevision{0};
     };
