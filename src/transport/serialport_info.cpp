@@ -1,12 +1,21 @@
 #include "serialport_info.h"
 
 #include <QCollator>
+#include <QTimer>
 
 SerialPortInfo::SerialPortInfo(QWidget *parent) : QWidget(parent)
 {
     setParent(parent);
     hide();
-    this->registerEvent();
+#ifdef Q_OS_WINDOWS
+    // RegisterDeviceNotification requires an HWND, so registerEvent() calls
+    // winId(). Doing that while SessionPage is still being constructed makes
+    // Qt create the native widget hierarchy before its layouts have settled,
+    // leaving stale first-frame painting until the dialog is resized.
+    QTimer::singleShot(0, this, [this]() { registerEvent(); });
+#else
+    registerEvent();
+#endif
     portsAvailable = availablePorts();
     portsUsing.clear();
 }
