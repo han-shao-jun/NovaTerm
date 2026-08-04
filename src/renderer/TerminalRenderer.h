@@ -16,6 +16,7 @@
 #include "RenderCommandBuffer.h"
 #include "RenderScheduler.h"
 #include "TerminalColorScheme.h"
+#include "TerminalHighlighting.h"
 #include "font/FontManager.h"
 #include "glyph/GlyphCache.h"
 #include "glyph/GlyphRasterizer.h"
@@ -92,6 +93,8 @@ public:
     // ── 外观 ───────────────────────────────────────────────────
     void setColorScheme(const TerminalColorScheme& scheme);
     const TerminalColorScheme& colorScheme() const { return _scheme; }
+    void setHighlightRules(
+        QVector<NovaTerm::TerminalHighlightRule> rules);
 
     void setFont(const QFont& font);
     QFont font() const { return _font; }
@@ -184,6 +187,7 @@ private:
                            const QVector<NovaTerm::DirtyColumnSpan>& dirtySpans);
     quint64 rebuildOverlays(const NovaTerm::CursorState& cursor);
     void appendCellCommands(qreal x, qreal y, const NovaTerm::Cell& cell,
+                            const QColor* defaultForegroundOverride,
                             QVector<NovaTerm::RenderCommand>& backgrounds,
                             QVector<NovaTerm::RenderCommand>& contents);
     void appendCursorCommand(QVector<NovaTerm::RenderCommand>& commands,
@@ -210,6 +214,9 @@ private:
     // ── 颜色转换 ──────────────────────────────────────────────
     QColor terminalColorToQColor(const NovaTerm::TerminalColor& color,
                                  bool foreground) const;
+    QColor highlightColor(NovaTerm::TerminalHighlightRole role) const;
+    std::optional<QColor> rowHighlightColor(
+        int widgetRow, const NovaTerm::RendererSnapshot& screen) const;
 
     // ── Unicode 转 UTF-8 ──────────────────────────────────────
     static QString cellCharsToString(const uint32_t* chars, int maxCount);
@@ -221,6 +228,7 @@ private:
     void requestOverlayFrame();
     void scheduleReflow();
     bool ensureVertexBuffer(int rows, int columns);
+    void resetWidgetRowMapping(int rows);
     void updatePlacementBuffer(QRhiResourceUpdateBatch* updates,
                                const QSize& pixelSize);
     void uploadAtlasChanges(QRhiResourceUpdateBatch* updates);
@@ -234,6 +242,7 @@ private:
 
     TerminalCore* _core;
     TerminalColorScheme _scheme;
+    QVector<NovaTerm::TerminalHighlightRule> _highlightRules;
 
     QFont _font;
     QFontMetricsF* _fm{nullptr};

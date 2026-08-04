@@ -290,6 +290,11 @@ void MainWindow::showSessionDialog()
             _pendingLocalSession = type;
             _sessionDialog->accept();
         });
+        connect(sessionPage, &SessionPage::serialSessionRequested, this,
+                [this](const SerialConfig& config) {
+            _pendingSerialSession = config;
+            _sessionDialog->accept();
+        });
         connect(sessionPage, &SessionPage::dialogRejected,
                 _sessionDialog, &QDialog::reject);
 
@@ -299,6 +304,7 @@ void MainWindow::showSessionDialog()
     }
 
     _pendingLocalSession.reset();
+    _pendingSerialSession.reset();
     const int result = _sessionDialog->exec();
     // ElaDialog and its custom controls are not reliable when reused after
     // accept(): a later QDialog::exec() can encounter stale entries while Qt
@@ -311,6 +317,10 @@ void MainWindow::showSessionDialog()
         const auto type = *_pendingLocalSession;
         _pendingLocalSession.reset();
         _terminalPage->addTerminalTab(tr("Terminal"), type);
+    } else if (result == QDialog::Accepted && _pendingSerialSession) {
+        const SerialConfig config = *_pendingSerialSession;
+        _pendingSerialSession.reset();
+        _terminalPage->addSerialTerminalTab(config);
     }
 }
 

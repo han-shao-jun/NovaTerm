@@ -2,6 +2,7 @@
 
 #include "ElaScrollPage.h"
 #include "ui/terminal/TerminalView.h"   // TerminalView::LocalShellType（信号参数）
+#include "session/SessionTypes.h"
 #include "ui/widgets/VerticalTabWidget.h"
 #include <ElaComboBox.h>
 #include <ElaCheckBox.h>
@@ -24,6 +25,7 @@ signals:
     // 用户在本地 Shell 标签页点击了 Confirm，携带所选的 Shell 类型
     // （cmd 关联 Clink / PowerShell）。
     void localSessionRequested(TerminalView::LocalShellType type);
+    void serialSessionRequested(const SerialConfig& config);
     void dialogRejected();          // 用户在任意标签页点击了 Cancel
 
 private:

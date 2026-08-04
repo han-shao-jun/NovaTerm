@@ -29,6 +29,7 @@ private slots:
     void commandBufferValidatesAtlasGeneration();
     void scrollbackAtLiveBottomDoesNotRequestFullFrame();
     void liveBottomDefersScrollbackReflow();
+    void batchedScreenScrollPublishesExactRowCount();
     void enteringHistoryRequestsScrollbackReflow();
     void searchMatchesAppendByGeneration();
 };
@@ -329,6 +330,26 @@ void RendererP3Tests::liveBottomDefersScrollbackReflow()
     QTest::qWait(80);
     QCOMPARE(renderer.renderStatistics().scrollbackReflowRequests,
              requestsBefore);
+}
+
+void RendererP3Tests::batchedScreenScrollPublishesExactRowCount()
+{
+    TerminalCore core(80, 6);
+    QSignalSpy scrollSpy(&core, &TerminalCore::screenScrolled);
+
+    QByteArray input;
+    for (int line = 0; line < 20; ++line)
+        input += QByteArrayLiteral("line\r\n");
+    const auto result = core.writeInput(input);
+    QVERIFY(result.fullyAccepted());
+    QVERIFY(core.waitForIdle(1000));
+    QTRY_VERIFY_WITH_TIMEOUT(!scrollSpy.isEmpty(), 1000);
+
+    int publishedRows = 0;
+    for (const auto& arguments : scrollSpy)
+        publishedRows += arguments.at(0).toInt();
+    QCOMPARE(publishedRows, core.scrollbackLineCount());
+    QVERIFY(publishedRows > 1);
 }
 
 void RendererP3Tests::enteringHistoryRequestsScrollbackReflow()

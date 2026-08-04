@@ -9,6 +9,7 @@ class TerminalRenderer;
 class TerminalColorScheme;
 class QTimer;
 class QLineEdit;
+class SessionInputPump;
 
 // 终端视图：组合 TerminalCore（libvterm 仿真引擎）+ TerminalRenderer（QRhi GPU 渲染），
 // 通过 ITransport 接口统一桥接本地/远程终端数据通路。
@@ -63,7 +64,7 @@ private:
     TerminalCore*     _core{nullptr};
     TerminalRenderer* _renderer{nullptr};
     ITransport*       _transport{nullptr};
-    QByteArray        _pendingTransportInput;
+    SessionInputPump* _inputPump{nullptr};
     bool              _isLocalShell{false};
 
     // PTY 尺寸变更去抖定时器：拖动窗口时密集的 resize 事件合并为一次

@@ -22,6 +22,7 @@ public:
         std::function<void(const QString&)> titleChanged;
         std::function<void()> bell;
         std::function<void()> scrollbackChanged;
+        std::function<void(int)> screenScrolled;
     };
 
     VTAdapter(int columns, int rows, ScreenBuffer& screen,

@@ -1,7 +1,10 @@
 #include "TerminalPage.h"
 #include "ElaTabWidget.h"
 #include "ui/terminal/TerminalView.h"
+#include "renderer/TerminalRenderer.h"
 #include "service/LanguageManager.h"
+#include "session/SerialHighlightRules.h"
+#include "transport/SerialTransport.h"
 #include <QVBoxLayout>
 
 #include <utility>
@@ -82,6 +85,26 @@ TerminalView* TerminalPage::addTerminalTab(const QString& title,
     _tabWidget->setCurrentIndex(index);
 
     terminalView->startLocalShell(type);
+    return terminalView;
+}
+
+TerminalView* TerminalPage::addSerialTerminalTab(const SerialConfig& config)
+{
+    auto* terminalView = new TerminalView(_tabWidget);
+    terminalView->renderer()->setHighlightRules(
+        NovaTerm::serialLogHighlightRules());
+    _terminalViews.append(terminalView);
+    connect(terminalView, &QObject::destroyed, this, [this, terminalView]() {
+        _terminalViews.removeAll(terminalView);
+    });
+
+    const QString title = config.label.isEmpty() ? config.portName : config.label;
+    const int index = _tabWidget->addTab(terminalView, title);
+    _tabWidget->setCurrentIndex(index);
+
+    auto* transport = new SerialTransport(config, terminalView);
+    terminalView->attachTransport(transport);
+    transport->connectToHost();
     return terminalView;
 }
 

@@ -418,6 +418,7 @@ if(BUILD_TESTING)
 
     add_executable(novaterm_renderer_p5_tests
         tests/renderer/RendererP5Tests.cpp
+        src/session/SerialHighlightRules.cpp
         src/renderer/RenderCommandBuffer.cpp
         src/renderer/font/FontManager.cpp
         src/renderer/glyph/GlyphAtlas.cpp
@@ -458,6 +459,8 @@ if(BUILD_TESTING)
             src/transport/ITransport.h
             src/transport/LocalShellTransport.cpp
             src/transport/LocalShellTransport.h
+            src/session/SessionInputPump.cpp
+            src/session/SessionInputPump.h
             src/service/ConfigManager.cpp
             src/service/ConfigManager.h
             src/ui/terminal/TerminalView.cpp

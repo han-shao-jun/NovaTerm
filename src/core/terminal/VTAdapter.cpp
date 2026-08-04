@@ -1,6 +1,7 @@
 #include "VTAdapter.h"
 
 #include <QDebug>
+#include <QScopedValueRollback>
 #include <vterm.h>
 
 #include <algorithm>
@@ -14,7 +15,13 @@ namespace {
 TerminalColor fromVTermColor(const VTermColor& source)
 {
     TerminalColor color;
-    if (VTERM_COLOR_IS_INDEXED(&source)) {
+    // libvterm's default colours also carry an indexed/RGB representation.
+    // Preserve the default flag first so presentation layers can distinguish
+    // inherited colours from colours explicitly selected by the remote side.
+    if (VTERM_COLOR_IS_DEFAULT_FG(&source)
+        || VTERM_COLOR_IS_DEFAULT_BG(&source)) {
+        color.type = ColorType::Default;
+    } else if (VTERM_COLOR_IS_INDEXED(&source)) {
         color.type = ColorType::Indexed;
         color.index = source.indexed.idx;
     } else if (VTERM_COLOR_IS_RGB(&source)) {
@@ -181,6 +188,10 @@ public:
         vterm_state_reset(state, 0);
         vterm_set_utf8(vt, 1);
         vterm_screen_enable_altscreen(vts, 1);
+        // Preserve existing terminal content when the viewport becomes
+        // narrower. Without libvterm's native reflow, resize truncates the
+        // right side of every populated row until new output arrives.
+        vterm_screen_enable_reflow(vts, true);
         vterm_screen_set_damage_merge(vts, VTERM_DAMAGE_SCROLL);
         vterm_output_set_callback(vt, &Impl::onOutput, this);
 
@@ -327,6 +338,11 @@ public:
         self.scrollback.commitPushLine(self.nextScrollbackContinuation,
                                        softWrapped == 0);
         self.nextScrollbackContinuation = softWrapped != 0;
+        // Reflow during an explicit resize can move rows into scrollback, but
+        // it is not an incremental live-screen scroll. The renderer will
+        // receive one full-screen damage publication when resize completes.
+        if (!self.resizeInProgress && self.observer.screenScrolled)
+            self.observer.screenScrolled(1);
         if (self.observer.scrollbackChanged)
             self.observer.scrollbackChanged();
         return 1;
@@ -363,6 +379,7 @@ public:
     VTermState* state{nullptr};
     VTermScreenCallbacks callbacks{};
     bool nextScrollbackContinuation{false};
+    bool resizeInProgress{false};
 };
 
 VTAdapter::VTAdapter(int columns, int rows, ScreenBuffer& screen,
@@ -393,8 +410,17 @@ void VTAdapter::flushDamage()
 
 void VTAdapter::resize(int columns, int rows)
 {
-    if (isValid())
+    if (isValid()) {
+        const QScopedValueRollback<bool> resizeGuard(
+            _impl->resizeInProgress, true);
         vterm_set_size(_impl->vt, rows, columns);
+        // libvterm's resize callback synchronizes the ScreenBuffer, but a
+        // resize is not guaranteed to produce ordinary parser damage when no
+        // bytes are arriving. Publish a full region explicitly so the async
+        // model resize always invalidates every cached CPU/GPU row.
+        if (_impl->observer.damage)
+            _impl->observer.damage({0, rows, 0, columns});
+    }
 }
 
 void VTAdapter::setDefaultColors(const TerminalColor& foreground,

@@ -6,6 +6,7 @@
 #include <ElaMenu.h>
 #include <ElaToolTip.h>
 #include <optional>
+#include "session/SessionTypes.h"
 
 class ElaDialog;
 
@@ -44,6 +45,7 @@ private:
     // Active selector only; recreated after each accept/reject.
     ElaDialog* _sessionDialog{nullptr};
     std::optional<TerminalView::LocalShellType> _pendingLocalSession;
+    std::optional<SerialConfig> _pendingSerialSession;
     void showSessionDialog();
 
     // ── 设置（模态 ElaDialog，内嵌现有 SettingsPage）──

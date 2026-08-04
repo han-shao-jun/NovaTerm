@@ -13,6 +13,7 @@
 #include <QRegularExpressionValidator>
 #include <QSerialPort>
 #include <QSignalBlocker>
+#include <QMessageBox>
 #include <QVBoxLayout>
 
 namespace {
@@ -94,6 +95,30 @@ SessionPage::SessionPage(QWidget* parent)
     connect(cancelBtn, &QPushButton::clicked,
             this, &SessionPage::dialogRejected);
     connect(confirmBtn, &QPushButton::clicked, this, [this]() {
+        if (_tabWidget->currentIndex() == 2) {
+            SerialConfig config;
+            config.portName = _portCombo->currentText()
+                                  .section(QLatin1Char(':'), 0, 0).trimmed();
+            config.baudRate = _baudRateCombo->currentText().toInt();
+            config.parity = static_cast<QSerialPort::Parity>(
+                _parityCombo->currentData().toInt());
+            config.dataBits = static_cast<QSerialPort::DataBits>(
+                _dataBitsCombo->currentData().toInt());
+            config.stopBits = static_cast<QSerialPort::StopBits>(
+                _stopBitsCombo->currentData().toInt());
+            config.flowControl = static_cast<QSerialPort::FlowControl>(
+                _flowControlCombo->currentData().toInt());
+            config.label = _serialLabel->text().trimmed();
+
+            if (!config.isValid()) {
+                QMessageBox::warning(this, tr("Serial Session"),
+                                     tr("Select a serial port and provide a valid baud rate."));
+                return;
+            }
+            emit serialSessionRequested(config);
+            return;
+        }
+
         const auto type =
             (_shellTypeCombo->currentText() == QStringLiteral("PowerShell"))
                 ? TerminalView::LocalShellType::PowerShell

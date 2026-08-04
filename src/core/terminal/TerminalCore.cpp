@@ -291,6 +291,9 @@ public:
         observer.scrollbackChanged = [this]() {
             scrollbackChanged = true;
         };
+        observer.screenScrolled = [this](int rows) {
+            pendingScreenScrollRows += rows;
+        };
 
         QMutexLocker modelLocker(&modelMutex);
         adapter = std::make_unique<NovaTerm::VTAdapter>(
@@ -377,12 +380,13 @@ public:
         const bool titleValue = std::exchange(titleChanged, false);
         const bool bellValue = std::exchange(bellPending, false);
         const bool scrollbackValue = std::exchange(scrollbackChanged, false);
+        const int screenScrollRows = std::exchange(pendingScreenScrollRows, 0);
         QVector<QByteArray> output;
         output.swap(pendingOutput);
         const quint64 revisionValue = std::exchange(pendingRevision, 0);
 
         if (damageValue.isEmpty() && !cursorValue && !titleValue && !bellValue
-            && !scrollbackValue && output.isEmpty()) {
+            && !scrollbackValue && screenScrollRows == 0 && output.isEmpty()) {
             return;
         }
 
@@ -395,10 +399,12 @@ public:
         QMetaObject::invokeMethod(
             owner,
             [target = owner, damageValue, revisionValue, cursorValue,
-             titleValue, titleCopy, bellValue, scrollbackValue,
+             titleValue, titleCopy, bellValue, scrollbackValue, screenScrollRows,
              output = std::move(output)]() {
                 for (const QByteArray& data : output)
                     emit target->outputData(data);
+                if (screenScrollRows > 0)
+                    emit target->screenScrolled(screenScrollRows);
                 for (const NovaTerm::DirtyRegion& region : damageValue)
                     emit target->damage(region, revisionValue);
                 if (cursorValue)
@@ -473,6 +479,7 @@ public:
     bool titleChanged{false};
     bool bellPending{false};
     bool scrollbackChanged{false};
+    int pendingScreenScrollRows{0};
 };
 
 TerminalCore::TerminalCore(int cols, int rows, QObject* parent)

@@ -5,6 +5,8 @@
 #include "renderer/gpu/BufferBudget.h"
 #include "renderer/gpu/MaterialBatcher.h"
 #include "renderer/gpu/RowSlotMap.h"
+#include "renderer/TerminalHighlighting.h"
+#include "session/SerialHighlightRules.h"
 
 #include <QTest>
 
@@ -34,7 +36,29 @@ private slots:
     void materialBatchesSeparateAtlasPages();
     void bufferOnlyGrowsAndRejectsOverBudget();
     void bufferReleaseRetainsPeakStatistics();
+    void semanticHighlightRulesRespectPriorityAndCase();
 };
+
+void RendererP5Tests::semanticHighlightRulesRespectPriorityAndCase()
+{
+    const auto rules = NovaTerm::serialLogHighlightRules();
+
+    QCOMPARE(NovaTerm::matchTerminalHighlight(
+                 rules, QStringLiteral("FAILED, retry OK")),
+             std::optional(NovaTerm::TerminalHighlightRole::Error));
+    QCOMPARE(NovaTerm::matchTerminalHighlight(
+                 rules, QStringLiteral("Warning: voltage low")),
+             std::optional(NovaTerm::TerminalHighlightRole::Warning));
+    QCOMPARE(NovaTerm::matchTerminalHighlight(
+                 rules, QStringLiteral("SUCCESSFUL_HANDOFF")),
+             std::optional(NovaTerm::TerminalHighlightRole::Success));
+    QCOMPARE(NovaTerm::matchTerminalHighlight(
+                 rules, QStringLiteral("Zynq> ")),
+             std::optional(NovaTerm::TerminalHighlightRole::Prompt));
+    QVERIFY(!NovaTerm::matchTerminalHighlight(
+                rules, QStringLiteral("ordinary serial output"))
+                 .has_value());
+}
 
 void RendererP5Tests::glyphKeyDistinguishesContractFields()
 {

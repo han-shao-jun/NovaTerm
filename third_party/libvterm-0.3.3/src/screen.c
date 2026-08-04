@@ -587,7 +587,13 @@ static void resize_buffer(VTermScreen *screen, int bufidx, int new_rows, int new
   while(old_row >= 0) {
     int old_row_end = old_row;
     /* TODO: Stop if dwl or dhl */
-    while(REFLOW && old_lineinfo && old_row >= 0 && old_lineinfo[old_row].continuation)
+    /* The first visible row may itself continue a logical line whose start
+     * has already moved into scrollback. Stop at row zero: walking to -1
+     * makes old_row_start invalid and the width/copy loops read before
+     * old_buffer during a resize of sustained long output. Reflow the visible
+     * fragment as its own prefix; the preceding fragment remains in the
+     * scrollback callback owned by the application. */
+    while(REFLOW && old_lineinfo && old_row > 0 && old_lineinfo[old_row].continuation)
       old_row--;
     int old_row_start = old_row;
 

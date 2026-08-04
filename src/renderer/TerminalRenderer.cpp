@@ -215,11 +215,6 @@ TerminalRenderer::TerminalRenderer(TerminalCore* core, QWidget* parent)
             ++_viewportMappingRevision;
             requestFullFrame();
         } else {
-            // A scrollback push at the live bottom means the active screen
-            // ring advanced. The damage still carries final revision data,
-            // while the row-slot map can retain all but the entering row.
-            ++_pendingLiveScrollRows;
-            ++_viewportMappingRevision;
             if (selectionChanged)
                 requestOverlayFrame();
         }
@@ -237,6 +232,19 @@ TerminalRenderer::TerminalRenderer(TerminalCore* core, QWidget* parent)
             ++_reflowGeneration;
             _historyLayout.clear();
             _pendingHistoryLayout.clear();
+        }
+    });
+
+    connect(_core, &TerminalCore::screenScrolled, this, [this](int rows) {
+        if (rows <= 0)
+            return;
+        if (_scrollLine == 0) {
+            _pendingLiveScrollRows += rows;
+            ++_viewportMappingRevision;
+        } else {
+            // History is mapped into the viewport, so row identities rather
+            // than the live-screen ring determine placement.
+            requestFullFrame();
         }
     });
 
@@ -347,6 +355,13 @@ void TerminalRenderer::setColorScheme(const TerminalColorScheme& scheme)
     pal.setColor(QPalette::Window, _scheme.background);
     setPalette(pal);
 
+    requestFullFrame();
+}
+
+void TerminalRenderer::setHighlightRules(
+    QVector<NovaTerm::TerminalHighlightRule> rules)
+{
+    _highlightRules = std::move(rules);
     requestFullFrame();
 }
 
@@ -634,9 +649,7 @@ void TerminalRenderer::render(QRhiCommandBuffer* cb)
         overlayPending = true;
     }
     if (_widgetRowToSlot.size() != rows) {
-        _widgetRowToSlot.resize(rows);
-        std::iota(_widgetRowToSlot.begin(), _widgetRowToSlot.end(), 0);
-        ++_viewportMappingRevision;
+        resetWidgetRowMapping(rows);
     }
     if (_rowContentIdentities.size() != rows)
         _rowContentIdentities.fill(0, rows);
@@ -743,6 +756,12 @@ void TerminalRenderer::render(QRhiCommandBuffer* cb)
             rows = screen.rows;
             columns = screen.columns;
             _commandBuffer.resize(rows, columns);
+            // The model resize is asynchronous. It can become visible only
+            // after this frame has already prepared the old row-slot map.
+            // Reset both together before rebuilding/uploading; otherwise a
+            // shrunken grid may retain slots outside [0, rows), whose zeroed
+            // placement entries draw several character rows at y=0.
+            resetWidgetRowMapping(rows);
             dirtyRows.fill(true, rows);
             dirtySpans.resize(rows);
             for (int row = 0; row < rows; ++row)
@@ -1434,6 +1453,7 @@ void TerminalRenderer::appendCellCommands(
     qreal x,
     qreal y,
     const NovaTerm::Cell& cell,
+    const QColor* defaultForegroundOverride,
     QVector<NovaTerm::RenderCommand>& backgrounds,
     QVector<NovaTerm::RenderCommand>& contents)
 {
@@ -1441,6 +1461,11 @@ void TerminalRenderer::appendCellCommands(
     const int cellSpan = std::max(1, static_cast<int>(cell.width));
     const qreal paintWidth = _cellWidth * cellSpan;
     QColor foreground = terminalColorToQColor(cell.foreground, true);
+    if (defaultForegroundOverride
+        && cell.foreground.type == NovaTerm::ColorType::Default
+        && !cell.attributes.reverse) {
+        foreground = *defaultForegroundOverride;
+    }
     QColor background = terminalColorToQColor(cell.background, false);
     if (cell.attributes.reverse)
         std::swap(foreground, background);
@@ -1528,7 +1553,10 @@ void TerminalRenderer::rebuildCommandRow(
     backgrounds.reserve(screen.columns);
     contents.reserve(screen.columns);
 
-    const bool replaceAll = dirtySpans.isEmpty()
+    // A token entering or leaving a row can change the semantic colour of all
+    // default-colour cells on that row, so incremental column reuse is unsafe
+    // while highlighting is enabled.
+    const bool replaceAll = !_highlightRules.isEmpty() || dirtySpans.isEmpty()
         || (dirtySpans.size() == 1 && dirtySpans.front().startColumn <= 0
             && dirtySpans.front().endColumn >= screen.columns);
     auto isDirty = [&dirtySpans, replaceAll](int column) {
@@ -1552,6 +1580,8 @@ void TerminalRenderer::rebuildCommandRow(
         }
     }
 
+    const std::optional<QColor> rowColor =
+        rowHighlightColor(widgetRow, screen);
     for (int column = 0; column < screen.columns; ++column) {
         if (!isDirty(column))
             continue;
@@ -1559,7 +1589,9 @@ void TerminalRenderer::rebuildCommandRow(
         const qreal y = 0.0;
         const NovaTerm::Cell* cell = screen.cellAt(widgetRow, column);
         if (cell && !cell->isWideContinuation())
-            appendCellCommands(x, y, *cell, backgrounds, contents);
+            appendCellCommands(x, y, *cell,
+                               rowColor ? &*rowColor : nullptr,
+                               backgrounds, contents);
     }
     const auto byColumn = [](const NovaTerm::RenderCommand& a,
                              const NovaTerm::RenderCommand& b) {
@@ -1805,6 +1837,58 @@ bool TerminalRenderer::ensureVertexBuffer(int rows, int columns)
     _renderStatistics.bufferPeakBytes = std::max(
         _renderStatistics.bufferPeakBytes, quint64(_vertexBufferSize));
     return true;
+}
+
+QColor TerminalRenderer::highlightColor(
+    NovaTerm::TerminalHighlightRole role) const
+{
+    switch (role) {
+    case NovaTerm::TerminalHighlightRole::Error:
+        return _scheme.palette[9];
+    case NovaTerm::TerminalHighlightRole::Warning:
+        return _scheme.palette[11];
+    case NovaTerm::TerminalHighlightRole::Success:
+        return _scheme.palette[10];
+    case NovaTerm::TerminalHighlightRole::Prompt:
+        return _scheme.palette[14];
+    }
+    return _scheme.foreground;
+}
+
+std::optional<QColor> TerminalRenderer::rowHighlightColor(
+    int widgetRow,
+    const NovaTerm::RendererSnapshot& screen) const
+{
+    if (_highlightRules.isEmpty())
+        return std::nullopt;
+
+    QString text;
+    text.reserve(screen.columns);
+    for (int column = 0; column < screen.columns; ++column) {
+        const NovaTerm::Cell* cell = screen.cellAt(widgetRow, column);
+        if (!cell || cell->isWideContinuation())
+            continue;
+        const QString cellText = cellCharsToString(
+            cell->chars.data(), NovaTerm::MaxCharsPerCell);
+        if (cellText.isEmpty())
+            text.append(QLatin1Char(' '));
+        else
+            text.append(cellText);
+    }
+
+    const auto role = NovaTerm::matchTerminalHighlight(_highlightRules, text);
+    return role ? std::optional<QColor>(highlightColor(*role)) : std::nullopt;
+}
+
+void TerminalRenderer::resetWidgetRowMapping(int rows)
+{
+    rows = std::max(0, rows);
+    _widgetRowToSlot.resize(rows);
+    std::iota(_widgetRowToSlot.begin(), _widgetRowToSlot.end(), 0);
+    _rowContentIdentities.fill(0, rows);
+    _rowSlotMap.reset();
+    _pendingLiveScrollRows = 0;
+    ++_viewportMappingRevision;
 }
 
 void TerminalRenderer::updatePlacementBuffer(

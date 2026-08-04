@@ -97,6 +97,9 @@ signals:
     void damage(const NovaTerm::DirtyRegion& region, quint64 revision);
     void cursorMoved();
     void scrollbackChanged();
+    // Exact active-screen upward scroll count for the publication. This is
+    // separate from scrollbackChanged(), which is intentionally coalesced.
+    void screenScrolled(int rows);
     void inputBackpressureChanged(bool paused);
     void inputOverload(const QString& reason);
     void searchResultsReady(const NovaTerm::SearchBatch& batch);

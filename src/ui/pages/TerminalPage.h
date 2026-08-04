@@ -1,6 +1,7 @@
 #pragma once
 
 #include "ui/terminal/TerminalView.h"
+#include "session/SessionTypes.h"
 #include <ElaTabWidget.h>
 #include <QWidget>
 
@@ -24,6 +25,7 @@ public:
     TerminalView* addTerminalTab(
         const QString& title = QString(),
         TerminalView::LocalShellType type = TerminalView::LocalShellType::Cmd);
+    TerminalView* addSerialTerminalTab(const SerialConfig& config);
 
 private:
     void retranslateUi();

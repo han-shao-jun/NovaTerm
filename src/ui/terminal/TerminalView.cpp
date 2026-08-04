@@ -1,6 +1,7 @@
 #include "TerminalView.h"
 #include "transport/ITransport.h"
 #include "transport/LocalShellTransport.h"
+#include "session/SessionInputPump.h"
 #include "core/terminal/TerminalCore.h"
 #include "renderer/TerminalRenderer.h"
 #include "renderer/TerminalColorScheme.h"
@@ -261,53 +262,8 @@ void TerminalView::attachTransport(ITransport* transport)
     // libvterm 无需 "teletype" 模式 — 它本身不内置 PTY，
     // 所有 I/O 都通过回调/API 驱动。
 
-    // Transport 输出 → libvterm 解析器
-    connect(_transport, &ITransport::readyRead,
-            this, [this](const QByteArray& data) {
-        if (!_core || data.isEmpty())
-            return;
-        if (!_pendingTransportInput.isEmpty()) {
-            _pendingTransportInput.append(data);
-            if (_transport && !_transport->setReadPaused(true))
-                emit _core->inputOverload(
-                    QStringLiteral("transport cannot pause reads"));
-            return;
-        }
-        const TerminalCore::InputWriteResult result =
-            _core->writeInput(data);
-        if (!result.fullyAccepted()) {
-            _pendingTransportInput.append(
-                data.constData() + result.acceptedBytes,
-                data.size() - result.acceptedBytes);
-            if (_transport && !_transport->setReadPaused(true))
-                emit _core->inputOverload(
-                    QStringLiteral("transport cannot pause reads"));
-        }
-    });
-
-    connect(_core, &TerminalCore::inputBackpressureChanged,
-            this, [this](bool paused) {
-        if (!_transport)
-            return;
-        if (paused) {
-            if (!_transport->setReadPaused(true))
-                emit _core->inputOverload(
-                    QStringLiteral("transport cannot pause reads"));
-            return;
-        }
-
-        while (!_pendingTransportInput.isEmpty()) {
-            const TerminalCore::InputWriteResult result =
-                _core->writeInput(_pendingTransportInput);
-            if (result.acceptedBytes > 0)
-                _pendingTransportInput.remove(0, result.acceptedBytes);
-            if (!result.fullyAccepted()) {
-                _transport->setReadPaused(true);
-                return;
-            }
-        }
-        _transport->setReadPaused(false);
-    });
+    _inputPump = new SessionInputPump(_transport, _core, this);
+    _inputPump->start();
 
     // 断开提示
     connect(_transport, &ITransport::disconnected,
@@ -315,6 +271,14 @@ void TerminalView::attachTransport(ITransport* transport)
         if (_core) {
             const char* msg = "\r\n[已断开连接]\r\n";
             _core->writeInput(QByteArray(msg));
+        }
+    });
+
+    connect(_transport, &ITransport::errorOccurred,
+            this, [this](const QString& error) {
+        if (_core && !error.isEmpty()) {
+            _core->writeInput(
+                QStringLiteral("\r\n[传输错误] %1\r\n").arg(error).toUtf8());
         }
     });
 
@@ -338,12 +302,15 @@ void TerminalView::attachTransport(ITransport* transport)
 
 void TerminalView::detachTransport()
 {
+    if (_inputPump) {
+        delete _inputPump;
+        _inputPump = nullptr;
+    }
     if (_transport) {
         _transport->setReadPaused(false);
         disconnect(_transport, nullptr, this, nullptr);
         _transport = nullptr;
     }
-    _pendingTransportInput.clear();
 }
 
 // ═══════════════════════════════════════════════════════════════════

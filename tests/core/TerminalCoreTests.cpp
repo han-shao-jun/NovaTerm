@@ -16,10 +16,13 @@ class TerminalCoreTests final : public QObject
 
 private slots:
     void parsesUtf8AndAttributes();
+    void parsesAnsiIndexedAndTrueColors();
     void parsesFragmentedUtf8();
     void reportsDamage();
     void ctrlCProducesInterruptCharacter();
     void resizesScreen();
+    void resizePublishesFullDamageWithoutLiveScroll();
+    void narrowerResizeReflowsExistingContent();
     void snapshotsAreStableValues();
     void modelPublicationsHaveMonotonicRevisions();
     void rendererSnapshotCopiesOnlyDirtyRows();
@@ -117,6 +120,93 @@ void TerminalCoreTests::resizesScreen()
 
     QCOMPARE(core.columns(), 132);
     QCOMPARE(core.rows(), 40);
+}
+
+void TerminalCoreTests::resizePublishesFullDamageWithoutLiveScroll()
+{
+    TerminalCore core(24, 5);
+    core.writeInput(QByteArrayLiteral(
+        "line-1-abcdefghijklmnop\r\n"
+        "line-2-abcdefghijklmnop\r\n"
+        "line-3-abcdefghijklmnop\r\n"
+        "line-4-abcdefghijklmnop"));
+    QVERIFY(core.waitForIdle());
+    QCoreApplication::processEvents();
+
+    QSignalSpy damageSpy(&core, &TerminalCore::damage);
+    QSignalSpy scrollSpy(&core, &TerminalCore::screenScrolled);
+    core.resize(10, 5);
+    QVERIFY(core.waitForIdle());
+    QTRY_VERIFY(!damageSpy.isEmpty());
+
+    bool hasFullResizeDamage = false;
+    for (const QList<QVariant>& arguments : damageSpy) {
+        const auto region =
+            qvariant_cast<NovaTerm::DirtyRegion>(arguments.at(0));
+        if (region.startRow == 0 && region.endRow == 5
+            && region.startColumn == 0 && region.endColumn == 10) {
+            hasFullResizeDamage = true;
+            break;
+        }
+    }
+    QVERIFY(hasFullResizeDamage);
+    QCOMPARE(scrollSpy.count(), 0);
+}
+
+void TerminalCoreTests::parsesAnsiIndexedAndTrueColors()
+{
+    TerminalCore core(20, 4);
+    core.writeInput(QByteArrayLiteral(
+        "\x1b[31mR\x1b[38;5;214mI\x1b[38;2;12;34;56mT"));
+    QVERIFY(core.waitForIdle());
+
+    NovaTerm::Cell cell;
+    QVERIFY(core.getCell(0, 0, cell));
+    QCOMPARE(cell.foreground.type, NovaTerm::ColorType::Indexed);
+    QCOMPARE(cell.foreground.index, uint8_t(1));
+
+    QVERIFY(core.getCell(0, 1, cell));
+    QCOMPARE(cell.foreground.type, NovaTerm::ColorType::Indexed);
+    QCOMPARE(cell.foreground.index, uint8_t(214));
+
+    QVERIFY(core.getCell(0, 2, cell));
+    QCOMPARE(cell.foreground.type, NovaTerm::ColorType::Rgb);
+    QCOMPARE(cell.foreground.red, uint8_t(12));
+    QCOMPARE(cell.foreground.green, uint8_t(34));
+    QCOMPARE(cell.foreground.blue, uint8_t(56));
+
+    core.writeInput(QByteArrayLiteral("\x1b[0mD"));
+    QVERIFY(core.waitForIdle());
+    QVERIFY(core.getCell(0, 3, cell));
+    QCOMPARE(cell.foreground.type, NovaTerm::ColorType::Default);
+}
+
+void TerminalCoreTests::narrowerResizeReflowsExistingContent()
+{
+    TerminalCore core(20, 6);
+    core.writeInput(QByteArrayLiteral("123456789012345"));
+    QVERIFY(core.waitForIdle());
+
+    core.resize(8, 6);
+    QVERIFY(core.waitForIdle());
+
+    const auto snapshot = core.snapshot();
+    QStringList populatedRows;
+    for (int row = 0; row < snapshot.rows; ++row) {
+        QString text;
+        for (int column = 0; column < snapshot.columns; ++column) {
+            const auto* cell = snapshot.cellAt(row, column);
+            if (!cell || cell->chars[0] == 0)
+                break;
+            text.append(QChar(cell->chars[0]));
+        }
+        if (!text.isEmpty())
+            populatedRows.push_back(text);
+    }
+
+    QCOMPARE(populatedRows,
+             QStringList({QStringLiteral("12345678"),
+                          QStringLiteral("9012345")}));
 }
 
 void TerminalCoreTests::snapshotsAreStableValues()
