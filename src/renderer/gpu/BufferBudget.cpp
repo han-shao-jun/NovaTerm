@@ -5,6 +5,14 @@
 
 namespace NovaTerm {
 
+int rowUploadVertexCount(int activeVertexCount, int retainedStride,
+                         bool fullRowUpload)
+{
+    activeVertexCount = std::max(0, activeVertexCount);
+    retainedStride = std::max(activeVertexCount, retainedStride);
+    return fullRowUpload ? retainedStride : activeVertexCount;
+}
+
 BufferBudget::BufferBudget(quint64 budgetBytes, quint64 minimumBytes)
     : _budget(std::max<quint64>(1, budgetBytes))
     , _minimum(std::min(std::max<quint64>(1, minimumBytes), _budget))

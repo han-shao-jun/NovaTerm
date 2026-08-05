@@ -221,6 +221,11 @@ int main(int argc, char** argv)
     expectedFrame = now.framesRendered + 1;
     const int columnsBeforeResize = core.columns();
     const int rowsBeforeResize = core.rows();
+    // Exercise the production failure order: output scrolls immediately
+    // before the async grid resize and continues while the resize full-frame
+    // request crosses the GUI/render scheduler boundary.
+    core.writeInput(QByteArrayLiteral("\r\nP5-resize-scroll"));
+    timer.start();
     renderer.resize(1060, 700);
     waitUntil([&]() {
         if (core.columns() == columnsBeforeResize
@@ -228,9 +233,16 @@ int main(int argc, char** argv)
             return false;
         }
         const auto statistics = renderer.renderStatistics();
-        return statistics.framesRendered >= expectedFrame
-            && statistics.lastRenderedRevision == core.modelRevision();
+        return statistics.framesRendered >= expectedFrame;
     }, 5000);
+    waitEvents(250);
+    timer.stop();
+    core.waitForIdle(10000);
+    waitUntil([&]() {
+        return renderer.renderStatistics().lastRenderedRevision
+            == core.modelRevision();
+    }, 5000);
+    const int rowsAfterResize = core.rows();
     now = renderer.renderStatistics();
     const auto resize = delta(now, mark); mark = now;
 
@@ -330,6 +342,12 @@ int main(int argc, char** argv)
             QStringLiteral("forced-full scenario did not rebuild content"));
     require(resize.rowsRebuilt > 0,
             QStringLiteral("resize scenario did not rebuild content"));
+    constexpr quint64 GpuInstanceBytes = sizeof(float) * 16;
+    const quint64 retainedStrideUploadBytes =
+        quint64(rowsAfterResize) * quint64(columnsBeforeResize) * 5
+        * GpuInstanceBytes;
+    require(resize.contentUploadBytes >= retainedStrideUploadBytes,
+            QStringLiteral("resize did not clear retained row strides"));
     require(font.rowsRebuilt > 0 && font.atlasUploadBytes > 0,
             QStringLiteral("font/DPI scenario did not restore content"));
     require(final.glyphRasterQueueDepth == 0

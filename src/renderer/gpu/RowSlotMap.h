@@ -6,6 +6,11 @@
 
 namespace NovaTerm {
 
+QVector<int> rowsNeedingRebuildAfterMapping(
+    const QVector<quint64>& cachedIdentities,
+    const QVector<quint64>& currentIdentities,
+    const QVector<bool>& dirtyRows);
+
 struct VisibleRowIdentity
 {
     quint64 sourceId{0};
@@ -53,9 +58,13 @@ class RowSlotMap
 public:
     RowSlotUpdate update(const QVector<VisibleRowIdentity>& rows,
                          float rowHeight, bool forceFull = false);
+    void resetSequential(int rows, float rowHeight);
+    void rotateRowsUp(int count, float rowHeight);
     void reset();
     quint64 mappingRevision() const { return _mappingRevision; }
     int capacity() const { return _capacity; }
+    int slotForWidgetRow(int widgetRow) const;
+    bool isValidPermutation(int rows) const;
     const QVector<RowPlacement>& placements() const { return _placements; }
 
 private:

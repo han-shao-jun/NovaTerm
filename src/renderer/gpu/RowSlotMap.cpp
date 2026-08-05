@@ -4,6 +4,24 @@
 
 namespace NovaTerm {
 
+QVector<int> rowsNeedingRebuildAfterMapping(
+    const QVector<quint64>& cachedIdentities,
+    const QVector<quint64>& currentIdentities,
+    const QVector<bool>& dirtyRows)
+{
+    QVector<int> result;
+    result.reserve(currentIdentities.size());
+    for (int row = 0; row < currentIdentities.size(); ++row) {
+        if (dirtyRows.value(row)
+            || (row < cachedIdentities.size()
+                && cachedIdentities[row] == currentIdentities[row])) {
+            continue;
+        }
+        result.push_back(row);
+    }
+    return result;
+}
+
 int RowSlotMap::allocateSlot(QVector<int>& freeSlots)
 {
     if (!freeSlots.isEmpty())
@@ -72,6 +90,68 @@ RowSlotUpdate RowSlotMap::update(const QVector<VisibleRowIdentity>& rows,
     }
     _placements = result.placements;
     return result;
+}
+
+void RowSlotMap::resetSequential(int rows, float rowHeight)
+{
+    rows = std::max(0, rows);
+    ++_mappingRevision;
+    _capacity = rows;
+    _placements.resize(rows);
+    for (int widgetRow = 0; widgetRow < rows; ++widgetRow) {
+        RowPlacement& placement = _placements[widgetRow];
+        placement.identity = {};
+        placement.widgetRow = widgetRow;
+        placement.gpuSlot = widgetRow;
+        placement.yTransform = widgetRow * rowHeight;
+        placement.mappingRevision = _mappingRevision;
+        placement.reused = false;
+    }
+}
+
+void RowSlotMap::rotateRowsUp(int count, float rowHeight)
+{
+    if (_placements.isEmpty())
+        return;
+    count = qBound(0, count, _placements.size());
+    if (count == 0)
+        return;
+
+    std::rotate(_placements.begin(), _placements.begin() + count,
+                _placements.end());
+    ++_mappingRevision;
+    for (int widgetRow = 0; widgetRow < _placements.size(); ++widgetRow) {
+        RowPlacement& placement = _placements[widgetRow];
+        placement.widgetRow = widgetRow;
+        placement.yTransform = widgetRow * rowHeight;
+        placement.mappingRevision = _mappingRevision;
+        placement.reused = widgetRow < _placements.size() - count;
+    }
+}
+
+int RowSlotMap::slotForWidgetRow(int widgetRow) const
+{
+    if (widgetRow < 0 || widgetRow >= _placements.size())
+        return -1;
+    return _placements[widgetRow].gpuSlot;
+}
+
+bool RowSlotMap::isValidPermutation(int rows) const
+{
+    rows = std::max(0, rows);
+    if (_placements.size() != rows || _capacity != rows)
+        return false;
+
+    QVector<bool> seen(rows, false);
+    for (int widgetRow = 0; widgetRow < rows; ++widgetRow) {
+        const RowPlacement& placement = _placements[widgetRow];
+        if (placement.widgetRow != widgetRow || placement.gpuSlot < 0
+            || placement.gpuSlot >= rows || seen[placement.gpuSlot]) {
+            return false;
+        }
+        seen[placement.gpuSlot] = true;
+    }
+    return true;
 }
 
 void RowSlotMap::reset()

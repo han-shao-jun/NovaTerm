@@ -6,6 +6,9 @@
 
 namespace NovaTerm {
 
+int rowUploadVertexCount(int activeVertexCount, int retainedStride,
+                         bool fullRowUpload);
+
 struct BufferBudgetStatistics
 {
     quint64 currentBytes{0};

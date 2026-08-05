@@ -291,7 +291,6 @@ private:
     NovaTerm::BufferBudget _bufferBudget;
     NovaTerm::RendererCapabilities _capabilities;
     NovaTerm::RowSlotMap _rowSlotMap;
-    QVector<int> _widgetRowToSlot;
     QVector<quint64> _rowContentIdentities;
     quint64 _viewportMappingRevision{0};
     int _pendingLiveScrollRows{0};

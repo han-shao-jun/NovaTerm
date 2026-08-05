@@ -31,9 +31,12 @@ private slots:
     void glyphCacheWarmHitDoesNotUploadAgain();
     void rowSlotRingReusesScrolledRows();
     void rowSlotMapHandlesJumpAndForcedRemap();
+    void sequentialRowSlotsStayValidAcrossResizeAndScroll();
+    void mappingReconciliationFindsSameRevisionEdits();
     void mappingRevisionIsIndependent();
     void materialBatchesPreserveLayers();
     void materialBatchesSeparateAtlasPages();
+    void fullRowUploadClearsRetainedStride();
     void bufferOnlyGrowsAndRejectsOverBudget();
     void bufferReleaseRetainsPeakStatistics();
     void semanticHighlightRulesRespectPriorityAndCase();
@@ -388,6 +391,55 @@ void RendererP5Tests::rowSlotMapHandlesJumpAndForcedRemap()
     QCOMPARE(forced.reusedRows, 0);
     QCOMPARE(forced.enteringWidgetRows.size(), 3);
     QCOMPARE(map.capacity(), 3);
+}
+
+void RendererP5Tests::fullRowUploadClearsRetainedStride()
+{
+    // The GPU row stride intentionally retains its fullscreen capacity after
+    // a shrink. Incremental updates touch only active cells, while a full
+    // resize upload must overwrite the retained tail so stale instances are
+    // not interpreted through the new row/content offsets.
+    QCOMPARE(NovaTerm::rowUploadVertexCount(80, 160, false), 80);
+    QCOMPARE(NovaTerm::rowUploadVertexCount(80, 160, true), 160);
+    QCOMPARE(NovaTerm::rowUploadVertexCount(320, 640, true), 640);
+    QCOMPARE(NovaTerm::rowUploadVertexCount(320, 160, true), 320);
+}
+
+void RendererP5Tests::sequentialRowSlotsStayValidAcrossResizeAndScroll()
+{
+    NovaTerm::RowSlotMap map;
+    map.resetSequential(5, 18.0f);
+    QVERIFY(map.isValidPermutation(5));
+
+    map.rotateRowsUp(2, 18.0f);
+    QVERIFY(map.isValidPermutation(5));
+    QCOMPARE(map.slotForWidgetRow(0), 2);
+    QCOMPARE(map.slotForWidgetRow(1), 3);
+    QCOMPARE(map.slotForWidgetRow(2), 4);
+    QCOMPARE(map.slotForWidgetRow(3), 0);
+    QCOMPARE(map.slotForWidgetRow(4), 1);
+
+    map.resetSequential(3, 20.0f);
+    QVERIFY(map.isValidPermutation(3));
+    QCOMPARE(map.slotForWidgetRow(0), 0);
+    QCOMPARE(map.slotForWidgetRow(1), 1);
+    QCOMPARE(map.slotForWidgetRow(2), 2);
+    QCOMPARE(map.slotForWidgetRow(3), -1);
+}
+
+void RendererP5Tests::mappingReconciliationFindsSameRevisionEdits()
+{
+    // After a one-row scroll, retained rows 0..2 already match their rotated
+    // cache. Row 1 also changed in the same parser publication, while row 3 is
+    // the entering row and is already dirty. The extra edit must be recovered
+    // without relying on a newer model revision.
+    const QVector<quint64> rotatedCache = {20, 30, 40, 0};
+    const QVector<quint64> finalSnapshot = {20, 31, 40, 50};
+    const QVector<bool> dirtyRows = {false, false, false, true};
+
+    QCOMPARE(NovaTerm::rowsNeedingRebuildAfterMapping(
+                 rotatedCache, finalSnapshot, dirtyRows),
+             QVector<int>({1}));
 }
 
 void RendererP5Tests::mappingRevisionIsIndependent()

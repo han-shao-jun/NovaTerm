@@ -15,7 +15,6 @@
 #include <rhi/qshader.h>
 #include <rhi/qrhi.h>
 #include <algorithm>
-#include <numeric>
 #include <limits>
 #include <utility>
 
@@ -23,6 +22,9 @@
 static constexpr int kScrollWheelLines = 3;
 static constexpr int kMinTerminalFontSize = 8;
 static constexpr int kMaxTerminalFontSize = 32;
+// terminal_texture.vert uses a fixed-size std140 placement array. Keep CPU
+// bounds in one named constant and make the shader reject slots outside it.
+static constexpr int kMaxGpuPlacementRows = 256;
 static constexpr qsizetype kCpuFrameSampleCapacity = 2048;
 static constexpr quint64 kCpuFrameBudgetNanoseconds = 16666667;
 
@@ -626,12 +628,19 @@ void TerminalRenderer::render(QRhiCommandBuffer* cb)
         const QMutexLocker lock(&_pendingFrameMutex);
         pendingDirtyRegions.swap(_pendingDirtyRegions);
         fullFramePending = std::exchange(_fullFramePending, false);
-        explicitFullPending = std::exchange(_explicitFullPending, false);
+        // requestFullFrame() and RenderScheduler::frameRequested() are
+        // asynchronous. An already queued incremental QRhi frame can render
+        // between them; do not let that earlier frame consume the intent that
+        // protects a resize/font/resource rebuild from the live-scroll fast
+        // path. Retire the intent only together with an actual full frame.
+        explicitFullPending = _explicitFullPending;
+        if (fullFramePending)
+            _explicitFullPending = false;
         overlayPending = std::exchange(_overlayPending, false);
         requestedContentRevision = std::exchange(_pendingContentRevision, 0);
     }
 
-    const bool contentPending = fullFramePending
+    bool contentPending = fullFramePending
         || !pendingDirtyRegions.isEmpty()
         || _commandBuffer.rows() <= 0 || _commandBuffer.columns() <= 0;
     int rows = _commandBuffer.rows();
@@ -648,8 +657,11 @@ void TerminalRenderer::render(QRhiCommandBuffer* cb)
         fullFramePending = true;
         overlayPending = true;
     }
-    if (_widgetRowToSlot.size() != rows) {
+    if (!_rowSlotMap.isValidPermutation(rows)) {
         resetWidgetRowMapping(rows);
+        fullFramePending = true;
+        overlayPending = true;
+        contentPending = true;
     }
     if (_rowContentIdentities.size() != rows)
         _rowContentIdentities.fill(0, rows);
@@ -658,18 +670,13 @@ void TerminalRenderer::render(QRhiCommandBuffer* cb)
     // A live-bottom terminal scroll commonly arrives as full-screen damage.
     // Rotate row-local CPU commands and GPU slots, then rebuild only entering
     // rows. Explicit font/theme/resize/resource invalidation still wins.
+    bool liveScrollRotated = false;
     if (!explicitFullPending && _pendingLiveScrollRows > 0
         && _commandBuffer.rows() == rows) {
         const int scrollRows = std::min(_pendingLiveScrollRows, rows);
         _pendingLiveScrollRows = 0;
         _commandBuffer.rotateRowsUp(scrollRows);
-        if (_widgetRowToSlot.size() != rows) {
-            _widgetRowToSlot.resize(rows);
-            std::iota(_widgetRowToSlot.begin(), _widgetRowToSlot.end(), 0);
-        }
-        std::rotate(_widgetRowToSlot.begin(),
-                    _widgetRowToSlot.begin() + scrollRows,
-                    _widgetRowToSlot.end());
+        _rowSlotMap.rotateRowsUp(scrollRows, float(_cellHeight));
         std::rotate(_rowContentIdentities.begin(),
                     _rowContentIdentities.begin() + scrollRows,
                     _rowContentIdentities.end());
@@ -682,6 +689,7 @@ void TerminalRenderer::render(QRhiCommandBuffer* cb)
         _renderStatistics.rowSlotsReused += quint64(rows - scrollRows);
         _renderStatistics.rowSlotsCreated += quint64(scrollRows);
         ++_renderStatistics.mappingOnlyUpdates;
+        liveScrollRotated = true;
     } else if (_pendingLiveScrollRows > 0 && explicitFullPending) {
         _pendingLiveScrollRows = 0;
     }
@@ -762,6 +770,7 @@ void TerminalRenderer::render(QRhiCommandBuffer* cb)
             // shrunken grid may retain slots outside [0, rows), whose zeroed
             // placement entries draw several character rows at y=0.
             resetWidgetRowMapping(rows);
+            liveScrollRotated = false;
             dirtyRows.fill(true, rows);
             dirtySpans.resize(rows);
             for (int row = 0; row < rows; ++row)
@@ -771,6 +780,31 @@ void TerminalRenderer::render(QRhiCommandBuffer* cb)
             screen = _core->rendererSnapshot(dirtyRows, _scrollLine,
                                              _scrollAnchorLine,
                                              _scrollAnchorWrap);
+        }
+
+        // A parser publication may both scroll and update an unrelated row
+        // (for example, a serial status line). The scroll fast path replaces
+        // full-screen scroll damage with only the entering rows, so reconcile
+        // every retained row against the final snapshot identity even when the
+        // snapshot and delivered damage have the same revision. Otherwise the
+        // extra update remains stale until an unrelated full-frame resize.
+        if (liveScrollRotated
+            && screen.visibleRowIdentities.size() == rows) {
+            const QVector<int> recovered =
+                NovaTerm::rowsNeedingRebuildAfterMapping(
+                    _rowContentIdentities, screen.visibleRowIdentities,
+                    dirtyRows);
+            for (const int row : recovered) {
+                dirtyRows[row] = true;
+                dirtySpans[row] = {{0, columns}};
+            }
+            if (!recovered.isEmpty()) {
+                _renderStatistics.revisionRecoveredRows +=
+                    quint64(recovered.size());
+                screen = _core->rendererSnapshot(
+                    dirtyRows, _scrollLine, _scrollAnchorLine,
+                    _scrollAnchorWrap);
+            }
         }
     }
 
@@ -937,7 +971,9 @@ void TerminalRenderer::scheduleReflow()
 void TerminalRenderer::resizeTerminalToViewport()
 {
     const int cols = qFloor(width()  / std::max<qreal>(1.0, _cellWidth));
-    const int rows = qFloor(height() / std::max<qreal>(1.0, _cellHeight));
+    const int rows = std::min(
+        kMaxGpuPlacementRows,
+        qFloor(height() / std::max<qreal>(1.0, _cellHeight)));
 
     // 最小可显示行列数保护。窗口被拖到很小（但非 0）时，cols/rows 会
     // 跌到 2×1 这类病态尺寸：bash/readline 在其上重绘提示符会产生海量
@@ -1249,7 +1285,8 @@ void TerminalRenderer::ensurePipeline()
         return;
 
     if (!_placementBuffer) {
-        constexpr int placementBytes = int(sizeof(float) * 4 * 257);
+        constexpr int placementBytes = int(
+            sizeof(float) * 4 * (kMaxGpuPlacementRows + 1));
         _placementBuffer.reset(_rhi->newBuffer(QRhiBuffer::Dynamic,
                                                QRhiBuffer::UniformBuffer,
                                                placementBytes));
@@ -1883,10 +1920,8 @@ std::optional<QColor> TerminalRenderer::rowHighlightColor(
 void TerminalRenderer::resetWidgetRowMapping(int rows)
 {
     rows = std::max(0, rows);
-    _widgetRowToSlot.resize(rows);
-    std::iota(_widgetRowToSlot.begin(), _widgetRowToSlot.end(), 0);
+    _rowSlotMap.resetSequential(rows, float(_cellHeight));
     _rowContentIdentities.fill(0, rows);
-    _rowSlotMap.reset();
     _pendingLiveScrollRows = 0;
     ++_viewportMappingRevision;
 }
@@ -1896,18 +1931,18 @@ void TerminalRenderer::updatePlacementBuffer(
 {
     if (!_placementBuffer || !updates)
         return;
-    constexpr int maxRows = 256;
-    QVector<float> values(4 * (maxRows + 1), 0.0f);
+    QVector<float> values(4 * (kMaxGpuPlacementRows + 1), 0.0f);
     values[0] = float(pixelSize.width());
     values[1] = float(pixelSize.height());
     values[2] = float(devicePixelRatioF());
-    values[3] = float(std::min(maxRows, _commandBuffer.rows()));
-    for (int widgetRow = 0;
-         widgetRow < _widgetRowToSlot.size() && widgetRow < maxRows;
-         ++widgetRow) {
-        const int slot = _widgetRowToSlot[widgetRow];
-        if (slot >= 0 && slot < maxRows)
-            values[4 + slot * 4] = float(widgetRow * _cellHeight);
+    values[3] = float(std::min(kMaxGpuPlacementRows,
+                               _commandBuffer.rows()));
+    for (const NovaTerm::RowPlacement& placement
+         : _rowSlotMap.placements()) {
+        if (placement.gpuSlot >= 0
+            && placement.gpuSlot < kMaxGpuPlacementRows) {
+            values[4 + placement.gpuSlot * 4] = placement.yTransform;
+        }
     }
     updates->updateDynamicBuffer(_placementBuffer.get(), 0,
                                  int(values.size() * sizeof(float)),
@@ -1963,7 +1998,9 @@ void TerminalRenderer::uploadCommands(
             continue;
 
         const NovaTerm::RenderCommandRow& commands = _commandBuffer.row(row);
-        const int slot = _widgetRowToSlot.value(row, row);
+        const int slot = _rowSlotMap.slotForWidgetRow(row);
+        if (slot < 0)
+            continue;
         QVector<NovaTerm::DirtyColumnSpan> spans = uploadAllRows
             ? QVector<NovaTerm::DirtyColumnSpan>{{0, _commandBuffer.columns()}}
             : dirtySpans.value(row);
@@ -1977,7 +2014,10 @@ void TerminalRenderer::uploadCommands(
             if (start >= end)
                 continue;
             const int cellCount = end - start;
-            _instances.fill(GpuInstance{}, cellCount);
+            const int backgroundVertexCount =
+                NovaTerm::rowUploadVertexCount(
+                    cellCount, _backgroundRowStrideVertices, uploadAllRows);
+            _instances.fill(GpuInstance{}, backgroundVertexCount);
             for (const NovaTerm::RenderCommand& command : commands.backgrounds) {
                 if (command.cellColumn < start || command.cellColumn >= end)
                     continue;
@@ -2003,7 +2043,9 @@ void TerminalRenderer::uploadCommands(
             _renderStatistics.gpuUploadBytes += quint64(backgroundBytes);
             _renderStatistics.contentUploadBytes += quint64(backgroundBytes);
 
-            _instances.fill(GpuInstance{}, cellCount * 4);
+            const int contentVertexCount = NovaTerm::rowUploadVertexCount(
+                cellCount * 4, _contentRowStrideVertices, uploadAllRows);
+            _instances.fill(GpuInstance{}, contentVertexCount);
             QVector<int> perCell(cellCount, 0);
             for (const NovaTerm::RenderCommand& command : commands.contents) {
                 if (command.cellColumn < start || command.cellColumn >= end)
