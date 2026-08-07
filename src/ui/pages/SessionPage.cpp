@@ -119,6 +119,31 @@ SessionPage::SessionPage(QWidget* parent)
             return;
         }
 
+        if (_tabWidget->currentIndex() == 1) {
+            // ── SSH 标签页（local shell=0, ssh=1, serial=2, telnet=3）──
+            SshConfig config;
+            config.host = _sshIp->text().trimmed();
+            config.port = static_cast<quint16>(_sshPort->value());
+            config.username = _sshUserName->text().trimmed();
+            config.authMethod = _sshAuthMethod->currentData().toString();
+            config.password = _sshPassword->text();
+            config.privateKeyPath = _sshPrivateKey->text().trimmed();
+            config.keyPassphrase = _sshKeyPassphrase->text();
+            config.terminalType = _sshTerminalType->currentText().trimmed();
+            config.keepAliveSeconds = _sshKeepAlive->value();
+            config.label = _sshLabel->text().trimmed();
+
+            if (!config.isValid()) {
+                QMessageBox::warning(
+                    this, tr("SSH Session"),
+                    tr("Provide a host, user name and the credentials for the "
+                       "selected authentication method."));
+                return;
+            }
+            emit sshSessionRequested(config);
+            return;
+        }
+
         const auto type =
             (_shellTypeCombo->currentText() == QStringLiteral("PowerShell"))
                 ? TerminalView::LocalShellType::PowerShell

@@ -295,6 +295,11 @@ void MainWindow::showSessionDialog()
             _pendingSerialSession = config;
             _sessionDialog->accept();
         });
+        connect(sessionPage, &SessionPage::sshSessionRequested, this,
+                [this](const SshConfig& config) {
+            _pendingSshSession = config;
+            _sessionDialog->accept();
+        });
         connect(sessionPage, &SessionPage::dialogRejected,
                 _sessionDialog, &QDialog::reject);
 
@@ -305,6 +310,7 @@ void MainWindow::showSessionDialog()
 
     _pendingLocalSession.reset();
     _pendingSerialSession.reset();
+    _pendingSshSession.reset();
     const int result = _sessionDialog->exec();
     // ElaDialog and its custom controls are not reliable when reused after
     // accept(): a later QDialog::exec() can encounter stale entries while Qt
@@ -321,6 +327,10 @@ void MainWindow::showSessionDialog()
         const SerialConfig config = *_pendingSerialSession;
         _pendingSerialSession.reset();
         _terminalPage->addSerialTerminalTab(config);
+    } else if (result == QDialog::Accepted && _pendingSshSession) {
+        const SshConfig config = *_pendingSshSession;
+        _pendingSshSession.reset();
+        _terminalPage->addSshTerminalTab(config);
     }
 }
 

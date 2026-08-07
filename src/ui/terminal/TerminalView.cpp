@@ -1,7 +1,9 @@
 #include "TerminalView.h"
 #include "transport/ITransport.h"
 #include "transport/LocalShellTransport.h"
+#include "transport/SshTransport.h"
 #include "session/SessionInputPump.h"
+#include "ui/widgets/SshHostKeyDialog.h"
 #include "core/terminal/TerminalCore.h"
 #include "renderer/TerminalRenderer.h"
 #include "renderer/TerminalColorScheme.h"
@@ -14,6 +16,7 @@
 #include <QClipboard>
 #include <QCoreApplication>
 #include <QDebug>
+#include <QDialog>
 #include <QDir>
 #include <QFileInfo>
 #include <QJsonArray>
@@ -264,6 +267,23 @@ void TerminalView::attachTransport(ITransport* transport)
 
     _inputPump = new SessionInputPump(_transport, _core, this);
     _inputPump->start();
+
+    // SSH 在打开 channel 前需要正确的 PTY 尺寸；Serial/Local 对 resize
+    // 是幂等或 no-op，统一传入无副作用。
+    _transport->resizeTerminal(_core->columns(), _core->rows());
+
+    // SSH 专属：主机密钥首次信任 / 变更必须经用户确认（P6 禁止静默接受）。
+    if (auto* ssh = qobject_cast<SshTransport*>(_transport)) {
+        connect(ssh, &SshTransport::hostKeyRequired, this,
+                [this, ssh](const SshHostKeyInfo& info) {
+            auto* dialog = new SshHostKeyDialog(info, this);
+            dialog->setAttribute(Qt::WA_DeleteOnClose);
+            if (dialog->exec() == QDialog::Accepted)
+                ssh->acceptHostKey();
+            else
+                ssh->rejectHostKey();
+        });
+    }
 
     // 断开提示
     connect(_transport, &ITransport::disconnected,

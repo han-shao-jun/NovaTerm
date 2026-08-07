@@ -5,6 +5,7 @@
 #include "service/LanguageManager.h"
 #include "session/SerialHighlightRules.h"
 #include "transport/SerialTransport.h"
+#include "transport/SshTransport.h"
 #include <QVBoxLayout>
 
 #include <utility>
@@ -103,6 +104,26 @@ TerminalView* TerminalPage::addSerialTerminalTab(const SerialConfig& config)
     _tabWidget->setCurrentIndex(index);
 
     auto* transport = new SerialTransport(config, terminalView);
+    terminalView->attachTransport(transport);
+    transport->connectToHost();
+    return terminalView;
+}
+
+TerminalView* TerminalPage::addSshTerminalTab(const SshConfig& config)
+{
+    auto* terminalView = new TerminalView(_tabWidget);
+    _terminalViews.append(terminalView);
+    connect(terminalView, &QObject::destroyed, this, [this, terminalView]() {
+        _terminalViews.removeAll(terminalView);
+    });
+
+    const QString title = config.label.isEmpty()
+        ? QStringLiteral("%1@%2").arg(config.username, config.host)
+        : config.label;
+    const int index = _tabWidget->addTab(terminalView, title);
+    _tabWidget->setCurrentIndex(index);
+
+    auto* transport = new SshTransport(config, terminalView);
     terminalView->attachTransport(transport);
     transport->connectToHost();
     return terminalView;

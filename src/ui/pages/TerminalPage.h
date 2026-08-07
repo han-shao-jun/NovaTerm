@@ -26,6 +26,7 @@ public:
         const QString& title = QString(),
         TerminalView::LocalShellType type = TerminalView::LocalShellType::Cmd);
     TerminalView* addSerialTerminalTab(const SerialConfig& config);
+    TerminalView* addSshTerminalTab(const SshConfig& config);
 
 private:
     void retranslateUi();

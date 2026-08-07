@@ -26,6 +26,7 @@ signals:
     // （cmd 关联 Clink / PowerShell）。
     void localSessionRequested(TerminalView::LocalShellType type);
     void serialSessionRequested(const SerialConfig& config);
+    void sshSessionRequested(const SshConfig& config);
     void dialogRejected();          // 用户在任意标签页点击了 Cancel
 
 private:

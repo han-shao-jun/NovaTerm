@@ -46,6 +46,7 @@ private:
     ElaDialog* _sessionDialog{nullptr};
     std::optional<TerminalView::LocalShellType> _pendingLocalSession;
     std::optional<SerialConfig> _pendingSerialSession;
+    std::optional<SshConfig> _pendingSshSession;
     void showSessionDialog();
 
     // ── 设置（模态 ElaDialog，内嵌现有 SettingsPage）──

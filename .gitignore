@@ -7,3 +7,9 @@ CMakeUserPresets.json
 CMakeLists.txt.user
 cmake-build-debug/
 cmake-build-release/
+
+# SSH 第三方库构建产物（源码树保留，构建/安装前缀不入库）
+third_party/openssl-3.5.7/build/
+third_party/openssl-3.5.7/install/
+third_party/libssh-0.12.2/build/
+third_party/libssh-0.12.2/out/

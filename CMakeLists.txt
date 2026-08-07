@@ -56,8 +56,36 @@ endif()
 # 的 cmd 类型通过 cmd.exe /k "clink.bat" inject 启动增强 cmd 会话；
 # 找不到 clink.bat 时回退裸 cmd.exe。
 
-# libssh
-find_package(libssh 0.10 QUIET)
+# libssh — SSH 会话传输。直接以源码子目录方式构建（不再 find_package 预编译产物）。
+# OpenSSL：Windows 使用 vendored 一次性预编译（scripts/build-ssh-thirdparty.bat 编译，
+# 产物在 third_party/openssl-3.5.7/install）；其他平台（Linux/macOS）直接用系统
+# OpenSSL（apt/dnf 安装的 libssl-dev / openssl-devel），由下方 find_package 解析。
+if(WIN32)
+    set(OPENSSL_INSTALL_DIR
+        "${CMAKE_SOURCE_DIR}/third_party/openssl-3.5.7/install"
+        CACHE PATH "OpenSSL install prefix (run scripts/build-ssh-thirdparty.bat)")
+    # 必须用 OPENSSL_ROOT_DIR（而非 find_package 的 HINTS）：libssh 子目录内部的
+    # find_package(OpenSSL 1.1.1) 不带 HINTS，只有 MODULE 模式才认 OPENSSL_ROOT_DIR；
+    # 若走 OpenSSL 自带的 OpenSSLConfig.cmake（CONFIG 模式）则不会写 OPENSSL_* cache，
+    # 导致 libssh 找不到 libcrypto。
+    set(OPENSSL_ROOT_DIR "${OPENSSL_INSTALL_DIR}" CACHE PATH
+        "OpenSSL root dir consumed by FindOpenSSL (module mode) and the libssh subdirectory")
+endif()
+find_package(OpenSSL REQUIRED)
+
+set(BUILD_SHARED_LIBS OFF)   # 静态 libssh（与预编译 ssh.lib 配置一致）
+set(WITH_EXAMPLES OFF)
+set(WITH_SERVER  OFF)
+set(WITH_GSSAPI  OFF)
+set(WITH_ZLIB    OFF)
+set(WITH_NACL    OFF)
+set(WITH_PCAP    OFF)
+set(WITH_SFTP    ON)
+set(UNIT_TESTING OFF)
+set(CLIENT_TESTING OFF)
+set(SERVER_TESTING OFF)
+set(WITH_BENCHMARKS OFF)
+add_subdirectory(third_party/libssh-0.12.2)
 
 set(NOVATERM_CORE_SOURCES
     src/core/terminal/BoundedByteQueue.cpp
@@ -120,7 +148,15 @@ target_link_libraries(NovaTerm PRIVATE
         Qt${QT_VERSION_MAJOR}::SerialPort
         ElaWidgetTools
         novaterm_core
+        ssh::ssh
+        OpenSSL::Crypto
+        OpenSSL::SSL
 )
+
+# 静态 OpenSSL 在 Windows 上的平台依赖库
+if(WIN32)
+    target_link_libraries(NovaTerm PRIVATE ws2_32 crypt32 user32)
+endif()
 
 if (CMAKE_HOST_SYSTEM_NAME STREQUAL "Linux")
     target_link_libraries(NovaTerm PRIVATE udev)
@@ -459,12 +495,16 @@ if(BUILD_TESTING)
             src/transport/ITransport.h
             src/transport/LocalShellTransport.cpp
             src/transport/LocalShellTransport.h
+            src/transport/SshTransport.cpp
+            src/transport/SshTransport.h
             src/session/SessionInputPump.cpp
             src/session/SessionInputPump.h
             src/service/ConfigManager.cpp
             src/service/ConfigManager.h
             src/ui/terminal/TerminalView.cpp
             src/ui/terminal/TerminalView.h
+            src/ui/widgets/SshHostKeyDialog.cpp
+            src/ui/widgets/SshHostKeyDialog.h
         )
         target_include_directories(novaterm_terminal_session_tests PRIVATE
             src
@@ -477,8 +517,16 @@ if(BUILD_TESTING)
                 Qt${QT_VERSION_MAJOR}::Core
                 Qt${QT_VERSION_MAJOR}::Gui
                 Qt${QT_VERSION_MAJOR}::Widgets
+                Qt${QT_VERSION_MAJOR}::SerialPort
                 Qt${QT_VERSION_MAJOR}::Test
+                ssh::ssh
+                OpenSSL::Crypto
+                OpenSSL::SSL
         )
+        if(WIN32)
+            target_link_libraries(novaterm_terminal_session_tests
+                PRIVATE ws2_32 crypt32 user32)
+        endif()
         qt_add_shaders(novaterm_terminal_session_tests
             novaterm_terminal_session_test_shaders
             PREFIX "/shaders"
@@ -502,6 +550,35 @@ if(BUILD_TESTING)
                                  TIMEOUT 20)
         add_dependencies(check novaterm_terminal_session_tests)
     endif()
+
+    # ── SshTransport 失败路径控制台检查（无需真实 SSH 服务器）──
+    add_executable(novaterm_ssh_transport_check
+        tests/transport/SshTransportFailureCheck.cpp
+        src/transport/SshTransport.cpp
+        src/transport/SshTransport.h
+        src/transport/ITransport.h
+        src/session/SessionTypes.h
+    )
+    target_include_directories(novaterm_ssh_transport_check PRIVATE src)
+    target_link_libraries(novaterm_ssh_transport_check
+        PRIVATE
+            Qt${QT_VERSION_MAJOR}::Core
+            Qt${QT_VERSION_MAJOR}::SerialPort
+            ssh::ssh
+            OpenSSL::Crypto
+            OpenSSL::SSL
+    )
+    if(WIN32)
+        target_link_libraries(novaterm_ssh_transport_check
+            PRIVATE ws2_32 crypt32 user32)
+    endif()
+    add_test(NAME novaterm_ssh_transport_check
+             COMMAND novaterm_ssh_transport_check)
+    set_tests_properties(novaterm_ssh_transport_check
+                         PROPERTIES
+                             LABELS "transport;ssh"
+                             TIMEOUT 30)
+    add_dependencies(check novaterm_ssh_transport_check)
 endif()
 
 if(NOVATERM_BUILD_BENCHMARKS)
