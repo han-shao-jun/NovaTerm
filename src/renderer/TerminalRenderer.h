@@ -87,6 +87,13 @@ public:
         quint64 viewportMappingRevision{0};
     };
 
+    struct RenderProgress
+    {
+        quint64 rowsRebuilt{0};
+        quint64 lastRenderedRevision{0};
+        quint64 framesRendered{0};
+    };
+
     explicit TerminalRenderer(TerminalCore* core, QWidget* parent = nullptr);
     ~TerminalRenderer() override;
 
@@ -117,6 +124,7 @@ public:
     // ── 从 widget 坐标计算 cell 坐标（供外部使用）─────────────
     QPoint widgetToCell(const QPoint& pos) const;
     RenderStatistics renderStatistics() const;
+    RenderProgress renderProgress() const;
     void setTargetRefreshRate(int hz);
     void setSearchMatches(QVector<NovaTerm::SearchMatch> matches,
                           quint64 generation);
@@ -226,6 +234,7 @@ private:
     void ensurePipeline();
     void requestFullFrame();
     void requestOverlayFrame();
+    void discardHistoryLayout();
     void scheduleReflow();
     bool ensureVertexBuffer(int rows, int columns);
     void resetWidgetRowMapping(int rows);

@@ -354,6 +354,8 @@ set(CMAKE_CTEST_ARGUMENTS
 
 include(CTest)
 option(NOVATERM_BUILD_BENCHMARKS "Build NovaTerm performance baseline tools" ON)
+option(NOVATERM_RUN_GPU_ACCEPTANCE_TESTS
+    "Register hardware-dependent GPU acceptance benchmarks with CTest" OFF)
 
 set(NOVATERM_P5_RENDERER_SOURCES
     src/renderer/font/FontManager.cpp
@@ -607,6 +609,22 @@ if(NOVATERM_BUILD_BENCHMARKS)
             src/renderer/shaders/terminal_texture.vert
             src/renderer/shaders/terminal_texture.frag
     )
+    if(BUILD_TESTING AND NOVATERM_RUN_GPU_ACCEPTANCE_TESTS)
+        add_test(NAME novaterm_renderer_p5_gpu_acceptance
+            COMMAND novaterm_renderer_p5_gpu_benchmark
+                --duration-ms 5000
+                --refresh-rate 60
+                --scrollback-limit 100000
+                --prefill-lines 100000
+        )
+        set_tests_properties(novaterm_renderer_p5_gpu_acceptance
+            PROPERTIES
+                LABELS "integration;renderer;gpu;benchmark"
+                RUN_SERIAL TRUE
+                TIMEOUT 180
+        )
+        add_dependencies(check novaterm_renderer_p5_gpu_benchmark)
+    endif()
 
     add_executable(novaterm_renderer_p3_gpu_benchmark
         tests/benchmarks/RendererP3GpuBenchmark.cpp

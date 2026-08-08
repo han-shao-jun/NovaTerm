@@ -31,6 +31,7 @@ private slots:
     void liveBottomDefersScrollbackReflow();
     void batchedScreenScrollPublishesExactRowCount();
     void enteringHistoryRequestsScrollbackReflow();
+    void returningToLiveBottomCancelsPendingReflow();
     void searchMatchesAppendByGeneration();
 };
 
@@ -318,14 +319,19 @@ void RendererP3Tests::scrollbackAtLiveBottomDoesNotRequestFullFrame()
 
 void RendererP3Tests::liveBottomDefersScrollbackReflow()
 {
-    TerminalCore core(80, 24);
+    TerminalCore core(80, 6);
     TerminalRenderer renderer(&core);
     QTest::qWait(80);
     const quint64 requestsBefore =
         renderer.renderStatistics().scrollbackReflowRequests;
 
+    QByteArray input;
     for (int i = 0; i < 100; ++i)
-        emit core.scrollbackChanged();
+        input += QByteArrayLiteral("live-bottom\r\n");
+    const auto result = core.writeInput(input);
+    QVERIFY(result.fullyAccepted());
+    QVERIFY(core.waitForIdle(1000));
+    QTRY_VERIFY_WITH_TIMEOUT(core.scrollbackLineCount() > 0, 1000);
 
     QTest::qWait(80);
     QCOMPARE(renderer.renderStatistics().scrollbackReflowRequests,
@@ -359,7 +365,8 @@ void RendererP3Tests::enteringHistoryRequestsScrollbackReflow()
     QByteArray input;
     for (int i = 0; i < 30; ++i)
         input += QByteArrayLiteral("history\r\n");
-    core.writeInput(input);
+    const auto result = core.writeInput(input);
+    QVERIFY(result.fullyAccepted());
     QVERIFY(core.waitForIdle(1000));
     QTRY_VERIFY_WITH_TIMEOUT(core.scrollbackLineCount() > 0, 1000);
 
@@ -371,6 +378,38 @@ void RendererP3Tests::enteringHistoryRequestsScrollbackReflow()
         renderer.renderStatistics().scrollbackReflowRequests
             > requestsBefore,
         1000);
+}
+
+void RendererP3Tests::returningToLiveBottomCancelsPendingReflow()
+{
+    TerminalCore core(80, 6);
+    TerminalRenderer renderer(&core);
+    QByteArray input;
+    for (int i = 0; i < 100; ++i)
+        input += QByteArrayLiteral("history\r\n");
+    const auto result = core.writeInput(input);
+    QVERIFY(result.fullyAccepted());
+    QVERIFY(core.waitForIdle(1000));
+    QTRY_VERIFY_WITH_TIMEOUT(core.scrollbackLineCount() > 0, 1000);
+    QTest::qWait(80);
+
+    const quint64 requestsBefore =
+        renderer.renderStatistics().scrollbackReflowRequests;
+    renderer.scrollLines(1);
+    QCOMPARE(renderer.scrollOffset(), 1);
+    renderer.scrollLines(-1);
+    QCOMPARE(renderer.scrollOffset(), 0);
+    QTest::qWait(80);
+    QCOMPARE(renderer.renderStatistics().scrollbackReflowRequests,
+             requestsBefore);
+
+    renderer.scrollLines(1);
+    QCOMPARE(renderer.scrollOffset(), 1);
+    renderer.scrollToBottom();
+    QCOMPARE(renderer.scrollOffset(), 0);
+    QTest::qWait(80);
+    QCOMPARE(renderer.renderStatistics().scrollbackReflowRequests,
+             requestsBefore);
 }
 
 void RendererP3Tests::searchMatchesAppendByGeneration()

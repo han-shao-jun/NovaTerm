@@ -281,6 +281,7 @@ public:
     static int onSetTermProperty(VTermProp property, VTermValue* value, void* user)
     {
         auto& self = *static_cast<Impl*>(user);
+        bool cursorChanged = false;
         switch (property) {
         case VTERM_PROP_TITLE:
             if (value->string.str) {
@@ -291,17 +292,24 @@ public:
             }
             break;
         case VTERM_PROP_CURSORVISIBLE:
+            cursorChanged = self.cursorState.visible != (value->boolean != 0);
             self.cursorState.visible = value->boolean != 0;
             break;
         case VTERM_PROP_CURSORBLINK:
+            cursorChanged = self.cursorState.blink != (value->boolean != 0);
             self.cursorState.blink = value->boolean != 0;
             break;
-        case VTERM_PROP_CURSORSHAPE:
-            self.cursorState.shape = fromVTermCursorShape(value->number);
+        case VTERM_PROP_CURSORSHAPE: {
+            const CursorShape shape = fromVTermCursorShape(value->number);
+            cursorChanged = self.cursorState.shape != shape;
+            self.cursorState.shape = shape;
             break;
+        }
         default:
             break;
         }
+        if (cursorChanged && self.observer.cursorChanged)
+            self.observer.cursorChanged(self.cursorState);
         return 1;
     }
 

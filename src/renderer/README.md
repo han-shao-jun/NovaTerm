@@ -7,5 +7,3 @@
 - **Glyph System** — Font Manager (FreeType)、Glyph Cache、Glyph Atlas
 - **GPU Renderer** — OpenGL / Vulkan / QRhi 后端
 - **Render Pipeline** — 批处理、实例化、图集合并
-
-当前状态：渲染暂由 qtermwidget 第三方库提供。

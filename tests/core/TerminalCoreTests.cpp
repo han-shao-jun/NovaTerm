@@ -29,6 +29,7 @@ private slots:
     void rendererSnapshotPublishesPerRowRevisions();
     void rendererSnapshotRowsRemainImmutableAcrossPublication();
     void publishesTerminalTitle();
+    void cursorPropertiesPublishWithoutFollowingMovement();
     void scrollbackKeepsNewestLines();
     void softWrappedRowsBecomeOneLogicalHistoryLine();
     void rendererSnapshotUsesLogicalWrapAnchor();
@@ -321,6 +322,34 @@ void TerminalCoreTests::publishesTerminalTitle()
 
     QCOMPARE(core.title(), QStringLiteral("P1 adapter title"));
     QTRY_COMPARE(titleSpy.size(), 1);
+}
+
+void TerminalCoreTests::cursorPropertiesPublishWithoutFollowingMovement()
+{
+    TerminalCore core(20, 4);
+    QSignalSpy cursorSpy(&core, &TerminalCore::cursorMoved);
+
+    // Local line editors may temporarily select a steady cursor, move it,
+    // then restore blinking without another cursor movement. The final
+    // property callback must therefore publish independently of movecursor.
+    core.writeInput(QByteArrayLiteral(
+        "\x1b[6 q"       // steady bar
+        "\x1b[2C"        // move right while the cursor is steady
+        "\x1b[5 q"));    // blinking bar, with no following movement
+    QVERIFY(core.waitForIdle());
+
+    QTRY_VERIFY(!cursorSpy.isEmpty());
+    const NovaTerm::CursorState cursor = core.cursorState();
+    QCOMPARE(cursor.position.col, 2);
+    QCOMPARE(cursor.shape, NovaTerm::CursorShape::BarLeft);
+    QVERIFY(cursor.visible);
+    QVERIFY(cursor.blink);
+
+    const int publications = cursorSpy.size();
+    core.writeInput(QByteArrayLiteral("\x1b[?25l"));
+    QVERIFY(core.waitForIdle());
+    QTRY_VERIFY(cursorSpy.size() > publications);
+    QVERIFY(!core.cursorState().visible);
 }
 
 void TerminalCoreTests::scrollbackKeepsNewestLines()

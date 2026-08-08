@@ -229,11 +229,7 @@ TerminalRenderer::TerminalRenderer(TerminalCore* core, QWidget* parent)
             // promote otherwise incremental scrolls to full-row recovery.
             // Invalidate the cached layout and rebuild it lazily when the
             // user actually enters history.
-            _reflowDebounce->stop();
-            _core->cancelScrollbackReflow(_reflowGeneration);
-            ++_reflowGeneration;
-            _historyLayout.clear();
-            _pendingHistoryLayout.clear();
+            discardHistoryLayout();
         }
     });
 
@@ -324,6 +320,13 @@ TerminalRenderer::RenderStatistics TerminalRenderer::renderStatistics() const
         result.cpuFrameP99Nanoseconds = percentile(0.99);
     }
     return result;
+}
+
+TerminalRenderer::RenderProgress TerminalRenderer::renderProgress() const
+{
+    return {_renderStatistics.rowsRebuilt,
+            _renderStatistics.lastRenderedRevision,
+            _renderStatistics.framesRendered};
 }
 
 void TerminalRenderer::setTargetRefreshRate(int hz)
@@ -442,6 +445,7 @@ void TerminalRenderer::scrollToBottom()
         ++_viewportMappingRevision;
         requestFullFrame();
     }
+    discardHistoryLayout();
 }
 
 void TerminalRenderer::scrollToLine(int line)
@@ -468,7 +472,10 @@ void TerminalRenderer::scrollToLine(int line)
             _scrollAnchorWrap = 0;
         }
         requestFullFrame();
-        _reflowDebounce->start();
+        if (_scrollLine > 0)
+            _reflowDebounce->start();
+        else
+            discardHistoryLayout();
     }
 }
 
@@ -954,10 +961,22 @@ void TerminalRenderer::resizeEvent(QResizeEvent* event)
 
     recalculateCellSize();
     resizeTerminalToViewport();
-    _reflowDebounce->start();
+    if (_scrollLine > 0)
+        _reflowDebounce->start();
+    else
+        discardHistoryLayout();
     if (_renderScheduler)
         _renderScheduler->setViewport(_core->columns(), _core->rows());
     requestFullFrame();
+}
+
+void TerminalRenderer::discardHistoryLayout()
+{
+    _reflowDebounce->stop();
+    _core->cancelScrollbackReflow(_reflowGeneration);
+    ++_reflowGeneration;
+    _historyLayout.clear();
+    _pendingHistoryLayout.clear();
 }
 
 void TerminalRenderer::scheduleReflow()

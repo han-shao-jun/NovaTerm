@@ -11,20 +11,68 @@
 #include <QWindow>
 
 #include <algorithm>
+#include <array>
+#include <optional>
+#include <utility>
 
 namespace {
 
-int integerOption(const QStringList& arguments, const QString& name,
-                  int defaultValue, int minimum, int maximum)
+std::optional<int> integerOption(const QStringList& arguments,
+                                 const QString& name,
+                                 int defaultValue, int minimum, int maximum,
+                                 QString& error)
 {
     const int option = arguments.indexOf(name);
-    if (option < 0 || option + 1 >= arguments.size())
+    if (option < 0)
         return defaultValue;
+    if (option + 1 >= arguments.size()) {
+        error = QStringLiteral("%1 requires an integer value").arg(name);
+        return std::nullopt;
+    }
 
     bool valid = false;
     const int value = arguments[option + 1].toInt(&valid);
-    return valid ? std::clamp(value, minimum, maximum) : defaultValue;
+    if (!valid || value < minimum || value > maximum) {
+        error = QStringLiteral("%1 must be an integer in [%2, %3]")
+                    .arg(name)
+                    .arg(minimum)
+                    .arg(maximum);
+        return std::nullopt;
+    }
+    return value;
 }
+
+class RowSampleHistogram
+{
+public:
+    void add(quint64 rows)
+    {
+        const auto bucket = size_t((std::min)(rows, OverflowBucket));
+        ++_buckets[bucket];
+        ++_sampleCount;
+    }
+
+    quint64 sampleCount() const { return _sampleCount; }
+
+    quint64 percentile95() const
+    {
+        if (_sampleCount == 0)
+            return 0;
+        const quint64 target = (_sampleCount * 95 + 99) / 100;
+        quint64 cumulative = 0;
+        for (size_t bucket = 0; bucket < _buckets.size(); ++bucket) {
+            cumulative += _buckets[bucket];
+            if (cumulative >= target)
+                return quint64(bucket);
+        }
+        return OverflowBucket;
+    }
+
+private:
+    static constexpr quint64 OverflowBucket = 256;
+    std::array<quint64, size_t(OverflowBucket + 1)> _buckets{};
+    quint64 _sampleCount{0};
+};
 
 void waitEvents(int milliseconds)
 {
@@ -41,6 +89,35 @@ bool waitUntil(Predicate predicate, int timeoutMilliseconds)
     while (!predicate() && timer.elapsed() < timeoutMilliseconds)
         waitEvents(10);
     return predicate();
+}
+
+template<typename Predicate>
+bool waitForStage(Predicate predicate, int timeoutMilliseconds,
+                  QStringView stage)
+{
+    if (waitUntil(std::move(predicate), timeoutMilliseconds))
+        return true;
+    QTextStream(stderr) << "P5 QRhi benchmark " << stage
+                        << " timed out\n";
+    return false;
+}
+
+bool writeAndDrain(TerminalCore& core, QByteArrayView input,
+                   int timeoutMilliseconds, QStringView stage)
+{
+    const auto result = core.writeInput(input);
+    if (!result.fullyAccepted()) {
+        QTextStream(stderr)
+            << "P5 QRhi benchmark " << stage << " input backpressured: "
+            << result.acceptedBytes << '/' << result.requestedBytes << '\n';
+        return false;
+    }
+    if (!core.waitForIdle(timeoutMilliseconds)) {
+        QTextStream(stderr) << "P5 QRhi benchmark " << stage
+                            << " parser timed out\n";
+        return false;
+    }
+    return true;
 }
 
 TerminalRenderer::RenderStatistics delta(
@@ -93,18 +170,40 @@ int main(int argc, char** argv)
 {
     QApplication app(argc, argv);
     const QStringList args = app.arguments();
-    const int durationMs = integerOption(
-        args, QStringLiteral("--duration-ms"), 5000, 1000, 24 * 60 * 60 * 1000);
-    const int refreshRate = integerOption(
-        args, QStringLiteral("--refresh-rate"), 60, 1, 1000);
-    const int scrollbackLimit = integerOption(
-        args, QStringLiteral("--scrollback-limit"), 100'000, 0, 1'000'000);
-    const int prefillLines = integerOption(
-        args, QStringLiteral("--prefill-lines"), 0, 0, 1'000'000);
+    QString optionError;
+    const auto durationOption = integerOption(
+        args, QStringLiteral("--duration-ms"), 5000, 1000,
+        24 * 60 * 60 * 1000, optionError);
+    const auto refreshOption = integerOption(
+        args, QStringLiteral("--refresh-rate"), 60, 60, 144, optionError);
+    const auto scrollbackOption = integerOption(
+        args, QStringLiteral("--scrollback-limit"), 100'000, 0, 1'000'000,
+        optionError);
+    const auto prefillOption = integerOption(
+        args, QStringLiteral("--prefill-lines"), 0, 0, 1'000'000,
+        optionError);
+    if (!durationOption || !refreshOption || !scrollbackOption
+        || !prefillOption) {
+        QTextStream(stderr) << "P5 QRhi benchmark: " << optionError << '\n';
+        return 1;
+    }
+    const int durationMs = *durationOption;
+    const int refreshRate = *refreshOption;
+    const int scrollbackLimit = *scrollbackOption;
+    const int prefillLines = *prefillOption;
+    if (refreshRate != 60 && refreshRate != 120 && refreshRate != 144) {
+        QTextStream(stderr)
+            << "P5 QRhi benchmark: --refresh-rate must be 60, 120, or 144\n";
+        return 1;
+    }
 
     TerminalCore core(119, 40);
     core.setScrollbackLimit(scrollbackLimit);
-    core.waitForIdle();
+    if (!core.waitForIdle()) {
+        QTextStream(stderr)
+            << "P5 QRhi benchmark scrollback-limit setup timed out\n";
+        return 4;
+    }
     TerminalRenderer renderer(&core);
     const bool allowOcclusion = args.contains(
         QStringLiteral("--allow-occlusion"));
@@ -135,9 +234,8 @@ int main(int argc, char** argv)
             input += QByteArray::number(first + line);
             input += QByteArrayLiteral("\r\n");
         }
-        core.writeInput(input);
-        if (!core.waitForIdle(30'000)) {
-            QTextStream(stderr) << "P5 QRhi benchmark prefill timed out\n";
+        if (!writeAndDrain(core, input, 30'000,
+                           QStringView(u"prefill"))) {
             return 4;
         }
         waitEvents(25);
@@ -146,33 +244,55 @@ int main(int argc, char** argv)
         waitEvents(250);
 
     auto mark = renderer.renderStatistics();
-    core.writeInput(QByteArrayLiteral("\x1b[1;1HX"));
-    core.waitForIdle(); waitEvents(100);
+    if (!writeAndDrain(core, QByteArrayLiteral("\x1b[1;1HX"), 5000,
+                       QStringView(u"single-cell"))) {
+        return 4;
+    }
+    waitEvents(100);
     auto now = renderer.renderStatistics();
     const auto single = delta(now, mark); mark = now;
 
-    core.writeInput(QByteArrayLiteral("\x1b[2;1HAAAAAAAAAAAAAAAA"));
-    core.waitForIdle(); waitEvents(100);
+    if (!writeAndDrain(core,
+                       QByteArrayLiteral("\x1b[2;1HAAAAAAAAAAAAAAAA"),
+                       5000, QStringView(u"ASCII cache prime"))) {
+        return 4;
+    }
+    waitEvents(100);
     mark = renderer.renderStatistics();
-    core.writeInput(QByteArrayLiteral("\x1b[3;1HAAAAAAAAAAAAAAAA"));
-    core.waitForIdle(); waitEvents(100);
+    if (!writeAndDrain(core,
+                       QByteArrayLiteral("\x1b[3;1HAAAAAAAAAAAAAAAA"),
+                       5000, QStringView(u"ASCII warm cache"))) {
+        return 4;
+    }
+    waitEvents(100);
     now = renderer.renderStatistics();
     const auto warm = delta(now, mark); mark = now;
 
     const QByteArray complexCorpus = QStringLiteral(
         "中文 e\u0301 한글 日本語 ┌─┐ \ue0b0 👩‍💻 🧑🏽‍🚀").toUtf8();
-    core.writeInput(QByteArrayLiteral("\x1b[4;1H") + complexCorpus);
-    core.waitForIdle(); waitEvents(150);
+    if (!writeAndDrain(core,
+                       QByteArrayLiteral("\x1b[4;1H") + complexCorpus,
+                       5000, QStringView(u"complex cache prime"))) {
+        return 4;
+    }
+    waitEvents(150);
     now = renderer.renderStatistics();
     const auto complex = delta(now, mark); mark = now;
 
-    core.writeInput(QByteArrayLiteral("\x1b[5;1H") + complexCorpus);
-    core.waitForIdle(); waitEvents(150);
+    if (!writeAndDrain(core,
+                       QByteArrayLiteral("\x1b[5;1H") + complexCorpus,
+                       5000, QStringView(u"complex warm cache"))) {
+        return 4;
+    }
+    waitEvents(150);
     now = renderer.renderStatistics();
     const auto complexWarm = delta(now, mark); mark = now;
 
-    core.writeInput(QByteArrayLiteral("\x1b[6;5H"));
-    core.waitForIdle(); waitEvents(100);
+    if (!writeAndDrain(core, QByteArrayLiteral("\x1b[6;5H"), 5000,
+                       QStringView(u"overlay"))) {
+        return 4;
+    }
+    waitEvents(100);
     now = renderer.renderStatistics();
     const auto overlay = delta(now, mark); mark = now;
 
@@ -182,39 +302,62 @@ int main(int argc, char** argv)
     const int producerIntervalMs = std::max(1, (1000 + refreshRate - 1)
                                                / refreshRate);
     timer.setInterval(producerIntervalMs);
+    bool producerAccepted = true;
+    qsizetype producerRejectedBytes = 0;
     QObject::connect(&timer, &QTimer::timeout, [&]() {
-        core.writeInput(QByteArrayLiteral("\r\nP5-scroll-")
-                        + QByteArray::number(++line));
+        const QByteArray input = QByteArrayLiteral("\r\nP5-scroll-")
+            + QByteArray::number(++line);
+        const auto result = core.writeInput(input);
+        if (!result.fullyAccepted()) {
+            producerAccepted = false;
+            producerRejectedBytes += result.requestedBytes
+                - result.acceptedBytes;
+        }
     });
-    QVector<quint64> rowSamples;
-    quint64 sampledRows = renderer.renderStatistics().rowsRebuilt;
+    RowSampleHistogram rowSamples;
+    quint64 sampledRows = renderer.renderProgress().rowsRebuilt;
     QTimer sampler;
     sampler.setTimerType(Qt::PreciseTimer);
     sampler.setInterval(producerIntervalMs);
     QObject::connect(&sampler, &QTimer::timeout, [&]() {
-        const quint64 current = renderer.renderStatistics().rowsRebuilt;
-        rowSamples.push_back(current - sampledRows);
+        const quint64 current = renderer.renderProgress().rowsRebuilt;
+        rowSamples.add(current - sampledRows);
         sampledRows = current;
     });
     QElapsedTimer elapsed;
     elapsed.start(); timer.start(); sampler.start();
     waitEvents(durationMs); timer.stop(); sampler.stop();
     const qint64 scrollMs = elapsed.elapsed();
-    core.waitForIdle(10000);
-    waitUntil([&]() {
-        return renderer.renderStatistics().lastRenderedRevision
-            == core.modelRevision();
-    }, 5000);
+    const quint64 scrollInputTicks = line;
+    if (!producerAccepted) {
+        QTextStream(stderr)
+            << "P5 QRhi benchmark steady-scroll input backpressured: "
+            << producerRejectedBytes << " bytes rejected\n";
+        return 4;
+    }
+    if (!core.waitForIdle(10'000)) {
+        QTextStream(stderr)
+            << "P5 QRhi benchmark steady-scroll parser timed out\n";
+        return 4;
+    }
+    if (!waitForStage([&]() {
+            return renderer.renderProgress().lastRenderedRevision
+                == core.modelRevision();
+        }, 5000, QStringView(u"steady-scroll convergence"))) {
+        return 4;
+    }
     now = renderer.renderStatistics();
     const auto scroll = delta(now, mark); mark = now;
 
     quint64 expectedFrame = now.framesRendered + 1;
     renderer.setColorScheme(renderer.colorScheme());
-    waitUntil([&]() {
-        const auto statistics = renderer.renderStatistics();
-        return statistics.framesRendered >= expectedFrame
-            && statistics.lastRenderedRevision == core.modelRevision();
-    }, 5000);
+    if (!waitForStage([&]() {
+            const auto progress = renderer.renderProgress();
+            return progress.framesRendered >= expectedFrame
+                && progress.lastRenderedRevision == core.modelRevision();
+        }, 5000, QStringView(u"forced-full frame"))) {
+        return 4;
+    }
     now = renderer.renderStatistics();
     const auto full = delta(now, mark); mark = now;
 
@@ -224,50 +367,79 @@ int main(int argc, char** argv)
     // Exercise the production failure order: output scrolls immediately
     // before the async grid resize and continues while the resize full-frame
     // request crosses the GUI/render scheduler boundary.
-    core.writeInput(QByteArrayLiteral("\r\nP5-resize-scroll"));
+    const auto resizeInput = core.writeInput(
+        QByteArrayLiteral("\r\nP5-resize-scroll"));
+    if (!resizeInput.fullyAccepted()) {
+        QTextStream(stderr)
+            << "P5 QRhi benchmark resize input backpressured\n";
+        return 4;
+    }
+    producerAccepted = true;
+    producerRejectedBytes = 0;
     timer.start();
     renderer.resize(1060, 700);
-    waitUntil([&]() {
-        if (core.columns() == columnsBeforeResize
-            && core.rows() == rowsBeforeResize) {
-            return false;
-        }
-        const auto statistics = renderer.renderStatistics();
-        return statistics.framesRendered >= expectedFrame;
-    }, 5000);
+    if (!waitForStage([&]() {
+            if (core.columns() == columnsBeforeResize
+                && core.rows() == rowsBeforeResize) {
+                return false;
+            }
+            return renderer.renderProgress().framesRendered >= expectedFrame;
+        }, 5000, QStringView(u"resize frame"))) {
+        timer.stop();
+        return 4;
+    }
     waitEvents(250);
     timer.stop();
-    core.waitForIdle(10000);
-    waitUntil([&]() {
-        return renderer.renderStatistics().lastRenderedRevision
-            == core.modelRevision();
-    }, 5000);
+    if (!producerAccepted) {
+        QTextStream(stderr)
+            << "P5 QRhi benchmark resize input backpressured: "
+            << producerRejectedBytes << " bytes rejected\n";
+        return 4;
+    }
+    if (!core.waitForIdle(10'000)) {
+        QTextStream(stderr) << "P5 QRhi benchmark resize parser timed out\n";
+        return 4;
+    }
+    if (!waitForStage([&]() {
+            return renderer.renderProgress().lastRenderedRevision
+                == core.modelRevision();
+        }, 5000, QStringView(u"resize convergence"))) {
+        return 4;
+    }
     const int rowsAfterResize = core.rows();
     now = renderer.renderStatistics();
     const auto resize = delta(now, mark); mark = now;
 
     // Keep both grayscale and color pages visible while exercising resource
     // invalidation so a deferred second-page upload must complete by itself.
-    core.writeInput(QByteArrayLiteral("\x1b[1;1H") + complexCorpus);
-    core.waitForIdle(); waitEvents(150);
+    if (!writeAndDrain(core,
+                       QByteArrayLiteral("\x1b[1;1H") + complexCorpus,
+                       5000, QStringView(u"font rebuild prime"))) {
+        return 4;
+    }
+    waitEvents(150);
     mark = renderer.renderStatistics();
     QFont changed = renderer.font();
     changed.setPixelSize(changed.pixelSize() + 1);
     renderer.setFont(changed);
-    core.waitForIdle(10000);
+    if (!core.waitForIdle(10'000)) {
+        QTextStream(stderr)
+            << "P5 QRhi benchmark font resize parser timed out\n";
+        return 4;
+    }
     expectedFrame = mark.framesRendered + 1;
-    waitUntil([&]() {
-        const auto statistics = renderer.renderStatistics();
-        return statistics.framesRendered >= expectedFrame
-            && statistics.lastRenderedRevision == core.modelRevision();
-    }, 5000);
+    if (!waitForStage([&]() {
+            const auto progress = renderer.renderProgress();
+            return progress.framesRendered >= expectedFrame
+                && progress.lastRenderedRevision == core.modelRevision();
+        }, 5000, QStringView(u"font rebuild"))) {
+        return 4;
+    }
     now = renderer.renderStatistics();
     const auto font = delta(now, mark);
 
     const auto final = renderer.renderStatistics();
-    std::sort(rowSamples.begin(), rowSamples.end());
-    const quint64 rowsP95 = rowSamples.isEmpty() ? 0
-        : rowSamples[qsizetype(0.95 * double(rowSamples.size() - 1))];
+    const quint64 rowsP95 = rowSamples.percentile95();
     QTextStream out(stdout);
     const QScreen* screen = renderer.windowHandle()->screen();
     out << "NovaTerm P5 QRhi benchmark\napi="
@@ -294,6 +466,8 @@ int main(int argc, char** argv)
     print(out, QStringLiteral("font_dpi_rebuild"), font);
     out << "scroll_fps=" << (scrollMs ? scroll.framesRendered * 1000.0
                                          / scrollMs : 0.0)
+        << ", scroll_samples=" << rowSamples.sampleCount()
+        << ", scroll_input_ticks=" << scrollInputTicks
         << ", scroll_rows_p95=" << rowsP95
         << ", cpu_ns[p50/p95/p99]=" << final.cpuFrameP50Nanoseconds << '/'
         << final.cpuFrameP95Nanoseconds << '/'
@@ -332,8 +506,14 @@ int main(int argc, char** argv)
     require(overlay.rowsRebuilt == 0 && overlay.contentUploadBytes == 0
                 && overlay.atlasUploadBytes == 0,
             QStringLiteral("overlay-only frame changed base content"));
+    constexpr quint64 MinimumScrollSamples = 10;
+    require(rowSamples.sampleCount() >= MinimumScrollSamples
+                && scrollInputTicks >= MinimumScrollSamples,
+            QStringLiteral("steady-scroll workload produced too few samples"));
     require(rowsP95 <= 2,
             QStringLiteral("steady-scroll row P95 exceeded 2"));
+    require(scroll.scrollbackReflowRequests == 0,
+            QStringLiteral("steady-scroll requested history reflow"));
     require(scroll.vertexBufferReallocations == 0,
             QStringLiteral("steady-scroll buffer reallocated"));
     require(scroll.cpuFramesOverBudget == 0,
