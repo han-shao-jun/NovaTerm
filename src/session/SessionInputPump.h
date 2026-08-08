@@ -2,6 +2,7 @@
 
 #include <QByteArray>
 #include <QObject>
+#include <QPointer>
 
 class ITransport;
 class TerminalCore;
@@ -27,8 +28,8 @@ private:
 
     static constexpr qsizetype MaxPendingBytes = 8 * 1024 * 1024;
 
-    ITransport* _transport;
-    TerminalCore* _core;
+    QPointer<ITransport> _transport;
+    QPointer<TerminalCore> _core;
     QByteArray _pending;
     bool _running{false};
 };

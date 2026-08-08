@@ -4,12 +4,27 @@
 #include "transport/LocalShellTransport.h"
 #include "ui/terminal/TerminalView.h"
 
+#include <ElaComboBox.h>
+
 #include <QElapsedTimer>
 #include <QCoreApplication>
 #include <QDir>
 #include <QFileInfo>
+#include <QSignalSpy>
 #include <QTest>
 #include <QTimer>
+
+namespace {
+
+class TestComboBox final : public ElaComboBox
+{
+public:
+    using ElaComboBox::ElaComboBox;
+    using ElaComboBox::hidePopup;
+    using ElaComboBox::showPopup;
+};
+
+} // namespace
 
 class TerminalSessionSmokeTests : public QObject
 {
@@ -18,6 +33,8 @@ class TerminalSessionSmokeTests : public QObject
 private slots:
     void conPtyStartupKeepsUiResponsive();
     void terminalViewStartupKeepsUiResponsive();
+    void terminalViewRepeatedStartStop();
+    void comboBoxAnimationTeardownIsSafe();
 };
 
 void TerminalSessionSmokeTests::conPtyStartupKeepsUiResponsive()
@@ -30,14 +47,12 @@ void TerminalSessionSmokeTests::conPtyStartupKeepsUiResponsive()
 
     LocalShellTransport transport;
     transport.setShellProgram(QStringLiteral("cmd.exe"));
-    const QString clinkBat = QDir::cleanPath(
-        QCoreApplication::applicationDirPath()
-        + QStringLiteral("/../../third_party/clink.1.9.27.83514e/clink.bat"));
+    const QString clinkBat = QDir(QCoreApplication::applicationDirPath())
+        .filePath(QStringLiteral("clink.bat"));
     QVERIFY2(QFileInfo::exists(clinkBat), qPrintable(clinkBat));
     transport.setShellArgs({
         QStringLiteral("/k"),
-        QLatin1Char('"') + QDir::toNativeSeparators(clinkBat)
-            + QLatin1Char('"'),
+        QDir::toNativeSeparators(clinkBat),
         QStringLiteral("inject")
     });
     transport.resizeTerminal(100, 30);
@@ -113,6 +128,52 @@ void TerminalSessionSmokeTests::terminalViewStartupKeepsUiResponsive()
              "TerminalView startup starved the UI event loop");
     QVERIFY(view.renderer()->renderStatistics().scheduler.framesRequested > 0);
     view.stopLocalShell();
+}
+
+void TerminalSessionSmokeTests::terminalViewRepeatedStartStop()
+{
+    TerminalView view;
+    LocalShellConfig config;
+    config.profile.name = QStringLiteral("TerminalView lifecycle child");
+    config.profile.executable = QDir(QCoreApplication::applicationDirPath())
+        .filePath(QStringLiteral("novaterm_conpty_test_child.exe"));
+    config.profile.arguments = {QStringLiteral("hold")};
+    QVERIFY(QFileInfo::exists(config.profile.executable));
+
+    QSignalSpy finished(&view, &TerminalView::shellFinished);
+    for (int iteration = 0; iteration < 200; ++iteration) {
+        finished.clear();
+        view.startLocalShell(config);
+        QTRY_VERIFY_WITH_TIMEOUT(view.transport() != nullptr, 2000);
+        QTRY_VERIFY_WITH_TIMEOUT(view.transport()
+                                     && view.transport()->isConnected(),
+                                 5000);
+        view.stopLocalShell();
+        if (finished.isEmpty())
+            QVERIFY2(finished.wait(5000), qPrintable(QString::number(iteration)));
+        QCOMPARE(finished.size(), 1);
+        QVERIFY(!view.isLocalShell());
+    }
+}
+
+void TerminalSessionSmokeTests::comboBoxAnimationTeardownIsSafe()
+{
+    for (int iteration = 0; iteration < 200; ++iteration) {
+        auto* owner = new QWidget;
+        auto* comboBox = new TestComboBox(owner);
+        comboBox->addItems({QStringLiteral("cmd"),
+                            QStringLiteral("PowerShell")});
+        owner->show();
+        comboBox->showPopup();
+        QCoreApplication::processEvents();
+        comboBox->hidePopup();
+
+        // Session selection destroys the dialog while the popup animations
+        // may still be running. Exercise that exact QObject/style teardown.
+        delete owner;
+        QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+        QCoreApplication::processEvents();
+    }
 }
 
 QTEST_MAIN(TerminalSessionSmokeTests)

@@ -4,6 +4,7 @@
 #include "ScrollbackBuffer.h"
 
 #include <QByteArray>
+#include <QByteArrayView>
 #include <QString>
 
 #include <functional>
@@ -16,7 +17,7 @@ class VTAdapter
 public:
     struct Observer
     {
-        std::function<void(const QByteArray&)> output;
+        std::function<void(QByteArrayView)> output;
         std::function<void(const DirtyRegion&)> damage;
         std::function<void(const CursorState&)> cursorChanged;
         std::function<void(const QString&)> titleChanged;

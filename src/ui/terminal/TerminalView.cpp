@@ -2,7 +2,7 @@
 #include "transport/ITransport.h"
 #include "transport/LocalShellTransport.h"
 #include "transport/SshTransport.h"
-#include "session/SessionInputPump.h"
+#include "session/TerminalSession.h"
 #include "ui/widgets/SshHostKeyDialog.h"
 #include "core/terminal/TerminalCore.h"
 #include "renderer/TerminalRenderer.h"
@@ -17,8 +17,6 @@
 #include <QCoreApplication>
 #include <QDebug>
 #include <QDialog>
-#include <QDir>
-#include <QFileInfo>
 #include <QJsonArray>
 #include <QKeyEvent>
 #include <QKeySequence>
@@ -80,6 +78,7 @@ TerminalView::TerminalView(QWidget* parent)
 
     _core     = new TerminalCore(kDefaultCols, kDefaultRows, this);
     _renderer = new TerminalRenderer(_core, this);
+    _session = new TerminalSession(_core, this);
 
     applyThemeColorScheme();
 
@@ -129,6 +128,35 @@ TerminalView::TerminalView(QWidget* parent)
         _renderer->appendSearchMatches(batch.matches, batch.generation);
     });
 
+    // These view-level connections are invariant across transports. Keeping
+    // them out of attachTransport() prevents repeated attach/detach cycles
+    // from multiplying title and activity notifications.
+    connect(_core, &TerminalCore::titleChanged,
+            this, &TerminalView::titleChanged);
+    connect(_renderer, &TerminalRenderer::activityDetected,
+            this, &TerminalView::activityDetected);
+    connect(_session, &TerminalSession::disconnected, this,
+            [this](ITransport* transport) {
+        const bool belongsToView = transport == _displayTransport;
+        if (belongsToView)
+            _displayTransport = nullptr;
+        if (transport == _localTransport) {
+            _localTransport = nullptr;
+            _isLocalShell = false;
+            emit shellFinished();
+        }
+        if (_core && belongsToView) {
+            _core->writeInput(QByteArrayLiteral("\r\n[已断开连接]\r\n"));
+        }
+    });
+    connect(_session, &TerminalSession::errorOccurred, this,
+            [this](ITransport*, const QString& error) {
+        if (_core && !error.isEmpty()) {
+            _core->writeInput(
+                QStringLiteral("\r\n[传输错误] %1\r\n").arg(error).toUtf8());
+        }
+    });
+
     // PTY 尺寸变更去抖：拖动窗口会产生密集的 resize 事件，每个都触发
     // 一次 SIGWINCH → shell 重绘，连续拖动即重绘风暴。合并为尺寸稳定后
     // 的单次通知。
@@ -136,15 +164,17 @@ TerminalView::TerminalView(QWidget* parent)
     _resizeDebounce->setSingleShot(true);
     _resizeDebounce->setInterval(80);
     connect(_resizeDebounce, &QTimer::timeout, this, [this]() {
-        if (_transport && _transport->isConnected() && _core) {
-            const int cols = _core->columns();
-            const int rows = _core->rows();
-            if (cols > 0 && rows > 0)
-                _transport->resizeTerminal(cols, rows);
+        if (_session && _session->transport()
+            && _latestResizeColumns > 0 && _latestResizeRows > 0) {
+            _session->resize(_latestResizeColumns, _latestResizeRows);
         }
     });
     connect(_renderer, &TerminalRenderer::terminalSizeChanged,
-            _resizeDebounce, qOverload<>(&QTimer::start));
+            this, [this](int columns, int rows) {
+        _latestResizeColumns = columns;
+        _latestResizeRows = rows;
+        _resizeDebounce->start();
+    });
 }
 
 TerminalView::~TerminalView()
@@ -153,62 +183,47 @@ TerminalView::~TerminalView()
     detachTransport();
 }
 
-#ifdef Q_OS_WIN
-// ── Clink 启动脚本定位（Windows）──────────────────────────────────
-static QString resolveClinkBat()
-{
-    const QString bat = QCoreApplication::applicationDirPath()
-                        + QStringLiteral("/clink.bat");
-    QFileInfo fi(bat);
-    return (fi.exists() && fi.isFile()) ? QDir::toNativeSeparators(fi.absoluteFilePath())
-                                        : QString();
-}
-#endif // Q_OS_WIN
-
 // ═══════════════════════════════════════════════════════════════════
 //  本地终端模式
 // ═══════════════════════════════════════════════════════════════════
 
 void TerminalView::startLocalShell(LocalShellType type)
 {
+    LocalShellConfig config;
+#ifdef Q_OS_WIN
+    config.profile = type == LocalShellType::PowerShell
+        ? LocalShellProfiles::windowsPowerShell()
+        : LocalShellProfiles::commandPrompt(QCoreApplication::applicationDirPath());
+#else
+    Q_UNUSED(type);
+    config.profile = LocalShellProfiles::platformDefault();
+#endif
+    startLocalShell(config);
+}
+
+void TerminalView::startLocalShell(const LocalShellConfig& config)
+{
     stopLocalShell();
     detachTransport();
 
-    auto* transport = new LocalShellTransport(this);
-
-    // ── 配置 shell ────────────────────────────────────────────
-#ifdef Q_OS_WIN
-    if (type == LocalShellType::PowerShell) {
-        transport->setShellProgram(QStringLiteral("powershell.exe"));
-    } else {
-        const QString clinkBat = resolveClinkBat();
-        if (!clinkBat.isEmpty()) {
-            transport->setShellProgram(QStringLiteral("cmd.exe"));
-            transport->setShellArgs({
-                QStringLiteral("/k"),
-                QLatin1Char('"') + clinkBat + QLatin1Char('"'),
-                QStringLiteral("inject")
-            });
-        } else {
-            const QString comSpec = QString::fromLocal8Bit(qgetenv("ComSpec"));
-            transport->setShellProgram(comSpec.isEmpty() ? QStringLiteral("cmd.exe") : comSpec);
-            qWarning() << "TerminalView: 未找到 clink.bat，回退到 cmd.exe";
-        }
-    }
-#else
-    Q_UNUSED(type);
-    QString shell = QString::fromLocal8Bit(qgetenv("SHELL"));
-    if (shell.isEmpty())
-        shell = QStringLiteral("/bin/bash");
-    transport->setShellProgram(shell);
-#endif
+    auto* transport = new LocalShellTransport;
+    transport->setSessionConfig(config);
+    connect(transport, &ITransport::disconnected, this, [this, transport] {
+        if (_localTransport != transport)
+            return;
+        _localTransport = nullptr;
+        _isLocalShell = false;
+        emit shellFinished();
+    });
 
     // 强制完成布局后再查询终端尺寸
     if (auto* lay = layout())
         lay->activate();
 
     // 将终端尺寸传给 transport，PTY 以正确尺寸创建
-    transport->resizeTerminal(_core->columns(), _core->rows());
+    _latestResizeColumns = _core->columns();
+    _latestResizeRows = _core->rows();
+    transport->resizeTerminal(_latestResizeColumns, _latestResizeRows);
 
     // ── 临时禁用 scrollback 以消除启动时滚动条异常 ──────────
     const int savedHistorySize = _core->scrollbackLineCount() > 0
@@ -218,9 +233,11 @@ void TerminalView::startLocalShell(LocalShellType type)
     // 通过统一的 ITransport 路径桥接
     attachTransport(transport);
 
-    if (!transport->connectToHost()) {
+    _localTransport = transport;
+    if (!_session->start()) {
         qWarning() << "TerminalView: LocalShellTransport 启动失败";
         _core->setScrollbackLimit(savedHistorySize);
+        _localTransport = nullptr;
         detachTransport();
         emit shellFinished();
         return;
@@ -229,27 +246,19 @@ void TerminalView::startLocalShell(LocalShellType type)
     _isLocalShell = true;
 
     // shell 启动序列完成后恢复历史缓冲区
-    QTimer::singleShot(1500, this, [this, savedHistorySize]() {
-        if (_core)
+    QTimer::singleShot(1500, this, [this, transport, savedHistorySize]() {
+        if (_core && _localTransport == transport)
             _core->setScrollbackLimit(savedHistorySize);
-    });
-
-    // transport 断开（shell 退出）→ 发射 shellFinished
-    connect(transport, &ITransport::disconnected, this, [this]() {
-        if (_isLocalShell) {
-            _isLocalShell = false;
-            emit shellFinished();
-        }
     });
 }
 
 void TerminalView::stopLocalShell()
 {
-    if (!_isLocalShell)
+    if (!_localTransport)
         return;
 
     _isLocalShell = false;
-    detachTransport();
+    _session->detach();
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -259,21 +268,21 @@ void TerminalView::stopLocalShell()
 void TerminalView::attachTransport(ITransport* transport)
 {
     detachTransport();
-    stopLocalShell();
-    _transport = transport;
+    if (!transport)
+        return;
 
     // libvterm 无需 "teletype" 模式 — 它本身不内置 PTY，
     // 所有 I/O 都通过回调/API 驱动。
 
-    _inputPump = new SessionInputPump(_transport, _core, this);
-    _inputPump->start();
+    _session->attach(transport, TerminalSession::Ownership::Adopt);
+    _displayTransport = transport;
 
     // SSH 在打开 channel 前需要正确的 PTY 尺寸；Serial/Local 对 resize
     // 是幂等或 no-op，统一传入无副作用。
-    _transport->resizeTerminal(_core->columns(), _core->rows());
+    _session->resize(_core->columns(), _core->rows());
 
     // SSH 专属：主机密钥首次信任 / 变更必须经用户确认（P6 禁止静默接受）。
-    if (auto* ssh = qobject_cast<SshTransport*>(_transport)) {
+    if (auto* ssh = qobject_cast<SshTransport*>(transport)) {
         connect(ssh, &SshTransport::hostKeyRequired, this,
                 [this, ssh](const SshHostKeyInfo& info) {
             auto* dialog = new SshHostKeyDialog(info, this);
@@ -285,52 +294,17 @@ void TerminalView::attachTransport(ITransport* transport)
         });
     }
 
-    // 断开提示
-    connect(_transport, &ITransport::disconnected,
-            this, [this]() {
-        if (_core) {
-            const char* msg = "\r\n[已断开连接]\r\n";
-            _core->writeInput(QByteArray(msg));
-        }
-    });
-
-    connect(_transport, &ITransport::errorOccurred,
-            this, [this](const QString& error) {
-        if (_core && !error.isEmpty()) {
-            _core->writeInput(
-                QStringLiteral("\r\n[传输错误] %1\r\n").arg(error).toUtf8());
-        }
-    });
-
-    // 转发终端键盘输入 → transport
-    connect(_core, &TerminalCore::outputData,
-            this, [this](const QByteArray& data) {
-        if (_transport && _transport->isConnected())
-            _transport->write(data);
-    });
-
-    // 转发标题变更
-    connect(_core, &TerminalCore::titleChanged,
-            this, [this](const QString& title) {
-        emit titleChanged(title);
-    });
-
-    // 转发活动信号
-    connect(_renderer, &TerminalRenderer::activityDetected,
-            this, &TerminalView::activityDetected);
 }
 
 void TerminalView::detachTransport()
 {
-    if (_inputPump) {
-        delete _inputPump;
-        _inputPump = nullptr;
-    }
-    if (_transport) {
-        _transport->setReadPaused(false);
-        disconnect(_transport, nullptr, this, nullptr);
-        _transport = nullptr;
-    }
+    if (_session)
+        _session->detach();
+}
+
+ITransport* TerminalView::transport() const
+{
+    return _session ? _session->transport() : nullptr;
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -421,8 +395,8 @@ bool TerminalView::eventFilter(QObject* obj, QEvent* event)
         // 把当前终端尺寸同步给 PTY。拖动期间不会反复发送 SIGWINCH。
         // TerminalRenderer 已保证 _core 的尺寸不会跌到病态极小值，
         // 这里读取的 _core->columns()/rows() 始终是有效尺寸。
-        if (_resizeDebounce)
-            _resizeDebounce->start();
+        // terminalSizeChanged carries the computed target dimensions. The
+        // event itself may arrive before TerminalCore applies its async resize.
     }
     return QWidget::eventFilter(obj, event);
 }

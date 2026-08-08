@@ -43,7 +43,7 @@ void SessionInputPump::stop()
 
 void SessionInputPump::acceptBytes(const QByteArray& data)
 {
-    if (!_running || data.isEmpty())
+    if (!_running || !_transport || !_core || data.isEmpty())
         return;
 
     if (!_pending.isEmpty()) {
@@ -74,7 +74,7 @@ void SessionInputPump::acceptBytes(const QByteArray& data)
 
 void SessionInputPump::handleBackpressure(bool paused)
 {
-    if (!_running)
+    if (!_running || !_transport || !_core)
         return;
     if (paused) {
         if (!_transport->setReadPaused(true))
@@ -86,7 +86,7 @@ void SessionInputPump::handleBackpressure(bool paused)
 
 void SessionInputPump::drainPending()
 {
-    while (_running && !_pending.isEmpty()) {
+    while (_running && _transport && _core && !_pending.isEmpty()) {
         const auto result = _core->writeInput(_pending);
         if (result.acceptedBytes > 0)
             _pending.remove(0, result.acceptedBytes);
@@ -95,12 +95,14 @@ void SessionInputPump::drainPending()
             return;
         }
     }
-    if (_running)
+    if (_running && _transport)
         _transport->setReadPaused(false);
 }
 
 void SessionInputPump::reportOverload(const QString& reason)
 {
-    _transport->setReadPaused(true);
-    emit _core->inputOverload(reason);
+    if (_transport)
+        _transport->setReadPaused(true);
+    if (_core)
+        emit _core->inputOverload(reason);
 }

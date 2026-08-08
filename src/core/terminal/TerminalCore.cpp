@@ -268,8 +268,14 @@ public:
     void createAdapter()
     {
         NovaTerm::VTAdapter::Observer observer;
-        observer.output = [this](const QByteArray& data) {
-            pendingOutput.push_back(data);
+        observer.output = [this](QByteArrayView data) {
+            constexpr qsizetype OutputBatchSize = 64 * 1024;
+            if (pendingOutput.isEmpty()
+                || pendingOutput.back().size() + data.size() > OutputBatchSize) {
+                pendingOutput.push_back(QByteArray(data.data(), data.size()));
+            } else {
+                pendingOutput.back().append(data.data(), data.size());
+            }
         };
         observer.damage = [this](const NovaTerm::DirtyRegion& region) {
             // Preserve sparse regions until RenderScheduler can merge them.

@@ -2,6 +2,17 @@
 #include <QObject>
 #include <QByteArray>
 
+enum class TransportExitReason
+{
+    NormalExit,
+    FailedExit,
+    Crash,
+    UserClosed,
+    IoError,
+    StartFailed,
+};
+Q_DECLARE_METATYPE(TransportExitReason)
+
 // ITransport — 抽象传输接口，统一本地和远程数据通路。
 //   • LocalShellTransport : 本地 PTY（Unix: posix_openpt + fork, Windows: ConPTY）
 //   • SSH / Serial / Telnet : 远程协议实现
@@ -19,6 +30,7 @@ public:
     virtual void write(const QByteArray& data) = 0;   // 向对端发送原始字节（终端按键）
     virtual void resizeTerminal(int cols, int rows) = 0; // 转发窗口尺寸变更（如 SSH PTY 大小调整）
     virtual bool isConnected() const = 0;
+    virtual bool hasPendingDisconnect() const { return false; }
     virtual bool setReadPaused(bool paused)
     {
         Q_UNUSED(paused);
@@ -31,4 +43,5 @@ signals:
     void disconnected();
     void readyRead(const QByteArray& data);      // 对端数据到达 → 送入终端显示
     void errorOccurred(const QString& error);
+    void exited(quint32 exitCode, TransportExitReason reason);
 };

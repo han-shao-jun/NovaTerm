@@ -3,8 +3,6 @@ project(NovaTerm VERSION 0.1.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
-set(CMAKE_AUTOUIC ON)
-set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
 
 if(CMAKE_HOST_SYSTEM_NAME STREQUAL "Linux")
@@ -34,8 +32,16 @@ set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 
 # Find Qt
-find_package(QT NAMES Qt6 REQUIRED COMPONENTS Widgets Sql Svg ShaderTools)
-find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS Widgets Sql Svg ShaderTools LinguistTools SerialPort)
+find_package(QT 6.8 NAMES Qt6 REQUIRED COMPONENTS Widgets Sql Svg ShaderTools)
+find_package(Qt${QT_VERSION_MAJOR} 6.8 REQUIRED COMPONENTS
+    Widgets
+    Sql
+    Svg
+    ShaderTools
+    LinguistTools
+    SerialPort
+)
+qt_standard_project_setup(REQUIRES 6.8)
 
 message(STATUS "Using Qt ${QT_VERSION_MAJOR}.${QT_VERSION_MINOR}")
 
@@ -483,6 +489,46 @@ if(BUILD_TESTING)
     add_dependencies(check novaterm_renderer_p5_tests)
 
     if(WIN32)
+        qt_add_executable(novaterm_conpty_test_child
+            tests/transport/ConPtyTestChild.cpp
+        )
+
+        qt_add_executable(novaterm_conpty_tests
+            tests/transport/ConPtyTransportTests.cpp
+            src/transport/ITransport.h
+            src/transport/LocalShellTransport.cpp
+            src/transport/LocalShellTransport.h
+            src/session/LocalShellProfile.cpp
+            src/session/LocalShellProfile.h
+            src/platform/windows/conpty/ConPtyApi.cpp
+            src/platform/windows/conpty/ConPtyApi.h
+            src/platform/windows/conpty/ConPtySession.cpp
+            src/platform/windows/conpty/ConPtySession.h
+            src/platform/windows/conpty/WinHandle.h
+        )
+        target_include_directories(novaterm_conpty_tests PRIVATE src)
+        target_compile_definitions(novaterm_conpty_tests
+            PRIVATE NOVATERM_CONPTY_TESTING
+        )
+        target_compile_options(novaterm_conpty_tests
+            PRIVATE
+                "$<$<CXX_COMPILER_ID:MSVC>:/W4>"
+                "$<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-Wall;-Wextra;-Wpedantic>"
+        )
+        target_link_libraries(novaterm_conpty_tests
+            PRIVATE
+                Qt${QT_VERSION_MAJOR}::Core
+                Qt${QT_VERSION_MAJOR}::Test
+                shell32
+        )
+        add_dependencies(novaterm_conpty_tests novaterm_conpty_test_child)
+        add_test(NAME novaterm_conpty_tests COMMAND novaterm_conpty_tests)
+        set_tests_properties(novaterm_conpty_tests PROPERTIES
+            LABELS "integration;conpty"
+            TIMEOUT 120
+        )
+        add_dependencies(check novaterm_conpty_tests)
+
         add_executable(novaterm_terminal_session_tests
             tests/renderer/TerminalSessionSmokeTests.cpp
             src/renderer/RenderCommandBuffer.cpp
@@ -497,10 +543,19 @@ if(BUILD_TESTING)
             src/transport/ITransport.h
             src/transport/LocalShellTransport.cpp
             src/transport/LocalShellTransport.h
+            src/session/LocalShellProfile.cpp
+            src/session/LocalShellProfile.h
+            src/platform/windows/conpty/ConPtyApi.cpp
+            src/platform/windows/conpty/ConPtyApi.h
+            src/platform/windows/conpty/ConPtySession.cpp
+            src/platform/windows/conpty/ConPtySession.h
+            src/platform/windows/conpty/WinHandle.h
             src/transport/SshTransport.cpp
             src/transport/SshTransport.h
             src/session/SessionInputPump.cpp
             src/session/SessionInputPump.h
+            src/session/TerminalSession.cpp
+            src/session/TerminalSession.h
             src/service/ConfigManager.cpp
             src/service/ConfigManager.h
             src/ui/terminal/TerminalView.cpp
@@ -544,12 +599,15 @@ if(BUILD_TESTING)
                 "${CLINK_SRC_DIR}/clink_dll_x64.dll"
                 $<TARGET_FILE_DIR:novaterm_terminal_session_tests>
         )
+        add_dependencies(novaterm_terminal_session_tests
+            novaterm_conpty_test_child
+        )
         add_test(NAME novaterm_terminal_session_tests
                  COMMAND novaterm_terminal_session_tests)
         set_tests_properties(novaterm_terminal_session_tests
                              PROPERTIES
                                  LABELS "integration;terminal-session"
-                                 TIMEOUT 20)
+                                 TIMEOUT 120)
         add_dependencies(check novaterm_terminal_session_tests)
     endif()
 

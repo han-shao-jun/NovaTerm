@@ -20,6 +20,13 @@ ElaComboBox::ElaComboBox(QWidget* parent)
     setObjectName("ElaComboBox");
     setFixedHeight(35);
     d->_comboBoxStyle = new ElaComboBoxStyle(style());
+    // QWidget/QComboBox do not own a style installed with setStyle(). Delay
+    // its destruction until QObject's destroyed signal: by that point the
+    // QComboBox and QWidget destructors have released the popup, view and line
+    // edit that reference it. Unlike deleteLater(), this remains deterministic
+    // while the application event loop is shutting down.
+    connect(this, &QObject::destroyed,
+            [comboBoxStyle = d->_comboBoxStyle]() { delete comboBoxStyle; });
     setStyle(d->_comboBoxStyle);
 
     //调用view 让container初始化
@@ -54,8 +61,6 @@ ElaComboBox::ElaComboBox(QWidget* parent)
 
 ElaComboBox::~ElaComboBox()
 {
-    Q_D(ElaComboBox);
-    delete d->_comboBoxStyle;
 }
 
 void ElaComboBox::setEditable(bool editable)

@@ -139,7 +139,7 @@ public:
 
 signals:
     void activityDetected();
-    void terminalSizeChanged();
+    void terminalSizeChanged(int columns, int rows);
 
 protected:
     void initialize(QRhiCommandBuffer* cb) override;

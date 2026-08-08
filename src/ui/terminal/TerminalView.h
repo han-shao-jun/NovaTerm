@@ -2,6 +2,7 @@
 #include <QWidget>
 #include <QEvent>
 #include "core/search/SearchEngine.h"
+#include "session/LocalShellProfile.h"
 
 class ITransport;
 class TerminalCore;
@@ -9,7 +10,7 @@ class TerminalRenderer;
 class TerminalColorScheme;
 class QTimer;
 class QLineEdit;
-class SessionInputPump;
+class TerminalSession;
 
 // 终端视图：组合 TerminalCore（libvterm 仿真引擎）+ TerminalRenderer（QRhi GPU 渲染），
 // 通过 ITransport 接口统一桥接本地/远程终端数据通路。
@@ -38,13 +39,14 @@ public:
 
     // ── 本地终端：通过 LocalShellTransport 驱动真实 shell ──
     void startLocalShell(LocalShellType type = LocalShellType::Cmd);
+    void startLocalShell(const LocalShellConfig& config);
     void stopLocalShell();
     bool isLocalShell() const { return _isLocalShell; }
 
     // ── 远程终端：ITransport 数据桥接（SSH/串口/Telnet）──
     void attachTransport(ITransport* transport);
     void detachTransport();
-    ITransport* transport() const { return _transport; }
+    ITransport* transport() const;
 
     // ── 渲染器访问（替代原来的 terminalWidget()）─────────────
     TerminalRenderer* renderer() const { return _renderer; }
@@ -63,8 +65,9 @@ private:
 
     TerminalCore*     _core{nullptr};
     TerminalRenderer* _renderer{nullptr};
-    ITransport*       _transport{nullptr};
-    SessionInputPump* _inputPump{nullptr};
+    TerminalSession*  _session{nullptr};
+    ITransport*       _localTransport{nullptr};
+    ITransport*       _displayTransport{nullptr};
     bool              _isLocalShell{false};
 
     // PTY 尺寸变更去抖定时器：拖动窗口时密集的 resize 事件合并为一次
@@ -72,4 +75,6 @@ private:
     QTimer*           _resizeDebounce{nullptr};
     QLineEdit*        _searchLine{nullptr};
     quint64           _searchGeneration{0};
+    int               _latestResizeColumns{80};
+    int               _latestResizeRows{24};
 };

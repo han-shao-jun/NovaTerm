@@ -239,7 +239,7 @@ public:
     {
         auto& self = *static_cast<Impl*>(user);
         if (self.observer.output)
-            self.observer.output(QByteArray(data, static_cast<int>(length)));
+            self.observer.output(QByteArrayView(data, static_cast<qsizetype>(length)));
     }
 
     static int onDamage(VTermRect rectangle, void* user)

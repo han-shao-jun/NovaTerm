@@ -1,15 +1,13 @@
 #pragma once
 #include "ITransport.h"
-#include <QMutex>
+#include "session/LocalShellProfile.h"
 #include <QStringList>
-#include <QWaitCondition>
-#include <atomic>
+#include <QPointer>
+#include <memory>
+#include <mutex>
 
-#ifdef _WIN32
-#include <windows.h>
-#include <QThread>
-#include <atomic>
-#endif
+class QThread;
+namespace NovaTerm::Windows { class ConPtySession; }
 
 // LocalShellTransport — ITransport 实现，封装本地 PTY shell 进程。
 //
@@ -32,6 +30,9 @@ class LocalShellTransport : public ITransport
 {
     Q_OBJECT
 public:
+    enum class LifecycleState { Idle, Starting, Running, Closing, Closed };
+    Q_ENUM(LifecycleState)
+
     explicit LocalShellTransport(QObject* parent = nullptr);
     ~LocalShellTransport() override;
 
@@ -40,6 +41,9 @@ public:
     void setShellArgs(const QStringList& args);
     void setWorkingDirectory(const QString& dir);
     void setEnvironment(const QStringList& env);
+    void setShellProfile(const LocalShellProfile& profile);
+    void setSessionConfig(const LocalShellConfig& config);
+    LifecycleState lifecycleState() const { return _state; }
 
     // ── ITransport 接口 ──
     bool connectToHost() override;
@@ -47,8 +51,15 @@ public:
     void write(const QByteArray& data) override;
     void resizeTerminal(int cols, int rows) override;
     bool isConnected() const override;
+    bool hasPendingDisconnect() const override
+    {
+        return _state == LifecycleState::Closing;
+    }
     QString errorString() const override;
     bool setReadPaused(bool paused) override;
+
+signals:
+    void lifecycleStateChanged(LocalShellTransport::LifecycleState state);
 
 private:
     QString _shellProgram;
@@ -58,6 +69,10 @@ private:
     QString _errorString;
     bool _connected{false};
     std::atomic<bool> _readPaused{false};
+    LocalShellConfig _config;
+    LifecycleState _state{LifecycleState::Idle};
+
+    void setLifecycleState(LifecycleState state);
 
     // ── Unix 路径 ─────────────────────────────────
 #ifndef _WIN32
@@ -71,22 +86,12 @@ private:
 
     // ── Windows 路径 (ConPTY) ─────────────────────
 #else
-    HPCON  _hPC{nullptr};
-    HANDLE _hInputPipe{nullptr};
-    HANDLE _hOutputRead{nullptr};
-    HANDLE _hOutputWrite{nullptr};
-    HANDLE _hInputWrite{nullptr};
-    HANDLE _hProcess{nullptr};
-    HANDLE _hThread{nullptr};
-    QThread* _readerThread{nullptr};
-    std::atomic<bool> _running{false};
-    QMutex _readPauseMutex;
-    QWaitCondition _readPauseChanged;
+    struct ResizeDispatchState;
+    QPointer<NovaTerm::Windows::ConPtySession> _windowsSession;
+    QThread* _windowsThread{nullptr};
+    std::shared_ptr<ResizeDispatchState> _resizeDispatch;
+    quint64 _windowsGeneration{0};
     int _cols{80};
     int _rows{24};
-
-    bool createPipes();
-    bool createConPty(int cols, int rows);
-    bool launchProcess(const QString& cmd);
 #endif
 };

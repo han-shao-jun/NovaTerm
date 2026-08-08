@@ -1009,7 +1009,7 @@ void TerminalRenderer::resizeTerminalToViewport()
         scrollToBottom();
         clearSelection();
         _core->resize(cols, rows);
-        emit terminalSizeChanged();
+        emit terminalSizeChanged(cols, rows);
     }
 }
 

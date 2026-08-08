@@ -20,6 +20,7 @@ private slots:
     void parsesFragmentedUtf8();
     void reportsDamage();
     void ctrlCProducesInterruptCharacter();
+    void largeBracketedPasteIsBatchedAndOrdered();
     void resizesScreen();
     void resizePublishesFullDamageWithoutLiveScroll();
     void narrowerResizeReflowsExistingContent();
@@ -322,6 +323,27 @@ void TerminalCoreTests::publishesTerminalTitle()
 
     QCOMPARE(core.title(), QStringLiteral("P1 adapter title"));
     QTRY_COMPARE(titleSpy.size(), 1);
+}
+
+void TerminalCoreTests::largeBracketedPasteIsBatchedAndOrdered()
+{
+    TerminalCore core(80, 24);
+    core.writeInput(QByteArrayLiteral("\x1b[?2004h"));
+    QVERIFY(core.waitForIdle());
+
+    QSignalSpy outputSpy(&core, &TerminalCore::outputData);
+    const QString text(1024 * 1024, QLatin1Char('P'));
+    core.pasteText(text);
+    QVERIFY(core.waitForIdle(10000));
+    QTRY_VERIFY_WITH_TIMEOUT(!outputSpy.isEmpty(), 5000);
+
+    QByteArray output;
+    for (const QList<QVariant>& arguments : outputSpy)
+        output.append(arguments.at(0).toByteArray());
+    QCOMPARE(output, QByteArrayLiteral("\x1b[200~") + text.toUtf8()
+                         + QByteArrayLiteral("\x1b[201~"));
+    QVERIFY2(outputSpy.size() <= 20,
+             "large paste generated character-sized output signals");
 }
 
 void TerminalCoreTests::cursorPropertiesPublishWithoutFollowingMovement()

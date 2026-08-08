@@ -1,6 +1,7 @@
 #include "LocalShellTransport.h"
 
 #include <QDebug>
+#include <QProcessEnvironment>
 
 // ═══════════════════════════════════════════════════════════════════
 //  跨平台公共部分
@@ -19,21 +20,57 @@ LocalShellTransport::~LocalShellTransport()
 void LocalShellTransport::setShellProgram(const QString& program)
 {
     _shellProgram = program;
+    _config.profile.executable = program;
+    if (_config.profile.name.isEmpty())
+        _config.profile.name = program;
 }
 
 void LocalShellTransport::setShellArgs(const QStringList& args)
 {
     _shellArgs = args;
+    _config.profile.arguments = args;
 }
 
 void LocalShellTransport::setWorkingDirectory(const QString& dir)
 {
     _workingDir = dir;
+    _config.workingDirectory = dir;
 }
 
 void LocalShellTransport::setEnvironment(const QStringList& env)
 {
     _environment = env;
+    QProcessEnvironment environment;
+    for (const QString& entry : env) {
+        const qsizetype equals = entry.indexOf(QLatin1Char('='));
+        if (equals > 0)
+            environment.insert(entry.left(equals), entry.mid(equals + 1));
+    }
+    _config.environment = environment;
+}
+
+void LocalShellTransport::setShellProfile(const LocalShellProfile& profile)
+{
+    _config.profile = profile;
+    _shellProgram = profile.executable;
+    _shellArgs = profile.arguments;
+    _workingDir = profile.workingDirectory;
+}
+
+void LocalShellTransport::setSessionConfig(const LocalShellConfig& config)
+{
+    _config = config;
+    _shellProgram = config.profile.executable;
+    _shellArgs = config.profile.arguments;
+    _workingDir = config.effectiveWorkingDirectory();
+}
+
+void LocalShellTransport::setLifecycleState(LifecycleState state)
+{
+    if (_state == state)
+        return;
+    _state = state;
+    emit lifecycleStateChanged(state);
 }
 
 bool LocalShellTransport::isConnected() const
@@ -307,179 +344,146 @@ void LocalShellTransport::resizeTerminal(int cols, int rows)
 
 #ifdef _WIN32
 
-#include <QCoreApplication>
-#include <sstream>
+#include "platform/windows/conpty/ConPtySession.h"
 
-// ── Win32 helpers ────────────────────────────────────────────────
+#include <QMetaObject>
+#include <QThread>
 
-static inline QString winError(DWORD err)
+using NovaTerm::Windows::ConPtySession;
+
+struct LocalShellTransport::ResizeDispatchState
 {
-    wchar_t buf[256];
-    FormatMessageW(FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS,
-                   nullptr, err, 0, buf, 256, nullptr);
-    return QString::fromWCharArray(buf).trimmed();
-}
-
-static inline QString lastWinError()
-{
-    return winError(GetLastError());
-}
-
-// Dynamically resolve ConPTY functions (available Windows 10 1809+)
-using CreatePseudoConsoleFn = HRESULT(WINAPI *)(COORD, HANDLE, HANDLE, DWORD, HPCON *);
-using ResizePseudoConsoleFn  = HRESULT(WINAPI *)(HPCON, COORD);
-using ClosePseudoConsoleFn   = VOID(WINAPI *)(HPCON);
-
-static CreatePseudoConsoleFn pCreatePseudoConsole = nullptr;
-static ResizePseudoConsoleFn  pResizePseudoConsole  = nullptr;
-static ClosePseudoConsoleFn   pClosePseudoConsole   = nullptr;
-
-static bool resolveConPty()
-{
-    if (pCreatePseudoConsole)
-        return true;
-    HMODULE h = LoadLibraryW(L"kernel32.dll");
-    if (!h) return false;
-    pCreatePseudoConsole = reinterpret_cast<CreatePseudoConsoleFn>(
-        GetProcAddress(h, "CreatePseudoConsole"));
-    pResizePseudoConsole = reinterpret_cast<ResizePseudoConsoleFn>(
-        GetProcAddress(h, "ResizePseudoConsole"));
-    pClosePseudoConsole = reinterpret_cast<ClosePseudoConsoleFn>(
-        GetProcAddress(h, "ClosePseudoConsole"));
-    return pCreatePseudoConsole && pResizePseudoConsole && pClosePseudoConsole;
-}
+    std::mutex mutex;
+    int columns{80};
+    int rows{24};
+    bool pending{false};
+};
 
 // ── ITransport 实现 ──────────────────────────────────────────────
 
 bool LocalShellTransport::connectToHost()
 {
-    if (_connected)
-        disconnect();
-
-    if (!resolveConPty()) {
-        _errorString = QStringLiteral("ConPTY not available (need Windows 10 1809+)");
-        qWarning() << "LocalShellTransport:" << _errorString;
+    if (_state == LifecycleState::Starting
+        || _state == LifecycleState::Running
+        || _state == LifecycleState::Closing) {
+        _errorString = QStringLiteral("Local shell session is already active or closing");
+        emit errorOccurred(_errorString);
         return false;
     }
-
-    if (_running.load())
-        disconnect();
-    _readPaused.store(false, std::memory_order_release);
-
-    if (!createPipes()) return false;
-    if (!createConPty(_cols, _rows)) return false;
-
-    // 构建命令行
-    QString shell = _shellProgram;
-    if (shell.isEmpty()) {
-        shell = QString::fromLocal8Bit(qgetenv("ComSpec"));
-        if (shell.isEmpty())
-            shell = QStringLiteral("cmd.exe");
+    if (!_config.isValid()) {
+        QString shell = _shellProgram;
+        if (shell.isEmpty()) {
+            shell = QString::fromLocal8Bit(qgetenv("ComSpec"));
+            if (shell.isEmpty())
+                shell = QStringLiteral("cmd.exe");
+        }
+        _config.profile.name = shell;
+        _config.profile.executable = shell;
+        _config.profile.arguments = _shellArgs;
+        _config.workingDirectory = _workingDir;
     }
 
-    std::wstringstream cmdLine;
-    cmdLine << L"\"" << shell.toStdWString() << L"\"";
-    for (const QString& a : _shellArgs)
-        cmdLine << L" " << a.toStdWString();
+    _errorString.clear();
+    _readPaused.store(false, std::memory_order_release);
+    setLifecycleState(LifecycleState::Starting);
 
-    if (!launchProcess(QString::fromStdWString(cmdLine.str()))) return false;
+    auto* thread = new QThread;
+    thread->setObjectName(QStringLiteral("NovaTerm ConPTY Lifecycle"));
+    auto* session = new ConPtySession(_config, _cols, _rows);
+    session->moveToThread(thread);
+    _windowsThread = thread;
+    _windowsSession = session;
+    _resizeDispatch = std::make_shared<ResizeDispatchState>();
+    const quint64 generation = ++_windowsGeneration;
 
-    // 启动 reader 线程
-    _running.store(true);
-    _readerThread = QThread::create([this]() {
-        char buf[4096];
-        DWORD n;
-        while (_running.load()) {
-            {
-                QMutexLocker locker(&_readPauseMutex);
-                while (_running.load()
-                       && _readPaused.load(std::memory_order_acquire)) {
-                    _readPauseChanged.wait(&_readPauseMutex);
-                }
-            }
-            if (!_running.load()
-                || !ReadFile(_hOutputRead, buf, sizeof(buf), &n, nullptr)
-                || n == 0) {
-                break;
-            }
-            QByteArray data(buf, static_cast<int>(n));
-            QMetaObject::invokeMethod(this, [this, d = std::move(data)]() {
-                if (_running.load())
-                    emit readyRead(d);   // ITransport 信号
-            }, Qt::QueuedConnection);
-        }
-        // ReadFile 返回失败或 0 字节 — shell 已退出
-        if (_running.load()) {
-            QMetaObject::invokeMethod(this, [this]() {
-                disconnect();
-            }, Qt::QueuedConnection);
+    QObject::connect(session, &ConPtySession::started, this,
+                     [this, session, generation] {
+        if (_windowsGeneration != generation || _windowsSession != session)
+            return;
+        _connected = true;
+        setLifecycleState(LifecycleState::Running);
+        emit connected();
+    });
+    const QPointer<ConPtySession> sessionGuard(session);
+    QObject::connect(session, &ConPtySession::dataReady, this,
+                     [this, sessionGuard, generation](const QByteArray& data) {
+        if (!sessionGuard || _windowsGeneration != generation
+            || _windowsSession != sessionGuard)
+            return;
+        const QPointer<LocalShellTransport> self(this);
+        emit readyRead(data);
+        if (self && sessionGuard)
+            sessionGuard->acknowledgeOutput();
+    });
+    QObject::connect(session, &ConPtySession::errorOccurred, this,
+                     [this, session, generation](const QString& error) {
+        if (_windowsGeneration != generation || _windowsSession != session)
+            return;
+        _errorString = error;
+        emit errorOccurred(error);
+    });
+    QObject::connect(session, &ConPtySession::exited, this,
+                     [this, session, generation](quint32 exitCode, TransportExitReason reason) {
+        if (_windowsGeneration == generation && _windowsSession == session)
+            emit exited(exitCode, reason);
+    });
+    QObject::connect(session, &ConPtySession::closed, this,
+                     [this, generation] {
+        if (_windowsGeneration == generation) {
+            _connected = false;
+            _windowsSession = nullptr;
+            _windowsThread = nullptr;
+            setLifecycleState(LifecycleState::Closed);
+            emit disconnected();
         }
     });
-    _readerThread->start();
-
-    _connected = true;
-    emit connected();
+    QObject::connect(session, &ConPtySession::closed,
+                     thread, &QThread::quit, Qt::QueuedConnection);
+    QObject::connect(thread, &QThread::finished,
+                     session, &QObject::deleteLater);
+    QObject::connect(thread, &QThread::finished, thread, &QObject::deleteLater);
+    thread->start();
+    QMetaObject::invokeMethod(session, &ConPtySession::start,
+                              Qt::QueuedConnection);
     return true;
 }
 
 void LocalShellTransport::disconnect()
 {
-    _running.store(false);
-    _readPaused.store(false, std::memory_order_release);
-    _readPauseChanged.wakeAll();
+    if (_state == LifecycleState::Idle || _state == LifecycleState::Closed
+        || _state == LifecycleState::Closing) {
+        return;
+    }
     _connected = false;
-
-    // 移除待处理的事件
-    QCoreApplication::removePostedEvents(this);
-
-    // 关闭 ConPTY — 强制 reader 线程的 ReadFile 返回
-    if (_hPC) {
-        pClosePseudoConsole(_hPC);
-        _hPC = nullptr;
+    _readPaused.store(false, std::memory_order_release);
+    setLifecycleState(LifecycleState::Closing);
+    if (_windowsSession) {
+        QMetaObject::invokeMethod(_windowsSession.data(), &ConPtySession::requestClose,
+                                  Qt::QueuedConnection);
     }
-
-    // 终止进程
-    if (_hProcess) {
-        TerminateProcess(_hProcess, 0);
-        WaitForSingleObject(_hProcess, 2000);
-        CloseHandle(_hProcess);
-        _hProcess = nullptr;
-    }
-    if (_hThread) {
-        CloseHandle(_hThread);
-        _hThread = nullptr;
-    }
-
-    // 等待 reader 线程
-    if (_readerThread) {
-        _readerThread->wait(3000);
-        delete _readerThread;
-        _readerThread = nullptr;
-    }
-
-    // 关闭管道句柄
-    if (_hInputWrite)  { CloseHandle(_hInputWrite);  _hInputWrite  = nullptr; }
-    if (_hInputPipe)   { CloseHandle(_hInputPipe);   _hInputPipe   = nullptr; }
-    if (_hOutputRead)  { CloseHandle(_hOutputRead);  _hOutputRead  = nullptr; }
-    if (_hOutputWrite) { CloseHandle(_hOutputWrite); _hOutputWrite = nullptr; }
-
-    emit disconnected();
 }
 
 bool LocalShellTransport::setReadPaused(bool paused)
 {
     _readPaused.store(paused, std::memory_order_release);
-    if (!paused)
-        _readPauseChanged.wakeAll();
+    if (_windowsSession) {
+        ConPtySession* session = _windowsSession.data();
+        QMetaObject::invokeMethod(
+            session,
+            [session, paused] { session->setReadPaused(paused); },
+            Qt::QueuedConnection);
+    }
     return true;
 }
 
 void LocalShellTransport::write(const QByteArray& data)
 {
-    if (!_hInputWrite) return;
-    DWORD written = 0;
-    WriteFile(_hInputWrite, data.constData(),
-              static_cast<DWORD>(data.size()), &written, nullptr);
+    if (!_windowsSession || _state != LifecycleState::Running || data.isEmpty())
+        return;
+    if (!_windowsSession->tryEnqueueInput(data)) {
+        _errorString = QStringLiteral("ConPTY input queue capacity exceeded or closed");
+        emit errorOccurred(_errorString);
+    }
 }
 
 void LocalShellTransport::resizeTerminal(int cols, int rows)
@@ -488,107 +492,36 @@ void LocalShellTransport::resizeTerminal(int cols, int rows)
         return;
     _cols = cols;
     _rows = rows;
-
-    if (_hPC) {
-        COORD sz = { static_cast<SHORT>(cols), static_cast<SHORT>(rows) };
-        pResizePseudoConsole(_hPC, sz);
+    if (_windowsSession) {
+        const auto dispatch = _resizeDispatch;
+        bool post = false;
+        {
+            std::lock_guard<std::mutex> lock(dispatch->mutex);
+            dispatch->columns = cols;
+            dispatch->rows = rows;
+            if (!dispatch->pending) {
+                dispatch->pending = true;
+                post = true;
+            }
+        }
+        if (!post)
+            return;
+        ConPtySession* session = _windowsSession.data();
+        QMetaObject::invokeMethod(
+            session,
+            [session, dispatch] {
+                int latestColumns = 0;
+                int latestRows = 0;
+                {
+                    std::lock_guard<std::mutex> lock(dispatch->mutex);
+                    latestColumns = dispatch->columns;
+                    latestRows = dispatch->rows;
+                    dispatch->pending = false;
+                }
+                session->resize(latestColumns, latestRows);
+            },
+            Qt::QueuedConnection);
     }
-}
-
-// ── private helpers ──────────────────────────────────────────────
-
-bool LocalShellTransport::createPipes()
-{
-    SECURITY_ATTRIBUTES sa = { sizeof(sa), nullptr, TRUE };
-
-    // Input pipe (our write → ConPTY reads → app stdin)
-    if (!CreatePipe(&_hInputPipe, &_hInputWrite, &sa, 0)) {
-        _errorString = QStringLiteral("CreatePipe(input) failed: ") + lastWinError();
-        qWarning() << "LocalShellTransport:" << _errorString;
-        return false;
-    }
-
-    // Output pipe (app stdout → ConPTY writes → we read)
-    if (!CreatePipe(&_hOutputRead, &_hOutputWrite, &sa, 0)) {
-        _errorString = QStringLiteral("CreatePipe(output) failed: ") + lastWinError();
-        qWarning() << "LocalShellTransport:" << _errorString;
-        return false;
-    }
-
-    return true;
-}
-
-bool LocalShellTransport::createConPty(int cols, int rows)
-{
-    COORD sz = { static_cast<SHORT>(cols), static_cast<SHORT>(rows) };
-    HRESULT hr = pCreatePseudoConsole(sz, _hInputPipe, _hOutputWrite, 0, &_hPC);
-    if (FAILED(hr)) {
-        _errorString = QStringLiteral("CreatePseudoConsole failed: ")
-                       + winError(static_cast<DWORD>(hr));
-        qWarning() << "LocalShellTransport:" << _errorString;
-        return false;
-    }
-    return true;
-}
-
-bool LocalShellTransport::launchProcess(const QString& cmd)
-{
-    SIZE_T attrSize = 0;
-    InitializeProcThreadAttributeList(nullptr, 1, 0, &attrSize);
-
-    STARTUPINFOEXW siEx = {};
-    siEx.StartupInfo.cb = sizeof(siEx);
-    siEx.lpAttributeList = reinterpret_cast<LPPROC_THREAD_ATTRIBUTE_LIST>(
-        HeapAlloc(GetProcessHeap(), 0, attrSize));
-    if (!siEx.lpAttributeList) {
-        _errorString = QStringLiteral("HeapAlloc failed");
-        return false;
-    }
-
-    if (!InitializeProcThreadAttributeList(siEx.lpAttributeList, 1, 0, &attrSize)) {
-        _errorString = QStringLiteral("InitializeProcThreadAttributeList failed: ")
-                       + lastWinError();
-        HeapFree(GetProcessHeap(), 0, siEx.lpAttributeList);
-        return false;
-    }
-
-    if (!UpdateProcThreadAttribute(siEx.lpAttributeList, 0,
-                                   PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE,
-                                   _hPC, sizeof(HPCON), nullptr, nullptr)) {
-        _errorString = QStringLiteral("UpdateProcThreadAttribute failed: ")
-                       + lastWinError();
-        DeleteProcThreadAttributeList(siEx.lpAttributeList);
-        HeapFree(GetProcessHeap(), 0, siEx.lpAttributeList);
-        return false;
-    }
-
-    PROCESS_INFORMATION pi = {};
-    std::wstring wcmd = cmd.toStdWString();
-    std::wstring cmdBuf = wcmd;  // writable copy for CreateProcessW
-
-    BOOL ok = CreateProcessW(
-        nullptr, cmdBuf.data(),
-        nullptr, nullptr, FALSE,
-        EXTENDED_STARTUPINFO_PRESENT | CREATE_UNICODE_ENVIRONMENT,
-        nullptr, nullptr,
-        &siEx.StartupInfo, &pi);
-
-    DeleteProcThreadAttributeList(siEx.lpAttributeList);
-    HeapFree(GetProcessHeap(), 0, siEx.lpAttributeList);
-
-    // 释放已交给 ConPTY 的管道端 — 现在 ConPTY 拥有它们
-    CloseHandle(_hInputPipe);   _hInputPipe   = nullptr;
-    CloseHandle(_hOutputWrite); _hOutputWrite = nullptr;
-
-    if (!ok) {
-        _errorString = QStringLiteral("CreateProcess failed: ") + lastWinError();
-        qWarning() << "LocalShellTransport:" << _errorString;
-        return false;
-    }
-
-    _hProcess = pi.hProcess;
-    _hThread  = pi.hThread;
-    return true;
 }
 
 #endif // _WIN32
