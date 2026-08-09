@@ -20,8 +20,6 @@ endif()
 
 message(STATUS "setting qt sdk path: ${CMAKE_PREFIX_PATH}")
 
-add_compile_options("$<$<CXX_COMPILER_ID:MSVC>:/utf-8>")
-
 # 将所有运行时文件（exe、dll）输出到同一目录
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 
@@ -147,6 +145,20 @@ target_include_directories(NovaTerm PRIVATE
     third_party/libvterm-0.3.3/include
 )
 
+add_compile_options("$<$<CXX_COMPILER_ID:MSVC>:/utf-8>")
+if(MSVC)
+    target_compile_options(NovaTerm PRIVATE
+        $<$<CONFIG:Release>:/Zi>
+    )
+
+    target_link_options(NovaTerm PRIVATE
+        $<$<CONFIG:Release>:/DEBUG>
+        $<$<CONFIG:Release>:/OPT:REF>
+        $<$<CONFIG:Release>:/OPT:ICF>
+    )
+endif()
+
+
 target_link_libraries(NovaTerm PRIVATE
         Qt${QT_VERSION_MAJOR}::Widgets
         Qt${QT_VERSION_MAJOR}::Sql
@@ -161,7 +173,7 @@ target_link_libraries(NovaTerm PRIVATE
 
 # 静态 OpenSSL 在 Windows 上的平台依赖库
 if(WIN32)
-    target_link_libraries(NovaTerm PRIVATE ws2_32 crypt32 user32)
+    target_link_libraries(NovaTerm PRIVATE ws2_32 crypt32 user32 advapi32)
 endif()
 
 if (CMAKE_HOST_SYSTEM_NAME STREQUAL "Linux")
@@ -396,7 +408,7 @@ if(BUILD_TESTING)
 endif()
 
 if(BUILD_TESTING)
-    find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS Test)
+    find_package(Qt${QT_VERSION_MAJOR} 6.8 REQUIRED COMPONENTS Test)
 
     add_executable(novaterm_core_tests
         tests/core/TerminalCoreTests.cpp
@@ -427,6 +439,42 @@ if(BUILD_TESTING)
         TIMEOUT 60
     )
     add_dependencies(check novaterm_scrollback_tests)
+
+    qt_add_executable(novaterm_session_tests
+        tests/session/SessionTests.cpp
+        src/credential/CredentialStore.cpp
+        src/credential/CredentialStore.h
+        src/profile/ProfileStore.cpp
+        src/profile/ProfileStore.h
+        src/session/SessionInputPump.cpp
+        src/session/SessionInputPump.h
+        src/session/SessionManager.cpp
+        src/session/SessionManager.h
+        src/session/SessionStore.cpp
+        src/session/SessionStore.h
+        src/session/SessionTypes.h
+        src/session/TerminalSession.cpp
+        src/session/TerminalSession.h
+        src/transport/ITransport.h
+    )
+    target_include_directories(novaterm_session_tests PRIVATE src)
+    target_compile_options(novaterm_session_tests
+        PRIVATE
+            "$<$<CXX_COMPILER_ID:MSVC>:/W4>"
+            "$<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-Wall;-Wextra;-Wpedantic>"
+    )
+    target_link_libraries(novaterm_session_tests
+        PRIVATE
+            novaterm_core
+            Qt${QT_VERSION_MAJOR}::SerialPort
+            Qt${QT_VERSION_MAJOR}::Test
+    )
+    add_test(NAME novaterm_session_tests COMMAND novaterm_session_tests)
+    set_tests_properties(novaterm_session_tests PROPERTIES
+        LABELS "unit;session;p6"
+        TIMEOUT 60
+    )
+    add_dependencies(check novaterm_session_tests)
 
     add_executable(novaterm_renderer_tests
         tests/renderer/RendererP3Tests.cpp

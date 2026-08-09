@@ -13,6 +13,8 @@ SerialTransport::SerialTransport(SerialConfig config, QObject* parent)
             this, &SerialTransport::readAvailable);
     connect(&_port, &QSerialPort::errorOccurred,
             this, &SerialTransport::handleError);
+    connect(&_port, &QSerialPort::bytesWritten,
+            this, &SerialTransport::bytesWritten);
 }
 
 SerialTransport::~SerialTransport()

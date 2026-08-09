@@ -10,6 +10,7 @@
 #include <ElaSpinBox.h>
 #include <ElaTabWidget.h>
 #include <ElaLineEdit.h>
+#include <QByteArray>
 
 
 // 会话选择页面（ElaScrollPage）。包含 4 个标签页（本地 Shell / SSH / 串口 / Telnet），
@@ -20,11 +21,15 @@ class SessionPage : public ElaScrollPage
     Q_OBJECT
 public:
     Q_INVOKABLE explicit SessionPage(QWidget* parent = nullptr);
+    void selectTransport(TransportKind kind);
+    void applyRuntimeConfig(const RuntimeConfig& runtime,
+                            const QByteArray& secret = {});
 
 signals:
     // 用户在本地 Shell 标签页点击了 Confirm，携带所选的 Shell 类型
     // （cmd 关联 Clink / PowerShell）。
-    void localSessionRequested(TerminalView::LocalShellType type);
+    void localSessionRequested(TerminalView::LocalShellType type,
+                               const QString& label);
     void serialSessionRequested(const SerialConfig& config);
     void sshSessionRequested(const SshConfig& config);
     void dialogRejected();          // 用户在任意标签页点击了 Cancel

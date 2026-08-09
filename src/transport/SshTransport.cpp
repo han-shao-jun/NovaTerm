@@ -422,6 +422,9 @@ void SshTransport::workerMain()
                 }
                 p += n;
                 remain -= n;
+                QMetaObject::invokeMethod(
+                    this, [this, n] { emit bytesWritten(n); },
+                    Qt::QueuedConnection);
             }
         }
 

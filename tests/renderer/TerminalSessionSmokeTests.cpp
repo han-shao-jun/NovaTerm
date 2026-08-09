@@ -2,6 +2,7 @@
 #include "renderer/TerminalRenderer.h"
 #include "transport/ITransport.h"
 #include "transport/LocalShellTransport.h"
+#include "session/TerminalSession.h"
 #include "ui/terminal/TerminalView.h"
 
 #include <ElaComboBox.h>
@@ -35,6 +36,8 @@ private slots:
     void terminalViewStartupKeepsUiResponsive();
     void terminalViewRepeatedStartStop();
     void comboBoxAnimationTeardownIsSafe();
+    void externalSessionOutlivesView();
+    void ownedDependenciesAreDestroyedBeforeCore();
 };
 
 void TerminalSessionSmokeTests::conPtyStartupKeepsUiResponsive()
@@ -174,6 +177,44 @@ void TerminalSessionSmokeTests::comboBoxAnimationTeardownIsSafe()
         QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
         QCoreApplication::processEvents();
     }
+}
+
+void TerminalSessionSmokeTests::externalSessionOutlivesView()
+{
+    RuntimeConfig config;
+    config.title = QStringLiteral("background session");
+    TerminalSession session(config);
+    {
+        TerminalView firstView(&session);
+        TerminalView secondView(&session);
+        QVERIFY(!firstView.ownsSession());
+        QVERIFY(!secondView.ownsSession());
+        QCOMPARE(firstView.session(), &session);
+        QCOMPARE(secondView.session(), &session);
+    }
+    QCOMPARE(session.state(), SessionState::Created);
+}
+
+void TerminalSessionSmokeTests::ownedDependenciesAreDestroyedBeforeCore()
+{
+    auto* view = new TerminalView;
+    auto* core = view->session()->core();
+    auto* renderer = view->renderer();
+    auto* session = view->session();
+    QStringList destructionOrder;
+    connect(renderer, &QObject::destroyed, this,
+            [&destructionOrder] { destructionOrder.append(QStringLiteral("renderer")); });
+    connect(session, &QObject::destroyed, this,
+            [&destructionOrder] { destructionOrder.append(QStringLiteral("session")); });
+    connect(core, &QObject::destroyed, this,
+            [&destructionOrder] { destructionOrder.append(QStringLiteral("core")); });
+
+    delete view;
+
+    QCOMPARE(destructionOrder,
+             QStringList({QStringLiteral("renderer"),
+                          QStringLiteral("session"),
+                          QStringLiteral("core")}));
 }
 
 QTEST_MAIN(TerminalSessionSmokeTests)

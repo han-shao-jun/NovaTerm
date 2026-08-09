@@ -24,6 +24,7 @@
 #include <QTimer>
 
 #include <algorithm>
+#include <memory>
 
 static QColor configuredColor(const QJsonObject& colors, const char* key,
                               const QColor& fallback)
@@ -70,15 +71,27 @@ static TerminalColorScheme configuredTerminalScheme(bool isDark)
 }
 
 TerminalView::TerminalView(QWidget* parent)
+    : TerminalView(nullptr, parent)
+{
+}
+
+TerminalView::TerminalView(TerminalSession* session, QWidget* parent)
     : QWidget(parent)
 {
     // ── 初始终端尺寸：用合理的默认值，resizeEvent 会马上更新 ──
     constexpr int kDefaultCols = 80;
     constexpr int kDefaultRows = 24;
 
-    _core     = new TerminalCore(kDefaultCols, kDefaultRows, this);
+    _ownsSession = session == nullptr;
+    auto ownedCore = std::unique_ptr<TerminalCore>{};
+    if (session) {
+        _core = session->core();
+    } else {
+        ownedCore = std::make_unique<TerminalCore>(kDefaultCols, kDefaultRows);
+        _core = ownedCore.get();
+    }
     _renderer = new TerminalRenderer(_core, this);
-    _session = new TerminalSession(_core, this);
+    _session = session ? session : new TerminalSession(_core, this);
 
     applyThemeColorScheme();
 
@@ -175,12 +188,28 @@ TerminalView::TerminalView(QWidget* parent)
         _latestResizeRows = rows;
         _resizeDebounce->start();
     });
+
+    if (_ownsSession) {
+        // QObject deletes children in insertion order. Both renderer and
+        // session retain non-owning pointers to Core, so adopt Core only after
+        // all dependants have been parented to the View. They are therefore
+        // destroyed first. In optimized builds the previous order caused a
+        // deterministic UAF during TerminalView teardown and corrupted the
+        // following QLineEdit/QWidgetLineControl destruction.
+        _core->setParent(this);
+        static_cast<void>(ownedCore.release());
+    }
 }
 
 TerminalView::~TerminalView()
 {
-    stopLocalShell();
-    detachTransport();
+    if (_ownsSession) {
+        stopLocalShell();
+        detachTransport();
+    } else if (_session) {
+        QObject::disconnect(_session, nullptr, this, nullptr);
+        _session = nullptr;
+    }
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -270,6 +299,11 @@ void TerminalView::attachTransport(ITransport* transport)
     detachTransport();
     if (!transport)
         return;
+    if (_session->state() == SessionState::Closed
+        && !_session->resetForReuse()) {
+        qWarning() << "TerminalView: failed to prepare the next session";
+        return;
+    }
 
     // libvterm 无需 "teletype" 模式 — 它本身不内置 PTY，
     // 所有 I/O 都通过回调/API 驱动。
@@ -305,6 +339,11 @@ void TerminalView::detachTransport()
 ITransport* TerminalView::transport() const
 {
     return _session ? _session->transport() : nullptr;
+}
+
+TerminalSession* TerminalView::session() const
+{
+    return _session.data();
 }
 
 // ═══════════════════════════════════════════════════════════════════

@@ -15,6 +15,7 @@
 #include "ui/pages/SettingsPage.h"
 #include "ui/pages/SessionPage.h"
 #include "ui/pages/AboutPage.h"
+#include "ui/widgets/SessionPanel.h"
 #include "service/LanguageManager.h"
 #include "service/ConfigManager.h"
 #include <QApplication>
@@ -22,6 +23,7 @@
 #include <QHBoxLayout>
 #include <QIcon>
 #include <QLabel>
+#include <QMessageBox>
 #include <QPalette>
 #include <QStyle>
 #include <QVBoxLayout>
@@ -158,6 +160,8 @@ void MainWindow::initWindow()
     int h = ConfigManager::get<int>("window.height", 800);
     resize(w, h);
 
+    setAppBarHeight(32);
+
     // 隐藏用户信息卡片
     setUserInfoCardVisible(false);
 
@@ -196,7 +200,7 @@ void MainWindow::initWindow()
     //   • 悬停  → ElaToolTip "Menu"
     //   • 点击  → 弹出 ElaMenu，包含 会话 / 设置 / 关于
     // ═══════════════════════════════════════════════════════════════
-    _menuButton = new ElaIconButton(ElaIconType::Bars, 18, 36, 36, this);
+    _menuButton = new ElaIconButton(ElaIconType::Bars, 18, 32, 32, this);
     // ElaToolTip（非原生 QToolTip）：其背景使用主题的 PopupBase/PopupBorder
     // 绘制，并已绑定 eTheme->themeModeChanged，因此自动跟随全局亮色/暗色主题。
     _menuTip = new ElaToolTip(_menuButton);
@@ -215,10 +219,10 @@ void MainWindow::initWindow()
     customLayout->setSpacing(6);
 
     // 应用 Logo，尺寸与 36px 菜单按钮匹配（26px 图标放在 26 宽的槽中，
-    // 使其左对齐，在 36px 高的标题栏中垂直居中）。
+    // 使其左对齐，并由标题栏布局保持垂直居中）。
     auto* logoLabel = new QLabel(customWidget);
     logoLabel->setPixmap(QIcon(":/icons/app_logo.svg").pixmap(26, 26));
-    logoLabel->setFixedSize(26, 36);
+    logoLabel->setFixedSize(26, 32);
     logoLabel->setAlignment(Qt::AlignCenter);
     customLayout->addWidget(logoLabel);
 
@@ -226,11 +230,40 @@ void MainWindow::initWindow()
     customLayout->addStretch();
     setCustomWidget(ElaAppBarType::LeftArea, customWidget, this, "processHitTest");
 
-    _terminalPage = new TerminalPage(this);
+    auto* terminalWorkspace = new QWidget(this);
+    auto* workspaceLayout = new QHBoxLayout(terminalWorkspace);
+    workspaceLayout->setContentsMargins(0, 0, 0, 0);
+    workspaceLayout->setSpacing(0);
+
+    _sessionPanel = new SessionPanel(terminalWorkspace);
+    workspaceLayout->addWidget(_sessionPanel);
+
+    _terminalPage = new TerminalPage(terminalWorkspace);
+    workspaceLayout->addWidget(_terminalPage, 1);
+    connect(_terminalPage, &TerminalPage::newSessionRequested, this,
+            [this](TransportKind kind) { showSessionDialog(kind); });
+    connect(_sessionPanel, &SessionPanel::editSessionRequested, this,
+            &MainWindow::editSession);
+    connect(_sessionPanel, &SessionPanel::localReconnectRequested, this,
+            [this](TerminalView::LocalShellType type) {
+        _terminalPage->addTerminalTab(tr("Terminal"), type);
+    });
+    connect(_sessionPanel, &SessionPanel::serialReconnectRequested, this,
+            [this](const SerialConfig& config) {
+        _terminalPage->addSerialTerminalTab(config);
+    });
+    connect(_sessionPanel, &SessionPanel::sshReconnectRequested, this,
+            [this](const SshConfig& config) {
+        _terminalPage->addSshTerminalTab(config);
+    });
+    connect(_sessionPanel, &SessionPanel::reconnectUnavailable, this,
+            [this](const QString& message) {
+        QMessageBox::warning(this, tr("Reconnect session"), message);
+    });
 
     // 仅注册终端（会话）页面；导航通过标题栏菜单进行，
     // 因此左侧导航栏保持隐藏。
-    addPageNode(tr("Terminal"), _terminalPage, ElaIconType::Terminal);
+    addPageNode(tr("Terminal"), terminalWorkspace, ElaIconType::Terminal);
 }
 
 void MainWindow::buildMainMenu()
@@ -240,7 +273,8 @@ void MainWindow::buildMainMenu()
 
     // ── 会话：打开会话/连接选择器 ──
     _actSession = _mainMenu->addElaIconAction(ElaIconType::Terminal, tr("Session"));
-    connect(_actSession, &QAction::triggered, this, &MainWindow::showSessionDialog);
+    connect(_actSession, &QAction::triggered, this,
+            [this]() { showSessionDialog(); });
 
     // ── 设置：ElaDialog 内嵌现有 SettingsPage ──
     _actSettings = _mainMenu->addElaIconAction(ElaIconType::GearComplex, tr("Settings"));
@@ -266,6 +300,27 @@ bool MainWindow::processHitTest()
 
 void MainWindow::showSessionDialog()
 {
+    showSessionDialog(TransportKind::LocalShell);
+}
+
+void MainWindow::showSessionDialog(TransportKind initialKind)
+{
+    runSessionDialog(initialKind, std::nullopt, std::nullopt, {});
+}
+
+void MainWindow::editSession(const SessionId& id,
+                             const RuntimeConfig& runtime,
+                             const QByteArray& secret)
+{
+    runSessionDialog(runtime.transportKind, id, runtime, secret);
+}
+
+void MainWindow::runSessionDialog(
+    TransportKind initialKind,
+    const std::optional<SessionId>& editingSessionId,
+    const std::optional<RuntimeConfig>& initialConfig,
+    const QByteArray& secret)
+{
     if (!_sessionDialog) {
         _sessionDialog = new ElaDialog(this);
         _sessionDialog->setWindowTitle(tr("Session"));
@@ -279,15 +334,19 @@ void MainWindow::showSessionDialog()
         // created, so their font and graphics teardown cannot overlap.
         auto* sessionPage = new SessionPage(_sessionDialog);
         sessionPage->setTitleVisible(false);
+        sessionPage->selectTransport(initialKind);
+        if (initialConfig)
+            sessionPage->applyRuntimeConfig(*initialConfig, secret);
 
         connect(sessionPage, &SessionPage::localSessionRequested, this,
-                [this](TerminalView::LocalShellType type) {
+                [this](TerminalView::LocalShellType type,
+                       const QString& label) {
             qDebug() << "localSessionRequested, type ="
                      << (type == TerminalView::LocalShellType::PowerShell ? "PowerShell" : "cmd/Clink");
             // Finish the modal event loop before constructing a QRhiWidget.
             // This avoids re-entering font layout while the top-level window
             // is switching to RHI-backed composition.
-            _pendingLocalSession = type;
+            _pendingLocalSession = LocalSessionParameters{type, label};
             _sessionDialog->accept();
         });
         connect(sessionPage, &SessionPage::serialSessionRequested, this,
@@ -320,17 +379,35 @@ void MainWindow::showSessionDialog()
     _sessionDialog = nullptr;
 
     if (result == QDialog::Accepted && _pendingLocalSession) {
-        const auto type = *_pendingLocalSession;
+        const LocalSessionParameters parameters = *_pendingLocalSession;
         _pendingLocalSession.reset();
-        _terminalPage->addTerminalTab(tr("Terminal"), type);
+        if (editingSessionId) {
+            _sessionPanel->updateLocal(*editingSessionId, parameters.type,
+                                       parameters.label);
+        } else {
+            _sessionPanel->recordLocal(parameters.type, parameters.label);
+            const QString title = parameters.label.isEmpty()
+                ? tr("Terminal") : parameters.label;
+            _terminalPage->addTerminalTab(title, parameters.type);
+        }
     } else if (result == QDialog::Accepted && _pendingSerialSession) {
         const SerialConfig config = *_pendingSerialSession;
         _pendingSerialSession.reset();
-        _terminalPage->addSerialTerminalTab(config);
+        if (editingSessionId)
+            _sessionPanel->updateSerial(*editingSessionId, config);
+        else {
+            _sessionPanel->recordSerial(config);
+            _terminalPage->addSerialTerminalTab(config);
+        }
     } else if (result == QDialog::Accepted && _pendingSshSession) {
         const SshConfig config = *_pendingSshSession;
         _pendingSshSession.reset();
-        _terminalPage->addSshTerminalTab(config);
+        if (editingSessionId)
+            _sessionPanel->updateSsh(*editingSessionId, config);
+        else {
+            _sessionPanel->recordSsh(config);
+            _terminalPage->addSshTerminalTab(config);
+        }
     }
 }
 

@@ -148,7 +148,7 @@ SessionPage::SessionPage(QWidget* parent)
             (_shellTypeCombo->currentText() == QStringLiteral("PowerShell"))
                 ? TerminalView::LocalShellType::PowerShell
                 : TerminalView::LocalShellType::Cmd;
-        emit localSessionRequested(type);
+        emit localSessionRequested(type, _shellLabel->text().trimmed());
     });
 
     addCentralWidget(_centralWidget, true, true, 0);
@@ -161,6 +161,128 @@ SessionPage::SessionPage(QWidget* parent)
 void SessionPage::retranslateUi()
 {
 
+}
+
+void SessionPage::selectTransport(TransportKind kind)
+{
+    int index = 0;
+    switch (kind) {
+    case TransportKind::Ssh:
+        index = 1;
+        break;
+    case TransportKind::Serial:
+        index = 2;
+        break;
+    case TransportKind::Telnet:
+        index = 3;
+        break;
+    case TransportKind::LocalShell:
+    case TransportKind::Custom:
+        break;
+    }
+    _tabWidget->setCurrentIndex(index);
+}
+
+void SessionPage::applyRuntimeConfig(const RuntimeConfig& runtime,
+                                     const QByteArray& secret)
+{
+    selectTransport(runtime.transportKind);
+    const QVariantMap& values = runtime.transport;
+
+    switch (runtime.transportKind) {
+    case TransportKind::LocalShell: {
+        const auto shellType = static_cast<TerminalView::LocalShellType>(
+            values.value(QStringLiteral("shellType")).toInt());
+        _shellTypeCombo->setCurrentIndex(
+            shellType == TerminalView::LocalShellType::PowerShell ? 1 : 0);
+        _shellLabel->setText(values.value(QStringLiteral("label")).toString());
+        break;
+    }
+    case TransportKind::Ssh: {
+        _sshIp->setText(values.value(QStringLiteral("host")).toString());
+        _sshPort->setValue(values.value(QStringLiteral("port"), 22).toInt());
+        _sshUserName->setText(
+            values.value(QStringLiteral("username")).toString());
+        const int authIndex = _sshAuthMethod->findData(
+            values.value(QStringLiteral("authMethod"),
+                         QStringLiteral("password")));
+        _sshAuthMethod->setCurrentIndex(authIndex >= 0 ? authIndex : 0);
+        _sshPassword->clear();
+        _sshKeyPassphrase->clear();
+        if (_sshAuthMethod->currentData().toString()
+            == QStringLiteral("password")) {
+            _sshPassword->setText(QString::fromUtf8(secret));
+        } else {
+            _sshKeyPassphrase->setText(QString::fromUtf8(secret));
+        }
+        _sshPrivateKey->setText(
+            values.value(QStringLiteral("privateKeyPath")).toString());
+        _sshTerminalType->setCurrentText(
+            values.value(QStringLiteral("terminalType"),
+                         QStringLiteral("xterm-256color")).toString());
+        _sshKeepAlive->setValue(
+            values.value(QStringLiteral("keepAliveSeconds"), 30).toInt());
+        _sshLabel->setText(values.value(QStringLiteral("label")).toString());
+        break;
+    }
+    case TransportKind::Serial: {
+        const QString portName =
+            values.value(QStringLiteral("portName")).toString();
+        int portIndex = -1;
+        for (int index = 0; index < _portCombo->count(); ++index) {
+            if (_portCombo->itemText(index)
+                    .section(QLatin1Char(':'), 0, 0).trimmed() == portName) {
+                portIndex = index;
+                break;
+            }
+        }
+        if (portIndex < 0 && !portName.isEmpty()) {
+            _portCombo->addItem(portName);
+            portIndex = _portCombo->count() - 1;
+        }
+        _portCombo->setCurrentIndex(portIndex);
+        _baudRateCombo->setCurrentText(
+            QString::number(values.value(QStringLiteral("baudRate"),
+                                         115200).toInt()));
+        const auto setCurrentData = [](QComboBox* combo, int value) {
+            const int index = combo->findData(value);
+            if (index >= 0)
+                combo->setCurrentIndex(index);
+        };
+        setCurrentData(_dataBitsCombo,
+                       values.value(QStringLiteral("dataBits"),
+                                    QSerialPort::Data8).toInt());
+        setCurrentData(_parityCombo,
+                       values.value(QStringLiteral("parity"),
+                                    QSerialPort::NoParity).toInt());
+        setCurrentData(_stopBitsCombo,
+                       values.value(QStringLiteral("stopBits"),
+                                    QSerialPort::OneStop).toInt());
+        setCurrentData(_flowControlCombo,
+                       values.value(QStringLiteral("flowControl"),
+                                    QSerialPort::NoFlowControl).toInt());
+        _serialLabel->setText(
+            values.value(QStringLiteral("label")).toString());
+        break;
+    }
+    case TransportKind::Telnet:
+        _telnetIp->setText(values.value(QStringLiteral("host")).toString());
+        _telnetPort->setValue(values.value(QStringLiteral("port"), 23).toInt());
+        _telnetTerminalType->setCurrentText(
+            values.value(QStringLiteral("terminalType"),
+                         QStringLiteral("xterm-256color")).toString());
+        _telnetNaws->setChecked(
+            values.value(QStringLiteral("naws"), true).toBool());
+        _telnetBinaryMode->setChecked(
+            values.value(QStringLiteral("binaryMode"), false).toBool());
+        _telnetKeepAlive->setValue(
+            values.value(QStringLiteral("keepAliveSeconds"), 0).toInt());
+        _telnetLabel->setText(
+            values.value(QStringLiteral("label")).toString());
+        break;
+    case TransportKind::Custom:
+        break;
+    }
 }
 
 
@@ -346,6 +468,10 @@ void SessionPage::initSerialUi()
                 selectedIndex = index;
                 break;
             }
+        }
+        if (selectedIndex < 0 && !selectedPort.trimmed().isEmpty()) {
+            _portCombo->addItem(selectedPort.trimmed());
+            selectedIndex = _portCombo->count() - 1;
         }
         _portCombo->setCurrentIndex(selectedIndex);
     };

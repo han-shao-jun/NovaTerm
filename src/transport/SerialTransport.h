@@ -21,6 +21,11 @@ public:
     [[nodiscard]] bool isConnected() const override;
     [[nodiscard]] QString errorString() const override;
     bool setReadPaused(bool paused) override;
+    [[nodiscard]] TransportCapabilities capabilities() const override
+    {
+        return TransportCapability::PauseReads
+            | TransportCapability::Reconnect;
+    }
 
     [[nodiscard]] const SerialConfig& config() const noexcept { return _config; }
 

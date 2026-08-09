@@ -57,6 +57,12 @@ public:
     }
     QString errorString() const override;
     bool setReadPaused(bool paused) override;
+    [[nodiscard]] TransportCapabilities capabilities() const override
+    {
+        return TransportCapability::PauseReads
+            | TransportCapability::ResizeTerminal
+            | TransportCapability::Reconnect;
+    }
 
 signals:
     void lifecycleStateChanged(LocalShellTransport::LifecycleState state);

@@ -42,6 +42,13 @@ public:
     [[nodiscard]] bool isConnected() const override;
     [[nodiscard]] QString errorString() const override;
     bool setReadPaused(bool paused) override;
+    [[nodiscard]] TransportCapabilities capabilities() const override
+    {
+        return TransportCapability::PauseReads
+            | TransportCapability::ResizeTerminal
+            | TransportCapability::KeepAlive
+            | TransportCapability::Reconnect;
+    }
 
     // 主机密钥验证决策（GUI 线程调用，唤醒工作线程中被阻塞的等待）。
     void acceptHostKey();

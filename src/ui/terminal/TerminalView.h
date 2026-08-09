@@ -1,6 +1,7 @@
 #pragma once
 #include <QWidget>
 #include <QEvent>
+#include <QPointer>
 #include "core/search/SearchEngine.h"
 #include "session/LocalShellProfile.h"
 
@@ -35,6 +36,7 @@ public:
     enum class LocalShellType { Cmd, PowerShell };
 
     explicit TerminalView(QWidget* parent = nullptr);
+    explicit TerminalView(TerminalSession* session, QWidget* parent = nullptr);
     ~TerminalView() override;
 
     // ── 本地终端：通过 LocalShellTransport 驱动真实 shell ──
@@ -47,6 +49,8 @@ public:
     void attachTransport(ITransport* transport);
     void detachTransport();
     ITransport* transport() const;
+    TerminalSession* session() const;
+    [[nodiscard]] bool ownsSession() const noexcept { return _ownsSession; }
 
     // ── 渲染器访问（替代原来的 terminalWidget()）─────────────
     TerminalRenderer* renderer() const { return _renderer; }
@@ -65,10 +69,11 @@ private:
 
     TerminalCore*     _core{nullptr};
     TerminalRenderer* _renderer{nullptr};
-    TerminalSession*  _session{nullptr};
+    QPointer<TerminalSession> _session;
     ITransport*       _localTransport{nullptr};
     ITransport*       _displayTransport{nullptr};
     bool              _isLocalShell{false};
+    bool              _ownsSession{true};
 
     // PTY 尺寸变更去抖定时器：拖动窗口时密集的 resize 事件合并为一次
     // SIGWINCH，避免 shell 被连续重绘请求轰击产生输出风暴。

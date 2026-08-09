@@ -310,7 +310,10 @@ bool LocalShellTransport::setReadPaused(bool paused)
 void LocalShellTransport::write(const QByteArray& data)
 {
     if (_masterFd != -1) {
-        ::write(_masterFd, data.constData(), static_cast<size_t>(data.size()));
+        const auto written = ::write(
+            _masterFd, data.constData(), static_cast<size_t>(data.size()));
+        if (written > 0)
+            emit bytesWritten(written);
     }
 }
 
@@ -483,6 +486,8 @@ void LocalShellTransport::write(const QByteArray& data)
     if (!_windowsSession->tryEnqueueInput(data)) {
         _errorString = QStringLiteral("ConPTY input queue capacity exceeded or closed");
         emit errorOccurred(_errorString);
+    } else {
+        emit bytesWritten(data.size());
     }
 }
 

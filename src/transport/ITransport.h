@@ -1,6 +1,44 @@
 #pragma once
-#include <QObject>
+
 #include <QByteArray>
+#include <QFlags>
+#include <QMetaType>
+#include <QObject>
+#include <QString>
+
+enum class TransportCapability : quint32
+{
+    None = 0,
+    PauseReads = 1U << 0,
+    ResizeTerminal = 1U << 1,
+    KeepAlive = 1U << 2,
+    Reconnect = 1U << 3,
+};
+Q_DECLARE_FLAGS(TransportCapabilities, TransportCapability)
+Q_DECLARE_OPERATORS_FOR_FLAGS(TransportCapabilities)
+
+enum class TransportErrorCategory
+{
+    Configuration,
+    Resolve,
+    Connection,
+    Authentication,
+    HostKey,
+    Permission,
+    Protocol,
+    Io,
+    Overload,
+    Unknown,
+};
+
+struct TransportError
+{
+    TransportErrorCategory category{TransportErrorCategory::Unknown};
+    int code{0};
+    QString message;
+    bool retryable{false};
+};
+Q_DECLARE_METATYPE(TransportError)
 
 enum class TransportExitReason
 {
@@ -13,11 +51,8 @@ enum class TransportExitReason
 };
 Q_DECLARE_METATYPE(TransportExitReason)
 
-// ITransport — 抽象传输接口，统一本地和远程数据通路。
-//   • LocalShellTransport : 本地 PTY（Unix: posix_openpt + fork, Windows: ConPTY）
-//   • SSH / Serial / Telnet : 远程协议实现
-// 所有实现均通过 ITransport 向 TerminalView 提供字节流，
-// 不再区分"本地走 KPty / 远程走 transport"两条路径。
+// Byte-only asynchronous transport contract. Implementations must not depend
+// on terminal cells, renderers, widgets, or serialized profiles.
 class ITransport : public QObject
 {
     Q_OBJECT
@@ -25,23 +60,30 @@ public:
     explicit ITransport(QObject* parent = nullptr) : QObject(parent) {}
     ~ITransport() override = default;
 
-    virtual bool connectToHost() = 0;            // 开始连接；完成后发射 connected() / errorOccurred()
-    virtual void disconnect() = 0;               // 断开链路；发射 disconnected()
-    virtual void write(const QByteArray& data) = 0;   // 向对端发送原始字节（终端按键）
-    virtual void resizeTerminal(int cols, int rows) = 0; // 转发窗口尺寸变更（如 SSH PTY 大小调整）
-    virtual bool isConnected() const = 0;
-    virtual bool hasPendingDisconnect() const { return false; }
+    virtual bool connectToHost() = 0;
+    virtual bool connectAsync() { return connectToHost(); }
+    virtual void disconnect() = 0;
+    virtual void write(const QByteArray& data) = 0;
+    virtual void resizeTerminal(int columns, int rows) = 0;
+    [[nodiscard]] virtual bool isConnected() const = 0;
+    [[nodiscard]] virtual bool hasPendingDisconnect() const { return false; }
     virtual bool setReadPaused(bool paused)
     {
         Q_UNUSED(paused);
         return false;
     }
-    virtual QString errorString() const = 0;     // 最近一次错误信息，供 UI 显示
+    [[nodiscard]] virtual TransportCapabilities capabilities() const
+    {
+        return TransportCapability::None;
+    }
+    [[nodiscard]] virtual QString errorString() const = 0;
 
 signals:
     void connected();
     void disconnected();
-    void readyRead(const QByteArray& data);      // 对端数据到达 → 送入终端显示
+    void readyRead(const QByteArray& data);
+    void bytesWritten(qint64 bytes);
     void errorOccurred(const QString& error);
+    void transportError(const TransportError& error);
     void exited(quint32 exitCode, TransportExitReason reason);
 };

@@ -5,6 +5,8 @@
 #include <ElaTabWidget.h>
 #include <QWidget>
 
+class QAction;
+class ElaIconButton;
 
 // 承载终端的导航页面。中心直接就是一个铺满的 ElaTabWidget（不经过
 // ElaScrollPage 的滚动包装），用于管理多个终端标签页，每个标签页内含
@@ -28,9 +30,20 @@ public:
     TerminalView* addSerialTerminalTab(const SerialConfig& config);
     TerminalView* addSshTerminalTab(const SshConfig& config);
 
+signals:
+    void newSessionRequested(TransportKind kind);
+    void localSessionConnected(TerminalView::LocalShellType type);
+    void serialSessionConnected(const SerialConfig& config);
+    void sshSessionConnected(const SshConfig& config);
+
 private:
     void retranslateUi();
 
     ElaTabWidget* _tabWidget{nullptr};
+    ElaIconButton* _newSessionButton{nullptr};
+    QAction* _sshAction{nullptr};
+    QAction* _serialAction{nullptr};
+    QAction* _telnetAction{nullptr};
+    QAction* _localAction{nullptr};
     QList<TerminalView*> _terminalViews;
 };

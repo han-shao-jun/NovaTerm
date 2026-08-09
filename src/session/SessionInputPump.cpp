@@ -46,6 +46,7 @@ void SessionInputPump::acceptBytes(const QByteArray& data)
     if (!_running || !_transport || !_core || data.isEmpty())
         return;
 
+    _statistics.receivedBytes += static_cast<quint64>(data.size());
     if (!_pending.isEmpty()) {
         const qsizetype available = MaxPendingBytes - _pending.size();
         if (data.size() > available) {
@@ -53,23 +54,34 @@ void SessionInputPump::acceptBytes(const QByteArray& data)
             return;
         }
         _pending.append(data);
+        _statistics.pendingBytes = _pending.size();
         if (!_transport->setReadPaused(true))
             reportOverload(QStringLiteral("transport cannot pause reads"));
         return;
     }
 
-    const auto result = _core->writeInput(data);
-    if (result.fullyAccepted())
-        return;
+    qsizetype offset = 0;
+    while (offset < data.size()) {
+        const qsizetype chunkSize = qMin(InputChunkBytes, data.size() - offset);
+        const auto result = _core->writeInput(
+            QByteArrayView(data.constData() + offset, chunkSize));
+        offset += result.acceptedBytes;
+        _statistics.acceptedBytes += static_cast<quint64>(result.acceptedBytes);
+        if (result.fullyAccepted())
+            continue;
 
-    const qsizetype suffixSize = data.size() - result.acceptedBytes;
-    if (suffixSize > MaxPendingBytes) {
-        reportOverload(QStringLiteral("session input pending limit exceeded"));
+        const qsizetype suffixSize = data.size() - offset;
+        if (suffixSize > MaxPendingBytes) {
+            reportOverload(QStringLiteral("session input pending limit exceeded"));
+            return;
+        }
+        _pending.append(data.constData() + offset, suffixSize);
+        _statistics.pendingBytes = _pending.size();
+        ++_statistics.pauseCount;
+        if (!_transport->setReadPaused(true))
+            reportOverload(QStringLiteral("transport cannot pause reads"));
         return;
     }
-    _pending.append(data.constData() + result.acceptedBytes, suffixSize);
-    if (!_transport->setReadPaused(true))
-        reportOverload(QStringLiteral("transport cannot pause reads"));
 }
 
 void SessionInputPump::handleBackpressure(bool paused)
@@ -87,9 +99,13 @@ void SessionInputPump::handleBackpressure(bool paused)
 void SessionInputPump::drainPending()
 {
     while (_running && _transport && _core && !_pending.isEmpty()) {
-        const auto result = _core->writeInput(_pending);
+        const qsizetype chunkSize = qMin(InputChunkBytes, _pending.size());
+        const auto result = _core->writeInput(
+            QByteArrayView(_pending.constData(), chunkSize));
         if (result.acceptedBytes > 0)
             _pending.remove(0, result.acceptedBytes);
+        _statistics.acceptedBytes += static_cast<quint64>(result.acceptedBytes);
+        _statistics.pendingBytes = _pending.size();
         if (!result.fullyAccepted()) {
             _transport->setReadPaused(true);
             return;
@@ -101,8 +117,17 @@ void SessionInputPump::drainPending()
 
 void SessionInputPump::reportOverload(const QString& reason)
 {
+    ++_statistics.overloadCount;
     if (_transport)
         _transport->setReadPaused(true);
     if (_core)
         emit _core->inputOverload(reason);
+    emit overload(reason);
+}
+
+SessionInputPump::Statistics SessionInputPump::statistics() const
+{
+    auto result = _statistics;
+    result.pendingBytes = _pending.size();
+    return result;
 }

@@ -1,8 +1,86 @@
 #pragma once
 
 #include <QMetaType>
+#include <QDateTime>
 #include <QSerialPort>
 #include <QString>
+#include <QVariantMap>
+#include <QUuid>
+
+using SessionId = QUuid;
+
+enum class SessionState {
+    Created,
+    Connecting,
+    Running,
+    Reconnecting,
+    Failed,
+    Closing,
+    Closed,
+};
+Q_DECLARE_METATYPE(SessionState)
+
+enum class SessionErrorCategory {
+    None,
+    Configuration,
+    Connection,
+    Authentication,
+    HostKey,
+    Permission,
+    Protocol,
+    InputOverload,
+    Io,
+    Internal,
+};
+
+struct SessionError
+{
+    SessionErrorCategory category{SessionErrorCategory::None};
+    int code{0};
+    QString message;
+    bool retryable{false};
+};
+Q_DECLARE_METATYPE(SessionError)
+
+enum class CloseMode { Graceful, Abort };
+Q_DECLARE_METATYPE(CloseMode)
+
+enum class TransportKind { LocalShell, Ssh, Serial, Telnet, Custom };
+Q_DECLARE_METATYPE(TransportKind)
+
+struct RuntimeConfig
+{
+    static constexpr int CurrentSchemaVersion = 1;
+
+    int schemaVersion{CurrentSchemaVersion};
+    QString profileId;
+    QString credentialRef;
+    QString title;
+    TransportKind transportKind{TransportKind::LocalShell};
+    QVariantMap transport;
+    QVariantMap presentationDefaults;
+};
+Q_DECLARE_METATYPE(RuntimeConfig)
+
+struct SessionStatistics
+{
+    quint64 bytesReceived{0};
+    quint64 bytesSent{0};
+    quint64 reconnectCount{0};
+    quint64 generation{0};
+    QDateTime createdAt{QDateTime::currentDateTimeUtc()};
+    QDateTime connectedAt;
+};
+
+struct SessionRestoreMetadata
+{
+    SessionId sessionId;
+    QString profileId;
+    QVariantMap overrides;
+    RuntimeConfig runtimeSnapshot;
+    bool reconnectOnRestore{true};
+};
+Q_DECLARE_METATYPE(SessionRestoreMetadata)
 
 // Immutable creation snapshot for a serial session. UI/Profile code produces
 // this value; the transport consumes it without reading widgets or JSON.

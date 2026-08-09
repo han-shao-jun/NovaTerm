@@ -5,10 +5,12 @@
 #include <ElaIconButton.h>
 #include <ElaMenu.h>
 #include <ElaToolTip.h>
+#include <QByteArray>
 #include <optional>
 #include "session/SessionTypes.h"
 
 class ElaDialog;
+class SessionPanel;
 
 // 无边框主窗口（ElaWindow）。左侧导航栏已禁用；标题栏仅显示应用
 // Logo 和一个菜单按钮，其弹出菜单可导航至 会话 / 设置 / 关于。
@@ -40,14 +42,28 @@ private:
 
     // 主页面
     TerminalPage* _terminalPage{nullptr};
+    SessionPanel* _sessionPanel{nullptr};
 
     // ── 会话选择器（ElaDialog）──
     // Active selector only; recreated after each accept/reject.
+    struct LocalSessionParameters
+    {
+        TerminalView::LocalShellType type{TerminalView::LocalShellType::Cmd};
+        QString label;
+    };
+
     ElaDialog* _sessionDialog{nullptr};
-    std::optional<TerminalView::LocalShellType> _pendingLocalSession;
+    std::optional<LocalSessionParameters> _pendingLocalSession;
     std::optional<SerialConfig> _pendingSerialSession;
     std::optional<SshConfig> _pendingSshSession;
     void showSessionDialog();
+    void showSessionDialog(TransportKind initialKind);
+    void editSession(const SessionId& id, const RuntimeConfig& runtime,
+                     const QByteArray& secret);
+    void runSessionDialog(TransportKind initialKind,
+                          const std::optional<SessionId>& editingSessionId,
+                          const std::optional<RuntimeConfig>& initialConfig,
+                          const QByteArray& secret);
 
     // ── 设置（模态 ElaDialog，内嵌现有 SettingsPage）──
     void showSettingsDialog();
