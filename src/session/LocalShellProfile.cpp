@@ -98,10 +98,14 @@ LocalShellProfile platformDefault(const QString& applicationDirectory)
 #ifdef Q_OS_WIN
     return commandPrompt(applicationDirectory);
 #else
+    Q_UNUSED(applicationDirectory);
     QString executable = QString::fromLocal8Bit(qgetenv("SHELL"));
     if (executable.isEmpty())
         executable = QStringLiteral("/bin/bash");
-    return profile(QStringLiteral("Default Shell"), executable);
+    auto result = profile(QStringLiteral("Default Shell"), executable);
+    result.environment.insert(QStringLiteral("TERM"),
+                              QStringLiteral("xterm-256color"));
+    return result;
 #endif
 }
 

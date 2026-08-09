@@ -3,11 +3,13 @@
 #include "session/LocalShellProfile.h"
 #include <QStringList>
 #include <QPointer>
+#include <atomic>
 #include <memory>
 #include <mutex>
 
 class QThread;
 namespace NovaTerm::Windows { class ConPtySession; }
+namespace NovaTerm::Linux { class PtySession; }
 
 // LocalShellTransport — ITransport 实现，封装本地 PTY shell 进程。
 //
@@ -80,15 +82,12 @@ private:
 
     void setLifecycleState(LifecycleState state);
 
-    // ── Unix 路径 ─────────────────────────────────
+    // ── Linux 路径 ────────────────────────────────
 #ifndef _WIN32
-    int _masterFd{-1};
-    pid_t _childPid{-1};
-    class QSocketNotifier* _notifier{nullptr};
-    class QTimer* _exitTimer{nullptr};
+    QPointer<NovaTerm::Linux::PtySession> _linuxSession;
+    quint64 _linuxGeneration{0};
     int _cols{80};
     int _rows{24};
-    void checkChildExit();
 
     // ── Windows 路径 (ConPTY) ─────────────────────
 #else

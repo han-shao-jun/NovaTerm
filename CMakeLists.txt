@@ -137,6 +137,11 @@ target_link_libraries(novaterm_core
 
 file(GLOB_RECURSE SOURCES CONFIGURE_DEPENDS "src/*.cpp" "src/*.h")
 list(FILTER SOURCES EXCLUDE REGEX "[/\\\\]src[/\\\\]core[/\\\\]")
+if(WIN32)
+    list(FILTER SOURCES EXCLUDE REGEX "[/\\\\]src[/\\\\]platform[/\\\\]linux[/\\\\]")
+else()
+    list(FILTER SOURCES EXCLUDE REGEX "[/\\\\]src[/\\\\]platform[/\\\\]windows[/\\\\]")
+endif()
 
 add_executable(NovaTerm ${SOURCES} ${CMAKE_SOURCE_DIR}/resources/resources.qrc)
 
@@ -177,7 +182,7 @@ if(WIN32)
 endif()
 
 if (CMAKE_HOST_SYSTEM_NAME STREQUAL "Linux")
-    target_link_libraries(NovaTerm PRIVATE udev)
+    target_link_libraries(NovaTerm PRIVATE udev util)
 endif()
 
 
@@ -535,6 +540,35 @@ if(BUILD_TESTING)
         TIMEOUT 60
     )
     add_dependencies(check novaterm_renderer_p5_tests)
+
+    if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+        qt_add_executable(novaterm_pty_tests
+            tests/transport/PtyTransportTests.cpp
+            src/transport/ITransport.h
+            src/transport/LocalShellTransport.cpp
+            src/transport/LocalShellTransport.h
+            src/session/LocalShellProfile.cpp
+            src/session/LocalShellProfile.h
+            src/platform/linux/pty/PtySession.cpp
+            src/platform/linux/pty/PtySession.h
+        )
+        target_include_directories(novaterm_pty_tests PRIVATE src)
+        target_compile_options(novaterm_pty_tests
+            PRIVATE -Wall -Wextra -Wpedantic
+        )
+        target_link_libraries(novaterm_pty_tests
+            PRIVATE
+                Qt${QT_VERSION_MAJOR}::Core
+                Qt${QT_VERSION_MAJOR}::Test
+                util
+        )
+        add_test(NAME novaterm_pty_tests COMMAND novaterm_pty_tests)
+        set_tests_properties(novaterm_pty_tests PROPERTIES
+            LABELS "integration;pty;linux"
+            TIMEOUT 30
+        )
+        add_dependencies(check novaterm_pty_tests)
+    endif()
 
     if(WIN32)
         qt_add_executable(novaterm_conpty_test_child
