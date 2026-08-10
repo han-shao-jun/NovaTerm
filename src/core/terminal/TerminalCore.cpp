@@ -1,3 +1,15 @@
+/**
+ * @file   TerminalCore.cpp
+ * @brief  终端核心 Qt facade 实现。
+ *
+ * 详见 TerminalCore.h 的接口说明。本文件实现：
+ * - Runtime 内部类：持有 BoundedByteQueue、命令队列、模型互斥量、工作线程；
+ *   以原子量记录字节/命令的提交与完成计数，实现 waitForIdle。
+ * - 输入事件 → ParserCommand 转换并排队（通过 byteBarrier 与字节流保序）
+ * - 模型查询：snapshot / rendererSnapshot 等（持 modelMutex）
+ * - 信号合并发布：在两次模型锁释放间累积 damage、cursorChanged 等，
+ *   一次性通过 QueuedConnection 投递到 GUI 线程
+ */
 #include "TerminalCore.h"
 
 #include "KeyMapper.h"
@@ -22,11 +34,17 @@
 
 namespace {
 
+// 解析队列总容量：8 MiB，足够吸收一次大批量 paste/cat 输出。
 constexpr qsizetype QueueCapacity = 8 * 1024 * 1024;
+// 每次喂给 libvterm 的最大字节数；过大会延长单次模型锁持有时间。
 constexpr qsizetype ParserBatchSize = 64 * 1024;
+// 高水位：队列填充至此触发背压，建议上游停止投递。
 constexpr qsizetype QueueHighWatermark = QueueCapacity * 3 / 4;
+// 低水位：队列消费至此解除背压。
 constexpr qsizetype QueueLowWatermark = QueueCapacity / 2;
+// 命令队列最大条目数，防止 GUI 线程失控时无限堆积。
 constexpr size_t MaximumPendingCommands = 4096;
+// 命令队列预估占用上限，与 QueueCapacity 对齐。
 constexpr qsizetype MaximumPendingCommandBytes = 8 * 1024 * 1024;
 
 enum class CommandType
@@ -44,6 +62,9 @@ enum class CommandType
     Flush
 };
 
+// GUI 线程产生的待执行命令。所有输入事件（键盘、鼠标、resize、paste 等）
+// 都先被打包成 ParserCommand 入队，再由 worker 线程串行消费，避免对
+// libvterm 的并发访问。
 struct ParserCommand
 {
     CommandType type{CommandType::Flush};
@@ -54,9 +75,15 @@ struct ParserCommand
     QString text;
     NovaTerm::TerminalColor foreground;
     NovaTerm::TerminalColor background;
+    // 该命令入队时的 submittedBytes 快照。worker 线程据此判断：只有当
+    // 已完成字节数 >= byteBarrier 时才能执行本命令，从而保证命令与
+    // 字节流之间的相对顺序（命令"看到"它之前写入的所有解析结果）。
     uint64_t byteBarrier{0};
 };
 
+// 计算一行 Cell 内容的 64 位身份哈希（FNV-1a 64-bit 变体）。
+// 渲染层用此哈希快速判断行内容是否变化，避免对未变行重做字形装配。
+// 仅用作"是否相同"的判定，不保证无碰撞；冲突时最坏退化为一次多余的渲染。
 quint64 rowContentIdentity(const NovaTerm::Cell* cells, int columns)
 {
     quint64 hash = 1469598103934665603ull;
@@ -158,11 +185,16 @@ public:
         QMutexLocker locker(&commandMutex);
         if (!accepting.load(std::memory_order_acquire))
             return false;
+        // 记录入队时刻的已提交字节计数。worker 线程消费时据此等待：
+        // 仅当 completedBytes >= byteBarrier 时才执行本命令，从而保证
+        // 命令在它之前提交的字节流之后被处理。
         command.byteBarrier = submittedBytes.load(std::memory_order_acquire);
         const qsizetype commandBytes =
             qsizetype(sizeof(ParserCommand))
             + command.text.size() * qsizetype(sizeof(QChar));
 
+        // 同类型状态命令在队尾合并：只保留最新值，避免连续 resize 或
+        // flush 命令在队列中堆积。键盘/鼠标命令不合并（顺序敏感）。
         if ((command.type == CommandType::Resize
              || command.type == CommandType::DefaultColors
              || command.type == CommandType::SetScrollbackLimit
@@ -211,6 +243,10 @@ public:
         return true;
     }
 
+    // worker 线程主循环：libvterm 解析与命令执行均在此串行进行。
+    // 每轮先消费已就绪命令（受 byteBarrier 约束），再取一批字节喂给
+    // libvterm。模型锁（modelMutex）只在访问 ScreenBuffer/VTAdapter 时
+    // 短暂持有，信号发布则脱离锁通过 QueuedConnection 投递到 GUI 线程。
     void workerMain()
     {
         createAdapter();
@@ -278,9 +314,9 @@ public:
             }
         };
         observer.damage = [this](const NovaTerm::DirtyRegion& region) {
-            // Preserve sparse regions until RenderScheduler can merge them.
-            // A single bounding box makes distant cell changes look like a
-            // near-full-screen update.
+            // 保留稀疏的多个独立区域，待 RenderScheduler 合并。
+            // 若直接合并成单一包围盒，相距较远的 Cell 改动会被放大为
+            // 近乎全屏的更新。
             pendingDamage.push_back(region);
         };
         observer.cursorChanged = [this](const NovaTerm::CursorState& value) {
@@ -307,6 +343,10 @@ public:
             std::move(observer));
     }
 
+    // 从命令队列取出可执行命令并执行。可执行的判定条件是
+    // byteBarrier <= completedBytes，即命令所等待的字节已全部解析完成。
+    // 取出后先在 modelMutex 保护下逐条执行，再统一提交一次模型 revision
+    // 并发布累积的信号，避免每条命令都触发一次跨线程投递。
     uint64_t processCommands()
     {
         std::deque<ParserCommand> local;
@@ -378,6 +418,10 @@ public:
         }
     }
 
+    // 将一次 modelMutex 释放区间内累积的所有信号一次性发布到 GUI 线程。
+    // 通过 swap + std::exchange 把待发数据快速取出后即释放锁外投递，
+    // 减少 QueuedConnection 的调用次数，避免高频 damage 导致 GUI 线程
+    // 信号队列爆掉。
     void publishPendingSignals()
     {
         QVector<NovaTerm::DirtyRegion> damageValue;
@@ -427,9 +471,9 @@ public:
 
     void commitPendingModelRevision()
     {
-        // Called with modelMutex held, after an adapter/command batch has
-        // finished. A single revision therefore describes one stable model
-        // publication and every damage region emitted for that publication.
+        // 调用方须持有 modelMutex，且在一次 adapter/command 批次结束后调用。
+        // 因此一次 revision 描述一次稳定的模型发布，并对应于该发布期间
+        // 发出的所有 damage 区域。
         if (pendingDamage.isEmpty() && !cursorChanged && !scrollbackChanged)
             return;
         pendingRevision = ++modelRevision;
@@ -523,9 +567,8 @@ void TerminalCore::processKeyPress(QKeyEvent* event)
             ParserCommand command;
             command.type = CommandType::KeyboardCharacter;
             command.codepoint = controlCodepoint;
-            // The codepoint is already controlled. Retain Alt/Shift so
-            // libvterm can add their terminal semantics, but do not apply Ctrl
-            // a second time.
+            // codepoint 已施加 Ctrl。保留 Alt/Shift 让 libvterm 应用其语义，
+            // 但不再二次施加 Ctrl。
             command.first = modifiers & ~int(VTERM_MOD_CTRL);
             _runtime->enqueueCommand(std::move(command));
             return;
@@ -602,6 +645,8 @@ void TerminalCore::processWheel(QWheelEvent* event)
     const int button = event->angleDelta().y() > 0 ? 4 : 5;
     const int modifiers =
         int(KeyMapper::qtModToVTermMod(event->modifiers()));
+    // 鼠标滚轮在终端协议中等价于一次"按下+释放"的鼠标按键（按键 4=上滚，
+    // 按键 5=下滚），因此对一次 wheel 事件成对投递两条命令。
     for (const bool pressed : {true, false}) {
         ParserCommand command;
         command.type = CommandType::MouseButton;
@@ -692,12 +737,17 @@ NovaTerm::RendererSnapshot TerminalCore::rendererSnapshot(
     snapshot.visibleRowIdentities.resize(snapshot.rows);
     snapshot.visibleRows.resize(snapshot.rows);
 
+    // dirtyRows 与当前行数不一致时（窗口刚 resize 过），无法按位判断
+    // 脏行，只能强制全量拷贝所有行。
     const bool copyAllRows = dirtyRows.size() != snapshot.rows;
     NovaTerm::ScrollbackSnapshot history;
     NovaTerm::ViewportSnapshot historyViewport;
     if (scrollLine > 0) {
         history = _runtime->scrollback.snapshot();
     }
+    // 滚动回看时按 anchorLine+anchorWrap 或末尾行 + scrollLine 计算视口。
+    // LineLayout::viewport 负责把逻辑行按当前列宽重新折行，输出
+    // 每个可见 widget 行对应的逻辑行 ID 及 Cell 切片范围。
     if (!history.empty()) {
         const NovaTerm::LogicalLine* anchor = anchorLine != 0
             ? history.lineById(anchorLine)
@@ -710,12 +760,15 @@ NovaTerm::RendererSnapshot TerminalCore::rendererSnapshot(
                 history.version());
         }
     }
+    // widgetRow 是渲染器视角下的行号；screenRow 是它在活动屏幕中的位置。
+    // screenRow < 0 表示该行落在 scrollback 中，需要从 historyViewport 取。
     for (int widgetRow = 0; widgetRow < snapshot.rows; ++widgetRow) {
         const int screenRow = widgetRow - scrollLine;
         snapshot.visibleRowRevisions[widgetRow] = screenRow >= 0
             && screenRow < _runtime->rowRevisions.size()
             ? _runtime->rowRevisions[screenRow]
             : _runtime->modelRevision;
+        // 渲染器声明该行未脏：只回填身份哈希，跳过 Cell 拷贝。
         if (!copyAllRows && !dirtyRows[widgetRow]) {
             if (screenRow >= 0)
                 snapshot.visibleRowIdentities[widgetRow] =
@@ -726,6 +779,7 @@ NovaTerm::RendererSnapshot TerminalCore::rendererSnapshot(
         }
         QVector<NovaTerm::Cell> destination;
         destination.resize(snapshot.columns);
+        // 该行位于 scrollback 视口：从对应的逻辑行切片拷贝。
         if (screenRow < 0) {
             if (widgetRow < historyViewport.rows.size()) {
                 const auto& display = historyViewport.rows[widgetRow];
@@ -742,6 +796,7 @@ NovaTerm::RendererSnapshot TerminalCore::rendererSnapshot(
                     std::move(destination));
             continue;
         }
+        // 该行位于活动屏幕：直接整行拷贝。
         const NovaTerm::Cell* source = _runtime->screen.cellAt(screenRow, 0);
         if (source)
             std::copy_n(source, snapshot.columns, destination.begin());

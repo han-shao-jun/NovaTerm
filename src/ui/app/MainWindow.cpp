@@ -1,3 +1,10 @@
+/**
+ * @file   MainWindow.cpp
+ * @brief  主窗口实现：菜单构建、会话对话框与语言切换。
+ *
+ * 构建标题栏图标菜单，连接 TerminalPage 的会话请求信号弹出 SessionPage
+ * 对话框。changeEvent 处理 LanguageChange 时调用 retranslateUi() 刷新菜单文本。
+ */
 #include "MainWindow.h"
 #include "ElaDialog.h"
 #include "ElaIconButton.h"
@@ -329,9 +336,8 @@ void MainWindow::runSessionDialog(
         _sessionDialog->setWindowButtonFlags(ElaAppBarType::CloseButtonHint);
         _sessionDialog->setAppBarHeight(30);
 
-        // SessionPage belongs to this dialog invocation. The dialog is
-        // destroyed after exec() returns and before a terminal/RHI widget is
-        // created, so their font and graphics teardown cannot overlap.
+        // SessionPage 属于本次对话框调用。对话框在 exec() 返回后、终端/RHI
+        // 控件创建前销毁，二者的字体与图形资源清理不会重叠。
         auto* sessionPage = new SessionPage(_sessionDialog);
         sessionPage->setTitleVisible(false);
         sessionPage->selectTransport(initialKind);
@@ -343,9 +349,8 @@ void MainWindow::runSessionDialog(
                        const QString& label) {
             qDebug() << "localSessionRequested, type ="
                      << (type == TerminalView::LocalShellType::PowerShell ? "PowerShell" : "cmd/Clink");
-            // Finish the modal event loop before constructing a QRhiWidget.
-            // This avoids re-entering font layout while the top-level window
-            // is switching to RHI-backed composition.
+            // 在构造 QRhiWidget 前结束模态事件循环，避免顶层窗口切换到
+            // RHI 合成时重入字体布局。
             _pendingLocalSession = LocalSessionParameters{type, label};
             _sessionDialog->accept();
         });
@@ -371,10 +376,9 @@ void MainWindow::runSessionDialog(
     _pendingSerialSession.reset();
     _pendingSshSession.reset();
     const int result = _sessionDialog->exec();
-    // ElaDialog and its custom controls are not reliable when reused after
-    // accept(): a later QDialog::exec() can encounter stale entries while Qt
-    // recursively searches for the default button. Tear down the fully hidden
-    // dialog synchronously, before starting terminal/RHI initialization.
+    // ElaDialog 及其自定义控件在 accept() 后复用不可靠：后续 QDialog::exec()
+    // 在递归查找默认按钮时可能遇到残留项。在终端/RHI 初始化前同步销毁已隐藏
+    // 的对话框。
     delete _sessionDialog;
     _sessionDialog = nullptr;
 

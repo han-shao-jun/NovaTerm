@@ -1,3 +1,12 @@
+/**
+ * @file   ConPtyApi.cpp
+ * @brief  ConPTY API 动态解析与错误描述实现。
+ *
+ * resolve() 通过 GetModuleHandleW("kernel32.dll") + GetProcAddress 查找
+ * CreatePseudoConsole/ResizePseudoConsole/ClosePseudoConsole 三个函数指针，
+ * 用 QMutex 保护，原子发布完整解析集。windowsErrorMessage 通过 FormatMessageW
+ * 取系统本地化描述。
+ */
 #include "ConPtyApi.h"
 
 #include <QMutex>
@@ -58,8 +67,8 @@ bool ConPtyApi::resolve(QString* error)
         return false;
     }
 
-    // Publish only a complete resolver set. A partial lookup never changes
-    // global state, so a later retry cannot observe a contaminated cache.
+    // 仅在三个函数指针全部就绪后才发布，部分查找绝不污染全局缓存，
+    // 保证后续重试不会观察到被污染的中间状态。
     createFunction = candidateCreate;
     resizeFunction = candidateResize;
     closeFunction = candidateClose;

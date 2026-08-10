@@ -1,3 +1,11 @@
+/**
+ * @file   TerminalSession.cpp
+ * @brief  终端会话实现：状态机、传输信号路由与输入泵管理。
+ *
+ * attach() 建立 Transport 信号 → 会话状态迁移的路由；disconnected 处理
+ * 需用 generation 区分迟到的旧世代信号。transition() 经 isLegalTransition()
+ * 校验，非法迁移告警并拒绝。
+ */
 #include "TerminalSession.h"
 
 #include "SessionInputPump.h"
@@ -121,8 +129,8 @@ void TerminalSession::attach(ITransport* transport, Ownership ownership)
         transport, &ITransport::disconnected, this, [this, transport] {
             if (_transport != transport)
                 return;
-            // A transport may deliver the previous generation's queued
-            // disconnect after reconnect has already succeeded.
+            // 传输层可能投递上一世代的排队 disconnect 信号——此时重连已成功，
+            // 需忽略这条迟到的旧信号，避免误判为新断开。
             if (_state != SessionState::Closing && transport->isConnected())
                 return;
             stopPump();

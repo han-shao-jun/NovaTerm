@@ -1,3 +1,11 @@
+/**
+ * @file   SessionPage.h
+ * @brief  会话选择页面（ElaScrollPage）。
+ *
+ * 包含 4 个标签页（本地 Shell / SSH / 串口 / Telnet），页面底部提供统一的
+ * Confirm / Cancel 按钮。嵌入 ElaDialog 中使用，与 SettingsPage 模式一致。
+ * 各协议控件将作为后续 SessionConfig 的输入来源。
+ */
 #pragma once
 
 #include "ElaScrollPage.h"
@@ -21,18 +29,32 @@ class SessionPage : public ElaScrollPage
     Q_OBJECT
 public:
     Q_INVOKABLE explicit SessionPage(QWidget* parent = nullptr);
+
+    /**
+     * @brief 切换到指定传输类型的标签页。
+     * @param kind 传输类型。
+     */
     void selectTransport(TransportKind kind);
+
+    /**
+     * @brief 从运行时配置回填控件（用于编辑已有会话）。
+     * @param runtime 运行时配置。
+     * @param secret  凭据字节（SSH 密码/口令，可空）。
+     */
     void applyRuntimeConfig(const RuntimeConfig& runtime,
                             const QByteArray& secret = {});
 
 signals:
-    // 用户在本地 Shell 标签页点击了 Confirm，携带所选的 Shell 类型
-    // （cmd 关联 Clink / PowerShell）。
+    /**
+     * @brief 用户在本地 Shell 标签页点击了 Confirm。
+     * @param type  Shell 类型（cmd 关联 Clink / PowerShell）。
+     * @param label 显示标签。
+     */
     void localSessionRequested(TerminalView::LocalShellType type,
                                const QString& label);
-    void serialSessionRequested(const SerialConfig& config);
-    void sshSessionRequested(const SshConfig& config);
-    void dialogRejected();          // 用户在任意标签页点击了 Cancel
+    void serialSessionRequested(const SerialConfig& config); ///< 串口会话确认
+    void sshSessionRequested(const SshConfig& config);        ///< SSH 会话确认
+    void dialogRejected();          ///< 用户在任意标签页点击了 Cancel
 
 private:
     void retranslateUi();

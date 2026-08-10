@@ -1,3 +1,11 @@
+/**
+ * @file   SshTransport.cpp
+ * @brief  SSH 传输实现：libssh 阻塞会话在工作线程中的封装。
+ *
+ * 工作线程按阶段推进：连接 → 主机密钥验证（需 GUI 决策）→ 认证
+ * → 打开 channel 并请求 PTY+shell → 进入事件循环（IO/resize/keepalive）
+ * → 关闭。GUI 线程仅通过原子量与互斥队列与工作线程交互。
+ */
 #include "SshTransport.h"
 
 #include <libssh/libssh.h>

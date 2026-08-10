@@ -1,3 +1,10 @@
+/**
+ * @file   SessionManager.cpp
+ * @brief  会话集合管理器实现。
+ *
+ * add() 接管会话并连接 stateChanged/destroyed 信号，会话进入 Closed 后
+ * 自动从注册表移除并 deleteLater。析构时以 Abort 模式关闭全部会话。
+ */
 #include "SessionManager.h"
 
 #include "TerminalSession.h"

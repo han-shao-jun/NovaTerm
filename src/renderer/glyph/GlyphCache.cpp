@@ -1,3 +1,11 @@
+/**
+ * @file   GlyphCache.cpp
+ * @brief  字形缓存实现。
+ *
+ * 详见 GlyphCache.h。本文件实现 GlyphKey → GlyphLocation 的查表、
+ * 插入与按 generation 失效。命中路径更新 LRU 帧号；未命中路径
+ * 由调用方栅格化后回填。
+ */
 #include "GlyphCache.h"
 
 namespace NovaTerm {
@@ -15,6 +23,8 @@ std::optional<GlyphLocation> GlyphCache::find(const GlyphKey& key,
         ++_statistics.misses;
         return std::nullopt;
     }
+    // 条目存在但其所在 atlas 页可能已被回收（generation 变更）。
+    // 此时位置无效，清理条目并按未命中处理。
     if (!_atlas.isValid(found->location)) {
         _entries.erase(found);
         ++_statistics.staleEntries;
@@ -30,6 +40,8 @@ std::optional<GlyphLocation> GlyphCache::find(const GlyphKey& key,
 std::optional<GlyphLocation> GlyphCache::insert(const GlyphBitmap& bitmap,
                                                 quint64 frameNumber)
 {
+    // 栅格化期间字体可能已变更：sourceGeneration 与 key.fontGeneration
+    // 不一致说明这个位图已过时，直接丢弃避免写入错误字形。
     if (bitmap.sourceGeneration != bitmap.key.fontGeneration) {
         ++_statistics.failed;
         return std::nullopt;

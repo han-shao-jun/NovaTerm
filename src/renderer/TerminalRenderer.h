@@ -1,3 +1,13 @@
+/**
+ * @file   TerminalRenderer.h
+ * @brief  基于 QRhi 的终端渲染 Widget。
+ *
+ * TerminalRenderer 是整个渲染管线的入口：从 TerminalCore 读取活跃屏幕
+ * cell、从 ScrollbackBuffer 读取历史行，转换为 RenderCommand 后由 GPU
+ * 批量绘制。字形通过 GlyphCache/GlyphAtlas 缓存，CPU 仅栅格化未命中字形。
+ * 帧调度由 RenderScheduler 节流，行 ↔ 槽位映射由 RowSlotMap 维护以
+ * 支持滚动时复用 GPU 顶点数据。
+ */
 #pragma once
 #include <QRhiWidget>
 #include <QFont>
@@ -39,10 +49,12 @@ struct RendererSnapshot;
 // 基于 QRhi 的终端渲染 Widget。
 // 从 TerminalCore 读取活跃屏幕 cell，从 ScrollbackBuffer 读取历史行，
 // 使用 GPU 批量四边形和持久字形图集绘制，CPU 仅栅格化缓存未命中的字形。
+// 详见文件头说明。该类在 GUI 线程独占使用，不对外暴露内部状态。
 class TerminalRenderer : public QRhiWidget
 {
     Q_OBJECT
 public:
+    // 渲染统计信息，用于性能诊断面板。字段较多，按子系统分组。
     struct RenderStatistics
     {
         NovaTerm::RenderScheduleStatistics scheduler;
@@ -260,9 +272,8 @@ private:
     NovaTerm::BoundedGlyphRasterQueue _glyphRasterQueue{512};
     NovaTerm::GlyphCache _glyphCache;
     NovaTerm::GlyphLocation _solidGlyph;
-    // Keep the font's fractional advances.  Rounding every cell separately
-    // makes the error accumulate across a line (Cascadia Mono at 16 px is
-    // typically 9.6 px wide, not 10 px).
+    // 保留字体的分数 advance。若逐 cell 取整会让误差在一行内累积
+    // （Cascadia Mono 16px 实际宽 9.6px 而非 10px）。
     qreal _cellWidth{0.0};
     qreal _cellHeight{0.0};
 
@@ -304,8 +315,8 @@ private:
     quint64 _viewportMappingRevision{0};
     int _pendingLiveScrollRows{0};
     NovaTerm::RenderCommandBuffer _commandBuffer;
-    // QRhi may consume a frame while queued terminal damage is being
-    // published. Protect the hand-off and never iterate the live queue.
+    // QRhi 可能在终端 damage 排队发布期间消费一帧。用此互斥保护交接，
+    // 且绝不遍历活跃队列。
     QMutex _pendingFrameMutex;
     QVector<NovaTerm::DirtyRegion> _pendingDirtyRegions;
     int _backgroundRowStrideVertices{0};

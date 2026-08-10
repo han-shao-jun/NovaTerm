@@ -1,3 +1,10 @@
+/**
+ * @file   SettingsPage.cpp
+ * @brief  设置页面实现：主题/语言/窗口外观控件构建与信号路由。
+ *
+ * 控件变更即时写入 ConfigManager 并应用到宿主 ElaWindow。ThemeChangeWatcher
+ * 在 Windows 上监听 WM_SETTINGCHANGE 实现跟随系统主题。
+ */
 #include "SettingsPage.h"
 
 #include <QButtonGroup>

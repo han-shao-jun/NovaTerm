@@ -1,3 +1,20 @@
+/**
+ * @file main.cpp
+ * @brief NovaTerm 应用程序入口文件
+ *
+ * 本文件实现了 NovaTerm 终端模拟器的程序入口点 main()，
+ * 以及跨平台的崩溃转储（MiniDump/Core Dump）功能和 Windows
+ * 平台特有的 DWM 窗口防闪烁处理。
+ *
+ * 主要功能：
+ * - 平台相关环境变量初始化（字体引擎、RHI 后端等）
+ * - 高 DPI 缩放属性配置
+ * - QApplication 及 Application 单例的启动与关闭
+ * - Windows：崩溃时生成 MiniDump (.dmp) 文件
+ * - Windows：启动时通过 DWMWA_CLOAK 防止深色主题白底闪烁
+ * - Linux：启用 Core Dump 以便崩溃后调试
+ */
+
 #include "ui/app/Application.h"
 #include "ui/app/MainWindow.h"
 #include <QApplication>
@@ -15,11 +32,24 @@
 #define DWMWA_CLOAK 13
 #endif
 
-// 动态加载 DwmSetWindowAttribute，避免硬链接 dwmapi.lib。
+/**
+ * @brief 动态调用 DwmSetWindowAttribute 设置窗口的 DWM 斗篷属性
+ *
+ * 该属性可让 DWM 停止或恢复合成指定窗口——窗口仍处于"可见"状态，
+ * 但 DWM 不会将其绘制到屏幕上。用于在首帧渲染完成前隐藏窗口，
+ * 避免深色主题启动时出现白底闪烁。Windows 8+ 可用。
+ *
+ * 通过 GetProcAddress 动态加载函数，避免硬链接 dwmapi.lib，
+ * 保证在不支持该 API 的旧系统上程序仍可正常启动。
+ *
+ * @param hwnd 目标窗口的原生 HWND 句柄
+ * @param cloak true 表示从 DWM 合成中隐藏（斗篷），false 表示恢复显示
+ */
 static void setDwmCloak(HWND hwnd, bool cloak)
 {
-
+    /// DwmSetWindowAttribute 函数指针类型别名
     using DwmSetWindowAttributeFunc = HRESULT(WINAPI*)(HWND, DWORD, LPCVOID, DWORD);
+    // 仅在首次调用时解析一次符号，后续调用复用函数指针
     static auto pDwmSetWindowAttribute = reinterpret_cast<DwmSetWindowAttributeFunc>(
         GetProcAddress(GetModuleHandleW(L"dwmapi.dll"), "DwmSetWindowAttribute"));
     if (pDwmSetWindowAttribute) {
@@ -28,8 +58,18 @@ static void setDwmCloak(HWND hwnd, bool cloak)
     }
 }
 
-// ── 未处理异常过滤器：崩溃时自动生成 MiniDump (.dmp 文件) ──────
-// 效果等同于 Linux 的 core dump，可用 Visual Studio 或 WinDbg 打开调试。
+/**
+ * @brief 未处理异常过滤器：程序崩溃时自动生成 MiniDump (.dmp) 文件
+ *
+ * 功能等效于 Linux 的 core dump，生成的 .dmp 文件可在
+ * Visual Studio 或 WinDbg 中加载以调试崩溃现场。
+ * dump 文件生成在可执行文件所在目录，文件名包含时间戳，
+ * 格式示例：NovaTerm_20260705_163025.dmp。
+ *
+ * @param pExceptionInfo 异常信息指针，包含异常记录和上下文寄存器
+ * @return 始终返回 EXCEPTION_EXECUTE_HANDLER，让系统继续执行
+ *         默认崩溃处理（弹出错误对话框等）
+ */
 static LONG WINAPI unhandledExceptionFilter(EXCEPTION_POINTERS* pExceptionInfo)
 {
     // 在 exe 同目录生成带时间戳的 dump 文件名，如 NovaTerm_20260705_163025.dmp
@@ -55,9 +95,8 @@ static LONG WINAPI unhandledExceptionFilter(EXCEPTION_POINTERS* pExceptionInfo)
         mei.ExceptionPointers = pExceptionInfo;
         mei.ClientPointers = FALSE;
 
-        // Keep crash reporting lightweight. Writing the complete address space
-        // synchronously from this exception filter can take a long time and
-        // makes a driver crash look like an application hang.
+        // 保持崩溃报告轻量。若在异常过滤器中同步写入完整地址空间，
+        // 耗时过长会导致驱动崩溃看起来像是应用程序无响应。
         constexpr auto dumpType = static_cast<MINIDUMP_TYPE>(
             MiniDumpNormal
             | MiniDumpWithThreadInfo
@@ -73,6 +112,13 @@ static LONG WINAPI unhandledExceptionFilter(EXCEPTION_POINTERS* pExceptionInfo)
     return EXCEPTION_EXECUTE_HANDLER; // 让系统继续执行默认处理（弹出错误对话框等）
 }
 
+/**
+ * @brief 注册 MiniDump 崩溃处理回调
+ *
+ * 将 unhandledExceptionFilter 设置为进程级未处理异常过滤器，
+ * 程序发生未捕获异常时自动生成 .dmp 转储文件。
+ * 需在 main() 中窗口显示后调用，确保异常发生时必要的运行时已初始化。
+ */
 static void enableMiniDump()
 {
     SetUnhandledExceptionFilter(unhandledExceptionFilter);
@@ -90,6 +136,17 @@ static void enableMiniDump()
 #include <time.h>
 
 
+/**
+ * @brief 启用 Linux Core Dump 生成功能
+ *
+ * 通过 setrlimit 将 RLIMIT_CORE 的软/硬限制均设为 RLIM_INFINITY，
+ * 允许程序崩溃时生成无大小限制的 core 文件，便于后续使用
+ * gdb/lldb 等调试器分析崩溃现场。若设置失败则通过
+ * std::perror 输出错误信息（不终止程序）。
+ *
+ * @note 实际 core 文件的生成位置与命名还受 /proc/sys/kernel/core_pattern
+ *       等系统内核参数影响。
+ */
 static void enableCoreDump()
 {
     struct rlimit limit {};
@@ -104,22 +161,38 @@ static void enableCoreDump()
 #endif
 
 
+/**
+ * @brief NovaTerm 应用程序入口点
+ *
+ * 程序启动的主流程：
+ * 1. 设置平台相关环境变量（Windows 字体引擎、RHI 渲染后端）
+ * 2. 配置高 DPI 缩放属性
+ * 3. 创建 QApplication 实例并设置应用元信息
+ * 4. 初始化 Application 单例（Ela 主题、翻译器、主窗口构建）
+ * 5. 注册崩溃转储回调（MiniDump / Core Dump）
+ * 6. 显示主窗口（Windows 下使用 DWM Cloak 防止深色主题白底闪烁）
+ * 7. 进入 Qt 事件循环
+ * 8. 事件循环退出后主动销毁主窗口，避免 atexit 阶段崩溃
+ *
+ * @param argc 命令行参数数量
+ * @param argv 命令行参数数组
+ * @return QApplication 事件循环的退出码，0 表示正常退出
+ */
 int main(int argc, char *argv[])
 {
 #ifdef Q_OS_WIN
-    // DirectWrite font-family enumeration crashes inside DWrite on some
-    // Windows installations when Qt inspects localized font metadata. Use
-    // Qt's supported FreeType font engine so terminal font matching bypasses
-    // that path. Preserve an explicit platform selection from users or tests.
+    // 在部分 Windows 系统上，当 Qt 检查本地化字体元数据时，
+    // DirectWrite 的字体族枚举会在 DWrite 内部崩溃。因此改用
+    // Qt 支持的 FreeType 字体引擎，使终端字体匹配绕过该代码路径。
+    // 若用户或测试已显式设置平台选择，则保留原值不覆盖。
     if (qEnvironmentVariableIsEmpty("QT_QPA_PLATFORM"))
         qputenv("QT_QPA_PLATFORM", "windows:fontengine=freetype");
 
-    // QRhiWidget can be created after the already-visible main window when a
-    // session starts. Qt 6.8 needs the top-level backing store prepared for
-    // RHI composition in that case. Keep the backing store and terminal on
-    // the same API. D3D11 is Qt's mature Windows default; the session dialog
-    // lifetime bug that previously exposed a driver teardown crash is fixed
-    // separately. Explicit environment overrides remain supported.
+    // 启动会话时 QRhiWidget 可能在主窗口已可见之后才创建，
+    // Qt 6.8 需要提前准备顶层 backing store 以供 RHI 合成使用。
+    // 保持 backing store 与终端渲染使用同一 API。D3D11 是 Qt 在
+    // Windows 上成熟稳定的默认后端；此前会暴露驱动析构崩溃的
+    // 会话对话框生命周期问题已另行修复。显式环境变量覆盖始终有效。
     if (qEnvironmentVariableIsEmpty("QT_WIDGETS_RHI"))
         qputenv("QT_WIDGETS_RHI", "1");
     if (qEnvironmentVariableIsEmpty("QT_WIDGETS_RHI_BACKEND"))

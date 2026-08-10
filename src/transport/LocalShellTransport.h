@@ -1,3 +1,12 @@
+/**
+ * @file   LocalShellTransport.h
+ * @brief  本地 shell 传输：ITransport 实现，封装本地 PTY 进程。
+ *
+ * 统一本地与远程的字节流通路：本地 shell 不再依赖 QTermWidget 内置 KPty，
+ * 而是通过本类提供与 SSH/Serial 完全一致的 ITransport 接口。
+ *   • Unix   : posix_openpt() + fork() + QSocketNotifier
+ *   • Windows: CreatePseudoConsole (ConPTY) + 读取线程
+ */
 #pragma once
 #include "ITransport.h"
 #include "session/LocalShellProfile.h"
@@ -17,7 +26,7 @@ namespace NovaTerm::Linux { class PtySession; }
 // 而是通过本类提供与 SSH/Serial/Telnet 完全一致的 ITransport 接口。
 //
 //   • Unix   : posix_openpt() + fork() + QSocketNotifier
-//   • Windows: CreatePseudoConsole (ConPTY) + reader thread
+//   • Windows: CreatePseudoConsole (ConPTY) + 读取线程
 //
 // 用法:
 //   auto* t = new LocalShellTransport(parent);

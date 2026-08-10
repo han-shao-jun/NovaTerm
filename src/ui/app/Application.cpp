@@ -1,3 +1,10 @@
+/**
+ * @file   Application.cpp
+ * @brief  应用程序单例实现：启动流程与翻译加载。
+ *
+ * init() 依次初始化 ElaApplication、加载 LanguageManager 翻译、构建并显示
+ * MainWindow。shutdown() 在 a.exec() 返回后调用，提前释放窗口避免退出崩溃。
+ */
 #include "Application.h"
 #include "MainWindow.h"
 #include "ElaApplication.h"
@@ -86,7 +93,7 @@ void Application::init()
     _mainWindow = std::make_unique<MainWindow>();
 
     // ElaWindow 构造函数中 setObjectName("ElaWindow") 并设
-    // stylesheet #ElaWindow{background:transparent}。
+    // 样式表 #ElaWindow{background:transparent}。
     // 窗口拖动时 Qt 不填充 backing store，脏帧透出造成闪烁。
     // 两重修复：
     //   1. 改 objectName 使原 #ElaWindow 选择器失效

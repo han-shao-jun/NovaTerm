@@ -1,3 +1,12 @@
+/**
+ * @file   VTAdapter.cpp
+ * @brief  libvterm 解析适配器实现。
+ *
+ * 详见 VTAdapter.h 的接口说明。本文件实现：
+ * - VTermColor ↔ TerminalColor / VTermScreenCell ↔ Cell 的双向转换
+ * - libvterm 的 C 回调（onDamage / onMoveRect / onScrollbackPush 等）
+ *   桥接到 Observer 的 std::function
+ */
 #include "VTAdapter.h"
 
 #include <QDebug>
@@ -15,9 +24,8 @@ namespace {
 TerminalColor fromVTermColor(const VTermColor& source)
 {
     TerminalColor color;
-    // libvterm's default colours also carry an indexed/RGB representation.
-    // Preserve the default flag first so presentation layers can distinguish
-    // inherited colours from colours explicitly selected by the remote side.
+    // libvterm 的默认色同时携带 indexed/RGB 表示。先保留默认标志，
+    // 让展示层区分"继承自终端方案"与"远端显式指定"的颜色。
     if (VTERM_COLOR_IS_DEFAULT_FG(&source)
         || VTERM_COLOR_IS_DEFAULT_BG(&source)) {
         color.type = ColorType::Default;
@@ -102,10 +110,9 @@ VTermScreenCellAttrs toVTermAttributes(const CellAttributes& source)
 void populateCell(const VTermScreenCell& source, Cell& cell)
 {
     const int count = std::min(MaxCharsPerCell, VTERM_MAX_CHARS_PER_CELL);
-    // VTerm terminates the character sequence with zero. Most terminal cells
-    // contain zero or one code point, so copying all six slots multiplied the
-    // cost of every scrollback row and could also copy stale data past the
-    // terminator from callback-owned buffers.
+    // VTerm 以 0 终止字符序列。多数 Cell 只有 0 或 1 个码点，若直接拷贝
+    // 全部 6 槽会放大每行 scrollback 的成本，并可能拷贝到回调缓冲区中
+    // 越过终止符的陈旧数据。
     int index = 0;
     for (; index < count && source.chars[index] != 0; ++index)
         cell.chars[index] = source.chars[index];
@@ -188,9 +195,8 @@ public:
         vterm_state_reset(state, 0);
         vterm_set_utf8(vt, 1);
         vterm_screen_enable_altscreen(vts, 1);
-        // Preserve existing terminal content when the viewport becomes
-        // narrower. Without libvterm's native reflow, resize truncates the
-        // right side of every populated row until new output arrives.
+        // 视口变窄时保留已有终端内容。libvterm 原生 reflow 不可用时，
+        // resize 会截断每行已填充内容的右侧，直到新输出到达。
         vterm_screen_enable_reflow(vts, true);
         vterm_screen_set_damage_merge(vts, VTERM_DAMAGE_SCROLL);
         vterm_output_set_callback(vt, &Impl::onOutput, this);
@@ -214,6 +220,7 @@ public:
             vterm_free(vt);
     }
 
+    // 从 libvterm 同步指定矩形区域到本地 ScreenBuffer。
     void syncRegion(VTermRect rectangle)
     {
         if (!vts)
@@ -235,6 +242,9 @@ public:
         }
     }
 
+    // ── libvterm C 回调（静态函数指针，user 指针为 Impl 实例）──
+
+    // libvterm 输出字节流（如查询回复、终端响应）。
     static void onOutput(const char* data, size_t length, void* user)
     {
         auto& self = *static_cast<Impl*>(user);
@@ -242,6 +252,7 @@ public:
             self.observer.output(QByteArrayView(data, static_cast<qsizetype>(length)));
     }
 
+    // 屏幕区域被修改：同步本地缓冲并通知 observer。
     static int onDamage(VTermRect rectangle, void* user)
     {
         auto& self = *static_cast<Impl*>(user);
@@ -253,6 +264,7 @@ public:
         return 1;
     }
 
+    // 区域拷贝（光标滚动、区域滚动）。
     static int onMoveRect(VTermRect destination, VTermRect source, void* user)
     {
         auto& self = *static_cast<Impl*>(user);
@@ -268,6 +280,7 @@ public:
         return 1;
     }
 
+    // 光标移动。
     static int onMoveCursor(VTermPos position, VTermPos, int visible, void* user)
     {
         auto& self = *static_cast<Impl*>(user);
@@ -278,6 +291,7 @@ public:
         return 1;
     }
 
+    // 终端属性变化：标题、光标可见性/闪烁/形状。
     static int onSetTermProperty(VTermProp property, VTermValue* value, void* user)
     {
         auto& self = *static_cast<Impl*>(user);
@@ -321,6 +335,7 @@ public:
         return 1;
     }
 
+    // libvterm 内部 resize 回调：同步 ScreenBuffer 尺寸并全屏同步。
     static int onResize(int rows, int columns, void* user)
     {
         auto& self = *static_cast<Impl*>(user);
@@ -329,11 +344,13 @@ public:
         return 1;
     }
 
+    // 活动屏幕行被推出到 scrollback：去除尾部空格后转存。
     static int onScrollbackPush(int columns, const VTermScreenCell* cells,
                                 int softWrapped, void* user)
     {
         auto& self = *static_cast<Impl*>(user);
         int storedColumns = columns;
+        // 去除行尾默认空 Cell，避免无谓的存储消耗。
         while (storedColumns > 0
                && isDefaultBlankCell(cells[storedColumns - 1])) {
             --storedColumns;
@@ -346,9 +363,8 @@ public:
         self.scrollback.commitPushLine(self.nextScrollbackContinuation,
                                        softWrapped == 0);
         self.nextScrollbackContinuation = softWrapped != 0;
-        // Reflow during an explicit resize can move rows into scrollback, but
-        // it is not an incremental live-screen scroll. The renderer will
-        // receive one full-screen damage publication when resize completes.
+        // 显式 resize 期间的行进入 scrollback 不是增量滚动，不视为活动屏幕
+        // 上滚；resize 完成后会发布一次全屏 damage。
         if (!self.resizeInProgress && self.observer.screenScrolled)
             self.observer.screenScrolled(1);
         if (self.observer.scrollbackChanged)
@@ -356,6 +372,7 @@ public:
         return 1;
     }
 
+    // 从 scrollback 弹出一行（reverse index 越过顶部时触发）。
     static int onScrollbackPop(int columns, VTermScreenCell* cells, void* user)
     {
         auto& self = *static_cast<Impl*>(user);
@@ -386,8 +403,8 @@ public:
     VTermScreen* vts{nullptr};
     VTermState* state{nullptr};
     VTermScreenCallbacks callbacks{};
-    bool nextScrollbackContinuation{false};
-    bool resizeInProgress{false};
+    bool nextScrollbackContinuation{false};  // 下一行是否为前一行的软换行延续
+    bool resizeInProgress{false};             // resize 进行中标记，抑制 screenScrolled 信号
 };
 
 VTAdapter::VTAdapter(int columns, int rows, ScreenBuffer& screen,
@@ -419,13 +436,13 @@ void VTAdapter::flushDamage()
 void VTAdapter::resize(int columns, int rows)
 {
     if (isValid()) {
+        // QScopedValueRollback 保证 resize 完成后自动复位 resizeInProgress。
         const QScopedValueRollback<bool> resizeGuard(
             _impl->resizeInProgress, true);
         vterm_set_size(_impl->vt, rows, columns);
-        // libvterm's resize callback synchronizes the ScreenBuffer, but a
-        // resize is not guaranteed to produce ordinary parser damage when no
-        // bytes are arriving. Publish a full region explicitly so the async
-        // model resize always invalidates every cached CPU/GPU row.
+        // libvterm 的 resize 回调会同步 ScreenBuffer，但 resize 不一定产生
+        // 常规解析 damage（无字节到达时）。显式发布全区域，确保异步模型
+        // resize 总是失效所有缓存的 CPU/GPU 行。
         if (_impl->observer.damage)
             _impl->observer.damage({0, rows, 0, columns});
     }

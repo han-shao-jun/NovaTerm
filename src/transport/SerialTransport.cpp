@@ -1,3 +1,11 @@
+/**
+ * @file   SerialTransport.cpp
+ * @brief  串口字节传输实现。
+ *
+ * 基于 QSerialPort 的 readyRead/errorOccurred 信号驱动 I/O，写入直接
+ * 转发给 QSerialPort 并由其 bytesWritten 信号反馈进度。连接打开通过
+ * QueuedConnection 延迟到事件循环，避免在会话创建栈上重入发信号。
+ */
 #include "SerialTransport.h"
 
 #include <QMetaObject>
@@ -43,8 +51,8 @@ bool SerialTransport::connectToHost()
     _port.setStopBits(_config.stopBits);
     _port.setFlowControl(_config.flowControl);
 
-    // Queue the actual open so callers never receive connected/error signals
-    // re-entrantly from the session creation stack.
+    // 将实际打开推迟到事件循环，避免调用方在会话创建栈上重入地
+    // 收到 connected()/errorOccurred() 信号。
     QMetaObject::invokeMethod(this, [this]() {
         if (!_connectPending || _port.isOpen())
             return;
@@ -96,7 +104,7 @@ void SerialTransport::resizeTerminal(int cols, int rows)
 {
     Q_UNUSED(cols);
     Q_UNUSED(rows);
-    // Serial links have no remote PTY/window-size capability.
+    // 串口链路无远程 PTY/窗口尺寸概念，空实现。
 }
 
 bool SerialTransport::isConnected() const

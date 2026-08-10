@@ -1,3 +1,12 @@
+/**
+ * @file   SessionFactory.cpp
+ * @brief  会话工厂实现：profile 解析与会话装配。
+ *
+ * resolve() 校验 profile ID 与凭据引用方式（禁止嵌入凭据）。
+ * create() 按 transportKind 从 QVariantMap 反序列化为具体 Config，
+ * SSH 凭据通过 CredentialStore 按 credentialRef 解析。
+ * createLocal/Serial/Ssh 是直接装配入口，绕过 profile 层。
+ */
 #include "SessionFactory.h"
 
 #include "TerminalSession.h"

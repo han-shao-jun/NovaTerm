@@ -1,3 +1,11 @@
+/**
+ * @file   ProfileStore.cpp
+ * @brief  profile 存储实现：敏感数据检测与内存存储。
+ *
+ * containsSecret() 递归扫描 settings 中的敏感键名（password/token/passphrase/
+ * privatekey 等），用于在持久化与传输边界拦截嵌入凭据。MemoryProfileStore
+ * 提供 QHash 后端的内存实现。
+ */
 #include "ProfileStore.h"
 
 #include <QSet>

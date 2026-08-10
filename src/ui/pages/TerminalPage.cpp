@@ -1,3 +1,10 @@
+/**
+ * @file   TerminalPage.cpp
+ * @brief  终端页面实现：标签页管理与终端视图生命周期。
+ *
+ * 每个标签页内含一个 TerminalView，支持本地/串口/SSH 三种创建方式。
+ * 新建会话按钮弹出菜单选择传输类型，信号转发给 MainWindow。
+ */
 #include "TerminalPage.h"
 #include "ElaIconButton.h"
 #include "ElaMenu.h"
@@ -81,11 +88,9 @@ void TerminalPage::retranslateUi()
 
 TerminalPage::~TerminalPage()
 {
-    // C++ members are destroyed before QWidget's destructor deletes child
-    // widgets.  The destroyed handlers below access _terminalViews, so they
-    // must not remain connected after this destructor body returns and the
-    // list's lifetime ends.  Closed tabs have already removed themselves;
-    // every remaining entry is still a live child at this point.
+    // C++ 成员在 QWidget 析构函数删除子控件之前销毁。下面的 destroyed 处理器
+    // 访问 _terminalViews，因此不能在本析构体返回后、列表生命周期结束时仍保持
+    // 连接。已关闭的标签页已自行移除；剩余条目此刻仍是存活的子控件。
     for (TerminalView* terminalView : std::as_const(_terminalViews)) {
         if (terminalView)
             disconnect(terminalView, nullptr, this, nullptr);
@@ -116,9 +121,9 @@ TerminalView* TerminalPage::addTerminalTab(const QString& title,
     // 绑定 destroyed 信号确保无论以何种方式销毁（关闭、拖出、父对象析构）
     // 都能把指针从列表里摘掉。
     connect(terminalView, &QObject::destroyed, this, [this, terminalView]() {
-        // QObject::destroyed is emitted from QObject's destructor, after the
-        // TerminalView subobject lifetime has ended.  Retain the pointer value
-        // captured while it was alive instead of downcasting QObject* there.
+        // QObject::destroyed 在 QObject 析构函数中发出，此时 TerminalView 子对象
+        // 生命周期已结束。保留它在存活时捕获的指针值，而非在那里对 QObject*
+        // 做向下转型。
         _terminalViews.removeAll(terminalView);
     });
 

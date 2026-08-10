@@ -1,3 +1,7 @@
+/**
+ * @file   SshHostKeyDialog.cpp
+ * @brief  主机密钥验证对话框实现：指纹展示与 Accept/Reject。
+ */
 #include "SshHostKeyDialog.h"
 
 #include <QFontDatabase>

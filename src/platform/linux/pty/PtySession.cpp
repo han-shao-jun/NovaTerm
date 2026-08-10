@@ -1,3 +1,11 @@
+/**
+ * @file   PtySession.cpp
+ * @brief  Linux PTY 会话实现：fork、I/O 与子进程退出处理。
+ *
+ * start() 解析可执行路径、组装 argv/environ、openpty + fork + execve，
+ * 通过 errorPipe 回传子进程启动失败原因。reader/writer 基于 QSocketNotifier
+ * 事件驱动；子进程退出由 25ms QTimer 轮询 waitpid 检测。
+ */
 #include "PtySession.h"
 
 #include <QDir>

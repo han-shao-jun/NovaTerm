@@ -1,3 +1,10 @@
+/**
+ * @file   RenderCommandBuffer.cpp
+ * @brief  渲染命令缓冲实现。
+ *
+ * 详见 RenderCommandBuffer.h。本文件维护按行组织的命令列表，
+ * 提供 resize / replaceRow / rotateRowsUp 等基本操作。
+ */
 #include "RenderCommandBuffer.h"
 
 #include <QtGlobal>
@@ -17,6 +24,7 @@ void RenderCommandBuffer::resize(int rows, int columns)
     _rows = rows;
     _columns = columns;
     _rowCommands.resize(rows);
+    // resize 后所有行视为脏：清空命令并 bump revision 触发重绘。
     for (RenderCommandRow& row : _rowCommands) {
         row.backgrounds.clear();
         row.contents.clear();
@@ -68,8 +76,10 @@ void RenderCommandBuffer::rotateRowsUp(int count)
     count = qBound(0, count, _rowCommands.size());
     if (count == 0)
         return;
+    // std::rotate 把 [begin, begin+count) 移到末尾，等效于"整体上移 count 行"。
     std::rotate(_rowCommands.begin(), _rowCommands.begin() + count,
                 _rowCommands.end());
+    // 末尾 count 行变为新空行，需要单独 bump revision 让渲染器重绘。
     for (int row = _rowCommands.size() - count;
          row < _rowCommands.size(); ++row) {
         _rowCommands[row] = RenderCommandRow{};

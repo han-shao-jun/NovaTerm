@@ -1,3 +1,10 @@
+/**
+ * @file   TerminalColorScheme.cpp
+ * @brief  终端配色方案预置实现。
+ *
+ * 详见 TerminalColorScheme.h。本文件硬编码三套预置配色：
+ * Windows Terminal Campbell、Dark Pastels、Black on White。
+ */
 #include "TerminalColorScheme.h"
 
 TerminalColorScheme TerminalColorScheme::windowsTerminalCampbell()
@@ -9,7 +16,7 @@ TerminalColorScheme TerminalColorScheme::windowsTerminalCampbell()
     s.cursorColor = QColor(255, 255, 255);
     s.selectionColor = QColor(255, 255, 255, 64);
 
-    // Windows Terminal's built-in Campbell ANSI palette.
+    // Windows Terminal 内置 Campbell ANSI 调色板。
     s.palette[0]  = QColor( 12,  12,  12); // #0C0C0C
     s.palette[1]  = QColor(197,  15,  31); // #C50F1F
     s.palette[2]  = QColor( 19, 161,  14); // #13A10E

@@ -1,3 +1,11 @@
+/**
+ * @file   TerminalView.cpp
+ * @brief  终端视图实现：键盘/输出数据通路、PTY 尺寸去抖与搜索栏。
+ *
+ * 键盘事件经 TerminalRenderer → TerminalCore → ITransport::write；
+ * ITransport::readyRead 经 TerminalCore::writeInput 喂入 libvterm 解析后
+ * 触发渲染。resize 事件去抖合并，避免输出风暴。
+ */
 #include "TerminalView.h"
 #include "transport/ITransport.h"
 #include "transport/LocalShellTransport.h"
@@ -141,9 +149,8 @@ TerminalView::TerminalView(TerminalSession* session, QWidget* parent)
         _renderer->appendSearchMatches(batch.matches, batch.generation);
     });
 
-    // These view-level connections are invariant across transports. Keeping
-    // them out of attachTransport() prevents repeated attach/detach cycles
-    // from multiplying title and activity notifications.
+    // 这些视图级连接在传输层切换时保持不变。放在 attachTransport() 之外，
+    // 避免反复 attach/detach 导致标题与活动通知信号成倍增加。
     connect(_core, &TerminalCore::titleChanged,
             this, &TerminalView::titleChanged);
     connect(_renderer, &TerminalRenderer::activityDetected,
@@ -190,12 +197,10 @@ TerminalView::TerminalView(TerminalSession* session, QWidget* parent)
     });
 
     if (_ownsSession) {
-        // QObject deletes children in insertion order. Both renderer and
-        // session retain non-owning pointers to Core, so adopt Core only after
-        // all dependants have been parented to the View. They are therefore
-        // destroyed first. In optimized builds the previous order caused a
-        // deterministic UAF during TerminalView teardown and corrupted the
-        // following QLineEdit/QWidgetLineControl destruction.
+        // QObject 按插入顺序销毁子对象。renderer 与 session 均持有 Core 的非拥有
+        // 指针，故仅在所有依赖者都已 parent 到 View 之后才 adopt Core —— 这样它们
+        // 会先于 Core 销毁。优化构建中此前的顺序在 TerminalView 拆卸时造成确定性
+        // UAF，并破坏随后 QLineEdit/QWidgetLineControl 的析构。
         _core->setParent(this);
         static_cast<void>(ownedCore.release());
     }
@@ -434,8 +439,8 @@ bool TerminalView::eventFilter(QObject* obj, QEvent* event)
         // 把当前终端尺寸同步给 PTY。拖动期间不会反复发送 SIGWINCH。
         // TerminalRenderer 已保证 _core 的尺寸不会跌到病态极小值，
         // 这里读取的 _core->columns()/rows() 始终是有效尺寸。
-        // terminalSizeChanged carries the computed target dimensions. The
-        // event itself may arrive before TerminalCore applies its async resize.
+        // terminalSizeChanged 携带计算出的目标尺寸。该事件可能在 TerminalCore
+        // 应用其异步 resize 之前就已到达。
     }
     return QWidget::eventFilter(obj, event);
 }

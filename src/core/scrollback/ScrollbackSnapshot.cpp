@@ -1,3 +1,11 @@
+/**
+ * @file   ScrollbackSnapshot.cpp
+ * @brief  滚动历史只读快照实现。
+ *
+ * 详见 ScrollbackSnapshot.h 的接口说明。本文件实现按文档行号或
+ * 全局 LineId 的二分查找，所有查找都基于快照内已按 ID 升序排列的
+ * 分块列表（ChunkedScrollback 在构建快照时保证）。
+ */
 #include "ScrollbackSnapshot.h"
 
 #include <algorithm>
@@ -6,6 +14,8 @@ namespace NovaTerm {
 
 namespace {
 
+// 在已按 firstLineId 升序排列的分块列表中二分查找包含指定 LineId 的分块。
+// 各分块内部的行 ID 也保证单调递增。返回分块索引，未命中返回 -1。
 qsizetype chunkIndexForId(const QVector<ScrollbackSnapshot::ChunkView>& chunks,
                           LineId id)
 {
@@ -34,6 +44,8 @@ const LogicalLine* ScrollbackSnapshot::lineAt(qsizetype documentRow) const
     if (documentRow < 0 || documentRow >= _lineCount)
         return nullptr;
 
+    // 按 documentStart 二分查找命中的分块。documentStart 在分块列表中
+    // 单调递增，因此可视为标准的 lower_bound 查找。
     qsizetype low = 0;
     qsizetype high = _chunks.size();
     while (low < high) {
@@ -58,6 +70,7 @@ const LogicalLine* ScrollbackSnapshot::lineById(LineId id) const
     const qsizetype index = chunkIndexForId(_chunks, id);
     if (index < 0)
         return nullptr;
+    // 分块内部的行 ID 单调递增，用 lower_bound 在分块内二分定位。
     const ChunkView& view = _chunks[index];
     const auto begin = view.chunk->lines.cbegin() + view.firstLine;
     const auto end = begin + view.lineCount;

@@ -1,3 +1,9 @@
+/**
+ * @file   VerticalTabWidget.h
+ * @brief  垂直选项卡复合控件。
+ *
+ * 左侧垂直选项卡 + 右侧堆栈页面。API 对齐 QTabWidget，但选项卡栏固定于左侧。
+ */
 #pragma once
 
 #include <QWidget>

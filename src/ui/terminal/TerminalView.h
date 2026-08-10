@@ -1,3 +1,10 @@
+/**
+ * @file   TerminalView.h
+ * @brief  终端视图：TerminalCore + TerminalRenderer + ITransport 组合。
+ *
+ * 通过 libvterm 仿真引擎 + QRhi GPU 渲染 + ITransport 接口统一桥接本地/远程
+ * 终端数据通路。本地和远程均走同一条路径，不再区分两套机制。
+ */
 #pragma once
 #include <QWidget>
 #include <QEvent>
@@ -40,25 +47,33 @@ public:
     ~TerminalView() override;
 
     // ── 本地终端：通过 LocalShellTransport 驱动真实 shell ──
+    /**
+     * @brief 启动本地 shell（按类型选择 cmd+Clink 或 PowerShell）。
+     * @param type 本地 Shell 类型。
+     */
     void startLocalShell(LocalShellType type = LocalShellType::Cmd);
-    void startLocalShell(const LocalShellConfig& config);
-    void stopLocalShell();
-    bool isLocalShell() const { return _isLocalShell; }
+    void startLocalShell(const LocalShellConfig& config); ///< 按完整配置启动本地 shell
+    void stopLocalShell();                                ///< 停止本地 shell
+    bool isLocalShell() const { return _isLocalShell; }  ///< 是否为本地 shell 会话
 
     // ── 远程终端：ITransport 数据桥接（SSH/串口/Telnet）──
+    /**
+     * @brief 附加传输层（SSH/串口/Telnet），建立数据桥接。
+     * @param transport 传输层。
+     */
     void attachTransport(ITransport* transport);
-    void detachTransport();
-    ITransport* transport() const;
-    TerminalSession* session() const;
-    [[nodiscard]] bool ownsSession() const noexcept { return _ownsSession; }
+    void detachTransport();                              ///< 分离传输层
+    ITransport* transport() const;                        ///< 获取当前传输层
+    TerminalSession* session() const;                     ///< 获取会话对象
+    [[nodiscard]] bool ownsSession() const noexcept { return _ownsSession; } ///< 是否拥有会话所有权
 
     // ── 渲染器访问（替代原来的 terminalWidget()）─────────────
-    TerminalRenderer* renderer() const { return _renderer; }
+    TerminalRenderer* renderer() const { return _renderer; } ///< 获取渲染器
 
 signals:
-    void titleChanged(const QString& title);
-    void activityDetected();
-    void shellFinished();
+    void titleChanged(const QString& title);  ///< 标题变更（终端转义序列触发）
+    void activityDetected();                   ///< 检测到终端活动
+    void shellFinished();                      ///< shell 已退出
 
 private:
     void applyThemeColorScheme();

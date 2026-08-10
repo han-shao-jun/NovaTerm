@@ -1,3 +1,10 @@
+/**
+ * @file   TabActionWidget.cpp
+ * @brief  ElaTabWidget 扩展实现：标签栏尾部动作控件布局。
+ *
+ * 在 tabInserted/tabRemoved 与 resizeEvent 时调度布局，将动作控件放置在
+ * 最后一个标签之后，并在标签栏溢出时为其预留空间。
+ */
 #include "TabActionWidget.h"
 
 #include <QEvent>
@@ -17,16 +24,14 @@ void TabActionWidget::setTabBarActionWidget(QWidget* widget)
     _actionWidget = widget;
     _actionWidget->setParent(this);
 
-    // QTabWidget collapses an empty tab bar to zero height. Preserve one
-    // normal tab row so the action remains vertically centered before the
-    // first session is created.
+    // QTabWidget 会将空标签栏折叠为零高度。保留一行正常标签行高度，
+    // 使动作控件在首个会话创建前保持垂直居中。
     const int tabBarHeight = qMax(getTabSize().height(),
                                   _actionWidget->height());
     tabBar()->setMinimumHeight(tabBarHeight);
 
-    // Keep the action reachable when tabs overflow and Qt shows its scroll
-    // buttons. The visible widget still follows the last tab while space is
-    // available.
+    // 标签溢出且 Qt 显示滚动按钮时仍保持动作控件可达。
+    // 有空间时可见控件始终跟随最后一个标签。
     auto* cornerSpacer = new QWidget(this);
     cornerSpacer->setFixedSize(_actionWidget->width() + 8,
                                tabBarHeight);

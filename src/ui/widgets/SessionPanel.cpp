@@ -1,16 +1,20 @@
+/**
+ * @file   SessionPanel.cpp
+ * @brief  会话面板实现：历史会话树、重连与编辑。
+ *
+ * 通过 SessionStore 持久化会话历史，QTreeWidget 展示。右键菜单支持重连、
+ * 编辑、删除。折叠/展开按钮在窗口宽度不足时隐藏树。
+ */
 #include "SessionPanel.h"
 
 #include "ElaIconButton.h"
 #include "ElaMenu.h"
-#include "ElaText.h"
 #include "credential/CredentialStore.h"
 #include "service/LanguageManager.h"
 #include "session/SessionStore.h"
 
 #include <QDir>
 #include <QDebug>
-#include <QHBoxLayout>
-#include <QHeaderView>
 #include <QMessageBox>
 #include <QResizeEvent>
 #include <QStandardPaths>
@@ -23,21 +27,42 @@
 
 namespace {
 
-QString defaultTitle(const RuntimeConfig& runtime)
+QString localSessionName(TerminalView::LocalShellType type)
 {
-    if (!runtime.title.trimmed().isEmpty())
-        return runtime.title;
+#ifdef Q_OS_WIN
+    return type == TerminalView::LocalShellType::PowerShell
+        ? QStringLiteral("powershell") : QStringLiteral("cmd");
+#else
+    Q_UNUSED(type);
+    return QStringLiteral("shel");
+#endif
+}
+
+QString sessionName(const RuntimeConfig& runtime)
+{
+    const QVariantMap& values = runtime.transport;
     switch (runtime.transportKind) {
-    case TransportKind::LocalShell:
-        return SessionPanel::tr("Local");
+    case TransportKind::LocalShell: {
+        const auto type = static_cast<TerminalView::LocalShellType>(
+            values.value(QStringLiteral("shellType")).toInt());
+        return localSessionName(type);
+    }
     case TransportKind::Ssh:
-        return SessionPanel::tr("SSH");
+        return QStringLiteral("%1@%2:%3")
+            .arg(values.value(QStringLiteral("username")).toString(),
+                 values.value(QStringLiteral("host")).toString())
+            .arg(values.value(QStringLiteral("port")).toUInt());
     case TransportKind::Serial:
-        return SessionPanel::tr("Serial");
+        return QStringLiteral("%1 @ %2")
+            .arg(values.value(QStringLiteral("portName")).toString())
+            .arg(values.value(QStringLiteral("baudRate")).toInt());
     case TransportKind::Telnet:
-        return SessionPanel::tr("Telnet");
+        return QStringLiteral("%1:%2")
+            .arg(values.value(QStringLiteral("host")).toString())
+            .arg(values.value(QStringLiteral("port")).toUInt());
     case TransportKind::Custom:
-        return SessionPanel::tr("Custom");
+        return runtime.title.trimmed().isEmpty()
+            ? SessionPanel::tr("Custom") : runtime.title;
     }
     return {};
 }
@@ -47,12 +72,7 @@ RuntimeConfig localRuntime(TerminalView::LocalShellType type,
 {
     RuntimeConfig runtime;
     runtime.transportKind = TransportKind::LocalShell;
-    runtime.title = label.trimmed();
-    if (runtime.title.isEmpty()) {
-        runtime.title = type == TerminalView::LocalShellType::PowerShell
-            ? SessionPanel::tr("PowerShell")
-            : SessionPanel::tr("Command Prompt / Clink");
-    }
+    runtime.title = localSessionName(type);
     runtime.transport = {
         {QStringLiteral("shellType"), static_cast<int>(type)},
         {QStringLiteral("label"), label.trimmed()}};
@@ -63,7 +83,6 @@ RuntimeConfig serialRuntime(const SerialConfig& config)
 {
     RuntimeConfig runtime;
     runtime.transportKind = TransportKind::Serial;
-    runtime.title = config.label.isEmpty() ? config.portName : config.label;
     runtime.transport = {
         {QStringLiteral("portName"), config.portName},
         {QStringLiteral("baudRate"), config.baudRate},
@@ -72,6 +91,7 @@ RuntimeConfig serialRuntime(const SerialConfig& config)
         {QStringLiteral("stopBits"), static_cast<int>(config.stopBits)},
         {QStringLiteral("flowControl"), static_cast<int>(config.flowControl)},
         {QStringLiteral("label"), config.label}};
+    runtime.title = sessionName(runtime);
     return runtime;
 }
 
@@ -79,9 +99,6 @@ RuntimeConfig sshRuntime(const SshConfig& config)
 {
     RuntimeConfig runtime;
     runtime.transportKind = TransportKind::Ssh;
-    runtime.title = config.label.isEmpty()
-        ? QStringLiteral("%1@%2").arg(config.username, config.host)
-        : config.label;
     runtime.transport = {
         {QStringLiteral("host"), config.host},
         {QStringLiteral("username"), config.username},
@@ -91,6 +108,7 @@ RuntimeConfig sshRuntime(const SshConfig& config)
         {QStringLiteral("terminalType"), config.terminalType},
         {QStringLiteral("keepAliveSeconds"), config.keepAliveSeconds},
         {QStringLiteral("label"), config.label}};
+    runtime.title = sessionName(runtime);
     return runtime;
 }
 
@@ -111,33 +129,29 @@ SessionPanel::SessionPanel(QWidget* parent)
     _store = std::make_unique<SessionStore>(
         dataDirectory.filePath(QStringLiteral("session-history.json")));
     _entries = _store->load();
+    bool historyNamesChanged = false;
+    for (SessionRestoreMetadata& entry : _entries) {
+        const QString name = sessionName(entry.runtimeSnapshot);
+        if (entry.runtimeSnapshot.title != name) {
+            entry.runtimeSnapshot.title = name;
+            historyNamesChanged = true;
+        }
+    }
+    if (historyNamesChanged)
+        saveHistory();
 
     auto* rootLayout = new QVBoxLayout(this);
     rootLayout->setContentsMargins(0, 0, 0, 0);
     rootLayout->setSpacing(0);
 
-    auto* header = new QWidget(this);
-    header->setFixedHeight(40);
-    auto* headerLayout = new QHBoxLayout(header);
-    headerLayout->setContentsMargins(8, 4, 4, 4);
-    headerLayout->setSpacing(4);
-
-    _title = new ElaText(tr("Sessions"), header);
-    _title->setTextPixelSize(16);
-    headerLayout->addWidget(_title, 1);
-
-    rootLayout->addWidget(header);
-
     _tree = new QTreeWidget(this);
-    _tree->setColumnCount(2);
-    _tree->setHeaderLabels({tr("Session"), tr("Endpoint")});
+    _tree->setColumnCount(1);
+    _tree->setHeaderHidden(true);
     _tree->setAnimated(false);
     _tree->setIndentation(0);
     _tree->setRootIsDecorated(false);
     _tree->setUniformRowHeights(true);
     _tree->setContextMenuPolicy(Qt::CustomContextMenu);
-    _tree->header()->setStretchLastSection(true);
-    _tree->header()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
     rootLayout->addWidget(_tree, 1);
 
     _toggleButton = new ElaIconButton(
@@ -162,7 +176,6 @@ SessionPanel::~SessionPanel() = default;
 void SessionPanel::setExpanded(bool expanded)
 {
     _expanded = expanded;
-    _title->setVisible(expanded);
     _tree->setVisible(expanded);
     _toggleButton->setAwesome(expanded ? ElaIconType::AngleLeft
                                        : ElaIconType::AngleRight);
@@ -325,22 +338,7 @@ void SessionPanel::rebuildTree()
     _tree->clear();
     for (const SessionRestoreMetadata& entry : std::as_const(_entries)) {
         const RuntimeConfig& runtime = entry.runtimeSnapshot;
-        QString endpoint;
-        if (runtime.transportKind == TransportKind::Ssh) {
-            endpoint = QStringLiteral("%1@%2:%3")
-                .arg(runtime.transport.value(QStringLiteral("username")).toString(),
-                     runtime.transport.value(QStringLiteral("host")).toString())
-                .arg(runtime.transport.value(QStringLiteral("port")).toUInt());
-        } else if (runtime.transportKind == TransportKind::Serial) {
-            endpoint = QStringLiteral("%1 @ %2")
-                .arg(runtime.transport.value(QStringLiteral("portName")).toString())
-                .arg(runtime.transport.value(QStringLiteral("baudRate")).toInt());
-        } else if (runtime.transportKind == TransportKind::LocalShell) {
-            endpoint = tr("Local computer");
-        }
-
-        auto* item = new QTreeWidgetItem(
-            _tree, {defaultTitle(runtime), endpoint});
+        auto* item = new QTreeWidgetItem(_tree, {sessionName(runtime)});
         item->setData(0, Qt::UserRole,
                       entry.sessionId.toString(QUuid::WithoutBraces));
         item->setToolTip(0, tr("Double-click to reconnect"));
@@ -394,7 +392,7 @@ void SessionPanel::deleteItem(QTreeWidgetItem* item)
     if (it == _entries.end())
         return;
 
-    const QString title = defaultTitle(it->runtimeSnapshot);
+    const QString title = sessionName(it->runtimeSnapshot);
     if (QMessageBox::question(
             this, tr("Delete session"),
             tr("Delete the saved session '%1'?").arg(title),
@@ -443,7 +441,7 @@ void SessionPanel::reconnectItem(QTreeWidgetItem* item)
             values.value(QStringLiteral("stopBits")).toInt());
         config.flowControl = static_cast<QSerialPort::FlowControl>(
             values.value(QStringLiteral("flowControl")).toInt());
-        config.label = runtime.title;
+        config.label = values.value(QStringLiteral("label")).toString();
         if (config.isValid())
             emit serialReconnectRequested(config);
         return;
@@ -460,7 +458,7 @@ void SessionPanel::reconnectItem(QTreeWidgetItem* item)
         config.terminalType = values.value(QStringLiteral("terminalType")).toString();
         config.keepAliveSeconds = values.value(
             QStringLiteral("keepAliveSeconds")).toInt();
-        config.label = runtime.title;
+        config.label = values.value(QStringLiteral("label")).toString();
         if (!runtime.credentialRef.isEmpty()) {
             const auto secret = _credentials->get(runtime.credentialRef);
             if (secret) {
@@ -481,8 +479,6 @@ void SessionPanel::reconnectItem(QTreeWidgetItem* item)
 
 void SessionPanel::retranslateUi()
 {
-    _title->setText(tr("Sessions"));
-    _tree->setHeaderLabels({tr("Session"), tr("Endpoint")});
     setExpanded(_expanded);
     rebuildTree();
 }

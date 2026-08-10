@@ -1,3 +1,11 @@
+/**
+ * @file   LocalShellProfile.cpp
+ * @brief  本地 shell profile 与预置工厂实现。
+ *
+ * 提供配置有效性校验、工作目录/环境变量合并逻辑，以及一组预置 profile
+ * （命令提示符+Clink、PowerShell、WSL 等）。平台默认值通过 platformDefault()
+ * 按编译目标选择。
+ */
 #include "LocalShellProfile.h"
 
 #include <QDir>

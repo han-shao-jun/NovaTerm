@@ -1,3 +1,10 @@
+/**
+ * @file   AboutPage.h
+ * @brief  关于页面：应用版本与说明信息。
+ *
+ * 实际以模态对话框形式从 MainWindow::showAboutDialog() 弹出；
+ * 本页面保留作为备选可嵌入视图，未注册到导航中。
+ */
 #pragma once
 #include "ElaScrollPage.h"
 

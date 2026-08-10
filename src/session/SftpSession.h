@@ -1,3 +1,10 @@
+/**
+ * @file   SftpSession.h
+ * @brief  SFTP 会话占位声明。
+ *
+ * 当前为接口轮廓占位，不实现任何传输逻辑。libssh 的 SFTP 支持已随构建开启，
+ * 待目录/文件浏览 UI 规划完成后在此填充枚举与回调契约。
+ */
 #pragma once
 
 // SFTP 会话 — 占位（P6 步骤之后实现）。

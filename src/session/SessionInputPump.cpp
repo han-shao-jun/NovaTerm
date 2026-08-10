@@ -1,3 +1,10 @@
+/**
+ * @file   SessionInputPump.cpp
+ * @brief  会话输入泵实现：背压转送与过载处理。
+ *
+ * acceptBytes() 是核心路径：直接喂入解析器，满则缓存到 _pending 并暂停读取；
+ * handleBackpressure() 在解析器恢复可写时 drain _pending。过载时上报并停读。
+ */
 #include "SessionInputPump.h"
 
 #include "core/terminal/TerminalCore.h"

@@ -1,3 +1,10 @@
+/**
+ * @file   ScrollbackBuffer.cpp
+ * @brief  滚动历史缓冲外观实现。
+ *
+ * 详见 ScrollbackBuffer.h 的接口说明。本文件将外部接口委托给
+ * ChunkedScrollback 的对应方法，并维护一次性 _pendingLine 缓冲。
+ */
 #include "ScrollbackBuffer.h"
 
 #include <algorithm>
@@ -22,6 +29,7 @@ QVector<NovaTerm::Cell>& ScrollbackBuffer::beginPushLine(int columns,
                                                          int storedColumns)
 {
     _cols = std::max(0, columns);
+    // 截断或扩展 pending 缓冲到实际存储列数。
     _pendingLine.resize(std::clamp(storedColumns, 0, _cols));
     return _pendingLine;
 }

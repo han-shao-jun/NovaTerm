@@ -1,3 +1,11 @@
+/**
+ * @file   SessionStore.cpp
+ * @brief  会话恢复元数据持久化实现。
+ *
+ * RuntimeConfig 与 SessionRestoreMetadata 的 JSON 序列化/反序列化在此完成。
+ * 写入前通过 ProfileStore::containsSensitiveValues 拦截含凭据的元数据，
+ * 防止敏感信息泄露到磁盘。
+ */
 #include "SessionStore.h"
 
 #include "profile/ProfileStore.h"

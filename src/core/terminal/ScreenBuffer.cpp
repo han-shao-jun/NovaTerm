@@ -1,3 +1,9 @@
+/**
+ * @file   ScreenBuffer.cpp
+ * @brief  终端活动屏幕缓冲区实现。
+ *
+ * 详见 ScreenBuffer.h 的接口说明。本文件实现 resize、moveRect 与索引计算。
+ */
 #include "ScreenBuffer.h"
 
 #include <algorithm>
@@ -15,6 +21,7 @@ void ScreenBuffer::resize(int columns, int rows)
     rows = std::max(1, rows);
 
     QVector<Cell> resized(columns * rows);
+    // 仅保留原缓冲左上角的重叠区域，其余位置保持默认构造的空 Cell。
     const int copyRows = std::min(_rows, rows);
     const int copyColumns = std::min(_columns, columns);
     for (int row = 0; row < copyRows; ++row) {
@@ -56,9 +63,8 @@ void ScreenBuffer::moveRect(const DirtyRegion& destination,
     if (rowCount <= 0 || columnCount <= 0)
         return;
 
-    // Source and destination commonly overlap during scrolling. Snapshot the
-    // source rectangle first so the copy has memmove semantics for every
-    // vertical and horizontal direction.
+    // 源与目标在滚动时通常重叠。先快照源矩形，使拷贝在所有方向上
+    // 都具有 memmove 语义（避免就地覆盖污染尚未读取的源数据）。
     QVector<Cell> moved;
     moved.reserve(rowCount * columnCount);
     for (int row = 0; row < rowCount; ++row) {

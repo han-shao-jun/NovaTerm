@@ -1,3 +1,12 @@
+/**
+ * @file   LocalShellTransport.cpp
+ * @brief  本地 shell 传输实现：跨平台 PTY 会话。
+ *
+ * 平台相关实现用 #ifdef 隔离：
+ *   • Linux  : 委托 platform/linux/pty/PtySession（posix_openpt + fork）。
+ *   • Windows: 委托 platform/windows/conpty/ConPtySession，运行在专用线程。
+ * 公共部分负责配置管理、生命周期状态机与 ITransport 接口转发。
+ */
 #include "LocalShellTransport.h"
 
 #include <QDebug>

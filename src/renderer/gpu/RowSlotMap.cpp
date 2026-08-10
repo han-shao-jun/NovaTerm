@@ -1,3 +1,11 @@
+/**
+ * @file   RowSlotMap.cpp
+ * @brief  可见行 ↔ GPU 槽位映射实现。
+ *
+ * 详见 RowSlotMap.h。update() 是核心：建立 oldSlots 哈希后逐行查复用，
+ * 未复用的行从 freeSlots 取槽位；rotatedRowsUp() 用 std::rotate 实现
+ * 原地滚动。
+ */
 #include "RowSlotMap.h"
 
 #include <algorithm>
@@ -12,6 +20,7 @@ QVector<int> rowsNeedingRebuildAfterMapping(
     QVector<int> result;
     result.reserve(currentIdentities.size());
     for (int row = 0; row < currentIdentities.size(); ++row) {
+        // 已脏的行调用方会单独处理；identity 未变的行无需重建。
         if (dirtyRows.value(row)
             || (row < cachedIdentities.size()
                 && cachedIdentities[row] == currentIdentities[row])) {
@@ -33,6 +42,7 @@ RowSlotUpdate RowSlotMap::update(const QVector<VisibleRowIdentity>& rows,
                                  float rowHeight, bool forceFull)
 {
     RowSlotUpdate result;
+    // 全量重映射条件：强制、首次映射、或行数变化。
     result.fullRemap = forceFull || _placements.isEmpty()
         || rows.size() != _placements.size();
     ++_mappingRevision;
@@ -40,13 +50,16 @@ RowSlotUpdate RowSlotMap::update(const QVector<VisibleRowIdentity>& rows,
     QHash<VisibleRowIdentity, int> oldSlots;
     QVector<int> freeSlots;
     if (!result.fullRemap) {
+        // 增量路径：建 identity → gpuSlot 哈希，便于按 identity 查复用。
         for (const RowPlacement& placement : std::as_const(_placements))
             oldSlots.insert(placement.identity, placement.gpuSlot);
     } else {
+        // 全量路径：所有旧槽位都退役。
         for (const RowPlacement& placement : std::as_const(_placements))
             result.retiredSlots.push_back(placement.gpuSlot);
     }
 
+    // 标记仍被复用的槽位，未复用的进入 freeSlots 供新行分配。
     QVector<bool> retained(_capacity, false);
     if (!result.fullRemap) {
         for (const VisibleRowIdentity& identity : rows) {
@@ -79,6 +92,7 @@ RowSlotUpdate RowSlotMap::update(const QVector<VisibleRowIdentity>& rows,
             }
         }
         if (slot < 0) {
+            // 新进入的行：分配槽位并记录，调用方需上传顶点。
             slot = allocateSlot(freeSlots);
             result.enteringWidgetRows.push_back(widgetRow);
         } else {
@@ -117,6 +131,8 @@ void RowSlotMap::rotateRowsUp(int count, float rowHeight)
     if (count == 0)
         return;
 
+    // std::rotate 把 [begin, begin+count) 移到末尾，等效于"整体上移 count 行"。
+    // 槽位本身不动，只调整 widgetRow 与 yTransform，避免顶点重传。
     std::rotate(_placements.begin(), _placements.begin() + count,
                 _placements.end());
     ++_mappingRevision;
@@ -125,6 +141,7 @@ void RowSlotMap::rotateRowsUp(int count, float rowHeight)
         placement.widgetRow = widgetRow;
         placement.yTransform = widgetRow * rowHeight;
         placement.mappingRevision = _mappingRevision;
+        // 末尾 count 行是滚动后"新出现"的位置，内容需重新上传。
         placement.reused = widgetRow < _placements.size() - count;
     }
 }
@@ -142,6 +159,7 @@ bool RowSlotMap::isValidPermutation(int rows) const
     if (_placements.size() != rows || _capacity != rows)
         return false;
 
+    // 校验：每行 widgetRow 与索引一致，gpuSlot 在 [0,rows) 且不重复。
     QVector<bool> seen(rows, false);
     for (int widgetRow = 0; widgetRow < rows; ++widgetRow) {
         const RowPlacement& placement = _placements[widgetRow];

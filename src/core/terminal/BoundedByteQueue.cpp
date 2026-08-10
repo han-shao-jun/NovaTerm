@@ -1,3 +1,10 @@
+/**
+ * @file   BoundedByteQueue.cpp
+ * @brief  有界环形字节队列实现。
+ *
+ * 详见 BoundedByteQueue.h 的接口说明。本文件实现环形缓冲的拷贝/等待逻辑：
+ * 当 _tail / _head 推进到 _storage 末尾时回绕到 0，从而复用已出队的存储空间。
+ */
 #include "BoundedByteQueue.h"
 
 #include <QDeadlineTimer>
@@ -9,6 +16,7 @@
 namespace NovaTerm {
 
 BoundedByteQueue::BoundedByteQueue(qsizetype capacityBytes)
+    // Qt::Uninitialized 避免无谓的 0 填充，容量下限 1 字节。
     : _storage(std::max<qsizetype>(1, capacityBytes), Qt::Uninitialized)
 {
 }
@@ -16,6 +24,7 @@ BoundedByteQueue::BoundedByteQueue(qsizetype capacityBytes)
 bool BoundedByteQueue::enqueue(QByteArrayView data, int timeoutMs,
                                qsizetype* queuedBytesAfter)
 {
+    // 空数据视为成功入队，仅返回当前字节数。
     if (data.isEmpty()) {
         if (queuedBytesAfter) {
             QMutexLocker locker(&_mutex);
@@ -23,12 +32,14 @@ bool BoundedByteQueue::enqueue(QByteArrayView data, int timeoutMs,
         }
         return true;
     }
+    // 单次入队超过队列总容量，永远不可能成功。
     if (data.size() > _storage.size())
         return false;
 
     QMutexLocker locker(&_mutex);
     QDeadlineTimer deadline(timeoutMs < 0 ? QDeadlineTimer::Forever
                                          : QDeadlineTimer(timeoutMs));
+    // 队列满时阻塞生产者，直到队列非满或被停止。
     while (!_stopped && writableBytes() < data.size()) {
         ++_producerWaits;
         if (!_notFull.wait(&_mutex, deadline)) {
@@ -58,6 +69,7 @@ QByteArray BoundedByteQueue::take(qsizetype maxBytes, int timeoutMs)
     QMutexLocker locker(&_mutex);
     QDeadlineTimer deadline(timeoutMs < 0 ? QDeadlineTimer::Forever
                                          : QDeadlineTimer(timeoutMs));
+    // 队列空时阻塞消费者，直到非空或被停止。
     while (!_stopped && _size == 0) {
         if (!_notEmpty.wait(&_mutex, deadline))
             return {};
@@ -65,6 +77,7 @@ QByteArray BoundedByteQueue::take(qsizetype maxBytes, int timeoutMs)
     if (_size == 0)
         return {};
 
+    // 最多取出请求量与当前队列内容中的较小值。
     const qsizetype length = std::min(maxBytes, _size);
     QByteArray result(length, Qt::Uninitialized);
     copyFromRing(result.data(), length);
@@ -78,6 +91,7 @@ void BoundedByteQueue::stop()
 {
     QMutexLocker locker(&_mutex);
     _stopped = true;
+    // 唤醒所有阻塞的生产者与消费者，让它们看到 _stopped 后退出。
     _notEmpty.wakeAll();
     _notFull.wakeAll();
 }
@@ -102,8 +116,10 @@ qsizetype BoundedByteQueue::writableBytes() const
 
 void BoundedByteQueue::copyIntoRing(const char* source, qsizetype length)
 {
+    // 第一段：从 _tail 到数组末尾能写入的部分。
     const qsizetype first = std::min(length, _storage.size() - _tail);
     std::memcpy(_storage.data() + _tail, source, size_t(first));
+    // 第二段：剩余部分回绕到数组开头。
     const qsizetype second = length - first;
     if (second > 0)
         std::memcpy(_storage.data(), source + first, size_t(second));
@@ -112,6 +128,7 @@ void BoundedByteQueue::copyIntoRing(const char* source, qsizetype length)
 
 void BoundedByteQueue::copyFromRing(char* destination, qsizetype length)
 {
+    // 与 copyIntoRing 对称：先读 _head 到末尾，再回绕读剩余部分。
     const qsizetype first = std::min(length, _storage.size() - _head);
     std::memcpy(destination, _storage.constData() + _head, size_t(first));
     const qsizetype second = length - first;

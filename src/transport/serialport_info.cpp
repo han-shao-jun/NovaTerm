@@ -1,3 +1,11 @@
+/**
+ * @file   serialport_info.cpp
+ * @brief  串口枚举与热插拔监控实现。
+ *
+ * 平台相关部分用 #ifdef 隔离：
+ *   • Windows: 注册设备接口通知，在 nativeEvent() 中处理 WM_DEVICECHANGE。
+ *   • Linux  : udev monitor 通过 QSocketNotifier 异步通知设备变化。
+ */
 #include "serialport_info.h"
 
 #include <QCollator>
@@ -8,10 +16,9 @@ SerialPortInfo::SerialPortInfo(QWidget *parent) : QWidget(parent)
     setParent(parent);
     hide();
 #ifdef Q_OS_WINDOWS
-    // RegisterDeviceNotification requires an HWND, so registerEvent() calls
-    // winId(). Doing that while SessionPage is still being constructed makes
-    // Qt create the native widget hierarchy before its layouts have settled,
-    // leaving stale first-frame painting until the dialog is resized.
+    // RegisterDeviceNotification 需要 HWND，故 registerEvent() 内部会调用 winId()。
+    // 若在 SessionPage 构造阶段立即调用，会迫使 Qt 在布局就绪前创建原生窗口层级，
+    // 导致首帧残留脏绘制，直到对话框被重新调整大小才刷新。故推迟到事件循环。
     QTimer::singleShot(0, this, [this]() { registerEvent(); });
 #else
     registerEvent();
@@ -37,10 +44,15 @@ SerialPortInfo::~SerialPortInfo()
 #ifdef Q_OS_WINDOWS
 
 /**
- * @brief 注册windos平台串口插拔事件
+ * @brief 注册 Windows 平台串口插拔事件。
+ *
+ * 通过 RegisterDeviceNotification 订阅设备接口变更通知，
+ * 收到 WM_DEVICECHANGE 后在 nativeEvent() 中分发处理。
  */
 void SerialPortInfo::registerEvent()
 {
+    // 备用设备接口 GUID 列表：仅启用 GUID_DEVINTERFACE_COMPORT（串口），
+    // 其余条目注释保留供日后扩展（USB/HID/磁盘/并口等）参考。
     static const GUID GUID_DEVINTERFACE_LIST[] = {
         // GUID_DEVINTERFACE_USB_DEVICE
         //    {0xA5DCBF10, 0x6530, 0x11D2, { 0x90, 0x1F, 0x00, 0xC0, 0x4F, 0xB9, 0x51, 0xED } },
@@ -79,11 +91,11 @@ void SerialPortInfo::registerEvent()
 #if (QT_VERSION >= QT_VERSION_CHECK(6, 0, 0))
 
 /**
- * @brief 处理windos平台自定义的事件
- * @param eventType 事件类型
- * @param message 消息
- * @param result 处理结果
- * @return
+ * @brief 处理 Windows 平台原生设备变更事件（WM_DEVICECHANGE）。
+ * @param eventType 原生事件类型（此处为 "windows_generic_MSG"）。
+ * @param message   指向 MSG 结构的指针。
+ * @param result    事件处理结果输出（本实现始终不拦截，返回 false）。
+ * @return 是否拦截该事件（false 表示交由 Qt 继续派发）。
  */
 bool SerialPortInfo::nativeEvent(const QByteArray &eventType, void *message, qintptr *result)
 #else
@@ -195,11 +207,11 @@ void SerialPortInfo::onDeviceChanged()
 #if (QT_VERSION >= QT_VERSION_CHECK(6, 0, 0))
 
 /**
- * @brief 处理linux平台自定义的事件（预留，linux下不需要处理原生事件）
- * @param eventType 事件类型
- * @param message 消息
- * @param result 处理结果
- * @return
+ * @brief 处理 Linux 平台原生事件（预留：Linux 通过 udev 监控，不需处理原生事件）。
+ * @param eventType 事件类型（忽略）。
+ * @param message   消息（忽略）。
+ * @param result    处理结果（忽略）。
+ * @return 始终为 false（不拦截任何原生事件）。
  */
 bool SerialPortInfo::nativeEvent(const QByteArray &eventType, void *message, qintptr *result)
 #else

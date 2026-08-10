@@ -1,3 +1,12 @@
+/**
+ * @file   SettingsPage.h
+ * @brief  设置视图（ElaScrollPage）。
+ *
+ * 管理语言、主题（含"自动 = 跟随系统"），以及宿主 ElaWindow 的外观
+ *（绘制模式、窗口特效、导航栏模式、页面切换动画）。窗口相关控件作用于
+ * 作为父对象传入的 ElaWindow，因此本页面在对话框内显示时仍然可用。
+ * 通过 Q_INVOKABLE 构造，可被反射式创建。
+ */
 #pragma once
 
 #include "ElaScrollPage.h"
@@ -17,9 +26,15 @@ public:
     Q_INVOKABLE explicit SettingsPage(QWidget* parent = nullptr);
     ~SettingsPage() override;
 
+    /**
+     * @brief 应用"跟随系统"主题（在全局启动时使用）。
+     */
     void applyAutoTheme();
 
-    // 主题 — 跟随系统（在全局启动时使用）
+    /**
+     * @brief 检测当前系统是否为深色主题。
+     * @return true 表示系统当前为深色模式。
+     */
     static bool isSystemDarkTheme();
 
     // 由程序化主题变更（自动/跟随系统）设置，置 true 后

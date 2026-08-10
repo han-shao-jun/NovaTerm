@@ -1,3 +1,10 @@
+/**
+ * @file   SessionPanel.h
+ * @brief  会话面板：历史会话树与重连/编辑入口。
+ *
+ * 通过 SessionStore 持久化会话历史，QTreeWidget 展示活跃与历史会话。
+ * 右键菜单支持重连、编辑、删除。可折叠以腾出终端空间。
+ */
 #pragma once
 
 #include "session/SessionTypes.h"
@@ -9,12 +16,14 @@
 
 class CredentialStore;
 class ElaIconButton;
-class ElaText;
 class QTreeWidget;
 class QTreeWidgetItem;
 class QResizeEvent;
 class SessionStore;
 
+/**
+ * @brief 会话面板控件：历史会话树 + 重连/编辑。
+ */
 class SessionPanel final : public QWidget
 {
     Q_OBJECT
@@ -60,7 +69,6 @@ private:
     void saveHistory();
     [[nodiscard]] QString runtimeKey(const RuntimeConfig& runtime) const;
 
-    ElaText* _title{nullptr};
     ElaIconButton* _toggleButton{nullptr};
     QTreeWidget* _tree{nullptr};
     bool _expanded{true};

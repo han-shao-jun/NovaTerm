@@ -1,3 +1,10 @@
+/**
+ * @file   SerialHighlightRules.cpp
+ * @brief  串口日志高亮规则实现。
+ *
+ * 通过正则匹配串口输出中的错误/警告/成功/提示符关键词，映射到对应高亮角色。
+ * 所有规则均大小写不敏感，使用单词边界断言避免误匹配。
+ */
 #include "SerialHighlightRules.h"
 
 namespace NovaTerm {

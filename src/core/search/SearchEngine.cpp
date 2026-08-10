@@ -1,3 +1,13 @@
+/**
+ * @file   SearchEngine.cpp
+ * @brief  滚动历史全文搜索引擎实现。
+ *
+ * 详见 SearchEngine.h 的接口说明。本文件实现：
+ * - 把 LogicalLine 的 Cell 序列转换为可被 QRegularExpression 匹配的 QString，
+ *   并维护 utf16 偏移 → Cell 索引的映射，用于把命中区间还原为 Cell 区间；
+ * - 拒绝嵌套量词等可能导致灾难性回溯的正则形态；
+ * - 在 worker 线程中分批扫描，每批命中通过 QueuedConnection 投递给 GUI 线程。
+ */
 #include "SearchEngine.h"
 
 #include <QMetaObject>
@@ -13,15 +23,23 @@
 namespace NovaTerm {
 namespace {
 
+// 搜索模式最大长度，防止构造异常大的正则。
 constexpr qsizetype MaximumPatternLength = 16 * 1024;
+// 单行最大可搜索字符数，超过则跳过该行，避免恶意输出撑爆 QString。
 constexpr qsizetype MaximumSearchLineCharacters = 4 * 1024 * 1024;
 
+// 一行经预处理的可搜索数据：text 是供正则匹配的字符串，
+// utf16ToCell 把 text 中每个 UTF-16 码元映射回原 Cell 索引，
+// 用于把命中区间还原为 Cell 区间以便 UI 高亮。
 struct SearchableLine
 {
     QString text;
     QVector<qsizetype> utf16ToCell;
 };
 
+// 把一行 Cell 转换为可搜索字符串。cancelled 回调用于在转换过程中
+// 响应取消请求（每 256 个 Cell 检查一次）。返回 nullopt 表示行过长
+// 或被取消。
 template <typename Cancelled>
 std::optional<SearchableLine> makeSearchable(const LogicalLine& line,
                                               Cancelled cancelled)
@@ -32,9 +50,11 @@ std::optional<SearchableLine> makeSearchable(const LogicalLine& line,
     result.text.reserve(line.cells.size());
     result.utf16ToCell.reserve(line.cells.size() + 1);
     for (qsizetype cellIndex = 0; cellIndex < line.cells.size(); ++cellIndex) {
+        // 每 256 个 Cell 检查一次取消，平衡检查开销与响应延迟。
         if ((cellIndex & 0xff) == 0 && cancelled())
             return std::nullopt;
         const Cell& cell = line.cells[cellIndex];
+        // 宽字符的延续格直接跳过：它属于前一个宽 Cell。
         if (cell.isWideContinuation())
             continue;
         for (uint32_t codepoint : cell.chars) {
@@ -47,24 +67,28 @@ std::optional<SearchableLine> makeSearchable(const LogicalLine& line,
                 return std::nullopt;
             }
             result.text += encoded;
+            // 同一个 Cell 的多个码元都映射到该 Cell 索引。
             for (qsizetype i = 0; i < encoded.size(); ++i)
                 result.utf16ToCell.push_back(cellIndex);
         }
     }
+    // 哨兵：text 末尾对应行尾之后的 Cell 索引。
     result.utf16ToCell.push_back(line.cells.size());
     return result;
 }
 
+// 启发式检测可能导致灾难性回溯的正则形态：嵌套量词组
+// （如 (a+)+ ）。Qt/PCRE2 内部也有回溯限制，但显式拒绝此形态
+// 可让 worker 终止有确定上界，跨 PCRE2 构建行为一致。
 bool potentiallyUnboundedRegex(const QString& expression)
 {
-    // Nested quantified groups are the common catastrophic-backtracking form.
-    // Qt/PCRE2 has internal limits too, but rejecting this shape gives worker
-    // teardown a deterministic bound across PCRE2 builds.
     static const QRegularExpression nestedQuantifier(
         QStringLiteral(R"(\([^)]*[+*][^)]*\)\s*[+*{])"));
     return nestedQuantifier.match(expression).hasMatch();
 }
 
+// 把 UTF-16 命中区间转换为 Cell 区间。clamp 防止边界越界，
+// 末尾的退化处理保证 endCell > startCell，避免空高亮。
 SearchMatch toMatch(LineId lineId, const SearchableLine& line,
                     qsizetype start, qsizetype length)
 {
@@ -82,6 +106,7 @@ SearchMatch toMatch(LineId lineId, const SearchableLine& line,
 
 } // namespace
 
+// 搜索引擎私有实现：持有 worker 线程、待处理任务队列与代际取消状态。
 class SearchEngine::Impl
 {
 public:
@@ -103,12 +128,16 @@ public:
             std::lock_guard<std::mutex> lock(mutex);
             pending.reset();
         }
+        // 取消所有可能的代际，确保 worker 在 changed 上被唤醒后立即退出。
         cancelledGeneration.store(std::numeric_limits<quint64>::max());
         changed.notify_one();
         if (worker.joinable())
             worker.join();
     }
 
+    // 提交新搜索：把 generation-1 视为可取消代际上限，使仍在跑的上一代
+    // 搜索在下一个检查点终止；同时用 latestGeneration 拒绝乱序到达的
+    // 旧 generation 请求，保证 pending 中始终是最新搜索。
     void submit(Work work)
     {
         const quint64 previous = work.request.generation > 0
@@ -136,6 +165,7 @@ public:
                                                                generation)) {}
     }
 
+    // 判断指定 generation 是否已被取代或取消。
     bool cancelled(quint64 generation) const
     {
         return stopping.load()
@@ -163,6 +193,10 @@ public:
         publish(std::move(emitted));
     }
 
+    // 执行一次完整搜索：校验请求 → 构造正则 → 在 [startRow,endRow) 区间
+    // 逐行扫描，命中累积到 batchSize 即发布一批，扫完或命中达到上限后
+    // 发布最终批次（completed=true）。所有检查点都查询 cancelled 以
+    // 便尽快响应取消。
     void runSearch(const Work& work)
     {
         SearchBatch batch;
@@ -182,6 +216,7 @@ public:
             return;
         }
 
+        // 非正则模式：对 query 整体做正则转义，使特殊字符按字面匹配。
         QString expression = work.request.regularExpression
             ? work.request.query
             : QRegularExpression::escape(work.request.query);
@@ -205,6 +240,8 @@ public:
             return;
         }
 
+        // 把 firstLine/lastLine 的逻辑行 ID 折算为行号 rowForLineId。
+        // 未命中（返回 -1）时按 ID 落在快照区间之前/之后二分到 0/endRow。
         qsizetype startRow = 0;
         qsizetype endRow = work.snapshot.lineCount();
         if (work.request.firstLine != 0) {
@@ -237,6 +274,7 @@ public:
             const LogicalLine* logical = work.snapshot.lineAt(row);
             if (!logical)
                 continue;
+            // makeSearchable 失败可能是取消导致，需再次确认。
             const auto searchable = makeSearchable(*logical, [this, &work]() {
                 return cancelled(work.request.generation);
             });
@@ -263,6 +301,7 @@ public:
                     logical->id, line, match.capturedStart(),
                     match.capturedLength()));
                 ++resultCount;
+                // 命中累积到 batchSize 即发布一批并清空，避免内存堆积。
                 if (batch.matches.size() >= batchSize) {
                     batch.scannedLines = row - startRow + 1;
                     publishMatches(batch);
@@ -276,6 +315,9 @@ public:
         publish(std::move(batch));
     }
 
+    // worker 线程主循环：阻塞等待 pending 任务，取出后执行 runSearch。
+    // 任何异常都被捕获并转换为 error 批次发布，保证 worker 不会因
+    // 异常退出而死锁 submit 调用方。
     void run()
     {
         for (;;) {

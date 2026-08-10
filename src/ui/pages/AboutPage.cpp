@@ -1,3 +1,7 @@
+/**
+ * @file   AboutPage.cpp
+ * @brief  关于页面实现：版本信息与多语言文本构建。
+ */
 #include "AboutPage.h"
 #include "ElaText.h"
 #include "service/LanguageManager.h"

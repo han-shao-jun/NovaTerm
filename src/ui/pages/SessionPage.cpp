@@ -1,3 +1,10 @@
+/**
+ * @file   SessionPage.cpp
+ * @brief  会话选择页面实现：多协议标签页 UI 构建与配置收集。
+ *
+ * 按 4 个标签页（本地 Shell / SSH / 串口 / Telnet）构建控件，Confirm 时
+ * 从控件收集配置并通过信号上报。applyRuntimeConfig() 用于编辑已有会话时回填。
+ */
 #include "SessionPage.h"
 #include "ElaComboBox.h"
 #include "ElaPushButton.h"
@@ -335,7 +342,7 @@ void SessionPage::initSshUi()
     grid->setVerticalSpacing(12);
     grid->setColumnStretch(1, 1);
 
-    // Connection
+    // 连接
     addFormLabel(grid, 0, tr("IPv4 Address"), page);
     _sshIp = new ElaLineEdit(page);
     _sshIp->setPlaceholderText(tr("IPv4 address, e.g. 192.168.0.1"));
@@ -348,7 +355,7 @@ void SessionPage::initSshUi()
     configurePortSpinBox(_sshPort, 22);
     grid->addWidget(_sshPort, 1, 1);
 
-    // Authentication
+    // 认证
     addFormLabel(grid, 2, tr("User Name"), page);
     _sshUserName = new ElaLineEdit(page);
     _sshUserName->setPlaceholderText(tr("User name"));
@@ -385,7 +392,7 @@ void SessionPage::initSshUi()
     _sshKeyPassphrase->setEchoMode(QLineEdit::Password);
     grid->addWidget(_sshKeyPassphrase, 6, 1);
 
-    // Terminal behavior
+    // 终端行为
     addFormLabel(grid, 7, tr("Terminal Type"), page);
     _sshTerminalType = new ElaComboBox(page);
     populateTerminalTypes(_sshTerminalType);
@@ -439,7 +446,7 @@ void SessionPage::initSerialUi()
     grid->setVerticalSpacing(12);
     grid->setColumnStretch(1, 1);
 
-    // Serial device and framing
+    // 串口设备与帧格式
     addFormLabel(grid, 0, tr("Port"), page);
     _portCombo = new ElaComboBox(page);
     grid->addWidget(_portCombo, 0, 1);

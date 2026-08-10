@@ -1,3 +1,11 @@
+/**
+ * @file   TerminalRenderer.cpp
+ * @brief  基于 QRhi 的终端渲染 Widget 实现。
+ *
+ * 详见 TerminalRenderer.h。本文件实现 QRhiWidget 的 initialize/release/
+ * render 生命周期、cell → RenderCommand 转换、字形栅格化调度、顶点缓冲
+ * 上传与 GPU 提交。
+ */
 #include "TerminalRenderer.h"
 #include "core/terminal/TerminalCore.h"
 #include <QPainter>
@@ -22,8 +30,8 @@
 static constexpr int kScrollWheelLines = 3;
 static constexpr int kMinTerminalFontSize = 8;
 static constexpr int kMaxTerminalFontSize = 32;
-// terminal_texture.vert uses a fixed-size std140 placement array. Keep CPU
-// bounds in one named constant and make the shader reject slots outside it.
+// terminal_texture.vert 使用固定大小的 std140 placement 数组。CPU 端
+// 把上界集中到一个命名常量，shader 拒绝越界槽位。
 static constexpr int kMaxGpuPlacementRows = 256;
 static constexpr qsizetype kCpuFrameSampleCapacity = 2048;
 static constexpr quint64 kCpuFrameBudgetNanoseconds = 16666667;
@@ -33,10 +41,9 @@ static QImage alphaCoverageFromRgb(const QImage& rgbImage, qreal dpr)
     QImage coverage(rgbImage.size(), QImage::Format_RGBA8888);
     coverage.setDevicePixelRatio(dpr);
 
-    // An opaque RGB paint device allows the Windows font engine to retain its
-    // per-channel sub-pixel coverage. The terminal shader needs one portable
-    // coverage value, so convert the RGB samples to luminance without applying
-    // a second sharpening or thresholding pass.
+    // 不透明 RGB 绘制设备让 Windows 字体引擎保留其逐通道子像素覆盖。
+    // 终端 shader 只需一个可移植的覆盖值，因此把 RGB 采样转为亮度，
+    // 不再做第二次锐化或阈值处理。
     for (int y = 0; y < rgbImage.height(); ++y) {
         const QRgb* source = reinterpret_cast<const QRgb*>(rgbImage.constScanLine(y));
         uchar* destination = coverage.scanLine(y);
@@ -88,11 +95,9 @@ static const char* rhiApiName(QRhiWidget::Api api)
 }
 
 TerminalRenderer::TerminalRenderer(TerminalCore* core, QWidget* parent)
-    // QRhiWidget::setApi() must run before the widget is inserted into a
-    // widget hierarchy. Passing parent to the base constructor would attach
-    // the widget before the constructor body gets a chance to select an API,
-    // potentially leaving the top-level window and this widget with different
-    // QRhi backends.
+    // QRhiWidget::setApi() 必须在 widget 插入控件树之前调用。若把 parent
+    // 传给基类构造函数，widget 会在构造函数体有机会选择 API 之前就被挂入
+    // 控件树，可能导致顶层窗口与本 widget 使用不同的 QRhi 后端。
     : QRhiWidget(nullptr)
     , _core(core)
     , _scheme(TerminalColorScheme::defaultDark())
@@ -105,9 +110,8 @@ TerminalRenderer::TerminalRenderer(TerminalCore* core, QWidget* parent)
     setCursor(Qt::IBeamCursor);
     setAutoFillBackground(true);
 
-    // The application UI font is proportional and must not be used for a
-    // terminal grid. Keep a dedicated monospace font whose advance matches the
-    // fixed cell width.
+    // 应用 UI 字体是比例字体，不能用于终端网格。保留一个专用等宽字体，
+    // 其 advance 与固定 cell 宽度一致。
 #ifdef Q_OS_WIN
     _font.setFamilies({QStringLiteral("Cascadia Mono"),
                        QStringLiteral("Consolas"),
@@ -207,12 +211,10 @@ TerminalRenderer::TerminalRenderer(TerminalCore* core, QWidget* parent)
             selectionChanged = true;
         }
 
-        // At the live bottom, a scrollback append is accompanied by damage for
-        // the active screen in the same parser publication. Scheduling a full
-        // frame here would turn every output batch (especially shell/Clink
-        // startup) into a complete CPU rebuild and GPU upload. A full rebuild
-        // is only required while history rows are actually mapped into the
-        // viewport or when clamping changed that mapping.
+        // 在活动底部，一次 scrollback 追加会伴随同一批 parser 发布中的
+        // 活动屏幕 damage。若在此调度全屏帧，会把每个输出批次（尤其是
+        // shell/Clink 启动）变成完整的 CPU 重建与 GPU 上传。只有当历史行
+        // 真正映射进视口、或夹紧改变了该映射时才需要全量重建。
         if (viewportMappingChanged) {
             ++_viewportMappingRevision;
             requestFullFrame();
@@ -223,12 +225,10 @@ TerminalRenderer::TerminalRenderer(TerminalCore* core, QWidget* parent)
         if (_scrollLine > 0) {
             _reflowDebounce->start();
         } else {
-            // Historical layout is not part of the live-bottom viewport.
-            // Reflowing an ever-growing scrollback here can eventually steal
-            // enough CPU to make the renderer miss damage publications and
-            // promote otherwise incremental scrolls to full-row recovery.
-            // Invalidate the cached layout and rebuild it lazily when the
-            // user actually enters history.
+            // 历史布局不属于活动底部视口。在此对不断增长的 scrollback
+            // 做 reflow 最终会占用足够多 CPU，使渲染器错过 damage 发布，
+            // 把本可增量的滚动提升为整行恢复。先失效缓存布局，等用户
+            // 真正进入历史时再懒重建。
             discardHistoryLayout();
         }
     });
@@ -240,8 +240,8 @@ TerminalRenderer::TerminalRenderer(TerminalCore* core, QWidget* parent)
             _pendingLiveScrollRows += rows;
             ++_viewportMappingRevision;
         } else {
-            // History is mapped into the viewport, so row identities rather
-            // than the live-screen ring determine placement.
+            // 历史已映射进视口，因此由行 identity 而非活动屏环形缓冲决定
+            // 槽位分配。
             requestFullFrame();
         }
     });
@@ -268,9 +268,8 @@ TerminalRenderer::TerminalRenderer(TerminalCore* core, QWidget* parent)
                 }
             }
         }
-        // Reflow changes only historical mapping. At the live bottom the
-        // active screen identity and placement are unchanged, so rebuilding
-        // base content would violate the mapping-only contract.
+        // Reflow 只改变历史映射。在活动底部，活动屏 identity 与槽位分配
+        // 不变，重建基础内容会违反"仅映射"约定。
         if (_scrollLine > 0) {
             ++_viewportMappingRevision;
             requestFullFrame();
@@ -281,9 +280,8 @@ TerminalRenderer::TerminalRenderer(TerminalCore* core, QWidget* parent)
         qWarning() << "TerminalRenderer: QRhi render failed. Set NOVATERM_RHI_API=d3d11, d3d12, vulkan, or opengl to try another backend.";
     });
 
-    // The parent may already belong to a visible top-level window, and
-    // setParent() can synchronously deliver polish/layout events. Attach only
-    // after every renderer member and connection has been initialized.
+    // parent 可能已属于可见顶层窗口，setParent() 可能同步投递 polish/
+    // layout 事件。等所有渲染器成员与连接都初始化完成后再挂入控件树。
     if (parent)
         setParent(parent);
 }
@@ -623,9 +621,8 @@ void TerminalRenderer::render(QRhiCommandBuffer* cb)
     if (!_atlasTexture || !_pipeline || !_srb)
         return;
 
-    // Take ownership of this frame's requests up front. New requests arriving
-    // while commands are built remain queued for the next frame instead of
-    // invalidating this iteration or being erased at the end of this one.
+    // 预先接管本帧的所有请求。构建命令期间到达的新请求留到下一帧，
+    // 而不是让本帧迭代失效或在帧尾被擦除。
     QVector<NovaTerm::DirtyRegion> pendingDirtyRegions;
     bool fullFramePending = false;
     bool overlayPending = false;
@@ -635,11 +632,10 @@ void TerminalRenderer::render(QRhiCommandBuffer* cb)
         const QMutexLocker lock(&_pendingFrameMutex);
         pendingDirtyRegions.swap(_pendingDirtyRegions);
         fullFramePending = std::exchange(_fullFramePending, false);
-        // requestFullFrame() and RenderScheduler::frameRequested() are
-        // asynchronous. An already queued incremental QRhi frame can render
-        // between them; do not let that earlier frame consume the intent that
-        // protects a resize/font/resource rebuild from the live-scroll fast
-        // path. Retire the intent only together with an actual full frame.
+        // requestFullFrame() 与 RenderScheduler::frameRequested() 都是异步的。
+        // 两者之间可能插入一个已排队的增量 QRhi 帧；不能让那个更早的
+        // 帧消费掉保护 resize/字体/资源重建免受 live-scroll 快路径影响的
+        // 意图。只有伴随真正的全屏帧时才退役该意图。
         explicitFullPending = _explicitFullPending;
         if (fullFramePending)
             _explicitFullPending = false;
@@ -674,9 +670,8 @@ void TerminalRenderer::render(QRhiCommandBuffer* cb)
         _rowContentIdentities.fill(0, rows);
 
 
-    // A live-bottom terminal scroll commonly arrives as full-screen damage.
-    // Rotate row-local CPU commands and GPU slots, then rebuild only entering
-    // rows. Explicit font/theme/resize/resource invalidation still wins.
+    // 活动底部的终端滚动通常以全屏 damage 形式到达。旋转行局部 CPU 命令
+    // 与 GPU 槽位，再只重建进入的行。显式字体/主题/resize/资源失效仍优先。
     bool liveScrollRotated = false;
     if (!explicitFullPending && _pendingLiveScrollRows > 0
         && _commandBuffer.rows() == rows) {
@@ -727,10 +722,9 @@ void TerminalRenderer::render(QRhiCommandBuffer* cb)
         screen = _core->rendererSnapshot(dirtyRows, _scrollLine,
                                          _scrollAnchorLine,
                                          _scrollAnchorWrap);
-        // The parser may publish another batch after its model lock is
-        // released but before the queued damage signal reaches the GUI
-        // thread. If this snapshot is newer than all damage delivered to the
-        // scheduler, sparse rows are not a complete description of it.
+        // parser 可能在释放模型锁之后、排队 damage 信号到达 GUI 线程之前
+        // 再发布一批。若此快照比已送达调度器的所有 damage 都新，稀疏行
+        // 并不能完整描述它。
         if (!fullFramePending
             && screen.revision > requestedContentRevision) {
             if (screen.visibleRowRevisions.size() == rows
@@ -771,11 +765,10 @@ void TerminalRenderer::render(QRhiCommandBuffer* cb)
             rows = screen.rows;
             columns = screen.columns;
             _commandBuffer.resize(rows, columns);
-            // The model resize is asynchronous. It can become visible only
-            // after this frame has already prepared the old row-slot map.
-            // Reset both together before rebuilding/uploading; otherwise a
-            // shrunken grid may retain slots outside [0, rows), whose zeroed
-            // placement entries draw several character rows at y=0.
+            // 模型 resize 是异步的，只有在本帧已用旧行槽映射准备后才变
+            // 可见。在重建/上传前一并重置两者；否则缩小后的网格可能保留
+            // [0, rows) 之外的槽位，其零值 placement 项会把多个字符行画在
+            // y=0 处。
             resetWidgetRowMapping(rows);
             liveScrollRotated = false;
             dirtyRows.fill(true, rows);
@@ -789,12 +782,10 @@ void TerminalRenderer::render(QRhiCommandBuffer* cb)
                                              _scrollAnchorWrap);
         }
 
-        // A parser publication may both scroll and update an unrelated row
-        // (for example, a serial status line). The scroll fast path replaces
-        // full-screen scroll damage with only the entering rows, so reconcile
-        // every retained row against the final snapshot identity even when the
-        // snapshot and delivered damage have the same revision. Otherwise the
-        // extra update remains stale until an unrelated full-frame resize.
+        // 一次 parser 发布可能既滚动又更新无关行（如串口状态行）。滚动快
+        // 路径用仅含进入行的 damage 替换全屏滚动 damage，因此即使快照与
+        // 已送达 damage revision 相同，也要把每个保留行与最终快照 identity
+        // 对账。否则那次额外更新会一直陈旧，直到一次无关的全屏 resize。
         if (liveScrollRotated
             && screen.visibleRowIdentities.size() == rows) {
             const QVector<int> recovered =
@@ -826,8 +817,8 @@ void TerminalRenderer::render(QRhiCommandBuffer* cb)
     for (int attempt = 0;
          attempt < 3 && (atlasResetDuringBuild || staleAtlasRows);
          ++attempt) {
-        // Never draw cached UVs from a previous atlas generation. Reacquire a
-        // complete snapshot and repair every row in the same frame.
+        // 绝不绘制来自上一代 atlas 的缓存 UV。重新获取完整快照并在同一帧
+        // 内修复所有行。
         dirtyRows.fill(true);
         for (int row = 0; row < rows; ++row)
             dirtySpans[row] = {{0, columns}};
@@ -1048,7 +1039,7 @@ void TerminalRenderer::mousePressEvent(QMouseEvent* event)
         _selEnd    = {row, col};
         requestOverlayFrame();
     } else {
-        // Non-selection mouse buttons are encoded by TerminalCore.
+        // 非选区鼠标按键由 TerminalCore 编码处理。
         _core->processMousePress(event);
     }
 }
@@ -1162,10 +1153,9 @@ void TerminalRenderer::focusOutEvent(QFocusEvent* event)
 bool TerminalRenderer::focusNextPrevChild(bool next)
 {
     Q_UNUSED(next);
-    // Tab and Shift+Tab are terminal input (completion / reverse completion),
-    // not QWidget focus-navigation keys. Returning false makes QWidget::event()
-    // continue dispatching them to keyPressEvent(), so the renderer keeps
-    // keyboard focus and libvterm emits the corresponding escape sequence.
+    // Tab 与 Shift+Tab 是终端输入（补全 / 反向补全），而非 QWidget 的
+    // 焦点导航键。返回 false 让 QWidget::event() 继续把它们分派给
+    // keyPressEvent()，渲染器保留键盘焦点，libvterm 发出对应转义序列。
     return false;
 }
 
@@ -1175,8 +1165,7 @@ bool TerminalRenderer::focusNextPrevChild(bool next)
 
 void TerminalRenderer::recalculateCellSize()
 {
-    // For a monospace terminal the cell width follows the font advance, not
-    // the visual ink bounds of an individual glyph.
+    // 对等宽终端，cell 宽度跟随字体 advance，而非单个字形的视觉墨水边界。
     _cellWidth  = _fm->horizontalAdvance(QLatin1Char('M'));
     if (_cellWidth < 4) _cellWidth = 8;  // 安全下限
     _cellHeight = _fm->height();
@@ -1275,8 +1264,8 @@ void TerminalRenderer::ensureAtlasTexture()
         return;
     if (!qFuzzyCompare(_atlasDpr, devicePixelRatioF())) {
         resetGlyphAtlas();
-        // Cached glyph commands refer to atlas pixels generated at the old
-        // DPR. Rebuild every row before drawing against the new atlas.
+        // 缓存的字形命令引用的是旧 DPR 下生成的 atlas 像素。在用新 atlas
+        // 绘制前重建每一行。
         const QMutexLocker lock(&_pendingFrameMutex);
         _fullFramePending = true;
         _overlayPending = true;
@@ -1316,9 +1305,8 @@ void TerminalRenderer::ensurePipeline()
     }
 
     if (!_sampler) {
-        // The glyph atlas is rasterized at the widget's physical DPR. Sampling
-        // it without interpolation keeps the cached coverage from being
-        // blurred a second time by the GPU.
+        // 字形 atlas 在 widget 的物理 DPR 下栅格化。无插值采样可避免缓存
+        // 覆盖值被 GPU 再次模糊。
         _sampler.reset(_rhi->newSampler(QRhiSampler::Nearest,
                                         QRhiSampler::Nearest,
                                         QRhiSampler::None,
@@ -1609,9 +1597,8 @@ void TerminalRenderer::rebuildCommandRow(
     backgrounds.reserve(screen.columns);
     contents.reserve(screen.columns);
 
-    // A token entering or leaving a row can change the semantic colour of all
-    // default-colour cells on that row, so incremental column reuse is unsafe
-    // while highlighting is enabled.
+    // 一个 token 进入或离开某行会改变该行所有默认色 cell 的语义着色，
+    // 因此启用高亮时增量列复用不安全。
     const bool replaceAll = !_highlightRules.isEmpty() || dirtySpans.isEmpty()
         || (dirtySpans.size() == 1 && dirtySpans.front().startColumn <= 0
             && dirtySpans.front().endColumn >= screen.columns);
@@ -1845,8 +1832,8 @@ bool TerminalRenderer::ensureVertexBuffer(int rows, int columns)
             contentStride,
             int(_commandBuffer.row(row).contents.size()));
     }
-    // Capacities only grow during a resource lifetime. A temporary complex
-    // row must not move every following row back and forth between offsets.
+    // 资源生命周期内容量只增不减。一次临时复杂行不应让后续每行在偏移间
+    // 来回移动。
     backgroundStride = std::max(backgroundStride,
                                 _backgroundRowStrideVertices);
     contentStride = std::max(contentStride, _contentRowStrideVertices);
@@ -1975,9 +1962,8 @@ void TerminalRenderer::uploadAtlasChanges(QRhiResourceUpdateBatch* updates)
     if (!_atlasTexture || !updates)
         return;
     NovaTerm::GlyphAtlas& atlas = _glyphCache.atlas();
-    // Resource recovery/full invalidation is a separately measured cold path.
-    // Complete it atomically so no valid command samples a not-yet-resident
-    // page; ordinary incremental rects retain the configured frame budget.
+    // 资源恢复/整页失效是单独计量的冷路径。原子地完成它，使任何有效
+    // 命令都不会采样到尚未驻留的页；普通增量矩形保留配置的帧预算。
     const quint64 uploadBudget = atlas.hasFullPageUploads()
         ? std::numeric_limits<quint64>::max() : 0;
     const auto uploads = atlas.takeUploads(uploadBudget);
@@ -1991,12 +1977,11 @@ void TerminalRenderer::uploadAtlasChanges(QRhiResourceUpdateBatch* updates)
         _renderStatistics.atlasUploadBytes += bytes;
         _renderStatistics.gpuUploadBytes += bytes;
     }
-    // Upload budgets may defer a page/rect. Ensure eventual residency even
-    // when no new terminal Damage or Overlay event arrives.
+    // 上传预算可能让某页/矩形延后。即使没有新的终端 Damage 或 Overlay
+    // 事件到达，也要保证最终驻留。
     if (atlas.hasPendingUploads()) {
-        // QRhiWidget may coalesce update() called from inside its active
-        // render callback. Queue it onto the GUI event loop so it represents
-        // a distinct follow-up frame.
+        // QRhiWidget 可能合并从其活跃 render 回调内部调用的 update()。
+        // 把它排到 GUI 事件循环，使其代表一个独立的后续帧。
         QMetaObject::invokeMethod(this, [this]() { requestOverlayFrame(); },
                                   Qt::QueuedConnection);
     }

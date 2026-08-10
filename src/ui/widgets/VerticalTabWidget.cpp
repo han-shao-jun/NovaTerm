@@ -1,3 +1,10 @@
+/**
+ * @file   VerticalTabWidget.cpp
+ * @brief  垂直选项卡复合控件实现。
+ *
+ * 左侧 ElaPushButton 按钮组 + 右侧 ElaCentralStackedWidget 堆栈页面。
+ * 按钮点击切换堆栈页面，API 对齐 QTabWidget。
+ */
 #include "VerticalTabWidget.h"
 
 #include "ElaCentralStackedWidget.h"

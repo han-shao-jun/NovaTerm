@@ -1,3 +1,11 @@
+/**
+ * @file   LanguageManager.cpp
+ * @brief  运行时语言切换器实现。
+ *
+ * loadTranslations() 从 Qt 资源（:/i18n/）预加载 .qm 翻译器。
+ * install() 按首选 → zh_CN → en 优先级安装并发射信号。
+ * switchLanguage() 移除旧翻译器、安装新翻译器后发射 languageChanged。
+ */
 #include "LanguageManager.h"
 #include <QCoreApplication>
 #include <QDebug>

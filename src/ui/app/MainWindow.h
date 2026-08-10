@@ -1,3 +1,11 @@
+/**
+ * @file   MainWindow.h
+ * @brief  无边框主窗口（ElaWindow）。
+ *
+ * 左侧导航栏已禁用；标题栏仅显示应用 Logo 和一个菜单按钮，其弹出菜单可
+ * 导航至会话 / 设置 / 关于。设置和关于以对话框形式打开，而非导航页面。
+ * 持有终端页面并连接实时语言切换。
+ */
 #pragma once
 #include "ElaWindow.h"
 #include "ui/pages/TerminalPage.h"
@@ -12,10 +20,11 @@
 class ElaDialog;
 class SessionPanel;
 
-// 无边框主窗口（ElaWindow）。左侧导航栏已禁用；标题栏仅显示应用
-// Logo 和一个菜单按钮，其弹出菜单可导航至 会话 / 设置 / 关于。
-// 设置和关于以对话框形式打开，而非导航页面。
-// 持有终端页面并连接实时语言切换。
+/**
+ * @brief 无边框主窗口。
+ *
+ * 标题栏单图标 → 弹出菜单导航；会话/设置/关于均以对话框形式打开。
+ */
 class MainWindow : public ElaWindow
 {
     Q_OBJECT
@@ -45,7 +54,7 @@ private:
     SessionPanel* _sessionPanel{nullptr};
 
     // ── 会话选择器（ElaDialog）──
-    // Active selector only; recreated after each accept/reject.
+    // 仅保持当前活跃的选择器；每次接受/拒绝后重建。
     struct LocalSessionParameters
     {
         TerminalView::LocalShellType type{TerminalView::LocalShellType::Cmd};
@@ -73,5 +82,9 @@ private:
     void showAboutDialog();
 
 public:
+    /**
+     * @brief 处理标题栏命中测试（Q_INVOKABLE，供导航命中测试回调）。
+     * @return true 表示命中可拖拽区域。
+     */
     Q_INVOKABLE bool processHitTest();
 };

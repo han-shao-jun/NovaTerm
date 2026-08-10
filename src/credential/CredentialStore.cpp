@@ -1,3 +1,11 @@
+/**
+ * @file   CredentialStore.cpp
+ * @brief  凭据存储实现：Windows Credential Manager 与内存回退。
+ *
+ * Windows 平台通过 CredWriteW/CredReadW/CredDeleteW 对接 Credential Manager，
+ * 凭据目标名统一为 "NovaTerm/<reference>"。其他平台回退到 MemoryCredentialStore，
+ * 析构时主动清零内存。
+ */
 #include "CredentialStore.h"
 
 #ifdef Q_OS_WIN

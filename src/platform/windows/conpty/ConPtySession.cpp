@@ -1,3 +1,11 @@
+/**
+ * @file   ConPtySession.cpp
+ * @brief  ConPTY 会话实现：启动、I/O 线程与有序关闭。
+ *
+ * 启动阶段建立管道、伪控制台与进程（挂起→Job→恢复）。三个工作线程
+ * 分别负责读、写、进程等待。关闭流程顺序回收：writer→输入管道→进程→
+ * 伪控制台（专用 closer 线程）→reader，避免队列满与 ConPTY 管道满死锁。
+ */
 #include "ConPtySession.h"
 
 #include <QMetaObject>
@@ -184,8 +192,8 @@ ConPtySession::ConPtySession(LocalShellConfig config, int columns, int rows,
 
 ConPtySession::~ConPtySession()
 {
-    // The owner deletes this object only after closed(); all native waits and
-    // joins therefore already ran on the lifecycle thread.
+    // 所有者在 closed() 之后才析构本对象，故所有原生等待与线程 join
+    // 已在生命周期线程上完成，此处仅断言确认线程已不可 join。
     Q_ASSERT(!_readerThread.joinable());
     Q_ASSERT(!_writerThread.joinable());
     Q_ASSERT(!_processWaitThread.joinable());
@@ -341,8 +349,8 @@ bool ConPtySession::createStartupResources(StartupResources& resources,
     }
     resources.pseudoConsole.reset(pseudoConsole);
 
-    // Once ConPTY has duplicated its pipe ends, the host must release them so
-    // EOF can propagate during shutdown.
+    // ConPTY 已复制其所需的管道端，宿主必须释放原始端，否则关闭时
+    // EOF 无法正确传播。
     resources.inputRead.reset();
     resources.outputWrite.reset();
     return true;
@@ -942,8 +950,8 @@ void ConPtySession::continueCloseAfterWriter()
                                .arg(windowsErrorMessage(GetLastError())));
     }
     if (_process && processExitCode == STILL_ACTIVE) {
-        // Closing the kill-on-close job terminates the complete shell tree,
-        // including Clink helpers and grandchildren that inherited ConPTY.
+        // 关闭 kill-on-close Job 会终止整个 shell 进程树，包括 Clink
+        // 辅助进程及继承了 ConPTY 的孙进程。
         closeNativeHandle(_job, QStringLiteral("CloseHandle(job)"));
     } else if (processExitCode != STILL_ACTIVE) {
         closeNativeHandle(_job, QStringLiteral("CloseHandle(job)"));
@@ -983,10 +991,9 @@ void ConPtySession::continueCloseAfterWriter()
     _readPaused.store(false, std::memory_order_release);
     _outputChanged.notify_all();
 
-    // ClosePseudoConsole can synchronously wait for the client and for output
-    // consumption. Run it on a dedicated closer while this lifecycle thread
-    // keeps draining the bounded reader queue, otherwise a full queue and a
-    // full ConPTY output pipe can form a shutdown deadlock.
+    // ClosePseudoConsole 可能同步等待客户端与输出消费。放在专用 closer 线程
+    // 执行，本生命周期线程继续 drain 有界 reader 队列；否则队列满与
+    // ConPTY 输出管道满会互相死锁导致关闭卡死。
     _pseudoCloseState = std::make_shared<AsyncPseudoConsoleClose>();
     _pseudoCloseState->closed = !_pseudoConsole;
     tryStartPseudoConsoleCloser();

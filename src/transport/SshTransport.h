@@ -1,3 +1,14 @@
+/**
+ * @file   SshTransport.h
+ * @brief  SSH 传输：基于 libssh 的 ITransport 实现。
+ *
+ * libssh 会话 API 是同步阻塞的，因此本类将整个会话生命周期放在一个
+ * 专用工作线程中，GUI 线程通过原子量 / 互斥队列提交请求：
+ *   GUI 线程 → 工作线程：connectToHost()/write()/resizeTerminal()/disconnect()
+ *   工作线程 → GUI 线程：通过 QueuedConnection 投递信号（connected()/readyRead()等）
+ *
+ * 密码、私钥口令仅存在于 SshConfig 构造快照中，不写入日志或配置文件。
+ */
 #pragma once
 
 #include "ITransport.h"

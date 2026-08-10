@@ -1,3 +1,10 @@
+/**
+ * @file   RendererCapabilities.cpp
+ * @brief  渲染后端能力探测实现。
+ *
+ * 详见 RendererCapabilities.h。detect() 查询 QRhi 的特性支持位，
+ * 并记录退化原因以便诊断为何走慢路径。
+ */
 #include "RendererCapabilities.h"
 
 #include <rhi/qrhi.h>
@@ -22,9 +29,9 @@ RendererCapabilities RendererCapabilities::detect(QRhi* rhi)
     case QRhi::Metal: result.backend = QStringLiteral("Metal"); break;
     case QRhi::Null: result.backend = QStringLiteral("Null"); break;
     }
-    // QRhi exposes portable partial upload and instanced draw APIs. Texture
-    // arrays and preserved render-target contents are intentionally disabled
-    // until a backend-specific proof is available; batching remains per page.
+    // QRhi 提供可移植的纹理子区域上传与实例化绘制 API。纹理数组与
+    // 保留渲染目标内容在获得各后端专项验证前刻意禁用，atlas 批次
+    // 仍按页单独绘制。
     result.partialTextureUploads = true;
     result.instancing = rhi->isFeatureSupported(QRhi::Instancing);
     result.textureArrays = rhi->isFeatureSupported(QRhi::TextureArrays);
