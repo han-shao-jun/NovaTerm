@@ -26,6 +26,7 @@
 #include "service/LanguageManager.h"
 #include "service/ConfigManager.h"
 #include <QApplication>
+#include <QDockWidget>
 #include <QEvent>
 #include <QHBoxLayout>
 #include <QIcon>
@@ -166,6 +167,7 @@ void MainWindow::retranslateUi()
     if (_sshSessionAction)    _sshSessionAction->setText(tr("SSH"));
     if (_serialSessionAction) _serialSessionAction->setText(tr("Serial"));
     if (_telnetSessionAction) _telnetSessionAction->setText(tr("Telnet"));
+    if (_sessionDock) _sessionDock->setWindowTitle(tr("Sessions"));
 }
 
 void MainWindow::initWindow()
@@ -256,16 +258,23 @@ void MainWindow::initWindow()
     customLayout->addStretch();
     setCustomWidget(ElaAppBarType::LeftArea, customWidget, this, "processHitTest");
 
-    auto* terminalWorkspace = new QWidget(this);
-    auto* workspaceLayout = new QHBoxLayout(terminalWorkspace);
-    workspaceLayout->setContentsMargins(0, 0, 0, 0);
-    workspaceLayout->setSpacing(0);
+    _terminalPage = new TerminalPage(this);
 
-    _sessionPanel = new SessionPanel(terminalWorkspace);
-    workspaceLayout->addWidget(_sessionPanel);
+    _sessionDock = new QDockWidget(tr("Sessions"), this);
+    _sessionDock->setObjectName(QStringLiteral("sessionDock"));
+    _sessionDock->setAllowedAreas(Qt::LeftDockWidgetArea
+                                  | Qt::RightDockWidgetArea);
+    _sessionDock->setFeatures(QDockWidget::DockWidgetMovable);
 
-    _terminalPage = new TerminalPage(terminalWorkspace);
-    workspaceLayout->addWidget(_terminalPage, 1);
+    _sessionPanel = new SessionPanel(_sessionDock);
+    _sessionDock->setWidget(_sessionPanel);
+    addDockWidget(Qt::LeftDockWidgetArea, _sessionDock);
+    resizeDocks({_sessionDock}, {280}, Qt::Horizontal);
+
+    connect(_sessionPanel, &SessionPanel::panelWidthChangeRequested, this,
+            [this](int width) {
+        resizeDocks({_sessionDock}, {width}, Qt::Horizontal);
+    });
     connect(_sessionPanel, &SessionPanel::editSessionRequested, this,
             &MainWindow::editSession);
     connect(_sessionPanel, &SessionPanel::localReconnectRequested, this,
@@ -287,7 +296,7 @@ void MainWindow::initWindow()
 
     // 仅注册终端（会话）页面；导航通过标题栏菜单进行，
     // 因此左侧导航栏保持隐藏。
-    addPageNode(tr("Terminal"), terminalWorkspace, ElaIconType::Terminal);
+    addPageNode(tr("Terminal"), _terminalPage, ElaIconType::Terminal);
 }
 
 void MainWindow::buildMainMenu()

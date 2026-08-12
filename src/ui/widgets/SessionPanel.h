@@ -54,6 +54,7 @@ signals:
                               const RuntimeConfig& runtime,
                               const QByteArray& secret);
     void reconnectUnavailable(const QString& message);
+    void panelWidthChangeRequested(int width);
 
 private:
     void repositionToggleButton();
@@ -72,6 +73,7 @@ private:
     ElaIconButton* _toggleButton{nullptr};
     QTreeWidget* _tree{nullptr};
     bool _expanded{true};
+    int _expandedWidth{280};
     QList<SessionRestoreMetadata> _entries;
     std::unique_ptr<SessionStore> _store;
     std::unique_ptr<CredentialStore> _credentials;

@@ -175,6 +175,9 @@ SessionPanel::~SessionPanel() = default;
 
 void SessionPanel::setExpanded(bool expanded)
 {
+    if (_expanded && !expanded && width() >= 160)
+        _expandedWidth = width();
+
     _expanded = expanded;
     _tree->setVisible(expanded);
     _toggleButton->setAwesome(expanded ? ElaIconType::AngleLeft
@@ -183,13 +186,23 @@ void SessionPanel::setExpanded(bool expanded)
         expanded ? tr("Collapse sessions") : tr("Expand sessions"));
     _toggleButton->setToolTip(
         expanded ? tr("Collapse sessions") : tr("Expand sessions"));
-    setFixedWidth(expanded ? 280 : 44);
+    if (expanded) {
+        setMaximumWidth(QWIDGETSIZE_MAX);
+        setMinimumWidth(160);
+    } else {
+        setMinimumWidth(44);
+        setMaximumWidth(44);
+    }
+    updateGeometry();
     repositionToggleButton();
+    emit panelWidthChangeRequested(expanded ? _expandedWidth : 44);
 }
 
 void SessionPanel::resizeEvent(QResizeEvent* event)
 {
     QWidget::resizeEvent(event);
+    if (_expanded && isVisible() && event->size().width() >= 160)
+        _expandedWidth = event->size().width();
     repositionToggleButton();
 }
 

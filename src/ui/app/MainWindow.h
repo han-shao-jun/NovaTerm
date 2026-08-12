@@ -18,6 +18,7 @@
 #include "session/SessionTypes.h"
 
 class ElaDialog;
+class QDockWidget;
 class SessionPanel;
 
 /**
@@ -60,6 +61,7 @@ private:
     // 主页面
     TerminalPage* _terminalPage{nullptr};
     SessionPanel* _sessionPanel{nullptr};
+    QDockWidget* _sessionDock{nullptr};
 
     // ── 会话选择器（ElaDialog）──
     // 仅保持当前活跃的选择器；每次接受/拒绝后重建。
