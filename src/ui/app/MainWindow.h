@@ -41,13 +41,21 @@ private:
 
     // ── 标题栏菜单（单个图标 → 弹出菜单）──
     ElaIconButton* _menuButton{nullptr};
+    ElaIconButton* _newSessionButton{nullptr};
     ElaToolTip* _menuTip{nullptr};
+    ElaToolTip* _newSessionTip{nullptr};
     ElaMenu* _mainMenu{nullptr};
+    ElaMenu* _newSessionMenu{nullptr};
     QAction* _actSession{nullptr};
     QAction* _actSettings{nullptr};
     QAction* _actAbout{nullptr};
+    QAction* _localSessionAction{nullptr};
+    QAction* _sshSessionAction{nullptr};
+    QAction* _serialSessionAction{nullptr};
+    QAction* _telnetSessionAction{nullptr};
 
     void buildMainMenu();
+    void buildNewSessionMenu();
 
     // 主页面
     TerminalPage* _terminalPage{nullptr};

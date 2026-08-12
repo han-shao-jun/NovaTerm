@@ -6,8 +6,6 @@
  * 新建会话按钮弹出菜单选择传输类型，信号转发给 MainWindow。
  */
 #include "TerminalPage.h"
-#include "ElaIconButton.h"
-#include "ElaMenu.h"
 #include "ElaTabWidget.h"
 #include "ui/terminal/TerminalView.h"
 #include "renderer/TerminalRenderer.h"
@@ -15,7 +13,6 @@
 #include "session/SerialHighlightRules.h"
 #include "transport/SerialTransport.h"
 #include "transport/SshTransport.h"
-#include "ui/widgets/TabActionWidget.h"
 #include <QVBoxLayout>
 
 #include <utility>
@@ -24,44 +21,12 @@ TerminalPage::TerminalPage(QWidget* parent) : QWidget(parent)
 {
     setWindowTitle(tr("Terminal"));
 
-    auto* terminalTabs = new TabActionWidget(this);
-    _tabWidget = terminalTabs;
+    _tabWidget = new ElaTabWidget(this);
     _tabWidget->setTabPosition(QTabWidget::North);
     _tabWidget->setIndicatorPosition(ElaTabBarType::Bottom);
     _tabWidget->setTabsClosable(true);
     _tabWidget->setMovable(true);
     _tabWidget->setIsTabTransparent(true);
-
-    _newSessionButton = new ElaIconButton(
-        ElaIconType::Plus, 14, 32, 32, _tabWidget);
-    _newSessionButton->setAccessibleName(tr("New session"));
-    _newSessionButton->setToolTip(tr("New session"));
-
-    auto* newSessionMenu = new ElaMenu(_newSessionButton);
-    newSessionMenu->setMenuItemHeight(32);
-    _localAction = newSessionMenu->addElaIconAction(
-        ElaIconType::Terminal, tr("Local"));
-    _sshAction = newSessionMenu->addElaIconAction(
-        ElaIconType::NetworkWired, tr("SSH"));
-    _serialAction = newSessionMenu->addElaIconAction(
-        ElaIconType::UsbDrive, tr("Serial"));
-    _telnetAction = newSessionMenu->addElaIconAction(
-        ElaIconType::Globe, tr("Telnet"));
-    _newSessionButton->setMenu(newSessionMenu);
-    terminalTabs->setTabBarActionWidget(_newSessionButton);
-
-    connect(_localAction, &QAction::triggered, this, [this]() {
-        emit newSessionRequested(TransportKind::LocalShell);
-    });
-    connect(_sshAction, &QAction::triggered, this, [this]() {
-        emit newSessionRequested(TransportKind::Ssh);
-    });
-    connect(_serialAction, &QAction::triggered, this, [this]() {
-        emit newSessionRequested(TransportKind::Serial);
-    });
-    connect(_telnetAction, &QAction::triggered, this, [this]() {
-        emit newSessionRequested(TransportKind::Telnet);
-    });
 
     // 中心就是纯粹的 ElaTabWidget：零边距、零间距的布局让其完全铺满，
     // 四周不留空隙。标题栏由 ElaWindow 的 AppBar 单独绘制，不受影响。
@@ -78,12 +43,6 @@ TerminalPage::TerminalPage(QWidget* parent) : QWidget(parent)
 void TerminalPage::retranslateUi()
 {
     setWindowTitle(tr("Terminal"));
-    _newSessionButton->setAccessibleName(tr("New session"));
-    _newSessionButton->setToolTip(tr("New session"));
-    _sshAction->setText(tr("SSH"));
-    _serialAction->setText(tr("Serial"));
-    _telnetAction->setText(tr("Telnet"));
-    _localAction->setText(tr("Local"));
 }
 
 TerminalPage::~TerminalPage()

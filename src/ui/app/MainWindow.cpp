@@ -152,11 +152,20 @@ void MainWindow::retranslateUi()
     setWindowTitle(tr("NovaTerm"));
 
     if (_menuTip) _menuTip->setToolTip(tr("Menu"));
+    if (_newSessionTip) _newSessionTip->setToolTip(tr("New session"));
+    if (_newSessionButton) {
+        _newSessionButton->setAccessibleName(tr("New session"));
+        _newSessionButton->setToolTip(tr("New session"));
+    }
 
     // 重新翻译弹出菜单项
     if (_actSession)  _actSession->setText(tr("Session"));
     if (_actSettings) _actSettings->setText(tr("Settings"));
     if (_actAbout)    _actAbout->setText(tr("About"));
+    if (_localSessionAction)  _localSessionAction->setText(tr("Local"));
+    if (_sshSessionAction)    _sshSessionAction->setText(tr("SSH"));
+    if (_serialSessionAction) _serialSessionAction->setText(tr("Serial"));
+    if (_telnetSessionAction) _telnetSessionAction->setText(tr("Telnet"));
 }
 
 void MainWindow::initWindow()
@@ -218,6 +227,15 @@ void MainWindow::initWindow()
         _mainMenu->popup(_menuButton->mapToGlobal(QPoint(0, _menuButton->height() + 2)));
     });
 
+    _newSessionButton = new ElaIconButton(
+        ElaIconType::Plus, 14, 32, 32, this);
+    _newSessionButton->setAccessibleName(tr("New session"));
+    _newSessionButton->setToolTip(tr("New session"));
+    _newSessionTip = new ElaToolTip(_newSessionButton);
+    _newSessionTip->setToolTip(tr("New session"));
+    buildNewSessionMenu();
+    _newSessionButton->setMenu(_newSessionMenu);
+
     QWidget* customWidget = new QWidget(this);
     QHBoxLayout* customLayout = new QHBoxLayout(customWidget);
     // 左边距为零，使 Logo 紧贴窗口左边缘
@@ -234,6 +252,7 @@ void MainWindow::initWindow()
     customLayout->addWidget(logoLabel);
 
     customLayout->addWidget(_menuButton);
+    customLayout->addWidget(_newSessionButton);
     customLayout->addStretch();
     setCustomWidget(ElaAppBarType::LeftArea, customWidget, this, "processHitTest");
 
@@ -247,8 +266,6 @@ void MainWindow::initWindow()
 
     _terminalPage = new TerminalPage(terminalWorkspace);
     workspaceLayout->addWidget(_terminalPage, 1);
-    connect(_terminalPage, &TerminalPage::newSessionRequested, this,
-            [this](TransportKind kind) { showSessionDialog(kind); });
     connect(_sessionPanel, &SessionPanel::editSessionRequested, this,
             &MainWindow::editSession);
     connect(_sessionPanel, &SessionPanel::localReconnectRequested, this,
@@ -292,13 +309,38 @@ void MainWindow::buildMainMenu()
     connect(_actAbout, &QAction::triggered, this, &MainWindow::showAboutDialog);
 }
 
+void MainWindow::buildNewSessionMenu()
+{
+    _newSessionMenu = new ElaMenu(_newSessionButton);
+    _newSessionMenu->setMenuItemHeight(32);
+    _localSessionAction = _newSessionMenu->addElaIconAction(
+        ElaIconType::Terminal, tr("Local"));
+    _sshSessionAction = _newSessionMenu->addElaIconAction(
+        ElaIconType::NetworkWired, tr("SSH"));
+    _serialSessionAction = _newSessionMenu->addElaIconAction(
+        ElaIconType::UsbDrive, tr("Serial"));
+    _telnetSessionAction = _newSessionMenu->addElaIconAction(
+        ElaIconType::Globe, tr("Telnet"));
+
+    connect(_localSessionAction, &QAction::triggered, this,
+            [this]() { showSessionDialog(TransportKind::LocalShell); });
+    connect(_sshSessionAction, &QAction::triggered, this,
+            [this]() { showSessionDialog(TransportKind::Ssh); });
+    connect(_serialSessionAction, &QAction::triggered, this,
+            [this]() { showSessionDialog(TransportKind::Serial); });
+    connect(_telnetSessionAction, &QAction::triggered, this,
+            [this]() { showSessionDialog(TransportKind::Telnet); });
+}
+
 
 bool MainWindow::processHitTest()
 {
     // 自定义区域中除菜单按钮外均可拖动。
     if (!_menuButton)
         return true;
-    return !ElaApplication::containsCursorToItem(_menuButton);
+    return !ElaApplication::containsCursorToItem(_menuButton)
+        && (!_newSessionButton
+            || !ElaApplication::containsCursorToItem(_newSessionButton));
 }
 
 // ═══════════════════════════════════════════════════════════════════
