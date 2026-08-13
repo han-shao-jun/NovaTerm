@@ -1,11 +1,3 @@
-/**
- * @file   ConfigManager.cpp
- * @brief  持久化 JSON 配置实现。
- *
- * 配置文件位于可执行文件同目录（novaterm.json）。load() 读取后用 defaults()
- * 填充缺失键并回写。键路径通过 splitPath() 按 '.' 分解，setNested() 递归
- * 确保嵌套对象存在后写入叶子值。QJsonObject 为隐式共享，按值返回。
- */
 #include "ConfigManager.h"
 #include <QCoreApplication>
 #include <QDir>

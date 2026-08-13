@@ -40,6 +40,7 @@ public:
                      const QString& label);
     void updateSerial(const SessionId& id, const SerialConfig& config);
     void updateSsh(const SessionId& id, const SshConfig& config);
+    void setDockArea(Qt::DockWidgetArea area);
     void setExpanded(bool expanded);
     [[nodiscard]] bool isExpanded() const noexcept { return _expanded; }
 
@@ -57,6 +58,7 @@ signals:
     void panelWidthChangeRequested(int width);
 
 private:
+    void updateToggleButton();
     void repositionToggleButton();
     void retranslateUi();
     void rebuildTree();
@@ -72,6 +74,7 @@ private:
 
     ElaIconButton* _toggleButton{nullptr};
     QTreeWidget* _tree{nullptr};
+    Qt::DockWidgetArea _dockArea{Qt::LeftDockWidgetArea};
     bool _expanded{true};
     int _expandedWidth{280};
     QList<SessionRestoreMetadata> _entries;

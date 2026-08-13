@@ -27,16 +27,83 @@
 #include "service/ConfigManager.h"
 #include <QApplication>
 #include <QDockWidget>
+#include <QEnterEvent>
 #include <QEvent>
 #include <QHBoxLayout>
 #include <QIcon>
 #include <QLabel>
 #include <QMessageBox>
+#include <QMouseEvent>
 #include <QPalette>
-#include <QStyle>
 #include <QVBoxLayout>
 #include <QThread>
 #include <QTimer>
+
+namespace {
+
+class DraggableDockWidget final : public QDockWidget
+{
+public:
+    explicit DraggableDockWidget(const QString& title, QWidget* parent = nullptr)
+        : QDockWidget(title, parent)
+    {
+        setMouseTracking(true);
+    }
+
+protected:
+    void enterEvent(QEnterEvent* event) override
+    {
+        updateDragCursor(event->position().toPoint());
+        QDockWidget::enterEvent(event);
+    }
+
+    void mouseMoveEvent(QMouseEvent* event) override
+    {
+        updateDragCursor(event->position().toPoint());
+        QDockWidget::mouseMoveEvent(event);
+    }
+
+    void leaveEvent(QEvent* event) override
+    {
+        setDragCursorVisible(false);
+        QDockWidget::leaveEvent(event);
+    }
+
+private:
+    void updateDragCursor(const QPoint& position)
+    {
+        const QWidget* const content = widget();
+        if (!content) {
+            setDragCursorVisible(false);
+            return;
+        }
+
+        const bool verticalTitleBar =
+            features().testFlag(DockWidgetVerticalTitleBar);
+        const QRect contentGeometry = content->geometry();
+        const QRect titleBar = verticalTitleBar
+            ? QRect(0, 0, contentGeometry.left(), height())
+            : QRect(0, 0, width(), contentGeometry.top());
+        setDragCursorVisible(features().testFlag(DockWidgetMovable)
+                             && titleBar.contains(position));
+    }
+
+    void setDragCursorVisible(bool visible)
+    {
+        if (_dragCursorVisible == visible)
+            return;
+
+        _dragCursorVisible = visible;
+        if (visible)
+            setCursor(Qt::SizeAllCursor);
+        else
+            unsetCursor();
+    }
+
+    bool _dragCursorVisible{false};
+};
+
+} // namespace
 
 MainWindow::MainWindow(QWidget* parent) : ElaWindow(parent)
 {
@@ -260,17 +327,21 @@ void MainWindow::initWindow()
 
     _terminalPage = new TerminalPage(this);
 
-    _sessionDock = new QDockWidget(tr("Sessions"), this);
+    _sessionDock = new DraggableDockWidget(tr("Sessions"), this);
     _sessionDock->setObjectName(QStringLiteral("sessionDock"));
     _sessionDock->setAllowedAreas(Qt::LeftDockWidgetArea
                                   | Qt::RightDockWidgetArea);
     _sessionDock->setFeatures(QDockWidget::DockWidgetMovable);
 
     _sessionPanel = new SessionPanel(_sessionDock);
+    _sessionPanel->setCursor(Qt::ArrowCursor);
     _sessionDock->setWidget(_sessionPanel);
     addDockWidget(Qt::LeftDockWidgetArea, _sessionDock);
+    _sessionPanel->setDockArea(Qt::LeftDockWidgetArea);
     resizeDocks({_sessionDock}, {280}, Qt::Horizontal);
 
+    connect(_sessionDock, &QDockWidget::dockLocationChanged,
+            _sessionPanel, &SessionPanel::setDockArea);
     connect(_sessionPanel, &SessionPanel::panelWidthChangeRequested, this,
             [this](int width) {
         resizeDocks({_sessionDock}, {width}, Qt::Horizontal);

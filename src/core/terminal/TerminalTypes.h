@@ -96,8 +96,8 @@ struct CellAttributes
     bool reverse{false};
     bool strike{false};
     bool font{false};          // SGR 11/12：备用字体选择
-    bool dwl{false};           // 双倍宽度行（DEC DWL）
-    bool dhl{false};           // 双倍高度行（DEC DHL）
+    bool dwl{false};           // Double Width Line（DEC DWL）
+    bool dhl{false};           // Double Height Line（DEC DHL）
     bool smallFont{false};     // SGR 73：小字号
     bool baseline{false};      // SGR 74/75：上/下基线偏移
     bool protectedCell{false}; // DECSCA 保护单元格，清屏时不擦除

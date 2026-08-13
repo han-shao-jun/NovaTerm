@@ -180,12 +180,7 @@ void SessionPanel::setExpanded(bool expanded)
 
     _expanded = expanded;
     _tree->setVisible(expanded);
-    _toggleButton->setAwesome(expanded ? ElaIconType::AngleLeft
-                                       : ElaIconType::AngleRight);
-    _toggleButton->setAccessibleName(
-        expanded ? tr("Collapse sessions") : tr("Expand sessions"));
-    _toggleButton->setToolTip(
-        expanded ? tr("Collapse sessions") : tr("Expand sessions"));
+    updateToggleButton();
     if (expanded) {
         setMaximumWidth(QWIDGETSIZE_MAX);
         setMinimumWidth(160);
@@ -198,6 +193,16 @@ void SessionPanel::setExpanded(bool expanded)
     emit panelWidthChangeRequested(expanded ? _expandedWidth : 44);
 }
 
+void SessionPanel::setDockArea(Qt::DockWidgetArea area)
+{
+    if (area != Qt::LeftDockWidgetArea && area != Qt::RightDockWidgetArea)
+        return;
+
+    _dockArea = area;
+    updateToggleButton();
+    repositionToggleButton();
+}
+
 void SessionPanel::resizeEvent(QResizeEvent* event)
 {
     QWidget::resizeEvent(event);
@@ -206,13 +211,33 @@ void SessionPanel::resizeEvent(QResizeEvent* event)
     repositionToggleButton();
 }
 
+void SessionPanel::updateToggleButton()
+{
+    if (!_toggleButton)
+        return;
+
+    const bool dockedOnRight = _dockArea == Qt::RightDockWidgetArea;
+    const auto collapseIcon = dockedOnRight ? ElaIconType::AngleRight
+                                            : ElaIconType::AngleLeft;
+    const auto expandIcon = dockedOnRight ? ElaIconType::AngleLeft
+                                          : ElaIconType::AngleRight;
+    _toggleButton->setAwesome(_expanded ? collapseIcon : expandIcon);
+    _toggleButton->setAccessibleName(
+        _expanded ? tr("Collapse sessions") : tr("Expand sessions"));
+    _toggleButton->setToolTip(
+        _expanded ? tr("Collapse sessions") : tr("Expand sessions"));
+}
+
 void SessionPanel::repositionToggleButton()
 {
     if (!_toggleButton)
         return;
 
-    const int rightMargin = 4;
-    _toggleButton->move(width() - _toggleButton->width() - rightMargin,
+    constexpr int edgeMargin = 4;
+    const int x = _dockArea == Qt::RightDockWidgetArea
+        ? edgeMargin
+        : width() - _toggleButton->width() - edgeMargin;
+    _toggleButton->move(x,
                         (height() - _toggleButton->height()) / 2);
     _toggleButton->raise();
 }
