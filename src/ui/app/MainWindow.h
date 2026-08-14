@@ -20,6 +20,7 @@
 class ElaDialog;
 class QDockWidget;
 class SessionPanel;
+class QWidget;
 
 /**
  * @brief 无边框主窗口。
@@ -34,11 +35,13 @@ public:
     ~MainWindow() override;
 
 protected:
+    bool event(QEvent* event) override;
     void changeEvent(QEvent* event) override;
 
 private:
     void initWindow();
     void retranslateUi();
+    void updateDockResizeHighlight(const QPoint& position);
 
     // ── 标题栏菜单（单个图标 → 弹出菜单）──
     ElaIconButton* _menuButton{nullptr};
@@ -62,6 +65,7 @@ private:
     TerminalPage* _terminalPage{nullptr};
     SessionPanel* _sessionPanel{nullptr};
     QDockWidget* _sessionDock{nullptr};
+    QWidget* _dockResizeHighlight{nullptr};
 
     // ── 会话选择器（ElaDialog）──
     // 仅保持当前活跃的选择器；每次接受/拒绝后重建。

@@ -48,6 +48,29 @@
 
 namespace {
 
+class DockResizeHighlight final : public QWidget
+{
+public:
+    explicit DockResizeHighlight(QWidget* parent)
+        : QWidget(parent)
+    {
+        setAttribute(Qt::WA_TransparentForMouseEvents);
+        setAttribute(Qt::WA_NoSystemBackground);
+        setFocusPolicy(Qt::NoFocus);
+        hide();
+    }
+
+protected:
+    void paintEvent(QPaintEvent* event) override
+    {
+        Q_UNUSED(event);
+
+        QPainter painter(this);
+        painter.fillRect(
+            rect(), ElaThemeColor(eTheme->getThemeMode(), PrimaryNormal));
+    }
+};
+
 class DockDropOverlay final : public QWidget
 {
 public:
@@ -459,6 +482,32 @@ MainWindow::MainWindow(QWidget* parent) : ElaWindow(parent)
 
 MainWindow::~MainWindow() = default;
 
+bool MainWindow::event(QEvent* event)
+{
+    const bool handled = ElaWindow::event(event);
+
+    switch (event->type()) {
+    case QEvent::HoverMove:
+    case QEvent::MouseMove:
+    case QEvent::MouseButtonPress:
+    case QEvent::MouseButtonRelease:
+    case QEvent::LayoutRequest:
+    case QEvent::Resize:
+        updateDockResizeHighlight(mapFromGlobal(QCursor::pos()));
+        break;
+    case QEvent::HoverLeave:
+    case QEvent::Leave:
+    case QEvent::WindowDeactivate:
+        if (_dockResizeHighlight)
+            _dockResizeHighlight->hide();
+        break;
+    default:
+        break;
+    }
+
+    return handled;
+}
+
 void MainWindow::changeEvent(QEvent* event)
 {
     if (event->type() == QEvent::LanguageChange) {
@@ -492,6 +541,7 @@ void MainWindow::retranslateUi()
 void MainWindow::initWindow()
 {
     setWindowTitle(tr("NovaTerm"));
+    setAttribute(Qt::WA_Hover);
 
     int w = ConfigManager::get<int>("window.width", 1280);
     int h = ConfigManager::get<int>("window.height", 800);
@@ -592,6 +642,8 @@ void MainWindow::initWindow()
     _sessionPanel->setDockArea(Qt::LeftDockWidgetArea);
     resizeDocks({_sessionDock}, {280}, Qt::Horizontal);
 
+    _dockResizeHighlight = new DockResizeHighlight(this);
+
     connect(_sessionDock, &QDockWidget::dockLocationChanged,
             _sessionPanel, &SessionPanel::setDockArea);
     connect(_sessionPanel, &SessionPanel::panelWidthChangeRequested, this,
@@ -620,6 +672,49 @@ void MainWindow::initWindow()
     // 仅注册终端（会话）页面；导航通过标题栏菜单进行，
     // 因此左侧导航栏保持隐藏。
     addPageNode(tr("Terminal"), _terminalPage, ElaIconType::Terminal);
+}
+
+void MainWindow::updateDockResizeHighlight(const QPoint& position)
+{
+    if (!_dockResizeHighlight || !_sessionDock || _sessionDock->isFloating()) {
+        if (_dockResizeHighlight)
+            _dockResizeHighlight->hide();
+        return;
+    }
+
+    const Qt::DockWidgetArea dockArea = dockWidgetArea(_sessionDock);
+    if (dockArea != Qt::LeftDockWidgetArea
+        && dockArea != Qt::RightDockWidgetArea) {
+        _dockResizeHighlight->hide();
+        return;
+    }
+
+    const QWidget* const central = QMainWindow::centralWidget();
+    if (!central) {
+        _dockResizeHighlight->hide();
+        return;
+    }
+
+    const QRect dockRect = _sessionDock->geometry();
+    const QRect centralRect = central->geometry();
+    const int separatorX = dockArea == Qt::LeftDockWidgetArea
+        ? (dockRect.right() + centralRect.left()) / 2
+        : (centralRect.right() + dockRect.left()) / 2;
+
+    constexpr int hitHalfWidth = 7;
+    const QRect hoverRect(separatorX - hitHalfWidth, dockRect.top(),
+                          hitHalfWidth * 2 + 1, dockRect.height());
+    if (!hoverRect.contains(position)) {
+        _dockResizeHighlight->hide();
+        return;
+    }
+
+    constexpr int highlightWidth = 3;
+    _dockResizeHighlight->setGeometry(separatorX - highlightWidth / 2,
+                                      dockRect.top(), highlightWidth,
+                                      dockRect.height());
+    _dockResizeHighlight->show();
+    _dockResizeHighlight->raise();
 }
 
 void MainWindow::buildMainMenu()
