@@ -26,41 +26,224 @@
 #include "service/LanguageManager.h"
 #include "service/ConfigManager.h"
 #include <QApplication>
+#include <QCursor>
 #include <QDockWidget>
 #include <QEnterEvent>
 #include <QEvent>
 #include <QHBoxLayout>
 #include <QIcon>
 #include <QLabel>
+#include <QMainWindow>
 #include <QMessageBox>
 #include <QMouseEvent>
+#include <QPainter>
 #include <QPalette>
+#include <QPointer>
+#include <QTimerEvent>
 #include <QVBoxLayout>
 #include <QThread>
 #include <QTimer>
 
+#include <algorithm>
+
 namespace {
+
+class DockDropOverlay final : public QWidget
+{
+public:
+    explicit DockDropOverlay(QWidget* parent)
+        : QWidget(parent)
+    {
+        setAttribute(Qt::WA_TransparentForMouseEvents);
+        setAttribute(Qt::WA_NoSystemBackground);
+        setFocusPolicy(Qt::NoFocus);
+        hide();
+    }
+
+    void begin(Qt::DockWidgetAreas allowedAreas)
+    {
+        _allowedAreas = allowedAreas;
+        _activeArea = Qt::NoDockWidgetArea;
+        syncGeometry();
+        show();
+        raise();
+        update();
+    }
+
+    void updateTarget(const QPoint& globalPosition)
+    {
+        syncGeometry();
+        raise();
+
+        Qt::DockWidgetArea area = Qt::NoDockWidgetArea;
+        const QPoint position = mapFromGlobal(globalPosition);
+        if (rect().contains(position)) {
+            if (_allowedAreas.testFlag(Qt::LeftDockWidgetArea)
+                && leftTargetRect().contains(position)) {
+                area = Qt::LeftDockWidgetArea;
+            } else if (_allowedAreas.testFlag(Qt::RightDockWidgetArea)
+                       && rightTargetRect().contains(position)) {
+                area = Qt::RightDockWidgetArea;
+            }
+        }
+
+        if (_activeArea == area)
+            return;
+
+        _activeArea = area;
+        update();
+    }
+
+    void finish()
+    {
+        _activeArea = Qt::NoDockWidgetArea;
+        hide();
+    }
+
+    [[nodiscard]] Qt::DockWidgetArea activeArea() const noexcept
+    {
+        return _activeArea;
+    }
+
+protected:
+    void paintEvent(QPaintEvent* event) override
+    {
+        Q_UNUSED(event);
+
+        QPainter painter(this);
+        painter.setRenderHint(QPainter::Antialiasing);
+        painter.fillRect(rect(), QColor(0, 0, 0, 42));
+
+        QColor accent = palette().color(QPalette::Highlight);
+        if (!accent.isValid())
+            accent = QColor(0, 120, 212);
+
+        if (_allowedAreas.testFlag(Qt::LeftDockWidgetArea))
+            paintTarget(painter, leftTargetRect(), Qt::LeftDockWidgetArea,
+                        accent);
+        if (_allowedAreas.testFlag(Qt::RightDockWidgetArea))
+            paintTarget(painter, rightTargetRect(), Qt::RightDockWidgetArea,
+                        accent);
+    }
+
+private:
+    [[nodiscard]] int targetWidth() const noexcept
+    {
+        constexpr int minimumTargetWidth = 96;
+        constexpr int maximumTargetWidth = 360;
+        return std::clamp(width() / 4, minimumTargetWidth,
+                          maximumTargetWidth);
+    }
+
+    [[nodiscard]] QRect leftTargetRect() const noexcept
+    {
+        return QRect(0, 0, targetWidth(), height());
+    }
+
+    [[nodiscard]] QRect rightTargetRect() const noexcept
+    {
+        const int zoneWidth = targetWidth();
+        return QRect(width() - zoneWidth, 0, zoneWidth, height());
+    }
+
+    void syncGeometry()
+    {
+        if (const QWidget* const host = parentWidget())
+            setGeometry(host->contentsRect());
+    }
+
+    void paintTarget(QPainter& painter, const QRect& target,
+                     Qt::DockWidgetArea area, const QColor& accent)
+    {
+        const bool active = _activeArea == area;
+        QColor fill = accent;
+        fill.setAlpha(active ? 92 : 34);
+        painter.fillRect(target, fill);
+
+        QColor outline = accent;
+        outline.setAlpha(active ? 230 : 105);
+        painter.setPen(QPen(outline, active ? 2.0 : 1.0));
+        painter.setBrush(Qt::NoBrush);
+        painter.drawRect(target.adjusted(1, 1, -1, -1));
+
+        const int direction = area == Qt::LeftDockWidgetArea ? -1 : 1;
+        const QPoint center = target.center();
+        constexpr int arrowHalfHeight = 12;
+        constexpr int arrowWidth = 8;
+        const QPolygon chevron({
+            QPoint(center.x() - direction * arrowWidth,
+                   center.y() - arrowHalfHeight),
+            center,
+            QPoint(center.x() - direction * arrowWidth,
+                   center.y() + arrowHalfHeight)});
+        painter.setPen(QPen(outline, active ? 3.0 : 2.0,
+                            Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+        painter.drawPolyline(chevron);
+    }
+
+    Qt::DockWidgetAreas _allowedAreas{Qt::NoDockWidgetArea};
+    Qt::DockWidgetArea _activeArea{Qt::NoDockWidgetArea};
+};
 
 class DraggableDockWidget final : public QDockWidget
 {
 public:
     explicit DraggableDockWidget(const QString& title, QWidget* parent = nullptr)
-        : QDockWidget(title, parent)
+        : QDockWidget(title, parent),
+          _dropOverlay(new DockDropOverlay(parent)),
+          _dockHost(qobject_cast<QMainWindow*>(parent))
     {
         setMouseTracking(true);
     }
 
 protected:
+    bool event(QEvent* event) override
+    {
+        bool finishDragAfterDispatch = false;
+        switch (event->type()) {
+        case QEvent::MouseButtonPress: {
+            const auto* const mouseEvent = static_cast<QMouseEvent*>(event);
+            _dragPending = mouseEvent->button() == Qt::LeftButton
+                && isTitleBarPosition(mouseEvent->position().toPoint());
+            break;
+        }
+        case QEvent::MouseMove: {
+            const auto* const mouseEvent = static_cast<QMouseEvent*>(event);
+            if (_dragPending
+                && mouseEvent->buttons().testFlag(Qt::LeftButton)) {
+                beginDockDrag();
+            }
+            if (_dragging && _dropOverlay) {
+                _dropOverlay->updateTarget(
+                    mouseEvent->globalPosition().toPoint());
+            }
+            break;
+        }
+        case QEvent::MouseButtonRelease: {
+            const auto* const mouseEvent = static_cast<QMouseEvent*>(event);
+            finishDragAfterDispatch =
+                mouseEvent->button() == Qt::LeftButton;
+            break;
+        }
+        default:
+            break;
+        }
+
+        const bool handled = QDockWidget::event(event);
+        if (finishDragAfterDispatch) {
+            endDockDrag();
+        } else if (_dragging && _dropOverlay) {
+            // Qt may re-stack the main-window children while unplugging the
+            // dock. Re-raise the visual hint after native dock processing.
+            _dropOverlay->updateTarget(QCursor::pos());
+        }
+        return handled;
+    }
+
     void enterEvent(QEnterEvent* event) override
     {
         updateDragCursor(event->position().toPoint());
         QDockWidget::enterEvent(event);
-    }
-
-    void mouseMoveEvent(QMouseEvent* event) override
-    {
-        updateDragCursor(event->position().toPoint());
-        QDockWidget::mouseMoveEvent(event);
     }
 
     void leaveEvent(QEvent* event) override
@@ -69,23 +252,86 @@ protected:
         QDockWidget::leaveEvent(event);
     }
 
-private:
-    void updateDragCursor(const QPoint& position)
+    void timerEvent(QTimerEvent* event) override
     {
-        const QWidget* const content = widget();
-        if (!content) {
-            setDragCursorVisible(false);
+        if (event->timerId() != _dragTimerId) {
+            QDockWidget::timerEvent(event);
             return;
         }
 
+        if (!QApplication::mouseButtons().testFlag(Qt::LeftButton)) {
+            endDockDrag();
+            return;
+        }
+
+        if (_dropOverlay)
+            _dropOverlay->updateTarget(QCursor::pos());
+    }
+
+private:
+    [[nodiscard]] bool isTitleBarPosition(const QPoint& position) const
+    {
+        const QWidget* const content = widget();
+        if (!content)
+            return false;
+
+        const QRect contentGeometry = content->geometry();
         const bool verticalTitleBar =
             features().testFlag(DockWidgetVerticalTitleBar);
-        const QRect contentGeometry = content->geometry();
         const QRect titleBar = verticalTitleBar
             ? QRect(0, 0, contentGeometry.left(), height())
             : QRect(0, 0, width(), contentGeometry.top());
+        return titleBar.contains(position);
+    }
+
+    void updateDragCursor(const QPoint& position)
+    {
         setDragCursorVisible(features().testFlag(DockWidgetMovable)
-                             && titleBar.contains(position));
+                             && isTitleBarPosition(position));
+    }
+
+    void beginDockDrag()
+    {
+        if (_dragging || !_dropOverlay)
+            return;
+
+        _dragging = true;
+        _managedDockAreas = allowedAreas();
+
+        // QMainWindow normally paints and applies its own dock preview. Keep
+        // QDockWidget for the final layout, but suspend native drop targets
+        // while dragging so the custom overlay is the single source of truth.
+        setAllowedAreas(Qt::NoDockWidgetArea);
+        _dropOverlay->begin(_managedDockAreas);
+        _dropOverlay->updateTarget(QCursor::pos());
+        _dragTimerId = startTimer(16, Qt::PreciseTimer);
+    }
+
+    void endDockDrag()
+    {
+        _dragPending = false;
+        if (!_dragging)
+            return;
+
+        _dragging = false;
+        if (_dragTimerId != 0) {
+            killTimer(_dragTimerId);
+            _dragTimerId = 0;
+        }
+
+        const Qt::DockWidgetArea targetArea = _dropOverlay
+            ? _dropOverlay->activeArea()
+            : Qt::NoDockWidgetArea;
+        setAllowedAreas(_managedDockAreas);
+
+        if (_dropOverlay)
+            _dropOverlay->finish();
+
+        if (_dockHost && targetArea != Qt::NoDockWidgetArea
+            && _managedDockAreas.testFlag(targetArea)) {
+            _dockHost->addDockWidget(targetArea, this);
+            setFloating(false);
+        }
     }
 
     void setDragCursorVisible(bool visible)
@@ -100,7 +346,13 @@ private:
             unsetCursor();
     }
 
+    QPointer<DockDropOverlay> _dropOverlay;
+    QPointer<QMainWindow> _dockHost;
+    Qt::DockWidgetAreas _managedDockAreas{Qt::NoDockWidgetArea};
+    int _dragTimerId{0};
     bool _dragCursorVisible{false};
+    bool _dragPending{false};
+    bool _dragging{false};
 };
 
 } // namespace
