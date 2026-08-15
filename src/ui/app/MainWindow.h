@@ -18,8 +18,12 @@
 #include "session/SessionTypes.h"
 
 class ElaDialog;
+class QCloseEvent;
 class QDockWidget;
+class QShowEvent;
 class SessionPanel;
+class SftpPanel;
+class SystemMonitorPanel;
 class QWidget;
 
 /**
@@ -37,10 +41,19 @@ public:
 protected:
     bool event(QEvent* event) override;
     void changeEvent(QEvent* event) override;
+    void closeEvent(QCloseEvent* event) override;
+    void showEvent(QShowEvent* event) override;
 
 private:
+    enum class DockResizeKind {
+        None,
+        Width,
+        Height
+    };
+
     void initWindow();
     void retranslateUi();
+    void saveWindowLayout();
     void updateDockResizeHighlight(const QPoint& position);
 
     // ── 标题栏菜单（单个图标 → 弹出菜单）──
@@ -51,6 +64,8 @@ private:
     ElaMenu* _mainMenu{nullptr};
     ElaMenu* _newSessionMenu{nullptr};
     QAction* _actSession{nullptr};
+    QAction* _toggleSftpPanelAction{nullptr};
+    QAction* _toggleSystemMonitorAction{nullptr};
     QAction* _actSettings{nullptr};
     QAction* _actAbout{nullptr};
     QAction* _localSessionAction{nullptr};
@@ -61,11 +76,22 @@ private:
     void buildMainMenu();
     void buildNewSessionMenu();
 
-    // 主页面
+    // 主页面与四区布局：终端固定中央，会话固定左侧，SFTP/监视可停靠。
     TerminalPage* _terminalPage{nullptr};
     SessionPanel* _sessionPanel{nullptr};
+    SftpPanel* _sftpPanel{nullptr};
+    SystemMonitorPanel* _systemMonitorPanel{nullptr};
     QDockWidget* _sessionDock{nullptr};
+    QDockWidget* _sftpDock{nullptr};
+    QDockWidget* _systemMonitorDock{nullptr};
+    // 原生分隔条较窄，仅悬停在实际相邻区域的调整锚点时显示主题强调色。
     QWidget* _dockResizeHighlight{nullptr};
+    // 左键拖动分隔条时锁定调整方向，避免布局变化导致提示短暂消失。
+    DockResizeKind _activeDockResizeKind{DockResizeKind::None};
+    bool _windowLayoutSaved{false};
+    // ElaWindow 在首次显示时还会完成一次内部布局，保留状态用于显示后复原。
+    QByteArray _dockStateForFirstShow;
+    bool _dockStateRestoredAfterShow{false};
 
     // ── 会话选择器（ElaDialog）──
     // 仅保持当前活跃的选择器；每次接受/拒绝后重建。

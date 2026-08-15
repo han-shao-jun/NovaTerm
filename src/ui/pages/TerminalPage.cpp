@@ -38,6 +38,9 @@ TerminalPage::TerminalPage(QWidget* parent) : QWidget(parent)
     // 动态语言切换
     connect(&LanguageManager::instance(), &LanguageManager::languageChanged,
             this, [this](const QString&) { retranslateUi(); });
+    // 标签切换后通知依赖当前连接的 SFTP/资源监视面板刷新上下文。
+    connect(_tabWidget, &QTabWidget::currentChanged, this,
+            [this](int) { emitCurrentSessionContext(); });
 }
 
 void TerminalPage::retranslateUi()
@@ -60,11 +63,32 @@ TerminalPage::~TerminalPage()
 TerminalView* TerminalPage::currentTerminal() const
 {
     QWidget* currentWidget = _tabWidget->currentWidget();
+    // 当前标签通常就是 TerminalView；findChild() 不会返回对象自身，
+    // 因此先直接转换，再兼容未来可能增加的标签容器控件。
+    if (auto* terminalView = qobject_cast<TerminalView*>(currentWidget))
+        return terminalView;
     if (currentWidget)
-    {
         return currentWidget->findChild<TerminalView*>();
-    }
     return _terminalViews.isEmpty() ? nullptr : _terminalViews.first();
+}
+
+void TerminalPage::emitCurrentSessionContext()
+{
+    TerminalView* const terminalView = currentTerminal();
+    if (!terminalView) {
+        emit currentSessionContextChanged({}, false);
+        return;
+    }
+
+    // 属性仅承担 UI 上下文桥接，不把具体 Transport 类型暴露给工具面板。
+    // 只有当前标签是 SSH 且传输层已连接时，远端工具才获得可用上下文。
+    const QString label = terminalView
+        ->property("novatermSessionLabel").toString();
+    const bool isSshSession = terminalView
+        ->property("novatermSshSession").toBool();
+    const ITransport* const transport = terminalView->transport();
+    emit currentSessionContextChanged(
+        label, isSshSession && transport && transport->isConnected());
 }
 
 TerminalView* TerminalPage::addTerminalTab(const QString& title,
@@ -87,6 +111,9 @@ TerminalView* TerminalPage::addTerminalTab(const QString& title,
     });
 
     QString tabTitle = title.isEmpty() ? tr("Terminal %1").arg(_terminalViews.size()) : title;
+    // 为每个标签保存轻量上下文，标签切换时无需反向解析标题或传输类型。
+    terminalView->setProperty("novatermSessionLabel", tabTitle);
+    terminalView->setProperty("novatermSshSession", false);
     int index = _tabWidget->addTab(terminalView, tabTitle);
     _tabWidget->setCurrentIndex(index);
 
@@ -114,6 +141,9 @@ TerminalView* TerminalPage::addSerialTerminalTab(const SerialConfig& config)
     });
 
     const QString title = config.label.isEmpty() ? config.portName : config.label;
+    // 串口标签不是远端 SSH 上下文，工具面板应保持不可用状态。
+    terminalView->setProperty("novatermSessionLabel", title);
+    terminalView->setProperty("novatermSshSession", false);
     const int index = _tabWidget->addTab(terminalView, title);
     _tabWidget->setCurrentIndex(index);
 
@@ -137,11 +167,19 @@ TerminalView* TerminalPage::addSshTerminalTab(const SshConfig& config)
     const QString title = config.label.isEmpty()
         ? QStringLiteral("%1@%2").arg(config.username, config.host)
         : config.label;
+    // 标记 SSH 标签；最终是否可用仍由传输层连接状态决定。
+    terminalView->setProperty("novatermSessionLabel", title);
+    terminalView->setProperty("novatermSshSession", true);
     const int index = _tabWidget->addTab(terminalView, title);
     _tabWidget->setCurrentIndex(index);
 
     auto* transport = new SshTransport(config, terminalView);
     terminalView->attachTransport(transport);
+    // 连接建立或断开都需要刷新工具面板，防止保留已经失效的远端状态。
+    connect(transport, &ITransport::connected, this,
+            &TerminalPage::emitCurrentSessionContext);
+    connect(transport, &ITransport::disconnected, this,
+            &TerminalPage::emitCurrentSessionContext);
     connect(transport, &ITransport::connected, this,
             [this, config]() { emit sshSessionConnected(config); },
             Qt::SingleShotConnection);

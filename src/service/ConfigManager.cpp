@@ -5,6 +5,137 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QDebug>
+#include <QSaveFile>
+
+#include <cmath>
+
+namespace {
+
+constexpr qint64 MaximumConfigFileSize = 1024 * 1024;
+constexpr qsizetype MaximumDockStateTextSize = 256 * 1024;
+
+bool validateKnownValueTypes(const QJsonObject& schema,
+                             QJsonObject& target)
+{
+    bool repaired = false;
+    for (auto it = schema.constBegin(); it != schema.constEnd(); ++it) {
+        if (!target.contains(it.key()))
+            continue;
+
+        const QJsonValue expected = it.value();
+        const QJsonValue actual = target.value(it.key());
+        if (expected.isObject() && actual.isObject()) {
+            QJsonObject child = actual.toObject();
+            repaired |= validateKnownValueTypes(expected.toObject(), child);
+            target[it.key()] = child;
+            continue;
+        }
+
+        if (expected.isArray() && actual.isArray()) {
+            const QJsonArray expectedArray = expected.toArray();
+            const QJsonArray actualArray = actual.toArray();
+            bool arrayValid = expectedArray.size() == actualArray.size();
+            for (qsizetype index = 0;
+                 arrayValid && index < expectedArray.size(); ++index) {
+                arrayValid = expectedArray.at(index).type()
+                    == actualArray.at(index).type();
+            }
+            if (!arrayValid) {
+                target[it.key()] = expected;
+                repaired = true;
+            }
+            continue;
+        }
+
+        // 已知字段必须与默认配置具有相同 JSON 类型，避免字符串被宽松
+        // 转换成数字或布尔值后产生不可预期的窗口和终端参数。
+        if (expected.type() != actual.type()) {
+            target[it.key()] = expected;
+            repaired = true;
+        }
+    }
+    return repaired;
+}
+
+bool repairIntegerRange(QJsonObject& object, const QString& key,
+                        int minimum, int maximum, int defaultValue)
+{
+    const double number = object.value(key).toDouble();
+    if (std::isfinite(number) && std::floor(number) == number
+        && number >= minimum && number <= maximum) {
+        return false;
+    }
+
+    object[key] = defaultValue;
+    return true;
+}
+
+bool validateKnownValueRanges(QJsonObject& root,
+                              const QJsonObject& defaults)
+{
+    bool repaired = false;
+
+    QJsonObject ui = root.value(QStringLiteral("ui")).toObject();
+    const QJsonObject defaultUi = defaults.value(
+        QStringLiteral("ui")).toObject();
+    const QString language = ui.value(QStringLiteral("language")).toString();
+    if (language != QStringLiteral("en")
+        && language != QStringLiteral("zh_CN")) {
+        ui[QStringLiteral("language")] = defaultUi.value(
+            QStringLiteral("language"));
+        repaired = true;
+    }
+    const QString theme = ui.value(QStringLiteral("theme")).toString();
+    if (theme != QStringLiteral("auto")
+        && theme != QStringLiteral("light")
+        && theme != QStringLiteral("dark")) {
+        ui[QStringLiteral("theme")] = defaultUi.value(
+            QStringLiteral("theme"));
+        repaired = true;
+    }
+    root[QStringLiteral("ui")] = ui;
+
+    QJsonObject terminal = root.value(QStringLiteral("terminal")).toObject();
+    const QJsonObject defaultTerminal = defaults.value(
+        QStringLiteral("terminal")).toObject();
+    repaired |= repairIntegerRange(
+        terminal, QStringLiteral("fontSize"), 6, 96,
+        defaultTerminal.value(QStringLiteral("fontSize")).toInt());
+    repaired |= repairIntegerRange(
+        terminal, QStringLiteral("scrollbackLines"), 100, 1000000,
+        defaultTerminal.value(QStringLiteral("scrollbackLines")).toInt());
+    if (terminal.value(QStringLiteral("fontFamily")).toString().trimmed()
+        .isEmpty()) {
+        terminal[QStringLiteral("fontFamily")] = defaultTerminal.value(
+            QStringLiteral("fontFamily"));
+        repaired = true;
+    }
+    root[QStringLiteral("terminal")] = terminal;
+
+    QJsonObject window = root.value(QStringLiteral("window")).toObject();
+    const QJsonObject defaultWindow = defaults.value(
+        QStringLiteral("window")).toObject();
+    repaired |= repairIntegerRange(
+        window, QStringLiteral("width"), 640, 16384,
+        defaultWindow.value(QStringLiteral("width")).toInt());
+    repaired |= repairIntegerRange(
+        window, QStringLiteral("height"), 480, 16384,
+        defaultWindow.value(QStringLiteral("height")).toInt());
+    repaired |= repairIntegerRange(
+        window, QStringLiteral("sessionPanelExpandedWidth"), 160, 4096,
+        defaultWindow.value(
+            QStringLiteral("sessionPanelExpandedWidth")).toInt());
+    if (window.value(QStringLiteral("dockState")).toString().size()
+        > MaximumDockStateTextSize) {
+        window[QStringLiteral("dockState")] = QString{};
+        repaired = true;
+    }
+    root[QStringLiteral("window")] = window;
+
+    return repaired;
+}
+
+} // namespace
 
 ConfigManager& ConfigManager::instance()
 {
@@ -103,7 +234,10 @@ QJsonObject ConfigManager::defaults()
         {"window", QJsonObject{
             {"width", 1280},
             {"height", 800},
-            {"maximized", false}
+            {"maximized", false},
+            {"dockState", ""},
+            {"sessionPanelCollapsed", false},
+            {"sessionPanelExpandedWidth", 260}
         }}
     };
 }
@@ -119,16 +253,20 @@ void ConfigManager::load()
 
     QFile file(_filePath);
     if (file.open(QIODevice::ReadOnly)) {
-        QByteArray raw = file.readAll();
+        QByteArray raw;
+        if (file.size() <= MaximumConfigFileSize)
+            raw = file.readAll();
         file.close();
 
         QJsonParseError err;
         QJsonDocument doc = QJsonDocument::fromJson(raw, &err);
-        if (err.error == QJsonParseError::NoError && doc.isObject()) {
+        if (!raw.isEmpty() && err.error == QJsonParseError::NoError
+            && doc.isObject()) {
             _root = doc.object();
             qDebug() << "配置已加载：" << _filePath;
         } else {
-            qWarning() << "配置解析错误：" << err.errorString() << "— 使用默认值";
+            qWarning() << "配置文件为空、过大或解析失败："
+                       << err.errorString() << "— 使用默认值";
             _root = QJsonObject{};
         }
     } else {
@@ -136,9 +274,14 @@ void ConfigManager::load()
         _root = QJsonObject{};
     }
 
-    // 用内置默认值填充所有缺失的键，然后持久化
-    QJsonObject def = defaults();
+    // 先修复已知字段的类型，再填充缺失字段并校验关键取值范围。
+    // 未识别的扩展字段原样保留，兼顾向前兼容与损坏配置恢复。
+    const QJsonObject def = defaults();
+    bool repaired = validateKnownValueTypes(def, _root);
     applyDefaults(def, _root);
+    repaired |= validateKnownValueRanges(_root, def);
+    if (repaired)
+        qWarning() << "配置包含无效字段，已使用安全默认值修复";
     save();
 }
 
@@ -147,11 +290,13 @@ void ConfigManager::save()
     if (_filePath.isEmpty())
         return;
 
-    QFile file(_filePath);
-    if (file.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
-        QJsonDocument doc(_root);
-        file.write(doc.toJson(QJsonDocument::Indented));
-        file.close();
+    // QSaveFile 先写临时文件再原子替换，避免断电或异常退出留下半个 JSON。
+    QSaveFile file(_filePath);
+    if (file.open(QIODevice::WriteOnly)) {
+        const QByteArray data = QJsonDocument(_root).toJson(
+            QJsonDocument::Indented);
+        if (file.write(data) != data.size() || !file.commit())
+            qWarning() << "提交配置失败：" << _filePath;
     } else {
         qWarning() << "写入配置失败：" << _filePath;
     }
@@ -162,4 +307,16 @@ void ConfigManager::set(const QString& path, const QVariant& value)
     instance().setValueAt(path, value);
     instance().save();
     emit instance().configChanged(path);
+}
+
+void ConfigManager::setValues(const QVariantMap& values)
+{
+    ConfigManager& manager = instance();
+    for (auto it = values.constBegin(); it != values.constEnd(); ++it)
+        manager.setValueAt(it.key(), it.value());
+
+    // 一组相关状态只落盘一次，保证关闭时保存的窗口和面板布局相互一致。
+    manager.save();
+    for (auto it = values.constBegin(); it != values.constEnd(); ++it)
+        emit manager.configChanged(it.key());
 }

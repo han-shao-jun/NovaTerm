@@ -2,19 +2,24 @@
  * @file   SessionPanel.cpp
  * @brief  会话面板实现：历史会话树、重连与编辑。
  *
- * 通过 SessionStore 持久化会话历史，QTreeWidget 展示。右键菜单支持重连、
- * 编辑、删除。折叠/展开按钮在窗口宽度不足时隐藏树。
+ * 通过 SessionStore 持久化会话历史，按连接类型分组展示。右键菜单支持
+ * 重连、编辑、删除，面板顶部提供新建会话入口。
  */
 #include "SessionPanel.h"
 
 #include "ElaIconButton.h"
 #include "ElaMenu.h"
+#include "ElaPushButton.h"
 #include "credential/CredentialStore.h"
 #include "service/LanguageManager.h"
 #include "session/SessionStore.h"
 
 #include <QDir>
 #include <QDebug>
+#include <QFont>
+#include <QHeaderView>
+#include <QHBoxLayout>
+#include <QLabel>
 #include <QMessageBox>
 #include <QResizeEvent>
 #include <QStandardPaths>
@@ -22,6 +27,7 @@
 #include <QVBoxLayout>
 
 #include <algorithm>
+#include <array>
 #include <iterator>
 #include <utility>
 
@@ -34,7 +40,7 @@ QString localSessionName(TerminalView::LocalShellType type)
         ? QStringLiteral("powershell") : QStringLiteral("cmd");
 #else
     Q_UNUSED(type);
-    return QStringLiteral("shel");
+    return QStringLiteral("shell");
 #endif
 }
 
@@ -63,6 +69,48 @@ QString sessionName(const RuntimeConfig& runtime)
     case TransportKind::Custom:
         return runtime.title.trimmed().isEmpty()
             ? SessionPanel::tr("Custom") : runtime.title;
+    }
+    return {};
+}
+
+QString transportGroupName(TransportKind kind)
+{
+    // 分组名称集中生成，确保树重建和运行时语言切换使用同一套文案。
+    switch (kind) {
+    case TransportKind::LocalShell:
+        return SessionPanel::tr("Local terminals");
+    case TransportKind::Ssh:
+        return SessionPanel::tr("SSH hosts");
+    case TransportKind::Serial:
+        return SessionPanel::tr("Serial ports");
+    case TransportKind::Telnet:
+        return SessionPanel::tr("Telnet hosts");
+    case TransportKind::Custom:
+        return SessionPanel::tr("Other sessions");
+    }
+    return {};
+}
+
+QString sessionDetail(const RuntimeConfig& runtime)
+{
+    // 第一列展示用户可识别的名称，第二列只保留最关键的连接参数，
+    // 避免窄侧栏内重复显示完整会话描述。
+    const QVariantMap& values = runtime.transport;
+    switch (runtime.transportKind) {
+    case TransportKind::LocalShell:
+        return localSessionName(static_cast<TerminalView::LocalShellType>(
+            values.value(QStringLiteral("shellType")).toInt()));
+    case TransportKind::Ssh:
+        return QStringLiteral("%1:%2")
+            .arg(values.value(QStringLiteral("host")).toString())
+            .arg(values.value(QStringLiteral("port")).toUInt());
+    case TransportKind::Serial:
+        return QString::number(
+            values.value(QStringLiteral("baudRate")).toInt());
+    case TransportKind::Telnet:
+        return values.value(QStringLiteral("host")).toString();
+    case TransportKind::Custom:
+        return {};
     }
     return {};
 }
@@ -140,26 +188,52 @@ SessionPanel::SessionPanel(QWidget* parent)
     if (historyNamesChanged)
         saveHistory();
 
-    auto* rootLayout = new QVBoxLayout(this);
-    rootLayout->setContentsMargins(0, 0, 0, 0);
-    rootLayout->setSpacing(0);
+    _rootLayout = new QVBoxLayout(this);
+    _rootLayout->setContentsMargins(12, 12, 12, 12);
+    _rootLayout->setSpacing(10);
+
+    // 使用固定高度的标题容器，避免折叠后仅剩标题布局时被纵向拉伸，
+    // 从而保证展开图标始终停留在面板顶部。
+    auto* headerWidget = new QWidget(this);
+    headerWidget->setFixedHeight(32);
+    auto* headerLayout = new QHBoxLayout(headerWidget);
+    headerLayout->setContentsMargins(0, 0, 0, 0);
+    headerLayout->setSpacing(6);
+    _titleLabel = new QLabel(tr("Quick connections"), this);
+    QFont titleFont = _titleLabel->font();
+    titleFont.setBold(true);
+    _titleLabel->setFont(titleFont);
+    headerLayout->addWidget(_titleLabel);
+    headerLayout->addStretch();
+
+    _collapseButton = new ElaIconButton(
+        ElaIconType::AngleLeft, 12, 28, 28, headerWidget);
+    headerLayout->addWidget(_collapseButton);
+    _rootLayout->addWidget(headerWidget, 0, Qt::AlignTop);
+
+    _newSessionButton = new ElaPushButton(tr("+  New session"), this);
+    _newSessionButton->setAccessibleName(tr("New session"));
+    _newSessionButton->setMinimumHeight(34);
+    _rootLayout->addWidget(_newSessionButton);
 
     _tree = new QTreeWidget(this);
-    _tree->setColumnCount(1);
+    _tree->setColumnCount(2);
     _tree->setHeaderHidden(true);
     _tree->setAnimated(false);
-    _tree->setIndentation(0);
-    _tree->setRootIsDecorated(false);
+    _tree->setIndentation(16);
+    _tree->setRootIsDecorated(true);
     _tree->setUniformRowHeights(true);
     _tree->setContextMenuPolicy(Qt::CustomContextMenu);
-    rootLayout->addWidget(_tree, 1);
+    _tree->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    _tree->header()->setStretchLastSection(false);
+    _tree->header()->setSectionResizeMode(0, QHeaderView::Stretch);
+    _tree->header()->setSectionResizeMode(1, QHeaderView::ResizeToContents);
+    _rootLayout->addWidget(_tree, 1);
 
-    _toggleButton = new ElaIconButton(
-        ElaIconType::AngleLeft, 14, 32, 32, this);
-    _toggleButton->raise();
-
-    connect(_toggleButton, &QPushButton::clicked, this,
-            [this]() { setExpanded(!_expanded); });
+    connect(_collapseButton, &QPushButton::clicked, this,
+            [this]() { setCollapsed(!_collapsed); });
+    connect(_newSessionButton, &QPushButton::clicked, this,
+            &SessionPanel::newSessionRequested);
     connect(_tree, &QTreeWidget::itemDoubleClicked, this,
             [this](QTreeWidgetItem* item, int) { reconnectItem(item); });
     connect(_tree, &QWidget::customContextMenuRequested, this,
@@ -167,79 +241,68 @@ SessionPanel::SessionPanel(QWidget* parent)
     connect(&LanguageManager::instance(), &LanguageManager::languageChanged,
             this, [this](const QString&) { retranslateUi(); });
 
-    setExpanded(true);
     rebuildTree();
+    updateCollapsedUi();
 }
 
 SessionPanel::~SessionPanel() = default;
 
-void SessionPanel::setExpanded(bool expanded)
+void SessionPanel::setCollapsed(bool collapsed)
 {
-    if (_expanded && !expanded && width() >= 160)
-        _expandedWidth = width();
-
-    _expanded = expanded;
-    _tree->setVisible(expanded);
-    updateToggleButton();
-    if (expanded) {
-        setMaximumWidth(QWIDGETSIZE_MAX);
-        setMinimumWidth(160);
-    } else {
-        setMinimumWidth(44);
-        setMaximumWidth(44);
-    }
-    updateGeometry();
-    repositionToggleButton();
-    emit panelWidthChangeRequested(expanded ? _expandedWidth : 44);
-}
-
-void SessionPanel::setDockArea(Qt::DockWidgetArea area)
-{
-    if (area != Qt::LeftDockWidgetArea && area != Qt::RightDockWidgetArea)
+    if (_collapsed == collapsed)
         return;
 
-    _dockArea = area;
-    updateToggleButton();
-    repositionToggleButton();
+    // 折叠前记录用户最后调整的宽度，展开时恢复而不是退回固定默认值。
+    if (collapsed && width() >= 160)
+        _expandedWidth = width();
+
+    _collapsed = collapsed;
+    updateCollapsedUi();
+    emit collapsedChanged(_collapsed);
+    emit panelWidthChangeRequested(
+        _collapsed ? CollapsedWidth : _expandedWidth);
+}
+
+void SessionPanel::setExpandedWidth(int width)
+{
+    _expandedWidth = std::max(160, width);
+    if (!_collapsed)
+        emit panelWidthChangeRequested(_expandedWidth);
 }
 
 void SessionPanel::resizeEvent(QResizeEvent* event)
 {
     QWidget::resizeEvent(event);
-    if (_expanded && isVisible() && event->size().width() >= 160)
+    if (!_collapsed && event->size().width() >= 160)
         _expandedWidth = event->size().width();
-    repositionToggleButton();
 }
 
-void SessionPanel::updateToggleButton()
+void SessionPanel::updateCollapsedUi()
 {
-    if (!_toggleButton)
-        return;
+    // 折叠状态只保留一枚展开按钮，形成持续可见的窄侧栏；无需依赖顶栏菜单。
+    _titleLabel->setVisible(!_collapsed);
+    _newSessionButton->setVisible(!_collapsed);
+    _tree->setVisible(!_collapsed);
+    _collapseButton->setAwesome(
+        _collapsed ? ElaIconType::AngleRight : ElaIconType::AngleLeft);
+    _collapseButton->setAccessibleName(
+        _collapsed ? tr("Expand quick connections")
+                   : tr("Collapse quick connections"));
+    _collapseButton->setToolTip(
+        _collapsed ? tr("Expand quick connections")
+                   : tr("Collapse quick connections"));
 
-    const bool dockedOnRight = _dockArea == Qt::RightDockWidgetArea;
-    const auto collapseIcon = dockedOnRight ? ElaIconType::AngleRight
-                                            : ElaIconType::AngleLeft;
-    const auto expandIcon = dockedOnRight ? ElaIconType::AngleLeft
-                                          : ElaIconType::AngleRight;
-    _toggleButton->setAwesome(_expanded ? collapseIcon : expandIcon);
-    _toggleButton->setAccessibleName(
-        _expanded ? tr("Collapse sessions") : tr("Expand sessions"));
-    _toggleButton->setToolTip(
-        _expanded ? tr("Collapse sessions") : tr("Expand sessions"));
-}
-
-void SessionPanel::repositionToggleButton()
-{
-    if (!_toggleButton)
-        return;
-
-    constexpr int edgeMargin = 4;
-    const int x = _dockArea == Qt::RightDockWidgetArea
-        ? edgeMargin
-        : width() - _toggleButton->width() - edgeMargin;
-    _toggleButton->move(x,
-                        (height() - _toggleButton->height()) / 2);
-    _toggleButton->raise();
+    if (_collapsed) {
+        // 28px 按钮配合左右各 6px 边距，将折叠侧栏收窄到 40px。
+        _rootLayout->setContentsMargins(6, 6, 6, 6);
+        setMinimumWidth(CollapsedWidth);
+        setMaximumWidth(CollapsedWidth);
+    } else {
+        _rootLayout->setContentsMargins(12, 12, 12, 12);
+        setMaximumWidth(QWIDGETSIZE_MAX);
+        setMinimumWidth(160);
+    }
+    updateGeometry();
 }
 
 void SessionPanel::recordLocal(TerminalView::LocalShellType type,
@@ -374,19 +437,57 @@ void SessionPanel::saveHistory()
 void SessionPanel::rebuildTree()
 {
     _tree->clear();
-    for (const SessionRestoreMetadata& entry : std::as_const(_entries)) {
-        const RuntimeConfig& runtime = entry.runtimeSnapshot;
-        auto* item = new QTreeWidgetItem(_tree, {sessionName(runtime)});
-        item->setData(0, Qt::UserRole,
-                      entry.sessionId.toString(QUuid::WithoutBraces));
-        item->setToolTip(0, tr("Double-click to reconnect"));
+
+    // 固定分组顺序，避免会话保存顺序改变时侧栏类别来回跳动。
+    const std::array kinds{
+        TransportKind::LocalShell, TransportKind::Ssh,
+        TransportKind::Serial, TransportKind::Telnet,
+        TransportKind::Custom};
+    for (const TransportKind kind : kinds) {
+        QList<const SessionRestoreMetadata*> groupEntries;
+        for (const SessionRestoreMetadata& entry : std::as_const(_entries)) {
+            if (entry.runtimeSnapshot.transportKind == kind)
+                groupEntries.append(&entry);
+        }
+        if (groupEntries.isEmpty())
+            continue;
+
+        // 分组节点只负责展开/折叠，不代表具体会话，也不能触发右键操作。
+        auto* group = new QTreeWidgetItem(_tree, {transportGroupName(kind)});
+        group->setFlags(group->flags() & ~Qt::ItemIsSelectable);
+        QFont groupFont = group->font(0);
+        groupFont.setBold(true);
+        group->setFont(0, groupFont);
+        group->setExpanded(true);
+
+        for (const SessionRestoreMetadata* entry : groupEntries) {
+            const RuntimeConfig& runtime = entry->runtimeSnapshot;
+            QString displayName = runtime.transport
+                .value(QStringLiteral("label")).toString().trimmed();
+            if (displayName.isEmpty())
+                displayName = sessionName(runtime);
+
+            auto* item = new QTreeWidgetItem(
+                group, {displayName, sessionDetail(runtime)});
+            item->setData(0, Qt::UserRole,
+                          entry->sessionId.toString(QUuid::WithoutBraces));
+            item->setToolTip(0, tr("Double-click to reconnect"));
+            item->setToolTip(1, tr("Double-click to reconnect"));
+        }
+    }
+
+    if (_tree->topLevelItemCount() == 0) {
+        auto* emptyItem = new QTreeWidgetItem(
+            _tree, {tr("No saved sessions yet")});
+        emptyItem->setFlags(emptyItem->flags() & ~Qt::ItemIsSelectable);
     }
 }
 
 void SessionPanel::showItemContextMenu(const QPoint& position)
 {
     QTreeWidgetItem* const item = _tree->itemAt(position);
-    if (!item)
+    // 只有携带会话 UUID 的叶子节点允许编辑或删除；分组和空状态节点跳过。
+    if (!item || item->data(0, Qt::UserRole).toString().isEmpty())
         return;
 
     _tree->setCurrentItem(item);
@@ -517,6 +618,12 @@ void SessionPanel::reconnectItem(QTreeWidgetItem* item)
 
 void SessionPanel::retranslateUi()
 {
-    setExpanded(_expanded);
+    if (_titleLabel)
+        _titleLabel->setText(tr("Quick connections"));
+    if (_newSessionButton) {
+        _newSessionButton->setText(tr("+  New session"));
+        _newSessionButton->setAccessibleName(tr("New session"));
+    }
+    updateCollapsedUi();
     rebuildTree();
 }

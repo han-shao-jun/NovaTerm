@@ -32,6 +32,9 @@ public:
     // ── 设置值，自动保存 ──
     static void set(const QString& path, const QVariant& value);
 
+    // 批量设置多个点分隔路径，并在全部更新后统一写入一次配置文件。
+    static void setValues(const QVariantMap& values);
+
     // ── 原始访问 ──
     QJsonObject root() const { return _root; }
 

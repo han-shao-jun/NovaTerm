@@ -47,9 +47,13 @@ signals:
     void localSessionConnected(TerminalView::LocalShellType type);
     void serialSessionConnected(const SerialConfig& config);
     void sshSessionConnected(const SshConfig& config);
+    /** 当前标签或 SSH 连接状态变化，供远端工具面板更新可用性。 */
+    void currentSessionContextChanged(const QString& label,
+                                      bool connectedSshSession);
 
 private:
     void retranslateUi();
+    void emitCurrentSessionContext();
 
     ElaTabWidget* _tabWidget{nullptr};
     QList<TerminalView*> _terminalViews;

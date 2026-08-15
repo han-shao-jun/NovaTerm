@@ -53,6 +53,15 @@ Built with:
     </message>
 </context>
 <context>
+    <name>DraggableDockWidget</name>
+    <message>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="299"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="300"/>
+        <source>Close panel</source>
+        <translation type="unfinished"></translation>
+    </message>
+</context>
+<context>
     <name>ElaCalendarTitleModel</name>
     <message>
         <location filename="../../third_party/ElaWidgetTools/ElaWidgetTools/DeveloperComponents/ElaCalendarTitleModel.cpp" line="25"/>
@@ -301,115 +310,145 @@ Built with:
 <context>
     <name>MainWindow</name>
     <message>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="109"/>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="112"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="579"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="582"/>
         <source>Exit</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="110"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="580"/>
         <source>Cancel</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="111"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="581"/>
         <source>Minimize</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="117"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="587"/>
         <source>Are you sure you want to exit NovaTerm?</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="153"/>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="175"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="665"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="703"/>
         <source>NovaTerm</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="155"/>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="225"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="667"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="760"/>
         <source>Menu</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="156"/>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="158"/>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="159"/>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="234"/>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="235"/>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="237"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="668"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="670"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="671"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="769"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="770"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="772"/>
         <source>New session</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="163"/>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="308"/>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="384"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="675"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="1119"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="1209"/>
         <source>Session</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="164"/>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="313"/>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="476"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="676"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="1138"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="1301"/>
         <source>Settings</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="165"/>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="317"/>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="510"/>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="529"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="677"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="1142"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="1335"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="1354"/>
         <source>About</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="166"/>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="326"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="678"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="1151"/>
         <source>Local</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="167"/>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="328"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="679"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="1153"/>
         <source>SSH</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="168"/>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="330"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="680"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="1155"/>
         <source>Serial</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="169"/>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="332"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="681"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="1157"/>
         <source>Telnet</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="170"/>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="263"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="682"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="800"/>
         <source>Sessions</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="282"/>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="299"/>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="445"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="683"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="814"/>
+        <source>SFTP transfer</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="685"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="828"/>
+        <source>System resources</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="691"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="692"/>
+        <source>Close panel</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="696"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="1127"/>
+        <source>SFTP panel</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="698"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="1129"/>
+        <source>System resources panel</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="872"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="920"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="1270"/>
         <source>Terminal</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="294"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="884"/>
         <source>Reconnect session</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="511"/>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="530"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="1336"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="1355"/>
         <source>OK</source>
         <translation type="unfinished"></translation>
     </message>
@@ -721,49 +760,98 @@ Built with:
 <context>
     <name>SessionPanel</name>
     <message>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="65"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="71"/>
         <source>Custom</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="186"/>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="188"/>
-        <source>Collapse sessions</source>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="81"/>
+        <source>Local terminals</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="186"/>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="188"/>
-        <source>Expand sessions</source>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="83"/>
+        <source>SSH hosts</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="357"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="85"/>
+        <source>Serial ports</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="87"/>
+        <source>Telnet hosts</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="89"/>
+        <source>Other sessions</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="202"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="622"/>
+        <source>Quick connections</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="214"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="624"/>
+        <source>+  New session</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="215"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="625"/>
+        <source>New session</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="289"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="292"/>
+        <source>Expand quick connections</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="290"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="293"/>
+        <source>Collapse quick connections</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="474"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="475"/>
         <source>Double-click to reconnect</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="371"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="481"/>
+        <source>No saved sessions yet</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="497"/>
         <source>Edit</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="373"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="499"/>
         <source>Delete</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="410"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="536"/>
         <source>Delete session</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="411"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="537"/>
         <source>Delete the saved session &apos;%1&apos;?</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="486"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="612"/>
         <source>The saved SSH credential is unavailable. Create the session again to refresh it.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -970,6 +1058,78 @@ Built with:
     </message>
 </context>
 <context>
+    <name>SftpPanel</name>
+    <message>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="88"/>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="89"/>
+        <source>Parent directory</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="90"/>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="91"/>
+        <source>Refresh</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="92"/>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="93"/>
+        <source>Upload</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="94"/>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="95"/>
+        <source>Download</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="96"/>
+        <source>Remote path</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="97"/>
+        <source>Name</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="97"/>
+        <source>Size</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="115"/>
+        <source>No active SSH session</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="116"/>
+        <source>Session: %1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="118"/>
+        <source>SFTP transfer support is not available yet.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="119"/>
+        <source>Select a connected SSH terminal to browse remote files.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="125"/>
+        <source>SFTP backend pending</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="126"/>
+        <source>Waiting for an SSH session</source>
+        <translation type="unfinished"></translation>
+    </message>
+</context>
+<context>
     <name>SshHostKeyDialog</name>
     <message>
         <location filename="../../src/ui/widgets/SshHostKeyDialog.cpp" line="19"/>
@@ -1111,15 +1271,94 @@ Built with:
     </message>
 </context>
 <context>
+    <name>SystemMonitorPanel</name>
+    <message>
+        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="115"/>
+        <source>CPU</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="116"/>
+        <source>Memory</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="117"/>
+        <source>Swap</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="118"/>
+        <source>Network</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="119"/>
+        <source>File systems</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="121"/>
+        <source>Interface</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="121"/>
+        <source>Receive</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="121"/>
+        <source>Send</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="122"/>
+        <source>Path</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="122"/>
+        <source>Available / Size</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="139"/>
+        <source>No active SSH session</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="140"/>
+        <source>Session: %1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="142"/>
+        <source>Remote resource collection is not available yet.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="143"/>
+        <source>Select a connected SSH terminal to inspect remote resources.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="148"/>
+        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="154"/>
+        <source>Waiting for monitoring data</source>
+        <translation type="unfinished"></translation>
+    </message>
+</context>
+<context>
     <name>TerminalPage</name>
     <message>
         <location filename="../../src/ui/pages/TerminalPage.cpp" line="22"/>
-        <location filename="../../src/ui/pages/TerminalPage.cpp" line="45"/>
+        <location filename="../../src/ui/pages/TerminalPage.cpp" line="48"/>
         <source>Terminal</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/TerminalPage.cpp" line="89"/>
+        <location filename="../../src/ui/pages/TerminalPage.cpp" line="113"/>
         <source>Terminal %1</source>
         <translation type="unfinished"></translation>
     </message>

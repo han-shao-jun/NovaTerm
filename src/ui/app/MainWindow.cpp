@@ -23,9 +23,12 @@
 #include "ui/pages/SessionPage.h"
 #include "ui/pages/AboutPage.h"
 #include "ui/widgets/SessionPanel.h"
+#include "ui/widgets/SftpPanel.h"
+#include "ui/widgets/SystemMonitorPanel.h"
 #include "service/LanguageManager.h"
 #include "service/ConfigManager.h"
 #include <QApplication>
+#include <QCloseEvent>
 #include <QCursor>
 #include <QDockWidget>
 #include <QEnterEvent>
@@ -39,14 +42,18 @@
 #include <QPainter>
 #include <QPalette>
 #include <QPointer>
+#include <QShowEvent>
 #include <QTimerEvent>
 #include <QVBoxLayout>
 #include <QThread>
 #include <QTimer>
 
 #include <algorithm>
+#include <limits>
 
 namespace {
+
+constexpr int DockLayoutStateVersion = 1;
 
 class DockResizeHighlight final : public QWidget
 {
@@ -98,6 +105,8 @@ public:
         syncGeometry();
         raise();
 
+        // 将主窗口四条边划为停靠命中区。左右区域优先，避免鼠标位于
+        // 窗口角落时同时命中横向和纵向区域而产生抖动。
         Qt::DockWidgetArea area = Qt::NoDockWidgetArea;
         const QPoint position = mapFromGlobal(globalPosition);
         if (rect().contains(position)) {
@@ -107,6 +116,12 @@ public:
             } else if (_allowedAreas.testFlag(Qt::RightDockWidgetArea)
                        && rightTargetRect().contains(position)) {
                 area = Qt::RightDockWidgetArea;
+            } else if (_allowedAreas.testFlag(Qt::TopDockWidgetArea)
+                       && topTargetRect().contains(position)) {
+                area = Qt::TopDockWidgetArea;
+            } else if (_allowedAreas.testFlag(Qt::BottomDockWidgetArea)
+                       && bottomTargetRect().contains(position)) {
+                area = Qt::BottomDockWidgetArea;
             }
         }
 
@@ -147,6 +162,12 @@ protected:
         if (_allowedAreas.testFlag(Qt::RightDockWidgetArea))
             paintTarget(painter, rightTargetRect(), Qt::RightDockWidgetArea,
                         accent);
+        if (_allowedAreas.testFlag(Qt::TopDockWidgetArea))
+            paintTarget(painter, topTargetRect(), Qt::TopDockWidgetArea,
+                        accent);
+        if (_allowedAreas.testFlag(Qt::BottomDockWidgetArea))
+            paintTarget(painter, bottomTargetRect(), Qt::BottomDockWidgetArea,
+                        accent);
     }
 
 private:
@@ -169,6 +190,27 @@ private:
         return QRect(width() - zoneWidth, 0, zoneWidth, height());
     }
 
+    [[nodiscard]] int targetHeight() const noexcept
+    {
+        // 上下停靠提示随窗口高度缩放，同时限制尺寸，避免过小难以命中
+        // 或过大遮挡中央终端内容。
+        constexpr int minimumTargetHeight = 72;
+        constexpr int maximumTargetHeight = 240;
+        return std::clamp(height() / 4, minimumTargetHeight,
+                          maximumTargetHeight);
+    }
+
+    [[nodiscard]] QRect topTargetRect() const noexcept
+    {
+        return QRect(0, 0, width(), targetHeight());
+    }
+
+    [[nodiscard]] QRect bottomTargetRect() const noexcept
+    {
+        const int zoneHeight = targetHeight();
+        return QRect(0, height() - zoneHeight, width(), zoneHeight);
+    }
+
     void syncGeometry()
     {
         if (const QWidget* const host = parentWidget())
@@ -189,16 +231,28 @@ private:
         painter.setBrush(Qt::NoBrush);
         painter.drawRect(target.adjusted(1, 1, -1, -1));
 
-        const int direction = area == Qt::LeftDockWidgetArea ? -1 : 1;
         const QPoint center = target.center();
         constexpr int arrowHalfHeight = 12;
         constexpr int arrowWidth = 8;
-        const QPolygon chevron({
-            QPoint(center.x() - direction * arrowWidth,
-                   center.y() - arrowHalfHeight),
-            center,
-            QPoint(center.x() - direction * arrowWidth,
-                   center.y() + arrowHalfHeight)});
+        QPolygon chevron;
+        if (area == Qt::LeftDockWidgetArea
+            || area == Qt::RightDockWidgetArea) {
+            const int direction = area == Qt::LeftDockWidgetArea ? -1 : 1;
+            chevron = QPolygon({
+                QPoint(center.x() - direction * arrowWidth,
+                       center.y() - arrowHalfHeight),
+                center,
+                QPoint(center.x() - direction * arrowWidth,
+                       center.y() + arrowHalfHeight)});
+        } else {
+            const int direction = area == Qt::TopDockWidgetArea ? -1 : 1;
+            chevron = QPolygon({
+                QPoint(center.x() - arrowHalfHeight,
+                       center.y() - direction * arrowWidth),
+                center,
+                QPoint(center.x() + arrowHalfHeight,
+                       center.y() - direction * arrowWidth)});
+        }
         painter.setPen(QPen(outline, active ? 3.0 : 2.0,
                             Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
         painter.drawPolyline(chevron);
@@ -240,7 +294,24 @@ public:
         _titleLabel->setAttribute(Qt::WA_TransparentForMouseEvents);
         _titleLabel->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
         titleLayout->addWidget(_titleLabel, 1);
+
+        // 使用自定义标题栏后，QDockWidget 不再自动绘制关闭按钮，
+        // 因此在标题栏中补回关闭入口，并随 DockWidgetClosable 同步显隐。
+        _titleCloseButton = new ElaIconButton(
+            ElaIconType::Xmark, 11, 24, 24, _titleBar);
+        _titleCloseButton->setObjectName(QStringLiteral("dockCloseButton"));
+        _titleCloseButton->setAccessibleName(tr("Close panel"));
+        _titleCloseButton->setToolTip(tr("Close panel"));
+        titleLayout->addWidget(_titleCloseButton, 0, Qt::AlignVCenter);
         setTitleBarWidget(_titleBar);
+
+        connect(_titleCloseButton, &QPushButton::clicked,
+                this, &QDockWidget::close);
+        connect(this, &QDockWidget::featuresChanged, this,
+                [this](QDockWidget::DockWidgetFeatures features) {
+            _titleCloseButton->setVisible(
+                features.testFlag(QDockWidget::DockWidgetClosable));
+        });
 
         connect(this, &QDockWidget::windowTitleChanged, this,
                 [this](const QString& windowTitle) {
@@ -431,6 +502,7 @@ private:
     QWidget* _titleBar{nullptr};
     ElaIconButton* _titleDragHandle{nullptr};
     QLabel* _titleLabel{nullptr};
+    ElaIconButton* _titleCloseButton{nullptr};
     Qt::DockWidgetAreas _managedDockAreas{Qt::NoDockWidgetArea};
     int _dragTimerId{0};
     bool _dragCursorVisible{false};
@@ -540,7 +612,38 @@ MainWindow::MainWindow(QWidget* parent) : ElaWindow(parent)
     });
 }
 
-MainWindow::~MainWindow() = default;
+MainWindow::~MainWindow()
+{
+    // 正常关闭会在 closeEvent 中保存；这里作为应用直接销毁窗口时的兜底。
+    saveWindowLayout();
+}
+
+void MainWindow::saveWindowLayout()
+{
+    if (_windowLayoutSaved)
+        return;
+
+    // 停靠状态包含各面板的停靠边、尺寸、顺序和可见性；使用固定版本号
+    // 保存，后续若布局格式调整可递增版本并安全忽略旧数据。
+    QVariantMap windowState{
+        {QStringLiteral("window.width"), width()},
+        {QStringLiteral("window.height"), height()},
+        {QStringLiteral("window.dockState"),
+         QString::fromLatin1(
+             saveState(DockLayoutStateVersion).toBase64())}
+    };
+    // QMainWindow 只保存 Dock 的几何与可见性；快捷连接面板内部的折叠状态
+    // 和折叠前宽度需要单独持久化，才能在下次启动时完整恢复。
+    if (_sessionPanel) {
+        windowState.insert(QStringLiteral("window.sessionPanelCollapsed"),
+                           _sessionPanel->isCollapsed());
+        windowState.insert(QStringLiteral("window.sessionPanelExpandedWidth"),
+                           _sessionPanel->expandedWidth());
+    }
+    // 关闭时统一写入一次，防止多个字段分别保存造成布局状态不一致。
+    ConfigManager::setValues(windowState);
+    _windowLayoutSaved = true;
+}
 
 bool MainWindow::event(QEvent* event)
 {
@@ -555,9 +658,8 @@ bool MainWindow::event(QEvent* event)
     case QEvent::Resize:
         updateDockResizeHighlight(mapFromGlobal(QCursor::pos()));
         break;
-    case QEvent::HoverLeave:
-    case QEvent::Leave:
     case QEvent::WindowDeactivate:
+        _activeDockResizeKind = DockResizeKind::None;
         if (_dockResizeHighlight)
             _dockResizeHighlight->hide();
         break;
@@ -574,6 +676,41 @@ void MainWindow::changeEvent(QEvent* event)
         retranslateUi();
     }
     ElaWindow::changeEvent(event);
+}
+
+void MainWindow::closeEvent(QCloseEvent* event)
+{
+    ElaWindow::closeEvent(event);
+    if (event->isAccepted()) {
+        // 在窗口及 Dock 仍保持最终可见几何时保存，避免析构阶段取得已隐藏
+        // 或已被 Qt 清理后的布局状态。
+        saveWindowLayout();
+    }
+}
+
+void MainWindow::showEvent(QShowEvent* event)
+{
+    ElaWindow::showEvent(event);
+    if (_dockStateRestoredAfterShow || _dockStateForFirstShow.isEmpty())
+        return;
+
+    _dockStateRestoredAfterShow = true;
+    QTimer::singleShot(0, this, [this]() {
+        // ElaWindow/平台窗口在首次 show 后才完成最终中央区域几何。此时再
+        // 恢复一次可防止构造阶段已经生效的 Dock 布局被晚期布局覆盖。
+        if (!restoreState(_dockStateForFirstShow,
+                          DockLayoutStateVersion)) {
+            _dockStateForFirstShow.clear();
+            ConfigManager::set(QStringLiteral("window.dockState"),
+                               QString{});
+            qWarning() << "首次显示后恢复面板布局失败，已清除无效状态";
+            return;
+        }
+
+        // 快捷连接固定存在于左侧；旧状态中的隐藏标记不能覆盖该约束。
+        if (_sessionDock)
+            _sessionDock->setVisible(true);
+    });
 }
 
 void MainWindow::retranslateUi()
@@ -596,6 +733,22 @@ void MainWindow::retranslateUi()
     if (_serialSessionAction) _serialSessionAction->setText(tr("Serial"));
     if (_telnetSessionAction) _telnetSessionAction->setText(tr("Telnet"));
     if (_sessionDock) _sessionDock->setWindowTitle(tr("Sessions"));
+    if (_sftpDock) _sftpDock->setWindowTitle(tr("SFTP transfer"));
+    if (_systemMonitorDock)
+        _systemMonitorDock->setWindowTitle(tr("System resources"));
+    for (QDockWidget* dock : {_sftpDock, _systemMonitorDock}) {
+        if (!dock)
+            continue;
+        if (auto* closeButton = dock->findChild<ElaIconButton*>(
+                QStringLiteral("dockCloseButton"))) {
+            closeButton->setAccessibleName(tr("Close panel"));
+            closeButton->setToolTip(tr("Close panel"));
+        }
+    }
+    if (_toggleSftpPanelAction)
+        _toggleSftpPanelAction->setText(tr("SFTP panel"));
+    if (_toggleSystemMonitorAction)
+        _toggleSystemMonitorAction->setText(tr("System resources panel"));
 }
 
 void MainWindow::initWindow()
@@ -614,6 +767,12 @@ void MainWindow::initWindow()
 
     //隐藏导航栏
     setIsNavigationBarEnable(false);
+    // 开启嵌套后，SFTP 与资源监视面板才能在同一侧横向或纵向组合。
+    setDockNestingEnabled(true);
+    setCorner(Qt::TopLeftCorner, Qt::LeftDockWidgetArea);
+    setCorner(Qt::BottomLeftCorner, Qt::LeftDockWidgetArea);
+    setCorner(Qt::TopRightCorner, Qt::RightDockWidgetArea);
+    setCorner(Qt::BottomRightCorner, Qt::RightDockWidgetArea);
 
     // ── 标题栏左侧：仅显示应用 Logo + 菜单按钮 ──
     // 保留窗口图标用于任务栏 / Alt-Tab；标题栏上可见的 Logo 由下方的
@@ -645,7 +804,7 @@ void MainWindow::initWindow()
     // ═══════════════════════════════════════════════════════════════
     // 菜单图标，放置在 LeftArea 中使其位于 Logo 右侧。
     //   • 悬停  → ElaToolTip "Menu"
-    //   • 点击  → 弹出 ElaMenu，包含 会话 / 设置 / 关于
+    //   • 点击  → 弹出 ElaMenu，包含会话、侧栏显隐、设置与关于
     // ═══════════════════════════════════════════════════════════════
     _menuButton = new ElaIconButton(ElaIconType::Bars, 18, 32, 32, this);
     // ElaToolTip（非原生 QToolTip）：其背景使用主题的 PopupBase/PopupBorder
@@ -689,25 +848,74 @@ void MainWindow::initWindow()
 
     _terminalPage = new TerminalPage(this);
 
-    _sessionDock = new DraggableDockWidget(tr("Sessions"), this);
+    // 1 号区域：会话面板固定在左侧。标题已由面板内部绘制，因此隐藏
+    // QDockWidget 标题栏，并禁止用户将它拖离快捷连接区域。
+    _sessionDock = new QDockWidget(tr("Sessions"), this);
     _sessionDock->setObjectName(QStringLiteral("sessionDock"));
-    _sessionDock->setAllowedAreas(Qt::LeftDockWidgetArea
-                                  | Qt::RightDockWidgetArea);
-    _sessionDock->setFeatures(QDockWidget::DockWidgetMovable);
+    _sessionDock->setAllowedAreas(Qt::LeftDockWidgetArea);
+    _sessionDock->setFeatures(QDockWidget::NoDockWidgetFeatures);
+    auto* hiddenSessionTitleBar = new QWidget(_sessionDock);
+    hiddenSessionTitleBar->setFixedHeight(0);
+    _sessionDock->setTitleBarWidget(hiddenSessionTitleBar);
 
     _sessionPanel = new SessionPanel(_sessionDock);
     _sessionPanel->setCursor(Qt::ArrowCursor);
     _sessionDock->setWidget(_sessionPanel);
     addDockWidget(Qt::LeftDockWidgetArea, _sessionDock);
-    _sessionPanel->setDockArea(Qt::LeftDockWidgetArea);
-    resizeDocks({_sessionDock}, {280}, Qt::Horizontal);
+
+    // 2 号区域：SFTP 是工具面板，允许停靠到窗口任意一边，也允许关闭。
+    _sftpDock = new DraggableDockWidget(tr("SFTP transfer"), this);
+    _sftpDock->setObjectName(QStringLiteral("sftpDock"));
+    _sftpDock->setAllowedAreas(Qt::AllDockWidgetAreas);
+    _sftpDock->setFeatures(QDockWidget::DockWidgetClosable
+                           | QDockWidget::DockWidgetMovable);
+    _sftpPanel = new SftpPanel(_sftpDock);
+    _sftpDock->setWidget(_sftpPanel);
+    addDockWidget(Qt::LeftDockWidgetArea, _sftpDock);
+    // 默认将 SFTP 放在会话区与中央终端之间，对应参考图的初始顺序。
+    splitDockWidget(_sessionDock, _sftpDock, Qt::Horizontal);
+
+    // 4 号区域：系统资源监视默认停靠右侧，并与 SFTP 使用相同的
+    // 四边停靠和关闭规则；3 号终端始终由中央页面承载，不参与拖动。
+    _systemMonitorDock = new DraggableDockWidget(
+        tr("System resources"), this);
+    _systemMonitorDock->setObjectName(QStringLiteral("systemMonitorDock"));
+    _systemMonitorDock->setAllowedAreas(Qt::AllDockWidgetAreas);
+    _systemMonitorDock->setFeatures(QDockWidget::DockWidgetClosable
+                                    | QDockWidget::DockWidgetMovable);
+    _systemMonitorPanel = new SystemMonitorPanel(_systemMonitorDock);
+    _systemMonitorDock->setWidget(_systemMonitorPanel);
+    addDockWidget(Qt::RightDockWidgetArea, _systemMonitorDock);
+
+    resizeDocks({_sessionDock, _sftpDock, _systemMonitorDock},
+                {260, 260, 290}, Qt::Horizontal);
 
     _dockResizeHighlight = new DockResizeHighlight(this);
 
-    connect(_sessionDock, &QDockWidget::dockLocationChanged,
-            _sessionPanel, &SessionPanel::setDockArea);
+    // 鼠标移动事件通常由面板内部子控件接收，MainWindow 不一定能收到。
+    // 使用低频轮询统一检查全局指针位置，确保离开可调整边框后及时取消高亮。
+    auto* resizeHoverTimer = new QTimer(this);
+    resizeHoverTimer->setInterval(40);
+    connect(resizeHoverTimer, &QTimer::timeout, this, [this]() {
+        const QPoint globalPosition = QCursor::pos();
+        if (!isVisible() || isMinimized() || !isActiveWindow()
+            || !frameGeometry().contains(globalPosition)) {
+            if (!QApplication::mouseButtons().testFlag(Qt::LeftButton))
+                _activeDockResizeKind = DockResizeKind::None;
+            if (_dockResizeHighlight)
+                _dockResizeHighlight->hide();
+            return;
+        }
+        updateDockResizeHighlight(mapFromGlobal(globalPosition));
+    });
+    resizeHoverTimer->start();
+
+    connect(_sessionPanel, &SessionPanel::newSessionRequested,
+            this, qOverload<>(&MainWindow::showSessionDialog));
     connect(_sessionPanel, &SessionPanel::panelWidthChangeRequested, this,
             [this](int width) {
+        // 面板内部折叠按钮只负责状态切换，实际 Dock 宽度由 MainWindow
+        // 统一调整，避免直接修改 Dock 几何破坏 QMainWindow 布局。
         resizeDocks({_sessionDock}, {width}, Qt::Horizontal);
     });
     connect(_sessionPanel, &SessionPanel::editSessionRequested, this,
@@ -729,52 +937,250 @@ void MainWindow::initWindow()
         QMessageBox::warning(this, tr("Reconnect session"), message);
     });
 
-    // 仅注册终端（会话）页面；导航通过标题栏菜单进行，
-    // 因此左侧导航栏保持隐藏。
+    connect(_terminalPage, &TerminalPage::currentSessionContextChanged,
+            _sftpPanel, &SftpPanel::setSessionContext);
+    connect(_terminalPage, &TerminalPage::currentSessionContextChanged,
+            _systemMonitorPanel, &SystemMonitorPanel::setSessionContext);
+
+    // 先应用快捷面板内部状态。setExpandedWidth()/setCollapsed() 会触发
+    // resizeDocks，因此必须放在 restoreState() 之前，不能覆盖恢复后的尺寸。
+    _sessionPanel->setExpandedWidth(ConfigManager::get<int>(
+        QStringLiteral("window.sessionPanelExpandedWidth"), 260));
+    _sessionPanel->setCollapsed(ConfigManager::get<bool>(
+        QStringLiteral("window.sessionPanelCollapsed"), false));
+
+    // 先完成中央页面注册，确保恢复布局之后不再有初始化操作重排主窗口。
     addPageNode(tr("Terminal"), _terminalPage, ElaIconType::Terminal);
+
+    // 所有 Dock、中央页面及尺寸约束都准备完成后，最后恢复面板位置。
+    const QByteArray defaultDockState = saveState(DockLayoutStateVersion);
+    const QString savedDockState = ConfigManager::get<QString>(
+        QStringLiteral("window.dockState"));
+    if (!savedDockState.isEmpty()) {
+        const auto decodedState = QByteArray::fromBase64Encoding(
+            savedDockState.toLatin1(),
+            QByteArray::AbortOnBase64DecodingErrors);
+        const bool restored = decodedState && !decodedState.decoded.isEmpty()
+            && restoreState(decodedState.decoded, DockLayoutStateVersion);
+        if (restored) {
+            // 首次 show 后 ElaWindow 还会完成内部几何调整，因此保留一份
+            // 已校验状态，待窗口真正显示后再进行最终恢复。
+            _dockStateForFirstShow = decodedState.decoded;
+        } else {
+            // Base64 损坏、Qt 状态版本不匹配或内容不完整时，回退到创建
+            // Dock 后保存的默认布局，并清除无效值，避免每次启动重复失败。
+            restoreState(defaultDockState, DockLayoutStateVersion);
+            ConfigManager::set(QStringLiteral("window.dockState"),
+                               QString{});
+            qWarning() << "面板布局配置无效，已恢复默认布局";
+        }
+    }
+
+    // 快捷连接面板不再由顶栏菜单呼出，因此旧配置即使将其隐藏，启动后
+    // 也必须恢复可见；该操作只改变显隐，不再调整已恢复的停靠结构。
+    _sessionDock->setVisible(true);
+
+    // 顶栏菜单只管理可关闭的工具面板；快捷连接使用自身标题栏按钮折叠。
+    const auto bindPanelAction = [](QAction* action, QDockWidget* dock) {
+        QObject::connect(action, &QAction::toggled, dock,
+                         &QWidget::setVisible);
+        QObject::connect(dock, &QDockWidget::visibilityChanged, action,
+                         &QAction::setChecked);
+        action->setChecked(dock->isVisible());
+    };
+    bindPanelAction(_toggleSftpPanelAction, _sftpDock);
+    bindPanelAction(_toggleSystemMonitorAction, _systemMonitorDock);
+
 }
 
 void MainWindow::updateDockResizeHighlight(const QPoint& position)
 {
-    if (!_dockResizeHighlight || !_sessionDock || _sessionDock->isFloating()) {
-        if (_dockResizeHighlight)
-            _dockResizeHighlight->hide();
+    if (!_dockResizeHighlight) {
         return;
     }
 
-    const Qt::DockWidgetArea dockArea = dockWidgetArea(_sessionDock);
-    if (dockArea != Qt::LeftDockWidgetArea
-        && dockArea != Qt::RightDockWidgetArea) {
+    // 只使用当前可见、非浮动的 Dock 与中央区域计算相邻关系。旧实现直接
+    // 取会话面板和中央区域的中点，二者之间插入 SFTP 后会把提示画进面板内部。
+    QList<QWidget*> layoutWidgets;
+    if (QWidget* const central = QMainWindow::centralWidget();
+        central && central->isVisible()) {
+        layoutWidgets.append(central);
+    }
+    const auto docks = findChildren<QDockWidget*>(
+        QString(), Qt::FindDirectChildrenOnly);
+    for (QDockWidget* dock : docks) {
+        if (dock->isVisible() && !dock->isFloating())
+            layoutWidgets.append(dock);
+    }
+
+    if (layoutWidgets.size() < 2) {
         _dockResizeHighlight->hide();
         return;
     }
 
-    const QWidget* const central = QMainWindow::centralWidget();
-    if (!central) {
-        _dockResizeHighlight->hide();
-        return;
-    }
-
-    const QRect dockRect = _sessionDock->geometry();
-    const QRect centralRect = central->geometry();
-    const int separatorX = dockArea == Qt::LeftDockWidgetArea
-        ? (dockRect.right() + centralRect.left()) / 2
-        : (centralRect.right() + dockRect.left()) / 2;
-
-    constexpr int hitHalfWidth = 7;
-    const QRect hoverRect(separatorX - hitHalfWidth, dockRect.top(),
-                          hitHalfWidth * 2 + 1, dockRect.height());
-    if (!hoverRect.contains(position)) {
-        _dockResizeHighlight->hide();
-        return;
-    }
-
+    const int separatorExtent = std::max(
+        1, style()->pixelMetric(QStyle::PM_DockWidgetSeparatorExtent,
+                                nullptr, this));
+    const int maximumSeparatorGap = std::max(12, separatorExtent * 2);
+    const int hitHalfWidth = std::max(2, (separatorExtent + 1) / 2);
+    constexpr int minimumSharedExtent = 24;
     constexpr int highlightWidth = 3;
-    _dockResizeHighlight->setGeometry(separatorX - highlightWidth / 2,
-                                      dockRect.top(), highlightWidth,
-                                      dockRect.height());
-    _dockResizeHighlight->show();
-    _dockResizeHighlight->raise();
+
+    struct ResizeAnchor {
+        DockResizeKind kind{DockResizeKind::None};
+        int coordinate = 0;
+        int rangeStart = 0;
+        int rangeEnd = 0;
+        QRect hoverRect;
+    };
+    QList<ResizeAnchor> resizeAnchors;
+
+    // 分别检查左右相邻与上下相邻关系：前者调整宽度，后者调整高度。
+    // 两类锚点独立收集，不能因其中一个方向不相邻而跳过另一个方向。
+    for (qsizetype first = 0; first < layoutWidgets.size(); ++first) {
+        const QWidget* const firstWidget = layoutWidgets.at(first);
+        const QRect firstRect(firstWidget->mapTo(this, QPoint()),
+                              firstWidget->size());
+
+        for (qsizetype second = first + 1;
+             second < layoutWidgets.size(); ++second) {
+            const QWidget* const secondWidget = layoutWidgets.at(second);
+            const QRect secondRect(secondWidget->mapTo(this, QPoint()),
+                                   secondWidget->size());
+
+            const QRect& leftRect = firstRect.center().x()
+                <= secondRect.center().x() ? firstRect : secondRect;
+            const QRect& rightRect = firstRect.center().x()
+                <= secondRect.center().x() ? secondRect : firstRect;
+            const int gap = rightRect.left() - leftRect.right() - 1;
+            if (gap >= -1 && gap <= maximumSeparatorGap) {
+                const int sharedTop = std::max(leftRect.top(),
+                                               rightRect.top());
+                const int sharedBottom = std::min(leftRect.bottom(),
+                                                  rightRect.bottom());
+                const int sharedHeight = sharedBottom - sharedTop + 1;
+                if (sharedHeight >= minimumSharedExtent) {
+                    const int separatorX = (leftRect.right()
+                                            + rightRect.left()) / 2;
+                    const QRect hoverRect(
+                        separatorX - hitHalfWidth, sharedTop,
+                        hitHalfWidth * 2 + 1, sharedHeight);
+                    resizeAnchors.append({DockResizeKind::Width,
+                                          separatorX, sharedTop,
+                                          sharedBottom, hoverRect});
+                }
+            }
+
+            const QRect& upperRect = firstRect.center().y()
+                <= secondRect.center().y() ? firstRect : secondRect;
+            const QRect& lowerRect = firstRect.center().y()
+                <= secondRect.center().y() ? secondRect : firstRect;
+            const int verticalGap = lowerRect.top() - upperRect.bottom() - 1;
+            if (verticalGap >= -1
+                && verticalGap <= maximumSeparatorGap) {
+                const int sharedLeft = std::max(upperRect.left(),
+                                                lowerRect.left());
+                const int sharedRight = std::min(upperRect.right(),
+                                                 lowerRect.right());
+                const int sharedWidth = sharedRight - sharedLeft + 1;
+                if (sharedWidth >= minimumSharedExtent) {
+                    const int separatorY = (upperRect.bottom()
+                                            + lowerRect.top()) / 2;
+                    const QRect horizontalHoverRect(
+                        sharedLeft, separatorY - hitHalfWidth,
+                        sharedWidth, hitHalfWidth * 2 + 1);
+                    resizeAnchors.append({DockResizeKind::Height,
+                                          separatorY, sharedLeft,
+                                          sharedRight,
+                                          horizontalHoverRect});
+                }
+            }
+        }
+    }
+
+    const bool leftButtonDown = QApplication::mouseButtons().testFlag(
+        Qt::LeftButton);
+    if (!leftButtonDown)
+        _activeDockResizeKind = DockResizeKind::None;
+
+    const ResizeAnchor* selectedAnchor = nullptr;
+    int selectedDistance = std::numeric_limits<int>::max();
+    for (const ResizeAnchor& anchor : resizeAnchors) {
+        if (!anchor.hoverRect.contains(position))
+            continue;
+
+        const int distance = anchor.kind == DockResizeKind::Width
+            ? qAbs(position.x() - anchor.coordinate)
+            : qAbs(position.y() - anchor.coordinate);
+        if (distance < selectedDistance) {
+            selectedAnchor = &anchor;
+            selectedDistance = distance;
+        }
+    }
+
+    // 开始拖动后，Qt 会持续改变 Dock 几何；即使指针短暂偏离窄小的
+    // 悬浮命中区，也选择同方向且最近的分隔线，使提示在拖动期间不中断。
+    if (leftButtonDown && _activeDockResizeKind != DockResizeKind::None) {
+        selectedAnchor = nullptr;
+        selectedDistance = std::numeric_limits<int>::max();
+        for (const ResizeAnchor& anchor : resizeAnchors) {
+            if (anchor.kind != _activeDockResizeKind)
+                continue;
+
+            const int rangePosition = anchor.kind == DockResizeKind::Width
+                ? position.y() : position.x();
+            if (rangePosition < anchor.rangeStart - hitHalfWidth
+                || rangePosition > anchor.rangeEnd + hitHalfWidth) {
+                continue;
+            }
+
+            const int distance = anchor.kind == DockResizeKind::Width
+                ? qAbs(position.x() - anchor.coordinate)
+                : qAbs(position.y() - anchor.coordinate);
+            if (distance < selectedDistance) {
+                selectedAnchor = &anchor;
+                selectedDistance = distance;
+            }
+        }
+    } else if (leftButtonDown && selectedAnchor) {
+        _activeDockResizeKind = selectedAnchor->kind;
+    }
+
+    if (selectedAnchor) {
+        int mergedStart = selectedAnchor->rangeStart;
+        int mergedEnd = selectedAnchor->rangeEnd;
+        const int sameSeparatorTolerance = std::max(1, separatorExtent / 2);
+
+        // 同一侧的多个 Dock 上下堆叠时，它们和中央区域共享一条竖向分隔线。
+        // 水平或竖直的同轴分段均合并，保证提示覆盖完整的可调整边框。
+        for (const ResizeAnchor& anchor : resizeAnchors) {
+            if (anchor.kind != selectedAnchor->kind
+                || qAbs(anchor.coordinate - selectedAnchor->coordinate)
+                > sameSeparatorTolerance) {
+                continue;
+            }
+            mergedStart = std::min(mergedStart, anchor.rangeStart);
+            mergedEnd = std::max(mergedEnd, anchor.rangeEnd);
+        }
+
+        if (selectedAnchor->kind == DockResizeKind::Width) {
+            _dockResizeHighlight->setGeometry(
+                selectedAnchor->coordinate - highlightWidth / 2,
+                mergedStart, highlightWidth,
+                mergedEnd - mergedStart + 1);
+        } else {
+            _dockResizeHighlight->setGeometry(
+                mergedStart,
+                selectedAnchor->coordinate - highlightWidth / 2,
+                mergedEnd - mergedStart + 1, highlightWidth);
+        }
+        _dockResizeHighlight->show();
+        _dockResizeHighlight->raise();
+        return;
+    }
+
+    // 指针不在任何真实分隔锚点上时必须隐藏，不能保留上一次悬浮状态。
+    _dockResizeHighlight->hide();
 }
 
 void MainWindow::buildMainMenu()
@@ -786,6 +1192,20 @@ void MainWindow::buildMainMenu()
     _actSession = _mainMenu->addElaIconAction(ElaIconType::Terminal, tr("Session"));
     connect(_actSession, &QAction::triggered, this,
             [this]() { showSessionDialog(); });
+
+    // 顶栏菜单仅管理可拖动的 SFTP 与资源监视面板。快捷连接面板通过
+    // 自身标题栏按钮折叠，中央终端则始终保留。
+    _mainMenu->addSeparator();
+    _toggleSftpPanelAction = _mainMenu->addElaIconAction(
+        ElaIconType::FolderArrowUp, tr("SFTP panel"));
+    _toggleSystemMonitorAction = _mainMenu->addElaIconAction(
+        ElaIconType::Gauge, tr("System resources panel"));
+    _toggleSftpPanelAction->setCheckable(true);
+    _toggleSystemMonitorAction->setCheckable(true);
+    _toggleSftpPanelAction->setChecked(true);
+    _toggleSystemMonitorAction->setChecked(true);
+
+    _mainMenu->addSeparator();
 
     // ── 设置：ElaDialog 内嵌现有 SettingsPage ──
     _actSettings = _mainMenu->addElaIconAction(ElaIconType::GearComplex, tr("Settings"));
