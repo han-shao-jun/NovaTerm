@@ -216,10 +216,67 @@ public:
           _dropOverlay(new DockDropOverlay(parent)),
           _dockHost(qobject_cast<QMainWindow*>(parent))
     {
+        _titleBar = new QWidget(this);
+        _titleBar->setCursor(Qt::SizeAllCursor);
+        _titleBar->setFocusPolicy(Qt::NoFocus);
+        _titleBar->setMouseTracking(true);
+        _titleBar->setMinimumHeight(
+            style()->pixelMetric(QStyle::PM_TitleBarHeight, nullptr, this));
+        _titleBar->installEventFilter(this);
+
+        auto* titleLayout = new QHBoxLayout(_titleBar);
+        titleLayout->setContentsMargins(4, 0, 8, 0);
+        titleLayout->setSpacing(4);
+
+        _titleDragHandle = new ElaIconButton(
+            ElaIconType::GripVertical, 12, 16, 16, _titleBar);
+        _titleDragHandle->setAttribute(Qt::WA_TransparentForMouseEvents);
+        _titleDragHandle->setFocusPolicy(Qt::NoFocus);
+        _titleDragHandle->setOpacity(0.65);
+        _titleDragHandle->setAccessibleName(title);
+        titleLayout->addWidget(_titleDragHandle, 0, Qt::AlignVCenter);
+
+        _titleLabel = new QLabel(title, _titleBar);
+        _titleLabel->setAttribute(Qt::WA_TransparentForMouseEvents);
+        _titleLabel->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
+        titleLayout->addWidget(_titleLabel, 1);
+        setTitleBarWidget(_titleBar);
+
+        connect(this, &QDockWidget::windowTitleChanged, this,
+                [this](const QString& windowTitle) {
+            _titleDragHandle->setAccessibleName(windowTitle);
+            _titleLabel->setText(windowTitle);
+        });
         setMouseTracking(true);
     }
 
 protected:
+    bool eventFilter(QObject* watched, QEvent* event) override
+    {
+        if (watched != _titleBar)
+            return QDockWidget::eventFilter(watched, event);
+
+        switch (event->type()) {
+        case QEvent::MouseButtonPress:
+        case QEvent::MouseMove:
+        case QEvent::MouseButtonRelease:
+        case QEvent::MouseButtonDblClick: {
+            const auto* const mouseEvent = static_cast<QMouseEvent*>(event);
+            const QPoint dockPosition = _titleBar->mapTo(
+                this, mouseEvent->position().toPoint());
+            QMouseEvent forwardedEvent(
+                mouseEvent->type(), QPointF(dockPosition),
+                mouseEvent->globalPosition(), mouseEvent->button(),
+                mouseEvent->buttons(), mouseEvent->modifiers(),
+                mouseEvent->pointingDevice());
+            QApplication::sendEvent(this, &forwardedEvent);
+            return true;
+        }
+        default:
+            return QDockWidget::eventFilter(watched, event);
+        }
+    }
+
     bool event(QEvent* event) override
     {
         bool finishDragAfterDispatch = false;
@@ -371,6 +428,9 @@ private:
 
     QPointer<DockDropOverlay> _dropOverlay;
     QPointer<QMainWindow> _dockHost;
+    QWidget* _titleBar{nullptr};
+    ElaIconButton* _titleDragHandle{nullptr};
+    QLabel* _titleLabel{nullptr};
     Qt::DockWidgetAreas _managedDockAreas{Qt::NoDockWidgetArea};
     int _dragTimerId{0};
     bool _dragCursorVisible{false};
