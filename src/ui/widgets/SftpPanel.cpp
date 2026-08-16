@@ -466,10 +466,23 @@ SftpPanel::SftpPanel(QWidget* parent)
             item->setData(0, HardLinkRole, entry.hardLink);
             item->setData(0, PermissionsRole, entry.permissions);
             QStringList details;
-            if (entry.symbolicLink)
+            if (entry.symbolicLink) {
                 details.push_back(tr("Symbolic link"));
-            else if (entry.hardLink)
+                if (entry.brokenSymbolicLink) {
+                    details.push_back(entry.linkTarget.isEmpty()
+                        ? tr("Link target unavailable")
+                        : tr("Link target unavailable: %1")
+                              .arg(entry.linkTarget));
+                } else if (entry.linkTargetDirectory) {
+                    details.push_back(
+                        tr("Target folder: %1").arg(entry.linkTarget));
+                } else {
+                    details.push_back(
+                        tr("Target file: %1").arg(entry.linkTarget));
+                }
+            } else if (entry.hardLink) {
                 details.push_back(tr("Hard link"));
+            }
             if (entry.modifiedSeconds > 0) {
                 details.push_back(tr("Modified: %1").arg(
                     QLocale().toString(QDateTime::fromSecsSinceEpoch(

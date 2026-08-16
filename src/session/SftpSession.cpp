@@ -50,6 +50,14 @@ QString remotePathJoin(const QString& directory, const QString& name)
     return directory + QLatin1Char('/') + name;
 }
 
+QString resolveRemoteLinkTarget(const QString& directory,
+                                const QString& linkTarget)
+{
+    if (linkTarget.startsWith(QLatin1Char('/')))
+        return QDir::cleanPath(linkTarget);
+    return QDir::cleanPath(remotePathJoin(directory, linkTarget));
+}
+
 QString sessionError(ssh_session session, const QString& context)
 {
     return QStringLiteral("%1: %2")
@@ -722,6 +730,30 @@ void SftpSession::workerMain(SshConfig config, quint64 generation)
                 info.symbolicLink =
                     attributes->type == SSH_FILEXFER_TYPE_SYMLINK;
                 info.hardLink = isHardLinkFromLongName(attributes.get());
+                if (info.symbolicLink) {
+                    const QByteArray encodedLinkPath = info.path.toUtf8();
+                    char* rawTarget = sftp_readlink(
+                        sftp.get(), encodedLinkPath.constData());
+                    if (rawTarget) {
+                        info.linkTarget = resolveRemoteLinkTarget(
+                            directoryPath, QString::fromUtf8(rawTarget));
+                        ssh_string_free_char(rawTarget);
+                        const QByteArray encodedTarget =
+                            info.linkTarget.toUtf8();
+                        SftpAttributesPtr targetAttributes{
+                            sftp_stat(sftp.get(), encodedTarget.constData()),
+                            &sftp_attributes_free};
+                        if (targetAttributes) {
+                            info.linkTargetDirectory =
+                                targetAttributes->type
+                                == SSH_FILEXFER_TYPE_DIRECTORY;
+                        } else {
+                            info.brokenSymbolicLink = true;
+                        }
+                    } else {
+                        info.brokenSymbolicLink = true;
+                    }
+                }
                 entries.push_back(std::move(info));
             }
             if (!sftp_dir_eof(directory.get())) {
