@@ -8,15 +8,19 @@
 #include <libssh/sftp.h>
 
 #include <QDir>
+#include <QDirIterator>
 #include <QFile>
 #include <QFileInfo>
 #include <QMetaObject>
 #include <QMutexLocker>
+#include <QRegularExpression>
 #include <QSaveFile>
 #include <QScopeGuard>
+#include <QSet>
 #include <QThread>
 
 #include <memory>
+#include <functional>
 #include <utility>
 
 #include <fcntl.h>
@@ -96,6 +100,341 @@ bool authenticate(ssh_session session, const SshConfig& config,
         error = sessionError(session,
             SftpSession::tr("SFTP password authentication failed"));
         return false;
+    }
+    return true;
+}
+
+bool isHardLinkFromLongName(const sftp_attributes attributes)
+{
+    if (!attributes || attributes->type != SSH_FILEXFER_TYPE_REGULAR
+        || !attributes->longname) {
+        return false;
+    }
+
+    // SFTP v3 没有标准硬链接计数字段；仅接受严格的 OpenSSH ls -l 格式。
+    const QStringList fields = QString::fromUtf8(attributes->longname)
+        .split(QRegularExpression(QStringLiteral("\\s+")),
+               Qt::SkipEmptyParts);
+    if (fields.size() < 2 || fields.constFirst().size() < 10
+        || !fields.constFirst().startsWith(QLatin1Char('-'))) {
+        return false;
+    }
+    bool valid = false;
+    const uint linkCount = fields.at(1).toUInt(&valid);
+    return valid && linkCount > 1;
+}
+
+using TransferProgressCallback =
+    std::function<void(quint64 transferred, quint64 total)>;
+
+bool ensureRemoteDirectory(sftp_session sftp, ssh_session session,
+                           const QString& remotePath, QString& error)
+{
+    const QByteArray encodedPath = remotePath.toUtf8();
+    SftpAttributesPtr attributes{
+        sftp_stat(sftp, encodedPath.constData()), &sftp_attributes_free};
+    if (attributes) {
+        if (attributes->type == SSH_FILEXFER_TYPE_DIRECTORY)
+            return true;
+        error = SftpSession::tr("Remote path is not a directory: %1")
+                    .arg(remotePath);
+        return false;
+    }
+    if (sftp_mkdir(sftp, encodedPath.constData(), 0755) == SSH_OK)
+        return true;
+
+    // 某些服务器在目录已存在时返回通用 FAILURE，再次 stat 可消除歧义。
+    attributes.reset(sftp_stat(sftp, encodedPath.constData()));
+    if (attributes && attributes->type == SSH_FILEXFER_TYPE_DIRECTORY)
+        return true;
+    error = sftpError(sftp, session,
+        SftpSession::tr("Cannot create remote directory %1")
+            .arg(remotePath));
+    return false;
+}
+
+bool uploadRegularFile(sftp_session sftp, ssh_session session,
+                       const QString& localPath, const QString& remotePath,
+                       const std::atomic<bool>& running,
+                       quint64& transferred, quint64 total,
+                       quint64& lastReported,
+                       const TransferProgressCallback& reportProgress,
+                       QString& error)
+{
+    QFile localFile(localPath);
+    if (!localFile.open(QIODevice::ReadOnly)) {
+        error = SftpSession::tr("Cannot open local file %1: %2")
+                    .arg(localPath, localFile.errorString());
+        return false;
+    }
+
+    const QByteArray encodedPath = remotePath.toUtf8();
+    SftpFilePtr remoteFile{
+        sftp_open(sftp, encodedPath.constData(),
+                  O_WRONLY | O_CREAT | O_TRUNC, 0644),
+        &sftp_close};
+    if (!remoteFile) {
+        error = sftpError(sftp, session,
+            SftpSession::tr("Cannot open remote file %1").arg(remotePath));
+        return false;
+    }
+
+    while (running.load(std::memory_order_acquire)) {
+        const QByteArray chunk = localFile.read(64 * 1024);
+        if (chunk.isEmpty()) {
+            if (localFile.error() != QFileDevice::NoError) {
+                error = SftpSession::tr("Failed to read local file %1: %2")
+                            .arg(localPath, localFile.errorString());
+                return false;
+            }
+            break;
+        }
+        qsizetype offset = 0;
+        while (offset < chunk.size()
+               && running.load(std::memory_order_acquire)) {
+            const auto written = sftp_write(
+                remoteFile.get(), chunk.constData() + offset,
+                static_cast<size_t>(chunk.size() - offset));
+            if (written <= 0) {
+                error = sftpError(sftp, session,
+                    SftpSession::tr("Failed to upload %1").arg(remotePath));
+                return false;
+            }
+            offset += static_cast<qsizetype>(written);
+            transferred += static_cast<quint64>(written);
+            if (transferred - lastReported >= 256 * 1024
+                || transferred == total) {
+                lastReported = transferred;
+                reportProgress(transferred, total);
+            }
+        }
+    }
+    if (!running.load(std::memory_order_acquire))
+        return false;
+    if (sftp_close(remoteFile.release()) != SSH_OK) {
+        error = sftpError(sftp, session,
+            SftpSession::tr("Failed to finalize remote file %1")
+                .arg(remotePath));
+        return false;
+    }
+    return true;
+}
+
+struct RemoteDownloadEntry
+{
+    QString remotePath;
+    QString relativePath;
+    quint64 size{0};
+    bool directory{false};
+};
+
+bool collectRemoteDirectory(sftp_session sftp, ssh_session session,
+                            const QString& rootRemotePath,
+                            QVector<RemoteDownloadEntry>& entries,
+                            quint64& totalBytes,
+                            const std::atomic<bool>& running,
+                            QString& error)
+{
+    QQueue<QPair<QString, QString>> pendingDirectories;
+    pendingDirectories.enqueue({rootRemotePath, {}});
+    while (!pendingDirectories.isEmpty()
+           && running.load(std::memory_order_acquire)) {
+        const auto [remoteDirectory, relativeDirectory] =
+            pendingDirectories.dequeue();
+        const QByteArray encodedDirectory = remoteDirectory.toUtf8();
+        SftpDirectoryPtr directory{
+            sftp_opendir(sftp, encodedDirectory.constData()),
+            &sftp_closedir};
+        if (!directory) {
+            error = sftpError(sftp, session,
+                SftpSession::tr("Cannot open remote directory %1")
+                    .arg(remoteDirectory));
+            return false;
+        }
+
+        for (;;) {
+            SftpAttributesPtr attributes{
+                sftp_readdir(sftp, directory.get()),
+                &sftp_attributes_free};
+            if (!attributes)
+                break;
+            const QString name = QString::fromUtf8(
+                attributes->name ? attributes->name : "");
+            if (name == QStringLiteral(".") || name == QStringLiteral(".."))
+                continue;
+            if (name.isEmpty() || name.contains(QLatin1Char('/'))
+                || name.contains(QLatin1Char('\\'))) {
+                error = SftpSession::tr("Unsafe remote entry name in %1")
+                            .arg(remoteDirectory);
+                return false;
+            }
+
+            const QString remotePath = remotePathJoin(remoteDirectory, name);
+            const QString relativePath = relativeDirectory.isEmpty()
+                ? name
+                : relativeDirectory + QLatin1Char('/') + name;
+            // 不跟随软链接，避免递归环和下载到目标目录之外。
+            if (attributes->type == SSH_FILEXFER_TYPE_SYMLINK)
+                continue;
+            if (attributes->type == SSH_FILEXFER_TYPE_DIRECTORY) {
+                entries.push_back({remotePath, relativePath, 0, true});
+                pendingDirectories.enqueue({remotePath, relativePath});
+                continue;
+            }
+            if (attributes->type != SSH_FILEXFER_TYPE_REGULAR
+                && attributes->type != SSH_FILEXFER_TYPE_UNKNOWN) {
+                continue;
+            }
+            entries.push_back(
+                {remotePath, relativePath, attributes->size, false});
+            totalBytes += attributes->size;
+        }
+        if (!sftp_dir_eof(directory.get())) {
+            error = sftpError(sftp, session,
+                SftpSession::tr("Failed while reading remote directory %1")
+                    .arg(remoteDirectory));
+            return false;
+        }
+    }
+    return running.load(std::memory_order_acquire);
+}
+
+bool downloadRegularFile(sftp_session sftp, ssh_session session,
+                         const QString& remotePath, const QString& localPath,
+                         const std::atomic<bool>& running,
+                         quint64& transferred, quint64 total,
+                         quint64& lastReported,
+                         const TransferProgressCallback& reportProgress,
+                         QString& error)
+{
+    const QByteArray encodedPath = remotePath.toUtf8();
+    SftpFilePtr remoteFile{
+        sftp_open(sftp, encodedPath.constData(), O_RDONLY, 0), &sftp_close};
+    if (!remoteFile) {
+        error = sftpError(sftp, session,
+            SftpSession::tr("Cannot open remote file %1").arg(remotePath));
+        return false;
+    }
+    QSaveFile localFile(localPath);
+    if (!localFile.open(QIODevice::WriteOnly)) {
+        error = SftpSession::tr("Cannot create local file %1: %2")
+                    .arg(localPath, localFile.errorString());
+        return false;
+    }
+
+    QByteArray buffer(64 * 1024, Qt::Uninitialized);
+    while (running.load(std::memory_order_acquire)) {
+        const auto bytesRead = sftp_read(
+            remoteFile.get(), buffer.data(),
+            static_cast<size_t>(buffer.size()));
+        if (bytesRead == 0)
+            break;
+        if (bytesRead < 0) {
+            error = sftpError(sftp, session,
+                SftpSession::tr("Failed to download %1").arg(remotePath));
+            return false;
+        }
+        if (localFile.write(buffer.constData(), bytesRead) != bytesRead) {
+            error = SftpSession::tr("Failed to write local file %1: %2")
+                        .arg(localPath, localFile.errorString());
+            return false;
+        }
+        transferred += static_cast<quint64>(bytesRead);
+        if (transferred - lastReported >= 256 * 1024
+            || transferred == total) {
+            lastReported = transferred;
+            reportProgress(transferred, total);
+        }
+    }
+    if (!running.load(std::memory_order_acquire))
+        return false;
+    if (!localFile.commit()) {
+        error = SftpSession::tr("Failed to finalize local file %1: %2")
+                    .arg(localPath, localFile.errorString());
+        return false;
+    }
+    return true;
+}
+
+bool removeRemoteDirectoryRecursively(
+    sftp_session sftp, ssh_session session, const QString& rootPath,
+    const std::atomic<bool>& running, QString& error)
+{
+    QQueue<QString> pendingDirectories;
+    QVector<QString> directories{rootPath};
+    QVector<QString> entriesToUnlink;
+    pendingDirectories.enqueue(rootPath);
+
+    // 先完整枚举再开始删除，尽量在权限或读取失败时避免留下半删目录。
+    while (!pendingDirectories.isEmpty()
+           && running.load(std::memory_order_acquire)) {
+        const QString directoryPath = pendingDirectories.dequeue();
+        const QByteArray encodedDirectory = directoryPath.toUtf8();
+        SftpDirectoryPtr directory{
+            sftp_opendir(sftp, encodedDirectory.constData()),
+            &sftp_closedir};
+        if (!directory) {
+            error = sftpError(sftp, session,
+                SftpSession::tr("Cannot open remote directory %1")
+                    .arg(directoryPath));
+            return false;
+        }
+
+        for (;;) {
+            SftpAttributesPtr attributes{
+                sftp_readdir(sftp, directory.get()),
+                &sftp_attributes_free};
+            if (!attributes)
+                break;
+            const QString name = QString::fromUtf8(
+                attributes->name ? attributes->name : "");
+            if (name == QStringLiteral(".") || name == QStringLiteral(".."))
+                continue;
+            if (name.isEmpty() || name.contains(QLatin1Char('/'))
+                || name.contains(QLatin1Char('\\'))) {
+                error = SftpSession::tr("Unsafe remote entry name in %1")
+                            .arg(directoryPath);
+                return false;
+            }
+
+            const QString entryPath = remotePathJoin(directoryPath, name);
+            if (attributes->type == SSH_FILEXFER_TYPE_DIRECTORY) {
+                directories.push_back(entryPath);
+                pendingDirectories.enqueue(entryPath);
+            } else {
+                // 软链接只删除链接自身，绝不跟随到目录外的目标。
+                entriesToUnlink.push_back(entryPath);
+            }
+        }
+        if (!sftp_dir_eof(directory.get())) {
+            error = sftpError(sftp, session,
+                SftpSession::tr("Failed while reading remote directory %1")
+                    .arg(directoryPath));
+            return false;
+        }
+    }
+    if (!running.load(std::memory_order_acquire))
+        return false;
+
+    for (const QString& entryPath : entriesToUnlink) {
+        const QByteArray encodedEntry = entryPath.toUtf8();
+        if (sftp_unlink(sftp, encodedEntry.constData()) != SSH_OK) {
+            error = sftpError(sftp, session,
+                SftpSession::tr("Cannot delete remote entry %1")
+                    .arg(entryPath));
+            return false;
+        }
+    }
+    // 子目录必须从最深层向根目录逆序删除。
+    for (qsizetype index = directories.size(); index > 0; --index) {
+        const QString& directoryPath = directories.at(index - 1);
+        const QByteArray encodedDirectory = directoryPath.toUtf8();
+        if (sftp_rmdir(sftp, encodedDirectory.constData()) != SSH_OK) {
+            error = sftpError(sftp, session,
+                SftpSession::tr("Cannot delete remote directory %1")
+                    .arg(directoryPath));
+            return false;
+        }
     }
     return true;
 }
@@ -180,10 +519,22 @@ void SftpSession::uploadFile(const QString& localPath,
     enqueue({CommandType::Upload, localPath, remotePath});
 }
 
+void SftpSession::uploadDirectory(const QString& localPath,
+                                  const QString& remotePath)
+{
+    enqueue({CommandType::UploadDirectory, localPath, remotePath});
+}
+
 void SftpSession::downloadFile(const QString& remotePath,
                                const QString& localPath)
 {
     enqueue({CommandType::Download, remotePath, localPath});
+}
+
+void SftpSession::downloadDirectory(const QString& remotePath,
+                                    const QString& localPath)
+{
+    enqueue({CommandType::DownloadDirectory, remotePath, localPath});
 }
 
 void SftpSession::createDirectory(const QString& remotePath)
@@ -370,6 +721,7 @@ void SftpSession::workerMain(SshConfig config, quint64 generation)
                     attributes->type == SSH_FILEXFER_TYPE_DIRECTORY;
                 info.symbolicLink =
                     attributes->type == SSH_FILEXFER_TYPE_SYMLINK;
+                info.hardLink = isHardLinkFromLongName(attributes.get());
                 entries.push_back(std::move(info));
             }
             if (!sftp_dir_eof(directory.get())) {
@@ -385,6 +737,112 @@ void SftpSession::workerMain(SshConfig config, quint64 generation)
                     if (_generation == generation)
                         emit directoryListed(directoryPath, entries);
                 }, Qt::QueuedConnection);
+            continue;
+        }
+
+        if (command.type == CommandType::UploadDirectory) {
+            const QFileInfo rootInfo(command.source);
+            if (!rootInfo.exists() || !rootInfo.isDir()
+                || rootInfo.isSymLink()) {
+                postError(generation,
+                    tr("Local path is not a directory: %1")
+                        .arg(command.source));
+                continue;
+            }
+
+            const QDir rootDirectory(rootInfo.absoluteFilePath());
+            const QDir::Filters filters = QDir::AllEntries
+                | QDir::NoDotAndDotDot | QDir::Hidden | QDir::System;
+            quint64 total = 0;
+            QDirIterator sizeIterator(
+                rootInfo.absoluteFilePath(), filters,
+                QDirIterator::Subdirectories);
+            while (sizeIterator.hasNext()) {
+                sizeIterator.next();
+                const QFileInfo info = sizeIterator.fileInfo();
+                if (!info.isSymLink() && info.isFile())
+                    total += static_cast<quint64>(info.size());
+            }
+
+            QString error;
+            bool succeeded = ensureRemoteDirectory(
+                sftp.get(), session.get(), command.target, error);
+            QSet<QString> createdDirectories{command.target};
+            quint64 transferred = 0;
+            quint64 lastReported = 0;
+            const auto reportProgress =
+                [this, generation, path = command.target](
+                    quint64 current, quint64 totalBytes) {
+                QMetaObject::invokeMethod(this,
+                    [this, generation, path, current, totalBytes]() {
+                        if (_generation == generation) {
+                            emit transferProgress(
+                                path, current, totalBytes);
+                        }
+                    }, Qt::QueuedConnection);
+            };
+
+            QDirIterator iterator(rootInfo.absoluteFilePath(), filters,
+                                  QDirIterator::Subdirectories);
+            while (succeeded && iterator.hasNext()
+                   && _running.load(std::memory_order_acquire)) {
+                iterator.next();
+                const QFileInfo info = iterator.fileInfo();
+                // 上传目录时不跟随本地软链接，避免形成递归环。
+                if (info.isSymLink())
+                    continue;
+                QString relativePath = rootDirectory.relativeFilePath(
+                    info.absoluteFilePath());
+                relativePath.replace(QLatin1Char('\\'), QLatin1Char('/'));
+                const QStringList parts = relativePath.split(
+                    QLatin1Char('/'), Qt::SkipEmptyParts);
+                if (parts.isEmpty())
+                    continue;
+
+                QString parentPath = command.target;
+                for (qsizetype index = 0;
+                     index + 1 < parts.size(); ++index) {
+                    parentPath = remotePathJoin(
+                        parentPath, parts.at(index));
+                    if (!createdDirectories.contains(parentPath)) {
+                        succeeded = ensureRemoteDirectory(
+                            sftp.get(), session.get(), parentPath, error);
+                        if (!succeeded)
+                            break;
+                        createdDirectories.insert(parentPath);
+                    }
+                }
+                if (!succeeded)
+                    break;
+
+                const QString remotePath = remotePathJoin(
+                    parentPath, parts.constLast());
+                if (info.isDir()) {
+                    succeeded = ensureRemoteDirectory(
+                        sftp.get(), session.get(), remotePath, error);
+                    if (succeeded)
+                        createdDirectories.insert(remotePath);
+                } else if (info.isFile()) {
+                    succeeded = uploadRegularFile(
+                        sftp.get(), session.get(), info.absoluteFilePath(),
+                        remotePath, _running, transferred, total,
+                        lastReported, reportProgress, error);
+                }
+            }
+            if (!succeeded) {
+                if (_running.load(std::memory_order_acquire))
+                    postError(generation, error);
+                continue;
+            }
+            if (_running.load(std::memory_order_acquire)) {
+                QMetaObject::invokeMethod(this,
+                    [this, generation, path = command.target]() {
+                        if (_generation == generation) {
+                            emit operationFinished(
+                                QStringLiteral("upload"), path);
+                        }
+                    }, Qt::QueuedConnection);
+            }
             continue;
         }
 
@@ -469,6 +927,76 @@ void SftpSession::workerMain(SshConfig config, quint64 generation)
             continue;
         }
 
+        if (command.type == CommandType::DownloadDirectory) {
+            QVector<RemoteDownloadEntry> entries;
+            quint64 total = 0;
+            QString error;
+            bool succeeded = collectRemoteDirectory(
+                sftp.get(), session.get(), command.source,
+                entries, total, _running, error);
+            if (succeeded && !QDir().mkpath(command.target)) {
+                error = tr("Cannot create local directory %1")
+                            .arg(command.target);
+                succeeded = false;
+            }
+
+            quint64 transferred = 0;
+            quint64 lastReported = 0;
+            const auto reportProgress =
+                [this, generation, path = command.source](
+                    quint64 current, quint64 totalBytes) {
+                QMetaObject::invokeMethod(this,
+                    [this, generation, path, current, totalBytes]() {
+                        if (_generation == generation) {
+                            emit transferProgress(
+                                path, current, totalBytes);
+                        }
+                    }, Qt::QueuedConnection);
+            };
+            const QDir localRoot(command.target);
+            for (const RemoteDownloadEntry& entry : entries) {
+                if (!succeeded
+                    || !_running.load(std::memory_order_acquire)) {
+                    break;
+                }
+                const QString localPath = QDir::cleanPath(
+                    localRoot.absoluteFilePath(entry.relativePath));
+                if (entry.directory) {
+                    if (!QDir().mkpath(localPath)) {
+                        error = tr("Cannot create local directory %1")
+                                    .arg(localPath);
+                        succeeded = false;
+                    }
+                    continue;
+                }
+                if (!QDir().mkpath(QFileInfo(localPath).absolutePath())) {
+                    error = tr("Cannot create local directory %1")
+                                .arg(QFileInfo(localPath).absolutePath());
+                    succeeded = false;
+                    break;
+                }
+                succeeded = downloadRegularFile(
+                    sftp.get(), session.get(), entry.remotePath, localPath,
+                    _running, transferred, total, lastReported,
+                    reportProgress, error);
+            }
+            if (!succeeded) {
+                if (_running.load(std::memory_order_acquire))
+                    postError(generation, error);
+                continue;
+            }
+            if (_running.load(std::memory_order_acquire)) {
+                QMetaObject::invokeMethod(this,
+                    [this, generation, path = command.source]() {
+                        if (_generation == generation) {
+                            emit operationFinished(
+                                QStringLiteral("download"), path);
+                        }
+                    }, Qt::QueuedConnection);
+            }
+            continue;
+        }
+
         if (command.type == CommandType::Download) {
             const QByteArray remotePath = command.source.toUtf8();
             SftpFilePtr remoteFile{
@@ -542,6 +1070,25 @@ void SftpSession::workerMain(SshConfig config, quint64 generation)
 
         const QByteArray source = command.source.toUtf8();
 
+        if (command.type == CommandType::DeleteRemoteDirectory) {
+            QString error;
+            if (!removeRemoteDirectoryRecursively(
+                    sftp.get(), session.get(), command.source,
+                    _running, error)) {
+                if (_running.load(std::memory_order_acquire))
+                    postError(generation, error);
+                continue;
+            }
+            QMetaObject::invokeMethod(this,
+                [this, generation, path = command.source]() {
+                    if (_generation == generation) {
+                        emit operationFinished(
+                            QStringLiteral("remove"), path);
+                    }
+                }, Qt::QueuedConnection);
+            continue;
+        }
+
         if (command.type == CommandType::CreateRemoteFile) {
             // O_EXCL 防止误覆盖远端同名文件，新建文件默认使用常见的 0644 权限。
             SftpFilePtr remoteFile{
@@ -581,9 +1128,6 @@ void SftpSession::workerMain(SshConfig config, quint64 generation)
         } else if (command.type == CommandType::RemoveFile) {
             operation = QStringLiteral("remove");
             succeeded = sftp_unlink(sftp.get(), source.constData()) == SSH_OK;
-        } else if (command.type == CommandType::DeleteRemoteDirectory) {
-            operation = QStringLiteral("remove");
-            succeeded = sftp_rmdir(sftp.get(), source.constData()) == SSH_OK;
         } else if (command.type == CommandType::Rename) {
             operation = QStringLiteral("rename");
             const QByteArray target = command.target.toUtf8();

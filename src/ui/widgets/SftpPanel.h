@@ -48,6 +48,7 @@ private:
         QString localPath;
         QString remotePath;
         quint64 size{0};
+        bool directory{false};
     };
 
     void retranslateUi();
@@ -65,6 +66,7 @@ private:
     void downloadSelectedFile();
     void showFileContextMenu(const QPoint& position);
     void updateSelectionActions();
+    void updateFileTreeIcons();
     [[nodiscard]] QTreeWidgetItem* selectedItem() const;
     [[nodiscard]] QString remotePathForName(const QString& name) const;
     [[nodiscard]] bool remotePathExists(const QString& path) const;

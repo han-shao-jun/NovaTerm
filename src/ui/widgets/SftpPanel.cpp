@@ -6,6 +6,7 @@
 
 #include "ElaCheckBox.h"
 #include "ElaDialog.h"
+#include "ElaIcon.h"
 #include "ElaIconButton.h"
 #include "ElaLineEdit.h"
 #include "ElaMenu.h"
@@ -62,6 +63,7 @@ enum ItemDataRole {
     RemotePathRole = Qt::UserRole,
     DirectoryRole,
     SymbolicLinkRole,
+    HardLinkRole,
     PermissionsRole
 };
 
@@ -310,19 +312,22 @@ QString compactUploadError(const QString& message)
         : compact.left(MaxCharacters - 1) + QChar(0x2026);
 }
 
-QStringList localFilesFromMimeData(const QMimeData* mimeData)
+QStringList localEntriesFromMimeData(const QMimeData* mimeData)
 {
-    QStringList files;
+    QStringList entries;
     if (!mimeData || !mimeData->hasUrls())
-        return files;
+        return entries;
     for (const QUrl& url : mimeData->urls()) {
         if (!url.isLocalFile())
             continue;
         const QString path = QDir::cleanPath(url.toLocalFile());
-        if (QFileInfo(path).isFile())
-            files.push_back(path);
+        const QFileInfo info(path);
+        if (info.exists() && !info.isSymLink()
+            && (info.isFile() || info.isDir())) {
+            entries.push_back(path);
+        }
     }
-    return files;
+    return entries;
 }
 
 } // namespace
@@ -392,6 +397,7 @@ SftpPanel::SftpPanel(QWidget* parent)
     _fileTree->setColumnCount(2);
     _fileTree->setRootIsDecorated(false);
     _fileTree->setUniformRowHeights(true);
+    _fileTree->setIconSize(QSize(18, 18));
     _fileTree->setContextMenuPolicy(Qt::CustomContextMenu);
     _fileTree->header()->setStretchLastSection(false);
     _fileTree->header()->setSectionResizeMode(0, QHeaderView::Stretch);
@@ -457,13 +463,21 @@ SftpPanel::SftpPanel(QWidget* parent)
             item->setData(0, RemotePathRole, entry.path);
             item->setData(0, DirectoryRole, entry.directory);
             item->setData(0, SymbolicLinkRole, entry.symbolicLink);
+            item->setData(0, HardLinkRole, entry.hardLink);
             item->setData(0, PermissionsRole, entry.permissions);
+            QStringList details;
+            if (entry.symbolicLink)
+                details.push_back(tr("Symbolic link"));
+            else if (entry.hardLink)
+                details.push_back(tr("Hard link"));
             if (entry.modifiedSeconds > 0) {
-                item->setToolTip(0, tr("Modified: %1").arg(
+                details.push_back(tr("Modified: %1").arg(
                     QLocale().toString(QDateTime::fromSecsSinceEpoch(
                         entry.modifiedSeconds), QLocale::ShortFormat)));
             }
+            item->setToolTip(0, details.join(QLatin1Char('\n')));
         }
+        updateFileTreeIcons();
         _currentPath = path;
         _pathEdit->setText(path);
         const bool uploadBatchRefresh =
@@ -557,6 +571,8 @@ SftpPanel::SftpPanel(QWidget* parent)
 
     connect(&LanguageManager::instance(), &LanguageManager::languageChanged,
             this, [this](const QString&) { retranslateUi(); });
+    connect(eTheme, &ElaTheme::themeModeChanged, this,
+            [this](ElaThemeType::ThemeMode) { updateFileTreeIcons(); });
     retranslateUi();
     refreshAvailability();
 }
@@ -564,7 +580,7 @@ SftpPanel::SftpPanel(QWidget* parent)
 void SftpPanel::dragEnterEvent(QDragEnterEvent* event)
 {
     if (!_backendConnected || _busy
-        || localFilesFromMimeData(event->mimeData()).isEmpty()) {
+        || localEntriesFromMimeData(event->mimeData()).isEmpty()) {
         event->ignore();
         return;
     }
@@ -593,16 +609,16 @@ void SftpPanel::dragLeaveEvent(QDragLeaveEvent* event)
 
 void SftpPanel::dropEvent(QDropEvent* event)
 {
-    const QStringList localFiles = localFilesFromMimeData(event->mimeData());
+    const QStringList localEntries = localEntriesFromMimeData(event->mimeData());
     setDropActive(false);
-    if (!_backendConnected || _busy || localFiles.isEmpty()) {
+    if (!_backendConnected || _busy || localEntries.isEmpty()) {
         event->ignore();
         return;
     }
 
     event->setDropAction(Qt::CopyAction);
     event->accept();
-    queueUploads(localFiles);
+    queueUploads(localEntries);
 }
 
 void SftpPanel::paintEvent(QPaintEvent* event)
@@ -769,20 +785,63 @@ void SftpPanel::updateSelectionActions()
 {
     QTreeWidgetItem* item = selectedItem();
     const bool downloadable = _sshTransport && _backendConnected && !_busy
-        && item && !item->data(0, DirectoryRole).toBool();
+        && item && !item->data(0, SymbolicLinkRole).toBool();
     _downloadButton->setEnabled(downloadable);
+}
+
+void SftpPanel::updateFileTreeIcons()
+{
+    // 使用主题色生成目录和文件图标，切换明暗主题时同步刷新。
+    const auto themeMode = eTheme->getThemeMode();
+    const QIcon folderIcon = ElaIcon::getInstance()->getElaIcon(
+        ElaIconType::FolderClosed, 16, 18, 18,
+        ElaThemeColor(themeMode, PrimaryNormal));
+    const QIcon fileIcon = ElaIcon::getInstance()->getElaIcon(
+        ElaIconType::File, 15, 18, 18,
+        ElaThemeColor(themeMode, BasicText));
+    const QIcon symbolicLinkIcon = ElaIcon::getInstance()->getElaIcon(
+        ElaIconType::LinkSimple, 15, 18, 18,
+        ElaThemeColor(themeMode, PrimaryNormal));
+    const QIcon hardLinkIcon = ElaIcon::getInstance()->getElaIcon(
+        ElaIconType::LinkHorizontal, 15, 18, 18,
+        ElaThemeColor(themeMode, BasicText));
+
+    for (int index = 0; index < _fileTree->topLevelItemCount(); ++index) {
+        QTreeWidgetItem* item = _fileTree->topLevelItem(index);
+        if (!item->data(0, RemotePathRole).isValid())
+            continue;
+        if (item->data(0, SymbolicLinkRole).toBool())
+            item->setIcon(0, symbolicLinkIcon);
+        else if (item->data(0, HardLinkRole).toBool())
+            item->setIcon(0, hardLinkIcon);
+        else
+            item->setIcon(0, item->data(0, DirectoryRole).toBool()
+                ? folderIcon : fileIcon);
+    }
 }
 
 void SftpPanel::uploadFile()
 {
     if (!_backendConnected || _busy)
         return;
-    const QString localPath = QFileDialog::getOpenFileName(
-        this, tr("Upload file"));
-    if (localPath.isEmpty())
+
+    SftpContextMenu menu(this);
+    QAction* filesAction = menu.addAction(tr("Upload files"));
+    QAction* directoryAction = menu.addAction(tr("Upload folder"));
+    QAction* selectedAction = menu.exec(_uploadButton->mapToGlobal(
+        QPoint(0, _uploadButton->height())));
+    if (!selectedAction)
         return;
 
-    queueUploads({localPath});
+    if (selectedAction == filesAction) {
+        queueUploads(QFileDialog::getOpenFileNames(
+            this, tr("Upload files")));
+    } else if (selectedAction == directoryAction) {
+        const QString directory = QFileDialog::getExistingDirectory(
+            this, tr("Upload folder"));
+        if (!directory.isEmpty())
+            queueUploads({directory});
+    }
 }
 
 bool SftpPanel::remotePathExists(const QString& path) const
@@ -807,7 +866,8 @@ void SftpPanel::queueUploads(const QStringList& localPaths)
     int skippedCount = 0;
     for (const QString& localPath : localPaths) {
         const QFileInfo fileInfo(localPath);
-        if (!fileInfo.exists() || !fileInfo.isFile()) {
+        if (!fileInfo.exists() || fileInfo.isSymLink()
+            || (!fileInfo.isFile() && !fileInfo.isDir())) {
             ++skippedCount;
             continue;
         }
@@ -822,18 +882,20 @@ void SftpPanel::queueUploads(const QStringList& localPaths)
         if (remotePathExists(remotePath))
             ++overwriteCount;
         requests.enqueue({fileInfo.absoluteFilePath(), remotePath,
-                          static_cast<quint64>(fileInfo.size())});
+                          fileInfo.isFile()
+                              ? static_cast<quint64>(fileInfo.size()) : 0,
+                          fileInfo.isDir()});
     }
 
     if (requests.isEmpty()) {
         _availabilityLabel->setText(
-            tr("No regular local files were available to upload."));
+            tr("No local files or folders were available to upload."));
         return;
     }
     if (overwriteCount > 0
         && QMessageBox::question(
             this, tr("Replace remote files"),
-            tr("%1 remote file(s) already exist. Replace them?")
+            tr("%1 remote item(s) already exist. Merge or replace them?")
                 .arg(overwriteCount),
             QMessageBox::Yes | QMessageBox::No, QMessageBox::No)
             != QMessageBox::Yes) {
@@ -885,7 +947,12 @@ void SftpPanel::startNextUpload()
     _availabilityLabel->setToolTip({});
     setBusy(true, _lastUploadLog);
     startUploadProgress(request.size);
-    _sftpSession->uploadFile(request.localPath, request.remotePath);
+    if (request.directory) {
+        _sftpSession->uploadDirectory(
+            request.localPath, request.remotePath);
+    } else {
+        _sftpSession->uploadFile(request.localPath, request.remotePath);
+    }
 }
 
 void SftpPanel::finishUploadBatch()
@@ -958,7 +1025,7 @@ void SftpPanel::stopUploadProgress()
 void SftpPanel::downloadSelectedFile()
 {
     QTreeWidgetItem* item = selectedItem();
-    if (!item || item->data(0, DirectoryRole).toBool()
+    if (!item || item->data(0, SymbolicLinkRole).toBool()
         || !_backendConnected || _busy) {
         return;
     }
@@ -967,15 +1034,28 @@ void SftpPanel::downloadSelectedFile()
         QStandardPaths::writableLocation(QStandardPaths::DownloadLocation);
     if (downloadDirectory.isEmpty())
         downloadDirectory = QDir::homePath();
-    const QString localPath = QFileDialog::getSaveFileName(
-        this, tr("Download file"),
-        QDir(downloadDirectory).filePath(item->text(0)));
-    if (localPath.isEmpty())
-        return;
+    const bool directory = item->data(0, DirectoryRole).toBool();
+    QString localPath;
+    if (directory) {
+        const QString parentDirectory = QFileDialog::getExistingDirectory(
+            this, tr("Select download directory"), downloadDirectory);
+        if (parentDirectory.isEmpty())
+            return;
+        localPath = QDir(parentDirectory).filePath(item->text(0));
+    } else {
+        localPath = QFileDialog::getSaveFileName(
+            this, tr("Download file"),
+            QDir(downloadDirectory).filePath(item->text(0)));
+        if (localPath.isEmpty())
+            return;
+    }
 
     setBusy(true, tr("Downloading %1…").arg(item->text(0)));
-    _sftpSession->downloadFile(
-        item->data(0, RemotePathRole).toString(), localPath);
+    const QString remotePath = item->data(0, RemotePathRole).toString();
+    if (directory)
+        _sftpSession->downloadDirectory(remotePath, localPath);
+    else
+        _sftpSession->downloadFile(remotePath, localPath);
 }
 
 void SftpPanel::showFileContextMenu(const QPoint& position)
@@ -1004,10 +1084,12 @@ void SftpPanel::showFileContextMenu(const QPoint& position)
     QAction* refreshAction = menu.addAction(tr("Refresh"));
 
     const bool hasItem = item != nullptr;
+    const bool symbolicLink = hasItem
+        && item->data(0, SymbolicLinkRole).toBool();
     downloadAction->setEnabled(
-        hasItem && !item->data(0, DirectoryRole).toBool());
+        hasItem && !symbolicLink);
     renameAction->setEnabled(hasItem);
-    permissionsAction->setEnabled(hasItem);
+    permissionsAction->setEnabled(hasItem && !symbolicLink);
     copyPathAction->setEnabled(hasItem);
     removeAction->setEnabled(hasItem);
 
@@ -1077,15 +1159,21 @@ void SftpPanel::showFileContextMenu(const QPoint& position)
         _availabilityLabel->setToolTip(oldPath);
         return;
     }
-    if (selectedAction == removeAction
-        && QMessageBox::question(
-            this, tr("Delete remote entry"),
-            tr("Delete %1? Non-empty folders cannot be deleted.")
-                .arg(item->text(0)),
+    if (selectedAction != removeAction)
+        return;
+
+    const bool directory = item->data(0, DirectoryRole).toBool();
+    const QString confirmation = directory
+        ? tr("Delete folder %1 and all its contents? This action cannot be undone.")
+              .arg(item->text(0))
+        : tr("Delete %1?").arg(item->text(0));
+    if (QMessageBox::question(
+            this, tr("Delete remote entry"), confirmation,
             QMessageBox::Yes | QMessageBox::No, QMessageBox::No)
-            == QMessageBox::Yes) {
-        setBusy(true, tr("Deleting…"));
-        _sftpSession->removeEntry(
-            oldPath, item->data(0, DirectoryRole).toBool());
+        != QMessageBox::Yes) {
+        return;
     }
+
+    setBusy(true, tr("Deleting…"));
+    _sftpSession->removeEntry(oldPath, directory);
 }

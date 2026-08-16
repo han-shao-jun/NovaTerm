@@ -1132,337 +1132,380 @@ Built with:
 <context>
     <name>SftpPanel</name>
     <message>
-        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="115"/>
-        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="996"/>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="117"/>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="1076"/>
         <source>Permissions</source>
         <translation>权限</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="129"/>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="131"/>
         <source>Modify file permissions</source>
         <translation>修改文件权限</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="145"/>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="147"/>
         <source>Owner</source>
         <translation>所有者</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="147"/>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="149"/>
         <source>Group</source>
         <translation>组</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="149"/>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="151"/>
         <source>Others</source>
         <translation>其他</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="156"/>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="158"/>
         <source>Octal (&amp;O)</source>
         <translation>八进制 (&amp;O)</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="174"/>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="176"/>
         <source>Cancel</source>
         <translation>取消</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="177"/>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="179"/>
         <source>Confirm</source>
         <translation>确认</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="233"/>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="235"/>
         <source>Read</source>
         <translation>读取</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="234"/>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="236"/>
         <source>Write</source>
         <translation>写入</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="235"/>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="237"/>
         <source>Execute</source>
         <translation>执行</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="462"/>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="470"/>
+        <source>Symbolic link</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="472"/>
+        <source>Hard link</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="474"/>
         <source>Modified: %1</source>
         <translation>已修改：%1</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="472"/>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="486"/>
         <source>%1 items</source>
         <translation>%1 项</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="497"/>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="511"/>
         <source>Transferring… %1%</source>
         <translation>传输中… %1%</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="498"/>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="512"/>
         <source>Transferring… %1</source>
         <translation>传输中… %1</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="506"/>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="520"/>
         <source>Uploaded: %1</source>
         <translation>已上传：%1</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="518"/>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="532"/>
         <source>Download completed.</source>
         <translation>下载完成。</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="518"/>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="532"/>
         <source>Operation completed.</source>
         <translation>操作完成。</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="530"/>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="544"/>
         <source>Upload failed: %1 — %2</source>
         <translation>上传失败：%1 — %2</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="541"/>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="555"/>
         <source>Error: %1</source>
         <translation>错误：%1</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="554"/>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="568"/>
         <source>The SFTP connection was closed.</source>
         <translation>SFTP 连接已关闭。</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="667"/>
-        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="669"/>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="683"/>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="685"/>
         <source>Connecting to SFTP…</source>
         <translation>正在连接 SFTP…</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="680"/>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="696"/>
         <source>SFTP file transfer panel</source>
         <translation>SFTP 文件传输面板</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="681"/>
-        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="682"/>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="697"/>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="698"/>
         <source>Parent directory</source>
         <translation>上级目录</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="683"/>
-        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="684"/>
-        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="1004"/>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="699"/>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="700"/>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="1084"/>
         <source>Refresh</source>
         <translation>刷新</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="685"/>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="701"/>
         <source>Upload</source>
         <translation>上传</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="686"/>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="702"/>
         <source>Upload, or drop local files onto this panel</source>
         <translation>上传，或将本地文件拖放到此面板</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="687"/>
-        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="688"/>
-        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="994"/>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="703"/>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="704"/>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="1074"/>
         <source>Download</source>
         <translation>下载</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="689"/>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="705"/>
         <source>Upload progress</source>
         <translation>上传进度</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="690"/>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="706"/>
         <source>Remote path</source>
         <translation>远程路径</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="691"/>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="707"/>
         <source>Name</source>
         <translation>名称</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="691"/>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="707"/>
         <source>Size</source>
         <translation>大小</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="693"/>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="709"/>
         <source>Drop local files here to upload them to the current directory</source>
         <translation>将本地文件拖放到此处可上传到当前目录</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="706"/>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="722"/>
         <source>No active SSH session</source>
         <translation>没有活动的 SSH 会话</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="707"/>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="723"/>
         <source>Session: %1</source>
         <translation>会话：%1</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="739"/>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="755"/>
         <source>Release to upload files to %1</source>
         <translation>释放以上传文件到 %1</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="751"/>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="767"/>
         <source>Loading remote directory…</source>
         <translation>正在加载远程目录…</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="781"/>
-        <source>Upload file</source>
-        <translation>上传文件</translation>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="829"/>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="838"/>
+        <source>Upload files</source>
+        <translation type="unfinished"></translation>
     </message>
     <message>
         <location filename="../../src/ui/widgets/SftpPanel.cpp" line="830"/>
-        <source>No regular local files were available to upload.</source>
-        <translation>没有可上传的常规本地文件。</translation>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="841"/>
+        <source>Upload folder</source>
+        <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="835"/>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="892"/>
+        <source>No local files or folders were available to upload.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="898"/>
+        <source>%1 remote item(s) already exist. Merge or replace them?</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Upload file</source>
+        <translation type="vanished">上传文件</translation>
+    </message>
+    <message>
+        <source>No regular local files were available to upload.</source>
+        <translation type="vanished">没有可上传的常规本地文件。</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="897"/>
         <source>Replace remote files</source>
         <translation>替换远程文件</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="836"/>
         <source>%1 remote file(s) already exist. Replace them?</source>
-        <translation>%1 个远程文件已存在。是否替换？</translation>
+        <translation type="vanished">%1 个远程文件已存在。是否替换？</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="865"/>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="927"/>
         <source>Upload stopped because the SFTP connection closed.</source>
         <translation>由于 SFTP 连接关闭，上传已停止。</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="879"/>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="941"/>
         <source>Uploading: %1 (%2/%3)</source>
         <translation>上传中：%1 (%2/%3)</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="883"/>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="945"/>
         <source>Uploading: %1</source>
         <translation>上传中：%1</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="903"/>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="970"/>
         <source>Uploaded %1 files</source>
         <translation>已上传 %1 个文件</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="906"/>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="973"/>
         <source>Uploaded %1, failed %2, skipped %3</source>
         <translation>已上传 %1，失败 %2，跳过 %3</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="912"/>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="979"/>
         <source> — %1</source>
         <translation> — %1</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="971"/>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="1041"/>
+        <source>Select download directory</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="1047"/>
         <source>Download file</source>
         <translation>下载文件</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="976"/>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="1053"/>
         <source>Downloading %1…</source>
         <translation>正在下载 %1…</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="995"/>
-        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="1054"/>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="1075"/>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="1136"/>
         <source>Rename</source>
         <translation>重命名</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="997"/>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="1077"/>
         <source>Copy path</source>
         <translation>复制路径</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="998"/>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="1078"/>
         <source>Delete</source>
         <translation>删除</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="1001"/>
-        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="1024"/>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="1081"/>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="1106"/>
         <source>New folder</source>
         <translation>新建文件夹</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="1002"/>
-        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="1035"/>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="1082"/>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="1117"/>
         <source>New file</source>
         <translation>新建文件</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="1024"/>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="1106"/>
         <source>Folder name:</source>
         <translation>文件夹名称：</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="1027"/>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="1109"/>
         <source>Creating folder…</source>
         <translation>正在创建文件夹…</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="1035"/>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="1117"/>
         <source>File name:</source>
         <translation>文件名称：</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="1038"/>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="1120"/>
         <source>Creating file…</source>
         <translation>正在创建文件…</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="1054"/>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="1136"/>
         <source>New name:</source>
         <translation>新名称：</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="1058"/>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="1140"/>
         <source>Renaming…</source>
         <translation>正在重命名…</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="1070"/>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="1152"/>
         <source>Changing permissions…</source>
         <translation>正在修改权限…</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="1076"/>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="1158"/>
         <source>Path copied.</source>
         <translation>路径已复制。</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="1082"/>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="1167"/>
+        <source>Delete folder %1 and all its contents? This action cannot be undone.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="1169"/>
+        <source>Delete %1?</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="1171"/>
         <source>Delete remote entry</source>
         <translation>删除远程条目</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="1083"/>
         <source>Delete %1? Non-empty folders cannot be deleted.</source>
-        <translation>删除 %1？非空文件夹无法删除。</translation>
+        <translation type="vanished">删除 %1？非空文件夹无法删除。</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="1087"/>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="1177"/>
         <source>Deleting…</source>
         <translation>正在删除…</translation>
     </message>
@@ -1471,7 +1514,7 @@ Built with:
         <translation type="vanished">SFTP 传输支持尚未提供。</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="712"/>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="728"/>
         <source>Select a connected SSH terminal to browse remote files.</source>
         <translation>请选择一个已连接的 SSH 终端以浏览远程文件。</translation>
     </message>
@@ -1480,7 +1523,7 @@ Built with:
         <translation type="vanished">SFTP 后端待定</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="715"/>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="731"/>
         <source>Waiting for an SSH session</source>
         <translation>等待 SSH 会话</translation>
     </message>
@@ -1488,114 +1531,166 @@ Built with:
 <context>
     <name>SftpSession</name>
     <message>
-        <location filename="../../src/session/SftpSession.cpp" line="78"/>
+        <location filename="../../src/session/SftpSession.cpp" line="82"/>
         <source>Failed to load the SSH private key</source>
         <translation>加载 SSH 私钥失败</translation>
     </message>
     <message>
-        <location filename="../../src/session/SftpSession.cpp" line="87"/>
+        <location filename="../../src/session/SftpSession.cpp" line="91"/>
         <source>SFTP public-key authentication failed</source>
         <translation>SFTP 公钥认证失败</translation>
     </message>
     <message>
-        <location filename="../../src/session/SftpSession.cpp" line="97"/>
+        <location filename="../../src/session/SftpSession.cpp" line="101"/>
         <source>SFTP password authentication failed</source>
         <translation>SFTP 密码认证失败</translation>
     </message>
     <message>
-        <location filename="../../src/session/SftpSession.cpp" line="122"/>
+        <location filename="../../src/session/SftpSession.cpp" line="461"/>
         <source>Invalid SSH configuration for SFTP.</source>
         <translation>SFTP 的 SSH 配置无效。</translation>
     </message>
     <message>
-        <location filename="../../src/session/SftpSession.cpp" line="245"/>
+        <location filename="../../src/session/SftpSession.cpp" line="596"/>
         <source>Failed to create the SFTP SSH session.</source>
         <translation>创建 SFTP SSH 会话失败。</translation>
     </message>
     <message>
-        <location filename="../../src/session/SftpSession.cpp" line="268"/>
+        <location filename="../../src/session/SftpSession.cpp" line="619"/>
         <source>SFTP SSH connection failed</source>
         <translation>SFTP SSH 连接失败</translation>
     </message>
     <message>
-        <location filename="../../src/session/SftpSession.cpp" line="276"/>
+        <location filename="../../src/session/SftpSession.cpp" line="627"/>
         <source>The SFTP host key is not trusted or has changed. Reconnect the SSH terminal and verify the host key.</source>
         <translation>SFTP 主机密钥不可信或已变更。请重新连接 SSH 终端并验证主机密钥。</translation>
     </message>
     <message>
-        <location filename="../../src/session/SftpSession.cpp" line="292"/>
+        <location filename="../../src/session/SftpSession.cpp" line="643"/>
         <source>Failed to initialize SFTP</source>
         <translation>初始化 SFTP 失败</translation>
     </message>
     <message>
-        <location filename="../../src/session/SftpSession.cpp" line="332"/>
+        <location filename="../../src/session/SftpSession.cpp" line="683"/>
         <source>Cannot resolve the remote directory</source>
         <translation>无法解析远程目录</translation>
     </message>
     <message>
-        <location filename="../../src/session/SftpSession.cpp" line="343"/>
+        <location filename="../../src/session/SftpSession.cpp" line="250"/>
+        <location filename="../../src/session/SftpSession.cpp" line="378"/>
+        <location filename="../../src/session/SftpSession.cpp" line="694"/>
         <source>Cannot open remote directory %1</source>
         <translation>无法打开远程目录 %1</translation>
     </message>
     <message>
-        <location filename="../../src/session/SftpSession.cpp" line="377"/>
+        <location filename="../../src/session/SftpSession.cpp" line="294"/>
+        <location filename="../../src/session/SftpSession.cpp" line="411"/>
+        <location filename="../../src/session/SftpSession.cpp" line="729"/>
         <source>Failed while reading remote directory %1</source>
         <translation>读取远程目录 %1 失败</translation>
     </message>
     <message>
-        <location filename="../../src/session/SftpSession.cpp" line="395"/>
+        <location filename="../../src/session/SftpSession.cpp" line="166"/>
+        <location filename="../../src/session/SftpSession.cpp" line="853"/>
         <source>Cannot open local file %1: %2</source>
         <translation>无法打开本地文件 %1：%2</translation>
     </message>
     <message>
-        <location filename="../../src/session/SftpSession.cpp" line="408"/>
-        <location filename="../../src/session/SftpSession.cpp" line="479"/>
+        <location filename="../../src/session/SftpSession.cpp" line="139"/>
+        <source>Remote path is not a directory: %1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../src/session/SftpSession.cpp" line="151"/>
+        <source>Cannot create remote directory %1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../src/session/SftpSession.cpp" line="178"/>
+        <location filename="../../src/session/SftpSession.cpp" line="315"/>
+        <location filename="../../src/session/SftpSession.cpp" line="866"/>
+        <location filename="../../src/session/SftpSession.cpp" line="1007"/>
         <source>Cannot open remote file %1</source>
         <translation>无法打开远程文件 %1</translation>
     </message>
     <message>
-        <location filename="../../src/session/SftpSession.cpp" line="420"/>
+        <location filename="../../src/session/SftpSession.cpp" line="186"/>
+        <location filename="../../src/session/SftpSession.cpp" line="878"/>
         <source>Failed to read local file %1: %2</source>
         <translation>读取本地文件 %1 失败：%2</translation>
     </message>
     <message>
-        <location filename="../../src/session/SftpSession.cpp" line="434"/>
+        <location filename="../../src/session/SftpSession.cpp" line="200"/>
+        <location filename="../../src/session/SftpSession.cpp" line="892"/>
         <source>Failed to upload %1</source>
         <translation>上传 %1 失败</translation>
     </message>
     <message>
-        <location filename="../../src/session/SftpSession.cpp" line="458"/>
-        <location filename="../../src/session/SftpSession.cpp" line="558"/>
+        <location filename="../../src/session/SftpSession.cpp" line="216"/>
+        <location filename="../../src/session/SftpSession.cpp" line="916"/>
+        <location filename="../../src/session/SftpSession.cpp" line="1105"/>
         <source>Failed to finalize remote file %1</source>
         <translation>完成远程文件 %1 失败</translation>
     </message>
     <message>
-        <location filename="../../src/session/SftpSession.cpp" line="488"/>
+        <location filename="../../src/session/SftpSession.cpp" line="267"/>
+        <location filename="../../src/session/SftpSession.cpp" line="395"/>
+        <source>Unsafe remote entry name in %1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../src/session/SftpSession.cpp" line="320"/>
+        <location filename="../../src/session/SftpSession.cpp" line="1016"/>
         <source>Cannot create local file %1: %2</source>
         <translation>无法创建本地文件 %1：%2</translation>
     </message>
     <message>
-        <location filename="../../src/session/SftpSession.cpp" line="505"/>
+        <location filename="../../src/session/SftpSession.cpp" line="334"/>
+        <location filename="../../src/session/SftpSession.cpp" line="1033"/>
         <source>Failed to download %1</source>
         <translation>下载 %1 失败</translation>
     </message>
     <message>
-        <location filename="../../src/session/SftpSession.cpp" line="511"/>
+        <location filename="../../src/session/SftpSession.cpp" line="338"/>
+        <location filename="../../src/session/SftpSession.cpp" line="1039"/>
         <source>Failed to write local file %1: %2</source>
         <translation>写入本地文件 %1 失败：%2</translation>
     </message>
     <message>
-        <location filename="../../src/session/SftpSession.cpp" line="537"/>
+        <location filename="../../src/session/SftpSession.cpp" line="352"/>
+        <location filename="../../src/session/SftpSession.cpp" line="1065"/>
         <source>Failed to finalize local file %1: %2</source>
         <translation>完成本地文件 %1 失败：%2</translation>
     </message>
     <message>
-        <location filename="../../src/session/SftpSession.cpp" line="553"/>
+        <location filename="../../src/session/SftpSession.cpp" line="423"/>
+        <source>Cannot delete remote entry %1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../src/session/SftpSession.cpp" line="434"/>
+        <source>Cannot delete remote directory %1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../src/session/SftpSession.cpp" line="748"/>
+        <source>Local path is not a directory: %1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../src/session/SftpSession.cpp" line="938"/>
+        <location filename="../../src/session/SftpSession.cpp" line="966"/>
+        <location filename="../../src/session/SftpSession.cpp" line="973"/>
+        <source>Cannot create local directory %1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../src/session/SftpSession.cpp" line="1100"/>
         <source>Cannot create remote file %1</source>
         <translation>无法创建远程文件 %1</translation>
     </message>
     <message>
-        <location filename="../../src/session/SftpSession.cpp" line="596"/>
+        <location filename="../../src/session/SftpSession.cpp" line="1140"/>
         <source>Remote operation failed for %1</source>
         <translation>%1 的远程操作失败</translation>
     </message>

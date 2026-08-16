@@ -26,6 +26,7 @@ struct SftpFileInfo
     quint32 permissions{0};
     bool directory{false};
     bool symbolicLink{false};
+    bool hardLink{false};
 };
 
 /**
@@ -48,7 +49,9 @@ public:
 
     void listDirectory(const QString& remotePath);
     void uploadFile(const QString& localPath, const QString& remotePath);
+    void uploadDirectory(const QString& localPath, const QString& remotePath);
     void downloadFile(const QString& remotePath, const QString& localPath);
+    void downloadDirectory(const QString& remotePath, const QString& localPath);
     void createDirectory(const QString& remotePath);
     void createFile(const QString& remotePath);
     void changePermissions(const QString& remotePath, quint32 permissions);
@@ -73,7 +76,9 @@ private:
     enum class CommandType {
         List,
         Upload,
+        UploadDirectory,
         Download,
+        DownloadDirectory,
         MakeRemoteDirectory,
         CreateRemoteFile,
         ChangePermissions,
