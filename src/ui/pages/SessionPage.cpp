@@ -25,6 +25,9 @@
 
 namespace {
 
+// QComboBox 默认 UserRole 保存 Shell 类型，额外角色保存 WSL 发行版名称。
+constexpr int WslDistributionRole = Qt::UserRole + 1;
+
 void setIpv4Validator(QLineEdit* lineEdit)
 {
     static const QRegularExpression ipv4Pattern(QStringLiteral(
@@ -151,11 +154,13 @@ SessionPage::SessionPage(QWidget* parent)
             return;
         }
 
-        const auto type =
-            (_shellTypeCombo->currentText() == QStringLiteral("PowerShell"))
-                ? TerminalView::LocalShellType::PowerShell
-                : TerminalView::LocalShellType::Cmd;
-        emit localSessionRequested(type, _shellLabel->text().trimmed());
+        const auto type = static_cast<TerminalView::LocalShellType>(
+            _shellTypeCombo->currentData().toInt());
+        const QString wslDistribution = type == TerminalView::LocalShellType::Wsl
+            ? _shellTypeCombo->currentData(WslDistributionRole).toString()
+            : QString{};
+        emit localSessionRequested(type, wslDistribution,
+                                   _shellLabel->text().trimmed());
     });
 
     addCentralWidget(_centralWidget, true, true, 0);
@@ -200,8 +205,31 @@ void SessionPage::applyRuntimeConfig(const RuntimeConfig& runtime,
     case TransportKind::LocalShell: {
         const auto shellType = static_cast<TerminalView::LocalShellType>(
             values.value(QStringLiteral("shellType")).toInt());
-        _shellTypeCombo->setCurrentIndex(
-            shellType == TerminalView::LocalShellType::PowerShell ? 1 : 0);
+        const QString wslDistribution = values.value(
+            QStringLiteral("wslDistribution")).toString();
+        int shellIndex = -1;
+        for (int index = 0; index < _shellTypeCombo->count(); ++index) {
+            const auto itemType = static_cast<TerminalView::LocalShellType>(
+                _shellTypeCombo->itemData(index).toInt());
+            const bool sameDistribution = itemType != TerminalView::LocalShellType::Wsl
+                || _shellTypeCombo->itemData(index, WslDistributionRole).toString()
+                    == wslDistribution;
+            if (itemType == shellType && sameDistribution) {
+                shellIndex = index;
+                break;
+            }
+        }
+        if (shellIndex < 0 && shellType == TerminalView::LocalShellType::Wsl
+            && !wslDistribution.isEmpty()) {
+            // 编辑历史会话时，即使对应发行版当前已被移除，也保留原配置供用户识别。
+            _shellTypeCombo->addItem(
+                QStringLiteral("WSL (%1)").arg(wslDistribution),
+                static_cast<int>(TerminalView::LocalShellType::Wsl));
+            shellIndex = _shellTypeCombo->count() - 1;
+            _shellTypeCombo->setItemData(shellIndex, wslDistribution,
+                                         WslDistributionRole);
+        }
+        _shellTypeCombo->setCurrentIndex(shellIndex >= 0 ? shellIndex : 0);
         _shellLabel->setText(values.value(QStringLiteral("label")).toString());
         break;
     }
@@ -304,15 +332,39 @@ void SessionPage::initShellUi()
     grid->setVerticalSpacing(12);
     grid->setColumnStretch(1, 1);   // 输入控件列撑满
 
-    // ── Shell 类型选择（cmd / PowerShell）──
+    // ── Shell 类型选择（cmd / PowerShell / 已安装的 WSL 发行版）──
     auto* localTypeLabel = new ElaText(tr("Type"), page);
     localTypeLabel->setWordWrap(false);
     localTypeLabel->setTextPixelSize(15);
     grid->addWidget(localTypeLabel, 0, 0, Qt::AlignVCenter);
 
     _shellTypeCombo = new ElaComboBox(page);
-    _shellTypeCombo->addItem(QStringLiteral("cmd"));
-    _shellTypeCombo->addItem(QStringLiteral("PowerShell"));
+    _shellTypeCombo->addItem(
+        QStringLiteral("cmd"),
+        static_cast<int>(TerminalView::LocalShellType::Cmd));
+    _shellTypeCombo->addItem(
+        QStringLiteral("PowerShell"),
+        static_cast<int>(TerminalView::LocalShellType::PowerShell));
+#ifdef Q_OS_WIN
+    // 仅把 wsl.exe 实际返回的发行版加入列表；功能未启用或尚未安装实例时
+    // 不提供一个必然启动失败的通用 WSL 选项。
+    const auto wslResult = LocalShellProfiles::discoverWslDistributions();
+    for (const QString& distribution : wslResult.distributions) {
+        _shellTypeCombo->addItem(
+            QStringLiteral("WSL (%1)").arg(distribution),
+            static_cast<int>(TerminalView::LocalShellType::Wsl));
+        _shellTypeCombo->setItemData(_shellTypeCombo->count() - 1,
+                                     distribution, WslDistributionRole);
+    }
+    if (wslResult.status == LocalShellProfiles::WslDiscoveryStatus::Unavailable) {
+        _shellTypeCombo->setToolTip(
+            tr("WSL is unavailable on this Windows system."));
+    } else if (wslResult.status
+               == LocalShellProfiles::WslDiscoveryStatus::NoDistributions) {
+        _shellTypeCombo->setToolTip(
+            tr("WSL is enabled, but no distribution is installed."));
+    }
+#endif
     _shellTypeCombo->setMinimumWidth(160);
     grid->addWidget(_shellTypeCombo, 0, 1);
 

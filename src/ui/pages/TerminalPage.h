@@ -36,12 +36,14 @@ public:
     /**
      * @brief 添加一个新的终端标签页。
      * @param title 标签页标题。
-     * @param type  本地 Shell 类型（cmd 关联 Clink / PowerShell）。
+     * @param type  本地 Shell 类型（cmd 关联 Clink / PowerShell / WSL）。
+     * @param wslDistribution WSL 发行版名称；其他类型忽略。
      * @return 新建的 TerminalView。
      */
     TerminalView* addTerminalTab(
         const QString& title = QString(),
-        TerminalView::LocalShellType type = TerminalView::LocalShellType::Cmd);
+        TerminalView::LocalShellType type = TerminalView::LocalShellType::Cmd,
+        const QString& wslDistribution = {});
     TerminalView* addSerialTerminalTab(const SerialConfig& config);
     TerminalView* addSshTerminalTab(const SshConfig& config);
 

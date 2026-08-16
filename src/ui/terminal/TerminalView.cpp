@@ -291,13 +291,34 @@ TerminalView::~TerminalView()
 
 void TerminalView::startLocalShell(LocalShellType type)
 {
+    // 保留原单参数入口，兼容已有调用；WSL 的明确实例由双参数重载传入。
+    startLocalShell(type, {});
+}
+
+void TerminalView::startLocalShell(LocalShellType type,
+                                   const QString& wslDistribution)
+{
     LocalShellConfig config;
 #ifdef Q_OS_WIN
-    config.profile = type == LocalShellType::PowerShell
-        ? LocalShellProfiles::windowsPowerShell()
-        : LocalShellProfiles::commandPrompt(QCoreApplication::applicationDirPath());
+    // WSL 必须携带下拉框中实际发现的发行版名称，避免多实例环境下
+    // 启动 wsl.exe 的默认实例而连接到错误的 Linux 系统。
+    switch (type) {
+    case LocalShellType::PowerShell:
+        config.profile = LocalShellProfiles::windowsPowerShell();
+        break;
+    case LocalShellType::Wsl:
+        config.profile = wslDistribution.trimmed().isEmpty()
+            ? LocalShellProfiles::wsl()
+            : LocalShellProfiles::wslDistribution(wslDistribution.trimmed());
+        break;
+    case LocalShellType::Cmd:
+        config.profile = LocalShellProfiles::commandPrompt(
+            QCoreApplication::applicationDirPath());
+        break;
+    }
 #else
     Q_UNUSED(type);
+    Q_UNUSED(wslDistribution);
     config.profile = LocalShellProfiles::platformDefault();
 #endif
     startLocalShell(config);

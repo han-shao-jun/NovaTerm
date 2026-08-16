@@ -47,10 +47,12 @@ public:
 signals:
     /**
      * @brief 用户在本地 Shell 标签页点击了 Confirm。
-     * @param type  Shell 类型（cmd 关联 Clink / PowerShell）。
+     * @param type  Shell 类型（cmd 关联 Clink / PowerShell / WSL）。
+     * @param wslDistribution WSL 发行版名称；其他类型为空。
      * @param label 显示标签。
      */
     void localSessionRequested(TerminalView::LocalShellType type,
+                               const QString& wslDistribution,
                                const QString& label);
     void serialSessionRequested(const SerialConfig& config); ///< 串口会话确认
     void sshSessionRequested(const SshConfig& config);        ///< SSH 会话确认
@@ -66,7 +68,7 @@ private:
     QWidget* _centralWidget{nullptr};
     VerticalTabWidget* _tabWidget{nullptr};
 
-    // ── 本地 Shell：Shell 类型选择（cmd / PowerShell）──
+    // ── 本地 Shell：Shell 类型选择（cmd / PowerShell / 可用 WSL 实例）──
     ElaComboBox*_shellTypeCombo{nullptr};
 
     ElaLineEdit* _shellLabel{nullptr};

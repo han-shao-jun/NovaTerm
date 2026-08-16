@@ -10,6 +10,13 @@
 
 #include <QDir>
 #include <QFileInfo>
+#include <QProcess>
+#include <QSet>
+#include <QStandardPaths>
+#include <QStringConverter>
+
+#include <algorithm>
+#include <utility>
 
 bool LocalShellProfile::isValid() const
 {
@@ -56,6 +63,47 @@ LocalShellProfile profile(QString name, QString executable, QStringList argument
     return result;
 }
 
+QString decodeWslListOutput(QByteArray output)
+{
+    // wsl.exe 在部分 Windows 版本中即使输出被重定向，仍会使用 UTF-16LE；
+    // 新版本也可能返回当前代码页文本，因此同时兼容两种编码。
+    const bool hasUtf16Bom = output.startsWith("\xFF\xFE");
+    const bool looksLikeUtf16 = hasUtf16Bom
+        || output.count('\0') > output.size() / 4;
+    QString decoded;
+    if (looksLikeUtf16) {
+        if (hasUtf16Bom)
+            output.remove(0, 2);
+        if (output.size() % 2 != 0)
+            output.chop(1);
+        QStringDecoder decoder(QStringDecoder::Utf16LE);
+        decoded = decoder.decode(output);
+    } else {
+        decoded = QString::fromLocal8Bit(output);
+    }
+    decoded.remove(QChar(0));
+    decoded.remove(QChar(0xFEFF));
+    return decoded;
+}
+
+QStringList parseWslDistributions(const QByteArray& output)
+{
+    QString text = decodeWslListOutput(output);
+    text.replace(QStringLiteral("\r\n"), QStringLiteral("\n"));
+    text.replace(QLatin1Char('\r'), QLatin1Char('\n'));
+
+    QStringList distributions;
+    QSet<QString> seen;
+    for (QString line : text.split(QLatin1Char('\n'))) {
+        line = line.trimmed();
+        if (line.isEmpty() || seen.contains(line))
+            continue;
+        seen.insert(line);
+        distributions.append(std::move(line));
+    }
+    return distributions;
+}
+
 } // namespace
 
 namespace LocalShellProfiles {
@@ -93,6 +141,44 @@ LocalShellProfile wslDistribution(const QString& distribution)
     auto result = wsl();
     result.name = QStringLiteral("WSL (%1)").arg(distribution);
     result.arguments = {QStringLiteral("--distribution"), distribution};
+    return result;
+}
+
+WslDiscoveryResult discoverWslDistributions(int timeoutMs)
+{
+    WslDiscoveryResult result;
+#ifdef Q_OS_WIN
+    const QString executable = QStandardPaths::findExecutable(
+        QStringLiteral("wsl.exe"));
+    if (executable.isEmpty())
+        return result;
+
+    QProcess process;
+    process.setProgram(executable);
+    process.setArguments({QStringLiteral("--list"), QStringLiteral("--quiet")});
+    process.setProcessChannelMode(QProcess::SeparateChannels);
+    process.start(QIODevice::ReadOnly);
+    const int boundedTimeout = std::max(1, timeoutMs);
+    if (!process.waitForStarted(boundedTimeout))
+        return result;
+    if (!process.waitForFinished(boundedTimeout)) {
+        // 查询超时不能阻塞会话窗口；终止的只是本次列表查询进程。
+        process.kill();
+        process.waitForFinished(500);
+        return result;
+    }
+    if (process.exitStatus() != QProcess::NormalExit
+        || process.exitCode() != 0) {
+        return result;
+    }
+
+    result.distributions = parseWslDistributions(process.readAllStandardOutput());
+    result.status = result.distributions.isEmpty()
+        ? WslDiscoveryStatus::NoDistributions
+        : WslDiscoveryStatus::Available;
+#else
+    Q_UNUSED(timeoutMs);
+#endif
     return result;
 }
 

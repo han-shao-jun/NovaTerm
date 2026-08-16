@@ -1110,8 +1110,10 @@ void MainWindow::initWindow()
     connect(_sessionPanel, &SessionPanel::editSessionRequested, this,
             &MainWindow::editSession);
     connect(_sessionPanel, &SessionPanel::localReconnectRequested, this,
-            [this](TerminalView::LocalShellType type) {
-        _terminalPage->addTerminalTab(tr("Terminal"), type);
+            [this](TerminalView::LocalShellType type,
+                   const QString& wslDistribution) {
+        // WSL 重连必须继续使用历史记录中的发行版，不能退回系统默认实例。
+        _terminalPage->addTerminalTab(tr("Terminal"), type, wslDistribution);
     });
     connect(_sessionPanel, &SessionPanel::serialReconnectRequested, this,
             [this](const SerialConfig& config) {
@@ -1521,12 +1523,14 @@ void MainWindow::runSessionDialog(
 
         connect(sessionPage, &SessionPage::localSessionRequested, this,
                 [this](TerminalView::LocalShellType type,
+                       const QString& wslDistribution,
                        const QString& label) {
-            qDebug() << "localSessionRequested, type ="
-                     << (type == TerminalView::LocalShellType::PowerShell ? "PowerShell" : "cmd/Clink");
+            qDebug() << "localSessionRequested, type =" << static_cast<int>(type)
+                     << "wslDistribution =" << wslDistribution;
             // 在构造 QRhiWidget 前结束模态事件循环，避免顶层窗口切换到
             // RHI 合成时重入字体布局。
-            _pendingLocalSession = LocalSessionParameters{type, label};
+            _pendingLocalSession = LocalSessionParameters{
+                type, wslDistribution, label};
             _sessionDialog->accept();
         });
         connect(sessionPage, &SessionPage::serialSessionRequested, this,
@@ -1562,12 +1566,16 @@ void MainWindow::runSessionDialog(
         _pendingLocalSession.reset();
         if (editingSessionId) {
             _sessionPanel->updateLocal(*editingSessionId, parameters.type,
+                                       parameters.wslDistribution,
                                        parameters.label);
         } else {
-            _sessionPanel->recordLocal(parameters.type, parameters.label);
+            _sessionPanel->recordLocal(parameters.type,
+                                       parameters.wslDistribution,
+                                       parameters.label);
             const QString title = parameters.label.isEmpty()
                 ? tr("Terminal") : parameters.label;
-            _terminalPage->addTerminalTab(title, parameters.type);
+            _terminalPage->addTerminalTab(
+                title, parameters.type, parameters.wslDistribution);
         }
     } else if (result == QDialog::Accepted && _pendingSerialSession) {
         const SerialConfig config = *_pendingSerialSession;

@@ -33,15 +33,26 @@
 
 namespace {
 
-QString localSessionName(TerminalView::LocalShellType type)
+QString localSessionName(TerminalView::LocalShellType type,
+                         const QString& wslDistribution = {})
 {
 #ifdef Q_OS_WIN
-    return type == TerminalView::LocalShellType::PowerShell
-        ? QStringLiteral("powershell") : QStringLiteral("cmd");
+    switch (type) {
+    case TerminalView::LocalShellType::PowerShell:
+        return QStringLiteral("powershell");
+    case TerminalView::LocalShellType::Wsl:
+        return wslDistribution.trimmed().isEmpty()
+            ? QStringLiteral("WSL")
+            : QStringLiteral("WSL (%1)").arg(wslDistribution.trimmed());
+    case TerminalView::LocalShellType::Cmd:
+        return QStringLiteral("cmd");
+    }
 #else
     Q_UNUSED(type);
+    Q_UNUSED(wslDistribution);
     return QStringLiteral("shell");
 #endif
+    return QStringLiteral("shell");
 }
 
 QString sessionName(const RuntimeConfig& runtime)
@@ -51,7 +62,8 @@ QString sessionName(const RuntimeConfig& runtime)
     case TransportKind::LocalShell: {
         const auto type = static_cast<TerminalView::LocalShellType>(
             values.value(QStringLiteral("shellType")).toInt());
-        return localSessionName(type);
+        return localSessionName(
+            type, values.value(QStringLiteral("wslDistribution")).toString());
     }
     case TransportKind::Ssh:
         return QStringLiteral("%1@%2:%3")
@@ -98,8 +110,10 @@ QString sessionDetail(const RuntimeConfig& runtime)
     const QVariantMap& values = runtime.transport;
     switch (runtime.transportKind) {
     case TransportKind::LocalShell:
-        return localSessionName(static_cast<TerminalView::LocalShellType>(
-            values.value(QStringLiteral("shellType")).toInt()));
+        return localSessionName(
+            static_cast<TerminalView::LocalShellType>(
+                values.value(QStringLiteral("shellType")).toInt()),
+            values.value(QStringLiteral("wslDistribution")).toString());
     case TransportKind::Ssh:
         return QStringLiteral("%1:%2")
             .arg(values.value(QStringLiteral("host")).toString())
@@ -116,13 +130,16 @@ QString sessionDetail(const RuntimeConfig& runtime)
 }
 
 RuntimeConfig localRuntime(TerminalView::LocalShellType type,
+                           const QString& wslDistribution,
                            const QString& label)
 {
     RuntimeConfig runtime;
     runtime.transportKind = TransportKind::LocalShell;
-    runtime.title = localSessionName(type);
+    runtime.title = localSessionName(type, wslDistribution);
     runtime.transport = {
         {QStringLiteral("shellType"), static_cast<int>(type)},
+        // WSL 实例名独立持久化，保证编辑和重新连接仍指向同一发行版。
+        {QStringLiteral("wslDistribution"), wslDistribution.trimmed()},
         {QStringLiteral("label"), label.trimmed()}};
     return runtime;
 }
@@ -306,9 +323,10 @@ void SessionPanel::updateCollapsedUi()
 }
 
 void SessionPanel::recordLocal(TerminalView::LocalShellType type,
+                               const QString& wslDistribution,
                                const QString& label)
 {
-    upsert(localRuntime(type, label));
+    upsert(localRuntime(type, wslDistribution, label));
 }
 
 void SessionPanel::recordSerial(const SerialConfig& config)
@@ -323,9 +341,10 @@ void SessionPanel::recordSsh(const SshConfig& config)
 
 void SessionPanel::updateLocal(const SessionId& id,
                                TerminalView::LocalShellType type,
+                               const QString& wslDistribution,
                                const QString& label)
 {
-    replace(id, localRuntime(type, label));
+    replace(id, localRuntime(type, wslDistribution, label));
 }
 
 void SessionPanel::updateSerial(const SessionId& id,
@@ -405,8 +424,9 @@ QString SessionPanel::runtimeKey(const RuntimeConfig& runtime) const
     const auto& values = runtime.transport;
     switch (runtime.transportKind) {
     case TransportKind::LocalShell:
-        return QStringLiteral("local:%1").arg(
-            values.value(QStringLiteral("shellType")).toInt());
+        return QStringLiteral("local:%1:%2")
+            .arg(values.value(QStringLiteral("shellType")).toInt())
+            .arg(values.value(QStringLiteral("wslDistribution")).toString());
     case TransportKind::Ssh:
         return QStringLiteral("ssh:%1@%2:%3:%4")
             .arg(values.value(QStringLiteral("username")).toString(),
@@ -565,7 +585,8 @@ void SessionPanel::reconnectItem(QTreeWidgetItem* item)
     if (runtime.transportKind == TransportKind::LocalShell) {
         emit localReconnectRequested(
             static_cast<TerminalView::LocalShellType>(
-                values.value(QStringLiteral("shellType")).toInt()));
+                values.value(QStringLiteral("shellType")).toInt()),
+            values.value(QStringLiteral("wslDistribution")).toString());
         return;
     }
     if (runtime.transportKind == TransportKind::Serial) {

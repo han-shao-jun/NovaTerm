@@ -9,6 +9,7 @@
 #pragma once
 
 #include <QProcessEnvironment>
+#include <QList>
 #include <QString>
 #include <QStringList>
 
@@ -68,6 +69,21 @@ struct LocalShellConfig
  */
 namespace LocalShellProfiles {
 
+/** Windows 上查询 WSL 发行版的结果状态。 */
+enum class WslDiscoveryStatus
+{
+    Unavailable,     ///< wsl.exe 不存在、功能未启用或查询失败
+    NoDistributions, ///< WSL 可用，但尚未安装任何发行版
+    Available        ///< 已发现至少一个可启动的发行版
+};
+
+/** WSL 发行版查询结果。 */
+struct WslDiscoveryResult
+{
+    WslDiscoveryStatus status{WslDiscoveryStatus::Unavailable};
+    QStringList distributions;
+};
+
 /**
  * @brief 命令提示符（cmd.exe）profile，可选注入 Clink。
  * @param applicationDirectory 应用目录，若存在 clink.bat 则自动注入。
@@ -95,6 +111,14 @@ namespace LocalShellProfiles {
  * @param distribution WSL 发行版名称。
  */
 [[nodiscard]] LocalShellProfile wslDistribution(const QString& distribution);
+
+/**
+ * @brief 使用 `wsl.exe --list --quiet` 查询已安装的 WSL 发行版。
+ * @param timeoutMs 等待命令完成的最长毫秒数。
+ * @return 查询状态及去重后的发行版名称；非 Windows 平台返回 Unavailable。
+ */
+[[nodiscard]] WslDiscoveryResult discoverWslDistributions(
+    int timeoutMs = 3000);
 
 /**
  * @brief 当前平台的默认 profile 列表（用于新建会话下拉）。

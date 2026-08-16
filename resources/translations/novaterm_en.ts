@@ -771,6 +771,16 @@ Built with:
         <source>telnet</source>
         <translation type="unfinished"></translation>
     </message>
+    <message>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="361"/>
+        <source>WSL is unavailable on this Windows system.</source>
+        <translation>WSL is unavailable on this Windows system.</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="365"/>
+        <source>WSL is enabled, but no distribution is installed.</source>
+        <translation>WSL is enabled, but no distribution is installed.</translation>
+    </message>
 </context>
 <context>
     <name>SessionPanel</name>

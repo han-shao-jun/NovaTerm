@@ -36,10 +36,12 @@ public:
     ~SessionPanel() override;
 
     void recordLocal(TerminalView::LocalShellType type,
+                     const QString& wslDistribution,
                      const QString& label = {});
     void recordSerial(const SerialConfig& config);
     void recordSsh(const SshConfig& config);
     void updateLocal(const SessionId& id, TerminalView::LocalShellType type,
+                     const QString& wslDistribution,
                      const QString& label);
     void updateSerial(const SessionId& id, const SerialConfig& config);
     void updateSsh(const SessionId& id, const SshConfig& config);
@@ -59,7 +61,8 @@ signals:
     void newSessionRequested();
     void collapsedChanged(bool collapsed);
     void panelWidthChangeRequested(int width);
-    void localReconnectRequested(TerminalView::LocalShellType type);
+    void localReconnectRequested(TerminalView::LocalShellType type,
+                                 const QString& wslDistribution);
     void serialReconnectRequested(const SerialConfig& config);
     void sshReconnectRequested(const SshConfig& config);
     void editSessionRequested(const SessionId& id,

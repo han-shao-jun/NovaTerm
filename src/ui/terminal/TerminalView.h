@@ -39,8 +39,9 @@ class TerminalView : public QWidget
 public:
     // 本地 Shell 类型。会话对话框（SessionPage）中由用户选择，决定 Windows
     // 下启动哪个 shell：Cmd 关联到 Clink（chrisant996/clink，增强版 cmd），
-    // PowerShell 则启动 powershell.exe。Unix 下忽略该值（始终走默认 shell）。
-    enum class LocalShellType { Cmd, PowerShell };
+    // PowerShell 启动 powershell.exe，Wsl 启动用户选择的发行版。Unix 下忽略
+    // 该值（始终走平台默认 shell）。显式固定数值以兼容已经保存的历史配置。
+    enum class LocalShellType { Cmd = 0, PowerShell = 1, Wsl = 2 };
 
     explicit TerminalView(QWidget* parent = nullptr);
     explicit TerminalView(TerminalSession* session, QWidget* parent = nullptr);
@@ -48,10 +49,14 @@ public:
 
     // ── 本地终端：通过 LocalShellTransport 驱动真实 shell ──
     /**
-     * @brief 启动本地 shell（按类型选择 cmd+Clink 或 PowerShell）。
+     * @brief 启动本地 shell（按类型选择 cmd+Clink、PowerShell 或 WSL）。
      * @param type 本地 Shell 类型。
+     * @param wslDistribution WSL 发行版名称；仅 Wsl 类型使用。
      */
     void startLocalShell(LocalShellType type = LocalShellType::Cmd);
+    /** @brief 启动指定 WSL 发行版，或按类型启动其他本地 Shell。 */
+    void startLocalShell(LocalShellType type,
+                         const QString& wslDistribution);
     void startLocalShell(const LocalShellConfig& config); ///< 按完整配置启动本地 shell
     void stopLocalShell();                                ///< 停止本地 shell
     bool isLocalShell() const { return _isLocalShell; }  ///< 是否为本地 shell 会话

@@ -138,7 +138,8 @@ void TerminalPage::emitCurrentSessionContext()
 }
 
 TerminalView* TerminalPage::addTerminalTab(const QString& title,
-                                           TerminalView::LocalShellType type)
+                                           TerminalView::LocalShellType type,
+                                           const QString& wslDistribution)
 {
     auto* terminalView = new TerminalView(_tabWidget);
     _terminalViews.append(terminalView);
@@ -163,7 +164,7 @@ TerminalView* TerminalPage::addTerminalTab(const QString& title,
     int index = _tabWidget->addTab(terminalView, tabTitle);
     _tabWidget->setCurrentIndex(index);
 
-    terminalView->startLocalShell(type);
+    terminalView->startLocalShell(type, wslDistribution);
     if (ITransport* transport = terminalView->transport()) {
         if (transport->isConnected()) {
             emit localSessionConnected(type);

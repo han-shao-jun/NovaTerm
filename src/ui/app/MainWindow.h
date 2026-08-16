@@ -98,6 +98,7 @@ private:
     struct LocalSessionParameters
     {
         TerminalView::LocalShellType type{TerminalView::LocalShellType::Cmd};
+        QString wslDistribution;
         QString label;
     };
 
