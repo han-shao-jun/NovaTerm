@@ -6,6 +6,7 @@
  * 对话框。changeEvent 处理 LanguageChange 时调用 retranslateUi() 刷新菜单文本。
  */
 #include "MainWindow.h"
+#include "ElaCheckBox.h"
 #include "ElaDialog.h"
 #include "ElaIconButton.h"
 #include "ElaMenu.h"
@@ -41,6 +42,7 @@
 #include <QPainter>
 #include <QPalette>
 #include <QPointer>
+#include <QResizeEvent>
 #include <QShowEvent>
 #include <QTimerEvent>
 #include <QVBoxLayout>
@@ -294,6 +296,14 @@ public:
         _titleLabel->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
         titleLayout->addWidget(_titleLabel, 1);
 
+        // 收起按钮属于所有可拖动工具面板的统一标题栏交互，并固定在关闭按钮左侧。
+        _titleCollapseButton = new ElaIconButton(
+            ElaIconType::AngleLeft, 11, 24, 24, _titleBar);
+        _titleCollapseButton->setObjectName(
+            QStringLiteral("dockCollapseButton"));
+        _titleCollapseButton->setCursor(Qt::ArrowCursor);
+        titleLayout->addWidget(_titleCollapseButton, 0, Qt::AlignVCenter);
+
         // 使用自定义标题栏后，QDockWidget 不再自动绘制关闭按钮，
         // 因此在标题栏中补回关闭入口，并随 DockWidgetClosable 同步显隐。
         _titleCloseButton = new ElaIconButton(
@@ -301,24 +311,72 @@ public:
         _titleCloseButton->setObjectName(QStringLiteral("dockCloseButton"));
         _titleCloseButton->setAccessibleName(tr("Close panel"));
         _titleCloseButton->setToolTip(tr("Close panel"));
+        _titleCloseButton->setCursor(Qt::ArrowCursor);
         titleLayout->addWidget(_titleCloseButton, 0, Qt::AlignVCenter);
         setTitleBarWidget(_titleBar);
 
         connect(_titleCloseButton, &QPushButton::clicked,
                 this, &QDockWidget::close);
+        connect(_titleCollapseButton, &QPushButton::clicked,
+                this, [this]() { setCollapsed(!_collapsed); });
         connect(this, &QDockWidget::featuresChanged, this,
-                [this](QDockWidget::DockWidgetFeatures features) {
-            _titleCloseButton->setVisible(
-                features.testFlag(QDockWidget::DockWidgetClosable));
+                [this](QDockWidget::DockWidgetFeatures) {
+            updateTitleBarControls();
+        });
+        connect(this, &QDockWidget::dockLocationChanged, this,
+                [this](Qt::DockWidgetArea area) {
+            _lastDockArea = area;
+            if (_collapsed)
+                applyCollapsedState(true);
+            else
+                updateTitleBarControls();
+        });
+        connect(this, &QDockWidget::topLevelChanged, this,
+                [this](bool) {
+            if (_collapsed)
+                applyCollapsedState(true);
+            else
+                updateTitleBarControls();
         });
 
         connect(this, &QDockWidget::windowTitleChanged, this,
                 [this](const QString& windowTitle) {
             _titleDragHandle->setAccessibleName(windowTitle);
             _titleLabel->setText(windowTitle);
+            updateTitleBarControls();
         });
+        updateTitleBarControls();
         setMouseTracking(true);
     }
+
+    /** 收起时隐藏内容区，展开时恢复收起前的尺寸。 */
+    void setCollapsed(bool collapsed)
+    {
+        if (_collapsed == collapsed) {
+            updateTitleBarControls();
+            return;
+        }
+
+        if (collapsed) {
+            if (width() >= MinimumExpandedExtent)
+                _expandedWidth = width();
+            if (height() >= MinimumExpandedExtent)
+                _expandedHeight = height();
+        }
+        _collapsed = collapsed;
+        applyCollapsedState(true);
+    }
+
+    [[nodiscard]] bool isCollapsed() const noexcept { return _collapsed; }
+
+    void setExpandedSize(int width, int height) noexcept
+    {
+        _expandedWidth = std::max(MinimumExpandedExtent, width);
+        _expandedHeight = std::max(MinimumExpandedExtent, height);
+    }
+
+    [[nodiscard]] int expandedWidth() const noexcept { return _expandedWidth; }
+    [[nodiscard]] int expandedHeight() const noexcept { return _expandedHeight; }
 
 protected:
     bool eventFilter(QObject* watched, QEvent* event) override
@@ -332,6 +390,19 @@ protected:
         case QEvent::MouseButtonRelease:
         case QEvent::MouseButtonDblClick: {
             const auto* const mouseEvent = static_cast<QMouseEvent*>(event);
+            const bool continuesDrag =
+                (event->type() == QEvent::MouseMove
+                 || event->type() == QEvent::MouseButtonRelease)
+                && (_dragPending || _dragging);
+
+            // 只有左侧拖动图标和标题文字属于拖动锚点。按钮及其周围区域
+            // 不再向 QDockWidget 转发鼠标事件，避免收起、关闭操作触发拖动。
+            if (!continuesDrag
+                && !isDragAnchorPosition(
+                    mouseEvent->position().toPoint())) {
+                return QDockWidget::eventFilter(watched, event);
+            }
+
             const QPoint dockPosition = _titleBar->mapTo(
                 this, mouseEvent->position().toPoint());
             QMouseEvent forwardedEvent(
@@ -406,17 +477,130 @@ protected:
             _dropOverlay->updateTarget(QCursor::pos());
     }
 
+    void resizeEvent(QResizeEvent* event) override
+    {
+        QDockWidget::resizeEvent(event);
+        if (_collapsed)
+            return;
+        if (event->size().width() >= MinimumExpandedExtent)
+            _expandedWidth = event->size().width();
+        if (event->size().height() >= MinimumExpandedExtent)
+            _expandedHeight = event->size().height();
+    }
+
 private:
+    static constexpr int CollapsedExtent = 40;
+    static constexpr int MinimumExpandedExtent = 160;
+
+    [[nodiscard]] Qt::DockWidgetArea currentDockArea() const
+    {
+        if (_dockHost) {
+            const Qt::DockWidgetArea area = _dockHost->dockWidgetArea(
+                const_cast<DraggableDockWidget*>(this));
+            if (area != Qt::NoDockWidgetArea)
+                return area;
+        }
+        return _lastDockArea;
+    }
+
+    [[nodiscard]] Qt::Orientation resizeOrientation() const
+    {
+        const Qt::DockWidgetArea area = currentDockArea();
+        return area == Qt::TopDockWidgetArea
+                || area == Qt::BottomDockWidgetArea
+            ? Qt::Vertical : Qt::Horizontal;
+    }
+
+    [[nodiscard]] ElaIconType::IconName collapseIcon() const
+    {
+        switch (currentDockArea()) {
+        case Qt::RightDockWidgetArea:
+            return _collapsed ? ElaIconType::AngleLeft
+                              : ElaIconType::AngleRight;
+        case Qt::TopDockWidgetArea:
+            return _collapsed ? ElaIconType::AngleDown
+                              : ElaIconType::AngleUp;
+        case Qt::BottomDockWidgetArea:
+            return _collapsed ? ElaIconType::AngleUp
+                              : ElaIconType::AngleDown;
+        case Qt::LeftDockWidgetArea:
+        case Qt::NoDockWidgetArea:
+        default:
+            return _collapsed ? ElaIconType::AngleRight
+                              : ElaIconType::AngleLeft;
+        }
+    }
+
+    void updateTitleBarControls()
+    {
+        const bool narrow = _collapsed
+            && resizeOrientation() == Qt::Horizontal;
+        _titleDragHandle->setVisible(!narrow);
+        _titleLabel->setVisible(!narrow);
+        _titleCloseButton->setVisible(
+            !narrow && features().testFlag(QDockWidget::DockWidgetClosable));
+        _titleCollapseButton->setAwesome(collapseIcon());
+        const QString actionText = _collapsed
+            ? tr("Expand panel") : tr("Collapse panel");
+        _titleCollapseButton->setAccessibleName(actionText);
+        _titleCollapseButton->setToolTip(actionText);
+    }
+
+    void applyCollapsedState(bool resizeDock)
+    {
+        // 先解除另一方向可能遗留的限制，再根据当前停靠边设置宽或高。
+        setMinimumWidth(0);
+        setMaximumWidth(QWIDGETSIZE_MAX);
+        setMinimumHeight(0);
+        setMaximumHeight(QWIDGETSIZE_MAX);
+
+        if (QWidget* content = widget())
+            content->setVisible(!_collapsed);
+
+        const Qt::Orientation orientation = resizeOrientation();
+        if (_collapsed) {
+            if (orientation == Qt::Horizontal) {
+                setMinimumWidth(CollapsedExtent);
+                setMaximumWidth(CollapsedExtent);
+            } else {
+                setMinimumHeight(CollapsedExtent);
+                setMaximumHeight(CollapsedExtent);
+            }
+        }
+        updateTitleBarControls();
+
+        if (!resizeDock)
+            return;
+        const int extent = _collapsed ? CollapsedExtent
+            : orientation == Qt::Horizontal
+                ? _expandedWidth : _expandedHeight;
+        if (_dockHost && !isFloating()) {
+            _dockHost->resizeDocks({this}, {extent}, orientation);
+        } else if (isFloating()) {
+            resize(orientation == Qt::Horizontal ? extent : width(),
+                   orientation == Qt::Vertical ? extent : height());
+        }
+    }
+
+    [[nodiscard]] bool isDragAnchorPosition(const QPoint& position) const
+    {
+        const auto containsPosition = [&position](const QWidget* widget) {
+            return widget && widget->isVisible()
+                && widget->geometry().contains(position);
+        };
+        return containsPosition(_titleDragHandle)
+            || containsPosition(_titleLabel);
+    }
+
     [[nodiscard]] bool isTitleBarPosition(const QPoint& position) const
     {
         if (!_titleBar || !_titleBar->isVisible())
             return false;
 
-        // 直接使用自定义标题栏的真实几何范围，避免用内容区顶部坐标估算时
-        // 把会话状态行和标题栏下方留白误计入拖动锚点。
-        const QRect titleBarGeometry(
-            _titleBar->mapTo(this, QPoint{}), _titleBar->size());
-        return titleBarGeometry.contains(position);
+        // Dock 层再次按精确锚点校验，确保按钮事件即使传播到父控件，
+        // 也不会被识别为拖动起点。
+        const QPoint titleBarPosition = _titleBar->mapFrom(this, position);
+        return isDragAnchorPosition(titleBarPosition);
     }
 
     void beginDockDrag()
@@ -468,9 +652,14 @@ private:
     QWidget* _titleBar{nullptr};
     ElaIconButton* _titleDragHandle{nullptr};
     QLabel* _titleLabel{nullptr};
+    ElaIconButton* _titleCollapseButton{nullptr};
     ElaIconButton* _titleCloseButton{nullptr};
     Qt::DockWidgetAreas _managedDockAreas{Qt::NoDockWidgetArea};
     int _dragTimerId{0};
+    Qt::DockWidgetArea _lastDockArea{Qt::NoDockWidgetArea};
+    int _expandedWidth{260};
+    int _expandedHeight{480};
+    bool _collapsed{false};
     bool _dragPending{false};
     bool _dragging{false};
 };
@@ -556,12 +745,20 @@ MainWindow::MainWindow(QWidget* parent) : ElaWindow(parent)
     auto* closeLabel = new QLabel(tr("Are you sure you want to exit NovaTerm?"), closeCentral);
     closeLabel->setWordWrap(true);
     closeLayout->addWidget(closeLabel);
+    auto* dontAskAgainCheck = new ElaCheckBox(
+        tr("Do not ask again"), closeCentral);
+    closeLayout->addWidget(dontAskAgainCheck);
     closeLayout->addStretch();
     closeDialog->setCentralWidget(closeCentral);
     // setCentralWidget() 内部已调用 adjustSize()，基于当前内容
     // 重新计算正确的 sizeHint，避免 exec() 时触发 QWindowsWindow 几何体警告。
 
-    connect(closeDialog, &ElaContentDialog::rightButtonClicked, this, [closeDialog, this]() {
+    connect(closeDialog, &ElaContentDialog::rightButtonClicked, this,
+            [closeDialog, dontAskAgainCheck, this]() {
+        // 仅在用户明确确认退出时保存“不再提示”，取消或最小化不改变配置。
+        if (dontAskAgainCheck->isChecked()) {
+            ConfigManager::set(QStringLiteral("window.confirmExit"), false);
+        }
         closeDialog->done(QDialog::Accepted);
         QTimer::singleShot(0, this, &QWidget::close);
     });
@@ -572,7 +769,17 @@ MainWindow::MainWindow(QWidget* parent) : ElaWindow(parent)
     connect(closeDialog, &ElaContentDialog::leftButtonClicked, closeDialog,
             &ElaContentDialog::close);
     setIsDefaultClosed(false);
-    connect(this, &MainWindow::closeButtonClicked, this, [=]() {
+    connect(this, &MainWindow::closeButtonClicked, this,
+            [this, closeDialog, dontAskAgainCheck]() {
+        // 配置关闭确认后直接退出；仍需走 QWidget::close()，以保存最终窗口布局。
+        if (!ConfigManager::get<bool>(
+                QStringLiteral("window.confirmExit"), true)) {
+            close();
+            return;
+        }
+
+        // 对话框实例会复用，取消后再次打开时不沿用尚未确认的勾选状态。
+        dontAskAgainCheck->setChecked(false);
         closeDialog->exec();
     });
 }
@@ -605,6 +812,23 @@ void MainWindow::saveWindowLayout()
         windowState.insert(QStringLiteral("window.sessionPanelExpandedWidth"),
                            _sessionPanel->expandedWidth());
     }
+    // 可拖动工具面板的折叠状态不属于 QMainWindow::saveState 数据，需单独保存。
+    const auto saveToolPanel = [&windowState](
+                                   QDockWidget* dock,
+                                   const QString& keyPrefix) {
+        if (!dock)
+            return;
+        const auto* toolDock = static_cast<const DraggableDockWidget*>(dock);
+        windowState.insert(keyPrefix + QStringLiteral("Collapsed"),
+                           toolDock->isCollapsed());
+        windowState.insert(keyPrefix + QStringLiteral("ExpandedWidth"),
+                           toolDock->expandedWidth());
+        windowState.insert(keyPrefix + QStringLiteral("ExpandedHeight"),
+                           toolDock->expandedHeight());
+    };
+    saveToolPanel(_sftpDock, QStringLiteral("window.sftpPanel"));
+    saveToolPanel(_systemMonitorDock,
+                  QStringLiteral("window.systemMonitorPanel"));
     // 关闭时统一写入一次，防止多个字段分别保存造成布局状态不一致。
     ConfigManager::setValues(windowState);
     _windowLayoutSaved = true;
@@ -917,7 +1141,8 @@ void MainWindow::initWindow()
     connect(_terminalPage,
             &TerminalPage::currentSshTerminalPathLookupFailed,
             _sftpPanel, &SftpPanel::terminalPathLookupFailed);
-    connect(_terminalPage, &TerminalPage::currentSessionContextChanged,
+    // 资源面板需要具体 SshTransport，以便在现有会话上创建独立 exec channel。
+    connect(_terminalPage, &TerminalPage::currentSftpContextChanged,
             _systemMonitorPanel, &SystemMonitorPanel::setSessionContext);
 
     // 先应用快捷面板内部状态。setExpandedWidth()/setCollapsed() 会触发
@@ -954,13 +1179,36 @@ void MainWindow::initWindow()
         }
     }
 
+    // 先恢复 Qt Dock 布局，再应用自定义收起约束，防止 restoreState 覆盖窄栏尺寸。
+    const auto restoreToolPanel = [](QDockWidget* dock,
+                                     const QString& keyPrefix) {
+        if (!dock)
+            return;
+        auto* toolDock = static_cast<DraggableDockWidget*>(dock);
+        toolDock->setExpandedSize(
+            ConfigManager::get<int>(
+                keyPrefix + QStringLiteral("ExpandedWidth"),
+                std::max(160, toolDock->width())),
+            ConfigManager::get<int>(
+                keyPrefix + QStringLiteral("ExpandedHeight"),
+                std::max(160, toolDock->height())));
+        toolDock->setCollapsed(ConfigManager::get<bool>(
+            keyPrefix + QStringLiteral("Collapsed"), false));
+    };
+    restoreToolPanel(_sftpDock, QStringLiteral("window.sftpPanel"));
+    restoreToolPanel(_systemMonitorDock,
+                     QStringLiteral("window.systemMonitorPanel"));
+
     // 快捷连接面板不再由顶栏菜单呼出，因此旧配置即使将其隐藏，启动后
     // 也必须恢复可见；该操作只改变显隐，不再调整已恢复的停靠结构。
     _sessionDock->setVisible(true);
 
     // 顶栏菜单只管理可关闭的工具面板；快捷连接使用自身标题栏按钮折叠。
     const auto bindPanelAction = [](QAction* action, QDockWidget* dock) {
-        QObject::connect(action, &QAction::toggled, dock,
+        // 仅响应用户触发菜单项的操作。主窗口最小化时 Dock 会暂时发出
+        // visibilityChanged(false)，由此同步 QAction 的勾选状态不应再次
+        // 反向隐藏 Dock，否则恢复窗口后面板会被误判为已由用户关闭。
+        QObject::connect(action, &QAction::triggered, dock,
                          &QWidget::setVisible);
         QObject::connect(dock, &QDockWidget::visibilityChanged, action,
                          &QAction::setChecked);

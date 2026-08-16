@@ -21,6 +21,9 @@ int main(int argc, char** argv)
     {
         SshConfig cfg;   // host / username 均为空
         SshTransport transport(cfg);
+        // 未连接时不得接受资源监控等辅助命令，避免请求滞留到下一代连接。
+        if (transport.executeCommand(1, QByteArrayLiteral("true")))
+            ++failures;
         const bool ok = transport.connectToHost();
         std::printf("[invalid-config] connectToHost=%d error='%s'\n",
                     static_cast<int>(ok),

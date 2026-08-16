@@ -59,6 +59,11 @@ bool SshTransport::connectToHost()
     _running.store(true);
     _connected.store(false);
     _readPaused.store(false);
+    {
+        // 新连接不得继承上一代会话尚未执行的辅助命令，避免命令被发往错误主机。
+        QMutexLocker lock(&_commandMutex);
+        _commandQueue.clear();
+    }
     // 注意：不重置 _pendingCols/_pendingRows —— attachTransport 在
     // connectToHost() 之前已通过 resizeTerminal() 写入当前终端尺寸，
     // worker 打开 channel 时以它作为初始 PTY 尺寸。
@@ -82,6 +87,12 @@ void SshTransport::disconnect()
     }
 
     _connected.store(false);
+
+    {
+        // 丢弃尚未开始的请求；正在执行的 channel 由工作线程退出路径统一回收。
+        QMutexLocker lock(&_commandMutex);
+        _commandQueue.clear();
+    }
 
     if (_thread) {
         // 事件循环每 20ms 检查一次 _running，正常会话 1s 内即可回收；
@@ -144,6 +155,21 @@ void SshTransport::rejectHostKey()
     _keyWait.wakeAll();
 }
 
+bool SshTransport::executeCommand(quint64 requestId, QByteArray command)
+{
+    if (!_connected.load(std::memory_order_acquire) || requestId == 0
+        || command.isEmpty() || command.size() > MaxCommandBytes) {
+        return false;
+    }
+
+    // 此方法由 GUI 线程提交，工作线程在事件循环中取走；只保留一个待执行请求。
+    QMutexLocker lock(&_commandMutex);
+    if (!_commandQueue.isEmpty())
+        return false;
+    _commandQueue.enqueue(CommandRequest{requestId, std::move(command)});
+    return true;
+}
+
 void SshTransport::reportError(const QString& message)
 {
     {
@@ -168,6 +194,23 @@ void SshTransport::emitSignal(void (SshTransport::*signal)())
     QMetaObject::invokeMethod(this, [this, signal]() {
         emit (this->*signal)();
     }, Qt::QueuedConnection);
+}
+
+void SshTransport::emitCommandFinished(quint64 requestId,
+                                       QByteArray standardOutput,
+                                       QByteArray standardError,
+                                       QString errorMessage)
+{
+    // 移动捕获可避免复制较大的输出，同时保证信号最终在对象所属的 GUI 线程发出。
+    QMetaObject::invokeMethod(
+        this,
+        [this, requestId, standardOutput = std::move(standardOutput),
+         standardError = std::move(standardError),
+         errorMessage = std::move(errorMessage)]() {
+            emit commandFinished(requestId, standardOutput, standardError,
+                                 errorMessage);
+        },
+        Qt::QueuedConnection);
 }
 
 void SshTransport::workerMain()
@@ -382,6 +425,30 @@ void SshTransport::workerMain()
     int appliedCols = startCols;
     int appliedRows = startRows;
 
+    // 辅助命令与交互 Shell 复用同一个 SSH session，但使用独立 exec channel。
+    // 每次仅允许一个活动命令，避免监控刷新在慢服务端上堆积。
+    ssh_channel commandChannel = nullptr;
+    quint64 commandRequestId = 0;
+    QByteArray commandOutput;
+    QByteArray commandErrorOutput;
+    QElapsedTimer commandTimer;
+
+    const auto finishCommand = [this, &commandChannel, &commandRequestId,
+                                &commandOutput, &commandErrorOutput](
+                                   QString errorMessage) {
+        if (!commandChannel)
+            return;
+        ssh_channel_close(commandChannel);
+        ssh_channel_free(commandChannel);
+        commandChannel = nullptr;
+        emitCommandFinished(commandRequestId, std::move(commandOutput),
+                            std::move(commandErrorOutput),
+                            std::move(errorMessage));
+        commandRequestId = 0;
+        commandOutput.clear();
+        commandErrorOutput.clear();
+    };
+
     while (_running.load(std::memory_order_acquire)
            && channel
            && ssh_is_connected(session)) {
@@ -436,6 +503,71 @@ void SshTransport::workerMain()
             }
         }
 
+        // 只有当前辅助 channel 完全结束后才取下一项，保证同一 session 上串行执行。
+        if (!commandChannel) {
+            CommandRequest request;
+            bool hasRequest = false;
+            {
+                QMutexLocker lock(&_commandMutex);
+                if (!_commandQueue.isEmpty()) {
+                    request = _commandQueue.dequeue();
+                    hasRequest = true;
+                }
+            }
+
+            if (hasRequest) {
+                commandChannel = ssh_channel_new(session);
+                commandRequestId = request.requestId;
+                if (!commandChannel
+                    || ssh_channel_open_session(commandChannel) != SSH_OK
+                    || ssh_channel_request_exec(commandChannel,
+                                                request.command.constData()) != SSH_OK) {
+                    const QString error = tr("Failed to execute remote command: %1")
+                        .arg(QString::fromUtf8(ssh_get_error(session)));
+                    if (commandChannel)
+                        finishCommand(error);
+                    else
+                        emitCommandFinished(commandRequestId, {}, {}, error);
+                    commandRequestId = 0;
+                } else {
+                    commandTimer.restart();
+                }
+            }
+        }
+
+        if (commandChannel) {
+            bool outputLimitExceeded = false;
+            // 非阻塞读取 stdout/stderr，不能让监控命令拖住交互 Shell 的事件循环。
+            const auto drainCommandStream = [&](int stream,
+                                                QByteArray& destination) {
+                for (;;) {
+                    char buffer[16 * 1024];
+                    const int count = ssh_channel_read_nonblocking(
+                        commandChannel, buffer, sizeof(buffer), stream);
+                    if (count <= 0)
+                        break;
+                    if (destination.size() + count > MaxCommandOutputBytes) {
+                        outputLimitExceeded = true;
+                        break;
+                    }
+                    destination.append(buffer, count);
+                }
+            };
+            drainCommandStream(0, commandOutput);
+            drainCommandStream(1, commandErrorOutput);
+
+            if (outputLimitExceeded) {
+                finishCommand(tr("Remote command output exceeded 1 MiB."));
+            } else if (ssh_channel_is_eof(commandChannel)) {
+                const int exitStatus = ssh_channel_get_exit_status(commandChannel);
+                finishCommand(exitStatus == 0
+                    ? QString{}
+                    : tr("Remote command exited with status %1.").arg(exitStatus));
+            } else if (commandTimer.elapsed() >= CommandTimeoutMs) {
+                finishCommand(tr("Remote command timed out."));
+            }
+        }
+
         // 应用窗口尺寸变更
         const int pc = _pendingCols.load();
         const int pr = _pendingRows.load();
@@ -466,6 +598,9 @@ void SshTransport::workerMain()
 
     // ── 关闭 ─────────────────────────────────────────────
     const bool wasConnected = _connected.exchange(false);
+
+    if (commandChannel)
+        finishCommand(tr("SSH connection closed before the command completed."));
 
     if (channel) {
         ssh_channel_send_eof(channel);

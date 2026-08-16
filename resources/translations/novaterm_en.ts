@@ -55,9 +55,19 @@ Built with:
 <context>
     <name>DraggableDockWidget</name>
     <message>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="302"/>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="303"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="310"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="311"/>
         <source>Close panel</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="528"/>
+        <source>Expand panel</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="528"/>
+        <source>Collapse panel</source>
         <translation type="unfinished"></translation>
     </message>
 </context>
@@ -331,6 +341,11 @@ Built with:
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="748"/>
+        <source>Do not ask again</source>
+        <translation>Do not ask again</translation>
+    </message>
+    <message>
         <location filename="../../src/ui/app/MainWindow.cpp" line="683"/>
         <location filename="../../src/ui/app/MainWindow.cpp" line="721"/>
         <source>NovaTerm</source>
@@ -354,47 +369,47 @@ Built with:
     </message>
     <message>
         <location filename="../../src/ui/app/MainWindow.cpp" line="693"/>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="1170"/>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="1260"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="1171"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="1261"/>
         <source>Session</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
         <location filename="../../src/ui/app/MainWindow.cpp" line="694"/>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="1189"/>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="1352"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="1190"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="1353"/>
         <source>Settings</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
         <location filename="../../src/ui/app/MainWindow.cpp" line="695"/>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="1193"/>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="1386"/>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="1405"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="1194"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="1387"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="1406"/>
         <source>About</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
         <location filename="../../src/ui/app/MainWindow.cpp" line="696"/>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="1202"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="1203"/>
         <source>Local</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
         <location filename="../../src/ui/app/MainWindow.cpp" line="697"/>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="1204"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="1205"/>
         <source>SSH</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
         <location filename="../../src/ui/app/MainWindow.cpp" line="698"/>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="1206"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="1207"/>
         <source>Serial</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
         <location filename="../../src/ui/app/MainWindow.cpp" line="699"/>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="1208"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="1209"/>
         <source>Telnet</source>
         <translation type="unfinished"></translation>
     </message>
@@ -424,20 +439,20 @@ Built with:
     </message>
     <message>
         <location filename="../../src/ui/app/MainWindow.cpp" line="714"/>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="1178"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="1179"/>
         <source>SFTP panel</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
         <location filename="../../src/ui/app/MainWindow.cpp" line="716"/>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="1180"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="1181"/>
         <source>System resources panel</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
         <location filename="../../src/ui/app/MainWindow.cpp" line="890"/>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="931"/>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="1321"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="932"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="1322"/>
         <source>Terminal</source>
         <translation type="unfinished"></translation>
     </message>
@@ -447,8 +462,8 @@ Built with:
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="1387"/>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="1406"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="1388"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="1407"/>
         <source>OK</source>
         <translation type="unfinished"></translation>
     </message>
@@ -1720,175 +1735,239 @@ Built with:
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="102"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="113"/>
         <source>SSH write queue exceeded its 1 MiB limit.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="177"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="220"/>
         <source>Failed to create SSH session.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="203"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="246"/>
         <source>SSH connection to %1:%2 failed: %3</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="214"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="257"/>
         <source>Failed to retrieve the server host key: %1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="223"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="266"/>
         <source>Cannot read known_hosts file %1: %2</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="276"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="319"/>
         <source>Host key verification failed; connection aborted.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="285"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="328"/>
         <source>Failed to store the host key: %1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="307"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="350"/>
         <source>Failed to load private key %1: %2</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="317"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="360"/>
         <source>Public key authentication failed for %1@%2: %3</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="329"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="372"/>
         <source>Password authentication failed for %1@%2: %3</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="341"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="384"/>
         <source>Failed to open SSH channel: %1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="356"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="399"/>
         <source>Failed to start remote shell: %1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="367"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="410"/>
         <source>Failed to create SSH event loop.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="404"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="471"/>
         <source>SSH channel read error: %1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="426"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="493"/>
         <source>SSH channel write failed: %1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="448"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="525"/>
+        <source>Failed to execute remote command: %1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../src/transport/SshTransport.cpp" line="560"/>
+        <source>Remote command output exceeded 1 MiB.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../src/transport/SshTransport.cpp" line="565"/>
+        <source>Remote command exited with status %1.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../src/transport/SshTransport.cpp" line="567"/>
+        <source>Remote command timed out.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../src/transport/SshTransport.cpp" line="580"/>
         <source>Failed to resize the remote PTY: %1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../src/transport/SshTransport.cpp" line="603"/>
+        <source>SSH connection closed before the command completed.</source>
         <translation type="unfinished"></translation>
     </message>
 </context>
 <context>
     <name>SystemMonitorPanel</name>
     <message>
-        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="115"/>
+        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="530"/>
+        <source>Running status</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="531"/>
+        <source>Server resources</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="532"/>
+        <source>Processes</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="533"/>
+        <source>Process monitoring is not available yet.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="534"/>
+        <source>Remote resources update every second.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="535"/>
         <source>CPU</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="116"/>
+        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="536"/>
         <source>Memory</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="117"/>
+        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="537"/>
         <source>Swap</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="118"/>
-        <source>Network</source>
+        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="655"/>
+        <source>The remote system did not return supported Linux metrics.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="119"/>
-        <source>File systems</source>
+        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="656"/>
+        <source>Remote resource query failed: %1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="121"/>
-        <source>Interface</source>
+        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="676"/>
+        <source>Collecting…</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="121"/>
-        <source>Receive</source>
+        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="752"/>
+        <source>↑ —</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="121"/>
-        <source>Send</source>
+        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="753"/>
+        <source>↓ —</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="122"/>
+        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="756"/>
+        <source>↑ %1/s</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="758"/>
+        <source>↓ %1/s</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="538"/>
         <source>Path</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="122"/>
+        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="539"/>
         <source>Available / Size</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="139"/>
+        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="540"/>
+        <source>Network traffic history</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="599"/>
         <source>No active SSH session</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="140"/>
-        <source>Session: %1</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="142"/>
-        <source>Remote resource collection is not available yet.</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="143"/>
+        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="602"/>
         <source>Select a connected SSH terminal to inspect remote resources.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="148"/>
-        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="154"/>
+        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="608"/>
+        <source>Collecting remote resources…</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="619"/>
         <source>Waiting for monitoring data</source>
         <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="681"/>
+        <source>No filesystem information available</source>
+        <translation>No filesystem information available</translation>
     </message>
 </context>
 <context>
     <name>TerminalPage</name>
     <message>
-        <location filename="../../src/ui/pages/TerminalPage.cpp" line="22"/>
-        <location filename="../../src/ui/pages/TerminalPage.cpp" line="48"/>
+        <location filename="../../src/ui/pages/TerminalPage.cpp" line="23"/>
+        <location filename="../../src/ui/pages/TerminalPage.cpp" line="49"/>
         <source>Terminal</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/TerminalPage.cpp" line="158"/>
+        <location filename="../../src/ui/pages/TerminalPage.cpp" line="159"/>
         <source>Terminal %1</source>
         <translation type="unfinished"></translation>
     </message>
@@ -1896,37 +1975,37 @@ Built with:
 <context>
     <name>TerminalView</name>
     <message>
-        <location filename="../../src/ui/terminal/TerminalView.cpp" line="122"/>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="141"/>
         <source>Find in scrollback</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/terminal/TerminalView.cpp" line="466"/>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="502"/>
         <source>Copy</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/terminal/TerminalView.cpp" line="469"/>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="505"/>
         <source>Paste</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/terminal/TerminalView.cpp" line="480"/>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="516"/>
         <source>Find...</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/terminal/TerminalView.cpp" line="485"/>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="521"/>
         <source>Zoom In</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/terminal/TerminalView.cpp" line="488"/>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="524"/>
         <source>Zoom Out</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/terminal/TerminalView.cpp" line="493"/>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="529"/>
         <source>Clear Scrollback</source>
         <translation type="unfinished"></translation>
     </message>

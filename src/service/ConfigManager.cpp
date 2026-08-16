@@ -235,6 +235,7 @@ QJsonObject ConfigManager::defaults()
             {"width", 1280},
             {"height", 800},
             {"maximized", false},
+            {"confirmExit", true},
             {"dockState", ""},
             {"sessionPanelCollapsed", false},
             {"sessionPanelExpandedWidth", 260}

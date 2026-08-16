@@ -67,10 +67,20 @@ Built with:
 <context>
     <name>DraggableDockWidget</name>
     <message>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="302"/>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="303"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="310"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="311"/>
         <source>Close panel</source>
         <translation>关闭面板</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="528"/>
+        <source>Expand panel</source>
+        <translation>展开面板</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="528"/>
+        <source>Collapse panel</source>
+        <translation>收起面板</translation>
     </message>
 </context>
 <context>
@@ -343,6 +353,11 @@ Built with:
         <translation>确定要退出 NovaTerm 吗？</translation>
     </message>
     <message>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="748"/>
+        <source>Do not ask again</source>
+        <translation>不再提示</translation>
+    </message>
+    <message>
         <location filename="../../src/ui/app/MainWindow.cpp" line="683"/>
         <location filename="../../src/ui/app/MainWindow.cpp" line="721"/>
         <source>NovaTerm</source>
@@ -366,47 +381,47 @@ Built with:
     </message>
     <message>
         <location filename="../../src/ui/app/MainWindow.cpp" line="693"/>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="1170"/>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="1260"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="1171"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="1261"/>
         <source>Session</source>
         <translation>会话</translation>
     </message>
     <message>
         <location filename="../../src/ui/app/MainWindow.cpp" line="694"/>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="1189"/>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="1352"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="1190"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="1353"/>
         <source>Settings</source>
         <translation>设置</translation>
     </message>
     <message>
         <location filename="../../src/ui/app/MainWindow.cpp" line="695"/>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="1193"/>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="1386"/>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="1405"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="1194"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="1387"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="1406"/>
         <source>About</source>
         <translation>关于</translation>
     </message>
     <message>
         <location filename="../../src/ui/app/MainWindow.cpp" line="696"/>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="1202"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="1203"/>
         <source>Local</source>
         <translation>本地</translation>
     </message>
     <message>
         <location filename="../../src/ui/app/MainWindow.cpp" line="697"/>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="1204"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="1205"/>
         <source>SSH</source>
         <translation>SSH</translation>
     </message>
     <message>
         <location filename="../../src/ui/app/MainWindow.cpp" line="698"/>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="1206"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="1207"/>
         <source>Serial</source>
         <translation>串口</translation>
     </message>
     <message>
         <location filename="../../src/ui/app/MainWindow.cpp" line="699"/>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="1208"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="1209"/>
         <source>Telnet</source>
         <translation>Telnet</translation>
     </message>
@@ -436,20 +451,20 @@ Built with:
     </message>
     <message>
         <location filename="../../src/ui/app/MainWindow.cpp" line="714"/>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="1178"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="1179"/>
         <source>SFTP panel</source>
         <translation>SFTP 面板</translation>
     </message>
     <message>
         <location filename="../../src/ui/app/MainWindow.cpp" line="716"/>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="1180"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="1181"/>
         <source>System resources panel</source>
         <translation>系统资源面板</translation>
     </message>
     <message>
         <location filename="../../src/ui/app/MainWindow.cpp" line="890"/>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="931"/>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="1321"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="932"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="1322"/>
         <source>Terminal</source>
         <translation>终端</translation>
     </message>
@@ -459,8 +474,8 @@ Built with:
         <translation>重新连接会话</translation>
     </message>
     <message>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="1387"/>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="1406"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="1388"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="1407"/>
         <source>OK</source>
         <translation>确定</translation>
     </message>
@@ -1816,170 +1831,262 @@ Built with:
         <translation>无效的 SSH 配置。</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="102"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="113"/>
         <source>SSH write queue exceeded its 1 MiB limit.</source>
         <translation>SSH 写入队列已超过 1 MiB 限制。</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="177"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="220"/>
         <source>Failed to create SSH session.</source>
         <translation>创建 SSH 会话失败。</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="203"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="246"/>
         <source>SSH connection to %1:%2 failed: %3</source>
         <translation>连接到 %1:%2 的 SSH 失败：%3</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="214"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="257"/>
         <source>Failed to retrieve the server host key: %1</source>
         <translation>获取服务器主机密钥失败：%1</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="223"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="266"/>
         <source>Cannot read known_hosts file %1: %2</source>
         <translation>无法读取 known_hosts 文件 %1：%2</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="276"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="319"/>
         <source>Host key verification failed; connection aborted.</source>
         <translation>主机密钥验证失败；连接已中止。</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="285"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="328"/>
         <source>Failed to store the host key: %1</source>
         <translation>存储主机密钥失败：%1</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="307"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="350"/>
         <source>Failed to load private key %1: %2</source>
         <translation>加载私钥 %1 失败：%2</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="317"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="360"/>
         <source>Public key authentication failed for %1@%2: %3</source>
         <translation>%1@%2 的公钥认证失败：%3</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="329"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="372"/>
         <source>Password authentication failed for %1@%2: %3</source>
         <translation>%1@%2 的密码认证失败：%3</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="341"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="384"/>
         <source>Failed to open SSH channel: %1</source>
         <translation>打开 SSH 通道失败：%1</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="356"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="399"/>
         <source>Failed to start remote shell: %1</source>
         <translation>启动远程 Shell 失败：%1</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="367"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="410"/>
         <source>Failed to create SSH event loop.</source>
         <translation>创建 SSH 事件循环失败。</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="404"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="471"/>
         <source>SSH channel read error: %1</source>
         <translation>SSH 通道读取错误：%1</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="426"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="493"/>
         <source>SSH channel write failed: %1</source>
         <translation>SSH 通道写入失败：%1</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="448"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="525"/>
+        <source>Failed to execute remote command: %1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../src/transport/SshTransport.cpp" line="560"/>
+        <source>Remote command output exceeded 1 MiB.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../src/transport/SshTransport.cpp" line="565"/>
+        <source>Remote command exited with status %1.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../src/transport/SshTransport.cpp" line="567"/>
+        <source>Remote command timed out.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../src/transport/SshTransport.cpp" line="580"/>
         <source>Failed to resize the remote PTY: %1</source>
         <translation>调整远程 PTY 大小失败：%1</translation>
+    </message>
+    <message>
+        <location filename="../../src/transport/SshTransport.cpp" line="603"/>
+        <source>SSH connection closed before the command completed.</source>
+        <translation type="unfinished"></translation>
     </message>
 </context>
 <context>
     <name>SystemMonitorPanel</name>
     <message>
-        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="115"/>
+        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="530"/>
+        <source>Running status</source>
+        <translation>运行状态</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="531"/>
+        <source>Server resources</source>
+        <translation>服务器资源</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="532"/>
+        <source>Processes</source>
+        <translation>进程</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="533"/>
+        <source>Process monitoring is not available yet.</source>
+        <translation>暂未提供进程监视功能。</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="534"/>
+        <source>Remote resources update every second.</source>
+        <translation>远程资源每秒更新一次。</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="535"/>
         <source>CPU</source>
         <translation>CPU</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="116"/>
+        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="536"/>
         <source>Memory</source>
         <translation>内存</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="117"/>
+        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="537"/>
         <source>Swap</source>
-        <translation>交换空间</translation>
+        <translation>交换</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="118"/>
+        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="655"/>
+        <source>The remote system did not return supported Linux metrics.</source>
+        <translation>远程系统未返回受支持的 Linux 指标。</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="656"/>
+        <source>Remote resource query failed: %1</source>
+        <translation>远程资源查询失败：%1</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="676"/>
+        <source>Collecting…</source>
+        <translation>正在采集…</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="752"/>
+        <source>↑ —</source>
+        <translation>↑ —</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="753"/>
+        <source>↓ —</source>
+        <translation>↓ —</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="756"/>
+        <source>↑ %1/s</source>
+        <translation>↑ %1/s</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="758"/>
+        <source>↓ %1/s</source>
+        <translation>↓ %1/s</translation>
+    </message>
+    <message>
         <source>Network</source>
-        <translation>网络</translation>
+        <translation type="vanished">网络</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="119"/>
         <source>File systems</source>
-        <translation>文件系统</translation>
+        <translation type="vanished">文件系统</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="121"/>
         <source>Interface</source>
-        <translation>接口</translation>
+        <translation type="vanished">接口</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="121"/>
         <source>Receive</source>
-        <translation>接收</translation>
+        <translation type="vanished">接收</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="121"/>
         <source>Send</source>
-        <translation>发送</translation>
+        <translation type="vanished">发送</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="122"/>
+        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="538"/>
         <source>Path</source>
         <translation>路径</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="122"/>
+        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="539"/>
         <source>Available / Size</source>
         <translation>可用 / 大小</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="139"/>
+        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="540"/>
+        <source>Network traffic history</source>
+        <translation>网络流量历史</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="599"/>
         <source>No active SSH session</source>
         <translation>没有活动的 SSH 会话</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="140"/>
         <source>Session: %1</source>
-        <translation>会话：%1</translation>
+        <translation type="vanished">会话：%1</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="142"/>
         <source>Remote resource collection is not available yet.</source>
-        <translation>远程资源采集尚未提供。</translation>
+        <translation type="vanished">远程资源采集尚未提供。</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="143"/>
+        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="602"/>
         <source>Select a connected SSH terminal to inspect remote resources.</source>
         <translation>请选择一个已连接的 SSH 终端以查看远程资源。</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="148"/>
-        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="154"/>
+        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="608"/>
+        <source>Collecting remote resources…</source>
+        <translation>正在采集远程资源…</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="619"/>
         <source>Waiting for monitoring data</source>
         <translation>等待监控数据</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="681"/>
+        <source>No filesystem information available</source>
+        <translation>没有可用的文件系统信息</translation>
     </message>
 </context>
 <context>
     <name>TerminalPage</name>
     <message>
-        <location filename="../../src/ui/pages/TerminalPage.cpp" line="22"/>
-        <location filename="../../src/ui/pages/TerminalPage.cpp" line="48"/>
+        <location filename="../../src/ui/pages/TerminalPage.cpp" line="23"/>
+        <location filename="../../src/ui/pages/TerminalPage.cpp" line="49"/>
         <source>Terminal</source>
         <translation>终端</translation>
     </message>
@@ -2004,7 +2111,7 @@ Built with:
         <translation type="vanished">Telnet</translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/TerminalPage.cpp" line="158"/>
+        <location filename="../../src/ui/pages/TerminalPage.cpp" line="159"/>
         <source>Terminal %1</source>
         <translation>终端 %1</translation>
     </message>
@@ -2012,37 +2119,37 @@ Built with:
 <context>
     <name>TerminalView</name>
     <message>
-        <location filename="../../src/ui/terminal/TerminalView.cpp" line="122"/>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="141"/>
         <source>Find in scrollback</source>
         <translation>在滚动回显中查找</translation>
     </message>
     <message>
-        <location filename="../../src/ui/terminal/TerminalView.cpp" line="466"/>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="502"/>
         <source>Copy</source>
         <translation>复制</translation>
     </message>
     <message>
-        <location filename="../../src/ui/terminal/TerminalView.cpp" line="469"/>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="505"/>
         <source>Paste</source>
         <translation>粘贴</translation>
     </message>
     <message>
-        <location filename="../../src/ui/terminal/TerminalView.cpp" line="480"/>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="516"/>
         <source>Find...</source>
         <translation>查找...</translation>
     </message>
     <message>
-        <location filename="../../src/ui/terminal/TerminalView.cpp" line="485"/>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="521"/>
         <source>Zoom In</source>
         <translation>放大</translation>
     </message>
     <message>
-        <location filename="../../src/ui/terminal/TerminalView.cpp" line="488"/>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="524"/>
         <source>Zoom Out</source>
         <translation>缩小</translation>
     </message>
     <message>
-        <location filename="../../src/ui/terminal/TerminalView.cpp" line="493"/>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="529"/>
         <source>Clear Scrollback</source>
         <translation>清除滚动回显</translation>
     </message>

@@ -16,6 +16,7 @@
 
 #include <QAtomicInt>
 #include <QMutex>
+#include <QQueue>
 #include <QThread>
 #include <QWaitCondition>
 #include <atomic>
@@ -70,18 +71,44 @@ public:
     void acceptHostKey();
     void rejectHostKey();
 
+    /**
+     * @brief 在当前 SSH 连接上异步执行一个非交互命令。
+     * @param requestId 调用方生成的请求 ID，完成信号原样返回。
+     * @param command   UTF-8 Shell 命令。
+     * @return 已加入有界队列时返回 true；未连接、命令无效或已有请求时返回 false。
+     */
+    [[nodiscard]] bool executeCommand(quint64 requestId, QByteArray command);
+
 signals:
     // 需要 UI 决策：首次信任 / 主机密钥变更。未处理（无连接）时等待方会
     // 因 disconnect 或超时安全中止，不会永久阻塞。
     void hostKeyRequired(const SshHostKeyInfo& info);
+
+    /** 辅助 exec channel 完成；信号始终投递到 GUI 线程。 */
+    void commandFinished(quint64 requestId, const QByteArray& standardOutput,
+                         const QByteArray& standardError,
+                         const QString& errorMessage);
 
 private:
     void workerMain();          // 在工作线程中运行整个会话生命周期
     void reportError(const QString& message);   // 线程安全：记录 + 投递信号
     void emitReadyRead(const QByteArray& data);
     void emitSignal(void (SshTransport::*signal)());
+    void emitCommandFinished(quint64 requestId, QByteArray standardOutput,
+                             QByteArray standardError, QString errorMessage);
 
+    struct CommandRequest
+    {
+        // ID 只用于把异步结果匹配回调用方，不参与 SSH 协议。
+        quint64 requestId{0};
+        QByteArray command;
+    };
+
+    // 命令长度、输出量和执行时间均设上限，避免异常服务端耗尽本地资源。
     static constexpr qint64 MaxPendingWriteBytes = 1024 * 1024;
+    static constexpr qsizetype MaxCommandBytes = 16 * 1024;
+    static constexpr qsizetype MaxCommandOutputBytes = 1024 * 1024;
+    static constexpr int CommandTimeoutMs = 5000;
     static constexpr int ConnectTimeoutSec = 10;
     static constexpr int TeardownWaitMs = 15000;
 
@@ -95,6 +122,10 @@ private:
     // 写队列：GUI 线程 append，工作线程在事件循环里 drain。
     mutable QMutex _writeMutex;
     QByteArray _writeQueue;
+
+    // 资源监控等低频辅助命令最多保留一个，防止慢服务端积压轮询任务。
+    mutable QMutex _commandMutex;
+    QQueue<CommandRequest> _commandQueue;
 
     // 待处理 PTY 尺寸：-1 表示无。
     std::atomic<int> _pendingCols{-1};
