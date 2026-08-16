@@ -11,6 +11,7 @@
 #include "renderer/TerminalRenderer.h"
 #include "service/LanguageManager.h"
 #include "session/SerialHighlightRules.h"
+#include "session/TerminalSession.h"
 #include "transport/SerialTransport.h"
 #include "transport/SshTransport.h"
 #include <QVBoxLayout>
@@ -197,7 +198,9 @@ TerminalView* TerminalPage::addSerialTerminalTab(const SerialConfig& config)
     connect(transport, &ITransport::connected, this,
             [this, config]() { emit serialSessionConnected(config); },
             Qt::SingleShotConnection);
-    transport->connectToHost();
+    // 必须通过 TerminalSession 启动，才能让 Created → Connecting → Running
+    // 状态迁移完整生效，并在断连后进入可按 Enter 重连的 Failed 状态。
+    static_cast<void>(terminalView->session()->start());
     return terminalView;
 }
 
@@ -238,7 +241,8 @@ TerminalView* TerminalPage::addSshTerminalTab(const SshConfig& config)
     connect(transport, &ITransport::connected, this,
             [this, config]() { emit sshSessionConnected(config); },
             Qt::SingleShotConnection);
-    transport->connectToHost();
+    // SSH 与串口统一由会话状态机启动，避免绕过 generation、统计和重连逻辑。
+    static_cast<void>(terminalView->session()->start());
     return terminalView;
 }
 

@@ -34,6 +34,25 @@
 #include <algorithm>
 #include <memory>
 
+namespace {
+
+TransportKind transportKindOf(ITransport* transport)
+{
+    // TerminalView 可能复用同一个 TerminalSession 承载不同后端，因此在
+    // attach 时记录真实类型，不能沿用构造时的默认 LocalShell。
+    if (qobject_cast<LocalShellTransport*>(transport))
+        return TransportKind::LocalShell;
+    if (qobject_cast<SshTransport*>(transport))
+        return TransportKind::Ssh;
+    // 部分轻量渲染测试不会链接 SerialTransport 实现，使用 Qt 元对象的
+    // 运行时继承查询可避免为类型识别引入额外链接依赖。
+    if (transport && transport->inherits("SerialTransport"))
+        return TransportKind::Serial;
+    return TransportKind::Custom;
+}
+
+} // namespace
+
 static QColor configuredColor(const QJsonObject& colors, const char* key,
                               const QColor& fallback)
 {
@@ -188,6 +207,19 @@ TerminalView::TerminalView(TerminalSession* session, QWidget* parent)
     });
     connect(_renderer, &TerminalRenderer::activityDetected,
             this, &TerminalView::activityDetected);
+    connect(_session, &TerminalSession::connected, this,
+            [this](ITransport* transport) {
+        if (!_session || _session->transport() != transport)
+            return;
+
+        // 重连成功后恢复显示层对同一 transport 的跟踪；否则第二次断连
+        // 会被误认为不属于当前视图，无法再次显示重连提示。
+        _displayTransport = transport;
+        if (_session->runtimeConfig().transportKind == TransportKind::LocalShell) {
+            _localTransport = transport;
+            _isLocalShell = true;
+        }
+    });
     connect(_session, &TerminalSession::disconnected, this,
             [this](ITransport* transport) {
         const bool belongsToView = transport == _displayTransport;
@@ -199,7 +231,10 @@ TerminalView::TerminalView(TerminalSession* session, QWidget* parent)
             emit shellFinished();
         }
         if (_core && belongsToView) {
-            _core->writeInput(QByteArrayLiteral("\r\n[已断开连接]\r\n"));
+            const QString message = _session && _session->canReconnect()
+                ? QStringLiteral("\r\n\x1b[31m[连接已经断开] 按 Enter 重新连接\x1b[0m\r\n")
+                : QStringLiteral("\r\n\x1b[31m[已断开连接]\x1b[0m\r\n");
+            _core->writeInput(message.toUtf8());
         }
     });
     connect(_session, &TerminalSession::errorOccurred, this,
@@ -346,7 +381,8 @@ void TerminalView::attachTransport(ITransport* transport)
     // libvterm 无需 "teletype" 模式 — 它本身不内置 PTY，
     // 所有 I/O 都通过回调/API 驱动。
 
-    _session->attach(transport, TerminalSession::Ownership::Adopt);
+    _session->attach(transport, TerminalSession::Ownership::Adopt,
+                     transportKindOf(transport));
     _displayTransport = transport;
 
     // SSH 在打开 channel 前需要正确的 PTY 尺寸；Serial/Local 对 resize

@@ -69,6 +69,17 @@ bool SessionManager::close(const SessionId& id, CloseMode mode)
     return true;
 }
 
+bool SessionManager::reconnect(const SessionId& id)
+{
+    TerminalSession* session = find(id);
+    if (!session || !session->canReconnect())
+        return false;
+
+    // 具体的本地进程重启或远端链路重开由 TerminalSession 根据
+    // RuntimeConfig::transportKind 分派，Manager 只负责按 ID 路由。
+    return session->reconnect();
+}
+
 void SessionManager::closeAll(CloseMode mode)
 {
     const auto sessions = _sessions.values();

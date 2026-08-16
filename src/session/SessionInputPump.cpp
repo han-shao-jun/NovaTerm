@@ -27,11 +27,17 @@ void SessionInputPump::start()
 {
     if (_running || !_transport || !_core)
         return;
+
     _running = true;
     connect(_transport, &ITransport::readyRead,
             this, &SessionInputPump::acceptBytes);
     connect(_core, &TerminalCore::inputBackpressureChanged,
             this, &SessionInputPump::handleBackpressure);
+
+    // stop() 会主动暂停 transport，防止输入泵销毁后仍向终端核心投递数据。
+    // 新泵必须先订阅 readyRead 再解除暂停：串口恢复读取时可能同步排空缓冲，
+    // 若顺序相反会丢失重连后的首批数据；SSH 则会一直保持静默暂停状态。
+    _transport->setReadPaused(false);
 }
 
 void SessionInputPump::stop()

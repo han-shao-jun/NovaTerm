@@ -7,6 +7,7 @@
 #include "transport/ITransport.h"
 
 #include <QSignalSpy>
+#include <QKeyEvent>
 #include <QTemporaryDir>
 #include <QTest>
 
@@ -14,10 +15,15 @@ class FakeTransport final : public ITransport
 {
     Q_OBJECT
 public:
-    using ITransport::ITransport;
+    explicit FakeTransport(bool supportsReconnect = true, QObject* parent = nullptr)
+        : ITransport(parent)
+        , _supportsReconnect(supportsReconnect)
+    {
+    }
 
     bool connectToHost() override
     {
+        ++connectAttempts;
         if (_connected)
             return true;
         _connected = true;
@@ -49,17 +55,30 @@ public:
     }
     TransportCapabilities capabilities() const override
     {
-        return TransportCapability::PauseReads
+        auto result = TransportCapability::PauseReads
             | TransportCapability::ResizeTerminal;
+        if (_supportsReconnect)
+            result |= TransportCapability::Reconnect;
+        return result;
     }
     QString errorString() const override { return {}; }
+
+    void simulateRemoteDisconnect()
+    {
+        if (!_connected)
+            return;
+        _connected = false;
+        emit disconnected();
+    }
 
     QByteArray writes;
     QSize size;
     bool readPaused{false};
+    int connectAttempts{0};
 
 private:
     bool _connected{false};
+    bool _supportsReconnect{true};
 };
 
 class SessionTests final : public QObject
@@ -67,6 +86,9 @@ class SessionTests final : public QObject
     Q_OBJECT
 private slots:
     void lifecycleAndManagerCleanup();
+    void enterReconnectsBySessionType();
+    void managerReconnectsFailedSession();
+    void customSessionWithoutCapabilityDoesNotReconnect();
     void runtimeConfigIsSnapshot();
     void restoreMetadataRoundTrip();
     void persistentStoresRejectSecrets();
@@ -88,6 +110,75 @@ void SessionTests::lifecycleAndManagerCleanup()
     QVERIFY(manager.close(id));
     QTRY_COMPARE(removed.size(), 1);
     QCOMPARE(manager.size(), 0);
+}
+
+void SessionTests::enterReconnectsBySessionType()
+{
+    const QList<TransportKind> kinds{
+        TransportKind::LocalShell,
+        TransportKind::Ssh,
+        TransportKind::Serial,
+    };
+
+    for (const TransportKind kind : kinds) {
+        RuntimeConfig config;
+        config.transportKind = kind;
+        TerminalSession session(config);
+        auto* transport = new FakeTransport;
+        session.attach(transport);
+        QVERIFY(session.start());
+        QTRY_COMPARE(session.state(), SessionState::Running);
+
+        transport->simulateRemoteDisconnect();
+        QCOMPARE(session.state(), SessionState::Failed);
+        QVERIFY(session.canReconnect());
+
+        // 使用真实键盘入口验证 Enter 被 TerminalCore 编码后由会话层拦截。
+        QKeyEvent enter(QEvent::KeyPress, Qt::Key_Return, Qt::NoModifier,
+                        QStringLiteral("\r"));
+        session.core()->processKeyPress(&enter);
+        QTRY_COMPARE(session.state(), SessionState::Running);
+        QCOMPARE(transport->connectAttempts, 2);
+        QVERIFY(!transport->readPaused);
+        QCOMPARE(session.statistics().reconnectCount, quint64{1});
+    }
+}
+
+void SessionTests::managerReconnectsFailedSession()
+{
+    RuntimeConfig config;
+    config.transportKind = TransportKind::Ssh;
+    auto session = std::make_unique<TerminalSession>(config);
+    auto* transport = new FakeTransport;
+    session->attach(transport);
+
+    SessionManager manager;
+    const SessionId id = manager.add(std::move(session));
+    QVERIFY(!id.isNull());
+    QTRY_COMPARE(manager.find(id)->state(), SessionState::Running);
+
+    transport->simulateRemoteDisconnect();
+    QCOMPARE(manager.find(id)->state(), SessionState::Failed);
+    QVERIFY(manager.reconnect(id));
+    QTRY_COMPARE(manager.find(id)->state(), SessionState::Running);
+    QCOMPARE(transport->connectAttempts, 2);
+}
+
+void SessionTests::customSessionWithoutCapabilityDoesNotReconnect()
+{
+    RuntimeConfig config;
+    config.transportKind = TransportKind::Custom;
+    TerminalSession session(config);
+    auto* transport = new FakeTransport(false);
+    session.attach(transport);
+    QVERIFY(session.start());
+    QTRY_COMPARE(session.state(), SessionState::Running);
+
+    transport->simulateRemoteDisconnect();
+    QCOMPARE(session.state(), SessionState::Failed);
+    QVERIFY(!session.canReconnect());
+    QVERIFY(!session.reconnect());
+    QCOMPARE(transport->connectAttempts, 1);
 }
 
 void SessionTests::runtimeConfigIsSnapshot()

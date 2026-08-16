@@ -65,6 +65,13 @@ public:
     bool close(const SessionId& id, CloseMode mode = CloseMode::Graceful);
 
     /**
+     * @brief 按会话 ID 重新连接。
+     * @param id 会话 ID。
+     * @return 会话存在、类型支持重连且已提交重连请求时返回 true。
+     */
+    bool reconnect(const SessionId& id);
+
+    /**
      * @brief 关闭所有会话。
      * @param mode 关闭模式。
      */

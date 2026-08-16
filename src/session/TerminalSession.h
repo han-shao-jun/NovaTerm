@@ -71,6 +71,15 @@ public:
     void attach(ITransport* transport, Ownership ownership = Ownership::Adopt);
 
     /**
+     * @brief 附加传输层并显式记录后端类型。
+     * @param transport     传输层。
+     * @param ownership     所有权模式。
+     * @param transportKind 当前传输后端类型。
+     */
+    void attach(ITransport* transport, Ownership ownership,
+                TransportKind transportKind);
+
+    /**
      * @brief 重置会话以复用（在到达 Closed 后开启新逻辑连接）。
      * @return true 表示重置成功；会话未到 Closed 或仍有 transport 附加时返回 false。
      */
@@ -98,6 +107,12 @@ public:
      * @return true 表示已请求重连；状态不合法返回 false。
      */
     [[nodiscard]] bool reconnect();
+
+    /**
+     * @brief 当前会话是否支持重新连接。
+     * @return 传输存在、状态允许且后端声明了 Reconnect 能力时返回 true。
+     */
+    [[nodiscard]] bool canReconnect() const noexcept;
 
     /**
      * @brief 写入用户输入到传输层。
@@ -172,6 +187,7 @@ signals:
 
 private:
     bool transition(SessionState next);   ///< 状态机迁移（校验合法性）
+    bool beginReconnect();                  ///< 进入 Reconnecting 并提交连接请求
     void startPump();                       ///< 启动输入泵
     void stopPump();                        ///< 停止并销毁输入泵
     void clearAttachment(bool requestDisconnect); ///< 清理传输层附加与信号连接
