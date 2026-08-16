@@ -52,6 +52,11 @@ public:
     void resizeTerminal(int cols, int rows) override;
     [[nodiscard]] bool isConnected() const override;
     [[nodiscard]] QString errorString() const override;
+    /** SFTP 等同主机辅助通道使用的只读连接快照。 */
+    [[nodiscard]] const SshConfig& sessionConfig() const noexcept
+    {
+        return _config;
+    }
     bool setReadPaused(bool paused) override;
     [[nodiscard]] TransportCapabilities capabilities() const override
     {

@@ -1,27 +1,107 @@
 /**
  * @file   SftpSession.h
- * @brief  SFTP 会话占位声明。
- *
- * 当前为接口轮廓占位，不实现任何传输逻辑。libssh 的 SFTP 支持已随构建开启，
- * 待目录/文件浏览 UI 规划完成后在此填充枚举与回调契约。
+ * @brief  基于 libssh 的异步 SFTP 会话。
  */
 #pragma once
 
-// SFTP 会话 — 占位（P6 步骤之后实现）。
-//
-// 需求背景：SSH 会话补全的第一阶段只做 shell/PTY 通路，SFTP 明确留白。
-// libssh 的 SFTP 支持已随构建开启（WITH_SFTP=ON，sftp_init / sftp_open /
-// sftp_read 等可用），但 NovaTerm 尚未规划 SFTP 的文件浏览 UI 布局，
-// 因此这里只声明接口轮廓，不实现任何传输逻辑。
-//
-// 后续接入点：
-//   • 复用现有 ITransport 的 SSH channel（ssh_channel_request_sftp）。
-//   • 文件操作必须走工作线程，禁止阻塞 GUI。
-//   • 目录/文件浏览 UI 规划后，在此填充枚举/回调契约。
+#include "session/SessionTypes.h"
 
-class SftpSession
+#include <QMutex>
+#include <QObject>
+#include <QQueue>
+#include <QVector>
+#include <QWaitCondition>
+
+#include <atomic>
+
+class QThread;
+
+/** 远端目录中的一个条目。 */
+struct SftpFileInfo
 {
+    QString name;
+    QString path;
+    quint64 size{0};
+    qint64 modifiedSeconds{0};
+    quint32 permissions{0};
+    bool directory{false};
+    bool symbolicLink{false};
+};
+
+/**
+ * SFTP 会话使用独立 SSH 连接，避免文件传输阻塞终端 shell channel。
+ * 所有 libssh/SFTP 阻塞调用均在专用工作线程执行，GUI 线程只负责排队请求。
+ */
+class SftpSession final : public QObject
+{
+    Q_OBJECT
+
 public:
-    // TODO: 实现 SFTP 文件操作（list / get / put / mkdir / rm）。
-    // 当前为占位桩，调用即表示"未实现"。
+    explicit SftpSession(QObject* parent = nullptr);
+    ~SftpSession() override;
+
+    SftpSession(const SftpSession&) = delete;
+    SftpSession& operator=(const SftpSession&) = delete;
+
+    void connectToHost(const SshConfig& config);
+    void disconnectFromHost();
+
+    void listDirectory(const QString& remotePath);
+    void uploadFile(const QString& localPath, const QString& remotePath);
+    void downloadFile(const QString& remotePath, const QString& localPath);
+    void createDirectory(const QString& remotePath);
+    void createFile(const QString& remotePath);
+    void changePermissions(const QString& remotePath, quint32 permissions);
+    void removeEntry(const QString& remotePath, bool directory);
+    void renameEntry(const QString& oldRemotePath,
+                     const QString& newRemotePath);
+
+    [[nodiscard]] bool isConnected() const noexcept;
+
+signals:
+    void connected(const QString& homePath);
+    void disconnected();
+    void directoryListed(const QString& path,
+                         const QVector<SftpFileInfo>& entries);
+    void transferProgress(const QString& remotePath,
+                          quint64 transferred, quint64 total);
+    void operationFinished(const QString& operation,
+                           const QString& remotePath);
+    void errorOccurred(const QString& message);
+
+private:
+    enum class CommandType {
+        List,
+        Upload,
+        Download,
+        MakeRemoteDirectory,
+        CreateRemoteFile,
+        ChangePermissions,
+        RemoveFile,
+        DeleteRemoteDirectory,
+        Rename
+    };
+
+    struct Command
+    {
+        CommandType type{CommandType::List};
+        QString source;
+        QString target;
+        quint32 permissions{0};
+    };
+
+    void enqueue(Command command);
+    void workerMain(SshConfig config, quint64 generation);
+    void postError(quint64 generation, const QString& message);
+    void postDisconnected(quint64 generation);
+
+    static constexpr int ConnectTimeoutSeconds = 10;
+
+    std::atomic<bool> _running{false};
+    std::atomic<bool> _connected{false};
+    QMutex _queueMutex;
+    QWaitCondition _queueReady;
+    QQueue<Command> _commands;
+    QThread* _thread{nullptr};
+    quint64 _generation{0};
 };

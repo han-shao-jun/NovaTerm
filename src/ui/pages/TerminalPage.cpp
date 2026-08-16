@@ -77,6 +77,7 @@ void TerminalPage::emitCurrentSessionContext()
     TerminalView* const terminalView = currentTerminal();
     if (!terminalView) {
         emit currentSessionContextChanged({}, false);
+        emit currentSftpContextChanged({}, nullptr);
         return;
     }
 
@@ -89,6 +90,11 @@ void TerminalPage::emitCurrentSessionContext()
     const ITransport* const transport = terminalView->transport();
     emit currentSessionContextChanged(
         label, isSshSession && transport && transport->isConnected());
+    auto* sshTransport = isSshSession
+        ? qobject_cast<SshTransport*>(terminalView->transport()) : nullptr;
+    emit currentSftpContextChanged(
+        label, sshTransport && sshTransport->isConnected()
+            ? sshTransport : nullptr);
 }
 
 TerminalView* TerminalPage::addTerminalTab(const QString& title,

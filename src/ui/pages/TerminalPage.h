@@ -13,6 +13,8 @@
 #include <ElaTabWidget.h>
 #include <QWidget>
 
+class SshTransport;
+
 // 承载终端的导航页面。中心直接就是一个铺满的 ElaTabWidget（不经过
 // ElaScrollPage 的滚动包装），用于管理多个终端标签页，每个标签页内含
 // 一个 TerminalView；构造时自动启动第一个本地终端。
@@ -50,6 +52,9 @@ signals:
     /** 当前标签或 SSH 连接状态变化，供远端工具面板更新可用性。 */
     void currentSessionContextChanged(const QString& label,
                                       bool connectedSshSession);
+    /** 当前已连接 SSH 传输，专供 SFTP 面板建立辅助文件通道。 */
+    void currentSftpContextChanged(const QString& label,
+                                   SshTransport* transport);
 
 private:
     void retranslateUi();

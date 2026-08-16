@@ -31,7 +31,6 @@
 #include <QCloseEvent>
 #include <QCursor>
 #include <QDockWidget>
-#include <QEnterEvent>
 #include <QEvent>
 #include <QHBoxLayout>
 #include <QIcon>
@@ -391,18 +390,6 @@ protected:
         return handled;
     }
 
-    void enterEvent(QEnterEvent* event) override
-    {
-        updateDragCursor(event->position().toPoint());
-        QDockWidget::enterEvent(event);
-    }
-
-    void leaveEvent(QEvent* event) override
-    {
-        setDragCursorVisible(false);
-        QDockWidget::leaveEvent(event);
-    }
-
     void timerEvent(QTimerEvent* event) override
     {
         if (event->timerId() != _dragTimerId) {
@@ -422,23 +409,14 @@ protected:
 private:
     [[nodiscard]] bool isTitleBarPosition(const QPoint& position) const
     {
-        const QWidget* const content = widget();
-        if (!content)
+        if (!_titleBar || !_titleBar->isVisible())
             return false;
 
-        const QRect contentGeometry = content->geometry();
-        const bool verticalTitleBar =
-            features().testFlag(DockWidgetVerticalTitleBar);
-        const QRect titleBar = verticalTitleBar
-            ? QRect(0, 0, contentGeometry.left(), height())
-            : QRect(0, 0, width(), contentGeometry.top());
-        return titleBar.contains(position);
-    }
-
-    void updateDragCursor(const QPoint& position)
-    {
-        setDragCursorVisible(features().testFlag(DockWidgetMovable)
-                             && isTitleBarPosition(position));
+        // 直接使用自定义标题栏的真实几何范围，避免用内容区顶部坐标估算时
+        // 把会话状态行和标题栏下方留白误计入拖动锚点。
+        const QRect titleBarGeometry(
+            _titleBar->mapTo(this, QPoint{}), _titleBar->size());
+        return titleBarGeometry.contains(position);
     }
 
     void beginDockDrag()
@@ -485,18 +463,6 @@ private:
         }
     }
 
-    void setDragCursorVisible(bool visible)
-    {
-        if (_dragCursorVisible == visible)
-            return;
-
-        _dragCursorVisible = visible;
-        if (visible)
-            setCursor(Qt::SizeAllCursor);
-        else
-            unsetCursor();
-    }
-
     QPointer<DockDropOverlay> _dropOverlay;
     QPointer<QMainWindow> _dockHost;
     QWidget* _titleBar{nullptr};
@@ -505,7 +471,6 @@ private:
     ElaIconButton* _titleCloseButton{nullptr};
     Qt::DockWidgetAreas _managedDockAreas{Qt::NoDockWidgetArea};
     int _dragTimerId{0};
-    bool _dragCursorVisible{false};
     bool _dragPending{false};
     bool _dragging{false};
 };
@@ -937,7 +902,7 @@ void MainWindow::initWindow()
         QMessageBox::warning(this, tr("Reconnect session"), message);
     });
 
-    connect(_terminalPage, &TerminalPage::currentSessionContextChanged,
+    connect(_terminalPage, &TerminalPage::currentSftpContextChanged,
             _sftpPanel, &SftpPanel::setSessionContext);
     connect(_terminalPage, &TerminalPage::currentSessionContextChanged,
             _systemMonitorPanel, &SystemMonitorPanel::setSessionContext);
