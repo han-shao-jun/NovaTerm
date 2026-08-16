@@ -78,6 +78,17 @@ static TerminalColorScheme configuredTerminalScheme(bool isDark)
     return scheme;
 }
 
+static QByteArray terminalTitleSequence(QString title)
+{
+    // 防止标题内容提前终止 OSC 序列，恢复标题时仅保留普通文本。
+    title.remove(QChar(0x1b));
+    title.remove(QChar(0x07));
+    QByteArray sequence = QByteArrayLiteral("\x1b]2;");
+    sequence.append(title.toUtf8());
+    sequence.append('\x07');
+    return sequence;
+}
+
 TerminalView::TerminalView(QWidget* parent)
     : TerminalView(nullptr, parent)
 {
@@ -151,8 +162,30 @@ TerminalView::TerminalView(TerminalSession* session, QWidget* parent)
 
     // 这些视图级连接在传输层切换时保持不变。放在 attachTransport() 之外，
     // 避免反复 attach/detach 导致标题与活动通知信号成倍增加。
-    connect(_core, &TerminalCore::titleChanged,
-            this, &TerminalView::titleChanged);
+    connect(_core, &TerminalCore::titleChanged, this,
+            [this](const QString& title) {
+        if (title.startsWith(QStringLiteral("NOVATERM_CWD_"))) {
+            // 内部路径探针借用 OSC 2 传递结果；解析后立即恢复用户原有标题。
+            _core->writeInput(terminalTitleSequence(_lastTerminalTitle));
+            if (!_workingDirectoryRequestPending
+                || (!_workingDirectoryMarker.isEmpty()
+                    && !title.startsWith(_workingDirectoryMarker))) {
+                return;
+            }
+
+            _workingDirectoryRequestPending = false;
+            const QString path = title.mid(_workingDirectoryMarker.size());
+            _workingDirectoryMarker.clear();
+            if (path.startsWith(QLatin1Char('/')))
+                emit workingDirectoryReported(path);
+            else
+                emit workingDirectoryRequestFailed();
+            return;
+        }
+
+        _lastTerminalTitle = title;
+        emit titleChanged(title);
+    });
     connect(_renderer, &TerminalRenderer::activityDetected,
             this, &TerminalView::activityDetected);
     connect(_session, &TerminalSession::disconnected, this,
@@ -349,6 +382,53 @@ ITransport* TerminalView::transport() const
 TerminalSession* TerminalView::session() const
 {
     return _session.data();
+}
+
+void TerminalView::pasteText(const QString& text)
+{
+    if (!_core || text.isEmpty())
+        return;
+
+    _core->pasteText(text);
+    _renderer->setFocus(Qt::ShortcutFocusReason);
+}
+
+void TerminalView::submitText(const QString& text)
+{
+    if (!_core || text.isEmpty())
+        return;
+
+    // 粘贴与回车进入同一终端核心命令队列，保证命令完整写入后再执行。
+    _core->pasteText(text);
+    QKeyEvent enterEvent(QEvent::KeyPress, Qt::Key_Return,
+                         Qt::NoModifier, QStringLiteral("\r"));
+    _core->processKeyPress(&enterEvent);
+    _renderer->setFocus(Qt::ShortcutFocusReason);
+}
+
+void TerminalView::requestWorkingDirectory()
+{
+    if (!_core || _workingDirectoryRequestPending)
+        return;
+
+    _workingDirectoryRequestPending = true;
+    const quint64 generation = ++_workingDirectoryRequestGeneration;
+    _workingDirectoryMarker = QStringLiteral("NOVATERM_CWD_%1:")
+        .arg(generation);
+
+    // printf 通过终端现有 OSC 2 解析通道返回 $PWD，不解析易受提示符影响的屏幕文本。
+    submitText(QStringLiteral("printf '\\033]2;%1%s\\007' \"$PWD\"")
+                   .arg(_workingDirectoryMarker));
+    QTimer::singleShot(WorkingDirectoryRequestTimeoutMs, this,
+                       [this, generation]() {
+        if (!_workingDirectoryRequestPending
+            || generation != _workingDirectoryRequestGeneration) {
+            return;
+        }
+        _workingDirectoryRequestPending = false;
+        _workingDirectoryMarker.clear();
+        emit workingDirectoryRequestFailed();
+    });
 }
 
 // ═══════════════════════════════════════════════════════════════════

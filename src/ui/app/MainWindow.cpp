@@ -904,6 +904,19 @@ void MainWindow::initWindow()
 
     connect(_terminalPage, &TerminalPage::currentSftpContextChanged,
             _sftpPanel, &SftpPanel::setSessionContext);
+    connect(_sftpPanel, &SftpPanel::pastePathToTerminalRequested,
+            _terminalPage, &TerminalPage::pastePathToCurrentSshTerminal);
+    connect(_sftpPanel, &SftpPanel::synchronizeTerminalPathRequested,
+            _terminalPage,
+            &TerminalPage::synchronizeCurrentSshTerminalPath);
+    connect(_sftpPanel,
+            &SftpPanel::synchronizeSftpPathFromTerminalRequested,
+            _terminalPage, &TerminalPage::requestCurrentSshTerminalPath);
+    connect(_terminalPage, &TerminalPage::currentSshTerminalPathResolved,
+            _sftpPanel, &SftpPanel::synchronizePathFromTerminal);
+    connect(_terminalPage,
+            &TerminalPage::currentSshTerminalPathLookupFailed,
+            _sftpPanel, &SftpPanel::terminalPathLookupFailed);
     connect(_terminalPage, &TerminalPage::currentSessionContextChanged,
             _systemMonitorPanel, &SystemMonitorPanel::setSessionContext);
 

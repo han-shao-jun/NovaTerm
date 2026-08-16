@@ -377,12 +377,23 @@ SftpPanel::SftpPanel(QWidget* parent)
         ElaIconType::ArrowUp, 13, 30, 30, this);
     _refreshButton = new ElaIconButton(
         ElaIconType::ArrowRotateRight, 13, 30, 30, this);
+    // 三个路径操作采用不同语义的 Ela 图标，避免相似旋转箭头难以区分方向。
+    _pastePathButton = new ElaIconButton(
+        ElaIconType::SquareArrowRight, 13, 30, 30, this);
+    _synchronizePathButton = new ElaIconButton(
+        ElaIconType::LocationDot, 13, 30, 30, this);
+    _synchronizeFromTerminalPathButton = new ElaIconButton(
+        ElaIconType::MapLocationDot, 13, 30, 30, this);
     _uploadButton = new ElaIconButton(
         ElaIconType::Upload, 13, 30, 30, this);
     _downloadButton = new ElaIconButton(
         ElaIconType::Download, 13, 30, 30, this);
     toolbarLayout->addWidget(_parentDirectoryButton);
     toolbarLayout->addWidget(_refreshButton);
+    // 路径联动操作紧邻刷新按钮，右侧传输按钮仍保持独立分组。
+    toolbarLayout->addWidget(_pastePathButton);
+    toolbarLayout->addWidget(_synchronizePathButton);
+    toolbarLayout->addWidget(_synchronizeFromTerminalPathButton);
     toolbarLayout->addStretch();
     toolbarLayout->addWidget(_uploadButton);
     toolbarLayout->addWidget(_downloadButton);
@@ -409,6 +420,18 @@ SftpPanel::SftpPanel(QWidget* parent)
     });
     connect(_refreshButton, &QAbstractButton::clicked, this, [this]() {
         requestDirectory(_currentPath);
+    });
+    connect(_pastePathButton, &QAbstractButton::clicked, this, [this]() {
+        emit pastePathToTerminalRequested(_currentPath);
+    });
+    connect(_synchronizePathButton, &QAbstractButton::clicked,
+            this, [this]() {
+        emit synchronizeTerminalPathRequested(_currentPath);
+    });
+    connect(_synchronizeFromTerminalPathButton, &QAbstractButton::clicked,
+            this, [this]() {
+        setBusy(true, tr("Reading terminal directory…"));
+        emit synchronizeSftpPathFromTerminalRequested();
     });
     connect(_uploadButton, &QAbstractButton::clicked,
             this, &SftpPanel::uploadFile);
@@ -704,6 +727,19 @@ void SftpPanel::setSessionContext(const QString& sessionLabel,
     refreshAvailability();
 }
 
+void SftpPanel::synchronizePathFromTerminal(const QString& path)
+{
+    if (!_sshTransport || !_backendConnected || path.isEmpty())
+        return;
+    requestDirectory(path);
+}
+
+void SftpPanel::terminalPathLookupFailed()
+{
+    if (_sshTransport && _backendConnected)
+        setBusy(false, tr("Unable to read terminal directory."));
+}
+
 void SftpPanel::retranslateUi()
 {
     setAccessibleName(tr("SFTP file transfer panel"));
@@ -711,6 +747,16 @@ void SftpPanel::retranslateUi()
     _parentDirectoryButton->setToolTip(tr("Parent directory"));
     _refreshButton->setAccessibleName(tr("Refresh"));
     _refreshButton->setToolTip(tr("Refresh"));
+    _pastePathButton->setAccessibleName(tr("Paste path to terminal"));
+    _pastePathButton->setToolTip(tr("Paste current SFTP path to terminal"));
+    _synchronizePathButton->setAccessibleName(
+        tr("Synchronize terminal path"));
+    _synchronizePathButton->setToolTip(
+        tr("Change terminal directory to current SFTP path"));
+    _synchronizeFromTerminalPathButton->setAccessibleName(
+        tr("Synchronize SFTP path"));
+    _synchronizeFromTerminalPathButton->setToolTip(
+        tr("Change SFTP path to current terminal directory"));
     _uploadButton->setAccessibleName(tr("Upload"));
     _uploadButton->setToolTip(tr("Upload, or drop local files onto this panel"));
     _downloadButton->setAccessibleName(tr("Download"));
@@ -728,6 +774,9 @@ void SftpPanel::refreshAvailability()
     const bool enabled = _sshTransport && _backendConnected && !_busy;
     _parentDirectoryButton->setEnabled(enabled);
     _refreshButton->setEnabled(enabled);
+    _pastePathButton->setEnabled(enabled);
+    _synchronizePathButton->setEnabled(enabled);
+    _synchronizeFromTerminalPathButton->setEnabled(enabled);
     _uploadButton->setEnabled(enabled);
     _pathEdit->setEnabled(enabled);
     _fileTree->setEnabled(enabled);

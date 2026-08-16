@@ -72,6 +72,45 @@ TerminalView* TerminalPage::currentTerminal() const
     return _terminalViews.isEmpty() ? nullptr : _terminalViews.first();
 }
 
+TerminalView* TerminalPage::currentConnectedSshTerminal() const
+{
+    TerminalView* const terminalView = currentTerminal();
+    if (!terminalView
+        || !terminalView->property("novatermSshSession").toBool()) {
+        return nullptr;
+    }
+
+    ITransport* const transport = terminalView->transport();
+    return transport && transport->isConnected() ? terminalView : nullptr;
+}
+
+void TerminalPage::pastePathToCurrentSshTerminal(const QString& path)
+{
+    TerminalView* const terminalView = currentConnectedSshTerminal();
+    if (terminalView && !path.isEmpty())
+        terminalView->pasteText(path);
+}
+
+void TerminalPage::synchronizeCurrentSshTerminalPath(const QString& path)
+{
+    TerminalView* const terminalView = currentConnectedSshTerminal();
+    if (!terminalView || path.isEmpty())
+        return;
+
+    // 按远端终端可直接执行的形式发送，不在路径外额外添加引号。
+    terminalView->submitText(QStringLiteral("cd %1").arg(path));
+}
+
+void TerminalPage::requestCurrentSshTerminalPath()
+{
+    TerminalView* const terminalView = currentConnectedSshTerminal();
+    if (!terminalView) {
+        emit currentSshTerminalPathLookupFailed();
+        return;
+    }
+    terminalView->requestWorkingDirectory();
+}
+
 void TerminalPage::emitCurrentSessionContext()
 {
     TerminalView* const terminalView = currentTerminal();
@@ -168,6 +207,16 @@ TerminalView* TerminalPage::addSshTerminalTab(const SshConfig& config)
     _terminalViews.append(terminalView);
     connect(terminalView, &QObject::destroyed, this, [this, terminalView]() {
         _terminalViews.removeAll(terminalView);
+    });
+    connect(terminalView, &TerminalView::workingDirectoryReported,
+            this, [this, terminalView](const QString& path) {
+        if (terminalView == currentConnectedSshTerminal())
+            emit currentSshTerminalPathResolved(path);
+    });
+    connect(terminalView, &TerminalView::workingDirectoryRequestFailed,
+            this, [this, terminalView]() {
+        if (terminalView == currentConnectedSshTerminal())
+            emit currentSshTerminalPathLookupFailed();
     });
 
     const QString title = config.label.isEmpty()

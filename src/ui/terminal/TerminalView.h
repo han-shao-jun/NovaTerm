@@ -67,11 +67,20 @@ public:
     TerminalSession* session() const;                     ///< 获取会话对象
     [[nodiscard]] bool ownsSession() const noexcept { return _ownsSession; } ///< 是否拥有会话所有权
 
+    /** @brief 将文本按终端粘贴语义发送，并把输入焦点还给终端。 */
+    void pasteText(const QString& text);
+    /** @brief 粘贴文本后发送回车，用于执行由界面生成的终端命令。 */
+    void submitText(const QString& text);
+    /** @brief 请求交互式 Shell 上报当前工作目录。 */
+    void requestWorkingDirectory();
+
     // ── 渲染器访问（替代原来的 terminalWidget()）─────────────
     TerminalRenderer* renderer() const { return _renderer; } ///< 获取渲染器
 
 signals:
     void titleChanged(const QString& title);  ///< 标题变更（终端转义序列触发）
+    void workingDirectoryReported(const QString& path); ///< Shell 当前目录已上报
+    void workingDirectoryRequestFailed();              ///< Shell 当前目录查询超时
     void activityDetected();                   ///< 检测到终端活动
     void shellFinished();                      ///< shell 已退出
 
@@ -95,6 +104,12 @@ private:
     QTimer*           _resizeDebounce{nullptr};
     QLineEdit*        _searchLine{nullptr};
     quint64           _searchGeneration{0};
+    QString           _lastTerminalTitle;
+    QString           _workingDirectoryMarker;
+    quint64           _workingDirectoryRequestGeneration{0};
+    bool              _workingDirectoryRequestPending{false};
     int               _latestResizeColumns{80};
     int               _latestResizeRows{24};
+
+    static constexpr int WorkingDirectoryRequestTimeoutMs = 3000;
 };

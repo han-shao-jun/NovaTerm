@@ -45,6 +45,13 @@ public:
     TerminalView* addSerialTerminalTab(const SerialConfig& config);
     TerminalView* addSshTerminalTab(const SshConfig& config);
 
+    /** 将 SFTP 当前目录粘贴到已连接的当前 SSH 终端。 */
+    void pastePathToCurrentSshTerminal(const QString& path);
+    /** 将已连接的当前 SSH 终端切换到 SFTP 当前目录。 */
+    void synchronizeCurrentSshTerminalPath(const QString& path);
+    /** 请求用当前 SSH 终端目录切换 SFTP 面板路径。 */
+    void requestCurrentSshTerminalPath();
+
 signals:
     void localSessionConnected(TerminalView::LocalShellType type);
     void serialSessionConnected(const SerialConfig& config);
@@ -55,10 +62,14 @@ signals:
     /** 当前已连接 SSH 传输，专供 SFTP 面板建立辅助文件通道。 */
     void currentSftpContextChanged(const QString& label,
                                    SshTransport* transport);
+    /** 当前 SSH Shell 工作目录查询完成，供 SFTP 面板反向同步。 */
+    void currentSshTerminalPathResolved(const QString& path);
+    void currentSshTerminalPathLookupFailed();
 
 private:
     void retranslateUi();
     void emitCurrentSessionContext();
+    [[nodiscard]] TerminalView* currentConnectedSshTerminal() const;
 
     ElaTabWidget* _tabWidget{nullptr};
     QList<TerminalView*> _terminalViews;
