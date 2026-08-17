@@ -23,6 +23,8 @@
 #include "gpu/BufferBudget.h"
 #include "gpu/RendererCapabilities.h"
 #include "gpu/RowSlotMap.h"
+#include "RowBlockDamageTracker.h"
+#include "ScrollDamageHandoff.h"
 
 class TerminalCore;
 class QRhi;
@@ -114,6 +116,7 @@ public:
     void scrollToBottom();
     void scrollToLine(int line);
     void scrollLines(int delta);
+    void setConservativeLiveScrollRendering(bool enabled);
 
     // ── 选区 ───────────────────────────────────────────────────
     QString selectedText() const;
@@ -270,6 +273,7 @@ private:
     int _scrollLine{0};   // 当前滚动到 scrollback 中的行偏移（0=底部最新）
     NovaTerm::LineId _scrollAnchorLine{0};
     qsizetype _scrollAnchorWrap{0};
+    bool _conservativeLiveScrollRendering{true};
     quint64 _reflowGeneration{0};
     QVector<NovaTerm::DisplayLine> _historyLayout;
     QVector<NovaTerm::DisplayLine> _pendingHistoryLayout;
@@ -301,13 +305,15 @@ private:
     NovaTerm::RendererCapabilities _capabilities;
     NovaTerm::RowSlotMap _rowSlotMap;
     QVector<quint64> _rowContentIdentities;
+    NovaTerm::RowBlockDamageTracker _rowBlockDamageTracker;
     quint64 _viewportMappingRevision{0};
-    int _pendingLiveScrollRows{0};
     NovaTerm::RenderCommandBuffer _commandBuffer;
-    // QRhi may consume a frame while queued terminal damage is being
-    // published. Protect the hand-off and never iterate the live queue.
+    // QRhi may consume a frame while queued terminal damage/scroll state is
+    // being published. Protect the complete hand-off and never combine a
+    // live scroll count from one publication window with damage from another.
     QMutex _pendingFrameMutex;
     QVector<NovaTerm::DirtyRegion> _pendingDirtyRegions;
+    NovaTerm::ScrollDamageHandoff _scrollDamageHandoff;
     int _backgroundRowStrideVertices{0};
     int _contentRowStrideVertices{0};
     int _overlayBaseVertex{0};

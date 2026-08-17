@@ -148,6 +148,12 @@ TerminalRenderer::TerminalRenderer(TerminalCore* core, QWidget* parent)
         } else if (!_fullFramePending) {
             _pendingDirtyRegions += regions;
         }
+        // screenScrolled is emitted immediately before the damage regions from
+        // the same parser publication. Stage its row count until the scheduler
+        // hands off a content frame, so an unrelated overlay frame cannot
+        // rotate the row mapping without the corresponding damage/revision.
+        if (fullFrame || !regions.isEmpty())
+            _scrollDamageHandoff.publish();
         _overlayPending = _overlayPending || overlayDirty;
         _pendingContentRevision = std::max(_pendingContentRevision,
                                            contentRevision);
@@ -237,7 +243,8 @@ TerminalRenderer::TerminalRenderer(TerminalCore* core, QWidget* parent)
         if (rows <= 0)
             return;
         if (_scrollLine == 0) {
-            _pendingLiveScrollRows += rows;
+            const QMutexLocker lock(&_pendingFrameMutex);
+            _scrollDamageHandoff.queue(rows);
             ++_viewportMappingRevision;
         } else {
             // History is mapped into the viewport, so row identities rather
@@ -484,6 +491,14 @@ void TerminalRenderer::scrollLines(int delta)
     scrollToLine(_scrollLine + delta);
 }
 
+void TerminalRenderer::setConservativeLiveScrollRendering(bool enabled)
+{
+    if (_conservativeLiveScrollRendering == enabled)
+        return;
+    _conservativeLiveScrollRendering = enabled;
+    requestFullFrame();
+}
+
 // ═══════════════════════════════════════════════════════════════════
 //  选区
 // ═══════════════════════════════════════════════════════════════════
@@ -630,6 +645,7 @@ void TerminalRenderer::render(QRhiCommandBuffer* cb)
     bool fullFramePending = false;
     bool overlayPending = false;
     bool explicitFullPending = false;
+    int pendingLiveScrollRows = 0;
     quint64 requestedContentRevision = 0;
     {
         const QMutexLocker lock(&_pendingFrameMutex);
@@ -644,11 +660,13 @@ void TerminalRenderer::render(QRhiCommandBuffer* cb)
         if (fullFramePending)
             _explicitFullPending = false;
         overlayPending = std::exchange(_overlayPending, false);
+        pendingLiveScrollRows = _scrollDamageHandoff.takePending();
         requestedContentRevision = std::exchange(_pendingContentRevision, 0);
     }
 
     bool contentPending = fullFramePending
         || !pendingDirtyRegions.isEmpty()
+        || pendingLiveScrollRows > 0
         || _commandBuffer.rows() <= 0 || _commandBuffer.columns() <= 0;
     int rows = _commandBuffer.rows();
     int columns = _commandBuffer.columns();
@@ -661,6 +679,7 @@ void TerminalRenderer::render(QRhiCommandBuffer* cb)
 
     if (_commandBuffer.rows() != rows || _commandBuffer.columns() != columns) {
         _commandBuffer.resize(rows, columns);
+        _rowBlockDamageTracker.reset(rows, columns);
         fullFramePending = true;
         overlayPending = true;
     }
@@ -674,31 +693,40 @@ void TerminalRenderer::render(QRhiCommandBuffer* cb)
         _rowContentIdentities.fill(0, rows);
 
 
-    // A live-bottom terminal scroll commonly arrives as full-screen damage.
-    // Rotate row-local CPU commands and GPU slots, then rebuild only entering
-    // rows. Explicit font/theme/resize/resource invalidation still wins.
+    // A scroll callback only says that lines entered scrollback; it does not
+    // prove that every retained GPU row can be represented by the same slot
+    // permutation. Cursor-positioned Windows shells (PowerShell and Clink in
+    // particular) combine scrolls, erases, and rewrites in one publication.
+    // Their conservative mode rebuilds the final snapshot atomically. Known
+    // line-streaming profiles may opt into the row-slot rotation fast path.
     bool liveScrollRotated = false;
-    if (!explicitFullPending && _pendingLiveScrollRows > 0
-        && _commandBuffer.rows() == rows) {
-        const int scrollRows = std::min(_pendingLiveScrollRows, rows);
-        _pendingLiveScrollRows = 0;
-        _commandBuffer.rotateRowsUp(scrollRows);
-        _rowSlotMap.rotateRowsUp(scrollRows, float(_cellHeight));
-        std::rotate(_rowContentIdentities.begin(),
-                    _rowContentIdentities.begin() + scrollRows,
-                    _rowContentIdentities.end());
-        std::fill(_rowContentIdentities.end() - scrollRows,
-                  _rowContentIdentities.end(), quint64(0));
-        fullFramePending = false;
-        pendingDirtyRegions.clear();
-        pendingDirtyRegions.push_back(
-            {rows - scrollRows, rows, 0, columns});
-        _renderStatistics.rowSlotsReused += quint64(rows - scrollRows);
-        _renderStatistics.rowSlotsCreated += quint64(scrollRows);
-        ++_renderStatistics.mappingOnlyUpdates;
-        liveScrollRotated = true;
-    } else if (_pendingLiveScrollRows > 0 && explicitFullPending) {
-        _pendingLiveScrollRows = 0;
+    if (pendingLiveScrollRows > 0) {
+        if (_conservativeLiveScrollRendering || explicitFullPending) {
+            resetWidgetRowMapping(rows);
+            fullFramePending = true;
+            overlayPending = true;
+            contentPending = true;
+            pendingDirtyRegions.clear();
+            ++_renderStatistics.revisionPromotedFullFrames;
+        } else {
+            const int scrollRows = std::min(pendingLiveScrollRows, rows);
+            _commandBuffer.rotateRowsUp(scrollRows);
+            _rowSlotMap.rotateRowsUp(scrollRows, float(_cellHeight));
+            _rowBlockDamageTracker.rotateRowsUp(scrollRows);
+            std::rotate(_rowContentIdentities.begin(),
+                        _rowContentIdentities.begin() + scrollRows,
+                        _rowContentIdentities.end());
+            std::fill(_rowContentIdentities.end() - scrollRows,
+                      _rowContentIdentities.end(), quint64(0));
+            fullFramePending = false;
+            pendingDirtyRegions.clear();
+            pendingDirtyRegions.push_back(
+                {rows - scrollRows, rows, 0, columns});
+            _renderStatistics.rowSlotsReused += quint64(rows - scrollRows);
+            _renderStatistics.rowSlotsCreated += quint64(scrollRows);
+            ++_renderStatistics.mappingOnlyUpdates;
+            liveScrollRotated = true;
+        }
     }
 
     QVector<bool> dirtyRows(rows, fullFramePending);
@@ -789,12 +817,6 @@ void TerminalRenderer::render(QRhiCommandBuffer* cb)
                                              _scrollAnchorWrap);
         }
 
-        // A parser publication may both scroll and update an unrelated row
-        // (for example, a serial status line). The scroll fast path replaces
-        // full-screen scroll damage with only the entering rows, so reconcile
-        // every retained row against the final snapshot identity even when the
-        // snapshot and delivered damage have the same revision. Otherwise the
-        // extra update remains stale until an unrelated full-frame resize.
         if (liveScrollRotated
             && screen.visibleRowIdentities.size() == rows) {
             const QVector<int> recovered =
@@ -813,6 +835,22 @@ void TerminalRenderer::render(QRhiCommandBuffer* cb)
                     _scrollAnchorWrap);
             }
         }
+
+        // ConPTY emits cursor-positioned fragments whose damage rectangle can
+        // omit columns cleared later in the same parser publication. Compare
+        // every dirty row with the renderer's actual 8-column block cache and
+        // add only missing changed blocks rather than rebuilding every row.
+        if (!liveScrollRotated) {
+            for (int row = 0; row < rows; ++row) {
+                if (!dirtyRows.value(row))
+                    continue;
+                const auto cells = screen.visibleRows.value(row);
+                dirtySpans[row] = _rowBlockDamageTracker.reconcileRow(
+                    row, cells ? cells->constData() : nullptr, columns,
+                    std::move(dirtySpans[row]));
+            }
+        }
+
     }
 
     QElapsedTimer commandTimer;
@@ -864,7 +902,7 @@ void TerminalRenderer::render(QRhiCommandBuffer* cb)
 
     QRhiResourceUpdateBatch* resourceUpdates = _rhi->nextResourceUpdateBatch();
     uploadCommands(resourceUpdates, pixelSize, dirtyRows, dirtySpans,
-                   bufferReallocated,
+                   bufferReallocated || fullFramePending,
                    overlayPending || fullFramePending || bufferReallocated);
     updatePlacementBuffer(resourceUpdates, pixelSize);
     uploadAtlasChanges(resourceUpdates);
@@ -1941,7 +1979,7 @@ void TerminalRenderer::resetWidgetRowMapping(int rows)
     rows = std::max(0, rows);
     _rowSlotMap.resetSequential(rows, float(_cellHeight));
     _rowContentIdentities.fill(0, rows);
-    _pendingLiveScrollRows = 0;
+    _rowBlockDamageTracker.reset(rows, _commandBuffer.columns());
     ++_viewportMappingRevision;
 }
 

@@ -205,6 +205,9 @@ int main(int argc, char** argv)
         return 4;
     }
     TerminalRenderer renderer(&core);
+    // This benchmark measures the opt-in row-slot reuse path. Production
+    // native Windows shells use conservative live-scroll rendering.
+    renderer.setConservativeLiveScrollRendering(false);
     const bool allowOcclusion = args.contains(
         QStringLiteral("--allow-occlusion"));
     if (!allowOcclusion)

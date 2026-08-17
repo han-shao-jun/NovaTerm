@@ -5,6 +5,8 @@
 #include "renderer/gpu/BufferBudget.h"
 #include "renderer/gpu/MaterialBatcher.h"
 #include "renderer/gpu/RowSlotMap.h"
+#include "renderer/RowBlockDamageTracker.h"
+#include "renderer/ScrollDamageHandoff.h"
 #include "renderer/TerminalHighlighting.h"
 #include "session/SerialHighlightRules.h"
 
@@ -33,6 +35,8 @@ private slots:
     void rowSlotMapHandlesJumpAndForcedRemap();
     void sequentialRowSlotsStayValidAcrossResizeAndScroll();
     void mappingReconciliationFindsSameRevisionEdits();
+    void rowBlockDamageFindsOmittedStaleTail();
+    void scrollDamageHandoffWaitsForContentFrame();
     void mappingRevisionIsIndependent();
     void materialBatchesPreserveLayers();
     void materialBatchesSeparateAtlasPages();
@@ -440,6 +444,64 @@ void RendererP5Tests::mappingReconciliationFindsSameRevisionEdits()
     QCOMPARE(NovaTerm::rowsNeedingRebuildAfterMapping(
                  rotatedCache, finalSnapshot, dirtyRows),
              QVector<int>({1}));
+}
+
+void RendererP5Tests::rowBlockDamageFindsOmittedStaleTail()
+{
+    NovaTerm::RowBlockDamageTracker tracker;
+    tracker.reset(1, 16);
+    QVector<NovaTerm::Cell> cells(16);
+    for (int column = 8; column < 16; ++column)
+        cells[column].chars[0] = uint32_t('x');
+
+    auto spans = tracker.reconcileRow(0, cells.constData(), cells.size(), {});
+    QCOMPARE(spans.size(), 1);
+    QCOMPARE(spans[0].startColumn, 0);
+    QCOMPARE(spans[0].endColumn, 16);
+
+    // ConPTY only reports the rewritten prefix, while the final snapshot has
+    // also cleared the old suffix. The tracker must append that omitted block.
+    for (int column = 8; column < 16; ++column)
+        cells[column] = NovaTerm::Cell{};
+    spans = tracker.reconcileRow(
+        0, cells.constData(), cells.size(), {{0, 8}});
+    QCOMPARE(spans.size(), 1);
+    QCOMPARE(spans[0].startColumn, 0);
+    QCOMPARE(spans[0].endColumn, 16);
+
+    // Once synchronized, an ordinary prefix update remains block-local.
+    cells[0].chars[0] = uint32_t('y');
+    spans = tracker.reconcileRow(
+        0, cells.constData(), cells.size(), {{0, 8}});
+    QCOMPARE(spans.size(), 1);
+    QCOMPARE(spans[0].startColumn, 0);
+    QCOMPARE(spans[0].endColumn, 8);
+}
+
+void RendererP5Tests::scrollDamageHandoffWaitsForContentFrame()
+{
+    NovaTerm::ScrollDamageHandoff handoff;
+    handoff.queue(3);
+
+    QCOMPARE(handoff.queuedRows(), 3);
+    QCOMPARE(handoff.pendingRows(), 0);
+    QCOMPARE(handoff.takePending(), 0);
+    QCOMPARE(handoff.queuedRows(), 3);
+
+    handoff.publish();
+    QCOMPARE(handoff.queuedRows(), 0);
+    QCOMPARE(handoff.pendingRows(), 3);
+
+    // A later publication must survive consumption of the current frame.
+    handoff.queue(2);
+    QCOMPARE(handoff.takePending(), 3);
+    QCOMPARE(handoff.queuedRows(), 2);
+    handoff.publish();
+    QCOMPARE(handoff.takePending(), 2);
+
+    handoff.queue(std::numeric_limits<int>::max());
+    handoff.queue(1);
+    QCOMPARE(handoff.queuedRows(), std::numeric_limits<int>::max());
 }
 
 void RendererP5Tests::mappingRevisionIsIndependent()

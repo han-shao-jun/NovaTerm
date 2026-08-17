@@ -25,6 +25,7 @@
 #include <QCoreApplication>
 #include <QDebug>
 #include <QDialog>
+#include <QFileInfo>
 #include <QJsonArray>
 #include <QKeyEvent>
 #include <QKeySequence>
@@ -328,6 +329,12 @@ void TerminalView::startLocalShell(const LocalShellConfig& config)
 {
     stopLocalShell();
     detachTransport();
+
+    const QString executableName =
+        QFileInfo(config.profile.executable).fileName();
+    _renderer->setConservativeLiveScrollRendering(
+        executableName.compare(QStringLiteral("wsl.exe"),
+                               Qt::CaseInsensitive) != 0);
 
     auto* transport = new LocalShellTransport;
     transport->setSessionConfig(config);
