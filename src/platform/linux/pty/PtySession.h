@@ -79,6 +79,7 @@ private:
     void flushInput();                      ///< 将输入队列写入 master fd
     void checkChildExit();                  ///< 轮询子进程退出状态
     void closeDescriptors();                ///< 关闭 master fd 与 notifier
+    void finalizeClose();                   ///< 完成关闭流程并释放会话资源
     void failStart(const QString& error);   ///< 启动失败收尾
     void finish(int status);                ///< 解析退出状态并发 exited
     void reportIoError(const QString& operation, int error); ///< 上报 I/O 错误
