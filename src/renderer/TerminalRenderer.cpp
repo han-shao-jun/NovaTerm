@@ -11,6 +11,7 @@
 #include <QDebug>
 #include <QElapsedTimer>
 #include <QFile>
+#include <QMatrix4x4>
 #include <QMutexLocker>
 #include <rhi/qshader.h>
 #include <rhi/qrhi.h>
@@ -25,6 +26,11 @@ static constexpr int kMaxTerminalFontSize = 32;
 // terminal_texture.vert uses a fixed-size std140 placement array. Keep CPU
 // bounds in one named constant and make the shader reject slots outside it.
 static constexpr int kMaxGpuPlacementRows = 256;
+// PlacementBlock layout: viewport(4) + clipSpaceCorr mat4(16) + rowPlacement[256].
+static constexpr int kPlacementMatrixOffset = 4;
+static constexpr int kPlacementRowOffset = kPlacementMatrixOffset + 16;
+static constexpr int kPlacementFloatCount =
+    kPlacementRowOffset + 4 * (kMaxGpuPlacementRows + 1);
 static constexpr qsizetype kCpuFrameSampleCapacity = 2048;
 static constexpr quint64 kCpuFrameBudgetNanoseconds = 16666667;
 
@@ -1342,8 +1348,8 @@ void TerminalRenderer::ensurePipeline()
         return;
 
     if (!_placementBuffer) {
-        constexpr int placementBytes = int(
-            sizeof(float) * 4 * (kMaxGpuPlacementRows + 1));
+        const int placementBytes =
+            int(sizeof(float) * kPlacementFloatCount);
         _placementBuffer.reset(_rhi->newBuffer(QRhiBuffer::Dynamic,
                                                QRhiBuffer::UniformBuffer,
                                                placementBytes));
@@ -1988,17 +1994,24 @@ void TerminalRenderer::updatePlacementBuffer(
 {
     if (!_placementBuffer || !updates)
         return;
-    QVector<float> values(4 * (kMaxGpuPlacementRows + 1), 0.0f);
+    QVector<float> values(kPlacementFloatCount, 0.0f);
     values[0] = float(pixelSize.width());
     values[1] = float(pixelSize.height());
     values[2] = float(devicePixelRatioF());
     values[3] = float(std::min(kMaxGpuPlacementRows,
                                _commandBuffer.rows()));
+    // 后端 NDC Y/depth 修正矩阵（QRhi clipSpaceCorrMatrix）。OpenGL/D3D 为
+    // 恒等，Vulkan/Metal 翻转 Y；缺失时整帧垂直镜像，滚动方向完全反向。
+    const QMatrix4x4 clipSpaceCorr = _rhi->clipSpaceCorrMatrix();
+    const float* matrix = clipSpaceCorr.constData();
+    for (int index = 0; index < 16; ++index)
+        values[kPlacementMatrixOffset + index] = matrix[index];
     for (const NovaTerm::RowPlacement& placement
          : _rowSlotMap.placements()) {
         if (placement.gpuSlot >= 0
             && placement.gpuSlot < kMaxGpuPlacementRows) {
-            values[4 + placement.gpuSlot * 4] = placement.yTransform;
+            values[kPlacementRowOffset + placement.gpuSlot * 4]
+                = placement.yTransform;
         }
     }
     updates->updateDynamicBuffer(_placementBuffer.get(), 0,

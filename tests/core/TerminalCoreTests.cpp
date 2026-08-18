@@ -21,6 +21,7 @@ private slots:
     void reportsDamage();
     void ctrlCProducesInterruptCharacter();
     void largeBracketedPasteIsBatchedAndOrdered();
+    void pasteNormalizesNewlinesToCarriageReturn();
     void resizesScreen();
     void resizePublishesFullDamageWithoutLiveScroll();
     void narrowerResizeReflowsExistingContent();
@@ -344,6 +345,27 @@ void TerminalCoreTests::largeBracketedPasteIsBatchedAndOrdered()
                          + QByteArrayLiteral("\x1b[201~"));
     QVERIFY2(outputSpy.size() <= 20,
              "large paste generated character-sized output signals");
+}
+
+void TerminalCoreTests::pasteNormalizesNewlinesToCarriageReturn()
+{
+    TerminalCore core(80, 24);
+    QVERIFY(core.waitForIdle());
+
+    QSignalSpy outputSpy(&core, &TerminalCore::outputData);
+    // 混合 CRLF（Windows 剪贴板）、孤立 LF（Unix）与孤立 CR。
+    core.pasteText(QStringLiteral("a\r\nb\nc\rd"));
+    QVERIFY(core.waitForIdle(10'000));
+    QTRY_VERIFY_WITH_TIMEOUT(!outputSpy.isEmpty(), 5000);
+
+    QByteArray output;
+    for (const QList<QVariant>& arguments : outputSpy)
+        output.append(arguments.at(0).toByteArray());
+    // 所有换行统一为单个 \r；不得残留 \n 或 \r\n（否则 raw 模式 PTY
+    // 会把 \r\n 当作两次回车，导致粘贴行重复）。
+    QCOMPARE(output, QByteArrayLiteral("a\rb\rc\rd"));
+    QVERIFY(!output.contains('\n'));
+    QVERIFY(!output.contains(QByteArrayLiteral("\r\n")));
 }
 
 void TerminalCoreTests::cursorPropertiesPublishWithoutFollowingMovement()

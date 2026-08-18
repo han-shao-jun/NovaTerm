@@ -7,6 +7,7 @@ layout(location = 3) in vec4 instanceMeta;
 
 layout(std140, binding = 1) uniform PlacementBlock {
     vec4 viewport; // physical width, physical height, DPR, row count
+    mat4 clipSpaceCorr; // backend NDC Y/depth correction (QRhi clipSpaceCorrMatrix)
     vec4 rowPlacement[256];
 };
 
@@ -38,11 +39,15 @@ void main()
     vec2 logical = mix(instanceRect.xy, instanceRect.zw, corner)
         + vec2(0.0, rowY);
     vec2 physical = logical * viewport.z;
+    // QRhi renders with a Qt-style coordinate system (y=+1 at the top of the
+    // render target). Backends with a Y-down NDC (Vulkan, Metal) need the
+    // clip-space correction matrix, otherwise the whole frame is mirrored
+    // vertically and scrolling appears reversed.
     vec2 ndc = vec2(physical.x / viewport.x * 2.0 - 1.0,
                     1.0 - physical.y / viewport.y * 2.0);
     vTexCoord = mix(instanceUv.xy, instanceUv.zw, corner);
     vColor = instanceColor;
     vAtlasPage = instanceMeta.x;
     vFlags = instanceMeta.z;
-    gl_Position = vec4(ndc, 0.0, 1.0);
+    gl_Position = clipSpaceCorr * vec4(ndc, 0.0, 1.0);
 }

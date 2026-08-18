@@ -675,9 +675,20 @@ void TerminalCore::pasteText(const QString& text)
 {
     if (text.isEmpty())
         return;
+    // 终端粘贴语义：把 Windows/网页常见的 CRLF 以及孤立 LF 规范化为 CR。
+    // raw 模式 PTY 会把 \r 和 \n 各当作一次回车，若原样发送 \r\n，
+    // readline/tty 会执行两次换行，导致粘贴的每一行重复或出现空行。
+    // 统一用 \r（与 Enter 键一致，xterm/Windows Terminal 同款约定）：
+    // Linux canonical tty 经 ICRNL 转 \n、readline raw 模式视为确认；
+    // Windows ConPTY 也把 \r 视为 Enter，跨平台行为一致。
+    QString normalized = text;
+    normalized.replace(QStringLiteral("\r\n"), QStringLiteral("\r"));
+    normalized.replace(QChar(0x0a), QChar(0x0d));
+    if (normalized.isEmpty())
+        return;
     ParserCommand command;
     command.type = CommandType::Paste;
-    command.text = text;
+    command.text = std::move(normalized);
     _runtime->enqueueCommand(std::move(command));
 }
 
