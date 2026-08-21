@@ -79,6 +79,7 @@ private:
     void showFileContextMenu(const QPoint& position);
     void updateSelectionActions();
     void updateFileTreeIcons();
+    void sortFileTree(Qt::SortOrder order);
     [[nodiscard]] QTreeWidgetItem* selectedItem() const;
     [[nodiscard]] QString remotePathForName(const QString& name) const;
     [[nodiscard]] bool remotePathExists(const QString& path) const;
@@ -118,6 +119,7 @@ private:
     bool _hasError{false};
     bool _uploadBatchActive{false};
     bool _dropActive{false};
+    Qt::SortOrder _nameSortOrder{Qt::AscendingOrder};
 
     static constexpr int UploadProgressDelayMs = 400;
     static constexpr int UploadProgressScale = 1000;

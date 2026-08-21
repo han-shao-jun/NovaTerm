@@ -413,6 +413,9 @@ SftpPanel::SftpPanel(QWidget* parent)
     _fileTree->header()->setStretchLastSection(false);
     _fileTree->header()->setSectionResizeMode(0, QHeaderView::Stretch);
     _fileTree->header()->setSectionResizeMode(1, QHeaderView::ResizeToContents);
+    _fileTree->header()->setSectionsClickable(true);
+    _fileTree->header()->setSortIndicatorShown(true);
+    _fileTree->header()->setSortIndicator(0, _nameSortOrder);
     rootLayout->addWidget(_fileTree, 1);
 
     connect(_parentDirectoryButton, &QAbstractButton::clicked, this, [this]() {
@@ -455,6 +458,16 @@ SftpPanel::SftpPanel(QWidget* parent)
             this, &SftpPanel::updateSelectionActions);
     connect(_fileTree, &QWidget::customContextMenuRequested,
             this, &SftpPanel::showFileContextMenu);
+    connect(_fileTree->header(), &QHeaderView::sectionClicked,
+            this, [this](int logicalIndex) {
+        if (logicalIndex != 0)
+            return;
+        const Qt::SortOrder nextOrder =
+            _nameSortOrder == Qt::AscendingOrder
+            ? Qt::DescendingOrder
+            : Qt::AscendingOrder;
+        sortFileTree(nextOrder);
+    });
 
     // 后端信号已经通过 QueuedConnection 回到 GUI 线程，可直接更新控件。
     connect(_sftpSession, &SftpSession::connected, this,
@@ -465,17 +478,6 @@ SftpPanel::SftpPanel(QWidget* parent)
     });
     connect(_sftpSession, &SftpSession::directoryListed, this,
             [this](const QString& path, QVector<SftpFileInfo> entries) {
-        QCollator collator;
-        collator.setCaseSensitivity(Qt::CaseInsensitive);
-        collator.setNumericMode(true);
-        std::sort(entries.begin(), entries.end(),
-                  [&collator](const SftpFileInfo& left,
-                              const SftpFileInfo& right) {
-            if (left.directory != right.directory)
-                return left.directory;
-            return collator.compare(left.name, right.name) < 0;
-        });
-
         _fileTree->clear();
         for (const SftpFileInfo& entry : entries) {
             const QString size = entry.directory
@@ -513,6 +515,7 @@ SftpPanel::SftpPanel(QWidget* parent)
             }
             item->setToolTip(0, details.join(QLatin1Char('\n')));
         }
+        sortFileTree(_nameSortOrder);
         updateFileTreeIcons();
         _currentPath = path;
         _pathEdit->setText(path);
@@ -880,6 +883,38 @@ void SftpPanel::updateFileTreeIcons()
             item->setIcon(0, item->data(0, DirectoryRole).toBool()
                 ? folderIcon : fileIcon);
     }
+}
+
+void SftpPanel::sortFileTree(Qt::SortOrder order)
+{
+    QList<QTreeWidgetItem*> items;
+    items.reserve(_fileTree->topLevelItemCount());
+    while (_fileTree->topLevelItemCount() > 0)
+        items.push_back(_fileTree->takeTopLevelItem(0));
+
+    QCollator collator;
+    collator.setCaseSensitivity(Qt::CaseInsensitive);
+    collator.setNumericMode(true);
+    std::stable_sort(items.begin(), items.end(),
+                     [&collator, order](const QTreeWidgetItem* left,
+                                        const QTreeWidgetItem* right) {
+        const bool leftDirectory =
+            left->data(0, DirectoryRole).toBool();
+        const bool rightDirectory =
+            right->data(0, DirectoryRole).toBool();
+        if (leftDirectory != rightDirectory)
+            return leftDirectory;
+
+        const int comparison = collator.compare(
+            left->text(0), right->text(0));
+        return order == Qt::AscendingOrder
+            ? comparison < 0
+            : comparison > 0;
+    });
+
+    _fileTree->insertTopLevelItems(0, items);
+    _nameSortOrder = order;
+    _fileTree->header()->setSortIndicator(0, order);
 }
 
 void SftpPanel::uploadFile()
