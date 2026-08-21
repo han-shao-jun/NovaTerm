@@ -4,5 +4,5 @@ setlocal
 set "VCVARS=C:\Programs\MicrosoftVisualStudio\18\Insiders\VC\Auxiliary\Build\vcvarsall.bat"
 call "%VCVARS%" x64 >nul
 if errorlevel 1 exit /b 1
-cmake --build "E:\code\Qt\NovaTerm\build"
+cmake --build "E:\code\Qt\NovaTerm\build\Release"
 exit /b %errorlevel%

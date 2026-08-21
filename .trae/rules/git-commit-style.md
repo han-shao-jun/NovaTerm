@@ -1,9 +1,7 @@
 ---
-description: 撰写 Git 提交日志（commit message）时使用该规则，包括 git commit、提交信息生成、提交日志撰写等场景
-globs:
 alwaysApply: false
+description: 撰写 Git 提交日志（commit message）时使用该规则，包括 git commit、提交信息生成、提交日志撰写等场景
 ---
-
 # Git 提交日志风格规范
 
 本规则用于规范 NovaTerm 项目的 Git 提交日志撰写风格，保证提交信息结构清晰、语义统一、便于检索与回顾。

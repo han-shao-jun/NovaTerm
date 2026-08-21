@@ -139,11 +139,15 @@ file(GLOB_RECURSE SOURCES CONFIGURE_DEPENDS "src/*.cpp" "src/*.h")
 list(FILTER SOURCES EXCLUDE REGEX "[/\\\\]src[/\\\\]core[/\\\\]")
 if(WIN32)
     list(FILTER SOURCES EXCLUDE REGEX "[/\\\\]src[/\\\\]platform[/\\\\]linux[/\\\\]")
+    list(APPEND SOURCES resources/novaterm.rc)
 else()
     list(FILTER SOURCES EXCLUDE REGEX "[/\\\\]src[/\\\\]platform[/\\\\]windows[/\\\\]")
 endif()
 
-add_executable(NovaTerm ${SOURCES} ${CMAKE_SOURCE_DIR}/resources/resources.qrc)
+qt_add_executable(NovaTerm
+    ${SOURCES}
+    ${CMAKE_SOURCE_DIR}/resources/resources.qrc
+)
 
 target_include_directories(NovaTerm PRIVATE
     src
@@ -575,6 +579,57 @@ if(BUILD_TESTING)
             tests/transport/ConPtyTestChild.cpp
         )
 
+        add_executable(novaterm_conpty_residue_repro
+            tests/benchmarks/ConPtyResidueRepro.cpp
+            src/renderer/RenderCommandBuffer.cpp
+            src/renderer/RenderCommandBuffer.h
+            src/renderer/RenderScheduler.cpp
+            src/renderer/RenderScheduler.h
+            src/renderer/TerminalColorScheme.cpp
+            src/renderer/TerminalColorScheme.h
+            src/renderer/TerminalRenderer.cpp
+            src/renderer/TerminalRenderer.h
+            ${NOVATERM_P5_RENDERER_SOURCES}
+            src/transport/ITransport.h
+            src/transport/LocalShellTransport.cpp
+            src/transport/LocalShellTransport.h
+            src/session/LocalShellProfile.cpp
+            src/session/LocalShellProfile.h
+            src/platform/windows/conpty/ConPtyApi.cpp
+            src/platform/windows/conpty/ConPtyApi.h
+            src/platform/windows/conpty/ConPtySession.cpp
+            src/platform/windows/conpty/ConPtySession.h
+            src/platform/windows/conpty/WinHandle.h
+        )
+        target_include_directories(novaterm_conpty_residue_repro PRIVATE
+            src
+            "${CMAKE_PREFIX_PATH}/include/QtGui/${Qt6_VERSION}/QtGui"
+        )
+        target_link_libraries(novaterm_conpty_residue_repro
+            PRIVATE
+                novaterm_core
+                Qt${QT_VERSION_MAJOR}::Core
+                Qt${QT_VERSION_MAJOR}::Gui
+                Qt${QT_VERSION_MAJOR}::Widgets
+                kernel32 user32
+        )
+        qt_add_shaders(novaterm_conpty_residue_repro
+            novaterm_conpty_residue_repro_shaders
+            PREFIX "/shaders"
+            FILES
+                src/renderer/shaders/terminal_texture.vert
+                src/renderer/shaders/terminal_texture.frag
+        )
+        add_custom_command(TARGET novaterm_conpty_residue_repro POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${CLINK_SRC_DIR}/clink.bat"
+                "${CLINK_SRC_DIR}/clink.lua"
+                "${CLINK_SRC_DIR}/clink_arm64.exe"
+                "${CLINK_SRC_DIR}/clink_x64.exe"
+                "${CLINK_SRC_DIR}/clink_x86.exe"
+                "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}"
+        )
+
         qt_add_executable(novaterm_conpty_tests
             tests/transport/ConPtyTransportTests.cpp
             src/transport/ITransport.h
@@ -791,6 +846,37 @@ if(NOVATERM_BUILD_BENCHMARKS)
     )
     qt_add_shaders(novaterm_renderer_p3_gpu_benchmark
         novaterm_renderer_p3_gpu_benchmark_shaders
+        PREFIX "/shaders"
+        FILES
+            src/renderer/shaders/terminal_texture.vert
+            src/renderer/shaders/terminal_texture.frag
+    )
+
+    add_executable(novaterm_residue_repro
+        tests/benchmarks/ResidueRepro.cpp
+        src/renderer/RenderCommandBuffer.cpp
+        src/renderer/RenderCommandBuffer.h
+        src/renderer/RenderScheduler.cpp
+        src/renderer/RenderScheduler.h
+        src/renderer/TerminalColorScheme.cpp
+        src/renderer/TerminalColorScheme.h
+        src/renderer/TerminalRenderer.cpp
+        src/renderer/TerminalRenderer.h
+        ${NOVATERM_P5_RENDERER_SOURCES}
+    )
+    target_include_directories(novaterm_residue_repro PRIVATE
+        src
+        "${CMAKE_PREFIX_PATH}/include/QtGui/${Qt6_VERSION}/QtGui"
+    )
+    target_link_libraries(novaterm_residue_repro
+        PRIVATE
+            novaterm_core
+            Qt${QT_VERSION_MAJOR}::Core
+            Qt${QT_VERSION_MAJOR}::Gui
+            Qt${QT_VERSION_MAJOR}::Widgets
+    )
+    qt_add_shaders(novaterm_residue_repro
+        novaterm_residue_repro_shaders
         PREFIX "/shaders"
         FILES
             src/renderer/shaders/terminal_texture.vert
