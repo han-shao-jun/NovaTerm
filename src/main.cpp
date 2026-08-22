@@ -187,19 +187,27 @@ int main(int argc, char *argv[])
     // 若用户或测试已显式设置平台选择，则保留原值不覆盖。
     if (qEnvironmentVariableIsEmpty("QT_QPA_PLATFORM"))
         qputenv("QT_QPA_PLATFORM", "windows:fontengine=freetype");
+#endif
 
-    // 启动会话时 QRhiWidget 可能在主窗口已可见之后才创建，
-    // Qt 6.8 需要提前准备顶层 backing store 以供 RHI 合成使用。
-    // 保持 backing store 与终端渲染使用同一 API。D3D11 是 Qt 在
-    // Windows 上成熟稳定的默认后端；此前会暴露驱动析构崩溃的
-    // 会话对话框生命周期问题已另行修复。显式环境变量覆盖始终有效。
+#ifdef Q_OS_WIN
+    constexpr auto defaultRhiBackend = "d3d11";
+#elif defined(Q_OS_MACOS) || defined(Q_OS_IOS)
+    constexpr auto defaultRhiBackend = "metal";
+#else
+    constexpr auto defaultRhiBackend = "opengl";
+#endif
+
+    // TerminalRenderer 是按需创建的 QRhiWidget。若主窗口显示后才让 Qt
+    // 第一次启用 QWidget RHI 合成，顶层 backing store 会在新建会话时
+    // 重新创建，表现为整个程序窗口闪烁一次。必须在 QApplication 初始化
+    // 平台插件之前启用，并让 backing store 与终端使用相同的图形后端。
+    // 各平台默认采用其稳定后端；显式环境变量覆盖始终有效，方便驱动排障。
     if (qEnvironmentVariableIsEmpty("QT_WIDGETS_RHI"))
         qputenv("QT_WIDGETS_RHI", "1");
     if (qEnvironmentVariableIsEmpty("QT_WIDGETS_RHI_BACKEND"))
-        qputenv("QT_WIDGETS_RHI_BACKEND", "d3d11");
+        qputenv("QT_WIDGETS_RHI_BACKEND", defaultRhiBackend);
     if (qEnvironmentVariableIsEmpty("NOVATERM_RHI_API"))
-        qputenv("NOVATERM_RHI_API", "d3d11");
-#endif
+        qputenv("NOVATERM_RHI_API", defaultRhiBackend);
 
     // 高 DPI 处理。Qt 6 默认启用高 DPI 缩放，以下属性仅在 Qt 5 上需要。
     // PassThrough 保留分数缩放比例（如 150%）而非取整，确保渲染清晰。
