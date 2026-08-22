@@ -1,9 +1,12 @@
-﻿cmake_minimum_required(VERSION 3.10)
+cmake_minimum_required(VERSION 3.10)
 
 project(ElaWidgetTools VERSION 2.0.0 LANGUAGES CXX)
 
 add_definitions(-DELAWIDGETTOOLS_LIBRARY)
 option(ELAWIDGETTOOLS_BUILD_STATIC_LIB "Build static library." OFF)
+# 开发期 install 规则（头文件 / 导入库 / cmake 配置）默认关闭；宿主项目仅以
+# add_subdirectory 方式引用目标，运行时 DLL 由其 windeployqt 负责部署。
+option(ElaWidgetTools_INSTALL "Install ElaWidgetTools dev files (headers/cmake/export/lib)" ON)
 
 FILE(GLOB ORIGIN *.h *.cpp)
 FILE(GLOB PRIVATE private/*.h private/*.cpp)
@@ -64,48 +67,50 @@ if (WIN32)
 endif ()
 
 
-install(
-    TARGETS ${PROJECT_NAME}
-    EXPORT ${PROJECT_NAME}
-    ARCHIVE DESTINATION ${PROJECT_NAME}/lib
-    LIBRARY DESTINATION ${PROJECT_NAME}/lib
-    RUNTIME DESTINATION ${PROJECT_NAME}/bin
-)
+if(ElaWidgetTools_INSTALL)
+    install(
+        TARGETS ${PROJECT_NAME}
+        EXPORT ${PROJECT_NAME}
+        ARCHIVE DESTINATION ${PROJECT_NAME}/lib
+        LIBRARY DESTINATION ${PROJECT_NAME}/lib
+        RUNTIME DESTINATION ${PROJECT_NAME}/bin
+    )
 
-#if (MSVC AND NOT LIB_TYPE STREQUAL "STATIC")
-#    install(
-#        FILES $<TARGET_PDB_FILE:${PROJECT_NAME}>
-#        DESTINATION ${CMAKE_INSTALL_PREFIX}/ElaWidgetToolsExample OPTIONAL
-#    )
-#endif ()
+    #if (MSVC AND NOT LIB_TYPE STREQUAL "STATIC")
+    #    install(
+    #        FILES $<TARGET_PDB_FILE:${PROJECT_NAME}>
+    #        DESTINATION ${CMAKE_INSTALL_PREFIX}/ElaWidgetToolsExample OPTIONAL
+    #    )
+    #endif ()
 
-install(FILES ${EXPORT_HEADERS} DESTINATION ${PROJECT_NAME}/include)
+    install(FILES ${EXPORT_HEADERS} DESTINATION ${PROJECT_NAME}/include)
 
-set(INCLUDE_DIRS include)
-set(LIBRARIES ${PROJECT_NAME})
-set(LIB_DIR lib)
+    set(INCLUDE_DIRS include)
+    set(LIBRARIES ${PROJECT_NAME})
+    set(LIB_DIR lib)
 
-install(
-    EXPORT ${PROJECT_NAME}
-    FILE ${PROJECT_NAME}Targets.cmake
-    DESTINATION ${PROJECT_NAME}/lib/cmake
-)
+    install(
+        EXPORT ${PROJECT_NAME}
+        FILE ${PROJECT_NAME}Targets.cmake
+        DESTINATION ${PROJECT_NAME}/lib/cmake
+    )
 
-include(CMakePackageConfigHelpers)
-write_basic_package_version_file(
-    ${PROJECT_BINARY_DIR}/${PROJECT_NAME}ConfigVersion.cmake
-    VERSION 2.0.0
-    COMPATIBILITY SameMajorVersion
-)
+    include(CMakePackageConfigHelpers)
+    write_basic_package_version_file(
+        ${PROJECT_BINARY_DIR}/${PROJECT_NAME}ConfigVersion.cmake
+        VERSION 2.0.0
+        COMPATIBILITY SameMajorVersion
+    )
 
-configure_package_config_file(
-    ${PROJECT_SOURCE_DIR}/${PROJECT_NAME}Config.cmake.in
-    ${PROJECT_BINARY_DIR}/${PROJECT_NAME}Config.cmake
-    INSTALL_DESTINATION lib/cmake
-    PATH_VARS INCLUDE_DIRS LIBRARIES LIB_DIR
-    INSTALL_PREFIX ${CMAKE_INSTALL_PREFIX}/${PROJECT_NAME}
-)
+    configure_package_config_file(
+        ${PROJECT_SOURCE_DIR}/${PROJECT_NAME}Config.cmake.in
+        ${PROJECT_BINARY_DIR}/${PROJECT_NAME}Config.cmake
+        INSTALL_DESTINATION lib/cmake
+        PATH_VARS INCLUDE_DIRS LIBRARIES LIB_DIR
+        INSTALL_PREFIX ${CMAKE_INSTALL_PREFIX}/${PROJECT_NAME}
+    )
 
-install(
-    FILES ${PROJECT_BINARY_DIR}/${PROJECT_NAME}Config.cmake ${PROJECT_BINARY_DIR}/${PROJECT_NAME}ConfigVersion.cmake DESTINATION ${PROJECT_NAME}/lib/cmake
-)
+    install(
+        FILES ${PROJECT_BINARY_DIR}/${PROJECT_NAME}Config.cmake ${PROJECT_BINARY_DIR}/${PROJECT_NAME}ConfigVersion.cmake DESTINATION ${PROJECT_NAME}/lib/cmake
+    )
+endif()

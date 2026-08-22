@@ -1,4 +1,4 @@
-﻿cmake_minimum_required(VERSION 3.5)
+cmake_minimum_required(VERSION 3.5)
 
 project(ElaFramework VERSION 0.1 LANGUAGES CXX)
 
@@ -46,7 +46,12 @@ if (NOT WIN32)
 endif ()
 
 add_subdirectory(ElaWidgetTools)
-add_subdirectory(ElaWidgetToolsExample)
+
+# 示例程序默认不构建（被宿主项目通过 ElaWidgetTools_BUILD_EXAMPLE 选项控制）。
+option(ElaWidgetTools_BUILD_EXAMPLE "Build ElaWidgetTools example application" OFF)
+if(ElaWidgetTools_BUILD_EXAMPLE)
+    add_subdirectory(ElaWidgetToolsExample)
+endif()
 
 if (${QT_VERSION} VERSION_LESS 6.1.0)
     set(BUNDLE_ID_OPTION MACOSX_BUNDLE_GUI_IDENTIFIER com.example.ElaWidgetTools)

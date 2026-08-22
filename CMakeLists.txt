@@ -5,17 +5,18 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_AUTORCC ON)
 
+# ── Qt SDK 前缀：按宿主平台定位本地安装 ──────────────────────────
+# 注意：此处使用 CMAKE_HOST_SYSTEM_NAME（构建机），因为 Qt SDK 装在构建机上；
+# 下方的 RPATH / install / CPack 等规则使用 CMAKE_SYSTEM_NAME（目标平台）。
 if(CMAKE_HOST_SYSTEM_NAME STREQUAL "Linux")
     set(CMAKE_PREFIX_PATH /home/super/Qt/6.8.3/gcc_64/ CACHE PATH "Qt installation prefix")
-    message(STATUS "This is Linux OS")
-
-    # RPATH: 让二进制文件在捆绑库目录中查找共享库（$ORIGIN 指向二进制所在目录）
-    set(CMAKE_INSTALL_RPATH "\$ORIGIN/../lib/novaterm")
+    message(STATUS "Host OS: Linux")
 elseif(CMAKE_HOST_SYSTEM_NAME STREQUAL "Windows")
     set(CMAKE_PREFIX_PATH "C:\\Programs\\Qt\\6.8.3\\msvc2022_64" CACHE PATH "Qt installation prefix")
-    message(STATUS "This is Windows")
+    message(STATUS "Host OS: Windows")
 elseif(CMAKE_HOST_SYSTEM_NAME STREQUAL "Darwin")
-    message(STATUS "This is macOS")
+    set(CMAKE_PREFIX_PATH "/opt/Qt/6.8.3/macos" CACHE PATH "Qt installation prefix")
+    message(STATUS "Host OS: macOS")
 endif()
 
 message(STATUS "setting qt sdk path: ${CMAKE_PREFIX_PATH}")
@@ -30,10 +31,11 @@ set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 
 # Find Qt
-find_package(QT 6.8 NAMES Qt6 REQUIRED COMPONENTS Widgets Sql Svg ShaderTools)
+# 注意：Qt6::Sql 已从依赖中移除——项目当前使用 MemoryProfileStore / 平台密钥链，
+# 不依赖 QSqlDatabase。若将来引入 SQLite 等持久化存储，需重新加回 Sql 组件。
+find_package(QT 6.8 NAMES Qt6 REQUIRED COMPONENTS Widgets Svg ShaderTools)
 find_package(Qt${QT_VERSION_MAJOR} 6.8 REQUIRED COMPONENTS
     Widgets
-    Sql
     Svg
     ShaderTools
     LinguistTools
@@ -44,6 +46,11 @@ qt_standard_project_setup(REQUIRES 6.8)
 message(STATUS "Using Qt ${QT_VERSION_MAJOR}.${QT_VERSION_MINOR}")
 
 # ElaWidgetTools - built as subdirectory
+# 通过选项关闭其开发期 install（头文件 / cmake 配置 / 导入库）与示例程序构建，
+# 避免混入运行时分发包；NovaTerm 所需的动态库由主项目显式安装。
+# 注：CMAKE_SKIP_INSTALL_RULES 是全局开关，无法按子目录屏蔽，故改用选项守卫。
+set(ElaWidgetTools_INSTALL OFF CACHE BOOL "Install ElaWidgetTools dev files (headers/cmake/export)" FORCE)
+set(ElaWidgetTools_BUILD_EXAMPLE OFF CACHE BOOL "Build ElaWidgetTools example application" FORCE)
 add_subdirectory(third_party/ElaWidgetTools)
 
 # libvterm — VT/ANSI 终端解析器静态库（纯 C99，无外部依赖）
@@ -89,7 +96,7 @@ set(UNIT_TESTING OFF)
 set(CLIENT_TESTING OFF)
 set(SERVER_TESTING OFF)
 set(WITH_BENCHMARKS OFF)
-add_subdirectory(third_party/libssh-0.12.2)
+add_subdirectory(third_party/libssh-0.12.2 EXCLUDE_FROM_ALL)
 
 set(NOVATERM_CORE_SOURCES
     src/core/terminal/BoundedByteQueue.cpp
@@ -170,7 +177,6 @@ endif()
 
 target_link_libraries(NovaTerm PRIVATE
         Qt${QT_VERSION_MAJOR}::Widgets
-        Qt${QT_VERSION_MAJOR}::Sql
         Qt${QT_VERSION_MAJOR}::Svg
         Qt${QT_VERSION_MAJOR}::SerialPort
         ElaWidgetTools
@@ -185,7 +191,7 @@ if(WIN32)
     target_link_libraries(NovaTerm PRIVATE ws2_32 crypt32 user32 advapi32)
 endif()
 
-if (CMAKE_HOST_SYSTEM_NAME STREQUAL "Linux")
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     target_link_libraries(NovaTerm PRIVATE udev util)
 endif()
 
@@ -198,6 +204,9 @@ qt_add_shaders(NovaTerm novaterm_renderer_shaders
         src/renderer/shaders/terminal_texture.frag
 )
 
+# ── 跨平台可执行文件属性与运行时部署 ─────────────────────────────
+# Windows: WIN32_EXECUTABLE 去除控制台黑窗口（仅 Release）
+# macOS  : MACOSX_BUNDLE 生成 .app 包结构并嵌入 Info.plist
 if(WIN32)
     if(CMAKE_BUILD_TYPE MATCHES "Release")
         #发布版除去黑窗口，无qDebu打印
@@ -207,9 +216,24 @@ if(WIN32)
         #调试版保留黑窗口,有qDebug打印
     endif()
     target_compile_definitions(NovaTerm PRIVATE _WIN32 _WIN64)
+elseif(CMAKE_SYSTEM_NAME STREQUAL "Darwin")
+    set_target_properties(NovaTerm PROPERTIES
+        MACOSX_BUNDLE TRUE
+        MACOSX_BUNDLE_BUNDLE_NAME "NovaTerm"
+        MACOSX_BUNDLE_BUNDLE_VERSION "${PROJECT_VERSION}"
+        MACOSX_BUNDLE_SHORT_VERSION_STRING "${PROJECT_VERSION_MAJOR}.${PROJECT_VERSION_MINOR}"
+        MACOSX_BUNDLE_GUI_IDENTIFIER "io.github.novaterm"
+        MACOSX_BUNDLE_INFO_PLIST "${CMAKE_SOURCE_DIR}/cmake/Info.plist.in"
+    )
+endif()
 
-    # ── 将 Clink 预编译 release 复制到 exe 同级目录 ──────────────
+# Clink 预编译 release 路径（Windows 构建主程序与测试均依赖）
+if(WIN32)
     set(CLINK_SRC_DIR "${CMAKE_SOURCE_DIR}/third_party/clink.1.9.27.83514e")
+endif()
+
+# ── Windows: 复制 Clink 到构建输出，支持直接从构建目录运行 ─────
+if(WIN32)
     if(EXISTS "${CLINK_SRC_DIR}/clink.bat")
         add_custom_command(TARGET NovaTerm POST_BUILD
             COMMAND ${CMAKE_COMMAND} -E copy_if_different
@@ -233,78 +257,154 @@ endif()
 
 
 # ═══════════════════════════════════════════════════════════════════
-#  安装规则
+#  安装规则（跨平台分发）
 # ═══════════════════════════════════════════════════════════════════
 
-# 安装主二进制文件
-install(TARGETS NovaTerm DESTINATION bin)
-
-# 安装桌面入口文件和图标（Linux 桌面集成）
+# Qt 官方部署 API 使用 GNUInstallDirs 的标准布局：Windows/Linux 的可执行文件
+# 位于 bin/，macOS 的 .app bundle 位于安装前缀根目录。
 install(
-    FILES resources/novaterm.desktop
-    DESTINATION share/applications
-)
-install(
-    FILES resources/icons/app_logo.svg
-    DESTINATION share/icons/hicolor/scalable/apps
-    RENAME novaterm.svg
+    TARGETS NovaTerm
+    BUNDLE DESTINATION .
+    RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
 )
 
-# ── Linux: 捆绑 Qt 运行时库 ──────────────────────────────────────
-if(CMAKE_HOST_SYSTEM_NAME STREQUAL "Linux")
-    # 从 Qt6::Core 导入目标中获取 Qt 库的安装目录
-    if(TARGET Qt6::Core)
-        get_target_property(_qt_core_location Qt6::Core LOCATION)
-        if(_qt_core_location)
-            cmake_path(GET _qt_core_location PARENT_PATH _qt_lib_dir)
-            message(STATUS "Qt shared libraries directory: ${_qt_lib_dir}")
-        endif()
-    endif()
-
-    # 如果无法从 target 获取，回退到 CMAKE_PREFIX_PATH
-    if(NOT _qt_lib_dir)
-        set(_qt_lib_dir "${CMAKE_PREFIX_PATH}/lib")
-    endif()
-
-    # 将 Qt 运行时 .so 安装到 lib/novaterm/（运行时由 RPATH 查找）
+# ElaWidgetTools 是项目自带的动态库。Windows/macOS 的 Qt 部署工具只保证部署
+# Qt 运行时，因此显式安装该目标；Linux 也使用相同的标准 lib/ 布局。
+if(APPLE)
     install(
-        DIRECTORY "${_qt_lib_dir}/"
-        DESTINATION lib/novaterm
-        FILES_MATCHING
-        PATTERN "libQt6Core.so*"
-        PATTERN "libQt6Gui.so*"
-        PATTERN "libQt6Widgets.so*"
-        PATTERN "libQt6Sql.so*"
-        PATTERN "libQt6Svg.so*"
-        PATTERN "libQt6DBus.so*"
-        PATTERN "libQt6Network.so*"
-        PATTERN "libQt6XcbQpa.so*"        # X11 平台插件（Linux 桌面必需）
-        PATTERN "libQt6OpenGL.so*"
-        PATTERN "libQt6OpenGLWidgets.so*"
-        PATTERN "libicui18n.so*"
-        PATTERN "libicuuc.so*"
-        PATTERN "libicudata.so*"
-        PATTERN "libxcb*.so*"              # XCB 平台插件依赖
+        TARGETS ElaWidgetTools
+        LIBRARY DESTINATION "NovaTerm.app/Contents/Frameworks"
+    )
+else()
+    install(
+        TARGETS ElaWidgetTools
+        RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+        LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+    )
+endif()
+
+# Clink 是 Windows cmd 会话的运行时工具，不参与链接，需作为数据文件显式安装。
+if(WIN32 AND EXISTS "${CLINK_SRC_DIR}/clink.bat")
+    install(
+        FILES
+            "${CLINK_SRC_DIR}/clink.bat"
+            "${CLINK_SRC_DIR}/clink.lua"
+            "${CLINK_SRC_DIR}/clink_x64.exe"
+            "${CLINK_SRC_DIR}/clink_x86.exe"
+            "${CLINK_SRC_DIR}/clink_arm64.exe"
+            "${CLINK_SRC_DIR}/clink_dll_x64.dll"
+            "${CLINK_SRC_DIR}/clink_dll_x86.dll"
+            "${CLINK_SRC_DIR}/clink_dll_arm64.dll"
+            "${CLINK_SRC_DIR}/clink.html"
+        DESTINATION ${CMAKE_INSTALL_BINDIR}
+    )
+endif()
+
+# 在安装阶段收集 Qt 库、插件和平台运行时。Windows/macOS 底层分别调用
+# windeployqt/macdeployqt，Linux 使用 CMake 的运行时依赖扫描。
+set(_deploy_tool_options)
+if(WIN32)
+    list(APPEND _deploy_tool_options
+        --no-system-d3d-compiler
+        --no-opengl-sw
+    )
+endif()
+
+qt_generate_deploy_app_script(
+    TARGET NovaTerm
+    OUTPUT_SCRIPT _novaterm_deploy_script
+    NO_TRANSLATIONS
+    DEPLOY_TOOL_OPTIONS ${_deploy_tool_options}
+)
+install(SCRIPT ${_novaterm_deploy_script})
+
+# 便携式 Windows ZIP 使用 App-local MSVC Runtime。Qt 的
+# NO_COMPILER_RUNTIME 只会停止部署 vc_redist 安装器，不会自动复制 CRT DLL。
+# 从当前 cl.exe 对应的工具集和目标架构定位 Redist，避免绑定具体 VS 版本。
+if(MSVC)
+    get_filename_component(_msvc_compiler_dir "${CMAKE_CXX_COMPILER}" DIRECTORY)
+    get_filename_component(
+        _msvc_toolset_dir
+        "${_msvc_compiler_dir}/../../.."
+        ABSOLUTE
+    )
+    get_filename_component(_msvc_toolset_version "${_msvc_toolset_dir}" NAME)
+    get_filename_component(_msvc_target_arch "${_msvc_compiler_dir}" NAME)
+    get_filename_component(
+        _msvc_vc_dir
+        "${_msvc_toolset_dir}/../../.."
+        ABSOLUTE
     )
 
-    # 安装 Qt 平台插件（libqxcb.so）
-    if(EXISTS "${_qt_lib_dir}/../plugins/platforms")
+    file(GLOB _msvc_crt_dirs
+        "${_msvc_vc_dir}/Redist/MSVC/${_msvc_toolset_version}/${_msvc_target_arch}/Microsoft.VC*.CRT"
+    )
+    if(NOT _msvc_crt_dirs)
+        message(FATAL_ERROR
+            "MSVC App-local runtime not found for toolset ${_msvc_toolset_version} "
+            "and architecture ${_msvc_target_arch} under ${_msvc_vc_dir}/Redist/MSVC"
+        )
+    endif()
+
+    list(GET _msvc_crt_dirs 0 _msvc_crt_dir)
+    file(GLOB _msvc_runtime_dlls "${_msvc_crt_dir}/*.dll")
+    if(NOT _msvc_runtime_dlls)
+        message(FATAL_ERROR "No MSVC runtime DLLs found in ${_msvc_crt_dir}")
+    endif()
+
+    install(
+        FILES ${_msvc_runtime_dlls}
+        DESTINATION ${CMAKE_INSTALL_BINDIR}
+    )
+    message(STATUS "MSVC App-local runtime: ${_msvc_crt_dir}")
+
+    # Qt RHI 会使用 Windows SDK 随附的 DirectX Shader Compiler。显式安装可确保
+    # CPack 在未加载 VsDevCmd 环境时仍能生成完整的便携 ZIP。
+    get_filename_component(_windows_sdk_bin_dir "${CMAKE_RC_COMPILER}" DIRECTORY)
+    set(_directx_runtime_dlls)
+    foreach(_directx_dll dxcompiler.dll dxil.dll)
+        if(EXISTS "${_windows_sdk_bin_dir}/${_directx_dll}")
+            list(APPEND _directx_runtime_dlls
+                "${_windows_sdk_bin_dir}/${_directx_dll}"
+            )
+        else()
+            message(WARNING
+                "${_directx_dll} not found beside the Windows SDK tools: "
+                "${_windows_sdk_bin_dir}"
+            )
+        endif()
+    endforeach()
+    if(_directx_runtime_dlls)
         install(
-            DIRECTORY "${_qt_lib_dir}/../plugins/platforms"
-            DESTINATION lib/novaterm/plugins
-            FILES_MATCHING
-            PATTERN "libqxcb.so"
+            FILES ${_directx_runtime_dlls}
+            DESTINATION ${CMAKE_INSTALL_BINDIR}
         )
     endif()
 endif()
 
+# ── Linux: 桌面入口与图标 ───────────────────────────────────────
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    install(
+        FILES resources/novaterm.desktop
+        DESTINATION "${CMAKE_INSTALL_DATADIR}/applications"
+    )
+    install(
+        FILES resources/icons/app_logo.svg
+        DESTINATION "${CMAKE_INSTALL_DATADIR}/icons/hicolor/scalable/apps"
+        RENAME novaterm.svg
+    )
+endif()
+
 # ═══════════════════════════════════════════════════════════════════
-#  CPack DEB / RPM 打包配置
+#  CPack 跨平台打包配置
+#  Linux  : DEB (+ RPM 可选)
+#  Windows: NSIS + ZIP
+#  macOS  : DragNDrop (DMG) + ZIP
 # ═══════════════════════════════════════════════════════════════════
 
+# ── 通用元数据 ─────────────────────────────────────────────────
 set(CPACK_PACKAGE_NAME "novaterm")
 set(CPACK_PACKAGE_VERSION ${PROJECT_VERSION})
-set(CPACK_PACKAGE_FILE_NAME "${CPACK_PACKAGE_NAME}-${CPACK_PACKAGE_VERSION}-linux-amd64")
 set(CPACK_PACKAGE_VENDOR "NovaTerm Project")
 set(CPACK_PACKAGE_CONTACT "li ji")
 set(CPACK_PACKAGE_HOMEPAGE_URL "https://github.com/han-shao-jun/NovaTerm")
@@ -316,14 +416,64 @@ It supports local and remote terminal sessions with SSH capabilities,
 VT/ANSI terminal emulation, and a modern UI powered by ElaWidgetTools."
 )
 
-# ── DEB 专属配置 ─────────────────────────────────────────────
-if(CMAKE_HOST_SYSTEM_NAME STREQUAL "Linux")
-    set(CPACK_GENERATOR "DEB")
+# 资源目录（LICENSE、README 等，按需放入打包根）
+set(CPACK_RESOURCE_FILE_LICENSE "${CMAKE_SOURCE_DIR}/LICENSE")
+set(CPACK_RESOURCE_FILE_README  "${CMAKE_SOURCE_DIR}/README.md")
 
+# ── 平台与架构标识（用于 CPACK_PACKAGE_FILE_NAME）──────────────
+# 将 CMAKE_SYSTEM_PROCESSOR 归一化为发布物常用短名
+set(_target_processor "${CMAKE_SYSTEM_PROCESSOR}")
+if(NOT _target_processor AND CMAKE_CXX_COMPILER_ARCHITECTURE_ID)
+    set(_target_processor "${CMAKE_CXX_COMPILER_ARCHITECTURE_ID}")
+endif()
+
+if(_target_processor MATCHES "x86_64|AMD64|x64")
+    set(_pkg_arch "x64")
+elseif(_target_processor MATCHES "aarch64|arm64|ARM64")
+    set(_pkg_arch "arm64")
+else()
+    set(_pkg_arch "${_target_processor}")
+endif()
+
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    set(_pkg_os "linux")
+elseif(CMAKE_SYSTEM_NAME STREQUAL "Windows")
+    set(_pkg_os "windows")
+elseif(CMAKE_SYSTEM_NAME STREQUAL "Darwin")
+    set(_pkg_os "macos")
+else()
+    set(_pkg_os "${CMAKE_SYSTEM_NAME}")
+endif()
+
+set(CPACK_PACKAGE_FILE_NAME
+    "${CPACK_PACKAGE_NAME}-${CPACK_PACKAGE_VERSION}-${_pkg_os}-${_pkg_arch}")
+
+# ── 按目标平台选择 CPack 生成器 ─────────────────────────────────
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    set(CPACK_GENERATOR "DEB;ZIP")
+    set(CPACK_SOURCE_GENERATOR "TGZ")
+elseif(CMAKE_SYSTEM_NAME STREQUAL "Windows")
+    set(CPACK_GENERATOR "NSIS;ZIP")
+    set(CPACK_SOURCE_GENERATOR "ZIP")
+elseif(CMAKE_SYSTEM_NAME STREQUAL "Darwin")
+    set(CPACK_GENERATOR "DragNDrop;ZIP")
+    set(CPACK_SOURCE_GENERATOR "TGZ")
+endif()
+
+message(STATUS "CPack generators: ${CPACK_GENERATOR}")
+message(STATUS "CPack file name: ${CPACK_PACKAGE_FILE_NAME}")
+
+# ── Linux DEB 专属配置 ────────────────────────────────────────
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     set(CPACK_DEBIAN_PACKAGE_MAINTAINER "li ji")
     set(CPACK_DEBIAN_PACKAGE_SECTION "utils")
     set(CPACK_DEBIAN_PACKAGE_PRIORITY "optional")
-    set(CPACK_DEBIAN_PACKAGE_ARCHITECTURE "amd64")
+    # 架构名按 Debian 规范：x86_64 → amd64，arm64 → arm64
+    if(_pkg_arch STREQUAL "x64")
+        set(CPACK_DEBIAN_PACKAGE_ARCHITECTURE "amd64")
+    else()
+        set(CPACK_DEBIAN_PACKAGE_ARCHITECTURE "${_pkg_arch}")
+    endif()
 
     # 声明系统级依赖（用户需自行安装或系统已有）
     set(CPACK_DEBIAN_PACKAGE_DEPENDS
@@ -345,17 +495,51 @@ if(CMAKE_HOST_SYSTEM_NAME STREQUAL "Linux")
     )
 endif()
 
-# ── 打包目标：make package 或 cpack ───────────────────────────
+# ── Windows NSIS 专属配置 ─────────────────────────────────────
+if(CMAKE_SYSTEM_NAME STREQUAL "Windows")
+    # 安装界面显示名（区别于内部包名 novaterm）
+    set(CPACK_NSIS_PACKAGE_NAME "NovaTerm ${PROJECT_VERSION}")
+    set(CPACK_NSIS_DISPLAY_NAME "NovaTerm")
+    set(CPACK_NSIS_URL_INFO_ABOUT "${CPACK_PACKAGE_HOMEPAGE_URL}")
+    set(CPACK_NSIS_CONTACT "li ji")
+    set(CPACK_NSIS_INSTALL_ROOT "$PROGRAMFILES64")
+    # 允许用户选择安装目录，并在开始菜单创建快捷方式
+    set(CPACK_NSIS_MODIFY_PATH OFF)
+    set(CPACK_NSIS_CREATE_ICONS_EXTRA
+        "CreateShortCut '$SMPROGRAMS\\\\NovaTerm.lnk' '$INSTDIR\\\\${CMAKE_INSTALL_BINDIR}\\\\NovaTerm.exe'")
+    set(CPACK_NSIS_DELETE_ICONS_EXTRA
+        "Delete '$SMPROGRAMS\\\\NovaTerm.lnk'")
+    # 安装程序图标（可选，缺失时用 NSIS 默认图标）
+    if(EXISTS "${CMAKE_SOURCE_DIR}/resources/icons/app_logo.ico")
+        set(CPACK_NSIS_MUI_ICON "${CMAKE_SOURCE_DIR}/resources/icons/app_logo.ico")
+        set(CPACK_NSIS_MUI_UNIICON "${CMAKE_SOURCE_DIR}/resources/icons/app_logo.ico")
+    endif()
+endif()
+
+# ── macOS DragNDrop (DMG) 专属配置 ────────────────────────────
+if(CMAKE_SYSTEM_NAME STREQUAL "Darwin")
+    set(CPACK_DMG_VOLUME_NAME "NovaTerm")
+    set(CPACK_DMG_FORMAT "UDBZ")
+    set(CPACK_DRAGNDROP_INSTALLER ON)
+    # 可选：自定义 DMG 布局（.DS_Store），存在时才引用
+    if(EXISTS "${CMAKE_SOURCE_DIR}/cmake/DSStore")
+        set(CPACK_DMG_DS_STORE "${CMAKE_SOURCE_DIR}/cmake/DSStore")
+    endif()
+endif()
+
+# ── 启用 CPack ─────────────────────────────────────────────────
 include(CPack)
 
-# 辅助自定义目标：一步构建 DEB
-if(CMAKE_HOST_SYSTEM_NAME STREQUAL "Linux")
-    add_custom_target(deb
-        COMMAND ${CMAKE_COMMAND} --build ${CMAKE_BINARY_DIR} --target all
-        COMMAND ${CMAKE_CPACK_COMMAND} -G DEB
-        COMMENT "Building NovaTerm and packaging as .deb"
+# ── 跨平台打包辅助目标 ─────────────────────────────────────────
+# cmake --build . --target package     → CPack 默认组合（DEB+ZIP / NSIS+ZIP / DMG+ZIP）
+# cmake --build . --target package-zip  → 仅产 ZIP（跨平台通用，便于分发）
+if(NOT TARGET package-zip)
+    add_custom_target(package-zip
+        COMMAND ${CMAKE_COMMAND} --build ${CMAKE_BINARY_DIR} --target all --config $<CONFIG>
+        COMMAND ${CMAKE_CPACK_COMMAND} -G ZIP -C $<CONFIG>
+        WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
+        COMMENT "Building NovaTerm and packaging as ZIP archive"
     )
-    message(STATUS "DEB packaging enabled — run 'make deb' or 'cmake --build . --target deb' to produce a .deb package")
 endif()
 
 
@@ -369,6 +553,17 @@ set(TS_FILES
 qt_add_translations(
         TARGETS NovaTerm
         TS_FILES ${TS_FILES}
+)
+
+# 安装 .qm 翻译文件：随主可执行文件放入 bin/translations。
+# qt_add_translations 已将 .qm 嵌入 exe 资源（运行时不依赖外部文件），
+# 此处额外安装 .qm 以便离线更新翻译而无需重新链接。
+# qm 由构建生成于 ${CMAKE_BINARY_DIR}/ 根目录（非 translations/ 子目录）。
+install(
+    FILES
+        "${CMAKE_BINARY_DIR}/novaterm_en.qm"
+        "${CMAKE_BINARY_DIR}/novaterm_zh_CN.qm"
+    DESTINATION translations
 )
 
 # 通过构建系统运行 `test` 目标时，始终显示测试命令及其输出；失败时保留
@@ -415,7 +610,6 @@ if(BUILD_TESTING)
         COMMENT "Running NovaTerm tests with detailed CTest output"
     )
 endif()
-
 if(BUILD_TESTING)
     find_package(Qt${QT_VERSION_MAJOR} 6.8 REQUIRED COMPONENTS Test)
 
@@ -940,10 +1134,3 @@ if(NOVATERM_BUILD_BENCHMARKS)
     )
 endif()
 
-# 安装 .qm 翻译文件到 bin 同级目录
-install(
-    DIRECTORY "${CMAKE_BINARY_DIR}/translations"
-    DESTINATION bin
-    FILES_MATCHING
-    PATTERN "*.qm"
-)
