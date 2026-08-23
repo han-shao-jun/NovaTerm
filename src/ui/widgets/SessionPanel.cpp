@@ -586,7 +586,8 @@ void SessionPanel::reconnectItem(QTreeWidgetItem* item)
         emit localReconnectRequested(
             static_cast<TerminalView::LocalShellType>(
                 values.value(QStringLiteral("shellType")).toInt()),
-            values.value(QStringLiteral("wslDistribution")).toString());
+            values.value(QStringLiteral("wslDistribution")).toString(),
+            values.value(QStringLiteral("label")).toString());
         return;
     }
     if (runtime.transportKind == TransportKind::Serial) {

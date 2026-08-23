@@ -1111,9 +1111,12 @@ void MainWindow::initWindow()
             &MainWindow::editSession);
     connect(_sessionPanel, &SessionPanel::localReconnectRequested, this,
             [this](TerminalView::LocalShellType type,
-                   const QString& wslDistribution) {
+                   const QString& wslDistribution, const QString& label) {
         // WSL 重连必须继续使用历史记录中的发行版，不能退回系统默认实例。
-        _terminalPage->addTerminalTab(tr("Terminal"), type, wslDistribution);
+        // 与会话对话框路径保持一致：优先使用用户自定义标签，缺省时回退。
+        const QString title = label.trimmed().isEmpty()
+            ? tr("Terminal") : label.trimmed();
+        _terminalPage->addTerminalTab(title, type, wslDistribution);
     });
     connect(_sessionPanel, &SessionPanel::serialReconnectRequested, this,
             [this](const SerialConfig& config) {

@@ -62,7 +62,8 @@ signals:
     void collapsedChanged(bool collapsed);
     void panelWidthChangeRequested(int width);
     void localReconnectRequested(TerminalView::LocalShellType type,
-                                 const QString& wslDistribution);
+                                 const QString& wslDistribution,
+                                 const QString& label);
     void serialReconnectRequested(const SerialConfig& config);
     void sshReconnectRequested(const SshConfig& config);
     void editSessionRequested(const SessionId& id,

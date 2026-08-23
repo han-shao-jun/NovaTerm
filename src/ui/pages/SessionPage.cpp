@@ -332,20 +332,21 @@ void SessionPage::initShellUi()
     grid->setVerticalSpacing(12);
     grid->setColumnStretch(1, 1);   // 输入控件列撑满
 
-    // ── Shell 类型选择（cmd / PowerShell / 已安装的 WSL 发行版）──
+    // ── Shell 类型选择 ─────────────────────────────────
     auto* localTypeLabel = new ElaText(tr("Type"), page);
     localTypeLabel->setWordWrap(false);
     localTypeLabel->setTextPixelSize(15);
     grid->addWidget(localTypeLabel, 0, 0, Qt::AlignVCenter);
 
     _shellTypeCombo = new ElaComboBox(page);
+#ifdef Q_OS_WIN
+    // Windows：cmd / PowerShell / 已安装的 WSL 发行版。
     _shellTypeCombo->addItem(
         QStringLiteral("cmd"),
         static_cast<int>(TerminalView::LocalShellType::Cmd));
     _shellTypeCombo->addItem(
         QStringLiteral("PowerShell"),
         static_cast<int>(TerminalView::LocalShellType::PowerShell));
-#ifdef Q_OS_WIN
     // 仅把 wsl.exe 实际返回的发行版加入列表；功能未启用或尚未安装实例时
     // 不提供一个必然启动失败的通用 WSL 选项。
     const auto wslResult = LocalShellProfiles::discoverWslDistributions();
@@ -364,6 +365,15 @@ void SessionPage::initShellUi()
         _shellTypeCombo->setToolTip(
             tr("WSL is enabled, but no distribution is installed."));
     }
+#else
+    // Unix：始终启动登录 shell（$SHELL，回退 /bin/bash）。LocalShellType 在
+    // Unix 下被 TerminalView::startLocalShell() 忽略，此处仅展示实际将启动
+    // 的 shell 路径，类型固定为 Cmd（枚举占位，保持 Confirm 逻辑一致）。
+    const auto defaultShell = LocalShellProfiles::platformDefault();
+    _shellTypeCombo->addItem(
+        QStringLiteral("%1 (%2)").arg(defaultShell.name,
+                                      defaultShell.executable),
+        static_cast<int>(TerminalView::LocalShellType::Cmd));
 #endif
     _shellTypeCombo->setMinimumWidth(160);
     grid->addWidget(_shellTypeCombo, 0, 1);
