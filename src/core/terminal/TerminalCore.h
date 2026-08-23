@@ -61,6 +61,8 @@ public:
 
     // ── 输入事件（异步排队到工作线程）──
     void processKeyPress(QKeyEvent* event);
+    void processTextInput(const QString& text,
+                          Qt::KeyboardModifiers modifiers = Qt::NoModifier);
     void processMousePress(QMouseEvent* event);
     void processMouseMove(QMouseEvent* event);
     void processMouseRelease(QMouseEvent* event);

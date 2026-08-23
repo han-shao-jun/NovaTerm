@@ -4,6 +4,7 @@
 #include "core/terminal/TerminalCore.h"
 
 #include <QSignalSpy>
+#include <QInputMethodEvent>
 #include <QTest>
 
 class RendererP3Tests : public QObject
@@ -33,6 +34,7 @@ private slots:
     void enteringHistoryRequestsScrollbackReflow();
     void returningToLiveBottomCancelsPendingReflow();
     void searchMatchesAppendByGeneration();
+    void inputMethodCommitProducesUtf8();
 };
 
 void RendererP3Tests::schedulerMergesTouchingRegions()
@@ -427,6 +429,28 @@ void RendererP3Tests::searchMatchesAppendByGeneration()
     renderer.appendSearchMatches({{4, 0, 1}}, 11);
     QCOMPARE(renderer.searchMatchCount(), qsizetype(1));
     QCOMPARE(renderer.searchMatchedLineCount(), qsizetype(1));
+}
+
+void RendererP3Tests::inputMethodCommitProducesUtf8()
+{
+    TerminalCore core(80, 24);
+    TerminalRenderer renderer(&core);
+    QVERIFY(renderer.testAttribute(Qt::WA_InputMethodEnabled));
+    QSignalSpy outputSpy(&core, &TerminalCore::outputData);
+
+    QInputMethodEvent event;
+    const QString committed = QString::fromUtf8(u8"中文🌟");
+    event.setCommitString(committed);
+    QCoreApplication::sendEvent(&renderer, &event);
+
+    QVERIFY(event.isAccepted());
+    QVERIFY(core.waitForIdle());
+    QTRY_VERIFY(!outputSpy.isEmpty());
+
+    QByteArray output;
+    for (const auto& arguments : outputSpy)
+        output += arguments.at(0).toByteArray();
+    QCOMPARE(output, committed.toUtf8());
 }
 
 QTEST_MAIN(RendererP3Tests)

@@ -576,13 +576,7 @@ void TerminalCore::processKeyPress(QKeyEvent* event)
     }
 
     if (!text.isEmpty() && text[0].isPrint()) {
-        for (const QChar& character : text) {
-            ParserCommand command;
-            command.type = CommandType::KeyboardCharacter;
-            command.codepoint = character.unicode();
-            command.first = modifiers;
-            _runtime->enqueueCommand(std::move(command));
-        }
+        processTextInput(text, qtModifiers);
         return;
     }
 
@@ -596,11 +590,18 @@ void TerminalCore::processKeyPress(QKeyEvent* event)
         return;
     }
 
-    for (const QChar& character : text) {
+    processTextInput(text, qtModifiers);
+}
+
+void TerminalCore::processTextInput(const QString& text,
+                                    Qt::KeyboardModifiers modifiers)
+{
+    const int vtermModifiers = int(KeyMapper::qtModToVTermMod(modifiers));
+    for (const uint32_t codepoint : text.toUcs4()) {
         ParserCommand command;
         command.type = CommandType::KeyboardCharacter;
-        command.codepoint = character.unicode();
-        command.first = modifiers;
+        command.codepoint = codepoint;
+        command.first = vtermModifiers;
         _runtime->enqueueCommand(std::move(command));
     }
 }

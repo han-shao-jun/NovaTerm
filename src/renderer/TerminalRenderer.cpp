@@ -2,6 +2,7 @@
 #include "core/terminal/TerminalCore.h"
 #include <QPainter>
 #include <QKeyEvent>
+#include <QInputMethodEvent>
 #include <QMouseEvent>
 #include <QWheelEvent>
 #include <QScrollBar>
@@ -106,6 +107,7 @@ TerminalRenderer::TerminalRenderer(TerminalCore* core, QWidget* parent)
     setApi(preferredRhiApi());
 
     setFocusPolicy(Qt::StrongFocus);
+    setAttribute(Qt::WA_InputMethodEnabled);
     setAttribute(Qt::WA_OpaquePaintEvent);
     setMouseTracking(true);
     setCursor(Qt::IBeamCursor);
@@ -1071,6 +1073,42 @@ void TerminalRenderer::keyPressEvent(QKeyEvent* event)
 
     _core->processKeyPress(event);
     event->accept();
+}
+
+void TerminalRenderer::inputMethodEvent(QInputMethodEvent* event)
+{
+    if (!event)
+        return;
+
+    emit activityDetected();
+    if (_scrollLine > 0)
+        scrollToBottom();
+
+    if (!event->commitString().isEmpty())
+        _core->processTextInput(event->commitString());
+    event->accept();
+}
+
+QVariant TerminalRenderer::inputMethodQuery(
+    Qt::InputMethodQuery query) const
+{
+    switch (query) {
+    case Qt::ImEnabled:
+        return true;
+    case Qt::ImCursorRectangle: {
+        const NovaTerm::Position cursor = _core->cursorPosition();
+        const QPoint position = cellToWidget(cursor.row, cursor.col);
+        return QRectF(position.x(), position.y(), _cellWidth, _cellHeight);
+    }
+    case Qt::ImCursorPosition:
+    case Qt::ImAnchorPosition:
+        return 0;
+    case Qt::ImSurroundingText:
+    case Qt::ImCurrentSelection:
+        return QString{};
+    default:
+        return QRhiWidget::inputMethodQuery(query);
+    }
 }
 
 // ═══════════════════════════════════════════════════════════════════
