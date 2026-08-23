@@ -1,6 +1,9 @@
 cmake_minimum_required(VERSION 3.20)
 project(NovaTerm VERSION 0.1.0 LANGUAGES CXX)
 
+# 主工程显式采用平台标准安装目录，避免依赖第三方子项目间接初始化这些变量。
+include(GNUInstallDirs)
+
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_AUTORCC ON)
@@ -51,7 +54,14 @@ message(STATUS "Using Qt ${QT_VERSION_MAJOR}.${QT_VERSION_MINOR}")
 # 注：CMAKE_SKIP_INSTALL_RULES 是全局开关，无法按子目录屏蔽，故改用选项守卫。
 set(ElaWidgetTools_INSTALL OFF CACHE BOOL "Install ElaWidgetTools dev files (headers/cmake/export)" FORCE)
 set(ElaWidgetTools_BUILD_EXAMPLE OFF CACHE BOOL "Build ElaWidgetTools example application" FORCE)
+
+# ElaWidgetTools 的独立构建配置会强制修改全局 CMAKE_INSTALL_PREFIX。作为子项目
+# 引入时保存并恢复主工程的值，防止 `cmake --install` 被重定向到源码目录。
+set(_novaterm_install_prefix "${CMAKE_INSTALL_PREFIX}")
 add_subdirectory(third_party/ElaWidgetTools)
+set(CMAKE_INSTALL_PREFIX "${_novaterm_install_prefix}" CACHE PATH
+    "Installation prefix" FORCE)
+unset(_novaterm_install_prefix)
 
 # libvterm — VT/ANSI 终端解析器静态库（纯 C99，无外部依赖）
 if(EXISTS "${CMAKE_SOURCE_DIR}/third_party/libvterm-0.3.3/include/vterm.h")
@@ -225,6 +235,21 @@ elseif(CMAKE_SYSTEM_NAME STREQUAL "Darwin")
         MACOSX_BUNDLE_GUI_IDENTIFIER "io.github.novaterm"
         MACOSX_BUNDLE_INFO_PLIST "${CMAKE_SOURCE_DIR}/cmake/Info.plist.in"
     )
+elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    # Debian 可执行文件使用小写名称，与包名及 desktop 文件中的 Exec 一致。
+    # Qt、ICU 与 ElaWidgetTools 等随包运行库放入应用私有目录，避免污染或覆盖
+    # 发行版在 /usr/lib 中管理的同名库。
+    set(_novaterm_linux_runtime_root "${CMAKE_INSTALL_LIBDIR}/novaterm")
+    set(_novaterm_linux_libdir "${_novaterm_linux_runtime_root}/lib")
+    set(_novaterm_linux_pluginsdir "${_novaterm_linux_runtime_root}/plugins")
+    set_target_properties(NovaTerm PROPERTIES
+        OUTPUT_NAME novaterm
+        INSTALL_RPATH "\$ORIGIN/../${_novaterm_linux_libdir}"
+    )
+    # 覆盖 ElaWidgetTools 子项目中面向独立构建的硬编码 Windows Qt RPATH。
+    set_target_properties(ElaWidgetTools PROPERTIES
+        INSTALL_RPATH "\$ORIGIN"
+    )
 endif()
 
 # Clink 预编译 release 路径（Windows 构建主程序与测试均依赖）
@@ -269,11 +294,16 @@ install(
 )
 
 # ElaWidgetTools 是项目自带的动态库。Windows/macOS 的 Qt 部署工具只保证部署
-# Qt 运行时，因此显式安装该目标；Linux 也使用相同的标准 lib/ 布局。
+# Qt 运行时，因此显式安装该目标；Linux 将其放入 NovaTerm 的私有库目录。
 if(APPLE)
     install(
         TARGETS ElaWidgetTools
         LIBRARY DESTINATION "NovaTerm.app/Contents/Frameworks"
+    )
+elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    install(
+        TARGETS ElaWidgetTools
+        LIBRARY DESTINATION "${_novaterm_linux_libdir}"
     )
 else()
     install(
@@ -316,7 +346,17 @@ qt_generate_deploy_app_script(
     NO_TRANSLATIONS
     DEPLOY_TOOL_OPTIONS ${_deploy_tool_options}
 )
-install(SCRIPT ${_novaterm_deploy_script})
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    # 在包含 Qt 生成的部署脚本前覆盖部署目录。qt.conf 会据此指向私有库和
+    # 插件目录，主程序则通过上面的相对 INSTALL_RPATH 定位这些库。
+    install(CODE "
+        set(QT_DEPLOY_LIB_DIR \"${_novaterm_linux_libdir}\")
+        set(QT_DEPLOY_PLUGINS_DIR \"${_novaterm_linux_pluginsdir}\")
+        include(\"${_novaterm_deploy_script}\")
+    ")
+else()
+    install(SCRIPT ${_novaterm_deploy_script})
+endif()
 
 # 便携式 Windows ZIP 使用 App-local MSVC Runtime。Qt 的
 # NO_COMPILER_RUNTIME 只会停止部署 vc_redist 安装器，不会自动复制 CRT DLL。
@@ -393,11 +433,15 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
         DESTINATION "${CMAKE_INSTALL_DATADIR}/icons/hicolor/scalable/apps"
         RENAME novaterm.svg
     )
+    install(
+        FILES LICENSE README.md
+        DESTINATION "${CMAKE_INSTALL_DATADIR}/doc/novaterm"
+    )
 endif()
 
 # ═══════════════════════════════════════════════════════════════════
 #  CPack 跨平台打包配置
-#  Linux  : DEB (+ RPM 可选)
+#  Linux  : DEB + ZIP
 #  Windows: NSIS + ZIP
 #  macOS  : DragNDrop (DMG) + ZIP
 # ═══════════════════════════════════════════════════════════════════
@@ -475,24 +519,9 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
         set(CPACK_DEBIAN_PACKAGE_ARCHITECTURE "${_pkg_arch}")
     endif()
 
-    # 声明系统级依赖（用户需自行安装或系统已有）
-    set(CPACK_DEBIAN_PACKAGE_DEPENDS
-        "libc6 (>= 2.34), libstdc++6 (>= 12), libgcc-s1 (>= 12), libgl1, libegl1, libfontconfig1, libfreetype6, libxkbcommon0, libdbus-1-3"
-    )
-
-    # 自动检测其他共享库依赖（生成 ${shlibs:Depends}）
+    # 根据主程序、私有 Qt 库和插件的实际 ELF 依赖生成 Depends，避免与手工
+    # 依赖列表重复，版本下限也由构建环境中的 Debian shlibs 数据准确给出。
     set(CPACK_DEBIAN_PACKAGE_SHLIBDEPS ON)
-    set(CPACK_DEBIAN_PACKAGE_GENERATE_SHLIBDEPS ON)
-
-    # 安装后执行 ldconfig 更新库缓存（避免 dpkg 警告）
-    set(CPACK_DEBIAN_PACKAGE_CONTROL_EXTRA
-        "${CMAKE_BINARY_DIR}/postinst"
-    )
-
-    # 生成 postinst 维护脚本
-    file(WRITE "${CMAKE_BINARY_DIR}/postinst"
-        "#!/bin/sh\nset -e\n# Update shared library cache\nldconfig || true\n"
-    )
 endif()
 
 # ── Windows NSIS 专属配置 ─────────────────────────────────────
@@ -555,16 +584,8 @@ qt_add_translations(
         TS_FILES ${TS_FILES}
 )
 
-# 安装 .qm 翻译文件：随主可执行文件放入 bin/translations。
-# qt_add_translations 已将 .qm 嵌入 exe 资源（运行时不依赖外部文件），
-# 此处额外安装 .qm 以便离线更新翻译而无需重新链接。
-# qm 由构建生成于 ${CMAKE_BINARY_DIR}/ 根目录（非 translations/ 子目录）。
-install(
-    FILES
-        "${CMAKE_BINARY_DIR}/novaterm_en.qm"
-        "${CMAKE_BINARY_DIR}/novaterm_zh_CN.qm"
-    DESTINATION translations
-)
+# .qm 已由 qt_add_translations 嵌入可执行文件，LanguageManager 也只从资源路径
+# 读取翻译，因此不再重复安装一份不会被程序加载的外部翻译文件。
 
 # 通过构建系统运行 `test` 目标时，始终显示测试命令及其输出；失败时保留
 # 完整日志，避免 CTest 默认摘要隐藏 Qt Test 给出的断言位置和诊断信息。
@@ -609,8 +630,7 @@ if(BUILD_TESTING)
         USES_TERMINAL
         COMMENT "Running NovaTerm tests with detailed CTest output"
     )
-endif()
-if(BUILD_TESTING)
+
     find_package(Qt${QT_VERSION_MAJOR} 6.8 REQUIRED COMPONENTS Test)
 
     add_executable(novaterm_core_tests
@@ -1133,4 +1153,3 @@ if(NOVATERM_BUILD_BENCHMARKS)
         COMMENT "Running NovaTerm P2/P4 performance benchmarks"
     )
 endif()
-
