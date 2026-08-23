@@ -15,4 +15,4 @@
 9. 热路径中的分配、复制和锁；
 10. 测试是否真正覆盖回归问题。
 
-解决出现的问题
+cmake --install . --prefix /home/super/Documents/qt_app/NovaTerm/Install
