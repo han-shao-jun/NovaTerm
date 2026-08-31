@@ -4,11 +4,11 @@
 > 整理日期：2026-07-31  
 > 适用项目版本：NovaTerm 0.1.x 及后续重构阶段
 
-本目录是 NovaTerm 当前的统一架构入口。`docs/` 根目录中的早期设计、性能记录和阶段实施文档继续保留，用于追溯设计来源与历史数据；新开发和架构评审应优先引用本目录。
+本目录收录 NovaTerm 的架构配套文档。统一架构总览位于 [`docs/ARCHITECTURE.md`](../ARCHITECTURE.md)；本目录中的配置、渲染、路线图和阶段实施文档用于补充细节与追溯设计来源。
 
 ## 阅读顺序
 
-1. [总体架构](NovaTerm_Architecture.md)：系统边界、数据流、线程、所有权和目标架构。
+1. [总体架构](../ARCHITECTURE.md)：系统边界、数据流、线程、所有权和目标架构。
 2. [配置、Profile 与主题](Configuration_Profile_Theme.md)：配置分层、Profile、Session 和主题职责。
 3. [渲染架构](Rendering_Architecture.md)：Snapshot、调度、命令缓存、QRhi 和 Glyph 系统。
 4. [阶段路线图](Development_Roadmap.md)：P0～P7 的依赖关系、状态和统一指标。
@@ -29,10 +29,10 @@
 
 ## 文档权威性
 
-- 本目录描述当前统一设计和后续目标。
+- `docs/ARCHITECTURE.md` 描述当前统一设计和后续目标；本目录文档提供配套细节。
 - `P0_Performance_Baseline.md` 是 P0 原始测量记录。
 - 原 `P1/P2/P3` 文档是实施日志，数值和变更清单仍有追溯价值。
-- `NovaTerm开发指南.md`、旧 QRhi/Profile/Theme 文档属于早期概念设计；与本目录冲突时，以本目录和当前源码为准。
+- `NovaTerm开发指南.md`、旧 QRhi/Profile/Theme 文档属于早期概念设计；与统一架构文档和当前源码冲突时，以后者为准。
 - 状态只有在代码、自动化测试和相应验收完成后才能改为“已完成”。功能完成但性能未达标时必须分别标注。
 
 ## 统一术语

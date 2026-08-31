@@ -79,9 +79,9 @@ Windows平台使用ConPTY实现本地终端，需要Windows 10 1809+版本支持
 
 ## 文档资源
 
-详细的架构设计文档位于 `docs/architecture/` 目录：
+详细的架构设计文档位于 `docs/ARCHITECTURE.md`：
 
-- [架构概述](docs/architecture/NovaTerm_Architecture.md)
+- [架构概述](docs/ARCHITECTURE.md)
 - [渲染架构](docs/architecture/Rendering_Architecture.md)
 - [各阶段实现文档](docs/architecture/stages/)
 
