@@ -3,7 +3,7 @@ REM ============================================================================
 REM  build-ssh-thirdparty.bat -- one-time build of OpenSSL only.
 REM
 REM  Artifacts (static linking, no extra DLLs to ship):
-REM    third_party/openssl-3.5.7/install   <- OpenSSL 3.5.7 (no-asm pure-C static)
+REM    third_party/openssl-3.5.7/install   <- OpenSSL 3.5.7 (NASM-optimized static)
 REM
 REM  libssh 0.12.2 is no longer built here: NovaTerm's top-level CMakeLists.txt
 REM  builds it directly as a source subdirectory (add_subdirectory). This script
@@ -11,8 +11,10 @@ REM  exists solely to produce the OpenSSL install that both the main project
 REM  (find_package(OpenSSL)) and the libssh subdirectory rely on.
 REM
 REM  Prerequisites:
-REM    - MSVC + Ninja (same toolchain as the NovaTerm build)
-REM    - Strawberry Perl (required by the OpenSSL build)
+REM    - MSVC (the OpenSSL build below uses jom or nmake, not Ninja)
+REM      Ninja is only required by the top-level NovaTerm CMake build.
+REM    - Strawberry Perl with perl.exe available in PATH (required by OpenSSL)
+REM    - NASM with nasm.exe available in PATH (required for assembly optimizations)
 REM    - jom (optional but strongly recommended): Qt's parallel nmake clone.
 REM      Auto-detected under Qt installs (e.g. <Qt>\Tools\QtCreator\bin\jom).
 REM      Override with JOM_EXE, or add jom.exe to PATH.
@@ -37,20 +39,29 @@ REM  Usage: build-ssh-thirdparty.bat   (idempotent; safe to re-run)
 REM ============================================================================
 setlocal EnableExtensions
 
-set "REPO=E:\code\Qt\NovaTerm"
-set "VCVARS=C:\Programs\MicrosoftVisualStudio\18\Insiders\VC\Auxiliary\Build\vcvarsall.bat"
-set "PERL_DIR=E:\app\strawberry-perl-5.38.2.2-64bit-portable\perl\bin"
+REM Resolve the project root from this script's location, so the script can
+REM be invoked from any working directory.
+for %%I in ("%~dp0..") do set "REPO=%%~fI"
+set "VS_ROOT=C:\Program Files (x86)\Microsoft Visual Studio"
+set "VCVARS="
+for /f "delims=" %%I in ('where /r "%VS_ROOT%" vcvarsall.bat 2^>nul') do if not defined VCVARS set "VCVARS=%%I"
 
 set "OSSL_SRC=%REPO%\third_party\openssl-3.5.7"
 set "OSSL_BUILD=%REPO%\third_party\openssl-3.5.7\build"
 set "OSSL_PREFIX=%REPO%\third_party\openssl-3.5.7\install"
 
-if not exist "%VCVARS%" (
-    echo [ERROR] vcvarsall.bat not found: "%VCVARS%"
+if not defined VCVARS (
+    echo [ERROR] vcvarsall.bat not found under "%VS_ROOT%"
     exit /b 1
 )
-if not exist "%PERL_DIR%\perl.exe" (
-    echo [ERROR] Strawberry Perl not found: "%PERL_DIR%\perl.exe"
+where perl.exe >nul 2>nul
+if errorlevel 1 (
+    echo [ERROR] perl.exe not found in PATH. Install Strawberry Perl and add it to PATH.
+    exit /b 1
+)
+where nasm.exe >nul 2>nul
+if errorlevel 1 (
+    echo [ERROR] nasm.exe not found in PATH. Install NASM and add it to PATH.
     exit /b 1
 )
 
@@ -59,8 +70,6 @@ if errorlevel 1 (
     echo [ERROR] vcvarsall failed
     exit /b 1
 )
-
-set "PATH=%PERL_DIR%;%PATH%"
 
 REM ============================================================================
 REM  Parallel compile setup (real parallelism via jom)
@@ -105,12 +114,12 @@ if defined JOM (
 
 echo.
 echo ======================================================================
-echo  [1/1] Building OpenSSL 3.5.7 (static, no-asm, parallel compile via jom)
+echo  [1/1] Building OpenSSL 3.5.7 (static, NASM-optimized, parallel compile via jom)
 echo ======================================================================
 if not exist "%OSSL_BUILD%" mkdir "%OSSL_BUILD%"
 cd /d "%OSSL_BUILD%"
 
-perl "%OSSL_SRC%\Configure" VC-WIN64A no-asm no-shared no-tests no-makedepend --prefix="%OSSL_PREFIX%" --openssldir="%OSSL_PREFIX%\ssl" --libdir=lib
+perl.exe "%OSSL_SRC%\Configure" VC-WIN64A no-shared no-tests no-makedepend --prefix="%OSSL_PREFIX%" --openssldir="%OSSL_PREFIX%\ssl" --libdir=lib
 if errorlevel 1 goto :failed
 
 REM --- Build: parallel when jom is available ---
