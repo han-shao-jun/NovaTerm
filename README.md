@@ -79,10 +79,12 @@ Windows平台使用ConPTY实现本地终端，需要Windows 10 1809+版本支持
 
 ## 文档资源
 
-详细的架构设计文档位于 `docs/ARCHITECTURE.md`：
+统一架构总览位于 `docs/ARCHITECTURE.md`，配套细节文档见 `docs/architecture/`（索引：[docs/architecture/README.md](docs/architecture/README.md)）：
 
 - [架构概述](docs/ARCHITECTURE.md)
+- [配置、Profile 与主题](docs/architecture/Configuration_Profile_Theme.md)
 - [渲染架构](docs/architecture/Rendering_Architecture.md)
+- [阶段路线图](docs/architecture/Development_Roadmap.md)
 - [各阶段实现文档](docs/architecture/stages/)
 
 ## 目录结构
