@@ -40,11 +40,13 @@ public:
                      const QString& label = {});
     void recordSerial(const SerialConfig& config);
     void recordSsh(const SshConfig& config);
+    void recordTelnet(const TelnetConfig& config);
     void updateLocal(const SessionId& id, TerminalView::LocalShellType type,
                      const QString& wslDistribution,
                      const QString& label);
     void updateSerial(const SessionId& id, const SerialConfig& config);
     void updateSsh(const SessionId& id, const SshConfig& config);
+    void updateTelnet(const SessionId& id, const TelnetConfig& config);
 
     /** 折叠或展开快捷连接面板；折叠后保留标题栏展开按钮。 */
     void setCollapsed(bool collapsed);
@@ -66,6 +68,7 @@ signals:
                                  const QString& label);
     void serialReconnectRequested(const SerialConfig& config);
     void sshReconnectRequested(const SshConfig& config);
+    void telnetReconnectRequested(const TelnetConfig& config);
     void editSessionRequested(const SessionId& id,
                               const RuntimeConfig& runtime,
                               const QByteArray& secret);

@@ -7,7 +7,7 @@ NovaTerm（原名WindTermQt）是一款基于Qt框架开发的跨平台终端模
 ## 主要特性
 
 - **跨平台支持**：完美运行于Windows、Linux等主流操作系统
-- **多协议支持**：支持本地Shell、SSH、Telnet和串口连接
+- **多协议支持**：支持本地Shell、SSH（libssh）、Telnet（libtelnet，含 RFC 1143 选项协商）和串口连接
 - **现代界面设计**：采用FluentUI设计语言，提供深色/浅色主题切换
 - **GPU加速渲染**：基于Qt QRhi实现高效GPU渲染，支持Vulkan、OpenGL、D3D等多种图形API
 - **SFTP文件传输**：内置SFTP客户端，支持文件上传下载和目录操作

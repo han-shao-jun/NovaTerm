@@ -56,6 +56,7 @@ signals:
                                const QString& label);
     void serialSessionRequested(const SerialConfig& config); ///< 串口会话确认
     void sshSessionRequested(const SshConfig& config);        ///< SSH 会话确认
+    void telnetSessionRequested(const TelnetConfig& config);  ///< Telnet 会话确认
     void dialogRejected();          ///< 用户在任意标签页点击了 Cancel
 
 private:

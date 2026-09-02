@@ -1126,6 +1126,10 @@ void MainWindow::initWindow()
             [this](const SshConfig& config) {
         _terminalPage->addSshTerminalTab(config);
     });
+    connect(_sessionPanel, &SessionPanel::telnetReconnectRequested, this,
+            [this](const TelnetConfig& config) {
+        _terminalPage->addTelnetTerminalTab(config);
+    });
     connect(_sessionPanel, &SessionPanel::reconnectUnavailable, this,
             [this](const QString& message) {
         QMessageBox::warning(this, tr("Reconnect session"), message);
@@ -1546,6 +1550,11 @@ void MainWindow::runSessionDialog(
             _pendingSshSession = config;
             _sessionDialog->accept();
         });
+        connect(sessionPage, &SessionPage::telnetSessionRequested, this,
+                [this](const TelnetConfig& config) {
+            _pendingTelnetSession = config;
+            _sessionDialog->accept();
+        });
         connect(sessionPage, &SessionPage::dialogRejected,
                 _sessionDialog, &QDialog::reject);
 
@@ -1557,6 +1566,7 @@ void MainWindow::runSessionDialog(
     _pendingLocalSession.reset();
     _pendingSerialSession.reset();
     _pendingSshSession.reset();
+    _pendingTelnetSession.reset();
     const int result = _sessionDialog->exec();
     // ElaDialog 及其自定义控件在 accept() 后复用不可靠：后续 QDialog::exec()
     // 在递归查找默认按钮时可能遇到残留项。在终端/RHI 初始化前同步销毁已隐藏
@@ -1597,6 +1607,15 @@ void MainWindow::runSessionDialog(
         else {
             _sessionPanel->recordSsh(config);
             _terminalPage->addSshTerminalTab(config);
+        }
+    } else if (result == QDialog::Accepted && _pendingTelnetSession) {
+        const TelnetConfig config = *_pendingTelnetSession;
+        _pendingTelnetSession.reset();
+        if (editingSessionId)
+            _sessionPanel->updateTelnet(*editingSessionId, config);
+        else {
+            _sessionPanel->recordTelnet(config);
+            _terminalPage->addTelnetTerminalTab(config);
         }
     }
 }

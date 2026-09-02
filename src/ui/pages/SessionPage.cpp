@@ -154,6 +154,25 @@ SessionPage::SessionPage(QWidget* parent)
             return;
         }
 
+        if (_tabWidget->currentIndex() == 3) {
+            TelnetConfig config;
+            config.host = _telnetIp->text().trimmed();
+            config.port = static_cast<quint16>(_telnetPort->value());
+            config.terminalType = _telnetTerminalType->currentText().trimmed();
+            config.naws = _telnetNaws->isChecked();
+            config.binaryMode = _telnetBinaryMode->isChecked();
+            config.keepAliveSeconds = _telnetKeepAlive->value();
+            config.label = _telnetLabel->text().trimmed();
+
+            if (!config.isValid()) {
+                QMessageBox::warning(this, tr("Telnet Session"),
+                                     tr("Provide a host address and a valid port."));
+                return;
+            }
+            emit telnetSessionRequested(config);
+            return;
+        }
+
         const auto type = static_cast<TerminalView::LocalShellType>(
             _shellTypeCombo->currentData().toInt());
         const QString wslDistribution = type == TerminalView::LocalShellType::Wsl

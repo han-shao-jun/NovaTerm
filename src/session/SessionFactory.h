@@ -75,4 +75,13 @@ public:
      */
     [[nodiscard]] static std::unique_ptr<TerminalSession>
     createSsh(const SshConfig& config, RuntimeConfig runtime = {});
+
+    /**
+     * @brief 直接创建 Telnet 会话。
+     * @param config  Telnet 配置。
+     * @param runtime  运行时配置（可选）。
+     * @return 已装配 TelnetTransport 的会话。
+     */
+    [[nodiscard]] static std::unique_ptr<TerminalSession>
+    createTelnet(const TelnetConfig& config, RuntimeConfig runtime = {});
 };

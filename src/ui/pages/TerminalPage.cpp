@@ -14,6 +14,7 @@
 #include "session/TerminalSession.h"
 #include "transport/SerialTransport.h"
 #include "transport/SshTransport.h"
+#include "transport/TelnetTransport.h"
 #include <QVBoxLayout>
 
 #include <utility>
@@ -201,6 +202,34 @@ TerminalView* TerminalPage::addSerialTerminalTab(const SerialConfig& config)
             Qt::SingleShotConnection);
     // 必须通过 TerminalSession 启动，才能让 Created → Connecting → Running
     // 状态迁移完整生效，并在断连后进入可按 Enter 重连的 Failed 状态。
+    static_cast<void>(terminalView->session()->start());
+    return terminalView;
+}
+
+TerminalView* TerminalPage::addTelnetTerminalTab(const TelnetConfig& config)
+{
+    auto* terminalView = new TerminalView(_tabWidget);
+    _terminalViews.append(terminalView);
+    connect(terminalView, &QObject::destroyed, this, [this, terminalView]() {
+        _terminalViews.removeAll(terminalView);
+    });
+
+    const QString title = config.label.isEmpty()
+        ? QStringLiteral("%1:%2").arg(config.host).arg(config.port)
+        : config.label;
+    // Telnet 不是远端 SSH 上下文，SFTP/系统监控面板应保持不可用状态。
+    terminalView->setProperty("novatermSessionLabel", title);
+    terminalView->setProperty("novatermSshSession", false);
+    const int index = _tabWidget->addTab(terminalView, title);
+    _tabWidget->setCurrentIndex(index);
+
+    auto* transport = new TelnetTransport(config, terminalView);
+    terminalView->attachTransport(transport);
+    connect(transport, &ITransport::connected, this,
+            [this, config]() { emit telnetSessionConnected(config); },
+            Qt::SingleShotConnection);
+    // 与 SSH/串口一致，统一由会话状态机启动，避免绕过 generation、统计
+    // 和断连后按 Enter 重连的 Failed 状态迁移。
     static_cast<void>(terminalView->session()->start());
     return terminalView;
 }

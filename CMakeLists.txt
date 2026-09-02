@@ -43,6 +43,7 @@ find_package(Qt${QT_VERSION_MAJOR} 6.8 REQUIRED COMPONENTS
     ShaderTools
     LinguistTools
     SerialPort
+    Network
 )
 qt_standard_project_setup(REQUIRES 6.8)
 
@@ -70,6 +71,53 @@ if(EXISTS "${CMAKE_SOURCE_DIR}/third_party/libvterm-0.3.3/include/vterm.h")
 else()
     message(FATAL_ERROR "libvterm not found at third_party/libvterm-0.3.3")
 endif()
+
+# libtelnet — TELNET 协议状态机静态库（纯 C，public domain，无外部依赖）。
+# 只做协议解析与选项协商（RFC 854/855/1091/1143/1572），不持有 socket；
+# TelnetTransport 把 QTcpSocket 的字节喂给它，再把事件转回 ITransport 信号。
+#
+# 刻意不用 add_subdirectory：上游 CMakeLists 会连带构建 util/doc/test 示例，
+# 并执行 install(TARGETS/EXPORT) 与 include(CPack)，后者会覆盖 NovaTerm 自己的
+# 打包配置。这里直接从 vendored 源码声明目标，third_party/libtelnet 工作副本
+# 保持零改动（它是一份 git clone，本地改动会造成后续 pull 冲突）。
+set(_libtelnet_dir "${CMAKE_SOURCE_DIR}/third_party/libtelnet")
+if(NOT EXISTS "${_libtelnet_dir}/libtelnet.c")
+    message(FATAL_ERROR "libtelnet not found at third_party/libtelnet")
+endif()
+message(STATUS "Building libtelnet from third_party/libtelnet")
+# 根 project() 只声明了 CXX；libvterm 由子目录自带的 project(LANGUAGES C)
+# 隐式启用了 C，而这里在根作用域直接建 C 目标，必须显式启用。
+enable_language(C)
+add_library(libtelnet STATIC "${_libtelnet_dir}/libtelnet.c")
+target_include_directories(libtelnet PUBLIC "${_libtelnet_dir}")
+# 纯 C 目标，无需 Qt 的自动代码生成（否则会额外编出一个 C++ 目标）。
+set_target_properties(libtelnet PROPERTIES
+    AUTOMOC OFF
+    AUTOUIC OFF
+    AUTORCC OFF
+)
+# 刻意不在 MSVC 上设置 C_STANDARD：/std:c11 会让 MSVC 定义
+# __STDC_VERSION__ >= 199901L，从而命中上游 INLINE 宏的 GNU 分支
+#   #if defined(__GNUC__) || __STDC_VERSION__ >= 199901L
+#   # define INLINE __inline__
+# 而 __inline__ 是 GCC 拼写，MSVC 无法解析（C2054）。MSVC 默认 C 模式不定义
+# 该宏，INLINE 退化为空，编译正常。GCC/Clang 走 __GNUC__ 分支，不受影响。
+if(NOT MSVC)
+    set_target_properties(libtelnet PROPERTIES
+        C_STANDARD 11
+        C_STANDARD_REQUIRED ON
+    )
+endif()
+# HAVE_ZLIB 保持不定义 ⇒ 不编译 MCCP2 压缩（MUD 专用），因此不需要 zlib。
+if(MSVC)
+    # 上游在 _WIN32 下把 vsnprintf 映射为已弃用的 _vsnprintf（触发 C4996）。
+    # 该映射只影响 telnet_printf()/telnet_raw_printf()，TelnetTransport 不使用
+    # 这两个接口（改用 telnet_send/telnet_iac/telnet_subnegotiation）。
+    target_compile_definitions(libtelnet PRIVATE _CRT_SECURE_NO_WARNINGS)
+else()
+    target_compile_options(libtelnet PRIVATE -Wall -fvisibility=hidden)
+endif()
+unset(_libtelnet_dir)
 
 # Clink (chrisant996/clink v1.9.27.83514e) —— 运行时工具，不参与编译。
 # 预编译的 release 目录 third_party/clink.1.9.27.83514e 在构建后事件中
@@ -170,6 +218,8 @@ target_include_directories(NovaTerm PRIVATE
     src
     third_party/libvterm-0.3.3/include
 )
+# libtelnet 的头目录经由 target_link_libraries(libtelnet) 的 PUBLIC 接口传入，
+# 无需在此重复声明。
 
 add_compile_options("$<$<CXX_COMPILER_ID:MSVC>:/utf-8>")
 if(MSVC)
@@ -189,8 +239,10 @@ target_link_libraries(NovaTerm PRIVATE
         Qt${QT_VERSION_MAJOR}::Widgets
         Qt${QT_VERSION_MAJOR}::Svg
         Qt${QT_VERSION_MAJOR}::SerialPort
+        Qt${QT_VERSION_MAJOR}::Network
         ElaWidgetTools
         novaterm_core
+        libtelnet
         ssh::ssh
         OpenSSL::Crypto
         OpenSSL::SSL
@@ -1021,6 +1073,33 @@ if(BUILD_TESTING)
                              LABELS "transport;ssh"
                              TIMEOUT 30)
     add_dependencies(check novaterm_ssh_transport_check)
+
+    # ── TelnetTransport 协议与失败路径测试 ──
+    # 用 loopback QTcpServer 充当服务端，不需要真实 telnetd。
+    qt_add_executable(novaterm_telnet_transport_tests
+        tests/transport/TelnetTransportTests.cpp
+        src/transport/TelnetTransport.cpp
+        src/transport/TelnetTransport.h
+        src/transport/ITransport.h
+        src/session/SessionTypes.h
+    )
+    target_include_directories(novaterm_telnet_transport_tests PRIVATE src)
+    target_link_libraries(novaterm_telnet_transport_tests
+        PRIVATE
+            Qt${QT_VERSION_MAJOR}::Core
+            Qt${QT_VERSION_MAJOR}::Network
+            Qt${QT_VERSION_MAJOR}::Test
+            # SessionTypes.h 引入 QSerialPort 的枚举（SerialConfig）。
+            Qt${QT_VERSION_MAJOR}::SerialPort
+            libtelnet
+    )
+    add_test(NAME novaterm_telnet_transport_tests
+             COMMAND novaterm_telnet_transport_tests)
+    set_tests_properties(novaterm_telnet_transport_tests
+                         PROPERTIES
+                             LABELS "transport;telnet"
+                             TIMEOUT 60)
+    add_dependencies(check novaterm_telnet_transport_tests)
 endif()
 
 if(NOVATERM_BUILD_BENCHMARKS)

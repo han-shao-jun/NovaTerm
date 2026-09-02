@@ -177,6 +177,22 @@ RuntimeConfig sshRuntime(const SshConfig& config)
     return runtime;
 }
 
+RuntimeConfig telnetRuntime(const TelnetConfig& config)
+{
+    RuntimeConfig runtime;
+    runtime.transportKind = TransportKind::Telnet;
+    runtime.transport = {
+        {QStringLiteral("host"), config.host},
+        {QStringLiteral("port"), config.port},
+        {QStringLiteral("terminalType"), config.terminalType},
+        {QStringLiteral("naws"), config.naws},
+        {QStringLiteral("binaryMode"), config.binaryMode},
+        {QStringLiteral("keepAliveSeconds"), config.keepAliveSeconds},
+        {QStringLiteral("label"), config.label}};
+    runtime.title = sessionName(runtime);
+    return runtime;
+}
+
 QByteArray sshSecret(const SshConfig& config)
 {
     return config.authMethod == QStringLiteral("password")
@@ -339,6 +355,11 @@ void SessionPanel::recordSsh(const SshConfig& config)
     upsert(sshRuntime(config), sshSecret(config));
 }
 
+void SessionPanel::recordTelnet(const TelnetConfig& config)
+{
+    upsert(telnetRuntime(config));
+}
+
 void SessionPanel::updateLocal(const SessionId& id,
                                TerminalView::LocalShellType type,
                                const QString& wslDistribution,
@@ -356,6 +377,11 @@ void SessionPanel::updateSerial(const SessionId& id,
 void SessionPanel::updateSsh(const SessionId& id, const SshConfig& config)
 {
     replace(id, sshRuntime(config), sshSecret(config));
+}
+
+void SessionPanel::updateTelnet(const SessionId& id, const TelnetConfig& config)
+{
+    replace(id, telnetRuntime(config));
 }
 
 void SessionPanel::upsert(RuntimeConfig runtime, const QByteArray& secret)
@@ -635,6 +661,24 @@ void SessionPanel::reconnectItem(QTreeWidgetItem* item)
             return;
         }
         emit sshReconnectRequested(config);
+        return;
+    }
+    if (runtime.transportKind == TransportKind::Telnet) {
+        TelnetConfig config;
+        config.host = values.value(QStringLiteral("host")).toString();
+        config.port = static_cast<quint16>(
+            values.value(QStringLiteral("port"), 23).toUInt());
+        config.terminalType = values.value(
+            QStringLiteral("terminalType"),
+            QStringLiteral("xterm-256color")).toString();
+        config.naws = values.value(QStringLiteral("naws"), true).toBool();
+        config.binaryMode = values.value(
+            QStringLiteral("binaryMode"), false).toBool();
+        config.keepAliveSeconds = values.value(
+            QStringLiteral("keepAliveSeconds"), 0).toInt();
+        config.label = values.value(QStringLiteral("label")).toString();
+        if (config.isValid())
+            emit telnetReconnectRequested(config);
     }
 }
 

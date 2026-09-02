@@ -236,3 +236,36 @@ struct SshHostKeyInfo
 };
 
 Q_DECLARE_METATYPE(SshHostKeyInfo)
+
+/**
+ * @brief Telnet 会话不可变创建快照。
+ *
+ * 由 UI/Profile 层构造，transport 层消费。字段名与 RuntimeConfig::transport
+ * 中的键一一对应（host/port/terminalType/naws/binaryMode/keepAliveSeconds/
+ * label），SessionPage::applyRuntimeConfig() 依赖该对应关系回填控件。
+ *
+ * Telnet 为明文协议，本结构不包含任何凭据字段：登录名与口令由远端在数据
+ * 流内交互，NovaTerm 不解析、不持久化。
+ */
+struct TelnetConfig
+{
+    QString host;        ///< 主机名或 IP
+    quint16 port{23};    ///< Telnet 端口
+
+    QString terminalType{QStringLiteral("xterm-256color")}; ///< TERMINAL-TYPE 上报值
+    bool naws{true};          ///< 是否协商 NAWS（窗口尺寸上报）
+    bool binaryMode{false};   ///< 是否协商 BINARY（双向 8 位透传）
+    int keepAliveSeconds{0};  ///< IAC NOP 保活间隔秒数（0 表示禁用）
+    QString label;            ///< 显示标签
+
+    /**
+     * @brief 校验配置是否有效。
+     * @return true 表示主机非空且端口非零。
+     */
+    [[nodiscard]] bool isValid() const
+    {
+        return !host.trimmed().isEmpty() && port != 0;
+    }
+};
+
+Q_DECLARE_METATYPE(TelnetConfig)

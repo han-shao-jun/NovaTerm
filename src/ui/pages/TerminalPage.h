@@ -46,6 +46,7 @@ public:
         const QString& wslDistribution = {});
     TerminalView* addSerialTerminalTab(const SerialConfig& config);
     TerminalView* addSshTerminalTab(const SshConfig& config);
+    TerminalView* addTelnetTerminalTab(const TelnetConfig& config);
 
     /** 将 SFTP 当前目录粘贴到已连接的当前 SSH 终端。 */
     void pastePathToCurrentSshTerminal(const QString& path);
@@ -58,6 +59,7 @@ signals:
     void localSessionConnected(TerminalView::LocalShellType type);
     void serialSessionConnected(const SerialConfig& config);
     void sshSessionConnected(const SshConfig& config);
+    void telnetSessionConnected(const TelnetConfig& config);
     /** 当前标签或 SSH 连接状态变化，供远端工具面板更新可用性。 */
     void currentSessionContextChanged(const QString& label,
                                       bool connectedSshSession);

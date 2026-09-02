@@ -106,6 +106,7 @@ private:
     std::optional<LocalSessionParameters> _pendingLocalSession;
     std::optional<SerialConfig> _pendingSerialSession;
     std::optional<SshConfig> _pendingSshSession;
+    std::optional<TelnetConfig> _pendingTelnetSession;
     void showSessionDialog();
     void showSessionDialog(TransportKind initialKind);
     void editSession(const SessionId& id, const RuntimeConfig& runtime,

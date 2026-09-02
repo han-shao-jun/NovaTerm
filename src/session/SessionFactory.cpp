@@ -5,7 +5,7 @@
  * resolve() 校验 profile ID 与凭据引用方式（禁止嵌入凭据）。
  * create() 按 transportKind 从 QVariantMap 反序列化为具体 Config，
  * SSH 凭据通过 CredentialStore 按 credentialRef 解析。
- * createLocal/Serial/Ssh 是直接装配入口，绕过 profile 层。
+ * createLocal/Serial/Ssh/Telnet 是直接装配入口，绕过 profile 层。
  */
 #include "SessionFactory.h"
 
@@ -15,6 +15,7 @@
 #include "transport/LocalShellTransport.h"
 #include "transport/SerialTransport.h"
 #include "transport/SshTransport.h"
+#include "transport/TelnetTransport.h"
 
 namespace {
 
@@ -138,10 +139,27 @@ SessionFactory::create(const RuntimeConfig& runtime,
         }
         return createSsh(config, runtime);
     }
-    case TransportKind::Telnet:
-        if (error)
-            *error = QStringLiteral("Telnet transport is not implemented");
-        return nullptr;
+    case TransportKind::Telnet: {
+        TelnetConfig config;
+        config.host = values.value(QStringLiteral("host")).toString();
+        config.port = static_cast<quint16>(values.value(
+            QStringLiteral("port"), 23).toUInt());
+        config.terminalType = values.value(
+            QStringLiteral("terminalType"),
+            QStringLiteral("xterm-256color")).toString();
+        config.naws = values.value(QStringLiteral("naws"), true).toBool();
+        config.binaryMode = values.value(
+            QStringLiteral("binaryMode"), false).toBool();
+        config.keepAliveSeconds = values.value(
+            QStringLiteral("keepAliveSeconds"), 0).toInt();
+        config.label = runtime.title;
+        if (!config.isValid()) {
+            if (error)
+                *error = QStringLiteral("invalid Telnet runtime config");
+            return nullptr;
+        }
+        return createTelnet(config, runtime);
+    }
     case TransportKind::Custom:
         if (error)
             *error = QStringLiteral("custom transport requires an external factory");
@@ -171,4 +189,11 @@ std::unique_ptr<TerminalSession>
 SessionFactory::createSsh(const SshConfig& config, RuntimeConfig runtime)
 {
     return makeSession<SshTransport>(config, std::move(runtime), TransportKind::Ssh);
+}
+
+std::unique_ptr<TerminalSession>
+SessionFactory::createTelnet(const TelnetConfig& config, RuntimeConfig runtime)
+{
+    return makeSession<TelnetTransport>(config, std::move(runtime),
+                                        TransportKind::Telnet);
 }
