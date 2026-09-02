@@ -439,6 +439,11 @@ void ConPtyTransportTests::injectedStartupStagesRollBack()
                                   baselineProcesses, 5000);
     }
     NovaTerm::Windows::setConPtyFailureStageForTest(ConPtyFailureStage::None);
+    // 已知平台缺陷：CreatePseudoConsole/ClosePseudoConsole 在部分 Windows 版本上
+    // 不配平，每个伪控制台生命周期泄漏约 1 个内核句柄，因此下面这条断言当前必然
+    // 失败。ConPtySession 自身的 8 个句柄均已正确关闭——排除性证据见
+    // tests/transport/conpty_handle_leak_repro.c（单线程、无子进程、无工作线程的
+    // 最小复现，实测 1.04 句柄/循环）。线程数与子进程数断言仍是硬性检查。
     QTRY_VERIFY_WITH_TIMEOUT(currentHandleCount() <= baselineHandles, 5000);
 }
 
@@ -467,6 +472,11 @@ void ConPtyTransportTests::repeatedLifecycleReturnsResourcesToBaseline()
         QVERIFY2(disconnected.wait(5000), qPrintable(QString::number(iteration)));
         QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
     }
+    // 已知平台缺陷：CreatePseudoConsole/ClosePseudoConsole 在部分 Windows 版本上
+    // 不配平，每个伪控制台生命周期泄漏约 1 个内核句柄，因此下面这条断言当前必然
+    // 失败。ConPtySession 自身的 8 个句柄均已正确关闭——排除性证据见
+    // tests/transport/conpty_handle_leak_repro.c（单线程、无子进程、无工作线程的
+    // 最小复现，实测 1.04 句柄/循环）。线程数与子进程数断言仍是硬性检查。
     QTRY_COMPARE_WITH_TIMEOUT(currentHandleCount(), baselineHandles, 5000);
     QTRY_COMPARE_WITH_TIMEOUT(currentThreadCount(), baselineThreads, 5000);
     QTRY_COMPARE_WITH_TIMEOUT(currentTestChildProcessCount(), baselineProcesses, 5000);
