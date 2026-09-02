@@ -126,13 +126,13 @@ unset(_libtelnet_dir)
 # 找不到 clink.bat 时回退裸 cmd.exe。
 
 # libssh — SSH 会话传输。直接以源码子目录方式构建（不再 find_package 预编译产物）。
-# OpenSSL：Windows 使用 vendored 一次性预编译（scripts/build-ssh-thirdparty.bat 编译，
+# OpenSSL：Windows 使用 vendored 一次性预编译（scripts/build-OpenSSL-thirdparty.bat 编译，
 # 产物在 third_party/openssl-3.5.7/install）；其他平台（Linux/macOS）直接用系统
 # OpenSSL（apt/dnf 安装的 libssl-dev / openssl-devel），由下方 find_package 解析。
 if(WIN32)
     set(OPENSSL_INSTALL_DIR
         "${CMAKE_SOURCE_DIR}/third_party/openssl-3.5.7/install"
-        CACHE PATH "OpenSSL install prefix (run scripts/build-ssh-thirdparty.bat)")
+        CACHE PATH "OpenSSL install prefix (run scripts/build-OpenSSL-thirdparty.bat)")
     # 必须用 OPENSSL_ROOT_DIR（而非 find_package 的 HINTS）：libssh 子目录内部的
     # find_package(OpenSSL 1.1.1) 不带 HINTS，只有 MODULE 模式才认 OPENSSL_ROOT_DIR；
     # 若走 OpenSSL 自带的 OpenSSLConfig.cmake（CONFIG 模式）则不会写 OPENSSL_* cache，

@@ -19,10 +19,10 @@ NovaTerm（原名WindTermQt）是一款基于Qt框架开发的跨平台终端模
 
 ### 环境要求
 
-- Qt 6.5 或更高版本
+- Qt 6.8 或更高版本（`find_package(Qt6 6.8 REQUIRED)`）
 - CMake 3.20 或更高版本
-- 支持C++20的编译器
-- 对于Windows：需要Windows 10 1809或更高版本
+- 支持 C++17 的编译器（`CMAKE_CXX_STANDARD 17`）
+- 对于Windows：需要Windows 10 1809或更高版本，以及 MSVC 2022
 
 ### 编译步骤
 
@@ -30,8 +30,10 @@ NovaTerm（原名WindTermQt）是一款基于Qt框架开发的跨平台终端模
 # 创建构建目录
 mkdir build && cd build
 
-# 配置项目（替换/path/to/qt为你的Qt安装路径）
-cmake .. -DCMAKE_PREFIX_PATH=/path/to/qt
+# 配置项目
+# Qt 前缀已按宿主平台预置在 CMakeLists.txt 顶部；
+# 若本机 Qt 装在别处，再传 -DCMAKE_PREFIX_PATH=/path/to/qt 覆盖
+cmake ..
 
 # 编译
 cmake --build . --config Release
@@ -40,6 +42,16 @@ cmake --build . --config Release
 ### Windows特殊说明
 
 Windows平台使用ConPTY实现本地终端，需要Windows 10 1809+版本支持。
+
+首次构建前需先预编译 OpenSSL（一次性，幂等）：
+
+```bat
+scriptsuild-OpenSSL-thirdparty.bat
+```
+
+该脚本要求 PATH 中有 `perl.exe` 与 `nasm.exe`，产物落在
+`third_party/openssl-3.5.7/install/`。libssh、libvterm、libtelnet 与
+ElaWidgetTools 都随项目从源码构建，无需额外准备。
 
 ## 项目架构
 
@@ -115,11 +127,15 @@ NovaTerm/
 # 运行所有测试
 ctest
 
-# 运行特定测试
-ctest -R ScrollbackTests
-ctest -R TerminalCoreTests
-ctest -R RendererP3Tests
+# 运行特定测试（用 ctest 注册名，不是 QTest 类名）
+ctest -R novaterm_core_tests
+ctest -R novaterm_scrollback_tests
+ctest -R novaterm_renderer_tests
 ```
+
+Windows 上运行测试需要 Qt 的 `bin` 目录在 PATH 中（构建输出目录只部署了
+应用自身的运行时，不含 `Qt6Test.dll`）；渲染相关测试还需要
+`QT_PLUGIN_PATH` 指向 Qt 的 `plugins` 目录。
 
 ## 许可证
 

@@ -1,6 +1,6 @@
 @echo off
 REM ============================================================================
-REM  build-ssh-thirdparty.bat -- one-time build of OpenSSL only.
+REM  build-OpenSSL-thirdparty.bat -- one-time build of OpenSSL only.
 REM
 REM  Artifacts (static linking, no extra DLLs to ship):
 REM    third_party/openssl-3.5.7/install   <- OpenSSL 3.5.7 (NASM-optimized static)
@@ -35,7 +35,7 @@ REM      (skips per-TU dependency scanning; can be up to 50% faster). Safe here
 REM      because we never edit the third-party sources, so no incremental
 REM      header-dependency tracking is needed.
 REM
-REM  Usage: build-ssh-thirdparty.bat   (idempotent; safe to re-run)
+REM  Usage: build-OpenSSL-thirdparty.bat   (idempotent; safe to re-run)
 REM ============================================================================
 setlocal EnableExtensions
 
