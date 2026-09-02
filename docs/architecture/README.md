@@ -24,7 +24,7 @@
 | P3 增量渲染 | 实现完成，待实机验收 | [P3](stages/P3_Incremental_Rendering.md) |
 | P4 Chunked Scrollback 与搜索 | 计划中 | [P4](stages/P4_Chunked_Scrollback_and_Search.md) |
 | P5 Glyph 与 GPU 管线 | 计划中 | [P5](stages/P5_Glyph_and_GPU_Pipeline.md) |
-| P6 Session 与 Transport | 计划中 | [P6](stages/P6_Session_and_Transport.md) |
+| P6 Session 与 Transport | 进行中：Transport 完成，编排层未接入 | [P6](stages/P6_Session_and_Transport.md) |
 | P7 插件与扩展 | 计划中 | [P7](stages/P7_Plugin_System.md) |
 
 ## 文档权威性

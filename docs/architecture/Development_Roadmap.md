@@ -26,7 +26,7 @@ flowchart LR
 | P3 | 实现完成；待实机验收 | 调度、脏行、局部上传 | 单 Cell 不全屏扫描，60 FPS 实测 |
 | P4 | 计划中 | Chunk、快照、reflow、搜索 | 百万行内存受控，搜索不阻塞 |
 | P5 | 计划中 | 多页 Atlas、fallback、instancing | CJK/Emoji/DPI 正确且上传增量化 |
-| P6 | 计划中 | Session、Manager、SSH/Serial/Telnet | 多会话隔离、完整生命周期 |
+| P6 | 进行中：Transport 完成，编排层未接入 | Session、Manager、SSH/Serial/Telnet | 多会话隔离、完整生命周期 |
 | P7 | 计划中 | 权限化插件 API | 插件失败不影响主通路 |
 
 ## 3. 跨阶段质量门
