@@ -138,10 +138,11 @@ flowchart LR
 
 ```mermaid
 flowchart TD
-    A[vterm_new] --> B[obtain screen/state]
+    A[vterm_new] --> B[obtain screen/state + state reset]
     B --> C[enable UTF-8]
     C --> D[enable alternate screen]
-    D --> E[configure damage merge]
+    D --> RF[enable reflow]
+    RF --> E[configure damage merge VTERM_DAMAGE_SCROLL]
     E --> F[register output/screen callbacks]
     F --> G[Adapter ready]
 ```
@@ -177,14 +178,20 @@ VTermPos/Rect   -> Position/DirtyRegion
 
 ```cpp
 struct Observer {
-    std::function<void(const QByteArray&)> output;
+    std::function<void(QByteArrayView)> output;           // 终端响应字节
     std::function<void(const DirtyRegion&)> damage;
     std::function<void(const CursorState&)> cursorChanged;
     std::function<void(const QString&)> titleChanged;
     std::function<void()> bell;
     std::function<void()> scrollbackChanged;
+    std::function<void(int)> screenScrolled;              // 活动屏幕上滚行数
 };
 ```
+
+以上为当前 `VTAdapter.h:29-38` 的实际形态，与 P1 初版有两处差异：`output`
+改用 `QByteArrayView`（P2 精确部分接收改造时统一为视图传递，避免为定位后缀
+反复复制）；`screenScrolled` 由后续阶段新增，供 Renderer 的 GPU 行槽位环判断
+可复用行（见 P3 §Viewport 与 Scrollback 映射、P5 §8）。
 
 callback 落地映射：
 
@@ -192,13 +199,19 @@ callback 落地映射：
 | --- | --- |
 | output | 发布编码后的终端输入字节 |
 | damage | 从 libvterm 拉取受影响 Cell，更新 ScreenBuffer，发布 DirtyRegion |
+| moverect | 按 libvterm 语义搬移 `ScreenBuffer` 区域，并发布目标区 DirtyRegion |
 | movecursor | 更新 CursorState 并通知观察者 |
 | settermprop | 解析 title 等终端属性 |
 | bell | 发布 bell 事件 |
 | resize | 调整 ScreenBuffer 并同步尺寸 |
-| sb_pushline | 转换 Cell 后追加 Scrollback |
+| sb_pushline_ex | 转换 Cell 后追加 Scrollback，并携带 soft-wrap 标志 |
 | sb_popline | 从 Scrollback 取 NovaTerm Cell 并反向转换 |
 | sb_clear | 清空 Scrollback 并通知消费者 |
+
+`moverect` 与 `sb_pushline_ex` 不属于 P1 初版：前者由 P2 的 O(1) 全屏行环优化
+引入（见 P2 §优化 1），后者是 vendored libvterm 的 NovaTerm 向后兼容扩展，
+由 P4 用于把 continuation 物理行合并进同一 `LogicalLine`（见 P4 §实际落地摘要）。
+注册点见 `VTAdapter.cpp:204-214`。
 
 ```mermaid
 sequenceDiagram
@@ -255,6 +268,10 @@ Qt `QKeyEvent/QMouseEvent/QWheelEvent` 不应传入 Renderer 之外的长期数�
 
 P1 保持现有行级环形结构和容量行为，避免同时实施 P4。需要测试：未满、写满、覆盖最旧行、改变上限、clear、列数变化和 pop 恢复顺序。
 
+**后续变更**：该行级环形结构已由 P4 移除。`ScrollbackBuffer` 现在只是外观层，
+唯一后端为 `ChunkedScrollback`，不再双写逐行环形缓冲（`ScrollbackBuffer.h:1-16`）。
+本步骤描述的 push/pop 外部语义保持不变，内部存储以 P4 文档为准。
+
 ### 步骤 10：迁移 Renderer
 
 Renderer 的公开和私有接口改为只消费：
@@ -284,7 +301,12 @@ P1 仍允许 Renderer 全屏扫描和重建 GPU 顶点；真正的 Dirty 行命�
 - Renderer/UI 不通过 Core 的传递依赖获得 `vterm.h`；
 - 对活动源再次执行 `rg 'VTerm|vterm.h' src/renderer src/ui`。
 
-如果 KeyMapper 暂时需要 libvterm key enum，应将依赖记录为待隔离项，不能因此重新把 libvterm 暴露给 Renderer。
+KeyMapper 确实仍需要 libvterm key enum：`KeyMapper.h:10` 包含
+`<vterm_keycodes.h>`，`KeyMapper.cpp` 直接产出 `VTERM_KEY_*` / `VTERM_MOD_*`。
+这是一个**已记录的待隔离项**，不是边界被破坏 —— `novaterm_core` 对 libvterm
+的 include 与链接均为 PRIVATE（`CMakeLists.txt:192`、`CMakeLists.txt:200`），
+`src/renderer`、`src/ui` 中没有任何 `VTerm` 符号引用。彻底去除需要引入
+平台无关 InputCommand（步骤 7 已提出），不能因此重新把 libvterm 暴露给 Renderer。
 
 ### 步骤 12：补齐正确性与性能验证
 
@@ -315,7 +337,7 @@ Release benchmark 同时记录 Parser/Core 吞吐和 10 万行 Scrollback。P1 �
 | `src/core/terminal/KeyMapper.*` | Qt 输入到终端键语义的过渡桥接 |
 | `src/renderer/TerminalRenderer.*` | 仅消费 NovaTerm 类型 |
 | `tests/core/TerminalCoreTests.cpp` | 转换、快照和终端行为测试 |
-| `benchmarks/CoreBenchmark.cpp` | P0/P1 性能对比 |
+| `tests/benchmarks/CoreBenchmark.cpp` | P0/P1 性能对比 |
 | `CMakeLists.txt` | Core 静态库与 libvterm 私有依赖 |
 
 ## 实施过程中的禁止项
@@ -339,9 +361,26 @@ Release benchmark 同时记录 Parser/Core 吞吐和 10 万行 Scrollback。P1 �
 
 ## 当前实现差距
 
-文档复核发现，当前 `TerminalTypes.h` 虽定义了 `WideCharContinuation`，但 `VTAdapter.cpp::fromVTermCell()` 仅复制 chars、把 width 归一为至少 1，并未显式为宽字符后续 Cell 写入 continuation。因此“宽字符 continuation 完整落地”不应仅凭类型存在判定完成。后续应增加双宽字符网格测试，根据 libvterm 对后续 Cell 的实际返回值补齐同步逻辑，再确认 Renderer 不重复生成字形。
+文档复核（2026-09-02 重新核对代码）发现，`TerminalTypes.h:22` 定义了
+`WideCharContinuation`，`Cell::isWideContinuation()` 也被 Renderer、
+`LineLayout` 和 `SearchEngine` 正常消费，但**全仓库没有任何写入点**：
+`VTAdapter.cpp:110-125` 的 `populateCell()`（`fromVTermCell()` 的实现）只按
+零终止符复制 chars、把 width 归一为至少 1，从不写入该哨兵。唯一写入出现在
+测试里（`tests/core/ScrollbackTests.cpp:101` 手工构造）。因此“宽字符
+continuation 完整落地”不应仅凭类型存在判定完成。后续应增加双宽字符网格测试，
+根据 libvterm 对后续 Cell 的实际返回值补齐同步逻辑，再确认 Renderer 不重复
+生成字形。
 
-此外，`CellAttributes` 中 `dim`、`protectedCell` 等字段当前没有全部从 libvterm attrs 映射；这些字段在被 Renderer 或选择/擦除语义使用前，应补充来源、双向转换和测试。上述差距不改变 Renderer 已脱离 libvterm 的边界成果，但属于 P1 正确性补完项。
+此外，`CellAttributes`（`TerminalTypes.h:90-107`）中的 `dim` 与
+`protectedCell` 在 `fromVTermAttributes()`（`VTAdapter.cpp:65-86`）和
+`toVTermAttributes()`（`VTAdapter.cpp:88-108`）中都没有映射 —— 根本原因是
+vendored libvterm 的 `VTermScreenCellAttrs` 不提供对应位，需要 NovaTerm 自己
+解析 SGR 2 与 DECSCA 才有可靠来源。因此两者**恒为 false**：全仓库唯一读取点
+是两处行内容哈希（`TerminalCore.cpp:119-120`、`RowBlockDamageTracker.h:119-120`），
+它们只是把属性位打进哈希，不产生任何视觉或语义效果 —— 即 `dim` 目前不会让
+Renderer 降低亮度，`protectedCell` 也不会让 DECSCA 保护区在清屏时保留。
+这些字段在被 Renderer 或选择/擦除语义真正使用前，应先补齐来源、双向转换和测试。
+上述差距不改变 Renderer 已脱离 libvterm 的边界成果，但属于 P1 正确性补完项。
 
 ## 退出标准
 

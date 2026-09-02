@@ -481,26 +481,34 @@ Renderer初始化时形成后端能力表：
 
 每个阶段必须可构建、可测试、可独立回退定位。禁止在同一提交中同时替换字体选择、Atlas、实例格式、滚屏映射和Overlay合成。
 
-## 17. 建议文件结构
+## 17. 文件结构
 
-| 文件 | 职责 |
-| --- | --- |
-| `src/renderer/font/FontManager.*` | 字体、fallback、metrics和generation |
-| `src/renderer/glyph/GlyphTypes.h` | GlyphKey、bitmap、entry和page id |
-| `src/renderer/glyph/GlyphRasterizer.*` | cluster光栅化与异步任务 |
-| `src/renderer/glyph/GlyphCache.*` | key缓存、LRU、引用和退休 |
-| `src/renderer/glyph/GlyphAtlas.*` | 多页pack、预算、generation和dirty rect |
-| `src/renderer/gpu/RendererCapabilities.*` | QRhi能力与后端策略 |
-| `src/renderer/gpu/InstanceBuffer.*` | frames-in-flight实例/环形Buffer |
-| `src/renderer/gpu/MaterialBatcher.*` | layer、page和pipeline合批 |
-| `src/renderer/gpu/RowSlotMap.*` | 行identity、placement和滚屏槽位环 |
-| `src/renderer/gpu/OverlayCompositor.*` | Base Texture和Overlay独立合成 |
-| `src/renderer/TerminalRenderer.*` | Snapshot协调、失效和QRhi提交 |
-| `tests/renderer/GlyphTests.cpp` | key、fallback、raster、cache和Atlas单测 |
-| `tests/renderer/GpuPipelineTests.cpp` | batch、slot ring、预算和失效测试 |
-| `tests/benchmarks/RendererP5Benchmark.cpp` | cold/warm Glyph、滚屏、Overlay和GPU基准 |
+下表为**实际落地结构**（2026-09-02 逐文件核对）。第 2 列标出与本节初版
+"建议结构"的差异，避免按不存在的文件名去找实现：
 
-目录是建议边界，不为形式提前搬迁；先提取可测试接口，再移动实现。
+| 文件 | 与建议结构的差异 | 职责 |
+| --- | --- | --- |
+| `src/renderer/font/FontManager.*` | 一致 | 字体、fallback、metrics和generation |
+| `src/renderer/glyph/GlyphTypes.h` | 一致 | GlyphKey、bitmap、entry和page id |
+| `src/renderer/glyph/GlyphRasterizer.*` | 一致 | cluster光栅化与异步任务；含 `BoundedGlyphRasterQueue`（容量 512）|
+| `src/renderer/glyph/GlyphCache.*` | 一致 | key缓存、LRU、引用和退休 |
+| `src/renderer/glyph/GlyphAtlas.*` | 一致 | 多页pack、预算、generation和dirty rect |
+| `src/renderer/gpu/RendererCapabilities.*` | 一致 | QRhi能力与后端策略 |
+| `src/renderer/gpu/BufferBudget.*` | **取代 `InstanceBuffer.*`** | 只做容量/预算（1.5 倍增长、64 MiB 上限）；frames-in-flight staging 交给 QRhi Dynamic Buffer，因此没有自建环形 Buffer（见 §21.1 C）|
+| `src/renderer/gpu/MaterialBatcher.*` | 一致 | layer、page和pipeline合批 |
+| `src/renderer/gpu/RowSlotMap.*` | 一致 | 行identity、placement和滚屏槽位环 |
+| — | **`OverlayCompositor.*` 未建立** | persistent Base Texture 走 §10/§14 允许的确定性回退，未引入独立合成组件（见 §21.1 E、§21.6）|
+| `src/renderer/RowBlockDamageTracker.h` | 建议结构未列出 | 8-Cell 脏块（`BlockColumns = 8`）与真实行内容对账，防止短重写残留旧命令 |
+| `src/renderer/ScrollDamageHandoff.h` | 建议结构未列出 | `screenScrolled` 与后到的 damage 帧两段交接 |
+| `src/renderer/TerminalRenderer.*` | 一致 | Snapshot协调、失效和QRhi提交；`GpuInstance`（16 float / 64 byte）定义于此 |
+| `tests/renderer/RendererP5Tests.cpp` | **合并了 `GlyphTests.cpp` + `GpuPipelineTests.cpp`** | key、fallback、raster、cache、Atlas、batch、slot ring、预算和失效（目标 `novaterm_renderer_p5_tests`）|
+| `tests/benchmarks/RendererP5GpuBenchmark.cpp` | 原名 `RendererP5Benchmark.cpp` | cold/warm Glyph、滚屏、Overlay和GPU基准（目标 `novaterm_renderer_p5_gpu_benchmark`；acceptance 变体 `novaterm_renderer_p5_gpu_acceptance` 需 `-DNOVATERM_RUN_GPU_ACCEPTANCE_TESTS=ON`）|
+
+关键实现常量（便于核对，均已在代码中）：Atlas 页 2048 × 2048、总预算
+64 MiB、每帧上传预算 4 MiB、frames-in-flight 3（`GlyphAtlas.h:30-34`）；
+raster 队列容量 512（`GlyphRasterizer.h:53`、`TerminalRenderer.h:265`）；
+Buffer 预算 64 MiB、最小 256 KiB、1.5 倍增长（`BufferBudget.h:41-42`、
+`BufferBudget.cpp:41-47`）；脏块 8 列（`RowBlockDamageTracker.h:24`）。
 
 ## 18. 测试矩阵
 

@@ -14,17 +14,17 @@
 | --- | --- | --- |
 | 0 盘点 View 运行期职责 | 已完成 | — |
 | 1 Session 类型与状态契约 | 已完成 | — |
-| 2 最小 `TerminalSession` | 部分完成 | 所有权与设计相反：`TerminalView` 默认自建 Session 并 parent 自己（`TerminalView.cpp:133`，`_ownsSession=true`），生产路径全部走这条 |
-| 3 `SessionInputPump` | 已完成 | 禁止项第一条未被违反：`_pendingTransportInput` 在 `src/ui/` 下已零残留 |
-| 4 生命周期与关闭协议 | 部分完成 | `TerminalSession::close(CloseMode)` 首行即 `Q_UNUSED(mode)`，Graceful 与 Abort 未区分 |
+| 2 最小 `TerminalSession` | 部分完成 | 所有权与设计相反：`TerminalView` 默认自建 Session 并 parent 自己（`TerminalView.cpp:133` 的 `new TerminalSession(_core, this)`；`_ownsSession` 默认 true 见 `TerminalView.h:105`，赋值见 `TerminalView.cpp:124`），生产路径全部走这条 |
+| 3 `SessionInputPump` | 已完成 | 禁止项第一条未被违反：`_pendingTransportInput` 在 `src/ui/` 下已零残留，暂存点为 `SessionInputPump.h:85` 的 `_pending`（上限 `MaxPendingBytes` 8 MiB / 单次 `InputChunkBytes` 64 KiB，`SessionInputPump.h:80-81`）|
+| 4 生命周期与关闭协议 | 部分完成 | `TerminalSession::close(CloseMode)` 首行即 `Q_UNUSED(mode)`（`TerminalSession.cpp:317-319`），Graceful 与 Abort 未区分 |
 | 5 `ITransport` 契约扩展 | 部分完成 | `transportError` 已接通：四种 Transport 全部 emit（按 ITransport.h 约定先发结构化错误、再发 `errorOccurred`），`TerminalSession` 据此把分类映射为 `SessionErrorCategory`，不再硬编码 `Io`，且仍只上报一条 `sessionError`。剩余缺口：`exited` 仅 Local 发出，转发到 `TerminalSession::exited` 后 UI 无消费者 |
 | 6 Local PTY/ConPTY | 已完成（句柄断言受平台缺陷阻塞） | 两处句柄断言失败**不是本项目缺陷**：`CreatePseudoConsole`/`ClosePseudoConsole` 在本机 Windows 版本上不配平，每个伪控制台生命周期泄漏约 1 个句柄（单线程无子进程的最小复现见 `tests/transport/conpty_handle_leak_repro.c`，实测 1.04/循环）。ConPtySession 自建的 8 个句柄全部有对应关闭点，线程数与子进程数断言均通过。另有 `duplexLoadAndBackpressure` 偶发超时待查（与句柄无关）|
-| 7 SSH Transport | 部分完成 | 结构化 Challenge 完全不存在（全库无 `Challenge` 类型）；`TerminalView.cpp:422` 直接 `qobject_cast<SshTransport*>` 弹框并调 `acceptHostKey()`，绕过 Session 层；`_keyDecision` 是单个 int，无 ChallengeId 防迟到响应；keyboard-interactive 未实现 |
+| 7 SSH Transport | 部分完成 | 结构化 Challenge 完全不存在（全库无 `Challenge` 类型）；`TerminalView.cpp:422` 直接 `qobject_cast<SshTransport*>` 弹框并调 `acceptHostKey()`，绕过 Session 层；`_keyDecision` 是单个 int（`SshTransport.h:140`），无 ChallengeId 防迟到响应；keyboard-interactive 未实现 |
 | 8 Serial Transport | 已完成 | 无专门测试文件 |
 | 9 Telnet Transport | 已完成 | — |
 | 10 `SessionManager` | 部分完成 | 实现完整（注册/查找/关闭/重连/自动回收，无 `activeSession`），但**生产代码零使用**：`SessionManager` 与 `SessionFactory` 在 `src/ui/`、`src/main.cpp` 中均无命中，会话集合实际由 `TerminalPage::_terminalViews` 这个 View 列表隐式代表；`create(profileId, overrides)` 与 `restore` 未实现 |
-| 11 attach/detach 与后台策略 | 部分完成 | `TerminalSession::detach()` 实际就是 `close(CloseMode::Graceful)`，与"detach 不关闭 Session"直接冲突；可见性→GPU 帧策略缺失（`RenderScheduler`/`TerminalView` 无 `isVisible`/`occluded` 逻辑，`setTargetRefreshRate` 无人按可见性调用）|
-| 12 持久化分层 | 部分完成 | `SessionStore`、`CredentialStore` 已接入 `SessionPanel`；`ProfileStore` 只有 `MemoryProfileStore`，无持久化实现，生产代码仅用其静态方法 `containsSensitiveValues` |
+| 11 attach/detach 与后台策略 | 部分完成 | `TerminalSession::detach()` 实际就是 `close(CloseMode::Graceful)`（`TerminalSession.cpp:290-293`），与"detach 不关闭 Session"直接冲突；可见性→GPU 帧策略缺失（`RenderScheduler`/`TerminalView` 无 `isVisible`/`occluded` 逻辑，`setTargetRefreshRate` 无人按可见性调用）|
+| 12 持久化分层 | 部分完成 | `SessionStore`、`CredentialStore` 已接入 `SessionPanel`；`ProfileStore` 只有 `MemoryProfileStore`（`ProfileStore.h:88`，基类接口在 `ProfileStore.h:40`），无持久化实现，生产代码仅用其静态方法 `containsSensitiveValues` |
 | 13 重连与恢复 | 部分完成 | `SessionStatistics::generation` 已投入消费：`connectTransportSignals()` 把世代号绑进每个处理器，`start()`/`beginReconnect()` 自增后调用 `rewireTransportSignals()` 重建接线。但**跨线程投递的信号仍无法靠 generation 识别**——SshTransport/LocalShellTransport 用 `invokeMethod(QueuedConnection)` 把 emit 推迟到 GUI 线程，emit 发生在重接线之后，世代号已是新值，故 `isConnected()` 启发式必须保留。彻底解法需把 generation 写进 ITransport 的信号契约（属步骤 5 的接口变更）。另无指数退避、最大重试次数与最大间隔 |
 | 14 压力验证与切换 | 部分完成 | `tests/transport/TransportContractTests.cpp` 不存在，四种 Transport 各写一套独立测试（SSH 那份还不是 QTest）；SSH 无压力/泄漏/背压测试；无多 Session 并发输出测试；无 sanitizer 配置 |
 
@@ -300,9 +300,13 @@ Reconnect 创建新的 Transport connection generation，但保持 SessionId；C
 | `src/credential/CredentialStore.*` | 敏感凭据存取，Profile 仅保存引用 |
 | `src/transport/ITransport.h` | 统一异步契约 |
 | `src/transport/*Transport.*` | Local/SSH/Serial/Telnet 实现 |
-| `tests/session/SessionTests.cpp` | 状态、关闭和多会话测试 |
-| `tests/transport/TransportContractTests.cpp` | 所有实现共享契约（尚未建立） |
+| `tests/session/SessionTests.cpp` | 状态、关闭和多会话测试（目标 `novaterm_session_tests`）|
+| `tests/transport/TransportContractTests.cpp` | 所有实现共享契约 —— **尚未建立**（见"剩余工作"第 7 项）|
 | `tests/transport/TelnetTransportTests.cpp` | Telnet 协商、转义、背压和失败路径（loopback QTcpServer，无需 telnetd） |
+| `tests/transport/PtyTransportTests.cpp` / `ConPtyTransportTests.cpp` | Local PTY / ConPTY，各自独立而非共享契约；ConPTY 另有 `conpty_handle_leak_repro.c` 平台缺陷复现 |
+| `tests/transport/SshTransportFailureCheck.cpp` | SSH 失败路径 —— 非 QTest，仅返回退出码；无压力/泄漏/背压覆盖 |
+
+Serial Transport 目前**没有对应测试文件**（见"实现进度"步骤 8 行）。
 
 ## 实施禁止项
 

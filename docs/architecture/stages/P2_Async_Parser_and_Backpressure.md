@@ -217,7 +217,12 @@ submittedCommands / completedCommands
 
 ### 步骤 9：处理 readyRead 与暂停之间的竞争窗口
 
-高水位信号送达前，Transport 可能已经发出额外 `readyRead`。当前实现由 `TerminalView::_pendingTransportInput` 保存未入队后缀，并按 64 KiB 在低水位后重试：
+高水位信号送达前，Transport 可能已经发出额外 `readyRead`。**该职责已由 P6
+下沉**：暂存点现在是 `SessionInputPump::_pending`（`SessionInputPump.h:85`），
+上限 `MaxPendingBytes` 8 MiB、单次喂入 `InputChunkBytes` 64 KiB
+（`SessionInputPump.h:80-81`），超限发 `overload(reason)` 信号
+（`SessionInputPump.h:72`）。`src/ui/` 下已无未入队 Transport 字节的成员。
+逻辑本身与 P2 落地时一致：
 
 ```text
 readyRead(data)
@@ -232,7 +237,7 @@ backpressure(false)
   └─ 全部接收：恢复 Transport
 ```
 
-这是当前已经落地的过渡实现。P6 必须把这一逻辑原样迁移到 `TerminalSession/InputPump`，并为 pending 数据增加明确容量和统计，使后台 Session、无 View Session 也能正确背压。
+迁移完成后，无 View 的后台 Session 也能正确背压，不再依赖 `TerminalView` 存活。
 
 ### 步骤 10：实现确定的停止和销毁顺序
 
@@ -358,9 +363,10 @@ reflow 和异步搜索；后续迁移时应保留“尾部默认 Cell 可稀疏�
 分别导致静默丢失或重复解析。
 
 现在 `TerminalCore::InputWriteResult` 同时返回请求字节数、实际接收字节数和
-背压状态。`TerminalView` 只把 `data[acceptedBytes..end]` 加入 pending；
-低水位恢复时也只移除本轮实际接收的前缀。Core、ByteQueue 和调用者之间
-使用 `QByteArrayView` 传递视图，避免为了定位后缀反复创建 `mid()` 副本。
+背压状态。调用方只把 `data[acceptedBytes..end]` 加入 pending；低水位恢复时也
+只移除本轮实际接收的前缀。Core、ByteQueue 和调用者之间使用 `QByteArrayView`
+传递视图，避免为了定位后缀反复创建 `mid()` 副本。（P2 落地时该调用方是
+`TerminalView`，P6 之后是 `SessionInputPump`。）
 
 这次修改仍保留“单个最多 64 KiB 入队”和零等待语义，因此不会扩大锁持有
 时间，也不会把 UI/Transport 调用变成阻塞操作。
@@ -421,7 +427,7 @@ Release Core/Renderer 全量测试通过；P4 Chunked Scrollback 基准同时保
 | `third_party/libvterm-0.3.3/src/screen.c` | 全屏滚动行环和 resize 前规范化 |
 | `src/transport/ITransport.h` | 定义暂停读取能力 |
 | `src/transport/LocalShellTransport.*` | PTY/ConPTY 暂停和恢复 |
-| `src/ui/terminal/TerminalView.*` | 当前精确后缀 pending 重试桥接；P6 将下沉 |
+| `src/session/SessionInputPump.*` | 精确后缀 pending 重试与暂停/恢复（P2 落地在 `TerminalView`，P6 已下沉至此）|
 | `tests/core/TerminalCoreTests.cpp` | 队列、并发、精确部分接收、行环边界、背压和销毁测试 |
 | `tests/benchmarks/CoreBenchmark.cpp` | Release 吞吐与 Scrollback 测量 |
 

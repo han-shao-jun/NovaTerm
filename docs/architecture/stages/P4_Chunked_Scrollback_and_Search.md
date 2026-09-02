@@ -33,7 +33,9 @@ live hard budget，而独立计入 `retainedBySnapshots`，释放 Snapshot 后�
 进程总内存。
 
 默认值为 100,000 行、256 MiB、1024 logical lines/chunk；最大可配置行数为
-1,000,000。单行超过 byte budget、0 行或 0 byte budget 都会立即淘汰。
+1,000,000。单行超过 byte budget、0 行或 0 byte budget 都会立即淘汰。四个常量
+定义在 `ChunkedScrollback.h:24-27`（`DefaultChunkLines`、`DefaultMaxLines`、
+`MaximumMaxLines`、`DefaultMaxBytes`）。
 
 ## 目标
 
@@ -167,7 +169,9 @@ sequenceDiagram
 
 用相同输入同时喂给旧/新实现，仅在测试中对比行内容、push/pop、resize 和淘汰结果。新路径通过正确性、内存和性能门后切换默认实现；随后删除旧行级容器，避免两个 Scrollback 长期双写。
 
-## 建议文件结构
+## 文件结构
+
+下表为实际落地结构（2026-09-02 核对，与当初"建议"一致）：
 
 | 文件 | 职责 |
 | --- | --- |
@@ -177,8 +181,9 @@ sequenceDiagram
 | `src/core/scrollback/ScrollbackSnapshot.*` | 只读发布视图 |
 | `src/core/scrollback/LineLayout.*` | wrap、viewport 和 reflow |
 | `src/core/search/SearchEngine.*` | 可取消异步搜索 |
-| `tests/core/ScrollbackTests.cpp` | Chunk/淘汰/reflow 正确性 |
-| `benchmarks/ScrollbackBenchmark.cpp` | 百万行内存和性能 |
+| `src/core/terminal/ScrollbackBuffer.*` | 旧 API 兼容外观层（步骤 5），唯一后端为 `ChunkedScrollback` |
+| `tests/core/ScrollbackTests.cpp` | Chunk/淘汰/reflow 正确性（目标 `novaterm_scrollback_tests`）|
+| `tests/benchmarks/ScrollbackBenchmark.cpp` | 百万行内存和性能（目标 `novaterm_scrollback_benchmark`）|
 
 ## 实施禁止项
 

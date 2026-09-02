@@ -91,17 +91,23 @@ Parser batch N
 
 ### 固定槽位容量
 
-P3 当前顶点格式为每 Quad 6 个 `GpuVertex`，每个 `GpuVertex` 为 8 个 `float`。基础容量为：
+> **P5 已替换顶点格式。** P3 落地时每个 Quad 展开为 6 个 `GpuVertex`（每个
+> 8 个 `float`，32 bytes/顶点，192 bytes/Quad）。P5 阶段 C 改为**实例化**：
+> 一个 Quad 等于一条 `GpuInstance`（16 个 `float`，64 bytes），单位 Quad 由
+> shader 生成，绘制方式为 `cb->draw(4, instanceCount)` 的 TriangleStrip
+> （`TerminalRenderer.cpp:923-945`、`TerminalRenderer.cpp:1437-1449`、
+> `TerminalRenderer.h:165-183`）。下面按当前实例格式给出，槽位划分与增量
+> 语义未变，只是每 Quad 的 bytes 从 192 降到 64。
 
 ```text
-backgroundVerticesPerRow = columns × 6
-contentVerticesPerRow    = columns × 4 commands × 6
-overlayVertices          = max((rows + 2) × 6,
-                               overlayCommandCount × 6)
-requiredBytes            = totalVertices × sizeof(GpuVertex)
+backgroundInstancesPerRow = max(columns, 该行实际 background 命令数)
+contentInstancesPerRow    = max(columns × 4, 该行实际 content 命令数)
+overlayInstances          = max(rows + 2, overlayCommandCount)
+requiredBytes             = (rows × (bgStride + contentStride)
+                             + overlayInstances) × sizeof(GpuInstance)
 ```
 
-内容区每 Cell 的 4-command 上限覆盖 Glyph、双下划线两个 Quad 和 Strike。实际命令超过当前槽位时，容量只增不减并重新计算所有行 offset；布局改变或 Buffer 重分配后必须全量重传。行由有内容变为空时以命令数量归零控制 Draw，不能继续绘制旧槽位数据。
+内容区每 Cell 的 4-command 上限覆盖 Glyph、双下划线两个 Quad 和 Strike。实际命令超过当前槽位时，容量只增不减并重新计算所有行 offset（`ensureVertexBuffer()` 用 `_backgroundRowStrideVertices` / `_contentRowStrideVertices` 做单调上取整）；布局改变或 Buffer 重分配后必须全量重传。行由有内容变为空时以命令数量归零控制 Draw，不能继续绘制旧槽位数据。
 
 ## 落地实现步骤
 
@@ -138,9 +144,11 @@ stateDiagram-v2
 
 ### 步骤 3：实现 `RenderCommandBuffer`
 
-新增 `src/renderer/RenderCommandBuffer.{h,cpp}`。定义后端无关命令类型：BackgroundRect、GlyphInstance、Underline、Strike、Cursor、SelectionOverlay，并预留 Hyperlink/Search Overlay。
+新增 `src/renderer/RenderCommandBuffer.{h,cpp}`。定义后端无关命令类型：BackgroundRect、GlyphInstance、Underline、Strike、Cursor、SelectionOverlay，并预留 Hyperlink/Search Overlay。P4/P5 之后这两个预留项都已实装，当前 `RenderCommandType` 共 8 项（`RenderCommandBuffer.h:21-31`）。
 
 每个可见行保存 `RenderCommandRow { backgrounds, contents, revision, atlasGeneration }`，Overlay 单独保存。`replaceRow()` 只增加目标行和全局 revision，resize 清除无效行及 Atlas generation。命令只保存逻辑矩形、Atlas UV 和颜色，不能保存 `QRhiBuffer*`、纹理或 Parser 指针。
+
+P5 在此基础上扩展了 `RenderCommandRow`（新增 `contentRevision` 与 8-Cell 脏列 span）、`RenderCommand`（新增 `atlasPage`、`pageGeneration`、`cellColumn`）以及 `rotateRowsUp()` / `rowsUseAtlasGeneration()`（`RenderCommandBuffer.h:34-101`）；这些都是增量，未改变本步骤的行缓存语义。
 
 ### 步骤 4：把 Renderer 更新入口接入 Scheduler
 
@@ -174,11 +182,11 @@ Scrollback 需要区分两种情况：位于实时底部时，追加历史行通
 [overlay region]
 ```
 
-固定槽位的优点是脏行可直接计算 byte offset；缺点是容量浪费和复杂 Glyph 上限，P5 可在指标支持下改为实例/分块缓冲，但不得破坏增量更新语义。
+固定槽位的优点是脏行可直接计算 byte offset；缺点是容量浪费和复杂 Glyph 上限。**P5 已完成这一演进**：改为 64-byte 实例 + 8-Cell 脏块 + GPU 行槽位环，槽位划分保持不变，增量更新语义未破坏（见 P5 §7、§8 与 §21.1 C/D）。
 
 ### 步骤 8：局部生成顶点并上传
 
-只将脏行命令转换成 `GpuVertex`，并对对应背景区、内容区调用 `updateDynamicBuffer()`；Overlay 变化时只上传 Overlay 区。若命令超过槽位容量，本帧扩容并全量重传，禁止截断。
+只将脏行命令转换成 GPU 实例数据（P3 为 `GpuVertex`，P5 起为 `GpuInstance`），并对对应背景区、内容区调用 `updateDynamicBuffer()`；Overlay 变化时只上传 Overlay 区。若命令超过槽位容量，本帧扩容并全量重传，禁止截断。
 
 Draw 顺序固定为：所有背景、所有内容、Overlay。即使使用多次 draw，也不能按 Cell 交错绘制背景和字形，否则后一 Cell 背景可能覆盖前一字形的抗锯齿边缘。
 
@@ -293,7 +301,14 @@ Renderer/Core 新增回归覆盖：最高 content revision 合并、cancel 清�
 
 ### P3 support 基准结果
 
-该基准测量 `rendererSnapshot()`、脏行 Cell 遍历和 `RenderCommandBuffer` 替换组成的 CPU support 管线，并依据当前固定槽位顶点格式计算上传 bytes；它不创建 QRhi 设备，不代表真实 GPU、Driver、VSync 或呈现时间。
+该基准测量 `rendererSnapshot()`、脏行 Cell 遍历和 `RenderCommandBuffer` 替换组成的 CPU support 管线；它不创建 QRhi 设备，不代表真实 GPU、Driver、VSync 或呈现时间。
+
+**“模型上传量”一列的口径注意**：该列由 benchmark 自行按 P3 的六顶点模型
+（`VerticesPerQuad = 6`、`GpuVertexBytes = 8 × sizeof(float)`，见
+`tests/benchmarks/RendererP3Benchmark.cpp:15-16`）估算，**不是**当前 Renderer
+的真实上传量。P5 起真实格式为 64 bytes/实例，同样命令数的实际上传约为该列的
+1/3。要看真实上传 bytes 请用 `novaterm_renderer_p5_gpu_benchmark`
+或 `RenderStatistics::gpuUploadBytes`。下表数字保留为 P3 当时的对比基线。
 
 | 场景 | 脏行 | 命令数 | CPU P50 | CPU P95 | CPU P99 | 模型上传量 |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
