@@ -18,7 +18,7 @@ GPU 管线，UI 用 ElaWidgetTools（FluentUI 风格）。GPLv2+，仓库在 Git
 | `docs/architecture/Development_Roadmap.md` | P0–P7 依赖、状态表、**统一完成定义** |
 | `docs/architecture/stages/P*.md` | 各阶段实施说明。P6 含逐步进度表与剩余工作 |
 | `docs/architecture/Rendering_Architecture.md` | Snapshot、调度、命令缓存、QRhi、Glyph |
-| `docs/architecture/Configuration_Profile_Theme.md` | 配置分层、Profile、Session、主题职责 |
+| `docs/architecture/Configuration_Profile_Theme.md` | 配置分层、Profile、Session、主题职责。**描述目标设计**，开头有与当前源码的名称对照表 |
 
 冲突时以 `docs/ARCHITECTURE.md` 和源码为准（`docs/architecture/README.md`
 的"文档权威性"一节有明确规定）。旧概念设计文档不作依据。

@@ -261,6 +261,10 @@ UI 层承担，未单独建 `src/theme/`；搜索位于 `src/core/search/` 而�
 
 ## 附录 A：NovaTerm Architecture Design（原 docs/01_Architecture.md）
 
+> **本附录是 2026-07-12 的早期概念设计，仅供追溯，不是当前依据。**
+> 与上文第 1–11 节或当前源码冲突时，一律以上文和源码为准；其中的类名、目录
+> 结构与阶段规划均可能已过时。
+
 > Version: 1.0
 >
 > Author: NovaTerm Project

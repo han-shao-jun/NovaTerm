@@ -1,5 +1,19 @@
 # 配置、Profile、Session 与主题架构
 
+> **本文描述目标设计，图中部分组件名与当前源码不一致。** 名称对照与落地情况：
+>
+> | 本文中的名称 | 当前实现 |
+> | --- | --- |
+> | `ConfigManager` | `src/service/ConfigManager.*` —— 已落地 |
+> | `ProfileManager` | 无此类；对应 `src/profile/ProfileStore.*`，且目前只有 `MemoryProfileStore`，无持久化实现 |
+> | `ThemeManager` | 无此类；UI 主题由 ElaWidgetTools 与 `ConfigManager` 承担，终端配色在 `src/renderer/TerminalColorScheme.*` |
+> | `SessionFactory` | `src/session/SessionFactory.*` 已实现，但**生产代码尚未使用**（详见 P6 阶段文档"实现进度"表第 10 行） |
+>
+> 第 3 节的 Profile Schema 同为建议格式；当前实际持久化的是
+> `SessionStore` 写入的 `session-history.json`，其 transport 子图为扁平键值
+> （`host`/`port`/`terminalType` 等），与本文的嵌套 `connection{}` 结构不同。
+> 修改本文的设计前请先对照源码现状。
+
 ## 1. 职责关系
 
 ```mermaid

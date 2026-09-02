@@ -30,10 +30,16 @@
 ## 文档权威性
 
 - `docs/ARCHITECTURE.md` 描述当前统一设计和后续目标；本目录文档提供配套细节。
-- `P0_Performance_Baseline.md` 是 P0 原始测量记录。
+- P0 基线数值见 [P0](stages/P0_Baseline_and_Build.md) 的“基线结果”一节。原
+  `docs/P0_Performance_Baseline.md` 已在架构文档合并时删除。
 - 原 `P1/P2/P3` 文档是实施日志，数值和变更清单仍有追溯价值。
-- `NovaTerm开发指南.md`、旧 QRhi/Profile/Theme 文档属于早期概念设计；与统一架构文档和当前源码冲突时，以后者为准。
+- 早期概念设计（原 `docs/01_Architecture.md`）已并入
+  [`docs/ARCHITECTURE.md`](../ARCHITECTURE.md) 的**附录 A**，仅供追溯；与该文档正文
+  或当前源码冲突时，以正文和源码为准。原 `NovaTerm开发指南.md` 与旧
+  QRhi/Profile/Theme 概念文档已随合并删除，不再作为依据。
 - 状态只有在代码、自动化测试和相应验收完成后才能改为“已完成”。功能完成但性能未达标时必须分别标注。
+- 各阶段状态以 `stages/P*.md` 自身的状态行为准；上方阶段表是同步过去的副本，
+  不一致时以阶段文档为真。
 
 ## 统一术语
 

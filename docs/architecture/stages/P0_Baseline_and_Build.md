@@ -28,5 +28,5 @@ Windows x64、MSVC 19.44、Qt 6.8.3、Release：10 MiB 解析为 868.07 ms / 11.
 
 ## 验收与遗留
 
-已满足独立构建和可重复测量。基线不包括 Transport、UI 延迟、内存、GPU 时间和 FPS；后续阶段分别补齐。原始口径见 `docs/P0_Performance_Baseline.md`。
+已满足独立构建和可重复测量。基线不包括 Transport、UI 延迟、内存、GPU 时间和 FPS；后续阶段分别补齐。原始口径见上方“基线结果”一节；原 `docs/P0_Performance_Baseline.md` 已在架构文档合并时删除。
 

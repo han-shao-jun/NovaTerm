@@ -40,7 +40,7 @@ flowchart TB
     C -->|hit| CMD[GlyphInstance]
 ```
 
-P5 的多页 Atlas、LRU、局部上传、CJK fallback、组合字符、Emoji、DPI/generation 失效与资源恢复已完成 Linux Vulkan/OpenGL 本机验收；跨平台、多档真实 DPR 与长稳验收状态以 P5 阶段文档为准。
+P5 的多页 Atlas、LRU、局部上传、CJK fallback、组合字符、Emoji、DPI/generation 失效与资源恢复已完成 Linux Vulkan/OpenGL 与 Windows D3D11/D3D12 本机验收，以及 Windows 30 分钟长稳验收（2026-08-02）；macOS Metal、真实多屏 DPR 与真实 120/144 Hz 验收待完成。最新状态以 P5 阶段文档为准。
 
 ## 6. 退化与恢复
 
