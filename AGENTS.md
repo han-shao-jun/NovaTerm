@@ -152,8 +152,12 @@ domain、libssh LGPL-2.1、OpenSSL Apache-2.0、Clink GPL-3（仅二进制随包
 
 ## 当前进度与主要缺口
 
-P0–P2 已完成，P3 实现完成待实机验收，P4 / P5 / P7 计划中。
+P0 / P2 / P4 已完成，P1 架构边界完成（宽字符 continuation 与部分属性映射待补），
+P3 与 P5 实施完成、部分平台或人工验收待做，P7 计划中。
 **P6（Session/Transport）进行中**：Transport 层四种全部实现，但编排层未接入。
+
+各阶段状态以**阶段文档自身的状态行**为准；`docs/architecture/README.md` 与
+`Development_Roadmap.md` 的汇总表是同步过去的副本，若发现不一致以阶段文档为真。
 
 最重要的一条：**`SessionManager` 与 `SessionFactory` 实现完整，但生产代码
 零使用** —— `src/ui/` 和 `src/main.cpp` 中均无命中，实际是 `TerminalPage`

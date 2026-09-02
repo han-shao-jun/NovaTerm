@@ -1,7 +1,7 @@
 # NovaTerm 架构文档索引
 
-> 文档集版本：2.0  
-> 整理日期：2026-07-31  
+> 文档集版本：2.1  
+> 整理日期：2026-09-02（本表状态以各阶段文档自身的状态行为准，已同步）  
 > 适用项目版本：NovaTerm 0.1.x 及后续重构阶段
 
 本目录收录 NovaTerm 的架构配套文档。统一架构总览位于 [`docs/ARCHITECTURE.md`](../ARCHITECTURE.md)；本目录中的配置、渲染、路线图和阶段实施文档用于补充细节与追溯设计来源。
@@ -18,14 +18,14 @@
 
 | 阶段 | 状态 | 文档 |
 | --- | --- | --- |
-| P0 基线与构建拆分 | 已完成 | [P0](stages/P0_Baseline_and_Build.md) |
-| P1 ScreenBuffer 与 VTAdapter | 已完成 | [P1](stages/P1_ScreenBuffer_and_VTAdapter.md) |
-| P2 异步 Parser 与背压 | 已完成，性能继续优化 | [P2](stages/P2_Async_Parser_and_Backpressure.md) |
-| P3 增量渲染 | 实现完成，待实机验收 | [P3](stages/P3_Incremental_Rendering.md) |
-| P4 Chunked Scrollback 与搜索 | 计划中 | [P4](stages/P4_Chunked_Scrollback_and_Search.md) |
-| P5 Glyph 与 GPU 管线 | 计划中 | [P5](stages/P5_Glyph_and_GPU_Pipeline.md) |
+| P0 基线与构建拆分 | 已完成（2026-07-29） | [P0](stages/P0_Baseline_and_Build.md) |
+| P1 ScreenBuffer 与 VTAdapter | 架构边界已完成（2026-07-29）；宽字符 continuation 与部分属性映射待补完 | [P1](stages/P1_ScreenBuffer_and_VTAdapter.md) |
+| P2 异步 Parser 与背压 | 功能与 20 MiB/s 性能目标完成（2026-08-01） | [P2](stages/P2_Async_Parser_and_Backpressure.md) |
+| P3 增量渲染 | 实现与 Vulkan/OpenGL 实机 60 FPS 跑分完成（2026-08-01）；待高刷新率、资源恢复与人工视觉验收 | [P3](stages/P3_Incremental_Rendering.md) |
+| P4 Chunked Scrollback 与搜索 | 已完成（2026-08-01） | [P4](stages/P4_Chunked_Scrollback_and_Search.md) |
+| P5 Glyph 与 GPU 管线 | 实施完成；Linux Vulkan/OpenGL、Windows D3D11/D3D12 与 30 分钟长稳验收完成（2026-08-02）；macOS Metal、多屏 DPR 与 120/144 Hz 验收待完成 | [P5](stages/P5_Glyph_and_GPU_Pipeline.md) |
 | P6 Session 与 Transport | 进行中：Transport 完成，编排层未接入 | [P6](stages/P6_Session_and_Transport.md) |
-| P7 插件与扩展 | 计划中 | [P7](stages/P7_Plugin_System.md) |
+| P7 插件与扩展 | 计划中（依赖核心数据通路与 Session API 稳定） | [P7](stages/P7_Plugin_System.md) |
 
 ## 文档权威性
 

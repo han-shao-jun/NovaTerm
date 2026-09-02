@@ -206,18 +206,32 @@ Session 状态建议统一为 `Created → Connecting → Running → Paused/Rec
 
 ```text
 src/
-├── core/terminal/       # Queue、Core、VTAdapter、Screen/Scrollback、类型
-├── renderer/            # Scheduler、CommandBuffer、QRhi Renderer、Scheme
-├── transport/           # ITransport、LocalShellTransport
-├── service/             # Config、Language；后续 Profile/Theme/Session 服务
-└── ui/                  # Application、页面、TerminalView、Widgets
-tests/
 ├── core/
-└── renderer/
-benchmarks/
+│   ├── terminal/        # BoundedByteQueue、TerminalCore、VTAdapter、ScreenBuffer、KeyMapper
+│   ├── scrollback/      # ChunkedScrollback、ScrollbackChunk、Snapshot、LineLayout(reflow)
+│   └── search/          # SearchEngine（异步、generation 取消）
+├── transport/           # ITransport ← LocalShell / Ssh / Serial / Telnet
+├── session/             # TerminalSession、SessionManager、SessionFactory、InputPump、
+│                        # SessionStore、SftpSession
+├── credential/          # CredentialStore（Windows 凭据库 / 内存实现）
+├── profile/             # ProfileStore（当前仅 MemoryProfileStore）
+├── renderer/
+│   ├── font/            # FontManager（主字体 + fallback，generation 失效）
+│   ├── glyph/           # GlyphAtlas(多页)、GlyphCache、GlyphRasterizer
+│   ├── gpu/             # QRhi 资源与提交
+│   └── shaders/         # .vert/.frag，经 qt_add_shaders 编译为 .qsb
+├── platform/
+│   ├── windows/conpty/  # ConPtyApi、ConPtySession、WinHandle
+│   └── linux/pty/       # PtySession
+├── service/             # Config、Language
+└── ui/                  # app/(MainWindow)、pages/、terminal/(TerminalView)、widgets/
+tests/
+├── core/  renderer/  session/  transport/  benchmarks/
 ```
 
-目标演进时可新增 `src/session/`、`src/profile/`、`src/theme/` 和 `src/search/`；不为追求目录形式而提前搬迁代码。
+`src/session/`、`src/profile/`、`src/credential/` 已落地；主题目前由 service 与
+UI 层承担，未单独建 `src/theme/`；搜索位于 `src/core/search/` 而非顶层。
+仍不为追求目录形式而提前搬迁代码。
 
 ## 10. 非功能目标
 
