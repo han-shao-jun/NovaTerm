@@ -280,6 +280,44 @@ if(WIN32)
     endif()
 endif()
 
+# 平台相关的部署工具选项。构建后部署（windeployqt POST_BUILD）与安装阶段的
+# qt_generate_deploy_app_script 共用同一份，避免两处取舍逐渐分叉。
+set(_deploy_tool_options)
+if(WIN32)
+    list(APPEND _deploy_tool_options
+        --no-system-d3d-compiler
+        --no-opengl-sw
+    )
+endif()
+
+# ── Windows: 用 windeployqt 将 Qt 运行时 DLL 与插件复制到构建输出 bin/ ──
+# 构建完成后即可直接运行 ${CMAKE_BINARY_DIR}/bin/NovaTerm.exe，无需把 Qt 的
+# bin 目录加入 PATH。exe、ElaWidgetTools.dll 与 Clink 已经统一输出到该目录，
+# windeployqt 部署到 exe 同级，因此运行时文件集中在一处。
+#   --no-translations     .qm 已由 qt_add_translations 编入可执行文件
+#   --no-compiler-runtime MSVC CRT 只在安装阶段按 App-local 规则处理，
+#                         开发机运行构建产物直接用已安装的 VC 运行库
+if(WIN32)
+    find_program(WINDEPLOYQT_EXECUTABLE windeployqt
+        HINTS "${CMAKE_PREFIX_PATH}/bin" "${QT6_INSTALL_PREFIX}/bin"
+    )
+    if(WINDEPLOYQT_EXECUTABLE)
+        add_custom_command(TARGET NovaTerm POST_BUILD
+            COMMAND "${WINDEPLOYQT_EXECUTABLE}"
+                $<IF:$<CONFIG:Debug>,--debug,--release>
+                --no-translations
+                --no-compiler-runtime
+                ${_deploy_tool_options}
+                "$<TARGET_FILE:NovaTerm>"
+            COMMENT "Deploying Qt runtime (windeployqt) next to NovaTerm.exe"
+            VERBATIM
+        )
+        message(STATUS "windeployqt found: ${WINDEPLOYQT_EXECUTABLE}")
+    else()
+        message(WARNING "windeployqt not found — Qt DLLs will not be auto-deployed")
+    endif()
+endif()
+
 
 # ═══════════════════════════════════════════════════════════════════
 #  安装规则（跨平台分发）
@@ -332,14 +370,7 @@ endif()
 
 # 在安装阶段收集 Qt 库、插件和平台运行时。Windows/macOS 底层分别调用
 # windeployqt/macdeployqt，Linux 使用 CMake 的运行时依赖扫描。
-set(_deploy_tool_options)
-if(WIN32)
-    list(APPEND _deploy_tool_options
-        --no-system-d3d-compiler
-        --no-opengl-sw
-    )
-endif()
-
+# _deploy_tool_options 已在上方构建后部署处定义，此处直接复用。
 qt_generate_deploy_app_script(
     TARGET NovaTerm
     OUTPUT_SCRIPT _novaterm_deploy_script
