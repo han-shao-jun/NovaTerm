@@ -20,18 +20,35 @@ class QTimer;
 class QLineEdit;
 class TerminalSession;
 
-// 终端视图：组合 TerminalCore（libvterm 仿真引擎）+ TerminalRenderer（QRhi GPU 渲染），
-// 通过 ITransport 接口统一桥接本地/远程终端数据通路。
+// 终端视图：组合 TerminalCore（libvterm 仿真引擎）+ TerminalRenderer（QRhi GPU
+// 渲染）+ TerminalSession（Transport 编排），通过 ITransport 接口统一桥接
+// 本地/远程终端数据通路。
 //
-// 数据流：
-//   键盘 → TerminalRenderer → TerminalCore::processKeyPress()
-//        → TerminalCore::outputData 信号 → ITransport::write()
+// 上行（用户输入 → 远端）：
+//   键盘 → TerminalRenderer::keyPressEvent
+//        → TerminalCore::processKeyPress()          [入有界命令队列]
+//        → Parser Worker：VTAdapter 编码为终端字节
+//        → TerminalCore::outputData 信号            [queued 回 GUI 线程]
+//        → TerminalSession 转发 → ITransport::write()
 //
-//   PTY/shell 输出 → ITransport::readyRead 信号
-//        → TerminalCore::writeInput() → vterm_input_write()
-//        → libvterm 解析 → VTermScreenCallbacks → TerminalRenderer::update()
+// 下行（远端 → 屏幕）：
+//   PTY/shell/网络输出 → ITransport::readyRead 信号
+//        → SessionInputPump                         [64 KiB 分片 + pending 暂存]
+//        → TerminalCore::writeInput()               [8 MiB BoundedByteQueue]
+//        → Parser Worker：VTAdapter → libvterm → ScreenBuffer / Scrollback
+//        → TerminalCore::damage 信号                [批量合并，queued 回 GUI 线程]
+//        → RenderScheduler 按目标刷新率节流
+//        → frameRequested → TerminalRenderer::update()
+//
+// 两个方向都不在 GUI 线程内解析：libvterm 只在 Parser Worker 中运行，View 拿到
+// 的始终是值语义 Snapshot。背压由 SessionInputPump 与 Core 的高低水位闭环负责，
+// View 不再持有未入队的 Transport 字节。
 //
 // 本地和远程均走同一条路径，不再区分"本地 KPty / 远程 transport"两套机制。
+//
+// 注意：当前 Session 由 View 自建并 parent 自己（_ownsSession 默认 true），这与
+// P6 设计的 "SessionManager 拥有 Session、View 只非 owning attach" 相反；
+// 详见 docs/architecture/stages/P6_Session_and_Transport.md 的实现进度步骤 2。
 //
 class TerminalView : public QWidget
 {

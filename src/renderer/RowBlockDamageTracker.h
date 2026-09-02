@@ -1,6 +1,19 @@
 /**
- * @file RowBlockDamageTracker.h
- * @brief Reconciles scheduled terminal damage with cached renderer blocks.
+ * @file   RowBlockDamageTracker.h
+ * @brief  按 8 列分块的行内容对账器：用真实快照校正调度层给出的脏区。
+ *
+ * RenderScheduler 送来的 DirtyRegion 只是**调度提示**，不保证覆盖本次
+ * 解析批次里所有实际变化的列。典型反例是光标定位式重写（ConPTY 下的
+ * PowerShell / Clink 尤其明显）：同一批次里先滚动、再擦除、再写入较短
+ * 的一行，damage 矩形却只标出新写入的那几列。若照此增量重建，上一次
+ * 较长行的行尾命令就会残留在屏幕上。
+ *
+ * 本类为每行缓存逐块（8 列一块）的内容哈希，`reconcileRow()` 拿最终
+ * 快照的 Cell 重新计算并与缓存比对，把调度层漏掉的块补进脏列 span，
+ * 而不是保守地整行重建。回归测试见 RendererP5Tests.cpp 的
+ * `rowBlockDamageFindsOmittedStaleTail()`。
+ *
+ * @note 无锁，仅供 Renderer 在 GUI 线程内使用；不持有 QRhi 资源。
  */
 #pragma once
 
@@ -15,14 +28,22 @@
 
 namespace NovaTerm {
 
-// Tracks the renderer's actual per-block contents. Terminal damage rectangles
-// are scheduling hints; comparing against the final snapshot prevents a short
-// cursor-positioned rewrite from leaving commands from an older, longer row.
+// 逐行、逐块记录 Renderer 当前已生成命令所对应的内容哈希。
 class RowBlockDamageTracker
 {
 public:
-    static constexpr int BlockColumns = 8;
+    static constexpr int BlockColumns = 8; ///< 每个脏块覆盖的列数
 
+    /**
+     * @brief 重置为新的视口尺寸，并把所有行标记为无缓存。
+     * @param rows 可见行数。
+     * @param columns 可见列数。
+     * @note 必须维持的不变量：缓存的 rows/columns 与行槽位映射始终和当前
+     *       视口一致。因此视口尺寸变化，以及任何重建行槽位映射的路径
+     *       （`TerminalRenderer::resetWidgetRowMapping()`）都要调用本函数；
+     *       否则会拿旧映射下的哈希与新快照比对，把已变化的块误判为"未变"
+     *       而漏绘。
+     */
     void reset(int rows, int columns)
     {
         _columns = std::max(0, columns);
@@ -33,6 +54,12 @@ public:
             hashes.fill(0, blockCount);
     }
 
+    /**
+     * @brief 活动屏幕上滚 count 行时同步旋转缓存，保持行与哈希的对应。
+     * @param count 上滚行数，超出行数时被夹紧。
+     * @note 新进入视口的底部 count 行没有对应缓存，必须置为无效，
+     *       否则它们会命中上一轮同槽位的哈希而被跳过重建。
+     */
     void rotateRowsUp(int count)
     {
         if (_rowHashes.isEmpty())
@@ -50,6 +77,16 @@ public:
         }
     }
 
+    /**
+     * @brief 用最终快照校正一行的脏列 span。
+     * @param row 行号（widget 行）。
+     * @param cells 该行 columns 个 Cell 的首地址，可为 null。
+     * @param columns 该行列数，必须与 reset() 时一致。
+     * @param requestedSpans 调度层给出的脏列 span，可为空。
+     * @return 合并、排序、裁剪后的脏列 span；调用方据此只重建这些块。
+     * @note 无法证明增量集合完整时保守返回整行 `[0, columns)`：行号越界、
+     *       列数与缓存不符或 cells 为空都走这条路径。
+     */
     QVector<DirtyColumnSpan> reconcileRow(
         int row, const Cell* cells, int columns,
         QVector<DirtyColumnSpan> requestedSpans)
@@ -82,6 +119,9 @@ public:
     }
 
 private:
+    // FNV-1a 风格的乘-异或混合。哈希只用于判断"内容是否变化"，种子取值
+    // 不影响正确性；碰撞会导致漏绘，因此把 chars、width、前景/背景色和
+    // 全部属性位都纳入计算，不做任何裁剪。
     static void mix(quint64& hash, quint64 value)
     {
         hash ^= value;
@@ -125,6 +165,7 @@ private:
         return hash;
     }
 
+    // 裁剪到 [0, columns)、丢弃空 span、按起始列排序后合并相邻或重叠区间。
     static QVector<DirtyColumnSpan> mergeSpans(
         QVector<DirtyColumnSpan> spans, int columns)
     {
@@ -156,9 +197,9 @@ private:
         return merged;
     }
 
-    int _columns{0};
-    QVector<QVector<quint64>> _rowHashes;
-    QVector<quint8> _validRows;
+    int _columns{0};                        ///< reset() 时的列数
+    QVector<QVector<quint64>> _rowHashes;   ///< [行][块] 内容哈希
+    QVector<quint8> _validRows;             ///< 该行哈希是否可信
 };
 
 } // namespace NovaTerm
