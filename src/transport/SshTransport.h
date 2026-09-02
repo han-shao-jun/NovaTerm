@@ -91,7 +91,11 @@ signals:
 
 private:
     void workerMain();          // 在工作线程中运行整个会话生命周期
-    void reportError(const QString& message);   // 线程安全：记录 + 投递信号
+    // 线程安全：记录 + 投递信号。先发 transportError 再发 errorOccurred，
+    // 二者 message 一致（顺序约定见 ITransport.h）。
+    void reportError(const QString& message,
+                     TransportErrorCategory category = TransportErrorCategory::Io,
+                     bool retryable = false);
     void emitReadyRead(const QByteArray& data);
     void emitSignal(void (SshTransport::*signal)());
     void emitCommandFinished(quint64 requestId, QByteArray standardOutput,

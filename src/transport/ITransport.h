@@ -205,6 +205,10 @@ signals:
     /**
      * @brief 发生结构化传输错误。
      * @param error 携带分类、错误码、可重试标志的错误对象。
+     * @note 实现若同时发出本信号与 errorOccurred()，必须**先发 transportError**
+     *       且两者的 message 一致：TerminalSession 用本信号补充错误分类，
+     *       随后由 errorOccurred 统一上报一条 sessionError。顺序颠倒或
+     *       message 不一致时分类会回落到 Io，不会重复上报。
      */
     void transportError(const TransportError& error);
 

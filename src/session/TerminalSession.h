@@ -15,6 +15,7 @@
 #include <QPointer>
 #include <QVector>
 #include <memory>
+#include <optional>
 
 class SessionInputPump;
 class TerminalCore;
@@ -194,6 +195,20 @@ private:
     void reportError(SessionErrorCategory category, const QString& message,
                      bool retryable = false, int code = 0); ///< 上报结构化错误
 
+    /**
+     * @brief 建立传输信号连接，并把 generation 绑进每个处理器。
+     * @param transport  目标传输。
+     * @param generation 本世代号；处理器只接受与当前 generation 相符的信号。
+     */
+    void connectTransportSignals(ITransport* transport, quint64 generation);
+
+    /**
+     * @brief 按当前 generation 重建传输信号连接。
+     * @note 每次 generation 自增（start/beginReconnect）后必须调用，否则
+     *       处理器仍持有旧世代号，新连接的信号会被误判为迟到信号丢弃。
+     */
+    void rewireTransportSignals();
+
     SessionId _sessionId{QUuid::createUuid()};
     SessionState _state{SessionState::Created};
     RuntimeConfig _config;
@@ -204,6 +219,9 @@ private:
     SessionInputPump* _inputPump{nullptr};
     QMetaObject::Connection _coreOutputConnection;          ///< 核心输出→传输写入
     QVector<QMetaObject::Connection> _transportConnections; ///< 传输信号连接集合
+    /// 最近一次结构化传输错误，供随后的 errorOccurred 取用分类（见 ITransport.h
+    /// 中关于两个错误信号发出顺序的约定）。取用后立即清空。
+    std::optional<TransportError> _pendingTransportError;
     Ownership _ownership{Ownership::Borrowed};
     bool _acceptsUserInput{true};  ///< 是否接受用户输入（关闭后置 false）
 };

@@ -108,6 +108,8 @@ bool LocalShellTransport::connectToHost()
         || _state == LifecycleState::Running
         || _state == LifecycleState::Closing) {
         _errorString = QStringLiteral("Local shell session is already active or closing");
+        emit transportError(
+            TransportError{TransportErrorCategory::Io, 0, _errorString, true});
         emit errorOccurred(_errorString);
         return false;
     }
@@ -145,6 +147,8 @@ bool LocalShellTransport::connectToHost()
         if (_linuxGeneration != generation || _linuxSession != session)
             return;
         _errorString = error;
+        emit transportError(
+            TransportError{TransportErrorCategory::Io, 0, error, true});
         emit errorOccurred(error);
     });
     connect(session, &PtySession::exited, this,
@@ -193,6 +197,8 @@ void LocalShellTransport::write(const QByteArray& data)
         return;
     if (!_linuxSession->tryEnqueueInput(data)) {
         _errorString = QStringLiteral("PTY input queue capacity exceeded or closed");
+        emit transportError(
+            TransportError{TransportErrorCategory::Overload, 0, _errorString, false});
         emit errorOccurred(_errorString);
     } else {
         emit bytesWritten(data.size());
@@ -242,6 +248,8 @@ bool LocalShellTransport::connectToHost()
         || _state == LifecycleState::Running
         || _state == LifecycleState::Closing) {
         _errorString = QStringLiteral("Local shell session is already active or closing");
+        emit transportError(
+            TransportError{TransportErrorCategory::Io, 0, _errorString, true});
         emit errorOccurred(_errorString);
         return false;
     }
@@ -295,6 +303,8 @@ bool LocalShellTransport::connectToHost()
         if (_windowsGeneration != generation || _windowsSession != session)
             return;
         _errorString = error;
+        emit transportError(
+            TransportError{TransportErrorCategory::Io, 0, error, true});
         emit errorOccurred(error);
     });
     QObject::connect(session, &ConPtySession::exited, this,
@@ -357,6 +367,8 @@ void LocalShellTransport::write(const QByteArray& data)
         return;
     if (!_windowsSession->tryEnqueueInput(data)) {
         _errorString = QStringLiteral("ConPTY input queue capacity exceeded or closed");
+        emit transportError(
+            TransportError{TransportErrorCategory::Overload, 0, _errorString, false});
         emit errorOccurred(_errorString);
     } else {
         emit bytesWritten(data.size());

@@ -36,7 +36,8 @@ bool SerialTransport::connectToHost()
         disconnect();
 
     if (!_config.isValid()) {
-        reportError(tr("Invalid serial port configuration."));
+        reportError(tr("Invalid serial port configuration."),
+                    TransportErrorCategory::Configuration);
         return false;
     }
 
@@ -59,7 +60,8 @@ bool SerialTransport::connectToHost()
         _connectPending = false;
         if (!_port.open(QIODevice::ReadWrite)) {
             reportError(tr("Cannot open serial port %1: %2")
-                            .arg(_config.portName, _port.errorString()));
+                            .arg(_config.portName, _port.errorString()),
+                        TransportErrorCategory::Connection, true);
             return;
         }
         emit connected();
@@ -87,17 +89,20 @@ void SerialTransport::write(const QByteArray& data)
     if (data.isEmpty())
         return;
     if (!_port.isOpen()) {
-        reportError(tr("Serial port is not connected."));
+        reportError(tr("Serial port is not connected."),
+                    TransportErrorCategory::Io);
         return;
     }
     if (_port.bytesToWrite() + data.size() > MaxPendingWriteBytes) {
-        reportError(tr("Serial write queue exceeded its 1 MiB limit."));
+        reportError(tr("Serial write queue exceeded its 1 MiB limit."),
+                    TransportErrorCategory::Overload);
         return;
     }
 
     const qint64 accepted = _port.write(data);
     if (accepted < 0)
-        reportError(tr("Serial write failed: %1").arg(_port.errorString()));
+        reportError(tr("Serial write failed: %1").arg(_port.errorString()),
+                    TransportErrorCategory::Io, true);
 }
 
 void SerialTransport::resizeTerminal(int cols, int rows)
@@ -147,13 +152,21 @@ void SerialTransport::handleError(QSerialPort::SerialPortError error)
         || error == QSerialPort::DeviceNotFoundError
         || error == QSerialPort::PermissionError;
     reportError(tr("Serial port %1: %2")
-                    .arg(_config.portName, _port.errorString()));
+                    .arg(_config.portName, _port.errorString()),
+                error == QSerialPort::PermissionError
+                    ? TransportErrorCategory::Permission
+                    : (connectionLost ? TransportErrorCategory::Connection
+                                      : TransportErrorCategory::Io),
+                connectionLost);
     if (connectionLost)
         disconnect();
 }
 
-void SerialTransport::reportError(const QString& message)
+void SerialTransport::reportError(const QString& message,
+                                  TransportErrorCategory category,
+                                  bool retryable)
 {
     _errorString = message;
+    emit transportError(TransportError{category, 0, message, retryable});
     emit errorOccurred(_errorString);
 }

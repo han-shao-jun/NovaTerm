@@ -71,6 +71,20 @@ public:
         emit disconnected();
     }
 
+    /// 按 ITransport 约定的顺序发出结构化错误 + 文本错误。
+    void simulateStructuredError(TransportErrorCategory category,
+                                const QString& message, bool retryable)
+    {
+        emit transportError(TransportError{category, 42, message, retryable});
+        emit errorOccurred(message);
+    }
+
+    /// 只发文本错误（模拟未实现 transportError 的后端）。
+    void simulatePlainError(const QString& message)
+    {
+        emit errorOccurred(message);
+    }
+
     QByteArray writes;
     QSize size;
     bool readPaused{false};
@@ -92,6 +106,8 @@ private slots:
     void runtimeConfigIsSnapshot();
     void restoreMetadataRoundTrip();
     void persistentStoresRejectSecrets();
+    void reconnectBumpsGenerationAndKeepsHandlersLive();
+    void structuredTransportErrorSetsSessionCategory();
 };
 
 void SessionTests::lifecycleAndManagerCleanup()
@@ -233,6 +249,67 @@ void SessionTests::persistentStoresRejectSecrets()
     QVERIFY(credentials.put(QStringLiteral("credential-ref"), QByteArrayLiteral("secret")));
     QCOMPARE(credentials.get(QStringLiteral("credential-ref")).value(),
              QByteArrayLiteral("secret"));
+}
+
+void SessionTests::reconnectBumpsGenerationAndKeepsHandlersLive()
+{
+    RuntimeConfig config;
+    config.transportKind = TransportKind::Telnet;
+    TerminalSession session(config);
+    auto* transport = new FakeTransport;
+    session.attach(transport, TerminalSession::Ownership::Adopt,
+                   TransportKind::Telnet);
+
+    QVERIFY(session.start());
+    QTRY_COMPARE(session.state(), SessionState::Running);
+    const quint64 firstGeneration = session.statistics().generation;
+    QVERIFY(firstGeneration > 0);
+
+    // 重连必须自增世代号，并重建带新世代号的信号接线。
+    QVERIFY(session.reconnect());
+    QTRY_COMPARE(session.state(), SessionState::Running);
+    QVERIFY(session.statistics().generation > firstGeneration);
+
+    // 重接线的回归风险是处理器失效：新世代下的远端断开仍须被识别。
+    transport->simulateRemoteDisconnect();
+    QCOMPARE(session.state(), SessionState::Failed);
+}
+
+void SessionTests::structuredTransportErrorSetsSessionCategory()
+{
+    RuntimeConfig config;
+    config.transportKind = TransportKind::Ssh;
+    TerminalSession session(config);
+    auto* transport = new FakeTransport;
+    session.attach(transport, TerminalSession::Ownership::Adopt,
+                   TransportKind::Ssh);
+    QSignalSpy errors(&session, &TerminalSession::sessionError);
+
+    QVERIFY(session.start());
+    QTRY_COMPARE(session.state(), SessionState::Running);
+
+    // transportError 提供分类，errorOccurred 统一上报：只应产生一条 sessionError。
+    transport->simulateStructuredError(TransportErrorCategory::Authentication,
+                                       QStringLiteral("auth failed"), false);
+    QCOMPARE(errors.count(), 1);
+    auto error = qvariant_cast<SessionError>(errors.takeFirst().constFirst());
+    QCOMPARE(error.category, SessionErrorCategory::Authentication);
+    QCOMPARE(error.code, 42);
+    QCOMPARE(error.message, QStringLiteral("auth failed"));
+    QVERIFY(!error.retryable);
+
+    // 只发文本错误的后端回落到 Io，保持既有行为。
+    transport->simulatePlainError(QStringLiteral("plain failure"));
+    QCOMPARE(errors.count(), 1);
+    error = qvariant_cast<SessionError>(errors.takeFirst().constFirst());
+    QCOMPARE(error.category, SessionErrorCategory::Io);
+
+    // 分类不得粘连到下一条错误。
+    transport->simulateStructuredError(TransportErrorCategory::HostKey,
+                                       QStringLiteral("host key changed"), false);
+    QCOMPARE(errors.count(), 1);
+    error = qvariant_cast<SessionError>(errors.takeFirst().constFirst());
+    QCOMPARE(error.category, SessionErrorCategory::HostKey);
 }
 
 QTEST_MAIN(SessionTests)

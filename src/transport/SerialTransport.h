@@ -86,7 +86,10 @@ public:
 private:
     void readAvailable();                       ///< 串口有数据可读时 drain
     void handleError(QSerialPort::SerialPortError error); ///< 处理串口错误
-    void reportError(const QString& message);   ///< 记录并发出 errorOccurred()
+    /// 记录错误并先发 transportError、再发 errorOccurred（顺序约定见 ITransport.h）。
+    void reportError(const QString& message,
+                     TransportErrorCategory category = TransportErrorCategory::Io,
+                     bool retryable = false);
 
     static constexpr qint64 MaxPendingWriteBytes = 1024 * 1024; ///< 写队列上限 1 MiB
 

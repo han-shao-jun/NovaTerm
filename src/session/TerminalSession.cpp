@@ -15,6 +15,37 @@
 
 namespace {
 
+/**
+ * @brief 把传输层错误分类映射为会话层分类。
+ *
+ * 两个枚举语义基本一一对应；Resolve 归入 Connection（会话层不区分解析与
+ * 建连），Overload 归入 InputOverload，Unknown 保守落到 Io。
+ */
+SessionErrorCategory toSessionCategory(TransportErrorCategory category)
+{
+    switch (category) {
+    case TransportErrorCategory::Configuration:
+        return SessionErrorCategory::Configuration;
+    case TransportErrorCategory::Resolve:
+    case TransportErrorCategory::Connection:
+        return SessionErrorCategory::Connection;
+    case TransportErrorCategory::Authentication:
+        return SessionErrorCategory::Authentication;
+    case TransportErrorCategory::HostKey:
+        return SessionErrorCategory::HostKey;
+    case TransportErrorCategory::Permission:
+        return SessionErrorCategory::Permission;
+    case TransportErrorCategory::Protocol:
+        return SessionErrorCategory::Protocol;
+    case TransportErrorCategory::Overload:
+        return SessionErrorCategory::InputOverload;
+    case TransportErrorCategory::Io:
+    case TransportErrorCategory::Unknown:
+        break;
+    }
+    return SessionErrorCategory::Io;
+}
+
 bool isReconnectInput(const QByteArray& data)
 {
     // Enter 在普通模式下通常编码为 CR；兼容 LF/CRLF，避免不同键盘映射
@@ -121,25 +152,71 @@ void TerminalSession::attach(ITransport* transport, Ownership ownership,
             transport->write(data);
         });
 
+    connectTransportSignals(transport, _statistics.generation);
+}
+
+void TerminalSession::rewireTransportSignals()
+{
+    if (!_transport)
+        return;
+    for (const auto& connection : std::as_const(_transportConnections))
+        QObject::disconnect(connection);
+    _transportConnections.clear();
+    _transportConnections.reserve(6);
+    connectTransportSignals(_transport.data(), _statistics.generation);
+}
+
+void TerminalSession::connectTransportSignals(ITransport* transport,
+                                              quint64 generation)
+{
+    // 每个处理器同时校验 transport 指针与 generation：前者拦截 attach 换绑，
+    // 后者拦截同一 transport 上一世代排队投递的迟到信号——SSH/Serial/Telnet
+    // 重连复用同一 transport 对象，仅靠指针比较无法区分世代。
+    const auto stale = [this, transport, generation]() {
+        return _transport != transport || generation != _statistics.generation;
+    };
+
     _transportConnections.append(connect(
         transport, &ITransport::readyRead, this,
-        [this](const QByteArray& bytes) {
+        [this, stale](const QByteArray& bytes) {
+            if (stale())
+                return;
             _statistics.bytesReceived += static_cast<quint64>(bytes.size());
         }));
     _transportConnections.append(connect(
-        transport, &ITransport::connected, this, [this, transport] {
-            if (_transport != transport)
+        transport, &ITransport::connected, this, [this, transport, stale] {
+            if (stale())
                 return;
             _statistics.connectedAt = QDateTime::currentDateTimeUtc();
             transition(SessionState::Running);
             emit connected(transport);
         }));
+    // 结构化错误只做分类补充，不自行上报，避免与随后的 errorOccurred 重复
+    // 产生两条 sessionError。约定见 ITransport.h。
+    _transportConnections.append(connect(
+        transport, &ITransport::transportError, this,
+        [this, stale](const TransportError& error) {
+            if (stale())
+                return;
+            _pendingTransportError = error;
+        }));
     _transportConnections.append(connect(
         transport, &ITransport::errorOccurred, this,
-        [this, transport](const QString& message) {
-            if (_transport != transport)
+        [this, transport, stale](const QString& message) {
+            if (stale())
                 return;
-            reportError(SessionErrorCategory::Io, message, true);
+            // 有匹配的结构化错误时用其分类与可重试标志，否则回落到 Io。
+            SessionErrorCategory category = SessionErrorCategory::Io;
+            bool retryable = true;
+            int code = 0;
+            if (_pendingTransportError
+                && _pendingTransportError->message == message) {
+                category = toSessionCategory(_pendingTransportError->category);
+                retryable = _pendingTransportError->retryable;
+                code = _pendingTransportError->code;
+            }
+            _pendingTransportError.reset();
+            reportError(category, message, retryable, code);
             // 建连阶段没有已建立链路可继续使用。部分后端只上报 errorOccurred
             // 而不会再发 disconnected，因此必须在这里结束 Connecting 状态。
             if ((_state == SessionState::Connecting
@@ -152,16 +229,22 @@ void TerminalSession::attach(ITransport* transport, Ownership ownership,
         }));
     _transportConnections.append(connect(
         transport, &ITransport::exited, this,
-        [this, transport](quint32 exitCode, TransportExitReason reason) {
-            if (_transport == transport)
+        [this, transport, stale](quint32 exitCode, TransportExitReason reason) {
+            if (!stale())
                 emit exited(transport, exitCode, reason);
         }));
     _transportConnections.append(connect(
-        transport, &ITransport::disconnected, this, [this, transport] {
-            if (_transport != transport)
+        transport, &ITransport::disconnected, this, [this, transport, stale] {
+            if (stale())
                 return;
-            // 传输层可能投递上一世代的排队 disconnect 信号——此时重连已成功，
-            // 需忽略这条迟到的旧信号，避免误判为新断开。
+            // 两道守卫覆盖不同的迟到场景，缺一不可：
+            //  · stale() 拦截"发出时属于旧世代、投递时接线已重建"的信号；
+            //  · 下面这条拦截跨线程投递——SshTransport/LocalShellTransport 用
+            //    invokeMethod(QueuedConnection) 把 emit 本身推迟到 GUI 线程，
+            //    emit 发生在重接线之后，generation 已是新值，仅靠 stale()
+            //    无法识别；此时"transport 已连上"即证明这是上一世代的残留。
+            // 彻底的解法需要把 generation 写进 ITransport 的信号契约，属于
+            // 步骤 5 的接口变更，不在本次范围内。
             if (_state != SessionState::Closing && transport->isConnected())
                 return;
             stopPump();
@@ -177,6 +260,7 @@ void TerminalSession::attach(ITransport* transport, Ownership ownership,
             }
             emit disconnected(transport);
         }));
+    // 对象销毁与世代无关（同一 transport 只会销毁一次），只校验指针。
     _transportConnections.append(connect(
         transport, &QObject::destroyed, this, [this, transport] {
             if (_transport != transport)
@@ -221,6 +305,7 @@ bool TerminalSession::start()
     else
         transition(SessionState::Reconnecting);
     ++_statistics.generation;
+    rewireTransportSignals();
     if (_transport->connectAsync())
         return true;
     stopPump();
@@ -310,6 +395,7 @@ bool TerminalSession::beginReconnect()
 
     ++_statistics.reconnectCount;
     ++_statistics.generation;
+    rewireTransportSignals();
     startPump();
     if (_transport->connectAsync())
         return true;
@@ -380,6 +466,7 @@ void TerminalSession::clearAttachment(bool requestDisconnect)
     for (const auto& connection : std::as_const(_transportConnections))
         QObject::disconnect(connection);
     _transportConnections.clear();
+    _pendingTransportError.reset();
     _transport = nullptr;
     if (!current)
         return;

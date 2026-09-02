@@ -48,7 +48,8 @@ bool SshTransport::connectToHost()
     disconnect();
 
     if (!_config.isValid()) {
-        reportError(tr("Invalid SSH configuration."));
+        reportError(tr("Invalid SSH configuration."),
+                    TransportErrorCategory::Configuration);
         return false;
     }
 
@@ -110,7 +111,8 @@ void SshTransport::write(const QByteArray& data)
 
     QMutexLocker lock(&_writeMutex);
     if (_writeQueue.size() + data.size() > MaxPendingWriteBytes) {
-        reportError(tr("SSH write queue exceeded its 1 MiB limit."));
+        reportError(tr("SSH write queue exceeded its 1 MiB limit."),
+                    TransportErrorCategory::Overload);
         return;
     }
     _writeQueue.append(data);
@@ -170,13 +172,17 @@ bool SshTransport::executeCommand(quint64 requestId, QByteArray command)
     return true;
 }
 
-void SshTransport::reportError(const QString& message)
+void SshTransport::reportError(const QString& message,
+                               TransportErrorCategory category, bool retryable)
 {
     {
         QMutexLocker lock(&_errorMutex);
         _errorString = message;
     }
-    QMetaObject::invokeMethod(this, [this, message]() {
+    // 两条信号在同一次 invokeMethod 内按约定顺序发出，保证 TerminalSession
+    // 看到 errorOccurred 时 transportError 已经到达。
+    QMetaObject::invokeMethod(this, [this, message, category, retryable]() {
+        emit transportError(TransportError{category, 0, message, retryable});
         emit errorOccurred(message);
     }, Qt::QueuedConnection);
 }
@@ -217,7 +223,8 @@ void SshTransport::workerMain()
 {
     ssh_session session = ssh_new();
     if (!session) {
-        reportError(tr("Failed to create SSH session."));
+        reportError(tr("Failed to create SSH session."),
+                    TransportErrorCategory::Unknown);
         return;
     }
 
@@ -246,7 +253,8 @@ void SshTransport::workerMain()
         reportError(tr("SSH connection to %1:%2 failed: %3")
                         .arg(_config.host)
                         .arg(_config.port)
-                        .arg(QString::fromUtf8(ssh_get_error(session))));
+                        .arg(QString::fromUtf8(ssh_get_error(session))),
+                    TransportErrorCategory::Connection, true);
         ssh_free(session);
         return;
     }
@@ -255,7 +263,8 @@ void SshTransport::workerMain()
     ssh_key serverKey = nullptr;
     if (ssh_get_server_publickey(session, &serverKey) != SSH_OK) {
         reportError(tr("Failed to retrieve the server host key: %1")
-                        .arg(QString::fromUtf8(ssh_get_error(session))));
+                        .arg(QString::fromUtf8(ssh_get_error(session))),
+                    TransportErrorCategory::HostKey);
         ssh_disconnect(session);
         ssh_free(session);
         return;
@@ -265,7 +274,8 @@ void SshTransport::workerMain()
     if (knownState == SSH_KNOWN_HOSTS_ERROR) {
         reportError(tr("Cannot read known_hosts file %1: %2")
                         .arg(QString::fromUtf8(knownHosts),
-                             QString::fromUtf8(ssh_get_error(session))));
+                             QString::fromUtf8(ssh_get_error(session))),
+                    TransportErrorCategory::HostKey);
         ssh_key_free(serverKey);
         ssh_disconnect(session);
         ssh_free(session);
@@ -316,7 +326,8 @@ void SshTransport::workerMain()
             return;
         }
         if (_keyDecision != 1) {
-            reportError(tr("Host key verification failed; connection aborted."));
+            reportError(tr("Host key verification failed; connection aborted."),
+                    TransportErrorCategory::HostKey);
             ssh_key_free(serverKey);
             ssh_disconnect(session);
             ssh_free(session);
@@ -326,7 +337,8 @@ void SshTransport::workerMain()
         // 信任并写入 known_hosts（New 追加，Changed 更新）。
         if (ssh_write_knownhost(session) != SSH_OK) {
             reportError(tr("Failed to store the host key: %1")
-                            .arg(QString::fromUtf8(ssh_get_error(session))));
+                            .arg(QString::fromUtf8(ssh_get_error(session))),
+                        TransportErrorCategory::HostKey);
             ssh_key_free(serverKey);
             ssh_disconnect(session);
             ssh_free(session);
@@ -349,7 +361,8 @@ void SshTransport::workerMain()
             || !privkey) {
             reportError(tr("Failed to load private key %1: %2")
                             .arg(_config.privateKeyPath,
-                                 QString::fromUtf8(ssh_get_error(session))));
+                                 QString::fromUtf8(ssh_get_error(session))),
+                        TransportErrorCategory::Configuration);
             ssh_disconnect(session);
             ssh_free(session);
             return;
@@ -359,7 +372,8 @@ void SshTransport::workerMain()
         if (authResult != SSH_AUTH_SUCCESS) {
             reportError(tr("Public key authentication failed for %1@%2: %3")
                             .arg(_config.username, _config.host,
-                                 QString::fromUtf8(ssh_get_error(session))));
+                                 QString::fromUtf8(ssh_get_error(session))),
+                        TransportErrorCategory::Authentication);
             ssh_disconnect(session);
             ssh_free(session);
             return;
@@ -371,7 +385,8 @@ void SshTransport::workerMain()
         if (authResult != SSH_AUTH_SUCCESS) {
             reportError(tr("Password authentication failed for %1@%2: %3")
                             .arg(_config.username, _config.host,
-                                 QString::fromUtf8(ssh_get_error(session))));
+                                 QString::fromUtf8(ssh_get_error(session))),
+                        TransportErrorCategory::Authentication);
             ssh_disconnect(session);
             ssh_free(session);
             return;
@@ -382,7 +397,8 @@ void SshTransport::workerMain()
     ssh_channel channel = ssh_channel_new(session);
     if (!channel || ssh_channel_open_session(channel) != SSH_OK) {
         reportError(tr("Failed to open SSH channel: %1")
-                        .arg(QString::fromUtf8(ssh_get_error(session))));
+                        .arg(QString::fromUtf8(ssh_get_error(session))),
+                    TransportErrorCategory::Protocol);
         if (channel)
             ssh_channel_free(channel);
         ssh_disconnect(session);
@@ -397,7 +413,8 @@ void SshTransport::workerMain()
                                      startCols, startRows) != SSH_OK
         || ssh_channel_request_shell(channel) != SSH_OK) {
         reportError(tr("Failed to start remote shell: %1")
-                        .arg(QString::fromUtf8(ssh_get_error(session))));
+                        .arg(QString::fromUtf8(ssh_get_error(session))),
+                    TransportErrorCategory::Protocol);
         ssh_channel_close(channel);
         ssh_channel_free(channel);
         ssh_disconnect(session);
@@ -407,7 +424,8 @@ void SshTransport::workerMain()
 
     ssh_event event = ssh_event_new();
     if (!event) {
-        reportError(tr("Failed to create SSH event loop."));
+        reportError(tr("Failed to create SSH event loop."),
+                    TransportErrorCategory::Unknown);
         ssh_channel_close(channel);
         ssh_channel_free(channel);
         ssh_disconnect(session);
@@ -470,7 +488,8 @@ void SshTransport::workerMain()
                 } else {
                     reportError(tr("SSH channel read error: %1")
                                     .arg(QString::fromUtf8(
-                                        ssh_get_error(session))));
+                                        ssh_get_error(session))),
+                    TransportErrorCategory::Io, true);
                     _running.store(false);
                     break;
                 }
@@ -492,7 +511,8 @@ void SshTransport::workerMain()
                 if (n <= 0) {
                     reportError(tr("SSH channel write failed: %1")
                                     .arg(QString::fromUtf8(
-                                        ssh_get_error(session))));
+                                        ssh_get_error(session))),
+                    TransportErrorCategory::Io, true);
                     break;
                 }
                 p += n;
@@ -578,7 +598,8 @@ void SshTransport::workerMain()
             // ssh_channel_change_pty_size 发 want_reply=0 的通知，不阻塞事件循环。
             if (ssh_channel_change_pty_size(channel, pc, pr) != SSH_OK) {
                 reportError(tr("Failed to resize the remote PTY: %1")
-                                .arg(QString::fromUtf8(ssh_get_error(session))));
+                                .arg(QString::fromUtf8(ssh_get_error(session))),
+                    TransportErrorCategory::Protocol);
             }
             appliedCols = pc;
             appliedRows = pr;
