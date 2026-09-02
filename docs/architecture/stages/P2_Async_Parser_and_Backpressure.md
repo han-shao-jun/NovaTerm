@@ -437,7 +437,13 @@ Release Core/Renderer 全量测试通过；P4 Chunked Scrollback 基准同时保
 
 ## 当前技术债务
 
-竞争窗口的未入队 Transport 数据目前由 `TerminalView` 暂存。P6 应迁移到 Session/InputPump，使后台 Session 不依赖 View。值语义 Snapshot 也需要在不改变语义的前提下降低复制成本。
+~~竞争窗口的未入队 Transport 数据目前由 `TerminalView` 暂存。P6 应迁移到
+Session/InputPump，使后台 Session 不依赖 View。~~ **已在 P6 完成**：暂存职责
+迁至 `SessionInputPump`（`_pending` + `MaxPendingBytes` 8 MiB，超限发 overload
+信号），`src/ui/` 下已无未入队 Transport 字节的成员。
+
+仍未解决：值语义 Snapshot 需要在不改变稳定读取语义的前提下降低每帧复制成本
+（`docs/ARCHITECTURE.md` §6 提出改用共享不可变存储、分行版本或 COW）。
 
 ## 验证和指标
 

@@ -79,7 +79,7 @@ Parser batch N
 - `scrollLine == 0` 且映射未改变时，scrollback 追加可复用同一 Parser 发布批次的 active-screen Damage，不能把每次输出升级为全屏。
 - 用户回看历史、滚动偏移被淘汰范围夹紧、reflow 完成、列数变化、回到底部或 document-row 到 widget-row 映射发生变化时，必须 Full Frame。
 - 历史行和 active screen 的组合必须在同一次 `rendererSnapshot()` 模型锁内完成，禁止一帧混用不同 Scrollback generation。
-- 后续若将映射计算移出 `rendererSnapshot()`，必须显式引入单调 `ViewportMappingRevision`；映射 revision 改变即全屏失效。
+- 单调 `ViewportMappingRevision` 已由 P5 引入并落地为 `TerminalRenderer::_viewportMappingRevision`（映射变化、滚动交接、clamp 变化等处递增，并经 `RenderStatistics::viewportMappingRevision` 暴露）；映射 revision 改变即全屏失效。映射计算目前仍在 `rendererSnapshot()` 的模型锁内完成，若将来移出，该 revision 是必须维持的正确性前提。设计说明见 P5 文档 §8.2。
 
 ### Atlas generation
 
