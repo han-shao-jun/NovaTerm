@@ -19,7 +19,7 @@
 | 阶段 | 状态 | 文档 |
 | --- | --- | --- |
 | P0 基线与构建拆分 | 已完成（2026-07-29） | [P0](stages/P0_Baseline_and_Build.md) |
-| P1 ScreenBuffer 与 VTAdapter | 架构边界已完成（2026-07-29）；宽字符 continuation 与部分属性映射待补完 | [P1](stages/P1_ScreenBuffer_and_VTAdapter.md) |
+| P1 ScreenBuffer 与 VTAdapter | 架构边界已完成（2026-07-29）；宽字符 continuation 经实测确认已生效并加回归（2026-09-03）；`dim`/`protectedCell` 受 vendored libvterm screen 层限制，在适配层无来源 | [P1](stages/P1_ScreenBuffer_and_VTAdapter.md) |
 | P2 异步 Parser 与背压 | 功能与 20 MiB/s 性能目标完成（2026-08-01） | [P2](stages/P2_Async_Parser_and_Backpressure.md) |
 | P3 增量渲染 | 实现与 Vulkan/OpenGL 实机 60 FPS 跑分完成（2026-08-01）；待高刷新率、资源恢复与人工视觉验收 | [P3](stages/P3_Incremental_Rendering.md) |
 | P4 Chunked Scrollback 与搜索 | 已完成（2026-08-01） | [P4](stages/P4_Chunked_Scrollback_and_Search.md) |

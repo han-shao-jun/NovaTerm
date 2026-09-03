@@ -1,6 +1,6 @@
 # P1：ScreenBuffer 与 VTAdapter
 
-**状态：架构边界已完成（2026-07-29）；宽字符 continuation 与部分属性映射待补完**
+**状态：架构边界已完成（2026-07-29）；宽字符 continuation 经实测确认已生效并加回归（2026-09-03）；`dim`/`protectedCell` 受 vendored libvterm screen 层限制，在适配层无来源**
 
 ## 目标
 
@@ -67,7 +67,7 @@ VTermRect / VTermPos / VTermScreenCellAttrs
 | `Cell` | chars、width、attributes、fg/bg | 一个终端网格单元 |
 | `CursorState` | position、shape、visible、blink | 可被 Snapshot 和 Renderer 使用 |
 
-当前 `Cell::chars` 最多保存 6 个 Unicode codepoint，足以保留基础字符和有限组合序列；`width` 表示显示宽度。数据契约为宽字符后续网格位置预留了 `WideCharContinuation` 哨兵，Renderer 应避免为 continuation 重复生成 Glyph。当前 `fromVTermCell()` 尚未显式写入该哨兵，见后文“当前实现差距”。
+当前 `Cell::chars` 最多保存 6 个 Unicode codepoint，足以保留基础字符和有限组合序列；`width` 表示显示宽度。数据契约为宽字符后续网格位置预留了 `WideCharContinuation` 哨兵，Renderer 避免为 continuation 重复生成 Glyph。`fromVTermCell()` 不显式写入该哨兵，但它会被**自然带入**：libvterm 内部用 `chars[0] = (uint32_t)-1` 标记宽字符后续格（`screen.c:198`），`vterm_screen_get_cell()` 逐字复制 `chars`（`screen.c:1040-1044`），该数值恰好等于 `WideCharContinuation = 0xFFFFFFFFu`，于是 `populateCell()` 的按零终止符复制把它一并带过来。见后文“当前实现差距”。
 
 颜色不能在适配层提前全部转换成 QColor：
 
@@ -361,26 +361,54 @@ Release benchmark 同时记录 Parser/Core 吞吐和 10 万行 Scrollback。P1 �
 
 ## 当前实现差距
 
-文档复核（2026-09-02 重新核对代码）发现，`TerminalTypes.h:22` 定义了
-`WideCharContinuation`，`Cell::isWideContinuation()` 也被 Renderer、
-`LineLayout` 和 `SearchEngine` 正常消费，但**全仓库没有任何写入点**：
-`VTAdapter.cpp:110-125` 的 `populateCell()`（`fromVTermCell()` 的实现）只按
-零终止符复制 chars、把 width 归一为至少 1，从不写入该哨兵。唯一写入出现在
-测试里（`tests/core/ScrollbackTests.cpp:101` 手工构造）。因此“宽字符
-continuation 完整落地”不应仅凭类型存在判定完成。后续应增加双宽字符网格测试，
-根据 libvterm 对后续 Cell 的实际返回值补齐同步逻辑，再确认 Renderer 不重复
-生成字形。
+### 已澄清：宽字符 continuation 本来就是通的（2026-09-03 更正）
 
-此外，`CellAttributes`（`TerminalTypes.h:90-107`）中的 `dim` 与
-`protectedCell` 在 `fromVTermAttributes()`（`VTAdapter.cpp:65-86`）和
-`toVTermAttributes()`（`VTAdapter.cpp:88-108`）中都没有映射 —— 根本原因是
-vendored libvterm 的 `VTermScreenCellAttrs` 不提供对应位，需要 NovaTerm 自己
-解析 SGR 2 与 DECSCA 才有可靠来源。因此两者**恒为 false**：全仓库唯一读取点
-是两处行内容哈希（`TerminalCore.cpp:119-120`、`RowBlockDamageTracker.h:119-120`），
-它们只是把属性位打进哈希，不产生任何视觉或语义效果 —— 即 `dim` 目前不会让
-Renderer 降低亮度，`protectedCell` 也不会让 DECSCA 保护区在清屏时保留。
-这些字段在被 Renderer 或选择/擦除语义真正使用前，应先补齐来源、双向转换和测试。
-上述差距不改变 Renderer 已脱离 libvterm 的边界成果，但属于 P1 正确性补完项。
+2026-09-02 的复核曾记录「`WideCharContinuation` 全仓库没有任何写入点」，判定
+`populateCell()` 从不写入该哨兵。**该结论是误判**，成因是只读了 `populateCell()`
+而没有核对 libvterm 的返回值。实测与源码双向确认：
+
+- libvterm 内部以 `chars[0] = (uint32_t)-1` 标记宽字符后续格
+  （`third_party/libvterm-0.3.3/src/screen.c:198`）；
+- `vterm_screen_get_cell()` **逐字复制** `chars[]` 而不做翻译
+  （`screen.c:1040-1044`），因此适配层收到的 `chars[0]` 就是 `0xFFFFFFFF`；
+- 该数值与 `TerminalTypes.h:22` 的 `WideCharContinuation` 相同，`populateCell()`
+  的「复制到零终止符」循环（`VTAdapter.cpp:114-119`）因 `!= 0` 而把它带入 Cell；
+- Renderer 侧也已正确跳过：`rebuildCommandRow()` 仅对
+  `!cell->isWideContinuation()` 调用 `appendCellCommands()`
+  （`TerminalRenderer.cpp:1838`），`rowHighlightColor()` 同样跳过
+  （`TerminalRenderer.cpp:2116`）。
+
+缺的只是**测试**。已补 `TerminalCoreTests::wideCharMarksContinuationCell`：输出
+`中A` 后断言第 0 列 `width==2` 且非延续、第 1 列 `isWideContinuation()`、第 2 列
+是 `A` 且 `width==1`。该链路自此有回归保护。
+
+### `dim` / `protectedCell` 无来源，且在当前分层下无法补
+
+`CellAttributes`（`TerminalTypes.h:90-107`）中的 `dim` 与 `protectedCell` 在
+`fromVTermAttributes()`（`VTAdapter.cpp:65-86`）和 `toVTermAttributes()`
+（`VTAdapter.cpp:88-108`）中都没有映射，两者**恒为 false**。2026-09-03 复核后
+把根因收紧到具体位置：
+
+- `VTermScreenCellAttrs`（`third_party/libvterm-0.3.3/include/vterm.h:499-510`）
+  只有 bold / underline / italic / blink / reverse / conceal / strike / font /
+  dwl / dhl（外加 `get_cell` 另填的 small_font、baseline），**没有 dim，也没有
+  protected**；
+- libvterm 的 SGR 分派（`src/pen.c:291-460`）**没有 `case 2:` 分支**，即 SGR 2
+  （faint）被静默忽略，pen 里根本不存在该状态；
+- DECSCA 只体现为 `erase` 回调的 `selective` 参数，不落到 per-cell 状态。
+
+因此这不是「NovaTerm 忘了映射」，而是**screen 层不提供该信息**。要按 Cell 填上
+它们，必须自己跟踪 pen 并知道每个 Cell 由哪次 SGR 写入 —— 那要求改用
+`VTermStateCallbacks` 的 `putglyph` 接管 screen 层，属于独立的架构决策
+（与「剩余工作」第 2 项同源），不是适配层能完成的。
+
+全仓库唯一读取点是两处行内容哈希（`TerminalCore.cpp:119-120`、
+`RowBlockDamageTracker.h:119-120`），只把属性位打进哈希，不产生视觉或语义效果 ——
+即 `dim` 不会让 Renderer 降低亮度，`protectedCell` 也不会让 DECSCA 保护区在清屏时
+保留。字段已在 `TerminalTypes.h` 就地标注「暂无来源、恒为 false」，在有来源之前
+不得让渲染或擦除语义依赖它们。
+
+上述差距不改变 Renderer 已脱离 libvterm 的边界成果。
 
 ### 2026-09-03 已补齐
 
@@ -421,16 +449,36 @@ Renderer 降低亮度，`protectedCell` 也不会让 DECSCA 保护区在清屏�
    结构在边界拼接。第 1 项的正解取决于本议题，故不宜先写临时机制。
 3. **活动屏幕不参与搜索**。`TerminalCore::searchScrollback()` 只搜 scrollback 快照
    （`TerminalCore.cpp:898-901`），同一字符串滚进历史后能搜到、还在屏幕上时搜不到。
-4. **待实测：布局常驻带来的 chunk 碎片化**。`TerminalRenderer::updateHistoryLayout()`
-   在每次 `scrollbackChanged` 取一次快照，而 `ChunkedScrollback::snapshot()` 会
-   `publish()` → `sealActive()`。于是每批输出封存一个小 chunk，而不再填满
-   `DefaultChunkLines = 1024`。单 chunk 记账开销是 `sizeof(ScrollbackChunk) + 64`
-   （约 100 字节，`ScrollbackChunk.cpp:11`），量级可控；且尾块变小反而让
-   `appendContinuation` 的整块 COW 更便宜。但 `_chunks` 的条目数从「行数/1024」变成
-   「输出批次数」，需要在长稳基准（`RendererP5GpuBenchmark --prefill-lines 100000`）下
-   实测 `statistics().sealedChunks` 与 `retainedBytes`，确认未提前触发字节预算淘汰。
-   本批未测。
-5. 原有的宽字符 continuation 写入点与 `dim`/`protectedCell` 映射（见上文）。
+4. **布局常驻带来的 chunk 碎片化：字节预算风险已实测排除，但快照成本随 chunk 数增长**。
+   `TerminalRenderer::updateHistoryLayout()` 在每次 `scrollbackChanged` 取一次快照，而
+   `ChunkedScrollback::snapshot()` 会 `publish()` → `sealActive()`，于是每批输出封存一个
+   小 chunk，不再填满 `DefaultChunkLines = 1024`。
+
+   2026-09-03 实测（80×24、10000 行、`scrollbackLimit=100000`）：
+
+   | 写法 | logicalLines | sealedChunks | effectiveBytes |
+   | --- | --- | --- | --- |
+   | 一次 `writeInput` | 9977 | 10 | 21,459,448 |
+   | 拆成 500 批 | 9977 | 499 | 21,514,216 |
+
+   chunk 数从 10 涨到 499（即「行数/1024」变成「发布批次数」），但字节记账只多
+   54,768 字节 —— 每 chunk 约 112 字节，相对膨胀 **0.26%**。对 256 MB 默认字节预算
+   不构成提前淘汰风险，**原先记录的担忧不成立**。已由
+   `RendererP3Tests::fragmentedOutputDoesNotInflateScrollbackBytes` 锁定（允许碎片化
+   发生，但要求字节膨胀留在 5% 以内）。
+
+   实测同时暴露一项当时未预见的成本：`ScrollbackSnapshot` 的构造为**每个 chunk** 复制
+   一个 `ChunkView`（`shared_ptr` + 3 个 `qsizetype`，约 40 字节，
+   `ChunkedScrollback.cpp:238-255`），而快照现在**每次发布都取一份**。该成本随 chunk 数
+   线性增长，碎片化把它放大约 50 倍：100,000 行历史若由约 5000 批产生，则每次快照要复制
+   约 5000 个 `ChunkView`（约 200 KB 分配与原子引用计数），按 60 次发布/秒计约 12 MB/s
+   的churn。这不影响正确性，但在大历史 + 高频输出下值得优化 —— 可行方向是给
+   `TerminalCore` 增加「只取尾部若干逻辑行」的窄接口，让增量维护不必构造全量快照。
+   尚未实施，也尚未在 GPU 长稳基准下复测。
+5. **`dim` / `protectedCell` 需要接管 screen 层才有来源**（见上文「当前实现差距」）。
+   与第 2 项同源：两者都取决于是否改用 `VTermStateCallbacks` 自建屏幕模型。在此之前
+   字段保持恒 false 并已就地标注。原先并列在此的「宽字符 continuation 写入点」已确认
+   是误判，见上文更正。
 
 ## 退出标准
 
