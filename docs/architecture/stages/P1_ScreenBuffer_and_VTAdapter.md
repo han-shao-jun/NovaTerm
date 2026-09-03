@@ -382,6 +382,56 @@ Renderer 降低亮度，`protectedCell` 也不会让 DECSCA 保护区在清屏�
 这些字段在被 Renderer 或选择/擦除语义真正使用前，应先补齐来源、双向转换和测试。
 上述差距不改变 Renderer 已脱离 libvterm 的边界成果，但属于 P1 正确性补完项。
 
+### 2026-09-03 已补齐
+
+`ScreenBuffer` 增加**每行软换行标志**（`rowContinuation()`/`setRowContinuation()`），由
+`VTAdapter::Impl::syncLineInfo()` 从 `vterm_state_get_lineinfo(state, row)->continuation`
+在 `writeInput` / `flushDamage` / `onResize` 三个全量同步边界重读整屏。经
+`TerminalCore::rowContinuation()` 暴露给 GUI 线程。在此之前活动屏幕上被自动换行的
+超宽行没有任何逻辑行身份，复制选区会在软换行处插入不存在的换行
+（`TerminalRenderer::selectedText()` 曾无条件在行间插 `\n`）。
+
+同批修正两处 libvterm 边界的阻抗失配：
+
+- `onScrollbackPush()` 曾无条件裁剪行尾空 Cell。软换行行的行尾空格是**有效内容**
+  （下一行文本紧接其后），裁掉会让按新列宽重排后的内容整体左移。现仅对硬换行行裁剪。
+  回归：`TerminalCoreTests::softWrapKeepsTrailingSpaces`。
+- `ScrollbackBuffer::popLine()` 曾取**最旧**一行（`ChunkedScrollback::popOldest`）并只回填
+  前 `cols` 格，其余 Cell 永久丢弃。libvterm 在屏幕**变高**时用 `sb_popline` 反向取回紧邻
+  屏幕顶部的那一行，即**最新**的历史行（`libvterm/src/screen.c:737-740`）。现改为
+  `ChunkedScrollback::takeNewestTail()`：按 `total % cols` 还原末行长度取走，剩余部分写回
+  历史。回归：`TerminalCoreTests::popLineReturnsNewestRowWithoutLoss`。
+
+### 剩余工作
+
+1. **跨接缝的逻辑行无法拼接**。一条超宽行的前几段已滚入 scrollback（合成 `hardBreak=false`
+   的逻辑行），末段还在活动屏幕。列宽变化后 libvterm 明确把两侧的拼接甩给应用层
+   （`libvterm/src/screen.c:588-595` 原文："Reflow the visible fragment as its own prefix;
+   the preceding fragment remains in the scrollback callback owned by the application"），
+   于是接缝处出现一个短行 —— 段落中间凭空多一次断行。拼接必然改变内容占用的 widget 行数，
+   而 `screenRow = widgetRow - scrollLine`（`TerminalCore.cpp:777`）、渲染器行身份/damage
+   机制、`selectedText` 坐标反解都建立在该算术映射上，无法局部修补。
+2. **待决议题：scrollback 存储模型是否改为「物理行 + 每行 wrap 位」**。主流终端
+   （VTE ring / alacritty `Grid` / Windows Terminal `TextBuffer`）把历史与屏幕放在同一结构，
+   "屏幕"只是其中一段索引，因此 reflow 时历史/屏幕边界本身可移动，不存在接缝。NovaTerm
+   的边界不能移动：libvterm 拥有活动屏幕并自行 reflow，NovaTerm 用合并逻辑行表示历史。
+   若改为行式存储，上面两条阻抗失配（尾部空格裁剪、`sb_popline` 语义）、
+   `appendContinuation` 命中已封存 chunk 时的整块 COW（`ChunkedScrollback.cpp:91-107`）、
+   逻辑行内存无上界、以及「行数需要一次布局遍历才知道」会同时消失，接缝退化为两个同形
+   结构在边界拼接。第 1 项的正解取决于本议题，故不宜先写临时机制。
+3. **活动屏幕不参与搜索**。`TerminalCore::searchScrollback()` 只搜 scrollback 快照
+   （`TerminalCore.cpp:898-901`），同一字符串滚进历史后能搜到、还在屏幕上时搜不到。
+4. **待实测：布局常驻带来的 chunk 碎片化**。`TerminalRenderer::updateHistoryLayout()`
+   在每次 `scrollbackChanged` 取一次快照，而 `ChunkedScrollback::snapshot()` 会
+   `publish()` → `sealActive()`。于是每批输出封存一个小 chunk，而不再填满
+   `DefaultChunkLines = 1024`。单 chunk 记账开销是 `sizeof(ScrollbackChunk) + 64`
+   （约 100 字节，`ScrollbackChunk.cpp:11`），量级可控；且尾块变小反而让
+   `appendContinuation` 的整块 COW 更便宜。但 `_chunks` 的条目数从「行数/1024」变成
+   「输出批次数」，需要在长稳基准（`RendererP5GpuBenchmark --prefill-lines 100000`）下
+   实测 `statistics().sealedChunks` 与 `retainedBytes`，确认未提前触发字节预算淘汰。
+   本批未测。
+5. 原有的宽字符 continuation 写入点与 `dim`/`protectedCell` 映射（见上文）。
+
 ## 退出标准
 
 - Renderer 和公开 Core API 不含 libvterm 类型；

@@ -81,7 +81,13 @@ flowchart TB
 
 ### 3.5 Renderer
 
-Renderer 读取稳定 Snapshot，把 DirtyRegion 转为 row-local、按 8-cell block 缓存的 Render Command，仅上传变化的 GPU Buffer 区间。P5 Renderer 使用完整 cluster GlyphKey、字体 fallback、灰度/彩色多页 Atlas、局部纹理上传、实例化 Quad、material batch 和 GPU 行槽位环；Glyph Atlas 和 GPU 资源只属于 Renderer。live-bottom 不构建全历史 reflow，用户进入回看时才惰性生成历史布局。
+Renderer 读取稳定 Snapshot，把 DirtyRegion 转为 row-local、按 8-cell block 缓存的 Render Command，仅上传变化的 GPU Buffer 区间。P5 Renderer 使用完整 cluster GlyphKey、字体 fallback、灰度/彩色多页 Atlas、局部纹理上传、实例化 Quad、material batch 和 GPU 行槽位环；Glyph Atlas 和 GPU 资源只属于 Renderer。
+
+历史显示行布局（`TerminalRenderer::_historyLayout`）**常驻有效**，不再按是否回看丢弃：
+
+- 仅当**列数**变化时发起一次异步全量 reflow（`ReflowEngine`，worker 线程、256 行分批、代际取消）。行数变化不影响折行，不触发重排。
+- scrollback 增长或淘汰走增量维护：头部丢弃已淘汰行的显示行，尾条逻辑行重折（`appendContinuation` 会原地追加、`sb_popline` 会原地截断），其后新行逐条追加。代价 O(新增内容)。
+- 因此滚动条量程始终是真实显示行数，而不是折行前偏小的逻辑行数。
 
 ### 3.6 Transport
 
@@ -557,8 +563,14 @@ class Line
 class ScreenBuffer
 {
     std::vector<Line> visibleLines;
+    // 每行一位软换行标志：该行是否为上一行的自动换行延续。
+    std::vector<bool> rowContinuation;
 };
 ```
+
+活动屏幕除 Cell 矩阵外还持有**每行的软换行状态**。它由 `VTAdapter` 从 libvterm 的 `VTermLineInfo::continuation` 全量同步（`vterm_state_get_lineinfo`），libvterm 是该状态的唯一真源 —— `moverect` 收到的是任意矩形，无法从 Cell 拷贝推断行语义，因此在 `writeInput` / `flushDamage` / `onResize` 这些全量同步边界重读整屏。
+
+没有它，超宽输出被自动换行成的多个屏幕行就没有逻辑行身份，复制选区会在行间插入不存在的换行。
 
 原则：
 

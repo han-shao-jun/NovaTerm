@@ -60,7 +60,19 @@ PATH="C:/Programs/Qt/6.8.3/msvc2022_64/bin:$PATH"
 # renderer 测试的 CMake 属性设了 QT_QPA_PLATFORM=offscreen，但
 # build/bin/platforms/ 只有 qwindows.dll，必须补插件路径
 QT_PLUGIN_PATH="C:/Programs/Qt/6.8.3/msvc2022_64/plugins"
-ctest --test-dir build
+# 上面的 cmake 命令不传 -G，默认落到 Visual Studio 多配置生成器，
+# 因此 ctest 必须带 -C，否则每个测试都报 "Test not available without
+# configuration" 并整体失败
+ctest --test-dir build -C Debug
+```
+
+**测试可执行文件是 WIN32 子系统程序，stdout 不接管道** —— 从 Git Bash 直接跑
+它们会看到"零输出、退出码非零"，ctest 的 `LastTest.log` 里同样是空的。要看
+断言详情用 QTest 自带的文件输出：
+
+```bash
+./build/bin/Debug/novaterm_renderer_tests.exe -o D:/qt/NovaTerm/build/rt.txt,txt
+grep -E "FAIL!|Totals" build/rt.txt
 ```
 
 **不要给全套 ctest 设 `QT_QPA_PLATFORM=offscreen`** —— `novaterm_terminal_session_tests`
@@ -194,6 +206,25 @@ SshTransport / LocalShellTransport 用 `invokeMethod(QueuedConnection)` 把
 部署 `platforms/`，其中只有 `qwindows.dll`。Qt 优先用 exe 同级的插件目录，
 所以任何依赖 offscreen 插件的测试都需要显式 `QT_PLUGIN_PATH`。
 
+**软换行行的行尾空格不能裁**：`onScrollbackPush()` 里裁剪行尾空 Cell 只对
+**硬换行**行安全。软换行行填满了整行才换行，其尾部空格是有效内容 —— 下一行
+文本紧接其后，裁掉会让按新列宽重排后的内容整体左移。判据是 `softWrapped == 0`。
+
+**`sb_popline` 取的是最新历史行，不是最旧**：libvterm 在屏幕**变高**时用它
+反向取回紧邻屏幕顶部的那一行（`third_party/libvterm-0.3.3/src/screen.c:737-740`
+是唯一调用点）。NovaTerm 存的是变长逻辑行，一条可能横跨多个屏幕行，因此只能
+取走尾部一段并把剩余部分写回 —— 早期实现取最旧一行且只回填前 `cols` 格，
+其余 Cell 被永久丢弃，纵向拉高窗口就会破坏历史内容。
+
+**libvterm 不负责跨接缝的逻辑行拼接**：`screen.c:588-595` 明确写了列宽变化后
+它只重排可见片段（"as its own prefix"），scrollback 里的前半段归应用层。所以
+接缝处的短行不是 bug 而是必然结果，正解见
+`docs/architecture/stages/P1_ScreenBuffer_and_VTAdapter.md` 的「剩余工作」。
+
+**`QTest::mousePress(w, btn, mods, QPoint(0, 0))` 点的是控件中心**：`QPoint(0,0)`
+满足 `isNull()`，QTest 会把它当作"未指定位置"并取控件中心。要点左上角必须用
+非 null 坐标（如 `QPoint(1, 1)`）。写选区测试时这个坑会让起点落在屏幕中间。
+
 ## 改动后必须同步文档
 
 `Development_Roadmap.md` 的"统一完成定义"把**文档更新**列为"完成"的必要条件
@@ -208,6 +239,7 @@ SshTransport / LocalShellTransport 用 `invokeMethod(QueuedConnection)` 把
 | 修好一个已知测试失败，或发现新的 | 本文件"已知测试失败"表（修好的删掉，新的加上并写明原因与证据位置） |
 | 踩到新的坑（API 语义、平台行为、构建陷阱） | 本文件"容易写错的地方"或"第三方依赖约定" |
 | 架构边界、数据通路、所有权变化 | `docs/ARCHITECTURE.md` 相应小节。若与 §2 架构原则冲突，先讨论并改原则，不要默默绕过 |
+| 换行 / reflow 策略变化 | `docs/ARCHITECTURE.md` §3.5、`docs/architecture/stages/P5_Glyph_and_GPU_Pipeline.md`。P5 里的 30 分钟实测表是历史数据，**不要改写实测值**，只追加策略变更说明 |
 | 新增或移除目录 | `docs/ARCHITECTURE.md` §9 目录映射 |
 | 新增 Transport / Session 相关接口约定 | 写进接口头文件的信号或函数注释，`ITransport.h` 的错误信号顺序约定是范例 |
 

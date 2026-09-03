@@ -271,7 +271,8 @@ sequenceDiagram
 - 只回收离开viewport的slot；
 - 只为新进入viewport的行生成命令和实例；
 - 更新小型row placement/transform Buffer；
-- resize、reflow、alternate screen或无法匹配identity时才全屏重建。
+- resize、reflow、alternate screen或无法匹配identity时才全屏重建；
+- resize 不再强制回到实时底部：正在回看时改变列宽会按 `_scrollAnchorLine`/`_scrollAnchorWrap` 在重排完成后还原到同一内容处。
 
 行identity不能只使用可变数组下标。Scrollback使用稳定`LineId + wrapIndex + sourceVersion`；active screen使用screen generation、logical row identity或可证明安全的ring identity。
 
@@ -730,6 +731,8 @@ $env:QT_SCALE_FACTOR='1'
 
 Windows Release CTest 共 5 个 executable，全部通过。Renderer 自动化新增两条回归语义：live-bottom 连续新增历史行不得请求全历史 reflow；用户进入回看后必须惰性请求 reflow。
 
+> **2026-09-03 更新**：第二条语义已随换行策略改为 eager 而失效（见本节末「策略变更」）。现行语义是：live-bottom 连续新增历史行只做增量维护、不请求全量 reflow；进入回看**不**请求 reflow（布局已常驻）；只有列数变化才请求全量 reflow。
+
 30 分钟 D3D11 最终有效结果：
 
 | 指标 | 结果 |
@@ -750,7 +753,20 @@ Windows Release CTest 共 5 个 executable，全部通过。Renderer 自动化�
 
 收紧门禁后另以 5 秒 D3D11 短跑确认恢复场景：forced-full 重建 40 行、resize 重建 37 行、font/DPI 重建 35 行并恢复 16,777,216 B Atlas，整体 `acceptance=pass`。
 
-长稳过程中发现并修复一项真实缺陷：live-bottom 的 `scrollbackChanged` 曾不断重启 24 ms 全历史 reflow debounce；历史接近 100,000 行后，偶发事件循环延迟会启动昂贵 reflow，并通过 revision 补偿放大成全行重建。现在 live-bottom 会取消 reflow、丢弃无用历史布局并继续使用 GPU 行槽位环；只有用户进入回看才惰性 reflow。使用 `--prefill-lines 100000 --scrollback-limit 100000 --duration-ms 10000` 从满历史直接进入淘汰的边界回归中，D3D11 为 59.724 FPS、P95 1 行、淘汰 520 行、0 reflow、0 revision recovery，最终 627/627 收敛。
+长稳过程中发现并修复一项真实缺陷：live-bottom 的 `scrollbackChanged` 曾不断重启 24 ms 全历史 reflow debounce；历史接近 100,000 行后，偶发事件循环延迟会启动昂贵 reflow，并通过 revision 补偿放大成全行重建。当时的修法是：live-bottom 取消 reflow、丢弃无用历史布局并继续使用 GPU 行槽位环，只有用户进入回看才惰性 reflow。使用 `--prefill-lines 100000 --scrollback-limit 100000 --duration-ms 10000` 从满历史直接进入淘汰的边界回归中，D3D11 为 59.724 FPS、P95 1 行、淘汰 520 行、0 reflow、0 revision recovery，最终 627/627 收敛。
+
+### 策略变更：惰性布局 → 常驻布局 + 增量维护（2026-09-03）
+
+上面「丢弃布局、进入回看才惰性 reflow」的做法解决了 CPU 抖动，但引入了一个本质缺陷：**不折行就不知道历史有多少显示行**。布局被丢弃时行数回退到 `TerminalCore::scrollbackLineCount()`，那是**逻辑行**数，只要有折行就小于显示行数。后果是滚动条量程偏小、拖到顶到不了最老内容，而 reflow 完成后 `_scrollLine` 被重新钳位又造成跳变。
+
+主流终端（VTE / Konsole / Windows Terminal / alacritty / kitty / tmux）一律在 resize 时即刻同步重排，没有惰性方案；行数问题因此不存在。现改为对齐这一策略：
+
+- `_historyLayout` 常驻，`scrollToBottom` / 进入回看都不再丢弃它；
+- 全量 reflow 的唯一触发条件是**列数变化**（`_layoutColumns != TerminalCore::columns()`），仍走 `ReflowEngine` 的 worker 线程 + 256 行分批 + 代际取消；
+- scrollback 增长/淘汰/尾部被 `sb_popline` 取回都走增量维护，代价 O(新增内容)，不再 O(全史)；
+- 原缺陷（live-bottom 反复重启全量 reflow）由「仅列数变化才重排」直接消除，不需要再靠丢弃布局来回避。
+
+上表的 30 分钟实测数据产生于变更之前，`live-bottom reflow = 0 次` 在新策略下仍成立（增量维护不计入 `scrollbackReflowRequests`），但 GPU 长稳需在新策略下重新实测后才能更新该表。
 
 D3D12 在原生 DPR 1.75、60 Hz 的短跑为 59.411 FPS、P95 1 行、0 Buffer 重分配、最终 126/126 收敛。Qt PassThrough 合成 DPR 1.25/1.5/2.0 的 D3D11 短跑均为 P95 1 行、warm cache 零 raster/upload、Overlay-only 零正文上传且最终收敛。合成缩放验证了 fractional-DPR 渲染与资源路径，但不替代对应真实屏幕的人工视觉 golden。
 
