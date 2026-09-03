@@ -80,6 +80,16 @@ public:
 
     // ── 模型查询（持有 modelMutex，可由 GUI 线程调用）──
     bool getCell(int row, int col, NovaTerm::Cell& out) const;
+
+    /**
+     * @brief 活动屏幕第 row 行是否为上一行的软换行延续。
+     * @param row 活动屏幕行号。越界返回 false。
+     * @return true 表示该行续接上一行，其间没有真实换行。
+     * @note  复制选区时据此决定行间是否插入 
+；超宽输出被自动换行成的
+     *        多个屏幕行属于同一逻辑行，不应插入换行。
+     */
+    [[nodiscard]] bool rowContinuation(int row) const;
     NovaTerm::TerminalSnapshot snapshot() const;
 
     /**

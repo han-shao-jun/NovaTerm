@@ -20,6 +20,13 @@
 
 namespace NovaTerm {
 
+// 单条逻辑行参与折行的 Cell 上限。超长逻辑行（例如 cat 一个没有换行的大
+// 文件会形成一条数百万格的逻辑行）折出的 DisplayLine 数量会撑爆内存，也让
+// 取消检查点之间的耗时失控。超出部分被截断，不参与布局。
+// 该上限对 wrapLine 的所有调用方一致生效 —— 包括每帧调用的 viewport 与
+// worker 线程上的 ReflowEngine，避免两条路径行为不同。
+inline constexpr qsizetype MaxWrapCells = 4 * 1024 * 1024;
+
 // 显示行：一个 LogicalLine 在某个折行位置上的可见切片。
 // wrapIndex 表示该 DisplayLine 在其 LogicalLine 内的折行序号（0-based）。
 struct DisplayLine

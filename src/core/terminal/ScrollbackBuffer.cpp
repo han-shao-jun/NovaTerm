@@ -51,12 +51,35 @@ void ScrollbackBuffer::commitPushLine(bool continuation, bool hardBreak)
 
 bool ScrollbackBuffer::popLine(NovaTerm::Cell* cells, int cols)
 {
-    NovaTerm::LogicalLine line;
-    if (!_storage.popOldest(line))
+    if (cols <= 0 || _storage.lineCount() == 0)
         return false;
-    const int count = std::min(cols, int(line.cells.size()));
-    if (cells && count > 0)
-        std::copy_n(line.cells.cbegin(), count, cells);
+
+    // libvterm 在屏幕变高时用 sb_popline 反向取回紧邻屏幕顶部的那一行 ——
+    // 是**最新**的历史行。旧实现取的是最旧一行，且把整条逻辑行弹出后只回填
+    // 前 cols 格，其余 Cell 被永久丢弃。
+    const NovaTerm::LogicalLine* newest =
+        _storage.lineAt(_storage.lineCount() - 1);
+    if (!newest || newest->cells.isEmpty())
+        return false;
+
+    // 该逻辑行是按 cols 折行存入的：除末行外每段恰好 cols 格，因此末行长度
+    // 为 total % cols，整除时说明末行也是满行。
+    const qsizetype total = newest->cells.size();
+    const qsizetype remainder = total % cols;
+    const qsizetype rowCells = remainder == 0 ? qsizetype(cols) : remainder;
+
+    NovaTerm::LogicalLine row;
+    if (!_storage.takeNewestTail(rowCells, row))
+        return false;
+
+    if (cells) {
+        const int count = std::min(cols, int(row.cells.size()));
+        if (count > 0)
+            std::copy_n(row.cells.cbegin(), count, cells);
+        // 行尾补默认 Cell，避免调用方读到未初始化内容。
+        for (int column = count; column < cols; ++column)
+            cells[column] = NovaTerm::Cell{};
+    }
     return true;
 }
 

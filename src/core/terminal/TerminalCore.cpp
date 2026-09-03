@@ -726,6 +726,12 @@ bool TerminalCore::getCell(int row, int col, NovaTerm::Cell& out) const
     return true;
 }
 
+bool TerminalCore::rowContinuation(int row) const
+{
+    QMutexLocker locker(&_runtime->modelMutex);
+    return _runtime->screen.rowContinuation(row);
+}
+
 NovaTerm::TerminalSnapshot TerminalCore::snapshot() const
 {
     QMutexLocker locker(&_runtime->modelMutex);

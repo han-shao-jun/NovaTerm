@@ -204,13 +204,94 @@ void ChunkedScrollback::enforceLimits()
     }
 }
 
-bool ChunkedScrollback::popOldest(LogicalLine& line)
+namespace {
+
+// 从 line 尾部取走至多 cellCount 个 Cell 到 out，返回实际取走的数量。
+qsizetype takeTailCells(LogicalLine& line, qsizetype cellCount,
+                        LogicalLine& out)
 {
-    const LogicalLine* source = lineAt(0);
-    if (!source)
+    const qsizetype take = std::min(cellCount, qsizetype(line.cells.size()));
+    if (take <= 0)
+        return 0;
+    out.id = line.id;
+    out.hardBreak = line.hardBreak;
+    out.cells = line.cells.mid(line.cells.size() - take);
+    line.cells.remove(line.cells.size() - take, take);
+    // 尾段回到了活动屏幕，剩余部分在历史中不再以硬换行结尾。
+    line.hardBreak = false;
+    return take;
+}
+
+} // namespace
+
+bool ChunkedScrollback::takeNewestTail(qsizetype cellCount, LogicalLine& out)
+{
+    if (_lineCount == 0 || cellCount <= 0)
         return false;
-    line = *source;
-    evictOldest();
+
+    // 情况 1：最新行在 active 块，可以原地截断。
+    if (_active && _activeFirstLine < _active->lines.size()) {
+        LogicalLine& line = _active->lines.last();
+        const qsizetype before = lineBytes(line);
+        const qsizetype taken = takeTailCells(line, cellCount, out);
+        if (taken == 0)
+            return false;
+        _cellCount -= taken;
+        if (line.cells.isEmpty()) {
+            _active->lines.pop_back();
+            --_lineCount;
+            _activeBytes -= before;
+            _effectiveBytes -= before;
+            if (_activeFirstLine >= _active->lines.size()) {
+                // active 已无有效行，整块释放。
+                _effectiveBytes -= _activeBytes;
+                _active.reset();
+                _activeFirstLine = 0;
+                _activeBytes = 0;
+            }
+        } else {
+            const qsizetype delta = lineBytes(line) - before;
+            _activeBytes += delta;
+            _effectiveBytes += delta;
+        }
+        ++_version;
+        return true;
+    }
+
+    // 情况 2：最新行在最后一个封存块。封存块不可变，必须 copy-on-write，
+    // 与 appendContinuation 的情况 2 同构。
+    if (_chunks.empty())
+        return false;
+    StoredChunk& stored = _chunks.back();
+    const ScrollbackChunkPtr previous = stored.chunk;
+    if (previous->lines.empty())
+        return false;
+    auto replacement = std::make_shared<ScrollbackChunk>(*previous);
+    replacement->id = _nextChunkId++;
+    replacement->sealed = false;
+    const qsizetype taken =
+        takeTailCells(replacement->lines.last(), cellCount, out);
+    if (taken == 0)
+        return false;
+    _cellCount -= taken;
+    if (replacement->lines.last().cells.isEmpty()) {
+        replacement->lines.pop_back();
+        --_lineCount;
+    }
+    if (replacement->lines.size() <= stored.firstLine) {
+        // 该分块再无有效行：整块退休，副本丢弃。
+        _effectiveBytes -= previous->byteSize;
+        _retired.push_back({previous, previous->byteSize});
+        _chunks.pop_back();
+        ++_evictedChunks;
+    } else {
+        const ScrollbackChunkPtr sealed = sealChunk(std::move(replacement));
+        _effectiveBytes += sealed->byteSize - previous->byteSize;
+        stored.effectiveBytes += sealed->byteSize - previous->byteSize;
+        stored.chunk = sealed;
+        _retired.push_back({previous, previous->byteSize});
+    }
+    ++_version;
     return true;
 }
 

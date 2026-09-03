@@ -40,8 +40,10 @@ public:
     void commitPushLine(bool continuation = false, bool hardBreak = true);
 
     /**
-     * @brief 弹出最旧的一行（用于上限淘汰测试）。
-     * @return true 表示成功弹出；false 表示缓冲为空。
+     * @brief 反向取回紧邻活动屏幕顶部的那一行历史（libvterm sb_popline）。
+     * @param cells 输出缓冲，至少 cols 个 Cell；不足部分补默认 Cell。
+     * @param cols 活动屏幕列数，即一个屏幕行的宽度。
+     * @return true 表示取到一行；false 表示历史为空。
      */
     bool popLine(NovaTerm::Cell* cells, int cols);
 

@@ -201,25 +201,15 @@ TerminalRenderer::TerminalRenderer(TerminalCore* core, QWidget* parent)
     });
 
     connect(_core, &TerminalCore::scrollbackChanged, this, [this]() {
-        const int historyCount = _historyLayout.isEmpty()
-            ? _core->scrollbackLineCount() : _historyLayout.size();
-        int clampedOffset = std::clamp(_scrollLine, 0, historyCount);
+        // 布局常驻：先增量维护到与快照一致，之后一切行数判断都用真实显示行
+        // 数。旧实现在实时底部丢弃布局，使滚动条量程退化成逻辑行数。
+        const int previousScroll = _scrollLine;
+        updateHistoryLayout();
+        restoreScrollFromAnchor();
         const bool viewportMappingChanged =
-            _scrollLine > 0 || clampedOffset != _scrollLine;
-        if (clampedOffset != _scrollLine)
-            _scrollLine = clampedOffset;
+            _scrollLine > 0 || _scrollLine != previousScroll;
 
-        bool selectionChanged = false;
-        const bool hasSelectionState =
-            _selecting || _selStart.col >= 0 || _selEnd.col >= 0;
-        if (hasSelectionState
-            && (!isDocumentPositionValid(_selStart)
-                || !isDocumentPositionValid(_selEnd))) {
-            _selStart = {-1, -1};
-            _selEnd = {-1, -1};
-            _selecting = false;
-            selectionChanged = true;
-        }
+        const bool selectionChanged = dropInvalidSelection();
 
         // At the live bottom, a scrollback append is accompanied by damage for
         // the active screen in the same parser publication. Scheduling a full
@@ -233,17 +223,6 @@ TerminalRenderer::TerminalRenderer(TerminalCore* core, QWidget* parent)
         } else {
             if (selectionChanged)
                 requestOverlayFrame();
-        }
-        if (_scrollLine > 0) {
-            _reflowDebounce->start();
-        } else {
-            // Historical layout is not part of the live-bottom viewport.
-            // Reflowing an ever-growing scrollback here can eventually steal
-            // enough CPU to make the renderer miss damage publications and
-            // promote otherwise incremental scrolls to full-row recovery.
-            // Invalidate the cached layout and rebuild it lazily when the
-            // user actually enters history.
-            discardHistoryLayout();
         }
     });
 
@@ -265,30 +244,35 @@ TerminalRenderer::TerminalRenderer(TerminalCore* core, QWidget* parent)
             [this](const NovaTerm::ReflowBatch& batch) {
         if (batch.generation != _reflowGeneration)
             return;
-        if (batch.logicalStart == 0)
-            _pendingHistoryLayout.clear();
-        _pendingHistoryLayout += batch.rows;
-        if (!batch.completed || !batch.error.isEmpty())
+        if (batch.error.isEmpty()) {
+            if (batch.logicalStart == 0)
+                _pendingHistoryLayout.clear();
+            _pendingHistoryLayout += batch.rows;
+        } else {
+            // 错误批次不携带行且 logicalStart 为 0，不能让它清掉已累积的
+            // 结果。仍然继续提交已完成的部分 —— 旧写法直接返回，布局会
+            // 永久缺失，行数于是长期退化成逻辑行数。
+            qWarning() << "TerminalRenderer: 滚动历史重排失败："
+                       << batch.error;
+        }
+        if (!batch.completed)
             return;
         _historyLayout = std::move(_pendingHistoryLayout);
-        _scrollLine = std::clamp(_scrollLine, 0,
-                                 int(_historyLayout.size()));
-        if (_scrollLine > 0 && _scrollAnchorLine != 0) {
-            for (qsizetype i = 0; i < _historyLayout.size(); ++i) {
-                const auto& row = _historyLayout[i];
-                if (row.lineId == _scrollAnchorLine
-                    && row.wrapIndex == _scrollAnchorWrap) {
-                    _scrollLine = int(_historyLayout.size() - i);
-                    break;
-                }
-            }
-        }
+        _layoutColumns = _pendingLayoutColumns;
+        restoreScrollFromAnchor();
+        const bool selectionChanged = dropInvalidSelection();
+        // 重排期间列宽可能又变了（例如仍在拖动窗口）。显式续排，避免在没有
+        // 后续输出时布局停留在过期列宽上。
+        if (_layoutColumns != _core->columns())
+            _reflowDebounce->start();
         // Reflow changes only historical mapping. At the live bottom the
         // active screen identity and placement are unchanged, so rebuilding
         // base content would violate the mapping-only contract.
         if (_scrollLine > 0) {
             ++_viewportMappingRevision;
             requestFullFrame();
+        } else if (selectionChanged) {
+            requestOverlayFrame();
         }
     });
 
@@ -453,14 +437,15 @@ void TerminalRenderer::zoomOut()
 
 void TerminalRenderer::scrollToBottom()
 {
-    if (_scrollLine != 0) {
-        _scrollLine = 0;
-        _scrollAnchorLine = 0;
-        _scrollAnchorWrap = 0;
-        ++_viewportMappingRevision;
-        requestFullFrame();
-    }
-    discardHistoryLayout();
+    if (_scrollLine == 0)
+        return;
+    _scrollLine = 0;
+    _scrollAnchorLine = 0;
+    _scrollAnchorWrap = 0;
+    ++_viewportMappingRevision;
+    requestFullFrame();
+    // 布局常驻，回到实时底部不再丢弃它：行数始终可用于滚动条量程，再次
+    // 进入历史也无需等待一次重建。
 }
 
 void TerminalRenderer::scrollToLine(int line)
@@ -487,10 +472,7 @@ void TerminalRenderer::scrollToLine(int line)
             _scrollAnchorWrap = 0;
         }
         requestFullFrame();
-        if (_scrollLine > 0)
-            _reflowDebounce->start();
-        else
-            discardHistoryLayout();
+        // 布局已常驻且与当前列宽一致，进入历史无需重排。
     }
 }
 
@@ -511,6 +493,18 @@ void TerminalRenderer::setConservativeLiveScrollRendering(bool enabled)
 //  选区
 // ═══════════════════════════════════════════════════════════════════
 
+bool TerminalRenderer::isRowContinuation(int documentRow) const
+{
+    if (documentRow < 0) {
+        const qsizetype displayIndex = _historyLayout.size() + documentRow;
+        if (displayIndex < 0 || displayIndex >= _historyLayout.size())
+            return false;
+        // wrapIndex > 0 表示该显示行是同一逻辑行内的后续折行。
+        return _historyLayout[displayIndex].wrapIndex > 0;
+    }
+    return _core->rowContinuation(documentRow);
+}
+
 QString TerminalRenderer::selectedText() const
 {
     if (!isDocumentPositionValid(_selStart) ||
@@ -523,50 +517,60 @@ QString TerminalRenderer::selectedText() const
     if (end < start)
         std::swap(start, end);
 
+    // 整个提取过程复用同一份不可变快照。旧实现在行循环内逐行重取，既多余，
+    // 又让不同行有可能读到不同版本的历史。
+    const NovaTerm::ScrollbackSnapshot history =
+        start.row < 0 ? _core->scrollbackSnapshot()
+                      : NovaTerm::ScrollbackSnapshot{};
+
     QString result;
     for (int row = start.row; row <= end.row; ++row) {
-        if (row > start.row) result += QLatin1Char('\n');
+        // 行间换行只在该行不是上一行的软换行延续时插入。超宽输出被自动换行
+        // 成的多个显示行属于同一逻辑行，复制必须把它们拼回一行 —— 否则粘贴
+        // 到编辑器里会断成多行。
+        if (row > start.row && !isRowContinuation(row))
+            result += QLatin1Char('\n');
 
-        int c1 = (row == start.row) ? start.col : 0;
-        int c2 = (row == end.row)   ? end.col   : _core->columns() - 1;
+        const int firstColumn = (row == start.row) ? start.col : 0;
+        const int lastColumn =
+            (row == end.row) ? end.col : _core->columns() - 1;
 
-        // 根据 row 判断是 scrollback 还是活跃屏幕
-        for (int col = c1; col <= c2; ++col) {
-            if (row < 0) {
-                const qsizetype displayIndex = _historyLayout.size() + row;
-                const auto history = _core->scrollbackSnapshot();
-                const NovaTerm::DisplayLine* display =
-                    displayIndex >= 0 && displayIndex < _historyLayout.size()
-                    ? &_historyLayout[displayIndex] : nullptr;
-                const NovaTerm::LogicalLine* logical = display
-                    ? history.lineById(display->lineId) : nullptr;
-                const qsizetype cellIndex = display
-                    ? display->startCell + col : -1;
-                if (!logical || cellIndex < display->startCell
-                    || cellIndex >= display->endCell) {
-                    result += QLatin1Char(' ');
-                } else if (logical->cells[cellIndex].isWideContinuation()) {
-                    continue;
-                } else if (logical->cells[cellIndex].chars[0]) {
-                    result += cellCharsToString(
-                        logical->cells[cellIndex].chars.data(),
-                                                NovaTerm::MaxCharsPerCell);
-                } else {
-                    result += QLatin1Char(' ');
-                }
-            } else {
-                NovaTerm::Cell cell;
-                if (!_core->getCell(row, col, cell)) {
-                    result += QLatin1Char(' ');
-                } else if (cell.isWideContinuation()) {
-                    continue;
-                } else if (cell.chars[0]) {
-                    result += cellCharsToString(cell.chars.data(),
-                                                NovaTerm::MaxCharsPerCell);
-                } else {
-                    result += QLatin1Char(' ');
-                }
+        // 历史行先解析出所属显示行与逻辑行，避免在列循环内重复查找。
+        const NovaTerm::DisplayLine* display = nullptr;
+        const NovaTerm::LogicalLine* logical = nullptr;
+        if (row < 0) {
+            const qsizetype displayIndex = _historyLayout.size() + row;
+            if (displayIndex >= 0 && displayIndex < _historyLayout.size()) {
+                display = &_historyLayout[displayIndex];
+                logical = history.lineById(display->lineId);
             }
+        }
+
+        for (int column = firstColumn; column <= lastColumn; ++column) {
+            const NovaTerm::Cell* source = nullptr;
+            NovaTerm::Cell screenCell;
+            if (row < 0) {
+                if (!logical)
+                    continue;
+                const qsizetype cellIndex = display->startCell + column;
+                // 超出该显示行实际持有的 Cell 范围时不补空格：补齐会把填充
+                // 字符嵌进紧随其后被拼接的下一显示行之前。
+                if (cellIndex >= display->endCell)
+                    continue;
+                source = &logical->cells[cellIndex];
+            } else {
+                if (!_core->getCell(row, column, screenCell))
+                    continue;
+                source = &screenCell;
+            }
+
+            // 宽字符延续格不产生字符，它属于前一个宽 Cell。
+            if (source->isWideContinuation())
+                continue;
+            result += source->chars[0]
+                ? cellCharsToString(source->chars.data(),
+                                    NovaTerm::MaxCharsPerCell)
+                : QString(QLatin1Char(' '));
         }
     }
     return result;
@@ -1006,31 +1010,130 @@ void TerminalRenderer::resizeEvent(QResizeEvent* event)
     QRhiWidget::resizeEvent(event);
 
     recalculateCellSize();
+    // 重排请求由 resizeTerminalToViewport 发起 —— 只有它知道列数是否真的变
+    // 了。旧写法在此按 _scrollLine 分支，而 resizeTerminalToViewport 会先把
+    // _scrollLine 清零，导致该分支在尺寸真变时永远不可达。
     resizeTerminalToViewport();
-    if (_scrollLine > 0)
-        _reflowDebounce->start();
-    else
-        discardHistoryLayout();
     if (_renderScheduler)
         _renderScheduler->setViewport(_core->columns(), _core->rows());
     requestFullFrame();
 }
 
-void TerminalRenderer::discardHistoryLayout()
+void TerminalRenderer::updateHistoryLayout()
 {
-    _reflowDebounce->stop();
-    _core->cancelScrollbackReflow(_reflowGeneration);
-    ++_reflowGeneration;
-    _historyLayout.clear();
-    _pendingHistoryLayout.clear();
+    const int columns = _core->columns();
+    const NovaTerm::ScrollbackSnapshot history = _core->scrollbackSnapshot();
+
+    if (history.empty()) {
+        _historyLayout.clear();
+        _layoutColumns = columns;
+        return;
+    }
+    // 列宽变化会让所有已有折点位移，增量维护无从下手；布局尚未建立时也不在
+    // GUI 线程上折整个历史。两种情况都交给 worker 线程分批重排。
+    if (columns != _layoutColumns || _historyLayout.isEmpty()) {
+        scheduleReflow();
+        return;
+    }
+
+    // ── 头部淘汰：快照首行 ID 前移说明老行已被逐出，删掉它们的显示行 ──
+    const NovaTerm::LineId firstLineId = history.firstLineId();
+    qsizetype evicted = 0;
+    while (evicted < _historyLayout.size()
+           && _historyLayout[evicted].lineId < firstLineId) {
+        ++evicted;
+    }
+    if (evicted > 0)
+        _historyLayout.remove(0, evicted);
+    if (_historyLayout.isEmpty()) {
+        scheduleReflow();
+        return;
+    }
+
+    // ── 尾部收缩：屏幕变高时 libvterm 会用 sb_popline 把历史尾行取回活动
+    //    屏幕，那些逻辑行不再存在于快照中。逐条丢弃它们的显示行。──
+    while (!_historyLayout.isEmpty()
+           && history.rowForLineId(_historyLayout.constLast().lineId) < 0) {
+        const NovaTerm::LineId goneLineId = _historyLayout.constLast().lineId;
+        while (!_historyLayout.isEmpty()
+               && _historyLayout.constLast().lineId == goneLineId) {
+            _historyLayout.removeLast();
+        }
+    }
+    if (_historyLayout.isEmpty()) {
+        scheduleReflow();
+        return;
+    }
+
+    // ── 尾条逻辑行会被原地改写：appendContinuation 追加 cells，sb_popline
+    //    截断 cells，两者都让它已有的显示行作废，必须丢弃后重折 ──
+    const NovaTerm::LineId tailLineId = _historyLayout.constLast().lineId;
+    const qsizetype tailRow = history.rowForLineId(tailLineId);
+    if (tailRow < 0) {
+        // 理论上不可达（上面的循环已保证尾行在快照中），保守兜底。
+        scheduleReflow();
+        return;
+    }
+    qsizetype tailStart = _historyLayout.size();
+    while (tailStart > 0
+           && _historyLayout[tailStart - 1].lineId == tailLineId) {
+        --tailStart;
+    }
+    _historyLayout.remove(tailStart, _historyLayout.size() - tailStart);
+
+    for (qsizetype row = tailRow; row < history.lineCount(); ++row) {
+        const NovaTerm::LogicalLine* line = history.lineAt(row);
+        if (!line)
+            break;
+        _historyLayout += NovaTerm::LineLayout::wrapLine(*line, columns);
+    }
+    _layoutColumns = columns;
+}
+
+void TerminalRenderer::restoreScrollFromAnchor()
+{
+    _scrollLine = std::clamp(_scrollLine, 0, int(_historyLayout.size()));
+    if (_scrollLine <= 0 || _scrollAnchorLine == 0)
+        return;
+    // 锚点按 (逻辑行 ID, 折行序号) 定位，使折点变化后视口仍停在同一内容。
+    for (qsizetype i = 0; i < _historyLayout.size(); ++i) {
+        const NovaTerm::DisplayLine& row = _historyLayout[i];
+        if (row.lineId == _scrollAnchorLine
+            && row.wrapIndex == _scrollAnchorWrap) {
+            _scrollLine = int(_historyLayout.size() - i);
+            return;
+        }
+    }
+}
+
+bool TerminalRenderer::dropInvalidSelection()
+{
+    const bool hasSelectionState =
+        _selecting || _selStart.col >= 0 || _selEnd.col >= 0;
+    if (!hasSelectionState)
+        return false;
+    if (isDocumentPositionValid(_selStart)
+        && isDocumentPositionValid(_selEnd)) {
+        return false;
+    }
+    _selStart = {-1, -1};
+    _selEnd = {-1, -1};
+    _selecting = false;
+    return true;
 }
 
 void TerminalRenderer::scheduleReflow()
 {
+    _reflowDebounce->stop();
+    _core->cancelScrollbackReflow(_reflowGeneration);
     ++_reflowGeneration;
     ++_renderStatistics.scrollbackReflowRequests;
+    _historyLayout.clear();
     _pendingHistoryLayout.clear();
-    _core->requestScrollbackReflow(_core->columns(), _reflowGeneration, 256);
+    _layoutColumns = 0;
+    _pendingLayoutColumns = _core->columns();
+    _core->requestScrollbackReflow(_pendingLayoutColumns, _reflowGeneration,
+                                   256);
 }
 
 void TerminalRenderer::resizeTerminalToViewport()
@@ -1051,12 +1154,18 @@ void TerminalRenderer::resizeTerminalToViewport()
     if (cols < kMinCols || rows < kMinRows)
         return;
 
-    if (cols != _core->columns() || rows != _core->rows()) {
-        scrollToBottom();
-        clearSelection();
-        _core->resize(cols, rows);
-        emit terminalSizeChanged(cols, rows);
-    }
+    if (cols == _core->columns() && rows == _core->rows())
+        return;
+
+    // 不再强制回到实时底部、也不再无条件清选区：正在翻看历史时改变列宽应当
+    // 停在同一内容处，由 _scrollAnchorLine/_scrollAnchorWrap 在重排完成后还
+    // 原（见 reflowBatchReady）。失效的选区在那里一并清除。
+    const bool columnsChanged = cols != _core->columns();
+    _core->resize(cols, rows);
+    emit terminalSizeChanged(cols, rows);
+    // 只有列数变化才需要重排 —— 行数变化不影响折行。
+    if (columnsChanged)
+        _reflowDebounce->start();
 }
 
 // ═══════════════════════════════════════════════════════════════════

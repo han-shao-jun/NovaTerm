@@ -29,10 +29,13 @@ private slots:
     void commandRowsTrackAtlasGeneration();
     void commandBufferValidatesAtlasGeneration();
     void scrollbackAtLiveBottomDoesNotRequestFullFrame();
-    void liveBottomDefersScrollbackReflow();
+    void liveBottomMaintainsHistoryLayout();
     void batchedScreenScrollPublishesExactRowCount();
-    void enteringHistoryRequestsScrollbackReflow();
-    void returningToLiveBottomCancelsPendingReflow();
+    void enteringHistoryReusesHistoryLayout();
+    void returningToLiveBottomKeepsHistoryLayout();
+    void columnChangeRequestsReflowRowChangeDoesNot();
+    void softWrappedSelectionCopiesAsSingleLine();
+    void hardBreakSelectionKeepsNewline();
     void searchMatchesAppendByGeneration();
     void inputMethodCommitProducesUtf8();
 };
@@ -319,25 +322,40 @@ void RendererP3Tests::scrollbackAtLiveBottomDoesNotRequestFullFrame()
              fullFramesBefore);
 }
 
-void RendererP3Tests::liveBottomDefersScrollbackReflow()
+// 布局常驻：实时底部也维护历史布局，且新输出只做增量追加 —— 不再为每批
+// 输出发起一次全量重排（旧实现在底部丢弃布局，行数因此退化成逻辑行数）。
+void RendererP3Tests::liveBottomMaintainsHistoryLayout()
 {
     TerminalCore core(80, 6);
     TerminalRenderer renderer(&core);
     QTest::qWait(80);
-    const quint64 requestsBefore =
-        renderer.renderStatistics().scrollbackReflowRequests;
 
     QByteArray input;
     for (int i = 0; i < 100; ++i)
         input += QByteArrayLiteral("live-bottom\r\n");
-    const auto result = core.writeInput(input);
-    QVERIFY(result.fullyAccepted());
+    QVERIFY(core.writeInput(input).fullyAccepted());
     QVERIFY(core.waitForIdle(1000));
     QTRY_VERIFY_WITH_TIMEOUT(core.scrollbackLineCount() > 0, 1000);
 
+    // 首次建立布局走一次异步全量重排，之后布局必须常驻可用。
+    QTRY_VERIFY_WITH_TIMEOUT(renderer.historyDisplayRowCount() > 0, 2000);
+    QCOMPARE(renderer.scrollOffset(), 0);
+    const quint64 requestsAfterFirstBuild =
+        renderer.renderStatistics().scrollbackReflowRequests;
+
+    // 继续输出：列宽没变，只应增量追加，不得再发全量重排请求。
+    QByteArray more;
+    for (int i = 0; i < 50; ++i)
+        more += QByteArrayLiteral("more-output\r\n");
+    QVERIFY(core.writeInput(more).fullyAccepted());
+    QVERIFY(core.waitForIdle(1000));
     QTest::qWait(80);
+
     QCOMPARE(renderer.renderStatistics().scrollbackReflowRequests,
-             requestsBefore);
+             requestsAfterFirstBuild);
+    // 增量维护必须把新行折进布局，行数随之增长。
+    QCOMPARE(renderer.historyDisplayRowCount(),
+             qsizetype(core.scrollbackLineCount()));
 }
 
 void RendererP3Tests::batchedScreenScrollPublishesExactRowCount()
@@ -360,58 +378,174 @@ void RendererP3Tests::batchedScreenScrollPublishesExactRowCount()
     QVERIFY(publishedRows > 1);
 }
 
-void RendererP3Tests::enteringHistoryRequestsScrollbackReflow()
+// 进入历史不再触发重排：布局已常驻且与当前列宽一致，直接可用。
+void RendererP3Tests::enteringHistoryReusesHistoryLayout()
 {
     TerminalCore core(80, 24);
     TerminalRenderer renderer(&core);
     QByteArray input;
     for (int i = 0; i < 30; ++i)
         input += QByteArrayLiteral("history\r\n");
-    const auto result = core.writeInput(input);
-    QVERIFY(result.fullyAccepted());
+    QVERIFY(core.writeInput(input).fullyAccepted());
     QVERIFY(core.waitForIdle(1000));
     QTRY_VERIFY_WITH_TIMEOUT(core.scrollbackLineCount() > 0, 1000);
+    QTRY_VERIFY_WITH_TIMEOUT(renderer.historyDisplayRowCount() > 0, 2000);
 
     const quint64 requestsBefore =
         renderer.renderStatistics().scrollbackReflowRequests;
     renderer.scrollLines(1);
+    QCOMPARE(renderer.scrollOffset(), 1);
 
-    QTRY_VERIFY_WITH_TIMEOUT(
-        renderer.renderStatistics().scrollbackReflowRequests
-            > requestsBefore,
-        1000);
+    QTest::qWait(80);
+    QCOMPARE(renderer.renderStatistics().scrollbackReflowRequests,
+             requestsBefore);
 }
 
-void RendererP3Tests::returningToLiveBottomCancelsPendingReflow()
+// 回到实时底部保留布局：不再丢弃，因此行数始终可用于滚动条量程，再次
+// 进入历史也无需等待一次重建。
+void RendererP3Tests::returningToLiveBottomKeepsHistoryLayout()
 {
     TerminalCore core(80, 6);
     TerminalRenderer renderer(&core);
     QByteArray input;
     for (int i = 0; i < 100; ++i)
         input += QByteArrayLiteral("history\r\n");
-    const auto result = core.writeInput(input);
-    QVERIFY(result.fullyAccepted());
+    QVERIFY(core.writeInput(input).fullyAccepted());
     QVERIFY(core.waitForIdle(1000));
     QTRY_VERIFY_WITH_TIMEOUT(core.scrollbackLineCount() > 0, 1000);
-    QTest::qWait(80);
+    QTRY_VERIFY_WITH_TIMEOUT(renderer.historyDisplayRowCount() > 0, 2000);
 
     const quint64 requestsBefore =
         renderer.renderStatistics().scrollbackReflowRequests;
+    const qsizetype rowsBefore = renderer.historyDisplayRowCount();
+
     renderer.scrollLines(1);
     QCOMPARE(renderer.scrollOffset(), 1);
     renderer.scrollLines(-1);
     QCOMPARE(renderer.scrollOffset(), 0);
     QTest::qWait(80);
-    QCOMPARE(renderer.renderStatistics().scrollbackReflowRequests,
-             requestsBefore);
+    QCOMPARE(renderer.historyDisplayRowCount(), rowsBefore);
 
     renderer.scrollLines(1);
     QCOMPARE(renderer.scrollOffset(), 1);
     renderer.scrollToBottom();
     QCOMPARE(renderer.scrollOffset(), 0);
     QTest::qWait(80);
+    QCOMPARE(renderer.historyDisplayRowCount(), rowsBefore);
     QCOMPARE(renderer.renderStatistics().scrollbackReflowRequests,
              requestsBefore);
+}
+
+// 重排判据是**列数**而非尺寸：行数变化不影响折行，不应触发重排。
+// 直接驱动 TerminalCore::resize 而不用 QWidget::resize —— 测试里的渲染器
+// 从未 show，widget 几何变化不会传导到终端尺寸。
+void RendererP3Tests::columnChangeRequestsReflowRowChangeDoesNot()
+{
+    TerminalCore core(80, 6);
+    TerminalRenderer renderer(&core);
+    QByteArray input;
+    for (int i = 0; i < 80; ++i)
+        input += QByteArrayLiteral("resize-probe\r\n");
+    QVERIFY(core.writeInput(input).fullyAccepted());
+    QVERIFY(core.waitForIdle(1000));
+    QTRY_VERIFY_WITH_TIMEOUT(renderer.historyDisplayRowCount() > 0, 2000);
+
+    const quint64 requestsBefore =
+        renderer.renderStatistics().scrollbackReflowRequests;
+
+    // 只改行数，随后用一次输出触发 scrollbackChanged 让布局做一致性检查。
+    core.resize(80, 10);
+    QVERIFY(core.waitForIdle(1000));
+    QVERIFY(core.writeInput(QByteArrayLiteral("after-rows\r\n"))
+                .fullyAccepted());
+    QVERIFY(core.waitForIdle(1000));
+    QTest::qWait(80);
+    QCOMPARE(renderer.renderStatistics().scrollbackReflowRequests,
+             requestsBefore);
+
+    // 改列数：折点全部位移，必须重排。
+    core.resize(40, 10);
+    QVERIFY(core.waitForIdle(1000));
+    QVERIFY(core.writeInput(QByteArrayLiteral("after-cols\r\n"))
+                .fullyAccepted());
+    QVERIFY(core.waitForIdle(1000));
+    QTRY_VERIFY_WITH_TIMEOUT(
+        renderer.renderStatistics().scrollbackReflowRequests > requestsBefore,
+        2000);
+}
+
+namespace {
+
+// 找到 documentRow 对应的一个 widget y 坐标。_cellHeight 是私有的，改用
+// 公开的 widgetToCell 反查，避免测试依赖内部字体度量。
+int widgetYForDocumentRow(const TerminalRenderer& renderer, int documentRow)
+{
+    for (int y = 0; y < renderer.height(); ++y) {
+        if (renderer.widgetToCell(QPoint(0, y)).y() == documentRow)
+            return y;
+    }
+    return -1;
+}
+
+} // namespace
+
+// 超宽输出被自动换行成的多个屏幕行属于同一逻辑行，复制必须拼回一行。
+void RendererP3Tests::softWrappedSelectionCopiesAsSingleLine()
+{
+    TerminalCore core(80, 24);
+    TerminalRenderer renderer(&core);
+    QVERIFY(core.waitForIdle(1000));
+    QTest::qWait(30);
+
+    const int columns = core.columns();
+    const int total = columns + 20;
+    QVERIFY(core.writeInput(QByteArray(total, 'A')).fullyAccepted());
+    QVERIFY(core.waitForIdle(1000));
+    // 第 1 行是第 0 行的软换行延续。
+    QTRY_VERIFY_WITH_TIMEOUT(core.rowContinuation(1), 1000);
+
+    const int yRow0 = widgetYForDocumentRow(renderer, 0);
+    const int yRow1 = widgetYForDocumentRow(renderer, 1);
+    QVERIFY(yRow0 >= 0);
+    QVERIFY(yRow1 > yRow0);
+
+    // 注意：QPoint(0, 0) 是 null QPoint，QTest 会把它当作"控件中心"。起点
+    // 必须用非 null 坐标，否则选区会从屏幕中间开始。
+    // 只发 press+move 不发 release —— release 会自动写剪贴板。
+    QTest::mousePress(&renderer, Qt::LeftButton, {}, QPoint(1, yRow0 + 1));
+    QTest::mouseMove(&renderer, QPoint(renderer.width() - 1, yRow1));
+    QVERIFY(renderer.hasSelection());
+
+    const QString text = renderer.selectedText();
+    QVERIFY2(!text.contains(QLatin1Char('\n')),
+             "soft-wrapped selection must not contain a newline");
+    QVERIFY(text.startsWith(QString(total, QLatin1Char('A'))));
+}
+
+// 对照：跨真实换行的选区仍必须保留换行。
+void RendererP3Tests::hardBreakSelectionKeepsNewline()
+{
+    TerminalCore core(80, 24);
+    TerminalRenderer renderer(&core);
+    QVERIFY(core.waitForIdle(1000));
+    QTest::qWait(30);
+
+    QVERIFY(core.writeInput(QByteArrayLiteral("AAA\r\nBBB")).fullyAccepted());
+    QVERIFY(core.waitForIdle(1000));
+    QVERIFY(!core.rowContinuation(1));
+
+    const int yRow0 = widgetYForDocumentRow(renderer, 0);
+    const int yRow1 = widgetYForDocumentRow(renderer, 1);
+    QVERIFY(yRow0 >= 0);
+    QVERIFY(yRow1 > yRow0);
+
+    QTest::mousePress(&renderer, Qt::LeftButton, {}, QPoint(1, yRow0 + 1));
+    QTest::mouseMove(&renderer, QPoint(renderer.width() - 1, yRow1));
+    QVERIFY(renderer.hasSelection());
+
+    const QString text = renderer.selectedText();
+    QCOMPARE(text.count(QLatin1Char('\n')), 1);
+    QVERIFY(text.startsWith(QStringLiteral("AAA")));
 }
 
 void RendererP3Tests::searchMatchesAppendByGeneration()

@@ -113,6 +113,16 @@ public:
 
     // ── 滚动 ───────────────────────────────────────────────────
     int scrollOffset() const { return _scrollLine; }
+
+    /**
+     * @brief 滚动历史在当前列宽下占用的显示行数。
+     * @note  这就是滚动条量程。布局常驻后它始终是真实显示行数，不再退化成
+     *        逻辑行数（逻辑行数在有折行时偏小）。
+     */
+    [[nodiscard]] qsizetype historyDisplayRowCount() const
+    {
+        return _historyLayout.size();
+    }
     void scrollToBottom();
     void scrollToLine(int line);
     void scrollLines(int delta);
@@ -189,6 +199,16 @@ private:
     int cellRowAt(int widgetY) const;
     int cellColAt(int widgetX) const;
     bool isDocumentPositionValid(const NovaTerm::Position& pos) const;
+
+    /**
+     * @brief 文档行是否为上一行的软换行延续。
+     * @param documentRow 文档行号，负数表示滚动历史，非负表示活动屏幕。
+     * @return true 表示该行续接上一行，其间没有真实换行。
+     * @note  历史行用 DisplayLine::wrapIndex > 0 判定，活动屏幕行取
+     *        TerminalCore::rowContinuation()。复制选区据此决定是否插入
+     *        换行，使超宽行拼回单行。
+     */
+    [[nodiscard]] bool isRowContinuation(int documentRow) const;
     uint32_t documentCellCodepoint(int documentRow, int col) const;
 
     bool rebuildCommandRows(const NovaTerm::RendererSnapshot& screen,
@@ -239,7 +259,23 @@ private:
     void ensurePipeline();
     void requestFullFrame();
     void requestOverlayFrame();
-    void discardHistoryLayout();
+    /**
+     * @brief 把历史显示行布局增量维护到与当前 scrollback 快照一致。
+     * @note  列宽变化或布局尚未建立时改为发起一次异步全量重排；其余情况
+     *        只处理头部淘汰与尾条逻辑行的增长，代价 O(新增内容)。
+     */
+    void updateHistoryLayout();
+
+    /**
+     * @brief 按 _scrollAnchorLine/_scrollAnchorWrap 把滚动偏移还原到同一内容。
+     */
+    void restoreScrollFromAnchor();
+
+    /**
+     * @brief 选区端点若已失效则清除。
+     * @return true 表示确实清除了选区。
+     */
+    bool dropInvalidSelection();
     void scheduleReflow();
     bool ensureVertexBuffer(int rows, int columns);
     void resetWidgetRowMapping(int rows);
@@ -279,6 +315,11 @@ private:
     quint64 _reflowGeneration{0};
     QVector<NovaTerm::DisplayLine> _historyLayout;
     QVector<NovaTerm::DisplayLine> _pendingHistoryLayout;
+    // _historyLayout 所依据的列宽。0 表示布局未建立。仅当它与当前列宽不一致
+    // 时才需要全量重排 —— 行数变化不影响折行。
+    int _layoutColumns{0};
+    // 正在进行的全量重排所用的列宽，重排完成时提交给 _layoutColumns。
+    int _pendingLayoutColumns{0};
     quint64 _searchGeneration{0};
     QHash<NovaTerm::LineId, QVector<NovaTerm::SearchMatch>>
         _searchMatchesByLine;

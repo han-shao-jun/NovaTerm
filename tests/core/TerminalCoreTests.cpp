@@ -34,6 +34,9 @@ private slots:
     void cursorPropertiesPublishWithoutFollowingMovement();
     void scrollbackKeepsNewestLines();
     void softWrappedRowsBecomeOneLogicalHistoryLine();
+    void softWrapKeepsTrailingSpaces();
+    void rowContinuationTracksAutoWrap();
+    void popLineReturnsNewestRowWithoutLoss();
     void rendererSnapshotUsesLogicalWrapAnchor();
     void liveRendererSnapshotDoesNotPublishHistoryTail();
     void fullScreenScrollPreservesContent();
@@ -433,6 +436,101 @@ void TerminalCoreTests::softWrappedRowsBecomeOneLogicalHistoryLine()
         text += QChar(cell.chars[0]);
     QCOMPARE(text, QStringLiteral("abcdefghijkl"));
     QVERIFY(!line->hardBreak);
+}
+
+// 软换行行的行尾空格是有效内容 —— 下一行的文本紧接其后。旧实现无条件裁剪
+// 行尾空 Cell，逻辑行会短掉那几格，按新列宽重排后后续文本整体左移。
+void TerminalCoreTests::softWrapKeepsTrailingSpaces()
+{
+    TerminalCore core(4, 2);
+    core.setScrollbackLimit(100);
+    QVERIFY(core.waitForIdle());
+    // 4 列下依次产生 "ab  "、"cdef"、"ghij"、"kl"；前两行滚入历史并合成
+    // 一条逻辑行。第一行填满 4 列因而是软换行，其行尾两个空格必须保留。
+    core.writeInput(QByteArrayLiteral("ab  cdefghijkl"));
+    QVERIFY(core.waitForIdle());
+
+    const auto history = core.scrollbackSnapshot();
+    QCOMPARE(history.lineCount(), qsizetype(1));
+    const auto* line = history.lineAt(0);
+    QVERIFY(line);
+    QCOMPARE(line->cells.size(), qsizetype(8));
+    QString text;
+    for (const auto& cell : line->cells) {
+        text += cell.chars[0] ? QChar(cell.chars[0]) : QLatin1Char(' ');
+    }
+    QCOMPARE(text, QStringLiteral("ab  cdef"));
+    QVERIFY(!line->hardBreak);
+}
+
+// 活动屏幕的每行软换行标志从 libvterm 的 VTermLineInfo::continuation 同步。
+void TerminalCoreTests::rowContinuationTracksAutoWrap()
+{
+    TerminalCore core(4, 3);
+    QVERIFY(core.waitForIdle());
+    // 6 个字符在 4 列下自动换行：第 1 行是第 0 行的延续。
+    core.writeInput(QByteArrayLiteral("abcdef"));
+    QVERIFY(core.waitForIdle());
+    QVERIFY(!core.rowContinuation(0));
+    QVERIFY(core.rowContinuation(1));
+    QVERIFY(!core.rowContinuation(2));
+    // 越界不应崩，返回 false。
+    QVERIFY(!core.rowContinuation(-1));
+    QVERIFY(!core.rowContinuation(100));
+
+    // 对照：真实换行不产生延续标志。
+    TerminalCore hard(4, 3);
+    QVERIFY(hard.waitForIdle());
+    hard.writeInput(QByteArrayLiteral("ab\r\ncd"));
+    QVERIFY(hard.waitForIdle());
+    QVERIFY(!hard.rowContinuation(0));
+    QVERIFY(!hard.rowContinuation(1));
+}
+
+// libvterm 在屏幕变高时用 sb_popline 反向取回紧邻屏幕顶部的那一行 —— 是
+// 最新的历史行。旧实现取最旧一行，且把整条逻辑行弹出后只回填前 cols 格，
+// 其余 Cell 被永久丢弃。
+void TerminalCoreTests::popLineReturnsNewestRowWithoutLoss()
+{
+    ScrollbackBuffer buffer;
+    buffer.setMaxLines(100);
+
+    const auto pushRow = [&buffer](const QString& text, bool continuation,
+                                   bool hardBreak) {
+        QVector<NovaTerm::Cell>& row =
+            buffer.beginPushLine(4, int(text.size()));
+        for (int i = 0; i < text.size(); ++i) {
+            row[i].chars[0] = text[i].unicode();
+            row[i].width = 1;
+        }
+        buffer.commitPushLine(continuation, hardBreak);
+    };
+
+    // 一条由 3 个 4 列屏幕行软换行而成的逻辑行，共 12 格。
+    pushRow(QStringLiteral("aaaa"), false, false);
+    pushRow(QStringLiteral("bbbb"), true, false);
+    pushRow(QStringLiteral("cccc"), true, true);
+    QCOMPARE(buffer.lineCount(), 1);
+    QCOMPARE(buffer.lineVectorAt(0)->size(), qsizetype(12));
+
+    NovaTerm::Cell popped[4];
+    QVERIFY(buffer.popLine(popped, 4));
+    // 取回的是最新的屏幕行 "cccc"，不是最旧的 "aaaa"。
+    for (const NovaTerm::Cell& cell : popped)
+        QCOMPARE(QChar(cell.chars[0]), QLatin1Char('c'));
+    // 其余 8 格留在历史中，未随整条逻辑行被丢弃。
+    QCOMPARE(buffer.lineCount(), 1);
+    QCOMPARE(buffer.lineVectorAt(0)->size(), qsizetype(8));
+
+    // 继续取回：应依次得到 "bbbb"、"aaaa"，然后耗尽。
+    QVERIFY(buffer.popLine(popped, 4));
+    for (const NovaTerm::Cell& cell : popped)
+        QCOMPARE(QChar(cell.chars[0]), QLatin1Char('b'));
+    QVERIFY(buffer.popLine(popped, 4));
+    for (const NovaTerm::Cell& cell : popped)
+        QCOMPARE(QChar(cell.chars[0]), QLatin1Char('a'));
+    QCOMPARE(buffer.lineCount(), 0);
+    QVERIFY(!buffer.popLine(popped, 4));
 }
 
 void TerminalCoreTests::rendererSnapshotUsesLogicalWrapAnchor()

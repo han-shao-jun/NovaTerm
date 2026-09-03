@@ -35,13 +35,19 @@ QVector<DisplayLine> LineLayout::wrapLine(
         return result;
     }
 
+    // 超长逻辑行在此截断。上限放在 wrapLine 而不是调用方，使每帧的
+    // viewport 与 worker 上的 ReflowEngine 得到一致行为 —— 旧实现只在
+    // ReflowEngine 里抛异常，渲染路径无上限。
+    const qsizetype cellLimit =
+        std::min<qsizetype>(line.cells.size(), MaxWrapCells);
+
     qsizetype start = 0;
     qsizetype wrap = 0;
-    while (start < line.cells.size()) {
+    while (start < cellLimit) {
         qsizetype end = start;
         int used = 0;
         // 在一行内填充 Cell，直到塞满 columns 列或行尾。
-        while (end < line.cells.size()) {
+        while (end < cellLimit) {
             // 每 256 个 Cell 检查一次取消，避免长行卡住 worker。
             if ((end & 0xff) == 0 && cancelled && cancelled())
                 return {};
@@ -59,7 +65,7 @@ QVector<DisplayLine> LineLayout::wrapLine(
             used += width;
             ++end;
             // 宽字形必然带一个延续格，一并消费以保持原子性。
-            if (width == 2 && end < line.cells.size()
+            if (width == 2 && end < cellLimit
                 && line.cells[end].isWideContinuation()) {
                 ++end;
             }
@@ -216,12 +222,9 @@ public:
                     }
                     const LogicalLine* line = request.snapshot.lineAt(row);
                     if (line) {
-                        // 限制取消检查点之间的最长耗时：拒绝异常长的
-                        // 逻辑行，避免在对象析构时阻塞数百万行的展开。
-                        if (line->cells.size() > 4 * 1024 * 1024) {
-                            throw std::length_error(
-                                "logical line exceeds 4M-cell reflow limit");
-                        }
+                        // 超长逻辑行由 wrapLine 按 MaxWrapCells 截断，此处
+                        // 不再抛异常 —— 旧写法会让整次 reflow 以错误批次
+                        // 结束，渲染层收到后永不提交布局。
                         QVector<DisplayLine> wrapped = LineLayout::wrapLine(
                             *line, request.columns, [this, &request]() {
                                 return isCancelled(request.generation);

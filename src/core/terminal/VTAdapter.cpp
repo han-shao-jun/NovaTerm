@@ -242,6 +242,23 @@ public:
         }
     }
 
+    /**
+     * @brief 从 libvterm 同步每行的软换行（continuation）标志。
+     * @note  libvterm 是该状态的唯一真源。moveRect 收到的是任意矩形，无法
+     *        从 Cell 拷贝推断行语义，因此统一在全量同步边界重读整屏
+     *        lineinfo。行数量级约 100，开销可忽略。
+     */
+    void syncLineInfo()
+    {
+        if (!state)
+            return;
+        const int rows = screen.rows();
+        for (int row = 0; row < rows; ++row) {
+            const VTermLineInfo* info = vterm_state_get_lineinfo(state, row);
+            screen.setRowContinuation(row, info && info->continuation != 0);
+        }
+    }
+
     // ── libvterm C 回调（静态函数指针，user 指针为 Impl 实例）──
 
     // libvterm 输出字节流（如查询回复、终端响应）。
@@ -341,19 +358,23 @@ public:
         auto& self = *static_cast<Impl*>(user);
         self.screen.resize(columns, rows);
         self.syncRegion({0, rows, 0, columns});
+        self.syncLineInfo();
         return 1;
     }
 
-    // 活动屏幕行被推出到 scrollback：去除尾部空格后转存。
+    // 活动屏幕行被推出到 scrollback：硬换行行去除尾部空格后转存。
     static int onScrollbackPush(int columns, const VTermScreenCell* cells,
                                 int softWrapped, void* user)
     {
         auto& self = *static_cast<Impl*>(user);
         int storedColumns = columns;
-        // 去除行尾默认空 Cell，避免无谓的存储消耗。
-        while (storedColumns > 0
-               && isDefaultBlankCell(cells[storedColumns - 1])) {
-            --storedColumns;
+        // 仅硬换行行可裁剪行尾默认空 Cell。软换行行的尾部空格是有效内容
+        // —— 下一行的文本紧接其后，裁掉会让按新列宽重排后的内容整体左移。
+        if (softWrapped == 0) {
+            while (storedColumns > 0
+                   && isDefaultBlankCell(cells[storedColumns - 1])) {
+                --storedColumns;
+            }
         }
 
         QVector<Cell>& converted =
@@ -423,14 +444,19 @@ bool VTAdapter::isValid() const
 
 void VTAdapter::writeInput(const QByteArray& data)
 {
-    if (isValid())
-        vterm_input_write(_impl->vt, data.constData(), data.size());
+    if (!isValid())
+        return;
+    vterm_input_write(_impl->vt, data.constData(), data.size());
+    // 解析可能改变任意行的软换行状态（自动换行、滚动、清屏），统一重读。
+    _impl->syncLineInfo();
 }
 
 void VTAdapter::flushDamage()
 {
-    if (isValid())
-        vterm_screen_flush_damage(_impl->vts);
+    if (!isValid())
+        return;
+    vterm_screen_flush_damage(_impl->vts);
+    _impl->syncLineInfo();
 }
 
 void VTAdapter::resize(int columns, int rows)

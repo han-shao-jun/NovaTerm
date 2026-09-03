@@ -53,11 +53,17 @@ public:
                   bool hardBreak = true);
 
     /**
-     * @brief 弹出最旧的一行（用于 libvterm 的 reverse index 回滚）。
-     * @param line 输出参数，接收弹出的行。
-     * @return true 表示成功弹出；false 表示缓冲为空。
+     * @brief 从最新逻辑行的尾部取走一段 Cell。
+     * @param cellCount 期望取走的 Cell 数，不足时取走该行全部。
+     * @param out 输出参数，接收取走的那一段（沿用原行的 id 与 hardBreak）。
+     * @return true 表示取到内容；false 表示缓冲为空。
+     * @note  服务于 libvterm 的 sb_popline —— 屏幕变高时它会反向取回紧邻
+     *        屏幕顶部的那一行，也就是**最新**的历史行。一条逻辑行可能横跨
+     *        多个屏幕行，因此只取走尾部一段；剩余部分留在历史中并把
+     *        hardBreak 置为 false（尾段已回到活动屏幕，该逻辑行在历史里
+     *        不再以硬换行结尾）。整行被取空时该行被移除。
      */
-    bool popOldest(LogicalLine& line);
+    bool takeNewestTail(qsizetype cellCount, LogicalLine& out);
 
     /**
      * @brief 显式封存当前 active 块并提交版本。

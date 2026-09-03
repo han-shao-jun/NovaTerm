@@ -33,6 +33,14 @@ public:
     void setCell(int row, int column, const Cell& cell);
 
     /**
+     * @brief 该行是否为上一行的软换行延续。
+     * @note  由 VTAdapter 从 libvterm 的 VTermLineInfo::continuation 同步。
+     *        复制与搜索需要它区分行边界是软换行还是硬换行。
+     */
+    [[nodiscard]] bool rowContinuation(int row) const;
+    void setRowContinuation(int row, bool continuation);
+
+    /**
      * @brief 将 source 矩形内容拷贝到 destination 矩形。
      *        用于光标滚动、区域滚动等场景。源与目标可重叠。
      */
@@ -48,6 +56,9 @@ private:
     int _columns{0};
     int _rows{0};
     QVector<Cell> _cells;
+    // 每行一位软换行标志，长度恒等于 _rows。用 quint8 而非 bool，避免
+    // QVector<bool> 位压缩带来的读写开销。
+    QVector<quint8> _rowContinuation;
 };
 
 // 终端快照：包含可见区域全部 Cell 与光标状态。用于测试与一次性渲染。
