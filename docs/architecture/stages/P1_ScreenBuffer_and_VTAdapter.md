@@ -430,26 +430,69 @@ Release benchmark 同时记录 Parser/Core 吞吐和 10 万行 Scrollback。P1 �
   `ChunkedScrollback::takeNewestTail()`：按 `total % cols` 还原末行长度取走，剩余部分写回
   历史。回归：`TerminalCoreTests::popLineReturnsNewestRowWithoutLoss`。
 
+### 已决定不做（2026-09-03）
+
+以下两项互相耦合，经评估后决定长期搁置。**记录结论与依据，避免被重新论证。**
+
+**A. 跨接缝的逻辑行不拼接。**
+
+一条超宽行的前几段已滚入 scrollback（合成 `hardBreak=false` 的逻辑行），末段还在活动
+屏幕。列宽变化后 libvterm 明确把两侧的拼接甩给应用层
+（`libvterm/src/screen.c:588-595` 原文："Reflow the visible fragment as its own prefix;
+the preceding fragment remains in the scrollback callback owned by the application"），
+于是接缝处出现一个短行 —— 段落中间凭空多一次断行。
+
+**决定不做的理由**：影响仅限排版观感。内容正确性不受影响 —— 复制走的是
+`isRowContinuation()` 判据（历史侧看 `DisplayLine::wrapIndex`，活动屏幕侧看
+`TerminalCore::rowContinuation()`），跨接缝复制得到的仍是正确的单行文本。而拼接必然改变
+内容占用的 widget 行数，`screenRow = widgetRow - scrollLine`（`TerminalCore.cpp:777`）、
+渲染器行身份/damage 机制、`selectedText` 坐标反解都建立在该算术映射上，无法局部修补。
+
+若将来重新考虑，**B 是它的前置** —— 不要在当前存储模型下为它写临时机制，那部分必然被丢弃。
+
+**B. scrollback 存储模型不改为「物理行 + 每行 wrap 位」。**
+
+主流终端（VTE ring / alacritty `Grid` / Windows Terminal `TextBuffer`）把历史与屏幕放在
+同一结构，"屏幕"只是其中一段索引，因此 reflow 时边界本身可移动。NovaTerm 的边界不能
+移动：libvterm 拥有活动屏幕并自行 reflow，NovaTerm 用合并逻辑行表示历史。
+
+改为行式存储**确实能买到**：删掉整个 `DisplayLine` / `_historyLayout` 层（行即显示行，
+滚动条量程直接是 `scrollbackLineCount()`，`LineLayout::viewport`、`ReflowEngine`、
+`updateHistoryLayout` 全部不需要存在）；尾部空格裁剪与 `sb_popline` 语义两处阻抗失配从
+「已修的 bug」变成「不可能出现」；`appendContinuation` 的整块 COW
+（`ChunkedScrollback.cpp:91-107`）与逻辑行内存无上界一并消失；接缝从架构性阻塞降级为
+有界工作量。
+
+**决定不做的理由**（评估结论，按权重）：
+
+1. **瞬态一致性问题只是搬家，不是消失。** 今天 reflow 把结果建在独立缓冲
+   （`_pendingHistoryLayout`）里算完再原子换上，索引成本约 40 字节/行，中途出错丢掉即可，
+   存储层毫发无损。行式存储下 reflow 必须**重写真源**：整体 swap 要瞬态 2× 内存（按 256 MB
+   默认预算即 512 MB 峰值，不可接受），逐 chunk 重写则要给每 chunk 带宽度标记、面对不同
+   宽度 chunk 混排、行数在过程中变化 —— 又需要一套代际机制。「简化」的幅度低于第一印象。
+2. **搜索结果的 reflow 稳定性会退化。** 今天匹配锚在 `LineId`，reflow 不动存储所以天然
+   稳定。行式存储下若只有行下标则 reflow 后全部失效，必须给每行额外带一个稳定的 run id；
+   且跨软换行的字符串需要先拼接 run 才能匹配（今天是免费的）。
+3. **它能预防的用户可见缺陷已经全部修好**（尾部空格裁剪、`sb_popline`、复制假换行），
+   重做一遍不会让用户感知到改善。收益是未来可维护性，不是当下功能。
+4. 内存大致中性：实测每逻辑行约 2155 字节（24 个 cell，含容量与分配开销）。行式存储若
+   保留尾部裁剪则总量相当，但容器数从「逻辑行数」变成「行数」，重度折行内容的
+   per-container 开销更多。不构成决策依据。
+
+**边界澄清**：该改动**不违反** `docs/ARCHITECTURE.md` §2 的任何一条原则（Parser 单写、
+libvterm 只在 VTAdapter 内、跨线程传不可变快照均不受影响），只需改 §5/§9 对数据模型的
+描述。评估过程中曾误判为「需修订 §2 原则」，据此更正 —— 门槛比先前记录的低。
+
+改动范围也是收敛的：`src/core/scrollback/*`、`ScrollbackBuffer`、`SearchEngine`、渲染器的
+历史映射；不触及 VTAdapter 的 libvterm 边界语义。
+
+**重新启动本项的条件**：决定要修 A（接缝短行），或因其他原因本来就要重写存储层。
+
 ### 剩余工作
 
-1. **跨接缝的逻辑行无法拼接**。一条超宽行的前几段已滚入 scrollback（合成 `hardBreak=false`
-   的逻辑行），末段还在活动屏幕。列宽变化后 libvterm 明确把两侧的拼接甩给应用层
-   （`libvterm/src/screen.c:588-595` 原文："Reflow the visible fragment as its own prefix;
-   the preceding fragment remains in the scrollback callback owned by the application"），
-   于是接缝处出现一个短行 —— 段落中间凭空多一次断行。拼接必然改变内容占用的 widget 行数，
-   而 `screenRow = widgetRow - scrollLine`（`TerminalCore.cpp:777`）、渲染器行身份/damage
-   机制、`selectedText` 坐标反解都建立在该算术映射上，无法局部修补。
-2. **待决议题：scrollback 存储模型是否改为「物理行 + 每行 wrap 位」**。主流终端
-   （VTE ring / alacritty `Grid` / Windows Terminal `TextBuffer`）把历史与屏幕放在同一结构，
-   "屏幕"只是其中一段索引，因此 reflow 时历史/屏幕边界本身可移动，不存在接缝。NovaTerm
-   的边界不能移动：libvterm 拥有活动屏幕并自行 reflow，NovaTerm 用合并逻辑行表示历史。
-   若改为行式存储，上面两条阻抗失配（尾部空格裁剪、`sb_popline` 语义）、
-   `appendContinuation` 命中已封存 chunk 时的整块 COW（`ChunkedScrollback.cpp:91-107`）、
-   逻辑行内存无上界、以及「行数需要一次布局遍历才知道」会同时消失，接缝退化为两个同形
-   结构在边界拼接。第 1 项的正解取决于本议题，故不宜先写临时机制。
-3. **活动屏幕不参与搜索**。`TerminalCore::searchScrollback()` 只搜 scrollback 快照
+1. **活动屏幕不参与搜索**。`TerminalCore::searchScrollback()` 只搜 scrollback 快照
    （`TerminalCore.cpp:898-901`），同一字符串滚进历史后能搜到、还在屏幕上时搜不到。
-4. **布局常驻带来的 chunk 碎片化：字节预算风险已实测排除，但快照成本随 chunk 数增长**。
+2. **布局常驻带来的 chunk 碎片化：字节预算风险已实测排除，但快照成本随 chunk 数增长**。
    `TerminalRenderer::updateHistoryLayout()` 在每次 `scrollbackChanged` 取一次快照，而
    `ChunkedScrollback::snapshot()` 会 `publish()` → `sealActive()`，于是每批输出封存一个
    小 chunk，不再填满 `DefaultChunkLines = 1024`。
@@ -475,10 +518,11 @@ Release benchmark 同时记录 Parser/Core 吞吐和 10 万行 Scrollback。P1 �
    的churn。这不影响正确性，但在大历史 + 高频输出下值得优化 —— 可行方向是给
    `TerminalCore` 增加「只取尾部若干逻辑行」的窄接口，让增量维护不必构造全量快照。
    尚未实施，也尚未在 GPU 长稳基准下复测。
-5. **`dim` / `protectedCell` 需要接管 screen 层才有来源**（见上文「当前实现差距」）。
-   与第 2 项同源：两者都取决于是否改用 `VTermStateCallbacks` 自建屏幕模型。在此之前
-   字段保持恒 false 并已就地标注。原先并列在此的「宽字符 continuation 写入点」已确认
-   是误判，见上文更正。
+3. **`dim` / `protectedCell` 需要接管 screen 层才有来源**（见上文「当前实现差距」）。
+   注意它与上文 B 项**不同源**：B 是换 scrollback 存储，本项要的是改用
+   `VTermStateCallbacks` 的 `putglyph` 接管**活动屏幕**模型。B 被搁置不影响本项，但本项
+   工作量更大且目前无人需要。在有来源之前字段保持恒 false 并已就地标注。原先并列在此的
+   「宽字符 continuation 写入点」已确认是误判，见上文更正。
 
 ## 退出标准
 
