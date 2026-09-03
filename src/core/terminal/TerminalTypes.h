@@ -100,8 +100,16 @@ struct CellAttributes
     bool dhl{false};           // Double Height Line（DEC DHL）
     bool smallFont{false};     // SGR 73：小字号
     bool baseline{false};      // SGR 74/75：上/下基线偏移
-    bool protectedCell{false}; // DECSCA 保护单元格，清屏时不擦除
-    bool dim{false};           // SGR 2：低亮度
+    // ⚠ protectedCell 与 dim 目前**恒为 false**，没有可靠来源：
+    // vendored libvterm 的 VTermScreenCellAttrs（vterm.h:499-510）不提供这两位，
+    // 其 SGR 分派（pen.c:291-460）也没有 SGR 2 分支，DECSCA 只用于 erase 回调的
+    // selective 参数而不落到 per-cell 状态。要填上它们必须自己跟踪 pen 并知道每个
+    // Cell 由哪次 SGR 写入 —— 那要求接管 libvterm 的 screen 层（改用
+    // VTermStateCallbacks 的 putglyph），不是适配层能做到的。
+    // 字段保留以维持数据契约；在有来源之前不要让渲染或擦除语义依赖它们。
+    // 见 docs/architecture/stages/P1_ScreenBuffer_and_VTAdapter.md「剩余工作」。
+    bool protectedCell{false}; // DECSCA 保护单元格，清屏时不擦除（暂无来源）
+    bool dim{false};           // SGR 2：低亮度（暂无来源）
     bool conceal{false};       // SGR 8：隐藏文本
     UnderlineStyle underlineStyle{UnderlineStyle::Off};
 };

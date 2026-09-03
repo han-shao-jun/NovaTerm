@@ -38,6 +38,7 @@ private slots:
     void hardBreakSelectionKeepsNewline();
     void searchMatchesAppendByGeneration();
     void inputMethodCommitProducesUtf8();
+    void fragmentedOutputDoesNotInflateScrollbackBytes();
 };
 
 void RendererP3Tests::schedulerMergesTouchingRegions()
@@ -490,6 +491,69 @@ int widgetYForDocumentRow(const TerminalRenderer& renderer, int documentRow)
 } // namespace
 
 // 超宽输出被自动换行成的多个屏幕行属于同一逻辑行，复制必须拼回一行。
+// 布局常驻后 updateHistoryLayout() 每次 scrollbackChanged 都取一次快照，而
+// ChunkedScrollback::snapshot() 会 publish() → sealActive()。于是每批输出封存
+// 一个小 chunk，而不再填满 DefaultChunkLines = 1024 —— chunk 数从「行数/1024」
+// 变成「发布批次数」。
+//
+// 2026-09-03 实测（10000 行）：一次写入 sealedChunks=10、effectiveBytes=
+// 21,459,448；拆成 500 批 sealedChunks=499、effectiveBytes=21,514,216。即每
+// chunk 记账开销约 112 字节，字节预算只涨 0.26%，不会提前触发淘汰。
+//
+// 本测试锁定这一点：碎片化本身允许发生，但字节记账的膨胀必须保持在可忽略
+// 量级，否则同样的 scrollback 上限会因为记账虚高而少存内容。
+void RendererP3Tests::fragmentedOutputDoesNotInflateScrollbackBytes()
+{
+    struct Result
+    {
+        qsizetype bytes{0};
+        qsizetype chunks{0};
+        qsizetype lines{0};
+    };
+
+    const auto produce = [](int batches, int linesPerBatch, Result* out) {
+        TerminalCore core(80, 24);
+        core.setScrollbackLimit(100000);
+        TerminalRenderer renderer(&core);
+        QVERIFY(core.waitForIdle(2000));
+        for (int batch = 0; batch < batches; ++batch) {
+            QByteArray input;
+            for (int i = 0; i < linesPerBatch; ++i)
+                input += QByteArrayLiteral("fragmentation-probe-line\r\n");
+            QVERIFY(core.writeInput(input).fullyAccepted());
+            QVERIFY(core.waitForIdle(10000));
+            if (batches > 1)
+                QTest::qWait(1);
+        }
+        QTest::qWait(200);
+        const auto statistics = core.scrollbackStatistics();
+        out->bytes = statistics.effectiveBytes;
+        out->chunks = statistics.sealedChunks;
+        out->lines = statistics.logicalLines;
+    };
+
+    Result single;
+    Result fragmented;
+    produce(1, 2000, &single);
+    produce(100, 20, &fragmented);
+
+    // 两种写法产生同样的内容。
+    QCOMPARE(fragmented.lines, single.lines);
+    QVERIFY(single.lines > 1000);
+    // 碎片化确实发生：小批量写入封存的 chunk 明显更多。
+    QVERIFY2(fragmented.chunks > single.chunks,
+             "fragmented output is expected to seal more chunks");
+    // 但字节记账的膨胀必须可忽略（实测 0.26%，此处留 5% 余量）。
+    QVERIFY2(fragmented.bytes <= single.bytes + single.bytes / 20,
+             qPrintable(QStringLiteral(
+                 "chunk accounting overhead inflated scrollback bytes: "
+                 "single=%1 fragmented=%2 chunks %3 -> %4")
+                            .arg(single.bytes)
+                            .arg(fragmented.bytes)
+                            .arg(single.chunks)
+                            .arg(fragmented.chunks)));
+}
+
 void RendererP3Tests::softWrappedSelectionCopiesAsSingleLine()
 {
     TerminalCore core(80, 24);

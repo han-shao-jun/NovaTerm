@@ -37,6 +37,7 @@ private slots:
     void softWrapKeepsTrailingSpaces();
     void rowContinuationTracksAutoWrap();
     void popLineReturnsNewestRowWithoutLoss();
+    void wideCharMarksContinuationCell();
     void rendererSnapshotUsesLogicalWrapAnchor();
     void liveRendererSnapshotDoesNotPublishHistoryTail();
     void fullScreenScrollPreservesContent();
@@ -531,6 +532,43 @@ void TerminalCoreTests::popLineReturnsNewestRowWithoutLoss()
         QCOMPARE(QChar(cell.chars[0]), QLatin1Char('a'));
     QCOMPARE(buffer.lineCount(), 0);
     QVERIFY(!buffer.popLine(popped, 4));
+}
+
+// 双宽字符占两个网格位置，后一格必须携带 WideCharContinuation 哨兵 ——
+// Renderer 据此避免为它重复生成字形，LineLayout 据此保证折行不把宽字符
+// 劈开，SearchEngine 据此跳过它。
+//
+// libvterm 内部用 chars[0] = (uint32_t)-1 标记该格（screen.c:198），而
+// vterm_screen_get_cell 逐字复制 chars（screen.c:1040-1044），数值恰好等于
+// NovaTerm 的 WideCharContinuation，因此 populateCell() 的按零终止符复制
+// 会自然把哨兵带过来 —— 不需要额外写入点。本测试锁定这条链路。
+void TerminalCoreTests::wideCharMarksContinuationCell()
+{
+    TerminalCore core(8, 2);
+    QVERIFY(core.waitForIdle());
+    core.writeInput(QString::fromUtf8(u8"中A").toUtf8());
+    QVERIFY(core.waitForIdle());
+
+    // 第 0 列是宽字符本体，width=2。
+    NovaTerm::Cell lead;
+    QVERIFY(core.getCell(0, 0, lead));
+    QCOMPARE(lead.chars[0], uint32_t(0x4E2D));
+    QCOMPARE(int(lead.width), 2);
+    QVERIFY(!lead.isWideContinuation());
+
+    // 第 1 列是它的视觉延续格。
+    NovaTerm::Cell continuation;
+    QVERIFY(core.getCell(0, 1, continuation));
+    QVERIFY2(continuation.isWideContinuation(),
+             "the grid cell behind a double-width glyph must carry "
+             "WideCharContinuation");
+
+    // 紧随其后的窄字符落在第 2 列，不是延续格。
+    NovaTerm::Cell next;
+    QVERIFY(core.getCell(0, 2, next));
+    QCOMPARE(next.chars[0], uint32_t('A'));
+    QCOMPARE(int(next.width), 1);
+    QVERIFY(!next.isWideContinuation());
 }
 
 void TerminalCoreTests::rendererSnapshotUsesLogicalWrapAnchor()
