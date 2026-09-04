@@ -206,6 +206,24 @@ SshTransport / LocalShellTransport 用 `invokeMethod(QueuedConnection)` 把
 部署 `platforms/`，其中只有 `qwindows.dll`。Qt 优先用 exe 同级的插件目录，
 所以任何依赖 offscreen 插件的测试都需要显式 `QT_PLUGIN_PATH`。
 
+**Win10 换 app style 必须用 `QT_STYLE_OVERRIDE` 而不是 `setStyle()`**：
+Qt 6.8 在 Win10 上给的默认 style 是 `windowsvista`，它把 EDIT / HEADER /
+SCROLLBAR / MENU 等交给 UxTheme 绘制，而 Win10 的 UxTheme 没有深色变体且
+无视 QPalette —— 深色主题下这些原生 Qt 控件恒为白底（Win11 默认已是
+`windows11`，纯 palette 驱动，所以无此问题）。修复在 `main.cpp` 里
+`QApplication` 构造**之前** `qputenv("QT_STYLE_OVERRIDE", "windows11")`。
+**不能改用 `QApplication::setStyle()`**：`MainWindow` 设了 stylesheet，其
+子树改由 `QStyleSheetStyle` 绘制，而后者创建时就缓存了 `baseStyle`；
+`setStyle()` 只换掉 `QApplication::style()`，`QStyleSheetStyle` 仍持有旧的
+`QWindowsVistaStyle` 继续绘制。该失败模式极具误导性：诊断打印出的 app
+style 已是 `QWindows11Style`、palette 也是深色，控件却照旧白底，唯一泄露
+差异的是滚动条宽度从 17px 变成 12px。
+
+顺带一条同源约束：**运行期不要换 app style**。ElaWidgetTools 给每个控件装
+的是包住 app style 的 `QProxyStyle`（`setStyle(new ElaLineEditStyle(style()))`，
+见 `ElaLineEdit.cpp:36`），构造时即捕获当时的 app style，换掉会留下悬垂
+base 指针。主题切换只改 QPalette，不动 style。
+
 **软换行行的行尾空格不能裁**：`onScrollbackPush()` 里裁剪行尾空 Cell 只对
 **硬换行**行安全。软换行行填满了整行才换行，其尾部空格是有效内容 —— 下一行
 文本紧接其后，裁掉会让按新列宽重排后的内容整体左移。判据是 `softWrapped == 0`。
