@@ -18,8 +18,10 @@
 #include "session/SessionTypes.h"
 
 class ElaDialog;
+class ElaCheckBox;
 class QCloseEvent;
 class QDockWidget;
+class QLabel;
 class QShowEvent;
 class SessionPanel;
 class SftpPanel;
@@ -40,7 +42,6 @@ public:
 
 protected:
     bool event(QEvent* event) override;
-    void changeEvent(QEvent* event) override;
     void closeEvent(QCloseEvent* event) override;
     void showEvent(QShowEvent* event) override;
 
@@ -55,6 +56,9 @@ private:
     void retranslateUi();
     void saveWindowLayout();
     void updateDockResizeHighlight(const QPoint& position);
+    // 运行时语言切换需要重设关闭确认框文案；对话框在构造期创建并复用，
+    // 其标题/按钮/正文不能在每次语言切换时重新翻译，故集中在此刷新。
+    void applyCloseDialogTexts();
 
     // ── 标题栏菜单（单个图标 → 弹出菜单）──
     ElaIconButton* _menuButton{nullptr};
@@ -101,6 +105,13 @@ private:
         QString wslDistribution;
         QString label;
     };
+
+    // ── 关闭确认对话框 ──
+    // 构造期创建一次并复用（与 _aboutDialog 相同模式）；切换语言时由
+    // applyCloseDialogTexts() 重设文案，避免构造时 tr() 的一次性文本残留旧语言。
+    ElaContentDialog* _closeDialog{nullptr};
+    QLabel* _closeLabel{nullptr};
+    ElaCheckBox* _closeDontAskAgainCheck{nullptr};
 
     ElaDialog* _sessionDialog{nullptr};
     std::optional<LocalSessionParameters> _pendingLocalSession;

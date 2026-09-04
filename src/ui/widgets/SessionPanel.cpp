@@ -236,8 +236,8 @@ SessionPanel::SessionPanel(QWidget* parent)
     headerLayout->setSpacing(6);
     // 标题用 ElaText：QLabel 靠祖先 palette 继承取色，主题切换时不可靠，
     // 浅色主题下曾残留深色主题的白字。ElaText 自订阅 themeModeChanged 并在
-    // paintEvent 里自愈（ElaText.cpp:158）。
-    _titleLabel = new ElaText(tr("Quick connections"), this);
+    // paintEvent 里自愈（ElaText.cpp:158）。文本统一由 retranslateUi() 设置。
+    _titleLabel = new ElaText(this);
     _titleLabel->setTextStyle(ElaTextType::BodyStrong);
     _titleLabel->setWordWrap(false);
     headerLayout->addWidget(_titleLabel);
@@ -248,8 +248,7 @@ SessionPanel::SessionPanel(QWidget* parent)
     headerLayout->addWidget(_collapseButton);
     _rootLayout->addWidget(headerWidget, 0, Qt::AlignTop);
 
-    _newSessionButton = new ElaPushButton(tr("+  New session"), this);
-    _newSessionButton->setAccessibleName(tr("New session"));
+    _newSessionButton = new ElaPushButton(this);
     _newSessionButton->setMinimumHeight(34);
     _rootLayout->addWidget(_newSessionButton);
 
@@ -278,8 +277,9 @@ SessionPanel::SessionPanel(QWidget* parent)
     connect(&LanguageManager::instance(), &LanguageManager::languageChanged,
             this, [this](const QString&) { retranslateUi(); });
 
-    rebuildTree();
-    updateCollapsedUi();
+    // 标题/按钮文本与折叠提示的初始语言由 retranslateUi() 统一应用，
+    // 后续语言切换也走同一函数，避免构造期另写一份 tr() 文案。
+    retranslateUi();
 }
 
 SessionPanel::~SessionPanel() = default;

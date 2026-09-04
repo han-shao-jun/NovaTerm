@@ -21,12 +21,9 @@ void LanguageManager::install(const QString& preferredLocale)
         _currentLocale = "en";
     }
 
-    // 安装当前翻译器并发射信号
-    auto* t = _translators.value(_currentLocale);
-    if (t) {
-        QCoreApplication::installTranslator(t);
-        emit languageChanged(_currentLocale);
-    }
+    // 安装当前语言整套翻译器（qtbase + 应用）并发射信号
+    applyLocale(_currentLocale);
+    emit languageChanged(_currentLocale);
 }
 
 void LanguageManager::switchLanguage(const QString& locale)
@@ -34,19 +31,8 @@ void LanguageManager::switchLanguage(const QString& locale)
     if (_currentLocale == locale || !_translators.contains(locale))
         return;
 
-    // 移除旧翻译器
-    auto* old = _translators.value(_currentLocale);
-    if (old)
-        QCoreApplication::removeTranslator(old);
-
-    // 安装新翻译器
-    _currentLocale = locale;
-    auto* t = _translators.value(_currentLocale);
-    if (t) {
-        QCoreApplication::installTranslator(t);
-        qDebug() << "已切换语言至：" << locale;
-    }
-
+    applyLocale(locale);
+    qDebug() << "已切换语言至：" << locale;
     emit languageChanged(_currentLocale);
 }
 
@@ -76,4 +62,37 @@ void LanguageManager::loadTranslations()
             delete t;
         }
     }
+}
+
+void LanguageManager::applyLocale(const QString& locale)
+{
+    // 先移除当前整套翻译器（qtbase + 应用），再安装新语言的整套。
+    if (_qtbaseTranslator) {
+        QCoreApplication::removeTranslator(_qtbaseTranslator);
+        _qtbaseTranslator = nullptr;
+    }
+    if (QTranslator* old = _translators.value(_currentLocale))
+        QCoreApplication::removeTranslator(old);
+    _currentLocale = locale;
+
+    // 1) Qt 基础翻译（QFileDialog / QMessageBox / QLineEdit 菜单等标准控件文案）。
+    //    文件在 exe 同级的 translations/ 目录，由构建/安装规则从 Qt 安装目录复制。
+    //    找不到（例如仅 en 语言或纯开发环境）时静默跳过 —— 应用译文不受影响。
+    if (locale != QStringLiteral("en")) {
+        auto* base = new QTranslator(this);
+        const QString basePath = QCoreApplication::applicationDirPath()
+            + QStringLiteral("/translations/qtbase_")
+            + locale + QStringLiteral(".qm");
+        if (base->load(basePath)) {
+            // 先装 qtbase、后装应用翻译器：Qt 按安装逆序查找，因此应用译文优先。
+            QCoreApplication::installTranslator(base);
+            _qtbaseTranslator = base;
+        } else {
+            delete base;
+        }
+    }
+
+    // 2) 应用翻译器（内嵌资源，含本工程全部 tr() 文案）
+    if (QTranslator* t = _translators.value(locale))
+        QCoreApplication::installTranslator(t);
 }

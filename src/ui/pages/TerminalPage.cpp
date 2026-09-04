@@ -21,8 +21,6 @@
 
 TerminalPage::TerminalPage(QWidget* parent) : QWidget(parent)
 {
-    setWindowTitle(tr("Terminal"));
-
     _tabWidget = new ElaTabWidget(this);
     _tabWidget->setTabPosition(QTabWidget::North);
     _tabWidget->setIndicatorPosition(ElaTabBarType::Bottom);
@@ -43,6 +41,9 @@ TerminalPage::TerminalPage(QWidget* parent) : QWidget(parent)
     // 标签切换后通知依赖当前连接的 SFTP/资源监视面板刷新上下文。
     connect(_tabWidget, &QTabWidget::currentChanged, this,
             [this](int) { emitCurrentSessionContext(); });
+
+    // 窗口标题只在此处经 tr() 设置，构造期不再单独赋值，避免两份文案漂移。
+    retranslateUi();
 }
 
 void TerminalPage::retranslateUi()

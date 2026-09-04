@@ -308,6 +308,22 @@ base 指针。主题切换只改 QPalette，不动 style。
 行号变化时，`lupdate` 会把它们当新条目并清空译文，记得回填（本次 `SessionPage`
 的 `Telnet Session` 等两条就是这样丢的）。
 
+**翻译 .ts 的例行工作流**：改代码后跑
+`cmake --build build --target update_translations`（Qt 的 LinguistTools 在
+`qt_add_translations` 里自动注册该 target，`CMakeLists.txt` 已带
+`LUPDATE_OPTIONS -no-obsolete` 清掉源码里已删除/移走的旧条目），lupdate 会自动
+扫描 `src/`、`ElaWidgetTools` 源码并刷新两个 `.ts` 的行号与新增/移除条目；然后
+打开 `.ts` 回填新增条目的中文译文（遗漏的条目以 `<translation type="unfinished"/>`
+标记，可 `lrelease` 后实跑验证，也可 grep `type="unfinished"` 检查）。**不要手工
+维护 `.ts` 里的行号**——下一次 lupdate 会整体重排。
+
+**Qt 官方控件文案（QFileDialog / QMessageBox / 标准右键菜单等）走 qtbase 翻译**：
+`LanguageManager` 会从 exe 同级的 `translations/qtbase_<locale>.qm` 加载 Qt 自带
+翻译（`applyLocale()` 里先装 qtbase、后装应用翻译器，因此工程译文优先）。该文件
+由 CMake 从 Qt 安装目录的 `translations/` 复制到构建/安装产物；新增支持语言时，
+除了往 `TS_FILES` 加 `novaterm_<lang>.ts`，还要在 CMake 里复制对应的
+`qtbase_<lang>.qm`。
+
 **`ElaContentDialog` 与 `ElaMessageBar` 的 parent 都不能为空，且应当传窗口一级**：
 前者 `showEvent` 里直接 `parentWidget()->size()`，后者构造里直接
 `parent->installEventFilter()`，传 `nullptr` 会崩或静默失效。更隐蔽的一条：

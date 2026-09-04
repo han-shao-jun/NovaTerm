@@ -3,7 +3,8 @@
  * @brief  主窗口实现：菜单构建、会话对话框与语言切换。
  *
  * 构建标题栏图标菜单，连接 TerminalPage 的会话请求信号弹出 SessionPage
- * 对话框。changeEvent 处理 LanguageChange 时调用 retranslateUi() 刷新菜单文本。
+ * 对话框。语言切换经 LanguageManager::languageChanged 广播驱动 retranslateUi()
+ * 刷新菜单文本 —— 与子面板/页面一致，不依赖顶层窗口的 LanguageChange 事件。
  */
 #include "MainWindow.h"
 #include "ElaCheckBox.h"
@@ -761,44 +762,39 @@ MainWindow::MainWindow(QWidget* parent) : ElaWindow(parent)
             this, [this](const QString&) { retranslateUi(); });
 
     // ── 关闭确认对话框 ──────────────────────────────────────────
-    auto* closeDialog = new ElaContentDialog(this);
-    closeDialog->setWindowTitle(tr("Exit"));
-    closeDialog->setLeftButtonText(tr("Cancel"));
-    closeDialog->setMiddleButtonText(tr("Minimize"));
-    closeDialog->setRightButtonText(tr("Exit"));
+    // 构造期创建一次并复用，语言切换时经 applyCloseDialogTexts() 刷新文案。
+    _closeDialog = new ElaContentDialog(this);
 
-    auto* closeCentral = new QWidget(closeDialog);
+    auto* closeCentral = new QWidget(_closeDialog);
     auto* closeLayout = new QVBoxLayout(closeCentral);
     closeLayout->setContentsMargins(24, 20, 24, 20);
-    auto* closeLabel = new QLabel(tr("Are you sure you want to exit NovaTerm?"), closeCentral);
-    closeLabel->setWordWrap(true);
-    closeLayout->addWidget(closeLabel);
-    auto* dontAskAgainCheck = new ElaCheckBox(
-        tr("Do not ask again"), closeCentral);
-    closeLayout->addWidget(dontAskAgainCheck);
+    _closeLabel = new QLabel(closeCentral);
+    _closeLabel->setWordWrap(true);
+    closeLayout->addWidget(_closeLabel);
+    _closeDontAskAgainCheck = new ElaCheckBox(closeCentral);
+    closeLayout->addWidget(_closeDontAskAgainCheck);
     closeLayout->addStretch();
-    closeDialog->setCentralWidget(closeCentral);
+    _closeDialog->setCentralWidget(closeCentral);
     // setCentralWidget() 内部已调用 adjustSize()，基于当前内容
     // 重新计算正确的 sizeHint，避免 exec() 时触发 QWindowsWindow 几何体警告。
+    applyCloseDialogTexts();
 
-    connect(closeDialog, &ElaContentDialog::rightButtonClicked, this,
-            [closeDialog, dontAskAgainCheck, this]() {
+    connect(_closeDialog, &ElaContentDialog::rightButtonClicked, this, [this]() {
         // 仅在用户明确确认退出时保存“不再提示”，取消或最小化不改变配置。
-        if (dontAskAgainCheck->isChecked()) {
+        if (_closeDontAskAgainCheck->isChecked()) {
             ConfigManager::set(QStringLiteral("window.confirmExit"), false);
         }
-        closeDialog->done(QDialog::Accepted);
+        _closeDialog->done(QDialog::Accepted);
         QTimer::singleShot(0, this, &QWidget::close);
     });
-    connect(closeDialog, &ElaContentDialog::middleButtonClicked, this, [=]() {
-        closeDialog->done(QDialog::Accepted);
+    connect(_closeDialog, &ElaContentDialog::middleButtonClicked, this, [this]() {
+        _closeDialog->done(QDialog::Accepted);
         showMinimized();
     });
-    connect(closeDialog, &ElaContentDialog::leftButtonClicked, closeDialog,
+    connect(_closeDialog, &ElaContentDialog::leftButtonClicked, _closeDialog,
             &ElaContentDialog::close);
     setIsDefaultClosed(false);
-    connect(this, &MainWindow::closeButtonClicked, this,
-            [this, closeDialog, dontAskAgainCheck]() {
+    connect(this, &MainWindow::closeButtonClicked, this, [this]() {
         // 配置关闭确认后直接退出；仍需走 QWidget::close()，以保存最终窗口布局。
         if (!ConfigManager::get<bool>(
                 QStringLiteral("window.confirmExit"), true)) {
@@ -807,8 +803,8 @@ MainWindow::MainWindow(QWidget* parent) : ElaWindow(parent)
         }
 
         // 对话框实例会复用，取消后再次打开时不沿用尚未确认的勾选状态。
-        dontAskAgainCheck->setChecked(false);
-        closeDialog->exec();
+        _closeDontAskAgainCheck->setChecked(false);
+        _closeDialog->exec();
     });
 }
 
@@ -887,14 +883,6 @@ bool MainWindow::event(QEvent* event)
     return handled;
 }
 
-void MainWindow::changeEvent(QEvent* event)
-{
-    if (event->type() == QEvent::LanguageChange) {
-        retranslateUi();
-    }
-    ElaWindow::changeEvent(event);
-}
-
 void MainWindow::closeEvent(QCloseEvent* event)
 {
     ElaWindow::closeEvent(event);
@@ -928,6 +916,22 @@ void MainWindow::showEvent(QShowEvent* event)
         if (_sessionDock)
             _sessionDock->setVisible(true);
     });
+}
+
+void MainWindow::applyCloseDialogTexts()
+{
+    // 退出确认对话框在构造期创建并复用（成员持有），初始语言与运行时语言切换
+    // 都从这里统一重设文案，避免构造时 tr() 的一次性文本在切换后残留旧语言。
+    if (_closeDialog) {
+        _closeDialog->setWindowTitle(tr("Exit"));
+        _closeDialog->setLeftButtonText(tr("Cancel"));
+        _closeDialog->setMiddleButtonText(tr("Minimize"));
+        _closeDialog->setRightButtonText(tr("Exit"));
+    }
+    if (_closeLabel)
+        _closeLabel->setText(tr("Are you sure you want to exit NovaTerm?"));
+    if (_closeDontAskAgainCheck)
+        _closeDontAskAgainCheck->setText(tr("Do not ask again"));
 }
 
 void MainWindow::retranslateUi()
@@ -966,6 +970,9 @@ void MainWindow::retranslateUi()
         _toggleSftpPanelAction->setText(tr("SFTP panel"));
     if (_toggleSystemMonitorAction)
         _toggleSystemMonitorAction->setText(tr("System resources panel"));
+
+    // 退出确认框文案同样跟随语言切换（对话框为构造期复用的成员实例）。
+    applyCloseDialogTexts();
 }
 
 void MainWindow::initWindow()

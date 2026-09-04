@@ -108,6 +108,7 @@ signals:
 
 private:
     void applyThemeColorScheme();
+    void retranslateUi();
     void setupContextMenu(const QPoint& pos);
     bool eventFilter(QObject* obj, QEvent* event) override;
     void showSearch();

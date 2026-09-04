@@ -9,7 +9,6 @@
 #include "ElaComboBox.h"
 #include "ElaPushButton.h"
 #include "ElaText.h"
-#include "service/LanguageManager.h"
 #include "transport/serialport_info.h"
 #include "ui/widgets/MessagePrompts.h"
 #include "ElaTabWidget.h"
@@ -183,15 +182,6 @@ SessionPage::SessionPage(QWidget* parent)
     });
 
     addCentralWidget(_centralWidget, true, true, 0);
-
-    // 动态语言切换
-    connect(&LanguageManager::instance(), &LanguageManager::languageChanged,
-            this, [this](const QString&) { retranslateUi(); });
-}
-
-void SessionPage::retranslateUi()
-{
-
 }
 
 void SessionPage::selectTransport(TransportKind kind)

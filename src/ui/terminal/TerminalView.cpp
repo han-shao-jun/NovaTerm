@@ -16,6 +16,7 @@
 #include "renderer/TerminalRenderer.h"
 #include "renderer/TerminalColorScheme.h"
 #include "service/ConfigManager.h"
+#include "service/LanguageManager.h"
 
 #include <QVBoxLayout>
 #include "ElaLineEdit.h"
@@ -140,7 +141,6 @@ TerminalView::TerminalView(TerminalSession* session, QWidget* parent)
     layout->setContentsMargins(0, 0, 0, 0);
     layout->setSpacing(0);
     _searchLine = new ElaLineEdit(this);
-    _searchLine->setPlaceholderText(tr("Find in scrollback"));
     _searchLine->setClearButtonEnabled(true);
     _searchLine->hide();
     layout->addWidget(_searchLine);
@@ -233,17 +233,21 @@ TerminalView::TerminalView(TerminalSession* session, QWidget* parent)
             emit shellFinished();
         }
         if (_core && belongsToView) {
+            // 状态提示写入终端流而非控件文本，仍走 tr() 使文案跟随界面语言。
             const QString message = _session && _session->canReconnect()
-                ? QStringLiteral("\r\n\x1b[31m[连接已经断开] 按 Enter 重新连接\x1b[0m\r\n")
-                : QStringLiteral("\r\n\x1b[31m[已断开连接]\x1b[0m\r\n");
-            _core->writeInput(message.toUtf8());
+                ? tr("[Disconnected] Press Enter to reconnect.")
+                : tr("[Disconnected].");
+            _core->writeInput(
+                QStringLiteral("\r\n\x1b[31m%1\x1b[0m\r\n")
+                    .arg(message).toUtf8());
         }
     });
     connect(_session, &TerminalSession::errorOccurred, this,
             [this](ITransport*, const QString& error) {
         if (_core && !error.isEmpty()) {
             _core->writeInput(
-                QStringLiteral("\r\n[传输错误] %1\r\n").arg(error).toUtf8());
+                QStringLiteral("\r\n%1\r\n")
+                    .arg(tr("[Transport error] %1").arg(error)).toUtf8());
         }
     });
 
@@ -274,6 +278,12 @@ TerminalView::TerminalView(TerminalSession* session, QWidget* parent)
         _core->setParent(this);
         static_cast<void>(ownedCore.release());
     }
+
+    // 运行时语言切换：搜索栏占位符等常驻文本需重新应用 tr() 结果。
+    // 右键菜单每次弹出时重建（setupContextMenu），其文本在弹出瞬间已取当前语言。
+    connect(&LanguageManager::instance(), &LanguageManager::languageChanged,
+            this, [this](const QString&) { retranslateUi(); });
+    retranslateUi();
 }
 
 TerminalView::~TerminalView()
@@ -588,6 +598,14 @@ bool TerminalView::eventFilter(QObject* obj, QEvent* event)
         // 应用其异步 resize 之前就已到达。
     }
     return QWidget::eventFilter(obj, event);
+}
+
+void TerminalView::retranslateUi()
+{
+    // 搜索栏常驻显示，占位符需在语言切换后重新应用 tr() 结果；右键菜单每次
+    // 弹出时重建，其文本无需在此刷新。
+    if (_searchLine)
+        _searchLine->setPlaceholderText(tr("Find in scrollback"));
 }
 
 void TerminalView::showSearch()

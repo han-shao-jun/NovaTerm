@@ -60,7 +60,6 @@ signals:
     void dialogRejected();          ///< 用户在任意标签页点击了 Cancel
 
 private:
-    void retranslateUi();
     void initShellUi();
     void initSshUi();
     void initSerialUi();

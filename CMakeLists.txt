@@ -661,14 +661,51 @@ set(TS_FILES
 )
 
 # 为 Qt6 添加翻译文件，使用翻译工具扫描代码中的字符串生成ts文件
-# 然后使用翻译工具翻译ts文件，生成qm文件
+# 然后使用翻译工具翻译ts文件，生成qm文件。
+# LUPDATE_OPTIONS -no-obsolete：跑 `cmake --build <build> --target update_translations`
+# 时同步源码里已删除/移走的字符串（清掉 type="vanished" 的旧条目），避免 .ts 与源码漂移。
 qt_add_translations(
         TARGETS NovaTerm
         TS_FILES ${TS_FILES}
+        LUPDATE_OPTIONS -no-obsolete
 )
 
 # .qm 已由 qt_add_translations 嵌入可执行文件，LanguageManager 也只从资源路径
-# 读取翻译，因此不再重复安装一份不会被程序加载的外部翻译文件。
+# 读取应用翻译，因此不再重复安装一份不会被程序加载的外部翻译文件。
+
+# ── Qt 官方基础翻译（qtbase_<lang>.qm）────────────
+# LanguageManager 运行时会从 exe 同级的 translations/ 目录加载 qtbase 翻译，
+# 用于覆盖 QFileDialog / QMessageBox / QLineEdit 右键菜单等标准控件的内置文案。
+# 这里在构建后（开发目录直接运行）与安装阶段（正式分发）把 Qt 自带的
+# qtbase_zh_CN.qm 复制过去；找不到时跳过 —— 标准控件文案回落英文，不影响应用译文。
+find_file(_NOVATERM_QTBASE_ZH_QM
+    qtbase_zh_CN.qm
+    PATHS "${CMAKE_PREFIX_PATH}/translations"
+    NO_DEFAULT_PATH
+)
+if(_NOVATERM_QTBASE_ZH_QM)
+    add_custom_command(TARGET NovaTerm POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${_NOVATERM_QTBASE_ZH_QM}"
+            "$<TARGET_FILE_DIR:NovaTerm>/translations/qtbase_zh_CN.qm"
+        COMMENT "Copying Qt qtbase_zh_CN.qm next to NovaTerm"
+        VERBATIM
+    )
+    # macOS 的 applicationDirPath() 指向 NovaTerm.app/Contents/MacOS；Windows/Linux
+    # 直接是可执行文件所在目录。install 位置跟随各自平台的运行目录布局。
+    if(APPLE)
+        install(FILES "${_NOVATERM_QTBASE_ZH_QM}"
+            DESTINATION "NovaTerm.app/Contents/MacOS/translations"
+        )
+    else()
+        install(FILES "${_NOVATERM_QTBASE_ZH_QM}"
+            DESTINATION "${CMAKE_INSTALL_BINDIR}/translations"
+        )
+    endif()
+    message(STATUS "Qt qtbase_zh_CN.qm: ${_NOVATERM_QTBASE_ZH_QM}")
+else()
+    message(WARNING "qtbase_zh_CN.qm not found under CMAKE_PREFIX_PATH/translations — standard Qt dialogs stay English in zh_CN UI")
+endif()
 
 # 通过构建系统运行 `test` 目标时，始终显示测试命令及其输出；失败时保留
 # 完整日志，避免 CTest 默认摘要隐藏 Qt Test 给出的断言位置和诊断信息。
@@ -992,6 +1029,8 @@ if(BUILD_TESTING)
             src/session/TerminalSession.h
             src/service/ConfigManager.cpp
             src/service/ConfigManager.h
+            src/service/LanguageManager.cpp
+            src/service/LanguageManager.h
             src/ui/terminal/TerminalView.cpp
             src/ui/terminal/TerminalView.h
             src/ui/widgets/SshHostKeyDialog.cpp
