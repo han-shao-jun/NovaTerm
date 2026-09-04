@@ -18,6 +18,7 @@
 #include "ui/app/Application.h"
 #include "ui/app/MainWindow.h"
 #include <QApplication>
+#include <QOperatingSystemVersion>
 
 #ifdef Q_OS_WIN
 #include <windows.h>
@@ -187,6 +188,37 @@ int main(int argc, char *argv[])
     // 若用户或测试已显式设置平台选择，则保留原值不覆盖。
     if (qEnvironmentVariableIsEmpty("QT_QPA_PLATFORM"))
         qputenv("QT_QPA_PLATFORM", "windows:fontengine=freetype");
+
+    // ── Windows 10 深色主题：换用由 QPalette 驱动的 style ──────────
+    // Qt 6.8 的 QWindowsTheme 只在 Windows 11 及以后把 windows11 排在
+    // StyleNames 首位，Windows 10 拿到的默认 style 是 windowsvista。
+    // QWindowsVistaStyle 的 EDIT / HEADER / SCROLLBAR / MENU / BUTTON /
+    // COMBOBOX / PROGRESS 等元素一律交给 UxTheme 绘制，而 Win10 的 UxTheme
+    // 没有深色变体，且完全忽略 QPalette —— 于是深色主题下这些原生 Qt 控件
+    // 恒为浅色（SFTP 面板的路径框与文件列表表头、系统资源面板的下拉框等）。
+    //
+    // 实测（Win10 22H2 + Qt 6.8.3，同一套 NovaTerm 深色 palette）：
+    //   windowsvista: QLineEdit #ffffff、QTreeWidget 表头 #ffffff、
+    //                 QScrollBar #cdcdcd、QMenu #d7d7d7、QMessageBox #ffffff
+    //   windows11   : 依次 #343434 / #343434 / #6a6a6c / #171717 / #202020
+    // windows11 style 纯由 QPalette 驱动（给亮色 palette 画亮色、给深色画
+    // 深色，与系统配色无关，双向实测通过），且 qmodernwindowsstyle 插件在
+    // Win10 上同样导出该 key，因此直接启用即可。Win11 上默认已是 windows11，
+    // 本分支不生效，行为零改动。
+    //
+    // 必须走环境变量而不是 QApplication::setStyle()：MainWindow 设了
+    // stylesheet，其子树改由 QStyleSheetStyle 绘制，而 QStyleSheetStyle 在
+    // 创建时就捕获并缓存 baseStyle。setStyle() 发生在它之后，只换掉
+    // QApplication::style()，QStyleSheetStyle 仍持有旧的 QWindowsVistaStyle
+    // 并继续用它绘制 —— 实测现象是 app style 已报 QWindows11Style、palette
+    // 也是深色，但控件照旧白底，仅滚动条宽度从 17px 变成 12px（唯一泄露
+    // 出来的 pixelMetric 差异）。QT_STYLE_OVERRIDE 在平台插件创建默认
+    // style 时即生效，能确保 QStyleSheetStyle 捕获到的就是 windows11。
+    // 显式设置该变量的用户优先，便于排障。
+    if (qEnvironmentVariableIsEmpty("QT_STYLE_OVERRIDE")
+        && QOperatingSystemVersion::current() < QOperatingSystemVersion::Windows11) {
+        qputenv("QT_STYLE_OVERRIDE", "windows11");
+    }
 #endif
 
 #ifdef Q_OS_WIN
