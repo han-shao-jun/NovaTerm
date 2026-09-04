@@ -187,6 +187,27 @@ src/platform/   windows/conpty/ linux/pty/
 `third_party/` 全部是 **vendored 完整上游源码树、纳入版本控制**，无 submodule、
 无 vcpkg / conan / FetchContent（机器上也没装 vcpkg 和 conan）。
 
+**各依赖的改动政策不同，别一概而论**：
+
+- `ElaWidgetTools` **允许并且已经有本地改动**，与上游有分歧（先例 `218afcb`
+  修弹窗尺寸告警、`a2d6fb4` 改 tooltip 计时、`5ee1517` 加垂直选项卡）。本地新增
+  的组件：
+  | 组件 | 用途 |
+  | --- | --- |
+  | `ElaTreeWidget` | `ElaTreeView` 的 item 版本。上游只有基于 QTreeView 的 `ElaTreeView`，需要 `QTreeWidget`/`QTreeWidgetItem` 便捷 API 的调用方无法同时获得 Fluent 外观 |
+  | `ElaTreeWidgetStyle` | 上面那个的样式，派生自 `ElaTreeViewStyle`，只多一个 `IsFrameVisible` 开关用于关掉视口外框 |
+
+  **新增这类适配组件必须放在库内，不能放 `src/`**：绘制依赖的
+  `DeveloperComponents/Ela*Style.h` 一律**没有 `ELA_EXPORT`**，库外
+  `new ElaTreeViewStyle(...)` 直接链接失败。
+- `libtelnet` **必须保持零改动** —— 它是一份 git clone，本地改动会造成后续 pull
+  冲突。所以它不走 `add_subdirectory`，而是在根 `CMakeLists.txt` 里直接声明
+  target（见那一段注释）。
+
+**Ela 子项目的 `FILE(GLOB ...)` 没有 `CONFIGURE_DEPENDS`**（根工程的
+`GLOB_RECURSE src/*` 有）。往 `third_party/ElaWidgetTools/` 加文件后必须显式重跑
+`cmake -S . -B build`，只 `cmake --build` 不会把新文件编进去。
+
 新增纯 C 依赖的做法：源码拷进 `third_party/`，**自己写最小 CMake target**
 （范本 `third_party/libvterm-0.3.3/CMakeLists.txt`），消费方 PRIVATE 链接。
 若上游自带 CMakeLists，先确认它不会 `install()` / `include(CPack)` /
@@ -266,6 +287,46 @@ style 已是 `QWindows11Style`、palette 也是深色，控件却照旧白底，
 的是包住 app style 的 `QProxyStyle`（`setStyle(new ElaLineEditStyle(style()))`，
 见 `ElaLineEdit.cpp:36`），构造时即捕获当时的 app style，换掉会留下悬垂
 base 指针。主题切换只改 QPalette，不动 style。
+
+**Ela 控件自带 QSS，调用方再 `setStyleSheet()` 会把它整体顶掉**。`ElaTreeView` /
+`ElaTreeWidget` 等在构造里设了 `#ElaXxx{background-color:transparent;}`，调用方
+若为了调行高、去边框再设一次 stylesheet，透明背景就没了。行高改用
+`setItemHeight()` 表达（`SystemMonitorPanel.cpp` 的 `_diskTree` 是范例）。同理，
+别给这些控件改 `objectName` —— 那个 QSS 是 ID 选择器。
+
+**`setFrameShape(QFrame::NoFrame)` 关不掉 item view 的外框**：Qt 无条件向 style
+派发 `CE_ShapedFrame`，`NoFrame` 只让 `frameWidth` 归零，而 Ela 的树样式在该元素
+里硬画圆角边线 + `BasicBaseAlpha` 底色（`ElaTreeViewStyle.cpp:127-139`）。控件已
+嵌在卡片内时那圈边框是多余的，且底色会盖掉透明效果 —— 用
+`ElaTreeWidget::setIsFrameVisible(false)`。实测：`_diskTree` 未关时边框 `#363636`
+／内部 `#252525` 对面板 `#272727` 明显突出，关掉后三者一致。
+
+**给自由函数加翻译要用 `Q_DECLARE_TR_FUNCTIONS`，不要 `QCoreApplication::translate()`
+自拟上下文**。项目其余部分的译文都以类名作上下文，自拟一个 `.ts` 里查不到，运行时
+静默回落到英文原文 —— 表现为界面中文、按钮英文。范例是
+`MessagePrompts.h` 里那个只为提供上下文而存在的 `Prompts` 类。改动导致既有字符串
+行号变化时，`lupdate` 会把它们当新条目并清空译文，记得回填（本次 `SessionPage`
+的 `Telnet Session` 等两条就是这样丢的）。
+
+**`ElaContentDialog` 与 `ElaMessageBar` 的 parent 都不能为空，且应当传窗口一级**：
+前者 `showEvent` 里直接 `parentWidget()->size()`，后者构造里直接
+`parent->installEventFilter()`，传 `nullptr` 会崩或静默失效。更隐蔽的一条：
+`ElaMessageBar` 的静态方法在 parent 为空时会去找顶层的 `ElaWindow`
+（`ElaMessageBar.cpp:107-121`），**对模态对话框里的页面来说那是主窗口，浮层会落到
+对话框背后看不见**。统一走 `NovaTerm::Ui::confirm()` / `warn()`
+（`src/ui/widgets/MessagePrompts.h`），它们已经把 `->window()` 收在里面。
+
+**`ElaContentDialog` 的按钮不需要接信号就能 accept / reject**：左键与右键的内建
+处理器已经调用了 `_doCloseAnimation(false/true)`，其中直接 `reject()` / `accept()`
+（`private/ElaContentDialogPrivate.cpp:19-29`），Esc 走同一条 reject 分支。但
+**对话框不能栈分配** —— 那两个处理器随后用
+`QTimer::singleShot(0, nullptr, ...)` 延迟发信号且捕获了 `this`，栈对象在
+`exec()` 返回即析构，定时器会打在已释放的对象上。用 `new` + `deleteLater()`。
+
+**`ElaScrollArea` 构造即把两个方向的 scrollbar policy 设成 `ScrollBarAlwaysOff`**
+（`ElaScrollArea.cpp:18-19`，Ela 的设计是隐藏滚动条靠滚轮/手势）。需要可见滚动条
+的场合别换这个类，保留 `QScrollArea` 并只换滚动条：
+`setVerticalScrollBar(new ElaScrollBar(area))`。
 
 **软换行行的行尾空格不能裁**：`onScrollbackPush()` 里裁剪行尾空 Cell 只对
 **硬换行**行安全。软换行行填满了整行才换行，其尾部空格是有效内容 —— 下一行
