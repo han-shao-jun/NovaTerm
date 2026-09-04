@@ -53,6 +53,10 @@ cmd /c "call \"C:\Program Files (x86)\Microsoft Visual Studio\18\BuildTools\VC\A
 
 ### 跑测试
 
+**默认只跑与改动相关的测试目标，不要跑全套。** 全套 9 项实测约 **190 秒**，
+其中 `novaterm_conpty_tests` 单项 94s、`novaterm_terminal_session_tests` 46s、
+`novaterm_core_tests` 30s；而多数改动只需要其中一两项、几秒就跑完。
+
 ```bash
 # 测试可执行文件需要 Qt bin 在 PATH（build/bin 只有 windeployqt 部署的
 # NovaTerm 运行时，缺 Qt6Test.dll）
@@ -60,11 +64,54 @@ PATH="C:/Programs/Qt/6.8.3/msvc2022_64/bin:$PATH"
 # renderer 测试的 CMake 属性设了 QT_QPA_PLATFORM=offscreen，但
 # build/bin/platforms/ 只有 qwindows.dll，必须补插件路径
 QT_PLUGIN_PATH="C:/Programs/Qt/6.8.3/msvc2022_64/plugins"
-# 上面的 cmake 命令不传 -G，默认落到 Visual Studio 多配置生成器，
-# 因此 ctest 必须带 -C，否则每个测试都报 "Test not available without
-# configuration" 并整体失败
+
+# 按名字挑（首选，最精确）
+ctest --test-dir build -C Debug -R novaterm_scrollback_tests
+# 按标签挑，label 见下表；注意 -L core 是 core + scrollback 两项
+ctest --test-dir build -C Debug -L core
+# 一次改动跨了多个模块就挑多项
+ctest --test-dir build -C Debug -R "novaterm_(renderer|renderer_p5)_tests"
+
+# 全套 —— 只在下面「什么时候才跑全套」列出的场景用
 ctest --test-dir build -C Debug
 ```
+
+`-C Debug` 不能省：上面的 cmake 命令不传 `-G`，默认落到 Visual Studio 多配置
+生成器，不带 `-C` 时每个测试都报 "Test not available without configuration"
+并整体失败。
+
+#### 改哪测哪
+
+| 改动位置 | 跑这个 | label | 耗时 |
+| --- | --- | --- | --- |
+| `src/core/terminal/`（TerminalCore、ScreenBuffer、VTAdapter、ScrollbackBuffer、BoundedByteQueue）—— 后三者经 `TerminalCore.h` 传递覆盖 | `novaterm_core_tests` | `core` | ~30s |
+| `src/core/scrollback/`、`src/core/search/` | `novaterm_scrollback_tests` | `scrollback` | <1s |
+| `src/session/`、`src/profile/`、`src/credential/` | `novaterm_session_tests` | `session`／`p6` | <1s |
+| `src/renderer/` 的 RenderCommandBuffer / RenderScheduler / TerminalRenderer | `novaterm_renderer_tests` | `renderer` | ~2s |
+| `src/renderer/` 的 RowBlockDamageTracker / ScrollDamageHandoff / TerminalHighlighting、`src/session/SerialHighlightRules` | `novaterm_renderer_p5_tests` | `p5` | <1s |
+| `src/transport/LocalShellTransport` 与 ConPty 路径 | `novaterm_conpty_tests`(Win)／`novaterm_pty_tests`(Unix) | `conpty` | ~94s |
+| `src/transport/SshTransport` | `novaterm_ssh_transport_check` | `ssh` | ~10s |
+| `src/transport/TelnetTransport` | `novaterm_telnet_transport_tests` | `telnet` | ~5s |
+| TerminalSession + TerminalRenderer + LocalShellTransport 的联通路径 | `novaterm_terminal_session_tests` | `terminal-session` | ~46s |
+| `src/ui/`、`src/platform/`、`src/service/`、`src/core/terminal/KeyMapper` | **无覆盖测试**（`KeyMapper` 在 `tests/` 里零引用）—— 编译通过 + 实跑程序看效果即可 | — | — |
+
+拿不准某个文件被哪个测试覆盖，就看测试源码的 include。`tests/core`、
+`tests/renderer`、`tests/session`、`tests/transport` 四个目录，**一个 `.cpp`
+对一个测试目标**，翻一眼就能确认。
+
+#### 什么时候才跑全套
+
+只有这几种情况值得付那 190 秒，此外一律按上表挑：
+
+- 改了各模块共用的地基，且动到**接口或数据布局**：
+  `core/terminal/TerminalTypes.h`、`ScreenBuffer`、
+  `core/scrollback/ScrollbackTypes.h`、`transport/ITransport.h` 这类；
+- 一次改动同时命中 3 个以上模块；
+- 改了 `CMakeLists.txt` 的编译选项、Qt 版本或第三方依赖；
+- 合并他人分支之后。
+
+单纯的 UI 改动、注释与文档改动、单模块内的局部修复都不在其中 —— 那些情况下
+跑全套只是在等 190 秒，不会多发现任何东西。
 
 **测试可执行文件是 WIN32 子系统程序，stdout 不接管道** —— 从 Git Bash 直接跑
 它们会看到"零输出、退出码非零"，ctest 的 `LastTest.log` 里同样是空的。要看
@@ -78,12 +125,8 @@ grep -E "FAIL!|Totals" build/rt.txt
 **不要给全套 ctest 设 `QT_QPA_PLATFORM=offscreen`** —— `novaterm_terminal_session_tests`
 会初始化 D3D11，offscreen 下直接崩（`0xc0000409`）。
 
-测试目标：`novaterm_core_tests`、`novaterm_scrollback_tests`、
-`novaterm_session_tests`、`novaterm_renderer_tests`、`novaterm_renderer_p5_tests`、
-`novaterm_pty_tests`(Unix)、`novaterm_conpty_tests`(Win)、
-`novaterm_terminal_session_tests`(Win)、`novaterm_ssh_transport_check`、
-`novaterm_telnet_transport_tests`。另有 `novaterm_renderer_p5_gpu_acceptance`
-默认不注册，需 `-DNOVATERM_RUN_GPU_ACCEPTANCE_TESTS=ON`。
+全部测试目标即上表九项，另有 `novaterm_renderer_p5_gpu_acceptance` 默认不注册，
+需 `-DNOVATERM_RUN_GPU_ACCEPTANCE_TESTS=ON`。
 
 ## 已知测试失败（不是回归，别去追）
 
@@ -278,7 +321,11 @@ base 指针。主题切换只改 QPalette，不动 style。
 - 提交消息中文，`type: 摘要` 开头（`feat`/`fix`/`docs`/`test`/`chore`）
 - 按主题拆分提交；vendored 第三方源码单独一个提交（先例 `47f2c4e`、`5ed630c`）
 - 历史提交直接在 `master` 上，未走 PR 流程
-- 提交前跑 `ctest`，并对照上面"已知测试失败"确认没引入新的红灯
+- 提交前跑**与改动相关的测试目标**（按"跑测试"的「改哪测哪」表挑，不要跑全套），
+  并对照上面"已知测试失败"确认没引入新的红灯。改动只碰 `src/ui/` 之类无覆盖测试
+  的目录时，编译通过 + 实跑程序即可，不必为了走流程跑一遍无关测试
+- 提交消息里写明跑了哪些测试目标。只跑了子集是正常的，但要让下一个人看得出
+  哪些没跑 —— 别写成"ctest 全绿"
 - 提交前对照上一节确认相关文档已同步；文档改动可以和代码同一个提交，也可以
   紧随其后单独一个 `docs:` 提交，但不要跨会话拖延
 - 提交消息里如实写明与原计划不符之处（做不到的、改了方向的、发现是外部原因的），
