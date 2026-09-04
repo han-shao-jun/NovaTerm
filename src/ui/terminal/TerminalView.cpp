@@ -18,6 +18,7 @@
 #include "service/ConfigManager.h"
 
 #include <QVBoxLayout>
+#include "ElaLineEdit.h"
 #include "ElaMenu.h"
 #include "ElaTheme.h"
 #include <QApplication>
@@ -138,7 +139,7 @@ TerminalView::TerminalView(TerminalSession* session, QWidget* parent)
     auto* layout = new QVBoxLayout(this);
     layout->setContentsMargins(0, 0, 0, 0);
     layout->setSpacing(0);
-    _searchLine = new QLineEdit(this);
+    _searchLine = new ElaLineEdit(this);
     _searchLine->setPlaceholderText(tr("Find in scrollback"));
     _searchLine->setClearButtonEnabled(true);
     _searchLine->hide();

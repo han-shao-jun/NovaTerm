@@ -15,7 +15,6 @@
 #include "ElaToolTip.h"
 #include "ElaTheme.h"
 #include "ElaContentDialog.h"
-#include "ElaMessageBar.h"
 #include "ElaApplication.h"
 #include "ElaTabWidget.h"
 #include "ElaTabBar.h"
@@ -23,6 +22,7 @@
 #include "ui/pages/SettingsPage.h"
 #include "ui/pages/SessionPage.h"
 #include "ui/pages/AboutPage.h"
+#include "ui/widgets/MessagePrompts.h"
 #include "ui/widgets/SessionPanel.h"
 #include "ui/widgets/SftpPanel.h"
 #include "ui/widgets/SystemMonitorPanel.h"
@@ -37,7 +37,6 @@
 #include <QIcon>
 #include <QLabel>
 #include <QMainWindow>
-#include <QMessageBox>
 #include <QMouseEvent>
 #include <QPainter>
 #include <QPalette>
@@ -291,7 +290,12 @@ public:
         _titleDragHandle->setAccessibleName(title);
         titleLayout->addWidget(_titleDragHandle, 0, Qt::AlignVCenter);
 
-        _titleLabel = new QLabel(title, _titleBar);
+        // 标题用 ElaText：QLabel 靠祖先 palette 继承取色，主题切换时不可靠，
+        // 浅色主题下曾残留深色主题的白字（各停靠面板标题全部看不见）。ElaText
+        // 自订阅 themeModeChanged 并在 paintEvent 里自愈（ElaText.cpp:158）。
+        _titleLabel = new ElaText(title, _titleBar);
+        _titleLabel->setTextStyle(ElaTextType::Body);
+        _titleLabel->setWordWrap(false);
         _titleLabel->setAttribute(Qt::WA_TransparentForMouseEvents);
         _titleLabel->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
         titleLayout->addWidget(_titleLabel, 1);
@@ -651,7 +655,7 @@ private:
     QPointer<QMainWindow> _dockHost;
     QWidget* _titleBar{nullptr};
     ElaIconButton* _titleDragHandle{nullptr};
-    QLabel* _titleLabel{nullptr};
+    ElaText* _titleLabel{nullptr};
     ElaIconButton* _titleCollapseButton{nullptr};
     ElaIconButton* _titleCloseButton{nullptr};
     Qt::DockWidgetAreas _managedDockAreas{Qt::NoDockWidgetArea};
@@ -695,8 +699,16 @@ MainWindow::MainWindow(QWidget* parent) : ElaWindow(parent)
         // 等，恰为 QScrollBar 所使用）会残留旧主题色，表现为右侧黑边
         // 或白边。
         auto* app = static_cast<QApplication*>(QCoreApplication::instance());
+        // **两个分支必须设置同一套角色。** `QPalette p;` 不是"干净基准"——
+        // 它会拷贝当前 QGuiApplication::palette()，也就是上一次切换留下的对端
+        // 主题调色板。早期版本的浅色分支只覆盖 Window / Base 两个角色，于是
+        // WindowText 残留深色分支的 #F0F0F0，所有**靠 palette 继承取色的
+        // QLabel** 在浅色主题下都变成白底白字：SFTP 面板的「会话 / N 项」、
+        // 快速连接面板标题、各停靠面板的标题栏文字。自绘控件与显式设了 palette
+        // 的标签（如 SystemMonitorPanel::applyTheme）不受影响，所以故障只吃掉
+        // 一部分文字，很容易被误判成个别控件的问题。
         if (mode == ElaThemeType::Dark) {
-            QPalette p;  // 干净基准（平台无关浅色默认值）
+            QPalette p;
             // ElaTheme 深色 WindowBase: #202020, BasicBase: #343434
             p.setColor(QPalette::Window,          QColor(0x20, 0x20, 0x20));
             p.setColor(QPalette::Base,            QColor(0x34, 0x34, 0x34));
@@ -718,10 +730,26 @@ MainWindow::MainWindow(QWidget* parent) : ElaWindow(parent)
             app->setPalette(p);
             setPalette(p); // 同步 MainWindow 独立 palette
         } else {
-            QPalette p;  // 干净基准（平台无关浅色默认值）
-            // ElaTheme 浅色 WindowBase: #ECECEC
-            p.setColor(QPalette::Window, QColor(0xEC, 0xEC, 0xEC));
-            p.setColor(QPalette::Base,   QColor(0xFF, 0xFF, 0xFF));
+            QPalette p;
+            // ElaTheme 浅色 WindowBase: #ECECEC, BasicBase: #FDFDFD,
+            // BasicText: 黑, BasicHover: #F3F3F3, BasicBorderDeep: #9A9A9A
+            p.setColor(QPalette::Window,          QColor(0xEC, 0xEC, 0xEC));
+            p.setColor(QPalette::Base,            QColor(0xFF, 0xFF, 0xFF));
+            p.setColor(QPalette::AlternateBase,   QColor(0xF7, 0xF7, 0xF7));
+            p.setColor(QPalette::WindowText,      QColor(0x00, 0x00, 0x00));
+            p.setColor(QPalette::Text,            QColor(0x00, 0x00, 0x00));
+            p.setColor(QPalette::Button,          QColor(0xFD, 0xFD, 0xFD));
+            p.setColor(QPalette::ButtonText,      QColor(0x00, 0x00, 0x00));
+            // 派生色 — 与深色分支一一对应，缺一个就会残留对端主题的值
+            p.setColor(QPalette::Mid,             QColor(0xC8, 0xC8, 0xC8));
+            p.setColor(QPalette::Dark,            QColor(0x9A, 0x9A, 0x9A));
+            p.setColor(QPalette::Shadow,          QColor(0x76, 0x76, 0x76));
+            p.setColor(QPalette::Light,           QColor(0xFF, 0xFF, 0xFF));
+            p.setColor(QPalette::Midlight,        QColor(0xF3, 0xF3, 0xF3));
+            p.setColor(QPalette::Highlight,       QColor(0x00, 0x78, 0xD4));
+            p.setColor(QPalette::HighlightedText, QColor(0xFF, 0xFF, 0xFF));
+            p.setColor(QPalette::BrightText,      QColor(0xC0, 0x00, 0x00));
+            p.setColor(QPalette::Link,            QColor(0x00, 0x67, 0xC0));
             app->setPalette(p);
             setPalette(p);
         }
@@ -1132,7 +1160,7 @@ void MainWindow::initWindow()
     });
     connect(_sessionPanel, &SessionPanel::reconnectUnavailable, this,
             [this](const QString& message) {
-        QMessageBox::warning(this, tr("Reconnect session"), message);
+        NovaTerm::Ui::warn(this, tr("Reconnect session"), message);
     });
 
     connect(_terminalPage, &TerminalPage::currentSftpContextChanged,

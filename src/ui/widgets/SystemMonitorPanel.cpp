@@ -9,7 +9,10 @@
 
 #include "ElaComboBox.h"
 #include "ElaIconButton.h"
+#include "ElaScrollBar.h"
+#include "ElaText.h"
 #include "ElaTheme.h"
+#include "ElaTreeWidget.h"
 #include "service/LanguageManager.h"
 #include "transport/SshTransport.h"
 
@@ -43,9 +46,16 @@ void setLabelColor(QLabel* label, const QColor& color)
     label->setPalette(palette);
 }
 
-QLabel* createLabel(QWidget* parent)
+// 普通文字一律用 ElaText，不再手工调 QLabel 的颜色：它自己订阅
+// themeModeChanged，并在 paintEvent 里校验 palette 与当前主题是否一致、不一致就
+// 重新应用（ElaText.cpp:158）。裸 QLabel 靠祖先 palette 继承取色，主题切换时会
+// 残留对端主题的颜色 —— 浅色主题下曾出现整片白底白字。
+ElaText* createLabel(QWidget* parent)
 {
-    return new QLabel(parent);
+    auto* text = new ElaText(parent);
+    text->setTextStyle(ElaTextType::Body);
+    text->setWordWrap(false);
+    return text;
 }
 
 QFrame* createSeparator(QWidget* parent)
@@ -298,6 +308,7 @@ private:
 
 SystemMonitorPanel::SystemMonitorPanel(QWidget* parent)
     : QWidget(parent)
+    , _themeMode(eTheme->getThemeMode())
 {
     setMinimumSize(260, 360);
     setAutoFillBackground(false);
@@ -309,6 +320,10 @@ SystemMonitorPanel::SystemMonitorPanel(QWidget* parent)
     auto* scrollArea = new QScrollArea(this);
     scrollArea->setWidgetResizable(true);
     scrollArea->setFrameShape(QFrame::NoFrame);
+    // 只换滚动条、不换成 ElaScrollArea：后者构造时就把两个方向的 policy 设成
+    // ScrollBarAlwaysOff（ElaScrollArea.cpp:18-19），而本面板内容高于视口，
+    // 需要一条可见的竖直滚动条。
+    scrollArea->setVerticalScrollBar(new ElaScrollBar(scrollArea));
     scrollArea->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     scrollArea->setAutoFillBackground(false);
     scrollArea->viewport()->setAutoFillBackground(false);
@@ -400,23 +415,39 @@ SystemMonitorPanel::SystemMonitorPanel(QWidget* parent)
     fileHeader->addWidget(_capacityHeader);
     rootLayout->addLayout(fileHeader);
 
-    _diskTree = new QTreeWidget(content);
+    _diskTree = new ElaTreeWidget(content);
     _diskTree->setColumnCount(2);
     _diskTree->setHeaderHidden(true);
     _diskTree->setRootIsDecorated(false);
     _diskTree->setUniformRowHeights(true);
     _diskTree->setIndentation(0);
     _diskTree->setFrameShape(QFrame::NoFrame);
+    // NoFrame 只让 frameWidth 归零，挡不住 Qt 向 style 派发 CE_ShapedFrame ——
+    // Ela 的树样式在该元素里画圆角边线 + 底色。本列表要融进外层卡片，边界由卡片
+    // 自己提供，故显式关掉。
+    _diskTree->setIsFrameVisible(false);
     _diskTree->setFocusPolicy(Qt::NoFocus);
     _diskTree->setSelectionMode(QAbstractItemView::NoSelection);
     _diskTree->setMinimumHeight(150);
-    _diskTree->setStyleSheet(QStringLiteral(
-        "QTreeWidget { background: transparent; border: none; }"
-        "QTreeWidget::item { padding: 3px 0; }"));
+    // 不能用 setStyleSheet() 收紧行高：那会整体替换 ElaTreeWidget 构造里设的
+    // 透明背景 QSS。透明与无边框已由该控件与上面的 NoFrame 提供，行高改用
+    // ElaTreeViewStyle 的 ItemHeight 表达 —— 默认 35px 在这个紧凑面板里过高，
+    // 26px 与替换前「默认行高 + 上下各 3px padding」的观感一致。
+    _diskTree->setItemHeight(26);
     _diskTree->header()->setStretchLastSection(false);
     _diskTree->header()->setSectionResizeMode(0, QHeaderView::Stretch);
     _diskTree->header()->setSectionResizeMode(1, QHeaderView::ResizeToContents);
     rootLayout->addWidget(_diskTree, 1);
+
+    // 空状态提示挂在树的视口上并居中，颜色由 ElaText 自己跟随主题。
+    _diskTreeHint = new ElaText(_diskTree->viewport());
+    _diskTreeHint->setTextStyle(ElaTextType::Body);
+    _diskTreeHint->setAlignment(Qt::AlignCenter);
+    _diskTreeHint->setAttribute(Qt::WA_TransparentForMouseEvents);
+    _diskTreeHint->hide();
+    auto* diskHintLayout = new QVBoxLayout(_diskTree->viewport());
+    diskHintLayout->setContentsMargins(12, 12, 12, 12);
+    diskHintLayout->addWidget(_diskTreeHint, 0, Qt::AlignCenter);
 
     connect(_interfaceCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
             this, [this](int) { updateNetworkView(); });
@@ -491,25 +522,23 @@ void SystemMonitorPanel::retranslateUi()
     updateNetworkView();
 }
 
-void SystemMonitorPanel::applyTheme()
+void SystemMonitorPanel::setDiskTreeHint(const QString& text)
 {
-    const auto mode = eTheme->getThemeMode();
-    const QColor details = ElaThemeColor(mode, BasicDetailsText);
-    const QColor category = ElaThemeColor(mode, BasicTextCategory);
+    if (!_diskTreeHint)
+        return;
+    _diskTreeHint->setText(text);
+    _diskTreeHint->setVisible(!text.isEmpty());
+}
 
-    for (QLabel* label : {_sessionLabel, _availabilityLabel,
-                          _cpuLabel, _memoryLabel, _swapLabel,
-                          _pathHeader, _capacityHeader,
-                          _cpuDetail, _memoryDetail, _swapDetail}) {
-        setLabelColor(label, details);
-    }
+void SystemMonitorPanel::applyTheme()
+{    const auto mode = eTheme->getThemeMode();
+    _themeMode = mode;
+
+    // 普通文字全部是 ElaText，自己会跟随主题，这里不再逐个设色。只剩两处必须
+    // 手工上色：收/发速率标签用的是与流量图两个序列一致的语义色，而 ElaText 的
+    // paintEvent 自愈会把任何自定义颜色改回 BasicText，因此它们只能是 QLabel。
     setLabelColor(_receiveLabel, ElaThemeColor(mode, PrimaryNormal));
     setLabelColor(_sendLabel, ElaThemeColor(mode, PrimaryPress));
-
-    QPalette treePalette = _diskTree->palette();
-    treePalette.setColor(QPalette::Text, category);
-    treePalette.setColor(QPalette::Base, Qt::transparent);
-    _diskTree->setPalette(treePalette);
 
     const QColor separator = ElaThemeColor(mode, BasicBorder);
     const auto separators = findChildren<QFrame*>(QString{},
@@ -559,9 +588,7 @@ void SystemMonitorPanel::refreshAvailability()
         return;
 
     _diskTree->clear();
-    auto* message = new QTreeWidgetItem(
-        _diskTree, {tr("Waiting for monitoring data")});
-    message->setFlags(message->flags() & ~Qt::ItemIsSelectable);
+    setDiskTreeHint(tr("Waiting for monitoring data"));
 }
 
 void SystemMonitorPanel::requestMetrics()
@@ -676,11 +703,9 @@ void SystemMonitorPanel::handleCommandFinished(
     _diskTree->clear();
     // BusyBox 等精简系统不支持 GNU df 的部分选项；远端命令已做兼容回退。
     // 若目标系统仍无法提供文件系统数据，显示明确状态，避免列表区域留白。
-    if (metrics.fileSystems.isEmpty()) {
-        auto* message = new QTreeWidgetItem(
-            _diskTree, {tr("No filesystem information available")});
-        message->setFlags(message->flags() & ~Qt::ItemIsSelectable);
-    }
+    setDiskTreeHint(metrics.fileSystems.isEmpty()
+                        ? tr("No filesystem information available")
+                        : QString{});
     for (const FileSystemMetric& metric : metrics.fileSystems) {
         const QString capacity = QStringLiteral("%1 / %2")
             .arg(formatBytes(static_cast<double>(metric.availableKiB) * 1024.0),
@@ -739,6 +764,11 @@ void SystemMonitorPanel::paintEvent(QPaintEvent* event)
 {
     QWidget::paintEvent(event);
     const auto mode = eTheme->getThemeMode();
+    // 自愈：themeModeChanged 已连到 applyTheme()，但那条通路一旦没按期到达，
+    // 手工上色的那几处就会残留对端主题的颜色。这里比对一次再补，逻辑与
+    // ElaText.cpp:158 相同；_themeMode 先更新，因此不会与 update() 互相触发。
+    if (mode != _themeMode)
+        applyTheme();
     QPainter painter(this);
     painter.setRenderHint(QPainter::Antialiasing);
     painter.setPen(QPen(ElaThemeColor(mode, BasicBorder), 1));

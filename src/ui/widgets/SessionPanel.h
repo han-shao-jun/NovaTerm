@@ -2,7 +2,7 @@
  * @file   SessionPanel.h
  * @brief  快捷连接面板：新建会话与分组历史会话入口。
  *
- * 通过 SessionStore 持久化会话历史，QTreeWidget 按连接类型展示保存的会话。
+ * 通过 SessionStore 持久化会话历史，ElaTreeWidget 按连接类型展示保存的会话。
  * 右键菜单支持重连、编辑、删除。标题栏按钮可将面板折叠为窄侧栏。
  */
 #pragma once
@@ -17,9 +17,10 @@
 class CredentialStore;
 class ElaIconButton;
 class ElaPushButton;
+class ElaText;
+class ElaTreeWidget;
 class QLabel;
 class QResizeEvent;
-class QTreeWidget;
 class QTreeWidgetItem;
 class QVBoxLayout;
 class SessionStore;
@@ -91,10 +92,10 @@ private:
     [[nodiscard]] QString runtimeKey(const RuntimeConfig& runtime) const;
 
     QVBoxLayout* _rootLayout{nullptr};
-    QLabel* _titleLabel{nullptr};
+    ElaText* _titleLabel{nullptr};
     ElaIconButton* _collapseButton{nullptr};
     ElaPushButton* _newSessionButton{nullptr};
-    QTreeWidget* _tree{nullptr};
+    ElaTreeWidget* _tree{nullptr};
     bool _collapsed{false};
     int _expandedWidth{260};
     QList<SessionRestoreMetadata> _entries;

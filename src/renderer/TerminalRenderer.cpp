@@ -5,7 +5,6 @@
 #include <QInputMethodEvent>
 #include <QMouseEvent>
 #include <QWheelEvent>
-#include <QScrollBar>
 #include <QApplication>
 #include <QByteArray>
 #include <QClipboard>

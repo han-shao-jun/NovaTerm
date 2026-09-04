@@ -73,12 +73,13 @@ void Application::init()
     // #1e1e1e）。若亮色分支不设，"程序亮色 + 系统深色" 组合下原生 Qt 控件
     // 会反过来变深，与 Ela 控件的亮色不一致。
     // 这里的取色与 MainWindow 的 themeModeChanged 处理器保持一致，
-    // 后者负责运行期切换主题时的同步。
+    // 后者负责运行期切换主题时的同步 —— **两处的两个分支都必须设置同一套角色**，
+    // 理由见 MainWindow 那段注释（`QPalette p;` 会拷贝当前 app palette，漏设的
+    // 角色会残留对端主题的值，浅色下表现为白底白字）。
     {
         auto* app = static_cast<QApplication*>(QCoreApplication::instance());
         if (eTheme->getThemeMode() == ElaThemeType::Dark) {
-            QPalette p;  // 干净基准（平台无关浅色默认值）；不可从 app->palette() 复制，
-                         // 否则 Mid / Dark / Shadow 等 QScrollBar 角色残留浅色主题值。
+            QPalette p;
             // ElaTheme 深色 WindowBase: #202020, BasicBase: #343434
             p.setColor(QPalette::Window,          QColor(0x20, 0x20, 0x20));
             p.setColor(QPalette::Base,            QColor(0x34, 0x34, 0x34));
@@ -99,10 +100,26 @@ void Application::init()
             p.setColor(QPalette::Link,            QColor(0x4D, 0xA6, 0xFF));
             app->setPalette(p);
         } else {
-            QPalette p;  // 干净基准即浅色默认值
-            // ElaTheme 浅色 WindowBase: #ECECEC
-            p.setColor(QPalette::Window, QColor(0xEC, 0xEC, 0xEC));
-            p.setColor(QPalette::Base,   QColor(0xFF, 0xFF, 0xFF));
+            QPalette p;
+            // ElaTheme 浅色 WindowBase: #ECECEC, BasicBase: #FDFDFD,
+            // BasicText: 黑, BasicHover: #F3F3F3, BasicBorderDeep: #9A9A9A
+            p.setColor(QPalette::Window,          QColor(0xEC, 0xEC, 0xEC));
+            p.setColor(QPalette::Base,            QColor(0xFF, 0xFF, 0xFF));
+            p.setColor(QPalette::AlternateBase,   QColor(0xF7, 0xF7, 0xF7));
+            p.setColor(QPalette::WindowText,      QColor(0x00, 0x00, 0x00));
+            p.setColor(QPalette::Text,            QColor(0x00, 0x00, 0x00));
+            p.setColor(QPalette::Button,          QColor(0xFD, 0xFD, 0xFD));
+            p.setColor(QPalette::ButtonText,      QColor(0x00, 0x00, 0x00));
+            // 派生色 — 与深色分支一一对应，缺一个就会残留对端主题的值
+            p.setColor(QPalette::Mid,             QColor(0xC8, 0xC8, 0xC8));
+            p.setColor(QPalette::Dark,            QColor(0x9A, 0x9A, 0x9A));
+            p.setColor(QPalette::Shadow,          QColor(0x76, 0x76, 0x76));
+            p.setColor(QPalette::Light,           QColor(0xFF, 0xFF, 0xFF));
+            p.setColor(QPalette::Midlight,        QColor(0xF3, 0xF3, 0xF3));
+            p.setColor(QPalette::Highlight,       QColor(0x00, 0x78, 0xD4));
+            p.setColor(QPalette::HighlightedText, QColor(0xFF, 0xFF, 0xFF));
+            p.setColor(QPalette::BrightText,      QColor(0xC0, 0x00, 0x00));
+            p.setColor(QPalette::Link,            QColor(0x00, 0x67, 0xC0));
             app->setPalette(p);
         }
     }
@@ -121,20 +138,36 @@ void Application::init()
     // 窗口拖动时 Qt 不填充 backing store，脏帧透出造成闪烁。
     // 两重修复：
     //   1. 改 objectName 使原 #ElaWindow 选择器失效
-    //   2. 追加 #MainWindow 选择器用主题色填充背景
+    //   2. 追加 #NovaTermMainWindow 选择器用主题色填充背景，并随主题切换重写
     _mainWindow->setObjectName("NovaTermMainWindow");
     _mainWindow->setAutoFillBackground(true);
     {
-        const QColor bg = eTheme->getThemeMode() == ElaThemeType::Dark
-                              ? QColor(0x20, 0x20, 0x20)
-                              : QColor(0xEC, 0xEC, 0xEC);
-        QPalette p = _mainWindow->palette();
-        p.setColor(QPalette::Window, bg);
-        _mainWindow->setPalette(p);
-        _mainWindow->setStyleSheet(
-            _mainWindow->styleSheet()
-            + QStringLiteral("\n#NovaTermMainWindow { background-color: %1; }")
-                  .arg(bg.name()));
+        // ElaWindow 的原始样式表留作基准：下面按主题重写背景规则时必须以它为底
+        // 重建，反复 append 会不断堆积同名规则。
+        const QString baseStyleSheet = _mainWindow->styleSheet();
+        auto* const window = _mainWindow.get();
+        const auto applyWindowBackground =
+            [window, baseStyleSheet](ElaThemeType::ThemeMode mode) {
+            const QColor bg = mode == ElaThemeType::Dark
+                                  ? QColor(0x20, 0x20, 0x20)
+                                  : QColor(0xEC, 0xEC, 0xEC);
+            QPalette palette = window->palette();
+            palette.setColor(QPalette::Window, bg);
+            window->setPalette(palette);
+            window->setStyleSheet(
+                baseStyleSheet
+                + QStringLiteral("\n#NovaTermMainWindow { background-color: %1; }")
+                      .arg(bg.name()));
+        };
+        applyWindowBackground(eTheme->getThemeMode());
+
+        // 这条连接不能省：**QSS 的 background-color 优先级高于 QPalette**，所以
+        // 只靠 MainWindow 的 themeModeChanged 处理器同步 palette 改不动窗口底色。
+        // 漏掉它的后果是切换主题后底色停留在启动时的值 —— 深色启动再切浅色时，
+        // 各控件都转成浅色而窗口底色仍是 #202020，「系统资源」这类大面积透出窗口
+        // 背景的自绘面板会呈现深底 + 浅色控件的割裂外观。
+        QObject::connect(eTheme, &ElaTheme::themeModeChanged, window,
+                         applyWindowBackground);
     }
 
 #ifdef Q_OS_WIN

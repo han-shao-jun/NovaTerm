@@ -10,9 +10,12 @@
 #include "ElaIconButton.h"
 #include "ElaMenu.h"
 #include "ElaPushButton.h"
+#include "ElaText.h"
+#include "ElaTreeWidget.h"
 #include "credential/CredentialStore.h"
 #include "service/LanguageManager.h"
 #include "session/SessionStore.h"
+#include "ui/widgets/MessagePrompts.h"
 
 #include <QDir>
 #include <QDebug>
@@ -20,7 +23,6 @@
 #include <QHeaderView>
 #include <QHBoxLayout>
 #include <QLabel>
-#include <QMessageBox>
 #include <QResizeEvent>
 #include <QStandardPaths>
 #include <QTreeWidget>
@@ -232,10 +234,12 @@ SessionPanel::SessionPanel(QWidget* parent)
     auto* headerLayout = new QHBoxLayout(headerWidget);
     headerLayout->setContentsMargins(0, 0, 0, 0);
     headerLayout->setSpacing(6);
-    _titleLabel = new QLabel(tr("Quick connections"), this);
-    QFont titleFont = _titleLabel->font();
-    titleFont.setBold(true);
-    _titleLabel->setFont(titleFont);
+    // 标题用 ElaText：QLabel 靠祖先 palette 继承取色，主题切换时不可靠，
+    // 浅色主题下曾残留深色主题的白字。ElaText 自订阅 themeModeChanged 并在
+    // paintEvent 里自愈（ElaText.cpp:158）。
+    _titleLabel = new ElaText(tr("Quick connections"), this);
+    _titleLabel->setTextStyle(ElaTextType::BodyStrong);
+    _titleLabel->setWordWrap(false);
     headerLayout->addWidget(_titleLabel);
     headerLayout->addStretch();
 
@@ -249,7 +253,7 @@ SessionPanel::SessionPanel(QWidget* parent)
     _newSessionButton->setMinimumHeight(34);
     _rootLayout->addWidget(_newSessionButton);
 
-    _tree = new QTreeWidget(this);
+    _tree = new ElaTreeWidget(this);
     _tree->setColumnCount(2);
     _tree->setHeaderHidden(true);
     _tree->setAnimated(false);
@@ -578,11 +582,9 @@ void SessionPanel::deleteItem(QTreeWidgetItem* item)
         return;
 
     const QString title = sessionName(it->runtimeSnapshot);
-    if (QMessageBox::question(
+    if (!NovaTerm::Ui::confirm(
             this, tr("Delete session"),
-            tr("Delete the saved session '%1'?").arg(title),
-            QMessageBox::Yes | QMessageBox::No, QMessageBox::No)
-        != QMessageBox::Yes) {
+            tr("Delete the saved session '%1'?").arg(title))) {
         return;
     }
 

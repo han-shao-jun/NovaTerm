@@ -10,17 +10,18 @@
 #include <QWidget>
 
 class ElaIconButton;
+class ElaLineEdit;
+class ElaText;
+class ElaTreeWidget;
 class QDragEnterEvent;
 class QDragLeaveEvent;
 class QDragMoveEvent;
 class QDropEvent;
 class QLabel;
-class QLineEdit;
 class QPaintEvent;
 class QProgressBar;
 class QTimer;
 class QTreeWidgetItem;
-class QTreeWidget;
 class SftpSession;
 class SshTransport;
 
@@ -64,6 +65,14 @@ private:
     };
 
     void retranslateUi();
+    /**
+     * @brief 显示或清除文件列表的空状态提示。
+     * @param text 提示文案；传空字符串则隐藏提示。
+     * @note  提示用 ElaText 而不是往树里塞一条占位 QTreeWidgetItem —— 无会话时
+     *        整棵树是禁用的，Ela 的树样式会把 item 文字画成 BasicTextDisable
+     *        （`ElaTreeViewStyle.cpp:226`），占位文案因此显示为几乎看不见的浅灰。
+     */
+    void setFileTreeHint(const QString& text);
     void refreshAvailability();
     void setBusy(bool busy, const QString& message = {});
     void setDropActive(bool active);
@@ -84,11 +93,11 @@ private:
     [[nodiscard]] QString remotePathForName(const QString& name) const;
     [[nodiscard]] bool remotePathExists(const QString& path) const;
 
-    QLabel* _sessionLabel{nullptr};
-    QLabel* _availabilityLabel{nullptr};
+    ElaText* _sessionLabel{nullptr};
+    ElaText* _availabilityLabel{nullptr};
     QProgressBar* _uploadProgressBar{nullptr};
     QTimer* _uploadProgressDelay{nullptr};
-    QLineEdit* _pathEdit{nullptr};
+    ElaLineEdit* _pathEdit{nullptr};
     ElaIconButton* _parentDirectoryButton{nullptr};
     ElaIconButton* _refreshButton{nullptr};
     ElaIconButton* _pastePathButton{nullptr};
@@ -96,7 +105,8 @@ private:
     ElaIconButton* _synchronizeFromTerminalPathButton{nullptr};
     ElaIconButton* _uploadButton{nullptr};
     ElaIconButton* _downloadButton{nullptr};
-    QTreeWidget* _fileTree{nullptr};
+    ElaTreeWidget* _fileTree{nullptr};
+    ElaText* _fileTreeHint{nullptr};
     SftpSession* _sftpSession{nullptr};
     QPointer<SshTransport> _sshTransport;
     QQueue<UploadRequest> _pendingUploads;

@@ -4,19 +4,22 @@
  */
 #pragma once
 
+#include "ElaDef.h"
+
 #include <QHash>
 #include <QPair>
 #include <QPointer>
 #include <QVector>
 #include <QWidget>
 
+class ElaTreeWidget;
+class ElaText;
 class QLabel;
 class QComboBox;
 class QPaintEvent;
 class QProgressBar;
 class QPushButton;
 class QTimer;
-class QTreeWidget;
 class SshTransport;
 class TrafficChart;
 
@@ -36,8 +39,14 @@ protected:
 private:
     void retranslateUi();
     void applyTheme();
-    void refreshAvailability();
-    /** 提交一次有界、非重入的远端资源采集请求。 */
+    /**
+     * @brief 显示或清除磁盘列表的空状态提示。
+     * @param text 提示文案；传空字符串则隐藏提示。
+     * @note  与 SftpPanel 同理，用 ElaText 而非占位 QTreeWidgetItem —— Ela 的树
+     *        样式会把禁用态 item 文字画成 BasicTextDisable，占位文案会几乎看不见。
+     */
+    void setDiskTreeHint(const QString& text);
+    void refreshAvailability();    /** 提交一次有界、非重入的远端资源采集请求。 */
     void requestMetrics();
     /** 校验请求归属，解析结果并用相邻样本计算 CPU/网络速率。 */
     void handleCommandFinished(quint64 requestId,
@@ -48,29 +57,35 @@ private:
     /** 切换或断开会话时清除所有累计值基线。 */
     void resetMetrics();
 
-    QLabel* _sessionLabel{nullptr};
-    QLabel* _availabilityLabel{nullptr};
+    ElaText* _sessionLabel{nullptr};
+    ElaText* _availabilityLabel{nullptr};
     QPushButton* _infoButton{nullptr};
-    QLabel* _cpuLabel{nullptr};
-    QLabel* _memoryLabel{nullptr};
-    QLabel* _swapLabel{nullptr};
+    ElaText* _cpuLabel{nullptr};
+    ElaText* _memoryLabel{nullptr};
+    ElaText* _swapLabel{nullptr};
     QProgressBar* _cpuProgress{nullptr};
     QProgressBar* _memoryProgress{nullptr};
     QProgressBar* _swapProgress{nullptr};
-    QLabel* _cpuDetail{nullptr};
-    QLabel* _memoryDetail{nullptr};
-    QLabel* _swapDetail{nullptr};
+    ElaText* _cpuDetail{nullptr};
+    ElaText* _memoryDetail{nullptr};
+    ElaText* _swapDetail{nullptr};
     QLabel* _receiveLabel{nullptr};
     QLabel* _sendLabel{nullptr};
     QComboBox* _interfaceCombo{nullptr};
     TrafficChart* _trafficChart{nullptr};
-    QLabel* _pathHeader{nullptr};
-    QLabel* _capacityHeader{nullptr};
-    QTreeWidget* _diskTree{nullptr};
+    ElaText* _pathHeader{nullptr};
+    ElaText* _capacityHeader{nullptr};
+    ElaTreeWidget* _diskTree{nullptr};
+    ElaText* _diskTreeHint{nullptr};
     QTimer* _refreshTimer{nullptr};
     QPointer<SshTransport> _sshTransport;
     QString _sessionName;
     QString _collectionError;
+
+    // 上次 applyTheme() 采用的主题。paintEvent 里比对当前主题、不一致就重来 ——
+    // 与 ElaText 的自愈同理（ElaText.cpp:158），不把配色正确性只押在
+    // themeModeChanged 一定按期到达上。
+    ElaThemeType::ThemeMode _themeMode;
 
     // 单调递增 ID 用于区分不同采集；pending 为 0 表示当前没有在途请求。
     quint64 _nextRequestId{1};

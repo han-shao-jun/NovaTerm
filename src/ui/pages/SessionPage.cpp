@@ -11,6 +11,7 @@
 #include "ElaText.h"
 #include "service/LanguageManager.h"
 #include "transport/serialport_info.h"
+#include "ui/widgets/MessagePrompts.h"
 #include "ElaTabWidget.h"
 #include <QFileDialog>
 #include <QHBoxLayout>
@@ -20,7 +21,6 @@
 #include <QRegularExpressionValidator>
 #include <QSerialPort>
 #include <QSignalBlocker>
-#include <QMessageBox>
 #include <QVBoxLayout>
 
 namespace {
@@ -121,8 +121,8 @@ SessionPage::SessionPage(QWidget* parent)
             config.label = _serialLabel->text().trimmed();
 
             if (!config.isValid()) {
-                QMessageBox::warning(this, tr("Serial Session"),
-                                     tr("Select a serial port and provide a valid baud rate."));
+                NovaTerm::Ui::warn(this, tr("Serial Session"),
+                                   tr("Select a serial port and provide a valid baud rate."));
                 return;
             }
             emit serialSessionRequested(config);
@@ -144,7 +144,7 @@ SessionPage::SessionPage(QWidget* parent)
             config.label = _sshLabel->text().trimmed();
 
             if (!config.isValid()) {
-                QMessageBox::warning(
+                NovaTerm::Ui::warn(
                     this, tr("SSH Session"),
                     tr("Provide a host, user name and the credentials for the "
                        "selected authentication method."));
@@ -165,8 +165,8 @@ SessionPage::SessionPage(QWidget* parent)
             config.label = _telnetLabel->text().trimmed();
 
             if (!config.isValid()) {
-                QMessageBox::warning(this, tr("Telnet Session"),
-                                     tr("Provide a host address and a valid port."));
+                NovaTerm::Ui::warn(this, tr("Telnet Session"),
+                                   tr("Provide a host address and a valid port."));
                 return;
             }
             emit telnetSessionRequested(config);

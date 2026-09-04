@@ -13,9 +13,11 @@
 #include "ElaPushButton.h"
 #include "ElaText.h"
 #include "ElaTheme.h"
+#include "ElaTreeWidget.h"
 #include "service/LanguageManager.h"
 #include "session/SftpSession.h"
 #include "transport/SshTransport.h"
+#include "ui/widgets/MessagePrompts.h"
 
 #include <QAbstractButton>
 #include <QApplication>
@@ -36,7 +38,6 @@
 #include <QLabel>
 #include <QLineEdit>
 #include <QLocale>
-#include <QMessageBox>
 #include <QMimeData>
 #include <QPainter>
 #include <QPaintEvent>
@@ -343,11 +344,18 @@ SftpPanel::SftpPanel(QWidget* parent)
     rootLayout->setContentsMargins(10, 10, 10, 10);
     rootLayout->setSpacing(8);
 
-    _sessionLabel = new QLabel(this);
+    // 用 ElaText 而非 QLabel：后者靠祖先 palette 继承取色，主题切换时
+    // MainWindow 重设 app palette 的时机与传播规则都不可靠，浅色主题下曾残留
+    // 深色主题的白字。ElaText 自己订阅 themeModeChanged 并在 paintEvent 里
+    // 校验 palette 是否与当前主题一致、不一致就重新应用（见 ElaText.cpp:158），
+    // 这套自愈机制是 Ela 控件颜色始终正确的原因。
+    _sessionLabel = new ElaText(this);
+    _sessionLabel->setTextStyle(ElaTextType::Body);
     _sessionLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
     rootLayout->addWidget(_sessionLabel);
 
-    _availabilityLabel = new QLabel(this);
+    _availabilityLabel = new ElaText(this);
+    _availabilityLabel->setTextStyle(ElaTextType::Body);
     _availabilityLabel->setWordWrap(true);
     _availabilityLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
     rootLayout->addWidget(_availabilityLabel);
@@ -400,11 +408,11 @@ SftpPanel::SftpPanel(QWidget* parent)
     rootLayout->addLayout(toolbarLayout);
 
     // SSH 激活时路径框可直接输入绝对路径；非 SSH 状态仍保持原有禁用外观。
-    _pathEdit = new QLineEdit(this);
+    _pathEdit = new ElaLineEdit(this);
     _pathEdit->setText(QStringLiteral("/"));
     rootLayout->addWidget(_pathEdit);
 
-    _fileTree = new QTreeWidget(this);
+    _fileTree = new ElaTreeWidget(this);
     _fileTree->setColumnCount(2);
     _fileTree->setRootIsDecorated(false);
     _fileTree->setUniformRowHeights(true);
@@ -417,6 +425,17 @@ SftpPanel::SftpPanel(QWidget* parent)
     _fileTree->header()->setSortIndicatorShown(true);
     _fileTree->header()->setSortIndicator(0, _nameSortOrder);
     rootLayout->addWidget(_fileTree, 1);
+
+    // 空状态提示挂在树的视口上并居中。ElaText 自己跟随主题，不受树的禁用态
+    // 影响 —— 这正是不再用占位 QTreeWidgetItem 的原因。
+    _fileTreeHint = new ElaText(_fileTree->viewport());
+    _fileTreeHint->setTextStyle(ElaTextType::Body);
+    _fileTreeHint->setAlignment(Qt::AlignCenter);
+    _fileTreeHint->setAttribute(Qt::WA_TransparentForMouseEvents);
+    _fileTreeHint->hide();
+    auto* hintLayout = new QVBoxLayout(_fileTree->viewport());
+    hintLayout->setContentsMargins(12, 12, 12, 12);
+    hintLayout->addWidget(_fileTreeHint, 0, Qt::AlignCenter);
 
     connect(_parentDirectoryButton, &QAbstractButton::clicked, this, [this]() {
         requestDirectory(parentRemotePath(_currentPath));
@@ -479,6 +498,7 @@ SftpPanel::SftpPanel(QWidget* parent)
     connect(_sftpSession, &SftpSession::directoryListed, this,
             [this](const QString& path, QVector<SftpFileInfo> entries) {
         _fileTree->clear();
+        setFileTreeHint(entries.isEmpty() ? tr("This folder is empty") : QString{});
         for (const SftpFileInfo& entry : entries) {
             const QString size = entry.directory
                 ? QStringLiteral("—")
@@ -718,9 +738,7 @@ void SftpPanel::setSessionContext(const QString& sessionLabel,
             setSessionContext(_sessionName, nullptr);
         });
         _fileTree->clear();
-        auto* item = new QTreeWidgetItem(
-            _fileTree, {tr("Connecting to SFTP…")});
-        item->setFlags(item->flags() & ~Qt::ItemIsSelectable);
+        setFileTreeHint(tr("Connecting to SFTP…"));
         _availabilityLabel->setText(tr("Connecting to SFTP…"));
         refreshAvailability();
         _sftpSession->connectToHost(_sshTransport->sessionConfig());
@@ -792,13 +810,19 @@ void SftpPanel::refreshAvailability()
         _availabilityLabel->setText(
             tr("Select a connected SSH terminal to browse remote files."));
         _fileTree->clear();
-        auto* item = new QTreeWidgetItem(
-            _fileTree, {tr("Waiting for an SSH session")});
-        item->setFlags(item->flags() & ~Qt::ItemIsSelectable);
+        setFileTreeHint(tr("Waiting for an SSH session"));
         return;
     }
 
     updateSelectionActions();
+}
+
+void SftpPanel::setFileTreeHint(const QString& text)
+{
+    if (!_fileTreeHint)
+        return;
+    _fileTreeHint->setText(text);
+    _fileTreeHint->setVisible(!text.isEmpty());
 }
 
 void SftpPanel::setBusy(bool busy, const QString& message)
@@ -990,12 +1014,10 @@ void SftpPanel::queueUploads(const QStringList& localPaths)
         return;
     }
     if (overwriteCount > 0
-        && QMessageBox::question(
+        && !NovaTerm::Ui::confirm(
             this, tr("Replace remote files"),
             tr("%1 remote item(s) already exist. Merge or replace them?")
-                .arg(overwriteCount),
-            QMessageBox::Yes | QMessageBox::No, QMessageBox::No)
-            != QMessageBox::Yes) {
+                .arg(overwriteCount))) {
         return;
     }
 
@@ -1264,10 +1286,7 @@ void SftpPanel::showFileContextMenu(const QPoint& position)
         ? tr("Delete folder %1 and all its contents? This action cannot be undone.")
               .arg(item->text(0))
         : tr("Delete %1?").arg(item->text(0));
-    if (QMessageBox::question(
-            this, tr("Delete remote entry"), confirmation,
-            QMessageBox::Yes | QMessageBox::No, QMessageBox::No)
-        != QMessageBox::Yes) {
+    if (!NovaTerm::Ui::confirm(this, tr("Delete remote entry"), confirmation)) {
         return;
     }
 

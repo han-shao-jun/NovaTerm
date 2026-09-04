@@ -17,7 +17,7 @@ class TerminalCore;
 class TerminalRenderer;
 class TerminalColorScheme;
 class QTimer;
-class QLineEdit;
+class ElaLineEdit;
 class TerminalSession;
 
 // 终端视图：组合 TerminalCore（libvterm 仿真引擎）+ TerminalRenderer（QRhi GPU
@@ -124,7 +124,7 @@ private:
     // PTY 尺寸变更去抖定时器：拖动窗口时密集的 resize 事件合并为一次
     // SIGWINCH，避免 shell 被连续重绘请求轰击产生输出风暴。
     QTimer*           _resizeDebounce{nullptr};
-    QLineEdit*        _searchLine{nullptr};
+    ElaLineEdit*      _searchLine{nullptr};
     quint64           _searchGeneration{0};
     QString           _lastTerminalTitle;
     QString           _workingDirectoryMarker;
