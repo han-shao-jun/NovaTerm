@@ -8,6 +8,8 @@
 #include "SessionPanel.h"
 
 #include "ElaIconButton.h"
+#include "ElaLineEdit.h"
+#include "ElaTheme.h"
 #include "ElaMenu.h"
 #include "ElaPushButton.h"
 #include "ElaText.h"
@@ -24,6 +26,8 @@
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QResizeEvent>
+#include <QPainter>
+#include <QStyledItemDelegate>
 #include <QStandardPaths>
 #include <QTreeWidget>
 #include <QVBoxLayout>
@@ -34,6 +38,117 @@
 #include <utility>
 
 namespace {
+
+// UUID 继续使用 Qt::UserRole，展示数据独立保存，不改变历史记录格式。
+constexpr int DetailRole = Qt::UserRole + 1;
+constexpr int KindRole = Qt::UserRole + 2;
+constexpr int SessionTreeIndentation = 16;
+constexpr int SessionIconSize = 24;
+constexpr int GroupIconSize = 16;
+constexpr int SessionFontPixelSize = 10;
+
+/** @brief 单列会话委托：分组一行，会话以图标、名称和连接参数两行展示。 */
+class SessionItemDelegate final : public QStyledItemDelegate
+{
+public:
+    explicit SessionItemDelegate(QObject* parent) : QStyledItemDelegate(parent) {}
+
+    QSize sizeHint(const QStyleOptionViewItem& option,
+                   const QModelIndex& index) const override
+    {
+        QFont font = option.font;
+        if (index.parent().isValid())
+            font.setPixelSize(SessionFontPixelSize);
+
+        const int lineHeight = QFontMetrics(font).height();
+        return {0, index.parent().isValid()
+                    ? std::max(38, 2 * lineHeight + 5)
+                    : std::max(28, lineHeight + 5)};
+    }
+
+    void paint(QPainter* painter, const QStyleOptionViewItem& option,
+               const QModelIndex& index) const override
+    {
+        const auto mode = eTheme->getThemeMode();
+        const QColor foreground = ElaThemeColor(mode, BasicText);
+        // 混合前景与背景得到次要文本色，深浅主题下都保留可读性。
+        const QColor background = ElaThemeColor(mode, WindowBase);
+        const QColor secondary((foreground.red() * 7 + background.red() * 3) / 10,
+                               (foreground.green() * 7 + background.green() * 3) / 10,
+                               (foreground.blue() * 7 + background.blue() * 3) / 10);
+        const bool leaf = index.parent().isValid();
+        const bool group = index.model()->hasChildren(index);
+        // 仅收回叶子节点的层级缩进及图标宽度差，使名称与分组标题对齐。
+        // 分组自身的图标、文字和展开箭头保持原位。
+        const int leftShift = leaf
+            ? SessionTreeIndentation + SessionIconSize - GroupIconSize : 0;
+        const QRect contentRect = option.rect.adjusted(-leftShift, 0, 0, 0);
+        const QRect row = contentRect.adjusted(0, 1, -2, -1);
+        painter->save();
+        painter->setClipRect(contentRect);
+        painter->setRenderHint(QPainter::Antialiasing);
+        painter->setPen(Qt::NoPen);
+        if (option.state & QStyle::State_Selected) {
+            painter->setBrush(ElaThemeColor(mode, BasicSelectedAlpha));
+            painter->drawRoundedRect(row, 5, 5);
+        } else if (option.state & QStyle::State_MouseOver) {
+            painter->setBrush(ElaThemeColor(mode, BasicHoverAlpha));
+            painter->drawRoundedRect(row, 5, 5);
+        }
+        if (option.state & QStyle::State_HasFocus) {
+            painter->setPen(QPen(ElaThemeColor(mode, PrimaryNormal), 1));
+            painter->setBrush(Qt::NoBrush);
+            painter->drawRoundedRect(row.adjusted(1, 1, -1, -1), 5, 5);
+        }
+
+        QRect textRect = row.adjusted(6, 0, -6, 0);
+        if (leaf || group) {
+            const int iconSize = leaf ? SessionIconSize : GroupIconSize;
+            const QRect iconRect(textRect.left(), row.center().y() - iconSize / 2,
+                                 iconSize, iconSize);
+            if (leaf) {
+                painter->setPen(Qt::NoPen);
+                painter->setBrush(ElaThemeColor(mode, BasicHoverAlpha));
+                painter->drawRoundedRect(iconRect, 4, 4);
+            }
+            QFont iconFont(QStringLiteral("ElaAwesome"));
+            iconFont.setPixelSize(14);
+            painter->setFont(iconFont);
+            painter->setPen(secondary);
+            const auto icon = group ? ElaIconType::Folder
+                : static_cast<TransportKind>(index.data(KindRole).toInt())
+                        == TransportKind::LocalShell
+                    ? ElaIconType::Laptop : ElaIconType::Server;
+            painter->drawText(iconRect, Qt::AlignCenter, QChar(icon));
+            textRect.setLeft(iconRect.right() + 9);
+        }
+
+        QFont textFont = option.font;
+        if (leaf)
+            textFont.setPixelSize(SessionFontPixelSize);
+        textFont.setBold(group);
+        painter->setFont(textFont);
+        painter->setPen(group ? secondary : foreground);
+        const int lineHeight = QFontMetrics(textFont).height();
+        const QString title = index.data(Qt::DisplayRole).toString();
+        const QString detail = index.data(DetailRole).toString();
+        if (leaf && !detail.isEmpty()) {
+            textRect.setTop(row.center().y() - lineHeight);
+            textRect.setHeight(lineHeight);
+        }
+        painter->drawText(textRect, Qt::AlignLeft | Qt::AlignVCenter,
+            QFontMetrics(textFont).elidedText(title, Qt::ElideRight,
+                                            std::max(0, textRect.width())));
+        if (leaf && !detail.isEmpty()) {
+            textRect.translate(0, lineHeight);
+            painter->setPen(secondary);
+            painter->drawText(textRect, Qt::AlignLeft | Qt::AlignVCenter,
+                QFontMetrics(textFont).elidedText(detail, Qt::ElideRight,
+                                                std::max(0, textRect.width())));
+        }
+        painter->restore();
+    }
+};
 
 QString localSessionName(TerminalView::LocalShellType type,
                          const QString& wslDistribution = {})
@@ -107,8 +222,7 @@ QString transportGroupName(TransportKind kind)
 
 QString sessionDetail(const RuntimeConfig& runtime)
 {
-    // 第一列展示用户可识别的名称，第二列只保留最关键的连接参数，
-    // 避免窄侧栏内重复显示完整会话描述。
+    // 次要行保留连接参数，主标题优先展示用户标签。
     const QVariantMap& values = runtime.transport;
     switch (runtime.transportKind) {
     case TransportKind::LocalShell:
@@ -117,14 +231,12 @@ QString sessionDetail(const RuntimeConfig& runtime)
                 values.value(QStringLiteral("shellType")).toInt()),
             values.value(QStringLiteral("wslDistribution")).toString());
     case TransportKind::Ssh:
-        return QStringLiteral("%1:%2")
-            .arg(values.value(QStringLiteral("host")).toString())
-            .arg(values.value(QStringLiteral("port")).toUInt());
+        return sessionName(runtime);
     case TransportKind::Serial:
         return QString::number(
             values.value(QStringLiteral("baudRate")).toInt());
     case TransportKind::Telnet:
-        return values.value(QStringLiteral("host")).toString();
+        return sessionName(runtime);
     case TransportKind::Custom:
         return {};
     }
@@ -206,11 +318,9 @@ QByteArray sshSecret(const SshConfig& config)
 SessionPanel::SessionPanel(QWidget* parent)
     : QWidget(parent), _credentials(createCredentialStore())
 {
-    QDir dataDirectory(
-        QStandardPaths::writableLocation(QStandardPaths::AppDataLocation));
+    QDir dataDirectory(QStandardPaths::writableLocation(QStandardPaths::AppDataLocation));
     dataDirectory.mkpath(QStringLiteral("."));
-    _store = std::make_unique<SessionStore>(
-        dataDirectory.filePath(QStringLiteral("session-history.json")));
+    _store = std::make_unique<SessionStore>(dataDirectory.filePath(QStringLiteral("session-history.json")));
     _entries = _store->load();
     bool historyNamesChanged = false;
     for (SessionRestoreMetadata& entry : _entries) {
@@ -224,8 +334,8 @@ SessionPanel::SessionPanel(QWidget* parent)
         saveHistory();
 
     _rootLayout = new QVBoxLayout(this);
-    _rootLayout->setContentsMargins(12, 12, 12, 12);
-    _rootLayout->setSpacing(10);
+    _rootLayout->setContentsMargins(8, 12, 8, 12);
+    _rootLayout->setSpacing(8);
 
     // 使用固定高度的标题容器，避免折叠后仅剩标题布局时被纵向拉伸，
     // 从而保证展开图标始终停留在面板顶部。
@@ -238,7 +348,7 @@ SessionPanel::SessionPanel(QWidget* parent)
     // 浅色主题下曾残留深色主题的白字。ElaText 自订阅 themeModeChanged 并在
     // paintEvent 里自愈（ElaText.cpp:158）。文本统一由 retranslateUi() 设置。
     _titleLabel = new ElaText(this);
-    _titleLabel->setTextStyle(ElaTextType::BodyStrong);
+    _titleLabel->setTextStyle(ElaTextType::Subtitle);
     _titleLabel->setWordWrap(false);
     headerLayout->addWidget(_titleLabel);
     headerLayout->addStretch();
@@ -250,21 +360,58 @@ SessionPanel::SessionPanel(QWidget* parent)
 
     _newSessionButton = new ElaPushButton(this);
     _newSessionButton->setMinimumHeight(34);
+    _newSessionButton->setBorderRadius(6);
+    // 参考图的紫色主操作，仅应用于新建按钮，不覆盖全局主题。
+    _newSessionButton->setLightDefaultColor(QColor("#8050B8"));
+    _newSessionButton->setLightHoverColor(QColor("#7243AA"));
+    _newSessionButton->setLightPressColor(QColor("#64369A"));
+    _newSessionButton->setDarkDefaultColor(QColor("#9563CD"));
+    _newSessionButton->setDarkHoverColor(QColor("#A273D6"));
+    _newSessionButton->setDarkPressColor(QColor("#8050B8"));
+    _newSessionButton->setLightTextColor(Qt::white);
+    _newSessionButton->setDarkTextColor(Qt::white);
+    QFont buttonFont = _newSessionButton->font();
+    buttonFont.setBold(true);
+    _newSessionButton->setFont(buttonFont);
     _rootLayout->addWidget(_newSessionButton);
 
+    _searchEdit = new ElaLineEdit(this);
+    _searchEdit->setFixedHeight(32);
+    _searchEdit->setTextMargins(20, 0, 0, 0);
+    auto* searchIcon = new ElaText(_searchEdit);
+    searchIcon->setElaIcon(ElaIconType::MagnifyingGlass);
+    searchIcon->setTextPixelSize(12);
+    searchIcon->setGeometry(10, 0, 16, 32);
+    searchIcon->setAttribute(Qt::WA_TransparentForMouseEvents);
+    _searchEdit->setIsClearButtonEnable(true);
+    _rootLayout->addWidget(_searchEdit);
+
     _tree = new ElaTreeWidget(this);
-    _tree->setColumnCount(2);
+
+    QFont itemFont = _tree->font();
+    itemFont.setPixelSize(13);
+    _tree->setFont(itemFont);
+
+    _tree->setColumnCount(1);
     _tree->setHeaderHidden(true);
     _tree->setAnimated(false);
-    _tree->setIndentation(16);
+    // 委托直接绘制单列内容，避开默认树样式额外的文本左边距。
+    _tree->setItemDelegate(new SessionItemDelegate(_tree));
+    _tree->setIsFrameVisible(false);
+    _tree->setIndentation(SessionTreeIndentation);
     _tree->setRootIsDecorated(true);
-    _tree->setUniformRowHeights(true);
+    _tree->setUniformRowHeights(false);
+    _tree->setEditTriggers(QAbstractItemView::NoEditTriggers);
     _tree->setContextMenuPolicy(Qt::CustomContextMenu);
     _tree->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     _tree->header()->setStretchLastSection(false);
     _tree->header()->setSectionResizeMode(0, QHeaderView::Stretch);
-    _tree->header()->setSectionResizeMode(1, QHeaderView::ResizeToContents);
     _rootLayout->addWidget(_tree, 1);
+
+    connect(_searchEdit, &QLineEdit::textChanged, this,
+            [this]() { rebuildTree(); });
+    connect(eTheme, &ElaTheme::themeModeChanged, _tree,
+            [this]() { _tree->viewport()->update(); });
 
     connect(_collapseButton, &QPushButton::clicked, this,
             [this]() { setCollapsed(!_collapsed); });
@@ -320,6 +467,7 @@ void SessionPanel::updateCollapsedUi()
     _titleLabel->setVisible(!_collapsed);
     _newSessionButton->setVisible(!_collapsed);
     _tree->setVisible(!_collapsed);
+    _searchEdit->setVisible(!_collapsed);
     _collapseButton->setAwesome(
         _collapsed ? ElaIconType::AngleRight : ElaIconType::AngleLeft);
     _collapseButton->setAccessibleName(
@@ -335,7 +483,7 @@ void SessionPanel::updateCollapsedUi()
         setMinimumWidth(CollapsedWidth);
         setMaximumWidth(CollapsedWidth);
     } else {
-        _rootLayout->setContentsMargins(12, 12, 12, 12);
+        _rootLayout->setContentsMargins(8, 12, 8, 12);
         setMaximumWidth(QWIDGETSIZE_MAX);
         setMinimumWidth(160);
     }
@@ -487,6 +635,7 @@ void SessionPanel::saveHistory()
 void SessionPanel::rebuildTree()
 {
     _tree->clear();
+    const QString query = _searchEdit->text().trimmed();
 
     // 固定分组顺序，避免会话保存顺序改变时侧栏类别来回跳动。
     const std::array kinds{
@@ -496,7 +645,12 @@ void SessionPanel::rebuildTree()
     for (const TransportKind kind : kinds) {
         QList<const SessionRestoreMetadata*> groupEntries;
         for (const SessionRestoreMetadata& entry : std::as_const(_entries)) {
-            if (entry.runtimeSnapshot.transportKind == kind)
+            const auto& runtime = entry.runtimeSnapshot;
+            const QString searchable = runtime.transport
+                .value(QStringLiteral("label")).toString() + QLatin1Char(' ')
+                + sessionName(runtime) + QLatin1Char(' ') + sessionDetail(runtime);
+            if (runtime.transportKind == kind
+                && (query.isEmpty() || searchable.contains(query, Qt::CaseInsensitive)))
                 groupEntries.append(&entry);
         }
         if (groupEntries.isEmpty())
@@ -514,21 +668,39 @@ void SessionPanel::rebuildTree()
             const RuntimeConfig& runtime = entry->runtimeSnapshot;
             QString displayName = runtime.transport
                 .value(QStringLiteral("label")).toString().trimmed();
-            if (displayName.isEmpty())
-                displayName = sessionName(runtime);
+            if (displayName.isEmpty()) {
+                const auto& values = runtime.transport;
+                if (kind == TransportKind::Serial)
+                    displayName = values.value(QStringLiteral("portName")).toString();
+                else if (kind == TransportKind::Ssh || kind == TransportKind::Telnet)
+                    displayName = values.value(QStringLiteral("host")).toString();
+                else {
+                    displayName = sessionName(runtime);
+                    if (displayName == QStringLiteral("powershell"))
+                        displayName = QStringLiteral("PowerShell");
+                    else if (displayName == QStringLiteral("cmd"))
+                        displayName = QStringLiteral("CMD");
+                }
+            }
 
             auto* item = new QTreeWidgetItem(
-                group, {displayName, sessionDetail(runtime)});
+                group, {displayName});
+            item->setData(0, DetailRole, sessionDetail(runtime));
+            item->setData(0, KindRole, static_cast<int>(kind));
+            item->setData(0, Qt::AccessibleTextRole,
+                          displayName + QStringLiteral(", ") + sessionDetail(runtime));
             item->setData(0, Qt::UserRole,
                           entry->sessionId.toString(QUuid::WithoutBraces));
-            item->setToolTip(0, tr("Double-click to reconnect"));
-            item->setToolTip(1, tr("Double-click to reconnect"));
+            item->setToolTip(0, displayName + QLatin1Char('\n')
+                + sessionDetail(runtime) + QLatin1Char('\n')
+                + tr("Double-click to reconnect"));
         }
     }
 
     if (_tree->topLevelItemCount() == 0) {
         auto* emptyItem = new QTreeWidgetItem(
-            _tree, {tr("No saved sessions yet")});
+            _tree, {query.isEmpty() ? tr("No saved sessions yet")
+                                    : tr("No matching sessions")});
         emptyItem->setFlags(emptyItem->flags() & ~Qt::ItemIsSelectable);
     }
 }
@@ -692,6 +864,8 @@ void SessionPanel::retranslateUi()
         _newSessionButton->setText(tr("+  New session"));
         _newSessionButton->setAccessibleName(tr("New session"));
     }
+    _searchEdit->setPlaceholderText(tr("Search by name or host..."));
+    _searchEdit->setAccessibleName(tr("Search sessions"));
     updateCollapsedUi();
     rebuildTree();
 }

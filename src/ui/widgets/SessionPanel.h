@@ -3,7 +3,8 @@
  * @brief  快捷连接面板：新建会话与分组历史会话入口。
  *
  * 通过 SessionStore 持久化会话历史，ElaTreeWidget 按连接类型展示保存的会话。
- * 右键菜单支持重连、编辑、删除。标题栏按钮可将面板折叠为窄侧栏。
+ * 条目以图标和两行文本展示，支持名称/主机搜索。右键菜单支持编辑、删除，
+ * 双击重连。标题栏按钮可将面板折叠为窄侧栏。
  */
 #pragma once
 
@@ -16,6 +17,7 @@
 
 class CredentialStore;
 class ElaIconButton;
+class ElaLineEdit;
 class ElaPushButton;
 class ElaText;
 class ElaTreeWidget;
@@ -95,6 +97,7 @@ private:
     ElaText* _titleLabel{nullptr};
     ElaIconButton* _collapseButton{nullptr};
     ElaPushButton* _newSessionButton{nullptr};
+    ElaLineEdit* _searchEdit{nullptr};
     ElaTreeWidget* _tree{nullptr};
     bool _collapsed{false};
     int _expandedWidth{260};

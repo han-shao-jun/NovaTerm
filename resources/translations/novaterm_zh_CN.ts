@@ -798,95 +798,109 @@ Built with:
 <context>
     <name>SessionPanel</name>
     <message>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="85"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="200"/>
         <source>Custom</source>
         <translation>自定义</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="95"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="210"/>
         <source>Local terminals</source>
         <translation>本地终端</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="97"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="212"/>
         <source>SSH hosts</source>
         <translation>SSH 主机</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="99"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="214"/>
         <source>Serial ports</source>
         <translation>串口</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="101"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="216"/>
         <source>Telnet hosts</source>
         <translation>Telnet 主机</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="103"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="218"/>
         <source>Other sessions</source>
         <translation>其他会话</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="690"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="703"/>
+        <source>No matching sessions</source>
+        <translation>没有匹配的会话</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="862"/>
         <source>Quick connections</source>
         <translation>快速连接</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="692"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="864"/>
         <source>+  New session</source>
         <translation>+  新建会话</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="693"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="865"/>
         <source>New session</source>
         <translation>新建会话</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="326"/>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="329"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="867"/>
+        <source>Search by name or host...</source>
+        <translation>按名称或主机搜索...</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="868"/>
+        <source>Search sessions</source>
+        <translation>搜索会话</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="474"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="477"/>
         <source>Expand quick connections</source>
         <translation>展开快速连接</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="327"/>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="330"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="475"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="478"/>
         <source>Collapse quick connections</source>
         <translation>折叠快速连接</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="524"/>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="525"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="696"/>
         <source>Double-click to reconnect</source>
         <translation>双击重新连接</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="531"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="702"/>
         <source>No saved sessions yet</source>
         <translation>尚无已保存的会话</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="547"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="719"/>
         <source>Edit</source>
         <translation>编辑</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="549"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="721"/>
         <source>Delete</source>
         <translation>删除</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="586"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="758"/>
         <source>Delete session</source>
         <translation>删除会话</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="587"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="759"/>
         <source>Delete the saved session &apos;%1&apos;?</source>
         <translation>删除已保存的会话“%1”？</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="662"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="834"/>
         <source>The saved SSH credential is unavailable. Create the session again to refresh it.</source>
         <translation>已保存的 SSH 凭据不可用。请重新创建会话以刷新凭据。</translation>
     </message>
