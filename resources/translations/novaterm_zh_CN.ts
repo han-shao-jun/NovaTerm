@@ -798,109 +798,104 @@ Built with:
 <context>
     <name>SessionPanel</name>
     <message>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="200"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="199"/>
         <source>Custom</source>
         <translation>自定义</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="210"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="209"/>
         <source>Local terminals</source>
         <translation>本地终端</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="212"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="211"/>
         <source>SSH hosts</source>
         <translation>SSH 主机</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="214"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="213"/>
         <source>Serial ports</source>
         <translation>串口</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="216"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="215"/>
         <source>Telnet hosts</source>
         <translation>Telnet 主机</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="218"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="217"/>
         <source>Other sessions</source>
         <translation>其他会话</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="703"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="694"/>
         <source>No matching sessions</source>
         <translation>没有匹配的会话</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="862"/>
-        <source>Quick connections</source>
-        <translation>快速连接</translation>
-    </message>
-    <message>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="864"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="853"/>
         <source>+  New session</source>
         <translation>+  新建会话</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="865"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="854"/>
         <source>New session</source>
         <translation>新建会话</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="867"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="856"/>
         <source>Search by name or host...</source>
         <translation>按名称或主机搜索...</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="868"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="857"/>
         <source>Search sessions</source>
         <translation>搜索会话</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="474"/>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="477"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="465"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="468"/>
         <source>Expand quick connections</source>
         <translation>展开快速连接</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="475"/>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="478"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="466"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="469"/>
         <source>Collapse quick connections</source>
         <translation>折叠快速连接</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="696"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="687"/>
         <source>Double-click to reconnect</source>
         <translation>双击重新连接</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="702"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="693"/>
         <source>No saved sessions yet</source>
         <translation>尚无已保存的会话</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="719"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="710"/>
         <source>Edit</source>
         <translation>编辑</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="721"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="712"/>
         <source>Delete</source>
         <translation>删除</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="758"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="749"/>
         <source>Delete session</source>
         <translation>删除会话</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="759"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="750"/>
         <source>Delete the saved session &apos;%1&apos;?</source>
         <translation>删除已保存的会话“%1”？</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="834"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="825"/>
         <source>The saved SSH credential is unavailable. Create the session again to refresh it.</source>
         <translation>已保存的 SSH 凭据不可用。请重新创建会话以刷新凭据。</translation>
     </message>
@@ -1984,102 +1979,102 @@ Built with:
 <context>
     <name>SystemMonitorPanel</name>
     <message>
-        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="568"/>
+        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="587"/>
         <source>CPU</source>
         <translation>CPU</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="569"/>
+        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="588"/>
         <source>Memory</source>
         <translation>内存</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="570"/>
+        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="589"/>
         <source>Swap</source>
         <translation>交换</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="725"/>
+        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="744"/>
         <source>The remote system did not return supported Linux metrics.</source>
         <translation>远程系统未返回受支持的 Linux 指标。</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="726"/>
+        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="745"/>
         <source>Remote resource query failed: %1</source>
         <translation>远程资源查询失败：%1</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="746"/>
+        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="765"/>
         <source>Collecting…</source>
         <translation>正在采集…</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="824"/>
+        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="843"/>
         <source>Filesystem query failed: %1</source>
         <translation>文件系统查询失败：%1</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="849"/>
+        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="868"/>
         <source>↑ —</source>
         <translation>↑ —</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="850"/>
+        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="869"/>
         <source>↓ —</source>
         <translation>↓ —</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="853"/>
+        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="872"/>
         <source>↑ %1/s</source>
         <translation>↑ %1/s</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="855"/>
+        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="874"/>
         <source>↓ %1/s</source>
         <translation>↓ %1/s</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="571"/>
+        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="590"/>
         <source>Path</source>
         <translation>路径</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="562"/>
+        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="581"/>
         <source>Remote CPU, memory and network update every %1 seconds; filesystems update every 30 seconds.</source>
         <translation>远程 CPU、内存和网络每 %1 秒更新；文件系统每 30 秒更新。</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="572"/>
+        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="591"/>
         <source>Available / Size</source>
         <translation>可用 / 大小</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="573"/>
+        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="592"/>
         <source>Network traffic history</source>
         <translation>网络流量历史</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="626"/>
+        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="645"/>
         <source>No active SSH session</source>
         <translation>没有活动的 SSH 会话</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="629"/>
+        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="648"/>
         <source>Select a connected SSH terminal to inspect remote resources.</source>
         <translation>请选择一个已连接的 SSH 终端以查看远程资源。</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="635"/>
+        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="654"/>
         <source>Collecting remote resources…</source>
         <translation>正在采集远程资源…</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="644"/>
+        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="663"/>
         <source>Waiting for monitoring data</source>
         <translation>等待监控数据</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="823"/>
+        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="842"/>
         <source>No filesystem information available</source>
         <translation>没有可用的文件系统信息</translation>
     </message>

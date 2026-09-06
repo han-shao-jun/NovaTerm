@@ -792,109 +792,104 @@ Built with:
 <context>
     <name>SessionPanel</name>
     <message>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="200"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="199"/>
         <source>Custom</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="210"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="209"/>
         <source>Local terminals</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="212"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="211"/>
         <source>SSH hosts</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="214"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="213"/>
         <source>Serial ports</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="216"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="215"/>
         <source>Telnet hosts</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="218"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="217"/>
         <source>Other sessions</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="703"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="694"/>
         <source>No matching sessions</source>
         <translation>No matching sessions</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="862"/>
-        <source>Quick connections</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="864"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="853"/>
         <source>+  New session</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="865"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="854"/>
         <source>New session</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="867"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="856"/>
         <source>Search by name or host...</source>
         <translation>Search by name or host...</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="868"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="857"/>
         <source>Search sessions</source>
         <translation>Search sessions</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="474"/>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="477"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="465"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="468"/>
         <source>Expand quick connections</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="475"/>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="478"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="466"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="469"/>
         <source>Collapse quick connections</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="696"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="687"/>
         <source>Double-click to reconnect</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="702"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="693"/>
         <source>No saved sessions yet</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="719"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="710"/>
         <source>Edit</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="721"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="712"/>
         <source>Delete</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="758"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="749"/>
         <source>Delete session</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="759"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="750"/>
         <source>Delete the saved session &apos;%1&apos;?</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="834"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="825"/>
         <source>The saved SSH credential is unavailable. Create the session again to refresh it.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -1978,102 +1973,102 @@ Built with:
 <context>
     <name>SystemMonitorPanel</name>
     <message>
-        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="568"/>
+        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="587"/>
         <source>CPU</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="569"/>
+        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="588"/>
         <source>Memory</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="570"/>
+        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="589"/>
         <source>Swap</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="725"/>
+        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="744"/>
         <source>The remote system did not return supported Linux metrics.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="726"/>
+        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="745"/>
         <source>Remote resource query failed: %1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="746"/>
+        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="765"/>
         <source>Collecting…</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="824"/>
+        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="843"/>
         <source>Filesystem query failed: %1</source>
         <translation>Filesystem query failed: %1</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="849"/>
+        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="868"/>
         <source>↑ —</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="850"/>
+        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="869"/>
         <source>↓ —</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="853"/>
+        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="872"/>
         <source>↑ %1/s</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="855"/>
+        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="874"/>
         <source>↓ %1/s</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="571"/>
+        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="590"/>
         <source>Path</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="562"/>
+        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="581"/>
         <source>Remote CPU, memory and network update every %1 seconds; filesystems update every 30 seconds.</source>
         <translation>Remote CPU, memory and network update every %1 seconds; filesystems update every 30 seconds.</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="572"/>
+        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="591"/>
         <source>Available / Size</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="573"/>
+        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="592"/>
         <source>Network traffic history</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="626"/>
+        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="645"/>
         <source>No active SSH session</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="629"/>
+        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="648"/>
         <source>Select a connected SSH terminal to inspect remote resources.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="635"/>
+        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="654"/>
         <source>Collecting remote resources…</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="644"/>
+        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="663"/>
         <source>Waiting for monitoring data</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="823"/>
+        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="842"/>
         <source>No filesystem information available</source>
         <translation>No filesystem information available</translation>
     </message>

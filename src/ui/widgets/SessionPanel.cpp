@@ -24,7 +24,6 @@
 #include <QFont>
 #include <QHeaderView>
 #include <QHBoxLayout>
-#include <QLabel>
 #include <QResizeEvent>
 #include <QPainter>
 #include <QStyledItemDelegate>
@@ -233,8 +232,9 @@ QString sessionDetail(const RuntimeConfig& runtime)
     case TransportKind::Ssh:
         return sessionName(runtime);
     case TransportKind::Serial:
-        return QString::number(
-            values.value(QStringLiteral("baudRate")).toInt());
+        // 用户标签作为主标题时，详情仍需同时给出设备与速率，避免同波特率的
+        // 多个串口条目无法区分；格式与无标签时的默认会话名保持一致。
+        return sessionName(runtime);
     case TransportKind::Telnet:
         return sessionName(runtime);
     case TransportKind::Custom:
@@ -337,28 +337,16 @@ SessionPanel::SessionPanel(QWidget* parent)
     _rootLayout->setContentsMargins(8, 12, 8, 12);
     _rootLayout->setSpacing(8);
 
-    // 使用固定高度的标题容器，避免折叠后仅剩标题布局时被纵向拉伸，
+    // 使用固定高度的操作容器，避免折叠后仅剩顶部布局时被纵向拉伸，
     // 从而保证展开图标始终停留在面板顶部。
     auto* headerWidget = new QWidget(this);
-    headerWidget->setFixedHeight(32);
+    headerWidget->setFixedHeight(34);
     auto* headerLayout = new QHBoxLayout(headerWidget);
     headerLayout->setContentsMargins(0, 0, 0, 0);
     headerLayout->setSpacing(6);
-    // 标题用 ElaText：QLabel 靠祖先 palette 继承取色，主题切换时不可靠，
-    // 浅色主题下曾残留深色主题的白字。ElaText 自订阅 themeModeChanged 并在
-    // paintEvent 里自愈（ElaText.cpp:158）。文本统一由 retranslateUi() 设置。
-    _titleLabel = new ElaText(this);
-    _titleLabel->setTextStyle(ElaTextType::Subtitle);
-    _titleLabel->setWordWrap(false);
-    headerLayout->addWidget(_titleLabel);
-    headerLayout->addStretch();
 
-    _collapseButton = new ElaIconButton(
-        ElaIconType::AngleLeft, 12, 28, 28, headerWidget);
-    headerLayout->addWidget(_collapseButton);
-    _rootLayout->addWidget(headerWidget, 0, Qt::AlignTop);
-
-    _newSessionButton = new ElaPushButton(this);
+    // 新建会话是面板的主要操作，直接占用原标题位置，减少一行重复的纵向空间。
+    _newSessionButton = new ElaPushButton(headerWidget);
     _newSessionButton->setMinimumHeight(34);
     _newSessionButton->setBorderRadius(6);
     // 参考图的紫色主操作，仅应用于新建按钮，不覆盖全局主题。
@@ -373,7 +361,12 @@ SessionPanel::SessionPanel(QWidget* parent)
     QFont buttonFont = _newSessionButton->font();
     buttonFont.setBold(true);
     _newSessionButton->setFont(buttonFont);
-    _rootLayout->addWidget(_newSessionButton);
+    headerLayout->addWidget(_newSessionButton, 1);
+
+    _collapseButton = new ElaIconButton(
+        ElaIconType::AngleLeft, 12, 28, 28, headerWidget);
+    headerLayout->addWidget(_collapseButton);
+    _rootLayout->addWidget(headerWidget, 0, Qt::AlignTop);
 
     _searchEdit = new ElaLineEdit(this);
     _searchEdit->setFixedHeight(32);
@@ -424,7 +417,7 @@ SessionPanel::SessionPanel(QWidget* parent)
     connect(&LanguageManager::instance(), &LanguageManager::languageChanged,
             this, [this](const QString&) { retranslateUi(); });
 
-    // 标题/按钮文本与折叠提示的初始语言由 retranslateUi() 统一应用，
+    // 按钮文本与折叠提示的初始语言由 retranslateUi() 统一应用，
     // 后续语言切换也走同一函数，避免构造期另写一份 tr() 文案。
     retranslateUi();
 }
@@ -437,7 +430,7 @@ void SessionPanel::setCollapsed(bool collapsed)
         return;
 
     // 折叠前记录用户最后调整的宽度，展开时恢复而不是退回固定默认值。
-    if (collapsed && width() >= 160)
+    if (collapsed && width() >= MinimumExpandedWidth)
         _expandedWidth = width();
 
     _collapsed = collapsed;
@@ -449,7 +442,7 @@ void SessionPanel::setCollapsed(bool collapsed)
 
 void SessionPanel::setExpandedWidth(int width)
 {
-    _expandedWidth = std::max(160, width);
+    _expandedWidth = std::max(MinimumExpandedWidth, width);
     if (!_collapsed)
         emit panelWidthChangeRequested(_expandedWidth);
 }
@@ -457,14 +450,13 @@ void SessionPanel::setExpandedWidth(int width)
 void SessionPanel::resizeEvent(QResizeEvent* event)
 {
     QWidget::resizeEvent(event);
-    if (!_collapsed && event->size().width() >= 160)
+    if (!_collapsed && event->size().width() >= MinimumExpandedWidth)
         _expandedWidth = event->size().width();
 }
 
 void SessionPanel::updateCollapsedUi()
 {
     // 折叠状态只保留一枚展开按钮，形成持续可见的窄侧栏；无需依赖顶栏菜单。
-    _titleLabel->setVisible(!_collapsed);
     _newSessionButton->setVisible(!_collapsed);
     _tree->setVisible(!_collapsed);
     _searchEdit->setVisible(!_collapsed);
@@ -485,7 +477,7 @@ void SessionPanel::updateCollapsedUi()
     } else {
         _rootLayout->setContentsMargins(8, 12, 8, 12);
         setMaximumWidth(QWIDGETSIZE_MAX);
-        setMinimumWidth(160);
+        setMinimumWidth(MinimumExpandedWidth);
     }
     updateGeometry();
 }
@@ -858,8 +850,6 @@ void SessionPanel::reconnectItem(QTreeWidgetItem* item)
 
 void SessionPanel::retranslateUi()
 {
-    if (_titleLabel)
-        _titleLabel->setText(tr("Quick connections"));
     if (_newSessionButton) {
         _newSessionButton->setText(tr("+  New session"));
         _newSessionButton->setAccessibleName(tr("New session"));

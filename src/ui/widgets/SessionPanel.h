@@ -19,9 +19,7 @@ class CredentialStore;
 class ElaIconButton;
 class ElaLineEdit;
 class ElaPushButton;
-class ElaText;
 class ElaTreeWidget;
-class QLabel;
 class QResizeEvent;
 class QTreeWidgetItem;
 class QVBoxLayout;
@@ -79,6 +77,8 @@ signals:
 
 private:
     static constexpr int CollapsedWidth = 40;
+    // 单列图标、标题和连接详情在常用桌面字体下保持可读所需的最小展开宽度。
+    static constexpr int MinimumExpandedWidth = 190;
 
     void updateCollapsedUi();
     void retranslateUi();
@@ -94,7 +94,6 @@ private:
     [[nodiscard]] QString runtimeKey(const RuntimeConfig& runtime) const;
 
     QVBoxLayout* _rootLayout{nullptr};
-    ElaText* _titleLabel{nullptr};
     ElaIconButton* _collapseButton{nullptr};
     ElaPushButton* _newSessionButton{nullptr};
     ElaLineEdit* _searchEdit{nullptr};

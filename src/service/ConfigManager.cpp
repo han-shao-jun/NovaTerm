@@ -122,7 +122,7 @@ bool validateKnownValueRanges(QJsonObject& root,
         window, QStringLiteral("height"), 480, 16384,
         defaultWindow.value(QStringLiteral("height")).toInt());
     repaired |= repairIntegerRange(
-        window, QStringLiteral("sessionPanelExpandedWidth"), 160, 4096,
+        window, QStringLiteral("sessionPanelExpandedWidth"), 190, 4096,
         defaultWindow.value(
             QStringLiteral("sessionPanelExpandedWidth")).toInt());
     if (window.value(QStringLiteral("dockState")).toString().size()
