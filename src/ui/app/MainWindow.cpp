@@ -295,6 +295,7 @@ public:
         // 浅色主题下曾残留深色主题的白字（各停靠面板标题全部看不见）。ElaText
         // 自订阅 themeModeChanged 并在 paintEvent 里自愈（ElaText.cpp:158）。
         _titleLabel = new ElaText(title, _titleBar);
+        _titleLabel->setTextFormat(Qt::PlainText);
         _titleLabel->setTextStyle(ElaTextType::Body);
         _titleLabel->setWordWrap(false);
         _titleLabel->setAttribute(Qt::WA_TransparentForMouseEvents);
@@ -380,6 +381,13 @@ public:
         _expandedHeight = std::max(MinimumExpandedExtent, height);
     }
 
+    /** @brief 展开时按完整标题和按钮布局限制最小宽度。 */
+    void setFitTitleWidth(bool enabled)
+    {
+        _fitTitleWidth = enabled;
+        updateTitleBarControls();
+    }
+
     [[nodiscard]] int expandedWidth() const noexcept { return _expandedWidth; }
     [[nodiscard]] int expandedHeight() const noexcept { return _expandedHeight; }
 
@@ -456,6 +464,12 @@ protected:
         }
 
         const bool handled = QDockWidget::event(event);
+        if (_fitTitleWidth && _titleCloseButton
+            && (event->type() == QEvent::LayoutRequest
+                || event->type() == QEvent::FontChange
+                || event->type() == QEvent::StyleChange)) {
+            updateTitleMinimumWidth();
+        }
         if (finishDragAfterDispatch) {
             endDockDrag();
         } else if (_dragging && _dropOverlay) {
@@ -549,6 +563,22 @@ private:
             ? tr("Expand panel") : tr("Collapse panel");
         _titleCollapseButton->setAccessibleName(actionText);
         _titleCollapseButton->setToolTip(actionText);
+        updateTitleMinimumWidth();
+    }
+
+    void updateTitleMinimumWidth()
+    {
+        if (!_fitTitleWidth)
+            return;
+        // 左右折叠时隐藏标题，仍允许收窄到 40；其他状态保留完整标题宽度。
+        if (_collapsed && resizeOrientation() == Qt::Horizontal)
+            return;
+        const QMargins margins = contentsMargins();
+        const int titleWidth = _titleBar->layout()->sizeHint().width()
+            + margins.left() + margins.right();
+        const int requiredWidth = std::max(MinimumExpandedExtent, titleWidth);
+        if (minimumWidth() != requiredWidth)
+            setMinimumWidth(requiredWidth);
     }
 
     void applyCollapsedState(bool resizeDock)
@@ -665,6 +695,7 @@ private:
     int _expandedWidth{260};
     int _expandedHeight{480};
     bool _collapsed{false};
+    bool _fitTitleWidth{false};
     bool _dragPending{false};
     bool _dragging{false};
 };
@@ -954,9 +985,8 @@ void MainWindow::retranslateUi()
     if (_serialSessionAction) _serialSessionAction->setText(tr("Serial"));
     if (_telnetSessionAction) _telnetSessionAction->setText(tr("Telnet"));
     if (_sessionDock) _sessionDock->setWindowTitle(tr("Sessions"));
-    if (_sftpDock) _sftpDock->setWindowTitle(tr("SFTP transfer"));
-    if (_systemMonitorDock)
-        _systemMonitorDock->setWindowTitle(tr("System resources"));
+    updateSftpDockTitle();
+    updateSystemMonitorDockTitle();
     for (QDockWidget* dock : {_sftpDock, _systemMonitorDock}) {
         if (!dock)
             continue;
@@ -973,6 +1003,22 @@ void MainWindow::retranslateUi()
 
     // 退出确认框文案同样跟随语言切换（对话框为构造期复用的成员实例）。
     applyCloseDialogTexts();
+}
+
+void MainWindow::updateSftpDockTitle()
+{
+    if (!_sftpDock || !_sftpPanel)
+        return;
+    _sftpDock->setWindowTitle(tr("SFTP transfer") + QStringLiteral(" — ")
+                             + _sftpPanel->windowTitle());
+}
+
+void MainWindow::updateSystemMonitorDockTitle()
+{
+    if (!_systemMonitorDock || !_systemMonitorPanel)
+        return;
+    _systemMonitorDock->setWindowTitle(tr("System resources")
+        + QStringLiteral(" — ") + _systemMonitorPanel->windowTitle());
 }
 
 void MainWindow::initWindow()
@@ -1095,6 +1141,10 @@ void MainWindow::initWindow()
                            | QDockWidget::DockWidgetMovable);
     _sftpPanel = new SftpPanel(_sftpDock);
     _sftpDock->setWidget(_sftpPanel);
+    static_cast<DraggableDockWidget*>(_sftpDock)->setFitTitleWidth(true);
+    connect(_sftpPanel, &QWidget::windowTitleChanged,
+            this, &MainWindow::updateSftpDockTitle);
+    updateSftpDockTitle();
     addDockWidget(Qt::LeftDockWidgetArea, _sftpDock);
     // 默认将 SFTP 放在会话区与中央终端之间，对应参考图的初始顺序。
     splitDockWidget(_sessionDock, _sftpDock, Qt::Horizontal);
@@ -1109,6 +1159,10 @@ void MainWindow::initWindow()
                                     | QDockWidget::DockWidgetMovable);
     _systemMonitorPanel = new SystemMonitorPanel(_systemMonitorDock);
     _systemMonitorDock->setWidget(_systemMonitorPanel);
+    static_cast<DraggableDockWidget*>(_systemMonitorDock)->setFitTitleWidth(true);
+    connect(_systemMonitorPanel, &QWidget::windowTitleChanged,
+            this, &MainWindow::updateSystemMonitorDockTitle);
+    updateSystemMonitorDockTitle();
     addDockWidget(Qt::RightDockWidgetArea, _systemMonitorDock);
 
     resizeDocks({_sessionDock, _sftpDock, _systemMonitorDock},

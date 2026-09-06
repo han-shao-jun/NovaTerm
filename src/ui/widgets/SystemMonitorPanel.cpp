@@ -37,6 +37,8 @@
 namespace {
 
 constexpr int NetworkHistoryCapacity = 64;
+constexpr int MetricLabelPixelSize = 12;
+constexpr int DataPixelSize = 11;
 
 void setLabelColor(QLabel* label, const QColor& color)
 {
@@ -50,10 +52,11 @@ void setLabelColor(QLabel* label, const QColor& color)
 // themeModeChanged，并在 paintEvent 里校验 palette 与当前主题是否一致、不一致就
 // 重新应用（ElaText.cpp:158）。裸 QLabel 靠祖先 palette 继承取色，主题切换时会
 // 残留对端主题的颜色 —— 浅色主题下曾出现整片白底白字。
-ElaText* createLabel(QWidget* parent)
+ElaText* createLabel(QWidget* parent, int pixelSize = MetricLabelPixelSize)
 {
     auto* text = new ElaText(parent);
     text->setTextStyle(ElaTextType::Body);
+    text->setTextPixelSize(pixelSize);
     text->setWordWrap(false);
     return text;
 }
@@ -227,7 +230,7 @@ void setUsage(QProgressBar* bar, QLabel* detail,
         bar->setValue(0);
         // Linux 未配置交换分区时总量合法地为 0，应展示真实的 0%，而非“未知”。
         bar->setFormat(QStringLiteral("0%"));
-        detail->setText(QStringLiteral("0 B / 0 B"));
+        detail->setText(QStringLiteral("0/0M"));
         return;
     }
 
@@ -238,9 +241,9 @@ void setUsage(QProgressBar* bar, QLabel* detail,
         0, 100);
     bar->setValue(percent);
     bar->setFormat(QStringLiteral("%1%").arg(percent));
-    detail->setText(QStringLiteral("%1 / %2")
-        .arg(formatBytes(static_cast<double>(usedKiB) * 1024.0),
-             formatBytes(static_cast<double>(totalKiB) * 1024.0)));
+    // 内存与交换容量统一用整数 MiB，紧凑显示为“已用/总量M”。
+    detail->setText(QStringLiteral("%1/%2M")
+        .arg(usedKiB / 1024).arg(totalKiB / 1024));
 }
 
 } // namespace
@@ -312,6 +315,10 @@ SystemMonitorPanel::SystemMonitorPanel(QWidget* parent)
 {
     setMinimumSize(260, 360);
     setAutoFillBackground(false);
+    // 数值、进度条和列表继承紧凑字号，指标名称单独略微放大。
+    QFont dataFont = font();
+    dataFont.setPixelSize(DataPixelSize);
+    setFont(dataFont);
 
     auto* outerLayout = new QVBoxLayout(this);
     outerLayout->setContentsMargins(1, 1, 1, 1);
@@ -336,26 +343,16 @@ SystemMonitorPanel::SystemMonitorPanel(QWidget* parent)
     rootLayout->setContentsMargins(16, 16, 16, 16);
     rootLayout->setSpacing(10);
 
-    // 会话名称是资源数据的上下文；信息图标紧邻名称右侧，避免占用独立标题行。
-    auto* sessionHeader = new QHBoxLayout;
-    sessionHeader->setSpacing(8);
+    // 会话名称由停靠标题展示，信息图标放在 CPU 行最右侧。
     auto* infoButton = new ElaIconButton(
         ElaIconType::CircleInfo, 14, 28, 28, content);
     infoButton->setFocusPolicy(Qt::NoFocus);
     infoButton->setAttribute(Qt::WA_TransparentForMouseEvents);
     _infoButton = infoButton;
-    _sessionLabel = createLabel(content);
-    _sessionLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
-    sessionHeader->addWidget(_sessionLabel, 0, Qt::AlignVCenter);
-    sessionHeader->addWidget(_infoButton, 0, Qt::AlignVCenter);
-    sessionHeader->addStretch();
-    rootLayout->addLayout(sessionHeader);
 
-    _availabilityLabel = createLabel(content);
+    _availabilityLabel = createLabel(content, DataPixelSize);
     _availabilityLabel->setWordWrap(true);
     rootLayout->addWidget(_availabilityLabel);
-    rootLayout->addWidget(createSeparator(content));
-
     // 移除重复的“服务器资源”标题和未实现的进程入口，资源指标直接展示。
     auto* resourceGrid = new QGridLayout;
     resourceGrid->setHorizontalSpacing(10);
@@ -370,14 +367,13 @@ SystemMonitorPanel::SystemMonitorPanel(QWidget* parent)
         ElaThemeType::PrimaryHover, content);
     _swapProgress = new MetricProgressBar(
         ElaThemeType::BasicIndicator, content);
-    _cpuDetail = createLabel(content);
-    _memoryDetail = createLabel(content);
-    _swapDetail = createLabel(content);
-    for (QLabel* detail : {_cpuDetail, _memoryDetail, _swapDetail})
+    _memoryDetail = createLabel(content, DataPixelSize);
+    _swapDetail = createLabel(content, DataPixelSize);
+    for (QLabel* detail : {_memoryDetail, _swapDetail})
         detail->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
     resourceGrid->addWidget(_cpuLabel, 0, 0);
     resourceGrid->addWidget(_cpuProgress, 0, 1);
-    resourceGrid->addWidget(_cpuDetail, 0, 2);
+    resourceGrid->addWidget(_infoButton, 0, 2, Qt::AlignRight | Qt::AlignVCenter);
     resourceGrid->addWidget(_memoryLabel, 1, 0);
     resourceGrid->addWidget(_memoryProgress, 1, 1);
     resourceGrid->addWidget(_memoryDetail, 1, 2);
@@ -389,9 +385,10 @@ SystemMonitorPanel::SystemMonitorPanel(QWidget* parent)
 
     auto* networkHeader = new QHBoxLayout;
     networkHeader->setSpacing(7);
-    _receiveLabel = createLabel(content);
-    _sendLabel = createLabel(content);
+    _receiveLabel = createLabel(content, DataPixelSize);
+    _sendLabel = createLabel(content, DataPixelSize);
     _interfaceCombo = new ElaComboBox(content);
+    _interfaceCombo->setFont(dataFont);
     _interfaceCombo->setMinimumWidth(82);
     // 与上方资源占用条保持相同高度，避免下拉框在紧凑面板中显得过高。
     _interfaceCombo->setFixedHeight(28);
@@ -407,8 +404,8 @@ SystemMonitorPanel::SystemMonitorPanel(QWidget* parent)
     rootLayout->addWidget(createSeparator(content));
 
     auto* fileHeader = new QHBoxLayout;
-    _pathHeader = createLabel(content);
-    _capacityHeader = createLabel(content);
+    _pathHeader = createLabel(content, DataPixelSize);
+    _capacityHeader = createLabel(content, DataPixelSize);
     _capacityHeader->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
     fileHeader->addWidget(_pathHeader);
     fileHeader->addStretch();
@@ -432,8 +429,9 @@ SystemMonitorPanel::SystemMonitorPanel(QWidget* parent)
     // 不能用 setStyleSheet() 收紧行高：那会整体替换 ElaTreeWidget 构造里设的
     // 透明背景 QSS。透明与无边框已由该控件与上面的 NoFrame 提供，行高改用
     // ElaTreeViewStyle 的 ItemHeight 表达 —— 默认 35px 在这个紧凑面板里过高，
-    // 26px 与替换前「默认行高 + 上下各 3px padding」的观感一致。
-    _diskTree->setItemHeight(26);
+    // 22px 收紧文字上下留白；纯文本首列取消内边距，与“路径”标题左对齐。
+    _diskTree->setItemHeight(22);
+    _diskTree->setItemLeftPadding(0);
     _diskTree->header()->setStretchLastSection(false);
     _diskTree->header()->setSectionResizeMode(0, QHeaderView::Stretch);
     _diskTree->header()->setSectionResizeMode(1, QHeaderView::ResizeToContents);
@@ -442,6 +440,7 @@ SystemMonitorPanel::SystemMonitorPanel(QWidget* parent)
     // 空状态提示挂在树的视口上并居中，颜色由 ElaText 自己跟随主题。
     _diskTreeHint = new ElaText(_diskTree->viewport());
     _diskTreeHint->setTextStyle(ElaTextType::Body);
+    _diskTreeHint->setTextPixelSize(DataPixelSize);
     _diskTreeHint->setAlignment(Qt::AlignCenter);
     _diskTreeHint->setAttribute(Qt::WA_TransparentForMouseEvents);
     _diskTreeHint->hide();
@@ -568,7 +567,8 @@ void SystemMonitorPanel::refreshAvailability()
         widget->setEnabled(connected);
     }
 
-    _sessionLabel->setText(_sessionName.isEmpty()
+    // 与 SFTP 面板一致，通过标题属性发布当前连接信息。
+    setWindowTitle(_sessionName.isEmpty()
         ? tr("No active SSH session") : _sessionName);
     if (!connected) {
         _availabilityLabel->setText(
@@ -646,7 +646,6 @@ void SystemMonitorPanel::handleCommandFinished(
         _cpuProgress->setValue(0);
         _cpuProgress->setFormat(tr("Collecting…"));
     }
-    _cpuDetail->clear();
     _previousCpuTotal = metrics.cpuTotal;
     _previousCpuIdle = metrics.cpuIdle;
 
@@ -754,7 +753,6 @@ void SystemMonitorPanel::resetMetrics()
         bar->setValue(0);
         bar->setFormat(QStringLiteral("—"));
     }
-    _cpuDetail->clear();
     _memoryDetail->setText(QStringLiteral("—"));
     _swapDetail->setText(QStringLiteral("—"));
     updateNetworkView();

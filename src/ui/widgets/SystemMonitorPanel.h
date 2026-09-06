@@ -57,7 +57,6 @@ private:
     /** 切换或断开会话时清除所有累计值基线。 */
     void resetMetrics();
 
-    ElaText* _sessionLabel{nullptr};
     ElaText* _availabilityLabel{nullptr};
     QPushButton* _infoButton{nullptr};
     ElaText* _cpuLabel{nullptr};
@@ -66,7 +65,6 @@ private:
     QProgressBar* _cpuProgress{nullptr};
     QProgressBar* _memoryProgress{nullptr};
     QProgressBar* _swapProgress{nullptr};
-    ElaText* _cpuDetail{nullptr};
     ElaText* _memoryDetail{nullptr};
     ElaText* _swapDetail{nullptr};
     QLabel* _receiveLabel{nullptr};

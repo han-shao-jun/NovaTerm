@@ -349,11 +349,6 @@ SftpPanel::SftpPanel(QWidget* parent)
     // 深色主题的白字。ElaText 自己订阅 themeModeChanged 并在 paintEvent 里
     // 校验 palette 是否与当前主题一致、不一致就重新应用（见 ElaText.cpp:158），
     // 这套自愈机制是 Ela 控件颜色始终正确的原因。
-    _sessionLabel = new ElaText(this);
-    _sessionLabel->setTextStyle(ElaTextType::Body);
-    _sessionLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
-    rootLayout->addWidget(_sessionLabel);
-
     _availabilityLabel = new ElaText(this);
     _availabilityLabel->setTextStyle(ElaTextType::Body);
     _availabilityLabel->setWordWrap(true);
@@ -416,6 +411,8 @@ SftpPanel::SftpPanel(QWidget* parent)
     _fileTree->setColumnCount(2);
     _fileTree->setRootIsDecorated(false);
     _fileTree->setUniformRowHeights(true);
+    _fileTree->setItemHeight(24);
+    _fileTree->setItemLeftPadding(1);
     _fileTree->setIconSize(QSize(18, 18));
     _fileTree->setContextMenuPolicy(Qt::CustomContextMenu);
     _fileTree->header()->setStretchLastSection(false);
@@ -801,9 +798,10 @@ void SftpPanel::refreshAvailability()
     _uploadButton->setEnabled(enabled);
     _pathEdit->setEnabled(enabled);
     _fileTree->setEnabled(enabled);
-    _sessionLabel->setText(_sessionName.isEmpty()
+    // 通过 QWidget 的标题属性向外发布会话文案，由主窗口合并到停靠标题。
+    setWindowTitle(_sessionName.isEmpty()
         ? tr("No active SSH session")
-        : tr("Session: %1").arg(_sessionName));
+        : _sessionName);
 
     if (!_sshTransport) {
         _downloadButton->setEnabled(false);

@@ -54,6 +54,10 @@ private:
 
     void initWindow();
     void retranslateUi();
+    /** @brief 将 SFTP 会话文案合并到停靠面板标题。 */
+    void updateSftpDockTitle();
+    /** @brief 将资源监控的连接信息合并到停靠面板标题。 */
+    void updateSystemMonitorDockTitle();
     void saveWindowLayout();
     void updateDockResizeHighlight(const QPoint& position);
     // 运行时语言切换需要重设关闭确认框文案；对话框在构造期创建并复用，

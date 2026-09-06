@@ -17,7 +17,6 @@ class QDragEnterEvent;
 class QDragLeaveEvent;
 class QDragMoveEvent;
 class QDropEvent;
-class QLabel;
 class QPaintEvent;
 class QProgressBar;
 class QTimer;
@@ -93,7 +92,6 @@ private:
     [[nodiscard]] QString remotePathForName(const QString& name) const;
     [[nodiscard]] bool remotePathExists(const QString& path) const;
 
-    ElaText* _sessionLabel{nullptr};
     ElaText* _availabilityLabel{nullptr};
     QProgressBar* _uploadProgressBar{nullptr};
     QTimer* _uploadProgressDelay{nullptr};
