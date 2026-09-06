@@ -132,6 +132,18 @@ bool validateKnownValueRanges(QJsonObject& root,
     }
     root[QStringLiteral("window")] = window;
 
+    QJsonObject monitor = root.value(QStringLiteral("monitor")).toObject();
+    const QJsonObject defaultMonitor = defaults.value(
+        QStringLiteral("monitor")).toObject();
+    const int fastIntervalMs = monitor.value(
+        QStringLiteral("fastIntervalMs")).toInt();
+    if (fastIntervalMs != 1000 && fastIntervalMs != 2000) {
+        monitor[QStringLiteral("fastIntervalMs")] = defaultMonitor.value(
+            QStringLiteral("fastIntervalMs"));
+        repaired = true;
+    }
+    root[QStringLiteral("monitor")] = monitor;
+
     return repaired;
 }
 
@@ -230,6 +242,9 @@ QJsonObject ConfigManager::defaults()
                 }}
             }},
             {"scrollbackLines", 10000}
+        }},
+        {"monitor", QJsonObject{
+            {"fastIntervalMs", 2000}
         }},
         {"window", QJsonObject{
             {"width", 1280},

@@ -2,8 +2,9 @@
  * @file   SshTransport.h
  * @brief  SSH 传输：基于 libssh 的 ITransport 实现。
  *
- * libssh 会话 API 是同步阻塞的，因此本类将整个会话生命周期放在一个
- * 专用工作线程中，GUI 线程通过原子量 / 互斥队列提交请求：
+ * libssh 的连接与认证 API 是同步阻塞的，因此本类将整个会话生命周期放在一个
+ * 专用工作线程中；认证完成后的 channel I/O 改为非阻塞状态机。GUI 线程通过
+ * 原子量 / 互斥队列提交请求：
  *   GUI 线程 → 工作线程：connectToHost()/write()/resizeTerminal()/disconnect()
  *   工作线程 → GUI 线程：通过 QueuedConnection 投递信号（connected()/readyRead()等）
  *
@@ -78,6 +79,18 @@ public:
      * @return 已加入有界队列时返回 true；未连接、命令无效或已有请求时返回 false。
      */
     [[nodiscard]] bool executeCommand(quint64 requestId, QByteArray command);
+    /** 取消尚未开始或正在运行的指定通用命令。 */
+    void cancelCommand(quint64 requestId);
+
+    /** @brief 启用请求驱动的常驻资源采集通道；不会立即执行采样。 */
+    void startResourceMonitoring();
+    /** @brief 停止采集并请求工作线程关闭远端脚本与通道。 */
+    void stopResourceMonitoring();
+    /**
+     * @brief 在常驻通道上请求一帧 CPU、内存和网络计数。
+     * @return 请求已接收时返回 true；未连接、未启用或已有在途请求时返回 false。
+     */
+    [[nodiscard]] bool requestResourceSample(quint64 requestId);
 
 signals:
     // 需要 UI 决策：首次信任 / 主机密钥变更。未处理（无连接）时等待方会
@@ -88,6 +101,9 @@ signals:
     void commandFinished(quint64 requestId, const QByteArray& standardOutput,
                          const QByteArray& standardError,
                          const QString& errorMessage);
+    /** 常驻资源采集通道的一次请求完成；失败时 payload 为空。 */
+    void resourceSampleFinished(quint64 requestId, const QByteArray& payload,
+                                const QString& errorMessage);
 
 private:
     void workerMain();          // 在工作线程中运行整个会话生命周期
@@ -100,6 +116,8 @@ private:
     void emitSignal(void (SshTransport::*signal)());
     void emitCommandFinished(quint64 requestId, QByteArray standardOutput,
                              QByteArray standardError, QString errorMessage);
+    void emitResourceSampleFinished(quint64 requestId, QByteArray payload,
+                                    QString errorMessage);
 
     struct CommandRequest
     {
@@ -113,6 +131,10 @@ private:
     static constexpr qsizetype MaxCommandBytes = 16 * 1024;
     static constexpr qsizetype MaxCommandOutputBytes = 1024 * 1024;
     static constexpr int CommandTimeoutMs = 5000;
+    static constexpr int MonitorEstablishTimeoutMs = 5000;
+    static constexpr int MonitorResponseTimeoutMs = 5000;
+    static constexpr int MonitorMaxBackoffMs = 30000;
+    static constexpr qsizetype MaxMonitorStderrBytes = 16 * 1024;
     static constexpr int ConnectTimeoutSec = 10;
     static constexpr int TeardownWaitMs = 15000;
 
@@ -126,10 +148,19 @@ private:
     // 写队列：GUI 线程 append，工作线程在事件循环里 drain。
     mutable QMutex _writeMutex;
     QByteArray _writeQueue;
+    std::atomic<qint64> _pendingWriteBytes{0};
 
     // 资源监控等低频辅助命令最多保留一个，防止慢服务端积压轮询任务。
     mutable QMutex _commandMutex;
     QQueue<CommandRequest> _commandQueue;
+    quint64 _cancelCommandRequestId{0};
+    std::atomic<bool> _commandActive{false};
+
+    // 常驻监控控制面：GUI 线程只写此状态，SSH channel 始终由工作线程拥有。
+    mutable QMutex _monitorMutex;
+    bool _monitorEnabled{false};
+    quint64 _monitorGeneration{0};
+    quint64 _monitorRequestId{0};
 
     // 待处理 PTY 尺寸：-1 表示无。
     std::atomic<int> _pendingCols{-1};

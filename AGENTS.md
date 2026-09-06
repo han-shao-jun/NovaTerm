@@ -41,8 +41,10 @@ OpenSSL（需 PATH 有 `perl.exe` 与 `nasm.exe`）。产物在
 `third_party/openssl-3.5.7/install/`，已 gitignore。libssh / libvterm /
 libtelnet / ElaWidgetTools 都随项目从源码构建，无需预处理。
 
-> `scripts/build-novaterm.bat` 里硬编码了陈旧路径（`E:\code\Qt\...`），
-> 在当前机器上跑不通，别用它。
+> `scripts/build-novaterm.bat` 当前可在本机使用：它加载
+> `C:\Programs\MicrosoftVisualStudio\18\Insiders` 的 MSVC 环境并构建已配置的
+> `E:\code\Qt\NovaTerm\build\Release`。它不会完成首次 CMake 配置或 OpenSSL
+> 预编译，因此仅适合该构建目录已经存在的增量 Release 构建。
 
 ### Windows 构建（Ninja + MSVC）
 
@@ -90,10 +92,15 @@ ctest --test-dir build -C Debug
 | `src/renderer/` 的 RenderCommandBuffer / RenderScheduler / TerminalRenderer | `novaterm_renderer_tests` | `renderer` | ~2s |
 | `src/renderer/` 的 RowBlockDamageTracker / ScrollDamageHandoff / TerminalHighlighting、`src/session/SerialHighlightRules` | `novaterm_renderer_p5_tests` | `p5` | <1s |
 | `src/transport/LocalShellTransport` 与 ConPty 路径 | `novaterm_conpty_tests`(Win)／`novaterm_pty_tests`(Unix) | `conpty` | ~94s |
-| `src/transport/SshTransport` | `novaterm_ssh_transport_check` | `ssh` | ~10s |
+| `src/transport/SshTransport`、`SshMonitorProtocol` | `novaterm_ssh_transport_check`（失败路径 + 监控帧协议） | `ssh` | <1s |
 | `src/transport/TelnetTransport` | `novaterm_telnet_transport_tests` | `telnet` | ~5s |
 | TerminalSession + TerminalRenderer + LocalShellTransport 的联通路径 | `novaterm_terminal_session_tests` | `terminal-session` | ~46s |
 | `src/ui/`、`src/platform/`、`src/service/`、`src/core/terminal/KeyMapper` | **无覆盖测试**（`KeyMapper` 在 `tests/` 里零引用）—— 编译通过 + 实跑程序看效果即可 | — | — |
+
+SSH 资源监控另有不注册到 ctest 的
+`novaterm_ssh_monitor_integration_check`：它读取 AppData 中唯一的 SSH 历史会话
+（或标题含 zynq 的会话）及 Windows 凭据引用，验证慢命令并发、交互 I/O、暂停
+回收和重连。仅在明确允许连接对应测试服务器时人工运行，且不得输出凭据。
 
 拿不准某个文件被哪个测试覆盖，就看测试源码的 include。`tests/core`、
 `tests/renderer`、`tests/session`、`tests/transport` 四个目录，**一个 `.cpp`
@@ -125,8 +132,10 @@ grep -E "FAIL!|Totals" build/rt.txt
 **不要给全套 ctest 设 `QT_QPA_PLATFORM=offscreen`** —— `novaterm_terminal_session_tests`
 会初始化 D3D11，offscreen 下直接崩（`0xc0000409`）。
 
-全部测试目标即上表九项，另有 `novaterm_renderer_p5_gpu_acceptance` 默认不注册，
-需 `-DNOVATERM_RUN_GPU_ACCEPTANCE_TESTS=ON`。
+默认注册到 ctest 的测试即上表九项。另有不注册的人工
+`novaterm_ssh_monitor_integration_check`；
+`novaterm_renderer_p5_gpu_acceptance` 也默认不注册，需
+`-DNOVATERM_RUN_GPU_ACCEPTANCE_TESTS=ON`。
 
 ## 已知测试失败（不是回归，别去追）
 
@@ -251,6 +260,11 @@ P3 与 P5 实施完成、部分平台或人工验收待做，P7 计划中。
 `errorOccurred`，必须**先发 `transportError`**且 message 一致 ——
 `TerminalSession` 用前者补充错误分类，由后者统一上报一条 `sessionError`。
 顺序颠倒会让分类回落到 `Io`。约定写在 `ITransport.h` 的信号注释里。
+
+**`ssh_channel_read_nonblocking()` 的正常 EOF 也是负返回值**：libssh 0.12
+会返回 `SSH_EOF`，不能用 `count < 0` 笼统判成读错误，更不能复用“输出超限”
+状态。必须分别处理 `SSH_AGAIN`、`SSH_EOF`、`SSH_ERROR` 与实际正数字节数。
+资源面板曾因此把只有 115 字节的正常 `df` 输出误报成超过 1 MiB。
 
 **`TerminalSession` 的迟到信号有两道守卫，缺一不可**：世代号校验拦"发出时
 属于旧世代、投递时接线已重建"；`isConnected()` 启发式拦跨线程投递 ——

@@ -1,12 +1,13 @@
 /**
  * @file   SshTransport.cpp
- * @brief  SSH 传输实现：libssh 阻塞会话在工作线程中的封装。
+ * @brief  SSH 传输实现：连接认证阻塞、channel 非阻塞的工作线程封装。
  *
  * 工作线程按阶段推进：连接 → 主机密钥验证（需 GUI 决策）→ 认证
  * → 打开 channel 并请求 PTY+shell → 进入事件循环（IO/resize/keepalive）
  * → 关闭。GUI 线程仅通过原子量与互斥队列与工作线程交互。
  */
 #include "SshTransport.h"
+#include "SshMonitorProtocol.h"
 
 #include <libssh/libssh.h>
 
@@ -18,6 +19,41 @@
 #include <utility>
 
 namespace {
+
+QByteArray resourceMonitorCommand()
+{
+    // read 是 Shell 内建命令，只有 NovaTerm 写入一行请求后才启动一次 awk。
+    // awk 同时读取三个 /proc 文件，FILENAME/FNR 可用于 BusyBox awk。
+    return QByteArrayLiteral(R"NOVATERM(LC_ALL=C; export LC_ALL
+while IFS= read -r nt_request; do
+case "$nt_request" in *[!0-9]*|'') continue;; esac
+printf '__NOVATERM_METRICS_BEGIN__\t%s\n' "$nt_request"
+awk '
+FILENAME == "/proc/stat" && FNR == 1 {
+  total=0; for (i=2; i<=NF; ++i) total+=$i
+  printf "CPU\t%.0f\t%.0f\n", total, $5+$6; next
+}
+FILENAME == "/proc/meminfo" {
+  if ($1 == "MemTotal:") mt=$2
+  else if ($1 == "MemAvailable:") { ma=$2; hasma=1 }
+  else if ($1 == "MemFree:") mf=$2
+  else if ($1 == "Buffers:") b=$2
+  else if ($1 == "Cached:") c=$2
+  else if ($1 == "SwapTotal:") st=$2
+  else if ($1 == "SwapFree:") sf=$2
+  next
+}
+FILENAME == "/proc/net/dev" && FNR > 2 {
+  gsub(":", " "); if ($1 != "lo") printf "NET\t%s\t%s\t%s\n", $1, $2, $10
+}
+END {
+  if (!hasma) ma=mf+b+c
+  printf "MEM\t%.0f\t%.0f\t%.0f\t%.0f\n", mt, ma, st, sf
+}' /proc/stat /proc/meminfo /proc/net/dev 2>/dev/null
+printf '__NOVATERM_METRICS_END__\t%s\n' "$nt_request"
+done
+)NOVATERM");
+}
 
 QString defaultKnownHostsPath()
 {
@@ -64,6 +100,14 @@ bool SshTransport::connectToHost()
         // 新连接不得继承上一代会话尚未执行的辅助命令，避免命令被发往错误主机。
         QMutexLocker lock(&_commandMutex);
         _commandQueue.clear();
+        _cancelCommandRequestId = 0;
+        _commandActive.store(false, std::memory_order_release);
+    }
+    {
+        QMutexLocker lock(&_monitorMutex);
+        _monitorEnabled = false;
+        ++_monitorGeneration;
+        _monitorRequestId = 0;
     }
     // 注意：不重置 _pendingCols/_pendingRows —— attachTransport 在
     // connectToHost() 之前已通过 resizeTerminal() 写入当前终端尺寸，
@@ -93,6 +137,13 @@ void SshTransport::disconnect()
         // 丢弃尚未开始的请求；正在执行的 channel 由工作线程退出路径统一回收。
         QMutexLocker lock(&_commandMutex);
         _commandQueue.clear();
+        _cancelCommandRequestId = 0;
+    }
+    {
+        QMutexLocker lock(&_monitorMutex);
+        _monitorEnabled = false;
+        ++_monitorGeneration;
+        _monitorRequestId = 0;
     }
 
     if (_thread) {
@@ -102,6 +153,11 @@ void SshTransport::disconnect()
         delete _thread;
         _thread = nullptr;
     }
+    {
+        QMutexLocker lock(&_writeMutex);
+        _writeQueue.clear();
+        _pendingWriteBytes.store(0, std::memory_order_release);
+    }
 }
 
 void SshTransport::write(const QByteArray& data)
@@ -110,12 +166,14 @@ void SshTransport::write(const QByteArray& data)
         return;
 
     QMutexLocker lock(&_writeMutex);
-    if (_writeQueue.size() + data.size() > MaxPendingWriteBytes) {
+    if (_pendingWriteBytes.load(std::memory_order_relaxed) + data.size()
+        > MaxPendingWriteBytes) {
         reportError(tr("SSH write queue exceeded its 1 MiB limit."),
                     TransportErrorCategory::Overload);
         return;
     }
     _writeQueue.append(data);
+    _pendingWriteBytes.fetch_add(data.size(), std::memory_order_release);
 }
 
 void SshTransport::resizeTerminal(int cols, int rows)
@@ -166,9 +224,57 @@ bool SshTransport::executeCommand(quint64 requestId, QByteArray command)
 
     // 此方法由 GUI 线程提交，工作线程在事件循环中取走；只保留一个待执行请求。
     QMutexLocker lock(&_commandMutex);
-    if (!_commandQueue.isEmpty())
+    if (_commandActive.load(std::memory_order_acquire)
+        || !_commandQueue.isEmpty())
         return false;
     _commandQueue.enqueue(CommandRequest{requestId, std::move(command)});
+    return true;
+}
+
+void SshTransport::cancelCommand(quint64 requestId)
+{
+    if (requestId == 0)
+        return;
+    QMutexLocker lock(&_commandMutex);
+    if (!_commandQueue.isEmpty()
+        && _commandQueue.head().requestId == requestId) {
+        _commandQueue.dequeue();
+        emitCommandFinished(requestId, {}, {}, tr("Remote command cancelled."));
+        return;
+    }
+    _cancelCommandRequestId = requestId;
+}
+
+void SshTransport::startResourceMonitoring()
+{
+    if (!_connected.load(std::memory_order_acquire))
+        return;
+    QMutexLocker lock(&_monitorMutex);
+    if (_monitorEnabled)
+        return;
+    _monitorEnabled = true;
+    ++_monitorGeneration;
+    _monitorRequestId = 0;
+}
+
+void SshTransport::stopResourceMonitoring()
+{
+    QMutexLocker lock(&_monitorMutex);
+    if (!_monitorEnabled && _monitorRequestId == 0)
+        return;
+    _monitorEnabled = false;
+    ++_monitorGeneration;
+    _monitorRequestId = 0;
+}
+
+bool SshTransport::requestResourceSample(quint64 requestId)
+{
+    if (!_connected.load(std::memory_order_acquire) || requestId == 0)
+        return false;
+    QMutexLocker lock(&_monitorMutex);
+    if (!_monitorEnabled || _monitorRequestId != 0)
+        return false;
+    _monitorRequestId = requestId;
     return true;
 }
 
@@ -215,6 +321,19 @@ void SshTransport::emitCommandFinished(quint64 requestId,
          errorMessage = std::move(errorMessage)]() {
             emit commandFinished(requestId, standardOutput, standardError,
                                  errorMessage);
+        },
+        Qt::QueuedConnection);
+}
+
+void SshTransport::emitResourceSampleFinished(quint64 requestId,
+                                              QByteArray payload,
+                                              QString errorMessage)
+{
+    QMetaObject::invokeMethod(
+        this,
+        [this, requestId, payload = std::move(payload),
+         errorMessage = std::move(errorMessage)]() {
+            emit resourceSampleFinished(requestId, payload, errorMessage);
         },
         Qt::QueuedConnection);
 }
@@ -437,28 +556,43 @@ void SshTransport::workerMain()
     _connected.store(true);
     emitSignal(&SshTransport::connected);
 
+    // 认证和主 Shell 建立完成后切换为非阻塞模式。此后所有可能返回
+    // SSH_AGAIN 的 channel 操作都在下面的 20ms 事件循环中推进，避免辅助
+    // channel 的 open/exec/read/write 阻塞交互终端。
+    ssh_set_blocking(session, 0);
+
     // ── 事件循环：IO / resize / keepalive / 断线检测 ─────
     QElapsedTimer keepaliveTimer;
     keepaliveTimer.start();
     int appliedCols = startCols;
     int appliedRows = startRows;
 
-    // 辅助命令与交互 Shell 复用同一个 SSH session，但使用独立 exec channel。
-    // 每次仅允许一个活动命令，避免监控刷新在慢服务端上堆积。
+    enum class ExecState { Closed, Opening, Starting, Running };
+
+    // 通用单次命令与交互 Shell 复用 session，但使用独立 exec channel。
     ssh_channel commandChannel = nullptr;
+    ExecState commandState{ExecState::Closed};
+    QByteArray commandText;
     quint64 commandRequestId = 0;
     QByteArray commandOutput;
     QByteArray commandErrorOutput;
     QElapsedTimer commandTimer;
 
     const auto finishCommand = [this, &commandChannel, &commandRequestId,
-                                &commandOutput, &commandErrorOutput](
+                                &commandOutput, &commandErrorOutput,
+                                &commandState, &commandText](
                                    QString errorMessage) {
         if (!commandChannel)
             return;
+        if (!errorMessage.isEmpty())
+            (void)ssh_channel_request_send_signal(commandChannel, "TERM");
+        (void)ssh_channel_send_eof(commandChannel);
         ssh_channel_close(commandChannel);
         ssh_channel_free(commandChannel);
         commandChannel = nullptr;
+        _commandActive.store(false, std::memory_order_release);
+        commandState = ExecState::Closed;
+        commandText.clear();
         emitCommandFinished(commandRequestId, std::move(commandOutput),
                             std::move(commandErrorOutput),
                             std::move(errorMessage));
@@ -466,6 +600,98 @@ void SshTransport::workerMain()
         commandOutput.clear();
         commandErrorOutput.clear();
     };
+
+    // 快速指标使用一个请求驱动的常驻 exec channel。远端脚本空闲时阻塞在
+    // Shell 内建 read，不采样、不启动外部进程。
+    ssh_channel monitorChannel = nullptr;
+    ExecState monitorState{ExecState::Closed};
+    quint64 monitorGeneration = 0;
+    quint64 monitorRequestId = 0;
+    QByteArray monitorWrite;
+    QByteArray monitorStderr;
+    SshMonitorFrameParser monitorParser;
+    QElapsedTimer monitorTimer;
+    QElapsedTimer workerTimer;
+    workerTimer.start();
+    qint64 monitorNextRetryMs = 0;
+    int monitorFailureCount = 0;
+
+    const auto closeMonitor = [&]() {
+        if (monitorChannel) {
+            // 正常暂停先送 EOF，使 read 退出；异常路径再尽力发送 TERM。所有调用
+            // 都是非阻塞的，远端处于不可中断 I/O 时不等待其立即退出。
+            (void)ssh_channel_send_eof(monitorChannel);
+            (void)ssh_channel_close(monitorChannel);
+            ssh_channel_free(monitorChannel);
+        }
+        monitorChannel = nullptr;
+        monitorState = ExecState::Closed;
+        monitorRequestId = 0;
+        monitorWrite.clear();
+        monitorStderr.clear();
+        monitorParser.reset();
+    };
+
+    const auto finishMonitorRequest =
+        [this, &monitorGeneration, &monitorRequestId](QByteArray payload,
+                                                      QString error) {
+        const quint64 completedId = monitorRequestId;
+        bool deliver = false;
+        {
+            QMutexLocker lock(&_monitorMutex);
+            if (_monitorEnabled
+                && _monitorGeneration == monitorGeneration
+                && _monitorRequestId == completedId) {
+                _monitorRequestId = 0;
+                deliver = true;
+            }
+        }
+        monitorRequestId = 0;
+        if (deliver && completedId != 0) {
+            emitResourceSampleFinished(completedId, std::move(payload),
+                                       std::move(error));
+        }
+    };
+
+    const auto failMonitor = [&](const QString& error) {
+        if (monitorChannel)
+            (void)ssh_channel_request_send_signal(monitorChannel, "TERM");
+        finishMonitorRequest({}, error);
+        closeMonitor();
+        monitorFailureCount = (std::min)(monitorFailureCount + 1, 6);
+        const int shift = (std::min)(monitorFailureCount - 1, 5);
+        const int backoff = (std::min)(1000 * (1 << shift),
+                                       MonitorMaxBackoffMs);
+        monitorNextRetryMs = workerTimer.elapsed() + backoff;
+    };
+
+    const auto monitorProtocolError = [this](
+        SshMonitorFrameParser::Error error) {
+        using Error = SshMonitorFrameParser::Error;
+        switch (error) {
+        case Error::BufferLimit:
+            return tr("Resource monitor receive buffer exceeded 256 KiB.");
+        case Error::LineLimit:
+            return tr("Resource monitor line exceeded 16 KiB.");
+        case Error::InvalidBegin:
+            return tr("Resource monitor returned an invalid frame header.");
+        case Error::MissingBegin:
+            return tr("Resource monitor frame header was missing.");
+        case Error::NestedBegin:
+            return tr("Resource monitor returned overlapping frames.");
+        case Error::MismatchedEnd:
+            return tr("Resource monitor frame identifiers did not match.");
+        case Error::EntryLimit:
+            return tr("Resource monitor frame exceeded 256 entries.");
+        case Error::FrameLimit:
+            return tr("Resource monitor frame exceeded 128 KiB.");
+        case Error::None:
+        default:
+            return QString{};
+        }
+    };
+
+    QByteArray shellPendingWrite;
 
     while (_running.load(std::memory_order_acquire)
            && channel
@@ -480,7 +706,7 @@ void SshTransport::workerMain()
                     ssh_channel_read_nonblocking(channel, buf, sizeof(buf), 0);
                 if (n > 0) {
                     emitReadyRead(QByteArray(buf, n));
-                } else if (n == 0) {
+                } else if (n == 0 || n == SSH_AGAIN) {
                     break;   // 当前无数据
                 } else if (ssh_channel_is_eof(channel)) {
                     _running.store(false);
@@ -502,28 +728,42 @@ void SshTransport::workerMain()
             QMutexLocker lock(&_writeMutex);
             toWrite.swap(_writeQueue);
         }
-        if (!toWrite.isEmpty()) {
-            const char* p = toWrite.constData();
-            int remain = toWrite.size();
-            while (remain > 0 && _running.load() && ssh_is_connected(session)) {
-                const int n =
-                    ssh_channel_write(channel, p, static_cast<uint32_t>(remain));
-                if (n <= 0) {
+        shellPendingWrite.append(toWrite);
+        if (!shellPendingWrite.isEmpty()) {
+            const int writeSize = static_cast<int>((std::min)(
+                shellPendingWrite.size(), qsizetype{64 * 1024}));
+            const int n = ssh_channel_write(
+                channel, shellPendingWrite.constData(),
+                static_cast<uint32_t>(writeSize));
+            if (n > 0) {
+                shellPendingWrite.remove(0, n);
+                _pendingWriteBytes.fetch_sub(n, std::memory_order_release);
+                QMetaObject::invokeMethod(
+                    this, [this, n] { emit bytesWritten(n); },
+                    Qt::QueuedConnection);
+            } else if (n != SSH_AGAIN) {
                     reportError(tr("SSH channel write failed: %1")
                                     .arg(QString::fromUtf8(
                                         ssh_get_error(session))),
                     TransportErrorCategory::Io, true);
-                    break;
-                }
-                p += n;
-                remain -= n;
-                QMetaObject::invokeMethod(
-                    this, [this, n] { emit bytesWritten(n); },
-                    Qt::QueuedConnection);
+                _running.store(false);
             }
         }
 
-        // 只有当前辅助 channel 完全结束后才取下一项，保证同一 session 上串行执行。
+        // 通用命令以非阻塞状态机推进。df 即使响应慢，循环仍会继续处理主 Shell
+        // 和常驻快速采样通道。
+        if (commandChannel) {
+            bool cancelled = false;
+            {
+                QMutexLocker lock(&_commandMutex);
+                if (_cancelCommandRequestId == commandRequestId) {
+                    _cancelCommandRequestId = 0;
+                    cancelled = true;
+                }
+            }
+            if (cancelled)
+                finishCommand(tr("Remote command cancelled."));
+        }
         if (!commandChannel) {
             CommandRequest request;
             bool hasRequest = false;
@@ -537,26 +777,43 @@ void SshTransport::workerMain()
 
             if (hasRequest) {
                 commandChannel = ssh_channel_new(session);
+                _commandActive.store(true, std::memory_order_release);
                 commandRequestId = request.requestId;
-                if (!commandChannel
-                    || ssh_channel_open_session(commandChannel) != SSH_OK
-                    || ssh_channel_request_exec(commandChannel,
-                                                request.command.constData()) != SSH_OK) {
+                commandText = std::move(request.command);
+                if (!commandChannel) {
                     const QString error = tr("Failed to execute remote command: %1")
                         .arg(QString::fromUtf8(ssh_get_error(session)));
-                    if (commandChannel)
-                        finishCommand(error);
-                    else
-                        emitCommandFinished(commandRequestId, {}, {}, error);
+                    emitCommandFinished(commandRequestId, {}, {}, error);
                     commandRequestId = 0;
+                    _commandActive.store(false, std::memory_order_release);
                 } else {
+                    commandState = ExecState::Opening;
                     commandTimer.restart();
                 }
             }
         }
 
         if (commandChannel) {
+            if (commandState == ExecState::Opening) {
+                const int rc = ssh_channel_open_session(commandChannel);
+                if (rc == SSH_OK)
+                    commandState = ExecState::Starting;
+                else if (rc != SSH_AGAIN)
+                    finishCommand(tr("Failed to open remote command channel: %1")
+                        .arg(QString::fromUtf8(ssh_get_error(session))));
+            }
+            if (commandChannel && commandState == ExecState::Starting) {
+                const int rc = ssh_channel_request_exec(
+                    commandChannel, commandText.constData());
+                if (rc == SSH_OK)
+                    commandState = ExecState::Running;
+                else if (rc != SSH_AGAIN)
+                    finishCommand(tr("Failed to execute remote command: %1")
+                        .arg(QString::fromUtf8(ssh_get_error(session))));
+            }
+
             bool outputLimitExceeded = false;
+            bool commandReadFailed = false;
             // 非阻塞读取 stdout/stderr，不能让监控命令拖住交互 Shell 的事件循环。
             const auto drainCommandStream = [&](int stream,
                                                 QByteArray& destination) {
@@ -564,8 +821,14 @@ void SshTransport::workerMain()
                     char buffer[16 * 1024];
                     const int count = ssh_channel_read_nonblocking(
                         commandChannel, buffer, sizeof(buffer), stream);
-                    if (count <= 0)
+                    if (count == 0 || count == SSH_AGAIN
+                        || count == SSH_EOF) {
                         break;
+                    }
+                    if (count == SSH_ERROR) {
+                        commandReadFailed = true;
+                        break;
+                    }
                     if (destination.size() + count > MaxCommandOutputBytes) {
                         outputLimitExceeded = true;
                         break;
@@ -573,18 +836,168 @@ void SshTransport::workerMain()
                     destination.append(buffer, count);
                 }
             };
-            drainCommandStream(0, commandOutput);
-            drainCommandStream(1, commandErrorOutput);
+            if (commandChannel && commandState == ExecState::Running) {
+                drainCommandStream(0, commandOutput);
+                drainCommandStream(1, commandErrorOutput);
+            }
 
-            if (outputLimitExceeded) {
+            if (!commandChannel) {
+                // 状态推进失败时 finishCommand 已完成清理。
+            } else if (commandReadFailed) {
+                finishCommand(tr("Remote command read failed: %1")
+                    .arg(QString::fromUtf8(ssh_get_error(session))));
+            } else if (outputLimitExceeded) {
                 finishCommand(tr("Remote command output exceeded 1 MiB."));
-            } else if (ssh_channel_is_eof(commandChannel)) {
+            } else if (commandState == ExecState::Running
+                       && ssh_channel_is_eof(commandChannel)) {
                 const int exitStatus = ssh_channel_get_exit_status(commandChannel);
                 finishCommand(exitStatus == 0
                     ? QString{}
                     : tr("Remote command exited with status %1.").arg(exitStatus));
             } else if (commandTimer.elapsed() >= CommandTimeoutMs) {
                 finishCommand(tr("Remote command timed out."));
+            }
+        }
+
+        // 读取 GUI 控制面的快照。generation 变化意味着暂停、会话切换或重启；
+        // 旧 channel 和旧请求结果均不得进入新的 UI 上下文。
+        bool monitorEnabled = false;
+        quint64 requestedMonitorId = 0;
+        quint64 requestedGeneration = 0;
+        {
+            QMutexLocker lock(&_monitorMutex);
+            monitorEnabled = _monitorEnabled;
+            requestedMonitorId = _monitorRequestId;
+            requestedGeneration = _monitorGeneration;
+        }
+
+        if ((!monitorEnabled || (monitorChannel
+             && requestedGeneration != monitorGeneration))) {
+            closeMonitor();
+        }
+        if (monitorEnabled && !monitorChannel
+            && workerTimer.elapsed() >= monitorNextRetryMs) {
+            monitorChannel = ssh_channel_new(session);
+            if (!monitorChannel) {
+                monitorGeneration = requestedGeneration;
+                monitorRequestId = requestedMonitorId;
+                failMonitor(tr("Failed to create the resource monitor channel: %1")
+                    .arg(QString::fromUtf8(ssh_get_error(session))));
+            } else {
+                monitorGeneration = requestedGeneration;
+                monitorState = ExecState::Opening;
+                monitorTimer.restart();
+            }
+        }
+
+        if (monitorChannel && monitorState == ExecState::Opening) {
+            const int rc = ssh_channel_open_session(monitorChannel);
+            if (rc == SSH_OK) {
+                monitorState = ExecState::Starting;
+            } else if (rc != SSH_AGAIN) {
+                monitorRequestId = requestedMonitorId;
+                failMonitor(tr("Failed to open the resource monitor channel: %1")
+                    .arg(QString::fromUtf8(ssh_get_error(session))));
+            }
+        }
+        if (monitorChannel && monitorState == ExecState::Starting) {
+            const QByteArray command = resourceMonitorCommand();
+            const int rc = ssh_channel_request_exec(monitorChannel,
+                                                     command.constData());
+            if (rc == SSH_OK) {
+                monitorState = ExecState::Running;
+                monitorFailureCount = 0;
+                monitorNextRetryMs = 0;
+            } else if (rc != SSH_AGAIN) {
+                monitorRequestId = requestedMonitorId;
+                failMonitor(tr("Failed to start the resource monitor: %1")
+                    .arg(QString::fromUtf8(ssh_get_error(session))));
+            }
+        }
+        if (monitorChannel
+            && (monitorState == ExecState::Opening
+                || monitorState == ExecState::Starting)
+            && monitorTimer.elapsed() >= MonitorEstablishTimeoutMs) {
+            monitorRequestId = requestedMonitorId;
+            failMonitor(tr("Resource monitor channel setup timed out."));
+        }
+
+        if (monitorChannel && monitorState == ExecState::Running) {
+            if (monitorRequestId == 0 && requestedMonitorId != 0
+                && requestedGeneration == monitorGeneration) {
+                monitorRequestId = requestedMonitorId;
+                monitorWrite = QByteArray::number(monitorRequestId) + '\n';
+            }
+            if (!monitorWrite.isEmpty()) {
+                const int n = ssh_channel_write(
+                    monitorChannel, monitorWrite.constData(),
+                    static_cast<uint32_t>(monitorWrite.size()));
+                if (n > 0) {
+                    monitorWrite.remove(0, n);
+                    if (monitorWrite.isEmpty())
+                        monitorTimer.restart();
+                } else if (n != SSH_AGAIN) {
+                    failMonitor(tr("Failed to write a resource sample request: %1")
+                        .arg(QString::fromUtf8(ssh_get_error(session))));
+                }
+            }
+
+            bool monitorReadFailed = false;
+            for (int stream : {0, 1}) {
+                for (;;) {
+                    char buffer[16 * 1024];
+                    const int count = ssh_channel_read_nonblocking(
+                        monitorChannel, buffer, sizeof(buffer), stream);
+                    if (count == 0 || count == SSH_AGAIN
+                        || count == SSH_EOF) {
+                        break;
+                    }
+                    if (count < 0) {
+                        monitorReadFailed = true;
+                        break;
+                    }
+                    if (stream == 1) {
+                        if (monitorStderr.size() + count
+                            > MaxMonitorStderrBytes) {
+                            monitorReadFailed = true;
+                            break;
+                        }
+                        monitorStderr.append(buffer, count);
+                        continue;
+                    }
+
+                    auto parsed = monitorParser.append(
+                        QByteArray(buffer, count));
+                    if (parsed.error != SshMonitorFrameParser::Error::None) {
+                        failMonitor(monitorProtocolError(parsed.error));
+                        break;
+                    }
+                    for (SshMonitorFrame& frame : parsed.frames) {
+                        if (monitorRequestId == 0
+                            || frame.requestId != monitorRequestId) {
+                            failMonitor(tr("Resource monitor returned an unexpected frame."));
+                            break;
+                        }
+                        finishMonitorRequest(std::move(frame.payload), {});
+                        monitorStderr.clear();
+                    }
+                    if (!monitorChannel)
+                        break;
+                }
+                if (!monitorChannel || monitorReadFailed)
+                    break;
+            }
+            if (monitorChannel && monitorReadFailed) {
+                failMonitor(tr("Resource monitor output was invalid or exceeded its limit."));
+            } else if (monitorChannel && ssh_channel_is_eof(monitorChannel)) {
+                const QString details = QString::fromUtf8(monitorStderr).trimmed();
+                failMonitor(details.isEmpty()
+                    ? tr("Resource monitor channel closed unexpectedly.")
+                    : tr("Resource monitor failed: %1").arg(details));
+            } else if (monitorChannel && monitorRequestId != 0
+                       && monitorWrite.isEmpty()
+                       && monitorTimer.elapsed() >= MonitorResponseTimeoutMs) {
+                failMonitor(tr("Resource sample timed out."));
             }
         }
 
@@ -596,15 +1009,19 @@ void SshTransport::workerMain()
             // 服务器对已分配 PTY 的通道再次收到 pty-req 会回 CHANNEL_FAILURE，
             // 报 "Channel request pty-req failed on channel N:0"。
             // ssh_channel_change_pty_size 发 want_reply=0 的通知，不阻塞事件循环。
-            if (ssh_channel_change_pty_size(channel, pc, pr) != SSH_OK) {
+            const int resizeResult =
+                ssh_channel_change_pty_size(channel, pc, pr);
+            if (resizeResult != SSH_OK && resizeResult != SSH_AGAIN) {
                 reportError(tr("Failed to resize the remote PTY: %1")
                                 .arg(QString::fromUtf8(ssh_get_error(session))),
                     TransportErrorCategory::Protocol);
             }
-            appliedCols = pc;
-            appliedRows = pr;
-            _pendingCols.store(-1);
-            _pendingRows.store(-1);
+            if (resizeResult == SSH_OK) {
+                appliedCols = pc;
+                appliedRows = pr;
+                _pendingCols.store(-1);
+                _pendingRows.store(-1);
+            }
         }
 
         // keepalive：发送 SSH_MSG_IGNORE 保活（0 表示禁用）
@@ -622,6 +1039,7 @@ void SshTransport::workerMain()
 
     if (commandChannel)
         finishCommand(tr("SSH connection closed before the command completed."));
+    closeMonitor();
 
     if (channel) {
         ssh_channel_send_eof(channel);

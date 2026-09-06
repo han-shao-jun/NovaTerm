@@ -113,6 +113,12 @@ Renderer 读取稳定 Snapshot，把 DirtyRegion 转为 row-local、按 8-cell b
 
 所有连接实现 `ITransport`：连接、断开、写入、resize、暂停读取、错误和字节到达。SSH、Serial、Telnet 必须使用与 Local PTY 相同的数据入口。
 
+SSH 的 SFTP、单次命令和资源遥测等辅助 channel 必须复用所属 Transport 的
+既有连接，并与交互 Shell 一起只在 SSH 工作线程访问 libssh session。资源快速
+采样使用无 PTY 的请求驱动常驻 exec channel：UI 不可见时关闭，空闲时阻塞等待
+请求；`df` 等可能阻塞的低频查询使用独立 channel，不能阻塞快速采样。辅助通道
+必须具有独立的建立/响应超时、输出上限、取消和 generation/请求 ID 校验。
+
 ## 4. 端到端数据流
 
 ### 4.1 远端输出到屏幕

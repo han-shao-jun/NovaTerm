@@ -19,7 +19,7 @@
 | 4 生命周期与关闭协议 | 部分完成 | `TerminalSession::close(CloseMode)` 首行即 `Q_UNUSED(mode)`（`TerminalSession.cpp:317-319`），Graceful 与 Abort 未区分 |
 | 5 `ITransport` 契约扩展 | 部分完成 | `transportError` 已接通：四种 Transport 全部 emit（按 ITransport.h 约定先发结构化错误、再发 `errorOccurred`），`TerminalSession` 据此把分类映射为 `SessionErrorCategory`，不再硬编码 `Io`，且仍只上报一条 `sessionError`。剩余缺口：`exited` 仅 Local 发出，转发到 `TerminalSession::exited` 后 UI 无消费者 |
 | 6 Local PTY/ConPTY | 已完成（句柄断言受平台缺陷阻塞） | 两处句柄断言失败**不是本项目缺陷**：`CreatePseudoConsole`/`ClosePseudoConsole` 在本机 Windows 版本上不配平，每个伪控制台生命周期泄漏约 1 个句柄（单线程无子进程的最小复现见 `tests/transport/conpty_handle_leak_repro.c`，实测 1.04/循环）。ConPtySession 自建的 8 个句柄全部有对应关闭点，线程数与子进程数断言均通过。另有 `duplexLoadAndBackpressure` 偶发超时待查（与句柄无关）|
-| 7 SSH Transport | 部分完成 | 结构化 Challenge 完全不存在（全库无 `Challenge` 类型）；`TerminalView.cpp:422` 直接 `qobject_cast<SshTransport*>` 弹框并调 `acceptHostKey()`，绕过 Session 层；`_keyDecision` 是单个 int（`SshTransport.h:140`），无 ChallengeId 防迟到响应；keyboard-interactive 未实现 |
+| 7 SSH Transport | 部分完成 | 资源监控辅助通道已改为请求驱动常驻 channel，快速 `/proc` 与低频 `df` 分离并在同一工作线程非阻塞推进（见下方 2026-09-06 记录）。其余缺口仍是：结构化 Challenge 完全不存在；`TerminalView.cpp` 仍直接 `qobject_cast<SshTransport*>` 弹框并调 `acceptHostKey()`，绕过 Session 层；`_keyDecision` 无 ChallengeId 防迟到响应；keyboard-interactive 未实现 |
 | 8 Serial Transport | 已完成 | 无专门测试文件 |
 | 9 Telnet Transport | 已完成 | — |
 | 10 `SessionManager` | 部分完成 | 实现完整（注册/查找/关闭/重连/自动回收，无 `activeSession`），但**生产代码零使用**：`SessionManager` 与 `SessionFactory` 在 `src/ui/`、`src/main.cpp` 中均无命中，会话集合实际由 `TerminalPage::_terminalViews` 这个 View 列表隐式代表；`create(profileId, overrides)` 与 `restore` 未实现 |
@@ -31,6 +31,45 @@
 ### 快速连接展示（2026-09-05）
 
 `SessionPanel` 保留原有连接类型分组及存储格式，改为设备图标与名称/连接信息两行的单列树，增加名称和主机搜索、无匹配提示、长文本省略及完整 tooltip。此变更仅涉及 UI 展示，不改变本阶段的 Session 编排状态。
+
+### SSH 远端资源监控（2026-09-06）
+
+`SystemMonitorPanel` 不再每秒调用一次包含三个 `awk` 和 `df` 的单次命令。
+快速指标默认每 2 秒请求一次（`monitor.fastIntervalMs` 可设为 1000），由
+`SshTransport` 在既有连接上维护一个无 PTY 的常驻 exec channel；远端 Shell
+阻塞等待请求，每次只启动一个合并读取 `/proc/stat`、`/proc/meminfo` 和
+`/proc/net/dev` 的 `awk`。文件系统容量由独立单次 channel 每 30 秒查询并缓存
+最近有效结果，因此慢 `df` 不会拖住快速指标。
+
+常驻协议包含请求 ID 和明确起止标记，`SshMonitorFrameParser` 覆盖任意分片、
+多帧合并、错误标记、单帧/接收缓冲/行长/条目数上限。channel 建立与单次响应
+分别有 5 秒超时，stderr 限 16 KiB，失败后按 1–30 秒有界指数退避；快速请求
+最多一个在途。隐藏、折叠、最小化和标签切换会停止定时器、发送 EOF 并关闭
+channel，恢复后立即采样并重建 CPU/网络差分基线。辅助 channel 和交互 Shell
+全部继续由同一 SSH 工作线程访问，认证完成后以非阻塞状态机处理 `SSH_AGAIN`。
+
+本地自动验证在 `novaterm_ssh_transport_check`：覆盖协议分片、合帧、错误帧、
+单帧/接收缓冲/条目超限，以及未连接时拒绝启动采样。另用
+`novaterm_ssh_monitor_integration_check` 读取已有 Zynq 历史会话与凭据引用实测：
+10.221 秒内收到 10 个有效快速样本；人为制造的 7 秒慢命令在 5 秒超时，期间
+快速通道仍收到 5 个样本；交互 Shell 标记正常回显；停止后 1 秒通过远端进程表
+确认采集脚本为 0；断开重连后的首帧成功；迟到样本为 0。该检查不输出主机凭据，
+也不注册到默认 ctest。尚未使用服务端独立观测工具完成原始实现与各中间方案的
+整机 CPU/进程树 CPU 时间对比，因此不能据此声明具体性能收益。
+
+2026-09-06 Zynq 实测又发现，libssh 的
+`ssh_channel_read_nonblocking()` 在正常通道结束时返回负值 `SSH_EOF`；通用命令
+读取路径曾把所有负值误归类为“输出超过 1 MiB”，导致资源面板的文件系统区域
+错误告警。现已把 `SSH_EOF` 作为正常流结束处理，并将 `SSH_ERROR` 与实际累计
+超限分别报告。同一历史会话执行面板原始 `df` 命令实测 stdout 115 字节、
+stderr 0 字节并正常完成。
+
+同日统一资源面板字体层级：与 `SessionPanel` 相同，下拉框和表头采用 13 px，
+CPU、内存、交换指标名采用 12 px，数值详情、速率、进度条文字和磁盘列表采用
+10 px；文件系统表头加粗，
+磁盘单行高度按字体度量且不低于 28 px，避免高 DPI 下文字裁切。此调整只涉及
+展示，不改变采样或 Transport 生命周期。CPU、内存、交换三条占用条的垂直间距
+同步由 8 px 收紧为 4 px，使指标组更紧凑且保持三列对齐。
 
 ## 剩余工作
 
@@ -308,7 +347,7 @@ Reconnect 创建新的 Transport connection generation，但保持 SessionId；C
 | `tests/transport/TransportContractTests.cpp` | 所有实现共享契约 —— **尚未建立**（见"剩余工作"第 7 项）|
 | `tests/transport/TelnetTransportTests.cpp` | Telnet 协商、转义、背压和失败路径（loopback QTcpServer，无需 telnetd） |
 | `tests/transport/PtyTransportTests.cpp` / `ConPtyTransportTests.cpp` | Local PTY / ConPTY，各自独立而非共享契约；ConPTY 另有 `conpty_handle_leak_repro.c` 平台缺陷复现 |
-| `tests/transport/SshTransportFailureCheck.cpp` | SSH 失败路径 —— 非 QTest，仅返回退出码；无压力/泄漏/背压覆盖 |
+| `tests/transport/SshTransportFailureCheck.cpp` | SSH 失败路径与资源监控帧协议（分片、合帧、错误、上限）—— 非 QTest，仅返回退出码；无真实服务端压力/泄漏/背压覆盖 |
 
 Serial Transport 目前**没有对应测试文件**（见"实现进度"步骤 8 行）。
 

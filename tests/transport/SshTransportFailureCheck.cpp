@@ -6,6 +6,7 @@
 //
 // 运行：build/bin/novaterm_ssh_transport_check.exe
 #include "transport/SshTransport.h"
+#include "transport/SshMonitorProtocol.h"
 
 #include <QCoreApplication>
 #include <QTimer>
@@ -17,12 +18,63 @@ int main(int argc, char** argv)
     QCoreApplication app(argc, argv);
     int failures = 0;
 
+    // ── 协议解析：分片、合帧、错误帧和上限 ──────────────────
+    {
+        SshMonitorFrameParser parser;
+        auto result = parser.append(
+            QByteArrayLiteral("__NOVATERM_METRICS_BEG"));
+        if (!result.frames.isEmpty()
+            || result.error != SshMonitorFrameParser::Error::None)
+            ++failures;
+        result = parser.append(QByteArrayLiteral(
+            "IN__\t7\nCPU\t100\t20\nMEM\t1000\t600\t0\t0\n"
+            "__NOVATERM_METRICS_END__\t7\n"
+            "__NOVATERM_METRICS_BEGIN__\t8\nNET\teth0\t10\t20\n"
+            "__NOVATERM_METRICS_END__\t8\n"));
+        if (result.error != SshMonitorFrameParser::Error::None
+            || result.frames.size() != 2
+            || result.frames[0].requestId != 7
+            || !result.frames[0].payload.contains("MEM\t1000")
+            || result.frames[1].requestId != 8) {
+            ++failures;
+        }
+
+        result = parser.append(QByteArrayLiteral(
+            "__NOVATERM_METRICS_BEGIN__\t9\nCPU\t1\t1\n"
+            "__NOVATERM_METRICS_END__\t10\n"));
+        if (result.error == SshMonitorFrameParser::Error::None)
+            ++failures;
+
+        QByteArray tooMany("__NOVATERM_METRICS_BEGIN__\t11\n");
+        for (int i = 0; i <= SshMonitorFrameParser::MaxFrameEntries; ++i)
+            tooMany.append("NET\teth0\t1\t2\n");
+        result = parser.append(tooMany);
+        if (result.error == SshMonitorFrameParser::Error::None)
+            ++failures;
+
+        QByteArray oversizedFrame("__NOVATERM_METRICS_BEGIN__\t12\n");
+        for (int i = 0; i < 10; ++i)
+            oversizedFrame.append(QByteArray(14 * 1024, 'x') + '\n');
+        result = parser.append(oversizedFrame);
+        if (result.error == SshMonitorFrameParser::Error::None)
+            ++failures;
+
+        result = parser.append(QByteArray(
+            SshMonitorFrameParser::MaxBufferedBytes + 1, 'x'));
+        if (result.error == SshMonitorFrameParser::Error::None)
+            ++failures;
+        std::printf("[monitor-protocol] fragmentation/multiple/invalid/limits checked\n");
+    }
+
     // ── 用例 1：无效配置 → 同步失败 ─────────────────────────
     {
         SshConfig cfg;   // host / username 均为空
         SshTransport transport(cfg);
         // 未连接时不得接受资源监控等辅助命令，避免请求滞留到下一代连接。
         if (transport.executeCommand(1, QByteArrayLiteral("true")))
+            ++failures;
+        transport.startResourceMonitoring();
+        if (transport.requestResourceSample(2))
             ++failures;
         const bool ok = transport.connectToHost();
         std::printf("[invalid-config] connectToHost=%d error='%s'\n",

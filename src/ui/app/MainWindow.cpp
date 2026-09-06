@@ -907,6 +907,10 @@ bool MainWindow::event(QEvent* event)
         if (_dockResizeHighlight)
             _dockResizeHighlight->hide();
         break;
+    case QEvent::WindowStateChange:
+        if (_systemMonitorPanel)
+            _systemMonitorPanel->setPresentationActive(!isMinimized());
+        break;
     default:
         break;
     }

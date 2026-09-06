@@ -1023,6 +1023,8 @@ if(BUILD_TESTING)
             src/platform/windows/conpty/WinHandle.h
             src/transport/SshTransport.cpp
             src/transport/SshTransport.h
+            src/transport/SshMonitorProtocol.cpp
+            src/transport/SshMonitorProtocol.h
             src/session/SessionInputPump.cpp
             src/session/SessionInputPump.h
             src/session/TerminalSession.cpp
@@ -1087,6 +1089,8 @@ if(BUILD_TESTING)
     # ── SshTransport 失败路径控制台检查（无需真实 SSH 服务器）──
     add_executable(novaterm_ssh_transport_check
         tests/transport/SshTransportFailureCheck.cpp
+        src/transport/SshMonitorProtocol.cpp
+        src/transport/SshMonitorProtocol.h
         src/transport/SshTransport.cpp
         src/transport/SshTransport.h
         src/transport/ITransport.h
@@ -1112,6 +1116,36 @@ if(BUILD_TESTING)
                              LABELS "transport;ssh"
                              TIMEOUT 30)
     add_dependencies(check novaterm_ssh_transport_check)
+
+    # 使用本机历史会话的 SSH 资源监控人工集成检查；不注册到 ctest。
+    add_executable(novaterm_ssh_monitor_integration_check
+        tests/transport/SshMonitorIntegrationCheck.cpp
+        src/credential/CredentialStore.cpp
+        src/credential/CredentialStore.h
+        src/profile/ProfileStore.cpp
+        src/profile/ProfileStore.h
+        src/session/SessionStore.cpp
+        src/session/SessionStore.h
+        src/session/SessionTypes.h
+        src/transport/SshMonitorProtocol.cpp
+        src/transport/SshMonitorProtocol.h
+        src/transport/SshTransport.cpp
+        src/transport/SshTransport.h
+        src/transport/ITransport.h
+    )
+    target_include_directories(novaterm_ssh_monitor_integration_check PRIVATE src)
+    target_link_libraries(novaterm_ssh_monitor_integration_check
+        PRIVATE
+            Qt${QT_VERSION_MAJOR}::Core
+            Qt${QT_VERSION_MAJOR}::SerialPort
+            ssh::ssh
+            OpenSSL::Crypto
+            OpenSSL::SSL
+    )
+    if(WIN32)
+        target_link_libraries(novaterm_ssh_monitor_integration_check
+            PRIVATE ws2_32 crypt32 user32 advapi32)
+    endif()
 
     # ── TelnetTransport 协议与失败路径测试 ──
     # 用 loopback QTcpServer 充当服务端，不需要真实 telnetd。
