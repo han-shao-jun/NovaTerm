@@ -12,6 +12,9 @@ class ElaTreeViewStyle : public QProxyStyle
 public:
     explicit ElaTreeViewStyle(QStyle* style = nullptr);
     ~ElaTreeViewStyle() override;
+    // 首列内容的附加左边距，默认保持原有树视图布局。
+    void setItemLeftPadding(int padding) { _leftPadding = padding; }
+    [[nodiscard]] int getItemLeftPadding() const { return _leftPadding; }
     void drawPrimitive(PrimitiveElement element, const QStyleOption* option, QPainter* painter, const QWidget* widget = nullptr) const override;
     void drawControl(ControlElement element, const QStyleOption* option, QPainter* painter, const QWidget* widget = nullptr) const override;
     QSize sizeFromContents(ContentsType type, const QStyleOption* option, const QSize& size, const QWidget* widget) const override;

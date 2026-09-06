@@ -317,7 +317,17 @@ QRect ElaTreeViewStyle::subElementRect(SubElement element, const QStyleOption* o
             if (vopt->viewItemPosition != QStyleOptionViewItem::Middle && vopt->viewItemPosition != QStyleOptionViewItem::End)
             {
                 QRect textRect = QProxyStyle::subElementRect(element, option, widget);
-                textRect.adjust(_leftPadding + 10, 0, 0, 0);
+                // 无图标、复选框的首列可显式取消文字留白，与外部标题对齐。
+                if (_leftPadding == 0
+                    && !vopt->features.testFlag(QStyleOptionViewItem::HasDecoration)
+                    && !vopt->features.testFlag(QStyleOptionViewItem::HasCheckIndicator))
+                {
+                    textRect.setLeft(vopt->rect.left());
+                }
+                else
+                {
+                    textRect.adjust(_leftPadding + 10, 0, 0, 0);
+                }
                 return textRect;
             }
         }

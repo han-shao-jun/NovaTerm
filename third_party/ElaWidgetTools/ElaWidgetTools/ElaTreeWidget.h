@@ -24,6 +24,14 @@ public:
     ~ElaTreeWidget();
 
     /**
+     * @brief 设置首列内容的附加左边距（逻辑像素，默认 11）。
+     * @note 设为 0 时，无图标和复选框的首列文字与单元格左边缘对齐。
+     */
+    void setItemLeftPadding(int padding);
+    /** @brief 返回首列内容的附加左边距。 */
+    [[nodiscard]] int getItemLeftPadding() const;
+
+    /**
      * 关闭视口外框（圆角边线 + 底色填充）。
      *
      * 默认 true，与 ElaTreeView 表现一致。置 false 后本控件完全透明、无边线，

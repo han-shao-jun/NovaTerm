@@ -54,6 +54,23 @@ void ElaTreeWidget::setItemHeight(int itemHeight)
     }
 }
 
+void ElaTreeWidget::setItemLeftPadding(int padding)
+{
+    Q_D(ElaTreeWidget);
+    if (padding >= 0)
+    {
+        d->_treeWidgetStyle->setItemLeftPadding(padding);
+        doItemsLayout();
+        viewport()->update();
+    }
+}
+
+int ElaTreeWidget::getItemLeftPadding() const
+{
+    Q_D(const ElaTreeWidget);
+    return d->_treeWidgetStyle->getItemLeftPadding();
+}
+
 int ElaTreeWidget::getItemHeight() const
 {
     Q_D(const ElaTreeWidget);
