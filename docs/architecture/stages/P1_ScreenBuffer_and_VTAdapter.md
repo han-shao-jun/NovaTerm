@@ -199,7 +199,7 @@ callback 落地映射：
 | --- | --- |
 | output | 发布编码后的终端输入字节 |
 | damage | 从 libvterm 拉取受影响 Cell，更新 ScreenBuffer，发布 DirtyRegion |
-| moverect | 按 libvterm 语义搬移 `ScreenBuffer` 区域，并发布目标区 DirtyRegion |
+| moverect | 从 libvterm 同步当前目标区域，并发布目标区 DirtyRegion |
 | movecursor | 更新 CursorState 并通知观察者 |
 | settermprop | 解析 title 等终端属性 |
 | bell | 发布 bell 事件 |
@@ -212,6 +212,13 @@ callback 落地映射：
 引入（见 P2 §优化 1），后者是 vendored libvterm 的 NovaTerm 向后兼容扩展，
 由 P4 用于把 continuation 物理行合并进同一 `LogicalLine`（见 P4 §实际落地摘要）。
 注册点见 `VTAdapter.cpp:204-214`。
+
+2026-09-06：修正 `VTERM_DAMAGE_SCROLL` 延迟回调的同步方式。
+回调发出时，libvterm 已完成移动及后续改写，本地源矩形不保证最新；
+复制本地源 Cell 会导致批量定位、擦除、滚动后的残字和错行。
+`VTAdapter::Impl::onMoveRect` 改为同步 libvterm 当前目标区域，仍按目标区域
+发布 damage。`batchedScreenEditsMatchIncrementalInput` 用固定种子的 200 批
+操作比较整批与逐字节刷新，旧实现第 22 批失败，修复后通过。
 
 ```mermaid
 sequenceDiagram

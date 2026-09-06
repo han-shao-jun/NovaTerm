@@ -11,6 +11,7 @@
 #include <QCoreApplication>
 #include <QDir>
 #include <QFileInfo>
+#include <QLayout>
 #include <QSignalSpy>
 #include <QTest>
 #include <QTimer>
@@ -35,10 +36,42 @@ private slots:
     void conPtyStartupKeepsUiResponsive();
     void terminalViewStartupKeepsUiResponsive();
     void terminalViewRepeatedStartStop();
+    void terminalViewStartupPreservesPendingSize();
     void comboBoxAnimationTeardownIsSafe();
     void externalSessionOutlivesView();
     void ownedDependenciesAreDestroyedBeforeCore();
 };
+
+void TerminalSessionSmokeTests::terminalViewStartupPreservesPendingSize()
+{
+    TerminalView view;
+    view.layout()->activate();
+    auto* renderer = view.findChild<TerminalRenderer*>();
+    QVERIFY(renderer);
+    auto* core = view.findChild<TerminalCore*>();
+    QVERIFY(core);
+    QVERIFY(core->waitForIdle());
+    const int columns = core->columns() + 20;
+    const int rows = core->rows() + 10;
+    // 模拟 renderer 已发布目标、Parser 尚未处理 resize 的确定性窗口。
+    renderer->terminalSizeChanged(columns, rows);
+
+    LocalShellConfig config;
+    config.profile.name = QStringLiteral("pending size probe");
+    config.profile.executable = QDir(QCoreApplication::applicationDirPath())
+        .filePath(QStringLiteral("novaterm_conpty_test_child.exe"));
+    config.profile.arguments = {QStringLiteral("size")};
+    view.startLocalShell(config);
+    auto* transport = view.findChild<LocalShellTransport*>();
+    QVERIFY(transport);
+    QByteArray output;
+    connect(transport, &ITransport::readyRead, this,
+            [&output](const QByteArray& bytes) { output += bytes; });
+    const QByteArray expected = "SIZE=" + QByteArray::number(columns)
+        + "x" + QByteArray::number(rows);
+    QTRY_VERIFY_WITH_TIMEOUT(output.contains(expected), 5000);
+    view.stopLocalShell();
+}
 
 void TerminalSessionSmokeTests::conPtyStartupKeepsUiResponsive()
 {

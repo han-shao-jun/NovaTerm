@@ -282,16 +282,16 @@ public:
     }
 
     // 区域拷贝（光标滚动、区域滚动）。
-    static int onMoveRect(VTermRect destination, VTermRect source, void* user)
+    static int onMoveRect(VTermRect destination, VTermRect, void* user)
     {
         auto& self = *static_cast<Impl*>(user);
         const DirtyRegion destinationRegion{
             destination.start_row, destination.end_row,
             destination.start_col, destination.end_col};
-        const DirtyRegion sourceRegion{
-            source.start_row, source.end_row,
-            source.start_col, source.end_col};
-        self.screen.moveRect(destinationRegion, sourceRegion);
+        // SCROLL 合并模式延迟发布 moverect；本地源区域可能尚未同步，
+        // 且 libvterm 已执行后续擦除或改写。必须读取当前目标区域，
+        // 不能再次搬移本地旧 Cell，否则结果会依赖输入分批边界。
+        self.syncRegion(destination);
         if (self.observer.damage)
             self.observer.damage(destinationRegion);
         return 1;

@@ -131,6 +131,8 @@ TerminalView::TerminalView(TerminalSession* session, QWidget* parent)
         ownedCore = std::make_unique<TerminalCore>(kDefaultCols, kDefaultRows);
         _core = ownedCore.get();
     }
+    _latestResizeColumns = _core->columns();
+    _latestResizeRows = _core->rows();
     _renderer = new TerminalRenderer(_core, this);
     _session = session ? session : new TerminalSession(_core, this);
 
@@ -361,10 +363,8 @@ void TerminalView::startLocalShell(const LocalShellConfig& config)
     if (auto* lay = layout())
         lay->activate();
 
-    // 将终端尺寸传给 transport，PTY 以正确尺寸创建
-    _latestResizeColumns = _core->columns();
-    _latestResizeRows = _core->rows();
-    transport->resizeTerminal(_latestResizeColumns, _latestResizeRows);
+    // attachTransport 使用 renderer 发布的最新目标尺寸创建 PTY。
+    // Core 的 resize 异步执行，此处不能用尚未更新的模型尺寸覆盖目标。
 
     // ── 临时禁用 scrollback 以消除启动时滚动条异常 ──────────
     const int savedHistorySize = _core->scrollbackLineCount() > 0
@@ -426,7 +426,7 @@ void TerminalView::attachTransport(ITransport* transport)
 
     // SSH 在打开 channel 前需要正确的 PTY 尺寸；Serial/Local 对 resize
     // 是幂等或 no-op，统一传入无副作用。
-    _session->resize(_core->columns(), _core->rows());
+    _session->resize(_latestResizeColumns, _latestResizeRows);
 
     // SSH 专属：主机密钥首次信任 / 变更必须经用户确认（P6 禁止静默接受）。
     if (auto* ssh = qobject_cast<SshTransport*>(transport)) {

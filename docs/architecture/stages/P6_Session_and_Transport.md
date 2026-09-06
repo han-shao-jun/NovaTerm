@@ -28,6 +28,20 @@
 | 13 重连与恢复 | 部分完成 | `SessionStatistics::generation` 已投入消费：`connectTransportSignals()` 把世代号绑进每个处理器，`start()`/`beginReconnect()` 自增后调用 `rewireTransportSignals()` 重建接线。但**跨线程投递的信号仍无法靠 generation 识别**——SshTransport/LocalShellTransport 用 `invokeMethod(QueuedConnection)` 把 emit 推迟到 GUI 线程，emit 发生在重接线之后，世代号已是新值，故 `isConnected()` 启发式必须保留。彻底解法需把 generation 写进 ITransport 的信号契约（属步骤 5 的接口变更）。另无指数退避、最大重试次数与最大间隔 |
 | 14 压力验证与切换 | 部分完成 | `tests/transport/TransportContractTests.cpp` 不存在，四种 Transport 各写一套独立测试（SSH 那份还不是 QTest）；SSH 无压力/泄漏/背压测试；无多 Session 并发输出测试；无 sanitizer 配置 |
 
+### 本地终端启动尺寸（2026-09-06）
+
+`TerminalView` 用 `terminalSizeChanged` 的最新目标行列数初始化 Transport，
+不再在 `startLocalShell` 或 `attachTransport` 中用异步 Core 的旧尺寸覆盖它。
+否则布局已放大而 Core 尚未处理 resize 时，ConPTY 会按旧高度滚动，
+造成 PowerShell `dir` 的提示符和文件列表错行。缓存仅在创建 Renderer 前
+从 Core 初始化，后续由 Renderer 的尺寸信号更新。
+`terminalViewStartupPreservesPendingSize` 用真实 ConPTY 子进程查询窗口尺寸，
+确定性模拟目标已发布、模型尚未更新的窗口；修复前失败，修复后通过。
+验证：Windows / Qt 6.8.3 / MSVC Release 构建通过，
+`novaterm_terminal_session_tests` 9 项通过，`novaterm_core_tests` 37 项通过。
+真实 PowerShell 的 `dir` 诊断运行中，屏幕模型与 D3D11 截图的文件列对齐，
+提示符位于列表末尾；原截图的启动时序由上述尺寸竞态测试覆盖。
+
 ### 快速连接展示（2026-09-05）
 
 `SessionPanel` 保留原有连接类型分组及存储格式，改为设备图标与名称/连接信息两行的单列树，增加名称和主机搜索、无匹配提示、长文本省略及完整 tooltip。此变更仅涉及 UI 展示，不改变本阶段的 Session 编排状态。

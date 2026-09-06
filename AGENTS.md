@@ -102,6 +102,10 @@ SSH 资源监控另有不注册到 ctest 的
 （或标题含 zynq 的会话）及 Windows 凭据引用，验证慢命令并发、交互 I/O、暂停
 回收和重连。仅在明确允许连接对应测试服务器时人工运行，且不得输出凭据。
 
+上表 UI 覆盖的例外：`TerminalView` 启动、尺寸传递与生命周期已由
+`novaterm_terminal_session_tests` 的 `TerminalSessionSmokeTests.cpp` 覆盖；
+这类改动应跑该目标，普通面板外观改动仍按编译与实跑验证。
+
 拿不准某个文件被哪个测试覆盖，就看测试源码的 include。`tests/core`、
 `tests/renderer`、`tests/session`、`tests/transport` 四个目录，**一个 `.cpp`
 对一个测试目标**，翻一眼就能确认。
@@ -255,6 +259,18 @@ P3 与 P5 实施完成、部分平台或人工验收待做，P7 计划中。
 "剩余工作"两节，不在此重复。
 
 ## 容易写错的地方
+
+**启动 Transport 不要用 Core 旧尺寸覆盖 Renderer 的目标尺寸**：
+`TerminalCore::resize()` 异步执行，布局激活后 `terminalSizeChanged` 已携带
+新尺寸，但 `core->columns()/rows()` 可能仍是 80×24。`TerminalView`
+启动及 attach 统一使用 `_latestResizeColumns/Rows`，否则去抖计时器也会
+重发旧尺寸，PowerShell 按错误高度滚动。回归测试为
+`novaterm_terminal_session_tests::terminalViewStartupPreservesPendingSize`。
+
+**SCROLL 合并模式的 moverect 不能复制本地旧 Cell**：libvterm 回调延迟到
+flush，内部屏幕已移动并可能继续改写。本地源区域未必同步，必须从 libvterm
+读取当前目标区域。回归测试为
+`novaterm_core_tests::batchedScreenEditsMatchIncrementalInput`。
 
 **`ITransport` 两个错误信号有顺序约定**：实现若同时发 `transportError` 与
 `errorOccurred`，必须**先发 `transportError`**且 message 一致 ——

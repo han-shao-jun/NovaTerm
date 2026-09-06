@@ -1,6 +1,7 @@
 #include "core/terminal/BoundedByteQueue.h"
 #include "core/terminal/ScrollbackBuffer.h"
 #include "core/terminal/TerminalCore.h"
+#include "core/terminal/VTAdapter.h"
 
 #include <QSignalSpy>
 #include <QtTest>
@@ -41,6 +42,7 @@ private slots:
     void rendererSnapshotUsesLogicalWrapAnchor();
     void liveRendererSnapshotDoesNotPublishHistoryTail();
     void fullScreenScrollPreservesContent();
+    void batchedScreenEditsMatchIncrementalInput();
     void reverseIndexScrollPreservesContent();
     void partialScrollRegionPreservesOutsideRows();
     void alternateScreenKeepsIndependentRowRing();
@@ -601,6 +603,65 @@ void TerminalCoreTests::liveRendererSnapshotDoesNotPublishHistoryTail()
     const auto after = core.scrollbackStatistics();
     QCOMPARE(after.activeLines, before.activeLines);
     QCOMPARE(after.sealedChunks, before.sealedChunks);
+}
+
+void TerminalCoreTests::batchedScreenEditsMatchIncrementalInput()
+{
+    constexpr int columns = 40;
+    constexpr int rows = 12;
+    NovaTerm::ScreenBuffer batched(columns, rows);
+    NovaTerm::ScreenBuffer incremental(columns, rows);
+    ScrollbackBuffer batchedHistory;
+    ScrollbackBuffer incrementalHistory;
+    NovaTerm::VTAdapter batchAdapter(columns, rows, batched, batchedHistory, {});
+    NovaTerm::VTAdapter incrementalAdapter(
+        columns, rows, incremental, incrementalHistory, {});
+    const QByteArray initial = "\x1b[2J\x1b[H";
+    batchAdapter.writeInput(initial);
+    batchAdapter.flushDamage();
+    incrementalAdapter.writeInput(initial);
+    incrementalAdapter.flushDamage();
+
+    // 同一组定位、擦除和滚动操作，改变分批边界不应改变最终屏幕。
+    quint32 seed = 42;
+    const auto next = [&seed]() {
+        seed = seed * 1664525U + 1013904223U;
+        return seed;
+    };
+    for (int batch = 0; batch < 200; ++batch) {
+        QByteArray input;
+        for (int operation = 0; operation < 20; ++operation) {
+            switch (next() % 7) {
+            case 0: input += "\r\n"; break;
+            case 1: input += "\x1b[S"; break;
+            case 2: input += "\x1b[T"; break;
+            case 3: input += "\x1b[K"; break;
+            case 4: input += "\x1b[P"; break;
+            case 5:
+                input += "\x1b[" + QByteArray::number(next() % rows + 1)
+                    + ";" + QByteArray::number(next() % columns + 1) + "H";
+                break;
+            default: input += QByteArray(5, char('A' + next() % 26)); break;
+            }
+        }
+        batchAdapter.writeInput(input);
+        batchAdapter.flushDamage();
+        for (char byte : input) {
+            incrementalAdapter.writeInput(QByteArray(1, byte));
+            incrementalAdapter.flushDamage();
+        }
+        for (int row = 0; row < rows; ++row) {
+            for (int col = 0; col < columns; ++col) {
+                const QByteArray context = "batch=" + QByteArray::number(batch)
+                    + " row=" + QByteArray::number(row)
+                    + " col=" + QByteArray::number(col)
+                    + " input=" + input.toHex();
+                QVERIFY2(batched.cellAt(row, col)->chars
+                             == incremental.cellAt(row, col)->chars,
+                         context.constData());
+            }
+        }
+    }
 }
 
 void TerminalCoreTests::fullScreenScrollPreservesContent()
