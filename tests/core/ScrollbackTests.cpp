@@ -19,6 +19,9 @@ private slots:
     void searchPublishesCellRanges();
     void searchCancellationSupersedesGeneration();
     void activeTailSnapshotIsPublishedWithoutCellCopy();
+    void continuationAcrossSealedChunkKeepsOneLogicalLine();
+    void takeNewestTailAcrossSealedChunkPreservesHistory();
+    void sealedChunkStaysSharedWhenItsTailIsRewritten();
     void retainedMemoryFallsAfterSnapshotRelease();
     void zeroBudgetsAndOversizedLineEvictImmediately();
     void liveSnapshotSurvivesClearAndLimitChanges();
@@ -200,6 +203,102 @@ void ScrollbackTests::activeTailSnapshotIsPublishedWithoutCellCopy()
              second.chunks().front().chunk.get());
     QCOMPARE(first.version(), quint64(1));
     QCOMPARE(second.version(), quint64(2));
+}
+
+// 软换行片段到达时，上一行可能已经随 active 块封存进不可变分块。此时
+// appendContinuation 必须仍与它拼成同一条逻辑行 —— 实现把那一行搬进新的
+// active 块，而不是复制整个分块（1024 行/块时代价约 4 MB）。
+void ScrollbackTests::continuationAcrossSealedChunkKeepsOneLogicalLine()
+{
+    // chunkLines=2：追加两行即封存，使下一次续接必然跨越封存边界。
+    NovaTerm::ChunkedScrollback scrollback(100, 1024 * 1024, 2);
+    scrollback.append(textLine(QStringLiteral("aa")));
+    NovaTerm::LogicalLine soft = textLine(QStringLiteral("bb"));
+    soft.hardBreak = false;
+    const NovaTerm::LineId softId = scrollback.append(std::move(soft));
+    QCOMPARE(scrollback.lineCount(), qsizetype(2));
+    QCOMPARE(scrollback.statistics().sealedChunks, qsizetype(1));
+
+    // 续接片段落在封存边界之后，仍应并入 softId 那一行而非新增一行。
+    NovaTerm::LogicalLine fragment = textLine(QStringLiteral("cc"));
+    fragment.hardBreak = true;
+    QCOMPARE(scrollback.appendContinuation(std::move(fragment)), softId);
+    QCOMPARE(scrollback.lineCount(), qsizetype(2));
+
+    const NovaTerm::LogicalLine* merged = scrollback.lineAt(1);
+    QVERIFY(merged);
+    QCOMPARE(merged->id, softId);
+    QCOMPARE(merged->cells.size(), qsizetype(4));
+    QCOMPARE(merged->cells[2].chars[0], uint32_t('c'));
+    QVERIFY(merged->hardBreak);
+    // 第一行不受影响，且 ID 仍严格单调（快照二分查找的前提）。
+    QCOMPARE(scrollback.lineAt(0)->cells.size(), qsizetype(2));
+    QVERIFY(scrollback.lineAt(0)->id < merged->id);
+
+    // 快照必须完整包含两行，不能因为尾行被搬走而漏掉。
+    const auto snapshot = scrollback.snapshot();
+    QCOMPARE(snapshot.lineCount(), qsizetype(2));
+    QCOMPARE(snapshot.lineById(softId)->cells.size(), qsizetype(4));
+    QCOMPARE(snapshot.lastLineId(), softId);
+}
+
+// sb_popline 走的 takeNewestTail 同样会遇到"最新行已封存"，且它会缩短该行。
+void ScrollbackTests::takeNewestTailAcrossSealedChunkPreservesHistory()
+{
+    NovaTerm::ChunkedScrollback scrollback(100, 1024 * 1024, 2);
+    scrollback.append(textLine(QStringLiteral("keep")));
+    const NovaTerm::LineId tailId =
+        scrollback.append(textLine(QStringLiteral("abcdef")));
+    QCOMPARE(scrollback.statistics().sealedChunks, qsizetype(1));
+
+    NovaTerm::LogicalLine taken;
+    QVERIFY(scrollback.takeNewestTail(2, taken));
+    QCOMPARE(taken.id, tailId);
+    QCOMPARE(taken.cells.size(), qsizetype(2));
+    QCOMPARE(taken.cells[0].chars[0], uint32_t('e'));
+
+    // 剩余部分留在历史里，且不再以硬换行结尾（尾段已回到活动屏幕）。
+    QCOMPARE(scrollback.lineCount(), qsizetype(2));
+    const NovaTerm::LogicalLine* remainder = scrollback.lineAt(1);
+    QVERIFY(remainder);
+    QCOMPARE(remainder->cells.size(), qsizetype(4));
+    QVERIFY(!remainder->hardBreak);
+    QCOMPARE(scrollback.lineAt(0)->cells.size(), qsizetype(4));
+
+    // 取空整行时该行被移除，前一行仍完好。
+    QVERIFY(scrollback.takeNewestTail(4, taken));
+    QCOMPARE(taken.cells.size(), qsizetype(4));
+    QCOMPARE(scrollback.lineCount(), qsizetype(1));
+    QCOMPARE(scrollback.lineAt(0)->cells[0].chars[0], uint32_t('k'));
+}
+
+// 改写封存分块的尾行不得影响已发出的快照 —— 旧快照仍看到改写前的内容，
+// 且分块本身仍被共享（没有整块复制）。
+void ScrollbackTests::sealedChunkStaysSharedWhenItsTailIsRewritten()
+{
+    NovaTerm::ChunkedScrollback scrollback(100, 1024 * 1024, 2);
+    scrollback.append(textLine(QStringLiteral("head")));
+    NovaTerm::LogicalLine soft = textLine(QStringLiteral("xx"));
+    soft.hardBreak = false;
+    const NovaTerm::LineId softId = scrollback.append(std::move(soft));
+
+    const auto before = scrollback.snapshot();
+    QCOMPARE(before.lineCount(), qsizetype(2));
+    QCOMPARE(before.lineById(softId)->cells.size(), qsizetype(2));
+
+    NovaTerm::LogicalLine fragment = textLine(QStringLiteral("yy"));
+    scrollback.appendContinuation(std::move(fragment));
+
+    // 旧快照不可变：仍是 2 格。
+    QCOMPARE(before.lineById(softId)->cells.size(), qsizetype(2));
+    const auto after = scrollback.snapshot();
+    QCOMPARE(after.lineById(softId)->cells.size(), qsizetype(4));
+    QCOMPARE(after.lineCount(), qsizetype(2));
+
+    // "head" 所在分块在两次快照中是同一个对象 —— 证明未整块复制。
+    QCOMPARE(before.chunks().front().chunk.get(),
+             after.chunks().front().chunk.get());
+    QCOMPARE(before.lineAt(0)->id, after.lineAt(0)->id);
 }
 
 void ScrollbackTests::retainedMemoryFallsAfterSnapshotRelease()

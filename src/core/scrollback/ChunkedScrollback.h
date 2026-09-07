@@ -91,12 +91,19 @@ public:
     ScrollbackStatistics statistics() const;
 
 private:
-    // 已封存的分块及其在文档中的起始行号与有效字节数。
+    // 已封存的分块及其在文档中的有效行区间与字节数。
+    // 有效行是 lines[firstLine, firstLine + lineCount)：头部被 evictOldest
+    // 淘汰的行与尾部被 makeNewestLineWritable 搬走的行都不在其中，但仍占用
+    // 不可变分块的存储。
     struct StoredChunk
     {
         ScrollbackChunkPtr chunk;
         qsizetype firstLine{0};
+        qsizetype lineCount{0};
         qsizetype effectiveBytes{0};
+        // 已搬到 active 块的尾行字节数，其字节已从 _effectiveBytes 扣除。
+        // 整块退休时须扣除 byteSize - detachedBytes，避免二次扣减。
+        qsizetype detachedBytes{0};
     };
     // 已被淘汰但可能仍被旧快照持有的分块。通过 weak_ptr 跟踪，
     // 当所有快照释放后才能真正回收内存。
@@ -110,6 +117,17 @@ private:
     void sealActive();
     void enforceLimits();
     void evictOldest();
+    /**
+     * @brief 保证最新逻辑行位于 active 块，从而可以原地改写。
+     *
+     * 已封存分块不可变（可能被多个快照共享），而 appendContinuation 与
+     * takeNewestTail 都只改最新一行。复制整个分块（默认 1024 行）只为改一行
+     * 代价过高，因此只把那一行复制进 active 块，并把它所属封存分块的有效行
+     * 区间从尾部裁掉一行；分块被裁空即整块退休。
+     * @return true 表示 active 块尾部现在就是最新逻辑行；false 表示缓冲为空。
+     */
+    bool makeNewestLineWritable();
+    void retireChunk(StoredChunk& stored, bool countAsEvicted);
     static qsizetype lineBytes(const LogicalLine& line);
     void collectRetired() const;
 

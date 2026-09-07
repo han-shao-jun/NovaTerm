@@ -70,42 +70,23 @@ LineId ChunkedScrollback::append(LogicalLine line)
 }
 
 // 追加软换行片段：与上一行拼接为同一逻辑行。
-// 三种情况：active 块中有上一行（最常见）、上一行在最后一个封存块
-// （需 copy-on-write 替换）、或缓冲为空（退化为普通 append）。
+// makeNewestLineWritable() 已保证最新行位于 active 块，因此这里只有一条路径。
 LineId ChunkedScrollback::appendContinuation(LogicalLine fragment)
 {
-    if (_lineCount == 0)
+    // 缓冲为空（或状态不一致）时退化为普通 append，避免静默丢失片段。
+    if (_lineCount == 0 || !makeNewestLineWritable())
         return append(std::move(fragment));
+
     const qsizetype addedCells = fragment.cells.size();
-    LineId id = 0;
-    if (_active && _activeFirstLine < _active->lines.size()) {
-        // 情况 1：上一行在 active 块，直接拼接。
-        LogicalLine& line = _active->lines.last();
-        const qsizetype before = lineBytes(line);
-        line.cells += fragment.cells;
-        line.hardBreak = fragment.hardBreak;
-        const qsizetype delta = lineBytes(line) - before;
-        _activeBytes += delta;
-        _effectiveBytes += delta;
-        id = line.id;
-    } else if (!_chunks.empty()) {
-        // 情况 2：上一行在已封存块，必须 copy-on-write：复制整个分块、
-        // 修改副本、重新封存，旧分块进入 _retired 等待旧快照释放。
-        StoredChunk& stored = _chunks.back();
-        const ScrollbackChunkPtr previous = stored.chunk;
-        auto replacement = std::make_shared<ScrollbackChunk>(*previous);
-        replacement->id = _nextChunkId++;
-        replacement->sealed = false;
-        LogicalLine& line = replacement->lines.last();
-        line.cells += fragment.cells;
-        line.hardBreak = fragment.hardBreak;
-        id = line.id;
-        const ScrollbackChunkPtr sealed = sealChunk(std::move(replacement));
-        _effectiveBytes += sealed->byteSize - previous->byteSize;
-        stored.chunk = sealed;
-        stored.effectiveBytes += sealed->byteSize - previous->byteSize;
-        _retired.push_back({previous, previous->byteSize});
-    }
+    LogicalLine& line = _active->lines.last();
+    const qsizetype before = lineBytes(line);
+    line.cells += fragment.cells;
+    line.hardBreak = fragment.hardBreak;
+    const qsizetype delta = lineBytes(line) - before;
+    _activeBytes += delta;
+    _effectiveBytes += delta;
+    const LineId id = line.id;
+
     _cellCount += addedCells;
     ++_version;
     enforceLimits();
@@ -127,6 +108,8 @@ LineId ChunkedScrollback::append(const Cell* cells, qsizetype columns,
 void ChunkedScrollback::sealActive()
 {
     if (!_active || _activeFirstLine >= _active->lines.size()) {
+        // 无有效行：整块丢弃，其固定开销也要从有效字节中扣除。
+        _effectiveBytes -= _activeBytes;
         _active.reset();
         _activeFirstLine = 0;
         _activeBytes = 0;
@@ -140,14 +123,67 @@ void ChunkedScrollback::sealActive()
             value += lineBytes(_active->lines[i]);
         return value;
     }();
+    const qsizetype firstLine = _activeFirstLine;
     ScrollbackChunkPtr sealed = sealChunk(std::move(_active));
-    _chunks.push_back({sealed, _activeFirstLine,
-                       qsizetype(sealed->byteSize
-                                 - qsizetype(sizeof(ScrollbackChunk))
-                                 - ChunkAllocationOverhead
-                                 - skippedBytes)});
+    StoredChunk stored;
+    stored.chunk = sealed;
+    stored.firstLine = firstLine;
+    stored.lineCount = sealed->lines.size() - firstLine;
+    stored.effectiveBytes = qsizetype(sealed->byteSize
+                                      - qsizetype(sizeof(ScrollbackChunk))
+                                      - ChunkAllocationOverhead
+                                      - skippedBytes);
+    _chunks.push_back(std::move(stored));
     _activeFirstLine = 0;
     _activeBytes = 0;
+}
+
+// 把最新逻辑行搬进 active 块，使其可被原地改写。详见头文件注释。
+bool ChunkedScrollback::makeNewestLineWritable()
+{
+    if (_active && _activeFirstLine < _active->lines.size())
+        return true;
+    if (_chunks.empty())
+        return false;
+
+    StoredChunk& stored = _chunks.back();
+    if (stored.lineCount <= 0)
+        return false;
+    const LogicalLine& newest =
+        stored.chunk->lines[stored.firstLine + stored.lineCount - 1];
+    const qsizetype movedBytes = lineBytes(newest);
+
+    // 只复制这一行；ensureActive 可能新分配一个 active 块并计入固定开销。
+    ensureActive();
+    _active->lines.push_back(newest);
+    _activeBytes += movedBytes;
+    _effectiveBytes += movedBytes;
+
+    // 封存分块的有效区间从尾部裁掉一行。该行的字节记入 detachedBytes，
+    // 使整块退休时不会把已搬走的部分二次扣除。
+    --stored.lineCount;
+    stored.effectiveBytes -= movedBytes;
+    stored.detachedBytes += movedBytes;
+    _effectiveBytes -= movedBytes;
+    if (stored.lineCount <= 0)
+        retireChunk(stored, false);
+    return true;
+}
+
+// 分块再无有效行：从 _chunks 摘除并交给 _retired，等旧快照释放后回收内存。
+// 调用方须保证 stored 就是 _chunks 的首个或末个元素。
+// countAsEvicted=false 用于"尾行被搬进 active"这种内容未丢失的情况，
+// 避免虚增 evictedChunks 统计。
+void ChunkedScrollback::retireChunk(StoredChunk& stored, bool countAsEvicted)
+{
+    _effectiveBytes -= stored.chunk->byteSize - stored.detachedBytes;
+    _retired.push_back({stored.chunk, stored.chunk->byteSize});
+    if (&stored == &_chunks.front())
+        _chunks.pop_front();
+    else
+        _chunks.pop_back();
+    if (countAsEvicted)
+        ++_evictedChunks;
 }
 
 void ChunkedScrollback::publish()
@@ -171,12 +207,9 @@ void ChunkedScrollback::evictOldest()
         oldestCellCount = stored.chunk->lines[stored.firstLine].cells.size();
         evicted = true;
         ++stored.firstLine;
-        if (stored.firstLine >= stored.chunk->lines.size()) {
-            _effectiveBytes -= stored.chunk->byteSize;
-            _retired.push_back({stored.chunk, stored.chunk->byteSize});
-            _chunks.pop_front();
-            ++_evictedChunks;
-        }
+        --stored.lineCount;
+        if (stored.lineCount <= 0)
+            retireChunk(stored, true);
     } else if (_active && _activeFirstLine < _active->lines.size()) {
         oldestCellCount = _active->lines[_activeFirstLine].cells.size();
         evicted = true;
@@ -228,68 +261,32 @@ bool ChunkedScrollback::takeNewestTail(qsizetype cellCount, LogicalLine& out)
 {
     if (_lineCount == 0 || cellCount <= 0)
         return false;
-
-    // 情况 1：最新行在 active 块，可以原地截断。
-    if (_active && _activeFirstLine < _active->lines.size()) {
-        LogicalLine& line = _active->lines.last();
-        const qsizetype before = lineBytes(line);
-        const qsizetype taken = takeTailCells(line, cellCount, out);
-        if (taken == 0)
-            return false;
-        _cellCount -= taken;
-        if (line.cells.isEmpty()) {
-            _active->lines.pop_back();
-            --_lineCount;
-            _activeBytes -= before;
-            _effectiveBytes -= before;
-            if (_activeFirstLine >= _active->lines.size()) {
-                // active 已无有效行，整块释放。
-                _effectiveBytes -= _activeBytes;
-                _active.reset();
-                _activeFirstLine = 0;
-                _activeBytes = 0;
-            }
-        } else {
-            const qsizetype delta = lineBytes(line) - before;
-            _activeBytes += delta;
-            _effectiveBytes += delta;
-        }
-        ++_version;
-        return true;
-    }
-
-    // 情况 2：最新行在最后一个封存块。封存块不可变，必须 copy-on-write，
-    // 与 appendContinuation 的情况 2 同构。
-    if (_chunks.empty())
+    // makeNewestLineWritable() 已保证最新行位于 active 块，可原地截断。
+    if (!makeNewestLineWritable())
         return false;
-    StoredChunk& stored = _chunks.back();
-    const ScrollbackChunkPtr previous = stored.chunk;
-    if (previous->lines.empty())
-        return false;
-    auto replacement = std::make_shared<ScrollbackChunk>(*previous);
-    replacement->id = _nextChunkId++;
-    replacement->sealed = false;
-    const qsizetype taken =
-        takeTailCells(replacement->lines.last(), cellCount, out);
+
+    LogicalLine& line = _active->lines.last();
+    const qsizetype before = lineBytes(line);
+    const qsizetype taken = takeTailCells(line, cellCount, out);
     if (taken == 0)
         return false;
     _cellCount -= taken;
-    if (replacement->lines.last().cells.isEmpty()) {
-        replacement->lines.pop_back();
+    if (line.cells.isEmpty()) {
+        _active->lines.pop_back();
         --_lineCount;
-    }
-    if (replacement->lines.size() <= stored.firstLine) {
-        // 该分块再无有效行：整块退休，副本丢弃。
-        _effectiveBytes -= previous->byteSize;
-        _retired.push_back({previous, previous->byteSize});
-        _chunks.pop_back();
-        ++_evictedChunks;
+        _activeBytes -= before;
+        _effectiveBytes -= before;
+        if (_activeFirstLine >= _active->lines.size()) {
+            // active 已无有效行，整块释放。
+            _effectiveBytes -= _activeBytes;
+            _active.reset();
+            _activeFirstLine = 0;
+            _activeBytes = 0;
+        }
     } else {
-        const ScrollbackChunkPtr sealed = sealChunk(std::move(replacement));
-        _effectiveBytes += sealed->byteSize - previous->byteSize;
-        stored.effectiveBytes += sealed->byteSize - previous->byteSize;
-        stored.chunk = sealed;
-        _retired.push_back({previous, previous->byteSize});
+        const qsizetype delta = lineBytes(line) - before;
+        _activeBytes += delta;
+        _effectiveBytes += delta;
     }
     ++_version;
     return true;
@@ -328,12 +325,11 @@ ScrollbackSnapshot ChunkedScrollback::snapshot()
     result._chunks.reserve(qsizetype(_chunks.size()));
     qsizetype documentStart = 0;
     for (const StoredChunk& stored : _chunks) {
-        const qsizetype count = stored.chunk->lines.size() - stored.firstLine;
-        if (count <= 0)
+        if (stored.lineCount <= 0)
             continue;
-        result._chunks.push_back(
-            {stored.chunk, stored.firstLine, count, documentStart});
-        documentStart += count;
+        result._chunks.push_back({stored.chunk, stored.firstLine,
+                                  stored.lineCount, documentStart});
+        documentStart += stored.lineCount;
     }
     if (_lineCount > 0) {
         result._firstLineId = result.lineAt(0)->id;
@@ -348,10 +344,9 @@ const LogicalLine* ChunkedScrollback::lineAt(qsizetype index) const
         return nullptr;
     // 顺序遍历分块；分块数量通常较少（默认 1024 行/块），顺序查找足够。
     for (const StoredChunk& stored : _chunks) {
-        const qsizetype count = stored.chunk->lines.size() - stored.firstLine;
-        if (index < count)
+        if (index < stored.lineCount)
             return &stored.chunk->lines[stored.firstLine + index];
-        index -= count;
+        index -= stored.lineCount;
     }
     if (_active && index < _active->lines.size() - _activeFirstLine)
         return &_active->lines[_activeFirstLine + index];
