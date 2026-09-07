@@ -25,13 +25,13 @@ public:
     struct ChunkView
     {
         ScrollbackChunkPtr chunk;
-        qsizetype firstLine{0};
-        qsizetype lineCount{0};
-        qsizetype documentStart{0};
+        isize firstLine{0};
+        isize lineCount{0};
+        isize documentStart{0};
     };
 
-    quint64 version() const { return _version; }
-    qsizetype lineCount() const { return _lineCount; }
+    u64 version() const { return _version; }
+    isize lineCount() const { return _lineCount; }
     LineId firstLineId() const { return _firstLineId; }
     LineId lastLineId() const { return _lastLineId; }
     bool empty() const { return _lineCount == 0; }
@@ -41,7 +41,7 @@ public:
      * @param documentRow 文档行号，越界返回 nullptr。
      * @return 逻辑行指针，未命中返回 nullptr。
      */
-    const LogicalLine* lineAt(qsizetype documentRow) const;
+    const LogicalLine* lineAt(isize documentRow) const;
 
     /**
      * @brief 按全局 LineId 查询逻辑行。
@@ -55,7 +55,7 @@ public:
      * @param id 全局行 ID。
      * @return 文档行号（0-based），未命中返回 -1。
      */
-    qsizetype rowForLineId(LineId id) const;
+    isize rowForLineId(LineId id) const;
     bool contains(LineId id) const { return rowForLineId(id) >= 0; }
     const QVector<ChunkView>& chunks() const { return _chunks; }
 
@@ -63,8 +63,8 @@ private:
     // 仅 ChunkedScrollback 在构建快照时可写。
     friend class ChunkedScrollback;
     QVector<ChunkView> _chunks;
-    quint64 _version{0};
-    qsizetype _lineCount{0};
+    u64 _version{0};
+    isize _lineCount{0};
     LineId _firstLineId{0};
     LineId _lastLineId{0};
 };

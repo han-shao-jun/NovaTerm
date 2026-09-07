@@ -266,7 +266,7 @@ public:
     {
         auto& self = *static_cast<Impl*>(user);
         if (self.observer.output)
-            self.observer.output(QByteArrayView(data, static_cast<qsizetype>(length)));
+            self.observer.output(QByteArrayView(data, static_cast<isize>(length)));
     }
 
     // 屏幕区域被修改：同步本地缓冲并通知 observer。

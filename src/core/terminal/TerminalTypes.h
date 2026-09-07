@@ -8,6 +8,8 @@
  */
 #pragma once
 
+#include "core/CoreTypes.h"
+
 #include <QMetaType>
 
 #include <array>

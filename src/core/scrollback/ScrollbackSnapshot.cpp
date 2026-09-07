@@ -16,13 +16,13 @@ namespace {
 
 // 在已按 firstLineId 升序排列的分块列表中二分查找包含指定 LineId 的分块。
 // 各分块内部的行 ID 也保证单调递增。返回分块索引，未命中返回 -1。
-qsizetype chunkIndexForId(const QVector<ScrollbackSnapshot::ChunkView>& chunks,
+isize chunkIndexForId(const QVector<ScrollbackSnapshot::ChunkView>& chunks,
                           LineId id)
 {
-    qsizetype low = 0;
-    qsizetype high = chunks.size();
+    isize low = 0;
+    isize high = chunks.size();
     while (low < high) {
-        const qsizetype middle = low + (high - low) / 2;
+        const isize middle = low + (high - low) / 2;
         const auto& view = chunks[middle];
         const auto begin = view.chunk->lines.cbegin() + view.firstLine;
         const LineId first = begin->id;
@@ -39,17 +39,17 @@ qsizetype chunkIndexForId(const QVector<ScrollbackSnapshot::ChunkView>& chunks,
 
 } // namespace
 
-const LogicalLine* ScrollbackSnapshot::lineAt(qsizetype documentRow) const
+const LogicalLine* ScrollbackSnapshot::lineAt(isize documentRow) const
 {
     if (documentRow < 0 || documentRow >= _lineCount)
         return nullptr;
 
     // 按 documentStart 二分查找命中的分块。documentStart 在分块列表中
     // 单调递增，因此可视为标准的 lower_bound 查找。
-    qsizetype low = 0;
-    qsizetype high = _chunks.size();
+    isize low = 0;
+    isize high = _chunks.size();
     while (low < high) {
-        const qsizetype middle = low + (high - low) / 2;
+        const isize middle = low + (high - low) / 2;
         const ChunkView& view = _chunks[middle];
         if (documentRow < view.documentStart) {
             high = middle;
@@ -67,7 +67,7 @@ const LogicalLine* ScrollbackSnapshot::lineById(LineId id) const
 {
     if (_lineCount == 0 || id < _firstLineId || id > _lastLineId)
         return nullptr;
-    const qsizetype index = chunkIndexForId(_chunks, id);
+    const isize index = chunkIndexForId(_chunks, id);
     if (index < 0)
         return nullptr;
     // 分块内部的行 ID 单调递增，用 lower_bound 在分块内二分定位。
@@ -80,11 +80,11 @@ const LogicalLine* ScrollbackSnapshot::lineById(LineId id) const
     return found != end && found->id == id ? &*found : nullptr;
 }
 
-qsizetype ScrollbackSnapshot::rowForLineId(LineId id) const
+isize ScrollbackSnapshot::rowForLineId(LineId id) const
 {
     if (_lineCount == 0 || id < _firstLineId || id > _lastLineId)
         return -1;
-    const qsizetype index = chunkIndexForId(_chunks, id);
+    const isize index = chunkIndexForId(_chunks, id);
     if (index < 0)
         return -1;
     const ChunkView& view = _chunks[index];

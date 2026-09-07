@@ -25,24 +25,24 @@ namespace NovaTerm {
 // 取消检查点之间的耗时失控。超出部分被截断，不参与布局。
 // 该上限对 wrapLine 的所有调用方一致生效 —— 包括每帧调用的 viewport 与
 // worker 线程上的 ReflowEngine，避免两条路径行为不同。
-inline constexpr qsizetype MaxWrapCells = 4 * 1024 * 1024;
+inline constexpr isize MaxWrapCells = 4 * 1024 * 1024;
 
 // 显示行：一个 LogicalLine 在某个折行位置上的可见切片。
 // wrapIndex 表示该 DisplayLine 在其 LogicalLine 内的折行序号（0-based）。
 struct DisplayLine
 {
     LineId lineId{0};
-    qsizetype startCell{0};
-    qsizetype endCell{0};
-    qsizetype wrapIndex{0};
+    isize startCell{0};
+    isize endCell{0};
+    isize wrapIndex{0};
     bool hardBreak{false};
 };
 
 // 视口快照：一次性折行结果，用于渲染滚动回看时的可见区域。
 struct ViewportSnapshot
 {
-    quint64 sourceVersion{0};
-    quint64 generation{0};
+    u64 sourceVersion{0};
+    u64 generation{0};
     int columns{0};
     QVector<DisplayLine> rows;
 };
@@ -51,11 +51,11 @@ struct ViewportSnapshot
 // cancelled=true 表示被更高 generation 取代而提前终止。
 struct ReflowBatch
 {
-    quint64 sourceVersion{0};
-    quint64 generation{0};
-    qsizetype logicalStart{0};
-    qsizetype logicalProcessed{0};
-    qsizetype physicalRows{0};
+    u64 sourceVersion{0};
+    u64 generation{0};
+    isize logicalStart{0};
+    isize logicalProcessed{0};
+    isize physicalRows{0};
     QVector<DisplayLine> rows;
     bool completed{false};
     bool cancelled{false};
@@ -89,10 +89,10 @@ public:
      * @return 视口快照，包含至多 rowCount + trailingCache 行。
      */
     static ViewportSnapshot viewport(const ScrollbackSnapshot& snapshot,
-                                     LineId anchorLine, qsizetype wrapOffset,
-                                     int columns, qsizetype rowCount,
-                                     qsizetype trailingCache = 32,
-                                     quint64 generation = 0);
+                                     LineId anchorLine, isize wrapOffset,
+                                     int columns, isize rowCount,
+                                     isize trailingCache = 32,
+                                     u64 generation = 0);
 };
 
 // 历史重排引擎：在独立线程中对整个滚动历史执行完整 reflow，分批通过
@@ -113,8 +113,8 @@ public:
      * @param batchLines 单批最大逻辑行数。
      */
     void request(ScrollbackSnapshot snapshot, int columns,
-                 quint64 generation, qsizetype batchLines = 1024);
-    void cancel(quint64 generation);
+                 u64 generation, isize batchLines = 1024);
+    void cancel(u64 generation);
 
 signals:
     void batchReady(const NovaTerm::ReflowBatch& batch);

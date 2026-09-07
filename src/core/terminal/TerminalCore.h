@@ -39,8 +39,8 @@ public:
     // 一次输入写入的结果。backpressured=true 时调用方应暂停后续写入。
     struct InputWriteResult
     {
-        qsizetype requestedBytes{0};  // 调用方请求写入的字节数
-        qsizetype acceptedBytes{0};  // 实际进入队列的字节数
+        NovaTerm::isize requestedBytes{0};  // 调用方请求写入的字节数
+        NovaTerm::isize acceptedBytes{0};  // 实际进入队列的字节数
         bool backpressured{false};   // 是否已触发背压
 
         bool fullyAccepted() const
@@ -103,8 +103,8 @@ public:
     NovaTerm::RendererSnapshot rendererSnapshot(
         const QVector<bool>& dirtyRows, int scrollLine,
         NovaTerm::LineId anchorLine = 0,
-        qsizetype anchorWrap = 0) const;
-    quint64 modelRevision() const;
+        NovaTerm::isize anchorWrap = 0) const;
+    NovaTerm::u64 modelRevision() const;
     NovaTerm::CursorState cursorState() const;
     void flushDamage();
     void setDefaultColors(const NovaTerm::TerminalColor& foreground,
@@ -122,7 +122,7 @@ public:
      * @brief 异步搜索滚动历史。结果通过 searchResultsReady 信号分批返回。
      */
     void searchScrollback(NovaTerm::SearchRequest request);
-    void cancelSearch(quint64 generation);
+    void cancelSearch(NovaTerm::u64 generation);
 
     /**
      * @brief 请求滚动历史的 reflow（按新列数重新换行）。
@@ -131,9 +131,9 @@ public:
      * @param generation 生成代号；新请求会取消同 generation 的旧请求。
      * @param batchLines 每批处理的逻辑行数（默认 1024）。
      */
-    void requestScrollbackReflow(int columns, quint64 generation,
-                                 qsizetype batchLines = 1024);
-    void cancelScrollbackReflow(quint64 generation);
+    void requestScrollbackReflow(int columns, NovaTerm::u64 generation,
+                                 NovaTerm::isize batchLines = 1024);
+    void cancelScrollbackReflow(NovaTerm::u64 generation);
 
     NovaTerm::Position cursorPosition() const;
     bool cursorVisible() const;
@@ -151,7 +151,7 @@ signals:
     void bell();
     // revision 标识产生此半开 damage 区域的不可变模型发布。
     // 渲染器据此检测快照比已收到的 damage 更新，保守重建整帧。
-    void damage(const NovaTerm::DirtyRegion& region, quint64 revision);
+    void damage(const NovaTerm::DirtyRegion& region, NovaTerm::u64 revision);
     void cursorMoved();
     void scrollbackChanged();
     // 本次发布的活动屏幕上滚行数。与 scrollbackChanged 分离，因为后者

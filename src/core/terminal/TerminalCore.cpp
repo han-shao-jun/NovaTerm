@@ -32,20 +32,26 @@
 #include <utility>
 #include <vector>
 
+// TerminalCore/Runtime 处于全局命名空间，引入核心整数别名。
+using NovaTerm::isize;
+using NovaTerm::u64;
+using NovaTerm::u32;
+using NovaTerm::u8;
+
 namespace {
 
 // 解析队列总容量：8 MiB，足够吸收一次大批量 paste/cat 输出。
-constexpr qsizetype QueueCapacity = 8 * 1024 * 1024;
+constexpr isize QueueCapacity = 8 * 1024 * 1024;
 // 每次喂给 libvterm 的最大字节数；过大会延长单次模型锁持有时间。
-constexpr qsizetype ParserBatchSize = 64 * 1024;
+constexpr isize ParserBatchSize = 64 * 1024;
 // 高水位：队列填充至此触发背压，建议上游停止投递。
-constexpr qsizetype QueueHighWatermark = QueueCapacity * 3 / 4;
+constexpr isize QueueHighWatermark = QueueCapacity * 3 / 4;
 // 低水位：队列消费至此解除背压。
-constexpr qsizetype QueueLowWatermark = QueueCapacity / 2;
+constexpr isize QueueLowWatermark = QueueCapacity / 2;
 // 命令队列最大条目数，防止 GUI 线程失控时无限堆积。
 constexpr size_t MaximumPendingCommands = 4096;
 // 命令队列预估占用上限，与 QueueCapacity 对齐。
-constexpr qsizetype MaximumPendingCommandBytes = 8 * 1024 * 1024;
+constexpr isize MaximumPendingCommandBytes = 8 * 1024 * 1024;
 
 enum class CommandType
 {
@@ -84,10 +90,10 @@ struct ParserCommand
 // 计算一行 Cell 内容的 64 位身份哈希（FNV-1a 64-bit 变体）。
 // 渲染层用此哈希快速判断行内容是否变化，避免对未变行重做字形装配。
 // 仅用作"是否相同"的判定，不保证无碰撞；冲突时最坏退化为一次多余的渲染。
-quint64 rowContentIdentity(const NovaTerm::Cell* cells, int columns)
+u64 rowContentIdentity(const NovaTerm::Cell* cells, int columns)
 {
-    quint64 hash = 1469598103934665603ull;
-    const auto mix = [&hash](quint64 value) {
+    u64 hash = 1469598103934665603ull;
+    const auto mix = [&hash](u64 value) {
         hash ^= value;
         hash *= 1099511628211ull;
     };
@@ -96,30 +102,30 @@ quint64 rowContentIdentity(const NovaTerm::Cell* cells, int columns)
         for (uint32_t scalar : cell.chars)
             mix(scalar);
         mix(cell.width);
-        mix(quint8(cell.foreground.type));
+        mix(u8(cell.foreground.type));
         mix(cell.foreground.index);
         mix(cell.foreground.red | (cell.foreground.green << 8)
             | (cell.foreground.blue << 16));
-        mix(quint8(cell.background.type));
+        mix(u8(cell.background.type));
         mix(cell.background.index);
         mix(cell.background.red | (cell.background.green << 8)
             | (cell.background.blue << 16));
         const auto& a = cell.attributes;
-        quint64 attributes = quint64(a.bold)
-            | (quint64(a.underline) << 1)
-            | (quint64(a.italic) << 2)
-            | (quint64(a.blink) << 3)
-            | (quint64(a.reverse) << 4)
-            | (quint64(a.strike) << 5)
-            | (quint64(a.font) << 6)
-            | (quint64(a.dwl) << 7)
-            | (quint64(a.dhl) << 8)
-            | (quint64(a.smallFont) << 9)
-            | (quint64(a.baseline) << 10)
-            | (quint64(a.protectedCell) << 11)
-            | (quint64(a.dim) << 12)
-            | (quint64(a.conceal) << 13)
-            | (quint64(a.underlineStyle) << 14);
+        u64 attributes = u64(a.bold)
+            | (u64(a.underline) << 1)
+            | (u64(a.italic) << 2)
+            | (u64(a.blink) << 3)
+            | (u64(a.reverse) << 4)
+            | (u64(a.strike) << 5)
+            | (u64(a.font) << 6)
+            | (u64(a.dwl) << 7)
+            | (u64(a.dhl) << 8)
+            | (u64(a.smallFont) << 9)
+            | (u64(a.baseline) << 10)
+            | (u64(a.protectedCell) << 11)
+            | (u64(a.dim) << 12)
+            | (u64(a.conceal) << 13)
+            | (u64(a.underlineStyle) << 14);
         mix(attributes);
     }
     return hash;
@@ -158,12 +164,12 @@ public:
     {
         TerminalCore::InputWriteResult result;
         result.requestedBytes = data.size();
-        qsizetype offset = 0;
+        isize offset = 0;
         while (offset < data.size()
                && accepting.load(std::memory_order_acquire)) {
-            const qsizetype length =
-                std::min<qsizetype>(ParserBatchSize, data.size() - offset);
-            qsizetype queuedBytes = 0;
+            const isize length =
+                std::min<isize>(ParserBatchSize, data.size() - offset);
+            isize queuedBytes = 0;
             if (!bytes.enqueue(data.sliced(offset, length), 0,
                                &queuedBytes)) {
                 setBackpressure(true);
@@ -189,9 +195,9 @@ public:
         // 仅当 completedBytes >= byteBarrier 时才执行本命令，从而保证
         // 命令在它之前提交的字节流之后被处理。
         command.byteBarrier = submittedBytes.load(std::memory_order_acquire);
-        const qsizetype commandBytes =
-            qsizetype(sizeof(ParserCommand))
-            + command.text.size() * qsizetype(sizeof(QChar));
+        const isize commandBytes =
+            isize(sizeof(ParserCommand))
+            + command.text.size() * isize(sizeof(QChar));
 
         // 同类型状态命令在队尾合并：只保留最新值，避免连续 resize 或
         // flush 命令在队列中堆积。键盘/鼠标命令不合并（顺序敏感）。
@@ -220,10 +226,10 @@ public:
         return true;
     }
 
-    static qsizetype estimatedCommandBytes(const ParserCommand& command)
+    static isize estimatedCommandBytes(const ParserCommand& command)
     {
-        return qsizetype(sizeof(ParserCommand))
-            + command.text.size() * qsizetype(sizeof(QChar));
+        return isize(sizeof(ParserCommand))
+            + command.text.size() * isize(sizeof(QChar));
     }
 
     bool waitForIdle(int timeoutMs) const
@@ -305,7 +311,7 @@ public:
     {
         NovaTerm::VTAdapter::Observer observer;
         observer.output = [this](QByteArrayView data) {
-            constexpr qsizetype OutputBatchSize = 64 * 1024;
+            constexpr isize OutputBatchSize = 64 * 1024;
             if (pendingOutput.isEmpty()
                 || pendingOutput.back().size() + data.size() > OutputBatchSize) {
                 pendingOutput.push_back(QByteArray(data.data(), data.size()));
@@ -433,7 +439,7 @@ public:
         const int screenScrollRows = std::exchange(pendingScreenScrollRows, 0);
         QVector<QByteArray> output;
         output.swap(pendingOutput);
-        const quint64 revisionValue = std::exchange(pendingRevision, 0);
+        const u64 revisionValue = std::exchange(pendingRevision, 0);
 
         if (damageValue.isEmpty() && !cursorValue && !titleValue && !bellValue
             && !scrollbackValue && screenScrollRows == 0 && output.isEmpty()) {
@@ -502,14 +508,14 @@ public:
     ScrollbackBuffer scrollback;
     NovaTerm::CursorState cursor;
     QString currentTitle;
-    quint64 modelRevision{0};
-    quint64 pendingRevision{0};
-    QVector<quint64> rowRevisions;
+    u64 modelRevision{0};
+    u64 pendingRevision{0};
+    QVector<u64> rowRevisions;
 
     NovaTerm::BoundedByteQueue bytes;
     mutable QMutex commandMutex;
     std::deque<ParserCommand> commands;
-    qsizetype pendingCommandBytes{0};
+    isize pendingCommandBytes{0};
 
     mutable QMutex completionMutex;
     mutable QWaitCondition completionChanged;
@@ -743,7 +749,7 @@ NovaTerm::TerminalSnapshot TerminalCore::snapshot() const
 
 NovaTerm::RendererSnapshot TerminalCore::rendererSnapshot(
     const QVector<bool>& dirtyRows, int scrollLine,
-    NovaTerm::LineId anchorLine, qsizetype anchorWrap) const
+    NovaTerm::LineId anchorLine, isize anchorWrap) const
 {
     QMutexLocker locker(&_runtime->modelMutex);
     NovaTerm::RendererSnapshot snapshot;
@@ -769,12 +775,12 @@ NovaTerm::RendererSnapshot TerminalCore::rendererSnapshot(
     if (!history.empty()) {
         const NovaTerm::LogicalLine* anchor = anchorLine != 0
             ? history.lineById(anchorLine)
-            : history.lineAt(std::max<qsizetype>(
+            : history.lineAt(std::max<isize>(
                   0, history.lineCount() - scrollLine));
         if (anchor) {
             historyViewport = NovaTerm::LineLayout::viewport(
                 history, anchor->id, anchorWrap, snapshot.columns,
-                std::min<qsizetype>(scrollLine, snapshot.rows), 0,
+                std::min<isize>(scrollLine, snapshot.rows), 0,
                 history.version());
         }
     }
@@ -803,7 +809,7 @@ NovaTerm::RendererSnapshot TerminalCore::rendererSnapshot(
                 const auto& display = historyViewport.rows[widgetRow];
                 const auto* logical = history.lineById(display.lineId);
                 if (logical) {
-                    const qsizetype count = std::min<qsizetype>(
+                    const isize count = std::min<isize>(
                         snapshot.columns, display.endCell - display.startCell);
                     std::copy_n(logical->cells.cbegin() + display.startCell,
                                 count, destination.begin());
@@ -827,7 +833,7 @@ NovaTerm::RendererSnapshot TerminalCore::rendererSnapshot(
     return snapshot;
 }
 
-quint64 TerminalCore::modelRevision() const
+u64 TerminalCore::modelRevision() const
 {
     QMutexLocker locker(&_runtime->modelMutex);
     return _runtime->modelRevision;
@@ -906,19 +912,19 @@ void TerminalCore::searchScrollback(NovaTerm::SearchRequest request)
     _searchEngine->search(scrollbackSnapshot(), std::move(request));
 }
 
-void TerminalCore::cancelSearch(quint64 generation)
+void TerminalCore::cancelSearch(u64 generation)
 {
     _searchEngine->cancel(generation);
 }
 
-void TerminalCore::requestScrollbackReflow(int columns, quint64 generation,
-                                           qsizetype batchLines)
+void TerminalCore::requestScrollbackReflow(int columns, u64 generation,
+                                           isize batchLines)
 {
     _reflowEngine->request(scrollbackSnapshot(), columns, generation,
                            batchLines);
 }
 
-void TerminalCore::cancelScrollbackReflow(quint64 generation)
+void TerminalCore::cancelScrollbackReflow(u64 generation)
 {
     _reflowEngine->cancel(generation);
 }

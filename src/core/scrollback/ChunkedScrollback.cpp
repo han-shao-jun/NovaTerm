@@ -17,18 +17,18 @@ namespace NovaTerm {
 
 namespace {
 // 每个 ScrollbackChunk 的分配器/控制块固定开销估算。
-constexpr qsizetype ChunkAllocationOverhead = 64;
+constexpr isize ChunkAllocationOverhead = 64;
 }
 
-ChunkedScrollback::ChunkedScrollback(qsizetype maxLines, qsizetype maxBytes,
-                                     qsizetype chunkLines)
-    : _maxLines(std::clamp<qsizetype>(maxLines, 0, MaximumMaxLines))
-    , _maxBytes(std::max<qsizetype>(0, maxBytes))
-    , _chunkLines(std::max<qsizetype>(1, chunkLines))
+ChunkedScrollback::ChunkedScrollback(isize maxLines, isize maxBytes,
+                                     isize chunkLines)
+    : _maxLines(std::clamp<isize>(maxLines, 0, MaximumMaxLines))
+    , _maxBytes(std::max<isize>(0, maxBytes))
+    , _chunkLines(std::max<isize>(1, chunkLines))
 {
 }
 
-qsizetype ChunkedScrollback::lineBytes(const LogicalLine& line)
+isize ChunkedScrollback::lineBytes(const LogicalLine& line)
 {
     return line.byteSize();
 }
@@ -54,7 +54,7 @@ LineId ChunkedScrollback::append(LogicalLine line)
     const LineId id = line.id;
 
     ensureActive();
-    const qsizetype bytes = lineBytes(line);
+    const isize bytes = lineBytes(line);
     _cellCount += line.cells.size();
     _lineCount++;
     _activeBytes += bytes;
@@ -77,12 +77,12 @@ LineId ChunkedScrollback::appendContinuation(LogicalLine fragment)
     if (_lineCount == 0 || !makeNewestLineWritable())
         return append(std::move(fragment));
 
-    const qsizetype addedCells = fragment.cells.size();
+    const isize addedCells = fragment.cells.size();
     LogicalLine& line = _active->lines.last();
-    const qsizetype before = lineBytes(line);
+    const isize before = lineBytes(line);
     line.cells += fragment.cells;
     line.hardBreak = fragment.hardBreak;
-    const qsizetype delta = lineBytes(line) - before;
+    const isize delta = lineBytes(line) - before;
     _activeBytes += delta;
     _effectiveBytes += delta;
     const LineId id = line.id;
@@ -93,7 +93,7 @@ LineId ChunkedScrollback::appendContinuation(LogicalLine fragment)
     return id;
 }
 
-LineId ChunkedScrollback::append(const Cell* cells, qsizetype columns,
+LineId ChunkedScrollback::append(const Cell* cells, isize columns,
                                  bool hardBreak)
 {
     LogicalLine line;
@@ -117,20 +117,20 @@ void ChunkedScrollback::sealActive()
     }
     // active 头部已被淘汰的行仍占用 lines 数组，封存时需把它们的
     // 字节从分块有效字节数中扣除，避免统计虚高。
-    const qsizetype skippedBytes = [&]() {
-        qsizetype value = 0;
-        for (qsizetype i = 0; i < _activeFirstLine; ++i)
+    const isize skippedBytes = [&]() {
+        isize value = 0;
+        for (isize i = 0; i < _activeFirstLine; ++i)
             value += lineBytes(_active->lines[i]);
         return value;
     }();
-    const qsizetype firstLine = _activeFirstLine;
+    const isize firstLine = _activeFirstLine;
     ScrollbackChunkPtr sealed = sealChunk(std::move(_active));
     StoredChunk stored;
     stored.chunk = sealed;
     stored.firstLine = firstLine;
     stored.lineCount = sealed->lines.size() - firstLine;
-    stored.effectiveBytes = qsizetype(sealed->byteSize
-                                      - qsizetype(sizeof(ScrollbackChunk))
+    stored.effectiveBytes = isize(sealed->byteSize
+                                      - isize(sizeof(ScrollbackChunk))
                                       - ChunkAllocationOverhead
                                       - skippedBytes);
     _chunks.push_back(std::move(stored));
@@ -151,7 +151,7 @@ bool ChunkedScrollback::makeNewestLineWritable()
         return false;
     const LogicalLine& newest =
         stored.chunk->lines[stored.firstLine + stored.lineCount - 1];
-    const qsizetype movedBytes = lineBytes(newest);
+    const isize movedBytes = lineBytes(newest);
 
     // 只复制这一行；ensureActive 可能新分配一个 active 块并计入固定开销。
     ensureActive();
@@ -201,7 +201,7 @@ void ChunkedScrollback::evictOldest()
         return;
 
     bool evicted = false;
-    qsizetype oldestCellCount = 0;
+    isize oldestCellCount = 0;
     if (!_chunks.empty()) {
         StoredChunk& stored = _chunks.front();
         oldestCellCount = stored.chunk->lines[stored.firstLine].cells.size();
@@ -240,10 +240,10 @@ void ChunkedScrollback::enforceLimits()
 namespace {
 
 // 从 line 尾部取走至多 cellCount 个 Cell 到 out，返回实际取走的数量。
-qsizetype takeTailCells(LogicalLine& line, qsizetype cellCount,
+isize takeTailCells(LogicalLine& line, isize cellCount,
                         LogicalLine& out)
 {
-    const qsizetype take = std::min(cellCount, qsizetype(line.cells.size()));
+    const isize take = std::min(cellCount, isize(line.cells.size()));
     if (take <= 0)
         return 0;
     out.id = line.id;
@@ -257,7 +257,7 @@ qsizetype takeTailCells(LogicalLine& line, qsizetype cellCount,
 
 } // namespace
 
-bool ChunkedScrollback::takeNewestTail(qsizetype cellCount, LogicalLine& out)
+bool ChunkedScrollback::takeNewestTail(isize cellCount, LogicalLine& out)
 {
     if (_lineCount == 0 || cellCount <= 0)
         return false;
@@ -266,8 +266,8 @@ bool ChunkedScrollback::takeNewestTail(qsizetype cellCount, LogicalLine& out)
         return false;
 
     LogicalLine& line = _active->lines.last();
-    const qsizetype before = lineBytes(line);
-    const qsizetype taken = takeTailCells(line, cellCount, out);
+    const isize before = lineBytes(line);
+    const isize taken = takeTailCells(line, cellCount, out);
     if (taken == 0)
         return false;
     _cellCount -= taken;
@@ -284,7 +284,7 @@ bool ChunkedScrollback::takeNewestTail(qsizetype cellCount, LogicalLine& out)
             _activeBytes = 0;
         }
     } else {
-        const qsizetype delta = lineBytes(line) - before;
+        const isize delta = lineBytes(line) - before;
         _activeBytes += delta;
         _effectiveBytes += delta;
     }
@@ -307,10 +307,10 @@ void ChunkedScrollback::clear()
     ++_version;
 }
 
-void ChunkedScrollback::setLimits(qsizetype maxLines, qsizetype maxBytes)
+void ChunkedScrollback::setLimits(isize maxLines, isize maxBytes)
 {
-    _maxLines = std::clamp<qsizetype>(maxLines, 0, MaximumMaxLines);
-    _maxBytes = std::max<qsizetype>(0, maxBytes);
+    _maxLines = std::clamp<isize>(maxLines, 0, MaximumMaxLines);
+    _maxBytes = std::max<isize>(0, maxBytes);
     enforceLimits();
 }
 
@@ -322,8 +322,8 @@ ScrollbackSnapshot ChunkedScrollback::snapshot()
     ScrollbackSnapshot result;
     result._version = _version;
     result._lineCount = _lineCount;
-    result._chunks.reserve(qsizetype(_chunks.size()));
-    qsizetype documentStart = 0;
+    result._chunks.reserve(isize(_chunks.size()));
+    isize documentStart = 0;
     for (const StoredChunk& stored : _chunks) {
         if (stored.lineCount <= 0)
             continue;
@@ -338,7 +338,7 @@ ScrollbackSnapshot ChunkedScrollback::snapshot()
     return result;
 }
 
-const LogicalLine* ChunkedScrollback::lineAt(qsizetype index) const
+const LogicalLine* ChunkedScrollback::lineAt(isize index) const
 {
     if (index < 0 || index >= _lineCount)
         return nullptr;
@@ -372,7 +372,7 @@ ScrollbackStatistics ChunkedScrollback::statistics() const
     result.logicalLines = _lineCount;
     result.logicalCells = _cellCount;
     result.effectiveBytes = _effectiveBytes;
-    result.sealedChunks = qsizetype(_chunks.size());
+    result.sealedChunks = isize(_chunks.size());
     result.activeLines = _active
         ? _active->lines.size() - _activeFirstLine : 0;
     result.evictedLines = _evictedLines;

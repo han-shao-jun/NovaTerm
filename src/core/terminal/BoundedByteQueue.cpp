@@ -15,14 +15,14 @@
 
 namespace NovaTerm {
 
-BoundedByteQueue::BoundedByteQueue(qsizetype capacityBytes)
+BoundedByteQueue::BoundedByteQueue(isize capacityBytes)
     // Qt::Uninitialized 避免无谓的 0 填充，容量下限 1 字节。
-    : _storage(std::max<qsizetype>(1, capacityBytes), Qt::Uninitialized)
+    : _storage(std::max<isize>(1, capacityBytes), Qt::Uninitialized)
 {
 }
 
 bool BoundedByteQueue::enqueue(QByteArrayView data, int timeoutMs,
-                               qsizetype* queuedBytesAfter)
+                               isize* queuedBytesAfter)
 {
     // 空数据视为成功入队，仅返回当前字节数。
     if (data.isEmpty()) {
@@ -61,7 +61,7 @@ bool BoundedByteQueue::enqueue(QByteArrayView data, int timeoutMs,
     return true;
 }
 
-QByteArray BoundedByteQueue::take(qsizetype maxBytes, int timeoutMs)
+QByteArray BoundedByteQueue::take(isize maxBytes, int timeoutMs)
 {
     if (maxBytes <= 0)
         return {};
@@ -78,7 +78,7 @@ QByteArray BoundedByteQueue::take(qsizetype maxBytes, int timeoutMs)
         return {};
 
     // 最多取出请求量与当前队列内容中的较小值。
-    const qsizetype length = std::min(maxBytes, _size);
+    const isize length = std::min(maxBytes, _size);
     QByteArray result(length, Qt::Uninitialized);
     copyFromRing(result.data(), length);
     _size -= length;
@@ -109,29 +109,29 @@ BoundedByteQueue::Statistics BoundedByteQueue::statistics() const
             _totalDequeued, _producerWaits};
 }
 
-qsizetype BoundedByteQueue::writableBytes() const
+isize BoundedByteQueue::writableBytes() const
 {
     return _storage.size() - _size;
 }
 
-void BoundedByteQueue::copyIntoRing(const char* source, qsizetype length)
+void BoundedByteQueue::copyIntoRing(const char* source, isize length)
 {
     // 第一段：从 _tail 到数组末尾能写入的部分。
-    const qsizetype first = std::min(length, _storage.size() - _tail);
+    const isize first = std::min(length, _storage.size() - _tail);
     std::memcpy(_storage.data() + _tail, source, size_t(first));
     // 第二段：剩余部分回绕到数组开头。
-    const qsizetype second = length - first;
+    const isize second = length - first;
     if (second > 0)
         std::memcpy(_storage.data(), source + first, size_t(second));
     _tail = (_tail + length) % _storage.size();
 }
 
-void BoundedByteQueue::copyFromRing(char* destination, qsizetype length)
+void BoundedByteQueue::copyFromRing(char* destination, isize length)
 {
     // 与 copyIntoRing 对称：先读 _head 到末尾，再回绕读剩余部分。
-    const qsizetype first = std::min(length, _storage.size() - _head);
+    const isize first = std::min(length, _storage.size() - _head);
     std::memcpy(destination, _storage.constData() + _head, size_t(first));
-    const qsizetype second = length - first;
+    const isize second = length - first;
     if (second > 0)
         std::memcpy(destination + first, _storage.constData(), size_t(second));
     _head = (_head + length) % _storage.size();

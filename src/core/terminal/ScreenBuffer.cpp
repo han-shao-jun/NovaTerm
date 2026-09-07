@@ -32,7 +32,7 @@ void ScreenBuffer::resize(int columns, int rows)
     // 软换行标志按与 Cell 相同的重叠规则保留；新增行默认非延续。resize 后
     // VTAdapter 会立即重读整屏 lineinfo 覆盖这里的保留值，保留仅用于避免
     // 中间态出现越界或陈旧长度。
-    QVector<quint8> resizedContinuation(rows, 0);
+    QVector<u8> resizedContinuation(rows, 0);
     for (int row = 0; row < copyRows; ++row)
         resizedContinuation[row] = _rowContinuation[row];
 
@@ -109,7 +109,7 @@ void ScreenBuffer::moveRect(const DirtyRegion& destination,
 void ScreenBuffer::clear()
 {
     std::fill(_cells.begin(), _cells.end(), Cell{});
-    std::fill(_rowContinuation.begin(), _rowContinuation.end(), quint8(0));
+    std::fill(_rowContinuation.begin(), _rowContinuation.end(), u8(0));
 }
 
 int ScreenBuffer::indexOf(int row, int column) const

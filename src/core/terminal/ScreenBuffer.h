@@ -56,15 +56,15 @@ private:
     int _columns{0};
     int _rows{0};
     QVector<Cell> _cells;
-    // 每行一位软换行标志，长度恒等于 _rows。用 quint8 而非 bool，避免
+    // 每行一位软换行标志，长度恒等于 _rows。用 u8 而非 bool，避免
     // QVector<bool> 位压缩带来的读写开销。
-    QVector<quint8> _rowContinuation;
+    QVector<u8> _rowContinuation;
 };
 
 // 终端快照：包含可见区域全部 Cell 与光标状态。用于测试与一次性渲染。
 struct TerminalSnapshot
 {
-    quint64 revision{0};   // 模型版本号，标识此次发布的不可变性
+    u64 revision{0};   // 模型版本号，标识此次发布的不可变性
     int columns{0};
     int rows{0};
     QVector<Cell> visibleCells;
@@ -77,13 +77,13 @@ struct TerminalSnapshot
 // 与滚动映射在一次模型锁内完成，保证单帧不会混合不同历史版本。
 struct RendererSnapshot
 {
-    quint64 revision{0};
+    u64 revision{0};
     int columns{0};
     int rows{0};
-    QVector<quint64> visibleRowRevisions;
+    QVector<u64> visibleRowRevisions;
     // 行内容指纹（在模型锁内计算）。渲染器据此判断行是否可复用，
     // 而无需把可变数组下标当作身份标识。
-    QVector<quint64> visibleRowIdentities;
+    QVector<u64> visibleRowIdentities;
     QVector<QSharedPointer<const QVector<Cell>>> visibleRows;
     CursorState cursor;
 

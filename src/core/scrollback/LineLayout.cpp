@@ -38,13 +38,13 @@ QVector<DisplayLine> LineLayout::wrapLine(
     // 超长逻辑行在此截断。上限放在 wrapLine 而不是调用方，使每帧的
     // viewport 与 worker 上的 ReflowEngine 得到一致行为 —— 旧实现只在
     // ReflowEngine 里抛异常，渲染路径无上限。
-    const qsizetype cellLimit =
-        std::min<qsizetype>(line.cells.size(), MaxWrapCells);
+    const isize cellLimit =
+        std::min<isize>(line.cells.size(), MaxWrapCells);
 
-    qsizetype start = 0;
-    qsizetype wrap = 0;
+    isize start = 0;
+    isize wrap = 0;
     while (start < cellLimit) {
-        qsizetype end = start;
+        isize end = start;
         int used = 0;
         // 在一行内填充 Cell，直到塞满 columns 列或行尾。
         while (end < cellLimit) {
@@ -84,10 +84,10 @@ QVector<DisplayLine> LineLayout::wrapLine(
 }
 
 ViewportSnapshot LineLayout::viewport(const ScrollbackSnapshot& snapshot,
-                                      LineId anchorLine, qsizetype wrapOffset,
-                                      int columns, qsizetype rowCount,
-                                      qsizetype trailingCache,
-                                      quint64 generation)
+                                      LineId anchorLine, isize wrapOffset,
+                                      int columns, isize rowCount,
+                                      isize trailingCache,
+                                      u64 generation)
 {
     ViewportSnapshot result;
     result.sourceVersion = snapshot.version();
@@ -98,11 +98,11 @@ ViewportSnapshot LineLayout::viewport(const ScrollbackSnapshot& snapshot,
 
     // 把 anchorLine 折算为行号；未命中时按 ID 落在快照区间之前/之后
     // 退化为首行/末行。
-    qsizetype row = snapshot.rowForLineId(anchorLine);
+    isize row = snapshot.rowForLineId(anchorLine);
     if (row < 0)
         row = anchorLine < snapshot.firstLineId() ? 0
                                                   : snapshot.lineCount() - 1;
-    const qsizetype wanted = rowCount + std::max<qsizetype>(0, trailingCache);
+    const isize wanted = rowCount + std::max<isize>(0, trailingCache);
     for (; row < snapshot.lineCount() && result.rows.size() < wanted; ++row) {
         const LogicalLine* logical = snapshot.lineAt(row);
         if (!logical)
@@ -110,9 +110,9 @@ ViewportSnapshot LineLayout::viewport(const ScrollbackSnapshot& snapshot,
         QVector<DisplayLine> wrapped = wrapLine(*logical, result.columns);
         // anchorLine 起始行可能从 wrapOffset 开始（用于精确还原滚动位置），
         // 其他行从 wrapIndex=0 开始。
-        qsizetype first = logical->id == anchorLine
-            ? std::clamp<qsizetype>(wrapOffset, 0,
-                                    std::max<qsizetype>(0, wrapped.size() - 1))
+        isize first = logical->id == anchorLine
+            ? std::clamp<isize>(wrapOffset, 0,
+                                    std::max<isize>(0, wrapped.size() - 1))
             : 0;
         for (; first < wrapped.size() && result.rows.size() < wanted; ++first)
             result.rows.push_back(wrapped[first]);
@@ -127,8 +127,8 @@ public:
     {
         ScrollbackSnapshot snapshot;
         int columns{0};
-        quint64 generation{0};
-        qsizetype batchLines{1024};
+        u64 generation{0};
+        isize batchLines{1024};
     };
 
     explicit Impl(ReflowEngine* owner) : owner(owner)
@@ -144,7 +144,7 @@ public:
             pending.reset();
         }
         // 取消所有可能代际，唤醒 worker 后立即退出。
-        cancelledGeneration.store(std::numeric_limits<quint64>::max());
+        cancelledGeneration.store(std::numeric_limits<u64>::max());
         changed.notify_one();
         if (worker.joinable())
             worker.join();
@@ -154,7 +154,7 @@ public:
     {
         {
             std::lock_guard<std::mutex> lock(mutex);
-            const quint64 latest = latestGeneration.load();
+            const u64 latest = latestGeneration.load();
             // 旧 generation 请求直接丢弃，保证 pending 中始终是最新请求。
             if (latest != 0 && value.generation <= latest)
                 return;
@@ -164,15 +164,15 @@ public:
         changed.notify_one();
     }
 
-    void cancel(quint64 generation)
+    void cancel(u64 generation)
     {
-        quint64 current = cancelledGeneration.load();
+        u64 current = cancelledGeneration.load();
         while (current < generation
                && !cancelledGeneration.compare_exchange_weak(current,
                                                                generation)) {}
     }
 
-    bool isCancelled(quint64 generation) const
+    bool isCancelled(u64 generation) const
     {
         return stopping.load()
             || generation < latestGeneration.load()
@@ -206,13 +206,13 @@ public:
                 pending.reset();
             }
             try {
-              qsizetype physicalRows = 0;
-              for (qsizetype start = 0;
+              isize physicalRows = 0;
+              for (isize start = 0;
                    start < request.snapshot.lineCount();) {
-                const qsizetype end = std::min(
+                const isize end = std::min(
                     request.snapshot.lineCount(), start + request.batchLines);
                 QVector<DisplayLine> batchRows;
-                for (qsizetype row = start; row < end; ++row) {
+                for (isize row = start; row < end; ++row) {
                     if (isCancelled(request.generation)) {
                         emitBatch({request.snapshot.version(),
                                    request.generation, start, row - start,
@@ -267,8 +267,8 @@ public:
     std::mutex mutex;
     std::condition_variable changed;
     std::optional<Request> pending;
-    std::atomic<quint64> cancelledGeneration{0};
-    std::atomic<quint64> latestGeneration{0};
+    std::atomic<u64> cancelledGeneration{0};
+    std::atomic<u64> latestGeneration{0};
     std::atomic<bool> stopping{false};
     std::thread worker;
 };
@@ -282,13 +282,13 @@ ReflowEngine::ReflowEngine(QObject* parent)
 ReflowEngine::~ReflowEngine() = default;
 
 void ReflowEngine::request(ScrollbackSnapshot snapshot, int columns,
-                           quint64 generation, qsizetype batchLines)
+                           u64 generation, isize batchLines)
 {
     _impl->submit({std::move(snapshot), std::max(1, columns), generation,
-                   std::max<qsizetype>(1, batchLines)});
+                   std::max<isize>(1, batchLines)});
 }
 
-void ReflowEngine::cancel(quint64 generation)
+void ReflowEngine::cancel(u64 generation)
 {
     _impl->cancel(generation);
 }

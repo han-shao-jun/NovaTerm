@@ -8,6 +8,8 @@
  */
 #pragma once
 
+#include "core/CoreTypes.h"
+
 #include <QByteArray>
 #include <QByteArrayView>
 #include <QMutex>
@@ -24,9 +26,9 @@ public:
     // 队列统计快照，用于诊断背压与吞吐。
     struct Statistics
     {
-        qsizetype capacity{0};       // 队列总容量（字节）
-        qsizetype queuedBytes{0};    // 当前已入队字节数
-        qsizetype highWatermark{0};  // 历史最高水位（字节）
+        isize capacity{0};       // 队列总容量（字节）
+        isize queuedBytes{0};    // 当前已入队字节数
+        isize highWatermark{0};  // 历史最高水位（字节）
         uint64_t totalEnqueued{0};  // 累计入队字节
         uint64_t totalDequeued{0};  // 累计出队字节
         uint64_t producerWaits{0};  // 生产者因队列满而等待的次数
@@ -36,7 +38,7 @@ public:
      * @brief 构造有界字节队列。
      * @param capacityBytes 队列容量，默认 8 MiB。
      */
-    explicit BoundedByteQueue(qsizetype capacityBytes = 8 * 1024 * 1024);
+    explicit BoundedByteQueue(isize capacityBytes = 8 * 1024 * 1024);
 
     /**
      * @brief 入队字节序列（生产者接口）。
@@ -46,7 +48,7 @@ public:
      * @return true 表示全部入队成功；false 表示超时、stop() 被调用或单次入队超过容量。
      */
     bool enqueue(QByteArrayView data, int timeoutMs = -1,
-                 qsizetype* queuedBytesAfter = nullptr);
+                 isize* queuedBytesAfter = nullptr);
 
     /**
      * @brief 出队最多 maxBytes 字节（消费者接口）。
@@ -54,7 +56,7 @@ public:
      * @param timeoutMs 等待队列非空的超时（毫秒），-1 表示无限等待。
      * @return 取出的字节序列；超时或 stop() 后返回空 QByteArray。
      */
-    QByteArray take(qsizetype maxBytes, int timeoutMs = -1);
+    QByteArray take(isize maxBytes, int timeoutMs = -1);
 
     /**
      * @brief 唤醒所有等待方并标记队列已停止。
@@ -66,20 +68,20 @@ public:
     Statistics statistics() const;
 
 private:
-    qsizetype writableBytes() const;
+    isize writableBytes() const;
     // 环形写入：当尾部到数组末尾时回绕到开头。
-    void copyIntoRing(const char* source, qsizetype length);
+    void copyIntoRing(const char* source, isize length);
     // 环形读取：当头部到数组末尾时回绕到开头。
-    void copyFromRing(char* destination, qsizetype length);
+    void copyFromRing(char* destination, isize length);
 
     mutable QMutex _mutex;
     QWaitCondition _notEmpty;  // 队列由空变为非空时唤醒消费者
     QWaitCondition _notFull;   // 队列由满变为非满时唤醒生产者
     QByteArray _storage;       // 固定容量后端存储
-    qsizetype _head{0};        // 下一个出队位置（消费者读指针）
-    qsizetype _tail{0};        // 下一个入队位置（生产者写指针）
-    qsizetype _size{0};        // 当前队列有效字节数
-    qsizetype _highWatermark{0};
+    isize _head{0};        // 下一个出队位置（消费者读指针）
+    isize _tail{0};        // 下一个入队位置（生产者写指针）
+    isize _size{0};        // 当前队列有效字节数
+    isize _highWatermark{0};
     uint64_t _totalEnqueued{0};
     uint64_t _totalDequeued{0};
     uint64_t _producerWaits{0};

@@ -13,7 +13,7 @@ namespace NovaTerm {
  * @param chunk 待估算的分块。
  * @return 字节估算值，作为容量上限而非 RSS 实测值。
  */
-qsizetype estimateChunkBytes(const ScrollbackChunk& chunk);
+isize estimateChunkBytes(const ScrollbackChunk& chunk);
 
 /**
  * @brief 封存分块：计算字节数并标记为不可变，转为 const 共享指针。

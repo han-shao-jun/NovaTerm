@@ -10,6 +10,9 @@
 #include <algorithm>
 #include <utility>
 
+// ScrollbackBuffer 处于全局命名空间，引入核心整数别名。
+using NovaTerm::isize;
+
 ScrollbackBuffer::ScrollbackBuffer(int maxLines)
     : _storage(std::max(0, maxLines),
                NovaTerm::ChunkedScrollback::DefaultMaxBytes)
@@ -64,9 +67,9 @@ bool ScrollbackBuffer::popLine(NovaTerm::Cell* cells, int cols)
 
     // 该逻辑行是按 cols 折行存入的：除末行外每段恰好 cols 格，因此末行长度
     // 为 total % cols，整除时说明末行也是满行。
-    const qsizetype total = newest->cells.size();
-    const qsizetype remainder = total % cols;
-    const qsizetype rowCells = remainder == 0 ? qsizetype(cols) : remainder;
+    const isize total = newest->cells.size();
+    const isize remainder = total % cols;
+    const isize rowCells = remainder == 0 ? isize(cols) : remainder;
 
     NovaTerm::LogicalLine row;
     if (!_storage.takeNewestTail(rowCells, row))

@@ -31,31 +31,31 @@ struct SearchRequest
     LineId firstLine{0};
     LineId lastLine{0};
     // 搜索代际：调用方递增分配。引擎据此判断搜索是否已被新搜索取代。
-    quint64 generation{0};
+    u64 generation{0};
     // 单批次最大命中数，达到后即先发布一批。
-    qsizetype resultBatchSize{128};
+    isize resultBatchSize{128};
     // 命中总数上限，达到后停止扫描，防止超长输出撑爆 UI。
-    qsizetype maximumResults{100'000};
+    isize maximumResults{100'000};
 };
 
 // 一次命中。坐标以 Cell 为单位，便于 UI 直接高亮。
 struct SearchMatch
 {
     LineId lineId{0};
-    qsizetype startCell{0};
-    qsizetype endCell{0};
+    isize startCell{0};
+    isize endCell{0};
 };
 
 // 一批搜索结果。completed=true 表示搜索已结束（无论是否扫完）。
 // cancelled=true 表示被更高 generation 的搜索取代而提前终止。
 struct SearchBatch
 {
-    quint64 generation{0};
+    u64 generation{0};
     // 触发搜索时的 ScrollbackSnapshot 版本，UI 可据此丢弃过期结果。
-    quint64 sourceVersion{0};
+    u64 sourceVersion{0};
     QVector<SearchMatch> matches;
-    qsizetype scannedLines{0};
-    qsizetype totalLines{0};
+    isize scannedLines{0};
+    isize totalLines{0};
     bool completed{false};
     bool cancelled{false};
     QString error;
@@ -82,7 +82,7 @@ public:
      *        worker 线程在下一个检查点检测到后立即终止并发布 cancelled 批次。
      * @param generation 取消代际。
      */
-    void cancel(quint64 generation);
+    void cancel(u64 generation);
 
 signals:
     void resultsReady(const NovaTerm::SearchBatch& batch);

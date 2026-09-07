@@ -21,14 +21,14 @@ namespace NovaTerm {
 class ChunkedScrollback
 {
 public:
-    static constexpr qsizetype DefaultChunkLines = 1024;
-    static constexpr qsizetype DefaultMaxLines = 100'000;
-    static constexpr qsizetype MaximumMaxLines = 1'000'000;
-    static constexpr qsizetype DefaultMaxBytes = 256 * 1024 * 1024;
+    static constexpr isize DefaultChunkLines = 1024;
+    static constexpr isize DefaultMaxLines = 100'000;
+    static constexpr isize MaximumMaxLines = 1'000'000;
+    static constexpr isize DefaultMaxBytes = 256 * 1024 * 1024;
 
-    explicit ChunkedScrollback(qsizetype maxLines = DefaultMaxLines,
-                               qsizetype maxBytes = DefaultMaxBytes,
-                               qsizetype chunkLines = DefaultChunkLines);
+    explicit ChunkedScrollback(isize maxLines = DefaultMaxLines,
+                               isize maxBytes = DefaultMaxBytes,
+                               isize chunkLines = DefaultChunkLines);
 
     /**
      * @brief 追加一个独立逻辑行（hardBreak=true）。
@@ -49,7 +49,7 @@ public:
      * @param hardBreak 是否硬换行结尾。
      * @return 该行的 LineId。
      */
-    LineId append(const Cell* cells, qsizetype columns,
+    LineId append(const Cell* cells, isize columns,
                   bool hardBreak = true);
 
     /**
@@ -63,7 +63,7 @@ public:
      *        hardBreak 置为 false（尾段已回到活动屏幕，该逻辑行在历史里
      *        不再以硬换行结尾）。整行被取空时该行被移除。
      */
-    bool takeNewestTail(qsizetype cellCount, LogicalLine& out);
+    bool takeNewestTail(isize cellCount, LogicalLine& out);
 
     /**
      * @brief 显式封存当前 active 块并提交版本。
@@ -77,17 +77,17 @@ public:
     // 不复制任何历史 Cell 数据。后续追加只影响新的 active 块，
     // 已发出的快照保持对应版本数据不变。
     ScrollbackSnapshot snapshot();
-    const LogicalLine* lineAt(qsizetype index) const;
-    qsizetype lineCount() const { return _lineCount; }
-    qsizetype maxLines() const { return _maxLines; }
-    qsizetype maxBytes() const { return _maxBytes; }
-    qsizetype chunkLines() const { return _chunkLines; }
-    quint64 version() const { return _version; }
+    const LogicalLine* lineAt(isize index) const;
+    isize lineCount() const { return _lineCount; }
+    isize maxLines() const { return _maxLines; }
+    isize maxBytes() const { return _maxBytes; }
+    isize chunkLines() const { return _chunkLines; }
+    u64 version() const { return _version; }
 
     /**
      * @brief 调整行数与字节上限，立即触发淘汰以满足新约束。
      */
-    void setLimits(qsizetype maxLines, qsizetype maxBytes);
+    void setLimits(isize maxLines, isize maxBytes);
     ScrollbackStatistics statistics() const;
 
 private:
@@ -98,19 +98,19 @@ private:
     struct StoredChunk
     {
         ScrollbackChunkPtr chunk;
-        qsizetype firstLine{0};
-        qsizetype lineCount{0};
-        qsizetype effectiveBytes{0};
+        isize firstLine{0};
+        isize lineCount{0};
+        isize effectiveBytes{0};
         // 已搬到 active 块的尾行字节数，其字节已从 _effectiveBytes 扣除。
         // 整块退休时须扣除 byteSize - detachedBytes，避免二次扣减。
-        qsizetype detachedBytes{0};
+        isize detachedBytes{0};
     };
     // 已被淘汰但可能仍被旧快照持有的分块。通过 weak_ptr 跟踪，
     // 当所有快照释放后才能真正回收内存。
     struct RetiredChunk
     {
         std::weak_ptr<const ScrollbackChunk> chunk;
-        qsizetype bytes{0};
+        isize bytes{0};
     };
 
     void ensureActive();
@@ -128,24 +128,24 @@ private:
      */
     bool makeNewestLineWritable();
     void retireChunk(StoredChunk& stored, bool countAsEvicted);
-    static qsizetype lineBytes(const LogicalLine& line);
+    static isize lineBytes(const LogicalLine& line);
     void collectRetired() const;
 
     std::deque<StoredChunk> _chunks;
     std::shared_ptr<ScrollbackChunk> _active;
-    qsizetype _activeFirstLine{0};
-    qsizetype _activeBytes{0};
-    qsizetype _lineCount{0};
-    qsizetype _cellCount{0};
-    qsizetype _effectiveBytes{0};
-    qsizetype _maxLines{DefaultMaxLines};
-    qsizetype _maxBytes{DefaultMaxBytes};
-    qsizetype _chunkLines{DefaultChunkLines};
+    isize _activeFirstLine{0};
+    isize _activeBytes{0};
+    isize _lineCount{0};
+    isize _cellCount{0};
+    isize _effectiveBytes{0};
+    isize _maxLines{DefaultMaxLines};
+    isize _maxBytes{DefaultMaxBytes};
+    isize _chunkLines{DefaultChunkLines};
     LineId _nextLineId{1};
     ChunkId _nextChunkId{1};
-    quint64 _version{0};
-    quint64 _evictedLines{0};
-    quint64 _evictedChunks{0};
+    u64 _version{0};
+    u64 _evictedLines{0};
+    u64 _evictedChunks{0};
     mutable std::vector<RetiredChunk> _retired;
 };
 

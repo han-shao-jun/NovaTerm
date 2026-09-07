@@ -24,9 +24,9 @@ namespace NovaTerm {
 namespace {
 
 // 搜索模式最大长度，防止构造异常大的正则。
-constexpr qsizetype MaximumPatternLength = 16 * 1024;
+constexpr isize MaximumPatternLength = 16 * 1024;
 // 单行最大可搜索字符数，超过则跳过该行，避免恶意输出撑爆 QString。
-constexpr qsizetype MaximumSearchLineCharacters = 4 * 1024 * 1024;
+constexpr isize MaximumSearchLineCharacters = 4 * 1024 * 1024;
 
 // 一行经预处理的可搜索数据：text 是供正则匹配的字符串，
 // utf16ToCell 把 text 中每个 UTF-16 码元映射回原 Cell 索引，
@@ -34,7 +34,7 @@ constexpr qsizetype MaximumSearchLineCharacters = 4 * 1024 * 1024;
 struct SearchableLine
 {
     QString text;
-    QVector<qsizetype> utf16ToCell;
+    QVector<isize> utf16ToCell;
 };
 
 // 把一行 Cell 转换为可搜索字符串。cancelled 回调用于在转换过程中
@@ -49,7 +49,7 @@ std::optional<SearchableLine> makeSearchable(const LogicalLine& line,
     SearchableLine result;
     result.text.reserve(line.cells.size());
     result.utf16ToCell.reserve(line.cells.size() + 1);
-    for (qsizetype cellIndex = 0; cellIndex < line.cells.size(); ++cellIndex) {
+    for (isize cellIndex = 0; cellIndex < line.cells.size(); ++cellIndex) {
         // 每 256 个 Cell 检查一次取消，平衡检查开销与响应延迟。
         if ((cellIndex & 0xff) == 0 && cancelled())
             return std::nullopt;
@@ -68,7 +68,7 @@ std::optional<SearchableLine> makeSearchable(const LogicalLine& line,
             }
             result.text += encoded;
             // 同一个 Cell 的多个码元都映射到该 Cell 索引。
-            for (qsizetype i = 0; i < encoded.size(); ++i)
+            for (isize i = 0; i < encoded.size(); ++i)
                 result.utf16ToCell.push_back(cellIndex);
         }
     }
@@ -90,15 +90,15 @@ bool potentiallyUnboundedRegex(const QString& expression)
 // 把 UTF-16 命中区间转换为 Cell 区间。clamp 防止边界越界，
 // 末尾的退化处理保证 endCell > startCell，避免空高亮。
 SearchMatch toMatch(LineId lineId, const SearchableLine& line,
-                    qsizetype start, qsizetype length)
+                    isize start, isize length)
 {
-    const qsizetype boundedStart = std::clamp<qsizetype>(
+    const isize boundedStart = std::clamp<isize>(
         start, 0, line.utf16ToCell.size() - 1);
-    const qsizetype boundedEnd = std::clamp<qsizetype>(
-        start + std::max<qsizetype>(1, length), 0,
+    const isize boundedEnd = std::clamp<isize>(
+        start + std::max<isize>(1, length), 0,
         line.utf16ToCell.size() - 1);
-    const qsizetype startCell = line.utf16ToCell[boundedStart];
-    qsizetype endCell = line.utf16ToCell[boundedEnd];
+    const isize startCell = line.utf16ToCell[boundedStart];
+    isize endCell = line.utf16ToCell[boundedEnd];
     if (boundedEnd > boundedStart && endCell <= startCell)
         endCell = startCell + 1;
     return {lineId, startCell, endCell};
@@ -129,7 +129,7 @@ public:
             pending.reset();
         }
         // 取消所有可能的代际，确保 worker 在 changed 上被唤醒后立即退出。
-        cancelledGeneration.store(std::numeric_limits<quint64>::max());
+        cancelledGeneration.store(std::numeric_limits<u64>::max());
         changed.notify_one();
         if (worker.joinable())
             worker.join();
@@ -140,15 +140,15 @@ public:
     // 旧 generation 请求，保证 pending 中始终是最新搜索。
     void submit(Work work)
     {
-        const quint64 previous = work.request.generation > 0
+        const u64 previous = work.request.generation > 0
             ? work.request.generation - 1 : 0;
-        quint64 current = cancelledGeneration.load();
+        u64 current = cancelledGeneration.load();
         while (current < previous
                && !cancelledGeneration.compare_exchange_weak(current,
                                                                previous)) {}
         {
             std::lock_guard<std::mutex> lock(mutex);
-            const quint64 latest = latestGeneration.load();
+            const u64 latest = latestGeneration.load();
             if (latest != 0 && work.request.generation <= latest)
                 return;
             latestGeneration.store(work.request.generation);
@@ -157,16 +157,16 @@ public:
         changed.notify_one();
     }
 
-    void cancel(quint64 generation)
+    void cancel(u64 generation)
     {
-        quint64 current = cancelledGeneration.load();
+        u64 current = cancelledGeneration.load();
         while (current < generation
                && !cancelledGeneration.compare_exchange_weak(current,
                                                                generation)) {}
     }
 
     // 判断指定 generation 是否已被取代或取消。
-    bool cancelled(quint64 generation) const
+    bool cancelled(u64 generation) const
     {
         return stopping.load()
             || generation < latestGeneration.load()
@@ -242,29 +242,29 @@ public:
 
         // 把 firstLine/lastLine 的逻辑行 ID 折算为行号 rowForLineId。
         // 未命中（返回 -1）时按 ID 落在快照区间之前/之后二分到 0/endRow。
-        qsizetype startRow = 0;
-        qsizetype endRow = work.snapshot.lineCount();
+        isize startRow = 0;
+        isize endRow = work.snapshot.lineCount();
         if (work.request.firstLine != 0) {
-            const qsizetype value = work.snapshot.rowForLineId(
+            const isize value = work.snapshot.rowForLineId(
                 work.request.firstLine);
             startRow = value < 0 ? (work.request.firstLine
                     < work.snapshot.firstLineId() ? 0 : endRow) : value;
         }
         if (work.request.lastLine != 0) {
-            const qsizetype value = work.snapshot.rowForLineId(
+            const isize value = work.snapshot.rowForLineId(
                 work.request.lastLine);
             endRow = value < 0 ? (work.request.lastLine
                     < work.snapshot.firstLineId() ? 0 : endRow) : value + 1;
         }
         endRow = std::max(startRow, endRow);
         batch.totalLines = endRow - startRow;
-        const qsizetype batchSize = std::max<qsizetype>(
+        const isize batchSize = std::max<isize>(
             1, work.request.resultBatchSize);
-        const qsizetype maximumResults = std::max<qsizetype>(
+        const isize maximumResults = std::max<isize>(
             0, work.request.maximumResults);
-        qsizetype resultCount = 0;
+        isize resultCount = 0;
 
-        for (qsizetype row = startRow; row < endRow; ++row) {
+        for (isize row = startRow; row < endRow; ++row) {
             if (cancelled(work.request.generation)) {
                 batch.cancelled = true;
                 batch.scannedLines = row - startRow;
@@ -356,8 +356,8 @@ public:
     std::mutex mutex;
     std::condition_variable changed;
     std::optional<Work> pending;
-    std::atomic<quint64> cancelledGeneration{0};
-    std::atomic<quint64> latestGeneration{0};
+    std::atomic<u64> cancelledGeneration{0};
+    std::atomic<u64> latestGeneration{0};
     std::atomic<bool> stopping{false};
     std::thread worker;
 };
@@ -375,7 +375,7 @@ void SearchEngine::search(ScrollbackSnapshot snapshot, SearchRequest request)
     _impl->submit({std::move(snapshot), std::move(request)});
 }
 
-void SearchEngine::cancel(quint64 generation)
+void SearchEngine::cancel(u64 generation)
 {
     _impl->cancel(generation);
 }

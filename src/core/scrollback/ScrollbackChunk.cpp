@@ -6,10 +6,10 @@
 
 namespace NovaTerm {
 
-qsizetype estimateChunkBytes(const ScrollbackChunk& chunk)
+isize estimateChunkBytes(const ScrollbackChunk& chunk)
 {
     // 保守的分配器/控制块开销估算，作为上限估计而非 RSS 实测值。
-    qsizetype bytes = sizeof(ScrollbackChunk) + 64;
+    isize bytes = sizeof(ScrollbackChunk) + 64;
     for (const LogicalLine& line : chunk.lines)
         bytes += line.byteSize();
     return bytes;
