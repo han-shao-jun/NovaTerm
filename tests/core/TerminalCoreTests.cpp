@@ -8,6 +8,7 @@
 
 #include <memory>
 #include <atomic>
+#include <cstring>
 #include <thread>
 #include <vector>
 
@@ -52,6 +53,16 @@ private slots:
     void parserWorkerBatchesAndPublishes();
     void resizeAndShutdownUnderLoad();
 };
+
+namespace {
+
+// 把 QByteArray 作为 ByteView 喂给 VTAdapter（core 接口已去 Qt）。
+void writeBytes(NovaTerm::VTAdapter& adapter, const QByteArray& data)
+{
+    adapter.writeInput(NovaTerm::ByteView(data.constData(), data.size()));
+}
+
+} // namespace
 
 void TerminalCoreTests::parsesUtf8AndAttributes()
 {
@@ -617,9 +628,9 @@ void TerminalCoreTests::batchedScreenEditsMatchIncrementalInput()
     NovaTerm::VTAdapter incrementalAdapter(
         columns, rows, incremental, incrementalHistory, {});
     const QByteArray initial = "\x1b[2J\x1b[H";
-    batchAdapter.writeInput(initial);
+    writeBytes(batchAdapter, initial);
     batchAdapter.flushDamage();
-    incrementalAdapter.writeInput(initial);
+    writeBytes(incrementalAdapter, initial);
     incrementalAdapter.flushDamage();
 
     // 同一组定位、擦除和滚动操作，改变分批边界不应改变最终屏幕。
@@ -644,10 +655,10 @@ void TerminalCoreTests::batchedScreenEditsMatchIncrementalInput()
             default: input += QByteArray(5, char('A' + next() % 26)); break;
             }
         }
-        batchAdapter.writeInput(input);
+        writeBytes(batchAdapter, input);
         batchAdapter.flushDamage();
         for (char byte : input) {
-            incrementalAdapter.writeInput(QByteArray(1, byte));
+            writeBytes(incrementalAdapter, QByteArray(1, byte));
             incrementalAdapter.flushDamage();
         }
         for (int row = 0; row < rows; ++row) {
@@ -750,40 +761,63 @@ void TerminalCoreTests::alternateScreenKeepsIndependentRowRing()
     QCOMPARE(cell.chars[0], uint32_t('4'));
 }
 
+namespace {
+
+// 把字面量入队（BoundedByteQueue 现接收 ByteView）。
+bool enqueueLiteral(NovaTerm::BoundedByteQueue& queue, const char* text,
+                    int timeoutMs = 0)
+{
+    return queue.enqueue(
+        NovaTerm::ByteView(text, NovaTerm::isize(std::strlen(text))), timeoutMs);
+}
+
+// 取出至多 maxBytes 字节为 QByteArray（take 现填充调用方缓冲）。
+QByteArray takeBytes(NovaTerm::BoundedByteQueue& queue, NovaTerm::isize maxBytes,
+                     int timeoutMs = 0)
+{
+    QByteArray buffer(maxBytes, Qt::Uninitialized);
+    const NovaTerm::isize taken =
+        queue.take(buffer.data(), maxBytes, timeoutMs);
+    buffer.resize(taken);
+    return buffer;
+}
+
+} // namespace
+
 void TerminalCoreTests::boundedByteQueuePreservesOrderAndBackpressure()
 {
     NovaTerm::BoundedByteQueue queue(8);
 
-    QVERIFY(queue.enqueue(QByteArrayLiteral("abcdef"), 0));
-    QCOMPARE(queue.take(4, 0), QByteArrayLiteral("abcd"));
-    QVERIFY(queue.enqueue(QByteArrayLiteral("WXYZ"), 0));
-    QCOMPARE(queue.take(8, 0), QByteArrayLiteral("efWXYZ"));
+    QVERIFY(enqueueLiteral(queue, "abcdef"));
+    QCOMPARE(takeBytes(queue, 4), QByteArrayLiteral("abcd"));
+    QVERIFY(enqueueLiteral(queue, "WXYZ"));
+    QCOMPARE(takeBytes(queue, 8), QByteArrayLiteral("efWXYZ"));
 
-    QVERIFY(queue.enqueue(QByteArrayLiteral("12345678"), 0));
-    QVERIFY(!queue.enqueue(QByteArrayLiteral("x"), 0));
+    QVERIFY(enqueueLiteral(queue, "12345678"));
+    QVERIFY(!enqueueLiteral(queue, "x"));
     const auto statistics = queue.statistics();
-    QCOMPARE(statistics.capacity, qsizetype(8));
-    QCOMPARE(statistics.highWatermark, qsizetype(8));
+    QCOMPARE(statistics.capacity, NovaTerm::isize(8));
+    QCOMPARE(statistics.highWatermark, NovaTerm::isize(8));
     QVERIFY(statistics.producerWaits >= 1);
 }
 
 void TerminalCoreTests::boundedByteQueueWakesBlockedProducer()
 {
     NovaTerm::BoundedByteQueue queue(8);
-    QVERIFY(queue.enqueue(QByteArrayLiteral("12345678"), 0));
+    QVERIFY(enqueueLiteral(queue, "12345678"));
 
     std::atomic<bool> completed{false};
     std::thread producer([&]() {
-        const bool accepted = queue.enqueue(QByteArrayLiteral("x"));
+        const bool accepted = enqueueLiteral(queue, "x", -1);
         completed.store(accepted, std::memory_order_release);
     });
 
     QTRY_VERIFY_WITH_TIMEOUT(queue.statistics().producerWaits > 0, 1000);
     QVERIFY(!completed.load(std::memory_order_acquire));
-    QCOMPARE(queue.take(1, 0), QByteArrayLiteral("1"));
+    QCOMPARE(takeBytes(queue, 1), QByteArrayLiteral("1"));
     producer.join();
     QVERIFY(completed.load(std::memory_order_acquire));
-    QCOMPARE(queue.take(8, 0), QByteArrayLiteral("2345678x"));
+    QCOMPARE(takeBytes(queue, 8), QByteArrayLiteral("2345678x"));
 }
 
 void TerminalCoreTests::parserInputBackpressureDoesNotBlockCaller()

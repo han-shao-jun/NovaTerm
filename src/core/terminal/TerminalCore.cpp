@@ -155,17 +155,17 @@ public:
             thread.join();
     }
 
-    TerminalCore::InputWriteResult enqueueBytes(QByteArrayView data)
+    TerminalCore::InputWriteResult enqueueBytes(NovaTerm::ByteView data)
     {
         TerminalCore::InputWriteResult result;
-        result.requestedBytes = data.size();
+        result.requestedBytes = data.size;
         isize offset = 0;
-        while (offset < data.size()
+        while (offset < data.size
                && accepting.load(std::memory_order_acquire)) {
             const isize length =
-                std::min<isize>(ParserBatchSize, data.size() - offset);
+                std::min<isize>(ParserBatchSize, data.size - offset);
             isize queuedBytes = 0;
-            if (!bytes.enqueue(data.sliced(offset, length), 0,
+            if (!bytes.enqueue(NovaTerm::ByteView(data.data + offset, length), 0,
                                &queuedBytes)) {
                 setBackpressure(true);
                 result.backpressured = true;
@@ -268,18 +268,20 @@ public:
                 notifyCompletion();
             }
 
-            const QByteArray batch = bytes.take(ParserBatchSize, 5);
-            if (!batch.isEmpty()) {
+            const isize taken =
+                bytes.take(batchBuffer.data(), ParserBatchSize, 5);
+            if (taken > 0) {
                 if (bytes.statistics().queuedBytes <= QueueLowWatermark)
                     setBackpressure(false);
                 {
                     std::lock_guard<std::mutex> modelLocker(modelMutex);
-                    adapter->writeInput(batch);
+                    adapter->writeInput(NovaTerm::ByteView(batchBuffer.data(),
+                                                           taken));
                     adapter->flushDamage();
                     commitPendingModelRevision();
                 }
                 publishPendingSignals();
-                completedBytes.fetch_add(uint64_t(batch.size()),
+                completedBytes.fetch_add(uint64_t(taken),
                                          std::memory_order_release);
                 notifyCompletion();
             }
@@ -313,13 +315,16 @@ public:
     void createAdapter()
     {
         NovaTerm::VTAdapter::Observer observer;
-        observer.output = [this](QByteArrayView data) {
+        observer.output = [this](NovaTerm::ByteView data) {
             constexpr isize OutputBatchSize = 64 * 1024;
+            // pendingOutput 仍是 Qt 门面的暂存容器（QByteArray），在此把
+            // core 的 ByteView 桥接过去；阶段 7 建门面后这一步收进门面。
             if (pendingOutput.isEmpty()
-                || pendingOutput.back().size() + data.size() > OutputBatchSize) {
-                pendingOutput.push_back(QByteArray(data.data(), data.size()));
+                || pendingOutput.back().size() + data.size > OutputBatchSize) {
+                pendingOutput.push_back(
+                    QByteArray(data.data, data.size));
             } else {
-                pendingOutput.back().append(data.data(), data.size());
+                pendingOutput.back().append(data.data, data.size);
             }
         };
         observer.damage = [this](const NovaTerm::DirtyRegion& region) {
@@ -332,8 +337,11 @@ public:
             cursor = value;
             cursorChanged = true;
         };
-        observer.titleChanged = [this](const QString& value) {
-            currentTitle = value;
+        observer.titleChanged = [this](const std::string& value) {
+            // core 以 UTF-8 std::string 发布标题；门面侧转成 QString 暂存，
+            // 阶段 7 建门面后这一步收进门面。
+            currentTitle = QString::fromUtf8(value.data(),
+                                             qsizetype(value.size()));
             titleChanged = true;
         };
         observer.bell = [this]() {
@@ -516,6 +524,8 @@ public:
     std::vector<u64> rowRevisions;
 
     NovaTerm::BoundedByteQueue bytes;
+    // worker 线程复用的取批缓冲，避免每批一次堆分配。仅 workerMain 触碰。
+    std::vector<char> batchBuffer = std::vector<char>(ParserBatchSize);
     mutable std::mutex commandMutex;
     std::deque<ParserCommand> commands;
     isize pendingCommandBytes{0};
@@ -557,7 +567,7 @@ TerminalCore::~TerminalCore() = default;
 
 TerminalCore::InputWriteResult TerminalCore::writeInput(QByteArrayView data)
 {
-    return _runtime->enqueueBytes(data);
+    return _runtime->enqueueBytes(NovaTerm::ByteView(data.data(), data.size()));
 }
 
 void TerminalCore::processKeyPress(QKeyEvent* event)

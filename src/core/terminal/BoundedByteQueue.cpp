@@ -20,16 +20,16 @@ using SteadyClock = std::chrono::steady_clock;
 } // namespace
 
 BoundedByteQueue::BoundedByteQueue(isize capacityBytes)
-    // Qt::Uninitialized 避免无谓的 0 填充，容量下限 1 字节。
-    : _storage(std::max<isize>(1, capacityBytes), Qt::Uninitialized)
+    // std::vector 默认零初始化，容量下限 1 字节。
+    : _storage(std::size_t(std::max<isize>(1, capacityBytes)))
 {
 }
 
-bool BoundedByteQueue::enqueue(QByteArrayView data, int timeoutMs,
+bool BoundedByteQueue::enqueue(ByteView data, int timeoutMs,
                                isize* queuedBytesAfter)
 {
     // 空数据视为成功入队，仅返回当前字节数。
-    if (data.isEmpty()) {
+    if (data.empty()) {
         if (queuedBytesAfter) {
             std::lock_guard<std::mutex> locker(_mutex);
             *queuedBytesAfter = _size;
@@ -37,7 +37,7 @@ bool BoundedByteQueue::enqueue(QByteArrayView data, int timeoutMs,
         return true;
     }
     // 单次入队超过队列总容量，永远不可能成功。
-    if (data.size() > _storage.size())
+    if (data.size > isize(_storage.size()))
         return false;
 
     std::unique_lock<std::mutex> locker(_mutex);
@@ -46,7 +46,7 @@ bool BoundedByteQueue::enqueue(QByteArrayView data, int timeoutMs,
         SteadyClock::now() + std::chrono::milliseconds(timed ? timeoutMs : 0);
     // 队列满时阻塞生产者，直到队列非满或被停止。超时立即返回失败，
     // 语义与原 QWaitCondition::wait 返回 false 一致。
-    while (!_stopped && writableBytes() < data.size()) {
+    while (!_stopped && writableBytes() < data.size) {
         ++_producerWaits;
         if (timed) {
             if (_notFull.wait_until(locker, deadline)
@@ -62,9 +62,9 @@ bool BoundedByteQueue::enqueue(QByteArrayView data, int timeoutMs,
     if (_stopped)
         return false;
 
-    copyIntoRing(data.data(), data.size());
-    _size += data.size();
-    _totalEnqueued += uint64_t(data.size());
+    copyIntoRing(data.data, data.size);
+    _size += data.size;
+    _totalEnqueued += uint64_t(data.size);
     _highWatermark = std::max(_highWatermark, _size);
     if (queuedBytesAfter)
         *queuedBytesAfter = _size;
@@ -72,10 +72,10 @@ bool BoundedByteQueue::enqueue(QByteArrayView data, int timeoutMs,
     return true;
 }
 
-QByteArray BoundedByteQueue::take(isize maxBytes, int timeoutMs)
+isize BoundedByteQueue::take(char* destination, isize maxBytes, int timeoutMs)
 {
-    if (maxBytes <= 0)
-        return {};
+    if (maxBytes <= 0 || !destination)
+        return 0;
 
     std::unique_lock<std::mutex> locker(_mutex);
     const bool timed = timeoutMs >= 0;
@@ -86,23 +86,22 @@ QByteArray BoundedByteQueue::take(isize maxBytes, int timeoutMs)
         if (timed) {
             if (_notEmpty.wait_until(locker, deadline)
                 == std::cv_status::timeout) {
-                return {};
+                return 0;
             }
         } else {
             _notEmpty.wait(locker);
         }
     }
     if (_size == 0)
-        return {};
+        return 0;
 
     // 最多取出请求量与当前队列内容中的较小值。
     const isize length = std::min(maxBytes, _size);
-    QByteArray result(length, Qt::Uninitialized);
-    copyFromRing(result.data(), length);
+    copyFromRing(destination, length);
     _size -= length;
     _totalDequeued += uint64_t(length);
     _notFull.notify_all();
-    return result;
+    return length;
 }
 
 void BoundedByteQueue::stop()
@@ -123,36 +122,38 @@ bool BoundedByteQueue::isEmpty() const
 BoundedByteQueue::Statistics BoundedByteQueue::statistics() const
 {
     std::lock_guard<std::mutex> locker(_mutex);
-    return {_storage.size(), _size, _highWatermark, _totalEnqueued,
+    return {isize(_storage.size()), _size, _highWatermark, _totalEnqueued,
             _totalDequeued, _producerWaits};
 }
 
 isize BoundedByteQueue::writableBytes() const
 {
-    return _storage.size() - _size;
+    return isize(_storage.size()) - _size;
 }
 
 void BoundedByteQueue::copyIntoRing(const char* source, isize length)
 {
+    const isize capacity = isize(_storage.size());
     // 第一段：从 _tail 到数组末尾能写入的部分。
-    const isize first = std::min(length, _storage.size() - _tail);
+    const isize first = std::min(length, capacity - _tail);
     std::memcpy(_storage.data() + _tail, source, size_t(first));
     // 第二段：剩余部分回绕到数组开头。
     const isize second = length - first;
     if (second > 0)
         std::memcpy(_storage.data(), source + first, size_t(second));
-    _tail = (_tail + length) % _storage.size();
+    _tail = (_tail + length) % capacity;
 }
 
 void BoundedByteQueue::copyFromRing(char* destination, isize length)
 {
+    const isize capacity = isize(_storage.size());
     // 与 copyIntoRing 对称：先读 _head 到末尾，再回绕读剩余部分。
-    const isize first = std::min(length, _storage.size() - _head);
-    std::memcpy(destination, _storage.constData() + _head, size_t(first));
+    const isize first = std::min(length, capacity - _head);
+    std::memcpy(destination, _storage.data() + _head, size_t(first));
     const isize second = length - first;
     if (second > 0)
-        std::memcpy(destination + first, _storage.constData(), size_t(second));
-    _head = (_head + length) % _storage.size();
+        std::memcpy(destination + first, _storage.data(), size_t(second));
+    _head = (_head + length) % capacity;
 }
 
 } // namespace NovaTerm

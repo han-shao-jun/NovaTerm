@@ -170,7 +170,7 @@ TerminalView::TerminalView(TerminalSession* session, QWidget* parent)
             return;
         }
         NovaTerm::SearchRequest request;
-        request.query = text;
+        request.query = text.toStdString();
         request.generation = _searchGeneration;
         request.resultBatchSize = 128;
         request.maximumResults = 100'000;

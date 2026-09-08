@@ -12,19 +12,17 @@
 #include "core/scrollback/ScrollbackSnapshot.h"
 
 #include <QObject>
-#include <QRegularExpression>
-#include <QString>
-
-#include <vector>
 
 #include <memory>
+#include <string>
+#include <vector>
 
 namespace NovaTerm {
 
 // 一次搜索请求。query 为空表示清空当前结果集。
 struct SearchRequest
 {
-    QString query;
+    std::string query;  // UTF-8
     bool caseSensitive{false};
     bool regularExpression{false};
     bool wholeWord{false};
@@ -59,7 +57,7 @@ struct SearchBatch
     isize totalLines{0};
     bool completed{false};
     bool cancelled{false};
-    QString error;
+    std::string error;  // UTF-8
 };
 
 // 滚动历史搜索引擎。不可拷贝，仅可在 GUI 线程创建/销毁。

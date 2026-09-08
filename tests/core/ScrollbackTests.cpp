@@ -147,7 +147,7 @@ void ScrollbackTests::searchPublishesCellRanges()
     NovaTerm::SearchEngine search;
     QSignalSpy spy(&search, &NovaTerm::SearchEngine::resultsReady);
     NovaTerm::SearchRequest request;
-    request.query = QStringLiteral("hello");
+    request.query = "hello";
     request.generation = 1;
     request.resultBatchSize = 1;
     search.search(scrollback.snapshot(), request);
@@ -176,12 +176,12 @@ void ScrollbackTests::searchCancellationSupersedesGeneration()
     NovaTerm::SearchEngine search;
     QSignalSpy spy(&search, &NovaTerm::SearchEngine::resultsReady);
     NovaTerm::SearchRequest oldRequest;
-    oldRequest.query = QStringLiteral("test");
+    oldRequest.query = "test";
     oldRequest.generation = 1;
     search.search(scrollback.snapshot(), oldRequest);
 
     NovaTerm::SearchRequest currentRequest;
-    currentRequest.query = QStringLiteral("missing");
+    currentRequest.query = "missing";
     currentRequest.generation = 2;
     search.search(scrollback.snapshot(), currentRequest);
     QTRY_VERIFY_WITH_TIMEOUT(!spy.isEmpty(), 5000);
@@ -368,7 +368,7 @@ void ScrollbackTests::staleGenerationsAreRejected()
     NovaTerm::SearchEngine search;
     QSignalSpy searchSpy(&search, &NovaTerm::SearchEngine::resultsReady);
     NovaTerm::SearchRequest current;
-    current.query = QStringLiteral("generation");
+    current.query = "generation";
     current.generation = 20;
     search.search(scrollback.snapshot(), current);
     NovaTerm::SearchRequest stale = current;
@@ -388,7 +388,7 @@ void ScrollbackTests::unicodeSearchMapsUtf16BackToCells()
     NovaTerm::SearchEngine search;
     QSignalSpy spy(&search, &NovaTerm::SearchEngine::resultsReady);
     NovaTerm::SearchRequest request;
-    request.query = QString::fromUtf8("😀中");
+    request.query = QString::fromUtf8("😀中").toStdString();  // "😀中" UTF-8
     request.generation = 1;
     search.search(scrollback.snapshot(), request);
     QTRY_VERIFY_WITH_TIMEOUT(!spy.isEmpty(), 3000);
@@ -409,15 +409,15 @@ void ScrollbackTests::regexGuardsAndResultLimitAreEnforced()
     QSignalSpy spy(&search, &NovaTerm::SearchEngine::resultsReady);
 
     NovaTerm::SearchRequest unsafe;
-    unsafe.query = QStringLiteral("(a+)+$");
+    unsafe.query = "(a+)+$";
     unsafe.regularExpression = true;
     unsafe.generation = 1;
     search.search(scrollback.snapshot(), unsafe);
     QTRY_VERIFY_WITH_TIMEOUT(!spy.isEmpty(), 3000);
-    QVERIFY(!spy.last().at(0).value<NovaTerm::SearchBatch>().error.isEmpty());
+    QVERIFY(!spy.last().at(0).value<NovaTerm::SearchBatch>().error.empty());
 
     NovaTerm::SearchRequest limited;
-    limited.query = QStringLiteral("a");
+    limited.query = "a";
     limited.generation = 2;
     limited.maximumResults = 3;
     limited.resultBatchSize = 2;
@@ -456,7 +456,7 @@ void ScrollbackTests::destroyingBusyWorkersIsBounded()
     {
         NovaTerm::SearchEngine search;
         NovaTerm::SearchRequest request;
-        request.query = QStringLiteral("missing");
+        request.query = "missing";
         request.generation = 1;
         search.search(snapshot, request);
     }

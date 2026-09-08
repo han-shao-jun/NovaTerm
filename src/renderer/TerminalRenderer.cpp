@@ -243,7 +243,7 @@ TerminalRenderer::TerminalRenderer(TerminalCore* core, QWidget* parent)
             [this](const NovaTerm::ReflowBatch& batch) {
         if (batch.generation != _reflowGeneration)
             return;
-        if (batch.error.isEmpty()) {
+        if (batch.error.empty()) {
             if (batch.logicalStart == 0)
                 _pendingHistoryLayout.clear();
             for (const NovaTerm::DisplayLine& displayLine : batch.rows)
@@ -253,7 +253,7 @@ TerminalRenderer::TerminalRenderer(TerminalCore* core, QWidget* parent)
             // 结果。仍然继续提交已完成的部分 —— 旧写法直接返回，布局会
             // 永久缺失，行数于是长期退化成逻辑行数。
             qWarning() << "TerminalRenderer: 滚动历史重排失败："
-                       << batch.error;
+                       << QString::fromStdString(batch.error);
         }
         if (!batch.completed)
             return;

@@ -10,12 +10,10 @@
 
 #include "core/CoreTypes.h"
 
-#include <QByteArray>
-#include <QByteArrayView>
-
 #include <condition_variable>
 #include <cstdint>
 #include <mutex>
+#include <vector>
 
 namespace NovaTerm {
 
@@ -47,16 +45,18 @@ public:
      * @param queuedBytesAfter 输出参数：入队完成后队列中的字节数。
      * @return true 表示全部入队成功；false 表示超时、stop() 被调用或单次入队超过容量。
      */
-    bool enqueue(QByteArrayView data, int timeoutMs = -1,
+    bool enqueue(ByteView data, int timeoutMs = -1,
                  isize* queuedBytesAfter = nullptr);
 
     /**
-     * @brief 出队最多 maxBytes 字节（消费者接口）。
+     * @brief 出队最多 maxBytes 字节到调用方缓冲（消费者接口）。
+     * @param destination 目标缓冲，至少可容纳 maxBytes 字节。
      * @param maxBytes 最多取出的字节数。
      * @param timeoutMs 等待队列非空的超时（毫秒），-1 表示无限等待。
-     * @return 取出的字节序列；超时或 stop() 后返回空 QByteArray。
+     * @return 实际取出的字节数；超时或 stop() 后返回 0。
+     * @note  由调用方提供缓冲，避免每次出队分配（对比旧版返回 QByteArray）。
      */
-    QByteArray take(isize maxBytes, int timeoutMs = -1);
+    isize take(char* destination, isize maxBytes, int timeoutMs = -1);
 
     /**
      * @brief 唤醒所有等待方并标记队列已停止。
@@ -77,7 +77,7 @@ private:
     mutable std::mutex _mutex;
     std::condition_variable _notEmpty;  // 队列由空变为非空时唤醒消费者
     std::condition_variable _notFull;   // 队列由满变为非满时唤醒生产者
-    QByteArray _storage;       // 固定容量后端存储
+    std::vector<char> _storage;  // 固定容量后端存储
     isize _head{0};        // 下一个出队位置（消费者读指针）
     isize _tail{0};        // 下一个入队位置（生产者写指针）
     isize _size{0};        // 当前队列有效字节数

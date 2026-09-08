@@ -272,8 +272,8 @@ int main(int argc, char* argv[])
             return;
         if (reflowFirstBatchNs < 0)
             reflowFirstBatchNs = reflowTimer.nsecsElapsed();
-        if (batch.completed || batch.cancelled || !batch.error.isEmpty()) {
-            reflowCompleted = batch.completed && batch.error.isEmpty();
+        if (batch.completed || batch.cancelled || !batch.error.empty()) {
+            reflowCompleted = batch.completed && batch.error.empty();
             reflowLoop.quit();
         }
     });
@@ -300,15 +300,15 @@ int main(int argc, char* argv[])
         if (searchFirstBatchNs < 0)
             searchFirstBatchNs = searchTimer.nsecsElapsed();
         searchMatches += batch.matches.size();
-        if (batch.completed || batch.cancelled || !batch.error.isEmpty()) {
-            searchCompleted = batch.completed && batch.error.isEmpty();
+        if (batch.completed || batch.cancelled || !batch.error.empty()) {
+            searchCompleted = batch.completed && batch.error.empty();
             searchLoop.quit();
         }
     });
     QObject::connect(&searchTimeout, &QTimer::timeout,
                      &searchLoop, &QEventLoop::quit);
     NovaTerm::SearchRequest searchRequest;
-    searchRequest.query = QStringLiteral("mnop");
+    searchRequest.query = "mnop";
     searchRequest.generation = 1;
     searchRequest.resultBatchSize = 256;
     searchTimer.start();
@@ -332,7 +332,7 @@ int main(int argc, char* argv[])
     QObject::connect(&cancelTimeout, &QTimer::timeout,
                      &cancelLoop, &QEventLoop::quit);
     NovaTerm::SearchRequest cancelRequest;
-    cancelRequest.query = QStringLiteral("not present in generated rows");
+    cancelRequest.query = "not present in generated rows";
     cancelRequest.generation = 2;
     cancelTimer.start();
     search.search(snapshot, cancelRequest);

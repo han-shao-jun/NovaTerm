@@ -12,7 +12,6 @@
 #include "LineLayout.h"
 
 #include <QMetaObject>
-#include <QString>
 
 #include <algorithm>
 #include <condition_variable>
@@ -259,11 +258,11 @@ public:
             } catch (const std::exception& exception) {
                 emitBatch({request.snapshot.version(), request.generation,
                            0, 0, 0, {}, true, false,
-                           QString::fromUtf8(exception.what())});
+                           exception.what()});
             } catch (...) {
                 emitBatch({request.snapshot.version(), request.generation,
                            0, 0, 0, {}, true, false,
-                           QStringLiteral("unknown reflow worker failure")});
+                           "unknown reflow worker failure"});
             }
         }
     }

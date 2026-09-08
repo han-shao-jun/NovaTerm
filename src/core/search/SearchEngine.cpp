@@ -11,6 +11,8 @@
 #include "SearchEngine.h"
 
 #include <QMetaObject>
+#include <QRegularExpression>
+#include <QString>
 
 #include <algorithm>
 #include <atomic>
@@ -204,26 +206,29 @@ public:
         batch.sourceVersion = work.snapshot.version();
         batch.totalLines = work.snapshot.lineCount();
 
-        if (work.request.query.isEmpty()) {
+        if (work.request.query.empty()) {
             batch.completed = true;
             publish(std::move(batch));
             return;
         }
-        if (work.request.query.size() > MaximumPatternLength) {
+        if (isize(work.request.query.size()) > MaximumPatternLength) {
             batch.completed = true;
-            batch.error = QStringLiteral("search pattern exceeds 16 KiB limit");
+            batch.error = "search pattern exceeds 16 KiB limit";
             publish(std::move(batch));
             return;
         }
 
+        // query 现为 UTF-8 std::string；阶段 5 抽离匹配器前，这里仍用
+        // QRegularExpression，在边界做一次 UTF-8→QString 转换。
+        const QString query = QString::fromStdString(work.request.query);
         // 非正则模式：对 query 整体做正则转义，使特殊字符按字面匹配。
         QString expression = work.request.regularExpression
-            ? work.request.query
-            : QRegularExpression::escape(work.request.query);
+            ? query
+            : QRegularExpression::escape(query);
         if (work.request.regularExpression
             && potentiallyUnboundedRegex(expression)) {
             batch.completed = true;
-            batch.error = QStringLiteral("regular expression rejected: nested quantifier");
+            batch.error = "regular expression rejected: nested quantifier";
             publish(std::move(batch));
             return;
         }
@@ -235,7 +240,7 @@ public:
         QRegularExpression regex(expression, options);
         if (!regex.isValid()) {
             batch.completed = true;
-            batch.error = regex.errorString();
+            batch.error = regex.errorString().toStdString();
             publish(std::move(batch));
             return;
         }
@@ -339,14 +344,14 @@ public:
                 batch.generation = work.request.generation;
                 batch.sourceVersion = work.snapshot.version();
                 batch.completed = true;
-                batch.error = QString::fromUtf8(exception.what());
+                batch.error = exception.what();
                 publish(std::move(batch));
             } catch (...) {
                 SearchBatch batch;
                 batch.generation = work.request.generation;
                 batch.sourceVersion = work.snapshot.version();
                 batch.completed = true;
-                batch.error = QStringLiteral("unknown search worker failure");
+                batch.error = "unknown search worker failure";
                 publish(std::move(batch));
             }
         }

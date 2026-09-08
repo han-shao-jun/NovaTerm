@@ -13,6 +13,8 @@
 
 #include <QObject>
 
+#include <string>
+
 #include <vector>
 
 #include <atomic>
@@ -60,7 +62,7 @@ struct ReflowBatch
     std::vector<DisplayLine> rows;
     bool completed{false};
     bool cancelled{false};
-    QString error;
+    std::string error;  // UTF-8
 };
 
 // 静态折行工具：所有方法无状态、可跨线程调用。

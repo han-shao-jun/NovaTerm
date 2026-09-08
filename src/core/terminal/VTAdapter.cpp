@@ -267,7 +267,7 @@ public:
     {
         auto& self = *static_cast<Impl*>(user);
         if (self.observer.output)
-            self.observer.output(QByteArrayView(data, static_cast<isize>(length)));
+            self.observer.output(ByteView(data, static_cast<isize>(length)));
     }
 
     // 屏幕区域被修改：同步本地缓冲并通知 observer。
@@ -317,8 +317,8 @@ public:
         switch (property) {
         case VTERM_PROP_TITLE:
             if (value->string.str) {
-                self.title = QString::fromUtf8(value->string.str,
-                                               static_cast<int>(value->string.len));
+                // libvterm 的标题已是 UTF-8，直接按字节构造 std::string。
+                self.title.assign(value->string.str, value->string.len);
                 if (self.observer.titleChanged)
                     self.observer.titleChanged(self.title);
             }
@@ -420,7 +420,7 @@ public:
     ScrollbackBuffer& scrollback;
     Observer observer;
     CursorState cursorState;
-    QString title;
+    std::string title;
     VTerm* vt{nullptr};
     VTermScreen* vts{nullptr};
     VTermState* state{nullptr};
@@ -443,11 +443,11 @@ bool VTAdapter::isValid() const
     return _impl && _impl->vt;
 }
 
-void VTAdapter::writeInput(const QByteArray& data)
+void VTAdapter::writeInput(ByteView data)
 {
     if (!isValid())
         return;
-    vterm_input_write(_impl->vt, data.constData(), data.size());
+    vterm_input_write(_impl->vt, data.data, std::size_t(data.size));
     // 解析可能改变任意行的软换行状态（自动换行、滚动、清屏），统一重读。
     _impl->syncLineInfo();
 }
@@ -538,9 +538,9 @@ CursorState VTAdapter::cursor() const
     return _impl ? _impl->cursorState : CursorState{};
 }
 
-QString VTAdapter::title() const
+std::string VTAdapter::title() const
 {
-    return _impl ? _impl->title : QString{};
+    return _impl ? _impl->title : std::string{};
 }
 
 } // namespace NovaTerm

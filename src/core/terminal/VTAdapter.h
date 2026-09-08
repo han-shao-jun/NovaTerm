@@ -10,13 +10,11 @@
 
 #include "ScreenBuffer.h"
 #include "ScrollbackBuffer.h"
-
-#include <QByteArray>
-#include <QByteArrayView>
-#include <QString>
+#include "core/CoreTypes.h"
 
 #include <functional>
 #include <memory>
+#include <string>
 
 namespace NovaTerm {
 
@@ -28,10 +26,10 @@ public:
     // 回调集合：调用方实现这些函数以接收解析器输出。
     struct Observer
     {
-        std::function<void(QByteArrayView)> output;          // 终端响应字节（如查询回复）
+        std::function<void(ByteView)> output;                // 终端响应字节（如查询回复）
         std::function<void(const DirtyRegion&)> damage;      // 屏幕区域被修改
         std::function<void(const CursorState&)> cursorChanged; // 光标状态变化
-        std::function<void(const QString&)> titleChanged;    // 终端标题更新（OSC 0/2）
+        std::function<void(const std::string&)> titleChanged; // 终端标题更新（OSC 0/2），UTF-8
         std::function<void()> bell;                          // BEL 信号
         std::function<void()> scrollbackChanged;             // 滚动历史变更
         std::function<void(int)> screenScrolled;             // 活动屏幕上滚行数
@@ -58,7 +56,7 @@ public:
      * @brief 写入字节流到 libvterm 解析器。
      *        在持有外部 modelMutex 的线程内调用，回调同步触发。
      */
-    void writeInput(const QByteArray& data);
+    void writeInput(ByteView data);
 
     /**
      * @brief 刷新尚未发布的脏区域，触发 damage 回调。
@@ -86,7 +84,7 @@ public:
     void focusOut();
 
     CursorState cursor() const;
-    QString title() const;
+    std::string title() const;  // UTF-8
 
 private:
     // PImpl 模式隔离 libvterm 头文件依赖。
