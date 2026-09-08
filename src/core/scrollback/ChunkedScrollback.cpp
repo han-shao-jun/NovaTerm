@@ -269,8 +269,16 @@ bool ChunkedScrollback::takeNewestTail(isize cellCount, LogicalLine& out)
     LogicalLine& line = _active->lines.back();
     const isize before = lineBytes(line);
     const isize taken = takeTailCells(line, cellCount, out);
-    if (taken == 0)
-        return false;
+    // taken == 0 意味着最新逻辑行本就是空行（cellCount > 0 已由上方保证，
+    // takeTailCells 仅在行为空时取到 0）。空行代表输出中的一个空白行：
+    // libvterm 变高回填（sb_popline）时应当作一个空白屏幕行取回，因此这里
+    // 移除该空逻辑行并返回 true（out 携带原行 id/hardBreak，cells 为空，
+    // 调用方回填空白）。**不能因 taken==0 返回 false** —— 那会让 sb_popline
+    // 收到 0 而停止回填，导致空行以上的历史在窗口变高时无法拉回。
+    if (taken == 0) {
+        out.id = line.id;
+        out.hardBreak = line.hardBreak;
+    }
     _cellCount -= taken;
     if (line.cells.empty()) {
         _active->lines.pop_back();

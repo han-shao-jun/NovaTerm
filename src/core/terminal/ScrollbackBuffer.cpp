@@ -62,11 +62,13 @@ bool ScrollbackBuffer::popLine(NovaTerm::Cell* cells, int cols)
     // 前 cols 格，其余 Cell 被永久丢弃。
     const NovaTerm::LogicalLine* newest =
         _storage.lineAt(_storage.lineCount() - 1);
-    if (!newest || newest->cells.empty())
+    if (!newest)
         return false;
 
     // 该逻辑行是按 cols 折行存入的：除末行外每段恰好 cols 格，因此末行长度
-    // 为 total % cols，整除时说明末行也是满行。
+    // 为 total % cols，整除时说明末行也是满行。空行（total==0）取 cols，
+    // takeNewestTail 会移除该空逻辑行并回填一整行空白 —— 不能在此因空行提前
+    // 返回 false，否则 libvterm 收到 0 会停止回填，空行以上的历史无法拉回。
     const isize total = newest->cells.size();
     const isize remainder = total % cols;
     const isize rowCells = remainder == 0 ? isize(cols) : remainder;

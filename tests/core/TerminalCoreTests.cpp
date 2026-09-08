@@ -41,6 +41,7 @@ private slots:
     void softWrapKeepsTrailingSpaces();
     void rowContinuationTracksAutoWrap();
     void popLineReturnsNewestRowWithoutLoss();
+    void popLineTreatsEmptyHistoryLineAsBlankRow();
     void wideCharMarksContinuationCell();
     void rendererSnapshotUsesLogicalWrapAnchor();
     void rendererSnapshotFallsBackWhenAnchorEvicted();
@@ -552,6 +553,48 @@ void TerminalCoreTests::popLineReturnsNewestRowWithoutLoss()
     QVERIFY(buffer.popLine(popped, 4));
     for (const NovaTerm::Cell& cell : popped)
         QCOMPARE(QChar(cell.chars[0]), QLatin1Char('a'));
+    QCOMPARE(buffer.lineCount(), 0);
+    QVERIFY(!buffer.popLine(popped, 4));
+}
+
+// 历史中的空行（输出里的空白行，硬换行行被裁到 0 格）不能中断 sb_popline
+// 回填。旧实现遇空行 popLine 返回 false，libvterm 随即停止回填 —— 窗口变高
+// 时空行以上的历史无法拉回，内容错位。空行应当作一个空白屏幕行取回并继续。
+void TerminalCoreTests::popLineTreatsEmptyHistoryLineAsBlankRow()
+{
+    ScrollbackBuffer buffer;
+    buffer.setMaxLines(100);
+
+    const auto pushRow = [&buffer](const QString& text) {
+        std::vector<NovaTerm::Cell>& row =
+            buffer.beginPushLine(4, int(text.size()));
+        for (int i = 0; i < text.size(); ++i) {
+            row[i].chars[0] = text[i].unicode();
+            row[i].width = 1;
+        }
+        buffer.commitPushLine(/*continuation=*/false, /*hardBreak=*/true);
+    };
+
+    // 三条独立逻辑行：底部 "aaaa"，中间一个空行，顶部 "cccc"（最新）。
+    pushRow(QStringLiteral("aaaa"));
+    pushRow(QString());  // 空行：storedColumns=0 → 0 格逻辑行
+    pushRow(QStringLiteral("cccc"));
+    QCOMPARE(buffer.lineCount(), 3);
+
+    NovaTerm::Cell popped[4];
+    // 最新行 "cccc"。
+    QVERIFY(buffer.popLine(popped, 4));
+    QCOMPARE(QChar(popped[0].chars[0]), QLatin1Char('c'));
+
+    // 空行：必须返回 true 并给出一整行空白（旧实现返回 false 中断回填）。
+    QVERIFY(buffer.popLine(popped, 4));
+    for (const NovaTerm::Cell& cell : popped)
+        QCOMPARE(cell.chars[0], uint32_t(0));
+    QCOMPARE(buffer.lineCount(), 1);
+
+    // 空行以上的 "aaaa" 仍可回填到 —— 证明回填没被空行中断。
+    QVERIFY(buffer.popLine(popped, 4));
+    QCOMPARE(QChar(popped[0].chars[0]), QLatin1Char('a'));
     QCOMPARE(buffer.lineCount(), 0);
     QVERIFY(!buffer.popLine(popped, 4));
 }
