@@ -7,8 +7,10 @@
  * → 关闭。GUI 线程仅通过原子量与互斥队列与工作线程交互。
  */
 #include "SshTransport.h"
+#include "SshCommandCompletion.h"
 #include "SshMonitorProtocol.h"
 
+#include <libssh/callbacks.h>
 #include <libssh/libssh.h>
 
 #include <QDir>
@@ -59,6 +61,13 @@ QString defaultKnownHostsPath()
 {
     // 使用用户目录下的 OpenSSH known_hosts，与系统 ssh 客户端共享信任。
     return QDir::homePath() + QStringLiteral("/.ssh/known_hosts");
+}
+
+void commandExitStatusCallback(ssh_session, ssh_channel, int exitStatus,
+                               void* userData)
+{
+    auto* const completion = static_cast<SshCommandCompletion*>(userData);
+    completion->observeExitStatus(exitStatus);
 }
 
 } // namespace
@@ -577,10 +586,16 @@ void SshTransport::workerMain()
     QByteArray commandOutput;
     QByteArray commandErrorOutput;
     QElapsedTimer commandTimer;
+    SshCommandCompletion commandCompletion;
+    ssh_channel_callbacks_struct commandCallbacks{};
+    commandCallbacks.userdata = &commandCompletion;
+    commandCallbacks.channel_exit_status_function = commandExitStatusCallback;
+    ssh_callbacks_init(&commandCallbacks);
 
     const auto finishCommand = [this, &commandChannel, &commandRequestId,
                                 &commandOutput, &commandErrorOutput,
-                                &commandState, &commandText](
+                                &commandState, &commandText,
+                                &commandCompletion](
                                    QString errorMessage) {
         if (!commandChannel)
             return;
@@ -593,6 +608,7 @@ void SshTransport::workerMain()
         _commandActive.store(false, std::memory_order_release);
         commandState = ExecState::Closed;
         commandText.clear();
+        commandCompletion.reset();
         emitCommandFinished(commandRequestId, std::move(commandOutput),
                             std::move(commandErrorOutput),
                             std::move(errorMessage));
@@ -780,12 +796,17 @@ void SshTransport::workerMain()
                 _commandActive.store(true, std::memory_order_release);
                 commandRequestId = request.requestId;
                 commandText = std::move(request.command);
+                commandCompletion.reset();
                 if (!commandChannel) {
                     const QString error = tr("Failed to execute remote command: %1")
                         .arg(QString::fromUtf8(ssh_get_error(session)));
                     emitCommandFinished(commandRequestId, {}, {}, error);
                     commandRequestId = 0;
                     _commandActive.store(false, std::memory_order_release);
+                } else if (ssh_set_channel_callbacks(
+                               commandChannel, &commandCallbacks) != SSH_OK) {
+                    finishCommand(tr("Failed to monitor remote command completion: %1")
+                        .arg(QString::fromUtf8(ssh_get_error(session))));
                 } else {
                     commandState = ExecState::Opening;
                     commandTimer.restart();
@@ -839,8 +860,15 @@ void SshTransport::workerMain()
             if (commandChannel && commandState == ExecState::Running) {
                 drainCommandStream(0, commandOutput);
                 drainCommandStream(1, commandErrorOutput);
+                if (ssh_channel_is_eof(commandChannel)
+                    || ssh_channel_is_closed(commandChannel)) {
+                    commandCompletion.observeOutputEnd();
+                }
+                if (ssh_channel_is_closed(commandChannel))
+                    commandCompletion.observeRemoteClose();
             }
 
+            const auto completionResult = commandCompletion.result();
             if (!commandChannel) {
                 // 状态推进失败时 finishCommand 已完成清理。
             } else if (commandReadFailed) {
@@ -848,12 +876,15 @@ void SshTransport::workerMain()
                     .arg(QString::fromUtf8(ssh_get_error(session))));
             } else if (outputLimitExceeded) {
                 finishCommand(tr("Remote command output exceeded 1 MiB."));
-            } else if (commandState == ExecState::Running
-                       && ssh_channel_is_eof(commandChannel)) {
-                const int exitStatus = ssh_channel_get_exit_status(commandChannel);
+            } else if (completionResult
+                       == SshCommandCompletion::Result::Exited) {
+                const int exitStatus = *commandCompletion.exitStatus();
                 finishCommand(exitStatus == 0
                     ? QString{}
                     : tr("Remote command exited with status %1.").arg(exitStatus));
+            } else if (completionResult
+                       == SshCommandCompletion::Result::MissingExitStatus) {
+                finishCommand(tr("Remote command closed without an exit status."));
             } else if (commandTimer.elapsed() >= CommandTimeoutMs) {
                 finishCommand(tr("Remote command timed out."));
             }

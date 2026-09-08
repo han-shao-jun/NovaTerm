@@ -822,74 +822,74 @@ Built with:
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="694"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="695"/>
         <source>No matching sessions</source>
         <translation>No matching sessions</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="853"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="854"/>
         <source>+  New session</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="854"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="855"/>
         <source>New session</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="856"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="857"/>
         <source>Search by name or host...</source>
         <translation>Search by name or host...</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="857"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="858"/>
         <source>Search sessions</source>
         <translation>Search sessions</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="465"/>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="468"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="466"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="469"/>
         <source>Expand quick connections</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="466"/>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="469"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="467"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="470"/>
         <source>Collapse quick connections</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="687"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="688"/>
         <source>Double-click to reconnect</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="693"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="694"/>
         <source>No saved sessions yet</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="710"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="711"/>
         <source>Edit</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="712"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="713"/>
         <source>Delete</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="749"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="750"/>
         <source>Delete session</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="750"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="751"/>
         <source>Delete the saved session &apos;%1&apos;?</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="825"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="826"/>
         <source>The saved SSH credential is unavailable. Create the session again to refresh it.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -1753,219 +1753,229 @@ Built with:
 <context>
     <name>SshTransport</name>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="87"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="96"/>
         <source>Invalid SSH configuration.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="171"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="180"/>
         <source>SSH write queue exceeded its 1 MiB limit.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="242"/>
-        <location filename="../../src/transport/SshTransport.cpp" line="765"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="251"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="781"/>
         <source>Remote command cancelled.</source>
         <translation>Remote command cancelled.</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="345"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="354"/>
         <source>Failed to create SSH session.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="372"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="381"/>
         <source>SSH connection to %1:%2 failed: %3</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="384"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="393"/>
         <source>Failed to retrieve the server host key: %1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="394"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="403"/>
         <source>Cannot read known_hosts file %1: %2</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="448"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="457"/>
         <source>Host key verification failed; connection aborted.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="458"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="467"/>
         <source>Failed to store the host key: %1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="481"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="490"/>
         <source>Failed to load private key %1: %2</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="492"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="501"/>
         <source>Public key authentication failed for %1@%2: %3</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="505"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="514"/>
         <source>Password authentication failed for %1@%2: %3</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="518"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="527"/>
         <source>Failed to open SSH channel: %1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="534"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="543"/>
         <source>Failed to start remote shell: %1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="546"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="555"/>
         <source>Failed to create SSH event loop.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="673"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="689"/>
         <source>Resource monitor receive buffer exceeded 256 KiB.</source>
         <translation>Resource monitor receive buffer exceeded 256 KiB.</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="675"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="691"/>
         <source>Resource monitor line exceeded 16 KiB.</source>
         <translation>Resource monitor line exceeded 16 KiB.</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="677"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="693"/>
         <source>Resource monitor returned an invalid frame header.</source>
         <translation>Resource monitor returned an invalid frame header.</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="679"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="695"/>
         <source>Resource monitor frame header was missing.</source>
         <translation>Resource monitor frame header was missing.</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="681"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="697"/>
         <source>Resource monitor returned overlapping frames.</source>
         <translation>Resource monitor returned overlapping frames.</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="683"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="699"/>
         <source>Resource monitor frame identifiers did not match.</source>
         <translation>Resource monitor frame identifiers did not match.</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="685"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="701"/>
         <source>Resource monitor frame exceeded 256 entries.</source>
         <translation>Resource monitor frame exceeded 256 entries.</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="687"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="703"/>
         <source>Resource monitor frame exceeded 128 KiB.</source>
         <translation>Resource monitor frame exceeded 128 KiB.</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="715"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="731"/>
         <source>SSH channel read error: %1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="745"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="761"/>
         <source>SSH channel write failed: %1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="784"/>
-        <location filename="../../src/transport/SshTransport.cpp" line="811"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="801"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="832"/>
         <source>Failed to execute remote command: %1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="802"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="808"/>
+        <source>Failed to monitor remote command completion: %1</source>
+        <translation>Failed to monitor remote command completion: %1</translation>
+    </message>
+    <message>
+        <location filename="../../src/transport/SshTransport.cpp" line="823"/>
         <source>Failed to open remote command channel: %1</source>
         <translation>Failed to open remote command channel: %1</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="847"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="875"/>
         <source>Remote command read failed: %1</source>
         <translation>Remote command read failed: %1</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="850"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="878"/>
         <source>Remote command output exceeded 1 MiB.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="856"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="884"/>
         <source>Remote command exited with status %1.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="858"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="887"/>
+        <source>Remote command closed without an exit status.</source>
+        <translation>Remote command closed without an exit status.</translation>
+    </message>
+    <message>
+        <location filename="../../src/transport/SshTransport.cpp" line="889"/>
         <source>Remote command timed out.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="884"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="915"/>
         <source>Failed to create the resource monitor channel: %1</source>
         <translation>Failed to create the resource monitor channel: %1</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="899"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="930"/>
         <source>Failed to open the resource monitor channel: %1</source>
         <translation>Failed to open the resource monitor channel: %1</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="913"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="944"/>
         <source>Failed to start the resource monitor: %1</source>
         <translation>Failed to start the resource monitor: %1</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="922"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="953"/>
         <source>Resource monitor channel setup timed out.</source>
         <translation>Resource monitor channel setup timed out.</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="940"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="971"/>
         <source>Failed to write a resource sample request: %1</source>
         <translation>Failed to write a resource sample request: %1</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="978"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="1009"/>
         <source>Resource monitor returned an unexpected frame.</source>
         <translation>Resource monitor returned an unexpected frame.</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="991"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="1022"/>
         <source>Resource monitor output was invalid or exceeded its limit.</source>
         <translation>Resource monitor output was invalid or exceeded its limit.</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="995"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="1026"/>
         <source>Resource monitor channel closed unexpectedly.</source>
         <translation>Resource monitor channel closed unexpectedly.</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="996"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="1027"/>
         <source>Resource monitor failed: %1</source>
         <translation>Resource monitor failed: %1</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="1000"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="1031"/>
         <source>Resource sample timed out.</source>
         <translation>Resource sample timed out.</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="1015"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="1046"/>
         <source>Failed to resize the remote PTY: %1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="1041"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="1072"/>
         <source>SSH connection closed before the command completed.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -2127,52 +2137,52 @@ Built with:
 <context>
     <name>TerminalView</name>
     <message>
-        <location filename="../../src/ui/terminal/TerminalView.cpp" line="608"/>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="623"/>
         <source>Find in scrollback</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/terminal/TerminalView.cpp" line="541"/>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="556"/>
         <source>Copy</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/terminal/TerminalView.cpp" line="238"/>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="254"/>
         <source>[Disconnected] Press Enter to reconnect.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/terminal/TerminalView.cpp" line="239"/>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="255"/>
         <source>[Disconnected].</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/terminal/TerminalView.cpp" line="250"/>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="266"/>
         <source>[Transport error] %1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/terminal/TerminalView.cpp" line="544"/>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="559"/>
         <source>Paste</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/terminal/TerminalView.cpp" line="555"/>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="570"/>
         <source>Find...</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/terminal/TerminalView.cpp" line="560"/>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="575"/>
         <source>Zoom In</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/terminal/TerminalView.cpp" line="563"/>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="578"/>
         <source>Zoom Out</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/terminal/TerminalView.cpp" line="568"/>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="583"/>
         <source>Clear Scrollback</source>
         <translation type="unfinished"></translation>
     </message>

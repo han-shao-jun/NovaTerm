@@ -85,6 +85,14 @@ channel，恢复后立即采样并重建 CPU/网络差分基线。辅助 channel
 超限分别报告。同一历史会话执行面板原始 `df` 命令实测 stdout 115 字节、
 stderr 0 字节并正常完成。
 
+2026-09-08：修复单次命令在收到 EOF 后立即读取退出状态的竞态。SSH 的 EOF、
+`exit-status` 与 close 是独立消息，服务端可先发 EOF、随后才发退出状态；旧实现
+此时调用已弃用的 `ssh_channel_get_exit_status()`，会把“状态尚未到达”的 -1
+误报为命令失败。现改为注册 libssh 的异步 exit-status 回调，只有输出结束且
+退出状态已收到才完成请求；若通道关闭后仍无退出状态，则报告明确的协议错误。
+`novaterm_ssh_transport_check` 增加 EOF/exit-status 两种到达顺序及缺失状态的
+确定性回归检查。
+
 同日统一资源面板字体层级：与 `SessionPanel` 相同，下拉框和表头采用 13 px，
 CPU、内存、交换指标名采用 12 px，数值详情、速率、进度条文字和磁盘列表采用
 10 px；文件系统表头加粗，

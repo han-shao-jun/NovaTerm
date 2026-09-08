@@ -6,6 +6,7 @@
 //
 // 运行：build/bin/novaterm_ssh_transport_check.exe
 #include "transport/SshTransport.h"
+#include "transport/SshCommandCompletion.h"
 #include "transport/SshMonitorProtocol.h"
 
 #include <QCoreApplication>
@@ -17,6 +18,38 @@ int main(int argc, char** argv)
 {
     QCoreApplication app(argc, argv);
     int failures = 0;
+
+    // ── 单次命令完成顺序：EOF 不等于 exit-status ───────────
+    {
+        SshCommandCompletion completion;
+        completion.observeOutputEnd();
+        if (completion.result() != SshCommandCompletion::Result::Pending)
+            ++failures;
+        completion.observeExitStatus(0);
+        if (completion.result() != SshCommandCompletion::Result::Exited
+            || completion.exitStatus().value_or(-1) != 0) {
+            ++failures;
+        }
+
+        completion.reset();
+        completion.observeExitStatus(7);
+        if (completion.result() != SshCommandCompletion::Result::Pending)
+            ++failures;
+        completion.observeOutputEnd();
+        if (completion.result() != SshCommandCompletion::Result::Exited
+            || completion.exitStatus().value_or(-1) != 7) {
+            ++failures;
+        }
+
+        completion.reset();
+        completion.observeOutputEnd();
+        completion.observeRemoteClose();
+        if (completion.result()
+            != SshCommandCompletion::Result::MissingExitStatus) {
+            ++failures;
+        }
+        std::printf("[command-completion] EOF/status ordering checked\n");
+    }
 
     // ── 协议解析：分片、合帧、错误帧和上限 ──────────────────
     {

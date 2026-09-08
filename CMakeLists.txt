@@ -1094,6 +1094,7 @@ if(BUILD_TESTING)
     # ── SshTransport 失败路径控制台检查（无需真实 SSH 服务器）──
     add_executable(novaterm_ssh_transport_check
         tests/transport/SshTransportFailureCheck.cpp
+        src/transport/SshCommandCompletion.h
         src/transport/SshMonitorProtocol.cpp
         src/transport/SshMonitorProtocol.h
         src/transport/SshTransport.cpp
@@ -1134,6 +1135,7 @@ if(BUILD_TESTING)
         src/session/SessionTypes.h
         src/transport/SshMonitorProtocol.cpp
         src/transport/SshMonitorProtocol.h
+        src/transport/SshCommandCompletion.h
         src/transport/SshTransport.cpp
         src/transport/SshTransport.h
         src/transport/ITransport.h

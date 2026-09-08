@@ -828,74 +828,74 @@ Built with:
         <translation>其他会话</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="694"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="695"/>
         <source>No matching sessions</source>
         <translation>没有匹配的会话</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="853"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="854"/>
         <source>+  New session</source>
         <translation>+  新建会话</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="854"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="855"/>
         <source>New session</source>
         <translation>新建会话</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="856"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="857"/>
         <source>Search by name or host...</source>
         <translation>按名称或主机搜索...</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="857"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="858"/>
         <source>Search sessions</source>
         <translation>搜索会话</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="465"/>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="468"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="466"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="469"/>
         <source>Expand quick connections</source>
         <translation>展开快速连接</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="466"/>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="469"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="467"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="470"/>
         <source>Collapse quick connections</source>
         <translation>折叠快速连接</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="687"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="688"/>
         <source>Double-click to reconnect</source>
         <translation>双击重新连接</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="693"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="694"/>
         <source>No saved sessions yet</source>
         <translation>尚无已保存的会话</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="710"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="711"/>
         <source>Edit</source>
         <translation>编辑</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="712"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="713"/>
         <source>Delete</source>
         <translation>删除</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="749"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="750"/>
         <source>Delete session</source>
         <translation>删除会话</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="750"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="751"/>
         <source>Delete the saved session &apos;%1&apos;?</source>
         <translation>删除已保存的会话“%1”？</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="825"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="826"/>
         <source>The saved SSH credential is unavailable. Create the session again to refresh it.</source>
         <translation>已保存的 SSH 凭据不可用。请重新创建会话以刷新凭据。</translation>
     </message>
@@ -1759,219 +1759,229 @@ Built with:
 <context>
     <name>SshTransport</name>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="87"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="96"/>
         <source>Invalid SSH configuration.</source>
         <translation>无效的 SSH 配置。</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="171"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="180"/>
         <source>SSH write queue exceeded its 1 MiB limit.</source>
         <translation>SSH 写入队列已超过 1 MiB 限制。</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="242"/>
-        <location filename="../../src/transport/SshTransport.cpp" line="765"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="251"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="781"/>
         <source>Remote command cancelled.</source>
         <translation>远程命令已取消。</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="345"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="354"/>
         <source>Failed to create SSH session.</source>
         <translation>创建 SSH 会话失败。</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="372"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="381"/>
         <source>SSH connection to %1:%2 failed: %3</source>
         <translation>连接到 %1:%2 的 SSH 失败：%3</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="384"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="393"/>
         <source>Failed to retrieve the server host key: %1</source>
         <translation>获取服务器主机密钥失败：%1</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="394"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="403"/>
         <source>Cannot read known_hosts file %1: %2</source>
         <translation>无法读取 known_hosts 文件 %1：%2</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="448"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="457"/>
         <source>Host key verification failed; connection aborted.</source>
         <translation>主机密钥验证失败；连接已中止。</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="458"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="467"/>
         <source>Failed to store the host key: %1</source>
         <translation>存储主机密钥失败：%1</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="481"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="490"/>
         <source>Failed to load private key %1: %2</source>
         <translation>加载私钥 %1 失败：%2</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="492"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="501"/>
         <source>Public key authentication failed for %1@%2: %3</source>
         <translation>%1@%2 的公钥认证失败：%3</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="505"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="514"/>
         <source>Password authentication failed for %1@%2: %3</source>
         <translation>%1@%2 的密码认证失败：%3</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="518"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="527"/>
         <source>Failed to open SSH channel: %1</source>
         <translation>打开 SSH 通道失败：%1</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="534"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="543"/>
         <source>Failed to start remote shell: %1</source>
         <translation>启动远程 Shell 失败：%1</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="546"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="555"/>
         <source>Failed to create SSH event loop.</source>
         <translation>创建 SSH 事件循环失败。</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="673"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="689"/>
         <source>Resource monitor receive buffer exceeded 256 KiB.</source>
         <translation>资源监控接收缓冲超过 256 KiB。</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="675"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="691"/>
         <source>Resource monitor line exceeded 16 KiB.</source>
         <translation>资源监控协议行超过 16 KiB。</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="677"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="693"/>
         <source>Resource monitor returned an invalid frame header.</source>
         <translation>资源监控返回了无效的帧头。</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="679"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="695"/>
         <source>Resource monitor frame header was missing.</source>
         <translation>资源监控数据帧缺少帧头。</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="681"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="697"/>
         <source>Resource monitor returned overlapping frames.</source>
         <translation>资源监控返回了重叠的数据帧。</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="683"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="699"/>
         <source>Resource monitor frame identifiers did not match.</source>
         <translation>资源监控帧的请求标识不匹配。</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="685"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="701"/>
         <source>Resource monitor frame exceeded 256 entries.</source>
         <translation>资源监控帧超过 256 个条目。</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="687"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="703"/>
         <source>Resource monitor frame exceeded 128 KiB.</source>
         <translation>资源监控帧超过 128 KiB。</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="715"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="731"/>
         <source>SSH channel read error: %1</source>
         <translation>SSH 通道读取错误：%1</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="745"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="761"/>
         <source>SSH channel write failed: %1</source>
         <translation>SSH 通道写入失败：%1</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="784"/>
-        <location filename="../../src/transport/SshTransport.cpp" line="811"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="801"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="832"/>
         <source>Failed to execute remote command: %1</source>
         <translation>执行远程命令失败：%1</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="802"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="808"/>
+        <source>Failed to monitor remote command completion: %1</source>
+        <translation>监控远程命令完成状态失败：%1</translation>
+    </message>
+    <message>
+        <location filename="../../src/transport/SshTransport.cpp" line="823"/>
         <source>Failed to open remote command channel: %1</source>
         <translation>无法打开远程命令通道：%1</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="847"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="875"/>
         <source>Remote command read failed: %1</source>
         <translation>读取远程命令输出失败：%1</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="850"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="878"/>
         <source>Remote command output exceeded 1 MiB.</source>
         <translation>远程命令输出超过 1 MiB。</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="856"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="884"/>
         <source>Remote command exited with status %1.</source>
         <translation>远程命令以状态 %1 退出。</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="858"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="887"/>
+        <source>Remote command closed without an exit status.</source>
+        <translation>远程命令关闭时未返回退出状态。</translation>
+    </message>
+    <message>
+        <location filename="../../src/transport/SshTransport.cpp" line="889"/>
         <source>Remote command timed out.</source>
         <translation>远程命令执行超时。</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="884"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="915"/>
         <source>Failed to create the resource monitor channel: %1</source>
         <translation>无法创建资源监控通道：%1</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="899"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="930"/>
         <source>Failed to open the resource monitor channel: %1</source>
         <translation>无法打开资源监控通道：%1</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="913"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="944"/>
         <source>Failed to start the resource monitor: %1</source>
         <translation>无法启动资源监控：%1</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="922"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="953"/>
         <source>Resource monitor channel setup timed out.</source>
         <translation>资源监控通道建立超时。</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="940"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="971"/>
         <source>Failed to write a resource sample request: %1</source>
         <translation>无法发送资源采样请求：%1</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="978"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="1009"/>
         <source>Resource monitor returned an unexpected frame.</source>
         <translation>资源监控返回了非预期数据帧。</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="991"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="1022"/>
         <source>Resource monitor output was invalid or exceeded its limit.</source>
         <translation>资源监控输出无效或超过上限。</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="995"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="1026"/>
         <source>Resource monitor channel closed unexpectedly.</source>
         <translation>资源监控通道意外关闭。</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="996"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="1027"/>
         <source>Resource monitor failed: %1</source>
         <translation>资源监控失败：%1</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="1000"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="1031"/>
         <source>Resource sample timed out.</source>
         <translation>资源采样超时。</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="1015"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="1046"/>
         <source>Failed to resize the remote PTY: %1</source>
         <translation>调整远程 PTY 大小失败：%1</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="1041"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="1072"/>
         <source>SSH connection closed before the command completed.</source>
         <translation>命令完成前 SSH 连接已关闭。</translation>
     </message>
@@ -2133,52 +2143,52 @@ Built with:
 <context>
     <name>TerminalView</name>
     <message>
-        <location filename="../../src/ui/terminal/TerminalView.cpp" line="608"/>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="623"/>
         <source>Find in scrollback</source>
         <translation>在滚动回显中查找</translation>
     </message>
     <message>
-        <location filename="../../src/ui/terminal/TerminalView.cpp" line="541"/>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="556"/>
         <source>Copy</source>
         <translation>复制</translation>
     </message>
     <message>
-        <location filename="../../src/ui/terminal/TerminalView.cpp" line="238"/>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="254"/>
         <source>[Disconnected] Press Enter to reconnect.</source>
         <translation>[连接已经断开] 按 Enter 重新连接</translation>
     </message>
     <message>
-        <location filename="../../src/ui/terminal/TerminalView.cpp" line="239"/>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="255"/>
         <source>[Disconnected].</source>
         <translation>[已断开连接]</translation>
     </message>
     <message>
-        <location filename="../../src/ui/terminal/TerminalView.cpp" line="250"/>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="266"/>
         <source>[Transport error] %1</source>
         <translation>[传输错误] %1</translation>
     </message>
     <message>
-        <location filename="../../src/ui/terminal/TerminalView.cpp" line="544"/>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="559"/>
         <source>Paste</source>
         <translation>粘贴</translation>
     </message>
     <message>
-        <location filename="../../src/ui/terminal/TerminalView.cpp" line="555"/>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="570"/>
         <source>Find...</source>
         <translation>查找...</translation>
     </message>
     <message>
-        <location filename="../../src/ui/terminal/TerminalView.cpp" line="560"/>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="575"/>
         <source>Zoom In</source>
         <translation>放大</translation>
     </message>
     <message>
-        <location filename="../../src/ui/terminal/TerminalView.cpp" line="563"/>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="578"/>
         <source>Zoom Out</source>
         <translation>缩小</translation>
     </message>
     <message>
-        <location filename="../../src/ui/terminal/TerminalView.cpp" line="568"/>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="583"/>
         <source>Clear Scrollback</source>
         <translation>清除滚动回显</translation>
     </message>
