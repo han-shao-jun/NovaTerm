@@ -4,6 +4,7 @@
 #include "core/terminal/TerminalCore.h"
 #include "core/terminal/VTAdapter.h"
 
+#include <QElapsedTimer>
 #include <QSignalSpy>
 #include <QtTest>
 
@@ -54,6 +55,7 @@ private slots:
     void parserInputBackpressureDoesNotBlockCaller();
     void parserWorkerBatchesAndPublishes();
     void resizeAndShutdownUnderLoad();
+    void closingDoesNotDrainPendingInput();
     void keyMapperMapsSpecialKeysAndModifiers();
     void keyMapperMapsControlCharacters();
     void altGrProducesPrintableCharacterNotControlCode();
@@ -904,6 +906,25 @@ void TerminalCoreTests::parserWorkerBatchesAndPublishes()
     QCOMPARE(statistics.totalEnqueued, statistics.totalDequeued);
     QVERIFY(statistics.totalEnqueued >= uint64_t(input.size()));
     QVERIFY(core.scrollbackLineCount() > 0);
+}
+
+void TerminalCoreTests::closingDoesNotDrainPendingInput()
+{
+    auto core = std::make_unique<TerminalCore>(80, 24);
+    // 填入远超解析队列容量（8 MiB）的字节：writeInput 触发背压后即返回，
+    // 约 8 MiB 留在队列里等待解析。
+    core->writeInput(QByteArray(32 * 1024 * 1024, 'x'));
+
+    // 立即销毁并计时。修复前析构会 waitForIdle 排空整个 8 MiB 积压（Debug
+    // 下数百毫秒~数秒）；修复后只等 worker 完成当前一批即退出。给一个既
+    // 明显低于旧上限 5 秒、又宽于单批解析的界限。
+    QElapsedTimer timer;
+    timer.start();
+    core.reset();
+    const qint64 elapsed = timer.elapsed();
+    QVERIFY2(elapsed < 1500,
+             qPrintable(QStringLiteral("关闭耗时 %1ms，疑似仍在排空队列")
+                            .arg(elapsed)));
 }
 
 void TerminalCoreTests::resizeAndShutdownUnderLoad()

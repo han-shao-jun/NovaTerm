@@ -199,8 +199,11 @@ public:
 
     ~Runtime()
     {
+        // 关闭时不排空解析队列：积压的字节无人再消费，排空只会让 GUI 线程在
+        // 大量输出中关标签页时阻塞（旧实现 waitForIdle(5000) 最多等 5 秒）。
+        // 停止接收、唤醒并置停即可；worker 完成当前这一批（至多一批 64 KiB）
+        // 后就会看到 stopping 退出，join 因而是有界的。
         accepting.store(false, std::memory_order_release);
-        waitForIdle(5000);
         stopping.store(true, std::memory_order_release);
         bytes.stop();
         if (thread.joinable())
