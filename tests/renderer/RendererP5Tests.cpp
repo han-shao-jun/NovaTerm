@@ -438,8 +438,8 @@ void RendererP5Tests::mappingReconciliationFindsSameRevisionEdits()
     // the entering row and is already dirty. The extra edit must be recovered
     // without relying on a newer model revision.
     const QVector<quint64> rotatedCache = {20, 30, 40, 0};
-    const QVector<quint64> finalSnapshot = {20, 31, 40, 50};
-    const QVector<bool> dirtyRows = {false, false, false, true};
+    const std::vector<NovaTerm::u64> finalSnapshot = {20, 31, 40, 50};
+    const std::vector<bool> dirtyRows = {false, false, false, true};
 
     QCOMPARE(NovaTerm::rowsNeedingRebuildAfterMapping(
                  rotatedCache, finalSnapshot, dirtyRows),

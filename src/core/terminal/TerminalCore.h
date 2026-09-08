@@ -24,6 +24,7 @@
 #include <QString>
 
 #include <memory>
+#include <vector>
 
 class QKeyEvent;
 class QMouseEvent;
@@ -101,7 +102,7 @@ public:
      * @return 渲染快照，包含可见行 Cell 与行身份指纹。
      */
     NovaTerm::RendererSnapshot rendererSnapshot(
-        const QVector<bool>& dirtyRows, int scrollLine,
+        const std::vector<bool>& dirtyRows, int scrollLine,
         NovaTerm::LineId anchorLine = 0,
         NovaTerm::isize anchorWrap = 0) const;
     NovaTerm::u64 modelRevision() const;

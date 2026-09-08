@@ -378,7 +378,7 @@ public:
             }
         }
 
-        QVector<Cell>& converted =
+        std::vector<Cell>& converted =
             self.scrollback.beginPushLine(columns, storedColumns);
         for (int column = 0; column < storedColumns; ++column)
             populateCell(cells[column], converted[column]);

@@ -105,9 +105,9 @@ void ScrollbackTests::layoutKeepsWideCellsTogether()
     line.cells[2].width = 1;
     line.cells[3].chars[0] = 'B';
 
-    const QVector<NovaTerm::DisplayLine> rows =
+    const std::vector<NovaTerm::DisplayLine> rows =
         NovaTerm::LineLayout::wrapLine(line, 2);
-    QCOMPARE(rows.size(), 3);
+    QCOMPARE(rows.size(), std::size_t(3));
     QCOMPARE(rows[0].startCell, qsizetype(0));
     QCOMPARE(rows[0].endCell, qsizetype(1));
     QCOMPARE(rows[1].startCell, qsizetype(1));
@@ -155,10 +155,13 @@ void ScrollbackTests::searchPublishesCellRanges()
     QTRY_VERIFY_WITH_TIMEOUT(
         spy.last().at(0).value<NovaTerm::SearchBatch>().completed, 3000);
 
-    QVector<NovaTerm::SearchMatch> matches;
-    for (const QList<QVariant>& arguments : spy)
-        matches += arguments.at(0).value<NovaTerm::SearchBatch>().matches;
-    QCOMPARE(matches.size(), 2);
+    std::vector<NovaTerm::SearchMatch> matches;
+    for (const QList<QVariant>& arguments : spy) {
+        const auto batch = arguments.at(0).value<NovaTerm::SearchBatch>();
+        matches.insert(matches.end(), batch.matches.begin(),
+                       batch.matches.end());
+    }
+    QCOMPARE(matches.size(), std::size_t(2));
     QCOMPARE(matches[1].lineId, matchLine);
     QCOMPARE(matches[1].startCell, qsizetype(8));
     QCOMPARE(matches[1].endCell, qsizetype(13));
@@ -192,13 +195,13 @@ void ScrollbackTests::activeTailSnapshotIsPublishedWithoutCellCopy()
     NovaTerm::ChunkedScrollback scrollback(100, 1024 * 1024, 16);
     scrollback.append(textLine(QStringLiteral("tail")));
     const auto first = scrollback.snapshot();
-    QCOMPARE(first.chunks().size(), 1);
+    QCOMPARE(first.chunks().size(), std::size_t(1));
     QCOMPARE(scrollback.statistics().activeLines, qsizetype(0));
     QCOMPARE(scrollback.statistics().sealedChunks, qsizetype(1));
 
     scrollback.append(textLine(QStringLiteral("new tail")));
     const auto second = scrollback.snapshot();
-    QCOMPARE(second.chunks().size(), 2);
+    QCOMPARE(second.chunks().size(), std::size_t(2));
     QCOMPARE(first.chunks().front().chunk.get(),
              second.chunks().front().chunk.get());
     QCOMPARE(first.version(), quint64(1));
@@ -228,17 +231,17 @@ void ScrollbackTests::continuationAcrossSealedChunkKeepsOneLogicalLine()
     const NovaTerm::LogicalLine* merged = scrollback.lineAt(1);
     QVERIFY(merged);
     QCOMPARE(merged->id, softId);
-    QCOMPARE(merged->cells.size(), qsizetype(4));
+    QCOMPARE(merged->cells.size(), std::size_t(4));
     QCOMPARE(merged->cells[2].chars[0], uint32_t('c'));
     QVERIFY(merged->hardBreak);
     // 第一行不受影响，且 ID 仍严格单调（快照二分查找的前提）。
-    QCOMPARE(scrollback.lineAt(0)->cells.size(), qsizetype(2));
+    QCOMPARE(scrollback.lineAt(0)->cells.size(), std::size_t(2));
     QVERIFY(scrollback.lineAt(0)->id < merged->id);
 
     // 快照必须完整包含两行，不能因为尾行被搬走而漏掉。
     const auto snapshot = scrollback.snapshot();
     QCOMPARE(snapshot.lineCount(), qsizetype(2));
-    QCOMPARE(snapshot.lineById(softId)->cells.size(), qsizetype(4));
+    QCOMPARE(snapshot.lineById(softId)->cells.size(), std::size_t(4));
     QCOMPARE(snapshot.lastLineId(), softId);
 }
 
@@ -254,20 +257,20 @@ void ScrollbackTests::takeNewestTailAcrossSealedChunkPreservesHistory()
     NovaTerm::LogicalLine taken;
     QVERIFY(scrollback.takeNewestTail(2, taken));
     QCOMPARE(taken.id, tailId);
-    QCOMPARE(taken.cells.size(), qsizetype(2));
+    QCOMPARE(taken.cells.size(), std::size_t(2));
     QCOMPARE(taken.cells[0].chars[0], uint32_t('e'));
 
     // 剩余部分留在历史里，且不再以硬换行结尾（尾段已回到活动屏幕）。
     QCOMPARE(scrollback.lineCount(), qsizetype(2));
     const NovaTerm::LogicalLine* remainder = scrollback.lineAt(1);
     QVERIFY(remainder);
-    QCOMPARE(remainder->cells.size(), qsizetype(4));
+    QCOMPARE(remainder->cells.size(), std::size_t(4));
     QVERIFY(!remainder->hardBreak);
-    QCOMPARE(scrollback.lineAt(0)->cells.size(), qsizetype(4));
+    QCOMPARE(scrollback.lineAt(0)->cells.size(), std::size_t(4));
 
     // 取空整行时该行被移除，前一行仍完好。
     QVERIFY(scrollback.takeNewestTail(4, taken));
-    QCOMPARE(taken.cells.size(), qsizetype(4));
+    QCOMPARE(taken.cells.size(), std::size_t(4));
     QCOMPARE(scrollback.lineCount(), qsizetype(1));
     QCOMPARE(scrollback.lineAt(0)->cells[0].chars[0], uint32_t('k'));
 }
@@ -284,15 +287,15 @@ void ScrollbackTests::sealedChunkStaysSharedWhenItsTailIsRewritten()
 
     const auto before = scrollback.snapshot();
     QCOMPARE(before.lineCount(), qsizetype(2));
-    QCOMPARE(before.lineById(softId)->cells.size(), qsizetype(2));
+    QCOMPARE(before.lineById(softId)->cells.size(), std::size_t(2));
 
     NovaTerm::LogicalLine fragment = textLine(QStringLiteral("yy"));
     scrollback.appendContinuation(std::move(fragment));
 
     // 旧快照不可变：仍是 2 格。
-    QCOMPARE(before.lineById(softId)->cells.size(), qsizetype(2));
+    QCOMPARE(before.lineById(softId)->cells.size(), std::size_t(2));
     const auto after = scrollback.snapshot();
-    QCOMPARE(after.lineById(softId)->cells.size(), qsizetype(4));
+    QCOMPARE(after.lineById(softId)->cells.size(), std::size_t(4));
     QCOMPARE(after.lineCount(), qsizetype(2));
 
     // "head" 所在分块在两次快照中是同一个对象 —— 证明未整块复制。
@@ -392,7 +395,7 @@ void ScrollbackTests::unicodeSearchMapsUtf16BackToCells()
     QTRY_VERIFY_WITH_TIMEOUT(
         spy.last().at(0).value<NovaTerm::SearchBatch>().completed, 3000);
     const auto matches = spy.first().at(0).value<NovaTerm::SearchBatch>().matches;
-    QCOMPARE(matches.size(), 1);
+    QCOMPARE(matches.size(), std::size_t(1));
     QCOMPARE(matches[0].lineId, id);
     QCOMPARE(matches[0].startCell, qsizetype(1));
     QCOMPARE(matches[0].endCell, qsizetype(3));

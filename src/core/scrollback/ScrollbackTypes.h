@@ -11,7 +11,8 @@
 #include "core/terminal/TerminalTypes.h"
 
 #include <QMetaType>
-#include <QVector>
+
+#include <vector>
 
 #include <cstdint>
 #include <memory>
@@ -30,7 +31,7 @@ using ChunkId = u64;
 // 不会作为独立字形出现，仅占用下一格。
 struct LogicalLine
 {
-    QVector<Cell> cells;
+    std::vector<Cell> cells;
     bool hardBreak{true};
     LineId id{0};
 
@@ -58,7 +59,7 @@ struct LogicalLine
 struct ScrollbackChunk
 {
     ChunkId id{0};
-    QVector<LogicalLine> lines;
+    std::vector<LogicalLine> lines;
     isize byteSize{0};
     bool sealed{false};
 };

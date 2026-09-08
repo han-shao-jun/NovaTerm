@@ -16,6 +16,7 @@
 
 #include <algorithm>
 #include <condition_variable>
+#include <iterator>
 #include <mutex>
 #include <optional>
 #include <stdexcept>
@@ -23,14 +24,14 @@
 
 namespace NovaTerm {
 
-QVector<DisplayLine> LineLayout::wrapLine(
+std::vector<DisplayLine> LineLayout::wrapLine(
     const LogicalLine& line, int columns,
     const std::function<bool()>& cancelled)
 {
-    QVector<DisplayLine> result;
+    std::vector<DisplayLine> result;
     columns = std::max(1, columns);
     // 空行单独处理：仍需产出 1 个 DisplayLine 以占位。
-    if (line.cells.isEmpty()) {
+    if (line.cells.empty()) {
         result.push_back({line.id, 0, 0, 0, line.hardBreak});
         return result;
     }
@@ -79,7 +80,7 @@ QVector<DisplayLine> LineLayout::wrapLine(
         start = end;
     }
     // 仅最后一行携带 hardBreak 标志，其余折行都是软换行。
-    result.last().hardBreak = line.hardBreak;
+    result.back().hardBreak = line.hardBreak;
     return result;
 }
 
@@ -103,18 +104,20 @@ ViewportSnapshot LineLayout::viewport(const ScrollbackSnapshot& snapshot,
         row = anchorLine < snapshot.firstLineId() ? 0
                                                   : snapshot.lineCount() - 1;
     const isize wanted = rowCount + std::max<isize>(0, trailingCache);
-    for (; row < snapshot.lineCount() && result.rows.size() < wanted; ++row) {
+    for (; row < snapshot.lineCount()
+         && isize(result.rows.size()) < wanted; ++row) {
         const LogicalLine* logical = snapshot.lineAt(row);
         if (!logical)
             break;
-        QVector<DisplayLine> wrapped = wrapLine(*logical, result.columns);
+        std::vector<DisplayLine> wrapped = wrapLine(*logical, result.columns);
         // anchorLine 起始行可能从 wrapOffset 开始（用于精确还原滚动位置），
         // 其他行从 wrapIndex=0 开始。
         isize first = logical->id == anchorLine
             ? std::clamp<isize>(wrapOffset, 0,
-                                    std::max<isize>(0, wrapped.size() - 1))
+                                    std::max<isize>(0, isize(wrapped.size()) - 1))
             : 0;
-        for (; first < wrapped.size() && result.rows.size() < wanted; ++first)
+        for (; first < isize(wrapped.size())
+             && isize(result.rows.size()) < wanted; ++first)
             result.rows.push_back(wrapped[first]);
     }
     return result;
@@ -211,7 +214,7 @@ public:
                    start < request.snapshot.lineCount();) {
                 const isize end = std::min(
                     request.snapshot.lineCount(), start + request.batchLines);
-                QVector<DisplayLine> batchRows;
+                std::vector<DisplayLine> batchRows;
                 for (isize row = start; row < end; ++row) {
                     if (isCancelled(request.generation)) {
                         emitBatch({request.snapshot.version(),
@@ -225,7 +228,7 @@ public:
                         // 超长逻辑行由 wrapLine 按 MaxWrapCells 截断，此处
                         // 不再抛异常 —— 旧写法会让整次 reflow 以错误批次
                         // 结束，渲染层收到后永不提交布局。
-                        QVector<DisplayLine> wrapped = LineLayout::wrapLine(
+                        std::vector<DisplayLine> wrapped = LineLayout::wrapLine(
                             *line, request.columns, [this, &request]() {
                                 return isCancelled(request.generation);
                             });
@@ -236,7 +239,9 @@ public:
                             break;
                         }
                         physicalRows += wrapped.size();
-                        batchRows += std::move(wrapped);
+                        batchRows.insert(batchRows.end(),
+                            std::make_move_iterator(wrapped.begin()),
+                            std::make_move_iterator(wrapped.end()));
                     }
                 }
                 if (isCancelled(request.generation))

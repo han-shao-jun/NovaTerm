@@ -63,7 +63,7 @@ LineId ChunkedScrollback::append(LogicalLine line)
     ++_version;
 
     // active 块写满即封存，避免单块过大导致快照共享粒度粗糙。
-    if (_active->lines.size() >= _chunkLines)
+    if (isize(_active->lines.size()) >= _chunkLines)
         sealActive();
     enforceLimits();
     return id;
@@ -78,9 +78,10 @@ LineId ChunkedScrollback::appendContinuation(LogicalLine fragment)
         return append(std::move(fragment));
 
     const isize addedCells = fragment.cells.size();
-    LogicalLine& line = _active->lines.last();
+    LogicalLine& line = _active->lines.back();
     const isize before = lineBytes(line);
-    line.cells += fragment.cells;
+    line.cells.insert(line.cells.end(),
+                      fragment.cells.begin(), fragment.cells.end());
     line.hardBreak = fragment.hardBreak;
     const isize delta = lineBytes(line) - before;
     _activeBytes += delta;
@@ -99,7 +100,7 @@ LineId ChunkedScrollback::append(const Cell* cells, isize columns,
     LogicalLine line;
     line.hardBreak = hardBreak;
     if (cells && columns > 0)
-        line.cells = QVector<Cell>(cells, cells + columns);
+        line.cells.assign(cells, cells + columns);
     return append(std::move(line));
 }
 
@@ -107,7 +108,7 @@ LineId ChunkedScrollback::append(const Cell* cells, isize columns,
 // 跳过已被 evictOldest 淘汰但仍占用 lines 容器头部的行。
 void ChunkedScrollback::sealActive()
 {
-    if (!_active || _activeFirstLine >= _active->lines.size()) {
+    if (!_active || _activeFirstLine >= isize(_active->lines.size())) {
         // 无有效行：整块丢弃，其固定开销也要从有效字节中扣除。
         _effectiveBytes -= _activeBytes;
         _active.reset();
@@ -128,7 +129,7 @@ void ChunkedScrollback::sealActive()
     StoredChunk stored;
     stored.chunk = sealed;
     stored.firstLine = firstLine;
-    stored.lineCount = sealed->lines.size() - firstLine;
+    stored.lineCount = isize(sealed->lines.size()) - firstLine;
     stored.effectiveBytes = isize(sealed->byteSize
                                       - isize(sizeof(ScrollbackChunk))
                                       - ChunkAllocationOverhead
@@ -141,7 +142,7 @@ void ChunkedScrollback::sealActive()
 // 把最新逻辑行搬进 active 块，使其可被原地改写。详见头文件注释。
 bool ChunkedScrollback::makeNewestLineWritable()
 {
-    if (_active && _activeFirstLine < _active->lines.size())
+    if (_active && _activeFirstLine < isize(_active->lines.size()))
         return true;
     if (_chunks.empty())
         return false;
@@ -188,7 +189,7 @@ void ChunkedScrollback::retireChunk(StoredChunk& stored, bool countAsEvicted)
 
 void ChunkedScrollback::publish()
 {
-    if (_active && _activeFirstLine < _active->lines.size())
+    if (_active && _activeFirstLine < isize(_active->lines.size()))
         sealActive();
 }
 
@@ -210,11 +211,11 @@ void ChunkedScrollback::evictOldest()
         --stored.lineCount;
         if (stored.lineCount <= 0)
             retireChunk(stored, true);
-    } else if (_active && _activeFirstLine < _active->lines.size()) {
+    } else if (_active && _activeFirstLine < isize(_active->lines.size())) {
         oldestCellCount = _active->lines[_activeFirstLine].cells.size();
         evicted = true;
         ++_activeFirstLine;
-        if (_activeFirstLine >= _active->lines.size()) {
+        if (_activeFirstLine >= isize(_active->lines.size())) {
             _effectiveBytes -= _activeBytes;
             _active.reset();
             _activeFirstLine = 0;
@@ -248,8 +249,8 @@ isize takeTailCells(LogicalLine& line, isize cellCount,
         return 0;
     out.id = line.id;
     out.hardBreak = line.hardBreak;
-    out.cells = line.cells.mid(line.cells.size() - take);
-    line.cells.remove(line.cells.size() - take, take);
+    out.cells.assign(line.cells.end() - take, line.cells.end());
+    line.cells.erase(line.cells.end() - take, line.cells.end());
     // 尾段回到了活动屏幕，剩余部分在历史中不再以硬换行结尾。
     line.hardBreak = false;
     return take;
@@ -265,18 +266,18 @@ bool ChunkedScrollback::takeNewestTail(isize cellCount, LogicalLine& out)
     if (!makeNewestLineWritable())
         return false;
 
-    LogicalLine& line = _active->lines.last();
+    LogicalLine& line = _active->lines.back();
     const isize before = lineBytes(line);
     const isize taken = takeTailCells(line, cellCount, out);
     if (taken == 0)
         return false;
     _cellCount -= taken;
-    if (line.cells.isEmpty()) {
+    if (line.cells.empty()) {
         _active->lines.pop_back();
         --_lineCount;
         _activeBytes -= before;
         _effectiveBytes -= before;
-        if (_activeFirstLine >= _active->lines.size()) {
+        if (_activeFirstLine >= isize(_active->lines.size())) {
             // active 已无有效行，整块释放。
             _effectiveBytes -= _activeBytes;
             _active.reset();
@@ -348,7 +349,7 @@ const LogicalLine* ChunkedScrollback::lineAt(isize index) const
             return &stored.chunk->lines[stored.firstLine + index];
         index -= stored.lineCount;
     }
-    if (_active && index < _active->lines.size() - _activeFirstLine)
+    if (_active && index < isize(_active->lines.size()) - _activeFirstLine)
         return &_active->lines[_activeFirstLine + index];
     return nullptr;
 }
@@ -374,7 +375,7 @@ ScrollbackStatistics ChunkedScrollback::statistics() const
     result.effectiveBytes = _effectiveBytes;
     result.sealedChunks = isize(_chunks.size());
     result.activeLines = _active
-        ? _active->lines.size() - _activeFirstLine : 0;
+        ? isize(_active->lines.size()) - _activeFirstLine : 0;
     result.evictedLines = _evictedLines;
     result.evictedChunks = _evictedChunks;
     // 仍被旧快照持有的淘汰分块计入 retainedBySnapshots，便于排查内存

@@ -139,9 +139,9 @@ public:
     RenderStatistics renderStatistics() const;
     RenderProgress renderProgress() const;
     void setTargetRefreshRate(int hz);
-    void setSearchMatches(QVector<NovaTerm::SearchMatch> matches,
+    void setSearchMatches(std::vector<NovaTerm::SearchMatch> matches,
                           quint64 generation);
-    void appendSearchMatches(QVector<NovaTerm::SearchMatch> matches,
+    void appendSearchMatches(std::vector<NovaTerm::SearchMatch> matches,
                              quint64 generation);
     void clearSearchMatches();
     qsizetype searchMatchCount() const;
@@ -212,7 +212,7 @@ private:
     uint32_t documentCellCodepoint(int documentRow, int col) const;
 
     bool rebuildCommandRows(const NovaTerm::RendererSnapshot& screen,
-                            const QVector<bool>& dirtyRows,
+                            const std::vector<bool>& dirtyRows,
                             const QVector<QVector<NovaTerm::DirtyColumnSpan>>& dirtySpans,
                             quint64& commandsGenerated);
     void rebuildCommandRow(int widgetRow,
@@ -284,7 +284,7 @@ private:
     void uploadAtlasChanges(QRhiResourceUpdateBatch* updates);
     void uploadCommands(QRhiResourceUpdateBatch* updates,
                         const QSize& pixelSize,
-                        const QVector<bool>& dirtyRows,
+                        const std::vector<bool>& dirtyRows,
                         const QVector<QVector<NovaTerm::DirtyColumnSpan>>& dirtySpans,
                         bool uploadAllRows,
                         bool overlayDirty);

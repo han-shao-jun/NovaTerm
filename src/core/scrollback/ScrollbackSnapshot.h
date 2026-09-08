@@ -10,7 +10,7 @@
 
 #include "ScrollbackTypes.h"
 
-#include <QVector>
+#include <vector>
 
 namespace NovaTerm {
 
@@ -57,12 +57,12 @@ public:
      */
     isize rowForLineId(LineId id) const;
     bool contains(LineId id) const { return rowForLineId(id) >= 0; }
-    const QVector<ChunkView>& chunks() const { return _chunks; }
+    const std::vector<ChunkView>& chunks() const { return _chunks; }
 
 private:
     // 仅 ChunkedScrollback 在构建快照时可写。
     friend class ChunkedScrollback;
-    QVector<ChunkView> _chunks;
+    std::vector<ChunkView> _chunks;
     u64 _version{0};
     isize _lineCount{0};
     LineId _firstLineId{0};

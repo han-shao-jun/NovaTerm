@@ -246,7 +246,8 @@ TerminalRenderer::TerminalRenderer(TerminalCore* core, QWidget* parent)
         if (batch.error.isEmpty()) {
             if (batch.logicalStart == 0)
                 _pendingHistoryLayout.clear();
-            _pendingHistoryLayout += batch.rows;
+            for (const NovaTerm::DisplayLine& displayLine : batch.rows)
+                _pendingHistoryLayout.push_back(displayLine);
         } else {
             // 错误批次不携带行且 logicalStart 为 0，不能让它清掉已累积的
             // 结果。仍然继续提交已完成的部分 —— 旧写法直接返回，布局会
@@ -740,7 +741,7 @@ void TerminalRenderer::render(QRhiCommandBuffer* cb)
         }
     }
 
-    QVector<bool> dirtyRows(rows, fullFramePending);
+    std::vector<bool> dirtyRows(std::size_t(rows), fullFramePending);
     QVector<QVector<NovaTerm::DirtyColumnSpan>> dirtySpans(rows);
     if (fullFramePending) {
         for (int row = 0; row < rows; ++row)
@@ -795,7 +796,7 @@ void TerminalRenderer::render(QRhiCommandBuffer* cb)
                         _scrollAnchorWrap);
                 }
             } else {
-                dirtyRows.fill(true);
+                std::fill(dirtyRows.begin(), dirtyRows.end(), true);
                 for (int row = 0; row < rows; ++row)
                     dirtySpans[row] = {{0, columns}};
                 fullFramePending = true;
@@ -817,7 +818,7 @@ void TerminalRenderer::render(QRhiCommandBuffer* cb)
             // placement entries draw several character rows at y=0.
             resetWidgetRowMapping(rows);
             liveScrollRotated = false;
-            dirtyRows.fill(true, rows);
+            dirtyRows.assign(std::size_t(rows), true);
             dirtySpans.resize(rows);
             for (int row = 0; row < rows; ++row)
                 dirtySpans[row] = {{0, columns}};
@@ -853,11 +854,13 @@ void TerminalRenderer::render(QRhiCommandBuffer* cb)
         // add only missing changed blocks rather than rebuilding every row.
         if (!liveScrollRotated) {
             for (int row = 0; row < rows; ++row) {
-                if (!dirtyRows.value(row))
+                if (!(row < int(dirtyRows.size()) && dirtyRows[row]))
                     continue;
-                const auto cells = screen.visibleRows.value(row);
+                const auto cells =
+                    row < int(screen.visibleRows.size())
+                        ? screen.visibleRows[row] : nullptr;
                 dirtySpans[row] = _rowBlockDamageTracker.reconcileRow(
-                    row, cells ? cells->constData() : nullptr, columns,
+                    row, cells ? cells->data() : nullptr, columns,
                     std::move(dirtySpans[row]));
             }
         }
@@ -877,7 +880,7 @@ void TerminalRenderer::render(QRhiCommandBuffer* cb)
          ++attempt) {
         // Never draw cached UVs from a previous atlas generation. Reacquire a
         // complete snapshot and repair every row in the same frame.
-        dirtyRows.fill(true);
+        std::fill(dirtyRows.begin(), dirtyRows.end(), true);
         for (int row = 0; row < rows; ++row)
             dirtySpans[row] = {{0, columns}};
         fullFramePending = true;
@@ -1084,7 +1087,9 @@ void TerminalRenderer::updateHistoryLayout()
         const NovaTerm::LogicalLine* line = history.lineAt(row);
         if (!line)
             break;
-        _historyLayout += NovaTerm::LineLayout::wrapLine(*line, columns);
+        for (const NovaTerm::DisplayLine& displayLine :
+             NovaTerm::LineLayout::wrapLine(*line, columns))
+            _historyLayout.push_back(displayLine);
     }
     _layoutColumns = columns;
 }
@@ -1770,12 +1775,12 @@ void TerminalRenderer::appendCellCommands(
 
 bool TerminalRenderer::rebuildCommandRows(
     const NovaTerm::RendererSnapshot& screen,
-    const QVector<bool>& dirtyRows,
+    const std::vector<bool>& dirtyRows,
     const QVector<QVector<NovaTerm::DirtyColumnSpan>>& dirtySpans,
     quint64& commandsGenerated)
 {
     const quint64 generationBefore = _atlasGeneration;
-    for (int row = 0; row < dirtyRows.size(); ++row) {
+    for (int row = 0; row < int(dirtyRows.size()); ++row) {
         if (!dirtyRows[row])
             continue;
         rebuildCommandRow(row, screen, dirtySpans.value(row));
@@ -1849,7 +1854,8 @@ void TerminalRenderer::rebuildCommandRow(
                               std::move(contents), _atlasGeneration);
     if (widgetRow >= 0 && widgetRow < _rowContentIdentities.size())
         _rowContentIdentities[widgetRow] =
-            screen.visibleRowIdentities.value(widgetRow);
+            widgetRow < int(screen.visibleRowIdentities.size())
+                ? screen.visibleRowIdentities[widgetRow] : quint64(0);
 }
 
 quint64 TerminalRenderer::rebuildOverlays(
@@ -1866,7 +1872,7 @@ quint64 TerminalRenderer::rebuildOverlays(
 }
 
 void TerminalRenderer::setSearchMatches(
-    QVector<NovaTerm::SearchMatch> matches, quint64 generation)
+    std::vector<NovaTerm::SearchMatch> matches, quint64 generation)
 {
     if (generation < _searchGeneration)
         return;
@@ -1878,7 +1884,7 @@ void TerminalRenderer::setSearchMatches(
 }
 
 void TerminalRenderer::appendSearchMatches(
-    QVector<NovaTerm::SearchMatch> matches, quint64 generation)
+    std::vector<NovaTerm::SearchMatch> matches, quint64 generation)
 {
     if (generation < _searchGeneration)
         return;
@@ -2202,7 +2208,7 @@ void TerminalRenderer::uploadAtlasChanges(QRhiResourceUpdateBatch* updates)
 void TerminalRenderer::uploadCommands(
     QRhiResourceUpdateBatch* updates,
     const QSize& pixelSize,
-    const QVector<bool>& dirtyRows,
+    const std::vector<bool>& dirtyRows,
     const QVector<QVector<NovaTerm::DirtyColumnSpan>>& dirtySpans,
     bool uploadAllRows,
     bool overlayDirty)
@@ -2210,7 +2216,8 @@ void TerminalRenderer::uploadCommands(
     const int rows = _commandBuffer.rows();
     const int contentBase = rows * _backgroundRowStrideVertices;
     for (int row = 0; row < rows; ++row) {
-        if (!uploadAllRows && !dirtyRows.value(row))
+        if (!uploadAllRows
+            && !(row < int(dirtyRows.size()) && dirtyRows[row]))
             continue;
 
         const NovaTerm::RenderCommandRow& commands = _commandBuffer.row(row);

@@ -9,9 +9,13 @@
  */
 #pragma once
 
+#include "core/CoreTypes.h"
+
 #include <QHash>
 #include <QVector>
 #include <QtGlobal>
+
+#include <vector>
 
 namespace NovaTerm {
 
@@ -29,8 +33,8 @@ namespace NovaTerm {
  */
 QVector<int> rowsNeedingRebuildAfterMapping(
     const QVector<quint64>& cachedIdentities,
-    const QVector<quint64>& currentIdentities,
-    const QVector<bool>& dirtyRows);
+    const std::vector<u64>& currentIdentities,
+    const std::vector<bool>& dirtyRows);
 
 // 可见行身份：唯一标识一行内容来源。同一 sourceId+sourceVersion+wrapIndex
 // 的行内容相同，可复用 GPU 槽位。activeScreen 区分活动屏与 scrollback。

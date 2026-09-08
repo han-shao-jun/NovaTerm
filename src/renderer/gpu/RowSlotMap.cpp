@@ -14,16 +14,17 @@ namespace NovaTerm {
 
 QVector<int> rowsNeedingRebuildAfterMapping(
     const QVector<quint64>& cachedIdentities,
-    const QVector<quint64>& currentIdentities,
-    const QVector<bool>& dirtyRows)
+    const std::vector<u64>& currentIdentities,
+    const std::vector<bool>& dirtyRows)
 {
     QVector<int> result;
-    result.reserve(currentIdentities.size());
-    for (int row = 0; row < currentIdentities.size(); ++row) {
+    result.reserve(qsizetype(currentIdentities.size()));
+    for (int row = 0; row < int(currentIdentities.size()); ++row) {
         // 已脏的行调用方会单独处理；identity 未变的行无需重建。
-        if (dirtyRows.value(row)
+        const bool dirty = row < int(dirtyRows.size()) && dirtyRows[row];
+        if (dirty
             || (row < cachedIdentities.size()
-                && cachedIdentities[row] == currentIdentities[row])) {
+                && cachedIdentities[row] == currentIdentities[u64(row)])) {
             continue;
         }
         result.push_back(row);

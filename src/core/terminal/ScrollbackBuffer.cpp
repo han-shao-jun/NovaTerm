@@ -28,7 +28,7 @@ void ScrollbackBuffer::pushLine(const NovaTerm::Cell* cells, int cols)
     _storage.append(cells, cols, true);
 }
 
-QVector<NovaTerm::Cell>& ScrollbackBuffer::beginPushLine(int columns,
+std::vector<NovaTerm::Cell>& ScrollbackBuffer::beginPushLine(int columns,
                                                          int storedColumns)
 {
     _cols = std::max(0, columns);
@@ -62,7 +62,7 @@ bool ScrollbackBuffer::popLine(NovaTerm::Cell* cells, int cols)
     // 前 cols 格，其余 Cell 被永久丢弃。
     const NovaTerm::LogicalLine* newest =
         _storage.lineAt(_storage.lineCount() - 1);
-    if (!newest || newest->cells.isEmpty())
+    if (!newest || newest->cells.empty())
         return false;
 
     // 该逻辑行是按 cols 折行存入的：除末行外每段恰好 cols 格，因此末行长度
@@ -109,10 +109,10 @@ int ScrollbackBuffer::lineCount() const
 const ScrollbackCell* ScrollbackBuffer::lineAt(int index) const
 {
     const NovaTerm::LogicalLine* line = _storage.lineAt(index);
-    return line ? line->cells.constData() : nullptr;
+    return line ? line->cells.data() : nullptr;
 }
 
-const QVector<ScrollbackCell>* ScrollbackBuffer::lineVectorAt(int index) const
+const std::vector<ScrollbackCell>* ScrollbackBuffer::lineVectorAt(int index) const
 {
     const NovaTerm::LogicalLine* line = _storage.lineAt(index);
     return line ? &line->cells : nullptr;

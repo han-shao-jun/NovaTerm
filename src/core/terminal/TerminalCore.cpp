@@ -141,7 +141,7 @@ public:
         , scrollback(1000)
         , bytes(QueueCapacity)
     {
-        rowRevisions.fill(0, rows);
+        rowRevisions.assign(std::size_t(rows), 0);
         thread = std::thread([this]() { workerMain(); });
     }
 
@@ -486,8 +486,8 @@ public:
         if (pendingDamage.isEmpty() && !cursorChanged && !scrollbackChanged)
             return;
         pendingRevision = ++modelRevision;
-        if (rowRevisions.size() != screen.rows()) {
-            rowRevisions.fill(modelRevision, screen.rows());
+        if (isize(rowRevisions.size()) != screen.rows()) {
+            rowRevisions.assign(std::size_t(screen.rows()), modelRevision);
             return;
         }
         for (const NovaTerm::DirtyRegion& region :
@@ -513,7 +513,7 @@ public:
     QString currentTitle;
     u64 modelRevision{0};
     u64 pendingRevision{0};
-    QVector<u64> rowRevisions;
+    std::vector<u64> rowRevisions;
 
     NovaTerm::BoundedByteQueue bytes;
     mutable std::mutex commandMutex;
@@ -751,7 +751,7 @@ NovaTerm::TerminalSnapshot TerminalCore::snapshot() const
 }
 
 NovaTerm::RendererSnapshot TerminalCore::rendererSnapshot(
-    const QVector<bool>& dirtyRows, int scrollLine,
+    const std::vector<bool>& dirtyRows, int scrollLine,
     NovaTerm::LineId anchorLine, isize anchorWrap) const
 {
     std::lock_guard<std::mutex> locker(_runtime->modelMutex);
@@ -760,13 +760,13 @@ NovaTerm::RendererSnapshot TerminalCore::rendererSnapshot(
     snapshot.columns = _runtime->screen.columns();
     snapshot.rows = _runtime->screen.rows();
     snapshot.cursor = _runtime->cursor;
-    snapshot.visibleRowRevisions.resize(snapshot.rows);
-    snapshot.visibleRowIdentities.resize(snapshot.rows);
-    snapshot.visibleRows.resize(snapshot.rows);
+    snapshot.visibleRowRevisions.resize(std::size_t(snapshot.rows));
+    snapshot.visibleRowIdentities.resize(std::size_t(snapshot.rows));
+    snapshot.visibleRows.resize(std::size_t(snapshot.rows));
 
     // dirtyRows 与当前行数不一致时（窗口刚 resize 过），无法按位判断
     // 脏行，只能强制全量拷贝所有行。
-    const bool copyAllRows = dirtyRows.size() != snapshot.rows;
+    const bool copyAllRows = isize(dirtyRows.size()) != snapshot.rows;
     NovaTerm::ScrollbackSnapshot history;
     NovaTerm::ViewportSnapshot historyViewport;
     if (scrollLine > 0) {
@@ -792,7 +792,7 @@ NovaTerm::RendererSnapshot TerminalCore::rendererSnapshot(
     for (int widgetRow = 0; widgetRow < snapshot.rows; ++widgetRow) {
         const int screenRow = widgetRow - scrollLine;
         snapshot.visibleRowRevisions[widgetRow] = screenRow >= 0
-            && screenRow < _runtime->rowRevisions.size()
+            && screenRow < isize(_runtime->rowRevisions.size())
             ? _runtime->rowRevisions[screenRow]
             : _runtime->modelRevision;
         // 渲染器声明该行未脏：只回填身份哈希，跳过 Cell 拷贝。
@@ -804,11 +804,11 @@ NovaTerm::RendererSnapshot TerminalCore::rendererSnapshot(
                         snapshot.columns);
             continue;
         }
-        QVector<NovaTerm::Cell> destination;
+        std::vector<NovaTerm::Cell> destination;
         destination.resize(snapshot.columns);
         // 该行位于 scrollback 视口：从对应的逻辑行切片拷贝。
         if (screenRow < 0) {
-            if (widgetRow < historyViewport.rows.size()) {
+            if (widgetRow < isize(historyViewport.rows.size())) {
                 const auto& display = historyViewport.rows[widgetRow];
                 const auto* logical = history.lineById(display.lineId);
                 if (logical) {
@@ -819,7 +819,7 @@ NovaTerm::RendererSnapshot TerminalCore::rendererSnapshot(
                 }
             }
             snapshot.visibleRows[widgetRow] =
-                QSharedPointer<const QVector<NovaTerm::Cell>>::create(
+                std::make_shared<const std::vector<NovaTerm::Cell>>(
                     std::move(destination));
             continue;
         }
@@ -828,9 +828,9 @@ NovaTerm::RendererSnapshot TerminalCore::rendererSnapshot(
         if (source)
             std::copy_n(source, snapshot.columns, destination.begin());
         snapshot.visibleRowIdentities[widgetRow] =
-            rowContentIdentity(destination.constData(), destination.size());
+            rowContentIdentity(destination.data(), int(destination.size()));
         snapshot.visibleRows[widgetRow] =
-            QSharedPointer<const QVector<NovaTerm::Cell>>::create(
+            std::make_shared<const std::vector<NovaTerm::Cell>>(
                 std::move(destination));
     }
     return snapshot;
@@ -879,7 +879,7 @@ bool TerminalCore::getScrollbackCell(int lineIndex, int col,
     const auto* line = _runtime->scrollback.lineVectorAt(lineIndex);
     if (!line || col < 0 || col >= _runtime->scrollback.columns())
         return false;
-    out = col < line->size() ? line->at(col) : NovaTerm::Cell{};
+    out = col < isize(line->size()) ? line->at(col) : NovaTerm::Cell{};
     return true;
 }
 

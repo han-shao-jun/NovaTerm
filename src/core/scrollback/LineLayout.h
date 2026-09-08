@@ -12,7 +12,8 @@
 #include "ScrollbackSnapshot.h"
 
 #include <QObject>
-#include <QVector>
+
+#include <vector>
 
 #include <atomic>
 #include <functional>
@@ -44,7 +45,7 @@ struct ViewportSnapshot
     u64 sourceVersion{0};
     u64 generation{0};
     int columns{0};
-    QVector<DisplayLine> rows;
+    std::vector<DisplayLine> rows;
 };
 
 // 一批 reflow 结果。completed=true 表示 reflow 已结束；
@@ -56,7 +57,7 @@ struct ReflowBatch
     isize logicalStart{0};
     isize logicalProcessed{0};
     isize physicalRows{0};
-    QVector<DisplayLine> rows;
+    std::vector<DisplayLine> rows;
     bool completed{false};
     bool cancelled{false};
     QString error;
@@ -70,10 +71,10 @@ public:
      * @brief 把一个逻辑行按指定列宽折行为若干 DisplayLine。
      * @param line 待折行的逻辑行。
      * @param columns 目标列宽。
-     * @param cancelled 取消回调；返回 true 时立即返回空 QVector。
+     * @param cancelled 取消回调；返回 true 时立即返回空 vector。
      * @return 折行后的 DisplayLine 列表，最后一行保留原行的 hardBreak 标志。
      */
-    static QVector<DisplayLine> wrapLine(
+    static std::vector<DisplayLine> wrapLine(
         const LogicalLine& line, int columns,
         const std::function<bool()>& cancelled = {});
 

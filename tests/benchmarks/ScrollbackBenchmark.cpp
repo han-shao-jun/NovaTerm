@@ -480,7 +480,7 @@ int main(int argc, char* argv[])
                     ? QStringLiteral("PASS") : QStringLiteral("FAIL"));
 
     const bool passed = statistics.effectiveBytes <= maxBytes
-        && !viewport.rows.isEmpty() && reflowCompleted && searchCompleted
+        && !viewport.rows.empty() && reflowCompleted && searchCompleted
         && cancellationObserved;
     output << "\n[Result]\n"
            << "  Append completed............... PASS\n"

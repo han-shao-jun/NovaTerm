@@ -20,7 +20,7 @@ void ScreenBuffer::resize(int columns, int rows)
     columns = std::max(1, columns);
     rows = std::max(1, rows);
 
-    QVector<Cell> resized(columns * rows);
+    std::vector<Cell> resized(std::size_t(columns) * std::size_t(rows));
     // 仅保留原缓冲左上角的重叠区域，其余位置保持默认构造的空 Cell。
     const int copyRows = std::min(_rows, rows);
     const int copyColumns = std::min(_columns, columns);
@@ -32,7 +32,7 @@ void ScreenBuffer::resize(int columns, int rows)
     // 软换行标志按与 Cell 相同的重叠规则保留；新增行默认非延续。resize 后
     // VTAdapter 会立即重读整屏 lineinfo 覆盖这里的保留值，保留仅用于避免
     // 中间态出现越界或陈旧长度。
-    QVector<u8> resizedContinuation(rows, 0);
+    std::vector<u8> resizedContinuation(std::size_t(rows), 0);
     for (int row = 0; row < copyRows; ++row)
         resizedContinuation[row] = _rowContinuation[row];
 
@@ -44,14 +44,14 @@ void ScreenBuffer::resize(int columns, int rows)
 
 bool ScreenBuffer::rowContinuation(int row) const
 {
-    if (row < 0 || row >= _rowContinuation.size())
+    if (row < 0 || row >= isize(_rowContinuation.size()))
         return false;
     return _rowContinuation[row] != 0;
 }
 
 void ScreenBuffer::setRowContinuation(int row, bool continuation)
 {
-    if (row < 0 || row >= _rowContinuation.size())
+    if (row < 0 || row >= isize(_rowContinuation.size()))
         return;
     _rowContinuation[row] = continuation ? 1 : 0;
 }
@@ -87,7 +87,7 @@ void ScreenBuffer::moveRect(const DirtyRegion& destination,
 
     // 源与目标在滚动时通常重叠。先快照源矩形，使拷贝在所有方向上
     // 都具有 memmove 语义（避免就地覆盖污染尚未读取的源数据）。
-    QVector<Cell> moved;
+    std::vector<Cell> moved;
     moved.reserve(rowCount * columnCount);
     for (int row = 0; row < rowCount; ++row) {
         for (int column = 0; column < columnCount; ++column) {
@@ -128,13 +128,13 @@ const Cell* TerminalSnapshot::cellAt(int row, int column) const
 
 const Cell* RendererSnapshot::cellAt(int widgetRow, int column) const
 {
-    if (widgetRow < 0 || widgetRow >= visibleRows.size())
+    if (widgetRow < 0 || widgetRow >= isize(visibleRows.size()))
         return nullptr;
     const auto& sharedRow = visibleRows[widgetRow];
     if (!sharedRow)
         return nullptr;
-    const QVector<Cell>& row = *sharedRow;
-    if (column < 0 || column >= row.size())
+    const std::vector<Cell>& row = *sharedRow;
+    if (column < 0 || column >= isize(row.size()))
         return nullptr;
     return &row[column];
 }

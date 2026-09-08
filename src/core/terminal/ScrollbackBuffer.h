@@ -7,7 +7,8 @@
  */
 #pragma once
 #include "core/scrollback/ChunkedScrollback.h"
-#include <QVector>
+
+#include <vector>
 
 using ScrollbackCell = NovaTerm::Cell;
 
@@ -30,7 +31,7 @@ public:
      * @param columns 逻辑列数。
      * @param storedColumns 实际存储列数（可能小于 columns）。
      */
-    QVector<NovaTerm::Cell>& beginPushLine(int columns, int storedColumns);
+    std::vector<NovaTerm::Cell>& beginPushLine(int columns, int storedColumns);
 
     /**
      * @brief 提交 beginPushLine 开始的行。
@@ -51,7 +52,7 @@ public:
     int lineCount() const;                           // 当前存储行数
     int columns() const { return _cols; }
     const ScrollbackCell* lineAt(int index) const;   // index=0 是最旧的行
-    const QVector<ScrollbackCell>* lineVectorAt(int index) const;
+    const std::vector<ScrollbackCell>* lineVectorAt(int index) const;
     int maxLines() const { return _maxLines; }
     NovaTerm::ScrollbackSnapshot snapshot();
     NovaTerm::ScrollbackStatistics statistics() const;
@@ -62,7 +63,7 @@ public:
 
 private:
     NovaTerm::ChunkedScrollback _storage;
-    QVector<ScrollbackCell> _pendingLine;  // beginPushLine 的临时缓冲
+    std::vector<ScrollbackCell> _pendingLine;  // beginPushLine 的临时缓冲
     int _maxLines;
     int _cols{0};
 };

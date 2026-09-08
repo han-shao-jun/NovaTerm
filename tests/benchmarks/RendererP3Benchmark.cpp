@@ -1,4 +1,6 @@
 #include "core/terminal/TerminalCore.h"
+
+#include <vector>
 #include "renderer/RenderCommandBuffer.h"
 
 #include <QCoreApplication>
@@ -57,7 +59,7 @@ void populateDenseScreen(TerminalCore& core)
 }
 
 quint64 rebuildRows(const NovaTerm::RendererSnapshot& snapshot,
-                    const QVector<bool>& dirtyRows,
+                    const std::vector<bool>& dirtyRows,
                     NovaTerm::RenderCommandBuffer& buffer)
 {
     quint64 commandCount = 0;
@@ -67,7 +69,7 @@ quint64 rebuildRows(const NovaTerm::RendererSnapshot& snapshot,
     glyph.type = NovaTerm::RenderCommandType::GlyphInstance;
 
     for (int row = 0; row < snapshot.rows; ++row) {
-        if (!dirtyRows.value(row))
+        if (!(row < int(dirtyRows.size()) && dirtyRows[row]))
             continue;
         QVector<NovaTerm::RenderCommand> backgrounds;
         QVector<NovaTerm::RenderCommand> contents;
@@ -98,7 +100,7 @@ PipelineResult benchmarkPipeline(TerminalCore& core, int dirtyRowCount,
     quint64 commandCount = 0;
 
     for (int iteration = -200; iteration < iterations; ++iteration) {
-        QVector<bool> dirtyRows(Rows, dirtyRowCount == Rows);
+        std::vector<bool> dirtyRows(std::size_t(Rows), dirtyRowCount == Rows);
         if (dirtyRowCount != Rows)
             dirtyRows[iteration < 0 ? 0 : iteration % Rows] = true;
 

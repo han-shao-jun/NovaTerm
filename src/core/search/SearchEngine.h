@@ -14,7 +14,8 @@
 #include <QObject>
 #include <QRegularExpression>
 #include <QString>
-#include <QVector>
+
+#include <vector>
 
 #include <memory>
 
@@ -53,7 +54,7 @@ struct SearchBatch
     u64 generation{0};
     // 触发搜索时的 ScrollbackSnapshot 版本，UI 可据此丢弃过期结果。
     u64 sourceVersion{0};
-    QVector<SearchMatch> matches;
+    std::vector<SearchMatch> matches;
     isize scannedLines{0};
     isize totalLines{0};
     bool completed{false};

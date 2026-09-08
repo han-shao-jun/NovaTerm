@@ -34,7 +34,7 @@ constexpr isize MaximumSearchLineCharacters = 4 * 1024 * 1024;
 struct SearchableLine
 {
     QString text;
-    QVector<isize> utf16ToCell;
+    std::vector<isize> utf16ToCell;
 };
 
 // 把一行 Cell 转换为可搜索字符串。cancelled 回调用于在转换过程中
@@ -73,7 +73,7 @@ std::optional<SearchableLine> makeSearchable(const LogicalLine& line,
         }
     }
     // 哨兵：text 末尾对应行尾之后的 Cell 索引。
-    result.utf16ToCell.push_back(line.cells.size());
+    result.utf16ToCell.push_back(isize(line.cells.size()));
     return result;
 }
 
@@ -93,10 +93,10 @@ SearchMatch toMatch(LineId lineId, const SearchableLine& line,
                     isize start, isize length)
 {
     const isize boundedStart = std::clamp<isize>(
-        start, 0, line.utf16ToCell.size() - 1);
+        start, 0, isize(line.utf16ToCell.size()) - 1);
     const isize boundedEnd = std::clamp<isize>(
         start + std::max<isize>(1, length), 0,
-        line.utf16ToCell.size() - 1);
+        isize(line.utf16ToCell.size()) - 1);
     const isize startCell = line.utf16ToCell[boundedStart];
     isize endCell = line.utf16ToCell[boundedEnd];
     if (boundedEnd > boundedStart && endCell <= startCell)
@@ -302,7 +302,7 @@ public:
                     match.capturedLength()));
                 ++resultCount;
                 // 命中累积到 batchSize 即发布一批并清空，避免内存堆积。
-                if (batch.matches.size() >= batchSize) {
+                if (isize(batch.matches.size()) >= batchSize) {
                     batch.scannedLines = row - startRow + 1;
                     publishMatches(batch);
                 }

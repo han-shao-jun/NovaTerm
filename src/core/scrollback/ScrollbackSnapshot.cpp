@@ -16,11 +16,11 @@ namespace {
 
 // 在已按 firstLineId 升序排列的分块列表中二分查找包含指定 LineId 的分块。
 // 各分块内部的行 ID 也保证单调递增。返回分块索引，未命中返回 -1。
-isize chunkIndexForId(const QVector<ScrollbackSnapshot::ChunkView>& chunks,
+isize chunkIndexForId(const std::vector<ScrollbackSnapshot::ChunkView>& chunks,
                           LineId id)
 {
     isize low = 0;
-    isize high = chunks.size();
+    isize high = isize(chunks.size());
     while (low < high) {
         const isize middle = low + (high - low) / 2;
         const auto& view = chunks[middle];
@@ -47,7 +47,7 @@ const LogicalLine* ScrollbackSnapshot::lineAt(isize documentRow) const
     // 按 documentStart 二分查找命中的分块。documentStart 在分块列表中
     // 单调递增，因此可视为标准的 lower_bound 查找。
     isize low = 0;
-    isize high = _chunks.size();
+    isize high = isize(_chunks.size());
     while (low < high) {
         const isize middle = low + (high - low) / 2;
         const ChunkView& view = _chunks[middle];

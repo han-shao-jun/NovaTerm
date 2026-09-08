@@ -10,8 +10,8 @@
 
 #include "TerminalTypes.h"
 
-#include <QVector>
-#include <QSharedPointer>
+#include <memory>
+#include <vector>
 
 namespace NovaTerm {
 
@@ -47,7 +47,7 @@ public:
     void moveRect(const DirtyRegion& destination, const DirtyRegion& source);
     void clear();
 
-    const QVector<Cell>& cells() const { return _cells; }
+    const std::vector<Cell>& cells() const { return _cells; }
 
 private:
     // 二维坐标 (row, column) 到一维存储索引的转换。越界返回 -1。
@@ -55,10 +55,10 @@ private:
 
     int _columns{0};
     int _rows{0};
-    QVector<Cell> _cells;
+    std::vector<Cell> _cells;
     // 每行一位软换行标志，长度恒等于 _rows。用 u8 而非 bool，避免
-    // QVector<bool> 位压缩带来的读写开销。
-    QVector<u8> _rowContinuation;
+    // vector<bool> 位压缩带来的读写开销。
+    std::vector<u8> _rowContinuation;
 };
 
 // 终端快照：包含可见区域全部 Cell 与光标状态。用于测试与一次性渲染。
@@ -67,7 +67,7 @@ struct TerminalSnapshot
     u64 revision{0};   // 模型版本号，标识此次发布的不可变性
     int columns{0};
     int rows{0};
-    QVector<Cell> visibleCells;
+    std::vector<Cell> visibleCells;
     CursorState cursor;
 
     const Cell* cellAt(int row, int column) const;
@@ -80,11 +80,11 @@ struct RendererSnapshot
     u64 revision{0};
     int columns{0};
     int rows{0};
-    QVector<u64> visibleRowRevisions;
+    std::vector<u64> visibleRowRevisions;
     // 行内容指纹（在模型锁内计算）。渲染器据此判断行是否可复用，
     // 而无需把可变数组下标当作身份标识。
-    QVector<u64> visibleRowIdentities;
-    QVector<QSharedPointer<const QVector<Cell>>> visibleRows;
+    std::vector<u64> visibleRowIdentities;
+    std::vector<std::shared_ptr<const std::vector<Cell>>> visibleRows;
     CursorState cursor;
 
     const Cell* cellAt(int widgetRow, int column) const;

@@ -265,7 +265,7 @@ void TerminalCoreTests::rendererSnapshotCopiesOnlyDirtyRows()
     core.writeInput(QByteArrayLiteral("\x1b[2;1HX"));
     QVERIFY(core.waitForIdle());
 
-    QVector<bool> dirtyRows(4, false);
+    std::vector<bool> dirtyRows(4, false);
     dirtyRows[1] = true;
     const NovaTerm::RendererSnapshot snapshot =
         core.rendererSnapshot(dirtyRows, 0);
@@ -287,7 +287,7 @@ void TerminalCoreTests::rendererSnapshotPublishesPerRowRevisions()
 
     core.writeInput(QByteArrayLiteral("\x1b[3;1HZ"));
     QVERIFY(core.waitForIdle());
-    QVector<bool> dirtyRows(4, true);
+    std::vector<bool> dirtyRows(4, true);
     const auto snapshot = core.rendererSnapshot(dirtyRows, 0);
 
     QCOMPARE(snapshot.visibleRowRevisions.size(), 4);
@@ -301,7 +301,7 @@ void TerminalCoreTests::rendererSnapshotRowsRemainImmutableAcrossPublication()
     TerminalCore core(20, 4);
     core.writeInput(QByteArrayLiteral("A"));
     QVERIFY(core.waitForIdle());
-    QVector<bool> dirtyRows(4, false);
+    std::vector<bool> dirtyRows(4, false);
     dirtyRows[0] = true;
     const auto before = core.rendererSnapshot(dirtyRows, 0);
     QVERIFY(before.visibleRows[0]);
@@ -500,7 +500,7 @@ void TerminalCoreTests::popLineReturnsNewestRowWithoutLoss()
 
     const auto pushRow = [&buffer](const QString& text, bool continuation,
                                    bool hardBreak) {
-        QVector<NovaTerm::Cell>& row =
+        std::vector<NovaTerm::Cell>& row =
             buffer.beginPushLine(4, int(text.size()));
         for (int i = 0; i < text.size(); ++i) {
             row[i].chars[0] = text[i].unicode();
@@ -580,7 +580,7 @@ void TerminalCoreTests::rendererSnapshotUsesLogicalWrapAnchor()
     QVERIFY(core.waitForIdle());
     const auto history = core.scrollbackSnapshot();
     QVERIFY(!history.empty());
-    QVector<bool> dirty(2, true);
+    std::vector<bool> dirty(2, true);
     const auto rendered = core.rendererSnapshot(
         dirty, 1, history.firstLineId(), 2);
     QVERIFY(rendered.cellAt(0, 0));
@@ -597,7 +597,7 @@ void TerminalCoreTests::liveRendererSnapshotDoesNotPublishHistoryTail()
     const auto before = core.scrollbackStatistics();
     QVERIFY(before.activeLines > 0);
 
-    QVector<bool> dirty(2, true);
+    std::vector<bool> dirty(2, true);
     const auto rendered = core.rendererSnapshot(dirty, 0);
     QVERIFY(rendered.cellAt(0, 0));
     const auto after = core.scrollbackStatistics();
