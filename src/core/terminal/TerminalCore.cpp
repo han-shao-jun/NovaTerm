@@ -86,18 +86,23 @@ struct ParserCommand
     uint64_t byteBarrier{0};
 };
 
-// 计算一行 Cell 内容的 64 位身份哈希（FNV-1a 64-bit 变体）。
-// 渲染层用此哈希快速判断行内容是否变化，避免对未变行重做字形装配。
-// 仅用作"是否相同"的判定，不保证无碰撞；冲突时最坏退化为一次多余的渲染。
-u64 rowContentIdentity(const NovaTerm::Cell* cells, int columns)
+// 计算一整行（columns 宽）Cell 内容的 64 位身份哈希（FNV-1a 64-bit 变体）。
+// cells[0..count) 是真实 Cell，[count, columns) 视为默认空 Cell —— 历史行
+// 切片可能短于 columns，按渲染时的补白布局哈希，使脏/非脏两条路径对同一行
+// 得到一致 identity。渲染层用此哈希快速判断行内容是否变化，避免对未变行重做
+// 字形装配。仅用作"是否相同"的判定，不保证无碰撞；冲突时最坏退化为一次多余
+// 的渲染。
+u64 rowContentIdentity(const NovaTerm::Cell* cells, int count, int columns)
 {
+    static const NovaTerm::Cell kDefaultCell{};
     u64 hash = 1469598103934665603ull;
     const auto mix = [&hash](u64 value) {
         hash ^= value;
         hash *= 1099511628211ull;
     };
-    for (int column = 0; cells && column < columns; ++column) {
-        const NovaTerm::Cell& cell = cells[column];
+    for (int column = 0; column < columns; ++column) {
+        const NovaTerm::Cell& cell =
+            (cells && column < count) ? cells[column] : kDefaultCell;
         for (uint32_t scalar : cell.chars)
             mix(scalar);
         mix(cell.width);
@@ -886,11 +891,26 @@ NovaTerm::RendererSnapshot TerminalCore::rendererSnapshot(
             : _runtime->modelRevision;
         // 渲染器声明该行未脏：只回填身份哈希，跳过 Cell 拷贝。
         if (!copyAllRows && !dirtyRows[widgetRow]) {
-            if (screenRow >= 0)
+            if (screenRow >= 0) {
                 snapshot.visibleRowIdentities[widgetRow] =
                     rowContentIdentity(
                         _runtime->screen.cellAt(screenRow, 0),
-                        snapshot.columns);
+                        snapshot.columns, snapshot.columns);
+            } else if (widgetRow < isize(historyViewport.rows.size())) {
+                // 历史行同样要有真实 identity（不能恒为 0），否则脏帧算出的
+                // 哈希与非脏帧的 0 不一致，会被渲染器误判为内容变化而多余重建。
+                // 直接哈希历史切片（count = 切片长，补白隐含），零分配。
+                const auto& display = historyViewport.rows[widgetRow];
+                const auto* logical = history.lineById(display.lineId);
+                if (logical) {
+                    const isize count = std::min<isize>(
+                        snapshot.columns, display.endCell - display.startCell);
+                    snapshot.visibleRowIdentities[widgetRow] =
+                        rowContentIdentity(
+                            logical->cells.data() + display.startCell,
+                            int(std::max<isize>(0, count)), snapshot.columns);
+                }
+            }
             continue;
         }
         std::vector<NovaTerm::Cell> destination;
@@ -907,6 +927,10 @@ NovaTerm::RendererSnapshot TerminalCore::rendererSnapshot(
                                 count, destination.begin());
                 }
             }
+            snapshot.visibleRowIdentities[widgetRow] =
+                rowContentIdentity(destination.data(),
+                                   int(destination.size()),
+                                   int(destination.size()));
             snapshot.visibleRows[widgetRow] =
                 std::make_shared<const std::vector<NovaTerm::Cell>>(
                     std::move(destination));
@@ -917,7 +941,8 @@ NovaTerm::RendererSnapshot TerminalCore::rendererSnapshot(
         if (source)
             std::copy_n(source, snapshot.columns, destination.begin());
         snapshot.visibleRowIdentities[widgetRow] =
-            rowContentIdentity(destination.data(), int(destination.size()));
+            rowContentIdentity(destination.data(), int(destination.size()),
+                               int(destination.size()));
         snapshot.visibleRows[widgetRow] =
             std::make_shared<const std::vector<NovaTerm::Cell>>(
                 std::move(destination));

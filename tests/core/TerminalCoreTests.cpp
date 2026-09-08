@@ -45,6 +45,7 @@ private slots:
     void wideCharMarksContinuationCell();
     void rendererSnapshotUsesLogicalWrapAnchor();
     void rendererSnapshotFallsBackWhenAnchorEvicted();
+    void rendererSnapshotHistoryRowsCarryStableIdentity();
     void liveRendererSnapshotDoesNotPublishHistoryTail();
     void fullScreenScrollPreservesContent();
     void batchedScreenEditsMatchIncrementalInput();
@@ -634,6 +635,30 @@ void TerminalCoreTests::wideCharMarksContinuationCell()
     QCOMPARE(next.chars[0], uint32_t('A'));
     QCOMPARE(int(next.width), 1);
     QVERIFY(!next.isWideContinuation());
+}
+
+// 回看历史行必须携带真实且稳定的 identity（不能恒为 0）：脏帧与非脏帧对
+// 同一历史行要算出相同哈希，否则渲染器会误判内容变化而多余重建。
+void TerminalCoreTests::rendererSnapshotHistoryRowsCarryStableIdentity()
+{
+    TerminalCore core(4, 2);
+    core.writeInput(QByteArrayLiteral("abcdefghijklmnopqr"));
+    QVERIFY(core.waitForIdle());
+    const auto history = core.scrollbackSnapshot();
+    QVERIFY(!history.empty());
+
+    // 脏帧：回看 1 行，全部标脏，历史行走"构建 destination + 计算 identity"路径。
+    std::vector<bool> dirty(2, true);
+    const auto dirtyFrame = core.rendererSnapshot(dirty, 1, history.firstLineId(), 2);
+    QVERIFY2(dirtyFrame.visibleRowIdentities[0] != 0,
+             "历史行 identity 不应恒为 0");
+
+    // 非脏帧：同样参数但声明第 0 行未脏，走"仅回填 identity"路径。两条路径
+    // 对同一历史行必须得到一致的 identity。
+    std::vector<bool> clean(2, false);
+    const auto cleanFrame = core.rendererSnapshot(clean, 1, history.firstLineId(), 2);
+    QCOMPARE(cleanFrame.visibleRowIdentities[0],
+             dirtyFrame.visibleRowIdentities[0]);
 }
 
 void TerminalCoreTests::rendererSnapshotUsesLogicalWrapAnchor()
