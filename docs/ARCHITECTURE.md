@@ -28,14 +28,19 @@ NovaTerm 是基于 Qt 6、libvterm 和 QRhi 的跨平台 GPU 终端。核心目�
 
 1. Parser 单写，Renderer、Search 和插件只读。
 2. libvterm 类型只能存在于 VTAdapter 实现边界。
-3. Transport 只处理字节和连接状态，不理解终端 Cell。
-4. Renderer 不理解 ANSI、SSH 或配置文件格式。
-5. 所有跨线程队列必须有上限、统计和停止语义。
-6. 通过不可变快照或版本化共享数据跨线程，不共享无保护可变对象。
-7. 先建立正确性测试和基线，再优化。
-8. UI Theme、Terminal Scheme 和 Font Config 分离。
-9. Session 是运行期资源和生命周期边界，Profile 是创建模板。
-10. 每个阶段保持可构建、可测试、可回退定位。
+3. 核心层（`src/core/`）不依赖任何 UI 框架。Qt 类型（QObject/信号槽、QString、
+   QByteArray、QVector、QKeyEvent、QRegularExpression 等）只能出现在 `src/coreqt/`
+   门面层及以上；核心层用标准库等价物（std::string(UTF-8)、std::vector、
+   std::mutex、ByteView、NovaTerm::Key 等）。目标是核心可在无 Qt 环境编译、
+   测试、复用，为替换 UI 框架留出空间。
+4. Transport 只处理字节和连接状态，不理解终端 Cell。
+5. Renderer 不理解 ANSI、SSH 或配置文件格式。
+6. 所有跨线程队列必须有上限、统计和停止语义。
+7. 通过不可变快照或版本化共享数据跨线程，不共享无保护可变对象。
+8. 先建立正确性测试和基线，再优化。
+9. UI Theme、Terminal Scheme 和 Font Config 分离。
+10. Session 是运行期资源和生命周期边界，Profile 是创建模板。
+11. 每个阶段保持可构建、可测试、可回退定位。
 
 ## 3. 系统分层
 
@@ -97,7 +102,21 @@ SFTP 文件列表使用紧凑行高 24 个逻辑像素，减少图标上下留�
 
 ### 3.4 Terminal Core
 
-`TerminalCore` 是线程安全 Qt 门面；Worker 独占 `VTAdapter` 和 libvterm 可变状态。`VTAdapter` 把 libvterm callback 转换成 NovaTerm 的 Cell、DirtyRegion、Cursor 和属性变化。
+`TerminalCore` 是线程安全门面；Worker 独占 `VTAdapter` 和 libvterm 可变状态。
+`VTAdapter` 把 libvterm callback 转换成 NovaTerm 的 Cell、DirtyRegion、Cursor 和
+属性变化。
+
+**去 Qt 化进度（原则 3）**：核心层的数据类型与多数组件已不依赖 Qt ——
+`VTAdapter`、`ScreenBuffer`、`ScrollbackBuffer`/`ChunkedScrollback`、`LineLayout`、
+`BoundedByteQueue`、`KeyMapper` 及所有跨模块数据结构（Cell、快照、DisplayLine、
+SearchRequest/Batch 等）改用标准库等价物（`std::string`(UTF-8)、`std::vector`、
+`std::shared_ptr`、`std::mutex`、`ByteView`、`NovaTerm::Key`/`KeyModifier`）。
+尚未完成：`TerminalCore` 本身仍是 `QObject` 门面（信号仍用 QString/QByteArray，
+输入仍收 QKeyEvent，Qt→核心的翻译已集中在其匿名命名空间的 `coreKeyFromQt` 等
+处）；`SearchEngine`/`ReflowEngine` 仍是 `QObject` 且 `SearchEngine` 内部仍用
+`QRegularExpression`（搜索重构暂停）。因此 `novaterm_core` 目前仍链接 `Qt::Core`/
+`Qt::Gui`；"核心零 Qt 链接"的收口有待 `QObject` 剥离 + 门面拆分（`src/coreqt/`）
+与搜索匹配器注入完成，届时把 QObject/QRegularExpression 相关代码移入门面层。
 
 ### 3.5 Renderer
 
@@ -238,7 +257,7 @@ Session 状态建议统一为 `Created → Connecting → Running → Paused/Rec
 
 ```text
 src/
-├── core/
+├── core/                # 不依赖 Qt（原则 3）；CoreTypes.h 提供 isize/u8/u32/u64/ByteView
 │   ├── terminal/        # BoundedByteQueue、TerminalCore、VTAdapter、ScreenBuffer、KeyMapper
 │   ├── scrollback/      # ChunkedScrollback、ScrollbackChunk、Snapshot、LineLayout(reflow)
 │   └── search/          # SearchEngine（异步、generation 取消）
@@ -264,6 +283,11 @@ tests/
 `src/session/`、`src/profile/`、`src/credential/` 已落地；主题目前由 service 与
 UI 层承担，未单独建 `src/theme/`；搜索位于 `src/core/search/` 而非顶层。
 仍不为追求目录形式而提前搬迁代码。
+
+去 Qt 化（原则 3）尚未收口：计划中的 Qt 门面目录 `src/coreqt/`（承载
+QObject 门面、QtTextMatcher、QtKeyTranslator、metatype 注册）**尚未创建**；
+当前 `TerminalCore`/`SearchEngine`/`ReflowEngine` 仍作为 QObject 留在 `src/core/`，
+`novaterm_core` 仍链接 Qt。见 §3.4。
 
 ## 10. 非功能目标
 

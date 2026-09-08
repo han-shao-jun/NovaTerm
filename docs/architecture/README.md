@@ -54,4 +54,6 @@
 | Terminal Scheme | ANSI、前景、背景、光标、选择颜色集合 |
 | UI Theme | 应用窗口和控件外观，不控制终端 ANSI 语义 |
 | MiB/s | 以 1 MiB = 1,048,576 bytes 计算的吞吐量 |
+| CoreTypes | `src/core/CoreTypes.h`：核心层不依赖 Qt 的基础类型（`isize`/`u8`/`u32`/`u64`/`ByteView`），与 `qsizetype`/`quint*`/`QByteArrayView` 同义但不引入 Qt |
+| 门面层 / coreqt | 承载 Qt 依赖（QObject 信号、QString、QKeyEvent、QRegularExpression）的层。当前即 `TerminalCore` 的门面部分；计划中的独立目录 `src/coreqt/` 尚未创建（见 `ARCHITECTURE.md` §3.4）|
 

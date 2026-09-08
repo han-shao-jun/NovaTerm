@@ -86,7 +86,7 @@ ctest --test-dir build -C Debug
 
 | 改动位置 | 跑这个 | label | 耗时 |
 | --- | --- | --- | --- |
-| `src/core/terminal/`（TerminalCore、ScreenBuffer、VTAdapter、ScrollbackBuffer、BoundedByteQueue）—— 后三者经 `TerminalCore.h` 传递覆盖 | `novaterm_core_tests` | `core` | ~30s |
+| `src/core/terminal/`（TerminalCore、ScreenBuffer、VTAdapter、ScrollbackBuffer、BoundedByteQueue、KeyMapper）—— 后三者经 `TerminalCore.h` 传递覆盖；KeyMapper 有专项单测 | `novaterm_core_tests` | `core` | ~30s |
 | `src/core/scrollback/`、`src/core/search/` | `novaterm_scrollback_tests` | `scrollback` | <1s |
 | `src/session/`、`src/profile/`、`src/credential/` | `novaterm_session_tests` | `session`／`p6` | <1s |
 | `src/renderer/` 的 RenderCommandBuffer / RenderScheduler / TerminalRenderer | `novaterm_renderer_tests` | `renderer` | ~2s |
@@ -95,7 +95,7 @@ ctest --test-dir build -C Debug
 | `src/transport/SshTransport`、`SshMonitorProtocol` | `novaterm_ssh_transport_check`（失败路径 + 监控帧协议） | `ssh` | <1s |
 | `src/transport/TelnetTransport` | `novaterm_telnet_transport_tests` | `telnet` | ~5s |
 | TerminalSession + TerminalRenderer + LocalShellTransport 的联通路径 | `novaterm_terminal_session_tests` | `terminal-session` | ~46s |
-| `src/ui/`、`src/platform/`、`src/service/`、`src/core/terminal/KeyMapper` | **无覆盖测试**（`KeyMapper` 在 `tests/` 里零引用）—— 编译通过 + 实跑程序看效果即可 | — | — |
+| `src/ui/`、`src/platform/`、`src/service/` | **无覆盖测试** —— 编译通过 + 实跑程序看效果即可（`KeyMapper` 已移出此列，现由 `novaterm_core_tests` 覆盖） | — | — |
 
 SSH 资源监控另有不注册到 ctest 的
 `novaterm_ssh_monitor_integration_check`：它读取 AppData 中唯一的 SSH 历史会话
@@ -154,15 +154,42 @@ grep -E "FAIL!|Totals" build/rt.txt
 
 1. Parser 单写，Renderer / Search / 插件只读
 2. **libvterm 类型只能存在于 VTAdapter 实现边界**（同理 libtelnet 只在 TelnetTransport 内）
-3. Transport 只处理字节和连接状态，不理解终端 Cell
-4. Renderer 不理解 ANSI、SSH 或配置格式
-5. 所有跨线程队列必须有上限、统计和停止语义
-6. 跨线程只传不可变快照或版本化数据
-7. UI Theme / Terminal Scheme / Font Config 三者分离
-8. Session 是运行期边界，Profile 是创建模板
+3. **核心层 `src/core/` 不依赖任何 UI 框架**：Qt 类型（QObject、QString、QByteArray、
+   QVector、QKeyEvent、QRegularExpression 等）只能出现在门面层及以上，核心用标准库
+   等价物（`std::string`(UTF-8)、`std::vector`、`std::mutex`、`ByteView`、
+   `NovaTerm::Key` 等）。**进行中，未收口** —— 详见下方"去 Qt 化现状"
+4. Transport 只处理字节和连接状态，不理解终端 Cell
+5. Renderer 不理解 ANSI、SSH 或配置格式
+6. 所有跨线程队列必须有上限、统计和停止语义
+7. 跨线程只传不可变快照或版本化数据
+8. UI Theme / Terminal Scheme / Font Config 三者分离
+9. Session 是运行期边界，Profile 是创建模板
 
 `P6_Session_and_Transport.md` 的"实施禁止项"一节列了 11 条硬禁止，涉及
 Session / Transport / Renderer 时先看那一节。
+
+### 去 Qt 化现状（原则 3，进行中）
+
+核心层去 Qt 已完成主体，**但未收口**，接手前先看清边界：
+
+- **已去 Qt**：`VTAdapter`、`ScreenBuffer`、`ScrollbackBuffer`/`ChunkedScrollback`、
+  `LineLayout`、`BoundedByteQueue`、`KeyMapper`，以及全部跨模块数据结构。整数用
+  `CoreTypes.h` 的 `isize`/`u8`/`u32`/`u64`；字节用 `ByteView`；字符串用
+  UTF-8 `std::string`；容器用 `std::vector`/`std::shared_ptr`；并发用 `std::mutex`/
+  `condition_variable`/`thread`；键盘用 `NovaTerm::Key`/`KeyModifier`（Qt→核心的
+  翻译在 `TerminalCore.cpp` 匿名命名空间的 `coreKeyFromQt`/`coreModsFromQt`）。
+- **仍依赖 Qt（未做）**：`TerminalCore` 本身还是 `QObject` 门面（信号用
+  QString/QByteArray，输入收 QKeyEvent）；`SearchEngine`/`ReflowEngine` 还是
+  `QObject`，且 `SearchEngine` 内部仍用 `QRegularExpression`。故 `novaterm_core`
+  **仍链接 `Qt::Core`/`Qt::Gui`**。
+- **剩余工作**：① QObject 剥离 + 新建 `src/coreqt/` 门面（TerminalCore→
+  TerminalEngine、metatype 注册、QtKeyTranslator）；② 搜索匹配器注入
+  `ITextMatcher`（把 QRegularExpression 移入 coreqt）——**搜索重构已被用户暂停**；
+  ③ 上述完成后才能去掉 core 的 Qt 链接并加"零 Qt 链接"校验目标。
+- **改核心层时**：新增 `.h`/`.cpp` 不要 `#include` 任何 `Q*` 头；需要 Qt 的功能
+  放到门面层（当前即 `TerminalCore` 的门面部分，将来是 `src/coreqt/`）。
+  `KeyMapper.h` 暴露 `VTermKey` 是 §2 边界的既有例外（仅映射用），因此
+  `novaterm_core_tests` 显式加了 libvterm 头目录。
 
 ## 分层与关键类
 
@@ -392,6 +419,37 @@ base 指针。主题切换只改 QPalette，不动 style。
 **`QTest::mousePress(w, btn, mods, QPoint(0, 0))` 点的是控件中心**：`QPoint(0,0)`
 满足 `isNull()`，QTest 会把它当作"未指定位置"并取控件中心。要点左上角必须用
 非 null 坐标（如 `QPoint(1, 1)`）。写选区测试时这个坑会让起点落在屏幕中间。
+
+**Windows 上 AltGr 报成 Ctrl+Alt**：处理键盘时不能见 Ctrl 就当控制字符。德语等
+键盘 AltGr+Q=@、AltGr+8=[ 会被上报为 `Ctrl|Alt`，若走 Ctrl 分支会把 AltGr+Q
+误当 Ctrl+Q 发出 0x11(XOFF) 冻结显示。判据：`Ctrl+Alt` 同时按下且 `event->text()`
+是可打印字符时判为 AltGr，走文本路径。回归测试
+`novaterm_core_tests::altGrProducesPrintableCharacterNotControlCode`。
+
+**可打印文本输入不要把 Shift 转发给 libvterm**：文本已编码 Shift（"A"≠"a"），
+再传 Shift 会让 libvterm 对 Shift+Space 特判发出 `CSI 32;2u` 而非 0x20
+（`keyboard.c:33-35`）。`processTextInput` 只在"单独 Alt（真 meta，无 Ctrl）"时
+转发 `VTERM_MOD_ALT`；AltGr(Ctrl+Alt) 不是 meta，原样发送。回归测试
+`shiftSpaceSendsPlainSpace`、`altLetterSendsMetaEscapePrefix`。
+
+**回看快照的锚点行可能已被淘汰**：`rendererSnapshot` 按 `anchorLine` 用
+`lineById` 定位，但回看期间持续输出会把该行挤出 scrollback（默认仅 1000 行，
+约一秒）。命不中时**必须回退到"历史末尾行 + scrollLine"**，否则 historyViewport
+为空、整个回看区渲染成黑屏。回归测试 `rendererSnapshotFallsBackWhenAnchorEvicted`。
+
+**关闭时不要排空解析队列**：`TerminalCore::Runtime` 析构曾 `waitForIdle(5000)`
+把 8 MiB 积压全喂完 libvterm，大量输出中关标签页会阻塞 GUI 至多 5 秒 —— 那些
+解析结果无人再看。正解：只 `stopping + bytes.stop() + join`，worker 完成当前
+一批即退出。回归测试 `closingDoesNotDrainPendingInput`。
+
+**`scrollbackLines` 配置要显式接线**：`ConfigManager` 只校验存储该键，核心构造
+默认 1000 行。必须在 `TerminalView` 创建 core 后 `setScrollbackLimit(配置值)`，
+否则四种 Transport 的历史上限恒为 1000、用户设置形同虚设（`configuredScrollbackLines()`）。
+
+**`std::vector::size()` 是无符号，与 `isize`/`int` 比较要显式转换**：去 Qt 后核心
+容器从 `QVector`(有符号 `qsizetype`) 换成 `std::vector`(无符号 `size_t`)。诸如
+`row >= vec.size()`、`vec.size() != rows` 直接写会触发有符号/无符号比较，`/W4`
+下告警、边界判断也可能出错。统一写成 `isize(vec.size())` 或 `int(vec.size())`。
 
 ## 改动后必须同步文档
 
