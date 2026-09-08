@@ -42,6 +42,7 @@ private slots:
     void popLineReturnsNewestRowWithoutLoss();
     void wideCharMarksContinuationCell();
     void rendererSnapshotUsesLogicalWrapAnchor();
+    void rendererSnapshotFallsBackWhenAnchorEvicted();
     void liveRendererSnapshotDoesNotPublishHistoryTail();
     void fullScreenScrollPreservesContent();
     void batchedScreenEditsMatchIncrementalInput();
@@ -604,6 +605,32 @@ void TerminalCoreTests::rendererSnapshotUsesLogicalWrapAnchor()
     QCOMPARE(rendered.cellAt(0, 0)->chars[0], uint32_t('i'));
     QVERIFY(rendered.cellAt(0, 3));
     QCOMPARE(rendered.cellAt(0, 3)->chars[0], uint32_t('l'));
+}
+
+// 回看期间锚点行被淘汰出历史时，回看区不能整片渲染成空白。传入一个早已
+// 被淘汰的 anchorLine，快照仍应从当前历史末尾回退填充可见行。
+void TerminalCoreTests::rendererSnapshotFallsBackWhenAnchorEvicted()
+{
+    TerminalCore core(4, 2);
+    core.setScrollbackLimit(8);  // 小上限，逼早期行被淘汰
+    QVERIFY(core.waitForIdle());
+    // 写入远多于上限的行，使最早的历史行（含 lineId 1）被淘汰。
+    for (int i = 0; i < 40; ++i)
+        core.writeInput(QByteArrayLiteral("row\r\n"));
+    QVERIFY(core.waitForIdle());
+
+    const auto history = core.scrollbackSnapshot();
+    QVERIFY(!history.empty());
+    // lineId 1 是最早的行，此时应已被淘汰，lineById 命不中。
+    QVERIFY(history.firstLineId() > 1);
+
+    // 传入早已淘汰的 anchorLine=1，回看 2 行。修复前 historyViewport 为空，
+    // 回看行全默认（黑屏）；修复后回退到历史末尾，行内应有真实内容。
+    std::vector<bool> dirty(2, true);
+    const auto rendered = core.rendererSnapshot(dirty, 2, /*anchorLine=*/1, 0);
+    const NovaTerm::Cell* cell = rendered.cellAt(0, 0);
+    QVERIFY(cell);
+    QCOMPARE(cell->chars[0], uint32_t('r'));  // "row" 的首字符，而非空白
 }
 
 void TerminalCoreTests::liveRendererSnapshotDoesNotPublishHistoryTail()

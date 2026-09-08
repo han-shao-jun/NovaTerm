@@ -853,13 +853,22 @@ NovaTerm::RendererSnapshot TerminalCore::rendererSnapshot(
     // LineLayout::viewport 负责把逻辑行按当前列宽重新折行，输出
     // 每个可见 widget 行对应的逻辑行 ID 及 Cell 切片范围。
     if (!history.empty()) {
-        const NovaTerm::LogicalLine* anchor = anchorLine != 0
-            ? history.lineById(anchorLine)
-            : history.lineAt(std::max<isize>(
-                  0, history.lineCount() - scrollLine));
+        // anchorLine 非 0 时优先按 ID 定位；但锚点行可能已被淘汰出历史
+        // （回看期间持续输出、scrollback 达上限）。此时 lineById 返回
+        // nullptr，若不兜底会导致 historyViewport 为空、整个回看区渲染成
+        // 空白。回退到"末尾行 + scrollLine"（与 anchorLine==0 同路径），
+        // 保证有历史时回看区始终有内容。
+        const NovaTerm::LogicalLine* anchor =
+            anchorLine != 0 ? history.lineById(anchorLine) : nullptr;
+        isize effectiveWrap = anchorWrap;
+        if (!anchor) {
+            anchor = history.lineAt(
+                std::max<isize>(0, history.lineCount() - scrollLine));
+            effectiveWrap = 0;
+        }
         if (anchor) {
             historyViewport = NovaTerm::LineLayout::viewport(
-                history, anchor->id, anchorWrap, snapshot.columns,
+                history, anchor->id, effectiveWrap, snapshot.columns,
                 std::min<isize>(scrollLine, snapshot.rows), 0,
                 history.version());
         }
