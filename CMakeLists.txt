@@ -761,6 +761,11 @@ if(BUILD_TESTING)
             novaterm_core
             Qt${QT_VERSION_MAJOR}::Test
     )
+    # KeyMapper.h 在 VTAdapter 边界暴露 VTermKey/VTermModifier；该测试直接
+    # 验证到 libvterm 键码的映射，故需要 libvterm 头目录（仅测试目标可见，
+    # 不改变生产分层）。
+    target_include_directories(novaterm_core_tests
+        PRIVATE third_party/libvterm-0.3.3/include)
     add_test(NAME novaterm_core_tests COMMAND novaterm_core_tests)
     set_tests_properties(novaterm_core_tests PROPERTIES
         LABELS "unit;core"

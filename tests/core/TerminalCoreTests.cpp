@@ -1,4 +1,5 @@
 #include "core/terminal/BoundedByteQueue.h"
+#include "core/terminal/KeyMapper.h"
 #include "core/terminal/ScrollbackBuffer.h"
 #include "core/terminal/TerminalCore.h"
 #include "core/terminal/VTAdapter.h"
@@ -52,6 +53,8 @@ private slots:
     void parserInputBackpressureDoesNotBlockCaller();
     void parserWorkerBatchesAndPublishes();
     void resizeAndShutdownUnderLoad();
+    void keyMapperMapsSpecialKeysAndModifiers();
+    void keyMapperMapsControlCharacters();
 };
 
 namespace {
@@ -883,6 +886,51 @@ void TerminalCoreTests::resizeAndShutdownUnderLoad()
         QCOMPARE(core->columns(), 100 + iteration);
         QCOMPARE(core->rows(), 30 + iteration);
     }
+}
+
+// 核心 KeyMapper 不依赖 Qt：直接以核心输入类型（Key/KeyModifier/码点）
+// 验证到 libvterm 键码/修饰符/控制字符的映射。此前 KeyMapper 零覆盖。
+void TerminalCoreTests::keyMapperMapsSpecialKeysAndModifiers()
+{
+    VTermKey key = VTERM_KEY_NONE;
+    QVERIFY(KeyMapper::keyToVTermKey(NovaTerm::Key::Enter, key));
+    QCOMPARE(key, VTERM_KEY_ENTER);
+    QVERIFY(KeyMapper::keyToVTermKey(NovaTerm::Key::Up, key));
+    QCOMPARE(key, VTERM_KEY_UP);
+    QVERIFY(KeyMapper::keyToVTermKey(NovaTerm::Key::PageDown, key));
+    QCOMPARE(key, VTERM_KEY_PAGEDOWN);
+    QVERIFY(KeyMapper::keyToVTermKey(NovaTerm::Key::F5, key));
+    QCOMPARE(key, static_cast<VTermKey>(VTERM_KEY_FUNCTION(5)));
+    // None 与文本键无映射，调用方据此回退到字符输入路径。
+    QVERIFY(!KeyMapper::keyToVTermKey(NovaTerm::Key::None, key));
+
+    using NovaTerm::KeyModifier;
+    QCOMPARE(int(KeyMapper::modToVTermMod(KeyModifier::None)),
+             int(VTERM_MOD_NONE));
+    QCOMPARE(int(KeyMapper::modToVTermMod(KeyModifier::Ctrl)),
+             int(VTERM_MOD_CTRL));
+    QCOMPARE(int(KeyMapper::modToVTermMod(
+                 KeyModifier::Ctrl | KeyModifier::Shift | KeyModifier::Alt)),
+             int(VTERM_MOD_CTRL | VTERM_MOD_SHIFT | VTERM_MOD_ALT));
+}
+
+void TerminalCoreTests::keyMapperMapsControlCharacters()
+{
+    uint32_t codepoint = 0xFFFF;
+    // Ctrl+A..Z → 0x01..0x1A（大小写均可）。
+    QVERIFY(KeyMapper::codepointToControlCharacter('A', codepoint));
+    QCOMPARE(codepoint, uint32_t(0x01));
+    QVERIFY(KeyMapper::codepointToControlCharacter('c', codepoint));
+    QCOMPARE(codepoint, uint32_t(0x03));  // Ctrl+C → ETX
+    // 符号控制字符。
+    QVERIFY(KeyMapper::codepointToControlCharacter('[', codepoint));
+    QCOMPARE(codepoint, uint32_t(0x1B));  // ESC
+    QVERIFY(KeyMapper::codepointToControlCharacter('?', codepoint));
+    QCOMPARE(codepoint, uint32_t(0x7F));  // DEL
+    QVERIFY(KeyMapper::codepointToControlCharacter(' ', codepoint));
+    QCOMPARE(codepoint, uint32_t(0x00));  // Ctrl+Space → NUL
+    // 无对应控制字符的普通码点返回 false。
+    QVERIFY(!KeyMapper::codepointToControlCharacter('1', codepoint));
 }
 
 QTEST_GUILESS_MAIN(TerminalCoreTests)

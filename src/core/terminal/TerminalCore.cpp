@@ -130,6 +130,58 @@ u64 rowContentIdentity(const NovaTerm::Cell* cells, int columns)
     return hash;
 }
 
+// ── Qt 事件 → 核心输入类型的翻译（门面层职责）──
+// 核心层 KeyMapper 只认 NovaTerm::Key / KeyModifier，不依赖 Qt。这里把
+// Qt::Key 与 Qt::KeyboardModifiers 翻译过去；阶段 7 建门面后这两个函数
+// 连同 processKeyPress 等一并移入 coreqt 的 QtKeyTranslator。
+NovaTerm::KeyModifier coreModsFromQt(Qt::KeyboardModifiers mods)
+{
+    NovaTerm::KeyModifier result = NovaTerm::KeyModifier::None;
+    if (mods.testFlag(Qt::ShiftModifier))
+        result |= NovaTerm::KeyModifier::Shift;
+    if (mods.testFlag(Qt::AltModifier))
+        result |= NovaTerm::KeyModifier::Alt;
+    if (mods.testFlag(Qt::ControlModifier))
+        result |= NovaTerm::KeyModifier::Ctrl;
+    return result;
+}
+
+NovaTerm::Key coreKeyFromQt(int qtKey)
+{
+    using NovaTerm::Key;
+    switch (qtKey) {
+    case Qt::Key_Enter:
+    case Qt::Key_Return:    return Key::Enter;
+    case Qt::Key_Tab:
+    case Qt::Key_Backtab:   return Key::Tab;
+    case Qt::Key_Backspace: return Key::Backspace;
+    case Qt::Key_Escape:    return Key::Escape;
+    case Qt::Key_Up:        return Key::Up;
+    case Qt::Key_Down:      return Key::Down;
+    case Qt::Key_Left:      return Key::Left;
+    case Qt::Key_Right:     return Key::Right;
+    case Qt::Key_Insert:    return Key::Insert;
+    case Qt::Key_Delete:    return Key::Delete;
+    case Qt::Key_Home:      return Key::Home;
+    case Qt::Key_End:       return Key::End;
+    case Qt::Key_PageUp:    return Key::PageUp;
+    case Qt::Key_PageDown:  return Key::PageDown;
+    case Qt::Key_F1:  return Key::F1;
+    case Qt::Key_F2:  return Key::F2;
+    case Qt::Key_F3:  return Key::F3;
+    case Qt::Key_F4:  return Key::F4;
+    case Qt::Key_F5:  return Key::F5;
+    case Qt::Key_F6:  return Key::F6;
+    case Qt::Key_F7:  return Key::F7;
+    case Qt::Key_F8:  return Key::F8;
+    case Qt::Key_F9:  return Key::F9;
+    case Qt::Key_F10: return Key::F10;
+    case Qt::Key_F11: return Key::F11;
+    case Qt::Key_F12: return Key::F12;
+    default:          return Key::None;
+    }
+}
+
 } // namespace
 
 class TerminalCore::Runtime
@@ -578,11 +630,12 @@ void TerminalCore::processKeyPress(QKeyEvent* event)
     const QString text = event->text();
     const int qtKey = event->key();
     const auto qtModifiers = event->modifiers();
-    const int modifiers = int(KeyMapper::qtModToVTermMod(qtModifiers));
+    const int modifiers = int(KeyMapper::modToVTermMod(coreModsFromQt(qtModifiers)));
 
     if (qtModifiers.testFlag(Qt::ControlModifier)) {
         uint32_t controlCodepoint = 0;
-        if (KeyMapper::qtKeyToControlCharacter(qtKey, controlCodepoint)) {
+        if (KeyMapper::codepointToControlCharacter(uint32_t(qtKey),
+                                                   controlCodepoint)) {
             ParserCommand command;
             command.type = CommandType::KeyboardCharacter;
             command.codepoint = controlCodepoint;
@@ -600,7 +653,7 @@ void TerminalCore::processKeyPress(QKeyEvent* event)
     }
 
     VTermKey key;
-    if (KeyMapper::qtKeyToVTermKey(qtKey, key)) {
+    if (KeyMapper::keyToVTermKey(coreKeyFromQt(qtKey), key)) {
         ParserCommand command;
         command.type = CommandType::KeyboardKey;
         command.first = int(key);
@@ -615,7 +668,8 @@ void TerminalCore::processKeyPress(QKeyEvent* event)
 void TerminalCore::processTextInput(const QString& text,
                                     Qt::KeyboardModifiers modifiers)
 {
-    const int vtermModifiers = int(KeyMapper::qtModToVTermMod(modifiers));
+    const int vtermModifiers =
+        int(KeyMapper::modToVTermMod(coreModsFromQt(modifiers)));
     for (const uint32_t codepoint : text.toUcs4()) {
         ParserCommand command;
         command.type = CommandType::KeyboardCharacter;
@@ -634,7 +688,7 @@ void TerminalCore::processMousePress(QMouseEvent* event)
     command.first = event->button() == Qt::RightButton ? 2
         : event->button() == Qt::MiddleButton ? 3 : 1;
     command.second =
-        int(KeyMapper::qtModToVTermMod(event->modifiers()));
+        int(KeyMapper::modToVTermMod(coreModsFromQt(event->modifiers())));
     command.pressed = true;
     _runtime->enqueueCommand(std::move(command));
 }
@@ -653,7 +707,7 @@ void TerminalCore::processMouseRelease(QMouseEvent* event)
     command.first = event->button() == Qt::RightButton ? 2
         : event->button() == Qt::MiddleButton ? 3 : 1;
     command.second =
-        int(KeyMapper::qtModToVTermMod(event->modifiers()));
+        int(KeyMapper::modToVTermMod(coreModsFromQt(event->modifiers())));
     command.pressed = false;
     _runtime->enqueueCommand(std::move(command));
 }
@@ -664,7 +718,7 @@ void TerminalCore::processWheel(QWheelEvent* event)
         return;
     const int button = event->angleDelta().y() > 0 ? 4 : 5;
     const int modifiers =
-        int(KeyMapper::qtModToVTermMod(event->modifiers()));
+        int(KeyMapper::modToVTermMod(coreModsFromQt(event->modifiers())));
     // 鼠标滚轮在终端协议中等价于一次"按下+释放"的鼠标按键（按键 4=上滚，
     // 按键 5=下滚），因此对一次 wheel 事件成对投递两条命令。
     for (const bool pressed : {true, false}) {
