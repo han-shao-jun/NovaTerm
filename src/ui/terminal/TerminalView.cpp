@@ -66,6 +66,17 @@ static QColor configuredColor(const QJsonObject& colors, const char* key,
     return color.isValid() ? color : fallback;
 }
 
+// 读取用户配置的滚动历史行数（terminal.scrollbackLines）。缺失或越界时
+// 回退到 1000。ConfigManager 已把该键钳制在 [100, 1000000]。
+static int configuredScrollbackLines()
+{
+    const QJsonObject terminal = ConfigManager::instance().root()
+        .value(QStringLiteral("terminal")).toObject();
+    const QJsonValue value = terminal.value(QStringLiteral("scrollbackLines"));
+    const int lines = value.toInt(1000);
+    return lines > 0 ? lines : 1000;
+}
+
 static TerminalColorScheme configuredTerminalScheme(bool isDark)
 {
     TerminalColorScheme scheme = isDark
@@ -130,6 +141,9 @@ TerminalView::TerminalView(TerminalSession* session, QWidget* parent)
     } else {
         ownedCore = std::make_unique<TerminalCore>(kDefaultCols, kDefaultRows);
         _core = ownedCore.get();
+        // 应用用户配置的滚动历史上限（此前该配置从未被读取，实际恒为
+        // 构造默认的 1000 行）。SSH/Telnet/Serial 也经此路径受益。
+        _core->setScrollbackLimit(configuredScrollbackLines());
     }
     _latestResizeColumns = _core->columns();
     _latestResizeRows = _core->rows();
@@ -367,8 +381,9 @@ void TerminalView::startLocalShell(const LocalShellConfig& config)
     // Core 的 resize 异步执行，此处不能用尚未更新的模型尺寸覆盖目标。
 
     // ── 临时禁用 scrollback 以消除启动时滚动条异常 ──────────
-    const int savedHistorySize = _core->scrollbackLineCount() > 0
-        ? (std::max)(1000, _core->scrollbackLineCount()) : 1000;
+    // 恢复时用用户配置的行数，而非硬编码 1000（旧实现取
+    // max(1000, 当前行数)，启动时无历史故恒为 1000，配置形同虚设）。
+    const int savedHistorySize = configuredScrollbackLines();
     _core->setScrollbackLimit(0);
 
     // 通过统一的 ITransport 路径桥接
