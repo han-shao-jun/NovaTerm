@@ -126,10 +126,14 @@ private:
     void showSessionDialog(TransportKind initialKind);
     void editSession(const SessionId& id, const RuntimeConfig& runtime,
                      const QByteArray& secret);
+    void editTerminalSession(TerminalView* terminalView,
+                             const RuntimeConfig& runtime,
+                             const QByteArray& secret);
     void runSessionDialog(TransportKind initialKind,
                           const std::optional<SessionId>& editingSessionId,
                           const std::optional<RuntimeConfig>& initialConfig,
-                          const QByteArray& secret);
+                          const QByteArray& secret,
+                          TerminalView* editingTerminal = nullptr);
 
     // ── 设置（模态 ElaDialog，内嵌现有 SettingsPage）──
     void showSettingsDialog();

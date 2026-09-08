@@ -18,6 +18,10 @@ ElaCustomWidget::ElaCustomWidget(QWidget* parent)
     // 自定义AppBar
     _appBar = new ElaAppBar(this);
     _appBar->setWindowButtonFlags(ElaAppBarType::MinimizeButtonHint | ElaAppBarType::MaximizeButtonHint | ElaAppBarType::CloseButtonHint);
+    // IsDefaultClosed 在库内未初始化（值不确定）。这里显式置为 false：关闭按钮
+    // 只发出 closeButtonClicked 信号，由具体浮窗子类自行接管并调用 close()，
+    // 避免走上 onCloseButtonClicked 中 processEvents() 后访问悬空指针的路径。
+    _appBar->setIsDefaultClosed(false);
     _mainLayout = new QVBoxLayout(this);
     _mainLayout->setContentsMargins(0, 0, 0, 0);
 

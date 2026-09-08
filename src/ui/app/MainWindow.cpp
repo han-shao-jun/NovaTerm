@@ -1202,6 +1202,8 @@ void MainWindow::initWindow()
     });
     connect(_sessionPanel, &SessionPanel::editSessionRequested, this,
             &MainWindow::editSession);
+    connect(_terminalPage, &TerminalPage::editSessionRequested, this,
+            &MainWindow::editTerminalSession);
     connect(_sessionPanel, &SessionPanel::localReconnectRequested, this,
             [this](TerminalView::LocalShellType type,
                    const QString& wslDistribution, const QString& label) {
@@ -1589,22 +1591,32 @@ void MainWindow::showSessionDialog()
 
 void MainWindow::showSessionDialog(TransportKind initialKind)
 {
-    runSessionDialog(initialKind, std::nullopt, std::nullopt, {});
+    runSessionDialog(initialKind, std::nullopt, std::nullopt, {}, nullptr);
 }
 
 void MainWindow::editSession(const SessionId& id,
                              const RuntimeConfig& runtime,
                              const QByteArray& secret)
 {
-    runSessionDialog(runtime.transportKind, id, runtime, secret);
+    runSessionDialog(runtime.transportKind, id, runtime, secret, nullptr);
+}
+
+void MainWindow::editTerminalSession(TerminalView* terminalView,
+                                     const RuntimeConfig& runtime,
+                                     const QByteArray& secret)
+{
+    runSessionDialog(runtime.transportKind, std::nullopt, runtime, secret,
+                     terminalView);
 }
 
 void MainWindow::runSessionDialog(
     TransportKind initialKind,
     const std::optional<SessionId>& editingSessionId,
     const std::optional<RuntimeConfig>& initialConfig,
-    const QByteArray& secret)
+    const QByteArray& secret,
+    TerminalView* editingTerminal)
 {
+    const QPointer<TerminalView> terminalToEdit(editingTerminal);
     if (!_sessionDialog) {
         _sessionDialog = new ElaDialog(this);
         _sessionDialog->setWindowTitle(tr("Session"));
@@ -1674,6 +1686,10 @@ void MainWindow::runSessionDialog(
             _sessionPanel->updateLocal(*editingSessionId, parameters.type,
                                        parameters.wslDistribution,
                                        parameters.label);
+        } else if (terminalToEdit) {
+            static_cast<void>(_terminalPage->replaceTerminalTab(
+                terminalToEdit, parameters.type,
+                parameters.wslDistribution, parameters.label));
         } else {
             _sessionPanel->recordLocal(parameters.type,
                                        parameters.wslDistribution,
@@ -1688,6 +1704,9 @@ void MainWindow::runSessionDialog(
         _pendingSerialSession.reset();
         if (editingSessionId)
             _sessionPanel->updateSerial(*editingSessionId, config);
+        else if (terminalToEdit)
+            static_cast<void>(_terminalPage->replaceTerminalTab(
+                terminalToEdit, config));
         else {
             _sessionPanel->recordSerial(config);
             _terminalPage->addSerialTerminalTab(config);
@@ -1697,6 +1716,9 @@ void MainWindow::runSessionDialog(
         _pendingSshSession.reset();
         if (editingSessionId)
             _sessionPanel->updateSsh(*editingSessionId, config);
+        else if (terminalToEdit)
+            static_cast<void>(_terminalPage->replaceTerminalTab(
+                terminalToEdit, config));
         else {
             _sessionPanel->recordSsh(config);
             _terminalPage->addSshTerminalTab(config);
@@ -1706,6 +1728,9 @@ void MainWindow::runSessionDialog(
         _pendingTelnetSession.reset();
         if (editingSessionId)
             _sessionPanel->updateTelnet(*editingSessionId, config);
+        else if (terminalToEdit)
+            static_cast<void>(_terminalPage->replaceTerminalTab(
+                terminalToEdit, config));
         else {
             _sessionPanel->recordTelnet(config);
             _terminalPage->addTelnetTerminalTab(config);

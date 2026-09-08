@@ -15,6 +15,11 @@ public:
     void addTab(QWidget* widget, QIcon tabIcon, const QString& tabTitle);
     ElaTabBar* getCustomTabBar() const;
     ElaTabWidget* getCustomTabWidget() const;
+    /**
+     * @brief 拖拽期间启用输入穿透；结束时可靠恢复窗口交互。
+     * @param transparent 是否启用窗口输入穿透。
+     */
+    void setDragInputTransparent(bool transparent);
 
     Q_INVOKABLE bool processHitTest();
 

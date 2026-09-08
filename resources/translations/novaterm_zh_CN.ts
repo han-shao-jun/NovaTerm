@@ -359,47 +359,47 @@ Built with:
     </message>
     <message>
         <location filename="../../src/ui/app/MainWindow.cpp" line="984"/>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="1520"/>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="1610"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="1522"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="1622"/>
         <source>Session</source>
         <translation>会话</translation>
     </message>
     <message>
         <location filename="../../src/ui/app/MainWindow.cpp" line="985"/>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="1539"/>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="1723"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="1541"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="1748"/>
         <source>Settings</source>
         <translation>设置</translation>
     </message>
     <message>
         <location filename="../../src/ui/app/MainWindow.cpp" line="986"/>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="1543"/>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="1757"/>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="1776"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="1545"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="1782"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="1801"/>
         <source>About</source>
         <translation>关于</translation>
     </message>
     <message>
         <location filename="../../src/ui/app/MainWindow.cpp" line="987"/>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="1552"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="1554"/>
         <source>Local</source>
         <translation>本地</translation>
     </message>
     <message>
         <location filename="../../src/ui/app/MainWindow.cpp" line="988"/>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="1554"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="1556"/>
         <source>SSH</source>
         <translation>SSH</translation>
     </message>
     <message>
         <location filename="../../src/ui/app/MainWindow.cpp" line="989"/>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="1556"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="1558"/>
         <source>Serial</source>
         <translation>串口</translation>
     </message>
     <message>
         <location filename="../../src/ui/app/MainWindow.cpp" line="990"/>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="1558"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="1560"/>
         <source>Telnet</source>
         <translation>Telnet</translation>
     </message>
@@ -429,31 +429,31 @@ Built with:
     </message>
     <message>
         <location filename="../../src/ui/app/MainWindow.cpp" line="1004"/>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="1528"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="1530"/>
         <source>SFTP panel</source>
         <translation>SFTP 面板</translation>
     </message>
     <message>
         <location filename="../../src/ui/app/MainWindow.cpp" line="1006"/>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="1530"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="1532"/>
         <source>System resources panel</source>
         <translation>系统资源面板</translation>
     </message>
     <message>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="1211"/>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="1258"/>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="1682"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="1213"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="1260"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="1698"/>
         <source>Terminal</source>
         <translation>终端</translation>
     </message>
     <message>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="1228"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="1230"/>
         <source>Reconnect session</source>
         <translation>重新连接会话</translation>
     </message>
     <message>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="1758"/>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="1777"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="1783"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="1802"/>
         <source>OK</source>
         <translation>确定</translation>
     </message>
@@ -2130,14 +2130,23 @@ Built with:
 <context>
     <name>TerminalPage</name>
     <message>
-        <location filename="../../src/ui/pages/TerminalPage.cpp" line="51"/>
+        <location filename="../../src/ui/pages/TerminalPage.cpp" line="137"/>
         <source>Terminal</source>
         <translation>终端</translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/TerminalPage.cpp" line="162"/>
+        <location filename="../../src/ui/pages/TerminalPage.cpp" line="236"/>
+        <location filename="../../src/ui/pages/TerminalPage.cpp" line="333"/>
         <source>Terminal %1</source>
         <translation>终端 %1</translation>
+    </message>
+</context>
+<context>
+    <name>TerminalTabWidget</name>
+    <message>
+        <location filename="../../src/ui/widgets/TerminalTabWidget.cpp" line="37"/>
+        <source>Edit</source>
+        <translation>编辑</translation>
     </message>
 </context>
 <context>
