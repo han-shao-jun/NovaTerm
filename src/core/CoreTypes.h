@@ -13,6 +13,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <utility>
 
 namespace NovaTerm {
 
@@ -33,6 +34,27 @@ struct ByteView
     ByteView(const char* d, isize n) : data(d), size(n) {}
 
     bool empty() const { return size <= 0; }
+};
+
+// 作用域内把变量设为新值，析构时恢复旧值的 RAII 守卫。
+// 替代 QScopedValueRollback，不引入 Qt。
+template <typename T>
+class ScopedValueRollback
+{
+public:
+    ScopedValueRollback(T& target, T value)
+        : _target(target), _previous(target)
+    {
+        _target = std::move(value);
+    }
+    ~ScopedValueRollback() { _target = std::move(_previous); }
+
+    ScopedValueRollback(const ScopedValueRollback&) = delete;
+    ScopedValueRollback& operator=(const ScopedValueRollback&) = delete;
+
+private:
+    T& _target;
+    T _previous;
 };
 
 } // namespace NovaTerm

@@ -7,13 +7,17 @@
  */
 #include "BoundedByteQueue.h"
 
-#include <QDeadlineTimer>
-#include <QMutexLocker>
-
 #include <algorithm>
+#include <chrono>
 #include <cstring>
 
 namespace NovaTerm {
+namespace {
+
+// 计算 wait 的绝对截止时刻；timeoutMs < 0 表示无限等待。
+using SteadyClock = std::chrono::steady_clock;
+
+} // namespace
 
 BoundedByteQueue::BoundedByteQueue(isize capacityBytes)
     // Qt::Uninitialized 避免无谓的 0 填充，容量下限 1 字节。
@@ -27,7 +31,7 @@ bool BoundedByteQueue::enqueue(QByteArrayView data, int timeoutMs,
     // 空数据视为成功入队，仅返回当前字节数。
     if (data.isEmpty()) {
         if (queuedBytesAfter) {
-            QMutexLocker locker(&_mutex);
+            std::lock_guard<std::mutex> locker(_mutex);
             *queuedBytesAfter = _size;
         }
         return true;
@@ -36,16 +40,23 @@ bool BoundedByteQueue::enqueue(QByteArrayView data, int timeoutMs,
     if (data.size() > _storage.size())
         return false;
 
-    QMutexLocker locker(&_mutex);
-    QDeadlineTimer deadline(timeoutMs < 0 ? QDeadlineTimer::Forever
-                                         : QDeadlineTimer(timeoutMs));
-    // 队列满时阻塞生产者，直到队列非满或被停止。
+    std::unique_lock<std::mutex> locker(_mutex);
+    const bool timed = timeoutMs >= 0;
+    const auto deadline =
+        SteadyClock::now() + std::chrono::milliseconds(timed ? timeoutMs : 0);
+    // 队列满时阻塞生产者，直到队列非满或被停止。超时立即返回失败，
+    // 语义与原 QWaitCondition::wait 返回 false 一致。
     while (!_stopped && writableBytes() < data.size()) {
         ++_producerWaits;
-        if (!_notFull.wait(&_mutex, deadline)) {
-            if (queuedBytesAfter)
-                *queuedBytesAfter = _size;
-            return false;
+        if (timed) {
+            if (_notFull.wait_until(locker, deadline)
+                == std::cv_status::timeout) {
+                if (queuedBytesAfter)
+                    *queuedBytesAfter = _size;
+                return false;
+            }
+        } else {
+            _notFull.wait(locker);
         }
     }
     if (_stopped)
@@ -57,7 +68,7 @@ bool BoundedByteQueue::enqueue(QByteArrayView data, int timeoutMs,
     _highWatermark = std::max(_highWatermark, _size);
     if (queuedBytesAfter)
         *queuedBytesAfter = _size;
-    _notEmpty.wakeOne();
+    _notEmpty.notify_one();
     return true;
 }
 
@@ -66,13 +77,20 @@ QByteArray BoundedByteQueue::take(isize maxBytes, int timeoutMs)
     if (maxBytes <= 0)
         return {};
 
-    QMutexLocker locker(&_mutex);
-    QDeadlineTimer deadline(timeoutMs < 0 ? QDeadlineTimer::Forever
-                                         : QDeadlineTimer(timeoutMs));
+    std::unique_lock<std::mutex> locker(_mutex);
+    const bool timed = timeoutMs >= 0;
+    const auto deadline =
+        SteadyClock::now() + std::chrono::milliseconds(timed ? timeoutMs : 0);
     // 队列空时阻塞消费者，直到非空或被停止。
     while (!_stopped && _size == 0) {
-        if (!_notEmpty.wait(&_mutex, deadline))
-            return {};
+        if (timed) {
+            if (_notEmpty.wait_until(locker, deadline)
+                == std::cv_status::timeout) {
+                return {};
+            }
+        } else {
+            _notEmpty.wait(locker);
+        }
     }
     if (_size == 0)
         return {};
@@ -83,28 +101,28 @@ QByteArray BoundedByteQueue::take(isize maxBytes, int timeoutMs)
     copyFromRing(result.data(), length);
     _size -= length;
     _totalDequeued += uint64_t(length);
-    _notFull.wakeAll();
+    _notFull.notify_all();
     return result;
 }
 
 void BoundedByteQueue::stop()
 {
-    QMutexLocker locker(&_mutex);
+    std::lock_guard<std::mutex> locker(_mutex);
     _stopped = true;
     // 唤醒所有阻塞的生产者与消费者，让它们看到 _stopped 后退出。
-    _notEmpty.wakeAll();
-    _notFull.wakeAll();
+    _notEmpty.notify_all();
+    _notFull.notify_all();
 }
 
 bool BoundedByteQueue::isEmpty() const
 {
-    QMutexLocker locker(&_mutex);
+    std::lock_guard<std::mutex> locker(_mutex);
     return _size == 0;
 }
 
 BoundedByteQueue::Statistics BoundedByteQueue::statistics() const
 {
-    QMutexLocker locker(&_mutex);
+    std::lock_guard<std::mutex> locker(_mutex);
     return {_storage.size(), _size, _highWatermark, _totalEnqueued,
             _totalDequeued, _producerWaits};
 }

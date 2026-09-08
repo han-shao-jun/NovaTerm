@@ -16,19 +16,18 @@
 #include "ScrollbackBuffer.h"
 #include "VTAdapter.h"
 
-#include <QDeadlineTimer>
 #include <QKeyEvent>
 #include <QMetaObject>
 #include <QMouseEvent>
-#include <QMutex>
-#include <QMutexLocker>
-#include <QThread>
-#include <QWaitCondition>
 #include <QWheelEvent>
 
 #include <algorithm>
 #include <atomic>
+#include <chrono>
+#include <condition_variable>
 #include <deque>
+#include <mutex>
+#include <thread>
 #include <utility>
 #include <vector>
 
@@ -143,9 +142,7 @@ public:
         , bytes(QueueCapacity)
     {
         rowRevisions.fill(0, rows);
-        thread = QThread::create([this]() { workerMain(); });
-        thread->setObjectName(QStringLiteral("NovaTerm Parser Worker"));
-        thread->start();
+        thread = std::thread([this]() { workerMain(); });
     }
 
     ~Runtime()
@@ -154,10 +151,8 @@ public:
         waitForIdle(5000);
         stopping.store(true, std::memory_order_release);
         bytes.stop();
-        if (thread) {
-            thread->wait();
-            delete thread;
-        }
+        if (thread.joinable())
+            thread.join();
     }
 
     TerminalCore::InputWriteResult enqueueBytes(QByteArrayView data)
@@ -188,7 +183,7 @@ public:
 
     bool enqueueCommand(ParserCommand command)
     {
-        QMutexLocker locker(&commandMutex);
+        std::lock_guard<std::mutex> locker(commandMutex);
         if (!accepting.load(std::memory_order_acquire))
             return false;
         // 记录入队时刻的已提交字节计数。worker 线程消费时据此等待：
@@ -238,13 +233,21 @@ public:
             submittedBytes.load(std::memory_order_acquire);
         const uint64_t targetCommands =
             submittedCommands.load(std::memory_order_acquire);
-        QMutexLocker locker(&completionMutex);
-        QDeadlineTimer deadline(timeoutMs);
+        std::unique_lock<std::mutex> locker(completionMutex);
+        const auto deadline = std::chrono::steady_clock::now()
+            + std::chrono::milliseconds(timeoutMs);
         while (completedBytes.load(std::memory_order_acquire) < targetBytes
                || completedCommands.load(std::memory_order_acquire)
                       < targetCommands) {
-            if (!completionChanged.wait(&completionMutex, deadline))
-                return false;
+            if (completionChanged.wait_until(locker, deadline)
+                == std::cv_status::timeout) {
+                // 超时后再确认一次，避免恰在截止时刻完成却误报失败。
+                if (completedBytes.load(std::memory_order_acquire) < targetBytes
+                    || completedCommands.load(std::memory_order_acquire)
+                           < targetCommands) {
+                    return false;
+                }
+            }
         }
         return true;
     }
@@ -270,7 +273,7 @@ public:
                 if (bytes.statistics().queuedBytes <= QueueLowWatermark)
                     setBackpressure(false);
                 {
-                    QMutexLocker modelLocker(&modelMutex);
+                    std::lock_guard<std::mutex> modelLocker(modelMutex);
                     adapter->writeInput(batch);
                     adapter->flushDamage();
                     commitPendingModelRevision();
@@ -343,7 +346,7 @@ public:
             pendingScreenScrollRows += rows;
         };
 
-        QMutexLocker modelLocker(&modelMutex);
+        std::lock_guard<std::mutex> modelLocker(modelMutex);
         adapter = std::make_unique<NovaTerm::VTAdapter>(
             screen.columns(), screen.rows(), screen, scrollback,
             std::move(observer));
@@ -357,7 +360,7 @@ public:
     {
         std::deque<ParserCommand> local;
         {
-            QMutexLocker locker(&commandMutex);
+            std::lock_guard<std::mutex> locker(commandMutex);
             const uint64_t bytesDone =
                 completedBytes.load(std::memory_order_acquire);
             while (!commands.empty()
@@ -372,7 +375,7 @@ public:
             return 0;
 
         {
-            QMutexLocker modelLocker(&modelMutex);
+            std::lock_guard<std::mutex> modelLocker(modelMutex);
             for (const ParserCommand& command : local)
                 executeCommand(command);
             commitPendingModelRevision();
@@ -448,7 +451,7 @@ public:
 
         QString titleCopy;
         if (titleValue) {
-            QMutexLocker locker(&modelMutex);
+            std::lock_guard<std::mutex> locker(modelMutex);
             titleCopy = currentTitle;
         }
 
@@ -498,12 +501,12 @@ public:
 
     void notifyCompletion()
     {
-        QMutexLocker locker(&completionMutex);
-        completionChanged.wakeAll();
+        std::lock_guard<std::mutex> locker(completionMutex);
+        completionChanged.notify_all();
     }
 
     TerminalCore* owner;
-    mutable QMutex modelMutex;
+    mutable std::mutex modelMutex;
     NovaTerm::ScreenBuffer screen;
     ScrollbackBuffer scrollback;
     NovaTerm::CursorState cursor;
@@ -513,12 +516,12 @@ public:
     QVector<u64> rowRevisions;
 
     NovaTerm::BoundedByteQueue bytes;
-    mutable QMutex commandMutex;
+    mutable std::mutex commandMutex;
     std::deque<ParserCommand> commands;
     isize pendingCommandBytes{0};
 
-    mutable QMutex completionMutex;
-    mutable QWaitCondition completionChanged;
+    mutable std::mutex completionMutex;
+    mutable std::condition_variable completionChanged;
     std::atomic<uint64_t> submittedBytes{0};
     std::atomic<uint64_t> completedBytes{0};
     std::atomic<uint64_t> submittedCommands{0};
@@ -526,7 +529,7 @@ public:
     std::atomic<bool> accepting{true};
     std::atomic<bool> stopping{false};
     std::atomic<bool> backpressure{false};
-    QThread* thread{nullptr};
+    std::thread thread;
     std::unique_ptr<NovaTerm::VTAdapter> adapter;
 
     QVector<NovaTerm::DirtyRegion> pendingDamage;
@@ -712,19 +715,19 @@ void TerminalCore::resize(int cols, int rows)
 
 int TerminalCore::columns() const
 {
-    QMutexLocker locker(&_runtime->modelMutex);
+    std::lock_guard<std::mutex> locker(_runtime->modelMutex);
     return _runtime->screen.columns();
 }
 
 int TerminalCore::rows() const
 {
-    QMutexLocker locker(&_runtime->modelMutex);
+    std::lock_guard<std::mutex> locker(_runtime->modelMutex);
     return _runtime->screen.rows();
 }
 
 bool TerminalCore::getCell(int row, int col, NovaTerm::Cell& out) const
 {
-    QMutexLocker locker(&_runtime->modelMutex);
+    std::lock_guard<std::mutex> locker(_runtime->modelMutex);
     const NovaTerm::Cell* cell = _runtime->screen.cellAt(row, col);
     if (!cell)
         return false;
@@ -734,13 +737,13 @@ bool TerminalCore::getCell(int row, int col, NovaTerm::Cell& out) const
 
 bool TerminalCore::rowContinuation(int row) const
 {
-    QMutexLocker locker(&_runtime->modelMutex);
+    std::lock_guard<std::mutex> locker(_runtime->modelMutex);
     return _runtime->screen.rowContinuation(row);
 }
 
 NovaTerm::TerminalSnapshot TerminalCore::snapshot() const
 {
-    QMutexLocker locker(&_runtime->modelMutex);
+    std::lock_guard<std::mutex> locker(_runtime->modelMutex);
     NovaTerm::TerminalSnapshot result =
         NovaTerm::makeSnapshot(_runtime->screen, _runtime->cursor);
     result.revision = _runtime->modelRevision;
@@ -751,7 +754,7 @@ NovaTerm::RendererSnapshot TerminalCore::rendererSnapshot(
     const QVector<bool>& dirtyRows, int scrollLine,
     NovaTerm::LineId anchorLine, isize anchorWrap) const
 {
-    QMutexLocker locker(&_runtime->modelMutex);
+    std::lock_guard<std::mutex> locker(_runtime->modelMutex);
     NovaTerm::RendererSnapshot snapshot;
     snapshot.revision = _runtime->modelRevision;
     snapshot.columns = _runtime->screen.columns();
@@ -835,13 +838,13 @@ NovaTerm::RendererSnapshot TerminalCore::rendererSnapshot(
 
 u64 TerminalCore::modelRevision() const
 {
-    QMutexLocker locker(&_runtime->modelMutex);
+    std::lock_guard<std::mutex> locker(_runtime->modelMutex);
     return _runtime->modelRevision;
 }
 
 NovaTerm::CursorState TerminalCore::cursorState() const
 {
-    QMutexLocker locker(&_runtime->modelMutex);
+    std::lock_guard<std::mutex> locker(_runtime->modelMutex);
     return _runtime->cursor;
 }
 
@@ -865,14 +868,14 @@ void TerminalCore::setDefaultColors(
 
 int TerminalCore::scrollbackLineCount() const
 {
-    QMutexLocker locker(&_runtime->modelMutex);
+    std::lock_guard<std::mutex> locker(_runtime->modelMutex);
     return _runtime->scrollback.lineCount();
 }
 
 bool TerminalCore::getScrollbackCell(int lineIndex, int col,
                                      NovaTerm::Cell& out) const
 {
-    QMutexLocker locker(&_runtime->modelMutex);
+    std::lock_guard<std::mutex> locker(_runtime->modelMutex);
     const auto* line = _runtime->scrollback.lineVectorAt(lineIndex);
     if (!line || col < 0 || col >= _runtime->scrollback.columns())
         return false;
@@ -897,13 +900,13 @@ void TerminalCore::clearScrollback()
 
 NovaTerm::ScrollbackSnapshot TerminalCore::scrollbackSnapshot() const
 {
-    QMutexLocker locker(&_runtime->modelMutex);
+    std::lock_guard<std::mutex> locker(_runtime->modelMutex);
     return _runtime->scrollback.snapshot();
 }
 
 NovaTerm::ScrollbackStatistics TerminalCore::scrollbackStatistics() const
 {
-    QMutexLocker locker(&_runtime->modelMutex);
+    std::lock_guard<std::mutex> locker(_runtime->modelMutex);
     return _runtime->scrollback.statistics();
 }
 
@@ -931,31 +934,31 @@ void TerminalCore::cancelScrollbackReflow(u64 generation)
 
 NovaTerm::Position TerminalCore::cursorPosition() const
 {
-    QMutexLocker locker(&_runtime->modelMutex);
+    std::lock_guard<std::mutex> locker(_runtime->modelMutex);
     return _runtime->cursor.position;
 }
 
 bool TerminalCore::cursorVisible() const
 {
-    QMutexLocker locker(&_runtime->modelMutex);
+    std::lock_guard<std::mutex> locker(_runtime->modelMutex);
     return _runtime->cursor.visible;
 }
 
 NovaTerm::CursorShape TerminalCore::cursorShape() const
 {
-    QMutexLocker locker(&_runtime->modelMutex);
+    std::lock_guard<std::mutex> locker(_runtime->modelMutex);
     return _runtime->cursor.shape;
 }
 
 bool TerminalCore::cursorBlink() const
 {
-    QMutexLocker locker(&_runtime->modelMutex);
+    std::lock_guard<std::mutex> locker(_runtime->modelMutex);
     return _runtime->cursor.blink;
 }
 
 QString TerminalCore::title() const
 {
-    QMutexLocker locker(&_runtime->modelMutex);
+    std::lock_guard<std::mutex> locker(_runtime->modelMutex);
     return _runtime->currentTitle;
 }
 

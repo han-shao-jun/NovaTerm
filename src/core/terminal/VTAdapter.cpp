@@ -9,11 +9,12 @@
  */
 #include "VTAdapter.h"
 
-#include <QDebug>
-#include <QScopedValueRollback>
+#include "core/CoreTypes.h"
+
 #include <vterm.h>
 
 #include <algorithm>
+#include <cstdio>
 #include <cstring>
 #include <utility>
 #include <vector>
@@ -186,7 +187,7 @@ public:
     {
         vt = vterm_new(rows, columns);
         if (!vt) {
-            qCritical() << "VTAdapter: vterm_new() failed";
+            std::fprintf(stderr, "VTAdapter: vterm_new() failed\n");
             return;
         }
 
@@ -462,8 +463,8 @@ void VTAdapter::flushDamage()
 void VTAdapter::resize(int columns, int rows)
 {
     if (isValid()) {
-        // QScopedValueRollback 保证 resize 完成后自动复位 resizeInProgress。
-        const QScopedValueRollback<bool> resizeGuard(
+        // ScopedValueRollback 保证 resize 完成后自动复位 resizeInProgress。
+        const NovaTerm::ScopedValueRollback<bool> resizeGuard(
             _impl->resizeInProgress, true);
         vterm_set_size(_impl->vt, rows, columns);
         // libvterm 的 resize 回调会同步 ScreenBuffer，但 resize 不一定产生

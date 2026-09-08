@@ -4,7 +4,7 @@
  *
  * 用于在传输层（生产者）与 VT 解析工作线程（消费者）之间缓冲原始字节。
  * 队列满时阻塞生产者并触发背压；队列空时阻塞消费者。所有公开方法均
- * 线程安全，通过 QMutex + QWaitCondition 实现等待/唤醒。
+ * 线程安全，通过 std::mutex + std::condition_variable 实现等待/唤醒。
  */
 #pragma once
 
@@ -12,10 +12,10 @@
 
 #include <QByteArray>
 #include <QByteArrayView>
-#include <QMutex>
-#include <QWaitCondition>
 
+#include <condition_variable>
 #include <cstdint>
+#include <mutex>
 
 namespace NovaTerm {
 
@@ -74,9 +74,9 @@ private:
     // 环形读取：当头部到数组末尾时回绕到开头。
     void copyFromRing(char* destination, isize length);
 
-    mutable QMutex _mutex;
-    QWaitCondition _notEmpty;  // 队列由空变为非空时唤醒消费者
-    QWaitCondition _notFull;   // 队列由满变为非满时唤醒生产者
+    mutable std::mutex _mutex;
+    std::condition_variable _notEmpty;  // 队列由空变为非空时唤醒消费者
+    std::condition_variable _notFull;   // 队列由满变为非满时唤醒生产者
     QByteArray _storage;       // 固定容量后端存储
     isize _head{0};        // 下一个出队位置（消费者读指针）
     isize _tail{0};        // 下一个入队位置（生产者写指针）
