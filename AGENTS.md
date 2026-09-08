@@ -182,10 +182,39 @@ Session / Transport / Renderer 时先看那一节。
   QString/QByteArray，输入收 QKeyEvent）；`SearchEngine`/`ReflowEngine` 还是
   `QObject`，且 `SearchEngine` 内部仍用 `QRegularExpression`。故 `novaterm_core`
   **仍链接 `Qt::Core`/`Qt::Gui`**。
-- **剩余工作**：① QObject 剥离 + 新建 `src/coreqt/` 门面（TerminalCore→
-  TerminalEngine、metatype 注册、QtKeyTranslator）；② 搜索匹配器注入
-  `ITextMatcher`（把 QRegularExpression 移入 coreqt）——**搜索重构已被用户暂停**；
-  ③ 上述完成后才能去掉 core 的 Qt 链接并加"零 Qt 链接"校验目标。
+- **剩余工作（下个会话接手，阶段 5/7/8）**：
+  - **阶段 7 — QObject 剥离 + 新建 `src/coreqt/` 门面**（最大一步）：
+    `TerminalCore` 改名 `NovaTerm::TerminalEngine`（去 `QObject`/`Q_OBJECT`/signals），
+    `Runtime::publishPendingSignals()` 改为组装一个 `PublishedBatch`（就是现在一次性
+    投递的那组 damage/cursor/title/output/scrollback 数据）调 `observer.publish()`；
+    `setBackpressure`/`reportOverload` 也改走 observer（注意二者会从 GUI 线程的
+    enqueue 路径触发，门面侧入队要线程安全）。`SearchEngine`/`ReflowEngine` 去
+    `QObject`，构造注入 sink `std::function<void(SearchBatch&&)>`（worker 线程调用），
+    由 engine 转发到 observer。新建 `src/coreqt/TerminalCore.h/.cpp`：**QObject 门面，
+    类名/方法名/信号签名与今天完全一致**，故 14 处 `connect` 与 8 个消费文件只需把
+    `#include "core/terminal/TerminalCore.h"` 改成 `#include "coreqt/TerminalCore.h"`。
+    9 个 `Q_DECLARE_METATYPE` 与 2 处 `qRegisterMetaType`（SearchEngine.cpp、
+    LineLayout.cpp）迁到 `src/coreqt/CoreMetaTypes.h`。门面在 observer 回调里做
+    std↔Qt 桥接（当前 TerminalCore.cpp 里那几处 `QString::fromUtf8`/QByteArray 桥接
+    即其雏形）。`ScrollbackTests.cpp` 里 6 处 `QSignalSpy(&search,…)` 改成 sink 回调 +
+    原子标志 + `QTRY_VERIFY`。
+  - **阶段 5 — 搜索匹配器注入 `ITextMatcher`**（**用户已暂停，恢复前不要做**）：
+    新增 `src/core/search/ITextMatcher.h`（`next(string_view,from)->optional<MatchRange>`
+    + factory）；`SearchEngine` 构造接受可选 factory，未注入时用 core 内置
+    `LiteralMatcher`（ASCII 折叠 + 词边界）；`runSearch` 的正则构造段与
+    `potentiallyUnboundedRegex` 搬到 `src/coreqt/QtTextMatcher.cpp`，行为逐项保留。
+    可与阶段 7 合并做（正则实现随 coreqt 一起落地，全程正则不断）。
+  - **阶段 8 — CMake 收口 + 防回归**：`novaterm_core` 去掉 `Qt::Core`/`Qt::Gui`
+    链接、加 `AUTOMOC OFF`（照 libtelnet 的 `CMakeLists.txt:94-95`；全局 AUTOMOC 由
+    `qt_standard_project_setup()` 打开，必须显式关）；新建 `novaterm_core_qt` STATIC
+    （`src/coreqt/*`）PUBLIC 链 core + Qt，`NovaTerm` 改链它；`GLOB_RECURSE` 的
+    EXCLUDE 追加 `src/coreqt/`；**新增 `novaterm_core_no_qt_link_check` 可执行目标**
+    （只链 `novaterm_core`、不链任何 Qt，main 里构造 TerminalEngine 喂几字节取一次
+    snapshot）——静态库不做链接解析，只有这样一个不链 Qt 的可执行目标才能真正证明
+    core 无 Qt 符号，是本项收尾的**验收判据**。**此步被 SearchEngine 的
+    QRegularExpression 阻塞**，须先完成阶段 5 或把 SearchEngine 移入 coreqt。
+  - 注意 `ChunkedScrollback` 的整块 CoW 已在阶段 0 消除，容器换 std::vector 无
+    每分块深拷贝隐患（已完成）。
 - **改核心层时**：新增 `.h`/`.cpp` 不要 `#include` 任何 `Q*` 头；需要 Qt 的功能
   放到门面层（当前即 `TerminalCore` 的门面部分，将来是 `src/coreqt/`）。
   `KeyMapper.h` 暴露 `VTermKey` 是 §2 边界的既有例外（仅映射用），因此
