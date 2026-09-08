@@ -632,7 +632,15 @@ void TerminalCore::processKeyPress(QKeyEvent* event)
     const auto qtModifiers = event->modifiers();
     const int modifiers = int(KeyMapper::modToVTermMod(coreModsFromQt(qtModifiers)));
 
-    if (qtModifiers.testFlag(Qt::ControlModifier)) {
+    const bool hasPrintableText = !text.isEmpty() && text[0].isPrint();
+    // Windows 把 AltGr 报成 Ctrl+Alt。AltGr 组合产生可打印字符（如德语键盘
+    // AltGr+Q = @、AltGr+8 = [），必须走文本路径；若误入 Ctrl 分支会把
+    // 它当成控制字符 —— AltGr+Q 会发出 0x11（XOFF）冻结显示。判据是
+    // Ctrl 与 Alt 同时按下且产生了可打印文本。
+    const bool likelyAltGr = qtModifiers.testFlag(Qt::ControlModifier)
+        && qtModifiers.testFlag(Qt::AltModifier) && hasPrintableText;
+
+    if (qtModifiers.testFlag(Qt::ControlModifier) && !likelyAltGr) {
         uint32_t controlCodepoint = 0;
         if (KeyMapper::codepointToControlCharacter(uint32_t(qtKey),
                                                    controlCodepoint)) {
@@ -647,7 +655,7 @@ void TerminalCore::processKeyPress(QKeyEvent* event)
         }
     }
 
-    if (!text.isEmpty() && text[0].isPrint()) {
+    if (hasPrintableText) {
         processTextInput(text, qtModifiers);
         return;
     }
@@ -668,8 +676,13 @@ void TerminalCore::processKeyPress(QKeyEvent* event)
 void TerminalCore::processTextInput(const QString& text,
                                     Qt::KeyboardModifiers modifiers)
 {
-    const int vtermModifiers =
-        int(KeyMapper::modToVTermMod(coreModsFromQt(modifiers)));
+    // 可打印文本已经编码了 Shift（"A" 与 "a" 是不同码点），不能再把 Shift
+    // 转发给 libvterm —— 否则空格会因 libvterm 对 Shift+Space 的特判发出
+    // CSI 32;2u 而不是 0x20。AltGr（Ctrl+Alt）不是 meta 前缀，其产生的字符
+    // 应原样发送。只有单独的 Alt（真正的 meta）才作为 ESC 前缀转发。
+    const bool metaAlt = modifiers.testFlag(Qt::AltModifier)
+        && !modifiers.testFlag(Qt::ControlModifier);
+    const int vtermModifiers = metaAlt ? int(VTERM_MOD_ALT) : int(VTERM_MOD_NONE);
     for (const uint32_t codepoint : text.toUcs4()) {
         ParserCommand command;
         command.type = CommandType::KeyboardCharacter;

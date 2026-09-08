@@ -55,6 +55,9 @@ private slots:
     void resizeAndShutdownUnderLoad();
     void keyMapperMapsSpecialKeysAndModifiers();
     void keyMapperMapsControlCharacters();
+    void altGrProducesPrintableCharacterNotControlCode();
+    void shiftSpaceSendsPlainSpace();
+    void altLetterSendsMetaEscapePrefix();
 };
 
 namespace {
@@ -931,6 +934,64 @@ void TerminalCoreTests::keyMapperMapsControlCharacters()
     QCOMPARE(codepoint, uint32_t(0x00));  // Ctrl+Space → NUL
     // 无对应控制字符的普通码点返回 false。
     QVERIFY(!KeyMapper::codepointToControlCharacter('1', codepoint));
+}
+
+// AltGr（Windows 上报为 Ctrl+Alt）产生的可打印字符必须原样发送，不能被
+// 当成 Ctrl 控制字符。回归 AltGr+Q=@ 误发 0x11(XOFF) 冻结显示的缺陷。
+void TerminalCoreTests::altGrProducesPrintableCharacterNotControlCode()
+{
+    TerminalCore core(20, 4);
+    QSignalSpy outputSpy(&core, &TerminalCore::outputData);
+    // 德语键盘 AltGr+Q 产生 '@'：物理键仍是 Q，text 是 "@"，修饰符是
+    // Ctrl|Alt（Qt 在 Windows 上如此上报 AltGr）。
+    QKeyEvent event(QEvent::KeyPress, Qt::Key_Q,
+                    Qt::ControlModifier | Qt::AltModifier, QStringLiteral("@"));
+    core.processKeyPress(&event);
+    QVERIFY(core.waitForIdle());
+    QTRY_VERIFY(!outputSpy.isEmpty());
+
+    QByteArray output;
+    for (const auto& arguments : outputSpy)
+        output += arguments.at(0).toByteArray();
+    QCOMPARE(output, QByteArrayLiteral("@"));
+    // 断言没有误发 XOFF（0x11 = Ctrl+Q）。
+    QVERIFY(!output.contains('\x11'));
+}
+
+// Shift+Space 必须发送普通空格，而非 libvterm 对 Shift+Space 特判产生的
+// CSI 32;2u。
+void TerminalCoreTests::shiftSpaceSendsPlainSpace()
+{
+    TerminalCore core(20, 4);
+    QSignalSpy outputSpy(&core, &TerminalCore::outputData);
+    QKeyEvent event(QEvent::KeyPress, Qt::Key_Space,
+                    Qt::ShiftModifier, QStringLiteral(" "));
+    core.processKeyPress(&event);
+    QVERIFY(core.waitForIdle());
+    QTRY_VERIFY(!outputSpy.isEmpty());
+
+    QByteArray output;
+    for (const auto& arguments : outputSpy)
+        output += arguments.at(0).toByteArray();
+    QCOMPARE(output, QByteArrayLiteral(" "));
+}
+
+// 单独的 Alt+字母仍应作为 meta，即以 ESC 前缀发送 —— 确认 AltGr 修复没有
+// 误伤真正的 Alt 组合。
+void TerminalCoreTests::altLetterSendsMetaEscapePrefix()
+{
+    TerminalCore core(20, 4);
+    QSignalSpy outputSpy(&core, &TerminalCore::outputData);
+    QKeyEvent event(QEvent::KeyPress, Qt::Key_A,
+                    Qt::AltModifier, QStringLiteral("a"));
+    core.processKeyPress(&event);
+    QVERIFY(core.waitForIdle());
+    QTRY_VERIFY(!outputSpy.isEmpty());
+
+    QByteArray output;
+    for (const auto& arguments : outputSpy)
+        output += arguments.at(0).toByteArray();
+    QCOMPARE(output, QByteArrayLiteral("\x1b""a"));
 }
 
 QTEST_GUILESS_MAIN(TerminalCoreTests)
