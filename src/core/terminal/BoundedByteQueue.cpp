@@ -72,7 +72,8 @@ bool BoundedByteQueue::enqueue(ByteView data, int timeoutMs,
     return true;
 }
 
-isize BoundedByteQueue::take(char* destination, isize maxBytes, int timeoutMs)
+isize BoundedByteQueue::take(char* destination, isize maxBytes, int timeoutMs,
+                             isize* queuedBytesAfter)
 {
     if (maxBytes <= 0 || !destination)
         return 0;
@@ -100,6 +101,8 @@ isize BoundedByteQueue::take(char* destination, isize maxBytes, int timeoutMs)
     copyFromRing(destination, length);
     _size -= length;
     _totalDequeued += uint64_t(length);
+    if (queuedBytesAfter)
+        *queuedBytesAfter = _size;
     _notFull.notify_all();
     return length;
 }

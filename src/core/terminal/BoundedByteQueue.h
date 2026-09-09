@@ -53,10 +53,13 @@ public:
      * @param destination 目标缓冲，至少可容纳 maxBytes 字节。
      * @param maxBytes 最多取出的字节数。
      * @param timeoutMs 等待队列非空的超时（毫秒），-1 表示无限等待。
+     * @param queuedBytesAfter 输出参数：取出后队列剩余字节数（仅当返回值 > 0
+     *        时有意义）。消费者据此判断低水位，无需再锁一次 statistics()。
      * @return 实际取出的字节数；超时或 stop() 后返回 0。
      * @note  由调用方提供缓冲，避免每次出队分配（对比旧版返回 QByteArray）。
      */
-    isize take(char* destination, isize maxBytes, int timeoutMs = -1);
+    isize take(char* destination, isize maxBytes, int timeoutMs = -1,
+               isize* queuedBytesAfter = nullptr);
 
     /**
      * @brief 唤醒所有等待方并标记队列已停止。

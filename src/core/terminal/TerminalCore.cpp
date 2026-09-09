@@ -187,6 +187,16 @@ NovaTerm::Key coreKeyFromQt(int qtKey)
     }
 }
 
+// 鼠标按键 → 终端协议按键号：左键 1、右键 2、中键 3（其余按左键处理）。
+int vtermMouseButton(Qt::MouseButton button)
+{
+    if (button == Qt::RightButton)
+        return 2;
+    if (button == Qt::MiddleButton)
+        return 3;
+    return 1;
+}
+
 } // namespace
 
 class TerminalCore::Runtime
@@ -250,9 +260,7 @@ public:
         // 仅当 completedBytes >= byteBarrier 时才执行本命令，从而保证
         // 命令在它之前提交的字节流之后被处理。
         command.byteBarrier = submittedBytes.load(std::memory_order_acquire);
-        const isize commandBytes =
-            isize(sizeof(ParserCommand))
-            + command.text.size() * isize(sizeof(QChar));
+        const isize commandBytes = estimatedCommandBytes(command);
 
         // 同类型状态命令在队尾合并：只保留最新值，避免连续 resize 或
         // flush 命令在队列中堆积。键盘/鼠标命令不合并（顺序敏感）。
@@ -328,10 +336,12 @@ public:
                 notifyCompletion();
             }
 
-            const isize taken =
-                bytes.take(batchBuffer.data(), ParserBatchSize, 5);
+            isize queuedAfterTake = 0;
+            const isize taken = bytes.take(batchBuffer.data(), ParserBatchSize,
+                                           5, &queuedAfterTake);
             if (taken > 0) {
-                if (bytes.statistics().queuedBytes <= QueueLowWatermark)
+                // take() 在持锁期间已回报剩余字节数，无需再锁一次 statistics()。
+                if (queuedAfterTake <= QueueLowWatermark)
                     setBackpressure(false);
                 {
                     std::lock_guard<std::mutex> modelLocker(modelMutex);
@@ -706,8 +716,7 @@ void TerminalCore::processMousePress(QMouseEvent* event)
         return;
     ParserCommand command;
     command.type = CommandType::MouseButton;
-    command.first = event->button() == Qt::RightButton ? 2
-        : event->button() == Qt::MiddleButton ? 3 : 1;
+    command.first = vtermMouseButton(event->button());
     command.second =
         int(KeyMapper::modToVTermMod(coreModsFromQt(event->modifiers())));
     command.pressed = true;
@@ -725,8 +734,7 @@ void TerminalCore::processMouseRelease(QMouseEvent* event)
         return;
     ParserCommand command;
     command.type = CommandType::MouseButton;
-    command.first = event->button() == Qt::RightButton ? 2
-        : event->button() == Qt::MiddleButton ? 3 : 1;
+    command.first = vtermMouseButton(event->button());
     command.second =
         int(KeyMapper::modToVTermMod(coreModsFromQt(event->modifiers())));
     command.pressed = false;
