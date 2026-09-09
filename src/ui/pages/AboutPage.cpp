@@ -5,6 +5,7 @@
 #include "AboutPage.h"
 #include "ElaText.h"
 #include "service/LanguageManager.h"
+#include <QCoreApplication>
 #include <QVBoxLayout>
 
 AboutPage::AboutPage(QWidget* parent) : ElaScrollPage(parent)
@@ -53,7 +54,10 @@ void AboutPage::retranslateUi()
     setWindowTitle(tr("About"));
     if (_centralWidget) _centralWidget->setWindowTitle(tr("About"));
     if (_titleText) _titleText->setText(tr("NovaTerm"));
-    if (_versionText) _versionText->setText(tr("Version 0.1.0"));
+    if (_versionText) {
+        _versionText->setText(
+            tr("Version %1").arg(QCoreApplication::applicationVersion()));
+    }
     if (_descText) _descText->setText(
         tr("A cross-platform terminal emulator & SSH client\n"
            "with FluentUI design, inspired by WindTerm.\n\n"

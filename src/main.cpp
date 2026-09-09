@@ -253,7 +253,7 @@ int main(int argc, char *argv[])
     QApplication a(argc, argv);
     // 应用程序标识，用于 QSettings 存储路径和任务栏入口名称。
     a.setApplicationName("NovaTerm");
-    a.setApplicationVersion("0.1.0");
+    a.setApplicationVersion(QStringLiteral(NOVATERM_VERSION));
     a.setOrganizationName("NovaTerm");
 
     // init() 必须在 show() 之前调用：启动 ElaApplication，安装翻译器，

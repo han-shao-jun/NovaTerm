@@ -1,0 +1,433 @@
+/**
+ * @file   SystemInformationDialog.cpp
+ * @brief  SSH 远端系统详细信息窗口实现。
+ */
+#include "SystemInformationDialog.h"
+
+#include "ElaDef.h"
+#include "ElaScrollBar.h"
+#include "ElaText.h"
+#include "ElaTheme.h"
+#include "service/LanguageManager.h"
+#include "transport/SshTransport.h"
+
+#include <QGridLayout>
+#include <QHBoxLayout>
+#include <QPainter>
+#include <QScrollArea>
+#include <QTimer>
+#include <QVBoxLayout>
+
+#include <atomic>
+
+namespace {
+
+using Rows = QList<QStringList>;
+
+struct SystemInformation
+{
+    QStringList overview;
+    Rows cpu;
+    Rows gpu;
+    Rows cpuUsage;
+    Rows memory;
+    Rows swap;
+    Rows networks;
+    Rows fileSystems;
+};
+
+quint64 nextRequestId()
+{
+    static std::atomic<quint64> next{quint64{1} << 62};
+    return next.fetch_add(1, std::memory_order_relaxed);
+}
+
+QByteArray systemInformationCommand()
+{
+    return QByteArrayLiteral(R"NOVATERM(LC_ALL=C; export LC_ALL
+os=$(sed -n 's/^PRETTY_NAME=//p' /etc/os-release 2>/dev/null | head -n 1 | tr -d '"')
+[ -n "$os" ] || os=$(uname -s 2>/dev/null)
+kernel=$(uname -r 2>/dev/null)
+host=$(hostname 2>/dev/null)
+ip=$(ip -o -4 addr show scope global 2>/dev/null | awk 'NR==1 {sub(/\/.*/, "", $4); print $4}')
+[ -n "$ip" ] || ip=$(hostname -I 2>/dev/null | awk '{print $1}')
+load=$(awk '{print $1 " " $2 " " $3}' /proc/loadavg 2>/dev/null)
+arch=$(uname -m 2>/dev/null)
+uptime=$(awk '{printf "%.0f", $1}' /proc/uptime 2>/dev/null)
+printf 'OV\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$os" "$kernel" "$host" "${ip:--}" "${load:--}" "$arch" "${uptime:--}" "${SSH_CONNECTION:--}"
+awk -F: '
+/^(model name|Processor)[[:space:]]*:/ && name=="" {name=$2; gsub(/^[ \t]+/, "", name)}
+/^processor[[:space:]]*:/ {cores++}
+/^cpu MHz[[:space:]]*:/ && freq=="" {freq=$2; gsub(/^[ \t]+/, "", freq)}
+/^cache size[[:space:]]*:/ && cache=="" {cache=$2; gsub(/^[ \t]+/, "", cache)}
+/^(vendor_id|Hardware)[[:space:]]*:/ && vendor=="" {vendor=$2; gsub(/^[ \t]+/, "", vendor)}
+/^BogoMIPS[[:space:]]*:/ && bogo=="" {bogo=$2; gsub(/^[ \t]+/, "", bogo)}
+END {printf "CPU\t%s\t%d\t%s\t%s\t%s\t%s\n", name, cores, freq, cache, vendor, bogo}' /proc/cpuinfo 2>/dev/null
+awk 'NR==1 {total=0; for(i=2;i<=NF;i++) total+=$i; if(total>0) printf "CPUUSE\t%.1f\t%.1f\t%.1f\t%.1f\t%.1f\t%.1f\n", $2*100/total, $4*100/total, $3*100/total, $5*100/total, ($6+$7)*100/total, ($8+$9+$10)*100/total}' /proc/stat 2>/dev/null
+awk '
+$1=="MemTotal:" {mt=$2} $1=="MemFree:" {mf=$2} $1=="MemAvailable:" {ma=$2}
+$1=="Buffers:" {b=$2} $1=="Cached:" {c=$2} $1=="SReclaimable:" {sr=$2}
+$1=="SwapTotal:" {st=$2} $1=="SwapFree:" {sf=$2}
+END {cache=b+c+sr; if(ma==0) ma=mf+cache; used=mt-ma; printf "MEM\t%.0f\t%.0f\t%.0f\t%.1f\t%.0f\n", mt, used, ma, mt?used*100/mt:0, cache; printf "SWAP\t%.0f\t%.0f\t%.0f\t%.1f\n", st, st-sf, sf, st?(st-sf)*100/st:0}' /proc/meminfo 2>/dev/null
+awk 'NR>2 {gsub(":", " "); if($1!="lo") printf "NET\t%s\t%s\t%s\t-\t-\n", $1, $10, $2}' /proc/net/dev 2>/dev/null
+if command -v lspci >/dev/null 2>&1; then lspci 2>/dev/null | awk '/VGA compatible controller|3D controller|Display controller/ {sub(/^[^ ]+ /, ""); printf "GPU\t%s\t-\t-\t-\n", $0}'; fi
+(df -Pk 2>/dev/null || df -k 2>/dev/null) | awk 'NR>1 {printf "FS\t%s\t%s\t%s\t%s\t%s\n", $1, $2, $5, $4, $NF}'
+)NOVATERM");
+}
+
+QString formatKiB(const QString& value)
+{
+    bool ok = false;
+    const double kibibytes = value.toDouble(&ok);
+    if (!ok)
+        return value.isEmpty() ? QStringLiteral("—") : value;
+    double bytes = kibibytes * 1024.0;
+    static constexpr const char* Units[]{"B", "KiB", "MiB", "GiB", "TiB"};
+    qsizetype unit = 0;
+    while (bytes >= 1024.0 && unit + 1 < std::size(Units)) {
+        bytes /= 1024.0;
+        ++unit;
+    }
+    const int precision = bytes >= 100.0 || unit == 0 ? 0 : 1;
+    return QStringLiteral("%1 %2")
+        .arg(QString::number(bytes, 'f', precision), QLatin1String(Units[unit]));
+}
+
+QString formatBytes(const QString& value)
+{
+    bool ok = false;
+    double bytes = value.toDouble(&ok);
+    if (!ok)
+        return value.isEmpty() ? QStringLiteral("—") : value;
+    static constexpr const char* Units[]{"B", "KiB", "MiB", "GiB", "TiB"};
+    qsizetype unit = 0;
+    while (bytes >= 1024.0 && unit + 1 < std::size(Units)) {
+        bytes /= 1024.0;
+        ++unit;
+    }
+    const int precision = bytes >= 100.0 || unit == 0 ? 0 : 1;
+    return QStringLiteral("%1 %2")
+        .arg(QString::number(bytes, 'f', precision), QLatin1String(Units[unit]));
+}
+
+QString dashIfEmpty(const QString& value)
+{
+    return value.trimmed().isEmpty() ? QStringLiteral("—") : value.trimmed();
+}
+
+QString formatDuration(const QString& secondsText)
+{
+    bool ok = false;
+    qint64 seconds = secondsText.toLongLong(&ok);
+    if (!ok || seconds < 0)
+        return dashIfEmpty(secondsText);
+    const qint64 days = seconds / 86'400;
+    seconds %= 86'400;
+    const qint64 hours = seconds / 3'600;
+    const qint64 minutes = (seconds % 3'600) / 60;
+    return SystemInformationDialog::tr("%1 d %2 h %3 min")
+        .arg(days).arg(hours).arg(minutes);
+}
+
+SystemInformation parseInformation(const QByteArray& output)
+{
+    SystemInformation result;
+    for (const QByteArray& rawLine : output.split('\n')) {
+        const QList<QByteArray> fields = rawLine.split('\t');
+        if (fields.isEmpty())
+            continue;
+        QStringList values;
+        for (qsizetype index = 1; index < fields.size(); ++index)
+            values.append(QString::fromUtf8(fields[index]).trimmed());
+
+        if (fields[0] == "OV" && values.size() >= 8) {
+            values[6] = formatDuration(values[6]);
+            result.overview = values;
+        } else if (fields[0] == "CPU" && values.size() >= 6) {
+            if (!values[2].isEmpty())
+                values[2].append(QStringLiteral(" MHz"));
+            values[4] = QStringLiteral("%1 / %2")
+                .arg(dashIfEmpty(values[4]), dashIfEmpty(values[5]));
+            values.removeLast();
+            result.cpu.append(values);
+        } else if (fields[0] == "GPU" && values.size() >= 4) {
+            result.gpu.append(values);
+        } else if (fields[0] == "CPUUSE" && values.size() >= 6) {
+            for (QString& value : values)
+                value.append(QLatin1Char('%'));
+            result.cpuUsage.append(values);
+        } else if (fields[0] == "MEM" && values.size() >= 5) {
+            result.memory.append({formatKiB(values[0]), formatKiB(values[1]),
+                                  formatKiB(values[2]), values[3] + '%',
+                                  formatKiB(values[4])});
+        } else if (fields[0] == "SWAP" && values.size() >= 4) {
+            result.swap.append({formatKiB(values[0]), formatKiB(values[1]),
+                                formatKiB(values[2]), values[3] + '%'});
+        } else if (fields[0] == "NET" && values.size() >= 5) {
+            result.networks.append({values[0], formatBytes(values[1]),
+                                    formatBytes(values[2]), values[3], values[4]});
+        } else if (fields[0] == "FS" && values.size() >= 5) {
+            result.fileSystems.append({values[0], formatKiB(values[1]),
+                                       values[2], formatKiB(values[3]),
+                                       values[4]});
+        }
+    }
+    return result;
+}
+
+ElaText* createText(const QString& text, QWidget* parent,
+                    bool bold = false, int pixelSize = 13)
+{
+    auto* label = new ElaText(text, parent);
+    label->setTextPixelSize(pixelSize);
+    QFont font = label->font();
+    font.setBold(bold);
+    label->setFont(font);
+    label->setWordWrap(true);
+    return label;
+}
+
+class InformationCard final : public QWidget
+{
+public:
+    explicit InformationCard(const QString& title, QWidget* parent = nullptr)
+        : QWidget(parent)
+    {
+        setAutoFillBackground(false);
+        auto* layout = new QVBoxLayout(this);
+        layout->setContentsMargins(14, 12, 14, 12);
+        layout->setSpacing(10);
+        layout->addWidget(createText(title, this, true, 14));
+        _body = new QVBoxLayout;
+        _body->setContentsMargins(0, 0, 0, 0);
+        _body->setSpacing(6);
+        layout->addLayout(_body);
+        setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Minimum);
+    }
+
+    QVBoxLayout* body() const noexcept { return _body; }
+
+protected:
+    void paintEvent(QPaintEvent*) override
+    {
+        QPainter painter(this);
+        painter.setRenderHint(QPainter::Antialiasing);
+        painter.setPen(QPen(ElaThemeColor(eTheme->getThemeMode(), BasicBorder)));
+        painter.setBrush(ElaThemeColor(eTheme->getThemeMode(), BasicBaseAlpha));
+        painter.drawRoundedRect(rect().adjusted(0, 0, -1, -1), 6, 6);
+    }
+
+private:
+    QVBoxLayout* _body{nullptr};
+};
+
+QWidget* createTable(const QStringList& headers, const Rows& rows,
+                     QWidget* parent)
+{
+    auto* table = new QWidget(parent);
+    auto* grid = new QGridLayout(table);
+    grid->setContentsMargins(0, 0, 0, 0);
+    grid->setHorizontalSpacing(18);
+    grid->setVerticalSpacing(8);
+    for (qsizetype column = 0; column < headers.size(); ++column) {
+        grid->addWidget(createText(headers[column], table, true, 12),
+                        0, int(column));
+        grid->setColumnStretch(int(column), 1);
+    }
+    if (rows.isEmpty()) {
+        grid->addWidget(createText(SystemInformationDialog::tr("No data"), table),
+                        1, 0, 1, int(headers.size()));
+        return table;
+    }
+    for (qsizetype row = 0; row < rows.size(); ++row) {
+        for (qsizetype column = 0; column < headers.size(); ++column) {
+            const QString value = column < rows[row].size()
+                ? dashIfEmpty(rows[row][column]) : QStringLiteral("—");
+            grid->addWidget(createText(value, table),
+                            int(row + 1), int(column));
+        }
+    }
+    return table;
+}
+
+void clearLayout(QLayout* layout)
+{
+    while (QLayoutItem* item = layout->takeAt(0)) {
+        if (QWidget* widget = item->widget())
+            widget->deleteLater();
+        delete item;
+    }
+}
+
+} // namespace
+
+SystemInformationDialog::SystemInformationDialog(
+    const QString& sessionName, SshTransport* transport, QWidget* parent)
+    : ElaDialog(parent)
+    , _transport(transport)
+    , _sessionName(sessionName)
+{
+    setAttribute(Qt::WA_DeleteOnClose);
+    setWindowTitle(tr("System information — %1").arg(_sessionName));
+    setWindowButtonFlags(ElaAppBarType::CloseButtonHint);
+    setAppBarHeight(32);
+    resize(1100, 760);
+
+    auto* root = new QVBoxLayout(this);
+    root->setContentsMargins(0, 32, 0, 0);
+    auto* scroll = new QScrollArea(this);
+    scroll->setWidgetResizable(true);
+    scroll->setFrameShape(QFrame::NoFrame);
+    scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    scroll->setVerticalScrollBar(new ElaScrollBar(scroll));
+    root->addWidget(scroll);
+
+    auto* content = new QWidget(scroll);
+    _contentLayout = new QVBoxLayout(content);
+    _contentLayout->setContentsMargins(12, 12, 12, 12);
+    _contentLayout->setSpacing(10);
+    scroll->setWidget(content);
+
+    _retryTimer = new QTimer(this);
+    _retryTimer->setInterval(100);
+    connect(_retryTimer, &QTimer::timeout,
+            this, &SystemInformationDialog::requestInformation);
+    if (_transport) {
+        connect(_transport, &SshTransport::commandFinished, this,
+                &SystemInformationDialog::handleCommandFinished);
+        connect(_transport, &QObject::destroyed, this,
+                [this]() { showStatus(tr("SSH session is no longer available.")); });
+    }
+    connect(&LanguageManager::instance(), &LanguageManager::languageChanged,
+            this, [this](const QString&) {
+        setWindowTitle(tr("System information — %1").arg(_sessionName));
+        if (!_lastOutput.isEmpty())
+            populate(_lastOutput);
+    });
+    connect(eTheme, &ElaTheme::themeModeChanged, this,
+            [this](ElaThemeType::ThemeMode) {
+        for (QWidget* widget : findChildren<QWidget*>()) {
+            if (auto* card = dynamic_cast<InformationCard*>(widget))
+                card->update();
+        }
+        update();
+    });
+    showStatus(tr("Collecting system information…"));
+    QTimer::singleShot(0, this, &SystemInformationDialog::requestInformation);
+}
+
+void SystemInformationDialog::requestInformation()
+{
+    if (!_transport || !_transport->isConnected()) {
+        _retryTimer->stop();
+        showStatus(tr("Select a connected SSH terminal to view system information."));
+        return;
+    }
+    if (_requestId != 0)
+        return;
+    const quint64 requestId = nextRequestId();
+    if (_transport->executeCommand(requestId, systemInformationCommand())) {
+        _requestId = requestId;
+        _retryTimer->stop();
+        return;
+    }
+    if (++_retryCount >= MaximumSubmitRetries) {
+        _retryTimer->stop();
+        showStatus(tr("The SSH command channel is busy. Try again shortly."));
+    } else if (!_retryTimer->isActive()) {
+        _retryTimer->start();
+    }
+}
+
+void SystemInformationDialog::handleCommandFinished(
+    quint64 requestId, const QByteArray& standardOutput,
+    const QByteArray& standardError, const QString& errorMessage)
+{
+    if (requestId == 0 || requestId != _requestId)
+        return;
+    _requestId = 0;
+    if (!errorMessage.isEmpty()) {
+        showStatus(tr("System information query failed: %1").arg(errorMessage));
+        return;
+    }
+    if (standardOutput.isEmpty()) {
+        const QString details = QString::fromUtf8(standardError).trimmed();
+        showStatus(details.isEmpty() ? tr("No system information was returned.")
+                                     : details);
+        return;
+    }
+    populate(standardOutput);
+}
+
+void SystemInformationDialog::showStatus(const QString& text)
+{
+    clearLayout(_contentLayout);
+    auto* status = createText(text, this, false, 14);
+    status->setAlignment(Qt::AlignCenter);
+    _contentLayout->addWidget(status, 1);
+}
+
+void SystemInformationDialog::populate(const QByteArray& output)
+{
+    _lastOutput = output;
+    const SystemInformation data = parseInformation(output);
+    clearLayout(_contentLayout);
+
+    auto* overview = new InformationCard(tr("Overview"), this);
+    auto* overviewGrid = new QGridLayout;
+    overviewGrid->setHorizontalSpacing(18);
+    overviewGrid->setVerticalSpacing(8);
+    const QStringList labels{tr("Operating system"), tr("Kernel version"),
+        tr("Host name"), tr("IP"), tr("Load"), tr("Architecture"),
+        tr("Uptime"), tr("Connection")};
+    for (int index = 0; index < labels.size(); ++index) {
+        const int row = index / 2;
+        const int pair = index % 2;
+        overviewGrid->addWidget(createText(labels[index], overview, true, 12),
+                                row, pair * 2);
+        overviewGrid->addWidget(createText(
+            index < data.overview.size() ? dashIfEmpty(data.overview[index])
+                                         : QStringLiteral("—"), overview),
+            row, pair * 2 + 1);
+        overviewGrid->setColumnStretch(pair * 2 + 1, 1);
+    }
+    overview->body()->addLayout(overviewGrid);
+    _contentLayout->addWidget(overview);
+
+    auto addCard = [this](const QString& title, const QStringList& headers,
+                          const Rows& rows) {
+        auto* card = new InformationCard(title, this);
+        card->body()->addWidget(createTable(headers, rows, card));
+        _contentLayout->addWidget(card);
+    };
+    addCard(tr("CPU"), {tr("Name"), tr("Cores"), tr("Frequency"),
+                         tr("Cache"), tr("Vendor / BogoMIPS")}, data.cpu);
+    addCard(tr("GPU"), {tr("Name"), tr("Vendor"), tr("Driver"),
+                         tr("Memory")}, data.gpu);
+    addCard(tr("CPU usage"), {tr("User"), tr("System"), tr("Nice"),
+                               tr("Idle"), tr("IO wait"),
+                               tr("IRQ / SoftIRQ / Steal")}, data.cpuUsage);
+
+    auto* memoryRow = new QWidget(this);
+    auto* memoryLayout = new QHBoxLayout(memoryRow);
+    memoryLayout->setContentsMargins(0, 0, 0, 0);
+    memoryLayout->setSpacing(10);
+    auto* memory = new InformationCard(tr("Memory"), memoryRow);
+    memory->body()->addWidget(createTable(
+        {tr("Total"), tr("Used"), tr("Available"), tr("Usage"), tr("Cache")},
+        data.memory, memory));
+    auto* swap = new InformationCard(tr("Swap"), memoryRow);
+    swap->body()->addWidget(createTable(
+        {tr("Total"), tr("Used"), tr("Free"), tr("Usage")}, data.swap, swap));
+    memoryLayout->addWidget(memory, 1);
+    memoryLayout->addWidget(swap, 1);
+    _contentLayout->addWidget(memoryRow);
+
+    addCard(tr("Network interfaces"),
+            {tr("Name"), tr("Sent"), tr("Received"),
+             tr("Send speed"), tr("Receive speed")}, data.networks);
+    addCard(tr("Filesystems"),
+            {tr("Name"), tr("Size"), tr("Used"),
+             tr("Available"), tr("Mount point")}, data.fileSystems);
+    _contentLayout->addStretch();
+}

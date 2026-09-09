@@ -4,23 +4,23 @@
 <context>
     <name>AboutPage</name>
     <message>
-        <location filename="../../src/ui/pages/AboutPage.cpp" line="53"/>
         <location filename="../../src/ui/pages/AboutPage.cpp" line="54"/>
+        <location filename="../../src/ui/pages/AboutPage.cpp" line="55"/>
         <source>About</source>
         <translation>关于</translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/AboutPage.cpp" line="55"/>
+        <location filename="../../src/ui/pages/AboutPage.cpp" line="56"/>
         <source>NovaTerm</source>
         <translation>NovaTerm</translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/AboutPage.cpp" line="56"/>
-        <source>Version 0.1.0</source>
-        <translation>版本 0.1.0</translation>
+        <location filename="../../src/ui/pages/AboutPage.cpp" line="59"/>
+        <source>Version %1</source>
+        <translation>版本 %1</translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/AboutPage.cpp" line="58"/>
+        <location filename="../../src/ui/pages/AboutPage.cpp" line="62"/>
         <source>A cross-platform terminal emulator &amp; SSH client
 with FluentUI design, inspired by WindTerm.
 
@@ -37,7 +37,7 @@ Built with:
   • libssh (SSH/SFTP)</translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/AboutPage.cpp" line="64"/>
+        <location filename="../../src/ui/pages/AboutPage.cpp" line="68"/>
         <source>License: GPLv2+</source>
         <translation>许可证：GPLv2+</translation>
     </message>
@@ -1987,104 +1987,368 @@ Built with:
     </message>
 </context>
 <context>
-    <name>SystemMonitorPanel</name>
+    <name>SystemInformationDialog</name>
     <message>
-        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="587"/>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="128"/>
+        <source>%1 d %2 h %3 min</source>
+        <translation>%1 天 %2 小时 %3 分钟</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="238"/>
+        <source>No data</source>
+        <translation>无数据</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="271"/>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="303"/>
+        <source>System information — %1</source>
+        <translation>系统信息 — %1</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="299"/>
+        <source>SSH session is no longer available.</source>
+        <translation>SSH 会话已不可用。</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="315"/>
+        <source>Collecting system information…</source>
+        <translation>正在获取系统信息…</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="323"/>
+        <source>Select a connected SSH terminal to view system information.</source>
+        <translation>请选择一个已连接的 SSH 终端以查看系统信息。</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="336"/>
+        <source>The SSH command channel is busy. Try again shortly.</source>
+        <translation>SSH 命令通道正忙，请稍后重试。</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="350"/>
+        <source>System information query failed: %1</source>
+        <translation>系统信息查询失败：%1</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="355"/>
+        <source>No system information was returned.</source>
+        <translation>远端未返回系统信息。</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="376"/>
+        <source>Overview</source>
+        <translation>概览</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="380"/>
+        <source>Operating system</source>
+        <translation>操作系统</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="380"/>
+        <source>Kernel version</source>
+        <translation>内核版本</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="381"/>
+        <source>Host name</source>
+        <translation>主机名称</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="381"/>
+        <source>IP</source>
+        <translation>IP</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="381"/>
+        <source>Load</source>
+        <translation>负载</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="381"/>
+        <source>Architecture</source>
+        <translation>硬件架构</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="382"/>
+        <source>Uptime</source>
+        <translation>运行时间</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="382"/>
+        <source>Connection</source>
+        <translation>连接</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="403"/>
         <source>CPU</source>
         <translation>CPU</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="588"/>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="403"/>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="405"/>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="427"/>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="430"/>
+        <source>Name</source>
+        <translation>名称</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="403"/>
+        <source>Cores</source>
+        <translation>核心数</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="403"/>
+        <source>Frequency</source>
+        <translation>频率</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="404"/>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="417"/>
+        <source>Cache</source>
+        <translation>缓存</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="404"/>
+        <source>Vendor / BogoMIPS</source>
+        <translation>厂商 / BogoMIPS</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="405"/>
+        <source>GPU</source>
+        <translation>GPU</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="405"/>
+        <source>Vendor</source>
+        <translation>厂商</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="405"/>
+        <source>Driver</source>
+        <translation>驱动</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="406"/>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="415"/>
         <source>Memory</source>
         <translation>内存</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="589"/>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="407"/>
+        <source>CPU usage</source>
+        <translation>CPU 使用率</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="407"/>
+        <source>User</source>
+        <translation>用户</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="407"/>
+        <source>System</source>
+        <translation>系统</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="407"/>
+        <source>Nice</source>
+        <translation>Nice</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="408"/>
+        <source>Idle</source>
+        <translation>空闲</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="408"/>
+        <source>IO wait</source>
+        <translation>IO 等待</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="409"/>
+        <source>IRQ / SoftIRQ / Steal</source>
+        <translation>硬件中断 / 软件中断 / Steal</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="417"/>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="421"/>
+        <source>Total</source>
+        <translation>总量</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="417"/>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="421"/>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="430"/>
+        <source>Used</source>
+        <translation>已用</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="417"/>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="431"/>
+        <source>Available</source>
+        <translation>可用</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="417"/>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="421"/>
+        <source>Usage</source>
+        <translation>使用率</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="419"/>
         <source>Swap</source>
         <translation>交换</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="744"/>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="421"/>
+        <source>Free</source>
+        <translation>空闲</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="426"/>
+        <source>Network interfaces</source>
+        <translation>网络接口</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="427"/>
+        <source>Sent</source>
+        <translation>已发送</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="427"/>
+        <source>Received</source>
+        <translation>已接收</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="428"/>
+        <source>Send speed</source>
+        <translation>发送速率</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="428"/>
+        <source>Receive speed</source>
+        <translation>接收速率</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="429"/>
+        <source>Filesystems</source>
+        <translation>文件系统</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="430"/>
+        <source>Size</source>
+        <translation>大小</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="431"/>
+        <source>Mount point</source>
+        <translation>挂载点</translation>
+    </message>
+</context>
+<context>
+    <name>SystemMonitorPanel</name>
+    <message>
+        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="612"/>
+        <source>System information</source>
+        <translation>系统信息</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="613"/>
+        <source>Open system information</source>
+        <translation>打开系统信息</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="614"/>
+        <source>CPU</source>
+        <translation>CPU</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="615"/>
+        <source>Memory</source>
+        <translation>内存</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="616"/>
+        <source>Swap</source>
+        <translation>交换</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="771"/>
         <source>The remote system did not return supported Linux metrics.</source>
         <translation>远程系统未返回受支持的 Linux 指标。</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="745"/>
+        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="772"/>
         <source>Remote resource query failed: %1</source>
         <translation>远程资源查询失败：%1</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="765"/>
+        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="792"/>
         <source>Collecting…</source>
         <translation>正在采集…</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="843"/>
+        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="870"/>
         <source>Filesystem query failed: %1</source>
         <translation>文件系统查询失败：%1</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="868"/>
+        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="895"/>
         <source>↑ —</source>
         <translation>↑ —</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="869"/>
+        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="896"/>
         <source>↓ —</source>
         <translation>↓ —</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="872"/>
+        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="899"/>
         <source>↑ %1/s</source>
         <translation>↑ %1/s</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="874"/>
+        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="901"/>
         <source>↓ %1/s</source>
         <translation>↓ %1/s</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="590"/>
+        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="617"/>
         <source>Path</source>
         <translation>路径</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="581"/>
-        <source>Remote CPU, memory and network update every %1 seconds; filesystems update every 30 seconds.</source>
-        <translation>远程 CPU、内存和网络每 %1 秒更新；文件系统每 30 秒更新。</translation>
-    </message>
-    <message>
-        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="591"/>
+        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="618"/>
         <source>Available / Size</source>
         <translation>可用 / 大小</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="592"/>
+        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="619"/>
         <source>Network traffic history</source>
         <translation>网络流量历史</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="645"/>
+        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="672"/>
         <source>No active SSH session</source>
         <translation>没有活动的 SSH 会话</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="648"/>
+        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="675"/>
         <source>Select a connected SSH terminal to inspect remote resources.</source>
         <translation>请选择一个已连接的 SSH 终端以查看远程资源。</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="654"/>
+        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="681"/>
         <source>Collecting remote resources…</source>
         <translation>正在采集远程资源…</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="663"/>
+        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="690"/>
         <source>Waiting for monitoring data</source>
         <translation>等待监控数据</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="842"/>
+        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="869"/>
         <source>No filesystem information available</source>
         <translation>没有可用的文件系统信息</translation>
     </message>

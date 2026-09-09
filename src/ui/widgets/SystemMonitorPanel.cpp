@@ -6,6 +6,7 @@
  * 低频 exec channel 查询 df。隐藏、折叠、最小化或切换标签时停止快速采样。
  */
 #include "SystemMonitorPanel.h"
+#include "SystemInformationDialog.h"
 
 #include "ElaComboBox.h"
 #include "ElaIconButton.h"
@@ -371,8 +372,7 @@ SystemMonitorPanel::SystemMonitorPanel(QWidget* parent)
     // 会话名称由停靠标题展示，信息图标放在 CPU 行最右侧。
     auto* infoButton = new ElaIconButton(
         ElaIconType::CircleInfo, 14, 28, 28, content);
-    infoButton->setFocusPolicy(Qt::NoFocus);
-    infoButton->setAttribute(Qt::WA_TransparentForMouseEvents);
+    infoButton->setFocusPolicy(Qt::StrongFocus);
     _infoButton = infoButton;
 
     _availabilityLabel = createLabel(content);
@@ -484,6 +484,8 @@ SystemMonitorPanel::SystemMonitorPanel(QWidget* parent)
 
     connect(_interfaceCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
             this, [this](int) { updateNetworkView(); });
+    connect(_infoButton, &QPushButton::clicked,
+            this, &SystemMonitorPanel::showSystemInformation);
     connect(&LanguageManager::instance(), &LanguageManager::languageChanged,
             this, [this](const QString&) { retranslateUi(); });
     connect(eTheme, &ElaTheme::themeModeChanged, this,
@@ -511,6 +513,8 @@ SystemMonitorPanel::SystemMonitorPanel(QWidget* parent)
 
 SystemMonitorPanel::~SystemMonitorPanel()
 {
+    if (_systemInformationDialog)
+        _systemInformationDialog->close();
     if (!_sshTransport)
         return;
     _sshTransport->stopResourceMonitoring();
@@ -524,6 +528,8 @@ void SystemMonitorPanel::setSessionContext(const QString& sessionLabel,
     if (transport && _sshTransport == transport && _sessionName == sessionLabel)
         return;
 
+    if (_systemInformationDialog)
+        _systemInformationDialog->close();
     if (_sshTransport) {
         _sshTransport->stopResourceMonitoring();
         if (_pendingFileSystemRequestId != 0)
@@ -568,6 +574,31 @@ void SystemMonitorPanel::setSessionContext(const QString& sessionLabel,
     refreshAvailability();
 }
 
+void SystemMonitorPanel::showSystemInformation()
+{
+    if (_systemInformationDialog) {
+        _systemInformationDialog->showNormal();
+        _systemInformationDialog->raise();
+        _systemInformationDialog->activateWindow();
+        return;
+    }
+
+    // 低频 df 与系统详情共用有界单次命令通道。用户显式打开详情时优先响应，
+    // 取消后台 df；详情窗口会短暂重试，等工作线程完成取消与回收 channel。
+    if (_sshTransport && _pendingFileSystemRequestId != 0) {
+        _sshTransport->cancelCommand(_pendingFileSystemRequestId);
+        _pendingFileSystemRequestId = 0;
+    }
+
+    QWidget* const dialogParent = window();
+    _systemInformationDialog = new SystemInformationDialog(
+        _sessionName, _sshTransport, dialogParent);
+    connect(_systemInformationDialog, &QObject::destroyed, this,
+            [this]() { _systemInformationDialog = nullptr; });
+    _systemInformationDialog->show();
+    _systemInformationDialog->moveToCenter();
+}
+
 void SystemMonitorPanel::setPresentationActive(bool active)
 {
     if (_presentationActive == active)
@@ -578,12 +609,8 @@ void SystemMonitorPanel::setPresentationActive(bool active)
 
 void SystemMonitorPanel::retranslateUi()
 {
-    const QString updateDescription = tr(
-        "Remote CPU, memory and network update every %1 seconds; "
-        "filesystems update every 30 seconds.")
-        .arg(_fastTimer->interval() / 1000);
-    _infoButton->setToolTip(updateDescription);
-    _infoButton->setAccessibleName(updateDescription);
+    _infoButton->setToolTip(tr("System information"));
+    _infoButton->setAccessibleName(tr("Open system information"));
     _cpuLabel->setText(tr("CPU"));
     _memoryLabel->setText(tr("Memory"));
     _swapLabel->setText(tr("Swap"));

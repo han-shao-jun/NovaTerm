@@ -118,6 +118,15 @@ stderr 0 字节并正常完成。
 `novaterm_ssh_transport_check` 增加 EOF/exit-status 两种到达顺序及缺失状态的
 确定性回归检查。
 
+2026-09-09：资源面板的信息按钮改为可点击，并新增独立
+`SystemInformationDialog`。窗口按参考布局使用 Overview、CPU、GPU、CPU usage、
+Memory/Swap、Network interfaces 与 Filesystems 卡片，通过当前
+`SshTransport::executeCommand()` 的既有有界辅助 channel 一次读取 `/proc`、
+`uname`、`df` 与可选 `lspci`，不建立第二条 SSH 连接。用户打开详情时会取消后台
+低频文件系统命令，并以有限次数重试等待 channel 回收；请求 ID、transport 指针
+与 QObject 生命周期共同屏蔽迟到结果。无连接、命令繁忙、查询失败和无 GPU 数据
+均有明确空状态，窗口支持运行时语言与主题切换。
+
 同日统一资源面板字体层级：与 `SessionPanel` 相同，下拉框和表头采用 13 px，
 CPU、内存、交换指标名采用 12 px，数值详情、速率、进度条文字和磁盘列表采用
 10 px；文件系统表头加粗，
