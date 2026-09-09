@@ -490,18 +490,16 @@ int widgetYForDocumentRow(const TerminalRenderer& renderer, int documentRow)
 
 } // namespace
 
-// 超宽输出被自动换行成的多个屏幕行属于同一逻辑行，复制必须拼回一行。
-// 布局常驻后 updateHistoryLayout() 每次 scrollbackChanged 都取一次快照，而
-// ChunkedScrollback::snapshot() 会 publish() → sealActive()。于是每批输出封存
-// 一个小 chunk，而不再填满 DefaultChunkLines = 1024 —— chunk 数从「行数/1024」
-// 变成「发布批次数」。
+// updateHistoryLayout() 每次 scrollbackChanged（每批输出）曾调全量
+// scrollbackSnapshot()，而 ChunkedScrollback::snapshot() 会 publish() →
+// sealActive()，把未填满的 active 块封存成小分块 —— 分块数从「行数/1024」
+// 退化成「发布批次数」，并每批复制全部 ChunkView。
 //
-// 2026-09-03 实测（10000 行）：一次写入 sealedChunks=10、effectiveBytes=
-// 21,459,448；拆成 500 批 sealedChunks=499、effectiveBytes=21,514,216。即每
-// chunk 记账开销约 112 字节，字节预算只涨 0.26%，不会提前触发淘汰。
+// 优化后（尾部增量窄接口 scrollbackTail/tailFrom）增量路径不再取全量快照，
+// 碎片化被消除：分块数回到由历史行数决定、与发布批次数无关。
 //
-// 本测试锁定这一点：碎片化本身允许发生，但字节记账的膨胀必须保持在可忽略
-// 量级，否则同样的 scrollback 上限会因为记账虚高而少存内容。
+// 本测试即此优化的验收：同样内容拆成多批产生的 sealedChunks 应与单批写入
+// 同量级（而非 ≈ 批次数）；字节记账的膨胀同时保持可忽略。
 void RendererP3Tests::fragmentedOutputDoesNotInflateScrollbackBytes()
 {
     struct Result
@@ -522,10 +520,15 @@ void RendererP3Tests::fragmentedOutputDoesNotInflateScrollbackBytes()
                 input += QByteArrayLiteral("fragmentation-probe-line\r\n");
             QVERIFY(core.writeInput(input).fullyAccepted());
             QVERIFY(core.waitForIdle(10000));
-            if (batches > 1)
-                QTest::qWait(1);
+            // 等显示布局追上历史行数：首建走一次全量重排，之后每批走尾部增量。
+            // 探针行 24 字符 < 80 列、无软换行，故显示行数应等于逻辑行数。这样
+            // 复现的是优化后的稳定分块行为，而非首建期的反复重排。
+            QTRY_VERIFY_WITH_TIMEOUT(
+                renderer.historyDisplayRowCount()
+                    == qsizetype(core.scrollbackLineCount()),
+                5000);
         }
-        QTest::qWait(200);
+        QTest::qWait(50);
         const auto statistics = core.scrollbackStatistics();
         out->bytes = statistics.effectiveBytes;
         out->chunks = statistics.sealedChunks;
@@ -540,10 +543,16 @@ void RendererP3Tests::fragmentedOutputDoesNotInflateScrollbackBytes()
     // 两种写法产生同样的内容。
     QCOMPARE(fragmented.lines, single.lines);
     QVERIFY(single.lines > 1000);
-    // 碎片化确实发生：小批量写入封存的 chunk 明显更多。
-    QVERIFY2(fragmented.chunks > single.chunks,
-             "fragmented output is expected to seal more chunks");
-    // 但字节记账的膨胀必须可忽略（实测 0.26%，此处留 5% 余量）。
+    // 碎片化被消除：分块数由历史行数（≈行数/1024）决定，不随发布批次数增长。
+    // 优化前增量路径每批 snapshot()→sealActive()，fragmented.chunks 会 ≈ 批次数
+    // （100）；优化后应与单批写入同量级。
+    QVERIFY2(fragmented.chunks <= single.chunks + 3,
+             qPrintable(QStringLiteral(
+                 "fragmentation not eliminated: single=%1 chunks, fragmented=%2 "
+                 "chunks (should be same order, not ~batch count)")
+                            .arg(single.chunks)
+                            .arg(fragmented.chunks)));
+    // 字节记账的膨胀必须可忽略。
     QVERIFY2(fragmented.bytes <= single.bytes + single.bytes / 20,
              qPrintable(QStringLiteral(
                  "chunk accounting overhead inflated scrollback bytes: "

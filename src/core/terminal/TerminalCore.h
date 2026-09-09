@@ -117,6 +117,18 @@ public:
     void setScrollbackLimit(int lines);
     void clearScrollback();
     NovaTerm::ScrollbackSnapshot scrollbackSnapshot() const;
+
+    /**
+     * @brief 取滚动历史尾部增量视图（不封存分块、不复制 ChunkView）。
+     * @param sinceId  渲染器上次已折进布局的最后一条逻辑行 ID。
+     * @param maxLines 尾部深拷贝行数上界；超过则返回 resync=true。
+     * @return 尾部增量视图。
+     * @note  供渲染器每批 scrollbackChanged 增量维护显示布局，替代高频的
+     *        全量 scrollbackSnapshot()，消除分块碎片化与 ChunkView churn。
+     */
+    NovaTerm::ScrollbackTail scrollbackTail(NovaTerm::LineId sinceId,
+                                            NovaTerm::isize maxLines) const;
+
     NovaTerm::ScrollbackStatistics scrollbackStatistics() const;
 
     /**

@@ -55,6 +55,10 @@ public:
     const std::vector<ScrollbackCell>* lineVectorAt(int index) const;
     int maxLines() const { return _maxLines; }
     NovaTerm::ScrollbackSnapshot snapshot();
+    // 尾部增量视图（转发到 ChunkedScrollback::tailFrom）。供渲染器增量维护
+    // 显示布局，避免每批输出都构造全量快照。
+    void tailFrom(NovaTerm::LineId sinceId, NovaTerm::isize maxLines,
+                  NovaTerm::ScrollbackTail& out) const;
     NovaTerm::ScrollbackStatistics statistics() const;
 
     // ── 修改 ──

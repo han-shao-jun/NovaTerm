@@ -125,6 +125,12 @@ NovaTerm::ScrollbackSnapshot ScrollbackBuffer::snapshot()
     return _storage.snapshot();
 }
 
+void ScrollbackBuffer::tailFrom(NovaTerm::LineId sinceId, isize maxLines,
+                                NovaTerm::ScrollbackTail& out) const
+{
+    _storage.tailFrom(sinceId, maxLines, out);
+}
+
 NovaTerm::ScrollbackStatistics ScrollbackBuffer::statistics() const
 {
     return _storage.statistics();

@@ -29,6 +29,7 @@ private slots:
     void unicodeSearchMapsUtf16BackToCells();
     void regexGuardsAndResultLimitAreEnforced();
     void destroyingBusyWorkersIsBounded();
+    void tailFromReturnsIncrementalTail();
 };
 
 namespace {
@@ -91,6 +92,93 @@ void ScrollbackTests::snapshotUsesStableLineIds()
     QVERIFY(!snapshot.contains(first));
     QCOMPARE(snapshot.rowForLineId(second), qsizetype(0));
     QCOMPARE(snapshot.rowForLineId(fourth), qsizetype(2));
+}
+
+void ScrollbackTests::tailFromReturnsIncrementalTail()
+{
+    using NovaTerm::LineId;
+    using NovaTerm::ScrollbackTail;
+
+    // 空历史：不 resync，lineCount=0，lines 空。
+    {
+        NovaTerm::ChunkedScrollback sb(100, 1024 * 1024, 4);
+        ScrollbackTail tail;
+        sb.tailFrom(1, 4096, tail);
+        QVERIFY(!tail.resync);
+        QCOMPARE(tail.lineCount, qsizetype(0));
+        QVERIFY(tail.lines.empty());
+    }
+
+    // 正常增量：返回 [sinceId .. 最新行]，first/last/fromLineId 正确。
+    {
+        NovaTerm::ChunkedScrollback sb(100, 1024 * 1024, 4);
+        const LineId a = sb.append(textLine(QStringLiteral("a")));
+        (void)sb.append(textLine(QStringLiteral("b")));
+        const LineId c = sb.append(textLine(QStringLiteral("c")));
+        const LineId d = sb.append(textLine(QStringLiteral("d")));
+        ScrollbackTail tail;
+        sb.tailFrom(c, 4096, tail);
+        QVERIFY(!tail.resync);
+        QCOMPARE(tail.lineCount, qsizetype(4));
+        QCOMPARE(tail.firstLineId, a);
+        QCOMPARE(tail.lastLineId, d);
+        QCOMPARE(tail.fromLineId, c);
+        QCOMPARE(tail.lines.size(), std::size_t(2));
+        QCOMPARE(tail.lines.front().id, c);
+        QCOMPARE(tail.lines.back().id, d);
+        QCOMPARE(tail.lines.back().cells[0].chars[0], uint32_t('d'));
+    }
+
+    // 尾部跨已封存分块（2 行/块，5 行）：深拷贝仍完整、顺序正确。
+    {
+        NovaTerm::ChunkedScrollback sb(100, 1024 * 1024, 2);
+        LineId ids[5];
+        for (int i = 0; i < 5; ++i)
+            ids[i] = sb.append(textLine(QString::number(i)));
+        ScrollbackTail tail;
+        sb.tailFrom(ids[1], 4096, tail);
+        QVERIFY(!tail.resync);
+        QCOMPARE(tail.lines.size(), std::size_t(4));
+        for (int k = 0; k < 4; ++k)
+            QCOMPARE(tail.lines[std::size_t(k)].id, ids[1 + k]);
+    }
+
+    // sinceId 比现存最新还新（模拟尾行已被 sb_popline 取回）：不 resync，
+    // 从现存最新行返回，供调用方删掉被取回行的显示行后重折。
+    {
+        NovaTerm::ChunkedScrollback sb(100, 1024 * 1024, 4);
+        (void)sb.append(textLine(QStringLiteral("x")));
+        const LineId last = sb.append(textLine(QStringLiteral("y")));
+        ScrollbackTail tail;
+        sb.tailFrom(last + 100, 4096, tail);
+        QVERIFY(!tail.resync);
+        QCOMPARE(tail.fromLineId, last);
+        QCOMPARE(tail.lines.size(), std::size_t(1));
+        QCOMPARE(tail.lines.back().id, last);
+    }
+
+    // sinceId 已被头部淘汰：resync。
+    {
+        NovaTerm::ChunkedScrollback sb(2, 1024 * 1024, 2);  // 最多 2 行
+        const LineId a = sb.append(textLine(QStringLiteral("a")));
+        (void)sb.append(textLine(QStringLiteral("b")));
+        (void)sb.append(textLine(QStringLiteral("c")));  // 淘汰 a
+        (void)sb.append(textLine(QStringLiteral("d")));  // 淘汰 b
+        ScrollbackTail tail;
+        sb.tailFrom(a, 4096, tail);
+        QVERIFY(tail.resync);
+    }
+
+    // 落后超过 maxLines：resync（交给全量重排，避免 GUI 线程深拷贝海量行）。
+    {
+        NovaTerm::ChunkedScrollback sb(100, 1024 * 1024, 4);
+        const LineId first = sb.append(textLine(QStringLiteral("l0")));
+        for (int i = 1; i < 10; ++i)
+            sb.append(textLine(QStringLiteral("lN")));
+        ScrollbackTail tail;
+        sb.tailFrom(first, 3, tail);  // 跨度 10 > 3
+        QVERIFY(tail.resync);
+    }
 }
 
 void ScrollbackTests::layoutKeepsWideCellsTogether()

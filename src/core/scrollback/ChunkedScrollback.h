@@ -77,6 +77,20 @@ public:
     // 不复制任何历史 Cell 数据。后续追加只影响新的 active 块，
     // 已发出的快照保持对应版本数据不变。
     ScrollbackSnapshot snapshot();
+
+    /**
+     * @brief 取尾部增量视图（不封存 active、不复制 ChunkView）。
+     * @param sinceId  调用方上次已消费到的逻辑行 ID（其显示行需要重折）。
+     * @param maxLines 尾部深拷贝行数上界；超过则置 resync 让调用方全量重排。
+     * @param out      输出参数，填充 ScrollbackTail。
+     * @note  高频路径专用：snapshot() 每次都会 publish()→sealActive() 从而在
+     *        每批输出后封存小分块并复制全部 ChunkView；本方法只从末尾深拷贝
+     *        少量逻辑行，不触碰分块组织，可每批调用而不产生碎片化。
+     *        sinceId 被 sb_popline 取回（比现存最新还新）时，返回现存尾行以便
+     *        调用方增量修正；sinceId 已被头部淘汰或落后过远时置 resync。
+     */
+    void tailFrom(LineId sinceId, isize maxLines, ScrollbackTail& out) const;
+
     const LogicalLine* lineAt(isize index) const;
     isize lineCount() const { return _lineCount; }
     isize maxLines() const { return _maxLines; }

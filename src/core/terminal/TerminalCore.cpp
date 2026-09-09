@@ -1018,6 +1018,15 @@ NovaTerm::ScrollbackSnapshot TerminalCore::scrollbackSnapshot() const
     return _runtime->scrollback.snapshot();
 }
 
+NovaTerm::ScrollbackTail TerminalCore::scrollbackTail(
+    NovaTerm::LineId sinceId, isize maxLines) const
+{
+    NovaTerm::ScrollbackTail tail;
+    std::lock_guard<std::mutex> locker(_runtime->modelMutex);
+    _runtime->scrollback.tailFrom(sinceId, maxLines, tail);
+    return tail;
+}
+
 NovaTerm::ScrollbackStatistics TerminalCore::scrollbackStatistics() const
 {
     std::lock_guard<std::mutex> locker(_runtime->modelMutex);

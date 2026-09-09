@@ -1024,9 +1024,10 @@ void TerminalRenderer::resizeEvent(QResizeEvent* event)
 void TerminalRenderer::updateHistoryLayout()
 {
     const int columns = _core->columns();
-    const NovaTerm::ScrollbackSnapshot history = _core->scrollbackSnapshot();
 
-    if (history.empty()) {
+    // 空历史：清掉残留布局，不触发重排。用 O(1) 的 lineCount 判断代替全量
+    // 快照，等价原 history.empty() 快路径。
+    if (_core->scrollbackLineCount() == 0) {
         _historyLayout.clear();
         _layoutColumns = columns;
         return;
@@ -1038,57 +1039,58 @@ void TerminalRenderer::updateHistoryLayout()
         return;
     }
 
-    // ── 头部淘汰：快照首行 ID 前移说明老行已被逐出，删掉它们的显示行 ──
-    const NovaTerm::LineId firstLineId = history.firstLineId();
+    // ── 尾部增量：只取尾部若干逻辑行，不构造全量快照 ──
+    // 每批 scrollbackChanged 都取全量 scrollbackSnapshot() 会 publish() →
+    // sealActive()，把未填满的 active 块封存成小分块（碎片化），并复制全部
+    // ChunkView。增量维护实际只需要首行 ID（头部淘汰）与尾部被改写/新增的
+    // 逻辑行，故改用尾部增量窄接口。落后超过 kHistoryTailMax 时回退全量重排。
+    constexpr NovaTerm::isize kHistoryTailMax = 4096;
+    const NovaTerm::LineId lastLaidOut = _historyLayout.constLast().lineId;
+    const NovaTerm::ScrollbackTail tail =
+        _core->scrollbackTail(lastLaidOut, kHistoryTailMax);
+
+    if (tail.lineCount == 0) {  // 历史在增量间隙被清空（clearScrollback）
+        _historyLayout.clear();
+        _layoutColumns = columns;
+        return;
+    }
+    if (tail.resync) {  // sinceId 被头部淘汰或落后过远：交给全量重排
+        scheduleReflow();
+        return;
+    }
+
+    // ── 头部淘汰：首行 ID 前移说明老行已被逐出，删掉它们的显示行 ──
     qsizetype evicted = 0;
     while (evicted < _historyLayout.size()
-           && _historyLayout[evicted].lineId < firstLineId) {
+           && _historyLayout[evicted].lineId < tail.firstLineId) {
         ++evicted;
     }
     if (evicted > 0)
         _historyLayout.remove(0, evicted);
     if (_historyLayout.isEmpty()) {
+        // resync 已挡住 lastLaidOut < firstLineId 的情况，此处理论不可达；
+        // 保守兜底，避免中间段缺失时错误增量。
         scheduleReflow();
         return;
     }
 
-    // ── 尾部收缩：屏幕变高时 libvterm 会用 sb_popline 把历史尾行取回活动
-    //    屏幕，那些逻辑行不再存在于快照中。逐条丢弃它们的显示行。──
-    while (!_historyLayout.isEmpty()
-           && history.rowForLineId(_historyLayout.constLast().lineId) < 0) {
-        const NovaTerm::LineId goneLineId = _historyLayout.constLast().lineId;
-        while (!_historyLayout.isEmpty()
-               && _historyLayout.constLast().lineId == goneLineId) {
-            _historyLayout.removeLast();
-        }
-    }
-    if (_historyLayout.isEmpty()) {
-        scheduleReflow();
-        return;
-    }
-
-    // ── 尾条逻辑行会被原地改写：appendContinuation 追加 cells，sb_popline
-    //    截断 cells，两者都让它已有的显示行作废，必须丢弃后重折 ──
-    const NovaTerm::LineId tailLineId = _historyLayout.constLast().lineId;
-    const qsizetype tailRow = history.rowForLineId(tailLineId);
-    if (tailRow < 0) {
-        // 理论上不可达（上面的循环已保证尾行在快照中），保守兜底。
-        scheduleReflow();
-        return;
-    }
+    // ── 尾部对齐 + 重折：删掉 lineId >= fromLineId 的显示行，再对 tail.lines
+    //    逐条重折追加。这一步统一覆盖两种尾部变化：
+    //    ① 尾条被 appendContinuation/sb_popline 原地改写（fromLineId ==
+    //       lastLaidOut），丢弃旧显示行后按新内容重折；
+    //    ② 尾行被 sb_popline 整条取回活动屏幕（屏幕变高）——被取回行的 id 全
+    //       大于 fromLineId，会在此删除且不在 tail.lines 中，不会被重新加回。
+    //    因此屏幕变高（行数变化）只做增量修正、不触发重排，与列宽变化区分开。──
     qsizetype tailStart = _historyLayout.size();
     while (tailStart > 0
-           && _historyLayout[tailStart - 1].lineId == tailLineId) {
+           && _historyLayout[tailStart - 1].lineId >= tail.fromLineId) {
         --tailStart;
     }
     _historyLayout.remove(tailStart, _historyLayout.size() - tailStart);
 
-    for (qsizetype row = tailRow; row < history.lineCount(); ++row) {
-        const NovaTerm::LogicalLine* line = history.lineAt(row);
-        if (!line)
-            break;
+    for (const NovaTerm::LogicalLine& line : tail.lines) {
         for (const NovaTerm::DisplayLine& displayLine :
-             NovaTerm::LineLayout::wrapLine(*line, columns))
+             NovaTerm::LineLayout::wrapLine(line, columns))
             _historyLayout.push_back(displayLine);
     }
     _layoutColumns = columns;

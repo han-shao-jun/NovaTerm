@@ -69,4 +69,25 @@ private:
     LineId _lastLineId{0};
 };
 
+// 滚动历史的尾部增量视图。只携带增量维护显示布局所需的最小信息 ——
+// 首行 ID（头部淘汰判据）、行数，以及尾部若干逻辑行的深拷贝。与
+// ScrollbackSnapshot 不同，它**不封存 active 块、不复制每个分块的 ChunkView**，
+// 因此可在每批输出后高频调用而不产生分块碎片化与 ChunkView churn。
+// 服务于 TerminalRenderer::updateHistoryLayout 的增量路径。
+struct ScrollbackTail
+{
+    u64 version{0};
+    isize lineCount{0};
+    LineId firstLineId{0};  // 当前最旧行 ID，用于删除已淘汰行的显示行
+    LineId lastLineId{0};   // 当前最新行 ID
+    // lines[0] 的 ID；lines 为空时为 0。调用方据此删除自己已有布局中
+    // lineId >= fromLineId 的显示行，再对 lines 逐条重新折行。
+    LineId fromLineId{0};
+    // [fromLineId .. lastLineId] 的逻辑行深拷贝，按文档顺序（旧→新）排列。
+    std::vector<LogicalLine> lines;
+    // true 表示 sinceId 已被头部淘汰，或落后超过 maxLines —— 调用方应放弃
+    // 增量、改走全量重排（scheduleReflow），本视图的 lines 不可用。
+    bool resync{false};
+};
+
 } // namespace NovaTerm

@@ -347,6 +347,68 @@ ScrollbackSnapshot ChunkedScrollback::snapshot()
     return result;
 }
 
+void ChunkedScrollback::tailFrom(LineId sinceId, isize maxLines,
+                                 ScrollbackTail& out) const
+{
+    out = ScrollbackTail{};
+    out.version = _version;
+    out.lineCount = _lineCount;
+    if (_lineCount == 0)
+        return;  // 空历史：first/last/from=0、lines 空、resync=false
+
+    const LogicalLine* firstLine = lineAt(0);
+    const LogicalLine* lastLine = lineAt(_lineCount - 1);
+    if (!firstLine || !lastLine) {  // 理论不可达，防御性 resync
+        out.resync = true;
+        return;
+    }
+    out.firstLineId = firstLine->id;
+    out.lastLineId = lastLine->id;
+
+    // sinceId 那行已被头部淘汰（或调用方无有效锚点 sinceId==0）：历史剧变，
+    // 交给全量重排。
+    if (sinceId == 0 || sinceId < out.firstLineId) {
+        out.resync = true;
+        return;
+    }
+    // sinceId 被 sb_popline 取回（比现存最新还新）时，从现存最新行起收集：
+    // 调用方会删掉被取回行的显示行并重折现存尾行（可能已被截断改写）。
+    const LineId effectiveSince = std::min(sinceId, out.lastLineId);
+
+    // 先往回定位 effectiveSince 的行号（只读 id、不拷贝），并施加 maxLines 上限。
+    // 只依赖 lineAt 的 id 随 documentRow 单调升序，不依赖 id 连续无空洞。
+    const isize maxCollect = std::max<isize>(1, maxLines);
+    isize startRow = _lineCount;
+    isize scanned = 0;
+    for (isize row = _lineCount - 1; row >= 0; --row) {
+        const LogicalLine* line = lineAt(row);
+        if (!line || line->id < effectiveSince)
+            break;  // 越过起点（id 空洞时的兜底）
+        startRow = row;
+        if (++scanned > maxCollect) {  // 落后过远：交给全量重排（worker 共享 cells）
+            out.resync = true;
+            return;
+        }
+        if (line->id == effectiveSince)
+            break;
+    }
+    if (startRow >= _lineCount) {  // 未定位到（effectiveSince<=last 时理论必命中）
+        out.resync = true;
+        return;
+    }
+
+    // 正向深拷贝 [startRow .. lineCount)。深拷贝的是尾部少量逻辑行的 cells，
+    // 成本远小于全量快照复制所有 ChunkView。
+    out.lines.reserve(std::size_t(_lineCount - startRow));
+    for (isize row = startRow; row < _lineCount; ++row) {
+        const LogicalLine* line = lineAt(row);
+        if (!line)
+            break;
+        out.lines.push_back(*line);
+    }
+    out.fromLineId = out.lines.empty() ? 0 : out.lines.front().id;
+}
+
 const LogicalLine* ChunkedScrollback::lineAt(isize index) const
 {
     if (index < 0 || index >= _lineCount)
