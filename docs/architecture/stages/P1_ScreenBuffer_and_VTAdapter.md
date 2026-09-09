@@ -1,6 +1,6 @@
 # P1：ScreenBuffer 与 VTAdapter
 
-**状态：架构边界已完成（2026-07-29）；宽字符 continuation 经实测确认已生效并加回归（2026-09-03）；`dim`/`protectedCell` 受 vendored libvterm screen 层限制，在适配层无来源；chunk 快照碎片化成本优化完成（2026-09-08，尾部增量窄接口）**
+**状态：退出标准已达成（2026-07-29 架构边界落地）；已完成增量：宽字符 continuation 回归（2026-09-03）、chunk 快照碎片化成本优化（尾部增量窄接口，2026-09-08）；剩余两个不阻塞边角项——活动屏幕不参与搜索、`dim`/`protectedCell` 因 vendored libvterm screen 层无来源（详见下方「剩余工作」；「已决定不做」的 A/B 项长期搁置）**
 
 ## 目标
 
