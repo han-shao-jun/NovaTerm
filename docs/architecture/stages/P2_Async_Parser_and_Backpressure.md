@@ -462,11 +462,20 @@ Release Core/Renderer 全量测试通过；P4 Chunked Scrollback 基准同时保
   （纯 Worker、无生产者干扰）改前改后同为 ~0.4 s 即证。
 - 剩余的吞吐差是 CPU 单线程解析速度差异，非代码问题。
 
-若日后要在较慢机器上把吞吐提到 20 MiB/s 以上，应优化解析热路径本身（首要嫌疑：
-全屏 `moverect`→`VTAdapter::syncRegion` 每次滚动都从 libvterm 重读整屏 Cell），
-属独立优化项、与本次重构无关，本次未做。改动该路径须守住 AGENTS.md 记录的
-「SCROLL 合并模式 moverect 不能复制本地旧 Cell」约束与
-`novaterm_core_tests::batchedScreenEditsMatchIncrementalInput` 回归测试。
+**2026-09-09 剖析补充**：进一步剖析定位了真实热路径，纠正上一段最初的猜测。
+`VTERM_DAMAGE_SCROLL` 合并模式下 `moverect` 回调基本为 0，滚动被合并成每批约
+一次全屏 `damage`（20 MiB 输入仅 362 次 damage、约 1 全屏/批、共 ~1.74M cell
+重读），故 `VTAdapter::syncRegion` 占比小、**不是瓶颈**（最初的猜测证伪）。用
+`NOVATERM_NO_SB` 消融实测真实开销分布：约 **77%** 在 libvterm 自身解析
+（vendored C，已做过 O(1) 行环，进一步改动风险高），约 **23%** 在 scrollback
+存储（`onScrollbackPush`→`populateCell` + `ChunkedScrollback::append`，已约
+1 μs/行）。两者要么在第三方 C 内、要么已接近下限，NovaTerm 层没有低风险高收益
+的优化点。
+
+**测量环境警告**：本 i7-13700H 笔记本在持续构建+跑分下热降频明显——同一二进制
+吞吐从冷态 ~19 掉到热态 ~11 MiB/s，约 40% 的热噪声会淹没任何个位数百分比的
+代码优化。**本机不适合据此微调**；如需优化，应先在温度稳定或更快的机器上建立
+可复现基线，再针对上述 libvterm 解析 / scrollback 存储两项动手。
 
 ## 文件级变更清单
 
