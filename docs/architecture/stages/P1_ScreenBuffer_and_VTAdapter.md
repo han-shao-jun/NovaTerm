@@ -1,6 +1,6 @@
 # P1：ScreenBuffer 与 VTAdapter
 
-**状态：架构边界已完成（2026-07-29）；宽字符 continuation 经实测确认已生效并加回归（2026-09-03）；`dim`/`protectedCell` 受 vendored libvterm screen 层限制，在适配层无来源**
+**状态：架构边界已完成（2026-07-29）；宽字符 continuation 经实测确认已生效并加回归（2026-09-03）；`dim`/`protectedCell` 受 vendored libvterm screen 层限制，在适配层无来源；chunk 快照碎片化成本优化完成（2026-09-08，尾部增量窄接口）**
 
 ## 目标
 
@@ -178,20 +178,21 @@ VTermPos/Rect   -> Position/DirtyRegion
 
 ```cpp
 struct Observer {
-    std::function<void(QByteArrayView)> output;           // 终端响应字节
+    std::function<void(ByteView)> output;                 // 终端响应字节
     std::function<void(const DirtyRegion&)> damage;
     std::function<void(const CursorState&)> cursorChanged;
-    std::function<void(const QString&)> titleChanged;
+    std::function<void(const std::string&)> titleChanged; // 终端标题（OSC 0/2），UTF-8
     std::function<void()> bell;
     std::function<void()> scrollbackChanged;
     std::function<void(int)> screenScrolled;              // 活动屏幕上滚行数
 };
 ```
 
-以上为当前 `VTAdapter.h:29-38` 的实际形态，与 P1 初版有两处差异：`output`
-改用 `QByteArrayView`（P2 精确部分接收改造时统一为视图传递，避免为定位后缀
-反复复制）；`screenScrolled` 由后续阶段新增，供 Renderer 的 GPU 行槽位环判断
-可复用行（见 P3 §Viewport 与 Scrollback 映射、P5 §8）。
+以上为当前 `VTAdapter.h:27-36` 的实际形态。相对 P1 初版有三处差异：`output`
+先在 P2 精确接收改造时统一为视图传递，去 Qt 化后进一步换为核心视图类型
+`ByteView`；`titleChanged` 去 Qt 化后由 `QString` 改为 UTF-8 `std::string`；
+`screenScrolled` 由后续阶段新增，供 Renderer 的 GPU 行槽位环判断可复用行
+（见 P3 §Viewport 与 Scrollback 映射、P5 §8）。
 
 callback 落地映射：
 
@@ -211,7 +212,7 @@ callback 落地映射：
 `moverect` 与 `sb_pushline_ex` 不属于 P1 初版：前者由 P2 的 O(1) 全屏行环优化
 引入（见 P2 §优化 1），后者是 vendored libvterm 的 NovaTerm 向后兼容扩展，
 由 P4 用于把 continuation 物理行合并进同一 `LogicalLine`（见 P4 §实际落地摘要）。
-注册点见 `VTAdapter.cpp:204-214`。
+注册点见 `VTAdapter.cpp:205-215`。
 
 2026-09-06：修正 `VTERM_DAMAGE_SCROLL` 延迟回调的同步方式。
 回调发出时，libvterm 已完成移动及后续改写，本地源矩形不保证最新；
@@ -378,12 +379,12 @@ Release benchmark 同时记录 Parser/Core 吞吐和 10 万行 Scrollback。P1 �
   （`third_party/libvterm-0.3.3/src/screen.c:198`）；
 - `vterm_screen_get_cell()` **逐字复制** `chars[]` 而不做翻译
   （`screen.c:1040-1044`），因此适配层收到的 `chars[0]` 就是 `0xFFFFFFFF`；
-- 该数值与 `TerminalTypes.h:22` 的 `WideCharContinuation` 相同，`populateCell()`
-  的「复制到零终止符」循环（`VTAdapter.cpp:114-119`）因 `!= 0` 而把它带入 Cell；
+- 该数值与 `TerminalTypes.h:24` 的 `WideCharContinuation` 相同，`populateCell()`
+  的「复制到零终止符」循环（`VTAdapter.cpp:117-121`）因 `!= 0` 而把它带入 Cell；
 - Renderer 侧也已正确跳过：`rebuildCommandRow()` 仅对
   `!cell->isWideContinuation()` 调用 `appendCellCommands()`
-  （`TerminalRenderer.cpp:1838`），`rowHighlightColor()` 同样跳过
-  （`TerminalRenderer.cpp:2116`）。
+  （`TerminalRenderer.cpp:1842`），`rowHighlightColor()` 同样跳过
+  （`TerminalRenderer.cpp:2121`）。
 
 缺的只是**测试**。已补 `TerminalCoreTests::wideCharMarksContinuationCell`：输出
 `中A` 后断言第 0 列 `width==2` 且非延续、第 1 列 `isWideContinuation()`、第 2 列
@@ -391,12 +392,12 @@ Release benchmark 同时记录 Parser/Core 吞吐和 10 万行 Scrollback。P1 �
 
 ### `dim` / `protectedCell` 无来源，且在当前分层下无法补
 
-`CellAttributes`（`TerminalTypes.h:90-107`）中的 `dim` 与 `protectedCell` 在
-`fromVTermAttributes()`（`VTAdapter.cpp:65-86`）和 `toVTermAttributes()`
-（`VTAdapter.cpp:88-108`）中都没有映射，两者**恒为 false**。2026-09-03 复核后
+`CellAttributes`（`TerminalTypes.h:92-117`）中的 `dim` 与 `protectedCell` 在
+`fromVTermAttributes()`（`VTAdapter.cpp:66-87`）和 `toVTermAttributes()`
+（`VTAdapter.cpp:89-109`）中都没有映射，两者**恒为 false**。2026-09-03 复核后
 把根因收紧到具体位置：
 
-- `VTermScreenCellAttrs`（`third_party/libvterm-0.3.3/include/vterm.h:499-510`）
+- `VTermScreenCellAttrs`（`third_party/libvterm-0.3.3/include/vterm.h:499-512`）
   只有 bold / underline / italic / blink / reverse / conceal / strike / font /
   dwl / dhl（外加 `get_cell` 另填的 small_font、baseline），**没有 dim，也没有
   protected**；
@@ -409,8 +410,8 @@ Release benchmark 同时记录 Parser/Core 吞吐和 10 万行 Scrollback。P1 �
 `VTermStateCallbacks` 的 `putglyph` 接管 screen 层，属于独立的架构决策
 （与「剩余工作」第 2 项同源），不是适配层能完成的。
 
-全仓库唯一读取点是两处行内容哈希（`TerminalCore.cpp:119-120`、
-`RowBlockDamageTracker.h:119-120`），只把属性位打进哈希，不产生视觉或语义效果 ——
+全仓库唯一读取点是两处行内容哈希（`TerminalCore.cpp:129-130`、
+`RowBlockDamageTracker.h:159-160`），只把属性位打进哈希，不产生视觉或语义效果 ——
 即 `dim` 不会让 Renderer 降低亮度，`protectedCell` 也不会让 DECSCA 保护区在清屏时
 保留。字段已在 `TerminalTypes.h` 就地标注「暂无来源、恒为 false」，在有来源之前
 不得让渲染或擦除语义依赖它们。
@@ -452,7 +453,7 @@ the preceding fragment remains in the scrollback callback owned by the applicati
 **决定不做的理由**：影响仅限排版观感。内容正确性不受影响 —— 复制走的是
 `isRowContinuation()` 判据（历史侧看 `DisplayLine::wrapIndex`，活动屏幕侧看
 `TerminalCore::rowContinuation()`），跨接缝复制得到的仍是正确的单行文本。而拼接必然改变
-内容占用的 widget 行数，`screenRow = widgetRow - scrollLine`（`TerminalCore.cpp:777`）、
+内容占用的 widget 行数，`screenRow = widgetRow - scrollLine`（`TerminalCore.cpp:887`）、
 渲染器行身份/damage 机制、`selectedText` 坐标反解都建立在该算术映射上，无法局部修补。
 
 若将来重新考虑，**B 是它的前置** —— 不要在当前存储模型下为它写临时机制，那部分必然被丢弃。
@@ -466,9 +467,10 @@ the preceding fragment remains in the scrollback callback owned by the applicati
 改为行式存储**确实能买到**：删掉整个 `DisplayLine` / `_historyLayout` 层（行即显示行，
 滚动条量程直接是 `scrollbackLineCount()`，`LineLayout::viewport`、`ReflowEngine`、
 `updateHistoryLayout` 全部不需要存在）；尾部空格裁剪与 `sb_popline` 语义两处阻抗失配从
-「已修的 bug」变成「不可能出现」；`appendContinuation` 的整块 COW
-（`ChunkedScrollback.cpp:91-107`）与逻辑行内存无上界一并消失；接缝从架构性阻塞降级为
-有界工作量。
+「已修的 bug」变成「不可能出现」；逻辑行内存无上界的问题一并消失；接缝从架构性阻塞
+降级为有界工作量。（注：`appendContinuation` 早期的整块 COW 已在去 Qt 化阶段 0 改为
+`makeNewestLineWritable()` 只复制一行（`ChunkedScrollback.cpp:143-172`），不再是改
+行式存储才能消除的成本。）
 
 **决定不做的理由**（评估结论，按权重）：
 
@@ -498,11 +500,11 @@ libvterm 只在 VTAdapter 内、跨线程传不可变快照均不受影响），
 ### 剩余工作
 
 1. **活动屏幕不参与搜索**。`TerminalCore::searchScrollback()` 只搜 scrollback 快照
-   （`TerminalCore.cpp:898-901`），同一字符串滚进历史后能搜到、还在屏幕上时搜不到。
-2. **布局常驻带来的 chunk 碎片化：字节预算风险已实测排除，但快照成本随 chunk 数增长**。
-   `TerminalRenderer::updateHistoryLayout()` 在每次 `scrollbackChanged` 取一次快照，而
-   `ChunkedScrollback::snapshot()` 会 `publish()` → `sealActive()`，于是每批输出封存一个
-   小 chunk，不再填满 `DefaultChunkLines = 1024`。
+   （`TerminalCore.cpp:1027-1030`），同一字符串滚进历史后能搜到、还在屏幕上时搜不到。
+2. **布局常驻带来的 chunk 碎片化与 ChunkView churn —— 已完成（2026-09-08）**。
+   问题：`TerminalRenderer::updateHistoryLayout()` 曾在每次 `scrollbackChanged` 取一次
+   全量快照，而 `ChunkedScrollback::snapshot()` 会 `publish()` → `sealActive()`，于是每批
+   输出封存一个小 chunk，不再填满 `DefaultChunkLines = 1024`。
 
    2026-09-03 实测（80×24、10000 行、`scrollbackLimit=100000`）：
 
@@ -513,18 +515,24 @@ libvterm 只在 VTAdapter 内、跨线程传不可变快照均不受影响），
 
    chunk 数从 10 涨到 499（即「行数/1024」变成「发布批次数」），但字节记账只多
    54,768 字节 —— 每 chunk 约 112 字节，相对膨胀 **0.26%**。对 256 MB 默认字节预算
-   不构成提前淘汰风险，**原先记录的担忧不成立**。已由
-   `RendererP3Tests::fragmentedOutputDoesNotInflateScrollbackBytes` 锁定（允许碎片化
-   发生，但要求字节膨胀留在 5% 以内）。
+   不构成提前淘汰风险，**原先记录的担忧不成立**。
 
-   实测同时暴露一项当时未预见的成本：`ScrollbackSnapshot` 的构造为**每个 chunk** 复制
-   一个 `ChunkView`（`shared_ptr` + 3 个 `qsizetype`，约 40 字节，
-   `ChunkedScrollback.cpp:238-255`），而快照现在**每次发布都取一份**。该成本随 chunk 数
-   线性增长，碎片化把它放大约 50 倍：100,000 行历史若由约 5000 批产生，则每次快照要复制
-   约 5000 个 `ChunkView`（约 200 KB 分配与原子引用计数），按 60 次发布/秒计约 12 MB/s
-   的churn。这不影响正确性，但在大历史 + 高频输出下值得优化 —— 可行方向是给
-   `TerminalCore` 增加「只取尾部若干逻辑行」的窄接口，让增量维护不必构造全量快照。
-   尚未实施，也尚未在 GPU 长稳基准下复测。
+   真正的成本在快照构造：`ScrollbackSnapshot` 为**每个 chunk** 复制一个 `ChunkView`
+   （`shared_ptr` + 3 个 `isize`，约 40 字节；构造见 `ChunkedScrollback::snapshot()`
+   `ChunkedScrollback.cpp:326`，ChunkView 复制在 `:339`），而快照当时**每次发布都取
+   一份**。该成本随 chunk 数线性增长，碎片化把它放大约 50 倍：100,000 行历史若由约
+   5000 批产生，则每次快照要复制约 5000 个 `ChunkView`（约 200 KB 分配与原子引用计数），
+   按 60 次发布/秒计约 12 MB/s 的 churn。
+
+   **解法（2026-09-08）**：新增尾部增量窄接口 `TerminalCore::scrollbackTail(sinceId,
+   maxLines)` → `ScrollbackBuffer::tailFrom` → `ChunkedScrollback::tailFrom`，返回
+   `ScrollbackTail`（首行 ID + 尾部若干逻辑行的深拷贝），**不封存 active 块、不复制
+   ChunkView**。`updateHistoryLayout()` 的增量路径改用它（`TerminalRenderer.cpp:1024`），
+   仅首建 / 列宽变化仍走 worker 全量重排。碎片化随之消除（chunk 数回到由行数决定），每批
+   输出不再复制全部 ChunkView。回归：
+   `RendererP3Tests::fragmentedOutputDoesNotInflateScrollbackBytes` 改为验证碎片化被消除
+   （`fragmented.chunks` 与单批写入同量级）；窄接口语义由
+   `ScrollbackTests::tailFromReturnsIncrementalTail` 覆盖。GPU 长稳基准复测尚未做。
 3. **`dim` / `protectedCell` 需要接管 screen 层才有来源**（见上文「当前实现差距」）。
    注意它与上文 B 项**不同源**：B 是换 scrollback 存储，本项要的是改用
    `VTermStateCallbacks` 的 `putglyph` 接管**活动屏幕**模型。B 被搁置不影响本项，但本项
