@@ -70,6 +70,14 @@ tooltip 和无障碍文本。
 事件循环后对最终句柄再次复核。关闭浮窗仍按 Ela 原有语义把标签送回来源页，
 不会关闭 Terminal Session。
 
+2026-09-09：上一项只修复了拖拽后的输入与定时器生命周期，未覆盖浮窗进入
+Maximized 状态后 native HWND 仍保留 700×500 矩形的问题。该问题只发生在带
+native owner 的标签浮窗，不应通过改写所有 Ela 窗口的 `WM_GETMINMAXINFO` 处理。
+现由 `ElaCustomTabWidget::changeEvent()` 监听 `WindowStateChange`，确认状态已经
+最大化后回到主事件循环，使用 `MonitorFromWindow` 取得浮窗所在显示器并把 HWND
+校正到 `rcWork`。修复只作用于标签浮窗，最大化不覆盖任务栏，还原仍使用 Windows
+保存的 normal placement。
+
 ### SSH 远端资源监控（2026-09-06）
 
 `SystemMonitorPanel` 不再每秒调用一次包含三个 `awk` 和 `df` 的单次命令。

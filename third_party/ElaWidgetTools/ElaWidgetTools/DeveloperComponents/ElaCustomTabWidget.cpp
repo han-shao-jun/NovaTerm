@@ -37,6 +37,27 @@ void clearNativeInputTransparency(QWidget* widget)
 #endif
 }
 
+void applyNativeMaximizedGeometry(QWidget* widget)
+{
+#ifdef Q_OS_WIN
+    const HWND window = reinterpret_cast<HWND>(widget->winId());
+    MONITORINFO monitorInfo{sizeof(MONITORINFO)};
+    const HMONITOR monitor = MonitorFromWindow(
+        window, MONITOR_DEFAULTTONEAREST);
+    if (!monitor || !GetMonitorInfoW(monitor, &monitorInfo))
+        return;
+
+    const RECT& workRect = monitorInfo.rcWork;
+    SetWindowPos(window, nullptr, workRect.left, workRect.top,
+                 workRect.right - workRect.left,
+                 workRect.bottom - workRect.top,
+                 SWP_NOZORDER | SWP_NOOWNERZORDER
+                     | SWP_NOACTIVATE | SWP_FRAMECHANGED);
+#else
+    Q_UNUSED(widget);
+#endif
+}
+
 } // namespace
 
 ElaCustomTabWidget::ElaCustomTabWidget(QWidget* parent)
@@ -154,4 +175,19 @@ bool ElaCustomTabWidget::processHitTest()
 {
     auto point = _customTabBar->mapFromGlobal(QCursor::pos());
     return _customTabBar->tabAt(point) < 0;
+}
+
+void ElaCustomTabWidget::changeEvent(QEvent* event)
+{
+    ElaCustomWidget::changeEvent(event);
+    if (event->type() != QEvent::WindowStateChange || !isMaximized())
+        return;
+
+    // QDialog 有 native owner，Qt 已切换 WindowMaximized 状态后，Windows 偶尔
+    // 仍保留拖出时的 700×500 HWND 矩形。回到主事件循环后直接按浮窗所在显示器
+    // 的工作区校正最终原生句柄，且只影响 Ela 标签拖出浮窗。
+    QTimer::singleShot(0, this, [this]() {
+        if (isMaximized())
+            applyNativeMaximizedGeometry(this);
+    });
 }
