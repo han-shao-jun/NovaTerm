@@ -229,7 +229,7 @@ Transport 可以使用 Qt 事件循环、专用读线程或 OS 异步 I/O；这�
 | Selection | View/Renderer | Renderer | Overlay |
 | Profile | ProfileManager | Session factory、UI | 不可变解析结果 |
 
-当前值语义 Snapshot 保证安全，但后续应使用共享不可变存储、分行版本或 COW 降低每帧复制成本。优化不得破坏稳定读取语义。
+早期为整屏值语义拷贝；现已按 §6 的方向落地：每帧渲染路径 `RendererSnapshot` 改为分行不可变存储（每行 `std::shared_ptr<const std::vector<Cell>>` + 每行 revision/内容指纹），未脏行只回填身份哈希、跳过 Cell 拷贝，仅脏行物化；Scrollback 侧以尾部增量窄接口 `scrollbackTail` 替代每批全量快照。整屏值语义 `TerminalSnapshot`/`snapshot()` 仍保留，但仅用于测试与一次性渲染，不在每帧路径。稳定读取语义保持不变。
 
 ## 7. 背压和过载
 

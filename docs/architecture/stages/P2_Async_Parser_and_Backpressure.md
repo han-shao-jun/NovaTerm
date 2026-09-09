@@ -1,6 +1,12 @@
 # P2：异步 Parser、有界队列与背压
 
-**状态：功能及 20 MiB/s 性能目标完成（2026-08-01）**
+**状态：功能及 20 MiB/s 性能目标完成（2026-08-01，参考机器）**
+
+> **2026-09-09 复核**：大重构（去 Qt 化 `df64ced`→`de8cfa3` + 快照窄接口
+> `3e321ab`）后重跑基准，**未发现性能回归**——在同一台机器上 checkout 去 Qt 化
+> 之前的 `877c189` 重建基准，改前/改后逐项一致（本机 ~19 MiB/s）。26–27 MiB/s
+> 是 2026-08-01 另一台更快机器的历史数据，本机（i7-13700H，Balanced 电源）达不到
+> 且与重构无关。方法与数据见文末「2026-09-09 大重构后性能复核」。
 
 ## 目标
 
@@ -56,15 +62,21 @@ flowchart LR
 - `src/core/terminal/BoundedByteQueue.cpp`
 - `tests/core/TerminalCoreTests.cpp`
 
-实现一个以固定 `QByteArray` 为后备存储的环形队列，维护 head、tail 和当前 size。公开操作为：
+实现一个以固定 `std::vector<char>` 为后备存储的环形队列，维护 head、tail 和当前 size。公开操作为：
 
 ```cpp
-bool enqueue(QByteArrayView data, int timeoutMs,
-             qsizetype* queuedBytesAfter = nullptr);
-QByteArray take(qsizetype maxBytes, int timeoutMs);
+bool enqueue(ByteView data, int timeoutMs = -1,
+             isize* queuedBytesAfter = nullptr);
+isize take(char* destination, isize maxBytes, int timeoutMs = -1);
 void stop();
 Statistics statistics() const;
 ```
+
+> 去 Qt 化（`1ba7c94`/`e356e51`）后接口已改：字节视图 `QByteArrayView`→`ByteView`，
+> 整数 `qsizetype`→`isize`，后备存储 `QByteArray`→`std::vector<char>`；`take` 由
+> 「返回 `QByteArray`」改为「写入调用方缓冲 `char* destination`」，避免每次出队堆
+> 分配（Worker 复用 `batchBuffer`，`TerminalCore.cpp:588`）。语义（回绕、超时、
+> 停止、单次超容失败）不变。
 
 必须保证：
 
@@ -101,9 +113,10 @@ Statistics statistics() const;
 
 ```cpp
 struct InputWriteResult {
-    qsizetype requestedBytes;
-    qsizetype acceptedBytes;
+    NovaTerm::isize requestedBytes;
+    NovaTerm::isize acceptedBytes;
     bool backpressured;
+    bool fullyAccepted() const;  // acceptedBytes == requestedBytes
 };
 ```
 
@@ -323,6 +336,12 @@ primary 和 alternate screen 各自保存偏移，切换屏幕不会混用行序
 reflow 和异步搜索；后续迁移时应保留“尾部默认 Cell 可稀疏表示”和“写入槽
 复用”的经验，而不是长期双写两套 Scrollback。
 
+> **2026-09-09 更新**：该迁移已完成。`ScrollbackBuffer` 现在是
+> `ChunkedScrollback` 的薄外观（`ScrollbackBuffer.h:69`），P2 时期的逐行槽位
+> 复用环已删除、不再双写两套 Scrollback。“尾部默认 Cell 稀疏化”经验保留在
+> `VTAdapter::onScrollbackPush` 的行尾裁剪（仅硬换行行，`VTAdapter.cpp:374-379`）。
+> 因此本节描述的槽位复用环属**历史实现**，实际后端与语义以 P4 文档为准。
+
 ### 优化 3：移除高频路径上的重复同步
 
 `BoundedByteQueue::enqueue()` 在持有互斥锁时返回成功入队后的队列深度，
@@ -415,6 +434,40 @@ Parser，但 Parser 吞吐和尾部排空延迟保持稳定，没有通过无界
 Release Core/Renderer 全量测试通过；P4 Chunked Scrollback 基准同时保持
 1,117,561 lines/s、Snapshot 创建 3.02 us 和内存预算 PASS，未观察到回归。
 
+## 2026-09-09 大重构后性能复核
+
+去 Qt 化系列（`df64ced`→`de8cfa3`：容器换 `std::vector`、字符串换 UTF-8
+`std::string`/`ByteView`、并发换标准库）与快照窄接口（`3e321ab`）落地后，重跑
+`novaterm_core_benchmark`（20 MiB Parser / 10 万行 Scrollback，Release）。
+
+**结论：无性能回归。** 用 `git worktree` 在同一台机器上 checkout 去 Qt 化之前的
+`877c189` 重新构建并运行基准，改前与改后逐项一致：
+
+| 版本 | 完整 Parser 吞吐 | 最终排空延迟 | 10 万行 Scrollback |
+| --- | ---: | ---: | ---: |
+| 去 Qt 前（877c189） | 18.4–19.5 MiB/s | 385–445 ms | 213–217 ms |
+| 当前 HEAD（0a27343） | 18.4–19.8 MiB/s | 382–421 ms | 208–220 ms |
+
+`ChunkedScrollback` 独立基准仍为 ~988K lines/s（append），未回退；容器去 Qt 的
+提交（`e356e51`）自身实测 scrollback append 反而由 185K 提升到 310K lines/s。
+
+**26–27 MiB/s 是 2026-08-01 另一台更快机器的历史数据，本机（i7-13700H，Balanced
+电源）达不到，且与重构无关。** 两处环境差异均不影响该结论：
+
+- 参考机器 batch 延迟 P95≈3 ms（1 ms 系统时钟），本机 P95≈15.5 ms（Windows
+  默认 15.6 ms 时钟粒度；`timeBeginPeriod` 自 Win10 2004 起是**进程级**，从父进程
+  抬高对子进程无效，已实测确认）。基准里生产者背压退避 `QThread::usleep(50)` 被
+  时钟粒度抬到 ~15.6 ms，只抬高「背压等待」统计；因 ByteQueue 深 8 MiB、单次退避
+  仅排空约 5 个 64 KiB 批、Worker 始终有料可解，**不影响吞吐**——最终排空延迟
+  （纯 Worker、无生产者干扰）改前改后同为 ~0.4 s 即证。
+- 剩余的吞吐差是 CPU 单线程解析速度差异，非代码问题。
+
+若日后要在较慢机器上把吞吐提到 20 MiB/s 以上，应优化解析热路径本身（首要嫌疑：
+全屏 `moverect`→`VTAdapter::syncRegion` 每次滚动都从 libvterm 重读整屏 Cell），
+属独立优化项、与本次重构无关，本次未做。改动该路径须守住 AGENTS.md 记录的
+「SCROLL 合并模式 moverect 不能复制本地旧 Cell」约束与
+`novaterm_core_tests::batchedScreenEditsMatchIncrementalInput` 回归测试。
+
 ## 文件级变更清单
 
 | 文件 | P2 职责 |
@@ -423,7 +476,7 @@ Release Core/Renderer 全量测试通过；P4 Chunked Scrollback 基准同时保
 | `src/core/terminal/TerminalCore.*` | Runtime、Worker、精确部分接收、命令、屏障、信号发布 |
 | `src/core/terminal/VTAdapter.*` | 保持 Worker 独占，不自行创建线程 |
 | `src/core/terminal/ScreenBuffer.*` | 在 model mutex/稳定 Snapshot 边界下使用 |
-| `src/core/terminal/ScrollbackBuffer.*` | P2 兼容历史缓冲、槽位复用和尾部默认 Cell 稀疏化 |
+| `src/core/terminal/ScrollbackBuffer.*` | 滚动历史外观层；唯一后端为 `ChunkedScrollback`（P4 起，P2 逐行槽位复用环已移除），尾部默认 Cell 稀疏化保留在推行路径 |
 | `third_party/libvterm-0.3.3/src/screen.c` | 全屏滚动行环和 resize 前规范化 |
 | `src/transport/ITransport.h` | 定义暂停读取能力 |
 | `src/transport/LocalShellTransport.*` | PTY/ConPTY 暂停和恢复 |
@@ -448,8 +501,16 @@ Session/InputPump，使后台 Session 不依赖 View。~~ **已在 P6 完成**�
 迁至 `SessionInputPump`（`_pending` + `MaxPendingBytes` 8 MiB，超限发 overload
 信号），`src/ui/` 下已无未入队 Transport 字节的成员。
 
-仍未解决：值语义 Snapshot 需要在不改变稳定读取语义的前提下降低每帧复制成本
-（`docs/ARCHITECTURE.md` §6 提出改用共享不可变存储、分行版本或 COW）。
+~~仍未解决：值语义 Snapshot 需要在不改变稳定读取语义的前提下降低每帧复制成本
+（`docs/ARCHITECTURE.md` §6 提出改用共享不可变存储、分行版本或 COW）。~~
+**已解决（2026-09-09 复核确认）**：每帧渲染路径 `TerminalCore::rendererSnapshot`
+已改为分行不可变存储——`RendererSnapshot::visibleRows` 为
+`std::vector<std::shared_ptr<const std::vector<Cell>>>`，并携带每行 revision 与
+内容指纹；渲染器声明未脏的行只回填身份哈希、跳过整行 Cell 拷贝，仅脏行才物化
+（`TerminalCore.cpp:886-915`）。Scrollback 侧由 `3e321ab` 的尾部增量窄接口
+`scrollbackTail` 取代每批全量 `scrollbackSnapshot()`，消除 ChunkView churn。
+（值语义整屏拷贝 `TerminalSnapshot`/`snapshot()` 仍在，但仅用于测试与一次性渲染，
+不在每帧路径。）`docs/ARCHITECTURE.md` §6 对应说明已同步。
 
 ## 验证和指标
 
