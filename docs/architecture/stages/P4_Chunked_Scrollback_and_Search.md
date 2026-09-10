@@ -266,6 +266,18 @@ configure/build，`ctest -N` 正确列出 3 个测试且全部通过。
 消除分块碎片化与 ChunkView churn。它不改变 P4 的 Chunk/Snapshot/淘汰语义，是
 其上的读取优化；完整说明在该提交与 P1 文档。
 
+**性能优化：`lineAt` 双端扫描（`f72bad4`）：** 复核时发现 `ChunkedScrollback::lineAt`
+原为「始终从最旧分块正向线性扫描」= O(chunks)（1M 行约 977 块）。它被上面
+`tailFrom`（每批 `updateHistoryLayout` 都跑）反复对接近尾部的行调用，`snapshot()`
+的 `lineAt(_lineCount-1)` 也每次扫全部分块。2026-08-01 的 `lineById` 二分优化只
+覆盖了 `ScrollbackSnapshot`，未顾及 `ChunkedScrollback::lineAt`，且 benchmark 未
+覆盖 `tailFrom` 路径，故一直是线性。改为按 `index` 落在前/后半选择扫描方向（前半
+正扫、后半从最新分块反扫、active 块直达），尾部访问接近 O(1)、最坏 O(chunks/2)，
+不改接口/语义/字节记账。给 benchmark 临时加 `tailFrom` 覆盖实测（同机背靠背，
+插桩已还原）：near-tail `tailFrom` 100k（61 块）2074→1349 ns/op、1M（492 块）
+4103→348 ns/op（~12×）；基线随分块数上升而优化版下降，证明已与分块数解耦。
+回归：`novaterm_scrollback_tests` + `novaterm_core_tests` 通过。
+
 **可复现部分（本机重测，未回归）：** `novaterm_scrollback_benchmark`
 （100k、80 列、1024 chunk、256 MiB）四项门全部 PASS，effective bytes
 252.58 MiB 守住 256 MiB 预算。绝对耗时机器相关，与 2026-08-01 Linux/i7-14700K
