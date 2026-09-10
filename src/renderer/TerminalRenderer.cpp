@@ -764,9 +764,16 @@ void TerminalRenderer::render(QRhiCommandBuffer* cb)
 
     NovaTerm::RendererSnapshot screen;
     if (contentPending) {
+        // 非 live-scroll 帧：非脏行的内容指纹只在 row revision 超过本帧已投递的
+        // requestedContentRevision 时才会被下方补回段读取，故把它作为门槛传入，
+        // 让 core 跳过其余非脏行的整行哈希。live-scroll 旋转帧要按指纹比对全部
+        // 行（rowsNeedingRebuildAfterMapping），必须传 0 让 core 计算所有指纹。
+        const quint64 identityRevisionThreshold =
+            liveScrollRotated ? 0 : requestedContentRevision;
         screen = _core->rendererSnapshot(dirtyRows, _scrollLine,
                                          _scrollAnchorLine,
-                                         _scrollAnchorWrap);
+                                         _scrollAnchorWrap,
+                                         identityRevisionThreshold);
         // The parser may publish another batch after its model lock is
         // released but before the queued damage signal reaches the GUI
         // thread. If this snapshot is newer than all damage delivered to the

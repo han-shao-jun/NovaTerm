@@ -99,12 +99,20 @@ public:
      * @param scrollLine 视口向上滚动的历史行数；0 表示底部活动屏幕。
      * @param anchorLine 锚定历史行 ID（与 anchorWrap 配合实现精确滚动恢复）。
      * @param anchorWrap 锚定行内的 wrap 偏移。
+     * @param rendererContentRevision 渲染器已消费的最高内容 revision。非脏活动行
+     *        仅当其 row revision 严格大于此值时才计算内容指纹，否则填 0——因为
+     *        渲染器的 revision 补回检查对 row revision 不超过它的行走 revision 分支、
+     *        根本不读指纹（`TerminalRenderer.cpp` render 的补回段）。传 0（默认）
+     *        表示对所有非脏行计算指纹，与旧行为一致；需要按指纹比对全部行的路径
+     *        （如 live-scroll 行槽位旋转后的 rowsNeedingRebuildAfterMapping）必须
+     *        传 0。
      * @return 渲染快照，包含可见行 Cell 与行身份指纹。
      */
     NovaTerm::RendererSnapshot rendererSnapshot(
         const std::vector<bool>& dirtyRows, int scrollLine,
         NovaTerm::LineId anchorLine = 0,
-        NovaTerm::isize anchorWrap = 0) const;
+        NovaTerm::isize anchorWrap = 0,
+        NovaTerm::u64 rendererContentRevision = 0) const;
     NovaTerm::u64 modelRevision() const;
     NovaTerm::CursorState cursorState() const;
     void flushDamage();

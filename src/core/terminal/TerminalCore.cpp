@@ -845,7 +845,8 @@ NovaTerm::TerminalSnapshot TerminalCore::snapshot() const
 
 NovaTerm::RendererSnapshot TerminalCore::rendererSnapshot(
     const std::vector<bool>& dirtyRows, int scrollLine,
-    NovaTerm::LineId anchorLine, isize anchorWrap) const
+    NovaTerm::LineId anchorLine, isize anchorWrap,
+    u64 rendererContentRevision) const
 {
     std::lock_guard<std::mutex> locker(_runtime->modelMutex);
     NovaTerm::RendererSnapshot snapshot;
@@ -900,10 +901,19 @@ NovaTerm::RendererSnapshot TerminalCore::rendererSnapshot(
         // 渲染器声明该行未脏：只回填身份哈希，跳过 Cell 拷贝。
         if (!copyAllRows && !dirtyRows[widgetRow]) {
             if (screenRow >= 0) {
-                snapshot.visibleRowIdentities[widgetRow] =
-                    rowContentIdentity(
-                        _runtime->screen.cellAt(screenRow, 0),
-                        snapshot.columns, snapshot.columns);
+                // revision 补回优化：渲染器只在 row revision 严格大于它已消费的
+                // rendererContentRevision 时才读该行指纹（否则走 revision 分支
+                // 直接跳过）。因此 revision 不超过该值的非脏行，指纹算了也无人读，
+                // 填 0 即可，省去整行哈希。rendererContentRevision==0（默认或
+                // live-scroll 全比对路径）时退化为对所有非脏行计算指纹。
+                const u64 rowRevision =
+                    snapshot.visibleRowRevisions[widgetRow];
+                if (rowRevision > rendererContentRevision) {
+                    snapshot.visibleRowIdentities[widgetRow] =
+                        rowContentIdentity(
+                            _runtime->screen.cellAt(screenRow, 0),
+                            snapshot.columns, snapshot.columns);
+                }
             } else if (widgetRow < isize(historyViewport.rows.size())) {
                 // 历史行同样要有真实 identity（不能恒为 0），否则脏帧算出的
                 // 哈希与非脏帧的 0 不一致，会被渲染器误判为内容变化而多余重建。
