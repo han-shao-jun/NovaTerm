@@ -11,6 +11,7 @@
 #include <QTextStream>
 
 #include <algorithm>
+#include <limits>
 #include <vector>
 
 #if defined(Q_OS_UNIX)
@@ -183,12 +184,79 @@ int runMatrix(const QCoreApplication& application,
 
 } // namespace
 
+// near-tail tailFrom 随分块数增长的回归护栏（保护 f72bad4 的双端 lineAt）。
+// 关键设计：每个规模都用「距最新行固定 32 行」的锚点测 tailFrom，深拷贝量恒为
+// 32 行、与规模无关；因此不同分块数之间的耗时差异只反映 lineAt 的定位代价。
+// 关闭淘汰（超大 maxBytes）使分块数真正随行数增长。双端扫描下近尾定位 O(1)，
+// 耗时应基本持平；若回退为「始终从头线性扫」，near-tail 随分块数放大。
+// 判据：最大规模 / 最小规模 的耗时比 <= 4×（分块数在此比值区间放大约 30–100×，
+// 线性回退必然远超 4×，而 O(1) 实现留足抖动余量）。
+int runTailFromScale()
+{
+    QTextStream output(stdout);
+    output << "\n============================================================\n"
+           << " NovaTerm P4 tailFrom near-tail scaling guard\n"
+           << "============================================================\n"
+           << " 固定 32 行近尾深拷贝；不同规模仅 lineAt 定位代价不同。\n"
+           << " 双端扫描应基本持平；线性回退随分块数放大。\n"
+           << "------------------------------------------------------------\n";
+
+    constexpr qsizetype columns = 80;
+    constexpr qsizetype chunkLines = 1024;
+    constexpr NovaTerm::isize tailFromMaxLines = 4096;
+    constexpr NovaTerm::isize window = 32;
+    constexpr qsizetype samples = 50'000;
+    // 关闭淘汰：预算取上限，使分块数 = lines / chunkLines 真正随规模增长。
+    constexpr NovaTerm::isize noEviction =
+        std::numeric_limits<NovaTerm::isize>::max();
+    const QVector<qsizetype> workloads{10'000, 100'000, 1'000'000};
+
+    qint64 minNs = std::numeric_limits<qint64>::max();
+    qint64 maxNs = 0;
+    quint64 sink = 0;
+    for (const qsizetype lines : workloads) {
+        NovaTerm::ChunkedScrollback scrollback(
+            NovaTerm::ChunkedScrollback::MaximumMaxLines, noEviction, chunkLines);
+        for (qsizetype line = 0; line < lines; ++line)
+            scrollback.append(makeLine(columns, quint64(line)));
+        const NovaTerm::ScrollbackSnapshot snapshot = scrollback.snapshot();
+        const NovaTerm::ScrollbackStatistics stats = scrollback.statistics();
+        const NovaTerm::LineId anchor = snapshot.firstLineId()
+            + NovaTerm::LineId(stats.logicalLines - window);
+        NovaTerm::ScrollbackTail tail;
+        scrollback.tailFrom(anchor, tailFromMaxLines, tail);  // 预热
+        QElapsedTimer timer;
+        timer.start();
+        for (qsizetype i = 0; i < samples; ++i) {
+            scrollback.tailFrom(anchor, tailFromMaxLines, tail);
+            sink += quint64(tail.lines.size()) + quint64(tail.fromLineId);
+        }
+        const qint64 ns = timer.nsecsElapsed() / samples;
+        minNs = std::min(minNs, ns);
+        maxNs = std::max(maxNs, ns);
+        output << "  lines=" << lines << " chunks=" << stats.sealedChunks
+               << " near-tail tailFrom=" << ns << " ns/op\n";
+    }
+    const double ratio = minNs > 0 ? double(maxNs) / double(minNs) : 0.0;
+    constexpr double ceiling = 4.0;
+    const bool ok = ratio <= ceiling;
+    output << "------------------------------------------------------------\n"
+           << "  max/min ratio = " << QString::number(ratio, 'f', 2)
+           << " (ceiling " << ceiling << ", sink=" << sink << ")\n"
+           << "  near-tail lineAt decoupled from chunk count... "
+           << (ok ? "PASS" : "FAIL") << '\n'
+           << "============================================================\n";
+    return ok ? 0 : 2;
+}
+
 int main(int argc, char* argv[])
 {
     QCoreApplication application(argc, argv);
     const QStringList arguments = application.arguments();
     if (arguments.contains(QStringLiteral("--matrix")))
         return runMatrix(application, arguments);
+    if (arguments.contains(QStringLiteral("--tailfrom-scale")))
+        return runTailFromScale();
     const qsizetype lines = argumentValue(
         arguments, QStringLiteral("--lines"), 1'000'000);
     const qsizetype columns = argumentValue(
@@ -241,6 +309,38 @@ int main(int argc, char* argv[])
         lookupHits += snapshot.lineById(id) != nullptr;
     }
     const qint64 lookupNs = lookupTimer.nsecsElapsed();
+
+    // 尾部增量接口 tailFrom 是渲染器每批 updateHistoryLayout 都跑的热路径
+    // （3e321ab 引入）。它对逻辑行调用 ChunkedScrollback::lineAt，该访问必须与
+    // 分块数解耦（双端扫描，f72bad4），否则大 scrollback 下每批退化为 O(chunks)。
+    // 这里测「已跟上、每批新增 32 行」稳态锚点的 near-tail tailFrom 作为观测量
+    // （绝对 ns 机器相关）。带 PASS/FAIL 的跨规模回归护栏是独立的
+    // --tailfrom-scale 模式：见 runTailFromScale()。
+    constexpr qsizetype tailFromSamples = 20'000;
+    constexpr NovaTerm::isize tailFromMaxLines = 4096;  // 与渲染器 kHistoryTailMax 一致
+    constexpr NovaTerm::isize tailFromWindow = 32;      // 稳态每批新增行数
+    qint64 tailFromNs = 0;
+    bool tailFromValid = false;
+    quint64 tailFromSink = 0;
+    {
+        const NovaTerm::ScrollbackStatistics pre = scrollback.statistics();
+        if (pre.logicalLines > tailFromWindow) {
+            const NovaTerm::LineId anchor = snapshot.firstLineId()
+                + NovaTerm::LineId(pre.logicalLines - tailFromWindow);
+            NovaTerm::ScrollbackTail tail;
+            scrollback.tailFrom(anchor, tailFromMaxLines, tail);  // 预热
+            QElapsedTimer timer;
+            timer.start();
+            for (qsizetype i = 0; i < tailFromSamples; ++i) {
+                scrollback.tailFrom(anchor, tailFromMaxLines, tail);
+                // 消费结果，阻止编译器把跨 TU 调用的可见副作用判空而外提/消除。
+                tailFromSink += quint64(tail.lines.size())
+                    + quint64(tail.fromLineId) + (tail.resync ? 1u : 0u);
+            }
+            tailFromNs = timer.nsecsElapsed() / tailFromSamples;
+            tailFromValid = true;
+        }
+    }
 
     // Keep the snapshot alive while another chunk is appended. If an old
     // sealed chunk is evicted, statistics must expose its retained memory.
@@ -399,6 +499,14 @@ int main(int argc, char* argv[])
                          0, 'f', 2),
                 QStringLiteral("%1/%2 hits")
                     .arg(lookupHits).arg(lookupSamples));
+    printMetric(output, QStringLiteral("tailFrom near-tail"),
+                tailFromValid
+                    ? QStringLiteral("%1 ns/op").arg(double(tailFromNs), 0, 'f', 0)
+                    : QStringLiteral("n/a"),
+                tailFromValid
+                    ? QStringLiteral("%1-line window (sink=%2)")
+                          .arg(tailFromWindow).arg(tailFromSink)
+                    : QString());
     printMetric(output, QStringLiteral("Visible logical lines"),
                 QString::number(snapshot.lineCount()),
                 QStringLiteral("%1% retained").arg(retainedPercent, 0, 'f', 1));

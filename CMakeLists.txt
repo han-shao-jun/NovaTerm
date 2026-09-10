@@ -1313,6 +1313,15 @@ if(NOVATERM_BUILD_BENCHMARKS)
     )
     target_link_libraries(novaterm_scrollback_benchmark PRIVATE novaterm_core)
 
+    # tailFrom near-tail 缩放护栏：与其它 benchmark 不同，这是带 PASS/FAIL 的
+    # 回归门（尾部访问必须与分块数解耦，保护 f72bad4 的双端 lineAt）。用比值
+    # 判据、与绝对机器速度无关，故注册为 CTest 测试；回退到 O(chunks) 时退出码
+    # 非零即失败。运行数秒。
+    add_test(NAME novaterm_scrollback_tailfrom_scale
+        COMMAND novaterm_scrollback_benchmark --tailfrom-scale)
+    set_tests_properties(novaterm_scrollback_tailfrom_scale PROPERTIES
+        LABELS "scrollback;perf")
+
     add_custom_target(scrollback_benchmark_matrix
         COMMAND $<TARGET_FILE:novaterm_scrollback_benchmark>
             --matrix
