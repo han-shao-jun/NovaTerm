@@ -352,12 +352,49 @@ Vulkan 持续输出期间通过 per-row revision 补回 4 行，OpenGL 补回 1 
 
 ### 尚未完成的验收
 
-自动化和 Vulkan/OpenGL 60 Hz 性能验收已经完成；以下项目仍为待办，不能标记 P3 完全退出：
+自动化和 Vulkan/OpenGL 60 Hz 性能验收已经完成；以下项目仍为待办，不能标记
+P3 完全退出。**这四项均为硬件/环境门槛项，不是代码缺陷**——当前会话所在机器
+（i7-13700H 笔记本，无高刷新率显示器、无 GPU profiler 环境）不具备验收条件，
+故未跑、未改判。下面给出每项的阻塞原因与可直接照做的验收步骤，便于有环境的
+人接手。
 
-- 真实 120/144 Hz 显示器上的节流与最终 revision 收敛；
-- GPU 资源丢失/重建后的完整画面；
-- ASCII、CJK、宽字符、组合字符、下划线、Strike、Cursor 和 Selection 的实机无回归确认；
-- 平台 profiler 的 GPU 时间，且不得在渲染热路径插入同步 readback。
+**共通前置：** Release 构建；用 `NOVATERM_RHI_API` 选后端（`d3d11`/`d3d12`/
+`vulkan`/`opengl`，见 `main.cpp:241-242`、`TerminalRenderer.cpp:60-106`）；指标
+从 `RenderStatistics` 读（`cpuFrameP50/P95/P99`、`gpuUploadBytes`、`drawCalls`、
+`bufferReallocations`、`framesOverBudget`、`lastRenderedRevision`、
+`viewportMappingRevision`、`revisionRecoveredRows`、`revisionPromotedFullFrames`）。
+
+1. **真实 120/144 Hz 显示器上的节流与最终 revision 收敛**
+   - 阻塞原因：需要物理高刷新率显示器；本机为 60 Hz 面板，`Qt::PreciseTimer`
+     的 120/144 Hz 目标间隔无法在真实呈现上区分。
+   - 步骤：接 120 Hz（及 144 Hz）显示器；`setTargetRefreshRate(120)`；跑持续
+     单行输出 60 s；确认提交帧率上限贴近目标而非超过，停止输出两个目标帧间隔
+     内 `lastRenderedRevision == modelRevision`。注意验收口径只认「提交频率上限
+     + 最终 revision 收敛」，不得把通用 Qt timer 当 VSync 证明（见本文
+     「可量化验收口径」）。
+
+2. **GPU 资源丢失/重建后的完整画面**
+   - 阻塞原因：需要真实设备丢失场景（TDR/驱动重置/独显热插拔），本机无法稳定
+     触发。软件侧可先做替代验证。
+   - 步骤（择一）：① 真实丢设备——D3D 下触发 TDR 或切换 GPU，观察
+     `QRhiWidget` 重建；② 替代自动化——在集成测试里调用
+     `releaseResources()`（`TerminalRenderer.h:160`）后强制下一帧，验证
+     Pipeline/Texture/Sampler/SRB/Buffer 全部重建、所有有效行重新上传、无悬空
+     QRhi 指针、无旧 Atlas key、画面与丢失前逐像素一致。判据见「步骤 9」。
+
+3. **实机字形无回归（ASCII/CJK/宽字符/组合字符/下划线/Strike/Cursor/Selection）**
+   - 阻塞原因：需要人工目视比对，无法自动化断言「看起来对」。
+   - 步骤：Release 实跑，逐类输入样张（ASCII 段落、CJK 段落、Emoji/宽字符、
+     组合字符如带变音符、单/双/波浪下划线、删除线、各光标形状、鼠标选区），
+     与 P5 实机截图对照，确认无错位、无错行映射、无残留旧 UV。CJK/宽字符/
+     组合/Emoji 在 P3 的标准是「不低于 P2 的视觉行为」。
+
+4. **平台 profiler 的 GPU 时间（且不得在渲染热路径插入同步 readback）**
+   - 阻塞原因：需要 RenderDoc / Nsight / PIX 等外部 profiler，本机未安装且
+     Qt 无统一无阻塞 QRhi GPU 计时 API。
+   - 步骤：用平台 profiler 抓取一帧 GPU 时间（单 Cell、强制全屏、持续滚屏三
+     场景各一）；严禁为取 GPU 时间在 `render()` 里插同步 readback（「实施禁止
+     项」明列）。记录随「可量化验收口径」的环境清单一并归档。
 
 ## 2026-09-10 复核记录
 
@@ -393,7 +430,30 @@ i7-14700K 慢，且持续构建+跑分下热降频明显（见 [[p2-benchmark-ma
 **未复现部分（维持原判，未改状态）：** Vulkan/OpenGL 实机 60 FPS 跑分及
 「尚未完成的验收」四项（真实 120/144 Hz、GPU 资源丢失/重建、实机字形无回归、
 平台 profiler GPU 时间）需对应显示/后端/profiler 环境，本机不具备，未重测，
-按原样保留，不乐观改判。
+按原样保留，不乐观改判。已为这四项补齐「阻塞原因 + 可照做的验收步骤」，见上文
+「尚未完成的验收」。
+
+### 2026-09-10 性能优化：跳过非脏行冗余内容指纹（`33a1f00`）
+
+对 support 基准做相位拆分（临时插桩，已还原）后定位到一个真实低效点并修复：
+
+- **现象**：单行更新场景 98% 的 CPU 成本在 `rendererSnapshot()`，而非命令重建
+  （相位实测 snapshot ≈ 54 µs、rebuild ≈ 1 µs）。
+- **根因**：`rendererSnapshot()` 对每个**非脏**活动行都调用 `rowContentIdentity()`
+  哈希整行所有列，120×40 下改 1 行也要哈希其余 39 行 × 120 格 ≈ 4,600 次/帧。
+- **安全性**：该指纹是载重的正确性机制（revision 补回，见本文
+  §Snapshot、Damage 与 revision），不能删；但渲染器的补回检查只在某行 row
+  revision **严格大于**本帧已投递的 `requestedContentRevision` 时才读该行指纹，
+  否则走 revision 分支直接跳过。故 `rendererSnapshot` 新增 `rendererContentRevision`
+  入参：非脏活动行仅当 row revision 超过该门槛时才算指纹，否则填 0（无人读）。
+  渲染器非 live-scroll 帧传 `requestedContentRevision` 作门槛，使「算指纹的行」
+  恰等于「会被读的行」；live-scroll 旋转帧要按指纹比对全部行
+  （`rowsNeedingRebuildAfterMapping`），传 0 计算全部。默认参数 0 = 计算全部，
+  与旧行为逐字节一致。这是 O(rows×cols) → O(dirtyRows×cols) 的算法级削减。
+- **实测**（同机背靠背，Release）：单行 snapshot+rebuild p50 约 82 µs → 4.5 µs
+  （~18×，94%）；比值不受本机热降频影响。全屏场景不变（本就全部脏行）。
+- **回归**：`novaterm_core_tests`、`novaterm_renderer_tests`、
+  `novaterm_terminal_session_tests` 三项通过。
 
 ## 退出标准
 
