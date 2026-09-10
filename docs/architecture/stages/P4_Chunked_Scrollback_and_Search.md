@@ -2,6 +2,16 @@
 
 **状态：已完成（2026-08-01）**
 
+> **2026-09-10 复核**：去 Qt 化大重构（`df64ced`/`e356e51`/`1ba7c94`）与尾部增量
+> 窄接口（`3e321ab`）之后，按处理 P2/P3 文档的同一流程复核 P4。**功能与内存预算
+> 未回归**：`novaterm_scrollback_benchmark`（100k、80 列、256 MiB）四项 PASS/FAIL
+> 门全部通过，effective bytes 252.58 MiB 守住 256 MiB 预算；append/LineId/reflow/
+> search 的绝对耗时是机器相关量（本 i7-13700H 笔记本比原验收机 i7-14700K 慢且
+> 持续负载下热降频），逐项慢约 1.5–2× 但同数量级、
+> 无功能回归。修正了「建议模型」伪代码因去 Qt 漂移的容器类型，并补记了 P4 落地
+> 后新增的尾部增量接口 `tailFrom`/`ScrollbackTail`（`3e321ab`）。详见文末
+> 「2026-09-10 复核记录」。
+
 ## 实际落地摘要
 
 P4 已接入生产路径，而不是保留为孤立原型：
@@ -76,18 +86,21 @@ flowchart LR
 
 ```cpp
 struct LogicalLine {
-    CellStorage cells;
+    std::vector<Cell> cells;   // 去 Qt 后为 std::vector（原建议 CellStorage/QVector）
     bool hardBreak;
     LineId id;
 };
 
 struct ScrollbackChunk {
     ChunkId id;
-    QVector<LogicalLine> lines;
-    qsizetype byteSize;
+    std::vector<LogicalLine> lines;
+    isize byteSize;
     bool sealed;
 };
 ```
+
+> 上为当前落地形态（`ScrollbackTypes.h`）。P4 落地时用的是 `QVector`/`qsizetype`；
+> 去 Qt 化（`e356e51`/`df64ced`）后容器换 `std::vector`、整数换 `isize`，语义不变。
 
 Chunk 大小先以 1024 行作为可测默认值，同时 benchmark 4096 行。不要假设所有行列数相同；逻辑行需要保留 reflow 信息。LineId/ChunkId 单调递增，用于稳定定位、搜索结果和淘汰检测。
 
@@ -232,6 +245,44 @@ configure/build，`ctest -N` 正确列出 3 个测试且全部通过。
 百万条 80-Cell 行。1024 chunk 的 Snapshot retention 明显低于 4096，故继续
 作为默认值。benchmark 对 memory budget、viewport、reflow、search、cancel
 设置失败退出码，不只打印 PASS。
+
+## 2026-09-10 复核记录
+
+去 Qt 化大重构（`df64ced` 整数别名、`e356e51` 容器换 std、`1ba7c94` 字符串/字节
+换 UTF-8）与尾部增量窄接口（`3e321ab`）之后，按处理 P2/P3 文档的同一流程复核。
+
+**代码引用核对：** 本文引用多数仍准确——四个常量在 `ChunkedScrollback.h:24-27`
+（`DefaultChunkLines`/`DefaultMaxLines`/`MaximumMaxLines`/`DefaultMaxBytes`）；
+`retainedBySnapshots`/`effectiveBytes` 在 `ScrollbackTypes.h:75-76` 与
+`ChunkedScrollback.h`；LineId 定位的两级二分在 `ScrollbackSnapshot.cpp:66-93`
+（`lineById` 先按 `firstLineId` 二分定位分块、再分块内 `lower_bound`）。已修正：
+「步骤 1」的建议模型伪代码用的 `QVector`/`qsizetype` 已随去 Qt 换成
+`std::vector`/`isize`（见该处）。
+
+**P4 落地后的新增（本文原缺，补记）：** `3e321ab` 给 scrollback 子系统加了尾部
+增量窄接口——`ChunkedScrollback::tailFrom(sinceId, maxLines, out)` +
+`ScrollbackTail`（`ChunkedScrollback.h:92`、`ScrollbackSnapshot.h:77`），供渲染器
+每批 `scrollbackChanged` 增量维护显示布局，替代高频全量 `scrollbackSnapshot()`，
+消除分块碎片化与 ChunkView churn。它不改变 P4 的 Chunk/Snapshot/淘汰语义，是
+其上的读取优化；完整说明在该提交与 P1 文档。
+
+**可复现部分（本机重测，未回归）：** `novaterm_scrollback_benchmark`
+（100k、80 列、1024 chunk、256 MiB）四项门全部 PASS，effective bytes
+252.58 MiB 守住 256 MiB 预算。绝对耗时机器相关，与 2026-08-01 Linux/i7-14700K
+对比：
+
+| 指标 | 2026-08-01（i7-14700K/Linux） | 2026-09-10（i7-13700H/Win） |
+| --- | ---: | ---: |
+| append 吞吐 | 1.09M lines/s | 0.98M lines/s |
+| append P99 | 0.04 us | 0.10 us |
+| Snapshot 创建 | 4.66 us | ~4–5 us |
+| LineId 查找 | 26.93 ns/op | 34.50 ns/op |
+| full retained reflow | 11.26 ms | 22.66 ms |
+| search total | 84.94 ms | 181.44 ms |
+| 内存预算门 | PASS | PASS |
+
+慢约 1.5–2× 属机器差异（单线程更慢 + 持续负载热降频），同数量级、所有 PASS/FAIL
+门不变，故无功能或预算回归。文末各历史 benchmark 表为原验收机数据，保留不改。
 
 ## 风险
 
