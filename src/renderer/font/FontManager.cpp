@@ -28,6 +28,7 @@ void FontManager::setPrimaryFont(const QFont& font)
         return;
     _primary = font;
     ++_generation;
+    invalidateCaches();
 }
 
 void FontManager::setFallbackFamilies(QStringList families)
@@ -37,6 +38,14 @@ void FontManager::setFallbackFamilies(QStringList families)
         return;
     _fallbackFamilies = std::move(families);
     ++_generation;
+    invalidateCaches();
+}
+
+void FontManager::invalidateCaches()
+{
+    _selectionCache.clear();
+    for (bool& cached : _candidateCached)
+        cached = false;
 }
 
 bool FontManager::covers(const QRawFont& raw, const QString& cluster)
@@ -82,18 +91,61 @@ QList<QFont> FontManager::candidates(bool bold, bool italic) const
     return result;
 }
 
+const FontManager::CandidateSet& FontManager::candidateSet(bool bold,
+                                                           bool italic) const
+{
+    const int slot = (bold ? 1 : 0) | (italic ? 2 : 0);
+    CandidateSet& set = _candidateCache[slot];
+    if (!_candidateCached[slot]) {
+        set.fonts = candidates(bold, italic);
+        set.rawFonts.clear();
+        set.rawFonts.reserve(set.fonts.size());
+        // QRawFont::fromFont 是重操作，此处每样式只做一次并缓存；coverage
+        // 探测（select）复用这些 QRawFont，不再每 Cell 重建。
+        for (const QFont& font : std::as_const(set.fonts))
+            set.rawFonts.push_back(QRawFont::fromFont(font));
+        _candidateCached[slot] = true;
+    }
+    return set;
+}
+
 FontSelection FontManager::select(const QString& cluster, bool bold,
                                   bool italic) const
 {
-    const QList<QFont> fonts = candidates(bold, italic);
-    for (int index = 0; index < fonts.size(); ++index) {
-        const QRawFont raw = QRawFont::fromFont(fonts[index]);
-        if (covers(raw, cluster))
-            return {fonts[index], idFor(fonts[index]), index, true};
+    // coverage 缓存键：cluster + 样式位。ASCII/CJK 等常见簇在稳态下命中，
+    // 完全跳过候选构造与 QRawFont 探测（P5 §5.2）。
+    QString cacheKey = cluster;
+    cacheKey += QChar(u'\x1');
+    cacheKey += QChar(ushort((bold ? 1 : 0) | (italic ? 2 : 0)));
+    if (const auto it = _selectionCache.constFind(cacheKey);
+        it != _selectionCache.constEnd()) {
+        return it.value();
     }
-    // 全部候选均无法覆盖：退化为首个候选，仍返回结果让渲染层绘制
-    // （可能是豆腐字），completeCoverage=false 供调用方诊断。
-    return {fonts.front(), idFor(fonts.front()), 0, false};
+
+    // 缓存键来自外部输入（远端可发任意码点），设上限防止病理输入下无界增长。
+    // coverage 结果可廉价重算，满了整体清空即可（不需 LRU）。8192 条足够覆盖
+    // 常规终端字符集，单条仅一个 QFont + 少量整数。
+    constexpr int MaxSelectionCacheEntries = 8192;
+    if (_selectionCache.size() >= MaxSelectionCacheEntries)
+        _selectionCache.clear();
+
+    const CandidateSet& set = candidateSet(bold, italic);
+    FontSelection result;
+    bool found = false;
+    for (int index = 0; index < set.fonts.size(); ++index) {
+        if (covers(set.rawFonts[index], cluster)) {
+            result = {set.fonts[index], idFor(set.fonts[index]), index, true};
+            found = true;
+            break;
+        }
+    }
+    if (!found) {
+        // 全部候选均无法覆盖：退化为首个候选，仍返回结果让渲染层绘制
+        // （可能是豆腐字），completeCoverage=false 供调用方诊断。
+        result = {set.fonts.front(), idFor(set.fonts.front()), 0, false};
+    }
+    _selectionCache.insert(cacheKey, result);
+    return result;
 }
 
 GlyphKey FontManager::makeKey(const QString& cluster, bool bold, bool italic,

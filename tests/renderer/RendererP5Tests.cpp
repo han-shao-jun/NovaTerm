@@ -21,6 +21,7 @@ private slots:
     void glyphKeyDistinguishesContractFields();
     void fallbackKeepsGridContract();
     void fontAndGlyphGenerationsAreMonotonic();
+    void selectionCacheInvalidatesOnFontChange();
     void rasterizerPreservesFullClusterAndColorFormat();
     void rasterizedQuadStartsAtCellLocalOrigin();
     void rasterQueueIsBoundedDeduplicatedAndGenerationSafe();
@@ -127,6 +128,42 @@ void RendererP5Tests::fontAndGlyphGenerationsAreMonotonic()
     QCOMPARE(key.scale1024, 2048);
     QVERIFY(key.italic);
     QVERIFY(key.weight >= int(QFont::DemiBold));
+}
+
+// select()/makeKey() 现在缓存 coverage 结果（避免每 Cell 探测字体，P5 §5.2）。
+// 缓存必须随字体/fallback 变化失效，否则会返回过期选择。此测试先暖一次缓存，
+// 再改主字体与 fallback，验证 faceId/generation 都随之更新，不吃旧缓存。
+void RendererP5Tests::selectionCacheInvalidatesOnFontChange()
+{
+    QFont primary(QStringLiteral("monospace"));
+    primary.setPixelSize(16);
+    NovaTerm::FontManager manager(primary);
+
+    // 暖缓存：同一簇多次选择结果应一致（命中缓存）。
+    const auto first = manager.select(QStringLiteral("A"));
+    const auto firstAgain = manager.select(QStringLiteral("A"));
+    QCOMPARE(first.faceId, firstAgain.faceId);
+    const quint64 gen0 = manager.generation();
+    const auto key0 = manager.makeKey(QStringLiteral("A"), false, false, 1, 1.0);
+    QCOMPARE(key0.fontGeneration, gen0);
+
+    // 改字号：generation 递增，缓存必须失效，makeKey 反映新 generation 与
+    // 新 faceId（idFor 含 pixelSize，故必变）。
+    QFont bigger(primary);
+    bigger.setPixelSize(24);
+    manager.setPrimaryFont(bigger);
+    QVERIFY(manager.generation() > gen0);
+    const auto afterFont = manager.select(QStringLiteral("A"));
+    QVERIFY(afterFont.faceId != first.faceId);
+    const auto key1 = manager.makeKey(QStringLiteral("A"), false, false, 1, 1.0);
+    QCOMPARE(key1.fontGeneration, manager.generation());
+
+    // 改 fallback：generation 再增，缓存再次失效（此前 select 已重新暖过缓存）。
+    const quint64 gen1 = manager.generation();
+    manager.setFallbackFamilies({QStringLiteral("Noto Sans CJK SC")});
+    QVERIFY(manager.generation() > gen1);
+    const auto key2 = manager.makeKey(QStringLiteral("A"), false, false, 1, 1.0);
+    QCOMPARE(key2.fontGeneration, manager.generation());
 }
 
 void RendererP5Tests::rasterizerPreservesFullClusterAndColorFormat()

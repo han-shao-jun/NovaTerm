@@ -12,7 +12,9 @@
 
 #include <QFont>
 #include <QHash>
+#include <QList>
 #include <QRawFont>
+#include <QString>
 #include <QStringList>
 
 namespace NovaTerm {
@@ -81,9 +83,29 @@ private:
     // 构造候选字体列表：主字体 → 回退列表 → Qt 平台回退。
     QList<QFont> candidates(bool bold, bool italic) const;
 
+    // 一组候选字体及其 QRawFont。QRawFont::fromFont 是重操作，按
+    // (bold,italic) 缓存，避免每 Cell 重建候选与探测字体（P5 §5.2）。
+    struct CandidateSet
+    {
+        QList<QFont> fonts;
+        QList<QRawFont> rawFonts;
+    };
+    // 取给定样式的候选集，缓存未命中时构造。generation 变化时整表已清空。
+    const CandidateSet& candidateSet(bool bold, bool italic) const;
+    // 清空 coverage/候选缓存。setPrimaryFont/setFallbackFamilies 调用。
+    void invalidateCaches();
+
     QFont _primary;
     QStringList _fallbackFamilies;
     quint64 _generation{1};
+
+    // ── coverage 查询缓存（P5 §5.2：避免每 Cell 重复探测字体）──
+    // 键为 cluster + 样式位；值为该簇的选择结果。随 generation 失效。
+    // mutable：select()/makeKey() 语义上是查询（const），缓存是实现细节。
+    mutable QHash<QString, FontSelection> _selectionCache;
+    // 候选集按样式缓存：索引 0=常规,1=bold,2=italic,3=bold+italic。
+    mutable CandidateSet _candidateCache[4];
+    mutable bool _candidateCached[4]{false, false, false, false};
 };
 
 } // namespace NovaTerm
