@@ -7,7 +7,7 @@
 > 流程复核 P5。**结构与自动化验证未回归**：§17 的实现常量逐条核对准确
 > （GlyphAtlas 2048/64MiB/4MiB/FIF3、raster 队列 512、BufferBudget 64MiB/256KiB/
 > 1.5×、`OverlayCompositor`/`InstanceBuffer` 确未建立），`novaterm_renderer_p5_tests`
-> 本机 28 case 全通过。已修正两处漂移（P5 case 数 22→28、`BlockColumns` 行号）。
+> 本机 29 case 全通过（含新增的字体缓存回归测试）。已修正两处漂移（P5 case 数 22→28、`BlockColumns` 行号），并因本轮优化再 +1 至 29。
 > **两项 GPU 数据陈旧需重测（非回归、需对应硬件）**：§21.8 的 30 分钟长稳表
 > 产生于「策略变更」之前，且此后又叠加了 de-Qt + `33a1f00`；全部 GPU 实机跑分
 > 表均为原 Linux/Windows 验收机数据，本 i7-13700H 笔记本无对应 GPU 计时/高刷
@@ -642,7 +642,7 @@ NOVATERM_RHI_API=opengl ./build-p5-release/bin/novaterm_renderer_p5_gpu_benchmar
 git diff --check
 ```
 
-Release CTest 共 4 个 executable、86 个 QtTest case，全部通过（Core 26、Scrollback 17、P3 Renderer 21、P5 Renderer 22）。（**2026-09-10 注**：此为 2026-08-01 的数字；此后各测试目标均有增长，P5 Renderer 现为 28 case，本机重跑仍全通过，其余目标数量未逐一重核。）P5 case 覆盖 key、fallback、font/glyph generation、完整 cluster 与 color raster、glyph quad cell-local 原点/光标网格对齐、队列容量/去重/取消/stop、Atlas page class/局部上传/预算延期、warm hit 零上传、LRU 与 frames-in-flight、双页资源整页恢复、过期 generation、row-slot 单步/跳转/强制 remap、mapping revision、跨页 material batch、Buffer 溢出/预算/释放统计；Core 另增加 Snapshot 发布后行数据 COW 不可变测试。
+Release CTest 共 4 个 executable、86 个 QtTest case，全部通过（Core 26、Scrollback 17、P3 Renderer 21、P5 Renderer 22）。（**2026-09-10 注**：此为 2026-08-01 的数字；此后各测试目标均有增长，P5 Renderer 现为 29 case（含本轮新增字体缓存回归），本机重跑仍全通过，其余目标数量未逐一重核。）P5 case 覆盖 key、fallback、font/glyph generation、完整 cluster 与 color raster、glyph quad cell-local 原点/光标网格对齐、队列容量/去重/取消/stop、Atlas page class/局部上传/预算延期、warm hit 零上传、LRU 与 frames-in-flight、双页资源整页恢复、过期 generation、row-slot 单步/跳转/强制 remap、mapping revision、跨页 material batch、Buffer 溢出/预算/释放统计；Core 另增加 Snapshot 发布后行数据 COW 不可变测试。
 
 ### 21.3 Vulkan 60 秒结果
 
@@ -798,12 +798,11 @@ D3D12 在原生 DPR 1.75、60 Hz 的短跑为 59.411 FPS、P95 1 行、0 Buffer 
 确未建立（`src/renderer/gpu/` 无此二文件，与 §17 说明一致）；
 `rasterizedQuadStartsAtCellLocalOrigin` 回归测试在位。
 
-**修正的漂移：** ① P5 test case 数 22→**28**（本机 `novaterm_renderer_p5_tests`
-实测 28 passed；§21.2 的 86 与各目标分项为 2026-08-01 旧值，已加注说明增长）；
+**修正的漂移：** ① P5 test case 数 22→**29**（复核时为 28，本轮字体缓存优化再 +1；本机 `novaterm_renderer_p5_tests` 实测通过；§21.2 的 86 与各目标分项为 2026-08-01 旧值，已加注说明增长）；
 ② `BlockColumns=8` 行号 `:24`→`:35`。
 
-**可复现部分（本机重测，未回归）：** `novaterm_renderer_p5_tests` 28 case 全通过
-（Debug 0.39s），覆盖 GlyphKey/fallback/raster/cache/Atlas/material batch/
+**可复现部分（本机重测，未回归）：** `novaterm_renderer_p5_tests` 29 case 全通过
+（Debug），覆盖 GlyphKey/fallback/raster/cache/Atlas/material batch/
 row-slot ring/mapping revision/buffer 预算/语义高亮/8-cell 脏块对账/scroll 交接。
 CPU/GPU 实机跑分见下条。
 
@@ -819,6 +818,21 @@ CPU/GPU 实机跑分见下条。
   仅标注其早于策略变更与近期热路径改动。
 - 状态行原列的外部验收项（macOS Metal、真实 1.25/1.5/2.0 DPR 屏、真实
   120/144 Hz）维持待办，本机不具备条件。
+
+**性能优化：FontManager coverage 缓存（`1978dc6`）：** 复核发现 §5.2 明确要求的
+「缓存 coverage 查询，避免每 Cell 重复探测字体」此前**未实现**——
+`FontManager::select()`（经 `makeKey` 在每个非空 Cell 重建时调用）每次都重建
+`QList<QFont>` 候选、对每个候选 `QRawFont::fromFont()`（重操作）并逐码点
+`supportsCharacter()` 探测，`FontManager` 无任何缓存。现补上：按 `(bold,italic)`
+缓存候选集与其 `QRawFont`（每样式只 `fromFont` 一次），按 `(cluster+样式位)`
+缓存 `select()` 结果，`setPrimaryFont`/`setFallbackFamilies` 递增 generation 时
+清空（新增回归测试 `selectionCacheInvalidatesOnFontChange` 验证不吃旧缓存），
+选择缓存设 8192 条上限防远端任意码点无界增长。临时基准同机背靠背实测：
+warm-path `select()`/`makeKey` 由 ~1.2–2.8 µs/op 降到 ~65–84 ns/op（约
+18–35×，算法级、不受热降频影响）；106×35 全屏重建的字体选择开销约由 4–10 ms
+降到 ~0.25 ms。回归：`novaterm_renderer_p5_tests`（29 case）+
+`novaterm_renderer_tests` 通过。该项属 §5.2 要求补齐，不改变字体选择结果、
+不影响 GPU 提交语义。
 
 **给后续有环境者的重测清单：** Release 构建；`NOVATERM_RHI_API` 选后端；跑
 `novaterm_renderer_p5_gpu_benchmark`（支持 `--duration-ms`/`--refresh-rate`/
