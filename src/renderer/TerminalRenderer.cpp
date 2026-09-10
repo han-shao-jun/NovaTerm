@@ -1690,7 +1690,7 @@ void TerminalRenderer::requestFullFrame()
             _fullFramePending = true;
             _overlayPending = true;
             _pendingContentRevision = std::max(_pendingContentRevision,
-                                               _core->modelRevision());
+                                               static_cast<quint64>(_core->modelRevision()));
         }
         update();
     }

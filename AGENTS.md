@@ -480,6 +480,12 @@ base 指针。主题切换只改 QPalette，不动 style。
 `row >= vec.size()`、`vec.size() != rows` 直接写会触发有符号/无符号比较，`/W4`
 下告警、边界判断也可能出错。统一写成 `isize(vec.size())` 或 `int(vec.size())`。
 
+**Qt 与标准库整数别名同宽也可能不同类型**：例如 `qsizetype` 与
+`NovaTerm::isize`、`quint64` 与 `NovaTerm::u64`。混用于 `std::min/max` 时，
+应显式指定目标接口的模板类型或转换参数，避免 Linux 上模板推导冲突。
+修复范例见 `ScrollbackBenchmark.cpp` 的行数上限与
+`TerminalRenderer::requestFullFrame()` 的 revision 合并。
+
 ## 改动后必须同步文档
 
 `Development_Roadmap.md` 的"统一完成定义"把**文档更新**列为"完成"的必要条件

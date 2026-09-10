@@ -15,6 +15,11 @@
 
 ## 1. 目标与范围
 
+2026-09-10 编译兼容修复：`TerminalRenderer::requestFullFrame()` 合并待渲染
+revision 时，将核心 `u64` 显式转换为 `quint64`。两者均为无符号 64 位整数，
+但 Linux 上底层类型可能不同，直接传入 `std::max` 会导致模板推导失败；
+转换不改变 revision 数值与调度语义。
+
 P5 在不破坏 P3 增量渲染、Snapshot 一致性和最终 revision 收敛语义的前提下，完成两类工作：
 
 1. 建立可扩展的字体、fallback、cluster、Glyph Cache 和多页 Atlas；
