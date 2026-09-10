@@ -479,6 +479,10 @@ base 指针。主题切换只改 QPalette，不动 style。
 容器从 `QVector`(有符号 `qsizetype`) 换成 `std::vector`(无符号 `size_t`)。诸如
 `row >= vec.size()`、`vec.size() != rows` 直接写会触发有符号/无符号比较，`/W4`
 下告警、边界判断也可能出错。统一写成 `isize(vec.size())` 或 `int(vec.size())`。
+注意与恒正 `constexpr` 常量的比较（如 `vec.size() > MaxLines`）GCC 不告警，属同类
+隐患。`novaterm_core` 目标已与其他目标一致开启 `/W4`／`-Wall -Wextra -Wpedantic`
+（2026-09-10 补齐，此前该目标无任何警告选项、此类问题在常规构建中静默），新代码
+会在构建时暴露。
 
 **Qt 与标准库整数别名同宽也可能不同类型**：例如 `qsizetype` 与
 `NovaTerm::isize`、`quint64` 与 `NovaTerm::u64`。混用于 `std::min/max` 时，

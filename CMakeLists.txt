@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(NovaTerm VERSION 0.1.177 LANGUAGES CXX)
+project(NovaTerm VERSION 0.1.178 LANGUAGES CXX)
 
 # 主工程显式采用平台标准安装目录，避免依赖第三方子项目间接初始化这些变量。
 include(GNUInstallDirs)
@@ -190,6 +190,14 @@ target_include_directories(novaterm_core
         src
     PRIVATE
         third_party/libvterm-0.3.3/include
+)
+
+# 核心库与其他目标保持同一警告级别；此前缺失导致 sign-compare 与
+# 聚合初始化漏字段等问题在常规构建中静默。
+target_compile_options(novaterm_core
+    PRIVATE
+        "$<$<CXX_COMPILER_ID:MSVC>:/W4>"
+        "$<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-Wall;-Wextra;-Wpedantic>"
 )
 
 target_link_libraries(novaterm_core
