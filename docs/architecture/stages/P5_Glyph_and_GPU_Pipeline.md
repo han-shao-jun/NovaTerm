@@ -2,6 +2,17 @@
 
 **状态：P5 实施完成；Linux Vulkan/OpenGL 与 Windows D3D11/D3D12 本机验收、Windows 30 分钟长稳验收完成（2026-08-02）；macOS Metal、真实多屏 DPR 与真实 120/144 Hz 验收待完成**
 
+> **2026-09-10 复核**：去 Qt 化大重构（`e356e51`/`1ba7c94`）、快照窄接口
+> （`3e321ab`）与单行快照指纹优化（`33a1f00`）之后，按处理 P2/P3/P4 文档的同一
+> 流程复核 P5。**结构与自动化验证未回归**：§17 的实现常量逐条核对准确
+> （GlyphAtlas 2048/64MiB/4MiB/FIF3、raster 队列 512、BufferBudget 64MiB/256KiB/
+> 1.5×、`OverlayCompositor`/`InstanceBuffer` 确未建立），`novaterm_renderer_p5_tests`
+> 本机 28 case 全通过。已修正两处漂移（P5 case 数 22→28、`BlockColumns` 行号）。
+> **两项 GPU 数据陈旧需重测（非回归、需对应硬件）**：§21.8 的 30 分钟长稳表
+> 产生于「策略变更」之前，且此后又叠加了 de-Qt + `33a1f00`；全部 GPU 实机跑分
+> 表均为原 Linux/Windows 验收机数据，本 i7-13700H 笔记本无对应 GPU 计时/高刷
+> 环境，未重测。详见文末「2026-09-10 复核记录」。
+
 ## 1. 目标与范围
 
 P5 在不破坏 P3 增量渲染、Snapshot 一致性和最终 revision 收敛语义的前提下，完成两类工作：
@@ -509,7 +520,7 @@ Renderer初始化时形成后端能力表：
 64 MiB、每帧上传预算 4 MiB、frames-in-flight 3（`GlyphAtlas.h:30-34`）；
 raster 队列容量 512（`GlyphRasterizer.h:53`、`TerminalRenderer.h:265`）；
 Buffer 预算 64 MiB、最小 256 KiB、1.5 倍增长（`BufferBudget.h:41-42`、
-`BufferBudget.cpp:41-47`）；脏块 8 列（`RowBlockDamageTracker.h:24`）。
+`BufferBudget.cpp:41-47`）；脏块 8 列（`RowBlockDamageTracker.h:35` 的 `BlockColumns`）。
 
 ## 18. 测试矩阵
 
@@ -631,7 +642,7 @@ NOVATERM_RHI_API=opengl ./build-p5-release/bin/novaterm_renderer_p5_gpu_benchmar
 git diff --check
 ```
 
-Release CTest 共 4 个 executable、86 个 QtTest case，全部通过（Core 26、Scrollback 17、P3 Renderer 21、P5 Renderer 22）。P5 case 覆盖 key、fallback、font/glyph generation、完整 cluster 与 color raster、glyph quad cell-local 原点/光标网格对齐、队列容量/去重/取消/stop、Atlas page class/局部上传/预算延期、warm hit 零上传、LRU 与 frames-in-flight、双页资源整页恢复、过期 generation、row-slot 单步/跳转/强制 remap、mapping revision、跨页 material batch、Buffer 溢出/预算/释放统计；Core 另增加 Snapshot 发布后行数据 COW 不可变测试。
+Release CTest 共 4 个 executable、86 个 QtTest case，全部通过（Core 26、Scrollback 17、P3 Renderer 21、P5 Renderer 22）。（**2026-09-10 注**：此为 2026-08-01 的数字；此后各测试目标均有增长，P5 Renderer 现为 28 case，本机重跑仍全通过，其余目标数量未逐一重核。）P5 case 覆盖 key、fallback、font/glyph generation、完整 cluster 与 color raster、glyph quad cell-local 原点/光标网格对齐、队列容量/去重/取消/stop、Atlas page class/局部上传/预算延期、warm hit 零上传、LRU 与 frames-in-flight、双页资源整页恢复、过期 generation、row-slot 单步/跳转/强制 remap、mapping revision、跨页 material batch、Buffer 溢出/预算/释放统计；Core 另增加 Snapshot 发布后行数据 COW 不可变测试。
 
 ### 21.3 Vulkan 60 秒结果
 
@@ -771,3 +782,46 @@ Windows Release CTest 共 5 个 executable，全部通过。Renderer 自动化�
 D3D12 在原生 DPR 1.75、60 Hz 的短跑为 59.411 FPS、P95 1 行、0 Buffer 重分配、最终 126/126 收敛。Qt PassThrough 合成 DPR 1.25/1.5/2.0 的 D3D11 短跑均为 P95 1 行、warm cache 零 raster/upload、Overlay-only 零正文上传且最终收敛。合成缩放验证了 fractional-DPR 渲染与资源路径，但不替代对应真实屏幕的人工视觉 golden。
 
 在 59.997 Hz 物理屏幕上配置 144 Hz 时，程序能正确进入配置路径，但呈现率仍受物理 VSync 限制，因此该结果不计作 120/144 Hz 验收。剩余外部验收项为 macOS Metal、真实 1.25/1.5/2.0 DPR 屏幕人工视觉抽检，以及真实 120/144 Hz 设备；它们不属于当前 Windows 主机可完成范围。
+
+## 2026-09-10 复核记录
+
+去 Qt 化大重构（`e356e51` 容器换 std、`1ba7c94` 字符串/字节换 UTF-8）、快照尾部
+增量窄接口（`3e321ab`）与单行快照指纹优化（`33a1f00`）之后，按处理 P2/P3/P4
+文档的同一流程复核 P5。
+
+**代码引用核对（§17 实现常量，逐条准确）：** GlyphAtlas 单页 2048×2048、总预算
+64 MiB、每帧上传 4 MiB、frames-in-flight 3（`GlyphAtlas.h:30-34`）；raster 队列
+容量 512（`GlyphRasterizer.h:53`）；BufferBudget 64 MiB / 最小 256 KiB
+（`BufferBudget.h:41-42`）、1.5× 增长（`BufferBudget.cpp:41-47`，
+`next += max(next/2, 4096)`）；`GpuInstance` 16 float / 64 byte
+（`TerminalRenderer.h:175-193`）；`OverlayCompositor.*` 与 `InstanceBuffer.*`
+确未建立（`src/renderer/gpu/` 无此二文件，与 §17 说明一致）；
+`rasterizedQuadStartsAtCellLocalOrigin` 回归测试在位。
+
+**修正的漂移：** ① P5 test case 数 22→**28**（本机 `novaterm_renderer_p5_tests`
+实测 28 passed；§21.2 的 86 与各目标分项为 2026-08-01 旧值，已加注说明增长）；
+② `BlockColumns=8` 行号 `:24`→`:35`。
+
+**可复现部分（本机重测，未回归）：** `novaterm_renderer_p5_tests` 28 case 全通过
+（Debug 0.39s），覆盖 GlyphKey/fallback/raster/cache/Atlas/material batch/
+row-slot ring/mapping revision/buffer 预算/语义高亮/8-cell 脏块对账/scroll 交接。
+CPU/GPU 实机跑分见下条。
+
+**未复现部分（GPU 数据陈旧，需对应硬件重测，非回归）：**
+- §21.8 的 **30 分钟 D3D11 长稳表产生于「策略变更」之前**，文档已自述「GPU 长稳
+  需在新策略下重新实测后才能更新该表」；此后又叠加了 de-Qt 与 `33a1f00`
+  （单行快照指纹跳过，直接作用于 `rendererSnapshot` 热路径）。因此该表与所有
+  §21.3/21.4/21.5/21.7 的 GPU 跑分都早于当前渲染热路径，数字仅供历史对比，
+  不代表当前构建。
+- 本 i7-13700H 笔记本无 GPU 时间戳 profiler、无高刷屏、DPR 非目标值，无法产出
+  可信 GPU 跑分；且本机持续负载下热降频明显，即便跑出数字也不可与原验收机
+  （i7-14700K/RTX4070Ti）横比。故 GPU 表一律保留原值不改判，
+  仅标注其早于策略变更与近期热路径改动。
+- 状态行原列的外部验收项（macOS Metal、真实 1.25/1.5/2.0 DPR 屏、真实
+  120/144 Hz）维持待办，本机不具备条件。
+
+**给后续有环境者的重测清单：** Release 构建；`NOVATERM_RHI_API` 选后端；跑
+`novaterm_renderer_p5_gpu_benchmark`（支持 `--duration-ms`/`--refresh-rate`/
+`--scrollback-limit`/`--prefill-lines`，见 §21.8）；重点在**新常驻布局策略下**重测
+30 分钟长稳，更新 §21.8 表并保留旧值作对比（勿覆盖历史实测，照 AGENTS.md「不要
+改写实测值，只追加」）。
