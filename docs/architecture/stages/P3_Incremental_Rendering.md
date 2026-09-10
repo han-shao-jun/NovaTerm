@@ -2,6 +2,15 @@
 
 **状态：代码、自动化验证、Vulkan/OpenGL 实机 60 FPS 跑分完成（2026-08-01），待高刷新率、资源恢复和人工视觉验收**
 
+> **2026-09-10 复核**：P5 与去 Qt 化大重构后重新核对 P3。**增量渲染语义与自动化
+> 验证均未回归**：`novaterm_renderer_tests` 通过（Debug 2.1s），P3 support 基准
+> 结构不变量与 2026-08-01 一致（单行=1 脏行/239 命令/45,888 modeled bytes，
+> 全屏=40 行/9,560 命令，**上传缩减 97.5%**）。CPU 绝对 ns 为机器相关（本
+> i7-13700H 笔记本比原验收机 i7-14700K 慢且持续负载下热降频，不可直接对比）。
+> 修正了「固定槽位容量」小节因 P5 实例化改造而漂移的行号引用。GPU 实机
+> 60 FPS 数据与「尚未完成的验收」四项维持原状——本机无对应显示/后端环境，
+> 未重测也未改判。详见文末「2026-09-10 复核记录」。
+
 ## 目标
 
 让 Damage Rect 真正减少 CPU 命令构建和 GPU 上传，并把 Parser 更新与 GPU 帧率解耦。
@@ -93,11 +102,11 @@ Parser batch N
 
 > **P5 已替换顶点格式。** P3 落地时每个 Quad 展开为 6 个 `GpuVertex`（每个
 > 8 个 `float`，32 bytes/顶点，192 bytes/Quad）。P5 阶段 C 改为**实例化**：
-> 一个 Quad 等于一条 `GpuInstance`（16 个 `float`，64 bytes），单位 Quad 由
-> shader 生成，绘制方式为 `cb->draw(4, instanceCount)` 的 TriangleStrip
-> （`TerminalRenderer.cpp:923-945`、`TerminalRenderer.cpp:1437-1449`、
-> `TerminalRenderer.h:165-183`）。下面按当前实例格式给出，槽位划分与增量
-> 语义未变，只是每 Quad 的 bytes 从 192 降到 64。
+> 一个 Quad 等于一条 `GpuInstance`（16 个 `float`，64 bytes，
+> `TerminalRenderer.h:175-193`），单位 Quad 由 shader 生成，背景/内容/overlay
+> 各一次 `cb->draw(4, instanceCount)`（`TerminalRenderer.cpp:932`/`941`/`949`），
+> pipeline 拓扑为 TriangleStrip（`TerminalRenderer.cpp:1564`）。下面按当前实例
+> 格式给出，槽位划分与增量语义未变，只是每 Quad 的 bytes 从 192 降到 64。
 
 ```text
 backgroundInstancesPerRow = max(columns, 该行实际 background 命令数)
@@ -349,6 +358,42 @@ Vulkan 持续输出期间通过 per-row revision 补回 4 行，OpenGL 补回 1 
 - GPU 资源丢失/重建后的完整画面；
 - ASCII、CJK、宽字符、组合字符、下划线、Strike、Cursor 和 Selection 的实机无回归确认；
 - 平台 profiler 的 GPU 时间，且不得在渲染热路径插入同步 readback。
+
+## 2026-09-10 复核记录
+
+P5 全量落地（`c527390`/`cdaae2b`）与去 Qt 化大重构（`e356e51`/`1ba7c94`/
+`3e321ab` 等触及 renderer）之后，按处理 P2 文档的同一流程复核 P3。
+
+**代码引用核对：** 逐条核对本文的 `file:line` 引用，多数仍准确
+（`RenderCommandType` 8 项在 `RenderCommandBuffer.h:21-31`；`RenderCommandRow`
+的 `contentRevision`/`rotateRowsUp`/`rowsUseAtlasGeneration` 在
+`RenderCommandBuffer.h:34-101`；`_viewportMappingRevision` 及
+`RenderStatistics::viewportMappingRevision` 均在位）。仅「固定槽位容量」小节
+的两处引用因 P5 实例化改造漂移，已修正：`GpuInstance` 结构在
+`TerminalRenderer.h:175-193`（16 float / 64 bytes）；绘制为背景/内容/overlay
+各一次 `cb->draw(4, instanceCount)`（`TerminalRenderer.cpp:932`/`941`/`949`），
+TriangleStrip 拓扑在 `TerminalRenderer.cpp:1564`（旧引用的 `923-945`/`1437-1449`
+已不指向对应代码）。
+
+**可复现部分（本机重测，未回归）：**
+
+| 项 | 2026-08-01（i7-14700K/RTX4070Ti/Ubuntu） | 2026-09-10（i7-13700H/Windows） |
+| --- | --- | --- |
+| `novaterm_renderer_tests` | PASS 21/21 | PASS（Debug 2.1s） |
+| support 单行增量 | 1 脏行 / 239 命令 / 45,888 modeled bytes | 同上（结构不变量一致） |
+| support 全屏 | 40 脏行 / 9,560 命令 | 同上 |
+| support 上传缩减 | 97.5% | 97.5% |
+| support CPU p50（单行/全屏） | 1,179 ns / 46,078 ns | 55,100 ns / 106,100 ns（机器相关，见下） |
+
+support 基准的 CPU 绝对 ns 是机器相关量：本 i7-13700H 笔记本单线程比原验收机
+i7-14700K 慢，且持续构建+跑分下热降频明显（见 [[p2-benchmark-machine-dependent]]）。
+基准存在的意义是证明「单 Cell 更新只重建一行、上传随脏行数变化」这一增量性质，
+该性质（脏行数、命令数、97.5% 缩减）逐项保持，故无回归。
+
+**未复现部分（维持原判，未改状态）：** Vulkan/OpenGL 实机 60 FPS 跑分及
+「尚未完成的验收」四项（真实 120/144 Hz、GPU 资源丢失/重建、实机字形无回归、
+平台 profiler GPU 时间）需对应显示/后端/profiler 环境，本机不具备，未重测，
+按原样保留，不乐观改判。
 
 ## 退出标准
 
