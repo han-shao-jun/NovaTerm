@@ -24,6 +24,7 @@ class QProgressBar;
 class QPushButton;
 class QTimer;
 class SshTransport;
+class SystemInformationDialog;
 class TrafficChart;
 
 class SystemMonitorPanel final : public QWidget
@@ -54,6 +55,7 @@ private:
      *        样式会把禁用态 item 文字画成 BasicTextDisable，占位文案会几乎看不见。
      */
     void setDiskTreeHint(const QString& text);
+    void showSystemInformation();
     void refreshAvailability();
     void updateSamplingState();
     /** 提交一次有界、非重入的快速资源采集请求。 */
@@ -92,6 +94,7 @@ private:
     QTimer* _fastTimer{nullptr};
     QTimer* _fileSystemTimer{nullptr};
     QPointer<SshTransport> _sshTransport;
+    QPointer<SystemInformationDialog> _systemInformationDialog;
     QString _sessionName;
     QString _collectionError;
     QString _fileSystemError;

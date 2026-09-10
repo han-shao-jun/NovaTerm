@@ -512,6 +512,10 @@ base 指针。主题切换只改 QPalette，不动 style。
 
 ## 提交约定
 
+- **每次创建 Git 提交都必须同步修改根 `CMakeLists.txt` 中
+  `project(NovaTerm VERSION ...)` 的版本号。** 版本采用 `0.1.<提交总数>`：提交前
+  先用 `git rev-list --count HEAD` 统计当前提交数，并将 PATCH 写为该值加 1，保证
+  新提交落地后版本号与仓库提交总数一致。不得创建只改代码、不改版本号的提交。
 - 提交消息中文，`type: 摘要` 开头（`feat`/`fix`/`docs`/`test`/`chore`）
 - 按主题拆分提交；vendored 第三方源码单独一个提交（先例 `47f2c4e`、`5ed630c`）
 - 历史提交直接在 `master` 上，未走 PR 流程

@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(NovaTerm VERSION 0.1.0 LANGUAGES CXX)
+project(NovaTerm VERSION 0.1.164 LANGUAGES CXX)
 
 # 主工程显式采用平台标准安装目录，避免依赖第三方子项目间接初始化这些变量。
 include(GNUInstallDirs)
@@ -217,6 +217,9 @@ qt_add_executable(NovaTerm
 target_include_directories(NovaTerm PRIVATE
     src
     third_party/libvterm-0.3.3/include
+)
+target_compile_definitions(NovaTerm PRIVATE
+    NOVATERM_VERSION="${PROJECT_VERSION}"
 )
 # libtelnet 的头目录经由 target_link_libraries(libtelnet) 的 PUBLIC 接口传入，
 # 无需在此重复声明。

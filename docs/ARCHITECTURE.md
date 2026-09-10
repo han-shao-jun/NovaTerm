@@ -91,6 +91,11 @@ SFTP 文件列表使用紧凑行高 24 个逻辑像素，减少图标上下留�
 分区表头与条目及状态提示使用 11 个逻辑像素字号，停靠标题字号不变。
 内存与交换容量按整数 MiB 向下取整，紧凑显示为「31/496M」；未配置交换空间时
 显示「0/0M」。网速与分区容量保留原有单位格式。
+系统资源面板的信息按钮打开独立的“系统信息”窗口，窗口沿用 NovaTerm/Ela
+深浅主题与可见滚动条，按 Overview、CPU、GPU、CPU usage、Memory/Swap、
+Network interfaces、Filesystems 卡片依次展示。数据通过所属 `SshTransport` 的
+既有有界单次命令 channel 获取，不新建 SSH 连接；打开详情时用户请求优先于后台
+低频 `df`，请求 ID 与 transport 生命周期共同过滤迟到结果。
 
 ### 3.2 Application Services
 

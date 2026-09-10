@@ -4,23 +4,23 @@
 <context>
     <name>AboutPage</name>
     <message>
-        <location filename="../../src/ui/pages/AboutPage.cpp" line="53"/>
         <location filename="../../src/ui/pages/AboutPage.cpp" line="54"/>
+        <location filename="../../src/ui/pages/AboutPage.cpp" line="55"/>
         <source>About</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/AboutPage.cpp" line="55"/>
+        <location filename="../../src/ui/pages/AboutPage.cpp" line="56"/>
         <source>NovaTerm</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/AboutPage.cpp" line="56"/>
-        <source>Version 0.1.0</source>
-        <translation type="unfinished"></translation>
+        <location filename="../../src/ui/pages/AboutPage.cpp" line="59"/>
+        <source>Version %1</source>
+        <translation>Version %1</translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/AboutPage.cpp" line="58"/>
+        <location filename="../../src/ui/pages/AboutPage.cpp" line="62"/>
         <source>A cross-platform terminal emulator &amp; SSH client
 with FluentUI design, inspired by WindTerm.
 
@@ -31,7 +31,7 @@ Built with:
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/AboutPage.cpp" line="64"/>
+        <location filename="../../src/ui/pages/AboutPage.cpp" line="68"/>
         <source>License: GPLv2+</source>
         <translation type="unfinished"></translation>
     </message>
@@ -1332,12 +1332,12 @@ Built with:
     <message>
         <location filename="../../src/ui/widgets/SftpPanel.cpp" line="784"/>
         <source>Name</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">Name</translation>
     </message>
     <message>
         <location filename="../../src/ui/widgets/SftpPanel.cpp" line="784"/>
         <source>Size</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">Size</translation>
     </message>
     <message>
         <location filename="../../src/ui/widgets/SftpPanel.cpp" line="786"/>
@@ -1981,104 +1981,368 @@ Built with:
     </message>
 </context>
 <context>
+    <name>SystemInformationDialog</name>
+    <message>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="128"/>
+        <source>%1 d %2 h %3 min</source>
+        <translation>%1 d %2 h %3 min</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="238"/>
+        <source>No data</source>
+        <translation>No data</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="271"/>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="303"/>
+        <source>System information — %1</source>
+        <translation>System information — %1</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="299"/>
+        <source>SSH session is no longer available.</source>
+        <translation>SSH session is no longer available.</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="315"/>
+        <source>Collecting system information…</source>
+        <translation>Collecting system information…</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="323"/>
+        <source>Select a connected SSH terminal to view system information.</source>
+        <translation>Select a connected SSH terminal to view system information.</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="336"/>
+        <source>The SSH command channel is busy. Try again shortly.</source>
+        <translation>The SSH command channel is busy. Try again shortly.</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="350"/>
+        <source>System information query failed: %1</source>
+        <translation>System information query failed: %1</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="355"/>
+        <source>No system information was returned.</source>
+        <translation>No system information was returned.</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="376"/>
+        <source>Overview</source>
+        <translation>Overview</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="380"/>
+        <source>Operating system</source>
+        <translation>Operating system</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="380"/>
+        <source>Kernel version</source>
+        <translation>Kernel version</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="381"/>
+        <source>Host name</source>
+        <translation>Host name</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="381"/>
+        <source>IP</source>
+        <translation>IP</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="381"/>
+        <source>Load</source>
+        <translation>Load</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="381"/>
+        <source>Architecture</source>
+        <translation>Architecture</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="382"/>
+        <source>Uptime</source>
+        <translation>Uptime</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="382"/>
+        <source>Connection</source>
+        <translation>Connection</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="403"/>
+        <source>CPU</source>
+        <translation>CPU</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="403"/>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="405"/>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="427"/>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="430"/>
+        <source>Name</source>
+        <translation>Name</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="403"/>
+        <source>Cores</source>
+        <translation>Cores</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="403"/>
+        <source>Frequency</source>
+        <translation>Frequency</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="404"/>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="417"/>
+        <source>Cache</source>
+        <translation>Cache</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="404"/>
+        <source>Vendor / BogoMIPS</source>
+        <translation>Vendor / BogoMIPS</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="405"/>
+        <source>GPU</source>
+        <translation>GPU</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="405"/>
+        <source>Vendor</source>
+        <translation>Vendor</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="405"/>
+        <source>Driver</source>
+        <translation>Driver</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="406"/>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="415"/>
+        <source>Memory</source>
+        <translation>Memory</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="407"/>
+        <source>CPU usage</source>
+        <translation>CPU usage</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="407"/>
+        <source>User</source>
+        <translation>User</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="407"/>
+        <source>System</source>
+        <translation>System</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="407"/>
+        <source>Nice</source>
+        <translation>Nice</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="408"/>
+        <source>Idle</source>
+        <translation>Idle</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="408"/>
+        <source>IO wait</source>
+        <translation>IO wait</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="409"/>
+        <source>IRQ / SoftIRQ / Steal</source>
+        <translation>IRQ / SoftIRQ / Steal</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="417"/>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="421"/>
+        <source>Total</source>
+        <translation>Total</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="417"/>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="421"/>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="430"/>
+        <source>Used</source>
+        <translation>Used</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="417"/>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="431"/>
+        <source>Available</source>
+        <translation>Available</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="417"/>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="421"/>
+        <source>Usage</source>
+        <translation>Usage</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="419"/>
+        <source>Swap</source>
+        <translation>Swap</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="421"/>
+        <source>Free</source>
+        <translation>Free</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="426"/>
+        <source>Network interfaces</source>
+        <translation>Network interfaces</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="427"/>
+        <source>Sent</source>
+        <translation>Sent</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="427"/>
+        <source>Received</source>
+        <translation>Received</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="428"/>
+        <source>Send speed</source>
+        <translation>Send speed</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="428"/>
+        <source>Receive speed</source>
+        <translation>Receive speed</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="429"/>
+        <source>Filesystems</source>
+        <translation>Filesystems</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="430"/>
+        <source>Size</source>
+        <translation>Size</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="431"/>
+        <source>Mount point</source>
+        <translation>Mount point</translation>
+    </message>
+</context>
+<context>
     <name>SystemMonitorPanel</name>
     <message>
-        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="587"/>
+        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="612"/>
+        <source>System information</source>
+        <translation>System information</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="613"/>
+        <source>Open system information</source>
+        <translation>Open system information</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="614"/>
         <source>CPU</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">CPU</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="588"/>
+        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="615"/>
         <source>Memory</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">Memory</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="589"/>
+        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="616"/>
         <source>Swap</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">Swap</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="744"/>
+        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="771"/>
         <source>The remote system did not return supported Linux metrics.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="745"/>
+        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="772"/>
         <source>Remote resource query failed: %1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="765"/>
+        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="792"/>
         <source>Collecting…</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="843"/>
+        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="870"/>
         <source>Filesystem query failed: %1</source>
         <translation>Filesystem query failed: %1</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="868"/>
+        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="895"/>
         <source>↑ —</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="869"/>
+        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="896"/>
         <source>↓ —</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="872"/>
+        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="899"/>
         <source>↑ %1/s</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="874"/>
+        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="901"/>
         <source>↓ %1/s</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="590"/>
+        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="617"/>
         <source>Path</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="581"/>
-        <source>Remote CPU, memory and network update every %1 seconds; filesystems update every 30 seconds.</source>
-        <translation>Remote CPU, memory and network update every %1 seconds; filesystems update every 30 seconds.</translation>
-    </message>
-    <message>
-        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="591"/>
+        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="618"/>
         <source>Available / Size</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="592"/>
+        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="619"/>
         <source>Network traffic history</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="645"/>
+        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="672"/>
         <source>No active SSH session</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="648"/>
+        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="675"/>
         <source>Select a connected SSH terminal to inspect remote resources.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="654"/>
+        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="681"/>
         <source>Collecting remote resources…</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="663"/>
+        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="690"/>
         <source>Waiting for monitoring data</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="842"/>
+        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="869"/>
         <source>No filesystem information available</source>
         <translation>No filesystem information available</translation>
     </message>

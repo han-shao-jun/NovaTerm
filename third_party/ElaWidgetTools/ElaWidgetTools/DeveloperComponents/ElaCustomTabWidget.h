@@ -5,6 +5,7 @@
 
 class ElaTabBar;
 class ElaTabWidget;
+class QEvent;
 class ElaCustomTabWidget : public ElaCustomWidget
 {
     Q_OBJECT
@@ -22,6 +23,9 @@ public:
     void setDragInputTransparent(bool transparent);
 
     Q_INVOKABLE bool processHitTest();
+
+protected:
+    void changeEvent(QEvent* event) override;
 
 private:
     bool _isAllowLeave{false};
