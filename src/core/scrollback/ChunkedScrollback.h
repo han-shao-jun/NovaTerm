@@ -30,6 +30,13 @@ public:
                                isize maxBytes = DefaultMaxBytes,
                                isize chunkLines = DefaultChunkLines);
 
+    // 单线程拥有语义：隐式拷贝会共享可变 active 块并分叉行计数/ID 状态，
+    // 移动同样无意义（含 deque 与 ID 计数器）。显式删除以落实「不可拷贝」
+    // 的类注释；持有链（ScrollbackBuffer→Runtime→TerminalCore）随之自动
+    // 不可拷贝。
+    ChunkedScrollback(const ChunkedScrollback&) = delete;
+    ChunkedScrollback& operator=(const ChunkedScrollback&) = delete;
+
     /**
      * @brief 追加一个独立逻辑行（hardBreak=true）。
      * @return 该行的全局 LineId。

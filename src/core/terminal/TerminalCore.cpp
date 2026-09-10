@@ -535,8 +535,9 @@ public:
 
         QMetaObject::invokeMethod(
             owner,
-            [target = owner, damageValue, revisionValue, cursorValue,
-             titleValue, titleCopy, bellValue, scrollbackValue, screenScrollRows,
+            [target = owner, damageValue = std::move(damageValue),
+             revisionValue, cursorValue, titleValue, titleCopy, bellValue,
+             scrollbackValue, screenScrollRows,
              output = std::move(output)]() {
                 for (const QByteArray& data : output)
                     emit target->outputData(data);
