@@ -413,14 +413,31 @@ const LogicalLine* ChunkedScrollback::lineAt(isize index) const
 {
     if (index < 0 || index >= _lineCount)
         return nullptr;
-    // 顺序遍历分块；分块数量通常较少（默认 1024 行/块），顺序查找足够。
-    for (const StoredChunk& stored : _chunks) {
-        if (index < stored.lineCount)
-            return &stored.chunk->lines[stored.firstLine + index];
-        index -= stored.lineCount;
+    // 从较近的一端扫描分块：tailFrom（每批 updateHistoryLayout 跑）与
+    // snapshot() 的 lineAt(_lineCount-1) 都访问尾部，从头扫是 O(chunks)（大
+    // scrollback 下约千块）。按 index 落在前/后半选择扫描方向，尾部访问接近
+    // O(1)，最坏仍是 O(chunks/2)。active 块逻辑上位于所有 sealed 块之后。
+    const isize activeLines =
+        _active ? isize(_active->lines.size()) - _activeFirstLine : 0;
+    if (index >= _lineCount - activeLines)
+        return &_active->lines[_activeFirstLine + (index - (_lineCount - activeLines))];
+
+    if (index <= (_lineCount - activeLines) / 2) {
+        // 前半：从最旧分块正向累加。
+        for (const StoredChunk& stored : _chunks) {
+            if (index < stored.lineCount)
+                return &stored.chunk->lines[stored.firstLine + index];
+            index -= stored.lineCount;
+        }
+    } else {
+        // 后半：从最新分块反向累加，remaining 为「index 到 sealed 尾的距离」。
+        isize remaining = (_lineCount - activeLines) - index;
+        for (auto it = _chunks.rbegin(); it != _chunks.rend(); ++it) {
+            if (remaining <= it->lineCount)
+                return &it->chunk->lines[it->firstLine + it->lineCount - remaining];
+            remaining -= it->lineCount;
+        }
     }
-    if (_active && index < isize(_active->lines.size()) - _activeFirstLine)
-        return &_active->lines[_activeFirstLine + index];
     return nullptr;
 }
 
