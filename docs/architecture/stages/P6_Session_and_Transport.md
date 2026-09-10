@@ -7,6 +7,15 @@
 > 测试通过 + 文档更新），本阶段两项未满足，因此既不标记"已完成"，也不标记
 > "功能完成"：`SessionManager`/`SessionFactory` 尚未接入生产路径，且
 > `novaterm_conpty_tests` 存在句柄回收失败。
+>
+> **2026-09-10 复核**：按处理 P2–P5 的同一流程复核。**状态与缺口结论不变、无回归**
+> ——`SessionManager`/`SessionFactory` 仍生产零使用（`TerminalPage` 每 Tab 直接
+> `new TerminalView`，`src/ui/pages/TerminalPage.cpp` 多处），`detach()` 仍等于
+> `close(Graceful)`，SSH 仍 `qobject_cast` 绕过 Session 层，均与下表一致。修正了
+> 文件迁移导致的引用漂移：`TerminalView.*`、`TerminalPage.*` 已从 `src/ui/` 移到
+> `src/ui/terminal/`、`src/ui/pages/`（步骤 2 行号已更新）。测试基线（改文档前后
+> 一致，纯文档改动）：`novaterm_session_tests` PASS（Debug 0.55s）。ConPTY 句柄
+> 泄漏仍是平台缺陷（见步骤 6）。
 
 ## 实现进度
 
@@ -14,12 +23,12 @@
 | --- | --- | --- |
 | 0 盘点 View 运行期职责 | 已完成 | — |
 | 1 Session 类型与状态契约 | 已完成 | — |
-| 2 最小 `TerminalSession` | 部分完成 | 所有权与设计相反：`TerminalView` 默认自建 Session 并 parent 自己（`TerminalView.cpp:133` 的 `new TerminalSession(_core, this)`；`_ownsSession` 默认 true 见 `TerminalView.h:105`，赋值见 `TerminalView.cpp:124`），生产路径全部走这条 |
+| 2 最小 `TerminalSession` | 部分完成 | 所有权与设计相反：生产路径下 `TerminalView` 自建 Session 并 parent 自己。构造已可接受注入的 Session（`_ownsSession = session == nullptr`，`src/ui/terminal/TerminalView.cpp:137`；`_session = session ? session : new TerminalSession(_core, this)`，`:151`；`_ownsSession` 默认 true 见 `src/ui/terminal/TerminalView.h:123`），但生产代码从不注入，故仍全部自建自持 |
 | 3 `SessionInputPump` | 已完成 | 禁止项第一条未被违反：`_pendingTransportInput` 在 `src/ui/` 下已零残留，暂存点为 `SessionInputPump.h:85` 的 `_pending`（上限 `MaxPendingBytes` 8 MiB / 单次 `InputChunkBytes` 64 KiB，`SessionInputPump.h:80-81`）|
 | 4 生命周期与关闭协议 | 部分完成 | `TerminalSession::close(CloseMode)` 首行即 `Q_UNUSED(mode)`（`TerminalSession.cpp:317-319`），Graceful 与 Abort 未区分 |
 | 5 `ITransport` 契约扩展 | 部分完成 | `transportError` 已接通：四种 Transport 全部 emit（按 ITransport.h 约定先发结构化错误、再发 `errorOccurred`），`TerminalSession` 据此把分类映射为 `SessionErrorCategory`，不再硬编码 `Io`，且仍只上报一条 `sessionError`。剩余缺口：`exited` 仅 Local 发出，转发到 `TerminalSession::exited` 后 UI 无消费者 |
 | 6 Local PTY/ConPTY | 已完成（句柄断言受平台缺陷阻塞） | 两处句柄断言失败**不是本项目缺陷**：`CreatePseudoConsole`/`ClosePseudoConsole` 在本机 Windows 版本上不配平，每个伪控制台生命周期泄漏约 1 个句柄（单线程无子进程的最小复现见 `tests/transport/conpty_handle_leak_repro.c`，实测 1.04/循环）。ConPtySession 自建的 8 个句柄全部有对应关闭点，线程数与子进程数断言均通过。另有 `duplexLoadAndBackpressure` 偶发超时待查（与句柄无关）|
-| 7 SSH Transport | 部分完成 | 资源监控辅助通道已改为请求驱动常驻 channel，快速 `/proc` 与低频 `df` 分离并在同一工作线程非阻塞推进（见下方 2026-09-06 记录）。其余缺口仍是：结构化 Challenge 完全不存在；`TerminalView.cpp` 仍直接 `qobject_cast<SshTransport*>` 弹框并调 `acceptHostKey()`，绕过 Session 层；`_keyDecision` 无 ChallengeId 防迟到响应；keyboard-interactive 未实现 |
+| 7 SSH Transport | 部分完成 | 资源监控辅助通道已改为请求驱动常驻 channel，快速 `/proc` 与低频 `df` 分离并在同一工作线程非阻塞推进（见下方 2026-09-06 记录）。其余缺口仍是：结构化 Challenge 完全不存在；`src/ui/terminal/TerminalView.cpp` 仍直接 `qobject_cast<SshTransport*>` 弹框并调 `acceptHostKey()`（`:447-453`），绕过 Session 层；`_keyDecision` 无 ChallengeId 防迟到响应；keyboard-interactive 未实现 |
 | 8 Serial Transport | 已完成 | 无专门测试文件 |
 | 9 Telnet Transport | 已完成 | — |
 | 10 `SessionManager` | 部分完成 | 实现完整（注册/查找/关闭/重连/自动回收，无 `activeSession`），但**生产代码零使用**：`SessionManager` 与 `SessionFactory` 在 `src/ui/`、`src/main.cpp` 中均无命中，会话集合实际由 `TerminalPage::_terminalViews` 这个 View 列表隐式代表；`create(profileId, overrides)` 与 `restore` 未实现 |
