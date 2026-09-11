@@ -47,7 +47,7 @@ NovaTerm 是基于 Qt 6、libvterm 和 QRhi 的跨平台 GPU 终端。核心目�
 ```mermaid
 flowchart TB
     UI[UI Layer<br/>MainWindow / Tabs / Settings / TerminalView]
-    APP[Application Services<br/>Config / Profile / Theme / SessionManager]
+    APP[Application Services<br/>Config / Profile / Theme / SessionFactory]
     SES[TerminalSession<br/>生命周期与流控]
     TR[ITransport<br/>PTY / SSH / Serial / Telnet]
     CORE[Terminal Core<br/>ByteQueue / Parser Worker / VTAdapter]
@@ -70,7 +70,7 @@ flowchart TB
 
 ### 3.1 UI Layer
 
-负责窗口、标签、设置、输入事件、选择和用户反馈。UI 不解析 ANSI，不持有 libvterm，不实现 Transport 缓冲策略。当前 `TerminalView` 仍组合 Core、Renderer 和 Transport，并暂存竞争窗口中的输入；P6 应将这些运行期职责下沉到 `TerminalSession`。
+负责窗口、标签、设置、输入事件、选择和用户反馈。UI 不解析 ANSI，不持有 libvterm，不实现 Transport 缓冲策略。每个终端标签的 `TerminalView` 拥有并驱动一个 `TerminalSession`（1 View : 1 Session），Session 内聚合 Core、Transport 与 InputPump；竞争窗口中的未入队输入由 `SessionInputPump` 暂存，不由 `TerminalView` 保存。
 
 快速连接侧栏保持按连接类型分组，使用无内框的单列树：分组为文件夹图标与标题，会话为设备图标、名称和次要连接信息两行。会话名称与分组标题文字左对齐，分组位置不变；叶子条目收回额外层级缩进及图标宽度差。委托按字体度量计算行高（分组至少 28、会话至少 38 个逻辑像素，文字高度外保留 5 像素余量；会话字号为 10 逻辑像素，度量与绘制一致），长文本省略并通过悬停显示完整内容。名称/主机搜索忽略大小写，隐藏无匹配分组并显示无结果提示，不修改历史记录。展开时左右边距各 8，控件间隔 8；折叠后保留 40 像素侧栏。新建按钮使用局部紫色强调，列表颜色跟随深浅主题，保留键盘焦点、双击重连与右键编辑/删除。
 
@@ -103,7 +103,7 @@ Network interfaces、Filesystems 卡片依次展示。数据通过所属 `SshTra
 
 ### 3.3 TerminalSession
 
-目标 Session 聚合：Transport、输入泵、ByteQueue、TerminalCore、Scrollback、状态和渲染调度关联。它负责 start、close、resize、reconnect、后台策略和错误传播，但不负责绘制细节。
+`TerminalSession` 聚合一条 `ITransport`、`SessionInputPump`、`TerminalCore` 与 Scrollback，负责 start、close、resize、reconnect 和错误传播，但不负责绘制细节。**采用「1 TerminalView 拥有 1 TerminalSession」模型**：每个终端标签的 `TerminalView` 自建、驱动并销毁其 Session（`_ownsSession` 默认 true），Session 不反向持有 View/Renderer。原设想的「SessionManager 拥有 Session、View 非 owning attach、Session 脱离 View 后台存活」已放弃，`SessionManager` 类已移除。详见 `docs/architecture/stages/P6_Session_and_Transport.md`。
 
 ### 3.4 Terminal Core
 
@@ -267,7 +267,7 @@ src/
 │   ├── scrollback/      # ChunkedScrollback、ScrollbackChunk、Snapshot、LineLayout(reflow)
 │   └── search/          # SearchEngine（异步、generation 取消）
 ├── transport/           # ITransport ← LocalShell / Ssh / Serial / Telnet
-├── session/             # TerminalSession、SessionManager、SessionFactory、InputPump、
+├── session/             # TerminalSession、SessionFactory、InputPump、
 │                        # SessionStore、SftpSession
 ├── credential/          # CredentialStore（Windows 凭据库 / 内存实现）
 ├── profile/             # ProfileStore（当前仅 MemoryProfileStore）

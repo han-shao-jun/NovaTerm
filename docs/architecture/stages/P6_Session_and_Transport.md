@@ -1,39 +1,52 @@
-# P6：TerminalSession、SessionManager 与 Transport
+# P6：TerminalSession 与 Transport（架构：1 View 拥有 1 Session）
 
-**状态：进行中 —— Transport 层已完成，Session 编排层未接入生产路径**
+**状态：进行中 —— Transport 四种已完成，会话编排采用「1 TerminalView 拥有 1 TerminalSession」并已在生产；剩少量自包含项**
 
-> 进度核对日期：2026-09-02。核对方式为逐条比对下方"落地实现步骤"与当前代码。
-> 按 `Development_Roadmap.md` 的统一完成定义（设计边界落地 + 代码构建 + 自动化
-> 测试通过 + 文档更新），本阶段两项未满足，因此既不标记"已完成"，也不标记
-> "功能完成"：`SessionManager`/`SessionFactory` 尚未接入生产路径，且
-> `novaterm_conpty_tests` 存在句柄回收失败。
+> **2026-09-11 架构决策（取代原 P6 编排设计）**：本项目**采纳**「每个 `TerminalView`
+> （单个标签）自建并拥有一个 `TerminalSession`，全程管理其生命周期，1 View : 1
+> Session」这一既定实现，**放弃**原 P6 设想的「`SessionManager` 拥有 Session、View
+> 只做非 owning attach、Session 脱离 View 后台存活、1 Session → N Views」。据此：
+> - 生产零使用的 `SessionManager` 类已删除（`refactor(session): 删除未采用的
+>   SessionManager`）；`SessionFactory` 保留。
+> - 原先因「与 Manager-owns 设计相反/未接入」而记的缺口（步骤 2、10、11 的一部分）
+>   **不再是缺口**——View-owned 就是采纳的设计。下表已按新架构改判。
+> - 由此作废的剩余工作：把 SessionManager 接入生产（原 #1）、detach 改为不关闭
+>   Session、1 Session→N Views。
+> - 本决策改变了所有权，已同步 `docs/ARCHITECTURE.md` §3.1/§3.3/§9 与
+>   `README.md`/`Development_Roadmap.md` 的 P6 行。
 >
-> **2026-09-10 复核**：按处理 P2–P5 的同一流程复核。**状态与缺口结论不变、无回归**
-> ——`SessionManager`/`SessionFactory` 仍生产零使用（`TerminalPage` 每 Tab 直接
-> `new TerminalView`，`src/ui/pages/TerminalPage.cpp` 多处），`detach()` 仍等于
-> `close(Graceful)`，SSH 仍 `qobject_cast` 绕过 Session 层，均与下表一致。修正了
-> 文件迁移导致的引用漂移：`TerminalView.*`、`TerminalPage.*` 已从 `src/ui/` 移到
-> `src/ui/terminal/`、`src/ui/pages/`（步骤 2 行号已更新）。测试基线（改文档前后
-> 一致，纯文档改动）：`novaterm_session_tests` PASS（Debug 0.55s）。ConPTY 句柄
-> 泄漏仍是平台缺陷（见步骤 6）。
+> 代码验证（改前跑、改完再跑）：`novaterm_session_tests` before 11 passed →
+> after 10 passed / 0 failed（删 2 个仅用 SessionManager 的用例、新增 1 个
+> session 级生命周期用例）；主程序 `NovaTerm` Debug 构建通过。
+>
+> **仍待完成（自包含，均不依赖已放弃的编排层）**：keyboard-interactive SSH 认证
+> （唯一真实功能缺口）、`close(CloseMode)` 区分 Graceful/Abort、`exited` 接到 UI、
+> `ProfileStore` 持久化实现、`TransportContractTests`。ConPTY 句柄泄漏是平台缺陷
+> （见步骤 6），非本项目可修。
+
+> 历史核对记录（保留供追溯）：2026-09-02 首次逐条核对；2026-09-10 复核并修正
+> `TerminalView.*`/`TerminalPage.*` 从 `src/ui/` 迁到 `src/ui/terminal/`、
+> `src/ui/pages/` 的引用漂移。
 
 ## 实现进度
 
-| 步骤 | 状态 | 缺口 |
+（状态列按 2026-09-11 采纳的 View-owned 架构判定。）
+
+| 步骤 | 状态 | 说明 / 缺口 |
 | --- | --- | --- |
 | 0 盘点 View 运行期职责 | 已完成 | — |
 | 1 Session 类型与状态契约 | 已完成 | — |
-| 2 最小 `TerminalSession` | 部分完成 | 所有权与设计相反：生产路径下 `TerminalView` 自建 Session 并 parent 自己。构造已可接受注入的 Session（`_ownsSession = session == nullptr`，`src/ui/terminal/TerminalView.cpp:137`；`_session = session ? session : new TerminalSession(_core, this)`，`:151`；`_ownsSession` 默认 true 见 `src/ui/terminal/TerminalView.h:123`），但生产代码从不注入，故仍全部自建自持 |
-| 3 `SessionInputPump` | 已完成 | 禁止项第一条未被违反：`_pendingTransportInput` 在 `src/ui/` 下已零残留，暂存点为 `SessionInputPump.h:85` 的 `_pending`（上限 `MaxPendingBytes` 8 MiB / 单次 `InputChunkBytes` 64 KiB，`SessionInputPump.h:80-81`）|
-| 4 生命周期与关闭协议 | 部分完成 | `TerminalSession::close(CloseMode)` 首行即 `Q_UNUSED(mode)`（`TerminalSession.cpp:317-319`），Graceful 与 Abort 未区分 |
+| 2 `TerminalSession` + View 拥有 | 已完成 | **符合采纳架构**：每个 `TerminalView` 自建自持一个 `TerminalSession`（`_ownsSession` 默认 true，`src/ui/terminal/TerminalView.cpp:137/151`；`.h:123`）。构造保留可注入 Session 的形参但生产不用。这是既定模型，不再视为缺口 |
+| 3 `SessionInputPump` | 已完成 | 暂存点为 `SessionInputPump.h:85` 的 `_pending`（上限 `MaxPendingBytes` 8 MiB / 单次 `InputChunkBytes` 64 KiB，`SessionInputPump.h:80-81`）；`src/ui/` 下无未入队 Transport 字节残留 |
+| 4 生命周期与关闭协议 | 部分完成 | `TerminalSession::close(CloseMode)` 首行 `Q_UNUSED(mode)`（`TerminalSession.cpp:317-319`），Graceful 与 Abort 未区分。**仍待做**（自包含） |
 | 5 `ITransport` 契约扩展 | 部分完成 | `transportError` 已接通：四种 Transport 全部 emit（按 ITransport.h 约定先发结构化错误、再发 `errorOccurred`），`TerminalSession` 据此把分类映射为 `SessionErrorCategory`，不再硬编码 `Io`，且仍只上报一条 `sessionError`。剩余缺口：`exited` 仅 Local 发出，转发到 `TerminalSession::exited` 后 UI 无消费者 |
 | 6 Local PTY/ConPTY | 已完成（句柄断言受平台缺陷阻塞） | 两处句柄断言失败**不是本项目缺陷**：`CreatePseudoConsole`/`ClosePseudoConsole` 在本机 Windows 版本上不配平，每个伪控制台生命周期泄漏约 1 个句柄（单线程无子进程的最小复现见 `tests/transport/conpty_handle_leak_repro.c`，实测 1.04/循环）。ConPtySession 自建的 8 个句柄全部有对应关闭点，线程数与子进程数断言均通过。另有 `duplexLoadAndBackpressure` 偶发超时待查（与句柄无关）|
-| 7 SSH Transport | 部分完成 | 资源监控辅助通道已改为请求驱动常驻 channel，快速 `/proc` 与低频 `df` 分离并在同一工作线程非阻塞推进（见下方 2026-09-06 记录）。其余缺口仍是：结构化 Challenge 完全不存在；`src/ui/terminal/TerminalView.cpp` 仍直接 `qobject_cast<SshTransport*>` 弹框并调 `acceptHostKey()`（`:447-453`），绕过 Session 层；`_keyDecision` 无 ChallengeId 防迟到响应；keyboard-interactive 未实现 |
+| 7 SSH Transport | 大部完成 | 资源监控辅助通道已改为请求驱动常驻 channel，快速 `/proc` 与低频 `df` 分离并在同一工作线程非阻塞推进（见下方 2026-09-06 记录）。host-key 首信任经 `SshHostKeyDialog` 用户确认（`src/ui/terminal/TerminalView.cpp:447-453`）——在 View 拥有 Session 的架构下，由拥有 transport 的 View 直接处理该决策是自洽的，原「结构化 Challenge 层」为已放弃的 Manager-owns 目标服务，现降为可选。**真实缺口：keyboard-interactive 认证未实现**（连需要它的服务器会失败）|
 | 8 Serial Transport | 已完成 | 无专门测试文件 |
 | 9 Telnet Transport | 已完成 | — |
-| 10 `SessionManager` | 部分完成 | 实现完整（注册/查找/关闭/重连/自动回收，无 `activeSession`），但**生产代码零使用**：`SessionManager` 与 `SessionFactory` 在 `src/ui/`、`src/main.cpp` 中均无命中，会话集合实际由 `TerminalPage::_terminalViews` 这个 View 列表隐式代表；`create(profileId, overrides)` 与 `restore` 未实现 |
-| 11 attach/detach 与后台策略 | 部分完成 | `TerminalSession::detach()` 实际就是 `close(CloseMode::Graceful)`（`TerminalSession.cpp:290-293`），与"detach 不关闭 Session"直接冲突；可见性→GPU 帧策略缺失（`RenderScheduler`/`TerminalView` 无 `isVisible`/`occluded` 逻辑，`setTargetRefreshRate` 无人按可见性调用）|
-| 12 持久化分层 | 部分完成 | `SessionStore`、`CredentialStore` 已接入 `SessionPanel`；`ProfileStore` 只有 `MemoryProfileStore`（`ProfileStore.h:88`，基类接口在 `ProfileStore.h:40`），无持久化实现，生产代码仅用其静态方法 `containsSensitiveValues` |
+| 10 会话集合管理 | 已完成（采纳 View-owned） | 会话集合即 `TerminalPage::_terminalViews`（每 Tab 一个 View、各拥有一个 Session）。原 `SessionManager`（Manager-owns 注册表）已删除。跨标签的枚举/统一关闭由 `TerminalPage` 直接遍历 View 完成 |
+| 11 attach/detach | 已完成（采纳 View-owned） | 1:1 模型下 `TerminalView::detach()` 走 `TerminalSession::detach()`≈`close(Graceful)` 后由 `resetForReuse()` 复用同一 Session 承接下一次连接（`attachTransport`）；这是采纳语义，不再是「与设计冲突」。可见性→GPU 帧策略仍缺失（`RenderScheduler`/`TerminalView` 无 `isVisible`/`occluded` 逻辑），列为剩余项 |
+| 12 持久化分层 | 部分完成 | `SessionStore`、`CredentialStore` 已接入 `SessionPanel`；`ProfileStore` 只有 `MemoryProfileStore`（`ProfileStore.h:88`，基类接口在 `ProfileStore.h:40`），无持久化实现，生产代码仅用其静态方法 `containsSensitiveValues`。**仍待做** |
 | 13 重连与恢复 | 部分完成 | `SessionStatistics::generation` 已投入消费：`connectTransportSignals()` 把世代号绑进每个处理器，`start()`/`beginReconnect()` 自增后调用 `rewireTransportSignals()` 重建接线。但**跨线程投递的信号仍无法靠 generation 识别**——SshTransport/LocalShellTransport 用 `invokeMethod(QueuedConnection)` 把 emit 推迟到 GUI 线程，emit 发生在重接线之后，世代号已是新值，故 `isConnected()` 启发式必须保留。彻底解法需把 generation 写进 ITransport 的信号契约（属步骤 5 的接口变更）。另无指数退避、最大重试次数与最大间隔 |
 | 14 压力验证与切换 | 部分完成 | `tests/transport/TransportContractTests.cpp` 不存在，四种 Transport 各写一套独立测试（SSH 那份还不是 QTest）；SSH 无压力/泄漏/背压测试；无多 Session 并发输出测试；无 sanitizer 配置 |
 
@@ -145,52 +158,68 @@ CPU、内存、交换指标名采用 12 px，数值详情、速率、进度条�
 
 ## 剩余工作
 
-按依赖排序，第 1 项是其余多数缺口的前置条件：
+采纳 View-owned 架构后，原「接入 SessionManager」及其派生项已作废。剩下的都是
+**自包含**项，互不依赖已放弃的编排层，可按需单独取用：
 
-1. **把 `SessionManager`/`SessionFactory` 接入生产路径。** 当前 `TerminalPage` 每个 Tab 直接 `new TerminalView`、由 View 自建并持有 Session，这是 P6"建立完整多会话生命周期"未落地的根因。detach 语义、结构化错误上抛、Challenge 发布层都需要先有编排层才有落点。
-2. **`close(CloseMode)` 区分 Graceful 与 Abort**，并让 `detach()` 只解除显示关联、不关闭 Session。
-3. ~~**Session 级 generation 投入消费**~~ —— 已完成（2026-09-02），但只覆盖同线程场景。剩余：把 generation 写进 ITransport 信号契约，才能覆盖跨线程投递（并进而移除 `isConnected()` 启发式）。
-4. **SSH Challenge 层**：把 host-key、password、passphrase、keyboard-interactive 统一为带 SessionId/generation/ChallengeId 的结构化请求，移除 `TerminalView` 对 `SshTransport` 的 `qobject_cast`。
-5. ~~**`transportError` 接到 Session**~~ —— 已完成（2026-09-02）。剩余：`exited` 到 UI 仍断链。
-6. ~~**修复 ConPTY 句柄回收**~~ —— 已查明为平台缺陷，本项目无法修复，见步骤 6 行。
-7. **建立 `TransportContractTests`**，四种 Transport 跑同一套契约；补 Serial 测试与 SSH 压力测试。
-8. **可见性→GPU 帧策略**（步骤 11）。
-9. **`ProfileStore` 持久化实现**（步骤 12）。
+1. **keyboard-interactive SSH 认证**（唯一真实功能缺口）。连到要求该方式的服务器
+   目前会失败；password / host-key / pubkey 均已支持。`novaterm_ssh_transport_check`
+   可部分兜底。
+2. **`close(CloseMode)` 区分 Graceful 与 Abort**（步骤 4）。当前 `close()` 忽略
+   `mode`；正常 UI 关闭走 Graceful、析构走有界 Abort。1:1 模型下 `detach()`
+   继续等价 Graceful 关闭 + `resetForReuse()` 复用，无需改为「不关闭」。
+3. **`exited` 接到 UI**（步骤 5）。`TerminalSession::exited` 目前无消费者，本地
+   shell 退出码/原因未在 UI 呈现。
+4. **`ProfileStore` 持久化实现**（步骤 12）。现只有 `MemoryProfileStore`。
+5. **建立 `TransportContractTests`**（步骤 14），四种 Transport 跑同一套契约；补
+   Serial 测试与 SSH 压力/背压测试。
+6. **可见性→GPU 帧策略**（步骤 11）：隐藏/遮挡的 View 降低刷新率。
+7. （可选）**把 generation 写进 ITransport 信号契约**（步骤 13），覆盖跨线程投递
+   后可移除 `isConnected()` 启发式；无退避策略也在此项。
+
+已作废（随架构决策）：接入 `SessionManager`、`detach()` 改为不关闭 Session、
+结构化 Challenge 层（View 直接处理 host-key 决策在 1:1 模型下自洽）、1 Session→N
+Views。已查明非本项目缺陷：ConPTY 句柄回收（平台缺陷，步骤 6）。
 
 ## 目标
 
-建立完整多会话生命周期，将当前散落在 TerminalView 的 Transport、输入暂存和 Core 组合职责下沉，并补齐 SSH、Serial、Telnet。
+以「1 TerminalView 拥有 1 TerminalSession」为运行期单元，把 Transport、输入暂存
+（InputPump）和 Core 组合收拢在 Session 内，四种 Transport（Local/SSH/Serial/
+Telnet）共享同一数据通路。每个标签一个 View、各自拥有并驱动一个 Session 的完整
+生命周期；跨标签的集合由 `TerminalPage` 的 View 列表代表。
 
-## 目标结构
+## 结构
 
 ```mermaid
 flowchart TB
-    W[Workspace/Tab/Pane Manager] -->|attach/detach| V[TerminalView]
-    M[SessionManager] --> S1[TerminalSession A]
-    M --> S2[TerminalSession B]
-    V -->|non-owning attach/detach| S1
-    S1 --> T[ITransport]
-    S1 --> IP[SessionInputPump]
-    S1 --> C[TerminalCore/Worker]
-    S1 --> ST[State + RuntimeConfig Snapshot]
+    P[TerminalPage<br/>标签集合 = View 列表] -->|每 Tab 一个| V[TerminalView]
+    V -->|拥有 owns| S[TerminalSession]
+    V --> R[TerminalRenderer]
+    S --> T[ITransport]
+    S --> IP[SessionInputPump]
+    S --> C[TerminalCore/Worker]
+    S --> ST[State + RuntimeConfig Snapshot]
     PS[ProfileStore] --> F[SessionFactory]
     SS[SessionStore] --> F
     CS[CredentialStore] --> F
-    F --> M
+    F -.创建后交给.-> V
     IP --> C
     T <--> IP
+    R -->|只读| C
 ```
+
+`SessionFactory` 按 Profile/overrides/credentialRef 解析出 `RuntimeConfig` 并创建
+`TerminalSession`，交给拥有它的 `TerminalView`。不存在独立于 View 的会话注册表。
 
 ## 开发重点
 
-1. 先引入轻量 TerminalSession，保持单会话行为不变。
-2. 把 `_pendingTransportInput`、暂停/恢复和 overload 从 TerminalView 移至 InputPump。
+1. `TerminalSession` 为轻量运行期单元，聚合一个 `ITransport` + 一个 `TerminalCore` + `SessionInputPump`。
+2. `_pendingTransportInput`、暂停/恢复和 overload 已从 TerminalView 下沉到 InputPump。
 3. Session 统一 start、close、resize、reconnect、错误、title、activity 和状态机。
-4. SessionManager 只管理 Session 注册、创建、查找、关闭、恢复和资源回收；当前激活 Tab/Pane/Window 属于 Workspace/UI 层。
-5. 明确 View 与 Session 生命周期独立：Session 可无 View 后台运行，View detach 不关闭 Session，Session 不反向持有 View/Renderer。
+4. **会话集合 = `TerminalPage` 的 View 列表**：每个 Tab 一个 `TerminalView`、各拥有一个 Session。当前激活 Tab/Window 由 UI 层管理，不引入独立会话注册表。
+5. **1 View : 1 Session，View 拥有 Session**：View 自建、驱动、销毁其 Session；Session 不反向持有 View/Renderer（不得保存 `TerminalView*`/`QWidget*`/GPU 资源）。Session 随其 View 存活，不做「无 View 后台运行」。
 6. 扩展 ITransport：异步连接/关闭、部分写、写队列、bytesWritten、错误类别、keepalive 和 reconnect。
 7. 接入顺序：Local PTY/ConPTY → SSH → Serial → Telnet → Custom。Local/SSH/Serial/Telnet 四种 Transport 均已实现；Custom 仍需外部工厂，`SessionFactory::create()` 目前对其返回错误。
-8. 后台策略由 View/RenderScheduler 根据可见性决定；无 View 时不请求 GPU 帧，但 Parser、Scrollback 和连接继续保持正确。
+8. 后台策略由 View/RenderScheduler 根据可见性决定：隐藏/遮挡时降低 GPU 帧率，但 Parser、Scrollback 和连接继续保持正确。
 9. Profile、RuntimeConfig、Session 恢复元数据和 Credential 分层保存，禁止把敏感凭据直接序列化到 Profile/Session 文件。
 
 ## 落地实现步骤
@@ -234,14 +263,14 @@ signals:
 };
 ```
 
-Session 不持有 TerminalRenderer；View 可以 attach/detach Session，Renderer 读取 Session 暴露的 Core/Snapshot。这样后台 Session 可以没有 View。
+Session 不持有 TerminalRenderer；拥有它的 View 读取 Session 暴露的 Core/Snapshot 交给 Renderer。
 
-Ownership 必须明确：
+Ownership 必须明确（采纳 View-owned 架构）：
 
-- `SessionManager` 拥有/注册 `TerminalSession`；
+- `TerminalView` 拥有其 `TerminalSession`（自建、驱动、销毁；`_ownsSession` 默认 true）；
 - `TerminalSession` 拥有或独占其 `ITransport`、`SessionInputPump` 和 Core/Worker；
-- `TerminalView` 只保存对 Session 的非 owning 引用（例如 `QPointer`/weak reference），detach 后引用失效但 Session 不关闭；
-- `TerminalSession`、`SessionManager`、`TerminalCore` 禁止保存 `TerminalView*`、`QWidget*`、Renderer 或任何 GPU 资源。
+- `TerminalSession`、`TerminalCore` 禁止保存 `TerminalView*`、`QWidget*`、Renderer 或任何 GPU 资源（单向依赖 UI→Session）；
+- Session 随其 View 存活；View 关闭即关闭其 Session（Graceful），不做无 View 后台会话。
 
 Session 对 UI 只暴露状态、事件、Snapshot 和命令接口。Session 负责描述“发生了什么”，UI 决定“如何展示”。例如 Session 只发送 `titleChanged`、`activityChanged`、`errorOccurred`，不得直接修改 Tab 标题、弹 QMessageBox 或操作状态栏。
 
@@ -318,33 +347,44 @@ Telnet 层负责 IAC 协商、字节转义、NAWS、终端类型和二进制模�
 
 NAWS 在对端回 `DO NAWS` 之前只缓存尺寸、不发报文，协商成功时立即补报；对端回 `DONT NAWS` 后不再发送，不伪装成功（与步骤 8 中 Serial 的 no-op resize 同一原则）。子协商载荷内的 `0xFF` 由 `telnet_subnegotiation()` 加倍，终端恰好 255 列时报文不会被截断。
 
-### 步骤 10：实现 `SessionManager`
+### 步骤 10：会话集合（View-owned，无独立 Manager）
 
-Manager 以 SessionId 保存 Session，提供 create、find、list、close、closeAll、restore 和资源回收。Manager 不成为大锁：每个 Session 独立 Worker/队列/状态，列表锁不覆盖 Transport 或关闭等待。
-
-`SessionManager` 不管理 UI 的 current/active Session。当前 Window/Tab/Pane 的激活关系属于 Workspace/Tab/Pane Manager；多窗口场景下可以同时存在多个“当前 Session”。若需要根据可见性调整展示策略，应由 View/Workspace 计算 presentation state，再通知 RenderScheduler，而不是在 SessionManager 中维护单一 `activeSession`。
+**本步骤原为「实现 SessionManager」，随 2026-09-11 架构决策作废。** 采纳的模型下
+会话集合就是 `TerminalPage::_terminalViews`——每个 Tab 一个 `TerminalView`、各拥有
+一个 `TerminalSession`。跨标签的枚举、closeAll、按标签查找都由 `TerminalPage`
+直接遍历 View 完成，不引入独立的 SessionId 注册表。当前激活 Tab/Window 的关系属于
+UI 层（`TerminalTabWidget`/`TerminalPage`）。生产零使用的 `SessionManager` 类已删除。
 
 ```mermaid
 sequenceDiagram
-    participant UI
-    participant M as SessionManager
+    participant UI as TerminalPage/Tab
+    participant V as TerminalView
     participant F as SessionFactory
     participant S as TerminalSession
-    UI->>M: create(profileId, overrides)
-    M->>F: resolve profile + transport
-    F-->>M: session
-    M-->>UI: SessionId
-    M->>S: start
-    S-->>UI: stateChanged
+    UI->>V: new TerminalView（新标签）
+    V->>F: resolve profile + transport（或本地自建）
+    F-->>V: TerminalSession（交 View 拥有）
+    V->>S: start
+    S-->>V: stateChanged / title / error
+    UI->>V: 关闭标签
+    V->>S: close(Graceful) + 销毁
 ```
 
-### 步骤 11：View attach/detach 与后台策略
+### 步骤 11：View 拥有 Session 与后台策略
 
-TerminalView attach Session 时连接 title、activity、state、Snapshot/update 事件和必要的 Core 只读接口；detach 只释放显示关联，不关闭 Session。架构层面允许 `1 Session -> 0..N Views`，即使 P6 首版只实现单 View，也禁止把一对一 ownership 写死。
+**原为「attach/detach 与非 owning 后台策略」，随架构决策改写。** 采纳的模型是
+`1 View : 1 Session`、View 拥有 Session：View 构造时自建 Session、连接 title/
+activity/state 等事件与 Core 只读接口，销毁时关闭其 Session。同一 Session 在其
+生命周期内被同一 View 复用（`detach()`+`resetForReuse()` 承接下一次连接）。不做
+`1 Session -> N Views`，也不做无 View 的后台会话。
 
-前台目标刷新率正常；隐藏 View 降低 RenderScheduler 频率；无 View 时不请求 GPU 帧。Parser、Scrollback、Search 和连接仍按策略运行。Session 本身不维护“渲染频率”或“当前 Tab”状态。
+前台目标刷新率正常；隐藏/遮挡的 View 应降低 `RenderScheduler` 频率（此项仍待实现，
+见剩余工作）。Parser、Scrollback、Search 和连接按策略运行。渲染频率/当前 Tab 状态
+属 View/UI，不进 Session。
 
-Session 再次 attach 时获取最新 Snapshot 并全屏重建。Snapshot 必须是线程安全的 CPU-side 数据，不包含 QWidget、Renderer、Texture、GlyphAtlas、SwapChain 等 GPU/UI 对象，并携带 revision/generation 以便 View 判断是否需要全量重建或增量刷新。GPU 资源只属于 View/Renderer，不放入 SessionManager。
+Snapshot 必须是线程安全的 CPU-side 数据，不包含 QWidget、Renderer、Texture、
+GlyphAtlas、SwapChain 等 GPU/UI 对象，并携带 revision/generation 供 View 判断
+全量重建或增量刷新。GPU 资源只属于 View/Renderer。
 
 ### 步骤 12：会话参数持久化与恢复存储
 
@@ -372,7 +412,7 @@ RuntimeConfig Snapshot
 TerminalSession
 ```
 
-配置文件具体采用 JSON、SQLite 或 QSettings 不在 P6 强制指定，但 Store 接口必须隔离存储格式，避免 SessionManager/Transport 依赖具体序列化实现。
+配置文件具体采用 JSON、SQLite 或 QSettings 不在 P6 强制指定，但 Store 接口必须隔离存储格式，避免 Session/Transport 依赖具体序列化实现。
 
 ### 步骤 13：重连和恢复
 
@@ -388,15 +428,15 @@ Reconnect 创建新的 Transport connection generation，但保持 SessionId；C
 
 | 状态/资源 | 所属层 | 说明 |
 | --- | --- | --- |
-| Transport connection / reconnect policy | Session | 与 View 生命周期无关 |
+| Transport connection / reconnect policy | Session | 生命周期随其拥有的 View |
 | RuntimeConfig | Session | 创建时解析后的运行期快照 |
-| Terminal screen / scrollback / parser state | Core/Session | 后台也必须保持正确 |
+| Terminal screen / scrollback / parser state | Core/Session | 由 View 拥有的 Session 持有 |
 | title / activity / error | Session event | Session 产生事件，UI 决定展示方式 |
-| current Tab / active Pane / Window focus | Workspace/UI | 禁止放入 SessionManager |
-| View scroll position / selection | View | 属于具体 View，同一 Session 的多个 View 可不同 |
+| current Tab / Window focus | UI（TerminalPage/TabWidget） | 不进入 Session |
+| View scroll position / selection | View | 属于具体 View |
 | Font / Scheme | View/Presentation config | 可由 Profile 提供默认值，但实际渲染资源属于 View |
-| GPU glyph cache / texture / swapchain | Renderer | 禁止进入 Session/Manager |
-| Tab 顺序 / split layout | Workspace | 若需要持久化，应进入 WorkspaceStore |
+| GPU glyph cache / texture / swapchain | Renderer | 禁止进入 Session |
+| Tab 顺序 / split layout | UI | 若需要持久化，应进入独立 WorkspaceStore |
 | password / token / private-key passphrase | CredentialStore | Profile/Session 只保存 credentialRef |
 
 依赖方向必须保持为 `UI -> Session API -> Core/Transport`，Session/Core/Transport 不允许反向依赖具体 UI 类型。
@@ -408,8 +448,7 @@ Reconnect 创建新的 Transport connection generation，但保持 SessionId；C
 | `src/session/SessionTypes.h` | ID、状态、错误和配置 |
 | `src/session/TerminalSession.*` | 生命周期和信号编排 |
 | `src/session/SessionInputPump.*` | 分片、pending 和背压 |
-| `src/session/SessionManager.*` | 多会话注册与管理 |
-| `src/session/SessionFactory.*` | Profile/overrides/credentialRef 到 RuntimeConfig、Session/Transport |
+| `src/session/SessionFactory.*` | Profile/overrides/credentialRef 到 RuntimeConfig、Session/Transport；创建后交拥有的 View |
 | `src/session/SessionStore.*` | Session restore metadata 持久化接口 |
 | `src/profile/ProfileStore.*` | Profile 模板持久化接口 |
 | `src/credential/CredentialStore.*` | 敏感凭据存取，Profile 仅保存引用 |
@@ -426,14 +465,12 @@ Serial Transport 目前**没有对应测试文件**（见"实现进度"步骤 8 
 ## 实施禁止项
 
 - 禁止 TerminalView 继续拥有 pending Transport 字节；
-- 禁止 TerminalSession、SessionManager、TerminalCore、Transport 保存 `TerminalView*`、`QWidget*`、Renderer 或 GPU 资源；
-- 禁止 SessionManager 保存全局唯一 `activeSession` 作为 Tab/Window 激活状态；
-- 禁止把 current Tab、Pane 布局、Selection、View scroll position 等 UI 状态塞入 Session；
-- 禁止 SessionManager 用单个大锁包围所有 Session I/O；
+- 禁止 TerminalSession、TerminalCore、Transport 保存 `TerminalView*`、`QWidget*`、Renderer 或 GPU 资源（依赖单向 UI→Session）；
+- 禁止把 current Tab、Selection、View scroll position 等 UI 状态塞入 Session；
 - 禁止 Transport 理解 ANSI、Cell 或 Renderer；
 - 禁止密码、token、私钥口令写入 Profile、SessionStore 或日志，只允许保存 credentialRef；
 - 禁止迟到 callback 操作已关闭或新 generation Session；
-- 禁止后台 Session 继续无意义地产生高频 GPU 帧；
+- 禁止隐藏/遮挡的 View 继续无意义地产生高频 GPU 帧；
 - 禁止用阻塞 GUI 的连接、认证或关闭流程；
 - 禁止不同 Transport 绕过 InputPump/Core 建立第二数据通路。
 
@@ -455,8 +492,16 @@ stateDiagram-v2
 
 ## 测试
 
-反复创建/关闭、连接失败、断线重连、关闭时大输出、resize 风暴、部分写、后台多会话并发、应用退出。增加 attach/detach 后 Session 继续运行、Session 关闭时 View 引用安全失效、一个 Session 多 View（至少 contract test）、Profile 修改不污染运行 RuntimeConfig、Session restore metadata round-trip、Credential 不落盘到 Profile/SessionStore 等测试。使用 sanitizer/平台诊断验证无 UAF、线程和句柄泄漏。
+反复创建/关闭、连接失败、断线重连、关闭时大输出、resize 风暴、部分写、多标签
+（多 View × 各自 Session）并发输出、应用退出。增加：Session 关闭后 View 拆卸不
+UAF、`detach()`+`resetForReuse()` 复用同一 Session 承接新连接、Profile 修改不
+污染运行中 RuntimeConfig、Session restore metadata round-trip、Credential 不落盘
+到 Profile/SessionStore 等测试。使用 sanitizer/平台诊断验证无 UAF、线程和句柄泄漏。
 
 ## 退出标准
 
-Local/SSH/Serial/Telnet 共享同一数据通路；多 Session 互不阻塞；View 不保存 Transport 输入；Session 生命周期不依赖 View；Session/Manager/Core/Transport 不反向依赖 UI 类型；后台无不必要高频 GPU 帧；Profile/Session/Credential 分层持久化；restore 与 reconnect 语义分离；所有状态和错误可观察；压力关闭可靠。
+Local/SSH/Serial/Telnet 共享同一数据通路；多标签会话互不阻塞；View 不保存
+Transport 输入；每个 View 拥有并驱动一个 Session 的完整生命周期；Session/Core/
+Transport 不反向依赖 UI 类型；隐藏/遮挡 View 不产生不必要高频 GPU 帧；Profile/
+Session/Credential 分层持久化；restore 与 reconnect 语义分离；所有状态和错误
+可观察；压力关闭可靠。

@@ -26,7 +26,7 @@ flowchart LR
 | P3 | 实现与 Vulkan/OpenGL 实机 60 FPS 跑分完成（2026-08-01）；待高刷新率、资源恢复与人工视觉验收 | 调度、脏行、局部上传 | 单 Cell 不全屏扫描，60 FPS 实测 |
 | P4 | 已完成（2026-08-01） | Chunk、快照、reflow、搜索 | 百万行内存受控，搜索不阻塞 |
 | P5 | 实施完成；Linux Vulkan/OpenGL、Windows D3D11/D3D12 与 30 分钟长稳验收完成（2026-08-02）；macOS Metal、多屏 DPR 与 120/144 Hz 验收待完成 | 多页 Atlas、fallback、instancing | CJK/Emoji/DPI 正确且上传增量化 |
-| P6 | 进行中：Transport 完成，编排层未接入 | Session、Manager、SSH/Serial/Telnet | 多会话隔离、完整生命周期 |
+| P6 | 进行中：Transport 四种完成，会话编排采用「1 View 拥有 1 Session」已在生产；剩少量自包含项 | Session（View-owned）、SSH/Serial/Telnet | 每 View 一会话、完整生命周期 |
 | P7 | 计划中（依赖核心数据通路与 Session API 稳定） | 权限化插件 API | 插件失败不影响主通路 |
 
 ## 3. 跨阶段质量门
