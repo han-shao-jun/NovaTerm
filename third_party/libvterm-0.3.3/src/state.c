@@ -565,22 +565,23 @@ static int settermprop_string(VTermState *state, VTermProp prop, VTermStringFrag
 
 static void savecursor(VTermState *state, int save)
 {
+  const int bufidx = state->mode.alt_screen ? BUFIDX_ALTSCREEN : BUFIDX_PRIMARY;
   if(save) {
-    state->saved.pos = state->pos;
-    state->saved.mode.cursor_visible = state->mode.cursor_visible;
-    state->saved.mode.cursor_blink   = state->mode.cursor_blink;
-    state->saved.mode.cursor_shape   = state->mode.cursor_shape;
+    state->saved[bufidx].pos = state->pos;
+    state->saved[bufidx].mode.cursor_visible = state->mode.cursor_visible;
+    state->saved[bufidx].mode.cursor_blink   = state->mode.cursor_blink;
+    state->saved[bufidx].mode.cursor_shape   = state->mode.cursor_shape;
 
     vterm_state_savepen(state, 1);
   }
   else {
     VTermPos oldpos = state->pos;
 
-    state->pos = state->saved.pos;
+    state->pos = state->saved[bufidx].pos;
 
-    settermprop_bool(state, VTERM_PROP_CURSORVISIBLE, state->saved.mode.cursor_visible);
-    settermprop_bool(state, VTERM_PROP_CURSORBLINK,   state->saved.mode.cursor_blink);
-    settermprop_int (state, VTERM_PROP_CURSORSHAPE,   state->saved.mode.cursor_shape);
+    settermprop_bool(state, VTERM_PROP_CURSORVISIBLE, state->saved[bufidx].mode.cursor_visible);
+    settermprop_bool(state, VTERM_PROP_CURSORBLINK,   state->saved[bufidx].mode.cursor_blink);
+    settermprop_int (state, VTERM_PROP_CURSORSHAPE,   state->saved[bufidx].mode.cursor_shape);
 
     vterm_state_savepen(state, 0);
 
@@ -826,8 +827,12 @@ static void set_dec_mode(VTermState *state, int num, int val)
     break;
 
   case 1049:
+    /* 进入前保存主屏光标，退出后再从主屏保存槽恢复。 */
+    if(val)
+      savecursor(state, 1);
     settermprop_bool(state, VTERM_PROP_ALTSCREEN, val);
-    savecursor(state, val);
+    if(!val)
+      savecursor(state, 0);
     break;
 
   case 2004:
@@ -1477,8 +1482,16 @@ static int on_csi(const char *leader, const long args[], int argcount, const cha
 
     break;
 
-  case 0x73: // DECSLRM - DEC custom
-    // Always allow setting these margins, just they won't take effect without DECVSSM
+  case 0x75: // SCORC
+    savecursor(state, 0);
+    break;
+
+  case 0x73: // SCOSC / DECSLRM
+    // 未开启左右边距模式时，CSI s 是保存光标，不能重置边距或归位。
+    if(!state->mode.leftrightmargin) {
+      savecursor(state, 1);
+      break;
+    }
     state->scrollregion_left = CSI_ARG_OR(args[0], 1) - 1;
     state->scrollregion_right = argcount < 2 || CSI_ARG_IS_MISSING(args[1]) ? -1 : CSI_ARG(args[1]);
     LBOUND(state->scrollregion_left, 0);

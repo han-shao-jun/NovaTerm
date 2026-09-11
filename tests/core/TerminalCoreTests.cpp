@@ -52,6 +52,11 @@ private slots:
     void reverseIndexScrollPreservesContent();
     void partialScrollRegionPreservesOutsideRows();
     void alternateScreenKeepsIndependentRowRing();
+    void alternateScreenPreservesSavedCursor_data();
+    void alternateScreenPreservesSavedCursor();
+    void ansiCursorSaveRestoreDoesNotMoveOrDamage();
+    void cursorSaveRespectsLeftRightMarginMode();
+    void cursorProbeBeforeAlternateScreenRestoresShellPosition();
     void boundedByteQueuePreservesOrderAndBackpressure();
     void boundedByteQueueWakesBlockedProducer();
     void parserInputBackpressureDoesNotBlockCaller();
@@ -1108,6 +1113,133 @@ void TerminalCoreTests::altLetterSendsMetaEscapePrefix()
     for (const auto& arguments : outputSpy)
         output += arguments.at(0).toByteArray();
     QCOMPARE(output, QByteArrayLiteral("\x1b""a"));
+}
+
+
+void TerminalCoreTests::alternateScreenPreservesSavedCursor_data()
+{
+    QTest::addColumn<QByteArray>("save");
+    QTest::addColumn<QByteArray>("restore");
+    QTest::addColumn<bool>("fragmented");
+    for (const bool fragmented : {false, true}) {
+        const QByteArray suffix = fragmented ? "-fragmented" : "-batched";
+        QTest::newRow(("dec" + suffix).constData())
+            << QByteArray("\x1b" "7") << QByteArray("\x1b" "8") << fragmented;
+        QTest::newRow(("ansi" + suffix).constData())
+            << QByteArray("\x1b[s") << QByteArray("\x1b[u") << fragmented;
+        QTest::newRow(("1048" + suffix).constData())
+            << QByteArray("\x1b[?1048h") << QByteArray("\x1b[?1048l") << fragmented;
+    }
+}
+
+void TerminalCoreTests::alternateScreenPreservesSavedCursor()
+{
+    QFETCH(QByteArray, save);
+    QFETCH(QByteArray, restore);
+    QFETCH(bool, fragmented);
+    TerminalCore core(40, 12);
+    const auto feed = [&core, fragmented](const QByteArray& bytes) {
+        if (!fragmented) {
+            core.writeInput(bytes);
+            return core.waitForIdle();
+        }
+        for (const char byte : bytes) {
+            core.writeInput(QByteArray(1, byte));
+            if (!core.waitForIdle())
+                return false;
+        }
+        return true;
+    };
+    // 重复进入/退出，验证主屏正文、光标属性、画笔与保存槽均不受备用屏污染。
+    for (int iteration = 0; iteration < 2; ++iteration) {
+        QVERIFY(feed("\x1b[10;1Hshell$\x1b[31m\x1b[4 q\x1b[?25h"));
+        const auto primary = core.snapshot();
+        QVERIFY(feed("\x1b[?1049h\x1b[2;3H\x1b[32m\x1b[6 q"
+                     + save + "\x1b[5;9H\x1b[34m\x1b[2 q" + restore));
+        QVERIFY(core.terminalState().alternateScreen);
+        QCOMPARE(core.cursorPosition().row, 1);
+        QCOMPARE(core.cursorPosition().col, 2);
+        QCOMPARE(core.cursorShape(), NovaTerm::CursorShape::BarLeft);
+        QVERIFY(feed("A"));
+        QCOMPARE(core.snapshot().cellAt(1, 2)->foreground.index, uint8_t(2));
+        QVERIFY(feed("\x1b[?1049l"));
+        QVERIFY(!core.terminalState().alternateScreen);
+        QCOMPARE(core.cursorPosition().row, 9);
+        QCOMPARE(core.cursorPosition().col, 6);
+        QCOMPARE(core.cursorShape(), NovaTerm::CursorShape::Underline);
+        QVERIFY(core.cursorVisible());
+        const auto restored = core.snapshot();
+        for (int row = 0; row < primary.rows; ++row) {
+            for (int col = 0; col < primary.columns; ++col)
+                QCOMPARE(restored.cellAt(row, col)->chars, primary.cellAt(row, col)->chars);
+        }
+        QVERIFY(feed("X"));
+        QCOMPARE(core.snapshot().cellAt(9, 6)->foreground.index, uint8_t(1));
+    }
+}
+
+void TerminalCoreTests::ansiCursorSaveRestoreDoesNotMoveOrDamage()
+{
+    TerminalCore core(40, 12);
+    core.writeInput(QByteArrayLiteral("\x1b[10;7H"));
+    QVERIFY(core.waitForIdle());
+    QCoreApplication::processEvents();
+    QSignalSpy damage(&core, &TerminalCore::damage);
+    core.writeInput(QByteArrayLiteral("\x1b[s"));
+    QVERIFY(core.waitForIdle());
+    QCOMPARE(core.cursorPosition().row, 9);
+    QCOMPARE(core.cursorPosition().col, 6);
+    core.writeInput(QByteArrayLiteral("\x1b[H\x1b[u"));
+    QVERIFY(core.waitForIdle());
+    QCOMPARE(core.cursorPosition().row, 9);
+    QCOMPARE(core.cursorPosition().col, 6);
+    QCoreApplication::processEvents();
+    QCOMPARE(damage.count(), 0);
+}
+
+
+void TerminalCoreTests::cursorSaveRespectsLeftRightMarginMode()
+{
+    TerminalCore core(40, 12);
+    // DECLRMM 开启后 CSI s 仍须设置左右边距；关闭后才解释为保存光标。
+    core.writeInput(QByteArrayLiteral("\x1b[?69h\x1b[5;20s\x1b[?6hX"));
+    QVERIFY(core.waitForIdle());
+    QCOMPARE(core.cursorPosition().col, 5);
+    QCOMPARE(core.snapshot().cellAt(0, 4)->chars[0], uint32_t('X'));
+    core.writeInput(QByteArrayLiteral("\x1b[?6l\x1b[?69l\x1b[8;9H\x1b[s"));
+    QVERIFY(core.waitForIdle());
+    // 带私有前缀的 u（例如键盘协议查询）不能被误当成 SCORC。
+    core.writeInput(QByteArrayLiteral("\x1b[2;3H\x1b[?u\x1b[>1u\x1b[<u"));
+    QVERIFY(core.waitForIdle());
+    QCOMPARE(core.cursorPosition().row, 1);
+    QCOMPARE(core.cursorPosition().col, 2);
+    core.writeInput(QByteArrayLiteral("\x1b[u"));
+    QVERIFY(core.waitForIdle());
+    QCOMPARE(core.cursorPosition().row, 7);
+    QCOMPARE(core.cursorPosition().col, 8);
+}
+
+
+void TerminalCoreTests::cursorProbeBeforeAlternateScreenRestoresShellPosition()
+{
+    TerminalCore core(40, 12);
+    // 模拟通用 TUI 的启动探测：保存位置、临时归位探测、恢复，再进入备用屏。
+    // 主屏光标下方刻意留旧正文，确保退出不会把光标插到旧输出前面。
+    core.writeInput(QByteArrayLiteral("\x1b[11;1Hprevious-output\x1b[10;1Hshell$"));
+    QVERIFY(core.waitForIdle());
+    const auto before = core.snapshot();
+    core.writeInput(QByteArrayLiteral(
+        "\x1b[s\x1b[H\x1b[6n\x1b[u\x1b[s\x1b[?1049h"
+        "\x1b[2J\x1b[2;3HTUI\x1b[?1049l"));
+    QVERIFY(core.waitForIdle());
+    const auto after = core.snapshot();
+    QCOMPARE(after.cursor.position.row, before.cursor.position.row);
+    QCOMPARE(after.cursor.position.col, before.cursor.position.col);
+    QVERIFY(!core.terminalState().alternateScreen);
+    for (int row = 0; row < before.rows; ++row) {
+        for (int col = 0; col < before.columns; ++col)
+            QCOMPARE(after.cellAt(row, col)->chars, before.cellAt(row, col)->chars);
+    }
 }
 
 QTEST_GUILESS_MAIN(TerminalCoreTests)

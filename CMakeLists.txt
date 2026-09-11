@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(NovaTerm VERSION 0.1.185 LANGUAGES CXX)
+project(NovaTerm VERSION 0.1.186 LANGUAGES CXX)
 
 # 主工程显式采用平台标准安装目录，避免依赖第三方子项目间接初始化这些变量。
 include(GNUInstallDirs)

@@ -330,6 +330,15 @@ P3 与 P5 实施完成、部分平台或人工验收待做，P7 计划中。
 重发旧尺寸，PowerShell 按错误高度滚动。回归测试为
 `novaterm_terminal_session_tests::terminalViewStartupPreservesPendingSize`。
 
+**`CSI s` 在 DECLRMM 关闭时是保存光标，不是设置左右边距**：vendored
+libvterm 曾无条件按 DECSLRM 处理并把光标归位，同时缺少 `CSI u` 恢复。
+TUI 启动探测发送 `CSI s → CUP → CSI u` 后，进入备用屏就会保存错误位置，
+退出时光标落在旧输出之前。解析器现按 DECLRMM 分流并支持 SCORC；主屏与
+备用屏的光标/画笔保存槽分别保存，1049 进入前保存、退出后恢复主屏槽。
+不能在 Renderer 或针对某个 TUI 修补。回归见 `TerminalCoreTests` 的
+`cursorProbeBeforeAlternateScreenRestoresShellPosition`、
+`alternateScreenPreservesSavedCursor`、`ansiCursorSaveRestoreDoesNotMoveOrDamage`。
+
 **SCROLL 合并模式的 moverect 不能复制本地旧 Cell**：libvterm 回调延迟到
 flush，内部屏幕已移动并可能继续改写。本地源区域未必同步，必须从 libvterm
 读取当前目标区域。回归测试为

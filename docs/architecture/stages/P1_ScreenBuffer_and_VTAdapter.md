@@ -545,3 +545,50 @@ libvterm 只在 VTAdapter 内、跨线程传不可变快照均不受影响），
 - 更换 Parser 不要求修改 Renderer；
 - Snapshot 稳定；
 - P0 正确性测试继续通过。
+
+
+## 2026-09-11 增量：TUI 退出光标恢复
+
+真实 Linux PTY 捕获确认：TUI 进入备用屏前用 `CSI s` / `CSI u` 保存和恢复
+探测前的位置。vendored libvterm 0.3.3 将 `CSI s` 无条件当作 DECSLRM，重置
+边距并将光标归位，同时没有 `CSI u` 分支。因此 1049 保存的是错误位置，
+退出备用屏后光标出现在主屏旧输出之前。
+
+按 [xterm 控制序列说明](https://invisible-island.net/xterm/ctlseqs/ctlseqs.html)
+修复 `third_party/libvterm-0.3.3/src/state.c`：DECLRMM 关闭时 `CSI s` 保存
+光标，开启时保留左右边距语义；`CSI u` 恢复光标，私有前缀不匹配该分支。
+另将 `vterm_internal.h` 的保存槽按主屏/备用屏分开，`pen.c` 使用相同索引；
+1049 进入前保存主屏槽、退出后恢复，避免备用屏内的保存操作覆盖 shell 状态。
+只修改协议实现，没有应用名称判断；VTAdapter、模型发布、光标 overlay、
+行块缓存及 GPU 增量上传路径保持原有实现。
+
+自动化回归位于 `tests/core/TerminalCoreTests.cpp`：
+
+- `ansiCursorSaveRestoreDoesNotMoveOrDamage`：保存不移动，恢复位置正确，
+  光标操作不产生文本 damage；修复前保存操作实际落到第 1 行。
+- `alternateScreenPreservesSavedCursor`：DEC、ANSI、1048 三种保存/恢复，
+  每种覆盖整批和逐字节分片输入、重复 1049 进入/退出、主屏正文以及光标形状/
+  画笔恢复；修复前主屏光标被备用屏第 2 行的保存位置覆盖。
+- `cursorSaveRespectsLeftRightMarginMode`：保留 DECLRMM 的边距功能，
+  私有 `?u` / `>u` / `<u` 不误作 SCORC。
+- `cursorProbeBeforeAlternateScreenRestoresShellPosition`：启动探测、备用屏
+  绘制、退出连在同一输入批次，核对正文和光标，不依赖退出后的新输出补救。
+
+Linux 本机验收使用临时 `forkpty` 程序启动 `/bin/bash`，链接本次构建的
+`novaterm_core` 与 libvterm，通过实际 VTAdapter 解析 TUI 字节并回应终端查询。
+视口为 120×40，进入前光标位于第 20 行、第 7 列，第 35 行预置旧正文。
+OpenCode、vim（`-Nu NONE -i NONE -n`）、htop 均实际进入并主动退出备用屏；
+同时逐字节重放捕获，检查 1049 退出瞬间的恢复位置。此项是实际进程与解析器
+验收，不等同于桌面窗口的 GPU 截图验收。
+
+验收结果（坐标从 1 开始）：
+
+| 程序 | 1049 退出瞬间 | 进程退出后 | 主屏旧正文 |
+| --- | --- | --- | --- |
+| OpenCode 1.18.30 | 20,7 | 20,7 | 保留 |
+| vim | 20,7 | 20,7 | 保留 |
+| htop | 20,7 | 20,1（退出序列主动发送 CR） | 保留 |
+
+Release 应用构建通过；`novaterm_core_tests`、`novaterm_scrollback_tests`、
+`novaterm_session_tests`、`novaterm_renderer_tests`、`novaterm_renderer_p5_tests`
+通过。没有改动渲染器，不以每次光标移动重建正文来修正坐标。

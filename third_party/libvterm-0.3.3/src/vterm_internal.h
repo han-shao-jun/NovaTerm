@@ -135,7 +135,7 @@ struct VTermState
 
   unsigned int protected_cell : 1;
 
-  /* Saved state under DEC mode 1048/1049 */
+  /* 主屏与备用屏各自保存光标和画笔，避免 TUI 覆盖 shell 的保存槽。 */
   struct {
     VTermPos pos;
     struct VTermPen pen;
@@ -145,7 +145,7 @@ struct VTermState
       unsigned int cursor_blink:1;
       unsigned int cursor_shape:2;
     } mode;
-  } saved;
+  } saved[2];
 
   /* Temporary state for DECRQSS parsing */
   union {
