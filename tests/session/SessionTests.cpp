@@ -1,7 +1,6 @@
 #include "core/terminal/TerminalCore.h"
 #include "credential/CredentialStore.h"
 #include "profile/ProfileStore.h"
-#include "session/SessionManager.h"
 #include "session/SessionStore.h"
 #include "session/TerminalSession.h"
 #include "transport/ITransport.h"
@@ -99,9 +98,8 @@ class SessionTests final : public QObject
 {
     Q_OBJECT
 private slots:
-    void lifecycleAndManagerCleanup();
+    void lifecycleReachesRunningThenClosed();
     void enterReconnectsBySessionType();
-    void managerReconnectsFailedSession();
     void customSessionWithoutCapabilityDoesNotReconnect();
     void runtimeConfigIsSnapshot();
     void restoreMetadataRoundTrip();
@@ -110,22 +108,23 @@ private slots:
     void structuredTransportErrorSetsSessionCategory();
 };
 
-void SessionTests::lifecycleAndManagerCleanup()
+void SessionTests::lifecycleReachesRunningThenClosed()
 {
+    // 采纳「1 TerminalView 拥有 1 Session」架构后，会话生命周期由拥有方
+    // （生产中是 TerminalView）直接驱动，不经 SessionManager。此用例验证
+    // attach→start→Running→close→Closed 的核心生命周期在 TerminalSession
+    // 层面自洽。
     RuntimeConfig config;
     config.title = QStringLiteral("test");
-    auto session = std::make_unique<TerminalSession>(config);
+    TerminalSession session(config);
     auto* transport = new FakeTransport;
-    session->attach(transport);
-    SessionManager manager;
-    QSignalSpy removed(&manager, &SessionManager::sessionRemoved);
-    const SessionId id = manager.add(std::move(session));
-    QVERIFY(!id.isNull());
-    QTRY_COMPARE(manager.find(id)->state(), SessionState::Running);
-    QCOMPARE(manager.size(), 1);
-    QVERIFY(manager.close(id));
-    QTRY_COMPARE(removed.size(), 1);
-    QCOMPARE(manager.size(), 0);
+    session.attach(transport);
+    QSignalSpy states(&session, &TerminalSession::stateChanged);
+    QVERIFY(session.start());
+    QTRY_COMPARE(session.state(), SessionState::Running);
+    session.close(CloseMode::Graceful);
+    QTRY_COMPARE(session.state(), SessionState::Closed);
+    QVERIFY(states.size() >= 2);
 }
 
 void SessionTests::enterReconnectsBySessionType()
@@ -158,26 +157,6 @@ void SessionTests::enterReconnectsBySessionType()
         QVERIFY(!transport->readPaused);
         QCOMPARE(session.statistics().reconnectCount, quint64{1});
     }
-}
-
-void SessionTests::managerReconnectsFailedSession()
-{
-    RuntimeConfig config;
-    config.transportKind = TransportKind::Ssh;
-    auto session = std::make_unique<TerminalSession>(config);
-    auto* transport = new FakeTransport;
-    session->attach(transport);
-
-    SessionManager manager;
-    const SessionId id = manager.add(std::move(session));
-    QVERIFY(!id.isNull());
-    QTRY_COMPARE(manager.find(id)->state(), SessionState::Running);
-
-    transport->simulateRemoteDisconnect();
-    QCOMPARE(manager.find(id)->state(), SessionState::Failed);
-    QVERIFY(manager.reconnect(id));
-    QTRY_COMPARE(manager.find(id)->state(), SessionState::Running);
-    QCOMPARE(transport->connectAttempts, 2);
 }
 
 void SessionTests::customSessionWithoutCapabilityDoesNotReconnect()

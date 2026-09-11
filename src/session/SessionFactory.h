@@ -22,7 +22,7 @@ struct ConnectionProfile;
  * @brief 会话工厂：创建并装配 TerminalSession。
  *
  * 所有 create* 方法返回独立拥有的会话对象，调用方负责管理生命周期
- * （通常转交给 SessionManager）。
+ * （当前架构下由拥有该会话的 TerminalView 管理）。
  */
 class SessionFactory
 {

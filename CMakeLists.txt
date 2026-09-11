@@ -799,8 +799,6 @@ if(BUILD_TESTING)
         src/profile/ProfileStore.h
         src/session/SessionInputPump.cpp
         src/session/SessionInputPump.h
-        src/session/SessionManager.cpp
-        src/session/SessionManager.h
         src/session/SessionStore.cpp
         src/session/SessionStore.h
         src/session/SessionTypes.h

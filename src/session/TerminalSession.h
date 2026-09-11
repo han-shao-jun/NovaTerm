@@ -24,7 +24,8 @@ class TerminalCore;
  * @brief 终端会话：一个终端运行时 + 一条传输连接。
  *
  * 管理 TerminalCore 与 ITransport 的生命周期、信号连接与状态机迁移。
- * 不持有任何 UI/渲染资源，可被 SessionManager 批量管理或独立使用。
+ * 不持有任何 UI/渲染资源，可独立创建/恢复/销毁。当前架构下由拥有它的
+ * TerminalView 管理其生命周期（1 View : 1 Session）。
  */
 class TerminalSession final : public QObject
 {

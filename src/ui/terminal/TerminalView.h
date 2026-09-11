@@ -46,9 +46,11 @@ class TerminalSession;
 //
 // 本地和远程均走同一条路径，不再区分"本地 KPty / 远程 transport"两套机制。
 //
-// 注意：当前 Session 由 View 自建并 parent 自己（_ownsSession 默认 true），这与
-// P6 设计的 "SessionManager 拥有 Session、View 只非 owning attach" 相反；
-// 详见 docs/architecture/stages/P6_Session_and_Transport.md 的实现进度步骤 2。
+// 会话所有权：每个 TerminalView 自建并拥有一个 TerminalSession（_ownsSession
+// 默认 true），全程管理其生命周期（1 View : 1 Session）。这是本项目采纳的
+// 架构；原 P6 设想的 "SessionManager 拥有 Session、View 只非 owning attach"
+// 已放弃，SessionManager 类已移除。详见
+// docs/architecture/stages/P6_Session_and_Transport.md。
 //
 class TerminalView : public QWidget
 {
