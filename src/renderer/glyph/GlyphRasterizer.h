@@ -15,6 +15,11 @@
 #include <QQueue>
 
 #include <optional>
+#include <condition_variable>
+#include <deque>
+#include <functional>
+#include <mutex>
+#include <thread>
 
 namespace NovaTerm {
 
@@ -22,6 +27,7 @@ namespace NovaTerm {
 class GlyphRasterizer
 {
 public:
+    static constexpr qint64 MaxBitmapBytes = 256 * 1024;
     /**
      * @brief 栅格化一个字形。
      * @param key 字形标识。
@@ -75,6 +81,42 @@ private:
     QHash<GlyphKey, bool> _pending;  // 已入队任务的去重集合
     bool _stopped{false};
     Statistics _statistics;
+};
+
+/** @brief 专用光栅 worker；请求至多 512 个，结果至多 32 个有界位图。 */
+class AsyncGlyphRasterizer final
+{
+public:
+    static constexpr qsizetype MaxPendingTasks = 512;
+    static constexpr std::size_t MaxReadyBitmaps = 32;
+    static constexpr qsizetype MaxClusterUnits = 64;
+    using Task = BoundedGlyphRasterQueue::Task;
+    using Statistics = BoundedGlyphRasterQueue::Statistics;
+    AsyncGlyphRasterizer() = default;
+    ~AsyncGlyphRasterizer() { stop(); }
+    AsyncGlyphRasterizer(const AsyncGlyphRasterizer&) = delete;
+    AsyncGlyphRasterizer& operator=(const AsyncGlyphRasterizer&) = delete;
+    AsyncGlyphRasterizer(AsyncGlyphRasterizer&&) = delete;
+    AsyncGlyphRasterizer& operator=(AsyncGlyphRasterizer&&) = delete;
+    void setReadyCallback(std::function<void()> callback);
+    bool enqueue(Task task);
+    std::deque<GlyphBitmap> takeResults();
+    void cancelBeforeGeneration(quint64 generation);
+    void stop();
+    [[nodiscard]] qsizetype size() const;
+    [[nodiscard]] Statistics statistics() const;
+private:
+    void run();
+    mutable std::mutex _mutex;
+    std::condition_variable _changed;
+    BoundedGlyphRasterQueue _queue{MaxPendingTasks};
+    QHash<GlyphKey, bool> _pending;
+    std::deque<GlyphBitmap> _results;
+    std::function<void()> _ready;
+    std::thread _worker;
+    quint64 _generation{0};
+    bool _stopped{false};
+    bool _notified{false};
 };
 
 } // namespace NovaTerm

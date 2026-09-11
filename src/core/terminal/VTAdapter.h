@@ -89,6 +89,7 @@ public:
 
     CursorState cursor() const;
     std::string title() const;  // UTF-8
+    [[nodiscard]] bool alternateScreen() const;
 
 private:
     // PImpl 模式隔离 libvterm 头文件依赖。

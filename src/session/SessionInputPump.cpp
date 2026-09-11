@@ -52,6 +52,7 @@ void SessionInputPump::stop()
     if (_core)
         QObject::disconnect(_core, nullptr, this, nullptr);
     _pending.clear();
+    _pendingHead = 0;
 }
 
 void SessionInputPump::acceptBytes(const QByteArray& data)
@@ -61,13 +62,17 @@ void SessionInputPump::acceptBytes(const QByteArray& data)
 
     _statistics.receivedBytes += static_cast<quint64>(data.size());
     if (!_pending.isEmpty()) {
-        const qsizetype available = MaxPendingBytes - _pending.size();
+        const qsizetype available = MaxPendingBytes - (_pending.size() - _pendingHead);
         if (data.size() > available) {
             reportOverload(QStringLiteral("session input pending limit exceeded"));
             return;
         }
+        if (_pendingHead > 0 && _pending.size() + data.size() > MaxPendingBytes) {
+            _pending.remove(0, _pendingHead);
+            _pendingHead = 0;
+        }
         _pending.append(data);
-        _statistics.pendingBytes = _pending.size();
+        _statistics.pendingBytes = _pending.size() - _pendingHead;
         if (!_transport->setReadPaused(true))
             reportOverload(QStringLiteral("transport cannot pause reads"));
         return;
@@ -112,13 +117,16 @@ void SessionInputPump::handleBackpressure(bool paused)
 void SessionInputPump::drainPending()
 {
     while (_running && _transport && _core && !_pending.isEmpty()) {
-        const qsizetype chunkSize = qMin(InputChunkBytes, _pending.size());
+        const qsizetype chunkSize = qMin(InputChunkBytes, _pending.size() - _pendingHead);
         const auto result = _core->writeInput(
-            QByteArrayView(_pending.constData(), chunkSize));
-        if (result.acceptedBytes > 0)
-            _pending.remove(0, result.acceptedBytes);
+            QByteArrayView(_pending.constData() + _pendingHead, chunkSize));
+        _pendingHead += result.acceptedBytes;
+        if (_pendingHead == _pending.size()) {
+            _pending.clear();
+            _pendingHead = 0;
+        }
         _statistics.acceptedBytes += static_cast<quint64>(result.acceptedBytes);
-        _statistics.pendingBytes = _pending.size();
+        _statistics.pendingBytes = _pending.size() - _pendingHead;
         if (!result.fullyAccepted()) {
             _transport->setReadPaused(true);
             return;
@@ -141,6 +149,6 @@ void SessionInputPump::reportOverload(const QString& reason)
 SessionInputPump::Statistics SessionInputPump::statistics() const
 {
     auto result = _statistics;
-    result.pendingBytes = _pending.size();
+    result.pendingBytes = _pending.size() - _pendingHead;
     return result;
 }

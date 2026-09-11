@@ -42,6 +42,11 @@ GlyphBitmap GlyphRasterizer::rasterize(const GlyphKey& key, const QFont& font,
     result.baseline = metrics.ascent();
     const QSize pixels(std::max(1, qCeil(logicalExtent.width() * scale)),
                        std::max(1, qCeil(logicalExtent.height() * scale)));
+    // 每个位图上限 256 KiB；异步结果队列 32 个，避免异常字体/DPR 放大内存。
+    if (qint64(pixels.width()) * pixels.height() > MaxBitmapBytes / 4) {
+        result.diagnostic = QStringLiteral("glyph bitmap exceeds 256 KiB");
+        return result;
+    }
     // 位图本身已含 baseline 偏移（drawText 在 metrics.ascent() 处绘制），
     // 因此 GPU quad 必须从 cell 本地原点起算。若再叠加 -ascent 会让每个
     // 字形整体上移一行，而光标/选区叠加层仍在 cell 网格上，两者错位。
@@ -127,6 +132,125 @@ void BoundedGlyphRasterQueue::stop()
     _deferred.clear();
     _pending.clear();
     _stopped = true;
+}
+
+void AsyncGlyphRasterizer::setReadyCallback(std::function<void()> callback)
+{
+    const std::lock_guard<std::mutex> lock(_mutex);
+    _ready = std::move(callback);
+}
+
+bool AsyncGlyphRasterizer::enqueue(Task task)
+{
+    const std::lock_guard<std::mutex> lock(_mutex);
+    if (_stopped || task.key.fontGeneration < _generation
+        || task.key.cluster.size() > MaxClusterUnits)
+        return false;
+    if (_pending.contains(task.key))
+        return true;
+    if (_pending.size() >= MaxPendingTasks)
+        return false;
+    // 线程创建可能抛异常；在修改任务队列之前创建，保留原状态。
+    if (!_worker.joinable())
+        _worker = std::thread([this] { run(); });
+    const auto key = task.key;
+    if (!_queue.enqueue(std::move(task)))
+        return false;
+    _pending.insert(key, true);
+    _changed.notify_one();
+    return true;
+}
+
+void AsyncGlyphRasterizer::run()
+{
+    std::unique_lock<std::mutex> lock(_mutex);
+    while (!_stopped) {
+        _changed.wait(lock, [this] {
+            return _stopped || (_queue.size() > 0 && _results.size() < MaxReadyBitmaps);
+        });
+        if (_stopped)
+            break;
+        auto task = _queue.take();
+        lock.unlock();
+        auto bitmap = GlyphRasterizer().rasterize(task->key, task->font,
+                                                  task->cellWidth, task->cellHeight);
+        lock.lock();
+        if (_stopped)
+            break;
+        if (bitmap.sourceGeneration < _generation) {
+            _pending.remove(bitmap.key);
+            continue;
+        }
+        _results.push_back(std::move(bitmap));
+        auto notify = !_notified ? _ready : std::function<void()>{};
+        _notified = true;
+        lock.unlock();
+        if (notify)
+            notify();
+        lock.lock();
+    }
+}
+
+std::deque<GlyphBitmap> AsyncGlyphRasterizer::takeResults()
+{
+    const std::lock_guard<std::mutex> lock(_mutex);
+    std::deque<GlyphBitmap> result;
+    result.swap(_results);
+    for (const auto& bitmap : result) {
+        // 失败结果保留去重标记，直到 generation 变化；防止每帧重试耗尽 CPU。
+        if (!bitmap.image.isNull())
+            _pending.remove(bitmap.key);
+        else
+            _pending[bitmap.key] = false;
+    }
+    _notified = false;
+    _changed.notify_one();
+    return result;
+}
+
+void AsyncGlyphRasterizer::cancelBeforeGeneration(quint64 generation)
+{
+    const std::lock_guard<std::mutex> lock(_mutex);
+    _generation = generation;
+    _queue.cancelBeforeGeneration(generation);
+    for (auto it = _pending.begin(); it != _pending.end();) {
+        if (it.key().fontGeneration < generation)
+            it = _pending.erase(it);
+        else
+            ++it;
+    }
+    _results.erase(std::remove_if(_results.begin(), _results.end(),
+        [generation](const GlyphBitmap& bitmap) {
+            return bitmap.sourceGeneration < generation;
+        }), _results.end());
+    _notified = false;
+    _changed.notify_one();
+}
+
+void AsyncGlyphRasterizer::stop()
+{
+    {
+        const std::lock_guard<std::mutex> lock(_mutex);
+        _stopped = true;
+        _queue.stop();
+        _pending.clear();
+        _results.clear();
+    }
+    _changed.notify_one();
+    if (_worker.joinable())
+        _worker.join();
+}
+
+qsizetype AsyncGlyphRasterizer::size() const
+{
+    const std::lock_guard<std::mutex> lock(_mutex);
+    return std::count(_pending.cbegin(), _pending.cend(), true);
+}
+
+AsyncGlyphRasterizer::Statistics AsyncGlyphRasterizer::statistics() const
+{
+    const std::lock_guard<std::mutex> lock(_mutex);
+    return _queue.statistics();
 }
 
 } // namespace NovaTerm

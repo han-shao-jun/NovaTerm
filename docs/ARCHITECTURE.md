@@ -123,6 +123,15 @@ SearchRequest/Batch 等）改用标准库等价物（`std::string`(UTF-8)、`std
 `Qt::Gui`；"核心零 Qt 链接"的收口有待 `QObject` 剥离 + 门面拆分（`src/coreqt/`）
 与搜索匹配器注入完成，届时把 QObject/QRegularExpression 相关代码移入门面层。
 
+面向 Agent 的内置文本通路为 `TerminalCore::terminalState()` →
+`TerminalContextProvider` → `TerminalSession::terminalContext()`，不经过 Renderer。
+Core 在同一模型锁内读取 revision、光标、标题、alternate-screen 模式和文本；
+仅返回解析后的 UTF-8，过滤控制字符并拼接软换行（含历史与可见屏幕接缝）。
+抽取与缓存硬上限均为 256 KiB / 1024 行，调用方可进一步降低 maxBytes/maxLines。
+活动光标行只更新 viewport，完成行进入去重增量缓存；alternate screen 只返回
+当前 viewport。模式切换、缓存淘汰或采样截断通过 resetRequired/truncated 表达。
+Provider 按需在 Session 线程调用，返回独立值对象；它是内置接口，不依赖 P7。
+
 ### 3.5 Renderer
 
 Renderer 读取稳定 Snapshot，把 DirtyRegion 转为 row-local、按 8-cell block 缓存的 Render Command，仅上传变化的 GPU Buffer 区间。P5 Renderer 使用完整 cluster GlyphKey、字体 fallback、灰度/彩色多页 Atlas、局部纹理上传、实例化 Quad、material batch 和 GPU 行槽位环；Glyph Atlas 和 GPU 资源只属于 Renderer。
@@ -133,7 +142,24 @@ Renderer 读取稳定 Snapshot，把 DirtyRegion 转为 row-local、按 8-cell b
 - scrollback 增长或淘汰走增量维护：头部丢弃已淘汰行的显示行，尾条逻辑行重折（`appendContinuation` 会原地追加、`sb_popline` 会原地截断），其后新行逐条追加。代价 O(新增内容)。
 - 因此滚动条量程始终是真实显示行数，而不是折行前偏小的逻辑行数。
 
+2026-09-10 增量：`HistoryLayout` 使用逻辑 head，头部淘汰只移动索引；累计
+至少 4096 个且达到存储一半时才 compact。`uploadCommands()` 直接构造实例，
+不再缩放容器后 append/takeLast。Glyph 位图由 `AsyncGlyphRasterizer` 专用线程
+生成，请求/去重上限 512，结果上限 32，每个位图上限 256 KiB；结果与在途位图
+最多约 8.25 MiB（不含字体后端缓存）。字体 generation 取消旧任务，析构停止并
+join；结果通知合并，渲染线程消费位图并重建仍缺字形的行。Atlas、缓存插入和
+QRhi 创建/上传始终在渲染线程，异步结果不持有 QRhi 对象。
+
 ### 3.6 Transport
+
+SSH event loop 同时监听网络与可靠 wakeup socket（Unix socketpair、Windows
+本地 TCP 对），由控制入口主动唤醒，并按 keepalive/命令/monitor deadline 等待。
+SSH→GUI 输入暂存上限 1 MiB，单次交付 64 KiB，最多一个 queued delivery；
+暂停时保留数据并停止交付，恢复时重新调度，远端 EOF 等待已接收字节交付后再
+发布 disconnected，显式关闭/重连使旧投递失效。`inboundStatistics()` 提供统计。
+主 Shell 单轮读取上限 256 KiB 或 2 ms，辅助通道每 stream 为 64 KiB 或 2 ms；
+预算耗尽而 libssh 仍有缓冲时立即进入下一轮，避免等待新网络事件。输入泵与
+SSH 待写缓冲使用 head offset 消费，仅在空间不足或排空时整理。
 
 所有连接实现 `ITransport`：连接、断开、写入、resize、暂停读取、错误和字节到达。SSH、Serial、Telnet 必须使用与 Local PTY 相同的数据入口。
 

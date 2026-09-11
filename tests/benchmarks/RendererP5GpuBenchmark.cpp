@@ -357,7 +357,9 @@ int main(int argc, char** argv)
     if (!waitForStage([&]() {
             const auto progress = renderer.renderProgress();
             return progress.framesRendered >= expectedFrame
-                && progress.lastRenderedRevision == core.modelRevision();
+                && progress.lastRenderedRevision == core.modelRevision()
+                && renderer.renderStatistics().glyphRasterQueueDepth == 0
+                && renderer.renderStatistics().rowsRebuilt >= mark.rowsRebuilt + quint64(core.rows());
         }, 5000, QStringView(u"forced-full frame"))) {
         return 4;
     }
@@ -434,7 +436,8 @@ int main(int argc, char** argv)
     if (!waitForStage([&]() {
             const auto progress = renderer.renderProgress();
             return progress.framesRendered >= expectedFrame
-                && progress.lastRenderedRevision == core.modelRevision();
+                && progress.lastRenderedRevision == core.modelRevision()
+                && renderer.renderStatistics().glyphRasterQueueDepth == 0;
         }, 5000, QStringView(u"font rebuild"))) {
         return 4;
     }

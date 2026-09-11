@@ -121,6 +121,11 @@ NovaTerm/
 
 ## 测试
 
+本轮 SSH、Core 吞吐、异步 glyph 和 Agent 文本状态的验证方法及实测数据见
+[性能优化记录](docs/architecture/Performance_Optimization_2026-09-10.md)。
+Linux 可用 `novaterm_ssh_transport_check --local-ssh-check` 显式启动隔离本机
+SSH 验收（需要 sshd、ssh-keygen、ninja 和 c++；不修改用户 SSH 信任文件）。
+
 项目包含完整的单元测试和集成测试：
 
 ```bash

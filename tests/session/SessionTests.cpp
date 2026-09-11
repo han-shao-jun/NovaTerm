@@ -4,6 +4,7 @@
 #include "session/SessionManager.h"
 #include "session/SessionStore.h"
 #include "session/TerminalSession.h"
+#include "session/SessionInputPump.h"
 #include "transport/ITransport.h"
 
 #include <QSignalSpy>
@@ -108,7 +109,108 @@ private slots:
     void persistentStoresRejectSecrets();
     void reconnectBumpsGenerationAndKeepsHandlersLive();
     void structuredTransportErrorSetsSessionCategory();
+    void agentContextFiltersProgressWrapDuplicatesAndAlternate();
+    void inputPumpOffsetsPreservePendingSuffix();
+    void agentContextJoinsHistorySeamAndBoundsUtf8();
 };
+
+void SessionTests::inputPumpOffsetsPreservePendingSuffix()
+{
+    TerminalCore core(120, 40);
+    FakeTransport transport;
+    SessionInputPump pump(&transport, &core);
+    pump.start();
+    const QByteArray burst(10 * 1024 * 1024, 'x');
+    emit transport.readyRead(burst);
+    const QByteArray suffix("\r\nPUMP_SUFFIX_OK\r\n");
+    emit transport.readyRead(suffix);
+    QTRY_COMPARE_WITH_TIMEOUT(pump.statistics().pendingBytes, 0, 15000);
+    QCOMPARE(pump.statistics().receivedBytes, quint64(burst.size() + suffix.size()));
+    QCOMPARE(pump.statistics().acceptedBytes, pump.statistics().receivedBytes);
+    QCOMPARE(pump.statistics().overloadCount, quint64(0));
+    QVERIFY(core.waitForIdle());
+    const auto state = core.terminalState();
+    QVERIFY(std::any_of(state.viewport.begin(), state.viewport.end(), [](const auto& line) {
+        return line.text == "PUMP_SUFFIX_OK";
+    }));
+}
+
+void SessionTests::agentContextJoinsHistorySeamAndBoundsUtf8()
+{
+    TerminalCore core(10, 3);
+    const QByteArray wrapped("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMN\r\n");
+    QVERIFY(core.writeInput(wrapped).fullyAccepted());
+    QVERIFY(core.waitForIdle());
+    TerminalContextProvider provider(&core);
+    const auto context = provider.context({});
+    QVERIFY(std::any_of(context.recentOutput.begin(), context.recentOutput.end(), [](const auto& line) {
+        return line.text == "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMN";
+    }));
+    QVERIFY(core.writeInput(QByteArray("\x1b]2;") + QStringLiteral("中文").toUtf8() + '\x07').fullyAccepted());
+    QVERIFY(core.waitForIdle());
+    const auto bounded = provider.context({0, 4, 1, true});
+    QCOMPARE(bounded.title, QStringLiteral("中").toStdString());
+    QVERIFY(bounded.truncated);
+    TerminalStateCache cache;
+    for (NovaTerm::u64 revision = 1; revision <= 2048; ++revision)
+        cache.append(revision, std::to_string(revision));
+    QCOMPARE(cache.entries().size(), TerminalStateCache::MaxLines);
+    QVERIFY(cache.floor() > 0);
+}
+
+void SessionTests::agentContextFiltersProgressWrapDuplicatesAndAlternate()
+{
+    TerminalCore core(10, 6);
+    core.resize(10, 6);
+    QVERIFY(core.waitForIdle());
+    TerminalContextProvider provider(&core);
+    const auto feed = [&](const QByteArray& data) {
+        return core.writeInput(data).fullyAccepted() && core.waitForIdle();
+    };
+    const auto contains = [](const auto& lines, const std::string& value) {
+        return std::any_of(lines.begin(), lines.end(), [&](const auto& line) {
+            return line.text == value;
+        });
+    };
+    QVERIFY(feed("1234567890AB\r\n"));
+    auto context = provider.context({});
+    QVERIFY(contains(context.recentOutput, "1234567890AB"));
+    auto revision = context.revision;
+    for (int percent = 1; percent < 100; ++percent) {
+        QVERIFY(feed("\r" + QByteArray::number(percent) + "%"));
+        context = provider.context({revision, 65536, 256, true});
+        QVERIFY(context.recentOutput.empty());
+        revision = context.revision;
+    }
+    QVERIFY(feed("\r\x1b[2Kdone\r\ndone\r\n|\r\n"));
+    context = provider.context({revision, 65536, 256, true});
+    QCOMPARE(std::count_if(context.recentOutput.begin(), context.recentOutput.end(),
+        [](const auto& line) { return line.text == "done"; }), 1);
+    QVERIFY(!contains(context.recentOutput, "|"));
+    revision = context.revision;
+    QVERIFY(feed("\x1b[?1049h\x1b[Htop 1"));
+    context = provider.context({revision, 65536, 256, true});
+    QVERIFY(context.alternateScreen);
+    QVERIFY(context.recentOutput.empty());
+    QVERIFY(context.resetRequired);
+    for (int frame = 0; frame < 100; ++frame) {
+        QVERIFY(feed("\x1b[Htop " + QByteArray::number(frame)));
+        context = provider.context({0, 65536, 256, true});
+        QVERIFY(context.recentOutput.empty());
+        QVERIFY(context.viewport.size() <= 6);
+    }
+    QVERIFY(feed("\x1b[?1049l\x1b]2;agent-title\x07"));
+    context = provider.context({});
+    QVERIFY(!context.alternateScreen);
+    QCOMPARE(context.title, std::string("agent-title"));
+    context = provider.context({0, 12, 2, true});
+    std::size_t bytes = context.title.size();
+    for (const auto& line : context.viewport) bytes += line.text.size();
+    for (const auto& line : context.recentOutput) bytes += line.text.size();
+    QVERIFY(bytes <= 12);
+    QVERIFY(context.viewport.size() + context.recentOutput.size() <= 2);
+    QVERIFY(context.truncated);
+}
 
 void SessionTests::lifecycleAndManagerCleanup()
 {

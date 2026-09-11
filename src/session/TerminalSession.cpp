@@ -280,6 +280,7 @@ bool TerminalSession::resetForReuse()
     if (_state != SessionState::Closed || _transport)
         return false;
     _sessionId = QUuid::createUuid();
+    _contextProvider.reset();
     _state = SessionState::Created;
     _statistics = {};
     _acceptsUserInput = true;

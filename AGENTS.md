@@ -141,6 +141,13 @@ grep -E "FAIL!|Totals" build/rt.txt
 `novaterm_renderer_p5_gpu_acceptance` 也默认不注册，需
 `-DNOVATERM_RUN_GPU_ACCEPTANCE_TESTS=ON`。
 
+SSH 可选本机验收：Linux 上显式运行
+`build/Release/bin/novaterm_ssh_transport_check --local-ssh-check`。
+需要 `sshd`、`ssh-keygen`、`ninja`、`c++`，临时 sshd 仅监听
+127.0.0.1:42222；密钥、known_hosts、32 目标构建产物均位于临时目录，结束时
+回收。默认 ctest 不启动该服务。覆盖 idle CPU、10/50/100 MiB 字节内容、
+持续输出时 command/monitor/resize、Ctrl+C 和真实 Ninja 构建。
+
 ## 已知测试失败（不是回归，别去追）
 
 | 测试 | 原因 |
@@ -489,6 +496,11 @@ base 指针。主题切换只改 QPalette，不动 style。
 应显式指定目标接口的模板类型或转换参数，避免 Linux 上模板推导冲突。
 修复范例见 `ScrollbackBenchmark.cpp` 的行数上限与
 `TerminalRenderer::requestFullFrame()` 的 revision 合并。
+
+异步 glyph 后，模型 revision 收敛不代表字形完成。GPU 基准必须同时等待
+`glyphRasterQueueDepth == 0`；强制全帧场景还要检查实际重建行数，不能仅等待
+任意新帧（可能是 overlay）。普通缺字形完成只重建 pending 行，随滚动旋转
+pending 行标记，不能把每次完成都升级为全屏重建。
 
 ## 改动后必须同步文档
 

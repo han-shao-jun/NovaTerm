@@ -9,6 +9,7 @@
 #pragma once
 
 #include "SessionTypes.h"
+#include "TerminalContextProvider.h"
 #include "transport/ITransport.h"
 
 #include <QObject>
@@ -60,6 +61,14 @@ public:
     [[nodiscard]] const SessionStatistics& statistics() const noexcept { return _statistics; }
     /** @brief 终端核心指针。 */
     [[nodiscard]] TerminalCore* core() const noexcept { return _core; }
+    /** @brief 按需提供有界 Agent 上下文；调用方只消费解析后的文本。 */
+    [[nodiscard]] TerminalContextProvider::Context terminalContext(
+        const TerminalContextProvider::Request& request)
+    {
+        if (!_contextProvider)
+            _contextProvider = std::make_unique<TerminalContextProvider>(_core);
+        return _contextProvider->context(request);
+    }
     /** @brief 传输层指针（未附加时为 nullptr）。 */
     [[nodiscard]] ITransport* transport() const { return _transport.data(); }
 
@@ -187,6 +196,7 @@ signals:
                 TransportExitReason reason);
 
 private:
+    std::unique_ptr<TerminalContextProvider> _contextProvider;
     bool transition(SessionState next);   ///< 状态机迁移（校验合法性）
     bool beginReconnect();                  ///< 进入 Reconnecting 并提交连接请求
     void startPump();                       ///< 启动输入泵

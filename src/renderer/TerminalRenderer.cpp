@@ -103,6 +103,10 @@ TerminalRenderer::TerminalRenderer(TerminalCore* core, QWidget* parent)
     , _core(core)
     , _scheme(TerminalColorScheme::defaultDark())
 {
+    _glyphRasterQueue.setReadyCallback([this] {
+        QMetaObject::invokeMethod(this, [this] { requestOverlayFrame(); },
+                                  Qt::QueuedConnection);
+    });
     setApi(preferredRhiApi());
 
     setFocusPolicy(Qt::StrongFocus);
@@ -650,6 +654,17 @@ void TerminalRenderer::render(QRhiCommandBuffer* cb)
     if (!_atlasTexture || !_pipeline || !_srb)
         return;
 
+    // 仅渲染线程访问 atlas/缓存；worker 只生成不可变 QImage 位图。
+    bool glyphsReady = false;
+    for (const auto& bitmap : _glyphRasterQueue.takeResults()) {
+        if (bitmap.sourceGeneration != _fontManager.generation())
+            continue;
+        if (_glyphCache.insert(bitmap, _frameNumber))
+            glyphsReady = true;
+        ++_renderStatistics.glyphRasters;
+    }
+    _atlasGeneration = _glyphCache.atlas().generation();
+
     // Take ownership of this frame's requests up front. New requests arriving
     // while commands are built remain queued for the next frame instead of
     // invalidating this iteration or being erased at the end of this one.
@@ -703,6 +718,7 @@ void TerminalRenderer::render(QRhiCommandBuffer* cb)
     }
     if (_rowContentIdentities.size() != rows)
         _rowContentIdentities.fill(0, rows);
+    _glyphPendingRows.resize(std::size_t(rows), false);
 
 
     // A scroll callback only says that lines entered scrollback; it does not
@@ -730,6 +746,11 @@ void TerminalRenderer::render(QRhiCommandBuffer* cb)
                         _rowContentIdentities.end());
             std::fill(_rowContentIdentities.end() - scrollRows,
                       _rowContentIdentities.end(), quint64(0));
+            std::rotate(_glyphPendingRows.begin(),
+                        _glyphPendingRows.begin() + scrollRows,
+                        _glyphPendingRows.end());
+            std::fill(_glyphPendingRows.end() - scrollRows,
+                      _glyphPendingRows.end(), false);
             fullFramePending = false;
             pendingDirtyRegions.clear();
             pendingDirtyRegions.push_back(
@@ -741,6 +762,14 @@ void TerminalRenderer::render(QRhiCommandBuffer* cb)
         }
     }
 
+    if (glyphsReady) {
+        for (int row = 0; row < rows; ++row) {
+            if (_glyphPendingRows[std::size_t(row)]) {
+                pendingDirtyRegions.push_back({row, row + 1, 0, columns});
+                contentPending = true;
+            }
+        }
+    }
     std::vector<bool> dirtyRows(std::size_t(rows), fullFramePending);
     QVector<QVector<NovaTerm::DirtyColumnSpan>> dirtySpans(rows);
     if (fullFramePending) {
@@ -1600,34 +1629,34 @@ NovaTerm::GlyphLocation TerminalRenderer::ensureGlyph(
               : NovaTerm::GlyphRenderMode::Grayscale);
     if (auto found = _glyphCache.find(key, _frameNumber))
         return *found;
+    if (_buildingGlyphRow >= 0)
+        _glyphPendingRows[std::size_t(_buildingGlyphRow)] = true;
     const auto selection = _fontManager.select(text, bold, false);
     _glyphRasterQueue.enqueue({key, selection.font, _cellWidth,
                                _cellHeight, true});
-    const auto task = _glyphRasterQueue.take();
-    NovaTerm::GlyphBitmap bitmap = task
-        ? _glyphRasterizer.rasterize(task->key, task->font,
-                                     task->cellWidth, task->cellHeight)
-        : _glyphRasterizer.rasterize(key, selection.font,
-                                     _cellWidth, _cellHeight);
-    ++_renderStatistics.glyphRasters;
-    const auto inserted = _glyphCache.insert(bitmap, _frameNumber);
-    _atlasGeneration = _glyphCache.atlas().generation();
-    return inserted.value_or(_solidGlyph);
+    // 未就绪时用空位置，避免把 solid glyph 当文字绘成实心方块。
+    return {};
+}
+
+TerminalRenderer::GpuInstance TerminalRenderer::makeInstance(
+    const QRectF& rect, const QRectF& uvRect, const QColor& color)
+{
+    const float red = color.redF();
+    const float green = color.greenF();
+    const float blue = color.blueF();
+    const float alpha = color.alphaF();
+    return {float(rect.left()), float(rect.top()),
+                          float(rect.right()), float(rect.bottom()),
+                          float(uvRect.left()), float(uvRect.top()),
+                          float(uvRect.right()), float(uvRect.bottom()),
+                          red, green, blue, alpha, 0.0f, -1.0f, 0.0f, 0.0f};
 }
 
 void TerminalRenderer::appendQuad(const QRectF& rect, const QRectF& uvRect,
                                   const QColor& color, const QSize& pixelSize)
 {
     Q_UNUSED(pixelSize);
-    const float red = color.redF();
-    const float green = color.greenF();
-    const float blue = color.blueF();
-    const float alpha = color.alphaF();
-    _instances.push_back({float(rect.left()), float(rect.top()),
-                          float(rect.right()), float(rect.bottom()),
-                          float(uvRect.left()), float(uvRect.top()),
-                          float(uvRect.right()), float(uvRect.bottom()),
-                          red, green, blue, alpha, 0.0f, -1.0f, 0.0f, 0.0f});
+    _instances.push_back(makeInstance(rect, uvRect, color));
 }
 
 void TerminalRenderer::appendSolidRect(const QRectF& rect, const QColor& color,
@@ -1746,7 +1775,8 @@ void TerminalRenderer::appendCellCommands(
                 _glyphCache.atlas().config().pageSize.width();
             const qreal atlasHeight =
                 _glyphCache.atlas().config().pageSize.height();
-            contents.push_back({
+            if (glyph.isValid())
+                contents.push_back({
                 NovaTerm::RenderCommandType::GlyphInstance,
                 glyph.logicalRect.translated(x, y),
                 QRectF(glyph.pixelRect.left() / atlasWidth,
@@ -1819,6 +1849,10 @@ void TerminalRenderer::rebuildCommandRow(
     const bool replaceAll = !_highlightRules.isEmpty() || dirtySpans.isEmpty()
         || (dirtySpans.size() == 1 && dirtySpans.front().startColumn <= 0
             && dirtySpans.front().endColumn >= screen.columns);
+    _glyphPendingRows.resize(std::size_t(screen.rows), false);
+    _buildingGlyphRow = widgetRow;
+    if (replaceAll)
+        _glyphPendingRows[std::size_t(widgetRow)] = false;
     auto isDirty = [&dirtySpans, replaceAll](int column) {
         if (replaceAll)
             return true;
@@ -1857,6 +1891,7 @@ void TerminalRenderer::rebuildCommandRow(
                              const NovaTerm::RenderCommand& b) {
         return a.cellColumn < b.cellColumn;
     };
+    _buildingGlyphRow = -1;
     std::stable_sort(backgrounds.begin(), backgrounds.end(), byColumn);
     std::stable_sort(contents.begin(), contents.end(), byColumn);
     _commandBuffer.replaceRow(widgetRow, std::move(backgrounds),
@@ -2254,11 +2289,8 @@ void TerminalRenderer::uploadCommands(
                 if (command.cellColumn < start || command.cellColumn >= end)
                     continue;
                 const int index = command.cellColumn - start;
-                const int oldSize = _instances.size();
-                _instances.resize(index);
-                appendCommandVertices(command, pixelSize);
-                GpuInstance value = _instances.takeLast();
-                _instances.resize(oldSize);
+                GpuInstance value = makeInstance(command.rect, command.uvRect,
+                                                   command.color);
                 value.atlasPage = float(command.atlasPage);
                 value.rowSlot = float(slot);
                 value.flags = command.colorGlyph ? 1.0f : 0.0f;
@@ -2286,11 +2318,8 @@ void TerminalRenderer::uploadCommands(
                 if (perCell[cell] >= 4)
                     continue;
                 const int index = cell * 4 + perCell[cell]++;
-                const int oldSize = _instances.size();
-                _instances.resize(index);
-                appendCommandVertices(command, pixelSize);
-                GpuInstance value = _instances.takeLast();
-                _instances.resize(oldSize);
+                GpuInstance value = makeInstance(command.rect, command.uvRect,
+                                                   command.color);
                 value.atlasPage = float(command.atlasPage);
                 value.rowSlot = float(slot);
                 value.flags = command.colorGlyph ? 1.0f : 0.0f;

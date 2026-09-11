@@ -315,6 +315,9 @@ public:
         auto& self = *static_cast<Impl*>(user);
         bool cursorChanged = false;
         switch (property) {
+        case VTERM_PROP_ALTSCREEN:
+            self.alternateScreen = value->boolean != 0;
+            break;
         case VTERM_PROP_TITLE:
             if (value->string.str) {
                 // libvterm 的标题已是 UTF-8，直接按字节构造 std::string。
@@ -421,6 +424,7 @@ public:
     Observer observer;
     CursorState cursorState;
     std::string title;
+    bool alternateScreen{false};
     VTerm* vt{nullptr};
     VTermScreen* vts{nullptr};
     VTermState* state{nullptr};
@@ -541,6 +545,11 @@ CursorState VTAdapter::cursor() const
 std::string VTAdapter::title() const
 {
     return _impl ? _impl->title : std::string{};
+}
+
+bool VTAdapter::alternateScreen() const
+{
+    return _impl && _impl->alternateScreen;
 }
 
 } // namespace NovaTerm

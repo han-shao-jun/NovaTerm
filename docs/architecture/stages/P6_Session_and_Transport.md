@@ -19,6 +19,20 @@
 
 ## 实现进度
 
+2026-09-10 性能增量改进：SSH worker 将合并的本地唤醒 socket 加入 libssh
+event loop；write、resize、command、monitor、暂停恢复和 disconnect 主动通知。
+空闲等待网络或控制事件，keepalive 与辅助通道采用剩余 deadline，移除固定
+20 ms 轮询。唤醒资源由 RAII 管理，所有会话 libssh 调用仍在 worker。
+`novaterm_ssh_transport_check` 增加提前通知、通知合并及阻塞等待唤醒检查；
+隔离本机 OpenSSH 的 idle CPU、大流量、Ctrl+C、辅助命令、monitor、resize 与
+32 目标 Ninja 构建已验证；广域网及用户远端主机尚未验收。
+
+同批完成 SSH→GUI 1 MiB 有界合并交付、EOF 尾部交付顺序、主/辅助读取预算，
+以及输入泵与 SSH 待写 offset。`TerminalSession::terminalContext()` 提供内置的
+有界 Agent 状态接口，完成 progress/soft-wrap/重复日志/alternate-screen 过滤，
+不依赖 P7 插件工作。实现明细、命令、数据和剩余边界见
+[本轮优化记录](../Performance_Optimization_2026-09-10.md)。阶段编排缺口不变。
+
 | 步骤 | 状态 | 缺口 |
 | --- | --- | --- |
 | 0 盘点 View 运行期职责 | 已完成 | — |
