@@ -6,6 +6,7 @@
  * → 打开 channel 并请求 PTY+shell → 进入事件循环（IO/resize/keepalive）
  * → 关闭。GUI 线程仅通过原子量与互斥队列与工作线程交互。
  */
+#include "SshWorkerWakeup.h"
 #include "SshTransport.h"
 #include "SshCommandCompletion.h"
 #include "SshMonitorProtocol.h"
@@ -17,8 +18,11 @@
 #include <QFileInfo>
 #include <QElapsedTimer>
 #include <QMetaObject>
+#include <QPointer>
+#include <climits>
 
 #include <utility>
+#include <algorithm>
 
 namespace {
 
@@ -75,7 +79,9 @@ void commandExitStatusCallback(ssh_session, ssh_channel, int exitStatus,
 SshTransport::SshTransport(SshConfig config, QObject* parent)
     : ITransport(parent)
     , _config(std::move(config))
+    , _knownHostsPath(defaultKnownHostsPath())
     , _keepAliveMs(_config.keepAliveSeconds > 0 ? _config.keepAliveSeconds * 1000 : 0)
+    , _wakeup(std::make_unique<SshWorkerWakeup>())
 {
     // 静态链接 libssh 必须显式初始化（共享库由 DllMain 自动做）。
     // ssh_init()/ssh_finalize() 内部带引用计数，多个实例安全配对。
@@ -92,6 +98,12 @@ bool SshTransport::connectToHost()
 {
     disconnect();
 
+    if (!_wakeup->valid()) {
+        reportError(QStringLiteral("Cannot create SSH worker wakeup socket."),
+                    TransportErrorCategory::Io);
+        return false;
+    }
+
     if (!_config.isValid()) {
         reportError(tr("Invalid SSH configuration."),
                     TransportErrorCategory::Configuration);
@@ -99,7 +111,7 @@ bool SshTransport::connectToHost()
     }
 
     // 确保 known_hosts 所在目录存在，否则首次信任写入会失败。
-    const QString kh = defaultKnownHostsPath();
+    const QString kh = _knownHostsPath;
     QDir().mkpath(QFileInfo(kh).absolutePath());
 
     _running.store(true);
@@ -131,6 +143,7 @@ bool SshTransport::connectToHost()
 void SshTransport::disconnect()
 {
     _running.store(false);
+    _wakeup->notify();
     _readPaused.store(false, std::memory_order_release);
 
     // 唤醒可能阻塞在主机密钥决策上的工作线程。
@@ -141,6 +154,14 @@ void SshTransport::disconnect()
     }
 
     _connected.store(false);
+    {
+        QMutexLocker lock(&_inboundMutex);
+        ++_inboundGeneration;
+        _inbound.clear();
+        _inboundHead = 0;
+        _inboundScheduled = false;
+        _inboundClosed = false;
+    }
 
     {
         // 丢弃尚未开始的请求；正在执行的 channel 由工作线程退出路径统一回收。
@@ -156,11 +177,19 @@ void SshTransport::disconnect()
     }
 
     if (_thread) {
-        // 事件循环每 20ms 检查一次 _running，正常会话 1s 内即可回收；
+        // 唤醒事件循环立即检查 _running；
         // 上限覆盖 ssh_connect（10s 连接超时）最坏场景。
         _thread->wait(TeardownWaitMs);
         delete _thread;
         _thread = nullptr;
+    }
+    {
+        QMutexLocker lock(&_inboundMutex);
+        ++_inboundGeneration;
+        _inbound.clear();
+        _inboundHead = 0;
+        _inboundClosed = false;
+        _inboundScheduled = false;
     }
     {
         QMutexLocker lock(&_writeMutex);
@@ -183,6 +212,7 @@ void SshTransport::write(const QByteArray& data)
     }
     _writeQueue.append(data);
     _pendingWriteBytes.fetch_add(data.size(), std::memory_order_release);
+    _wakeup->notify();
 }
 
 void SshTransport::resizeTerminal(int cols, int rows)
@@ -191,6 +221,7 @@ void SshTransport::resizeTerminal(int cols, int rows)
         return;
     _pendingCols.store(cols);
     _pendingRows.store(rows);
+    _wakeup->notify();
 }
 
 bool SshTransport::isConnected() const
@@ -207,6 +238,11 @@ QString SshTransport::errorString() const
 bool SshTransport::setReadPaused(bool paused)
 {
     _readPaused.store(paused, std::memory_order_release);
+    if (!paused) {
+        QMutexLocker lock(&_inboundMutex);
+        scheduleInboundLocked();
+    }
+    _wakeup->notify();
     return true;
 }
 
@@ -237,6 +273,7 @@ bool SshTransport::executeCommand(quint64 requestId, QByteArray command)
         || !_commandQueue.isEmpty())
         return false;
     _commandQueue.enqueue(CommandRequest{requestId, std::move(command)});
+    _wakeup->notify();
     return true;
 }
 
@@ -252,6 +289,7 @@ void SshTransport::cancelCommand(quint64 requestId)
         return;
     }
     _cancelCommandRequestId = requestId;
+    _wakeup->notify();
 }
 
 void SshTransport::startResourceMonitoring()
@@ -262,6 +300,7 @@ void SshTransport::startResourceMonitoring()
     if (_monitorEnabled)
         return;
     _monitorEnabled = true;
+    _wakeup->notify();
     ++_monitorGeneration;
     _monitorRequestId = 0;
 }
@@ -274,6 +313,7 @@ void SshTransport::stopResourceMonitoring()
     _monitorEnabled = false;
     ++_monitorGeneration;
     _monitorRequestId = 0;
+    _wakeup->notify();
 }
 
 bool SshTransport::requestResourceSample(quint64 requestId)
@@ -284,6 +324,7 @@ bool SshTransport::requestResourceSample(quint64 requestId)
     if (!_monitorEnabled || _monitorRequestId != 0)
         return false;
     _monitorRequestId = requestId;
+    _wakeup->notify();
     return true;
 }
 
@@ -304,10 +345,86 @@ void SshTransport::reportError(const QString& message,
 
 void SshTransport::emitReadyRead(const QByteArray& data)
 {
-    // 把数据投递回 GUI 线程再发信号，避免跨线程直连。
-    QMetaObject::invokeMethod(this, [this, data]() {
-        emit readyRead(data);
+    QMutexLocker lock(&_inboundMutex);
+    // worker 读取前按剩余容量限长，唯一消费者只会增加可用容量。
+    Q_ASSERT(data.size() <= MaxInboundBytes - (_inbound.size() - _inboundHead));
+    if (_inboundHead > 0 && _inbound.size() + data.size() > MaxInboundBytes) {
+        _inbound.remove(0, _inboundHead);
+        _inboundHead = 0;
+    }
+    _inbound.append(data);
+    _inboundReceivedBytes += static_cast<quint64>(data.size());
+    _inboundPeakBytes = std::max(_inboundPeakBytes, _inbound.size() - _inboundHead);
+    scheduleInboundLocked();
+}
+
+qsizetype SshTransport::inboundCapacity() const
+{
+    QMutexLocker lock(&_inboundMutex);
+    return MaxInboundBytes - (_inbound.size() - _inboundHead);
+}
+
+SshTransport::InboundStatistics SshTransport::inboundStatistics() const
+{
+    QMutexLocker lock(&_inboundMutex);
+    return {_inboundReceivedBytes, _inboundDeliveredBytes,
+            _inbound.size() - _inboundHead, _inboundPeakBytes};
+}
+
+void SshTransport::scheduleInboundLocked()
+{
+    if (_inboundScheduled || _readPaused.load(std::memory_order_acquire)
+        || (_inbound.size() == _inboundHead && !_inboundClosed))
+        return;
+    _inboundScheduled = true;
+    const quint64 generation = _inboundGeneration;
+    QMetaObject::invokeMethod(this, [this, generation] {
+        deliverInbound(generation);
     }, Qt::QueuedConnection);
+}
+
+void SshTransport::deliverInbound(quint64 generation)
+{
+    QByteArray bytes;
+    {
+        QMutexLocker lock(&_inboundMutex);
+        if (generation != _inboundGeneration)
+            return;
+        if (_readPaused.load(std::memory_order_acquire)) {
+            _inboundScheduled = false;
+            return;
+        }
+        const qsizetype count = std::min(InboundDeliveryBytes,
+                                         _inbound.size() - _inboundHead);
+        bytes = _inbound.mid(_inboundHead, count);
+        _inboundHead += count;
+        _inboundDeliveredBytes += static_cast<quint64>(count);
+        if (_inboundHead == _inbound.size()) {
+            _inbound.clear();
+            _inboundHead = 0;
+        }
+    }
+    // 不持锁发信号：输入泵可同步暂停，甚至关闭/重连当前 transport。
+    QPointer<SshTransport> guard(this);
+    if (!bytes.isEmpty())
+        emit readyRead(bytes);
+    if (!guard)
+        return;
+    _wakeup->notify();
+    bool closed = false;
+    {
+        QMutexLocker lock(&_inboundMutex);
+        if (generation != _inboundGeneration)
+            return;
+        _inboundScheduled = false;
+        closed = _inboundClosed && _inbound.isEmpty();
+        if (closed)
+            _inboundClosed = false;
+        else
+            scheduleInboundLocked();
+    }
+    if (closed && _connected.exchange(false))
+        emit disconnected();
 }
 
 void SshTransport::emitSignal(void (SshTransport::*signal)())
@@ -365,7 +482,7 @@ void SshTransport::workerMain()
     int port = static_cast<int>(_config.port);
     long timeoutSec = ConnectTimeoutSec;
     const QByteArray knownHosts =
-        QDir::toNativeSeparators(defaultKnownHostsPath()).toUtf8();
+        QDir::toNativeSeparators(_knownHostsPath).toUtf8();
     const char* hostKeyAlgorithms =
         "ssh-ed25519,ecdsa-sha2-nistp256,rsa-sha2-512,rsa-sha2-256,ssh-rsa";
 
@@ -561,12 +678,25 @@ void SshTransport::workerMain()
         return;
     }
     ssh_event_add_session(event, session);
+    if (ssh_event_add_fd(event, _wakeup->descriptor(), POLLIN,
+            [](socket_t, int, void* context) {
+                static_cast<SshWorkerWakeup*>(context)->consume();
+                return 0;
+            }, _wakeup.get()) != SSH_OK) {
+        reportError(QStringLiteral("Cannot register SSH worker wakeup socket."),
+                    TransportErrorCategory::Io);
+        ssh_event_free(event);
+        ssh_channel_free(channel);
+        ssh_disconnect(session);
+        ssh_free(session);
+        return;
+    }
 
     _connected.store(true);
     emitSignal(&SshTransport::connected);
 
     // 认证和主 Shell 建立完成后切换为非阻塞模式。此后所有可能返回
-    // SSH_AGAIN 的 channel 操作都在下面的 20ms 事件循环中推进，避免辅助
+    // SSH_AGAIN 的 channel 操作由网络就绪或控制唤醒继续推进，避免辅助
     // channel 的 open/exec/read/write 阻塞交互终端。
     ssh_set_blocking(session, 0);
 
@@ -708,19 +838,41 @@ void SshTransport::workerMain()
     };
 
     QByteArray shellPendingWrite;
+    qsizetype shellWriteHead = 0;
+    int pollTimeoutMs = 0;
 
     while (_running.load(std::memory_order_acquire)
            && channel
            && ssh_is_connected(session)) {
-        ssh_event_dopoll(event, 20);
+        if (ssh_event_dopoll(event, pollTimeoutMs) == SSH_ERROR) {
+            reportError(QStringLiteral("SSH event loop failed."),
+                        TransportErrorCategory::Io, true);
+            _running.store(false);
+        }
+        if (!_running.load(std::memory_order_acquire))
+            break;
+        pollTimeoutMs = -1;
+        const auto deadline = [&pollTimeoutMs](qint64 remaining) {
+            const int bounded = static_cast<int>(std::clamp<qint64>(remaining, 0, INT_MAX));
+            pollTimeoutMs = pollTimeoutMs < 0 ? bounded : std::min(pollTimeoutMs, bounded);
+        };
 
         // drain 对端数据（暂停时仍轮询协议，避免 SSH 窗口/流控死锁）
         if (!_readPaused.load(std::memory_order_acquire)) {
-            for (;;) {
+            QElapsedTimer readTimer;
+            readTimer.start();
+            qsizetype readBytes = 0;
+            while (readBytes < ShellReadBudgetBytes && readTimer.elapsed() < ReadBudgetMs
+                   && _running.load(std::memory_order_acquire)) {
                 char buf[65536];
+                const qsizetype available = inboundCapacity();
+                if (available == 0 || _readPaused.load(std::memory_order_acquire))
+                    break;
                 const int n =
-                    ssh_channel_read_nonblocking(channel, buf, sizeof(buf), 0);
+                    ssh_channel_read_nonblocking(channel, buf,
+                        static_cast<uint32_t>(std::min<qsizetype>(sizeof(buf), available)), 0);
                 if (n > 0) {
+                    readBytes += n;
                     emitReadyRead(QByteArray(buf, n));
                 } else if (n == 0 || n == SSH_AGAIN) {
                     break;   // 当前无数据
@@ -744,16 +896,27 @@ void SshTransport::workerMain()
             QMutexLocker lock(&_writeMutex);
             toWrite.swap(_writeQueue);
         }
+        if (shellWriteHead > 0
+            && shellPendingWrite.size() + toWrite.size() > MaxPendingWriteBytes) {
+            shellPendingWrite.remove(0, shellWriteHead);
+            shellWriteHead = 0;
+        }
         shellPendingWrite.append(toWrite);
         if (!shellPendingWrite.isEmpty()) {
             const int writeSize = static_cast<int>((std::min)(
-                shellPendingWrite.size(), qsizetype{64 * 1024}));
+                shellPendingWrite.size() - shellWriteHead, qsizetype{64 * 1024}));
             const int n = ssh_channel_write(
-                channel, shellPendingWrite.constData(),
+                channel, shellPendingWrite.constData() + shellWriteHead,
                 static_cast<uint32_t>(writeSize));
             if (n > 0) {
-                shellPendingWrite.remove(0, n);
+                shellWriteHead += n;
+                if (shellWriteHead == shellPendingWrite.size()) {
+                    shellPendingWrite.clear();
+                    shellWriteHead = 0;
+                }
                 _pendingWriteBytes.fetch_sub(n, std::memory_order_release);
+                if (!shellPendingWrite.isEmpty())
+                    deadline(0);
                 QMetaObject::invokeMethod(
                     this, [this, n] { emit bytesWritten(n); },
                     Qt::QueuedConnection);
@@ -838,7 +1001,11 @@ void SshTransport::workerMain()
             // 非阻塞读取 stdout/stderr，不能让监控命令拖住交互 Shell 的事件循环。
             const auto drainCommandStream = [&](int stream,
                                                 QByteArray& destination) {
-                for (;;) {
+                qsizetype readBytes = 0;
+                QElapsedTimer readTimer;
+                readTimer.start();
+                while (readBytes < AuxiliaryReadBudgetBytes && readTimer.elapsed() < ReadBudgetMs
+                       && _running.load(std::memory_order_acquire)) {
                     char buffer[16 * 1024];
                     const int count = ssh_channel_read_nonblocking(
                         commandChannel, buffer, sizeof(buffer), stream);
@@ -855,16 +1022,21 @@ void SshTransport::workerMain()
                         break;
                     }
                     destination.append(buffer, count);
+                    readBytes += count;
                 }
             };
             if (commandChannel && commandState == ExecState::Running) {
                 drainCommandStream(0, commandOutput);
                 drainCommandStream(1, commandErrorOutput);
-                if (ssh_channel_is_eof(commandChannel)
-                    || ssh_channel_is_closed(commandChannel)) {
+                if ((ssh_channel_is_eof(commandChannel)
+                     || ssh_channel_is_closed(commandChannel))
+                    && ssh_channel_poll(commandChannel, 0) <= 0
+                    && ssh_channel_poll(commandChannel, 1) <= 0) {
                     commandCompletion.observeOutputEnd();
                 }
-                if (ssh_channel_is_closed(commandChannel))
+                if (ssh_channel_is_closed(commandChannel)
+                    && ssh_channel_poll(commandChannel, 0) <= 0
+                    && ssh_channel_poll(commandChannel, 1) <= 0)
                     commandCompletion.observeRemoteClose();
             }
 
@@ -958,6 +1130,7 @@ void SshTransport::workerMain()
                 && requestedGeneration == monitorGeneration) {
                 monitorRequestId = requestedMonitorId;
                 monitorWrite = QByteArray::number(monitorRequestId) + '\n';
+                monitorTimer.restart();
             }
             if (!monitorWrite.isEmpty()) {
                 const int n = ssh_channel_write(
@@ -975,7 +1148,11 @@ void SshTransport::workerMain()
 
             bool monitorReadFailed = false;
             for (int stream : {0, 1}) {
-                for (;;) {
+                qsizetype readBytes = 0;
+                QElapsedTimer readTimer;
+                readTimer.start();
+                while (readBytes < AuxiliaryReadBudgetBytes && readTimer.elapsed() < ReadBudgetMs
+                       && _running.load(std::memory_order_acquire)) {
                     char buffer[16 * 1024];
                     const int count = ssh_channel_read_nonblocking(
                         monitorChannel, buffer, sizeof(buffer), stream);
@@ -987,6 +1164,7 @@ void SshTransport::workerMain()
                         monitorReadFailed = true;
                         break;
                     }
+                    readBytes += count;
                     if (stream == 1) {
                         if (monitorStderr.size() + count
                             > MaxMonitorStderrBytes) {
@@ -1050,8 +1228,7 @@ void SshTransport::workerMain()
             if (resizeResult == SSH_OK) {
                 appliedCols = pc;
                 appliedRows = pr;
-                _pendingCols.store(-1);
-                _pendingRows.store(-1);
+                // 保留最新请求值，避免清空时覆盖 GUI 并发提交的新尺寸。
             }
         }
 
@@ -1061,12 +1238,34 @@ void SshTransport::workerMain()
             keepaliveTimer.restart();
         }
 
-        if (ssh_channel_is_eof(channel) || !ssh_is_connected(session))
+        if ((ssh_channel_is_eof(channel) && ssh_channel_poll(channel, 0) <= 0)
+            || !ssh_is_connected(session))
             _running.store(false);
+
+        if (_keepAliveMs > 0)
+            deadline(_keepAliveMs - keepaliveTimer.elapsed());
+        if (commandChannel)
+            deadline(CommandTimeoutMs - commandTimer.elapsed());
+        if (monitorEnabled && !monitorChannel)
+            deadline(monitorNextRetryMs - workerTimer.elapsed());
+        if (monitorChannel && monitorState != ExecState::Running)
+            deadline(MonitorEstablishTimeoutMs - monitorTimer.elapsed());
+        if (monitorChannel && monitorRequestId != 0)
+            deadline(MonitorResponseTimeoutMs - monitorTimer.elapsed());
+        // libssh 中可能已有未消费字节，不能只等待下一次 socket 可读。
+        if (!_readPaused.load(std::memory_order_acquire) && inboundCapacity() > 0
+            && ssh_channel_poll(channel, 0) > 0)
+            deadline(0);
+        if (commandChannel && (ssh_channel_poll(commandChannel, 0) > 0
+                               || ssh_channel_poll(commandChannel, 1) > 0))
+            deadline(0);
+        if (monitorChannel && (ssh_channel_poll(monitorChannel, 0) > 0
+                               || ssh_channel_poll(monitorChannel, 1) > 0))
+            deadline(0);
     }
 
     // ── 关闭 ─────────────────────────────────────────────
-    const bool wasConnected = _connected.exchange(false);
+    const bool wasConnected = _connected.load();
 
     if (commandChannel)
         finishCommand(tr("SSH connection closed before the command completed."));
@@ -1077,12 +1276,17 @@ void SshTransport::workerMain()
         ssh_channel_close(channel);
         ssh_channel_free(channel);
     }
-    if (event)
+    if (event) {
+        ssh_event_remove_fd(event, _wakeup->descriptor());
         ssh_event_free(event);
+    }
     if (ssh_is_connected(session))
         ssh_disconnect(session);
     ssh_free(session);
 
-    if (wasConnected)
-        emitSignal(&SshTransport::disconnected);
+    if (wasConnected) {
+        QMutexLocker lock(&_inboundMutex);
+        _inboundClosed = true;
+        scheduleInboundLocked();
+    }
 }

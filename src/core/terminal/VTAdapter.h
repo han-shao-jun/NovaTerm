@@ -49,6 +49,10 @@ public:
 
     VTAdapter(const VTAdapter&) = delete;
     VTAdapter& operator=(const VTAdapter&) = delete;
+    // 移动同样显式删除：由 Runtime 在工作线程内原地独占持有，不存在
+    // 转移所有权的场景；显式声明避免依赖「拷贝删除隐式抑制移动」。
+    VTAdapter(VTAdapter&&) = delete;
+    VTAdapter& operator=(VTAdapter&&) = delete;
 
     bool isValid() const;
 
@@ -85,6 +89,7 @@ public:
 
     CursorState cursor() const;
     std::string title() const;  // UTF-8
+    [[nodiscard]] bool alternateScreen() const;
 
 private:
     // PImpl 模式隔离 libvterm 头文件依赖。

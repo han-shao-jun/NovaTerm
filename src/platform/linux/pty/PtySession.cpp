@@ -350,11 +350,14 @@ void PtySession::flushInput()
 
 // 读通知槽函数：循环读取 master 输出并通过 dataReady 信号投递
 // EIO 通常表示子进程已关闭 slave 端，视为正常结束（由退出轮询处理）
+// buffer 不做零初始化：read 只填充实际读到的字节，后续也仅拷贝 count
+// 字节，逐次 memset 64 KiB 是纯热路径浪费（ConPTY 的 reader 线程则把
+// 缓冲声明在循环外、整个线程只初始化一次）。
 void PtySession::drainOutput()
 {
     if (_masterFd < 0 || _readPaused)
         return;
-    std::array<char, ReadBufferSize> buffer{};
+    std::array<char, ReadBufferSize> buffer;
     for (;;) {
         const ssize_t count = ::read(_masterFd, buffer.data(), buffer.size());
         if (count > 0) {

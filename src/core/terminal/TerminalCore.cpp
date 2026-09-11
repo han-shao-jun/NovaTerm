@@ -535,8 +535,9 @@ public:
 
         QMetaObject::invokeMethod(
             owner,
-            [target = owner, damageValue, revisionValue, cursorValue,
-             titleValue, titleCopy, bellValue, scrollbackValue, screenScrollRows,
+            [target = owner, damageValue = std::move(damageValue),
+             revisionValue, cursorValue, titleValue, titleCopy, bellValue,
+             scrollbackValue, screenScrollRows,
              output = std::move(output)]() {
                 for (const QByteArray& data : output)
                     emit target->outputData(data);
@@ -561,7 +562,8 @@ public:
         // 调用方须持有 modelMutex，且在一次 adapter/command 批次结束后调用。
         // 因此一次 revision 描述一次稳定的模型发布，并对应于该发布期间
         // 发出的所有 damage 区域。
-        if (pendingDamage.isEmpty() && !cursorChanged && !scrollbackChanged)
+        if (pendingDamage.isEmpty() && !cursorChanged && !scrollbackChanged
+            && !titleChanged)
             return;
         pendingRevision = ++modelRevision;
         if (isize(rowRevisions.size()) != screen.rows()) {
@@ -840,6 +842,122 @@ NovaTerm::TerminalSnapshot TerminalCore::snapshot() const
     NovaTerm::TerminalSnapshot result =
         NovaTerm::makeSnapshot(_runtime->screen, _runtime->cursor);
     result.revision = _runtime->modelRevision;
+    return result;
+}
+
+NovaTerm::TerminalState TerminalCore::terminalState(
+    NovaTerm::u64 sinceLineId, std::size_t maxBytes, std::size_t maxLines) const
+{
+    std::lock_guard<std::mutex> locker(_runtime->modelMutex);
+    NovaTerm::TerminalState result;
+    result.revision = _runtime->modelRevision;
+    result.cursor = _runtime->cursor;
+    result.alternateScreen = _runtime->adapter->alternateScreen();
+    maxBytes = std::min(maxBytes, NovaTerm::TerminalState::MaxBytes);
+    maxLines = std::min(maxLines, NovaTerm::TerminalState::MaxLines);
+    std::size_t remaining = maxBytes;
+    // 只编码解析后的 Unicode scalar；预算边界不切断 UTF-8 字符。
+    const auto appendScalar = [&](std::string& text, char32_t cp) {
+        if (cp < 32 || (cp >= 127 && cp <= 159)
+            || cp == NovaTerm::WideCharContinuation)
+            return;
+        if (cp > 0x10ffff || (cp >= 0xd800 && cp <= 0xdfff))
+            cp = 0xfffd;
+        char bytes[4];
+        int count = 0;
+        if (cp < 0x80) bytes[count++] = char(cp);
+        else if (cp < 0x800) {
+            bytes[count++] = char(0xc0 | (cp >> 6));
+            bytes[count++] = char(0x80 | (cp & 63));
+        } else if (cp < 0x10000) {
+            bytes[count++] = char(0xe0 | (cp >> 12));
+            bytes[count++] = char(0x80 | ((cp >> 6) & 63));
+            bytes[count++] = char(0x80 | (cp & 63));
+        } else {
+            bytes[count++] = char(0xf0 | (cp >> 18));
+            bytes[count++] = char(0x80 | ((cp >> 12) & 63));
+            bytes[count++] = char(0x80 | ((cp >> 6) & 63));
+            bytes[count++] = char(0x80 | (cp & 63));
+        }
+        if (std::size_t(count) <= remaining) {
+            text.append(bytes, std::size_t(count));
+            remaining -= std::size_t(count);
+        } else result.truncated = true;
+    };
+    const auto appendCell = [&](std::string& text, const NovaTerm::Cell& cell) {
+        if (cell.isWideContinuation())
+            return;
+        if (cell.chars[0] == 0) appendScalar(text, ' ');
+        else for (const auto cp : cell.chars) {
+            if (cp == 0) break;
+            appendScalar(text, cp);
+        }
+    };
+    // 门面中暂存的标题转 Unicode 后按同一字节预算编码，控制字符不进入上下文。
+    for (const char32_t cp : _runtime->currentTitle.toUcs4())
+        appendScalar(result.title, cp);
+    const int rows = _runtime->screen.rows();
+    const int columns = _runtime->screen.columns();
+    for (int row = 0; row < rows && remaining > 0; ++row) {
+        const bool continuation = _runtime->screen.rowContinuation(row);
+        if (!continuation || result.viewport.empty()) {
+            if (result.viewport.size() >= maxLines) { result.truncated = true; break; }
+            result.viewport.push_back({static_cast<NovaTerm::u64>(row), {}});
+            // 可见首行可能是历史尾部未完成逻辑行的延续，保留跨接缝前缀。
+            if (row == 0 && continuation && !result.alternateScreen) {
+                const auto* prefix = _runtime->scrollback.logicalLineAt(
+                    _runtime->scrollback.lineCount() - 1);
+                if (prefix && !prefix->hardBreak) {
+                    // 前缀最多占一半预算，并从尾部取，保留当前屏幕的输出空间。
+                    constexpr std::size_t MaxUtf8CellBytes = NovaTerm::MaxCharsPerCell * 4;
+                    const auto prefixCells = std::min(prefix->cells.size(),
+                        remaining / (2 * MaxUtf8CellBytes));
+                    const auto first = prefix->cells.size() - prefixCells;
+                    if (first != 0) result.truncated = true;
+                    for (auto index = first; index < prefix->cells.size(); ++index) {
+                        appendCell(result.viewport.back().text, prefix->cells[index]);
+                    }
+                }
+            }
+        }
+        auto& text = result.viewport.back().text;
+        result.viewport.back().complete = row < result.cursor.position.row;
+        int end = columns;
+        if (row + 1 == rows || !_runtime->screen.rowContinuation(row + 1)) {
+            while (end > 0) {
+                const auto* cell = _runtime->screen.cellAt(row, end - 1);
+                if (cell->chars[0] != 0 && cell->chars[0] != ' ') break;
+                --end;
+            }
+        }
+        for (int col = 0; col < end && remaining > 0; ++col)
+            appendCell(text, *_runtime->screen.cellAt(row, col));
+    }
+    if (!result.alternateScreen) {
+        const auto count = _runtime->scrollback.lineCount();
+        const auto first = std::max<NovaTerm::isize>(0, count - NovaTerm::isize(maxLines));
+        if (first > 0) {
+            const auto* preceding = _runtime->scrollback.logicalLineAt(first - 1);
+            if (preceding && preceding->id > sinceLineId)
+                result.truncated = true;
+        }
+        for (NovaTerm::isize index = count - 1; index >= first && remaining > 0; --index) {
+            const auto* line = _runtime->scrollback.logicalLineAt(index);
+            if (!line || line->id <= sinceLineId || !line->hardBreak) continue;
+            if (result.recentOutput.size() + result.viewport.size() >= maxLines) {
+                result.truncated = true;
+                break;
+            }
+            result.recentOutput.push_back({line->id, {}});
+            for (const auto& cell : line->cells) {
+                appendCell(result.recentOutput.back().text, cell);
+                if (remaining == 0) break;
+            }
+        }
+        std::reverse(result.recentOutput.begin(), result.recentOutput.end());
+    }
+    if (remaining == 0)
+        result.truncated = true;
     return result;
 }
 

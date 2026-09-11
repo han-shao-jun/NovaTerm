@@ -268,7 +268,7 @@ int main(int argc, char* argv[])
 
     const double baselineResidentMiB = currentResidentMiB();
     NovaTerm::ChunkedScrollback scrollback(
-        std::min(lines, NovaTerm::ChunkedScrollback::MaximumMaxLines),
+        std::min<NovaTerm::isize>(lines, NovaTerm::ChunkedScrollback::MaximumMaxLines),
         maxBytes, chunkLines);
     const qsizetype targetSamples = std::clamp<qsizetype>(
         lines / 10, 100, 10'000);

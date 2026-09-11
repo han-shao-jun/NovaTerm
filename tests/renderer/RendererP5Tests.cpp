@@ -1,4 +1,5 @@
 #include "renderer/font/FontManager.h"
+#include "renderer/HistoryLayout.h"
 #include "renderer/glyph/GlyphAtlas.h"
 #include "renderer/glyph/GlyphCache.h"
 #include "renderer/glyph/GlyphRasterizer.h"
@@ -13,6 +14,7 @@
 #include <QTest>
 
 #include <limits>
+#include <atomic>
 
 class RendererP5Tests final : public QObject
 {
@@ -26,6 +28,8 @@ private slots:
     void rasterizedQuadStartsAtCellLocalOrigin();
     void rasterQueueIsBoundedDeduplicatedAndGenerationSafe();
     void rasterQueueStopCancelsPendingWork();
+    void asyncRasterBurstAndCancellation();
+    void historyLogicalHeadPreservesIndices();
     void atlasSeparatesFormatsAndUploadsDirtyRects();
     void atlasDefersUploadsAtFrameBudget();
     void atlasEvictionHonorsFramesInFlight();
@@ -46,6 +50,68 @@ private slots:
     void bufferReleaseRetainsPeakStatistics();
     void semanticHighlightRulesRespectPriorityAndCase();
 };
+
+void RendererP5Tests::historyLogicalHeadPreservesIndices()
+{
+    HistoryLayout layout;
+    for (quint64 id = 1; id <= 100000; ++id) {
+        NovaTerm::DisplayLine row;
+        row.lineId = id;
+        layout.push_back(row);
+    }
+    for (quint64 id = 100001; id <= 200000; ++id) {
+        layout.remove(0, 1);
+        NovaTerm::DisplayLine row;
+        row.lineId = id;
+        layout.push_back(row);
+        QCOMPARE(layout.size(), 100000);
+        QCOMPARE(layout[0].lineId, id - 99999);
+        QCOMPARE(layout.constLast().lineId, id);
+    }
+    layout.remove(layout.size() - 2, 2);
+    QCOMPARE(layout.constLast().lineId, quint64(199998));
+    layout.remove(0, layout.size());
+    QVERIFY(layout.isEmpty());
+}
+
+void RendererP5Tests::asyncRasterBurstAndCancellation()
+{
+    std::atomic<bool> offThread{false};
+    const auto owner = std::this_thread::get_id();
+    NovaTerm::AsyncGlyphRasterizer worker;
+    worker.setReadyCallback([&] {
+        offThread.store(std::this_thread::get_id() != owner);
+    });
+    QFont font(QStringLiteral("monospace"));
+    font.setPixelSize(16);
+    for (int i = 0; i < 128; ++i) {
+        NovaTerm::GlyphKey key;
+        key.cluster = QString(QChar(0x4e00 + i)) + QStringLiteral("\u0301");
+        key.fontGeneration = 1;
+        key.cellSpan = 2;
+        QVERIFY(worker.enqueue({key, font, 10, 20, true}));
+        QVERIFY(worker.enqueue({key, font, 10, 20, true}));
+    }
+    int completed = 0;
+    QTRY_VERIFY_WITH_TIMEOUT(([&] {
+        auto results = worker.takeResults();
+        for (const auto& bitmap : results) {
+            if (bitmap.image.isNull() || bitmap.sourceGeneration != 1)
+                return false;
+            ++completed;
+        }
+        return completed == 128;
+    })(), 5000);
+    QVERIFY(offThread.load());
+    worker.cancelBeforeGeneration(2);
+    NovaTerm::GlyphKey stale;
+    stale.cluster = QStringLiteral("old");
+    stale.fontGeneration = 1;
+    QVERIFY(!worker.enqueue({stale, font, 10, 20, true}));
+    worker.stop();
+    QCOMPARE(worker.size(), 0);
+    QVERIFY(!worker.enqueue({stale, font, 10, 20, true}));
+}
 
 void RendererP5Tests::semanticHighlightRulesRespectPriorityAndCase()
 {

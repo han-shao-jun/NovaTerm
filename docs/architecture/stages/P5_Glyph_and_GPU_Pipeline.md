@@ -15,6 +15,20 @@
 
 ## 1. 目标与范围
 
+2026-09-10 性能增量：GPU instance 直接构造；字形位图改为真正的有界异步
+worker，完成后仅重建仍缺字形的行，atlas 与 QRhi 始终留在渲染线程；历史
+布局改为 logical head + 低频 compact。增加 CJK/组合字符异步突发、取消、
+10 万行饱和淘汰测试。RTX 4070 Ti / OpenGL / 60 Hz 短时验收通过，字体重建
+后 glyph 队列排空、revision 收敛；基准现在等待实际 full-row 重建与异步
+glyph 完成，防止仅因 overlay 帧/revision 相同就提前判定完成。
+详见[本轮优化记录](../Performance_Optimization_2026-09-10.md)。历史长稳表保持
+原值，本轮未重测 30 分钟长稳或其他平台后端。
+
+2026-09-10 编译兼容修复：`TerminalRenderer::requestFullFrame()` 合并待渲染
+revision 时，将核心 `u64` 显式转换为 `quint64`。两者均为无符号 64 位整数，
+但 Linux 上底层类型可能不同，直接传入 `std::max` 会导致模板推导失败；
+转换不改变 revision 数值与调度语义。
+
 P5 在不破坏 P3 增量渲染、Snapshot 一致性和最终 revision 收敛语义的前提下，完成两类工作：
 
 1. 建立可扩展的字体、fallback、cluster、Glyph Cache 和多页 Atlas；

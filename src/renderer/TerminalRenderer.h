@@ -1,4 +1,5 @@
 #pragma once
+#include "HistoryLayout.h"
 #include <QRhiWidget>
 #include <QFont>
 #include <QTimer>
@@ -237,6 +238,9 @@ private:
                          const QSize& pixelSize);
     void appendTexturedRect(const QRectF& rect, const QRect& atlasRect,
                             const QColor& color, const QSize& pixelSize);
+    [[nodiscard]] static GpuInstance makeInstance(const QRectF& rect,
+                                                  const QRectF& uvRect,
+                                                  const QColor& color);
     void appendQuad(const QRectF& rect, const QRectF& uvRect,
                     const QColor& color, const QSize& pixelSize);
     NovaTerm::GlyphLocation ensureGlyph(const QString& text, bool bold,
@@ -297,8 +301,9 @@ private:
     QFont _font;
     QFontMetricsF* _fm{nullptr};
     NovaTerm::FontManager _fontManager;
-    NovaTerm::GlyphRasterizer _glyphRasterizer;
-    NovaTerm::BoundedGlyphRasterQueue _glyphRasterQueue{512};
+    NovaTerm::AsyncGlyphRasterizer _glyphRasterQueue;
+    std::vector<bool> _glyphPendingRows;
+    int _buildingGlyphRow{-1};
     NovaTerm::GlyphCache _glyphCache;
     NovaTerm::GlyphLocation _solidGlyph;
     // Keep the font's fractional advances.  Rounding every cell separately
@@ -313,7 +318,7 @@ private:
     qsizetype _scrollAnchorWrap{0};
     bool _conservativeLiveScrollRendering{true};
     quint64 _reflowGeneration{0};
-    QVector<NovaTerm::DisplayLine> _historyLayout;
+    HistoryLayout _historyLayout;
     QVector<NovaTerm::DisplayLine> _pendingHistoryLayout;
     // _historyLayout 所依据的列宽。0 表示布局未建立。仅当它与当前列宽不一致
     // 时才需要全量重排 —— 行数变化不影响折行。

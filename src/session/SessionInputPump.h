@@ -83,6 +83,7 @@ private:
     QPointer<ITransport> _transport;
     QPointer<TerminalCore> _core;
     QByteArray _pending;       ///< 解析器满时缓存的待处理字节
+    qsizetype _pendingHead{0}; ///< 已消费前缀；排空时一次清理
     bool _running{false};
     Statistics _statistics;
 };

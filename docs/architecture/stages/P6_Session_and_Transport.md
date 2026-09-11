@@ -156,6 +156,23 @@ CPU、内存、交换指标名采用 12 px，数值详情、速率、进度条�
 展示，不改变采样或 Transport 生命周期。CPU、内存、交换三条占用条的垂直间距
 同步由 8 px 收紧为 4 px，使指标组更紧凑且保持三列对齐。
 
+### 性能增量改进（2026-09-10）
+
+SSH worker 将合并的本地唤醒 socket 加入 libssh event loop；write、resize、
+command、monitor、暂停恢复和 disconnect 主动通知。空闲等待网络或控制事件，
+keepalive 与辅助通道采用剩余 deadline，移除固定 20 ms 轮询。唤醒资源由 RAII
+管理，所有会话 libssh 调用仍在 worker。`novaterm_ssh_transport_check` 增加提前
+通知、通知合并及阻塞等待唤醒检查；隔离本机 OpenSSH 的 idle CPU、大流量、
+Ctrl+C、辅助命令、monitor、resize 与 32 目标 Ninja 构建已验证；广域网及用户
+远端主机尚未验收。
+
+同批完成 SSH→GUI 1 MiB 有界合并交付、EOF 尾部交付顺序、主/辅助读取预算，
+以及输入泵与 SSH 待写 offset。`TerminalSession::terminalContext()` 提供内置的
+有界 Agent 状态接口，完成 progress/soft-wrap/重复日志/alternate-screen 过滤，
+不依赖 P7 插件工作。实现明细、命令、数据和剩余边界见
+[本轮优化记录](../Performance_Optimization_2026-09-10.md)。该批为 SSH/性能与
+Agent 上下文改进，未改变本阶段采纳的 View-owned 编排。
+
 ## 剩余工作
 
 采纳 View-owned 架构后，原「接入 SessionManager」及其派生项已作废。剩下的都是

@@ -1,6 +1,6 @@
 /**
  * @file   PtySession.h
- * @brief  Linux PTY 会话：基于 posix_openpt + fork 的本地 shell。
+ * @brief  Linux PTY 会话：基于 openpty + fork + execve 的本地 shell。
  *
  * 事件驱动的 Linux 伪终端会话。原生描述符与子进程生命周期均保留在
  * QObject 线程上，输入入队为线程安全（供 LocalShellTransport 跨线程调用）。
@@ -26,9 +26,9 @@ namespace NovaTerm::Linux {
 /**
  * @brief Linux PTY 本地 shell 会话。
  *
- * start() 通过 forkpty 启动子进程，master fd 设为非阻塞 + CLOEXEC。
- * 输出经 QSocketNotifier(Read) 触发 drainOutput()；输入入队后由
- * flushInput() 写入 master，EAGAIN 时启用 Write notifier。
+ * start() 通过 openpty + fork + execve 启动子进程，master fd 设为非阻塞
+ * + CLOEXEC。输出经 QSocketNotifier(Read) 触发 drainOutput()；输入入队后
+ * 由 flushInput() 写入 master，EAGAIN 时启用 Write notifier。
  * requestClose() 先 SIGHUP，超时升级为 SIGTERM/SIGKILL。
  */
 class PtySession final : public QObject

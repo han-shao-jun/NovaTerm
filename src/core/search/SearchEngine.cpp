@@ -46,12 +46,15 @@ template <typename Cancelled>
 std::optional<SearchableLine> makeSearchable(const LogicalLine& line,
                                               Cancelled cancelled)
 {
-    if (line.cells.size() > MaximumSearchLineCharacters)
+    // size() 是无符号 size_t，与 isize 常量/变量比较需显式转换
+    // （AGENTS.md「容易写错的地方」记载的模式）。
+    const isize cellCount = isize(line.cells.size());
+    if (cellCount > MaximumSearchLineCharacters)
         return std::nullopt;
     SearchableLine result;
-    result.text.reserve(line.cells.size());
-    result.utf16ToCell.reserve(line.cells.size() + 1);
-    for (isize cellIndex = 0; cellIndex < line.cells.size(); ++cellIndex) {
+    result.text.reserve(cellCount);
+    result.utf16ToCell.reserve(cellCount + 1);
+    for (isize cellIndex = 0; cellIndex < cellCount; ++cellIndex) {
         // 每 256 个 Cell 检查一次取消，平衡检查开销与响应延迟。
         if ((cellIndex & 0xff) == 0 && cancelled())
             return std::nullopt;

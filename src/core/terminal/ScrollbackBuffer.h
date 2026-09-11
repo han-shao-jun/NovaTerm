@@ -53,6 +53,9 @@ public:
     int columns() const { return _cols; }
     const ScrollbackCell* lineAt(int index) const;   // index=0 是最旧的行
     const std::vector<ScrollbackCell>* lineVectorAt(int index) const;
+    /** @brief 在调用方持有模型锁时借用逻辑行，避免快照或深拷贝。 */
+    [[nodiscard]] const NovaTerm::LogicalLine* logicalLineAt(NovaTerm::isize index) const
+    { return _storage.lineAt(index); }
     int maxLines() const { return _maxLines; }
     NovaTerm::ScrollbackSnapshot snapshot();
     // 尾部增量视图（转发到 ChunkedScrollback::tailFrom）。供渲染器增量维护

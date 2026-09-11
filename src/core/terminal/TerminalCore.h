@@ -15,6 +15,7 @@
 
 #include "BoundedByteQueue.h"
 #include "ScreenBuffer.h"
+#include "TerminalState.h"
 #include "core/scrollback/LineLayout.h"
 #include "core/search/SearchEngine.h"
 
@@ -92,6 +93,10 @@ public:
      */
     [[nodiscard]] bool rowContinuation(int row) const;
     NovaTerm::TerminalSnapshot snapshot() const;
+    /** @brief 在一次模型锁内读取有界文本、标题、模式、光标与 revision。 */
+    [[nodiscard]] NovaTerm::TerminalState terminalState(
+        NovaTerm::u64 sinceLineId = 0, std::size_t maxBytes = 65536,
+        std::size_t maxLines = 256) const;
 
     /**
      * @brief 构造渲染层专用稀疏快照。

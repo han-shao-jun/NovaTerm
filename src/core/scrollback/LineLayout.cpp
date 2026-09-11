@@ -219,7 +219,7 @@ public:
                         emitBatch({request.snapshot.version(),
                                    request.generation, start, row - start,
                                    physicalRows, std::move(batchRows),
-                                   false, true});
+                                   false, true, {}});
                         break;
                     }
                     const LogicalLine* line = request.snapshot.lineAt(row);
@@ -234,7 +234,8 @@ public:
                         if (isCancelled(request.generation)) {
                             emitBatch({request.snapshot.version(),
                               request.generation, start, row - start,
-                              physicalRows, std::move(batchRows), false, true});
+                              physicalRows, std::move(batchRows),
+                              false, true, {}});
                             break;
                         }
                         physicalRows += wrapped.size();
@@ -248,13 +249,13 @@ public:
                 emitBatch({request.snapshot.version(), request.generation,
                            start, end - start, physicalRows,
                            std::move(batchRows),
-                           end == request.snapshot.lineCount(), false});
+                           end == request.snapshot.lineCount(), false, {}});
                 start = end;
               }
             // 空快照也需要发布一次 completed=true 的批次，让 UI 收到结束信号。
             if (request.snapshot.empty() && !isCancelled(request.generation))
                 emitBatch({request.snapshot.version(), request.generation,
-                           0, 0, 0, {}, true, false});
+                           0, 0, 0, {}, true, false, {}});
             } catch (const std::exception& exception) {
                 emitBatch({request.snapshot.version(), request.generation,
                            0, 0, 0, {}, true, false,

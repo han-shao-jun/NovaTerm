@@ -21,6 +21,9 @@
 #include <QThread>
 #include <QWaitCondition>
 #include <atomic>
+#include <memory>
+
+class SshWorkerWakeup;
 
 // SshTransport — ITransport 实现，基于 libssh 的 SSH shell 会话。
 //
@@ -45,6 +48,14 @@ class SshTransport final : public ITransport
 {
     Q_OBJECT
 public:
+    struct InboundStatistics {
+        quint64 receivedBytes{0};
+        quint64 deliveredBytes{0};
+        qsizetype pendingBytes{0};
+        qsizetype peakBytes{0};
+    };
+    /** @brief 有界输入交付统计；在锁内取得一致副本。 */
+    [[nodiscard]] InboundStatistics inboundStatistics() const;
     explicit SshTransport(SshConfig config, QObject* parent = nullptr);
     ~SshTransport() override;
 
@@ -106,6 +117,10 @@ signals:
                                 const QString& errorMessage);
 
 private:
+    friend class SshTransportTestAccess;
+    void scheduleInboundLocked();
+    void deliverInbound(quint64 generation);
+    [[nodiscard]] qsizetype inboundCapacity() const;
     void workerMain();          // 在工作线程中运行整个会话生命周期
     // 线程安全：记录 + 投递信号。先发 transportError 再发 errorOccurred，
     // 二者 message 一致（顺序约定见 ITransport.h）。
@@ -128,6 +143,11 @@ private:
 
     // 命令长度、输出量和执行时间均设上限，避免异常服务端耗尽本地资源。
     static constexpr qint64 MaxPendingWriteBytes = 1024 * 1024;
+    static constexpr qsizetype MaxInboundBytes = 1024 * 1024;
+    static constexpr qsizetype InboundDeliveryBytes = 64 * 1024;
+    static constexpr qsizetype ShellReadBudgetBytes = 256 * 1024;
+    static constexpr qsizetype AuxiliaryReadBudgetBytes = 64 * 1024;
+    static constexpr int ReadBudgetMs = 2;
     static constexpr qsizetype MaxCommandBytes = 16 * 1024;
     static constexpr qsizetype MaxCommandOutputBytes = 1024 * 1024;
     static constexpr int CommandTimeoutMs = 5000;
@@ -139,11 +159,23 @@ private:
     static constexpr int TeardownWaitMs = 15000;
 
     SshConfig _config;
+    QString _knownHostsPath;
     int _keepAliveMs{0};
 
     std::atomic<bool> _running{false};
     std::atomic<bool> _connected{false};
     std::atomic<bool> _readPaused{false};
+
+    // 最多一个 queued delivery；暂停时保留字节，关闭/重连使旧投递失效。
+    mutable QMutex _inboundMutex;
+    QByteArray _inbound;
+    qsizetype _inboundHead{0};
+    quint64 _inboundGeneration{0};
+    bool _inboundScheduled{false};
+    bool _inboundClosed{false};
+    quint64 _inboundReceivedBytes{0};
+    quint64 _inboundDeliveredBytes{0};
+    qsizetype _inboundPeakBytes{0};
 
     // 写队列：GUI 线程 append，工作线程在事件循环里 drain。
     mutable QMutex _writeMutex;
@@ -175,4 +207,5 @@ private:
     QString _errorString;
 
     QThread* _thread{nullptr};
+    std::unique_ptr<SshWorkerWakeup> _wakeup;
 };
