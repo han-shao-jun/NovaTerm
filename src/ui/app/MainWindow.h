@@ -108,6 +108,7 @@ private:
         TerminalView::LocalShellType type{TerminalView::LocalShellType::Cmd};
         QString wslDistribution;
         QString label;
+        QString workingDirectory;
     };
 
     // ── 关闭确认对话框 ──

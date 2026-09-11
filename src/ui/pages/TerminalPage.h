@@ -45,7 +45,8 @@ public:
     TerminalView* addTerminalTab(
         const QString& title = QString(),
         TerminalView::LocalShellType type = TerminalView::LocalShellType::Cmd,
-        const QString& wslDistribution = {});
+        const QString& wslDistribution = {},
+        const QString& workingDirectory = {});
     TerminalView* addSerialTerminalTab(const SerialConfig& config);
     TerminalView* addSshTerminalTab(const SshConfig& config);
     TerminalView* addTelnetTerminalTab(const TelnetConfig& config);
@@ -54,7 +55,8 @@ public:
     bool replaceTerminalTab(TerminalView* terminalView,
                             TerminalView::LocalShellType type,
                             const QString& wslDistribution,
-                            const QString& label);
+                            const QString& label,
+                            const QString& workingDirectory);
     bool replaceTerminalTab(TerminalView* terminalView,
                             const SerialConfig& config);
     bool replaceTerminalTab(TerminalView* terminalView,

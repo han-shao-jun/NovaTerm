@@ -76,6 +76,8 @@ public:
     /** @brief 启动指定 WSL 发行版，或按类型启动其他本地 Shell。 */
     void startLocalShell(LocalShellType type,
                          const QString& wslDistribution);
+    void startLocalShell(LocalShellType type, const QString& wslDistribution,
+                         const QString& workingDirectory);
     void startLocalShell(const LocalShellConfig& config); ///< 按完整配置启动本地 shell
     void stopLocalShell();                                ///< 停止本地 shell
     bool isLocalShell() const { return _isLocalShell; }  ///< 是否为本地 shell 会话

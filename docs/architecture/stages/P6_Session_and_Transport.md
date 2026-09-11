@@ -522,3 +522,10 @@ Transport 输入；每个 View 拥有并驱动一个 Session 的完整生命周�
 Transport 不反向依赖 UI 类型；隐藏/遮挡 View 不产生不必要高频 GPU 帧；Profile/
 Session/Credential 分层持久化；restore 与 reconnect 语义分离；所有状态和错误
 可观察；压力关闭可靠。
+
+
+## 本地 Shell 启动目录
+
+本地 Shell 会话表单提供“启动目录” `ElaLineEdit`。新建时默认填充当前用户家目录（由 `QDir::homePath()` 提供，Linux 和 Windows 均适用）；空值在 `LocalShellConfig::effectiveWorkingDirectory()` 中同样回退到家目录。用户输入会随 RuntimeConfig 持久化，并贯穿新建、编辑、快捷连接重连和 TerminalView 重启路径，最终由 Linux PTY / Windows ConPTY 使用。
+
+回归覆盖 `novaterm_pty_tests::defaultWorkingDirectoryIsHome` 以及已有的自定义目录子进程测试。

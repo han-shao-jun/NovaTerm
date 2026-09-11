@@ -3,6 +3,7 @@
 #include "transport/LocalShellTransport.h"
 
 #include <QElapsedTimer>
+#include <QDir>
 #include <QSignalSpy>
 #include <QTemporaryDir>
 #include <QTest>
@@ -39,6 +40,7 @@ class PtyTransportTests final : public QObject
     Q_OBJECT
 private slots:
     void initTestCase();
+    void defaultWorkingDirectoryIsHome();
     void workingDirectoryAndMergedEnvironmentReachChild();
     void exitReasonsAreReported();
     void closeIsAsynchronousAndIdempotent();
@@ -52,6 +54,25 @@ void PtyTransportTests::initTestCase()
     QCOMPARE(LocalShellProfiles::platformDefault().environment.value(
                  QStringLiteral("TERM")),
              QStringLiteral("xterm-256color"));
+}
+
+void PtyTransportTests::defaultWorkingDirectoryIsHome()
+{
+    const LocalShellConfig config = [&] {
+        LocalShellConfig value;
+        value.profile = LocalShellProfiles::platformDefault();
+        return value;
+    }();
+    QCOMPARE(config.effectiveWorkingDirectory(), QDir::homePath());
+
+    LocalShellConfig probe = config;
+    probe.profile.executable = QStringLiteral("/bin/sh");
+    probe.profile.arguments = {QStringLiteral("-c"), QStringLiteral("pwd")};
+    LocalShellTransport transport;
+    transport.setSessionConfig(probe);
+    const QByteArray output = collectUntilDisconnected(
+        transport, 5000);
+    QVERIFY2(output.contains(QDir::homePath().toUtf8()), output.constData());
 }
 
 void PtyTransportTests::workingDirectoryAndMergedEnvironmentReachChild()

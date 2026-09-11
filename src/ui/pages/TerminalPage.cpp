@@ -24,7 +24,8 @@ namespace {
 
 RuntimeConfig localRuntime(TerminalView::LocalShellType type,
                            const QString& wslDistribution,
-                           const QString& label)
+                           const QString& label,
+                           const QString& workingDirectory)
 {
     RuntimeConfig runtime;
     runtime.transportKind = TransportKind::LocalShell;
@@ -32,6 +33,7 @@ RuntimeConfig localRuntime(TerminalView::LocalShellType type,
     runtime.transport = {
         {QStringLiteral("shellType"), static_cast<int>(type)},
         {QStringLiteral("wslDistribution"), wslDistribution.trimmed()},
+        {QStringLiteral("workingDirectory"), workingDirectory.trimmed()},
         {QStringLiteral("label"), label.trimmed()}};
     return runtime;
 }
@@ -228,7 +230,8 @@ void TerminalPage::emitCurrentSessionContext()
 
 TerminalView* TerminalPage::addTerminalTab(const QString& title,
                                            TerminalView::LocalShellType type,
-                                           const QString& wslDistribution)
+                                           const QString& wslDistribution,
+                                           const QString& workingDirectory)
 {
     auto* terminalView = new TerminalView(_tabWidget);
     registerTerminalView(terminalView);
@@ -236,7 +239,7 @@ TerminalView* TerminalPage::addTerminalTab(const QString& title,
         ? tr("Terminal %1").arg(_terminalViews.size()) : title;
     _tabWidget->setCurrentIndex(_tabWidget->addTab(terminalView, tabTitle));
     static_cast<void>(replaceTerminalTab(
-        terminalView, type, wslDistribution, tabTitle));
+        terminalView, type, wslDistribution, tabTitle, workingDirectory));
     return terminalView;
 }
 
@@ -323,7 +326,8 @@ void TerminalPage::restartTerminalWhenClosed(
 bool TerminalPage::replaceTerminalTab(TerminalView* terminalView,
                                       TerminalView::LocalShellType type,
                                       const QString& wslDistribution,
-                                      const QString& label)
+                                      const QString& label,
+                                      const QString& workingDirectory)
 {
     const int index = _tabWidget->indexOf(terminalView);
     if (index < 0)
@@ -337,14 +341,14 @@ bool TerminalPage::replaceTerminalTab(TerminalView* terminalView,
     terminalView->renderer()->setHighlightRules({});
     _sessionEditSnapshots.insert(
         terminalView,
-        SessionEditSnapshot{localRuntime(type, wslDistribution, title), {}});
+        SessionEditSnapshot{localRuntime(type, wslDistribution, title, workingDirectory), {}});
 
     const QPointer<TerminalView> terminalGuard(terminalView);
     restartTerminalWhenClosed(terminalView,
-        [this, terminalGuard, type, wslDistribution]() {
+        [this, terminalGuard, type, wslDistribution, workingDirectory]() {
         if (!terminalGuard)
             return;
-        terminalGuard->startLocalShell(type, wslDistribution);
+        terminalGuard->startLocalShell(type, wslDistribution, workingDirectory);
         if (ITransport* const transport = terminalGuard->transport()) {
             if (transport->isConnected()) {
                 emit localSessionConnected(type);

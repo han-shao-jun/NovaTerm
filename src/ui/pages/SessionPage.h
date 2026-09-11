@@ -53,7 +53,8 @@ signals:
      */
     void localSessionRequested(TerminalView::LocalShellType type,
                                const QString& wslDistribution,
-                               const QString& label);
+                               const QString& label,
+                               const QString& workingDirectory);
     void serialSessionRequested(const SerialConfig& config); ///< 串口会话确认
     void sshSessionRequested(const SshConfig& config);        ///< SSH 会话确认
     void telnetSessionRequested(const TelnetConfig& config);  ///< Telnet 会话确认
@@ -72,6 +73,7 @@ private:
     ElaComboBox*_shellTypeCombo{nullptr};
 
     ElaLineEdit* _shellLabel{nullptr};
+    ElaLineEdit* _shellWorkingDirectory{nullptr};
 
     ElaLineEdit* _sshIp{nullptr};
     ElaSpinBox* _sshPort{nullptr};

@@ -326,6 +326,13 @@ void TerminalView::startLocalShell(LocalShellType type)
 void TerminalView::startLocalShell(LocalShellType type,
                                    const QString& wslDistribution)
 {
+    startLocalShell(type, wslDistribution, {});
+}
+
+void TerminalView::startLocalShell(LocalShellType type,
+                                   const QString& wslDistribution,
+                                   const QString& workingDirectory)
+{
     LocalShellConfig config;
 #ifdef Q_OS_WIN
     // WSL 必须携带下拉框中实际发现的发行版名称，避免多实例环境下
@@ -349,6 +356,7 @@ void TerminalView::startLocalShell(LocalShellType type,
     Q_UNUSED(wslDistribution);
     config.profile = LocalShellProfiles::platformDefault();
 #endif
+    config.workingDirectory = workingDirectory.trimmed();
     startLocalShell(config);
 }
 

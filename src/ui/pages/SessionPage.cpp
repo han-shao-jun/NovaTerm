@@ -13,6 +13,7 @@
 #include "ui/widgets/MessagePrompts.h"
 #include "ElaTabWidget.h"
 #include <QFileDialog>
+#include <QDir>
 #include <QHBoxLayout>
 #include <QIntValidator>
 #include <QLineEdit>
@@ -178,7 +179,8 @@ SessionPage::SessionPage(QWidget* parent)
             ? _shellTypeCombo->currentData(WslDistributionRole).toString()
             : QString{};
         emit localSessionRequested(type, wslDistribution,
-                                   _shellLabel->text().trimmed());
+                                   _shellLabel->text().trimmed(),
+                                   _shellWorkingDirectory->text().trimmed());
     });
 
     addCentralWidget(_centralWidget, true, true, 0);
@@ -240,6 +242,8 @@ void SessionPage::applyRuntimeConfig(const RuntimeConfig& runtime,
         }
         _shellTypeCombo->setCurrentIndex(shellIndex >= 0 ? shellIndex : 0);
         _shellLabel->setText(values.value(QStringLiteral("label")).toString());
+        _shellWorkingDirectory->setText(values.value(
+            QStringLiteral("workingDirectory"), QDir::homePath()).toString());
         break;
     }
     case TransportKind::Ssh: {
@@ -387,17 +391,25 @@ void SessionPage::initShellUi()
     _shellTypeCombo->setMinimumWidth(160);
     grid->addWidget(_shellTypeCombo, 0, 1);
 
+    // 启动目录行
+    addFormLabel(grid, 1, tr("Startup Directory"), page);
+    _shellWorkingDirectory = new ElaLineEdit(page);
+    _shellWorkingDirectory->setText(QDir::homePath());
+    _shellWorkingDirectory->setPlaceholderText(QDir::homePath());
+    _shellWorkingDirectory->setClearButtonEnabled(true);
+    grid->addWidget(_shellWorkingDirectory, 1, 1);
+
     // 标签行
     auto* localLabel = new ElaText(tr("Label"), page);
     localLabel->setWordWrap(false);
     localLabel->setTextPixelSize(15);
-    grid->addWidget(localLabel, 1, 0, Qt::AlignVCenter);
+    grid->addWidget(localLabel, 2, 0, Qt::AlignVCenter);
 
     _shellLabel = new ElaLineEdit(page);
     _shellLabel->setPlaceholderText(tr("Optional session name"));
-    grid->addWidget(_shellLabel, 1, 1);
+    grid->addWidget(_shellLabel, 2, 1);
 
-    grid->setRowStretch(2, 1);      // 尾部留白
+    grid->setRowStretch(3, 1);      // 尾部留白
 
     _tabWidget->addTab(page, tr("local shell"));
 }

@@ -30,8 +30,9 @@ bool LocalShellConfig::isValid() const
 
 QString LocalShellConfig::effectiveWorkingDirectory() const
 {
-    return workingDirectory.isEmpty() ? profile.workingDirectory
-                                      : workingDirectory;
+    const QString configured = workingDirectory.isEmpty()
+        ? profile.workingDirectory : workingDirectory;
+    return configured.isEmpty() ? QDir::homePath() : configured;
 }
 
 QProcessEnvironment LocalShellConfig::mergedEnvironment() const

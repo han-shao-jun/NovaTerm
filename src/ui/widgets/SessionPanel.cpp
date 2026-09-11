@@ -245,7 +245,8 @@ QString sessionDetail(const RuntimeConfig& runtime)
 
 RuntimeConfig localRuntime(TerminalView::LocalShellType type,
                            const QString& wslDistribution,
-                           const QString& label)
+                           const QString& label,
+                           const QString& workingDirectory)
 {
     RuntimeConfig runtime;
     runtime.transportKind = TransportKind::LocalShell;
@@ -254,6 +255,7 @@ RuntimeConfig localRuntime(TerminalView::LocalShellType type,
         {QStringLiteral("shellType"), static_cast<int>(type)},
         // WSL 实例名独立持久化，保证编辑和重新连接仍指向同一发行版。
         {QStringLiteral("wslDistribution"), wslDistribution.trimmed()},
+        {QStringLiteral("workingDirectory"), workingDirectory.trimmed()},
         {QStringLiteral("label"), label.trimmed()}};
     return runtime;
 }
@@ -484,9 +486,10 @@ void SessionPanel::updateCollapsedUi()
 
 void SessionPanel::recordLocal(TerminalView::LocalShellType type,
                                const QString& wslDistribution,
-                               const QString& label)
+                               const QString& label,
+                               const QString& workingDirectory)
 {
-    upsert(localRuntime(type, wslDistribution, label));
+    upsert(localRuntime(type, wslDistribution, label, workingDirectory));
 }
 
 void SessionPanel::recordSerial(const SerialConfig& config)
@@ -507,9 +510,10 @@ void SessionPanel::recordTelnet(const TelnetConfig& config)
 void SessionPanel::updateLocal(const SessionId& id,
                                TerminalView::LocalShellType type,
                                const QString& wslDistribution,
-                               const QString& label)
+                               const QString& label,
+                               const QString& workingDirectory)
 {
-    replace(id, localRuntime(type, wslDistribution, label));
+    replace(id, localRuntime(type, wslDistribution, label, workingDirectory));
 }
 
 void SessionPanel::updateSerial(const SessionId& id,
@@ -779,7 +783,8 @@ void SessionPanel::reconnectItem(QTreeWidgetItem* item)
             static_cast<TerminalView::LocalShellType>(
                 values.value(QStringLiteral("shellType")).toInt()),
             values.value(QStringLiteral("wslDistribution")).toString(),
-            values.value(QStringLiteral("label")).toString());
+            values.value(QStringLiteral("label")).toString(),
+            values.value(QStringLiteral("workingDirectory")).toString());
         return;
     }
     if (runtime.transportKind == TransportKind::Serial) {

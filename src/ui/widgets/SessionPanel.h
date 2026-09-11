@@ -38,13 +38,15 @@ public:
 
     void recordLocal(TerminalView::LocalShellType type,
                      const QString& wslDistribution,
-                     const QString& label = {});
+                     const QString& label = {},
+                     const QString& workingDirectory = {});
     void recordSerial(const SerialConfig& config);
     void recordSsh(const SshConfig& config);
     void recordTelnet(const TelnetConfig& config);
     void updateLocal(const SessionId& id, TerminalView::LocalShellType type,
                      const QString& wslDistribution,
-                     const QString& label);
+                     const QString& label,
+                     const QString& workingDirectory);
     void updateSerial(const SessionId& id, const SerialConfig& config);
     void updateSsh(const SessionId& id, const SshConfig& config);
     void updateTelnet(const SessionId& id, const TelnetConfig& config);
@@ -66,7 +68,8 @@ signals:
     void panelWidthChangeRequested(int width);
     void localReconnectRequested(TerminalView::LocalShellType type,
                                  const QString& wslDistribution,
-                                 const QString& label);
+                                 const QString& label,
+                                 const QString& workingDirectory);
     void serialReconnectRequested(const SerialConfig& config);
     void sshReconnectRequested(const SshConfig& config);
     void telnetReconnectRequested(const TelnetConfig& config);
