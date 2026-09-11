@@ -169,7 +169,7 @@ Ctrl+C、辅助命令、monitor、resize 与 32 目标 Ninja 构建已验证；�
 同批完成 SSH→GUI 1 MiB 有界合并交付、EOF 尾部交付顺序、主/辅助读取预算，
 以及输入泵与 SSH 待写 offset。`TerminalSession::terminalContext()` 提供内置的
 有界 Agent 状态接口，完成 progress/soft-wrap/重复日志/alternate-screen 过滤，
-不依赖 P7 插件工作。实现明细、命令、数据和剩余边界见
+作为 Session 内置能力实现。实现明细、命令、数据和剩余边界见
 [本轮优化记录](../Performance_Optimization_2026-09-10.md)。该批为 SSH/性能与
 Agent 上下文改进，未改变本阶段采纳的 View-owned 编排。
 

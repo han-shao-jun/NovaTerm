@@ -4,7 +4,7 @@
 实施，保持 C++17、Parser 单写、Session 运行期边界和 QRhi 线程归属。
 按用户要求，同批纳入已有 `PtySession.h/.cpp` 改动：`drainOutput()` 的读缓冲
 不做多余零初始化，并将启动流程注释校正为 openpty + fork + execve。
-P7 插件计划不在范围内，Agent 上下文作为 Session 内置只读接口提供。
+Agent 上下文作为 Session 内置只读接口提供。
 
 ## 修改文件、函数与原因
 
@@ -105,7 +105,7 @@ build/Release/bin/novaterm_renderer_p5_gpu_benchmark --duration-ms 3000 --scroll
 - Agent 是有界、按需采样摘要，不是无损审计日志；两次查询间超出预算会标记
   truncated/resetRequired。重复去重仅针对缓存窗口内完全相同文本，不归并
   不同时间戳/数字的日志。活动行保留在 viewport，只有完成行追加增量。
-- 未实现插件宿主或外部 Agent 网络调用；Session 线程调用 Provider，拿返回
+- 未实现外部 Agent 网络调用；Session 线程调用 Provider，拿返回
   值跨线程使用。原始终端内容仍可能含敏感文本，访问控制由接入方承担。
 - 异步位图失败在当前 generation 负缓存，避免无限重试；字体后端内存不包含
   在位图队列预算内。GPU 图片的人工逐像素视觉验收尚未完成。

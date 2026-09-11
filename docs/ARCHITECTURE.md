@@ -16,17 +16,18 @@ NovaTerm 的统一架构文档集中在本文件；文档索引、配置与主�
 
 ## 1. 愿景与范围
 
-NovaTerm 是基于 Qt 6、libvterm 和 QRhi 的跨平台 GPU 终端。核心目标是：协议解析与 UI 解耦、不同 Transport 共享同一数据通路、持续高输出下 UI 可响应、增量 GPU 渲染、百万行可控 Scrollback，以及可扩展但不破坏核心所有权的插件体系。
+NovaTerm 是基于 Qt 6、libvterm 和 QRhi 的跨平台 GPU 终端。核心目标是：协议解析与 UI 解耦、不同 Transport 共享同一数据通路、持续高输出下 UI 可响应、增量 GPU 渲染、百万行可控 Scrollback。
 
 本文同时描述三类内容：
 
 - **当前实现**：P0～P5 已完成；P5 已完成 Linux Vulkan/OpenGL、Windows D3D11/D3D12 与 Windows 30 分钟长稳验收，macOS Metal 和真实高刷硬件仍待补充；
 - **近期目标**：P6；
-- **远期扩展**：P7。
+- **P7**：系统资源查询，SSH 远端资源监控面板与系统信息窗口已作为内置功能落地；
+- **下一个大版**：引入 AI MCP（Model Context Protocol）接口，作为 Session 内置的受控只读上下文与工具调用通道。
 
 ## 2. 架构原则
 
-1. Parser 单写，Renderer、Search 和插件只读。
+1. Parser 单写，Renderer 和 Search 只读。
 2. libvterm 类型只能存在于 VTAdapter 实现边界。
 3. 核心层（`src/core/`）不依赖任何 UI 框架。Qt 类型（QObject/信号槽、QString、
    QByteArray、QVector、QKeyEvent、QRegularExpression 等）只能出现在 `src/coreqt/`
@@ -130,7 +131,7 @@ Core 在同一模型锁内读取 revision、光标、标题、alternate-screen �
 抽取与缓存硬上限均为 256 KiB / 1024 行，调用方可进一步降低 maxBytes/maxLines。
 活动光标行只更新 viewport，完成行进入去重增量缓存；alternate screen 只返回
 当前 viewport。模式切换、缓存淘汰或采样截断通过 resetRequired/truncated 表达。
-Provider 按需在 Session 线程调用，返回独立值对象；它是内置接口，不依赖 P7。
+Provider 按需在 Session 线程调用，返回独立值对象；它是 Session 内置接口。
 
 ### 3.5 Renderer
 
@@ -494,7 +495,6 @@ Parser 只修改数据。
 - Tab
 - Theme
 - Settings
-- Plugin UI
 
 不负责：
 
@@ -1016,11 +1016,10 @@ UI：
 未来可直接扩展：
 
 - AI Assistant
+- AI MCP 接口
 - Session Recording
 - Replay
 - Macro
-- Lua Plugin
-- Python Plugin
 - SFTP
 - File Browser
 - Terminal Split

@@ -10,7 +10,7 @@ flowchart LR
     P3 --> P4[P4 Chunked Scrollback]
     P4 --> P5[P5 Glyph/GPU]
     P4 --> P6[P6 Session/Transport]
-    P5 --> P7[P7 插件]
+    P5 --> P7[P7 系统资源查询]
     P6 --> P7
 ```
 
@@ -27,7 +27,10 @@ flowchart LR
 | P4 | 已完成（2026-08-01） | Chunk、快照、reflow、搜索 | 百万行内存受控，搜索不阻塞 |
 | P5 | 实施完成；Linux Vulkan/OpenGL、Windows D3D11/D3D12 与 30 分钟长稳验收完成（2026-08-02）；macOS Metal、多屏 DPR 与 120/144 Hz 验收待完成 | 多页 Atlas、fallback、instancing | CJK/Emoji/DPI 正确且上传增量化 |
 | P6 | 进行中：Transport 四种完成，会话编排采用「1 View 拥有 1 Session」已在生产；剩少量自包含项 | Session（View-owned）、SSH/Serial/Telnet | 每 View 一会话、完整生命周期 |
-| P7 | 计划中（依赖核心数据通路与 Session API 稳定） | 权限化插件 API | 插件失败不影响主通路 |
+| P7 | 已实现为内置功能（常驻监控 2026-09-06、系统信息窗口 2026-09-09）；性能量化验收待补 | SSH 远端资源监控面板、系统信息窗口 | 复用单连接、快慢通道隔离、不反压 Parser |
+
+**下一个大版**：引入 AI MCP（Model Context Protocol）接口，作为 Session 内置的
+受控只读上下文与工具调用通道。待立项后另加阶段编号与独立文档。
 
 ## 3. 跨阶段质量门
 

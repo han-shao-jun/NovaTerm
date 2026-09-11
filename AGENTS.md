@@ -159,7 +159,7 @@ SSH 可选本机验收：Linux 上显式运行
 
 摘自 `docs/ARCHITECTURE.md` §2，改动前必读全文：
 
-1. Parser 单写，Renderer / Search / 插件只读
+1. Parser 单写，Renderer / Search 只读
 2. **libvterm 类型只能存在于 VTAdapter 实现边界**（同理 libtelnet 只在 TelnetTransport 内）
 3. **核心层 `src/core/` 不依赖任何 UI 框架**：Qt 类型（QObject、QString、QByteArray、
    QVector、QKeyEvent、QRegularExpression 等）只能出现在门面层及以上，核心用标准库
