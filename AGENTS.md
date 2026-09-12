@@ -354,6 +354,25 @@ flush，内部屏幕已移动并可能继续改写。本地源区域未必同步
 状态。必须分别处理 `SSH_AGAIN`、`SSH_EOF`、`SSH_ERROR` 与实际正数字节数。
 资源面板曾因此把只有 115 字节的正常 `df` 输出误报成超过 1 MiB。
 
+**远端资源采集时机分两段，不要退回"连上就全查"**：连接建立后只采面板需要的
+量 —— 常驻通道（`startResourceMonitoring()`/`requestResourceSample()`）给
+CPU/内存/交换/网络，加低频 `df`（`slowCommand(includeFrequency=false)`）给磁盘
+列表；系统信息对话框的静态详情由 `ResourcePrefetch`（**绑定 transport、切标签
+不重启**）按 `PrefetchSchedule` 分批铺开。三条不变量由
+`tests/transport/SshTransportFailureCheck.cpp` 按常量推导断言，调参必须同步跑
+`novaterm_ssh_transport_check`：
+
+- **首批 ≤ 500ms**：概览（os/kernel/host/arch/connection）最先就绪，保证连接成功
+  2~3 秒后点 `_infoButton` 已有内容；还没到的卡片在对话框里显示"采集中"而不是
+  "No data"（`populate(output, pending)`）；
+- **批间隔 ≥ 500ms、总时长 ≤ 3s**：`lspci` 排最后一批，避免握手后瞬间在远端堆起
+  多条命令抬高 CPU；慢批次结束后还要吃满完成冷却，不立刻补发；
+- 文件系统查询与预取错峰：`allowsSlowQuery()` 只允许首帧前先行，之后退避重试
+  （`FileSystemDeferralMs`），不要绕过它硬发。
+
+面板不再自己发起静态查询（旧的 `novaterm.staticResource*` 动态属性缓存已删）；
+`ResourcePrefetch` 归 transport 所有，面板只借用指针并连 `destroyed` 置空。
+
 **`TerminalSession` 的迟到信号有两道守卫，缺一不可**：世代号校验拦"发出时
 属于旧世代、投递时接线已重建"；`isConnected()` 启发式拦跨线程投递 ——
 SshTransport / LocalShellTransport 用 `invokeMethod(QueuedConnection)` 把

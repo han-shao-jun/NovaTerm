@@ -8,6 +8,7 @@
 #include "credential/CredentialStore.h"
 #include "session/SessionStore.h"
 #include "transport/SshTransport.h"
+#include "service/LinuxResourceData.h"
 
 #include <QCoreApplication>
 #include <QDir>
@@ -154,8 +155,9 @@ int main(int argc, char** argv)
             ++lateSamples;
             return;
         }
+        NovaTerm::LinuxResource::Sample sample;
         if (requestId != pendingSample || !error.isEmpty()
-            || !payload.contains("CPU\t") || !payload.contains("MEM\t")) {
+            || !NovaTerm::LinuxResource::parseMetrics(payload, sample)) {
             std::fprintf(stderr, "Invalid resource frame: %s\n",
                          error.toUtf8().constData());
             app.exit(1);

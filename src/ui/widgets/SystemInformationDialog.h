@@ -5,11 +5,7 @@
 #pragma once
 
 #include <ElaDialog.h>
-#include <QPointer>
-
-class QTimer;
 class QVBoxLayout;
-class SshTransport;
 
 /**
  * @brief 以卡片表格展示当前 SSH 主机的系统、硬件与资源信息。
@@ -20,25 +16,19 @@ class SystemInformationDialog final : public ElaDialog
 
 public:
     explicit SystemInformationDialog(const QString& sessionName,
-                                     SshTransport* transport,
                                      QWidget* parent);
+    /**
+     * @brief 展示面板共享的本地计算结果，不重复发起远端查询。
+     * @param output  面板已汇总的信息行；为空表示首批尚未到达。
+     * @param pending 详情预取尚未完成；缺失的卡片显示"采集中"而非"No data"。
+     */
+    void populate(const QByteArray& output, bool pending = false);
 
 private:
-    void requestInformation();
-    void handleCommandFinished(quint64 requestId,
-                               const QByteArray& standardOutput,
-                               const QByteArray& standardError,
-                               const QString& errorMessage);
     void showStatus(const QString& text);
-    void populate(const QByteArray& output);
 
-    QPointer<SshTransport> _transport;
     QString _sessionName;
     QByteArray _lastOutput;
+    bool _pending{false};
     QVBoxLayout* _contentLayout{nullptr};
-    QTimer* _retryTimer{nullptr};
-    quint64 _requestId{0};
-    int _retryCount{0};
-
-    static constexpr int MaximumSubmitRetries = 20;
 };

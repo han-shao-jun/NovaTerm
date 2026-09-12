@@ -12,6 +12,8 @@
 #include <chrono>
 #include "transport/SshCommandCompletion.h"
 #include "transport/SshMonitorProtocol.h"
+#include "service/LinuxResourceData.h"
+#include "service/ResourcePrefetchSchedule.h"
 
 #include <QCoreApplication>
 #include <QTimer>
@@ -172,7 +174,9 @@ int localSshCheck(QCoreApplication& app)
         QObject::connect(&transport, &SshTransport::resourceSampleFinished,
             [&](quint64 id, const QByteArray& output, const QString& errorText) {
                 if (id == 102) {
-                    monitorDone = errorText.isEmpty() && output.contains("CPU\t");
+                    NovaTerm::LinuxResource::Sample sample;
+                    monitorDone = errorText.isEmpty()
+                        && NovaTerm::LinuxResource::parseMetrics(output, sample);
                     if (!monitorDone) result = 1;
                 }
             });
@@ -227,6 +231,133 @@ int main(int argc, char** argv)
     if (app.arguments().contains(QStringLiteral("--local-ssh-check")))
         return localSshCheck(app);
     int failures = 0;
+
+    // 初始只留给面板；详情分批预热，迟到时也不能集中补发。
+    // 断言按常量推导，调参只需改 PrefetchSchedule 本身。
+    {
+        using NovaTerm::LinuxResource::PrefetchSchedule;
+        // 两条硬约束：连接后 2~3 秒内点开详情要已有内容（首批不晚、总时长有界），
+        // 且批次之间保持足够间隔，不在远端短时抬高 CPU。
+        const int totalReadyMs = PrefetchSchedule::InitialDelayMs
+            + (PrefetchSchedule::BatchCount - 1) * PrefetchSchedule::BatchSpacingMs;
+        if (PrefetchSchedule::InitialDelayMs > 500 || totalReadyMs > 3000
+            || PrefetchSchedule::BatchSpacingMs < 500)
+            ++failures;
+
+        PrefetchSchedule schedule;
+        if (schedule.ready(0) || schedule.ready(PrefetchSchedule::InitialDelayMs - 1))
+            ++failures;
+        for (int batch = 0; batch < PrefetchSchedule::BatchCount; ++batch) {
+            const int due = PrefetchSchedule::InitialDelayMs
+                + batch * PrefetchSchedule::BatchSpacingMs;
+            if (schedule.batch() != batch || !schedule.ready(due))
+                ++failures;
+            schedule.started(due);
+            if (schedule.ready(due + 10))
+                ++failures;
+            schedule.finished(due + 40);
+            if (!schedule.complete()
+                && schedule.ready(due + PrefetchSchedule::BatchSpacingMs - 1))
+                ++failures;
+        }
+        if (!schedule.complete() || schedule.ready(totalReadyMs + 1000))
+            ++failures;
+
+        // 慢批次：完成后按冷却时间重排，不立刻补发，也不吞掉批间隔。
+        PrefetchSchedule delayed;
+        delayed.started(PrefetchSchedule::InitialDelayMs);
+        delayed.finished(3000);
+        const int slowDue = 3000 + PrefetchSchedule::CompletionGapMs;
+        if (delayed.ready(slowDue - 1) || !delayed.ready(slowDue))
+            ++failures;
+        delayed.started(slowDue);
+        delayed.finished(slowDue + 10);
+        const int nextDue = slowDue + PrefetchSchedule::BatchSpacingMs;
+        if (delayed.ready(nextDue - 1) || !delayed.ready(nextDue))
+            ++failures;
+        std::printf("[resource-prefetch] startup spacing/slow completion/no catch-up checked\n");
+    }
+
+    // 分批次序本身就是体验约束：概览（os/kernel/host/arch/connection）必须最先，
+    // 最重的 lspci 排最后；每批都要以 @@done 收尾，预取才认这一批有效。
+    {
+        using namespace NovaTerm::LinuxResource;
+        using NovaTerm::LinuxResource::PrefetchSchedule;
+        const QByteArray overview = staticCommand(0);
+        const QByteArray last = staticCommand(PrefetchSchedule::BatchCount - 1);
+        if (!overview.contains("@@os") || !overview.contains("@@connection")
+            || overview.contains("lspci") || overview.contains("@@gpu")
+            || !last.contains("lspci") || !last.contains("@@gpu")
+            || !staticCommand(PrefetchSchedule::BatchCount).isEmpty())
+            ++failures;
+        for (int batch = 0; batch < PrefetchSchedule::BatchCount; ++batch) {
+            if (!staticCommand(batch).contains("@@done"))
+                ++failures;
+        }
+        std::printf("[resource-prefetch] batch order overview-first/lspci-last/done-marker checked\n");
+    }
+
+    // 显式 disconnect 不发布 disconnected，也必须使辅助数据缓存的代际失效。
+    {
+        SshTransport transport(SshConfig{});
+        const auto generation = transport.connectionGeneration();
+        transport.disconnect();
+        if (transport.connectionGeneration() == generation)
+            ++failures;
+    }
+
+    // guest 已包含在 user/nice 中；按区间而非开机累计值计算分类占用。
+    {
+        using namespace NovaTerm::LinuxResource;
+        CpuTicks ticks{};
+        if (!cpuTicks("cpu 120 12 36 450 8 4 6 4 90 8\ncpu0 1 2 3 4\n", ticks)
+            || ticks != CpuTicks{120, 12, 36, 450, 8, 4, 6, 4})
+            ++failures;
+        const CpuTicks previous{100, 10, 30, 400, 5, 2, 3, 0};
+        if (cpuUsage(ticks, previous)
+            != "CPUUSE\t22.2\t6.7\t2.2\t55.6\t3.3\t10.0\n")
+            ++failures;
+        if (!cpuUsage(previous, ticks).isEmpty()
+            || !cpuUsage(ticks, ticks).isEmpty()
+            || cpuTicks("cpu 1 bad 2 3", ticks))
+            ++failures;
+        std::printf("[linux-resource] CPU delta/guest/reset checked\n");
+
+        // MemAvailable=0 是有效值；仅缺字段才回退，网卡冒号与额外空白可解析。
+        const QByteArray raw = "@@stat\ncpu 100 10 30 400 5 2 3 0 80 5\n"
+            "@@meminfo\nMemTotal: 1000 kB\nMemFree: 100 kB\n"
+            "Buffers: 20 kB\nCached: 200 kB\nSReclaimable: 30 kB\n"
+            "SwapTotal: 80 kB\nSwapFree: 20 kB\n"
+            " eth0: 1234 0 0 0 0 0 0 0 5678 0 0 0 0 0 0 0\n"
+            " lo: 99 0 0 0 0 0 0 0 99 0 0 0 0 0 0 0\n"
+            "@@loadavg\n0.12 0.34 0.56 1/10 99\n@@uptime\n123.45 80.00\n";
+        Sample sample;
+        if (!parseMetrics(raw, sample) || sample.cpuTotal != 550
+            || sample.cpuIdle != 405 || sample.memoryAvailableKiB != 350
+            || sample.cacheKiB != 250 || sample.swapFreeKiB != 20
+            || sample.networks.size() != 1 || sample.networks[0].receivedBytes != 1234
+            || sample.networks[0].sentBytes != 5678 || sample.load != "0.12 0.34 0.56")
+            ++failures;
+        QByteArray zeroAvailable = raw;
+        zeroAvailable.replace("MemTotal:", "MemAvailable: 0 kB\nMemTotal:");
+        if (!parseMetrics(zeroAvailable, sample) || sample.memoryAvailableKiB != 0
+            || parseMetrics("@@stat\ncpu 1 2 3 4\n", sample))
+            ++failures;
+        parseMetrics(raw, sample);
+        const QByteArray fixed = "@@os\nPRETTY_NAME=\"Test Linux\"\n@@cpuinfo\n"
+            "processor : 0\nmodel name : Test CPU\nprocessor : 1\n"
+            "@@kernel\n6.8\n@@connection\n1.2.3.4 123 10.0.0.1 22\n";
+        const QByteArray slow = "@@frequency\n1200000\n@@filesystems\n"
+            "Filesystem 1024-blocks Used Available Capacity Mounted on\n"
+            "/dev/root 1000 300 700 30% /a b\n";
+        const auto detail = information(fixed, slow, sample, {});
+        if (!detail.contains("CPU\tTest CPU\t2\t1200.0\t")
+            || !detail.contains("MEM\t1000\t650\t350\t65.0\t250\n")
+            || !detail.contains("FS\t/dev/root\t1000\t30%\t700\t/a b\n")
+            || !detail.contains("Test Linux\t6.8\t\t10.0.0.1\t"))
+            ++failures;
+        std::printf("[linux-resource] memory/network/static/frequency/filesystem checked\n");
+    }
 
     // GUI 交付暂停/恢复、EOF 排序、世代失效及大流量完整性。
     for (int mib : {10, 50, 100}) {

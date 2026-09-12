@@ -64,6 +64,11 @@ public:
     void write(const QByteArray& data) override;
     void resizeTerminal(int cols, int rows) override;
     [[nodiscard]] bool isConnected() const override;
+    /** @brief 连接代际；显式断开即递增，辅助数据缓存不可跨代复用。 */
+    [[nodiscard]] quint64 connectionGeneration() const noexcept
+    {
+        return _connectionGeneration.load(std::memory_order_acquire);
+    }
     [[nodiscard]] QString errorString() const override;
     /** SFTP 等同主机辅助通道使用的只读连接快照。 */
     [[nodiscard]] const SshConfig& sessionConfig() const noexcept
@@ -112,11 +117,16 @@ signals:
     void commandFinished(quint64 requestId, const QByteArray& standardOutput,
                          const QByteArray& standardError,
                          const QString& errorMessage);
-    /** 常驻资源采集通道的一次请求完成；失败时 payload 为空。 */
+    /**
+     * @brief 常驻资源采集通道的一次请求完成；失败时 payload 为空。
+     * @note payload 按 @@stat / @@meminfo / @@loadavg / @@uptime 分节，
+     *       meminfo 节尾附带 /proc/net/dev 原文；所有计算由消费方在本地完成。
+     */
     void resourceSampleFinished(quint64 requestId, const QByteArray& payload,
                                 const QString& errorMessage);
 
 private:
+    std::atomic<quint64> _connectionGeneration{0};
     friend class SshTransportTestAccess;
     void scheduleInboundLocked();
     void deliverInbound(quint64 generation);

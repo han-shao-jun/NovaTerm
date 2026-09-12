@@ -1758,229 +1758,229 @@ Built with:
 <context>
     <name>SshTransport</name>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="108"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="95"/>
         <source>Invalid SSH configuration.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="209"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="197"/>
         <source>SSH write queue exceeded its 1 MiB limit.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="288"/>
-        <location filename="../../src/transport/SshTransport.cpp" line="944"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="276"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="932"/>
         <source>Remote command cancelled.</source>
         <translation>Remote command cancelled.</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="471"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="459"/>
         <source>Failed to create SSH session.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="498"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="486"/>
         <source>SSH connection to %1:%2 failed: %3</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="510"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="498"/>
         <source>Failed to retrieve the server host key: %1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="520"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="508"/>
         <source>Cannot read known_hosts file %1: %2</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="574"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="562"/>
         <source>Host key verification failed; connection aborted.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="584"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="572"/>
         <source>Failed to store the host key: %1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="607"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="595"/>
         <source>Failed to load private key %1: %2</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="618"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="606"/>
         <source>Public key authentication failed for %1@%2: %3</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="631"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="619"/>
         <source>Password authentication failed for %1@%2: %3</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="644"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="632"/>
         <source>Failed to open SSH channel: %1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="660"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="648"/>
         <source>Failed to start remote shell: %1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="672"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="660"/>
         <source>Failed to create SSH event loop.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="819"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="807"/>
         <source>Resource monitor receive buffer exceeded 256 KiB.</source>
         <translation>Resource monitor receive buffer exceeded 256 KiB.</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="821"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="809"/>
         <source>Resource monitor line exceeded 16 KiB.</source>
         <translation>Resource monitor line exceeded 16 KiB.</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="823"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="811"/>
         <source>Resource monitor returned an invalid frame header.</source>
         <translation>Resource monitor returned an invalid frame header.</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="825"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="813"/>
         <source>Resource monitor frame header was missing.</source>
         <translation>Resource monitor frame header was missing.</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="827"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="815"/>
         <source>Resource monitor returned overlapping frames.</source>
         <translation>Resource monitor returned overlapping frames.</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="829"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="817"/>
         <source>Resource monitor frame identifiers did not match.</source>
         <translation>Resource monitor frame identifiers did not match.</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="831"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="819"/>
         <source>Resource monitor frame exceeded 256 entries.</source>
         <translation>Resource monitor frame exceeded 256 entries.</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="833"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="821"/>
         <source>Resource monitor frame exceeded 128 KiB.</source>
         <translation>Resource monitor frame exceeded 128 KiB.</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="883"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="871"/>
         <source>SSH channel read error: %1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="924"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="912"/>
         <source>SSH channel write failed: %1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="964"/>
-        <location filename="../../src/transport/SshTransport.cpp" line="995"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="952"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="983"/>
         <source>Failed to execute remote command: %1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="971"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="959"/>
         <source>Failed to monitor remote command completion: %1</source>
         <translation>Failed to monitor remote command completion: %1</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="986"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="974"/>
         <source>Failed to open remote command channel: %1</source>
         <translation>Failed to open remote command channel: %1</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="1047"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="1035"/>
         <source>Remote command read failed: %1</source>
         <translation>Remote command read failed: %1</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="1050"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="1038"/>
         <source>Remote command output exceeded 1 MiB.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="1056"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="1044"/>
         <source>Remote command exited with status %1.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="1059"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="1047"/>
         <source>Remote command closed without an exit status.</source>
         <translation>Remote command closed without an exit status.</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="1061"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="1049"/>
         <source>Remote command timed out.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="1087"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="1075"/>
         <source>Failed to create the resource monitor channel: %1</source>
         <translation>Failed to create the resource monitor channel: %1</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="1102"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="1090"/>
         <source>Failed to open the resource monitor channel: %1</source>
         <translation>Failed to open the resource monitor channel: %1</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="1116"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="1104"/>
         <source>Failed to start the resource monitor: %1</source>
         <translation>Failed to start the resource monitor: %1</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="1125"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="1113"/>
         <source>Resource monitor channel setup timed out.</source>
         <translation>Resource monitor channel setup timed out.</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="1144"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="1132"/>
         <source>Failed to write a resource sample request: %1</source>
         <translation>Failed to write a resource sample request: %1</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="1187"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="1175"/>
         <source>Resource monitor returned an unexpected frame.</source>
         <translation>Resource monitor returned an unexpected frame.</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="1200"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="1188"/>
         <source>Resource monitor output was invalid or exceeded its limit.</source>
         <translation>Resource monitor output was invalid or exceeded its limit.</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="1204"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="1192"/>
         <source>Resource monitor channel closed unexpectedly.</source>
         <translation>Resource monitor channel closed unexpectedly.</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="1205"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="1193"/>
         <source>Resource monitor failed: %1</source>
         <translation>Resource monitor failed: %1</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="1209"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="1197"/>
         <source>Resource sample timed out.</source>
         <translation>Resource sample timed out.</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="1224"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="1212"/>
         <source>Failed to resize the remote PTY: %1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="1271"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="1259"/>
         <source>SSH connection closed before the command completed.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -1988,258 +1988,233 @@ Built with:
 <context>
     <name>SystemInformationDialog</name>
     <message>
-        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="128"/>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="86"/>
         <source>%1 d %2 h %3 min</source>
         <translation>%1 d %2 h %3 min</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="238"/>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="196"/>
         <source>No data</source>
         <translation>No data</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="271"/>
-        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="303"/>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="228"/>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="250"/>
         <source>System information — %1</source>
         <translation>System information — %1</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="299"/>
-        <source>SSH session is no longer available.</source>
-        <translation>SSH session is no longer available.</translation>
-    </message>
-    <message>
-        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="315"/>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="262"/>
         <source>Collecting system information…</source>
         <translation>Collecting system information…</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="323"/>
-        <source>Select a connected SSH terminal to view system information.</source>
-        <translation>Select a connected SSH terminal to view system information.</translation>
-    </message>
-    <message>
-        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="336"/>
-        <source>The SSH command channel is busy. Try again shortly.</source>
-        <translation>The SSH command channel is busy. Try again shortly.</translation>
-    </message>
-    <message>
-        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="350"/>
-        <source>System information query failed: %1</source>
-        <translation>System information query failed: %1</translation>
-    </message>
-    <message>
-        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="355"/>
-        <source>No system information was returned.</source>
-        <translation>No system information was returned.</translation>
-    </message>
-    <message>
-        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="376"/>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="280"/>
         <source>Overview</source>
         <translation>Overview</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="380"/>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="284"/>
         <source>Operating system</source>
         <translation>Operating system</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="380"/>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="284"/>
         <source>Kernel version</source>
         <translation>Kernel version</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="381"/>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="285"/>
         <source>Host name</source>
         <translation>Host name</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="381"/>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="285"/>
         <source>IP</source>
         <translation>IP</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="381"/>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="285"/>
         <source>Load</source>
         <translation>Load</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="381"/>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="285"/>
         <source>Architecture</source>
         <translation>Architecture</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="382"/>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="286"/>
         <source>Uptime</source>
         <translation>Uptime</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="382"/>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="286"/>
         <source>Connection</source>
         <translation>Connection</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="403"/>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="307"/>
         <source>CPU</source>
         <translation>CPU</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="403"/>
-        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="405"/>
-        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="427"/>
-        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="430"/>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="307"/>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="309"/>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="331"/>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="334"/>
         <source>Name</source>
         <translation>Name</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="403"/>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="307"/>
         <source>Cores</source>
         <translation>Cores</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="403"/>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="307"/>
         <source>Frequency</source>
         <translation>Frequency</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="404"/>
-        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="417"/>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="308"/>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="321"/>
         <source>Cache</source>
         <translation>Cache</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="404"/>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="308"/>
         <source>Vendor / BogoMIPS</source>
         <translation>Vendor / BogoMIPS</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="405"/>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="309"/>
         <source>GPU</source>
         <translation>GPU</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="405"/>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="309"/>
         <source>Vendor</source>
         <translation>Vendor</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="405"/>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="309"/>
         <source>Driver</source>
         <translation>Driver</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="406"/>
-        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="415"/>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="310"/>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="319"/>
         <source>Memory</source>
         <translation>Memory</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="407"/>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="311"/>
         <source>CPU usage</source>
         <translation>CPU usage</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="407"/>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="311"/>
         <source>User</source>
         <translation>User</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="407"/>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="311"/>
         <source>System</source>
         <translation>System</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="407"/>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="311"/>
         <source>Nice</source>
         <translation>Nice</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="408"/>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="312"/>
         <source>Idle</source>
         <translation>Idle</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="408"/>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="312"/>
         <source>IO wait</source>
         <translation>IO wait</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="409"/>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="313"/>
         <source>IRQ / SoftIRQ / Steal</source>
         <translation>IRQ / SoftIRQ / Steal</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="417"/>
-        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="421"/>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="321"/>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="325"/>
         <source>Total</source>
         <translation>Total</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="417"/>
-        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="421"/>
-        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="430"/>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="321"/>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="325"/>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="334"/>
         <source>Used</source>
         <translation>Used</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="417"/>
-        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="431"/>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="321"/>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="335"/>
         <source>Available</source>
         <translation>Available</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="417"/>
-        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="421"/>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="321"/>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="325"/>
         <source>Usage</source>
         <translation>Usage</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="419"/>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="323"/>
         <source>Swap</source>
         <translation>Swap</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="421"/>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="325"/>
         <source>Free</source>
         <translation>Free</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="426"/>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="330"/>
         <source>Network interfaces</source>
         <translation>Network interfaces</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="427"/>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="331"/>
         <source>Sent</source>
         <translation>Sent</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="427"/>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="331"/>
         <source>Received</source>
         <translation>Received</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="428"/>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="332"/>
         <source>Send speed</source>
         <translation>Send speed</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="428"/>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="332"/>
         <source>Receive speed</source>
         <translation>Receive speed</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="429"/>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="333"/>
         <source>Filesystems</source>
         <translation>Filesystems</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="430"/>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="334"/>
         <source>Size</source>
         <translation>Size</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="431"/>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="335"/>
         <source>Mount point</source>
         <translation>Mount point</translation>
     </message>
@@ -2247,107 +2222,107 @@ Built with:
 <context>
     <name>SystemMonitorPanel</name>
     <message>
-        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="612"/>
+        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="592"/>
         <source>System information</source>
         <translation>System information</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="613"/>
+        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="593"/>
         <source>Open system information</source>
         <translation>Open system information</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="614"/>
+        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="594"/>
         <source>CPU</source>
         <translation type="unfinished">CPU</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="615"/>
+        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="595"/>
         <source>Memory</source>
         <translation type="unfinished">Memory</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="616"/>
+        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="596"/>
         <source>Swap</source>
         <translation type="unfinished">Swap</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="771"/>
+        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="792"/>
         <source>The remote system did not return supported Linux metrics.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="772"/>
+        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="793"/>
         <source>Remote resource query failed: %1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="792"/>
+        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="820"/>
         <source>Collecting…</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="870"/>
+        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="914"/>
         <source>Filesystem query failed: %1</source>
         <translation>Filesystem query failed: %1</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="895"/>
+        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="939"/>
         <source>↑ —</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="896"/>
+        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="940"/>
         <source>↓ —</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="899"/>
+        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="943"/>
         <source>↑ %1/s</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="901"/>
+        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="945"/>
         <source>↓ %1/s</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="617"/>
+        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="597"/>
         <source>Path</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="618"/>
+        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="598"/>
         <source>Available / Size</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="619"/>
+        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="599"/>
         <source>Network traffic history</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="672"/>
+        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="653"/>
         <source>No active SSH session</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="675"/>
+        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="656"/>
         <source>Select a connected SSH terminal to inspect remote resources.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="681"/>
+        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="662"/>
         <source>Collecting remote resources…</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="690"/>
+        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="671"/>
         <source>Waiting for monitoring data</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="869"/>
+        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="913"/>
         <source>No filesystem information available</source>
         <translation>No filesystem information available</translation>
     </message>

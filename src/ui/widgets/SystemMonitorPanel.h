@@ -5,6 +5,7 @@
 #pragma once
 
 #include "ElaDef.h"
+#include "service/LinuxResourceData.h"
 
 #include <QHash>
 #include <QElapsedTimer>
@@ -26,6 +27,10 @@ class QTimer;
 class SshTransport;
 class SystemInformationDialog;
 class TrafficChart;
+
+namespace NovaTerm::LinuxResource {
+class ResourcePrefetch;
+}
 
 class SystemMonitorPanel final : public QWidget
 {
@@ -58,10 +63,11 @@ private:
     void showSystemInformation();
     void refreshAvailability();
     void updateSamplingState();
-    /** 提交一次有界、非重入的快速资源采集请求。 */
+    /** 提交一次有界、非重入的快速资源采集请求（仅面板需要的 CPU/内存/网络）。 */
     void requestFastMetrics();
-    /** 提交独立的低频文件系统容量查询。 */
+    /** 提交独立的低频文件系统容量查询；详情预取在途时让路。 */
     void requestFileSystems();
+    void updateInformationDialog();
     /** 校验请求归属，解析结果并用相邻样本计算 CPU/网络速率。 */
     void handleFastMetrics(quint64 requestId, const QByteArray& payload,
                            const QString& errorMessage);
@@ -108,6 +114,15 @@ private:
     quint64 _nextRequestId{1};
     quint64 _pendingFastRequestId{0};
     quint64 _pendingFileSystemRequestId{0};
+    quint64 _connectionGeneration{0};
+    // 系统信息对话框的静态详情由连接绑定的分批预取持有：切换标签不重启采集，
+    // 回连后按新代际重来（见 service/ResourcePrefetch.h）。对象归 transport 所有，
+    // 这里只借用，并连 destroyed 兜底置空。
+    NovaTerm::LinuxResource::ResourcePrefetch* _prefetch{nullptr};
+    QByteArray _slowInformation;
+    QByteArray _cpuUsage;
+    NovaTerm::LinuxResource::Sample _latestSample;
+    bool _hasCpuBaseline{false};
     // CPU 与网络字段均为远端累计计数，只有相邻样本做差才有实际意义。
     quint64 _previousCpuTotal{0};
     quint64 _previousCpuIdle{0};
@@ -121,7 +136,9 @@ private:
     bool _presentationActive{true};
     bool _samplingActive{false};
 
-    // 快速指标默认 2 秒（配置仅接受 1 或 2 秒），文件系统容量独立低频查询。
-    static constexpr int DefaultFastIntervalMs = 2'000;
-    static constexpr int FileSystemIntervalMs = 30'000;
+    // Fast 每秒采样；Slow 每 10 秒查询，Static 按连接分批预取。
+    static constexpr int DefaultFastIntervalMs = 1'000;
+    static constexpr int FileSystemIntervalMs = 10'000;
+    /** 详情预取占用时间片时，文件系统查询的退避重试间隔。 */
+    static constexpr int FileSystemDeferralMs = 250;
 };

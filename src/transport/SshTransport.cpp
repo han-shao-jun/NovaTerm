@@ -28,34 +28,21 @@ namespace {
 
 QByteArray resourceMonitorCommand()
 {
-    // read 是 Shell 内建命令，只有 NovaTerm 写入一行请求后才启动一次 awk。
-    // awk 同时读取三个 /proc 文件，FILENAME/FNR 可用于 BusyBox awk。
+    // 常驻 shell 阻塞等待请求；只传原始文本，计算留在 NovaTerm。
     return QByteArrayLiteral(R"NOVATERM(LC_ALL=C; export LC_ALL
 while IFS= read -r nt_request; do
 case "$nt_request" in *[!0-9]*|'') continue;; esac
 printf '__NOVATERM_METRICS_BEGIN__\t%s\n' "$nt_request"
-awk '
-FILENAME == "/proc/stat" && FNR == 1 {
-  total=0; for (i=2; i<=NF; ++i) total+=$i
-  printf "CPU\t%.0f\t%.0f\n", total, $5+$6; next
-}
-FILENAME == "/proc/meminfo" {
-  if ($1 == "MemTotal:") mt=$2
-  else if ($1 == "MemAvailable:") { ma=$2; hasma=1 }
-  else if ($1 == "MemFree:") mf=$2
-  else if ($1 == "Buffers:") b=$2
-  else if ($1 == "Cached:") c=$2
-  else if ($1 == "SwapTotal:") st=$2
-  else if ($1 == "SwapFree:") sf=$2
-  next
-}
-FILENAME == "/proc/net/dev" && FNR > 2 {
-  gsub(":", " "); if ($1 != "lo") printf "NET\t%s\t%s\t%s\n", $1, $2, $10
-}
-END {
-  if (!hasma) ma=mf+b+c
-  printf "MEM\t%.0f\t%.0f\t%.0f\t%.0f\n", mt, ma, st, sf
-}' /proc/stat /proc/meminfo /proc/net/dev 2>/dev/null
+printf '@@stat\n'
+IFS= read -r nt_cpu < /proc/stat; printf '%s\n' "$nt_cpu"
+printf '@@meminfo\n'
+cat /proc/meminfo /proc/net/dev 2>/dev/null
+printf '\n'
+for nt_file in loadavg uptime; do
+  printf '@@%s\n' "$nt_file"
+  IFS= read -r nt_value < "/proc/$nt_file"
+  printf '%s\n' "$nt_value"
+done
 printf '__NOVATERM_METRICS_END__\t%s\n' "$nt_request"
 done
 )NOVATERM");
@@ -142,6 +129,7 @@ bool SshTransport::connectToHost()
 
 void SshTransport::disconnect()
 {
+    _connectionGeneration.fetch_add(1, std::memory_order_acq_rel);
     _running.store(false);
     _wakeup->notify();
     _readPaused.store(false, std::memory_order_release);

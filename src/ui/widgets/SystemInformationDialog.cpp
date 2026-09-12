@@ -9,16 +9,13 @@
 #include "ElaText.h"
 #include "ElaTheme.h"
 #include "service/LanguageManager.h"
-#include "transport/SshTransport.h"
 
 #include <QGridLayout>
 #include <QHBoxLayout>
 #include <QPainter>
 #include <QScrollArea>
-#include <QTimer>
 #include <QVBoxLayout>
 
-#include <atomic>
 
 namespace {
 
@@ -35,45 +32,6 @@ struct SystemInformation
     Rows networks;
     Rows fileSystems;
 };
-
-quint64 nextRequestId()
-{
-    static std::atomic<quint64> next{quint64{1} << 62};
-    return next.fetch_add(1, std::memory_order_relaxed);
-}
-
-QByteArray systemInformationCommand()
-{
-    return QByteArrayLiteral(R"NOVATERM(LC_ALL=C; export LC_ALL
-os=$(sed -n 's/^PRETTY_NAME=//p' /etc/os-release 2>/dev/null | head -n 1 | tr -d '"')
-[ -n "$os" ] || os=$(uname -s 2>/dev/null)
-kernel=$(uname -r 2>/dev/null)
-host=$(hostname 2>/dev/null)
-ip=$(ip -o -4 addr show scope global 2>/dev/null | awk 'NR==1 {sub(/\/.*/, "", $4); print $4}')
-[ -n "$ip" ] || ip=$(hostname -I 2>/dev/null | awk '{print $1}')
-load=$(awk '{print $1 " " $2 " " $3}' /proc/loadavg 2>/dev/null)
-arch=$(uname -m 2>/dev/null)
-uptime=$(awk '{printf "%.0f", $1}' /proc/uptime 2>/dev/null)
-printf 'OV\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$os" "$kernel" "$host" "${ip:--}" "${load:--}" "$arch" "${uptime:--}" "${SSH_CONNECTION:--}"
-awk -F: '
-/^(model name|Processor)[[:space:]]*:/ && name=="" {name=$2; gsub(/^[ \t]+/, "", name)}
-/^processor[[:space:]]*:/ {cores++}
-/^cpu MHz[[:space:]]*:/ && freq=="" {freq=$2; gsub(/^[ \t]+/, "", freq)}
-/^cache size[[:space:]]*:/ && cache=="" {cache=$2; gsub(/^[ \t]+/, "", cache)}
-/^(vendor_id|Hardware)[[:space:]]*:/ && vendor=="" {vendor=$2; gsub(/^[ \t]+/, "", vendor)}
-/^BogoMIPS[[:space:]]*:/ && bogo=="" {bogo=$2; gsub(/^[ \t]+/, "", bogo)}
-END {printf "CPU\t%s\t%d\t%s\t%s\t%s\t%s\n", name, cores, freq, cache, vendor, bogo}' /proc/cpuinfo 2>/dev/null
-awk 'NR==1 {total=0; for(i=2;i<=NF;i++) total+=$i; if(total>0) printf "CPUUSE\t%.1f\t%.1f\t%.1f\t%.1f\t%.1f\t%.1f\n", $2*100/total, $4*100/total, $3*100/total, $5*100/total, ($6+$7)*100/total, ($8+$9+$10)*100/total}' /proc/stat 2>/dev/null
-awk '
-$1=="MemTotal:" {mt=$2} $1=="MemFree:" {mf=$2} $1=="MemAvailable:" {ma=$2}
-$1=="Buffers:" {b=$2} $1=="Cached:" {c=$2} $1=="SReclaimable:" {sr=$2}
-$1=="SwapTotal:" {st=$2} $1=="SwapFree:" {sf=$2}
-END {cache=b+c+sr; if(ma==0) ma=mf+cache; used=mt-ma; printf "MEM\t%.0f\t%.0f\t%.0f\t%.1f\t%.0f\n", mt, used, ma, mt?used*100/mt:0, cache; printf "SWAP\t%.0f\t%.0f\t%.0f\t%.1f\n", st, st-sf, sf, st?(st-sf)*100/st:0}' /proc/meminfo 2>/dev/null
-awk 'NR>2 {gsub(":", " "); if($1!="lo") printf "NET\t%s\t%s\t%s\t-\t-\n", $1, $10, $2}' /proc/net/dev 2>/dev/null
-if command -v lspci >/dev/null 2>&1; then lspci 2>/dev/null | awk '/VGA compatible controller|3D controller|Display controller/ {sub(/^[^ ]+ /, ""); printf "GPU\t%s\t-\t-\t-\n", $0}'; fi
-(df -Pk 2>/dev/null || df -k 2>/dev/null) | awk 'NR>1 {printf "FS\t%s\t%s\t%s\t%s\t%s\n", $1, $2, $5, $4, $NF}'
-)NOVATERM");
-}
 
 QString formatKiB(const QString& value)
 {
@@ -222,7 +180,7 @@ private:
 };
 
 QWidget* createTable(const QStringList& headers, const Rows& rows,
-                     QWidget* parent)
+                     QWidget* parent, bool pending)
 {
     auto* table = new QWidget(parent);
     auto* grid = new QGridLayout(table);
@@ -235,7 +193,10 @@ QWidget* createTable(const QStringList& headers, const Rows& rows,
         grid->setColumnStretch(int(column), 1);
     }
     if (rows.isEmpty()) {
-        grid->addWidget(createText(SystemInformationDialog::tr("No data"), table),
+        // 详情按批到达：还没拿到的卡片说"采集中"，采完仍为空才是"No data"。
+        grid->addWidget(createText(pending
+                             ? SystemInformationDialog::tr("Collecting…")
+                             : SystemInformationDialog::tr("No data"), table),
                         1, 0, 1, int(headers.size()));
         return table;
     }
@@ -262,9 +223,8 @@ void clearLayout(QLayout* layout)
 } // namespace
 
 SystemInformationDialog::SystemInformationDialog(
-    const QString& sessionName, SshTransport* transport, QWidget* parent)
+    const QString& sessionName, QWidget* parent)
     : ElaDialog(parent)
-    , _transport(transport)
     , _sessionName(sessionName)
 {
     setAttribute(Qt::WA_DeleteOnClose);
@@ -288,21 +248,11 @@ SystemInformationDialog::SystemInformationDialog(
     _contentLayout->setSpacing(10);
     scroll->setWidget(content);
 
-    _retryTimer = new QTimer(this);
-    _retryTimer->setInterval(100);
-    connect(_retryTimer, &QTimer::timeout,
-            this, &SystemInformationDialog::requestInformation);
-    if (_transport) {
-        connect(_transport, &SshTransport::commandFinished, this,
-                &SystemInformationDialog::handleCommandFinished);
-        connect(_transport, &QObject::destroyed, this,
-                [this]() { showStatus(tr("SSH session is no longer available.")); });
-    }
     connect(&LanguageManager::instance(), &LanguageManager::languageChanged,
             this, [this](const QString&) {
         setWindowTitle(tr("System information — %1").arg(_sessionName));
         if (!_lastOutput.isEmpty())
-            populate(_lastOutput);
+            populate(_lastOutput, _pending);
     });
     connect(eTheme, &ElaTheme::themeModeChanged, this,
             [this](ElaThemeType::ThemeMode) {
@@ -313,50 +263,7 @@ SystemInformationDialog::SystemInformationDialog(
         update();
     });
     showStatus(tr("Collecting system information…"));
-    QTimer::singleShot(0, this, &SystemInformationDialog::requestInformation);
-}
 
-void SystemInformationDialog::requestInformation()
-{
-    if (!_transport || !_transport->isConnected()) {
-        _retryTimer->stop();
-        showStatus(tr("Select a connected SSH terminal to view system information."));
-        return;
-    }
-    if (_requestId != 0)
-        return;
-    const quint64 requestId = nextRequestId();
-    if (_transport->executeCommand(requestId, systemInformationCommand())) {
-        _requestId = requestId;
-        _retryTimer->stop();
-        return;
-    }
-    if (++_retryCount >= MaximumSubmitRetries) {
-        _retryTimer->stop();
-        showStatus(tr("The SSH command channel is busy. Try again shortly."));
-    } else if (!_retryTimer->isActive()) {
-        _retryTimer->start();
-    }
-}
-
-void SystemInformationDialog::handleCommandFinished(
-    quint64 requestId, const QByteArray& standardOutput,
-    const QByteArray& standardError, const QString& errorMessage)
-{
-    if (requestId == 0 || requestId != _requestId)
-        return;
-    _requestId = 0;
-    if (!errorMessage.isEmpty()) {
-        showStatus(tr("System information query failed: %1").arg(errorMessage));
-        return;
-    }
-    if (standardOutput.isEmpty()) {
-        const QString details = QString::fromUtf8(standardError).trimmed();
-        showStatus(details.isEmpty() ? tr("No system information was returned.")
-                                     : details);
-        return;
-    }
-    populate(standardOutput);
 }
 
 void SystemInformationDialog::showStatus(const QString& text)
@@ -367,9 +274,15 @@ void SystemInformationDialog::showStatus(const QString& text)
     _contentLayout->addWidget(status, 1);
 }
 
-void SystemInformationDialog::populate(const QByteArray& output)
+void SystemInformationDialog::populate(const QByteArray& output, bool pending)
 {
     _lastOutput = output;
+    _pending = pending;
+    if (output.isEmpty()) {
+        // 首批概览还没到：保持"正在采集"，下一次面板刷新会再进来。
+        showStatus(tr("Collecting system information…"));
+        return;
+    }
     const SystemInformation data = parseInformation(output);
     clearLayout(_contentLayout);
 
@@ -397,7 +310,7 @@ void SystemInformationDialog::populate(const QByteArray& output)
     auto addCard = [this](const QString& title, const QStringList& headers,
                           const Rows& rows) {
         auto* card = new InformationCard(title, this);
-        card->body()->addWidget(createTable(headers, rows, card));
+        card->body()->addWidget(createTable(headers, rows, card, _pending));
         _contentLayout->addWidget(card);
     };
     addCard(tr("CPU"), {tr("Name"), tr("Cores"), tr("Frequency"),
@@ -415,10 +328,11 @@ void SystemInformationDialog::populate(const QByteArray& output)
     auto* memory = new InformationCard(tr("Memory"), memoryRow);
     memory->body()->addWidget(createTable(
         {tr("Total"), tr("Used"), tr("Available"), tr("Usage"), tr("Cache")},
-        data.memory, memory));
+        data.memory, memory, _pending));
     auto* swap = new InformationCard(tr("Swap"), memoryRow);
     swap->body()->addWidget(createTable(
-        {tr("Total"), tr("Used"), tr("Free"), tr("Usage")}, data.swap, swap));
+        {tr("Total"), tr("Used"), tr("Free"), tr("Usage")}, data.swap, swap,
+        _pending));
     memoryLayout->addWidget(memory, 1);
     memoryLayout->addWidget(swap, 1);
     _contentLayout->addWidget(memoryRow);
