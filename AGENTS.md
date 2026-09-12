@@ -95,6 +95,7 @@ ctest --test-dir build -C Debug
 | `src/transport/SshTransport`、`SshMonitorProtocol` | `novaterm_ssh_transport_check`（失败路径 + 监控帧协议） | `ssh` | <1s |
 | `src/transport/TelnetTransport` | `novaterm_telnet_transport_tests` | `telnet` | ~5s |
 | TerminalSession + TerminalRenderer + LocalShellTransport 的联通路径 | `novaterm_terminal_session_tests` | `terminal-session` | ~46s |
+| `src/ui/widgets/SystemInformationDialog` 的滚动范围/布局 | `novaterm_ui_dialog_layout_tests` | `ui` | <1s |
 | `src/ui/`、`src/platform/`、`src/service/` | **无覆盖测试** —— 编译通过 + 实跑程序看效果即可（`KeyMapper` 已移出此列，现由 `novaterm_core_tests` 覆盖） | — | — |
 
 SSH 资源监控另有不注册到 ctest 的
@@ -102,13 +103,16 @@ SSH 资源监控另有不注册到 ctest 的
 （或标题含 zynq 的会话）及 Windows 凭据引用，验证慢命令并发、交互 I/O、暂停
 回收和重连。仅在明确允许连接对应测试服务器时人工运行，且不得输出凭据。
 
-上表 UI 覆盖的例外：`TerminalView` 启动、尺寸传递与生命周期已由
+上表 UI 覆盖的例外有两处：`TerminalView` 启动、尺寸传递与生命周期已由
 `novaterm_terminal_session_tests` 的 `TerminalSessionSmokeTests.cpp` 覆盖；
-这类改动应跑该目标，普通面板外观改动仍按编译与实跑验证。
+系统信息对话框的滚动范围由 `novaterm_ui_dialog_layout_tests` 覆盖（offscreen
+运行，断言"内容高度 == max(视口, heightForWidth)"与"滚到底内容底边贴视口底"，
+防"能滚进空白页"回归）。这类改动应跑对应目标，普通面板外观改动仍按编译与实跑
+验证。
 
 拿不准某个文件被哪个测试覆盖，就看测试源码的 include。`tests/core`、
-`tests/renderer`、`tests/session`、`tests/transport` 四个目录，**一个 `.cpp`
-对一个测试目标**，翻一眼就能确认。
+`tests/renderer`、`tests/session`、`tests/transport`、`tests/ui` 五个目录，
+**一个 `.cpp` 对一个测试目标**，翻一眼就能确认。
 
 #### 什么时候才跑全套
 
@@ -476,6 +480,20 @@ base 指针。主题切换只改 QPalette，不动 style。
 （`ElaScrollArea.cpp:18-19`，Ela 的设计是隐藏滚动条靠滚轮/手势）。需要可见滚动条
 的场合别换这个类，保留 `QScrollArea` 并只换滚动条：
 `setVerticalScrollBar(new ElaScrollBar(area))`。
+
+**`QScrollArea` 里的内容高度不要交给布局的 `minimumSizeHint()`**：含
+`QLabel::setWordWrap(true)` 的表单布局会被严重高估 —— 布局按"最窄可能宽度"
+估算换行行数，实测卡片只需 886px，`minimumSizeHint().height()` 却给 989px，
+`QScrollArea` 照它定内容高度，于是滚到底多出约 100px 空白页。正解是让内容
+控件按视口**实际宽度**算高度：`content->setMinimumHeight(max(hfw, 视口高))`，
+`hfw = content->heightForWidth(viewport()->width())`，并在 `populate()`、
+状态刷新与 `resizeEvent()` 里都重算一次（`SystemInformationDialog::
+updateContentHeight()`）。附带的两个小坑：定时重建内容时旧控件要先
+`hide()` 再 `deleteLater()`（否则当帧仍可见，看起来像状态文字重复）；
+`deleteLater()` 期间重建还会把滚动位置顶回顶部，重建前后要自己存取
+`verticalScrollBar()->value()`。回归测试 `novaterm_ui_dialog_layout_tests`
+（offscreen，断言"内容高度 == max(视口, heightForWidth)"与"滚到底内容底边贴
+视口底"）。
 
 **软换行行的行尾空格不能裁**：`onScrollbackPush()` 里裁剪行尾空 Cell 只对
 **硬换行**行安全。软换行行填满了整行才换行，其尾部空格是有效内容 —— 下一行

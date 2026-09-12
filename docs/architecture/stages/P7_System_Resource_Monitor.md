@@ -244,10 +244,10 @@ shouldSample = _presentationActive
 `_themeMode` 做主题自愈（与 `ElaText.cpp:158` 同理，不把配色只押在信号按期
 到达上）。
 
-## 无自动化 UI 测试的说明
+## UI 测试覆盖与缺口
 
-`src/ui/` 无覆盖测试（见 AGENTS.md「改哪测哪」表）。本阶段的可验证部分落在
-Transport 层与调度层：
+`src/ui/` 基本无覆盖测试（见 AGENTS.md「改哪测哪」表），本阶段的可验证部分
+主要落在 Transport 层与调度层：
 
 - `novaterm_ssh_transport_check`：常驻帧协议分片/合帧/错误帧、单帧与接收
   缓冲与条目上限、未连接拒绝采样、`SSH_EOF`/`SSH_ERROR` 区分、EOF 与
@@ -262,7 +262,15 @@ Transport 层与调度层：
   通过：`samples=10 during_slow=5 slow_timeout=1 terminal_io=1
   process_gone=1 reconnect=1 late=0`。
 
-面板与窗口本身的布局、门控、差分逻辑靠编译通过 + 实跑验证。
+- `novaterm_ui_dialog_layout_tests`（`tests/ui/`，offscreen，<1s）：系统信息
+  对话框的滚动范围回归。构造接近真实的 TSV 载荷后按 1100x760 / 700x420 /
+  1100x900 三种尺寸断言「内容高度 == max(视口高, `heightForWidth(视口宽)`)」
+  与「滚到底内容底边贴视口底（±8px）」。用于锁住
+  `SystemInformationDialog::updateContentHeight()` 的取值方式 —— 内容高度若
+  交回布局的 `minimumSizeHint()`，含 `setWordWrap(true)` 的布局会被高估
+  （实测 886px 的内容给到 989px），滚到底会多出一页空白。
+
+面板与窗口本身的其余布局、门控、差分逻辑靠编译通过 + 实跑验证。
 
 ## 实施边界（硬约束）
 
@@ -285,7 +293,8 @@ Transport 层与调度层：
   但"远端 CPU 峰值是否下降"仍未量化。
 - 仅覆盖 Linux `/proc` 与 `df`；非 Linux 远端返回空指标并显示明确空状态，
   未提供其它平台的采集脚本。
-- 面板与窗口本身无自动化回归；布局/门控回归依赖人工实跑。
+- 面板与窗口本身无自动化回归；目前只有系统信息对话框的滚动范围有
+  `novaterm_ui_dialog_layout_tests` 覆盖，卡片内容、门控与差分逻辑仍依赖人工实跑。
 
 ## 相关文档
 

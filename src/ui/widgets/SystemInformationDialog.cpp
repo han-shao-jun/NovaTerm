@@ -13,8 +13,12 @@
 #include <QGridLayout>
 #include <QHBoxLayout>
 #include <QPainter>
+#include <QResizeEvent>
 #include <QScrollArea>
+#include <QScrollBar>
 #include <QVBoxLayout>
+
+#include <algorithm>
 
 
 namespace {
@@ -214,8 +218,12 @@ QWidget* createTable(const QStringList& headers, const Rows& rows,
 void clearLayout(QLayout* layout)
 {
     while (QLayoutItem* item = layout->takeAt(0)) {
-        if (QWidget* widget = item->widget())
+        if (QWidget* widget = item->widget()) {
+            // 先隐藏再延迟删除：面板每秒都会重推数据，deleteLater() 要等回到事件
+            // 循环才生效，不隐藏的话旧卡片会与新内容重叠一小段时间。
+            widget->hide();
             widget->deleteLater();
+        }
         delete item;
     }
 }
@@ -241,6 +249,7 @@ SystemInformationDialog::SystemInformationDialog(
     scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     scroll->setVerticalScrollBar(new ElaScrollBar(scroll));
     root->addWidget(scroll);
+    _scroll = scroll;
 
     auto* content = new QWidget(scroll);
     _contentLayout = new QVBoxLayout(content);
@@ -272,6 +281,7 @@ void SystemInformationDialog::showStatus(const QString& text)
     auto* status = createText(text, this, false, 14);
     status->setAlignment(Qt::AlignCenter);
     _contentLayout->addWidget(status, 1);
+    updateContentHeight();
 }
 
 void SystemInformationDialog::populate(const QByteArray& output, bool pending)
@@ -284,6 +294,9 @@ void SystemInformationDialog::populate(const QByteArray& output, bool pending)
         return;
     }
     const SystemInformation data = parseInformation(output);
+    // 面板每秒都会重推数据；重建期间保留滚动位置，避免用户正在查看时被弹回顶部。
+    const int previousScroll = _scroll && _scroll->verticalScrollBar()
+        ? _scroll->verticalScrollBar()->value() : 0;
     clearLayout(_contentLayout);
 
     auto* overview = new InformationCard(tr("Overview"), this);
@@ -344,4 +357,32 @@ void SystemInformationDialog::populate(const QByteArray& output, bool pending)
             {tr("Name"), tr("Size"), tr("Used"),
              tr("Available"), tr("Mount point")}, data.fileSystems);
     _contentLayout->addStretch();
+    updateContentHeight();
+    if (previousScroll > 0 && _scroll && _scroll->verticalScrollBar())
+        _scroll->verticalScrollBar()->setValue(previousScroll);
+}
+
+void SystemInformationDialog::resizeEvent(QResizeEvent* event)
+{
+    ElaDialog::resizeEvent(event);
+    updateContentHeight();
+}
+
+void SystemInformationDialog::updateContentHeight()
+{
+    if (!_scroll || !_contentLayout)
+        return;
+    QWidget* const content = _scroll->widget();
+    if (!content)
+        return;
+    _contentLayout->activate();
+    const int width = std::max(1, _scroll->viewport()->width());
+    // 卡片里的标签开了 word-wrap，布局的 minimumSizeHint() 按极窄宽度估算，
+    // 会让 QScrollArea 把内容设得远高于实际需要 —— 表现为可以往下滚出大片空白。
+    // 用 heightForWidth（按真实视口宽度）算出需要的高度并作为内容最小高度，
+    // 滚动范围就与实际内容一致；视口更高时内容仍被拉伸填满，不会出现滚动条。
+    int needed = content->heightForWidth(width);
+    if (needed <= 0)
+        needed = content->sizeHint().height();
+    content->setMinimumHeight(needed);
 }

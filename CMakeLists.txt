@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(NovaTerm VERSION 0.1.190 LANGUAGES CXX)
+project(NovaTerm VERSION 0.1.191 LANGUAGES CXX)
 
 # 主工程显式采用平台标准安装目录，避免依赖第三方子项目间接初始化这些变量。
 include(GNUInstallDirs)
@@ -1162,6 +1162,32 @@ if(BUILD_TESTING)
         target_link_libraries(novaterm_ssh_monitor_integration_check
             PRIVATE ws2_32 crypt32 user32 advapi32)
     endif()
+
+    # 系统信息对话框滚动范围回归：word-wrap 标签会把布局最小高度抬高，导致
+    # 滚动区能滚进空白（2026-09-12 实机报告）。仅需 Qt Widgets + offscreen。
+    add_executable(novaterm_ui_dialog_layout_tests
+        tests/ui/SystemInformationDialogLayoutTests.cpp
+        src/ui/widgets/SystemInformationDialog.cpp
+        src/ui/widgets/SystemInformationDialog.h
+        src/service/LanguageManager.cpp
+        src/service/LanguageManager.h
+    )
+    target_include_directories(novaterm_ui_dialog_layout_tests PRIVATE src)
+    target_link_libraries(novaterm_ui_dialog_layout_tests
+        PRIVATE
+            ElaWidgetTools
+            Qt${QT_VERSION_MAJOR}::Core
+            Qt${QT_VERSION_MAJOR}::Gui
+            Qt${QT_VERSION_MAJOR}::Widgets
+    )
+    add_test(NAME novaterm_ui_dialog_layout_tests
+             COMMAND novaterm_ui_dialog_layout_tests)
+    set_tests_properties(novaterm_ui_dialog_layout_tests PROPERTIES
+        LABELS "ui"
+        TIMEOUT 30
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+    )
+    add_dependencies(check novaterm_ui_dialog_layout_tests)
 
     # ── TelnetTransport 协议与失败路径测试 ──
     # 用 loopback QTcpServer 充当服务端，不需要真实 telnetd。
