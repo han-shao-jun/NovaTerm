@@ -123,6 +123,8 @@ private:
     QByteArray _cpuUsage;
     NovaTerm::LinuxResource::Sample _latestSample;
     bool _hasCpuBaseline{false};
+    /** 已计入的采样区间数；小于 WarmupIntervals 时不发布读数。 */
+    int _warmupIntervals{0};
     // CPU 与网络字段均为远端累计计数，只有相邻样本做差才有实际意义。
     quint64 _previousCpuTotal{0};
     quint64 _previousCpuIdle{0};
@@ -141,4 +143,15 @@ private:
     static constexpr int FileSystemIntervalMs = 10'000;
     /** 详情预取占用时间片时，文件系统查询的退避重试间隔。 */
     static constexpr int FileSystemDeferralMs = 250;
+    /**
+     * 首次 df 延后到常驻通道与交互 shell 启动之后。实测（2 核 ARM）每条远端
+     * 命令约 15ms CPU，若与监控启动叠在同一个采样区间会抬高该区间读数。
+     */
+    static constexpr int FirstFileSystemDelayMs = 1'200;
+    /**
+     * 连接后的前两个 1 秒区间作为预热：登录 shell 启动、常驻通道建立、首帧 df
+     * 与概览批都落在其中，一次性开销可达数个百分点，不代表远端稳态负载。
+     * 预热期只更新差分基线，不发布 CPU/网络读数。
+     */
+    static constexpr int WarmupIntervals = 2;
 };

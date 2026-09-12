@@ -141,11 +141,19 @@ inline bool parseMetrics(const QByteArray& raw, Sample& result)
     return true;
 }
 
-/** @brief 分批查询静态字段；各批间隔由客户端调度，不在远端 sleep。 */
+/**
+ * @brief 分批查询静态字段；各批间隔由客户端调度，不在远端 sleep。
+ *
+ * 批次数即远端命令数。实测（2 核 ARM）每条命令约 15ms CPU 且与内容基本无关，
+ * 固定开销来自远端 shell 与通道处理，因此优先减少命令数：概览与 `ip` 合并为
+ * 一批（概览本来就需要 IP），最重的 `lspci` 单独放最后一批，避免拖慢最先要用
+ * 的字段；`cpuinfo` 单独一批，避免超大主机上输出超限连带丢掉概览。
+ */
 inline QByteArray staticCommand(int batch)
 {
     switch (batch) {
     case 0:
+        // 概览批：OS / 内核 / 主机名 / 架构 / SSH_CONNECTION + 服务器自身 IP。
         return QByteArrayLiteral(R"NT(LC_ALL=C; export LC_ALL
 printf '@@os\n'; cat /etc/os-release 2>/dev/null
 IFS= read -r nt_kernel < /proc/sys/kernel/osrelease
@@ -153,6 +161,7 @@ IFS= read -r nt_host < /proc/sys/kernel/hostname
 printf '\n@@kernel\n%s\n@@host\n%s\n' "$nt_kernel" "$nt_host"
 printf '\n@@arch\n'; uname -m 2>/dev/null
 printf '\n@@connection\n%s\n' "$SSH_CONNECTION"
+printf '\n@@ip\n'; ip -o -4 addr show scope global 2>/dev/null
 printf '\n@@done\n'
 )NT");
     case 1:
@@ -165,11 +174,6 @@ fi
 printf '\n@@done\n'
 )NT");
     case 2:
-        return QByteArrayLiteral(R"NT(LC_ALL=C; export LC_ALL
-printf '@@ip\n'; ip -o -4 addr show scope global 2>/dev/null
-printf '\n@@done\n'
-)NT");
-    case 3:
         return QByteArrayLiteral(R"NT(LC_ALL=C; export LC_ALL
 printf '@@gpu\n'; lspci 2>/dev/null
 printf '\n@@done\n'

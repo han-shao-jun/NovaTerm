@@ -677,6 +677,7 @@ void SystemMonitorPanel::updateSamplingState()
         _previousNetworkBytes.clear();
         _networkRates.clear();
         _hasCpuBaseline = false;
+        _warmupIntervals = 0;
         _cpuUsage.clear();
         updateNetworkView();
         return;
@@ -687,7 +688,10 @@ void SystemMonitorPanel::updateSamplingState()
     _fastTimer->start();
     _fileSystemTimer->start();
     QTimer::singleShot(0, this, &SystemMonitorPanel::requestFastMetrics);
-    QTimer::singleShot(0, this, &SystemMonitorPanel::requestFileSystems);
+    // 首次 df 让开启动窗口：与常驻通道建立叠在同一采样区间会抬高该区间读数，
+    // 且此时正好落在预热区间内，推迟不影响用户可见信息。
+    QTimer::singleShot(FirstFileSystemDelayMs, this,
+                       &SystemMonitorPanel::requestFileSystems);
 }
 
 void SystemMonitorPanel::requestFastMetrics()
@@ -771,9 +775,17 @@ void SystemMonitorPanel::handleFastMetrics(
     _latestSample = metrics;
     _hasCpuBaseline = true;
 
+    // 连接后的前两个采样区间属于预热：登录 shell 启动、常驻通道建立、首帧 df 与
+    // 概览批都落在其中。实测（单核设备，每条远端命令约 10ms CPU）这些一次性开销
+    // 可达数个百分点，若计入显示值会被误读成远端持续占用 —— 预热期只更新基线，
+    // 不发布 CPU/网络读数（内存与交换是绝对值，照常显示）。
+    const bool warmup = _warmupIntervals < WarmupIntervals;
+    if (warmup)
+        ++_warmupIntervals;
+
     const qint64 nowMs = _sampleClock.elapsed();
     // /proc/stat 是开机以来的累计 tick；首个样本仅建立基线，后续才可计算占用率。
-    if (!_cpuUsage.isEmpty() && _previousCpuTotal > 0
+    if (!warmup && !_cpuUsage.isEmpty() && _previousCpuTotal > 0
         && metrics.cpuTotal > _previousCpuTotal) {
         const quint64 totalDelta = metrics.cpuTotal - _previousCpuTotal;
         const quint64 idleDelta = metrics.cpuIdle >= _previousCpuIdle
@@ -915,6 +927,7 @@ void SystemMonitorPanel::resetMetrics()
     _latestSample = {};
     _cpuUsage.clear();
     _hasCpuBaseline = false;
+    _warmupIntervals = 0;
     _previousCpuTotal = 0;
     _previousCpuIdle = 0;
     _previousSampleElapsedMs = -1;

@@ -102,17 +102,19 @@ flowchart LR
 CPU 频率不在这里读 —— 它随详情批次 1 的 `cpuinfo` 一起取，避免同一字段两处重复
 查询。
 
-### 系统信息分批命令（4 批，连接后均匀铺开）
+### 系统信息分批命令（3 批，连接后均匀铺开）
 
-详情不再是"一条大命令"，而是 `staticCommand(batch)` 的 4 条小命令，由
-`ResourcePrefetch` 按 `PrefetchSchedule` 分批提交（见下一节）：
+详情不再是"一条大命令"，而是 `staticCommand(batch)` 的 3 条小命令，由
+`ResourcePrefetch` 按 `PrefetchSchedule` 分批提交（见下一节）。
+**批次数即远端命令数，是远端 CPU 成本的主要来源**：实测（见下节）每条命令
+约 15ms CPU 且与内容基本无关，因此概览与 `ip` 合并、`cpuinfo` 独立一批
+（超大主机上输出超限时不会连带丢掉概览）、`lspci` 单独放最后：
 
 | 批次 | 远端命令要点 | 覆盖分节 |
 | --- | --- | --- |
-| 0 | `/etc/os-release`、`/proc/sys/kernel/{osrelease,hostname}`、`uname -m`、`$SSH_CONNECTION` | `@@os` `@@kernel` `@@host` `@@arch` `@@connection` |
+| 0 | `/etc/os-release`、`/proc/sys/kernel/{osrelease,hostname}`、`uname -m`、`$SSH_CONNECTION`、`ip -o -4 addr show scope global` | `@@os` `@@kernel` `@@host` `@@arch` `@@connection` `@@ip` |
 | 1 | `/proc/cpuinfo` + `scaling_cur_freq`（缺失则回落 `cpu MHz`） | `@@cpuinfo` `@@frequency` |
-| 2 | `ip -o -4 addr show scope global` | `@@ip` |
-| 3 | `lspci` | `@@gpu` |
+| 2 | `lspci` | `@@gpu` |
 
 每批以小节的 `@@done` 收尾，`ResourcePrefetch` 只把带 `@@done` 的输出计入累积
 数据；缺命令、超时或权限不足只影响该批字段，不覆盖已取得的其他分节。
@@ -142,15 +144,15 @@ CPU 频率不在这里读 —— 它随详情批次 1 的 `cpuinfo` 一起取，
 | 时段 | 采集内容 | 归属 |
 | --- | --- | --- |
 | 连接即开始 | 常驻通道的 CPU/内存/交换/网络（每秒） | 面板 |
-| 连接即开始 | `df`（每 10 秒，仅文件系统） | 面板磁盘列表 |
-| 连接 +0.4s 起，每批间隔 0.8s | 详情 4 批（概览 → cpuinfo+频率 → ip → lspci） | 系统信息窗口 |
+| 连接 +1.2s | 首次 `df`（之后每 10 秒，仅文件系统） | 面板磁盘列表 |
+| 连接 +1.2s 起，每批间隔 1.0s | 详情 3 批（概览+ip → cpuinfo+频率 → lspci） | 系统信息窗口 |
 
 调度常量与不变量集中在 `src/service/ResourcePrefetchSchedule.h`：
 
-- **首批 400ms**：概览（`@@os`/`@@kernel`/`@@host`/`@@arch`/`@@connection`）最先
-  就绪 —— 连接成功 **2~3 秒**后点 `_infoButton` 已有内容；
-- **批间隔 800ms、总时长 ≤3s**：最重的 `lspci` 排最后一批，远端 CPU 不被短时
-  抬高；慢批次结束后还要吃满完成冷却（250ms），不立刻补发；
+- **首批 1.2s**：概览（`@@os`/`@@kernel`/`@@host`/`@@arch`/`@@connection`/`@@ip`）
+  最先就绪 —— 连接成功 **2~3 秒**后点 `_infoButton` 已有内容；
+- **批间隔 1.0s、总时长 ≤3.5s、批次数 ≤3**：最重的 `lspci` 排最后一批，慢批次
+  结束后还要吃满完成冷却（250ms），不立刻补发；
 - 详情预取**绑定 transport**（`ResourcePrefetch::forTransport`，父对象是
   transport）：切换标签不重启采集、已取到的分节继续复用；回连按
   `connectionGeneration()` 换代重来，不跨连接复用。
@@ -159,6 +161,41 @@ CPU 频率不在这里读 —— 它随详情批次 1 的 `cpuinfo` 一起取，
 （`SystemInformationDialog::populate(output, pending)`，`pending` 取自
 `ResourcePrefetch::complete()`），因此首批到达即可展示，后续批次在面板下一次
 每秒刷新时补齐。
+
+### 实机测量（2026-09-12，root@192.168.10.100）
+
+设备为 **2 核 ARMv7**（`grep -c '^cpu[0-9]' /proc/stat` = 2，内核自报
+`ARMv7 Processor rev 0 (v7l)`）。用 `novaterm_ssh_monitor_integration_check`
+的两个实测模式取得数据（都用「重复执行 + `/proc/stat` 前后差」，不依赖远端
+`time`/`times` 的可用性）：
+
+- `--profile-commands`：逐命令成本。**每条远端命令约 15ms CPU，且与命令内容
+  基本无关** —— 固定开销来自远端 shell 与通道处理；因此减少命令数（4 批→3 批、
+  `df` 延迟）比拉开间隔更有效。
+- `--profile-collection [--no-baseline] [--defer-df=] [--batch-start=] [--batch-gap=]`：
+  逐秒打印整机 CPU 占用率（与面板同口径），可对比不同策略。
+
+实测对比（同时刻、同一设备，`--no-baseline` 复现"连接即采集"）：
+
+| 计划 | 首个区间(0–1s) | 峰值 |
+| --- | --- | --- |
+| 旧：`df`@0ms、批次 0.4/1.2/2.0s | **4.0%** | 4.0% |
+| 新：`df`@1.2s、批次 1.2/2.2/3.2s | **1.0%** | 3.0% |
+
+据此面板把**连接后前两个采样区间作为预热**（`WarmupIntervals=2`）：登录 shell
+启动、常驻通道建立、首帧 `df` 与概览批都落在其中，只更新差分基线、不发布
+CPU/网络读数，避免把一次性启动开销显示成远端稳态占用。
+
+### 读数的来源（排查"CPU 偏高"前必读）
+
+面板显示的 **CPU 占用率与网速都是本地按"相邻两帧差值"算出来的**，远端只回原始
+文本：常驻脚本输出 `/proc/stat` 首行、`/proc/meminfo` 与 `/proc/net/dev` 原文、
+`/proc/loadavg`、`/proc/uptime`（`SshTransport.cpp` 的 `resourceMonitorCommand()`）。
+`LinuxResource::parseMetrics()`/`cpuUsage()` 与
+`SystemMonitorPanel::handleFastMetrics()` 负责解析与差分；`cpuPercent` 用聚合
+`cpu` 行的 `(total-idle)/total`，网速用字节差 ÷ 实测间隔。**因此采样区间里我方
+命令的开销会被计入读数**（该设备上单条命令约占 1~2 个百分点），分辨"远端真实
+负载 / 我方采集开销 / 预热区间"是判断读数是否可信的前提。
 
 ## 采样生命周期与门控
 
@@ -215,11 +252,14 @@ Transport 层与调度层：
 - `novaterm_ssh_transport_check`：常驻帧协议分片/合帧/错误帧、单帧与接收
   缓冲与条目上限、未连接拒绝采样、`SSH_EOF`/`SSH_ERROR` 区分、EOF 与
   exit-status 到达顺序；**采集时机**断言按 `PrefetchSchedule` 常量推导
-  （首批 ≤500ms、批间隔 ≥500ms、总时长 ≤3s、慢批次不补发），并校验分批次序
-  为「概览最先、`lspci` 最后、每批 `@@done` 收尾、无第 5 批」。
+  （首批 ≤1.5s、批间隔 ≥500ms、总时长 ≤3.5s、批次数 ≤3、慢批次不补发），
+  并校验分批次序为「概览（含 ip）最先、`cpuinfo` 独立一批、`lspci` 最后、
+  每批 `@@done` 收尾、无多余批次」。
 - `novaterm_ssh_monitor_integration_check`（不注册 ctest，需真实服务端）：
-  慢命令并发、交互 I/O、暂停回收、断开重连、迟到样本为 0。2026-09-12 实测
-  Zynq 服务端通过：`samples=10 during_slow=5 slow_timeout=1 terminal_io=1
+  慢命令并发、交互 I/O、暂停回收、断开重连、迟到样本为 0；另有
+  `--profile-commands` / `--profile-collection` 两个实测模式用于采集时机与
+  逐命令成本量化（见「实机测量」）。2026-09-12 实测 root@192.168.10.100
+  通过：`samples=10 during_slow=5 slow_timeout=1 terminal_io=1
   process_gone=1 reconnect=1 late=0`。
 
 面板与窗口本身的布局、门控、差分逻辑靠编译通过 + 实跑验证。

@@ -148,9 +148,10 @@ Memory/Swap、Network interfaces 与 Filesystems 卡片，通过当前
 2026-09-12：资源采集分为 Static / Fast / Slow，保留现有指标范围：
 
 - Static：会话接入后用 `ResourcePrefetch` **分批**读取 CPU 型号/核心数、OS、
-  Kernel、主机、架构、IP、连接及 GPU 信息（概览批最先、`lspci` 最后，批间隔
-  0.8s、首批 0.4s，保证连接 2~3 秒后打开详情已有内容 —— 见 P7「采集时机与
-  分批调度」）；缓存绑定 transport，断线清除。静态请求切走标签仍完成
+  Kernel、主机、架构、IP、连接及 GPU 信息（概览+ip 首批、`cpuinfo` 独立一批、
+  `lspci` 最后；首批 1.2s、批间隔 1.0s、共 3 批 —— 见 P7「采集时机与分批调度」，
+  含 2 核 ARM 实机实测：每条远端命令约 15ms CPU，旧计划首个采样区间 4.0%、
+  新计划 1.0%）；缓存绑定 transport，断线清除。静态请求切走标签仍完成
   并写入原连接缓存；显式重连用 `connectionGeneration()` 使缓存与在途 ID 失效，
   迟到结果不得回填新连接。静态命令使用原始文件、
   一次性 `uname -m`、`ip` 和可选 `lspci`；本地解析，不执行 os-release 内容。

@@ -362,13 +362,25 @@ CPU/内存/交换/网络，加低频 `df`（`slowCommand(includeFrequency=false)
 `tests/transport/SshTransportFailureCheck.cpp` 按常量推导断言，调参必须同步跑
 `novaterm_ssh_transport_check`：
 
-- **首批 ≤ 500ms**：概览（os/kernel/host/arch/connection）最先就绪，保证连接成功
-  2~3 秒后点 `_infoButton` 已有内容；还没到的卡片在对话框里显示"采集中"而不是
-  "No data"（`populate(output, pending)`）；
-- **批间隔 ≥ 500ms、总时长 ≤ 3s**：`lspci` 排最后一批，避免握手后瞬间在远端堆起
-  多条命令抬高 CPU；慢批次结束后还要吃满完成冷却，不立刻补发；
+- **首批 ≤ 1.5s**：概览（os/kernel/host/arch/connection/ip）最先就绪，保证连接
+  成功 2~3 秒后点 `_infoButton` 已有内容；还没到的卡片在对话框里显示"采集中"
+  而不是"No data"（`populate(output, pending)`）；
+- **批间隔 ≥ 500ms、总时长 ≤ 3.5s、批次数 ≤ 3**：实测（root@192.168.10.100，
+  2 核 ARMv7）**每条远端命令约 15ms CPU，且与命令内容基本无关** —— 固定开销来自
+  远端 shell/通道处理，因此**命令数比间隔更关键**；`lspci` 排最后一批，慢批次
+  结束后还要吃满完成冷却，不立刻补发；
+- **连接后前两个采样区间是预热**（`WarmupIntervals`）：登录 shell 启动、常驻通道
+  建立、首帧 `df`（`FirstFileSystemDelayMs=1200`）与概览批都落在其中，实测旧计划
+  首个区间读数 4.0%、新计划 1.0%，因此预热期只更新基线、不发布 CPU/网络读数；
 - 文件系统查询与预取错峰：`allowsSlowQuery()` 只允许首帧前先行，之后退避重试
   （`FileSystemDeferralMs`），不要绕过它硬发。
+
+**面板显示的 CPU 占用率与网速都是本地按"相邻两帧差值"算出来的**，远端只回原始
+文本（常驻脚本输出 `/proc/stat` 首行、`/proc/meminfo` 与 `/proc/net/dev` 原文、
+`loadavg`、`uptime`，见 `SshTransport.cpp` 的 `resourceMonitorCommand()`）；
+`LinuxResource::parseMetrics/cpuUsage` 与 `handleFastMetrics()` 负责解析与差分。
+因此**采样区间里我方命令的开销会被计入读数**（2 核设备上单条命令约 1~2 个百分
+点），排查"CPU 偏高"时先分辨是远端真实负载、我方采集开销，还是预热区间。
 
 面板不再自己发起静态查询（旧的 `novaterm.staticResource*` 动态属性缓存已删）；
 `ResourcePrefetch` 归 transport 所有，面板只借用指针并连 `destroyed` 置空。

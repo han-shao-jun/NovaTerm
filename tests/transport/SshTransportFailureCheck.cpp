@@ -236,12 +236,14 @@ int main(int argc, char** argv)
     // 断言按常量推导，调参只需改 PrefetchSchedule 本身。
     {
         using NovaTerm::LinuxResource::PrefetchSchedule;
-        // 两条硬约束：连接后 2~3 秒内点开详情要已有内容（首批不晚、总时长有界），
-        // 且批次之间保持足够间隔，不在远端短时抬高 CPU。
+        // 三条硬约束：连接后 2~3 秒内点开详情要有内容（首批不晚、总时长有界）、
+        // 批次之间保持足够间隔，且批次数要少 —— 实测每条远端命令约 15ms CPU
+        // 且与内容基本无关，命令数才是远端负载的主要来源。
         const int totalReadyMs = PrefetchSchedule::InitialDelayMs
             + (PrefetchSchedule::BatchCount - 1) * PrefetchSchedule::BatchSpacingMs;
-        if (PrefetchSchedule::InitialDelayMs > 500 || totalReadyMs > 3000
-            || PrefetchSchedule::BatchSpacingMs < 500)
+        if (PrefetchSchedule::InitialDelayMs > 1500 || totalReadyMs > 3500
+            || PrefetchSchedule::BatchSpacingMs < 500
+            || PrefetchSchedule::BatchCount > 3)
             ++failures;
 
         PrefetchSchedule schedule;
@@ -278,16 +280,19 @@ int main(int argc, char** argv)
         std::printf("[resource-prefetch] startup spacing/slow completion/no catch-up checked\n");
     }
 
-    // 分批次序本身就是体验约束：概览（os/kernel/host/arch/connection）必须最先，
-    // 最重的 lspci 排最后；每批都要以 @@done 收尾，预取才认这一批有效。
+    // 分批次序本身就是体验约束：概览（os/kernel/host/arch/connection，含 IP）
+    // 必须最先，最重的 lspci 排最后；cpuinfo 单独一批（超大主机上输出超限时
+    // 不会连带丢掉概览）；每批都要以 @@done 收尾，预取才认这一批有效。
     {
         using namespace NovaTerm::LinuxResource;
         using NovaTerm::LinuxResource::PrefetchSchedule;
         const QByteArray overview = staticCommand(0);
         const QByteArray last = staticCommand(PrefetchSchedule::BatchCount - 1);
         if (!overview.contains("@@os") || !overview.contains("@@connection")
+            || !overview.contains("@@ip") || overview.contains("@@cpuinfo")
             || overview.contains("lspci") || overview.contains("@@gpu")
             || !last.contains("lspci") || !last.contains("@@gpu")
+            || !staticCommand(1).contains("@@cpuinfo")
             || !staticCommand(PrefetchSchedule::BatchCount).isEmpty())
             ++failures;
         for (int batch = 0; batch < PrefetchSchedule::BatchCount; ++batch) {
