@@ -94,9 +94,16 @@ SFTP 文件列表使用紧凑行高 24 个逻辑像素，减少图标上下留�
 显示「0/0M」。网速与分区容量保留原有单位格式。
 系统资源面板的信息按钮打开独立的“系统信息”窗口，窗口沿用 NovaTerm/Ela
 深浅主题与可见滚动条，按 Overview、CPU、GPU、CPU usage、Memory/Swap、
-Network interfaces、Filesystems 卡片依次展示。数据通过所属 `SshTransport` 的
-既有有界单次命令 channel 获取，不新建 SSH 连接；打开详情时用户请求优先于后台
-低频 `df`，请求 ID 与 transport 生命周期共同过滤迟到结果。
+Network interfaces、Filesystems 卡片依次展示。详情消费资源面板共享的采样结果，
+不另发远端查询；按 Static / Fast / Slow 分频，不新增指标。静态 CPU 型号、
+核心数、OS、Kernel、主机、架构及 GPU 信息在会话接入后**分批**查询（概览最先、
+`lspci` 最后，批间隔均匀铺开，见 P7「采集时机与分批调度」），
+缓存随 transport 的连接失效，切回标签或重开详情不重复查询。
+CPU 累计计数、内存、网络、load、uptime 每秒从 `/proc` 读取，客户端解析并计算
+CPU/网络相邻样本差值；CPU 总时间仅累加前八项，guest/guest_nice 不重复计数。
+CPU 频率与文件系统每 10 秒通过独立有界命令查询；频率优先读 sysfs，回退
+`/proc/cpuinfo`，容量保留 `df -Pk` 并在本地解析。详情可见时共享采样继续，
+面板与详情均不可见或主窗口最小化时暂停动态采样，恢复后重建差分基线。
 
 ### 3.2 Application Services
 

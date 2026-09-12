@@ -102,17 +102,14 @@ native owner 的标签浮窗，不应通过改写所有 Ela 窗口的 `WM_GETMIN
 
 ### SSH 远端资源监控（2026-09-06）
 
-`SystemMonitorPanel` 不再每秒调用一次包含三个 `awk` 和 `df` 的单次命令。
-快速指标默认每 2 秒请求一次（`monitor.fastIntervalMs` 可设为 1000），由
-`SshTransport` 在既有连接上维护一个无 PTY 的常驻 exec channel；远端 Shell
-阻塞等待请求，每次只启动一个合并读取 `/proc/stat`、`/proc/meminfo` 和
-`/proc/net/dev` 的 `awk`。文件系统容量由独立单次 channel 每 30 秒查询并缓存
-最近有效结果，因此慢 `df` 不会拖住快速指标。
+`SystemMonitorPanel` 通过 `SshTransport` 在既有连接上维护一个无 PTY 的常驻
+exec channel；远端 Shell 阻塞等待请求。当前分频策略见下方 2026-09-12 记录，
+替代此前 2 秒快速采样、30 秒文件系统查询及远端 `awk` 计算的实现。
 
 常驻协议包含请求 ID 和明确起止标记，`SshMonitorFrameParser` 覆盖任意分片、
 多帧合并、错误标记、单帧/接收缓冲/行长/条目数上限。channel 建立与单次响应
 分别有 5 秒超时，stderr 限 16 KiB，失败后按 1–30 秒有界指数退避；快速请求
-最多一个在途。隐藏、折叠、最小化和标签切换会停止定时器、发送 EOF 并关闭
+最多一个在途。面板和详情均隐藏、最小化或标签切换时停止定时器、发送 EOF 并关闭
 channel，恢复后立即采样并重建 CPU/网络差分基线。辅助 channel 和交互 Shell
 全部继续由同一 SSH 工作线程访问，认证完成后以非阻塞状态机处理 `SSH_AGAIN`。
 
@@ -143,11 +140,38 @@ stderr 0 字节并正常完成。
 2026-09-09：资源面板的信息按钮改为可点击，并新增独立
 `SystemInformationDialog`。窗口按参考布局使用 Overview、CPU、GPU、CPU usage、
 Memory/Swap、Network interfaces 与 Filesystems 卡片，通过当前
-`SshTransport::executeCommand()` 的既有有界辅助 channel 一次读取 `/proc`、
-`uname`、`df` 与可选 `lspci`，不建立第二条 SSH 连接。用户打开详情时会取消后台
-低频文件系统命令，并以有限次数重试等待 channel 回收；请求 ID、transport 指针
-与 QObject 生命周期共同屏蔽迟到结果。无连接、命令繁忙、查询失败和无 GPU 数据
-均有明确空状态，窗口支持运行时语言与主题切换。
+`SshTransport` 的既有有界辅助 channel 获取数据，不建立第二条 SSH 连接。
+详情最初采用独立单次查询，现已改为消费面板共享结果（见下方 2026-09-12 记录）。
+请求 ID、transport 指针与 QObject 生命周期共同屏蔽迟到结果；窗口支持运行时
+语言与主题切换。
+
+2026-09-12：资源采集分为 Static / Fast / Slow，保留现有指标范围：
+
+- Static：会话接入后用 `ResourcePrefetch` **分批**读取 CPU 型号/核心数、OS、
+  Kernel、主机、架构、IP、连接及 GPU 信息（概览批最先、`lspci` 最后，批间隔
+  0.8s、首批 0.4s，保证连接 2~3 秒后打开详情已有内容 —— 见 P7「采集时机与
+  分批调度」）；缓存绑定 transport，断线清除。静态请求切走标签仍完成
+  并写入原连接缓存；显式重连用 `connectionGeneration()` 使缓存与在途 ID 失效，
+  迟到结果不得回填新连接。静态命令使用原始文件、
+  一次性 `uname -m`、`ip` 和可选 `lspci`；本地解析，不执行 os-release 内容。
+- Fast：固定 1 秒，shell 内建 read 读取 `/proc/stat` 首行、loadavg、uptime，
+  一次 `cat` 读取 meminfo 与 net/dev。无周期 `awk/top/free/lscpu/ps` 计算链。
+  `service/LinuxResourceData.h` 负责解析；CPU 前八项做区间差值，guest 不重复
+  累加，首帧及计数回退重建基线。内存保留有效的零 MemAvailable，缺字段才回退。
+- Slow：固定 10 秒，频率优先读 sysfs scaling_cur_freq，回退 cpuinfo；文件系统
+  保留独立通道 `df -Pk`（回退 `df -k`），原始输出在本地解析。慢容量查询不阻塞
+  快速通道，仍使用既有超时与输出上限。
+- `SystemInformationDialog` 只展示共享结果，打开/重开不触发重复采集，也不取消
+  正在执行的慢查询。详情可见时继续共享动态采样；整体暂停后恢复重新建立差值。
+
+本次验证使用 `scripts/build-novaterm.bat` 和 `novaterm_ssh_transport_check`，
+后者增加 CPU delta/guest/计数回退、内存回退、网络原始计数、静态字段、频率及
+文件系统本地解析检查。人工 SSH 检查同步新 payload 格式，本次未连接真实
+服务器，尚未实测服务端 CPU 降幅；上方历史实测数据不代表本次方案的验收。
+（2026-09-12 同日补做真机验收：`novaterm_ssh_monitor_integration_check` 连真实
+Zynq 服务端通过 —— `samples=10 during_slow=5 slow_timeout=1 terminal_io=1
+process_gone=1 reconnect=1 late=0`；它验证并发/回收/重连，**不代表**服务端 CPU
+峰值已量化。）
 
 同日统一资源面板字体层级：与 `SessionPanel` 相同，下拉框和表头采用 13 px，
 CPU、内存、交换指标名采用 12 px，数值详情、速率、进度条文字和磁盘列表采用
