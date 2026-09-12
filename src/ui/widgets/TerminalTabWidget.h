@@ -7,6 +7,8 @@
 #include <ElaTabWidget.h>
 #include <QPoint>
 
+class ElaTabBar;
+
 /**
  * @brief 终端页面专用标签控件。
  *
@@ -28,5 +30,7 @@ signals:
     void editSessionRequested(int index);
 
 private:
+    /** @brief 返回 ElaTabWidget 构造时安装的 Ela 标签栏。 */
+    [[nodiscard]] ElaTabBar* elaTabBar() const noexcept;
     void showTabContextMenu(const QPoint& position);
 };

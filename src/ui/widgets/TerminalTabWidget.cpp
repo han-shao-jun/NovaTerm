@@ -5,23 +5,29 @@
 #include "TerminalTabWidget.h"
 
 #include <ElaMenu.h>
+#include <ElaTabBar.h>
 
 #include <QAction>
 #include <QPointer>
-#include <QTabBar>
 
 TerminalTabWidget::TerminalTabWidget(QWidget* parent)
     : ElaTabWidget(parent)
 {
-    QTabBar* const tabs = tabBar();
+    auto* const tabs = elaTabBar();
     tabs->setContextMenuPolicy(Qt::CustomContextMenu);
     connect(tabs, &QWidget::customContextMenuRequested,
             this, &TerminalTabWidget::showTabContextMenu);
 }
 
+ElaTabBar* TerminalTabWidget::elaTabBar() const noexcept
+{
+    // ElaTabWidget 构造函数无条件安装 ElaTabBar，静态转换保留准确类型。
+    return static_cast<ElaTabBar*>(tabBar());
+}
+
 void TerminalTabWidget::showTabContextMenu(const QPoint& position)
 {
-    QTabBar* const tabs = tabBar();
+    auto* const tabs = elaTabBar();
     const int index = tabs->tabAt(position);
     if (index < 0 || index >= count())
         return;

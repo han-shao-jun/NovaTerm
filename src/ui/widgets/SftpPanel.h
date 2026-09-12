@@ -11,6 +11,7 @@
 
 class ElaIconButton;
 class ElaLineEdit;
+class ElaProgressBar;
 class ElaText;
 class ElaTreeWidget;
 class QDragEnterEvent;
@@ -18,7 +19,6 @@ class QDragLeaveEvent;
 class QDragMoveEvent;
 class QDropEvent;
 class QPaintEvent;
-class QProgressBar;
 class QTimer;
 class QTreeWidgetItem;
 class SftpSession;
@@ -93,7 +93,7 @@ private:
     [[nodiscard]] bool remotePathExists(const QString& path) const;
 
     ElaText* _availabilityLabel{nullptr};
-    QProgressBar* _uploadProgressBar{nullptr};
+    ElaProgressBar* _uploadProgressBar{nullptr};
     QTimer* _uploadProgressDelay{nullptr};
     ElaLineEdit* _pathEdit{nullptr};
     ElaIconButton* _parentDirectoryButton{nullptr};

@@ -10,6 +10,7 @@
 #include "ElaIconButton.h"
 #include "ElaLineEdit.h"
 #include "ElaMenu.h"
+#include "ElaProgressBar.h"
 #include "ElaPushButton.h"
 #include "ElaText.h"
 #include "ElaTheme.h"
@@ -33,16 +34,13 @@
 #include <QFileInfo>
 #include <QHeaderView>
 #include <QHBoxLayout>
-#include <QInputDialog>
 #include <QGridLayout>
-#include <QLabel>
 #include <QLineEdit>
 #include <QLocale>
 #include <QMimeData>
 #include <QPainter>
 #include <QPaintEvent>
 #include <QPen>
-#include <QProgressBar>
 #include <QRegularExpression>
 #include <QRegularExpressionValidator>
 #include <QSet>
@@ -56,6 +54,7 @@
 
 #include <algorithm>
 #include <array>
+#include <optional>
 #include <utility>
 
 namespace {
@@ -303,6 +302,81 @@ bool isValidRemoteName(const QString& name)
         && !name.contains(QLatin1Char('/'));
 }
 
+/**
+ * @brief 使用 Ela 控件请求远端条目名称。
+ * @param parent 父窗口。
+ * @param title 对话框标题。
+ * @param prompt 输入框说明。
+ * @param initialValue 初始名称。
+ * @return 用户确认后的名称；取消时返回空值。
+ */
+std::optional<QString> requestRemoteName(QWidget* parent,
+                                         const QString& title,
+                                         const QString& prompt,
+                                         const QString& initialValue = {})
+{
+    ElaDialog dialog(parent);
+    dialog.setWindowTitle(title);
+    dialog.setWindowModality(Qt::ApplicationModal);
+    dialog.setWindowButtonFlags(ElaAppBarType::CloseButtonHint);
+    dialog.setAppBarHeight(30);
+    dialog.setIsFixedSize(true);
+    dialog.setFixedSize(440, 190);
+
+    auto* rootLayout = new QVBoxLayout(&dialog);
+    rootLayout->setContentsMargins(24, 44, 24, 20);
+    rootLayout->setSpacing(10);
+
+    auto* promptText = new ElaText(prompt, &dialog);
+    promptText->setTextStyle(ElaTextType::Body);
+    rootLayout->addWidget(promptText);
+
+    auto* nameEdit = new ElaLineEdit(&dialog);
+    nameEdit->setText(initialValue);
+    promptText->setBuddy(nameEdit);
+    rootLayout->addWidget(nameEdit);
+    rootLayout->addStretch();
+
+    auto* buttonLayout = new QHBoxLayout;
+    buttonLayout->setSpacing(12);
+    buttonLayout->addStretch();
+    auto* cancelButton = new ElaPushButton(SftpPanel::tr("Cancel"), &dialog);
+    auto* confirmButton = new ElaPushButton(SftpPanel::tr("Confirm"), &dialog);
+    cancelButton->setMinimumSize(88, 36);
+    confirmButton->setMinimumSize(88, 36);
+    confirmButton->setDefault(true);
+    confirmButton->setLightDefaultColor(
+        ElaThemeColor(ElaThemeType::Light, PrimaryNormal));
+    confirmButton->setLightHoverColor(
+        ElaThemeColor(ElaThemeType::Light, PrimaryHover));
+    confirmButton->setLightPressColor(
+        ElaThemeColor(ElaThemeType::Light, PrimaryPress));
+    confirmButton->setLightTextColor(Qt::white);
+    confirmButton->setDarkDefaultColor(
+        ElaThemeColor(ElaThemeType::Dark, PrimaryNormal));
+    confirmButton->setDarkHoverColor(
+        ElaThemeColor(ElaThemeType::Dark, PrimaryHover));
+    confirmButton->setDarkPressColor(
+        ElaThemeColor(ElaThemeType::Dark, PrimaryPress));
+    confirmButton->setDarkTextColor(Qt::black);
+    buttonLayout->addWidget(cancelButton);
+    buttonLayout->addWidget(confirmButton);
+    rootLayout->addLayout(buttonLayout);
+
+    QObject::connect(cancelButton, &QPushButton::clicked,
+                     &dialog, &QDialog::reject);
+    QObject::connect(confirmButton, &QPushButton::clicked,
+                     &dialog, &QDialog::accept);
+    QObject::connect(nameEdit, &QLineEdit::returnPressed,
+                     &dialog, &QDialog::accept);
+
+    nameEdit->setFocus();
+    nameEdit->selectAll();
+    if (dialog.exec() != QDialog::Accepted)
+        return std::nullopt;
+    return nameEdit->text().trimmed();
+}
+
 QString compactUploadError(const QString& message)
 {
     // 单行区域优先完整显示常见短错误，异常长的服务端文本再截断。
@@ -356,7 +430,7 @@ SftpPanel::SftpPanel(QWidget* parent)
     rootLayout->addWidget(_availabilityLabel);
 
     // 进度条延迟显示：快速上传在 400ms 内完成时始终保持隐藏，避免界面闪烁。
-    _uploadProgressBar = new QProgressBar(this);
+    _uploadProgressBar = new ElaProgressBar(this);
     _uploadProgressBar->setRange(0, UploadProgressScale);
     _uploadProgressBar->setValue(0);
     _uploadProgressBar->setTextVisible(true);
@@ -1218,24 +1292,20 @@ void SftpPanel::showFileContextMenu(const QPoint& position)
         return;
     }
     if (selectedAction == createDirectoryAction) {
-        bool accepted = false;
-        const QString name = QInputDialog::getText(
-            this, tr("New folder"), tr("Folder name:"),
-            QLineEdit::Normal, {}, &accepted).trimmed();
-        if (accepted && isValidRemoteName(name)) {
+        const auto name = requestRemoteName(
+            this, tr("New folder"), tr("Folder name:"));
+        if (name && isValidRemoteName(*name)) {
             setBusy(true, tr("Creating folder…"));
-            _sftpSession->createDirectory(remotePathForName(name));
+            _sftpSession->createDirectory(remotePathForName(*name));
         }
         return;
     }
     if (selectedAction == createFileAction) {
-        bool accepted = false;
-        const QString name = QInputDialog::getText(
-            this, tr("New file"), tr("File name:"),
-            QLineEdit::Normal, {}, &accepted).trimmed();
-        if (accepted && isValidRemoteName(name)) {
+        const auto name = requestRemoteName(
+            this, tr("New file"), tr("File name:"));
+        if (name && isValidRemoteName(*name)) {
             setBusy(true, tr("Creating file…"));
-            _sftpSession->createFile(remotePathForName(name));
+            _sftpSession->createFile(remotePathForName(*name));
         }
         return;
     }
@@ -1248,14 +1318,12 @@ void SftpPanel::showFileContextMenu(const QPoint& position)
 
     const QString oldPath = item->data(0, RemotePathRole).toString();
     if (selectedAction == renameAction) {
-        bool accepted = false;
-        const QString name = QInputDialog::getText(
-            this, tr("Rename"), tr("New name:"), QLineEdit::Normal,
-            item->text(0), &accepted).trimmed();
-        if (accepted && isValidRemoteName(name)
-            && name != item->text(0)) {
+        const auto name = requestRemoteName(
+            this, tr("Rename"), tr("New name:"), item->text(0));
+        if (name && isValidRemoteName(*name)
+            && *name != item->text(0)) {
             setBusy(true, tr("Renaming…"));
-            _sftpSession->renameEntry(oldPath, remotePathForName(name));
+            _sftpSession->renameEntry(oldPath, remotePathForName(*name));
         }
         return;
     }

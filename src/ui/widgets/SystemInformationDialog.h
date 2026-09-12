@@ -5,8 +5,8 @@
 #pragma once
 
 #include <ElaDialog.h>
+class ElaScrollArea;
 class QResizeEvent;
-class QScrollArea;
 class QVBoxLayout;
 
 /**
@@ -35,7 +35,7 @@ private:
      * @brief 按视口宽度固定滚动内容的高度。
      *
      * 卡片里的文字标签开了 word-wrap，QLabel 对换行文本的 `minimumSizeHint()`
-     * 按极窄宽度估算，会把布局最小高度抬到远超实际内容；QScrollArea 用该值决定
+     * 按极窄宽度估算，会把布局最小高度抬到远超实际内容；滚动区用该值决定
      * 内容高度，就会出现"能滚到空白页"的多余行程。这里改用
      * `heightForWidth(视口宽度)` 算出真实需要的高度。
      */
@@ -44,6 +44,6 @@ private:
     QString _sessionName;
     QByteArray _lastOutput;
     bool _pending{false};
-    QScrollArea* _scroll{nullptr};
+    ElaScrollArea* _scroll{nullptr};
     QVBoxLayout* _contentLayout{nullptr};
 };

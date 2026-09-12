@@ -1,10 +1,10 @@
 /**
  * @file SystemInformationDialogLayoutTests.cpp
- * @brief 系统信息对话框的滚动范围回归检查。
+ * @brief UI 对话框的 Ela 控件与滚动范围回归检查。
  *
  * 背景：卡片里的文字标签开了 word-wrap，`QLabel` 对换行文本的
  * `minimumSizeHint()` 按极窄宽度估算，会把内容布局的最小高度抬到远超实际内容；
- * `QScrollArea` 用该值决定滚动内容高度，就会出现"能一直往下滚、滚出大片空白"的
+ * 滚动区用该值决定滚动内容高度，就会出现"能一直往下滚、滚出大片空白"的
  * 现象（2026-09-12 实机报告）。对话框用 `updateContentHeight()` 按视口宽度取
  * `heightForWidth()` 修正，本检查守住这条不变量：
  *
@@ -12,17 +12,74 @@
  *   滚动上限 == max(0, 内容高度 - 视口高度)
  *
  * 断言只依赖上述关系、不依赖绝对像素，因此与字体度量、平台无关。
+ * 同时检查系统信息窗口使用 ElaScrollArea 且保留可见滚动条，以及 SSH 主机密钥
+ * 对话框使用 Ela 控件并正确展开变更主机的端点标题。
  * 需要 offscreen 平台（对话框是 Qt Widgets，检查不涉及 GPU/D3D11）。
  */
 #include "ui/widgets/SystemInformationDialog.h"
+#include "ui/widgets/SshHostKeyDialog.h"
+
+#include "ElaDialog.h"
+#include "ElaPushButton.h"
+#include "ElaScrollArea.h"
+#include "ElaScrollPageArea.h"
+#include "ElaText.h"
 
 #include <QApplication>
-#include <QScrollArea>
 #include <QScrollBar>
 #include <cstdio>
 #include <cstdlib>
 
 namespace {
+
+int verifyHostKeyDialogUsesElaWidgets()
+{
+    const SshHostKeyInfo info{
+        QStringLiteral("example.test"), 2222,
+        QStringLiteral("ssh-ed25519"),
+        QStringLiteral("SHA256:test-fingerprint"),
+        SshHostKeyStatus::New};
+    SshHostKeyDialog dialog(info);
+
+    int failures = 0;
+    if (!qobject_cast<ElaDialog*>(&dialog)) {
+        std::fprintf(stderr, "FAIL: host key dialog is not an ElaDialog\n");
+        ++failures;
+    }
+    if (dialog.findChildren<ElaPushButton*>().size() != 2) {
+        std::fprintf(stderr, "FAIL: host key actions are not Ela buttons\n");
+        ++failures;
+    }
+    if (!dialog.findChild<ElaScrollPageArea*>()) {
+        std::fprintf(stderr, "FAIL: host key details are not in an Ela area\n");
+        ++failures;
+    }
+    if (dialog.findChildren<ElaText*>().size() < 8) {
+        std::fprintf(stderr, "FAIL: host key labels are not Ela text controls\n");
+        ++failures;
+    }
+    return failures;
+}
+
+int verifyChangedHostTitleContainsEndpoint()
+{
+    const SshHostKeyInfo info{
+        QStringLiteral("changed.example.test"), 2200,
+        QStringLiteral("ssh-ed25519"),
+        QStringLiteral("SHA256:changed-fingerprint"),
+        SshHostKeyStatus::Changed};
+    const SshHostKeyDialog dialog(info);
+
+    const QString expected = QStringLiteral(
+        "Warning: the host key for changed.example.test:2200 has changed!");
+    for (const auto* text : dialog.findChildren<ElaText*>()) {
+        if (text->text() == expected)
+            return 0;
+    }
+    std::fprintf(stderr,
+                 "FAIL: changed-host warning does not contain the endpoint\n");
+    return 1;
+}
 
 QByteArray samplePayload()
 {
@@ -60,6 +117,9 @@ QByteArray samplePayload()
 int main(int argc, char** argv)
 {
     QApplication app(argc, argv);
+    int failures = verifyHostKeyDialogUsesElaWidgets();
+    failures += verifyChangedHostTitleContainsEndpoint();
+
     SystemInformationDialog dialog(QStringLiteral("root@192.168.10.100"),
                                   nullptr);
     dialog.resize(1100, 760);
@@ -67,9 +127,23 @@ int main(int argc, char** argv)
     dialog.show();
     QApplication::processEvents();
 
-    auto* scroll = dialog.findChild<QScrollArea*>();
+    const auto informationCards =
+        dialog.findChildren<ElaScrollPageArea*>();
+    if (informationCards.size() != 8) {
+        std::fprintf(stderr,
+                     "FAIL: expected 8 Ela information cards, found %lld\n",
+                     static_cast<long long>(informationCards.size()));
+        ++failures;
+    }
+
+    auto* scroll = dialog.findChild<ElaScrollArea*>();
     if (!scroll || !scroll->widget()) {
-        std::fprintf(stderr, "FAIL: dialog has no scroll area\n");
+        std::fprintf(stderr, "FAIL: dialog has no Ela scroll area\n");
+        return 1;
+    }
+    if (scroll->verticalScrollBarPolicy() != Qt::ScrollBarAsNeeded) {
+        std::fprintf(stderr,
+                     "FAIL: Ela scroll area hides its vertical scroll bar\n");
         return 1;
     }
     QWidget* const content = scroll->widget();
@@ -77,7 +151,6 @@ int main(int argc, char** argv)
 
     // 宽、窄、高三种视口：窄窗口换行加剧（内容更高），高窗口应无多余行程。
     const QList<QSize> windowSizes{{1100, 760}, {700, 420}, {1100, 900}};
-    int failures = 0;
     for (const QSize& size : windowSizes) {
         dialog.resize(size);
         QApplication::processEvents();

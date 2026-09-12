@@ -10,7 +10,8 @@
 
 #include "ElaComboBox.h"
 #include "ElaIconButton.h"
-#include "ElaScrollBar.h"
+#include "ElaProgressBar.h"
+#include "ElaScrollArea.h"
 #include "ElaText.h"
 #include "ElaTheme.h"
 #include "ElaTreeWidget.h"
@@ -24,15 +25,11 @@
 #include <QHeaderView>
 #include <QHideEvent>
 #include <QHBoxLayout>
-#include <QLabel>
 #include <QPainter>
 #include <QPaintEvent>
-#include <QProgressBar>
-#include <QScrollArea>
 #include <QSignalBlocker>
 #include <QShowEvent>
 #include <QTimer>
-#include <QTreeWidget>
 #include <QVBoxLayout>
 #include <QVariant>
 
@@ -46,14 +43,6 @@ constexpr int NetworkHistoryCapacity = 64;
 constexpr int PanelFontPixelSize = 13;
 constexpr int MetricLabelPixelSize = 13;
 constexpr int SecondaryFontPixelSize = 10;
-
-void setLabelColor(QLabel* label, const QColor& color)
-{
-    QPalette palette = label->palette();
-    palette.setColor(QPalette::WindowText, color);
-    palette.setColor(QPalette::Text, color);
-    label->setPalette(palette);
-}
 
 // 普通文字一律用 ElaText，不再手工调 QLabel 的颜色：它自己订阅
 // themeModeChanged，并在 paintEvent 里校验 palette 与当前主题是否一致、不一致就
@@ -83,13 +72,46 @@ QFrame* createSeparator(QWidget* parent)
     return separator;
 }
 
+/** 使用 Ela 主题语义色绘制的网络图例文字。 */
+class MetricLegendText final : public ElaText
+{
+public:
+    explicit MetricLegendText(ElaThemeType::ThemeColor colorRole,
+                              QWidget* parent = nullptr)
+        : ElaText(parent)
+        , _colorRole(colorRole)
+    {
+        setTextStyle(ElaTextType::Body);
+        setTextPixelSize(SecondaryFontPixelSize);
+        setWordWrap(false);
+    }
+
+protected:
+    void paintEvent(QPaintEvent* event) override
+    {
+        QPalette textPalette = palette();
+        const QColor color = eTheme->getThemeColor(
+            eTheme->getThemeMode(), _colorRole);
+        if (textPalette.color(QPalette::WindowText) != color
+            || textPalette.color(QPalette::Text) != color) {
+            textPalette.setColor(QPalette::WindowText, color);
+            textPalette.setColor(QPalette::Text, color);
+            setPalette(textPalette);
+        }
+        QLabel::paintEvent(event);
+    }
+
+private:
+    ElaThemeType::ThemeColor _colorRole;
+};
+
 /** 使用 ELA 主题色绘制的紧凑资源占用条。 */
-class MetricProgressBar final : public QProgressBar
+class MetricProgressBar final : public ElaProgressBar
 {
 public:
     explicit MetricProgressBar(ElaThemeType::ThemeColor accentRole,
                                QWidget* parent = nullptr)
-        : QProgressBar(parent)
+        : ElaProgressBar(parent)
         , _accentRole(accentRole)
     {
         setRange(0, 100);
@@ -181,7 +203,7 @@ QString formatBytes(double bytes)
              QLatin1String(Units[unit]));
 }
 
-void setUsage(QProgressBar* bar, QLabel* detail,
+void setUsage(ElaProgressBar* bar, ElaText* detail,
               quint64 usedKiB, quint64 totalKiB)
 {
     if (totalKiB == 0) {
@@ -283,14 +305,11 @@ SystemMonitorPanel::SystemMonitorPanel(QWidget* parent)
     outerLayout->setContentsMargins(1, 1, 1, 1);
     outerLayout->setSpacing(0);
 
-    auto* scrollArea = new QScrollArea(this);
+    auto* scrollArea = new ElaScrollArea(this);
     scrollArea->setWidgetResizable(true);
-    scrollArea->setFrameShape(QFrame::NoFrame);
-    // 只换滚动条、不换成 ElaScrollArea：后者构造时就把两个方向的 policy 设成
-    // ScrollBarAlwaysOff（ElaScrollArea.cpp:18-19），而本面板内容高于视口，
-    // 需要一条可见的竖直滚动条。
-    scrollArea->setVerticalScrollBar(new ElaScrollBar(scrollArea));
     scrollArea->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    // ElaScrollArea 默认隐藏两个滚动条；监控内容高于视口，必须恢复竖直滚动条。
+    scrollArea->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
     scrollArea->setAutoFillBackground(false);
     scrollArea->viewport()->setAutoFillBackground(false);
     outerLayout->addWidget(scrollArea);
@@ -327,13 +346,13 @@ SystemMonitorPanel::SystemMonitorPanel(QWidget* parent)
         ElaThemeType::PrimaryHover, content);
     _swapProgress = new MetricProgressBar(
         ElaThemeType::BasicIndicator, content);
-    for (QProgressBar* progress : {
+    for (ElaProgressBar* progress : {
              _cpuProgress, _memoryProgress, _swapProgress}) {
         progress->setFont(secondaryFont);
     }
     _memoryDetail = createLabel(content, SecondaryFontPixelSize);
     _swapDetail = createLabel(content, SecondaryFontPixelSize);
-    for (QLabel* detail : {_memoryDetail, _swapDetail})
+    for (ElaText* detail : {_memoryDetail, _swapDetail})
         detail->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
     resourceGrid->addWidget(_cpuLabel, 0, 0);
     resourceGrid->addWidget(_cpuProgress, 0, 1);
@@ -349,14 +368,16 @@ SystemMonitorPanel::SystemMonitorPanel(QWidget* parent)
 
     auto* networkHeader = new QHBoxLayout;
     networkHeader->setSpacing(7);
-    _receiveLabel = createLabel(content, SecondaryFontPixelSize);
-    _sendLabel = createLabel(content, SecondaryFontPixelSize);
+    _receiveLabel = new MetricLegendText(
+        ElaThemeType::PrimaryNormal, content);
+    _sendLabel = new MetricLegendText(
+        ElaThemeType::PrimaryPress, content);
     _interfaceCombo = new ElaComboBox(content);
     _interfaceCombo->setFont(panelFont);
     _interfaceCombo->setMinimumWidth(82);
     // 与上方资源占用条保持相同高度，避免下拉框在紧凑面板中显得过高。
     _interfaceCombo->setFixedHeight(28);
-    _interfaceCombo->setSizeAdjustPolicy(QComboBox::AdjustToContents);
+    _interfaceCombo->setSizeAdjustPolicy(ElaComboBox::AdjustToContents);
     networkHeader->addWidget(_receiveLabel);
     networkHeader->addWidget(_sendLabel);
     networkHeader->addStretch();
@@ -415,9 +436,10 @@ SystemMonitorPanel::SystemMonitorPanel(QWidget* parent)
     diskHintLayout->setContentsMargins(12, 12, 12, 12);
     diskHintLayout->addWidget(_diskTreeHint, 0, Qt::AlignCenter);
 
-    connect(_interfaceCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
+    connect(_interfaceCombo,
+            QOverload<int>::of(&ElaComboBox::currentIndexChanged),
             this, [this](int) { updateNetworkView(); });
-    connect(_infoButton, &QPushButton::clicked,
+    connect(_infoButton, &ElaIconButton::clicked,
             this, &SystemMonitorPanel::showSystemInformation);
     connect(&LanguageManager::instance(), &LanguageManager::languageChanged,
             this, [this](const QString&) { retranslateUi(); });
@@ -589,14 +611,13 @@ void SystemMonitorPanel::setDiskTreeHint(const QString& text)
 }
 
 void SystemMonitorPanel::applyTheme()
-{    const auto mode = eTheme->getThemeMode();
+{
+    const auto mode = eTheme->getThemeMode();
     _themeMode = mode;
 
-    // 普通文字全部是 ElaText，自己会跟随主题，这里不再逐个设色。只剩两处必须
-    // 手工上色：收/发速率标签用的是与流量图两个序列一致的语义色，而 ElaText 的
-    // paintEvent 自愈会把任何自定义颜色改回 BasicText，因此它们只能是 QLabel。
-    setLabelColor(_receiveLabel, ElaThemeColor(mode, PrimaryNormal));
-    setLabelColor(_sendLabel, ElaThemeColor(mode, PrimaryPress));
+    // 普通文字由 ElaText 跟随主题；网络图例子类按各自语义色自行绘制。
+    _receiveLabel->update();
+    _sendLabel->update();
 
     const QColor separator = ElaThemeColor(mode, BasicBorder);
     const auto separators = findChildren<QFrame*>(QString{},
@@ -940,7 +961,8 @@ void SystemMonitorPanel::resetMetrics()
     _hasFileSystems = false;
     _interfaceCombo->clear();
     _trafficChart->setSamples({});
-    for (QProgressBar* bar : {_cpuProgress, _memoryProgress, _swapProgress}) {
+    for (ElaProgressBar* bar : {
+             _cpuProgress, _memoryProgress, _swapProgress}) {
         bar->setValue(0);
         bar->setFormat(QStringLiteral("—"));
     }

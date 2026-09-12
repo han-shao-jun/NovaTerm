@@ -89,6 +89,32 @@ ElaWidgetTools 都随项目从源码构建，无需额外准备。
 - `SftpPanel`：SFTP面板
 - `SystemMonitorPanel`：系统监控面板
 
+### UI 控件约定（约束）
+
+**改动 `src/ui/` 界面、新增或替换控件时，优先使用
+`third_party/ElaWidgetTools/` 提供的 Ela 控件**（`ElaPushButton`、`ElaLineEdit`、
+`ElaComboBox`、`ElaScrollArea`、`ElaScrollBar`、`ElaDialog`/`ElaContentDialog`、
+`ElaMessageBar`、`ElaTreeWidget`、`ElaText` 等），以保持 FluentUI 外观与主题
+（含深色模式）一致。只有 Ela 没有对应实现、或语义明显不匹配时才退回原生 Qt
+控件，且配色一律跟随 `QPalette` / 主题，不要硬编码颜色。
+
+配套注意（细节见 `AGENTS.md` 的「容易写错的地方」与「第三方依赖约定」）：
+
+- 不要给 Ela 控件再 `setStyleSheet()`，也不要改它的 `objectName` —— 两者都会
+  顶掉控件自带的 QSS；行高用 `setItemHeight()`、去边框用
+  `setIsFrameVisible(false)` 这类专用接口表达。
+- `ElaScrollArea` 构造时会把两个方向设为 `ScrollBarAlwaysOff`。需要可见滚动条
+  时必须在构造后显式设置 `setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded)`；
+  `SystemInformationDialog` 是该用法的回归范例。
+- 提示 / 确认框不要直接用 `QMessageBox` 或裸调 `ElaMessageBar` 静态方法，走
+  `NovaTerm::Ui::confirm()` / `warn()`（`src/ui/widgets/MessagePrompts.h`）：
+  它们已经正确处理了 `parent`（Ela 浮层对模态对话框需要传窗口一级，否则会落到
+  对话框背后）。
+- 为补齐能力而新增的 Ela 适配组件必须放在 `third_party/ElaWidgetTools/` 库内：
+  绘制依赖的 `DeveloperComponents/Ela*Style.h` 没有 `ELA_EXPORT`，放在 `src/`
+  里会直接链接失败。往该目录加文件后需显式重跑 `cmake -S . -B build`
+  （Ela 子项目的 `FILE(GLOB ...)` 没有 `CONFIGURE_DEPENDS`）。
+
 ## 文档资源
 
 统一架构总览位于 `docs/ARCHITECTURE.md`，配套细节文档见 `docs/architecture/`（索引：[docs/architecture/README.md](docs/architecture/README.md)）：

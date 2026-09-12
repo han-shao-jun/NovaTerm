@@ -1163,10 +1163,12 @@ if(BUILD_TESTING)
             PRIVATE ws2_32 crypt32 user32 advapi32)
     endif()
 
-    # 系统信息对话框滚动范围回归：word-wrap 标签会把布局最小高度抬高，导致
-    # 滚动区能滚进空白（2026-09-12 实机报告）。仅需 Qt Widgets + offscreen。
+    # UI 对话框回归：系统信息滚动范围，以及 SSH 主机密钥对话框的 Ela 控件与
+    # 端点标题。仅需 Qt Widgets + offscreen。
     add_executable(novaterm_ui_dialog_layout_tests
         tests/ui/SystemInformationDialogLayoutTests.cpp
+        src/ui/widgets/SshHostKeyDialog.cpp
+        src/ui/widgets/SshHostKeyDialog.h
         src/ui/widgets/SystemInformationDialog.cpp
         src/ui/widgets/SystemInformationDialog.h
         src/service/LanguageManager.cpp
@@ -1178,6 +1180,7 @@ if(BUILD_TESTING)
             ElaWidgetTools
             Qt${QT_VERSION_MAJOR}::Core
             Qt${QT_VERSION_MAJOR}::Gui
+            Qt${QT_VERSION_MAJOR}::SerialPort
             Qt${QT_VERSION_MAJOR}::Widgets
     )
     add_test(NAME novaterm_ui_dialog_layout_tests

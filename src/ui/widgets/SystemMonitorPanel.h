@@ -14,15 +14,14 @@
 #include <QVector>
 #include <QWidget>
 
-class ElaTreeWidget;
+class ElaComboBox;
+class ElaIconButton;
+class ElaProgressBar;
 class ElaText;
-class QLabel;
-class QComboBox;
+class ElaTreeWidget;
 class QPaintEvent;
 class QHideEvent;
 class QShowEvent;
-class QProgressBar;
-class QPushButton;
 class QTimer;
 class SshTransport;
 class SystemInformationDialog;
@@ -80,18 +79,18 @@ private:
     void resetMetrics();
 
     ElaText* _availabilityLabel{nullptr};
-    QPushButton* _infoButton{nullptr};
+    ElaIconButton* _infoButton{nullptr};
     ElaText* _cpuLabel{nullptr};
     ElaText* _memoryLabel{nullptr};
     ElaText* _swapLabel{nullptr};
-    QProgressBar* _cpuProgress{nullptr};
-    QProgressBar* _memoryProgress{nullptr};
-    QProgressBar* _swapProgress{nullptr};
+    ElaProgressBar* _cpuProgress{nullptr};
+    ElaProgressBar* _memoryProgress{nullptr};
+    ElaProgressBar* _swapProgress{nullptr};
     ElaText* _memoryDetail{nullptr};
     ElaText* _swapDetail{nullptr};
-    QLabel* _receiveLabel{nullptr};
-    QLabel* _sendLabel{nullptr};
-    QComboBox* _interfaceCombo{nullptr};
+    ElaText* _receiveLabel{nullptr};
+    ElaText* _sendLabel{nullptr};
+    ElaComboBox* _interfaceCombo{nullptr};
     TrafficChart* _trafficChart{nullptr};
     ElaText* _pathHeader{nullptr};
     ElaText* _capacityHeader{nullptr};
@@ -105,9 +104,8 @@ private:
     QString _collectionError;
     QString _fileSystemError;
 
-    // 上次 applyTheme() 采用的主题。paintEvent 里比对当前主题、不一致就重来 ——
-    // 与 ElaText 的自愈同理（ElaText.cpp:158），不把配色正确性只押在
-    // themeModeChanged 一定按期到达上。
+    // 上次 applyTheme() 采用的主题。paintEvent 里比对当前主题、不一致就重来，
+    // 不把面板自绘配色正确性只押在 themeModeChanged 一定按期到达上。
     ElaThemeType::ThemeMode _themeMode;
 
     // 单调递增 ID 用于区分不同采集；pending 为 0 表示当前没有在途请求。

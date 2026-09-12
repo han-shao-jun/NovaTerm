@@ -4,17 +4,15 @@
  */
 #include "SystemInformationDialog.h"
 
-#include "ElaDef.h"
-#include "ElaScrollBar.h"
+#include "ElaScrollArea.h"
+#include "ElaScrollPageArea.h"
 #include "ElaText.h"
 #include "ElaTheme.h"
 #include "service/LanguageManager.h"
 
 #include <QGridLayout>
 #include <QHBoxLayout>
-#include <QPainter>
 #include <QResizeEvent>
-#include <QScrollArea>
 #include <QScrollBar>
 #include <QVBoxLayout>
 
@@ -149,13 +147,15 @@ ElaText* createText(const QString& text, QWidget* parent,
     return label;
 }
 
-class InformationCard final : public QWidget
+class InformationCard final : public ElaScrollPageArea
 {
 public:
     explicit InformationCard(const QString& title, QWidget* parent = nullptr)
-        : QWidget(parent)
+        : ElaScrollPageArea(parent)
     {
-        setAutoFillBackground(false);
+        // ElaScrollPageArea 面向设置页默认固定为 75 高；详情卡片按内容自适应。
+        setMinimumHeight(0);
+        setMaximumHeight(QWIDGETSIZE_MAX);
         auto* layout = new QVBoxLayout(this);
         layout->setContentsMargins(14, 12, 14, 12);
         layout->setSpacing(10);
@@ -168,16 +168,6 @@ public:
     }
 
     QVBoxLayout* body() const noexcept { return _body; }
-
-protected:
-    void paintEvent(QPaintEvent*) override
-    {
-        QPainter painter(this);
-        painter.setRenderHint(QPainter::Antialiasing);
-        painter.setPen(QPen(ElaThemeColor(eTheme->getThemeMode(), BasicBorder)));
-        painter.setBrush(ElaThemeColor(eTheme->getThemeMode(), BasicBaseAlpha));
-        painter.drawRoundedRect(rect().adjusted(0, 0, -1, -1), 6, 6);
-    }
 
 private:
     QVBoxLayout* _body{nullptr};
@@ -243,11 +233,11 @@ SystemInformationDialog::SystemInformationDialog(
 
     auto* root = new QVBoxLayout(this);
     root->setContentsMargins(0, 32, 0, 0);
-    auto* scroll = new QScrollArea(this);
+    auto* scroll = new ElaScrollArea(this);
     scroll->setWidgetResizable(true);
-    scroll->setFrameShape(QFrame::NoFrame);
     scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
-    scroll->setVerticalScrollBar(new ElaScrollBar(scroll));
+    // ElaScrollArea 默认隐藏两个滚动条；系统信息窗口要求滚动条可见，必须覆盖。
+    scroll->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
     root->addWidget(scroll);
     _scroll = scroll;
 
@@ -378,7 +368,7 @@ void SystemInformationDialog::updateContentHeight()
     _contentLayout->activate();
     const int width = std::max(1, _scroll->viewport()->width());
     // 卡片里的标签开了 word-wrap，布局的 minimumSizeHint() 按极窄宽度估算，
-    // 会让 QScrollArea 把内容设得远高于实际需要 —— 表现为可以往下滚出大片空白。
+    // 会让滚动区把内容设得远高于实际需要 —— 表现为可以往下滚出大片空白。
     // 用 heightForWidth（按真实视口宽度）算出需要的高度并作为内容最小高度，
     // 滚动范围就与实际内容一致；视口更高时内容仍被拉伸填满，不会出现滚动条。
     int needed = content->heightForWidth(width);

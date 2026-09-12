@@ -95,7 +95,7 @@ ctest --test-dir build -C Debug
 | `src/transport/SshTransport`、`SshMonitorProtocol` | `novaterm_ssh_transport_check`（失败路径 + 监控帧协议） | `ssh` | <1s |
 | `src/transport/TelnetTransport` | `novaterm_telnet_transport_tests` | `telnet` | ~5s |
 | TerminalSession + TerminalRenderer + LocalShellTransport 的联通路径 | `novaterm_terminal_session_tests` | `terminal-session` | ~46s |
-| `src/ui/widgets/SystemInformationDialog` 的滚动范围/布局 | `novaterm_ui_dialog_layout_tests` | `ui` | <1s |
+| `src/ui/widgets/SystemInformationDialog` 的滚动范围/布局、`SshHostKeyDialog` 的 Ela 控件与端点标题 | `novaterm_ui_dialog_layout_tests` | `ui` | <1s |
 | `src/ui/`、`src/platform/`、`src/service/` | **无覆盖测试** —— 编译通过 + 实跑程序看效果即可（`KeyMapper` 已移出此列，现由 `novaterm_core_tests` 覆盖） | — | — |
 
 SSH 资源监控另有不注册到 ctest 的
@@ -105,10 +105,11 @@ SSH 资源监控另有不注册到 ctest 的
 
 上表 UI 覆盖的例外有两处：`TerminalView` 启动、尺寸传递与生命周期已由
 `novaterm_terminal_session_tests` 的 `TerminalSessionSmokeTests.cpp` 覆盖；
-系统信息对话框的滚动范围由 `novaterm_ui_dialog_layout_tests` 覆盖（offscreen
-运行，断言"内容高度 == max(视口, heightForWidth)"与"滚到底内容底边贴视口底"，
-防"能滚进空白页"回归）。这类改动应跑对应目标，普通面板外观改动仍按编译与实跑
-验证。
+系统信息对话框的滚动范围与 SSH 主机密钥对话框由
+`novaterm_ui_dialog_layout_tests` 覆盖（offscreen 运行）；前者断言
+"内容高度 == max(视口, heightForWidth)"与"滚到底内容底边贴视口底"，防
+"能滚进空白页"回归，后者断言 Ela 控件类型与变更主机端点标题。这类改动应跑
+对应目标，普通面板外观改动仍按编译与实跑验证。
 
 拿不准某个文件被哪个测试覆盖，就看测试源码的 include。`tests/core`、
 `tests/renderer`、`tests/session`、`tests/transport`、`tests/ui` 五个目录，
@@ -478,13 +479,25 @@ base 指针。主题切换只改 QPalette，不动 style。
 
 **`ElaScrollArea` 构造即把两个方向的 scrollbar policy 设成 `ScrollBarAlwaysOff`**
 （`ElaScrollArea.cpp:18-19`，Ela 的设计是隐藏滚动条靠滚轮/手势）。需要可见滚动条
-的场合别换这个类，保留 `QScrollArea` 并只换滚动条：
-`setVerticalScrollBar(new ElaScrollBar(area))`。
+时必须在构造后显式恢复策略：
+`setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded)`。`SystemInformationDialog` 是
+现有范例，其回归测试还会断言该策略，防止替换控件后滚动条静默消失。
 
-**`QScrollArea` 里的内容高度不要交给布局的 `minimumSizeHint()`**：含
+**`ElaScrollPageArea` 构造时会 `setFixedHeight(75)`**。设置页单行卡片可直接使用，
+承载动态表格或多行内容时必须先解除限制：`setMinimumHeight(0)`、
+`setMaximumHeight(QWIDGETSIZE_MAX)`，再交给布局和 size policy 决定高度。
+`SystemInformationDialog::InformationCard` 是现有范例；对应 UI 回归测试断言完整
+数据会生成 8 张 Ela 卡片，并继续检查滚动范围。
+
+**`ElaThemeColor(mode, role)` 的 `role` 必须是枚举常量 token**：该接口是宏，展开时
+会自动补 `ElaThemeType::`，传保存于成员变量的动态角色会被拼成不存在的枚举成员并
+编译失败。动态主题角色统一直接调用
+`eTheme->getThemeColor(mode, roleVariable)`；`MetricLegendText` 是现有范例。
+
+**滚动区域里的内容高度不要交给布局的 `minimumSizeHint()`**：含
 `QLabel::setWordWrap(true)` 的表单布局会被严重高估 —— 布局按"最窄可能宽度"
 估算换行行数，实测卡片只需 886px，`minimumSizeHint().height()` 却给 989px，
-`QScrollArea` 照它定内容高度，于是滚到底多出约 100px 空白页。正解是让内容
+滚动区照它定内容高度，于是滚到底多出约 100px 空白页。正解是让内容
 控件按视口**实际宽度**算高度：`content->setMinimumHeight(max(hfw, 视口高))`，
 `hfw = content->heightForWidth(viewport()->width())`，并在 `populate()`、
 状态刷新与 `resizeEvent()` 里都重算一次（`SystemInformationDialog::

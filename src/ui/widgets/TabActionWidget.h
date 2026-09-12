@@ -8,6 +8,7 @@
 
 #include <ElaTabWidget.h>
 
+class ElaTabBar;
 class QEvent;
 class QResizeEvent;
 
@@ -31,6 +32,8 @@ protected:
     bool eventFilter(QObject* watched, QEvent* event) override;
 
 private:
+    /** @brief 返回 ElaTabWidget 构造时安装的 Ela 标签栏。 */
+    [[nodiscard]] ElaTabBar* elaTabBar() const noexcept;
     void scheduleActionWidgetLayout();
     void updateActionWidgetGeometry();
 

@@ -7,15 +7,17 @@
  */
 #include "TabActionWidget.h"
 
+#include "ElaTabBar.h"
+
 #include <QEvent>
-#include <QTabBar>
 #include <QTimer>
 
 TabActionWidget::TabActionWidget(QWidget* parent)
     : ElaTabWidget(parent)
 {
-    tabBar()->installEventFilter(this);
-    connect(tabBar(), &QTabBar::tabMoved, this,
+    auto* const tabs = elaTabBar();
+    tabs->installEventFilter(this);
+    connect(tabs, &ElaTabBar::tabMoved, this,
             [this]() { scheduleActionWidgetLayout(); });
 }
 
@@ -28,7 +30,7 @@ void TabActionWidget::setTabBarActionWidget(QWidget* widget)
     // 使动作控件在首个会话创建前保持垂直居中。
     const int tabBarHeight = qMax(getTabSize().height(),
                                   _actionWidget->height());
-    tabBar()->setMinimumHeight(tabBarHeight);
+    elaTabBar()->setMinimumHeight(tabBarHeight);
 
     // 标签溢出且 Qt 显示滚动按钮时仍保持动作控件可达。
     // 有空间时可见控件始终跟随最后一个标签。
@@ -61,13 +63,19 @@ void TabActionWidget::tabRemoved(int index)
 
 bool TabActionWidget::eventFilter(QObject* watched, QEvent* event)
 {
-    if (watched == tabBar()
+    if (watched == elaTabBar()
         && (event->type() == QEvent::LayoutRequest
             || event->type() == QEvent::Resize
             || event->type() == QEvent::Show)) {
         scheduleActionWidgetLayout();
     }
     return ElaTabWidget::eventFilter(watched, event);
+}
+
+ElaTabBar* TabActionWidget::elaTabBar() const noexcept
+{
+    // ElaTabWidget 构造函数无条件安装 ElaTabBar，静态转换保留准确类型。
+    return static_cast<ElaTabBar*>(tabBar());
 }
 
 void TabActionWidget::scheduleActionWidgetLayout()
@@ -88,10 +96,11 @@ void TabActionWidget::updateActionWidgetGeometry()
         return;
 
     constexpr int spacing = 4;
-    const QRect barGeometry = tabBar()->geometry();
+    auto* const tabs = elaTabBar();
+    const QRect barGeometry = tabs->geometry();
     int x = barGeometry.left() + spacing;
     if (count() > 0) {
-        const QRect lastTab = tabBar()->tabRect(count() - 1);
+        const QRect lastTab = tabs->tabRect(count() - 1);
         x = barGeometry.left() + lastTab.right() + 1 + spacing;
     }
 
