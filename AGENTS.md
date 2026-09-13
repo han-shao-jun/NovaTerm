@@ -704,10 +704,10 @@ pending 行标记，不能把每次完成都升级为全屏重建。
   并比较属性/前景/背景）。A/B：RelWithDebInfo `novaterm_core_benchmark`
   20 MiB = 24.40 MiB/s（改造前记录 24.36 MiB/s，属噪声范围，因为该基准
   不滚动、不走 moverect）。
-- **待办**：Task 6（移除 40 ms dock hover 轮询，需空闲 `pidstat -t -w` 基线与
-  实跑验收）、Task 7 剩余部分（RelWithDebInfo 全量构建、ASan/UBSan Core、
-  重录 perf 对比 Top 20）。GPU 侧 A/B（`contentUploadBytes`、CPU frame P95）
-  在本机无法执行：QRhi 在 offscreen/xcb 下都拿不到设备。
+- **Task 6/7 亦已完成**：Task 6 的应用级事件过滤实现在下节，其窗口人工验收已由用户完成；
+  RelWithDebInfo 全量构建、ASan/UBSan Core、perf 重录对比也都已补齐（见下）。唯一仍未
+  复测的是 GPU 侧 A/B（`contentUploadBytes`、CPU frame P95）：本机 QRhi 在 offscreen/xcb
+  下都拿不到设备。
 
 **宽字符 `Cell::width` 可能在分批边界失真（既有缺陷，非本轮引入）**：
 `width` 由"右邻格是否为延续标记"推导，只在脏矩形覆盖到该格自身时才刷新。
@@ -728,17 +728,15 @@ pending 行标记，不能把每次完成都升级为全屏重建。
   "无左键才复位 `_activeDockResizeKind`"语义。**A/B 实测**（offscreen 启动真实
   exe，隔离 `XDG_CONFIG_HOME/XDG_DATA_HOME`，8 秒空闲对比主线程
   `voluntary_ctxt_switches`）：旧实现 229 → 429（**+200，即 25.0/s**，utime +4
-  ticks）；新实现 103 → 103（**0/s**）。未做：左右 dock 高亮/拖动/最小化恢复的
-  **人工实跑验收**（本机无窗口会话），以及 `pidstat -t -w` 的桌面级复测。
+  ticks）；新实现 103 → 103（**0/s**）。左右 dock 高亮/移开隐藏/拖动/最小化恢复的**人工实跑验收**已由用户于 2026-09-13 在窗口环境完成；
+  `pidstat -t -w` 的桌面级复测未做（空闲唤醒已用 /proc 计数做过等价对照）。
 - **Task 7 回归状态**：RelWithDebInfo 全量构建通过；ASan+UBSan 构建
   （`-fsanitize=address,undefined`，Debug）跑 `novaterm_core_tests`
   **58/58 通过、无 ASan 报错、无 UBSan runtime error**；Debug 全套 ctest
   8/10（仅剩上表两项本机环境失败）；RelWithDebInfo `novaterm_core_benchmark`
-  20 MiB = 24.40 MiB/s。**未达标项**：(1) 重录 perf 与 `perf.data` 的 Top 20
-  对比 —— 本机无可用图形会话，offscreen 下 QRhi 拿不到设备、渲染路径直接返回，
-  无法复现基线 workload；(2) GPU 侧 A/B（`contentUploadBytes`、CPU frame P95、
-  memmove 占比）同理无法执行。两项都需要在有窗口的机器上按
-  `perf.txt` 的命令模板重跑。
+  20 MiB = 24.40 MiB/s。**当时的未达标项**：perf 重录对比与 GPU 侧 A/B 在本机（无图形会话、QRhi 拿不到设备）
+  无法执行。perf 重录后已由用户在桌面会话补齐（23:08 与 23:26 两次，见下两节）；
+  GPU 侧 A/B（`contentUploadBytes`、CPU frame P95、memmove 占比）仍未复测。
 
 ### Task 5 同机 A/B（2026-09-13，RelWithDebInfo，各 3 次）
 
@@ -775,8 +773,9 @@ cpu_atom 510 + cpu_core 1486 = 1996 样本。与基线
 | GPU 驱动（libnvidia-glcore） | 22.71% | 20.37% | −2.34pp |
 | Qt Widgets | 6.57% | 7.80% | +1.23pp |
 
-总样本率 22.2/s → 19.4/s（**约 −12%**，但两次会话的 workload 不完全相同，
-只能作为估计）。逐线程：主线程 2229 → 1672、`nvterm-parser` 344 → 299、
+总样本率 22.2/s → 19.4/s（**约 −12%**）。用户确认三次录制都是在 novaterm 中
+跑同一条命令、窗口尺寸差异不大，故该下降与下面的 bucket 变化都视为可信的优化效果，
+不是负载差异造成的。逐线程：主线程 2229 → 1672、`nvterm-parser` 344 → 299、
 `nvterm-glyph` 24 → 25。
 
 **结论与两条如实记录**：
@@ -846,8 +845,7 @@ exe 一致）：113.1 s，cpu_atom 485 + cpu_core 1315 = 1800 样本。三份同
    保持 0 样本，取而代之的是 `__memset_avx2`（2.70%，零实例写入已走向量化
    memset）。"Task 2 未达标"的记录就此关闭。
 2. **整体 CPU 显著下降**：样本率 22.2 → 19.4 → **15.9 /s（较基线约 −28%）**；
-   两次重录负载不完全相同，但方向一致（同时 `nvterm-parser` 344 → 275、
-   主线程 2229 → 1505）。
+   用户确认三次录制跑同一条命令、窗口尺寸差异不大，故该下降可信（同时 `nvterm-parser` 344 → 275、主线程 2229 → 1505）。
 3. 剩余最大单点仍是 `__memmove` 8.46%（QRhi staging 上传体量，Task 2 的
    scratch 改动不减少它）与 `populateCell` 3.09% / `vterm_screen_get_cells`
    2.79%（moverect 批量同步后的残余：逐字段转换 + libvterm 按行读取本身）。
