@@ -33,6 +33,8 @@ private slots:
     void modelPublicationsHaveMonotonicRevisions();
     void rendererSnapshotCopiesOnlyDirtyRows();
     void rendererSnapshotPublishesPerRowRevisions();
+    void rendererSnapshotPublishesBlockIdentities();
+    void wideCharacterWidthSurvivesBatchedSync();
     void rendererSnapshotRowsRemainImmutableAcrossPublication();
     void publishesTerminalTitle();
     void cursorPropertiesPublishWithoutFollowingMovement();
@@ -665,6 +667,94 @@ void TerminalCoreTests::rendererSnapshotHistoryRowsCarryStableIdentity()
     const auto cleanFrame = core.rendererSnapshot(clean, 1, history.firstLineId(), 2);
     QCOMPARE(cleanFrame.visibleRowIdentities[0],
              dirtyFrame.visibleRowIdentities[0]);
+
+    // 历史切片同样按可见列数补齐块指纹：4 列 → 1 个 8 列块，两次脏帧结果一致
+    // （切片长度不足一块时，补白必须参与哈希而不是省略该块）。
+    QCOMPARE(dirtyFrame.visibleRowBlockIdentities[0].size(), std::size_t(1));
+    const auto repeatFrame =
+        core.rendererSnapshot(dirty, 1, history.firstLineId(), 2);
+    QCOMPARE(repeatFrame.visibleRowBlockIdentities[0],
+             dirtyFrame.visibleRowBlockIdentities[0]);
+}
+
+// 按行批量同步必须完整保留宽字符语义：宽字符自身 width=2、右邻格是延续标记，
+// 且属性/前景色随之一并落到 ScreenBuffer（批量路径的字段拷贝等价性）。
+void TerminalCoreTests::wideCharacterWidthSurvivesBatchedSync()
+{
+    TerminalCore core(8, 2);
+    core.writeInput(QByteArrayLiteral("\x1b[1;3H\x1b[1;31m\xe4\xb8\xad\x1b[0mZ"));
+    QVERIFY(core.waitForIdle());
+
+    NovaTerm::Cell wide;
+    QVERIFY(core.getCell(0, 2, wide));
+    QCOMPARE(wide.chars[0], uint32_t(0x4e2d));
+    QCOMPARE(wide.width, uint8_t(2));
+    QCOMPARE(wide.foreground.type, NovaTerm::ColorType::Indexed);
+    QCOMPARE(wide.foreground.index, uint8_t(1));
+    QVERIFY(wide.attributes.bold);
+
+    NovaTerm::Cell continuation;
+    QVERIFY(core.getCell(0, 3, continuation));
+    QVERIFY(continuation.isWideContinuation());
+
+    // 宽字符之后的普通字符仍按其列落位，且继承 reset 后的默认属性。
+    NovaTerm::Cell trailing;
+    QVERIFY(core.getCell(0, 4, trailing));
+    QCOMPARE(trailing.chars[0], uint32_t('Z'));
+    QCOMPARE(trailing.width, uint8_t(1));
+    QCOMPARE(trailing.foreground.type, NovaTerm::ColorType::Default);
+
+    // 插入一行（整屏下滚）后再批量同步一次：宽字符与延续标记必须一起移动
+    // 并保持 width。
+    core.writeInput(QByteArrayLiteral("\x1b[T"));
+    QVERIFY(core.waitForIdle());
+    NovaTerm::Cell scrolled;
+    QVERIFY(core.getCell(1, 2, scrolled));
+    QCOMPARE(scrolled.chars[0], uint32_t(0x4e2d));
+    QCOMPARE(scrolled.width, uint8_t(2));
+}
+
+void TerminalCoreTests::rendererSnapshotPublishesBlockIdentities()
+{
+    TerminalCore core(16, 2);
+    core.writeInput(QByteArrayLiteral("\x1b[1;1HA\x1b[1;9HX"));
+    QVERIFY(core.waitForIdle());
+
+    const std::vector<bool> dirty(2, true);
+    const auto before = core.rendererSnapshot(dirty, 0);
+    QCOMPARE(before.visibleRowBlockIdentities[0].size(), std::size_t(2));
+    const auto firstBlock = before.visibleRowBlockIdentities[0][0];
+    const auto secondBlock = before.visibleRowBlockIdentities[0][1];
+    const auto rowIdentity = before.visibleRowIdentities[0];
+
+    // 第 1 行没有任何输出（全部是默认 Cell）：块指纹仍按可见列数给出全部块，
+    // 且各块相同。补白参与哈希，而不是"内容不足就省略该块"。
+    QCOMPARE(before.visibleRowBlockIdentities[1].size(), std::size_t(2));
+    QCOMPARE(before.visibleRowBlockIdentities[1][0],
+             before.visibleRowBlockIdentities[1][1]);
+    // 第 0 行第 1 列写了 'A'，故其首块必然不同于全默认块。
+    QVERIFY(before.visibleRowBlockIdentities[0][0]
+            != before.visibleRowBlockIdentities[1][0]);
+
+    // 只改第 0 行第二块：第一块指纹不动、整行 identity 必须变化。
+    core.writeInput(QByteArrayLiteral("\x1b[1;9HY"));
+    QVERIFY(core.waitForIdle());
+    const auto after = core.rendererSnapshot(dirty, 0);
+
+    QCOMPARE(after.visibleRowBlockIdentities[0].size(), std::size_t(2));
+    QCOMPARE(after.visibleRowBlockIdentities[0][0], firstBlock);
+    QVERIFY(after.visibleRowBlockIdentities[0][1] != secondBlock);
+    QVERIFY(after.visibleRowIdentities[0] != rowIdentity);
+
+    // 空白行第二块写入后：只有该块变化，未动的首块仍等于全默认块指纹
+    // （历史切片/补白在同一遍历里与整行 identity 保持一致）。
+    core.writeInput(QByteArrayLiteral("\x1b[2;9HZ"));
+    QVERIFY(core.waitForIdle());
+    const auto blankTouched = core.rendererSnapshot(dirty, 0);
+    QCOMPARE(blankTouched.visibleRowBlockIdentities[1][0],
+             before.visibleRowBlockIdentities[1][0]);
+    QVERIFY(blankTouched.visibleRowBlockIdentities[1][1]
+            != before.visibleRowBlockIdentities[1][1]);
 }
 
 void TerminalCoreTests::rendererSnapshotUsesLogicalWrapAnchor()
@@ -743,6 +833,8 @@ void TerminalCoreTests::batchedScreenEditsMatchIncrementalInput()
     incrementalAdapter.flushDamage();
 
     // 同一组定位、擦除和滚动操作，改变分批边界不应改变最终屏幕。
+    // 字母表额外覆盖宽字符（UTF-8 多字节，跨分批边界）与 SGR 属性/颜色，
+    // 用于守住按行批量同步对 width/属性/前景背景色的等价性。
     quint32 seed = 42;
     const auto next = [&seed]() {
         seed = seed * 1664525U + 1013904223U;
@@ -751,7 +843,7 @@ void TerminalCoreTests::batchedScreenEditsMatchIncrementalInput()
     for (int batch = 0; batch < 200; ++batch) {
         QByteArray input;
         for (int operation = 0; operation < 20; ++operation) {
-            switch (next() % 7) {
+            switch (next() % 12) {
             case 0: input += "\r\n"; break;
             case 1: input += "\x1b[S"; break;
             case 2: input += "\x1b[T"; break;
@@ -761,6 +853,11 @@ void TerminalCoreTests::batchedScreenEditsMatchIncrementalInput()
                 input += "\x1b[" + QByteArray::number(next() % rows + 1)
                     + ";" + QByteArray::number(next() % columns + 1) + "H";
                 break;
+            case 6: input += "\x1b[1m"; break;
+            case 7: input += "\x1b[4m"; break;
+            case 8: input += "\x1b[31;44m"; break;
+            case 9: input += "\x1b[0m"; break;
+            case 10: input += "\xe4\xb8\xad\xe6\x96\x87"; break; // 中文（宽字符）
             default: input += QByteArray(5, char('A' + next() % 26)); break;
             }
         }
@@ -772,12 +869,31 @@ void TerminalCoreTests::batchedScreenEditsMatchIncrementalInput()
         }
         for (int row = 0; row < rows; ++row) {
             for (int col = 0; col < columns; ++col) {
+                const NovaTerm::Cell* batchedCell = batched.cellAt(row, col);
+                const NovaTerm::Cell* incrementalCell =
+                    incremental.cellAt(row, col);
                 const QByteArray context = "batch=" + QByteArray::number(batch)
                     + " row=" + QByteArray::number(row)
                     + " col=" + QByteArray::number(col)
                     + " input=" + input.toHex();
-                QVERIFY2(batched.cellAt(row, col)->chars
-                             == incremental.cellAt(row, col)->chars,
+                QVERIFY2(batchedCell->chars == incrementalCell->chars,
+                         context.constData());
+                // 注意：这里刻意不比较 width。宽字符的 width 由"右邻格是否为
+                // 延续标记"推导，而它只在脏矩形覆盖到自身时才被刷新，因此
+                // 分批边界不同会让 width 停留在旧值 —— 这是本次批量改造之前
+                // 就存在的缺陷（回退 VTAdapter 的按行同步同样复现），单独在
+                // wideCharacterWidthSurvivesBatchedSync 里按确定路径断言。
+                QVERIFY2(std::memcmp(&batchedCell->attributes,
+                                     &incrementalCell->attributes,
+                                     sizeof(NovaTerm::CellAttributes)) == 0,
+                         context.constData());
+                QVERIFY2(std::memcmp(&batchedCell->foreground,
+                                     &incrementalCell->foreground,
+                                     sizeof(NovaTerm::TerminalColor)) == 0,
+                         context.constData());
+                QVERIFY2(std::memcmp(&batchedCell->background,
+                                     &incrementalCell->background,
+                                     sizeof(NovaTerm::TerminalColor)) == 0,
                          context.constData());
             }
         }

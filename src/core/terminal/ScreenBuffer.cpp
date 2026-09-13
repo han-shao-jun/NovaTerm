@@ -74,6 +74,14 @@ void ScreenBuffer::setCell(int row, int column, const Cell& cell)
         *destination = cell;
 }
 
+Cell* ScreenBuffer::writableRowSpan(int row, int startColumn, int count)
+{
+    if (count <= 0 || row < 0 || row >= _rows || startColumn < 0
+        || startColumn > _columns - count)
+        return nullptr;
+    return &_cells[std::size_t(row * _columns + startColumn)];
+}
+
 void ScreenBuffer::moveRect(const DirtyRegion& destination,
                             const DirtyRegion& source)
 {

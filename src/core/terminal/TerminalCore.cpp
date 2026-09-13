@@ -93,47 +93,70 @@ struct ParserCommand
 // 得到一致 identity。渲染层用此哈希快速判断行内容是否变化，避免对未变行重做
 // 字形装配。仅用作"是否相同"的判定，不保证无碰撞；冲突时最坏退化为一次多余
 // 的渲染。
-u64 rowContentIdentity(const NovaTerm::Cell* cells, int count, int columns)
+u64 rowContentIdentity(const NovaTerm::Cell* cells, int count, int columns,
+                       std::vector<u64>* blockIdentities = nullptr)
 {
     static const NovaTerm::Cell kDefaultCell{};
-    u64 hash = 1469598103934665603ull;
-    const auto mix = [&hash](u64 value) {
+    constexpr u64 OffsetBasis = 1469598103934665603ull;
+    const auto mix = [](u64& hash, u64 value) {
         hash ^= value;
         hash *= 1099511628211ull;
     };
-    for (int column = 0; column < columns; ++column) {
-        const NovaTerm::Cell& cell =
-            (cells && column < count) ? cells[column] : kDefaultCell;
-        for (uint32_t scalar : cell.chars)
-            mix(scalar);
-        mix(cell.width);
-        mix(u8(cell.foreground.type));
-        mix(cell.foreground.index);
-        mix(cell.foreground.red | (cell.foreground.green << 8)
+    const auto mixCell = [&mix](u64& hash, const NovaTerm::Cell& cell) {
+        for (const uint32_t scalar : cell.chars)
+            mix(hash, scalar);
+        mix(hash, cell.width);
+        mix(hash, u8(cell.foreground.type));
+        mix(hash, cell.foreground.index);
+        mix(hash, cell.foreground.red | (cell.foreground.green << 8)
             | (cell.foreground.blue << 16));
-        mix(u8(cell.background.type));
-        mix(cell.background.index);
-        mix(cell.background.red | (cell.background.green << 8)
+        mix(hash, u8(cell.background.type));
+        mix(hash, cell.background.index);
+        mix(hash, cell.background.red | (cell.background.green << 8)
             | (cell.background.blue << 16));
-        const auto& a = cell.attributes;
-        u64 attributes = u64(a.bold)
-            | (u64(a.underline) << 1)
-            | (u64(a.italic) << 2)
-            | (u64(a.blink) << 3)
-            | (u64(a.reverse) << 4)
-            | (u64(a.strike) << 5)
-            | (u64(a.font) << 6)
-            | (u64(a.dwl) << 7)
-            | (u64(a.dhl) << 8)
-            | (u64(a.smallFont) << 9)
-            | (u64(a.baseline) << 10)
-            | (u64(a.protectedCell) << 11)
-            | (u64(a.dim) << 12)
-            | (u64(a.conceal) << 13)
-            | (u64(a.underlineStyle) << 14);
-        mix(attributes);
+        const auto& attributes = cell.attributes;
+        const u64 flags = u64(attributes.bold)
+            | (u64(attributes.underline) << 1)
+            | (u64(attributes.italic) << 2)
+            | (u64(attributes.blink) << 3)
+            | (u64(attributes.reverse) << 4)
+            | (u64(attributes.strike) << 5)
+            | (u64(attributes.font) << 6)
+            | (u64(attributes.dwl) << 7)
+            | (u64(attributes.dhl) << 8)
+            | (u64(attributes.smallFont) << 9)
+            | (u64(attributes.baseline) << 10)
+            | (u64(attributes.protectedCell) << 11)
+            | (u64(attributes.dim) << 12)
+            | (u64(attributes.conceal) << 13)
+            | (u64(attributes.underlineStyle) << 14);
+        mix(hash, flags);
+    };
+
+    columns = std::max(0, columns);
+    count = std::clamp(count, 0, columns);
+    constexpr int BlockColumns =
+        NovaTerm::RendererSnapshot::IdentityBlockColumns;
+    const int blockCount = (columns + BlockColumns - 1) / BlockColumns;
+    if (blockIdentities)
+        blockIdentities->resize(std::size_t(blockCount));
+
+    u64 rowHash = OffsetBasis;
+    for (int block = 0; block < blockCount; ++block) {
+        const int start = block * BlockColumns;
+        const int end = std::min(columns, start + BlockColumns);
+        u64 blockHash = OffsetBasis;
+        for (int column = start; column < end; ++column) {
+            const NovaTerm::Cell& cell =
+                (cells && column < count) ? cells[column] : kDefaultCell;
+            mixCell(blockHash, cell);
+        }
+        if (blockIdentities)
+            (*blockIdentities)[std::size_t(block)] = blockHash;
+        mix(rowHash, blockHash);
+        mix(rowHash, u64(end - start));
     }
-    return hash;
+    return rowHash;
 }
 
 // ── Qt 事件 → 核心输入类型的翻译（门面层职责）──
@@ -980,6 +1003,7 @@ NovaTerm::RendererSnapshot TerminalCore::rendererSnapshot(
     snapshot.cursor = _runtime->cursor;
     snapshot.visibleRowRevisions.resize(std::size_t(snapshot.rows));
     snapshot.visibleRowIdentities.resize(std::size_t(snapshot.rows));
+    snapshot.visibleRowBlockIdentities.resize(std::size_t(snapshot.rows));
     snapshot.visibleRows.resize(std::size_t(snapshot.rows));
 
     // dirtyRows 与当前行数不一致时（窗口刚 resize 过），无法按位判断
@@ -1072,7 +1096,9 @@ NovaTerm::RendererSnapshot TerminalCore::rendererSnapshot(
             snapshot.visibleRowIdentities[widgetRow] =
                 rowContentIdentity(destination.data(),
                                    int(destination.size()),
-                                   int(destination.size()));
+                                   int(destination.size()),
+                                   &snapshot.visibleRowBlockIdentities[
+                                       std::size_t(widgetRow)]);
             snapshot.visibleRows[widgetRow] =
                 std::make_shared<const std::vector<NovaTerm::Cell>>(
                     std::move(destination));
@@ -1084,7 +1110,9 @@ NovaTerm::RendererSnapshot TerminalCore::rendererSnapshot(
             std::copy_n(source, snapshot.columns, destination.begin());
         snapshot.visibleRowIdentities[widgetRow] =
             rowContentIdentity(destination.data(), int(destination.size()),
-                               int(destination.size()));
+                               int(destination.size()),
+                               &snapshot.visibleRowBlockIdentities[
+                                   std::size_t(widgetRow)]);
         snapshot.visibleRows[widgetRow] =
             std::make_shared<const std::vector<NovaTerm::Cell>>(
                 std::move(destination));

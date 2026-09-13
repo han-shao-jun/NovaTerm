@@ -222,6 +222,8 @@ public:
     }
 
     // 从 libvterm 同步指定矩形区域到本地 ScreenBuffer。
+    // 按行批量读取：每行一次跨库调用 + 一次行基址计算，取代逐格
+    // vterm_screen_get_cell + 逐格 ScreenBuffer::setCell 的每格开销。
     void syncRegion(VTermRect rectangle)
     {
         if (!vts)
@@ -233,13 +235,22 @@ public:
             std::clamp(rectangle.start_col, 0, screen.columns());
         const int endColumn =
             std::clamp(rectangle.end_col, 0, screen.columns());
+        const int cellCount = endColumn - startColumn;
+        if (cellCount <= 0)
+            return;
 
+        // 行缓冲跨行/跨回调复用，避免每次同步都分配。
+        _rowCells.resize(std::size_t(cellCount));
         for (int row = startRow; row < endRow; ++row) {
-            for (int column = startColumn; column < endColumn; ++column) {
-                VTermScreenCell source{};
-                if (vterm_screen_get_cell(vts, {row, column}, &source))
-                    screen.setCell(row, column, fromVTermCell(source));
-            }
+            const int count = vterm_screen_get_cells(
+                vts, row, startColumn, endColumn, _rowCells.data());
+            if (count <= 0)
+                continue;
+            Cell* destination = screen.writableRowSpan(row, startColumn, count);
+            if (!destination)
+                continue;
+            for (int index = 0; index < count; ++index)
+                destination[index] = fromVTermCell(_rowCells[std::size_t(index)]);
         }
     }
 
@@ -428,6 +439,8 @@ public:
     VTermScreen* vts{nullptr};
     VTermState* state{nullptr};
     VTermScreenCallbacks callbacks{};
+    // syncRegion 的按行读取缓冲：跨行、跨回调复用，避免每次同步都分配。
+    std::vector<VTermScreenCell> _rowCells;
     bool nextScrollbackContinuation{false};  // 下一行是否为前一行的软换行延续
     bool resizeInProgress{false};             // resize 进行中标记，抑制 screenScrolled 信号
 };

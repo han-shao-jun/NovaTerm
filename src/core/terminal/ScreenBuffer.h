@@ -33,6 +33,18 @@ public:
     void setCell(int row, int column, const Cell& cell);
 
     /**
+     * @brief 取一行内连续一段 Cell 的可写首地址，用于按行批量同步。
+     * @param row 行号。
+     * @param startColumn 起始列（含）。
+     * @param count 需要写入的 Cell 数。
+     * @return 区间首地址；行号或 [startColumn, startColumn + count) 越界时
+     *         返回 nullptr，调用方应放弃本次批量写入。
+     * @note 只做一次边界检查与一次行基址计算，替代逐格 setCell() 的
+     *       每格 indexOf；调用方保证不越界写入 count 个 Cell。
+     */
+    Cell* writableRowSpan(int row, int startColumn, int count);
+
+    /**
      * @brief 该行是否为上一行的软换行延续。
      * @note  由 VTAdapter 从 libvterm 的 VTermLineInfo::continuation 同步。
      *        复制与搜索需要它区分行边界是软换行还是硬换行。
@@ -77,6 +89,8 @@ struct TerminalSnapshot
 // 与滚动映射在一次模型锁内完成，保证单帧不会混合不同历史版本。
 struct RendererSnapshot
 {
+    static constexpr int IdentityBlockColumns = 8;
+
     u64 revision{0};
     int columns{0};
     int rows{0};
@@ -84,6 +98,9 @@ struct RendererSnapshot
     // 行内容指纹（在模型锁内计算）。渲染器据此判断行是否可复用，
     // 而无需把可变数组下标当作身份标识。
     std::vector<u64> visibleRowIdentities;
+    // 仅携带Cell数据的行同时提供逐8列内容指纹，供Renderer校正遗漏脏区；
+    // 与整行identity在Core内由同一次Cell字段遍历生成。
+    std::vector<std::vector<u64>> visibleRowBlockIdentities;
     std::vector<std::shared_ptr<const std::vector<Cell>>> visibleRows;
     CursorState cursor;
 
