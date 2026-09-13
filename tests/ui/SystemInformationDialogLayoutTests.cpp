@@ -14,20 +14,28 @@
  * 断言只依赖上述关系、不依赖绝对像素，因此与字体度量、平台无关。
  * 同时检查系统信息窗口使用 ElaScrollArea 且保留可见滚动条，以及 SSH 主机密钥
  * 对话框使用 Ela 控件并正确展开变更主机的端点标题。
+ * 另外回归"点系统信息窗口关闭按钮崩溃"：该对话框带 `WA_DeleteOnClose`，
+ * ElaAppBar 的关闭按钮处理会 `close()` 后 `processEvents()` 再碰
+ * `windowHandle()`，对象此时已被析构（use-after-free）。
  * 需要 offscreen 平台（对话框是 Qt Widgets，检查不涉及 GPU/D3D11）。
  */
 #include "ui/widgets/SystemInformationDialog.h"
 #include "ui/widgets/SshHostKeyDialog.h"
 
 #include "ElaDialog.h"
+#include "ElaIconButton.h"
 #include "ElaPushButton.h"
 #include "ElaScrollArea.h"
 #include "ElaScrollPageArea.h"
 #include "ElaText.h"
 
 #include <QApplication>
+#include <QPointer>
 #include <QScrollBar>
 #include <cstdio>
+#if defined(__GLIBC__)
+#include <malloc.h>
+#endif
 #include <cstdlib>
 
 namespace {
@@ -81,6 +89,74 @@ int verifyChangedHostTitleContainsEndpoint()
     return 1;
 }
 
+/**
+ * @brief 点系统信息窗口右上角的关闭按钮：进程必须活下来，窗口必须被回收。
+ *
+ * `ElaAppBarPrivate::onCloseButtonClicked()`（`ElaAppBarPrivate.cpp:51-61`）在默认
+ * 关闭路径上先 `window->close()`，再 `QApplication::processEvents()`，最后又用同一个
+ * 裸指针取 `window->windowHandle()`。系统信息对话框带 `Qt::WA_DeleteOnClose`
+ * （`SystemInformationDialog.cpp:228`），`close()` 排入的 deleteLater 正好被那次
+ * `processEvents()` 处理掉 —— 窗口连同它自己的 app bar 和这个按钮一起析构，而
+ * 处理器还在栈上，下一行就是 use-after-free。
+ *
+ * 2026-09-14 的 core dump 正是这里：崩溃帧
+ * `QWidgetPrivate::windowHandle()` ← `ElaAppBarPrivate::onCloseButtonClicked`
+ * （`ElaAppBarPrivate.cpp:57`）。core 里 `window` 指向的 0x80 字节块
+ * （`sizeof(SystemInformationDialog) == 120`）内容已被 `QMetaCallEvent` 的 vtable
+ * 覆盖，`d_ptr` 槽位是 `0x10001002b`，于是 `mov 0x78(%rdi)` 在 `0x1000100a3`
+ * 上取地址失败。
+ */
+int verifyAppBarCloseButtonClosesDialogSafely()
+{
+#if defined(__GLIBC__)
+    // 让 free() 用 0xAA 覆盖已释放内存：否则被释放的窗口块内容仍是原值，
+    // 那段悬垂访问（读 d_ptr）可能"碰巧"不崩，回归就漏掉了。真实崩溃里这块内存
+    // 恰好被 QMetaCallEvent 复用，d_ptr 变成 0x10001002b 才立刻炸。
+    mallopt(M_PERTURB, 0xAA);
+#endif
+    // 与生产路径一致：对话框有父窗口（MainWindow），自身仍是顶层窗口。
+    QWidget host;
+    host.resize(400, 300);
+    host.show();
+
+    auto* dialog =
+        new SystemInformationDialog(QStringLiteral("close-regression"), &host);
+    dialog->show();
+    QApplication::processEvents();
+    QPointer<SystemInformationDialog> guard(dialog);
+
+    // 只声明了 CloseButtonHint，因此可见的 ElaIconButton 只有关闭按钮一个。
+    ElaIconButton* closeButton = nullptr;
+    int visibleButtons = 0;
+    for (ElaIconButton* button : dialog->findChildren<ElaIconButton*>()) {
+        if (!button->isVisibleTo(dialog))
+            continue;
+        ++visibleButtons;
+        closeButton = button;
+    }
+    if (visibleButtons != 1 || !closeButton) {
+        std::fprintf(stderr,
+                     "FAIL: expected exactly one visible app bar button, "
+                     "found %d\n",
+                     visibleButtons);
+        delete dialog;
+        return 1;
+    }
+
+    closeButton->click();  // 修复前：这里 SIGSEGV
+    QApplication::processEvents();
+
+    if (guard) {
+        std::fprintf(stderr,
+                     "FAIL: close button left the WA_DeleteOnClose dialog "
+                     "alive\n");
+        delete guard.data();
+        return 1;
+    }
+    std::printf("app bar close button -> dialog deleted, no crash\n");
+    return 0;
+}
+
 QByteArray samplePayload()
 {
     QByteArray out;
@@ -117,7 +193,8 @@ QByteArray samplePayload()
 int main(int argc, char** argv)
 {
     QApplication app(argc, argv);
-    int failures = verifyHostKeyDialogUsesElaWidgets();
+    int failures = verifyAppBarCloseButtonClosesDialogSafely();
+    failures += verifyHostKeyDialogUsesElaWidgets();
     failures += verifyChangedHostTitleContainsEndpoint();
 
     SystemInformationDialog dialog(QStringLiteral("root@192.168.10.100"),

@@ -95,7 +95,7 @@ ctest --test-dir build -C Debug
 | `src/transport/SshTransport`、`SshMonitorProtocol` | `novaterm_ssh_transport_check`（失败路径 + 监控帧协议） | `ssh` | <1s |
 | `src/transport/TelnetTransport` | `novaterm_telnet_transport_tests` | `telnet` | ~5s |
 | TerminalSession + TerminalRenderer + LocalShellTransport 的联通路径 | `novaterm_terminal_session_tests` | `terminal-session` | ~46s |
-| `src/ui/widgets/SystemInformationDialog` 的滚动范围/布局、`SshHostKeyDialog` 的 Ela 控件与端点标题 | `novaterm_ui_dialog_layout_tests` | `ui` | <1s |
+| `src/ui/widgets/SystemInformationDialog` 的滚动范围/布局与 app bar 关闭按钮、`SshHostKeyDialog` 的 Ela 控件与端点标题 | `novaterm_ui_dialog_layout_tests` | `ui` | <1s |
 | `src/ui/`、`src/platform/`、`src/service/` | **无覆盖测试** —— 编译通过 + 实跑程序看效果即可（`KeyMapper` 已移出此列，现由 `novaterm_core_tests` 覆盖） | — | — |
 
 SSH 资源监控另有不注册到 ctest 的
@@ -116,10 +116,12 @@ SSH 资源监控另有不注册到 ctest 的
 
 上表 UI 覆盖的例外有两处：`TerminalView` 启动、尺寸传递与生命周期已由
 `novaterm_terminal_session_tests` 的 `TerminalSessionSmokeTests.cpp` 覆盖；
-系统信息对话框的滚动范围与 SSH 主机密钥对话框由
+系统信息对话框的滚动范围、app bar 关闭按钮与 SSH 主机密钥对话框由
 `novaterm_ui_dialog_layout_tests` 覆盖（offscreen 运行）；前者断言
 "内容高度 == max(视口, heightForWidth)"与"滚到底内容底边贴视口底"，防
-"能滚进空白页"回归，后者断言 Ela 控件类型与变更主机端点标题。这类改动应跑
+"能滚进空白页"回归，后者断言 Ela 控件类型与变更主机端点标题。关闭按钮那条
+用 `mallopt(M_PERTURB)` 污染已释放内存，让"关窗后仍访问已析构窗口"的
+use-after-free 稳定复现（否则释放内存内容未变，可能碰巧不崩）。这类改动应跑
 对应目标，普通面板外观改动仍按编译与实跑验证。
 
 拿不准某个文件被哪个测试覆盖，就看测试源码的 include。`tests/core`、
@@ -291,8 +293,9 @@ src/platform/   windows/conpty/ linux/pty/
 **各依赖的改动政策不同，别一概而论**：
 
 - `ElaWidgetTools` **允许并且已经有本地改动**，与上游有分歧（先例 `218afcb`
-  修弹窗尺寸告警、`a2d6fb4` 改 tooltip 计时、`5ee1517` 加垂直选项卡）。本地新增
-  的组件：
+  修弹窗尺寸告警、`a2d6fb4` 改 tooltip 计时、`5ee1517` 加垂直选项卡、
+  2026-09-14 修 `ElaAppBarPrivate::onCloseButtonClicked()` 的 use-after-free）。
+  本地新增的组件：
   | 组件 | 用途 |
   | --- | --- |
   | `ElaTreeWidget` | `ElaTreeView` 的 item 版本。上游只有基于 QTreeView 的 `ElaTreeView`，需要 `QTreeWidget`/`QTreeWidgetItem` 便捷 API 的调用方无法同时获得 Fluent 外观 |
@@ -648,6 +651,24 @@ SSH 凭据不可用"**（`SessionPanel::reconnectItem()` 里 `SshConfig::isValid
 
 验证入口：`novaterm_session_tests::secretServiceCredentialStoreSurvivesRestart`
 （真实密钥环，无服务时 QSKIP）。
+
+**`WA_DeleteOnClose` 的 Ela 窗口不要留默认 app bar 关闭分支（已在 Ela 内修好，
+但别再引入同类写法）**：`ElaAppBarPrivate::onCloseButtonClicked()` 的默认路径是
+`window = q->window()` → `window->close()` → `QApplication::processEvents()` →
+`window->windowHandle()`。窗口若设了 `Qt::WA_DeleteOnClose`，`close()` 排入的
+deleteLater **就被这次 processEvents() 执行掉**：窗口、它的 ElaAppBar 和正在执行
+点击处理的那个按钮全部析构，函数却还在栈上，下一行的悬垂访问直接 SIGSEGV。
+2026-09-14 的 core dump（系统信息窗口点关闭）崩溃帧就是
+`QWidgetPrivate::windowHandle()` ← `ElaAppBarPrivate::onCloseButtonClicked`
+（`ElaAppBarPrivate.cpp:57`）：`window` 指向的那块 0x80 字节内存
+（`sizeof(SystemInformationDialog) == 120`）已被一个 `QMetaCallEvent` 复用，
+`d_ptr` 槽位成了 `0x10001002b`，于是 `mov 0x78(%rdi)` 在 `0x1000100a3` 上取地址
+失败。修法是 `QPointer<QWidget>` 重新判活后再取 `windowHandle()`。
+同类风险点：`SshHostKeyDialog`（`TerminalView.cpp:459` 也设了
+`WA_DeleteOnClose`）走的是同一条默认分支，修 Ela 之前同样会崩。
+回归：`novaterm_ui_dialog_layout_tests` 的 `verifyAppBarCloseButtonClosesDialogSafely`，
+它用 `mallopt(M_PERTURB, 0xAA)` 污染已释放内存——**不加这一步就复现不出来**，
+因为悬垂窗口的内存内容往往还没变，读 `d_ptr` 会"碰巧"拿到旧值而不崩。
 
 ## 改动后必须同步文档
 

@@ -14,6 +14,7 @@
 #include <QGuiApplication>
 #include <QLabel>
 #include <QMenu>
+#include <QPointer>
 #include <QPropertyAnimation>
 #include <QScreen>
 #include <QVBoxLayout>
@@ -51,12 +52,17 @@ void ElaAppBarPrivate::onCloseButtonClicked()
     Q_Q(ElaAppBar);
     if (_pIsDefaultClosed)
     {
-        const auto window = q->window();
+        // 关闭可能让窗口就地消失：窗口若设了 Qt::WA_DeleteOnClose，close() 排入的
+        // deleteLater 会被下面这次 processEvents() 执行掉，窗口连同它自己的
+        // ElaAppBar、按钮（也就是正在执行本函数的这一串对象）一起析构。因此这里
+        // 必须用 QPointer 重新判活，不能再无条件取 windowHandle()，否则是
+        // use-after-free（实测崩溃帧就是 QWidgetPrivate::windowHandle ← 本函数）。
+        QPointer<QWidget> window = q->window();
         window->close();
         QApplication::processEvents();
-        if (const auto windowHandle = window->windowHandle())
+        if (window && window->windowHandle())
         {
-            windowHandle->close();
+            window->windowHandle()->close();
         }
     }
     else
