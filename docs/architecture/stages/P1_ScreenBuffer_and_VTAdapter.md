@@ -605,3 +605,27 @@ Screen Cell 安全，调用 `vterm_state_get_lineinfo()` 则仍会访问旧数�
 `onResize()` 现在只调整并同步 ScreenBuffer；软换行标志改在
 `vterm_set_size()` 返回后读取。sanitizer 版 `novaterm_core_tests` 随后全部
 通过，普通 Core resize、行环和 alternate-screen 回归也保持通过。
+
+## moverect 按行批量同步（2026-09-13）
+
+`perf.data` 显示 parser 线程里 moverect 回调的逐 Cell 同步占 ~7.8%
+（`vterm_screen_get_cell` 3.38% + `populateCell` 2.19% + `setCell/cellAt/indexOf`
+1.84%）。现改为：
+
+- libvterm 新增 `vterm_screen_get_cells(screen, row, start_col, end_col, cells)`：
+  整行只解析一次行指针，宽字符宽度由同行右邻格的延续标记回填（与逐格接口
+  `pos.col + 1` 判定等价），未使用的字符槽显式清零（调用方缓冲跨行复用）。
+- `VTAdapter::Impl::syncRegion()` 按行调用该接口，行缓冲
+  `_rowCells` 跨行/跨回调复用，取代逐格 `vterm_screen_get_cell`。
+- `ScreenBuffer::writableRowSpan(row, startColumn, count)` 每行只做一次边界检查
+  与行基址计算，取代逐格 `setCell()` → `indexOf()`。
+
+语义不变：仍然从 libvterm 读取 moverect 的**最终**目标区域，不做本地旧 Cell
+复制。回归：`tests/core/TerminalCoreTests.cpp` 的
+`wideCharacterWidthSurvivesBatchedSync`，以及扩展后的
+`batchedScreenEditsMatchIncrementalInput`（随机流加入宽字符与 SGR，比较
+`chars`/属性/前景/背景）。
+
+**遗留缺口**：`Cell::width` 依赖右邻格，脏矩形不覆盖该格时不会刷新，导致
+分批边界不同可能得到不同 `width`（既有缺陷，回退本次改动同样复现；证据与
+复现输入见 `AGENTS.md`）。修复方向：脏区传播时把宽字符左邻列一并扩入脏区。

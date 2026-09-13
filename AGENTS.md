@@ -660,3 +660,196 @@ pending 行标记，不能把每次完成都升级为全屏重建。
   紧随其后单独一个 `docs:` 提交，但不要跨会话拖延
 - 提交消息里如实写明与原计划不符之处（做不到的、改了方向的、发现是外部原因的），
   不要只写成功路径
+
+## P0/P1 性能优化实施记录（2026-09-13 起）
+
+计划与逐项步骤见 `docs/superpowers/plans/2026-09-13-perf-p0-p1-optimization.md`，
+基线性能数据来自 `perf.data`（build-id `2c289bb5…`，本地 PTY 会话，
+119 s / 2643 样本）。已完成 Task 1–5，证据与现状：
+
+- **Task 1 行/块指纹合并（已完成）**：`RendererSnapshot::visibleRowBlockIdentities`
+  与整行 identity 由 Core 同一次 Cell 遍历产出（`TerminalCore.cpp` 的
+  `rowContentIdentity`，`RendererSnapshot::IdentityBlockColumns = 8`）；
+  `RowBlockDamageTracker::reconcileRow()` 改为消费快照块指纹，渲染器里那份
+  重复的 `blockIdentity()` 已删除。回归：`novaterm_core_tests` 的
+  `rendererSnapshotPublishesBlockIdentities`、`rendererSnapshotHistoryRowsCarryStableIdentity`
+  与 `novaterm_renderer_p5_tests::rowBlockDamageFindsOmittedStaleTail`
+  （把 reconcileRow 改回整行兜底会让后者 FAIL，已用变异验证）。
+  收益：基线中 `rowContentIdentity` 2.86% + `blockIdentity` 3.03%。
+- **Task 2 GPU instance 暂存收窄（已完成）**：新增纯 CPU 可测的
+  `TerminalRenderer::assembleSpanInstances()`（背景逐列直接覆盖、内容只清本次
+  span、scratch 成员化复用）；`uploadCommands()` 每个 buffer 仍只做一次
+  `updateDynamicBuffer`。回归：`novaterm_renderer_tests` 的三个 `spanAssembly*`
+  用例。**注意 `contentUploadBytes` 的口径包含背景层字节**
+  （`RendererP5GpuBenchmark.cpp` 的保留 stride 不变量按 5 实例/Cell 断言）。
+- **Task 3 RenderCommand 容量与线性 merge（已完成）**：`RenderCommandBuffer`
+  新增 `mutableRow()/finishRow()`（就地重建、复用行向量容量），
+  `mergeRowCommandsIncremental()` 用一次按列线性扫描取代每行两次
+  `stable_sort`；`rotateRowsUp()` 改为 clear 而非整行赋值以保留容量。
+  回归：`incrementalRowMergeKeepsOrderAndColumns`（含"列宽之外旧命令不丢"）、
+  `mutableRowRebuildKeepsMetadataAndDropsOutOfRange`。
+- **Task 4 Glyph 稳态收窄（已完成）**：`FontManager::makeKeyAndSelection()`
+  一次选择同时产出 GlyphKey + FontSelection，`ensureGlyph()` 不再第二次
+  `select()`；单 ASCII 码点走 `_asciiCache`（按码点+样式直连寻址，
+  generation 变化自动失效）；`ensureGlyph` 的 emoji 判定改为逐 QChar 扫描，
+  去掉每 Cell 的 `toUcs4()` 堆分配。回归：
+  `asciiSelectionUsesDirectCacheAndSingleQuery`（用
+  `selectionQueryCount/selectionProbeCount` 断言命中不重复探测）。
+- **Task 5 moverect 按行批量同步（已完成）**：libvterm 新增
+  `vterm_screen_get_cells()`（整行一次解析行指针、宽字符宽度由同行右邻格回填、
+  未用字符槽清零），`VTAdapter::Impl::syncRegion()` 按行读取 + 复用行缓冲，
+  `ScreenBuffer::writableRowSpan()` 每行只做一次边界检查与行基址计算。
+  回归：`wideCharacterWidthSurvivesBatchedSync` 与扩展后的
+  `batchedScreenEditsMatchIncrementalInput`（随机字母表加入宽字符与 SGR，
+  并比较属性/前景/背景）。A/B：RelWithDebInfo `novaterm_core_benchmark`
+  20 MiB = 24.40 MiB/s（改造前记录 24.36 MiB/s，属噪声范围，因为该基准
+  不滚动、不走 moverect）。
+- **待办**：Task 6（移除 40 ms dock hover 轮询，需空闲 `pidstat -t -w` 基线与
+  实跑验收）、Task 7 剩余部分（RelWithDebInfo 全量构建、ASan/UBSan Core、
+  重录 perf 对比 Top 20）。GPU 侧 A/B（`contentUploadBytes`、CPU frame P95）
+  在本机无法执行：QRhi 在 offscreen/xcb 下都拿不到设备。
+
+**宽字符 `Cell::width` 可能在分批边界失真（既有缺陷，非本轮引入）**：
+`width` 由"右邻格是否为延续标记"推导，只在脏矩形覆盖到该格自身时才刷新。
+把随机差分测试的比较项加上 `width` 会在 `batch=14`（含 `中文` + `ESC[S`/`ESC[T`
++ `ESC[K`/`ESC[P`）稳定失败；把 `VTAdapter::syncRegion` 回退成逐格路径后
+同样失败，故与本轮批量改造无关。修它需要在脏区传播时把宽字符左邻列一并向左
+扩一列，尚未做；当前随机差分测试刻意不比较 `width`，另由
+`wideCharacterWidthSurvivesBatchedSync` 覆盖确定路径。
+
+### Task 6/7 补充记录（同上计划）
+
+- **Task 6 移除 40 ms dock hover 轮询（已完成）**：删除常驻 `resizeHoverTimer`，
+  改为 `MainWindow::installDockResizeHoverTracking()` 安装**应用级**事件过滤器
+  （面板与 QMainWindow 内部分隔条会消费自己的鼠标事件，装到 MainWindow 或单个
+  dock 上都收不到），只对属于本窗口子树的事件调度一次单次触发的
+  `_dockResizeHoverTimer`（40 ms 合并抖动，仅在有事件或按住左键时活动）；
+  `refreshDockResizeHighlight()` 保留原有可见性/最小化/激活/边框内判定与
+  "无左键才复位 `_activeDockResizeKind`"语义。**A/B 实测**（offscreen 启动真实
+  exe，隔离 `XDG_CONFIG_HOME/XDG_DATA_HOME`，8 秒空闲对比主线程
+  `voluntary_ctxt_switches`）：旧实现 229 → 429（**+200，即 25.0/s**，utime +4
+  ticks）；新实现 103 → 103（**0/s**）。未做：左右 dock 高亮/拖动/最小化恢复的
+  **人工实跑验收**（本机无窗口会话），以及 `pidstat -t -w` 的桌面级复测。
+- **Task 7 回归状态**：RelWithDebInfo 全量构建通过；ASan+UBSan 构建
+  （`-fsanitize=address,undefined`，Debug）跑 `novaterm_core_tests`
+  **58/58 通过、无 ASan 报错、无 UBSan runtime error**；Debug 全套 ctest
+  8/10（仅剩上表两项本机环境失败）；RelWithDebInfo `novaterm_core_benchmark`
+  20 MiB = 24.40 MiB/s。**未达标项**：(1) 重录 perf 与 `perf.data` 的 Top 20
+  对比 —— 本机无可用图形会话，offscreen 下 QRhi 拿不到设备、渲染路径直接返回，
+  无法复现基线 workload；(2) GPU 侧 A/B（`contentUploadBytes`、CPU frame P95、
+  memmove 占比）同理无法执行。两项都需要在有窗口的机器上按
+  `perf.txt` 的命令模板重跑。
+
+### Task 5 同机 A/B（2026-09-13，RelWithDebInfo，各 3 次）
+
+`novaterm_core_benchmark --bytes 20971520 --lines 100000`（该负载每行 CRLF，
+120×40 视口，逐行触发滚动，正是 moverect 路径）同机对照"按行批量同步"与
+"逐格 `vterm_screen_get_cell` + `setCell`"（后者临时 `git stash` 掉
+`VTAdapter.cpp` 重建基准得到）：
+
+| 实现 | 3 次结果（MiB/s） | 中位 |
+| --- | --- | --- |
+| 新：按行批量 | 23.53 / 24.59 / 23.74 | 23.74 |
+| 旧：逐格 | 24.15 / 22.73 / 23.47 | 23.47 |
+
+差值 +0.27 MiB/s（约 +1.2%），**落在运行间噪声内**（两组区间重叠），说明该
+合成负载的 moverect 同步并不是吞吐瓶颈：`perf.data` 里 7.76% 的 per-cell 同步
+开销来自真实会话的局部重写模式（光标定位改写 + 部分滚动），不是本基准的整屏
+滚动。结论：Task 5 的收益必须用真实会话重录 perf 判定，本次未测得。
+
+### Task 7 Step 5：优化后 profile 与基线对比（2026-09-13 23:08 重录）
+
+`perf.data` 于 23:08 用**优化后**的 `build/RelWithDebInfo/bin/novaterm`
+（build-id `6c606413…`，与当前 exe 一致，符号可直接解析）重录：102.8 s、
+cpu_atom 510 + cpu_core 1486 = 1996 样本。与基线
+（`2c289bb5…`，21:17，119.2 s，2643 样本）按同一套 bucket 口径对比：
+
+| bucket | 基线 | 优化后 | Δ |
+| --- | --- | --- | --- |
+| 行/块指纹（Task 1） | 5.90% | **3.77%** | **−2.12pp** |
+| RenderCommand 排序/扩容（Task 3） | 4.25% | **1.38%** | **−2.87pp** |
+| Glyph 稳态（Task 4） | 4.58% | **2.89%** | **−1.69pp** |
+| 分配器（malloc/free/realloc） | 6.14% | **3.41%** | **−2.73pp** |
+| moverect 同步（Task 5） | 7.76% | 7.46% | −0.29pp |
+| **GPU 上传/instance 装配（Task 2）** | 12.26% | **16.09%** | **+3.83pp** |
+| GPU 驱动（libnvidia-glcore） | 22.71% | 20.37% | −2.34pp |
+| Qt Widgets | 6.57% | 7.80% | +1.23pp |
+
+总样本率 22.2/s → 19.4/s（**约 −12%**，但两次会话的 workload 不完全相同，
+只能作为估计）。逐线程：主线程 2229 → 1672、`nvterm-parser` 344 → 299、
+`nvterm-glyph` 24 → 25。
+
+**结论与两条如实记录**：
+
+1. Task 1/3/4 的收益在真实 profile 里可测且明显（合计约 −6.7pp，含分配器）。
+2. **Task 2 未达标**：`assembleSpanInstances` 以 4.77% 成为 NovaTerm 侧最大单点，
+   连同 `__memmove` 8.38%（基线 6.18%）、`makeInstance` 1.76% 使该 bucket 反而
+   上升 3.83pp。推测原因是把原先内联在 `uploadCommands` 里的逐列写入抽成独立
+   函数后（背景由 `QList::fill` 的 memset 变成逐列 64 B 结构体赋值）失去了内联
+   与向量化，且内容仍按 4 槽/Cell 全量清零。下一步应在此处继续：背景改回
+   批量 fill/紧凑装配、内容只清"上次写过而现在不用"的槽位，并复核
+   `contentUploadBytes` 与 CPU frame P95。
+3. **Task 5 收益未测出**：per-cell 调用开销（`cellAt/setCell/indexOf` ≈1.84pp）
+   确实消失了，但 `populateCell` 从 2.19% 升到 2.73%、`syncRegion` 自身 1.42%，
+   净 −0.29pp，落在噪声内。parser 线程剩余的主要成本是 `populateCell` 的逐字段
+   转换与 libvterm 的按行读取本身。
+
+### Task 2 第二轮收窄（2026-09-13，待重录验证）
+
+针对上面"Task 2 未达标"的诊断做了三处修改（`TerminalRenderer.h/.cpp`，
+`assembleSpanInstances()` 语义与接口不变，三个 `spanAssembly*` 用例保持全绿）：
+
+1. **消除逐元素 detach**：装配前各做一次 `resize()`，随后热循环只走
+   `QVector::data()` 裸指针。此前每次 `backgroundScratch[index] = ...` /
+   `contentScratch[index*4+n] = ...` 在非 const 向量上都要做 detach 引用计数检查，
+   是这段代码的主要开销之一。
+2. **背景单次写入**：新增 `fillInstance(GpuInstance&, rect, uv, color)` 就地写字段
+   （`makeInstance()` 改为它的返回值包装，供 `appendQuad` 等旧调用点使用），
+   去掉"先零初始化局部 `GpuInstance` 再整块赋值"的第二次 64 字节写。
+3. **内容单遍装配**：改为在同一轮里先写实际命令占用的槽位、再清零该格剩余槽位，
+   删除原先对整段 `contentScratch` 的独立 `fill`（200 列 × 4 槽 × 64 B ≈ 51 KB，
+   两遍扫描都超出 L1）。
+
+**仍存在的体量与下一步**：23:08 profile 里 `__memmove` 8.38% 的调用点经
+`addr2line` 定位在 `render():956`（`uploadCommands` 调用内部，137/149 样本）与
+`render():805`（`rendererSnapshot`，11/149）；`QList<GpuInstance>::fill` 已降为
+**0 样本**。因此剩余大头是 **QRhi staging 的上传体量本身**（背景 + 内容
+共 5 实例/Cell × 64 B × 改动跨度），本轮改动不减少它。若重录后该 bucket 仍高，
+下一步应做"只上传真正变化的槽位"（例如按行 slot 维护 instance 影子缓冲并跳过
+未变区间），那需要新的状态与回归用例，属新工作项。
+
+验证：`novaterm_renderer_tests` 34/34、`novaterm_renderer_p5_tests` 32/32，
+`-R "novaterm_(core|scrollback|renderer|renderer_p5|session)_tests"` 5/5；
+RelWithDebInfo 已重建（build-id `413f1e90…`）。
+
+### Task 7 Step 5 完成：三份 profile 对比（2026-09-13 23:26 重录）
+
+23:26 重录用的是含 Task 2 第二轮收窄的新 exe（build-id `413f1e90…`，与当前
+exe 一致）：113.1 s，cpu_atom 485 + cpu_core 1315 = 1800 样本。三份同一口径：
+
+| bucket | 基线 21:17 | 23:08 一轮后 | 23:26 二轮后 |
+| --- | --- | --- | --- |
+| 行/块指纹（Task 1） | 5.90% | 3.77% | **3.30%** |
+| RenderCommand 排序/扩容（Task 3） | 4.25% | 1.38% | **1.24%** |
+| Glyph 稳态（Task 4） | 4.58% | 2.89% | **2.48%** |
+| **GPU 上传/instance（Task 2）** | 12.26% | 16.09% | **12.24%** |
+| moverect 同步（Task 5） | 7.76% | 7.46% | 7.25% |
+| 分配器 | 6.14% | 3.41% | 3.57% |
+| GPU 驱动 nvidia | 22.71% | 20.37% | 23.11% |
+| Qt Widgets | 6.57% | 7.80% | 7.73% |
+| 样本率（样本/秒） | 22.2 | 19.4 | **15.9** |
+
+**结论**：
+
+1. **Task 2 的第二轮收窄生效**：该 bucket 从 16.09% 回到 **12.24%**（基线
+   12.26%），`assembleSpanInstances` 已不在 Top 12、`QList<GpuInstance>::fill`
+   保持 0 样本，取而代之的是 `__memset_avx2`（2.70%，零实例写入已走向量化
+   memset）。"Task 2 未达标"的记录就此关闭。
+2. **整体 CPU 显著下降**：样本率 22.2 → 19.4 → **15.9 /s（较基线约 −28%）**；
+   两次重录负载不完全相同，但方向一致（同时 `nvterm-parser` 344 → 275、
+   主线程 2229 → 1505）。
+3. 剩余最大单点仍是 `__memmove` 8.46%（QRhi staging 上传体量，Task 2 的
+   scratch 改动不减少它）与 `populateCell` 3.09% / `vterm_screen_get_cells`
+   2.79%（moverect 批量同步后的残余：逐字段转换 + libvterm 按行读取本身）。
+   若要继续，方向分别是"只上传真正变化的槽位"与"把 Cell 转换合进 VTAdapter
+   的按行读取"，都属新工作项，不在本计划范围内。

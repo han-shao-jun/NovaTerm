@@ -853,3 +853,20 @@ warm-path `select()`/`makeKey` 由 ~1.2–2.8 µs/op 降到 ~65–84 ns/op（约
 `--scrollback-limit`/`--prefill-lines`，见 §21.8）；重点在**新常驻布局策略下**重测
 30 分钟长稳，更新 §21.8 表并保留旧值作对比（勿覆盖历史实测，照 AGENTS.md「不要
 改写实测值，只追加」）。
+
+## P0/P1 性能优化实施记录（2026-09-13）
+
+针对 `perf.data`（本地 PTY 持续输出，build-id `2c289bb5…`，119 s / 2643 样本）
+暴露的渲染侧热点，本文件对应的三项改动如下（逐项测试与证据见 `AGENTS.md`
+的「P0/P1 性能优化实施记录」）：
+
+| 项 | 改动 | 基线热点 | 回归用例 | A/B |
+| --- | --- | --- | --- | --- |
+| instance 暂存收窄 | `TerminalRenderer::assembleSpanInstances()`：背景逐列直接覆盖（去掉 span 级预清零）、内容只清本次上传区间、两份 scratch 成员化复用、删除每 span 的 `QVector<int> perCell` | `__memmove` 6.18%（其中 81% 来自 `uploadCommands`）+ `QList<GpuInstance>::fill` 1.84% | `RendererP3Tests` 的三个 `spanAssembly*` | **GPU 侧未测**：本机 QRhi 在 offscreen/xcb 下都拿不到设备，`contentUploadBytes` / CPU frame P95 / memmove 占比尚未复测 |
+| RenderCommand 容量与线性 merge | `RenderCommandBuffer::mutableRow()/finishRow()` 就地重建并复用行向量容量；`mergeRowCommandsIncremental()` 一次按列线性扫描取代每行两次 `stable_sort`；`rotateRowsUp()` 改为 clear 保留容量；content 按最坏 4 条/Cell 预留 | 排序/扩容合计 4.25% | `incrementalRowMergeKeepsOrderAndColumns`、`mutableRowRebuildKeepsMetadataAndDropsOutOfRange` | 同上（CPU frame P95 需 GPU 会话） |
+| Glyph 稳态收窄 | `FontManager::makeKeyAndSelection()` 一次选择产出 GlyphKey+FontSelection；单 ASCII 码点走 (码点,样式) 直连缓存，generation 变化自动失效；`ensureGlyph()` 的 emoji 判定改逐 QChar 扫描，去掉每 Cell `toUcs4()` 堆分配 | `ensureGlyph` 子树 5.25%、`FontManager::select` 1.18%、`equalStrings` 0.83%、`qHashMulti` 0.92% | `asciiSelectionUsesDirectCacheAndSingleQuery` | 冷/暖 glyph benchmark 未复测（同上） |
+
+**必须维持的约定**：`RenderCommandRow::backgrounds/contents` 恒按 `cellColumn`
+升序（`mergeRowCommandsIncremental()` 与 `assembleSpanInstances()` 都依赖）；
+`contentUploadBytes` 统计的是基础内容区域上传字节（背景 + 内容两层，
+`RendererP5GpuBenchmark` 的保留 stride 不变量按 5 实例/Cell 断言）。

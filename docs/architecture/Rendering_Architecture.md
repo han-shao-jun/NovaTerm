@@ -53,3 +53,19 @@ P5 的多页 Atlas、LRU、局部上传、CJK fallback、组合字符、Emoji、
 ## 7. 指标
 
 记录原始/合并 Dirty 数、调度/合并/全屏帧、重建行、命令数、命令生成时间、CPU 帧时间、上传字节、Draw Call 和 Buffer 重分配。GPU 时间应使用后端时间戳或外部工具测量，禁止为统计引入同步等待。
+
+## P0/P1 性能优化实施记录（2026-09-13）
+
+针对 `perf.data`（本地 PTY 持续输出，build-id `2c289bb5…`）暴露的热点，
+渲染侧完成了四项收窄，逐项证据见 `AGENTS.md` 的「P0/P1 性能优化实施记录」：
+
+| 项 | 变化 | 基线热点 | 回归用例 |
+| --- | --- | --- | --- |
+| 行/块指纹合并 | `RendererSnapshot` 一次遍历产出 8 列块指纹与整行 identity；`RowBlockDamageTracker` 只消费快照块指纹 | `rowContentIdentity` 2.86% + `blockIdentity` 3.03% | `rendererSnapshotPublishesBlockIdentities`、`rowBlockDamageFindsOmittedStaleTail` |
+| instance 暂存收窄 | `assembleSpanInstances()`：背景逐列直接覆盖、内容只清本次 span、scratch 复用 | `__memmove` 6.18%（81% 来自 uploadCommands）+ `QList<GpuInstance>::fill` 1.84% | 三个 `spanAssembly*` |
+| RenderCommand 容量与 merge | `mutableRow()/finishRow()` 就地重建并复用容量；一次按列线性 merge 取代每行两次 `stable_sort` | 排序/扩容合计 4.25% | `incrementalRowMergeKeepsOrderAndColumns` |
+| Glyph 稳态收窄 | `makeKeyAndSelection()` 一次选择产出 key+selection；ASCII 直连缓存；emoji 判定去掉 `toUcs4()` 分配 | `ensureGlyph` 子树 5.25% | `asciiSelectionUsesDirectCacheAndSingleQuery` |
+
+约定：`RenderCommandRow` 的 `backgrounds`/`contents` 必须按 `cellColumn` 升序
+（`mergeRowCommandsIncremental()` 与 `assembleSpanInstances()` 都依赖这一点）；
+`contentUploadBytes` 统计的是基础内容区域（背景 + 内容两层）。

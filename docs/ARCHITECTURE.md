@@ -1108,3 +1108,21 @@ NovaTerm 的核心思想：
 最终实现：
 
 **高性能、低耦合、可维护、可扩展的现代 GPU Terminal 架构。**
+
+### P0/P1 性能优化带来的边界约定（2026-09-13）
+
+- **VTAdapter 边界新增按行批量读取**：`vterm_screen_get_cells()` 是 vendored
+  libvterm 的 NovaTerm 扩展，只允许在 `VTAdapter` 实现内使用；`VTermScreenCell`
+  仍不外泄到 core 其他模块（§2 原则 2 不变）。`syncRegion()` 按行读取 + 复用
+  行缓冲，`ScreenBuffer::writableRowSpan()` 是配套的按行写入入口。
+- **Renderer 行命令的排序不变量**：`RenderCommandRow::backgrounds` 与
+  `contents` 恒按 `cellColumn` 升序；增量重建由
+  `NovaTerm::mergeRowCommandsIncremental()` 一次按列线性扫描完成（不再有
+  `stable_sort`），因此新增列级命令时必须保证生成回调也按列升序。
+- **快照携带块指纹**：`RendererSnapshot::visibleRowBlockIdentities` 与整行
+  identity 由 Core 同一次 Cell 遍历产出，Renderer 不再自行扫描 Cell 计算块
+  哈希（`RowBlockDamageTracker` 只消费快照值）。
+- **UI 侧不再有常驻轮询定时器**：dock 分隔条高亮由应用级事件过滤器驱动，
+  空闲窗口零定时器唤醒；需要"持续跟踪"的拖动场景用单次定时器续订。
+
+实现细节、逐项证据与未达标项见 `AGENTS.md` 的「P0/P1 性能优化实施记录」。
