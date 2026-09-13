@@ -44,6 +44,7 @@ protected:
     bool event(QEvent* event) override;
     void closeEvent(QCloseEvent* event) override;
     void showEvent(QShowEvent* event) override;
+    bool eventFilter(QObject* watched, QEvent* event) override;
 
 private:
     enum class DockResizeKind {
@@ -60,6 +61,19 @@ private:
     void updateSystemMonitorDockTitle();
     void saveWindowLayout();
     void updateDockResizeHighlight(const QPoint& position);
+    /**
+     * @brief 按需重新评估 dock 分隔条高亮（取全局指针位置）。
+     * @note  只在鼠标移动/离开/几何变化/窗口状态变化时被调度，空闲时没有
+     *        任何定时器唤醒（旧实现是常驻 40 ms 轮询）。
+     */
+    void refreshDockResizeHighlight();
+    /**
+     * @brief 合并同一批事件，最多每 DockResizeHoverIntervalMs 评估一次。
+     * @note  仅当已有请求时才启动单次定时器；拖动分隔条期间由刷新函数续订。
+     */
+    void scheduleDockResizeHoverCheck();
+    /// 安装应用级事件过滤器（面板/分隔条会消费鼠标事件，MainWindow 收不到）。
+    void installDockResizeHoverTracking();
     // 运行时语言切换需要重设关闭确认框文案；对话框在构造期创建并复用，
     // 其标题/按钮/正文不能在每次语言切换时重新翻译，故集中在此刷新。
     void applyCloseDialogTexts();
@@ -96,6 +110,8 @@ private:
     QWidget* _dockResizeHighlight{nullptr};
     // 左键拖动分隔条时锁定调整方向，避免布局变化导致提示短暂消失。
     DockResizeKind _activeDockResizeKind{DockResizeKind::None};
+    // 单次触发的悬停检查定时器：只在有事件请求或拖动期间活动，空闲不唤醒。
+    QTimer* _dockResizeHoverTimer{nullptr};
     bool _windowLayoutSaved{false};
     // ElaWindow 在首次显示时还会完成一次内部布局，保留状态用于显示后复原。
     QByteArray _dockStateForFirstShow;

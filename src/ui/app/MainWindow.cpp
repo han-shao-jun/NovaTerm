@@ -900,7 +900,7 @@ bool MainWindow::event(QEvent* event)
     case QEvent::MouseButtonRelease:
     case QEvent::LayoutRequest:
     case QEvent::Resize:
-        updateDockResizeHighlight(mapFromGlobal(QCursor::pos()));
+        scheduleDockResizeHoverCheck();
         break;
     case QEvent::WindowDeactivate:
         _activeDockResizeKind = DockResizeKind::None;
@@ -910,12 +910,77 @@ bool MainWindow::event(QEvent* event)
     case QEvent::WindowStateChange:
         if (_systemMonitorPanel)
             _systemMonitorPanel->setPresentationActive(!isMinimized());
+        scheduleDockResizeHoverCheck();
         break;
     default:
         break;
     }
 
     return handled;
+}
+
+void MainWindow::installDockResizeHoverTracking()
+{
+    // 应用级过滤器：面板与 QMainWindow 内部的分隔条会消费自己的鼠标事件，
+    // 装到 MainWindow 或某个 dock 上都看不到它们；过滤器里只处理属于本窗口
+    // 子树的事件，其他窗口的事件立即返回。
+    qApp->installEventFilter(this);
+    // 合并同一批移动事件，避免每个 MouseMove 都重算一次锚点几何；
+    // 单次触发意味着没有后续事件时不会再有唤醒。
+    constexpr int DockResizeHoverIntervalMs = 40;
+    _dockResizeHoverTimer = new QTimer(this);
+    _dockResizeHoverTimer->setSingleShot(true);
+    _dockResizeHoverTimer->setInterval(DockResizeHoverIntervalMs);
+    connect(_dockResizeHoverTimer, &QTimer::timeout, this,
+            &MainWindow::refreshDockResizeHighlight);
+}
+
+void MainWindow::scheduleDockResizeHoverCheck()
+{
+    if (_dockResizeHoverTimer && !_dockResizeHoverTimer->isActive())
+        _dockResizeHoverTimer->start();
+}
+
+bool MainWindow::eventFilter(QObject* watched, QEvent* event)
+{
+    switch (event->type()) {
+    case QEvent::MouseMove:
+    case QEvent::HoverMove:
+    case QEvent::MouseButtonPress:
+    case QEvent::MouseButtonRelease:
+    case QEvent::Leave:
+    case QEvent::Resize:
+    case QEvent::Move: {
+        const QWidget* widget = qobject_cast<const QWidget*>(watched);
+        if (widget && widget->window() == this)
+            scheduleDockResizeHoverCheck();
+        break;
+    }
+    default:
+        break;
+    }
+    return ElaWindow::eventFilter(watched, event);
+}
+
+void MainWindow::refreshDockResizeHighlight()
+{
+    if (!_dockResizeHighlight)
+        return;
+    const bool dragging =
+        QApplication::mouseButtons().testFlag(Qt::LeftButton);
+    const QPoint globalPosition = QCursor::pos();
+    if (!isVisible() || isMinimized() || !isActiveWindow()
+        || !frameGeometry().contains(globalPosition)) {
+        if (!dragging)
+            _activeDockResizeKind = DockResizeKind::None;
+        _dockResizeHighlight->hide();
+        return;
+    }
+    updateDockResizeHighlight(mapFromGlobal(globalPosition));
+    // 拖动分隔条时 Qt 进入鼠标抓取循环，移动事件可能不再派发到窗口内的
+    // 控件；按住左键期间持续安排单次检查，松开后自然停止。
+    if (dragging)
+        scheduleDockResizeHoverCheck();
 }
 
 void MainWindow::closeEvent(QCloseEvent* event)
@@ -1174,23 +1239,10 @@ void MainWindow::initWindow()
 
     _dockResizeHighlight = new DockResizeHighlight(this);
 
-    // 鼠标移动事件通常由面板内部子控件接收，MainWindow 不一定能收到。
-    // 使用低频轮询统一检查全局指针位置，确保离开可调整边框后及时取消高亮。
-    auto* resizeHoverTimer = new QTimer(this);
-    resizeHoverTimer->setInterval(40);
-    connect(resizeHoverTimer, &QTimer::timeout, this, [this]() {
-        const QPoint globalPosition = QCursor::pos();
-        if (!isVisible() || isMinimized() || !isActiveWindow()
-            || !frameGeometry().contains(globalPosition)) {
-            if (!QApplication::mouseButtons().testFlag(Qt::LeftButton))
-                _activeDockResizeKind = DockResizeKind::None;
-            if (_dockResizeHighlight)
-                _dockResizeHighlight->hide();
-            return;
-        }
-        updateDockResizeHighlight(mapFromGlobal(globalPosition));
-    });
-    resizeHoverTimer->start();
+    // 旧实现用常驻 40 ms 轮询 QCursor::pos() 来发现"鼠标离开可调整边框"，
+    // 空闲窗口因此每秒被唤醒 25 次。改为事件驱动：应用级事件过滤器捕获本窗口
+    // 子树内的鼠标移动/离开与几何变化，只在有事件时才安排一次单次检查。
+    installDockResizeHoverTracking();
 
     connect(_sessionPanel, &SessionPanel::newSessionRequested,
             this, qOverload<>(&MainWindow::showSessionDialog));
