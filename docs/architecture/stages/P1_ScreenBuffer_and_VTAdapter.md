@@ -592,3 +592,16 @@ OpenCode、vim（`-Nu NONE -i NONE -n`）、htop 均实际进入并主动退出�
 Release 应用构建通过；`novaterm_core_tests`、`novaterm_scrollback_tests`、
 `novaterm_session_tests`、`novaterm_renderer_tests`、`novaterm_renderer_p5_tests`
 通过。没有改动渲染器，不以每次光标移动重建正文来修正坐标。
+
+## 2026-09-13 增量：修复 resize 回调中的 lineinfo UAF
+
+ASan/UBSan 运行 `TerminalCoreTests::resizesScreen` 时发现
+`VTAdapter::Impl::syncLineInfo()` 读取已释放的 lineinfo 数组。libvterm 的
+screen resize 回调发生在 `VTermStateFields::lineinfos` 更新之后，但
+`VTermState::lineinfos[]` 与当前活动 `lineinfo` 指针要等回调返回后才回写
+（`third_party/libvterm-0.3.3/src/state.c:2005-2038`）。因此回调内同步新的
+Screen Cell 安全，调用 `vterm_state_get_lineinfo()` 则仍会访问旧数组。
+
+`onResize()` 现在只调整并同步 ScreenBuffer；软换行标志改在
+`vterm_set_size()` 返回后读取。sanitizer 版 `novaterm_core_tests` 随后全部
+通过，普通 Core resize、行环和 alternate-screen 回归也保持通过。

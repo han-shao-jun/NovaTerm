@@ -33,6 +33,7 @@ flowchart LR
 - libvterm 全屏滚动采用逻辑行环形偏移，避免逐行搬移整块 ScreenCell；
 - Scrollback 复用环形槽位并省略行尾默认空白 Cell；
 - resize、键鼠、焦点、粘贴、颜色和限制进入有界命令队列；
+- 字节与命令入队均主动唤醒 Worker，空闲时不做固定周期轮询；
 - 批次末合并 damage、title、bell、scrollback 和 output；
 - `waitForIdle()` 提供测试/benchmark 完成屏障；
 - 8 MiB 容量、6/4 MiB 高低水位，Transport 主动暂停/恢复；
@@ -68,6 +69,7 @@ flowchart LR
 bool enqueue(ByteView data, int timeoutMs = -1,
              isize* queuedBytesAfter = nullptr);
 isize take(char* destination, isize maxBytes, int timeoutMs = -1);
+void wakeConsumer();
 void stop();
 Statistics statistics() const;
 ```
@@ -86,6 +88,8 @@ Statistics statistics() const;
 4. 阻塞生产者在消费者释放空间后被唤醒；
 5. `stop()` 同时唤醒生产者和消费者，之后不再接收数据；
 6. 统计至少包含容量、当前积压、历史高水位、累计入队/出队和生产者等待次数。
+7. 外部命令事件可通过 `wakeConsumer()` 打断无限等待，且通知先于等待发生时
+   仍会保留，不能出现丢失唤醒。
 
 本阶段采用互斥锁和条件变量实现有界 RingBuffer。SPSC 无锁队列不是硬性要求；只有 profiler 证明锁是主要瓶颈且生命周期语义可保持时才替换。
 
@@ -476,6 +480,25 @@ Release Core/Renderer 全量测试通过；P4 Chunked Scrollback 基准同时保
 吞吐从冷态 ~19 掉到热态 ~11 MiB/s，约 40% 的热噪声会淹没任何个位数百分比的
 代码优化。**本机不适合据此微调**；如需优化，应先在温度稳定或更快的机器上建立
 可复现基线，再针对上述 libvterm 解析 / scrollback 存储两项动手。
+
+## 2026-09-13 空闲 Parser 改为事件驱动
+
+Linux RelWithDebInfo 静态运行时，旧 Worker 为了发现独立命令队列，每轮调用
+`BoundedByteQueue::take(..., 5)`，即使没有任何字节或命令也会每 5 ms 超时。
+`pidstat -wt` 记录 `nvterm-parser` 约 195 次自愿上下文切换/秒；
+`perf stat -t <tid> -- sleep 30` 记录 5,915 次 context-switches 和
+121.33 ms cpu-clock；`strace` 对应连续约 5.05 ms 的 futex 超时。
+
+现在 ByteQueue 保存一个受同一互斥锁保护的待处理消费者唤醒位。
+`enqueueCommand()` 成功入队或合并命令后调用 `wakeConsumer()`，Worker 则以
+无限超时等待。通知状态会保留到消费者观察，覆盖“命令在 Worker 准备休眠时到达”
+的竞争窗口；停止仍由 `stop()` 唤醒。字节积压期间 Worker 继续按 64 KiB 批次
+连续处理，完成每批后仍按 4 MiB 低水位解除背压，故没有改变容量和背压状态机。
+
+同机复测中 `nvterm-parser` 的 CPU、`cswch/s` 与 `nvcswch/s` 均为 0.00。
+进程级 `perf -p` 仍包含 Qt 主线程、XCB 与线程池活动，不作为 Parser 专项指标。
+回归 `boundedByteQueueWakesIdleConsumer` 覆盖无限等待的显式唤醒；既有 resize、
+键盘、背压、字节完整性和关闭测试继续保护命令屏障与生命周期。
 
 ## 文件级变更清单
 

@@ -11,6 +11,8 @@
  */
 #include "LineLayout.h"
 
+#include "core/ThreadNaming.h"
+
 #include <QMetaObject>
 
 #include <algorithm>
@@ -195,6 +197,7 @@ public:
     // 并转换为 error 批次，保证 worker 不会因异常死锁 submit 调用方。
     void run()
     {
+        setCurrentThreadName("nvterm-reflow");
         for (;;) {
             Request request;
             {

@@ -271,7 +271,9 @@ bool LocalShellTransport::connectToHost()
     setLifecycleState(LifecycleState::Starting);
 
     auto* thread = new QThread;
-    thread->setObjectName(QStringLiteral("NovaTerm ConPTY Lifecycle"));
+    // 与 ConPtySession::start() 里设置的 OS 级线程名保持一致：Qt 只在
+    // Linux/Unix 上把 objectName 同步到内核线程名。
+    thread->setObjectName(QStringLiteral("nvterm-conpty"));
     auto* session = new ConPtySession(_config, _cols, _rows);
     session->moveToThread(thread);
     _windowsThread = thread;

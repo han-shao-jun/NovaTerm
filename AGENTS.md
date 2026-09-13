@@ -161,6 +161,8 @@ SSH 可选本机验收：Linux 上显式运行
 | --- | --- |
 | `novaterm_conpty_tests` 的 `injectedStartupStagesRollBack`、`repeatedLifecycleReturnsResourcesToBaseline` | **平台缺陷**：`CreatePseudoConsole`/`ClosePseudoConsole` 每个生命周期泄漏约 1 个句柄。排除性证据见 `tests/transport/conpty_handle_leak_repro.c`（单线程无子进程最小复现，实测 1.04/循环）。ConPtySession 自身 8 个句柄全部正确关闭 |
 | `novaterm_conpty_tests` 的 `duplexLoadAndBackpressure`、`latestResizeWins` | 偶发；`duplex` 是 20s 超时，`latestResize` 偶尔拿到旧尺寸。未查明 |
+| `novaterm_pty_tests`（Linux 本机） | 环境相关：PTY 子进程未按预期启动 —— `defaultWorkingDirectoryIsHome`、`workingDirectoryAndMergedEnvironmentReachChild` 拿不到子进程输出，`connected.wait(5000)` 超时，退出码收到 `0xFFFFFFFF`。在 `git stash` 掉全部 `src/` 改动后重建的未修改工作树上同样失败，非回归 |
+| `novaterm_ui_dialog_layout_tests`（Linux 本机） | 环境相关：offscreen + 本机 Ela/字体度量下 `1100x760` 一档的滚动上限断言不符（`scrollMax=344` vs `expectedMax=250`），另两档尺寸通过。同样在未修改工作树上复现，非回归 |
 
 ## 不可违背的架构约束
 
@@ -262,6 +264,11 @@ src/platform/   windows/conpty/ linux/pty/
 - 纯 C 库用 **PImpl 隔离头文件**：`class Impl; std::unique_ptr<Impl> _impl;`
   （范本 `VTAdapter.h:92-94`、`TelnetTransport.h`）
 - 成员 `_camelCase`，常量 `static constexpr`，`[[nodiscard]]` 用在查询函数上
+- 新建线程时**必须**在入口函数第一行调用
+  `NovaTerm::setCurrentThreadName("nvterm-<模块>")`（`src/core/ThreadNaming.h`）。
+  QThread 站点照常 `setObjectName()`，但两处共用同一个字符串常量而非各写一份
+  字面量。模块内部的辅助线程取 `<模块>-<角色>`，如 `conpty-reader`。名字必须是
+  ASCII 且不超过 15 字节（`MaxThreadNameBytes`，源自 Linux `TASK_COMM_LEN`）
 - 新 transport 以 `SerialTransport` 为结构模板（单通道、事件驱动）；
   需要阻塞库时以 `SshTransport` 为模板（独立线程 + 非阻塞轮询）
 
@@ -330,6 +337,22 @@ P3 与 P5 实施完成、部分平台或人工验收待做，P7 计划中。
 
 ## 容易写错的地方
 
+**线程名必须显式设置，`QThread::setObjectName()` 在 Windows release 下对 OS 不可见**：
+Qt 6.8 的 QThread 文档写的是 "you can call setObjectName() before starting the
+thread ... Note that this is currently not available with release builds on
+Windows" —— 也就是说该名字只在 Linux/Unix 上会写进内核线程名（`ps -L`、
+`top -H`、`/proc/<pid>/task/<tid>/comm` 可见），Windows release 构建里调试器与
+性能分析器只看得到进程名；`std::thread` 更是没有可移植的命名入口。因此统一走
+`src/core/ThreadNaming.h`：**线程入口函数第一行**调用
+`setCurrentThreadName()`（Windows 落到 `SetThreadDescription`，release 同样生效；
+Linux/macOS 落到 `pthread_setname_np`），QThread 的 `objectName` 只作 Qt 层标识。
+两个坑：(1) 名字超过 15 字节会被静默截断 —— glibc 对超长名字返回 ERANGE、内核名
+保持不变，所以 `nvterm-*` 名字必须 ≤ `MaxThreadNameBytes`；(2) 直接编译生产源
+文件、不链接 `novaterm_core` 的测试目标（`novaterm_renderer_p5_tests`、
+`novaterm_conpty_tests`、`novaterm_ssh_transport_check`、
+`novaterm_ssh_monitor_integration_check`）必须把 `src/core/ThreadNaming.cpp`
+加进源列表，否则新增调用点后链接失败。
+
 **启动 Transport 不要用 Core 旧尺寸覆盖 Renderer 的目标尺寸**：
 `TerminalCore::resize()` 异步执行，布局激活后 `terminalSizeChanged` 已携带
 新尺寸，但 `core->columns()/rows()` 可能仍是 80×24。`TerminalView`
@@ -350,6 +373,13 @@ TUI 启动探测发送 `CSI s → CUP → CSI u` 后，进入备用屏就会保�
 flush，内部屏幕已移动并可能继续改写。本地源区域未必同步，必须从 libvterm
 读取当前目标区域。回归测试为
 `novaterm_core_tests::batchedScreenEditsMatchIncrementalInput`。
+
+**libvterm 的 screen resize 回调里不能读取 state lineinfo**：screen 回调发生时
+新的 `VTermStateFields::lineinfos` 已建立，但 `VTermState::lineinfos[]` 和活动
+`lineinfo` 指针要等回调返回后才更新。回调内调用
+`vterm_state_get_lineinfo()` 会读已释放数组；Cell 可在回调内同步，lineinfo 必须
+等 `vterm_set_size()` 返回后再同步。ASan 回归由
+`novaterm_core_tests::resizesScreen` 覆盖。
 
 **`ITransport` 两个错误信号有顺序约定**：实现若同时发 `transportError` 与
 `errorOccurred`，必须**先发 `transportError`**且 message 一致 ——
@@ -551,6 +581,12 @@ updateContentHeight()`）。附带的两个小坑：定时重建内容时旧控�
 解析结果无人再看。正解：只 `stopping + bytes.stop() + join`，worker 完成当前
 一批即退出。回归测试 `closingDoesNotDrainPendingInput`。
 
+**Parser 的字节队列和命令队列必须共享唤醒链路**：Worker 空闲时在
+`BoundedByteQueue::take(..., -1)` 无限等待；resize、键盘等命令成功入队或合并后
+必须调用 `wakeConsumer()`。只通知字节入队会让空闲命令永久滞留；恢复 5 ms
+超时轮询则会重新引入约 200 次/秒的空闲 futex 唤醒。回归测试
+`boundedByteQueueWakesIdleConsumer`，命令路径由 `resizesScreen` 等 Core 测试覆盖。
+
 **`scrollbackLines` 配置要显式接线**：`ConfigManager` 只校验存储该键，核心构造
 默认 1000 行。必须在 `TerminalView` 创建 core 后 `setScrollbackLimit(配置值)`，
 否则四种 Transport 的历史上限恒为 1000、用户设置形同虚设（`configuredScrollbackLines()`）。
@@ -560,9 +596,10 @@ updateContentHeight()`）。附带的两个小坑：定时重建内容时旧控�
 `row >= vec.size()`、`vec.size() != rows` 直接写会触发有符号/无符号比较，`/W4`
 下告警、边界判断也可能出错。统一写成 `isize(vec.size())` 或 `int(vec.size())`。
 注意与恒正 `constexpr` 常量的比较（如 `vec.size() > MaxLines`）GCC 不告警，属同类
-隐患。`novaterm_core` 目标已与其他目标一致开启 `/W4`／`-Wall -Wextra -Wpedantic`
-（2026-09-10 补齐，此前该目标无任何警告选项、此类问题在常规构建中静默），新代码
-会在构建时暴露。
+隐患。全部第一方 C++ 目标统一开启 `/W4`／`-Wall -Wextra -Wpedantic`
+（vendored 第三方目标保持各自策略），新代码会在常规构建中暴露此类问题。
+`RelWithDebInfo` 下的 GNU、Clang 与 AppleClang 另加
+`-fno-omit-frame-pointer`，供性能分析保留完整调用栈。
 
 **Qt 与标准库整数别名同宽也可能不同类型**：例如 `qsizetype` 与
 `NovaTerm::isize`、`quint64` 与 `NovaTerm::u64`。混用于 `std::min/max` 时，
@@ -608,9 +645,9 @@ pending 行标记，不能把每次完成都升级为全屏重建。
 ## 提交约定
 
 - **每次创建 Git 提交都必须同步修改根 `CMakeLists.txt` 中
-  `project(NovaTerm VERSION ...)` 的版本号。** 版本采用 `0.1.<提交总数>`：提交前
-  先用 `git rev-list --count HEAD` 统计当前提交数，并将 PATCH 写为该值加 1，保证
-  新提交落地后版本号与仓库提交总数一致。不得创建只改代码、不改版本号的提交。
+  `project(NovaTerm VERSION ...)` 的版本号。** 当前为 `0.2.x` 系列，每次提交
+  将 PATCH 递增 1；MINOR 仅在版本规划明确调整时变更。不得创建只改代码、不改
+  版本号的提交。
 - 提交消息中文，`type: 摘要` 开头（`feat`/`fix`/`docs`/`test`/`chore`）
 - 按主题拆分提交；vendored 第三方源码单独一个提交（先例 `47f2c4e`、`5ed630c`）
 - 历史提交直接在 `master` 上，未走 PR 流程

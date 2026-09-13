@@ -10,6 +10,8 @@
  */
 #include "SearchEngine.h"
 
+#include "core/ThreadNaming.h"
+
 #include <QMetaObject>
 #include <QRegularExpression>
 #include <QString>
@@ -328,6 +330,7 @@ public:
     // 异常退出而死锁 submit 调用方。
     void run()
     {
+        setCurrentThreadName("nvterm-search");
         for (;;) {
             Work work;
             {

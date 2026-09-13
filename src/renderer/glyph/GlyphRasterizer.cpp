@@ -8,6 +8,8 @@
  */
 #include "GlyphRasterizer.h"
 
+#include "core/ThreadNaming.h"
+
 #include <QFontMetricsF>
 #include <QPainter>
 
@@ -163,6 +165,7 @@ bool AsyncGlyphRasterizer::enqueue(Task task)
 
 void AsyncGlyphRasterizer::run()
 {
+    setCurrentThreadName("nvterm-glyph");
     std::unique_lock<std::mutex> lock(_mutex);
     while (!_stopped) {
         _changed.wait(lock, [this] {

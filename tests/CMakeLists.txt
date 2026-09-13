@@ -99,11 +99,6 @@ if(BUILD_TESTING)
     target_include_directories(novaterm_session_tests
         PRIVATE ${PROJECT_SOURCE_DIR}/src
     )
-    target_compile_options(novaterm_session_tests
-        PRIVATE
-            "$<$<CXX_COMPILER_ID:MSVC>:/W4>"
-            "$<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-Wall;-Wextra;-Wpedantic>"
-    )
     target_link_libraries(novaterm_session_tests
         PRIVATE
             novaterm_core
@@ -153,6 +148,9 @@ if(BUILD_TESTING)
 
     add_executable(novaterm_renderer_p5_tests
         ${CMAKE_CURRENT_SOURCE_DIR}/renderer/RendererP5Tests.cpp
+        # GlyphRasterizer.cpp 给异步栅格化线程设置线程名，而本目标直接编译
+        # 生产源文件、不链接 novaterm_core，故显式带上该实现。
+        ${PROJECT_SOURCE_DIR}/src/core/ThreadNaming.cpp
         ${PROJECT_SOURCE_DIR}/src/session/SerialHighlightRules.cpp
         ${PROJECT_SOURCE_DIR}/src/renderer/RenderCommandBuffer.cpp
         ${PROJECT_SOURCE_DIR}/src/renderer/font/FontManager.cpp
@@ -195,9 +193,6 @@ if(BUILD_TESTING)
         )
         target_include_directories(novaterm_pty_tests
             PRIVATE ${PROJECT_SOURCE_DIR}/src
-        )
-        target_compile_options(novaterm_pty_tests
-            PRIVATE -Wall -Wextra -Wpedantic
         )
         target_link_libraries(novaterm_pty_tests
             PRIVATE
@@ -273,6 +268,9 @@ if(BUILD_TESTING)
 
         qt_add_executable(novaterm_conpty_tests
             ${CMAKE_CURRENT_SOURCE_DIR}/transport/ConPtyTransportTests.cpp
+            # ConPtySession.cpp 为四个工作线程设置线程名；本目标直接编译生产
+            # 源文件、不链接 novaterm_core，故显式带上该实现。
+            ${PROJECT_SOURCE_DIR}/src/core/ThreadNaming.cpp
             ${PROJECT_SOURCE_DIR}/src/transport/ITransport.h
             ${PROJECT_SOURCE_DIR}/src/transport/LocalShellTransport.cpp
             ${PROJECT_SOURCE_DIR}/src/transport/LocalShellTransport.h
@@ -289,11 +287,6 @@ if(BUILD_TESTING)
         )
         target_compile_definitions(novaterm_conpty_tests
             PRIVATE NOVATERM_CONPTY_TESTING
-        )
-        target_compile_options(novaterm_conpty_tests
-            PRIVATE
-                "$<$<CXX_COMPILER_ID:MSVC>:/W4>"
-                "$<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-Wall;-Wextra;-Wpedantic>"
         )
         target_link_libraries(novaterm_conpty_tests
             PRIVATE
@@ -401,6 +394,9 @@ if(BUILD_TESTING)
     # ── SshTransport 失败路径控制台检查（无需真实 SSH 服务器）──
     add_executable(novaterm_ssh_transport_check
         ${CMAKE_CURRENT_SOURCE_DIR}/transport/SshTransportFailureCheck.cpp
+        # SshTransport.cpp 给工作线程设置线程名；本目标直接编译生产源文件、
+        # 不链接 novaterm_core，故显式带上该实现。
+        ${PROJECT_SOURCE_DIR}/src/core/ThreadNaming.cpp
         ${PROJECT_SOURCE_DIR}/src/transport/SshCommandCompletion.h
         ${PROJECT_SOURCE_DIR}/src/transport/SshMonitorProtocol.cpp
         ${PROJECT_SOURCE_DIR}/src/transport/SshMonitorProtocol.h
@@ -436,6 +432,8 @@ if(BUILD_TESTING)
     # 使用本机历史会话的 SSH 资源监控人工集成检查；不注册到 ctest。
     add_executable(novaterm_ssh_monitor_integration_check
         ${CMAKE_CURRENT_SOURCE_DIR}/transport/SshMonitorIntegrationCheck.cpp
+        # 同上：SshTransport.cpp 依赖线程命名工具。
+        ${PROJECT_SOURCE_DIR}/src/core/ThreadNaming.cpp
         ${PROJECT_SOURCE_DIR}/src/credential/CredentialStore.cpp
         ${PROJECT_SOURCE_DIR}/src/credential/CredentialStore.h
         ${PROJECT_SOURCE_DIR}/src/profile/ProfileStore.cpp

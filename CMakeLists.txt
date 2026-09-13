@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(NovaTerm VERSION 0.2.0 LANGUAGES CXX C)
+project(NovaTerm VERSION 0.2.1 LANGUAGES CXX C)
 
 # ═══════════════════════════════════════════════════════════════════
 #  1. 通用平台编译参数
@@ -162,7 +162,27 @@ set(SERVER_TESTING OFF)
 set(WITH_BENCHMARKS OFF)
 add_subdirectory(third_party/libssh-0.12.2 EXCLUDE_FROM_ALL)
 
+# 第一方 C++ 目标统一使用相同的编码和警告级别。此处位于 vendored 子目录之后，
+# 避免把项目编译策略传入 ElaWidgetTools、libvterm 与 libssh。
+add_compile_options(
+    "$<$<AND:$<COMPILE_LANGUAGE:CXX>,$<CXX_COMPILER_ID:MSVC>>:/utf-8>"
+    "$<$<AND:$<COMPILE_LANGUAGE:CXX>,$<CXX_COMPILER_ID:MSVC>>:/W4>"
+    "$<$<AND:$<COMPILE_LANGUAGE:CXX>,$<NOT:$<CXX_COMPILER_ID:MSVC>>>:-Wall>"
+    "$<$<AND:$<COMPILE_LANGUAGE:CXX>,$<NOT:$<CXX_COMPILER_ID:MSVC>>>:-Wextra>"
+    "$<$<AND:$<COMPILE_LANGUAGE:CXX>,$<NOT:$<CXX_COMPILER_ID:MSVC>>>:-Wpedantic>"
+    "$<$<AND:$<CONFIG:RelWithDebInfo>,$<COMPILE_LANG_AND_ID:CXX,GNU,Clang,AppleClang>>:-fno-omit-frame-pointer>"
+)
+
+# Windows 平台标识与 Release 日志策略适用于全部第一方 C++ 目标。
+add_compile_definitions(
+    "$<$<AND:$<COMPILE_LANGUAGE:CXX>,$<PLATFORM_ID:Windows>>:_WIN32>"
+    "$<$<AND:$<COMPILE_LANGUAGE:CXX>,$<PLATFORM_ID:Windows>>:_WIN64>"
+    "$<$<AND:$<COMPILE_LANGUAGE:CXX>,$<PLATFORM_ID:Windows>,$<CONFIG:Release>>:QT_NO_DEBUG_OUTPUT>"
+)
+
 set(NOVATERM_CORE_SOURCES
+    src/core/ThreadNaming.cpp
+    src/core/ThreadNaming.h
     src/core/terminal/BoundedByteQueue.cpp
     src/core/terminal/BoundedByteQueue.h
     src/core/terminal/KeyMapper.cpp
@@ -198,14 +218,6 @@ target_include_directories(novaterm_core
         third_party/libvterm-0.3.3/include
 )
 
-# 核心库与其他目标保持同一警告级别；此前缺失导致 sign-compare 与
-# 聚合初始化漏字段等问题在常规构建中静默。
-target_compile_options(novaterm_core
-    PRIVATE
-        "$<$<CXX_COMPILER_ID:MSVC>:/W4>"
-        "$<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-Wall;-Wextra;-Wpedantic>"
-)
-
 target_link_libraries(novaterm_core
     PUBLIC
         Qt${QT_VERSION_MAJOR}::Core
@@ -235,10 +247,7 @@ target_include_directories(NovaTerm PRIVATE
 target_compile_definitions(NovaTerm PRIVATE
     NOVATERM_VERSION="${PROJECT_VERSION}"
 )
-# libtelnet 的头目录经由 target_link_libraries(libtelnet) 的 PUBLIC 接口传入，
-# 无需在此重复声明。
 
-add_compile_options("$<$<CXX_COMPILER_ID:MSVC>:/utf-8>")
 if(MSVC)
     target_compile_options(NovaTerm PRIVATE
         $<$<CONFIG:Release>:/Zi>
@@ -286,13 +295,9 @@ qt_add_shaders(NovaTerm novaterm_renderer_shaders
 # macOS  : MACOSX_BUNDLE 生成 .app 包结构并嵌入 Info.plist
 if(WIN32)
     if(CMAKE_BUILD_TYPE MATCHES "Release")
-        #发布版除去黑窗口，无qDebu打印
-        add_compile_definitions(QT_NO_DEBUG_OUTPUT)
+        # 发布版除去控制台窗口。
         set_target_properties(NovaTerm PROPERTIES WIN32_EXECUTABLE TRUE)
-    else ()
-        #调试版保留黑窗口,有qDebug打印
     endif()
-    target_compile_definitions(NovaTerm PRIVATE _WIN32 _WIN64)
 elseif(CMAKE_SYSTEM_NAME STREQUAL "Darwin")
     set_target_properties(NovaTerm PROPERTIES
         MACOSX_BUNDLE TRUE

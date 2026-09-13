@@ -11,6 +11,8 @@
 #include "SshCommandCompletion.h"
 #include "SshMonitorProtocol.h"
 
+#include "core/ThreadNaming.h"
+
 #include <libssh/callbacks.h>
 #include <libssh/libssh.h>
 
@@ -25,6 +27,11 @@
 #include <algorithm>
 
 namespace {
+
+// SSH 会话工作线程名。QThread::objectName 与 OS 级线程名共用同一字符串，
+// 避免两处名字漂移：Qt 只在 Linux/Unix 上把 objectName 写进内核线程名，
+// Windows release 构建下仍需 worker 入口显式设置。
+constexpr char SshWorkerThreadName[] = "nvterm-ssh";
 
 QByteArray resourceMonitorCommand()
 {
@@ -122,7 +129,7 @@ bool SshTransport::connectToHost()
     // worker 打开 channel 时以它作为初始 PTY 尺寸。
 
     _thread = QThread::create([this]() { workerMain(); });
-    _thread->setObjectName(QStringLiteral("SshTransport"));
+    _thread->setObjectName(QString::fromLatin1(SshWorkerThreadName));
     _thread->start();
     return true;
 }
@@ -454,6 +461,7 @@ void SshTransport::emitResourceSampleFinished(quint64 requestId,
 
 void SshTransport::workerMain()
 {
+    NovaTerm::setCurrentThreadName(SshWorkerThreadName);
     ssh_session session = ssh_new();
     if (!session) {
         reportError(tr("Failed to create SSH session."),

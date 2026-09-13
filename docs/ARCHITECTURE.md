@@ -119,6 +119,10 @@ CPU 频率与文件系统每 10 秒通过独立有界命令查询；频率优先
 `VTAdapter` 把 libvterm callback 转换成 NovaTerm 的 Cell、DirtyRegion、Cursor 和
 属性变化。
 
+Parser Worker 采用事件驱动等待：字节入队、Parser 命令入队和停止事件共同唤醒
+Worker。空闲时在条件变量上无限等待，不使用固定周期轮询；命令仍受已提交字节
+完成屏障约束。字节队列容量、6/4 MiB 高低水位和背压恢复判据不受等待方式影响。
+
 **去 Qt 化进度（原则 3）**：核心层的数据类型与多数组件已不依赖 Qt ——
 `VTAdapter`、`ScreenBuffer`、`ScrollbackBuffer`/`ChunkedScrollback`、`LineLayout`、
 `BoundedByteQueue`、`KeyMapper` 及所有跨模块数据结构（Cell、快照、DisplayLine、
@@ -254,6 +258,24 @@ flowchart TB
 ```
 
 Transport 可以使用 Qt 事件循环、专用读线程或 OS 异步 I/O；这属于实现策略。关键约束是不能因 Parser 积压阻塞 GUI，也不能静默丢失普通终端输出。
+
+各工作线程的 **OS 级线程名**由 `NovaTerm::setCurrentThreadName()`
+（`src/core/ThreadNaming.h`）在线程入口第一行固定下来，便于用 `ps -L`、
+`top -H`、VS 调试器或性能分析器直接识别：
+
+| 线程 | 名字 | 位置 |
+| --- | --- | --- |
+| Parser Worker | `nvterm-parser` | `TerminalCore.cpp`（`Runtime::workerMain`） |
+| Search Worker | `nvterm-search` | `SearchEngine.cpp`（`Impl::run`） |
+| Reflow Worker | `nvterm-reflow` | `LineLayout.cpp`（`ReflowEngine::Impl::run`） |
+| Glyph Rasterization Worker | `nvterm-glyph` | `GlyphRasterizer.cpp`（`AsyncGlyphRasterizer::run`） |
+| SSH 会话 Worker | `nvterm-ssh` | `SshTransport.cpp`（`workerMain`） |
+| SFTP 会话 Worker | `nvterm-sftp` | `SftpSession.cpp`（`workerMain`） |
+| ConPTY 生命周期线程 | `nvterm-conpty` | `ConPtySession.cpp`（`start`，运行在 `LocalShellTransport` 建的生命周期线程上） |
+| ConPTY 读/写/等待/关闭线程 | `conpty-reader` / `conpty-writer` / `conpty-wait` / `conpty-close` | `ConPtySession.cpp` |
+
+`QThread::setObjectName()` 只在 Linux/Unix 上会同步到内核线程名，Qt 文档明确
+Windows release 构建下不可用，因此 QThread 站点也在 worker 入口显式设置一次。
 
 ## 6. 数据模型与所有权
 

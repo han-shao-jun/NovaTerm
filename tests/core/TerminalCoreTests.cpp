@@ -59,6 +59,7 @@ private slots:
     void cursorProbeBeforeAlternateScreenRestoresShellPosition();
     void boundedByteQueuePreservesOrderAndBackpressure();
     void boundedByteQueueWakesBlockedProducer();
+    void boundedByteQueueWakesIdleConsumer();
     void parserInputBackpressureDoesNotBlockCaller();
     void parserWorkerBatchesAndPublishes();
     void resizeAndShutdownUnderLoad();
@@ -926,6 +927,43 @@ void TerminalCoreTests::boundedByteQueueWakesBlockedProducer()
     producer.join();
     QVERIFY(completed.load(std::memory_order_acquire));
     QCOMPARE(takeBytes(queue, 8), QByteArrayLiteral("2345678x"));
+}
+
+// Parser 同时消费字节与命令。字节队列为空时，命令事件必须能打断无限等待；
+// 否则移除 5ms 轮询后，resize、键盘等命令会永久滞留。
+void TerminalCoreTests::boundedByteQueueWakesIdleConsumer()
+{
+    NovaTerm::BoundedByteQueue queue(8);
+    std::atomic<bool> entered{false};
+    std::atomic<NovaTerm::isize> taken{-1};
+    std::thread consumer([&]() {
+        char value = 0;
+        entered.store(true, std::memory_order_release);
+        taken.store(queue.take(&value, 1, -1), std::memory_order_release);
+    });
+
+    for (int attempt = 0;
+         attempt < 100 && !entered.load(std::memory_order_acquire);
+         ++attempt) {
+        QTest::qWait(1);
+    }
+    const bool enteredWait = entered.load(std::memory_order_acquire);
+    QTest::qWait(20);
+    const bool wasBlocked = taken.load(std::memory_order_acquire) < 0;
+
+    queue.wakeConsumer();
+    for (int attempt = 0;
+         attempt < 1000 && taken.load(std::memory_order_acquire) < 0;
+         ++attempt) {
+        QTest::qWait(1);
+    }
+    if (taken.load(std::memory_order_acquire) < 0)
+        queue.stop();
+    consumer.join();
+
+    QVERIFY2(enteredWait, "consumer thread did not start");
+    QVERIFY2(wasBlocked, "empty queue did not block the consumer");
+    QCOMPARE(taken.load(std::memory_order_acquire), NovaTerm::isize(0));
 }
 
 void TerminalCoreTests::parserInputBackpressureDoesNotBlockCaller()

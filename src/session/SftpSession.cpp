@@ -4,6 +4,8 @@
  */
 #include "SftpSession.h"
 
+#include "core/ThreadNaming.h"
+
 #include <libssh/libssh.h>
 #include <libssh/sftp.h>
 
@@ -26,6 +28,10 @@
 #include <fcntl.h>
 
 namespace {
+
+// SFTP 工作线程名：objectName 与 OS 级线程名共用同一字符串（理由同
+// SshTransport）。
+constexpr char SftpWorkerThreadName[] = "nvterm-sftp";
 
 using SshSessionPtr =
     std::unique_ptr<ssh_session_struct, decltype(&ssh_free)>;
@@ -479,7 +485,7 @@ void SftpSession::connectToHost(const SshConfig& config)
         [this, config, generation]() mutable {
             workerMain(std::move(config), generation);
         });
-    _thread->setObjectName(QStringLiteral("SftpSession"));
+    _thread->setObjectName(QString::fromLatin1(SftpWorkerThreadName));
     _thread->start();
 }
 
@@ -592,6 +598,7 @@ void SftpSession::postDisconnected(quint64 generation)
 
 void SftpSession::workerMain(SshConfig config, quint64 generation)
 {
+    NovaTerm::setCurrentThreadName(SftpWorkerThreadName);
     // 无论连接在哪个阶段退出，都统一清理原子状态并通知 GUI，避免失败路径漏状态。
     const auto workerCleanup = qScopeGuard([this, generation]() {
         _connected.store(false, std::memory_order_release);

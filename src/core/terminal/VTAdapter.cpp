@@ -362,7 +362,6 @@ public:
         auto& self = *static_cast<Impl*>(user);
         self.screen.resize(columns, rows);
         self.syncRegion({0, rows, 0, columns});
-        self.syncLineInfo();
         return 1;
     }
 
@@ -471,6 +470,9 @@ void VTAdapter::resize(int columns, int rows)
         const NovaTerm::ScopedValueRollback<bool> resizeGuard(
             _impl->resizeInProgress, true);
         vterm_set_size(_impl->vt, rows, columns);
+        // libvterm 在 screen resize 回调返回后才回写 VTermState 的 lineinfos
+        // 与活动 lineinfo 指针；回调内读取会访问刚释放的旧数组。
+        _impl->syncLineInfo();
         // libvterm 的 resize 回调会同步 ScreenBuffer，但 resize 不一定产生
         // 常规解析 damage（无字节到达时）。显式发布全区域，确保异步模型
         // resize 总是失效所有缓存的 CPU/GPU 行。

@@ -15,6 +15,7 @@
 #include "KeyMapper.h"
 #include "ScrollbackBuffer.h"
 #include "VTAdapter.h"
+#include "core/ThreadNaming.h"
 
 #include <QKeyEvent>
 #include <QMetaObject>
@@ -253,7 +254,7 @@ public:
 
     bool enqueueCommand(ParserCommand command)
     {
-        std::lock_guard<std::mutex> locker(commandMutex);
+        std::unique_lock<std::mutex> locker(commandMutex);
         if (!accepting.load(std::memory_order_acquire))
             return false;
         // 记录入队时刻的已提交字节计数。worker 线程消费时据此等待：
@@ -273,6 +274,8 @@ public:
             pendingCommandBytes -= estimatedCommandBytes(commands.back());
             commands.back() = std::move(command);
             pendingCommandBytes += commandBytes;
+            locker.unlock();
+            bytes.wakeConsumer();
             return true;
         }
 
@@ -286,6 +289,8 @@ public:
         commands.push_back(std::move(command));
         pendingCommandBytes += commandBytes;
         submittedCommands.fetch_add(1, std::memory_order_release);
+        locker.unlock();
+        bytes.wakeConsumer();
         return true;
     }
 
@@ -326,6 +331,7 @@ public:
     // 短暂持有，信号发布则脱离锁通过 QueuedConnection 投递到 GUI 线程。
     void workerMain()
     {
+        NovaTerm::setCurrentThreadName("nvterm-parser");
         createAdapter();
 
         while (!stopping.load(std::memory_order_acquire)) {
@@ -338,7 +344,7 @@ public:
 
             isize queuedAfterTake = 0;
             const isize taken = bytes.take(batchBuffer.data(), ParserBatchSize,
-                                           5, &queuedAfterTake);
+                                           -1, &queuedAfterTake);
             if (taken > 0) {
                 // take() 在持锁期间已回报剩余字节数，无需再锁一次 statistics()。
                 if (queuedAfterTake <= QueueLowWatermark)

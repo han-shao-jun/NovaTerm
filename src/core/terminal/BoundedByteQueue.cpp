@@ -82,8 +82,8 @@ isize BoundedByteQueue::take(char* destination, isize maxBytes, int timeoutMs,
     const bool timed = timeoutMs >= 0;
     const auto deadline =
         SteadyClock::now() + std::chrono::milliseconds(timed ? timeoutMs : 0);
-    // 队列空时阻塞消费者，直到非空或被停止。
-    while (!_stopped && _size == 0) {
+    // 队列空时阻塞消费者，直到非空、收到外部事件或被停止。
+    while (!_stopped && _size == 0 && !_consumerWakePending) {
         if (timed) {
             if (_notEmpty.wait_until(locker, deadline)
                 == std::cv_status::timeout) {
@@ -93,8 +93,10 @@ isize BoundedByteQueue::take(char* destination, isize maxBytes, int timeoutMs,
             _notEmpty.wait(locker);
         }
     }
-    if (_size == 0)
+    if (_size == 0) {
+        _consumerWakePending = false;
         return 0;
+    }
 
     // 最多取出请求量与当前队列内容中的较小值。
     const isize length = std::min(maxBytes, _size);
@@ -105,6 +107,17 @@ isize BoundedByteQueue::take(char* destination, isize maxBytes, int timeoutMs,
         *queuedBytesAfter = _size;
     _notFull.notify_all();
     return length;
+}
+
+void BoundedByteQueue::wakeConsumer()
+{
+    {
+        std::lock_guard<std::mutex> locker(_mutex);
+        if (_stopped)
+            return;
+        _consumerWakePending = true;
+    }
+    _notEmpty.notify_one();
 }
 
 void BoundedByteQueue::stop()

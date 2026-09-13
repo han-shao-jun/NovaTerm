@@ -8,6 +8,8 @@
  */
 #include "ConPtySession.h"
 
+#include "core/ThreadNaming.h"
+
 #include <QMetaObject>
 #include <QScopeGuard>
 #include <QTimer>
@@ -210,6 +212,10 @@ void ConPtySession::transition(State state)
 
 void ConPtySession::start()
 {
+    // 本方法约定在生命周期线程上执行（LocalShellTransport 用 QueuedConnection
+    // 调进来），因此在这里把 OS 级线程名定下来：Qt 只在 Linux/Unix 上把
+    // QThread::objectName 同步到内核线程名，Windows release 构建下不可见。
+    setCurrentThreadName("nvterm-conpty");
     if (_state != State::Idle)
         return;
     transition(State::Starting);
@@ -572,6 +578,7 @@ bool ConPtySession::tryEnqueueInput(const QByteArray& data)
 
 void ConPtySession::writerMain()
 {
+    setCurrentThreadName("conpty-writer");
     auto retryDelay = std::chrono::milliseconds(1);
     for (;;) {
         QByteArray data;
@@ -645,6 +652,7 @@ void ConPtySession::writerMain()
 
 void ConPtySession::readerMain()
 {
+    setCurrentThreadName("conpty-reader");
     const auto finishedGuard = qScopeGuard([this] {
         _readerFinished.store(true, std::memory_order_release);
         _outputChanged.notify_all();
@@ -792,6 +800,7 @@ void ConPtySession::resize(int columns, int rows)
 
 void ConPtySession::processWaitMain()
 {
+    setCurrentThreadName("conpty-wait");
     DWORD result = WAIT_TIMEOUT;
     while (!_processWaitStopping.load(std::memory_order_acquire)) {
         result = WaitForSingleObject(_process.get(), 100);
@@ -1008,6 +1017,7 @@ void ConPtySession::tryStartPseudoConsoleCloser()
     try {
         const auto closeState = _pseudoCloseState;
         _pseudoConsoleCloser = std::thread([pseudoConsole, closeState] {
+            setCurrentThreadName("conpty-close");
             ConPtyApi::close()(pseudoConsole);
             std::lock_guard<std::mutex> lock(closeState->mutex);
             closeState->closed = true;

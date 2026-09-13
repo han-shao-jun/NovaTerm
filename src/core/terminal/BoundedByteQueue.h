@@ -62,6 +62,14 @@ public:
                isize* queuedBytesAfter = nullptr);
 
     /**
+     * @brief 主动唤醒等待队列数据的消费者。
+     *
+     * 若队列仍为空，下一次或当前阻塞中的 take() 返回 0。唤醒状态会保留到
+     * 消费者观察到它，避免通知发生在消费者进入等待之前时丢失。
+     */
+    void wakeConsumer();
+
+    /**
      * @brief 唤醒所有等待方并标记队列已停止。
      * 后续的 enqueue / take 调用将立即返回失败。
      */
@@ -88,6 +96,7 @@ private:
     uint64_t _totalEnqueued{0};
     uint64_t _totalDequeued{0};
     uint64_t _producerWaits{0};
+    bool _consumerWakePending{false};
     bool _stopped{false};
 };
 
