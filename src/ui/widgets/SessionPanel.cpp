@@ -827,8 +827,17 @@ void SessionPanel::reconnectItem(QTreeWidgetItem* item)
             }
         }
         if (!config.isValid()) {
+            // 凭据缺失与其它配置非法是两回事：密码认证下真正的动作是重新输入
+            // 一次密码，而不是"重建会话"（旧文案对这种情况一直误导用户）。
+            const bool passwordMissing =
+                config.authMethod == QStringLiteral("password")
+                && config.password.isEmpty();
             emit reconnectUnavailable(
-                tr("The saved SSH credential is unavailable. Create the session again to refresh it."));
+                passwordMissing
+                    ? tr("The saved password for this session is unavailable. "
+                         "Edit the session and enter the password again.")
+                    : tr("The saved SSH credential is unavailable. Create the "
+                         "session again to refresh it."));
             return;
         }
         emit sshReconnectRequested(config);

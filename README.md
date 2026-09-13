@@ -23,6 +23,9 @@ NovaTerm（原名WindTermQt）是一款基于Qt框架开发的跨平台终端模
 - CMake 3.20 或更高版本
 - 支持 C++17 的编译器（`CMAKE_CXX_STANDARD 17`）
 - 对于Windows：需要Windows 10 1809或更高版本，以及 MSVC 2022
+- 对于Linux/BSD：需要 Qt 的 **DBus** 组件（凭据存入 freedesktop Secret
+  Service，即 gnome-keyring / KWallet；`find_package` 里按平台条件加入），
+  运行时没有密钥环也能启动，但保存的 SSH 密码活不过进程重启
 
 ### 编译步骤
 

@@ -75,7 +75,13 @@ flowchart LR
 }
 ```
 
-密码、私钥口令和 token 不写入普通 JSON，Profile 只保存系统凭据库引用。Schema 需要版本迁移、未知字段保留策略、唯一 ID 和结构化错误。
+密码、私钥口令和 token 不写入普通 JSON，Profile 只保存系统凭据库引用。**当前实现**
+（`src/credential/CredentialStore.cpp`）：Windows 存 Credential Manager，Linux/BSD 存
+freedesktop Secret Service（`org.freedesktop.secrets`，gnome-keyring 与 KWallet 均实现），
+加密由密钥环负责，NovaTerm 自己不落明文文件；macOS 与没有会话总线/密钥环的环境回退进程内
+内存实现（`MemoryCredentialStore`），此时历史会话的 `credentialRef` 在下次启动取不到密码，
+界面提示重新输入 —— 重启后仍要免输入密码，必须接入 macOS Keychain（未做）。Schema 需要版本
+迁移、未知字段保留策略、唯一 ID 和结构化错误。
 
 ## 4. 类型扩展
 
@@ -104,7 +110,8 @@ Renderer 禁止读取 JSON，禁止散落硬编码终端颜色。TrueColor Cell 
 
 - Profile 与 Session 生命周期分离；
 - 所有引用缺失均产生可定位错误；
-- 凭据不明文落盘；
+- 凭据不明文落盘（落平台密钥链：Windows Credential Manager / freedesktop Secret
+  Service；无密钥环时的内存回退允许"重启后需重新输入"，不允许落明文文件）；
 - UI Theme 不改变 ANSI 颜色语义；
 - Scheme 切换不重建 Session；
 - Font 切换正确触发 resize、Glyph 缓存和 GPU 容量更新；

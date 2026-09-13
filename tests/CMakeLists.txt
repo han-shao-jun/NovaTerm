@@ -104,6 +104,7 @@ if(BUILD_TESTING)
             novaterm_core
             Qt${QT_VERSION_MAJOR}::SerialPort
             Qt${QT_VERSION_MAJOR}::Test
+            ${NOVATERM_SECRET_SERVICE_LIBS}
     )
     add_test(NAME novaterm_session_tests COMMAND novaterm_session_tests)
     set_tests_properties(novaterm_session_tests PROPERTIES
@@ -455,6 +456,7 @@ if(BUILD_TESTING)
         PRIVATE
             Qt${QT_VERSION_MAJOR}::Core
             Qt${QT_VERSION_MAJOR}::SerialPort
+            ${NOVATERM_SECRET_SERVICE_LIBS}
             ssh::ssh
             OpenSSL::Crypto
             OpenSSL::SSL

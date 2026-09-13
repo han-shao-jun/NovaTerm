@@ -103,6 +103,17 @@ SSH 资源监控另有不注册到 ctest 的
 （或标题含 zynq 的会话）及 Windows 凭据引用，验证慢命令并发、交互 I/O、暂停
 回收和重连。仅在明确允许连接对应测试服务器时人工运行，且不得输出凭据。
 
+**Linux/BSD 的凭据后端要 Qt6::DBus，`novaterm_session_tests` 会读写真实密钥环**：
+`find_package(Qt6 ... DBus)` 只在 `UNIX AND NOT APPLE` 时条件加入，
+`NOVATERM_SECRET_SERVICE_LIBS`（根 `CMakeLists.txt` 定义，供 `tests/CMakeLists.txt`
+复用）贯穿三个直接编译 `src/credential/CredentialStore.cpp` 的目标：`NovaTerm`、
+`novaterm_session_tests`、`novaterm_ssh_monitor_integration_check`。
+`secretServiceCredentialStoreSurvivesRestart` 直接连会话总线：没有
+`org.freedesktop.secrets` 或没有默认集合时 `QSKIP`，有则写入
+`service=NovaTerm` + `novaterm-ref=novaterm-test-<uuid>` 的条目并在结束时删除，
+因此要求当前会话有密钥环（gnome-keyring/KWallet）；CI 或纯 headless 环境 skip
+属预期，不是失败。
+
 上表 UI 覆盖的例外有两处：`TerminalView` 启动、尺寸传递与生命周期已由
 `novaterm_terminal_session_tests` 的 `TerminalSessionSmokeTests.cpp` 覆盖；
 系统信息对话框的滚动范围与 SSH 主机密钥对话框由
@@ -611,6 +622,32 @@ updateContentHeight()`）。附带的两个小坑：定时重建内容时旧控�
 `glyphRasterQueueDepth == 0`；强制全帧场景还要检查实际重建行数，不能仅等待
 任意新帧（可能是 overlay）。普通缺字形完成只重建 pending 行，随滚动旋转
 pending 行标记，不能把每次完成都升级为全屏重建。
+
+**凭据必须真的落到平台密钥链，别退回"内存实现"**：历史记录
+（`session-history.json`）只持久化 `credentialRef`，凭据本体由
+`CredentialStore` 保管。非 Windows 曾长期用 `MemoryCredentialStore`，于是重启后
+引用还在、密码没了 —— 表现是**每次重连保存过密码的 SSH 历史会话都报"已保存的
+SSH 凭据不可用"**（`SessionPanel::reconnectItem()` 里 `SshConfig::isValid()` 为假）。
+现在非 Windows 走 freedesktop Secret Service，无密钥环时仍回退内存并
+`qWarning()`，同时 `reconnectItem()` 区分"密码取不到"与"凭据整体失效"两种文案。
+改这块时注意三条：
+
+- **QtDBus 对数组参数不做内建映射**：`SearchItems` 返回的 `ao` 到手是
+  `QDBusArgument` 而不是 `QList<QDBusObjectPath>`，`value<QList<...>>()` 会静默得到
+  **空列表**（看起来像"密钥环里没有这条"）；必须 `beginArray()/atEnd()` 自己流出来。
+  同理 `(oayays)` 结构有注册签名时才是结构体，否则也是 `QDBusArgument` ——
+  `CredentialStore.cpp` 的 `objectPathList()`/`decodeSecret()` 就是干这个的。
+- **调用前要注册 D-Bus 类型**：`QMap<QString,QString>`（`a{ss}`，搜索属性）漏了
+  `qDBusRegisterMetaType` 会直接"Unregistered type"发不出去；`SecretValue` 还要
+  额外 `QDBusMetaType::registerCustomType(type, "(oayays)")` 给出签名。
+- **`SecretServiceCredentialStore::Impl` 是嵌套类，定义必须在全局作用域**：
+  放进匿名命名空间会变成另一个类，构造函数与成员函数看到的类型对不上
+  （报 incomplete type）；同理带 `Q_OBJECT` 的 `SecretPromptWatcher`（Prompt
+  结果只能靠信号回报，而 `QDBusConnection::connect()` 需要 QObject 槽）只在
+  Unix 编译，`#include "CredentialStore.moc"` 也要放在同一个条件块里。
+
+验证入口：`novaterm_session_tests::secretServiceCredentialStoreSurvivesRestart`
+（真实密钥环，无服务时 QSKIP）。
 
 ## 改动后必须同步文档
 

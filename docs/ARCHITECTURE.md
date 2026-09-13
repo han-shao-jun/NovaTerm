@@ -325,7 +325,8 @@ src/
 ├── transport/           # ITransport ← LocalShell / Ssh / Serial / Telnet
 ├── session/             # TerminalSession、SessionFactory、InputPump、
 │                        # SessionStore、SftpSession
-├── credential/          # CredentialStore（Windows 凭据库 / 内存实现）
+├── credential/          # CredentialStore（Windows 凭据库 / freedesktop
+│                        # Secret Service / 无密钥环时内存回退）
 ├── profile/             # ProfileStore（当前仅 MemoryProfileStore）
 ├── renderer/
 │   ├── font/            # FontManager（主字体 + fallback，generation 失效）

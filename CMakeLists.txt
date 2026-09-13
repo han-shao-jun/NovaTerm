@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(NovaTerm VERSION 0.2.7 LANGUAGES CXX C)
+project(NovaTerm VERSION 0.2.8 LANGUAGES CXX C)
 
 # ═══════════════════════════════════════════════════════════════════
 #  1. 通用平台编译参数
@@ -45,6 +45,13 @@ message(STATUS "setting qt sdk path: ${CMAKE_PREFIX_PATH}")
 # Find Qt
 # 注意：Qt6::Sql 已从依赖中移除——项目当前使用 MemoryProfileStore / 平台密钥链，
 # 不依赖 QSqlDatabase。若将来引入 SQLite 等持久化存储，需重新加回 Sql 组件。
+# Qt6::DBus 只在非 Apple 的 Unix 上需要：那里的凭据持久化走 freedesktop Secret
+# Service（见 src/credential/CredentialStore.cpp），Windows 用 Credential Manager。
+set(_novaterm_secret_service_component)
+if(UNIX AND NOT APPLE)
+    list(APPEND _novaterm_secret_service_component DBus)
+endif()
+
 find_package(QT 6.8 NAMES Qt6 REQUIRED COMPONENTS Widgets Svg ShaderTools)
 find_package(Qt${QT_VERSION_MAJOR} 6.8 REQUIRED COMPONENTS
     Widgets
@@ -53,10 +60,18 @@ find_package(Qt${QT_VERSION_MAJOR} 6.8 REQUIRED COMPONENTS
     LinguistTools
     SerialPort
     Network
+    ${_novaterm_secret_service_component}
 )
 qt_standard_project_setup(REQUIRES 6.8)
 
 message(STATUS "Using Qt ${QT_VERSION_MAJOR}.${QT_VERSION_MINOR}")
+
+# 凭据后端需要额外链接的 Qt 模块（供 tests/ 里的目标复用）。
+if(_novaterm_secret_service_component)
+    set(NOVATERM_SECRET_SERVICE_LIBS Qt${QT_VERSION_MAJOR}::DBus)
+else()
+    set(NOVATERM_SECRET_SERVICE_LIBS)
+endif()
 
 # ElaWidgetTools - built as subdirectory
 # 通过选项关闭其开发期 install（头文件 / cmake 配置 / 导入库）与示例程序构建，
@@ -264,6 +279,7 @@ target_link_libraries(NovaTerm PRIVATE
         Qt${QT_VERSION_MAJOR}::Svg
         Qt${QT_VERSION_MAJOR}::SerialPort
         Qt${QT_VERSION_MAJOR}::Network
+        ${NOVATERM_SECRET_SERVICE_LIBS}
         ElaWidgetTools
         novaterm_core
         libtelnet

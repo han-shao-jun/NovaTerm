@@ -280,7 +280,7 @@ Profile 是创建模板；`SessionFactory` 读取 Profile、Session overrides �
 
 - `ProfileStore`：持久化用户定义的连接模板；
 - `SessionStore`：持久化应用重启所需的 Session restore metadata、ProfileId 和 overrides；
-- `CredentialStore`：持久化密码、token、私钥口令等敏感凭据，Profile/Session 只保存 `credentialRef`；
+- `CredentialStore`：持久化密码、token、私钥口令等敏感凭据，Profile/Session 只保存 `credentialRef`；平台后端为 Windows Credential Manager 与 Linux/BSD 的 freedesktop Secret Service，两者都不可用时回退进程内内存实现（重启后历史会话取不到密码，UI 提示重新输入）；
 - `RuntimeConfig`：当前 Session 实际使用的解析后配置快照，只属于运行期，不允许 Transport 直接读取 Profile JSON/UI 控件。
 
 恢复 Session 时默认应保持“原 Session 的连接语义”：使用保存的 ProfileId + overrides + 必要的配置版本/快照信息重新生成 RuntimeConfig。若产品明确选择“恢复时跟随最新 Profile”，必须作为显式策略，不能隐式改变连接目标。
@@ -493,7 +493,7 @@ Reconnect 创建新的 Transport connection generation，但保持 SessionId；C
 | `src/session/SessionFactory.*` | Profile/overrides/credentialRef 到 RuntimeConfig、Session/Transport；创建后交拥有的 View |
 | `src/session/SessionStore.*` | Session restore metadata 持久化接口 |
 | `src/profile/ProfileStore.*` | Profile 模板持久化接口 |
-| `src/credential/CredentialStore.*` | 敏感凭据存取，Profile 仅保存引用 |
+| `src/credential/CredentialStore.*` | 敏感凭据存取，Profile 仅保存引用；Windows Credential Manager / Linux Secret Service（QtDBus），无密钥环时内存回退 |
 | `src/transport/ITransport.h` | 统一异步契约 |
 | `src/transport/*Transport.*` | Local/SSH/Serial/Telnet 实现 |
 | `tests/session/SessionTests.cpp` | 状态、关闭和多会话测试（目标 `novaterm_session_tests`）|

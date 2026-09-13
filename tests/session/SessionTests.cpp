@@ -110,6 +110,7 @@ private slots:
     void agentContextFiltersProgressWrapDuplicatesAndAlternate();
     void inputPumpOffsetsPreservePendingSuffix();
     void agentContextJoinsHistorySeamAndBoundsUtf8();
+    void secretServiceCredentialStoreSurvivesRestart();
 };
 
 void SessionTests::inputPumpOffsetsPreservePendingSuffix()
@@ -391,6 +392,67 @@ void SessionTests::structuredTransportErrorSetsSessionCategory()
     QCOMPARE(errors.count(), 1);
     error = qvariant_cast<SessionError>(errors.takeFirst().constFirst());
     QCOMPARE(error.category, SessionErrorCategory::HostKey);
+}
+
+// 回归："保存的密码认证 SSH 历史会话重连报凭据不可用"。
+// 历史记录只持久化 credentialRef，凭据必须能跨进程存活；旧实现在非 Windows
+// 平台用纯内存存储，重启后必然查不到，于是每次重连都报凭据不可用。
+//
+// 非 Windows 的持久化后端是 freedesktop Secret Service：这里直接读写真实密钥环
+// （没有会话总线/密钥环时跳过），用"新建一个 store 实例"代表应用重启。测试条目
+// 带 service=NovaTerm、novaterm-ref=novaterm-test-* 属性，结束时删除，便于清理。
+void SessionTests::secretServiceCredentialStoreSurvivesRestart()
+{
+#if defined(Q_OS_UNIX) && !defined(Q_OS_MACOS)
+    if (!SecretServiceCredentialStore::isServiceAvailable())
+        QSKIP("no freedesktop Secret Service on the session bus");
+
+    const QString reference =
+        QStringLiteral("novaterm-test-%1")
+            .arg(QUuid::createUuid().toString(QUuid::WithoutBraces));
+
+    {
+        SecretServiceCredentialStore store;
+        QVERIFY(store.isPersistent());
+        QVERIFY(store.put(reference, QByteArrayLiteral("s3cret")));
+        // 同一个 store 立刻读回，覆盖"写入后 GetSecret 可解析"的编解码路径。
+        const auto immediate = store.get(reference);
+        QVERIFY(immediate.has_value());
+        QCOMPARE(*immediate, QByteArrayLiteral("s3cret"));
+        // 覆盖写：同一个引用二次 put 不能留下旧条目（否则 get 可能读到过期密码）。
+        QVERIFY(store.put(reference, QByteArrayLiteral("r0tated")));
+    }
+
+    // 新实例代表应用重启：密钥环里的条目必须仍能取到。
+    {
+        SecretServiceCredentialStore restarted;
+        const auto secret = restarted.get(reference);
+        QVERIFY(secret.has_value());
+        QCOMPARE(*secret, QByteArrayLiteral("r0tated"));
+        QVERIFY(restarted.remove(reference));
+        QVERIFY(!restarted.get(reference).has_value());
+    }
+    {
+        SecretServiceCredentialStore afterRemoval;
+        QVERIFY(!afterRemoval.get(reference).has_value());
+    }
+
+    // 空引用/空凭据一律拒绝，避免产生取不回来的条目。
+    SecretServiceCredentialStore store;
+    QVERIFY(!store.put(QString(), QByteArrayLiteral("secret")));
+    QVERIFY(!store.put(reference, QByteArray()));
+    QVERIFY(!store.get(QString()).has_value());
+    QVERIFY(!store.remove(QString()));
+
+    // 工厂在非 Windows 上必须给出可持久化实现（有密钥环时），防止再次退化成
+    // "重启即失效"。
+    const auto created = createCredentialStore();
+    QVERIFY(created != nullptr);
+    QVERIFY(created->isPersistent());
+    QVERIFY(dynamic_cast<SecretServiceCredentialStore*>(created.get()) != nullptr);
+#else
+    QSKIP("Secret Service backend is Unix-only");
+#endif
 }
 
 QTEST_MAIN(SessionTests)
