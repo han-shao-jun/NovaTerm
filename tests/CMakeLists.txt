@@ -148,9 +148,6 @@ if(BUILD_TESTING)
 
     add_executable(novaterm_renderer_p5_tests
         ${CMAKE_CURRENT_SOURCE_DIR}/renderer/RendererP5Tests.cpp
-        # GlyphRasterizer.cpp 给异步栅格化线程设置线程名，而本目标直接编译
-        # 生产源文件、不链接 novaterm_core，故显式带上该实现。
-        ${PROJECT_SOURCE_DIR}/src/core/ThreadNaming.cpp
         ${PROJECT_SOURCE_DIR}/src/session/SerialHighlightRules.cpp
         ${PROJECT_SOURCE_DIR}/src/renderer/RenderCommandBuffer.cpp
         ${PROJECT_SOURCE_DIR}/src/renderer/font/FontManager.cpp
@@ -166,6 +163,9 @@ if(BUILD_TESTING)
     )
     target_link_libraries(novaterm_renderer_p5_tests
         PRIVATE
+            # RowBlockDamageTracker 的回归测试改用 TerminalCore 快照提供块指纹，
+            # 故本目标不再是"只编译 renderer 源文件"的纯头文件消费者。
+            novaterm_core
             Qt${QT_VERSION_MAJOR}::Core
             Qt${QT_VERSION_MAJOR}::Gui
             Qt${QT_VERSION_MAJOR}::Test

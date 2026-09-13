@@ -74,6 +74,38 @@ public:
                      int cellSpan, qreal effectiveScale,
                      GlyphRenderMode mode = GlyphRenderMode::Grayscale) const;
 
+    /// `makeKeyAndSelection()` 的结果：一次字体选择同时产出 GlyphKey。
+    struct GlyphKeySelection
+    {
+        GlyphKey key;
+        FontSelection selection;
+    };
+
+    /**
+     * @brief 一次字体选择同时产出 GlyphKey 与其 FontSelection。
+     *
+     * @note 这是渲染路径的窄接口：cache miss 时渲染层直接用返回的 selection
+     *       发起栅格化，不必再调用一次 `select()`。旧实现里 `ensureGlyph()`
+     *       先 `makeKey()`（内部 select）再单独 `select()`，同一簇每帧做两次
+     *       字体选择，是 glyph 稳态的主要冗余。
+     */
+    [[nodiscard]] GlyphKeySelection makeKeyAndSelection(
+        const QString& cluster, bool bold, bool italic, int cellSpan,
+        qreal effectiveScale,
+        GlyphRenderMode mode = GlyphRenderMode::Grayscale) const;
+
+    /// 诊断计数：`select()` 被查询的次数（含命中缓存的调用）。
+    [[nodiscard]] quint64 selectionQueryCount() const
+    {
+        return _selectionQueries;
+    }
+
+    /// 诊断计数：真正执行候选字体 coverage 探测的次数（缓存命中不计数）。
+    [[nodiscard]] quint64 selectionProbeCount() const
+    {
+        return _selectionProbes;
+    }
+
 private:
     // 检查 QRawFont 是否能覆盖该簇。跳过 ZWJ 与变体选择符等
     // 无独立字形的码点（它们依赖基础码点 shaping）。
@@ -82,6 +114,13 @@ private:
     static FontFaceId idFor(const QFont& font);
     // 构造候选字体列表：主字体 → 回退列表 → Qt 平台回退。
     QList<QFont> candidates(bool bold, bool italic) const;
+    // 不走 ASCII 直连缓存的通用选择路径（QHash 键 + coverage 探测）。
+    FontSelection selectUncached(const QString& cluster, bool bold,
+                                 bool italic) const;
+    // 由已选中的字体构造 GlyphKey（ASCII 缓存与通用路径共用）。
+    GlyphKey buildKey(const FontSelection& selection, const QString& cluster,
+                      int cellSpan, qreal effectiveScale,
+                      GlyphRenderMode mode) const;
 
     // 一组候选字体及其 QRawFont。QRawFont::fromFont 是重操作，按
     // (bold,italic) 缓存，避免每 Cell 重建候选与探测字体（P5 §5.2）。
@@ -106,6 +145,23 @@ private:
     // 候选集按样式缓存：索引 0=常规,1=bold,2=italic,3=bold+italic。
     mutable CandidateSet _candidateCache[4];
     mutable bool _candidateCached[4]{false, false, false, false};
+
+    // ── ASCII 直连缓存 ────────────────────────────────────────
+    // 终端稳态绝大多数 Cell 是单个 ASCII 码点：用 (码点, 样式位) 直接寻址即可
+    // 命中，省掉"构造 QString 键 + QHash 查找"，也避免 ASCII 簇反复走 coverage
+    // 探测。generation 变化时条目自动失效（比较 generation，不清表）。
+    static constexpr int AsciiCacheCodepoints = 128;
+    struct AsciiCacheEntry
+    {
+        FontSelection selection;
+        quint64 generation{0};
+        bool valid{false};
+    };
+    mutable AsciiCacheEntry _asciiCache[AsciiCacheCodepoints * 4];
+
+    // 诊断计数，供 RendererP5Tests 断言"一次选择不重复探测"。
+    mutable quint64 _selectionQueries{0};
+    mutable quint64 _selectionProbes{0};
 };
 
 } // namespace NovaTerm

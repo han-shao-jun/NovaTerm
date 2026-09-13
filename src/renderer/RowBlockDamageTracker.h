@@ -18,6 +18,7 @@
 #pragma once
 
 #include "RenderCommandBuffer.h"
+#include "core/terminal/ScreenBuffer.h"
 #include "core/terminal/TerminalTypes.h"
 
 #include <QVector>
@@ -25,6 +26,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <utility>
+#include <vector>
 
 namespace NovaTerm {
 
@@ -32,7 +34,8 @@ namespace NovaTerm {
 class RowBlockDamageTracker
 {
 public:
-    static constexpr int BlockColumns = 8; ///< 每个脏块覆盖的列数
+    static constexpr int BlockColumns =
+        RendererSnapshot::IdentityBlockColumns; ///< 每个脏块覆盖的列数
 
     /**
      * @brief 重置为新的视口尺寸，并把所有行标记为无缓存。
@@ -80,7 +83,7 @@ public:
     /**
      * @brief 用最终快照校正一行的脏列 span。
      * @param row 行号（widget 行）。
-     * @param cells 该行 columns 个 Cell 的首地址，可为 null。
+     * @param blockIdentities Core快照提供的逐块内容指纹。
      * @param columns 该行列数，必须与 reset() 时一致。
      * @param requestedSpans 调度层给出的脏列 span，可为空。
      * @return 合并、排序、裁剪后的脏列 span；调用方据此只重建这些块。
@@ -88,19 +91,19 @@ public:
      *       列数与缓存不符或 cells 为空都走这条路径。
      */
     QVector<DirtyColumnSpan> reconcileRow(
-        int row, const Cell* cells, int columns,
+        int row, const std::vector<u64>& blockIdentities, int columns,
         QVector<DirtyColumnSpan> requestedSpans)
     {
         columns = std::max(0, columns);
+        const int blockCount = (columns + BlockColumns - 1) / BlockColumns;
         if (row < 0 || row >= _rowHashes.size() || columns != _columns
-            || !cells) {
+            || isize(blockIdentities.size()) != blockCount) {
             return columns > 0
                 ? QVector<DirtyColumnSpan>{{0, columns}}
                 : QVector<DirtyColumnSpan>{};
         }
 
         auto& cached = _rowHashes[row];
-        const int blockCount = (columns + BlockColumns - 1) / BlockColumns;
         if (cached.size() != blockCount) {
             cached.fill(0, blockCount);
             _validRows[row] = false;
@@ -109,7 +112,7 @@ public:
         for (int block = 0; block < blockCount; ++block) {
             const int start = block * BlockColumns;
             const int end = std::min(columns, start + BlockColumns);
-            const quint64 current = blockIdentity(cells + start, end - start);
+            const u64 current = blockIdentities[std::size_t(block)];
             if (!_validRows[row] || cached[block] != current)
                 requestedSpans.push_back({start, end});
             cached[block] = current;
@@ -119,52 +122,6 @@ public:
     }
 
 private:
-    // FNV-1a 风格的乘-异或混合。哈希只用于判断"内容是否变化"，种子取值
-    // 不影响正确性；碰撞会导致漏绘，因此把 chars、width、前景/背景色和
-    // 全部属性位都纳入计算，不做任何裁剪。
-    static void mix(quint64& hash, quint64 value)
-    {
-        hash ^= value;
-        hash *= 1099511628211ull;
-    }
-
-    static quint64 blockIdentity(const Cell* cells, int count)
-    {
-        quint64 hash = 1469598103934665603ull;
-        for (int index = 0; index < count; ++index) {
-            const Cell& cell = cells[index];
-            for (const uint32_t scalar : cell.chars)
-                mix(hash, scalar);
-            mix(hash, cell.width);
-            mix(hash, quint8(cell.foreground.type));
-            mix(hash, cell.foreground.index);
-            mix(hash, cell.foreground.red | (cell.foreground.green << 8)
-                          | (cell.foreground.blue << 16));
-            mix(hash, quint8(cell.background.type));
-            mix(hash, cell.background.index);
-            mix(hash, cell.background.red | (cell.background.green << 8)
-                          | (cell.background.blue << 16));
-            const auto& attributes = cell.attributes;
-            const quint64 flags = quint64(attributes.bold)
-                | (quint64(attributes.underline) << 1)
-                | (quint64(attributes.italic) << 2)
-                | (quint64(attributes.blink) << 3)
-                | (quint64(attributes.reverse) << 4)
-                | (quint64(attributes.strike) << 5)
-                | (quint64(attributes.font) << 6)
-                | (quint64(attributes.dwl) << 7)
-                | (quint64(attributes.dhl) << 8)
-                | (quint64(attributes.smallFont) << 9)
-                | (quint64(attributes.baseline) << 10)
-                | (quint64(attributes.protectedCell) << 11)
-                | (quint64(attributes.dim) << 12)
-                | (quint64(attributes.conceal) << 13)
-                | (quint64(attributes.underlineStyle) << 14);
-            mix(hash, flags);
-        }
-        return hash;
-    }
-
     // 裁剪到 [0, columns)、丢弃空 span、按起始列排序后合并相邻或重叠区间。
     static QVector<DirtyColumnSpan> mergeSpans(
         QVector<DirtyColumnSpan> spans, int columns)

@@ -43,6 +43,28 @@ const RenderCommandRow& RenderCommandBuffer::row(int index) const
     return _rowCommands[index];
 }
 
+RenderCommandRow& RenderCommandBuffer::mutableRow(int index)
+{
+    if (index < 0 || index >= _rowCommands.size()) {
+        // resize 竞态下重建方仍会写入：落点用固定 scratch，写完即丢。
+        _scratchRow.backgrounds.clear();
+        _scratchRow.contents.clear();
+        return _scratchRow;
+    }
+    return _rowCommands[index];
+}
+
+void RenderCommandBuffer::finishRow(int index, quint64 atlasGeneration)
+{
+    if (index < 0 || index >= _rowCommands.size())
+        return;
+    RenderCommandRow& destination = _rowCommands[index];
+    destination.revision = ++_revision;
+    destination.atlasGeneration = atlasGeneration;
+    destination.contentRevision = 0;
+    destination.dirtySpans.clear();
+}
+
 void RenderCommandBuffer::replaceRow(
     int index,
     QVector<RenderCommand> backgrounds,
@@ -80,10 +102,16 @@ void RenderCommandBuffer::rotateRowsUp(int count)
     std::rotate(_rowCommands.begin(), _rowCommands.begin() + count,
                 _rowCommands.end());
     // 末尾 count 行变为新空行，需要单独 bump revision 让渲染器重绘。
+    // 只清空命令而保留向量容量：整行赋值会释放容量，滚动时每帧重新分配。
     for (int row = _rowCommands.size() - count;
          row < _rowCommands.size(); ++row) {
-        _rowCommands[row] = RenderCommandRow{};
-        _rowCommands[row].revision = ++_revision;
+        RenderCommandRow& empty = _rowCommands[row];
+        empty.backgrounds.clear();
+        empty.contents.clear();
+        empty.revision = ++_revision;
+        empty.atlasGeneration = 0;
+        empty.contentRevision = 0;
+        empty.dirtySpans.clear();
     }
 }
 

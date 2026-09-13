@@ -889,14 +889,16 @@ void TerminalRenderer::render(QRhiCommandBuffer* cb)
         // every dirty row with the renderer's actual 8-column block cache and
         // add only missing changed blocks rather than rebuilding every row.
         if (!liveScrollRotated) {
+            const std::vector<NovaTerm::u64> emptyBlockIdentities;
             for (int row = 0; row < rows; ++row) {
                 if (!(row < int(dirtyRows.size()) && dirtyRows[row]))
                     continue;
-                const auto cells =
-                    row < int(screen.visibleRows.size())
-                        ? screen.visibleRows[row] : nullptr;
+                const auto& blockIdentities =
+                    row < int(screen.visibleRowBlockIdentities.size())
+                    ? screen.visibleRowBlockIdentities[std::size_t(row)]
+                    : emptyBlockIdentities;
                 dirtySpans[row] = _rowBlockDamageTracker.reconcileRow(
-                    row, cells ? cells->data() : nullptr, columns,
+                    row, blockIdentities, columns,
                     std::move(dirtySpans[row]));
             }
         }
@@ -1616,40 +1618,144 @@ void TerminalRenderer::ensurePipeline()
 NovaTerm::GlyphLocation TerminalRenderer::ensureGlyph(
     const QString& text, bool bold, int cellSpan)
 {
+    // 彩色 emoji 全部位于 BMP 之外（U+1F000 以上），在 UTF-16 中必然表现为
+    // 代理对；逐 QChar 扫描即可判定，避免旧实现每 Cell 一次 text.toUcs4()
+    // 的堆分配。
     bool emoji = false;
-    for (char32_t scalar : text.toUcs4()) {
-        if (scalar >= 0x1f000) {
+    for (qsizetype index = 0; index < text.size(); ++index) {
+        const QChar unit = text.at(index);
+        if (!unit.isHighSurrogate())
+            continue;
+        const QChar low =
+            index + 1 < text.size() ? text.at(index + 1) : QChar();
+        if (QChar::surrogateToUcs4(unit, low) >= 0x1f000) {
             emoji = true;
             break;
         }
     }
-    const NovaTerm::GlyphKey key = _fontManager.makeKey(
+    // 一次字体选择同时得到 GlyphKey 与 FontSelection：命中缓存直接返回，
+    // miss 时复用同一个 selection 入队栅格化，不再重复 select()。
+    const auto keyAndSelection = _fontManager.makeKeyAndSelection(
         text, bold, false, cellSpan, devicePixelRatioF(),
         emoji ? NovaTerm::GlyphRenderMode::Color
               : NovaTerm::GlyphRenderMode::Grayscale);
-    if (auto found = _glyphCache.find(key, _frameNumber))
+    if (auto found = _glyphCache.find(keyAndSelection.key, _frameNumber))
         return *found;
     if (_buildingGlyphRow >= 0)
         _glyphPendingRows[std::size_t(_buildingGlyphRow)] = true;
-    const auto selection = _fontManager.select(text, bold, false);
-    _glyphRasterQueue.enqueue({key, selection.font, _cellWidth,
+    _glyphRasterQueue.enqueue({keyAndSelection.key,
+                               keyAndSelection.selection.font, _cellWidth,
                                _cellHeight, true});
     // 未就绪时用空位置，避免把 solid glyph 当文字绘成实心方块。
     return {};
 }
 
+void TerminalRenderer::fillInstance(GpuInstance& out, const QRectF& rect,
+                                    const QRectF& uvRect, const QColor& color)
+{
+    out.left = float(rect.left());
+    out.top = float(rect.top());
+    out.right = float(rect.right());
+    out.bottom = float(rect.bottom());
+    out.u0 = float(uvRect.left());
+    out.v0 = float(uvRect.top());
+    out.u1 = float(uvRect.right());
+    out.v1 = float(uvRect.bottom());
+    out.r = color.redF();
+    out.g = color.greenF();
+    out.b = color.blueF();
+    out.a = color.alphaF();
+    out.atlasPage = 0.0f;
+    out.rowSlot = -1.0f;
+    out.flags = 0.0f;
+    out.reserved = 0.0f;
+}
+
 TerminalRenderer::GpuInstance TerminalRenderer::makeInstance(
     const QRectF& rect, const QRectF& uvRect, const QColor& color)
 {
-    const float red = color.redF();
-    const float green = color.greenF();
-    const float blue = color.blueF();
-    const float alpha = color.alphaF();
-    return {float(rect.left()), float(rect.top()),
-                          float(rect.right()), float(rect.bottom()),
-                          float(uvRect.left()), float(uvRect.top()),
-                          float(uvRect.right()), float(uvRect.bottom()),
-                          red, green, blue, alpha, 0.0f, -1.0f, 0.0f, 0.0f};
+    GpuInstance instance{};
+    fillInstance(instance, rect, uvRect, color);
+    return instance;
+}
+
+TerminalRenderer::SpanInstances TerminalRenderer::assembleSpanInstances(
+    const NovaTerm::RenderCommandRow& commands, int startColumn, int endColumn,
+    int slot, QVector<GpuInstance>& backgroundScratch,
+    QVector<GpuInstance>& contentScratch)
+{
+    SpanInstances counts;
+    const int cellCount = std::max(0, endColumn - startColumn);
+    if (cellCount == 0) {
+        backgroundScratch.clear();
+        contentScratch.clear();
+        return counts;
+    }
+    counts.backgroundCount = cellCount;
+    counts.contentCount = cellCount * 4;
+
+    // 先各做一次 resize（内部至多一次 detach），随后热循环只走 data() 裸指针：
+    // 逐元素 QVector::operator[] 在非 const 向量上每次都要做 detach 检查，
+    // 是这段装配代码的主要开销之一。
+    backgroundScratch.resize(cellCount);
+    contentScratch.resize(counts.contentCount);
+    GpuInstance* const backgroundOut = backgroundScratch.data();
+    GpuInstance* const contentOut = contentScratch.data();
+
+    // 背景：每列恰好一个实例。命令已按列升序，用游标线性推进逐列就地写入，
+    // 不做"先零初始化局部变量再整块赋值"的双重 64 字节写；缺失命令的列写
+    // 全零实例（退化四边形）。
+    auto background = commands.backgrounds.cbegin();
+    const auto backgroundEnd = commands.backgrounds.cend();
+    for (int index = 0; index < cellCount; ++index) {
+        const int column = startColumn + index;
+        while (background != backgroundEnd && background->cellColumn < column)
+            ++background;
+        GpuInstance& target = backgroundOut[index];
+        if (background != backgroundEnd && background->cellColumn == column) {
+            // 同列重复命令（不应出现）与旧实现一致：后者覆盖前者。
+            do {
+                fillInstance(target, background->rect, background->uvRect,
+                             background->color);
+                target.atlasPage = float(background->atlasPage);
+                target.rowSlot = float(slot);
+                target.flags = background->colorGlyph ? 1.0f : 0.0f;
+                ++background;
+            } while (background != backgroundEnd
+                     && background->cellColumn == column);
+        } else {
+            target = GpuInstance{};
+        }
+    }
+
+    // 内容：每列 4 个槽位，单遍装配——先写实际命令占用的槽位，再在同一轮里把
+    // 该格剩余槽位清零。旧实现先对整段 contentScratch 做一次 fill 再写第二遍，
+    // 对 4 槽/Cell 的规模（200 列 ≈ 51 KB）两次扫描都会超出 L1，这里只扫一遍。
+    auto content = commands.contents.cbegin();
+    const auto contentEnd = commands.contents.cend();
+    for (int index = 0; index < cellCount; ++index) {
+        const int column = startColumn + index;
+        while (content != contentEnd && content->cellColumn < column)
+            ++content;
+        GpuInstance* const cellOut = contentOut + index * 4;
+        int ordinal = 0;
+        while (content != contentEnd && content->cellColumn == column) {
+            if (ordinal < 4) {
+                GpuInstance& target = cellOut[ordinal];
+                fillInstance(target, content->rect, content->uvRect,
+                             content->color);
+                target.atlasPage = float(content->atlasPage);
+                target.rowSlot = float(slot);
+                target.flags = content->colorGlyph ? 1.0f : 0.0f;
+                ++ordinal;
+            }
+            // 第 5 条及以后与旧实现一样丢弃。
+            ++content;
+        }
+        for (; ordinal < 4; ++ordinal)
+            cellOut[ordinal] = GpuInstance{};
+    }
+    return counts;
 }
 
 void TerminalRenderer::appendQuad(const QRectF& rect, const QRectF& uvRect,
@@ -1838,11 +1944,6 @@ void TerminalRenderer::rebuildCommandRow(
     const NovaTerm::RendererSnapshot& screen,
     const QVector<NovaTerm::DirtyColumnSpan>& dirtySpans)
 {
-    QVector<NovaTerm::RenderCommand> backgrounds;
-    QVector<NovaTerm::RenderCommand> contents;
-    backgrounds.reserve(screen.columns);
-    contents.reserve(screen.columns);
-
     // A token entering or leaving a row can change the semantic colour of all
     // default-colour cells on that row, so incremental column reuse is unsafe
     // while highlighting is enabled.
@@ -1853,49 +1954,40 @@ void TerminalRenderer::rebuildCommandRow(
     _buildingGlyphRow = widgetRow;
     if (replaceAll)
         _glyphPendingRows[std::size_t(widgetRow)] = false;
-    auto isDirty = [&dirtySpans, replaceAll](int column) {
-        if (replaceAll)
-            return true;
-        for (const auto& span : dirtySpans) {
-            if (column >= span.startColumn && column < span.endColumn)
-                return true;
-        }
-        return false;
-    };
-    if (!replaceAll && widgetRow < _commandBuffer.rows()) {
-        const auto& old = _commandBuffer.row(widgetRow);
-        for (const auto& command : old.backgrounds) {
-            if (!isDirty(command.cellColumn))
-                backgrounds.push_back(command);
-        }
-        for (const auto& command : old.contents) {
-            if (!isDirty(command.cellColumn))
-                contents.push_back(command);
-        }
-    }
+
+    // 就地重建：把目标行的旧命令 swap 到 scratch（只交换指针、不拷贝），目标
+    // 向量随即变空但保留上一帧的容量，新命令可以直接写进去。容量按最坏情况
+    // 预留（背景 1 条/Cell、内容 4 条/Cell：字形 + 双下划线 + 删除线）。
+    NovaTerm::RenderCommandRow& target =
+        _commandBuffer.mutableRow(widgetRow);
+    _oldBackgrounds.clear();
+    _oldContents.clear();
+    target.backgrounds.swap(_oldBackgrounds);
+    target.contents.swap(_oldContents);
+    if (target.backgrounds.capacity() < screen.columns)
+        target.backgrounds.reserve(screen.columns);
+    const qsizetype contentCapacity = qsizetype(screen.columns) * 4;
+    if (target.contents.capacity() < contentCapacity)
+        target.contents.reserve(contentCapacity);
 
     const std::optional<QColor> rowColor =
         rowHighlightColor(widgetRow, screen);
-    for (int column = 0; column < screen.columns; ++column) {
-        if (!isDirty(column))
-            continue;
-        const qreal x = column * _cellWidth;
-        const qreal y = 0.0;
-        const NovaTerm::Cell* cell = screen.cellAt(widgetRow, column);
-        if (cell && !cell->isWideContinuation())
-            appendCellCommands(x, y, *cell,
+    // 未脏列沿用上一帧命令、脏列重新生成，一次线性扫描完成（不需要排序）。
+    NovaTerm::mergeRowCommandsIncremental(
+        _oldBackgrounds, _oldContents, screen.columns, dirtySpans, replaceAll,
+        [&](int column, QVector<NovaTerm::RenderCommand>& backgrounds,
+            QVector<NovaTerm::RenderCommand>& contents) {
+            const NovaTerm::Cell* cell = screen.cellAt(widgetRow, column);
+            if (!cell || cell->isWideContinuation())
+                return;
+            appendCellCommands(column * _cellWidth, 0.0, *cell,
                                rowColor ? &*rowColor : nullptr,
                                backgrounds, contents);
-    }
-    const auto byColumn = [](const NovaTerm::RenderCommand& a,
-                             const NovaTerm::RenderCommand& b) {
-        return a.cellColumn < b.cellColumn;
-    };
+        },
+        target.backgrounds, target.contents);
+
     _buildingGlyphRow = -1;
-    std::stable_sort(backgrounds.begin(), backgrounds.end(), byColumn);
-    std::stable_sort(contents.begin(), contents.end(), byColumn);
-    _commandBuffer.replaceRow(widgetRow, std::move(backgrounds),
-                              std::move(contents), _atlasGeneration);
+    _commandBuffer.finishRow(widgetRow, _atlasGeneration);
     if (widgetRow >= 0 && widgetRow < _rowContentIdentities.size())
         _rowContentIdentities[widgetRow] =
             widgetRow < int(screen.visibleRowIdentities.size())
@@ -2280,59 +2372,51 @@ void TerminalRenderer::uploadCommands(
                                        _commandBuffer.columns());
             if (start >= end)
                 continue;
-            const int cellCount = end - start;
-            const int backgroundVertexCount =
-                NovaTerm::rowUploadVertexCount(
-                    cellCount, _backgroundRowStrideVertices, uploadAllRows);
-            _instances.fill(GpuInstance{}, backgroundVertexCount);
-            for (const NovaTerm::RenderCommand& command : commands.backgrounds) {
-                if (command.cellColumn < start || command.cellColumn >= end)
-                    continue;
-                const int index = command.cellColumn - start;
-                GpuInstance value = makeInstance(command.rect, command.uvRect,
-                                                   command.color);
-                value.atlasPage = float(command.atlasPage);
-                value.rowSlot = float(slot);
-                value.flags = command.colorGlyph ? 1.0f : 0.0f;
-                _instances[index] = value;
+            const auto counts = assembleSpanInstances(
+                commands, start, end, slot, _backgroundInstances,
+                _contentInstances);
+
+            // 上传范围仍按保留 stride 计算：全帧重建（uploadAllRows）时必须把
+            // stride 尾部清零，否则缩窄终端后旧槽位会残留。实例数量已按 span
+            // 收窄，只有 stride 大于本区间时才需要额外清零尾部。
+            const int backgroundVertexCount = NovaTerm::rowUploadVertexCount(
+                counts.backgroundCount, _backgroundRowStrideVertices,
+                uploadAllRows);
+            if (backgroundVertexCount > counts.backgroundCount) {
+                _backgroundInstances.resize(backgroundVertexCount);
+                std::fill(_backgroundInstances.begin()
+                              + counts.backgroundCount,
+                          _backgroundInstances.end(), GpuInstance{});
             }
-            const int backgroundBytes = int(_instances.size()
-                                            * sizeof(GpuInstance));
+            const int backgroundBytes =
+                int(_backgroundInstances.size() * sizeof(GpuInstance));
             const int backgroundOffset =
                 (slot * _backgroundRowStrideVertices + start)
                 * int(sizeof(GpuInstance));
             updates->updateDynamicBuffer(_vertexBuffer.get(), backgroundOffset,
                                          backgroundBytes,
-                                         _instances.constData());
+                                         _backgroundInstances.constData());
             _renderStatistics.gpuUploadBytes += quint64(backgroundBytes);
+            // 注意：contentUploadBytes 的口径是"基础内容区域的上传字节"
+            // （背景 + 内容两层），RendererP5GpuBenchmark 的保留 stride
+            // 不变量按 5 实例/Cell 断言，不能只统计内容层。
             _renderStatistics.contentUploadBytes += quint64(backgroundBytes);
 
             const int contentVertexCount = NovaTerm::rowUploadVertexCount(
-                cellCount * 4, _contentRowStrideVertices, uploadAllRows);
-            _instances.fill(GpuInstance{}, contentVertexCount);
-            QVector<int> perCell(cellCount, 0);
-            for (const NovaTerm::RenderCommand& command : commands.contents) {
-                if (command.cellColumn < start || command.cellColumn >= end)
-                    continue;
-                const int cell = command.cellColumn - start;
-                if (perCell[cell] >= 4)
-                    continue;
-                const int index = cell * 4 + perCell[cell]++;
-                GpuInstance value = makeInstance(command.rect, command.uvRect,
-                                                   command.color);
-                value.atlasPage = float(command.atlasPage);
-                value.rowSlot = float(slot);
-                value.flags = command.colorGlyph ? 1.0f : 0.0f;
-                _instances[index] = value;
+                counts.contentCount, _contentRowStrideVertices, uploadAllRows);
+            if (contentVertexCount > counts.contentCount) {
+                _contentInstances.resize(contentVertexCount);
+                std::fill(_contentInstances.begin() + counts.contentCount,
+                          _contentInstances.end(), GpuInstance{});
             }
-            const int contentBytes = int(_instances.size()
-                                         * sizeof(GpuInstance));
+            const int contentBytes =
+                int(_contentInstances.size() * sizeof(GpuInstance));
             const int contentOffset =
                 (contentBase + slot * _contentRowStrideVertices + start * 4)
                 * int(sizeof(GpuInstance));
             updates->updateDynamicBuffer(_vertexBuffer.get(), contentOffset,
                                          contentBytes,
-                                         _instances.constData());
+                                         _contentInstances.constData());
             _renderStatistics.gpuUploadBytes += quint64(contentBytes);
             _renderStatistics.contentUploadBytes += quint64(contentBytes);
         }

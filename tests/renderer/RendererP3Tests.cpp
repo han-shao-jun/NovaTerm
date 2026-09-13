@@ -39,7 +39,294 @@ private slots:
     void searchMatchesAppendByGeneration();
     void inputMethodCommitProducesUtf8();
     void fragmentedOutputDoesNotInflateScrollbackBytes();
+    void spanAssemblyCoversBackgroundSlots();
+    void spanAssemblyPacksContentIntoFourSlotsPerCell();
+    void spanAssemblyOffsetsMatchRequestedSpan();
+    void incrementalRowMergeKeepsOrderAndColumns();
+    void mutableRowRebuildKeepsMetadataAndDropsOutOfRange();
 };
+
+namespace {
+
+// 构造一条属于指定列的命令；rect.left 用列号编码，便于断言落位。
+NovaTerm::RenderCommand commandAtColumn(int column, int atlasPage,
+                                        bool colorGlyph)
+{
+    NovaTerm::RenderCommand command;
+    command.type = NovaTerm::RenderCommandType::GlyphInstance;
+    command.rect = QRectF(column * 10.0, 4.0, 10.0, 18.0);
+    command.uvRect = QRectF(0.25, 0.5, 0.125, 0.25);
+    command.color = QColor(11, 22, 33, 255);
+    command.atlasPage = atlasPage;
+    command.pageGeneration = 9;
+    command.cellColumn = column;
+    command.colorGlyph = colorGlyph;
+    return command;
+}
+
+bool isDegenerate(const TerminalRenderer::GpuInstance& instance)
+{
+    return instance.left == 0.0f && instance.top == 0.0f
+        && instance.right == 0.0f && instance.bottom == 0.0f;
+}
+
+bool sameInstance(const TerminalRenderer::GpuInstance& a,
+                  const TerminalRenderer::GpuInstance& b)
+{
+    return isDegenerate(a) == isDegenerate(b) && a.left == b.left
+        && a.top == b.top && a.right == b.right && a.bottom == b.bottom
+        && a.u0 == b.u0 && a.v0 == b.v0 && a.u1 == b.u1 && a.v1 == b.v1
+        && a.r == b.r && a.g == b.g && a.b == b.b && a.a == b.a
+        && a.atlasPage == b.atlasPage && a.rowSlot == b.rowSlot
+        && a.flags == b.flags && a.reserved == b.reserved;
+}
+
+} // namespace
+
+void RendererP3Tests::spanAssemblyCoversBackgroundSlots()
+{
+    NovaTerm::RenderCommandRow row;
+    row.backgrounds.push_back(commandAtColumn(3, 4, false));
+    row.backgrounds.push_back(commandAtColumn(5, 4, false));
+
+    QVector<TerminalRenderer::GpuInstance> background;
+    QVector<TerminalRenderer::GpuInstance> content;
+    const auto counts = TerminalRenderer::assembleSpanInstances(
+        row, 2, 6, 7, background, content);
+
+    // 背景每列一个槽位；内容每列固定 4 个槽位（即使没有命令）。
+    QCOMPARE(counts.backgroundCount, 4);
+    QCOMPARE(counts.contentCount, 16);
+    QCOMPARE(background.size(), 4);
+    QCOMPARE(content.size(), 16);
+
+    // 没有背景命令的列（2、4）写退化实例，不残留上一帧内容。
+    QVERIFY(isDegenerate(background[0]));
+    QVERIFY(isDegenerate(background[2]));
+    // 有命令的列按局部偏移落位，并带上 atlas 页/行槽/标志位。
+    QVERIFY(!isDegenerate(background[1]));
+    QCOMPARE(background[1].left, float(3 * 10.0));
+    QCOMPARE(background[1].atlasPage, 4.0f);
+    QCOMPARE(background[1].rowSlot, 7.0f);
+    QCOMPARE(background[1].flags, 0.0f);
+    QCOMPARE(background[3].left, float(5 * 10.0));
+
+    // 内容全零：没有内容命令时不能留下任何有效四边形。
+    for (const auto& instance : content)
+        QVERIFY(isDegenerate(instance));
+}
+
+void RendererP3Tests::spanAssemblyPacksContentIntoFourSlotsPerCell()
+{
+    NovaTerm::RenderCommandRow row;
+    // 列 3：1 条；列 4：2 条；列 5：5 条（超出 4 槽位的第 5 条必须丢弃）。
+    row.contents.push_back(commandAtColumn(3, 1, false));
+    for (int i = 0; i < 2; ++i)
+        row.contents.push_back(commandAtColumn(4, 2 + i, false));
+    for (int i = 0; i < 5; ++i)
+        row.contents.push_back(commandAtColumn(5, 10 + i, true));
+
+    QVector<TerminalRenderer::GpuInstance> background;
+    QVector<TerminalRenderer::GpuInstance> content;
+    const auto counts = TerminalRenderer::assembleSpanInstances(
+        row, 3, 7, 0, background, content);
+    QCOMPARE(counts.contentCount, 16);
+    QCOMPARE(content.size(), 16);
+
+    // 列 3 是局部第 0 格：仅槽位 0 有效。
+    QVERIFY(!isDegenerate(content[0]));
+    QCOMPARE(content[0].atlasPage, 1.0f);
+    for (int slot = 1; slot < 4; ++slot)
+        QVERIFY(isDegenerate(content[slot]));
+
+    // 列 4 是局部第 1 格：槽位 0、1 有效，页号按命令顺序递增。
+    QVERIFY(!isDegenerate(content[4]));
+    QVERIFY(!isDegenerate(content[5]));
+    QCOMPARE(content[4].atlasPage, 2.0f);
+    QCOMPARE(content[5].atlasPage, 3.0f);
+    QVERIFY(isDegenerate(content[6]));
+    QVERIFY(isDegenerate(content[7]));
+
+    // 列 5 是局部第 2 格：4 个槽位全部有效，第 5 条被丢弃。
+    for (int slot = 0; slot < 4; ++slot) {
+        QVERIFY(!isDegenerate(content[8 + slot]));
+        QCOMPARE(content[8 + slot].atlasPage, float(10 + slot));
+        QCOMPARE(content[8 + slot].flags, 1.0f);
+    }
+    // 列 6 没有命令：整格退化。
+    for (int slot = 0; slot < 4; ++slot)
+        QVERIFY(isDegenerate(content[12 + slot]));
+}
+
+void RendererP3Tests::spanAssemblyOffsetsMatchRequestedSpan()
+{
+    NovaTerm::RenderCommandRow row;
+    for (int column = 2; column < 8; ++column) {
+        row.backgrounds.push_back(commandAtColumn(column, 1, false));
+        row.contents.push_back(commandAtColumn(column, 1, false));
+    }
+
+    QVector<TerminalRenderer::GpuInstance> wideBackground;
+    QVector<TerminalRenderer::GpuInstance> wideContent;
+    const auto wideCounts = TerminalRenderer::assembleSpanInstances(
+        row, 0, 8, 3, wideBackground, wideContent);
+    QCOMPARE(wideCounts.backgroundCount, 8);
+    QCOMPARE(wideCounts.contentCount, 32);
+
+    // 同一行的局部 span：起始列 4 时，scratch[0] 必须对应第 4 列，
+    // 且与整行装配的同列实例逐字段一致（offset 映射不能错位）。
+    QVector<TerminalRenderer::GpuInstance> narrowBackground;
+    QVector<TerminalRenderer::GpuInstance> narrowContent;
+    const auto counts = TerminalRenderer::assembleSpanInstances(
+        row, 4, 8, 3, narrowBackground, narrowContent);
+    QCOMPARE(counts.backgroundCount, 4);
+    QCOMPARE(narrowBackground.size(), 4);
+    QCOMPARE(narrowContent.size(), 16);
+    for (int index = 0; index < 4; ++index)
+        QVERIFY(sameInstance(narrowBackground[index], wideBackground[4 + index]));
+    for (int index = 0; index < 16; ++index)
+        QVERIFY(sameInstance(narrowContent[index], wideContent[16 + index]));
+
+    // 空区间：不产出任何实例，且 scratch 被清空而不是保留旧内容。
+    const auto empty = TerminalRenderer::assembleSpanInstances(
+        row, 5, 5, 3, narrowBackground, narrowContent);
+    QCOMPARE(empty.backgroundCount, 0);
+    QCOMPARE(empty.contentCount, 0);
+    QVERIFY(narrowBackground.isEmpty());
+    QVERIFY(narrowContent.isEmpty());
+}
+
+void RendererP3Tests::incrementalRowMergeKeepsOrderAndColumns()
+{
+    // 上一帧：列 0..5 各一条背景；列 0..5 各一条内容，列 4 额外一条下划线；
+    // 另有一条 cellColumn = -1 的行级命令（必须原样保留在最前）。
+    QVector<NovaTerm::RenderCommand> oldBackgrounds;
+    QVector<NovaTerm::RenderCommand> oldContents;
+    oldBackgrounds.push_back(commandAtColumn(-1, 99, false));
+    for (int column = 0; column < 6; ++column)
+        oldBackgrounds.push_back(commandAtColumn(column, 1, false));
+    for (int column = 0; column < 6; ++column) {
+        oldContents.push_back(commandAtColumn(column, 2, false));
+        if (column == 4)
+            oldContents.push_back(commandAtColumn(column, 3, false));
+    }
+
+    // 本次只有 [2,4) 脏：列 2、3 各重新生成 1 条背景 + 2 条内容。
+    const QVector<NovaTerm::DirtyColumnSpan> spans{{2, 4}};
+    QVector<NovaTerm::RenderCommand> backgrounds;
+    QVector<NovaTerm::RenderCommand> contents;
+    int generatedColumns = 0;
+    NovaTerm::mergeRowCommandsIncremental(
+        oldBackgrounds, oldContents, 6, spans, false,
+        [&generatedColumns](int column,
+                            QVector<NovaTerm::RenderCommand>& outBackgrounds,
+                            QVector<NovaTerm::RenderCommand>& outContents) {
+            ++generatedColumns;
+            outBackgrounds.push_back(commandAtColumn(column, 10 + column, false));
+            outContents.push_back(commandAtColumn(column, 20 + column, false));
+            outContents.push_back(commandAtColumn(column, 30 + column, true));
+        },
+        backgrounds, contents);
+
+    const auto isAscending = [](const QVector<NovaTerm::RenderCommand>& commands) {
+        for (int index = 1; index < commands.size(); ++index) {
+            if (commands[index].cellColumn < commands[index - 1].cellColumn)
+                return false;
+        }
+        return true;
+    };
+    // 只为脏列生成一次，且结果按列升序（等价于旧实现的 stable_sort）。
+    QCOMPARE(generatedColumns, 2);
+    QVERIFY(isAscending(backgrounds));
+    QVERIFY(isAscending(contents));
+
+    // 背景：行级命令 + 6 列；列 2、3 换成新生成，其余保留旧命令。
+    QCOMPARE(backgrounds.size(), 7);
+    QCOMPARE(backgrounds[0].cellColumn, -1);
+    QCOMPARE(backgrounds[0].atlasPage, 99);
+    QCOMPARE(backgrounds[1].cellColumn, 0);
+    QCOMPARE(backgrounds[2].cellColumn, 1);
+    QCOMPARE(backgrounds[2].atlasPage, 1);
+    QCOMPARE(backgrounds[3].cellColumn, 2);
+    QCOMPARE(backgrounds[3].atlasPage, 12);
+    QCOMPARE(backgrounds[4].cellColumn, 3);
+    QCOMPARE(backgrounds[4].atlasPage, 13);
+    QCOMPARE(backgrounds[5].cellColumn, 4);
+    QCOMPARE(backgrounds[5].atlasPage, 1);
+    QCOMPARE(backgrounds[6].cellColumn, 5);
+
+    // 内容：列 0/1/4/5 的旧命令（列 4 含下划线）+ 列 2/3 的新命令。
+    QCOMPARE(contents.size(), 9);
+    QCOMPARE(contents[0].cellColumn, 0);
+    QCOMPARE(contents[1].cellColumn, 1);
+    QCOMPARE(contents[2].cellColumn, 2);
+    QCOMPARE(contents[2].atlasPage, 22);
+    QCOMPARE(contents[3].cellColumn, 2);
+    QCOMPARE(contents[3].atlasPage, 32);
+    QVERIFY(contents[3].colorGlyph);
+    QCOMPARE(contents[4].cellColumn, 3);
+    QCOMPARE(contents[5].cellColumn, 3);
+    QCOMPARE(contents[6].cellColumn, 4);
+    QCOMPARE(contents[6].atlasPage, 2);
+    QCOMPARE(contents[7].cellColumn, 4);
+    QCOMPARE(contents[7].atlasPage, 3);
+    QCOMPARE(contents[8].cellColumn, 5);
+
+    // 整行重建（replaceAll）：旧命令全部丢弃，只保留本次生成结果。
+    QVector<NovaTerm::RenderCommand> replacedBackgrounds;
+    QVector<NovaTerm::RenderCommand> replacedContents;
+    NovaTerm::mergeRowCommandsIncremental(
+        oldBackgrounds, oldContents, 6, {}, true,
+        [](int column, QVector<NovaTerm::RenderCommand>& outBackgrounds,
+           QVector<NovaTerm::RenderCommand>&) {
+            outBackgrounds.push_back(commandAtColumn(column, 40, false));
+        },
+        replacedBackgrounds, replacedContents);
+    QCOMPARE(replacedBackgrounds.size(), 6);
+    QVERIFY(replacedContents.isEmpty());
+    for (int column = 0; column < 6; ++column) {
+        QCOMPARE(replacedBackgrounds[column].cellColumn, column);
+        QCOMPARE(replacedBackgrounds[column].atlasPage, 40);
+    }
+
+    // 列宽之外的旧命令（缩窄终端后遗留）不能被静默丢弃。
+    QVector<NovaTerm::RenderCommand> wideBackgrounds;
+    QVector<NovaTerm::RenderCommand> wideContents;
+    NovaTerm::mergeRowCommandsIncremental(
+        oldBackgrounds, oldContents, 3, {{1, 2}}, false,
+        [](int, QVector<NovaTerm::RenderCommand>&,
+           QVector<NovaTerm::RenderCommand>&) {},
+        wideBackgrounds, wideContents);
+    // 6 条背景：行级 + 列 0/2（保留）+ 列 3/4/5（列宽之外，追加在末尾）。
+    QCOMPARE(wideBackgrounds.size(), 6);
+    QCOMPARE(wideBackgrounds[0].cellColumn, -1);
+    QCOMPARE(wideBackgrounds[1].cellColumn, 0);
+    QCOMPARE(wideBackgrounds[2].cellColumn, 2);
+    QCOMPARE(wideBackgrounds[3].cellColumn, 3);
+    QCOMPARE(wideBackgrounds[4].cellColumn, 4);
+    QCOMPARE(wideBackgrounds[5].cellColumn, 5);
+}
+
+void RendererP3Tests::mutableRowRebuildKeepsMetadataAndDropsOutOfRange()
+{
+    NovaTerm::RenderCommandBuffer buffer;
+    buffer.resize(2, 4);
+    const int rowsBefore = buffer.rows();
+
+    NovaTerm::RenderCommandRow& row = buffer.mutableRow(1);
+    row.backgrounds.push_back(commandAtColumn(0, 1, false));
+    buffer.finishRow(1, 42);
+    QCOMPARE(buffer.row(1).backgrounds.size(), 1);
+    QCOMPARE(buffer.row(1).atlasGeneration, quint64(42));
+
+    // 越界写入必须落到 scratch 并被丢弃，而不是扩容或崩溃。
+    NovaTerm::RenderCommandRow& outOfRange = buffer.mutableRow(rowsBefore + 5);
+    outOfRange.backgrounds.push_back(commandAtColumn(0, 7, false));
+    buffer.finishRow(rowsBefore + 5, 42);
+    QCOMPARE(buffer.rows(), rowsBefore);
+    QCOMPARE(buffer.row(1).backgrounds.size(), 1);
+    QCOMPARE(buffer.row(0).backgrounds.size(), 0);
+}
 
 void RendererP3Tests::schedulerMergesTouchingRegions()
 {

@@ -172,7 +172,8 @@ protected:
     void focusOutEvent(QFocusEvent* event) override;
     bool focusNextPrevChild(bool next) override;
 
-private:
+public:
+    /// GPU 顶点实例：背景与内容共用的 16 个 float 布局（64 字节）。
     struct GpuInstance
     {
         float left;
@@ -193,6 +194,35 @@ private:
         float reserved;
     };
 
+    /// 一个列区间装配出的实例数量（单位：instance）。
+    struct SpanInstances
+    {
+        int backgroundCount{0}; ///< 背景：每列 1 个
+        int contentCount{0};    ///< 内容：每列 4 个槽位
+    };
+
+    /**
+     * @brief 把一个列区间内的命令装配成 GpuInstance 序列（纯 CPU，可单测）。
+     *
+     * @param commands 该行命令；backgrounds/contents 必须按 cellColumn 升序
+     *                 （`rebuildCommandRow()` 的 stable_sort 保证）。
+     * @param startColumn 区间起始列（含）。
+     * @param endColumn 区间结束列（不含）；调用方已裁剪到 [0, columns]。
+     * @param slot 该行在 row slot 环中的槽位，写入实例的 rowSlot 字段。
+     * @param backgroundScratch 输出：长度 == endColumn-startColumn，每列恰好
+     *        一个实例；该列没有背景命令时写全零实例（退化为不绘制）。
+     * @param contentScratch 输出：长度 == (endColumn-startColumn)*4；未被命令
+     *        占用的槽位保持全零，避免顶点着色器画出上一帧的残留字形。
+     * @return 两份 scratch 中实际需要上传的实例数量。
+     * @note 只初始化本次上传范围：背景逐列直接覆盖（不预先填充整个区间），
+     *       内容只清零本区间的 4 槽位，不触碰保留 stride 的尾部。
+     */
+    [[nodiscard]] static SpanInstances assembleSpanInstances(
+        const NovaTerm::RenderCommandRow& commands, int startColumn,
+        int endColumn, int slot, QVector<GpuInstance>& backgroundScratch,
+        QVector<GpuInstance>& contentScratch);
+
+private:
     // ── 渲染辅助 ──────────────────────────────────────────────
     void recalculateCellSize();
     void resizeTerminalToViewport();
@@ -241,6 +271,15 @@ private:
     [[nodiscard]] static GpuInstance makeInstance(const QRectF& rect,
                                                   const QRectF& uvRect,
                                                   const QColor& color);
+    /**
+     * @brief 就地写入一条实例的几何与颜色字段。
+     * @param out 目标实例（其余字段由调用方按需覆盖）。
+     * @note  装配热路径专用：避免 `makeInstance()` 返回值再整体赋值带来的
+     *        第二次 64 字节写入，也避免逐元素 `QVector::operator[]` 的
+     *        detach 检查（调用方先取 `data()` 裸指针）。
+     */
+    static void fillInstance(GpuInstance& out, const QRectF& rect,
+                             const QRectF& uvRect, const QColor& color);
     void appendQuad(const QRectF& rect, const QRectF& uvRect,
                     const QColor& color, const QSize& pixelSize);
     NovaTerm::GlyphLocation ensureGlyph(const QString& text, bool bold,
@@ -349,6 +388,14 @@ private:
     qreal _atlasDpr{0.0};
     quint64 _frameNumber{0};
     QVector<GpuInstance> _instances;
+    // 背景/内容分别使用独立的 span scratch：容量跨帧复用（避免每个 span 重新
+    // 增长 QList），且两份数据可以分别按实际区间上传，互不干扰。
+    QVector<GpuInstance> _backgroundInstances;
+    QVector<GpuInstance> _contentInstances;
+    // 增量重建时暂存上一帧命令：与目标行向量 swap（只交换指针），使新命令可以
+    // 直接写进目标行并复用它已有的容量，同时保留旧命令作为"未脏列"的来源。
+    QVector<NovaTerm::RenderCommand> _oldBackgrounds;
+    QVector<NovaTerm::RenderCommand> _oldContents;
     NovaTerm::BufferBudget _bufferBudget;
     NovaTerm::RendererCapabilities _capabilities;
     NovaTerm::RowSlotMap _rowSlotMap;

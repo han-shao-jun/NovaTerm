@@ -112,7 +112,31 @@ const FontManager::CandidateSet& FontManager::candidateSet(bool bold,
 FontSelection FontManager::select(const QString& cluster, bool bold,
                                   bool italic) const
 {
-    // coverage 缓存键：cluster + 样式位。ASCII/CJK 等常见簇在稳态下命中，
+    ++_selectionQueries;
+    // ASCII 直连缓存：稳态绝大多数 Cell 是单个 ASCII 码点，直接按
+    // (码点, 样式位) 寻址即可命中，省掉 QString 键构造与 QHash 查找。
+    if (cluster.size() == 1) {
+        const char16_t unit = cluster.at(0).unicode();
+        if (unit < AsciiCacheCodepoints) {
+            const int style = (bold ? 1 : 0) | (italic ? 2 : 0);
+            AsciiCacheEntry& entry =
+                _asciiCache[std::size_t(unit) * 4 + std::size_t(style)];
+            if (entry.valid && entry.generation == _generation)
+                return entry.selection;
+            const FontSelection computed = selectUncached(cluster, bold, italic);
+            entry.selection = computed;
+            entry.generation = _generation;
+            entry.valid = true;
+            return computed;
+        }
+    }
+    return selectUncached(cluster, bold, italic);
+}
+
+FontSelection FontManager::selectUncached(const QString& cluster, bool bold,
+                                          bool italic) const
+{
+    // coverage 缓存键：cluster + 样式位。CJK 等常见簇在稳态下命中，
     // 完全跳过候选构造与 QRawFont 探测（P5 §5.2）。
     QString cacheKey = cluster;
     cacheKey += QChar(u'\x1');
@@ -129,6 +153,7 @@ FontSelection FontManager::select(const QString& cluster, bool bold,
     if (_selectionCache.size() >= MaxSelectionCacheEntries)
         _selectionCache.clear();
 
+    ++_selectionProbes;
     const CandidateSet& set = candidateSet(bold, italic);
     FontSelection result;
     bool found = false;
@@ -148,11 +173,11 @@ FontSelection FontManager::select(const QString& cluster, bool bold,
     return result;
 }
 
-GlyphKey FontManager::makeKey(const QString& cluster, bool bold, bool italic,
-                              int cellSpan, qreal effectiveScale,
-                              GlyphRenderMode mode) const
+GlyphKey FontManager::buildKey(const FontSelection& selection,
+                               const QString& cluster, int cellSpan,
+                               qreal effectiveScale,
+                               GlyphRenderMode mode) const
 {
-    const FontSelection selection = select(cluster, bold, italic);
     GlyphKey key;
     key.faceId = selection.faceId;
     key.fontGeneration = _generation;
@@ -170,6 +195,26 @@ GlyphKey FontManager::makeKey(const QString& cluster, bool bold, bool italic,
     key.format = mode == GlyphRenderMode::Color
         ? GlyphPixelFormat::Rgba8 : GlyphPixelFormat::Alpha8;
     return key;
+}
+
+GlyphKey FontManager::makeKey(const QString& cluster, bool bold, bool italic,
+                              int cellSpan, qreal effectiveScale,
+                              GlyphRenderMode mode) const
+{
+    return makeKeyAndSelection(cluster, bold, italic, cellSpan, effectiveScale,
+                               mode).key;
+}
+
+FontManager::GlyphKeySelection FontManager::makeKeyAndSelection(
+    const QString& cluster, bool bold, bool italic, int cellSpan,
+    qreal effectiveScale, GlyphRenderMode mode) const
+{
+    GlyphKeySelection result;
+    // 每次调用只做一次字体选择：渲染层在 cache miss 时复用同一 selection。
+    result.selection = select(cluster, bold, italic);
+    result.key = buildKey(result.selection, cluster, cellSpan, effectiveScale,
+                          mode);
+    return result;
 }
 
 } // namespace NovaTerm

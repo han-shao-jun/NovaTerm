@@ -72,6 +72,25 @@ public:
     const RenderCommandRow& row(int index) const;
 
     /**
+     * @brief 取得可写行，用于就地重建命令并复用目标向量的容量。
+     * @param index 行号。
+     * @return 该行的可写引用；越界时返回缓冲内部的空行（与 row() 的断言
+     *         不同，供重建路径在 resize 竞态下安全降级，写入即丢弃）。
+     * @note 返回的行仍是上一帧的命令。重建方应先把旧命令移出（swap 到自己的
+     *        scratch）再写入，避免边读边写同一个向量，同时把容量留给新帧。
+     */
+    RenderCommandRow& mutableRow(int index);
+
+    /**
+     * @brief 就地重建收尾：更新 atlas 代际并把行标记为新版本。
+     * @param index 行号；越界（例如 resize 竞态）时忽略。
+     * @param atlasGeneration 该行字形所基于的 atlas 代际。
+     * @note 命名命令数据由 mutableRow() 就地写入，本接口只负责元数据，
+     *       因此不会移动命令向量、也不会丢掉它们的容量。
+     */
+    void finishRow(int index, quint64 atlasGeneration = 0);
+
+    /**
      * @brief 替换指定行的渲染命令。
      * @param index 行号。
      * @param backgrounds 背景层命令。
@@ -105,7 +124,90 @@ private:
     int _columns{0};
     QVector<RenderCommandRow> _rowCommands;
     QVector<RenderCommand> _overlays;
+    RenderCommandRow _scratchRow; ///< mutableRow() 越界时的写入落点
     quint64 _revision{0};
 };
+
+/**
+ * @brief 按列增量重建一行的命令：保留未脏列的旧命令 + 脏列的新命令。
+ *
+ * @param oldBackgrounds 上一帧背景命令，必须按 cellColumn 升序。
+ * @param oldContents 上一帧内容命令，必须按 cellColumn 升序。
+ * @param columns 该行列数。
+ * @param dirtySpans 本次脏列区间（升序、已合并）；replaceAll 为 true 时忽略。
+ * @param replaceAll 为 true 表示整行重建，丢弃全部旧命令。
+ * @param generate 生成回调 `generate(column, backgrounds, contents)`，仅在列脏时
+ *        调用一次；把该列的新命令追加到两个输出向量（不得写入其他列）。
+ * @param outBackgrounds 输出背景序列；调用前应 clear() 以复用容量。
+ * @param outContents 输出内容序列；调用前应 clear() 以复用容量。
+ *
+ * @note 结果按 cellColumn 升序，同列时旧命令在前（与旧实现的 stable_sort 等价），
+ *       但只做一次 O(旧 + 新 + 列数) 的线性扫描：不需要排序、排序临时缓冲，
+ *       也不重复生成命令。cellColumn < 0 的行级命令始终保留并排在最前。
+ * @note 这是纯 CPU 模板函数，供 RendererP3Tests 直接验证增量合并语义。
+ */
+template <typename Generate>
+void mergeRowCommandsIncremental(
+    const QVector<RenderCommand>& oldBackgrounds,
+    const QVector<RenderCommand>& oldContents, int columns,
+    const QVector<DirtyColumnSpan>& dirtySpans, bool replaceAll,
+    Generate&& generate, QVector<RenderCommand>& outBackgrounds,
+    QVector<RenderCommand>& outContents)
+{
+    // 同列旧命令整组搬运；cursor 只前进不回退，故整体是线性扫描。
+    const auto appendColumn = [](const QVector<RenderCommand>& source,
+                                 qsizetype& cursor, int column,
+                                 QVector<RenderCommand>& target) {
+        while (cursor < source.size() && source[cursor].cellColumn < column)
+            ++cursor;
+        while (cursor < source.size() && source[cursor].cellColumn == column)
+            target.push_back(source[cursor++]);
+    };
+    const auto dropUpToColumn = [](const QVector<RenderCommand>& source,
+                                   qsizetype& cursor, int column) {
+        while (cursor < source.size() && source[cursor].cellColumn <= column)
+            ++cursor;
+    };
+
+    qsizetype backgroundCursor = 0;
+    qsizetype contentCursor = 0;
+    if (!replaceAll) {
+        // 行级命令（cellColumn < 0）不属于任何列，原样保留在最前。
+        while (backgroundCursor < oldBackgrounds.size()
+               && oldBackgrounds[backgroundCursor].cellColumn < 0)
+            outBackgrounds.push_back(oldBackgrounds[backgroundCursor++]);
+        while (contentCursor < oldContents.size()
+               && oldContents[contentCursor].cellColumn < 0)
+            outContents.push_back(oldContents[contentCursor++]);
+    }
+
+    qsizetype spanIndex = 0;
+    for (int column = 0; column < columns; ++column) {
+        while (spanIndex < dirtySpans.size()
+               && column >= dirtySpans[spanIndex].endColumn)
+            ++spanIndex;
+        const bool dirty = replaceAll
+            || (spanIndex < dirtySpans.size()
+                && column >= dirtySpans[spanIndex].startColumn
+                && column < dirtySpans[spanIndex].endColumn);
+        if (dirty) {
+            generate(column, outBackgrounds, outContents);
+            dropUpToColumn(oldBackgrounds, backgroundCursor, column);
+            dropUpToColumn(oldContents, contentCursor, column);
+            continue;
+        }
+        appendColumn(oldBackgrounds, backgroundCursor, column, outBackgrounds);
+        appendColumn(oldContents, contentCursor, column, outContents);
+    }
+
+    if (replaceAll)
+        return;
+    // 列宽之外的旧命令（例如终端缩窄后遗留）原样追加在末尾，避免静默丢失；
+    // 脏列的命令已被 dropUpToColumn 跳过，不会在这里复活。
+    while (backgroundCursor < oldBackgrounds.size())
+        outBackgrounds.push_back(oldBackgrounds[backgroundCursor++]);
+    while (contentCursor < oldContents.size())
+        outContents.push_back(oldContents[contentCursor++]);
+}
 
 } // namespace NovaTerm

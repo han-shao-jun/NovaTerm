@@ -1,3 +1,4 @@
+#include "core/terminal/TerminalCore.h"
 #include "renderer/font/FontManager.h"
 #include "renderer/HistoryLayout.h"
 #include "renderer/glyph/GlyphAtlas.h"
@@ -15,6 +16,7 @@
 
 #include <limits>
 #include <atomic>
+#include <vector>
 
 class RendererP5Tests final : public QObject
 {
@@ -49,6 +51,7 @@ private slots:
     void bufferOnlyGrowsAndRejectsOverBudget();
     void bufferReleaseRetainsPeakStatistics();
     void semanticHighlightRulesRespectPriorityAndCase();
+    void asciiSelectionUsesDirectCacheAndSingleQuery();
 };
 
 void RendererP5Tests::historyLogicalHeadPreservesIndices()
@@ -553,29 +556,35 @@ void RendererP5Tests::rowBlockDamageFindsOmittedStaleTail()
 {
     NovaTerm::RowBlockDamageTracker tracker;
     tracker.reset(1, 16);
-    QVector<NovaTerm::Cell> cells(16);
-    for (int column = 8; column < 16; ++column)
-        cells[column].chars[0] = uint32_t('x');
+    TerminalCore core(16, 1);
+    core.writeInput(QByteArrayLiteral("\x1b[1;9Hxxxxxxxx"));
+    QVERIFY(core.waitForIdle());
+    const std::vector<bool> dirty(1, true);
+    auto snapshot = core.rendererSnapshot(dirty, 0);
 
-    auto spans = tracker.reconcileRow(0, cells.constData(), cells.size(), {});
+    auto spans = tracker.reconcileRow(
+        0, snapshot.visibleRowBlockIdentities[0], 16, {});
     QCOMPARE(spans.size(), 1);
     QCOMPARE(spans[0].startColumn, 0);
     QCOMPARE(spans[0].endColumn, 16);
 
     // ConPTY only reports the rewritten prefix, while the final snapshot has
     // also cleared the old suffix. The tracker must append that omitted block.
-    for (int column = 8; column < 16; ++column)
-        cells[column] = NovaTerm::Cell{};
+    core.writeInput(QByteArrayLiteral("\x1b[1;9H\x1b[8X"));
+    QVERIFY(core.waitForIdle());
+    snapshot = core.rendererSnapshot(dirty, 0);
     spans = tracker.reconcileRow(
-        0, cells.constData(), cells.size(), {{0, 8}});
+        0, snapshot.visibleRowBlockIdentities[0], 16, {{0, 8}});
     QCOMPARE(spans.size(), 1);
     QCOMPARE(spans[0].startColumn, 0);
     QCOMPARE(spans[0].endColumn, 16);
 
     // Once synchronized, an ordinary prefix update remains block-local.
-    cells[0].chars[0] = uint32_t('y');
+    core.writeInput(QByteArrayLiteral("\x1b[1;1Hy"));
+    QVERIFY(core.waitForIdle());
+    snapshot = core.rendererSnapshot(dirty, 0);
     spans = tracker.reconcileRow(
-        0, cells.constData(), cells.size(), {{0, 8}});
+        0, snapshot.visibleRowBlockIdentities[0], 16, {{0, 8}});
     QCOMPARE(spans.size(), 1);
     QCOMPARE(spans[0].startColumn, 0);
     QCOMPARE(spans[0].endColumn, 8);
@@ -676,6 +685,54 @@ void RendererP5Tests::bufferReleaseRetainsPeakStatistics()
     QCOMPARE(budget.statistics().peakBytes, peak);
     QVERIFY(budget.capacityFor(512));
     QCOMPARE(budget.statistics().reallocations, quint64(2));
+}
+
+// ASCII 稳态路径：单码点簇走直连缓存，一次 makeKeyAndSelection 只查询一次字体
+// 选择；第二次同簇不再做 coverage 探测，font generation 变化后整体失效。
+// 该断言同时守住"ensureGlyph 不再重复 select"的契约：窄接口一次调用即返回
+// GlyphKey + FontSelection，miss 路径直接复用，渲染层不再有第二次选择。
+void RendererP5Tests::asciiSelectionUsesDirectCacheAndSingleQuery()
+{
+    QFont primary(QStringLiteral("monospace"));
+    primary.setPixelSize(16);
+    NovaTerm::FontManager manager(primary);
+
+    const quint64 queriesBefore = manager.selectionQueryCount();
+    const quint64 probesBefore = manager.selectionProbeCount();
+
+    const auto first = manager.makeKeyAndSelection(QStringLiteral("A"), false,
+                                                   false, 1, 1.0);
+    QCOMPARE(manager.selectionQueryCount() - queriesBefore, quint64(1));
+    QCOMPARE(manager.selectionProbeCount() - probesBefore, quint64(1));
+    QCOMPARE(first.key.cluster, QStringLiteral("A"));
+    QVERIFY(first.key.faceId != 0);
+
+    // 第二次：ASCII 直连缓存命中，只增加查询计数、不再探测候选字体。
+    const auto second = manager.makeKeyAndSelection(QStringLiteral("A"), false,
+                                                    false, 1, 1.0);
+    QCOMPARE(manager.selectionQueryCount() - queriesBefore, quint64(2));
+    QCOMPARE(manager.selectionProbeCount() - probesBefore, quint64(1));
+    QCOMPARE(second.key.faceId, first.key.faceId);
+
+    // 样式位属于缓存键：粗体是独立条目，需要各自探测一次。
+    (void)manager.makeKeyAndSelection(QStringLiteral("A"), true, false, 1, 1.0);
+    QCOMPARE(manager.selectionProbeCount() - probesBefore, quint64(2));
+
+    // 非 ASCII 簇仍走 QHash 缓存：第二次查询不再探测。
+    (void)manager.makeKeyAndSelection(QString::fromUtf8("中"), false, false, 2,
+                                      1.0);
+    const quint64 probesAfterWide =
+        manager.selectionProbeCount() - probesBefore;
+    (void)manager.makeKeyAndSelection(QString::fromUtf8("中"), false, false, 2,
+                                      1.0);
+    QCOMPARE(manager.selectionProbeCount() - probesBefore, probesAfterWide);
+
+    // font generation 变化后 ASCII 直连缓存整体失效，必须重新探测。
+    QFont other(primary);
+    other.setPixelSize(19);
+    manager.setPrimaryFont(other);
+    (void)manager.makeKeyAndSelection(QStringLiteral("A"), false, false, 1, 1.0);
+    QVERIFY(manager.selectionProbeCount() - probesBefore > probesAfterWide);
 }
 
 QTEST_MAIN(RendererP5Tests)
