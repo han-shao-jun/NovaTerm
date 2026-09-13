@@ -1069,6 +1069,62 @@ int vterm_screen_get_cell(const VTermScreen *screen, VTermPos pos, VTermScreenCe
   return 1;
 }
 
+/* NovaTerm 扩展：按行批量取出一段连续 Cell（见 vterm.h 说明）。
+ * 与 vterm_screen_get_cell 等价，但整行只解析一次行指针，宽字符宽度改用
+ * "右侧相邻格是延续标记"在单次左到右扫描中回填，省掉每格第二次 getcell。 */
+int vterm_screen_get_cells(const VTermScreen *screen, int row,
+                           int start_col, int end_col,
+                           VTermScreenCell *cells)
+{
+  if(row < 0 || row >= screen->rows)
+    return 0;
+  if(start_col < 0 || end_col > screen->cols || start_col >= end_col)
+    return 0;
+
+  for(int col = start_col; col < end_col; col++) {
+    ScreenCell *intcell = getcell(screen, row, col);
+    if(!intcell)
+      return 0;
+
+    VTermScreenCell *cell = &cells[col - start_col];
+
+    int i;
+    for(i = 0; i < VTERM_MAX_CHARS_PER_CELL; i++) {
+      cell->chars[i] = intcell->chars[i];
+      if(!intcell->chars[i])
+        break;
+    }
+    /* 调用方的缓冲可能跨行复用，未使用的字符槽必须清零，否则会残留上一格。 */
+    for(; i < VTERM_MAX_CHARS_PER_CELL; i++)
+      cell->chars[i] = 0;
+
+    cell->attrs.bold      = intcell->pen.bold;
+    cell->attrs.underline = intcell->pen.underline;
+    cell->attrs.italic    = intcell->pen.italic;
+    cell->attrs.blink     = intcell->pen.blink;
+    cell->attrs.reverse   = intcell->pen.reverse ^ screen->global_reverse;
+    cell->attrs.conceal   = intcell->pen.conceal;
+    cell->attrs.strike    = intcell->pen.strike;
+    cell->attrs.font      = intcell->pen.font;
+    cell->attrs.small_font = intcell->pen.small_font;
+    cell->attrs.baseline  = intcell->pen.baseline;
+
+    cell->attrs.dwl = intcell->pen.dwl;
+    cell->attrs.dhl = intcell->pen.dhl;
+
+    cell->fg = intcell->pen.fg;
+    cell->bg = intcell->pen.bg;
+
+    cell->width = 1;
+    /* 延续标记出现在宽字符右侧：见到标记就把前一格修正为 width = 2，
+     * 与逐格接口的 pos.col + 1 判定完全等价。 */
+    if(intcell->chars[0] == (uint32_t)-1 && col > start_col)
+      cells[col - start_col - 1].width = 2;
+  }
+
+  return end_col - start_col;
+}
+
 int vterm_screen_is_eol(const VTermScreen *screen, VTermPos pos)
 {
   /* This cell is EOL if this and every cell to the right is black */

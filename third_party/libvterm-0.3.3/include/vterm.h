@@ -601,6 +601,23 @@ int vterm_screen_get_attrs_extent(const VTermScreen *screen, VTermRect *extent, 
 
 int vterm_screen_get_cell(const VTermScreen *screen, VTermPos pos, VTermScreenCell *cell);
 
+/**
+ * NovaTerm 扩展：按行批量取出一段连续 Cell。
+ *
+ * 与逐格调用 vterm_screen_get_cell 语义一致（含宽字符 width 判定与未使用
+ * 字符槽清零），但整行只解析一次行指针，宽字符宽度由同一行的下一格直接
+ * 判定，供 VTAdapter 在 moverect/damage 回调里按行同步屏幕区域。
+ *
+ * @param row 行号。
+ * @param start_col 起始列（含）。
+ * @param end_col 结束列（不含）。
+ * @param cells 输出数组，长度至少 end_col - start_col。
+ * @return 写入的 Cell 数（== end_col - start_col）；越界时返回 0 且不写入。
+ */
+int vterm_screen_get_cells(const VTermScreen *screen, int row,
+                           int start_col, int end_col,
+                           VTermScreenCell *cells);
+
 int vterm_screen_is_eol(const VTermScreen *screen, VTermPos pos);
 
 /**
