@@ -114,6 +114,8 @@ SSH 资源监控另有不注册到 ctest 的
 拿不准某个文件被哪个测试覆盖，就看测试源码的 include。`tests/core`、
 `tests/renderer`、`tests/session`、`tests/transport`、`tests/ui` 五个目录，
 **一个 `.cpp` 对一个测试目标**，翻一眼就能确认。
+测试、人工检查与 benchmark 目标统一声明在 `tests/CMakeLists.txt`；根
+`CMakeLists.txt` 只负责启用 CTest 并通过 `add_subdirectory(tests)` 引入。
 
 #### 什么时候才跑全套
 
