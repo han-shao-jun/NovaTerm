@@ -6,8 +6,10 @@
 
 #include <ElaTabWidget.h>
 #include <QPoint>
+#include <QTimer>
 
 class ElaTabBar;
+class QEvent;
 
 /**
  * @brief 终端页面专用标签控件。
@@ -29,8 +31,22 @@ signals:
      */
     void editSessionRequested(int index);
 
+protected:
+    bool eventFilter(QObject* watched, QEvent* event) override;
+
 private:
     /** @brief 返回 ElaTabWidget 构造时安装的 Ela 标签栏。 */
     [[nodiscard]] ElaTabBar* elaTabBar() const noexcept;
+    /** @brief 返回坐标所在的有效标签标题；关闭按钮与空白区域返回 -1。 */
+    [[nodiscard]] int tabTitleAt(const QPoint& position) const;
+    /** @brief 为鼠标当前悬浮的标签重新安排延迟切换。 */
+    void scheduleHoverSwitch(const QPoint& position);
+    /** @brief 取消尚未触发的悬浮切换。 */
+    void cancelHoverSwitch();
     void showTabContextMenu(const QPoint& position);
+
+    QTimer _hoverSwitchTimer;
+    int _pendingHoverIndex{-1};
+
+    static constexpr int HoverSwitchDelayMs = 200;
 };
