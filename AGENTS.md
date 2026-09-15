@@ -406,6 +406,13 @@ flush，内部屏幕已移动并可能继续改写。本地源区域未必同步
 状态。必须分别处理 `SSH_AGAIN`、`SSH_EOF`、`SSH_ERROR` 与实际正数字节数。
 资源面板曾因此把只有 115 字节的正常 `df` 输出误报成超过 1 MiB。
 
+**SSH 主动断开必须自行发布一次 `disconnected`**：`disconnect()` 会清空连接
+标志并使旧输入/EOF 投递失效，不能再指望 worker 的 EOF 路径通知。清理完成后
+同步通知，重复断开不重复发；否则 Session 停在 Running，标签隐藏的连接动作
+不会恢复成重连按钮。Session 收到断开通知后还要恢复 Enter 重连入口。回归见
+`novaterm_ssh_transport_check` 的主动断开用例与
+`SessionTests::manualDisconnectKeepsTransportReconnectable`。
+
 **远端资源采集时机分两段，不要退回"连上就全查"**：连接建立后只采面板需要的
 量 —— 常驻通道（`startResourceMonitoring()`/`requestResourceSample()`）给
 CPU/内存/交换/网络，加低频 `df`（`slowCommand(includeFrequency=false)`）给磁盘

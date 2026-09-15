@@ -100,6 +100,7 @@ class SessionTests final : public QObject
     Q_OBJECT
 private slots:
     void lifecycleReachesRunningThenClosed();
+    void manualDisconnectKeepsTransportReconnectable_data();
     void manualDisconnectKeepsTransportReconnectable();
     void enterReconnectsBySessionType();
     void customSessionWithoutCapabilityDoesNotReconnect();
@@ -231,8 +232,16 @@ void SessionTests::lifecycleReachesRunningThenClosed()
     QVERIFY(states.size() >= 2);
 }
 
+void SessionTests::manualDisconnectKeepsTransportReconnectable_data()
+{
+    QTest::addColumn<bool>("useEnter");
+    QTest::newRow("button") << false;
+    QTest::newRow("enter") << true;
+}
+
 void SessionTests::manualDisconnectKeepsTransportReconnectable()
 {
+    QFETCH(bool, useEnter);
     RuntimeConfig config;
     config.transportKind = TransportKind::Ssh;
     TerminalSession session(config);
@@ -248,7 +257,15 @@ void SessionTests::manualDisconnectKeepsTransportReconnectable()
     QVERIFY(!transport->isConnected());
     QVERIFY(session.canReconnect());
 
-    QVERIFY(session.reconnect());
+    session.writeUserInput(QByteArrayLiteral("ignored-while-disconnected"));
+    QVERIFY(transport->writes.isEmpty());
+    if (useEnter) {
+        QKeyEvent enter(QEvent::KeyPress, Qt::Key_Return, Qt::NoModifier,
+                        QStringLiteral("\r"));
+        session.core()->processKeyPress(&enter);
+    } else {
+        QVERIFY(session.reconnect());
+    }
     QTRY_COMPARE(session.state(), SessionState::Running);
     QCOMPARE(transport->connectAttempts, 2);
     session.writeUserInput(QByteArrayLiteral("input-after-reconnect"));

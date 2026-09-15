@@ -148,7 +148,7 @@ void SshTransport::disconnect()
         _keyWait.wakeAll();
     }
 
-    _connected.store(false);
+    const bool wasConnected = _connected.exchange(false);
     {
         QMutexLocker lock(&_inboundMutex);
         ++_inboundGeneration;
@@ -191,6 +191,11 @@ void SshTransport::disconnect()
         _writeQueue.clear();
         _pendingWriteBytes.store(0, std::memory_order_release);
     }
+
+    // 主动断开使旧的输入/EOF 投递失效，必须在清理完成后自行通知一次。
+    // 同步发布可让 Session 及时进入 Failed，且不会迟到下一代连接。
+    if (wasConnected)
+        emit disconnected();
 }
 
 void SshTransport::write(const QByteArray& data)

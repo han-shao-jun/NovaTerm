@@ -256,6 +256,9 @@ void TerminalSession::connectTransportSignals(ITransport* transport,
                 if (_ownership == Ownership::Adopt)
                     transport->deleteLater();
             } else if (_state != SessionState::Closed) {
+                // 主动断开期间暂禁输入；完成后恢复 Failed 状态的 Enter
+                // 重连入口，普通输入仍由状态与 isConnected() 检查拦截。
+                _acceptsUserInput = true;
                 transition(SessionState::Failed);
             }
             emit disconnected(transport);

@@ -92,6 +92,16 @@ tooltip 和无障碍文本。
 超长标题右侧省略并保留完整 Tooltip。Session 单测覆盖断开→Failed→重连→输入恢复，
 UI 回归覆盖按钮状态、目标标签、紧凑宽度和 Tooltip。
 
+同日补充：修复 SSH 主动断开后连接动作一直隐藏的问题。此前 `disconnect()`
+清空连接标志并使旧 EOF 投递失效，却没有发布断开通知，导致 Session 停在
+Running。现清理结束后同步发布一次 `disconnected`，Session 进入 Failed，
+标签显示重连；同时恢复断开后的 Enter 重连入口。SSH 回归覆盖主动断开通知、
+重复断开及旧输入/EOF 不影响下一代连接，Session 回归覆盖按钮和 Enter 两种
+重连入口及重连后的输入恢复；无需连接真实 SSH 服务器。
+验证：Windows / Qt 6.8.3 / MSVC Release 构建通过，
+`novaterm_ssh_transport_check`、`novaterm_session_tests`、
+`novaterm_ui_dialog_layout_tests` 三项通过；未连接真实服务器做人工验收。
+
 同日修复 Ela 标签拖出浮窗在 Windows 上偶发无法最大化、无法关闭的问题。
 拖拽期间浮窗会临时启用 `Qt::WindowTransparentForInput`；`QDrag::exec()` 的嵌套
 事件循环可能替换浮窗或重建原生句柄，旧实现只清一次 Qt 标志，最终窗口会残留

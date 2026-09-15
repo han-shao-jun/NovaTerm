@@ -1770,224 +1770,224 @@ Built with:
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="204"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="209"/>
         <source>SSH write queue exceeded its 1 MiB limit.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="283"/>
-        <location filename="../../src/transport/SshTransport.cpp" line="940"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="288"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="945"/>
         <source>Remote command cancelled.</source>
         <translation>Remote command cancelled.</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="467"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="472"/>
         <source>Failed to create SSH session.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="494"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="499"/>
         <source>SSH connection to %1:%2 failed: %3</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="506"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="511"/>
         <source>Failed to retrieve the server host key: %1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="516"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="521"/>
         <source>Cannot read known_hosts file %1: %2</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="570"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="575"/>
         <source>Host key verification failed; connection aborted.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="580"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="585"/>
         <source>Failed to store the host key: %1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="603"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="608"/>
         <source>Failed to load private key %1: %2</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="614"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="619"/>
         <source>Public key authentication failed for %1@%2: %3</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="627"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="632"/>
         <source>Password authentication failed for %1@%2: %3</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="640"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="645"/>
         <source>Failed to open SSH channel: %1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="656"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="661"/>
         <source>Failed to start remote shell: %1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="668"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="673"/>
         <source>Failed to create SSH event loop.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="815"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="820"/>
         <source>Resource monitor receive buffer exceeded 256 KiB.</source>
         <translation>Resource monitor receive buffer exceeded 256 KiB.</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="817"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="822"/>
         <source>Resource monitor line exceeded 16 KiB.</source>
         <translation>Resource monitor line exceeded 16 KiB.</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="819"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="824"/>
         <source>Resource monitor returned an invalid frame header.</source>
         <translation>Resource monitor returned an invalid frame header.</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="821"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="826"/>
         <source>Resource monitor frame header was missing.</source>
         <translation>Resource monitor frame header was missing.</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="823"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="828"/>
         <source>Resource monitor returned overlapping frames.</source>
         <translation>Resource monitor returned overlapping frames.</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="825"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="830"/>
         <source>Resource monitor frame identifiers did not match.</source>
         <translation>Resource monitor frame identifiers did not match.</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="827"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="832"/>
         <source>Resource monitor frame exceeded 256 entries.</source>
         <translation>Resource monitor frame exceeded 256 entries.</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="829"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="834"/>
         <source>Resource monitor frame exceeded 128 KiB.</source>
         <translation>Resource monitor frame exceeded 128 KiB.</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="879"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="884"/>
         <source>SSH channel read error: %1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="920"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="925"/>
         <source>SSH channel write failed: %1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="960"/>
-        <location filename="../../src/transport/SshTransport.cpp" line="991"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="965"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="996"/>
         <source>Failed to execute remote command: %1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="967"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="972"/>
         <source>Failed to monitor remote command completion: %1</source>
         <translation>Failed to monitor remote command completion: %1</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="982"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="987"/>
         <source>Failed to open remote command channel: %1</source>
         <translation>Failed to open remote command channel: %1</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="1043"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="1048"/>
         <source>Remote command read failed: %1</source>
         <translation>Remote command read failed: %1</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="1046"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="1051"/>
         <source>Remote command output exceeded 1 MiB.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="1052"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="1057"/>
         <source>Remote command exited with status %1.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="1055"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="1060"/>
         <source>Remote command closed without an exit status.</source>
         <translation>Remote command closed without an exit status.</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="1057"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="1062"/>
         <source>Remote command timed out.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="1083"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="1088"/>
         <source>Failed to create the resource monitor channel: %1</source>
         <translation>Failed to create the resource monitor channel: %1</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="1098"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="1103"/>
         <source>Failed to open the resource monitor channel: %1</source>
         <translation>Failed to open the resource monitor channel: %1</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="1112"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="1117"/>
         <source>Failed to start the resource monitor: %1</source>
         <translation>Failed to start the resource monitor: %1</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="1121"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="1126"/>
         <source>Resource monitor channel setup timed out.</source>
         <translation>Resource monitor channel setup timed out.</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="1140"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="1145"/>
         <source>Failed to write a resource sample request: %1</source>
         <translation>Failed to write a resource sample request: %1</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="1183"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="1188"/>
         <source>Resource monitor returned an unexpected frame.</source>
         <translation>Resource monitor returned an unexpected frame.</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="1196"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="1201"/>
         <source>Resource monitor output was invalid or exceeded its limit.</source>
         <translation>Resource monitor output was invalid or exceeded its limit.</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="1200"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="1205"/>
         <source>Resource monitor channel closed unexpectedly.</source>
         <translation>Resource monitor channel closed unexpectedly.</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="1201"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="1206"/>
         <source>Resource monitor failed: %1</source>
         <translation>Resource monitor failed: %1</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="1205"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="1210"/>
         <source>Resource sample timed out.</source>
         <translation>Resource sample timed out.</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="1220"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="1225"/>
         <source>Failed to resize the remote PTY: %1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="1267"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="1272"/>
         <source>SSH connection closed before the command completed.</source>
         <translation type="unfinished"></translation>
     </message>

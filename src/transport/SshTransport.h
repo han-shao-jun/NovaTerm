@@ -60,6 +60,10 @@ public:
     ~SshTransport() override;
 
     bool connectToHost() override;
+    /**
+     * @brief 回收当前连接；若原先已连接，清理结束时同步发出一次 disconnected。
+     * @note 重复断开不重复通知，旧输入/EOF 投递在返回前失效。
+     */
     void disconnect() override;
     void write(const QByteArray& data) override;
     void resizeTerminal(int cols, int rows) override;

@@ -3,6 +3,7 @@
 // 不依赖真实 SSH 服务器，验证最容易出错的部分：
 //   • 无效配置 → connectToHost() 同步失败并给出 errorString；
 //   • 连接被拒（127.0.0.1:1）→ 异步 errorOccurred 且线程正常回收、不崩溃。
+//   • 主动断开已连接链路 → 清理后仅通知一次，旧输入/EOF 不影响下一代连接。
 //
 // 运行：build/bin/novaterm_ssh_transport_check.exe
 #include "transport/SshWorkerWakeup.h"
@@ -29,6 +30,8 @@
 class SshTransportTestAccess
 {
 public:
+    static void markConnected(SshTransport& transport)
+    { transport._connected.store(true); }
     static void knownHosts(SshTransport& transport, const QString& path)
     { transport._knownHostsPath = path; }
     static void append(SshTransport& transport, const QByteArray& bytes)
@@ -409,6 +412,48 @@ int main(int argc, char** argv)
         transport.disconnect();
         QCoreApplication::sendPostedEvents(&transport, QEvent::MetaCall);
         if (received != qint64(mib) * 1024 * 1024)
+            ++failures;
+    }
+
+    // 主动断开必须通知 Session，否则标签一直停在隐藏连接动作的状态。
+    for (const bool pendingEof : {false, true}) {
+        SshTransport transport(SshConfig{});
+        int disconnects = 0;
+        int deliveries = 0;
+        QObject::connect(&transport, &SshTransport::disconnected, [&] {
+            ++disconnects;
+            if (transport.isConnected()
+                || transport.inboundStatistics().pendingBytes != 0) {
+                ++failures;
+            }
+        });
+        QObject::connect(&transport, &SshTransport::readyRead,
+                         [&](const QByteArray&) { ++deliveries; });
+        transport.disconnect();
+        if (disconnects != 0)
+            ++failures;
+
+        SshTransportTestAccess::markConnected(transport);
+        SshTransportTestAccess::append(transport, QByteArrayLiteral("stale"));
+        if (pendingEof)
+            SshTransportTestAccess::close(transport);
+        transport.disconnect();
+        if (disconnects != 1 || transport.isConnected()) {
+            std::printf("FAIL: manual SSH disconnect notifications=%d eof=%d\n",
+                        disconnects, int(pendingEof));
+            ++failures;
+        }
+        transport.disconnect();
+        if (disconnects != 1)
+            ++failures;
+
+        // 模拟下一代已连接；处理旧投递不得再次断开或泄漏旧字节。
+        SshTransportTestAccess::markConnected(transport);
+        QCoreApplication::sendPostedEvents(&transport, QEvent::MetaCall);
+        if (!transport.isConnected() || disconnects != 1 || deliveries != 0)
+            ++failures;
+        transport.disconnect();
+        if (disconnects != 2)
             ++failures;
     }
 
