@@ -100,6 +100,7 @@ class SessionTests final : public QObject
     Q_OBJECT
 private slots:
     void lifecycleReachesRunningThenClosed();
+    void manualDisconnectKeepsTransportReconnectable();
     void enterReconnectsBySessionType();
     void customSessionWithoutCapabilityDoesNotReconnect();
     void runtimeConfigIsSnapshot();
@@ -228,6 +229,30 @@ void SessionTests::lifecycleReachesRunningThenClosed()
     session.close(CloseMode::Graceful);
     QTRY_COMPARE(session.state(), SessionState::Closed);
     QVERIFY(states.size() >= 2);
+}
+
+void SessionTests::manualDisconnectKeepsTransportReconnectable()
+{
+    RuntimeConfig config;
+    config.transportKind = TransportKind::Ssh;
+    TerminalSession session(config);
+    auto* transport = new FakeTransport;
+    session.attach(transport, TerminalSession::Ownership::Adopt,
+                   TransportKind::Ssh);
+
+    QVERIFY(session.start());
+    QTRY_COMPARE(session.state(), SessionState::Running);
+    QVERIFY(session.disconnectForReconnect());
+    QCOMPARE(session.state(), SessionState::Failed);
+    QCOMPARE(session.transport(), transport);
+    QVERIFY(!transport->isConnected());
+    QVERIFY(session.canReconnect());
+
+    QVERIFY(session.reconnect());
+    QTRY_COMPARE(session.state(), SessionState::Running);
+    QCOMPARE(transport->connectAttempts, 2);
+    session.writeUserInput(QByteArrayLiteral("input-after-reconnect"));
+    QCOMPARE(transport->writes, QByteArrayLiteral("input-after-reconnect"));
 }
 
 void SessionTests::enterReconnectsBySessionType()

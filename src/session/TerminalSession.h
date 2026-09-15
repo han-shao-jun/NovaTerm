@@ -114,6 +114,13 @@ public:
     void close(CloseMode mode = CloseMode::Graceful);
 
     /**
+     * @brief 主动断开当前传输，但保留附加关系供后续重连。
+     * @return 仅 Running、传输已连接且支持重连时返回 true。
+     * @note 与 close() 不同，本操作不会进入 Closing/Closed，也不会销毁 Transport。
+     */
+    [[nodiscard]] bool disconnectForReconnect();
+
+    /**
      * @brief 重连（Running/Failed 状态可调用）。
      * @return true 表示已请求重连；状态不合法返回 false。
      */

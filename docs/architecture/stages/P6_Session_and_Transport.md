@@ -84,6 +84,14 @@ tooltip 和无障碍文本。
 专用控件只负责标签命中和菜单，不持有 Session/Transport；配置快照由
 `TerminalPage` 随标签生命周期清理，敏感凭据不写入持久化或日志。
 
+2026-09-15：终端标签增加单一连接动作按钮，位于关闭按钮左侧。Running 状态显示
+断开，Failed 且 `canReconnect()` 时显示重连，其他过渡态隐藏；按钮绑定标签页对象，
+拖动换位后不依赖旧索引。`TerminalSession::disconnectForReconnect()` 主动断开但
+保留 Transport，断开完成后继续复用既有 `reconnect()`；重连入口恢复用户输入，
+避免出现“连接成功但键盘无响应”。标签宽度按当前字体容纳 `192.168.10.100`，
+超长标题右侧省略并保留完整 Tooltip。Session 单测覆盖断开→Failed→重连→输入恢复，
+UI 回归覆盖按钮状态、目标标签、紧凑宽度和 Tooltip。
+
 同日修复 Ela 标签拖出浮窗在 Windows 上偶发无法最大化、无法关闭的问题。
 拖拽期间浮窗会临时启用 `Qt::WindowTransparentForInput`；`QDrag::exec()` 的嵌套
 事件循环可能替换浮窗或重建原生句柄，旧实现只清一次 Qt 标志，最终窗口会残留

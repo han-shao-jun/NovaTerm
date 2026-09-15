@@ -129,6 +129,26 @@ TerminalPage::TerminalPage(QWidget* parent) : QWidget(parent)
                                       snapshot->secret);
         }
     });
+    connect(_tabWidget, &TerminalTabWidget::disconnectRequested,
+            this, [this](QWidget* page) {
+        auto* const terminalView = qobject_cast<TerminalView*>(page);
+        if (!terminalView || !terminalView->session())
+            return;
+        _tabWidget->setTabConnectionAction(
+            page, TerminalTabWidget::ConnectionAction::Hidden);
+        if (!terminalView->session()->disconnectForReconnect())
+            updateTerminalTabConnectionAction(terminalView);
+    });
+    connect(_tabWidget, &TerminalTabWidget::reconnectRequested,
+            this, [this](QWidget* page) {
+        auto* const terminalView = qobject_cast<TerminalView*>(page);
+        if (!terminalView || !terminalView->session())
+            return;
+        _tabWidget->setTabConnectionAction(
+            page, TerminalTabWidget::ConnectionAction::Hidden);
+        if (!terminalView->session()->reconnect())
+            updateTerminalTabConnectionAction(terminalView);
+    });
 
     // 窗口标题只在此处经 tr() 设置，构造期不再单独赋值，避免两份文案漂移。
     retranslateUi();
@@ -297,6 +317,37 @@ void TerminalPage::registerTerminalView(TerminalView* terminalView)
         if (terminalView == currentConnectedSshTerminal())
             emit currentSshTerminalPathLookupFailed();
     });
+    TerminalSession* const session = terminalView->session();
+    connect(session, &TerminalSession::stateChanged, this,
+            [this, terminalView](SessionState) {
+        updateTerminalTabConnectionAction(terminalView);
+    });
+    connect(session, &TerminalSession::connected, this,
+            [this, terminalView](ITransport*) {
+        updateTerminalTabConnectionAction(terminalView);
+    });
+    connect(session, &TerminalSession::disconnected, this,
+            [this, terminalView](ITransport*) {
+        updateTerminalTabConnectionAction(terminalView);
+    });
+}
+
+void TerminalPage::updateTerminalTabConnectionAction(
+    TerminalView* terminalView)
+{
+    if (!terminalView || _tabWidget->indexOf(terminalView) < 0)
+        return;
+    TerminalSession* const session = terminalView->session();
+    ITransport* const transport = session ? session->transport() : nullptr;
+    auto action = TerminalTabWidget::ConnectionAction::Hidden;
+    if (session && transport && session->state() == SessionState::Running
+        && transport->isConnected() && session->canReconnect()) {
+        action = TerminalTabWidget::ConnectionAction::Disconnect;
+    } else if (session && transport && session->state() == SessionState::Failed
+               && !transport->isConnected() && session->canReconnect()) {
+        action = TerminalTabWidget::ConnectionAction::Reconnect;
+    }
+    _tabWidget->setTabConnectionAction(terminalView, action);
 }
 
 void TerminalPage::restartTerminalWhenClosed(

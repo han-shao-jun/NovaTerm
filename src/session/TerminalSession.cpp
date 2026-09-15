@@ -339,6 +339,20 @@ void TerminalSession::close(CloseMode mode)
     }
 }
 
+bool TerminalSession::disconnectForReconnect()
+{
+    if (!_transport || _state != SessionState::Running
+        || !_transport->isConnected() || !canReconnect()) {
+        return false;
+    }
+
+    // disconnected 信号会停止输入泵并把状态推进到 Failed；保留 Transport，
+    // 使按钮或 Enter 能继续走既有 reconnect() 路径。
+    _acceptsUserInput = false;
+    _transport->disconnect();
+    return true;
+}
+
 bool TerminalSession::reconnect()
 {
     if (!canReconnect())
@@ -397,6 +411,7 @@ bool TerminalSession::beginReconnect()
     ++_statistics.reconnectCount;
     ++_statistics.generation;
     rewireTransportSignals();
+    _acceptsUserInput = true;
     startPump();
     if (_transport->connectAsync())
         return true;

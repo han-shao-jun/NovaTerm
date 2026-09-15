@@ -1,6 +1,6 @@
 /**
  * @file SystemInformationDialogLayoutTests.cpp
- * @brief UI 对话框的 Ela 控件与滚动范围回归检查。
+ * @brief 终端标签及 UI 对话框的 Ela 控件与布局回归检查。
  *
  * 背景：卡片里的文字标签开了 word-wrap，`QLabel` 对换行文本的
  * `minimumSizeHint()` 按极窄宽度估算，会把内容布局的最小高度抬到远超实际内容；
@@ -14,6 +14,7 @@
  * 断言只依赖上述关系、不依赖绝对像素，因此与字体度量、平台无关。
  * 同时检查系统信息窗口使用 ElaScrollArea 且保留可见滚动条，以及 SSH 主机密钥
  * 对话框使用 Ela 控件并正确展开变更主机的端点标题。
+ * 终端标签检查右侧合并连接动作、动态紧凑宽度、完整 Tooltip 与过渡态隐藏。
  * 另外回归"点系统信息窗口关闭按钮崩溃"：该对话框带 `WA_DeleteOnClose`，
  * ElaAppBar 的关闭按钮处理会 `close()` 后 `processEvents()` 再碰
  * `windowHandle()`，对象此时已被析构（use-after-free）。
@@ -21,15 +22,18 @@
  */
 #include "ui/widgets/SystemInformationDialog.h"
 #include "ui/widgets/SshHostKeyDialog.h"
+#include "ui/widgets/TerminalTabWidget.h"
 
 #include "ElaDialog.h"
 #include "ElaIconButton.h"
 #include "ElaPushButton.h"
 #include "ElaScrollArea.h"
 #include "ElaScrollPageArea.h"
+#include "ElaTabBar.h"
 #include "ElaText.h"
 
 #include <QApplication>
+#include <QFontMetrics>
 #include <QPointer>
 #include <QScrollBar>
 #include <cstdio>
@@ -39,6 +43,83 @@
 #include <cstdlib>
 
 namespace {
+
+int verifyTerminalTabConnectionAction()
+{
+    TerminalTabWidget tabs;
+    tabs.setTabsClosable(true);
+    auto* page = new QWidget;
+    const QString fullTitle = QStringLiteral(
+        "192.168.10.100 — production-terminal-with-a-long-name");
+    const int index = tabs.addTab(page, fullTitle);
+    tabs.setTabConnectionAction(
+        page, TerminalTabWidget::ConnectionAction::Disconnect);
+
+    auto* const bar = tabs.findChild<ElaTabBar*>();
+    QWidget* const rightSide = bar
+        ? bar->tabButton(index, QTabBar::RightSide) : nullptr;
+    const auto buttons = rightSide
+        ? rightSide->findChildren<ElaIconButton*>()
+        : QList<ElaIconButton*>{};
+    QList<ElaIconButton*> actionButtons;
+    for (auto* button : buttons) {
+        if (button->property("novatermConnectionActionButton").toBool())
+            actionButtons.append(button);
+    }
+    int failures = 0;
+    if (!bar || !rightSide || actionButtons.size() != 1) {
+        std::fprintf(stderr,
+                     "FAIL: terminal tab has no combined connection action\n");
+        return 1;
+    }
+
+    auto* const actionButton = actionButtons.constFirst();
+    if (actionButton->size() != QSize(22, 22)
+        || actionButton->getAwesome() != ElaIconType::PowerOff) {
+        std::fprintf(stderr,
+                     "FAIL: connected terminal action is not 22px disconnect\n");
+        ++failures;
+    }
+    const int expectedWidth = QFontMetrics(bar->font()).horizontalAdvance(
+        QStringLiteral("192.168.10.100")) + 70;
+    if (tabs.tabToolTip(index) != fullTitle
+        || tabs.getTabSize().width() != expectedWidth) {
+        std::fprintf(stderr,
+                     "FAIL: compact terminal tab tooltip=%d width=%d expected=%d\n",
+                     tabs.tabToolTip(index) == fullTitle,
+                     tabs.getTabSize().width(), expectedWidth);
+        ++failures;
+    }
+
+    bool disconnectRequested = false;
+    QObject::connect(&tabs, &TerminalTabWidget::disconnectRequested,
+                     &tabs, [&disconnectRequested, page](QWidget* target) {
+        disconnectRequested = target == page;
+    });
+    actionButton->click();
+    if (!disconnectRequested) {
+        std::fprintf(stderr, "FAIL: disconnect action targets wrong tab\n");
+        ++failures;
+    }
+
+    tabs.setTabConnectionAction(
+        page, TerminalTabWidget::ConnectionAction::Hidden);
+    if (!actionButton->isHidden()) {
+        std::fprintf(stderr, "FAIL: transitional terminal action is visible\n");
+        ++failures;
+    }
+    tabs.setTabConnectionAction(
+        page, TerminalTabWidget::ConnectionAction::Reconnect);
+    if (actionButton->isHidden()
+        || actionButton->getAwesome() != ElaIconType::ArrowRotateRight) {
+        std::fprintf(stderr,
+                     "FAIL: reconnect visible=%d hidden=%d icon=%d\n",
+                     actionButton->isVisible(), actionButton->isHidden(),
+                     static_cast<int>(actionButton->getAwesome()));
+        ++failures;
+    }
+    return failures;
+}
 
 int verifyHostKeyDialogUsesElaWidgets()
 {
@@ -193,7 +274,8 @@ QByteArray samplePayload()
 int main(int argc, char** argv)
 {
     QApplication app(argc, argv);
-    int failures = verifyAppBarCloseButtonClosesDialogSafely();
+    int failures = verifyTerminalTabConnectionAction();
+    failures += verifyAppBarCloseButtonClosesDialogSafely();
     failures += verifyHostKeyDialogUsesElaWidgets();
     failures += verifyChangedHostTitleContainsEndpoint();
 

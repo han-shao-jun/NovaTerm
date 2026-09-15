@@ -99,6 +99,8 @@ private:
 
     void retranslateUi();
     void emitCurrentSessionContext();
+    /** 按会话状态刷新指定终端标签的断开/重连动作。 */
+    void updateTerminalTabConnectionAction(TerminalView* terminalView);
     [[nodiscard]] TerminalView* currentConnectedSshTerminal() const;
     void registerTerminalView(TerminalView* terminalView);
     void restartTerminalWhenClosed(TerminalView* terminalView,

@@ -95,7 +95,7 @@ ctest --test-dir build -C Debug
 | `src/transport/SshTransport`、`SshMonitorProtocol` | `novaterm_ssh_transport_check`（失败路径 + 监控帧协议） | `ssh` | <1s |
 | `src/transport/TelnetTransport` | `novaterm_telnet_transport_tests` | `telnet` | ~5s |
 | TerminalSession + TerminalRenderer + LocalShellTransport 的联通路径 | `novaterm_terminal_session_tests` | `terminal-session` | ~46s |
-| `src/ui/widgets/SystemInformationDialog` 的滚动范围/布局与 app bar 关闭按钮、`SshHostKeyDialog` 的 Ela 控件与端点标题 | `novaterm_ui_dialog_layout_tests` | `ui` | <1s |
+| `TerminalTabWidget` 的连接动作/紧凑标题、`SystemInformationDialog` 的滚动范围/布局与 app bar 关闭按钮、`SshHostKeyDialog` 的 Ela 控件与端点标题 | `novaterm_ui_dialog_layout_tests` | `ui` | <1s |
 | `src/ui/`、`src/platform/`、`src/service/` | **无覆盖测试** —— 编译通过 + 实跑程序看效果即可（`KeyMapper` 已移出此列，现由 `novaterm_core_tests` 覆盖） | — | — |
 
 SSH 资源监控另有不注册到 ctest 的
@@ -116,9 +116,10 @@ SSH 资源监控另有不注册到 ctest 的
 
 上表 UI 覆盖的例外有两处：`TerminalView` 启动、尺寸传递与生命周期已由
 `novaterm_terminal_session_tests` 的 `TerminalSessionSmokeTests.cpp` 覆盖；
-系统信息对话框的滚动范围、app bar 关闭按钮与 SSH 主机密钥对话框由
+终端标签动作、系统信息对话框的滚动范围/app bar 关闭按钮与 SSH 主机密钥对话框由
 `novaterm_ui_dialog_layout_tests` 覆盖（offscreen 运行）；前者断言
-"内容高度 == max(视口, heightForWidth)"与"滚到底内容底边贴视口底"，防
+连接动作/紧凑标题，系统信息断言"内容高度 == max(视口, heightForWidth)"与
+"滚到底内容底边贴视口底"，防
 "能滚进空白页"回归，后者断言 Ela 控件类型与变更主机端点标题。关闭按钮那条
 用 `mallopt(M_PERTURB)` 污染已释放内存，让"关窗后仍访问已析构窗口"的
 use-after-free 稳定复现（否则释放内存内容未变，可能碰巧不崩）。这类改动应跑

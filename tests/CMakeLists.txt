@@ -466,10 +466,12 @@ if(BUILD_TESTING)
             PRIVATE ws2_32 crypt32 user32 advapi32)
     endif()
 
-    # UI 对话框回归：系统信息滚动范围，以及 SSH 主机密钥对话框的 Ela 控件与
-    # 端点标题。仅需 Qt Widgets + offscreen。
+    # UI 回归：终端标签动作/紧凑标题、系统信息滚动范围，以及 SSH 主机密钥
+    # 对话框的 Ela 控件与端点标题。仅需 Qt Widgets + offscreen。
     add_executable(novaterm_ui_dialog_layout_tests
         ${CMAKE_CURRENT_SOURCE_DIR}/ui/SystemInformationDialogLayoutTests.cpp
+        ${PROJECT_SOURCE_DIR}/src/ui/widgets/TerminalTabWidget.cpp
+        ${PROJECT_SOURCE_DIR}/src/ui/widgets/TerminalTabWidget.h
         ${PROJECT_SOURCE_DIR}/src/ui/widgets/SshHostKeyDialog.cpp
         ${PROJECT_SOURCE_DIR}/src/ui/widgets/SshHostKeyDialog.h
         ${PROJECT_SOURCE_DIR}/src/ui/widgets/SystemInformationDialog.cpp

@@ -2381,13 +2381,13 @@ Built with:
 <context>
     <name>TerminalPage</name>
     <message>
-        <location filename="../../src/ui/pages/TerminalPage.cpp" line="139"/>
+        <location filename="../../src/ui/pages/TerminalPage.cpp" line="159"/>
         <source>Terminal</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/TerminalPage.cpp" line="239"/>
-        <location filename="../../src/ui/pages/TerminalPage.cpp" line="337"/>
+        <location filename="../../src/ui/pages/TerminalPage.cpp" line="259"/>
+        <location filename="../../src/ui/pages/TerminalPage.cpp" line="388"/>
         <source>Terminal %1</source>
         <translation type="unfinished"></translation>
     </message>
@@ -2395,7 +2395,25 @@ Built with:
 <context>
     <name>TerminalTabWidget</name>
     <message>
-        <location filename="../../src/ui/widgets/TerminalTabWidget.cpp" line="43"/>
+        <location filename="../../src/ui/widgets/TerminalTabWidget.cpp" line="144"/>
+        <location filename="../../src/ui/widgets/TerminalTabWidget.cpp" line="145"/>
+        <location filename="../../src/ui/widgets/TerminalTabWidget.cpp" line="225"/>
+        <location filename="../../src/ui/widgets/TerminalTabWidget.cpp" line="226"/>
+        <source>Close terminal</source>
+        <translation>Close terminal</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/TerminalTabWidget.cpp" line="203"/>
+        <source>Disconnect</source>
+        <translation>Disconnect</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/TerminalTabWidget.cpp" line="203"/>
+        <source>Reconnect</source>
+        <translation>Reconnect</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/TerminalTabWidget.cpp" line="275"/>
         <source>Edit</source>
         <translation>Edit</translation>
     </message>
