@@ -6,13 +6,84 @@
 > | --- | --- |
 > | `ConfigManager` | `src/service/ConfigManager.*` —— 已落地 |
 > | `ProfileManager` | 无此类；对应 `src/profile/ProfileStore.*`，且目前只有 `MemoryProfileStore`，无持久化实现 |
-> | `ThemeManager` | 无此类；UI 主题由 ElaWidgetTools 与 `ConfigManager` 承担，终端配色在 `src/renderer/TerminalColorScheme.*` |
+> | `ThemeManager` | 无此类；UI 主题由 ElaWidgetTools 与 `ConfigManager` 承担；`TerminalSchemeStore` 解析终端配色，Renderer 消费 `TerminalColorScheme` |
 > | `SessionFactory` | `src/session/SessionFactory.*` 已实现，但**生产代码尚未使用**（详见 P6 阶段文档"实现进度"表第 10 行） |
 >
 > 第 3 节的 Profile Schema 同为建议格式；当前实际持久化的是
 > `SessionStore` 写入的 `session-history.json`，其 transport 子图为扁平键值
 > （`host`/`port`/`terminalType` 等），与本文的嵌套 `connection{}` 结构不同。
 > 修改本文的设计前请先对照源码现状。
+
+## 当前实现：终端配色（2026-09-15）
+
+设置页的「终端配色」按 **深色 / 浅色 → 命名方案** 组织，默认深色。
+这里的深浅只描述终端渲染区域，与 NovaTerm 的程序主题独立：程序浅色时仍可
+使用深色终端，改变 `ui.theme` 不会改变终端配色。
+
+内置 12 套方案，深色 9 套（Campbell、Campbell Powershell、Vintage、
+One Half Dark、Tango Dark、Dracula、Tokyo Night、Solarized Dark、Dark Pastels），
+浅色 3 套（One Half Light、Tango Light、Black on White）。分类由背景的感知亮度
+确定；将自定义背景改为浅色时，编辑器会把方案移到浅色分类。
+
+- `TerminalSchemeStore`（`src/service/`）加载内置方案并按名称合并用户方案，
+  负责校验、引用解析、重命名、删除和旧格式迁移；不创建 Session/Renderer。
+  预置值来自 `resources/terminal-color-schemes.json`，通过 Qt 资源随程序分发。
+  启动和保存时补齐完整方案库；已持久化的有效颜色及未知扩展字段优先保留，
+  升级不会用模板覆盖用户修改。模板同时作为「恢复内置配色」的依据。
+- `TerminalSchemeSettings` 在本地草稿里预览、修改 16 个 ANSI 色以及前景、背景、
+  光标、选区颜色；可以复制、重命名、删除自定义方案，内置方案可以修改并恢复。
+- 「保存并应用」通过 `ConfigManager::setValues()` 一次持久化，已打开的
+  `TerminalView` 合并变更通知后更新 Renderer。不会重连、清屏、改写历史文本。
+  「放弃修改」恢复最后保存的数据。普通浏览与编辑预览不影响运行中的终端。
+  如果配置文件保存失败，保留编辑草稿、回滚本批配置且不向终端发布变更。
+
+完整方案库与选择共同持久化在可执行文件旁的 `novaterm.json`，由同一次
+`QSaveFile` 原子提交，避免重命名后引用与方案内容分属两次写入。
+文件中的终端选择部分示例（完整文件还包含 `schemes` 数组）：
+
+```json
+{
+  "terminal": {
+    "appearance": "dark",
+    "colorScheme": {
+      "dark": "Dracula",
+      "light": "One Half Light"
+    }
+  }
+}
+```
+
+`appearance` 是终端自己的分类选择，不是跟随程序/系统主题。`colorScheme` 也兼容
+单个方案名字符串；设置页保存时会记录两个分类各自的方案名，方便来回切换。
+`schemes` 保存全部预置方案与自定义方案的完整颜色值，首次启动会写入 12 套。
+旧版本只保存覆盖项的数组会自动补齐，已有自定义颜色不变。
+方案格式采用 Windows Terminal 的字段名：
+`name`、`foreground`、`background`、`cursorColor`、`selectionBackground`，
+以及 `black/red/green/yellow/blue/purple/cyan/white` 和对应的八个 `bright*` 字段。
+`magenta`/`brightMagenta` 可作为紫色字段的别名。每个方案必须有完整 16 色，
+无效方案不会遮蔽同名内置方案，缺失引用回退到该分类的默认方案。
+
+颜色使用 `#RGB` 或 `#RRGGBB`。NovaTerm 用覆盖层绘制选区，因此普通 RGB
+`selectionBackground` 按 25% 不透明度叠加；为兼容旧配置，它另接受明确的
+`#AARRGGBB`。其余颜色不接受 alpha。ANSI 索引 0–15 从方案查色；其他索引色与
+程序显式指定的 TrueColor 不随方案改变。
+
+旧 `terminal.colors` 会迁移成命名方案，未修改的 Campbell 配置只保留内置名称。
+迁移保留旧选区透明度和有效颜色、避免覆盖已有同名方案，且可重复运行。
+旧 `system` 迁移为深浅两个默认引用，终端分类默认固定为深色，之后不再跟随程序主题。
+自定义方案重命名会更新深浅引用；删除后对应引用回退，删除内置覆盖则恢复内置值。
+
+验证在现有 `novaterm_renderer_tests`（方案格式/迁移/引用/渲染内容保持）、
+`novaterm_ui_dialog_layout_tests`（分类、草稿、复制、保存、放弃）和
+`novaterm_terminal_session_tests`（多 View 更新、程序主题独立）中进行。
+持久化回归使用临时配置文件和多个全新子进程，验证初始化、修改、重命名、
+删除和恢复内置后的再次加载，并验证保存失败不发布变更；不写真实用户配置。
+`savedSchemeRepaintsExistingTerminalPixels` 读取实际 GPU 画面，验证修改并保存同名
+方案后无需新输入即可改变已有 ANSI 背景和终端底色，TrueColor 保持不变，
+已隐藏的另一个终端也获得新方案，Session 和光标位置不变。
+Profile 专属覆盖仍是下文的目标设计，本次接入的是全局终端配置。
+
+参考：[Windows Terminal 配色格式](https://learn.microsoft.com/windows/terminal/customize-settings/color-schemes)。
 
 ## 1. 职责关系
 

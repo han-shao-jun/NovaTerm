@@ -368,8 +368,8 @@ Built with:
     <message>
         <location filename="../../src/ui/app/MainWindow.cpp" line="1051"/>
         <location filename="../../src/ui/app/MainWindow.cpp" line="1598"/>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="1840"/>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="1859"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="1841"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="1860"/>
         <source>About</source>
         <translation type="unfinished"></translation>
     </message>
@@ -446,8 +446,8 @@ Built with:
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="1841"/>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="1860"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="1842"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="1861"/>
         <source>OK</source>
         <translation type="unfinished"></translation>
     </message>
@@ -2393,6 +2393,204 @@ Built with:
     </message>
 </context>
 <context>
+    <name>TerminalSchemeSettings</name>
+    <message>
+        <location filename="../../src/ui/widgets/TerminalSchemeSettings.cpp" line="268"/>
+        <source>Restore built-in</source>
+        <translation>Restore built-in</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/TerminalSchemeSettings.cpp" line="268"/>
+        <source>Delete scheme</source>
+        <translation>Delete scheme</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/TerminalSchemeSettings.cpp" line="312"/>
+        <source>Preview only. Save to apply to all open terminals and new tabs.</source>
+        <translation>Preview only. Save to apply to all open terminals and new tabs.</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/TerminalSchemeSettings.cpp" line="325"/>
+        <source>Use a unique, non-empty scheme name (up to 128 characters).</source>
+        <translation>Use a unique, non-empty scheme name (up to 128 characters).</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/TerminalSchemeSettings.cpp" line="339"/>
+        <source> (copy)</source>
+        <translation> (copy)</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/TerminalSchemeSettings.cpp" line="403"/>
+        <source>Could not save the configuration. Your changes remain in the preview.</source>
+        <translation>Could not save the configuration. Your changes remain in the preview.</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/TerminalSchemeSettings.cpp" line="409"/>
+        <source>Saved and applied to all open terminals.</source>
+        <translation>Saved and applied to all open terminals.</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/TerminalSchemeSettings.cpp" line="415"/>
+        <source>Terminal color schemes</source>
+        <translation>Terminal color schemes</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/TerminalSchemeSettings.cpp" line="416"/>
+        <source>Choose dark or light terminal colors, independently of the application theme.</source>
+        <translation>Choose dark or light terminal colors, independently of the application theme.</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/TerminalSchemeSettings.cpp" line="417"/>
+        <source>Terminal appearance</source>
+        <translation>Terminal appearance</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/TerminalSchemeSettings.cpp" line="418"/>
+        <source>Dark</source>
+        <translation>Dark</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/TerminalSchemeSettings.cpp" line="419"/>
+        <source>Light</source>
+        <translation>Light</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/TerminalSchemeSettings.cpp" line="420"/>
+        <source>Dark color scheme</source>
+        <translation>Dark color scheme</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/TerminalSchemeSettings.cpp" line="421"/>
+        <source>Light color scheme</source>
+        <translation>Light color scheme</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/TerminalSchemeSettings.cpp" line="422"/>
+        <source>Terminal color preview</source>
+        <translation>Terminal color preview</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/TerminalSchemeSettings.cpp" line="423"/>
+        <source>Scheme name</source>
+        <translation>Scheme name</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/TerminalSchemeSettings.cpp" line="424"/>
+        <source>Duplicate scheme</source>
+        <translation>Duplicate scheme</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/TerminalSchemeSettings.cpp" line="425"/>
+        <source>Save and apply</source>
+        <translation>Save and apply</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/TerminalSchemeSettings.cpp" line="426"/>
+        <source>Discard changes</source>
+        <translation>Discard changes</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/TerminalSchemeSettings.cpp" line="428"/>
+        <source>Foreground</source>
+        <translation>Foreground</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/TerminalSchemeSettings.cpp" line="428"/>
+        <source>Background</source>
+        <translation>Background</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/TerminalSchemeSettings.cpp" line="428"/>
+        <source>Cursor</source>
+        <translation>Cursor</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/TerminalSchemeSettings.cpp" line="428"/>
+        <source>Selection</source>
+        <translation>Selection</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/TerminalSchemeSettings.cpp" line="429"/>
+        <source>Black</source>
+        <translation>Black</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/TerminalSchemeSettings.cpp" line="429"/>
+        <source>Red</source>
+        <translation>Red</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/TerminalSchemeSettings.cpp" line="429"/>
+        <source>Green</source>
+        <translation>Green</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/TerminalSchemeSettings.cpp" line="429"/>
+        <source>Yellow</source>
+        <translation>Yellow</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/TerminalSchemeSettings.cpp" line="430"/>
+        <source>Blue</source>
+        <translation>Blue</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/TerminalSchemeSettings.cpp" line="430"/>
+        <source>Purple</source>
+        <translation>Purple</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/TerminalSchemeSettings.cpp" line="430"/>
+        <source>Cyan</source>
+        <translation>Cyan</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/TerminalSchemeSettings.cpp" line="430"/>
+        <source>White</source>
+        <translation>White</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/TerminalSchemeSettings.cpp" line="431"/>
+        <source>Bright black</source>
+        <translation>Bright black</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/TerminalSchemeSettings.cpp" line="431"/>
+        <source>Bright red</source>
+        <translation>Bright red</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/TerminalSchemeSettings.cpp" line="431"/>
+        <source>Bright green</source>
+        <translation>Bright green</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/TerminalSchemeSettings.cpp" line="431"/>
+        <source>Bright yellow</source>
+        <translation>Bright yellow</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/TerminalSchemeSettings.cpp" line="432"/>
+        <source>Bright blue</source>
+        <translation>Bright blue</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/TerminalSchemeSettings.cpp" line="432"/>
+        <source>Bright purple</source>
+        <translation>Bright purple</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/TerminalSchemeSettings.cpp" line="432"/>
+        <source>Bright cyan</source>
+        <translation>Bright cyan</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/TerminalSchemeSettings.cpp" line="432"/>
+        <source>Bright white</source>
+        <translation>Bright white</translation>
+    </message>
+</context>
+<context>
     <name>TerminalTabWidget</name>
     <message>
         <location filename="../../src/ui/widgets/TerminalTabWidget.cpp" line="144"/>
@@ -2421,52 +2619,52 @@ Built with:
 <context>
     <name>TerminalView</name>
     <message>
-        <location filename="../../src/ui/terminal/TerminalView.cpp" line="648"/>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="620"/>
         <source>Find in scrollback</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/terminal/TerminalView.cpp" line="570"/>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="542"/>
         <source>Copy</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/terminal/TerminalView.cpp" line="255"/>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="222"/>
         <source>[Disconnected] Press Enter to reconnect.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/terminal/TerminalView.cpp" line="256"/>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="223"/>
         <source>[Disconnected].</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/terminal/TerminalView.cpp" line="267"/>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="234"/>
         <source>[Transport error] %1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/terminal/TerminalView.cpp" line="573"/>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="545"/>
         <source>Paste</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/terminal/TerminalView.cpp" line="578"/>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="550"/>
         <source>Find...</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/terminal/TerminalView.cpp" line="583"/>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="555"/>
         <source>Zoom In</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/terminal/TerminalView.cpp" line="586"/>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="558"/>
         <source>Zoom Out</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/terminal/TerminalView.cpp" line="591"/>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="563"/>
         <source>Clear Scrollback</source>
         <translation type="unfinished"></translation>
     </message>

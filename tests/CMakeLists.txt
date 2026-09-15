@@ -116,6 +116,8 @@ if(BUILD_TESTING)
 
     add_executable(novaterm_renderer_tests
         ${CMAKE_CURRENT_SOURCE_DIR}/renderer/RendererP3Tests.cpp
+        ${PROJECT_SOURCE_DIR}/src/service/TerminalSchemeStore.cpp
+        ${PROJECT_SOURCE_DIR}/src/service/TerminalSchemeStore.h
         ${PROJECT_SOURCE_DIR}/src/renderer/RenderCommandBuffer.cpp
         ${PROJECT_SOURCE_DIR}/src/renderer/RenderCommandBuffer.h
         ${PROJECT_SOURCE_DIR}/src/renderer/RenderScheduler.cpp
@@ -126,6 +128,7 @@ if(BUILD_TESTING)
         ${PROJECT_SOURCE_DIR}/src/renderer/TerminalRenderer.h
         ${NOVATERM_P5_RENDERER_SOURCES}
     )
+    novaterm_add_scheme_resources(novaterm_renderer_tests)
     target_include_directories(novaterm_renderer_tests PRIVATE
         ${PROJECT_SOURCE_DIR}/src
         "${CMAKE_PREFIX_PATH}/include/QtGui/${Qt6_VERSION}/QtGui"
@@ -306,6 +309,8 @@ if(BUILD_TESTING)
 
         add_executable(novaterm_terminal_session_tests
             ${CMAKE_CURRENT_SOURCE_DIR}/renderer/TerminalSessionSmokeTests.cpp
+            ${PROJECT_SOURCE_DIR}/src/service/TerminalSchemeStore.cpp
+            ${PROJECT_SOURCE_DIR}/src/service/TerminalSchemeStore.h
             ${PROJECT_SOURCE_DIR}/src/renderer/RenderCommandBuffer.cpp
             ${PROJECT_SOURCE_DIR}/src/renderer/RenderCommandBuffer.h
             ${PROJECT_SOURCE_DIR}/src/renderer/RenderScheduler.cpp
@@ -342,6 +347,7 @@ if(BUILD_TESTING)
             ${PROJECT_SOURCE_DIR}/src/ui/widgets/SshHostKeyDialog.cpp
             ${PROJECT_SOURCE_DIR}/src/ui/widgets/SshHostKeyDialog.h
         )
+        novaterm_add_scheme_resources(novaterm_terminal_session_tests)
         target_include_directories(novaterm_terminal_session_tests PRIVATE
             ${PROJECT_SOURCE_DIR}/src
             "${CMAKE_PREFIX_PATH}/include/QtGui/${Qt6_VERSION}/QtGui"
@@ -470,6 +476,14 @@ if(BUILD_TESTING)
     # 对话框的 Ela 控件与端点标题。仅需 Qt Widgets + offscreen。
     add_executable(novaterm_ui_dialog_layout_tests
         ${CMAKE_CURRENT_SOURCE_DIR}/ui/SystemInformationDialogLayoutTests.cpp
+        ${PROJECT_SOURCE_DIR}/src/ui/widgets/TerminalSchemeSettings.cpp
+        ${PROJECT_SOURCE_DIR}/src/ui/widgets/TerminalSchemeSettings.h
+        ${PROJECT_SOURCE_DIR}/src/service/ConfigManager.cpp
+        ${PROJECT_SOURCE_DIR}/src/service/ConfigManager.h
+        ${PROJECT_SOURCE_DIR}/src/service/TerminalSchemeStore.cpp
+        ${PROJECT_SOURCE_DIR}/src/service/TerminalSchemeStore.h
+        ${PROJECT_SOURCE_DIR}/src/renderer/TerminalColorScheme.cpp
+        ${PROJECT_SOURCE_DIR}/src/renderer/TerminalColorScheme.h
         ${PROJECT_SOURCE_DIR}/src/ui/widgets/TerminalTabWidget.cpp
         ${PROJECT_SOURCE_DIR}/src/ui/widgets/TerminalTabWidget.h
         ${PROJECT_SOURCE_DIR}/src/ui/widgets/SshHostKeyDialog.cpp
@@ -479,6 +493,7 @@ if(BUILD_TESTING)
         ${PROJECT_SOURCE_DIR}/src/service/LanguageManager.cpp
         ${PROJECT_SOURCE_DIR}/src/service/LanguageManager.h
     )
+    novaterm_add_scheme_resources(novaterm_ui_dialog_layout_tests)
     target_include_directories(novaterm_ui_dialog_layout_tests
         PRIVATE ${PROJECT_SOURCE_DIR}/src
     )

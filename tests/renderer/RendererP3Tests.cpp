@@ -2,7 +2,9 @@
 #include "renderer/RenderScheduler.h"
 #include "renderer/TerminalRenderer.h"
 #include "core/terminal/TerminalCore.h"
+#include "service/TerminalSchemeStore.h"
 
+#include <QJsonArray>
 #include <QSignalSpy>
 #include <QInputMethodEvent>
 #include <QTest>
@@ -12,6 +14,12 @@ class RendererP3Tests : public QObject
     Q_OBJECT
 
 private slots:
+    void colorSchemesParseWindowsTerminalFormat();
+    void colorSchemesResolveReferencesAndOverrides();
+    void colorSchemesRenameAndDeleteReferences();
+    void colorSchemesMigrateLegacyWithoutLosingColors();
+    void colorSchemesMigrationPreservesSystemMode();
+    void colorSchemeChangePreservesTerminalContent();
     void schedulerMergesTouchingRegions();
     void schedulerDoesNotMergeCornerOnlyRegions();
     void schedulerClipsAndIgnoresEmptyRegions();
@@ -945,6 +953,143 @@ void RendererP3Tests::inputMethodCommitProducesUtf8()
     for (const auto& arguments : outputSpy)
         output += arguments.at(0).toByteArray();
     QCOMPARE(output, committed.toUtf8());
+}
+
+void RendererP3Tests::colorSchemesParseWindowsTerminalFormat()
+{
+    QCOMPARE(TerminalSchemeStore::builtins().size(), 12);
+    for (const auto& scheme : TerminalSchemeStore::builtins()) {
+        const auto json = TerminalSchemeStore::toJson(scheme);
+        QString error;
+        const auto parsed = TerminalSchemeStore::fromJson(json, &error);
+        QVERIFY2(parsed.has_value(), qPrintable(error));
+        QCOMPARE(TerminalSchemeStore::toJson(*parsed), json);
+    }
+    auto json = TerminalSchemeStore::toJson(TerminalColorScheme::defaultDark());
+    json[QStringLiteral("magenta")] = json.take(QStringLiteral("purple"));
+    json[QStringLiteral("brightMagenta")] = json.take(QStringLiteral("brightPurple"));
+    json[QStringLiteral("red")] = QStringLiteral("#f00");
+    auto parsed = TerminalSchemeStore::fromJson(json);
+    QVERIFY(parsed);
+    QCOMPARE(parsed->palette[1], QColor(Qt::red));
+    QCOMPARE(parsed->selectionColor.alpha(), 64);
+    QString error;
+    json.remove(QStringLiteral("green"));
+    QVERIFY(!TerminalSchemeStore::fromJson(json, &error));
+    QVERIFY(error.startsWith(QStringLiteral("green:")));
+    json[QStringLiteral("green")] = QStringLiteral("not-a-color");
+    QVERIFY(!TerminalSchemeStore::fromJson(json));
+    json[QStringLiteral("green")] = QStringLiteral("#00ff00");
+    json[QStringLiteral("name")] = QStringLiteral("  ");
+    QVERIFY(!TerminalSchemeStore::fromJson(json));
+    QJsonObject config;
+    auto invalid = TerminalColorScheme::defaultDark();
+    invalid.palette[0] = QColor();
+    QVERIFY(!TerminalSchemeStore::save(config, invalid));
+    QVERIFY(config.isEmpty());
+    TerminalSchemeStore::materialize(config);
+    QCOMPARE(config.value(QStringLiteral("schemes")).toArray().size(), 12);
+    const auto initialized = config;
+    TerminalSchemeStore::materialize(config);
+    QCOMPARE(config, initialized);
+}
+
+void RendererP3Tests::colorSchemesResolveReferencesAndOverrides()
+{
+    QJsonObject config{{QStringLiteral("terminal"), QJsonObject{
+        {QStringLiteral("colorScheme"), QJsonObject{
+            {QStringLiteral("light"), QStringLiteral("One Half Light")},
+            {QStringLiteral("dark"), QStringLiteral("One Half Dark")}}}}}};
+    QCOMPARE(TerminalSchemeStore::resolve(config, false).background, QColor("#fafafa"));
+    QCOMPARE(TerminalSchemeStore::resolve(config, true).background, QColor("#282c34"));
+    auto custom = *TerminalSchemeStore::find(config, QStringLiteral("One Half Dark"));
+    custom.palette[1] = QColor("#123456");
+    QVERIFY(TerminalSchemeStore::save(config, custom, custom.name));
+    QCOMPARE(TerminalSchemeStore::resolve(config, true).palette[1], QColor("#123456"));
+    QVERIFY(!TerminalSchemeStore::save(config, custom));
+    config[QStringLiteral("terminal")] = QJsonObject{
+        {QStringLiteral("colorScheme"), QStringLiteral("missing")}};
+    QString error;
+    QCOMPARE(TerminalSchemeStore::resolve(config, false, &error).name, QStringLiteral("Campbell"));
+    QVERIFY(error.contains(QStringLiteral("missing")));
+    // 坏的用户覆盖不能遮住正常的内置方案。
+    config[QStringLiteral("schemes")] = QJsonArray{QJsonObject{
+        {QStringLiteral("name"), QStringLiteral("Campbell")},
+        {QStringLiteral("red"), QStringLiteral("invalid")}}};
+    QCOMPARE(TerminalSchemeStore::find(config, QStringLiteral("Campbell"))->palette[1], QColor("#c50f1f"));
+}
+
+void RendererP3Tests::colorSchemesRenameAndDeleteReferences()
+{
+    QJsonObject config;
+    auto custom = TerminalColorScheme::defaultDark();
+    custom.name = QStringLiteral("Custom");
+    QVERIFY(TerminalSchemeStore::save(config, custom));
+    config[QStringLiteral("terminal")] = QJsonObject{
+        {QStringLiteral("colorScheme"), QJsonObject{
+            {QStringLiteral("light"), custom.name}, {QStringLiteral("dark"), custom.name}}}};
+    custom.name = QStringLiteral("Renamed");
+    QVERIFY(TerminalSchemeStore::save(config, custom, QStringLiteral("Custom")));
+    QCOMPARE(TerminalSchemeStore::resolve(config, false).name, custom.name);
+    QCOMPARE(TerminalSchemeStore::resolve(config, true).name, custom.name);
+    QVERIFY(!TerminalSchemeStore::find(config, QStringLiteral("Custom")));
+    QVERIFY(TerminalSchemeStore::remove(config, custom.name));
+    QCOMPARE(TerminalSchemeStore::resolve(config, false).name, QStringLiteral("One Half Light"));
+    QCOMPARE(TerminalSchemeStore::resolve(config, true).name, QStringLiteral("Campbell"));
+    QVERIFY(!TerminalSchemeStore::remove(config, QStringLiteral("Campbell")));
+}
+
+void RendererP3Tests::colorSchemesMigrateLegacyWithoutLosingColors()
+{
+    QJsonObject config{{QStringLiteral("terminal"), QJsonObject{
+        {QStringLiteral("colorScheme"), QStringLiteral("windowsTerminalCampbell")},
+        {QStringLiteral("colors"), QJsonObject{
+            {QStringLiteral("background"), QStringLiteral("#102030")},
+            {QStringLiteral("selection"), QStringLiteral("#70506070")}}}}}};
+    TerminalSchemeStore::migrate(config);
+    QCOMPARE(TerminalSchemeStore::resolve(config, true).background, QColor("#102030"));
+    QCOMPARE(TerminalSchemeStore::resolve(config, false).selectionColor, QColor("#70506070"));
+    QCOMPARE(config.value(QStringLiteral("schemes")).toArray().size(), 1);
+    const auto migrated = config;
+    TerminalSchemeStore::migrate(config);
+    QCOMPARE(config, migrated);
+    QVERIFY(!config.value(QStringLiteral("terminal")).toObject().contains(QStringLiteral("colors")));
+}
+
+void RendererP3Tests::colorSchemesMigrationPreservesSystemMode()
+{
+    QJsonObject config{{QStringLiteral("terminal"), QJsonObject{
+        {QStringLiteral("colorScheme"), QStringLiteral("system")},
+        {QStringLiteral("colors"), QJsonObject{{QStringLiteral("background"), QStringLiteral("#123456")}}}}}};
+    TerminalSchemeStore::migrate(config);
+    QCOMPARE(TerminalSchemeStore::resolve(config, false).name, QStringLiteral("Black on White"));
+    QCOMPARE(TerminalSchemeStore::resolve(config, true).name, QStringLiteral("Campbell"));
+    QCOMPARE(TerminalSchemeStore::resolve(config, true).background, QColor("#0c0c0c"));
+}
+
+void RendererP3Tests::colorSchemeChangePreservesTerminalContent()
+{
+    TerminalCore core(40, 8);
+    TerminalRenderer renderer(&core);
+    core.writeInput(QByteArrayLiteral("Default \x1b[31mRed \x1b[38;2;18;52;86mRGB"));
+    QVERIFY(core.waitForIdle());
+    const auto before = core.snapshot();
+    renderer.setColorScheme(*TerminalSchemeStore::find({}, QStringLiteral("One Half Light")));
+    QVERIFY(core.waitForIdle());
+    const auto after = core.snapshot();
+    QCOMPARE(after.cursor.position, before.cursor.position);
+    QCOMPARE(renderer.colorScheme().background, QColor("#fafafa"));
+    // 切换配色只改显示语义，不清屏、不把索引色或 TrueColor 烘焙成方案 RGB。
+    for (int col = 0; col < 15; ++col) {
+        const auto& oldCell = before.visibleCells[col];
+        const auto& newCell = after.visibleCells[col];
+        QCOMPARE(newCell.chars, oldCell.chars);
+        QCOMPARE(newCell.foreground.type, oldCell.foreground.type);
+        QCOMPARE(newCell.foreground.index, oldCell.foreground.index);
+        QCOMPARE(newCell.foreground.red, oldCell.foreground.red);
+        QCOMPARE(newCell.foreground.green, oldCell.foreground.green);
+        QCOMPARE(newCell.foreground.blue, oldCell.foreground.blue);
+    }
 }
 
 QTEST_MAIN(RendererP3Tests)

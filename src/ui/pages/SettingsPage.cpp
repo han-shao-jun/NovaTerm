@@ -23,6 +23,7 @@
 #include "ElaWindow.h"
 #include "service/LanguageManager.h"
 #include "service/ConfigManager.h"
+#include "ui/widgets/TerminalSchemeSettings.h"
 
 bool SettingsPage::s_themeProgrammaticChange = false;
 
@@ -386,6 +387,8 @@ SettingsPage::SettingsPage(QWidget* parent)
     centerLayout->addWidget(_themeSectionText);
     centerLayout->addSpacing(10);
     centerLayout->addWidget(themeSwitchArea);
+    centerLayout->addSpacing(15);
+    centerLayout->addWidget(new TerminalSchemeSettings(_centralWidget));
     centerLayout->addSpacing(15);
     centerLayout->addWidget(_appSectionText);
     centerLayout->addSpacing(10);

@@ -374,8 +374,8 @@ Built with:
     <message>
         <location filename="../../src/ui/app/MainWindow.cpp" line="1051"/>
         <location filename="../../src/ui/app/MainWindow.cpp" line="1598"/>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="1840"/>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="1859"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="1841"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="1860"/>
         <source>About</source>
         <translation>关于</translation>
     </message>
@@ -452,8 +452,8 @@ Built with:
         <translation>重新连接会话</translation>
     </message>
     <message>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="1841"/>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="1860"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="1842"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="1861"/>
         <source>OK</source>
         <translation>确定</translation>
     </message>
@@ -2399,6 +2399,204 @@ Built with:
     </message>
 </context>
 <context>
+    <name>TerminalSchemeSettings</name>
+    <message>
+        <location filename="../../src/ui/widgets/TerminalSchemeSettings.cpp" line="268"/>
+        <source>Restore built-in</source>
+        <translation>恢复内置配色</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/TerminalSchemeSettings.cpp" line="268"/>
+        <source>Delete scheme</source>
+        <translation>删除方案</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/TerminalSchemeSettings.cpp" line="312"/>
+        <source>Preview only. Save to apply to all open terminals and new tabs.</source>
+        <translation>当前仅预览。保存后应用到所有已打开的终端和新标签。</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/TerminalSchemeSettings.cpp" line="325"/>
+        <source>Use a unique, non-empty scheme name (up to 128 characters).</source>
+        <translation>请输入不重复的方案名称，长度为 1～128 个字符。</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/TerminalSchemeSettings.cpp" line="339"/>
+        <source> (copy)</source>
+        <translation>（副本）</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/TerminalSchemeSettings.cpp" line="403"/>
+        <source>Could not save the configuration. Your changes remain in the preview.</source>
+        <translation>配置保存失败，修改仍保留在预览中。</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/TerminalSchemeSettings.cpp" line="409"/>
+        <source>Saved and applied to all open terminals.</source>
+        <translation>已保存并应用到所有打开的终端。</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/TerminalSchemeSettings.cpp" line="415"/>
+        <source>Terminal color schemes</source>
+        <translation>终端配色</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/TerminalSchemeSettings.cpp" line="416"/>
+        <source>Choose dark or light terminal colors, independently of the application theme.</source>
+        <translation>先选择终端的深浅外观，再选择配色方案；与程序主题相互独立。</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/TerminalSchemeSettings.cpp" line="417"/>
+        <source>Terminal appearance</source>
+        <translation>终端外观</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/TerminalSchemeSettings.cpp" line="418"/>
+        <source>Dark</source>
+        <translation>深色</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/TerminalSchemeSettings.cpp" line="419"/>
+        <source>Light</source>
+        <translation>浅色</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/TerminalSchemeSettings.cpp" line="420"/>
+        <source>Dark color scheme</source>
+        <translation>深色配色方案</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/TerminalSchemeSettings.cpp" line="421"/>
+        <source>Light color scheme</source>
+        <translation>浅色配色方案</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/TerminalSchemeSettings.cpp" line="422"/>
+        <source>Terminal color preview</source>
+        <translation>终端配色预览</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/TerminalSchemeSettings.cpp" line="423"/>
+        <source>Scheme name</source>
+        <translation>方案名称</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/TerminalSchemeSettings.cpp" line="424"/>
+        <source>Duplicate scheme</source>
+        <translation>复制方案</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/TerminalSchemeSettings.cpp" line="425"/>
+        <source>Save and apply</source>
+        <translation>保存并应用</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/TerminalSchemeSettings.cpp" line="426"/>
+        <source>Discard changes</source>
+        <translation>放弃修改</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/TerminalSchemeSettings.cpp" line="428"/>
+        <source>Foreground</source>
+        <translation>前景色</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/TerminalSchemeSettings.cpp" line="428"/>
+        <source>Background</source>
+        <translation>背景色</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/TerminalSchemeSettings.cpp" line="428"/>
+        <source>Cursor</source>
+        <translation>光标</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/TerminalSchemeSettings.cpp" line="428"/>
+        <source>Selection</source>
+        <translation>选区</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/TerminalSchemeSettings.cpp" line="429"/>
+        <source>Black</source>
+        <translation>黑色</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/TerminalSchemeSettings.cpp" line="429"/>
+        <source>Red</source>
+        <translation>红色</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/TerminalSchemeSettings.cpp" line="429"/>
+        <source>Green</source>
+        <translation>绿色</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/TerminalSchemeSettings.cpp" line="429"/>
+        <source>Yellow</source>
+        <translation>黄色</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/TerminalSchemeSettings.cpp" line="430"/>
+        <source>Blue</source>
+        <translation>蓝色</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/TerminalSchemeSettings.cpp" line="430"/>
+        <source>Purple</source>
+        <translation>紫色</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/TerminalSchemeSettings.cpp" line="430"/>
+        <source>Cyan</source>
+        <translation>青色</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/TerminalSchemeSettings.cpp" line="430"/>
+        <source>White</source>
+        <translation>白色</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/TerminalSchemeSettings.cpp" line="431"/>
+        <source>Bright black</source>
+        <translation>亮黑色</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/TerminalSchemeSettings.cpp" line="431"/>
+        <source>Bright red</source>
+        <translation>亮红色</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/TerminalSchemeSettings.cpp" line="431"/>
+        <source>Bright green</source>
+        <translation>亮绿色</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/TerminalSchemeSettings.cpp" line="431"/>
+        <source>Bright yellow</source>
+        <translation>亮黄色</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/TerminalSchemeSettings.cpp" line="432"/>
+        <source>Bright blue</source>
+        <translation>亮蓝色</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/TerminalSchemeSettings.cpp" line="432"/>
+        <source>Bright purple</source>
+        <translation>亮紫色</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/TerminalSchemeSettings.cpp" line="432"/>
+        <source>Bright cyan</source>
+        <translation>亮青色</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/TerminalSchemeSettings.cpp" line="432"/>
+        <source>Bright white</source>
+        <translation>亮白色</translation>
+    </message>
+</context>
+<context>
     <name>TerminalTabWidget</name>
     <message>
         <location filename="../../src/ui/widgets/TerminalTabWidget.cpp" line="144"/>
@@ -2427,52 +2625,52 @@ Built with:
 <context>
     <name>TerminalView</name>
     <message>
-        <location filename="../../src/ui/terminal/TerminalView.cpp" line="648"/>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="620"/>
         <source>Find in scrollback</source>
         <translation>在滚动回显中查找</translation>
     </message>
     <message>
-        <location filename="../../src/ui/terminal/TerminalView.cpp" line="570"/>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="542"/>
         <source>Copy</source>
         <translation>复制</translation>
     </message>
     <message>
-        <location filename="../../src/ui/terminal/TerminalView.cpp" line="255"/>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="222"/>
         <source>[Disconnected] Press Enter to reconnect.</source>
         <translation>[连接已经断开] 按 Enter 重新连接</translation>
     </message>
     <message>
-        <location filename="../../src/ui/terminal/TerminalView.cpp" line="256"/>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="223"/>
         <source>[Disconnected].</source>
         <translation>[已断开连接]</translation>
     </message>
     <message>
-        <location filename="../../src/ui/terminal/TerminalView.cpp" line="267"/>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="234"/>
         <source>[Transport error] %1</source>
         <translation>[传输错误] %1</translation>
     </message>
     <message>
-        <location filename="../../src/ui/terminal/TerminalView.cpp" line="573"/>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="545"/>
         <source>Paste</source>
         <translation>粘贴</translation>
     </message>
     <message>
-        <location filename="../../src/ui/terminal/TerminalView.cpp" line="578"/>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="550"/>
         <source>Find...</source>
         <translation>查找...</translation>
     </message>
     <message>
-        <location filename="../../src/ui/terminal/TerminalView.cpp" line="583"/>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="555"/>
         <source>Zoom In</source>
         <translation>放大</translation>
     </message>
     <message>
-        <location filename="../../src/ui/terminal/TerminalView.cpp" line="586"/>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="558"/>
         <source>Zoom Out</source>
         <translation>缩小</translation>
     </message>
     <message>
-        <location filename="../../src/ui/terminal/TerminalView.cpp" line="591"/>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="563"/>
         <source>Clear Scrollback</source>
         <translation>清除滚动回显</translation>
     </message>

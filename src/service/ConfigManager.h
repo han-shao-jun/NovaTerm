@@ -20,10 +20,11 @@ public:
     static ConfigManager& instance();
 
     // 从磁盘读取，用内置默认值填充缺失键，回写保存。
-    void load();
+    // 可显式指定文件，用于隔离配置或测试；默认位于可执行文件旁。
+    void load(const QString& filePath = {});
 
     // 将当前状态写入磁盘。
-    void save();
+    bool save();
 
     // ── 类型化 getter（键缺失或类型错误时返回 defaultValue）──
     template <typename T>
@@ -33,7 +34,8 @@ public:
     static void set(const QString& path, const QVariant& value);
 
     // 批量设置多个点分隔路径，并在全部更新后统一写入一次配置文件。
-    static void setValues(const QVariantMap& values);
+    // 保存失败时回滚本批数据且不发布变更，调用方可以保留编辑草稿。
+    static bool setValues(const QVariantMap& values);
 
     // ── 原始访问 ──
     QJsonObject root() const { return _root; }

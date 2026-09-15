@@ -16,19 +16,18 @@
 #include "renderer/TerminalRenderer.h"
 #include "renderer/TerminalColorScheme.h"
 #include "service/ConfigManager.h"
+#include "service/TerminalSchemeStore.h"
 #include "service/LanguageManager.h"
 
 #include <QVBoxLayout>
 #include "ElaLineEdit.h"
 #include "ElaMenu.h"
-#include "ElaTheme.h"
 #include <QApplication>
 #include <QClipboard>
 #include <QCoreApplication>
 #include <QDebug>
 #include <QDialog>
 #include <QFileInfo>
-#include <QJsonArray>
 #include <QKeyEvent>
 #include <QKeySequence>
 #include <QLineEdit>
@@ -57,16 +56,6 @@ TransportKind transportKindOf(ITransport* transport)
 
 } // namespace
 
-static QColor configuredColor(const QJsonObject& colors, const char* key,
-                              const QColor& fallback)
-{
-    const QJsonValue value = colors.value(QLatin1String(key));
-    if (!value.isString())
-        return fallback;
-    const QColor color = QColor::fromString(value.toString());
-    return color.isValid() ? color : fallback;
-}
-
 // 读取用户配置的滚动历史行数（terminal.scrollbackLines）。缺失或越界时
 // 回退到 1000。ConfigManager 已把该键钳制在 [100, 1000000]。
 static int configuredScrollbackLines()
@@ -76,40 +65,6 @@ static int configuredScrollbackLines()
     const QJsonValue value = terminal.value(QStringLiteral("scrollbackLines"));
     const int lines = value.toInt(1000);
     return lines > 0 ? lines : 1000;
-}
-
-static TerminalColorScheme configuredTerminalScheme(bool isDark)
-{
-    TerminalColorScheme scheme = isDark
-        ? TerminalColorScheme::defaultDark()
-        : TerminalColorScheme::defaultLight();
-
-    const QJsonObject terminal =
-        ConfigManager::instance().root().value(QStringLiteral("terminal")).toObject();
-    const QString schemeName =
-        terminal.value(QStringLiteral("colorScheme")).toString();
-    if (schemeName.compare(QStringLiteral("system"), Qt::CaseInsensitive) == 0)
-        return scheme;
-
-    const QJsonObject colors = terminal.value(QStringLiteral("colors")).toObject();
-    scheme.name = schemeName.isEmpty() ? QStringLiteral("Custom") : schemeName;
-    scheme.foreground = configuredColor(colors, "foreground", scheme.foreground);
-    scheme.background = configuredColor(colors, "background", scheme.background);
-    scheme.cursorColor = configuredColor(colors, "cursor", scheme.cursorColor);
-    scheme.selectionColor =
-        configuredColor(colors, "selection", scheme.selectionColor);
-
-    const QJsonArray palette = colors.value(QStringLiteral("palette")).toArray();
-    if (palette.size() == 16) {
-        for (int i = 0; i < 16; ++i) {
-            if (!palette[i].isString())
-                continue;
-            const QColor color = QColor::fromString(palette[i].toString());
-            if (color.isValid())
-                scheme.palette[i] = color;
-        }
-    }
-    return scheme;
 }
 
 static QByteArray terminalTitleSequence(QString title)
@@ -151,7 +106,7 @@ TerminalView::TerminalView(TerminalSession* session, QWidget* parent)
     _renderer = new TerminalRenderer(_core, this);
     _session = session ? session : new TerminalSession(_core, this);
 
-    applyThemeColorScheme();
+    applyColorScheme();
 
     // 布局
     auto* layout = new QVBoxLayout(this);
@@ -168,9 +123,21 @@ TerminalView::TerminalView(TerminalSession* session, QWidget* parent)
     connect(this, &QWidget::customContextMenuRequested,
             this, &TerminalView::setupContextMenu);
 
-    // 跟随 ElaTheme 明暗切换同步终端配色方案
-    connect(eTheme, &ElaTheme::themeModeChanged,
-            this, &TerminalView::applyThemeColorScheme);
+    // 终端自身选择深浅分类，窗口的 ElaTheme 变化不改变终端颜色。
+    connect(&ConfigManager::instance(), &ConfigManager::configChanged, this,
+            [this](const QString& path) {
+        if (path != QStringLiteral("schemes")
+            && path != QStringLiteral("terminal.appearance")
+            && path != QStringLiteral("terminal.colorScheme"))
+            return;
+        if (_colorSchemeUpdatePending)
+            return;
+        _colorSchemeUpdatePending = true;
+        QTimer::singleShot(0, this, [this] {
+            _colorSchemeUpdatePending = false;
+            applyColorScheme();
+        });
+    });
 
     // 监听 renderer 的 resize 事件，转发给当前 transport
     _renderer->installEventFilter(this);
@@ -539,13 +506,18 @@ void TerminalView::requestWorkingDirectory()
 //  主题适配
 // ═══════════════════════════════════════════════════════════════════
 
-void TerminalView::applyThemeColorScheme()
+void TerminalView::applyColorScheme()
 {
     if (!_renderer)
         return;
 
-    bool isDark = (eTheme->getThemeMode() == ElaThemeType::Dark);
-    const TerminalColorScheme scheme = configuredTerminalScheme(isDark);
+    const bool isDark = ConfigManager::get<QString>(
+        QStringLiteral("terminal.appearance"), QStringLiteral("dark")) != QStringLiteral("light");
+    QString error;
+    const TerminalColorScheme scheme = TerminalSchemeStore::resolve(
+        ConfigManager::instance().root(), isDark, &error);
+    if (!error.isEmpty())
+        qWarning().noquote() << error;
 
     _renderer->setColorScheme(scheme);
 

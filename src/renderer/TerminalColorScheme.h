@@ -3,8 +3,8 @@
  * @brief  终端配色方案。
  *
  * 定义前景/背景、ANSI 16 色调色板、光标与选区颜色。独立于
- * qtermwidget 的 .colorscheme 文件格式，初始硬编码三套预置配色，
- * 后续可扩展为从 JSON 文件加载。
+ * UI 主题与配置格式。服务层 TerminalSchemeStore 负责命名预置、JSON
+ * 解析和配置迁移；渲染器仅消费本结构的值。
  */
 #pragma once
 #include <QColor>

@@ -2,8 +2,8 @@
  * @file   TerminalColorScheme.cpp
  * @brief  终端配色方案预置实现。
  *
- * 详见 TerminalColorScheme.h。本文件硬编码三套预置配色：
- * Windows Terminal Campbell、Dark Pastels、Black on White。
+ * 详见 TerminalColorScheme.h。本文件提供渲染器初始化所需的基础回退值；
+ * 完整命名方案库由服务层读取 JSON 模板并通过 ConfigManager 持久化。
  */
 #include "TerminalColorScheme.h"
 

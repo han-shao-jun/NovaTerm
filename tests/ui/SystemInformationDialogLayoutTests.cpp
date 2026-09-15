@@ -23,7 +23,14 @@
 #include "ui/widgets/SystemInformationDialog.h"
 #include "ui/widgets/SshHostKeyDialog.h"
 #include "ui/widgets/TerminalTabWidget.h"
+#include "ui/widgets/TerminalSchemeSettings.h"
+#include "service/ConfigManager.h"
+#include "service/TerminalSchemeStore.h"
 
+#include "ElaComboBox.h"
+#include "ElaApplication.h"
+#include "ElaLineEdit.h"
+#include "ElaTheme.h"
 #include "ElaDialog.h"
 #include "ElaIconButton.h"
 #include "ElaPushButton.h"
@@ -34,6 +41,13 @@
 
 #include <QApplication>
 #include <QFontMetrics>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QFile>
+#include <QDir>
+#include <QProcess>
+#include <QTemporaryDir>
+#include <QTranslator>
 #include <QPointer>
 #include <QScrollBar>
 #include <cstdio>
@@ -43,6 +57,194 @@
 #include <cstdlib>
 
 namespace {
+
+int schemePersistenceStep(const QString& path, int phase)
+{
+    auto& manager = ConfigManager::instance();
+    // 资源路径用于模拟保存失败，不改权限，也不碰真实用户配置。
+    manager.load(phase == 4 ? QStringLiteral(":/novaterm/terminal-color-schemes.json") : path);
+    auto config = manager.root();
+    const auto count = config.value(QStringLiteral("schemes")).toArray().size();
+    const auto presetCount = TerminalSchemeStore::builtins().size();
+    auto persist = [&config] {
+        return ConfigManager::setValues({
+            {QStringLiteral("schemes"), config.value(QStringLiteral("schemes")).toVariant()},
+            {QStringLiteral("terminal"), config.value(QStringLiteral("terminal")).toVariant()}});
+    };
+    if (phase == 0) {
+        if (count != presetCount)
+            return 1;
+        auto custom = *TerminalSchemeStore::find(config, QStringLiteral("Dracula"));
+        custom.name = QStringLiteral("Persisted dark");
+        custom.palette[1] = QColor(QStringLiteral("#123abc"));
+        if (!TerminalSchemeStore::save(config, custom))
+            return 2;
+        auto catalog = config.value(QStringLiteral("schemes")).toArray();
+        auto entry = catalog.last().toObject();
+        entry[QStringLiteral("futureField")] = QStringLiteral("preserve me");
+        catalog[catalog.size() - 1] = entry;
+        config[QStringLiteral("schemes")] = catalog;
+        config[QStringLiteral("terminal")] = QJsonObject{
+            {QStringLiteral("appearance"), QStringLiteral("dark")},
+            {QStringLiteral("colorScheme"), QJsonObject{
+                {QStringLiteral("dark"), custom.name},
+                {QStringLiteral("light"), QStringLiteral("One Half Light")}}}};
+        return persist() ? 0 : 3;
+    }
+    if (phase == 1) {
+        auto custom = TerminalSchemeStore::find(config, QStringLiteral("Persisted dark"));
+        if (count != presetCount + 1 || !custom || custom->palette[1] != QColor("#123abc")
+            || TerminalSchemeStore::resolve(config, true).name != custom->name)
+            return 4;
+        custom->name = QStringLiteral("Renamed dark");
+        auto builtin = *TerminalSchemeStore::find(config, QStringLiteral("Campbell"));
+        builtin.background = QColor(QStringLiteral("#151819"));
+        if (!TerminalSchemeStore::save(config, *custom, QStringLiteral("Persisted dark"))
+            || !TerminalSchemeStore::save(config, builtin, builtin.name))
+            return 5;
+        return persist() ? 0 : 6;
+    }
+    if (phase == 2) {
+        if (TerminalSchemeStore::find(config, QStringLiteral("Persisted dark"))
+            || TerminalSchemeStore::resolve(config, true).name != QStringLiteral("Renamed dark")
+            || TerminalSchemeStore::find(config, QStringLiteral("Campbell"))->background != QColor("#151819"))
+            return 7;
+        bool extensionPreserved = false;
+        for (const auto& value : config.value(QStringLiteral("schemes")).toArray()) {
+            const auto entry = value.toObject();
+            if (entry.value(QStringLiteral("name")) == QStringLiteral("Renamed dark"))
+                extensionPreserved = entry.value(QStringLiteral("futureField")) == QStringLiteral("preserve me");
+        }
+        if (!extensionPreserved || !TerminalSchemeStore::remove(config, QStringLiteral("Renamed dark"))
+            || !TerminalSchemeStore::remove(config, QStringLiteral("Campbell")))
+            return 8;
+        return persist() ? 0 : 9;
+    }
+    if (phase == 3) {
+        return count == presetCount
+            && !TerminalSchemeStore::find(config, QStringLiteral("Renamed dark"))
+            && TerminalSchemeStore::resolve(config, true).name == QStringLiteral("Campbell")
+            && TerminalSchemeStore::find(config, QStringLiteral("Campbell"))->background == QColor("#0c0c0c") ? 0 : 10;
+    }
+    if (phase == 4) {
+        int notifications = 0;
+        QObject::connect(&manager, &ConfigManager::configChanged, &manager,
+            [&notifications] { ++notifications; });
+        const bool saved = ConfigManager::setValues({
+            {QStringLiteral("terminal.appearance"), QStringLiteral("light")},
+            {QStringLiteral("schemes"), QVariantList{}}});
+        return !saved && manager.root() == config && notifications == 0 ? 0 : 11;
+    }
+    return 12;
+}
+
+int verifySchemePersistenceAcrossProcesses()
+{
+    QTemporaryDir directory;
+    if (!directory.isValid())
+        return 1;
+    const QString path = directory.filePath(QStringLiteral("novaterm.json"));
+    for (int phase = 0; phase < 5; ++phase) {
+        QProcess child;
+        child.setProcessChannelMode(QProcess::MergedChannels);
+        child.start(QCoreApplication::applicationFilePath(), {
+            QStringLiteral("--scheme-persistence-step"), path, QString::number(phase)});
+        if (!child.waitForFinished(5000) || child.exitStatus() != QProcess::NormalExit
+            || child.exitCode() != 0) {
+            child.kill();
+            child.waitForFinished(1000);
+            std::fprintf(stderr, "FAIL: scheme persistence phase %d, code %d: %s\n",
+                         phase, child.exitCode(), child.readAll().constData());
+            return 1;
+        }
+    }
+    QFile file(path);
+    if (!file.open(QIODevice::ReadOnly))
+        return 1;
+    const auto saved = QJsonDocument::fromJson(file.readAll()).object();
+    return saved.value(QStringLiteral("schemes")).toArray().size()
+        == TerminalSchemeStore::builtins().size() ? 0 : 1;
+}
+
+int verifyTerminalSchemeSettings()
+{
+    // 不 load()，防止单测写入可执行文件旁的真实配置。
+    ConfigManager::set(QStringLiteral("terminal"), QVariantMap{
+        {QStringLiteral("colorScheme"), QStringLiteral("Campbell")},
+        {QStringLiteral("appearance"), QStringLiteral("dark")}});
+    TerminalSchemeSettings settings;
+    settings.resize(740, settings.sizeHint().height());
+    settings.show();
+    QApplication::processEvents();
+    auto* mode = settings.findChild<ElaComboBox*>(QStringLiteral("terminalSchemeMode"));
+    auto* dark = settings.findChild<ElaComboBox*>(QStringLiteral("terminalDarkScheme"));
+    auto* light = settings.findChild<ElaComboBox*>(QStringLiteral("terminalLightScheme"));
+    auto* apply = settings.findChild<ElaPushButton*>(QStringLiteral("applyTerminalSchemes"));
+    auto* duplicate = settings.findChild<ElaPushButton*>(QStringLiteral("duplicateTerminalScheme"));
+    auto* discard = settings.findChild<ElaPushButton*>(QStringLiteral("discardTerminalSchemeChanges"));
+    auto* name = settings.findChild<ElaLineEdit*>(QStringLiteral("terminalSchemeName"));
+    if (!mode || !dark || !light || !apply || !duplicate || !discard || !name)
+        return 1;
+    int failures = 0;
+    auto check = [&failures](bool condition, const char* message) {
+        if (!condition) {
+            std::fprintf(stderr, "FAIL: %s\n", message);
+            ++failures;
+        }
+    };
+    check(mode->count() == 2 && mode->currentIndex() == 0, "terminal categories default to dark");
+    check(dark->count() > light->count(), "dark schemes are the primary collection");
+    for (int i = 0; i < dark->count(); ++i)
+        check(TerminalSchemeStore::isDark(*TerminalSchemeStore::find({}, dark->itemText(i))), "dark category contains light scheme");
+    for (int i = 0; i < light->count(); ++i)
+        check(!TerminalSchemeStore::isDark(*TerminalSchemeStore::find({}, light->itemText(i))), "light category contains dark scheme");
+    dark->setCurrentText(QStringLiteral("Dracula"));
+    check(ConfigManager::get<QString>(QStringLiteral("terminal.colorScheme")) == QStringLiteral("Campbell"), "preview modified live settings");
+    duplicate->click();
+    check(!name->isReadOnly(), "duplicated scheme name must be editable");
+    name->setText(QStringLiteral("Test custom dark"));
+    QMetaObject::invokeMethod(name, "editingFinished", Qt::DirectConnection);
+    apply->click();
+    const auto saved = ConfigManager::instance().root();
+    check(TerminalSchemeStore::resolve(saved, true).name == QStringLiteral("Test custom dark"), "save did not select duplicated scheme");
+    check(saved.value(QStringLiteral("schemes")).toArray().size()
+        == TerminalSchemeStore::builtins().size() + 1, "save lost complete scheme library");
+    mode->setCurrentIndex(1);
+    check(light->isVisible() && !dark->isVisible(), "category visibility does not follow terminal selection");
+    check(ConfigManager::get<QString>(QStringLiteral("terminal.appearance")) == QStringLiteral("dark"), "category preview changed live terminal");
+    discard->click();
+    check(mode->currentIndex() == 0, "discard did not restore dark category");
+    check(ConfigManager::instance().root() == saved, "discard modified stored configuration");
+
+    // 可选输出真实控件截图，供人工核对深浅 UI 下终端预览的独立性。
+    const QString shots = qEnvironmentVariable("NOVATERM_SCHEME_SCREENSHOTS");
+    if (!shots.isEmpty()) {
+        QDir().mkpath(shots);
+        auto setWindowPalette = [&settings](bool darkMode) {
+            auto palette = settings.palette();
+            palette.setColor(QPalette::Window, darkMode ? QColor(30, 30, 30) : QColor(248, 248, 248));
+            settings.setAutoFillBackground(true);
+            settings.setPalette(palette);
+        };
+        eTheme->setThemeMode(ElaThemeType::Dark);
+        setWindowPalette(true);
+        dark->setCurrentText(QStringLiteral("Dracula"));
+        QApplication::processEvents();
+        settings.grab().save(QDir(shots).filePath(QStringLiteral("terminal-dark.png")));
+        eTheme->setThemeMode(ElaThemeType::Light);
+        setWindowPalette(false);
+        QApplication::processEvents();
+        settings.grab().save(QDir(shots).filePath(QStringLiteral("app-light-terminal-dark.png")));
+        mode->setCurrentIndex(1);
+        light->setCurrentText(QStringLiteral("One Half Light"));
+        QApplication::processEvents();
+        settings.grab().save(QDir(shots).filePath(QStringLiteral("terminal-light.png")));
+        settings.resize(540, settings.sizeHint().height());
+        QApplication::processEvents();
+        settings.grab().save(QDir(shots).filePath(QStringLiteral("terminal-narrow.png")));
+    }
+    return failures;
+}
 
 int verifyTerminalTabConnectionAction()
 {
@@ -274,7 +476,20 @@ QByteArray samplePayload()
 int main(int argc, char** argv)
 {
     QApplication app(argc, argv);
+    if (app.arguments().size() == 4 && app.arguments().at(1) == QStringLiteral("--scheme-persistence-step"))
+        return schemePersistenceStep(app.arguments().at(2), app.arguments().at(3).toInt());
+    if (app.arguments().contains(QStringLiteral("--terminal-scheme-only"))) {
+        // 人工视觉检查使用与主程序相同的 Ela 字体与图标初始化。
+        eApp->init();
+        QTranslator translator;
+        const auto qm = qEnvironmentVariable("NOVATERM_SCHEME_TRANSLATION");
+        if (!qm.isEmpty() && translator.load(qm))
+            app.installTranslator(&translator);
+        return verifyTerminalSchemeSettings();
+    }
     int failures = verifyTerminalTabConnectionAction();
+    failures += verifySchemePersistenceAcrossProcesses();
+    failures += verifyTerminalSchemeSettings();
     failures += verifyAppBarCloseButtonClosesDialogSafely();
     failures += verifyHostKeyDialogUsesElaWidgets();
     failures += verifyChangedHostTitleContainsEndpoint();

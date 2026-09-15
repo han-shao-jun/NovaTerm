@@ -1,4 +1,5 @@
 #include "ConfigManager.h"
+#include "TerminalSchemeStore.h"
 #include <QCoreApplication>
 #include <QDir>
 #include <QFile>
@@ -24,6 +25,19 @@ bool validateKnownValueTypes(const QJsonObject& schema,
 
         const QJsonValue expected = it.value();
         const QJsonValue actual = target.value(it.key());
+        // 配色引用允许单个名称或终端自身深浅分类的 light/dark 名称对。
+        if (it.key() == QStringLiteral("colorScheme") && actual.isObject()) {
+            auto pair = actual.toObject();
+            for (const auto& key : {QStringLiteral("light"), QStringLiteral("dark")}) {
+                if (!pair.value(key).isString() || pair.value(key).toString().isEmpty()) {
+                    pair[key] = key == QStringLiteral("light")
+                        ? QStringLiteral("One Half Light") : QStringLiteral("Campbell");
+                    repaired = true;
+                }
+            }
+            target[it.key()] = pair;
+            continue;
+        }
         if (expected.isObject() && actual.isObject()) {
             QJsonObject child = actual.toObject();
             repaired |= validateKnownValueTypes(expected.toObject(), child);
@@ -34,6 +48,9 @@ bool validateKnownValueTypes(const QJsonObject& schema,
         if (expected.isArray() && actual.isArray()) {
             const QJsonArray expectedArray = expected.toArray();
             const QJsonArray actualArray = actual.toArray();
+            // 空的默认数组代表变长集合；方案字段由配色服务逐项校验。
+            if (expectedArray.isEmpty())
+                continue;
             bool arrayValid = expectedArray.size() == actualArray.size();
             for (qsizetype index = 0;
                  arrayValid && index < expectedArray.size(); ++index) {
@@ -98,6 +115,11 @@ bool validateKnownValueRanges(QJsonObject& root,
     QJsonObject terminal = root.value(QStringLiteral("terminal")).toObject();
     const QJsonObject defaultTerminal = defaults.value(
         QStringLiteral("terminal")).toObject();
+    const QString appearance = terminal.value(QStringLiteral("appearance")).toString();
+    if (appearance != QStringLiteral("dark") && appearance != QStringLiteral("light")) {
+        terminal[QStringLiteral("appearance")] = QStringLiteral("dark");
+        repaired = true;
+    }
     repaired |= repairIntegerRange(
         terminal, QStringLiteral("fontSize"), 6, 96,
         defaultTerminal.value(QStringLiteral("fontSize")).toInt());
@@ -228,21 +250,11 @@ QJsonObject ConfigManager::defaults()
         {"terminal", QJsonObject{
             {"fontFamily", "Cascadia Code"},
             {"fontSize", 12},
-            {"colorScheme", "windowsTerminalCampbell"},
-            {"colors", QJsonObject{
-                {"foreground", "#CCCCCC"},
-                {"background", "#0C0C0C"},
-                {"cursor", "#FFFFFF"},
-                {"selection", "#40FFFFFF"},
-                {"palette", QJsonArray{
-                    "#0C0C0C", "#C50F1F", "#13A10E", "#C19C00",
-                    "#0037DA", "#881798", "#3A96DD", "#CCCCCC",
-                    "#767676", "#E74856", "#16C60C", "#F9F1A5",
-                    "#3B78FF", "#B4009E", "#61D6D6", "#F2F2F2"
-                }}
-            }},
+            {"appearance", "dark"},
+            {"colorScheme", "Campbell"},
             {"scrollbackLines", 10000}
         }},
+        {"schemes", QJsonArray{}},
         {"monitor", QJsonObject{
             {"fastIntervalMs", 2000}
         }},
@@ -258,14 +270,15 @@ QJsonObject ConfigManager::defaults()
     };
 }
 
-void ConfigManager::load()
+void ConfigManager::load(const QString& filePath)
 {
     if (_loaded)
         return;
     _loaded = true;
 
     // 配置文件位于可执行文件同目录
-    _filePath = QCoreApplication::applicationDirPath() + "/novaterm.json";
+    _filePath = filePath.isEmpty()
+        ? QCoreApplication::applicationDirPath() + "/novaterm.json" : filePath;
 
     QFile file(_filePath);
     if (file.open(QIODevice::ReadOnly)) {
@@ -292,6 +305,7 @@ void ConfigManager::load()
 
     // 先修复已知字段的类型，再填充缺失字段并校验关键取值范围。
     // 未识别的扩展字段原样保留，兼顾向前兼容与损坏配置恢复。
+    TerminalSchemeStore::migrate(_root);
     const QJsonObject def = defaults();
     bool repaired = validateKnownValueTypes(def, _root);
     applyDefaults(def, _root);
@@ -301,21 +315,26 @@ void ConfigManager::load()
     save();
 }
 
-void ConfigManager::save()
+bool ConfigManager::save()
 {
+    TerminalSchemeStore::materialize(_root);
     if (_filePath.isEmpty())
-        return;
+        return true;
 
     // QSaveFile 先写临时文件再原子替换，避免断电或异常退出留下半个 JSON。
     QSaveFile file(_filePath);
     if (file.open(QIODevice::WriteOnly)) {
         const QByteArray data = QJsonDocument(_root).toJson(
             QJsonDocument::Indented);
-        if (file.write(data) != data.size() || !file.commit())
+        if (file.write(data) != data.size() || !file.commit()) {
             qWarning() << "提交配置失败：" << _filePath;
+            return false;
+        }
     } else {
         qWarning() << "写入配置失败：" << _filePath;
+        return false;
     }
+    return true;
 }
 
 void ConfigManager::set(const QString& path, const QVariant& value)
@@ -325,14 +344,19 @@ void ConfigManager::set(const QString& path, const QVariant& value)
     emit instance().configChanged(path);
 }
 
-void ConfigManager::setValues(const QVariantMap& values)
+bool ConfigManager::setValues(const QVariantMap& values)
 {
     ConfigManager& manager = instance();
+    const QJsonObject previous = manager._root;
     for (auto it = values.constBegin(); it != values.constEnd(); ++it)
         manager.setValueAt(it.key(), it.value());
 
     // 一组相关状态只落盘一次，保证关闭时保存的窗口和面板布局相互一致。
-    manager.save();
+    if (!manager.save()) {
+        manager._root = previous;
+        return false;
+    }
     for (auto it = values.constBegin(); it != values.constEnd(); ++it)
         emit manager.configChanged(it.key());
+    return true;
 }

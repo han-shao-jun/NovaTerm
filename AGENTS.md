@@ -680,6 +680,19 @@ deleteLater **就被这次 processEvents() 执行掉**：窗口、它的 ElaAppB
 
 ## 改动后必须同步文档
 
+**终端深浅分类不跟随程序主题**：`terminal.appearance` 选择终端自身的
+`dark/light` 分类，`terminal.colorScheme` 为名称或两个分类的名称对；不要用
+`eTheme->themeModeChanged` 驱动终端换色。`TerminalSchemeStore` 负责命名方案、
+Windows Terminal 字段解析和旧 `terminal.colors` 迁移，Renderer 不读 JSON。
+设置页只在「保存并应用」后写配置并更新已打开的终端。相关回归分布在
+`novaterm_renderer_tests`、`novaterm_ui_dialog_layout_tests` 和
+`novaterm_terminal_session_tests::terminalColorsAreIndependentOfApplicationTheme`。
+预置值集中在 `resources/terminal-color-schemes.json`，保存的 `schemes` 是完整方案库，
+不再只有覆盖项；`materialize()` 只补缺失项。直接编译配色服务的目标必须调用
+`novaterm_add_scheme_resources()`，否则缺少初始化/恢复模板。
+跨进程读写和保存失败回滚由 UI 测试覆盖；GPU 实际换色由
+`savedSchemeRepaintsExistingTerminalPixels` 覆盖，不能只断言配置对象已变化。
+
 `Development_Roadmap.md` 的"统一完成定义"把**文档更新**列为"完成"的必要条件
 之一。代码合了但文档没动，该项不算完成 —— 请在同一批提交里改掉，不要留到"以后"。
 

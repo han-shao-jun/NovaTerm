@@ -4,8 +4,11 @@
 #include "transport/LocalShellTransport.h"
 #include "session/TerminalSession.h"
 #include "ui/terminal/TerminalView.h"
+#include "service/ConfigManager.h"
+#include "service/TerminalSchemeStore.h"
 
 #include <ElaComboBox.h>
+#include <ElaTheme.h>
 
 #include <QElapsedTimer>
 #include <QCoreApplication>
@@ -33,6 +36,8 @@ class TerminalSessionSmokeTests : public QObject
     Q_OBJECT
 
 private slots:
+    void terminalColorsAreIndependentOfApplicationTheme();
+    void savedSchemeRepaintsExistingTerminalPixels();
     void conPtyStartupKeepsUiResponsive();
     void terminalViewStartupKeepsUiResponsive();
     void terminalViewRepeatedStartStop();
@@ -41,6 +46,92 @@ private slots:
     void externalSessionOutlivesView();
     void ownedDependenciesAreDestroyedBeforeCore();
 };
+
+void TerminalSessionSmokeTests::savedSchemeRepaintsExistingTerminalPixels()
+{
+    const auto previous = ConfigManager::instance().root();
+    QVERIFY(ConfigManager::setValues({
+        {QStringLiteral("terminal.appearance"), QStringLiteral("dark")},
+        {QStringLiteral("terminal.colorScheme"), QStringLiteral("Campbell")}}));
+    TerminalView first;
+    TerminalView second;
+    first.resize(640, 320);
+    first.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&first, 3000));
+    auto* core = first.session()->core();
+    auto* renderer = first.renderer();
+    core->writeInput(QByteArrayLiteral(
+        "\x1b[41m        \x1b[48;2;18;52;86m        \x1b[0m\x1b[?25l"));
+    QVERIFY(core->waitForIdle());
+    const auto cursor = core->snapshot().cursor.position;
+    auto* session = first.session();
+    auto hasColor = [renderer](const QColor& expected) {
+        const QImage image = renderer->grabFramebuffer();
+        if (image.isNull())
+            return false;
+        for (int y = 0; y < image.height(); ++y) {
+            for (int x = 0; x < image.width(); ++x) {
+                if (image.pixelColor(x, y).rgb() == expected.rgb())
+                    return true;
+            }
+        }
+        return false;
+    };
+    QTRY_VERIFY_WITH_TIMEOUT(hasColor(QColor("#c50f1f")), 5000);
+    QVERIFY(hasColor(QColor("#123456")));
+
+    auto config = ConfigManager::instance().root();
+    auto edited = *TerminalSchemeStore::find(config, QStringLiteral("Campbell"));
+    edited.palette[1] = QColor("#12ab34");
+    edited.background = QColor("#172b41");
+    QVERIFY(TerminalSchemeStore::save(config, edited, edited.name));
+    QVERIFY(ConfigManager::setValues({
+        {QStringLiteral("schemes"), config.value(QStringLiteral("schemes")).toVariant()}}));
+    QTRY_COMPARE(second.renderer()->colorScheme().palette[1], edited.palette[1]);
+    // 不再喂入任何字节，直接验证原有内容、ANSI 背景和 GPU 清屏色立即更新。
+    QTRY_VERIFY_WITH_TIMEOUT(hasColor(edited.palette[1]), 5000);
+    QVERIFY(hasColor(edited.background));
+    QVERIFY(hasColor(QColor("#123456")));
+    QVERIFY(core->waitForIdle());
+    QCOMPARE(first.session(), session);
+    QCOMPARE(core->snapshot().cursor.position, cursor);
+    ConfigManager::setValues(previous.toVariantMap());
+}
+
+void TerminalSessionSmokeTests::terminalColorsAreIndependentOfApplicationTheme()
+{
+    // 不调用 load()，测试只操作内存，不覆盖真实配置文件。
+    const auto previous = ConfigManager::instance().root().value(QStringLiteral("terminal"));
+    const auto originalTheme = eTheme->getThemeMode();
+    const QJsonObject references{
+        {QStringLiteral("dark"), QStringLiteral("Dracula")},
+        {QStringLiteral("light"), QStringLiteral("One Half Light")}
+    };
+    ConfigManager::setValues({
+        {QStringLiteral("terminal.appearance"), QStringLiteral("dark")},
+        {QStringLiteral("terminal.colorScheme"), references.toVariantMap()}});
+    TerminalView first;
+    TerminalView second;
+    auto* core = first.session()->core();
+    core->writeInput(QByteArrayLiteral("persistent output"));
+    QVERIFY(core->waitForIdle());
+    const auto* session = first.session();
+    QCOMPARE(first.renderer()->colorScheme().name, QStringLiteral("Dracula"));
+    eTheme->setThemeMode(ElaThemeType::Light);
+    QApplication::processEvents();
+    QCOMPARE(first.renderer()->colorScheme().name, QStringLiteral("Dracula"));
+    ConfigManager::set(QStringLiteral("terminal.appearance"), QStringLiteral("light"));
+    QTRY_COMPARE(first.renderer()->colorScheme().name, QStringLiteral("One Half Light"));
+    QTRY_COMPARE(second.renderer()->colorScheme().name, QStringLiteral("One Half Light"));
+    QCOMPARE(first.session(), session);
+    QVERIFY(core->waitForIdle());
+    QCOMPARE(core->snapshot().visibleCells[0].chars[0], uint32_t('p'));
+    eTheme->setThemeMode(ElaThemeType::Dark);
+    QApplication::processEvents();
+    QCOMPARE(first.renderer()->colorScheme().name, QStringLiteral("One Half Light"));
+    ConfigManager::set(QStringLiteral("terminal"), previous.toVariant());
+    eTheme->setThemeMode(originalTheme);
+}
 
 void TerminalSessionSmokeTests::terminalViewStartupPreservesPendingSize()
 {

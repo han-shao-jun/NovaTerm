@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(NovaTerm VERSION 0.2.13 LANGUAGES CXX C)
+project(NovaTerm VERSION 0.2.14 LANGUAGES CXX C)
 
 # ═══════════════════════════════════════════════════════════════════
 #  1. 通用平台编译参数
@@ -254,6 +254,16 @@ qt_add_executable(NovaTerm
     ${SOURCES}
     ${CMAKE_SOURCE_DIR}/resources/resources.qrc
 )
+
+# 主程序与直接编译配色服务的测试使用同一份 JSON 模板。
+function(novaterm_add_scheme_resources target)
+    qt_add_resources(${target} "${target}_scheme_presets"
+        PREFIX "/novaterm"
+        BASE "${PROJECT_SOURCE_DIR}/resources"
+        FILES "${PROJECT_SOURCE_DIR}/resources/terminal-color-schemes.json"
+    )
+endfunction()
+novaterm_add_scheme_resources(NovaTerm)
 
 target_include_directories(NovaTerm PRIVATE
     src

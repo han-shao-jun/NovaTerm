@@ -15,7 +15,7 @@
 class ITransport;
 class TerminalCore;
 class TerminalRenderer;
-class TerminalColorScheme;
+struct TerminalColorScheme;
 class QTimer;
 class ElaLineEdit;
 class TerminalSession;
@@ -111,7 +111,7 @@ signals:
     void shellFinished();                      ///< shell 已退出
 
 private:
-    void applyThemeColorScheme();
+    void applyColorScheme();
     void retranslateUi();
     void setupContextMenu(const QPoint& pos);
     /** @brief 右键菜单与鼠标中键共用的系统剪贴板粘贴入口。 */
@@ -127,6 +127,7 @@ private:
     ITransport*       _displayTransport{nullptr};
     bool              _isLocalShell{false};
     bool              _ownsSession{true};
+    bool              _colorSchemeUpdatePending{false};
 
     // PTY 尺寸变更去抖定时器：拖动窗口时密集的 resize 事件合并为一次
     // SIGWINCH，避免 shell 被连续重绘请求轰击产生输出风暴。

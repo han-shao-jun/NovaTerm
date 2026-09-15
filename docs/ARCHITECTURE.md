@@ -120,6 +120,15 @@ CPU 频率与文件系统每 10 秒通过独立有界命令查询；频率优先
 
 负责配置加载、Profile 解析、主题解析、Session 创建与列表管理。服务层输出结构化对象，不要求 Renderer 自行读取 JSON。
 
+终端配色由 `TerminalSchemeStore` 在服务层解析为 `TerminalColorScheme`。
+设置页以「终端深色/浅色分类 → 命名方案」组织，与 `ui.theme` 独立；用户
+明确「保存并应用」后，`TerminalView` 监听合并的配置通知更新渲染器，不重建
+Session、不清空内容。JSON 的 `schemes` 使用 Windows Terminal 的命名 16 色格式，
+默认色、光标与选区分开配置。详见配置架构文档的「当前实现：终端配色」。
+完整方案库与选择一起原子写入 `novaterm.json`，首次启动从 Qt 资源中的
+`resources/terminal-color-schemes.json` 补齐预置方案；已有持久化值优先。
+保存后的变更通知触发现有终端全帧重绘，包括已显示的文字与背景。
+
 ### 3.3 TerminalSession
 
 `TerminalSession` 聚合一条 `ITransport`、`SessionInputPump`、`TerminalCore` 与 Scrollback，负责 start、close、resize、reconnect 和错误传播，但不负责绘制细节。**采用「1 TerminalView 拥有 1 TerminalSession」模型**：每个终端标签的 `TerminalView` 自建、驱动并销毁其 Session（`_ownsSession` 默认 true），Session 不反向持有 View/Renderer。原设想的「SessionManager 拥有 Session、View 非 owning attach、Session 脱离 View 后台存活」已放弃，`SessionManager` 类已移除。详见 `docs/architecture/stages/P6_Session_and_Transport.md`。
