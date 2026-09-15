@@ -2427,32 +2427,32 @@ Built with:
 <context>
     <name>TerminalView</name>
     <message>
-        <location filename="../../src/ui/terminal/TerminalView.cpp" line="631"/>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="648"/>
         <source>Find in scrollback</source>
         <translation>在滚动回显中查找</translation>
     </message>
     <message>
-        <location filename="../../src/ui/terminal/TerminalView.cpp" line="564"/>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="570"/>
         <source>Copy</source>
         <translation>复制</translation>
     </message>
     <message>
-        <location filename="../../src/ui/terminal/TerminalView.cpp" line="254"/>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="255"/>
         <source>[Disconnected] Press Enter to reconnect.</source>
         <translation>[连接已经断开] 按 Enter 重新连接</translation>
     </message>
     <message>
-        <location filename="../../src/ui/terminal/TerminalView.cpp" line="255"/>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="256"/>
         <source>[Disconnected].</source>
         <translation>[已断开连接]</translation>
     </message>
     <message>
-        <location filename="../../src/ui/terminal/TerminalView.cpp" line="266"/>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="267"/>
         <source>[Transport error] %1</source>
         <translation>[传输错误] %1</translation>
     </message>
     <message>
-        <location filename="../../src/ui/terminal/TerminalView.cpp" line="567"/>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="573"/>
         <source>Paste</source>
         <translation>粘贴</translation>
     </message>

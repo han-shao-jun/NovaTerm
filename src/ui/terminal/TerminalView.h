@@ -114,6 +114,8 @@ private:
     void applyThemeColorScheme();
     void retranslateUi();
     void setupContextMenu(const QPoint& pos);
+    /** @brief 右键菜单与鼠标中键共用的系统剪贴板粘贴入口。 */
+    void pasteFromClipboard();
     bool eventFilter(QObject* obj, QEvent* event) override;
     void showSearch();
     void hideSearch();

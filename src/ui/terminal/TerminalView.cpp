@@ -32,6 +32,7 @@
 #include <QKeyEvent>
 #include <QKeySequence>
 #include <QLineEdit>
+#include <QMouseEvent>
 #include <QTimer>
 
 #include <algorithm>
@@ -491,6 +492,11 @@ void TerminalView::pasteText(const QString& text)
     _renderer->setFocus(Qt::ShortcutFocusReason);
 }
 
+void TerminalView::pasteFromClipboard()
+{
+    pasteText(QApplication::clipboard()->text(QClipboard::Clipboard));
+}
+
 void TerminalView::submitText(const QString& text)
 {
     if (!_core || text.isEmpty())
@@ -565,13 +571,7 @@ void TerminalView::setupContextMenu(const QPoint& pos)
             &QAction::triggered, _renderer, &TerminalRenderer::copySelection);
 
     connect(menu->addElaIconAction(ElaIconType::Paste, tr("Paste")),
-            &QAction::triggered, this, [this]() {
-        if (_core) {
-            const QString text = QApplication::clipboard()->text(
-                QClipboard::Clipboard);
-            _core->pasteText(text);
-        }
-    });
+            &QAction::triggered, this, &TerminalView::pasteFromClipboard);
 
     menu->addSeparator();
 
@@ -595,11 +595,28 @@ void TerminalView::setupContextMenu(const QPoint& pos)
 }
 
 // ═══════════════════════════════════════════════════════════════════
-//  eventFilter — 终端尺寸变更转发给 transport
+//  eventFilter — 终端粘贴、搜索快捷键与尺寸事件
 // ═══════════════════════════════════════════════════════════════════
 
 bool TerminalView::eventFilter(QObject* obj, QEvent* event)
 {
+    if (obj == _renderer
+        && (event->type() == QEvent::MouseButtonPress
+            || event->type() == QEvent::MouseButtonDblClick
+            || event->type() == QEvent::MouseButtonRelease)) {
+        auto* mouse = static_cast<QMouseEvent*>(event);
+        if (mouse->button() == Qt::MiddleButton) {
+            // 双击事件代表第二次按下；释放只消费，避免重复粘贴或向远端
+            // 上报未配对的鼠标释放事件。
+            if (event->type() != QEvent::MouseButtonRelease) {
+                pasteFromClipboard();
+                _renderer->setFocus(Qt::MouseFocusReason);
+                emit activityDetected();
+            }
+            event->accept();
+            return true;
+        }
+    }
     if (obj == _searchLine && event->type() == QEvent::KeyPress
         && static_cast<QKeyEvent*>(event)->key() == Qt::Key_Escape) {
         hideSearch();

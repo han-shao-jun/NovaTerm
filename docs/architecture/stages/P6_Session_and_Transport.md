@@ -102,6 +102,11 @@ Running。现清理结束后同步发布一次 `disconnected`，Session 进入 F
 `novaterm_ssh_transport_check`、`novaterm_session_tests`、
 `novaterm_ui_dialog_layout_tests` 三项通过；未连接真实服务器做人工验收。
 
+2026-09-15：终端增加鼠标中键粘贴，与右键菜单共用 `pasteFromClipboard()`，
+读取系统剪贴板并经 `TerminalCore::pasteText()` 保留换行和括号粘贴语义。
+TerminalView 消费中键按下、双击与释放事件，每次按下只粘贴一次，不再向远端
+上报中键鼠标事件；滚轮滚动与左右键行为不变。
+
 同日修复 Ela 标签拖出浮窗在 Windows 上偶发无法最大化、无法关闭的问题。
 拖拽期间浮窗会临时启用 `Qt::WindowTransparentForInput`；`QDrag::exec()` 的嵌套
 事件循环可能替换浮窗或重建原生句柄，旧实现只清一次 Qt 标志，最终窗口会残留
