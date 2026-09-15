@@ -1809,13 +1809,14 @@ void MainWindow::showSettingsDialog()
     dialog->setWindowButtonFlags(ElaAppBarType::CloseButtonHint);
 
     // 以 MainWindow 作为父对象构造，使窗口相关控件
-    // （绘制模式 / 窗口特效 / 导航栏模式 / 页面切换模式）仍能定位到它；
+    // （绘制模式 / 窗口特效 / 页面切换模式）仍能定位到它；
     // 捕获的窗口指针在控件被移入对话框布局后仍然有效。
     auto* settingsPage = new SettingsPage(this);
     settingsPage->setTitleVisible(false);
 
     auto* mainLayout = new QVBoxLayout(dialog);
-    mainLayout->setContentsMargins(0, 30, 0, 0);
+    // ElaDialog 的 app bar 已通过窗口 contentsMargins 预留标题栏高度。
+    mainLayout->setContentsMargins(0, 0, 0, 0);
     mainLayout->addWidget(settingsPage);
 
     dialog->exec();

@@ -543,6 +543,11 @@ base 指针。主题切换只改 QPalette，不动 style。
 `SystemInformationDialog::InformationCard` 是现有范例；对应 UI 回归测试断言完整
 数据会生成 8 张 Ela 卡片，并继续检查滚动范围。
 
+**`ElaDialog` 已自动预留标题栏空间**：`ElaAppBar` 构造时把窗口的
+`contentsMargins.top` 设为 app bar 高度（默认 45 px），外层布局不要再加
+同样用途的上边距。设置窗口曾额外加 30 px，再叠加页面 20 px 和内容 30 px，
+导致第一组设置距离窗口顶部 125 px；现为自动标题栏 + 页面 8 px。
+
 **`ElaThemeColor(mode, role)` 的 `role` 必须是枚举常量 token**：该接口是宏，展开时
 会自动补 `ElaThemeType::`，传保存于成员变量的动态角色会被拼成不存在的枚举成员并
 编译失败。动态主题角色统一直接调用

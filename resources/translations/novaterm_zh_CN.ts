@@ -914,199 +914,163 @@ Built with:
     <name>SettingsPage</name>
     <message>
         <location filename="../../src/ui/pages/SettingsPage.cpp" line="132"/>
-        <location filename="../../src/ui/pages/SettingsPage.cpp" line="378"/>
-        <location filename="../../src/ui/pages/SettingsPage.cpp" line="403"/>
-        <location filename="../../src/ui/pages/SettingsPage.cpp" line="404"/>
+        <location filename="../../src/ui/pages/SettingsPage.cpp" line="336"/>
+        <location filename="../../src/ui/pages/SettingsPage.cpp" line="360"/>
+        <location filename="../../src/ui/pages/SettingsPage.cpp" line="361"/>
         <source>Settings</source>
         <translation>设置</translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SettingsPage.cpp" line="137"/>
-        <location filename="../../src/ui/pages/SettingsPage.cpp" line="154"/>
-        <location filename="../../src/ui/pages/SettingsPage.cpp" line="407"/>
-        <location filename="../../src/ui/pages/SettingsPage.cpp" line="412"/>
+        <location filename="../../src/ui/pages/SettingsPage.cpp" line="139"/>
+        <location filename="../../src/ui/pages/SettingsPage.cpp" line="156"/>
+        <location filename="../../src/ui/pages/SettingsPage.cpp" line="364"/>
+        <location filename="../../src/ui/pages/SettingsPage.cpp" line="369"/>
         <source>Language</source>
         <translation>语言</translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SettingsPage.cpp" line="142"/>
-        <location filename="../../src/ui/pages/SettingsPage.cpp" line="424"/>
+        <location filename="../../src/ui/pages/SettingsPage.cpp" line="144"/>
+        <location filename="../../src/ui/pages/SettingsPage.cpp" line="379"/>
         <source>English</source>
         <translation>英文</translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SettingsPage.cpp" line="143"/>
-        <location filename="../../src/ui/pages/SettingsPage.cpp" line="425"/>
+        <location filename="../../src/ui/pages/SettingsPage.cpp" line="145"/>
+        <location filename="../../src/ui/pages/SettingsPage.cpp" line="380"/>
         <source>简体中文</source>
         <translation>简体中文</translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SettingsPage.cpp" line="172"/>
-        <location filename="../../src/ui/pages/SettingsPage.cpp" line="408"/>
+        <location filename="../../src/ui/pages/SettingsPage.cpp" line="174"/>
+        <location filename="../../src/ui/pages/SettingsPage.cpp" line="365"/>
         <source>Theme</source>
         <translation>主题</translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SettingsPage.cpp" line="177"/>
-        <location filename="../../src/ui/pages/SettingsPage.cpp" line="440"/>
+        <location filename="../../src/ui/pages/SettingsPage.cpp" line="179"/>
+        <location filename="../../src/ui/pages/SettingsPage.cpp" line="395"/>
         <source>Light</source>
         <translation>浅色</translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SettingsPage.cpp" line="178"/>
-        <location filename="../../src/ui/pages/SettingsPage.cpp" line="441"/>
+        <location filename="../../src/ui/pages/SettingsPage.cpp" line="180"/>
+        <location filename="../../src/ui/pages/SettingsPage.cpp" line="396"/>
         <source>Dark</source>
         <translation>深色</translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SettingsPage.cpp" line="179"/>
-        <location filename="../../src/ui/pages/SettingsPage.cpp" line="442"/>
+        <location filename="../../src/ui/pages/SettingsPage.cpp" line="181"/>
+        <location filename="../../src/ui/pages/SettingsPage.cpp" line="397"/>
         <source>Auto (System)</source>
         <translation>自动（系统）</translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SettingsPage.cpp" line="199"/>
-        <location filename="../../src/ui/pages/SettingsPage.cpp" line="413"/>
+        <location filename="../../src/ui/pages/SettingsPage.cpp" line="201"/>
+        <location filename="../../src/ui/pages/SettingsPage.cpp" line="370"/>
         <source>Theme Mode</source>
         <translation>主题模式</translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SettingsPage.cpp" line="225"/>
-        <location filename="../../src/ui/pages/SettingsPage.cpp" line="414"/>
+        <location filename="../../src/ui/pages/SettingsPage.cpp" line="227"/>
+        <location filename="../../src/ui/pages/SettingsPage.cpp" line="371"/>
         <source>Window Paint Mode</source>
         <translation>窗口绘制模式</translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SettingsPage.cpp" line="229"/>
-        <location filename="../../src/ui/pages/SettingsPage.cpp" line="261"/>
-        <location filename="../../src/ui/pages/SettingsPage.cpp" line="448"/>
-        <location filename="../../src/ui/pages/SettingsPage.cpp" line="453"/>
+        <location filename="../../src/ui/pages/SettingsPage.cpp" line="231"/>
+        <location filename="../../src/ui/pages/SettingsPage.cpp" line="263"/>
+        <location filename="../../src/ui/pages/SettingsPage.cpp" line="403"/>
+        <location filename="../../src/ui/pages/SettingsPage.cpp" line="408"/>
         <source>Normal</source>
         <translation>正常</translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SettingsPage.cpp" line="231"/>
-        <location filename="../../src/ui/pages/SettingsPage.cpp" line="449"/>
+        <location filename="../../src/ui/pages/SettingsPage.cpp" line="233"/>
+        <location filename="../../src/ui/pages/SettingsPage.cpp" line="404"/>
         <source>Pixmap</source>
         <translation>位图</translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SettingsPage.cpp" line="232"/>
-        <location filename="../../src/ui/pages/SettingsPage.cpp" line="450"/>
+        <location filename="../../src/ui/pages/SettingsPage.cpp" line="234"/>
+        <location filename="../../src/ui/pages/SettingsPage.cpp" line="405"/>
         <source>Movie</source>
         <translation>动态</translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SettingsPage.cpp" line="253"/>
-        <location filename="../../src/ui/pages/SettingsPage.cpp" line="409"/>
+        <location filename="../../src/ui/pages/SettingsPage.cpp" line="255"/>
+        <location filename="../../src/ui/pages/SettingsPage.cpp" line="366"/>
         <source>Application</source>
         <translation>应用</translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SettingsPage.cpp" line="258"/>
-        <location filename="../../src/ui/pages/SettingsPage.cpp" line="415"/>
+        <location filename="../../src/ui/pages/SettingsPage.cpp" line="260"/>
+        <location filename="../../src/ui/pages/SettingsPage.cpp" line="372"/>
         <source>Window Effect</source>
         <translation>窗口效果</translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SettingsPage.cpp" line="262"/>
-        <location filename="../../src/ui/pages/SettingsPage.cpp" line="454"/>
+        <location filename="../../src/ui/pages/SettingsPage.cpp" line="264"/>
+        <location filename="../../src/ui/pages/SettingsPage.cpp" line="409"/>
         <source>ElaMica</source>
         <translation>ElaMica</translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SettingsPage.cpp" line="264"/>
-        <location filename="../../src/ui/pages/SettingsPage.cpp" line="456"/>
+        <location filename="../../src/ui/pages/SettingsPage.cpp" line="266"/>
+        <location filename="../../src/ui/pages/SettingsPage.cpp" line="411"/>
         <source>Mica</source>
         <translation>Mica</translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SettingsPage.cpp" line="265"/>
-        <location filename="../../src/ui/pages/SettingsPage.cpp" line="457"/>
+        <location filename="../../src/ui/pages/SettingsPage.cpp" line="267"/>
+        <location filename="../../src/ui/pages/SettingsPage.cpp" line="412"/>
         <source>Mica-Alt</source>
         <translation>Mica-Alt</translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SettingsPage.cpp" line="266"/>
-        <location filename="../../src/ui/pages/SettingsPage.cpp" line="458"/>
+        <location filename="../../src/ui/pages/SettingsPage.cpp" line="268"/>
+        <location filename="../../src/ui/pages/SettingsPage.cpp" line="413"/>
         <source>Acrylic</source>
         <translation>Acrylic</translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SettingsPage.cpp" line="267"/>
-        <location filename="../../src/ui/pages/SettingsPage.cpp" line="459"/>
+        <location filename="../../src/ui/pages/SettingsPage.cpp" line="269"/>
+        <location filename="../../src/ui/pages/SettingsPage.cpp" line="414"/>
         <source>Dwm-Blur</source>
         <translation>Dwm-Blur</translation>
     </message>
     <message>
         <location filename="../../src/ui/pages/SettingsPage.cpp" line="302"/>
-        <location filename="../../src/ui/pages/SettingsPage.cpp" line="416"/>
-        <source>Show User Card</source>
-        <translation>显示用户卡片</translation>
-    </message>
-    <message>
-        <location filename="../../src/ui/pages/SettingsPage.cpp" line="314"/>
-        <location filename="../../src/ui/pages/SettingsPage.cpp" line="463"/>
-        <source>Minimal</source>
-        <translation>极简</translation>
-    </message>
-    <message>
-        <location filename="../../src/ui/pages/SettingsPage.cpp" line="315"/>
-        <location filename="../../src/ui/pages/SettingsPage.cpp" line="464"/>
-        <source>Compact</source>
-        <translation>紧凑</translation>
-    </message>
-    <message>
-        <location filename="../../src/ui/pages/SettingsPage.cpp" line="316"/>
-        <location filename="../../src/ui/pages/SettingsPage.cpp" line="465"/>
-        <source>Maximal</source>
-        <translation>最大化</translation>
-    </message>
-    <message>
-        <location filename="../../src/ui/pages/SettingsPage.cpp" line="317"/>
-        <location filename="../../src/ui/pages/SettingsPage.cpp" line="466"/>
-        <source>Auto</source>
-        <translation>自动</translation>
-    </message>
-    <message>
-        <location filename="../../src/ui/pages/SettingsPage.cpp" line="321"/>
-        <location filename="../../src/ui/pages/SettingsPage.cpp" line="417"/>
-        <source>Navigation Bar Mode</source>
-        <translation>导航栏模式</translation>
-    </message>
-    <message>
-        <location filename="../../src/ui/pages/SettingsPage.cpp" line="344"/>
-        <location filename="../../src/ui/pages/SettingsPage.cpp" line="469"/>
+        <location filename="../../src/ui/pages/SettingsPage.cpp" line="419"/>
         <source>None</source>
         <translation>无</translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SettingsPage.cpp" line="345"/>
-        <location filename="../../src/ui/pages/SettingsPage.cpp" line="470"/>
+        <location filename="../../src/ui/pages/SettingsPage.cpp" line="303"/>
+        <location filename="../../src/ui/pages/SettingsPage.cpp" line="420"/>
         <source>Popup</source>
         <translation>弹出</translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SettingsPage.cpp" line="347"/>
-        <location filename="../../src/ui/pages/SettingsPage.cpp" line="471"/>
+        <location filename="../../src/ui/pages/SettingsPage.cpp" line="305"/>
+        <location filename="../../src/ui/pages/SettingsPage.cpp" line="421"/>
         <source>Scale</source>
         <translation>缩放</translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SettingsPage.cpp" line="348"/>
-        <location filename="../../src/ui/pages/SettingsPage.cpp" line="472"/>
+        <location filename="../../src/ui/pages/SettingsPage.cpp" line="306"/>
+        <location filename="../../src/ui/pages/SettingsPage.cpp" line="422"/>
         <source>Flip</source>
         <translation>翻转</translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SettingsPage.cpp" line="349"/>
-        <location filename="../../src/ui/pages/SettingsPage.cpp" line="473"/>
+        <location filename="../../src/ui/pages/SettingsPage.cpp" line="307"/>
+        <location filename="../../src/ui/pages/SettingsPage.cpp" line="423"/>
         <source>Blur</source>
         <translation>模糊</translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SettingsPage.cpp" line="352"/>
-        <location filename="../../src/ui/pages/SettingsPage.cpp" line="418"/>
+        <location filename="../../src/ui/pages/SettingsPage.cpp" line="310"/>
+        <location filename="../../src/ui/pages/SettingsPage.cpp" line="373"/>
         <source>Stack Switch Mode</source>
         <translation>堆栈切换模式</translation>
     </message>

@@ -73,6 +73,12 @@ flowchart TB
 
 负责窗口、标签、设置、输入事件、选择和用户反馈。UI 不解析 ANSI，不持有 libvterm，不实现 Transport 缓冲策略。每个终端标签的 `TerminalView` 拥有并驱动一个 `TerminalSession`（1 View : 1 Session），Session 内聚合 Core、Transport 与 InputPump；竞争窗口中的未入队输入由 `SessionInputPump` 暂存，不由 `TerminalView` 保存。
 
+设置弹窗使用 ElaDialog 自动保留的标题栏空间，外层布局不再重复添加上边距。
+设置页自身顶部留 8 px，内容布局直接从语言分组开始，不再叠加额外的 30 px
+空白。程序主题与终端外观仍为两个独立设置入口。
+设置页的「应用」分组保留窗口绘制模式、窗口特效和页面切换模式，不再提供
+用户卡片显示开关或导航栏显示模式选项。
+
 终端标签宽度按当前字体完整容纳 `192.168.10.100`，更长标题由 ElaTabBar 在右侧
 显示省略号，完整文本保留在 Tooltip。每个标签的关闭按钮左侧有一个 22×22 Ela
 连接动作：Running 时显示断开，Failed 且可重连时显示重连，连接/重连/关闭过渡态

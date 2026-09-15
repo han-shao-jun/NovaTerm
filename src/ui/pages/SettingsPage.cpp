@@ -19,7 +19,6 @@
 #include "ElaScrollPageArea.h"
 #include "ElaText.h"
 #include "ElaTheme.h"
-#include "ElaToggleSwitch.h"
 #include "ElaWindow.h"
 #include "service/LanguageManager.h"
 #include "service/ConfigManager.h"
@@ -131,6 +130,8 @@ SettingsPage::SettingsPage(QWidget* parent)
     : ElaScrollPage(parent)
 {
     setWindowTitle(tr("Settings"));
+    // 弹窗已为标题栏留出空间，页面只保留紧凑的内容上边距。
+    setContentsMargins(20, 8, 0, 0);
 
     ElaWindow* window = dynamic_cast<ElaWindow*>(parent);
 
@@ -296,50 +297,6 @@ SettingsPage::SettingsPage(QWidget* parent)
     micaLayout->addWidget(_dwmBlurButton);
 #endif
 
-    // 用户卡片开关
-    _userCardSwitchButton = new ElaToggleSwitch(this);
-    ElaScrollPageArea* userCardArea = new ElaScrollPageArea(this);
-    QHBoxLayout* userCardLayout = new QHBoxLayout(userCardArea);
-    _userCardText = new ElaText(tr("Show User Card"), this);
-    _userCardText->setWordWrap(false);
-    _userCardText->setTextPixelSize(15);
-    userCardLayout->addWidget(_userCardText);
-    userCardLayout->addStretch();
-    userCardLayout->addWidget(_userCardSwitchButton);
-    connect(_userCardSwitchButton, &ElaToggleSwitch::toggled, this, [=](bool checked) {
-        if (window)
-            window->setUserInfoCardVisible(checked);
-    });
-
-    // ── 导航栏显示模式 ──────────────────────
-    _minimumButton = new ElaRadioButton(tr("Minimal"), this);
-    _compactButton = new ElaRadioButton(tr("Compact"), this);
-    _maximumButton = new ElaRadioButton(tr("Maximal"), this);
-    _autoButton    = new ElaRadioButton(tr("Auto"), this);
-    _autoButton->setChecked(true);
-    ElaScrollPageArea* navModeArea = new ElaScrollPageArea(this);
-    QHBoxLayout* navModeLayout = new QHBoxLayout(navModeArea);
-    _navModeText = new ElaText(tr("Navigation Bar Mode"), this);
-    _navModeText->setWordWrap(false);
-    _navModeText->setTextPixelSize(15);
-    navModeLayout->addWidget(_navModeText);
-    navModeLayout->addStretch();
-    navModeLayout->addWidget(_minimumButton);
-    navModeLayout->addWidget(_compactButton);
-    navModeLayout->addWidget(_maximumButton);
-    navModeLayout->addWidget(_autoButton);
-
-    QButtonGroup* navGroup = new QButtonGroup(this);
-    navGroup->addButton(_autoButton,    static_cast<int>(ElaNavigationType::Auto));
-    navGroup->addButton(_minimumButton, static_cast<int>(ElaNavigationType::Minimal));
-    navGroup->addButton(_compactButton, static_cast<int>(ElaNavigationType::Compact));
-    navGroup->addButton(_maximumButton, static_cast<int>(ElaNavigationType::Maximal));
-    connect(navGroup, QOverload<QAbstractButton*, bool>::of(&QButtonGroup::buttonToggled),
-            this, [=](QAbstractButton* button, bool isToggled) {
-        if (isToggled && window)
-            window->setNavigationBarDisplayMode(
-                static_cast<ElaNavigationType::NavigationDisplayMode>(navGroup->id(button)));
-    });
 
     // ── 页面切换模式 ────────────────────────────────
     _noneButton   = new ElaRadioButton(tr("None"), this);
@@ -379,7 +336,6 @@ SettingsPage::SettingsPage(QWidget* parent)
     _centralWidget->setWindowTitle(tr("Settings"));
     QVBoxLayout* centerLayout = new QVBoxLayout(_centralWidget);
     centerLayout->setContentsMargins(0, 0, 0, 0);
-    centerLayout->addSpacing(30);
     centerLayout->addWidget(_langSectionText);
     centerLayout->addSpacing(10);
     centerLayout->addWidget(langArea);
@@ -394,8 +350,6 @@ SettingsPage::SettingsPage(QWidget* parent)
     centerLayout->addSpacing(10);
     centerLayout->addWidget(windowPaintArea);
     centerLayout->addWidget(micaArea);
-    centerLayout->addWidget(userCardArea);
-    centerLayout->addWidget(navModeArea);
     centerLayout->addWidget(stackArea);
     centerLayout->addStretch();
     addCentralWidget(_centralWidget, true, true, 0);
@@ -416,8 +370,6 @@ void SettingsPage::retranslateUi()
     if (_themeSwitchText) _themeSwitchText->setText(tr("Theme Mode"));
     if (_windowPaintText) _windowPaintText->setText(tr("Window Paint Mode"));
     if (_micaText) _micaText->setText(tr("Window Effect"));
-    if (_userCardText) _userCardText->setText(tr("Show User Card"));
-    if (_navModeText) _navModeText->setText(tr("Navigation Bar Mode"));
     if (_stackText) _stackText->setText(tr("Stack Switch Mode"));
 
     // 语言下拉框 — 保留选中项，阻塞信号避免重复触发
@@ -462,11 +414,6 @@ void SettingsPage::retranslateUi()
     if (_dwmBlurButton)  _dwmBlurButton->setText(tr("Dwm-Blur"));
 #endif
 
-    // 导航栏模式单选按钮
-    if (_minimumButton) _minimumButton->setText(tr("Minimal"));
-    if (_compactButton) _compactButton->setText(tr("Compact"));
-    if (_maximumButton) _maximumButton->setText(tr("Maximal"));
-    if (_autoButton)    _autoButton->setText(tr("Auto"));
 
     // 页面切换模式单选按钮
     if (_noneButton)   _noneButton->setText(tr("None"));
