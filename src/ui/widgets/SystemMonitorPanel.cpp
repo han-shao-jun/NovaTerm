@@ -221,9 +221,16 @@ void setUsage(ElaProgressBar* bar, ElaText* detail,
         0, 100);
     bar->setValue(percent);
     bar->setFormat(QStringLiteral("%1%").arg(percent));
-    // 内存与交换容量统一用整数 MiB，紧凑显示为“已用/总量M”。
-    detail->setText(QStringLiteral("%1/%2M")
-        .arg(usedKiB / 1024).arg(totalKiB / 1024));
+    // 按总容量统一单位，沿用 1024 进位；超过 1 GB 时保留两位小数。
+    static constexpr quint64 KiBPerGiB = 1024ULL * 1024ULL;
+    if (totalKiB > KiBPerGiB) {
+        detail->setText(QStringLiteral("%1/%2GB")
+            .arg(static_cast<double>(usedKiB) / KiBPerGiB, 0, 'f', 2)
+            .arg(static_cast<double>(totalKiB) / KiBPerGiB, 0, 'f', 2));
+    } else {
+        detail->setText(QStringLiteral("%1/%2M")
+            .arg(usedKiB / 1024).arg(totalKiB / 1024));
+    }
 }
 
 } // namespace
