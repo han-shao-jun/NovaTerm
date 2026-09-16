@@ -15,7 +15,7 @@
 SSH 会话提供两类远端资源视图：
 
 - **常驻低开销监控**（`SystemMonitorPanel`）：可停靠面板，周期性展示 CPU、
-  内存、交换分区占用率，单网卡收发速率历史，以及文件系统容量。
+  内存、交换分区占用率和单网卡收发速率历史。
 - **分批预取的详细视图**（`SystemInformationDialog`）：面板信息按钮打开的独立
   窗口，展示操作系统、内核、CPU/GPU 硬件、CPU 使用分解、内存/交换、网络接口与
   文件系统的完整明细 —— 详情由连接绑定的预取按批均匀铺开，**不**在连接建立时
@@ -54,7 +54,7 @@ flowchart LR
     end
     MP -- requestResourceSample --> RC
     RC -- resourceSampleFinished --> MP
-    MP -- executeCommand: df-only --> OC
+    MP -- 仅详情可见时 executeCommand: df-only --> OC
     PF -- executeCommand: staticCommand batch --> OC
     OC -- commandFinished --> PF
     PF -- data: 分批累积 --> MP
@@ -93,12 +93,18 @@ flowchart LR
 
 `CPU` 与 `MEM` 缺任一即视为本次采集无效；`NET` 上限 128 个接口。
 
-### 低频文件系统（每 10 秒，仅 df）
+### 按需文件系统（详情可见时每 10 秒，仅 df）
+
+监视面板已移除文件系统列表、表头和空状态。打开系统信息窗口时请求首次 `df`，
+窗口可见且未最小化时在查询完成 10 秒后刷新；关闭、隐藏、最小化或切换会话时
+停止定时器并取消在途请求。退避重试与周期刷新共用一个单次定时器，不积压回调。
+面板同步移除 360 像素最小高度和底部弹性空白，展开高度按当前内容及状态文字
+换行计算；停靠、浮动时均限制多余高度，较小视口保留滚动能力。
 
 `slowCommand(/*includeFrequency=*/false)`（`src/service/LinuxResourceData.h`）：
 在 `@@filesystems` 分节内输出 `df -Pk || df -k` 原文，由
 `LinuxResource::fileSystems()` 解析出 `device / size / used% / avail / mount`，
-上限 128 个文件系统（面板侧 `parseFileSystems()` 只取容量两列填磁盘列表）。
+上限 128 个文件系统，结果仅交给系统信息窗口的 Filesystems 卡片。
 CPU 频率不在这里读 —— 它随详情批次 1 的 `cpuinfo` 一起取，避免同一字段两处重复
 查询。
 
@@ -144,7 +150,7 @@ CPU 频率不在这里读 —— 它随详情批次 1 的 `cpuinfo` 一起取，
 | 时段 | 采集内容 | 归属 |
 | --- | --- | --- |
 | 连接即开始 | 常驻通道的 CPU/内存/交换/网络（每秒） | 面板 |
-| 连接 +1.2s | 首次 `df`（之后每 10 秒，仅文件系统） | 面板磁盘列表 |
+| 打开系统信息窗口 | 首次 `df`（仅详情可见时每 10 秒刷新） | 系统信息窗口 |
 | 连接 +1.2s 起，每批间隔 1.0s | 详情 3 批（概览+ip → cpuinfo+频率 → lspci） | 系统信息窗口 |
 
 调度常量与不变量集中在 `src/service/ResourcePrefetchSchedule.h`：
@@ -159,7 +165,7 @@ CPU 频率不在这里读 —— 它随详情批次 1 的 `cpuinfo` 一起取，
 
 对话框按"已有分节"渲染，未到的卡片显示「采集中」而非「No data」
 （`SystemInformationDialog::populate(output, pending)`，`pending` 取自
-`ResourcePrefetch::complete()`），因此首批到达即可展示，后续批次在面板下一次
+`ResourcePrefetch::complete()` 与文件系统首查状态），因此首批到达即可展示，后续批次在面板下一次
 每秒刷新时补齐。
 
 ### 实机测量（2026-09-12，root@192.168.10.100）
@@ -210,8 +216,10 @@ shouldSample = _presentationActive
 - **隐藏、折叠、最小化、切换标签** → 停止两个定时器、`stopResourceMonitoring()`
   发 EOF 关闭常驻 channel、取消在途 `df`，并**清空 CPU/网络差分基线**
   （`_previousCpuTotal`、`_previousNetworkBytes` 等）。
-- **恢复** → 重启定时器、`startResourceMonitoring()`、立即各触发一次采样，
-  重新建立基线。
+- **恢复** → 重启快采定时器、`startResourceMonitoring()`、立即采样并重新建立基线；
+  文件系统仅在系统信息窗口可见且未最小化时恢复。
+- **详情独立门控** → 即使面板快采一直开启，详情打开/关闭/隐藏/最小化仍独立
+  启停 `df`；取消时先清空请求 ID，迟到结果不会更新缓存或重启定时器。
 - **门控只管面板自己的两条通道**：详情分批预取绑定 transport、不受面板可见性
   影响 —— 面板隐藏期间它照常按批走完（总量有界：4 条小命令），这样切走标签再
   回来、或稍后打开详情窗口时不必重头采集。
@@ -226,6 +234,8 @@ shouldSample = _presentationActive
 - **网络速率**：用相邻样本字节差 ÷ **真实采样间隔**（`QElapsedTimer` 实测，
   非固定 1 秒），兼容定时器抖动与命令执行耗时；计数器回绕或网卡重置时差值
   钳为 0，避免尖峰。历史保留最近 `NetworkHistoryCapacity = 64` 个点。
+  以远端网卡为准，接收 RX 对应下行「↓」和主色，发送 TX 对应上行「↑」和
+  按压主题色；速率和历史序列中 first/second 始终按接收/发送排列。
 - **占用率百分比**：`used * 100` 先提升到 `long double` 再除，避免大容量主机
   整数溢出；结果 `clamp(0,100)`。
 - **交换分区总量为 0**：合法（未配置 swap），显示真实 `0%` 而非「未知」。
@@ -271,6 +281,12 @@ shouldSample = _presentationActive
   （实测 886px 的内容给到 989px），滚到底会多出一页空白。
 
 面板与窗口本身的其余布局、门控、差分逻辑靠编译通过 + 实跑验证。
+
+2026-09-16 文件系统改为按需查询：Release 构建、上述 SSH 检查和 UI 布局测试通过。
+另以临时离线程序链接生产对象，模拟连接状态与命令回包，16 项检查通过，覆盖面板
+不发 `df`、详情容量显示、打开/隐藏/最小化/恢复/关闭、主窗口最小化、会话切换及
+迟到结果丢弃，以及停靠/浮动高度约束和连接后提示行消失时的高度收缩。此检查未
+启动 SSH worker、未连接真实服务器，也未注册为 ctest。
 
 ## 实施边界（硬约束）
 

@@ -1959,239 +1959,239 @@ Built with:
 <context>
     <name>SystemInformationDialog</name>
     <message>
-        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="88"/>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="79"/>
         <source>%1 d %2 h %3 min</source>
         <translation>%1 d %2 h %3 min</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="192"/>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="188"/>
         <source>Collecting…</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="193"/>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="189"/>
         <source>No data</source>
         <translation>No data</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="229"/>
-        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="252"/>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="225"/>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="248"/>
         <source>System information — %1</source>
         <translation>System information — %1</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="264"/>
-        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="283"/>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="260"/>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="279"/>
         <source>Collecting system information…</source>
         <translation>Collecting system information…</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="292"/>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="288"/>
         <source>Overview</source>
         <translation>Overview</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="296"/>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="292"/>
         <source>Operating system</source>
         <translation>Operating system</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="296"/>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="292"/>
         <source>Kernel version</source>
         <translation>Kernel version</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="297"/>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="293"/>
         <source>Host name</source>
         <translation>Host name</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="297"/>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="293"/>
         <source>IP</source>
         <translation>IP</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="297"/>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="293"/>
         <source>Load</source>
         <translation>Load</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="297"/>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="293"/>
         <source>Architecture</source>
         <translation>Architecture</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="298"/>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="294"/>
         <source>Uptime</source>
         <translation>Uptime</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="298"/>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="294"/>
         <source>Connection</source>
         <translation>Connection</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="319"/>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="315"/>
         <source>CPU</source>
         <translation>CPU</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="319"/>
-        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="321"/>
-        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="344"/>
-        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="347"/>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="315"/>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="317"/>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="340"/>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="343"/>
         <source>Name</source>
         <translation>Name</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="319"/>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="315"/>
         <source>Cores</source>
         <translation>Cores</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="319"/>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="315"/>
         <source>Frequency</source>
         <translation>Frequency</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="320"/>
-        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="333"/>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="316"/>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="329"/>
         <source>Cache</source>
         <translation>Cache</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="320"/>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="316"/>
         <source>Vendor / BogoMIPS</source>
         <translation>Vendor / BogoMIPS</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="321"/>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="317"/>
         <source>GPU</source>
         <translation>GPU</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="321"/>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="317"/>
         <source>Vendor</source>
         <translation>Vendor</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="321"/>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="317"/>
         <source>Driver</source>
         <translation>Driver</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="322"/>
-        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="331"/>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="318"/>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="327"/>
         <source>Memory</source>
         <translation>Memory</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="323"/>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="319"/>
         <source>CPU usage</source>
         <translation>CPU usage</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="323"/>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="319"/>
         <source>User</source>
         <translation>User</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="323"/>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="319"/>
         <source>System</source>
         <translation>System</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="323"/>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="319"/>
         <source>Nice</source>
         <translation>Nice</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="324"/>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="320"/>
         <source>Idle</source>
         <translation>Idle</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="324"/>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="320"/>
         <source>IO wait</source>
         <translation>IO wait</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="325"/>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="321"/>
         <source>IRQ / SoftIRQ / Steal</source>
         <translation>IRQ / SoftIRQ / Steal</translation>
     </message>
     <message>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="329"/>
         <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="333"/>
-        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="337"/>
         <source>Total</source>
         <translation>Total</translation>
     </message>
     <message>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="329"/>
         <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="333"/>
-        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="337"/>
-        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="347"/>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="343"/>
         <source>Used</source>
         <translation>Used</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="333"/>
-        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="348"/>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="329"/>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="344"/>
         <source>Available</source>
         <translation>Available</translation>
     </message>
     <message>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="329"/>
         <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="333"/>
-        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="337"/>
         <source>Usage</source>
         <translation>Usage</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="335"/>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="331"/>
         <source>Swap</source>
         <translation>Swap</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="337"/>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="333"/>
         <source>Free</source>
         <translation>Free</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="343"/>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="339"/>
         <source>Network interfaces</source>
         <translation>Network interfaces</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="344"/>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="340"/>
         <source>Sent</source>
         <translation>Sent</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="344"/>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="340"/>
         <source>Received</source>
         <translation>Received</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="345"/>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="341"/>
         <source>Send speed</source>
         <translation>Send speed</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="345"/>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="341"/>
         <source>Receive speed</source>
         <translation>Receive speed</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="346"/>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="342"/>
         <source>Filesystems</source>
         <translation>Filesystems</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="347"/>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="343"/>
         <source>Size</source>
         <translation>Size</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="348"/>
+        <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="344"/>
         <source>Mount point</source>
         <translation>Mount point</translation>
     </message>
@@ -2199,109 +2199,84 @@ Built with:
 <context>
     <name>SystemMonitorPanel</name>
     <message>
-        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="593"/>
+        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="556"/>
         <source>System information</source>
         <translation>System information</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="594"/>
+        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="557"/>
         <source>Open system information</source>
         <translation>Open system information</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="595"/>
+        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="558"/>
         <source>CPU</source>
         <translation type="unfinished">CPU</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="596"/>
+        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="559"/>
         <source>Memory</source>
         <translation type="unfinished">Memory</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="597"/>
+        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="560"/>
         <source>Swap</source>
         <translation type="unfinished">Swap</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="786"/>
+        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="745"/>
         <source>The remote system did not return supported Linux metrics.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="787"/>
+        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="746"/>
         <source>Remote resource query failed: %1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="822"/>
+        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="781"/>
         <source>Collecting…</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="906"/>
-        <source>Filesystem query failed: %1</source>
-        <translation>Filesystem query failed: %1</translation>
-    </message>
-    <message>
-        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="931"/>
+        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="869"/>
         <source>↑ —</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="932"/>
+        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="868"/>
         <source>↓ —</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="935"/>
+        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="874"/>
         <source>↑ %1/s</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="937"/>
+        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="872"/>
         <source>↓ %1/s</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="598"/>
-        <source>Path</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="599"/>
-        <source>Available / Size</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="600"/>
+        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="561"/>
         <source>Network traffic history</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="653"/>
+        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="606"/>
         <source>No active SSH session</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="656"/>
+        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="609"/>
         <source>Select a connected SSH terminal to inspect remote resources.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="662"/>
+        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="615"/>
         <source>Collecting remote resources…</source>
         <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="671"/>
-        <source>Waiting for monitoring data</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../../src/ui/widgets/SystemMonitorPanel.cpp" line="905"/>
-        <source>No filesystem information available</source>
-        <translation>No filesystem information available</translation>
     </message>
 </context>
 <context>

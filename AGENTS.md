@@ -415,8 +415,9 @@ flush，内部屏幕已移动并可能继续改写。本地源区域未必同步
 
 **远端资源采集时机分两段，不要退回"连上就全查"**：连接建立后只采面板需要的
 量 —— 常驻通道（`startResourceMonitoring()`/`requestResourceSample()`）给
-CPU/内存/交换/网络，加低频 `df`（`slowCommand(includeFrequency=false)`）给磁盘
-列表；系统信息对话框的静态详情由 `ResourcePrefetch`（**绑定 transport、切标签
+CPU/内存/交换/网络；面板已移除磁盘列表，`df`（`slowCommand(includeFrequency=false)`）
+只在系统信息窗口可见且未最小化时采集，首次打开请求、完成后每 10 秒刷新，关闭
+或隐藏时取消在途请求和重试。系统信息对话框的静态详情由 `ResourcePrefetch`（**绑定 transport、切标签
 不重启**）按 `PrefetchSchedule` 分批铺开。三条不变量由
 `tests/transport/SshTransportFailureCheck.cpp` 按常量推导断言，调参必须同步跑
 `novaterm_ssh_transport_check`：
@@ -429,7 +430,7 @@ CPU/内存/交换/网络，加低频 `df`（`slowCommand(includeFrequency=false)
   远端 shell/通道处理，因此**命令数比间隔更关键**；`lspci` 排最后一批，慢批次
   结束后还要吃满完成冷却，不立刻补发；
 - **连接后前两个采样区间是预热**（`WarmupIntervals`）：登录 shell 启动、常驻通道
-  建立、首帧 `df`（`FirstFileSystemDelayMs=1200`）与概览批都落在其中，实测旧计划
+  建立与概览批落在其中。旧实现还有首帧 `df`，现已改为详情打开时按需采集；实测旧计划
   首个区间读数 4.0%、新计划 1.0%，因此预热期只更新基线、不发布 CPU/网络读数；
 - 文件系统查询与预取错峰：`allowsSlowQuery()` 只允许首帧前先行，之后退避重试
   （`FileSystemDeferralMs`），不要绕过它硬发。
@@ -483,7 +484,7 @@ base 指针。主题切换只改 QPalette，不动 style。
 **Ela 控件自带 QSS，调用方再 `setStyleSheet()` 会把它整体顶掉**。`ElaTreeView` /
 `ElaTreeWidget` 等在构造里设了 `#ElaXxx{background-color:transparent;}`，调用方
 若为了调行高、去边框再设一次 stylesheet，透明背景就没了。行高改用
-`setItemHeight()` 表达（`SystemMonitorPanel.cpp` 的 `_diskTree` 是范例）。同理，
+`setItemHeight()` 表达（`SftpPanel.cpp` 的文件列表是范例）。同理，
 别给这些控件改 `objectName` —— 那个 QSS 是 ID 选择器。
 
 **`setFrameShape(QFrame::NoFrame)` 关不掉 item view 的外框**：Qt 无条件向 style

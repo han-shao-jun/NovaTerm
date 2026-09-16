@@ -14,6 +14,7 @@
 #include <QHBoxLayout>
 #include <QResizeEvent>
 #include <QScrollBar>
+#include <QTimer>
 #include <QVBoxLayout>
 
 #include <algorithm>
@@ -35,39 +36,29 @@ struct SystemInformation
     Rows fileSystems;
 };
 
-QString formatKiB(const QString& value)
+// unitsPerMiB 指定一个 MiB 对应多少输入单位，避免先乘成字节导致整数溢出。
+QString formatCapacity(const QString& value, quint64 unitsPerMiB)
 {
     bool ok = false;
-    const double kibibytes = value.toDouble(&ok);
+    const quint64 amount = value.toULongLong(&ok);
     if (!ok)
         return value.isEmpty() ? QStringLiteral("—") : value;
-    double bytes = kibibytes * 1024.0;
-    static constexpr const char* Units[]{"B", "KiB", "MiB", "GiB", "TiB"};
-    qsizetype unit = 0;
-    while (bytes >= 1024.0 && unit + 1 < std::size(Units)) {
-        bytes /= 1024.0;
-        ++unit;
-    }
-    const int precision = bytes >= 100.0 || unit == 0 ? 0 : 1;
-    return QStringLiteral("%1 %2")
-        .arg(QString::number(bytes, 'f', precision), QLatin1String(Units[unit]));
+    // M/G 均表示字节容量，沿用 1024 进位；M 向下取整，G 保留两位小数。
+    const quint64 unitsPerGiB = unitsPerMiB * 1024;
+    if (amount >= unitsPerGiB)
+        return QStringLiteral("%1G")
+            .arg(static_cast<double>(amount) / unitsPerGiB, 0, 'f', 2);
+    return QStringLiteral("%1M").arg(amount / unitsPerMiB);
+}
+
+QString formatKiB(const QString& value)
+{
+    return formatCapacity(value, 1024);
 }
 
 QString formatBytes(const QString& value)
 {
-    bool ok = false;
-    double bytes = value.toDouble(&ok);
-    if (!ok)
-        return value.isEmpty() ? QStringLiteral("—") : value;
-    static constexpr const char* Units[]{"B", "KiB", "MiB", "GiB", "TiB"};
-    qsizetype unit = 0;
-    while (bytes >= 1024.0 && unit + 1 < std::size(Units)) {
-        bytes /= 1024.0;
-        ++unit;
-    }
-    const int precision = bytes >= 100.0 || unit == 0 ? 0 : 1;
-    return QStringLiteral("%1 %2")
-        .arg(QString::number(bytes, 'f', precision), QLatin1String(Units[unit]));
+    return formatCapacity(value, 1024ULL * 1024ULL);
 }
 
 QString dashIfEmpty(const QString& value)
@@ -106,6 +97,11 @@ SystemInformation parseInformation(const QByteArray& output)
         } else if (fields[0] == "CPU" && values.size() >= 6) {
             if (!values[2].isEmpty())
                 values[2].append(QStringLiteral(" MHz"));
+            // /proc/cpuinfo 的 cache size 以 KB/kB 标记，实际单位为 KiB。
+            const QStringList cacheFields = values[3].simplified().split(' ');
+            if (cacheFields.size() == 2
+                && cacheFields[1].compare(QLatin1String("KB"), Qt::CaseInsensitive) == 0)
+                values[3] = formatKiB(cacheFields[0]);
             values[4] = QStringLiteral("%1 / %2")
                 .arg(dashIfEmpty(values[4]), dashIfEmpty(values[5]));
             values.removeLast();
@@ -356,6 +352,8 @@ void SystemInformationDialog::resizeEvent(QResizeEvent* event)
 {
     ElaDialog::resizeEvent(event);
     updateContentHeight();
+    // 滚动区视口会在随后完成布局，按最终宽度重算，避免首次显示留下旧高度。
+    QTimer::singleShot(0, this, &SystemInformationDialog::updateContentHeight);
 }
 
 void SystemInformationDialog::updateContentHeight()

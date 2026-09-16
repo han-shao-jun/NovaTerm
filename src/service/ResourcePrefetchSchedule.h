@@ -36,7 +36,7 @@ public:
         _due = std::max(_started + BatchSpacingMs, now + CompletionGapMs);
     }
 
-    // 采集时机分两段：常驻通道只喂面板（CPU/内存/交换/网络）与低频 df；
+    // 采集时机分两段：常驻通道只喂面板（CPU/内存/交换/网络），df 按详情可见性采集；
     // 系统信息对话框的详情按批分时铺开，避免握手后瞬间在远端堆起多条命令。
     // 实测（root@192.168.10.100，2 核 ARM：`grep -c '^cpu[0-9]' /proc/stat` = 2；
     // 用「重复执行 + /proc/stat 前后差」测得）每条远端命令约 15ms CPU，且与命令

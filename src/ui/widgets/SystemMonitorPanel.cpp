@@ -3,7 +3,7 @@
  * @brief 卡片式远端系统资源监视面板与分频 SSH 采集。
  *
  * 复用当前终端的 SSH 连接：常驻请求驱动 channel 读取 Linux /proc，独立
- * 低频 exec channel 查询 df。隐藏、折叠、最小化或切换标签时停止快速采样。
+ * exec channel 仅在系统详情可见时查询 df。隐藏、折叠、最小化或切换标签时停采。
  */
 #include "SystemMonitorPanel.h"
 #include "SystemInformationDialog.h"
@@ -14,15 +14,12 @@
 #include "ElaScrollArea.h"
 #include "ElaText.h"
 #include "ElaTheme.h"
-#include "ElaTreeWidget.h"
 #include "service/LanguageManager.h"
 #include "service/ResourcePrefetch.h"
 #include "transport/SshTransport.h"
 
 #include <QFrame>
-#include <QFontMetrics>
 #include <QGridLayout>
-#include <QHeaderView>
 #include <QHideEvent>
 #include <QHBoxLayout>
 #include <QPainter>
@@ -31,7 +28,6 @@
 #include <QShowEvent>
 #include <QTimer>
 #include <QVBoxLayout>
-#include <QVariant>
 
 #include <algorithm>
 #include <utility>
@@ -160,34 +156,6 @@ using NovaTerm::LinuxResource::NetworkMetric;
 using RemoteMetrics = NovaTerm::LinuxResource::Sample;
 using NovaTerm::LinuxResource::parseMetrics;
 
-struct FileSystemMetric
-{
-    QString path;
-    // df -k 的容量单位固定为 KiB，展示时再统一换算为可读格式。
-    quint64 availableKiB{0};
-    quint64 sizeKiB{0};
-};
-
-bool parseUnsigned(const QByteArray& value, quint64& result)
-{
-    bool ok = false;
-    result = value.toULongLong(&ok);
-    return ok;
-}
-
-bool parseFileSystems(const QByteArray& output,
-                      QList<FileSystemMetric>& fileSystems)
-{
-    for (const auto& fields : NovaTerm::LinuxResource::fileSystems(output)) {
-        FileSystemMetric metric;
-        metric.path = QString::fromUtf8(fields[4]);
-        if (parseUnsigned(fields[3], metric.availableKiB)
-            && parseUnsigned(fields[1], metric.sizeKiB))
-            fileSystems.append(std::move(metric));
-    }
-    return !fileSystems.isEmpty();
-}
-
 QString formatBytes(double bytes)
 {
     // 系统资源数据采用 1024 进位，与 /proc 和 df -k 的计量方式保持一致。
@@ -221,15 +189,20 @@ void setUsage(ElaProgressBar* bar, ElaText* detail,
         0, 100);
     bar->setValue(percent);
     bar->setFormat(QStringLiteral("%1%").arg(percent));
-    // 按总容量统一单位，沿用 1024 进位；超过 1 GB 时保留两位小数。
-    static constexpr quint64 KiBPerGiB = 1024ULL * 1024ULL;
-    if (totalKiB > KiBPerGiB) {
-        detail->setText(QStringLiteral("%1/%2GB")
-            .arg(static_cast<double>(usedKiB) / KiBPerGiB, 0, 'f', 2)
+    // 采样单位为 KiB（1024 字节）；M/G 分别简写 MiB/GiB 字节容量。
+    // 两项分别选择单位，相同单位只在末尾显示；G 保留两位小数。
+    static constexpr quint64 KiBPerMiB = 1024;
+    static constexpr quint64 KiBPerGiB = KiBPerMiB * 1024;
+    if (totalKiB >= KiBPerGiB) {
+        const QString usedText = usedKiB < KiBPerGiB
+            ? QStringLiteral("%1M").arg(usedKiB / KiBPerMiB)
+            : QString::number(static_cast<double>(usedKiB) / KiBPerGiB, 'f', 2);
+        detail->setText(QStringLiteral("%1/%2G")
+            .arg(usedText)
             .arg(static_cast<double>(totalKiB) / KiBPerGiB, 0, 'f', 2));
     } else {
         detail->setText(QStringLiteral("%1/%2M")
-            .arg(usedKiB / 1024).arg(totalKiB / 1024));
+            .arg(usedKiB / KiBPerMiB).arg(totalKiB / KiBPerMiB));
     }
 }
 
@@ -300,7 +273,8 @@ SystemMonitorPanel::SystemMonitorPanel(QWidget* parent)
     : QWidget(parent)
     , _themeMode(eTheme->getThemeMode())
 {
-    setMinimumSize(260, 360);
+    setMinimumWidth(260);
+    setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Maximum);
     setAutoFillBackground(false);
     // 不再把整个面板统一压到小字号；沿用 SessionPanel 的两级字体策略。
     QFont panelFont = font();
@@ -313,17 +287,20 @@ SystemMonitorPanel::SystemMonitorPanel(QWidget* parent)
     outerLayout->setSpacing(0);
 
     auto* scrollArea = new ElaScrollArea(this);
+    _scrollArea = scrollArea;
     scrollArea->setWidgetResizable(true);
     scrollArea->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     // ElaScrollArea 默认隐藏两个滚动条；监控内容高于视口，必须恢复竖直滚动条。
     scrollArea->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
     scrollArea->setAutoFillBackground(false);
     scrollArea->viewport()->setAutoFillBackground(false);
+    scrollArea->viewport()->installEventFilter(this);
     outerLayout->addWidget(scrollArea);
 
     auto* content = new QWidget(scrollArea);
     content->setAutoFillBackground(false);
     scrollArea->setWidget(content);
+    content->installEventFilter(this);
     auto* rootLayout = new QVBoxLayout(content);
     rootLayout->setContentsMargins(16, 16, 16, 16);
     rootLayout->setSpacing(10);
@@ -393,55 +370,6 @@ SystemMonitorPanel::SystemMonitorPanel(QWidget* parent)
 
     _trafficChart = new TrafficChart(content);
     rootLayout->addWidget(_trafficChart);
-    rootLayout->addWidget(createSeparator(content));
-
-    auto* fileHeader = new QHBoxLayout;
-    _pathHeader = createLabel(content, PanelFontPixelSize, true);
-    _capacityHeader = createLabel(content, PanelFontPixelSize, true);
-    _capacityHeader->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
-    fileHeader->addWidget(_pathHeader);
-    fileHeader->addStretch();
-    fileHeader->addWidget(_capacityHeader);
-    rootLayout->addLayout(fileHeader);
-
-    _diskTree = new ElaTreeWidget(content);
-    _diskTree->setFont(secondaryFont);
-    _diskTree->setColumnCount(2);
-    _diskTree->setHeaderHidden(true);
-    _diskTree->setRootIsDecorated(false);
-    _diskTree->setUniformRowHeights(true);
-    _diskTree->setIndentation(0);
-    _diskTree->setFrameShape(QFrame::NoFrame);
-    // NoFrame 只让 frameWidth 归零，挡不住 Qt 向 style 派发 CE_ShapedFrame ——
-    // Ela 的树样式在该元素里画圆角边线 + 底色。本列表要融进外层卡片，边界由卡片
-    // 自己提供，故显式关掉。
-    _diskTree->setIsFrameVisible(false);
-    _diskTree->setFocusPolicy(Qt::NoFocus);
-    _diskTree->setSelectionMode(QAbstractItemView::NoSelection);
-    _diskTree->setMinimumHeight(150);
-    // 不能用 setStyleSheet() 收紧行高：那会整体替换 ElaTreeWidget 构造里设的
-    // 透明背景 QSS。透明与无边框已由该控件与上面的 NoFrame 提供，行高改用
-    // ElaTreeViewStyle 的 ItemHeight 表达 —— 默认 35px 在这个紧凑面板里过高，
-    // 单行高度与 SessionPanel 分组行相同，且随实际字体度量增长，避免高 DPI
-    // 或系统字体替换后上下裁切；纯文本首列取消内边距，与“路径”标题左对齐。
-    _diskTree->setItemHeight(std::max(
-        28, QFontMetrics(secondaryFont).height() + 8));
-    _diskTree->setItemLeftPadding(0);
-    _diskTree->header()->setStretchLastSection(false);
-    _diskTree->header()->setSectionResizeMode(0, QHeaderView::Stretch);
-    _diskTree->header()->setSectionResizeMode(1, QHeaderView::ResizeToContents);
-    rootLayout->addWidget(_diskTree, 1);
-
-    // 空状态提示挂在树的视口上并居中，颜色由 ElaText 自己跟随主题。
-    _diskTreeHint = new ElaText(_diskTree->viewport());
-    _diskTreeHint->setTextStyle(ElaTextType::Body);
-    _diskTreeHint->setTextPixelSize(SecondaryFontPixelSize);
-    _diskTreeHint->setAlignment(Qt::AlignCenter);
-    _diskTreeHint->setAttribute(Qt::WA_TransparentForMouseEvents);
-    _diskTreeHint->hide();
-    auto* diskHintLayout = new QVBoxLayout(_diskTree->viewport());
-    diskHintLayout->setContentsMargins(12, 12, 12, 12);
-    diskHintLayout->addWidget(_diskTreeHint, 0, Qt::AlignCenter);
 
     connect(_interfaceCombo,
             QOverload<int>::of(&ElaComboBox::currentIndexChanged),
@@ -460,8 +388,8 @@ SystemMonitorPanel::SystemMonitorPanel(QWidget* parent)
             this, &SystemMonitorPanel::requestFastMetrics);
 
     _fileSystemTimer = new QTimer(this);
-    _fileSystemTimer->setInterval(FileSystemIntervalMs);
-    _fileSystemTimer->setTimerType(Qt::VeryCoarseTimer);
+    _fileSystemTimer->setSingleShot(true);
+    _fileSystemTimer->setTimerType(Qt::CoarseTimer);
     connect(_fileSystemTimer, &QTimer::timeout,
             this, &SystemMonitorPanel::requestFileSystems);
 
@@ -479,6 +407,32 @@ SystemMonitorPanel::~SystemMonitorPanel()
     _sshTransport->stopResourceMonitoring();
     if (_pendingFileSystemRequestId != 0)
         _sshTransport->cancelCommand(_pendingFileSystemRequestId);
+}
+
+QSize SystemMonitorPanel::sizeHint() const
+{
+    QSize preferred = QWidget::sizeHint();
+    preferred.setHeight(maximumHeight());
+    return preferred;
+}
+
+void SystemMonitorPanel::updateContentHeight()
+{
+    if (!_scrollArea || !_scrollArea->widget())
+        return;
+    QWidget* const content = _scrollArea->widget();
+    content->layout()->activate();
+    // 状态文字会随宽度换行，必须按真实可用宽度计算，不能固定面板高度。
+    const QMargins margins = layout()->contentsMargins();
+    const int frame = 2 * _scrollArea->frameWidth();
+    const int contentWidth = std::max(1, width() - margins.left() - margins.right() - frame);
+    const int contentHeight = content->hasHeightForWidth()
+        ? content->heightForWidth(contentWidth) : content->sizeHint().height();
+    const int preferredHeight = contentHeight + margins.top() + margins.bottom() + frame;
+    if (maximumHeight() != preferredHeight) {
+        setMaximumHeight(preferredHeight);
+        updateGeometry();
+    }
 }
 
 void SystemMonitorPanel::setSessionContext(const QString& sessionLabel,
@@ -501,6 +455,7 @@ void SystemMonitorPanel::setSessionContext(const QString& sessionLabel,
     _fastTimer->stop();
     _fileSystemTimer->stop();
     _samplingActive = false;
+    _fileSystemSamplingActive = false;
     _sessionName = sessionLabel;
     _sshTransport = transport;
     resetMetrics();
@@ -508,7 +463,7 @@ void SystemMonitorPanel::setSessionContext(const QString& sessionLabel,
     if (_sshTransport) {
         _connectionGeneration = _sshTransport->connectionGeneration();
         // 详情（系统信息对话框）交给连接绑定的分批预取：首批概览先行，其余按
-        // 调度均匀铺开；面板只负责它自己需要的常驻指标与低频 df。
+        // 调度均匀铺开；常驻指标持续刷新，df 仅在详情可见时按需采集。
         auto* const prefetch = NovaTerm::LinuxResource::ResourcePrefetch::forTransport(
             _sshTransport);
         if (_prefetch != prefetch) {
@@ -529,12 +484,11 @@ void SystemMonitorPanel::setSessionContext(const QString& sessionLabel,
         });
         connect(current, &SshTransport::commandFinished, this,
                 [this, current](quint64 requestId, const QByteArray& output,
-                                const QByteArray& errorOutput,
+                                const QByteArray&,
                                 const QString& errorMessage) {
             if (_sshTransport == current && current->isConnected()
                 && _connectionGeneration == current->connectionGeneration()) {
-                handleFileSystems(requestId, output, errorOutput,
-                                  errorMessage);
+                handleFileSystems(requestId, output, errorMessage);
             }
         });
         connect(current, &SshTransport::resourceSampleFinished, this,
@@ -568,12 +522,14 @@ void SystemMonitorPanel::showSystemInformation()
         _systemInformationDialog->showNormal();
         _systemInformationDialog->raise();
         _systemInformationDialog->activateWindow();
+        updateSamplingState();
         return;
     }
 
     QWidget* const dialogParent = window();
     _systemInformationDialog = new SystemInformationDialog(
         _sessionName, dialogParent);
+    _systemInformationDialog->installEventFilter(this);
     connect(_systemInformationDialog, &QObject::destroyed, this,
             [this, dialog = _systemInformationDialog.data()]() {
         if (!_systemInformationDialog || _systemInformationDialog == dialog) {
@@ -583,8 +539,8 @@ void SystemMonitorPanel::showSystemInformation()
     });
     _systemInformationDialog->show();
     _systemInformationDialog->moveToCenter();
-    updateInformationDialog();
     updateSamplingState();
+    updateInformationDialog();
 }
 
 void SystemMonitorPanel::setPresentationActive(bool active)
@@ -602,19 +558,9 @@ void SystemMonitorPanel::retranslateUi()
     _cpuLabel->setText(tr("CPU"));
     _memoryLabel->setText(tr("Memory"));
     _swapLabel->setText(tr("Swap"));
-    _pathHeader->setText(tr("Path"));
-    _capacityHeader->setText(tr("Available / Size"));
     _trafficChart->setAccessibleName(tr("Network traffic history"));
     refreshAvailability();
     updateNetworkView();
-}
-
-void SystemMonitorPanel::setDiskTreeHint(const QString& text)
-{
-    if (!_diskTreeHint)
-        return;
-    _diskTreeHint->setText(text);
-    _diskTreeHint->setVisible(!text.isEmpty());
 }
 
 void SystemMonitorPanel::applyTheme()
@@ -651,7 +597,7 @@ void SystemMonitorPanel::refreshAvailability()
     _infoButton->setEnabled(connected);
     for (QWidget* widget : QList<QWidget*>{
              _cpuProgress, _memoryProgress, _swapProgress,
-             _interfaceCombo, _trafficChart, _diskTree}) {
+             _interfaceCombo, _trafficChart}) {
         widget->setEnabled(connected);
     }
 
@@ -671,33 +617,40 @@ void SystemMonitorPanel::refreshAvailability()
     } else {
         _availabilityLabel->hide();
     }
-
-    if (!_hasFileSystems) {
-        _diskTree->clear();
-        setDiskTreeHint(_fileSystemError.isEmpty()
-            ? tr("Waiting for monitoring data") : _fileSystemError);
-    }
+    updateContentHeight();
 }
 
 void SystemMonitorPanel::updateSamplingState()
 {
+    const bool detailsVisible = _systemInformationDialog
+        && _systemInformationDialog->isVisible()
+        && !_systemInformationDialog->isMinimized();
     const bool shouldSample = _presentationActive
-        && (isVisible() || (_systemInformationDialog && _systemInformationDialog->isVisible()))
+        && (isVisible() || detailsVisible)
         && _sshTransport && _sshTransport->isConnected();
+    // 详情开关与面板快采独立，必须在快采状态未变化的提前返回之前处理。
+    const bool shouldQueryFileSystems = shouldSample && detailsVisible;
+    if (_fileSystemSamplingActive != shouldQueryFileSystems) {
+        _fileSystemSamplingActive = shouldQueryFileSystems;
+        if (_fileSystemSamplingActive) {
+            _hasFileSystemResult = false;
+            _fileSystemTimer->start(0);
+        } else {
+            _fileSystemTimer->stop();
+            const quint64 requestId = std::exchange(_pendingFileSystemRequestId, 0);
+            if (_sshTransport && requestId != 0)
+                _sshTransport->cancelCommand(requestId);
+        }
+    }
     if (_samplingActive == shouldSample)
         return;
 
     _samplingActive = shouldSample;
     if (!_samplingActive) {
         _fastTimer->stop();
-        _fileSystemTimer->stop();
-        if (_sshTransport) {
+        if (_sshTransport)
             _sshTransport->stopResourceMonitoring();
-            if (_pendingFileSystemRequestId != 0)
-                _sshTransport->cancelCommand(_pendingFileSystemRequestId);
-        }
         _pendingFastRequestId = 0;
-        _pendingFileSystemRequestId = 0;
         // 暂停期间远端累计计数继续变化；恢复时必须重新建立差分基线。
         _previousCpuTotal = 0;
         _previousCpuIdle = 0;
@@ -714,12 +667,7 @@ void SystemMonitorPanel::updateSamplingState()
     _sampleClock.restart();
     _sshTransport->startResourceMonitoring();
     _fastTimer->start();
-    _fileSystemTimer->start();
     QTimer::singleShot(0, this, &SystemMonitorPanel::requestFastMetrics);
-    // 首次 df 让开启动窗口：与常驻通道建立叠在同一采样区间会抬高该区间读数，
-    // 且此时正好落在预热区间内，推迟不影响用户可见信息。
-    QTimer::singleShot(FirstFileSystemDelayMs, this,
-                       &SystemMonitorPanel::requestFileSystems);
 }
 
 void SystemMonitorPanel::requestFastMetrics()
@@ -746,24 +694,27 @@ void SystemMonitorPanel::requestFastMetrics()
 
 void SystemMonitorPanel::requestFileSystems()
 {
-    if (!_samplingActive || !_sshTransport
+    if (!_fileSystemSamplingActive || !_samplingActive || !_sshTransport
+        || !_systemInformationDialog || !_systemInformationDialog->isVisible()
+        || _systemInformationDialog->isMinimized()
         || !_sshTransport->isConnected()
         || _connectionGeneration != _sshTransport->connectionGeneration()
         || _pendingFileSystemRequestId != 0) {
         return;
     }
-    // 详情预取在途时让路：首帧之前的窗口允许文件系统查询先行（面板要尽快出磁盘
-    // 列表），其余时刻退避重试，避免与静态批次叠在同一时刻抬高远端负载。
+    // 文件系统只服务详情窗口，仍须让开静态预取，避免叠加远端负载。
     if (_prefetch && !_prefetch->allowsSlowQuery()) {
-        QTimer::singleShot(FileSystemDeferralMs, this,
-                           &SystemMonitorPanel::requestFileSystems);
+        _fileSystemTimer->start(FileSystemDeferralMs);
         return;
     }
     const quint64 requestId = _nextRequestId++;
     // CPU 频率由详情预取（该批同时读 cpuinfo）负责，这里只查文件系统。
     if (_sshTransport->executeCommand(requestId,
-            NovaTerm::LinuxResource::slowCommand(/*includeFrequency=*/false)))
+            NovaTerm::LinuxResource::slowCommand(/*includeFrequency=*/false))) {
         _pendingFileSystemRequestId = requestId;
+    } else {
+        _fileSystemTimer->start(FileSystemDeferralMs);
+    }
 }
 
 void SystemMonitorPanel::updateInformationDialog()
@@ -775,7 +726,8 @@ void SystemMonitorPanel::updateInformationDialog()
     _systemInformationDialog->populate(
         NovaTerm::LinuxResource::information(
             staticRaw, _slowInformation, _latestSample, _cpuUsage),
-        !_prefetch || !_prefetch->complete());
+        !_prefetch || !_prefetch->complete()
+            || (_fileSystemSamplingActive && !_hasFileSystemResult));
 }
 
 void SystemMonitorPanel::handleFastMetrics(
@@ -803,7 +755,7 @@ void SystemMonitorPanel::handleFastMetrics(
     _latestSample = metrics;
     _hasCpuBaseline = true;
 
-    // 连接后的前两个采样区间属于预热：登录 shell 启动、常驻通道建立、首帧 df 与
+    // 连接后的前两个采样区间属于预热：登录 shell 启动、常驻通道建立与
     // 概览批都落在其中。实测（单核设备，每条远端命令约 10ms CPU）这些一次性开销
     // 可达数个百分点，若计入显示值会被误读成远端持续占用 —— 预热期只更新基线，
     // 不发布 CPU/网络读数（内存与交换是绝对值，照常显示）。
@@ -890,58 +842,36 @@ void SystemMonitorPanel::handleFastMetrics(
 
 void SystemMonitorPanel::handleFileSystems(
     quint64 requestId, const QByteArray& standardOutput,
-    const QByteArray& standardError, const QString& errorMessage)
+    const QString& errorMessage)
 {
     if (requestId == 0 || requestId != _pendingFileSystemRequestId)
         return;
     _pendingFileSystemRequestId = 0;
 
-    if (errorMessage.isEmpty()) {
+    _hasFileSystemResult = true;
+    // 失败时保留最近一次有效结果；首查失败则结束“采集中”，由详情显示空状态。
+    if (errorMessage.isEmpty()
+        && !NovaTerm::LinuxResource::fileSystems(standardOutput).isEmpty()) {
         _slowInformation = standardOutput;
-        updateInformationDialog();
     }
-
-    QList<FileSystemMetric> fileSystems;
-    if (!errorMessage.isEmpty()
-        || !parseFileSystems(standardOutput, fileSystems)) {
-        // 文件系统失败不覆盖快速指标状态；保留最近一次有效缓存。
-        if (!_hasFileSystems) {
-            const QString details = !errorMessage.isEmpty()
-                ? errorMessage : QString::fromUtf8(standardError).trimmed();
-            _fileSystemError = details.isEmpty()
-                ? tr("No filesystem information available")
-                : tr("Filesystem query failed: %1").arg(details);
-            setDiskTreeHint(_fileSystemError);
-        }
-        return;
-    }
-
-    _diskTree->clear();
-    _fileSystemError.clear();
-    setDiskTreeHint({});
-    for (const FileSystemMetric& metric : fileSystems) {
-        const QString capacity = QStringLiteral("%1 / %2")
-            .arg(formatBytes(static_cast<double>(metric.availableKiB) * 1024.0),
-                 formatBytes(static_cast<double>(metric.sizeKiB) * 1024.0));
-        auto* item = new QTreeWidgetItem(_diskTree, {metric.path, capacity});
-        item->setTextAlignment(1, Qt::AlignRight | Qt::AlignVCenter);
-        item->setFlags(item->flags() & ~Qt::ItemIsSelectable);
-    }
-    _hasFileSystems = true;
+    updateInformationDialog();
+    if (_fileSystemSamplingActive)
+        _fileSystemTimer->start(FileSystemIntervalMs);
 }
 
 void SystemMonitorPanel::updateNetworkView()
 {
+    // 以远端网卡为准：first 为接收（下行），second 为发送（上行）。
     const QString interfaceName = _interfaceCombo->currentText();
     const auto rate = _networkRates.constFind(interfaceName);
     if (rate == _networkRates.cend()) {
-        _receiveLabel->setText(tr("↑ —"));
-        _sendLabel->setText(tr("↓ —"));
+        _receiveLabel->setText(tr("↓ —"));
+        _sendLabel->setText(tr("↑ —"));
     } else {
         _receiveLabel->setText(
-            tr("↑ %1/s").arg(formatBytes(rate->first)));
+            tr("↓ %1/s").arg(formatBytes(rate->first)));
         _sendLabel->setText(
-            tr("↓ %1/s").arg(formatBytes(rate->second)));
+            tr("↑ %1/s").arg(formatBytes(rate->second)));
     }
     _trafficChart->setSamples(_networkHistory.value(interfaceName));
 }
@@ -963,9 +893,8 @@ void SystemMonitorPanel::resetMetrics()
     _networkRates.clear();
     _networkHistory.clear();
     _collectionError.clear();
-    _fileSystemError.clear();
     _hasMetrics = false;
-    _hasFileSystems = false;
+    _hasFileSystemResult = false;
     _interfaceCombo->clear();
     _trafficChart->setSamples({});
     for (ElaProgressBar* bar : {
@@ -988,6 +917,22 @@ void SystemMonitorPanel::hideEvent(QHideEvent* event)
 {
     QWidget::hideEvent(event);
     updateSamplingState();
+}
+
+bool SystemMonitorPanel::eventFilter(QObject* watched, QEvent* event)
+{
+    if (_scrollArea
+        && ((watched == _scrollArea->viewport() && event->type() == QEvent::Resize)
+            || (watched == _scrollArea->widget() && event->type() == QEvent::LayoutRequest))) {
+        QTimer::singleShot(0, this, &SystemMonitorPanel::updateContentHeight);
+    }
+    if (watched == _systemInformationDialog
+        && (event->type() == QEvent::Show || event->type() == QEvent::Hide
+            || event->type() == QEvent::WindowStateChange)) {
+        // 等可见性与窗口状态更新完成后再启停采集；上下文销毁会取消回调。
+        QTimer::singleShot(0, this, &SystemMonitorPanel::updateSamplingState);
+    }
+    return QWidget::eventFilter(watched, event);
 }
 
 void SystemMonitorPanel::paintEvent(QPaintEvent* event)
