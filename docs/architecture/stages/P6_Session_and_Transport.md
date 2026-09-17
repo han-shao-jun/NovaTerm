@@ -527,6 +527,33 @@ Reconnect 创建新的 Transport connection generation，但保持 SessionId；C
 
 Serial Transport 目前**没有对应测试文件**（见"实现进度"步骤 8 行）。
 
+### 串口自动重连（2026-09-17）
+
+- 历史面板支持 Ctrl 多选、Shift 点击范围选择，Enter 按面板显示顺序重连，Delete 统一确认后
+  删除所选历史；单选共用同一快捷键逻辑。操作复制稳定 ID，避免重连信号
+  引发树重建后的悬垂指针；确认框返回后重新查找记录，不保留旧迭代器。
+
+- 串口表单使用 ElaMultiSelectComboBox，批量确认的端口共用其余串口参数。
+  SessionPage 逐个发布快照，MainWindow 收集后在模态窗口销毁后创建会话，
+  避免循环中提前创建 QRhi 控件。热插拔刷新保留选择，历史编辑回填原端口；
+  多选编辑时第一个端口替换原项，其余端口新建。真实多串口验收尚未执行。
+
+- 后续串口重连不重复输出详细打开错误；`automaticReconnectAttemptStarted`
+  驱动同一条黄色等待文本，每个重试间隔追加一个点，成功或关闭结束等待行。
+  新建会话首次打开失败仍保留传输错误提示。
+
+- 自动重连成功发布 `automaticReconnectSucceeded`，视图输出绿色成功提示；
+  断开提示使用黄色、传输错误使用红色，均由终端 ANSI 调色板解析。
+  `serialAutomaticReconnect` 同时验证首次/手动连接不发自动成功通知。
+
+- 会话表单、SerialConfig、RuntimeConfig 和历史记录贯通 `reconnectSeconds`，
+  非负整秒数，0 禁用；旧历史缺少该字段时按 0 处理。
+- TerminalSession 负责断线/打开失败后的单次定时重试，复用既有重连入口；
+  主动断开、关闭和换绑取消重试，手动重连后恢复自动重试策略。
+- `SessionTests::serialAutomaticReconnect` 验证断线重试及主动断开/关闭取消；
+  `automaticReconnectDisabledForZeroAndOtherProtocols` 验证禁用、协议隔离与
+  连续打开失败后的恢复。真实串口拔插验收尚未执行。
+
 ## 实施禁止项
 
 - 禁止 TerminalView 继续拥有 pending Transport 字节；

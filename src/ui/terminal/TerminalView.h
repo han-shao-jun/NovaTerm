@@ -111,6 +111,7 @@ signals:
     void shellFinished();                      ///< shell 已退出
 
 private:
+    bool _serialReconnectPromptActive{false}; ///< 当前是否在追加串口重连等待点
     void applyColorScheme();
     void retranslateUi();
     void setupContextMenu(const QPoint& pos);

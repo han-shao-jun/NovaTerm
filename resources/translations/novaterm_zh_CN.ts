@@ -45,18 +45,18 @@ Built with:
 <context>
     <name>DraggableDockWidget</name>
     <message>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="318"/>
         <location filename="../../src/ui/app/MainWindow.cpp" line="319"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="320"/>
         <source>Close panel</source>
         <translation>关闭面板</translation>
     </message>
     <message>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="563"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="564"/>
         <source>Expand panel</source>
         <translation>展开面板</translation>
     </message>
     <message>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="563"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="564"/>
         <source>Collapse panel</source>
         <translation>收起面板</translation>
     </message>
@@ -310,150 +310,150 @@ Built with:
 <context>
     <name>MainWindow</name>
     <message>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="1026"/>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="1029"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="1027"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="1030"/>
         <source>Exit</source>
         <translation>退出</translation>
     </message>
     <message>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="1027"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="1028"/>
         <source>Cancel</source>
         <translation>取消</translation>
     </message>
     <message>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="1028"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="1029"/>
         <source>Minimize</source>
         <translation>最小化</translation>
     </message>
     <message>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="1032"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="1033"/>
         <source>Are you sure you want to exit NovaTerm?</source>
         <translation>确定要退出 NovaTerm 吗？</translation>
     </message>
     <message>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="1034"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="1035"/>
         <source>Do not ask again</source>
         <translation>不再提示</translation>
     </message>
     <message>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="1039"/>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="1095"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="1040"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="1096"/>
         <source>NovaTerm</source>
         <translation>NovaTerm</translation>
     </message>
     <message>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="1041"/>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="1152"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="1042"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="1153"/>
         <source>Menu</source>
         <translation>菜单</translation>
     </message>
     <message>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="1042"/>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="1044"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="1043"/>
         <location filename="../../src/ui/app/MainWindow.cpp" line="1045"/>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="1161"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="1046"/>
         <location filename="../../src/ui/app/MainWindow.cpp" line="1162"/>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="1164"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="1163"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="1165"/>
         <source>New session</source>
         <translation>新建会话</translation>
     </message>
     <message>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="1049"/>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="1575"/>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="1675"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="1050"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="1576"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="1676"/>
         <source>Session</source>
         <translation>会话</translation>
     </message>
     <message>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="1050"/>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="1594"/>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="1806"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="1051"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="1595"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="1809"/>
         <source>Settings</source>
         <translation>设置</translation>
     </message>
     <message>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="1051"/>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="1598"/>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="1841"/>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="1860"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="1052"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="1599"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="1844"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="1863"/>
         <source>About</source>
         <translation>关于</translation>
     </message>
     <message>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="1052"/>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="1607"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="1053"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="1608"/>
         <source>Local</source>
         <translation>本地</translation>
     </message>
     <message>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="1053"/>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="1609"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="1054"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="1610"/>
         <source>SSH</source>
         <translation>SSH</translation>
     </message>
     <message>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="1054"/>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="1611"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="1055"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="1612"/>
         <source>Serial</source>
         <translation>串口</translation>
     </message>
     <message>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="1055"/>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="1613"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="1056"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="1614"/>
         <source>Telnet</source>
         <translation>Telnet</translation>
     </message>
     <message>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="1056"/>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="1192"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="1057"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="1193"/>
         <source>Sessions</source>
         <translation>会话</translation>
     </message>
     <message>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="1081"/>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="1206"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="1082"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="1207"/>
         <source>SFTP transfer</source>
         <translation>SFTP 传输</translation>
     </message>
     <message>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="1089"/>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="1224"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="1090"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="1225"/>
         <source>System resources</source>
         <translation>系统资源</translation>
     </message>
     <message>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="1064"/>
         <location filename="../../src/ui/app/MainWindow.cpp" line="1065"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="1066"/>
         <source>Close panel</source>
         <translation>关闭面板</translation>
     </message>
     <message>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="1069"/>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="1583"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="1070"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="1584"/>
         <source>SFTP panel</source>
         <translation>SFTP 面板</translation>
     </message>
     <message>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="1071"/>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="1585"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="1072"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="1586"/>
         <source>System resources panel</source>
         <translation>系统资源面板</translation>
     </message>
     <message>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="1266"/>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="1313"/>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="1755"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="1267"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="1314"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="1756"/>
         <source>Terminal</source>
         <translation>终端</translation>
     </message>
     <message>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="1283"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="1284"/>
         <source>Reconnect session</source>
         <translation>重新连接会话</translation>
     </message>
     <message>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="1842"/>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="1861"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="1845"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="1864"/>
         <source>OK</source>
         <translation>确定</translation>
     </message>
@@ -522,280 +522,291 @@ Built with:
         <translation>确认</translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="124"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="130"/>
         <source>Serial Session</source>
         <translation>串口会话</translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="125"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="131"/>
         <source>Select a serial port and provide a valid baud rate.</source>
         <translation>请选择一个串口并提供有效的波特率。</translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="148"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="158"/>
         <source>SSH Session</source>
         <translation>SSH 会话</translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="149"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="159"/>
         <source>Provide a host, user name and the credentials for the selected authentication method.</source>
         <translation>请提供主机、用户名以及所选认证方式所需的凭据。</translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="168"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="178"/>
         <source>Telnet Session</source>
         <translation>Telnet 会话</translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="169"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="179"/>
         <source>Provide a host address and a valid port.</source>
         <translation>请提供主机地址和有效的端口。</translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="349"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="362"/>
         <source>Type</source>
         <translation>类型</translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="403"/>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="492"/>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="626"/>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="691"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="416"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="505"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="665"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="730"/>
         <source>Label</source>
         <translation>标签</translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="409"/>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="494"/>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="628"/>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="693"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="422"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="507"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="667"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="732"/>
         <source>Optional session name</source>
         <translation>可选的会话名称</translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="395"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="408"/>
         <source>Startup Directory</source>
         <translation>启动目录</translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="414"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="427"/>
         <source>local shell</source>
         <translation>本地 Shell</translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="429"/>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="654"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="442"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="693"/>
         <source>IPv4 Address</source>
         <translation>IPv4 地址</translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="431"/>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="656"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="444"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="695"/>
         <source>IPv4 address, e.g. 192.168.0.1</source>
         <translation>IPv4 地址，例如 192.168.0.1</translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="436"/>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="533"/>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="661"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="449"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="546"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="700"/>
         <source>Port</source>
         <translation>端口</translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="442"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="455"/>
         <source>User Name</source>
         <translation>用户名</translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="444"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="457"/>
         <source>User name</source>
         <translation>用户名</translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="448"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="461"/>
         <source>Authentication</source>
         <translation>认证</translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="450"/>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="454"/>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="456"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="463"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="467"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="469"/>
         <source>Password</source>
         <translation>密码</translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="451"/>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="460"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="464"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="473"/>
         <source>Private Key</source>
         <translation>私钥</translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="465"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="478"/>
         <source>Private key file</source>
         <translation>私钥文件</translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="467"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="480"/>
         <source>Browse...</source>
         <translation>浏览...</translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="472"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="485"/>
         <source>Key Passphrase</source>
         <translation>密钥口令</translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="474"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="487"/>
         <source>Optional passphrase</source>
         <translation>可选的口令</translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="479"/>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="666"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="492"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="705"/>
         <source>Terminal Type</source>
         <translation>终端类型</translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="484"/>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="683"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="497"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="722"/>
         <source>Keep Alive</source>
         <translation>保持连接</translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="488"/>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="687"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="501"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="726"/>
         <source> s</source>
         <translation> 秒</translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="489"/>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="688"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="502"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="727"/>
         <source>Disabled</source>
         <translation>禁用</translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="508"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="521"/>
         <source>Select SSH Private Key</source>
         <translation>选择 SSH 私钥</translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="509"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="522"/>
         <source>Private keys (*)</source>
         <translation>私钥 (*)</translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="517"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="530"/>
         <source>ssh</source>
         <translation>SSH</translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="546"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="548"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="567"/>
+        <source>Select one or more serial ports</source>
+        <translation>选择一个或多个串口</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="566"/>
         <source>No serial ports detected</source>
         <translation>未检测到串口</translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="547"/>
-        <source>Select a serial port</source>
-        <translation>选择一个串口</translation>
-    </message>
-    <message>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="592"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="618"/>
         <source>Parity</source>
         <translation>校验</translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="594"/>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="619"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="620"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="645"/>
         <source>None</source>
         <translation>无</translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="595"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="621"/>
         <source>Even</source>
         <translation>偶校验</translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="596"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="622"/>
         <source>Odd</source>
         <translation>奇校验</translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="597"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="623"/>
         <source>Mark</source>
         <translation>标记校验</translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="598"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="624"/>
         <source>Space</source>
         <translation>空格校验</translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="576"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="602"/>
         <source>Baud Rate</source>
         <translation>波特率</translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="601"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="627"/>
         <source>Data Bits</source>
         <translation>数据位</translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="610"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="636"/>
         <source>Stop Bits</source>
         <translation>停止位</translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="617"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="643"/>
         <source>Flow Control</source>
         <translation>流控</translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="620"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="646"/>
         <source>Hardware (RTS/CTS)</source>
         <translation>硬件（RTS/CTS）</translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="622"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="648"/>
         <source>Software (XON/XOFF)</source>
         <translation>软件（XON/XOFF）</translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="633"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="652"/>
+        <source>Reconnect Time</source>
+        <translation>重连时间</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="660"/>
+        <source>Optional reconnect interval in whole seconds; 0 disables reconnection</source>
+        <translation>可选：重连时间（整秒数），0 表示不重连</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="672"/>
         <source>serial port</source>
         <translation>串口</translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="649"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="688"/>
         <source>Warning: Telnet sends all data without encryption.</source>
         <translation>警告：Telnet 发送的所有数据未加密。</translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="671"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="710"/>
         <source>Negotiation</source>
         <translation>协商</translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="675"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="714"/>
         <source>Window size (NAWS)</source>
         <translation>窗口大小（NAWS）</translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="677"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="716"/>
         <source>Binary mode</source>
         <translation>二进制模式</translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="698"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="737"/>
         <source>telnet</source>
         <translation>Telnet</translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="375"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="388"/>
         <source>WSL is unavailable on this Windows system.</source>
         <translation>此 Windows 系统上的 WSL 不可用。</translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="379"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="392"/>
         <source>WSL is enabled, but no distribution is installed.</source>
         <translation>WSL 已启用，但尚未安装任何发行版。</translation>
     </message>
@@ -803,109 +814,116 @@ Built with:
 <context>
     <name>SessionPanel</name>
     <message>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="199"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="201"/>
         <source>Custom</source>
         <translation>自定义</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="209"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="211"/>
         <source>Local terminals</source>
         <translation>本地终端</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="211"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="213"/>
         <source>SSH hosts</source>
         <translation>SSH 主机</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="213"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="215"/>
         <source>Serial ports</source>
         <translation>串口</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="215"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="217"/>
         <source>Telnet hosts</source>
         <translation>Telnet 主机</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="217"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="219"/>
         <source>Other sessions</source>
         <translation>其他会话</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="699"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="739"/>
         <source>No matching sessions</source>
         <translation>没有匹配的会话</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="837"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="802"/>
+        <source>Delete these %1 saved sessions?
+%2</source>
+        <translation>是否删除以下 %1 个历史会话？
+%2</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="900"/>
         <source>The saved password for this session is unavailable. Edit the session and enter the password again.</source>
         <translation>该会话保存的密码不可用，请编辑会话重新输入密码。</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="868"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="931"/>
         <source>+  New session</source>
         <translation>+  新建会话</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="869"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="932"/>
         <source>New session</source>
         <translation>新建会话</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="871"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="934"/>
         <source>Search by name or host...</source>
         <translation>按名称或主机搜索...</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="872"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="935"/>
         <source>Search sessions</source>
         <translation>搜索会话</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="468"/>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="471"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="508"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="511"/>
         <source>Expand quick connections</source>
         <translation>展开快速连接</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="469"/>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="472"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="509"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="512"/>
         <source>Collapse quick connections</source>
         <translation>折叠快速连接</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="692"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="732"/>
         <source>Double-click to reconnect</source>
         <translation>双击重新连接</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="698"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="738"/>
         <source>No saved sessions yet</source>
         <translation>尚无已保存的会话</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="715"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="755"/>
         <source>Edit</source>
         <translation>编辑</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="717"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="757"/>
         <source>Delete</source>
         <translation>删除</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="754"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="805"/>
         <source>Delete session</source>
         <translation>删除会话</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="755"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="801"/>
         <source>Delete the saved session &apos;%1&apos;?</source>
         <translation>删除已保存的会话“%1”？</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="839"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="902"/>
         <source>The saved SSH credential is unavailable. Create the session again to refresh it.</source>
         <translation>已保存的 SSH 凭据不可用。请重新创建会话以刷新凭据。</translation>
     </message>
@@ -2326,13 +2344,13 @@ Built with:
 <context>
     <name>TerminalPage</name>
     <message>
-        <location filename="../../src/ui/pages/TerminalPage.cpp" line="159"/>
+        <location filename="../../src/ui/pages/TerminalPage.cpp" line="160"/>
         <source>Terminal</source>
         <translation>终端</translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/TerminalPage.cpp" line="259"/>
-        <location filename="../../src/ui/pages/TerminalPage.cpp" line="388"/>
+        <location filename="../../src/ui/pages/TerminalPage.cpp" line="260"/>
+        <location filename="../../src/ui/pages/TerminalPage.cpp" line="389"/>
         <source>Terminal %1</source>
         <translation>终端 %1</translation>
     </message>
@@ -2564,52 +2582,62 @@ Built with:
 <context>
     <name>TerminalView</name>
     <message>
-        <location filename="../../src/ui/terminal/TerminalView.cpp" line="620"/>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="652"/>
         <source>Find in scrollback</source>
         <translation>在滚动回显中查找</translation>
     </message>
     <message>
-        <location filename="../../src/ui/terminal/TerminalView.cpp" line="542"/>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="574"/>
         <source>Copy</source>
         <translation>复制</translation>
     </message>
     <message>
-        <location filename="../../src/ui/terminal/TerminalView.cpp" line="222"/>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="223"/>
         <source>[Disconnected] Press Enter to reconnect.</source>
         <translation>[连接已经断开] 按 Enter 重新连接</translation>
     </message>
     <message>
-        <location filename="../../src/ui/terminal/TerminalView.cpp" line="223"/>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="224"/>
         <source>[Disconnected].</source>
         <translation>[已断开连接]</translation>
     </message>
     <message>
-        <location filename="../../src/ui/terminal/TerminalView.cpp" line="234"/>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="240"/>
         <source>[Transport error] %1</source>
         <translation>[传输错误] %1</translation>
     </message>
     <message>
-        <location filename="../../src/ui/terminal/TerminalView.cpp" line="545"/>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="249"/>
+        <source>[Reconnecting] Waiting for the serial port</source>
+        <translation>[正在重连] 等待串口恢复</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="267"/>
+        <source>[Reconnected] Automatic reconnection succeeded.</source>
+        <translation>[已重连] 自动重连成功。</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="577"/>
         <source>Paste</source>
         <translation>粘贴</translation>
     </message>
     <message>
-        <location filename="../../src/ui/terminal/TerminalView.cpp" line="550"/>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="582"/>
         <source>Find...</source>
         <translation>查找...</translation>
     </message>
     <message>
-        <location filename="../../src/ui/terminal/TerminalView.cpp" line="555"/>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="587"/>
         <source>Zoom In</source>
         <translation>放大</translation>
     </message>
     <message>
-        <location filename="../../src/ui/terminal/TerminalView.cpp" line="558"/>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="590"/>
         <source>Zoom Out</source>
         <translation>缩小</translation>
     </message>
     <message>
-        <location filename="../../src/ui/terminal/TerminalView.cpp" line="563"/>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="595"/>
         <source>Clear Scrollback</source>
         <translation>清除滚动回显</translation>
     </message>

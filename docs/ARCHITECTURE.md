@@ -71,6 +71,21 @@ flowchart TB
 
 ### 3.1 UI Layer
 
+历史会话树支持 Ctrl 多选、Shift 点击选择两端及中间会话，以及单选/多选的
+Enter/小键盘 Enter 重连、Delete 删除。范围选择使用 Qt ExtendedSelection，
+分组标题不可选中，只操作范围内的会话叶子。
+选中会话使用主题强调色的半透明底色（深色 alpha 56、浅色 alpha 45），
+与灰色悬停底色区分；标题、详情文字和焦点边框保持原样。
+批量重连按面板分组与叶子的显示顺序执行，先复制稳定会话 ID，避免同步
+更新历史重建树后使用失效条目。批量删除统一显示会话列表并确认一次，
+确认后重新按 ID 查找、删除凭据与历史，最后统一保存并重建树。
+
+串口会话表单使用 ElaMultiSelectComboBox 选择多个端口，一次确认生成每个
+端口的独立 SerialConfig 快照，波特率、帧格式、流控、重连间隔与标签共用。
+系统端口刷新保留已选端口（包含暂时离线的端口），历史编辑回填原端口。
+MainWindow 在模态对话框销毁后逐个记录历史并创建终端；编辑已有会话时，
+第一个所选端口替换原会话，其余端口新建会话。
+
 负责窗口、标签、设置、输入事件、选择和用户反馈。UI 不解析 ANSI，不持有 libvterm，不实现 Transport 缓冲策略。每个终端标签的 `TerminalView` 拥有并驱动一个 `TerminalSession`（1 View : 1 Session），Session 内聚合 Core、Transport 与 InputPump；竞争窗口中的未入队输入由 `SessionInputPump` 暂存，不由 `TerminalView` 保存。
 
 设置弹窗使用 ElaDialog 自动保留的标题栏空间，外层布局不再重复添加上边距。
@@ -148,6 +163,19 @@ Session、不清空内容。JSON 的 `schemes` 使用 Windows Terminal 的命名
 保存后的变更通知触发现有终端全帧重绘，包括已显示的文字与背景。
 
 ### 3.3 TerminalSession
+
+串口配置的 `reconnectSeconds` 为非负整秒数，默认 0 禁用自动重连。串口
+断线或打开失败后，Session 以单次定时器等待该间隔，再走既有 `reconnect()`
+入口；失败后重新计时。主动断开、关闭和换绑取消待执行重试，成功连接停止
+定时器。该配置随串口历史记录保存并在编辑时回填，不改变字节输入通路。
+
+自动重连成功由 Session 发布独立通知，TerminalView 写入终端状态提示。
+成功、断开警告、传输错误分别使用当前终端方案的 ANSI 绿色、黄色、红色，
+不硬编码 RGB，不跟随程序主题；首次连接与手动重连不显示自动重连成功提示。
+
+串口详细传输错误仅在新会话首次打开失败时输出，后续重连不重复刷屏。
+定时自动重试在终端追加黄色「正在重连，等待串口恢复」提示，每次重试按
+配置间隔在文本末尾追加一个点；成功输出绿色成功提示，关闭时结束等待行。
 
 `TerminalSession` 聚合一条 `ITransport`、`SessionInputPump`、`TerminalCore` 与 Scrollback，负责 start、close、resize、reconnect 和错误传播，但不负责绘制细节。**采用「1 TerminalView 拥有 1 TerminalSession」模型**：每个终端标签的 `TerminalView` 自建、驱动并销毁其 Session（`_ownsSession` 默认 true），Session 不反向持有 View/Renderer。原设想的「SessionManager 拥有 Session、View 非 owning attach、Session 脱离 View 后台存活」已放弃，`SessionManager` 类已移除。详见 `docs/architecture/stages/P6_Session_and_Transport.md`。
 

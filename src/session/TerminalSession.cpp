@@ -128,6 +128,13 @@ void TerminalSession::attach(ITransport* transport, Ownership ownership,
     _transport = transport;
     _ownership = ownership;
     _config.transportKind = transportKind;
+    _manualDisconnect = false;
+    _reconnectTimer.setSingleShot(true);
+    QObject::disconnect(&_reconnectTimer, nullptr, this, nullptr);
+    connect(&_reconnectTimer, &QChronoTimer::timeout, this, [this] {
+        if (_state == SessionState::Failed && !_manualDisconnect && canReconnect())
+            static_cast<void>(beginReconnect(true));
+    });
     if (ownership == Ownership::Adopt)
         transport->setParent(this);
 
@@ -190,6 +197,10 @@ void TerminalSession::connectTransportSignals(ITransport* transport,
             _statistics.connectedAt = QDateTime::currentDateTimeUtc();
             transition(SessionState::Running);
             emit connected(transport);
+            if (_automaticReconnectAttempt) {
+                _automaticReconnectAttempt = false;
+                emit automaticReconnectSucceeded();
+            }
         }));
     // 结构化错误只做分类补充，不自行上报，避免与随后的 errorOccurred 重复
     // 产生两条 sessionError。约定见 ITransport.h。
@@ -351,6 +362,8 @@ bool TerminalSession::disconnectForReconnect()
 
     // disconnected 信号会停止输入泵并把状态推进到 Failed；保留 Transport，
     // 使按钮或 Enter 能继续走既有 reconnect() 路径。
+    _manualDisconnect = true;
+    _reconnectTimer.stop();
     _acceptsUserInput = false;
     _transport->disconnect();
     return true;
@@ -358,6 +371,7 @@ bool TerminalSession::disconnectForReconnect()
 
 bool TerminalSession::reconnect()
 {
+    _manualDisconnect = false;
     if (!canReconnect())
         return false;
 
@@ -406,16 +420,19 @@ bool TerminalSession::canReconnect() const noexcept
     return false;
 }
 
-bool TerminalSession::beginReconnect()
+bool TerminalSession::beginReconnect(bool automatic)
 {
     if (!_transport || !transition(SessionState::Reconnecting))
         return false;
 
     ++_statistics.reconnectCount;
+    _automaticReconnectAttempt = automatic;
     ++_statistics.generation;
     rewireTransportSignals();
     _acceptsUserInput = true;
     startPump();
+    if (automatic)
+        emit automaticReconnectAttemptStarted();
     if (_transport->connectAsync())
         return true;
 
@@ -450,6 +467,15 @@ bool TerminalSession::transition(SessionState next)
         return false;
     }
     _state = next;
+    _reconnectTimer.stop();
+    const int seconds = _config.transport.value(
+        QStringLiteral("reconnectSeconds"), 0).toInt();
+    if (next == SessionState::Failed && !_manualDisconnect
+        && _config.transportKind == TransportKind::Serial
+        && seconds > 0 && canReconnect()) {
+        _reconnectTimer.setInterval(std::chrono::seconds(seconds));
+        _reconnectTimer.start();
+    }
     emit stateChanged(_state);
     return true;
 }
@@ -478,6 +504,8 @@ void TerminalSession::startPump()
 
 void TerminalSession::clearAttachment(bool requestDisconnect)
 {
+    _automaticReconnectAttempt = false;
+    _reconnectTimer.stop();
     ITransport* current = _transport.data();
     stopPump();
     QObject::disconnect(_coreOutputConnection);

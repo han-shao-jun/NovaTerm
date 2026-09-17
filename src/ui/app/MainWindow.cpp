@@ -7,6 +7,7 @@
  * 刷新菜单文本 —— 与子面板/页面一致，不依赖顶层窗口的 LanguageChange 事件。
  */
 #include "MainWindow.h"
+#include <utility>
 #include "ElaCheckBox.h"
 #include "ElaDialog.h"
 #include "ElaIconButton.h"
@@ -1701,7 +1702,7 @@ void MainWindow::runSessionDialog(
         });
         connect(sessionPage, &SessionPage::serialSessionRequested, this,
                 [this](const SerialConfig& config) {
-            _pendingSerialSession = config;
+            _pendingSerialSessions.append(config);
             _sessionDialog->accept();
         });
         connect(sessionPage, &SessionPage::sshSessionRequested, this,
@@ -1723,7 +1724,7 @@ void MainWindow::runSessionDialog(
     }
 
     _pendingLocalSession.reset();
-    _pendingSerialSession.reset();
+    _pendingSerialSessions.clear();
     _pendingSshSession.reset();
     _pendingTelnetSession.reset();
     const int result = _sessionDialog->exec();
@@ -1757,17 +1758,19 @@ void MainWindow::runSessionDialog(
                 title, parameters.type, parameters.wslDistribution,
                 parameters.workingDirectory);
         }
-    } else if (result == QDialog::Accepted && _pendingSerialSession) {
-        const SerialConfig config = *_pendingSerialSession;
-        _pendingSerialSession.reset();
-        if (editingSessionId)
-            _sessionPanel->updateSerial(*editingSessionId, config);
-        else if (terminalToEdit)
-            static_cast<void>(_terminalPage->replaceTerminalTab(
-                terminalToEdit, config));
-        else {
-            _sessionPanel->recordSerial(config);
-            _terminalPage->addSerialTerminalTab(config);
+    } else if (result == QDialog::Accepted && !_pendingSerialSessions.isEmpty()) {
+        const QList<SerialConfig> configs = std::exchange(_pendingSerialSessions, {});
+        for (int index = 0; index < configs.size(); ++index) {
+            const SerialConfig& config = configs.at(index);
+            if (index == 0 && editingSessionId)
+                _sessionPanel->updateSerial(*editingSessionId, config);
+            else if (index == 0 && terminalToEdit)
+                static_cast<void>(_terminalPage->replaceTerminalTab(
+                    terminalToEdit, config));
+            else {
+                _sessionPanel->recordSerial(config);
+                _terminalPage->addSerialTerminalTab(config);
+            }
         }
     } else if (result == QDialog::Accepted && _pendingSshSession) {
         const SshConfig config = *_pendingSshSession;

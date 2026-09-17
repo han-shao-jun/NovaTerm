@@ -50,6 +50,7 @@ RuntimeConfig serialRuntime(const SerialConfig& config)
         {QStringLiteral("parity"), static_cast<int>(config.parity)},
         {QStringLiteral("stopBits"), static_cast<int>(config.stopBits)},
         {QStringLiteral("flowControl"), static_cast<int>(config.flowControl)},
+        {QStringLiteral("reconnectSeconds"), config.reconnectSeconds},
         {QStringLiteral("label"), config.label}};
     return runtime;
 }
@@ -437,6 +438,7 @@ bool TerminalPage::replaceTerminalTab(TerminalView* terminalView,
             return;
         auto* transport = new SerialTransport(config, terminalGuard);
         terminalGuard->attachTransport(transport);
+        terminalGuard->session()->setSerialReconnectInterval(config.reconnectSeconds);
         connect(transport, &ITransport::connected, this,
                 [this, config]() { emit serialSessionConnected(config); },
                 Qt::SingleShotConnection);

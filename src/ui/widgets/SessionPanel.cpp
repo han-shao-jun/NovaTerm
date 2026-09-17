@@ -24,11 +24,13 @@
 #include <QFont>
 #include <QHeaderView>
 #include <QHBoxLayout>
+#include <QKeyEvent>
 #include <QResizeEvent>
 #include <QPainter>
 #include <QStyledItemDelegate>
 #include <QStandardPaths>
 #include <QTreeWidget>
+#include <QTreeWidgetItemIterator>
 #include <QVBoxLayout>
 
 #include <algorithm>
@@ -88,7 +90,10 @@ public:
         painter->setRenderHint(QPainter::Antialiasing);
         painter->setPen(Qt::NoPen);
         if (option.state & QStyle::State_Selected) {
-            painter->setBrush(ElaThemeColor(mode, BasicSelectedAlpha));
+            // 选中项使用主题强调色，略高于悬停的辨识度，深色下稍加强。
+            QColor selectedBackground = ElaThemeColor(mode, PrimaryNormal);
+            selectedBackground.setAlpha(mode == ElaThemeType::Dark ? 56 : 45);
+            painter->setBrush(selectedBackground);
             painter->drawRoundedRect(row, 5, 5);
         } else if (option.state & QStyle::State_MouseOver) {
             painter->setBrush(ElaThemeColor(mode, BasicHoverAlpha));
@@ -271,6 +276,7 @@ RuntimeConfig serialRuntime(const SerialConfig& config)
         {QStringLiteral("parity"), static_cast<int>(config.parity)},
         {QStringLiteral("stopBits"), static_cast<int>(config.stopBits)},
         {QStringLiteral("flowControl"), static_cast<int>(config.flowControl)},
+        {QStringLiteral("reconnectSeconds"), config.reconnectSeconds},
         {QStringLiteral("label"), config.label}};
     runtime.title = sessionName(runtime);
     return runtime;
@@ -382,6 +388,9 @@ SessionPanel::SessionPanel(QWidget* parent)
     _rootLayout->addWidget(_searchEdit);
 
     _tree = new ElaTreeWidget(this);
+    // Qt 扩展选择：Ctrl 切换单项，Shift 选择锚点与点击项之间的整个范围。
+    _tree->setSelectionMode(QAbstractItemView::ExtendedSelection);
+    _tree->installEventFilter(this);
 
     QFont itemFont = _tree->font();
     itemFont.setPixelSize(13);
@@ -425,6 +434,41 @@ SessionPanel::SessionPanel(QWidget* parent)
 }
 
 SessionPanel::~SessionPanel() = default;
+
+QList<SessionId> SessionPanel::selectedSessionIds() const
+{
+    QList<SessionId> ids;
+    // 树遍历顺序与分组及叶子显示顺序一致，不依赖 Ctrl 点击的先后顺序。
+    for (QTreeWidgetItemIterator it(_tree); *it; ++it) {
+        const auto* item = *it;
+        const SessionId id(item->data(0, Qt::UserRole).toString());
+        if (item->isSelected() && !item->isHidden() && !id.isNull())
+            ids.append(id);
+    }
+    return ids;
+}
+
+bool SessionPanel::eventFilter(QObject* watched, QEvent* event)
+{
+    if (watched == _tree && event->type() == QEvent::KeyPress) {
+        const auto* key = static_cast<QKeyEvent*>(event);
+        if (key->key() == Qt::Key_Return || key->key() == Qt::Key_Enter
+            || key->key() == Qt::Key_Delete) {
+            if (key->isAutoRepeat())
+                return true;
+            // 信号接收方可能立即更新历史并重建树，先复制 ID 再执行操作。
+            const QList<SessionId> ids = selectedSessionIds();
+            if (key->key() == Qt::Key_Delete)
+                deleteSessions(ids);
+            else {
+                for (const SessionId& id : ids)
+                    reconnectSession(id);
+            }
+            return true;
+        }
+    }
+    return QWidget::eventFilter(watched, event);
+}
 
 void SessionPanel::setCollapsed(bool collapsed)
 {
@@ -741,31 +785,53 @@ void SessionPanel::editItem(QTreeWidgetItem* item)
 
 void SessionPanel::deleteItem(QTreeWidgetItem* item)
 {
-    const SessionId id(item->data(0, Qt::UserRole).toString());
-    const auto it = std::find_if(
-        _entries.begin(), _entries.end(), [&id](const auto& entry) {
-            return entry.sessionId == id;
-        });
-    if (it == _entries.end())
+    if (item)
+        deleteSessions({SessionId(item->data(0, Qt::UserRole).toString())});
+}
+
+void SessionPanel::deleteSessions(const QList<SessionId>& ids)
+{
+    QStringList titles;
+    for (const SessionId& id : ids) {
+        const auto it = std::find_if(_entries.cbegin(), _entries.cend(),
+            [&id](const auto& entry) { return entry.sessionId == id; });
+        if (it != _entries.cend())
+            titles.append(sessionName(it->runtimeSnapshot));
+    }
+    if (titles.isEmpty())
         return;
 
-    const QString title = sessionName(it->runtimeSnapshot);
+    const QString message = titles.size() == 1
+        ? tr("Delete the saved session '%1'?").arg(titles.first())
+        : tr("Delete these %1 saved sessions?\n%2")
+            .arg(titles.size()).arg(titles.join(QLatin1Char('\n')));
     if (!NovaTerm::Ui::confirm(
-            this, tr("Delete session"),
-            tr("Delete the saved session '%1'?").arg(title))) {
+            this, tr("Delete session"), message)) {
         return;
     }
 
-    if (!it->runtimeSnapshot.credentialRef.isEmpty())
-        _credentials->remove(it->runtimeSnapshot.credentialRef);
-    _entries.erase(it);
+    // 模态确认期间可能收到历史更新，确认后重新按 ID 查找，不保留旧迭代器。
+    for (const SessionId& id : ids) {
+        const auto it = std::find_if(_entries.begin(), _entries.end(),
+            [&id](const auto& entry) { return entry.sessionId == id; });
+        if (it == _entries.end())
+            continue;
+        if (!it->runtimeSnapshot.credentialRef.isEmpty())
+            _credentials->remove(it->runtimeSnapshot.credentialRef);
+        _entries.erase(it);
+    }
     saveHistory();
     rebuildTree();
 }
 
 void SessionPanel::reconnectItem(QTreeWidgetItem* item)
 {
-    const QUuid id(item->data(0, Qt::UserRole).toString());
+    if (item)
+        reconnectSession(SessionId(item->data(0, Qt::UserRole).toString()));
+}
+
+void SessionPanel::reconnectSession(const SessionId& id)
+{
     if (id.isNull())
         return;
 
@@ -776,7 +842,7 @@ void SessionPanel::reconnectItem(QTreeWidgetItem* item)
     if (it == _entries.cend())
         return;
 
-    const RuntimeConfig& runtime = it->runtimeSnapshot;
+    const RuntimeConfig runtime = it->runtimeSnapshot;
     const QVariantMap& values = runtime.transport;
     if (runtime.transportKind == TransportKind::LocalShell) {
         emit localReconnectRequested(
@@ -799,6 +865,7 @@ void SessionPanel::reconnectItem(QTreeWidgetItem* item)
             values.value(QStringLiteral("stopBits")).toInt());
         config.flowControl = static_cast<QSerialPort::FlowControl>(
             values.value(QStringLiteral("flowControl")).toInt());
+        config.reconnectSeconds = values.value(QStringLiteral("reconnectSeconds"), 0).toInt();
         config.label = values.value(QStringLiteral("label")).toString();
         if (config.isValid())
             emit serialReconnectRequested(config);
