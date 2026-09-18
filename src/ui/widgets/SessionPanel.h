@@ -60,6 +60,7 @@ public:
     [[nodiscard]] int expandedWidth() const noexcept { return _expandedWidth; }
 
 protected:
+    bool eventFilter(QObject* watched, QEvent* event) override;
     void resizeEvent(QResizeEvent* event) override;
 
 signals:
@@ -89,6 +90,9 @@ private:
     void showItemContextMenu(const QPoint& position);
     void editItem(QTreeWidgetItem* item);
     void deleteItem(QTreeWidgetItem* item);
+    void deleteSessions(const QList<SessionId>& ids); ///< 一次确认删除历史快照
+    [[nodiscard]] QList<SessionId> selectedSessionIds() const; ///< 按面板顺序选中项
+    void reconnectSession(const SessionId& id); ///< 按稳定 ID 重连，允许树被重建
     void reconnectItem(QTreeWidgetItem* item);
     void upsert(RuntimeConfig runtime, const QByteArray& secret = {});
     void replace(const SessionId& id, RuntimeConfig runtime,

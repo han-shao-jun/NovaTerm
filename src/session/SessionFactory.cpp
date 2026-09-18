@@ -91,6 +91,7 @@ SessionFactory::create(const RuntimeConfig& runtime,
         config.flowControl = static_cast<QSerialPort::FlowControl>(
             values.value(QStringLiteral("flowControl"),
                          QSerialPort::NoFlowControl).toInt());
+        config.reconnectSeconds = values.value(QStringLiteral("reconnectSeconds"), 0).toInt();
         config.label = runtime.title;
         if (!config.isValid()) {
             if (error)
@@ -182,6 +183,7 @@ SessionFactory::createLocal(const LocalShellConfig& config, RuntimeConfig runtim
 std::unique_ptr<TerminalSession>
 SessionFactory::createSerial(const SerialConfig& config, RuntimeConfig runtime)
 {
+    runtime.transport.insert(QStringLiteral("reconnectSeconds"), config.reconnectSeconds);
     return makeSession<SerialTransport>(config, std::move(runtime), TransportKind::Serial);
 }
 

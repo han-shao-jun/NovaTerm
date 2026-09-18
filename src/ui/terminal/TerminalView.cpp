@@ -201,6 +201,7 @@ TerminalView::TerminalView(TerminalSession* session, QWidget* parent)
         // 重连成功后恢复显示层对同一 transport 的跟踪；否则第二次断连
         // 会被误认为不属于当前视图，无法再次显示重连提示。
         _displayTransport = transport;
+        _serialReconnectPromptActive = false;
         if (_session->runtimeConfig().transportKind == TransportKind::LocalShell) {
             _localTransport = transport;
             _isLocalShell = true;
@@ -222,17 +223,48 @@ TerminalView::TerminalView(TerminalSession* session, QWidget* parent)
                 ? tr("[Disconnected] Press Enter to reconnect.")
                 : tr("[Disconnected].");
             _core->writeInput(
-                QStringLiteral("\r\n\x1b[31m%1\x1b[0m\r\n")
+                QStringLiteral("\r\n\x1b[0;33m%1\x1b[0m\r\n")
                     .arg(message).toUtf8());
         }
     });
     connect(_session, &TerminalSession::errorOccurred, this,
             [this](ITransport*, const QString& error) {
+        // 串口详细打开错误只在新会话首次连接阶段显示，重连使用等待提示。
+        if (_session && _session->runtimeConfig().transportKind == TransportKind::Serial
+            && (_session->statistics().connectedAt.isValid()
+                || _session->statistics().reconnectCount > 0))
+            return;
         if (_core && !error.isEmpty()) {
             _core->writeInput(
-                QStringLiteral("\r\n%1\r\n")
+                QStringLiteral("\r\n\x1b[0;31m%1\x1b[0m\r\n")
                     .arg(tr("[Transport error] %1").arg(error)).toUtf8());
         }
+    });
+    connect(_session, &TerminalSession::automaticReconnectAttemptStarted, this, [this] {
+        if (!_core)
+            return;
+        if (!_serialReconnectPromptActive) {
+            _serialReconnectPromptActive = true;
+            _core->writeInput(QStringLiteral("\r\n\x1b[0;33m%1\x1b[0m")
+                .arg(tr("[Reconnecting] Waiting for the serial port")).toUtf8());
+        }
+        // 每次定时重试追加一个点，不重复输出整行错误或状态文本。
+        _core->writeInput(QByteArrayLiteral("\x1b[0;33m.\x1b[0m"));
+    });
+    connect(_session, &TerminalSession::stateChanged, this, [this](SessionState state) {
+        if (_serialReconnectPromptActive
+            && (state == SessionState::Closing || state == SessionState::Closed)) {
+            _serialReconnectPromptActive = false;
+            if (_core)
+                _core->writeInput(QByteArrayLiteral("\r\n"));
+        }
+    });
+    connect(_session, &TerminalSession::automaticReconnectSucceeded, this, [this] {
+        if (!_core)
+            return;
+        // ANSI 绿色由当前终端方案的调色板解析，深浅不跟随程序主题。
+        _core->writeInput(QStringLiteral("\r\n\x1b[0;32m%1\x1b[0m\r\n")
+            .arg(tr("[Reconnected] Automatic reconnection succeeded.")).toUtf8());
     });
 
     // PTY 尺寸变更去抖：拖动窗口会产生密集的 resize 事件，每个都触发

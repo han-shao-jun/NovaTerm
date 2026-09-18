@@ -13,6 +13,7 @@
 #include "transport/ITransport.h"
 
 #include <QObject>
+#include <QChronoTimer>
 #include <QPointer>
 #include <QVector>
 #include <memory>
@@ -32,6 +33,14 @@ class TerminalSession final : public QObject
 {
     Q_OBJECT
 public:
+    /**
+     * @brief 设置串口自动重连间隔，须在启动连接前调用。
+     * @param seconds 非负整秒数，0 禁用自动重连。
+     */
+    void setSerialReconnectInterval(int seconds)
+    {
+        _config.transport.insert(QStringLiteral("reconnectSeconds"), seconds);
+    }
     /**
      * @brief transport 所有权模式。
      */
@@ -159,6 +168,10 @@ public:
     void resizeTerminal(int columns, int rows) { resize(columns, rows); }
 
 signals:
+    /** @brief 定时自动重连开始一次尝试，供视图更新等待提示。 */
+    void automaticReconnectAttemptStarted();
+    /** @brief 定时自动重连成功；首次连接和手动重连不发出此信号。 */
+    void automaticReconnectSucceeded();
     /**
      * @brief 会话状态变更。
      * @param state 新状态。
@@ -211,9 +224,12 @@ signals:
                 TransportExitReason reason);
 
 private:
+    QChronoTimer _reconnectTimer; ///< 单次自动重连定时器，支持完整整秒范围
+    bool _manualDisconnect{false}; ///< 主动断开后暂停自动重连
     std::unique_ptr<TerminalContextProvider> _contextProvider;
     bool transition(SessionState next);   ///< 状态机迁移（校验合法性）
-    bool beginReconnect();                  ///< 进入 Reconnecting 并提交连接请求
+    bool beginReconnect(bool automatic = false); ///< 进入重连状态并提交连接请求
+    bool _automaticReconnectAttempt{false}; ///< 当前连接是否由自动重连触发
     void startPump();                       ///< 启动输入泵
     void stopPump();                        ///< 停止并销毁输入泵
     void clearAttachment(bool requestDisconnect); ///< 清理传输层附加与信号连接

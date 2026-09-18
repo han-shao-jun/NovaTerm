@@ -24,6 +24,10 @@ public:
     bool connectToHost() override
     {
         ++connectAttempts;
+        if (failedAttempts > 0) {
+            --failedAttempts;
+            return false;
+        }
         if (_connected)
             return true;
         _connected = true;
@@ -89,6 +93,7 @@ public:
     QSize size;
     bool readPaused{false};
     int connectAttempts{0};
+    int failedAttempts{0};
 
 private:
     bool _connected{false};
@@ -99,6 +104,8 @@ class SessionTests final : public QObject
 {
     Q_OBJECT
 private slots:
+    void serialAutomaticReconnect();
+    void automaticReconnectDisabledForZeroAndOtherProtocols();
     void lifecycleReachesRunningThenClosed();
     void manualDisconnectKeepsTransportReconnectable_data();
     void manualDisconnectKeepsTransportReconnectable();
@@ -114,6 +121,65 @@ private slots:
     void agentContextJoinsHistorySeamAndBoundsUtf8();
     void secretServiceCredentialStoreSurvivesRestart();
 };
+
+void SessionTests::serialAutomaticReconnect()
+{
+    RuntimeConfig config;
+    config.transportKind = TransportKind::Serial;
+    config.transport.insert(QStringLiteral("reconnectSeconds"), 1);
+    TerminalSession session(config);
+    QSignalSpy automaticSuccess(&session, &TerminalSession::automaticReconnectSucceeded);
+    QSignalSpy automaticAttempts(&session, &TerminalSession::automaticReconnectAttemptStarted);
+    FakeTransport transport;
+    session.attach(&transport, TerminalSession::Ownership::Borrowed);
+    QVERIFY(session.start());
+    QTRY_COMPARE(session.state(), SessionState::Running);
+    transport.simulateRemoteDisconnect();
+    QCOMPARE(transport.connectAttempts, 1);
+    QTRY_COMPARE_WITH_TIMEOUT(transport.connectAttempts, 2, 2500);
+    QTRY_COMPARE(automaticSuccess.count(), 1);
+    QCOMPARE(automaticAttempts.count(), 1);
+    QTRY_COMPARE(session.state(), SessionState::Running);
+    QVERIFY(session.disconnectForReconnect());
+    QTest::qWait(1200);
+    QCOMPARE(transport.connectAttempts, 2);
+    QVERIFY(session.reconnect());
+    QTRY_COMPARE(session.state(), SessionState::Running);
+    transport.simulateRemoteDisconnect();
+    session.close();
+    QTest::qWait(1200);
+    QCOMPARE(transport.connectAttempts, 3);
+    QCOMPARE(automaticSuccess.count(), 1);
+    QCOMPARE(automaticAttempts.count(), 1);
+}
+
+void SessionTests::automaticReconnectDisabledForZeroAndOtherProtocols()
+{
+    for (const auto kind : {TransportKind::Serial, TransportKind::Ssh}) {
+        RuntimeConfig config;
+        config.transportKind = kind;
+        config.transport.insert(QStringLiteral("reconnectSeconds"),
+                                kind == TransportKind::Serial ? 0 : 1);
+        TerminalSession session(config);
+        FakeTransport transport;
+        session.attach(&transport, TerminalSession::Ownership::Borrowed);
+        QVERIFY(session.start());
+        QTRY_COMPARE(session.state(), SessionState::Running);
+        transport.simulateRemoteDisconnect();
+        QTest::qWait(1200);
+        QCOMPARE(transport.connectAttempts, 1);
+    }
+    RuntimeConfig config;
+    config.transportKind = TransportKind::Serial;
+    config.transport.insert(QStringLiteral("reconnectSeconds"), 1);
+    TerminalSession session(config);
+    FakeTransport transport;
+    transport.failedAttempts = 2;
+    session.attach(&transport, TerminalSession::Ownership::Borrowed);
+    QVERIFY(!session.start());
+    QTRY_COMPARE_WITH_TIMEOUT(transport.connectAttempts, 3, 3500);
+    QTRY_COMPARE(session.state(), SessionState::Running);
+}
 
 void SessionTests::inputPumpOffsetsPreservePendingSuffix()
 {

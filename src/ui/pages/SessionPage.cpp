@@ -106,8 +106,13 @@ SessionPage::SessionPage(QWidget* parent)
             this, &SessionPage::dialogRejected);
     connect(confirmBtn, &QPushButton::clicked, this, [this]() {
         if (_tabWidget->currentIndex() == 2) {
+            QStringList selectedPorts;
+            for (int index : _portCombo->getCurrentSelectionIndex()) {
+                if (index >= 0 && index < _portCombo->count())
+                    selectedPorts.append(_portCombo->itemText(index));
+            }
             SerialConfig config;
-            config.portName = _portCombo->currentText()
+            config.portName = selectedPorts.value(0)
                                   .section(QLatin1Char(':'), 0, 0).trimmed();
             config.baudRate = _baudRateCombo->currentText().toInt();
             config.parity = static_cast<QSerialPort::Parity>(
@@ -119,13 +124,18 @@ SessionPage::SessionPage(QWidget* parent)
             config.flowControl = static_cast<QSerialPort::FlowControl>(
                 _flowControlCombo->currentData().toInt());
             config.label = _serialLabel->text().trimmed();
+            config.reconnectSeconds = _serialReconnectTime->text().toInt();
 
             if (!config.isValid()) {
                 NovaTerm::Ui::warn(this, tr("Serial Session"),
                                    tr("Select a serial port and provide a valid baud rate."));
                 return;
             }
-            emit serialSessionRequested(config);
+            // 一次确认构造多份独立快照，仅端口名不同；其余参数完全共用。
+            for (const QString& selectedPort : selectedPorts) {
+                config.portName = selectedPort.section(QLatin1Char(':'), 0, 0).trimmed();
+                emit serialSessionRequested(config);
+            }
             return;
         }
 
@@ -288,7 +298,8 @@ void SessionPage::applyRuntimeConfig(const RuntimeConfig& runtime,
             _portCombo->addItem(portName);
             portIndex = _portCombo->count() - 1;
         }
-        _portCombo->setCurrentIndex(portIndex);
+        _portCombo->setCurrentSelection(
+            portIndex >= 0 ? QList<int>{portIndex} : QList<int>{});
         _baudRateCombo->setCurrentText(
             QString::number(values.value(QStringLiteral("baudRate"),
                                          115200).toInt()));
@@ -309,6 +320,8 @@ void SessionPage::applyRuntimeConfig(const RuntimeConfig& runtime,
         setCurrentData(_flowControlCombo,
                        values.value(QStringLiteral("flowControl"),
                                     QSerialPort::NoFlowControl).toInt());
+        _serialReconnectTime->setText(QString::number(
+            values.value(QStringLiteral("reconnectSeconds"), 0).toInt()));
         _serialLabel->setText(
             values.value(QStringLiteral("label")).toString());
         break;
@@ -531,39 +544,52 @@ void SessionPage::initSerialUi()
 
     // 串口设备与帧格式
     addFormLabel(grid, 0, tr("Port"), page);
-    _portCombo = new ElaComboBox(page);
+    _portCombo = new ElaMultiSelectComboBox(page);
+    _portCombo->setToolTip(tr("Select one or more serial ports"));
     grid->addWidget(_portCombo, 0, 1);
 
     const auto refreshSerialPorts = [this](const QStringList& ports,
                                            bool preserveSelection) {
-        const QString selectedPort =
-            _portCombo->currentText().section(QLatin1Char(':'), 0, 0);
+        QStringList selectedPorts;
+        for (int index : _portCombo->getCurrentSelectionIndex()) {
+            if (index >= 0 && index < _portCombo->count())
+                selectedPorts.append(_portCombo->itemText(index)
+                    .section(QLatin1Char(':'), 0, 0).trimmed());
+        }
         const QSignalBlocker blocker(_portCombo);
 
         _portCombo->clear();
         _portCombo->addItems(ports);
+        // 信号屏蔽期间批量增删条目后，先同步控件内部选择向量的容量。
+        _portCombo->setCurrentSelection(QList<int>{});
         _portCombo->setPlaceholderText(
             ports.isEmpty() ? tr("No serial ports detected")
-                            : tr("Select a serial port"));
+                            : tr("Select one or more serial ports"));
 
         if (!preserveSelection) {
-            _portCombo->setCurrentIndex(ports.isEmpty() ? -1 : 0);
+            _portCombo->setCurrentSelection(
+                ports.isEmpty() ? QList<int>{} : QList<int>{0});
             return;
         }
 
-        int selectedIndex = -1;
-        for (int index = 0; index < ports.size(); ++index) {
-            const QString port = ports.at(index).section(QLatin1Char(':'), 0, 0);
-            if (port == selectedPort) {
-                selectedIndex = index;
-                break;
+        QList<int> selectedIndices;
+        for (const QString& selectedPort : selectedPorts) {
+            int selectedIndex = -1;
+            for (int index = 0; index < ports.size(); ++index) {
+                const QString port = ports.at(index).section(QLatin1Char(':'), 0, 0).trimmed();
+                if (port == selectedPort) {
+                    selectedIndex = index;
+                    break;
+                }
             }
+            if (selectedIndex < 0 && !selectedPort.isEmpty()) {
+                _portCombo->addItem(selectedPort);
+                selectedIndex = _portCombo->count() - 1;
+            }
+            if (selectedIndex >= 0)
+                selectedIndices.append(selectedIndex);
         }
-        if (selectedIndex < 0 && !selectedPort.trimmed().isEmpty()) {
-            _portCombo->addItem(selectedPort.trimmed());
-            selectedIndex = _portCombo->count() - 1;
-        }
-        _portCombo->setCurrentIndex(selectedIndex);
+        _portCombo->setCurrentSelection(selectedIndices);
     };
 
     auto* serialPortInfo = new SerialPortInfo(page);
@@ -623,12 +649,25 @@ void SessionPage::initSerialUi()
                                QSerialPort::SoftwareControl);
     grid->addWidget(_flowControlCombo, 5, 1);
 
-    addFormLabel(grid, 6, tr("Label"), page);
+    addFormLabel(grid, 6, tr("Reconnect Time"), page);
+    auto* reconnectTime = new ElaLineEdit(page);
+    _serialReconnectTime = reconnectTime;
+    auto* reconnectValidator = new QIntValidator(reconnectTime);
+    reconnectValidator->setBottom(0);
+    reconnectTime->setValidator(reconnectValidator);
+    reconnectTime->setText(QStringLiteral("0"));
+    const QString reconnectHint =
+        tr("Optional reconnect interval in whole seconds; 0 disables reconnection");
+    reconnectTime->setPlaceholderText(reconnectHint);
+    reconnectTime->setToolTip(reconnectHint);
+    grid->addWidget(reconnectTime, 6, 1);
+
+    addFormLabel(grid, 7, tr("Label"), page);
     _serialLabel = new ElaLineEdit(page);
     _serialLabel->setPlaceholderText(tr("Optional session name"));
-    grid->addWidget(_serialLabel, 6, 1);
+    grid->addWidget(_serialLabel, 7, 1);
 
-    grid->setRowStretch(7, 1);
+    grid->setRowStretch(8, 1);
 
     _tabWidget->addTab(page, tr("serial port"));
 }

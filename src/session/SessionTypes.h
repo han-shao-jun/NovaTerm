@@ -147,6 +147,7 @@ struct SerialConfig
     QSerialPort::StopBits stopBits{QSerialPort::OneStop};    ///< 停止位
     QSerialPort::FlowControl flowControl{QSerialPort::NoFlowControl}; ///< 流控
     QString label;                                           ///< 显示标签
+    int reconnectSeconds{0};                                 ///< 自动重连间隔整秒数，0 禁用
 
     /**
      * @brief 校验配置是否有效。
@@ -167,7 +168,7 @@ struct SerialConfig
             || flowControl == QSerialPort::HardwareControl
             || flowControl == QSerialPort::SoftwareControl;
         return !portName.trimmed().isEmpty() && baudRate > 0 && validDataBits
-            && validParity && validStopBits && validFlowControl;
+            && validParity && validStopBits && validFlowControl && reconnectSeconds >= 0;
     }
 };
 

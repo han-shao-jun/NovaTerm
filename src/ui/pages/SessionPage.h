@@ -13,6 +13,7 @@
 #include "session/SessionTypes.h"
 #include "ui/widgets/VerticalTabWidget.h"
 #include <ElaComboBox.h>
+#include <ElaMultiSelectComboBox.h>
 #include <ElaCheckBox.h>
 #include <ElaPushButton.h>
 #include <ElaSpinBox.h>
@@ -55,7 +56,11 @@ signals:
                                const QString& wslDistribution,
                                const QString& label,
                                const QString& workingDirectory);
-    void serialSessionRequested(const SerialConfig& config); ///< 串口会话确认
+    /**
+     * @brief 串口会话确认；多选时按端口逐个发出，接收方应收集全部快照。
+     * @param config 单个端口配置，其他参数与同批次其余端口相同。
+     */
+    void serialSessionRequested(const SerialConfig& config);
     void sshSessionRequested(const SshConfig& config);        ///< SSH 会话确认
     void telnetSessionRequested(const TelnetConfig& config);  ///< Telnet 会话确认
     void dialogRejected();          ///< 用户在任意标签页点击了 Cancel
@@ -86,13 +91,14 @@ private:
     ElaSpinBox* _sshKeepAlive{nullptr};
     ElaLineEdit* _sshLabel{nullptr};
 
-    ElaComboBox* _portCombo{nullptr};
+    ElaMultiSelectComboBox* _portCombo{nullptr};
     ElaComboBox* _baudRateCombo{nullptr};
     ElaComboBox* _parityCombo{nullptr};
     ElaComboBox* _dataBitsCombo{nullptr};
     ElaComboBox* _stopBitsCombo{nullptr};
     ElaComboBox* _flowControlCombo{nullptr};
     ElaLineEdit* _serialLabel{nullptr};
+    ElaLineEdit* _serialReconnectTime{nullptr};
 
 
     ElaLineEdit* _telnetIp{nullptr};

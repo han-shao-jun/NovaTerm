@@ -140,7 +140,7 @@ private:
 
     ElaDialog* _sessionDialog{nullptr};
     std::optional<LocalSessionParameters> _pendingLocalSession;
-    std::optional<SerialConfig> _pendingSerialSession;
+    QList<SerialConfig> _pendingSerialSessions; ///< 一次确认的串口会话创建快照
     std::optional<SshConfig> _pendingSshSession;
     std::optional<TelnetConfig> _pendingTelnetSession;
     void showSessionDialog();
