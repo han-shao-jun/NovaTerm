@@ -1,0 +1,4 @@
+# 仅互操作/本机 SSH 验收使用；应用运行时不依赖 Python。
+mcp==1.30.0
+jsonschema==4.26.0
+paramiko==4.0.0

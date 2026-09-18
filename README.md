@@ -12,6 +12,7 @@ NovaTerm（原名WindTermQt）是一款基于Qt框架开发的跨平台终端模
 - **GPU加速渲染**：基于Qt QRhi实现高效GPU渲染，支持Vulkan、OpenGL、D3D等多种图形API
 - **SFTP文件传输**：内置SFTP客户端，支持文件上传下载和目录操作
 - **系统监控**：支持远程SSH会话的系统资源监控
+- **AI MCP 接入**：本机 stdio 接入，按会话授权读取和搜索输出，并可单独授权固定 SSH 诊断命令；默认关闭，见 [使用说明](docs/MCP_Usage.md)
 - **高性能终端**：采用libvterm处理终端解析，支持完整的VT序列
 - **搜索与高亮**：支持终端内容搜索和语法高亮
 
@@ -75,7 +76,7 @@ ElaWidgetTools 都随项目从源码构建，无需额外准备。
 
 ### 会话层 (`src/session/`)
 - `TerminalSession`：终端会话管理
-- `SessionManager`：会话管理器
+- `SessionDirectory`：MCP 使用的非 owning 会话目录，生命周期仍由各 TerminalView 管理
 - `SessionInputPump`：输入泵，处理数据流和背压
 
 ### 渲染层 (`src/renderer/`)

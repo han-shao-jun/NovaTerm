@@ -25,6 +25,7 @@
 #include <QString>
 
 #include <memory>
+#include <optional>
 #include <vector>
 
 class QKeyEvent;
@@ -97,6 +98,12 @@ public:
     [[nodiscard]] NovaTerm::TerminalState terminalState(
         NovaTerm::u64 sinceLineId = 0, std::size_t maxBytes = 65536,
         std::size_t maxLines = 256) const;
+    /** @brief 尝试读取文本快照；模型正被写入时立即返回空，不等待 Parser。 */
+    [[nodiscard]] std::optional<NovaTerm::TerminalState> tryTerminalState(
+        NovaTerm::u64 sinceLineId = 0, std::size_t maxBytes = 65536,
+        std::size_t maxLines = 256) const;
+    /** @brief 非阻塞读取模型版本，供只读门面复用未变化的快照。 */
+    [[nodiscard]] std::optional<NovaTerm::u64> tryModelRevision() const;
 
     /**
      * @brief 构造渲染层专用稀疏快照。
@@ -189,6 +196,9 @@ signals:
     void reflowBatchReady(const NovaTerm::ReflowBatch& batch);
 
 private:
+    /** @note 调用方必须持有 modelMutex。 */
+    [[nodiscard]] NovaTerm::TerminalState terminalStateLocked(
+        NovaTerm::u64 sinceLineId, std::size_t maxBytes, std::size_t maxLines) const;
     class Runtime;
     std::unique_ptr<Runtime> _runtime;
     std::unique_ptr<NovaTerm::SearchEngine> _searchEngine;

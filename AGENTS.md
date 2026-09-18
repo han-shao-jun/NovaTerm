@@ -15,8 +15,9 @@ GPU 管线，UI 用 ElaWidgetTools（FluentUI 风格）。GPLv2+，仓库在 Git
 | --- | --- |
 | `docs/ARCHITECTURE.md` | **统一架构总览，最权威**。架构原则、分层、数据流、线程模型、所有权表、背压水位 |
 | `docs/architecture/README.md` | 阶段文档索引 + 统一术语表 + 文档权威性说明 |
-| `docs/architecture/Development_Roadmap.md` | P0–P7 依赖、状态表、**统一完成定义** |
+| `docs/architecture/Development_Roadmap.md` | P0–P8 依赖、状态表、**统一完成定义** |
 | `docs/architecture/stages/P*.md` | 各阶段实施说明。P6 含逐步进度表与剩余工作 |
+| `docs/architecture/stages/P8_AI_MCP_Interface.md` | P8 AI MCP：只读上下文与受限命令；禁止删除、凭据读取、提权等高危险行为；首期功能与 Windows 功能验证完成，完整验收待补 |
 | `docs/architecture/Rendering_Architecture.md` | Snapshot、调度、命令缓存、QRhi、Glyph |
 | `docs/architecture/Configuration_Profile_Theme.md` | 配置分层、Profile、Session、主题职责。**描述目标设计**，开头有与当前源码的名称对照表 |
 
@@ -94,6 +95,7 @@ ctest --test-dir build -C Debug
 | `src/transport/LocalShellTransport` 与 ConPty 路径 | `novaterm_conpty_tests`(Win)／`novaterm_pty_tests`(Unix) | `conpty` | ~94s |
 | `src/transport/SshTransport`、`SshMonitorProtocol` | `novaterm_ssh_transport_check`（失败路径 + 监控帧协议） | `ssh` | <1s |
 | `src/transport/TelnetTransport` | `novaterm_telnet_transport_tests` | `telnet` | ~5s |
+| `src/mcp/`、`tools/novaterm-mcp/`、`SessionDirectory`、`McpSettingsDialog` | `novaterm_mcp_tests`（有界协议、授权、取消、命令及 UI） | `mcp`／`p8` | ~3s |
 | TerminalSession + TerminalRenderer + LocalShellTransport 的联通路径 | `novaterm_terminal_session_tests` | `terminal-session` | ~46s |
 | `TerminalTabWidget` 的连接动作/紧凑标题、`SystemInformationDialog` 的滚动范围/布局与 app bar 关闭按钮、`SshHostKeyDialog` 的 Ela 控件与端点标题 | `novaterm_ui_dialog_layout_tests` | `ui` | <1s |
 | `src/ui/`、`src/platform/`、`src/service/` | **无覆盖测试** —— 编译通过 + 实跑程序看效果即可（`KeyMapper` 已移出此列，现由 `novaterm_core_tests` 覆盖） | — | — |
@@ -351,6 +353,21 @@ P3 与 P5 实施完成、部分平台或人工验收待做，P7 计划中。
 "剩余工作"两节，不在此重复。
 
 ## 容易写错的地方
+
+**Ninja/MSVC 必须识别头文件依赖**：中文 `/showIncludes` 的代码页可能与 Ninja
+规则里的 UTF-8 前缀不同，导致 `ninja -t deps <obj>` 显示 `#deps 0`，头文件改动
+后继续复用旧对象，产生 ABI 混用和假回归。根 CMake 对 Ninja/MSVC 已固定
+`scripts/msvc-deps-launcher.cmake.in` 编译输出兼容层及 ASCII 前缀；不要移除。
+它先保存编译器原始字节，由 `scripts/normalize-msvc-output.ps1` 优先按 UTF-8、
+失败时按系统代码页解码，再规范化依赖行。MSVC 路径选项统一用正斜杠，防止
+`/Fd` 目录末尾反斜杠吞掉 CMake 列表中的下一个参数；`/D` 宏定义转义保持原样。
+仅设置 `VSLANG=1033` 不够，本机只有 2052 中文编译器资源，仍会输出中文前缀。
+已有错误依赖记录的构建目录必须干净重建一次，仅重新配置不够。
+
+**P8 测试不连接用户服务器**：`novaterm_mcp_tests` 使用内存凭据和临时目录；
+可选 `tests/mcp/interop_check.py` 使用官方 SDK，`ssh_loopback_check.py` 的测试端
+只监听回环并返回固定数据，客户端关闭环境 SSH 配置加载。`performance_check.py`
+同时报告成功读取和 Busy，不能把被拒绝请求的低延迟当作捕获性能达标。
 
 **线程名必须显式设置，`QThread::setObjectName()` 在 Windows release 下对 OS 不可见**：
 Qt 6.8 的 QThread 文档写的是 "you can call setObjectName() before starting the

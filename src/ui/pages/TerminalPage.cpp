@@ -6,6 +6,8 @@
  * 标签上下文菜单由 TerminalTabWidget 管理，页面只负责把标签索引解析为终端视图。
  */
 #include "TerminalPage.h"
+#include "ui/app/Application.h"
+#include "mcp/McpService.h"
 #include "ui/terminal/TerminalView.h"
 #include "ui/widgets/TerminalTabWidget.h"
 #include "renderer/TerminalRenderer.h"
@@ -300,6 +302,8 @@ TerminalView* TerminalPage::addSshTerminalTab(const SshConfig& config)
 void TerminalPage::registerTerminalView(TerminalView* terminalView)
 {
     _terminalViews.append(terminalView);
+    if (auto* service = Application::instance().mcpService())
+        service->directory().add(terminalView->session());
 
     // 关闭标签页时 ElaTabWidget 会 deleteLater() 对应视图；同步清除两份索引，
     // 避免 currentTerminal() 回退或右键编辑读取悬垂指针。

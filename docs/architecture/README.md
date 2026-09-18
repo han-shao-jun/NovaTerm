@@ -11,8 +11,10 @@
 1. [总体架构](../ARCHITECTURE.md)：系统边界、数据流、线程、所有权和目标架构。
 2. [配置、Profile 与主题](Configuration_Profile_Theme.md)：配置分层、Profile、Session 和主题职责。
 3. [渲染架构](Rendering_Architecture.md)：Snapshot、调度、命令缓存、QRhi 和 Glyph 系统。
-4. [阶段路线图](Development_Roadmap.md)：P0～P7 的依赖关系、状态和统一指标。
+4. [阶段路线图](Development_Roadmap.md)：P0～P8 的依赖关系、状态和统一指标。
 5. `stages/`：每个阶段的独立实施说明。
+6. [P8 AI MCP 接口](stages/P8_AI_MCP_Interface.md)：只读上下文与受限命令设计，含
+   stdio/IPC、会话身份、分级授权、工具契约、预算与验收；首期已接入，本机验收中。
 
 ## 阶段文档
 
@@ -26,6 +28,7 @@
 | P5 Glyph 与 GPU 管线 | 实施完成；Linux Vulkan/OpenGL、Windows D3D11/D3D12 与 30 分钟长稳验收完成（2026-08-02）；macOS Metal、多屏 DPR 与 120/144 Hz 验收待完成 | [P5](stages/P5_Glyph_and_GPU_Pipeline.md) |
 | P6 Session 与 Transport | 进行中：Transport 四种完成，会话编排采用「1 View 拥有 1 Session」已在生产；剩 keyboard-interactive、close 模式、exited→UI、ProfileStore 持久化、contract tests | [P6](stages/P6_Session_and_Transport.md) |
 | P7 系统资源查询 | 已实现为内置功能（常驻监控 2026-09-06、系统信息窗口 2026-09-09）；性能量化验收待补 | [P7](stages/P7_System_Resource_Monitor.md) |
+| P8 AI MCP 接口 | 首期功能已实现；Windows 功能验证通过，跨平台与完整性能验收待完成 | [P8](stages/P8_AI_MCP_Interface.md) |
 
 ## 文档权威性
 
@@ -56,4 +59,3 @@
 | MiB/s | 以 1 MiB = 1,048,576 bytes 计算的吞吐量 |
 | CoreTypes | `src/core/CoreTypes.h`：核心层不依赖 Qt 的基础类型（`isize`/`u8`/`u32`/`u64`/`ByteView`），与 `qsizetype`/`quint*`/`QByteArrayView` 同义但不引入 Qt |
 | 门面层 / coreqt | 承载 Qt 依赖（QObject 信号、QString、QKeyEvent、QRegularExpression）的层。当前即 `TerminalCore` 的门面部分；计划中的独立目录 `src/coreqt/` 尚未创建（见 `ARCHITECTURE.md` §3.4）|
-

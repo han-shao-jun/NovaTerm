@@ -70,6 +70,13 @@ public:
             _contextProvider = std::make_unique<TerminalContextProvider>(_core);
         return _contextProvider->context(request);
     }
+    /** @brief 非阻塞取得共享基础摘要；只能在 Session 所在线程调用。 */
+    [[nodiscard]] std::shared_ptr<const TerminalContextProvider::Snapshot> tryTerminalContext()
+    {
+        if (!_contextProvider)
+            _contextProvider = std::make_unique<TerminalContextProvider>(_core);
+        return _contextProvider->trySnapshot();
+    }
     /** @brief 传输层指针（未附加时为 nullptr）。 */
     [[nodiscard]] ITransport* transport() const { return _transport.data(); }
 

@@ -45,18 +45,18 @@ Built with:
 <context>
     <name>DraggableDockWidget</name>
     <message>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="318"/>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="319"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="320"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="321"/>
         <source>Close panel</source>
         <translation>关闭面板</translation>
     </message>
     <message>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="563"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="565"/>
         <source>Expand panel</source>
         <translation>展开面板</translation>
     </message>
     <message>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="563"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="565"/>
         <source>Collapse panel</source>
         <translation>收起面板</translation>
     </message>
@@ -310,152 +310,336 @@ Built with:
 <context>
     <name>MainWindow</name>
     <message>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="1026"/>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="1029"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="1028"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="1031"/>
         <source>Exit</source>
         <translation>退出</translation>
     </message>
     <message>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="1027"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="1029"/>
         <source>Cancel</source>
         <translation>取消</translation>
     </message>
     <message>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="1028"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="1030"/>
         <source>Minimize</source>
         <translation>最小化</translation>
     </message>
     <message>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="1032"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="1034"/>
         <source>Are you sure you want to exit NovaTerm?</source>
         <translation>确定要退出 NovaTerm 吗？</translation>
     </message>
     <message>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="1034"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="1036"/>
         <source>Do not ask again</source>
         <translation>不再提示</translation>
     </message>
     <message>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="1039"/>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="1095"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="1041"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="1098"/>
         <source>NovaTerm</source>
         <translation>NovaTerm</translation>
     </message>
     <message>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="1041"/>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="1152"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="1043"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="1155"/>
         <source>Menu</source>
         <translation>菜单</translation>
     </message>
     <message>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="1042"/>
         <location filename="../../src/ui/app/MainWindow.cpp" line="1044"/>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="1045"/>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="1161"/>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="1162"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="1046"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="1047"/>
         <location filename="../../src/ui/app/MainWindow.cpp" line="1164"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="1165"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="1167"/>
         <source>New session</source>
         <translation>新建会话</translation>
     </message>
     <message>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="1049"/>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="1575"/>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="1675"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="1051"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="1578"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="1689"/>
         <source>Session</source>
         <translation>会话</translation>
     </message>
     <message>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="1050"/>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="1594"/>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="1806"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="1052"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="1597"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="1820"/>
         <source>Settings</source>
         <translation>设置</translation>
     </message>
     <message>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="1051"/>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="1598"/>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="1841"/>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="1860"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="1053"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="1599"/>
+        <source>AI MCP access</source>
+        <translation>AI MCP 接入</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="1054"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="1603"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="1855"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="1874"/>
         <source>About</source>
         <translation>关于</translation>
     </message>
     <message>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="1052"/>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="1607"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="1055"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="1621"/>
         <source>Local</source>
         <translation>本地</translation>
     </message>
     <message>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="1053"/>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="1609"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="1056"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="1623"/>
         <source>SSH</source>
         <translation>SSH</translation>
     </message>
     <message>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="1054"/>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="1611"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="1057"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="1625"/>
         <source>Serial</source>
         <translation>串口</translation>
     </message>
     <message>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="1055"/>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="1613"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="1058"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="1627"/>
         <source>Telnet</source>
         <translation>Telnet</translation>
     </message>
     <message>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="1056"/>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="1192"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="1059"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="1195"/>
         <source>Sessions</source>
         <translation>会话</translation>
     </message>
     <message>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="1081"/>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="1206"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="1084"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="1209"/>
         <source>SFTP transfer</source>
         <translation>SFTP 传输</translation>
     </message>
     <message>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="1089"/>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="1224"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="1092"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="1227"/>
         <source>System resources</source>
         <translation>系统资源</translation>
     </message>
     <message>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="1064"/>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="1065"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="1067"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="1068"/>
         <source>Close panel</source>
         <translation>关闭面板</translation>
     </message>
     <message>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="1069"/>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="1583"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="1072"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="1586"/>
         <source>SFTP panel</source>
         <translation>SFTP 面板</translation>
     </message>
     <message>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="1071"/>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="1585"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="1074"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="1588"/>
         <source>System resources panel</source>
         <translation>系统资源面板</translation>
     </message>
     <message>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="1266"/>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="1313"/>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="1755"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="1269"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="1316"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="1769"/>
         <source>Terminal</source>
         <translation>终端</translation>
     </message>
     <message>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="1283"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="1286"/>
         <source>Reconnect session</source>
         <translation>重新连接会话</translation>
     </message>
     <message>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="1842"/>
-        <location filename="../../src/ui/app/MainWindow.cpp" line="1861"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="1856"/>
+        <location filename="../../src/ui/app/MainWindow.cpp" line="1875"/>
         <source>OK</source>
         <translation>确定</translation>
+    </message>
+</context>
+<context>
+    <name>McpSettingsDialog</name>
+    <message>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="25"/>
+        <source>AI MCP access</source>
+        <translation>AI MCP 接入</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="31"/>
+        <source>Enable local MCP access</source>
+        <translation>启用本机 MCP 接入</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="33"/>
+        <source>Share only the sessions you select. Terminal output may contain sensitive information. Command access is separate and only allows fixed diagnostics on trusted Linux/POSIX SSH servers; commands run as the connected SSH user. Deletion, credentials, privilege elevation and arbitrary scripts are prohibited.</source>
+        <translation>仅共享选中的会话，终端输出可能包含敏感信息。命令需要单独授权，只允许在受信任的 Linux/POSIX SSH 服务端执行固定诊断，以当前 SSH 用户的权限运行。禁止删除、读取凭据、提权和任意脚本。</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="48"/>
+        <source>New client label</source>
+        <translation>新客户端名称</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="51"/>
+        <source>Add client</source>
+        <translation>添加客户端</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="52"/>
+        <source>Remove client</source>
+        <translation>移除客户端</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="57"/>
+        <source>Copy MCP configuration</source>
+        <translation>复制 MCP 配置</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="58"/>
+        <source>Rotate access token</source>
+        <translation>更换接入令牌</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="65"/>
+        <source>Session</source>
+        <translation>会话</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="65"/>
+        <source>State</source>
+        <translation>状态</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="65"/>
+        <source>Read output</source>
+        <translation>读取输出</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="65"/>
+        <source>Trusted Linux diagnostics</source>
+        <translation>受信任的 Linux 诊断</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="77"/>
+        <source>Command results appear here. A disconnected or timed-out command may still be running remotely.</source>
+        <translation>命令结果显示在这里。连接中断或超时后，命令仍可能在远端运行。</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="81"/>
+        <source>I have checked that the remote command has stopped</source>
+        <translation>我已确认远端命令已经停止</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="82"/>
+        <source>Release selected target</source>
+        <translation>解除所选目标的暂停</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="107"/>
+        <source>Configuration copied. It contains an access token; keep it private.</source>
+        <translation>已复制配置，其中包含接入令牌，请妥善保管。</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="144"/>
+        <source>Operation failed. Check the selected client, storage permissions, and active commands.</source>
+        <translation>操作失败，请检查选中的客户端、存储权限及正在运行的命令。</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="153"/>
+        <source>Disabled</source>
+        <translation>已关闭</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="154"/>
+        <source>Listening</source>
+        <translation>正在监听</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="155"/>
+        <source>Starting</source>
+        <translation>正在启动</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="156"/>
+        <source>Status: %1; instance: %2</source>
+        <translation>状态：%1；实例：%2</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="160"/>
+        <source> (this run only)</source>
+        <translation>（仅本次运行有效）</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="173"/>
+        <source>Only enable for a trusted Linux/POSIX SSH server. Fixed diagnostics run as its connected user.</source>
+        <translation>仅对受信任的 Linux/POSIX SSH 服务端启用，固定诊断以当前连接用户的权限运行。</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="176"/>
+        <source>System identity</source>
+        <translation>系统与内核信息</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="177"/>
+        <source>Uptime and load</source>
+        <translation>运行时长与负载</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="178"/>
+        <source>Memory summary</source>
+        <translation>内存摘要</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="179"/>
+        <source>Filesystem capacity</source>
+        <translation>文件系统容量</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="200"/>
+        <source>Protected target %1 — execution %2</source>
+        <translation>受保护目标 %1 — 执行 %2</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="209"/>
+        <source>Command is running.</source>
+        <translation>命令正在运行。</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="213"/>
+        <source>Status: %1
+Exit code: %2
+Termination confirmed: %3
+
+%4
+%5</source>
+        <translation>状态：%1
+退出码：%2
+已确认终止：%3
+
+%4
+%5</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="215"/>
+        <source>Unknown</source>
+        <translation>未知</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="216"/>
+        <source>Yes</source>
+        <translation>是</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="216"/>
+        <source>No</source>
+        <translation>否</translation>
     </message>
 </context>
 <context>
@@ -1740,224 +1924,224 @@ Built with:
         <translation>无效的 SSH 配置。</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="209"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="218"/>
         <source>SSH write queue exceeded its 1 MiB limit.</source>
         <translation>SSH 写入队列已超过 1 MiB 限制。</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="288"/>
-        <location filename="../../src/transport/SshTransport.cpp" line="945"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="328"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="1033"/>
         <source>Remote command cancelled.</source>
         <translation>远程命令已取消。</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="472"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="519"/>
         <source>Failed to create SSH session.</source>
         <translation>创建 SSH 会话失败。</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="499"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="556"/>
         <source>SSH connection to %1:%2 failed: %3</source>
         <translation>连接到 %1:%2 的 SSH 失败：%3</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="511"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="568"/>
         <source>Failed to retrieve the server host key: %1</source>
         <translation>获取服务器主机密钥失败：%1</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="521"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="578"/>
         <source>Cannot read known_hosts file %1: %2</source>
         <translation>无法读取 known_hosts 文件 %1：%2</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="575"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="632"/>
         <source>Host key verification failed; connection aborted.</source>
         <translation>主机密钥验证失败；连接已中止。</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="585"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="642"/>
         <source>Failed to store the host key: %1</source>
         <translation>存储主机密钥失败：%1</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="608"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="678"/>
         <source>Failed to load private key %1: %2</source>
         <translation>加载私钥 %1 失败：%2</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="619"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="689"/>
         <source>Public key authentication failed for %1@%2: %3</source>
         <translation>%1@%2 的公钥认证失败：%3</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="632"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="702"/>
         <source>Password authentication failed for %1@%2: %3</source>
         <translation>%1@%2 的密码认证失败：%3</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="645"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="715"/>
         <source>Failed to open SSH channel: %1</source>
         <translation>打开 SSH 通道失败：%1</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="661"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="731"/>
         <source>Failed to start remote shell: %1</source>
         <translation>启动远程 Shell 失败：%1</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="673"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="743"/>
         <source>Failed to create SSH event loop.</source>
         <translation>创建 SSH 事件循环失败。</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="820"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="908"/>
         <source>Resource monitor receive buffer exceeded 256 KiB.</source>
         <translation>资源监控接收缓冲超过 256 KiB。</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="822"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="910"/>
         <source>Resource monitor line exceeded 16 KiB.</source>
         <translation>资源监控协议行超过 16 KiB。</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="824"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="912"/>
         <source>Resource monitor returned an invalid frame header.</source>
         <translation>资源监控返回了无效的帧头。</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="826"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="914"/>
         <source>Resource monitor frame header was missing.</source>
         <translation>资源监控数据帧缺少帧头。</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="828"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="916"/>
         <source>Resource monitor returned overlapping frames.</source>
         <translation>资源监控返回了重叠的数据帧。</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="830"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="918"/>
         <source>Resource monitor frame identifiers did not match.</source>
         <translation>资源监控帧的请求标识不匹配。</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="832"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="920"/>
         <source>Resource monitor frame exceeded 256 entries.</source>
         <translation>资源监控帧超过 256 个条目。</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="834"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="922"/>
         <source>Resource monitor frame exceeded 128 KiB.</source>
         <translation>资源监控帧超过 128 KiB。</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="884"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="972"/>
         <source>SSH channel read error: %1</source>
         <translation>SSH 通道读取错误：%1</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="925"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="1013"/>
         <source>SSH channel write failed: %1</source>
         <translation>SSH 通道写入失败：%1</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="965"/>
-        <location filename="../../src/transport/SshTransport.cpp" line="996"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="1056"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="1095"/>
         <source>Failed to execute remote command: %1</source>
         <translation>执行远程命令失败：%1</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="972"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="1069"/>
         <source>Failed to monitor remote command completion: %1</source>
         <translation>监控远程命令完成状态失败：%1</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="987"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="1084"/>
         <source>Failed to open remote command channel: %1</source>
         <translation>无法打开远程命令通道：%1</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="1048"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="1156"/>
         <source>Remote command read failed: %1</source>
         <translation>读取远程命令输出失败：%1</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="1051"/>
-        <source>Remote command output exceeded 1 MiB.</source>
-        <translation>远程命令输出超过 1 MiB。</translation>
+        <location filename="../../src/transport/SshTransport.cpp" line="1159"/>
+        <source>Remote command output exceeded its limit.</source>
+        <translation>远端命令输出超过限制。</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="1057"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="1166"/>
         <source>Remote command exited with status %1.</source>
         <translation>远程命令以状态 %1 退出。</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="1060"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="1169"/>
         <source>Remote command closed without an exit status.</source>
         <translation>远程命令关闭时未返回退出状态。</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="1062"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="1172"/>
         <source>Remote command timed out.</source>
         <translation>远程命令执行超时。</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="1088"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="1198"/>
         <source>Failed to create the resource monitor channel: %1</source>
         <translation>无法创建资源监控通道：%1</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="1103"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="1213"/>
         <source>Failed to open the resource monitor channel: %1</source>
         <translation>无法打开资源监控通道：%1</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="1117"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="1227"/>
         <source>Failed to start the resource monitor: %1</source>
         <translation>无法启动资源监控：%1</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="1126"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="1236"/>
         <source>Resource monitor channel setup timed out.</source>
         <translation>资源监控通道建立超时。</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="1145"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="1255"/>
         <source>Failed to write a resource sample request: %1</source>
         <translation>无法发送资源采样请求：%1</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="1188"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="1298"/>
         <source>Resource monitor returned an unexpected frame.</source>
         <translation>资源监控返回了非预期数据帧。</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="1201"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="1311"/>
         <source>Resource monitor output was invalid or exceeded its limit.</source>
         <translation>资源监控输出无效或超过上限。</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="1205"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="1315"/>
         <source>Resource monitor channel closed unexpectedly.</source>
         <translation>资源监控通道意外关闭。</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="1206"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="1316"/>
         <source>Resource monitor failed: %1</source>
         <translation>资源监控失败：%1</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="1210"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="1320"/>
         <source>Resource sample timed out.</source>
         <translation>资源采样超时。</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="1225"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="1335"/>
         <source>Failed to resize the remote PTY: %1</source>
         <translation>调整远程 PTY 大小失败：%1</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="1272"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="1383"/>
         <source>SSH connection closed before the command completed.</source>
         <translation>命令完成前 SSH 连接已关闭。</translation>
     </message>
@@ -2326,13 +2510,13 @@ Built with:
 <context>
     <name>TerminalPage</name>
     <message>
-        <location filename="../../src/ui/pages/TerminalPage.cpp" line="159"/>
+        <location filename="../../src/ui/pages/TerminalPage.cpp" line="161"/>
         <source>Terminal</source>
         <translation>终端</translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/TerminalPage.cpp" line="259"/>
-        <location filename="../../src/ui/pages/TerminalPage.cpp" line="388"/>
+        <location filename="../../src/ui/pages/TerminalPage.cpp" line="261"/>
+        <location filename="../../src/ui/pages/TerminalPage.cpp" line="392"/>
         <source>Terminal %1</source>
         <translation>终端 %1</translation>
     </message>

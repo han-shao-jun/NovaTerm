@@ -27,6 +27,8 @@
 #include "ui/widgets/SessionPanel.h"
 #include "ui/widgets/SftpPanel.h"
 #include "ui/widgets/SystemMonitorPanel.h"
+#include "ui/widgets/McpSettingsDialog.h"
+#include "ui/app/Application.h"
 #include "service/LanguageManager.h"
 #include "service/ConfigManager.h"
 #include <QApplication>
@@ -1048,6 +1050,7 @@ void MainWindow::retranslateUi()
     // 重新翻译弹出菜单项
     if (_actSession)  _actSession->setText(tr("Session"));
     if (_actSettings) _actSettings->setText(tr("Settings"));
+    if (_actMcp) _actMcp->setText(tr("AI MCP access"));
     if (_actAbout)    _actAbout->setText(tr("About"));
     if (_localSessionAction)  _localSessionAction->setText(tr("Local"));
     if (_sshSessionAction)    _sshSessionAction->setText(tr("SSH"));
@@ -1593,10 +1596,21 @@ void MainWindow::buildMainMenu()
     // ── 设置：ElaDialog 内嵌现有 SettingsPage ──
     _actSettings = _mainMenu->addElaIconAction(ElaIconType::GearComplex, tr("Settings"));
     connect(_actSettings, &QAction::triggered, this, &MainWindow::showSettingsDialog);
+    _actMcp = _mainMenu->addElaIconAction(ElaIconType::Terminal, tr("AI MCP access"));
+    connect(_actMcp, &QAction::triggered, this, &MainWindow::showMcpSettingsDialog);
 
     // ── 关于：模态对话框（行为不变）──
     _actAbout = _mainMenu->addElaIconAction(ElaIconType::CircleInfo, tr("About"));
     connect(_actAbout, &QAction::triggered, this, &MainWindow::showAboutDialog);
+}
+
+void MainWindow::showMcpSettingsDialog()
+{
+    if (!_mcpDialog)
+        _mcpDialog = new McpSettingsDialog(Application::instance().mcpService(), this);
+    _mcpDialog->show();
+    _mcpDialog->raise();
+    _mcpDialog->activateWindow();
 }
 
 void MainWindow::buildNewSessionMenu()

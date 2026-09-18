@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(NovaTerm VERSION 0.2.17 LANGUAGES CXX C)
+project(NovaTerm VERSION 0.2.18 LANGUAGES CXX C)
 
 # ═══════════════════════════════════════════════════════════════════
 #  1. 通用平台编译参数
@@ -11,6 +11,27 @@ include(GNUInstallDirs)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_AUTORCC ON)
+
+# Ninja 必须能识别 /showIncludes 前缀。中文诊断的代码页可能与 build.ninja 的
+# UTF-8 不同，导致依赖记录为 0、头文件更新后继续链接旧对象。统一使用 ASCII。
+if(MSVC AND CMAKE_GENERATOR MATCHES "Ninja")
+    find_program(_novaterm_powershell NAMES powershell REQUIRED)
+    file(SHA256 "${PROJECT_SOURCE_DIR}/scripts/msvc-deps-launcher.cmake.in" _novaterm_launcher_hash)
+    file(SHA256 "${PROJECT_SOURCE_DIR}/scripts/normalize-msvc-output.ps1" _novaterm_normalizer_hash)
+    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+        "${PROJECT_SOURCE_DIR}/scripts/normalize-msvc-output.ps1")
+    configure_file(scripts/msvc-deps-launcher.cmake.in
+        ${CMAKE_BINARY_DIR}/msvc-deps-launcher.cmake @ONLY)
+    set(CMAKE_CL_SHOWINCLUDES_PREFIX "Note: including file: ")
+    set(CMAKE_C_CL_SHOWINCLUDES_PREFIX "Note: including file: ")
+    set(CMAKE_CXX_CL_SHOWINCLUDES_PREFIX "Note: including file: ")
+    list(PREPEND CMAKE_C_COMPILER_LAUNCHER ${CMAKE_COMMAND}
+        -DLAUNCHER_REV=${_novaterm_launcher_hash}_${_novaterm_normalizer_hash}
+        -P ${CMAKE_BINARY_DIR}/msvc-deps-launcher.cmake --)
+    list(PREPEND CMAKE_CXX_COMPILER_LAUNCHER ${CMAKE_COMMAND}
+        -DLAUNCHER_REV=${_novaterm_launcher_hash}_${_novaterm_normalizer_hash}
+        -P ${CMAKE_BINARY_DIR}/msvc-deps-launcher.cmake --)
+endif()
 
 # 将所有运行时文件（exe、dll）输出到同一目录
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
@@ -243,6 +264,10 @@ target_link_libraries(novaterm_core
 
 file(GLOB_RECURSE SOURCES CONFIGURE_DEPENDS "src/*.cpp" "src/*.h")
 list(FILTER SOURCES EXCLUDE REGEX "[/\\\\]src[/\\\\]core[/\\\\]")
+list(FILTER SOURCES EXCLUDE REGEX "[/\\\\]src[/\\\\]mcp[/\\\\]")
+list(FILTER SOURCES EXCLUDE REGEX "[/\\\\]SessionDirectory\\.(cpp|h)$")
+add_subdirectory(src/mcp)
+add_subdirectory(tools/novaterm-mcp)
 if(WIN32)
     list(FILTER SOURCES EXCLUDE REGEX "[/\\\\]src[/\\\\]platform[/\\\\]linux[/\\\\]")
     list(APPEND SOURCES resources/novaterm.rc)
@@ -292,6 +317,7 @@ target_link_libraries(NovaTerm PRIVATE
         ${NOVATERM_SECRET_SERVICE_LIBS}
         ElaWidgetTools
         novaterm_core
+        novaterm_mcp_runtime
         libtelnet
         ssh::ssh
         OpenSSL::Crypto
@@ -344,6 +370,8 @@ elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
         OUTPUT_NAME novaterm
         INSTALL_RPATH "\$ORIGIN/../${_novaterm_linux_libdir}"
     )
+    set_target_properties(novaterm-mcp PROPERTIES
+        INSTALL_RPATH "\$ORIGIN/../${_novaterm_linux_libdir}")
     # 覆盖 ElaWidgetTools 子项目中面向独立构建的硬编码 Windows Qt RPATH。
     set_target_properties(ElaWidgetTools PROPERTIES
         INSTALL_RPATH "\$ORIGIN"

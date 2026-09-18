@@ -878,6 +878,29 @@ NovaTerm::TerminalState TerminalCore::terminalState(
     NovaTerm::u64 sinceLineId, std::size_t maxBytes, std::size_t maxLines) const
 {
     std::lock_guard<std::mutex> locker(_runtime->modelMutex);
+    return terminalStateLocked(sinceLineId, maxBytes, maxLines);
+}
+
+std::optional<NovaTerm::TerminalState> TerminalCore::tryTerminalState(
+    NovaTerm::u64 sinceLineId, std::size_t maxBytes, std::size_t maxLines) const
+{
+    std::unique_lock<std::mutex> locker(_runtime->modelMutex, std::try_to_lock);
+    if (!locker.owns_lock())
+        return std::nullopt;
+    return terminalStateLocked(sinceLineId, maxBytes, maxLines);
+}
+
+std::optional<NovaTerm::u64> TerminalCore::tryModelRevision() const
+{
+    std::unique_lock<std::mutex> locker(_runtime->modelMutex, std::try_to_lock);
+    if (!locker.owns_lock())
+        return std::nullopt;
+    return _runtime->modelRevision;
+}
+
+NovaTerm::TerminalState TerminalCore::terminalStateLocked(
+    NovaTerm::u64 sinceLineId, std::size_t maxBytes, std::size_t maxLines) const
+{
     NovaTerm::TerminalState result;
     result.revision = _runtime->modelRevision;
     result.cursor = _runtime->cursor;

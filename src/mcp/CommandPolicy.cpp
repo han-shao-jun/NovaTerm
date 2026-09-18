@@ -1,0 +1,73 @@
+/** @file CommandPolicy.cpp
+ *  @brief 无参数模板与目标保护标记实现；不读取凭据或用户 shell 配置。
+ */
+#include "CommandPolicy.h"
+#include "McpProtocol.h"
+#include <QDateTime>
+#include <QDir>
+#include <QFileInfo>
+#include <QLockFile>
+
+namespace NovaTerm::Mcp {
+QString CommandPolicy::version() { return QStringLiteral("linux-diagnostics-v1"); }
+QList<CommandTemplate> CommandPolicy::catalog()
+{
+    // 执行配置由用户明确确认是可信 Linux/POSIX 环境；不搜索 PATH、不替换程序。
+    const QByteArray prefix("exec '/usr/bin/env' '-i' 'LC_ALL=C' 'LANG=C' ");
+    return {{"system.identity", "System identity", prefix + "'/usr/bin/uname' '-srm'"},
+        {"system.uptime", "Uptime and load", prefix + "'/usr/bin/uptime'"},
+        {"memory.summary", "Memory summary", prefix + "'/usr/bin/free' '-k'"},
+        {"filesystem.usage", "Filesystem capacity", prefix + "'/usr/bin/df' '-Pk'"}};
+}
+std::optional<CommandTemplate> CommandPolicy::find(const QString& id)
+{
+    for (const auto& command : catalog()) {
+        if (command.id == id)
+            return command;
+    }
+    return std::nullopt;
+}
+
+TargetGuard::TargetGuard(QString directory) : _directory(std::move(directory)) {}
+bool TargetGuard::reserve(const QString& fingerprint, const QString& executionId,
+                          const QString& instanceId, QString& error)
+{
+    if (fingerprint.size() != 64 || !secureDirectory(_directory)) {
+        error = "COMMAND_UNAVAILABLE";
+        return false;
+    }
+    QLockFile lock(QDir(_directory).filePath("targets.lock"));
+    if (!lock.tryLock(0)) { error = "BUSY"; return false; }
+    const auto path = QDir(_directory).filePath("targets.json");
+    const auto saved = readJson(path, 128 * 1024);
+    if (!saved && QFileInfo::exists(path)) { error = "COMMAND_EXECUTION_QUARANTINED"; return false; }
+    auto markers = saved.value_or(QJsonObject{});
+    if (markers.contains(fingerprint)) { error = "COMMAND_EXECUTION_QUARANTINED"; return false; }
+    if (markers.size() >= 128) { error = "BUSY"; return false; }
+    markers.insert(fingerprint, QJsonObject{{"executionId", executionId}, {"instanceId", instanceId},
+        {"createdAt", QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs)}});
+    if (!writePrivateJson(path, markers)) { error = "COMMAND_UNAVAILABLE"; return false; }
+    return true;
+}
+bool TargetGuard::release(const QString& fingerprint, const QString& executionId)
+{
+    QLockFile lock(QDir(_directory).filePath("targets.lock"));
+    if (!lock.tryLock(0))
+        return false;
+    const auto path = QDir(_directory).filePath("targets.json");
+    auto stored = readJson(path, 128 * 1024);
+    if (!stored || stored->value(fingerprint).toObject().value("executionId").toString() != executionId)
+        return false;
+    stored->remove(fingerprint);
+    return writePrivateJson(path, *stored);
+}
+QJsonObject TargetGuard::markers() const
+{
+    return readJson(QDir(_directory).filePath("targets.json"), 128 * 1024).value_or(QJsonObject{});
+}
+bool TargetGuard::acknowledge(const QString& fingerprint)
+{
+    const auto execution = markers().value(fingerprint).toObject().value("executionId").toString();
+    return !execution.isEmpty() && release(fingerprint, execution);
+}
+}

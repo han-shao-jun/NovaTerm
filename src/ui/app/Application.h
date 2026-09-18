@@ -11,6 +11,7 @@
 #include <memory>
 
 class MainWindow;
+namespace NovaTerm::Mcp { class Service; }
 
 /**
  * @brief 进程级应用程序外观（单例）。
@@ -38,6 +39,7 @@ public:
      * @return 主窗口引用（仅在 init() 之后有效）。
      */
     MainWindow& mainWindow() { return *_mainWindow; }
+    [[nodiscard]] NovaTerm::Mcp::Service* mcpService() const { return _mcpService.get(); }
 
     /**
      * @brief 在 QApplication 仍存活时主动销毁 MainWindow。
@@ -51,9 +53,10 @@ public:
      * eTheme 单例等），导致退出时 SIGSEGV。提前 reset 可让窗口在
      * QApplication 生命周期内安全销毁。
      */
-    void shutdown() { _mainWindow.reset(); }
+    void shutdown();
 
 private:
     Application() = default;
     std::unique_ptr<MainWindow> _mainWindow;
+    std::unique_ptr<NovaTerm::Mcp::Service> _mcpService;
 };

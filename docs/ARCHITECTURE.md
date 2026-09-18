@@ -10,7 +10,7 @@ NovaTerm 的统一架构文档集中在本文件；文档索引、配置与主�
 - 分层、数据流、线程、所有权、生命周期和背压设计；
 - Profile、Session、配置和主题系统；
 - QRhi 增量渲染与 Glyph/GPU 管线；
-- P0～P7 路线图及每个阶段的独立实施文档。
+- P0～P8 路线图及每个阶段的独立实施文档。
 
 `docs/` 中原有的设计和 P0～P3 实施记录继续作为历史资料保留；发生冲突时，以本文件、`docs/architecture/` 配套文档和当前源码为准。
 
@@ -23,7 +23,10 @@ NovaTerm 是基于 Qt 6、libvterm 和 QRhi 的跨平台 GPU 终端。核心目�
 - **当前实现**：P0～P5 已完成；P5 已完成 Linux Vulkan/OpenGL、Windows D3D11/D3D12 与 Windows 30 分钟长稳验收，macOS Metal 和真实高刷硬件仍待补充；
 - **近期目标**：P6；
 - **P7**：系统资源查询，SSH 远端资源监控面板与系统信息窗口已作为内置功能落地；
-- **下一个大版**：引入 AI MCP（Model Context Protocol）接口，作为 Session 内置的受控只读上下文与工具调用通道。
+- **P8**：AI MCP（Model Context Protocol）接口，提供 Session 只读上下文与独立授权的受限命令。
+  [P8 设计文档](architecture/stages/P8_AI_MCP_Interface.md)记录 stdio/本机 IPC、
+  读取与命令工具、允许列表和分级授权；禁止删除、凭据读取、提权等高危险行为。
+  首期功能及 Windows 功能验证已完成；跨平台和完整性能验收状态见阶段文档。
 
 ## 2. 架构原则
 
@@ -181,6 +184,12 @@ Core 在同一模型锁内读取 revision、光标、标题、alternate-screen �
 活动光标行只更新 viewport，完成行进入去重增量缓存；alternate screen 只返回
 当前 viewport。模式切换、缓存淘汰或采样截断通过 resetRequired/truncated 表达。
 Provider 按需在 Session 线程调用，返回独立值对象；它是 Session 内置接口。
+
+P8 的读取走 `TerminalSession::tryTerminalContext()` 与 Core 的 try-lock 文本快照；
+模型忙时返回 Busy，GUI 不等待 Parser。`SessionDirectory` 仅持弱引用并跟踪 epoch，
+不接管 View-owned 生命周期。`src/mcp/` 负责本机 IPC、授权、schema、预算、捕获
+与固定命令策略；独立 `novaterm-mcp` 程序对外提供 stdio。读取共享与诊断执行分别
+授权，命令只经现有 SSH 的有界辅助 exec，不向交互终端注入原始命令。
 
 ### 3.5 Renderer
 
@@ -375,9 +384,12 @@ src/
 │   ├── windows/conpty/  # ConPtyApi、ConPtySession、WinHandle
 │   └── linux/pty/       # PtySession
 ├── service/             # Config、Language
+├── mcp/                 # P8 协议、IPC、授权、请求调度与固定诊断策略
 └── ui/                  # app/(MainWindow)、pages/、terminal/(TerminalView)、widgets/
 tests/
-├── core/  renderer/  session/  transport/  benchmarks/
+├── core/  renderer/  session/  transport/  benchmarks/  mcp/
+tools/
+└── novaterm-mcp/         # 独立 console stdio 桥接程序
 ```
 
 `src/session/`、`src/profile/`、`src/credential/` 已落地；主题目前由 service 与

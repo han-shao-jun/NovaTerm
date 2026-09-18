@@ -14,6 +14,7 @@
 
 #include "ITransport.h"
 #include "session/SessionTypes.h"
+#include "SshCommandTypes.h"
 
 #include <QAtomicInt>
 #include <QMutex>
@@ -99,6 +100,11 @@ public:
      * @return 已加入有界队列时返回 true；未连接、命令无效或已有请求时返回 false。
      */
     [[nodiscard]] bool executeCommand(quint64 requestId, QByteArray command);
+    /** @brief 提交具有合计输出预算的命令；调用方负责命令策略，不等待完成。 */
+    [[nodiscard]] bool executeBoundedCommand(quint64 requestId, QByteArray command,
+                                              SshCommandLimits limits = {});
+    /** @brief 已经验证的服务端主机密钥指纹，仅用于本机目标身份隔离。 */
+    [[nodiscard]] QString serverHostKeyFingerprint() const;
     /** 取消尚未开始或正在运行的指定通用命令。 */
     void cancelCommand(quint64 requestId);
 
@@ -121,6 +127,8 @@ signals:
     void commandFinished(quint64 requestId, const QByteArray& standardOutput,
                          const QByteArray& standardError,
                          const QString& errorMessage);
+    /** @brief 有界命令的完成证据；关闭通道不等于确认远端进程结束。 */
+    void boundedCommandFinished(const SshCommandResult& result);
     /**
      * @brief 常驻资源采集通道的一次请求完成；失败时 payload 为空。
      * @note payload 按 @@stat / @@meminfo / @@loadavg / @@uptime 分节，
@@ -130,8 +138,10 @@ signals:
                                 const QString& errorMessage);
 
 private:
+    void emitBoundedCommandFinished(SshCommandResult result);
     std::atomic<quint64> _connectionGeneration{0};
     friend class SshTransportTestAccess;
+    bool _processUserConfiguration{true}; ///< 隔离测试可关闭环境中的 SSH 配置，生产默认不变
     void scheduleInboundLocked();
     void deliverInbound(quint64 generation);
     [[nodiscard]] qsizetype inboundCapacity() const;
@@ -153,6 +163,9 @@ private:
         // ID 只用于把异步结果匹配回调用方，不参与 SSH 协议。
         quint64 requestId{0};
         QByteArray command;
+        SshCommandLimits limits;
+        quint64 generation{0};
+        bool bounded{false};
     };
 
     // 命令长度、输出量和执行时间均设上限，避免异常服务端耗尽本地资源。
@@ -215,6 +228,7 @@ private:
     // 主机密钥决策：-1 未决，0 拒绝，1 接受。
     mutable QMutex _keyMutex;
     int _keyDecision{-1};
+    QString _serverHostKeyFingerprint;
     QWaitCondition _keyWait;
 
     mutable QMutex _errorMutex;

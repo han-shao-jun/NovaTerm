@@ -1,0 +1,38 @@
+# MSVC 只有本地语言包时 VSLANG 不能强制英语。诊断可能使用 UTF-8 或本机代码页，
+# 先保留原始输出，再统一解码并转换为 Ninja 可稳定识别的 ASCII 依赖前缀。
+set(_compiler_command)
+set(_after_separator FALSE)
+math(EXPR _last_argument "${CMAKE_ARGC} - 1")
+foreach(_index RANGE 0 ${_last_argument})
+    if(_after_separator)
+        set(_argument "${CMAKE_ARGV${_index}}")
+        # /Fd 的目录参数以反斜杠结尾时会转义 CMake 列表分隔符，将 /FS 吞入路径。
+        # MSVC 接受正斜杠路径；只规范化路径选项，保留 /D 宏定义的原始转义。
+        if(_argument MATCHES "^[-/](Fd|Fo|Fp|Fe|FI|I)")
+            string(REPLACE "\\" "/" _argument "${_argument}")
+        endif()
+        string(REPLACE ";" "\\;" _argument "${_argument}")
+        list(APPEND _compiler_command "${_argument}")
+    elseif("${CMAKE_ARGV${_index}}" STREQUAL "--")
+        set(_after_separator TRUE)
+    endif()
+endforeach()
+if(NOT _compiler_command)
+    message(FATAL_ERROR "Missing compiler command")
+endif()
+string(SHA256 _command_hash "${_compiler_command}")
+set(_output "${CMAKE_CURRENT_BINARY_DIR}/.msvc-${_command_hash}.out")
+set(_error "${CMAKE_CURRENT_BINARY_DIR}/.msvc-${_command_hash}.err")
+execute_process(COMMAND ${_compiler_command} RESULT_VARIABLE _result
+    OUTPUT_FILE "${_output}" ERROR_FILE "${_error}")
+execute_process(COMMAND "@_novaterm_powershell@" -NoProfile -NonInteractive
+    -ExecutionPolicy Bypass -File "@PROJECT_SOURCE_DIR@/scripts/normalize-msvc-output.ps1"
+    -OutputFile "${_output}" -ErrorFile "${_error}"
+    RESULT_VARIABLE _normalized)
+file(REMOVE "${_output}" "${_error}")
+if(NOT "${_normalized}" STREQUAL "0")
+    message(FATAL_ERROR "Cannot normalize MSVC dependency output")
+endif()
+if(NOT "${_result}" STREQUAL "0")
+    message(FATAL_ERROR "MSVC compiler failed (${_result})")
+endif()

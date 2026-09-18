@@ -44,6 +44,33 @@ if(BUILD_TESTING)
 
     find_package(Qt${QT_VERSION_MAJOR} 6.8 REQUIRED COMPONENTS Test)
 
+    qt_add_executable(novaterm_mcp_tests
+        mcp/McpTests.cpp
+        ${PROJECT_SOURCE_DIR}/src/ui/widgets/McpSettingsDialog.cpp
+        ${PROJECT_SOURCE_DIR}/src/ui/widgets/McpSettingsDialog.h
+        ${PROJECT_SOURCE_DIR}/src/session/TerminalSession.cpp
+        ${PROJECT_SOURCE_DIR}/src/session/TerminalSession.h
+        ${PROJECT_SOURCE_DIR}/src/session/SessionInputPump.cpp
+        ${PROJECT_SOURCE_DIR}/src/session/SessionInputPump.h
+        ${PROJECT_SOURCE_DIR}/src/credential/CredentialStore.cpp
+        ${PROJECT_SOURCE_DIR}/src/transport/SshTransport.cpp
+        ${PROJECT_SOURCE_DIR}/src/transport/SshTransport.h
+        ${PROJECT_SOURCE_DIR}/src/transport/SshMonitorProtocol.cpp
+        ${PROJECT_SOURCE_DIR}/src/transport/ITransport.h
+    )
+    target_link_libraries(novaterm_mcp_tests PRIVATE novaterm_mcp_runtime Qt6::Test Qt6::Widgets ElaWidgetTools
+        ssh::ssh OpenSSL::Crypto OpenSSL::SSL ${NOVATERM_SECRET_SERVICE_LIBS})
+    if(WIN32)
+        target_link_libraries(novaterm_mcp_tests PRIVATE ws2_32 crypt32 advapi32)
+    endif()
+    target_compile_definitions(novaterm_mcp_tests PRIVATE NOVATERM_MCP_BRIDGE="$<TARGET_FILE:novaterm-mcp>")
+    add_dependencies(novaterm_mcp_tests novaterm-mcp)
+    set_target_properties(novaterm_mcp_tests PROPERTIES WIN32_EXECUTABLE FALSE)
+    add_test(NAME novaterm_mcp_tests COMMAND novaterm_mcp_tests)
+    set_tests_properties(novaterm_mcp_tests PROPERTIES LABELS "mcp;p8" TIMEOUT 120
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+    add_dependencies(check novaterm_mcp_tests)
+
     add_executable(novaterm_core_tests
         ${CMAKE_CURRENT_SOURCE_DIR}/core/TerminalCoreTests.cpp
     )

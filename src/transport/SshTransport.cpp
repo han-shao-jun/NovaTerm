@@ -161,6 +161,15 @@ void SshTransport::disconnect()
     {
         // 丢弃尚未开始的请求；正在执行的 channel 由工作线程退出路径统一回收。
         QMutexLocker lock(&_commandMutex);
+        for (const auto& request : std::as_const(_commandQueue)) {
+            if (request.bounded) {
+                SshCommandResult result;
+                result.requestId = request.requestId;
+                result.connectionGeneration = request.generation;
+                result.outcome = SshCommandOutcome::Disconnected;
+                emitBoundedCommandFinished(std::move(result));
+            }
+        }
         _commandQueue.clear();
         _cancelCommandRequestId = 0;
     }
@@ -277,6 +286,30 @@ bool SshTransport::executeCommand(quint64 requestId, QByteArray command)
     return true;
 }
 
+bool SshTransport::executeBoundedCommand(quint64 requestId, QByteArray command,
+                                         SshCommandLimits limits)
+{
+    if (!_connected.load(std::memory_order_acquire) || requestId == 0
+        || command.isEmpty() || command.size() > MaxCommandBytes
+        || command.contains('\0') || limits.maxOutputBytes <= 0
+        || limits.maxOutputBytes > MaxCommandOutputBytes
+        || limits.timeoutMs <= 0 || limits.timeoutMs > CommandTimeoutMs)
+        return false;
+    QMutexLocker lock(&_commandMutex);
+    if (_commandActive.load(std::memory_order_acquire) || !_commandQueue.isEmpty())
+        return false;
+    _commandQueue.enqueue(CommandRequest{requestId, std::move(command), limits,
+        connectionGeneration(), true});
+    _wakeup->notify();
+    return true;
+}
+
+QString SshTransport::serverHostKeyFingerprint() const
+{
+    QMutexLocker lock(&_keyMutex);
+    return _serverHostKeyFingerprint;
+}
+
 void SshTransport::cancelCommand(quint64 requestId)
 {
     if (requestId == 0)
@@ -284,7 +317,14 @@ void SshTransport::cancelCommand(quint64 requestId)
     QMutexLocker lock(&_commandMutex);
     if (!_commandQueue.isEmpty()
         && _commandQueue.head().requestId == requestId) {
-        _commandQueue.dequeue();
+        const auto request = _commandQueue.dequeue();
+        if (request.bounded) {
+            SshCommandResult result;
+            result.requestId = requestId;
+            result.connectionGeneration = request.generation;
+            result.outcome = SshCommandOutcome::Cancelled;
+            emitBoundedCommandFinished(std::move(result));
+        }
         emitCommandFinished(requestId, {}, {}, tr("Remote command cancelled."));
         return;
     }
@@ -451,6 +491,13 @@ void SshTransport::emitCommandFinished(quint64 requestId,
         Qt::QueuedConnection);
 }
 
+void SshTransport::emitBoundedCommandFinished(SshCommandResult result)
+{
+    QMetaObject::invokeMethod(this, [this, result = std::move(result)] {
+        emit boundedCommandFinished(result);
+    }, Qt::QueuedConnection);
+}
+
 void SshTransport::emitResourceSampleFinished(quint64 requestId,
                                               QByteArray payload,
                                               QString errorMessage)
@@ -491,6 +538,16 @@ void SshTransport::workerMain()
     ssh_options_set(session, SSH_OPTIONS_PORT, &port);
     ssh_options_set(session, SSH_OPTIONS_USER, user.constData());
     ssh_options_set(session, SSH_OPTIONS_KNOWNHOSTS, knownHosts.constData());
+    if (!_processUserConfiguration) {
+        const auto directory = QDir::toNativeSeparators(QFileInfo(_knownHostsPath).absolutePath()).toUtf8();
+        if (ssh_options_set(session, SSH_OPTIONS_PROCESS_CONFIG, &_processUserConfiguration) != SSH_OK
+            || ssh_options_set(session, SSH_OPTIONS_SSH_DIR, directory.constData()) != SSH_OK
+            || ssh_options_set(session, SSH_OPTIONS_GLOBAL_KNOWNHOSTS, knownHosts.constData()) != SSH_OK) {
+            reportError(QStringLiteral("Cannot isolate SSH configuration."), TransportErrorCategory::Configuration);
+            ssh_free(session);
+            return;
+        }
+    }
     ssh_options_set(session, SSH_OPTIONS_TIMEOUT, &timeoutSec);
     ssh_options_set(session, SSH_OPTIONS_HOSTKEYS, hostKeyAlgorithms);
 
@@ -590,6 +647,19 @@ void SshTransport::workerMain()
             ssh_free(session);
             return;
         }
+    }
+    {
+        unsigned char* hash = nullptr;
+        size_t length = 0;
+        QString fingerprint;
+        if (ssh_get_publickey_hash(serverKey, SSH_PUBLICKEY_HASH_SHA256,
+                                  &hash, &length) == SSH_OK && hash) {
+            fingerprint = QString::fromLatin1(QByteArray(
+                reinterpret_cast<const char*>(hash), qsizetype(length)).toHex());
+            ssh_clean_pubkey_hash(&hash);
+        }
+        QMutexLocker lock(&_keyMutex);
+        _serverHostKeyFingerprint = fingerprint;
     }
     ssh_key_free(serverKey);
 
@@ -717,6 +787,8 @@ void SshTransport::workerMain()
     QByteArray commandOutput;
     QByteArray commandErrorOutput;
     QElapsedTimer commandTimer;
+    CommandRequest activeCommand;
+    bool commandMayHaveStarted = false;
     SshCommandCompletion commandCompletion;
     ssh_channel_callbacks_struct commandCallbacks{};
     commandCallbacks.userdata = &commandCompletion;
@@ -726,10 +798,26 @@ void SshTransport::workerMain()
     const auto finishCommand = [this, &commandChannel, &commandRequestId,
                                 &commandOutput, &commandErrorOutput,
                                 &commandState, &commandText,
-                                &commandCompletion](
-                                   QString errorMessage) {
+                                &commandCompletion, &activeCommand,
+                                &commandMayHaveStarted](
+                                   QString errorMessage,
+                                   SshCommandOutcome outcome = SshCommandOutcome::Failed) {
         if (!commandChannel)
             return;
+        SshCommandResult result;
+        result.requestId = commandRequestId;
+        result.connectionGeneration = activeCommand.generation;
+        result.outcome = errorMessage.isEmpty() ? SshCommandOutcome::Completed : outcome;
+        result.executionMayHaveStarted = commandMayHaveStarted;
+        result.terminationConfirmed = commandCompletion.result()
+            == SshCommandCompletion::Result::Exited;
+        result.exitCode = commandCompletion.exitStatus();
+        result.outputTruncated = outcome == SshCommandOutcome::OutputLimit;
+        if (activeCommand.bounded) {
+            result.standardOutput = commandOutput;
+            result.standardError = commandErrorOutput;
+            emitBoundedCommandFinished(std::move(result));
+        }
         if (!errorMessage.isEmpty())
             (void)ssh_channel_request_send_signal(commandChannel, "TERM");
         (void)ssh_channel_send_eof(commandChannel);
@@ -942,7 +1030,7 @@ void SshTransport::workerMain()
                 }
             }
             if (cancelled)
-                finishCommand(tr("Remote command cancelled."));
+                finishCommand(tr("Remote command cancelled."), SshCommandOutcome::Cancelled);
         }
         if (!commandChannel) {
             CommandRequest request;
@@ -951,6 +1039,7 @@ void SshTransport::workerMain()
                 QMutexLocker lock(&_commandMutex);
                 if (!_commandQueue.isEmpty()) {
                     request = _commandQueue.dequeue();
+                    _commandActive.store(true, std::memory_order_release);
                     hasRequest = true;
                 }
             }
@@ -960,11 +1049,19 @@ void SshTransport::workerMain()
                 _commandActive.store(true, std::memory_order_release);
                 commandRequestId = request.requestId;
                 commandText = std::move(request.command);
+                activeCommand = request;
+                commandMayHaveStarted = false;
                 commandCompletion.reset();
                 if (!commandChannel) {
                     const QString error = tr("Failed to execute remote command: %1")
                         .arg(QString::fromUtf8(ssh_get_error(session)));
                     emitCommandFinished(commandRequestId, {}, {}, error);
+                    if (activeCommand.bounded) {
+                        SshCommandResult result;
+                        result.requestId = commandRequestId;
+                        result.connectionGeneration = activeCommand.generation;
+                        emitBoundedCommandFinished(std::move(result));
+                    }
                     commandRequestId = 0;
                     _commandActive.store(false, std::memory_order_release);
                 } else if (ssh_set_channel_callbacks(
@@ -988,6 +1085,8 @@ void SshTransport::workerMain()
                         .arg(QString::fromUtf8(ssh_get_error(session))));
             }
             if (commandChannel && commandState == ExecState::Starting) {
+                // SSH_AGAIN 也可能已将 exec 请求送出，保守记录，不能声称未执行。
+                commandMayHaveStarted = true;
                 const int rc = ssh_channel_request_exec(
                     commandChannel, commandText.constData());
                 if (rc == SSH_OK)
@@ -1008,8 +1107,14 @@ void SshTransport::workerMain()
                 while (readBytes < AuxiliaryReadBudgetBytes && readTimer.elapsed() < ReadBudgetMs
                        && _running.load(std::memory_order_acquire)) {
                     char buffer[16 * 1024];
+                    const qsizetype remaining = activeCommand.bounded
+                        ? activeCommand.limits.maxOutputBytes
+                            - commandOutput.size() - commandErrorOutput.size()
+                        : MaxCommandOutputBytes - destination.size();
+                    const auto readSize = activeCommand.bounded
+                        ? std::min(qsizetype(sizeof(buffer)), remaining + 1) : qsizetype(sizeof(buffer));
                     const int count = ssh_channel_read_nonblocking(
-                        commandChannel, buffer, sizeof(buffer), stream);
+                        commandChannel, buffer, uint32_t(readSize), stream);
                     if (count == 0 || count == SSH_AGAIN
                         || count == SSH_EOF) {
                         break;
@@ -1018,7 +1123,9 @@ void SshTransport::workerMain()
                         commandReadFailed = true;
                         break;
                     }
-                    if (destination.size() + count > MaxCommandOutputBytes) {
+                    if (count > remaining) {
+                        if (activeCommand.bounded && remaining > 0)
+                            destination.append(buffer, remaining);
                         outputLimitExceeded = true;
                         break;
                     }
@@ -1028,7 +1135,8 @@ void SshTransport::workerMain()
             };
             if (commandChannel && commandState == ExecState::Running) {
                 drainCommandStream(0, commandOutput);
-                drainCommandStream(1, commandErrorOutput);
+                if (!outputLimitExceeded && !commandReadFailed)
+                    drainCommandStream(1, commandErrorOutput);
                 if ((ssh_channel_is_eof(commandChannel)
                      || ssh_channel_is_closed(commandChannel))
                     && ssh_channel_poll(commandChannel, 0) <= 0
@@ -1048,7 +1156,8 @@ void SshTransport::workerMain()
                 finishCommand(tr("Remote command read failed: %1")
                     .arg(QString::fromUtf8(ssh_get_error(session))));
             } else if (outputLimitExceeded) {
-                finishCommand(tr("Remote command output exceeded 1 MiB."));
+                finishCommand(tr("Remote command output exceeded its limit."),
+                              SshCommandOutcome::OutputLimit);
             } else if (completionResult
                        == SshCommandCompletion::Result::Exited) {
                 const int exitStatus = *commandCompletion.exitStatus();
@@ -1058,8 +1167,9 @@ void SshTransport::workerMain()
             } else if (completionResult
                        == SshCommandCompletion::Result::MissingExitStatus) {
                 finishCommand(tr("Remote command closed without an exit status."));
-            } else if (commandTimer.elapsed() >= CommandTimeoutMs) {
-                finishCommand(tr("Remote command timed out."));
+            } else if (commandTimer.elapsed() >= (activeCommand.bounded
+                           ? activeCommand.limits.timeoutMs : CommandTimeoutMs)) {
+                finishCommand(tr("Remote command timed out."), SshCommandOutcome::TimedOut);
             }
         }
 
@@ -1246,7 +1356,8 @@ void SshTransport::workerMain()
         if (_keepAliveMs > 0)
             deadline(_keepAliveMs - keepaliveTimer.elapsed());
         if (commandChannel)
-            deadline(CommandTimeoutMs - commandTimer.elapsed());
+            deadline((activeCommand.bounded ? activeCommand.limits.timeoutMs : CommandTimeoutMs)
+                     - commandTimer.elapsed());
         if (monitorEnabled && !monitorChannel)
             deadline(monitorNextRetryMs - workerTimer.elapsed());
         if (monitorChannel && monitorState != ExecState::Running)
@@ -1269,7 +1380,8 @@ void SshTransport::workerMain()
     const bool wasConnected = _connected.load();
 
     if (commandChannel)
-        finishCommand(tr("SSH connection closed before the command completed."));
+        finishCommand(tr("SSH connection closed before the command completed."),
+                      SshCommandOutcome::Disconnected);
     closeMonitor();
 
     if (channel) {

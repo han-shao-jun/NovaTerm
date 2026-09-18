@@ -11,6 +11,7 @@
  */
 #include "Application.h"
 #include "MainWindow.h"
+#include "mcp/McpService.h"
 #include "ElaApplication.h"
 #include "ElaTheme.h"
 #include "service/LanguageManager.h"
@@ -29,6 +30,13 @@ Application& Application::instance()
     // Meyers 单例 — 线程安全的延迟初始化，程序退出时销毁。
     static Application app;
     return app;
+}
+
+void Application::shutdown()
+{
+    if (_mcpService) _mcpService->stop();
+    _mainWindow.reset();
+    _mcpService.reset();
 }
 
 void Application::init()
@@ -131,6 +139,7 @@ void Application::init()
     QString savedLang = ConfigManager::get<QString>("ui.language");
     LanguageManager::instance().install(savedLang);
 
+    _mcpService = std::make_unique<NovaTerm::Mcp::Service>();
     _mainWindow = std::make_unique<MainWindow>();
 
     // ElaWindow 构造函数中 setObjectName("ElaWindow") 并设
