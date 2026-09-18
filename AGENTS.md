@@ -765,7 +765,7 @@ Windows Terminal 字段解析和旧 `terminal.colors` 迁移，Renderer 不读 J
 
 ## P0/P1 性能优化实施记录（2026-09-13 起）
 
-计划与逐项步骤见 `docs/superpowers/plans/2026-09-13-perf-p0-p1-optimization.md`，
+计划文档已随实施完成删除，逐项步骤与结论以本节为准；
 基线性能数据来自 `perf.data`（build-id `2c289bb5…`，本地 PTY 会话，
 119 s / 2643 样本）。已完成 Task 1–5，证据与现状：
 
