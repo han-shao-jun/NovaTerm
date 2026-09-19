@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(NovaTerm VERSION 0.2.20 LANGUAGES CXX C)
+project(NovaTerm VERSION 0.2.21 LANGUAGES CXX C)
 
 # ═══════════════════════════════════════════════════════════════════
 #  1. 通用平台编译参数
@@ -266,6 +266,9 @@ file(GLOB_RECURSE SOURCES CONFIGURE_DEPENDS "src/*.cpp" "src/*.h")
 list(FILTER SOURCES EXCLUDE REGEX "[/\\\\]src[/\\\\]core[/\\\\]")
 list(FILTER SOURCES EXCLUDE REGEX "[/\\\\]src[/\\\\]mcp[/\\\\]")
 list(FILTER SOURCES EXCLUDE REGEX "[/\\\\]SessionDirectory\\.(cpp|h)$")
+list(FILTER SOURCES EXCLUDE REGEX
+    "[/\\\\](ISessionCommandExecutor|SessionCommandFacade|SshSessionCommandExecutor)\\.(cpp|h)$"
+)
 add_subdirectory(src/mcp)
 add_subdirectory(tools/novaterm-mcp)
 if(WIN32)

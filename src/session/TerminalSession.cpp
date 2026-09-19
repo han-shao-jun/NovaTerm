@@ -8,6 +8,7 @@
  */
 #include "TerminalSession.h"
 
+#include "SessionCommandFacade.h"
 #include "SessionInputPump.h"
 #include "core/terminal/TerminalCore.h"
 
@@ -82,6 +83,7 @@ bool isLegalTransition(SessionState from, SessionState to)
 
 TerminalSession::TerminalSession(TerminalCore* core, QObject* parent)
     : QObject(parent)
+    , _commandFacade(std::make_unique<SessionCommandFacade>(this))
     , _core(core)
 {
     if (_core) {
@@ -95,6 +97,7 @@ TerminalSession::TerminalSession(TerminalCore* core, QObject* parent)
 TerminalSession::TerminalSession(RuntimeConfig config, QObject* parent)
     : QObject(parent)
     , _config(std::move(config))
+    , _commandFacade(std::make_unique<SessionCommandFacade>(this))
     , _ownedCore(std::make_unique<TerminalCore>(80, 24))
     , _core(_ownedCore.get())
 {
@@ -128,6 +131,7 @@ void TerminalSession::attach(ITransport* transport, Ownership ownership,
     _transport = transport;
     _ownership = ownership;
     _config.transportKind = transportKind;
+    _commandFacade->reset(_statistics.generation);
     _manualDisconnect = false;
     _reconnectTimer.setSingleShot(true);
     QObject::disconnect(&_reconnectTimer, nullptr, this, nullptr);
@@ -166,6 +170,7 @@ void TerminalSession::rewireTransportSignals()
 {
     if (!_transport)
         return;
+    _commandFacade->reset(_statistics.generation);
     for (const auto& connection : std::as_const(_transportConnections))
         QObject::disconnect(connection);
     _transportConnections.clear();
@@ -295,6 +300,7 @@ bool TerminalSession::resetForReuse()
         return false;
     _sessionId = QUuid::createUuid();
     _contextProvider.reset();
+    _commandFacade->reset(0);
     _state = SessionState::Created;
     _statistics = {};
     _acceptsUserInput = true;
@@ -514,6 +520,7 @@ void TerminalSession::clearAttachment(bool requestDisconnect)
         QObject::disconnect(connection);
     _transportConnections.clear();
     _pendingTransportError.reset();
+    _commandFacade->reset(_statistics.generation);
     _transport = nullptr;
     if (!current)
         return;

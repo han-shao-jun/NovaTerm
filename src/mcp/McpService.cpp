@@ -5,7 +5,7 @@
 #include "McpProtocol.h"
 #include "CommandPolicy.h"
 #include "LocalMcpServer.h"
-#include "transport/SshTransport.h"
+#include "session/SessionCommandFacade.h"
 #include "core/ThreadNaming.h"
 #include <QCoreApplication>
 #include <QDateTime>
@@ -70,9 +70,9 @@ public:
         QString epoch;
         QString commandId;
         QString target;
-        quint64 transportRequestId{0};
+        quint64 executorRequestId{0};
         qint64 submitted{0};
-        QPointer<SshTransport> transport;
+        QPointer<SessionCommandFacade> facade;
         std::shared_ptr<Job> job;
         QJsonObject payload;
         bool complete{false};
@@ -149,12 +149,12 @@ public:
             disconnect(id);
         for (auto& execution : executions) {
             if (!execution.complete) {
-                if (execution.transport)
-                    execution.transport->cancelCommand(execution.transportRequestId);
-                SshCommandResult result;
-                result.requestId = execution.transportRequestId;
+                if (execution.facade)
+                    execution.facade->cancel(execution.executorRequestId);
+                CommandExecutionResult result;
+                result.requestId = execution.executorRequestId;
                 result.executionMayHaveStarted = true;
-                result.outcome = SshCommandOutcome::Disconnected;
+                result.outcome = CommandExecutionOutcome::Disconnected;
                 finishExecution(result);
             }
         }
@@ -304,8 +304,8 @@ public:
             return;
         ++cancelledCount;
         for (auto& execution : executions) {
-            if (!execution.complete && execution.job == job && execution.transport)
-                execution.transport->cancelCommand(execution.transportRequestId);
+            if (!execution.complete && execution.job == job && execution.facade)
+                execution.facade->cancel(execution.executorRequestId);
         }
         if (reply && connections.contains(job->connection))
             send(job->connection, job->id, payload);
@@ -353,11 +353,12 @@ public:
             bool commandExpired = false;
             for (const auto& execution : executions) {
                 if (!execution.complete && execution.job == job) {
-                    if (execution.transport) execution.transport->cancelCommand(execution.transportRequestId);
-                    SshCommandResult result;
-                    result.requestId = execution.transportRequestId;
+                    if (execution.facade)
+                        execution.facade->cancel(execution.executorRequestId);
+                    CommandExecutionResult result;
+                    result.requestId = execution.executorRequestId;
                     result.executionMayHaveStarted = true;
-                    result.outcome = SshCommandOutcome::TimedOut;
+                    result.outcome = CommandExecutionOutcome::TimedOut;
                     finishExecution(result);
                     commandExpired = true;
                     break;
@@ -609,8 +610,9 @@ public:
         const auto connection = connections.value(job->connection);
         const auto allowed = access.commands(connection.client, entry);
         QString reason;
-        if (entry.kind != TransportKind::Ssh) reason = "UNSUPPORTED_COMMAND_TARGET";
-        else if (entry.state != SessionState::Running || !entry.transport || !entry.transport->isConnected()) reason = "SESSION_NOT_READY";
+        auto* facade = entry.session ? entry.session->commandFacade() : nullptr;
+        if (entry.state != SessionState::Running) reason = "SESSION_NOT_READY";
+        else if (!facade || !facade->isAvailable()) reason = "UNSUPPORTED_COMMAND_TARGET";
         else if (allowed.isEmpty()) reason = "COMMAND_PERMISSION_REQUIRED";
         else if (entry.targetFingerprint.isEmpty()) reason = "COMMAND_UNAVAILABLE";
         QJsonArray catalog;
@@ -658,9 +660,11 @@ public:
         }
         if (ticket->value("policy") != CommandPolicy::version()) { complete(job, error("COMMAND_POLICY_CHANGED")); return; }
         if (!job->arguments.value("arguments").toObject().isEmpty()) { complete(job, error("COMMAND_NOT_ALLOWED")); return; }
-        auto* transport = qobject_cast<SshTransport*>(entry.transport.data());
-        if (!transport || entry.targetFingerprint.isEmpty()) { complete(job, error("UNSUPPORTED_COMMAND_TARGET")); return; }
-        if (entry.state != SessionState::Running || !transport->isConnected()) { complete(job, error("SESSION_NOT_READY")); return; }
+        auto* facade = entry.session ? entry.session->commandFacade() : nullptr;
+        if (!facade || !facade->isAvailable() || entry.targetFingerprint.isEmpty()) {
+            complete(job, error("UNSUPPORTED_COMMAND_TARGET")); return;
+        }
+        if (entry.state != SessionState::Running) { complete(job, error("SESSION_NOT_READY")); return; }
         int count = 0;
         for (const auto& value : executions) if (value.connection == job->connection) ++count;
         if (guards.markers().contains(entry.targetFingerprint)) {
@@ -673,17 +677,19 @@ public:
         if (!guards.reserve(entry.targetFingerprint, executionId, instance, rejected)) {
             complete(job, failure(rejected, rejected, rejected == "BUSY", 250)); return;
         }
-        if (!observedTransports.contains(transport)) {
-            observedTransports.insert(transport);
-            QObject::connect(transport, &SshTransport::boundedCommandFinished, q,
-                [this](const SshCommandResult& result) { finishExecution(result); });
-            QObject::connect(transport, &QObject::destroyed, q, [this, transport] { observedTransports.remove(transport); });
+        if (!observedFacades.contains(facade)) {
+            observedFacades.insert(facade);
+            QObject::connect(facade, &SessionCommandFacade::finished, q,
+                [this](const CommandExecutionResult& result) { finishExecution(result); });
+            QObject::connect(facade, &QObject::destroyed, q,
+                [this, facade] { observedFacades.remove(facade); });
         }
         const quint64 request = nextCommandRequest++;
         Execution execution{executionId, job->connection, connection.client, entry.id, entry.epoch,
-            commandId, entry.targetFingerprint, request, clock.elapsed(), transport, job, {}, false};
+            commandId, entry.targetFingerprint, request, clock.elapsed(), facade, job, {}, false};
         executions.insert(executionId, execution);
-        if (!transport->executeBoundedCommand(request, definition->command, {CommandOutputBytes, 5000})) {
+        if (!facade->execute(CommandExecutionRequest{
+                request, definition->command, {CommandOutputBytes, 5000}})) {
             executions.remove(executionId);
             guards.release(entry.targetFingerprint, executionId);
             complete(job, error("BUSY", true, 250)); return;
@@ -693,11 +699,11 @@ public:
         emit q->changed();
     }
 
-    void finishExecution(const SshCommandResult& result)
+    void finishExecution(const CommandExecutionResult& result)
     {
         auto found = executions.end();
         for (auto it = executions.begin(); it != executions.end(); ++it) {
-            if (it->transportRequestId == result.requestId) { found = it; break; }
+            if (it->executorRequestId == result.requestId) { found = it; break; }
         }
         if (found == executions.end()) return;
         if (found->complete) {
@@ -714,13 +720,13 @@ public:
         qsizetype remaining = CommandOutputBytes;
         const auto out = outputText(result.standardOutput, remaining, truncated);
         const auto err = outputText(result.standardError, remaining, truncated);
-        const bool completed = result.outcome == SshCommandOutcome::Completed && !truncated
+        const bool completed = result.outcome == CommandExecutionOutcome::Completed && !truncated
             && result.exitCode.has_value() && *result.exitCode == 0;
         QString state = completed ? "completed" : "failed";
         QString code = "COMMAND_FAILED";
         if (truncated) code = "COMMAND_OUTPUT_LIMIT";
-        else if (result.outcome == SshCommandOutcome::TimedOut) { code = "COMMAND_TIMEOUT"; state = "timed_out"; }
-        else if (result.outcome == SshCommandOutcome::Cancelled) { code = "COMMAND_OUTCOME_UNKNOWN"; state = "cancelled"; }
+        else if (result.outcome == CommandExecutionOutcome::TimedOut) { code = "COMMAND_TIMEOUT"; state = "timed_out"; }
+        else if (result.outcome == CommandExecutionOutcome::Cancelled) { code = "COMMAND_OUTCOME_UNKNOWN"; state = "cancelled"; }
         else if (result.executionMayHaveStarted && !result.terminationConfirmed) { code = "COMMAND_OUTCOME_UNKNOWN"; state = "unknown"; }
         QJsonObject data{{"executionId", execution.id}, {"instanceId", instance}, {"sessionId", execution.session},
             {"epoch", execution.epoch}, {"commandId", execution.commandId}, {"policyVersion", CommandPolicy::version()},
@@ -766,7 +772,7 @@ public:
     QHash<QString, quint64> lastRevision;
     QHash<QString, std::shared_ptr<const TerminalContextProvider::Snapshot>> lastBase;
     QHash<QString, qint64> lastCommand;
-    QSet<SshTransport*> observedTransports;
+    QSet<SessionCommandFacade*> observedFacades;
     quint64 nextCommandRequest{quint64(1) << 60};
     quint64 requestCount{0}, rejectedCount{0}, completedCount{0}, cancelledCount{0}, reusedCaptureCount{0};
     qsizetype peakRequests{0};

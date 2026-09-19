@@ -4,6 +4,9 @@
 #include "mcp/McpService.h"
 #include "mcp/McpProtocol.h"
 #include "mcp/CommandPolicy.h"
+#include "session/CommandExecutionTypes.h"
+#include "session/ISessionCommandExecutor.h"
+#include "session/SessionCommandFacade.h"
 #include "transport/SshTransport.h"
 #include "ui/widgets/McpSettingsDialog.h"
 #include "ElaApplication.h"
@@ -15,6 +18,7 @@
 #include <QElapsedTimer>
 #include <QJsonDocument>
 #include <QProcess>
+#include <QSignalSpy>
 #include <QFile>
 #include <QDir>
 #include <QTimer>
@@ -45,12 +49,13 @@ public:
     {
         if (transport._commandQueue.isEmpty()) return;
         const auto request = transport._commandQueue.dequeue();
-        SshCommandResult result;
+        CommandExecutionResult result;
         result.requestId = request.requestId;
         result.connectionGeneration = request.generation;
         result.executionMayHaveStarted = true;
         result.terminationConfirmed = confirmed;
-        result.outcome = confirmed ? SshCommandOutcome::Completed : SshCommandOutcome::Disconnected;
+        result.outcome = confirmed ? CommandExecutionOutcome::Completed
+                                   : CommandExecutionOutcome::Disconnected;
         if (confirmed) result.exitCode = 0;
         result.standardOutput = output;
         emit transport.boundedCommandFinished(result);
@@ -68,6 +73,56 @@ public:
     QString errorString() const override { return {}; }
     bool online{false};
     QByteArray written;
+};
+
+class TestCommandExecutor final : public ISessionCommandExecutor
+{
+public:
+    explicit TestCommandExecutor(
+        std::shared_ptr<QList<quint64>> cancelledRequests = {},
+        QObject* parent = nullptr)
+        : ISessionCommandExecutor(parent)
+        , _cancelledRequests(std::move(cancelledRequests))
+    {
+    }
+
+    [[nodiscard]] bool isAvailable() const override { return true; }
+    [[nodiscard]] CommandExecutorCapabilities capabilities() const override
+    {
+        return {CommandExecutionMode::Isolated, true, true, true};
+    }
+    [[nodiscard]] QString targetFingerprint() const override
+    {
+        return QString(64, QLatin1Char('b'));
+    }
+    [[nodiscard]] bool execute(const CommandExecutionRequest& request) override
+    {
+        ++submissionCount;
+        lastRequest = request;
+        CommandExecutionResult result;
+        result.requestId = request.requestId;
+        result.outcome = CommandExecutionOutcome::Completed;
+        result.executionMayHaveStarted = true;
+        result.terminationConfirmed = true;
+        result.exitCode = 0;
+        result.standardOutput = QByteArrayLiteral("fixture executor\n");
+        QMetaObject::invokeMethod(this, [this, result] { emit finished(result); },
+                                  Qt::QueuedConnection);
+        return true;
+    }
+    void cancel(quint64 requestId) override
+    {
+        cancelledRequest = requestId;
+        if (_cancelledRequests)
+            _cancelledRequests->append(requestId);
+    }
+
+    int submissionCount{0};
+    CommandExecutionRequest lastRequest;
+    quint64 cancelledRequest{0};
+
+private:
+    std::shared_ptr<QList<quint64>> _cancelledRequests;
 };
 
 class Host
@@ -203,7 +258,97 @@ private slots:
     void duplicateIndexSurvivesEvictionAndReset();
     void protocolLifecycleAndOversizedInput();
     void instanceSelectionAndDisconnectStayExplicit();
+    void sessionCommandFacadeRoutesOnlySshExecutor();
+    void registeredSessionExecutorIsUsedWithoutTransportCast();
+    void sessionCommandFacadeCancelsRequestsBeforeRebinding();
 };
+
+void McpTests::sessionCommandFacadeCancelsRequestsBeforeRebinding()
+{
+    SessionCommandFacade facade;
+    auto cancelledRequests = std::make_shared<QList<quint64>>();
+    facade.installExecutor(
+        std::make_unique<TestCommandExecutor>(cancelledRequests), 1);
+    QVERIFY(facade.execute(CommandExecutionRequest{41, "fixed", {64, 1000}}));
+
+    facade.reset(2);
+
+    QCOMPARE(*cancelledRequests, QList<quint64>{41});
+}
+
+void McpTests::registeredSessionExecutorIsUsedWithoutTransportCast()
+{
+    Fixture fixture;
+    auto executor = std::make_unique<TestCommandExecutor>();
+    auto* observedExecutor = executor.get();
+    fixture.session.commandFacade()->installExecutor(
+        std::move(executor), fixture.session.statistics().generation);
+    static_cast<void>(fixture.service.directory().entries());
+    QVERIFY(fixture.enable(true));
+    QTRY_COMPARE(fixture.service.status(), QStringLiteral("Listening"));
+
+    Host host;
+    QVERIFY(host.start(fixture.runtime(), fixture.token()));
+    const auto catalog = host.call("novaterm_list_commands", fixture.identity())
+                             .value("data").toObject();
+    QVERIFY2(catalog.value("executionEnabled").toBool(),
+             qPrintable(catalog.value("disabledReason").toString()));
+    QCOMPARE(catalog.value("commands").toArray().size(), 4);
+
+    const auto command = catalog.value("commands").toArray().first().toObject();
+    auto arguments = fixture.identity();
+    arguments.insert("commandId", command.value("commandId"));
+    arguments.insert("commandTicket", command.value("commandTicket"));
+    arguments.insert("policyVersion", catalog.value("policyVersion"));
+    arguments.insert("arguments", QJsonObject{});
+    const auto response = host.call("novaterm_execute_command", arguments);
+    QVERIFY(response.value("ok").toBool());
+    QCOMPARE(observedExecutor->submissionCount, 1);
+    QVERIFY(observedExecutor->lastRequest.command.contains("/usr/bin/"));
+    QVERIFY(fixture.local.written.isEmpty());
+}
+
+void McpTests::sessionCommandFacadeRoutesOnlySshExecutor()
+{
+    SessionDirectory directory;
+    TerminalCore localCore{80, 24};
+    TerminalSession localSession{&localCore};
+    LocalFake local;
+    localSession.attach(&local, TerminalSession::Ownership::Borrowed,
+                        TransportKind::LocalShell);
+    directory.add(&localSession);
+    auto* localFacade = localSession.commandFacade();
+    QVERIFY(localFacade);
+    QVERIFY(!localFacade->isAvailable());
+    QVERIFY(!localFacade->execute(CommandExecutionRequest{1, "fixed", {64, 1000}}));
+    QVERIFY(local.written.isEmpty());
+
+    TerminalCore sshCore{80, 24};
+    TerminalSession sshSession{&sshCore};
+    SshConfig config;
+    config.host = QStringLiteral("fixture.invalid");
+    config.username = QStringLiteral("fixture");
+    SshTransport ssh{config};
+    SshTransportTestAccess::connected(ssh);
+    sshSession.attach(&ssh, TerminalSession::Ownership::Borrowed,
+                      TransportKind::Ssh);
+    directory.add(&sshSession);
+    auto* sshFacade = sshSession.commandFacade();
+    QVERIFY(sshFacade);
+    QVERIFY(sshFacade->isAvailable());
+    const auto capabilities = sshFacade->capabilities();
+    QCOMPARE(capabilities.mode, CommandExecutionMode::Isolated);
+    QVERIFY(capabilities.reliableExitCode);
+    QVERIFY(capabilities.reliableTermination);
+    QVERIFY(capabilities.isolatedOutput);
+
+    QSignalSpy finished{sshFacade, &SessionCommandFacade::finished};
+    QVERIFY(sshFacade->execute(CommandExecutionRequest{2, "fixture-ok", {64, 1000}}));
+    QCOMPARE(SshTransportTestAccess::queued(ssh), 1);
+    QCOMPARE(SshTransportTestAccess::queuedCommand(ssh), QByteArray("fixture-ok"));
+    SshTransportTestAccess::finish(ssh, true);
+    QCOMPARE(finished.count(), 1);
+}
 
 void McpTests::protocolLifecycleAndOversizedInput()
 {
@@ -604,14 +749,16 @@ int sshLoopbackCheck(quint16 port)
     SshTransport transport(config);
     SshTransportTestAccess::knownHosts(transport, root.filePath("known_hosts"));
     QObject::connect(&transport, &SshTransport::hostKeyRequired, &transport, [&transport] { transport.acceptHostKey(); });
-    std::optional<SshCommandResult> result;
+    std::optional<CommandExecutionResult> result;
     QObject::connect(&transport, &SshTransport::boundedCommandFinished, &transport,
-        [&](const SshCommandResult& received) { result = received; });
+        [&](const CommandExecutionResult& received) { result = received; });
     if (!transport.connectToHost() || !waitFor([&] { return transport.isConnected(); }, 10000)) {
         std::fprintf(stderr, "Loopback SSH connection failed: %s\n", qPrintable(transport.errorString())); return 1;
     }
     int failures = 0;
-    const auto run = [&](quint64 id, const QByteArray& command, SshCommandLimits limits, SshCommandOutcome outcome) {
+    const auto run = [&](quint64 id, const QByteArray& command,
+                         CommandExecutionLimits limits,
+                         CommandExecutionOutcome outcome) {
         result.reset();
         const bool submitted = transport.executeBoundedCommand(id, command, limits);
         const bool received = waitFor([&] { return result && result->requestId == id; }, 6000);
@@ -620,13 +767,13 @@ int sshLoopbackCheck(quint16 port)
         std::printf("loopback command %llu: %s\n", static_cast<unsigned long long>(id), ok ? "PASS" : "FAIL");
         failures += !ok;
     };
-    run(1, "fixture-ok", {64, 1000}, SshCommandOutcome::Completed);
+    run(1, "fixture-ok", {64, 1000}, CommandExecutionOutcome::Completed);
     if (!result || !result->terminationConfirmed || result->exitCode != 0) ++failures;
-    run(2, "fixture-nonzero", {64, 1000}, SshCommandOutcome::Failed);
+    run(2, "fixture-nonzero", {64, 1000}, CommandExecutionOutcome::Failed);
     if (!result || !result->terminationConfirmed || result->exitCode != 42) ++failures;
-    run(3, "fixture-limit", {64, 1000}, SshCommandOutcome::OutputLimit);
+    run(3, "fixture-limit", {64, 1000}, CommandExecutionOutcome::OutputLimit);
     if (!result || !result->outputTruncated) ++failures;
-    run(4, "fixture-timeout", {64, 200}, SshCommandOutcome::TimedOut);
+    run(4, "fixture-timeout", {64, 200}, CommandExecutionOutcome::TimedOut);
     if (!result || result->terminationConfirmed || !result->executionMayHaveStarted) ++failures;
     transport.disconnect();
     std::printf("Loopback SSH result: %s\n", failures ? "FAIL" : "PASS");

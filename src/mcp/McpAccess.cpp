@@ -3,6 +3,7 @@
  */
 #include "McpAccess.h"
 #include "McpProtocol.h"
+#include "session/SessionCommandFacade.h"
 #include <QCryptographicHash>
 #include <QDir>
 #include <QFileInfo>
@@ -213,9 +214,11 @@ bool AccessStore::setGrant(const QString& clientId, const SessionDirectory::Entr
     if (!read) {
         _grants[clientId].remove(entry.id);
     } else {
-        if (entry.kind != TransportKind::Ssh || entry.state != SessionState::Running
-            || entry.targetFingerprint.isEmpty())
+        const auto* facade = entry.session->commandFacade();
+        if (entry.state != SessionState::Running || !facade
+            || !facade->isAvailable() || entry.targetFingerprint.isEmpty()) {
             commands.clear();
+        }
         _grants[clientId].insert(entry.id, Grant{entry.attachmentId, entry.epoch, std::move(commands)});
     }
     ++_clients[clientId].version;

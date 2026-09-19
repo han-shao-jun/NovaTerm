@@ -2,27 +2,20 @@
  *  @brief 会话目录的弱引用、连接 epoch 与私有目标指纹。
  */
 #include "SessionDirectory.h"
+#include "SessionCommandFacade.h"
+#include "SshSessionCommandExecutor.h"
 #include "transport/SshTransport.h"
-#include <QCryptographicHash>
 #include <QThread>
 
 namespace {
 QString uuid() { return QUuid::createUuid().toString(QUuid::WithoutBraces); }
-QString targetIdentity(ITransport* transport)
+std::unique_ptr<ISessionCommandExecutor> commandExecutor(
+    ITransport* transport, TransportKind kind)
 {
+    if (kind != TransportKind::Ssh)
+        return {};
     auto* ssh = qobject_cast<SshTransport*>(transport);
-    if (!ssh || !ssh->isConnected())
-        return {};
-    const auto fingerprint = ssh->serverHostKeyFingerprint();
-    if (fingerprint.isEmpty())
-        return {};
-    const auto& config = ssh->sessionConfig();
-    if (config.username.contains(QChar::Null)) return {};
-    // 只使用已认证主机身份、端口和用户名；绝不散列或读取密码/私钥口令。
-    const QByteArray identity = fingerprint.toUtf8() + '\0'
-        + QByteArray::number(config.port) + '\0' + config.username.trimmed().toUtf8();
-    return QString::fromLatin1(QCryptographicHash::hash(identity,
-        QCryptographicHash::Sha256).toHex());
+    return ssh ? std::make_unique<SshSessionCommandExecutor>(ssh) : nullptr;
 }
 }
 
@@ -83,7 +76,11 @@ void SessionDirectory::refresh(TerminalSession* session)
     const auto state = session->state();
     const bool identityChanged = it->id != id || it->generation != generation
         || it->transport != session->transport();
-    const auto target = targetIdentity(session->transport());
+    if (identityChanged) {
+        session->commandFacade()->installExecutor(
+            commandExecutor(session->transport(), kind), generation);
+    }
+    const auto target = session->commandFacade()->targetFingerprint();
     const bool targetChanged = state == SessionState::Running && target != it->targetFingerprint;
     if (!identityChanged && !targetChanged && it->state == state && it->kind == kind)
         return;
