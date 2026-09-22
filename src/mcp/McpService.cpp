@@ -17,7 +17,10 @@
 #include <QRunnable>
 #include <QThreadPool>
 #include <QTimer>
+#include <QTimeZone>
+#include <algorithm>
 #include <atomic>
+#include <chrono>
 #include <deque>
 
 #ifndef NOVATERM_VERSION
@@ -26,6 +29,7 @@
 
 namespace NovaTerm::Mcp {
 namespace {
+constexpr int CancelCompletionGraceMs = 250;
 QString utcNow() { return QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs); }
 QString jobKey(const QString& connection, const QString& id) { return connection + '/' + id; }
 QString versionString(quint64 version) { return QString::number(version); }
@@ -58,7 +62,12 @@ public:
         QString connection;
         QString session;
         QString epoch;
-        QJsonObject data;
+        QString revision;
+        QJsonArray viewport;
+        QJsonArray recentOutput;
+        std::shared_ptr<const TerminalContextProvider::Snapshot> base;
+        bool sourceTruncated{false};
+        bool outputTruncated{false};
         qint64 expires{0};
         qint64 created{0};
     };
@@ -69,6 +78,7 @@ public:
         QString session;
         QString epoch;
         QString commandId;
+        QString policyVersion;
         QString target;
         quint64 executorRequestId{0};
         qint64 submitted{0};
@@ -119,6 +129,7 @@ public:
             lastCapture.remove(id);
             lastRevision.remove(id);
             lastBase.remove(id);
+            publishedStats.remove(id);
             const auto jobsCopy = jobs;
             for (const auto& job : jobsCopy) {
                 if (job->arguments.value("sessionId").toString() == id)
@@ -223,6 +234,7 @@ public:
         jobs.insert(jobKey(connectionId, id), job);
         peakRequests = std::max(peakRequests, jobs.size());
         connection->waiting.push_back(job);
+        timer.setInterval(100);
         timer.start();
         schedule();
     }
@@ -295,7 +307,15 @@ public:
         maximumRequestMs = std::max(maximumRequestMs, clock.elapsed() - job->created);
         if (!job->cancelled && connections.contains(job->connection))
             send(job->connection, job->id, payload);
-        if (jobs.isEmpty()) timer.stop();
+        if (jobs.isEmpty()) {
+            if (captures.isEmpty() && executions.isEmpty()
+                && lastCommand.isEmpty()) {
+                timer.stop();
+            } else {
+                timer.setInterval(1000);
+                timer.start();
+            }
+        }
         schedule();
     }
     void cancel(const std::shared_ptr<Job>& job, QJsonObject payload, bool reply)
@@ -303,9 +323,35 @@ public:
         if (job->cancelled.exchange(true))
             return;
         ++cancelledCount;
+        QList<quint64> unresolvedRequests;
         for (auto& execution : executions) {
-            if (!execution.complete && execution.job == job && execution.facade)
+            if (execution.complete || execution.job != job)
+                continue;
+            if (execution.facade)
                 execution.facade->cancel(execution.executorRequestId);
+            // cancel() 允许同步发布确定结果；只有仍未完成的执行才合成保守终态。
+            if (!execution.complete)
+                unresolvedRequests.append(execution.executorRequestId);
+        }
+        for (const quint64 requestId : unresolvedRequests) {
+            // SSH 队列取消会 queued 返回“未开始”的确定证据；Local helper 也可能
+            // 在 terminate/kill 后很快给出 finished。短暂等待这些更强证据，只有
+            // Executor 没有回报时才合成保守的 unknown 终态。
+            QTimer::singleShot(CancelCompletionGraceMs, q, [this, requestId] {
+                const auto execution = std::find_if(
+                    executions.cbegin(), executions.cend(),
+                    [requestId](const Execution& value) {
+                        return value.executorRequestId == requestId;
+                    });
+                if (execution == executions.cend() || execution->complete)
+                    return;
+                CommandExecutionResult result;
+                result.requestId = requestId;
+                result.outcome = CommandExecutionOutcome::Cancelled;
+                result.executionMayHaveStarted = true;
+                result.terminationConfirmed = false;
+                finishExecution(result);
+            });
         }
         if (reply && connections.contains(job->connection))
             send(job->connection, job->id, payload);
@@ -365,6 +411,12 @@ public:
                 }
             }
             if (!commandExpired) cancel(job, error("DEADLINE_EXCEEDED"), true);
+        }
+        cleanup();
+        if (jobs.isEmpty()) {
+            if (captures.isEmpty() && executions.isEmpty()
+                && lastCommand.isEmpty()) timer.stop();
+            else timer.setInterval(1000);
         }
     }
     void cleanup()
@@ -438,7 +490,19 @@ public:
             bool truncated = false;
             const auto title = boundedText(entry.title, 256, &truncated);
             QJsonArray capabilities{"read_context", "search_context", "list_commands"};
-            if (!access.commands(connection.client, entry).isEmpty()) capabilities.append("execute_command");
+            auto* facade = entry.session ? entry.session->commandFacade() : nullptr;
+            const auto profile = facade ? facade->profile() : CommandPlatformProfile{};
+            const auto granted = access.commands(connection.client, entry);
+            bool canExecute = facade && facade->isAvailable()
+                && profile.isAvailable();
+            if (canExecute) {
+                canExecute = std::any_of(granted.cbegin(), granted.cend(),
+                    [&profile](const QString& commandId) {
+                        return profile.supports(commandId);
+                    });
+            }
+            if (canExecute)
+                capabilities.append("execute_command");
             rows.append(QJsonObject{{"sessionId", entry.id}, {"epoch", entry.epoch},
                 {"state", SessionDirectory::stateName(entry.state)}, {"transport", SessionDirectory::transportName(entry.kind)},
                 {"displayName", title}, {"displayNameTruncated", truncated}, {"capabilities", capabilities}});
@@ -470,17 +534,35 @@ public:
             }
         }
         const auto now = clock.elapsed();
+        const bool usePublished = qEnvironmentVariableIntValue(
+            "NOVATERM_MCP_PUBLISHED_SNAPSHOT") > 0;
         std::shared_ptr<const TerminalContextProvider::Snapshot> base;
         if (lastCapture.contains(entry.id) && now - lastCapture.value(entry.id) < 250) {
-            const auto current = entry.session->core()->tryModelRevision();
-            if (!current || lastRevision.value(entry.id) != *current) {
-                complete(job, error("BUSY", true, 250)); return;
+            if (!usePublished) {
+                const auto current = entry.session->core()->tryModelRevision();
+                if (!current || lastRevision.value(entry.id) != *current) {
+                    complete(job, error("BUSY", true, 250)); return;
+                }
             }
             ++reusedCaptureCount;
+            ++coalescedReadCount;
             base = lastBase.value(entry.id);
         }
         if (!base) {
+            if (!usePublished)
+                ++coreCaptureCount;
             base = entry.session->tryTerminalContext();
+            if (usePublished) {
+                const auto currentStats = entry.session->core()
+                    ->publishedContextStatistics();
+                const auto previousStats = publishedStats.value(entry.id);
+                snapshotPublishCount += currentStats.publishCount
+                    - previousStats.publishCount;
+                snapshotReuseCount += currentStats.reuseCount
+                    - previousStats.reuseCount;
+                coreCaptureCount = snapshotPublishCount;
+                publishedStats.insert(entry.id, currentStats);
+            }
             if (base) {
                 lastCapture.insert(entry.id, now);
                 lastRevision.insert(entry.id, base->state.revision);
@@ -499,6 +581,7 @@ public:
             const auto clipped = clipUtf8(bytes, remaining);
             outputTruncated |= clipped.size() != bytes.size();
             remaining -= clipped.size();
+            projectionCopiedBytes += quint64(clipped.size());
             return QString::fromUtf8(clipped);
         };
         const auto title = text(base->state.title);
@@ -521,8 +604,16 @@ public:
             next = signToken({{"kind", "context"}, {"session", entry.id}, {"epoch", entry.epoch},
                 {"revision", versionString(base->state.revision)}, {"grant", versionString(access.version(connection.client))},
                 {"viewport", viewport}}, connection.key);
+        const auto capturedMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+            base->capturedAt.time_since_epoch()).count();
+        const qint64 snapshotAge = std::max<qint64>(
+            0, QDateTime::currentMSecsSinceEpoch() - capturedMs);
+        if (snapshotAges.size() == 256) snapshotAges.pop_front();
+        snapshotAges.push_back(snapshotAge);
+        const QString capturedAt = QDateTime::fromMSecsSinceEpoch(
+            capturedMs, QTimeZone::UTC).toString(Qt::ISODateWithMs);
         QJsonObject data{{"instanceId", instance}, {"sessionId", entry.id}, {"epoch", entry.epoch},
-            {"revision", versionString(base->state.revision)}, {"captureId", captureId}, {"capturedAt", utcNow()},
+            {"revision", versionString(base->state.revision)}, {"captureId", captureId}, {"capturedAt", capturedAt},
             {"state", SessionDirectory::stateName(entry.state)}, {"transport", SessionDirectory::transportName(entry.kind)},
             {"title", title}, {"alternateScreen", base->state.alternateScreen},
             {"cursor", QJsonObject{{"row", base->state.cursor.position.row}, {"column", base->state.cursor.position.col}}},
@@ -538,7 +629,10 @@ public:
             });
             captures.remove(oldest);
         }
-        captures.insert(captureId, Capture{job->connection, entry.id, entry.epoch, data, now + CaptureLifetimeMs, now});
+        captures.insert(captureId, Capture{job->connection, entry.id,
+            entry.epoch, data.value("revision").toString(), screen, recent,
+            base, sourceTruncated, outputTruncated,
+            now + CaptureLifetimeMs, now});
         complete(job, success(data));
         if (captureDurations.size() == 256) captureDurations.pop_front();
         captureDurations.push_back(captureTimer.nsecsElapsed());
@@ -552,7 +646,11 @@ public:
             || capture->session != entry.id || capture->epoch != entry.epoch) {
             complete(job, error("CAPTURE_NOT_AVAILABLE")); return;
         }
-        const auto data = capture->data;
+        const QJsonObject data{{"revision", capture->revision},
+            {"viewport", capture->viewport},
+            {"recentOutput", capture->recentOutput},
+            {"sourceTruncated", capture->sourceTruncated},
+            {"outputTruncated", capture->outputTruncated}};
         QPointer<Service> guard(q);
         workers.start(QRunnable::create([this, guard, job, data, id] {
             NovaTerm::setCurrentThreadName("nvterm-mcp-srch");
@@ -611,24 +709,31 @@ public:
         const auto allowed = access.commands(connection.client, entry);
         QString reason;
         auto* facade = entry.session ? entry.session->commandFacade() : nullptr;
+        const auto profile = facade ? facade->profile() : CommandPlatformProfile{};
+        const QString policyVersion = CommandPolicy::version(profile);
         if (entry.state != SessionState::Running) reason = "SESSION_NOT_READY";
-        else if (!facade || !facade->isAvailable()) reason = "UNSUPPORTED_COMMAND_TARGET";
+        else if (!profile.isAvailable()) reason = "COMMAND_PROFILE_UNAVAILABLE";
+        else if (!facade || !facade->isAvailable()) reason = "COMMAND_UNAVAILABLE";
         else if (allowed.isEmpty()) reason = "COMMAND_PERMISSION_REQUIRED";
         else if (entry.targetFingerprint.isEmpty()) reason = "COMMAND_UNAVAILABLE";
         QJsonArray catalog;
-        if (reason.isEmpty()) for (const auto& command : CommandPolicy::catalog()) {
+        if (reason.isEmpty()) for (const auto& command : CommandPolicy::catalog(profile)) {
             if (!allowed.contains(command.id)) continue;
             const auto ticket = signToken({{"kind", "command"}, {"execution", newId()},
                 {"session", entry.id}, {"epoch", entry.epoch}, {"command", command.id},
-                {"policy", CommandPolicy::version()}, {"grant", versionString(access.version(connection.client))},
+                {"policy", policyVersion}, {"profile", profile.version()},
+                {"grant", versionString(access.version(connection.client))},
                 {"expires", clock.elapsed() + 60000}}, connection.key);
+            const QString preview = entry.kind == TransportKind::LocalShell
+                ? QStringLiteral("novaterm-local-diag ") + command.id
+                : QString::fromUtf8(command.command);
             catalog.append(QJsonObject{{"commandId", command.id}, {"title", command.title},
-                {"preview", QString::fromUtf8(command.command)},
+                {"preview", preview},
                 {"argumentSchema", QJsonObject{{"type", "object"}, {"additionalProperties", false}}},
                 {"timeoutMs", 5000}, {"maxOutputBytes", CommandOutputBytes}, {"commandTicket", ticket}});
         }
         complete(job, success({{"instanceId", instance}, {"sessionId", entry.id}, {"epoch", entry.epoch},
-            {"policyVersion", CommandPolicy::version()}, {"executionEnabled", reason.isEmpty()},
+            {"policyVersion", policyVersion}, {"executionEnabled", reason.isEmpty()},
             {"disabledReason", reason.isEmpty() ? QJsonValue(QJsonValue::Null) : QJsonValue(reason)}, {"commands", catalog}}));
     }
 
@@ -636,7 +741,9 @@ public:
     {
         const auto connection = connections.value(job->connection);
         const auto commandId = job->arguments.value("commandId").toString();
-        const auto definition = CommandPolicy::find(commandId);
+        auto* facade = entry.session ? entry.session->commandFacade() : nullptr;
+        const auto profile = facade ? facade->profile() : CommandPlatformProfile{};
+        const auto definition = CommandPolicy::find(commandId, profile);
         if (!definition) { complete(job, error("COMMAND_NOT_ALLOWED")); return; }
         if (!access.commands(connection.client, entry).contains(commandId)) {
             complete(job, error("COMMAND_PERMISSION_REQUIRED")); return;
@@ -644,7 +751,8 @@ public:
         const auto ticket = verifyToken(job->arguments.value("commandTicket").toString(), connection.key);
         if (!ticket || ticket->value("kind") != "command" || ticket->value("session") != entry.id
             || ticket->value("epoch") != entry.epoch || ticket->value("command") != commandId
-            || ticket->value("policy") != job->arguments.value("policyVersion")) {
+            || ticket->value("policy") != job->arguments.value("policyVersion")
+            || ticket->value("profile") != profile.version()) {
             complete(job, error("COMMAND_TICKET_SCOPE_INVALID")); return;
         }
         const QString executionId = ticket->value("execution").toString();
@@ -658,11 +766,12 @@ public:
         if (ticket->value("grant").toString() != versionString(access.version(connection.client))) {
             complete(job, error("COMMAND_PERMISSION_REQUIRED")); return;
         }
-        if (ticket->value("policy") != CommandPolicy::version()) { complete(job, error("COMMAND_POLICY_CHANGED")); return; }
+        const QString policyVersion = CommandPolicy::version(profile);
+        if (ticket->value("policy") != policyVersion) { complete(job, error("COMMAND_POLICY_CHANGED")); return; }
         if (!job->arguments.value("arguments").toObject().isEmpty()) { complete(job, error("COMMAND_NOT_ALLOWED")); return; }
-        auto* facade = entry.session ? entry.session->commandFacade() : nullptr;
         if (!facade || !facade->isAvailable() || entry.targetFingerprint.isEmpty()) {
-            complete(job, error("UNSUPPORTED_COMMAND_TARGET")); return;
+            complete(job, error(profile.isAvailable()
+                ? "COMMAND_UNAVAILABLE" : "COMMAND_PROFILE_UNAVAILABLE")); return;
         }
         if (entry.state != SessionState::Running) { complete(job, error("SESSION_NOT_READY")); return; }
         int count = 0;
@@ -686,10 +795,12 @@ public:
         }
         const quint64 request = nextCommandRequest++;
         Execution execution{executionId, job->connection, connection.client, entry.id, entry.epoch,
-            commandId, entry.targetFingerprint, request, clock.elapsed(), facade, job, {}, false};
+            commandId, policyVersion, entry.targetFingerprint, request,
+            clock.elapsed(), facade, job, {}, false};
         executions.insert(executionId, execution);
         if (!facade->execute(CommandExecutionRequest{
-                request, definition->command, {CommandOutputBytes, 5000}})) {
+                request, definition->command, {CommandOutputBytes, 5000},
+                commandId})) {
             executions.remove(executionId);
             guards.release(entry.targetFingerprint, executionId);
             complete(job, error("BUSY", true, 250)); return;
@@ -729,7 +840,8 @@ public:
         else if (result.outcome == CommandExecutionOutcome::Cancelled) { code = "COMMAND_OUTCOME_UNKNOWN"; state = "cancelled"; }
         else if (result.executionMayHaveStarted && !result.terminationConfirmed) { code = "COMMAND_OUTCOME_UNKNOWN"; state = "unknown"; }
         QJsonObject data{{"executionId", execution.id}, {"instanceId", instance}, {"sessionId", execution.session},
-            {"epoch", execution.epoch}, {"commandId", execution.commandId}, {"policyVersion", CommandPolicy::version()},
+            {"epoch", execution.epoch}, {"commandId", execution.commandId},
+            {"policyVersion", execution.policyVersion},
             {"status", state}, {"executionMayHaveStarted", result.executionMayHaveStarted},
             {"terminationConfirmed", result.terminationConfirmed}, {"startedAt", QJsonValue(QJsonValue::Null)},
             {"finishedAt", result.terminationConfirmed ? QJsonValue(utcNow()) : QJsonValue(QJsonValue::Null)},
@@ -775,9 +887,13 @@ public:
     QSet<SessionCommandFacade*> observedFacades;
     quint64 nextCommandRequest{quint64(1) << 60};
     quint64 requestCount{0}, rejectedCount{0}, completedCount{0}, cancelledCount{0}, reusedCaptureCount{0};
+    quint64 coreCaptureCount{0}, snapshotPublishCount{0}, snapshotReuseCount{0};
+    quint64 coalescedReadCount{0}, projectionCopiedBytes{0};
+    QHash<QString, NovaTerm::PublishedContextStatistics> publishedStats;
     qsizetype peakRequests{0};
     qint64 maximumRequestMs{0};
     std::deque<qint64> captureDurations;
+    std::deque<qint64> snapshotAges;
 };
 
 Service::Service(QString stateDir, QString runtimeDir, std::unique_ptr<CredentialStore> credentials, QObject* parent)
@@ -819,9 +935,18 @@ QJsonObject Service::statistics() const
     std::vector<qint64> durations(_impl->captureDurations.begin(), _impl->captureDurations.end());
     std::sort(durations.begin(), durations.end());
     const double p95 = durations.empty() ? 0.0 : double(durations[(durations.size() * 95 + 99) / 100 - 1]) / 1000000.0;
+    std::vector<qint64> ages(_impl->snapshotAges.begin(), _impl->snapshotAges.end());
+    std::sort(ages.begin(), ages.end());
+    const qint64 ageP95 = ages.empty() ? 0 : ages[(ages.size() * 95 + 99) / 100 - 1];
     return {{"requests", QString::number(_impl->requestCount)}, {"rejected", QString::number(_impl->rejectedCount)},
         {"completed", QString::number(_impl->completedCount)}, {"cancelled", QString::number(_impl->cancelledCount)},
         {"reusedCaptures", QString::number(_impl->reusedCaptureCount)}, {"peakRequests", int(_impl->peakRequests)},
+        {"coreCaptureCount", QString::number(_impl->coreCaptureCount)},
+        {"snapshotPublishCount", QString::number(_impl->snapshotPublishCount)},
+        {"snapshotReuseCount", QString::number(_impl->snapshotReuseCount)},
+        {"coalescedReadCount", QString::number(_impl->coalescedReadCount)},
+        {"projectionCopiedBytes", QString::number(_impl->projectionCopiedBytes)},
+        {"snapshotAgeP95Ms", QString::number(ageP95)},
         {"activeClients", int(_impl->connections.size())}, {"captures", int(_impl->captures.size())},
         {"captureP95Ms", p95}, {"maximumRequestMs", _impl->maximumRequestMs}};
 }

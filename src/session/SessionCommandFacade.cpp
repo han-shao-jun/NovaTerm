@@ -62,6 +62,11 @@ CommandExecutorCapabilities SessionCommandFacade::capabilities() const
     return _executor ? _executor->capabilities() : CommandExecutorCapabilities{};
 }
 
+CommandPlatformProfile SessionCommandFacade::profile() const
+{
+    return _executor ? _executor->profile() : CommandPlatformProfile{};
+}
+
 QString SessionCommandFacade::targetFingerprint() const
 {
     return _executor ? _executor->targetFingerprint() : QString{};

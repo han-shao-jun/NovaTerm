@@ -467,152 +467,157 @@ Built with:
 <context>
     <name>McpSettingsDialog</name>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="25"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="26"/>
         <source>AI MCP access</source>
         <translation>AI MCP 接入</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="31"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="32"/>
         <source>Enable local MCP access</source>
         <translation>启用本机 MCP 接入</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="33"/>
-        <source>Share only the sessions you select. Terminal output may contain sensitive information. Command access is separate and only allows fixed diagnostics on trusted Linux/POSIX SSH servers; commands run as the connected SSH user. Deletion, credentials, privilege elevation and arbitrary scripts are prohibited.</source>
-        <translation>仅共享选中的会话，终端输出可能包含敏感信息。命令需要单独授权，只允许在受信任的 Linux/POSIX SSH 服务端执行固定诊断，以当前 SSH 用户的权限运行。禁止删除、读取凭据、提权和任意脚本。</translation>
-    </message>
-    <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="48"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="49"/>
         <source>New client label</source>
         <translation>新客户端名称</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="51"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="52"/>
         <source>Add client</source>
         <translation>添加客户端</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="52"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="53"/>
         <source>Remove client</source>
         <translation>移除客户端</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="57"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="58"/>
         <source>Copy MCP configuration</source>
         <translation>复制 MCP 配置</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="58"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="59"/>
         <source>Rotate access token</source>
         <translation>更换接入令牌</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="65"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="66"/>
         <source>Session</source>
         <translation>会话</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="65"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="66"/>
         <source>State</source>
         <translation>状态</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="65"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="66"/>
         <source>Read output</source>
         <translation>读取输出</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="65"/>
-        <source>Trusted Linux diagnostics</source>
-        <translation>受信任的 Linux 诊断</translation>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="34"/>
+        <source>Share only the sessions you select. Terminal output may contain sensitive information. Command access is separate and only allows fixed diagnostics: SSH commands use the trusted connected account, while Windows local commands run in an isolated helper. Deletion, credentials, privilege elevation and arbitrary scripts are prohibited.</source>
+        <translation>仅共享你选择的会话。终端输出可能包含敏感信息。命令权限单独授权且只允许固定诊断：SSH 命令使用受信任的已连接账户，Windows 本地命令在隔离的辅助进程中运行。禁止删除、凭据读取、提权和任意脚本。</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="77"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="66"/>
+        <source>Authorized diagnostics</source>
+        <translation>已授权诊断</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="78"/>
         <source>Command results appear here. A disconnected or timed-out command may still be running remotely.</source>
         <translation>命令结果显示在这里。连接中断或超时后，命令仍可能在远端运行。</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="81"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="82"/>
         <source>I have checked that the remote command has stopped</source>
         <translation>我已确认远端命令已经停止</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="82"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="83"/>
         <source>Release selected target</source>
         <translation>解除所选目标的暂停</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="107"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="108"/>
         <source>Configuration copied. It contains an access token; keep it private.</source>
         <translation>已复制配置，其中包含接入令牌，请妥善保管。</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="144"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="145"/>
         <source>Operation failed. Check the selected client, storage permissions, and active commands.</source>
         <translation>操作失败，请检查选中的客户端、存储权限及正在运行的命令。</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="153"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="154"/>
         <source>Disabled</source>
         <translation>已关闭</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="154"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="155"/>
         <source>Listening</source>
         <translation>正在监听</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="155"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="156"/>
         <source>Starting</source>
         <translation>正在启动</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="156"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="157"/>
         <source>Status: %1; instance: %2</source>
         <translation>状态：%1；实例：%2</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="160"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="161"/>
         <source> (this run only)</source>
         <translation>（仅本次运行有效）</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="173"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="177"/>
+        <source>Fixed diagnostics run in an isolated local helper and do not write to the current shell.</source>
+        <translation>固定诊断在隔离的本地辅助进程中运行，不会写入当前 Shell。</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="178"/>
         <source>Only enable for a trusted Linux/POSIX SSH server. Fixed diagnostics run as its connected user.</source>
         <translation>仅对受信任的 Linux/POSIX SSH 服务端启用，固定诊断以当前连接用户的权限运行。</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="176"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="181"/>
         <source>System identity</source>
         <translation>系统与内核信息</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="177"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="182"/>
         <source>Uptime and load</source>
         <translation>运行时长与负载</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="178"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="183"/>
         <source>Memory summary</source>
         <translation>内存摘要</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="179"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="184"/>
         <source>Filesystem capacity</source>
         <translation>文件系统容量</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="200"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="207"/>
         <source>Protected target %1 — execution %2</source>
         <translation>受保护目标 %1 — 执行 %2</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="209"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="216"/>
         <source>Command is running.</source>
         <translation>命令正在运行。</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="213"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="220"/>
         <source>Status: %1
 Exit code: %2
 Termination confirmed: %3
@@ -627,17 +632,17 @@ Termination confirmed: %3
 %5</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="215"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="222"/>
         <source>Unknown</source>
         <translation>未知</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="216"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="223"/>
         <source>Yes</source>
         <translation>是</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="216"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="223"/>
         <source>No</source>
         <translation>否</translation>
     </message>

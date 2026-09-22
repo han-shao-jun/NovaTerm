@@ -12,6 +12,7 @@
  *   同步：BoundedByteQueue + 命令队列 + modelMutex + completionMutex
  */
 #pragma once
+#include "PublishedTerminalState.h"
 
 #include "BoundedByteQueue.h"
 #include "ScreenBuffer.h"
@@ -104,6 +105,11 @@ public:
         std::size_t maxLines = 256) const;
     /** @brief 非阻塞读取模型版本，供只读门面复用未变化的快照。 */
     [[nodiscard]] std::optional<NovaTerm::u64> tryModelRevision() const;
+    /** @brief 返回最近发布物，并按最多 4 Hz 合并请求 Parser 刷新。 */
+    [[nodiscard]] std::shared_ptr<const NovaTerm::PublishedTerminalState>
+        requestPublishedTerminalState();
+    [[nodiscard]] NovaTerm::PublishedContextStatistics
+        publishedContextStatistics() const noexcept;
 
     /**
      * @brief 构造渲染层专用稀疏快照。

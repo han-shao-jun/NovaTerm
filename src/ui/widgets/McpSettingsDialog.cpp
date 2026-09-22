@@ -4,6 +4,7 @@
 #include "McpSettingsDialog.h"
 #include "mcp/McpService.h"
 #include "mcp/CommandPolicy.h"
+#include "session/SessionCommandFacade.h"
 #include "ElaCheckBox.h"
 #include "ElaComboBox.h"
 #include "ElaLineEdit.h"
@@ -31,8 +32,8 @@ McpSettingsDialog::McpSettingsDialog(NovaTerm::Mcp::Service* service, QWidget* p
     _enabled = new ElaCheckBox(tr("Enable local MCP access"), this);
     layout->addWidget(_enabled);
     auto* explanation = new ElaText(tr("Share only the sessions you select. Terminal output may contain sensitive information. "
-        "Command access is separate and only allows fixed diagnostics on trusted Linux/POSIX SSH servers; "
-        "commands run as the connected SSH user. Deletion, credentials, privilege elevation and arbitrary scripts are prohibited."), this);
+        "Command access is separate and only allows fixed diagnostics: SSH commands use the trusted connected account, "
+        "while Windows local commands run in an isolated helper. Deletion, credentials, privilege elevation and arbitrary scripts are prohibited."), this);
     explanation->setWordWrap(true);
     explanation->setTextPixelSize(12);
     layout->addWidget(explanation);
@@ -62,7 +63,7 @@ McpSettingsDialog::McpSettingsDialog(NovaTerm::Mcp::Service* service, QWidget* p
     layout->addLayout(actions);
     _sessions = new ElaTreeWidget(this);
     _sessions->setColumnCount(4);
-    _sessions->setHeaderLabels({tr("Session"), tr("State"), tr("Read output"), tr("Trusted Linux diagnostics")});
+    _sessions->setHeaderLabels({tr("Session"), tr("State"), tr("Read output"), tr("Authorized diagnostics")});
     _sessions->setRootIsDecorated(true);
     _sessions->setItemHeight(30);
     _sessions->header()->setSectionResizeMode(0, QHeaderView::Stretch);
@@ -167,10 +168,14 @@ void McpSettingsDialog::refresh()
         item->setData(0, Qt::UserRole, entry.id);
         item->setCheckState(2, _service->access().canRead(clientId, entry) ? Qt::Checked : Qt::Unchecked);
         const auto allowed = _service->access().commands(clientId, entry);
-        const auto catalog = NovaTerm::Mcp::CommandPolicy::catalog();
+        const auto profile = entry.session
+            ? entry.session->commandFacade()->profile() : CommandPlatformProfile{};
+        const auto catalog = NovaTerm::Mcp::CommandPolicy::catalog(profile);
         item->setCheckState(3, allowed.isEmpty() ? Qt::Unchecked
             : allowed.size() == catalog.size() ? Qt::Checked : Qt::PartiallyChecked);
-        item->setToolTip(3, tr("Only enable for a trusted Linux/POSIX SSH server. Fixed diagnostics run as its connected user."));
+        item->setToolTip(3, entry.kind == TransportKind::LocalShell
+            ? tr("Fixed diagnostics run in an isolated local helper and do not write to the current shell.")
+            : tr("Only enable for a trusted Linux/POSIX SSH server. Fixed diagnostics run as its connected user."));
         for (const auto& command : catalog) {
             QString title = command.title;
             if (command.id == "system.identity") title = tr("System identity");
@@ -179,7 +184,9 @@ void McpSettingsDialog::refresh()
             else if (command.id == "filesystem.usage") title = tr("Filesystem capacity");
             auto* child = new QTreeWidgetItem(item, {title});
             child->setData(0, Qt::UserRole, command.id);
-            child->setToolTip(0, QString::fromUtf8(command.command));
+            child->setToolTip(0, entry.kind == TransportKind::LocalShell
+                ? QStringLiteral("novaterm-local-diag ") + command.id
+                : QString::fromUtf8(command.command));
             child->setCheckState(3, allowed.contains(command.id) ? Qt::Checked : Qt::Unchecked);
         }
     }

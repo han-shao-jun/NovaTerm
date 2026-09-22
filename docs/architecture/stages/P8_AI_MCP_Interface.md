@@ -1412,9 +1412,9 @@ self-contained requests 与 per-request capability negotiation。Bridge 的双�
 当前五个工具及 GUI 接入已经存在。本节只记录当前 master 的实际代码事实；前文
 v0.5 的全会话命令执行是下一阶段设计目标，在实现与测试完成前不得写成已支持。
 
-**当前工作树（基于 `dd32b909` / NovaTerm `0.2.20`）的生产命令实现仍然只在 SSH
-Session 上真正执行，但 `McpService` 已改经 `SessionCommandFacade` 调用通用
-Executor，不再直接识别或转换 `SshTransport`。LocalShell、Serial、Telnet、Custom
+**当前工作树（基于 `b237e40` / NovaTerm `0.2.22`）的生产命令实现覆盖 SSH Session
+与 Windows LocalShell：SSH 使用独立 exec channel，Windows LocalShell 使用固定
+`novaterm-local-diag` helper 子进程。Linux/macOS LocalShell、Serial、Telnet、Custom
 的生产 Executor、SessionCommandLease 与 InteractiveFramed 尚未实现。**
 
 v0.3/v0.4 的协议/性能新增项也继续以代码和测试为准；设计文档中的候选优化不能倒写成
@@ -1427,7 +1427,7 @@ v0.3/v0.4 的协议/性能新增项也继续以代码和测试为准；设计文
 | P8.2 | `src/mcp/McpProtocol.*`、`LocalMcpServer.*` | 五工具 schema、参数校验、MAC、当前用户 IPC、帧/队列限制和合并唤醒 |
 | P8.2 | `tools/novaterm-mcp/` | console stdio 桥接、初始化、取消、stdout 隔离、慢写退出、明确实例绑定 |
 | P8.3 | `src/mcp/McpService.*` | 会话列表、上下文、capture 搜索、预算裁切和每客户端 token/capture 隔离 |
-| P8.4 | `CommandPolicy.*`、`CommandExecutionTypes.h`、`SessionCommandFacade.*`、`ISessionCommandExecutor.h`、`SshSessionCommandExecutor.*`、`McpService.*` | 固定诊断模板、通用执行 DTO、Session 级 Executor 路由、SSH Isolated 适配、执行票据/去重、持久目标保护标记及结构化完成证据 |
+| P8.4 | `CommandPolicy.*`、`CommandPlatformProfile.*`、`CommandExecutionTypes.h`、`SessionCommandFacade.*`、`ISessionCommandExecutor.h`、`SshSessionCommandExecutor.*`、`LocalSessionCommandExecutor.*`、`tools/novaterm-local-diag/`、`McpService.*` | 固定诊断模板、通用执行 DTO、Session 级 Executor 路由、SSH 与 Windows LocalShell Isolated 适配、执行票据/去重、持久目标保护标记及结构化完成证据 |
 | P8.5 | `McpAccess.*`、`McpSettingsDialog.*`、Application/MainWindow/TerminalPage 接线 | 总开关、客户端令牌、读取与逐项诊断授权、复制配置、执行记录和人工解除保护 |
 
 当前实现中 RequestBroker/SessionReadFacade 的职责主要由 `McpService::Impl` 与 Session
@@ -1435,6 +1435,9 @@ v0.3/v0.4 的协议/性能新增项也继续以代码和测试为准；设计文
 `ISessionCommandExecutor` 和第一个 SSH Isolated Executor；Facade 用 Session generation
 与绑定序号丢弃换绑后的迟到完成结果，并在换绑或销毁前取消已登记的在途请求；
 MCP 的执行、取消和完成映射不再持有 SSH 类型。
+Windows LocalShell 另由 `windows-local-v1` Profile 注册同一组语义 commandId，
+Executor 只启动应用目录中的固定 helper，以独立 stdout/stderr、退出码和进程终止
+证据返回结果；不向当前 PTY/ConPTY 写入，也不继承交互 shell 的 cwd/alias/history。
 当前 SSH 辅助 exec 输出不回灌交互终端；Serial/Telnet InteractiveFramed 仍只是设计，
 因此当前代码也尚未产生第二条共享交互命令写入路径。
 
@@ -1448,6 +1451,30 @@ MCP 的执行、取消和完成映射不再持有 SSH 类型。
   字节来判断是否超限。转换后的 UTF-8 文本另限 64 KiB，不会因替代字符膨胀而失控。
 - SSH 增加 `executeBoundedCommand` / `boundedCommandFinished`，保留旧的通用命令
   API 供 P7 使用。对未知是否已开始/结束的情况保持保守，不把 close/TERM 请求当成退出证明。
+- Windows LocalShell 的 `novaterm-local-diag` 只接受四个固定 commandId，使用 Qt/Windows
+  系统 API 采集，拒绝额外参数与未知命令；`LocalSessionCommandExecutor` 清理环境、
+  合计限制 64 KiB 输出并在超时、取消、换绑或销毁时终止 helper。Linux/macOS 本阶段
+  不安装 Local Executor，不能回退到 `writeUserInput()` 或 shell wrapper。
+- 客户端取消、撤权或 Session epoch 失效时，服务端先给 Executor 250 ms 发布更强的
+  完成证据；若仍无结果，则把 Execution 完成为保守的 cancelled/unknown，保留目标
+  quarantine 但允许用户核对后解除，避免执行记录永久停在 running 并耗尽 128 条上限。
+- Core 已加入按真实读取需求、最多 4 Hz 合并的不可变 `PublishedTerminalState` 候选路径；
+  Parser 在稳定提交点发布 shared snapshot，Provider 保留真实 capturedAt 且不再重复消费
+  旧 history line。该路径当前仅由 `NOVATERM_MCP_PUBLISHED_SNAPSHOT=1` 测试开关启用；
+  在正常负载、过载和 GUI frame P95 的 A/B 闸门完成前不作为默认路径。
+
+2026-09-22 候选路径过载 A/B（四客户端各 10 Hz、64 MiB、三轮）显示吞吐中位数
+`27.93 → 27.99 MiB/s`（无下降），capture P95 为 0.807～0.848 ms；成功读取分别
+75/78、75/76、78/79，Busy 为 3/1/1。该结果显著改善旧路径的 read starvation，
+但过载成功率仍非每轮 ≥99%，且正常 4 Hz 与 GUI frame P95 尚未补齐，因此继续保持
+测试开关，不写成默认性能验收通过。
+
+2026-09-22 正常设计负载 A/B（四客户端各 1 Hz、256 MiB、三轮）在授权时预热首份
+快照后达到 36/36、36/36、36/36 成功读取，Busy 为 0；成功 RPC P95 为
+45.10～48.77 ms，capture P95 为 0.986～1.011 ms，吞吐中位数
+`29.01 → 29.08 MiB/s`（无下降）。每轮仅 8 次 Core publish 服务 40 次请求，
+coalescedReadCount=27；snapshotAge P95 为 1.78～2.08 s。正常负载功能与吞吐门槛
+已通过，但真实 GUI frame P95 仍无设备级证据，因此候选路径继续保持显式测试开关。
 - 基础摘要缓存与增量筛选不共享客户端进度。截断时 nextToken 为空；语义不是完整日志。
 - 多实例的接入配置通过版本校验与文件监听同步；令牌存取仅在用户管理客户端时
   触碰凭据库，协议认证只核对摘要。总开关关闭时清除本次授权，即使保存失败也先撤销内存访问。
@@ -1460,7 +1487,8 @@ MCP 的执行、取消和完成映射不再持有 SSH 类型。
 验证入口均已加入仓库：
 
 - `novaterm_mcp_tests`：实际子进程 stdio/IPC、授权、跨客户端、UTF-8、截断、搜索、
-  取消、票据去重、持久保护、缓存淘汰和界面授权。
+  取消、票据去重、持久保护、缓存淘汰、界面授权，以及 Windows 本地 helper 的固定
+  参数拒绝、独立输出、非零退出、输出上限、超时、取消和 PTY 零写入。
 - `tests/mcp/interop_check.py`：官方 MCP Python SDK 1.30.0、全部输出 schema、两个
   独立客户端和执行重试。依赖仅在测试时装入 build/mcp-test-deps。
 - `tests/mcp/ssh_loopback_check.py`：仅回环的 SSH 协议测试端返回固定数据，验证正常
@@ -1549,12 +1577,13 @@ SSH bounded exec 适配，以及 `McpService` 去除 SSH 业务层强耦合已�
 `novaterm_mcp_tests` 与 `novaterm_ssh_transport_check` 覆盖。以下条目仍不属于当前
 “已实现”列表：
 
-1. 实现 LocalShell 独立进程 Executor，Linux/Windows 分别验证；
-2. 引入 `CommandPlatformProfile` 的执行模式/framing/ready-state 定义；
+1. 补齐 Linux/macOS LocalShell 独立进程 Executor 与实机验证；Windows LocalShell 已完成；
+2. 扩展 `CommandPlatformProfile` 的 Interactive framing/ready-state 定义；当前仅有
+   `linux-diagnostics-v1` SSH 与 `windows-local-v1` Isolated Profile；
 3. 实现 `SessionCommandLease` 和 Serial/Telnet InteractiveFramed fixture；
 4. Custom 只通过显式 Executor 注册加入能力，不设置隐式默认行为；
-5. 更新命令目录、错误码和 UI 风险提示；保持现有五工具和 schemaVersion=1；
-6. 跑 SSH 回归 + Local/Serial/Telnet contract tests 后，才能把 §14 状态改成全会话已支持。
+5. 补齐 Serial/Telnet/Custom 的命令目录、错误码和 UI 风险提示；保持现有五工具和 schemaVersion=1；
+6. 跑 SSH 回归 + Linux/macOS Local + Serial/Telnet contract tests 后，才能把 §14 状态改成全会话已支持。
 
 实现过程中若发现某类 Session 无法可靠建立命令边界或终止语义，应保守地让该 Profile
 `executionEnabled=false`，而不是为了覆盖率退化成任意 `writeUserInput()`。

@@ -20,6 +20,7 @@ public:
 
     [[nodiscard]] bool isAvailable() const override;
     [[nodiscard]] CommandExecutorCapabilities capabilities() const override;
+    [[nodiscard]] CommandPlatformProfile profile() const override;
     [[nodiscard]] QString targetFingerprint() const override;
     [[nodiscard]] bool execute(const CommandExecutionRequest& request) override;
     void cancel(quint64 requestId) override;

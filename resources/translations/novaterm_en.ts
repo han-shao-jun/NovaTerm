@@ -461,152 +461,157 @@ Built with:
 <context>
     <name>McpSettingsDialog</name>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="25"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="26"/>
         <source>AI MCP access</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="31"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="32"/>
         <source>Enable local MCP access</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="33"/>
-        <source>Share only the sessions you select. Terminal output may contain sensitive information. Command access is separate and only allows fixed diagnostics on trusted Linux/POSIX SSH servers; commands run as the connected SSH user. Deletion, credentials, privilege elevation and arbitrary scripts are prohibited.</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="48"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="49"/>
         <source>New client label</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="51"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="52"/>
         <source>Add client</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="52"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="53"/>
         <source>Remove client</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="57"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="58"/>
         <source>Copy MCP configuration</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="58"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="59"/>
         <source>Rotate access token</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="65"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="66"/>
         <source>Session</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="65"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="66"/>
         <source>State</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="65"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="66"/>
         <source>Read output</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="65"/>
-        <source>Trusted Linux diagnostics</source>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="34"/>
+        <source>Share only the sessions you select. Terminal output may contain sensitive information. Command access is separate and only allows fixed diagnostics: SSH commands use the trusted connected account, while Windows local commands run in an isolated helper. Deletion, credentials, privilege elevation and arbitrary scripts are prohibited.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="77"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="66"/>
+        <source>Authorized diagnostics</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="78"/>
         <source>Command results appear here. A disconnected or timed-out command may still be running remotely.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="81"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="82"/>
         <source>I have checked that the remote command has stopped</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="82"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="83"/>
         <source>Release selected target</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="107"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="108"/>
         <source>Configuration copied. It contains an access token; keep it private.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="144"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="145"/>
         <source>Operation failed. Check the selected client, storage permissions, and active commands.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="153"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="154"/>
         <source>Disabled</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="154"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="155"/>
         <source>Listening</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="155"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="156"/>
         <source>Starting</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="156"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="157"/>
         <source>Status: %1; instance: %2</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="160"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="161"/>
         <source> (this run only)</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="173"/>
-        <source>Only enable for a trusted Linux/POSIX SSH server. Fixed diagnostics run as its connected user.</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="176"/>
-        <source>System identity</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
         <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="177"/>
-        <source>Uptime and load</source>
+        <source>Fixed diagnostics run in an isolated local helper and do not write to the current shell.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
         <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="178"/>
+        <source>Only enable for a trusted Linux/POSIX SSH server. Fixed diagnostics run as its connected user.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="181"/>
+        <source>System identity</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="182"/>
+        <source>Uptime and load</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="183"/>
         <source>Memory summary</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="179"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="184"/>
         <source>Filesystem capacity</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="200"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="207"/>
         <source>Protected target %1 — execution %2</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="209"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="216"/>
         <source>Command is running.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="213"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="220"/>
         <source>Status: %1
 Exit code: %2
 Termination confirmed: %3
@@ -616,17 +621,17 @@ Termination confirmed: %3
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="215"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="222"/>
         <source>Unknown</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="216"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="223"/>
         <source>Yes</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="216"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="223"/>
         <source>No</source>
         <translation type="unfinished"></translation>
     </message>

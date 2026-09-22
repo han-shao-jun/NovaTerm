@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(NovaTerm VERSION 0.2.21 LANGUAGES CXX C)
+project(NovaTerm VERSION 0.2.22 LANGUAGES CXX C)
 
 # ═══════════════════════════════════════════════════════════════════
 #  1. 通用平台编译参数
@@ -267,8 +267,9 @@ list(FILTER SOURCES EXCLUDE REGEX "[/\\\\]src[/\\\\]core[/\\\\]")
 list(FILTER SOURCES EXCLUDE REGEX "[/\\\\]src[/\\\\]mcp[/\\\\]")
 list(FILTER SOURCES EXCLUDE REGEX "[/\\\\]SessionDirectory\\.(cpp|h)$")
 list(FILTER SOURCES EXCLUDE REGEX
-    "[/\\\\](ISessionCommandExecutor|SessionCommandFacade|SshSessionCommandExecutor)\\.(cpp|h)$"
+    "[/\\\\](CommandPlatformProfile|ISessionCommandExecutor|LocalSessionCommandExecutor|SessionCommandFacade|SshSessionCommandExecutor)\\.(cpp|h)$"
 )
+add_subdirectory(tools/novaterm-local-diag)
 add_subdirectory(src/mcp)
 add_subdirectory(tools/novaterm-mcp)
 if(WIN32)
@@ -282,6 +283,7 @@ qt_add_executable(NovaTerm
     ${SOURCES}
     ${CMAKE_SOURCE_DIR}/resources/resources.qrc
 )
+add_dependencies(NovaTerm novaterm-local-diag)
 
 # 主程序与直接编译配色服务的测试使用同一份 JSON 模板。
 function(novaterm_add_scheme_resources target)

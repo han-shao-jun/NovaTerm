@@ -13,6 +13,8 @@ qt_add_library(novaterm_mcp_runtime STATIC
     McpService.cpp McpService.h
     ../session/SessionDirectory.cpp ../session/SessionDirectory.h
     ../session/ISessionCommandExecutor.h
+    ../session/CommandPlatformProfile.cpp ../session/CommandPlatformProfile.h
+    ../session/LocalSessionCommandExecutor.cpp ../session/LocalSessionCommandExecutor.h
     ../session/SessionCommandFacade.cpp ../session/SessionCommandFacade.h
     ../session/SshSessionCommandExecutor.cpp ../session/SshSessionCommandExecutor.h
 )

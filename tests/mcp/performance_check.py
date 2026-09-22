@@ -20,6 +20,8 @@ from mcp.client.stdio import stdio_client
 
 FIXTURE_MASK = 0
 CLIENT_MASK = 0
+CLIENT_COUNT = int(os.environ.get("NOVATERM_MCP_PERF_CLIENTS", "4"))
+POLL_INTERVAL = float(os.environ.get("NOVATERM_MCP_PERF_INTERVAL", "0.1"))
 
 
 def isolate_cpus() -> None:
@@ -48,7 +50,7 @@ async def workload(config: Path, enabled: bool) -> dict:
             settings = json.loads(config.read_text(encoding="utf-8"))["mcpServers"]["novaterm"]
             parameters = StdioServerParameters(command=settings["command"], args=settings["args"],
                 env={**os.environ, **settings["env"]})
-            for _ in range(4):
+            for _ in range(CLIENT_COUNT):
                 read, write = await stack.enter_async_context(stdio_client(parameters))
                 client = await stack.enter_async_context(ClientSession(read, write))
                 await client.initialize()
@@ -71,7 +73,7 @@ async def workload(config: Path, enabled: bool) -> dict:
                     errors[code] = errors.get(code, 0) + 1
                 else:
                     successful.append(duration)
-                await asyncio.sleep(0.1)
+                await asyncio.sleep(POLL_INTERVAL)
 
         config.with_name(config.name + ".start").write_text("start")
         tasks = [asyncio.create_task(poll(client, identity)) for client, identity in clients]

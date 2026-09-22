@@ -3,6 +3,7 @@
  */
 #include "CommandPolicy.h"
 #include "McpProtocol.h"
+#include "session/CommandPlatformProfile.h"
 #include <QDateTime>
 #include <QDir>
 #include <QFileInfo>
@@ -26,6 +27,32 @@ std::optional<CommandTemplate> CommandPolicy::find(const QString& id)
             return command;
     }
     return std::nullopt;
+}
+
+QList<CommandTemplate> CommandPolicy::catalog(
+    const CommandPlatformProfile& profile)
+{
+    QList<CommandTemplate> result;
+    if (!profile.isAvailable())
+        return result;
+    for (const auto& command : catalog()) {
+        if (profile.supports(command.id))
+            result.append(command);
+    }
+    return result;
+}
+
+std::optional<CommandTemplate> CommandPolicy::find(
+    const QString& id, const CommandPlatformProfile& profile)
+{
+    if (!profile.supports(id))
+        return std::nullopt;
+    return find(id);
+}
+
+QString CommandPolicy::version(const CommandPlatformProfile& profile)
+{
+    return profile.version();
 }
 
 TargetGuard::TargetGuard(QString directory) : _directory(std::move(directory)) {}

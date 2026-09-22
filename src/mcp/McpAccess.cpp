@@ -4,6 +4,7 @@
 #include "McpAccess.h"
 #include "McpProtocol.h"
 #include "session/SessionCommandFacade.h"
+#include "core/terminal/TerminalCore.h"
 #include <QCryptographicHash>
 #include <QDir>
 #include <QFileInfo>
@@ -220,6 +221,10 @@ bool AccessStore::setGrant(const QString& clientId, const SessionDirectory::Entr
             commands.clear();
         }
         _grants[clientId].insert(entry.id, Grant{entry.attachmentId, entry.epoch, std::move(commands)});
+        if (qEnvironmentVariableIntValue("NOVATERM_MCP_PUBLISHED_SNAPSHOT") > 0
+            && entry.session->core()) {
+            static_cast<void>(entry.session->core()->requestPublishedTerminalState());
+        }
     }
     ++_clients[clientId].version;
     emit revoked(clientId, entry.id);

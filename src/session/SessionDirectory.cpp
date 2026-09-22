@@ -2,9 +2,12 @@
  *  @brief 会话目录的弱引用、连接 epoch 与私有目标指纹。
  */
 #include "SessionDirectory.h"
+#include "LocalSessionCommandExecutor.h"
 #include "SessionCommandFacade.h"
 #include "SshSessionCommandExecutor.h"
 #include "transport/SshTransport.h"
+#include <QCoreApplication>
+#include <QDir>
 #include <QThread>
 
 namespace {
@@ -12,10 +15,18 @@ QString uuid() { return QUuid::createUuid().toString(QUuid::WithoutBraces); }
 std::unique_ptr<ISessionCommandExecutor> commandExecutor(
     ITransport* transport, TransportKind kind)
 {
-    if (kind != TransportKind::Ssh)
-        return {};
-    auto* ssh = qobject_cast<SshTransport*>(transport);
-    return ssh ? std::make_unique<SshSessionCommandExecutor>(ssh) : nullptr;
+    if (kind == TransportKind::Ssh) {
+        auto* ssh = qobject_cast<SshTransport*>(transport);
+        return ssh ? std::make_unique<SshSessionCommandExecutor>(ssh) : nullptr;
+    }
+#ifdef Q_OS_WIN
+    if (kind == TransportKind::LocalShell) {
+        const QString helper = QDir(QCoreApplication::applicationDirPath())
+            .filePath(QStringLiteral("novaterm-local-diag.exe"));
+        return std::make_unique<LocalSessionCommandExecutor>(helper);
+    }
+#endif
+    return {};
 }
 }
 

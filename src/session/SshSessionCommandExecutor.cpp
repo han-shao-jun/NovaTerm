@@ -29,6 +29,11 @@ CommandExecutorCapabilities SshSessionCommandExecutor::capabilities() const
     return {CommandExecutionMode::Isolated, true, true, true};
 }
 
+CommandPlatformProfile SshSessionCommandExecutor::profile() const
+{
+    return CommandPlatformProfile::sshLinux();
+}
+
 QString SshSessionCommandExecutor::targetFingerprint() const
 {
     if (!isAvailable())

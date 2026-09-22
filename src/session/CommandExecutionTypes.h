@@ -6,6 +6,7 @@
 
 #include <QByteArray>
 #include <QMetaType>
+#include <QString>
 
 #include <optional>
 
@@ -40,6 +41,7 @@ struct CommandExecutionRequest
     quint64 requestId{0};
     QByteArray command;
     CommandExecutionLimits limits;
+    QString commandId;
 };
 
 /** @brief Executor 对终止证据与输出隔离能力的声明。 */

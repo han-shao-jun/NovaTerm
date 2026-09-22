@@ -5,6 +5,7 @@
 #pragma once
 
 #include "CommandExecutionTypes.h"
+#include "CommandPlatformProfile.h"
 
 #include <QObject>
 #include <QSet>
@@ -29,6 +30,7 @@ public:
 
     [[nodiscard]] bool isAvailable() const;
     [[nodiscard]] CommandExecutorCapabilities capabilities() const;
+    [[nodiscard]] CommandPlatformProfile profile() const;
     [[nodiscard]] QString targetFingerprint() const;
     [[nodiscard]] bool execute(const CommandExecutionRequest& request);
     void cancel(quint64 requestId);

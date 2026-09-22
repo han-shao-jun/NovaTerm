@@ -7,14 +7,21 @@
 #include <QString>
 #include <optional>
 
+class CommandPlatformProfile;
+
 namespace NovaTerm::Mcp {
 struct CommandTemplate { QString id; QString title; QByteArray command; };
 class CommandPolicy final
 {
 public:
     [[nodiscard]] static QList<CommandTemplate> catalog();
+    [[nodiscard]] static QList<CommandTemplate> catalog(
+        const CommandPlatformProfile& profile);
     [[nodiscard]] static std::optional<CommandTemplate> find(const QString& id);
+    [[nodiscard]] static std::optional<CommandTemplate> find(
+        const QString& id, const CommandPlatformProfile& profile);
     [[nodiscard]] static QString version();
+    [[nodiscard]] static QString version(const CommandPlatformProfile& profile);
 };
 
 /** @brief 持久标记先于 exec 提交；拿不到锁或标记损坏时失败关闭。 */

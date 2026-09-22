@@ -31,6 +31,7 @@ private slots:
     void narrowerResizeReflowsExistingContent();
     void snapshotsAreStableValues();
     void modelPublicationsHaveMonotonicRevisions();
+    void publishedContextIsDemandDrivenAndImmutable();
     void rendererSnapshotCopiesOnlyDirtyRows();
     void rendererSnapshotPublishesPerRowRevisions();
     void rendererSnapshotPublishesBlockIdentities();
@@ -264,6 +265,30 @@ void TerminalCoreTests::snapshotsAreStableValues()
     QCOMPARE(before.cellAt(0, 0)->chars[0], uint32_t('A'));
     QCOMPARE(after.cellAt(0, 0)->chars[0], uint32_t('B'));
     QVERIFY(after.revision > before.revision);
+}
+
+void TerminalCoreTests::publishedContextIsDemandDrivenAndImmutable()
+{
+    TerminalCore core(20, 4);
+    QCOMPARE(core.publishedContextStatistics().publishCount, quint64{0});
+
+    QVERIFY(!core.requestPublishedTerminalState());
+    QVERIFY(core.waitForIdle());
+    const auto first = core.requestPublishedTerminalState();
+    QVERIFY(first);
+    QCOMPARE(core.publishedContextStatistics().publishCount, quint64{1});
+    QCOMPARE(core.requestPublishedTerminalState(), first);
+
+    core.writeInput(QByteArrayLiteral("published\r\n"));
+    QVERIFY(core.waitForIdle());
+    QTest::qWait(260);
+    QCOMPARE(core.requestPublishedTerminalState(), first);
+    QVERIFY(core.waitForIdle());
+    const auto second = core.requestPublishedTerminalState();
+    QVERIFY(second);
+    QVERIFY(second != first);
+    QVERIFY(second->state.revision > first->state.revision);
+    QVERIFY(first->state.viewport.front().text.empty());
 }
 
 void TerminalCoreTests::modelPublicationsHaveMonotonicRevisions()

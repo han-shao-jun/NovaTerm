@@ -5,6 +5,7 @@
 #pragma once
 
 #include "CommandExecutionTypes.h"
+#include "CommandPlatformProfile.h"
 
 #include <QObject>
 
@@ -21,6 +22,7 @@ public:
 
     [[nodiscard]] virtual bool isAvailable() const = 0;
     [[nodiscard]] virtual CommandExecutorCapabilities capabilities() const = 0;
+    [[nodiscard]] virtual CommandPlatformProfile profile() const = 0;
     [[nodiscard]] virtual QString targetFingerprint() const = 0;
     [[nodiscard]] virtual bool execute(const CommandExecutionRequest& request) = 0;
     virtual void cancel(quint64 requestId) = 0;
