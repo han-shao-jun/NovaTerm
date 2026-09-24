@@ -4,6 +4,7 @@
  */
 #include "InteractiveStreamFramer.h"
 
+#include <QRegularExpression>
 #include <utility>
 
 namespace {
@@ -16,6 +17,9 @@ void InteractiveStreamFramer::configure(InteractiveCommandProfile profile)
         profile = InteractiveCommandProfile{};
     _profile = std::move(profile);
     _pending.clear();
+    _deviceLine.clear();
+    _deviceControlTail.clear();
+    _alternateScreen = false;
 }
 
 void InteractiveStreamFramer::reset(quint64 generation,
@@ -25,6 +29,9 @@ void InteractiveStreamFramer::reset(quint64 generation,
     _executionNonce = std::move(executionNonce);
     _promptGeneration = 0;
     _pending.clear();
+    _deviceLine.clear();
+    _deviceControlTail.clear();
+    _alternateScreen = false;
 }
 
 void InteractiveStreamFramer::beginTransaction(QByteArray executionNonce)
@@ -38,6 +45,51 @@ InteractiveFrameResult InteractiveStreamFramer::consume(
     InteractiveFrameResult result;
     if (bytes.isEmpty())
         return result;
+
+    if (!_profile.shellIntegration && _profile.promptPattern.isEmpty()) {
+        result.visibleBytes = bytes;
+        return result;
+    }
+
+    if (!_profile.shellIntegration && !_profile.promptPattern.isEmpty()) {
+        result.visibleBytes = bytes;
+        const QByteArray controls = _deviceControlTail + bytes;
+        _deviceControlTail = controls.right(7);
+        if (controls.contains(QByteArrayLiteral("\x1b[?1049h"))) {
+            _alternateScreen = true;
+            _promptGeneration = 0;
+            result.events.append({InteractiveStreamEventKind::ShellReset,
+                                  0, std::nullopt, bytes.size()});
+        }
+        if (controls.contains(QByteArrayLiteral("\x1b[?1049l"))) {
+            _alternateScreen = false;
+            _promptGeneration = 0;
+            result.events.append({InteractiveStreamEventKind::ShellReset,
+                                  0, std::nullopt, bytes.size()});
+        }
+        const qsizetype lineBreak = qMax(bytes.lastIndexOf('\r'),
+                                         bytes.lastIndexOf('\n'));
+        if (lineBreak >= 0)
+            _deviceLine = bytes.mid(lineBreak + 1);
+        else
+            _deviceLine.append(bytes);
+        if (_deviceLine.size() > 512)
+            _deviceLine = _deviceLine.right(512);
+        const QString line = QString::fromUtf8(_deviceLine);
+        const QRegularExpression passwordPrompt(
+            QStringLiteral("(?i)(password|passphrase):\\s*$"));
+        if (!_alternateScreen && !passwordPrompt.match(line).hasMatch()) {
+            const QRegularExpression prompt(_profile.promptPattern);
+            const auto match = prompt.match(line);
+            if (match.hasMatch() && match.capturedEnd() == line.size()) {
+                ++_promptGeneration;
+                result.events.append({
+                    InteractiveStreamEventKind::PromptCandidate,
+                    _promptGeneration, std::nullopt, bytes.size()});
+            }
+        }
+        return result;
+    }
 
     _pending.append(bytes);
     const QByteArray& prefix = _profile.markerPrefix;
@@ -102,14 +154,29 @@ std::optional<InteractiveStreamEvent> InteractiveStreamFramer::parseMarker(
     const QByteArray& body)
 {
     const QList<QByteArray> fields = body.split(';');
-    if (fields.size() == 2 && fields.front() == QByteArrayLiteral("PROMPT")) {
+    if ((fields.size() == 2 || fields.size() == 3)
+        && fields.front() == QByteArrayLiteral("PROMPT")) {
         bool ok = false;
         const quint64 generation = fields.at(1).toULongLong(&ok);
         if (!ok || generation == 0)
             return std::nullopt;
+        std::optional<int> exitCode;
+        if (fields.size() == 3) {
+            const int parsed = fields.at(2).toInt(&ok);
+            if (!ok)
+                return std::nullopt;
+            exitCode = parsed;
+        }
+        const bool completesCommand = !_executionNonce.isEmpty()
+            && generation > _promptGeneration && exitCode.has_value();
         _promptGeneration = generation;
-        return InteractiveStreamEvent{InteractiveStreamEventKind::PromptReady,
-                                      generation, std::nullopt};
+        if (completesCommand)
+            _executionNonce.clear();
+        return InteractiveStreamEvent{
+            completesCommand
+                ? InteractiveStreamEventKind::CommandFinishedAtPrompt
+                : InteractiveStreamEventKind::PromptReady,
+            generation, exitCode};
     }
     if (fields.size() == 2 && fields.front() == QByteArrayLiteral("START")
         && !_executionNonce.isEmpty() && fields.at(1) == _executionNonce) {

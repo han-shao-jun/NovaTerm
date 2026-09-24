@@ -18,8 +18,10 @@ enum class InteractiveStreamEventKind
     PromptReady,
     CommandStarted,
     CommandFinished,
+    CommandFinishedAtPrompt,
     ShellReset,
     FramingError,
+    PromptCandidate,
 };
 
 /** @brief 一条已验证的交互流事件。 */
@@ -60,4 +62,7 @@ private:
     QByteArray _executionNonce;
     quint64 _sessionGeneration{0};
     quint64 _promptGeneration{0};
+    QByteArray _deviceLine;
+    QByteArray _deviceControlTail;
+    bool _alternateScreen{false};
 };

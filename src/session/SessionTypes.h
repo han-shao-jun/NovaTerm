@@ -10,6 +10,7 @@
 #pragma once
 
 #include <QMetaType>
+#include <QMap>
 #include <QDateTime>
 #include <QSerialPort>
 #include <QString>
@@ -194,6 +195,8 @@ struct SshConfig
     QString terminalType{QStringLiteral("xterm-256color")}; ///< TERM 环境变量值
     int keepAliveSeconds{30};    ///< 保活间隔秒数（0 表示禁用）
     QString label;               ///< 显示标签
+    QString interactiveShellKind; ///< 显式选择的 Shell integration 类型
+    QMap<QString, QString> environment; ///< 启动时请求的非敏感环境变量
 
     /**
      * @brief 校验配置是否有效。

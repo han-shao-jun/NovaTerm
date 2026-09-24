@@ -69,6 +69,8 @@ if(BUILD_TESTING)
         ${PROJECT_SOURCE_DIR}/src/session/SessionCommandCoordinator.h
         ${PROJECT_SOURCE_DIR}/src/session/InteractiveSessionCommandExecutor.cpp
         ${PROJECT_SOURCE_DIR}/src/session/InteractiveSessionCommandExecutor.h
+        ${PROJECT_SOURCE_DIR}/src/session/ShellIntegration.cpp
+        ${PROJECT_SOURCE_DIR}/src/session/ShellIntegration.h
         ${PROJECT_SOURCE_DIR}/src/credential/CredentialStore.cpp
         ${PROJECT_SOURCE_DIR}/src/transport/SshTransport.cpp
         ${PROJECT_SOURCE_DIR}/src/transport/SshTransport.h
@@ -132,6 +134,8 @@ if(BUILD_TESTING)
 
     qt_add_executable(novaterm_session_tests
         ${CMAKE_CURRENT_SOURCE_DIR}/session/SessionTests.cpp
+        ${PROJECT_SOURCE_DIR}/src/session/LocalShellProfile.cpp
+        ${PROJECT_SOURCE_DIR}/src/session/LocalShellProfile.h
         ${PROJECT_SOURCE_DIR}/src/credential/CredentialStore.cpp
         ${PROJECT_SOURCE_DIR}/src/credential/CredentialStore.h
         ${PROJECT_SOURCE_DIR}/src/profile/ProfileStore.cpp
@@ -148,6 +152,8 @@ if(BUILD_TESTING)
         ${PROJECT_SOURCE_DIR}/src/session/SessionCommandCoordinator.h
         ${PROJECT_SOURCE_DIR}/src/session/InteractiveSessionCommandExecutor.cpp
         ${PROJECT_SOURCE_DIR}/src/session/InteractiveSessionCommandExecutor.h
+        ${PROJECT_SOURCE_DIR}/src/session/ShellIntegration.cpp
+        ${PROJECT_SOURCE_DIR}/src/session/ShellIntegration.h
         ${PROJECT_SOURCE_DIR}/src/session/SessionStore.cpp
         ${PROJECT_SOURCE_DIR}/src/session/SessionStore.h
         ${PROJECT_SOURCE_DIR}/src/session/ISessionCommandExecutor.h
@@ -410,6 +416,8 @@ if(BUILD_TESTING)
             ${PROJECT_SOURCE_DIR}/src/session/SessionCommandCoordinator.h
             ${PROJECT_SOURCE_DIR}/src/session/InteractiveSessionCommandExecutor.cpp
             ${PROJECT_SOURCE_DIR}/src/session/InteractiveSessionCommandExecutor.h
+            ${PROJECT_SOURCE_DIR}/src/session/ShellIntegration.cpp
+            ${PROJECT_SOURCE_DIR}/src/session/ShellIntegration.h
             ${PROJECT_SOURCE_DIR}/src/session/ISessionCommandExecutor.h
             ${PROJECT_SOURCE_DIR}/src/session/CommandPlatformProfile.cpp
             ${PROJECT_SOURCE_DIR}/src/session/CommandPlatformProfile.h

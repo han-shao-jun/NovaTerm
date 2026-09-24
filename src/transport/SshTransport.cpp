@@ -722,6 +722,16 @@ void SshTransport::workerMain()
         return;
     }
 
+    // 仅请求创建快照中明确携带的环境变量。服务器可拒绝 AcceptEnv；
+    // 拒绝时 Shell 不会发布提示符标记，交互命令能力保持不可用。
+    for (auto it = _config.environment.cbegin();
+         it != _config.environment.cend(); ++it) {
+        const QByteArray name = it.key().toUtf8();
+        const QByteArray value = it.value().toUtf8();
+        (void)ssh_channel_request_env(channel, name.constData(),
+                                      value.constData());
+    }
+
     const int startCols = _pendingCols.load() > 0 ? _pendingCols.load() : 80;
     const int startRows = _pendingRows.load() > 0 ? _pendingRows.load() : 24;
 

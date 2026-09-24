@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(NovaTerm VERSION 0.2.25 LANGUAGES CXX C)
+project(NovaTerm VERSION 0.2.26 LANGUAGES CXX C)
 
 # ═══════════════════════════════════════════════════════════════════
 #  1. 通用平台编译参数
@@ -429,10 +429,16 @@ if(WIN32)
     if(EXISTS "${CLINK_SRC_DIR}/clink.bat")
         add_custom_command(TARGET NovaTerm POST_BUILD
             COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${CLINK_SRC_DIR}/clink.bat"
                 "${CLINK_SRC_DIR}/clink_x64.exe"
                 "${CLINK_SRC_DIR}/clink_dll_x64.dll"
                 "${CLINK_SRC_DIR}/clink.html"
                 $<TARGET_FILE_DIR:NovaTerm>
+            COMMAND ${CMAKE_COMMAND} -E make_directory
+                "$<TARGET_FILE_DIR:NovaTerm>/clink-scripts"
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${CMAKE_SOURCE_DIR}/resources/clink/novaterm_prompt.lua"
+                "$<TARGET_FILE_DIR:NovaTerm>/clink-scripts/novaterm_prompt.lua"
             COMMENT "Copying Clink release files next to NovaTerm.exe"
         )
         message(STATUS "Clink release will be deployed to output dir: ${CLINK_SRC_DIR}")
@@ -600,8 +606,11 @@ if(WIN32 AND EXISTS "${CLINK_SRC_DIR}/clink_x64.exe")
             "${CLINK_SRC_DIR}/clink_x64.exe"
             "${CLINK_SRC_DIR}/clink_dll_x64.dll"
             "${CLINK_SRC_DIR}/clink.html"
+            "${CLINK_SRC_DIR}/clink.bat"
         DESTINATION ${CMAKE_INSTALL_BINDIR}
     )
+    install(FILES "${CMAKE_SOURCE_DIR}/resources/clink/novaterm_prompt.lua"
+        DESTINATION "${CMAKE_INSTALL_BINDIR}/clink-scripts")
 endif()
 
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")

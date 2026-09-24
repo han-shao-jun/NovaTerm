@@ -16,6 +16,12 @@ SessionCommandCoordinator::SessionCommandCoordinator(
     , _framer(framer)
 {
     _timeout.setSingleShot(true);
+    _promptSilence.setSingleShot(true);
+    connect(&_promptSilence, &QTimer::timeout, this, [this] {
+        if (!_active && _candidatePromptGeneration != 0)
+            _promptGeneration = _candidatePromptGeneration;
+        _candidatePromptGeneration = 0;
+    });
     connect(&_timeout, &QTimer::timeout, this, [this] {
         finish(CommandExecutionOutcome::TimedOut, false);
     });
@@ -25,15 +31,25 @@ SessionCommandCoordinator::SessionCommandCoordinator(
     }
 }
 
+void SessionCommandCoordinator::configure(InteractiveCommandProfile profile)
+{
+    _profile = std::move(profile);
+    _promptSilence.stop();
+    _candidatePromptGeneration = 0;
+    _promptGeneration = 0;
+}
+
 void SessionCommandCoordinator::reset(quint64 sessionGeneration)
 {
     _timeout.stop();
+    _promptSilence.stop();
     if (_active && _arbiter)
         _arbiter->releaseMcpLease(_active->requestId);
     _active.reset();
     _standardOutput.clear();
     _sessionGeneration = sessionGeneration;
     _promptGeneration = 0;
+    _candidatePromptGeneration = 0;
     _executionMayHaveStarted = false;
     _commandStarted = false;
     _outputTruncated = false;
@@ -58,7 +74,7 @@ bool SessionCommandCoordinator::submit(const CommandExecutionRequest& request)
     _commandStarted = false;
     _outputTruncated = false;
     _framer->beginTransaction(request.executionNonce);
-    const QByteArray submission = request.command + QByteArrayLiteral("\r");
+    const QByteArray submission = request.command + _profile.lineEnding;
     if (!_arbiter->submitMcpInput(request.requestId, submission)) {
         _arbiter->releaseMcpLease(request.requestId);
         _active.reset();
@@ -85,7 +101,15 @@ void SessionCommandCoordinator::handleInteractiveEvent(
 {
     switch (event.kind) {
     case InteractiveStreamEventKind::PromptReady:
+        _promptSilence.stop();
+        _candidatePromptGeneration = 0;
         _promptGeneration = event.promptGeneration;
+        break;
+    case InteractiveStreamEventKind::PromptCandidate:
+        if (!_active) {
+            _candidatePromptGeneration = event.promptGeneration;
+            _promptSilence.start(_profile.promptSilenceMs);
+        }
         break;
     case InteractiveStreamEventKind::CommandStarted:
         if (_active)
@@ -99,7 +123,18 @@ void SessionCommandCoordinator::handleInteractiveEvent(
                    true, event.exitCode);
         }
         break;
+    case InteractiveStreamEventKind::CommandFinishedAtPrompt:
+        if (_active) {
+            const bool succeeded = event.exitCode && *event.exitCode == 0;
+            finish(succeeded ? CommandExecutionOutcome::Completed
+                             : CommandExecutionOutcome::Failed,
+                   true, event.exitCode);
+            _promptGeneration = event.promptGeneration;
+        }
+        break;
     case InteractiveStreamEventKind::ShellReset:
+        _promptSilence.stop();
+        _candidatePromptGeneration = 0;
         _promptGeneration = 0;
         if (_active)
             finish(CommandExecutionOutcome::Disconnected, false);
@@ -113,6 +148,11 @@ void SessionCommandCoordinator::handleInteractiveEvent(
 
 void SessionCommandCoordinator::handleInteractiveBytes(const QByteArray& bytes)
 {
+    if (!_active && !bytes.isEmpty() && !_profile.shellIntegration) {
+        _promptSilence.stop();
+        _candidatePromptGeneration = 0;
+        _promptGeneration = 0;
+    }
     if (!_active || !_commandStarted || bytes.isEmpty())
         return;
     const qsizetype remaining = _active->limits.maxOutputBytes

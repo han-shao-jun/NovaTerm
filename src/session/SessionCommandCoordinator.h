@@ -25,6 +25,7 @@ public:
                               QObject* parent = nullptr);
 
     void reset(quint64 sessionGeneration);
+    void configure(InteractiveCommandProfile profile);
     [[nodiscard]] bool submit(const CommandExecutionRequest& request);
     void cancel(quint64 requestId);
     [[nodiscard]] bool isPromptReady() const noexcept;
@@ -48,12 +49,14 @@ private:
     SessionInputArbiter* _arbiter{nullptr};
     InteractiveStreamFramer* _framer{nullptr};
     QTimer _timeout;
+    QTimer _promptSilence;
+    InteractiveCommandProfile _profile;
     std::optional<CommandExecutionRequest> _active;
     QByteArray _standardOutput;
     quint64 _sessionGeneration{0};
     quint64 _promptGeneration{0};
+    quint64 _candidatePromptGeneration{0};
     bool _executionMayHaveStarted{false};
     bool _commandStarted{false};
     bool _outputTruncated{false};
 };
-

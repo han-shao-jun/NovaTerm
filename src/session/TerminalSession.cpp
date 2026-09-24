@@ -13,6 +13,7 @@
 #include "SessionInputArbiter.h"
 #include "SessionInputPump.h"
 #include "InteractiveStreamFramer.h"
+#include "ShellIntegration.h"
 #include "core/terminal/TerminalCore.h"
 
 #include <QDebug>
@@ -142,6 +143,13 @@ void TerminalSession::attach(ITransport* transport, Ownership ownership,
     _transport = transport;
     _ownership = ownership;
     _config.transportKind = transportKind;
+    if (const auto interactiveProfile = ShellIntegration::profileFor(_config)) {
+        _streamFramer->configure(*interactiveProfile);
+        _commandCoordinator->configure(*interactiveProfile);
+    } else {
+        _streamFramer->configure(InteractiveCommandProfile{});
+        _commandCoordinator->configure(InteractiveCommandProfile{});
+    }
     _commandFacade->reset(_statistics.generation);
     _inputArbiter->bind(transport, _statistics.generation);
     _streamFramer->reset(_statistics.generation);
