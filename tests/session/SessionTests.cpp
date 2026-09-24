@@ -1,6 +1,7 @@
 #include "core/terminal/TerminalCore.h"
 #include "credential/CredentialStore.h"
 #include "profile/ProfileStore.h"
+#include "session/InteractiveStreamFramer.h"
 #include "session/SessionInputArbiter.h"
 #include "session/SessionStore.h"
 #include "session/TerminalSession.h"
@@ -122,6 +123,9 @@ private slots:
     void userInputPreemptsPartialMcpWrite();
     void staleAndDuplicateMcpLeasesAreRejected();
     void emptyInputKeepsMcpLease();
+    void interactiveMarkersNeverReachTerminalCore();
+    void forgedAndOrdinaryOscRemainVisible();
+    void framingBufferIsBoundedAndResetDropsOldPartialMarker();
     void agentContextJoinsHistorySeamAndBoundsUtf8();
     void secretServiceCredentialStoreSurvivesRestart();
 };
@@ -180,6 +184,62 @@ void SessionTests::emptyInputKeepsMcpLease()
     QVERIFY(arbiter.hasMcpLease());
     QCOMPARE(preempted.count(), 0);
     QCOMPARE(transport.writes, QByteArray{});
+}
+
+void SessionTests::interactiveMarkersNeverReachTerminalCore()
+{
+    InteractiveStreamFramer framer;
+    framer.reset(9, QByteArrayLiteral("nonce-1"));
+    const auto first = framer.consume(
+        QByteArrayLiteral("out\x1b]633;NT;END;non"));
+    const auto second = framer.consume(
+        QByteArrayLiteral("ce-1;0\x07prompt$ "));
+
+    QCOMPARE(first.visibleBytes, QByteArrayLiteral("out"));
+    QVERIFY(first.events.isEmpty());
+    QCOMPARE(second.visibleBytes, QByteArrayLiteral("prompt$ "));
+    QCOMPARE(second.events.size(), 1);
+    QCOMPARE(second.events.front().kind,
+             InteractiveStreamEventKind::CommandFinished);
+    QCOMPARE(second.events.front().exitCode, std::optional<int>{0});
+}
+
+void SessionTests::forgedAndOrdinaryOscRemainVisible()
+{
+    InteractiveStreamFramer framer;
+    framer.reset(4, QByteArrayLiteral("current"));
+    const QByteArray forged =
+        QByteArrayLiteral("\x1b]633;NT;END;old;0\x07");
+    const QByteArray ordinary = QByteArrayLiteral("\x1b]633;A\x07");
+
+    const auto result = framer.consume(forged + ordinary);
+
+    QCOMPARE(result.visibleBytes, forged + ordinary);
+    QVERIFY(result.events.isEmpty());
+}
+
+void SessionTests::framingBufferIsBoundedAndResetDropsOldPartialMarker()
+{
+    InteractiveCommandProfile profile;
+    profile.maxMarkerBytes = 32;
+    InteractiveStreamFramer framer;
+    framer.configure(profile);
+    framer.reset(2, QByteArrayLiteral("nonce"));
+
+    const QByteArray oversized = QByteArrayLiteral("\x1b]633;NT;END;")
+        + QByteArray(40, 'x');
+    const auto overflow = framer.consume(oversized);
+    QCOMPARE(overflow.visibleBytes, oversized);
+    QCOMPARE(overflow.events.size(), 1);
+    QCOMPARE(overflow.events.front().kind,
+             InteractiveStreamEventKind::FramingError);
+
+    const auto partial = framer.consume(QByteArrayLiteral("\x1b]633;NT;END;non"));
+    QVERIFY(partial.visibleBytes.isEmpty());
+    framer.reset(3, QByteArrayLiteral("new"));
+    const auto afterReset = framer.consume(QByteArrayLiteral("plain"));
+    QCOMPARE(afterReset.visibleBytes, QByteArrayLiteral("plain"));
+    QVERIFY(afterReset.events.isEmpty());
 }
 
 void SessionTests::serialAutomaticReconnect()

@@ -11,6 +11,7 @@
 #include "SessionCommandFacade.h"
 #include "SessionInputArbiter.h"
 #include "SessionInputPump.h"
+#include "InteractiveStreamFramer.h"
 #include "core/terminal/TerminalCore.h"
 
 #include <QDebug>
@@ -86,6 +87,7 @@ TerminalSession::TerminalSession(TerminalCore* core, QObject* parent)
     : QObject(parent)
     , _commandFacade(std::make_unique<SessionCommandFacade>(this))
     , _inputArbiter(std::make_unique<SessionInputArbiter>(this))
+    , _streamFramer(std::make_unique<InteractiveStreamFramer>())
     , _core(core)
 {
     if (_core) {
@@ -101,6 +103,7 @@ TerminalSession::TerminalSession(RuntimeConfig config, QObject* parent)
     , _config(std::move(config))
     , _commandFacade(std::make_unique<SessionCommandFacade>(this))
     , _inputArbiter(std::make_unique<SessionInputArbiter>(this))
+    , _streamFramer(std::make_unique<InteractiveStreamFramer>())
     , _ownedCore(std::make_unique<TerminalCore>(80, 24))
     , _core(_ownedCore.get())
 {
@@ -136,6 +139,7 @@ void TerminalSession::attach(ITransport* transport, Ownership ownership,
     _config.transportKind = transportKind;
     _commandFacade->reset(_statistics.generation);
     _inputArbiter->bind(transport, _statistics.generation);
+    _streamFramer->reset(_statistics.generation);
     _manualDisconnect = false;
     _reconnectTimer.setSingleShot(true);
     QObject::disconnect(&_reconnectTimer, nullptr, this, nullptr);
@@ -176,6 +180,7 @@ void TerminalSession::rewireTransportSignals()
         return;
     _commandFacade->reset(_statistics.generation);
     _inputArbiter->bind(_transport.data(), _statistics.generation);
+    _streamFramer->reset(_statistics.generation);
     for (const auto& connection : std::as_const(_transportConnections))
         QObject::disconnect(connection);
     _transportConnections.clear();
@@ -503,7 +508,8 @@ void TerminalSession::startPump()
 {
     if (_inputPump || !_transport || !_core)
         return;
-    _inputPump = new SessionInputPump(_transport, _core, this);
+    _inputPump = new SessionInputPump(_transport, _core,
+                                      _streamFramer.get(), this);
     connect(_inputPump, &SessionInputPump::overload, this,
             [this](const QString& reason) {
         reportError(SessionErrorCategory::InputOverload, reason);
@@ -527,6 +533,7 @@ void TerminalSession::clearAttachment(bool requestDisconnect)
     _pendingTransportError.reset();
     _commandFacade->reset(_statistics.generation);
     _inputArbiter->bind(nullptr, _statistics.generation);
+    _streamFramer->reset(_statistics.generation);
     _transport = nullptr;
     if (!current)
         return;

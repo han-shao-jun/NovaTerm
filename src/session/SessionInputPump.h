@@ -8,6 +8,8 @@
  */
 #pragma once
 
+#include "InteractiveStreamFramer.h"
+
 #include <QByteArray>
 #include <QObject>
 #include <QPointer>
@@ -45,6 +47,7 @@ public:
      * @param parent    父对象。
      */
     SessionInputPump(ITransport* transport, TerminalCore* core,
+                     InteractiveStreamFramer* framer = nullptr,
                      QObject* parent = nullptr);
     ~SessionInputPump() override;
 
@@ -70,9 +73,14 @@ signals:
      * @param reason 过载原因。
      */
     void overload(const QString& reason);
+    /** @brief 收到一条已经验证且未送入 TerminalCore 的内部事件。 */
+    void interactiveEvent(const InteractiveStreamEvent& event);
+    /** @brief 与 TerminalCore 收到内容一致的去 marker 字节。 */
+    void interactiveBytes(const QByteArray& bytes);
 
 private:
     void acceptBytes(const QByteArray& data);  ///< 接收并转送一段字节
+    void forwardVisibleBytes(const QByteArray& data); ///< 转送去 marker 字节
     void handleBackpressure(bool paused);       ///< 响应解析器背压状态变化
     void drainPending();                         ///< 排空待处理缓冲
     void reportOverload(const QString& reason); ///< 上报过载并暂停读取
@@ -82,6 +90,7 @@ private:
 
     QPointer<ITransport> _transport;
     QPointer<TerminalCore> _core;
+    InteractiveStreamFramer* _framer{nullptr}; ///< Session 拥有的非 owning 指针
     QByteArray _pending;       ///< 解析器满时缓存的待处理字节
     qsizetype _pendingHead{0}; ///< 已消费前缀；排空时一次清理
     bool _running{false};
