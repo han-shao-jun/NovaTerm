@@ -23,6 +23,7 @@ class SessionInputPump;
 class SessionCommandFacade;
 class SessionInputArbiter;
 class InteractiveStreamFramer;
+class SessionCommandCoordinator;
 class TerminalCore;
 
 /**
@@ -100,6 +101,11 @@ public:
     [[nodiscard]] SessionInputArbiter* inputArbiter() const noexcept
     {
         return _inputArbiter.get();
+    }
+    /** @brief 当前 Session 的交互命令协调器。 */
+    [[nodiscard]] SessionCommandCoordinator* commandCoordinator() const noexcept
+    {
+        return _commandCoordinator.get();
     }
 
     /**
@@ -243,6 +249,7 @@ private:
     std::unique_ptr<SessionCommandFacade> _commandFacade;
     std::unique_ptr<SessionInputArbiter> _inputArbiter;
     std::unique_ptr<InteractiveStreamFramer> _streamFramer;
+    std::unique_ptr<SessionCommandCoordinator> _commandCoordinator;
     bool transition(SessionState next);   ///< 状态机迁移（校验合法性）
     bool beginReconnect(bool automatic = false); ///< 进入重连状态并提交连接请求
     bool _automaticReconnectAttempt{false}; ///< 当前连接是否由自动重连触发

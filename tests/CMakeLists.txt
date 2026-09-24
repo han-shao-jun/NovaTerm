@@ -65,6 +65,10 @@ if(BUILD_TESTING)
         ${PROJECT_SOURCE_DIR}/src/session/InteractiveCommandProfile.h
         ${PROJECT_SOURCE_DIR}/src/session/InteractiveStreamFramer.cpp
         ${PROJECT_SOURCE_DIR}/src/session/InteractiveStreamFramer.h
+        ${PROJECT_SOURCE_DIR}/src/session/SessionCommandCoordinator.cpp
+        ${PROJECT_SOURCE_DIR}/src/session/SessionCommandCoordinator.h
+        ${PROJECT_SOURCE_DIR}/src/session/InteractiveSessionCommandExecutor.cpp
+        ${PROJECT_SOURCE_DIR}/src/session/InteractiveSessionCommandExecutor.h
         ${PROJECT_SOURCE_DIR}/src/credential/CredentialStore.cpp
         ${PROJECT_SOURCE_DIR}/src/transport/SshTransport.cpp
         ${PROJECT_SOURCE_DIR}/src/transport/SshTransport.h
@@ -140,6 +144,10 @@ if(BUILD_TESTING)
         ${PROJECT_SOURCE_DIR}/src/session/InteractiveCommandProfile.h
         ${PROJECT_SOURCE_DIR}/src/session/InteractiveStreamFramer.cpp
         ${PROJECT_SOURCE_DIR}/src/session/InteractiveStreamFramer.h
+        ${PROJECT_SOURCE_DIR}/src/session/SessionCommandCoordinator.cpp
+        ${PROJECT_SOURCE_DIR}/src/session/SessionCommandCoordinator.h
+        ${PROJECT_SOURCE_DIR}/src/session/InteractiveSessionCommandExecutor.cpp
+        ${PROJECT_SOURCE_DIR}/src/session/InteractiveSessionCommandExecutor.h
         ${PROJECT_SOURCE_DIR}/src/session/SessionStore.cpp
         ${PROJECT_SOURCE_DIR}/src/session/SessionStore.h
         ${PROJECT_SOURCE_DIR}/src/session/ISessionCommandExecutor.h
@@ -398,6 +406,10 @@ if(BUILD_TESTING)
             ${PROJECT_SOURCE_DIR}/src/session/InteractiveCommandProfile.h
             ${PROJECT_SOURCE_DIR}/src/session/InteractiveStreamFramer.cpp
             ${PROJECT_SOURCE_DIR}/src/session/InteractiveStreamFramer.h
+            ${PROJECT_SOURCE_DIR}/src/session/SessionCommandCoordinator.cpp
+            ${PROJECT_SOURCE_DIR}/src/session/SessionCommandCoordinator.h
+            ${PROJECT_SOURCE_DIR}/src/session/InteractiveSessionCommandExecutor.cpp
+            ${PROJECT_SOURCE_DIR}/src/session/InteractiveSessionCommandExecutor.h
             ${PROJECT_SOURCE_DIR}/src/session/ISessionCommandExecutor.h
             ${PROJECT_SOURCE_DIR}/src/session/CommandPlatformProfile.cpp
             ${PROJECT_SOURCE_DIR}/src/session/CommandPlatformProfile.h

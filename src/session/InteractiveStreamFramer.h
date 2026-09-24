@@ -28,6 +28,7 @@ struct InteractiveStreamEvent
     InteractiveStreamEventKind kind{InteractiveStreamEventKind::FramingError};
     quint64 promptGeneration{0};
     std::optional<int> exitCode;
+    qsizetype visibleOffset{0};
 };
 
 /** @brief 一次 consume 的可见字节与内部事件。 */
@@ -45,6 +46,8 @@ class InteractiveStreamFramer final
 public:
     void configure(InteractiveCommandProfile profile);
     void reset(quint64 generation, QByteArray executionNonce = {});
+    /** @brief 为当前提示符开始一个新事务，不重置提示符状态。 */
+    void beginTransaction(QByteArray executionNonce);
     [[nodiscard]] InteractiveFrameResult consume(const QByteArray& bytes);
 
 private:
@@ -58,4 +61,3 @@ private:
     quint64 _sessionGeneration{0};
     quint64 _promptGeneration{0};
 };
-

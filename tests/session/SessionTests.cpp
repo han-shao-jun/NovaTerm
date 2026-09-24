@@ -2,6 +2,7 @@
 #include "credential/CredentialStore.h"
 #include "profile/ProfileStore.h"
 #include "session/InteractiveStreamFramer.h"
+#include "session/SessionCommandCoordinator.h"
 #include "session/SessionInputArbiter.h"
 #include "session/SessionStore.h"
 #include "session/TerminalSession.h"
@@ -126,6 +127,9 @@ private slots:
     void interactiveMarkersNeverReachTerminalCore();
     void forgedAndOrdinaryOscRemainVisible();
     void framingBufferIsBoundedAndResetDropsOldPartialMarker();
+    void interactiveCommandRequiresReadyPrompt();
+    void interactiveCommandCapturesCombinedFrameInOrder();
+    void userInputCancelsStartedInteractiveCommand();
     void agentContextJoinsHistorySeamAndBoundsUtf8();
     void secretServiceCredentialStoreSurvivesRestart();
 };
@@ -240,6 +244,110 @@ void SessionTests::framingBufferIsBoundedAndResetDropsOldPartialMarker()
     const auto afterReset = framer.consume(QByteArrayLiteral("plain"));
     QCOMPARE(afterReset.visibleBytes, QByteArrayLiteral("plain"));
     QVERIFY(afterReset.events.isEmpty());
+}
+
+void SessionTests::interactiveCommandRequiresReadyPrompt()
+{
+    FakeTransport transport;
+    QVERIFY(transport.connectToHost());
+    SessionInputArbiter arbiter;
+    arbiter.bind(&transport, 5);
+    InteractiveStreamFramer framer;
+    framer.reset(5);
+    SessionCommandCoordinator coordinator(&arbiter, &framer);
+    coordinator.reset(5);
+
+    CommandExecutionRequest request;
+    request.requestId = 71;
+    request.command = QByteArrayLiteral("uname -srm");
+    request.executionNonce = QByteArrayLiteral("exec-71");
+    request.expectedPromptGeneration = 3;
+
+    QVERIFY(!coordinator.submit(request));
+    QCOMPARE(transport.writes, QByteArray{});
+}
+
+void SessionTests::interactiveCommandCapturesCombinedFrameInOrder()
+{
+    TerminalCore core(80, 24);
+    FakeTransport transport;
+    QVERIFY(transport.connectToHost());
+    SessionInputArbiter arbiter;
+    arbiter.bind(&transport, 6);
+    InteractiveStreamFramer framer;
+    framer.reset(6);
+    SessionCommandCoordinator coordinator(&arbiter, &framer);
+    coordinator.reset(6);
+    SessionInputPump pump(&transport, &core, &framer);
+    connect(&pump, &SessionInputPump::interactiveEvent,
+            &coordinator, &SessionCommandCoordinator::handleInteractiveEvent);
+    connect(&pump, &SessionInputPump::interactiveBytes,
+            &coordinator, &SessionCommandCoordinator::handleInteractiveBytes);
+    pump.start();
+
+    coordinator.handleInteractiveEvent({
+        InteractiveStreamEventKind::PromptReady, 4, std::nullopt});
+    CommandExecutionRequest request;
+    request.requestId = 72;
+    request.command = QByteArrayLiteral("uname -srm");
+    request.executionNonce = QByteArrayLiteral("exec-72");
+    request.expectedPromptGeneration = 4;
+    QSignalSpy finished(&coordinator, &SessionCommandCoordinator::finished);
+    QVERIFY(coordinator.submit(request));
+    QCOMPARE(transport.writes, QByteArrayLiteral("uname -srm\r"));
+
+    emit transport.readyRead(
+        QByteArrayLiteral("uname -srm\r\n\x1b]633;NT;START;exec-72\x07")
+        + QByteArrayLiteral("Linux armv7l\r\n")
+        + QByteArrayLiteral("\x1b]633;NT;END;exec-72;0\x07root# "));
+
+    QTRY_COMPARE(finished.count(), 1);
+    const auto result = qvariant_cast<CommandExecutionResult>(
+        finished.first().front());
+    QCOMPARE(result.outcome, CommandExecutionOutcome::Completed);
+    QCOMPARE(result.standardOutput, QByteArrayLiteral("Linux armv7l\r\n"));
+    QCOMPARE(result.exitCode, std::optional<int>{0});
+    QVERIFY(result.executionMayHaveStarted);
+    QVERIFY(result.terminationConfirmed);
+    QVERIFY(!coordinator.isPromptReady());
+    QVERIFY(core.waitForIdle());
+    const auto state = core.terminalState();
+    QVERIFY(std::any_of(state.viewport.begin(), state.viewport.end(),
+                        [](const auto& line) {
+        return line.text.find("Linux armv7l") != std::string::npos;
+    }));
+}
+
+void SessionTests::userInputCancelsStartedInteractiveCommand()
+{
+    FakeTransport transport;
+    QVERIFY(transport.connectToHost());
+    SessionInputArbiter arbiter;
+    arbiter.bind(&transport, 8);
+    InteractiveStreamFramer framer;
+    framer.reset(8);
+    SessionCommandCoordinator coordinator(&arbiter, &framer);
+    coordinator.reset(8);
+    coordinator.handleInteractiveEvent({
+        InteractiveStreamEventKind::PromptReady, 2, std::nullopt});
+
+    CommandExecutionRequest request;
+    request.requestId = 73;
+    request.command = QByteArrayLiteral("sleep 5");
+    request.executionNonce = QByteArrayLiteral("exec-73");
+    request.expectedPromptGeneration = 2;
+    QSignalSpy finished(&coordinator, &SessionCommandCoordinator::finished);
+    QVERIFY(coordinator.submit(request));
+
+    arbiter.submitUserInput(QByteArrayLiteral("x"));
+
+    QCOMPARE(finished.count(), 1);
+    const auto result = qvariant_cast<CommandExecutionResult>(
+        finished.first().front());
+    QCOMPARE(result.outcome, CommandExecutionOutcome::Cancelled);
+    QVERIFY(result.executionMayHaveStarted);
+    QVERIFY(!result.terminationConfirmed);
+    QCOMPARE(transport.writes, QByteArrayLiteral("sleep 5\rx"));
 }
 
 void SessionTests::serialAutomaticReconnect()

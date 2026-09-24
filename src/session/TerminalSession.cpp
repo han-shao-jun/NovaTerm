@@ -9,6 +9,7 @@
 #include "TerminalSession.h"
 
 #include "SessionCommandFacade.h"
+#include "SessionCommandCoordinator.h"
 #include "SessionInputArbiter.h"
 #include "SessionInputPump.h"
 #include "InteractiveStreamFramer.h"
@@ -88,6 +89,8 @@ TerminalSession::TerminalSession(TerminalCore* core, QObject* parent)
     , _commandFacade(std::make_unique<SessionCommandFacade>(this))
     , _inputArbiter(std::make_unique<SessionInputArbiter>(this))
     , _streamFramer(std::make_unique<InteractiveStreamFramer>())
+    , _commandCoordinator(std::make_unique<SessionCommandCoordinator>(
+          _inputArbiter.get(), _streamFramer.get(), this))
     , _core(core)
 {
     if (_core) {
@@ -104,6 +107,8 @@ TerminalSession::TerminalSession(RuntimeConfig config, QObject* parent)
     , _commandFacade(std::make_unique<SessionCommandFacade>(this))
     , _inputArbiter(std::make_unique<SessionInputArbiter>(this))
     , _streamFramer(std::make_unique<InteractiveStreamFramer>())
+    , _commandCoordinator(std::make_unique<SessionCommandCoordinator>(
+          _inputArbiter.get(), _streamFramer.get(), this))
     , _ownedCore(std::make_unique<TerminalCore>(80, 24))
     , _core(_ownedCore.get())
 {
@@ -140,6 +145,7 @@ void TerminalSession::attach(ITransport* transport, Ownership ownership,
     _commandFacade->reset(_statistics.generation);
     _inputArbiter->bind(transport, _statistics.generation);
     _streamFramer->reset(_statistics.generation);
+    _commandCoordinator->reset(_statistics.generation);
     _manualDisconnect = false;
     _reconnectTimer.setSingleShot(true);
     QObject::disconnect(&_reconnectTimer, nullptr, this, nullptr);
@@ -181,6 +187,7 @@ void TerminalSession::rewireTransportSignals()
     _commandFacade->reset(_statistics.generation);
     _inputArbiter->bind(_transport.data(), _statistics.generation);
     _streamFramer->reset(_statistics.generation);
+    _commandCoordinator->reset(_statistics.generation);
     for (const auto& connection : std::as_const(_transportConnections))
         QObject::disconnect(connection);
     _transportConnections.clear();
@@ -516,6 +523,12 @@ void TerminalSession::startPump()
         if (_state == SessionState::Running)
             transition(SessionState::Failed);
     });
+    connect(_inputPump, &SessionInputPump::interactiveEvent,
+            _commandCoordinator.get(),
+            &SessionCommandCoordinator::handleInteractiveEvent);
+    connect(_inputPump, &SessionInputPump::interactiveBytes,
+            _commandCoordinator.get(),
+            &SessionCommandCoordinator::handleInteractiveBytes);
     _inputPump->start();
 }
 
@@ -534,6 +547,7 @@ void TerminalSession::clearAttachment(bool requestDisconnect)
     _commandFacade->reset(_statistics.generation);
     _inputArbiter->bind(nullptr, _statistics.generation);
     _streamFramer->reset(_statistics.generation);
+    _commandCoordinator->reset(_statistics.generation);
     _transport = nullptr;
     if (!current)
         return;

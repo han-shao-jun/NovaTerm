@@ -65,11 +65,22 @@ void SessionInputPump::acceptBytes(const QByteArray& data)
     _statistics.receivedBytes += static_cast<quint64>(data.size());
     if (_framer) {
         auto framed = _framer->consume(data);
-        for (const auto& event : framed.events)
+        qsizetype visibleOffset = 0;
+        for (const auto& event : framed.events) {
+            if (event.visibleOffset > visibleOffset) {
+                const auto visible = framed.visibleBytes.mid(
+                    visibleOffset, event.visibleOffset - visibleOffset);
+                emit interactiveBytes(visible);
+                forwardVisibleBytes(visible);
+                visibleOffset = event.visibleOffset;
+            }
             emit interactiveEvent(event);
-        if (!framed.visibleBytes.isEmpty())
-            emit interactiveBytes(framed.visibleBytes);
-        forwardVisibleBytes(framed.visibleBytes);
+        }
+        if (visibleOffset < framed.visibleBytes.size()) {
+            const auto visible = framed.visibleBytes.mid(visibleOffset);
+            emit interactiveBytes(visible);
+            forwardVisibleBytes(visible);
+        }
         return;
     }
     emit interactiveBytes(data);

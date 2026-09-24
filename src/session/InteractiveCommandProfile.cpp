@@ -6,7 +6,8 @@
 
 bool InteractiveCommandProfile::isValid() const noexcept
 {
-    return !markerPrefix.isEmpty() && maxMarkerBytes >= markerPrefix.size() + 2
+    return !markerPrefix.isEmpty() && !lineEnding.isEmpty()
+        && lineEnding.size() <= 2
+        && maxMarkerBytes >= markerPrefix.size() + 2
         && maxMarkerBytes <= 64 * 1024;
 }
-

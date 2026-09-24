@@ -11,9 +11,9 @@
 struct InteractiveCommandProfile
 {
     QByteArray markerPrefix{QByteArrayLiteral("\x1b]633;NT;")};
+    QByteArray lineEnding{QByteArrayLiteral("\r")};
     qsizetype maxMarkerBytes{4096};
 
     /** @brief 配置是否满足有界解析的最低要求。 */
     [[nodiscard]] bool isValid() const noexcept;
 };
-

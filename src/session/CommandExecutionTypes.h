@@ -42,6 +42,8 @@ struct CommandExecutionRequest
     QByteArray command;
     CommandExecutionLimits limits;
     QString commandId;
+    QByteArray executionNonce;
+    quint64 expectedPromptGeneration{0};
 };
 
 /** @brief Executor 对终止证据与输出隔离能力的声明。 */

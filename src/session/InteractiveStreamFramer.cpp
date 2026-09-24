@@ -27,6 +27,11 @@ void InteractiveStreamFramer::reset(quint64 generation,
     _pending.clear();
 }
 
+void InteractiveStreamFramer::beginTransaction(QByteArray executionNonce)
+{
+    _executionNonce = std::move(executionNonce);
+}
+
 InteractiveFrameResult InteractiveStreamFramer::consume(
     const QByteArray& bytes)
 {
@@ -59,7 +64,8 @@ InteractiveFrameResult InteractiveStreamFramer::consume(
                 result.visibleBytes.append(_pending);
                 _pending.clear();
                 result.events.append({InteractiveStreamEventKind::FramingError,
-                                      _promptGeneration, std::nullopt});
+                                      _promptGeneration, std::nullopt,
+                                      result.visibleBytes.size()});
             }
             break;
         }
@@ -69,10 +75,13 @@ InteractiveFrameResult InteractiveStreamFramer::consume(
         const QByteArray body = marker.mid(prefix.size(),
                                            terminator - prefix.size());
         const auto event = parseMarker(body);
-        if (event)
-            result.events.append(*event);
-        else
+        if (event) {
+            auto positioned = *event;
+            positioned.visibleOffset = result.visibleBytes.size();
+            result.events.append(positioned);
+        } else {
             result.visibleBytes.append(marker);
+        }
         _pending.remove(0, markerSize);
     }
     return result;
@@ -123,4 +132,3 @@ std::optional<InteractiveStreamEvent> InteractiveStreamFramer::parseMarker(
     }
     return std::nullopt;
 }
-
