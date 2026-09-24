@@ -1,6 +1,7 @@
 #include "core/terminal/TerminalCore.h"
 #include "credential/CredentialStore.h"
 #include "profile/ProfileStore.h"
+#include "session/SessionInputArbiter.h"
 #include "session/SessionStore.h"
 #include "session/TerminalSession.h"
 #include "session/SessionInputPump.h"
@@ -118,9 +119,68 @@ private slots:
     void structuredTransportErrorSetsSessionCategory();
     void agentContextFiltersProgressWrapDuplicatesAndAlternate();
     void inputPumpOffsetsPreservePendingSuffix();
+    void userInputPreemptsPartialMcpWrite();
+    void staleAndDuplicateMcpLeasesAreRejected();
+    void emptyInputKeepsMcpLease();
     void agentContextJoinsHistorySeamAndBoundsUtf8();
     void secretServiceCredentialStoreSurvivesRestart();
 };
+
+void SessionTests::userInputPreemptsPartialMcpWrite()
+{
+    SessionInputArbiter arbiter;
+    FakeTransport transport;
+    QVERIFY(transport.connectToHost());
+    arbiter.bind(&transport, 7);
+    QVERIFY(arbiter.acquireMcpLease(41, 7));
+    QVERIFY(arbiter.submitMcpInput(41, QByteArrayLiteral("echo par")));
+
+    QSignalSpy preempted(&arbiter, &SessionInputArbiter::mcpPreempted);
+    arbiter.submitUserInput(QByteArrayLiteral("x"));
+
+    QCOMPARE(preempted.count(), 1);
+    QCOMPARE(preempted.first().at(0).toULongLong(), quint64(41));
+    QCOMPARE(preempted.first().at(1).toBool(), true);
+    QCOMPARE(transport.writes, QByteArrayLiteral("echo parx"));
+    QVERIFY(!arbiter.submitMcpInput(41, QByteArrayLiteral("tial\r")));
+}
+
+void SessionTests::staleAndDuplicateMcpLeasesAreRejected()
+{
+    SessionInputArbiter arbiter;
+    FakeTransport transport;
+    QVERIFY(transport.connectToHost());
+    arbiter.bind(&transport, 9);
+
+    QVERIFY(!arbiter.acquireMcpLease(10, 8));
+    QVERIFY(!arbiter.acquireMcpLease(0, 9));
+    QVERIFY(arbiter.acquireMcpLease(10, 9));
+    QVERIFY(!arbiter.acquireMcpLease(11, 9));
+    QVERIFY(!arbiter.submitMcpInput(11, QByteArrayLiteral("wrong")));
+    QCOMPARE(transport.writes, QByteArray{});
+
+    arbiter.releaseMcpLease(11);
+    QVERIFY(arbiter.hasMcpLease());
+    arbiter.releaseMcpLease(10);
+    QVERIFY(!arbiter.hasMcpLease());
+}
+
+void SessionTests::emptyInputKeepsMcpLease()
+{
+    SessionInputArbiter arbiter;
+    FakeTransport transport;
+    QVERIFY(transport.connectToHost());
+    arbiter.bind(&transport, 3);
+    QVERIFY(arbiter.acquireMcpLease(22, 3));
+
+    QSignalSpy preempted(&arbiter, &SessionInputArbiter::mcpPreempted);
+    QVERIFY(arbiter.submitMcpInput(22, {}));
+    arbiter.submitUserInput({});
+
+    QVERIFY(arbiter.hasMcpLease());
+    QCOMPARE(preempted.count(), 0);
+    QCOMPARE(transport.writes, QByteArray{});
+}
 
 void SessionTests::serialAutomaticReconnect()
 {

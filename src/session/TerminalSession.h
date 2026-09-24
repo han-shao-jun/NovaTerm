@@ -21,6 +21,7 @@
 
 class SessionInputPump;
 class SessionCommandFacade;
+class SessionInputArbiter;
 class TerminalCore;
 
 /**
@@ -93,6 +94,11 @@ public:
     [[nodiscard]] SessionCommandFacade* commandFacade() const noexcept
     {
         return _commandFacade.get();
+    }
+    /** @brief Session 出站输入仲裁器；供受限交互命令门面使用。 */
+    [[nodiscard]] SessionInputArbiter* inputArbiter() const noexcept
+    {
+        return _inputArbiter.get();
     }
 
     /**
@@ -234,6 +240,7 @@ private:
     bool _manualDisconnect{false}; ///< 主动断开后暂停自动重连
     std::unique_ptr<TerminalContextProvider> _contextProvider;
     std::unique_ptr<SessionCommandFacade> _commandFacade;
+    std::unique_ptr<SessionInputArbiter> _inputArbiter;
     bool transition(SessionState next);   ///< 状态机迁移（校验合法性）
     bool beginReconnect(bool automatic = false); ///< 进入重连状态并提交连接请求
     bool _automaticReconnectAttempt{false}; ///< 当前连接是否由自动重连触发

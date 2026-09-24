@@ -9,6 +9,7 @@
 #include "TerminalSession.h"
 
 #include "SessionCommandFacade.h"
+#include "SessionInputArbiter.h"
 #include "SessionInputPump.h"
 #include "core/terminal/TerminalCore.h"
 
@@ -84,6 +85,7 @@ bool isLegalTransition(SessionState from, SessionState to)
 TerminalSession::TerminalSession(TerminalCore* core, QObject* parent)
     : QObject(parent)
     , _commandFacade(std::make_unique<SessionCommandFacade>(this))
+    , _inputArbiter(std::make_unique<SessionInputArbiter>(this))
     , _core(core)
 {
     if (_core) {
@@ -98,6 +100,7 @@ TerminalSession::TerminalSession(RuntimeConfig config, QObject* parent)
     : QObject(parent)
     , _config(std::move(config))
     , _commandFacade(std::make_unique<SessionCommandFacade>(this))
+    , _inputArbiter(std::make_unique<SessionInputArbiter>(this))
     , _ownedCore(std::make_unique<TerminalCore>(80, 24))
     , _core(_ownedCore.get())
 {
@@ -132,6 +135,7 @@ void TerminalSession::attach(ITransport* transport, Ownership ownership,
     _ownership = ownership;
     _config.transportKind = transportKind;
     _commandFacade->reset(_statistics.generation);
+    _inputArbiter->bind(transport, _statistics.generation);
     _manualDisconnect = false;
     _reconnectTimer.setSingleShot(true);
     QObject::disconnect(&_reconnectTimer, nullptr, this, nullptr);
@@ -160,7 +164,7 @@ void TerminalSession::attach(ITransport* transport, Ownership ownership,
             if (!transport->isConnected())
                 return;
             _statistics.bytesSent += static_cast<quint64>(data.size());
-            transport->write(data);
+            _inputArbiter->submitUserInput(data);
         });
 
     connectTransportSignals(transport, _statistics.generation);
@@ -171,6 +175,7 @@ void TerminalSession::rewireTransportSignals()
     if (!_transport)
         return;
     _commandFacade->reset(_statistics.generation);
+    _inputArbiter->bind(_transport.data(), _statistics.generation);
     for (const auto& connection : std::as_const(_transportConnections))
         QObject::disconnect(connection);
     _transportConnections.clear();
@@ -453,7 +458,7 @@ void TerminalSession::write(const QByteArray& data)
 {
     if (_acceptsUserInput && _transport && _transport->isConnected()) {
         _statistics.bytesSent += static_cast<quint64>(data.size());
-        _transport->write(data);
+        _inputArbiter->submitUserInput(data);
     }
 }
 
@@ -521,6 +526,7 @@ void TerminalSession::clearAttachment(bool requestDisconnect)
     _transportConnections.clear();
     _pendingTransportError.reset();
     _commandFacade->reset(_statistics.generation);
+    _inputArbiter->bind(nullptr, _statistics.generation);
     _transport = nullptr;
     if (!current)
         return;
