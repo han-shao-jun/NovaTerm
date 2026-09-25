@@ -3,18 +3,53 @@
  */
 #include "SessionDirectory.h"
 #include "LocalSessionCommandExecutor.h"
+#include "InteractiveSessionCommandExecutor.h"
 #include "SessionCommandFacade.h"
+#include "ShellIntegration.h"
 #include "SshSessionCommandExecutor.h"
 #include "transport/SshTransport.h"
 #include <QCoreApplication>
+#include <QCryptographicHash>
 #include <QDir>
 #include <QThread>
 
 namespace {
 QString uuid() { return QUuid::createUuid().toString(QUuid::WithoutBraces); }
 std::unique_ptr<ISessionCommandExecutor> commandExecutor(
-    ITransport* transport, TransportKind kind)
+    TerminalSession* owner, ITransport* transport, TransportKind kind)
 {
+    if (owner && ShellIntegration::profileFor(owner->runtimeConfig())) {
+        QString identity;
+        if (kind == TransportKind::Ssh) {
+            auto* ssh = qobject_cast<SshTransport*>(transport);
+            if (ssh) {
+                SshSessionCommandExecutor probe(ssh);
+                identity = probe.targetFingerprint();
+            }
+        } else if (kind == TransportKind::LocalShell) {
+            const QString helper = QDir(QCoreApplication::applicationDirPath())
+                .filePath(QStringLiteral("novaterm-local-diag.exe"));
+            LocalSessionCommandExecutor probe(helper);
+            identity = probe.targetFingerprint();
+        } else {
+            const auto& values = owner->runtimeConfig().transport;
+            const QString endpoint = kind == TransportKind::Serial
+                ? values.value(QStringLiteral("portName")).toString()
+                : values.value(QStringLiteral("host")).toString()
+                    + QLatin1Char(':')
+                    + values.value(QStringLiteral("port")).toString();
+            const QByteArray source = (endpoint.isEmpty()
+                ? owner->id().toString(QUuid::WithoutBraces)
+                : endpoint).toUtf8();
+            identity = QString::fromLatin1(QCryptographicHash::hash(
+                source, QCryptographicHash::Sha256).toHex());
+        }
+        if (!identity.isEmpty()) {
+            return std::make_unique<InteractiveSessionCommandExecutor>(
+                owner->commandCoordinator(),
+                CommandPlatformProfile::interactiveFor(kind), identity);
+        }
+    }
     if (kind == TransportKind::Ssh) {
         auto* ssh = qobject_cast<SshTransport*>(transport);
         return ssh ? std::make_unique<SshSessionCommandExecutor>(ssh) : nullptr;
@@ -89,7 +124,7 @@ void SessionDirectory::refresh(TerminalSession* session)
         || it->transport != session->transport();
     if (identityChanged) {
         session->commandFacade()->installExecutor(
-            commandExecutor(session->transport(), kind), generation);
+            commandExecutor(session, session->transport(), kind), generation);
     }
     const auto target = session->commandFacade()->targetFingerprint();
     const bool targetChanged = state == SessionState::Running && target != it->targetFingerprint;

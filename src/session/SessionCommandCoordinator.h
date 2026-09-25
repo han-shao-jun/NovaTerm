@@ -29,6 +29,11 @@ public:
     [[nodiscard]] bool submit(const CommandExecutionRequest& request);
     void cancel(quint64 requestId);
     [[nodiscard]] bool isPromptReady() const noexcept;
+    /** @brief 当前 Session 是否安装了显式可信交互 Profile。 */
+    [[nodiscard]] bool hasTrustedProfile() const noexcept
+    {
+        return _profile.shellIntegration || !_profile.promptPattern.isEmpty();
+    }
     [[nodiscard]] quint64 promptGeneration() const noexcept
     {
         return _promptGeneration;
@@ -42,6 +47,7 @@ signals:
     void finished(const CommandExecutionResult& result);
 
 private:
+    [[nodiscard]] bool sendNextInputChunk();
     void handlePreempted(quint64 executionId, bool executionMayHaveStarted);
     void finish(CommandExecutionOutcome outcome, bool terminationConfirmed,
                 std::optional<int> exitCode = std::nullopt);
@@ -52,6 +58,8 @@ private:
     QTimer _promptSilence;
     InteractiveCommandProfile _profile;
     std::optional<CommandExecutionRequest> _active;
+    QByteArray _pendingInput;
+    qsizetype _pendingInputOffset{0};
     QByteArray _standardOutput;
     quint64 _sessionGeneration{0};
     quint64 _promptGeneration{0};
@@ -59,4 +67,5 @@ private:
     bool _executionMayHaveStarted{false};
     bool _commandStarted{false};
     bool _outputTruncated{false};
+    static constexpr qsizetype InputChunkBytes = 512;
 };

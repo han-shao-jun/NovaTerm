@@ -25,7 +25,8 @@ InteractiveSessionCommandExecutor::InteractiveSessionCommandExecutor(
 bool InteractiveSessionCommandExecutor::isAvailable() const
 {
     return _coordinator && _profile.isAvailable()
-        && !_targetFingerprint.isEmpty();
+        && !_targetFingerprint.isEmpty()
+        && _coordinator->isPromptReady();
 }
 
 CommandExecutorCapabilities

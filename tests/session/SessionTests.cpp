@@ -144,6 +144,7 @@ private slots:
     void unconfiguredFramerLeavesTerminalBytesUntouched();
     void transportRebindDropsPreviousPromptProfile();
     void devicePasswordAndSplitAlternateScreenAreNotReady();
+    void userInputStopsUnsentLongCommandTail();
     void agentContextJoinsHistorySeamAndBoundsUtf8();
     void secretServiceCredentialStoreSurvivesRestart();
 };
@@ -650,6 +651,46 @@ void SessionTests::devicePasswordAndSplitAlternateScreenAreNotReady()
                          [](const auto& event) {
         return event.kind == InteractiveStreamEventKind::PromptCandidate;
     }));
+}
+
+void SessionTests::userInputStopsUnsentLongCommandTail()
+{
+    FakeTransport transport;
+    QVERIFY(transport.connectToHost());
+    SessionInputArbiter arbiter;
+    arbiter.bind(&transport, 21);
+    InteractiveStreamFramer framer;
+    InteractiveCommandProfile profile;
+    profile.shellIntegration = true;
+    profile.requiresStartMarker = false;
+    framer.configure(profile);
+    framer.reset(21);
+    SessionCommandCoordinator coordinator(&arbiter, &framer);
+    coordinator.configure(profile);
+    coordinator.reset(21);
+    coordinator.handleInteractiveEvent({
+        InteractiveStreamEventKind::PromptReady, 1, std::nullopt});
+
+    CommandExecutionRequest request;
+    request.requestId = 200;
+    request.command = QByteArray(2048, 'x');
+    request.executionNonce = QByteArrayLiteral("long-200");
+    request.expectedPromptGeneration = 1;
+    QSignalSpy finished(&coordinator, &SessionCommandCoordinator::finished);
+    QVERIFY(coordinator.submit(request));
+    const qsizetype firstPart = transport.writes.size();
+    QVERIFY(firstPart > 0);
+    QVERIFY(firstPart < request.command.size());
+
+    arbiter.submitUserInput(QByteArrayLiteral("u"));
+    QTest::qWait(30);
+    QCOMPARE(transport.writes.size(), firstPart + 1);
+    QVERIFY(transport.writes.endsWith('u'));
+    QCOMPARE(finished.count(), 1);
+    const auto result = qvariant_cast<CommandExecutionResult>(
+        finished.first().front());
+    QCOMPARE(result.outcome, CommandExecutionOutcome::Cancelled);
+    QVERIFY(result.executionMayHaveStarted);
 }
 
 void SessionTests::serialAutomaticReconnect()

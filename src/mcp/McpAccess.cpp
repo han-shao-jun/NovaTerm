@@ -208,7 +208,8 @@ quint64 AccessStore::version(const QString& clientId) const
 }
 
 bool AccessStore::setGrant(const QString& clientId, const SessionDirectory::Entry& entry,
-                           bool read, QSet<QString> commands)
+                           bool read, QSet<QString> commands,
+                           bool interactiveCommand)
 {
     if (!_clients.contains(clientId) || !entry.session || (read && !_enabled))
         return false;
@@ -220,7 +221,9 @@ bool AccessStore::setGrant(const QString& clientId, const SessionDirectory::Entr
             || !facade->isAvailable() || entry.targetFingerprint.isEmpty()) {
             commands.clear();
         }
-        _grants[clientId].insert(entry.id, Grant{entry.attachmentId, entry.epoch, std::move(commands)});
+        _grants[clientId].insert(entry.id,
+            Grant{entry.attachmentId, entry.epoch,
+                  std::move(commands), interactiveCommand});
         if (qEnvironmentVariableIntValue("NOVATERM_MCP_PUBLISHED_SNAPSHOT") > 0
             && entry.session->core()) {
             static_cast<void>(entry.session->core()->requestPublishedTerminalState());
@@ -247,5 +250,14 @@ QSet<QString> AccessStore::commands(const QString& clientId, const SessionDirect
         return {};
     const auto grant = _grants.value(clientId).value(entry.id);
     return grant.epoch == entry.epoch ? grant.commands : QSet<QString>{};
+}
+
+bool AccessStore::canRunCommand(
+    const QString& clientId, const SessionDirectory::Entry& entry) const
+{
+    if (!canRead(clientId, entry))
+        return false;
+    const auto grant = _grants.value(clientId).value(entry.id);
+    return grant.epoch == entry.epoch && grant.interactiveCommand;
 }
 }

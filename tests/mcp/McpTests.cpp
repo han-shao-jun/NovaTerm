@@ -4,11 +4,13 @@
 #include "mcp/McpService.h"
 #include "mcp/McpProtocol.h"
 #include "mcp/CommandPolicy.h"
+#include "mcp/CommandRiskPolicy.h"
 #include "session/CommandExecutionTypes.h"
 #include "session/ISessionCommandExecutor.h"
 #include "session/LocalDiagnosticProtocol.h"
 #include "session/LocalSessionCommandExecutor.h"
 #include "session/SessionCommandFacade.h"
+#include "session/SessionCommandCoordinator.h"
 #include "transport/SshTransport.h"
 #include "ui/widgets/McpSettingsDialog.h"
 #include "ElaApplication.h"
@@ -318,7 +320,147 @@ private slots:
     void localShellCommandsRunOutsideInteractiveTransport();
     void sessionInvalidationCompletesPendingExecution();
     void publishedSnapshotPreservesCaptureTime();
+    void commandRiskPolicyDefaultsToHumanConfirmation();
+    void freeCommandSchemaIsBoundedAndStrict();
+    void interactiveGrantIsSeparateFromReadAndFixedCommands();
+    void freeCommandRequiresGrantAndHumanConfirmation();
+    void lowRiskCommandUsesCurrentInteractiveTransport();
 };
+
+void McpTests::lowRiskCommandUsesCurrentInteractiveTransport()
+{
+    QTemporaryDir root;
+    QVERIFY(root.isValid());
+    RuntimeConfig runtime;
+    runtime.transportKind = TransportKind::Serial;
+    runtime.transport.insert(QStringLiteral("interactivePromptPattern"),
+                             QStringLiteral("device> $"));
+    TerminalSession session(runtime);
+    LocalFake transport;
+    session.attach(&transport, TerminalSession::Ownership::Borrowed,
+                   TransportKind::Serial);
+    QVERIFY(session.start());
+    QTRY_COMPARE(session.state(), SessionState::Running);
+    Service service(root.filePath(QStringLiteral("state")),
+                    root.filePath(QStringLiteral("instances")),
+                    std::make_unique<MemoryCredentialStore>());
+    service.directory().add(&session);
+    const QString client = service.access().addClient(QStringLiteral("interactive"));
+    QVERIFY(!client.isEmpty());
+    QVERIFY(service.access().setEnabled(true));
+    const auto entry = service.directory().entries().first();
+    QVERIFY(service.access().setGrant(client, entry, true, {}, true));
+    QTRY_COMPARE(service.status(), QStringLiteral("Listening"));
+
+    emit transport.readyRead(QByteArrayLiteral("device> "));
+    QTRY_VERIFY_WITH_TIMEOUT(session.commandCoordinator()->isPromptReady(), 500);
+    Host host;
+    QVERIFY(host.start(root.filePath(QStringLiteral("instances")),
+                       service.access().exportToken(client).value_or(QByteArray{})));
+    const auto listed = host.call("novaterm_list_sessions", {})
+                            .value("data").toObject()
+                            .value("sessions").toArray().first().toObject();
+    QVERIFY(listed.value("capabilities").toArray().contains(
+        QStringLiteral("run_command")));
+    auto arguments = QJsonObject{{"sessionId", entry.id}, {"epoch", entry.epoch},
+                                 {"command", QStringLiteral("pwd")}};
+    QTimer::singleShot(50, &transport, [&transport] {
+        emit transport.readyRead(QByteArrayLiteral("pwd\r\n/root\r\ndevice> "));
+    });
+    const auto response = host.call("novaterm_run_command", arguments);
+    QVERIFY2(response.value("ok").toBool(),
+             qPrintable(response.value("error").toObject().value("code").toString()));
+    QCOMPARE(transport.written, QByteArrayLiteral("pwd\r"));
+    QVERIFY(response.value("data").toObject().value("stdout")
+        .toString().contains(QStringLiteral("/root")));
+}
+
+void McpTests::freeCommandRequiresGrantAndHumanConfirmation()
+{
+    Fixture fixture;
+    QVERIFY(fixture.enable());
+    QTRY_COMPARE(fixture.service.status(), QStringLiteral("Listening"));
+    Host host;
+    QVERIFY(host.start(fixture.runtime(), fixture.token()));
+
+    auto arguments = fixture.identity();
+    arguments.insert(QStringLiteral("command"), QStringLiteral("pwd"));
+    const auto noGrant = host.call("novaterm_run_command", arguments);
+    QCOMPARE(noGrant.value("error").toObject().value("code").toString(),
+             QStringLiteral("COMMAND_PERMISSION_REQUIRED"));
+
+    const auto entry = fixture.service.directory().entries().first();
+    QVERIFY(fixture.service.access().setGrant(fixture.client, entry,
+                                             true, {}, true));
+    arguments.insert(QStringLiteral("command"),
+                     QStringLiteral("rm -rf ./cache"));
+    const auto needsHuman = host.call("novaterm_run_command", arguments);
+    QCOMPARE(needsHuman.value("error").toObject().value("code").toString(),
+             QStringLiteral("CLIENT_CONFIRMATION_UNAVAILABLE"));
+    arguments.insert(QStringLiteral("command"),
+                     QStringLiteral("sudo systemctl stop auditd"));
+    const auto denied = host.call("novaterm_run_command", arguments);
+    QCOMPARE(denied.value("error").toObject().value("code").toString(),
+             QStringLiteral("COMMAND_NOT_ALLOWED"));
+    QVERIFY(fixture.local.written.isEmpty());
+}
+
+void McpTests::interactiveGrantIsSeparateFromReadAndFixedCommands()
+{
+    Fixture fixture;
+    QVERIFY(fixture.enable());
+    const auto entry = fixture.service.directory().entries().first();
+    QVERIFY(fixture.service.access().canRead(fixture.client, entry));
+    QVERIFY(!fixture.service.access().canRunCommand(fixture.client, entry));
+
+    QVERIFY(fixture.service.access().setGrant(fixture.client, entry,
+                                             true, {}, true));
+    QVERIFY(fixture.service.access().canRunCommand(fixture.client, entry));
+    QVERIFY(fixture.service.access().commands(fixture.client, entry).isEmpty());
+    QVERIFY(fixture.service.access().setGrant(fixture.client, entry,
+                                             true, {}, false));
+    QVERIFY(!fixture.service.access().canRunCommand(fixture.client, entry));
+}
+
+void McpTests::freeCommandSchemaIsBoundedAndStrict()
+{
+    const QJsonObject base{
+        {QStringLiteral("sessionId"),
+         QStringLiteral("7abf0022-9546-4c2b-a046-5b40589d38ec")},
+        {QStringLiteral("epoch"), QStringLiteral("epoch-1")},
+        {QStringLiteral("command"), QStringLiteral("pwd")}};
+    QVERIFY(validateArguments(QStringLiteral("novaterm_run_command"),
+                              base).isEmpty());
+    auto invalid = base;
+    invalid.insert(QStringLiteral("command"), QString{});
+    QVERIFY(!validateArguments(QStringLiteral("novaterm_run_command"),
+                               invalid).isEmpty());
+    invalid = base;
+    invalid.insert(QStringLiteral("command"), QString(16385, QLatin1Char('x')));
+    QVERIFY(!validateArguments(QStringLiteral("novaterm_run_command"),
+                               invalid).isEmpty());
+    invalid = base;
+    invalid.insert(QStringLiteral("stdin"), QStringLiteral("secret"));
+    QVERIFY(!validateArguments(QStringLiteral("novaterm_run_command"),
+                               invalid).isEmpty());
+}
+
+void McpTests::commandRiskPolicyDefaultsToHumanConfirmation()
+{
+    CommandRiskPolicy policy;
+    QCOMPARE(policy.classify(QStringLiteral("uname -srm")).decision,
+             RiskDecision::Allow);
+    QCOMPARE(policy.classify(QStringLiteral("rm -rf ./cache")).decision,
+             RiskDecision::Confirm);
+    QCOMPARE(policy.classify(QStringLiteral("sudo systemctl stop auditd")).decision,
+             RiskDecision::Deny);
+    QCOMPARE(policy.classify(QStringLiteral("python -c 'dynamic()'")).decision,
+             RiskDecision::Confirm);
+    QCOMPARE(policy.classify(QStringLiteral("unknown-tool --do-work")).decision,
+             RiskDecision::Unknown);
+    QCOMPARE(policy.classify(QStringLiteral("uname -srm; rm x")).decision,
+             RiskDecision::Confirm);
+}
 
 void McpTests::publishedSnapshotPreservesCaptureTime()
 {
@@ -585,7 +727,8 @@ void McpTests::registeredSessionExecutorIsUsedWithoutTransportCast()
     const auto response = host.call("novaterm_execute_command", arguments);
     QVERIFY(response.value("ok").toBool());
     QCOMPARE(observedExecutor->submissionCount, 1);
-    QVERIFY(observedExecutor->lastRequest.command.contains("/usr/bin/"));
+    QCOMPARE(observedExecutor->lastRequest.command,
+             QByteArrayLiteral("uname -srm"));
     QVERIFY(fixture.local.written.isEmpty());
 }
 
@@ -714,7 +857,7 @@ void McpTests::framingAndAuthentication()
 
 void McpTests::rejectsDangerousAndOversizedArguments()
 {
-    QCOMPARE(tools().size(), 5);
+    QCOMPARE(tools().size(), 6);
     QVERIFY(!CommandPolicy::find("rm"));
     QVERIFY(!CommandPolicy::find("credential.read"));
     const QJsonObject identity{{"sessionId", newId()}, {"epoch", "epoch"}};
@@ -760,7 +903,7 @@ void McpTests::stdioWithoutApplicationAndInitialization()
     Host host;
     QVERIFY(host.start(directory.path(), {}));
     host.send({{"jsonrpc", "2.0"}, {"id", 2}, {"method", "tools/list"}});
-    QCOMPARE(host.next().value("result").toObject().value("tools").toArray().size(), 5);
+    QCOMPARE(host.next().value("result").toObject().value("tools").toArray().size(), 6);
     const auto result = host.call("novaterm_list_sessions");
     QCOMPARE(result.value("error").toObject().value("code").toString(), QStringLiteral("APP_NOT_RUNNING"));
 }
@@ -868,7 +1011,8 @@ void McpTests::commandsRequireSeparateGrantAndAreDeduplicated()
     arguments.insert("commandId", permittedId);
     host.begin("novaterm_execute_command", arguments);
     QTRY_COMPARE(SshTransportTestAccess::queued(*f.ssh), 1);
-    QVERIFY(SshTransportTestAccess::queuedCommand(*f.ssh).contains("'/usr/bin/uname'"));
+    QCOMPARE(SshTransportTestAccess::queuedCommand(*f.ssh),
+             QByteArrayLiteral("uname -srm"));
     SshTransportTestAccess::finish(*f.ssh, true);
     const auto completed = host.next().value("result").toObject().value("structuredContent").toObject();
     QVERIFY(completed.value("ok").toBool());

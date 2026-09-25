@@ -18,8 +18,12 @@ SessionCommandCoordinator::SessionCommandCoordinator(
     _timeout.setSingleShot(true);
     _promptSilence.setSingleShot(true);
     connect(&_promptSilence, &QTimer::timeout, this, [this] {
-        if (!_active && _candidatePromptGeneration != 0)
-            _promptGeneration = _candidatePromptGeneration;
+        if (_candidatePromptGeneration != 0) {
+            const quint64 readyGeneration = _candidatePromptGeneration;
+            if (_active)
+                finish(CommandExecutionOutcome::Completed, true);
+            _promptGeneration = readyGeneration;
+        }
         _candidatePromptGeneration = 0;
     });
     connect(&_timeout, &QTimer::timeout, this, [this] {
@@ -46,6 +50,8 @@ void SessionCommandCoordinator::reset(quint64 sessionGeneration)
     if (_active && _arbiter)
         _arbiter->releaseMcpLease(_active->requestId);
     _active.reset();
+    _pendingInput.clear();
+    _pendingInputOffset = 0;
     _standardOutput.clear();
     _sessionGeneration = sessionGeneration;
     _promptGeneration = 0;
@@ -71,17 +77,45 @@ bool SessionCommandCoordinator::submit(const CommandExecutionRequest& request)
     _promptGeneration = 0;
     _standardOutput.clear();
     _executionMayHaveStarted = false;
-    _commandStarted = false;
+    _commandStarted = !_profile.requiresStartMarker;
     _outputTruncated = false;
     _framer->beginTransaction(request.executionNonce);
-    const QByteArray submission = request.command + _profile.lineEnding;
-    if (!_arbiter->submitMcpInput(request.requestId, submission)) {
+    _pendingInput = request.command + _profile.lineEnding;
+    _pendingInputOffset = 0;
+    if (!sendNextInputChunk()) {
         _arbiter->releaseMcpLease(request.requestId);
         _active.reset();
+        _pendingInput.clear();
+        _pendingInputOffset = 0;
         return false;
     }
-    _executionMayHaveStarted = true;
     _timeout.start(request.limits.timeoutMs);
+    return true;
+}
+
+bool SessionCommandCoordinator::sendNextInputChunk()
+{
+    if (!_active || !_arbiter || _pendingInputOffset >= _pendingInput.size())
+        return false;
+    const qsizetype count = qMin(InputChunkBytes,
+                                 _pendingInput.size() - _pendingInputOffset);
+    const QByteArray chunk = _pendingInput.mid(_pendingInputOffset, count);
+    if (!_arbiter->submitMcpInput(_active->requestId, chunk))
+        return false;
+    _executionMayHaveStarted = true;
+    _pendingInputOffset += count;
+    if (_pendingInputOffset < _pendingInput.size()) {
+        const quint64 requestId = _active->requestId;
+        QTimer::singleShot(1, this, [this, requestId] {
+            if (!_active || _active->requestId != requestId)
+                return;
+            if (!sendNextInputChunk())
+                finish(CommandExecutionOutcome::Disconnected, false);
+        });
+    } else {
+        _pendingInput.clear();
+        _pendingInputOffset = 0;
+    }
     return true;
 }
 
@@ -106,10 +140,8 @@ void SessionCommandCoordinator::handleInteractiveEvent(
         _promptGeneration = event.promptGeneration;
         break;
     case InteractiveStreamEventKind::PromptCandidate:
-        if (!_active) {
-            _candidatePromptGeneration = event.promptGeneration;
-            _promptSilence.start(_profile.promptSilenceMs);
-        }
+        _candidatePromptGeneration = event.promptGeneration;
+        _promptSilence.start(_profile.promptSilenceMs);
         break;
     case InteractiveStreamEventKind::CommandStarted:
         if (_active)
@@ -148,6 +180,11 @@ void SessionCommandCoordinator::handleInteractiveEvent(
 
 void SessionCommandCoordinator::handleInteractiveBytes(const QByteArray& bytes)
 {
+    if (!bytes.isEmpty() && _promptSilence.isActive()
+        && !_profile.shellIntegration) {
+        _promptSilence.stop();
+        _candidatePromptGeneration = 0;
+    }
     if (!_active && !bytes.isEmpty() && !_profile.shellIntegration) {
         _promptSilence.stop();
         _candidatePromptGeneration = 0;
@@ -194,6 +231,8 @@ void SessionCommandCoordinator::finish(CommandExecutionOutcome outcome,
     result.standardOutput = std::move(_standardOutput);
     const quint64 requestId = _active->requestId;
     _active.reset();
+    _pendingInput.clear();
+    _pendingInputOffset = 0;
     _standardOutput.clear();
     _executionMayHaveStarted = false;
     _commandStarted = false;

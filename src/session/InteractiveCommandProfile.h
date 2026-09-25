@@ -17,6 +17,7 @@ struct InteractiveCommandProfile
     int promptSilenceMs{150};
     bool remoteEcho{true};
     bool shellIntegration{false};
+    bool requiresStartMarker{true};
     qsizetype maxMarkerBytes{4096};
 
     /** @brief 配置是否满足有界解析的最低要求。 */

@@ -24,7 +24,7 @@ CommandPlatformProfile::CommandPlatformProfile(
 
 CommandPlatformProfile CommandPlatformProfile::sshLinux()
 {
-    return {QStringLiteral("linux-diagnostics-v1"), diagnosticCommands()};
+    return {QStringLiteral("linux-diagnostics-v2"), diagnosticCommands()};
 }
 
 CommandPlatformProfile CommandPlatformProfile::windowsLocal()
@@ -45,6 +45,24 @@ CommandPlatformProfile CommandPlatformProfile::forTransport(TransportKind kind)
         return windowsLocal();
     case TransportKind::Serial:
     case TransportKind::Telnet:
+    case TransportKind::Custom:
+        return {};
+    }
+    return {};
+}
+
+CommandPlatformProfile CommandPlatformProfile::interactiveFor(
+    TransportKind kind)
+{
+    switch (kind) {
+    case TransportKind::Ssh:
+        return {QStringLiteral("ssh-interactive-v1"), diagnosticCommands()};
+    case TransportKind::LocalShell:
+        return {QStringLiteral("local-interactive-v1"), diagnosticCommands()};
+    case TransportKind::Serial:
+        return {QStringLiteral("serial-interactive-v1"), {}};
+    case TransportKind::Telnet:
+        return {QStringLiteral("telnet-interactive-v1"), {}};
     case TransportKind::Custom:
         return {};
     }

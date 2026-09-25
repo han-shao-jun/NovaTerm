@@ -4,8 +4,10 @@
 #include "McpService.h"
 #include "McpProtocol.h"
 #include "CommandPolicy.h"
+#include "CommandRiskPolicy.h"
 #include "LocalMcpServer.h"
 #include "session/SessionCommandFacade.h"
+#include "session/SessionCommandCoordinator.h"
 #include "core/ThreadNaming.h"
 #include <QCoreApplication>
 #include <QDateTime>
@@ -86,6 +88,7 @@ public:
         std::shared_ptr<Job> job;
         QJsonObject payload;
         bool complete{false};
+        bool interactive{false};
     };
 
     Impl(Service* owner, QString stateDir, QString runtimeDir, std::unique_ptr<CredentialStore> credentials)
@@ -446,6 +449,7 @@ public:
         if (entry->epoch != job->arguments.value("epoch").toString()) { complete(job, error("STALE_SESSION_EPOCH")); return; }
         if (job->tool == "novaterm_list_commands") { listCommands(job, *entry); return; }
         if (job->tool == "novaterm_execute_command") { command(job, *entry); return; }
+        if (job->tool == "novaterm_run_command") { runCommand(job, *entry); return; }
         if (entry->state == SessionState::Closing || entry->state == SessionState::Closed) {
             complete(job, error("SESSION_CLOSED")); return;
         }
@@ -503,6 +507,12 @@ public:
             }
             if (canExecute)
                 capabilities.append("execute_command");
+            if (facade && facade->isAvailable()
+                && facade->capabilities().mode
+                    == CommandExecutionMode::InteractiveFramed
+                && access.canRunCommand(connection.client, entry)) {
+                capabilities.append("run_command");
+            }
             rows.append(QJsonObject{{"sessionId", entry.id}, {"epoch", entry.epoch},
                 {"state", SessionDirectory::stateName(entry.state)}, {"transport", SessionDirectory::transportName(entry.kind)},
                 {"displayName", title}, {"displayNameTruncated", truncated}, {"capabilities", capabilities}});
@@ -725,6 +735,7 @@ public:
                 {"grant", versionString(access.version(connection.client))},
                 {"expires", clock.elapsed() + 60000}}, connection.key);
             const QString preview = entry.kind == TransportKind::LocalShell
+                && facade->capabilities().mode == CommandExecutionMode::Isolated
                 ? QStringLiteral("novaterm-local-diag ") + command.id
                 : QString::fromUtf8(command.command);
             catalog.append(QJsonObject{{"commandId", command.id}, {"title", command.title},
@@ -735,6 +746,98 @@ public:
         complete(job, success({{"instanceId", instance}, {"sessionId", entry.id}, {"epoch", entry.epoch},
             {"policyVersion", policyVersion}, {"executionEnabled", reason.isEmpty()},
             {"disabledReason", reason.isEmpty() ? QJsonValue(QJsonValue::Null) : QJsonValue(reason)}, {"commands", catalog}}));
+    }
+
+    void runCommand(const std::shared_ptr<Job>& job,
+                    const SessionDirectory::Entry& entry)
+    {
+        const auto connection = connections.value(job->connection);
+        if (!access.canRunCommand(connection.client, entry)) {
+            complete(job, error("COMMAND_PERMISSION_REQUIRED"));
+            return;
+        }
+        if (entry.state != SessionState::Running || !entry.session) {
+            complete(job, error("SESSION_NOT_READY"));
+            return;
+        }
+        const QString command = job->arguments.value("command").toString();
+        const RiskAssessment risk = CommandRiskPolicy{}.classify(command);
+        if (risk.decision == RiskDecision::Deny) {
+            complete(job, error("COMMAND_NOT_ALLOWED"));
+            return;
+        }
+        if (risk.decision != RiskDecision::Allow) {
+            complete(job, error("CLIENT_CONFIRMATION_UNAVAILABLE"));
+            return;
+        }
+        auto* coordinator = entry.session->commandCoordinator();
+        if (!coordinator || !coordinator->hasTrustedProfile()) {
+            complete(job, error("COMMAND_PROFILE_UNAVAILABLE"));
+            return;
+        }
+        if (!coordinator->isPromptReady()) {
+            complete(job, error("SESSION_COMMAND_NOT_READY"));
+            return;
+        }
+        auto* facade = entry.session->commandFacade();
+        if (!facade || !facade->isAvailable()
+            || entry.targetFingerprint.isEmpty()) {
+            complete(job, error("COMMAND_UNAVAILABLE"));
+            return;
+        }
+        if (guards.markers().contains(entry.targetFingerprint)) {
+            complete(job, error("COMMAND_EXECUTION_QUARANTINED"));
+            return;
+        }
+        int clientExecutions = 0;
+        for (const auto& execution : executions) {
+            if (execution.connection == job->connection)
+                ++clientExecutions;
+        }
+        if (clientExecutions >= 32 || executions.size() >= 128
+            || lastCommand.contains(entry.targetFingerprint)) {
+            complete(job, error("BUSY", true, 5000));
+            return;
+        }
+        const QString executionId = newId();
+        QString rejected;
+        if (!guards.reserve(entry.targetFingerprint, executionId,
+                            instance, rejected)) {
+            complete(job, error("BUSY", true, 250));
+            return;
+        }
+        if (!observedFacades.contains(facade)) {
+            observedFacades.insert(facade);
+            QObject::connect(facade, &SessionCommandFacade::finished, q,
+                [this](const CommandExecutionResult& result) {
+                    finishExecution(result);
+                });
+            QObject::connect(facade, &QObject::destroyed, q,
+                [this, facade] { observedFacades.remove(facade); });
+        }
+        const quint64 requestId = nextCommandRequest++;
+        const int timeoutMs = job->arguments.value("timeoutMs").toInt(5000);
+        Execution execution{executionId, job->connection, connection.client,
+            entry.id, entry.epoch, QStringLiteral("interactive.free"),
+            risk.policyVersion, entry.targetFingerprint, requestId,
+            clock.elapsed(), facade, job, {}, false, true};
+        executions.insert(executionId, execution);
+        CommandExecutionRequest request;
+        request.requestId = requestId;
+        request.command = command.toUtf8();
+        request.limits = {CommandOutputBytes, timeoutMs};
+        request.commandId = QStringLiteral("interactive.free");
+        request.executionNonce = newId().toUtf8();
+        request.expectedPromptGeneration = coordinator->promptGeneration();
+        if (!facade->execute(request)) {
+            executions.remove(executionId);
+            guards.release(entry.targetFingerprint, executionId);
+            complete(job, error("SESSION_COMMAND_BUSY"));
+            return;
+        }
+        lastCommand.insert(entry.targetFingerprint, clock.elapsed());
+        job->deadline = clock.elapsed() + timeoutMs;
+        emit q->changed();
     }
 
     void command(const std::shared_ptr<Job>& job, const SessionDirectory::Entry& entry)
@@ -798,9 +901,16 @@ public:
             commandId, policyVersion, entry.targetFingerprint, request,
             clock.elapsed(), facade, job, {}, false};
         executions.insert(executionId, execution);
-        if (!facade->execute(CommandExecutionRequest{
-                request, definition->command, {CommandOutputBytes, 5000},
-                commandId})) {
+        CommandExecutionRequest executionRequest{
+            request, definition->command, {CommandOutputBytes, 5000},
+            commandId};
+        if (facade->capabilities().mode == CommandExecutionMode::InteractiveFramed
+            && entry.session && entry.session->commandCoordinator()) {
+            executionRequest.executionNonce = newId().toUtf8();
+            executionRequest.expectedPromptGeneration =
+                entry.session->commandCoordinator()->promptGeneration();
+        }
+        if (!facade->execute(executionRequest)) {
             executions.remove(executionId);
             guards.release(entry.targetFingerprint, executionId);
             complete(job, error("BUSY", true, 250)); return;
@@ -831,8 +941,10 @@ public:
         qsizetype remaining = CommandOutputBytes;
         const auto out = outputText(result.standardOutput, remaining, truncated);
         const auto err = outputText(result.standardError, remaining, truncated);
-        const bool completed = result.outcome == CommandExecutionOutcome::Completed && !truncated
-            && result.exitCode.has_value() && *result.exitCode == 0;
+        const bool completed = result.outcome == CommandExecutionOutcome::Completed
+            && !truncated && result.terminationConfirmed
+            && (result.exitCode ? *result.exitCode == 0
+                                : execution.interactive);
         QString state = completed ? "completed" : "failed";
         QString code = "COMMAND_FAILED";
         if (truncated) code = "COMMAND_OUTPUT_LIMIT";

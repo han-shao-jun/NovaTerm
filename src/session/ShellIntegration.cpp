@@ -41,6 +41,7 @@ std::optional<InteractiveCommandProfile> ShellIntegration::profileFor(
             return std::nullopt;
         }
         profile.shellIntegration = true;
+        profile.requiresStartMarker = false;
         return profile;
     }
     case TransportKind::Serial:
@@ -53,6 +54,7 @@ std::optional<InteractiveCommandProfile> ShellIntegration::profileFor(
         if (!expression.isValid())
             return std::nullopt;
         profile.promptPattern = pattern;
+        profile.requiresStartMarker = false;
         return profile;
     }
     case TransportKind::Custom:

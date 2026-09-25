@@ -9,6 +9,7 @@ endif()
 qt_add_library(novaterm_mcp_runtime STATIC
     McpAccess.cpp McpAccess.h
     CommandPolicy.cpp CommandPolicy.h
+    CommandRiskPolicy.cpp CommandRiskPolicy.h
     LocalMcpServer.cpp LocalMcpServer.h
     McpService.cpp McpService.h
     ../session/SessionDirectory.cpp ../session/SessionDirectory.h
