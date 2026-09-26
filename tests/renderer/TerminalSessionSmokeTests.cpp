@@ -8,6 +8,7 @@
 #include "service/TerminalSchemeStore.h"
 
 #include <ElaComboBox.h>
+#include <ElaScrollBar.h>
 #include <ElaTheme.h>
 
 #include <QElapsedTimer>
@@ -42,6 +43,7 @@ private slots:
     void terminalViewStartupKeepsUiResponsive();
     void terminalViewRepeatedStartStop();
     void terminalViewStartupPreservesPendingSize();
+    void terminalViewScrollBarDrivesHistoryScrollback();
     void comboBoxAnimationTeardownIsSafe();
     void externalSessionOutlivesView();
     void ownedDependenciesAreDestroyedBeforeCore();
@@ -162,6 +164,64 @@ void TerminalSessionSmokeTests::terminalViewStartupPreservesPendingSize()
         + "x" + QByteArray::number(rows);
     QTRY_VERIFY_WITH_TIMEOUT(output.contains(expected), 5000);
     view.stopLocalShell();
+}
+
+// 终端右侧滚动条：渲染器是唯一滚动状态来源，滚动条既要跟随它（滚轮、
+// 历史增长），也要能反向驱动它（拖动滑块回看历史）。坐标方向相反 ——
+// 滚动条底部 = 实时底部 = 渲染器偏移 0。
+void TerminalSessionSmokeTests::terminalViewScrollBarDrivesHistoryScrollback()
+{
+    TerminalView view;
+    view.resize(640, 320);
+    view.layout()->activate();
+    auto* bar = view.scrollBar();
+    QVERIFY(bar);
+    auto* renderer = view.renderer();
+    auto* core = view.session()->core();
+
+    // 无历史：量程为 0，滑块停在底部。
+    QCOMPARE(bar->maximum(), 0);
+    QCOMPARE(bar->value(), 0);
+
+    QByteArray input;
+    for (int i = 0; i < 100; ++i)
+        input += QByteArrayLiteral("scrollbar-view\r\n");
+    QVERIFY(core->writeInput(input).fullyAccepted());
+    QVERIFY(core->waitForIdle(1000));
+    QTRY_VERIFY_WITH_TIMEOUT(bar->maximum() > 0, 3000);
+
+    // 有历史但仍在实时底部：滑块必须停在 maximum，而不是被留在旧量程上。
+    QCOMPARE(bar->maximum(), renderer->maximumScrollOffset());
+    QCOMPARE(renderer->scrollOffset(), 0);
+    QCOMPARE(bar->value(), bar->maximum());
+    // 页步取可见行数，使滑块长度反映视口占比。
+    QCOMPARE(bar->pageStep(), core->rows());
+
+    // 渲染器 → 滚动条：滚轮回看后滑块相应上移。
+    renderer->scrollLines(5);
+    QCOMPARE(renderer->scrollOffset(), 5);
+    QCOMPARE(bar->value(), bar->maximum() - 5);
+
+    // 滚动条 → 渲染器：拖动滑块到顶端即回看到最旧历史。
+    bar->setValue(0);
+    QCOMPARE(renderer->scrollOffset(), renderer->maximumScrollOffset());
+    // 反向驱动不得形成回环：渲染器发布的新状态换算回同一个值。
+    QCOMPARE(bar->value(), 0);
+
+    // 拖回底部即回到实时输出。
+    bar->setValue(bar->maximum());
+    QCOMPARE(renderer->scrollOffset(), 0);
+
+    // 停在实时底部时继续输出：量程抬高，滑块跟着走到新的底部。
+    const int rangeBefore = bar->maximum();
+    QByteArray more;
+    for (int i = 0; i < 20; ++i)
+        more += QByteArrayLiteral("scrollbar-view-more\r\n");
+    QVERIFY(core->writeInput(more).fullyAccepted());
+    QVERIFY(core->waitForIdle(1000));
+    QTRY_VERIFY_WITH_TIMEOUT(bar->maximum() > rangeBefore, 3000);
+    QCOMPARE(renderer->scrollOffset(), 0);
+    QCOMPARE(bar->value(), bar->maximum());
 }
 
 void TerminalSessionSmokeTests::conPtyStartupKeepsUiResponsive()

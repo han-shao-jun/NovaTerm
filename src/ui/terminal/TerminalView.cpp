@@ -19,9 +19,11 @@
 #include "service/TerminalSchemeStore.h"
 #include "service/LanguageManager.h"
 
+#include <QHBoxLayout>
 #include <QVBoxLayout>
 #include "ElaLineEdit.h"
 #include "ElaMenu.h"
+#include "ElaScrollBar.h"
 #include <QApplication>
 #include <QClipboard>
 #include <QCoreApplication>
@@ -116,7 +118,23 @@ TerminalView::TerminalView(TerminalSession* session, QWidget* parent)
     _searchLine->setClearButtonEnabled(true);
     _searchLine->hide();
     layout->addWidget(_searchLine);
-    layout->addWidget(_renderer);
+
+    // 终端与右侧滚动条并排。滚动条常驻布局而非按有无历史显示/隐藏：
+    // 隐藏会改变渲染器宽度，进而改变列数并触发一次整段历史重排，表现为
+    // 首次产生历史时内容跳动。无历史时量程为 0，Ela 按满长滑块绘制，语义
+    // 上正是"视口覆盖全部内容"。
+    auto* terminalRow = new QHBoxLayout;
+    terminalRow->setContentsMargins(0, 0, 0, 0);
+    terminalRow->setSpacing(0);
+    terminalRow->addWidget(_renderer);
+    _scrollBar = new ElaScrollBar(Qt::Vertical, this);
+    // 量程以显示行为单位，单步一行；页步在终端尺寸变化时同步为可见行数，
+    // 使滑块长度反映"视口占全部内容的比例"。
+    _scrollBar->setSingleStep(1);
+    _scrollBar->setPageStep(_latestResizeRows);
+    _scrollBar->setRange(0, 0);
+    terminalRow->addWidget(_scrollBar);
+    layout->addLayout(terminalRow);
 
     setFocusProxy(_renderer);
     setContextMenuPolicy(Qt::CustomContextMenu);
@@ -283,8 +301,23 @@ TerminalView::TerminalView(TerminalSession* session, QWidget* parent)
             this, [this](int columns, int rows) {
         _latestResizeColumns = columns;
         _latestResizeRows = rows;
+        // 页步即可见行数：决定滑块长度与点击空白处的翻页幅度。
+        _scrollBar->setPageStep(rows);
         _resizeDebounce->start();
     });
+
+    // ── 右侧滚动条 ⇄ 渲染器回看偏移 ──────────────────────────
+    // 渲染器是唯一的滚动状态来源：它在滚轮、键盘回底、历史追加/淘汰与重排
+    // 完成后发布 scrollStateChanged，此处只做坐标换算并写入滚动条。
+    connect(_renderer, &TerminalRenderer::scrollStateChanged,
+            this, &TerminalView::syncScrollBar);
+    connect(_scrollBar, &QAbstractSlider::valueChanged, this, [this](int value) {
+        if (_scrollBarSyncing)
+            return;
+        // 反向换算：滚动条顶部（0）是最旧历史，底部（maximum）是实时底部。
+        _renderer->scrollToLine(_scrollBar->maximum() - value);
+    });
+    syncScrollBar(_renderer->maximumScrollOffset(), _renderer->scrollOffset());
 
     if (_ownsSession) {
         // QObject 按插入顺序销毁子对象。renderer 与 session 均持有 Core 的非拥有
@@ -666,4 +699,19 @@ void TerminalView::hideSearch()
     _renderer->clearSearchMatches();
     _searchLine->hide();
     _renderer->setFocus(Qt::ShortcutFocusReason);
+}
+
+void TerminalView::syncScrollBar(int maximumOffset, int offset)
+{
+    // 量程与取值必须在同一次同步里完成：历史追加会同时抬高 maximum 与
+    // offset，若只 setRange 而不显式 setValue，停在实时底部的滑块会被留在
+    // 旧的 maximum 上，看起来像自己往回滑进了历史。
+    // 不用 QSignalBlocker 而用标志位：rangeChanged 仍需送达 ElaScrollBar
+    // 自身的 onRangeChanged（维护其 _pTargetMaximum），只需让本类的
+    // valueChanged 处理器认出这是同步写入、不要反向驱动渲染器。
+    _scrollBarSyncing = true;
+    _scrollBar->setRange(0, std::max(0, maximumOffset));
+    _scrollBar->setValue(_scrollBar->maximum()
+                         - std::clamp(offset, 0, _scrollBar->maximum()));
+    _scrollBarSyncing = false;
 }
