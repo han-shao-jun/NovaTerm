@@ -42,6 +42,7 @@ private slots:
     void enteringHistoryReusesHistoryLayout();
     void returningToLiveBottomKeepsHistoryLayout();
     void columnChangeRequestsReflowRowChangeDoesNot();
+    void scrollStateTracksHistoryGrowthAndOffset();
     void softWrappedSelectionCopiesAsSingleLine();
     void hardBreakSelectionKeepsNewline();
     void searchMatchesAppendByGeneration();
@@ -768,6 +769,75 @@ void RendererP3Tests::columnChangeRequestsReflowRowChangeDoesNot()
     QTRY_VERIFY_WITH_TIMEOUT(
         renderer.renderStatistics().scrollbackReflowRequests > requestsBefore,
         2000);
+}
+
+// 右侧滚动条的数据来源：scrollStateChanged 必须随历史增长与回看偏移变化
+// 发布，且量程与偏移同批给出。宿主（TerminalView）据此换算滑块位置，若
+// 量程抬高时不同批发布偏移，停在实时底部的滑块会被留在旧 maximum 上，
+// 看起来像自己滑进了历史。
+void RendererP3Tests::scrollStateTracksHistoryGrowthAndOffset()
+{
+    TerminalCore core(80, 6);
+    TerminalRenderer renderer(&core);
+    QSignalSpy scrollState(&renderer, &TerminalRenderer::scrollStateChanged);
+
+    // 无历史：量程为 0，偏移为 0。
+    QCOMPARE(renderer.maximumScrollOffset(), 0);
+    QCOMPARE(renderer.scrollOffset(), 0);
+
+    QByteArray input;
+    for (int i = 0; i < 100; ++i)
+        input += QByteArrayLiteral("scrollbar-range\r\n");
+    QVERIFY(core.writeInput(input).fullyAccepted());
+    QVERIFY(core.waitForIdle(1000));
+    QTRY_VERIFY_WITH_TIMEOUT(renderer.historyDisplayRowCount() > 0, 2000);
+
+    // 历史增长必须发布新量程，且此时仍在实时底部（偏移 0）。
+    QTRY_VERIFY_WITH_TIMEOUT(!scrollState.isEmpty(), 2000);
+    QCOMPARE(renderer.maximumScrollOffset(),
+             int(renderer.historyDisplayRowCount()));
+    QCOMPARE(renderer.scrollOffset(), 0);
+    QCOMPARE(scrollState.constLast().at(0).toInt(),
+             renderer.maximumScrollOffset());
+    QCOMPARE(scrollState.constLast().at(1).toInt(), 0);
+
+    // 回看：偏移变化同样发布，量程不变。
+    const int rangeBefore = renderer.maximumScrollOffset();
+    scrollState.clear();
+    renderer.scrollLines(5);
+    QCOMPARE(renderer.scrollOffset(), 5);
+    QCOMPARE(scrollState.size(), 1);
+    QCOMPARE(scrollState.constLast().at(0).toInt(), rangeBefore);
+    QCOMPARE(scrollState.constLast().at(1).toInt(), 5);
+
+    // 越界请求被钳制到量程内，且不重复发布相同状态。
+    scrollState.clear();
+    renderer.scrollToLine(rangeBefore + 1000);
+    QCOMPARE(renderer.scrollOffset(), rangeBefore);
+    QCOMPARE(scrollState.size(), 1);
+    renderer.scrollToLine(rangeBefore + 1000);
+    QCOMPARE(scrollState.size(), 1);
+
+    // 回到实时底部。
+    scrollState.clear();
+    renderer.scrollToBottom();
+    QCOMPARE(renderer.scrollOffset(), 0);
+    QCOMPARE(scrollState.size(), 1);
+    QCOMPARE(scrollState.constLast().at(1).toInt(), 0);
+
+    // 继续输出：留在实时底部时量程抬高，偏移仍为 0 —— 二者必须同批发布。
+    scrollState.clear();
+    QByteArray more;
+    for (int i = 0; i < 20; ++i)
+        more += QByteArrayLiteral("scrollbar-more\r\n");
+    QVERIFY(core.writeInput(more).fullyAccepted());
+    QVERIFY(core.waitForIdle(1000));
+    QTRY_VERIFY_WITH_TIMEOUT(
+        !scrollState.isEmpty()
+            && scrollState.constLast().at(0).toInt() > rangeBefore, 2000);
+    QCOMPARE(scrollState.constLast().at(0).toInt(),
+             renderer.maximumScrollOffset());
+    QCOMPARE(scrollState.constLast().at(1).toInt(), 0);
 }
 
 namespace {

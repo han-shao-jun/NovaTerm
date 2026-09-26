@@ -124,6 +124,14 @@ public:
     {
         return _historyLayout.size();
     }
+
+    /**
+     * @brief 当前允许的最大滚动偏移，即外部滚动条的量程上限。
+     * @note  布局常驻时等于 historyDisplayRowCount()；全量重排进行中布局暂
+     *        为空，此时回退到逻辑行数 —— 与 scrollToLine() 的钳制口径一致，
+     *        滚动条不会在每次列宽变化时先塌缩到 0 再恢复。
+     */
+    [[nodiscard]] int maximumScrollOffset() const;
     void scrollToBottom();
     void scrollToLine(int line);
     void scrollLines(int delta);
@@ -154,6 +162,14 @@ public:
 signals:
     void activityDetected();
     void terminalSizeChanged(int columns, int rows);
+    /**
+     * @brief 滚动量程或当前偏移发生变化。
+     * @param maximumOffset 允许的最大滚动偏移，即 maximumScrollOffset()。
+     * @param offset        当前偏移，即 scrollOffset()；0 表示实时底部。
+     * @note  仅在二者之一真正变化时发出，宿主据此同步外部滚动条即可，不必
+     *        轮询。滚轮、键盘回底、历史追加/淘汰与重排完成都会经此发布。
+     */
+    void scrollStateChanged(int maximumOffset, int offset);
 
 protected:
     void initialize(QRhiCommandBuffer* cb) override;
@@ -315,6 +331,13 @@ private:
     void restoreScrollFromAnchor();
 
     /**
+     * @brief 量程或偏移相对上次发布有变化时发出 scrollStateChanged。
+     * @note  所有改动 _scrollLine 或 _historyLayout 的路径末尾都要调用，
+     *        比较两个整数即可，重复调用无副作用。
+     */
+    void publishScrollState();
+
+    /**
      * @brief 选区端点若已失效则清除。
      * @return true 表示确实清除了选区。
      */
@@ -355,6 +378,9 @@ private:
     int _scrollLine{0};   // 当前滚动到 scrollback 中的行偏移（0=底部最新）
     NovaTerm::LineId _scrollAnchorLine{0};
     qsizetype _scrollAnchorWrap{0};
+    // 上次经 scrollStateChanged 发布的量程与偏移，用于只在变化时发信号。
+    int _publishedMaximumOffset{0};
+    int _publishedScrollOffset{0};
     bool _conservativeLiveScrollRendering{true};
     quint64 _reflowGeneration{0};
     HistoryLayout _historyLayout;

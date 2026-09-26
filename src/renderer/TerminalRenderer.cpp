@@ -209,6 +209,7 @@ TerminalRenderer::TerminalRenderer(TerminalCore* core, QWidget* parent)
         const int previousScroll = _scrollLine;
         updateHistoryLayout();
         restoreScrollFromAnchor();
+        publishScrollState();
         const bool viewportMappingChanged =
             _scrollLine > 0 || _scrollLine != previousScroll;
 
@@ -264,6 +265,7 @@ TerminalRenderer::TerminalRenderer(TerminalCore* core, QWidget* parent)
         _historyLayout = std::move(_pendingHistoryLayout);
         _layoutColumns = _pendingLayoutColumns;
         restoreScrollFromAnchor();
+        publishScrollState();
         const bool selectionChanged = dropInvalidSelection();
         // 重排期间列宽可能又变了（例如仍在拖动窗口）。显式续排，避免在没有
         // 后续输出时布局停留在过期列宽上。
@@ -448,14 +450,20 @@ void TerminalRenderer::scrollToBottom()
     _scrollAnchorWrap = 0;
     ++_viewportMappingRevision;
     requestFullFrame();
+    publishScrollState();
     // 布局常驻，回到实时底部不再丢弃它：行数始终可用于滚动条量程，再次
     // 进入历史也无需等待一次重建。
 }
 
+int TerminalRenderer::maximumScrollOffset() const
+{
+    return _historyLayout.isEmpty()
+        ? _core->scrollbackLineCount() : int(_historyLayout.size());
+}
+
 void TerminalRenderer::scrollToLine(int line)
 {
-    const int maxScroll = _historyLayout.isEmpty()
-        ? _core->scrollbackLineCount() : _historyLayout.size();
+    const int maxScroll = maximumScrollOffset();
     const int clamped = std::max(0, std::min(line, maxScroll));
     if (clamped != _scrollLine) {
         _scrollLine = clamped;
@@ -478,11 +486,24 @@ void TerminalRenderer::scrollToLine(int line)
         requestFullFrame();
         // 布局已常驻且与当前列宽一致，进入历史无需重排。
     }
+    publishScrollState();
 }
 
 void TerminalRenderer::scrollLines(int delta)
 {
     scrollToLine(_scrollLine + delta);
+}
+
+void TerminalRenderer::publishScrollState()
+{
+    const int maximumOffset = maximumScrollOffset();
+    if (maximumOffset == _publishedMaximumOffset
+        && _scrollLine == _publishedScrollOffset) {
+        return;
+    }
+    _publishedMaximumOffset = maximumOffset;
+    _publishedScrollOffset = _scrollLine;
+    emit scrollStateChanged(maximumOffset, _scrollLine);
 }
 
 void TerminalRenderer::setConservativeLiveScrollRendering(bool enabled)
@@ -1178,6 +1199,8 @@ void TerminalRenderer::scheduleReflow()
     _pendingLayoutColumns = _core->columns();
     _core->requestScrollbackReflow(_pendingLayoutColumns, _reflowGeneration,
                                    256);
+    // 布局清空后量程回退到逻辑行数，外部滚动条需要同步这一过渡值。
+    publishScrollState();
 }
 
 void TerminalRenderer::resizeTerminalToViewport()

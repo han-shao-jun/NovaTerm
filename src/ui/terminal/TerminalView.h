@@ -18,6 +18,7 @@ class TerminalRenderer;
 struct TerminalColorScheme;
 class QTimer;
 class ElaLineEdit;
+class ElaScrollBar;
 class TerminalSession;
 
 // 终端视图：组合 TerminalCore（libvterm 仿真引擎）+ TerminalRenderer（QRhi GPU
@@ -102,6 +103,8 @@ public:
 
     // ── 渲染器访问（替代原来的 terminalWidget()）─────────────
     TerminalRenderer* renderer() const { return _renderer; } ///< 获取渲染器
+    /** @brief 获取终端右侧的历史滚动条（无历史时隐藏，但始终存在）。 */
+    ElaScrollBar* scrollBar() const { return _scrollBar; }
 
 signals:
     void titleChanged(const QString& title);  ///< 标题变更（终端转义序列触发）
@@ -120,6 +123,14 @@ private:
     bool eventFilter(QObject* obj, QEvent* event) override;
     void showSearch();
     void hideSearch();
+    /**
+     * @brief 把渲染器发布的滚动状态映射到右侧滚动条。
+     * @param maximumOffset 渲染器允许的最大回看偏移（历史显示行数）。
+     * @param offset        当前回看偏移，0 表示实时底部。
+     * @note  渲染器的偏移以"底部为 0、向上为正"计，与滚动条"顶部为 0、
+     *        向下为正"相反，故 value = maximumOffset - offset。
+     */
+    void syncScrollBar(int maximumOffset, int offset);
 
     TerminalCore*     _core{nullptr};
     TerminalRenderer* _renderer{nullptr};
@@ -134,6 +145,10 @@ private:
     // SIGWINCH，避免 shell 被连续重绘请求轰击产生输出风暴。
     QTimer*           _resizeDebounce{nullptr};
     ElaLineEdit*      _searchLine{nullptr};
+    ElaScrollBar*     _scrollBar{nullptr};
+    // 由 syncScrollBar() 写入滚动条时置位，使 valueChanged 不再反向驱动
+    // 渲染器 —— 否则两边互相触发会形成回环。
+    bool              _scrollBarSyncing{false};
     quint64           _searchGeneration{0};
     QString           _lastTerminalTitle;
     QString           _workingDirectoryMarker;
