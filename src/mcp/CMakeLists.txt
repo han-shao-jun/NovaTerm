@@ -9,9 +9,15 @@ endif()
 qt_add_library(novaterm_mcp_runtime STATIC
     McpAccess.cpp McpAccess.h
     CommandPolicy.cpp CommandPolicy.h
+    CommandRiskPolicy.cpp CommandRiskPolicy.h
     LocalMcpServer.cpp LocalMcpServer.h
     McpService.cpp McpService.h
     ../session/SessionDirectory.cpp ../session/SessionDirectory.h
+    ../session/ISessionCommandExecutor.h
+    ../session/CommandPlatformProfile.cpp ../session/CommandPlatformProfile.h
+    ../session/LocalSessionCommandExecutor.cpp ../session/LocalSessionCommandExecutor.h
+    ../session/SessionCommandFacade.cpp ../session/SessionCommandFacade.h
+    ../session/SshSessionCommandExecutor.cpp ../session/SshSessionCommandExecutor.h
 )
 target_link_libraries(novaterm_mcp_runtime PUBLIC
     novaterm_mcp_protocol novaterm_core Qt6::SerialPort)

@@ -1,50 +1,86 @@
 # P8：AI MCP 接口
 
-> 状态：首期功能已实现；Windows 功能验证通过，跨平台与完整性能验收待完成。
-> 2026-09-17 用户授权开始编码。下文保留 v0.2 契约，实施差异与验证记录见 §14。
-> 初稿日期：2026-09-16；v0.2 修订：2026-09-17。源码核对基线：`8030dc0` / NovaTerm `0.2.17`。
+> 状态：v0.2 首期功能已实现；Windows 功能验证通过，跨平台与完整性能验收待完成。
+> v0.5 全会话命令执行设计：2026-09-19。命令执行能力从“仅 SSH 独立 exec”扩展为覆盖 SSH、LocalShell、Serial、Telnet 与可声明能力的 Custom Session；不同会话通过统一 SessionCommandFacade/Executor 抽象执行，仍不开放自由 shell、任意按键、凭据读取、删除或提权。
+> v0.5 保持现有五个 MCP 工具和 schemaVersion=1；当前 SSH 客户端兼容路径不因全会话扩展而改变。Serial/Telnet 等共享交互流的执行语义通过既有 transport 类型、固定 Profile 和本文契约约束，不在 v0.5 强行增加破坏兼容性的必填 JSON 字段。
+> v0.4 性能优化补充：2026-09-18。共享快照、跨客户端复用、请求合并、序列化与复制优化仍作为后续性能路线；其实施状态以 §14 为准。
+> v0.3 设计优化：2026-09-18。协议演进、持续高输出读取、平台 Profile、搜索结果可用性与性能验收语义继续保留。
+> §14 只记录当前代码已经实现并验证的事实。v0.5 的全会话 Command Executor、LocalShell 独立执行、Serial/Telnet Interactive Framing、SessionCommandLease 和 Custom Executor 在进入代码与测试前均不得写成“已实现”。
+> 初稿日期：2026-09-16；v0.2 修订：2026-09-17；v0.3/v0.4 修订：2026-09-18；v0.5 修订：2026-09-19。
+> 当前 master 核对基线：`dd32b909ee4ee6417dbb150893ccdefcbce70e7a` / NovaTerm `0.2.20`。
 > 读者：NovaTerm 开发者、MCP 接入开发者和接口评审者。
-> 首期范围按用户最新要求扩展：会话发现、终端输出读取、搜索，以及受限发送命令。
-> 删除文件、读取会话密码/私钥、提权及其他高危险行为不开放；命令允许列表是实现方案，仍须评审。
+> 范围：会话发现、终端输出读取、搜索，以及覆盖全部 Session 类型的受限诊断命令执行框架。
+> 删除文件、读取会话密码/私钥、提权、自由 shell/脚本及其他高危险行为不开放；命令允许列表和 Profile 均须逐项评审。
 
 ## 1. 目标与首期决策
 
-让支持 MCP 的外部 AI 客户端读取用户已经打开的 NovaTerm 会话，回答「这个终端
-正在显示什么」「最近有哪些有意义的输出」「这段输出中是否有错误」等问题。
-用户继续通过 NovaTerm 管理连接；MCP 不替代终端 UI，也不负责调用大模型。
-在用户单独授权后，AI 还可发送允许列表中的诊断命令，并读取该次执行的明确结果。
+让支持 MCP 的外部 AI 客户端读取用户已经打开的 NovaTerm 会话，回答“这个终端正在
+显示什么”“最近有哪些有意义的输出”“这段输出中是否有错误”等问题。用户继续通过
+NovaTerm 管理连接；MCP 不替代终端 UI，也不负责调用大模型。在用户单独授权后，
+AI 还可调用允许列表中的诊断命令，并读取该次执行的有界结果。
 
-| 决策 | 首期方案 | 原因 |
+v0.5 将“命令能力”定义为 **Session 级能力**，不再把它等同于 `SshTransport` 的
+exec channel。MCP 只提交 `commandId + arguments`；Session 根据当前 Transport、
+可信 `CommandPlatformProfile` 与可用 Executor 选择执行后端。全会话支持表示
+**所有 Session 类型都有统一命令能力入口**，不表示任意一个未知串口/Telnet/Custom
+目标都自动具备可执行命令：没有可信 Profile、无法确认命令边界或当前交互状态不安全时，
+必须返回不可执行状态，而不是猜测 shell 类型后写入文本。
+
+| 决策 | v0.5 方案 | 原因 |
 | --- | --- | --- |
 | 对外角色 | NovaTerm 提供 MCP Server，外部 AI 应用充当 MCP Host/Client | 与现有终端复用，不把模型 SDK 塞入核心 |
-| 能力范围 | 会话发现、上下文读取、搜索、受限命令目录与执行 | 用户要求增加命令能力，同时禁止删除、凭据获取和高危险操作 |
-| 命令表达 | commandId + 严格参数 schema，不接受自由 shell 文本 | 黑名单不能防止脚本、重定向、别名等间接危险行为 |
-| 命令后端 | 首批拟支持已连接 Linux/POSIX SSH 会话的独立 exec 通道 | 复用连接，隔离交互 shell 的未完成输入、别名及 TUI 状态 |
-| 对外传输 | 独立 `novaterm-mcp` 进程提供标准 stdio | 适合桌面客户端启动，避免 GUI 进程 stdout 混入日志 |
-| 连接运行中的应用 | stdio 进程经本机 IPC 访问 NovaTerm GUI 进程 | 访问用户现有标签，不额外启动终端或 SSH 连接 |
+| 能力范围 | 会话发现、上下文读取、搜索、受限命令目录与执行 | 读取和执行均面向用户已经打开并明确授权的 Session |
+| 命令表达 | `commandId + 严格参数 schema`，不接受自由 shell 文本 | 黑名单不能防止脚本、重定向、别名等间接危险行为 |
+| 命令路由 | `McpService → SessionCommandFacade → ISessionCommandExecutor` | MCP 不再 `qobject_cast<SshTransport*>` 决定业务能力 |
+| SSH | 复用当前连接的独立 exec channel | 不污染交互 shell，可获得结构化退出状态 |
+| LocalShell | 独立本地子进程 Executor，不向当前 PTY 注入文本 | 与交互 shell 隔离，便于获得可靠退出码和 stdout/stderr |
+| Serial / Telnet | 经显式授权的 `InteractiveFramed` Executor；仅可信 Profile 可启用 | 没有独立 exec channel，只能在共享交互流中做有界、可识别的命令事务 |
+| Custom | 后端显式提供 Executor 或可信 Interactive Profile 才启用 | 不根据类型名或终端标题推断能力 |
+| 平台适配 | `CommandPlatformProfile` 固定 recipe、framing、绝对程序路径/argv 或受控 CLI 文本 | Linux/BusyBox/U-Boot/设备 CLI 语义不同，不能自动探测后自由执行 |
+| 用户交互优先级 | Interactive 执行必须获得 `SessionCommandLease`；用户输入优先，可中止 MCP 事务 | AI 不能抢占用户当前终端控制权 |
+| 对外传输 | 独立 `novaterm-mcp` 进程提供标准 stdio | 避免 GUI stdout 混入协议 |
+| 连接运行中的应用 | stdio 进程经本机 IPC 访问 NovaTerm GUI 进程 | 访问用户现有标签，不额外创建会话 |
 | 会话所有权 | 保留 1 View : 1 Session；增加非 owning 会话目录 | 不恢复已放弃的 SessionManager 模型 |
 | 数据入口 | `TerminalSession::terminalContext()` 的受限门面 | 不读取 Renderer、GPU、原始 Transport 字节 |
-| 协议基线 | MCP `2025-11-25`，JSON-RPC 2.0 | 明确互操作测试对象，不跟随未固定的 latest |
-| 默认开放状态 | MCP 默认关闭；读取授权与命令执行授权分开 | 读取共享不自动授予远端执行能力 |
-| 首期 MCP 能力 | 仅 tools；不声明 resources、prompts、sampling、tasks | 五个工具，读取与命令操作分别声明语义 |
+| 协议兼容 | 现有 `2025-11-25` 路径继续工作；现代协议适配留在 Bridge | 命令后端扩展不应迫使旧 Host 改协议 |
+| 默认开放状态 | MCP 默认关闭；读取授权与命令执行授权分开 | 读取共享不自动授予执行能力 |
 
-首期不提供：任意按键/文本注入、自由 shell/脚本执行、文件写入或删除、创建/关闭/
-重连会话、调整终端尺寸、SFTP 传输、凭据读取、后台录制、全历史正则搜索、远程
-HTTP 访问，以及自动采集系统资源。受限命令清单与执行流程见 §5.4 和 §7.4/7.5。
-不存在这些工具就不能通过隐藏参数调用；后续操作能力见 §12。
+v0.5 仍不提供：自由文本/按键注入工具、任意 shell/脚本、文件写入或删除、凭据读取、
+提权、会话创建/关闭/重连、SFTP、后台录制、全历史正则搜索或远程 HTTP 暴露。
+Serial/Telnet 的 `InteractiveFramed` 是**服务端内部的固定命令执行机制**，不是对外开放
+`writeUserInput()`；调用方不能提供待写入的原始字节。
 
-三个上下文工具不改变终端或远端状态，也不触发远端命令。新增执行工具会在远端
-启动受限进程，因此不能继续把全部 P8 称为只读接口；它单独鉴权、限流并记录执行状态。
+三个上下文工具不改变终端或目标状态。命令执行工具会产生受控副作用，因此继续
+单独鉴权、限流、去重和记录执行状态；对共享交互流还必须额外满足 CommandLease、
+Prompt/Frame 同步和用户输入优先规则。
 
 ### 1.1 阶段依赖与边界
 
-P8 复用 P4 的有界终端文本/滚动历史模型及 P6 的 Session 生命周期、身份和只读
-上下文能力。依赖这些已有边界，不要求先完成 P6 所有剩余功能；P8 所需的
-非 owning 会话目录和有界读取缺口在本阶段补齐。
-P7 不是三个上下文工具的前置条件；受限 SSH exec 必须与 P7 已有慢查询及静态预取
-遵守同一通道仲裁，不取消其请求。资源查询类命令只在明确执行工具调用时运行，
-不得恢复已移除的后台文件系统轮询。
-阶段编号不改变 Parser 单写、View 拥有 Session 和核心去 Qt 化的既定约束。
+P8 复用 P4 的有界终端文本/滚动历史模型及 P6 的 Session 生命周期、身份和 Transport
+能力边界。P8 不改变 Parser 单写、View 拥有 Session、Transport 只负责字节链路的既定
+架构。
+
+P7 不是上下文读取的前置条件。命令执行与 P7 的关系按后端区分：
+
+- SSH 独立 exec 与 P7 已有辅助通道必须遵守同一 worker/通道仲裁，不抢占已有请求；
+- LocalShell 独立子进程不复用交互 PTY，但仍受本地命令执行总预算和授权约束；
+- Serial/Telnet InteractiveFramed 与用户交互共享同一字节流，必须先获得
+  `SessionCommandLease`，不能与用户输入或另一条 MCP 命令并行；
+- Custom 只有明确声明并通过测试的 Executor 才能加入命令目录。
+
+`ITransport` 继续保持字节传输抽象，不直接增加 MCP command API。统一命令能力位于
+Session 门面层；具体 Executor 可以调用 Transport 专有接口，也可以创建独立本地进程，
+但不得让 MCP Handler 依赖具体 Transport 类型。
+
+### 1.2 规范层级与兼容原则
+
+本文件同时描述接口契约、设计目标和实施事实，三者必须明确区分：
+
+- §1～§13 是设计与接口约束；其中标记为“v0.3 目标”的内容允许尚未实现，但后续实现不得静默降低安全边界。
+- §14 只记录已经进入当前代码并完成相应验证的事实；测试未覆盖的平台、性能指标或 Host 不能写成“支持”。
+- 已发布的 v0.2 工具名、错误码和安全边界优先保持向后兼容。需要改变 JSON 结构语义时，必须通过 schemaVersion、协议版本或明确的兼容字段演进，不能让旧客户端把新字段含义误解成旧语义。
+- MCP wire protocol 与 NovaTerm 私有 IPC 分层演进：Bridge 负责适配 MCP 协议代际，GUI 内的 SessionDirectory、授权、capture、commandTicket 和执行记录不依赖某一代 MCP handshake。
+- 外部协议升级不得成为放宽权限的理由。`2026-07-28` 的无状态协议只改变 MCP 交互方式，不改变本机 token、会话授权、epoch、命令票据和目标保护状态。
 
 ## 2. 当前已有能力与待补缺口
 
@@ -55,13 +91,15 @@ P7 不是三个上下文工具的前置条件；受限 SSH exec 必须与 P7 已
 | `TerminalSession::id/state/statistics` | UUID、状态、连接 generation | 调用属于 Session 所在线程；不能在 IPC 线程直接解引用 QObject |
 | `TerminalView::session()` | 获取该 View 持有的 Session | 会话集合由 `TerminalPage` 私有维护，尚无进程级发现目录 |
 | `TerminalSession::terminalContext()` | 按需创建 Provider、返回独立值对象 | 当前无远程授权和协议适配；不能把方法直接注册成工具 |
-| `TerminalCore::terminalState()` | 模型锁内读取解析后 UTF-8、光标、标题、屏幕模式和有界文本 | 上限 256 KiB / 1024 行；同步模型锁可能等待，需验证并补齐有界读取路径 |
+| `TerminalCore::terminalState()` | 模型锁内读取解析后 UTF-8、光标、标题、屏幕模式和有界文本 | v0.2 已补 try-read；持续高输出实测会出现读取饥饿，v0.3 需评估按需发布的不可变快照，不能靠延长锁等待换成功率 |
 | `TerminalContextProvider` | 过滤 CR 进度、重复完成行、spinner；支持 sinceRevision | 缓存条目记录采样时的 Core revision，不是独立日志序号；返回截断后不能直接推进 revision |
 | `TerminalStateCache` | 每会话最多 256 KiB / 1024 条摘要，窗口内相同文本去重 | 重复的真实日志也可能被省略；缓存淘汰和模式切换会要求重置 |
 | `SearchEngine` | 对 ScrollbackSnapshot 异步搜索 | 新搜索会取消旧 generation；不能复用 UI 的搜索实例承接 MCP 请求 |
 | `Application`、`TerminalPage::registerTerminalView()` | 应用生命周期和会话注册接入点 | 需要新增非 owning 注册/注销通知，不对外开放 UI 私有列表 |
-| `SshTransport::executeCommand/cancelCommand` | 在已有 SSH 连接上运行有界非交互命令 | 目前接受任意 shell 字符串，不能原样暴露给 MCP；与资源查询共用单请求通道 |
-| `SshTransport::commandFinished` | 独立返回 stdout/stderr 与错误 | 当前未结构化导出 exit status、是否已开始、取消是否终止进程；必须补齐执行结果 DTO，不能解析本地化错误字符串猜状态 |
+| `SshTransport::executeBoundedCommand/cancelCommand` | 当前已具备结构化、有界的独立 SSH exec 基础 | v0.5 需适配到通用 SessionCommandExecutor；McpService 不再直接 `qobject_cast<SshTransport*>` |
+| `LocalShellTransport` / 平台 PTY | 当前交互 Shell 走 PTY/ConPTY 字节流 | v0.5 新增独立本地进程 Executor；不把诊断命令写入当前 PTY，不假装继承交互 shell 的动态 cwd/alias/history |
+| `SerialTransport` / `TelnetTransport` | 当前已提供有界写队列、读取背压与连接状态 | 无独立 exec channel；只有明确 CommandPlatformProfile + framing + CommandLease 时才可启用 InteractiveFramed 执行 |
+| `ITransport` | 统一字节传输、连接状态与基础 capabilities | 保持不增加 MCP 命令接口；命令能力提升到 Session 层，避免污染通用 Transport 契约 |
 
 补充约束：
 
@@ -93,11 +131,17 @@ flowchart LR
         Registry[SessionDirectory / 非 owning]
         Session[TerminalSession]
         Core[TerminalCore / Parser 单写模型]
-        Policy[CommandPolicy / 固定模板与授权]
-        Exec[SessionCommandFacade]
-        SSH[SshTransport / 独立 exec channel]
+        Policy[CommandPolicy + CommandPlatformProfile]
+        Facade[SessionCommandFacade]
+        Router[SessionCommandExecutor Router]
+        SSHExec[SSH Executor / 独立 exec channel]
+        LocalExec[Local Executor / 独立子进程]
+        Interactive[InteractiveFramed Executor]
+        CustomExec[Custom Executor]
+        Lease[SessionCommandLease / Arbiter]
         Worker[只读搜索 worker / 不可变副本]
         View[TerminalView / 拥有 Session]
+
         IPC <-->|有界消息| Broker
         Broker --> Registry
         Broker --> Session
@@ -105,9 +149,16 @@ flowchart LR
         View -->|拥有| Session
         Session --> Core
         Broker -->|有界文本副本| Worker
+
         Broker --> Policy
-        Policy --> Exec
-        Exec --> SSH
+        Policy --> Facade
+        Facade --> Router
+        Router --> SSHExec
+        Router --> LocalExec
+        Router --> Interactive
+        Router --> CustomExec
+        Interactive --> Lease
+        Lease --> Session
     end
     Bridge <-->|QLocalSocket / 私有 IPC| IPC
 ```
@@ -116,18 +167,28 @@ flowchart LR
 
 | 组件 | 所有者 / 线程 | 职责与禁止事项 |
 | --- | --- | --- |
-| `McpBridge` | 独立进程 / 自身事件循环 | stdio framing、MCP 初始化、schema 校验、结果编码；不链接 Renderer 或访问终端模型 |
+| `McpBridge` | 独立进程 / 自身事件循环 | stdio framing、MCP 协议适配、schema、结果编码；不链接 Renderer 或访问终端模型 |
 | `LocalMcpService` | Application / 专用 I/O 线程 | IPC 接入、认证、消息长度与队列上限；不持有可跨线程调用的 Session 指针 |
 | `SessionDirectory` | Application / GUI 线程 | `SessionId → QPointer<TerminalSession>`、epoch、可公开元数据；不创建、关闭或延长 Session 寿命 |
 | `McpRequestBroker` | Application / GUI 线程 | 授权复核、会话定位、请求调度、超时取消、捕获结果发布 |
-| `SessionReadFacade` | Session 一侧 / GUI 线程 | 在会话线程调用现有上下文能力，输出不可变 DTO；对模型忙碌返回 Busy |
-| `CommandPolicy` | MCP 服务 / GUI 线程 | 本机管理的固定命令目录、平台配置和参数校验；远端文本不能修改策略 |
-| `SessionCommandFacade` | Session 一侧 / GUI 线程 | 校验执行授权/epoch/ticket，复用当前 SSH exec，返回结构化执行状态；不向交互终端注入文本 |
-| 上下文搜索 worker | MCP 服务 / 独立有界 worker | 只搜索捕获的文本，不调用 Session、Transport 或 UI SearchEngine |
+| `SessionReadFacade` | Session 一侧 / GUI 线程 | 取得有界上下文、发布不可变 DTO；不暴露可写 Core |
+| `CommandPolicy` | MCP 服务 / GUI 线程 | commandId、授权集合、危险行为拒绝、票据与策略版本 |
+| `CommandPlatformProfile` | 本机可信配置 / 只读 | 为某类目标绑定固定 recipe、执行模式、framing、完成/退出状态解释；不能由终端输出或 MCP 请求动态改写 |
+| `SessionCommandFacade` | Session 一侧 / GUI 线程 | 统一执行入口；校验授权/epoch/ticket/profile/lease，选择 Executor，返回通用 `CommandExecutionResult` |
+| `ISessionCommandExecutor` | Session/后端适配层 | 通用 submit/cancel/capabilities；不得接收 MCP 自由 shell 字符串 |
+| SSH Executor | SSH worker | 复用独立 exec channel，保持 stdout/stderr 与交互 Shell 隔离 |
+| Local Executor | 本地进程执行器 | 运行固定 executable/argv，独立于当前 PTY/ConPTY；不得调用 `shell -c`/`cmd /c`/PowerShell 自由脚本入口 |
+| InteractiveFramed Executor | Session + Transport 字节通路 | 仅在可信 Profile、命令就绪状态和 Lease 均满足时写入固定 framing；输出来自共享流，不能宣称天然隔离 |
+| `SessionCommandLease` | Session / GUI 线程 | 保证一条共享交互流同时最多一个 MCP 命令事务；用户输入优先，冲突时取消/标记结果不确定 |
+| 上下文搜索 worker | MCP 服务 / 独立有界 worker | 只搜索捕获文本，不调用 Session、Transport 或 UI SearchEngine |
 
-依赖方向保持 UI → Session → Core；业务门面可以使用 Qt，核心不得新增 MCP/JSON/
-QLocalSocket 依赖。`novaterm-mcp` 拟采用 C++17 + Qt Core/Network，Windows 为
-console 子系统程序；主应用仍保持现有 GUI 子系统。首期不要求 Node/Python 常驻运行。
+依赖方向保持 UI → Session → Core；`ITransport` 继续只处理字节流/连接，不新增 MCP、
+JSON、CommandPolicy 概念。SessionCommandFacade 可以使用具体后端的受控扩展接口，
+但 `McpService` 不应直接按 `TransportKind` 做 `qobject_cast` 后执行命令。
+
+对 InteractiveFramed 后端，命令事务不是第二条物理通道，而是共享终端链路中的
+受控事务。因此它必须显式暴露“是否可安全开始”给 Session 层，并在用户输入、断线、
+模式切换或 framing 失配时保守结束为 `unknown`，而不是继续猜测输出边界。
 
 ### 3.1 注册与销毁
 
@@ -147,10 +208,46 @@ console 子系统程序；主应用仍保持现有 GUI 子系统。首期不要�
 ### 3.2 模型读取前置条件
 
 把同步方法放进 queued callback，不能消除 `terminalState()` 等待模型锁的风险。
-实现前必须为门面补齐可失败的 try-read 或等价有界读取机制：模型忙时返回 Busy，
-不得在 GUI 线程无限等待，也不得让 Parser 为 MCP 复制完整历史。
-这是首期验收前置条件，不把「现有方法返回值有上限」等同于「执行时间有上限」。
-具体低层 API 名称在实现评审时确定；其参数仍是核心自有类型，不引入 MCP 类型。
+v0.2 已采用 try-read：模型锁忙时立即返回 Busy，保证 GUI 和 Parser 不因 MCP 无限等待。
+该策略是正确的安全下限，但 §14 的持续高输出测试已经证明，仅靠 try-lock 会形成读取饥饿，
+因此 v0.3 不把“提高 try-lock 等待时间”作为主要优化方向。
+
+任何读取实现都必须满足：
+
+1. Parser 单写模型不变，MCP 不能取得写权限，也不能暂停 Parser 等待完整快照。
+2. GUI 线程不做无界锁等待；读取路径有明确 CPU、文本、排队和时间预算。
+3. 无客户端或 MCP 关闭时，不新增周期性采集、后台日志录制或持续复制完整历史。
+4. 返回的数据必须是自洽的同一 revision 快照；不能把不同时间点的 title/cursor/viewport/recentOutput 拼成一次“原子捕获”。
+5. Busy 仍是合法背压结果，但在设计负载内不应成为常态；持续输出时应优先复用最近的自洽快照，而不是让所有客户端长期饥饿。
+
+### 3.3 v0.3 按需不可变快照发布
+
+为解决持续高输出下 try-read 长时间失败，v0.3 引入**候选优化** `PublishedContextSnapshot`。
+该设计须先通过 A/B 性能测试再替换现有 try-read 主路径，不能仅凭理论启用。
+
+建议模型：
+
+```text
+TerminalCore / Parser
+        │ 正常模型提交，不额外等待 MCP
+        │ 在“存在授权读取需求”时最多按配置频率合并发布
+        ▼
+PublishedContextSnapshot (immutable, bounded)
+        │ shared_ptr / generation；只读
+        ├──────────► read_context
+        └──────────► capture/search
+```
+
+约束：
+
+- **无定时轮询**：发布由正常模型更新和真实读取需求驱动；MCP 关闭或没有授权客户端时保持零发布工作。
+- **有界频率**：同会话默认最多发布 4 次/秒；多个客户端共享同一基础快照，不能每个请求各复制一份 Core。
+- **不可变发布**：发布后只读，以 revision/generation 识别；消费者只拿值对象或共享只读内存，不持有 Core 内部可变容器的裸引用。
+- **保留时间语义**：`capturedAt` 表示底层快照真正形成的时间。复用旧快照时不得把 RPC 响应时间伪装成新的 capturedAt。
+- **允许有界陈旧，不允许伪装新鲜**：若最新 revision 正在写，可返回最近已发布且仍属于同 epoch 的快照；授权撤销、epoch 改变、resetForReuse 或模式重置立即使旧发布物失效。
+- **try-read 仍可保留**：在没有可用发布快照、首次读取或调试模式下可尝试直接捕获；失败后返回 Busy，不延长 GUI 锁等待。
+- **不能复制完整历史**：发布对象仍受 256 KiB / 1024 行等硬上限约束，recentOutput 的摘要/淘汰语义不变。
+- **性能闸门**：只有在正常负载成功率、终端吞吐和 GUI frame P95 同时达到 §11 指标时才允许默认启用。
 
 ## 4. 接入方式与本机 IPC
 
@@ -174,9 +271,10 @@ console 子系统程序；主应用仍保持现有 GUI 子系统。首期不要�
 }
 ```
 
-标准 MCP 初始化在桥接进程完成，工具目录为静态五项。未运行 NovaTerm、未启用
-共享或 IPC 暂不可用时，初始化和 tools/list 仍可完成，业务调用返回相应工具错误。
-桥接进程不自动启动 GUI、不自动登录服务器。
+MCP 协议入口全部在桥接进程完成：2025-11-25 处理 initialize/initialized，
+v0.3 的 2026-07-28 路径处理 server/discover 与 per-request metadata；工具目录仍为静态五项。
+未运行 NovaTerm、未启用共享或 IPC 暂不可用时，协议发现/工具目录仍可完成，业务调用
+返回相应工具错误。桥接进程不自动启动 GUI、不自动登录服务器。
 
 ### 4.2 实例发现与绑定
 
@@ -259,70 +357,212 @@ RuntimeConfig、SessionEditSnapshot 或凭据引用。用户已经在终端输�
 
 ### 5.4 受限命令策略
 
-危险程度按操作行为判断，不按是否需要 root/Administrator 判断。普通用户的文件
-删除同样禁止；已经以 root 登录 SSH，也只能运行同一组获准的固定诊断模板。
-执行器不使用 sudo/su、不读取或代填密码、不尝试提权。
+危险程度按操作行为判断，不按是否需要 root/Administrator 判断。普通用户的文件删除
+同样禁止；即使 SSH、LocalShell、Serial/Telnet 背后的目标拥有高权限，仍只能运行
+当前 Profile 中获准的固定诊断模板。执行器不使用 sudo/su/runas，不读取或代填密码，
+不尝试提权。
 
-采用**默认拒绝的允许列表**：请求携带 commandId 和结构化参数，服务端从本机可信
-策略取出固定可执行文件及 argv。首批参数均为空对象，不接受 command、script、
-shell、stdin、env、cwd、path 或额外选项字段。不是“先接收任意字符串，再搜索
-危险关键词”；未知模板、未知参数以及编码后试图绕过 schema 的输入直接拒绝。
+采用**默认拒绝的允许列表**：请求只携带 `commandId` 和结构化参数，服务端从本机可信
+`CommandPolicy + CommandPlatformProfile` 解析实际 recipe。首批参数仍为空对象，不接受
+`rawCommand`、`script`、`shell`、`stdin`、`env`、`cwd`、`path` 或额外选项字段。
+不是“接收任意字符串再搜索危险关键词”；未知模板、未知参数、未知 Profile、无法确认
+当前会话命令就绪状态时直接拒绝。
 
-首批拟议目录（必须选定并验证可信 Linux/POSIX 平台配置后才启用）：
+v0.5 的 commandId 保持语义级命名，例如：
 
-| commandId | 诊断目的 | 固定参数示意 | 调用方可变参数 |
+| commandId | 诊断目的 | 典型 Profile recipe | 调用方可变参数 |
 | --- | --- | --- | --- |
-| `system.identity` | 系统类型、内核和架构 | `uname -srm` | 无 |
-| `system.uptime` | 启动时长与负载 | `uptime` | 无 |
-| `memory.summary` | 内存与交换用量 | `free -k` | 无 |
-| `filesystem.usage` | 文件系统容量 | `df -Pk` | 无 |
+| `system.identity` | 系统/固件身份 | POSIX `uname -srm`；U-Boot/设备 CLI 可映射为受审计的身份命令 | 无 |
+| `system.uptime` | 启动时长/运行时状态 | POSIX `uptime`；目标 Profile 没有可靠等价项则不发布 | 无 |
+| `memory.summary` | 内存摘要 | POSIX `free -k`；仅支持具备可信等价命令的 Profile | 无 |
+| `filesystem.usage` | 文件系统容量 | POSIX `df -Pk`；仅支持有文件系统语义的 Profile | 无 |
 
-表中命令仅用于说明；实际平台配置必须固定绝对可执行路径及逐项 argv，例如受信任
-的 `/usr/bin/uname`。路径由本机受信任配置提供，不由模型、终端输出或 PATH 搜索决定。
-程序缺失、平台无法识别或目标配置未验证时返回 COMMAND_UNAVAILABLE，不自动回退
-到另一个 shell、解释器、用户脚本或交互终端。
+commandId 是语义，不要求每个 Profile 都实现全部四项。`list_commands` 返回
+`CommandPolicy ∩ 当前用户授权 ∩ 当前 Profile 可实现命令`；不支持的项直接不出现。
 
-以下行为在本期一律没有模板和执行入口：
+以下行为在 v0.5 仍然没有模板和执行入口：
 
 | 禁止类别 | 包括但不限于 |
 | --- | --- |
-| 删除、覆盖、修改文件 | rm/del/Remove-Item、truncate、重定向写文件、覆盖复制/移动、格式化或分区操作 |
-| 读取凭据与敏感状态 | 会话密码/私钥/口令/credentialRef、密钥环、密码数据库、任意环境变量、历史命令、进程环境/内存 |
-| 提权及系统变更 | sudo/su/runas、权限或所有者修改、安装软件、账户/服务/网络配置、重启关机、终止进程 |
-| 任意代码和间接执行 | shell -c、PowerShell 脚本、Python/其他解释器、eval/source、find -exec、xargs、自定义脚本 |
+| 删除、覆盖、修改文件 | rm/del/Remove-Item、truncate、重定向写文件、覆盖复制/移动、格式化或分区 |
+| 读取凭据与敏感状态 | 密码/私钥/口令/credentialRef、密钥环、密码数据库、任意环境变量、历史命令、进程环境/内存 |
+| 提权及系统变更 | sudo/su/runas、权限/所有者修改、安装软件、账户/服务/网络配置、重启关机、终止进程 |
+| 任意代码和间接执行 | 调用方提供的 shell -c、PowerShell/Python/解释器、eval/source、find -exec、xargs、自定义脚本 |
 | 任意文件读取或外传 | cat/head/tail/grep 任意路径、递归扫描、SFTP、curl/wget/nc/ssh 等自由网络操作 |
+| 任意交互注入 | MCP 直接提供按键、换行、控制序列、任意 CLI 字符串或“确认后执行”文本 |
 
-拒绝管道、重定向、命令串联、命令替换、通配符展开和环境赋值等自由 shell 语法，
-更不能通过模板参数接收这些语法。添加新模板须逐项审查可执行路径、参数、文件访问、
-网络访问、凭据暴露与资源开销；首期 MCP 不提供编辑策略或导入自定义模板的工具。
-认证凭据可以由已有 SSH 会话在内部使用，但任何 MCP Handler、模板和结果序列化
-都不得读取或返回这些凭据。已被用户打印进终端的文本仍受 §5.3 的共享边界约束。
+可信 Profile 内部允许使用**固定、经过审核的 framing/wrapper 语法**，例如在 POSIX
+InteractiveFramed Profile 中生成固定 BEGIN/END marker 和退出码采集；但 wrapper 的
+命令结构、分隔符、程序路径、argv 和转义规则均由本机代码固定，MCP 不能提供其中任何
+shell 片段。Profile 内部固定 wrapper 不等同于开放自由 shell。
 
-#### 5.4.1 执行上下文及保证边界
+认证凭据可以由已有 Session 的连接层内部使用，但任何 MCP Handler、CommandProfile、
+执行结果或日志都不得读取或返回这些凭据。用户已经在终端输出中的敏感文本仍受 §5.3
+共享边界约束。
 
-首批只向**已连接的 SSH 会话**发送非交互 exec 请求，经 SessionCommandFacade
-复用现有 SSH 连接。LocalShell、Serial、Telnet 和未验证平台暂返回
-UNSUPPORTED_COMMAND_TARGET；仍可使用三个上下文读取工具。
+#### 5.4.1 两类执行模式
 
-命令不写入当前终端输入，不执行 `writeUserInput("...\\n")`。这避免把看似安全的命令
-拼进用户尚未提交的危险前缀、交互程序或 TUI，也不改变用户正在使用的 shell 工作目录。
-返回的 stdout/stderr 属于独立 executionId，不混入终端核心输入或假装是原交互 shell
-的连续输出。UI 可展示独立的命令记录，不能用伪造键盘事件补齐这一行为。
+v0.5 统一定义两类命令执行模式：
 
-SSH exec 在协议层仍是字符串而非 argv。生成器仅从可信模板构造固定 shell 文本，
-按经过验证的 POSIX 引号规则逐项编码，并采用固定绝对路径和最小环境；不得直接
-拼接调用方字符串。固定包装清除不需要的环境，不允许设置 LD_PRELOAD 等加载变量。
-默认模板无需继承交互 shell 的 cwd、别名、函数、history 或用户环境。
+**A. Isolated**
 
-此限制防止 MCP 请求选择危险行为，不是远端 OS 沙箱。SSH 服务端的非交互 shell
-启动配置和目标二进制必须受信任；被篡改的二进制/启动脚本仍可产生副作用，exec
-通道也不会自动降低现有 SSH 账号权限。若部署要求 OS 级只读或低权限隔离，需要
-服务端受限账户/沙箱/受控 helper；未满足该部署要求时禁用命令能力，不能宣称只靠
-客户端黑名单就实现绝对安全。
+- SSH：复用当前连接的独立 exec channel；
+- LocalShell：启动独立本地子进程，使用固定 executable/argv；
+- Custom：只有后端显式提供等价的独立执行器时使用。
+- 命令输出不进入当前交互终端；应尽可能获得独立 stdout/stderr、退出码和确定终止证据。
+- LocalShell 独立执行不假装继承用户交互 shell 中运行 `cd`、alias、function、临时环境变量
+  后的动态状态；工作目录和最小环境来自受信 Session 配置/Profile，而不是从终端文本推断。
+
+**B. InteractiveFramed**
+
+- 用于没有独立 exec channel、但目标存在可信命令解释器的 Serial、Telnet，以及显式选择
+  该模式的 Custom Session；
+- 使用当前交互字节通路，但调用方仍只提供 commandId；实际命令文本和 framing 均由
+  `CommandPlatformProfile` 生成；
+- 只有 Profile 定义了可靠的命令就绪判据、起止 framing、最大输出、超时和完成语义时才启用；
+- 若无法确认当前处于安全命令提示符、处于 TUI/booting/密码提示、存在未提交输入或
+  framing 状态不明，返回 `SESSION_COMMAND_NOT_READY`，不得通过发送额外换行、Ctrl-C、
+  ESC 等“试探”把终端强行带回 shell；
+- 交互流中的后台日志/内核 printk/设备异步输出可能夹入 framing 区间。对这类后端，
+  v0.5 继续使用现有 `stdout` 字段承载 framing 区间内的有界文本，`stderr` 为空；
+  文档明确它是共享流观察结果，不宣称等价于进程级 stdout。调用方可通过
+  `list_sessions.transport` 识别 serial/telnet/custom 场景。
+
+现有五工具与 `schemaVersion=1` 保持不变，因此 v0.5 不新增 `executionMode`、
+`outputIsolation` 等必填 JSON 字段。若未来需要在线路上显式表达这些属性，应通过
+新的 schemaVersion/兼容机制演进，不能直接向当前 `additionalProperties=false`
+输出对象塞入旧客户端未知的必填字段。
+
+#### 5.4.2 SessionCommandFacade 与 Executor
+
+`McpService` 不再按 Transport 类型直接执行命令。拟议接口：
+
+```cpp
+enum class CommandExecutionMode {
+    Isolated,
+    InteractiveFramed
+};
+
+struct CommandExecutorCapabilities {
+    CommandExecutionMode mode;
+    bool reliableExitCode{false};
+    bool reliableTermination{false};
+    bool isolatedOutput{false};
+};
+
+class ISessionCommandExecutor : public QObject {
+    Q_OBJECT
+public:
+    virtual CommandExecutorCapabilities capabilities() const = 0;
+    virtual bool execute(const CommandExecutionRequest& request) = 0;
+    virtual void cancel(quint64 requestId) = 0;
+signals:
+    void finished(CommandExecutionResult result);
+};
+```
+
+`TerminalSession`/Session 层提供统一的 `SessionCommandFacade` 或等价入口，负责：
+
+1. 解析当前 Session 的可信 CommandPlatformProfile；
+2. 计算允许的 commandId 集合；
+3. 校验执行授权、epoch、ticket、策略版本和目标 quarantine；
+4. 选择 SSH / Local / Interactive / Custom Executor；
+5. 对 InteractiveFramed 获取/释放 `SessionCommandLease`；
+6. 将后端结果归一化为 `CommandExecutionResult`；
+7. 不允许 MCP 代码直接调用 `ITransport::write()`。
+
+`ITransport` 不新增通用 executeCommand 虚函数。SSH 可以保留现有
+`executeBoundedCommand()` 作为其 Executor 的后端能力；LocalShell 使用独立进程执行器；
+Serial/Telnet 的 Executor 通过 Session 受控路径写入固定 framing，而不是把
+`writeUserInput()` 暴露给 MCP。
+
+#### 5.4.3 SessionCommandLease 与用户输入优先
+
+InteractiveFramed 与用户共享同一终端流，必须引入每 Session 一个
+`SessionCommandLease`：
+
+```text
+Idle
+  │ MCP 请求 + Profile/Prompt 校验
+  ▼
+LeaseHeld
+  │ 写入固定 BEGIN/command/END framing
+  ▼
+Executing
+  ├─ 正常 END marker → 完成
+  ├─ 超时/断线/模式失配 → unknown/quarantine
+  └─ 用户输入 → 用户优先，撤销 MCP 事务并保守记录
+```
+
+要求：
+
+- 同一 Session 同一时刻最多一个 Interactive MCP 命令；
+- 获取 Lease 之前必须确认 Session 处于 Profile 允许的命令就绪状态；
+- 用户键盘/粘贴等真实输入优先于 AI。检测到用户输入时，不排队“等 AI 执行完”，而是
+  终止本地等待并保守标记 `executionMayHaveStarted=true`；不能确认结束则
+  `terminationConfirmed=false`、状态为 `unknown`/未确认的 `cancelled`；
+- 不为“取消 AI 命令”自动发送 Ctrl-C、Ctrl-Z、ESC、Break 或任意目标特定字符，除非
+  Profile 明确审核了该取消协议并能区分“已发送取消请求”和“确认命令已结束”；
+- Lease 只限制 MCP Interactive 事务，不阻止用户关闭/断开 Session；
+- 断线、epoch 改变、Session Close 或 Profile 变化立即使 Lease 失效。
+
+#### 5.4.4 CommandPlatformProfile
+
+固定绝对路径和参数是 Isolated 执行的安全边界；Interactive 执行还需要固定命令语法
+与 framing。v0.5 将 `CommandPlatformProfile` 扩展为跨 Session 类型的可信配置：
+
+```text
+linux-coreutils-v1
+linux-busybox-v1
+windows-local-v1
+serial-linux-posix-v1
+serial-busybox-v1
+serial-uboot-v1
+telnet-posix-v1
+custom-<vendor>-v1
+```
+
+Profile 可以定义：
+
+- 支持的 Transport/Executor 模式；
+- commandId → 固定 recipe；
+- Isolated 的绝对 executable/argv、最小环境和可信工作目录策略；
+- Interactive 的 line ending、BEGIN/END marker 规则、退出状态解析、最大 frame；
+- 命令就绪判据和 Profile 可接受的 prompt/状态；
+- 是否存在可靠 exitCode、可靠 termination、输出是否独立；
+- 超时/取消策略以及是否允许任何固定控制序列。
+
+Profile **不能**通过 PATH 搜索、`command -v`、终端标题、模型推理或 MCP 请求动态生成。
+平台探测若未来需要执行远端命令，必须作为单独受限能力评审，不能在
+`list_commands` 时偷偷执行。目标无法可靠匹配时返回 `COMMAND_PROFILE_UNAVAILABLE`，
+不降级到任意 shell、交互输入或路径猜测。
+
+#### 5.4.5 目标保护与 quarantine
+
+结果不确定时仍使用目标保护，范围由 Executor 提供的**非秘密 targetFingerprint**
+决定。不同后端可采用不同稳定身份：
+
+- SSH：认证服务端身份/主机密钥、端口、登录主体等现有指纹；
+- Serial：稳定设备标识/端口配置与 Profile；
+- Telnet：目标端点、受信配置和 Profile；
+- Local：由 Local Executor 的进程/执行记录管理；若无法证明异常退出后的子进程已终止，
+  必须保留足够的本机保护记录；
+- Custom：只有能提供稳定保护身份或可靠终止语义时才允许执行。
+
+若某 Executor 无法给出足够稳定的保护范围，也无法证明执行已终止，则不能用“无指纹”
+作为放宽理由；应拒绝该执行能力或扩大到更保守的 Session/实例级 quarantine。
+MCP 不提供解除 quarantine 的工具，仍由用户在 GUI 核对后人工解除。
 
 ## 6. MCP 协议契约
 
-初始化响应拟议形状如下，serverInfo.version 在实现时使用实际构建版本：
+NovaTerm 将 MCP wire protocol 视为 Bridge 层职责。当前代码已经按 `2025-11-25`
+完成互操作；截至 2026-09-18，MCP 当前正式规范为 `2026-07-28`，其核心已改为
+stateless/self-contained request 和 per-request capability negotiation。v0.3 的兼容目标是
+**同一 `novaterm-mcp` 同时服务两代协议，私有 IPC 与 GUI 业务 DTO 不随协议代际重写**。
+
+### 6.1 2025-11-25 兼容路径（已实现基线）
+
+初始化响应形状如下，serverInfo.version 使用实际构建版本：
 
 ```json
 {
@@ -337,34 +577,52 @@ SSH exec 在协议层仍是字符串而非 argv。生成器仅从可信模板构
 }
 ```
 
-客户端先 initialize，再发送 notifications/initialized，随后调用工具。按 MCP 规则
-协商版本：能支持客户端所请求的版本就返回该版本，否则返回服务器支持的版本，
-由客户端判断是否继续。首版拟只验证 2025-11-25，不宣称兼容所有历史版本。
-实现标准 ping；未知方法、无效 JSON-RPC 结构等走协议错误。
+该路径仍采用 initialize → notifications/initialized → tools 调用。版本协商、ping、
+JSON-RPC 错误和取消语义继续按 2025-11-25 验证；旧 Host 不因 v0.3 增加现代协议支持而失效。
 
-tools/list 返回 §7 的五个固定工具，具体可用权限由会话能力和命令目录表达：
+### 6.2 2026-07-28 现代路径（v0.3 目标）
+
+2026-07-28 不再依赖 `initialize/initialized` 或 MCP session。每个请求携带自己的协议版本、
+客户端能力以及可选 clientInfo；服务端实现 `server/discover` 供客户端发现能力。对 stdio
+部署，进程与字节流仍可长期存在，但**不能把 MCP 协议正确性依赖于一次 initialize 产生的
+隐藏状态**。
+
+Bridge 适配要求：
+
+1. 2026 请求在进入私有 IPC 前规范化为与 2025 路径相同的内部 ToolRequest DTO；GUI 不解析 MCP `_meta`。
+2. 2026 的 clientInfo/serverInfo 仅用于显示、调试和兼容信息，不能替代本机接入 token、ACL 或授权记录。
+3. `server/discover`、每请求协议版本/能力和 2026 list cache 字段由 Bridge 处理；SessionDirectory 与 capture/token 语义保持不变。
+4. 2025 与 2026 客户端可以并存；工具的业务 schema、权限和错误码应尽可能一致。若协议要求不同 envelope，由 Bridge 转换，不能复制两套业务实现。
+5. 当前命令票据仍可绑定 NovaTerm 的本机接入配置和桥接实例。MCP 2026 的“stateless”不等于允许绕过 commandTicket、epoch、去重记录或目标 quarantine。
+6. 对 2026-era stdio 的普通请求取消，仍遵守“取消后不再发送该请求正常结果”的原则；未来若增加 Streamable HTTP，须按该传输的 2026 取消模型单独实现，不能机械复用 stdio 行为。
+
+### 6.3 工具目录与 annotations
+
+`tools/list` 返回 §7 的五个固定工具，具体可用权限由会话能力和命令目录表达：
 
 | 工具 | readOnlyHint | destructiveHint | idempotentHint | openWorldHint |
 | --- | --- | --- | --- | --- |
 | list_sessions / read_context / search_context / list_commands | true | false | true | false |
-| execute_command | false | false | false | true |
+| execute_command | false | false | **true** | true |
 
-完整工具名均有 novaterm_ 前缀。执行工具会启动远端进程，不能冒充纯读取；其
-destructiveHint=false 表达仅允许非破坏性诊断模板，不能当安全保证或权限检查。
-annotations 都只是提示，服务端仍按 §5.4 校验。每次新执行都可能观察不同状态，
-不声明可任意重试；同一 commandTicket 的去重另按 §7.5 处理。
+`execute_command` 的 `idempotentHint=true` 只针对**完全相同参数、尤其是同一个
+commandTicket**：服务端最多向 Transport 提交一次，重复调用只查询已有执行记录或返回
+明确错误，不会生成第二次远端副作用。它不表示 commandId 对远端系统天然幂等，也不允许
+客户端省略票据自行重试。
+
+完整工具名均有 `novaterm_` 前缀。`destructiveHint=false` 只表达当前允许列表设计为
+非破坏性诊断模板；annotations 是风险提示，不是权限证明，服务端仍按 §5.4 校验。
 
 每个工具声明 inputSchema 和 outputSchema。inputSchema 使用 object、显式 required、
-additionalProperties=false，并按 §7 的类型/范围实现。outputSchema 固定为 §8 的
-成功/失败联合对象；未知附加参数不能静默忽略。工具目录及 schema 属于接口契约，
-发布前需保存 schema fixture 并做互操作验证。
+additionalProperties=false，并按 §7 的类型/范围实现。2025-11-25 路径保持已发布 schema；
+2026-07-28 可使用完整 JSON Schema 2020-12 能力，但首期不为了“更复杂 schema”改变业务语义。
+工具目录及 schema 属于接口契约，发布前保存 fixture 并做跨版本互操作验证。
 
 structuredContent 返回结构化对象，content 同时包含一个序列化该对象的 text block，
-兼容只读文本结果的客户端。不要把两个副本当两次数据采样；二者必须完全一致。
+兼容只读文本结果的客户端。两个副本来自同一次采样，必须完全一致。
 
-首期不发送自定义 MCP 通知，不声明 resources 或资源订阅。未来采用
-notifications/resources/updated 时必须先实现并协商 resources/subscribe；不可把
-内部事件名直接当成 MCP 标准方法。
+首期仍只声明 tools，不声明 resources、prompts、sampling 或 Tasks。未来增加任何扩展时
+必须按对应协议版本/扩展协商，不能把内部事件名直接伪装成 MCP 标准方法。
 
 ## 7. 首期工具与参数
 
@@ -498,11 +756,19 @@ sinceRevision=0 调用得到的 resetRequired 原样复用给所有客户端。
 
 返回 data 的 captureId、revision、matches、limited、sourceTruncated、outputTruncated
 均必填，前两项为 string、matches 为对象数组、后三项为 boolean。
-每条 match 含 source（viewport/recent_output）、lineIndex（捕获数组零基索引）、
-startByte/endByte（该 text 的 UTF-8 半开字节区间）。匹配结果不再复制整行正文，
-调用方用对应 capture 的文本定位；不把字节偏移误当 Cell 坐标。
+
+v0.3 每条 match 建议包含：source（viewport/recent_output）、lineIndex（捕获数组零基索引）、
+startByte/endByte（原 text 的 UTF-8 半开字节区间），以及一个**有界 excerpt**：
+`excerpt`、`excerptStartByte`、`excerptTruncated`。excerpt 默认最多 2048 UTF-8 字节，
+必须包含命中内容并尽量保留两侧上下文；UTF-8 截断不得切断码点。startByte/endByte
+始终相对原始捕获行，不相对 excerpt，也不解释为 Cell 坐标。
+
+这样 `search_context` 本身即可向 Agent 提供命中上下文，避免客户端必须再次在旧的
+read_context 大结果中定位第 N 行；同时搜索仍不能读取 capture 之外的文本。若为了兼容
+v0.2 暂不返回 excerpt，Bridge/Host 必须接受字段缺失；完成 schema 更新后再将其设为必填。
 
 最多返回 maxMatches，超过时 limited=true；首版不做匹配分页，用户可缩小查询范围。
+所有 excerpt 合计纳入搜索响应预算，不能因增加上下文绕过帧/内存上限。
 搜索不能返回原 read_context 未授权或未返回的文字。即使 matches 为空，只能说
 「这次捕获的范围内未命中」，不能说整个终端历史没有错误。
 query 不允许 CR/LF；每条 text 独立匹配，不跨行拼接。按 source 顺序 viewport →
@@ -514,75 +780,81 @@ endByte 继续。两个数组中相同文字可分别命中，不做跨 source �
 
 ### 7.4 `novaterm_list_commands`
 
-用途：列出该已共享会话当前获准的诊断模板，不执行远端探测命令。
-输入 sessionId、epoch，均必填 string，格式同 read_context；不接受其他字段。
+用途：列出该已共享 Session 当前获准且**当前 Profile/Executor 能实际执行**的诊断模板，
+不为了识别平台偷偷执行探测命令。输入 `sessionId`、`epoch`，均必填 string；
+不接受其他字段。
 
-成功 data 的所有字段均必填：
+v0.5 保持当前输出 schema，不新增破坏兼容性的必填字段：
 
 | 字段 | 类型 | 含义 |
 | --- | --- | --- |
 | instanceId / sessionId / epoch | string | 当前绑定身份 |
-| policyVersion | string | 本机命令策略版本；变更使尚未执行的旧票据失效，已有执行记录按原版本查询 |
-| executionEnabled | boolean | 当前身份、目标和授权均允许命令执行 |
-| disabledReason | string 或 null | 例如 COMMAND_PERMISSION_REQUIRED、UNSUPPORTED_COMMAND_TARGET、SESSION_NOT_READY；启用时为 null |
-| commands | array | 仅包含当前允许执行的模板；未启用时为空数组 |
+| policyVersion | string | 本机命令策略版本；变更使尚未执行的旧票据失效 |
+| executionEnabled | boolean | 当前授权、Session 状态、Profile 与 Executor 均允许至少一条命令 |
+| disabledReason | string 或 null | 例如 COMMAND_PERMISSION_REQUIRED、COMMAND_PROFILE_UNAVAILABLE、SESSION_COMMAND_NOT_READY、SESSION_NOT_READY |
+| commands | array | `Policy ∩ 授权 ∩ Profile/Executor` 的当前可执行模板；未启用时为空数组 |
 
-每个 commands 元素必含 commandId、title、preview、argumentSchema、timeoutMs、
-maxOutputBytes、commandTicket。前三项和 ticket 为 string；argumentSchema 为 JSON
-Schema object，首批固定为不允许任何字段的空 object；timeoutMs/maxOutputBytes
-为 integer，初始上限分别 5000 与 65536。preview 是由可信策略生成的固定命令展示，
-不包含凭据；不能把 preview 当可编辑输入回传执行。
+每个 `commands` 元素仍必含 `commandId`、`title`、`preview`、`argumentSchema`、
+`timeoutMs`、`maxOutputBytes`、`commandTicket`。`preview` 是可信策略生成的展示，
+不能作为可编辑文本回传执行。对 InteractiveFramed，preview 可以展示标准化后的
+**固定 recipe 名称/概要**，不应暴露 nonce、临时 marker 或可供客户端修改的 framing。
 
-commandTicket 是服务端签发的短期不透明票据，不是用户密码或接入 token。
-它绑定随机 executionId、接入配置和 IPC 连接、instanceId/sessionId/epoch、
-commandId、policyVersion、参数规范哈希和有效期，带 MAC 防篡改；首批参数为空，
-其哈希也固定。票据 60 秒内可发起执行，最长 1024 字节。列表接口不修改策略、
-不授予权限，也不因生成票据而排队执行命令。
+`commandTicket` 继续绑定随机 executionId、接入配置和 IPC 连接、instanceId/sessionId/
+epoch、commandId、policyVersion、参数规范哈希和有效期。v0.5 还应把
+`profileVersion`/executor generation 作为票据内部签名域的一部分；这些内部绑定不要求
+在 v1 JSON 中新增公开字段。Profile 改变后未执行旧票据失效。
+
+对已知 Transport 但没有可信 Profile 的 Session，使用
+`COMMAND_PROFILE_UNAVAILABLE`；`UNSUPPORTED_COMMAND_TARGET` 仅保留为当前 SSH-only
+实现的兼容错误，不作为 v0.5 对 Serial/Telnet/LocalShell 的设计结论。
 
 ### 7.5 `novaterm_execute_command`
 
-用途：发送一个当前允许且已授权的固定诊断命令，等待这次独立 exec 的有界结果。
+用途：对一个当前允许且已授权的 Session 执行固定诊断 commandId，等待有界结果。
+同一个工具覆盖 SSH、LocalShell、Serial、Telnet 与已声明命令能力的 Custom Session。
 
 | 输入字段 | 类型 | 约束 |
 | --- | --- | --- |
-| sessionId / epoch | string | 必填，与票据及当前会话一致；新执行必须为 Running 且连接有效的 SSH 会话 |
-| commandId | string | 必填，与票据一致；新执行还必须在当前允许集合中 |
+| sessionId / epoch | string | 必填，与票据和当前 Session 一致；新执行要求 Session 状态允许且 Executor 可用 |
+| commandId | string | 必填，与票据一致；必须属于当前 Policy ∩ 授权 ∩ Profile |
 | policyVersion | string | 必填，与票据/记录原版本一致；新执行还必须等于当前策略版本 |
-| commandTicket | string | 必填，由 list_commands 签发，本客户端、本会话使用 |
-| arguments | object | 必填；首批只能是 `{}`，拒绝额外字段 |
+| commandTicket | string | 必填，由 list_commands 签发，本客户端、本 Session 使用 |
+| arguments | object | 必填；首批仍只能是 `{}` |
 
-不接受 rawCommand、stdin、shell、env、cwd、credentialRef、password 或用户提供的
-可执行文件路径。命令显示为诊断操作，并不开放任意终端输入。
+不接受 `rawCommand`、`stdin`、`shell`、`env`、`cwd`、`credentialRef`、`password`、
+任意可执行路径或任意按键。InteractiveFramed 的实际字节序列仅由服务端可信 Profile
+生成。
 
 执行顺序：
 
-1. 先校验 MCP 认证、会话读取授权、epoch、仍有效的独立执行授权，再验证票据 MAC、
-   原 IPC 连接归属及请求字段是否与签发记录一致。若该票据已经使用，只查询已有
-   记录，不再要求当前 Running，也不按新策略重新执行：已完成返回原结果，在途
-   返回 COMMAND_IN_PROGRESS；未改变 epoch 的 Failed 会话也可取回已有记录。
-   此路径保留执行时的 policyVersion。权限已撤销或 epoch 已改变时不返回结果。
-2. 没有已有记录才进入新执行校验：票据必须未过期、会话 Running 且连接有效，
-   commandId 在当前允许集合中、policyVersion 等于当前版本、参数满足当前 schema，
-   目标也未因终止状态不确定而停用命令。危险或未知模板返回 COMMAND_NOT_ALLOWED，
-   未知参数返回 INVALID_ARGUMENT；都不进入 Transport 队列。
-3. 在 GUI 线程进行最终策略/epoch 复核，建立执行记录并为该票据保留去重位置。
-   预取或文件系统命令占用共用 exec 通道时返回 Busy，不抢占、不取消已有请求。
-   后端明确拒绝接收且未发送任何命令时，原子释放去重位置及本 executionId 的
-   未完成标记；票据未过期可原样重试。提交结果不确定时不得按“未发送”清除标记。
-4. 由 SessionCommandFacade 提交可信模板，经 SSH worker 执行。MCP 的 requestId
-   与 SSH requestId/执行所有者显式映射，不能与 P7 的请求串线；Transport 不理解
-   MCP 策略，但必须提供结构化的接收、开始、完成与取消状态。
-5. 收到结构化退出状态后返回 CommandExecution。正常结束且 exitCode=0 为工具
-   成功；非零退出或执行失败为 isError=true，按 §8 返回带执行详情的错误。
-   不能通过屏幕静默、提示符或本地化 errorMessage 推断退出码。
-6. stdout/stderr 为 UTF-8 文本，非法字节替换，显示控制字符安全处理；作为不可信
-   数据返回，不解释为客户端指令，不自动发起下一条命令。
-7. stdout 与 stderr 的原始接收字节合计最多 64 KiB，转换后的 UTF-8 文本也合计
-   最多 64 KiB；两层都必须流式限容，避免非法字节替换或控制字符处理扩大结果。
-   不是收完当前 1 MiB 缓冲后才裁剪。任一层超限就停止收集并请求取消辅助命令，
-   返回 COMMAND_OUTPUT_LIMIT、outputTruncated=true；是否终止仍按结构化证据判断。
+1. 校验 MCP 认证、读取/执行授权、Session 身份与 epoch，再验证 ticket 的 MAC、
+   IPC 连接归属、commandId、policyVersion、参数哈希、Profile/Executor generation。
+   已使用票据只查询原执行记录，不重复提交。
+2. 新执行必须重新解析当前 Session 的 CommandPlatformProfile 与 Executor。未知/变化
+   Profile 返回 `COMMAND_PROFILE_UNAVAILABLE` 或策略变化错误；不能从终端输出推断 shell。
+3. Isolated 后端直接建立通用执行记录后提交 Executor；SSH 适配现有 bounded exec，
+   LocalShell 启动独立本地进程。它们不得向当前交互 PTY/SSH shell 写入命令。
+4. InteractiveFramed 后端在提交前额外校验命令就绪状态并获取
+   `SessionCommandLease`。当前处于 TUI、密码提示、未确认 prompt、另一命令 Lease、
+   用户活动冲突等情况时返回 `SESSION_COMMAND_NOT_READY`/`SESSION_COMMAND_BUSY`，
+   不发送任何“试探”字符。
+5. Executor 只接收服务端构造的 `CommandExecutionRequest`，不接收 MCP 原始 JSON。
+   MCP requestId、executionId、Executor requestId 显式映射，避免与 P7 或其他内部请求串线。
+6. 收到通用 `CommandExecutionResult` 后按证据返回状态：
+   - Isolated：优先使用真实 exitCode/termination；
+   - InteractiveFramed：END marker/协议完成可证明事务边界时可
+     `terminationConfirmed=true`；目标没有退出码语义时 `exitCode=null`；
+   - 任何无法确认的断线、用户抢占、超时或 framing 丢失均不得伪装成成功。
+7. 输出继续使用现有 `stdout`/`stderr` 字段以保持 schema v1：
+   - SSH/LocalShell 等隔离执行器：表示独立通道的 stdout/stderr；
+   - Serial/Telnet InteractiveFramed：`stdout` 表示 BEGIN/END framing 区间内捕获的
+     共享流文本，可能夹入异步日志；`stderr` 固定为空。客户端应结合
+     `list_sessions.transport` 理解该差异。
+8. 原始接收字节和转换后 UTF-8 继续分别使用 64 KiB 合计上限；Interactive framing、
+   marker 和内部协议元数据不允许绕过预算。超限返回 `COMMAND_OUTPUT_LIMIT` 并保守处理
+   终止状态。
 
-调用示例（票据与标识均为示例值，不接受在 arguments 中补入 shell 文本）：
+调用示例保持不变；全会话扩展不引入自由 command 字段：
 
 ```json
 {
@@ -595,7 +867,7 @@ commandId、policyVersion、参数规范哈希和有效期，带 MAC 防篡改�
       "sessionId": "6df59c45-1cce-40cb-80a1-5809a15e7a29",
       "epoch": "e_7h2m",
       "commandId": "system.identity",
-      "policyVersion": "linux-diagnostics-v1",
+      "policyVersion": "diagnostics-v2",
       "commandTicket": "ct_opaque_example",
       "arguments": {}
     }
@@ -603,59 +875,39 @@ commandId、policyVersion、参数规范哈希和有效期，带 MAC 防篡改�
 }
 ```
 
-CommandExecution 的以下字段均必填；成功放在 data，已提交后的失败放在
-error.details。失败前未提交命令时不返回伪造的执行详情。
+CommandExecution 继续保持当前字段集合，避免破坏 schema v1：
 
-| 字段 | 类型 | 含义 |
+| 字段 | 类型 | v0.5 语义 |
 | --- | --- | --- |
 | executionId / instanceId / sessionId / epoch / commandId / policyVersion | string | 本次执行与策略身份 |
 | status | string | completed / failed / timed_out / cancelled / unknown |
-| executionMayHaveStarted | boolean | 是否可能已将命令交给远端；不确定时必须为 true |
-| terminationConfirmed | boolean | 是否确认该次远端命令已退出；关闭 channel 本身不足以置 true |
-| startedAt / finishedAt | UTC ISO 8601 string 或 null | 仅有证据时填写；首次提交时间不能冒充远端开始时间 |
-| exitCode | integer 或 null | 来自 SSH exit-status；未知时为 null，不能用 0 代替 |
-| stdout / stderr | string | 本次执行捕获的有界输出；正常命令输出不进入默认审计日志 |
-| outputTruncated | boolean | 是否达到输出预算或只收到部分输出 |
+| executionMayHaveStarted | boolean | 是否可能已经将命令提交给目标 |
+| terminationConfirmed | boolean | 是否有后端认可的事务/进程终止证据；不是“本地不再等待” |
+| startedAt / finishedAt | UTC ISO 8601 string 或 null | 只有证据时填写 |
+| exitCode | integer 或 null | Isolated 通常来自进程/SSH；无退出码语义的 Interactive 可为 null |
+| stdout / stderr | string | Isolated 为独立输出；Interactive 的 stdout 为共享流 framing 区间，stderr 为空 |
+| outputTruncated | boolean | 是否达到原始或转换后输出预算 |
 
 #### 7.5.1 重试、取消与结果不确定性
 
-- 同一 commandTicket 最多提交一次。重复调用只查询执行记录：已完成就返回原结果，
-  仍在途则返回 COMMAND_IN_PROGRESS；参数/身份不一致直接拒绝，不能再次执行。
-- 策略版本变化只使尚未执行的旧票据失效；在原连接、当前授权和 epoch 仍有效时，
-  已执行记录可按原 policyVersion 取回，不能要求客户端换新票据来“重取结果”。
-  若策略调整同时撤销执行授权，则拒绝结果访问，改由用户在 GUI 核对。
-- 未执行的票据过期后返回 COMMAND_TICKET_EXPIRED。已使用票据的去重记录从提交起
-  保留至少 10 分钟；运行中记录不可淘汰。仍保留记录时，过期票据可用于取回原结果，
-  但仍需当前授权和 epoch 校验；记录过期后，票据本身也过期，不能被当成新命令重放。
-- 去重表满时拒绝新的执行，不通过淘汰仍可被重试的记录让请求重复落地。GUI 重启
-  会改变 instanceId 和票据密钥，旧票据全部失效。
-- 客户端取消、超时、断线或用户关闭会话时，取消尚未提交的命令；已提交则请求取消
-  对应辅助 channel，并在记录中保存已知结果。不能为取消 MCP 命令而断开交互 SSH。
-- **关闭 SSH channel 不保证远端子进程已经退出**，现有 cancelCommand 也不提供
-  操作回滚。无法确认时 terminationConfirmed=false、executionMayHaveStarted=true，
-  状态为 unknown 或带未确认终止标记的 timed_out/cancelled，不自动重新执行。
-- 协议取消后不再发送正常 RPC 结果；用户如需核对，可在授权和 epoch 仍有效时用
-  原 IPC 连接上的同一票据重试取得执行记录。IPC 连接一旦断开，原票据不得在新
-  连接复用；本期不提供跨连接取回记录的 MCP 工具，只能在 GUI 核对，禁止自动补跑。
-- executionMayHaveStarted=true 且不能确认终止时，对该连接目标暂停新的 MCP 命令，
-  返回 COMMAND_EXECUTION_QUARANTINED。范围以私有目标指纹标识，不因换 IPC 连接、
-  重连或新建同目标标签而清除；同一目标同一时间最多有一条 MCP 命令。
-  GUI 重启保留最小暂停标记（目标指纹、executionId、时间，不含凭据或输出）。
-  用户核对远端任务已结束或人工处理后才可在 GUI 解除；MCP 无解除入口。
-  该确认只解除结果不确定状态，不能绕过删除/凭据读取等禁止规则。
+- 同一 commandTicket 最多提交一次；重复调用只查询原执行记录。
+- 策略/Profile 变化只使尚未执行票据失效；已执行记录在授权和 epoch 仍有效时按原记录查询。
+- 客户端取消、超时、断线或用户关闭 Session 时，取消尚未提交工作；已经提交则调用
+  对应 Executor 的 `cancel()`，但“发出取消请求”不等于“目标已终止”。
+- SSH 关闭 channel、Serial/Telnet 停止等待、Local 子进程请求 terminate/kill 都不能在
+  没有证据时直接置 `terminationConfirmed=true`。
+- InteractiveFramed 中用户输入优先。Lease 持有期间出现用户键盘/粘贴等真实输入时，
+  停止继续发送 MCP framing；若命令可能已经开始，结果进入 cancelled/unknown 的保守路径，
+  不自动重放。
+- IPC 连接断开后旧票据不在新连接复用；本期仍不提供跨连接取回记录的 MCP 工具。
+- `executionMayHaveStarted=true && !terminationConfirmed` 时，按 §5.4.5 对目标进入
+  quarantine。用户在 GUI 核对后才能解除，MCP 无解除入口。
+- 不同后端的 targetFingerprint 由 Executor 生成。没有稳定指纹且无法证明终止的后端
+  不允许用“目标未知”绕过 quarantine，应拒绝执行或使用更保守的 Session/实例保护范围。
 
-目标指纹来自已认证 SSH 服务端身份、端口和登录用户，不使用终端标题，也不含密码
-或 credentialRef。本机同一用户的 NovaTerm 实例共享目标保护状态并加互斥；提交前
-先原子保存未完成标记，确认退出或有明确未提交证据时才清除对应 executionId 的
-活动标记；不能清除另一执行的标记。标记保存在应用私有数据目录，与临时实例清单
-分开，采用相同的当前用户权限限制。GUI 在提交后崩溃或重启时，
-未完成标记按结果不确定处理，不能因为内存队列消失就允许新执行。
-
-命令超时不是一般读取超时：分配 2 秒调度/校验预算，加最多 5 秒远端执行预算，
-业务调用总期限 7 秒，首次 IPC 握手另最多 3 秒。超时后停止等待并清理本地资源，
-不把该时限解释为远端进程必定被杀死。首期只保证本地等待、输出和队列有界；
-包括 df 在内的诊断也可能阻塞于远端文件系统，因此不提供常驻作业，也不自动续发
-无法确认已结束的命令。此暂停仅针对 MCP，不抢占或取消 P7 自身的请求。
+命令超时仍分为本地调度/校验预算与 Executor 执行预算。初始值可保持 2 秒 + 5 秒，
+但 Interactive Profile 可在不放宽全局上限的前提下声明更短超时。超时只代表 NovaTerm
+停止等待/请求取消，不保证目标命令已经被终止。
 
 ## 8. 响应、错误与示例
 
@@ -687,7 +939,11 @@ error.details。失败前未提交命令时不返回伪造的执行详情。
 | RESPONSE_TOO_LARGE | 序列化结果超过线缆上限；返回小错误对象，不能截断 JSON |
 | COMMAND_PERMISSION_REQUIRED | 读取授权存在但没有命令执行授权 |
 | COMMAND_NOT_ALLOWED | 模板、参数行为或权限集合不允许；不能提示确认后绕过 |
-| UNSUPPORTED_COMMAND_TARGET / COMMAND_UNAVAILABLE | 首期不支持该 Transport/平台，或可信模板目标程序不可用；不回退执行方式 |
+| COMMAND_PROFILE_UNAVAILABLE | 已知 Session 类型没有可信 CommandPlatformProfile/Executor；不自动猜测 shell 或降级为自由输入 |
+| SESSION_COMMAND_NOT_READY | InteractiveFramed 当前无法确认安全命令提示符/事务起点；不发送试探字符 |
+| SESSION_COMMAND_BUSY | 当前 Session 的 Interactive CommandLease 已被占用，或用户活动与 MCP 命令冲突 |
+| UNSUPPORTED_COMMAND_TARGET | 兼容当前 SSH-only 实现的旧错误；v0.5 对已知 Session 类型优先使用 PROFILE/READY 类错误 |
+| COMMAND_UNAVAILABLE | 当前可信 Profile 中目标程序/固定 recipe 不可用；不回退 PATH、解释器或任意命令 |
 | COMMAND_POLICY_CHANGED / COMMAND_TICKET_EXPIRED | 仅新执行需重新列目录取得当前策略或票据；不能把取回历史结果改成一次新执行 |
 | COMMAND_TICKET_SCOPE_INVALID | 票据不属于当前 IPC 连接或目标；旧连接记录只能在 GUI 核对 |
 | COMMAND_IN_PROGRESS | 同一票据已在执行；仅能查询同一票据，不重复提交 |
@@ -767,18 +1023,27 @@ stdio EOF、IPC 断开、授权撤销和实例关闭同样触发取消及资源�
 | 每 GUI 进程的 MCP 客户端数 | 4 |
 | 每客户端执行中 / 等待请求 | 2 / 4；全局等待队列最多 16 |
 | GUI 投递 | 一个待处理唤醒事件；队列 drain 后按公平轮转处理，不每条消息无限 invokeMethod |
-| 同会话新内容捕获频率 | 最多 4 次/秒；revision 未变可复用缓存，超出返回 Busy，不后台定时采集 |
+| 同会话新内容捕获/发布频率 | 默认最多 4 次/秒；revision 未变复用缓存；v0.3 可复用最近已发布不可变快照，仍禁止后台定时采集 |
 | 捕获文本 | 单份最多 256 KiB / 1024 行，默认返回 64 KiB / 256 行 |
-| captureId 保留 | 每客户端最多 4 份、TTL 60 秒；全局文本副本预算 4 MiB，超限 LRU 淘汰 |
+| captureId 保留 | 每客户端最多 4 份、TTL 60 秒；v0.4 优先让 capture 只持有共享 PublishedContextSnapshot/投影引用，避免按客户端重复复制同一文本；仍受全局 4 MiB 等价文本预算约束 |
+| 快照共享 | 同 session/epoch/revision 的基础快照跨客户端共享；客户端只保存 token、projection 和 capture 元数据，不因客户端数线性增加 Core 文本副本 |
+| 请求合并 | 同会话同一发布窗口内只允许一个 capture/publish in-flight；后续 read_context 合并到同一结果或复用最近有效快照，不重复投递 GUI 捕获 |
 | 目录分页 | 默认 50、最多 200 项；单页序列化受统一帧上限约束 |
 | stdio / IPC 单帧 | 2 MiB，按 UTF-8 编码后的完整消息计数，包含 structuredContent 和 text 副本 |
 | 每客户端待写输出 | 4 MiB；10 秒持续不消费则取消请求并关闭连接 |
 | 接入与读取调用时限 | IPC 握手 3 秒；读取/搜索/目录调用含排队 2 秒；首次连接可合计至 5 秒 |
 | 命令执行时限 | 2 秒调度/校验 + 最多 5 秒远端执行；总计 7 秒，首次握手另最多 3 秒 |
-| 命令并发与频率 | 每连接目标最多一个 MCP 命令，至少间隔 5 秒；现有通道被占用时 Busy，终止不确定时暂停该目标的新执行 |
-| 命令结果与去重 | 原始 stdout/stderr 合计 64 KiB，转换后 UTF-8 文本另合计 64 KiB；每客户端最多 32 条、全局最多 128 条记录，最终文本总预算 8 MiB；满时拒绝新执行，不提前淘汰去重证据 |
+| 命令并发与频率 | 每 Session 最多一个 MCP 命令事务；InteractiveFramed 必须持有 SessionCommandLease；隔离 Executor 仍受目标/进程预算限制。终止不确定时按 backend targetFingerprint quarantine；默认同一目标至少间隔 5 秒 |
+| 命令结果与去重 | 原始输出合计 64 KiB，转换后 UTF-8 文本另合计 64 KiB；Interactive 共享流也受同一预算。每客户端最多 32 条、全局最多 128 条记录，最终文本总预算 8 MiB；满时拒绝新执行，不提前淘汰去重证据 |
 | 搜索 | 仅捕获文本，最多 100 命中；每 4 KiB 检查取消，worker 执行预算 100 ms |
 | 关闭 | 停止接入后 1 秒内回收 MCP 队列/worker，不能为了等客户端而延长 Session 关闭 |
+
+全会话命令执行的性能/资源预算另遵守：
+
+- LocalShell 独立 Executor 的子进程数纳入全局命令并发上限，不能通过多 Session 绕过；
+- InteractiveFramed 不建立第二份无界终端日志，只保留当前 execution 的有界 frame；
+- Serial/Telnet 命令执行不能暂停 Parser 或无限阻塞用户输入；用户抢占后立即停止继续发送 MCP 数据；
+- Executor 自身的 worker/process/queue 生命周期必须随 Session epoch、取消和应用退出有界回收。
 
 文本预算不等于总内存预算：还包括 JSON、DTO、队列和进程开销。必须分别统计；
 不能用「256 KiB 上限」声称整个 MCP 只占 256 KiB。JSON 编码保留 UTF-8，不用无界
@@ -797,6 +1062,242 @@ ByteQueue 施加新的背压，不阻塞交互 Shell 或 Renderer。
 正文的 10 分钟保留期淘汰。目标标记表也需有硬上限，达到上限时停止接收新执行，
 不能通过丢弃未解决标记重新启用目标；初始上限为本机每 OS 用户 128 个目标。
 
+### 9.1 性能指标必须区分正常负载与过载保护
+
+只统计“成功请求的 P95”不足以证明 MCP 可用；大量快速 Busy 会让延迟数字很好看，
+但 Agent 实际拿不到上下文。验收必须同时记录成功率、有效响应吞吐（goodput）、Busy、
+基础终端吞吐和 GUI frame 延迟。
+
+**正常设计负载**（单会话读取需求不超过 4 次/秒，最多 4 个客户端共享基础快照）：
+
+- `read_context` 有效响应率目标 ≥99%（排除授权撤销、会话关闭等业务性失败）；
+- 本机端到端成功 RPC P95 ≤100 ms，GUI 侧捕获/快照取得 P95 ≤2 ms；
+- 相比 MCP 关闭，终端持续输出吞吐下降 ≤5%，GUI frame P95 增量 ≤2 ms；
+- 同 revision 或同一 PublishedContextSnapshot 应跨客户端复用，不能因为客户端数线性增加 Core 拷贝。
+
+**过载/防护负载**（例如 4 客户端各 10 Hz，明显高于新内容捕获预算）：
+
+- 允许返回 Busy/限流，但队列、内存和 CPU 必须保持有界，不能拖慢 Parser/Renderer；
+- 公平轮转，不能固定让某一客户端长期拿不到成功响应；应记录每客户端 success/Busy 与最长无成功响应时间；
+- 若启用已发布快照，可用“最近自洽快照”吸收重复读请求，而不是为每次调用抢 Core 锁；
+- 过载结果单独报告，不得与正常负载成功率混为一组，也不得以 Busy 的低延迟冒充成功读取性能。
+
+### 9.2 v0.4 数据路径优化路线
+
+v0.4 的目标不是通过增加锁等待、线程数或无界缓存“顶住”高负载，而是减少 Core 捕获次数、
+减少文本复制和序列化次数，并让相同 revision 的结果在客户端之间共享。优化原则为：
+
+> **字符数据尽可能只拷贝一次；基础快照尽可能只构建一次；同 revision 尽可能跨客户端共享。**
+
+建议目标数据路径：
+
+```text
+SSH / Local input
+       │
+       ▼
+     Parser
+       │ 单写
+       ▼
+  TerminalCore
+       │ 正常模型提交；存在读取需求时合并发布
+       ▼
+Immutable PublishedContextSnapshot
+  ├─ metadata
+  ├─ viewport blocks
+  └─ recentOutput blocks
+       │ shared_ptr / generation
+       ├───────────────┬────────────────┐
+       ▼               ▼                ▼
+ read_context     search_context      captureId
+       │               │                │
+       └────── projection/token filtering ┘
+                       │
+                       ▼
+                 MCP result DTO
+                       │
+                       ▼
+               private IPC / Bridge
+                       │
+                       ▼
+                 JSON encode once
+                       │
+                       ▼
+                    MCP Host
+```
+
+#### 9.2.1 跨客户端共享基础快照与 capture
+
+`PublishedContextSnapshot` 应作为 session/epoch/revision 级别的不可变对象，而不是
+“每个客户端的一份 256 KiB 文本”。多个客户端读取同一 revision 时共享底层对象：
+
+```text
+          PublishedContextSnapshot rev=1234
+                ▲       ▲       ▲       ▲
+                │       │       │       │
+               C1      C2      C3      C4
+```
+
+客户端自己的 `captureId` 只保存访问控制、projection、budget 截取结果所需元数据和
+共享对象引用。不能把客户端 A 的 sinceToken 投影视图直接当客户端 B 的消费进度，
+但二者可以共享未投影的 immutable base snapshot。
+
+实现必须满足：
+
+- snapshot 生命周期以 `shared_ptr<const ...>`、等价 intrusive refcount 或稳定 generation 管理；
+  不把 Core 内部可变容器的 `string_view`/裸指针跨线程发布；
+- 同一 snapshot 的正文只计一次实际内存，同时另计每客户端 capture/token 元数据开销；
+- 授权撤销、session epoch 变化、resetForReuse、模型 reset 后，客户端不能继续获得旧正文；
+  即便共享对象因其他内部引用暂时存在，也必须先通过权限/epoch 校验；
+- capture TTL/LRU 淘汰只释放客户端引用，不要求复制或重建 underlying snapshot。
+
+#### 9.2.2 Snapshot 内部采用分块/结构共享，避免每次复制完整摘要
+
+即使跨客户端共享，如果每次模型 revision 都重新复制完整 256 KiB `recentOutput`，持续
+高输出下仍会产生可观的内存带宽和 allocator 压力。建议将发布对象拆成稳定的小块：
+
+```text
+PublishedContextSnapshot
+  ├─ MetadataBlock          小对象，按 revision 更新
+  ├─ ViewportBlock          通常几十行，变化时替换
+  └─ RecentOutputStore
+       ├─ Chunk 0 immutable
+       ├─ Chunk 1 immutable
+       ├─ Chunk 2 immutable
+       └─ Current chunk
+```
+
+新的 snapshot 主要复制引用和少量 metadata；只有新追加/淘汰的 chunk 发生实际文本复制。
+分块大小必须通过 profile 决定，不能为了理论上的零拷贝引入大量小对象和引用计数开销。
+建议先从 16～32 KiB 等量级做 A/B，并记录 allocator 次数、复制字节数和 LLC miss。
+
+该优化不得改变现有 `cacheFloor/resetRevision/sourceTruncated` 语义。容量淘汰仍按摘要
+语义推进 floor；chunk 只是内部存储策略，不能成为新的公开游标域。
+
+#### 9.2.3 read_context 请求合并（coalescing）
+
+限流只能减少工作量，不能自动避免重复工作。同一个 session 在一个发布窗口内，如果多个
+客户端几乎同时请求新内容，应只允许一个 capture/publish 工作进入 GUI/Core 路径：
+
+```text
+C1 read_context ─┐
+C2 read_context ─┼──► one capture/publish in-flight ─► shared result
+C3 read_context ─┤
+C4 read_context ─┘
+```
+
+每会话维护有界状态，例如 `captureInFlight`、目标 revision/generation 和等待者列表。
+后续请求按以下优先级处理：
+
+1. **revision 未变**：直接复用现有快照，不进入 Core；
+2. **已有足够新的已发布快照**：在允许的 freshness budget 内直接使用，保留原 `capturedAt`；
+3. **同 revision/发布窗口已有 capture in-flight**：合并等待，不重复 `invokeMethod`；
+4. **确需新捕获且无 in-flight**：仅一个请求触发发布；
+5. **队列/时间预算已耗尽**：返回 Busy，而不是继续排队或延长 GUI 锁等待。
+
+等待者仍分别进行授权、epoch、token 和输出 budget 校验；请求合并只共享基础采样，不能
+把一个客户端的安全上下文或 projection 结果复用给另一个客户端。
+
+#### 9.2.4 读取路径区分“新鲜度”和“可用性”
+
+对于 Agent 分析，最近一次自洽快照通常比持续返回 Busy 更有价值。内部实现可以维护
+`publishedRevision/currentRevision` 与 `capturedAt`，在同 epoch 内允许返回最近快照，
+但不能修改公开字段让旧数据看起来像刚捕获。若后续接口需要显式暴露陈旧程度，应新增
+向后兼容字段，例如 `snapshotAgeMs` 或 `latestKnownRevision`，不能改变现有字段语义。
+
+正常负载下仍应尽量提供当前 revision；只有 Parser 持续写入或 capture 正在合并时才复用
+最近快照。freshness budget 必须有硬上限并可观测，不能把“有结果”变成长期返回旧数据。
+
+#### 9.2.5 capture/search 共用 immutable blocks
+
+`search_context` 直接搜索 `captureId` 引用的 immutable snapshot/projection，不为搜索重新
+复制整个 viewport/recentOutput。若同一 capture 多次搜索，可缓存轻量的 line-start offset
+数组帮助从 byte offset 定位行，但首期不建立全文索引；在 256 KiB 级别上线性搜索通常
+足够便宜，是否增加索引必须由 profile 证明。
+
+搜索 worker 只读 immutable memory，不调用 Session/Core；capture 淘汰时依赖引用计数
+自然释放，不能发生 worker 持有悬垂 view。取消仍按固定字节间隔检查。
+
+#### 9.2.6 UTF-8、控制字符处理和预算裁切做单遍流水
+
+持续 kernel build 等场景中，重复构造 `QString/QByteArray` 很容易成为隐性热点。建议把
+输出处理收敛为单遍或尽量少遍的线性流水：
+
+```text
+source text
+   │
+   └─► UTF-8 validation / invalid-byte replacement
+        + display-control sanitization
+        + maxBytes/maxLines accounting
+        + append to pre-reserved target
+             │
+             ▼
+        bounded final text block
+```
+
+禁止先构造无界完整副本再 `truncate()`；对可预估容量的结果使用 `reserve()`，记录实际
+allocation 次数和 copiedBytes。不要为了减少一次扫描手写未经验证的复杂 SIMD 路径；只有
+profile 证明 UTF-8/sanitize 为主要热点时再做平台级优化。
+
+#### 9.2.7 structuredContent / text 兼容副本只序列化一次
+
+当前协议为了兼容不同 Host，会同时返回 `structuredContent` 和内容等价的 text block。
+这意味着 64 KiB 逻辑正文可能在 JSON envelope 中出现两份，线缆和内存预算都必须按
+真实编码后大小计算。实现应保证二者来自同一次 DTO/序列化结果，不进行两次独立采样或
+两次完整文本遍历。
+
+允许的优化包括：
+
+- 先生成 canonical bounded DTO，再从同一 DTO 产生两种 MCP 表示；
+- 若实现中已经得到等价的 UTF-8 JSON/text buffer，可共享/移动底层字节而不是重新遍历；
+- 在正式 Host/SDK 能力允许且协议契约升级后，可评估只发送 structuredContent 的新模式，
+  但不能在当前兼容契约下静默删除 text 副本。
+
+#### 9.2.8 私有 IPC 编码优化放在 profile 之后
+
+GUI 与 `novaterm-mcp` 之间的私有 IPC 当前使用有界 JSON，优点是可调试、实现简单。
+在完成共享快照、请求合并和复制削减前，不优先改 CBOR/二进制协议。只有 profile 显示
+IPC JSON encode/decode 已成为显著热点时，才评估：
+
+- 私有 IPC 使用 CBOR/Qt binary/定长头 + typed payload；
+- 大文本采用共享内存或平台句柄传递；
+- Bridge 直接消费内部 UTF-8 blocks，减少一次 parse/re-encode。
+
+任何替换仍必须保留消息长度上限、认证、版本协商、取消和慢消费者背压；不能为了性能
+绕过现有安全边界。
+
+#### 9.2.9 暂不优先的优化
+
+在以下项目没有 profile 证据前，不作为 P8 性能主线：增加线程池、lock-free queue、
+SIMD 搜索、全文索引、无界 ring buffer、提高 try-lock 等待时间、按客户端独立后台采集。
+这些措施容易增加复杂度，却不能解决当前“同一数据被重复捕获/复制”和 read starvation
+这一主要矛盾。
+
+### 9.3 v0.4 性能观测指标
+
+下一轮 A/B 除现有 success/Busy/P95/吞吐/frame 指标外，至少新增以下计数器，才能判断
+优化究竟减少了哪里：
+
+| 指标 | 含义 |
+| --- | --- |
+| `coreCaptureCount` | 实际进入 Core/Provider 捕获的次数 |
+| `snapshotPublishCount` | 成功发布新的 PublishedContextSnapshot 次数 |
+| `snapshotReuseCount` | read/search 直接复用已有 snapshot 次数 |
+| `coalescedReadCount` | 合并到已有 capture in-flight 的 read_context 次数 |
+| `snapshotCopiedBytes` | 构造/更新 snapshot 时实际复制的文本字节 |
+| `projectionCopiedBytes` | 应用 per-client budget/token 时复制的字节 |
+| `jsonEncodedBytes` | IPC/MCP JSON 实际编码字节；区分 structured/text 兼容副本 |
+| `allocationCount` | 关键数据路径 allocator 次数或采样值 |
+| `snapshotAgeP50/P95` | 成功响应使用的快照年龄，防止以长期旧数据换成功率 |
+| `perClientLongestNoSuccessMs` | 每客户端最长拿不到有效上下文的时间，用于发现公平性饥饿 |
+
+理想情况下，在 4 客户端共享同一 session、总读取频率不超过设计预算时，
+`coreCaptureCount/snapshotPublishCount` 应接近“模型实际需要的新发布次数”，而不是接近
+MCP RPC 次数；客户端数从 1 增加到 4 不应导致 copiedBytes 近似线性放大。
+
+v0.4 的挑战目标可设为：在持续 kernel-build 类高输出正常负载下，保持
+`read_context` 有效响应率 ≥99%，同时终端吞吐下降争取压到 **≤2～3%**；正式硬性验收
+仍沿用 §9.1 的 ≤5%，待跨平台 A/B 数据稳定后再决定是否收紧。
+
 ## 10. 观测与隐私
 
 记录工具名、匿名客户端/请求 ID、阶段耗时、错误码、收发字节、队列峰值、
@@ -812,93 +1313,112 @@ UI 提供 MCP 总开关、读取共享与受限命令的独立开关、允许模
 
 ## 11. 拟议实施顺序与验收
 
-以下为实施与验收分解；P8 的进展不改变 P6/P7 的完成状态。
+以下为 v0.5 后的实施分解。已有 P8.1～P8.5 的 v0.2 代码事实不倒写；全会话命令能力
+作为增量工作加入，§14 在代码/测试完成前继续标记为未实现。
 
 | 步骤 | 交付 | 退出条件 |
 | --- | --- | --- |
-| P8.0 接口评审 | 评审只读上下文、受限命令目录、支持平台、stdio 与独立授权 | 禁止行为、允许模板及部署信任边界有明确结论 |
-| P8.1 Session 读取边界 | 非 owning 目录、epoch、try-read、截断及 token 语义 | 无客户端时无额外采集；关闭/重连不会串数据 |
-| P8.2 IPC 与桥接 | console stdio 进程、ACL/token、帧上限、版本协商 | 分包/合包、慢读、非法帧、多实例和退出测试通过 |
-| P8.3 三个只读工具 | schema、目录分页、捕获缓存、字面量搜索 | 示例通过 schema 校验；至少两种 MCP Host 互操作通过 |
-| P8.4 受限命令 | list_commands/execute_command、可信模板、票据去重、exec 仲裁及结构化结果 | 危险行为不可选、参数不可绕过；超限/取消/断线结果可信，不重复执行 |
-| P8.5 产品接入与验收 | 分级开关、授权、状态、审计元数据和用户说明 | 五工具互操作、性能、生命周期及隐私用例完成，无未解释缺口 |
-
-实际目录为 `src/mcp/`、`src/session/SessionDirectory.*`、`tools/novaterm-mcp/`
-与 `tests/mcp/`，文件及职责映射见 §14。MCP Handler 不进入 `src/core/`，
-不新增模型 SDK 或运行时 Python/Node 依赖。
+| P8.0 接口评审 | 读取、命令目录、Session Executor、授权和禁止行为 | 全会话执行不等于自由输入；安全边界有明确结论 |
+| P8.1 Session 读取边界 | 非 owning 目录、epoch、try-read、截断/token | 无客户端时无额外采集；生命周期不串数据 |
+| P8.2 IPC 与桥接 | stdio、ACL/token、帧上限、协议适配 | 分包/合包、慢读、非法帧、多实例和退出测试通过 |
+| P8.3 三个只读工具 | schema、目录、capture、字面量搜索 | 至少两种 Host/SDK 互操作通过 |
+| P8.4a 通用命令门面 | `SessionCommandFacade`、通用 DTO/Executor 接口；现有 SSH bounded exec 适配进去 | McpService 不再直接 `qobject_cast<SshTransport*>`；SSH 回归全绿 |
+| P8.4b LocalShell | 独立本地进程 Executor、固定 executable/argv、输出/取消/退出码 | 不向当前 PTY/ConPTY 注入命令；Linux/Windows 本地测试覆盖 |
+| P8.4c Interactive Session | `SessionCommandLease`、可信 Profile、Serial/Telnet InteractiveFramed、用户输入优先 | 无 Profile/非 prompt/TUI/冲突时零字节注入；正常/超时/断线/framing 污染可保守判定 |
+| P8.4d Custom | Custom Executor 注册/能力声明 | 未声明能力的 Custom 不发布命令；声明后通过统一 contract tests |
+| P8.5 产品接入 | 分级开关、逐 Session/command 授权、状态和执行记录 | GUI 能区分隔离/共享流执行风险，用户可撤销和人工解除 quarantine |
+| P8.6 性能与现代协议 | Snapshot/IPC 性能优化、跨协议 Bridge | 正常负载成功率/吞吐/frame 达标；命令扩展不回归读取性能 |
 
 必须覆盖的场景：
 
-1. **协议**：initialize 顺序/版本不匹配、ping、tools/list/call、未知方法、ID 类型、
-   split/coalesced frames、无换行超长输入、UTF-8、schema、兼容 text 与结构化结果一致。
-2. **授权**：未共享会话不可发现、错误 token、跨用户 IPC、伪造 clientInfo、撤销时
-   队列中已有任务、跨客户端使用 token/captureId，以及配置不泄漏凭据。
-3. **生命周期**：关闭标签、重连、resetForReuse、替换主机、切换标签、多实例、GUI
-   退出和桥接 EOF；迟到任务不能返回新会话数据，也不能延长 View 生命周期。
-4. **文本**：CR 进度、spinner、重复完成行、软换行接缝、Unicode/组合字符、备用屏、
-   标题变化；截断不切断 UTF-8，同 revision 多条输出被裁切时不发可跳过内容的 token。
-5. **多客户端**：客户端 A 的读取不能消耗 B 的进度；搜索不能取消 UI 搜索；权限
-   较窄的接入配置不能借用另一客户端 capture；目录分页变化有确定重试语义。
-6. **界限**：Parser 高负载时 GUI 读模型锁有上界；最大会话/客户端数、长行、帧和
-   输出队列上限、请求公平性、取消、TTL/LRU、日志去敏感字段。
-7. **命令拒绝**：删除、覆盖、读密码/私钥/环境/历史、提权、解释器、脚本、管道、
-   重定向、命令替换、额外参数、未知 commandId、混淆编码和策略变更一律不能进入
-   Transport 队列；以 root 登录时也不放宽。危险请求拒绝后不能弹窗绕过。
-8. **命令隔离**：只有读取权限不能执行；当前终端留有未完成命令、运行 TUI 或处于
-   备用屏时独立 exec 仍不向其写字节；不打断 P7 采集，其他后端不回退为原始输入。
-9. **命令生命周期**：非零退出、5 秒超时、输出超限、未提交就取消、提交后断线、
-   关闭/重连/撤销授权、同票据并发重放、票据过期/换客户端和去重表满；不将未知状态
-   报为成功或保证进程已杀死，不自动补跑。采用隔离临时 SSH 服务测试，不使用真实凭据。
-10. **命令保护恢复**：原始字节与 UTF-8 转换分别超限、策略变化后查询旧结果、IPC
-    断开不能复用旧票据、未确认终止后换标签/换实例/GUI 重启仍阻止同目标新执行；
-    模拟提交前后崩溃，持久化未完成标记不得出现允许重复执行的空窗。
+1. **协议/兼容**：现有五工具名和 schemaVersion=1 不变；SSH 旧路径的 request/response
+   继续通过当前官方 SDK 互操作测试。全会话扩展不能直接添加旧 outputSchema 不允许的必填字段。
+2. **授权**：读取授权不等于执行授权；Session/command/Profile 三层都要复核。跨客户端
+   token/capture/ticket 不可复用。
+3. **Session 生命周期**：关闭、重连、resetForReuse、epoch 变化、Transport 替换时，
+   Executor/Lease/在途命令不得串到新 Session 世代。
+4. **SSH**：现有正常退出、非零退出、输出上限、超时、去重、quarantine 行为全部回归；
+   P7 辅助请求与 MCP 命令不串线。
+5. **LocalShell**：Linux 和 Windows 各验证独立子进程，不向 PTY/ConPTY 写命令；固定
+   executable/argv，无 `shell -c`/`cmd /c`/PowerShell 自由脚本；stdout/stderr、
+   exitCode、取消和进程清理有界。
+6. **Serial**：使用虚拟 PTY/loopback fixture 模拟 Linux CLI、BusyBox/U-Boot 类 Profile；
+   无 Profile、未知 prompt、启动输出、密码提示、TUI 状态均不得注入。验证 BEGIN/END、
+   超时、设备断开、异步日志夹杂、用户输入抢占和输出上限。
+7. **Telnet**：使用回环 Telnet fixture，不连接真实生产设备；覆盖协商后命令 framing、
+   异步输出、断线和用户输入冲突。不得把 Telnet “能写字节”当成“必然有 shell”。
+8. **Custom**：未注册 Executor 时命令目录为空；测试 Executor 通过统一 contract suite
+   后才允许发布 capability。
+9. **命令拒绝**：删除/覆盖、凭据读取、提权、解释器、脚本、管道、重定向、命令替换、
+   额外参数和混淆编码不能进入任何 Executor。Interactive 固定 wrapper 也必须由 Profile
+   内部产生，MCP 不得影响语法。
+10. **用户优先**：Interactive Lease 期间用户键盘/粘贴触发抢占；NovaTerm 不自动发送
+    Ctrl-C/ESC 等，除非 Profile 明确允许且仍不能把“已请求取消”当成“终止确认”。
+11. **结果不确定性**：所有后端统一验证 `executionMayHaveStarted` 与
+    `terminationConfirmed`。未知状态不自动补跑；targetFingerprint/quarantine 跨合适的
+    Session/实例范围保持保护。
+12. **性能**：命令执行期间仍验证终端交互响应、Parser/Renderer 和 P7；Interactive
+    framing 不能建立无界旁路缓存，Local Executor 不能让大量子进程绕过全局并发限制。
 
-性能验收采用同机 Release A/B，基线为未开启 MCP；负载包含 120×40 终端、持续
-20 MiB/s 输出和 100 万行历史配置。拟议指标：MCP 关闭时无持续轮询；本机普通
-上下文调用 P95 ≤100 ms；GUI 侧 MCP 捕获 P95 ≤2 ms；启用 4 客户端时终端吞吐
-下降 ≤5%，GUI frame P95 增量 ≤2 ms。达不到时保留测量结果并评审预算或实现，
-不能把本段目标抄成实测完成。Windows、Linux、macOS 各自验证 IPC 权限与 stdio 行为。
-命令后端首批验证 Linux/POSIX SSH；其他目标报告明确不支持，不据本机 UI 平台推断
-远端 shell 类型。执行命令期间也必须验证交互响应与 P7 通道仲裁。
+性能验收继续按 §9 正常负载/过载分组。命令执行增加单独的 latency/CPU/内存观测，
+但不能用“支持全会话”作为放宽终端吞吐、GUI frame 或 bounded queue 的理由。
+Windows、Linux、macOS 分别验证本地 Executor；Serial/Telnet fixture 可跨平台自动化，
+真实设备/真实 Telnet 服务属于部署验收，不写成功能正确性的唯一证据。
 
 ## 12. 后续能力与当前不确定项
 
 | 候选能力 | 必须先解决的问题 |
 | --- | --- |
 | 全历史搜索/读取 | 独立搜索任务、不可变历史快照预算、稳定分页和行 ID；不复用 UI 搜索 generation |
-| 系统资源查询 | 将缓存读取放到独立服务，不依赖面板 Widget；默认读取已有缓存，不能绕过文件系统按需采集策略 |
-| resources 与订阅 | 定义 URI/版本/订阅上限，协商能力，仅合并变更通知；不推送无界终端日志 |
-| 任意输入、按键 | 当前不开放；先解决活动程序、未完成输入和间接危险行为验证，不能绕过受限模板策略 |
-| 扩展命令与目标平台 | 逐模板评审参数和行为；任意文件路径访问需可靠处理符号链接/权限/TOCTOU，不能直接把 cat/ls 等程序名放行；不改变删除和凭据读取的禁止规则 |
-| 会话创建/重连/关闭 | 用户可确认目标、凭据与主机密钥流程、幂等性、关闭模式；当前 close(mode) 尚未区分 Graceful/Abort |
-| Streamable HTTP | 独立 HTTP 授权、Origin 校验、会话管理和网络暴露边界，不复用 stdio 的信任假设 |
+| resources 与订阅 | URI/版本/订阅上限、能力协商；不推送无界终端日志 |
+| 任意输入、按键 | **仍不开放**；全会话命令 Executor 不是任意输入接口。若未来评审，必须独立解决活动程序、未提交输入、TUI 和危险行为 |
+| 带参数的诊断模板 | 每个参数逐项定义类型/范围/转义与资源上限；不能退化成 path/shell/string passthrough |
+| 更丰富的 CommandPlatformProfile | 需要真实平台 fixture/文档与安全审计；不允许通过模型推断、PATH 探测或远端脚本自动生成 |
+| 文件读取类命令 | 需要可靠处理路径授权、符号链接、权限、TOCTOU 和敏感目录；不能直接把 cat/grep 等程序名放行 |
+| 会话创建/重连/关闭 | 用户确认、凭据与主机密钥流程、幂等性、关闭模式 |
+| MCP 现代协议 Bridge | 独立处理协议代际；内部 Session/Executor/授权不因 wire protocol 重写 |
+| Streamable HTTP | 独立 HTTP 授权、Origin 校验、会话/取消语义和网络暴露边界 |
 
-首期已按用户要求扩展为只读上下文与受限命令，禁止删除、获取会话密码和其他
-高危险行为。待评审：首批诊断模板是否满足使用需求、是否增加其他命令目标平台、
-主要 MCP Host，以及未来是否需要跨机器访问。自由输入、文件变更和连接管理仍不
-属于首期。已按用户授权开始实施；候选能力不因本期编码而自动开放。
+v0.5 已把“全 Session 类型的受限命令执行框架”纳入正式 P8 设计，因此
+“扩展命令目标平台”不再作为未来候选项。尚未进入代码的 Executor/Profile 仍属于
+待实现目标，不能因为文档已定义就向用户宣称 Serial/Telnet/LocalShell 命令执行已经完成。
+
+自由输入、文件变更、凭据获取和连接管理仍不属于本期；后续能力不得通过复用
+InteractiveFramed 内部写通路绕过这些禁止项。
 
 ## 13. 规范与项目依据
 
-外部协议按 MCP 2025-11-25 规范核对；该版本是本设计明确选择的基线，不声称是
-所有客户端当前支持的唯一版本。
+当前实现按 MCP 2025-11-25 完成互操作；v0.3 同时把 2026-07-28 作为现代协议适配目标。
+2026-07-28 是截至 2026-09-18 的正式规范，其 Base Protocol 明确采用 stateless、
+self-contained requests 与 per-request capability negotiation。Bridge 的双版本适配应优先
+参考正式规范与 Tier 1 SDK 的迁移行为，不根据单个 Host 的私有实现猜协议。
 
-- [MCP Lifecycle](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle)
-- [MCP Transports](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports)
-- [MCP Tools](https://modelcontextprotocol.io/specification/2025-11-25/server/tools)
-- [MCP Cancellation](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/cancellation)
-- [MCP Authorization](https://modelcontextprotocol.io/specification/2025-11-25/basic/authorization)
-- [MCP Security Best Practices](https://modelcontextprotocol.io/specification/2025-11-25/basic/security_best_practices)
-- [MCP Resources](https://modelcontextprotocol.io/specification/2025-11-25/server/resources)
+- [MCP 2026-07-28 Specification](https://modelcontextprotocol.io/specification/2026-07-28)
+- [MCP 2026-07-28 release notes](https://blog.modelcontextprotocol.io/posts/2026-07-28/)
+- [MCP Python SDK v2：2025 → 2026 协议变化](https://py.sdk.modelcontextprotocol.io/zh/whats-new/)
+- [MCP 2025-11-25 Lifecycle](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle)
+- [MCP 2025-11-25 Transports](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports)
+- [MCP 2025-11-25 Tools](https://modelcontextprotocol.io/specification/2025-11-25/server/tools)
+- [MCP 2025-11-25 Cancellation](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/cancellation)
+- [MCP 2025-11-25 Authorization](https://modelcontextprotocol.io/specification/2025-11-25/basic/authorization)
+- [MCP 2025-11-25 Security Best Practices](https://modelcontextprotocol.io/specification/2025-11-25/basic/security_best_practices)
 - [统一架构](../../ARCHITECTURE.md)：§2、§3.3/3.4、§5/6/7。
 - [P6](P6_Session_and_Transport.md)：所有权、生命周期、实施禁止项。
 - [性能与 Agent 上下文验收记录](../Performance_Optimization_2026-09-10.md)：当前摘要接口的测试与适用边界。
 - [现有 Session 测试](../../../tests/session/SessionTests.cpp)：agentContext 两组用例仅证明当前局部行为，不等于 MCP 已验收。
 
-## 14. 首期实施记录（2026-09-17～18）
+## 14. 首期实施记录（2026-09-17～19）
 
-首期五个工具及 GUI 接入已完成编码，Windows 干净构建与功能验证通过。本节记录
-实际代码映射；前文的限制仍是接口契约，尚未完成的跨平台或性能验收不写成通过。
+当前五个工具及 GUI 接入已经存在。本节只记录当前 master 的实际代码事实；前文
+v0.5 的全会话命令执行是下一阶段设计目标，在实现与测试完成前不得写成已支持。
+
+**当前工作树（基于 `b237e40` / NovaTerm `0.2.22`）的生产命令实现覆盖 SSH Session
+与 Windows LocalShell：SSH 使用独立 exec channel，Windows LocalShell 使用固定
+`novaterm-local-diag` helper 子进程。Linux/macOS LocalShell、Serial、Telnet、Custom
+的生产 Executor、SessionCommandLease 与 InteractiveFramed 尚未实现。**
+
+v0.3/v0.4 的协议/性能新增项也继续以代码和测试为准；设计文档中的候选优化不能倒写成
+实施事实。
 
 | 步骤 | 当前代码 | 实施内容 |
 | --- | --- | --- |
@@ -907,23 +1427,54 @@ UI 提供 MCP 总开关、读取共享与受限命令的独立开关、允许模
 | P8.2 | `src/mcp/McpProtocol.*`、`LocalMcpServer.*` | 五工具 schema、参数校验、MAC、当前用户 IPC、帧/队列限制和合并唤醒 |
 | P8.2 | `tools/novaterm-mcp/` | console stdio 桥接、初始化、取消、stdout 隔离、慢写退出、明确实例绑定 |
 | P8.3 | `src/mcp/McpService.*` | 会话列表、上下文、capture 搜索、预算裁切和每客户端 token/capture 隔离 |
-| P8.4 | `CommandPolicy.*`、`McpService.*`、`SshCommandTypes.h` | 固定诊断模板、执行票据/去重、持久目标保护标记及结构化 SSH 完成证据 |
+| P8.4 | `CommandPolicy.*`、`CommandPlatformProfile.*`、`CommandExecutionTypes.h`、`SessionCommandFacade.*`、`ISessionCommandExecutor.h`、`SshSessionCommandExecutor.*`、`LocalSessionCommandExecutor.*`、`tools/novaterm-local-diag/`、`McpService.*` | 固定诊断模板、通用执行 DTO、Session 级 Executor 路由、SSH 与 Windows LocalShell Isolated 适配、执行票据/去重、持久目标保护标记及结构化完成证据 |
 | P8.5 | `McpAccess.*`、`McpSettingsDialog.*`、Application/MainWindow/TerminalPage 接线 | 总开关、客户端令牌、读取与逐项诊断授权、复制配置、执行记录和人工解除保护 |
 
-设计中的 RequestBroker、SessionReadFacade 和 SessionCommandFacade 职责由
-`McpService::Impl` 与 Session 的显式读取入口组合承担，没有额外增加无状态包装类。
-所有 Session 访问仍在 GUI 线程，搜索只消费不可变返回文本；MCP 没有第二条终端
-输入数据通路，辅助 exec 输出也不回灌交互终端。
+当前实现中 RequestBroker/SessionReadFacade 的职责主要由 `McpService::Impl` 与 Session
+显式读取入口组合承担。命令侧已经具备通用 `SessionCommandFacade`、
+`ISessionCommandExecutor` 和第一个 SSH Isolated Executor；Facade 用 Session generation
+与绑定序号丢弃换绑后的迟到完成结果，并在换绑或销毁前取消已登记的在途请求；
+MCP 的执行、取消和完成映射不再持有 SSH 类型。
+Windows LocalShell 另由 `windows-local-v1` Profile 注册同一组语义 commandId，
+Executor 只启动应用目录中的固定 helper，以独立 stdout/stderr、退出码和进程终止
+证据返回结果；不向当前 PTY/ConPTY 写入，也不继承交互 shell 的 cwd/alias/history。
+当前 SSH 辅助 exec 输出不回灌交互终端；Serial/Telnet InteractiveFramed 仍只是设计，
+因此当前代码也尚未产生第二条共享交互命令写入路径。
 
 实施细节与边界：
 
-- `TerminalStateCache` 使用至多 1025 个借用 `string_view` 的哈希索引做去重，淘汰
-  前删除索引，保留 256 KiB / 1024 行的文本上限；该对象不可复制，避免悬垂视图。
-  快照、JSON 和索引元数据另占有界空间，不能将文本上限等同于总 RSS。
+- `TerminalStateCache` 当前以 `std::deque<Entry>` 保存稳定节点，并在淘汰
+  `front()` 前从借用 `string_view` 的去重索引中删除对应 key；对象不可复制。
+  这比仅依赖“不可复制”更完整地满足当前 borrowed-view 生命周期约束。仍应保留
+  容器增长、淘汰、重复插入的回归测试；快照、JSON 和索引元数据另占有界空间。
 - 命令返回保留 stdout/stderr 合计最多 64 KiB 原始内容；在边界最多多读一个探测
   字节来判断是否超限。转换后的 UTF-8 文本另限 64 KiB，不会因替代字符膨胀而失控。
 - SSH 增加 `executeBoundedCommand` / `boundedCommandFinished`，保留旧的通用命令
   API 供 P7 使用。对未知是否已开始/结束的情况保持保守，不把 close/TERM 请求当成退出证明。
+- Windows LocalShell 的 `novaterm-local-diag` 只接受四个固定 commandId，使用 Qt/Windows
+  系统 API 采集，拒绝额外参数与未知命令；`LocalSessionCommandExecutor` 清理环境、
+  合计限制 64 KiB 输出并在超时、取消、换绑或销毁时终止 helper。Linux/macOS 本阶段
+  不安装 Local Executor，不能回退到 `writeUserInput()` 或 shell wrapper。
+- 客户端取消、撤权或 Session epoch 失效时，服务端先给 Executor 250 ms 发布更强的
+  完成证据；若仍无结果，则把 Execution 完成为保守的 cancelled/unknown，保留目标
+  quarantine 但允许用户核对后解除，避免执行记录永久停在 running 并耗尽 128 条上限。
+- Core 已加入按真实读取需求、最多 4 Hz 合并的不可变 `PublishedTerminalState` 候选路径；
+  Parser 在稳定提交点发布 shared snapshot，Provider 保留真实 capturedAt 且不再重复消费
+  旧 history line。该路径当前仅由 `NOVATERM_MCP_PUBLISHED_SNAPSHOT=1` 测试开关启用；
+  在正常负载、过载和 GUI frame P95 的 A/B 闸门完成前不作为默认路径。
+
+2026-09-22 候选路径过载 A/B（四客户端各 10 Hz、64 MiB、三轮）显示吞吐中位数
+`27.93 → 27.99 MiB/s`（无下降），capture P95 为 0.807～0.848 ms；成功读取分别
+75/78、75/76、78/79，Busy 为 3/1/1。该结果显著改善旧路径的 read starvation，
+但过载成功率仍非每轮 ≥99%，且正常 4 Hz 与 GUI frame P95 尚未补齐，因此继续保持
+测试开关，不写成默认性能验收通过。
+
+2026-09-22 正常设计负载 A/B（四客户端各 1 Hz、256 MiB、三轮）在授权时预热首份
+快照后达到 36/36、36/36、36/36 成功读取，Busy 为 0；成功 RPC P95 为
+45.10～48.77 ms，capture P95 为 0.986～1.011 ms，吞吐中位数
+`29.01 → 29.08 MiB/s`（无下降）。每轮仅 8 次 Core publish 服务 40 次请求，
+coalescedReadCount=27；snapshotAge P95 为 1.78～2.08 s。正常负载功能与吞吐门槛
+已通过，但真实 GUI frame P95 仍无设备级证据，因此候选路径继续保持显式测试开关。
 - 基础摘要缓存与增量筛选不共享客户端进度。截断时 nextToken 为空；语义不是完整日志。
 - 多实例的接入配置通过版本校验与文件监听同步；令牌存取仅在用户管理客户端时
   触碰凭据库，协议认证只核对摘要。总开关关闭时清除本次授权，即使保存失败也先撤销内存访问。
@@ -936,7 +1487,8 @@ UI 提供 MCP 总开关、读取共享与受限命令的独立开关、允许模
 验证入口均已加入仓库：
 
 - `novaterm_mcp_tests`：实际子进程 stdio/IPC、授权、跨客户端、UTF-8、截断、搜索、
-  取消、票据去重、持久保护、缓存淘汰和界面授权。
+  取消、票据去重、持久保护、缓存淘汰、界面授权，以及 Windows 本地 helper 的固定
+  参数拒绝、独立输出、非零退出、输出上限、超时、取消和 PTY 零写入。
 - `tests/mcp/interop_check.py`：官方 MCP Python SDK 1.30.0、全部输出 schema、两个
   独立客户端和执行重试。依赖仅在测试时装入 build/mcp-test-deps。
 - `tests/mcp/ssh_loopback_check.py`：仅回环的 SSH 协议测试端返回固定数据，验证正常
@@ -986,12 +1538,54 @@ ConPTY 单独输出断言日志后为 8 通过、4 失败，均对应 `AGENTS.md
 
 吞吐中位数为 **16.07 → 14.98 MiB/s（下降 6.79%）**；基线本身低于 20 MiB/s，
 轮次波动较大，且成功样本很少。这些数据既不能证明吞吐损失在门槛内，也不能
-用大量 Busy 的低耗时替代成功读取延迟。后续需在稳定、持续的负载下测量，评估
-不增加后台采集的快照复用/发布方案，并补齐 GPU frame P95 与真实终端场景。
-保留 try-lock 失败即返回 Busy 的边界，不为提高成功率阻塞 GUI 或暂停 Parser。
+用大量 Busy 的低耗时替代成功读取延迟。当前现象应按“持续写锁竞争导致 read
+starvation”处理，而不是简单调大 try-lock 等待时间。下一轮优先实现/验证 §3.3 的
+按需不可变快照复用，并按 §9.1 分离正常负载与过载测试；同时补齐 GPU frame P95
+与真实终端场景。保留 try-lock 失败即返回 Busy 的安全边界，不为提高成功率阻塞 GUI
+或暂停 Parser；只有 A/B 数据证明 PublishedContextSnapshot 同时提高有效响应率且不突破
+吞吐/frame 门槛时，才将其设为默认读取路径。
 
 尚需单独注明的验收范围：Linux/macOS 实机、具体桌面 MCP Host、真实 Linux 服务端
 部署及 GPU frame P95 尚未覆盖；持续满负载下 try-read 可能频繁返回 Busy，短时
 夹具不能替代完整性能验收。ConPTY 的既有系统句柄泄漏不归入 P8 功能修复。
+
+v0.3 下一轮完成判据：
+
+- MCP 2025-11-25 现有互操作不回归，新增 2026-07-28 `server/discover`/per-request metadata 路径通过至少一个 Tier 1 SDK；
+- 正常设计负载 `read_context` 有效响应率 ≥99%，且终端吞吐、GUI frame P95 满足 §9.1；
+- 至少输出 §9.3 的 coreCaptureCount、snapshotPublish/Reuse、coalescedRead、copiedBytes、snapshotAge 和 per-client starvation 指标，证明优化不是靠返回长期旧快照或隐藏 Busy；
+- 4 客户端共享同一 session 时，同 revision 的基础文本不得按客户端数线性复制；capture/search 应复用 immutable snapshot/blocks；
+- 过载测试不再只看成功请求 P95，必须报告各客户端 goodput、Busy 与最长无成功响应时间；
+- search excerpt 不越过 capture 边界，CommandPlatformProfile 不通过探测或 PATH 放宽命令安全策略；
+- `TerminalStateCache` 的借用字符串索引生命周期 invariant 有代码级证明和回归测试。
+
+v0.4/v0.5 性能实施建议顺序（与全会话命令执行可并行推进）：
+
+1. `PublishedContextSnapshot` 发布与跨客户端共享；
+2. capture 仅持 shared snapshot/projection 元数据，去除同 revision 文本重复副本；
+3. per-session capture in-flight coalescing；
+4. recentOutput 分块/结构共享，减少完整 256 KiB 重建；
+5. 增加 §9.3 copiedBytes/allocation/reuse/freshness 观测；
+6. 再根据 profile 决定 UTF-8/JSON/私有 IPC 编码是否值得继续优化。
+
+上述条目在代码和 A/B 验证完成前均属于设计目标，不写入“已实现”列表。
+
+### 14.1 v0.5 全会话命令执行的剩余增量
+
+通用 `CommandExecutionRequest/Result/Outcome`、`SessionCommandFacade`、Executor 接口、
+SSH bounded exec 适配，以及 `McpService` 去除 SSH 业务层强耦合已经完成并由
+`novaterm_mcp_tests` 与 `novaterm_ssh_transport_check` 覆盖。以下条目仍不属于当前
+“已实现”列表：
+
+1. 补齐 Linux/macOS LocalShell 独立进程 Executor 与实机验证；Windows LocalShell 已完成；
+2. 扩展 `CommandPlatformProfile` 的 Interactive framing/ready-state 定义；当前仅有
+   `linux-diagnostics-v1` SSH 与 `windows-local-v1` Isolated Profile；
+3. 实现 `SessionCommandLease` 和 Serial/Telnet InteractiveFramed fixture；
+4. Custom 只通过显式 Executor 注册加入能力，不设置隐式默认行为；
+5. 补齐 Serial/Telnet/Custom 的命令目录、错误码和 UI 风险提示；保持现有五工具和 schemaVersion=1；
+6. 跑 SSH 回归 + Linux/macOS Local + Serial/Telnet contract tests 后，才能把 §14 状态改成全会话已支持。
+
+实现过程中若发现某类 Session 无法可靠建立命令边界或终止语义，应保守地让该 Profile
+`executionEnabled=false`，而不是为了覆盖率退化成任意 `writeUserInput()`。
 
 用户接入步骤见 [MCP 使用说明](../../MCP_Usage.md)。

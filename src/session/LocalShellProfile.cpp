@@ -114,20 +114,49 @@ LocalShellProfile commandPrompt(const QString& applicationDirectory)
     auto result = profile(QStringLiteral("Command Prompt / Clink"),
                           QStringLiteral("cmd.exe"));
     const QString clink = clinkBatchFile(applicationDirectory);
-    if (!clink.isEmpty())
+    if (!clink.isEmpty()) {
         result.arguments = {QStringLiteral("/k"), clink, QStringLiteral("inject")};
+        const QString scriptDirectory = QDir(applicationDirectory).filePath(
+            QStringLiteral("clink-scripts"));
+        const QFileInfo script(QDir(scriptDirectory).filePath(
+            QStringLiteral("novaterm_prompt.lua")));
+        if (script.isFile()) {
+            result.interactiveShellKind = QStringLiteral("cmd");
+            const QString configured = result.environment.value(
+                QStringLiteral("CLINK_PATH"));
+            result.environment.insert(
+                QStringLiteral("CLINK_PATH"),
+                configured.isEmpty() ? scriptDirectory
+                                     : configured + QLatin1Char(';') + scriptDirectory);
+        }
+    }
     return result;
 }
 
 LocalShellProfile windowsPowerShell()
 {
-    return profile(QStringLiteral("Windows PowerShell"),
-                   QStringLiteral("powershell.exe"));
+    auto result = profile(QStringLiteral("Windows PowerShell"),
+                          QStringLiteral("powershell.exe"));
+    result.interactiveShellKind = QStringLiteral("powershell");
+    result.arguments = {
+        QStringLiteral("-NoExit"), QStringLiteral("-Command"),
+        QStringLiteral("$global:__nvtermOriginalPrompt = "
+                       "(Get-Command prompt -CommandType Function).ScriptBlock; "
+                       "function global:prompt { "
+                       "$global:__nvtermExit = if ($?) { 0 } else { 1 }; "
+                       "$global:__nvtermPrompt = [long]$global:__nvtermPrompt + 1; "
+                       "Write-Host -NoNewline (([char]27) + ']633;NT;PROMPT;' + "
+                       "$global:__nvtermPrompt + ';' + $global:__nvtermExit + ([char]7)); "
+                       "& $global:__nvtermOriginalPrompt }")};
+    return result;
 }
 
 LocalShellProfile powerShell7()
 {
-    return profile(QStringLiteral("PowerShell 7"), QStringLiteral("pwsh.exe"));
+    auto result = windowsPowerShell();
+    result.name = QStringLiteral("PowerShell 7");
+    result.executable = QStringLiteral("pwsh.exe");
+    return result;
 }
 
 LocalShellProfile wsl()
@@ -198,6 +227,14 @@ LocalShellProfile platformDefault(const QString& applicationDirectory)
     if (executable.isEmpty())
         executable = QStringLiteral("/bin/bash");
     auto result = profile(QStringLiteral("Default Shell"), executable);
+    if (QFileInfo(executable).fileName() == QStringLiteral("bash")) {
+        result.interactiveShellKind = QStringLiteral("posix");
+        result.environment.insert(QStringLiteral("PROMPT_COMMAND"),
+            QStringLiteral("__nvterm_exit=$?; "
+                           "__nvterm_prompt=$(( ${__nvterm_prompt:-0} + 1 )); "
+                           "printf '\\033]633;NT;PROMPT;%s;%s\\007' "
+                           "\"$__nvterm_prompt\" \"$__nvterm_exit\""));
+    }
     result.environment.insert(QStringLiteral("TERM"),
                               QStringLiteral("xterm-256color"));
     return result;

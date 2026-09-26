@@ -2,27 +2,66 @@
  *  @brief 会话目录的弱引用、连接 epoch 与私有目标指纹。
  */
 #include "SessionDirectory.h"
+#include "LocalSessionCommandExecutor.h"
+#include "InteractiveSessionCommandExecutor.h"
+#include "SessionCommandFacade.h"
+#include "ShellIntegration.h"
+#include "SshSessionCommandExecutor.h"
 #include "transport/SshTransport.h"
+#include <QCoreApplication>
 #include <QCryptographicHash>
+#include <QDir>
 #include <QThread>
 
 namespace {
 QString uuid() { return QUuid::createUuid().toString(QUuid::WithoutBraces); }
-QString targetIdentity(ITransport* transport)
+std::unique_ptr<ISessionCommandExecutor> commandExecutor(
+    TerminalSession* owner, ITransport* transport, TransportKind kind)
 {
-    auto* ssh = qobject_cast<SshTransport*>(transport);
-    if (!ssh || !ssh->isConnected())
-        return {};
-    const auto fingerprint = ssh->serverHostKeyFingerprint();
-    if (fingerprint.isEmpty())
-        return {};
-    const auto& config = ssh->sessionConfig();
-    if (config.username.contains(QChar::Null)) return {};
-    // 只使用已认证主机身份、端口和用户名；绝不散列或读取密码/私钥口令。
-    const QByteArray identity = fingerprint.toUtf8() + '\0'
-        + QByteArray::number(config.port) + '\0' + config.username.trimmed().toUtf8();
-    return QString::fromLatin1(QCryptographicHash::hash(identity,
-        QCryptographicHash::Sha256).toHex());
+    if (owner && ShellIntegration::profileFor(owner->runtimeConfig())) {
+        QString identity;
+        if (kind == TransportKind::Ssh) {
+            auto* ssh = qobject_cast<SshTransport*>(transport);
+            if (ssh) {
+                SshSessionCommandExecutor probe(ssh);
+                identity = probe.targetFingerprint();
+            }
+        } else if (kind == TransportKind::LocalShell) {
+            const QString helper = QDir(QCoreApplication::applicationDirPath())
+                .filePath(QStringLiteral("novaterm-local-diag.exe"));
+            LocalSessionCommandExecutor probe(helper);
+            identity = probe.targetFingerprint();
+        } else {
+            const auto& values = owner->runtimeConfig().transport;
+            const QString endpoint = kind == TransportKind::Serial
+                ? values.value(QStringLiteral("portName")).toString()
+                : values.value(QStringLiteral("host")).toString()
+                    + QLatin1Char(':')
+                    + values.value(QStringLiteral("port")).toString();
+            const QByteArray source = (endpoint.isEmpty()
+                ? owner->id().toString(QUuid::WithoutBraces)
+                : endpoint).toUtf8();
+            identity = QString::fromLatin1(QCryptographicHash::hash(
+                source, QCryptographicHash::Sha256).toHex());
+        }
+        if (!identity.isEmpty()) {
+            return std::make_unique<InteractiveSessionCommandExecutor>(
+                owner->commandCoordinator(),
+                CommandPlatformProfile::interactiveFor(kind), identity);
+        }
+    }
+    if (kind == TransportKind::Ssh) {
+        auto* ssh = qobject_cast<SshTransport*>(transport);
+        return ssh ? std::make_unique<SshSessionCommandExecutor>(ssh) : nullptr;
+    }
+#ifdef Q_OS_WIN
+    if (kind == TransportKind::LocalShell) {
+        const QString helper = QDir(QCoreApplication::applicationDirPath())
+            .filePath(QStringLiteral("novaterm-local-diag.exe"));
+        return std::make_unique<LocalSessionCommandExecutor>(helper);
+    }
+#endif
+    return {};
 }
 }
 
@@ -83,7 +122,11 @@ void SessionDirectory::refresh(TerminalSession* session)
     const auto state = session->state();
     const bool identityChanged = it->id != id || it->generation != generation
         || it->transport != session->transport();
-    const auto target = targetIdentity(session->transport());
+    if (identityChanged) {
+        session->commandFacade()->installExecutor(
+            commandExecutor(session, session->transport(), kind), generation);
+    }
+    const auto target = session->commandFacade()->targetFingerprint();
     const bool targetChanged = state == SessionState::Running && target != it->targetFingerprint;
     if (!identityChanged && !targetChanged && it->state == state && it->kind == kind)
         return;

@@ -65,7 +65,8 @@ enum class CommandType
     FocusOut,
     SetScrollbackLimit,
     ClearScrollback,
-    Flush
+    Flush,
+    PublishContext,
 };
 
 // GUI 线程产生的待执行命令。所有输入事件（键盘、鼠标、resize、paste 等）
@@ -291,7 +292,8 @@ public:
         if ((command.type == CommandType::Resize
              || command.type == CommandType::DefaultColors
              || command.type == CommandType::SetScrollbackLimit
-             || command.type == CommandType::Flush)
+             || command.type == CommandType::Flush
+             || command.type == CommandType::PublishContext)
             && !commands.empty()
             && commands.back().type == command.type) {
             pendingCommandBytes -= estimatedCommandBytes(commands.back());
@@ -378,6 +380,7 @@ public:
                                                            taken));
                     adapter->flushDamage();
                     commitPendingModelRevision();
+                    maybePublishContextLocked();
                 }
                 publishPendingSignals();
                 completedBytes.fetch_add(uint64_t(taken),
@@ -486,6 +489,7 @@ public:
             for (const ParserCommand& command : local)
                 executeCommand(command);
             commitPendingModelRevision();
+            maybePublishContextLocked();
         }
         publishPendingSignals();
         return uint64_t(local.size());
@@ -531,7 +535,29 @@ public:
         case CommandType::Flush:
             adapter->flushDamage();
             break;
+        case CommandType::PublishContext:
+            break;
         }
+    }
+
+    void maybePublishContextLocked()
+    {
+        if (!contextRequested.exchange(false, std::memory_order_acq_rel))
+            return;
+        const auto current = std::atomic_load(&publishedContext);
+        if (current && current->state.revision == modelRevision) {
+            contextReuseCount.fetch_add(1, std::memory_order_relaxed);
+            return;
+        }
+        auto published = std::make_shared<NovaTerm::PublishedTerminalState>();
+        published->state = owner->terminalStateLocked(
+            0, NovaTerm::TerminalState::MaxBytes,
+            NovaTerm::TerminalState::MaxLines);
+        published->capturedAt = std::chrono::system_clock::now();
+        std::atomic_store(&publishedContext,
+            std::shared_ptr<const NovaTerm::PublishedTerminalState>(
+                std::move(published)));
+        contextPublishCount.fetch_add(1, std::memory_order_relaxed);
     }
 
     // 将一次 modelMutex 释放区间内累积的所有信号一次性发布到 GUI 线程。
@@ -639,6 +665,12 @@ public:
     std::atomic<uint64_t> completedCommands{0};
     std::atomic<bool> accepting{true};
     std::atomic<bool> stopping{false};
+    std::shared_ptr<const NovaTerm::PublishedTerminalState> publishedContext;
+    std::atomic<bool> contextRequested{false};
+    std::atomic<qint64> lastContextRequestNs{0};
+    std::atomic<u64> contextRequestCount{0};
+    std::atomic<u64> contextPublishCount{0};
+    std::atomic<u64> contextReuseCount{0};
     std::atomic<bool> backpressure{false};
     std::thread thread;
     std::unique_ptr<NovaTerm::VTAdapter> adapter;
@@ -896,6 +928,43 @@ std::optional<NovaTerm::u64> TerminalCore::tryModelRevision() const
     if (!locker.owns_lock())
         return std::nullopt;
     return _runtime->modelRevision;
+}
+
+std::shared_ptr<const NovaTerm::PublishedTerminalState>
+TerminalCore::requestPublishedTerminalState()
+{
+    _runtime->contextRequestCount.fetch_add(1, std::memory_order_relaxed);
+    const auto current = std::atomic_load(&_runtime->publishedContext);
+    if (current)
+        _runtime->contextReuseCount.fetch_add(1, std::memory_order_relaxed);
+
+    constexpr qint64 IntervalNs = 250'000'000;
+    const qint64 now = std::chrono::duration_cast<std::chrono::nanoseconds>(
+        std::chrono::steady_clock::now().time_since_epoch()).count();
+    qint64 previous = _runtime->lastContextRequestNs.load(
+        std::memory_order_acquire);
+    if ((previous == 0 || now - previous >= IntervalNs)
+        && _runtime->lastContextRequestNs.compare_exchange_strong(
+            previous, now, std::memory_order_acq_rel)) {
+        _runtime->contextRequested.store(true, std::memory_order_release);
+        ParserCommand command;
+        command.type = CommandType::PublishContext;
+        if (!_runtime->enqueueCommand(std::move(command))) {
+            _runtime->contextRequested.store(false, std::memory_order_release);
+            _runtime->lastContextRequestNs.store(0, std::memory_order_release);
+        }
+    }
+    return current;
+}
+
+NovaTerm::PublishedContextStatistics
+TerminalCore::publishedContextStatistics() const noexcept
+{
+    return {
+        _runtime->contextRequestCount.load(std::memory_order_relaxed),
+        _runtime->contextPublishCount.load(std::memory_order_relaxed),
+        _runtime->contextReuseCount.load(std::memory_order_relaxed),
+    };
 }
 
 NovaTerm::TerminalState TerminalCore::terminalStateLocked(

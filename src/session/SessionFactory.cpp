@@ -12,6 +12,7 @@
 #include "TerminalSession.h"
 #include "credential/CredentialStore.h"
 #include "profile/ProfileStore.h"
+#include "ShellIntegration.h"
 #include "transport/LocalShellTransport.h"
 #include "transport/SerialTransport.h"
 #include "transport/SshTransport.h"
@@ -116,6 +117,9 @@ SessionFactory::create(const RuntimeConfig& runtime,
         config.keepAliveSeconds = values.value(
             QStringLiteral("keepAliveSeconds"), 30).toInt();
         config.label = runtime.title;
+        config.interactiveShellKind = values.value(
+            QStringLiteral("interactiveShellKind")).toString();
+        config.environment = ShellIntegration::startupEnvironmentFor(runtime);
         if (!runtime.credentialRef.isEmpty()) {
             if (!credentials) {
                 if (error)
@@ -173,6 +177,14 @@ std::unique_ptr<TerminalSession>
 SessionFactory::createLocal(const LocalShellConfig& config, RuntimeConfig runtime)
 {
     runtime.transportKind = TransportKind::LocalShell;
+    if (!config.profile.interactiveShellKind.isEmpty()) {
+        runtime.transport.insert(QStringLiteral("interactiveShellKind"),
+                                 config.profile.interactiveShellKind);
+        if (config.profile.interactiveShellKind == QStringLiteral("cmd")) {
+            runtime.transport.insert(QStringLiteral("interactiveHookReady"),
+                config.profile.environment.contains(QStringLiteral("CLINK_PATH")));
+        }
+    }
     auto session = std::make_unique<TerminalSession>(std::move(runtime));
     auto* transport = new LocalShellTransport;
     transport->setSessionConfig(config);
@@ -190,7 +202,13 @@ SessionFactory::createSerial(const SerialConfig& config, RuntimeConfig runtime)
 std::unique_ptr<TerminalSession>
 SessionFactory::createSsh(const SshConfig& config, RuntimeConfig runtime)
 {
-    return makeSession<SshTransport>(config, std::move(runtime), TransportKind::Ssh);
+    auto configured = config;
+    if (!configured.interactiveShellKind.isEmpty()) {
+        runtime.transport.insert(QStringLiteral("interactiveShellKind"),
+                                 configured.interactiveShellKind);
+        configured.environment = ShellIntegration::startupEnvironmentFor(runtime);
+    }
+    return makeSession<SshTransport>(configured, std::move(runtime), TransportKind::Ssh);
 }
 
 std::unique_ptr<TerminalSession>

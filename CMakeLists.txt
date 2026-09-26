@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(NovaTerm VERSION 0.2.21 LANGUAGES CXX C)
+project(NovaTerm VERSION 0.2.27 LANGUAGES CXX C)
 
 # ═══════════════════════════════════════════════════════════════════
 #  1. 通用平台编译参数
@@ -266,6 +266,10 @@ file(GLOB_RECURSE SOURCES CONFIGURE_DEPENDS "src/*.cpp" "src/*.h")
 list(FILTER SOURCES EXCLUDE REGEX "[/\\\\]src[/\\\\]core[/\\\\]")
 list(FILTER SOURCES EXCLUDE REGEX "[/\\\\]src[/\\\\]mcp[/\\\\]")
 list(FILTER SOURCES EXCLUDE REGEX "[/\\\\]SessionDirectory\\.(cpp|h)$")
+list(FILTER SOURCES EXCLUDE REGEX
+    "[/\\\\](CommandPlatformProfile|ISessionCommandExecutor|LocalSessionCommandExecutor|SessionCommandFacade|SshSessionCommandExecutor)\\.(cpp|h)$"
+)
+add_subdirectory(tools/novaterm-local-diag)
 add_subdirectory(src/mcp)
 add_subdirectory(tools/novaterm-mcp)
 if(WIN32)
@@ -279,6 +283,7 @@ qt_add_executable(NovaTerm
     ${SOURCES}
     ${CMAKE_SOURCE_DIR}/resources/resources.qrc
 )
+add_dependencies(NovaTerm novaterm-local-diag)
 
 # 主程序与直接编译配色服务的测试使用同一份 JSON 模板。
 function(novaterm_add_scheme_resources target)
@@ -424,10 +429,16 @@ if(WIN32)
     if(EXISTS "${CLINK_SRC_DIR}/clink.bat")
         add_custom_command(TARGET NovaTerm POST_BUILD
             COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${CLINK_SRC_DIR}/clink.bat"
                 "${CLINK_SRC_DIR}/clink_x64.exe"
                 "${CLINK_SRC_DIR}/clink_dll_x64.dll"
                 "${CLINK_SRC_DIR}/clink.html"
                 $<TARGET_FILE_DIR:NovaTerm>
+            COMMAND ${CMAKE_COMMAND} -E make_directory
+                "$<TARGET_FILE_DIR:NovaTerm>/clink-scripts"
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${CMAKE_SOURCE_DIR}/resources/clink/novaterm_prompt.lua"
+                "$<TARGET_FILE_DIR:NovaTerm>/clink-scripts/novaterm_prompt.lua"
             COMMENT "Copying Clink release files next to NovaTerm.exe"
         )
         message(STATUS "Clink release will be deployed to output dir: ${CLINK_SRC_DIR}")
@@ -595,8 +606,11 @@ if(WIN32 AND EXISTS "${CLINK_SRC_DIR}/clink_x64.exe")
             "${CLINK_SRC_DIR}/clink_x64.exe"
             "${CLINK_SRC_DIR}/clink_dll_x64.dll"
             "${CLINK_SRC_DIR}/clink.html"
+            "${CLINK_SRC_DIR}/clink.bat"
         DESTINATION ${CMAKE_INSTALL_BINDIR}
     )
+    install(FILES "${CMAKE_SOURCE_DIR}/resources/clink/novaterm_prompt.lua"
+        DESTINATION "${CMAKE_INSTALL_BINDIR}/clink-scripts")
 endif()
 
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")

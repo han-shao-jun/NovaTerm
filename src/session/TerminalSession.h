@@ -20,6 +20,10 @@
 #include <optional>
 
 class SessionInputPump;
+class SessionCommandFacade;
+class SessionInputArbiter;
+class InteractiveStreamFramer;
+class SessionCommandCoordinator;
 class TerminalCore;
 
 /**
@@ -88,6 +92,21 @@ public:
     }
     /** @brief 传输层指针（未附加时为 nullptr）。 */
     [[nodiscard]] ITransport* transport() const { return _transport.data(); }
+    /** @brief Session 级受限命令门面；具体 Executor 由编排层安装。 */
+    [[nodiscard]] SessionCommandFacade* commandFacade() const noexcept
+    {
+        return _commandFacade.get();
+    }
+    /** @brief Session 出站输入仲裁器；供受限交互命令门面使用。 */
+    [[nodiscard]] SessionInputArbiter* inputArbiter() const noexcept
+    {
+        return _inputArbiter.get();
+    }
+    /** @brief 当前 Session 的交互命令协调器。 */
+    [[nodiscard]] SessionCommandCoordinator* commandCoordinator() const noexcept
+    {
+        return _commandCoordinator.get();
+    }
 
     /**
      * @brief 附加传输层。
@@ -227,6 +246,10 @@ private:
     QChronoTimer _reconnectTimer; ///< 单次自动重连定时器，支持完整整秒范围
     bool _manualDisconnect{false}; ///< 主动断开后暂停自动重连
     std::unique_ptr<TerminalContextProvider> _contextProvider;
+    std::unique_ptr<SessionCommandFacade> _commandFacade;
+    std::unique_ptr<SessionInputArbiter> _inputArbiter;
+    std::unique_ptr<InteractiveStreamFramer> _streamFramer;
+    std::unique_ptr<SessionCommandCoordinator> _commandCoordinator;
     bool transition(SessionState next);   ///< 状态机迁移（校验合法性）
     bool beginReconnect(bool automatic = false); ///< 进入重连状态并提交连接请求
     bool _automaticReconnectAttempt{false}; ///< 当前连接是否由自动重连触发

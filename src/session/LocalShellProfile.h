@@ -26,6 +26,7 @@ struct LocalShellProfile
     QStringList arguments;         ///< 启动参数
     QString workingDirectory;      ///< 工作目录（空表示继承）
     QProcessEnvironment environment; ///< 环境变量覆盖
+    QString interactiveShellKind; ///< 显式 Shell integration 类型；空表示不可用
 
     /**
      * @brief 校验 profile 是否有效。

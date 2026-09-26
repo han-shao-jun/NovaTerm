@@ -14,7 +14,12 @@ class AccessStore final : public QObject
     Q_OBJECT
 public:
     struct Client { QString id; QString label; QByteArray digest; bool persistent{false}; quint64 version{1}; };
-    struct Grant { QString attachment; QString epoch; QSet<QString> commands; };
+    struct Grant {
+        QString attachment;
+        QString epoch;
+        QSet<QString> commands;
+        bool interactiveCommand{false};
+    };
     explicit AccessStore(QString directory, std::unique_ptr<CredentialStore> credentials,
                          QObject* parent = nullptr);
     [[nodiscard]] bool enabled() const { return _enabled; }
@@ -27,9 +32,13 @@ public:
     [[nodiscard]] QString authenticate(const QByteArray& token) const;
     [[nodiscard]] quint64 version(const QString& clientId) const;
     bool setGrant(const QString& clientId, const SessionDirectory::Entry& entry,
-                  bool read, QSet<QString> commands = {});
+                  bool read, QSet<QString> commands = {},
+                  bool interactiveCommand = false);
     [[nodiscard]] bool canRead(const QString& clientId, const SessionDirectory::Entry& entry) const;
     [[nodiscard]] QSet<QString> commands(const QString& clientId, const SessionDirectory::Entry& entry) const;
+    /** @brief 当前客户端是否单独获准在该 Session 执行交互命令。 */
+    [[nodiscard]] bool canRunCommand(const QString& clientId,
+                                     const SessionDirectory::Entry& entry) const;
 signals:
     void changed();
     void revoked(const QString& clientId, const QString& sessionId);

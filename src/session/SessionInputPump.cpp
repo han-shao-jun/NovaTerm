@@ -11,10 +11,12 @@
 #include "transport/ITransport.h"
 
 SessionInputPump::SessionInputPump(ITransport* transport, TerminalCore* core,
+                                   InteractiveStreamFramer* framer,
                                    QObject* parent)
     : QObject(parent)
     , _transport(transport)
     , _core(core)
+    , _framer(framer)
 {
 }
 
@@ -61,6 +63,34 @@ void SessionInputPump::acceptBytes(const QByteArray& data)
         return;
 
     _statistics.receivedBytes += static_cast<quint64>(data.size());
+    if (_framer) {
+        auto framed = _framer->consume(data);
+        qsizetype visibleOffset = 0;
+        for (const auto& event : framed.events) {
+            if (event.visibleOffset > visibleOffset) {
+                const auto visible = framed.visibleBytes.mid(
+                    visibleOffset, event.visibleOffset - visibleOffset);
+                emit interactiveBytes(visible);
+                forwardVisibleBytes(visible);
+                visibleOffset = event.visibleOffset;
+            }
+            emit interactiveEvent(event);
+        }
+        if (visibleOffset < framed.visibleBytes.size()) {
+            const auto visible = framed.visibleBytes.mid(visibleOffset);
+            emit interactiveBytes(visible);
+            forwardVisibleBytes(visible);
+        }
+        return;
+    }
+    emit interactiveBytes(data);
+    forwardVisibleBytes(data);
+}
+
+void SessionInputPump::forwardVisibleBytes(const QByteArray& data)
+{
+    if (data.isEmpty())
+        return;
     if (!_pending.isEmpty()) {
         const qsizetype available = MaxPendingBytes - (_pending.size() - _pendingHead);
         if (data.size() > available) {

@@ -17,6 +17,9 @@
 #include "transport/SerialTransport.h"
 #include "transport/SshTransport.h"
 #include "transport/TelnetTransport.h"
+#include <QCoreApplication>
+#include <QDir>
+#include <QFileInfo>
 #include <QPointer>
 #include <QVBoxLayout>
 
@@ -32,11 +35,35 @@ RuntimeConfig localRuntime(TerminalView::LocalShellType type,
     RuntimeConfig runtime;
     runtime.transportKind = TransportKind::LocalShell;
     runtime.title = label.trimmed();
+    QString interactiveShellKind;
+#ifdef Q_OS_WIN
+    switch (type) {
+    case TerminalView::LocalShellType::Cmd:
+        if (QFileInfo(QDir(QCoreApplication::applicationDirPath()).filePath(
+                          QStringLiteral("clink-scripts/novaterm_prompt.lua"))).isFile()) {
+            interactiveShellKind = QStringLiteral("cmd");
+        }
+        break;
+    case TerminalView::LocalShellType::PowerShell:
+        interactiveShellKind = QStringLiteral("powershell");
+        break;
+    case TerminalView::LocalShellType::Wsl:
+        break;
+    }
+#else
+    Q_UNUSED(type);
+    interactiveShellKind = QStringLiteral("posix");
+#endif
     runtime.transport = {
         {QStringLiteral("shellType"), static_cast<int>(type)},
         {QStringLiteral("wslDistribution"), wslDistribution.trimmed()},
         {QStringLiteral("workingDirectory"), workingDirectory.trimmed()},
         {QStringLiteral("label"), label.trimmed()}};
+    if (!interactiveShellKind.isEmpty())
+        runtime.transport.insert(QStringLiteral("interactiveShellKind"),
+                                 interactiveShellKind);
+    if (interactiveShellKind == QStringLiteral("cmd"))
+        runtime.transport.insert(QStringLiteral("interactiveHookReady"), true);
     return runtime;
 }
 
@@ -69,6 +96,7 @@ RuntimeConfig sshRuntime(const SshConfig& config)
         {QStringLiteral("authMethod"), config.authMethod},
         {QStringLiteral("privateKeyPath"), config.privateKeyPath},
         {QStringLiteral("terminalType"), config.terminalType},
+        {QStringLiteral("interactiveShellKind"), config.interactiveShellKind},
         {QStringLiteral("keepAliveSeconds"), config.keepAliveSeconds},
         {QStringLiteral("label"), config.label}};
     return runtime;

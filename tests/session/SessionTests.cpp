@@ -1,6 +1,11 @@
 #include "core/terminal/TerminalCore.h"
 #include "credential/CredentialStore.h"
 #include "profile/ProfileStore.h"
+#include "session/InteractiveStreamFramer.h"
+#include "session/SessionCommandCoordinator.h"
+#include "session/ShellIntegration.h"
+#include "session/LocalShellProfile.h"
+#include "session/SessionInputArbiter.h"
 #include "session/SessionStore.h"
 #include "session/TerminalSession.h"
 #include "session/SessionInputPump.h"
@@ -8,6 +13,7 @@
 
 #include <QSignalSpy>
 #include <QKeyEvent>
+#include <QFile>
 #include <QTemporaryDir>
 #include <QTest>
 
@@ -118,9 +124,574 @@ private slots:
     void structuredTransportErrorSetsSessionCategory();
     void agentContextFiltersProgressWrapDuplicatesAndAlternate();
     void inputPumpOffsetsPreservePendingSuffix();
+    void userInputPreemptsPartialMcpWrite();
+    void staleAndDuplicateMcpLeasesAreRejected();
+    void emptyInputKeepsMcpLease();
+    void interactiveMarkersNeverReachTerminalCore();
+    void forgedAndOrdinaryOscRemainVisible();
+    void framingBufferIsBoundedAndResetDropsOldPartialMarker();
+    void interactiveCommandRequiresReadyPrompt();
+    void interactiveCommandCapturesCombinedFrameInOrder();
+    void userInputCancelsStartedInteractiveCommand();
+    void unknownInteractiveProfileDoesNotEnableCommands();
+    void configuredDevicePromptDoesNotProbeTransport();
+    void configuredDevicePromptRequiresSilence();
+    void terminalSessionUsesConfiguredPromptProfile();
+    void localShellPresetsCarryExplicitIntegration();
+    void sshShellEnvironmentRequiresExplicitProfile();
+    void shellPromptMarkerCompletesCurrentCommand();
+    void clinkHookEnablesCmdOnlyWhenInstalled();
+    void unconfiguredFramerLeavesTerminalBytesUntouched();
+    void transportRebindDropsPreviousPromptProfile();
+    void devicePasswordAndSplitAlternateScreenAreNotReady();
+    void userInputStopsUnsentLongCommandTail();
     void agentContextJoinsHistorySeamAndBoundsUtf8();
     void secretServiceCredentialStoreSurvivesRestart();
 };
+
+void SessionTests::userInputPreemptsPartialMcpWrite()
+{
+    SessionInputArbiter arbiter;
+    FakeTransport transport;
+    QVERIFY(transport.connectToHost());
+    arbiter.bind(&transport, 7);
+    QVERIFY(arbiter.acquireMcpLease(41, 7));
+    QVERIFY(arbiter.submitMcpInput(41, QByteArrayLiteral("echo par")));
+
+    QSignalSpy preempted(&arbiter, &SessionInputArbiter::mcpPreempted);
+    arbiter.submitUserInput(QByteArrayLiteral("x"));
+
+    QCOMPARE(preempted.count(), 1);
+    QCOMPARE(preempted.first().at(0).toULongLong(), quint64(41));
+    QCOMPARE(preempted.first().at(1).toBool(), true);
+    QCOMPARE(transport.writes, QByteArrayLiteral("echo parx"));
+    QVERIFY(!arbiter.submitMcpInput(41, QByteArrayLiteral("tial\r")));
+}
+
+void SessionTests::staleAndDuplicateMcpLeasesAreRejected()
+{
+    SessionInputArbiter arbiter;
+    FakeTransport transport;
+    QVERIFY(transport.connectToHost());
+    arbiter.bind(&transport, 9);
+
+    QVERIFY(!arbiter.acquireMcpLease(10, 8));
+    QVERIFY(!arbiter.acquireMcpLease(0, 9));
+    QVERIFY(arbiter.acquireMcpLease(10, 9));
+    QVERIFY(!arbiter.acquireMcpLease(11, 9));
+    QVERIFY(!arbiter.submitMcpInput(11, QByteArrayLiteral("wrong")));
+    QCOMPARE(transport.writes, QByteArray{});
+
+    arbiter.releaseMcpLease(11);
+    QVERIFY(arbiter.hasMcpLease());
+    arbiter.releaseMcpLease(10);
+    QVERIFY(!arbiter.hasMcpLease());
+}
+
+void SessionTests::emptyInputKeepsMcpLease()
+{
+    SessionInputArbiter arbiter;
+    FakeTransport transport;
+    QVERIFY(transport.connectToHost());
+    arbiter.bind(&transport, 3);
+    QVERIFY(arbiter.acquireMcpLease(22, 3));
+
+    QSignalSpy preempted(&arbiter, &SessionInputArbiter::mcpPreempted);
+    QVERIFY(arbiter.submitMcpInput(22, {}));
+    arbiter.submitUserInput({});
+
+    QVERIFY(arbiter.hasMcpLease());
+    QCOMPARE(preempted.count(), 0);
+    QCOMPARE(transport.writes, QByteArray{});
+}
+
+void SessionTests::interactiveMarkersNeverReachTerminalCore()
+{
+    InteractiveStreamFramer framer;
+    InteractiveCommandProfile profile;
+    profile.shellIntegration = true;
+    framer.configure(profile);
+    framer.reset(9, QByteArrayLiteral("nonce-1"));
+    const auto first = framer.consume(
+        QByteArrayLiteral("out\x1b]633;NT;END;non"));
+    const auto second = framer.consume(
+        QByteArrayLiteral("ce-1;0\x07prompt$ "));
+
+    QCOMPARE(first.visibleBytes, QByteArrayLiteral("out"));
+    QVERIFY(first.events.isEmpty());
+    QCOMPARE(second.visibleBytes, QByteArrayLiteral("prompt$ "));
+    QCOMPARE(second.events.size(), 1);
+    QCOMPARE(second.events.front().kind,
+             InteractiveStreamEventKind::CommandFinished);
+    QCOMPARE(second.events.front().exitCode, std::optional<int>{0});
+}
+
+void SessionTests::forgedAndOrdinaryOscRemainVisible()
+{
+    InteractiveStreamFramer framer;
+    InteractiveCommandProfile profile;
+    profile.shellIntegration = true;
+    framer.configure(profile);
+    framer.reset(4, QByteArrayLiteral("current"));
+    const QByteArray forged =
+        QByteArrayLiteral("\x1b]633;NT;END;old;0\x07");
+    const QByteArray ordinary = QByteArrayLiteral("\x1b]633;A\x07");
+
+    const auto result = framer.consume(forged + ordinary);
+
+    QCOMPARE(result.visibleBytes, forged + ordinary);
+    QVERIFY(result.events.isEmpty());
+}
+
+void SessionTests::framingBufferIsBoundedAndResetDropsOldPartialMarker()
+{
+    InteractiveCommandProfile profile;
+    profile.shellIntegration = true;
+    profile.maxMarkerBytes = 32;
+    InteractiveStreamFramer framer;
+    framer.configure(profile);
+    framer.reset(2, QByteArrayLiteral("nonce"));
+
+    const QByteArray oversized = QByteArrayLiteral("\x1b]633;NT;END;")
+        + QByteArray(40, 'x');
+    const auto overflow = framer.consume(oversized);
+    QCOMPARE(overflow.visibleBytes, oversized);
+    QCOMPARE(overflow.events.size(), 1);
+    QCOMPARE(overflow.events.front().kind,
+             InteractiveStreamEventKind::FramingError);
+
+    const auto partial = framer.consume(QByteArrayLiteral("\x1b]633;NT;END;non"));
+    QVERIFY(partial.visibleBytes.isEmpty());
+    framer.reset(3, QByteArrayLiteral("new"));
+    const auto afterReset = framer.consume(QByteArrayLiteral("plain"));
+    QCOMPARE(afterReset.visibleBytes, QByteArrayLiteral("plain"));
+    QVERIFY(afterReset.events.isEmpty());
+}
+
+void SessionTests::interactiveCommandRequiresReadyPrompt()
+{
+    FakeTransport transport;
+    QVERIFY(transport.connectToHost());
+    SessionInputArbiter arbiter;
+    arbiter.bind(&transport, 5);
+    InteractiveStreamFramer framer;
+    framer.reset(5);
+    SessionCommandCoordinator coordinator(&arbiter, &framer);
+    coordinator.reset(5);
+
+    CommandExecutionRequest request;
+    request.requestId = 71;
+    request.command = QByteArrayLiteral("uname -srm");
+    request.executionNonce = QByteArrayLiteral("exec-71");
+    request.expectedPromptGeneration = 3;
+
+    QVERIFY(!coordinator.submit(request));
+    QCOMPARE(transport.writes, QByteArray{});
+}
+
+void SessionTests::interactiveCommandCapturesCombinedFrameInOrder()
+{
+    TerminalCore core(80, 24);
+    FakeTransport transport;
+    QVERIFY(transport.connectToHost());
+    SessionInputArbiter arbiter;
+    arbiter.bind(&transport, 6);
+    InteractiveStreamFramer framer;
+    InteractiveCommandProfile profile;
+    profile.shellIntegration = true;
+    framer.configure(profile);
+    framer.reset(6);
+    SessionCommandCoordinator coordinator(&arbiter, &framer);
+    coordinator.reset(6);
+    SessionInputPump pump(&transport, &core, &framer);
+    connect(&pump, &SessionInputPump::interactiveEvent,
+            &coordinator, &SessionCommandCoordinator::handleInteractiveEvent);
+    connect(&pump, &SessionInputPump::interactiveBytes,
+            &coordinator, &SessionCommandCoordinator::handleInteractiveBytes);
+    pump.start();
+
+    coordinator.handleInteractiveEvent({
+        InteractiveStreamEventKind::PromptReady, 4, std::nullopt});
+    CommandExecutionRequest request;
+    request.requestId = 72;
+    request.command = QByteArrayLiteral("uname -srm");
+    request.executionNonce = QByteArrayLiteral("exec-72");
+    request.expectedPromptGeneration = 4;
+    QSignalSpy finished(&coordinator, &SessionCommandCoordinator::finished);
+    QVERIFY(coordinator.submit(request));
+    QCOMPARE(transport.writes, QByteArrayLiteral("uname -srm\r"));
+
+    emit transport.readyRead(
+        QByteArrayLiteral("uname -srm\r\n\x1b]633;NT;START;exec-72\x07")
+        + QByteArrayLiteral("Linux armv7l\r\n")
+        + QByteArrayLiteral("\x1b]633;NT;END;exec-72;0\x07root# "));
+
+    QTRY_COMPARE(finished.count(), 1);
+    const auto result = qvariant_cast<CommandExecutionResult>(
+        finished.first().front());
+    QCOMPARE(result.outcome, CommandExecutionOutcome::Completed);
+    QCOMPARE(result.standardOutput, QByteArrayLiteral("Linux armv7l\r\n"));
+    QCOMPARE(result.exitCode, std::optional<int>{0});
+    QVERIFY(result.executionMayHaveStarted);
+    QVERIFY(result.terminationConfirmed);
+    QVERIFY(!coordinator.isPromptReady());
+    QVERIFY(core.waitForIdle());
+    const auto state = core.terminalState();
+    QVERIFY(std::any_of(state.viewport.begin(), state.viewport.end(),
+                        [](const auto& line) {
+        return line.text.find("Linux armv7l") != std::string::npos;
+    }));
+}
+
+void SessionTests::userInputCancelsStartedInteractiveCommand()
+{
+    FakeTransport transport;
+    QVERIFY(transport.connectToHost());
+    SessionInputArbiter arbiter;
+    arbiter.bind(&transport, 8);
+    InteractiveStreamFramer framer;
+    InteractiveCommandProfile profile;
+    profile.shellIntegration = true;
+    framer.configure(profile);
+    framer.reset(8);
+    SessionCommandCoordinator coordinator(&arbiter, &framer);
+    coordinator.reset(8);
+    coordinator.handleInteractiveEvent({
+        InteractiveStreamEventKind::PromptReady, 2, std::nullopt});
+
+    CommandExecutionRequest request;
+    request.requestId = 73;
+    request.command = QByteArrayLiteral("sleep 5");
+    request.executionNonce = QByteArrayLiteral("exec-73");
+    request.expectedPromptGeneration = 2;
+    QSignalSpy finished(&coordinator, &SessionCommandCoordinator::finished);
+    QVERIFY(coordinator.submit(request));
+
+    arbiter.submitUserInput(QByteArrayLiteral("x"));
+
+    QCOMPARE(finished.count(), 1);
+    const auto result = qvariant_cast<CommandExecutionResult>(
+        finished.first().front());
+    QCOMPARE(result.outcome, CommandExecutionOutcome::Cancelled);
+    QVERIFY(result.executionMayHaveStarted);
+    QVERIFY(!result.terminationConfirmed);
+    QCOMPARE(transport.writes, QByteArrayLiteral("sleep 5\rx"));
+}
+
+void SessionTests::unknownInteractiveProfileDoesNotEnableCommands()
+{
+    RuntimeConfig runtime;
+    runtime.transportKind = TransportKind::Ssh;
+    QVERIFY(!ShellIntegration::profileFor(runtime));
+
+    runtime.transport.insert(QStringLiteral("interactiveShellKind"),
+                             QStringLiteral("unsupported"));
+    QVERIFY(!ShellIntegration::profileFor(runtime));
+
+    runtime.transportKind = TransportKind::LocalShell;
+    runtime.transport.insert(QStringLiteral("interactiveShellKind"),
+                             QStringLiteral("cmd"));
+    QVERIFY(!ShellIntegration::profileFor(runtime));
+
+    runtime.transportKind = TransportKind::Ssh;
+    runtime.transport.insert(QStringLiteral("interactiveShellKind"),
+                             QStringLiteral("posix"));
+    const auto profile = ShellIntegration::profileFor(runtime);
+    QVERIFY(profile);
+    QCOMPARE(profile->lineEnding, QByteArrayLiteral("\r"));
+}
+
+void SessionTests::configuredDevicePromptDoesNotProbeTransport()
+{
+    RuntimeConfig runtime;
+    runtime.transportKind = TransportKind::Serial;
+    QVERIFY(!ShellIntegration::profileFor(runtime));
+    runtime.transport.insert(QStringLiteral("interactivePromptPattern"),
+                             QStringLiteral("device> $"));
+    const auto profile = ShellIntegration::profileFor(runtime);
+    QVERIFY(profile);
+    QCOMPARE(profile->promptPattern, QStringLiteral("device> $"));
+
+    FakeTransport transport;
+    QVERIFY(transport.connectToHost());
+    SessionInputArbiter arbiter;
+    arbiter.bind(&transport, 12);
+    InteractiveStreamFramer framer;
+    framer.configure(*profile);
+    framer.reset(12);
+    SessionCommandCoordinator coordinator(&arbiter, &framer);
+    coordinator.reset(12);
+    CommandExecutionRequest request;
+    request.requestId = 94;
+    request.command = QByteArrayLiteral("uname");
+    request.executionNonce = QByteArrayLiteral("n94");
+    request.expectedPromptGeneration = 1;
+    QVERIFY(!coordinator.submit(request));
+    QCOMPARE(transport.writes, QByteArray{});
+}
+
+void SessionTests::configuredDevicePromptRequiresSilence()
+{
+    RuntimeConfig runtime;
+    runtime.transportKind = TransportKind::Telnet;
+    runtime.transport.insert(QStringLiteral("interactivePromptPattern"),
+                             QStringLiteral("device> $"));
+    runtime.transport.insert(QStringLiteral("interactiveLineEnding"),
+                             QStringLiteral("crlf"));
+    const auto profile = ShellIntegration::profileFor(runtime);
+    QVERIFY(profile);
+
+    TerminalCore core(80, 24);
+    FakeTransport transport;
+    QVERIFY(transport.connectToHost());
+    SessionInputArbiter arbiter;
+    arbiter.bind(&transport, 13);
+    InteractiveStreamFramer framer;
+    framer.configure(*profile);
+    framer.reset(13);
+    SessionCommandCoordinator coordinator(&arbiter, &framer);
+    coordinator.configure(*profile);
+    coordinator.reset(13);
+    SessionInputPump pump(&transport, &core, &framer);
+    connect(&pump, &SessionInputPump::interactiveEvent,
+            &coordinator, &SessionCommandCoordinator::handleInteractiveEvent);
+    connect(&pump, &SessionInputPump::interactiveBytes,
+            &coordinator, &SessionCommandCoordinator::handleInteractiveBytes);
+    pump.start();
+
+    emit transport.readyRead(QByteArrayLiteral("device> "));
+    QVERIFY(!coordinator.isPromptReady());
+    QTRY_VERIFY_WITH_TIMEOUT(coordinator.isPromptReady(), 500);
+    QCOMPARE(transport.writes, QByteArray{});
+
+    CommandExecutionRequest request;
+    request.requestId = 95;
+    request.command = QByteArrayLiteral("status");
+    request.executionNonce = QByteArrayLiteral("n95");
+    request.expectedPromptGeneration = coordinator.promptGeneration();
+    QVERIFY(coordinator.submit(request));
+    QCOMPARE(transport.writes, QByteArrayLiteral("status\r\n"));
+}
+
+void SessionTests::terminalSessionUsesConfiguredPromptProfile()
+{
+    RuntimeConfig runtime;
+    runtime.transportKind = TransportKind::Serial;
+    runtime.transport.insert(QStringLiteral("interactivePromptPattern"),
+                             QStringLiteral("device> $"));
+    TerminalSession session(runtime);
+    FakeTransport transport;
+    session.attach(&transport, TerminalSession::Ownership::Borrowed,
+                   TransportKind::Serial);
+    QVERIFY(session.start());
+    QTRY_COMPARE(session.state(), SessionState::Running);
+    QVERIFY(!session.commandCoordinator()->isPromptReady());
+
+    emit transport.readyRead(QByteArrayLiteral("device> "));
+    QTRY_VERIFY_WITH_TIMEOUT(session.commandCoordinator()->isPromptReady(), 500);
+    QCOMPARE(transport.writes, QByteArray{});
+}
+
+void SessionTests::localShellPresetsCarryExplicitIntegration()
+{
+    const auto powerShell = LocalShellProfiles::windowsPowerShell();
+    QCOMPARE(powerShell.interactiveShellKind, QStringLiteral("powershell"));
+    QVERIFY(powerShell.arguments.contains(QStringLiteral("-NoExit")));
+    QVERIFY(powerShell.arguments.join(QLatin1Char(' ')).contains(
+        QStringLiteral("633;NT;PROMPT")));
+
+    const auto commandPrompt = LocalShellProfiles::commandPrompt();
+    QVERIFY(commandPrompt.interactiveShellKind.isEmpty());
+    QVERIFY(!commandPrompt.environment.contains(QStringLiteral("PROMPT")));
+
+#ifndef Q_OS_WIN
+    const auto posix = LocalShellProfiles::platformDefault();
+    QCOMPARE(posix.interactiveShellKind, QStringLiteral("posix"));
+    QVERIFY(posix.environment.contains(QStringLiteral("PROMPT_COMMAND")));
+#endif
+}
+
+void SessionTests::sshShellEnvironmentRequiresExplicitProfile()
+{
+    RuntimeConfig runtime;
+    runtime.transportKind = TransportKind::Ssh;
+    QVERIFY(ShellIntegration::startupEnvironmentFor(runtime).isEmpty());
+
+    runtime.transport.insert(QStringLiteral("interactiveShellKind"),
+                             QStringLiteral("posix"));
+    const auto environment = ShellIntegration::startupEnvironmentFor(runtime);
+    QVERIFY(environment.contains(QStringLiteral("PROMPT_COMMAND")));
+    QVERIFY(environment.value(QStringLiteral("PROMPT_COMMAND"))
+        .contains(QStringLiteral("633;NT;PROMPT")));
+}
+
+void SessionTests::shellPromptMarkerCompletesCurrentCommand()
+{
+    InteractiveCommandProfile profile;
+    profile.shellIntegration = true;
+    InteractiveStreamFramer framer;
+    framer.configure(profile);
+    framer.reset(14);
+
+    const auto initial = framer.consume(
+        QByteArrayLiteral("\x1b]633;NT;PROMPT;1;0\x07user$ "));
+    QCOMPARE(initial.events.size(), 1);
+    QCOMPARE(initial.events.front().kind,
+             InteractiveStreamEventKind::PromptReady);
+
+    framer.beginTransaction(QByteArrayLiteral("tx-1"));
+    const auto completed = framer.consume(
+        QByteArrayLiteral("done\r\n\x1b]633;NT;PROMPT;2;0\x07user$ "));
+    QCOMPARE(completed.visibleBytes, QByteArrayLiteral("done\r\nuser$ "));
+    QCOMPARE(completed.events.size(), 1);
+    QCOMPARE(completed.events.front().kind,
+             InteractiveStreamEventKind::CommandFinishedAtPrompt);
+    QCOMPARE(completed.events.front().promptGeneration, quint64(2));
+    QCOMPARE(completed.events.front().exitCode, std::optional<int>{0});
+}
+
+void SessionTests::clinkHookEnablesCmdOnlyWhenInstalled()
+{
+#ifndef Q_OS_WIN
+    QSKIP("Clink is a Windows CMD integration.");
+#else
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const QString batchPath = directory.filePath(QStringLiteral("clink.bat"));
+    QFile batch(batchPath);
+    QVERIFY(batch.open(QIODevice::WriteOnly));
+    batch.close();
+    const QString scriptDir = directory.filePath(QStringLiteral("clink-scripts"));
+    QVERIFY(QDir().mkpath(scriptDir));
+    QFile script(QDir(scriptDir).filePath(
+        QStringLiteral("novaterm_prompt.lua")));
+    QVERIFY(script.open(QIODevice::WriteOnly));
+    script.close();
+
+    const auto profile = LocalShellProfiles::commandPrompt(directory.path());
+    QCOMPARE(profile.interactiveShellKind, QStringLiteral("cmd"));
+    QVERIFY(profile.environment.value(QStringLiteral("CLINK_PATH"))
+        .contains(scriptDir));
+
+    RuntimeConfig runtime;
+    runtime.transportKind = TransportKind::LocalShell;
+    runtime.transport.insert(QStringLiteral("interactiveShellKind"),
+                             QStringLiteral("cmd"));
+    QVERIFY(!ShellIntegration::profileFor(runtime));
+    runtime.transport.insert(QStringLiteral("interactiveHookReady"), true);
+    QVERIFY(ShellIntegration::profileFor(runtime));
+#endif
+}
+
+void SessionTests::unconfiguredFramerLeavesTerminalBytesUntouched()
+{
+    InteractiveStreamFramer framer;
+    framer.reset(18);
+    const QByteArray output =
+        QByteArrayLiteral("text\x1b]633;NT;PROMPT;1;0\x07");
+    const auto result = framer.consume(output);
+    QCOMPARE(result.visibleBytes, output);
+    QVERIFY(result.events.isEmpty());
+}
+
+void SessionTests::transportRebindDropsPreviousPromptProfile()
+{
+    RuntimeConfig runtime;
+    runtime.transportKind = TransportKind::Serial;
+    runtime.transport.insert(QStringLiteral("interactivePromptPattern"),
+                             QStringLiteral("device> $"));
+    TerminalSession session(runtime);
+    FakeTransport serial;
+    session.attach(&serial, TerminalSession::Ownership::Borrowed,
+                   TransportKind::Serial);
+    QVERIFY(session.start());
+    QTRY_COMPARE(session.state(), SessionState::Running);
+    session.close(CloseMode::Abort);
+    QTRY_COMPARE(session.state(), SessionState::Closed);
+    QVERIFY(session.resetForReuse());
+
+    FakeTransport ssh;
+    session.attach(&ssh, TerminalSession::Ownership::Borrowed,
+                   TransportKind::Ssh);
+    QVERIFY(session.start());
+    QTRY_COMPARE(session.state(), SessionState::Running);
+    emit ssh.readyRead(QByteArrayLiteral("device> "));
+    QTest::qWait(250);
+    QVERIFY(!session.commandCoordinator()->isPromptReady());
+}
+
+void SessionTests::devicePasswordAndSplitAlternateScreenAreNotReady()
+{
+    RuntimeConfig runtime;
+    runtime.transportKind = TransportKind::Telnet;
+    runtime.transport.insert(QStringLiteral("interactivePromptPattern"),
+                             QStringLiteral("device> $"));
+    const auto profile = ShellIntegration::profileFor(runtime);
+    QVERIFY(profile);
+    InteractiveStreamFramer framer;
+    framer.configure(*profile);
+    framer.reset(20);
+
+    const auto password = framer.consume(
+        QByteArrayLiteral("Password: "));
+    QVERIFY(password.events.isEmpty());
+
+    const auto alternateFirst = framer.consume(
+        QByteArrayLiteral("\x1b[?104"));
+    QVERIFY(alternateFirst.events.isEmpty());
+    const auto alternateSecond = framer.consume(
+        QByteArrayLiteral("9hdevice> "));
+    QVERIFY(std::any_of(alternateSecond.events.cbegin(),
+                        alternateSecond.events.cend(),
+                        [](const auto& event) {
+        return event.kind == InteractiveStreamEventKind::ShellReset;
+    }));
+    QVERIFY(std::none_of(alternateSecond.events.cbegin(),
+                         alternateSecond.events.cend(),
+                         [](const auto& event) {
+        return event.kind == InteractiveStreamEventKind::PromptCandidate;
+    }));
+}
+
+void SessionTests::userInputStopsUnsentLongCommandTail()
+{
+    FakeTransport transport;
+    QVERIFY(transport.connectToHost());
+    SessionInputArbiter arbiter;
+    arbiter.bind(&transport, 21);
+    InteractiveStreamFramer framer;
+    InteractiveCommandProfile profile;
+    profile.shellIntegration = true;
+    profile.requiresStartMarker = false;
+    framer.configure(profile);
+    framer.reset(21);
+    SessionCommandCoordinator coordinator(&arbiter, &framer);
+    coordinator.configure(profile);
+    coordinator.reset(21);
+    coordinator.handleInteractiveEvent({
+        InteractiveStreamEventKind::PromptReady, 1, std::nullopt});
+
+    CommandExecutionRequest request;
+    request.requestId = 200;
+    request.command = QByteArray(2048, 'x');
+    request.executionNonce = QByteArrayLiteral("long-200");
+    request.expectedPromptGeneration = 1;
+    QSignalSpy finished(&coordinator, &SessionCommandCoordinator::finished);
+    QVERIFY(coordinator.submit(request));
+    const qsizetype firstPart = transport.writes.size();
+    QVERIFY(firstPart > 0);
+    QVERIFY(firstPart < request.command.size());
+
+    arbiter.submitUserInput(QByteArrayLiteral("u"));
+    QTest::qWait(30);
+    QCOMPARE(transport.writes.size(), firstPart + 1);
+    QVERIFY(transport.writes.endsWith('u'));
+    QCOMPARE(finished.count(), 1);
+    const auto result = qvariant_cast<CommandExecutionResult>(
+        finished.first().front());
+    QCOMPARE(result.outcome, CommandExecutionOutcome::Cancelled);
+    QVERIFY(result.executionMayHaveStarted);
+}
 
 void SessionTests::serialAutomaticReconnect()
 {

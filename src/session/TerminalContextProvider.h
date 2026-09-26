@@ -5,6 +5,8 @@
 #include "TerminalStateCache.h"
 #include "core/terminal/TerminalCore.h"
 #include <QPointer>
+#include <QtGlobal>
+#include <chrono>
 
 /** @note 在所属 Session 线程调用；返回值独立拥有数据，可交给 Agent。 */
 class TerminalContextProvider final
@@ -27,21 +29,33 @@ public:
         NovaTerm::u64 cacheFloor{0};
         NovaTerm::u64 resetRevision{0};
         NovaTerm::u64 suppressedDuplicates{0};
+        std::chrono::system_clock::time_point capturedAt{};
     };
     explicit TerminalContextProvider(TerminalCore* core) : _core(core) {}
-    void reset() { _cache.clear(); _state = {}; _historyId = 0; _resetRevision = 0; _initialized = false; _snapshot.reset(); }
+    void reset() { _cache.clear(); _state = {}; _historyId = 0; _resetRevision = 0; _initialized = false; _capturedAt = {}; _snapshot.reset(); }
     /** @brief 模型忙时立即返回空；不使用任何客户端的 sinceRevision 消费共享状态。 */
     [[nodiscard]] std::shared_ptr<const Snapshot> trySnapshot()
     {
         if (!_core)
             return {};
-        // 一次 try-lock 完成版本和文本读取，避免两次抢锁之间被持续输出反复插队。
-        auto next = _core->tryTerminalState(_historyId,
-            TerminalStateCache::MaxBytes, TerminalStateCache::MaxLines);
-        if (!next)
-            return {};
-        if (!_initialized || next->revision != _state.revision) {
-            acceptState(std::move(*next));
+        const bool usePublished = qEnvironmentVariableIntValue(
+            "NOVATERM_MCP_PUBLISHED_SNAPSHOT") > 0;
+        if (usePublished) {
+            const auto published = _core->requestPublishedTerminalState();
+            if (!published)
+                return {};
+            if (!_initialized || published->state.revision != _state.revision)
+                acceptState(published->state);
+            _capturedAt = published->capturedAt;
+        } else {
+            // 兼容路径：模型忙时立即失败，不延长 GUI 锁等待。
+            auto next = _core->tryTerminalState(_historyId,
+                TerminalStateCache::MaxBytes, TerminalStateCache::MaxLines);
+            if (!next)
+                return {};
+            if (!_initialized || next->revision != _state.revision)
+                acceptState(std::move(*next));
+            _capturedAt = std::chrono::system_clock::now();
         }
         if (!_snapshot) {
             auto snapshot = std::make_shared<Snapshot>();
@@ -50,6 +64,7 @@ public:
             snapshot->cacheFloor = _cache.floor();
             snapshot->resetRevision = _resetRevision;
             snapshot->suppressedDuplicates = _cache.duplicates();
+            snapshot->capturedAt = _capturedAt;
             _snapshot = std::move(snapshot);
         }
         return _snapshot;
@@ -112,6 +127,8 @@ private:
         }
         if (!next.alternateScreen) {
             for (const auto& line : next.recentOutput) {
+                if (line.id <= _historyId)
+                    continue;
                 _cache.append(next.revision, line.text);
                 _historyId = std::max(_historyId, line.id);
             }
@@ -132,5 +149,6 @@ private:
     NovaTerm::u64 _historyId{0};
     NovaTerm::u64 _resetRevision{0};
     bool _initialized{false};
+    std::chrono::system_clock::time_point _capturedAt{};
     std::shared_ptr<const Snapshot> _snapshot;
 };

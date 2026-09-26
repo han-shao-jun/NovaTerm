@@ -1,7 +1,7 @@
 # NovaTerm AI MCP 使用说明
 
 NovaTerm 提供本机 stdio MCP 服务，可让支持 MCP 的 AI 客户端读取指定终端输出、
-搜索已读取的内容，并运行单独授权的固定 SSH 诊断命令。默认关闭。
+搜索已读取的内容，并运行单独授权的固定 SSH 或 Windows 本地诊断命令。默认关闭。
 
 ## 开始使用
 
@@ -38,24 +38,28 @@ NovaTerm 提供本机 stdio MCP 服务，可让支持 MCP 的 AI 客户端读取
 
 ## 授权诊断命令
 
-读取权限不包含命令执行权限。只有用户确认是受信任的 **Linux/POSIX SSH 服务端**
-后，才能勾选 **受信任的 Linux 诊断**；展开会话可逐项选择诊断模板。
+读取权限不包含命令执行权限。SSH 会话只有在用户确认目标是受信任的
+**Linux/POSIX SSH 服务端**后才能授权；Windows LocalShell 会话使用 NovaTerm
+同目录的独立诊断 helper。展开会话可逐项选择诊断模板。
 
 首批只有以下四项，参数固定：
 
-| 模板 | 操作 |
-| --- | --- |
-| `system.identity` | 系统类型、内核与架构，`uname -srm` |
-| `system.uptime` | 运行时长与负载，`uptime` |
-| `memory.summary` | 内存与交换摘要，`free -k` |
-| `filesystem.usage` | 文件系统容量，`df -Pk` |
+| 模板 | SSH recipe | Windows 本地 helper |
+| --- | --- | --- |
+| `system.identity` | `uname -srm` | 系统版本、内核与架构 |
+| `system.uptime` | `uptime` | 系统启动时长 |
+| `memory.summary` | `free -k` | 物理内存总量、可用量与负载 |
+| `filesystem.usage` | `df -Pk` | 已就绪卷的容量与可用空间 |
 
-程序使用固定的 `/usr/bin/env` 与 `/usr/bin/` 下的程序路径，清理非必要环境。
-如果服务器缺少这些程序，执行会失败，不会自动替换成其他 shell、脚本或路径。
-其他 Transport 仍可共享输出，暂不开放命令执行。
+SSH 使用固定的 `/usr/bin/env` 与 `/usr/bin/` 下的程序路径，清理非必要环境。
+Windows 本地诊断由 `novaterm-local-diag.exe` 通过系统 API 采集，不调用 `cmd /c`、
+PowerShell、脚本或 PATH 搜索。helper 缺失或平台标识不可用时执行能力保持关闭，
+不会自动替换程序。Linux/macOS LocalShell、Serial、Telnet 和 Custom 仍可共享输出，
+暂不开放命令执行。
 
-诊断通过已有 SSH 连接的独立 exec 通道运行，使用该 SSH 账号的权限。不会往当前
-终端输入框灌入文本，也不会改变当前交互 shell 的工作目录。界面独立展示执行记录。
+SSH 诊断通过已有连接的独立 exec 通道运行，使用该 SSH 账号的权限；Windows
+LocalShell 诊断通过独立 helper 子进程运行。两者都不会往当前终端输入框灌入文本，
+也不会继承或改变当前交互 shell 的工作目录、alias、history 或临时环境。界面独立展示执行记录。
 禁止删除/覆盖文件、获取密码/私钥、提权、任意脚本/解释器、自由文件读取和网络命令。
 即使 SSH 账号是 root，也不能绕过这份允许列表。
 
@@ -80,7 +84,7 @@ NovaTerm 提供本机 stdio MCP 服务，可让支持 MCP 的 AI 客户端读取
 主程序运行不需要 Python，也不依赖额外的模型 SDK。
 
 ```powershell
-cmake --build build/Release --target NovaTerm novaterm-mcp novaterm_mcp_tests
+cmake --build build/Release --target NovaTerm novaterm-mcp novaterm-local-diag novaterm_mcp_tests
 $env:Path = 'C:\Programs\Qt\6.8.3\msvc2022_64\bin;' + $env:Path
 $env:QT_PLUGIN_PATH = 'C:\Programs\Qt\6.8.3\msvc2022_64\plugins'
 ctest --test-dir build/Release -C Release -R '^novaterm_mcp_tests$' --output-on-failure

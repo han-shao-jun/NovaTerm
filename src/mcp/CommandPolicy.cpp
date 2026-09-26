@@ -3,21 +3,21 @@
  */
 #include "CommandPolicy.h"
 #include "McpProtocol.h"
+#include "session/CommandPlatformProfile.h"
 #include <QDateTime>
 #include <QDir>
 #include <QFileInfo>
 #include <QLockFile>
 
 namespace NovaTerm::Mcp {
-QString CommandPolicy::version() { return QStringLiteral("linux-diagnostics-v1"); }
+QString CommandPolicy::version() { return QStringLiteral("linux-diagnostics-v2"); }
 QList<CommandTemplate> CommandPolicy::catalog()
 {
-    // 执行配置由用户明确确认是可信 Linux/POSIX 环境；不搜索 PATH、不替换程序。
-    const QByteArray prefix("exec '/usr/bin/env' '-i' 'LC_ALL=C' 'LANG=C' ");
-    return {{"system.identity", "System identity", prefix + "'/usr/bin/uname' '-srm'"},
-        {"system.uptime", "Uptime and load", prefix + "'/usr/bin/uptime'"},
-        {"memory.summary", "Memory summary", prefix + "'/usr/bin/free' '-k'"},
-        {"filesystem.usage", "Filesystem capacity", prefix + "'/usr/bin/df' '-Pk'"}};
+    // 固定诊断走当前交互 Shell 的正常命令解析；无参数和复合语法。
+    return {{"system.identity", "System identity", "uname -srm"},
+        {"system.uptime", "Uptime and load", "uptime"},
+        {"memory.summary", "Memory summary", "free -k"},
+        {"filesystem.usage", "Filesystem capacity", "df -Pk"}};
 }
 std::optional<CommandTemplate> CommandPolicy::find(const QString& id)
 {
@@ -26,6 +26,32 @@ std::optional<CommandTemplate> CommandPolicy::find(const QString& id)
             return command;
     }
     return std::nullopt;
+}
+
+QList<CommandTemplate> CommandPolicy::catalog(
+    const CommandPlatformProfile& profile)
+{
+    QList<CommandTemplate> result;
+    if (!profile.isAvailable())
+        return result;
+    for (const auto& command : catalog()) {
+        if (profile.supports(command.id))
+            result.append(command);
+    }
+    return result;
+}
+
+std::optional<CommandTemplate> CommandPolicy::find(
+    const QString& id, const CommandPlatformProfile& profile)
+{
+    if (!profile.supports(id))
+        return std::nullopt;
+    return find(id);
+}
+
+QString CommandPolicy::version(const CommandPlatformProfile& profile)
+{
+    return profile.version();
 }
 
 TargetGuard::TargetGuard(QString directory) : _directory(std::move(directory)) {}
