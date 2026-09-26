@@ -33,6 +33,12 @@ std::optional<InteractiveCommandProfile> ShellIntegration::profileFor(
     case TransportKind::Ssh: {
         const QString kind = values.value(
             QStringLiteral("interactiveShellKind")).toString();
+        if (kind.isEmpty() && runtime.transportKind == TransportKind::Ssh) {
+            profile.shellIntegration = true;
+            profile.requiresStartMarker = false;
+            profile.allowUnverifiedPrompt = true;
+            return profile;
+        }
         if (kind != QStringLiteral("posix")
             && kind != QStringLiteral("powershell")
             && !(kind == QStringLiteral("cmd")

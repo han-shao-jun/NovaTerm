@@ -492,126 +492,146 @@ Built with:
     </message>
     <message>
         <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="59"/>
+        <source>Copy for CC Switch</source>
+        <translation>Copy for CC Switch</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="60"/>
         <source>Rotate access token</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="66"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="68"/>
         <source>Session</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="66"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="68"/>
         <source>State</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="66"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="68"/>
         <source>Read output</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="69"/>
+        <source>Fixed diagnostics</source>
+        <translation>Fixed diagnostics</translation>
+    </message>
+    <message>
         <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="34"/>
-        <source>Share only the sessions you select. Terminal output may contain sensitive information. Command access is separate and only allows fixed diagnostics: SSH commands use the trusted connected account, while Windows local commands run in an isolated helper. Deletion, credentials, privilege elevation and arbitrary scripts are prohibited.</source>
-        <translation type="unfinished"></translation>
+        <source>Share only the sessions you select. Terminal output may contain sensitive information. Fixed diagnostics stay separate from interactive terminal input. Shared sessions can run ordinary commands; potentially destructive commands and every script require confirmation in the MCP client. Script contents are written to the selected host path and are never sent to the terminal UI. Risk checks are best-effort, not a sandbox.</source>
+        <translation>Share only the sessions you select. Terminal output may contain sensitive information. Fixed diagnostics stay separate from interactive terminal input. Shared sessions can run ordinary commands; potentially destructive commands and every script require confirmation in the MCP client. Script contents are written to the selected host path and are never sent to the terminal UI. Risk checks are best-effort, not a sandbox.</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="66"/>
-        <source>Authorized diagnostics</source>
-        <translation type="unfinished"></translation>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="69"/>
+        <source>Script tasks</source>
+        <translation>Script tasks</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="78"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="81"/>
         <source>Command results appear here. A disconnected or timed-out command may still be running remotely.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="82"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="85"/>
         <source>I have checked that the remote command has stopped</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="83"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="86"/>
         <source>Release selected target</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="108"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="111"/>
         <source>Configuration copied. It contains an access token; keep it private.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="145"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="118"/>
+        <source>CC Switch configuration copied. It contains an access token; keep it private.</source>
+        <translation>CC Switch configuration copied. It contains an access token; keep it private.</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="170"/>
         <source>Operation failed. Check the selected client, storage permissions, and active commands.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="154"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="179"/>
         <source>Disabled</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="155"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="180"/>
         <source>Listening</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="156"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="181"/>
         <source>Starting</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="157"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="182"/>
         <source>Status: %1; instance: %2</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="161"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="186"/>
         <source> (this run only)</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="177"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="202"/>
         <source>Fixed diagnostics run in an isolated local helper and do not write to the current shell.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="178"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="203"/>
         <source>Only enable for a trusted Linux/POSIX SSH server. Fixed diagnostics run as its connected user.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="181"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="206"/>
+        <source>Allows LocalShell/SSH script tasks. Each script still requires MCP-client confirmation; its body is written to the requested host path and is not shown in the terminal UI.</source>
+        <translation>Allows LocalShell/SSH script tasks. Each script still requires MCP-client confirmation; its body is written to the requested host path and is not shown in the terminal UI.</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="209"/>
         <source>System identity</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="182"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="210"/>
         <source>Uptime and load</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="183"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="211"/>
         <source>Memory summary</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="184"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="212"/>
         <source>Filesystem capacity</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="207"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="235"/>
         <source>Protected target %1 — execution %2</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="216"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="244"/>
         <source>Command is running.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="220"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="248"/>
         <source>Status: %1
 Exit code: %2
 Termination confirmed: %3
@@ -621,17 +641,17 @@ Termination confirmed: %3
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="222"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="250"/>
         <source>Unknown</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="223"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="251"/>
         <source>Yes</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="223"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="251"/>
         <source>No</source>
         <translation type="unfinished"></translation>
     </message>
@@ -1710,166 +1730,171 @@ Termination confirmed: %3
 <context>
     <name>SftpSession</name>
     <message>
-        <location filename="../../src/session/SftpSession.cpp" line="96"/>
+        <location filename="../../src/session/SftpSession.cpp" line="114"/>
         <source>Failed to load the SSH private key</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/session/SftpSession.cpp" line="105"/>
+        <location filename="../../src/session/SftpSession.cpp" line="123"/>
         <source>SFTP public-key authentication failed</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/session/SftpSession.cpp" line="115"/>
+        <location filename="../../src/session/SftpSession.cpp" line="133"/>
         <source>SFTP password authentication failed</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/session/SftpSession.cpp" line="475"/>
+        <location filename="../../src/session/SftpSession.cpp" line="564"/>
         <source>Invalid SSH configuration for SFTP.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/session/SftpSession.cpp" line="611"/>
+        <location filename="../../src/session/SftpSession.cpp" line="784"/>
         <source>Failed to create the SFTP SSH session.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/session/SftpSession.cpp" line="634"/>
+        <location filename="../../src/session/SftpSession.cpp" line="809"/>
         <source>SFTP SSH connection failed</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/session/SftpSession.cpp" line="642"/>
+        <location filename="../../src/session/SftpSession.cpp" line="817"/>
         <source>The SFTP host key is not trusted or has changed. Reconnect the SSH terminal and verify the host key.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/session/SftpSession.cpp" line="658"/>
+        <location filename="../../src/session/SftpSession.cpp" line="840"/>
         <source>Failed to initialize SFTP</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/session/SftpSession.cpp" line="698"/>
+        <location filename="../../src/session/SftpSession.cpp" line="882"/>
         <source>Cannot resolve the remote directory</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/session/SftpSession.cpp" line="264"/>
-        <location filename="../../src/session/SftpSession.cpp" line="392"/>
-        <location filename="../../src/session/SftpSession.cpp" line="709"/>
+        <location filename="../../src/session/SftpSession.cpp" line="351"/>
+        <location filename="../../src/session/SftpSession.cpp" line="479"/>
+        <location filename="../../src/session/SftpSession.cpp" line="893"/>
         <source>Cannot open remote directory %1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/session/SftpSession.cpp" line="308"/>
-        <location filename="../../src/session/SftpSession.cpp" line="425"/>
-        <location filename="../../src/session/SftpSession.cpp" line="768"/>
+        <location filename="../../src/session/SftpSession.cpp" line="395"/>
+        <location filename="../../src/session/SftpSession.cpp" line="512"/>
+        <location filename="../../src/session/SftpSession.cpp" line="952"/>
         <source>Failed while reading remote directory %1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/session/SftpSession.cpp" line="180"/>
-        <location filename="../../src/session/SftpSession.cpp" line="892"/>
+        <location filename="../../src/session/SftpSession.cpp" line="198"/>
+        <location filename="../../src/session/SftpSession.cpp" line="1104"/>
         <source>Cannot open local file %1: %2</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/session/SftpSession.cpp" line="153"/>
+        <location filename="../../src/session/SftpSession.cpp" line="171"/>
         <source>Remote path is not a directory: %1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/session/SftpSession.cpp" line="165"/>
+        <location filename="../../src/session/SftpSession.cpp" line="183"/>
         <source>Cannot create remote directory %1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/session/SftpSession.cpp" line="192"/>
-        <location filename="../../src/session/SftpSession.cpp" line="329"/>
-        <location filename="../../src/session/SftpSession.cpp" line="905"/>
-        <location filename="../../src/session/SftpSession.cpp" line="1046"/>
+        <location filename="../../src/session/SftpSession.cpp" line="210"/>
+        <location filename="../../src/session/SftpSession.cpp" line="416"/>
+        <location filename="../../src/session/SftpSession.cpp" line="1117"/>
+        <location filename="../../src/session/SftpSession.cpp" line="1258"/>
         <source>Cannot open remote file %1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/session/SftpSession.cpp" line="200"/>
-        <location filename="../../src/session/SftpSession.cpp" line="917"/>
+        <location filename="../../src/session/SftpSession.cpp" line="218"/>
+        <location filename="../../src/session/SftpSession.cpp" line="1129"/>
         <source>Failed to read local file %1: %2</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/session/SftpSession.cpp" line="214"/>
-        <location filename="../../src/session/SftpSession.cpp" line="931"/>
+        <location filename="../../src/session/SftpSession.cpp" line="232"/>
+        <location filename="../../src/session/SftpSession.cpp" line="1143"/>
         <source>Failed to upload %1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/session/SftpSession.cpp" line="230"/>
-        <location filename="../../src/session/SftpSession.cpp" line="955"/>
-        <location filename="../../src/session/SftpSession.cpp" line="1144"/>
+        <location filename="../../src/session/SftpSession.cpp" line="248"/>
+        <location filename="../../src/session/SftpSession.cpp" line="1167"/>
+        <location filename="../../src/session/SftpSession.cpp" line="1356"/>
         <source>Failed to finalize remote file %1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/session/SftpSession.cpp" line="281"/>
-        <location filename="../../src/session/SftpSession.cpp" line="409"/>
+        <location filename="../../src/session/SftpSession.cpp" line="368"/>
+        <location filename="../../src/session/SftpSession.cpp" line="496"/>
         <source>Unsafe remote entry name in %1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/session/SftpSession.cpp" line="334"/>
-        <location filename="../../src/session/SftpSession.cpp" line="1055"/>
+        <location filename="../../src/session/SftpSession.cpp" line="421"/>
+        <location filename="../../src/session/SftpSession.cpp" line="1267"/>
         <source>Cannot create local file %1: %2</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/session/SftpSession.cpp" line="348"/>
-        <location filename="../../src/session/SftpSession.cpp" line="1072"/>
+        <location filename="../../src/session/SftpSession.cpp" line="435"/>
+        <location filename="../../src/session/SftpSession.cpp" line="1284"/>
         <source>Failed to download %1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/session/SftpSession.cpp" line="352"/>
-        <location filename="../../src/session/SftpSession.cpp" line="1078"/>
+        <location filename="../../src/session/SftpSession.cpp" line="439"/>
+        <location filename="../../src/session/SftpSession.cpp" line="1290"/>
         <source>Failed to write local file %1: %2</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/session/SftpSession.cpp" line="366"/>
-        <location filename="../../src/session/SftpSession.cpp" line="1104"/>
+        <location filename="../../src/session/SftpSession.cpp" line="453"/>
+        <location filename="../../src/session/SftpSession.cpp" line="1316"/>
         <source>Failed to finalize local file %1: %2</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/session/SftpSession.cpp" line="437"/>
+        <location filename="../../src/session/SftpSession.cpp" line="524"/>
         <source>Cannot delete remote entry %1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/session/SftpSession.cpp" line="448"/>
+        <location filename="../../src/session/SftpSession.cpp" line="535"/>
         <source>Cannot delete remote directory %1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/session/SftpSession.cpp" line="787"/>
+        <location filename="../../src/session/SftpSession.cpp" line="825"/>
+        <source>The SFTP host key does not match the active SSH session.</source>
+        <translation>The SFTP host key does not match the active SSH session.</translation>
+    </message>
+    <message>
+        <location filename="../../src/session/SftpSession.cpp" line="971"/>
         <source>Local path is not a directory: %1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/session/SftpSession.cpp" line="977"/>
-        <location filename="../../src/session/SftpSession.cpp" line="1005"/>
-        <location filename="../../src/session/SftpSession.cpp" line="1012"/>
+        <location filename="../../src/session/SftpSession.cpp" line="1189"/>
+        <location filename="../../src/session/SftpSession.cpp" line="1217"/>
+        <location filename="../../src/session/SftpSession.cpp" line="1224"/>
         <source>Cannot create local directory %1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/session/SftpSession.cpp" line="1139"/>
+        <location filename="../../src/session/SftpSession.cpp" line="1351"/>
         <source>Cannot create remote file %1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/session/SftpSession.cpp" line="1179"/>
+        <location filename="../../src/session/SftpSession.cpp" line="1391"/>
         <source>Remote operation failed for %1</source>
         <translation type="unfinished"></translation>
     </message>
@@ -1930,229 +1955,234 @@ Termination confirmed: %3
 <context>
     <name>SshTransport</name>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="102"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="103"/>
         <source>Invalid SSH configuration.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="218"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="219"/>
         <source>SSH write queue exceeded its 1 MiB limit.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="328"/>
-        <location filename="../../src/transport/SshTransport.cpp" line="1033"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="329"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="1053"/>
         <source>Remote command cancelled.</source>
         <translation>Remote command cancelled.</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="519"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="520"/>
         <source>Failed to create SSH session.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="556"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="557"/>
+        <source>Cannot apply SSH options: %1</source>
+        <translation>Cannot apply SSH options: %1</translation>
+    </message>
+    <message>
+        <location filename="../../src/transport/SshTransport.cpp" line="566"/>
         <source>SSH connection to %1:%2 failed: %3</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="568"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="578"/>
         <source>Failed to retrieve the server host key: %1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="578"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="588"/>
         <source>Cannot read known_hosts file %1: %2</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="632"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="642"/>
         <source>Host key verification failed; connection aborted.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="642"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="652"/>
         <source>Failed to store the host key: %1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="678"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="688"/>
         <source>Failed to load private key %1: %2</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="689"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="699"/>
         <source>Public key authentication failed for %1@%2: %3</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="702"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="712"/>
         <source>Password authentication failed for %1@%2: %3</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="715"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="725"/>
         <source>Failed to open SSH channel: %1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="731"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="751"/>
         <source>Failed to start remote shell: %1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="743"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="763"/>
         <source>Failed to create SSH event loop.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="908"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="928"/>
         <source>Resource monitor receive buffer exceeded 256 KiB.</source>
         <translation>Resource monitor receive buffer exceeded 256 KiB.</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="910"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="930"/>
         <source>Resource monitor line exceeded 16 KiB.</source>
         <translation>Resource monitor line exceeded 16 KiB.</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="912"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="932"/>
         <source>Resource monitor returned an invalid frame header.</source>
         <translation>Resource monitor returned an invalid frame header.</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="914"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="934"/>
         <source>Resource monitor frame header was missing.</source>
         <translation>Resource monitor frame header was missing.</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="916"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="936"/>
         <source>Resource monitor returned overlapping frames.</source>
         <translation>Resource monitor returned overlapping frames.</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="918"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="938"/>
         <source>Resource monitor frame identifiers did not match.</source>
         <translation>Resource monitor frame identifiers did not match.</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="920"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="940"/>
         <source>Resource monitor frame exceeded 256 entries.</source>
         <translation>Resource monitor frame exceeded 256 entries.</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="922"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="942"/>
         <source>Resource monitor frame exceeded 128 KiB.</source>
         <translation>Resource monitor frame exceeded 128 KiB.</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="972"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="992"/>
         <source>SSH channel read error: %1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="1013"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="1033"/>
         <source>SSH channel write failed: %1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="1056"/>
-        <location filename="../../src/transport/SshTransport.cpp" line="1095"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="1076"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="1115"/>
         <source>Failed to execute remote command: %1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="1069"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="1089"/>
         <source>Failed to monitor remote command completion: %1</source>
         <translation>Failed to monitor remote command completion: %1</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="1084"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="1104"/>
         <source>Failed to open remote command channel: %1</source>
         <translation>Failed to open remote command channel: %1</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="1156"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="1176"/>
         <source>Remote command read failed: %1</source>
         <translation>Remote command read failed: %1</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="1159"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="1179"/>
         <source>Remote command output exceeded its limit.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="1166"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="1186"/>
         <source>Remote command exited with status %1.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="1169"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="1189"/>
         <source>Remote command closed without an exit status.</source>
         <translation>Remote command closed without an exit status.</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="1172"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="1192"/>
         <source>Remote command timed out.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="1198"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="1218"/>
         <source>Failed to create the resource monitor channel: %1</source>
         <translation>Failed to create the resource monitor channel: %1</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="1213"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="1233"/>
         <source>Failed to open the resource monitor channel: %1</source>
         <translation>Failed to open the resource monitor channel: %1</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="1227"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="1247"/>
         <source>Failed to start the resource monitor: %1</source>
         <translation>Failed to start the resource monitor: %1</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="1236"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="1256"/>
         <source>Resource monitor channel setup timed out.</source>
         <translation>Resource monitor channel setup timed out.</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="1255"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="1275"/>
         <source>Failed to write a resource sample request: %1</source>
         <translation>Failed to write a resource sample request: %1</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="1298"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="1318"/>
         <source>Resource monitor returned an unexpected frame.</source>
         <translation>Resource monitor returned an unexpected frame.</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="1311"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="1331"/>
         <source>Resource monitor output was invalid or exceeded its limit.</source>
         <translation>Resource monitor output was invalid or exceeded its limit.</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="1315"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="1335"/>
         <source>Resource monitor channel closed unexpectedly.</source>
         <translation>Resource monitor channel closed unexpectedly.</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="1316"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="1336"/>
         <source>Resource monitor failed: %1</source>
         <translation>Resource monitor failed: %1</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="1320"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="1340"/>
         <source>Resource sample timed out.</source>
         <translation>Resource sample timed out.</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="1335"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="1355"/>
         <source>Failed to resize the remote PTY: %1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="1383"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="1403"/>
         <source>SSH connection closed before the command completed.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -2521,13 +2551,13 @@ Termination confirmed: %3
 <context>
     <name>TerminalPage</name>
     <message>
-        <location filename="../../src/ui/pages/TerminalPage.cpp" line="162"/>
+        <location filename="../../src/ui/pages/TerminalPage.cpp" line="190"/>
         <source>Terminal</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/TerminalPage.cpp" line="262"/>
-        <location filename="../../src/ui/pages/TerminalPage.cpp" line="393"/>
+        <location filename="../../src/ui/pages/TerminalPage.cpp" line="290"/>
+        <location filename="../../src/ui/pages/TerminalPage.cpp" line="421"/>
         <source>Terminal %1</source>
         <translation type="unfinished"></translation>
     </message>

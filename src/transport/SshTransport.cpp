@@ -15,6 +15,7 @@
 
 #include <libssh/callbacks.h>
 #include <libssh/libssh.h>
+#include <libssh/options.h>
 
 #include <QDir>
 #include <QFileInfo>
@@ -550,6 +551,15 @@ void SshTransport::workerMain()
     }
     ssh_options_set(session, SSH_OPTIONS_TIMEOUT, &timeoutSec);
     ssh_options_set(session, SSH_OPTIONS_HOSTKEYS, hostKeyAlgorithms);
+
+    // 显式应用选项以保留底层具体错误，避免 ssh_connect() 折叠配置失败原因。
+    if (ssh_options_apply(session) != SSH_OK) {
+        reportError(tr("Cannot apply SSH options: %1")
+                        .arg(QString::fromUtf8(ssh_get_error(session))),
+                    TransportErrorCategory::Configuration);
+        ssh_free(session);
+        return;
+    }
 
     // ── 连接 ─────────────────────────────────────────────
     if (ssh_connect(session) != SSH_OK) {

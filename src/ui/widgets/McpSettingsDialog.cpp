@@ -32,8 +32,8 @@ McpSettingsDialog::McpSettingsDialog(NovaTerm::Mcp::Service* service, QWidget* p
     _enabled = new ElaCheckBox(tr("Enable local MCP access"), this);
     layout->addWidget(_enabled);
     auto* explanation = new ElaText(tr("Share only the sessions you select. Terminal output may contain sensitive information. "
-        "Command access is separate and only allows fixed diagnostics: SSH commands use the trusted connected account, "
-        "while Windows local commands run in an isolated helper. Deletion, credentials, privilege elevation and arbitrary scripts are prohibited."), this);
+        "Fixed diagnostics stay separate from interactive terminal input. Shared sessions can run ordinary commands; potentially destructive commands and every script require confirmation in the MCP client. "
+        "Script contents are written to the selected host path and are never sent to the terminal UI. Risk checks are best-effort, not a sandbox."), this);
     explanation->setWordWrap(true);
     explanation->setTextPixelSize(12);
     layout->addWidget(explanation);
@@ -56,18 +56,21 @@ McpSettingsDialog::McpSettingsDialog(NovaTerm::Mcp::Service* service, QWidget* p
     layout->addLayout(clients);
     auto* actions = new QHBoxLayout;
     auto* copy = new ElaPushButton(tr("Copy MCP configuration"), this);
+    auto* copyForCcSwitch = new ElaPushButton(tr("Copy for CC Switch"), this);
     auto* rotate = new ElaPushButton(tr("Rotate access token"), this);
     actions->addWidget(copy);
+    actions->addWidget(copyForCcSwitch);
     actions->addWidget(rotate);
     actions->addStretch();
     layout->addLayout(actions);
     _sessions = new ElaTreeWidget(this);
-    _sessions->setColumnCount(4);
-    _sessions->setHeaderLabels({tr("Session"), tr("State"), tr("Read output"), tr("Authorized diagnostics")});
+    _sessions->setColumnCount(5);
+    _sessions->setHeaderLabels({tr("Session"), tr("State"), tr("Read output"),
+        tr("Fixed diagnostics"), tr("Script tasks")});
     _sessions->setRootIsDecorated(true);
     _sessions->setItemHeight(30);
     _sessions->header()->setSectionResizeMode(0, QHeaderView::Stretch);
-    for (int column = 1; column < 4; ++column)
+    for (int column = 1; column < 5; ++column)
         _sessions->header()->setSectionResizeMode(column, QHeaderView::ResizeToContents);
     layout->addWidget(_sessions, 2);
     _records = new ElaComboBox(this);
@@ -107,11 +110,18 @@ McpSettingsDialog::McpSettingsDialog(NovaTerm::Mcp::Service* service, QWidget* p
         QApplication::clipboard()->setText(QString::fromUtf8(QJsonDocument(configuration).toJson()));
         _status->setText(tr("Configuration copied. It contains an access token; keep it private."));
     });
+    connect(copyForCcSwitch, &QPushButton::clicked, this, [this] {
+        if (!_service) return;
+        const auto configuration = _service->ccSwitchConfiguration(_clients->currentData().toString());
+        if (configuration.isEmpty()) { reportFailure(); return; }
+        QApplication::clipboard()->setText(QString::fromUtf8(QJsonDocument(configuration).toJson()));
+        _status->setText(tr("CC Switch configuration copied. It contains an access token; keep it private."));
+    });
     connect(rotate, &QPushButton::clicked, this, [this] {
         if (_service && !_service->access().rotateToken(_clients->currentData().toString())) reportFailure();
     });
     connect(_sessions, &QTreeWidget::itemChanged, this, [this](QTreeWidgetItem* item, int column) {
-        if (_refreshing || !_service || column < 2) return;
+        if (_refreshing || !_service || column < 2 || column > 4) return;
         auto* root = item->parent() ? item->parent() : item;
         const auto id = root->data(0, Qt::UserRole).toString();
         const bool read = root->checkState(2) == Qt::Checked;
@@ -119,6 +129,20 @@ McpSettingsDialog::McpSettingsDialog(NovaTerm::Mcp::Service* service, QWidget* p
             const QSignalBlocker blocker(_sessions);
             const auto state = root->checkState(3) == Qt::Checked ? Qt::Checked : Qt::Unchecked;
             for (int i = 0; i < root->childCount(); ++i) root->child(i)->setCheckState(3, state);
+        } else if (column == 3 && item->parent()) {
+            const QSignalBlocker blocker(_sessions);
+            int checked = 0;
+            for (int i = 0; i < root->childCount(); ++i)
+                checked += root->child(i)->checkState(3) == Qt::Checked;
+            root->setCheckState(3, checked == 0 ? Qt::Unchecked
+                : checked == root->childCount() ? Qt::Checked : Qt::PartiallyChecked);
+        }
+        if (!read) {
+            const QSignalBlocker blocker(_sessions);
+            root->setCheckState(3, Qt::Unchecked);
+            root->setCheckState(4, Qt::Unchecked);
+            for (int i = 0; i < root->childCount(); ++i)
+                root->child(i)->setCheckState(3, Qt::Unchecked);
         }
         const auto entry = _service->directory().find(id);
         QSet<QString> allowed;
@@ -126,7 +150,8 @@ McpSettingsDialog::McpSettingsDialog(NovaTerm::Mcp::Service* service, QWidget* p
             if (root->child(i)->checkState(3) == Qt::Checked)
                 allowed.insert(root->child(i)->data(0, Qt::UserRole).toString());
         }
-        if (entry) _service->access().setGrant(_clients->currentData().toString(), *entry, read, allowed);
+        if (entry) _service->access().setGrant(_clients->currentData().toString(), *entry,
+            read, allowed, false, false, root->checkState(4) == Qt::Checked);
     });
     connect(_records, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this] { if (!_refreshing) showRecord(); });
     connect(acknowledge, &QPushButton::clicked, this, [this] {
@@ -164,7 +189,7 @@ void McpSettingsDialog::refresh()
     _sessions->clear();
     for (const auto& entry : _service->directory().entries()) {
         auto* item = new QTreeWidgetItem(_sessions, {entry.title.isEmpty() ? entry.id : entry.title,
-            SessionDirectory::stateName(entry.state), {}, {}});
+            SessionDirectory::stateName(entry.state), {}, {}, {}});
         item->setData(0, Qt::UserRole, entry.id);
         item->setCheckState(2, _service->access().canRead(clientId, entry) ? Qt::Checked : Qt::Unchecked);
         const auto allowed = _service->access().commands(clientId, entry);
@@ -176,6 +201,9 @@ void McpSettingsDialog::refresh()
         item->setToolTip(3, entry.kind == TransportKind::LocalShell
             ? tr("Fixed diagnostics run in an isolated local helper and do not write to the current shell.")
             : tr("Only enable for a trusted Linux/POSIX SSH server. Fixed diagnostics run as its connected user."));
+        item->setCheckState(4, _service->access().canRunScriptTask(clientId, entry)
+            ? Qt::Checked : Qt::Unchecked);
+        item->setToolTip(4, tr("Allows LocalShell/SSH script tasks. Each script still requires MCP-client confirmation; its body is written to the requested host path and is not shown in the terminal UI."));
         for (const auto& command : catalog) {
             QString title = command.title;
             if (command.id == "system.identity") title = tr("System identity");

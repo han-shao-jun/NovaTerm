@@ -604,3 +604,22 @@ Session/Credential 分层持久化；restore 与 reconnect 语义分离；所有
 本地 Shell 会话表单提供“启动目录” `ElaLineEdit`。新建时默认填充当前用户家目录（由 `QDir::homePath()` 提供，Linux 和 Windows 均适用）；空值在 `LocalShellConfig::effectiveWorkingDirectory()` 中同样回退到家目录。用户输入会随 RuntimeConfig 持久化，并贯穿新建、编辑、快捷连接重连和 TerminalView 重启路径，最终由 Linux PTY / Windows ConPTY 使用。
 
 回归覆盖 `novaterm_pty_tests::defaultWorkingDirectoryIsHome` 以及已有的自定义目录子进程测试。
+
+## P8.6 Session 级交互命令与脚本写入边界（2026-09-25）
+
+当前实现将 `SessionInputArbiter`、`InteractiveStreamFramer`、
+`SessionCommandCoordinator` 与 `SessionCommandFacade` 组合在既有 `TerminalSession` 中。
+用户输入代际改变时，缓存的 MCP prompt readiness 立即失效；活动 MCP Lease 被抢占时先停止
+后续 MCP 分块，再写入用户字节。交互 command/script invocation 仍由同一 Session 输入通路
+进入现有 `SessionInputPump` 与 `TerminalCore`，不得新增 Transport 写入旁路。
+
+`SessionDirectory` 仍不拥有 Session；它按当前 `TransportKind`、Shell Profile 与活动 Transport
+安装 LocalShell 或 SSH `ISessionScriptProvider`。LocalShell provider 用 `QSaveFile` 写入请求
+指定路径；SSH provider 从活动 `SshTransport::sessionConfig()` 获取当前连接凭据，通过 SFTP
+字节接口写入并校验一致的 known_hosts 路径、主机密钥指纹和 SSH 连接代际。串口、Telnet、
+Custom 或缺少可信交互 Profile 的会话不安装脚本 provider。
+
+SSH SFTP 的脚本正文队列总量有 2 MiB 上限，SFTP 上传与终端 command 各自独立；上传完成后
+MCP 服务必须重验授权、epoch、Transport 目标、Profile、用户输入代际和提示符 generation，
+才可提交后续交互调用。脚本落盘不自动删除；用户输入会取消仍在途的 SFTP upload，任何写入
+或二次校验失败都不能提交调用命令。

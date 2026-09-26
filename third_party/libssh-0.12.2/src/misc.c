@@ -124,6 +124,28 @@ static char *ssh_get_user_home_dir_internal(void)
         return szPath;
     }
 
+    /* Some sandboxed Windows processes cannot query the shell profile API.
+     * Keep the ordinary per-user environment fallback available in that case. */
+    szPath = getenv("USERPROFILE");
+    if (szPath != NULL && szPath[0] != '\0') {
+        return strdup(szPath);
+    }
+    {
+        const char *drive = getenv("HOMEDRIVE");
+        const char *path = getenv("HOMEPATH");
+        if (drive != NULL && path != NULL && drive[0] != '\0'
+            && path[0] != '\0') {
+            const size_t length = strlen(drive) + strlen(path) + 1;
+            szPath = malloc(length);
+            if (szPath != NULL) {
+                strcpy(szPath, drive);
+                strcat(szPath, path);
+                return szPath;
+            }
+            return NULL;
+        }
+    }
+
     return NULL;
 }
 

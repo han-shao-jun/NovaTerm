@@ -57,6 +57,13 @@ if(BUILD_TESTING)
         ${PROJECT_SOURCE_DIR}/src/ui/widgets/McpSettingsDialog.h
         ${PROJECT_SOURCE_DIR}/src/session/TerminalSession.cpp
         ${PROJECT_SOURCE_DIR}/src/session/TerminalSession.h
+        ${PROJECT_SOURCE_DIR}/src/session/ISessionScriptProvider.h
+        ${PROJECT_SOURCE_DIR}/src/session/LocalSessionScriptProvider.cpp
+        ${PROJECT_SOURCE_DIR}/src/session/LocalSessionScriptProvider.h
+        ${PROJECT_SOURCE_DIR}/src/session/SshSessionScriptProvider.cpp
+        ${PROJECT_SOURCE_DIR}/src/session/SshSessionScriptProvider.h
+        ${PROJECT_SOURCE_DIR}/src/session/SftpSession.cpp
+        ${PROJECT_SOURCE_DIR}/src/session/SftpSession.h
         ${PROJECT_SOURCE_DIR}/src/session/SessionInputPump.cpp
         ${PROJECT_SOURCE_DIR}/src/session/SessionInputPump.h
         ${PROJECT_SOURCE_DIR}/src/session/SessionInputArbiter.cpp
@@ -134,6 +141,9 @@ if(BUILD_TESTING)
 
     qt_add_executable(novaterm_session_tests
         ${CMAKE_CURRENT_SOURCE_DIR}/session/SessionTests.cpp
+        ${PROJECT_SOURCE_DIR}/src/session/ISessionScriptProvider.h
+        ${PROJECT_SOURCE_DIR}/src/session/LocalSessionScriptProvider.cpp
+        ${PROJECT_SOURCE_DIR}/src/session/LocalSessionScriptProvider.h
         ${PROJECT_SOURCE_DIR}/src/session/LocalShellProfile.cpp
         ${PROJECT_SOURCE_DIR}/src/session/LocalShellProfile.h
         ${PROJECT_SOURCE_DIR}/src/credential/CredentialStore.cpp

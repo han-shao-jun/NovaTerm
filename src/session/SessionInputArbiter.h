@@ -45,6 +45,12 @@ public:
     /** @brief 仅在 executionId 匹配时释放 MCP Lease。 */
     void releaseMcpLease(quint64 executionId);
 
+    /** @brief 当前 Session 世代中用户提交非空终端输入的单调代际。 */
+    [[nodiscard]] quint64 userInputGeneration() const noexcept
+    {
+        return _userInputGeneration;
+    }
+
     /** @brief 当前是否存在 MCP Lease。 */
     [[nodiscard]] bool hasMcpLease() const noexcept
     {
@@ -52,6 +58,8 @@ public:
     }
 
 signals:
+    /** @brief 用户即将写入终端；MCP 可先取消尚未完成的主机写入。 */
+    void userInputStarted(quint64 userInputGeneration);
     /**
      * @brief 用户输入抢占了 MCP Lease。
      * @param executionId 被抢占的执行 ID。
@@ -66,5 +74,5 @@ private:
     quint64 _generation{0};
     quint64 _executionId{0};
     bool _mcpBytesWritten{false};
+    quint64 _userInputGeneration{0};
 };
-

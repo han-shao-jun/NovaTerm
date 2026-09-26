@@ -66,6 +66,8 @@ public:
      * @return 统计结构（pendingBytes 反映实时待处理量）。
      */
     [[nodiscard]] Statistics statistics() const;
+    /** @brief 将 Framer 取消事务时保留的普通字节送入原输入通路。 */
+    void forwardFramerRemainder(const QByteArray& bytes);
 
 signals:
     /**

@@ -24,6 +24,7 @@ class SessionCommandFacade;
 class SessionInputArbiter;
 class InteractiveStreamFramer;
 class SessionCommandCoordinator;
+class ISessionScriptProvider;
 class TerminalCore;
 
 /**
@@ -107,6 +108,13 @@ public:
     {
         return _commandCoordinator.get();
     }
+    /** @brief 当前连接对应的 MCP 脚本写入 provider；不支持时返回 nullptr。 */
+    [[nodiscard]] ISessionScriptProvider* scriptProvider() const noexcept
+    {
+        return _scriptProvider.get();
+    }
+    /** @brief 由会话目录按当前 Transport 类型安装脚本 provider。 */
+    void installScriptProvider(std::unique_ptr<ISessionScriptProvider> provider);
 
     /**
      * @brief 附加传输层。
@@ -250,6 +258,7 @@ private:
     std::unique_ptr<SessionInputArbiter> _inputArbiter;
     std::unique_ptr<InteractiveStreamFramer> _streamFramer;
     std::unique_ptr<SessionCommandCoordinator> _commandCoordinator;
+    std::unique_ptr<ISessionScriptProvider> _scriptProvider;
     bool transition(SessionState next);   ///< 状态机迁移（校验合法性）
     bool beginReconnect(bool automatic = false); ///< 进入重连状态并提交连接请求
     bool _automaticReconnectAttempt{false}; ///< 当前连接是否由自动重连触发

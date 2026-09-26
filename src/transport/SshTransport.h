@@ -80,6 +80,11 @@ public:
     {
         return _config;
     }
+    /** @brief 当前 SSH 连接用于主机密钥信任的 known_hosts 路径。 */
+    [[nodiscard]] const QString& knownHostsPath() const noexcept
+    {
+        return _knownHostsPath;
+    }
     bool setReadPaused(bool paused) override;
     [[nodiscard]] TransportCapabilities capabilities() const override
     {

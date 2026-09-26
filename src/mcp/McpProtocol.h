@@ -19,6 +19,7 @@ inline constexpr int MaxQueuedRequests = 4;
 inline constexpr int MaxCaptures = 4;
 inline constexpr int CaptureLifetimeMs = 60000;
 inline constexpr int CommandOutputBytes = 65536;
+inline constexpr qsizetype MaxScriptBytes = 2 * 1024 * 1024;
 inline constexpr const char* ProtocolVersion = "2025-11-25";
 
 [[nodiscard]] QString newId();

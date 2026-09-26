@@ -78,6 +78,24 @@ QString sftpError(sftp_session sftp, ssh_session session,
         .arg(sftp_get_error(sftp));
 }
 
+QString serverFingerprint(ssh_session session)
+{
+    ssh_key key = nullptr;
+    if (ssh_get_server_publickey(session, &key) != SSH_OK || !key)
+        return {};
+    unsigned char* hash = nullptr;
+    size_t length = 0;
+    const int result = ssh_get_publickey_hash(key, SSH_PUBLICKEY_HASH_SHA256,
+                                               &hash, &length);
+    ssh_key_free(key);
+    if (result != SSH_OK || !hash)
+        return {};
+    const auto fingerprint = QString::fromLatin1(QByteArray(
+        reinterpret_cast<const char*>(hash), qsizetype(length)).toHex());
+    ssh_clean_pubkey_hash(&hash);
+    return fingerprint;
+}
+
 bool authenticate(ssh_session session, const SshConfig& config,
                   QString& error)
 {
@@ -229,6 +247,75 @@ bool uploadRegularFile(sftp_session sftp, ssh_session session,
         error = sftpError(sftp, session,
             SftpSession::tr("Failed to finalize remote file %1")
                 .arg(remotePath));
+        return false;
+    }
+    return true;
+}
+
+bool uploadScriptBytes(sftp_session sftp, ssh_session session,
+                       const QString& remotePath, const QByteArray& content,
+                       const std::function<bool()>& cancelled,
+                       QString& error)
+{
+    const QByteArray encodedPath = remotePath.toUtf8();
+    SftpAttributesPtr existing{
+        sftp_lstat(sftp, encodedPath.constData()), &sftp_attributes_free};
+    if (existing && (existing->type != SSH_FILEXFER_TYPE_REGULAR
+                     || isHardLinkFromLongName(existing.get()))) {
+        error = QStringLiteral("SCRIPT_TARGET_NOT_REGULAR");
+        return false;
+    }
+    if (cancelled()) {
+        error = QStringLiteral("SCRIPT_UPLOAD_CANCELLED");
+        return false;
+    }
+
+    SftpFilePtr remoteFile{
+        sftp_open(sftp, encodedPath.constData(),
+                  O_WRONLY | O_CREAT | O_TRUNC, 0600),
+        &sftp_close};
+    if (!remoteFile) {
+        error = sftpError(sftp, session,
+            QStringLiteral("SCRIPT_WRITE_FAILED: %1").arg(remotePath));
+        return false;
+    }
+
+    qsizetype offset = 0;
+    while (offset < content.size()) {
+        if (cancelled()) {
+            error = QStringLiteral("SCRIPT_UPLOAD_CANCELLED");
+            return false;
+        }
+        const qsizetype chunkSize = qMin(qsizetype(64 * 1024),
+                                          content.size() - offset);
+        qsizetype chunkOffset = 0;
+        while (chunkOffset < chunkSize) {
+            if (cancelled()) {
+                error = QStringLiteral("SCRIPT_UPLOAD_CANCELLED");
+                return false;
+            }
+            const int written = sftp_write(remoteFile.get(),
+                content.constData() + offset + chunkOffset,
+                static_cast<size_t>(chunkSize - chunkOffset));
+            if (written <= 0) {
+                error = sftpError(sftp, session,
+                    QStringLiteral("SCRIPT_WRITE_FAILED: %1").arg(remotePath));
+                return false;
+            }
+            chunkOffset += written;
+        }
+        offset += chunkSize;
+    }
+
+    sftp_file rawFile = remoteFile.release();
+    if (sftp_close(rawFile) != SSH_OK) {
+        error = sftpError(sftp, session,
+            QStringLiteral("SCRIPT_WRITE_FAILED: %1").arg(remotePath));
+        return false;
+    }
+    if (sftp_chmod(sftp, encodedPath.constData(), 0700) != SSH_OK) {
+        error = sftpError(sftp, session,
+            QStringLiteral("SCRIPT_WRITE_FAILED: %1").arg(remotePath));
         return false;
     }
     return true;
@@ -468,7 +555,9 @@ SftpSession::~SftpSession()
     ssh_finalize();
 }
 
-void SftpSession::connectToHost(const SshConfig& config)
+void SftpSession::connectToHost(const SshConfig& config,
+                                const QString& expectedHostKeyFingerprint,
+                                const QString& trustedKnownHostsPath)
 {
     disconnectFromHost();
     if (!config.isValid()) {
@@ -477,13 +566,17 @@ void SftpSession::connectToHost(const SshConfig& config)
     }
 
     // SSH 终端连接成功后 known_hosts 目录通常已存在，此处仍保证独立使用安全。
-    QDir().mkpath(QFileInfo(knownHostsPath()).absolutePath());
+    const QString effectiveKnownHostsPath = trustedKnownHostsPath.isEmpty()
+        ? knownHostsPath() : trustedKnownHostsPath;
+    QDir().mkpath(QFileInfo(effectiveKnownHostsPath).absolutePath());
     const quint64 generation = ++_generation;
     _running.store(true, std::memory_order_release);
     _connected.store(false, std::memory_order_release);
     _thread = QThread::create(
-        [this, config, generation]() mutable {
-            workerMain(std::move(config), generation);
+        [this, config, expectedHostKeyFingerprint, trustedKnownHostsPath,
+         generation]() mutable {
+            workerMain(std::move(config), expectedHostKeyFingerprint,
+                       trustedKnownHostsPath, generation);
         });
     _thread->setObjectName(QString::fromLatin1(SftpWorkerThreadName));
     _thread->start();
@@ -496,6 +589,14 @@ void SftpSession::disconnectFromHost()
     _connected.store(false, std::memory_order_release);
     {
         QMutexLocker lock(&_queueMutex);
+        qsizetype queuedUploadBytes = 0;
+        for (const auto& command : std::as_const(_commands)) {
+            if (command.type == CommandType::UploadBytes)
+                queuedUploadBytes += command.content.size();
+        }
+        _queuedUploadBytes -= queuedUploadBytes;
+        if (_activeUploadRequestId != 0)
+            _cancelledUploadRequests.insert(_activeUploadRequestId);
         _commands.clear();
         _queueReady.wakeAll();
     }
@@ -505,6 +606,12 @@ void SftpSession::disconnectFromHost()
         _thread->wait();
         delete _thread;
         _thread = nullptr;
+    }
+    {
+        QMutexLocker lock(&_queueMutex);
+        _cancelledUploadRequests.clear();
+        _queuedUploadBytes = 0;
+        _activeUploadRequestId = 0;
     }
 }
 
@@ -531,6 +638,69 @@ void SftpSession::uploadFile(const QString& localPath,
                              const QString& remotePath)
 {
     enqueue({CommandType::Upload, localPath, remotePath});
+}
+
+bool SftpSession::uploadBytes(quint64 requestId, QByteArray content,
+                              const QString& remotePath)
+{
+    if (requestId == 0 || content.isEmpty()
+        || content.size() > MaxQueuedUploadBytes || remotePath.isEmpty()
+        || remotePath.contains(QChar::Null)
+        || !_running.load(std::memory_order_acquire)) {
+        return false;
+    }
+    QMutexLocker lock(&_queueMutex);
+    if (!_running.load(std::memory_order_acquire)
+        || _queuedUploadBytes + content.size() > MaxQueuedUploadBytes) {
+        return false;
+    }
+    Command command;
+    command.type = CommandType::UploadBytes;
+    command.target = remotePath;
+    command.requestId = requestId;
+    command.content = std::move(content);
+    _queuedUploadBytes += command.content.size();
+    _commands.enqueue(std::move(command));
+    _queueReady.wakeOne();
+    return true;
+}
+
+void SftpSession::cancelUpload(quint64 requestId)
+{
+    if (requestId == 0)
+        return;
+    QString cancelledPath;
+    bool removed = false;
+    {
+        QMutexLocker lock(&_queueMutex);
+        for (qsizetype index = 0; index < _commands.size(); ++index) {
+            const auto& command = _commands.at(index);
+            if (command.type != CommandType::UploadBytes
+                || command.requestId != requestId) {
+                continue;
+            }
+            cancelledPath = command.target;
+            _queuedUploadBytes -= command.content.size();
+            _commands.removeAt(index);
+            removed = true;
+            break;
+        }
+        if (!removed && _activeUploadRequestId == requestId)
+            _cancelledUploadRequests.insert(requestId);
+    }
+    if (removed) {
+        emit uploadBytesFinished(requestId, cancelledPath, false,
+                                 QStringLiteral("SCRIPT_UPLOAD_CANCELLED"));
+    }
+}
+
+bool SftpSession::isUploadCancelled(quint64 requestId)
+{
+    if (!_running.load(std::memory_order_acquire)) {
+        return true;
+    }
+    QMutexLocker lock(&_queueMutex);
+    return _cancelledUploadRequests.contains(requestId);
 }
 
 void SftpSession::uploadDirectory(const QString& localPath,
@@ -596,7 +766,10 @@ void SftpSession::postDisconnected(quint64 generation)
     }, Qt::QueuedConnection);
 }
 
-void SftpSession::workerMain(SshConfig config, quint64 generation)
+void SftpSession::workerMain(SshConfig config,
+                             QString expectedHostKeyFingerprint,
+                             QString trustedKnownHostsPath,
+                             quint64 generation)
 {
     NovaTerm::setCurrentThreadName(SftpWorkerThreadName);
     // 无论连接在哪个阶段退出，都统一清理原子状态并通知 GUI，避免失败路径漏状态。
@@ -614,8 +787,10 @@ void SftpSession::workerMain(SshConfig config, quint64 generation)
 
     const QByteArray host = config.host.trimmed().toUtf8();
     const QByteArray user = config.username.trimmed().toUtf8();
+    const QString knownHostsFile = trustedKnownHostsPath.isEmpty()
+        ? knownHostsPath() : trustedKnownHostsPath;
     const QByteArray knownHosts =
-        QDir::toNativeSeparators(knownHostsPath()).toUtf8();
+        QDir::toNativeSeparators(knownHostsFile).toUtf8();
     int port = static_cast<int>(config.port);
     long timeout = ConnectTimeoutSeconds;
     const char* hostKeyAlgorithms =
@@ -641,6 +816,13 @@ void SftpSession::workerMain(SshConfig config, quint64 generation)
         postError(generation,
             tr("The SFTP host key is not trusted or has changed. "
                "Reconnect the SSH terminal and verify the host key."));
+        ssh_disconnect(session.get());
+        return;
+    }
+    if (!expectedHostKeyFingerprint.isEmpty()
+        && serverFingerprint(session.get()) != expectedHostKeyFingerprint) {
+        postError(generation,
+            tr("The SFTP host key does not match the active SSH session."));
         ssh_disconnect(session.get());
         return;
     }
@@ -687,6 +869,8 @@ void SftpSession::workerMain(SshConfig config, quint64 generation)
                 break;
             }
             command = _commands.dequeue();
+            if (command.type == CommandType::UploadBytes)
+                _activeUploadRequestId = command.requestId;
         }
 
         if (command.type == CommandType::List) {
@@ -882,6 +1066,34 @@ void SftpSession::workerMain(SshConfig config, quint64 generation)
                         }
                     }, Qt::QueuedConnection);
             }
+            continue;
+        }
+
+        if (command.type == CommandType::UploadBytes) {
+            QString error;
+            bool succeeded = uploadScriptBytes(sftp.get(), session.get(),
+                command.target, command.content,
+                [this, requestId = command.requestId] {
+                    return isUploadCancelled(requestId);
+                }, error);
+            if (isUploadCancelled(command.requestId)) {
+                succeeded = false;
+                error = QStringLiteral("SCRIPT_UPLOAD_CANCELLED");
+            }
+            {
+                QMutexLocker lock(&_queueMutex);
+                _queuedUploadBytes -= command.content.size();
+                _activeUploadRequestId = 0;
+                _cancelledUploadRequests.remove(command.requestId);
+            }
+            const quint64 requestId = command.requestId;
+            const QString remotePath = command.target;
+            QMetaObject::invokeMethod(this,
+                [this, generation, requestId, remotePath, succeeded, error] {
+                    if (_generation == generation)
+                        emit uploadBytesFinished(requestId, remotePath,
+                                                 succeeded, error);
+                }, Qt::QueuedConnection);
             continue;
         }
 

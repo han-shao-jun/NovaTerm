@@ -9,8 +9,10 @@
 #include "session/ISessionCommandExecutor.h"
 #include "session/LocalDiagnosticProtocol.h"
 #include "session/LocalSessionCommandExecutor.h"
+#include "session/SshSessionScriptProvider.h"
 #include "session/SessionCommandFacade.h"
 #include "session/SessionCommandCoordinator.h"
+#include "session/SessionInputArbiter.h"
 #include "transport/SshTransport.h"
 #include "ui/widgets/McpSettingsDialog.h"
 #include "ElaApplication.h"
@@ -18,10 +20,12 @@
 #include "ElaTreeWidget.h"
 #include <QApplication>
 #include <QFontDatabase>
+#include <QCryptographicHash>
 #include <QCoreApplication>
 #include <QElapsedTimer>
 #include <QJsonDocument>
 #include <QProcess>
+#include <QPushButton>
 #include <QSignalSpy>
 #include <QScopeGuard>
 #include <QFile>
@@ -31,6 +35,7 @@
 #include <QTest>
 #include <QtEndian>
 
+#include <algorithm>
 #include <tuple>
 
 using namespace NovaTerm::Mcp;
@@ -80,6 +85,31 @@ public:
     QString errorString() const override { return {}; }
     bool online{false};
     QByteArray written;
+};
+
+class DelayedScriptProvider final : public ISessionScriptProvider
+{
+public:
+    [[nodiscard]] bool isAvailable() const override { return true; }
+    bool writeScript(const ScriptWriteRequest& request) override
+    {
+        if (_request.requestId != 0)
+            return false;
+        _request = request;
+        ++writeCount;
+        return true;
+    }
+    void cancelWrite(quint64 requestId) override
+    {
+        if (_request.requestId == requestId)
+            ++cancelCount;
+    }
+
+    int writeCount{0};
+    int cancelCount{0};
+
+private:
+    ScriptWriteRequest _request;
 };
 
 class TestCommandExecutor final : public ISessionCommandExecutor
@@ -193,8 +223,12 @@ public:
         }
         if (process.state() != QProcess::NotRunning) { process.kill(); process.waitForFinished(1000); }
     }
-    bool start(const QString& runtime, const QByteArray& token, const QString& instance = {})
+    bool start(const QString& runtime, const QByteArray& token,
+               const QString& instance = {}, bool humanForm = false,
+               const QString& protocolVersion = ProtocolVersion)
     {
+        _protocolVersion = protocolVersion;
+        _humanForm = humanForm;
         auto environment = QProcessEnvironment::systemEnvironment();
         environment.insert("NOVATERM_MCP_RUNTIME_DIR", runtime);
         environment.insert("NOVATERM_MCP_TOKEN", QString::fromLatin1(token));
@@ -202,16 +236,42 @@ public:
         process.start(QString::fromUtf8(NOVATERM_MCP_BRIDGE), instance.isEmpty()
             ? QStringList{} : QStringList{QStringLiteral("--instance"), instance});
         if (!process.waitForStarted(3000)) return false;
-        send({{"jsonrpc", "2.0"}, {"id", 1}, {"method", "initialize"},
-            {"params", QJsonObject{{"protocolVersion", ProtocolVersion}, {"capabilities", QJsonObject{}},
-                {"clientInfo", QJsonObject{{"name", "NovaTerm fixture"}, {"version", "1"}}}}}});
-        const auto response = next();
-        if (response.value("result").toObject().value("protocolVersion") != ProtocolVersion) return false;
-        send({{"jsonrpc", "2.0"}, {"method", "notifications/initialized"}});
+        if (protocolVersion == QStringLiteral("2026-07-28")) {
+            send({{"jsonrpc", "2.0"}, {"id", 1}, {"method", "server/discover"},
+                {"params", QJsonObject{{"_meta", requestMeta()}}}});
+            const auto response = next();
+            if (!response.value("result").toObject().value("supportedVersions")
+                    .toArray().contains(protocolVersion)) return false;
+        } else {
+            send({{"jsonrpc", "2.0"}, {"id", 1}, {"method", "initialize"},
+                {"params", QJsonObject{{"protocolVersion", protocolVersion},
+                    {"capabilities", humanForm
+                        ? QJsonObject{{"elicitation", QJsonObject{{"form", QJsonObject{}}}}}
+                        : QJsonObject{}},
+                    {"clientInfo", QJsonObject{{"name", "NovaTerm fixture"}, {"version", "1"}}}}}});
+            const auto response = next();
+            if (response.value("result").toObject().value("protocolVersion") != protocolVersion) return false;
+            send({{"jsonrpc", "2.0"}, {"method", "notifications/initialized"}});
+        }
         return true;
     }
-    void send(const QJsonObject& message)
+    QJsonObject requestMeta() const
     {
+        return {{"io.modelcontextprotocol/protocolVersion", _protocolVersion},
+            {"io.modelcontextprotocol/clientInfo", QJsonObject{{"name", "NovaTerm fixture"}, {"version", "1"}}},
+            {"io.modelcontextprotocol/clientCapabilities", _humanForm
+                ? QJsonObject{{"elicitation", QJsonObject{{"form", QJsonObject{}}}}}
+                : QJsonObject{}}};
+    }
+    void setHumanForm(bool supported) { _humanForm = supported; }
+    void send(QJsonObject message)
+    {
+        if (_protocolVersion == QStringLiteral("2026-07-28")
+            && message.value("method") == QStringLiteral("tools/call")) {
+            auto params = message.value("params").toObject();
+            params.insert("_meta", requestMeta());
+            message.insert("params", params);
+        }
         process.write(QJsonDocument(message).toJson(QJsonDocument::Compact) + '\n');
         process.waitForBytesWritten(10);
     }
@@ -248,6 +308,8 @@ public:
     QProcess process;
     QByteArray buffered;
     int counter{1};
+    QString _protocolVersion{QString::fromLatin1(ProtocolVersion)};
+    bool _humanForm{false};
 };
 
 struct Fixture
@@ -308,10 +370,12 @@ private slots:
     void privateMarkersSurviveServiceRestart();
     void cancelledCommandNeverReplays();
     void utf8ExpansionIsBounded();
-    void settingsDialogSeparatesReadAndCommandPermission();
+    void settingsDialogSeparatesReadAndScriptPermission();
+    void stateDirectoryOwnedByTokenDefaultOwnerIsSecurable();
     void duplicateIndexSurvivesEvictionAndReset();
     void protocolLifecycleAndOversizedInput();
     void instanceSelectionAndDisconnectStayExplicit();
+    void ccSwitchConfigurationIsSingleServerObject();
     void sessionCommandFacadeRoutesTrustedExecutors();
     void registeredSessionExecutorIsUsedWithoutTransportCast();
     void sessionCommandFacadeCancelsRequestsBeforeRebinding();
@@ -321,11 +385,634 @@ private slots:
     void sessionInvalidationCompletesPendingExecution();
     void publishedSnapshotPreservesCaptureTime();
     void commandRiskPolicyDefaultsToHumanConfirmation();
+    void scriptRiskPolicyDeniesCredentialAndSecurityTampering();
     void freeCommandSchemaIsBoundedAndStrict();
     void interactiveGrantIsSeparateFromReadAndFixedCommands();
-    void freeCommandRequiresGrantAndHumanConfirmation();
+    void riskyCommandRequiresHumanConfirmation();
     void lowRiskCommandUsesCurrentInteractiveTransport();
+    void unverifiedSshCommandUsesCurrentTerminal();
+    void unverifiedSshRiskyCommandRequiresHumanConfirmation();
+    void humanDeclineLeavesTerminalUntouched();
+    void humanAcceptRunsOnlyAfterConfirmation();
+    void unknownRiskCanBeConfirmed();
+    void mrtrRequiresBoundOneShotConfirmation();
+    void scriptContentRequiresConfirmationAndNeverEntersTerminal();
+    void scriptMrtrConfirmationIsSignedAndOneShot();
+    void userTypingCancelsInFlightScriptUploadBeforeInvocation();
+    void commandAndScriptProductGrantsAreIndependent();
 };
+
+void McpTests::humanDeclineLeavesTerminalUntouched()
+{
+    QTemporaryDir root;
+    QVERIFY(root.isValid());
+    RuntimeConfig runtime;
+    runtime.transportKind = TransportKind::Serial;
+    runtime.transport.insert(QStringLiteral("interactivePromptPattern"), QStringLiteral("device> $"));
+    TerminalSession session(runtime);
+    LocalFake transport;
+    session.attach(&transport, TerminalSession::Ownership::Borrowed, TransportKind::Serial);
+    QVERIFY(session.start());
+    Service service(root.filePath("state"), root.filePath("instances"),
+                    std::make_unique<MemoryCredentialStore>());
+    service.directory().add(&session);
+    const auto client = service.access().addClient("fixture");
+    QVERIFY(service.access().setEnabled(true));
+    const auto entry = service.directory().entries().first();
+    QVERIFY(service.access().setGrant(client, entry, true, {}, true, true));
+    QTRY_COMPARE(service.status(), QStringLiteral("Listening"));
+    emit transport.readyRead(QByteArrayLiteral("device> "));
+    QTRY_VERIFY(session.commandCoordinator()->isPromptReady());
+    Host host;
+    QVERIFY(host.start(root.filePath("instances"),
+                       service.access().exportToken(client).value_or(QByteArray{}), {}, true));
+    const int callId = host.begin("novaterm_run_command",
+        QJsonObject{{"sessionId", entry.id}, {"epoch", entry.epoch},
+                    {"command", QStringLiteral("rm -rf ./cache")}});
+    const auto request = host.next();
+    QCOMPARE(request.value("method").toString(),
+             QStringLiteral("elicitation/create"));
+    const auto promptId = request.value("id");
+    QVERIFY(promptId.isString());
+    QVERIFY(request.value("params").toObject().value("message")
+        .toString().contains(QStringLiteral("rm -rf ./cache")));
+    host.send({{"jsonrpc", "2.0"}, {"id", promptId},
+               {"result", QJsonObject{{"action", "decline"}}}});
+    const auto response = host.next();
+    QCOMPARE(response.value("id").toInt(), callId);
+    QCOMPARE(response.value("result").toObject()
+                 .value("structuredContent").toObject()
+                 .value("error").toObject().value("code").toString(),
+             QStringLiteral("COMMAND_CONFIRMATION_DECLINED"));
+    QVERIFY(transport.written.isEmpty());
+
+    const int cancelledCall = host.begin("novaterm_run_command",
+        QJsonObject{{"sessionId", entry.id}, {"epoch", entry.epoch},
+                    {"command", QStringLiteral("rm -rf ./cache")}});
+    const auto cancelPrompt = host.next();
+    QCOMPARE(cancelPrompt.value("method").toString(), QStringLiteral("elicitation/create"));
+    host.send({{"jsonrpc", "2.0"}, {"id", cancelPrompt.value("id")},
+               {"result", QJsonObject{{"action", "cancel"}}}});
+    const auto cancelled = host.next();
+    QCOMPARE(cancelled.value("id").toInt(), cancelledCall);
+    QCOMPARE(cancelled.value("result").toObject().value("structuredContent")
+                 .toObject().value("error").toObject().value("code").toString(),
+             QStringLiteral("COMMAND_CONFIRMATION_CANCELLED"));
+    QVERIFY(transport.written.isEmpty());
+
+    const quint64 previousPrompt = session.commandCoordinator()->promptGeneration();
+    emit transport.readyRead(QByteArrayLiteral("device> "));
+    QTRY_VERIFY_WITH_TIMEOUT(session.commandCoordinator()->isPromptReady(), 1000);
+    QVERIFY(session.commandCoordinator()->promptGeneration() > previousPrompt);
+    const int staleCall = host.begin("novaterm_run_command",
+        QJsonObject{{"sessionId", entry.id}, {"epoch", entry.epoch},
+                    {"command", QStringLiteral("rm -rf ./cache")}});
+    const auto stalePrompt = host.next();
+    QCOMPARE(stalePrompt.value("method").toString(), QStringLiteral("elicitation/create"));
+    const quint64 confirmedAgainst = session.commandCoordinator()->promptGeneration();
+    emit transport.readyRead(QByteArrayLiteral("device> "));
+    QTRY_VERIFY_WITH_TIMEOUT(session.commandCoordinator()->promptGeneration() > confirmedAgainst,
+                             1000);
+    host.send({{"jsonrpc", "2.0"}, {"id", stalePrompt.value("id")},
+               {"result", QJsonObject{{"action", "accept"},
+                   {"content", QJsonObject{{"confirmed", true}}}}}});
+    const auto stale = host.next();
+    QCOMPARE(stale.value("id").toInt(), staleCall);
+    QCOMPARE(stale.value("result").toObject().value("structuredContent")
+                 .toObject().value("error").toObject().value("code").toString(),
+             QStringLiteral("COMMAND_CONFIRMATION_STALE"));
+    QVERIFY(transport.written.isEmpty());
+}
+
+void McpTests::humanAcceptRunsOnlyAfterConfirmation()
+{
+    QTemporaryDir root;
+    QVERIFY(root.isValid());
+    RuntimeConfig runtime;
+    runtime.transportKind = TransportKind::Serial;
+    runtime.transport.insert(QStringLiteral("interactivePromptPattern"), QStringLiteral("device> $"));
+    TerminalSession session(runtime);
+    LocalFake transport;
+    session.attach(&transport, TerminalSession::Ownership::Borrowed, TransportKind::Serial);
+    QVERIFY(session.start());
+    Service service(root.filePath("state"), root.filePath("instances"),
+                    std::make_unique<MemoryCredentialStore>());
+    service.directory().add(&session);
+    const auto client = service.access().addClient("fixture");
+    QVERIFY(service.access().setEnabled(true));
+    const auto entry = service.directory().entries().first();
+    QVERIFY(service.access().setGrant(client, entry, true));
+    QTRY_COMPARE(service.status(), QStringLiteral("Listening"));
+    emit transport.readyRead(QByteArrayLiteral("device> "));
+    QTRY_VERIFY(session.commandCoordinator()->isPromptReady());
+    Host host;
+    QVERIFY(host.start(root.filePath("instances"),
+                       service.access().exportToken(client).value_or(QByteArray{}), {}, true));
+    const int callId = host.begin("novaterm_run_command",
+        QJsonObject{{"sessionId", entry.id}, {"epoch", entry.epoch},
+                    {"command", QStringLiteral("rm -rf ./cache")}});
+    const auto request = host.next();
+    QCOMPARE(request.value("method").toString(), QStringLiteral("elicitation/create"));
+    const auto promptId = request.value("id");
+    QTimer::singleShot(50, &transport, [&transport] {
+        emit transport.readyRead(QByteArrayLiteral("rm -rf ./cache\r\ndevice> "));
+    });
+    host.send({{"jsonrpc", "2.0"}, {"id", promptId}, {"result", QJsonObject{
+        {"action", "accept"}, {"content", QJsonObject{{"confirmed", true}}}}}});
+    QTRY_COMPARE_WITH_TIMEOUT(transport.written,
+                              QByteArrayLiteral("rm -rf ./cache\r"), 1000);
+    const auto response = host.next();
+    QCOMPARE(response.value("id").toInt(), callId);
+    QVERIFY(response.value("result").toObject().value("structuredContent")
+        .toObject().value("ok").toBool());
+
+}
+
+void McpTests::unknownRiskCanBeConfirmed()
+{
+    QTemporaryDir root;
+    QVERIFY(root.isValid());
+    RuntimeConfig runtime;
+    runtime.transportKind = TransportKind::Serial;
+    runtime.transport.insert(QStringLiteral("interactivePromptPattern"),
+                             QStringLiteral("device> $"));
+    TerminalSession session(runtime);
+    LocalFake transport;
+    session.attach(&transport, TerminalSession::Ownership::Borrowed,
+                   TransportKind::Serial);
+    QVERIFY(session.start());
+    Service service(root.filePath(QStringLiteral("state")),
+                    root.filePath(QStringLiteral("instances")),
+                    std::make_unique<MemoryCredentialStore>());
+    service.directory().add(&session);
+    const auto client = service.access().addClient(QStringLiteral("fixture"));
+    QVERIFY(service.access().setEnabled(true));
+    const auto entry = service.directory().entries().first();
+    QVERIFY(service.access().setGrant(client, entry, true));
+    QTRY_COMPARE(service.status(), QStringLiteral("Listening"));
+    emit transport.readyRead(QByteArrayLiteral("device> "));
+    QTRY_VERIFY(session.commandCoordinator()->isPromptReady());
+    Host host;
+    QVERIFY(host.start(root.filePath(QStringLiteral("instances")),
+        service.access().exportToken(client).value_or(QByteArray{}), {}, true));
+    const int callId = host.begin("novaterm_run_command",
+        QJsonObject{{"sessionId", entry.id}, {"epoch", entry.epoch},
+                    {"command", QStringLiteral("unknown-tool --do-work")}});
+    const auto prompt = host.next();
+    QCOMPARE(prompt.value("method").toString(), QStringLiteral("elicitation/create"));
+    QVERIFY(transport.written.isEmpty());
+    QTimer::singleShot(50, &transport, [&transport] {
+        emit transport.readyRead(QByteArrayLiteral("unknown-tool --do-work\r\ndevice> "));
+    });
+    host.send({{"jsonrpc", "2.0"}, {"id", prompt.value("id")},
+        {"result", QJsonObject{{"action", "accept"},
+            {"content", QJsonObject{{"confirmed", true}}}}}});
+    QTRY_COMPARE_WITH_TIMEOUT(transport.written,
+                              QByteArrayLiteral("unknown-tool --do-work\r"), 1000);
+    const auto response = host.next();
+    QCOMPARE(response.value("id").toInt(), callId);
+    QVERIFY(response.value("result").toObject().value("structuredContent")
+        .toObject().value("ok").toBool());
+}
+
+void McpTests::mrtrRequiresBoundOneShotConfirmation()
+{
+    QTemporaryDir root;
+    QVERIFY(root.isValid());
+    RuntimeConfig runtime;
+    runtime.transportKind = TransportKind::Serial;
+    runtime.transport.insert(QStringLiteral("interactivePromptPattern"), QStringLiteral("device> $"));
+    TerminalSession session(runtime);
+    LocalFake transport;
+    session.attach(&transport, TerminalSession::Ownership::Borrowed, TransportKind::Serial);
+    QVERIFY(session.start());
+    Service service(root.filePath("state"), root.filePath("instances"),
+                    std::make_unique<MemoryCredentialStore>());
+    service.directory().add(&session);
+    const auto client = service.access().addClient("fixture");
+    QVERIFY(service.access().setEnabled(true));
+    const auto entry = service.directory().entries().first();
+    QVERIFY(service.access().setGrant(client, entry, true, {}, true, true));
+    QTRY_COMPARE(service.status(), QStringLiteral("Listening"));
+    emit transport.readyRead(QByteArrayLiteral("device> "));
+    QTRY_VERIFY(session.commandCoordinator()->isPromptReady());
+    Host host;
+    QVERIFY(host.start(root.filePath("instances"),
+        service.access().exportToken(client).value_or(QByteArray{}), {}, true,
+        QStringLiteral("2026-07-28")));
+
+    const QJsonObject arguments{{"sessionId", entry.id}, {"epoch", entry.epoch},
+                                {"command", QStringLiteral("rm -rf ./cache")}};
+    const int firstCall = host.begin("novaterm_run_command", arguments);
+    const auto needed = host.next();
+    QCOMPARE(needed.value("id").toInt(), firstCall);
+    const auto inputRequired = needed.value("result").toObject();
+    QCOMPARE(inputRequired.value("resultType").toString(), QStringLiteral("input_required"));
+    const auto requestState = inputRequired.value("requestState").toString();
+    QVERIFY(!requestState.isEmpty());
+    QVERIFY(inputRequired.value("inputRequests").toObject().contains(QStringLiteral("confirm")));
+    QVERIFY(transport.written.isEmpty());
+
+    const int concurrentId = host.begin("novaterm_run_command", arguments);
+    const auto concurrent = host.next();
+    QCOMPARE(concurrent.value("id").toInt(), concurrentId);
+    QCOMPARE(concurrent.value("result").toObject().value("structuredContent")
+        .toObject().value("error").toObject().value("code").toString(),
+        QStringLiteral("BUSY"));
+
+    QString forgedState = requestState;
+    const QChar finalCharacter = forgedState.back();
+    forgedState[forgedState.size() - 1] = finalCharacter == QLatin1Char('0')
+        ? QLatin1Char('1') : QLatin1Char('0');
+    const int forgedId = ++host.counter;
+    host.send({{"jsonrpc", "2.0"}, {"id", forgedId}, {"method", "tools/call"},
+        {"params", QJsonObject{{"name", "novaterm_run_command"}, {"arguments", arguments},
+            {"requestState", forgedState}, {"inputResponses", QJsonObject{{"confirm",
+                QJsonObject{{"action", "accept"}, {"content", QJsonObject{{"confirmed", true}}}}}}}}}});
+    const auto forged = host.next();
+    QCOMPARE(forged.value("id").toInt(), forgedId);
+    QCOMPARE(forged.value("result").toObject().value("structuredContent")
+        .toObject().value("error").toObject().value("code").toString(),
+        QStringLiteral("COMMAND_CONFIRMATION_STALE"));
+    QVERIFY(transport.written.isEmpty());
+
+    QTimer::singleShot(50, &transport, [&transport] {
+        emit transport.readyRead(QByteArrayLiteral("rm -rf ./cache\r\ndevice> "));
+    });
+    host.setHumanForm(false);
+    const int retryId = ++host.counter;
+    host.send({{"jsonrpc", "2.0"}, {"id", retryId}, {"method", "tools/call"},
+        {"params", QJsonObject{{"name", "novaterm_run_command"}, {"arguments", arguments},
+            {"requestState", requestState}, {"inputResponses", QJsonObject{{"confirm",
+                QJsonObject{{"action", "accept"}, {"content", QJsonObject{{"confirmed", true}}}}}}}}}});
+    const auto completed = host.next();
+    QCOMPARE(completed.value("id").toInt(), retryId);
+    QCOMPARE(completed.value("result").toObject().value("resultType").toString(),
+             QStringLiteral("complete"));
+    const auto completedPayload = completed.value("result").toObject()
+        .value("structuredContent").toObject();
+    QVERIFY2(completedPayload.value("ok").toBool(),
+        qPrintable(completedPayload.value("error").toObject().value("code").toString()));
+    QCOMPARE(transport.written, QByteArrayLiteral("rm -rf ./cache\r"));
+
+    const int replayId = ++host.counter;
+    host.send({{"jsonrpc", "2.0"}, {"id", replayId}, {"method", "tools/call"},
+        {"params", QJsonObject{{"name", "novaterm_run_command"}, {"arguments", arguments},
+            {"requestState", requestState}, {"inputResponses", QJsonObject{{"confirm",
+                QJsonObject{{"action", "accept"}, {"content", QJsonObject{{"confirmed", true}}}}}}}}}});
+    const auto replay = host.next();
+    QCOMPARE(replay.value("id").toInt(), replayId);
+    QCOMPARE(replay.value("result").toObject().value("structuredContent")
+        .toObject().value("error").toObject().value("code").toString(),
+        QStringLiteral("COMMAND_CONFIRMATION_STALE"));
+    QCOMPARE(transport.written, QByteArrayLiteral("rm -rf ./cache\r"));
+}
+
+void McpTests::scriptContentRequiresConfirmationAndNeverEntersTerminal()
+{
+    QTemporaryDir root;
+    QVERIFY(root.isValid());
+    const QString workingDirectory = root.path();
+    const QString targetPath = root.filePath(QStringLiteral("build_script.sh"));
+    const QByteArray previousContent = QByteArrayLiteral("old confirmed content\n");
+    QFile existing(targetPath);
+    QVERIFY(existing.open(QIODevice::WriteOnly));
+    QCOMPARE(existing.write(previousContent), qint64(previousContent.size()));
+    existing.close();
+
+    RuntimeConfig runtime;
+    runtime.transportKind = TransportKind::LocalShell;
+    runtime.transport.insert(QStringLiteral("interactiveShellKind"), QStringLiteral("posix"));
+    TerminalSession session(runtime);
+    LocalFake transport;
+    session.attach(&transport, TerminalSession::Ownership::Borrowed,
+                   TransportKind::LocalShell);
+    QVERIFY(session.start());
+    QTRY_COMPARE(session.state(), SessionState::Running);
+    Service service(root.filePath(QStringLiteral("state")),
+                    root.filePath(QStringLiteral("instances")),
+                    std::make_unique<MemoryCredentialStore>());
+    service.directory().add(&session);
+    const auto client = service.access().addClient(QStringLiteral("fixture"));
+    QVERIFY(service.access().setEnabled(true));
+    const auto entry = service.directory().entries().first();
+    QVERIFY(service.access().setGrant(client, entry, true, {}, false, false, true));
+    QTRY_COMPARE(service.status(), QStringLiteral("Listening"));
+    emit transport.readyRead(QByteArrayLiteral("\x1b]633;NT;PROMPT;1;0\x07"));
+    QTRY_VERIFY(session.commandCoordinator()->isPromptReady());
+    Host host;
+    QVERIFY(host.start(root.filePath(QStringLiteral("instances")),
+        service.access().exportToken(client).value_or(QByteArray{}), {}, true));
+
+    const QByteArray script = QByteArrayLiteral(
+        "#!/bin/sh\nprintf 'SCRIPT_BODY_MUST_NOT_ENTER_TERMINAL'\n");
+    const QJsonObject arguments{{"sessionId", entry.id}, {"epoch", entry.epoch},
+        {"scriptContent", QString::fromUtf8(script)}, {"targetPath", targetPath},
+        {"workingDirectory", workingDirectory},
+        {"invocation", QStringLiteral("sh ./build_script.sh")}};
+    Host hostWithoutConfirmation;
+    QVERIFY(hostWithoutConfirmation.start(root.filePath(QStringLiteral("instances")),
+        service.access().exportToken(client).value_or(QByteArray{})));
+    const auto noCapability = hostWithoutConfirmation.call(
+        "novaterm_run_script", arguments);
+    QCOMPARE(noCapability.value("error").toObject().value("code").toString(),
+             QStringLiteral("CLIENT_CONFIRMATION_UNAVAILABLE"));
+    QFile afterUnavailable(targetPath);
+    QVERIFY(afterUnavailable.open(QIODevice::ReadOnly));
+    QCOMPARE(afterUnavailable.readAll(), previousContent);
+    afterUnavailable.close();
+    QVERIFY(transport.written.isEmpty());
+
+    const int declineId = host.begin("novaterm_run_script", arguments);
+    const auto declinePrompt = host.next();
+    QCOMPARE(declinePrompt.value("method").toString(), QStringLiteral("elicitation/create"));
+    QVERIFY(declinePrompt.value("params").toObject().value("message")
+        .toString().contains(targetPath));
+    host.send({{"jsonrpc", "2.0"}, {"id", declinePrompt.value("id")},
+        {"result", QJsonObject{{"action", "decline"}}}});
+    const auto declined = host.next();
+    QCOMPARE(declined.value("id").toInt(), declineId);
+    QCOMPARE(declined.value("result").toObject().value("structuredContent")
+        .toObject().value("error").toObject().value("code").toString(),
+        QStringLiteral("COMMAND_CONFIRMATION_DECLINED"));
+    QFile checkOld(targetPath);
+    QVERIFY(checkOld.open(QIODevice::ReadOnly));
+    QCOMPARE(checkOld.readAll(), previousContent);
+    checkOld.close();
+    QVERIFY(transport.written.isEmpty());
+
+    const QString missingTarget = root.filePath(
+        QStringLiteral("missing-directory/never-created.sh"));
+    auto failedArguments = arguments;
+    failedArguments.insert(QStringLiteral("targetPath"), missingTarget);
+    const int writeFailureId = host.begin("novaterm_run_script", failedArguments);
+    const auto writeFailurePrompt = host.next();
+    QCOMPARE(writeFailurePrompt.value("method").toString(),
+             QStringLiteral("elicitation/create"));
+    host.send({{"jsonrpc", "2.0"}, {"id", writeFailurePrompt.value("id")},
+        {"result", QJsonObject{{"action", "accept"},
+            {"content", QJsonObject{{"confirmed", true}}}}}});
+    const auto writeFailure = host.next();
+    QCOMPARE(writeFailure.value("id").toInt(), writeFailureId);
+    QCOMPARE(writeFailure.value("result").toObject().value("structuredContent")
+        .toObject().value("error").toObject().value("code").toString(),
+        QStringLiteral("SCRIPT_WRITE_FAILED"));
+    QVERIFY(transport.written.isEmpty());
+    QVERIFY(!QFile::exists(missingTarget));
+
+    const int acceptId = host.begin("novaterm_run_script", arguments);
+    const auto acceptPrompt = host.next();
+    QCOMPARE(acceptPrompt.value("method").toString(), QStringLiteral("elicitation/create"));
+    QTimer::singleShot(100, &transport, [&transport] {
+        emit transport.readyRead(QByteArrayLiteral(
+            "sh ./build_script.sh\r\nSCRIPT_OUTPUT_OK\r\n"
+            "\x1b]633;NT;PROMPT;2;0\x07"));
+    });
+    host.send({{"jsonrpc", "2.0"}, {"id", acceptPrompt.value("id")},
+        {"result", QJsonObject{{"action", "accept"},
+            {"content", QJsonObject{{"confirmed", true}}}}}});
+    const auto accepted = host.next();
+    QCOMPARE(accepted.value("id").toInt(), acceptId);
+    const auto payload = accepted.value("result").toObject()
+        .value("structuredContent").toObject();
+    QVERIFY2(payload.value("ok").toBool(),
+        qPrintable(payload.value("error").toObject().value("code").toString()));
+    QFile finalFile(targetPath);
+    QVERIFY(finalFile.open(QIODevice::ReadOnly));
+    QCOMPARE(finalFile.readAll(), script);
+    QVERIFY(transport.written.contains("sh ./build_script.sh"));
+    QVERIFY(!transport.written.contains("SCRIPT_BODY_MUST_NOT_ENTER_TERMINAL"));
+    QVERIFY(payload.value("data").toObject().value("stdout")
+        .toString().contains(QStringLiteral("SCRIPT_OUTPUT_OK")));
+}
+
+void McpTests::scriptRiskPolicyDeniesCredentialAndSecurityTampering()
+{
+    CommandRiskPolicy policy;
+    const auto classify = [&policy](QByteArrayView script) {
+        return policy.classifyScript(script, QStringLiteral("/tmp/generated.sh"),
+            QStringLiteral("/tmp"), QStringLiteral("sh generated.sh")).decision;
+    };
+    QCOMPARE(classify(QByteArrayView("cat ~/.aws/credentials")), RiskDecision::Deny);
+    QCOMPARE(classify(QByteArrayView("cmdkey /list")), RiskDecision::Deny);
+    QCOMPARE(classify(QByteArrayView("cat /proc/self/environ")), RiskDecision::Deny);
+    QCOMPARE(classify(QByteArrayView("systemctl stop firewalld")), RiskDecision::Deny);
+    QCOMPARE(classify(QByteArrayView("mkfs.ext4 /dev/sda")), RiskDecision::Deny);
+    QCOMPARE(classify(QByteArrayView("#!/bin/sh\nprintf safe\n")), RiskDecision::Confirm);
+}
+
+void McpTests::scriptMrtrConfirmationIsSignedAndOneShot()
+{
+    QTemporaryDir root;
+    QVERIFY(root.isValid());
+    RuntimeConfig runtime;
+    runtime.transportKind = TransportKind::LocalShell;
+    runtime.transport.insert(QStringLiteral("interactiveShellKind"), QStringLiteral("posix"));
+    TerminalSession session(runtime);
+    LocalFake transport;
+    session.attach(&transport, TerminalSession::Ownership::Borrowed,
+                   TransportKind::LocalShell);
+    QVERIFY(session.start());
+    QTRY_COMPARE(session.state(), SessionState::Running);
+    Service service(root.filePath(QStringLiteral("state")),
+                    root.filePath(QStringLiteral("instances")),
+                    std::make_unique<MemoryCredentialStore>());
+    service.directory().add(&session);
+    const auto client = service.access().addClient(QStringLiteral("fixture"));
+    QVERIFY(service.access().setEnabled(true));
+    const auto entry = service.directory().entries().first();
+    QVERIFY(service.access().setGrant(client, entry, true, {}, true, false, true));
+    QTRY_COMPARE(service.status(), QStringLiteral("Listening"));
+    emit transport.readyRead(QByteArrayLiteral("\x1b]633;NT;PROMPT;1;0\x07"));
+    QTRY_VERIFY(session.commandCoordinator()->isPromptReady());
+    Host host;
+    QVERIFY(host.start(root.filePath(QStringLiteral("instances")),
+        service.access().exportToken(client).value_or(QByteArray{}), {}, true,
+        QStringLiteral("2026-07-28")));
+
+    const QString targetPath = root.filePath(QStringLiteral("mrtr_script.sh"));
+    const QString body = QStringLiteral("#!/bin/sh\nprintf 'MRTR_BODY_PRIVATE'\n");
+    const QJsonObject arguments{{"sessionId", entry.id}, {"epoch", entry.epoch},
+        {"scriptContent", body}, {"targetPath", targetPath},
+        {"workingDirectory", root.path()},
+        {"invocation", QStringLiteral("sh ./mrtr_script.sh")}};
+    const int initialId = host.begin("novaterm_run_script", arguments);
+    const auto required = host.next();
+    QCOMPARE(required.value("id").toInt(), initialId);
+    const auto result = required.value("result").toObject();
+    QCOMPARE(result.value("resultType").toString(), QStringLiteral("input_required"));
+    QString requestState = result.value("requestState").toString();
+    QVERIFY(!requestState.isEmpty());
+    QVERIFY(result.value("inputRequests").toObject().contains(QStringLiteral("confirm")));
+    QVERIFY(!QFile::exists(targetPath));
+    QVERIFY(transport.written.isEmpty());
+
+    QVERIFY(service.access().setGrant(client, entry, true, {}, true, false, false));
+    const int revokedRetryId = ++host.counter;
+    host.send({{"jsonrpc", "2.0"}, {"id", revokedRetryId}, {"method", "tools/call"},
+        {"params", QJsonObject{{"name", "novaterm_run_script"},
+            {"arguments", arguments}, {"requestState", requestState},
+            {"inputResponses", QJsonObject{{"confirm", QJsonObject{{"action", "accept"},
+                {"content", QJsonObject{{"confirmed", true}}}}}}}}}});
+    const auto revoked = host.next();
+    QCOMPARE(revoked.value("result").toObject().value("structuredContent")
+        .toObject().value("error").toObject().value("code").toString(),
+        QStringLiteral("COMMAND_CONFIRMATION_STALE"));
+    QVERIFY(!QFile::exists(targetPath));
+    QVERIFY(transport.written.isEmpty());
+
+    QVERIFY(service.access().setGrant(client, entry, true, {}, true, false, true));
+    const int reissuedId = host.begin("novaterm_run_script", arguments);
+    const auto reissued = host.next();
+    QCOMPARE(reissued.value("id").toInt(), reissuedId);
+    QCOMPARE(reissued.value("result").toObject().value("resultType").toString(),
+             QStringLiteral("input_required"));
+    requestState = reissued.value("result").toObject().value("requestState").toString();
+    QVERIFY(!requestState.isEmpty());
+
+    QString forgedState = requestState;
+    forgedState[forgedState.size() - 1] = forgedState.back() == QLatin1Char('0')
+        ? QLatin1Char('1') : QLatin1Char('0');
+    const int forgedId = ++host.counter;
+    host.send({{"jsonrpc", "2.0"}, {"id", forgedId}, {"method", "tools/call"},
+        {"params", QJsonObject{{"name", "novaterm_run_script"},
+            {"arguments", arguments}, {"requestState", forgedState},
+            {"inputResponses", QJsonObject{{"confirm", QJsonObject{{"action", "accept"},
+                {"content", QJsonObject{{"confirmed", true}}}}}}}}}});
+    const auto forged = host.next();
+    QCOMPARE(forged.value("result").toObject().value("structuredContent")
+        .toObject().value("error").toObject().value("code").toString(),
+        QStringLiteral("COMMAND_CONFIRMATION_STALE"));
+    QVERIFY(!QFile::exists(targetPath));
+
+    QTimer::singleShot(500, &transport, [&transport] {
+        emit transport.readyRead(QByteArrayLiteral(
+            "sh ./mrtr_script.sh\r\nMRTR_OUTPUT_OK\r\n"
+            "\x1b]633;NT;PROMPT;2;0\x07"));
+    });
+    const int retryId = ++host.counter;
+    host.send({{"jsonrpc", "2.0"}, {"id", retryId}, {"method", "tools/call"},
+        {"params", QJsonObject{{"name", "novaterm_run_script"},
+            {"arguments", arguments}, {"requestState", requestState},
+            {"inputResponses", QJsonObject{{"confirm", QJsonObject{{"action", "accept"},
+                {"content", QJsonObject{{"confirmed", true}}}}}}}}}});
+    const auto completed = host.next();
+    QCOMPARE(completed.value("id").toInt(), retryId);
+    QCOMPARE(completed.value("result").toObject().value("resultType").toString(),
+             QStringLiteral("complete"));
+    const auto completedPayload = completed.value("result").toObject()
+        .value("structuredContent").toObject();
+    QVERIFY2(completedPayload.value("ok").toBool(),
+        qPrintable(completedPayload.value("error").toObject().value("code").toString()));
+    QFile file(targetPath);
+    QVERIFY(file.open(QIODevice::ReadOnly));
+    QCOMPARE(file.readAll(), body.toUtf8());
+    QVERIFY(transport.written.contains("sh ./mrtr_script.sh"));
+    QVERIFY(!transport.written.contains("MRTR_BODY_PRIVATE"));
+    QVERIFY(completedPayload.value("data").toObject().value("stdout").toString()
+        .contains(QStringLiteral("MRTR_OUTPUT_OK")));
+
+    const qsizetype writesAfterExecution = transport.written.size();
+    const int replayId = ++host.counter;
+    host.send({{"jsonrpc", "2.0"}, {"id", replayId}, {"method", "tools/call"},
+        {"params", QJsonObject{{"name", "novaterm_run_script"},
+            {"arguments", arguments}, {"requestState", requestState},
+            {"inputResponses", QJsonObject{{"confirm", QJsonObject{{"action", "accept"},
+                {"content", QJsonObject{{"confirmed", true}}}}}}}}}});
+    const auto replay = host.next();
+    QCOMPARE(replay.value("result").toObject().value("structuredContent")
+        .toObject().value("error").toObject().value("code").toString(),
+        QStringLiteral("COMMAND_CONFIRMATION_STALE"));
+    QCOMPARE(transport.written.size(), writesAfterExecution);
+}
+
+void McpTests::userTypingCancelsInFlightScriptUploadBeforeInvocation()
+{
+    QTemporaryDir root;
+    QVERIFY(root.isValid());
+    RuntimeConfig runtime;
+    runtime.transportKind = TransportKind::LocalShell;
+    runtime.transport.insert(QStringLiteral("interactiveShellKind"), QStringLiteral("posix"));
+    TerminalSession session(runtime);
+    LocalFake transport;
+    session.attach(&transport, TerminalSession::Ownership::Borrowed,
+                   TransportKind::LocalShell);
+    QVERIFY(session.start());
+    QTRY_COMPARE(session.state(), SessionState::Running);
+    Service service(root.filePath(QStringLiteral("state")),
+                    root.filePath(QStringLiteral("instances")),
+                    std::make_unique<MemoryCredentialStore>());
+    service.directory().add(&session);
+    auto delayedProvider = std::make_unique<DelayedScriptProvider>();
+    auto* delayed = delayedProvider.get();
+    session.installScriptProvider(std::move(delayedProvider));
+    const auto client = service.access().addClient(QStringLiteral("fixture"));
+    QVERIFY(service.access().setEnabled(true));
+    const auto entry = service.directory().entries().first();
+    QVERIFY(service.access().setGrant(client, entry, true, {}, true, false, true));
+    QTRY_COMPARE(service.status(), QStringLiteral("Listening"));
+    emit transport.readyRead(QByteArrayLiteral("\x1b]633;NT;PROMPT;1;0\x07"));
+    QTRY_VERIFY(session.commandCoordinator()->isPromptReady());
+    Host host;
+    QVERIFY(host.start(root.filePath(QStringLiteral("instances")),
+        service.access().exportToken(client).value_or(QByteArray{}), {}, true));
+
+    const QString target = root.filePath(QStringLiteral("never-executed.sh"));
+    const QJsonObject arguments{{"sessionId", entry.id}, {"epoch", entry.epoch},
+        {"scriptContent", QStringLiteral("#!/bin/sh\nprintf private-body\n")},
+        {"targetPath", target}, {"workingDirectory", root.path()},
+        {"invocation", QStringLiteral("sh ./never-executed.sh")}};
+    const int callId = host.begin("novaterm_run_script", arguments);
+    const auto confirmation = host.next();
+    QCOMPARE(confirmation.value("method").toString(), QStringLiteral("elicitation/create"));
+    host.send({{"jsonrpc", "2.0"}, {"id", confirmation.value("id")},
+        {"result", QJsonObject{{"action", "accept"},
+            {"content", QJsonObject{{"confirmed", true}}}}}});
+    QTRY_COMPARE(delayed->writeCount, 1);
+
+    session.inputArbiter()->submitUserInput(QByteArrayLiteral("user owns terminal"));
+
+    const auto cancelled = host.next();
+    QCOMPARE(cancelled.value("id").toInt(), callId);
+    QCOMPARE(cancelled.value("result").toObject().value("structuredContent")
+        .toObject().value("error").toObject().value("code").toString(),
+        QStringLiteral("SCRIPT_CANCELLED_BY_USER"));
+    QCOMPARE(delayed->cancelCount, 1);
+    QCOMPARE(transport.written, QByteArrayLiteral("user owns terminal"));
+    QVERIFY(!transport.written.contains("sh ./never-executed.sh"));
+    QVERIFY(!transport.written.contains("private-body"));
+    QVERIFY(!QFile::exists(target));
+}
+
+void McpTests::commandAndScriptProductGrantsAreIndependent()
+{
+    Fixture fixture;
+    QVERIFY(fixture.enable());
+    const auto entry = fixture.service.directory().entries().first();
+
+    QVERIFY(fixture.service.access().setGrant(fixture.client, entry,
+        true, {}, false, false, false));
+    QVERIFY(fixture.service.access().canRead(fixture.client, entry));
+    QVERIFY(!fixture.service.access().canRunCommand(fixture.client, entry));
+    QVERIFY(!fixture.service.access().canRunConfirmedCommand(fixture.client, entry));
+    QVERIFY(!fixture.service.access().canRunScriptTask(fixture.client, entry));
+
+    QVERIFY(fixture.service.access().setGrant(fixture.client, entry,
+        true, {}, true, false, false));
+    QVERIFY(fixture.service.access().canRunCommand(fixture.client, entry));
+    QVERIFY(!fixture.service.access().canRunConfirmedCommand(fixture.client, entry));
+    QVERIFY(!fixture.service.access().canRunScriptTask(fixture.client, entry));
+
+    QVERIFY(fixture.service.access().setGrant(fixture.client, entry,
+        true, {}, true, true, false));
+    QVERIFY(fixture.service.access().canRunConfirmedCommand(fixture.client, entry));
+    QVERIFY(!fixture.service.access().canRunScriptTask(fixture.client, entry));
+
+    QVERIFY(fixture.service.access().setGrant(fixture.client, entry,
+        true, {}, true, false, true));
+    QVERIFY(!fixture.service.access().canRunConfirmedCommand(fixture.client, entry));
+    QVERIFY(fixture.service.access().canRunScriptTask(fixture.client, entry));
+}
 
 void McpTests::lowRiskCommandUsesCurrentInteractiveTransport()
 {
@@ -349,7 +1036,7 @@ void McpTests::lowRiskCommandUsesCurrentInteractiveTransport()
     QVERIFY(!client.isEmpty());
     QVERIFY(service.access().setEnabled(true));
     const auto entry = service.directory().entries().first();
-    QVERIFY(service.access().setGrant(client, entry, true, {}, true));
+    QVERIFY(service.access().setGrant(client, entry, true));
     QTRY_COMPARE(service.status(), QStringLiteral("Listening"));
 
     emit transport.readyRead(QByteArrayLiteral("device> "));
@@ -375,7 +1062,137 @@ void McpTests::lowRiskCommandUsesCurrentInteractiveTransport()
         .toString().contains(QStringLiteral("/root")));
 }
 
-void McpTests::freeCommandRequiresGrantAndHumanConfirmation()
+void McpTests::unverifiedSshCommandUsesCurrentTerminal()
+{
+    QTemporaryDir root;
+    QVERIFY(root.isValid());
+    RuntimeConfig runtime;
+    runtime.transportKind = TransportKind::Ssh;
+    TerminalSession session(runtime);
+    LocalFake transport;
+    session.attach(&transport, TerminalSession::Ownership::Borrowed,
+                   TransportKind::Ssh);
+    QVERIFY(session.start());
+    QTRY_COMPARE(session.state(), SessionState::Running);
+    Service service(root.filePath(QStringLiteral("state")),
+                    root.filePath(QStringLiteral("instances")),
+                    std::make_unique<MemoryCredentialStore>());
+    service.directory().add(&session);
+    auto isolated = std::make_unique<TestCommandExecutor>();
+    auto* isolatedPtr = isolated.get();
+    session.commandFacade()->installExecutor(std::move(isolated),
+                                             session.statistics().generation);
+    const auto entry = service.directory().entries().first();
+    const QString client = service.access().addClient(QStringLiteral("unverified"));
+    QVERIFY(!client.isEmpty());
+    QVERIFY(service.access().setEnabled(true));
+    QVERIFY(service.access().setGrant(client, entry, true));
+    QTRY_COMPARE(service.status(), QStringLiteral("Listening"));
+    Host host;
+    QVERIFY(host.start(root.filePath(QStringLiteral("instances")),
+        service.access().exportToken(client).value_or(QByteArray{})));
+    const auto listed = host.call("novaterm_list_sessions", {})
+        .value("data").toObject().value("sessions").toArray().first().toObject();
+    QVERIFY(listed.value("capabilities").toArray().contains(
+        QStringLiteral("run_command")));
+
+    const int callId = host.begin("novaterm_run_command",
+        QJsonObject{{"sessionId", entry.id}, {"epoch", entry.epoch},
+                    {"command", QStringLiteral("pwd")}});
+    QTRY_VERIFY_WITH_TIMEOUT(transport.written.startsWith(QByteArrayLiteral("pwd;")), 1000);
+    const qsizetype start = transport.written.indexOf(QByteArrayLiteral("NT;END;"));
+    const qsizetype end = transport.written.indexOf(QByteArrayLiteral(";%d"), start);
+    QVERIFY(start >= 0 && end > start + 7);
+    const QByteArray nonce = transport.written.mid(start + 7, end - start - 7);
+    emit transport.readyRead(QByteArrayLiteral("root# ") + transport.written
+        + QByteArrayLiteral("\n/root\n\x1b]633;NT;END;") + nonce
+        + QByteArrayLiteral(";0\x07"));
+    const auto response = host.next();
+    QCOMPARE(response.value("id").toInt(), callId);
+    QVERIFY2(response.value("result").toObject().value("structuredContent")
+        .toObject().value("ok").toBool(), qPrintable(QJsonDocument(response).toJson()));
+    QCOMPARE(isolatedPtr->submissionCount, 0);
+    QVERIFY(session.core()->waitForIdle());
+    const auto snapshot = session.core()->terminalState();
+    QByteArray visible;
+    for (const auto& line : snapshot.viewport)
+        visible += QByteArray::fromStdString(line.text);
+    QVERIFY(visible.contains(QByteArrayLiteral("root# pwd")));
+    QVERIFY(visible.contains(QByteArrayLiteral("/root")));
+    QVERIFY(!visible.contains(QByteArrayLiteral("__nvterm")));
+}
+
+void McpTests::unverifiedSshRiskyCommandRequiresHumanConfirmation()
+{
+    QTemporaryDir root;
+    QVERIFY(root.isValid());
+    RuntimeConfig runtime;
+    runtime.transportKind = TransportKind::Ssh;
+    TerminalSession session(runtime);
+    LocalFake transport;
+    session.attach(&transport, TerminalSession::Ownership::Borrowed,
+                   TransportKind::Ssh);
+    QVERIFY(session.start());
+    QTRY_COMPARE(session.state(), SessionState::Running);
+    Service service(root.filePath(QStringLiteral("state")),
+                    root.filePath(QStringLiteral("instances")),
+                    std::make_unique<MemoryCredentialStore>());
+    service.directory().add(&session);
+    session.commandFacade()->installExecutor(
+        std::make_unique<TestCommandExecutor>(),
+        session.statistics().generation);
+    const auto entry = service.directory().entries().first();
+    const QString client = service.access().addClient(QStringLiteral("confirmed"));
+    QVERIFY(!client.isEmpty());
+    QVERIFY(service.access().setEnabled(true));
+    QVERIFY(service.access().setGrant(client, entry, true));
+    QTRY_COMPARE(service.status(), QStringLiteral("Listening"));
+    Host host;
+    QVERIFY(host.start(root.filePath(QStringLiteral("instances")),
+        service.access().exportToken(client).value_or(QByteArray{}), {}, true));
+
+    const int callId = host.begin("novaterm_run_command",
+        QJsonObject{{"sessionId", entry.id}, {"epoch", entry.epoch},
+                    {"command", QStringLiteral("rm -rf ./cache")}});
+    const auto prompt = host.next();
+    QCOMPARE(prompt.value("method").toString(), QStringLiteral("elicitation/create"));
+    QVERIFY(transport.written.isEmpty());
+    host.send({{"jsonrpc", "2.0"}, {"id", prompt.value("id")},
+        {"result", QJsonObject{{"action", "accept"},
+            {"content", QJsonObject{{"confirmed", true}}}}}});
+    QTRY_VERIFY_WITH_TIMEOUT(transport.written.startsWith(
+        QByteArrayLiteral("rm -rf ./cache;")), 1000);
+    const qsizetype start = transport.written.indexOf(QByteArrayLiteral("NT;END;"));
+    const qsizetype end = transport.written.indexOf(QByteArrayLiteral(";%d"), start);
+    QVERIFY(start >= 0 && end > start + 7);
+    const QByteArray nonce = transport.written.mid(start + 7, end - start - 7);
+    emit transport.readyRead(QByteArrayLiteral("root# ") + transport.written
+        + QByteArrayLiteral("\n\x1b]633;NT;END;") + nonce
+        + QByteArrayLiteral(";0\x07"));
+    const auto response = host.next();
+    QCOMPARE(response.value("id").toInt(), callId);
+    QVERIFY(response.value("result").toObject().value("structuredContent")
+        .toObject().value("ok").toBool());
+
+    const int staleId = host.begin("novaterm_run_command",
+        QJsonObject{{"sessionId", entry.id}, {"epoch", entry.epoch},
+                    {"command", QStringLiteral("rm -rf ./cache")}});
+    const auto stalePrompt = host.next();
+    QCOMPARE(stalePrompt.value("method").toString(), QStringLiteral("elicitation/create"));
+    const QByteArray submittedBeforeTyping = transport.written;
+    session.inputArbiter()->submitUserInput(QByteArrayLiteral("x"));
+    host.send({{"jsonrpc", "2.0"}, {"id", stalePrompt.value("id")},
+        {"result", QJsonObject{{"action", "accept"},
+            {"content", QJsonObject{{"confirmed", true}}}}}});
+    const auto stale = host.next();
+    QCOMPARE(stale.value("id").toInt(), staleId);
+    QCOMPARE(stale.value("result").toObject().value("structuredContent")
+        .toObject().value("error").toObject().value("code").toString(),
+        QStringLiteral("COMMAND_CONFIRMATION_STALE"));
+    QCOMPARE(transport.written, submittedBeforeTyping + QByteArrayLiteral("x"));
+}
+
+void McpTests::riskyCommandRequiresHumanConfirmation()
 {
     Fixture fixture;
     QVERIFY(fixture.enable());
@@ -384,14 +1201,6 @@ void McpTests::freeCommandRequiresGrantAndHumanConfirmation()
     QVERIFY(host.start(fixture.runtime(), fixture.token()));
 
     auto arguments = fixture.identity();
-    arguments.insert(QStringLiteral("command"), QStringLiteral("pwd"));
-    const auto noGrant = host.call("novaterm_run_command", arguments);
-    QCOMPARE(noGrant.value("error").toObject().value("code").toString(),
-             QStringLiteral("COMMAND_PERMISSION_REQUIRED"));
-
-    const auto entry = fixture.service.directory().entries().first();
-    QVERIFY(fixture.service.access().setGrant(fixture.client, entry,
-                                             true, {}, true));
     arguments.insert(QStringLiteral("command"),
                      QStringLiteral("rm -rf ./cache"));
     const auto needsHuman = host.call("novaterm_run_command", arguments);
@@ -450,7 +1259,29 @@ void McpTests::commandRiskPolicyDefaultsToHumanConfirmation()
     CommandRiskPolicy policy;
     QCOMPARE(policy.classify(QStringLiteral("uname -srm")).decision,
              RiskDecision::Allow);
+    QCOMPARE(policy.classify(QStringLiteral("uptime")).decision,
+             RiskDecision::Allow);
+    QCOMPARE(policy.classify(QStringLiteral("free -k")).decision,
+             RiskDecision::Allow);
+    QCOMPARE(policy.classify(QStringLiteral("df -Pk")).decision,
+             RiskDecision::Allow);
+    QCOMPARE(policy.classify(QStringLiteral("whoami")).decision,
+             RiskDecision::Allow);
+    QCOMPARE(policy.classify(QStringLiteral("ls")).decision,
+             RiskDecision::Allow);
+    QCOMPARE(policy.classify(QStringLiteral("ls -la")).decision,
+             RiskDecision::Allow);
+    QCOMPARE(policy.classify(QStringLiteral("cd /tmp")).decision,
+             RiskDecision::Allow);
+    QCOMPARE(policy.classify(QStringLiteral("cat /etc/os-release")).decision,
+             RiskDecision::Allow);
+    QCOMPARE(policy.classify(QStringLiteral("cat /proc/version")).decision,
+             RiskDecision::Allow);
+    QCOMPARE(policy.classify(QStringLiteral("cat /etc/shadow")).decision,
+             RiskDecision::Deny);
     QCOMPARE(policy.classify(QStringLiteral("rm -rf ./cache")).decision,
+             RiskDecision::Confirm);
+    QCOMPARE(policy.classify(QStringLiteral("rm -rf /etc")).decision,
              RiskDecision::Confirm);
     QCOMPARE(policy.classify(QStringLiteral("sudo systemctl stop auditd")).decision,
              RiskDecision::Deny);
@@ -834,6 +1665,24 @@ void McpTests::instanceSelectionAndDisconnectStayExplicit()
         .value("code").toString(), QStringLiteral("APP_UNAVAILABLE"));
 }
 
+void McpTests::ccSwitchConfigurationIsSingleServerObject()
+{
+    Fixture f;
+    const auto configuration = f.service.ccSwitchConfiguration(f.client);
+    QVERIFY(!configuration.value(QStringLiteral("command")).toString().isEmpty());
+    QVERIFY(configuration.value(QStringLiteral("args")).isArray());
+    QCOMPARE(configuration.value(QStringLiteral("args")).toArray(), QJsonArray{});
+    const auto environment = configuration.value(QStringLiteral("env")).toObject();
+    QVERIFY(!environment.value(QStringLiteral("NOVATERM_MCP_TOKEN")).toString().isEmpty());
+    QCOMPARE(environment.value(QStringLiteral("NOVATERM_MCP_RUNTIME_DIR")).toString(), f.runtime());
+    QVERIFY(!configuration.contains(QStringLiteral("novaterm")));
+    QVERIFY(!configuration.contains(QStringLiteral("mcpServers")));
+
+    const auto standard = f.service.clientConfiguration(f.client);
+    QVERIFY(standard.value(QStringLiteral("mcpServers")).toObject()
+        .contains(QStringLiteral("novaterm")));
+}
+
 void McpTests::framingAndAuthentication()
 {
     FrameReader reader;
@@ -857,7 +1706,7 @@ void McpTests::framingAndAuthentication()
 
 void McpTests::rejectsDangerousAndOversizedArguments()
 {
-    QCOMPARE(tools().size(), 6);
+    QCOMPARE(tools().size(), 7);
     QVERIFY(!CommandPolicy::find("rm"));
     QVERIFY(!CommandPolicy::find("credential.read"));
     const QJsonObject identity{{"sessionId", newId()}, {"epoch", "epoch"}};
@@ -903,7 +1752,7 @@ void McpTests::stdioWithoutApplicationAndInitialization()
     Host host;
     QVERIFY(host.start(directory.path(), {}));
     host.send({{"jsonrpc", "2.0"}, {"id", 2}, {"method", "tools/list"}});
-    QCOMPARE(host.next().value("result").toObject().value("tools").toArray().size(), 6);
+    QCOMPARE(host.next().value("result").toObject().value("tools").toArray().size(), 7);
     const auto result = host.call("novaterm_list_sessions");
     QCOMPARE(result.value("error").toObject().value("code").toString(), QStringLiteral("APP_NOT_RUNNING"));
 }
@@ -1126,7 +1975,7 @@ void McpTests::duplicateIndexSurvivesEvictionAndReset()
     QCOMPARE(cache.duplicates(), NovaTerm::u64(0));
 }
 
-void McpTests::settingsDialogSeparatesReadAndCommandPermission()
+void McpTests::settingsDialogSeparatesReadAndScriptPermission()
 {
     eApp->init();
     Fixture f;
@@ -1139,6 +1988,11 @@ void McpTests::settingsDialogSeparatesReadAndCommandPermission()
     QTest::qWait(40);
     auto* tree = dialog->findChild<ElaTreeWidget*>();
     QVERIFY(tree && tree->topLevelItemCount() == 1);
+    QCOMPARE(tree->columnCount(), 5);
+    const auto copyButtons = dialog->findChildren<QPushButton*>();
+    QVERIFY(std::any_of(copyButtons.cbegin(), copyButtons.cend(), [](const QPushButton* button) {
+        return button->text() == QStringLiteral("Copy for CC Switch");
+    }));
     tree->topLevelItem(0)->setCheckState(2, Qt::Checked);
     QTRY_VERIFY(f.service.access().canRead(f.client, f.service.directory().entries().first()));
     QVERIFY(f.service.access().commands(f.client, f.service.directory().entries().first()).isEmpty());
@@ -1149,6 +2003,14 @@ void McpTests::settingsDialogSeparatesReadAndCommandPermission()
     tree->topLevelItem(0)->child(0)->setCheckState(3, Qt::Unchecked);
     QTRY_COMPARE(f.service.access().commands(f.client, f.service.directory().entries().first()).size(), 3);
     QTest::qWait(10);
+    QVERIFY(!f.service.access().canRunScriptTask(f.client,
+        f.service.directory().entries().first()));
+    tree->topLevelItem(0)->setCheckState(4, Qt::Checked);
+    QTRY_VERIFY(f.service.access().canRunScriptTask(f.client,
+        f.service.directory().entries().first()));
+    tree->topLevelItem(0)->setCheckState(4, Qt::Unchecked);
+    QTRY_VERIFY(!f.service.access().canRunScriptTask(f.client,
+        f.service.directory().entries().first()));
     tree->topLevelItem(0)->setCheckState(2, Qt::Unchecked);
     QTRY_VERIFY(!f.service.access().canRead(f.client, f.service.directory().entries().first()));
     QVERIFY(f.service.access().commands(f.client, f.service.directory().entries().first()).isEmpty());
@@ -1157,6 +2019,25 @@ void McpTests::settingsDialogSeparatesReadAndCommandPermission()
     if (!preview.isEmpty()) QVERIFY(dialog->grab().save(preview));
     dialog->close();
     QTRY_VERIFY(dialog.isNull());
+}
+
+void McpTests::stateDirectoryOwnedByTokenDefaultOwnerIsSecurable()
+{
+    // 提权运行时进程创建的对象属主是令牌的默认属主（Administrators，带
+    // SE_GROUP_OWNER），不是 TokenUser。只按 TokenUser 比对属主会让进程无法加固
+    // 自己刚创建的状态目录：AccessStore::setEnabled(true) 返回 false，设置界面的
+    // “启用本机 MCP 接入”因此表现为点不动（McpSettingsDialog::reportFailure）。
+    QTemporaryDir root;
+    QVERIFY(root.isValid());
+    const auto directory = root.filePath("state");
+    QVERIFY(QDir().mkpath(directory));
+    QVERIFY(secureDirectory(directory));
+    AccessStore store(directory, {});
+    QVERIFY(store.setEnabled(true));
+    QVERIFY(store.enabled());
+    QVERIFY(QFile::exists(QDir(directory).filePath("access.json")));
+    QVERIFY(store.setEnabled(false));
+    QVERIFY(!store.enabled());
 }
 
 namespace {
@@ -1205,6 +2086,87 @@ int sshLoopbackCheck(quint16 port)
     if (!result || !result->outputTruncated) ++failures;
     run(4, "fixture-timeout", {64, 200}, CommandExecutionOutcome::TimedOut);
     if (!result || result->terminationConfirmed || !result->executionMayHaveStarted) ++failures;
+
+    SshSessionScriptProvider scriptProvider(&transport);
+    QSignalSpy scriptFinished(&scriptProvider,
+        &ISessionScriptProvider::finished);
+    ScriptWriteRequest scriptRequest;
+    scriptRequest.requestId = 51;
+    scriptRequest.content = QByteArrayLiteral("#!/bin/sh\nprintf loopback-only\n");
+    scriptRequest.targetPath = QStringLiteral("/scripts/novaterm-loopback.sh");
+    scriptRequest.workingDirectory = QStringLiteral("/scripts");
+    if (!scriptProvider.writeScript(scriptRequest)
+        || !waitFor([&] { return scriptFinished.count() == 1; }, 15000)) {
+        std::fprintf(stderr, "Loopback SFTP script upload timed out.\n");
+        ++failures;
+    } else {
+        const auto uploaded = qvariant_cast<ScriptWriteResult>(
+            scriptFinished.takeFirst().front());
+        const bool ok = uploaded.requestId == scriptRequest.requestId
+            && uploaded.success
+            && uploaded.contentHash == QCryptographicHash::hash(
+                scriptRequest.content, QCryptographicHash::Sha256)
+            && uploaded.resolvedTargetPath == scriptRequest.targetPath;
+        if (!ok) {
+            std::fprintf(stderr, "loopback SFTP upload failed (success=%d, error=%s, target=%s)\n",
+                int(uploaded.success), qPrintable(uploaded.errorCode),
+                qPrintable(uploaded.resolvedTargetPath));
+        }
+        std::printf("loopback SFTP provider: %s\n", ok ? "PASS" : "FAIL");
+        failures += !ok;
+    }
+    {
+        SshTransport interactiveTransport(config);
+        SshTransportTestAccess::knownHosts(interactiveTransport,
+                                           root.filePath("known_hosts"));
+        QObject::connect(&interactiveTransport, &SshTransport::hostKeyRequired,
+            &interactiveTransport, [&interactiveTransport] {
+                interactiveTransport.acceptHostKey();
+            });
+        RuntimeConfig runtime;
+        runtime.transportKind = TransportKind::Ssh;
+        TerminalSession session(runtime);
+        session.attach(&interactiveTransport, TerminalSession::Ownership::Borrowed,
+                       TransportKind::Ssh);
+        const bool connected = session.start()
+            && waitFor([&] { return session.state() == SessionState::Running; }, 10000);
+        bool commandOk = false;
+        if (connected) {
+            Service service(root.filePath("state"), root.filePath("instances"),
+                            std::make_unique<MemoryCredentialStore>());
+            service.directory().add(&session);
+            const auto client = service.access().addClient(QStringLiteral("loopback"));
+            const bool enabled = !client.isEmpty() && service.access().setEnabled(true)
+                && waitFor([&] { return service.status() == QStringLiteral("Listening"); }, 1000);
+            const auto entry = service.directory().entries().first();
+            if (enabled && service.access().setGrant(client, entry, true)) {
+                Host host;
+                if (host.start(root.filePath("instances"),
+                    service.access().exportToken(client).value_or(QByteArray{}))) {
+                    const auto response = host.call("novaterm_run_command",
+                        QJsonObject{{"sessionId", entry.id}, {"epoch", entry.epoch},
+                            {"command", QStringLiteral("pwd")}, {"timeoutMs", 2000}});
+                    commandOk = response.value("ok").toBool()
+                        && response.value("data").toObject().value("stdout")
+                            .toString().contains(QStringLiteral("/fixture"));
+                    if (commandOk && session.core()->waitForIdle()) {
+                        QByteArray visible;
+                        for (const auto& line : session.core()->terminalState().viewport)
+                            visible += QByteArray::fromStdString(line.text);
+                        commandOk = visible.contains(QByteArrayLiteral("root# pwd"))
+                            && visible.contains(QByteArrayLiteral("/fixture"))
+                            && !visible.contains(QByteArrayLiteral("__nvterm"))
+                            && !visible.contains(QByteArrayLiteral("NT;END"));
+                    } else {
+                        commandOk = false;
+                    }
+                }
+            }
+        }
+        std::printf("loopback interactive pwd: %s\n", commandOk ? "PASS" : "FAIL");
+        failures += !commandOk;
+        session.close(CloseMode::Abort);
+    }
     transport.disconnect();
     std::printf("Loopback SSH result: %s\n", failures ? "FAIL" : "PASS");
     return failures ? 1 : 0;

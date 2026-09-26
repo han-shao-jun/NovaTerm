@@ -5,6 +5,7 @@
 #include "session/SessionCommandCoordinator.h"
 #include "session/ShellIntegration.h"
 #include "session/LocalShellProfile.h"
+#include "session/LocalSessionScriptProvider.h"
 #include "session/SessionInputArbiter.h"
 #include "session/SessionStore.h"
 #include "session/TerminalSession.h"
@@ -14,6 +15,8 @@
 #include <QSignalSpy>
 #include <QKeyEvent>
 #include <QFile>
+#include <QDir>
+#include <QFileInfo>
 #include <QTemporaryDir>
 #include <QTest>
 
@@ -131,14 +134,22 @@ private slots:
     void forgedAndOrdinaryOscRemainVisible();
     void framingBufferIsBoundedAndResetDropsOldPartialMarker();
     void interactiveCommandRequiresReadyPrompt();
+    void userTypingInvalidatesPreviouslyReadyPrompt();
     void interactiveCommandCapturesCombinedFrameInOrder();
     void userInputCancelsStartedInteractiveCommand();
+    void sshWithoutTrustedPromptRunsBoundedCommand();
+    void unverifiedLongEchoHidesSuffixAcrossCarriageReturn();
+    void unverifiedLongEchoHidesSuffixAcrossBackspaceRedraw();
+    void unverifiedLongEchoHidesPartialSuffixBeforeLineRedraw();
+    void cancellingUnverifiedCommandPreservesPartialEcho();
+    void unverifiedCommandDeadlineReportsTimeout();
     void unknownInteractiveProfileDoesNotEnableCommands();
     void configuredDevicePromptDoesNotProbeTransport();
     void configuredDevicePromptRequiresSilence();
     void terminalSessionUsesConfiguredPromptProfile();
     void localShellPresetsCarryExplicitIntegration();
     void sshShellEnvironmentRequiresExplicitProfile();
+    void localScriptProviderWritesExactlyRequestedPath();
     void shellPromptMarkerCompletesCurrentCommand();
     void clinkHookEnablesCmdOnlyWhenInstalled();
     void unconfiguredFramerLeavesTerminalBytesUntouched();
@@ -148,6 +159,31 @@ private slots:
     void agentContextJoinsHistorySeamAndBoundsUtf8();
     void secretServiceCredentialStoreSurvivesRestart();
 };
+
+void SessionTests::localScriptProviderWritesExactlyRequestedPath()
+{
+    QTemporaryDir root;
+    QVERIFY(root.isValid());
+    const QString target = root.filePath(QStringLiteral("scripts/setup.sh"));
+    QVERIFY(QDir().mkpath(QFileInfo(target).absolutePath()));
+    LocalSessionScriptProvider provider;
+    QSignalSpy finished(&provider, &ISessionScriptProvider::finished);
+    ScriptWriteRequest request;
+    request.requestId = 31;
+    request.content = QByteArrayLiteral("#!/bin/sh\nprintf exact-body\n");
+    request.targetPath = target;
+    request.workingDirectory = root.path();
+
+    QVERIFY(!QFile::exists(target));
+    QVERIFY(provider.writeScript(request));
+    QTRY_COMPARE(finished.count(), 1);
+    const auto result = qvariant_cast<ScriptWriteResult>(finished.takeFirst().front());
+    QCOMPARE(result.requestId, quint64(31));
+    QVERIFY(result.success);
+    QFile file(target);
+    QVERIFY(file.open(QIODevice::ReadOnly));
+    QCOMPARE(file.readAll(), request.content);
+}
 
 void SessionTests::userInputPreemptsPartialMcpWrite()
 {
@@ -289,6 +325,31 @@ void SessionTests::interactiveCommandRequiresReadyPrompt()
     QCOMPARE(transport.writes, QByteArray{});
 }
 
+void SessionTests::userTypingInvalidatesPreviouslyReadyPrompt()
+{
+    FakeTransport transport;
+    QVERIFY(transport.connectToHost());
+    SessionInputArbiter arbiter;
+    arbiter.bind(&transport, 12);
+    InteractiveStreamFramer framer;
+    InteractiveCommandProfile profile;
+    profile.shellIntegration = true;
+    framer.configure(profile);
+    framer.reset(12);
+    SessionCommandCoordinator coordinator(&arbiter, &framer);
+    coordinator.reset(12);
+    coordinator.handleInteractiveEvent({
+        InteractiveStreamEventKind::PromptReady, 1, 0});
+    QVERIFY(coordinator.isPromptReady());
+
+    arbiter.submitUserInput(QByteArrayLiteral("user typed ahead"));
+
+    QVERIFY(!coordinator.isPromptReady());
+    coordinator.handleInteractiveEvent({
+        InteractiveStreamEventKind::PromptReady, 2, 0});
+    QVERIFY(coordinator.isPromptReady());
+}
+
 void SessionTests::interactiveCommandCapturesCombinedFrameInOrder()
 {
     TerminalCore core(80, 24);
@@ -378,11 +439,249 @@ void SessionTests::userInputCancelsStartedInteractiveCommand()
     QCOMPARE(transport.writes, QByteArrayLiteral("sleep 5\rx"));
 }
 
+void SessionTests::sshWithoutTrustedPromptRunsBoundedCommand()
+{
+    RuntimeConfig runtime;
+    runtime.transportKind = TransportKind::Ssh;
+    const auto profile = ShellIntegration::profileFor(runtime);
+    QVERIFY(profile);
+    QVERIFY(profile->allowUnverifiedPrompt);
+
+    TerminalCore core(80, 24);
+    FakeTransport transport;
+    QVERIFY(transport.connectToHost());
+    SessionInputArbiter arbiter;
+    arbiter.bind(&transport, 30);
+    InteractiveStreamFramer framer;
+    framer.configure(*profile);
+    framer.reset(30);
+    SessionCommandCoordinator coordinator(&arbiter, &framer);
+    coordinator.configure(*profile);
+    coordinator.reset(30);
+    SessionInputPump pump(&transport, &core, &framer);
+    connect(&pump, &SessionInputPump::interactiveEvent,
+            &coordinator, &SessionCommandCoordinator::handleInteractiveEvent);
+    connect(&pump, &SessionInputPump::interactiveBytes,
+            &coordinator, &SessionCommandCoordinator::handleInteractiveBytes);
+    pump.start();
+
+    CommandExecutionRequest request;
+    request.requestId = 301;
+    request.command = QByteArrayLiteral("pwd");
+    request.executionNonce = QByteArrayLiteral("blind-301");
+    request.expectedPromptGeneration = 0;
+    QSignalSpy finished(&coordinator, &SessionCommandCoordinator::finished);
+    QVERIFY(coordinator.submit(request));
+    const QByteArray submitted = transport.writes;
+    QVERIFY(submitted.startsWith(QByteArrayLiteral("pwd;")));
+    QVERIFY(submitted.endsWith('\r'));
+    const qsizetype split = submitted.indexOf(QByteArrayLiteral(";__nvterm")) + 4;
+    QVERIFY(split > 4 && split < submitted.size());
+    emit transport.readyRead(QByteArrayLiteral("root# ") + submitted.left(split));
+    emit transport.readyRead(submitted.mid(split)
+        + QByteArrayLiteral("\n/root\n\x1b]633;NT;END;blind-301;0\x07"));
+
+    QTRY_COMPARE(finished.count(), 1);
+    const auto result = qvariant_cast<CommandExecutionResult>(finished.first().front());
+    QCOMPARE(result.outcome, CommandExecutionOutcome::Completed);
+    QCOMPARE(result.exitCode, std::optional<int>{0});
+    QVERIFY(result.terminationConfirmed);
+    QVERIFY(result.standardOutput.contains(QByteArrayLiteral("/root")));
+    QVERIFY(core.waitForIdle());
+    const auto state = core.terminalState();
+    QByteArray visible;
+    for (const auto& line : state.viewport)
+        visible += QByteArray::fromStdString(line.text);
+    QVERIFY(visible.contains(QByteArrayLiteral("root# pwd")));
+    QVERIFY(visible.contains(QByteArrayLiteral("/root")));
+    QVERIFY(!visible.contains(QByteArrayLiteral("__nvterm")));
+    QVERIFY(!visible.contains(QByteArrayLiteral("NT;END")));
+}
+
+void SessionTests::unverifiedLongEchoHidesSuffixAcrossCarriageReturn()
+{
+    InteractiveCommandProfile profile;
+    profile.shellIntegration = true;
+    profile.requiresStartMarker = false;
+    profile.allowUnverifiedPrompt = true;
+    InteractiveStreamFramer framer;
+    framer.configure(profile);
+    framer.reset(32);
+    const QByteArray nonce = QByteArrayLiteral("blind-long-echo");
+    const QByteArray suffix = QByteArrayLiteral(
+        ";__nvterm_rc=$?;printf '\\033]633;NT;END;blind-long-echo;%d\\007' \"$__nvterm_rc\"");
+    framer.beginTransaction(nonce, suffix);
+
+    const QByteArray echo = QByteArrayLiteral("root# cat /etc/os-release")
+        + suffix.left(45) + QByteArrayLiteral("\r") + suffix.mid(45)
+        + QByteArrayLiteral("\r\nNAME=Buildroot\r\n")
+        + QByteArrayLiteral("\x1b]633;NT;END;blind-long-echo;0\x07");
+    const auto result = framer.consume(echo);
+    QVERIFY(result.visibleBytes.contains(
+        QByteArrayLiteral("root# cat /etc/os-release")));
+    QVERIFY(result.visibleBytes.contains(QByteArrayLiteral("NAME=Buildroot")));
+    QVERIFY(!result.visibleBytes.contains(QByteArrayLiteral("__nvterm")));
+    QVERIFY(!result.visibleBytes.contains(QByteArrayLiteral("NT;END")));
+    QCOMPARE(result.events.size(), 1);
+    QCOMPARE(result.events.first().kind,
+             InteractiveStreamEventKind::CommandFinished);
+}
+
+void SessionTests::unverifiedLongEchoHidesSuffixAcrossBackspaceRedraw()
+{
+    InteractiveCommandProfile profile;
+    profile.shellIntegration = true;
+    profile.requiresStartMarker = false;
+    profile.allowUnverifiedPrompt = true;
+    InteractiveStreamFramer framer;
+    framer.configure(profile);
+    framer.reset(33);
+    const QByteArray nonce = QByteArrayLiteral("blind-redraw");
+    const QByteArray suffix = QByteArrayLiteral(
+        ";__nvterm_rc=$?;printf '\\033]633;NT;END;blind-redraw;%d\\007' \"$__nvterm_rc\"");
+    framer.beginTransaction(nonce, suffix);
+
+    const qsizetype redrawAt = suffix.indexOf(QByteArrayLiteral("NT;END")) + 4;
+    QVERIFY(redrawAt > 4);
+    const QByteArray echo = QByteArrayLiteral("root# cat /etc/os-release")
+        + suffix.left(redrawAt) + QByteArrayLiteral("\bE")
+        + suffix.mid(redrawAt)
+        + QByteArrayLiteral("\r\nNAME=Buildroot\r\n")
+        + QByteArrayLiteral("\x1b]633;NT;END;blind-redraw;0\x07");
+    const qsizetype split = echo.indexOf('\b');
+    const auto first = framer.consume(echo.left(split + 1));
+    const auto second = framer.consume(echo.mid(split + 1));
+    const QByteArray visible = first.visibleBytes + second.visibleBytes;
+    QVERIFY(visible.contains(QByteArrayLiteral("root# cat /etc/os-release")));
+    QVERIFY(visible.contains(QByteArrayLiteral("NAME=Buildroot")));
+    QVERIFY(!visible.contains(QByteArrayLiteral("__nvterm")));
+    QVERIFY(!visible.contains(QByteArrayLiteral("NT;EEND")));
+    QCOMPARE(second.events.size(), 1);
+    QCOMPARE(second.events.first().kind,
+             InteractiveStreamEventKind::CommandFinished);
+}
+
+void SessionTests::unverifiedLongEchoHidesPartialSuffixBeforeLineRedraw()
+{
+    InteractiveCommandProfile profile;
+    profile.shellIntegration = true;
+    profile.requiresStartMarker = false;
+    profile.allowUnverifiedPrompt = true;
+    InteractiveStreamFramer framer;
+    framer.configure(profile);
+    framer.reset(34);
+    const QByteArray nonce = QByteArrayLiteral("blind-line-redraw");
+    const QByteArray suffix = QByteArrayLiteral(
+        ";__nvterm_rc=$?;printf '\\033]633;NT;END;blind-line-redraw;%d\\007' \"$__nvterm_rc\"");
+    framer.beginTransaction(nonce, suffix);
+    const QByteArray promptAndCommand = QByteArrayLiteral(
+        "root# cat /etc/os-release");
+
+    const qsizetype redrawAt = suffix.indexOf(QByteArrayLiteral("NT;END")) + 4;
+    QVERIFY(redrawAt > 4);
+    const QByteArray redrawSuffix = suffix.left(redrawAt)
+        + QByteArrayLiteral("\bE") + suffix.mid(redrawAt);
+    const QByteArray echo = promptAndCommand + suffix.left(40)
+        + QByteArrayLiteral("\r") + promptAndCommand + redrawSuffix
+        + QByteArrayLiteral("\r\nNAME=Buildroot\r\n")
+        + QByteArrayLiteral("\x1b]633;NT;END;blind-line-redraw;0\x07");
+    const auto result = framer.consume(echo);
+    QVERIFY(result.visibleBytes.contains(promptAndCommand));
+    QVERIFY(result.visibleBytes.contains(QByteArrayLiteral("NAME=Buildroot")));
+    QVERIFY(!result.visibleBytes.contains(QByteArrayLiteral("__nvterm")));
+    QVERIFY(!result.visibleBytes.contains(QByteArrayLiteral("NT;END")));
+    QCOMPARE(result.events.size(), 1);
+    QCOMPARE(result.events.first().kind,
+             InteractiveStreamEventKind::CommandFinished);
+    TerminalCore core(120, 10);
+    QVERIFY(core.writeInput(result.visibleBytes).fullyAccepted());
+    QVERIFY(core.waitForIdle());
+    const auto state = core.terminalState();
+    QCOMPARE(QByteArray::fromStdString(state.viewport.at(0).text),
+             promptAndCommand);
+    QCOMPARE(QByteArray::fromStdString(state.viewport.at(1).text),
+             QByteArrayLiteral("NAME=Buildroot"));
+}
+
+void SessionTests::cancellingUnverifiedCommandPreservesPartialEcho()
+{
+    InteractiveCommandProfile profile;
+    profile.shellIntegration = true;
+    profile.requiresStartMarker = false;
+    profile.allowUnverifiedPrompt = true;
+    TerminalCore core(80, 24);
+    FakeTransport transport;
+    QVERIFY(transport.connectToHost());
+    SessionInputArbiter arbiter;
+    arbiter.bind(&transport, 31);
+    InteractiveStreamFramer framer;
+    framer.configure(profile);
+    framer.reset(31);
+    SessionCommandCoordinator coordinator(&arbiter, &framer);
+    coordinator.configure(profile);
+    coordinator.reset(31);
+    SessionInputPump pump(&transport, &core, &framer);
+    connect(&pump, &SessionInputPump::interactiveEvent,
+            &coordinator, &SessionCommandCoordinator::handleInteractiveEvent);
+    connect(&pump, &SessionInputPump::interactiveBytes,
+            &coordinator, &SessionCommandCoordinator::handleInteractiveBytes);
+    connect(&coordinator, &SessionCommandCoordinator::visibleRemainder,
+            &pump, &SessionInputPump::forwardFramerRemainder);
+    pump.start();
+
+    CommandExecutionRequest request;
+    request.requestId = 302;
+    request.command = QByteArrayLiteral("pwd");
+    request.executionNonce = QByteArrayLiteral("blind-302");
+    QSignalSpy finished(&coordinator, &SessionCommandCoordinator::finished);
+    QVERIFY(coordinator.submit(request));
+    emit transport.readyRead(QByteArrayLiteral("ordinary;__nv"));
+    coordinator.cancel(request.requestId);
+    QCOMPARE(finished.count(), 1);
+    QVERIFY(core.waitForIdle());
+    QByteArray visible;
+    for (const auto& line : core.terminalState().viewport)
+        visible += QByteArray::fromStdString(line.text);
+    QVERIFY(visible.contains(QByteArrayLiteral("ordinary;__nv")));
+}
+
+void SessionTests::unverifiedCommandDeadlineReportsTimeout()
+{
+    InteractiveCommandProfile profile;
+    profile.shellIntegration = true;
+    profile.requiresStartMarker = false;
+    profile.allowUnverifiedPrompt = true;
+    FakeTransport transport;
+    QVERIFY(transport.connectToHost());
+    SessionInputArbiter arbiter;
+    arbiter.bind(&transport, 32);
+    InteractiveStreamFramer framer;
+    framer.configure(profile);
+    framer.reset(32);
+    SessionCommandCoordinator coordinator(&arbiter, &framer);
+    coordinator.configure(profile);
+    coordinator.reset(32);
+    CommandExecutionRequest request;
+    request.requestId = 303;
+    request.command = QByteArrayLiteral("pwd");
+    request.executionNonce = QByteArrayLiteral("blind-303");
+    QSignalSpy finished(&coordinator, &SessionCommandCoordinator::finished);
+    QVERIFY(coordinator.submit(request));
+    coordinator.expire(request.requestId);
+    QCOMPARE(finished.count(), 1);
+    const auto result = qvariant_cast<CommandExecutionResult>(finished.first().front());
+    QCOMPARE(result.outcome, CommandExecutionOutcome::TimedOut);
+    QVERIFY(result.executionMayHaveStarted);
+    QVERIFY(!result.terminationConfirmed);
+}
+
 void SessionTests::unknownInteractiveProfileDoesNotEnableCommands()
 {
     RuntimeConfig runtime;
     runtime.transportKind = TransportKind::Ssh;
-    QVERIFY(!ShellIntegration::profileFor(runtime));
+    const auto unverified = ShellIntegration::profileFor(runtime);
+    QVERIFY(unverified);
+    QVERIFY(unverified->allowUnverifiedPrompt);
 
     runtime.transport.insert(QStringLiteral("interactiveShellKind"),
                              QStringLiteral("unsupported"));

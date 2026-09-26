@@ -87,6 +87,14 @@ void SessionInputPump::acceptBytes(const QByteArray& data)
     forwardVisibleBytes(data);
 }
 
+void SessionInputPump::forwardFramerRemainder(const QByteArray& bytes)
+{
+    if (!_running || bytes.isEmpty())
+        return;
+    emit interactiveBytes(bytes);
+    forwardVisibleBytes(bytes);
+}
+
 void SessionInputPump::forwardVisibleBytes(const QByteArray& data)
 {
     if (data.isEmpty())

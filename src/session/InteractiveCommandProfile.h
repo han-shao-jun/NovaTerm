@@ -18,6 +18,7 @@ struct InteractiveCommandProfile
     bool remoteEcho{true};
     bool shellIntegration{false};
     bool requiresStartMarker{true};
+    bool allowUnverifiedPrompt{false}; ///< 无可信提示符时由命令内的结束标记收口。
     qsizetype maxMarkerBytes{4096};
 
     /** @brief 配置是否满足有界解析的最低要求。 */

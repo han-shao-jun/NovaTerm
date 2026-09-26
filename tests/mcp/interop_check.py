@@ -27,7 +27,7 @@ async def check(config: dict) -> None:
             initialization = await session.initialize()
             assert initialization.protocolVersion == "2025-11-25"
             catalog = await session.list_tools()
-            assert len(catalog.tools) == 5
+            assert len(catalog.tools) == 7
             schemas = {tool.name: tool.outputSchema for tool in catalog.tools}
             for tool in catalog.tools:
                 Draft202012Validator.check_schema(tool.inputSchema)
@@ -64,7 +64,69 @@ async def check(config: dict) -> None:
             assert await call("novaterm_execute_command", arguments) == executed
             rejected = await call("novaterm_read_context", {**identity, "command": "not allowed"})
             assert not rejected["ok"] and rejected["error"]["code"] == "INVALID_ARGUMENT"
-            print("PASS: official MCP SDK, 5 tool schemas, bounded reads, search, 2 clients, execution and replay")
+    await check_modern(settings)
+    print("PASS: official MCP SDK 2025 + 2026 discover/MRTR wire, 7 schemas, bounded reads, search, execution and replay")
+
+
+async def check_modern(settings: dict) -> None:
+    environment = {**os.environ, **settings["env"]}
+    process = await asyncio.create_subprocess_exec(
+        settings["command"], *settings["args"],
+        stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE, env=environment)
+    request_id = 0
+
+    async def rpc(method: str, params: dict) -> dict:
+        nonlocal request_id
+        request_id += 1
+        request = {"jsonrpc": "2.0", "id": request_id,
+                   "method": method, "params": params}
+        process.stdin.write(json.dumps(request, separators=(",", ":")).encode() + b"\n")
+        await process.stdin.drain()
+        line = await asyncio.wait_for(process.stdout.readline(), timeout=8)
+        assert line, "MCP bridge closed stdout before responding"
+        response = json.loads(line)
+        assert response.get("id") == request_id, response
+        return response
+
+    def metadata() -> dict:
+        return {
+            "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+            "io.modelcontextprotocol/clientInfo": {"name": "NovaTerm interop", "version": "1"},
+            "io.modelcontextprotocol/clientCapabilities": {
+                "elicitation": {"form": {}}},
+        }
+
+    try:
+        discovered = await rpc("server/discover", {"_meta": metadata()})
+        discovery = discovered["result"]
+        assert discovery["resultType"] == "complete"
+        assert "2026-07-28" in discovery["supportedVersions"]
+        assert discovery["_meta"]["io.modelcontextprotocol/serverInfo"]["name"] == "novaterm"
+        unsupported_meta = metadata()
+        unsupported_meta["io.modelcontextprotocol/protocolVersion"] = "2099-01-01"
+        unsupported = await rpc("tools/list", {"_meta": unsupported_meta})
+        assert unsupported["error"]["code"] == -32022
+        assert unsupported["error"]["data"]["requested"] == "2099-01-01"
+        listed = await rpc("tools/list", {"_meta": metadata()})
+        assert listed["result"]["resultType"] == "complete"
+        assert len(listed["result"]["tools"]) == 7
+        sessions = await rpc("tools/call", {"name": "novaterm_list_sessions",
+            "arguments": {}, "_meta": metadata()})
+        assert sessions["result"]["resultType"] == "complete"
+        identity = sessions["result"]["structuredContent"]["data"]["sessions"][0]
+        context = await rpc("tools/call", {"name": "novaterm_read_context",
+            "arguments": {"sessionId": identity["sessionId"], "epoch": identity["epoch"]},
+            "_meta": metadata()})
+        assert context["result"]["resultType"] == "complete"
+        assert context["result"]["structuredContent"]["ok"]
+    finally:
+        process.stdin.close()
+        try:
+            await asyncio.wait_for(process.wait(), timeout=5)
+        except asyncio.TimeoutError:
+            process.kill()
+            await process.wait()
 
 
 def main() -> None:

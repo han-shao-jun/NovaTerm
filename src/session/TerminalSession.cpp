@@ -14,6 +14,7 @@
 #include "SessionInputPump.h"
 #include "InteractiveStreamFramer.h"
 #include "ShellIntegration.h"
+#include "ISessionScriptProvider.h"
 #include "core/terminal/TerminalCore.h"
 
 #include <QDebug>
@@ -124,6 +125,12 @@ TerminalSession::~TerminalSession()
     if (_state != SessionState::Closed)
         close(CloseMode::Abort);
     clearAttachment(false);
+}
+
+void TerminalSession::installScriptProvider(
+    std::unique_ptr<ISessionScriptProvider> provider)
+{
+    _scriptProvider = std::move(provider);
 }
 
 void TerminalSession::attach(ITransport* transport, Ownership ownership)
@@ -537,6 +544,8 @@ void TerminalSession::startPump()
     connect(_inputPump, &SessionInputPump::interactiveBytes,
             _commandCoordinator.get(),
             &SessionCommandCoordinator::handleInteractiveBytes);
+    connect(_commandCoordinator.get(), &SessionCommandCoordinator::visibleRemainder,
+            _inputPump, &SessionInputPump::forwardFramerRemainder);
     _inputPump->start();
 }
 
@@ -556,6 +565,7 @@ void TerminalSession::clearAttachment(bool requestDisconnect)
     _inputArbiter->bind(nullptr, _statistics.generation);
     _streamFramer->reset(_statistics.generation);
     _commandCoordinator->reset(_statistics.generation);
+    _scriptProvider.reset();
     _transport = nullptr;
     if (!current)
         return;

@@ -209,7 +209,8 @@ quint64 AccessStore::version(const QString& clientId) const
 
 bool AccessStore::setGrant(const QString& clientId, const SessionDirectory::Entry& entry,
                            bool read, QSet<QString> commands,
-                           bool interactiveCommand)
+                           bool interactiveCommand, bool confirmedCommand,
+                           bool scriptTask)
 {
     if (!_clients.contains(clientId) || !entry.session || (read && !_enabled))
         return false;
@@ -223,7 +224,8 @@ bool AccessStore::setGrant(const QString& clientId, const SessionDirectory::Entr
         }
         _grants[clientId].insert(entry.id,
             Grant{entry.attachmentId, entry.epoch,
-                  std::move(commands), interactiveCommand});
+                  std::move(commands), interactiveCommand,
+                  confirmedCommand, scriptTask});
         if (qEnvironmentVariableIntValue("NOVATERM_MCP_PUBLISHED_SNAPSHOT") > 0
             && entry.session->core()) {
             static_cast<void>(entry.session->core()->requestPublishedTerminalState());
@@ -259,5 +261,23 @@ bool AccessStore::canRunCommand(
         return false;
     const auto grant = _grants.value(clientId).value(entry.id);
     return grant.epoch == entry.epoch && grant.interactiveCommand;
+}
+
+bool AccessStore::canRunConfirmedCommand(
+    const QString& clientId, const SessionDirectory::Entry& entry) const
+{
+    if (!canRead(clientId, entry))
+        return false;
+    const auto grant = _grants.value(clientId).value(entry.id);
+    return grant.epoch == entry.epoch && grant.confirmedCommand;
+}
+
+bool AccessStore::canRunScriptTask(
+    const QString& clientId, const SessionDirectory::Entry& entry) const
+{
+    if (!canRead(clientId, entry))
+        return false;
+    const auto grant = _grants.value(clientId).value(entry.id);
+    return grant.epoch == entry.epoch && grant.scriptTask;
 }
 }

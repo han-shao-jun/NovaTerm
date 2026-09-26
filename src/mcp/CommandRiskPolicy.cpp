@@ -10,7 +10,7 @@
 #include <utility>
 
 namespace {
-const QString RiskPolicyVersion = QStringLiteral("interactive-risk-v1");
+const QString RiskPolicyVersion = QStringLiteral("interactive-risk-v3");
 
 RiskAssessment assessment(RiskDecision decision, QString reason)
 {
@@ -33,7 +33,7 @@ bool hasForbiddenControl(const QString& value)
 bool containsForbiddenFamily(const QString& command)
 {
     static const QRegularExpression forbidden(
-        QStringLiteral(R"((?i)(?:^|[\s;&|])(?:sudo|su|runas|doas|pkexec|mkfs(?:\.[a-z0-9]+)?|diskpart|format|shutdown|reboot|poweroff|Get-Credential|Set-ExecutionPolicy)(?=$|[\s;&|])|/etc/shadow|\.ssh[/\\]id_[a-z0-9]+|(?:disable|stop)[\s]+(?:auditd|firewalld|defender))"));
+        QStringLiteral(R"((?i)(?:^|[\s;&|])(?:sudo|su|runas|runuser|doas|pkexec|mkfs(?:\.[a-z0-9]+)?|diskpart|format|fdisk|sfdisk|parted|wipefs|shutdown|reboot|poweroff|cmdkey|vaultcmd|secret-tool|Get-Credential|Get-Secret|Get-StoredCredential|Set-ExecutionPolicy|Set-MpPreference|Add-MpPreference|setcap|capsh|printenv)(?=$|[\s;&|])|(?:^|[\s;&|])security[\s]+find-generic-password\b|(?:^|[\s;&|])env(?=$|[\s;&|])|Get-ChildItem[\s]+Env:|/etc/(?:shadow|gshadow|sudoers)|/proc/(?:self|[0-9]+)/environ|\.ssh[/\\]id_[a-z0-9]+|(?:^|[/\\])(?:\.aws[/\\]credentials|\.git-credentials|\.netrc|\.npmrc|\.pypirc|\.pgpass|\.docker[/\\]config\.json|\.kube[/\\]config)|\.gnupg[/\\]private-keys-v1\.d|(?:disable|stop)[\s]+(?:auditd|firewalld|defender|winDefend|ufw)|ufw[\s]+disable|iptables[\s]+-F\b|nft[\s]+flush[\s]+ruleset|spctl[\s]+--master-disable|launchctl[\s]+unload|dd[\s]+[^\n]*\bof=/dev/|chmod[\s]+[^\n]*[ugo]?\+s)"));
     return forbidden.match(command).hasMatch();
 }
 
@@ -66,11 +66,22 @@ RiskAssessment CommandRiskPolicy::classify(QStringView command) const
         QStringLiteral("df -Pk"),
         QStringLiteral("pwd"),
         QStringLiteral("whoami"),
+        QStringLiteral("cat /etc/os-release"),
+        QStringLiteral("cat /proc/version"),
     };
     const QString normalized = text.simplified();
     if (readOnly.contains(normalized))
         return assessment(RiskDecision::Allow,
                           QStringLiteral("strict_read_only_template"));
+    static const QRegularExpression lowRiskList(
+        QStringLiteral(R"(^ls(?:\s+-[lahtrS1]+)?(?:\s+\S+)?$)"));
+    static const QRegularExpression lowRiskChangeDirectory(
+        QStringLiteral(R"(^cd(?:\s+\S+)?$)"));
+    if (lowRiskList.match(normalized).hasMatch()
+        || lowRiskChangeDirectory.match(normalized).hasMatch()) {
+        return assessment(RiskDecision::Allow,
+                          QStringLiteral("simple_low_risk_shell"));
+    }
     if (normalized.startsWith(QStringLiteral("rm "))
         || normalized.startsWith(QStringLiteral("del "))
         || normalized.startsWith(QStringLiteral("mv "))

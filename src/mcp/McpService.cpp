@@ -8,12 +8,15 @@
 #include "LocalMcpServer.h"
 #include "session/SessionCommandFacade.h"
 #include "session/SessionCommandCoordinator.h"
+#include "session/SessionInputArbiter.h"
+#include "session/ISessionScriptProvider.h"
 #include "core/ThreadNaming.h"
 #include <QCoreApplication>
 #include <QDateTime>
 #include <QDir>
 #include <QElapsedTimer>
 #include <QFile>
+#include <QCryptographicHash>
 #include <QJsonDocument>
 #include <QPointer>
 #include <QRunnable>
@@ -26,7 +29,7 @@
 #include <deque>
 
 #ifndef NOVATERM_VERSION
-#define NOVATERM_VERSION "0.2.17"
+#define NOVATERM_VERSION "0.2.30"
 #endif
 
 namespace NovaTerm::Mcp {
@@ -39,6 +42,113 @@ QJsonObject error(const char* code, bool retryable = false, int retryAfter = 0)
 {
     return failure(QString::fromLatin1(code), QString::fromLatin1(code), retryable, retryAfter);
 }
+QByteArray scriptArgumentsDigest(const QJsonObject& arguments)
+{
+    return QCryptographicHash::hash(
+        QJsonDocument(arguments).toJson(QJsonDocument::Compact),
+        QCryptographicHash::Sha256);
+}
+QByteArray scriptMetadataDigest(QJsonObject arguments)
+{
+    arguments.remove(QStringLiteral("scriptContent"));
+    return scriptArgumentsDigest(arguments);
+}
+QString safeScriptPreview(const QByteArray& content, qsizetype maximumBytes)
+{
+    const QString decoded = QString::fromUtf8(content.left(maximumBytes));
+    QString preview;
+    preview.reserve(decoded.size());
+    for (const QChar character : decoded) {
+        if (character == QLatin1Char('\n') || character == QLatin1Char('\t')) {
+            preview.append(character);
+        } else if (character == QLatin1Char('\r')) {
+            preview.append(QStringLiteral("\\r"));
+        } else if (character.category() == QChar::Other_Control) {
+            preview.append(QStringLiteral("\\u%1").arg(
+                character.unicode(), 4, 16, QLatin1Char('0')));
+        } else {
+            preview.append(character);
+        }
+    }
+    return preview;
+}
+QString shellQuotePosix(QString value)
+{
+    value.replace(QLatin1Char('\''), QStringLiteral("'\\''"));
+    return QLatin1Char('\'') + value + QLatin1Char('\'');
+}
+std::optional<QString> scriptInvocationCommand(const QString& shellKind,
+    const QString& workingDirectory, const QString& invocation)
+{
+    if (workingDirectory.isEmpty() || invocation.isEmpty()
+        || workingDirectory.contains(QChar::Null)
+        || workingDirectory.contains(QLatin1Char('\r'))
+        || workingDirectory.contains(QLatin1Char('\n')))
+        return std::nullopt;
+    if (shellKind == QStringLiteral("posix")) {
+        return QStringLiteral("cd -- %1 && %2")
+            .arg(shellQuotePosix(workingDirectory), invocation);
+    }
+    if (shellKind == QStringLiteral("powershell")) {
+        QString quoted = workingDirectory;
+        quoted.replace(QLatin1Char('\''), QStringLiteral("''"));
+        return QStringLiteral("Set-Location -LiteralPath '%1' -ErrorAction Stop; %2")
+            .arg(quoted, invocation);
+    }
+    if (shellKind == QStringLiteral("cmd")) {
+        if (workingDirectory.contains(QLatin1Char('"'))
+            || workingDirectory.contains(QLatin1Char('%'))
+            || workingDirectory.contains(QLatin1Char('^')))
+            return std::nullopt;
+        QString quoted = workingDirectory;
+        quoted.replace(QLatin1Char('/'), QLatin1Char('\\'));
+        return QStringLiteral("cd /d \"%1\" && %2")
+            .arg(quoted, invocation);
+    }
+    return std::nullopt;
+}
+QString scriptConfirmationMessage(const QByteArray& content,
+    const QString& targetPath, const QString& workingDirectory,
+    const QString& invocation, const QStringList& reasons,
+    bool targetExistsLocally)
+{
+    constexpr qsizetype PreviewBytes = 4096;
+    const qsizetype previewLength = qMin(content.size(), PreviewBytes);
+    QString preview = safeScriptPreview(content, previewLength);
+    if (previewLength < content.size())
+        preview += QStringLiteral("\n… preview truncated …");
+    const QString hash = QString::fromLatin1(
+        QCryptographicHash::hash(content, QCryptographicHash::Sha256).toHex());
+    const QString overwrite = targetExistsLocally
+        ? QStringLiteral("The existing local target will be overwritten after approval.")
+        : QStringLiteral("The requested target may exist and will be overwritten after approval.");
+    return QStringLiteral(
+        "Confirm writing and running this script on the selected host.\n\n"
+        "Target: %1\nWorking directory: %2\nInvocation shown in terminal: %3\n"
+        "Size: %4 bytes\nSHA-256: %5\nRisk: %6\n%7 "
+        "The file is not automatically deleted. Script contents are not sent to the terminal.\n\n"
+        "Script preview:\n%8")
+        .arg(targetPath).arg(workingDirectory).arg(invocation).arg(content.size())
+        .arg(hash).arg(reasons.join(QStringLiteral(", "))).arg(overwrite).arg(preview);
+}
+QString normalizedScriptTarget(TransportKind kind, const QString& workingDirectory,
+                               const QString& targetPath)
+{
+    if (workingDirectory.isEmpty() || targetPath.isEmpty())
+        return {};
+    if (kind == TransportKind::LocalShell) {
+        const QFileInfo targetInfo(targetPath);
+        return QDir::cleanPath(targetInfo.isAbsolute()
+            ? targetInfo.absoluteFilePath()
+            : QDir(workingDirectory).absoluteFilePath(targetPath));
+    }
+    if (kind == TransportKind::Ssh) {
+        const QString joined = targetPath.startsWith(QLatin1Char('/'))
+            ? targetPath : workingDirectory + QLatin1Char('/') + targetPath;
+        return QDir::cleanPath(joined);
+    }
+    return {};
+}
 }
 
 class Service::Impl
@@ -49,9 +159,15 @@ public:
         QString id;
         QString tool;
         QJsonObject arguments;
+        QString requestState;
+        QJsonObject inputResponses;
         qint64 deadline{0};
         qint64 created{0};
         bool running{false};
+        bool confirmationAccepted{false};
+        bool mrtr{false};
+        bool formElicitation{false};
+        QString scriptPolicyVersion;
         std::atomic<bool> cancelled{false};
     };
     struct Connection {
@@ -59,6 +175,20 @@ public:
         QByteArray key;
         int active{0};
         std::deque<std::shared_ptr<Job>> waiting;
+    };
+    struct PendingConfirmation {
+        std::shared_ptr<Job> job;
+        QString client, session, epoch, command, policyVersion, tool;
+        QString profileVersion, targetFingerprint;
+        quint64 grantVersion{0};
+        quint64 promptGeneration{0};
+        quint64 userInputGeneration{0};
+        QByteArray payloadHash;
+        qint64 expires{0};
+    };
+    struct ConfirmationScope {
+        QString connection, client, session;
+        qint64 expires{0};
     };
     struct Capture {
         QString connection;
@@ -89,6 +219,19 @@ public:
         QJsonObject payload;
         bool complete{false};
         bool interactive{false};
+        QString scriptPathLock;
+        QPointer<SessionCommandCoordinator> coordinator;
+    };
+    struct ScriptWriteTask {
+        std::shared_ptr<Job> job;
+        QPointer<ISessionScriptProvider> provider;
+        QString client, session, epoch, targetFingerprint;
+        QString policyVersion, profileVersion, targetPath, workingDirectory;
+        QString invocation, scriptPathLock;
+        QByteArray metadataHash, contentHash;
+        quint64 promptGeneration{0}, grantVersion{0}, sessionGeneration{0};
+        quint64 userInputGeneration{0};
+        int timeoutMs{5000};
     };
 
     Impl(Service* owner, QString stateDir, QString runtimeDir, std::unique_ptr<CredentialStore> credentials)
@@ -163,7 +306,9 @@ public:
             disconnect(id);
         for (auto& execution : executions) {
             if (!execution.complete) {
-                if (execution.facade)
+                if (execution.coordinator)
+                    execution.coordinator->cancel(execution.executorRequestId);
+                else if (execution.facade)
                     execution.facade->cancel(execution.executorRequestId);
                 CommandExecutionResult result;
                 result.requestId = execution.executorRequestId;
@@ -191,7 +336,10 @@ public:
                     io.closeConnection(connectionId);
                 return;
             }
-            connections.insert(connectionId, Connection{client, randomBytes(), 0, {}});
+            Connection newConnection;
+            newConnection.client = client;
+            newConnection.key = randomBytes();
+            connections.insert(connectionId, std::move(newConnection));
             if (!io.send(connectionId, {{"op", "hello"}, {"ok", true}, {"instanceId", instance}})) {
                 disconnect(connectionId);
                 return;
@@ -203,6 +351,76 @@ public:
         if (connection == connections.end()) { io.closeConnection(connectionId); return; }
         const auto id = message.value("id").toString();
         if (id.isEmpty() || id.size() > 64) { io.closeConnection(connectionId); return; }
+        if (op == "elicitation_result") {
+            const auto key = jobKey(connectionId, id);
+            auto pending = confirmations.find(key);
+            if (pending == confirmations.end()) return;
+            const auto confirmation = pending.value();
+            confirmations.erase(pending);
+            const QString action = message.value("action").toString();
+            if (action != "accept" || !message.value("confirmed").toBool()) {
+                complete(confirmation.job, error(action == "cancel"
+                    ? "COMMAND_CONFIRMATION_CANCELLED" : "COMMAND_CONFIRMATION_DECLINED"));
+                return;
+            }
+            const auto entry = sessions.find(confirmation.session);
+            const auto currentConnection = connections.constFind(connectionId);
+            auto* coordinator = entry && entry->session
+                ? entry->session->commandCoordinator() : nullptr;
+            auto* inputArbiter = entry && entry->session
+                ? entry->session->inputArbiter() : nullptr;
+            auto* facade = entry && entry->session
+                ? entry->session->commandFacade() : nullptr;
+            const bool unverifiedSsh = entry && entry->kind == TransportKind::Ssh
+                && coordinator && coordinator->allowsUnverifiedPrompt();
+            const auto profile = facade ? facade->profile() : CommandPlatformProfile{};
+            RiskAssessment currentRisk;
+            QByteArray digest;
+            if (confirmation.tool == QStringLiteral("novaterm_run_script")) {
+                const auto& arguments = confirmation.job->arguments;
+                const QByteArray content = arguments.value("scriptContent").toString().toUtf8();
+                currentRisk = CommandRiskPolicy{}.classifyScript(content,
+                    arguments.value("targetPath").toString(),
+                    arguments.value("workingDirectory").toString(),
+                    arguments.value("invocation").toString());
+                digest = scriptArgumentsDigest(arguments);
+            } else {
+                currentRisk = CommandRiskPolicy{}.classify(confirmation.command);
+                digest = QCryptographicHash::hash(confirmation.command.toUtf8(),
+                    QCryptographicHash::Sha256);
+            }
+            if (!entry || currentConnection == connections.cend()
+                || currentConnection->client != confirmation.client
+                || !access.canRead(confirmation.client, *entry)
+                || (confirmation.tool == QStringLiteral("novaterm_run_script")
+                    && !access.canRunScriptTask(confirmation.client, *entry))
+                || entry->epoch != confirmation.epoch || !coordinator
+                || (!unverifiedSsh && !coordinator->isPromptReady())
+                || (unverifiedSsh && (!inputArbiter
+                    || inputArbiter->userInputGeneration()
+                        != confirmation.userInputGeneration))
+                || !facade || profile.version() != confirmation.profileVersion
+                || entry->targetFingerprint != confirmation.targetFingerprint
+                || access.version(confirmation.client) != confirmation.grantVersion
+                || coordinator->promptGeneration() != confirmation.promptGeneration
+                || digest != confirmation.payloadHash
+                || currentRisk.policyVersion != confirmation.policyVersion
+                || (currentRisk.decision != RiskDecision::Confirm
+                    && currentRisk.decision != RiskDecision::Unknown)
+                || (confirmation.tool == QStringLiteral("novaterm_run_script")
+                    && (!entry->session->scriptProvider()
+                        || !entry->session->scriptProvider()->isAvailable()))) {
+                complete(confirmation.job, error("COMMAND_CONFIRMATION_STALE"));
+                return;
+            }
+            confirmation.job->confirmationAccepted = true;
+            confirmation.job->deadline = clock.elapsed() + 60000;
+            if (confirmation.tool == QStringLiteral("novaterm_run_script"))
+                runScript(confirmation.job, *entry);
+            else
+                runCommand(confirmation.job, *entry);
+            return;
+        }
         if (op == "cancel") {
             const auto job = jobs.value(jobKey(connectionId, id));
             if (job) cancel(job, {}, false);
@@ -232,7 +450,17 @@ public:
         job->id = id;
         job->tool = name;
         job->arguments = arguments;
-        job->deadline = clock.elapsed() + 2000;
+        job->mrtr = message.value("mrtr").toBool();
+        job->formElicitation = message.value("formElicitation").toBool();
+        job->requestState = message.value("requestState").toString();
+        job->inputResponses = message.value("inputResponses").toObject();
+        if (job->requestState.size() > 4096 || (!job->mrtr
+            && (!job->requestState.isEmpty() || !job->inputResponses.isEmpty()))) {
+            send(connectionId, id, error("COMMAND_CONFIRMATION_STALE"));
+            return;
+        }
+        job->deadline = clock.elapsed() + (name == "novaterm_run_script" ? 120000
+            : name == "novaterm_run_command" ? 60000 : 2000);
         job->created = clock.elapsed();
         jobs.insert(jobKey(connectionId, id), job);
         peakRequests = std::max(peakRequests, jobs.size());
@@ -281,10 +509,39 @@ public:
             disconnect(connection);
         }
     }
+    void registerActiveConfirmation(const QString& connection,
+        const QString& client, const QString& session, const QString& nonce,
+        qint64 expiry)
+    {
+        activeConfirmations.insert(connection, nonce);
+        confirmationExpiries.insert(nonce, expiry);
+        activeConfirmationScopes.insert(nonce,
+            ConfirmationScope{connection, client, session, expiry});
+    }
+    void clearActiveConfirmation(const QString& connection,
+                                 const QString& nonce)
+    {
+        if (activeConfirmations.value(connection) == nonce)
+            activeConfirmations.remove(connection);
+        confirmationExpiries.remove(nonce);
+        activeConfirmationScopes.remove(nonce);
+    }
+    void consumeActiveConfirmation(const QString& connection,
+                                   const QString& nonce, qint64 expiry)
+    {
+        consumedConfirmations.insert(nonce, expiry);
+        clearActiveConfirmation(connection, nonce);
+    }
     void complete(const std::shared_ptr<Job>& job, QJsonObject payload)
     {
         if (!jobs.contains(jobKey(job->connection, job->id)))
             return;
+        confirmations.remove(jobKey(job->connection, job->id));
+        const QString owner = jobKey(job->connection, job->id);
+        for (auto it = scriptPathLocks.begin(); it != scriptPathLocks.end();) {
+            if (it.value() == owner) it = scriptPathLocks.erase(it);
+            else ++it;
+        }
         auto connection = connections.find(job->connection);
         if (connection != connections.end()) {
             const auto client = connection->client;
@@ -312,7 +569,8 @@ public:
             send(job->connection, job->id, payload);
         if (jobs.isEmpty()) {
             if (captures.isEmpty() && executions.isEmpty()
-                && lastCommand.isEmpty()) {
+                && lastCommand.isEmpty() && confirmations.isEmpty()
+                && activeConfirmations.isEmpty() && consumedConfirmations.isEmpty()) {
                 timer.stop();
             } else {
                 timer.setInterval(1000);
@@ -326,11 +584,26 @@ public:
         if (job->cancelled.exchange(true))
             return;
         ++cancelledCount;
+        QList<QPair<QPointer<ISessionScriptProvider>, quint64>> scriptCancels;
+        for (auto it = scriptWrites.begin(); it != scriptWrites.end();) {
+            if (it->job == job) {
+                scriptCancels.append({it->provider, it.key()});
+                it = scriptWrites.erase(it);
+            } else {
+                ++it;
+            }
+        }
+        for (const auto& scriptCancel : scriptCancels) {
+            if (scriptCancel.first)
+                scriptCancel.first->cancelWrite(scriptCancel.second);
+        }
         QList<quint64> unresolvedRequests;
         for (auto& execution : executions) {
             if (execution.complete || execution.job != job)
                 continue;
-            if (execution.facade)
+            if (execution.coordinator)
+                execution.coordinator->cancel(execution.executorRequestId);
+            else if (execution.facade)
                 execution.facade->cancel(execution.executorRequestId);
             // cancel() 允许同步发布确定结果；只有仍未完成的执行才合成保守终态。
             if (!execution.complete)
@@ -362,6 +635,9 @@ public:
     }
     void disconnect(const QString& connection)
     {
+        const QString nonce = activeConfirmations.take(connection);
+        confirmationExpiries.remove(nonce);
+        activeConfirmationScopes.remove(nonce);
         const auto copy = jobs;
         for (const auto& job : copy) {
             if (job->connection == connection)
@@ -375,6 +651,19 @@ public:
     }
     void revoke(const QString& client, const QString& session)
     {
+        for (auto it = activeConfirmationScopes.begin();
+             it != activeConfirmationScopes.end();) {
+            const bool matchesClient = client.isEmpty() || it->client == client;
+            const bool matchesSession = session.isEmpty() || it->session == session;
+            if (matchesClient && matchesSession) {
+                if (activeConfirmations.value(it->connection) == it.key())
+                    activeConfirmations.remove(it->connection);
+                confirmationExpiries.remove(it.key());
+                it = activeConfirmationScopes.erase(it);
+            } else {
+                ++it;
+            }
+        }
         const auto ids = connections.keys();
         for (const auto& id : ids) {
             if (!client.isEmpty() && connections.value(id).client != client)
@@ -402,7 +691,9 @@ public:
             bool commandExpired = false;
             for (const auto& execution : executions) {
                 if (!execution.complete && execution.job == job) {
-                    if (execution.facade)
+                    if (execution.coordinator)
+                        execution.coordinator->expire(execution.executorRequestId);
+                    else if (execution.facade)
                         execution.facade->cancel(execution.executorRequestId);
                     CommandExecutionResult result;
                     result.requestId = execution.executorRequestId;
@@ -418,13 +709,38 @@ public:
         cleanup();
         if (jobs.isEmpty()) {
             if (captures.isEmpty() && executions.isEmpty()
-                && lastCommand.isEmpty()) timer.stop();
+                && lastCommand.isEmpty() && confirmations.isEmpty()
+                && activeConfirmations.isEmpty() && consumedConfirmations.isEmpty()) timer.stop();
             else timer.setInterval(1000);
         }
     }
     void cleanup()
     {
         const auto now = clock.elapsed();
+        for (auto it = consumedConfirmations.begin(); it != consumedConfirmations.end();) {
+            if (it.value() <= now) it = consumedConfirmations.erase(it);
+            else ++it;
+        }
+        for (auto it = activeConfirmations.begin(); it != activeConfirmations.end();) {
+            const QString nonce = it.value();
+            const auto expiry = confirmationExpiries.value(nonce, 0);
+            if (expiry <= now) {
+                confirmationExpiries.remove(nonce);
+                activeConfirmationScopes.remove(nonce);
+                it = activeConfirmations.erase(it);
+            } else {
+                ++it;
+            }
+        }
+        for (auto it = confirmations.begin(); it != confirmations.end();) {
+            if (it->expires <= now) {
+                const auto job = it->job;
+                it = confirmations.erase(it);
+                complete(job, error("COMMAND_CONFIRMATION_EXPIRED"));
+            } else {
+                ++it;
+            }
+        }
         for (auto it = captures.begin(); it != captures.end();) {
             if (it->expires <= now) it = captures.erase(it); else ++it;
         }
@@ -440,16 +756,33 @@ public:
     {
         cleanup();
         if (job->deadline <= clock.elapsed()) { complete(job, error("DEADLINE_EXCEEDED")); return; }
+        if ((!job->requestState.isEmpty() || !job->inputResponses.isEmpty())
+            && job->tool != "novaterm_run_command"
+            && job->tool != "novaterm_run_script") {
+            complete(job, error("COMMAND_CONFIRMATION_STALE"));
+            return;
+        }
         const auto connection = connections.value(job->connection);
         if (!access.enabled()) { complete(job, error("MCP_DISABLED")); return; }
         if (job->tool == "novaterm_list_sessions") { listSessions(job); return; }
         const auto entry = sessions.find(job->arguments.value("sessionId").toString());
         if (job->cancelled) return;
-        if (!entry || !access.canRead(connection.client, *entry)) { complete(job, error("SESSION_NOT_AVAILABLE")); return; }
-        if (entry->epoch != job->arguments.value("epoch").toString()) { complete(job, error("STALE_SESSION_EPOCH")); return; }
+        if (!entry || !access.canRead(connection.client, *entry)) {
+            complete(job, !job->requestState.isEmpty()
+                ? error("COMMAND_CONFIRMATION_STALE")
+                : error("SESSION_NOT_AVAILABLE"));
+            return;
+        }
+        if (entry->epoch != job->arguments.value("epoch").toString()) {
+            complete(job, !job->requestState.isEmpty()
+                ? error("COMMAND_CONFIRMATION_STALE")
+                : error("STALE_SESSION_EPOCH"));
+            return;
+        }
         if (job->tool == "novaterm_list_commands") { listCommands(job, *entry); return; }
         if (job->tool == "novaterm_execute_command") { command(job, *entry); return; }
         if (job->tool == "novaterm_run_command") { runCommand(job, *entry); return; }
+        if (job->tool == "novaterm_run_script") { runScript(job, *entry); return; }
         if (entry->state == SessionState::Closing || entry->state == SessionState::Closed) {
             complete(job, error("SESSION_CLOSED")); return;
         }
@@ -494,6 +827,8 @@ public:
             bool truncated = false;
             const auto title = boundedText(entry.title, 256, &truncated);
             QJsonArray capabilities{"read_context", "search_context", "list_commands"};
+            if (job->formElicitation)
+                capabilities.append("human_confirmation");
             auto* facade = entry.session ? entry.session->commandFacade() : nullptr;
             const auto profile = facade ? facade->profile() : CommandPlatformProfile{};
             const auto granted = access.commands(connection.client, entry);
@@ -507,11 +842,21 @@ public:
             }
             if (canExecute)
                 capabilities.append("execute_command");
+            auto* coordinator = entry.session
+                ? entry.session->commandCoordinator() : nullptr;
+            const bool unverifiedSsh = entry.kind == TransportKind::Ssh
+                && coordinator && coordinator->allowsUnverifiedPrompt();
             if (facade && facade->isAvailable()
-                && facade->capabilities().mode
-                    == CommandExecutionMode::InteractiveFramed
-                && access.canRunCommand(connection.client, entry)) {
+                && !entry.targetFingerprint.isEmpty()
+                && (facade->capabilities().mode
+                        == CommandExecutionMode::InteractiveFramed
+                    || unverifiedSsh)) {
                 capabilities.append("run_command");
+                if (!unverifiedSsh
+                    && access.canRunScriptTask(connection.client, entry)
+                    && entry.session->scriptProvider()
+                    && entry.session->scriptProvider()->isAvailable())
+                    capabilities.append("run_script");
             }
             rows.append(QJsonObject{{"sessionId", entry.id}, {"epoch", entry.epoch},
                 {"state", SessionDirectory::stateName(entry.state)}, {"transport", SessionDirectory::transportName(entry.kind)},
@@ -748,14 +1093,358 @@ public:
             {"disabledReason", reason.isEmpty() ? QJsonValue(QJsonValue::Null) : QJsonValue(reason)}, {"commands", catalog}}));
     }
 
+    void runScript(const std::shared_ptr<Job>& job,
+                   const SessionDirectory::Entry& entry)
+    {
+        const auto connection = connections.value(job->connection);
+        if (!access.canRunScriptTask(connection.client, entry)) {
+            complete(job, !job->requestState.isEmpty()
+                ? error("COMMAND_CONFIRMATION_STALE")
+                : error("SCRIPT_PERMISSION_REQUIRED"));
+            return;
+        }
+        if (entry.state != SessionState::Running || !entry.session) {
+            complete(job, error("SESSION_NOT_READY"));
+            return;
+        }
+        auto* provider = entry.session->scriptProvider();
+        if (!provider || !provider->isAvailable()) {
+            complete(job, error("SCRIPT_PROVIDER_UNAVAILABLE"));
+            return;
+        }
+        auto* coordinator = entry.session->commandCoordinator();
+        auto* facade = entry.session->commandFacade();
+        if (!coordinator || !coordinator->hasTrustedProfile() || !facade
+            || !facade->isAvailable()
+            || facade->capabilities().mode != CommandExecutionMode::InteractiveFramed) {
+            complete(job, error("COMMAND_PROFILE_UNAVAILABLE"));
+            return;
+        }
+
+        const auto& arguments = job->arguments;
+        const QByteArray content = arguments.value("scriptContent").toString().toUtf8();
+        const QString targetPath = arguments.value("targetPath").toString();
+        const QString workingDirectory = arguments.value("workingDirectory").toString();
+        const QString invocation = arguments.value("invocation").toString();
+        const auto risk = CommandRiskPolicy{}.classifyScript(
+            content, targetPath, workingDirectory, invocation);
+        if (risk.decision == RiskDecision::Deny) {
+            complete(job, error("COMMAND_NOT_ALLOWED"));
+            return;
+        }
+        if (risk.decision != RiskDecision::Confirm) {
+            complete(job, error("COMMAND_SCRIPT_RISK_UNKNOWN"));
+            return;
+        }
+        const QString displayTarget = normalizedScriptTarget(
+            entry.kind, workingDirectory, targetPath);
+        if (displayTarget.isEmpty()) {
+            complete(job, error("SCRIPT_TARGET_INVALID"));
+            return;
+        }
+        const bool targetExistsLocally = entry.kind == TransportKind::LocalShell
+            && QFileInfo(displayTarget).exists();
+        if (!coordinator->isPromptReady()) {
+            complete(job, error("SESSION_COMMAND_NOT_READY"));
+            return;
+        }
+        const auto profile = facade->profile();
+        const QByteArray argumentHash = scriptArgumentsDigest(arguments);
+
+        if (!job->confirmationAccepted) {
+            if (!job->formElicitation && job->requestState.isEmpty()) {
+                complete(job, error("CLIENT_CONFIRMATION_UNAVAILABLE"));
+                return;
+            }
+            if (!job->requestState.isEmpty() || !job->inputResponses.isEmpty()) {
+                const auto state = verifyToken(job->requestState, connection.key);
+                const auto response = job->inputResponses.value("confirm").toObject();
+                const QString nonce = state ? state->value("nonce").toString() : QString{};
+                const bool valid = job->mrtr && state
+                    && state->value("kind") == QStringLiteral("interactive-confirmation")
+                    && state->value("tool") == QStringLiteral("novaterm_run_script")
+                    && state->value("client") == connection.client
+                    && state->value("connection") == job->connection
+                    && state->value("session") == entry.id
+                    && state->value("epoch") == entry.epoch
+                    && state->value("target") == entry.targetFingerprint
+                    && state->value("payloadHash").toString()
+                        == QString::fromLatin1(argumentHash.toHex())
+                    && state->value("policyVersion") == risk.policyVersion
+                    && state->value("profileVersion") == profile.version()
+                    && state->value("grantVersion")
+                        == versionString(access.version(connection.client))
+                    && access.canRunScriptTask(connection.client, entry)
+                    && state->value("promptGeneration").toString()
+                        == QString::number(coordinator->promptGeneration())
+                    && state->value("expires").toDouble() > clock.elapsed()
+                    && !nonce.isEmpty()
+                    && activeConfirmations.value(job->connection) == nonce
+                    && !consumedConfirmations.contains(nonce);
+                if (!valid) {
+                    complete(job, error("COMMAND_CONFIRMATION_STALE"));
+                    return;
+                }
+                consumeActiveConfirmation(job->connection, nonce,
+                    qint64(state->value("expires").toDouble()));
+                const QString action = response.value("action").toString();
+                if (action != QStringLiteral("accept")
+                    || !response.value("content").toObject()
+                        .value("confirmed").toBool()) {
+                    complete(job, error(action == QStringLiteral("cancel")
+                        ? "COMMAND_CONFIRMATION_CANCELLED"
+                        : "COMMAND_CONFIRMATION_DECLINED"));
+                    return;
+                }
+                job->confirmationAccepted = true;
+                job->requestState.clear();
+                job->inputResponses = {};
+            } else if (job->mrtr) {
+                if (activeConfirmations.contains(job->connection)) {
+                    complete(job, error("BUSY", true, 250));
+                    return;
+                }
+                const QString nonce = newId();
+                const QJsonObject state{{"kind", "interactive-confirmation"},
+                    {"tool", "novaterm_run_script"},
+                    {"client", connection.client}, {"connection", job->connection},
+                    {"session", entry.id}, {"epoch", entry.epoch},
+                    {"target", entry.targetFingerprint},
+                    {"payloadHash", QString::fromLatin1(argumentHash.toHex())},
+                    {"policyVersion", risk.policyVersion},
+                    {"profileVersion", profile.version()},
+                    {"grantVersion", versionString(access.version(connection.client))},
+                    {"promptGeneration", QString::number(coordinator->promptGeneration())},
+                    {"nonce", nonce}, {"expires", double(clock.elapsed() + 60000)}};
+                const QString token = signToken(state, connection.key);
+                const QString message = scriptConfirmationMessage(
+                    content, displayTarget, workingDirectory, invocation,
+                    risk.reasons, targetExistsLocally);
+                const qint64 expires = clock.elapsed() + 60000;
+                registerActiveConfirmation(job->connection, connection.client,
+                                           entry.id, nonce, expires);
+                if (!io.send(job->connection, {{"op", "input_required"},
+                        {"id", job->id}, {"message", message}, {"requestState", token}})) {
+                    clearActiveConfirmation(job->connection, nonce);
+                    complete(job, error("CLIENT_CONFIRMATION_UNAVAILABLE"));
+                    return;
+                }
+                job->cancelled = true;
+                complete(job, {});
+                return;
+            } else {
+                const QString prefix = job->connection + QLatin1Char('/');
+                for (auto it = confirmations.cbegin(); it != confirmations.cend(); ++it) {
+                    if (it.key().startsWith(prefix)) {
+                        complete(job, error("BUSY", true, 250));
+                        return;
+                    }
+                }
+                const QString pendingKey = jobKey(job->connection, job->id);
+                PendingConfirmation pending;
+                pending.job = job;
+                pending.client = connection.client;
+                pending.session = entry.id;
+                pending.epoch = entry.epoch;
+                pending.command = invocation;
+                pending.policyVersion = risk.policyVersion;
+                pending.tool = job->tool;
+                pending.profileVersion = profile.version();
+                pending.targetFingerprint = entry.targetFingerprint;
+                pending.grantVersion = access.version(connection.client);
+                pending.promptGeneration = coordinator->promptGeneration();
+                pending.payloadHash = argumentHash;
+                pending.expires = clock.elapsed() + 60000;
+                confirmations.insert(pendingKey, pending);
+                const QString message = scriptConfirmationMessage(
+                    content, displayTarget, workingDirectory, invocation,
+                    risk.reasons, targetExistsLocally);
+                if (!io.send(job->connection, {{"op", "elicitation"},
+                        {"id", job->id}, {"message", message}})) {
+                    confirmations.remove(pendingKey);
+                    complete(job, error("CLIENT_CONFIRMATION_UNAVAILABLE"));
+                    return;
+                }
+                job->deadline = clock.elapsed() + 60000;
+                return;
+            }
+        }
+
+        const bool readyAfterConfirmation = coordinator->isPromptReady();
+        const bool stillAuthorized = access.canRunScriptTask(connection.client, entry);
+        const bool sameProvider = provider == entry.session->scriptProvider();
+        const bool providerAvailable = provider->isAvailable();
+        if (!readyAfterConfirmation || !stillAuthorized || !sameProvider
+            || !providerAvailable) {
+            complete(job, error("COMMAND_CONFIRMATION_STALE"));
+            return;
+        }
+        if (guards.markers().contains(entry.targetFingerprint)) {
+            complete(job, error("COMMAND_EXECUTION_QUARANTINED"));
+            return;
+        }
+        if (lastCommand.contains(entry.targetFingerprint)) {
+            complete(job, error("BUSY", true, 5000));
+            return;
+        }
+        auto* inputArbiter = entry.session->inputArbiter();
+        if (!inputArbiter) {
+            complete(job, error("SESSION_COMMAND_NOT_READY"));
+            return;
+        }
+        if (!observedInputArbiters.contains(inputArbiter)) {
+            observedInputArbiters.insert(inputArbiter);
+            QObject::connect(inputArbiter, &SessionInputArbiter::userInputStarted, q,
+                [this, session = entry.session.data()](quint64 userGeneration) {
+                    cancelScriptWritesForUserInput(session, userGeneration);
+                });
+            QObject::connect(inputArbiter, &QObject::destroyed, q,
+                [this, inputArbiter] { observedInputArbiters.remove(inputArbiter); });
+        }
+        const QString pathLock = entry.targetFingerprint + QLatin1Char('/')
+            + displayTarget;
+        if (scriptPathLocks.contains(pathLock)) {
+            complete(job, error("BUSY", true, 500));
+            return;
+        }
+        const auto command = scriptInvocationCommand(
+            entry.session->runtimeConfig().transport.value(
+                QStringLiteral("interactiveShellKind")).toString(),
+            workingDirectory, invocation);
+        if (!command || command->toUtf8().size() > 16384) {
+            complete(job, error("COMMAND_SCRIPT_INVOCATION_INVALID"));
+            return;
+        }
+        const QString owner = jobKey(job->connection, job->id);
+        const quint64 requestId = nextScriptWrite++;
+        ScriptWriteTask task;
+        task.job = job;
+        task.provider = provider;
+        task.client = connection.client;
+        task.session = entry.id;
+        task.epoch = entry.epoch;
+        task.targetFingerprint = entry.targetFingerprint;
+        task.policyVersion = risk.policyVersion;
+        task.profileVersion = profile.version();
+        task.targetPath = normalizedScriptTarget(entry.kind, workingDirectory, targetPath);
+        task.workingDirectory = workingDirectory;
+        task.invocation = invocation;
+        task.scriptPathLock = pathLock;
+        task.metadataHash = scriptMetadataDigest(arguments);
+        task.contentHash = QCryptographicHash::hash(content, QCryptographicHash::Sha256);
+        task.promptGeneration = coordinator->promptGeneration();
+        task.grantVersion = access.version(connection.client);
+        task.sessionGeneration = entry.generation;
+        task.userInputGeneration = inputArbiter->userInputGeneration();
+        task.timeoutMs = arguments.value("timeoutMs").toInt(5000);
+        if (!observedScriptProviders.contains(provider)) {
+            observedScriptProviders.insert(provider);
+            QObject::connect(provider, &ISessionScriptProvider::finished, q,
+                [this](const ScriptWriteResult& result) { finishScriptWrite(result); });
+            QObject::connect(provider, &QObject::destroyed, q,
+                [this, provider] {
+                    observedScriptProviders.remove(provider);
+                    const auto ids = scriptWrites.keys();
+                    for (const auto id : ids) {
+                        if (scriptWrites.value(id).provider.data() != provider
+                            && !scriptWrites.value(id).provider.isNull())
+                            continue;
+                        const auto job = scriptWrites.take(id).job;
+                        complete(job, error("SCRIPT_PROVIDER_UNAVAILABLE"));
+                    }
+                });
+        }
+        scriptPathLocks.insert(pathLock, owner);
+        scriptWrites.insert(requestId, task);
+        ScriptWriteRequest request{requestId, content, targetPath, workingDirectory};
+        job->deadline = clock.elapsed() + 120000;
+        if (!provider->writeScript(request)) {
+            scriptWrites.remove(requestId);
+            complete(job, error("SCRIPT_WRITE_FAILED"));
+            return;
+        }
+        job->scriptPolicyVersion = risk.policyVersion;
+        job->arguments.remove(QStringLiteral("scriptContent"));
+    }
+
+    void cancelScriptWritesForUserInput(TerminalSession* session,
+                                        quint64 userGeneration)
+    {
+        if (!session)
+            return;
+        const QString sessionId = session->id().toString(QUuid::WithoutBraces);
+        const auto ids = scriptWrites.keys();
+        for (const quint64 requestId : ids) {
+            const auto task = scriptWrites.value(requestId);
+            if (task.session == sessionId
+                && task.userInputGeneration != userGeneration) {
+                cancel(task.job, error("SCRIPT_CANCELLED_BY_USER"), true);
+            }
+        }
+    }
+
+    void finishScriptWrite(const ScriptWriteResult& result)
+    {
+        const auto it = scriptWrites.find(result.requestId);
+        if (it == scriptWrites.end())
+            return;
+        const ScriptWriteTask task = it.value();
+        scriptWrites.erase(it);
+        const auto job = task.job;
+        if (!jobs.contains(jobKey(job->connection, job->id)))
+            return;
+        if (!result.success) {
+            complete(job, failure(result.errorCode.isEmpty()
+                ? QStringLiteral("SCRIPT_WRITE_FAILED") : result.errorCode,
+                result.errorCode.isEmpty() ? QStringLiteral("SCRIPT_WRITE_FAILED") : result.errorCode));
+            return;
+        }
+        auto connection = connections.constFind(job->connection);
+        const auto entry = sessions.find(task.session);
+        auto* coordinator = entry && entry->session
+            ? entry->session->commandCoordinator() : nullptr;
+        auto* facade = entry && entry->session
+            ? entry->session->commandFacade() : nullptr;
+        const auto provider = entry && entry->session
+            ? entry->session->scriptProvider() : nullptr;
+        const bool valid = entry && connection != connections.cend()
+            && connection->client == task.client
+            && access.canRunScriptTask(task.client, *entry)
+            && entry->state == SessionState::Running
+            && entry->epoch == task.epoch
+            && entry->targetFingerprint == task.targetFingerprint
+            && entry->generation == task.sessionGeneration
+            && coordinator && coordinator->isPromptReady()
+            && coordinator->promptGeneration() == task.promptGeneration
+            && facade && facade->isAvailable()
+            && facade->profile().version() == task.profileVersion
+            && provider && provider == task.provider.data()
+            && provider->isAvailable()
+            && access.version(task.client) == task.grantVersion
+            && scriptMetadataDigest(job->arguments) == task.metadataHash
+            && result.contentHash == task.contentHash
+            && result.resolvedTargetPath == task.targetPath;
+        if (!valid) {
+            complete(job, error("COMMAND_CONFIRMATION_STALE"));
+            return;
+        }
+        const auto command = scriptInvocationCommand(
+            entry->session->runtimeConfig().transport.value(
+                QStringLiteral("interactiveShellKind")).toString(),
+            task.workingDirectory, task.invocation);
+        if (!command || command->toUtf8().size() > 16384) {
+            complete(job, error("COMMAND_SCRIPT_INVOCATION_INVALID"));
+            return;
+        }
+        job->arguments.insert(QStringLiteral("command"), *command);
+        job->scriptPolicyVersion = task.policyVersion;
+        runCommand(job, *entry);
+    }
+
     void runCommand(const std::shared_ptr<Job>& job,
                     const SessionDirectory::Entry& entry)
     {
         const auto connection = connections.value(job->connection);
-        if (!access.canRunCommand(connection.client, entry)) {
-            complete(job, error("COMMAND_PERMISSION_REQUIRED"));
-            return;
-        }
         if (entry.state != SessionState::Running || !entry.session) {
             complete(job, error("SESSION_NOT_READY"));
             return;
@@ -766,20 +1455,156 @@ public:
             complete(job, error("COMMAND_NOT_ALLOWED"));
             return;
         }
-        if (risk.decision != RiskDecision::Allow) {
+        if (risk.decision == RiskDecision::Allow
+            && (!job->requestState.isEmpty() || !job->inputResponses.isEmpty())) {
+            complete(job, error("COMMAND_CONFIRMATION_STALE"));
+            return;
+        }
+        if (risk.decision != RiskDecision::Allow && !job->confirmationAccepted
+            && !job->formElicitation && job->requestState.isEmpty()) {
             complete(job, error("CLIENT_CONFIRMATION_UNAVAILABLE"));
             return;
         }
         auto* coordinator = entry.session->commandCoordinator();
-        if (!coordinator || !coordinator->hasTrustedProfile()) {
+        const bool unverifiedSsh = entry.kind == TransportKind::Ssh
+            && coordinator && coordinator->allowsUnverifiedPrompt();
+        if (!coordinator || (!coordinator->hasTrustedProfile() && !unverifiedSsh)) {
             complete(job, error("COMMAND_PROFILE_UNAVAILABLE"));
             return;
         }
-        if (!coordinator->isPromptReady()) {
+        if (!unverifiedSsh && !coordinator->isPromptReady()) {
             complete(job, error("SESSION_COMMAND_NOT_READY"));
             return;
         }
         auto* facade = entry.session->commandFacade();
+        const auto profile = facade ? facade->profile() : CommandPlatformProfile{};
+        if (risk.decision != RiskDecision::Allow && !job->confirmationAccepted) {
+            if (!job->formElicitation && job->requestState.isEmpty()) {
+                complete(job, error("CLIENT_CONFIRMATION_UNAVAILABLE"));
+                return;
+            }
+            if (!job->requestState.isEmpty() || !job->inputResponses.isEmpty()) {
+                const auto state = verifyToken(job->requestState, connection.key);
+                const auto response = job->inputResponses.value("confirm").toObject();
+                const QString action = response.value("action").toString();
+                const QString expectedDecision = risk.decision == RiskDecision::Confirm
+                    ? QStringLiteral("confirm") : QStringLiteral("unknown");
+                const QString commandHash = QString::fromLatin1(
+                    QCryptographicHash::hash(command.toUtf8(), QCryptographicHash::Sha256).toHex());
+                const QString nonce = state ? state->value("nonce").toString() : QString{};
+                const bool valid = job->mrtr && state
+                    && state->value("kind") == QStringLiteral("interactive-confirmation")
+                    && state->value("client") == connection.client
+                    && state->value("connection") == job->connection
+                    && state->value("session") == entry.id
+                    && state->value("epoch") == entry.epoch
+                    && state->value("target") == entry.targetFingerprint
+                    && state->value("commandHash") == commandHash
+                    && state->value("policyVersion") == risk.policyVersion
+                    && state->value("decision") == expectedDecision
+                    && state->value("profileVersion") == profile.version()
+                    && state->value("grantVersion") == versionString(access.version(connection.client))
+                    && state->value("promptGeneration").toString()
+                        == QString::number(coordinator->promptGeneration())
+                    && state->value("userInputGeneration").toString()
+                        == QString::number(entry.session->inputArbiter()->userInputGeneration())
+                    && state->value("expires").toDouble() > clock.elapsed()
+                    && activeConfirmations.value(job->connection) == nonce
+                    && !nonce.isEmpty() && !consumedConfirmations.contains(nonce);
+                if (!valid) {
+                    complete(job, error("COMMAND_CONFIRMATION_STALE"));
+                    return;
+                }
+                consumeActiveConfirmation(job->connection, nonce,
+                    qint64(state->value("expires").toDouble()));
+                if ((!unverifiedSsh && !coordinator->isPromptReady())
+                    || coordinator->promptGeneration() != state->value("promptGeneration").toString().toULongLong()) {
+                    complete(job, error("COMMAND_CONFIRMATION_STALE"));
+                    return;
+                }
+                if (action != QStringLiteral("accept")
+                    || !response.value("content").toObject().value("confirmed").toBool()) {
+                    complete(job, error(action == QStringLiteral("cancel")
+                        ? "COMMAND_CONFIRMATION_CANCELLED" : "COMMAND_CONFIRMATION_DECLINED"));
+                    return;
+                }
+                job->confirmationAccepted = true;
+            } else if (job->mrtr) {
+                if (activeConfirmations.contains(job->connection)) {
+                    complete(job, error("BUSY", true, 250));
+                    return;
+                }
+                const QString decision = risk.decision == RiskDecision::Confirm
+                    ? QStringLiteral("confirm") : QStringLiteral("unknown");
+                const QString nonce = newId();
+                const QJsonObject state{{"kind", "interactive-confirmation"},
+                    {"client", connection.client}, {"connection", job->connection},
+                    {"session", entry.id}, {"epoch", entry.epoch},
+                    {"target", entry.targetFingerprint},
+                    {"commandHash", QString::fromLatin1(QCryptographicHash::hash(
+                        command.toUtf8(), QCryptographicHash::Sha256).toHex())},
+                    {"policyVersion", risk.policyVersion}, {"decision", decision},
+                    {"profileVersion", profile.version()},
+                    {"grantVersion", versionString(access.version(connection.client))},
+                    {"promptGeneration", QString::number(coordinator->promptGeneration())},
+                    {"userInputGeneration", QString::number(entry.session->inputArbiter()->userInputGeneration())},
+                    {"nonce", nonce}, {"expires", double(clock.elapsed() + 60000)}};
+                const QString token = signToken(state, connection.key);
+                const qint64 expires = clock.elapsed() + 60000;
+                registerActiveConfirmation(job->connection, connection.client,
+                                           entry.id, nonce, expires);
+                const QString message = QStringLiteral("NovaTerm requests confirmation to run this terminal command:\n\n%1\n\nRisk: %2")
+                    .arg(command, risk.reasons.join(QStringLiteral(", ")));
+                if (!io.send(job->connection, {{"op", "input_required"},
+                        {"id", job->id}, {"message", message}, {"requestState", token}})) {
+                    clearActiveConfirmation(job->connection, nonce);
+                    complete(job, error("CLIENT_CONFIRMATION_UNAVAILABLE"));
+                    return;
+                }
+                job->cancelled = true;
+                complete(job, {});
+                return;
+            }
+            if (job->confirmationAccepted) {
+                // MRTR 回合在这里重新进入与 2025 accept 相同的执行分支。
+            } else {
+            const QString confirmationPrefix = job->connection + QLatin1Char('/');
+            for (auto it = confirmations.cbegin(); it != confirmations.cend(); ++it) {
+                if (it.key().startsWith(confirmationPrefix)) {
+                    complete(job, error("BUSY", true, 250));
+                    return;
+                }
+            }
+            const QString pendingKey = jobKey(job->connection, job->id);
+            PendingConfirmation pending;
+            pending.job = job;
+            pending.client = connection.client;
+            pending.session = entry.id;
+            pending.epoch = entry.epoch;
+            pending.command = command;
+            pending.policyVersion = risk.policyVersion;
+            pending.tool = job->tool;
+            pending.profileVersion = profile.version();
+            pending.targetFingerprint = entry.targetFingerprint;
+            pending.grantVersion = access.version(connection.client);
+            pending.promptGeneration = coordinator->promptGeneration();
+            pending.userInputGeneration = entry.session->inputArbiter()->userInputGeneration();
+            pending.payloadHash = QCryptographicHash::hash(command.toUtf8(),
+                QCryptographicHash::Sha256);
+            pending.expires = clock.elapsed() + 60000;
+            confirmations.insert(pendingKey, pending);
+            const QString message = QStringLiteral("NovaTerm requests confirmation to run this terminal command:\n\n%1\n\nRisk: %2")
+                .arg(command, risk.reasons.join(QStringLiteral(", ")));
+            if (!io.send(job->connection, {{"op", "elicitation"},
+                    {"id", job->id}, {"message", message}})) {
+                confirmations.remove(pendingKey);
+                complete(job, error("CLIENT_CONFIRMATION_UNAVAILABLE"));
+                return;
+            }
+            job->deadline = clock.elapsed() + 60000;
+            return;
+            }
+        }
         if (!facade || !facade->isAvailable()
             || entry.targetFingerprint.isEmpty()) {
             complete(job, error("COMMAND_UNAVAILABLE"));
@@ -817,19 +1642,40 @@ public:
         }
         const quint64 requestId = nextCommandRequest++;
         const int timeoutMs = job->arguments.value("timeoutMs").toInt(5000);
+        const QString executionCommandId = job->tool == QStringLiteral("novaterm_run_script")
+            ? QStringLiteral("interactive.script")
+            : QStringLiteral("interactive.free");
+        const QString executionPolicyVersion = job->tool == QStringLiteral("novaterm_run_script")
+            && !job->scriptPolicyVersion.isEmpty()
+            ? job->scriptPolicyVersion : risk.policyVersion;
         Execution execution{executionId, job->connection, connection.client,
-            entry.id, entry.epoch, QStringLiteral("interactive.free"),
-            risk.policyVersion, entry.targetFingerprint, requestId,
+            entry.id, entry.epoch, executionCommandId,
+            executionPolicyVersion, entry.targetFingerprint, requestId,
             clock.elapsed(), facade, job, {}, false, true};
         executions.insert(executionId, execution);
+        if (unverifiedSsh) {
+            executions[executionId].coordinator = coordinator;
+            if (!observedCoordinators.contains(coordinator)) {
+                observedCoordinators.insert(coordinator);
+                QObject::connect(coordinator, &SessionCommandCoordinator::finished, q,
+                    [this](const CommandExecutionResult& result) {
+                        finishExecution(result);
+                    });
+                QObject::connect(coordinator, &QObject::destroyed, q,
+                    [this, coordinator] { observedCoordinators.remove(coordinator); });
+            }
+        }
         CommandExecutionRequest request;
         request.requestId = requestId;
         request.command = command.toUtf8();
         request.limits = {CommandOutputBytes, timeoutMs};
-        request.commandId = QStringLiteral("interactive.free");
+        request.commandId = executionCommandId;
         request.executionNonce = newId().toUtf8();
-        request.expectedPromptGeneration = coordinator->promptGeneration();
-        if (!facade->execute(request)) {
+        request.expectedPromptGeneration = unverifiedSsh
+            ? 0 : coordinator->promptGeneration();
+        const bool submitted = unverifiedSsh
+            ? coordinator->submit(request) : facade->execute(request);
+        if (!submitted) {
             executions.remove(executionId);
             guards.release(entry.targetFingerprint, executionId);
             complete(job, error("SESSION_COMMAND_BUSY"));
@@ -990,6 +1836,15 @@ public:
     bool scheduled{false};
     QHash<QString, Connection> connections;
     QHash<QString, std::shared_ptr<Job>> jobs;
+    QHash<QString, PendingConfirmation> confirmations;
+    QHash<QString, qint64> consumedConfirmations;
+    QHash<QString, QString> activeConfirmations;
+    QHash<QString, qint64> confirmationExpiries;
+    QHash<QString, ConfirmationScope> activeConfirmationScopes;
+    QHash<quint64, ScriptWriteTask> scriptWrites;
+    QHash<QString, QString> scriptPathLocks;
+    QSet<ISessionScriptProvider*> observedScriptProviders;
+    QSet<SessionInputArbiter*> observedInputArbiters;
     QHash<QString, Capture> captures;
     QHash<QString, Execution> executions;
     QHash<QString, qint64> lastCapture;
@@ -997,7 +1852,9 @@ public:
     QHash<QString, std::shared_ptr<const TerminalContextProvider::Snapshot>> lastBase;
     QHash<QString, qint64> lastCommand;
     QSet<SessionCommandFacade*> observedFacades;
+    QSet<SessionCommandCoordinator*> observedCoordinators;
     quint64 nextCommandRequest{quint64(1) << 60};
+    quint64 nextScriptWrite{quint64(1) << 59};
     quint64 requestCount{0}, rejectedCount{0}, completedCount{0}, cancelledCount{0}, reusedCaptureCount{0};
     quint64 coreCaptureCount{0}, snapshotPublishCount{0}, snapshotReuseCount{0};
     quint64 coalescedReadCount{0}, projectionCopiedBytes{0};
@@ -1033,6 +1890,12 @@ QJsonObject Service::clientConfiguration(const QString& clientId) const
     return {{"mcpServers", QJsonObject{{"novaterm", QJsonObject{{"command", command},
         {"args", arguments}, {"env", QJsonObject{{"NOVATERM_MCP_TOKEN", QString::fromLatin1(*token)},
         {"NOVATERM_MCP_RUNTIME_DIR", _impl->instanceDirectory}}}}}}}};
+}
+QJsonObject Service::ccSwitchConfiguration(const QString& clientId) const
+{
+    const auto configuration = clientConfiguration(clientId);
+    return configuration.value(QStringLiteral("mcpServers")).toObject()
+        .value(QStringLiteral("novaterm")).toObject();
 }
 QJsonArray Service::executionRecords() const
 {

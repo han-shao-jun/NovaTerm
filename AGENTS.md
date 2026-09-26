@@ -17,7 +17,7 @@ GPU 管线，UI 用 ElaWidgetTools（FluentUI 风格）。GPLv2+，仓库在 Git
 | `docs/architecture/README.md` | 阶段文档索引 + 统一术语表 + 文档权威性说明 |
 | `docs/architecture/Development_Roadmap.md` | P0–P8 依赖、状态表、**统一完成定义** |
 | `docs/architecture/stages/P*.md` | 各阶段实施说明。P6 含逐步进度表与剩余工作 |
-| `docs/architecture/stages/P8_AI_MCP_Interface.md` | P8 AI MCP：只读上下文与受限命令；禁止删除、凭据读取、提权等高危险行为；首期功能与 Windows 功能验证完成，完整验收待补 |
+| `docs/architecture/stages/P8_AI_MCP_Interface.md` | P8 AI MCP：当前实现事实见 §14.2，修订设计与风险边界见 §15；七工具、2025 elicitation/2026 MRTR、低风险普通命令及 LocalShell/SSH 脚本能力已进入代码，真实桌面/跨平台/性能验收仍按阶段文档标记 |
 | `docs/architecture/Rendering_Architecture.md` | Snapshot、调度、命令缓存、QRhi、Glyph |
 | `docs/architecture/Configuration_Profile_Theme.md` | 配置分层、Profile、Session、主题职责。**描述目标设计**，开头有与当前源码的名称对照表 |
 
@@ -95,7 +95,7 @@ ctest --test-dir build -C Debug
 | `src/transport/LocalShellTransport` 与 ConPty 路径 | `novaterm_conpty_tests`(Win)／`novaterm_pty_tests`(Unix) | `conpty` | ~94s |
 | `src/transport/SshTransport`、`SshMonitorProtocol` | `novaterm_ssh_transport_check`（失败路径 + 监控帧协议） | `ssh` | <1s |
 | `src/transport/TelnetTransport` | `novaterm_telnet_transport_tests` | `telnet` | ~5s |
-| `src/mcp/`、`tools/novaterm-mcp/`、`SessionDirectory`、`McpSettingsDialog` | `novaterm_mcp_tests`（有界协议、授权、取消、命令及 UI） | `mcp`／`p8` | ~3s |
+| `src/mcp/`、`tools/novaterm-mcp/`、`SessionDirectory`、`McpSettingsDialog`、Session ScriptProvider/SFTP | `novaterm_mcp_tests`（有界协议、分项授权、2025/2026 确认、取消/重放、交互命令、脚本写入及 UI） | `mcp`／`p8` | ~10s |
 | TerminalSession + TerminalRenderer + LocalShellTransport 的联通路径 | `novaterm_terminal_session_tests` | `terminal-session` | ~46s |
 | `TerminalTabWidget` 的连接动作/紧凑标题、`SystemInformationDialog` 的滚动范围/布局与 app bar 关闭按钮、`SshHostKeyDialog` 的 Ela 控件与端点标题 | `novaterm_ui_dialog_layout_tests` | `ui` | <1s |
 | `src/ui/`、`src/platform/`、`src/service/` | **无覆盖测试** —— 编译通过 + 实跑程序看效果即可（`KeyMapper` 已移出此列，现由 `novaterm_core_tests` 覆盖） | — | — |
@@ -365,9 +365,24 @@ P3 与 P5 实施完成、部分平台或人工验收待做，P7 计划中。
 已有错误依赖记录的构建目录必须干净重建一次，仅重新配置不够。
 
 **P8 测试不连接用户服务器**：`novaterm_mcp_tests` 使用内存凭据和临时目录；
-可选 `tests/mcp/interop_check.py` 使用官方 SDK，`ssh_loopback_check.py` 的测试端
-只监听回环并返回固定数据，客户端关闭环境 SSH 配置加载。`performance_check.py`
+可选 `tests/mcp/interop_check.py` 使用官方 2025 SDK 并检查 2026 MRTR wire，
+`ssh_loopback_check.py` 的测试端只监听回环，返回固定命令结果、模拟交互 `pwd` 的
+回显/输出/结束标记，并仅将测试脚本写到夹具目录；不执行真实命令或上传的脚本。
+客户端关闭环境 SSH 配置加载。`performance_check.py`
 同时报告成功读取和 Busy，不能把被拒绝请求的低延迟当作捕获性能达标。
+
+**Windows 状态目录的属主校验不能只比对 TokenUser**：`ownerOnly()`
+（`src/mcp/McpProtocol.cpp`）在收紧 MCP 状态目录/实例目录前要求对象属于本进程。
+提权运行（以及 UAC 提权令牌、部分沙箱宿主）创建的对象属主是令牌的**默认属主**，
+即 `BUILTIN\Administrators`，而不是 TokenUser，所以“属主 == TokenUser”这条判据
+在提权运行里恒为假：`AccessStore::save()` 直接失败，`setEnabled(true)` 回滚，
+设置界面的“启用本机 MCP 接入”表现为点不动（只弹一句通用失败提示）。
+判据必须覆盖整个对象属主身份集合：`TokenUser`、`TokenOwner` 与令牌组里带
+`SE_GROUP_OWNER` 的组（Windows 用它标记“本令牌创建对象的默认属主”，普通用户的
+非提权令牌上就是 Administrators）。不要改成硬编码某个 SID，也不要退回只看
+TokenUser。回归：`novaterm_mcp_tests::stateDirectoryOwnedByTokenDefaultOwnerIsSecurable`
+（提权/有 ACL 权限的环境下，改回单比对 TokenUser 会让 MCP 套件里 12 个用例报
+`fixture.enable(true) returned FALSE`）。
 
 **线程名必须显式设置，`QThread::setObjectName()` 在 Windows release 下对 OS 不可见**：
 Qt 6.8 的 QThread 文档写的是 "you can call setObjectName() before starting the
@@ -421,6 +436,13 @@ flush，内部屏幕已移动并可能继续改写。本地源区域未必同步
 **`ssh_channel_read_nonblocking()` 的正常 EOF 也是负返回值**：libssh 0.12
 会返回 `SSH_EOF`，不能用 `count < 0` 笼统判成读错误，更不能复用“输出超限”
 状态。必须分别处理 `SSH_AGAIN`、`SSH_EOF`、`SSH_ERROR` 与实际正数字节数。
+
+**Windows 沙箱中的 libssh home 查询需要环境回退**：libssh 0.12 的
+`SHGetSpecialFolderPathA(CSIDL_PROFILE)` 在部分无桌面/受限宿主里会失败；默认 SSH
+identity path 在 `ssh_options_apply()` 展开时因此报 `Cannot expand homedir`。当前
+`third_party/libssh-0.12.2/src/misc.c` 在 API 失败后回退到 `USERPROFILE`，再回退到
+`HOMEDRIVE+HOMEPATH`。回环 SSH/SFTP 测试依赖该路径可用，勿把回退移除；它不启用用户
+SSH 配置加载，也不读取私钥内容。
 资源面板曾因此把只有 115 字节的正常 `df` 输出误报成超过 1 MiB。
 
 **SSH 主动断开必须自行发布一次 `disconnected`**：`disconnect()` 会清空连接

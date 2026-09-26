@@ -1,16 +1,25 @@
 # P8：AI MCP 接口
 
-> 状态：v0.2 首期功能已实现；Windows 功能验证通过，跨平台与完整性能验收待完成。
+> 状态：v0.2 首期只读/固定诊断功能已实现。v0.6 交互协调、风险确认、脚本写入与执行、
+> 双代际 MCP 确认协议和产品授权已进入代码；模块专项及本机回环验收通过。真实桌面
+> Shell/TUI 验收、跨平台与完整性能验收仍须单独记录，不以模拟测试代替。
+> v0.6 交互终端“手”设计：2026-09-24。命令执行统一改为 Session 级交互事务，
+> 通过当前终端字节流输入并在终端 UI 中显示命令与输出；危险命令和所有脚本任务
+> 使用 MCP 人类 elicitation，脚本正文通过按 Profile 声明的文件能力写入目标主机。
+> §15 是 v0.6 命令与脚本能力的最新权威设计；与 §1～§13 的 v0.5 命令设计冲突时
+> 以 §15 为准。§14.2 更新记录 v0.6 当前代码事实与验收状态；未完成的平台验收继续明确标记。
 > v0.5 全会话命令执行设计：2026-09-19。命令执行能力从“仅 SSH 独立 exec”扩展为覆盖 SSH、LocalShell、Serial、Telnet 与可声明能力的 Custom Session；不同会话通过统一 SessionCommandFacade/Executor 抽象执行，仍不开放自由 shell、任意按键、凭据读取、删除或提权。
-> v0.5 保持现有五个 MCP 工具和 schemaVersion=1；当前 SSH 客户端兼容路径不因全会话扩展而改变。Serial/Telnet 等共享交互流的执行语义通过既有 transport 类型、固定 Profile 和本文契约约束，不在 v0.5 强行增加破坏兼容性的必填 JSON 字段。
+> v0.5（2026-09-19 历史设计快照）保持当时的五个 MCP 工具和 schemaVersion=1；v0.6 已增至七个工具，并在 Bridge 内按代际适配，不改写 GUI 私有 IPC DTO。
 > v0.4 性能优化补充：2026-09-18。共享快照、跨客户端复用、请求合并、序列化与复制优化仍作为后续性能路线；其实施状态以 §14 为准。
 > v0.3 设计优化：2026-09-18。协议演进、持续高输出读取、平台 Profile、搜索结果可用性与性能验收语义继续保留。
-> §14 只记录当前代码已经实现并验证的事实。v0.5 的全会话 Command Executor、LocalShell 独立执行、Serial/Telnet Interactive Framing、SessionCommandLease 和 Custom Executor 在进入代码与测试前均不得写成“已实现”。
-> 初稿日期：2026-09-16；v0.2 修订：2026-09-17；v0.3/v0.4 修订：2026-09-18；v0.5 修订：2026-09-19。
-> 当前 master 核对基线：`dd32b909ee4ee6417dbb150893ccdefcbce70e7a` / NovaTerm `0.2.20`。
+> §14.1 记录 v0.2–v0.5 历史实现基线；§14.2 记录 v0.6 已实现与已验证事实。真实桌面、跨平台和性能验收缺口不得写成“已通过”。
+> 初稿日期：2026-09-16；v0.2 修订：2026-09-17；v0.3/v0.4 修订：2026-09-18；v0.5 修订：2026-09-19；v0.6 修订：2026-09-24。
+> 当前代码版本：NovaTerm `0.2.30`；Git 基线 `7abdb71`，Task 6–8 实施改动仍在工作树。
 > 读者：NovaTerm 开发者、MCP 接入开发者和接口评审者。
-> 范围：会话发现、终端输出读取、搜索，以及覆盖全部 Session 类型的受限诊断命令执行框架。
-> 删除文件、读取会话密码/私钥、提权、自由 shell/脚本及其他高危险行为不开放；命令允许列表和 Profile 均须逐项评审。
+> 范围：会话发现、终端输出读取、搜索、覆盖全部 Session 类型的交互命令执行，
+> 以及 SSH/LocalShell 按能力声明的目标主机脚本生成与执行。
+> 读取凭据、关闭安全机制、提权、格式化磁盘等高危险行为按尽力检测永久拒绝；
+> 文件修改、删除、脚本及无法判定的命令必须经 MCP 客户端的人类确认。
 
 ## 1. 目标与首期决策
 
@@ -281,8 +290,11 @@ v0.3 的 2026-07-28 路径处理 server/discover 与 per-request metadata；工�
 - 每次 GUI 启动生成随机 `instanceId`，不同 GUI 进程不同；PID 不作为身份。
 - GUI 在当前用户专属运行目录发布实例清单，只有 instanceId、PID、启动时间、
   应用版本、IPC 版本和 endpoint；清单不含 token、凭据或会话正文。
-- 清单目录由 QStandardPaths 定位；Unix 目录权限 0700、文件 0600，Windows 使用
-  当前用户 ACL。本机 endpoint 使用 QLocalServer/QLocalSocket，并限制同用户访问。
+- 清单目录由 QStandardPaths 定位；Unix 目录权限 0700、文件 0600，Windows 收紧为
+  “仅当前用户完全访问”的受保护 DACL，收紧前的属主校验按本进程令牌的对象属主身份
+  判定（TokenUser、TokenOwner 与带 `SE_GROUP_OWNER` 的组；提权运行时对象属主是
+  Administrators 而不是 TokenUser）。本机 endpoint 使用 QLocalServer/QLocalSocket，
+  并限制同用户访问。
 - 有 `--instance` 时精确绑定；未指定时只有一个可用实例才自动选择，多实例返回
   `INSTANCE_SELECTION_REQUIRED`，不默认挑前台窗口或最新窗口。
 - 一旦握手成功，桥接进程固定绑定该 instanceId。GUI 重启后不静默切到新实例。
@@ -1371,7 +1383,7 @@ Windows、Linux、macOS 分别验证本地 Executor；Serial/Telnet fixture 可�
 | --- | --- |
 | 全历史搜索/读取 | 独立搜索任务、不可变历史快照预算、稳定分页和行 ID；不复用 UI 搜索 generation |
 | resources 与订阅 | URI/版本/订阅上限、能力协商；不推送无界终端日志 |
-| 任意输入、按键 | **仍不开放**；全会话命令 Executor 不是任意输入接口。若未来评审，必须独立解决活动程序、未提交输入、TUI 和危险行为 |
+| 任意输入、按键 | v0.6 仅开放经风险策略、提示符就绪检查与 SessionCommandLease 约束的命令事务；仍不提供脱离事务的原始按键/字节注入工具，详见 §15 |
 | 带参数的诊断模板 | 每个参数逐项定义类型/范围/转义与资源上限；不能退化成 path/shell/string passthrough |
 | 更丰富的 CommandPlatformProfile | 需要真实平台 fixture/文档与安全审计；不允许通过模型推断、PATH 探测或远端脚本自动生成 |
 | 文件读取类命令 | 需要可靠处理路径授权、符号链接、权限、TOCTOU 和敏感目录；不能直接把 cat/grep 等程序名放行 |
@@ -1383,8 +1395,9 @@ v0.5 已把“全 Session 类型的受限命令执行框架”纳入正式 P8 �
 “扩展命令目标平台”不再作为未来候选项。尚未进入代码的 Executor/Profile 仍属于
 待实现目标，不能因为文档已定义就向用户宣称 Serial/Telnet/LocalShell 命令执行已经完成。
 
-自由输入、文件变更、凭据获取和连接管理仍不属于本期；后续能力不得通过复用
-InteractiveFramed 内部写通路绕过这些禁止项。
+v0.6 已将受控自由命令和按能力声明的脚本文件写入纳入设计；凭据获取、连接管理及
+脱离命令事务的任意按键仍不属于本期。任何新增入口不得绕过 §15 的风险、确认、
+提示符就绪、Lease、世代和有界性约束。
 
 ## 13. 规范与项目依据
 
@@ -1478,6 +1491,11 @@ coalescedReadCount=27；snapshotAge P95 为 1.78～2.08 s。正常负载功能�
 - 基础摘要缓存与增量筛选不共享客户端进度。截断时 nextToken 为空；语义不是完整日志。
 - 多实例的接入配置通过版本校验与文件监听同步；令牌存取仅在用户管理客户端时
   触碰凭据库，协议认证只核对摘要。总开关关闭时清除本次授权，即使保存失败也先撤销内存访问。
+- Windows 加固状态目录时，属主校验先算本进程令牌的对象属主身份集合（TokenUser、
+  TokenOwner 与带 `SE_GROUP_OWNER` 的组），再写入“仅当前用户完全访问”的受保护
+  DACL。提权运行创建的对象属主是 Administrators，只比对 TokenUser 会让
+  `AccessStore::save()` 恒失败、`McpSettingsDialog` 的总开关表现为点不动。
+  回归：`novaterm_mcp_tests::stateDirectoryOwnedByTokenDefaultOwnerIsSecurable`。
 - 单实例导出配置默认自动发现，多实例导出固定当前 instanceId。旧 IPC 的执行票据
   不能在新连接重放；客户端断开后旧执行记录由本机 GUI 核对。
 - 工具支持的固定程序缺失时返回命令失败及退出码，不自动搜索 PATH 或回退解释器。
@@ -1572,6 +1590,10 @@ v0.4/v0.5 性能实施建议顺序（与全会话命令执行可并行推进）�
 
 ### 14.1 v0.5 全会话命令执行的剩余增量
 
+> 本节保留 v0.5 实施基线。v0.6 已选择统一的 Session 级交互命令协调器，后续
+> 实施顺序和完成定义改以 §15.10 为准；不得继续把 v0.5 的 isolated-only 目标
+> 当成最终架构。
+
 通用 `CommandExecutionRequest/Result/Outcome`、`SessionCommandFacade`、Executor 接口、
 SSH bounded exec 适配，以及 `McpService` 去除 SSH 业务层强耦合已经完成并由
 `novaterm_mcp_tests` 与 `novaterm_ssh_transport_check` 覆盖。以下条目仍不属于当前
@@ -1589,3 +1611,326 @@ SSH bounded exec 适配，以及 `McpService` 去除 SSH 业务层强耦合已�
 `executionEnabled=false`，而不是为了覆盖率退化成任意 `writeUserInput()`。
 
 用户接入步骤见 [MCP 使用说明](../../MCP_Usage.md)。
+
+### 14.2 v0.6 当前实现与验收记录（2026-09-26）
+
+以下内容是当前 `0.2.30` 工作树中已经进入代码的实现，不将尚未做的桌面人工验收、
+跨平台验收或性能闸门宣称为完成。
+
+| 能力 | 当前实现 |
+| --- | --- |
+| 用户抢占 | `SessionInputArbiter` 记录用户输入代际；用户输入会先通知 MCP、使已缓存的提示符 readiness 失效，再写入 Transport。脚本 SFTP 上传时用户开始键入会取消尚未完成的 provider 写入；注入后的交互命令沿现有 Coordinator 抢占路径结束。 |
+| 交互输入/输出 | `InteractiveStreamFramer` 在进入 `TerminalCore` 前隐藏内部结束标记及普通 SSH/POSIX 命令附带的完成片段；`SessionCommandCoordinator` 用有界分块、单次 Lease 和输出预算收尾。配置了可信 Profile 的会话继续使用 ready prompt；未配置 Shell integration 的 SSH 会话可在没有提示符证据时直接写入当前终端，依靠命令末尾的 nonce/退出码标记证明完成。此模式无法可靠排除 TUI、密码提示或未提交用户输入，缺少完成证据时返回不确定结果。 |
+| 人类确认 | MCP 2025-11-25 使用 `ElicitationBroker` 的反向 `elicitation/create`；MCP 2026-07-28 使用现代 `server/discover`、逐请求 `_meta`、`resultType=input_required` 与 MRTR `requestState/inputResponses`。缺少表单 Elicitation 时，Confirm/Unknown 命令和所有脚本均返回 `CLIENT_CONFIRMATION_UNAVAILABLE`，不降级到工具参数里的自报布尔值。 |
+| 一次性状态 | MRTR 状态由当前本机 IPC 会话密钥 MAC 签名，绑定客户端身份、Session/epoch、目标指纹、Profile/风险策略、权限代际、命令或完整脚本请求摘要及过期时间；可信 Profile 绑定提示符代际，无提示符 SSH 命令额外绑定用户输入代际。服务端再次核验并消费一次性 nonce。权限撤销、重放、正文/路径篡改或状态变化均拒绝继续。 |
+| 产品授权 | AccessStore/UI 保留读取共享、逐项固定诊断和脚本任务授权。已共享会话的普通低风险命令无需额外执行开关；Confirm/Unknown 命令只通过 MCP 客户端人类确认继续。脚本仍需独立脚本授权，且每次确认。确认是提交授权，不能保证接受后的命令没有破坏性。 |
+| 脚本目标文件 | LocalShell 用 `QSaveFile` 原子写入明确目标并设为仅属主可读写执行；SSH 用独立 SFTP 字节上传，单次与排队正文总量最多 2 MiB，并绑定活动 SSH endpoint/account/secret、known_hosts 路径及已验证主机密钥指纹。父目录必须存在；确认后可覆盖目标，脚本文件保留且不自动删除。 |
+| 脚本调用 | 高危脚本/命令扫描到凭据读取、关闭安全机制、提权或格式化等已知行为时永久拒绝；其余脚本一律确认。写入成功后再次验证 Session、epoch、授权、Profile、提示符、目标与正文摘要，再通过协调器在当前终端显示/执行 invocation。正文不进入终端 UI；用户输入、写入失败或状态变化不会提交后续调用命令。 |
+
+本次自动化与回环验收：
+
+- `NovaTerm`、`novaterm_mcp_tests`、`novaterm_session_tests`、`novaterm-mcp` 与 `novaterm_ssh_transport_check` 构建成功；
+- MCP/Session 专项 CTest 通过；覆盖 2025 accept/decline/cancel、2026 discover/MRTR、MAC 篡改/重放、权限撤销、脚本确认前后落盘、调用命令不含正文、写入失败零注入、无提示符 SSH 的本终端命令/危险命令确认及用户输入抢占；
+- 官方 2025 MCP Python SDK 互操作和 2026 原始 stdio wire 检查通过；
+- `ssh_loopback_check.py` 只连 `127.0.0.1` Paramiko 夹具，SSH 固定命令、无提示符交互 `pwd` 的命令/输出进入 TerminalCore 且内部片段隐藏，以及 SFTP 写入字节核对通过；夹具不运行真实 shell 命令；
+- `novaterm_ssh_transport_check.exe` Transport/Profile/协议专项通过。
+
+仍未完成的验收：真实 SSH Shell 的回显过滤、TUI/密码提示误输入风险及 Windows 桌面 PowerShell/Clink 人工场景；Linux/macOS PTY shell 人工场景；命令运行期间 GUI frame P95 和现有性能预算复测。完整 CTest 状态应以本轮最终验证记录为准。
+
+## 15. v0.6 Session 级交互终端“手”设计（2026-09-24，2026-09-26 修订）
+
+本节定义 v0.6 命令与脚本能力的权威设计；§14.2 记录其中已实现及自动化/回环验收的部分。
+真实桌面、跨平台与性能检查仍按 §14.2 的验收状态分别记录，设计条目本身不构成验收证据。
+
+v0.6 的目标是让 MCP 在经过授权和风险控制后，像用户在当前终端中输入命令一样
+操作既有 Session：命令回显、输出、滚动历史与上下文读取都来自同一终端模型。
+它仍受 Session 生命周期、用户输入优先权、风险拒绝与客户端人类确认约束。
+
+### 15.1 决策与不可变约束
+
+| 决策 | v0.6 方案 |
+| --- | --- |
+| 普通命令 | 通过当前 Session 的交互字节流输入；命令和正常输出进入 TerminalCore 与 UI |
+| 覆盖范围 | SSH、LocalShell、Serial、Telnet；Custom 仅在显式注册可信 Profile 后加入 |
+| 提示符前置条件 | 可信 Profile 可用时继续按提示符状态执行；未配置 Shell integration 的 SSH/POSIX 普通命令不以提示符为门槛，直接写入当前终端并等待命令内的结束标记 |
+| SSH/LocalShell 就绪来源 | 已配置的 Shell integration 提供可信隐藏标记；无提示符 SSH 模式只提供命令结束证据，不能证明写入位置是空闲 Shell |
+| Serial/Telnet 就绪来源 | 用户为目标 Profile 配置的提示符、换行与回显规则 |
+| 用户优先 | 键盘或粘贴立即抢占；停止发送 MCP 数据，结果按证据标为 cancelled/unknown |
+| 内部 framing | 在进入 TerminalCore 前剥离；UI、回滚与上下文摘要都不得出现标记 |
+| 风险策略 | `Allow / Confirm / Deny / Unknown`；Unknown 按 Confirm 处理 |
+| 人类确认 | 仅接受 MCP 客户端标准 elicitation；Agent 不能用工具参数自报确认 |
+| 脚本 | SSH/LocalShell 首期按 Profile 声明文件能力；正文不进入 UI，调用命令与输出可见 |
+| 禁止行为 | 凭据读取、关闭安全机制、提权、格式化磁盘等按尽力检测永久拒绝 |
+| 兼容 | 保留现有五工具和 schemaVersion=1；新增命令/脚本工具，不破坏旧 schema |
+
+无提示符 SSH 模式无法可靠识别 TUI、密码提示或未提交输入；命令可能写入这些位置。
+结束标记缺失时必须返回结果未知并保护目标，不能宣称成功或自动重试。禁止发送
+额外换行、空格、Ctrl-C、Esc 等试探字符来“看看是不是提示符”。风险检测是
+尽力而为，不能对任意 Shell、别名、解释器或动态下载脚本宣称已证明安全。
+
+### 15.2 组件、所有权与唯一数据通路
+
+```mermaid
+flowchart LR
+    User[用户键盘 / 粘贴] --> Arbiter[SessionInputArbiter]
+    MCP[MCP 命令] --> Risk[CommandRiskPolicy]
+    Risk --> Confirm[MCP Elicitation]
+    Risk --> Coordinator[SessionCommandCoordinator]
+    Confirm --> Coordinator
+    Coordinator --> Lease[SessionCommandLease]
+    Lease --> Arbiter
+    Arbiter --> Transport[ITransport::write]
+    Transport --> Remote[当前交互终端]
+    Remote --> Pump[SessionInputPump]
+    Pump --> Framer[InteractiveStreamFramer]
+    Framer --> Capture[有界事务捕获]
+    Capture --> Coordinator
+    Framer --> Core[TerminalCore]
+    Core --> UI[Renderer / UI / Scrollback]
+```
+
+新增或扩展组件：
+
+| 组件 | 所有者 / 线程 | 职责 |
+| --- | --- | --- |
+| `SessionCommandCoordinator` | TerminalSession / GUI 线程 | 命令状态机、提示符复核、Lease、提交、取消、超时与结果归类 |
+| `SessionCommandLease` | TerminalSession / GUI 线程 | 每 Session 同时最多一个 MCP 交互事务；绑定 generation、epoch、executionId |
+| `SessionInputArbiter` | TerminalSession / GUI 线程 | 合并 User/Mcp 输入来源；用户抢占先取消 MCP，再立即放行真实输入 |
+| `InteractiveCommandProfile` | 可信本机配置 / 只读 | shell integration、提示符、换行、回显、framing、取消与脚本能力 |
+| `InteractiveStreamFramer` | SessionInputPump 入站路径 | 识别并剥离内部标记；发布有界事务片段；正常字节只转发一次 |
+| `CommandRiskPolicy` | MCP/Session 门面层 | 对命令、脚本、路径和调用方式给出 Allow/Confirm/Deny/Unknown |
+| `ISessionScriptProvider` | Session 能力层 | 在目标主机精确路径写入脚本；不接收 MCP 协议对象，不输出凭据 |
+| `ElicitationBroker` | novaterm-mcp Bridge | 适配 2025 `elicitation/create` 与 2026 MRTR，不代替用户作决定 |
+
+唯一数据通路调整为：
+
+```text
+出站：User/Mcp → SessionInputArbiter → ITransport::write
+入站：ITransport::readyRead → SessionInputPump → InteractiveStreamFramer
+      → 去标记字节 → TerminalCore → Renderer/UI
+      → 同一份有界事务字节 → SessionCommandCoordinator
+```
+
+不得让 MCP 直接调用具体 Transport、`TerminalView::submitText()` 或
+`TerminalCore::pasteText()`；不得为 MCP 建立绕过 TerminalCore 的第二份终端日志。
+Transport 继续只理解字节和连接状态，Renderer 不理解 MCP、Shell 或 framing。
+
+### 15.3 提示符状态与 Profile
+
+SSH 与 LocalShell 的 Shell integration 至少发布以下隐藏事件：
+
+- `PromptReady(promptGeneration)`；
+- `CommandStarted(executionNonce)`；
+- `CommandFinished(executionNonce, exitCode?)`；
+- Shell reset/退出，使就绪状态立即失效。
+
+可信 Profile 模式在 Session 连接、重连、Transport 换绑、Shell reset、进入备用屏、
+观察到密码提示或存在未提交用户输入后进入 `Unavailable`，收到当前世代完整的
+`PromptReady` 才恢复就绪。未配置 Shell integration 的 SSH/POSIX 模式不等待
+`PromptReady`：当前交互 Shell 收到原命令及内部结束片段，片段的回显和输出标记在
+进入 TerminalCore 前剥离；nonce 与退出码标记证明该片段执行到末尾。它不能证明
+命令最初落在空闲 Shell。确认等待期间若用户开始输入，确认状态失效；执行期间用户
+输入立即抢占尚未发送的 MCP 字节。伪造旧 nonce 不能完成新事务。
+
+Serial/Telnet Profile 显式声明：
+
+- 提示符规则及其锚定方式；
+- 换行字节；
+- 输入是否由目标回显；
+- 事务完成规则和可选退出状态语义；
+- 密码提示/TUI/启动输出排除规则；
+- 可选且明确证明安全的取消协议。
+
+Serial/Telnet 的提示符仍须在当前活动行末匹配，并经过 Profile 的有界静默窗口；
+匹配歧义或规则缺失时不开放命令能力。Custom 只有注册并通过统一 contract tests
+的 Profile 才能发布能力。无提示符回退当前只适用于 SSH/POSIX，不根据屏幕末行猜测。
+
+### 15.4 MCP 工具与兼容契约
+
+现有工具继续保留：
+
+- `novaterm_list_sessions`
+- `novaterm_read_context`
+- `novaterm_search_context`
+- `novaterm_list_commands`
+- `novaterm_execute_command`
+
+固定诊断仍通过 `commandId`、命令票据和现有结果结构调用。具备可信交互 Profile
+时可交给 Coordinator，命令在 UI 中按正常手工输入显示；当前没有可信 Profile 的
+SSH 会话仍保留独立 exec 通道，Windows LocalShell 仍保留本地诊断 helper，二者
+不改变当前终端历史。POSIX Profile 使用 `uname -srm` 等普通命令文本，不要求
+`/usr/bin/uname` 等绝对路径。
+
+新增工具：
+
+#### `novaterm_run_command`
+
+输入至少包含 `sessionId`、`epoch`、UTF-8 `command`；可选超时只能在服务端硬上限内
+收窄或扩展到 Profile 允许值。命令正文上限 16 KiB，允许复合 Shell、多行、管道、
+重定向和解释器调用，但这些结构不得判为低风险；整段正文参与风险检查与确认哈希。
+执行目录是当前交互 Shell 的动态工作目录。
+
+#### `novaterm_run_script`
+
+输入至少包含 `sessionId`、`epoch`、UTF-8 脚本正文、目标路径、工作目录和
+调用方式。脚本正文上限 2 MiB；首期仅 SSH/LocalShell 的 Profile 可发布能力。
+所有脚本任务无条件要求人类确认，确认前不得在目标主机落盘。
+
+`novaterm_list_sessions.capabilities` 按已共享会话、可用执行通路和客户端能力发布
+`run_command`、`run_script`、`human_confirmation`。低风险普通命令无需额外的
+交互命令授权；危险或无法分类的命令必须由 MCP 客户端 elicitation 取得人类确认。
+脚本仍需独立授权及逐次确认，固定诊断模板的旧授权保持兼容。
+
+### 15.5 风险分析与人类 elicitation
+
+风险分类：
+
+| 结果 | 行为 |
+| --- | --- |
+| `Allow` | 已识别的低风险命令可直接进入 Session/Lease 检查；包括 `pwd`、简单 `ls`/`cd` 和明确的非敏感系统文件读取 |
+| `Confirm` | 文件修改/删除、安装、网络或系统配置变化、复合 Shell、解释器等需人类确认 |
+| `Deny` | 已知凭据读取、关闭安全机制、提权、格式化磁盘等永久拒绝 |
+| `Unknown` | 无法可靠分类；按 Confirm 处理，不得降级为 Allow |
+
+脚本同时检查正文、解释器/调用方式、目标路径和工作目录；命令同时检查整段输入，
+不能只检查第一个 argv。尽力检测无法阻止所有别名、动态代码、下载载荷或混淆行为，
+文案与日志不得宣称提供了沙箱或形式化安全证明。
+
+确认状态绑定：客户端身份、instanceId、sessionId/epoch、Session generation、
+promptGeneration、Profile/风险策略版本、executionId、命令或脚本 SHA-256、目标路径、
+工作目录、调用方式和过期时间。确认单次使用；内容、路径、会话、提示符、策略或
+Profile 任一变化都要求重新确认。
+
+协议适配：
+
+- MCP `2025-11-25`：客户端初始化时声明 `elicitation.form`；Bridge 在仍处理原
+  `tools/call` 时发送 `elicitation/create`，只接受 accept/decline/cancel；
+- MCP `2026-07-28`：使用 MRTR `resultType=input_required`、`requestState` 和
+  `inputResponses`；重提请求时重新验证全部绑定；
+- Agent 不能通过工具参数传 `confirmed=true`，也不增加普通“确认工具”；
+- 客户端未声明并实现人类 elicitation 时，只允许 Allow；Confirm、Unknown 与所有
+  脚本返回 `CLIENT_CONFIRMATION_UNAVAILABLE`，不得降级为普通二次调用。
+
+NovaTerm 信任合规 MCP 客户端把 accept 限制在人类 UI；普通 elicitation 响应本身
+不能提供密码学上的“真实点击”证明。若未来需要服务端独立证明，必须另行设计可信
+客户端证明或带外确认，不能在本协议里伪称已经做到。
+
+### 15.6 执行状态机、用户抢占与结果证据
+
+```text
+Unavailable → PromptReady（可信模式）或 UnverifiedReady（无提示符 SSH）
+            → AwaitingConfirmation（仅 Confirm/Unknown）→ LeaseAcquired
+            → Injecting → Running → Completed / Failed / Cancelled / Unknown
+```
+
+执行顺序固定为：客户端/会话授权 → 风险分析 → 必要的人类确认 → 重新验证
+Session、目标、策略和用户输入代际（可信模式还验证 promptGeneration）→ 获取 Lease
+→ 通过 Arbiter 写入 → 等待 nonce/退出码完成标记 → 发布结果。
+不模拟逐字符延迟；“模拟手输入”是指相同交互通路和终端呈现，不是人为拖慢字节。
+
+用户键盘或粘贴拥有最高优先级：
+
+1. 立即停止尚未发送的 MCP 字节；
+2. 释放或取消 Lease；
+3. 立即放行用户输入；
+4. 尚未提交时返回 cancelled 且 `executionMayHaveStarted=false`；
+5. 可能已提交时返回 unknown，不自动重放，并按 target/session 范围进入 quarantine。
+
+超时、断线、framing 丢失、世代变化和完成证据不足同样保守处理。除非 Profile 明确
+声明安全取消协议，否则不自动发送 Ctrl-C、Esc、Enter 或终止命令。重连、换绑、
+关闭和 epoch 变化立即废弃 Lease、确认状态和迟到结果。
+
+交互后端的 `stdout` 是 framing 边界内捕获的共享流文本，可能夹入异步日志；
+`stderr` 在无法区分时为空。可信 Profile 的提示符事件或无提示符 SSH 命令自身的
+nonce/退出码标记可提供完成证据；标记缺失时 `terminationConfirmed=false`，结果
+未知并不得自动重试。该标记不能证明命令进入了正确的 Shell 上下文。
+
+### 15.7 脚本文件能力
+
+`ISessionScriptProvider` 是独立、按 Profile 声明的能力：
+
+- SSH：使用 Session 层的 SFTP/目标文件能力，绑定当前 SSH 主机密钥、端点与账号；
+- LocalShell：使用本机文件 API；
+- Serial/Telnet/未声明能力的 Custom：返回 `SCRIPT_PROVIDER_UNAVAILABLE`。
+
+脚本流程：
+
+1. 接收正文、精确目标路径、工作目录和调用方式；
+2. 风险检查后发起人类 elicitation，明确展示写入路径、工作目录、覆盖风险、内容摘要
+   与命中规则；
+3. 确认前不落盘；确认同时批准该精确写入与执行；
+4. 确认后写入客户端指定路径；目标存在时按确认内容覆盖，不另设 NovaTerm 专用目录；
+5. 写入成功后重新验证同一 Session 和空闲提示符；
+6. 通过交互命令通路显示并执行脚本调用命令；正文不进入 TerminalCore，调用命令和
+   正常输出进入 UI；
+7. 文件保留在客户端指定路径，不自动删除。
+
+写入失败时不得注入调用命令。确认后、执行前若 Session/提示符变化，停止并要求重新
+确认；不得拿已经确认的脚本内容改写其他路径或换到其他 Session。
+
+### 15.8 有界性、隐私和错误码
+
+- 每 Session 同时最多一个交互命令或脚本事务；全局并发继续受 MCP 执行预算约束；
+- MCP 捕获输出继续使用 64 KiB 原始/UTF-8 合计边界；UI 正常终端流不因 MCP 捕获
+  上限而截断；
+- framing 缓冲、确认状态、脚本正文和执行记录均有全局/每客户端上限及过期时间；
+- 命令、脚本正文、目标路径和终端输出不写入普通协议日志；日志只保留 executionId、
+  哈希、风险分类、规则版本、允许/拒绝原因及最终状态；
+- 命令与脚本内容不得进入凭据库。
+
+在现有错误码基础上新增：
+
+| 错误码 | 含义 |
+| --- | --- |
+| `CLIENT_CONFIRMATION_UNAVAILABLE` | 客户端没有可用的人类 elicitation 能力 |
+| `COMMAND_CONFIRMATION_DECLINED` | 人类拒绝或取消本次确认，零字节注入 |
+| `COMMAND_CONFIRMATION_STALE` | 内容、路径、会话、提示符、Profile 或策略变化 |
+| `SCRIPT_PROVIDER_UNAVAILABLE` | 当前 Transport/Profile 没有目标文件能力 |
+| `SCRIPT_PERMISSION_REQUIRED` | 客户端未获授脚本任务权限 |
+| `SCRIPT_WRITE_FAILED` | 已确认但目标文件写入失败，未提交调用命令 |
+| `SCRIPT_CANCELLED_BY_USER` | 脚本写入期间用户输入抢占，停止上传和执行 |
+
+`SESSION_COMMAND_NOT_READY`、`SESSION_COMMAND_BUSY`、`COMMAND_OUTCOME_UNKNOWN`、
+`COMMAND_EXECUTION_QUARANTINED` 等既有错误继续使用。错误消息不得回显凭据、完整
+脚本正文或内部 framing nonce。
+
+### 15.9 测试与验收矩阵
+
+自动化测试至少覆盖：
+
+1. 无提示符 SSH/POSIX 的普通命令进入当前终端，风险命令在确认前零字节注入；明确记录在 TUI、密码提示或未提交输入时可能误写的限制；
+2. Session 重连、换绑、关闭、epoch/generation 改变后 Lease、确认和迟到结果失效；
+3. 用户键盘/粘贴抢占优先，MCP 不重放、不自动发送 Ctrl-C；
+4. framing 任意分包/合包、nonce 伪造、异步日志夹入与 marker 丢失；内部标记不进入
+   UI、回滚和上下文摘要；
+5. 命令回显与正常输出确实进入 TerminalCore、Renderer 和 MCP 有界捕获；
+6. 2025 `elicitation/create` 与 2026 MRTR 的接受、拒绝、取消、超时、能力缺失、
+   内容篡改、重放和跨 Session 使用；
+7. Allow/Confirm/Deny/Unknown，Unknown 不得误判为 Allow；
+8. 脚本确认前不落盘，确认后写精确路径，覆盖风险参与确认，正文不进入 UI，调用与
+   输出可见，写入失败不注入命令；
+9. SSH loopback、Local PTY/ConPTY、Serial PTY、Telnet loopback 与 Custom contract；
+10. 测试不连接用户保存的服务器、不读取真实凭据、不执行真实破坏性命令；
+11. 命令运行期间 Parser 吞吐、GUI frame 和跨线程队列水位不突破既有预算。
+
+该改动同时命中 MCP、Session、Core 输入、Transport/Profile 和 UI 显示，完成前先跑
+模块专项测试，再按项目约定运行完整 ctest。Windows 验证 PowerShell/CMD 与 ConPTY；
+Linux/macOS 验证 PTY 和支持的 Shell；SSH 只用回环 fixture；Serial/Telnet 使用虚拟
+PTY/回环服务，不以真实生产设备作为功能正确性的唯一证据。
+
+### 15.10 实施顺序与完成定义
+
+| 步骤 | 交付 | 退出条件 |
+| --- | --- | --- |
+| P8.6a 输入仲裁 | `SessionInputArbiter`、来源标记、用户抢占 | 用户输入优先；无第二条写入路径 |
+| P8.6b 状态与 framing | Shell integration、无提示符 SSH 结束标记、StreamFramer | 可信模式复核提示符；无提示符模式用完成标记且不伪称起点可信；标记不进 UI；分包/伪造测试通过 |
+| P8.6c 交互执行器 | Coordinator、Lease、通用结果映射 | 四种内建 Transport 的 contract 行为一致 |
+| P8.6d 风险与确认 | RiskPolicy、2025 elicitation、2026 MRTR | Agent 不能自报确认；缺能力只运行 Allow |
+| P8.6e 对外工具 | `run_command`、固定诊断迁移 | 旧五工具兼容；普通命令在 UI 可见 |
+| P8.6f 脚本能力 | SSH/Local ScriptProvider、`run_script` | 确认前不落盘；正文隐藏；调用与输出可见 |
+| P8.6g 产品与验收 | 授权项、观测、跨平台/性能验证 | 自动化、回环、人工 UI 与性能证据齐全 |
+
+实现过程中必须同步 `docs/ARCHITECTURE.md` 的唯一输入通路、Session 所有权与线程
+模型，P6 的 Lease/输入仲裁接口，以及 `AGENTS.md` 的 framing、提示符和用户抢占
+约束。只有代码、自动化测试、相应平台验收和文档全部完成后，才能更新阶段状态；
+不能因本节已写入就宣称 v0.6 已实现。

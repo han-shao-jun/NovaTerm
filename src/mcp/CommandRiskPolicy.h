@@ -26,7 +26,7 @@ struct RiskAssessment
 };
 
 /**
- * @brief 尽力检测已知高危行为，并仅放行严格的只读命令集合。
+ * @brief 尽力检测已知高危行为，并放行明确识别的低风险命令。
  * @note 本策略不是 Shell 沙箱，也不能证明任意脚本安全。
  */
 class CommandRiskPolicy final

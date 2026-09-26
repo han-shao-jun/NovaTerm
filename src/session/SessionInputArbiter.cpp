@@ -54,6 +54,8 @@ void SessionInputArbiter::submitUserInput(const QByteArray& data)
 {
     if (data.isEmpty())
         return;
+    ++_userInputGeneration;
+    emit userInputStarted(_userInputGeneration);
     if (_executionId != 0) {
         const quint64 executionId = _executionId;
         const bool executionMayHaveStarted = _mcpBytesWritten;
@@ -75,4 +77,3 @@ void SessionInputArbiter::clearLease() noexcept
     _executionId = 0;
     _mcpBytesWritten = false;
 }
-

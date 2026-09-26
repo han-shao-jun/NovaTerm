@@ -8,6 +8,15 @@
 
 #include <utility>
 
+namespace {
+QByteArray unverifiedPosixSuffix(const QByteArray& nonce)
+{
+    return QByteArrayLiteral(";__nvterm_rc=$?;printf '\\033]633;NT;END;")
+        + nonce
+        + QByteArrayLiteral(";%d\\007' \"$__nvterm_rc\"");
+}
+}
+
 SessionCommandCoordinator::SessionCommandCoordinator(
     SessionInputArbiter* arbiter, InteractiveStreamFramer* framer,
     QObject* parent)
@@ -19,10 +28,16 @@ SessionCommandCoordinator::SessionCommandCoordinator(
     _promptSilence.setSingleShot(true);
     connect(&_promptSilence, &QTimer::timeout, this, [this] {
         if (_candidatePromptGeneration != 0) {
+            if (!_arbiter || _candidateUserInputGeneration
+                    != _arbiter->userInputGeneration()) {
+                _candidatePromptGeneration = 0;
+                return;
+            }
             const quint64 readyGeneration = _candidatePromptGeneration;
             if (_active)
                 finish(CommandExecutionOutcome::Completed, true);
             _promptGeneration = readyGeneration;
+            _promptUserInputGeneration = _candidateUserInputGeneration;
         }
         _candidatePromptGeneration = 0;
     });
@@ -40,6 +55,8 @@ void SessionCommandCoordinator::configure(InteractiveCommandProfile profile)
     _profile = std::move(profile);
     _promptSilence.stop();
     _candidatePromptGeneration = 0;
+    _candidateUserInputGeneration = _arbiter
+        ? _arbiter->userInputGeneration() : 0;
     _promptGeneration = 0;
 }
 
@@ -56,6 +73,9 @@ void SessionCommandCoordinator::reset(quint64 sessionGeneration)
     _sessionGeneration = sessionGeneration;
     _promptGeneration = 0;
     _candidatePromptGeneration = 0;
+    _promptUserInputGeneration = _arbiter
+        ? _arbiter->userInputGeneration() : 0;
+    _candidateUserInputGeneration = _promptUserInputGeneration;
     _executionMayHaveStarted = false;
     _commandStarted = false;
     _outputTruncated = false;
@@ -63,10 +83,13 @@ void SessionCommandCoordinator::reset(quint64 sessionGeneration)
 
 bool SessionCommandCoordinator::submit(const CommandExecutionRequest& request)
 {
+    const bool unverifiedPrompt = _profile.allowUnverifiedPrompt;
     if (_active || !_arbiter || !_framer || request.requestId == 0
         || request.command.isEmpty() || request.executionNonce.isEmpty()
-        || request.expectedPromptGeneration == 0
-        || request.expectedPromptGeneration != _promptGeneration
+        || (!unverifiedPrompt && (request.expectedPromptGeneration == 0
+            || request.expectedPromptGeneration != _promptGeneration
+            || _promptUserInputGeneration != _arbiter->userInputGeneration()))
+        || (unverifiedPrompt && request.expectedPromptGeneration != 0)
         || request.limits.maxOutputBytes <= 0 || request.limits.timeoutMs <= 0
         || !_arbiter->acquireMcpLease(request.requestId,
                                      _sessionGeneration)) {
@@ -79,10 +102,13 @@ bool SessionCommandCoordinator::submit(const CommandExecutionRequest& request)
     _executionMayHaveStarted = false;
     _commandStarted = !_profile.requiresStartMarker;
     _outputTruncated = false;
-    _framer->beginTransaction(request.executionNonce);
-    _pendingInput = request.command + _profile.lineEnding;
+    const QByteArray echoSuffix = unverifiedPrompt
+        ? unverifiedPosixSuffix(request.executionNonce) : QByteArray{};
+    _framer->beginTransaction(request.executionNonce, echoSuffix);
+    _pendingInput = request.command + echoSuffix + _profile.lineEnding;
     _pendingInputOffset = 0;
     if (!sendNextInputChunk()) {
+        static_cast<void>(_framer->endTransaction());
         _arbiter->releaseMcpLease(request.requestId);
         _active.reset();
         _pendingInput.clear();
@@ -125,9 +151,16 @@ void SessionCommandCoordinator::cancel(quint64 requestId)
         finish(CommandExecutionOutcome::Cancelled, false);
 }
 
+void SessionCommandCoordinator::expire(quint64 requestId)
+{
+    if (_active && _active->requestId == requestId)
+        finish(CommandExecutionOutcome::TimedOut, false);
+}
+
 bool SessionCommandCoordinator::isPromptReady() const noexcept
 {
-    return _promptGeneration != 0 && !_active;
+    return _promptGeneration != 0 && !_active && _arbiter
+        && _promptUserInputGeneration == _arbiter->userInputGeneration();
 }
 
 void SessionCommandCoordinator::handleInteractiveEvent(
@@ -138,9 +171,13 @@ void SessionCommandCoordinator::handleInteractiveEvent(
         _promptSilence.stop();
         _candidatePromptGeneration = 0;
         _promptGeneration = event.promptGeneration;
+        _promptUserInputGeneration = _arbiter
+            ? _arbiter->userInputGeneration() : 0;
         break;
     case InteractiveStreamEventKind::PromptCandidate:
         _candidatePromptGeneration = event.promptGeneration;
+        _candidateUserInputGeneration = _arbiter
+            ? _arbiter->userInputGeneration() : 0;
         _promptSilence.start(_profile.promptSilenceMs);
         break;
     case InteractiveStreamEventKind::CommandStarted:
@@ -162,12 +199,17 @@ void SessionCommandCoordinator::handleInteractiveEvent(
                              : CommandExecutionOutcome::Failed,
                    true, event.exitCode);
             _promptGeneration = event.promptGeneration;
+            _promptUserInputGeneration = _arbiter
+                ? _arbiter->userInputGeneration() : 0;
         }
         break;
     case InteractiveStreamEventKind::ShellReset:
         _promptSilence.stop();
         _candidatePromptGeneration = 0;
         _promptGeneration = 0;
+        _promptUserInputGeneration = _arbiter
+            ? _arbiter->userInputGeneration() : 0;
+        _candidateUserInputGeneration = _promptUserInputGeneration;
         if (_active)
             finish(CommandExecutionOutcome::Disconnected, false);
         break;
@@ -239,5 +281,9 @@ void SessionCommandCoordinator::finish(CommandExecutionOutcome outcome,
     _outputTruncated = false;
     if (_arbiter)
         _arbiter->releaseMcpLease(requestId);
+    const QByteArray remainder = _framer
+        ? _framer->endTransaction() : QByteArray{};
+    if (!remainder.isEmpty())
+        emit visibleRemainder(remainder);
     emit finished(result);
 }

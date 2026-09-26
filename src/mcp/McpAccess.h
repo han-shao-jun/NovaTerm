@@ -19,6 +19,8 @@ public:
         QString epoch;
         QSet<QString> commands;
         bool interactiveCommand{false};
+        bool confirmedCommand{false};
+        bool scriptTask{false};
     };
     explicit AccessStore(QString directory, std::unique_ptr<CredentialStore> credentials,
                          QObject* parent = nullptr);
@@ -33,12 +35,18 @@ public:
     [[nodiscard]] quint64 version(const QString& clientId) const;
     bool setGrant(const QString& clientId, const SessionDirectory::Entry& entry,
                   bool read, QSet<QString> commands = {},
-                  bool interactiveCommand = false);
+                  bool interactiveCommand = false,
+                  bool confirmedCommand = false,
+                  bool scriptTask = false);
     [[nodiscard]] bool canRead(const QString& clientId, const SessionDirectory::Entry& entry) const;
     [[nodiscard]] QSet<QString> commands(const QString& clientId, const SessionDirectory::Entry& entry) const;
     /** @brief 当前客户端是否单独获准在该 Session 执行交互命令。 */
     [[nodiscard]] bool canRunCommand(const QString& clientId,
                                      const SessionDirectory::Entry& entry) const;
+    [[nodiscard]] bool canRunConfirmedCommand(
+        const QString& clientId, const SessionDirectory::Entry& entry) const;
+    [[nodiscard]] bool canRunScriptTask(
+        const QString& clientId, const SessionDirectory::Entry& entry) const;
 signals:
     void changed();
     void revoked(const QString& clientId, const QString& sessionId);

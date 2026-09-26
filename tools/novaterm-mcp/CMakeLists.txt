@@ -1,6 +1,7 @@
 # stdio 桥接必须是 console 程序，不继承主应用的 WIN32 子系统或 GUI 依赖。
 qt_add_executable(novaterm-mcp
-    main.cpp StdioChannel.cpp StdioChannel.h
+    main.cpp ElicitationBroker.cpp ElicitationBroker.h
+    StdioChannel.cpp StdioChannel.h
     ${PROJECT_SOURCE_DIR}/src/core/ThreadNaming.cpp
 )
 set_target_properties(novaterm-mcp PROPERTIES WIN32_EXECUTABLE FALSE MACOSX_BUNDLE FALSE)

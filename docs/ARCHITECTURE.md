@@ -215,9 +215,15 @@ Provider 按需在 Session 线程调用，返回独立值对象；它是 Session
 
 P8 的读取走 `TerminalSession::tryTerminalContext()` 与 Core 的 try-lock 文本快照；
 模型忙时返回 Busy，GUI 不等待 Parser。`SessionDirectory` 仅持弱引用并跟踪 epoch，
-不接管 View-owned 生命周期。`src/mcp/` 负责本机 IPC、授权、schema、预算、捕获
-与固定命令策略；独立 `novaterm-mcp` 程序对外提供 stdio。读取共享与诊断执行分别
-授权，命令只经现有 SSH 的有界辅助 exec，不向交互终端注入原始命令。
+不接管 View-owned 生命周期。`src/mcp/` 负责本机 IPC、分项授权、schema、预算、捕获、
+风险与脚本策略；独立 `novaterm-mcp` 程序对外提供 stdio，并在 Bridge 中适配 2025
+elicitation 与 2026 MRTR。固定诊断仍由受限 Executor 执行；自由命令和脚本 invocation
+经 `TerminalSession` 的 `SessionInputArbiter`、`InteractiveStreamFramer` 与
+`SessionCommandCoordinator` 走唯一 Transport→Parser 字节通路，在终端 UI 可见。
+SSH/LocalShell 脚本正文由 Session 级 ScriptProvider 写入明确目标路径，不通过 Transport
+输入；用户输入优先，且访问权、确认和 epoch 在写入、注入前复核。脚本仍要求可信
+提示符；普通 SSH/POSIX 命令也可在没有提示符标记时经同一输入通路提交，使用隐藏的
+命令结束标记收口，但无法证明输入最初落在空闲 Shell。
 
 ### 3.5 Renderer
 

@@ -4,6 +4,9 @@
 #include "SessionDirectory.h"
 #include "LocalSessionCommandExecutor.h"
 #include "InteractiveSessionCommandExecutor.h"
+#include "LocalSessionScriptProvider.h"
+#include "SshSessionScriptProvider.h"
+#include "ISessionScriptProvider.h"
 #include "SessionCommandFacade.h"
 #include "ShellIntegration.h"
 #include "SshSessionCommandExecutor.h"
@@ -13,12 +16,16 @@
 #include <QDir>
 #include <QThread>
 
+#include <optional>
+
 namespace {
 QString uuid() { return QUuid::createUuid().toString(QUuid::WithoutBraces); }
 std::unique_ptr<ISessionCommandExecutor> commandExecutor(
     TerminalSession* owner, ITransport* transport, TransportKind kind)
 {
-    if (owner && ShellIntegration::profileFor(owner->runtimeConfig())) {
+    const auto interactiveProfile = owner
+        ? ShellIntegration::profileFor(owner->runtimeConfig()) : std::nullopt;
+    if (interactiveProfile && !interactiveProfile->allowUnverifiedPrompt) {
         QString identity;
         if (kind == TransportKind::Ssh) {
             auto* ssh = qobject_cast<SshTransport*>(transport);
@@ -61,6 +68,22 @@ std::unique_ptr<ISessionCommandExecutor> commandExecutor(
         return std::make_unique<LocalSessionCommandExecutor>(helper);
     }
 #endif
+    return {};
+}
+
+std::unique_ptr<ISessionScriptProvider> scriptProvider(
+    TerminalSession* owner, ITransport* transport, TransportKind kind)
+{
+    if (!owner || !transport)
+        return {};
+    if (kind == TransportKind::LocalShell)
+        return std::make_unique<LocalSessionScriptProvider>();
+    if (kind == TransportKind::Ssh) {
+        auto* ssh = qobject_cast<SshTransport*>(transport);
+        const auto interactiveProfile = ShellIntegration::profileFor(owner->runtimeConfig());
+        if (ssh && interactiveProfile && !interactiveProfile->allowUnverifiedPrompt)
+            return std::make_unique<SshSessionScriptProvider>(ssh);
+    }
     return {};
 }
 }
@@ -120,12 +143,23 @@ void SessionDirectory::refresh(TerminalSession* session)
     const auto generation = session->statistics().generation;
     const auto kind = session->runtimeConfig().transportKind;
     const auto state = session->state();
+    const auto scriptProfile = kind == TransportKind::Ssh
+        ? ShellIntegration::profileFor(session->runtimeConfig()) : std::nullopt;
+    const bool scriptKindSupported = kind == TransportKind::LocalShell
+        || (kind == TransportKind::Ssh && session->transport()
+            && scriptProfile && !scriptProfile->allowUnverifiedPrompt
+            && qobject_cast<SshTransport*>(session->transport()));
+    const bool scriptBindingChanged = it->transport != session->transport()
+        || it->kind != kind
+        || (scriptKindSupported && !session->scriptProvider());
     const bool identityChanged = it->id != id || it->generation != generation
         || it->transport != session->transport();
     if (identityChanged) {
         session->commandFacade()->installExecutor(
             commandExecutor(session, session->transport(), kind), generation);
     }
+    if (scriptBindingChanged)
+        session->installScriptProvider(scriptProvider(session, session->transport(), kind));
     const auto target = session->commandFacade()->targetFingerprint();
     const bool targetChanged = state == SessionState::Running && target != it->targetFingerprint;
     if (!identityChanged && !targetChanged && it->state == state && it->kind == kind)

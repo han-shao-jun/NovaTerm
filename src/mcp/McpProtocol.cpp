@@ -8,6 +8,7 @@
 #include <QFileInfo>
 #include <QJsonDocument>
 #include <QHash>
+#include <QList>
 #include <QMessageAuthenticationCode>
 #include <QRandomGenerator>
 #include <QSaveFile>
@@ -197,6 +198,16 @@ QJsonArray tools()
     runCommand.insert("command", QJsonObject{{"type", "string"},
         {"minLength", 1}, {"maxLength", 16384}});
     runCommand.insert("timeoutMs", integerSchema(1, 30000, 5000));
+    QJsonObject runScript = identity;
+    runScript.insert("scriptContent", QJsonObject{{"type", "string"},
+        {"minLength", 1}, {"maxLength", int(MaxScriptBytes)}});
+    runScript.insert("targetPath", QJsonObject{{"type", "string"},
+        {"minLength", 1}, {"maxLength", 4096}});
+    runScript.insert("workingDirectory", QJsonObject{{"type", "string"},
+        {"minLength", 1}, {"maxLength", 4096}});
+    runScript.insert("invocation", QJsonObject{{"type", "string"},
+        {"minLength", 1}, {"maxLength", 16384}});
+    runScript.insert("timeoutMs", integerSchema(1, 30000, 5000));
     const auto boolean = QJsonObject{{"type", "boolean"}};
     const auto text = QJsonObject{{"type", "string"}};
     const auto nullableText = QJsonObject{{"type", QJsonArray{"string", "null"}}};
@@ -224,7 +235,7 @@ QJsonArray tools()
     dataSchemas.insert("novaterm_list_sessions", object({{"instanceId", text}, {"applicationVersion", text},
         {"nextCursor", nullableText}, {"sessions", array(object({{"sessionId", text}, {"epoch", text},
             {"state", state}, {"transport", transport}, {"displayName", text}, {"displayNameTruncated", boolean},
-            {"capabilities", array(enumeration({"read_context", "search_context", "list_commands", "execute_command", "run_command"}))}}))}}));
+            {"capabilities", array(enumeration({"read_context", "search_context", "list_commands", "execute_command", "run_command", "run_script", "human_confirmation"}))}}))}}));
     dataSchemas.insert("novaterm_read_context", object({{"instanceId", text}, {"sessionId", text}, {"epoch", text},
         {"revision", decimal}, {"captureId", text}, {"capturedAt", text}, {"state", state}, {"transport", transport},
         {"title", text}, {"alternateScreen", boolean}, {"cursor", object({{"row", unsignedInteger}, {"column", unsignedInteger}})},
@@ -243,6 +254,7 @@ QJsonArray tools()
             {"maxOutputBytes", unsignedInteger}, {"commandTicket", text}}))}}));
     dataSchemas.insert("novaterm_execute_command", execution);
     dataSchemas.insert("novaterm_run_command", execution);
+    dataSchemas.insert("novaterm_run_script", execution);
     const QJsonObject output{{"type", "object"},
         {"required", QJsonArray{"schemaVersion", "ok"}},
         {"properties", QJsonObject{{"schemaVersion", QJsonObject{{"const", 1}}},
@@ -274,6 +286,8 @@ QJsonArray tools()
         schema(execute, {"sessionId", "epoch", "commandId", "policyVersion", "commandTicket", "arguments"}), true);
     add("novaterm_run_command", "Run a bounded command in an explicitly shared interactive terminal. Requires separate authorization; risky or unknown commands require a human confirmation capability.",
         schema(runCommand, {"sessionId", "epoch", "command"}), true, true);
+    add("novaterm_run_script", "After MCP client human confirmation, write a bounded script to the explicitly selected LocalShell/SSH host path, then invoke it through the selected interactive terminal. The script body is never sent to the terminal.",
+        schema(runScript, {"sessionId", "epoch", "scriptContent", "targetPath", "workingDirectory", "invocation"}), true, true);
     return result;
     }();
     return catalog;
@@ -310,6 +324,9 @@ QString validateArguments(const QString& name, const QJsonObject& arguments)
                 valid = valid && !QUuid(text).isNull() && QUuid(text).toString(QUuid::WithoutBraces) == text;
             if (it.key() == "query")
                 valid = valid && !text.contains('\n') && !text.contains('\r');
+            if (it.key() == "scriptContent")
+                valid = valid && !text.toUtf8().isEmpty()
+                    && text.toUtf8().size() <= MaxScriptBytes;
         } else if (type == "integer") {
             const double number = value.toDouble();
             valid = value.isDouble() && std::isfinite(number) && std::floor(number) == number
@@ -328,6 +345,57 @@ QString validateArguments(const QString& name, const QJsonObject& arguments)
 }
 
 namespace {
+#ifdef Q_OS_WIN
+QByteArray sidBytes(PSID sid)
+{
+    return sid ? QByteArray(reinterpret_cast<const char*>(sid), int(GetLengthSid(sid))) : QByteArray{};
+}
+
+PSID sidPointer(const QByteArray& bytes)
+{
+    return const_cast<void*>(static_cast<const void*>(bytes.constData()));
+}
+
+/** @brief 收集本令牌可视为“对象属主”的身份，并返回 TokenUser 的 SID。
+ *
+ * 提权运行时进程创建的对象属主是令牌的默认属主（通常为 Administrators），而不是
+ * TokenUser；Windows 用 TokenOwner 与组属性里的 SE_GROUP_OWNER 标记这些身份。
+ * 同一份状态目录会在普通与提权两种形态下反复出现，因此属主判定必须覆盖整个集合，
+ * 只比对 TokenUser 会让进程永远无法加固自己刚创建的目录。
+ */
+QByteArray tokenOwnerIdentities(HANDLE token, QList<QByteArray>& identities)
+{
+    QByteArray storage;
+    const auto fetch = [&storage, token](TOKEN_INFORMATION_CLASS kind) -> void* {
+        DWORD size = 0;
+        GetTokenInformation(token, kind, nullptr, 0, &size);
+        if (size == 0)
+            return nullptr;
+        storage.resize(qsizetype(size));
+        return GetTokenInformation(token, kind, storage.data(), size, &size) ? storage.data() : nullptr;
+    };
+    const auto remember = [&identities](PSID sid) {
+        const auto bytes = sidBytes(sid);
+        if (!bytes.isEmpty() && !identities.contains(bytes))
+            identities.append(bytes);
+    };
+    const auto* user = static_cast<const TOKEN_USER*>(fetch(TokenUser));
+    if (!user)
+        return {};
+    const auto userBytes = sidBytes(user->User.Sid);
+    identities.append(userBytes);
+    if (const auto* owner = static_cast<const TOKEN_OWNER*>(fetch(TokenOwner)))
+        remember(owner->Owner);
+    if (const auto* groups = static_cast<const TOKEN_GROUPS*>(fetch(TokenGroups))) {
+        for (DWORD index = 0; index < groups->GroupCount; ++index) {
+            if ((groups->Groups[index].Attributes & SE_GROUP_OWNER) != 0)
+                remember(groups->Groups[index].Sid);
+        }
+    }
+    return userBytes;
+}
+#endif
+
 bool ownerOnly(const QString& path, bool directory)
 {
     if (QFileInfo(path).isSymLink())
@@ -336,26 +404,29 @@ bool ownerOnly(const QString& path, bool directory)
     HANDLE token = nullptr;
     if (!OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &token))
         return false;
-    DWORD size = 0;
-    GetTokenInformation(token, TokenUser, nullptr, 0, &size);
-    QByteArray storage(size, Qt::Uninitialized);
-    const bool read = GetTokenInformation(token, TokenUser, storage.data(), size, &size);
+    QList<QByteArray> identities;
+    const auto userBytes = tokenOwnerIdentities(token, identities);
     CloseHandle(token);
-    if (!read)
+    if (userBytes.isEmpty())
         return false;
-    auto* user = reinterpret_cast<TOKEN_USER*>(storage.data());
     PSID owner = nullptr;
     PSECURITY_DESCRIPTOR existing = nullptr;
     const auto native = QDir::toNativeSeparators(path).toStdWString();
     if (GetNamedSecurityInfoW(const_cast<wchar_t*>(native.c_str()), SE_FILE_OBJECT,
             OWNER_SECURITY_INFORMATION, &owner, nullptr, nullptr, nullptr, &existing) != ERROR_SUCCESS)
         return false;
-    const bool owned = EqualSid(owner, user->User.Sid);
+    bool owned = false;
+    for (const auto& identity : identities) {
+        if (owner && EqualSid(owner, sidPointer(identity))) {
+            owned = true;
+            break;
+        }
+    }
     LocalFree(existing);
     if (!owned)
         return false;
     LPWSTR sid = nullptr;
-    if (!ConvertSidToStringSidW(user->User.Sid, &sid))
+    if (!ConvertSidToStringSidW(sidPointer(userBytes), &sid))
         return false;
     const QString sddl = QStringLiteral("D:P(A;%1;FA;;;%2)")
         .arg(directory ? QStringLiteral("OICI") : QString(), QString::fromWCharArray(sid));
