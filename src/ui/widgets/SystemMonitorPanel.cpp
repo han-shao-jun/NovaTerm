@@ -160,7 +160,7 @@ QString formatBytes(double bytes)
 {
     // 系统资源数据采用 1024 进位，与 /proc 和 df -k 的计量方式保持一致。
     static constexpr const char* Units[]{"B", "KiB", "MiB", "GiB", "TiB"};
-    qsizetype unit = 0;
+    std::size_t unit = 0;
     while (bytes >= 1024.0 && unit + 1 < std::size(Units)) {
         bytes /= 1024.0;
         ++unit;

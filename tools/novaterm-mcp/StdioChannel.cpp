@@ -194,7 +194,12 @@ void StdioChannel::stop()
         }
     }
 #else
-    if (_impl->stopPipe[1] >= 0) { const char byte = 1; (void)::write(_impl->stopPipe[1], &byte, 1); }
+    if (_impl->stopPipe[1] >= 0) {
+        const char byte = 1;
+        // 停止位已设置；写入失败时，读线程仍会在下次检查时退出。
+        const ssize_t wakeResult = ::write(_impl->stopPipe[1], &byte, 1);
+        (void)wakeResult;
+    }
 #endif
     if (_impl->reader.joinable()) _impl->reader.join();
     if (_impl->writer.joinable()) _impl->writer.join();

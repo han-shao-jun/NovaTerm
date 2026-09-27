@@ -105,6 +105,13 @@ set(ElaWidgetTools_BUILD_EXAMPLE OFF CACHE BOOL "Build ElaWidgetTools example ap
 # 引入时保存并恢复主工程的值，防止 `cmake --install` 被重定向到源码目录。
 set(_novaterm_install_prefix "${CMAKE_INSTALL_PREFIX}")
 add_subdirectory(third_party/ElaWidgetTools)
+# Ela 的宏在消费方的 -Wpedantic 下会触发扩展诊断；将其导出头目录标为系统头。
+target_include_directories(ElaWidgetTools SYSTEM INTERFACE
+    "${PROJECT_SOURCE_DIR}/third_party/ElaWidgetTools/ElaWidgetTools"
+    "${PROJECT_SOURCE_DIR}/third_party/ElaWidgetTools/ElaWidgetTools/private"
+    "${PROJECT_SOURCE_DIR}/third_party/ElaWidgetTools/ElaWidgetTools/DeveloperComponents"
+    "${PROJECT_SOURCE_DIR}/third_party/ElaWidgetTools/ElaWidgetTools/DeveloperComponents/Command"
+)
 set(CMAKE_INSTALL_PREFIX "${_novaterm_install_prefix}" CACHE PATH
     "Installation prefix" FORCE)
 unset(_novaterm_install_prefix)
@@ -113,6 +120,8 @@ unset(_novaterm_install_prefix)
 if(EXISTS "${CMAKE_SOURCE_DIR}/third_party/libvterm-0.3.3/include/vterm.h")
     message(STATUS "Building libvterm from third_party/libvterm-0.3.3")
     add_subdirectory(third_party/libvterm-0.3.3)
+    # 纯 C 库不需要 Qt 的自动 moc/uic/rcc，也不应生成额外的 C++ 编译单元。
+    set_target_properties(libvterm PROPERTIES AUTOMOC OFF AUTOUIC OFF AUTORCC OFF)
 else()
     message(FATAL_ERROR "libvterm not found at third_party/libvterm-0.3.3")
 endif()
@@ -197,15 +206,29 @@ set(CLIENT_TESTING OFF)
 set(SERVER_TESTING OFF)
 set(WITH_BENCHMARKS OFF)
 add_subdirectory(third_party/libssh-0.12.2 EXCLUDE_FROM_ALL)
+set_target_properties(ssh PROPERTIES AUTOMOC OFF AUTOUIC OFF AUTORCC OFF)
+# libssh 自带的生成 C99 源码与旧接口兼容层不符合其对普通源码的告警策略。
+# 仅对这三个上游文件关闭对应诊断，保留其余 libssh 警告检查。
+if(CMAKE_C_COMPILER_ID STREQUAL "GNU")
+    set_source_files_properties(
+        "${CMAKE_SOURCE_DIR}/third_party/libssh-0.12.2/src/external/libcrux_mlkem768_sha3.c"
+        TARGET_DIRECTORY ssh PROPERTIES COMPILE_OPTIONS "-Wno-declaration-after-statement")
+    set_source_files_properties(
+        "${CMAKE_SOURCE_DIR}/third_party/libssh-0.12.2/src/legacy.c"
+        "${CMAKE_SOURCE_DIR}/third_party/libssh-0.12.2/src/scp.c"
+        TARGET_DIRECTORY ssh PROPERTIES COMPILE_OPTIONS "-Wno-deprecated-declarations")
+endif()
 
-# 第一方 C++ 目标统一使用相同的编码和警告级别。此处位于 vendored 子目录之后，
+# 第一方 C++ 目标统一使用相同的编码和严格警告策略。此处位于 vendored 子目录之后，
 # 避免把项目编译策略传入 ElaWidgetTools、libvterm 与 libssh。
 add_compile_options(
     "$<$<AND:$<COMPILE_LANGUAGE:CXX>,$<CXX_COMPILER_ID:MSVC>>:/utf-8>"
-    "$<$<AND:$<COMPILE_LANGUAGE:CXX>,$<CXX_COMPILER_ID:MSVC>>:/W4>"
+    "$<$<AND:$<COMPILE_LANGUAGE:CXX>,$<CXX_COMPILER_ID:MSVC>>:/Wall>"
+    "$<$<AND:$<COMPILE_LANGUAGE:CXX>,$<CXX_COMPILER_ID:MSVC>>:/WX>"
     "$<$<AND:$<COMPILE_LANGUAGE:CXX>,$<NOT:$<CXX_COMPILER_ID:MSVC>>>:-Wall>"
     "$<$<AND:$<COMPILE_LANGUAGE:CXX>,$<NOT:$<CXX_COMPILER_ID:MSVC>>>:-Wextra>"
     "$<$<AND:$<COMPILE_LANGUAGE:CXX>,$<NOT:$<CXX_COMPILER_ID:MSVC>>>:-Wpedantic>"
+    "$<$<AND:$<COMPILE_LANGUAGE:CXX>,$<CXX_COMPILER_ID:GNU>>:-Werror>"
     "$<$<AND:$<CONFIG:RelWithDebInfo>,$<COMPILE_LANG_AND_ID:CXX,GNU,Clang,AppleClang>>:-fno-omit-frame-pointer>"
 )
 

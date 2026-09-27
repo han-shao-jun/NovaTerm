@@ -5,12 +5,11 @@
 #include "session/LocalDiagnosticProtocol.h"
 
 #include <QCoreApplication>
-#include <QStorageInfo>
-#include <QSysInfo>
-
 #include <cstdio>
 
 #ifdef Q_OS_WIN
+#include <QStorageInfo>
+#include <QSysInfo>
 #include <windows.h>
 #endif
 
@@ -20,6 +19,7 @@ using namespace NovaTerm::LocalDiagnostic;
 
 static_assert(MaxOutputBytes == 65536);
 
+#ifdef Q_OS_WIN
 bool appendLine(QByteArray& output, const QByteArray& line)
 {
     if (output.size() >= MaxOutputBytes
@@ -44,7 +44,6 @@ QByteArray systemIdentity()
     return output;
 }
 
-#ifdef Q_OS_WIN
 QByteArray systemUptime()
 {
     return "uptime_seconds=" + QByteArray::number(GetTickCount64() / 1000ULL)
@@ -61,7 +60,6 @@ QByteArray memorySummary()
         + "available_bytes=" + QByteArray::number(status.ullAvailPhys) + '\n'
         + "load_percent=" + QByteArray::number(status.dwMemoryLoad) + '\n';
 }
-#endif
 
 QByteArray filesystemUsage()
 {
@@ -78,6 +76,7 @@ QByteArray filesystemUsage()
     }
     return output;
 }
+#endif
 
 int reject(const char* message, int exitCode)
 {

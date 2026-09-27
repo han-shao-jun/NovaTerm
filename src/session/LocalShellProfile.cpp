@@ -64,6 +64,7 @@ LocalShellProfile profile(QString name, QString executable, QStringList argument
     return result;
 }
 
+#ifdef Q_OS_WIN
 QString decodeWslListOutput(QByteArray output)
 {
     // wsl.exe 在部分 Windows 版本中即使输出被重定向，仍会使用 UTF-16LE；
@@ -104,6 +105,7 @@ QStringList parseWslDistributions(const QByteArray& output)
     }
     return distributions;
 }
+#endif
 
 } // namespace
 

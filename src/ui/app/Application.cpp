@@ -25,6 +25,8 @@
 #include <QCoreApplication>
 #endif
 
+Application::~Application() = default;
+
 Application& Application::instance()
 {
     // Meyers 单例 — 线程安全的延迟初始化，程序退出时销毁。

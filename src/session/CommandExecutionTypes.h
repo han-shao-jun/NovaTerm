@@ -41,8 +41,8 @@ struct CommandExecutionRequest
     quint64 requestId{0};
     QByteArray command;
     CommandExecutionLimits limits;
-    QString commandId;
-    QByteArray executionNonce;
+    QString commandId{};
+    QByteArray executionNonce{};
     quint64 expectedPromptGeneration{0};
 };
 

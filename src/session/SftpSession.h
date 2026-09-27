@@ -108,7 +108,7 @@ private:
         QString target;
         quint32 permissions{0};
         quint64 requestId{0};
-        QByteArray content;
+        QByteArray content{};
     };
 
     void enqueue(Command command);

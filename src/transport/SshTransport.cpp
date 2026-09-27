@@ -282,7 +282,7 @@ bool SshTransport::executeCommand(quint64 requestId, QByteArray command)
     if (_commandActive.load(std::memory_order_acquire)
         || !_commandQueue.isEmpty())
         return false;
-    _commandQueue.enqueue(CommandRequest{requestId, std::move(command)});
+    _commandQueue.enqueue(CommandRequest{requestId, std::move(command), {}, 0, false});
     _wakeup->notify();
     return true;
 }
@@ -648,7 +648,7 @@ void SshTransport::workerMain()
         }
 
         // 信任并写入 known_hosts（New 追加，Changed 更新）。
-        if (ssh_write_knownhost(session) != SSH_OK) {
+        if (ssh_session_update_known_hosts(session) != SSH_OK) {
             reportError(tr("Failed to store the host key: %1")
                             .arg(QString::fromUtf8(ssh_get_error(session))),
                         TransportErrorCategory::HostKey);

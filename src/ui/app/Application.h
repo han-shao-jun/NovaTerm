@@ -27,6 +27,7 @@ public:
      * @return Application 单例引用。
      */
     static Application& instance();
+    ~Application() override;
 
     /**
      * @brief 一次性启动：初始化 ElaApplication，加载翻译，构建 MainWindow。

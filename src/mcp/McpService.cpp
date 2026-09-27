@@ -1651,7 +1651,7 @@ public:
         Execution execution{executionId, job->connection, connection.client,
             entry.id, entry.epoch, executionCommandId,
             executionPolicyVersion, entry.targetFingerprint, requestId,
-            clock.elapsed(), facade, job, {}, false, true};
+            clock.elapsed(), facade, job, {}, false, true, {}, {}};
         executions.insert(executionId, execution);
         if (unverifiedSsh) {
             executions[executionId].coordinator = coordinator;
@@ -1745,11 +1745,11 @@ public:
         const quint64 request = nextCommandRequest++;
         Execution execution{executionId, job->connection, connection.client, entry.id, entry.epoch,
             commandId, policyVersion, entry.targetFingerprint, request,
-            clock.elapsed(), facade, job, {}, false};
+            clock.elapsed(), facade, job, {}, false, false, {}, {}};
         executions.insert(executionId, execution);
         CommandExecutionRequest executionRequest{
             request, definition->command, {CommandOutputBytes, 5000},
-            commandId};
+            commandId, {}, 0};
         if (facade->capabilities().mode == CommandExecutionMode::InteractiveFramed
             && entry.session && entry.session->commandCoordinator()) {
             executionRequest.executionNonce = newId().toUtf8();

@@ -105,12 +105,12 @@ TerminalSession::TerminalSession(TerminalCore* core, QObject* parent)
 
 TerminalSession::TerminalSession(RuntimeConfig config, QObject* parent)
     : QObject(parent)
-    , _config(std::move(config))
     , _commandFacade(std::make_unique<SessionCommandFacade>(this))
     , _inputArbiter(std::make_unique<SessionInputArbiter>(this))
     , _streamFramer(std::make_unique<InteractiveStreamFramer>())
     , _commandCoordinator(std::make_unique<SessionCommandCoordinator>(
           _inputArbiter.get(), _streamFramer.get(), this))
+    , _config(std::move(config))
     , _ownedCore(std::make_unique<TerminalCore>(80, 24))
     , _core(_ownedCore.get())
 {

@@ -34,29 +34,6 @@ static constexpr int kPlacementFloatCount =
 static constexpr qsizetype kCpuFrameSampleCapacity = 2048;
 static constexpr quint64 kCpuFrameBudgetNanoseconds = 16666667;
 
-static QImage alphaCoverageFromRgb(const QImage& rgbImage, qreal dpr)
-{
-    QImage coverage(rgbImage.size(), QImage::Format_RGBA8888);
-    coverage.setDevicePixelRatio(dpr);
-
-    // An opaque RGB paint device allows the Windows font engine to retain its
-    // per-channel sub-pixel coverage. The terminal shader needs one portable
-    // coverage value, so convert the RGB samples to luminance without applying
-    // a second sharpening or thresholding pass.
-    for (int y = 0; y < rgbImage.height(); ++y) {
-        const QRgb* source = reinterpret_cast<const QRgb*>(rgbImage.constScanLine(y));
-        uchar* destination = coverage.scanLine(y);
-        for (int x = 0; x < rgbImage.width(); ++x) {
-            const int alpha = qGray(source[x]);
-            destination[x * 4 + 0] = 255;
-            destination[x * 4 + 1] = 255;
-            destination[x * 4 + 2] = 255;
-            destination[x * 4 + 3] = static_cast<uchar>(alpha);
-        }
-    }
-    return coverage;
-}
-
 static QRhiWidget::Api preferredRhiApi()
 {
     const QByteArray api = qgetenv("NOVATERM_RHI_API").trimmed().toLower();
@@ -830,8 +807,8 @@ void TerminalRenderer::render(QRhiCommandBuffer* cb)
         // scheduler, sparse rows are not a complete description of it.
         if (!fullFramePending
             && screen.revision > requestedContentRevision) {
-            if (screen.visibleRowRevisions.size() == rows
-                && screen.visibleRowIdentities.size() == rows) {
+            if (screen.visibleRowRevisions.size() == std::size_t(rows)
+                && screen.visibleRowIdentities.size() == std::size_t(rows)) {
                 int recoveredRows = 0;
                 for (int row = 0; row < rows; ++row) {
                     if (screen.visibleRowRevisions[row]
@@ -887,7 +864,7 @@ void TerminalRenderer::render(QRhiCommandBuffer* cb)
         }
 
         if (liveScrollRotated
-            && screen.visibleRowIdentities.size() == rows) {
+            && screen.visibleRowIdentities.size() == std::size_t(rows)) {
             const QVector<int> recovered =
                 NovaTerm::rowsNeedingRebuildAfterMapping(
                     _rowContentIdentities, screen.visibleRowIdentities,

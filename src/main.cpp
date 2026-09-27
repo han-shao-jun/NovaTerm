@@ -20,6 +20,16 @@
 #include <QApplication>
 #include <QOperatingSystemVersion>
 
+#ifdef Q_OS_LINUX
+#include <QOffscreenSurface>
+#include <QOpenGLContext>
+#include <QProcess>
+#if QT_CONFIG(vulkan)
+#include <QVulkanInstance>
+#endif
+#include <cstring>
+#endif
+
 #ifdef Q_OS_WIN
 #include <windows.h>
 #include <dbghelp.h>
@@ -161,6 +171,40 @@ static void enableCoreDump()
 
 #endif
 
+#ifdef Q_OS_LINUX
+namespace {
+
+constexpr auto GraphicsProbeArgument = "--novaterm-internal-graphics-probe";
+constexpr int VulkanProbeExitCode = 2;
+
+int probeLinuxGraphics(int argc, char* argv[])
+{
+    QGuiApplication app(argc, argv);
+    if (QGuiApplication::platformName() != "xcb")
+        return 0;
+
+    QOpenGLContext context;
+    if (context.create()) {
+        QOffscreenSurface surface;
+        surface.setFormat(context.format());
+        surface.create();
+        if (surface.isValid() && context.makeCurrent(&surface)) {
+            context.doneCurrent();
+            return 0;
+        }
+    }
+
+#if QT_CONFIG(vulkan)
+    QVulkanInstance vulkan;
+    vulkan.setApiVersion(QVersionNumber(1, 0));
+    return vulkan.create() ? VulkanProbeExitCode : 1;
+#else
+    return 1;
+#endif
+}
+
+} // namespace
+#endif
 
 /**
  * @brief NovaTerm 应用程序入口点
@@ -181,6 +225,10 @@ static void enableCoreDump()
  */
 int main(int argc, char *argv[])
 {
+#ifdef Q_OS_LINUX
+    if (argc == 2 && std::strcmp(argv[1], GraphicsProbeArgument) == 0)
+        return probeLinuxGraphics(argc, argv);
+#endif
 #ifdef Q_OS_WIN
     // 在部分 Windows 系统上，当 Qt 检查本地化字体元数据时，
     // DirectWrite 的字体族枚举会在 DWrite 内部崩溃。因此改用
@@ -226,7 +274,37 @@ int main(int argc, char *argv[])
 #elif defined(Q_OS_MACOS) || defined(Q_OS_IOS)
     constexpr auto defaultRhiBackend = "metal";
 #else
-    constexpr auto defaultRhiBackend = "opengl";
+    const char* defaultRhiBackend = "opengl";
+#endif
+
+#ifdef Q_OS_LINUX
+    // Qt 在 QApplication 初始化时锁定 QWidget RHI 后端，故用独立进程探测，
+    // 在主进程加载平台插件前选择。显式指定的后端始终由调用方控制。
+    if (qEnvironmentVariableIsEmpty("QT_WIDGETS_RHI")
+        && qEnvironmentVariableIsEmpty("QT_WIDGETS_RHI_BACKEND")
+        && qEnvironmentVariableIsEmpty("NOVATERM_RHI_API")) {
+        QProcess probe;
+        probe.start(QStringLiteral("/proc/self/exe"),
+            {QString::fromLatin1(GraphicsProbeArgument)});
+        int probeResult = -1;
+        if (probe.waitForStarted(1000)) {
+            if (probe.waitForFinished(5000)
+                && probe.exitStatus() == QProcess::NormalExit) {
+                probeResult = probe.exitCode();
+            } else if (probe.state() != QProcess::NotRunning) {
+                probe.kill();
+                static_cast<void>(probe.waitForFinished(1000));
+            }
+        }
+        if (probeResult == VulkanProbeExitCode) {
+            defaultRhiBackend = "vulkan";
+            qWarning("OpenGL context unavailable; using Vulkan for QWidget and terminal rendering.");
+        } else if (probeResult == 1) {
+            qWarning("OpenGL context unavailable and Vulkan initialization failed.");
+        } else if (probeResult != 0) {
+            qWarning("Graphics probe failed; keeping the default OpenGL backend.");
+        }
+    }
 #endif
 
     // TerminalRenderer 是按需创建的 QRhiWidget。若主窗口显示后才让 Qt

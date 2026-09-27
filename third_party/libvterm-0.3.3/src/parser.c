@@ -111,7 +111,7 @@ static void string_fragment(VTerm *vt, const char *str, size_t len, bool final)
 size_t vterm_input_write(VTerm *vt, const char *bytes, size_t len)
 {
   size_t pos = 0;
-  const char *string_start;
+  const char *string_start = NULL;
 
   switch(vt->parser.state) {
   case NORMAL:
