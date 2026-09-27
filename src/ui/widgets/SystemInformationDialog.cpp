@@ -279,7 +279,7 @@ void SystemInformationDialog::populate(const QByteArray& output, bool pending)
         showStatus(tr("Collecting system information…"));
         return;
     }
-    const SystemInformation data = parseInformation(output);
+    const SystemInformation info = parseInformation(output);
     // 面板每秒都会重推数据；重建期间保留滚动位置，避免用户正在查看时被弹回顶部。
     const int previousScroll = _scroll && _scroll->verticalScrollBar()
         ? _scroll->verticalScrollBar()->value() : 0;
@@ -298,7 +298,7 @@ void SystemInformationDialog::populate(const QByteArray& output, bool pending)
         overviewGrid->addWidget(createText(labels[index], overview, true, 12),
                                 row, pair * 2);
         overviewGrid->addWidget(createText(
-            index < data.overview.size() ? dashIfEmpty(data.overview[index])
+            index < info.overview.size() ? dashIfEmpty(info.overview[index])
                                          : QStringLiteral("—"), overview),
             row, pair * 2 + 1);
         overviewGrid->setColumnStretch(pair * 2 + 1, 1);
@@ -313,12 +313,12 @@ void SystemInformationDialog::populate(const QByteArray& output, bool pending)
         _contentLayout->addWidget(card);
     };
     addCard(tr("CPU"), {tr("Name"), tr("Cores"), tr("Frequency"),
-                         tr("Cache"), tr("Vendor / BogoMIPS")}, data.cpu);
+                         tr("Cache"), tr("Vendor / BogoMIPS")}, info.cpu);
     addCard(tr("GPU"), {tr("Name"), tr("Vendor"), tr("Driver"),
-                         tr("Memory")}, data.gpu);
+                         tr("Memory")}, info.gpu);
     addCard(tr("CPU usage"), {tr("User"), tr("System"), tr("Nice"),
                                tr("Idle"), tr("IO wait"),
-                               tr("IRQ / SoftIRQ / Steal")}, data.cpuUsage);
+                               tr("IRQ / SoftIRQ / Steal")}, info.cpuUsage);
 
     auto* memoryRow = new QWidget(this);
     auto* memoryLayout = new QHBoxLayout(memoryRow);
@@ -327,10 +327,10 @@ void SystemInformationDialog::populate(const QByteArray& output, bool pending)
     auto* memory = new InformationCard(tr("Memory"), memoryRow);
     memory->body()->addWidget(createTable(
         {tr("Total"), tr("Used"), tr("Available"), tr("Usage"), tr("Cache")},
-        data.memory, memory, _pending));
+        info.memory, memory, _pending));
     auto* swap = new InformationCard(tr("Swap"), memoryRow);
     swap->body()->addWidget(createTable(
-        {tr("Total"), tr("Used"), tr("Free"), tr("Usage")}, data.swap, swap,
+        {tr("Total"), tr("Used"), tr("Free"), tr("Usage")}, info.swap, swap,
         _pending));
     memoryLayout->addWidget(memory, 1);
     memoryLayout->addWidget(swap, 1);
@@ -338,10 +338,10 @@ void SystemInformationDialog::populate(const QByteArray& output, bool pending)
 
     addCard(tr("Network interfaces"),
             {tr("Name"), tr("Sent"), tr("Received"),
-             tr("Send speed"), tr("Receive speed")}, data.networks);
+             tr("Send speed"), tr("Receive speed")}, info.networks);
     addCard(tr("Filesystems"),
             {tr("Name"), tr("Size"), tr("Used"),
-             tr("Available"), tr("Mount point")}, data.fileSystems);
+             tr("Available"), tr("Mount point")}, info.fileSystems);
     _contentLayout->addStretch();
     updateContentHeight();
     if (previousScroll > 0 && _scroll && _scroll->verticalScrollBar())

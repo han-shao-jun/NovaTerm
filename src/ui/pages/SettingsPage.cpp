@@ -97,6 +97,7 @@ bool ThemeChangeWatcher::nativeEventFilter(const QByteArray& eventType, void* me
                                            long* result)
 #endif
 {
+    Q_UNUSED(result);
     if (eventType == "windows_generic_MSG" || eventType == "windows_dispatcher_MSG") {
         MSG* msg = static_cast<MSG*>(message);
 

@@ -319,7 +319,7 @@ int main(int argc, char** argv)
         using namespace NovaTerm::LinuxResource;
         CpuTicks ticks{};
         if (!cpuTicks("cpu 120 12 36 450 8 4 6 4 90 8\ncpu0 1 2 3 4\n", ticks)
-            || ticks != CpuTicks{120, 12, 36, 450, 8, 4, 6, 4})
+            || ticks != CpuTicks{{120, 12, 36, 450, 8, 4, 6, 4}})
             ++failures;
         const CpuTicks previous{100, 10, 30, 400, 5, 2, 3, 0};
         if (cpuUsage(ticks, previous)
@@ -640,7 +640,9 @@ int main(int argc, char** argv)
                     transport.errorString().toUtf8().constData());
     }
 
-    std::printf(failures == 0 ? "RESULT: PASS\n" : "RESULT: FAIL (%d)\n",
-                failures);
+    if (failures == 0)
+        std::printf("RESULT: PASS\n");
+    else
+        std::printf("RESULT: FAIL (%d)\n", failures);
     return failures == 0 ? 0 : 1;
 }

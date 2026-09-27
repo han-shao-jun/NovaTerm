@@ -247,10 +247,10 @@ private:
 
     void updateChecksFromPermissions()
     {
-        static constexpr std::array<quint32, 9> permissionBits{
+        static constexpr std::array<quint32, 9> permissionBits{{
             0400u, 0200u, 0100u,
             0040u, 0020u, 0010u,
-            0004u, 0002u, 0001u};
+            0004u, 0002u, 0001u}};
         for (size_t index = 0; index < _checkBoxes.size(); ++index) {
             const QSignalBlocker blocker(_checkBoxes[index]);
             _checkBoxes[index]->setChecked(
@@ -260,10 +260,10 @@ private:
 
     void updateOctalFromChecks()
     {
-        static constexpr std::array<quint32, 9> permissionBits{
+        static constexpr std::array<quint32, 9> permissionBits{{
             0400u, 0200u, 0100u,
             0040u, 0020u, 0010u,
-            0004u, 0002u, 0001u};
+            0004u, 0002u, 0001u}};
         quint32 basicPermissions = 0;
         for (size_t index = 0; index < _checkBoxes.size(); ++index) {
             if (_checkBoxes[index] && _checkBoxes[index]->isChecked())
