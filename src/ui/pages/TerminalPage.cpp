@@ -469,7 +469,10 @@ bool TerminalPage::replaceTerminalTab(TerminalView* terminalView,
         if (!terminalGuard)
             return;
         auto* transport = new SerialTransport(config, terminalGuard);
-        terminalGuard->attachTransport(transport);
+        if (!terminalGuard->attachTransport(transport)) {
+            delete transport; // 未被 adopt，父对象归还前先行回收
+            return;
+        }
         terminalGuard->session()->setSerialReconnectInterval(config.reconnectSeconds);
         connect(transport, &ITransport::connected, this,
                 [this, config]() { emit serialSessionConnected(config); },
@@ -502,7 +505,10 @@ bool TerminalPage::replaceTerminalTab(TerminalView* terminalView,
         if (!terminalGuard)
             return;
         auto* transport = new TelnetTransport(config, terminalGuard);
-        terminalGuard->attachTransport(transport);
+        if (!terminalGuard->attachTransport(transport)) {
+            delete transport; // 未被 adopt，父对象归还前先行回收
+            return;
+        }
         connect(transport, &ITransport::connected, this,
                 [this, config]() { emit telnetSessionConnected(config); },
                 Qt::SingleShotConnection);
@@ -536,7 +542,10 @@ bool TerminalPage::replaceTerminalTab(TerminalView* terminalView,
         if (!terminalGuard)
             return;
         auto* transport = new SshTransport(config, terminalGuard);
-        terminalGuard->attachTransport(transport);
+        if (!terminalGuard->attachTransport(transport)) {
+            delete transport; // 未被 adopt，父对象归还前先行回收
+            return;
+        }
         // 连接建立或断开都需要刷新工具面板，防止保留失效的远端状态。
         connect(transport, &ITransport::connected, this,
                 &TerminalPage::emitCurrentSessionContext);

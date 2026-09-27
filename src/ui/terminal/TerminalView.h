@@ -87,8 +87,10 @@ public:
     /**
      * @brief 附加传输层（SSH/串口/Telnet），建立数据桥接。
      * @param transport 传输层。
+     * @return true 表示已交给会话 adopt；false 表示附加失败，transport
+     *         的所有权仍留在调用方，由调用方负责回收。
      */
-    void attachTransport(ITransport* transport);
+    bool attachTransport(ITransport* transport);
     void detachTransport();                              ///< 分离传输层
     ITransport* transport() const;                        ///< 获取当前传输层
     TerminalSession* session() const;                     ///< 获取会话对象

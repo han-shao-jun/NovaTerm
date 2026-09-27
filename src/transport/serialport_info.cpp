@@ -29,7 +29,15 @@ SerialPortInfo::SerialPortInfo(QWidget *parent) : QWidget(parent)
 
 SerialPortInfo::~SerialPortInfo()
 {
-#ifdef Q_OS_LINUX
+#ifdef Q_OS_WINDOWS
+    for (HDEVNOTIFY handle : m_deviceNotifiers) {
+        if (!UnregisterDeviceNotification(handle)) {
+            qWarning() << "SerialPortInfo: UnregisterDeviceNotification failed:"
+                       << GetLastError();
+        }
+    }
+    m_deviceNotifiers.clear();
+#elif defined(Q_OS_LINUX)
     if (m_udevMonitor) {
         udev_monitor_unref(m_udevMonitor);
         m_udevMonitor = nullptr;
@@ -72,19 +80,21 @@ void SerialPortInfo::registerEvent()
         //    { 0x811FC6A5, 0xF728, 0x11D0, { 0xA5, 0x37, 0x00, 0x00, 0xF8, 0x75, 0x3E, 0xD1 } },
     };
     // 注册插拔事件
-    HDEVNOTIFY hDevNotify;
     DEV_BROADCAST_DEVICEINTERFACE NotifacationFiler;
     ZeroMemory(&NotifacationFiler, sizeof(DEV_BROADCAST_DEVICEINTERFACE));
     NotifacationFiler.dbcc_size = sizeof(DEV_BROADCAST_DEVICEINTERFACE);
     NotifacationFiler.dbcc_devicetype = DBT_DEVTYP_DEVICEINTERFACE;
     for (auto i : GUID_DEVINTERFACE_LIST) {
         NotifacationFiler.dbcc_classguid = i;
-        // GetCurrentUSBGUID();
-        hDevNotify = RegisterDeviceNotification(HANDLE(this->winId()), &NotifacationFiler,
-                                                DEVICE_NOTIFY_WINDOW_HANDLE);
+        const HDEVNOTIFY hDevNotify =
+            RegisterDeviceNotification(HANDLE(this->winId()), &NotifacationFiler,
+                                       DEVICE_NOTIFY_WINDOW_HANDLE);
         if (!hDevNotify) {
-            GetLastError();
+            qWarning() << "SerialPortInfo: RegisterDeviceNotification failed:"
+                       << GetLastError();
+            continue;
         }
+        m_deviceNotifiers.push_back(hDevNotify);
     }
 }
 
@@ -99,40 +109,46 @@ void SerialPortInfo::registerEvent()
  */
 bool SerialPortInfo::nativeEvent(const QByteArray &eventType, void *message, qintptr *result)
 #else
-bool nativeEvent(const QByteArray &eventType, void *message, long *result)
+bool SerialPortInfo::nativeEvent(const QByteArray &eventType, void *message, long *result)
 #endif
 {
+    Q_UNUSED(eventType);
+    Q_UNUSED(result);
+    if (!message)
+        return false;
     MSG *msg = reinterpret_cast<MSG *>(message); // 第一层解算
-    UINT msgType = msg->message;
-    if (msgType == WM_DEVICECHANGE) {
-        auto lParam = PDEV_BROADCAST_HDR(msg->lParam); // 第二层解算
-        switch (msg->wParam) {
-        case DBT_DEVICEARRIVAL: // 设备插入
-            if (lParam->dbch_devicetype == DBT_DEVTYP_DEVICEINTERFACE) {
-                qDebug() << "DBT_DEVICEARRIVAL";
-                portsAvailable = availablePorts();
-                emit update(portsAvailable);
-            }
-            break;
-        case DBT_DEVICEREMOVECOMPLETE: // 设备移除
-            if (lParam->dbch_devicetype == DBT_DEVTYP_DEVICEINTERFACE) {
-                qDebug() << "DBT_DEVICEREMOVECOMPLETE";
-                portsAvailable = availablePorts();
-                if (!portsUsing.empty()) {
-                    for (const auto &uart : portsUsing) {
-                        if (!portsAvailable.contains(uart)) {
-                            qDebug() << uart;
-                            emit disconnected(uart);
-                            this->unregisterUsingSerialPort(uart); // 移除正在被使用串口
-                        }
+    if (msg->message != WM_DEVICECHANGE)
+        return false;
+    const PDEV_BROADCAST_HDR lParam =
+        reinterpret_cast<PDEV_BROADCAST_HDR>(msg->lParam); // 第二层解算
+    if (!lParam)
+        return false;
+    switch (msg->wParam) {
+    case DBT_DEVICEARRIVAL: // 设备插入
+        if (lParam->dbch_devicetype == DBT_DEVTYP_DEVICEINTERFACE) {
+            qDebug() << "DBT_DEVICEARRIVAL";
+            portsAvailable = availablePorts();
+            emit update(portsAvailable);
+        }
+        break;
+    case DBT_DEVICEREMOVECOMPLETE: // 设备移除
+        if (lParam->dbch_devicetype == DBT_DEVTYP_DEVICEINTERFACE) {
+            qDebug() << "DBT_DEVICEREMOVECOMPLETE";
+            portsAvailable = availablePorts();
+            if (!portsUsing.empty()) {
+                for (const auto &uart : portsUsing) {
+                    if (!portsAvailable.contains(uart)) {
+                        qDebug() << uart;
+                        emit disconnected(uart);
+                        this->unregisterUsingSerialPort(uart); // 移除正在被使用串口
                     }
                 }
-                emit update(portsAvailable);
             }
-            break;
-        default:
-            break;
+            emit update(portsAvailable);
         }
+        break;
+    default:
+        break;
     }
     return false;
 }

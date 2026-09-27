@@ -234,6 +234,11 @@ public:
         , bytes(QueueCapacity)
     {
         rowRevisions.assign(std::size_t(rows), 0);
+        // adapter 必须在线程启动前创建：Runtime 构造一返回 GUI 线程即可
+        // 调用 terminalState()/tryTerminalState()，在 modelMutex 下读取
+        // adapter；若创建留给 worker，抢锁先于 worker 的那次读取就是
+        // 空指针解引用。
+        createAdapter();
         thread = std::thread([this]() { workerMain(); });
     }
 
@@ -357,7 +362,6 @@ public:
     void workerMain()
     {
         NovaTerm::setCurrentThreadName("nvterm-parser");
-        createAdapter();
 
         while (!stopping.load(std::memory_order_acquire)) {
             const uint64_t processedCommands = processCommands();
@@ -389,7 +393,9 @@ public:
             }
         }
 
-        adapter.reset();
+        // 不在此处 reset adapter：GUI 线程的 terminalState()/tryTerminalState()
+        // 在 modelMutex 下读取它，worker 锁外销毁会留下 UAF 窗口。adapter
+        // 作为成员随 ~Runtime 析构 —— 那里已先 join 线程，读取方必然退出。
         setBackpressure(false);
         notifyCompletion();
     }

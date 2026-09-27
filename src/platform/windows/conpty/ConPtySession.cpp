@@ -194,12 +194,39 @@ ConPtySession::ConPtySession(LocalShellConfig config, int columns, int rows,
 
 ConPtySession::~ConPtySession()
 {
-    // 所有者在 closed() 之后才析构本对象，故所有原生等待与线程 join
-    // 已在生命周期线程上完成，此处仅断言确认线程已不可 join。
-    Q_ASSERT(!_readerThread.joinable());
-    Q_ASSERT(!_writerThread.joinable());
-    Q_ASSERT(!_processWaitThread.joinable());
-    Q_ASSERT(!_pseudoConsoleCloser.joinable());
+    // 外部契约：所有者在 closed() 之后才析构本对象。若契约被打破
+    // （生命周期线程事件循环停摆、轮询链中断），release 构建里
+    // joinable 的 std::thread 析构会直接 std::terminate。这里防御性
+    // 收尾：置停止标志、终止进程树打断阻塞的 ReadFile 与
+    // ClosePseudoConsole，再 join 仍存活的线程。
+    if (_writerThread.joinable() || _readerThread.joinable()
+        || _processWaitThread.joinable() || _pseudoConsoleCloser.joinable()) {
+        {
+            std::lock_guard<std::mutex> lock(_inputMutex);
+            _writerStopping = true;
+        }
+        _inputChanged.notify_all();
+        _readerStopping.store(true, std::memory_order_release);
+        {
+            std::lock_guard<std::mutex> lock(_outputMutex);
+            _outputChanged.notify_all();
+        }
+        // 终止进程树使 ConPTY 管道中断：阻塞在 ReadFile 的 reader 和
+        // 等待输出消费的 closer 随之被释放（与 Abort 关闭语义一致）。
+        if (_job)
+            TerminateJobObject(_job.get(), 1);
+        else if (_process)
+            TerminateProcess(_process.get(), 1);
+        _processWaitStopping.store(true, std::memory_order_release);
+        if (_writerThread.joinable())
+            _writerThread.join();
+        if (_readerThread.joinable())
+            _readerThread.join();
+        if (_processWaitThread.joinable())
+            _processWaitThread.join();
+        if (_pseudoConsoleCloser.joinable())
+            _pseudoConsoleCloser.join();
+    }
 }
 
 void ConPtySession::transition(State state)
@@ -693,9 +720,19 @@ void ConPtySession::readerMain()
         QByteArray data(buffer.data(), static_cast<qsizetype>(bytesRead));
         {
             std::unique_lock<std::mutex> lock(_outputMutex);
+            // 谓词必须包含停止标志：正常关闭靠 deliverClosingOutput 清空
+            // 队列唤醒 reader，但那条 rescue 链一旦中断（生命周期线程
+            // 事件循环停摆），队列满时 reader 会永久阻塞在这里，进而
+            // 让 joinable 的线程活到析构。
             _outputChanged.wait(lock, [this, bytesRead] {
-                return _outputBytes <= OutputCapacity - bytesRead;
+                return _readerStopping.load(std::memory_order_acquire)
+                    || _outputBytes <= OutputCapacity - bytesRead;
             });
+            if (_readerStopping.load(std::memory_order_acquire)) {
+                // 关闭中断路径：丢弃本批数据让 reader 尽快退出；
+                // 退出时 finishedGuard 会置 _readerFinished 并唤醒等待方。
+                return;
+            }
             _outputBytes += bytesRead;
             _outputQueue.push_back(std::move(data));
         }

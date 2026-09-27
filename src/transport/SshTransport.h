@@ -189,6 +189,9 @@ private:
     static constexpr qsizetype MaxMonitorStderrBytes = 16 * 1024;
     static constexpr int ConnectTimeoutSec = 10;
     static constexpr int TeardownWaitMs = 15000;
+    // 析构路径的等待上限：连接/密钥/认证/channel 每步阻塞调用以
+    // ConnectTimeoutSec 为单步上限，串行最坏可超过单次 TeardownWaitMs。
+    static constexpr int TeardownDestructorWaitMs = 60000;
 
     SshConfig _config;
     QString _knownHostsPath;
@@ -240,5 +243,11 @@ private:
     QString _errorString;
 
     QThread* _thread{nullptr};
+    // true 表示上一任工作线程超时未退出、被放弃（finished→deleteLater
+    // 自毁），它可能仍在访问本对象成员；此时禁止启动新会话。
+    // 仅 GUI 线程读写。
+    bool _workerAbandoned{false};
     std::unique_ptr<SshWorkerWakeup> _wakeup;
+
+    void disconnectInternal(int waitMs);
 };

@@ -88,8 +88,11 @@ private:
     void retranslateUi();
     void rebuildTree();
     void showItemContextMenu(const QPoint& position);
-    void editItem(QTreeWidgetItem* item);
-    void deleteItem(QTreeWidgetItem* item);
+    // 按稳定 SessionId 操作：非模态右键菜单弹出期间树可能被重建
+    // （语言切换、其他会话活动触发 rebuildTree），菜单回调里捕获的
+    // QTreeWidgetItem* 会悬垂，必须先取 ID 再查找。
+    void editItem(const SessionId& id);
+    void deleteItem(const SessionId& id);
     void deleteSessions(const QList<SessionId>& ids); ///< 一次确认删除历史快照
     [[nodiscard]] QList<SessionId> selectedSessionIds() const; ///< 按面板顺序选中项
     void reconnectSession(const SessionId& id); ///< 按稳定 ID 重连，允许树被重建

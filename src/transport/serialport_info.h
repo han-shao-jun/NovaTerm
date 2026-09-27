@@ -17,6 +17,7 @@
 #include <QWidget>
 #include <QtSerialPort>
 #include <algorithm>
+#include <vector>
 
 #ifdef Q_OS_WINDOWS
 
@@ -95,7 +96,11 @@ protected:
 private:
     QStringList portsAvailable; // 当前可用串口列表
     QStringList portsUsing;     // 正在被使用的串口列表
-#ifdef Q_OS_LINUX
+#ifdef Q_OS_WINDOWS
+    // RegisterDeviceNotification 返回的通知句柄；析构时必须逐个
+    // UnregisterDeviceNotification，否则每次构造泄漏一个注册。
+    std::vector<HDEVNOTIFY> m_deviceNotifiers;
+#elif defined(Q_OS_LINUX)
     struct udev *m_udev = nullptr;
     struct udev_monitor *m_udevMonitor = nullptr;
     QSocketNotifier *m_udevNotifier = nullptr;

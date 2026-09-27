@@ -428,7 +428,15 @@ void TerminalView::startLocalShell(const LocalShellConfig& config)
     _core->setScrollbackLimit(0);
 
     // 通过统一的 ITransport 路径桥接
-    attachTransport(transport);
+    if (!attachTransport(transport)) {
+        // attach 失败：transport 无 parent、未被 session adopt，
+        // 所有权仍在本地 —— 必须在此回收，否则泄漏且 _localTransport
+        // 会指向野指针。
+        delete transport;
+        _core->setScrollbackLimit(savedHistorySize);
+        emit shellFinished();
+        return;
+    }
 
     _localTransport = transport;
     if (!_session->start()) {
@@ -462,15 +470,15 @@ void TerminalView::stopLocalShell()
 //  远程终端模式 — ITransport 数据桥接
 // ═══════════════════════════════════════════════════════════════════
 
-void TerminalView::attachTransport(ITransport* transport)
+bool TerminalView::attachTransport(ITransport* transport)
 {
     detachTransport();
     if (!transport)
-        return;
+        return false;
     if (_session->state() == SessionState::Closed
         && !_session->resetForReuse()) {
         qWarning() << "TerminalView: failed to prepare the next session";
-        return;
+        return false;
     }
 
     // libvterm 无需 "teletype" 模式 — 它本身不内置 PTY，
@@ -497,6 +505,7 @@ void TerminalView::attachTransport(ITransport* transport)
         });
     }
 
+    return true;
 }
 
 void TerminalView::detachTransport()

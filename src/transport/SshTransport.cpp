@@ -85,13 +85,22 @@ SshTransport::SshTransport(SshConfig config, QObject* parent)
 
 SshTransport::~SshTransport()
 {
-    disconnect();
+    // 析构在即：成员即将失效，仍在运行的工作线程访问它们就是 UAF。
+    // 比交互路径更有耐心，等满阻塞调用串行的最坏场景。
+    disconnectInternal(TeardownDestructorWaitMs);
     ssh_finalize();
 }
 
 bool SshTransport::connectToHost()
 {
     disconnect();
+
+    if (_workerAbandoned) {
+        reportError(tr("The previous SSH session is still shutting down; "
+                       "please try again shortly."),
+                    TransportErrorCategory::Unknown);
+        return false;
+    }
 
     if (!_wakeup->valid()) {
         reportError(QStringLiteral("Cannot create SSH worker wakeup socket."),
@@ -136,6 +145,11 @@ bool SshTransport::connectToHost()
 }
 
 void SshTransport::disconnect()
+{
+    disconnectInternal(TeardownWaitMs);
+}
+
+void SshTransport::disconnectInternal(int waitMs)
 {
     _connectionGeneration.fetch_add(1, std::memory_order_acq_rel);
     _running.store(false);
@@ -182,10 +196,21 @@ void SshTransport::disconnect()
     }
 
     if (_thread) {
-        // 唤醒事件循环立即检查 _running；
-        // 上限覆盖 ssh_connect（10s 连接超时）最坏场景。
-        _thread->wait(TeardownWaitMs);
-        delete _thread;
+        // 唤醒事件循环立即检查 _running；waitMs 需覆盖连接+认证等
+        // 阻塞调用串行的最坏场景（每步以 ConnectTimeoutSec 为上限）。
+        if (_thread->wait(waitMs)) {
+            delete _thread;
+        } else {
+            // 工作线程仍卡在不可中止的阻塞调用里。绝不能 delete 仍在
+            // 运行的 QThread（UB）：让它结束后自毁，并标记本对象不可再
+            // 启动新会话 —— 僵尸线程可能仍在访问成员。
+            qWarning("SshTransport: worker did not stop within %d ms; "
+                     "deferring thread teardown", waitMs);
+            _thread->disconnect();
+            QObject::connect(_thread, &QThread::finished,
+                             _thread, &QObject::deleteLater);
+            _workerAbandoned = true;
+        }
         _thread = nullptr;
     }
     {
@@ -920,7 +945,8 @@ void SshTransport::workerMain()
         monitorNextRetryMs = workerTimer.elapsed() + backoff;
     };
 
-    const auto monitorProtocolError = [this](
+    // 注意：tr() 是静态成员，lambda 内不需要捕获 this。
+    const auto monitorProtocolError = [](
         SshMonitorFrameParser::Error error) {
         using Error = SshMonitorFrameParser::Error;
         switch (error) {

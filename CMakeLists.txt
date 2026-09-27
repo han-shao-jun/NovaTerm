@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(NovaTerm VERSION 0.2.31 LANGUAGES CXX C)
+project(NovaTerm VERSION 0.2.32 LANGUAGES CXX C)
 
 # ═══════════════════════════════════════════════════════════════════
 #  1. 通用平台编译参数

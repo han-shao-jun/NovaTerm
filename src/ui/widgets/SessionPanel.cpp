@@ -753,19 +753,21 @@ void SessionPanel::showItemContextMenu(const QPoint& position)
         return;
 
     _tree->setCurrentItem(item);
+    // 捕获稳定 SessionId 而非 item 指针：菜单是非模态的，关闭前树可能
+    // 被 rebuildTree() 重建，item 指针随 clear() 失效。
+    const SessionId id(item->data(0, Qt::UserRole).toString());
     auto* menu = new ElaMenu(_tree);
     menu->setAttribute(Qt::WA_DeleteOnClose);
     menu->setMenuItemHeight(27);
     connect(menu->addElaIconAction(ElaIconType::PenToSquare, tr("Edit")),
-            &QAction::triggered, this, [this, item]() { editItem(item); });
+            &QAction::triggered, this, [this, id]() { editItem(id); });
     connect(menu->addElaIconAction(ElaIconType::TrashCan, tr("Delete")),
-            &QAction::triggered, this, [this, item]() { deleteItem(item); });
+            &QAction::triggered, this, [this, id]() { deleteItem(id); });
     menu->popup(_tree->viewport()->mapToGlobal(position));
 }
 
-void SessionPanel::editItem(QTreeWidgetItem* item)
+void SessionPanel::editItem(const SessionId& id)
 {
-    const SessionId id(item->data(0, Qt::UserRole).toString());
     const auto it = std::find_if(
         _entries.cbegin(), _entries.cend(), [&id](const auto& entry) {
             return entry.sessionId == id;
@@ -783,10 +785,9 @@ void SessionPanel::editItem(QTreeWidgetItem* item)
     emit editSessionRequested(id, it->runtimeSnapshot, secret);
 }
 
-void SessionPanel::deleteItem(QTreeWidgetItem* item)
+void SessionPanel::deleteItem(const SessionId& id)
 {
-    if (item)
-        deleteSessions({SessionId(item->data(0, Qt::UserRole).toString())});
+    deleteSessions({id});
 }
 
 void SessionPanel::deleteSessions(const QList<SessionId>& ids)

@@ -179,6 +179,7 @@ SSH 可选本机验收：Linux 上显式运行
 | `novaterm_conpty_tests` 的 `duplexLoadAndBackpressure`、`latestResizeWins` | 偶发；`duplex` 是 20s 超时，`latestResize` 偶尔拿到旧尺寸。未查明 |
 | `novaterm_pty_tests`（Linux 本机） | 环境相关：PTY 子进程未按预期启动 —— `defaultWorkingDirectoryIsHome`、`workingDirectoryAndMergedEnvironmentReachChild` 拿不到子进程输出，`connected.wait(5000)` 超时，退出码收到 `0xFFFFFFFF`。在 `git stash` 掉全部 `src/` 改动后重建的未修改工作树上同样失败，非回归 |
 | `novaterm_ui_dialog_layout_tests`（Linux 本机） | 环境相关：offscreen + 本机 Ela/字体度量下 `1100x760` 一档的滚动上限断言不符（`scrollMax=344` vs `expectedMax=250`），另两档尺寸通过。同样在未修改工作树上复现，非回归 |
+| `novaterm_mcp_tests`、`novaterm_renderer_tests`、`novaterm_renderer_p5_tests`、`novaterm_ui_dialog_layout_tests`（liurui 的 Windows 工作机，2026-09-27 实测） | 全部以 `0xc0000409`（fail-fast）崩溃、零 stdout；conpty 整项 Failed（exit 4、92s）。在**改动前**与改动后各跑两轮、且 conpty 用原始代码 A/B 复测，失败集合与退出码完全一致——机器相关，非回归，未查明根因（刷新 Machine+User PATH 无效）。该机器上跑全套时以"其余 7 项通过"为绿灯标准 |
 
 ## 不可违背的架构约束
 
@@ -975,3 +976,51 @@ exe 一致）：113.1 s，cpu_atom 485 + cpu_core 1315 = 1800 样本。三份同
    2.79%（moverect 批量同步后的残余：逐字段转换 + libvterm 按行读取本身）。
    若要继续，方向分别是"只上传真正变化的槽位"与"把 Cell 转换合进 VTAdapter
    的按行读取"，都属新工作项，不在本计划范围内。
+
+## Effective C++ 全项目审查与 IRON 修复（2026-09-27）
+
+7 个并行审查代理按 Effective C++ 铁律读完 130 个文件（~49k 行），共 58 项发现：
+6 IRON / 15 STRONG / 37 GOOD。完整报告（带筛选与修复建议）在
+`.claude/novaterm-cpp-review.html`（未跟踪，浏览器直接打开）。
+
+### 已修复（本次改动，全部通过测试验证零回归）
+
+1. **SshTransport**：`disconnect()` 忽略 `wait()` 超时后 `delete` 运行中线程（UAF）。
+   现在超时改 `finished→deleteLater` 自毁 + `_workerAbandoned` 拒绝新连接；
+   析构路径等待上限提到 60s（认证等阻塞调用以 ConnectTimeoutSec=10s 单步上限串联）。
+2. **ConPtySession**：析构仅靠 `Q_ASSERT` 保证线程已 join（release 下 joinable
+   thread 析构 = `std::terminate`）。现在防御性收尾：置停止标志 +
+   `TerminateJobObject` 打断阻塞的 ReadFile/ClosePseudoConsole + join。
+   同时 reader 条件变量谓词补 `_readerStopping`（原 rescue 链断裂即永久阻塞）。
+3. **serialport_info**：`HDEVNOTIFY` 从不注销（每次构造泄漏）→ 成员保存 +
+   析构注销；空语句 `GetLastError()` → qWarning；顺带修 Qt5 分支笔误与
+   nativeEvent 判空。
+4. **SessionPanel**：非模态右键菜单 lambda 捕获裸 `QTreeWidgetItem*`（树重建后
+   UAF）→ 改捕获稳定 `SessionId`，`editItem`/`deleteItem` 按 ID 查找。
+5. **TerminalView/TerminalPage**：`attachTransport()` 失败泄漏无 parent 的
+   transport 且留野指针成员 → 返回 bool 明确"失败即未被 adopt"，本地路径
+   delete 回收、三个远程路径回收并跳过 `start()`。
+6. **TerminalCore**：`Runtime::adapter` 锁外 reset + 锁内解引用（启动/关闭窗口期
+   空指针或 UAF）→ adapter 在构造函数（线程启动前）创建、不再提前 reset，
+   生命周期与 Runtime 成员对齐。
+
+### 顺带修复的预存构建损坏
+
+a399ec6（2026-09-27 12:21）引入的 MSVC `/Wall /WX` 在本机从未成功构建过。
+处理原则：保留 `/Wall /WX` 对真实警告严格，压掉 `/Wall` 独有噪音类
+（CMakeLists.txt `/wd` 清单，每类有注释说明；C4365/C4061 等与 GCC
+`-Wall -Wextra` 实际检查范围对齐）。5 处真实小警告修在源码：SshTransport
+未用 `this` 捕获、SftpPanel/SshTransportFailureCheck 的 `std::array` 双大括号、
+printf 非字面量格式串、SystemInformationDialog 局部变量遮蔽成员、
+SettingsPage 未用参数。
+
+**教训**：`cmake --build --target X --clean-first` 的 clean 会清掉**全部**目标
+产物再只重建 X，误用一次就全量重编（本机约 10 分钟）。只想强制重编单目标，
+touch 源文件即可。
+
+### 未修（报告中有细节，按优先级）
+
+STRONG 前几名：McpProtocol secureFile 的 lstat→chmod TOCTOU、
+TerminalSession::start/beginReconnect 缺 QPointer 复查（重入崩溃）、
+CredentialStore Windows remove() 语义与契约相反、SearchEngine 逐码点
+QString 堆分配（热路径）、TerminalRenderer `_fm` 裸指针 delete/new ×4。
