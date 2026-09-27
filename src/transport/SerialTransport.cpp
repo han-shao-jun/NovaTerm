@@ -15,7 +15,10 @@ SerialTransport::SerialTransport(SerialConfig config, QObject* parent)
     : ITransport(parent)
     , _config(std::move(config))
 {
-    _port.setReadBufferSize(8 * 1024 * 1024);
+    // 读缓冲按串口物理速率定容：921600 baud ≈ 92 KB/s，256 KiB 足够
+    // 吸收暂停消费时的 ~3 秒突发。原 8 MiB 要 ~12 分钟不消费才攒满，
+    // 上限与业务完全不成比例（缓冲只在暂停 drain 时才真正占用）。
+    _port.setReadBufferSize(256 * 1024);
 
     connect(&_port, &QSerialPort::readyRead,
             this, &SerialTransport::readAvailable);

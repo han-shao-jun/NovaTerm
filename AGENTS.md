@@ -1024,3 +1024,54 @@ STRONG 前几名：McpProtocol secureFile 的 lstat→chmod TOCTOU、
 TerminalSession::start/beginReconnect 缺 QPointer 复查（重入崩溃）、
 CredentialStore Windows remove() 语义与契约相反、SearchEngine 逐码点
 QString 堆分配（热路径）、TerminalRenderer `_fm` 裸指针 delete/new ×4。
+
+## 内存占用审查与第一档优化（2026-09-27）
+
+6 个并行代理按模块做完内存审计（对账实测：空闲启动 RSS 168 MB，大头是
+框架 + atlas GPU 纹理，不在业务代码）。完整发现：2 个真·无界容器、
+1 条 ~400 MB 级未入账路径、一批虚高的容量常数与拷贝链。
+
+### 已实施（第一档：零/低风险，全部验证）
+
+1. **回看碎块化 ~400 MB 未入账路径**（最重要）：回看 + 持续输出时每帧
+   sealActive 封存几行的小块，每块白占 reserve(1024) 的 ~40 KB 且不计入
+   maxBytes。修复：sealChunk 对 size<capacity 的块 shrink_to_fit（正常
+   写满路径零拷贝），estimateChunkBytes 把 lines 容量入账。
+   scrollback 基准 Budget respected 由新账目验证通过。
+2. **ChunkedScrollback::_retired 无界慢漏**：collectRetired 原本只有
+   statistics() 调而生产无人调。retireChunk（块粒度冷路径）末尾顺手回收。
+3. **GlyphCache 条目无界**：加 MaxEntries=32768 硬顶（~8 MB），超限先
+   清扫死条目、仍超整表清空（FontManager _selectionCache 同款策略）。
+   顺带修了 insert 复用记账 find 导致的命中率统计失真（拆出
+   findEntry 不记账路径）。
+4. **容量常数对齐业务**：Serial 读缓冲 8 MiB→256 KiB（串口 12 分钟才
+   攒满原值）；Telnet 读缓冲 8 MiB→1 MiB；ConPty 4+8 MiB→1+4 MiB；
+   PtySession 4 MiB→1 MiB。吞吐由消费端决定，不受影响（见基准）。
+5. **QByteArray 容量粘滞**：SshTransport 断开时 _inbound/_writeQueue
+   整体赋值归还 ~2 MiB/标签（热路径 clear 保持不动）；
+   McpProtocol FrameReader 读空帧后归还 ~2 MiB/连接。
+6. **classifyScript 拷贝链**：QStringDecoder 直接从 view 解码 +
+   hasError() 检测，删掉 QByteArray 深拷贝与 toUtf8() 往返校验
+   （单轮瞬态 ~14→~10 MiB）。
+7. **RenderCommandBuffer 内容层 reserve** 4×columns→1.5×columns：
+   密集装饰行经 QVector 倍增自然长到位，容量跨帧保留不形成每帧 realloc；
+   典型视口省 ~4-7 MB。
+
+### 验证记录
+
+- 构建 OK（/Wall /WX 严格警告全过）；全套 ctest 两轮：同样 5 个本机
+  既有失败，其余 7 项通过，零回归。
+- P2 吞吐基准 **20.46 MiB/s ≥ 20 目标**（本机历史基线 ~19，无下降）。
+- scrollback 基准：100000 行摄入 49.5 万行/s；Budget respected PASS。
+- 空闲 RSS 改前 168.1 / 改后 168.4 MB——第一档不动空闲基线（诚实记录：
+  空闲大头是 Qt 框架 + atlas GPU 纹理，属第二档）。
+
+### 第二档候选（未做，按收益排序）
+
+- atlas 纹理数组按实际页数增长（一启动顶格 64 MiB 显存 → 典型省 48 MiB）
+- 灰度字形页改 R8 单通道（现 Alpha8 也按 RGBA8888 存，atlas 省 75%）
+- BoundedByteQueue 8 MiB/标签 分段懒分配（每标签省 ~6 MiB，须重跑 P2）
+- MCP executions 失败输出双份拷贝 + 600s 保留（病理 33 MiB）
+- ResourcePrefetch 懒启动（每 SSH 标签省 10-150 KB + 3 条远端命令）
+- 专项：SFTP 递归删除/下载流式化（百万文件 120-250 MB）、
+  CellAttributes 位标志（Cell 52→36 B，回滚省 ~30%）

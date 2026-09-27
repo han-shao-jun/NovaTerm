@@ -1956,8 +1956,12 @@ void TerminalRenderer::rebuildCommandRow(
         _glyphPendingRows[std::size_t(widgetRow)] = false;
 
     // 就地重建：把目标行的旧命令 swap 到 scratch（只交换指针、不拷贝），目标
-    // 向量随即变空但保留上一帧的容量，新命令可以直接写进去。容量按最坏情况
-    // 预留（背景 1 条/Cell、内容 4 条/Cell：字形 + 双下划线 + 删除线）。
+    // 向量随即变空但保留上一帧的容量，新命令可以直接写进去。背景仍按
+    // 1 条/Cell 预留；内容层改按 1.5 条/Cell 起步——多数行只有字形
+    // 1 条/Cell，装饰行最多 4 条/Cell（字形 + 双下划线 + 删除线），经
+    // QVector 倍增自然长到位。增长只发生在行槽位生命周期的早期，容量
+    // 随后跨帧保留，不形成每帧 realloc；按最坏 4× 预留会让 200 列视口
+    // 白占约 4-7 MB。
     NovaTerm::RenderCommandRow& target =
         _commandBuffer.mutableRow(widgetRow);
     _oldBackgrounds.clear();
@@ -1966,7 +1970,8 @@ void TerminalRenderer::rebuildCommandRow(
     target.contents.swap(_oldContents);
     if (target.backgrounds.capacity() < screen.columns)
         target.backgrounds.reserve(screen.columns);
-    const qsizetype contentCapacity = qsizetype(screen.columns) * 4;
+    const qsizetype contentCapacity =
+        screen.columns + qsizetype(screen.columns) / 2;
     if (target.contents.capacity() < contentCapacity)
         target.contents.reserve(contentCapacity);
 

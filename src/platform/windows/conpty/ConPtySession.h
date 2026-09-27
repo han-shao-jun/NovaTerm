@@ -84,8 +84,12 @@ signals:
     void stateChanged(NovaTerm::Windows::ConPtySession::State state); ///< 状态变更
 
 private:
-    static constexpr std::size_t InputCapacity = 4U * 1024U * 1024U;       ///< 输入队列上限 4 MiB
-    static constexpr std::size_t OutputCapacity = 8U * 1024U * 1024U;      ///< 输出队列上限 8 MiB
+    // 容量对齐说明：输入 1 MiB 与 SSH/Telnet/Serial 写队列一致（大粘贴
+    // 超限即 Overload，行为统一）；输出 4 MiB 是 reader 与 GUI 消费之间的
+    // 突发缓冲，吞吐由消费端决定（P2 基准路径），缩小只让背压更早传导
+    // 到子进程。队列元素按 256 KiB 批次粒度释放，无容量粘滞。
+    static constexpr std::size_t InputCapacity = 1U * 1024U * 1024U;       ///< 输入队列上限 1 MiB
+    static constexpr std::size_t OutputCapacity = 4U * 1024U * 1024U;      ///< 输出队列上限 4 MiB
     static constexpr std::size_t ReadBufferSize = 64U * 1024U;            ///< 单次读取缓冲 64 KiB
     static constexpr std::size_t OutputDeliveryBatch = 256U * 1024U;      ///< 单批投递上限 256 KiB
 

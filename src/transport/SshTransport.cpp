@@ -165,9 +165,12 @@ void SshTransport::disconnectInternal(int waitMs)
 
     const bool wasConnected = _connected.exchange(false);
     {
+        // 整体赋值而非 clear()：clear 保留容量，经历过一次 1 MiB 峰值后
+        // 这块堆内存会驻留到对象析构。disconnect 是冷路径，realloc 无关
+        // 性能；热路径（deliverInbound 全消费处）保持 clear 不动。
         QMutexLocker lock(&_inboundMutex);
         ++_inboundGeneration;
-        _inbound.clear();
+        _inbound = QByteArray{};
         _inboundHead = 0;
         _inboundScheduled = false;
         _inboundClosed = false;
@@ -216,14 +219,15 @@ void SshTransport::disconnectInternal(int waitMs)
     {
         QMutexLocker lock(&_inboundMutex);
         ++_inboundGeneration;
-        _inbound.clear();
+        // 线程已 join，无并发写者：同样整体赋值归还峰值容量。
+        _inbound = QByteArray{};
         _inboundHead = 0;
         _inboundClosed = false;
         _inboundScheduled = false;
     }
     {
         QMutexLocker lock(&_writeMutex);
-        _writeQueue.clear();
+        _writeQueue = QByteArray{};  // 同上：归还 1 MiB 峰值容量
         _pendingWriteBytes.store(0, std::memory_order_release);
     }
 

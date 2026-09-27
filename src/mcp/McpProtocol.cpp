@@ -519,6 +519,11 @@ std::optional<QJsonObject> FrameReader::take()
     QJsonParseError error;
     const auto document = QJsonDocument::fromJson(_bytes.mid(4, size), &error);
     _bytes.remove(0, qsizetype(size) + 4);
+    // 读空即归还容量：remove/clear 都不缩容，传过一帧 2 MiB 脚本后
+    // 这块分配会驻留到断连。帧间隙（take 后通常立刻空闲）是冷点，
+    // realloc 无关性能；后续 append 按实际帧大小重新增长。
+    if (_bytes.isEmpty())
+        _bytes = QByteArray{};
     if (error.error != QJsonParseError::NoError || !document.isObject()) {
         _failed = true;
         return std::nullopt;

@@ -71,7 +71,8 @@ signals:
     void stateChanged(NovaTerm::Linux::PtySession::State state); ///< 状态变更
 
 private:
-    static constexpr std::size_t InputCapacity = 4U * 1024U * 1024U;  ///< 输入队列上限 4 MiB
+    // 与其他 transport 的 1 MiB 写路径上限对齐；超限即反压/Overload。
+    static constexpr std::size_t InputCapacity = 1U * 1024U * 1024U;  ///< 输入队列上限 1 MiB
     static constexpr std::size_t ReadBufferSize = 64U * 1024U;        ///< 单次读取缓冲 64 KiB
 
     void transition(State state);          ///< 状态迁移并发信号

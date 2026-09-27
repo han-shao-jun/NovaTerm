@@ -71,6 +71,20 @@ public:
 private:
     // 缓存条目：atlas 中的位置 + 最近使用帧号（LRU 依据）。
     struct Entry { GlyphLocation location; quint64 lastUsedFrame{0}; };
+
+    // 条目数硬上限（每条 ~250 B 含 QHash 节点与 key 堆，上限约 8 MB）。
+    // CJK 常用字形集（数千）与基本区全集（~3 万）都能装下；超限先清扫
+    // 死条目（atlas 页已回收的），仍超则整表清空重建——与 FontManager
+    // _selectionCache 满 8192 整表清空同款策略，防病态输出（base64
+    // dump 等随机 cluster 流）把缓存撑到几十 MB。
+    static constexpr qsizetype MaxEntries = 32768;
+
+    /// 查表但不记 hits/misses 账：insert 的去重查找用（避免污染命中率统计）。
+    std::optional<GlyphLocation> findEntry(const GlyphKey& key,
+                                           quint64 frameNumber);
+    /// 清扫 atlas 页已回收的死条目，返回清扫后是否仍超上限。
+    [[nodiscard]] bool purgeStaleEntries();
+
     GlyphAtlas _atlas;
     QHash<GlyphKey, Entry> _entries;
     GlyphCacheStatistics _statistics;

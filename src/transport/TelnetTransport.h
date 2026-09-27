@@ -124,7 +124,9 @@ private:
                      const QString& message, bool retryable);
 
     static constexpr qint64 MaxPendingWriteBytes = 1024 * 1024;   ///< 写队列上限 1 MiB
-    static constexpr int ReadBufferBytes = 8 * 1024 * 1024;       ///< socket 读缓冲上限
+    /// socket 读缓冲上限 1 MiB。缓冲只在暂停 drain 时占用；缩小的只是
+    /// TCP 窗口收缩前的缓冲深度（吞吐由消费速度决定，不受此影响）。
+    static constexpr int ReadBufferBytes = 1024 * 1024;
     static constexpr int ReadChunkBytes = 64 * 1024;              ///< 单次 drain 粒度
 
     // PImpl 模式隔离 libtelnet 头文件依赖（与 VTAdapter 对 libvterm 的做法一致）。

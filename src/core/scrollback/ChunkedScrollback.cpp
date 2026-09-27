@@ -185,6 +185,11 @@ void ChunkedScrollback::retireChunk(StoredChunk& stored, bool countAsEvicted)
         _chunks.pop_back();
     if (countAsEvicted)
         ++_evictedChunks;
+    // 顺手回收已无快照引用的退休块。collectRetired 原本只被 statistics()
+    // 调用而生产路径无人调用它，_retired 会随会话时长无界增长（每块
+    // ~64 B 的 weak_ptr + 控制块滞留）。retireChunk 本身是块粒度冷路径，
+    // erase-remove 在列表保持短小的前提下代价可忽略。
+    collectRetired();
 }
 
 void ChunkedScrollback::publish()
