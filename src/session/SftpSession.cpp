@@ -20,6 +20,7 @@
 #include <QScopeGuard>
 #include <QSet>
 #include <QThread>
+#include <QUuid>
 
 #include <memory>
 #include <functional>
@@ -32,6 +33,8 @@ namespace {
 // SFTP 工作线程名：objectName 与 OS 级线程名共用同一字符串（理由同
 // SshTransport）。
 constexpr char SftpWorkerThreadName[] = "nvterm-sftp";
+constexpr qsizetype TransferChunkBytes = 256 * 1024;
+constexpr quint64 ProgressIntervalBytes = 1 * 1024 * 1024;
 
 using SshSessionPtr =
     std::unique_ptr<ssh_session_struct, decltype(&ssh_free)>;
@@ -54,6 +57,13 @@ QString remotePathJoin(const QString& directory, const QString& name)
     if (directory == QStringLiteral("/"))
         return directory + name;
     return directory + QLatin1Char('/') + name;
+}
+
+QString temporaryRemotePath(const QString& remotePath)
+{
+    // 先写同目录临时文件，完成并关闭后再重命名，避免目标暴露半文件。
+    return remotePath + QStringLiteral(".novaterm-upload-")
+        + QUuid::createUuid().toString(QUuid::WithoutBraces);
 }
 
 QString resolveRemoteLinkTarget(const QString& directory,
@@ -200,10 +210,11 @@ bool uploadRegularFile(sftp_session sftp, ssh_session session,
         return false;
     }
 
-    const QByteArray encodedPath = remotePath.toUtf8();
+    const QString temporaryPath = temporaryRemotePath(remotePath);
+    const QByteArray encodedPath = temporaryPath.toUtf8();
     SftpFilePtr remoteFile{
         sftp_open(sftp, encodedPath.constData(),
-                  O_WRONLY | O_CREAT | O_TRUNC, 0644),
+                  O_WRONLY | O_CREAT | O_EXCL, 0644),
         &sftp_close};
     if (!remoteFile) {
         error = sftpError(sftp, session,
@@ -212,11 +223,13 @@ bool uploadRegularFile(sftp_session sftp, ssh_session session,
     }
 
     while (running.load(std::memory_order_acquire)) {
-        const QByteArray chunk = localFile.read(64 * 1024);
+        const QByteArray chunk = localFile.read(TransferChunkBytes);
         if (chunk.isEmpty()) {
             if (localFile.error() != QFileDevice::NoError) {
                 error = SftpSession::tr("Failed to read local file %1: %2")
                             .arg(localPath, localFile.errorString());
+                sftp_close(remoteFile.release());
+                sftp_unlink(sftp, encodedPath.constData());
                 return false;
             }
             break;
@@ -228,24 +241,39 @@ bool uploadRegularFile(sftp_session sftp, ssh_session session,
                 remoteFile.get(), chunk.constData() + offset,
                 static_cast<size_t>(chunk.size() - offset));
             if (written <= 0) {
+                sftp_close(remoteFile.release());
+                sftp_unlink(sftp, encodedPath.constData());
                 error = sftpError(sftp, session,
                     SftpSession::tr("Failed to upload %1").arg(remotePath));
                 return false;
             }
             offset += static_cast<qsizetype>(written);
             transferred += static_cast<quint64>(written);
-            if (transferred - lastReported >= 256 * 1024
+            if (transferred - lastReported >= ProgressIntervalBytes
                 || transferred == total) {
                 lastReported = transferred;
                 reportProgress(transferred, total);
             }
         }
     }
-    if (!running.load(std::memory_order_acquire))
+    if (!running.load(std::memory_order_acquire)) {
+        sftp_close(remoteFile.release());
+        sftp_unlink(sftp, encodedPath.constData());
         return false;
+    }
     if (sftp_close(remoteFile.release()) != SSH_OK) {
+        sftp_unlink(sftp, encodedPath.constData());
         error = sftpError(sftp, session,
             SftpSession::tr("Failed to finalize remote file %1")
+                .arg(remotePath));
+        return false;
+    }
+    const QByteArray encodedTarget = remotePath.toUtf8();
+    if (sftp_rename(sftp, encodedPath.constData(), encodedTarget.constData())
+        != SSH_OK) {
+        sftp_unlink(sftp, encodedPath.constData());
+        error = sftpError(sftp, session,
+            SftpSession::tr("Failed to replace remote file %1")
                 .arg(remotePath));
         return false;
     }
@@ -257,9 +285,9 @@ bool uploadScriptBytes(sftp_session sftp, ssh_session session,
                        const std::function<bool()>& cancelled,
                        QString& error)
 {
-    const QByteArray encodedPath = remotePath.toUtf8();
+    const QByteArray encodedTarget = remotePath.toUtf8();
     SftpAttributesPtr existing{
-        sftp_lstat(sftp, encodedPath.constData()), &sftp_attributes_free};
+        sftp_lstat(sftp, encodedTarget.constData()), &sftp_attributes_free};
     if (existing && (existing->type != SSH_FILEXFER_TYPE_REGULAR
                      || isHardLinkFromLongName(existing.get()))) {
         error = QStringLiteral("SCRIPT_TARGET_NOT_REGULAR");
@@ -270,9 +298,11 @@ bool uploadScriptBytes(sftp_session sftp, ssh_session session,
         return false;
     }
 
+    const QString temporaryPath = temporaryRemotePath(remotePath);
+    const QByteArray encodedPath = temporaryPath.toUtf8();
     SftpFilePtr remoteFile{
         sftp_open(sftp, encodedPath.constData(),
-                  O_WRONLY | O_CREAT | O_TRUNC, 0600),
+                  O_WRONLY | O_CREAT | O_EXCL, 0600),
         &sftp_close};
     if (!remoteFile) {
         error = sftpError(sftp, session,
@@ -284,20 +314,26 @@ bool uploadScriptBytes(sftp_session sftp, ssh_session session,
     while (offset < content.size()) {
         if (cancelled()) {
             error = QStringLiteral("SCRIPT_UPLOAD_CANCELLED");
+            sftp_close(remoteFile.release());
+            sftp_unlink(sftp, encodedPath.constData());
             return false;
         }
-        const qsizetype chunkSize = qMin(qsizetype(64 * 1024),
+        const qsizetype chunkSize = qMin(TransferChunkBytes,
                                           content.size() - offset);
         qsizetype chunkOffset = 0;
         while (chunkOffset < chunkSize) {
             if (cancelled()) {
                 error = QStringLiteral("SCRIPT_UPLOAD_CANCELLED");
+                sftp_close(remoteFile.release());
+                sftp_unlink(sftp, encodedPath.constData());
                 return false;
             }
             const int written = sftp_write(remoteFile.get(),
                 content.constData() + offset + chunkOffset,
                 static_cast<size_t>(chunkSize - chunkOffset));
             if (written <= 0) {
+                sftp_close(remoteFile.release());
+                sftp_unlink(sftp, encodedPath.constData());
                 error = sftpError(sftp, session,
                     QStringLiteral("SCRIPT_WRITE_FAILED: %1").arg(remotePath));
                 return false;
@@ -309,11 +345,20 @@ bool uploadScriptBytes(sftp_session sftp, ssh_session session,
 
     sftp_file rawFile = remoteFile.release();
     if (sftp_close(rawFile) != SSH_OK) {
+        sftp_unlink(sftp, encodedPath.constData());
         error = sftpError(sftp, session,
             QStringLiteral("SCRIPT_WRITE_FAILED: %1").arg(remotePath));
         return false;
     }
     if (sftp_chmod(sftp, encodedPath.constData(), 0700) != SSH_OK) {
+        sftp_unlink(sftp, encodedPath.constData());
+        error = sftpError(sftp, session,
+            QStringLiteral("SCRIPT_WRITE_FAILED: %1").arg(remotePath));
+        return false;
+    }
+    if (sftp_rename(sftp, encodedPath.constData(), encodedTarget.constData())
+        != SSH_OK) {
+        sftp_unlink(sftp, encodedPath.constData());
         error = sftpError(sftp, session,
             QStringLiteral("SCRIPT_WRITE_FAILED: %1").arg(remotePath));
         return false;
@@ -423,7 +468,7 @@ bool downloadRegularFile(sftp_session sftp, ssh_session session,
         return false;
     }
 
-    QByteArray buffer(64 * 1024, Qt::Uninitialized);
+    QByteArray buffer(TransferChunkBytes, Qt::Uninitialized);
     while (running.load(std::memory_order_acquire)) {
         const auto bytesRead = sftp_read(
             remoteFile.get(), buffer.data(),
@@ -441,7 +486,7 @@ bool downloadRegularFile(sftp_session sftp, ssh_session session,
             return false;
         }
         transferred += static_cast<quint64>(bytesRead);
-        if (transferred - lastReported >= 256 * 1024
+        if (transferred - lastReported >= ProgressIntervalBytes
             || transferred == total) {
             lastReported = transferred;
             reportProgress(transferred, total);
@@ -625,6 +670,8 @@ void SftpSession::enqueue(Command command)
     if (!_running.load(std::memory_order_acquire))
         return;
     QMutexLocker lock(&_queueMutex);
+    if (_commands.size() >= MaxQueuedCommands)
+        return;
     _commands.enqueue(std::move(command));
     _queueReady.wakeOne();
 }
@@ -651,6 +698,7 @@ bool SftpSession::uploadBytes(quint64 requestId, QByteArray content,
     }
     QMutexLocker lock(&_queueMutex);
     if (!_running.load(std::memory_order_acquire)
+        || _commands.size() >= MaxQueuedCommands
         || _queuedUploadBytes + content.size() > MaxQueuedUploadBytes) {
         return false;
     }
@@ -1123,7 +1171,7 @@ void SftpSession::workerMain(SshConfig config,
             quint64 lastReported = 0;
             bool failed = false;
             while (_running.load(std::memory_order_acquire)) {
-                const QByteArray chunk = localFile.read(64 * 1024);
+                const QByteArray chunk = localFile.read(TransferChunkBytes);
                 if (chunk.isEmpty()) {
                     if (localFile.error() != QFileDevice::NoError) {
                         postError(generation, tr("Failed to read local file %1: %2")
@@ -1147,7 +1195,7 @@ void SftpSession::workerMain(SshConfig config,
                     offset += static_cast<qsizetype>(written);
                     transferred += static_cast<quint64>(written);
                     // 限制进度事件频率，避免高速传输用大量 queued event 淹没 GUI。
-                    if (transferred - lastReported >= 256 * 1024
+                    if (transferred - lastReported >= ProgressIntervalBytes
                         || transferred == total) {
                         lastReported = transferred;
                         QMetaObject::invokeMethod(this,
@@ -1269,7 +1317,7 @@ void SftpSession::workerMain(SshConfig config,
                 continue;
             }
 
-            QByteArray buffer(64 * 1024, Qt::Uninitialized);
+            QByteArray buffer(TransferChunkBytes, Qt::Uninitialized);
             quint64 transferred = 0;
             quint64 lastReported = 0;
             bool failed = false;
@@ -1293,7 +1341,7 @@ void SftpSession::workerMain(SshConfig config,
                     break;
                 }
                 transferred += static_cast<quint64>(bytesRead);
-                if (transferred - lastReported >= 256 * 1024
+                if (transferred - lastReported >= ProgressIntervalBytes
                     || transferred == total) {
                     lastReported = transferred;
                     QMetaObject::invokeMethod(this,

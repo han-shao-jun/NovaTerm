@@ -120,6 +120,7 @@ private:
     [[nodiscard]] bool isUploadCancelled(quint64 requestId);
 
     static constexpr int ConnectTimeoutSeconds = 10;
+    static constexpr qsizetype MaxQueuedCommands = 256;
     static constexpr qsizetype MaxQueuedUploadBytes = 2 * 1024 * 1024;
 
     std::atomic<bool> _running{false};
