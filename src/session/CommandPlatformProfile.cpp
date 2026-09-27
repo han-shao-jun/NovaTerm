@@ -1,6 +1,6 @@
 /**
  * @file CommandPlatformProfile.cpp
- * @brief SSH Linux 与 Windows LocalShell 的固定命令平台 Profile。
+ * @brief SSH Linux 与 Windows/Linux LocalShell 的固定命令平台 Profile。
  */
 #include "CommandPlatformProfile.h"
 
@@ -36,13 +36,26 @@ CommandPlatformProfile CommandPlatformProfile::windowsLocal()
 #endif
 }
 
+CommandPlatformProfile CommandPlatformProfile::linuxLocal()
+{
+#ifdef Q_OS_LINUX
+    return {QStringLiteral("linux-local-v1"), diagnosticCommands()};
+#else
+    return {};
+#endif
+}
+
 CommandPlatformProfile CommandPlatformProfile::forTransport(TransportKind kind)
 {
     switch (kind) {
     case TransportKind::Ssh:
         return sshLinux();
     case TransportKind::LocalShell:
+#ifdef Q_OS_WIN
         return windowsLocal();
+#else
+        return linuxLocal();
+#endif
     case TransportKind::Serial:
     case TransportKind::Telnet:
     case TransportKind::Custom:

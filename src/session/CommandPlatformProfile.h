@@ -17,6 +17,7 @@ public:
 
     [[nodiscard]] static CommandPlatformProfile sshLinux();
     [[nodiscard]] static CommandPlatformProfile windowsLocal();
+    [[nodiscard]] static CommandPlatformProfile linuxLocal();
     [[nodiscard]] static CommandPlatformProfile forTransport(TransportKind kind);
     /** @brief 为显式可信的交互 Session 选择策略版本及固定命令集合。 */
     [[nodiscard]] static CommandPlatformProfile interactiveFor(

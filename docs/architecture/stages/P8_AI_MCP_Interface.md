@@ -1425,10 +1425,9 @@ self-contained requests 与 per-request capability negotiation。Bridge 的双�
 当前五个工具及 GUI 接入已经存在。本节只记录当前 master 的实际代码事实；前文
 v0.5 的全会话命令执行是下一阶段设计目标，在实现与测试完成前不得写成已支持。
 
-**当前工作树（基于 `b237e40` / NovaTerm `0.2.22`）的生产命令实现覆盖 SSH Session
-与 Windows LocalShell：SSH 使用独立 exec channel，Windows LocalShell 使用固定
-`novaterm-local-diag` helper 子进程。Linux/macOS LocalShell、Serial、Telnet、Custom
-的生产 Executor、SessionCommandLease 与 InteractiveFramed 尚未实现。**
+**当前生产固定诊断覆盖 SSH Session 与 Windows/Linux LocalShell：SSH 使用独立
+exec channel，本地会话使用固定 `novaterm-local-diag` helper 子进程。
+macOS LocalShell、Serial、Telnet、Custom 的固定诊断 Executor 仍未实现。**
 
 v0.3/v0.4 的协议/性能新增项也继续以代码和测试为准；设计文档中的候选优化不能倒写成
 实施事实。
@@ -1440,7 +1439,7 @@ v0.3/v0.4 的协议/性能新增项也继续以代码和测试为准；设计文
 | P8.2 | `src/mcp/McpProtocol.*`、`LocalMcpServer.*` | 五工具 schema、参数校验、MAC、当前用户 IPC、帧/队列限制和合并唤醒 |
 | P8.2 | `tools/novaterm-mcp/` | console stdio 桥接、初始化、取消、stdout 隔离、慢写退出、明确实例绑定 |
 | P8.3 | `src/mcp/McpService.*` | 会话列表、上下文、capture 搜索、预算裁切和每客户端 token/capture 隔离 |
-| P8.4 | `CommandPolicy.*`、`CommandPlatformProfile.*`、`CommandExecutionTypes.h`、`SessionCommandFacade.*`、`ISessionCommandExecutor.h`、`SshSessionCommandExecutor.*`、`LocalSessionCommandExecutor.*`、`tools/novaterm-local-diag/`、`McpService.*` | 固定诊断模板、通用执行 DTO、Session 级 Executor 路由、SSH 与 Windows LocalShell Isolated 适配、执行票据/去重、持久目标保护标记及结构化完成证据 |
+| P8.4 | `CommandPolicy.*`、`CommandPlatformProfile.*`、`CommandExecutionTypes.h`、`SessionCommandFacade.*`、`ISessionCommandExecutor.h`、`SshSessionCommandExecutor.*`、`LocalSessionCommandExecutor.*`、`tools/novaterm-local-diag/`、`McpService.*` | 固定诊断模板、通用执行 DTO、Session 级 Executor 路由、SSH 与 Windows/Linux LocalShell Isolated 适配、执行票据/去重、持久目标保护标记及结构化完成证据 |
 | P8.5 | `McpAccess.*`、`McpSettingsDialog.*`、Application/MainWindow/TerminalPage 接线 | 总开关、客户端令牌、读取与逐项诊断授权、复制配置、执行记录和人工解除保护 |
 
 当前实现中 RequestBroker/SessionReadFacade 的职责主要由 `McpService::Impl` 与 Session
@@ -1448,9 +1447,10 @@ v0.3/v0.4 的协议/性能新增项也继续以代码和测试为准；设计文
 `ISessionCommandExecutor` 和第一个 SSH Isolated Executor；Facade 用 Session generation
 与绑定序号丢弃换绑后的迟到完成结果，并在换绑或销毁前取消已登记的在途请求；
 MCP 的执行、取消和完成映射不再持有 SSH 类型。
-Windows LocalShell 另由 `windows-local-v1` Profile 注册同一组语义 commandId，
-Executor 只启动应用目录中的固定 helper，以独立 stdout/stderr、退出码和进程终止
-证据返回结果；不向当前 PTY/ConPTY 写入，也不继承交互 shell 的 cwd/alias/history。
+Windows/Linux LocalShell 分别由 `windows-local-v1` / `linux-local-v1` Profile
+注册同一组语义 commandId。Executor 只启动应用目录中的固定 helper，以独立
+stdout/stderr、退出码和进程终止证据返回结果；不向当前 PTY/ConPTY 写入，
+也不继承交互 shell 的 cwd/alias/history。
 当前 SSH 辅助 exec 输出不回灌交互终端；Serial/Telnet InteractiveFramed 仍只是设计，
 因此当前代码也尚未产生第二条共享交互命令写入路径。
 
@@ -1464,10 +1464,11 @@ Executor 只启动应用目录中的固定 helper，以独立 stdout/stderr、�
   字节来判断是否超限。转换后的 UTF-8 文本另限 64 KiB，不会因替代字符膨胀而失控。
 - SSH 增加 `executeBoundedCommand` / `boundedCommandFinished`，保留旧的通用命令
   API 供 P7 使用。对未知是否已开始/结束的情况保持保守，不把 close/TERM 请求当成退出证明。
-- Windows LocalShell 的 `novaterm-local-diag` 只接受四个固定 commandId，使用 Qt/Windows
-  系统 API 采集，拒绝额外参数与未知命令；`LocalSessionCommandExecutor` 清理环境、
-  合计限制 64 KiB 输出并在超时、取消、换绑或销毁时终止 helper。Linux/macOS 本阶段
-  不安装 Local Executor，不能回退到 `writeUserInput()` 或 shell wrapper。
+- Windows/Linux LocalShell 的 `novaterm-local-diag` 只接受四个固定 commandId，
+  分别使用 Qt/Windows API 与 Qt/Linux `/proc` 读取采集，拒绝额外参数与未知命令；
+  `LocalSessionCommandExecutor` 清理环境、合计限制 64 KiB 输出并在超时、取消、
+  换绑或销毁时终止 helper。macOS 尚不安装 Local Executor；任何平台都不能
+  回退到 `writeUserInput()` 或 shell wrapper。
 - 客户端取消、撤权或 Session epoch 失效时，服务端先给 Executor 250 ms 发布更强的
   完成证据；若仍无结果，则把 Execution 完成为保守的 cancelled/unknown，保留目标
   quarantine 但允许用户核对后解除，避免执行记录永久停在 running 并耗尽 128 条上限。
@@ -1599,7 +1600,7 @@ SSH bounded exec 适配，以及 `McpService` 去除 SSH 业务层强耦合已�
 `novaterm_mcp_tests` 与 `novaterm_ssh_transport_check` 覆盖。以下条目仍不属于当前
 “已实现”列表：
 
-1. 补齐 Linux/macOS LocalShell 独立进程 Executor 与实机验证；Windows LocalShell 已完成；
+1. 补齐 macOS LocalShell 独立进程 Executor；Linux LocalShell 固定诊断已通过本机自动化测试，桌面人工验收仍待完成；
 2. 扩展 `CommandPlatformProfile` 的 Interactive framing/ready-state 定义；当前仅有
    `linux-diagnostics-v1` SSH 与 `windows-local-v1` Isolated Profile；
 3. 实现 `SessionCommandLease` 和 Serial/Telnet InteractiveFramed fixture；
@@ -1613,6 +1614,11 @@ SSH bounded exec 适配，以及 `McpService` 去除 SSH 业务层强耦合已�
 用户接入步骤见 [MCP 使用说明](../../MCP_Usage.md)。
 
 ### 14.2 v0.6 当前实现与验收记录（2026-09-26）
+
+2026-09-27 增量：Linux LocalShell 的固定诊断接入独立 helper 和
+`linux-local-v1` Profile，复用现有有界 Executor；四个只读 commandId 通过
+`novaterm_mcp_tests` 的 helper、授权、GUI 勾选和独立执行检查。
+真实 Linux 桌面人工验收仍待补充。
 
 以下内容是当前 `0.2.30` 工作树中已经进入代码的实现，不将尚未做的桌面人工验收、
 跨平台验收或性能闸门宣称为完成。
@@ -1757,7 +1763,7 @@ Serial/Telnet 的提示符仍须在当前活动行末匹配，并经过 Profile 
 
 固定诊断仍通过 `commandId`、命令票据和现有结果结构调用。具备可信交互 Profile
 时可交给 Coordinator，命令在 UI 中按正常手工输入显示；当前没有可信 Profile 的
-SSH 会话仍保留独立 exec 通道，Windows LocalShell 仍保留本地诊断 helper，二者
+SSH 会话仍保留独立 exec 通道，Windows/Linux LocalShell 仍保留本地诊断 helper，二者
 不改变当前终端历史。POSIX Profile 使用 `uname -srm` 等普通命令文本，不要求
 `/usr/bin/uname` 等绝对路径。
 

@@ -1114,9 +1114,12 @@ public:
         }
         auto* coordinator = entry.session->commandCoordinator();
         auto* facade = entry.session->commandFacade();
+        const bool localIsolated = entry.kind == TransportKind::LocalShell
+            && facade && facade->capabilities().mode == CommandExecutionMode::Isolated;
         if (!coordinator || !coordinator->hasTrustedProfile() || !facade
             || !facade->isAvailable()
-            || facade->capabilities().mode != CommandExecutionMode::InteractiveFramed) {
+            || (facade->capabilities().mode != CommandExecutionMode::InteractiveFramed
+                && !localIsolated)) {
             complete(job, error("COMMAND_PROFILE_UNAVAILABLE"));
             return;
         }
@@ -1477,6 +1480,11 @@ public:
             return;
         }
         auto* facade = entry.session->commandFacade();
+        // LocalShell 的固定诊断使用隔离 helper，交互命令与脚本仍由协调器
+        // 写入当前终端，避免把自由命令交给只接受四个 commandId 的 helper。
+        const bool directCoordinator = unverifiedSsh
+            || (entry.kind == TransportKind::LocalShell && facade
+                && facade->capabilities().mode == CommandExecutionMode::Isolated);
         const auto profile = facade ? facade->profile() : CommandPlatformProfile{};
         if (risk.decision != RiskDecision::Allow && !job->confirmationAccepted) {
             if (!job->formElicitation && job->requestState.isEmpty()) {
@@ -1653,7 +1661,7 @@ public:
             executionPolicyVersion, entry.targetFingerprint, requestId,
             clock.elapsed(), facade, job, {}, false, true, {}, {}};
         executions.insert(executionId, execution);
-        if (unverifiedSsh) {
+        if (directCoordinator) {
             executions[executionId].coordinator = coordinator;
             if (!observedCoordinators.contains(coordinator)) {
                 observedCoordinators.insert(coordinator);
@@ -1673,7 +1681,7 @@ public:
         request.executionNonce = newId().toUtf8();
         request.expectedPromptGeneration = unverifiedSsh
             ? 0 : coordinator->promptGeneration();
-        const bool submitted = unverifiedSsh
+        const bool submitted = directCoordinator
             ? coordinator->submit(request) : facade->execute(request);
         if (!submitted) {
             executions.remove(executionId);

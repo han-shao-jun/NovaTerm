@@ -16,8 +16,41 @@
 #include <QClipboard>
 #include <QHeaderView>
 #include <QJsonDocument>
+#include <QMouseEvent>
 #include <QSignalBlocker>
+#include <QStyledItemDelegate>
 #include <QVBoxLayout>
+
+namespace {
+
+class PermissionCellDelegate final : public QStyledItemDelegate
+{
+public:
+    using QStyledItemDelegate::QStyledItemDelegate;
+
+    bool editorEvent(QEvent* event, QAbstractItemModel* model,
+                     const QStyleOptionViewItem& option,
+                     const QModelIndex& index) override
+    {
+        if (index.column() >= 2 && index.column() <= 4
+            && index.flags().testFlag(Qt::ItemIsEnabled)
+            && index.flags().testFlag(Qt::ItemIsUserCheckable)
+            && model->data(index, Qt::CheckStateRole).isValid()
+            && event->type() == QEvent::MouseButtonRelease) {
+            const auto* mouse = static_cast<QMouseEvent*>(event);
+            if (mouse->button() == Qt::LeftButton
+                && option.rect.contains(mouse->position().toPoint())) {
+                const auto state = model->data(index, Qt::CheckStateRole).toInt();
+                return model->setData(index,
+                    state == Qt::Checked ? Qt::Unchecked : Qt::Checked,
+                    Qt::CheckStateRole);
+            }
+        }
+        return QStyledItemDelegate::editorEvent(event, model, option, index);
+    }
+};
+
+} // namespace
 
 McpSettingsDialog::McpSettingsDialog(NovaTerm::Mcp::Service* service, QWidget* parent)
     : ElaDialog(parent), _service(service)
@@ -67,6 +100,10 @@ McpSettingsDialog::McpSettingsDialog(NovaTerm::Mcp::Service* service, QWidget* p
     _sessions->setColumnCount(5);
     _sessions->setHeaderLabels({tr("Session"), tr("State"), tr("Read output"),
         tr("Fixed diagnostics"), tr("Script tasks")});
+    // 授权列整格均可点击，避免仅命中小尺寸复选框时才能切换状态。
+    auto* permissionDelegate = new PermissionCellDelegate(_sessions);
+    for (int column = 2; column < 5; ++column)
+        _sessions->setItemDelegateForColumn(column, permissionDelegate);
     _sessions->setRootIsDecorated(true);
     _sessions->setItemHeight(30);
     _sessions->header()->setSectionResizeMode(0, QHeaderView::Stretch);

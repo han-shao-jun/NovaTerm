@@ -20,9 +20,25 @@
 
 namespace {
 QString uuid() { return QUuid::createUuid().toString(QUuid::WithoutBraces); }
+#if defined(Q_OS_WIN) || defined(Q_OS_LINUX)
+QString localDiagnosticHelperPath()
+{
+#ifdef Q_OS_WIN
+    constexpr auto name = "novaterm-local-diag.exe";
+#else
+    constexpr auto name = "novaterm-local-diag";
+#endif
+    return QDir(QCoreApplication::applicationDirPath()).filePath(QString::fromLatin1(name));
+}
+#endif
 std::unique_ptr<ISessionCommandExecutor> commandExecutor(
     TerminalSession* owner, ITransport* transport, TransportKind kind)
 {
+#if defined(Q_OS_WIN) || defined(Q_OS_LINUX)
+    // 本地固定诊断始终走独立 helper，不占用当前交互终端输入。
+    if (kind == TransportKind::LocalShell)
+        return std::make_unique<LocalSessionCommandExecutor>(localDiagnosticHelperPath());
+#endif
     const auto interactiveProfile = owner
         ? ShellIntegration::profileFor(owner->runtimeConfig()) : std::nullopt;
     if (interactiveProfile && !interactiveProfile->allowUnverifiedPrompt) {
@@ -33,12 +49,7 @@ std::unique_ptr<ISessionCommandExecutor> commandExecutor(
                 SshSessionCommandExecutor probe(ssh);
                 identity = probe.targetFingerprint();
             }
-        } else if (kind == TransportKind::LocalShell) {
-            const QString helper = QDir(QCoreApplication::applicationDirPath())
-                .filePath(QStringLiteral("novaterm-local-diag.exe"));
-            LocalSessionCommandExecutor probe(helper);
-            identity = probe.targetFingerprint();
-        } else {
+        } else if (kind != TransportKind::LocalShell) {
             const auto& values = owner->runtimeConfig().transport;
             const QString endpoint = kind == TransportKind::Serial
                 ? values.value(QStringLiteral("portName")).toString()
@@ -61,13 +72,6 @@ std::unique_ptr<ISessionCommandExecutor> commandExecutor(
         auto* ssh = qobject_cast<SshTransport*>(transport);
         return ssh ? std::make_unique<SshSessionCommandExecutor>(ssh) : nullptr;
     }
-#ifdef Q_OS_WIN
-    if (kind == TransportKind::LocalShell) {
-        const QString helper = QDir(QCoreApplication::applicationDirPath())
-            .filePath(QStringLiteral("novaterm-local-diag.exe"));
-        return std::make_unique<LocalSessionCommandExecutor>(helper);
-    }
-#endif
     return {};
 }
 

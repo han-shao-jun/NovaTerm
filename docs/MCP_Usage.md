@@ -45,28 +45,30 @@ NovaTerm 提供本机 stdio MCP 服务，可让支持 MCP 的 AI 客户端读取
 
 固定诊断模板仍需逐项授权；普通 Shell 命令使用已共享会话的 `novaterm_run_command`。
 SSH 固定诊断只有在用户确认目标是受信任的
-**Linux/POSIX SSH 服务端**后才能授权；Windows LocalShell 会话使用 NovaTerm
-同目录的独立诊断 helper。展开会话可逐项选择诊断模板。
+**Linux/POSIX SSH 服务端**后才能授权；Windows/Linux LocalShell 会话使用
+NovaTerm 同目录的独立诊断 helper。展开会话可逐项选择诊断模板。
 
 首批只有以下四项，参数固定：
 
-| 模板 | SSH recipe | Windows 本地 helper |
+| 模板 | SSH recipe | Windows/Linux 本地 helper |
 | --- | --- | --- |
 | `system.identity` | `uname -srm` | 系统版本、内核与架构 |
 | `system.uptime` | `uptime` | 系统启动时长 |
-| `memory.summary` | `free -k` | 物理内存总量、可用量与负载 |
+| `memory.summary` | `free -k` | 物理内存总量与可用量（Windows 另含负载） |
 | `filesystem.usage` | `df -Pk` | 已就绪卷的容量与可用空间 |
 
 SSH 固定诊断使用表中的固定命令文本，经已有连接的独立 exec 通道执行；
 不要求 `/usr/bin/` 下的绝对路径。
-Windows 本地诊断由 `novaterm-local-diag.exe` 通过系统 API 采集，不调用 `cmd /c`、
-PowerShell、脚本或 PATH 搜索。helper 缺失或平台标识不可用时执行能力保持关闭，
-不会自动替换程序。Linux/macOS LocalShell、Serial、Telnet 和 Custom 仍可共享输出，
-但不提供上述固定诊断模板。交互命令走当前终端；SSH/POSIX 在没有提示符标记时
-也可发送，脚本能力仍只在具备可信交互 Profile 的 LocalShell/SSH 会话开放。
+本地诊断由同目录的 `novaterm-local-diag`（Windows 为 `.exe`）通过 Qt 和系统 API
+采集，不调用 `cmd /c`、PowerShell、shell 脚本或 PATH 搜索。helper 缺失或平台
+标识不可用时执行能力保持关闭，不会自动替换程序。macOS LocalShell、Serial、
+Telnet 和 Custom 仍可共享输出，但不提供上述固定诊断模板。交互命令走当前终端；
+SSH/POSIX 在没有提示符标记时也可发送，脚本能力仍只在具备可信交互 Profile 的
+LocalShell/SSH 会话开放。
 
-SSH 固定诊断通过已有连接的独立 exec 通道运行，使用该 SSH 账号的权限；Windows
-LocalShell 固定诊断通过独立 helper 子进程运行。固定诊断不会往当前终端输入框灌入文本，
+SSH 固定诊断通过已有连接的独立 exec 通道运行，使用该 SSH 账号的权限；
+Windows/Linux LocalShell 固定诊断通过独立 helper 子进程运行。固定诊断不会往
+当前终端输入框灌入文本，
 也不会继承或改变当前交互 shell 的工作目录、alias、history 或临时环境。界面独立展示执行记录。
 
 ## 交互命令、脚本与授权

@@ -130,7 +130,7 @@ public:
     }
     [[nodiscard]] CommandPlatformProfile profile() const override
     {
-        return CommandPlatformProfile::windowsLocal();
+        return CommandPlatformProfile::forTransport(TransportKind::LocalShell);
     }
     [[nodiscard]] QString targetFingerprint() const override
     {
@@ -189,7 +189,7 @@ public:
     }
     [[nodiscard]] CommandPlatformProfile profile() const override
     {
-        return CommandPlatformProfile::windowsLocal();
+        return CommandPlatformProfile::forTransport(TransportKind::LocalShell);
     }
     [[nodiscard]] QString targetFingerprint() const override
     {
@@ -371,6 +371,7 @@ private slots:
     void cancelledCommandNeverReplays();
     void utf8ExpansionIsBounded();
     void settingsDialogSeparatesReadAndScriptPermission();
+    void settingsDialogLocalShellFixedDiagnosticsCanBeSelected();
     void stateDirectoryOwnedByTokenDefaultOwnerIsSecurable();
     void duplicateIndexSurvivesEvictionAndReset();
     void protocolLifecycleAndOversizedInput();
@@ -382,6 +383,7 @@ private slots:
     void localDiagnosticHelperAcceptsOnlyFixedCommands();
     void localSessionExecutorKeepsCommandsIsolatedAndBounded();
     void localShellCommandsRunOutsideInteractiveTransport();
+    void localFixedDiagnosticsStayIsolatedWithTrustedShellProfile();
     void sessionInvalidationCompletesPendingExecution();
     void publishedSnapshotPreservesCaptureTime();
     void commandRiskPolicyDefaultsToHumanConfirmation();
@@ -1393,6 +1395,65 @@ void McpTests::localShellCommandsRunOutsideInteractiveTransport()
     QVERIFY(fixture.local.written.isEmpty());
 }
 
+void McpTests::localFixedDiagnosticsStayIsolatedWithTrustedShellProfile()
+{
+#if defined(Q_OS_WIN) || defined(Q_OS_LINUX)
+    eApp->init();
+    qRegisterMetaType<CommandExecutionResult>();
+    RuntimeConfig runtime;
+    runtime.transportKind = TransportKind::LocalShell;
+    runtime.transport.insert(QStringLiteral("interactiveShellKind"),
+                             QStringLiteral("posix"));
+    TerminalSession session(runtime);
+    LocalFake transport;
+    session.attach(&transport, TerminalSession::Ownership::Borrowed,
+                   TransportKind::LocalShell);
+    QVERIFY(session.start());
+    SessionDirectory directory;
+    directory.add(&session);
+    auto* facade = session.commandFacade();
+    QVERIFY(facade && facade->isAvailable());
+    QCOMPARE(facade->capabilities().mode, CommandExecutionMode::Isolated);
+    QCOMPARE(facade->profile().version(),
+             CommandPlatformProfile::forTransport(TransportKind::LocalShell).version());
+    QSignalSpy finished{facade, &SessionCommandFacade::finished};
+    CommandExecutionRequest request;
+    request.requestId = 1;
+    request.commandId = QString(NovaTerm::LocalDiagnostic::SystemIdentity);
+    QVERIFY(facade->execute(request));
+    QTRY_COMPARE(finished.size(), 1);
+    QVERIFY(transport.written.isEmpty());
+
+    QTemporaryDir root;
+    Service service(root.filePath(QStringLiteral("state")),
+                    root.filePath(QStringLiteral("instances")),
+                    std::make_unique<MemoryCredentialStore>());
+    service.directory().add(&session);
+    const QString client = service.access().addClient(QStringLiteral("fixture"));
+    QVERIFY(service.access().setEnabled(true));
+    QTRY_COMPARE(service.status(), QStringLiteral("Listening"));
+    QWidget owner;
+    QPointer<McpSettingsDialog> dialog = new McpSettingsDialog(&service, &owner);
+    dialog->show();
+    auto* tree = dialog->findChild<ElaTreeWidget*>();
+    QVERIFY(tree && tree->topLevelItemCount() == 1);
+    for (const int column : {2, 3}) {
+        const QRect cell = tree->visualRect(
+            tree->indexFromItem(tree->topLevelItem(0), column));
+        QVERIFY(cell.width() > 30);
+        QTest::mouseClick(tree->viewport(), Qt::LeftButton, Qt::NoModifier,
+                          QPoint(cell.right() - 4, cell.center().y()));
+    }
+    QTRY_COMPARE(service.access().commands(
+        client, service.directory().entries().first()).size(), 4);
+    QCOMPARE(tree->topLevelItem(0)->checkState(3), Qt::Checked);
+    dialog->close();
+    QTRY_VERIFY(dialog.isNull());
+#else
+    QSKIP("Local fixed diagnostics are not available on this platform.");
+#endif
+}
+
 void McpTests::localSessionExecutorKeepsCommandsIsolatedAndBounded()
 {
     qRegisterMetaType<CommandExecutionResult>();
@@ -1574,9 +1635,13 @@ void McpTests::sessionCommandFacadeRoutesTrustedExecutors()
     directory.add(&localSession);
     auto* localFacade = localSession.commandFacade();
     QVERIFY(localFacade);
-#ifdef Q_OS_WIN
+#if defined(Q_OS_WIN) || defined(Q_OS_LINUX)
     QVERIFY(localFacade->isAvailable());
+#ifdef Q_OS_WIN
     QCOMPARE(localFacade->profile().version(), QStringLiteral("windows-local-v1"));
+#else
+    QCOMPARE(localFacade->profile().version(), QStringLiteral("linux-local-v1"));
+#endif
 #else
     QVERIFY(!localFacade->isAvailable());
 #endif
@@ -1993,9 +2058,22 @@ void McpTests::settingsDialogSeparatesReadAndScriptPermission()
     QVERIFY(std::any_of(copyButtons.cbegin(), copyButtons.cend(), [](const QPushButton* button) {
         return button->text() == QStringLiteral("Copy for CC Switch");
     }));
-    tree->topLevelItem(0)->setCheckState(2, Qt::Checked);
+    const auto clickPermissionCell = [tree](int column) {
+        auto* item = tree->topLevelItem(0);
+        if (!item) return false;
+        const QRect cell = tree->visualRect(tree->indexFromItem(item, column));
+        if (cell.width() <= 30) return false;
+        QTest::mouseClick(tree->viewport(), Qt::LeftButton, Qt::NoModifier,
+                          QPoint(cell.right() - 4, cell.center().y()));
+        return true;
+    };
+    QVERIFY(clickPermissionCell(2));
     QTRY_VERIFY(f.service.access().canRead(f.client, f.service.directory().entries().first()));
     QVERIFY(f.service.access().commands(f.client, f.service.directory().entries().first()).isEmpty());
+    QVERIFY(clickPermissionCell(3));
+    QTRY_COMPARE(f.service.access().commands(f.client, f.service.directory().entries().first()).size(), 4);
+    QVERIFY(clickPermissionCell(3));
+    QTRY_VERIFY(f.service.access().commands(f.client, f.service.directory().entries().first()).isEmpty());
     QTest::qWait(10);
     tree->topLevelItem(0)->setCheckState(3, Qt::Checked);
     QTRY_COMPARE(f.service.access().commands(f.client, f.service.directory().entries().first()).size(), 4);
@@ -2005,10 +2083,10 @@ void McpTests::settingsDialogSeparatesReadAndScriptPermission()
     QTest::qWait(10);
     QVERIFY(!f.service.access().canRunScriptTask(f.client,
         f.service.directory().entries().first()));
-    tree->topLevelItem(0)->setCheckState(4, Qt::Checked);
+    QVERIFY(clickPermissionCell(4));
     QTRY_VERIFY(f.service.access().canRunScriptTask(f.client,
         f.service.directory().entries().first()));
-    tree->topLevelItem(0)->setCheckState(4, Qt::Unchecked);
+    QVERIFY(clickPermissionCell(4));
     QTRY_VERIFY(!f.service.access().canRunScriptTask(f.client,
         f.service.directory().entries().first()));
     tree->topLevelItem(0)->setCheckState(2, Qt::Unchecked);
@@ -2019,6 +2097,41 @@ void McpTests::settingsDialogSeparatesReadAndScriptPermission()
     if (!preview.isEmpty()) QVERIFY(dialog->grab().save(preview));
     dialog->close();
     QTRY_VERIFY(dialog.isNull());
+}
+
+void McpTests::settingsDialogLocalShellFixedDiagnosticsCanBeSelected()
+{
+#if defined(Q_OS_WIN) || defined(Q_OS_LINUX)
+    eApp->init();
+    Fixture fixture;
+    QVERIFY(fixture.service.access().setEnabled(true));
+    QTRY_COMPARE(fixture.service.status(), QStringLiteral("Listening"));
+    QWidget owner;
+    QPointer<McpSettingsDialog> dialog = new McpSettingsDialog(&fixture.service, &owner);
+    dialog->show();
+    auto* tree = dialog->findChild<ElaTreeWidget*>();
+    QVERIFY(tree && tree->topLevelItemCount() == 1);
+    QTRY_COMPARE(tree->topLevelItem(0)->childCount(), 4);
+    const auto clickCell = [tree](int column) {
+        const QRect cell = tree->visualRect(
+            tree->indexFromItem(tree->topLevelItem(0), column));
+        if (cell.width() <= 30) return false;
+        QTest::mouseClick(tree->viewport(), Qt::LeftButton, Qt::NoModifier,
+                          QPoint(cell.right() - 4, cell.center().y()));
+        return true;
+    };
+    QVERIFY(clickCell(2));
+    QTRY_VERIFY(fixture.service.access().canRead(
+        fixture.client, fixture.service.directory().entries().first()));
+    QVERIFY(clickCell(3));
+    QTRY_COMPARE(fixture.service.access().commands(
+        fixture.client, fixture.service.directory().entries().first()).size(), 4);
+    QCOMPARE(tree->topLevelItem(0)->checkState(3), Qt::Checked);
+    dialog->close();
+    QTRY_VERIFY(dialog.isNull());
+#else
+    QSKIP("Local fixed diagnostics are not available on this platform.");
+#endif
 }
 
 void McpTests::stateDirectoryOwnedByTokenDefaultOwnerIsSecurable()

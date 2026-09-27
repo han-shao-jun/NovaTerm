@@ -7,10 +7,15 @@
 #include <QCoreApplication>
 #include <cstdio>
 
-#ifdef Q_OS_WIN
+#if defined(Q_OS_WIN) || defined(Q_OS_LINUX)
 #include <QStorageInfo>
 #include <QSysInfo>
+#endif
+#ifdef Q_OS_WIN
 #include <windows.h>
+#elif defined(Q_OS_LINUX)
+#include <QFile>
+#include <time.h>
 #endif
 
 namespace {
@@ -19,7 +24,7 @@ using namespace NovaTerm::LocalDiagnostic;
 
 static_assert(MaxOutputBytes == 65536);
 
-#ifdef Q_OS_WIN
+#if defined(Q_OS_WIN) || defined(Q_OS_LINUX)
 bool appendLine(QByteArray& output, const QByteArray& line)
 {
     if (output.size() >= MaxOutputBytes
@@ -46,12 +51,20 @@ QByteArray systemIdentity()
 
 QByteArray systemUptime()
 {
+#ifdef Q_OS_WIN
     return "uptime_seconds=" + QByteArray::number(GetTickCount64() / 1000ULL)
         + '\n';
+#else
+    timespec uptime{};
+    if (clock_gettime(CLOCK_BOOTTIME, &uptime) != 0)
+        return {};
+    return "uptime_seconds=" + QByteArray::number(uptime.tv_sec) + '\n';
+#endif
 }
 
 QByteArray memorySummary()
 {
+#ifdef Q_OS_WIN
     MEMORYSTATUSEX status{};
     status.dwLength = sizeof(status);
     if (!GlobalMemoryStatusEx(&status))
@@ -59,6 +72,29 @@ QByteArray memorySummary()
     return "total_bytes=" + QByteArray::number(status.ullTotalPhys) + '\n'
         + "available_bytes=" + QByteArray::number(status.ullAvailPhys) + '\n'
         + "load_percent=" + QByteArray::number(status.dwMemoryLoad) + '\n';
+#else
+    QFile meminfo(QStringLiteral("/proc/meminfo"));
+    if (!meminfo.open(QIODevice::ReadOnly))
+        return {};
+    const auto kilobytes = [](const QByteArray& line) -> quint64 {
+        const auto fields = line.simplified().split(' ');
+        if (fields.size() != 3 || fields.at(2) != "kB")
+            return 0;
+        bool ok = false;
+        const quint64 value = fields.at(1).toULongLong(&ok);
+        return ok ? value : 0;
+    };
+    quint64 totalKiB = 0;
+    quint64 availableKiB = 0;
+    for (const QByteArray& line : meminfo.read(16 * 1024).split('\n')) {
+        if (line.startsWith("MemTotal:")) totalKiB = kilobytes(line);
+        else if (line.startsWith("MemAvailable:")) availableKiB = kilobytes(line);
+    }
+    if (totalKiB == 0 || availableKiB == 0)
+        return {};
+    return "total_bytes=" + QByteArray::number(totalKiB * 1024) + '\n'
+        + "available_bytes=" + QByteArray::number(availableKiB * 1024) + '\n';
+#endif
 }
 
 QByteArray filesystemUsage()
@@ -95,7 +131,7 @@ int main(int argc, char** argv)
         return reject("Invalid diagnostic request.", 2);
     }
 
-#ifndef Q_OS_WIN
+#if !defined(Q_OS_WIN) && !defined(Q_OS_LINUX)
     return reject("Local diagnostics are not enabled on this platform.", 1);
 #else
     const QStringView command{arguments.at(1)};

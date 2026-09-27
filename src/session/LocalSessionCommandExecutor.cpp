@@ -76,7 +76,7 @@ CommandExecutorCapabilities LocalSessionCommandExecutor::capabilities() const
 
 CommandPlatformProfile LocalSessionCommandExecutor::profile() const
 {
-    return CommandPlatformProfile::windowsLocal();
+    return CommandPlatformProfile::forTransport(TransportKind::LocalShell);
 }
 
 QString LocalSessionCommandExecutor::targetFingerprint() const
