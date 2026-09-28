@@ -394,6 +394,8 @@ public:
                 || !access.canRead(confirmation.client, *entry)
                 || (confirmation.tool == QStringLiteral("novaterm_run_script")
                     && !access.canRunScriptTask(confirmation.client, *entry))
+                || (confirmation.tool == QStringLiteral("novaterm_run_command")
+                    && !access.canRunCommand(confirmation.client, *entry))
                 || entry->epoch != confirmation.epoch || !coordinator
                 || (!unverifiedSsh && !coordinator->isPromptReady())
                 || (unverifiedSsh && (!inputArbiter
@@ -848,6 +850,7 @@ public:
                 && coordinator && coordinator->allowsUnverifiedPrompt();
             if (facade && facade->isAvailable()
                 && !entry.targetFingerprint.isEmpty()
+                && access.canRunCommand(connection.client, entry)
                 && (facade->capabilities().mode
                         == CommandExecutionMode::InteractiveFramed
                     || unverifiedSsh)) {
@@ -1451,6 +1454,14 @@ public:
                     const SessionDirectory::Entry& entry)
     {
         const auto connection = connections.value(job->connection);
+        // 交互命令是独立于读取共享的产品授权：读取共享只允许读，允许在当前终端
+        // 输入必须单独授予。撤销后重提确认按陈旧处理，避免在途确认续跑。
+        if (!access.canRunCommand(connection.client, entry)) {
+            complete(job, !job->requestState.isEmpty()
+                ? error("COMMAND_CONFIRMATION_STALE")
+                : error("COMMAND_PERMISSION_REQUIRED"));
+            return;
+        }
         if (entry.state != SessionState::Running || !entry.session) {
             complete(job, error("SESSION_NOT_READY"));
             return;

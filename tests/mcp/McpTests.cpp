@@ -347,12 +347,13 @@ struct Fixture
         const auto entry = service.directory().entries().first();
         return {{"sessionId", entry.id}, {"epoch", entry.epoch}};
     }
-    bool enable(bool execute = false)
+    bool enable(bool execute = false, bool interactive = false)
     {
         QSet<QString> commands;
         if (execute) for (const auto& command : CommandPolicy::catalog()) commands.insert(command.id);
         return !client.isEmpty() && service.access().setEnabled(true)
-            && service.access().setGrant(client, service.directory().entries().first(), true, commands);
+            && service.access().setGrant(client, service.directory().entries().first(),
+                true, commands, interactive);
     }
     QByteArray token() { return service.access().exportToken(client).value_or(QByteArray{}); }
     QString runtime() { return root.path() + "/instances"; }
@@ -407,6 +408,7 @@ private slots:
     void scriptMrtrConfirmationIsSignedAndOneShot();
     void userTypingCancelsInFlightScriptUploadBeforeInvocation();
     void commandAndScriptProductGrantsAreIndependent();
+    void readGrantAloneDoesNotAllowInteractiveCommand();
 };
 
 void McpTests::humanDeclineLeavesTerminalUntouched()
@@ -508,7 +510,7 @@ void McpTests::humanAcceptRunsOnlyAfterConfirmation()
     const auto client = service.access().addClient("fixture");
     QVERIFY(service.access().setEnabled(true));
     const auto entry = service.directory().entries().first();
-    QVERIFY(service.access().setGrant(client, entry, true));
+    QVERIFY(service.access().setGrant(client, entry, true, {}, true));
     QTRY_COMPARE(service.status(), QStringLiteral("Listening"));
     emit transport.readyRead(QByteArrayLiteral("device> "));
     QTRY_VERIFY(session.commandCoordinator()->isPromptReady());
@@ -555,7 +557,7 @@ void McpTests::unknownRiskCanBeConfirmed()
     const auto client = service.access().addClient(QStringLiteral("fixture"));
     QVERIFY(service.access().setEnabled(true));
     const auto entry = service.directory().entries().first();
-    QVERIFY(service.access().setGrant(client, entry, true));
+    QVERIFY(service.access().setGrant(client, entry, true, {}, true));
     QTRY_COMPARE(service.status(), QStringLiteral("Listening"));
     emit transport.readyRead(QByteArrayLiteral("device> "));
     QTRY_VERIFY(session.commandCoordinator()->isPromptReady());
@@ -703,7 +705,7 @@ void McpTests::scriptContentRequiresConfirmationAndNeverEntersTerminal()
     const auto client = service.access().addClient(QStringLiteral("fixture"));
     QVERIFY(service.access().setEnabled(true));
     const auto entry = service.directory().entries().first();
-    QVERIFY(service.access().setGrant(client, entry, true, {}, false, false, true));
+    QVERIFY(service.access().setGrant(client, entry, true, {}, true, false, true));
     QTRY_COMPARE(service.status(), QStringLiteral("Listening"));
     emit transport.readyRead(QByteArrayLiteral("\x1b]633;NT;PROMPT;1;0\x07"));
     QTRY_VERIFY(session.commandCoordinator()->isPromptReady());
@@ -1021,6 +1023,49 @@ void McpTests::commandAndScriptProductGrantsAreIndependent()
     QVERIFY(fixture.service.access().canRunScriptTask(fixture.client, entry));
 }
 
+void McpTests::readGrantAloneDoesNotAllowInteractiveCommand()
+{
+    // 读取共享只允许读：没有单独授予交互命令时，目录里不能出现 run_command，
+    // 直接调用也必须被产品授权拒绝，且不得向当前终端写入任何字节。
+    Fixture fixture;
+    QVERIFY(fixture.enable());
+    QTRY_COMPARE(fixture.service.status(), QStringLiteral("Listening"));
+    Host host;
+    QVERIFY(host.start(fixture.runtime(), fixture.token()));
+
+    const auto listed = host.call("novaterm_list_sessions")
+                            .value("data").toObject()
+                            .value("sessions").toArray().first().toObject();
+    QVERIFY(!listed.value("capabilities").toArray().contains(
+        QStringLiteral("run_command")));
+
+    auto arguments = fixture.identity();
+    arguments.insert(QStringLiteral("command"), QStringLiteral("pwd"));
+    const auto response = host.call("novaterm_run_command", arguments);
+    QCOMPARE(response.value("error").toObject().value("code").toString(),
+             QStringLiteral("COMMAND_PERMISSION_REQUIRED"));
+    QVERIFY(fixture.local.written.isEmpty());
+
+    // 单独授予交互命令后，同一个调用必须越过权限闸门、改由 Profile/提示符判定。
+    // 该 fixture 是 LocalShell 隔离后端，因此不会发布 run_command capability，
+    // 断言点放在错误码变化上——这才是证明权限闸门真正接线的证据。
+    // 复用同一份 Entry：授权按 epoch 绑定，每次重新取目录条目可能拿到新 epoch。
+    const auto entry = fixture.service.directory().entries().first();
+    QVERIFY(fixture.service.access().setGrant(fixture.client, entry, true, {}, true));
+    QVERIFY(fixture.service.access().canRunCommand(fixture.client, entry));
+    const auto afterGrant = host.call("novaterm_run_command", arguments);
+    const auto afterCode = afterGrant.value("error").toObject().value("code").toString();
+    QVERIFY2(afterCode != QStringLiteral("COMMAND_PERMISSION_REQUIRED"),
+        qPrintable(QStringLiteral("still blocked by the product grant: %1").arg(afterCode)));
+    QVERIFY(fixture.local.written.isEmpty());
+
+    // 撤销交互命令授权后必须立刻回到权限拒绝。
+    QVERIFY(fixture.service.access().setGrant(fixture.client, entry, true, {}, false));
+    QCOMPARE(host.call("novaterm_run_command", arguments)
+                 .value("error").toObject().value("code").toString(),
+             QStringLiteral("COMMAND_PERMISSION_REQUIRED"));
+}
+
 void McpTests::lowRiskCommandUsesCurrentInteractiveTransport()
 {
     QTemporaryDir root;
@@ -1043,7 +1088,7 @@ void McpTests::lowRiskCommandUsesCurrentInteractiveTransport()
     QVERIFY(!client.isEmpty());
     QVERIFY(service.access().setEnabled(true));
     const auto entry = service.directory().entries().first();
-    QVERIFY(service.access().setGrant(client, entry, true));
+    QVERIFY(service.access().setGrant(client, entry, true, {}, true));
     QTRY_COMPARE(service.status(), QStringLiteral("Listening"));
 
     emit transport.readyRead(QByteArrayLiteral("device> "));
@@ -1093,7 +1138,7 @@ void McpTests::unverifiedSshCommandUsesCurrentTerminal()
     const QString client = service.access().addClient(QStringLiteral("unverified"));
     QVERIFY(!client.isEmpty());
     QVERIFY(service.access().setEnabled(true));
-    QVERIFY(service.access().setGrant(client, entry, true));
+    QVERIFY(service.access().setGrant(client, entry, true, {}, true));
     QTRY_COMPARE(service.status(), QStringLiteral("Listening"));
     Host host;
     QVERIFY(host.start(root.filePath(QStringLiteral("instances")),
@@ -1152,7 +1197,7 @@ void McpTests::unverifiedSshRiskyCommandRequiresHumanConfirmation()
     const QString client = service.access().addClient(QStringLiteral("confirmed"));
     QVERIFY(!client.isEmpty());
     QVERIFY(service.access().setEnabled(true));
-    QVERIFY(service.access().setGrant(client, entry, true));
+    QVERIFY(service.access().setGrant(client, entry, true, {}, true));
     QTRY_COMPARE(service.status(), QStringLiteral("Listening"));
     Host host;
     QVERIFY(host.start(root.filePath(QStringLiteral("instances")),
@@ -1202,7 +1247,7 @@ void McpTests::unverifiedSshRiskyCommandRequiresHumanConfirmation()
 void McpTests::riskyCommandRequiresHumanConfirmation()
 {
     Fixture fixture;
-    QVERIFY(fixture.enable());
+    QVERIFY(fixture.enable(false, true));
     QTRY_COMPARE(fixture.service.status(), QStringLiteral("Listening"));
     Host host;
     QVERIFY(host.start(fixture.runtime(), fixture.token()));
@@ -2105,7 +2150,8 @@ void McpTests::settingsDialogSeparatesReadAndScriptPermission()
     QTest::qWait(40);
     auto* tree = dialog->findChild<ElaTreeWidget*>();
     QVERIFY(tree && tree->topLevelItemCount() == 1);
-    QCOMPARE(tree->columnCount(), 5);
+    // 6 列：会话、状态、读取输出、固定诊断、脚本任务、交互命令。
+    QCOMPARE(tree->columnCount(), 6);
     const auto copyButtons = dialog->findChildren<QPushButton*>();
     QVERIFY(std::any_of(copyButtons.cbegin(), copyButtons.cend(), [](const QPushButton* button) {
         return button->text() == QStringLiteral("Copy for CC Switch");
@@ -2141,9 +2187,24 @@ void McpTests::settingsDialogSeparatesReadAndScriptPermission()
     QVERIFY(clickPermissionCell(4));
     QTRY_VERIFY(!f.service.access().canRunScriptTask(f.client,
         f.service.directory().entries().first()));
+    // 交互命令列独立于脚本列：勾上只开 run_command，不应顺带打开脚本或固定诊断。
+    QVERIFY(!f.service.access().canRunCommand(f.client, f.service.directory().entries().first()));
+    QVERIFY(clickPermissionCell(5));
+    QTRY_VERIFY(f.service.access().canRunCommand(f.client,
+        f.service.directory().entries().first()));
+    QVERIFY(!f.service.access().canRunScriptTask(f.client,
+        f.service.directory().entries().first()));
+    QVERIFY(clickPermissionCell(5));
+    QTRY_VERIFY(!f.service.access().canRunCommand(f.client,
+        f.service.directory().entries().first()));
     tree->topLevelItem(0)->setCheckState(2, Qt::Unchecked);
     QTRY_VERIFY(!f.service.access().canRead(f.client, f.service.directory().entries().first()));
     QVERIFY(f.service.access().commands(f.client, f.service.directory().entries().first()).isEmpty());
+    // 取消读取共享时，执行类授权必须一起被清掉。
+    QVERIFY(!f.service.access().canRunScriptTask(f.client,
+        f.service.directory().entries().first()));
+    QVERIFY(!f.service.access().canRunCommand(f.client,
+        f.service.directory().entries().first()));
     QTest::qWait(20);
     const auto preview = qEnvironmentVariable("NOVATERM_MCP_UI_PREVIEW");
     if (!preview.isEmpty()) QVERIFY(dialog->grab().save(preview));
@@ -2304,7 +2365,7 @@ int sshLoopbackCheck(quint16 port)
             const bool enabled = !client.isEmpty() && service.access().setEnabled(true)
                 && waitFor([&] { return service.status() == QStringLiteral("Listening"); }, 1000);
             const auto entry = service.directory().entries().first();
-            if (enabled && service.access().setGrant(client, entry, true)) {
+            if (enabled && service.access().setGrant(client, entry, true, {}, true)) {
                 Host host;
                 if (host.start(root.filePath("instances"),
                     service.access().exportToken(client).value_or(QByteArray{}))) {

@@ -23,6 +23,11 @@
 
 namespace {
 
+/* 本文件的列号是裸数字：Qt lupdate 的 C++ 解析器靠花括号嵌套推断 tr() 的
+ * context，在此处加任何类型/枚举声明都会让 McpSettingsDialog 的既有 33 条
+ * 译文被误判成新条目而清空。列号与授权字段的对应关系由
+ * McpTests::settingsDialogSeparatesReadAndScriptPermission 逐列往返断言守住。 */
+
 class PermissionCellDelegate final : public QStyledItemDelegate
 {
 public:
@@ -32,7 +37,8 @@ public:
                      const QStyleOptionViewItem& option,
                      const QModelIndex& index) override
     {
-        if (index.column() >= 2 && index.column() <= 4
+        if (index.column() >= 2
+            && index.column() <= 5
             && index.flags().testFlag(Qt::ItemIsEnabled)
             && index.flags().testFlag(Qt::ItemIsUserCheckable)
             && model->data(index, Qt::CheckStateRole).isValid()
@@ -97,17 +103,17 @@ McpSettingsDialog::McpSettingsDialog(NovaTerm::Mcp::Service* service, QWidget* p
     actions->addStretch();
     layout->addLayout(actions);
     _sessions = new ElaTreeWidget(this);
-    _sessions->setColumnCount(5);
+    _sessions->setColumnCount(6);
     _sessions->setHeaderLabels({tr("Session"), tr("State"), tr("Read output"),
-        tr("Fixed diagnostics"), tr("Script tasks")});
+        tr("Fixed diagnostics"), tr("Script tasks"), tr("Interactive commands")});
     // 授权列整格均可点击，避免仅命中小尺寸复选框时才能切换状态。
     auto* permissionDelegate = new PermissionCellDelegate(_sessions);
-    for (int column = 2; column < 5; ++column)
+    for (int column = 2; column < 6; ++column)
         _sessions->setItemDelegateForColumn(column, permissionDelegate);
     _sessions->setRootIsDecorated(true);
     _sessions->setItemHeight(30);
     _sessions->header()->setSectionResizeMode(0, QHeaderView::Stretch);
-    for (int column = 1; column < 5; ++column)
+    for (int column = 1; column < 6; ++column)
         _sessions->header()->setSectionResizeMode(column, QHeaderView::ResizeToContents);
     layout->addWidget(_sessions, 2);
     _records = new ElaComboBox(this);
@@ -158,14 +164,19 @@ McpSettingsDialog::McpSettingsDialog(NovaTerm::Mcp::Service* service, QWidget* p
         if (_service && !_service->access().rotateToken(_clients->currentData().toString())) reportFailure();
     });
     connect(_sessions, &QTreeWidget::itemChanged, this, [this](QTreeWidgetItem* item, int column) {
-        if (_refreshing || !_service || column < 2 || column > 4) return;
+        if (_refreshing || !_service || column < 2
+            || column > 5) {
+            return;
+        }
         auto* root = item->parent() ? item->parent() : item;
         const auto id = root->data(0, Qt::UserRole).toString();
         const bool read = root->checkState(2) == Qt::Checked;
         if (column == 3 && !item->parent()) {
             const QSignalBlocker blocker(_sessions);
-            const auto state = root->checkState(3) == Qt::Checked ? Qt::Checked : Qt::Unchecked;
-            for (int i = 0; i < root->childCount(); ++i) root->child(i)->setCheckState(3, state);
+            const auto state = root->checkState(3) == Qt::Checked
+                ? Qt::Checked : Qt::Unchecked;
+            for (int i = 0; i < root->childCount(); ++i)
+                root->child(i)->setCheckState(3, state);
         } else if (column == 3 && item->parent()) {
             const QSignalBlocker blocker(_sessions);
             int checked = 0;
@@ -178,6 +189,7 @@ McpSettingsDialog::McpSettingsDialog(NovaTerm::Mcp::Service* service, QWidget* p
             const QSignalBlocker blocker(_sessions);
             root->setCheckState(3, Qt::Unchecked);
             root->setCheckState(4, Qt::Unchecked);
+            root->setCheckState(5, Qt::Unchecked);
             for (int i = 0; i < root->childCount(); ++i)
                 root->child(i)->setCheckState(3, Qt::Unchecked);
         }
@@ -188,7 +200,8 @@ McpSettingsDialog::McpSettingsDialog(NovaTerm::Mcp::Service* service, QWidget* p
                 allowed.insert(root->child(i)->data(0, Qt::UserRole).toString());
         }
         if (entry) _service->access().setGrant(_clients->currentData().toString(), *entry,
-            read, allowed, false, false, root->checkState(4) == Qt::Checked);
+            read, allowed, root->checkState(5) == Qt::Checked,
+            false, root->checkState(4) == Qt::Checked);
     });
     connect(_records, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this] { if (!_refreshing) showRecord(); });
     connect(acknowledge, &QPushButton::clicked, this, [this] {
@@ -226,9 +239,10 @@ void McpSettingsDialog::refresh()
     _sessions->clear();
     for (const auto& entry : _service->directory().entries()) {
         auto* item = new QTreeWidgetItem(_sessions, {entry.title.isEmpty() ? entry.id : entry.title,
-            SessionDirectory::stateName(entry.state), {}, {}, {}});
+            SessionDirectory::stateName(entry.state), {}, {}, {}, {}});
         item->setData(0, Qt::UserRole, entry.id);
-        item->setCheckState(2, _service->access().canRead(clientId, entry) ? Qt::Checked : Qt::Unchecked);
+        item->setCheckState(2,
+            _service->access().canRead(clientId, entry) ? Qt::Checked : Qt::Unchecked);
         const auto allowed = _service->access().commands(clientId, entry);
         const auto profile = entry.session
             ? entry.session->commandFacade()->profile() : CommandPlatformProfile{};
@@ -238,9 +252,12 @@ void McpSettingsDialog::refresh()
         item->setToolTip(3, entry.kind == TransportKind::LocalShell
             ? tr("Fixed diagnostics run in an isolated local helper and do not write to the current shell.")
             : tr("Only enable for a trusted Linux/POSIX SSH server. Fixed diagnostics run as its connected user."));
-        item->setCheckState(4, _service->access().canRunScriptTask(clientId, entry)
-            ? Qt::Checked : Qt::Unchecked);
+        item->setCheckState(4,
+            _service->access().canRunScriptTask(clientId, entry) ? Qt::Checked : Qt::Unchecked);
         item->setToolTip(4, tr("Allows LocalShell/SSH script tasks. Each script still requires MCP-client confirmation; its body is written to the requested host path and is not shown in the terminal UI."));
+        item->setCheckState(5,
+            _service->access().canRunCommand(clientId, entry) ? Qt::Checked : Qt::Unchecked);
+        item->setToolTip(5, tr("Allows the MCP client to type commands into this session's current terminal. Ordinary low-risk commands run without confirmation; anything potentially destructive or unclassifiable still requires confirmation in the MCP client. Off by default: sharing read output does not imply permission to type."));
         for (const auto& command : catalog) {
             QString title = command.title;
             if (command.id == "system.identity") title = tr("System identity");
@@ -252,7 +269,8 @@ void McpSettingsDialog::refresh()
             child->setToolTip(0, entry.kind == TransportKind::LocalShell
                 ? QStringLiteral("novaterm-local-diag ") + command.id
                 : QString::fromUtf8(command.command));
-            child->setCheckState(3, allowed.contains(command.id) ? Qt::Checked : Qt::Unchecked);
+            child->setCheckState(3,
+                allowed.contains(command.id) ? Qt::Checked : Qt::Unchecked);
         }
     }
     _sessions->setEnabled(!clientId.isEmpty() && _service->access().enabled());
