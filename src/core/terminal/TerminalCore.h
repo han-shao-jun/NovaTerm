@@ -82,6 +82,14 @@ public:
     [[nodiscard]] NovaTerm::MouseTrackingMode mouseTrackingMode()
         const noexcept;
     [[nodiscard]] bool isAlternateScreen() const noexcept;
+    /**
+     * @brief 是否应答应用的 OSC 52 读取查询（读取本机剪贴板发回应用）。
+     * @note  默认关闭：任何远端程序都能借此读走本机剪贴板（外泄向量），
+     *        主流终端同样默认不自动应答。粘贴进远端应用用终端自身的
+     *        Ctrl+Shift+V / 括号粘贴即可。由 terminal.osc52ClipboardRead
+     *        配置接线。
+     */
+    void setClipboardQueryAnswerEnabled(bool enabled);
     void focusIn();
     void focusOut();
     void pasteText(const QString& text);
@@ -199,6 +207,10 @@ signals:
     void outputData(const QByteArray& data);
     void titleChanged(const QString& title);
     void bell();
+    // OSC 52 写剪贴板：mask 为 NovaTerm::Selection 位组合，text 为应用
+    // 请求写入的解码后文本（空串表示清除）。生产路径由 TerminalCore 自行
+    // 落到 QClipboard；信号供测试与自定义剪贴板策略监听。
+    void clipboardWriteRequested(int mask, const QString& text);
     // revision 标识产生此半开 damage 区域的不可变模型发布。
     // 渲染器据此检测快照比已收到的 damage 更新，保守重建整帧。
     void damage(const NovaTerm::DirtyRegion& region, NovaTerm::u64 revision);
@@ -216,7 +228,9 @@ private:
     /** @note 调用方必须持有 modelMutex。 */
     [[nodiscard]] NovaTerm::TerminalState terminalStateLocked(
         NovaTerm::u64 sinceLineId, std::size_t maxBytes, std::size_t maxLines) const;
-    class Runtime;
+    // OSC 52 的 GUI 线程落点（worker 回调经 QueuedConnection 切入）。
+    void applySelectionToClipboard(int mask, const QString& text);
+    void answerSelectionQuery(int mask);    class Runtime;
     std::unique_ptr<Runtime> _runtime;
     std::unique_ptr<NovaTerm::SearchEngine> _searchEngine;
     std::unique_ptr<NovaTerm::ReflowEngine> _reflowEngine;

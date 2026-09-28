@@ -35,6 +35,11 @@ public:
         std::function<void(int)> screenScrolled;             // 活动屏幕上滚行数
         std::function<void(bool)> alternateScreenChanged;    // 备用屏进入/退出
         std::function<void(MouseTrackingMode)> mouseModeChanged; // 鼠标跟踪模式变更
+        // OSC 52：应用请求写剪贴板（mask 为 Selection 位组合，text 为解码
+        // 后的 UTF-8；空串表示清除）。worker 线程回调，门面须自行切到 GUI 线程。
+        std::function<void(int mask, const std::string&)> selectionSet;
+        // OSC 52 查询：应用想读剪贴板，应答走 sendSelection()。
+        std::function<void(int mask)> selectionQuery;
     };
 
     /**
@@ -96,6 +101,14 @@ public:
     std::string title() const;  // UTF-8
     [[nodiscard]] bool alternateScreen() const;
     [[nodiscard]] MouseTrackingMode mouseMode() const;
+
+    /**
+     * @brief 应答 OSC 52 查询：把本机剪贴板文本编码为 OSC 52 发回应用。
+     * @param mask Selection 位组合（应答只取 Clipboard 位）。
+     * @param utf8 剪贴板文本，UTF-8。空串不发送（空应答在协议里是"清除"）。
+     * @note  仅可由 Parser 工作线程调用（与其他 adapter 方法相同）。
+     */
+    void sendSelection(int mask, const std::string& utf8);
 
 private:
     // PImpl 模式隔离 libvterm 头文件依赖。

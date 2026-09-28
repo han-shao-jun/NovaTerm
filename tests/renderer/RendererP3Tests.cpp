@@ -45,6 +45,7 @@ private slots:
     void scrollStateTracksHistoryGrowthAndOffset();
     void softWrappedSelectionCopiesAsSingleLine();
     void hardBreakSelectionKeepsNewline();
+    void vtMouseTrackingClaimsLeftButtonGesture();
     void searchMatchesAppendByGeneration();
     void inputMethodCommitProducesUtf8();
     void fragmentedOutputDoesNotInflateScrollbackBytes();
@@ -984,6 +985,47 @@ void RendererP3Tests::hardBreakSelectionKeepsNewline()
     const QString text = renderer.selectedText();
     QCOMPARE(text.count(QLatin1Char('\n')), 1);
     QVERIFY(text.startsWith(QStringLiteral("AAA")));
+}
+
+// VT 鼠标跟踪开启时左键手势归应用：本地选区让位、点击上报到输出流；
+// Shift+左键是本地选区的逃生口。opencode/htop 等依赖这一优先级。
+void RendererP3Tests::vtMouseTrackingClaimsLeftButtonGesture()
+{
+    TerminalCore core(80, 24);
+    TerminalRenderer renderer(&core);
+    QVERIFY(core.waitForIdle(1000));
+    QTest::qWait(30);
+
+    QVERIFY(core.writeInput(QByteArrayLiteral("\x1b[?1000h"))
+                .fullyAccepted());
+    QVERIFY(core.waitForIdle(1000));
+    QTRY_COMPARE(core.mouseTrackingMode(),
+                 NovaTerm::MouseTrackingMode::Click);
+
+    const int yRow0 = widgetYForDocumentRow(renderer, 0);
+    QVERIFY(yRow0 >= 0);
+
+    // 左键点击：归应用，不产生本地选区，输出流出现鼠标上报。
+    QSignalSpy outputSpy(&core, &TerminalCore::outputData);
+    QTest::mouseClick(&renderer, Qt::LeftButton, {}, QPoint(40, yRow0 + 1));
+    QVERIFY(!renderer.hasSelection());
+    QVERIFY(core.waitForIdle(1000));
+    QTRY_VERIFY_WITH_TIMEOUT(!outputSpy.isEmpty(), 1000);
+    QVERIFY(!renderer.hasSelection());
+
+    // Shift+左键：强制本地选区（xterm 逃生口）。只发 press+move 不发
+    // release —— release 会自动写剪贴板。
+    QTest::mousePress(&renderer, Qt::LeftButton, Qt::ShiftModifier,
+                      QPoint(1, yRow0 + 1));
+    QTest::mouseMove(&renderer, QPoint(renderer.width() - 1, yRow0 + 4));
+    QVERIFY(renderer.hasSelection());
+
+    // 应用退出鼠标模式后恢复普通选区行为。
+    QVERIFY(core.writeInput(QByteArrayLiteral("\x1b[?1000l"))
+                .fullyAccepted());
+    QVERIFY(core.waitForIdle(1000));
+    QTRY_COMPARE(core.mouseTrackingMode(),
+                 NovaTerm::MouseTrackingMode::None);
 }
 
 void RendererP3Tests::searchMatchesAppendByGeneration()

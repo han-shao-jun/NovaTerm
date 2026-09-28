@@ -151,6 +151,17 @@ enum class MouseTrackingMode : uint8_t
     Move    // ?1003h：任意移动
 };
 
+// OSC 52 选区目标位（xterm 剪贴板转义序列的选择参数 c/p/q/s/0-7）。
+// 数值与 libvterm 的 VTermSelectionMask 一一对应，但核心层不暴露
+// libvterm 类型。门面层据此决定写入哪个系统剪贴板。
+namespace Selection {
+constexpr uint8_t Clipboard = 1 << 0;   // c：系统剪贴板
+constexpr uint8_t Primary = 1 << 1;     // p：X11 PRIMARY 选区
+constexpr uint8_t Secondary = 1 << 2;  // q：X11 SECONDARY 选区
+constexpr uint8_t Select = 1 << 3;      // s：xterm 选区
+constexpr uint8_t Cut0 = 1 << 4;        // 0-7：xterm cut buffer 0..7
+}  // namespace Selection
+
 // 光标完整状态：位置、形状、可见性、闪烁。由 VTAdapter 维护并通过信号发布。
 struct CursorState
 {

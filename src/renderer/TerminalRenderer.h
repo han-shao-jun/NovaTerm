@@ -405,6 +405,11 @@ private:
 
     // 鼠标选区
     bool _selecting{false};
+    bool _autoCopyCurrentSelection{false};
+    // 当前按键手势归属 VT 鼠标（按下时跟踪开启）。release 按此判定转发，
+    // 不看 release 时刻的跟踪状态 —— 手势期间应用退出/进入鼠标模式
+    // 不能切换半途手势的归属。
+    bool _activeGestureIsVtMouse{false};
     NovaTerm::Position _selStart{-1, -1};
     NovaTerm::Position _selEnd{-1, -1};
 

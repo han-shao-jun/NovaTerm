@@ -418,10 +418,42 @@ MouseButton 命令因此自带 row/col，执行时先更新位置再发按键。
 Alternate Scroll 发 ↑/↓ → 本地 scrollback）在 `TerminalRenderer::wheelEvent`，
 判定所需的 `VTERM_PROP_MOUSE` 与备用屏状态由 VTAdapter 经 observer 缓存到
 Runtime 原子变量（`mouseTrackingMode()`/`isAlternateScreen()`），GUI 线程
-同步读取、不拿模型锁。回归：`novaterm_core_tests` 的
+同步读取、不拿模型锁。**滚轮没有配对 release**：`processWheel` 只发一次
+press（按键 4/5），SGR 模式下多发 `'m'` 结尾的 release 会让部分 TUI 误判
+为点击释放。**左键手势在 VT 鼠标跟踪开启时归应用**（开启鼠标模式的 TUI
+自带选中语义），本地选区让位，Shift+左键是本地选区的逃生口；手势归属在
+**按下时刻**判定并贯穿始终（`_activeGestureIsVtMouse`），中途应用开关跟踪
+模式不能切换半途手势的归属 —— Qt 把双击的第二次按下投递为 doubleClick 事件
+而非 press，跟踪开启时须在 `mouseDoubleClickEvent` 里转发，否则应用收不到
+双击。回归：`novaterm_core_tests` 的
 `mouseTrackingModeFollowsParserState`、`wheelReportsMouseButtonsWithCellCoordinates`、
 `mousePressCarriesCellCoordinates`、`mouseMoveReportsPositionInMoveMode`、
-`alternateScrollSendsCursorKeys`。
+`alternateScrollSendsCursorKeys`，以及
+`novaterm_renderer_tests::vtMouseTrackingClaimsLeftButtonGesture`。
+
+**OSC 52 剪贴板与 tmux passthrough（通用机制，勿按具体应用适配）**：
+TUI 应用（vim/nvim 的 osc52 provider、opencode、claude code、sshclip……）
+把选中写入系统剪贴板的唯一通路是发 `ESC]52;c;<base64>`，**解码与落地是
+终端的义务**——不支持的终端表现为"应用提示已复制、剪贴板却是空的"。
+NovaTerm 的实现全在协议层：libvterm 已内置 OSC 52 解析（`state.c` 的
+`on_osc` case 52 + `vterm_state_set_selection_callbacks`，base64 解码、
+分片、`?` 查询），VTAdapter 构造时注册 `VTermSelectionCallbacks`
+（回调与 512 KiB 解码缓冲与 Impl 同寿命，libvterm 只存指针），
+`selectionSet` 经 observer 由 TerminalCore 切 GUI 线程写 `QClipboard`
+（c/s/cut buffer → 系统剪贴板，p → X11 选区）并发
+`clipboardWriteRequested` 信号供测试观察。**OSC 52 读取查询默认不应答**
+（`terminal.osc52ClipboardRead` 配置，默认 false）：应答等于允许远端程序
+读走本机剪贴板，主流终端同样默认拒绝（Windows Terminal 不实现读取、
+kitty 需确认）；粘贴进远端应用走终端自身的 Ctrl+Shift+V / 括号粘贴。
+**tmux DCS passthrough 必须在 `VTAdapter::feedWithPassthrough` 预扫描解开**
+（`ESC P tmux ; <ESC 加倍载荷> ESC \`）：应用在 tmux 内检测 `$TMUX` 后会
+自包裹，而 libvterm 的 parser 在字符串态遇到 `ESC ESC` + 非 `\` 字节会
+**中止 DCS 并把后续字节当正文打印**（parser.c 的 abort 分支），不能指望
+libvterm 自己解开。扫描状态跨 `writeInput` 分片保持，内层解开点就地回喂
+保证与后续字节有序，支持嵌套（递归深度上限 8）。回归：
+`osc52WriteDecodesAndEmitsClipboardSignal`、`osc52QueryIsNotAnsweredByDefault`、
+`tmuxPassthroughOsc52ReachesClipboard`、`tmuxPassthroughSurvivesFragmentedInput`、
+`tmuxPassthroughProbeMismatchPassesBytesThrough`。
 
 **`CSI s` 在 DECLRMM 关闭时是保存光标，不是设置左右边距**：vendored
 libvterm 曾无条件按 DECSLRM 处理并把光标归位，同时缺少 `CSI u` 恢复。

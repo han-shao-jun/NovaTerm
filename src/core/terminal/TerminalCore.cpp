@@ -17,6 +17,9 @@
 #include "VTAdapter.h"
 #include "core/ThreadNaming.h"
 
+#include <QClipboard>
+#include <QCoreApplication>
+#include <QGuiApplication>
 #include <QKeyEvent>
 #include <QMetaObject>
 #include <QMouseEvent>
@@ -59,6 +62,7 @@ enum class CommandType
     KeyboardKey,
     MouseButton,
     MouseMove,
+    SendSelection,
     Paste,
     Resize,
     DefaultColors,
@@ -475,6 +479,33 @@ public:
         observer.mouseModeChanged = [this](NovaTerm::MouseTrackingMode mode) {
             mouseTrackingMode.store(int(mode), std::memory_order_release);
         };
+        // OSC 52 在 worker 线程回调；QClipboard 只能在 GUI 线程访问，
+        // 与迟到信号同样的方式切线程投递。
+        observer.selectionSet = [this](int mask, const std::string& utf8) {
+            QMetaObject::invokeMethod(
+                owner,
+                [target = owner, mask,
+                 text = QString::fromUtf8(utf8.data(),
+                                          qsizetype(utf8.size()))]() {
+                    target->applySelectionToClipboard(mask, text);
+                },
+                Qt::QueuedConnection);
+        };
+        observer.selectionQuery = [this](int mask) {
+            // 默认不回答 OSC 52 读取查询：任何远端程序都能借此读取本机
+            // 剪贴板（剪贴板外泄向量），主流终端同样默认拒绝（Windows
+            // Terminal 不实现读取、kitty 读取需确认）。粘贴到远端应用走
+            // 终端自身的 Ctrl+Shift+V / 括号粘贴即可，无需此通路。
+            // setClipboardQueryAnswerEnabled(true) 显式开启。
+            if (!clipboardQueryAnswerEnabled.load(std::memory_order_acquire))
+                return;
+            QMetaObject::invokeMethod(
+                owner,
+                [target = owner, mask]() {
+                    target->answerSelectionQuery(mask);
+                },
+                Qt::QueuedConnection);
+        };
 
         std::lock_guard<std::mutex> modelLocker(modelMutex);
         adapter = std::make_unique<NovaTerm::VTAdapter>(
@@ -532,6 +563,10 @@ public:
             break;
         case CommandType::MouseMove:
             adapter->mouseMove(command.row, command.col, command.second);
+            break;
+        case CommandType::SendSelection:
+            adapter->sendSelection(command.first,
+                                   command.text.toStdString());
             break;
         case CommandType::Paste:
             adapter->startPaste();
@@ -711,6 +746,9 @@ public:
     // 解析器侧模式的 GUI 可读缓存（worker 写、GUI 读），见 createAdapter。
     std::atomic<bool> alternateScreenActive{false};
     std::atomic<int> mouseTrackingMode{0};
+    // 是否应答 OSC 52 读取查询。默认关闭（剪贴板外泄防护），见
+    // createAdapter 的 selectionQuery 注释。
+    std::atomic<bool> clipboardQueryAnswerEnabled{false};
 };
 
 TerminalCore::TerminalCore(int cols, int rows, QObject* parent)
@@ -851,18 +889,19 @@ void TerminalCore::processWheel(bool up, int row, int col,
     const int button = up ? 4 : 5;
     const int modifiers =
         int(KeyMapper::modToVTermMod(coreModsFromQt(qtModifiers)));
-    // 鼠标滚轮在终端协议中等价于一次"按下+释放"的鼠标按键（按键 4=上滚，
-    // 按键 5=下滚），因此对一次滚动成对投递两条命令。
-    for (const bool pressed : {true, false}) {
-        ParserCommand command;
-        command.type = CommandType::MouseButton;
-        command.first = button;
-        command.second = modifiers;
-        command.pressed = pressed;
-        command.row = row;
-        command.col = col;
-        _runtime->enqueueCommand(std::move(command));
-    }
+    // VT 鼠标协议中滚轮使用 button 4/5 表示。
+    // 滚轮是瞬时事件，不像左/中/右键那样存在配对的 release。
+    // SGR 模式下若额外发送 button 4/5 的 release（结尾 'm'），
+    // 部分 TUI 会将其误判为点击释放操作。
+    ParserCommand command;
+    command.type = CommandType::MouseButton;
+    command.first = button;
+    command.second = modifiers;
+    command.pressed = true;
+    command.row = row;
+    command.col = col;
+
+    _runtime->enqueueCommand(std::move(command));
 }
 
 void TerminalCore::sendAlternateScroll(bool up, int count)
@@ -889,6 +928,58 @@ NovaTerm::MouseTrackingMode TerminalCore::mouseTrackingMode() const noexcept
 {
     return NovaTerm::MouseTrackingMode(
         _runtime->mouseTrackingMode.load(std::memory_order_acquire));
+}
+
+void TerminalCore::setClipboardQueryAnswerEnabled(bool enabled)
+{
+    _runtime->clipboardQueryAnswerEnabled.store(enabled,
+                                                std::memory_order_release);
+}
+
+void TerminalCore::applySelectionToClipboard(int mask, const QString& text)
+{
+    // 信号先行：GUI-less 测试（无 QClipboard）与自定义剪贴板策略据此观察
+    // OSC 52 写入；生产路径随后落到系统剪贴板。
+    emit clipboardWriteRequested(mask, text);
+
+    const auto* guiApp =
+        qobject_cast<const QGuiApplication*>(QCoreApplication::instance());
+    if (!guiApp)
+        return;
+    QClipboard* clipboard = QGuiApplication::clipboard();
+    if (!clipboard)
+        return;
+    // c（系统剪贴板）、s（xterm 选区）与 cut buffer 都映射到系统剪贴板；
+    // p/q 是 X11 的 PRIMARY/SECONDARY 选区，仅在平台支持时写入选区。
+    if (mask & (int(NovaTerm::Selection::Clipboard)
+                | int(NovaTerm::Selection::Select)
+                | int(NovaTerm::Selection::Cut0)))
+        clipboard->setText(text, QClipboard::Clipboard);
+    if ((mask & int(NovaTerm::Selection::Primary))
+        && clipboard->supportsSelection())
+        clipboard->setText(text, QClipboard::Selection);
+}
+
+void TerminalCore::answerSelectionQuery(int mask)
+{
+    // 只应答系统剪贴板（c）的查询，避免把多目标查询展开成多条应答。
+    if (!(mask & int(NovaTerm::Selection::Clipboard)))
+        return;
+    const auto* guiApp =
+        qobject_cast<const QGuiApplication*>(QCoreApplication::instance());
+    if (!guiApp)
+        return;
+    QClipboard* clipboard = QGuiApplication::clipboard();
+    if (!clipboard)
+        return;
+    const QString text = clipboard->text();
+    if (text.isEmpty())
+        return;  // 空应答在协议里是"清除"，不能发
+    ParserCommand command;
+    command.type = CommandType::SendSelection;
+    command.first = mask;
+    command.text = text;
+    _runtime->enqueueCommand(std::move(command));
 }
 
 bool TerminalCore::isAlternateScreen() const noexcept

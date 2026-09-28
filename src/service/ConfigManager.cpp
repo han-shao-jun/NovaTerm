@@ -252,7 +252,9 @@ QJsonObject ConfigManager::defaults()
             {"fontSize", 12},
             {"appearance", "dark"},
             {"colorScheme", "Campbell"},
-            {"scrollbackLines", 10000}
+            {"scrollbackLines", 10000},
+            // OSC 52 读取查询默认关闭：应答等于允许远端程序读走本机剪贴板。
+            {"osc52ClipboardRead", false}
         }},
         {"schemes", QJsonArray{}},
         {"monitor", QJsonObject{

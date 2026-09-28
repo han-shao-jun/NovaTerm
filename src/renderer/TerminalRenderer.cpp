@@ -1282,59 +1282,127 @@ void TerminalRenderer::mousePressEvent(QMouseEvent* event)
     emit activityDetected();
     setFocus();
 
-    const QPoint cell = widgetToCell(event->pos());
-    const int row = cell.y();
-    const int col = cell.x();
+    // VT 鼠标跟踪开启时左键手势归应用：任何开启 ?1000/?1002/?1003 的 TUI
+    // （vim、htop、opencode、claude 等）都自带选中与点击语义，本地选区
+    // 让位；按住 Shift 强制走本地选区（xterm 逃生口，与各 TUI 自己的
+    // "Shift+拖选走原生复制"提示语义一致）。
+    // 判定只看按下时刻的跟踪状态并贯穿整个手势 —— 期间应用退出鼠标
+    // 模式时，不能突然把半途的拖动切换成本地选区。
+    const bool vtMouse =
+        _core->mouseTrackingMode() != NovaTerm::MouseTrackingMode::None
+        && !event->modifiers().testFlag(Qt::ShiftModifier);
 
-    if (event->button() == Qt::LeftButton) {
-        _selecting = true;
-        _selStart  = {row, col};
-        _selEnd    = {row, col};
-        requestOverlayFrame();
-    } else {
-        // Non-selection mouse buttons are encoded by TerminalCore. Coordinates
-        // must be screen rows (not scrollback-document rows) — that is what
-        // the terminal mouse protocol reports to the application.
+    if (vtMouse) {
+        _activeGestureIsVtMouse = true;
+        _selecting = false;
+        _autoCopyCurrentSelection = false;
         const QPoint screenCell = widgetToScreenCell(event->pos());
         _core->processMousePress(event, screenCell.y(), screenCell.x());
+        event->accept();
+        return;
     }
+    _activeGestureIsVtMouse = false;
+
+    // 普通终端才启用 NovaTerm 本地选择
+    if (event->button() == Qt::LeftButton) {
+        const QPoint cell = widgetToCell(event->pos());
+
+        _selecting = true;
+        _selStart = {cell.y(), cell.x()};
+        _selEnd   = _selStart;
+
+        _autoCopyCurrentSelection = true;
+
+        requestOverlayFrame();
+        event->accept();
+        return;
+    }
+
+    event->accept();
 }
 
 void TerminalRenderer::mouseMoveEvent(QMouseEvent* event)
 {
+    // 本地选区手势进行中（Shift 逃生口或普通终端的左键拖动）时，
+    // 移动事件归选区 —— 不能被 VT 鼠标分支抢走。
     if (_selecting) {
         const QPoint cell = widgetToCell(event->pos());
         _selEnd = {cell.y(), cell.x()};
         requestOverlayFrame();
+        event->accept();
         return;
     }
-    // 仅 DRAG/MOVE 跟踪关心移动事件；CLICK 模式下转发只是徒增命令队列
-    // 噪音（libvterm 内部也不会上报）。无按键拖动由 libvterm 自己过滤。
-    const NovaTerm::MouseTrackingMode mode = _core->mouseTrackingMode();
-    if (mode == NovaTerm::MouseTrackingMode::Drag
-        || mode == NovaTerm::MouseTrackingMode::Move) {
-        const QPoint screenCell = widgetToScreenCell(event->pos());
-        _core->processMouseMove(event, screenCell.y(), screenCell.x());
+
+    const auto mode = _core->mouseTrackingMode();
+
+    // VT mouse：仅 Drag/Move 跟踪关心移动事件；Click 模式下转发只是
+    // 徒增命令队列噪音（libvterm 内部也不会上报）。
+    if (mode == NovaTerm::MouseTrackingMode::Drag ||
+        mode == NovaTerm::MouseTrackingMode::Move) {
+        const QPoint cell = widgetToScreenCell(event->pos());
+        _core->processMouseMove(event, cell.y(), cell.x());
     }
+
+    event->accept();
 }
 
 void TerminalRenderer::mouseReleaseEvent(QMouseEvent* event)
 {
-    if (_selecting && event->button() == Qt::LeftButton) {
+    // 左键手势以按下时刻的归属为准：VT 鼠标手势期间应用关闭跟踪
+    // （如 TUI 退出）时，release 仍须送达应用而非落入本地选区分支；
+    // 反过来本地选区的 release 也不能因跟踪中途开启而被改投应用。
+    if (_activeGestureIsVtMouse) {
+        _activeGestureIsVtMouse = false;
         _selecting = false;
-        const QPoint cell = widgetToCell(event->pos());
-        _selEnd = {cell.y(), cell.x()};
-        // 自动复制到剪贴板（xterm 行为）
-        if (hasSelection())
-            copySelection();
-    } else {
+        _autoCopyCurrentSelection = false;
+
         const QPoint screenCell = widgetToScreenCell(event->pos());
         _core->processMouseRelease(event, screenCell.y(), screenCell.x());
+        event->accept();
+        return;
     }
+
+    if (_core->mouseTrackingMode() != NovaTerm::MouseTrackingMode::None) {
+        // 非左键（中键/右键）没有选区手势，按当前跟踪状态转发。
+        const QPoint screenCell = widgetToScreenCell(event->pos());
+        _core->processMouseRelease(event, screenCell.y(), screenCell.x());
+        event->accept();
+        return;
+    }
+
+    // 普通终端：本地选择 + 自动复制
+    if (_selecting && event->button() == Qt::LeftButton) {
+        _selecting = false;
+
+        const QPoint cell = widgetToCell(event->pos());
+        _selEnd = {cell.y(), cell.x()};
+
+        if (_autoCopyCurrentSelection && hasSelection())
+            copySelection();
+
+        _autoCopyCurrentSelection = false;
+
+        requestOverlayFrame();
+        event->accept();
+        return;
+    }
+
+    event->accept();
 }
 
 void TerminalRenderer::mouseDoubleClickEvent(QMouseEvent* event)
 {
+    // Qt 把双击的第二次按下投递为 doubleClick 而非 press；VT 跟踪开启时
+    // 应用需要收到这次点击（双击选中是开启鼠标跟踪的 TUI 自带语义）。
+    if (_core->mouseTrackingMode() != NovaTerm::MouseTrackingMode::None
+        && !event->modifiers().testFlag(Qt::ShiftModifier)) {
+        _activeGestureIsVtMouse = true;
+        const QPoint screenCell = widgetToScreenCell(event->pos());
+        _core->processMousePress(event, screenCell.y(), screenCell.x());
+        event->accept();
+        return;
+    }
+
     if (event->button() == Qt::LeftButton) {
         // 按词选择：以空格/标点为分隔
         const QPoint cell = widgetToCell(event->pos());
@@ -1363,6 +1431,8 @@ void TerminalRenderer::mouseDoubleClickEvent(QMouseEvent* event)
             _selStart = {row, lc};
             _selEnd   = {row, rc};
             _selecting = false;
+            _activeGestureIsVtMouse = false;
+            _autoCopyCurrentSelection = false;
             copySelection();
             requestOverlayFrame();
         }
@@ -1401,12 +1471,12 @@ void TerminalRenderer::wheelEvent(QWheelEvent* event)
     }
     _wheelAccum -= notches * 120;
 
-    // 按住 Shift 强制走本地回看 —— 鼠标上报/备用屏滚动期间的逃生口
-    // （xterm 惯例）。
+    // 按住 Shift 强制走本地回看/选区 —— 鼠标上报/备用屏滚动期间的
+    // 逃生口（xterm 惯例，各 TUI 也以此提示用户走终端原生交互）。
     const bool shift = event->modifiers().testFlag(Qt::ShiftModifier);
 
-    // VT 鼠标跟踪开启时，滚轮作为按键 4/5 上报给应用（less --mouse、
-    // htop、vim 等自己处理滚动）。
+    // VT 鼠标跟踪开启时，滚轮作为按键 4/5 上报给应用（开启鼠标模式的
+    // vim、htop、less --mouse 等自己处理滚动）。
     if (!shift
         && _core->mouseTrackingMode() != NovaTerm::MouseTrackingMode::None) {
         const QPoint screenCell = widgetToScreenCell(event->position().toPoint());

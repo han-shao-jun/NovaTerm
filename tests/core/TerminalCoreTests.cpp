@@ -77,6 +77,12 @@ private slots:
     void mousePressCarriesCellCoordinates();
     void mouseMoveReportsPositionInMoveMode();
     void alternateScrollSendsCursorKeys();
+    void osc52WriteDecodesAndEmitsClipboardSignal();
+    void osc52QueryAnswerEncodesClipboardAsBase64();
+    void osc52QueryIsNotAnsweredByDefault();
+    void tmuxPassthroughOsc52ReachesClipboard();
+    void tmuxPassthroughSurvivesFragmentedInput();
+    void tmuxPassthroughProbeMismatchPassesBytesThrough();
 };
 
 namespace {
@@ -1461,9 +1467,11 @@ void TerminalCoreTests::wheelReportsMouseButtonsWithCellCoordinates()
     QByteArray output;
     for (const auto& arguments : outputSpy)
         output += arguments.at(0).toByteArray();
-    // X10 编码：按键 4（上滚）press Cb='`'、release Cb='#'；
-    // 坐标为 col+0x21、row+0x21（col=9→'*'、row=4→'%'）。
-    QCOMPARE(output, QByteArrayLiteral("\x1b[M`*%\x1b[M#*%"));
+    // X10 编码：滚轮没有配对 release，一次滚动只发按键 4（上滚）press，
+    // Cb = (0+0x40)+0x20 = '`'；坐标为 col+0x21、row+0x21
+    // （col=9→'*'、row=4→'%'）。SGR 模式下多发 button 4/5 release 会让
+    // 部分 TUI 误判为点击释放。
+    QCOMPARE(output, QByteArrayLiteral("\x1b[M`*%"));
 }
 
 void TerminalCoreTests::mousePressCarriesCellCoordinates()
@@ -1527,6 +1535,126 @@ void TerminalCoreTests::alternateScrollSendsCursorKeys()
         output += arguments.at(0).toByteArray();
     // 普通光标键模式（非 application）下 ↑=CSI A、↓=CSI B。
     QCOMPARE(output, QByteArrayLiteral("\x1b[A\x1b[A\x1b[B"));
+}
+
+void TerminalCoreTests::osc52WriteDecodesAndEmitsClipboardSignal()
+{
+    TerminalCore core(80, 24);
+    QSignalSpy clipboardSpy(&core, &TerminalCore::clipboardWriteRequested);
+
+    // "hello" 的 base64 为 aGVsbG8=。opencode/htop 等经 OSC 52 写系统
+    // 剪贴板；此前 NovaTerm 未注册选区回调，序列被静默丢弃，表现为
+    // 应用提示已复制但剪贴板没内容。
+    core.writeInput(QByteArrayLiteral("\x1b]52;c;aGVsbG8=\x07"));
+    QVERIFY(core.waitForIdle());
+    QTRY_COMPARE(clipboardSpy.size(), 1);
+    QCOMPARE(clipboardSpy.at(0).at(0).toInt(),
+             int(NovaTerm::Selection::Clipboard));
+    QCOMPARE(clipboardSpy.at(0).at(1).toString(), QStringLiteral("hello"));
+
+    // 空载荷 = 清除剪贴板。
+    core.writeInput(QByteArrayLiteral("\x1b]52;c;\x07"));
+    QVERIFY(core.waitForIdle());
+    QTRY_COMPARE(clipboardSpy.size(), 2);
+    QVERIFY(clipboardSpy.at(1).at(1).toString().isEmpty());
+}
+
+void TerminalCoreTests::osc52QueryAnswerEncodesClipboardAsBase64()
+{
+    NovaTerm::ScreenBuffer screen(40, 12);
+    ScrollbackBuffer history;
+    std::string output;
+    NovaTerm::VTAdapter::Observer observer;
+    observer.output = [&output](NovaTerm::ByteView data) {
+        output.append(data.data, size_t(data.size));
+    };
+    NovaTerm::VTAdapter adapter(40, 12, screen, history,
+                               std::move(observer));
+
+    // "hi" 的 base64 为 aGk=；应答只保留 Clipboard 位（c），即使查询
+    // 带多个目标位。libvterm 以 ST（ESC \）结尾，不是 BEL。
+    adapter.sendSelection(int(NovaTerm::Selection::Clipboard)
+                              | int(NovaTerm::Selection::Primary),
+                          std::string("hi"));
+    QCOMPARE(QByteArray(output.data(), int(output.size())),
+             QByteArrayLiteral("\x1b]52;c;aGk=\x1b\\"));
+}
+
+void TerminalCoreTests::osc52QueryIsNotAnsweredByDefault()
+{
+    TerminalCore core(80, 24);
+    // 默认不回答 OSC 52 读取查询：应答等于允许远端程序读走本机剪贴板，
+    // 属剪贴板外泄向量；显式开启后才应答（本测试为 GUI-less 环境，
+    // 开启路径的剪贴板读取不可用，编码正确性由上一个用例覆盖）。
+    QSignalSpy outputSpy(&core, &TerminalCore::outputData);
+    core.writeInput(QByteArrayLiteral("\x1b]52;c;?\x07"));
+    QVERIFY(core.waitForIdle());
+    QTest::qWait(50);
+    QVERIFY2(outputSpy.isEmpty(),
+             "OSC 52 query must not be answered unless explicitly enabled");
+}
+
+// 构造 tmux DCS passthrough：外层 ESC P "tmux;" + ESC 加倍的载荷 + ST。
+static QByteArray tmuxWrap(const QByteArray& inner)
+{
+    QByteArray escaped = inner;
+    escaped.replace('\x1b', QByteArrayLiteral("\x1b\x1b"));
+    return QByteArrayLiteral("\x1bPtmux;") + escaped
+        + QByteArrayLiteral("\x1b\\");
+}
+
+void TerminalCoreTests::tmuxPassthroughOsc52ReachesClipboard()
+{
+    TerminalCore core(80, 24);
+    QSignalSpy clipboardSpy(&core, &TerminalCore::clipboardWriteRequested);
+
+    // vim/nvim 的 osc52 provider、opencode、claude code 在 tmux 内会把
+    // OSC 52 自包裹成 DCS passthrough，期望外层终端解开按普通输入处理。
+    const QByteArray wrapped = tmuxWrap(
+        QByteArrayLiteral("\x1b]52;c;aGVsbG8=\x07"));
+    core.writeInput(wrapped);
+    QVERIFY(core.waitForIdle());
+    QTRY_COMPARE(clipboardSpy.size(), 1);
+    QCOMPARE(clipboardSpy.at(0).at(0).toInt(),
+             int(NovaTerm::Selection::Clipboard));
+    QCOMPARE(clipboardSpy.at(0).at(1).toString(), QStringLiteral("hello"));
+
+    // 包裹序列不得作为正文打印到屏幕上。
+    NovaTerm::Cell cell;
+    QVERIFY(core.getCell(0, 0, cell));
+    QVERIFY(cell.chars[0] == 0 || cell.chars[0] == ' ');
+}
+
+void TerminalCoreTests::tmuxPassthroughSurvivesFragmentedInput()
+{
+    TerminalCore core(80, 24);
+    QSignalSpy clipboardSpy(&core, &TerminalCore::clipboardWriteRequested);
+
+    // 传输分片可能切在任意字节边界（含 ESC 加倍对中间与 ST 中间），
+    // 扫描器状态必须跨 writeInput 调用保持。
+    const QByteArray wrapped = tmuxWrap(
+        QByteArrayLiteral("\x1b]52;c;aGVsbG8=\x07"));
+    for (const char byte : wrapped)
+        core.writeInput(QByteArray(1, byte));
+    QVERIFY(core.waitForIdle());
+    QTRY_COMPARE(clipboardSpy.size(), 1);
+    QCOMPARE(clipboardSpy.at(0).at(1).toString(), QStringLiteral("hello"));
+}
+
+void TerminalCoreTests::tmuxPassthroughProbeMismatchPassesBytesThrough()
+{
+    TerminalCore core(80, 24);
+
+    // 非 tmux 的 DCS（如 DECRQSS）以 ESC P 开头但不是魔法前缀：字节
+    // 必须原样透传给 libvterm，不得被预扫描吞掉或错序。
+    QSignalSpy damageSpy(&core, &TerminalCore::damage);
+    core.writeInput(QByteArrayLiteral("\x1bP$q\"p\x1b\\"));
+    // DECRQSS "p 的应答经 output 通道返回；至少不得把字节当正文打印。
+    QVERIFY(core.waitForIdle());
+    NovaTerm::Cell cell;
+    QVERIFY(core.getCell(0, 0, cell));
+    QVERIFY(cell.chars[0] == 0 || cell.chars[0] == ' ');
+    Q_UNUSED(damageSpy);
 }
 
 QTEST_GUILESS_MAIN(TerminalCoreTests)

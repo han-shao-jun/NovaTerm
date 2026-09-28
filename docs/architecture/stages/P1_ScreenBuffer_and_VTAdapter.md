@@ -254,6 +254,24 @@ VTAdapter 统一包装以下 libvterm 输入 API：
 
 Qt `QKeyEvent/QMouseEvent/QWheelEvent` 不应传入 Renderer 之外的长期数据模型。当前 P1 允许 `TerminalCore` 使用 KeyMapper 做桥接，但编码后的动作必须进入 VTAdapter；后续如需彻底去 Qt GUI 化，应引入平台无关 InputCommand，而不是让 VTAdapter 引用 Qt Widgets event。
 
+**实现记录（2026-09-28，鼠标与剪贴板协议层）**：
+
+- 鼠标跟踪/备用屏状态：VTAdapter 经 observer 把 `VTERM_PROP_MOUSE`
+  （`MouseTrackingMode`）与 ALTSCREEN 变化缓存到 Runtime 原子变量，
+  GUI 线程同步查询（`mouseTrackingMode()`/`isAlternateScreen()`）。
+- OSC 52（剪贴板转义序列）：VTAdapter 构造时注册
+  `vterm_state_set_selection_callbacks`（回调与 512 KiB 解码缓冲与
+  Impl 同寿命），`selectionSet` 经 observer 由 TerminalCore 切 GUI
+  线程写 `QClipboard`；读取查询默认不应答（`terminal.osc52ClipboardRead`
+  配置开启），防止远端程序经此读走本机剪贴板。
+- tmux DCS passthrough：`VTAdapter::writeInput` 先过
+  `feedWithPassthrough` 预扫描解开 `ESC P tmux; ... ESC \` 包裹再喂
+  libvterm（其 parser 在字符串态遇 `ESC ESC` 会中止 DCS 并把后续字节
+  当正文打印，不能自行解开）；扫描状态跨分片保持，内层就地回喂保序。
+- 回归见 `tests/core/TerminalCoreTests.cpp` 的 `osc52*`、`tmux*`、
+  `mouse*` 系列与 `tests/renderer/RendererP3Tests.cpp` 的
+  `vtMouseTrackingClaimsLeftButtonGesture`。
+
 ### 步骤 8：把 `TerminalCore` 改为稳定门面
 
 `TerminalCore` 负责创建 ScreenBuffer、Scrollback 和 VTAdapter，连接 Observer，并对外提供：

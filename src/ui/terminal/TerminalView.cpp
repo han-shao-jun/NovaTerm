@@ -69,6 +69,15 @@ static int configuredScrollbackLines()
     return lines > 0 ? lines : 1000;
 }
 
+// 是否应答 OSC 52 读取查询（terminal.osc52ClipboardRead，默认 false）。
+// 应答等于允许远端程序读走本机剪贴板，保守默认关闭。
+static bool configuredOsc52ClipboardRead()
+{
+    return ConfigManager::instance().root()
+        .value(QStringLiteral("terminal")).toObject()
+        .value(QStringLiteral("osc52ClipboardRead")).toBool(false);
+}
+
 static QByteArray terminalTitleSequence(QString title)
 {
     // 防止标题内容提前终止 OSC 序列，恢复标题时仅保留普通文本。
@@ -105,6 +114,10 @@ TerminalView::TerminalView(TerminalSession* session, QWidget* parent)
     }
     _latestResizeColumns = _core->columns();
     _latestResizeRows = _core->rows();
+    // OSC 52 读取查询默认关闭（剪贴板外泄防护），仅配置显式开启时应答。
+    // 自建与外部注入的 core 都要接（scrollback 只在自建路径接是因为外部
+    // core 由会话方配置历史；本开关任何 core 默认都应为关）。
+    _core->setClipboardQueryAnswerEnabled(configuredOsc52ClipboardRead());
     _renderer = new TerminalRenderer(_core, this);
     _session = session ? session : new TerminalSession(_core, this);
 

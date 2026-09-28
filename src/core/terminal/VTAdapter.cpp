@@ -22,6 +22,19 @@
 namespace NovaTerm {
 namespace {
 
+// OSC 52 解码缓冲上限：512 KiB 文本（约 50 万字符），超出部分被 libvterm
+// 截断。缓冲与 Impl 同寿命、复用不重复分配。
+constexpr size_t kSelectionBufferBytes = 512 * 1024;
+
+// tmux DCS passthrough 的魔法前缀与扫描上界。
+constexpr char kTmuxMagic[] = "\x1bPtmux;";
+constexpr size_t kTmuxMagicLen = sizeof(kTmuxMagic) - 1;
+// 载荷上界：容纳最大 OSC 52（512 KiB 解码 ≈ 683 KiB base64）再留余量，
+// 防止损坏流把扫描器钉死在 Payload 态吞掉后续所有输入。
+constexpr size_t kMaxPassthroughBodyBytes = 2 * 1024 * 1024;
+// 递归解包裹深度上界（tmux 套 tmux），超出按普通输入直接喂。
+constexpr int kMaxPassthroughDepth = 8;
+
 TerminalColor fromVTermColor(const VTermColor& source)
 {
     TerminalColor color;
@@ -213,6 +226,19 @@ public:
         callbacks.sb_popline = &Impl::onScrollbackPop;
         callbacks.sb_clear = &Impl::onScrollbackClear;
         vterm_screen_set_callbacks(vts, &callbacks, this);
+
+        // OSC 52（剪贴板转义序列）：vim/nvim 的 osc52 provider、
+        // opencode、claude code 等经此把选中文本写入系统剪贴板或查询
+        // 剪贴板。libvterm 只做 base64 编解码与分片，落地到系统剪贴板
+        // 由 observer 完成。回调结构体与解码缓冲都必须与 Impl 同寿命（libvterm 只存指针）。缓冲自持避免依赖 libvterm
+        // 的分配器回收；超出上限的载荷被截断。
+        std::memset(&selectionCallbacks, 0, sizeof(selectionCallbacks));
+        selectionCallbacks.set = &Impl::onSelectionSet;
+        selectionCallbacks.query = &Impl::onSelectionQuery;
+        selectionBuffer.resize(kSelectionBufferBytes);
+        vterm_state_set_selection_callbacks(state, &selectionCallbacks, this,
+                                            selectionBuffer.data(),
+                                            selectionBuffer.size());
     }
 
     ~Impl()
@@ -385,6 +411,163 @@ public:
         return 1;
     }
 
+    // OSC 52 写剪贴板：libvterm 已完成 base64 解码，分片经
+    // pendingSelection 累积，final 时一次性交给 observer。
+    // VTERM_SELECTION_* 与 NovaTerm::Selection 的位值一一对应，直接转换。
+    static int onSelectionSet(VTermSelectionMask mask,
+                              VTermStringFragment frag, void* user)
+    {
+        auto& self = *static_cast<Impl*>(user);
+        if (frag.initial) {
+            self.pendingSelection.clear();
+            self.pendingSelectionMask = int(mask);
+        }
+        self.pendingSelection.append(frag.str, frag.len);
+        if (frag.final && self.observer.selectionSet) {
+            self.observer.selectionSet(self.pendingSelectionMask,
+                                       self.pendingSelection);
+        }
+        return 1;
+    }
+
+    // OSC 52 查询剪贴板：应答经 observer 走 GUI 线程读剪贴板，
+    // 再由 sendSelection() 编码发回。
+    static int onSelectionQuery(VTermSelectionMask mask, void* user)
+    {
+        auto& self = *static_cast<Impl*>(user);
+        if (self.observer.selectionQuery)
+            self.observer.selectionQuery(int(mask));
+        return 1;
+    }
+
+    // ── tmux DCS passthrough 预扫描 ─────────────────────────────
+    // 应用在 tmux 内检测到 $TMUX 时，会把 OSC 52 等序列自包裹成
+    // `ESC P tmux ; <ESC 加倍的载荷> ESC \`（vim/nvim 的 osc52 provider、
+    // opencode、claude code、sshclip 都这么做），期望外层终端解开内层
+    // 序列按普通输入处理。libvterm 的 parser 在字符串态遇到 ESC ESC 后
+    // 跟随非 '\' 字节会直接中止 DCS 并把后续字节当正文打印（parser.c 的
+    // abort 分支），因此必须在喂给 libvterm 之前自行解开。
+    // 扫描状态跨 writeInput 调用保持，支持序列任意分片到达。
+    void feedWithPassthrough(ByteView data, int depth)
+    {
+        // 普通路径按连续段一次性喂给 libvterm，避免逐字节跨库调用。
+        size_t runStart = 0;
+        const auto flushRun = [&](size_t end) {
+            if (end > runStart)
+                vterm_input_write(vt, data.data + runStart, end - runStart);
+        };
+        for (isize i = 0; i < data.size; ++i) {
+            const char byte = data.data[i];
+            switch (passthroughScan) {
+            case PassthroughScan::Normal:
+                if (byte == '\x1b') {
+                    flushRun(size_t(i));
+                    passthroughScan = PassthroughScan::Esc;
+                }
+                break;
+            case PassthroughScan::Esc:
+                if (byte == 'P') {
+                    scanProbe.assign("\x1bP", 2);
+                    passthroughScan = PassthroughScan::Probe;
+                } else {
+                    // 不是 DCS：ESC 与当前字节按原顺序送回解析器。
+                    // 连续 ESC 保持探测态（下一字节才决定去向）。
+                    vterm_input_write(vt, "\x1b", 1);
+                    if (byte != '\x1b') {
+                        vterm_input_write(vt, &byte, 1);
+                        passthroughScan = PassthroughScan::Normal;
+                        runStart = size_t(i) + 1;
+                    }
+                }
+                break;
+            case PassthroughScan::Probe:
+                scanProbe.push_back(byte);
+                if (size_t(scanProbe.size()) <= kTmuxMagicLen
+                    && std::memcmp(scanProbe.data(), kTmuxMagic,
+                                   size_t(scanProbe.size())) == 0) {
+                    if (size_t(scanProbe.size()) == kTmuxMagicLen) {
+                        passthroughBody.clear();
+                        passthroughScan = PassthroughScan::Payload;
+                    }
+                    break;
+                }
+                // 前缀不匹配：已积累字节（不含当前字节）原样送回解析器，
+                // 当前字节按 Normal 重新分派 —— 非 tmux 的 DCS 行为不变。
+                vterm_input_write(vt, scanProbe.data(),
+                                  size_t(scanProbe.size()) - 1);
+                scanProbe.clear();
+                passthroughScan = PassthroughScan::Normal;
+                if (byte == '\x1b') {
+                    passthroughScan = PassthroughScan::Esc;
+                } else {
+                    vterm_input_write(vt, &byte, 1);
+                    runStart = size_t(i) + 1;
+                }
+                break;
+            case PassthroughScan::Payload:
+                passthroughBody.push_back(byte);
+                if (passthroughBody.size() > kMaxPassthroughBodyBytes) {
+                    // 恶意/损坏流的上界保护：丢弃积累并回到普通扫描。
+                    passthroughBody.clear();
+                    passthroughScan = PassthroughScan::Normal;
+                    runStart = size_t(i) + 1;
+                } else if (byte == '\x1b') {
+                    passthroughScan = PassthroughScan::PayloadEsc;
+                }
+                break;
+            case PassthroughScan::PayloadEsc:
+                if (byte == '\\') {
+                    // ST 终止：body 末字节是终止符的 ESC，剥掉后解开回喂。
+                    passthroughBody.pop_back();
+                    std::string inner = unescapeTmuxBody();
+                    passthroughBody.clear();
+                    passthroughScan = PassthroughScan::Normal;
+                    runStart = size_t(i) + 1;
+                    if (!inner.empty()) {
+                        if (depth < kMaxPassthroughDepth) {
+                            // 内层可能再次嵌套 passthrough（tmux 套 tmux），
+                            // 递归过扫描；超深则按普通输入直接喂。
+                            feedWithPassthrough(
+                                ByteView(inner.data(),
+                                         isize(inner.size())),
+                                depth + 1);
+                        } else {
+                            vterm_input_write(vt, inner.data(), inner.size());
+                        }
+                    }
+                } else {
+                    // 加倍的 ESC（ESC ESC）或载荷普通字节。
+                    passthroughBody.push_back(byte);
+                    if (passthroughBody.size() > kMaxPassthroughBodyBytes) {
+                        passthroughBody.clear();
+                        passthroughScan = PassthroughScan::Normal;
+                        runStart = size_t(i) + 1;
+                    } else {
+                        passthroughScan = PassthroughScan::Payload;
+                    }
+                }
+                break;
+            }
+        }
+        flushRun(size_t(data.size));
+    }
+
+    // 解开 tmux 载荷的 ESC 加倍（ESC ESC → ESC）。
+    std::string unescapeTmuxBody() const
+    {
+        std::string inner;
+        inner.reserve(passthroughBody.size());
+        for (size_t i = 0; i < passthroughBody.size(); ++i) {
+            const char byte = passthroughBody[i];
+            inner.push_back(byte);
+            if (byte == '\x1b' && i + 1 < passthroughBody.size()
+                && passthroughBody[i + 1] == '\x1b') {
+                ++i;
+            }
+        }
+        return inner;
+    }
+
     // libvterm 内部 resize 回调：同步 ScreenBuffer 尺寸并全屏同步。
     static int onResize(int rows, int columns, void* user)
     {
@@ -454,6 +637,23 @@ public:
     std::string title;
     bool alternateScreen{false};
     MouseTrackingMode mouseMode{MouseTrackingMode::None};
+    // OSC 52 选区回调与解码缓冲：与 Impl 同寿命，libvterm 只存指针。
+    VTermSelectionCallbacks selectionCallbacks{};
+    std::vector<char> selectionBuffer;
+    std::string pendingSelection;    // 跨分片累积的解码文本
+    int pendingSelectionMask{0};     // 分片开始时的 Selection 位组合
+    // tmux DCS passthrough 预扫描状态（见 feedWithPassthrough）。
+    enum class PassthroughScan
+    {
+        Normal,      // 普通字节，直接喂 libvterm
+        Esc,         // 见到 ESC，等待判断是否 DCS
+        Probe,       // 候选 "ESC P tmux;" 前缀
+        Payload,     // passthrough 载荷积累中
+        PayloadEsc   // 载荷中见到 ESC（加倍或终止符）
+    };
+    PassthroughScan passthroughScan{PassthroughScan::Normal};
+    std::string scanProbe;           // Probe 态的候选前缀（≤ kTmuxMagicLen）
+    std::string passthroughBody;     // Payload 态的原始载荷（含 ESC 加倍）
     VTerm* vt{nullptr};
     VTermScreen* vts{nullptr};
     VTermState* state{nullptr};
@@ -482,7 +682,9 @@ void VTAdapter::writeInput(ByteView data)
 {
     if (!isValid())
         return;
-    vterm_input_write(_impl->vt, data.data, std::size_t(data.size));
+    // 先过 tmux passthrough 预扫描：解开 `ESC P tmux; ... ESC \` 包裹的
+    // 内层序列后按普通输入喂给 libvterm，其余字节原样透传。
+    _impl->feedWithPassthrough(data, 0);
     // 解析可能改变任意行的软换行状态（自动换行、滚动、清屏），统一重读。
     _impl->syncLineInfo();
 }
@@ -597,6 +799,21 @@ bool VTAdapter::alternateScreen() const
 MouseTrackingMode VTAdapter::mouseMode() const
 {
     return _impl ? _impl->mouseMode : MouseTrackingMode::None;
+}
+
+void VTAdapter::sendSelection(int mask, const std::string& utf8)
+{
+    if (!isValid() || utf8.empty())
+        return;
+    // vterm_state_send_selection 自行做 base64 编码并推 OSC 52；
+    // Selection 位值与 VTermSelectionMask 一一对应。应答只保留
+    // Clipboard 位，避免把多目标查询展开成多条应答。
+    const int answerMask = mask & int(Selection::Clipboard);
+    if (!answerMask)
+        return;
+    const VTermStringFragment fragment{utf8.data(), utf8.size(), true, true};
+    vterm_state_send_selection(
+        _impl->state, static_cast<VTermSelectionMask>(answerMask), fragment);
 }
 
 } // namespace NovaTerm
