@@ -14,7 +14,14 @@ import time
 import logging
 
 ROOT = Path(__file__).resolve().parents[2]
-site.addsitedir(str(ROOT / "build/mcp-test-deps"))
+_DEPS = str(ROOT / "build/mcp-test-deps")
+site.addsitedir(_DEPS)
+# site.addsitedir 把目录追加到 sys.path 末尾，系统自带的同名包会被抢先导入
+# （本机 jsonschema 来自 /usr/lib/python3/dist-packages），导致 SDK 的 schema
+# 校验器签名不匹配。提到最前，让 tests/mcp/requirements.txt 锁定的版本生效。
+if _DEPS in sys.path:
+    sys.path.remove(_DEPS)
+sys.path.insert(0, _DEPS)
 import paramiko
 logging.getLogger("paramiko").setLevel(logging.CRITICAL)
 

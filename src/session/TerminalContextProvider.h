@@ -8,6 +8,23 @@
 #include <QtGlobal>
 #include <chrono>
 
+namespace NovaTerm {
+/** @brief 上下文读取是否走 Parser 按需发布的不可变快照。
+ *
+ * 默认启用（P8 §14.2 已完成 A/B 闸门）。仅在需要对比旧 try-read 行为时，把
+ * NOVATERM_MCP_PUBLISHED_SNAPSHOT 置 0 显式退回；生产路径不再读该变量做分岔。
+ * 集中在此避免 Provider、McpService、McpAccess 三处各自解析同一环境变量。
+ *
+ * @note 变量未设置时 qEnvironmentVariableIntValue 返回 0，因此判据必须把
+ * 「未设置」与「显式置 0」区分开，否则默认启用会退化成默认关闭。
+ */
+[[nodiscard]] inline bool publishedContextSnapshotEnabled()
+{
+    return qEnvironmentVariableIsEmpty("NOVATERM_MCP_PUBLISHED_SNAPSHOT")
+        || qEnvironmentVariableIntValue("NOVATERM_MCP_PUBLISHED_SNAPSHOT") != 0;
+}
+} // namespace NovaTerm
+
 /** @note 在所属 Session 线程调用；返回值独立拥有数据，可交给 Agent。 */
 class TerminalContextProvider final
 {
@@ -33,29 +50,33 @@ public:
     };
     explicit TerminalContextProvider(TerminalCore* core) : _core(core) {}
     void reset() { _cache.clear(); _state = {}; _historyId = 0; _resetRevision = 0; _initialized = false; _capturedAt = {}; _snapshot.reset(); }
-    /** @brief 模型忙时立即返回空；不使用任何客户端的 sinceRevision 消费共享状态。 */
+    /** @brief 取当前有界摘要；先直接 try-read，模型忙时退到 Parser 发布的不可变快照。
+     *
+     * 顺序很重要：try-read 是非阻塞 try-lock，模型空闲时总能取到**最新**数据，
+     * 所以它是主路径；只有在持续输出把模型锁占满、try-read 失败时，才用发布物
+     * 兜底，从而消除 read starvation（不再直接返回 Busy）。发布物带硬性年龄上限，
+     * 避免解析器停摆后把很久以前的快照当成当前数据。两条路径都不阻塞 GUI。 */
     [[nodiscard]] std::shared_ptr<const Snapshot> trySnapshot()
     {
         if (!_core)
             return {};
-        const bool usePublished = qEnvironmentVariableIntValue(
-            "NOVATERM_MCP_PUBLISHED_SNAPSHOT") > 0;
-        if (usePublished) {
+        auto next = _core->tryTerminalState(_historyId,
+            TerminalStateCache::MaxBytes, TerminalStateCache::MaxLines);
+        if (next) {
+            if (!_initialized || next->revision != _state.revision)
+                acceptState(std::move(*next));
+            _capturedAt = std::chrono::system_clock::now();
+        } else if (NovaTerm::publishedContextSnapshotEnabled()) {
             const auto published = _core->requestPublishedTerminalState();
-            if (!published)
+            if (!published
+                || std::chrono::system_clock::now() - published->capturedAt > MaxPublishAge) {
                 return {};
+            }
             if (!_initialized || published->state.revision != _state.revision)
                 acceptState(published->state);
             _capturedAt = published->capturedAt;
         } else {
-            // 兼容路径：模型忙时立即失败，不延长 GUI 锁等待。
-            auto next = _core->tryTerminalState(_historyId,
-                TerminalStateCache::MaxBytes, TerminalStateCache::MaxLines);
-            if (!next)
-                return {};
-            if (!_initialized || next->revision != _state.revision)
-                acceptState(std::move(*next));
-            _capturedAt = std::chrono::system_clock::now();
+            return {};
         }
         if (!_snapshot) {
             auto snapshot = std::make_shared<Snapshot>();
@@ -118,6 +139,11 @@ public:
         return result;
     }
 private:
+    /** @brief 可被沿用的发布物最大年龄。发布只在模型忙时使用，而模型忙意味着
+     *  解析器仍在提交，发布物会按 250 ms 闸门持续刷新；该上限只是解析器停摆时
+     *  的兜底闸门，宁可返回 Busy 也不把旧快照当当前数据。 */
+    static constexpr std::chrono::seconds MaxPublishAge{2};
+
     void acceptState(NovaTerm::TerminalState next)
     {
         if (_initialized && (next.alternateScreen != _state.alternateScreen

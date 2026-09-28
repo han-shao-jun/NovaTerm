@@ -83,8 +83,31 @@ if(BUILD_TESTING)
         ${PROJECT_SOURCE_DIR}/src/transport/SshTransport.h
         ${PROJECT_SOURCE_DIR}/src/transport/SshMonitorProtocol.cpp
         ${PROJECT_SOURCE_DIR}/src/transport/ITransport.h
+        # performance_check.py 需要在同轮负载里同时观测终端吞吐与 CPU 帧时间，
+        # 因此把渲染器编进本测试目标。渲染器只在 --perf-* 夹具路径上被实例化，
+        # 常规 QTest 路径不创建窗口，ctest 仍可保持 QT_QPA_PLATFORM=offscreen。
+        ${PROJECT_SOURCE_DIR}/src/renderer/RenderCommandBuffer.cpp
+        ${PROJECT_SOURCE_DIR}/src/renderer/RenderCommandBuffer.h
+        ${PROJECT_SOURCE_DIR}/src/renderer/RenderScheduler.cpp
+        ${PROJECT_SOURCE_DIR}/src/renderer/RenderScheduler.h
+        ${PROJECT_SOURCE_DIR}/src/renderer/TerminalColorScheme.cpp
+        ${PROJECT_SOURCE_DIR}/src/renderer/TerminalColorScheme.h
+        ${PROJECT_SOURCE_DIR}/src/renderer/TerminalRenderer.cpp
+        ${PROJECT_SOURCE_DIR}/src/renderer/TerminalRenderer.h
+        ${NOVATERM_P5_RENDERER_SOURCES}
     )
-    target_link_libraries(novaterm_mcp_tests PRIVATE novaterm_mcp_runtime Qt6::Test Qt6::Widgets ElaWidgetTools
+    target_include_directories(novaterm_mcp_tests PRIVATE
+        ${PROJECT_SOURCE_DIR}/src
+        "${CMAKE_PREFIX_PATH}/include/QtGui/${Qt6_VERSION}/QtGui")
+    qt_add_shaders(novaterm_mcp_tests
+        novaterm_mcp_tests_shaders
+        BASE ${PROJECT_SOURCE_DIR}
+        PREFIX "/shaders"
+        FILES
+            ${PROJECT_SOURCE_DIR}/src/renderer/shaders/terminal_texture.vert
+            ${PROJECT_SOURCE_DIR}/src/renderer/shaders/terminal_texture.frag
+    )
+    target_link_libraries(novaterm_mcp_tests PRIVATE novaterm_mcp_runtime Qt6::Test Qt6::Gui Qt6::Widgets ElaWidgetTools
         ssh::ssh OpenSSL::Crypto OpenSSL::SSL ${NOVATERM_SECRET_SERVICE_LIBS})
     if(WIN32)
         target_link_libraries(novaterm_mcp_tests PRIVATE ws2_32 crypt32 advapi32)

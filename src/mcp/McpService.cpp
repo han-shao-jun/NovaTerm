@@ -889,11 +889,13 @@ public:
             }
         }
         const auto now = clock.elapsed();
-        const bool usePublished = qEnvironmentVariableIntValue(
-            "NOVATERM_MCP_PUBLISHED_SNAPSHOT") > 0;
+        const bool usePublished = NovaTerm::publishedContextSnapshotEnabled();
         std::shared_ptr<const TerminalContextProvider::Snapshot> base;
         if (lastCapture.contains(entry.id) && now - lastCapture.value(entry.id) < 250) {
             if (!usePublished) {
+                // 仅旧 try-read 路径需要严格 revision 校验：合并窗内模型已推进就
+                // 立即 Busy，不把陈旧结果当成新鲜捕获。发布路径按设计允许有界陈旧
+                // （保留原 capturedAt），因此不做这项拒绝。
                 const auto current = entry.session->core()->tryModelRevision();
                 if (!current || lastRevision.value(entry.id) != *current) {
                     complete(job, error("BUSY", true, 250)); return;
@@ -904,8 +906,10 @@ public:
             base = lastBase.value(entry.id);
         }
         if (!base) {
-            if (!usePublished)
-                ++coreCaptureCount;
+            // 每次真正向 Provider 取一份新基础摘要才计数；合并窗内复用不重复计。
+            // 与 snapshotPublishCount（Parser 侧发布次数，≤4 Hz）是两个不同口径，
+            // 二者比值即「客户端读取需求被合并/发布吸收了多少」。
+            ++coreCaptureCount;
             base = entry.session->tryTerminalContext();
             if (usePublished) {
                 const auto currentStats = entry.session->core()
@@ -915,7 +919,6 @@ public:
                     - previousStats.publishCount;
                 snapshotReuseCount += currentStats.reuseCount
                     - previousStats.reuseCount;
-                coreCaptureCount = snapshotPublishCount;
                 publishedStats.insert(entry.id, currentStats);
             }
             if (base) {

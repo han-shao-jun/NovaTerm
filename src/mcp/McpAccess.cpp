@@ -4,6 +4,7 @@
 #include "McpAccess.h"
 #include "McpProtocol.h"
 #include "session/SessionCommandFacade.h"
+#include "session/TerminalContextProvider.h"
 #include "core/terminal/TerminalCore.h"
 #include <QCryptographicHash>
 #include <QDir>
@@ -226,8 +227,10 @@ bool AccessStore::setGrant(const QString& clientId, const SessionDirectory::Entr
             Grant{entry.attachmentId, entry.epoch,
                   std::move(commands), interactiveCommand,
                   confirmedCommand, scriptTask});
-        if (qEnvironmentVariableIntValue("NOVATERM_MCP_PUBLISHED_SNAPSHOT") > 0
-            && entry.session->core()) {
+        // 授予读取共享后立刻请求一次发布，让第一份摘要尽早形成，避免首个
+        // read_context 只能拿到 Busy。发布是 fire-and-forget：解析器何时完成
+        // 不受保证，读路径在无发布物时另有兜底。
+        if (NovaTerm::publishedContextSnapshotEnabled() && entry.session->core()) {
             static_cast<void>(entry.session->core()->requestPublishedTerminalState());
         }
     }

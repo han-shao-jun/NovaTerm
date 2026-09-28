@@ -5,6 +5,7 @@
 #include "mcp/McpProtocol.h"
 #include "mcp/CommandPolicy.h"
 #include "mcp/CommandRiskPolicy.h"
+#include "renderer/TerminalRenderer.h"
 #include "session/CommandExecutionTypes.h"
 #include "session/ISessionCommandExecutor.h"
 #include "session/LocalDiagnosticProtocol.h"
@@ -23,6 +24,7 @@
 #include <QCryptographicHash>
 #include <QCoreApplication>
 #include <QElapsedTimer>
+#include <QEventLoop>
 #include <QJsonDocument>
 #include <QProcess>
 #include <QPushButton>
@@ -30,9 +32,11 @@
 #include <QScopeGuard>
 #include <QFile>
 #include <QDir>
+#include <QTextStream>
 #include <QTimer>
 #include <QTemporaryDir>
 #include <QTest>
+#include <QWindow>
 #include <QtEndian>
 
 #include <algorithm>
@@ -385,6 +389,7 @@ private slots:
     void localShellCommandsRunOutsideInteractiveTransport();
     void localFixedDiagnosticsStayIsolatedWithTrustedShellProfile();
     void sessionInvalidationCompletesPendingExecution();
+    void publishedSnapshotSwitchDefaultsToEnabled();
     void publishedSnapshotPreservesCaptureTime();
     void commandRiskPolicyDefaultsToHumanConfirmation();
     void scriptRiskPolicyDeniesCredentialAndSecurityTampering();
@@ -1295,6 +1300,34 @@ void McpTests::commandRiskPolicyDefaultsToHumanConfirmation()
              RiskDecision::Confirm);
 }
 
+void McpTests::publishedSnapshotSwitchDefaultsToEnabled()
+{
+    const QByteArray previous = qgetenv("NOVATERM_MCP_PUBLISHED_SNAPSHOT");
+    const auto restore = qScopeGuard([previous] {
+        if (previous.isNull())
+            qunsetenv("NOVATERM_MCP_PUBLISHED_SNAPSHOT");
+        else
+            qputenv("NOVATERM_MCP_PUBLISHED_SNAPSHOT", previous);
+    });
+    // 未设置必须等于「启用」。qEnvironmentVariableIntValue 在变量缺失时返回 0，
+    // 判据若只比较数值就会把默认启用悄悄退化成默认关闭。
+    qunsetenv("NOVATERM_MCP_PUBLISHED_SNAPSHOT");
+    QVERIFY(NovaTerm::publishedContextSnapshotEnabled());
+    qputenv("NOVATERM_MCP_PUBLISHED_SNAPSHOT", "0");
+    QVERIFY(!NovaTerm::publishedContextSnapshotEnabled());
+    qputenv("NOVATERM_MCP_PUBLISHED_SNAPSHOT", "1");
+    QVERIFY(NovaTerm::publishedContextSnapshotEnabled());
+    qputenv("NOVATERM_MCP_PUBLISHED_SNAPSHOT", "2");
+    QVERIFY(NovaTerm::publishedContextSnapshotEnabled());
+    // 关闭开关时不得向解析器请求发布。
+    qputenv("NOVATERM_MCP_PUBLISHED_SNAPSHOT", "0");
+    TerminalCore core{80, 24};
+    TerminalContextProvider provider{&core};
+    QVERIFY(core.waitForIdle());
+    QVERIFY(provider.trySnapshot());
+    QCOMPARE(core.publishedContextStatistics().requestCount, 0u);
+}
+
 void McpTests::publishedSnapshotPreservesCaptureTime()
 {
     const QByteArray previous = qgetenv("NOVATERM_MCP_PUBLISHED_SNAPSHOT");
@@ -1308,15 +1341,34 @@ void McpTests::publishedSnapshotPreservesCaptureTime()
 
     TerminalCore core{80, 24};
     TerminalContextProvider provider{&core};
-    QVERIFY(!provider.trySnapshot());
     QVERIFY(core.waitForIdle());
+    // try-read 是主路径：模型空闲时直接取到最新数据，根本不必请求发布。
     const auto first = provider.trySnapshot();
     QVERIFY(first);
+    QCOMPARE(core.publishedContextStatistics().requestCount, 0u);
+    // 同一 revision 的重复读取复用同一份不可变快照，capturedAt 不得被刷新
+    // 成「刚刚捕获」——它是底层快照真实形成的时间。
     QTest::qWait(20);
     const auto second = provider.trySnapshot();
     QVERIFY(second);
+    QCOMPARE(second.get(), first.get());
     QCOMPARE(second->capturedAt, first->capturedAt);
     QCOMPARE(second->state.revision, first->state.revision);
+    // 新内容出现后必须立即反映新 revision，而不是停在旧快照上。
+    core.writeInput(QByteArrayLiteral("more\r\n"));
+    QVERIFY(core.waitForIdle());
+    const auto refreshed = provider.trySnapshot();
+    QVERIFY(refreshed);
+    QVERIFY(refreshed->state.revision > first->state.revision);
+
+    // 发布物兜底只在模型被持续输出占满时触发（try-read 失败），单元测试的空闲
+    // 核心无法稳定构造该状态；该路径由 tests/mcp/performance_check.py 在持续
+    // 输出的同轮 A/B 中覆盖（coreContextPublishCount > 0 才算覆盖到）。
+    qputenv("NOVATERM_MCP_PUBLISHED_SNAPSHOT", "0");
+    TerminalContextProvider legacy{&core};
+    const auto before = core.publishedContextStatistics().requestCount;
+    QVERIFY(legacy.trySnapshot());
+    QCOMPARE(core.publishedContextStatistics().requestCount, before);
 }
 
 void McpTests::sessionInvalidationCompletesPendingExecution()
@@ -2314,6 +2366,37 @@ int performanceFixture(QCoreApplication& application, const QString& file, bool 
     fixture.core.setScrollbackLimit(1000000);
     if (!fixture.core.waitForIdle()) return 1;
     if (enabled && !fixture.enable()) return 1;
+    // 与吞吐同轮测量 CPU 帧时间。渲染器直接订阅 Core 的损伤，不需要
+    // TerminalView，因此不引入主题/Ela 接线。注意口径：这里记录的是
+    // render() 入口到出口的 CPU 时间，不是端到端 GUI 帧延迟 ——
+    // QRhiWidget 没有 frameSwapped 信号，端到端口径当前无法测量。
+    TerminalRenderer renderer(&fixture.core);
+    bool renderFailed = false;
+    QObject::connect(&renderer, &QRhiWidget::renderFailed,
+                     [&renderFailed]() { renderFailed = true; });
+    renderer.setTargetRefreshRate(60);
+    renderer.resize(1152, 760);
+    renderer.show();
+    // 用真实事件循环等待窗口被窗口管理器映射（与 P3 GPU 基准同一模式；
+    // processEvents 的定长轮询不足以让 XCB 的 expose 事件完成投递）。
+    {
+        QEventLoop exposeLoop;
+        QTimer::singleShot(2000, &exposeLoop, &QEventLoop::quit);
+        exposeLoop.exec();
+    }
+    if (renderFailed || !renderer.windowHandle() || !renderer.windowHandle()->isExposed()) {
+        QTextStream(stderr)
+            << "performance fixture: QRhiWidget 不可用，无法测量 CPU 帧时间。"
+               "请在有显示服务的会话中运行，并显式设置 QT_QPA_PLATFORM=xcb "
+               "QT_WIDGETS_RHI=1 NOVATERM_RHI_API=opengl（当前 QT_QPA_PLATFORM="
+            << qEnvironmentVariable("QT_QPA_PLATFORM", "<未设置>")
+            << "，renderFailed=" << (renderFailed ? "true" : "false")
+            << "，windowHandle=" << (renderer.windowHandle() ? "有" : "无")
+            << "，isExposed="
+            << (renderer.windowHandle() && renderer.windowHandle()->isExposed()
+                    ? "true" : "false") << "）\n";
+        return 3;
+    }
     bool bytesOk = false;
     const qint64 configuredBytes = qEnvironmentVariable(
         "NOVATERM_MCP_PERF_BYTES").toLongLong(&bytesOk);
@@ -2350,6 +2433,29 @@ int performanceFixture(QCoreApplication& application, const QString& file, bool 
             result.insert("bytes", double(offset));
             result.insert("throughputMiBps", double(offset) / (1024.0 * 1024.0) / seconds);
             result.insert("mcpEnabled", enabled);
+            // 取整轮结束时的快照（与 P3/P5 基准同口径，不对分位数做差）：
+            // P50/P95/P99 是渲染器最近 2048 帧的滚动窗口，不是整轮分布。
+            const auto frames = renderer.renderStatistics();
+            result.insert("framesRendered", double(frames.framesRendered));
+            result.insert("cpuFrameP50Ns", double(frames.cpuFrameP50Nanoseconds));
+            result.insert("cpuFrameP95Ns", double(frames.cpuFrameP95Nanoseconds));
+            result.insert("cpuFrameP99Ns", double(frames.cpuFrameP99Nanoseconds));
+            result.insert("cpuFramesOverBudget", double(frames.cpuFramesOverBudget));
+            result.insert("lastRenderedRevision", double(frames.lastRenderedRevision));
+            // 直接带上 Core 侧发布统计，用于区分「服务端口径」与「解析器真没发布」。
+            const auto published = fixture.core.publishedContextStatistics();
+            result.insert("coreContextRequestCount", double(published.requestCount));
+            result.insert("coreContextPublishCount", double(published.publishCount));
+            result.insert("coreContextReuseCount", double(published.reuseCount));
+            if (frames.framesRendered == 0) {
+                // 零帧必须判为「没画过」，不能当成 0 ms 的极好成绩。
+                QTextStream(stderr)
+                    << "performance fixture: 负载期间渲染器一帧也没有产出，"
+                       "CPU 帧时间无意义（core revision="
+                    << double(fixture.core.modelRevision()) << "）\n";
+                application.exit(4);
+                return;
+            }
             if (!writePrivateJson(file + ".result", result)) application.exit(1);
         }
     });
