@@ -408,6 +408,21 @@ Linux/macOS 落到 `pthread_setname_np`），QThread 的 `objectName` 只作 Qt 
 重发旧尺寸，PowerShell 按错误高度滚动。回归测试为
 `novaterm_terminal_session_tests::terminalViewStartupPreservesPendingSize`。
 
+**鼠标上报的坐标是屏幕行，不是 `widgetToCell` 的文档行**：终端鼠标协议
+（X10/SGR 1006）上报的是可见屏幕坐标；`widgetToCell()` 会随回看滚动偏移
+减去 `_scrollLine`，回看中点击会把坐标报成历史文档行。鼠标事件一律用
+`widgetToScreenCell()`。另外 libvterm 的 `vterm_mouse_button()` **不携带
+坐标**，位置只能通过 `vterm_mouse_move()` 设置 —— `TerminalCore` 的
+MouseButton 命令因此自带 row/col，执行时先更新位置再发按键。滚轮路由
+（Ctrl 缩放 → Shift 强制本地回看 → 鼠标跟踪发按键 4/5 → 备用屏
+Alternate Scroll 发 ↑/↓ → 本地 scrollback）在 `TerminalRenderer::wheelEvent`，
+判定所需的 `VTERM_PROP_MOUSE` 与备用屏状态由 VTAdapter 经 observer 缓存到
+Runtime 原子变量（`mouseTrackingMode()`/`isAlternateScreen()`），GUI 线程
+同步读取、不拿模型锁。回归：`novaterm_core_tests` 的
+`mouseTrackingModeFollowsParserState`、`wheelReportsMouseButtonsWithCellCoordinates`、
+`mousePressCarriesCellCoordinates`、`mouseMoveReportsPositionInMoveMode`、
+`alternateScrollSendsCursorKeys`。
+
 **`CSI s` 在 DECLRMM 关闭时是保存光标，不是设置左右边距**：vendored
 libvterm 曾无条件按 DECSLRM 处理并把光标归位，同时缺少 `CSI u` 恢复。
 TUI 启动探测发送 `CSI s → CUP → CSI u` 后，进入备用屏就会保存错误位置，

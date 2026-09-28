@@ -326,9 +326,27 @@ public:
         auto& self = *static_cast<Impl*>(user);
         bool cursorChanged = false;
         switch (property) {
-        case VTERM_PROP_ALTSCREEN:
-            self.alternateScreen = value->boolean != 0;
+        case VTERM_PROP_ALTSCREEN: {
+            const bool active = value->boolean != 0;
+            if (self.alternateScreen != active) {
+                self.alternateScreen = active;
+                if (self.observer.alternateScreenChanged)
+                    self.observer.alternateScreenChanged(active);
+            }
             break;
+        }
+        case VTERM_PROP_MOUSE: {
+            // libvterm 上报的是 VTermMouseProp（NONE/CLICK/DRAG/MOVE，
+            // 值 0..3），与 MouseTrackingMode 的枚举值一一对应。
+            const auto mode = MouseTrackingMode(
+                std::clamp(value->number, 0, int(MouseTrackingMode::Move)));
+            if (self.mouseMode != mode) {
+                self.mouseMode = mode;
+                if (self.observer.mouseModeChanged)
+                    self.observer.mouseModeChanged(mode);
+            }
+            break;
+        }
         case VTERM_PROP_TITLE:
             if (value->string.str) {
                 // libvterm 的标题已是 UTF-8，直接按字节构造 std::string。
@@ -435,6 +453,7 @@ public:
     CursorState cursorState;
     std::string title;
     bool alternateScreen{false};
+    MouseTrackingMode mouseMode{MouseTrackingMode::None};
     VTerm* vt{nullptr};
     VTermScreen* vts{nullptr};
     VTermState* state{nullptr};
@@ -540,6 +559,14 @@ void VTAdapter::mouseButton(int button, bool pressed, int modifiers)
     }
 }
 
+void VTAdapter::mouseMove(int row, int col, int modifiers)
+{
+    if (isValid()) {
+        vterm_mouse_move(_impl->vt, row, col,
+                         static_cast<VTermModifier>(modifiers));
+    }
+}
+
 void VTAdapter::focusIn()
 {
     if (isValid())
@@ -565,6 +592,11 @@ std::string VTAdapter::title() const
 bool VTAdapter::alternateScreen() const
 {
     return _impl && _impl->alternateScreen;
+}
+
+MouseTrackingMode VTAdapter::mouseMode() const
+{
+    return _impl ? _impl->mouseMode : MouseTrackingMode::None;
 }
 
 } // namespace NovaTerm

@@ -145,6 +145,9 @@ public:
 
     // ── 从 widget 坐标计算 cell 坐标（供外部使用）─────────────
     QPoint widgetToCell(const QPoint& pos) const;
+    // 与 widgetToCell 不同：返回屏幕行（0..rows-1），不随回看滚动偏移，
+    // 供鼠标事件上报使用（终端协议上报的是可见屏幕坐标）。
+    QPoint widgetToScreenCell(const QPoint& pos) const;
     RenderStatistics renderStatistics() const;
     RenderProgress renderProgress() const;
     void setTargetRefreshRate(int hz);

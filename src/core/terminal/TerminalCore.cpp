@@ -58,6 +58,7 @@ enum class CommandType
     KeyboardCharacter,
     KeyboardKey,
     MouseButton,
+    MouseMove,
     Paste,
     Resize,
     DefaultColors,
@@ -79,6 +80,11 @@ struct ParserCommand
     int first{0};
     int second{0};
     bool pressed{false};
+    // 鼠标命令的终端单元格坐标；row < 0 表示不更新鼠标位置。
+    // libvterm 的按键事件不携带坐标，位置只能经 vterm_mouse_move 设置，
+    // 因此 MouseButton 命令也带上坐标、执行时先更新位置再发按键。
+    int row{-1};
+    int col{-1};
     QString text;
     NovaTerm::TerminalColor foreground;
     NovaTerm::TerminalColor background;
@@ -461,6 +467,14 @@ public:
         observer.screenScrolled = [this](int rows) {
             pendingScreenScrollRows += rows;
         };
+        // 备用屏与鼠标跟踪模式缓存到原子变量，GUI 线程（滚轮/鼠标事件路由）
+        // 无需拿 modelMutex 即可同步读取；回调在 worker 线程解析时触发。
+        observer.alternateScreenChanged = [this](bool active) {
+            alternateScreenActive.store(active, std::memory_order_release);
+        };
+        observer.mouseModeChanged = [this](NovaTerm::MouseTrackingMode mode) {
+            mouseTrackingMode.store(int(mode), std::memory_order_release);
+        };
 
         std::lock_guard<std::mutex> modelLocker(modelMutex);
         adapter = std::make_unique<NovaTerm::VTAdapter>(
@@ -511,7 +525,13 @@ public:
             adapter->keyboardKey(command.first, command.second);
             break;
         case CommandType::MouseButton:
+            if (command.row >= 0) {
+                adapter->mouseMove(command.row, command.col, command.second);
+            }
             adapter->mouseButton(command.first, command.pressed, command.second);
+            break;
+        case CommandType::MouseMove:
+            adapter->mouseMove(command.row, command.col, command.second);
             break;
         case CommandType::Paste:
             adapter->startPaste();
@@ -688,6 +708,9 @@ public:
     bool bellPending{false};
     bool scrollbackChanged{false};
     int pendingScreenScrollRows{0};
+    // 解析器侧模式的 GUI 可读缓存（worker 写、GUI 读），见 createAdapter。
+    std::atomic<bool> alternateScreenActive{false};
+    std::atomic<int> mouseTrackingMode{0};
 };
 
 TerminalCore::TerminalCore(int cols, int rows, QObject* parent)
@@ -779,7 +802,7 @@ void TerminalCore::processTextInput(const QString& text,
     }
 }
 
-void TerminalCore::processMousePress(QMouseEvent* event)
+void TerminalCore::processMousePress(QMouseEvent* event, int row, int col)
 {
     if (!event)
         return;
@@ -789,15 +812,25 @@ void TerminalCore::processMousePress(QMouseEvent* event)
     command.second =
         int(KeyMapper::modToVTermMod(coreModsFromQt(event->modifiers())));
     command.pressed = true;
+    command.row = row;
+    command.col = col;
     _runtime->enqueueCommand(std::move(command));
 }
 
-void TerminalCore::processMouseMove(QMouseEvent* event)
+void TerminalCore::processMouseMove(QMouseEvent* event, int row, int col)
 {
-    Q_UNUSED(event);
+    if (!event || row < 0)
+        return;
+    ParserCommand command;
+    command.type = CommandType::MouseMove;
+    command.second =
+        int(KeyMapper::modToVTermMod(coreModsFromQt(event->modifiers())));
+    command.row = row;
+    command.col = col;
+    _runtime->enqueueCommand(std::move(command));
 }
 
-void TerminalCore::processMouseRelease(QMouseEvent* event)
+void TerminalCore::processMouseRelease(QMouseEvent* event, int row, int col)
 {
     if (!event)
         return;
@@ -807,26 +840,60 @@ void TerminalCore::processMouseRelease(QMouseEvent* event)
     command.second =
         int(KeyMapper::modToVTermMod(coreModsFromQt(event->modifiers())));
     command.pressed = false;
+    command.row = row;
+    command.col = col;
     _runtime->enqueueCommand(std::move(command));
 }
 
-void TerminalCore::processWheel(QWheelEvent* event)
+void TerminalCore::processWheel(bool up, int row, int col,
+                                Qt::KeyboardModifiers qtModifiers)
 {
-    if (!event || event->angleDelta().y() == 0)
-        return;
-    const int button = event->angleDelta().y() > 0 ? 4 : 5;
+    const int button = up ? 4 : 5;
     const int modifiers =
-        int(KeyMapper::modToVTermMod(coreModsFromQt(event->modifiers())));
+        int(KeyMapper::modToVTermMod(coreModsFromQt(qtModifiers)));
     // 鼠标滚轮在终端协议中等价于一次"按下+释放"的鼠标按键（按键 4=上滚，
-    // 按键 5=下滚），因此对一次 wheel 事件成对投递两条命令。
+    // 按键 5=下滚），因此对一次滚动成对投递两条命令。
     for (const bool pressed : {true, false}) {
         ParserCommand command;
         command.type = CommandType::MouseButton;
         command.first = button;
         command.second = modifiers;
         command.pressed = pressed;
+        command.row = row;
+        command.col = col;
         _runtime->enqueueCommand(std::move(command));
     }
+}
+
+void TerminalCore::sendAlternateScroll(bool up, int count)
+{
+    if (count <= 0)
+        return;
+    // Alternate Scroll（Windows Terminal 同款）：备用屏程序未开鼠标上报时，
+    // 把滚轮映射为 ↑/↓ 光标键，让 less / vim（无 mouse 模式）等可以滚动。
+    VTermKey key;
+    if (!KeyMapper::keyToVTermKey(up ? NovaTerm::Key::Up : NovaTerm::Key::Down,
+                                    key)) {
+        return;
+    }
+    for (int i = 0; i < count; ++i) {
+        ParserCommand command;
+        command.type = CommandType::KeyboardKey;
+        command.first = int(key);
+        command.second = int(VTERM_MOD_NONE);
+        _runtime->enqueueCommand(std::move(command));
+    }
+}
+
+NovaTerm::MouseTrackingMode TerminalCore::mouseTrackingMode() const noexcept
+{
+    return NovaTerm::MouseTrackingMode(
+        _runtime->mouseTrackingMode.load(std::memory_order_acquire));
+}
+
+bool TerminalCore::isAlternateScreen() const noexcept
+{
+    return _runtime->alternateScreenActive.load(std::memory_order_acquire);
 }
 
 void TerminalCore::focusIn()

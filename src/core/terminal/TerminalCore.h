@@ -31,7 +31,6 @@
 
 class QKeyEvent;
 class QMouseEvent;
-class QWheelEvent;
 
 // 终端核心的 Qt facade。线程安全：传输字节与控制命令排队后由
 // 专用工作线程独占消费 VTAdapter。
@@ -67,10 +66,22 @@ public:
     void processKeyPress(QKeyEvent* event);
     void processTextInput(const QString& text,
                           Qt::KeyboardModifiers modifiers = Qt::NoModifier);
-    void processMousePress(QMouseEvent* event);
-    void processMouseMove(QMouseEvent* event);
-    void processMouseRelease(QMouseEvent* event);
-    void processWheel(QWheelEvent* event);
+    // 鼠标事件：row/col 为终端单元格坐标（屏幕行，非历史文档行），
+    // 由渲染层用 widgetToScreenCell 换算；row < 0 表示不更新鼠标位置。
+    void processMousePress(QMouseEvent* event, int row, int col);
+    void processMouseMove(QMouseEvent* event, int row, int col);
+    void processMouseRelease(QMouseEvent* event, int row, int col);
+    // 滚轮作为鼠标按键 4/5 上报一次按下+释放；仅在鼠标跟踪开启时由
+    // 渲染层调用。
+    void processWheel(bool up, int row, int col,
+                      Qt::KeyboardModifiers modifiers = Qt::NoModifier);
+    // Alternate Scroll：向备用屏程序发送 count 次 ↑/↓ 光标键。
+    void sendAlternateScroll(bool up, int count);
+    // 解析器侧模式的同步查询（原子缓存，不拿模型锁），供渲染层路由
+    // 滚轮/鼠标事件。
+    [[nodiscard]] NovaTerm::MouseTrackingMode mouseTrackingMode()
+        const noexcept;
+    [[nodiscard]] bool isAlternateScreen() const noexcept;
     void focusIn();
     void focusOut();
     void pasteText(const QString& text);

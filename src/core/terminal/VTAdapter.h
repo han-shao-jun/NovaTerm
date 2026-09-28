@@ -33,6 +33,8 @@ public:
         std::function<void()> bell;                          // BEL 信号
         std::function<void()> scrollbackChanged;             // 滚动历史变更
         std::function<void(int)> screenScrolled;             // 活动屏幕上滚行数
+        std::function<void(bool)> alternateScreenChanged;    // 备用屏进入/退出
+        std::function<void(MouseTrackingMode)> mouseModeChanged; // 鼠标跟踪模式变更
     };
 
     /**
@@ -84,12 +86,16 @@ public:
     void startPaste();  // 通知终端开始括号粘贴模式
     void endPaste();    // 通知终端结束括号粘贴模式
     void mouseButton(int button, bool pressed, int modifiers);
+    // 更新鼠标位置（终端单元格坐标）。libvterm 的按键事件不携带坐标，
+    // 位置只能通过本函数设置；DRAG/MOVE 跟踪模式下还会触发移动上报。
+    void mouseMove(int row, int col, int modifiers);
     void focusIn();
     void focusOut();
 
     CursorState cursor() const;
     std::string title() const;  // UTF-8
     [[nodiscard]] bool alternateScreen() const;
+    [[nodiscard]] MouseTrackingMode mouseMode() const;
 
 private:
     // PImpl 模式隔离 libvterm 头文件依赖。

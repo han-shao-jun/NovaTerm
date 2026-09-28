@@ -614,6 +614,15 @@ QPoint TerminalRenderer::widgetToCell(const QPoint& pos) const
     return QPoint(col, documentRow);
 }
 
+QPoint TerminalRenderer::widgetToScreenCell(const QPoint& pos) const
+{
+    const int col = std::clamp(qFloor(pos.x() / std::max<qreal>(1.0, _cellWidth)),
+                               0, std::max(0, _core->columns() - 1));
+    const int row = std::clamp(qFloor(pos.y() / std::max<qreal>(1.0, _cellHeight)),
+                               0, std::max(0, _core->rows() - 1));
+    return QPoint(col, row);
+}
+
 // ═══════════════════════════════════════════════════════════════════
 //  paintEvent
 // ═══════════════════════════════════════════════════════════════════
@@ -1283,8 +1292,11 @@ void TerminalRenderer::mousePressEvent(QMouseEvent* event)
         _selEnd    = {row, col};
         requestOverlayFrame();
     } else {
-        // Non-selection mouse buttons are encoded by TerminalCore.
-        _core->processMousePress(event);
+        // Non-selection mouse buttons are encoded by TerminalCore. Coordinates
+        // must be screen rows (not scrollback-document rows) — that is what
+        // the terminal mouse protocol reports to the application.
+        const QPoint screenCell = widgetToScreenCell(event->pos());
+        _core->processMousePress(event, screenCell.y(), screenCell.x());
     }
 }
 
@@ -1294,6 +1306,15 @@ void TerminalRenderer::mouseMoveEvent(QMouseEvent* event)
         const QPoint cell = widgetToCell(event->pos());
         _selEnd = {cell.y(), cell.x()};
         requestOverlayFrame();
+        return;
+    }
+    // 仅 DRAG/MOVE 跟踪关心移动事件；CLICK 模式下转发只是徒增命令队列
+    // 噪音（libvterm 内部也不会上报）。无按键拖动由 libvterm 自己过滤。
+    const NovaTerm::MouseTrackingMode mode = _core->mouseTrackingMode();
+    if (mode == NovaTerm::MouseTrackingMode::Drag
+        || mode == NovaTerm::MouseTrackingMode::Move) {
+        const QPoint screenCell = widgetToScreenCell(event->pos());
+        _core->processMouseMove(event, screenCell.y(), screenCell.x());
     }
 }
 
@@ -1307,7 +1328,8 @@ void TerminalRenderer::mouseReleaseEvent(QMouseEvent* event)
         if (hasSelection())
             copySelection();
     } else {
-        _core->processMouseRelease(event);
+        const QPoint screenCell = widgetToScreenCell(event->pos());
+        _core->processMouseRelease(event, screenCell.y(), screenCell.x());
     }
 }
 
@@ -1372,13 +1394,42 @@ void TerminalRenderer::wheelEvent(QWheelEvent* event)
 
     _zoomWheelAccum = 0;
     _wheelAccum += wheelDelta;
-    const int lines = _wheelAccum / 120 * kScrollWheelLines;  // 120 = 标准滚轮单位
-    if (lines != 0) {
-        _wheelAccum -= (lines / kScrollWheelLines) * 120;
-        // 正数 lines：向上滚动（回看历史），增加 _scrollLine
-        // 负数 lines：向下滚动（返回底部），减少 _scrollLine
-        scrollLines(lines);
+    const int notches = _wheelAccum / 120;  // 120 = 标准滚轮单位
+    if (notches == 0) {
+        event->accept();
+        return;
     }
+    _wheelAccum -= notches * 120;
+
+    // 按住 Shift 强制走本地回看 —— 鼠标上报/备用屏滚动期间的逃生口
+    // （xterm 惯例）。
+    const bool shift = event->modifiers().testFlag(Qt::ShiftModifier);
+
+    // VT 鼠标跟踪开启时，滚轮作为按键 4/5 上报给应用（less --mouse、
+    // htop、vim 等自己处理滚动）。
+    if (!shift
+        && _core->mouseTrackingMode() != NovaTerm::MouseTrackingMode::None) {
+        const QPoint screenCell = widgetToScreenCell(event->position().toPoint());
+        for (int n = 0, total = std::abs(notches); n < total; ++n) {
+            _core->processWheel(notches > 0, screenCell.y(), screenCell.x(),
+                                event->modifiers());
+        }
+        event->accept();
+        return;
+    }
+
+    // 备用屏且无鼠标跟踪：Alternate Scroll（Windows Terminal 同款），
+    // 把滚轮映射为 ↑/↓ 光标键，让 less / man 等可以滚动。
+    if (!shift && _core->isAlternateScreen()) {
+        _core->sendAlternateScroll(notches > 0,
+                                   std::abs(notches) * kScrollWheelLines);
+        event->accept();
+        return;
+    }
+
+    // 正数 notches：向上滚动（回看历史），增加 _scrollLine
+    // 负数 notches：向下滚动（返回底部），减少 _scrollLine
+    scrollLines(notches * kScrollWheelLines);
     event->accept();
 }
 

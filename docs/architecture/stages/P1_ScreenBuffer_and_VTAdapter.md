@@ -246,7 +246,8 @@ VTAdapter 统一包装以下 libvterm 输入 API：
 - `writeInput()` 和 `flushDamage()`；
 - `keyboardUnichar()`、`keyboardKey()`；
 - `startPaste()`、`endPaste()`；
-- `mouseButton()`；
+- `mouseButton()`、`mouseMove()`（按键事件不携带坐标，位置只能经
+  `vterm_mouse_move()` 设置，故按键命令执行前必须先更新位置）；
 - `focusIn()`、`focusOut()`；
 - `resize()`；
 - `setDefaultColors()`。

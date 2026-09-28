@@ -72,6 +72,11 @@ private slots:
     void altGrProducesPrintableCharacterNotControlCode();
     void shiftSpaceSendsPlainSpace();
     void altLetterSendsMetaEscapePrefix();
+    void mouseTrackingModeFollowsParserState();
+    void wheelReportsMouseButtonsWithCellCoordinates();
+    void mousePressCarriesCellCoordinates();
+    void mouseMoveReportsPositionInMoveMode();
+    void alternateScrollSendsCursorKeys();
 };
 
 namespace {
@@ -1419,6 +1424,109 @@ void TerminalCoreTests::cursorProbeBeforeAlternateScreenRestoresShellPosition()
         for (int col = 0; col < before.columns; ++col)
             QCOMPARE(after.cellAt(row, col)->chars, before.cellAt(row, col)->chars);
     }
+}
+
+void TerminalCoreTests::mouseTrackingModeFollowsParserState()
+{
+    TerminalCore core(80, 24);
+    QCOMPARE(core.mouseTrackingMode(), NovaTerm::MouseTrackingMode::None);
+    QVERIFY(!core.isAlternateScreen());
+
+    core.writeInput(QByteArrayLiteral("\x1b[?1000h"));
+    QVERIFY(core.waitForIdle());
+    QCOMPARE(core.mouseTrackingMode(), NovaTerm::MouseTrackingMode::Click);
+
+    core.writeInput(QByteArrayLiteral("\x1b[?1003h\x1b[?1049h"));
+    QVERIFY(core.waitForIdle());
+    QCOMPARE(core.mouseTrackingMode(), NovaTerm::MouseTrackingMode::Move);
+    QVERIFY(core.isAlternateScreen());
+
+    core.writeInput(QByteArrayLiteral("\x1b[?1003l\x1b[?1049l"));
+    QVERIFY(core.waitForIdle());
+    QCOMPARE(core.mouseTrackingMode(), NovaTerm::MouseTrackingMode::None);
+    QVERIFY(!core.isAlternateScreen());
+}
+
+void TerminalCoreTests::wheelReportsMouseButtonsWithCellCoordinates()
+{
+    TerminalCore core(80, 24);
+    core.writeInput(QByteArrayLiteral("\x1b[?1000h"));
+    QVERIFY(core.waitForIdle());
+
+    QSignalSpy outputSpy(&core, &TerminalCore::outputData);
+    core.processWheel(true, 4, 9);
+    QVERIFY(core.waitForIdle());
+    QTRY_VERIFY(!outputSpy.isEmpty());
+
+    QByteArray output;
+    for (const auto& arguments : outputSpy)
+        output += arguments.at(0).toByteArray();
+    // X10 编码：按键 4（上滚）press Cb='`'、release Cb='#'；
+    // 坐标为 col+0x21、row+0x21（col=9→'*'、row=4→'%'）。
+    QCOMPARE(output, QByteArrayLiteral("\x1b[M`*%\x1b[M#*%"));
+}
+
+void TerminalCoreTests::mousePressCarriesCellCoordinates()
+{
+    TerminalCore core(80, 24);
+    core.writeInput(QByteArrayLiteral("\x1b[?1000h"));
+    QVERIFY(core.waitForIdle());
+
+    QSignalSpy outputSpy(&core, &TerminalCore::outputData);
+    QMouseEvent press(QEvent::MouseButtonPress, QPointF(30, 15),
+                      QPointF(30, 15), Qt::LeftButton, Qt::LeftButton,
+                      Qt::NoModifier);
+    QMouseEvent release(QEvent::MouseButtonRelease, QPointF(30, 15),
+                        QPointF(30, 15), Qt::LeftButton, Qt::NoButton,
+                        Qt::NoModifier);
+    core.processMousePress(&press, 1, 3);
+    core.processMouseRelease(&release, 1, 3);
+    QVERIFY(core.waitForIdle());
+    QTRY_VERIFY(!outputSpy.isEmpty());
+
+    QByteArray output;
+    for (const auto& arguments : outputSpy)
+        output += arguments.at(0).toByteArray();
+    // 左键 press Cb=' '、release Cb='#'；坐标必须来自事件（col=3→'$'、
+    // row=1→'"'）。旧实现从不调用 vterm_mouse_move，坐标恒为 '!'/' '。
+    QCOMPARE(output, QByteArrayLiteral("\x1b[M $\"\x1b[M#$\""));
+}
+
+void TerminalCoreTests::mouseMoveReportsPositionInMoveMode()
+{
+    TerminalCore core(80, 24);
+    core.writeInput(QByteArrayLiteral("\x1b[?1003h"));
+    QVERIFY(core.waitForIdle());
+
+    QSignalSpy outputSpy(&core, &TerminalCore::outputData);
+    QMouseEvent move(QEvent::MouseMove, QPointF(50, 25), QPointF(50, 25),
+                     Qt::NoButton, Qt::NoButton, Qt::NoModifier);
+    core.processMouseMove(&move, 2, 5);
+    QVERIFY(core.waitForIdle());
+    QTRY_VERIFY(!outputSpy.isEmpty());
+
+    QByteArray output;
+    for (const auto& arguments : outputSpy)
+        output += arguments.at(0).toByteArray();
+    // MOVE 模式无按键移动：button 字段 4-1+0x20=35，Cb=35+0x20='C'；
+    // col=5→'&'、row=2→'#'。
+    QCOMPARE(output, QByteArrayLiteral("\x1b[MC&#"));
+}
+
+void TerminalCoreTests::alternateScrollSendsCursorKeys()
+{
+    TerminalCore core(80, 24);
+    QSignalSpy outputSpy(&core, &TerminalCore::outputData);
+    core.sendAlternateScroll(true, 2);
+    core.sendAlternateScroll(false, 1);
+    QVERIFY(core.waitForIdle());
+    QTRY_VERIFY(!outputSpy.isEmpty());
+
+    QByteArray output;
+    for (const auto& arguments : outputSpy)
+        output += arguments.at(0).toByteArray();
+    // 普通光标键模式（非 application）下 ↑=CSI A、↓=CSI B。
+    QCOMPARE(output, QByteArrayLiteral("\x1b[A\x1b[A\x1b[B"));
 }
 
 QTEST_GUILESS_MAIN(TerminalCoreTests)

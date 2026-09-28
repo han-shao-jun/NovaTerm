@@ -140,6 +140,17 @@ enum class CursorShape : uint8_t
     BarLeft
 };
 
+// 鼠标跟踪模式，对应 xterm 1000/1002/1003 私有模式（libvterm 的
+// VTERM_PROP_MOUSE）。值与 VTermMouseProp 一一对应，但核心层不暴露
+// libvterm 类型，故在此自定义。
+enum class MouseTrackingMode : uint8_t
+{
+    None,   // 不上报鼠标事件
+    Click,  // ?1000h：按下 / 释放
+    Drag,   // ?1002h：按下 / 释放 + 按住拖动
+    Move    // ?1003h：任意移动
+};
+
 // 光标完整状态：位置、形状、可见性、闪烁。由 VTAdapter 维护并通过信号发布。
 struct CursorState
 {
