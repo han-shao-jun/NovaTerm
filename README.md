@@ -50,7 +50,7 @@ Windows平台使用ConPTY实现本地终端，需要Windows 10 1809+版本支持
 首次构建前需先预编译 OpenSSL（一次性，幂等）：
 
 ```bat
-scriptsuild-OpenSSL-thirdparty.bat
+scripts/build-OpenSSL-thirdparty.bat
 ```
 
 该脚本要求 PATH 中有 `perl.exe` 与 `nasm.exe`，产物落在
