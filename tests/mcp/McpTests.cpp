@@ -1323,8 +1323,16 @@ void McpTests::commandRiskPolicyDefaultsToHumanConfirmation()
              RiskDecision::Allow);
     QCOMPARE(policy.classify(QStringLiteral("ls -la")).decision,
              RiskDecision::Allow);
+    // cd 不再是 Allow：run_command 的执行目录是当前 shell 的动态工作目录，免确认的
+    // cd 会静默改变此后所有相对路径命令的语义，而它在终端里只是一行普通回显。
+    // classify 返回 Unknown，服务层按设计把 Unknown 与 Confirm 同样处理为需确认
+    // （McpService::runCommand 的 `risk.decision != Allow` 分支）。
     QCOMPARE(policy.classify(QStringLiteral("cd /tmp")).decision,
-             RiskDecision::Allow);
+             RiskDecision::Unknown);
+    QCOMPARE(policy.classify(QStringLiteral("cd")).decision,
+             RiskDecision::Unknown);
+    QCOMPARE(policy.classify(QStringLiteral("cd ..")).decision,
+             RiskDecision::Unknown);
     QCOMPARE(policy.classify(QStringLiteral("cat /etc/os-release")).decision,
              RiskDecision::Allow);
     QCOMPARE(policy.classify(QStringLiteral("cat /proc/version")).decision,

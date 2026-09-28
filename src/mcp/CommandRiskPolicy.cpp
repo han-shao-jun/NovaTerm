@@ -11,7 +11,7 @@
 #include <utility>
 
 namespace {
-const QString RiskPolicyVersion = QStringLiteral("interactive-risk-v3");
+const QString RiskPolicyVersion = QStringLiteral("interactive-risk-v4");
 
 RiskAssessment assessment(RiskDecision decision, QString reason)
 {
@@ -76,13 +76,13 @@ RiskAssessment CommandRiskPolicy::classify(QStringView command) const
                           QStringLiteral("strict_read_only_template"));
     static const QRegularExpression lowRiskList(
         QStringLiteral(R"(^ls(?:\s+-[lahtrS1]+)?(?:\s+\S+)?$)"));
-    static const QRegularExpression lowRiskChangeDirectory(
-        QStringLiteral(R"(^cd(?:\s+\S+)?$)"));
-    if (lowRiskList.match(normalized).hasMatch()
-        || lowRiskChangeDirectory.match(normalized).hasMatch()) {
+    if (lowRiskList.match(normalized).hasMatch()) {
         return assessment(RiskDecision::Allow,
                           QStringLiteral("simple_low_risk_shell"));
     }
+    // cd 不在 Allow 列表里：run_command 的执行目录是当前交互 shell 的动态工作目录，
+    // 免确认的 cd 会静默改变此后所有相对路径命令的含义，而这条 cd 在终端里只是一行
+    // 普通回显、不进执行记录的原因字段。因此它落到 Unknown -> Confirm。
     if (normalized.startsWith(QStringLiteral("rm "))
         || normalized.startsWith(QStringLiteral("del "))
         || normalized.startsWith(QStringLiteral("mv "))
