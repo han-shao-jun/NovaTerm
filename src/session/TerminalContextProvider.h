@@ -9,19 +9,24 @@
 #include <chrono>
 
 namespace NovaTerm {
-/** @brief 上下文读取是否走 Parser 按需发布的不可变快照。
+/** @brief 上下文读取是否允许退回 Parser 按需发布的不可变快照。
  *
- * 默认启用（P8 §14.2 已完成 A/B 闸门）。仅在需要对比旧 try-read 行为时，把
- * NOVATERM_MCP_PUBLISHED_SNAPSHOT 置 0 显式退回；生产路径不再读该变量做分岔。
- * 集中在此避免 Provider、McpService、McpAccess 三处各自解析同一环境变量。
+ * 默认启用。仅在需要对比旧 try-read 行为时，把该环境变量置 0 显式退回；
+ * 生产路径不再读它做取数分岔。集中在此避免 Provider、McpService、McpAccess
+ * 三处各自解析同一环境变量。
  *
- * @note 变量未设置时 qEnvironmentVariableIntValue 返回 0，因此判据必须把
- * 「未设置」与「显式置 0」区分开，否则默认启用会退化成默认关闭。
+ * @note 判据只接受「未设置」或「可解析且非 0」。qEnvironmentVariableIntValue
+ * 对无法解析的值返回 0，因此 `false` / `off` / 乱码都会静默退回旧路径；方向是
+ * 保守的（退回更严格的纯 try-read），但与「置 0 才退回」的注释不完全一致。
+ * @note 变量名只出现一次：同一表达式里写两遍时，任一处拼错都会因短路或
+ * 解析失败而永久改变默认行为，且不产生任何编译或测试信号。
  */
 [[nodiscard]] inline bool publishedContextSnapshotEnabled()
 {
-    return qEnvironmentVariableIsEmpty("NOVATERM_MCP_PUBLISHED_SNAPSHOT")
-        || qEnvironmentVariableIntValue("NOVATERM_MCP_PUBLISHED_SNAPSHOT") != 0;
+    static constexpr char EnvName[] = "NOVATERM_MCP_PUBLISHED_SNAPSHOT";
+    // 一次读取同时判空与非 0，避免两次环境表查找，也避免名字重复。
+    const QByteArray value = qgetenv(EnvName);
+    return value.isEmpty() || value.toInt() != 0;
 }
 } // namespace NovaTerm
 
@@ -67,13 +72,25 @@ public:
                 acceptState(std::move(*next));
             _capturedAt = std::chrono::system_clock::now();
         } else if (NovaTerm::publishedContextSnapshotEnabled()) {
-            const auto published = _core->requestPublishedTerminalState();
-            if (!published
-                || std::chrono::system_clock::now() - published->capturedAt > MaxPublishAge) {
+            // 传自己的高水位，使发布物的 truncated/增量语义与直接捕获一致；
+            // 固定传 0 会让发布物恒带 truncated，消费方每次都被迫全量重发。
+            const auto published = _core->requestPublishedTerminalState(_historyId);
+            if (!published)
                 return {};
+            // 年龄判据双侧拒绝：system_clock 被 NTP 回拨时年龄为负，只判上界会
+            // 让任意旧发布物通过；负值同样按不可用处理。
+            const auto age = std::chrono::system_clock::now()
+                - published->capturedAt;
+            if (age < std::chrono::seconds(0) || age > MaxPublishAge)
+                return {};
+            // 只接受前进的 revision。发布物是「请求时」的快照，可能落后于上一次
+            // 成功的 try-read；接受更旧的 revision 会走 acceptState 的回退分支清空
+            // 缓存，而 _historyId 不随之归零，缓存无法重建。
+            if (_initialized && published->state.revision <= _state.revision) {
+                // 没有更新可取：沿用既有快照，不伪造 capturedAt。
+                return _snapshot ? _snapshot : std::shared_ptr<const Snapshot>{};
             }
-            if (!_initialized || published->state.revision != _state.revision)
-                acceptState(published->state);
+            acceptState(published->state);
             _capturedAt = published->capturedAt;
         } else {
             return {};

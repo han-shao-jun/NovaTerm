@@ -3,9 +3,10 @@
 > 状态：v0.2 首期只读/固定诊断功能已实现。v0.6 交互协调、风险确认、脚本写入与执行、
 > 双代际 MCP 确认协议和产品授权已进入代码；模块专项及本机回环验收通过。2026-09-28
 > 收口：`read_context` 默认路径改为 try-read 优先 + 发布物兜底（读取饥饿由约 20~26%
-> 有效读取率改善到 92.0%），「允许交互命令」授权真正接线且默认关闭，`cd` 不再判为
-> 低风险。Linux 本机性能闸门已过帧/吞吐/延迟三项，**有效响应率 92.0% 未达 §9.1 的
-> 99%**；真实桌面 Shell/TUI 验收、跨平台与端到端 GUI 帧延迟仍未完成，不以模拟测试代替。
+> 有效读取率改善到 94.2%），「允许交互命令」授权真正接线且默认关闭，`cd` 不再判为
+> 低风险。Linux 本机性能闸门中**响应率（94.2%，未达 §9.1 的 99%）、吞吐、成功 RPC 与
+> 捕获 P95 已测；GUI frame P95 因口径与离散度问题无法判定、仍未闭合**。真实桌面
+> Shell/TUI 验收、跨平台与端到端 GUI 帧延迟亦未完成，不以模拟测试代替。
 > v0.6 交互终端“手”设计：2026-09-24。命令执行统一改为 Session 级交互事务，
 > 通过当前终端字节流输入并在终端 UI 中显示命令与输出；危险命令和所有脚本任务
 > 使用 MCP 人类 elicitation，脚本正文通过按 Profile 声明的文件能力写入目标主机。
@@ -1301,7 +1302,7 @@ SIMD 搜索、全文索引、无界 ring buffer、提高 try-lock 等待时间�
 
 | 指标 | 含义 |
 | --- | --- |
-| `coreCaptureCount` | 实际进入 Core/Provider 捕获的次数 |
+| `coreCaptureCount` | 向 Provider 请求新基础摘要的次数（合并窗内复用不计入；含 try-lock 失败的尝试） |
 | `snapshotPublishCount` | 成功发布新的 PublishedContextSnapshot 次数 |
 | `snapshotReuseCount` | read/search 直接复用已有 snapshot 次数 |
 | `coalescedReadCount` | 合并到已有 capture in-flight 的 read_context 次数 |
@@ -1313,7 +1314,8 @@ SIMD 搜索、全文索引、无界 ring buffer、提高 try-lock 等待时间�
 | `perClientLongestNoSuccessMs` | 每客户端最长拿不到有效上下文的时间，用于发现公平性饥饿 |
 
 理想情况下，在 4 客户端共享同一 session、总读取频率不超过设计预算时，
-`coreCaptureCount/snapshotPublishCount` 应接近“模型实际需要的新发布次数”，而不是接近
+注意 `snapshotPublishCount` 只统计**兜底**路径：try-read 是主路径，只有它失败时才请求发布，
+因此正常负载下该值可能很低。`coreCaptureCount/snapshotPublishCount` 应接近“模型实际需要的新发布次数”，而不是接近
 MCP RPC 次数；客户端数从 1 增加到 4 不应导致 copiedBytes 近似线性放大。
 
 v0.4 的挑战目标可设为：在持续 kernel-build 类高输出正常负载下，保持
@@ -1673,13 +1675,20 @@ SSH bounded exec 适配，以及 `McpService` 去除 SSH 业务层强耦合已�
    **try-read 优先、发布物兜底**：try-read 是非阻塞 try-lock，模型空闲时总能取到最新
    数据，因此是主路径；只在持续输出把模型锁占满、try-read 失败时才用 Parser 发布的
    不可变快照，不再直接返回 Busy。发布物带 2 s 硬性年龄上限，防止解析器停摆后把旧
-   快照当成当前数据。`NOVATERM_MCP_PUBLISHED_SNAPSHOT` 语义反转为「未设置即启用，
-   显式置 0 才退回 try-read」，并集中到 `publishedContextSnapshotEnabled()`，避免三处
-   重复解析。
+   快照当成当前数据（年龄判据双侧拒绝，时钟回拨产生的负值同样按不可用处理），并只
+   接受 revision 前进的发布物。发布请求带调用方的历史行高水位
+   （`requestPublishedTerminalState(sinceLineId)`），使兜底路径的截断/增量语义与直接
+   捕获一致 —— 固定传 0 会让发布物恒带 `truncated`，消费方每次都被迫全量重发。
+   `NOVATERM_MCP_PUBLISHED_SNAPSHOT` 语义反转为「未设置即启用，显式置 0 才退回
+   try-read」，并集中到 `publishedContextSnapshotEnabled()`：变量名只出现一次，避免
+   拼错导致逃生开关永久失效。
 2. **产品授权接线**。`Grant::interactiveCommand` 与 `AccessStore::canRunCommand`
    此前一直存在但从未被 `McpService` 调用，UI 恒传 `false`，`run_command` 全链路只看
    `canRead` —— 没有任何途径拒绝 AI 向当前终端输入。现已在 `runCommand()` 入口、
    `list_sessions` 的 capability 门与 2025 elicitation 恢复路径三处接线。
+   该闸门**只约束 `novaterm_run_command`**：`run_script` 有自己的独立授权位与逐次确认，
+   两项能力在 `list_sessions` 里也各自判定。若一并要求交互命令授权，「只授脚本任务」
+   的合法配置会在脚本正文已落盘之后才失败，并报出错误的错误码。
 3. **`cd` 不再判为低风险**。`run_command` 的执行目录是当前交互 shell 的动态工作目录，
    免确认的 `cd` 会静默改变此后所有相对路径命令的语义，且它在终端里只是一行普通回显、
    不进执行记录。现落到 `Unknown`，服务层按既有设计把 `Unknown` 与 `Confirm` 同样处理
@@ -1689,24 +1698,35 @@ SSH bounded exec 适配，以及 `McpService` 去除 SSH 业务层强耦合已�
 性能闸门（本机 Linux，Release，Xorg + kwin + NVIDIA RTX 4070，xcb + OpenGL，负载与
 SDK 客户端分配到不同 CPU 集 0-3 / 4-27）：
 
-| 项目 | 门槛（§9.1） | 正常负载实测 | 过载实测 |
-| --- | --- | --- | --- |
-| 有效响应率 | ≥99% | **92.0%（162/176）** | 97.8%（307/314） |
-| 成功 RPC P95 | ≤100 ms | 45.9~67.1 ms | 45.1~68.9 ms |
-| GUI 捕获 P95 | ≤2 ms | 0.888~1.284 ms | 0.495~0.992 ms |
-| 终端吞吐下降 | ≤5% | 无下降（16.51 → 17.26 MiB/s） | 3.42%（19.97 → 19.29 MiB/s） |
-| GUI frame P95 增量 | ≤2 ms | **+0.117 ms**（9.573 → 9.690 ms） | +0.088 ms（9.921 → 10.008 ms） |
+| 项目 | 门槛（§9.1） | 正常负载实测 | 过载实测 | 判定 |
+| --- | --- | --- | --- | --- |
+| 有效响应率 | ≥99% | 94.2%（162/172，Busy 3~4） | 98.8%（324/328，Busy 1~2） | **未达标** |
+| 成功 RPC P95 | ≤100 ms | 45.9~67.1 ms | 45.1~68.9 ms | 通过 |
+| GUI 捕获 P95 | ≤2 ms | 0.888~1.284 ms | 0.495~0.992 ms | 通过 |
+| 终端吞吐下降 | ≤5% | 无下降（15.97 → 17.10 MiB/s） | 无下降（17.14 → 19.09 MiB/s） | 通过 |
+| GUI frame P95 增量 | ≤2 ms | **无法判定**（见下） | **无法判定**（见下） | **未闭合** |
 
 对照旧默认路径（纯 try-read）同机实测：正常负载有效读取率只有 20~26%（Busy 39~52），
-过载只有约 14%（Busy 91~111）。发布物兜底把 Busy 降到 3~7 与 2~3。
+过载只有约 14%（Busy 91~111）。发布物兜底把 Busy 降到 3~4 与 1~2。
 
 **必须同时记录的口径与偏差**：
 
-- 帧指标是 `TerminalRenderer::renderStatistics().cpuFrameP95Nanoseconds`，即 `render()`
-  入口到出口的 **CPU 时间**，不是端到端 GUI 帧延迟。`QRhiWidget` 没有 `frameSwapped`
-  信号，端到端口径当前无法测量；§9.1 的「GUI frame P95」在此按 CPU 帧时间口径判定。
-- P50/P95/P99 是最近 2048 帧的**滚动窗口**。本轮每轮帧数 147~917，窗口未填满，
-  故 P95 实际覆盖整轮。
+- **帧指标无法判定门槛，且不得写成通过。** 三条独立原因叠加：
+  1. 口径只是 `render()` 入口到出口的 **CPU 时间**（`cpuFrameP95Nanoseconds`），
+     不含 present/fence、帧间隔与合成器；`QRhiWidget` 没有 `frameSwapped` 信号，
+     端到端 GUI 帧延迟当前测不到。
+  2. P95 取自最近 2048 帧的**滚动窗口**，而本轮每轮只有 120~965 帧，窗口从未填满，
+     P95 实质是「第 9（或第 1）大的那一帧」，抽样误差极大。
+  3. 更关键的是**离散度远大于待测差值**：过载轮 baseline 臂三次为
+     9.185 / **13.059** / 9.060 ms（臂内极差 **3.999 ms**），mcp 臂 9.229 / 9.244 /
+     9.413（极差 0.184 ms）。此前报告的 delta（+0.117 / +0.088 ms）比 baseline 臂
+     自身极差小一个数量级，不具备可辨识性。
+  因此 `performance_check.py` 现在**拒绝输出 delta**：每轮帧数低于
+  `NOVATERM_MCP_PERF_MIN_FRAMES`（默认 1000）时，把 `cpuFrameP95DeltaMs` 置为 null、
+  `cpuFrameP95Reliable=false`，只如实报告两臂原值与极差。**§9.1 的 frame 一项因此仍未
+  闭合，不得表述为「帧门槛已过」。** 要真正闭合需要：把负载拉长到每轮 ≥2048 帧以填满
+  窗口、在 GUI 线程上另量一段含 `readContext` 投影/编码的窗口时间，并增加轮数以压低
+  离散度。
 - 本机 offscreen 平台插件拿不到 QRhi（`QRhiWidget: QRhi is not supported on this
   platform`），必须用 xcb + `QT_WIDGETS_RHI=1` + `NOVATERM_RHI_API=opengl`。因此
   `performance_check.py` 会为夹具子进程设置这三项；常规 ctest 仍保持
@@ -1723,10 +1743,12 @@ SDK 客户端分配到不同 CPU 集 0-3 / 4-27）：
 1. **`run_command` 没有 `commandTicket` 幂等保护**。`execute_command` 有票据 + 至多提交
    一次 + `idempotentHint=true`；`run_command`（≤16 KiB，可含复合 shell、重定向、解释器）
    完全没有，客户端超时重试就是第二次真实执行。本次不修。
-2. **有效响应率未达 ≥99%**（正常负载 92.0%），见上表。
-3. `Grant::confirmedCommand` / `canRunConfirmedCommand` 仍全项目零调用。危险命令的确认
+2. **有效响应率未达 ≥99%**（正常负载 94.2%、过载 98.8%），见上表。
+3. **§9.1 的 GUI frame P95 一项未闭合**，原因与所需补测见上节口径说明。此前写入本节的
+   「帧门槛已过」结论已撤回。
+4. `Grant::confirmedCommand` / `canRunConfirmedCommand` 仍全项目零调用。危险命令的确认
    完全由 MCP 客户端 elicitation 承担，该字段暂为预留，删除它需改动 12 处测试调用点。
-4. 真实桌面 Shell/TUI 验收、跨平台验收与端到端 GUI 帧延迟测量（见上节与 AGENTS.md）。
+5. 真实桌面 Shell/TUI 验收、跨平台验收与端到端 GUI 帧延迟测量（见上节与 AGENTS.md）。
 
 ## 15. v0.6 Session 级交互终端“手”设计（2026-09-24，2026-09-26 修订）
 

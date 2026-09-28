@@ -705,7 +705,13 @@ void McpTests::scriptContentRequiresConfirmationAndNeverEntersTerminal()
     const auto client = service.access().addClient(QStringLiteral("fixture"));
     QVERIFY(service.access().setEnabled(true));
     const auto entry = service.directory().entries().first();
-    QVERIFY(service.access().setGrant(client, entry, true, {}, true, false, true));
+    // 只授「脚本任务」，**不授「交互命令」**：脚本路径必须独立可用。
+    // interactiveCommand=false 是本用例的核心前提；若 run_script 反过来依赖
+    // 交互命令授权，本例会在这里之后失败（脚本正文已落盘却报
+    // COMMAND_PERMISSION_REQUIRED，而不是 SCRIPT_PERMISSION_REQUIRED）。
+    QVERIFY(service.access().setGrant(client, entry, true, {}, false, false, true));
+    QVERIFY(!service.access().canRunCommand(client, entry));
+    QVERIFY(service.access().canRunScriptTask(client, entry));
     QTRY_COMPARE(service.status(), QStringLiteral("Listening"));
     emit transport.readyRead(QByteArrayLiteral("\x1b]633;NT;PROMPT;1;0\x07"));
     QTRY_VERIFY(session.commandCoordinator()->isPromptReady());
@@ -1025,44 +1031,81 @@ void McpTests::commandAndScriptProductGrantsAreIndependent()
 
 void McpTests::readGrantAloneDoesNotAllowInteractiveCommand()
 {
-    // 读取共享只允许读：没有单独授予交互命令时，目录里不能出现 run_command，
-    // 直接调用也必须被产品授权拒绝，且不得向当前终端写入任何字节。
-    Fixture fixture;
-    QVERIFY(fixture.enable());
-    QTRY_COMPARE(fixture.service.status(), QStringLiteral("Listening"));
+    // 读取共享只允许读。fixture 必须是交互可达的后端（SSH + 无提示符
+    // integration），否则 list_sessions 的 interactiveReachable 恒假，
+    // capability 断言与授权无关、恒真。
+    QTemporaryDir root;
+    QVERIFY(root.isValid());
+    RuntimeConfig runtime;
+    runtime.transportKind = TransportKind::Ssh;
+    TerminalSession session(runtime);
+    LocalFake transport;
+    session.attach(&transport, TerminalSession::Ownership::Borrowed,
+                   TransportKind::Ssh);
+    QVERIFY(session.start());
+    QTRY_COMPARE(session.state(), SessionState::Running);
+    Service service(root.filePath(QStringLiteral("state")),
+                    root.filePath(QStringLiteral("instances")),
+                    std::make_unique<MemoryCredentialStore>());
+    service.directory().add(&session);
+    session.commandFacade()->installExecutor(
+        std::make_unique<TestCommandExecutor>(),
+        session.statistics().generation);
+    const auto entry = service.directory().entries().first();
+    const QString client = service.access().addClient(QStringLiteral("readonly"));
+    QVERIFY(!client.isEmpty());
+    QVERIFY(service.access().setEnabled(true));
+    // 只授予读取共享：固定诊断模板与交互命令都不给。
+    QVERIFY(service.access().setGrant(client, entry, true));
+    QVERIFY(!service.access().canRunCommand(client, entry));
+    QTRY_COMPARE(service.status(), QStringLiteral("Listening"));
     Host host;
-    QVERIFY(host.start(fixture.runtime(), fixture.token()));
+    QVERIFY(host.start(root.filePath(QStringLiteral("instances")),
+        service.access().exportToken(client).value_or(QByteArray{}), {}, true));
 
-    const auto listed = host.call("novaterm_list_sessions")
-                            .value("data").toObject()
-                            .value("sessions").toArray().first().toObject();
-    QVERIFY(!listed.value("capabilities").toArray().contains(
-        QStringLiteral("run_command")));
-
-    auto arguments = fixture.identity();
-    arguments.insert(QStringLiteral("command"), QStringLiteral("pwd"));
-    const auto response = host.call("novaterm_run_command", arguments);
-    QCOMPARE(response.value("error").toObject().value("code").toString(),
+    const auto capabilities = [&] {
+        return host.call("novaterm_list_sessions")
+                   .value("data").toObject()
+                   .value("sessions").toArray().first().toObject()
+                   .value("capabilities").toArray();
+    };
+    // 只读授权下不得广告 run_command，也不得写任何字节。
+    QVERIFY(!capabilities().contains(QStringLiteral("run_command")));
+    const auto denied = host.call("novaterm_run_command",
+        QJsonObject{{"sessionId", entry.id}, {"epoch", entry.epoch},
+                    {"command", QStringLiteral("pwd")}});
+    QCOMPARE(denied.value("error").toObject().value("code").toString(),
              QStringLiteral("COMMAND_PERMISSION_REQUIRED"));
-    QVERIFY(fixture.local.written.isEmpty());
+    QVERIFY(transport.written.isEmpty());
 
-    // 单独授予交互命令后，同一个调用必须越过权限闸门、改由 Profile/提示符判定。
-    // 该 fixture 是 LocalShell 隔离后端，因此不会发布 run_command capability，
-    // 断言点放在错误码变化上——这才是证明权限闸门真正接线的证据。
-    // 复用同一份 Entry：授权按 epoch 绑定，每次重新取目录条目可能拿到新 epoch。
-    const auto entry = fixture.service.directory().entries().first();
-    QVERIFY(fixture.service.access().setGrant(fixture.client, entry, true, {}, true));
-    QVERIFY(fixture.service.access().canRunCommand(fixture.client, entry));
-    const auto afterGrant = host.call("novaterm_run_command", arguments);
-    const auto afterCode = afterGrant.value("error").toObject().value("code").toString();
-    QVERIFY2(afterCode != QStringLiteral("COMMAND_PERMISSION_REQUIRED"),
-        qPrintable(QStringLiteral("still blocked by the product grant: %1").arg(afterCode)));
-    QVERIFY(fixture.local.written.isEmpty());
+    // 单独授予交互命令后：capability 出现，且命令**真的**被写进当前终端 ——
+    // 这是权限闸门接线的正面证据，而不是「错误码不等于某个值」这种弱断言。
+    QVERIFY(service.access().setGrant(client, entry, true, {}, true));
+    QVERIFY(service.access().canRunCommand(client, entry));
+    QVERIFY(capabilities().contains(QStringLiteral("run_command")));
+    const int callId = host.begin("novaterm_run_command",
+        QJsonObject{{"sessionId", entry.id}, {"epoch", entry.epoch},
+                    {"command", QStringLiteral("pwd")}});
+    QTRY_VERIFY_WITH_TIMEOUT(transport.written.startsWith(QByteArrayLiteral("pwd;")), 1000);
+    const qsizetype start = transport.written.indexOf(QByteArrayLiteral("NT;END;"));
+    const qsizetype stop = transport.written.indexOf(QByteArrayLiteral(";%d"), start);
+    QVERIFY(start >= 0 && stop > start + 7);
+    const QByteArray nonce = transport.written.mid(start + 7, stop - start - 7);
+    emit transport.readyRead(QByteArrayLiteral("root# ") + transport.written
+        + QByteArrayLiteral("\n/root\n\x1b]633;NT;END;") + nonce
+        + QByteArrayLiteral(";0\x07"));
+    const auto response = host.next();
+    QCOMPARE(response.value("id").toInt(), callId);
+    QVERIFY2(response.value("result").toObject().value("structuredContent")
+        .toObject().value("ok").toBool(), qPrintable(QJsonDocument(response).toJson()));
 
-    // 撤销交互命令授权后必须立刻回到权限拒绝。
-    QVERIFY(fixture.service.access().setGrant(fixture.client, entry, true, {}, false));
-    QCOMPARE(host.call("novaterm_run_command", arguments)
-                 .value("error").toObject().value("code").toString(),
+    // 撤销交互命令授权后必须立刻回到权限拒绝，且不再广告该能力。
+    QVERIFY(service.access().setGrant(client, entry, true, {}, false));
+    QVERIFY(!capabilities().contains(QStringLiteral("run_command")));
+    const auto reDenied = host.call("novaterm_run_command",
+        QJsonObject{{"sessionId", entry.id}, {"epoch", entry.epoch},
+                    {"command", QStringLiteral("pwd")}});
+    QCOMPARE(reDenied.value("error").toObject().value("code").toString(),
              QStringLiteral("COMMAND_PERMISSION_REQUIRED"));
 }
 
@@ -2187,16 +2230,9 @@ void McpTests::settingsDialogSeparatesReadAndScriptPermission()
     tree->topLevelItem(0)->child(0)->setCheckState(3, Qt::Unchecked);
     QTRY_COMPARE(f.service.access().commands(f.client, f.service.directory().entries().first()).size(), 3);
     QTest::qWait(10);
+    // 交互命令列独立于脚本列：此刻脚本列尚未勾选，勾上交互命令不应顺带打开它。
     QVERIFY(!f.service.access().canRunScriptTask(f.client,
         f.service.directory().entries().first()));
-    QVERIFY(clickPermissionCell(4));
-    QTRY_VERIFY(f.service.access().canRunScriptTask(f.client,
-        f.service.directory().entries().first()));
-    QVERIFY(clickPermissionCell(4));
-    QTRY_VERIFY(!f.service.access().canRunScriptTask(f.client,
-        f.service.directory().entries().first()));
-    // 交互命令列独立于脚本列：勾上只开 run_command，不应顺带打开脚本或固定诊断。
-    QVERIFY(!f.service.access().canRunCommand(f.client, f.service.directory().entries().first()));
     QVERIFY(clickPermissionCell(5));
     QTRY_VERIFY(f.service.access().canRunCommand(f.client,
         f.service.directory().entries().first()));
@@ -2205,6 +2241,25 @@ void McpTests::settingsDialogSeparatesReadAndScriptPermission()
     QVERIFY(clickPermissionCell(5));
     QTRY_VERIFY(!f.service.access().canRunCommand(f.client,
         f.service.directory().entries().first()));
+    // 反向：勾上脚本列不应顺带打开交互命令。
+    QVERIFY(clickPermissionCell(4));
+    QTRY_VERIFY(f.service.access().canRunScriptTask(f.client,
+        f.service.directory().entries().first()));
+    QVERIFY(!f.service.access().canRunCommand(f.client,
+        f.service.directory().entries().first()));
+    QVERIFY(clickPermissionCell(4));
+    QTRY_VERIFY(!f.service.access().canRunScriptTask(f.client,
+        f.service.directory().entries().first()));
+    // 取消读取共享的级联必须在两项执行类授权都处于开启时验证，否则断言恒成立。
+    QVERIFY(clickPermissionCell(4));
+    QVERIFY(clickPermissionCell(5));
+    QTRY_VERIFY(f.service.access().canRunScriptTask(f.client,
+        f.service.directory().entries().first()));
+    QTRY_VERIFY(f.service.access().canRunCommand(f.client,
+        f.service.directory().entries().first()));
+    QVERIFY2(tree->topLevelItem(0)->checkState(4) == Qt::Checked
+        && tree->topLevelItem(0)->checkState(5) == Qt::Checked,
+        "precondition: both execution grants are checked before revoking read");
     tree->topLevelItem(0)->setCheckState(2, Qt::Unchecked);
     QTRY_VERIFY(!f.service.access().canRead(f.client, f.service.directory().entries().first()));
     QVERIFY(f.service.access().commands(f.client, f.service.directory().entries().first()).isEmpty());
@@ -2213,6 +2268,9 @@ void McpTests::settingsDialogSeparatesReadAndScriptPermission()
         f.service.directory().entries().first()));
     QVERIFY(!f.service.access().canRunCommand(f.client,
         f.service.directory().entries().first()));
+    // 且复选框在界面上确实被清掉，而不只是存储层返回 false。
+    QCOMPARE(tree->topLevelItem(0)->checkState(4), Qt::Unchecked);
+    QCOMPARE(tree->topLevelItem(0)->checkState(5), Qt::Unchecked);
     QTest::qWait(20);
     const auto preview = qEnvironmentVariable("NOVATERM_MCP_UI_PREVIEW");
     if (!preview.isEmpty()) QVERIFY(dialog->grab().save(preview));

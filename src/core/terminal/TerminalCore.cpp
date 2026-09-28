@@ -611,8 +611,12 @@ public:
             return;
         }
         auto published = std::make_shared<NovaTerm::PublishedTerminalState>();
+        // 按请求方给的水位截断，与直接捕获路径的语义一致；固定用 0 会让
+        // truncated 恒真，消费方只能全量重发（P8 §3.3 增量语义）。
+        const auto sinceLineId =
+            contextSinceLineId.exchange(0, std::memory_order_relaxed);
         published->state = owner->terminalStateLocked(
-            0, NovaTerm::TerminalState::MaxBytes,
+            sinceLineId, NovaTerm::TerminalState::MaxBytes,
             NovaTerm::TerminalState::MaxLines);
         published->capturedAt = std::chrono::system_clock::now();
         std::atomic_store(&publishedContext,
@@ -728,6 +732,9 @@ public:
     std::atomic<bool> stopping{false};
     std::shared_ptr<const NovaTerm::PublishedTerminalState> publishedContext;
     std::atomic<bool> contextRequested{false};
+    // 调用方已消费到的历史行高水位，随发布请求一起带进下一次发布。多次请求
+    // 合并时保留最新值：消费端高水位单调不减，用更新的水位只会更省。
+    std::atomic<u64> contextSinceLineId{0};
     std::atomic<qint64> lastContextRequestNs{0};
     std::atomic<u64> contextRequestCount{0};
     std::atomic<u64> contextPublishCount{0};
@@ -1095,9 +1102,10 @@ std::optional<NovaTerm::u64> TerminalCore::tryModelRevision() const
 }
 
 std::shared_ptr<const NovaTerm::PublishedTerminalState>
-TerminalCore::requestPublishedTerminalState()
+TerminalCore::requestPublishedTerminalState(u64 sinceLineId)
 {
     _runtime->contextRequestCount.fetch_add(1, std::memory_order_relaxed);
+    _runtime->contextSinceLineId.store(sinceLineId, std::memory_order_relaxed);
     const auto current = std::atomic_load(&_runtime->publishedContext);
     if (current)
         _runtime->contextReuseCount.fetch_add(1, std::memory_order_relaxed);

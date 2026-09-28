@@ -848,18 +848,22 @@ public:
                 ? entry.session->commandCoordinator() : nullptr;
             const bool unverifiedSsh = entry.kind == TransportKind::Ssh
                 && coordinator && coordinator->allowsUnverifiedPrompt();
-            if (facade && facade->isAvailable()
+            // 两项能力都以「交互通路可达」为前提，但授权位各自独立：
+            // run_command 看 canRunCommand，run_script 看 canRunScriptTask。
+            const bool interactiveReachable = facade && facade->isAvailable()
                 && !entry.targetFingerprint.isEmpty()
-                && access.canRunCommand(connection.client, entry)
                 && (facade->capabilities().mode
                         == CommandExecutionMode::InteractiveFramed
-                    || unverifiedSsh)) {
+                    || unverifiedSsh);
+            if (interactiveReachable
+                && access.canRunCommand(connection.client, entry)) {
                 capabilities.append("run_command");
-                if (!unverifiedSsh
-                    && access.canRunScriptTask(connection.client, entry)
-                    && entry.session->scriptProvider()
-                    && entry.session->scriptProvider()->isAvailable())
-                    capabilities.append("run_script");
+            }
+            if (interactiveReachable && !unverifiedSsh
+                && access.canRunScriptTask(connection.client, entry)
+                && entry.session->scriptProvider()
+                && entry.session->scriptProvider()->isAvailable()) {
+                capabilities.append("run_script");
             }
             rows.append(QJsonObject{{"sessionId", entry.id}, {"epoch", entry.epoch},
                 {"state", SessionDirectory::stateName(entry.state)}, {"transport", SessionDirectory::transportName(entry.kind)},
@@ -1454,9 +1458,14 @@ public:
                     const SessionDirectory::Entry& entry)
     {
         const auto connection = connections.value(job->connection);
-        // 交互命令是独立于读取共享的产品授权：读取共享只允许读，允许在当前终端
-        // 输入必须单独授予。撤销后重提确认按陈旧处理，避免在途确认续跑。
-        if (!access.canRunCommand(connection.client, entry)) {
+        // 「允许交互命令」只约束 novaterm_run_command。脚本任务有自己的独立授权位
+        // （scriptTask）与逐次人类确认；其调用命令虽然同样会打进当前终端，但那已经
+        // 由「脚本授权 + 每次确认」显式承担。若在这里一并要求交互命令授权，
+        // 「只授脚本任务」的合法配置会在脚本正文已落盘之后才失败，且报出
+        // COMMAND_PERMISSION_REQUIRED 而不是 SCRIPT_PERMISSION_REQUIRED。
+        // novaterm_run_script 走 runScript 入口的 canRunScriptTask 检查。
+        if (job->tool == QStringLiteral("novaterm_run_command")
+            && !access.canRunCommand(connection.client, entry)) {
             complete(job, !job->requestState.isEmpty()
                 ? error("COMMAND_CONFIRMATION_STALE")
                 : error("COMMAND_PERMISSION_REQUIRED"));

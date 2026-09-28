@@ -82,6 +82,8 @@ Windows/Linux LocalShell 固定诊断通过独立 helper 子进程运行。固�
   未授权时 `list_sessions` 不会返回 `run_command` 能力，调用会得到
   `COMMAND_PERMISSION_REQUIRED`。
 - **脚本任务**：允许 `novaterm_run_script`；每次仍须 MCP 客户端中的人类确认。
+  **与「交互命令」相互独立** —— 脚本的调用命令虽然也会打进当前终端，但那由脚本授权
+  加上逐次人类确认承担，不需要另外开启「交互命令」。
 
 取得「交互命令」授权后，普通低风险命令（如 `pwd`、简单 `ls`）无需任何确认；
 `cd` 不属于低风险 —— 它会改变当前 shell 的工作目录，从而改变此后所有相对路径

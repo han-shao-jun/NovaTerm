@@ -124,9 +124,12 @@ public:
         std::size_t maxLines = 256) const;
     /** @brief 非阻塞读取模型版本，供只读门面复用未变化的快照。 */
     [[nodiscard]] std::optional<NovaTerm::u64> tryModelRevision() const;
-    /** @brief 返回最近发布物，并按最多 4 Hz 合并请求 Parser 刷新。 */
+    /** @brief 返回最近发布物，并按最多 4 Hz 合并请求 Parser 刷新。
+     *  @param sinceLineId 调用方已消费到的历史行高水位。发布物按该水位截断，
+     *  与直接捕获路径（Provider 传自己的高水位）语义一致；传 0 表示需要完整
+     *  尾部。固定传 0 会让发布物恒带 truncated，消费方退回全量重发。 */
     [[nodiscard]] std::shared_ptr<const NovaTerm::PublishedTerminalState>
-        requestPublishedTerminalState();
+        requestPublishedTerminalState(NovaTerm::u64 sinceLineId = 0);
     [[nodiscard]] NovaTerm::PublishedContextStatistics
         publishedContextStatistics() const noexcept;
 

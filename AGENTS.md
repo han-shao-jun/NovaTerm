@@ -365,6 +365,13 @@ P3 与 P5 实施完成、部分平台或人工验收待做，P7 计划中。
 仅设置 `VSLANG=1033` 不够，本机只有 2052 中文编译器资源，仍会输出中文前缀。
 已有错误依赖记录的构建目录必须干净重建一次，仅重新配置不够。
 
+**`ssh_loopback_check.py` 的 SFTP 用例在本机 Linux 失败（既有，非回归）**：
+2026-09-29 实测报 `SCRIPT_WRITE_FAILED … SFTP status 8 (Operation unsupported)`，
+四个 loopback 命令用例与交互式 `pwd` 均 PASS，只有 SFTP 写入一项 FAIL。已用
+`git stash` 回到改动前的 HEAD 复测，结果完全相同，故与本轮改动无关。根因未查明，
+疑为 Paramiko `SFTPServer` 夹具未实现 NovaTerm 写入路径用到的某个操作，
+**修夹具前不要把它当成功项**。
+
 **P8 测试不连接用户服务器**：`novaterm_mcp_tests` 使用内存凭据和临时目录；
 可选 `tests/mcp/interop_check.py` 使用官方 2025 SDK 并检查 2026 MRTR wire，
 `ssh_loopback_check.py` 的测试端只监听回环，返回固定命令结果、模拟交互 `pwd` 的

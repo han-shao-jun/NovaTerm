@@ -193,24 +193,48 @@ def main():
             result = run(executable, enabled)
             results.append(result)
             print(json.dumps(result, ensure_ascii=True), flush=True)
-    baseline = statistics.median(r["throughputMiBps"] for r in results if not r["mcpEnabled"])
-    loaded = statistics.median(r["throughputMiBps"] for r in results if r["mcpEnabled"])
-    baseline_frames = statistics.median(r["cpuFrameP95Ns"] for r in results if not r["mcpEnabled"])
-    loaded_frames = statistics.median(r["cpuFrameP95Ns"] for r in results if r["mcpEnabled"])
+    off = [r for r in results if not r["mcpEnabled"]]
+    on = [r for r in results if r["mcpEnabled"]]
+    baseline = statistics.median(r["throughputMiBps"] for r in off)
+    loaded = statistics.median(r["throughputMiBps"] for r in on)
+    baseline_frames = [r["cpuFrameP95Ns"] / 1.0e6 for r in off]
+    loaded_frames = [r["cpuFrameP95Ns"] / 1.0e6 for r in on]
+    spread = lambda xs: (max(xs) - min(xs)) if xs else 0.0
+    # P95 取自渲染器最近 2048 帧的滚动窗口。样本帧数远低于窗口容量时，P95 实质是
+    # 「第 9 大的那一帧」，抽样误差极大；此时 delta 不得作为验收依据，只如实报告
+    # 两臂原值与离散度，让读者自行判断可辨识性（见 P8 §14.2 的口径说明）。
+    min_frames = int(os.environ.get("NOVATERM_MCP_PERF_MIN_FRAMES", "1000"))
+    enough = all(r["framesRendered"] >= min_frames for r in results)
+    frame_delta = (statistics.median(loaded_frames) - statistics.median(baseline_frames)) if enough else None
     summary = {"baselineMedianMiBps": baseline, "mcpMedianMiBps": loaded,
                "throughputDropPercent": (baseline - loaded) / baseline * 100,
-               "baselineCpuFrameP95Ms": baseline_frames / 1.0e6,
-               "mcpCpuFrameP95Ms": loaded_frames / 1.0e6,
-               "cpuFrameP95DeltaMs": (loaded_frames - baseline_frames) / 1.0e6,
+               "baselineCpuFrameP95Ms": statistics.median(baseline_frames),
+               "mcpCpuFrameP95Ms": statistics.median(loaded_frames),
+               "cpuFrameP95DeltaMs": frame_delta,
+               "cpuFrameP95Reliable": enough,
+               "cpuFrameP95Samples": [r["framesRendered"] for r in results],
+               "baselineCpuFrameP95RawMs": baseline_frames,
+               "mcpCpuFrameP95RawMs": loaded_frames,
+               "baselineCpuFrameP95SpreadMs": spread(baseline_frames),
+               "mcpCpuFrameP95SpreadMs": spread(loaded_frames),
+               "minFramesForReliableP95": min_frames,
                "pollIntervalSeconds": POLL_INTERVAL, "clientCount": CLIENT_COUNT,
                "frameMetric": "TerminalRenderer::renderStatistics().cpuFrameP95Nanoseconds"
-                              " (render() CPU time, rolling last 2048 frames)",
+                              " (render() CPU time only, rolling last 2048 frames; does not"
+                              " cover read_context projection/encoding on the GUI thread)",
                "fixtureCpuMask": FIXTURE_MASK, "clientCpuMask": CLIENT_MASK, "runs": results}
     path = ROOT / "build/p8-performance.json"
     path.write_text(json.dumps(summary, indent=2), encoding="utf-8")
     print(f"Median throughput: {baseline:.2f} -> {loaded:.2f} MiB/s; drop {summary['throughputDropPercent']:.2f}%")
-    print(f"Median CPU frame P95: {summary['baselineCpuFrameP95Ms']:.3f} -> "
-          f"{summary['mcpCpuFrameP95Ms']:.3f} ms; delta {summary['cpuFrameP95DeltaMs']:+.3f} ms")
+    print(f"CPU frame P95 raw (ms): baseline {baseline_frames} spread {spread(baseline_frames):.3f}"
+          f" | mcp {loaded_frames} spread {spread(loaded_frames):.3f}")
+    if enough:
+        print(f"Median CPU frame P95: {summary['baselineCpuFrameP95Ms']:.3f} -> "
+              f"{summary['mcpCpuFrameP95Ms']:.3f} ms; delta {summary['cpuFrameP95DeltaMs']:+.3f} ms")
+    else:
+        print("CPU frame P95 delta NOT reported: frames per run "
+              f"{summary['cpuFrameP95Samples']} below the {min_frames}-frame reliability floor; "
+              "P95 is a single order statistic of too few samples to judge a millisecond-scale delta.")
 
 
 if __name__ == "__main__":

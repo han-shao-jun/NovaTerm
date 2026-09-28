@@ -227,10 +227,14 @@ bool AccessStore::setGrant(const QString& clientId, const SessionDirectory::Entr
             Grant{entry.attachmentId, entry.epoch,
                   std::move(commands), interactiveCommand,
                   confirmedCommand, scriptTask});
-        // 授予读取共享后立刻请求一次发布，让第一份摘要尽早形成，避免首个
-        // read_context 只能拿到 Busy。发布是 fire-and-forget：解析器何时完成
-        // 不受保证，读路径在无发布物时另有兜底。
-        if (NovaTerm::publishedContextSnapshotEnabled() && entry.session->core()) {
+        // 授予读取共享后提前排一次发布，**缩短**首批读取拿不到可用快照的窗口，
+        // 但不保证首个 read_context 可用：发布是 fire-and-forget，真正的构造在
+        // 之后的 Parser 线程上，与紧随其后的首个读之间仍有竞态（P8 §14.2 记录的
+        // 剩余 Busy 集中在这一窗口）。因此只在会话确实在运行、且本次是首次授予
+        // 读取时触发，避免只翻转执行类授权的改动白白占用发布请求与计数器。
+        const bool wasShared = canRead(clientId, entry);
+        if (!wasShared && entry.state == SessionState::Running
+            && NovaTerm::publishedContextSnapshotEnabled() && entry.session->core()) {
             static_cast<void>(entry.session->core()->requestPublishedTerminalState());
         }
     }
