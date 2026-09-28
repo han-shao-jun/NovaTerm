@@ -28,7 +28,7 @@
 | P5 Glyph 与 GPU 管线 | 实施完成；Linux Vulkan/OpenGL、Windows D3D11/D3D12 与 30 分钟长稳验收完成（2026-08-02）；macOS Metal、多屏 DPR 与 120/144 Hz 验收待完成 | [P5](stages/P5_Glyph_and_GPU_Pipeline.md) |
 | P6 Session 与 Transport | 进行中：Transport 四种完成，会话编排采用「1 View 拥有 1 Session」已在生产；剩 keyboard-interactive、close 模式、exited→UI、ProfileStore 持久化、contract tests | [P6](stages/P6_Session_and_Transport.md) |
 | P7 系统资源查询 | 已实现为内置功能（常驻监控 2026-09-06、系统信息窗口 2026-09-09）；性能量化验收待补 | [P7](stages/P7_System_Resource_Monitor.md) |
-| P8 AI MCP 接口 | 首期功能已实现；Windows 功能验证通过，跨平台与完整性能验收待完成 | [P8](stages/P8_AI_MCP_Interface.md) |
+| P8 AI MCP 接口 | 首期与 v0.6 交互命令已实现；Linux 本机性能闸门已过（帧/吞吐/延迟），有效响应率 92.0% 未达 99%；跨平台、桌面 Shell 与端到端帧延迟待完成 | [P8](stages/P8_AI_MCP_Interface.md) |
 
 ## 文档权威性
 

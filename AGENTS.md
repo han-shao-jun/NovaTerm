@@ -878,8 +878,13 @@ Windows Terminal 字段解析和旧 `terminal.colors` 迁移，Renderer 不读 J
   不滚动、不走 moverect）。
 - **Task 6/7 亦已完成**：Task 6 的应用级事件过滤实现在下节，其窗口人工验收已由用户完成；
   RelWithDebInfo 全量构建、ASan/UBSan Core、perf 重录对比也都已补齐（见下）。唯一仍未
-  复测的是 GPU 侧 A/B（`contentUploadBytes`、CPU frame P95）：本机 QRhi 在 offscreen/xcb
-  下都拿不到设备。
+  复测的是 GPU 侧 A/B（`contentUploadBytes`、CPU frame P95）。
+  **2026-09-28 更正**：下文「本机 QRhi 拿不到设备」的结论已过期。当前机器有
+  Xorg + kwin + NVIDIA 卡，`novaterm --novaterm-internal-graphics-probe` 返回 0。
+  但**只有 xcb 平台能拿到 RHI**：`QT_QPA_PLATFORM=offscreen` 会报
+  `QRhiWidget: QRhi is not supported on this platform`，即使加
+  `NOVATERM_RHI_API=opengl` 也不行。xcb + `QT_WIDGETS_RHI=1` +
+  `NOVATERM_RHI_API=opengl` 正常（同机 60.03 fps，CPU 帧 P95 2.96 ms）。
 
 **宽字符 `Cell::width` 可能在分批边界失真（既有缺陷，非本轮引入）**：
 `width` 由"右邻格是否为延续标记"推导，只在脏矩形覆盖到该格自身时才刷新。
@@ -906,8 +911,10 @@ Windows Terminal 字段解析和旧 `terminal.colors` 迁移，Renderer 不读 J
   （`-fsanitize=address,undefined`，Debug）跑 `novaterm_core_tests`
   **58/58 通过、无 ASan 报错、无 UBSan runtime error**；Debug 全套 ctest
   8/10（仅剩上表两项本机环境失败）；RelWithDebInfo `novaterm_core_benchmark`
-  20 MiB = 24.40 MiB/s。**当时的未达标项**：perf 重录对比与 GPU 侧 A/B 在本机（无图形会话、QRhi 拿不到设备）
-  无法执行。perf 重录后已由用户在桌面会话补齐（23:08 与 23:26 两次，见下两节）；
+  20 MiB = 24.40 MiB/s。**当时的未达标项**：perf 重录对比与 GPU 侧 A/B 在本机
+  （当时无图形会话、QRhi 拿不到设备）无法执行。perf 重录后已由用户在桌面会话补齐
+  （23:08 与 23:26 两次，见下两节）；图形会话自 2026-09-28 起在本机可用，
+  但 offscreen 平台仍拿不到 RHI，须用 xcb（见上）；
   GPU 侧 A/B（`contentUploadBytes`、CPU frame P95、memmove 占比）仍未复测。
 
 ### Task 5 同机 A/B（2026-09-13，RelWithDebInfo，各 3 次）

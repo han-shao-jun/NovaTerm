@@ -32,7 +32,7 @@ P8 首期依赖 P4/P6 的有界文本与 Session 边界；受限 SSH 命令还�
 | P5 | 实施完成；Linux Vulkan/OpenGL、Windows D3D11/D3D12 与 30 分钟长稳验收完成（2026-08-02）；macOS Metal、多屏 DPR 与 120/144 Hz 验收待完成 | 多页 Atlas、fallback、instancing | CJK/Emoji/DPI 正确且上传增量化 |
 | P6 | 进行中：Transport 四种完成，会话编排采用「1 View 拥有 1 Session」已在生产；剩少量自包含项 | Session（View-owned）、SSH/Serial/Telnet | 每 View 一会话、完整生命周期 |
 | P7 | 已实现为内置功能（常驻监控 2026-09-06、系统信息窗口 2026-09-09）；性能量化验收待补 | SSH 远端资源监控面板、系统信息窗口 | 复用单连接、快慢通道隔离、不反压 Parser |
-| P8 | 首期功能已实现；Windows 功能验证通过，跨平台与完整性能验收待完成 | stdio/本机 IPC、会话发现、输出读取、搜索、命令允许列表与执行 | 分级授权、危险行为拒绝、执行结果/取消/去重、MCP 互操作和性能验收通过 |
+| P8 | 首期与 v0.6 交互命令已实现；Linux 本机性能闸门已过（帧/吞吐/延迟），有效响应率 92.0% 未达 99%；跨平台、桌面 Shell 与端到端帧延迟待完成 | stdio/本机 IPC、会话发现、输出读取、搜索、命令允许列表与执行 | 分级授权、危险行为拒绝、执行结果/取消/去重、MCP 互操作和性能验收通过 |
 
 **P8：AI MCP 接口**采用 Session 只读上下文与独立授权的受限命令能力。
 [P8 设计文档](stages/P8_AI_MCP_Interface.md)已扩展命令允许列表，禁止删除文件、

@@ -1,8 +1,11 @@
 # P8：AI MCP 接口
 
 > 状态：v0.2 首期只读/固定诊断功能已实现。v0.6 交互协调、风险确认、脚本写入与执行、
-> 双代际 MCP 确认协议和产品授权已进入代码；模块专项及本机回环验收通过。真实桌面
-> Shell/TUI 验收、跨平台与完整性能验收仍须单独记录，不以模拟测试代替。
+> 双代际 MCP 确认协议和产品授权已进入代码；模块专项及本机回环验收通过。2026-09-28
+> 收口：`read_context` 默认路径改为 try-read 优先 + 发布物兜底（读取饥饿由约 20~26%
+> 有效读取率改善到 92.0%），「允许交互命令」授权真正接线且默认关闭，`cd` 不再判为
+> 低风险。Linux 本机性能闸门已过帧/吞吐/延迟三项，**有效响应率 92.0% 未达 §9.1 的
+> 99%**；真实桌面 Shell/TUI 验收、跨平台与端到端 GUI 帧延迟仍未完成，不以模拟测试代替。
 > v0.6 交互终端“手”设计：2026-09-24。命令执行统一改为 Session 级交互事务，
 > 通过当前终端字节流输入并在终端 UI 中显示命令与输出；危险命令和所有脚本任务
 > 使用 MCP 人类 elicitation，脚本正文通过按 Profile 声明的文件能力写入目标主机。
@@ -14,7 +17,7 @@
 > v0.3 设计优化：2026-09-18。协议演进、持续高输出读取、平台 Profile、搜索结果可用性与性能验收语义继续保留。
 > §14.1 记录 v0.2–v0.5 历史实现基线；§14.2 记录 v0.6 已实现与已验证事实。真实桌面、跨平台和性能验收缺口不得写成“已通过”。
 > 初稿日期：2026-09-16；v0.2 修订：2026-09-17；v0.3/v0.4 修订：2026-09-18；v0.5 修订：2026-09-19；v0.6 修订：2026-09-24。
-> 当前代码版本：NovaTerm `0.2.30`；Git 基线 `7abdb71`，Task 6–8 实施改动仍在工作树。
+> 当前代码版本：NovaTerm `0.2.39`；Git 基线 `7116e84`，工作树与本文件同步。
 > 读者：NovaTerm 开发者、MCP 接入开发者和接口评审者。
 > 范围：会话发现、终端输出读取、搜索、覆盖全部 Session 类型的交互命令执行，
 > 以及 SSH/LocalShell 按能力声明的目标主机脚本生成与执行。
@@ -93,14 +96,15 @@ Session 门面层；具体 Executor 可以调用 Transport 专有接口，也可
 
 ## 2. 当前已有能力与待补缺口
 
-以下是设计时 `8030dc0` 基线的能力与所需补齐项；当前实施进度见 §14。
+以下是设计时 `8030dc0` 基线的能力与所需补齐项；当前实施进度见 §14。下表的「局限或
+前置工作」列描述的是当时状态，其中读取饥饿一项已在 2026-09-28 收口，见 §14.2。
 
 | 当前入口 | 可以复用 | 局限或前置工作 |
 | --- | --- | --- |
 | `TerminalSession::id/state/statistics` | UUID、状态、连接 generation | 调用属于 Session 所在线程；不能在 IPC 线程直接解引用 QObject |
 | `TerminalView::session()` | 获取该 View 持有的 Session | 会话集合由 `TerminalPage` 私有维护，尚无进程级发现目录 |
 | `TerminalSession::terminalContext()` | 按需创建 Provider、返回独立值对象 | 当前无远程授权和协议适配；不能把方法直接注册成工具 |
-| `TerminalCore::terminalState()` | 模型锁内读取解析后 UTF-8、光标、标题、屏幕模式和有界文本 | v0.2 已补 try-read；持续高输出实测会出现读取饥饿，v0.3 需评估按需发布的不可变快照，不能靠延长锁等待换成功率 |
+| `TerminalCore::terminalState()` | 模型锁内读取解析后 UTF-8、光标、标题、屏幕模式和有界文本 | v0.2 已补 try-read；持续高输出曾出现读取饥饿，**2026-09-28 已用「try-read 优先 + 发布物兜底」收口**，有效读取率由约 20~26% 提升到 92.0%，全程未延长锁等待 |
 | `TerminalContextProvider` | 过滤 CR 进度、重复完成行、spinner；支持 sinceRevision | 缓存条目记录采样时的 Core revision，不是独立日志序号；返回截断后不能直接推进 revision |
 | `TerminalStateCache` | 每会话最多 256 KiB / 1024 条摘要，窗口内相同文本去重 | 重复的真实日志也可能被省略；缓存淘汰和模式切换会要求重置 |
 | `SearchEngine` | 对 ScrollbackSnapshot 异步搜索 | 新搜索会取消旧 generation；不能复用 UI 的搜索实例承接 MCP 请求 |
@@ -254,9 +258,9 @@ PublishedContextSnapshot (immutable, bounded)
 - **不可变发布**：发布后只读，以 revision/generation 识别；消费者只拿值对象或共享只读内存，不持有 Core 内部可变容器的裸引用。
 - **保留时间语义**：`capturedAt` 表示底层快照真正形成的时间。复用旧快照时不得把 RPC 响应时间伪装成新的 capturedAt。
 - **允许有界陈旧，不允许伪装新鲜**：若最新 revision 正在写，可返回最近已发布且仍属于同 epoch 的快照；授权撤销、epoch 改变、resetForReuse 或模式重置立即使旧发布物失效。
-- **try-read 仍可保留**：在没有可用发布快照、首次读取或调试模式下可尝试直接捕获；失败后返回 Busy，不延长 GUI 锁等待。
+- **try-read 是主路径，发布物是兜底**：try-read 为非阻塞 try-lock，模型空闲时总能取到最新数据；只有持续输出把模型锁占满、try-read 失败时才用发布快照，避免把「有结果」退化成长期返回旧数据。发布物带硬性年龄上限。两条路径都不延长 GUI 锁等待；都失败才返回 Busy。
 - **不能复制完整历史**：发布对象仍受 256 KiB / 1024 行等硬上限约束，recentOutput 的摘要/淘汰语义不变。
-- **性能闸门**：只有在正常负载成功率、终端吞吐和 GUI frame P95 同时达到 §11 指标时才允许默认启用。
+- **性能闸门**：只有在正常负载成功率、终端吞吐和 GUI frame P95 同时达到 §9.1 指标时才允许默认启用。2026-09-28 已按 CPU 帧时间口径完成并转为默认路径，帧与吞吐门槛通过、有效响应率 92.0% 未达 ≥99%，详见 §14.2。
 
 ## 4. 接入方式与本机 IPC
 
@@ -521,28 +525,34 @@ Executing
 #### 5.4.4 CommandPlatformProfile
 
 固定绝对路径和参数是 Isolated 执行的安全边界；Interactive 执行还需要固定命令语法
-与 framing。v0.5 将 `CommandPlatformProfile` 扩展为跨 Session 类型的可信配置：
+与 framing。
 
-```text
-linux-coreutils-v1
-linux-busybox-v1
-windows-local-v1
-serial-linux-posix-v1
-serial-busybox-v1
-serial-uboot-v1
-telnet-posix-v1
-custom-<vendor>-v1
-```
+**v0.6 实现已把这两种语义拆成两套正交的 Profile**，本节原先把二者混为一谈：
 
-Profile 可以定义：
+| 维度 | 类型 | 内容 |
+| --- | --- | --- |
+| 隔离执行能力 | `CommandPlatformProfile`（`src/session/CommandPlatformProfile.h`） | 实际只剩 `version` + `supportedCommandIds`：该后端支持哪些语义 commandId。绝对路径/argv、helper 位置由各 Executor 的实现固定 |
+| 交互执行能力 | `InteractiveCommandProfile` + `SessionCommandCoordinator`（`src/session/`） | Shell integration、提示符判据、换行字节、回显、BEGIN/END framing、退出状态语义、取消协议与脚本能力声明 |
 
-- 支持的 Transport/Executor 模式；
-- commandId → 固定 recipe；
-- Isolated 的绝对 executable/argv、最小环境和可信工作目录策略；
-- Interactive 的 line ending、BEGIN/END marker 规则、退出状态解析、最大 frame；
-- 命令就绪判据和 Profile 可接受的 prompt/状态；
-- 是否存在可靠 exitCode、可靠 termination、输出是否独立；
-- 超时/取消策略以及是否允许任何固定控制序列。
+当前代码里 `CommandPlatformProfile` 的实际取值（`CommandPlatformProfile.cpp`）：
+
+| Profile | Transport | 语义 commandId 集合 | 执行模式 |
+| --- | --- | --- | --- |
+| `linux-diagnostics-v2` | SSH | `diagnosticCommands()` | Isolated（独立 exec channel） |
+| `windows-local-v1` | LocalShell（Windows） | `diagnosticCommands()` | Isolated（`novaterm-local-diag` helper） |
+| `linux-local-v1` | LocalShell（Linux） | `diagnosticCommands()` | Isolated（同一 helper） |
+| `ssh-interactive-v1` | SSH | `diagnosticCommands()` | InteractiveFramed（仅显式选择 shellKind 时） |
+| `local-interactive-v1` | LocalShell | `diagnosticCommands()` | InteractiveFramed |
+| `serial-interactive-v1` | Serial | **空集** | InteractiveFramed |
+| `telnet-interactive-v1` | Telnet | **空集** | InteractiveFramed |
+
+Serial/Telnet 的 Profile 版本存在只表示交互通路已声明，**不提供任何固定诊断模板**，
+因此 `list_commands` 对它们返回空 `commands` 与 `executionEnabled=false`；要支持它们
+的固定诊断需要另外评审设备 CLI 的等价命令。macOS LocalShell 目前没有 Profile。
+
+原先列出的 `linux-coreutils-v1` / `linux-busybox-v1` / `serial-linux-posix-v1` /
+`serial-busybox-v1` / `serial-uboot-v1` / `telnet-posix-v1` / `custom-<vendor>-v1`
+是设计占位，**尚未在代码中落地**，不得据此认为这些平台已支持。
 
 Profile **不能**通过 PATH 搜索、`command -v`、终端标题、模型推理或 MCP 请求动态生成。
 平台探测若未来需要执行远端命令，必须作为单独受限能力评审，不能在
@@ -949,7 +959,7 @@ CommandExecution 继续保持当前字段集合，避免破坏 schema v1：
 | BUSY | 模型忙、请求限流或队列满；带 retryAfterMs，禁止内部无界排队 |
 | DEADLINE_EXCEEDED | 服务端超时，保证不继续提交新工作 |
 | RESPONSE_TOO_LARGE | 序列化结果超过线缆上限；返回小错误对象，不能截断 JSON |
-| COMMAND_PERMISSION_REQUIRED | 读取授权存在但没有命令执行授权 |
+| COMMAND_PERMISSION_REQUIRED | 读取授权存在但没有命令执行授权；交互命令未单独授权时同样使用该码 |
 | COMMAND_NOT_ALLOWED | 模板、参数行为或权限集合不允许；不能提示确认后绕过 |
 | COMMAND_PROFILE_UNAVAILABLE | 已知 Session 类型没有可信 CommandPlatformProfile/Executor；不自动猜测 shell 或降级为自由输入 |
 | SESSION_COMMAND_NOT_READY | InteractiveFramed 当前无法确认安全命令提示符/事务起点；不发送试探字符 |
@@ -1474,8 +1484,9 @@ stdout/stderr、退出码和进程终止证据返回结果；不向当前 PTY/Co
   quarantine 但允许用户核对后解除，避免执行记录永久停在 running 并耗尽 128 条上限。
 - Core 已加入按真实读取需求、最多 4 Hz 合并的不可变 `PublishedTerminalState` 候选路径；
   Parser 在稳定提交点发布 shared snapshot，Provider 保留真实 capturedAt 且不再重复消费
-  旧 history line。该路径当前仅由 `NOVATERM_MCP_PUBLISHED_SNAPSHOT=1` 测试开关启用；
-  在正常负载、过载和 GUI frame P95 的 A/B 闸门完成前不作为默认路径。
+  旧 history line。**本段记录 2026-09-22 当时的候选状态**；该路径已于 2026-09-28
+  完成闸门并转为默认取数路径，`NOVATERM_MCP_PUBLISHED_SNAPSHOT` 语义已反转为
+  「未设置即启用、显式置 0 才退回 try-read」。现状与新数据见 §14.2「2026-09-28 收口」。
 
 2026-09-22 候选路径过载 A/B（四客户端各 10 Hz、64 MiB、三轮）显示吞吐中位数
 `27.93 → 27.99 MiB/s`（无下降），capture P95 为 0.807～0.848 ms；成功读取分别
@@ -1488,7 +1499,7 @@ stdout/stderr、退出码和进程终止证据返回结果；不向当前 PTY/Co
 45.10～48.77 ms，capture P95 为 0.986～1.011 ms，吞吐中位数
 `29.01 → 29.08 MiB/s`（无下降）。每轮仅 8 次 Core publish 服务 40 次请求，
 coalescedReadCount=27；snapshotAge P95 为 1.78～2.08 s。正常负载功能与吞吐门槛
-已通过，但真实 GUI frame P95 仍无设备级证据，因此候选路径继续保持显式测试开关。
+已通过。当时真实 GUI frame P95 仍无设备级证据，因此候选路径保持显式测试开关；该缺口已于 2026-09-28 以 CPU 帧时间口径补齐，见 §14.2。
 - 基础摘要缓存与增量筛选不共享客户端进度。截断时 nextToken 为空；语义不是完整日志。
 - 多实例的接入配置通过版本校验与文件监听同步；令牌存取仅在用户管理客户端时
   触碰凭据库，协议认证只核对摘要。总开关关闭时清除本次授权，即使保存失败也先撤销内存访问。
@@ -1594,6 +1605,13 @@ v0.4/v0.5 性能实施建议顺序（与全会话命令执行可并行推进）�
 > 本节保留 v0.5 实施基线。v0.6 已选择统一的 Session 级交互命令协调器，后续
 > 实施顺序和完成定义改以 §15.10 为准；不得继续把 v0.5 的 isolated-only 目标
 > 当成最终架构。
+>
+> 2026-09-28 校对：下条第 2、3 条已被 v0.6 覆盖，不再是缺口 —— Interactive
+> framing/ready-state 由 `InteractiveCommandProfile` + `SessionCommandCoordinator`
+> 承担（不再是 `CommandPlatformProfile` 的职责，见 §5.4.4），`SessionCommandLease`
+> 已由 `SessionInputArbiter` 的单 Lease + 用户抢占实现。Serial/Telnet 确实有
+> InteractiveFramed Profile，但 commandId 集合为空、fixture 与 contract tests
+> 仍缺。SSH 的 Profile 现为 `linux-diagnostics-v2`。
 
 通用 `CommandExecutionRequest/Result/Outcome`、`SessionCommandFacade`、Executor 接口、
 SSH bounded exec 适配，以及 `McpService` 去除 SSH 业务层强耦合已经完成并由
@@ -1601,9 +1619,8 @@ SSH bounded exec 适配，以及 `McpService` 去除 SSH 业务层强耦合已�
 “已实现”列表：
 
 1. 补齐 macOS LocalShell 独立进程 Executor；Linux LocalShell 固定诊断已通过本机自动化测试，桌面人工验收仍待完成；
-2. 扩展 `CommandPlatformProfile` 的 Interactive framing/ready-state 定义；当前仅有
-   `linux-diagnostics-v1` SSH 与 `windows-local-v1` Isolated Profile；
-3. 实现 `SessionCommandLease` 和 Serial/Telnet InteractiveFramed fixture；
+2. ~~扩展 `CommandPlatformProfile` 的 Interactive framing/ready-state 定义~~ — **已由 v0.6 覆盖**，改为 `InteractiveCommandProfile` + `SessionCommandCoordinator`（§5.4.4）；
+3. 实现 `SessionCommandLease` 和 Serial/Telnet InteractiveFramed fixture — **Lease 部分已由 v0.6 覆盖**；Serial/Telnet 的 InteractiveFramed **fixture 与 contract tests 仍缺**，其 Profile 的 commandId 集合当前为空；
 4. Custom 只通过显式 Executor 注册加入能力，不设置隐式默认行为；
 5. 补齐 Serial/Telnet/Custom 的命令目录、错误码和 UI 风险提示；保持现有五工具和 schemaVersion=1；
 6. 跑 SSH 回归 + Linux/macOS Local + Serial/Telnet contract tests 后，才能把 §14 状态改成全会话已支持。
@@ -1613,14 +1630,19 @@ SSH bounded exec 适配，以及 `McpService` 去除 SSH 业务层强耦合已�
 
 用户接入步骤见 [MCP 使用说明](../../MCP_Usage.md)。
 
-### 14.2 v0.6 当前实现与验收记录（2026-09-26）
+### 14.2 v0.6 当前实现与验收记录（2026-09-26，2026-09-28 增量）
 
 2026-09-27 增量：Linux LocalShell 的固定诊断接入独立 helper 和
 `linux-local-v1` Profile，复用现有有界 Executor；四个只读 commandId 通过
 `novaterm_mcp_tests` 的 helper、授权、GUI 勾选和独立执行检查。
 真实 Linux 桌面人工验收仍待补充。
 
-以下内容是当前 `0.2.30` 工作树中已经进入代码的实现，不将尚未做的桌面人工验收、
+2026-09-28 增量（三批收口，见下文「2026-09-28 收口」小节）：
+`read_context` 默认取数路径改为 try-read 优先、发布物兜底；补齐 §9.1 的 CPU 帧
+指标并把 Published 路径转为默认；「允许交互命令」产品授权真正接线且默认关闭；
+`cd` 不再判为低风险。
+
+以下内容是当前 `0.2.39` 工作树中已经进入代码的实现，不将尚未做的桌面人工验收、
 跨平台验收或性能闸门宣称为完成。
 
 | 能力 | 当前实现 |
@@ -1629,7 +1651,7 @@ SSH bounded exec 适配，以及 `McpService` 去除 SSH 业务层强耦合已�
 | 交互输入/输出 | `InteractiveStreamFramer` 在进入 `TerminalCore` 前隐藏内部结束标记及普通 SSH/POSIX 命令附带的完成片段；`SessionCommandCoordinator` 用有界分块、单次 Lease 和输出预算收尾。配置了可信 Profile 的会话继续使用 ready prompt；未配置 Shell integration 的 SSH 会话可在没有提示符证据时直接写入当前终端，依靠命令末尾的 nonce/退出码标记证明完成。此模式无法可靠排除 TUI、密码提示或未提交用户输入，缺少完成证据时返回不确定结果。 |
 | 人类确认 | MCP 2025-11-25 使用 `ElicitationBroker` 的反向 `elicitation/create`；MCP 2026-07-28 使用现代 `server/discover`、逐请求 `_meta`、`resultType=input_required` 与 MRTR `requestState/inputResponses`。缺少表单 Elicitation 时，Confirm/Unknown 命令和所有脚本均返回 `CLIENT_CONFIRMATION_UNAVAILABLE`，不降级到工具参数里的自报布尔值。 |
 | 一次性状态 | MRTR 状态由当前本机 IPC 会话密钥 MAC 签名，绑定客户端身份、Session/epoch、目标指纹、Profile/风险策略、权限代际、命令或完整脚本请求摘要及过期时间；可信 Profile 绑定提示符代际，无提示符 SSH 命令额外绑定用户输入代际。服务端再次核验并消费一次性 nonce。权限撤销、重放、正文/路径篡改或状态变化均拒绝继续。 |
-| 产品授权 | AccessStore/UI 保留读取共享、逐项固定诊断和脚本任务授权。已共享会话的普通低风险命令无需额外执行开关；Confirm/Unknown 命令只通过 MCP 客户端人类确认继续。脚本仍需独立脚本授权，且每次确认。确认是提交授权，不能保证接受后的命令没有破坏性。 |
+| 产品授权 | AccessStore/UI 有四项独立授权：读取共享、逐项固定诊断、脚本任务、**交互命令**。读取共享只允许读，**不蕴含向当前终端输入的权限**；`run_command` 需单独授予「交互命令」，默认关闭。未授权时 `list_sessions` 不发布 `run_command` capability，直接调用报 `COMMAND_PERMISSION_REQUIRED`（重提确认且已撤销时报 `COMMAND_CONFIRMATION_STALE`）。已授予交互命令后，普通低风险命令无需客户端确认，Confirm/Unknown 命令仍只通过 MCP 客户端人类确认继续。脚本仍需独立脚本授权，且每次确认。确认是提交授权，不能保证接受后的命令没有破坏性。 |
 | 脚本目标文件 | LocalShell 用 `QSaveFile` 原子写入明确目标并设为仅属主可读写执行；SSH 用独立 SFTP 字节上传，单次与排队正文总量最多 2 MiB，并绑定活动 SSH endpoint/account/secret、known_hosts 路径及已验证主机密钥指纹。父目录必须存在；确认后可覆盖目标，脚本文件保留且不自动删除。 |
 | 脚本调用 | 高危脚本/命令扫描到凭据读取、关闭安全机制、提权或格式化等已知行为时永久拒绝；其余脚本一律确认。写入成功后再次验证 Session、epoch、授权、Profile、提示符、目标与正文摘要，再通过协调器在当前终端显示/执行 invocation。正文不进入终端 UI；用户输入、写入失败或状态变化不会提交后续调用命令。 |
 
@@ -1642,6 +1664,69 @@ SSH bounded exec 适配，以及 `McpService` 去除 SSH 业务层强耦合已�
 - `novaterm_ssh_transport_check.exe` Transport/Profile/协议专项通过。
 
 仍未完成的验收：真实 SSH Shell 的回显过滤、TUI/密码提示误输入风险及 Windows 桌面 PowerShell/Clink 人工场景；Linux/macOS PTY shell 人工场景；命令运行期间 GUI frame P95 和现有性能预算复测。完整 CTest 状态应以本轮最终验证记录为准。
+
+#### 2026-09-28 收口
+
+三批改动的代码事实：
+
+1. **`read_context` 默认取数路径**。`TerminalContextProvider::trySnapshot()` 改为
+   **try-read 优先、发布物兜底**：try-read 是非阻塞 try-lock，模型空闲时总能取到最新
+   数据，因此是主路径；只在持续输出把模型锁占满、try-read 失败时才用 Parser 发布的
+   不可变快照，不再直接返回 Busy。发布物带 2 s 硬性年龄上限，防止解析器停摆后把旧
+   快照当成当前数据。`NOVATERM_MCP_PUBLISHED_SNAPSHOT` 语义反转为「未设置即启用，
+   显式置 0 才退回 try-read」，并集中到 `publishedContextSnapshotEnabled()`，避免三处
+   重复解析。
+2. **产品授权接线**。`Grant::interactiveCommand` 与 `AccessStore::canRunCommand`
+   此前一直存在但从未被 `McpService` 调用，UI 恒传 `false`，`run_command` 全链路只看
+   `canRead` —— 没有任何途径拒绝 AI 向当前终端输入。现已在 `runCommand()` 入口、
+   `list_sessions` 的 capability 门与 2025 elicitation 恢复路径三处接线。
+3. **`cd` 不再判为低风险**。`run_command` 的执行目录是当前交互 shell 的动态工作目录，
+   免确认的 `cd` 会静默改变此后所有相对路径命令的语义，且它在终端里只是一行普通回显、
+   不进执行记录。现落到 `Unknown`，服务层按既有设计把 `Unknown` 与 `Confirm` 同样处理
+   为需客户端确认。`RiskPolicyVersion` 升到 `interactive-risk-v4`，使旧的 Allow 分类
+   无法被重放。
+
+性能闸门（本机 Linux，Release，Xorg + kwin + NVIDIA RTX 4070，xcb + OpenGL，负载与
+SDK 客户端分配到不同 CPU 集 0-3 / 4-27）：
+
+| 项目 | 门槛（§9.1） | 正常负载实测 | 过载实测 |
+| --- | --- | --- | --- |
+| 有效响应率 | ≥99% | **92.0%（162/176）** | 97.8%（307/314） |
+| 成功 RPC P95 | ≤100 ms | 45.9~67.1 ms | 45.1~68.9 ms |
+| GUI 捕获 P95 | ≤2 ms | 0.888~1.284 ms | 0.495~0.992 ms |
+| 终端吞吐下降 | ≤5% | 无下降（16.51 → 17.26 MiB/s） | 3.42%（19.97 → 19.29 MiB/s） |
+| GUI frame P95 增量 | ≤2 ms | **+0.117 ms**（9.573 → 9.690 ms） | +0.088 ms（9.921 → 10.008 ms） |
+
+对照旧默认路径（纯 try-read）同机实测：正常负载有效读取率只有 20~26%（Busy 39~52），
+过载只有约 14%（Busy 91~111）。发布物兜底把 Busy 降到 3~7 与 2~3。
+
+**必须同时记录的口径与偏差**：
+
+- 帧指标是 `TerminalRenderer::renderStatistics().cpuFrameP95Nanoseconds`，即 `render()`
+  入口到出口的 **CPU 时间**，不是端到端 GUI 帧延迟。`QRhiWidget` 没有 `frameSwapped`
+  信号，端到端口径当前无法测量；§9.1 的「GUI frame P95」在此按 CPU 帧时间口径判定。
+- P50/P95/P99 是最近 2048 帧的**滚动窗口**。本轮每轮帧数 147~917，窗口未填满，
+  故 P95 实际覆盖整轮。
+- 本机 offscreen 平台插件拿不到 QRhi（`QRhiWidget: QRhi is not supported on this
+  platform`），必须用 xcb + `QT_WIDGETS_RHI=1` + `NOVATERM_RHI_API=opengl`。因此
+  `performance_check.py` 会为夹具子进程设置这三项；常规 ctest 仍保持
+  `QT_QPA_PLATFORM=offscreen`，因为渲染器只在 `--perf-*` 路径实例化。夹具在拿不到设备
+  时以退出码 3、负载期间零帧时以退出码 4 失败，不把「零帧」当成 0 ms 的好成绩。
+- **有效响应率 92.0% 未达 §9.1 的 ≥99% 目标，是本次未闭合项**，不得写成性能验收通过。
+  剩余 Busy 集中在首批读取（此时尚无发布物可兜底）。
+
+本轮验证：`novaterm_mcp_tests` 48/48；本机全套 ctest 11/11 通过（27.96 s）。未跑
+`novaterm_terminal_session_tests`（Windows-only，本机构建无此目标）。
+
+#### 剩余缺口（2026-09-28）
+
+1. **`run_command` 没有 `commandTicket` 幂等保护**。`execute_command` 有票据 + 至多提交
+   一次 + `idempotentHint=true`；`run_command`（≤16 KiB，可含复合 shell、重定向、解释器）
+   完全没有，客户端超时重试就是第二次真实执行。本次不修。
+2. **有效响应率未达 ≥99%**（正常负载 92.0%），见上表。
+3. `Grant::confirmedCommand` / `canRunConfirmedCommand` 仍全项目零调用。危险命令的确认
+   完全由 MCP 客户端 elicitation 承担，该字段暂为预留，删除它需改动 12 处测试调用点。
+4. 真实桌面 Shell/TUI 验收、跨平台验收与端到端 GUI 帧延迟测量（见上节与 AGENTS.md）。
 
 ## 15. v0.6 Session 级交互终端“手”设计（2026-09-24，2026-09-26 修订）
 
@@ -1657,6 +1742,7 @@ v0.6 的目标是让 MCP 在经过授权和风险控制后，像用户在当前�
 | 决策 | v0.6 方案 |
 | --- | --- |
 | 普通命令 | 通过当前 Session 的交互字节流输入；命令和正常输出进入 TerminalCore 与 UI |
+| 产品授权 | 向当前终端输入命令是**独立于读取共享的授权项**（`Grant::interactiveCommand`），默认关闭。读取共享只允许读；未授权时 `list_sessions` 不发布 `run_command`，调用报 `COMMAND_PERMISSION_REQUIRED` |
 | 覆盖范围 | SSH、LocalShell、Serial、Telnet；Custom 仅在显式注册可信 Profile 后加入 |
 | 提示符前置条件 | 可信 Profile 可用时继续按提示符状态执行；未配置 Shell integration 的 SSH/POSIX 普通命令不以提示符为门槛，直接写入当前终端并等待命令内的结束标记 |
 | SSH/LocalShell 就绪来源 | 已配置的 Shell integration 提供可信隐藏标记；无提示符 SSH 模式只提供命令结束证据，不能证明写入位置是空闲 Shell |
@@ -1783,8 +1869,9 @@ SSH 会话仍保留独立 exec 通道，Windows/Linux LocalShell 仍保留本地
 所有脚本任务无条件要求人类确认，确认前不得在目标主机落盘。
 
 `novaterm_list_sessions.capabilities` 按已共享会话、可用执行通路和客户端能力发布
-`run_command`、`run_script`、`human_confirmation`。低风险普通命令无需额外的
-交互命令授权；危险或无法分类的命令必须由 MCP 客户端 elicitation 取得人类确认。
+`run_command`、`run_script`、`human_confirmation`。**`run_command` 还要求该接入配置对
+该会话单独获得「交互命令」授权**（默认关闭，读取共享不蕴含该权限）；危险或无法分类的
+命令仍必须由 MCP 客户端 elicitation 取得人类确认。
 脚本仍需独立授权及逐次确认，固定诊断模板的旧授权保持兼容。
 
 ### 15.5 风险分析与人类 elicitation
@@ -1793,7 +1880,7 @@ SSH 会话仍保留独立 exec 通道，Windows/Linux LocalShell 仍保留本地
 
 | 结果 | 行为 |
 | --- | --- |
-| `Allow` | 已识别的低风险命令可直接进入 Session/Lease 检查；包括 `pwd`、简单 `ls`/`cd` 和明确的非敏感系统文件读取 |
+| `Allow` | 已识别的低风险命令可直接进入 Session/Lease 检查；包括 `pwd`、简单 `ls` 和明确的非敏感系统文件读取。**不含 `cd`**：执行目录是当前 shell 的动态工作目录，免确认的 `cd` 会静默改变此后所有相对路径命令的语义 |
 | `Confirm` | 文件修改/删除、安装、网络或系统配置变化、复合 Shell、解释器等需人类确认 |
 | `Deny` | 已知凭据读取、关闭安全机制、提权、格式化磁盘等永久拒绝 |
 | `Unknown` | 无法可靠分类；按 Confirm 处理，不得降级为 Allow |
