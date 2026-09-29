@@ -26,9 +26,10 @@ GPU 管线，UI 用 ElaWidgetTools（FluentUI 风格）。GPLv2+，仓库在 Git
 
 ## 构建与测试
 
-环境要求以 `CMakeLists.txt` 为准，**`README.md` 的描述已过期**：实际需要
-Qt **6.8**（README 写 6.5）、`CMAKE_CXX_STANDARD` 是 **17**（README 写 C++20）、
-CMake 3.20+。
+环境要求以 `CMakeLists.txt` 为准：`cmake_minimum_required(VERSION 3.20)`、
+`find_package(Qt6 6.8 REQUIRED ...)`、`set(CMAKE_CXX_STANDARD 17)`。
+`README.md` 的「环境要求」一节已与这三处对齐（2026-09 复核）；它对
+**测试**一节的描述仍不完整，见下方「跑测试」。
 
 Qt 前缀**硬编码**在 `CMakeLists.txt:14-23` 按宿主平台分支，不是通过
 `CMAKE_PREFIX_PATH` 传入：
@@ -56,11 +57,14 @@ cmd /c "call \"C:\Program Files (x86)\Microsoft Visual Studio\18\BuildTools\VC\A
 
 ### 跑测试
 
-**默认只跑与改动相关的测试目标，不要跑全套。** 全套 9 项实测约 **190 秒**，
-其中 `novaterm_conpty_tests` 单项 94s、`novaterm_terminal_session_tests` 46s、
-`novaterm_core_tests` 30s；而多数改动只需要其中一两项、几秒就跑完。
+**默认只跑与改动相关的测试目标，不要跑全套。** 全套耗时**按平台不同**（见下方
+「默认注册了哪些测试」）：Windows 12 项、Linux 11 项。Windows 全套实测约
+**190 秒**，其中 `novaterm_conpty_tests` 单项 94s、`novaterm_terminal_session_tests`
+46s、`novaterm_core_tests` 30s；而多数改动只需要其中一两项、几秒就跑完。
 
 ```bash
+# 下面是 Windows（Git Bash / MSYS）的前提。Linux 见本节末尾的
+# 「Linux 上的 ctest 没有这些 Windows 前提」
 # 测试可执行文件需要 Qt bin 在 PATH（build/bin 只有 windeployqt 部署的
 # NovaTerm 运行时，缺 Qt6Test.dll）
 PATH="C:/Programs/Qt/6.8.3/msvc2022_64/bin:$PATH"
@@ -81,24 +85,69 @@ ctest --test-dir build -C Debug
 
 `-C Debug` 不能省：上面的 cmake 命令不传 `-G`，默认落到 Visual Studio 多配置
 生成器，不带 `-C` 时每个测试都报 "Test not available without configuration"
-并整体失败。
+并整体失败（count 数也见下方清单）。
 
 #### 改哪测哪
 
-| 改动位置 | 跑这个 | label | 耗时 |
+| 改动位置 | 跑这个 | label | 平台 | 耗时 |
+| --- | --- | --- | --- | --- |
+| `src/core/terminal/`（TerminalCore、ScreenBuffer、VTAdapter、ScrollbackBuffer、BoundedByteQueue、KeyMapper）—— 后三者经 `TerminalCore.h` 传递覆盖；KeyMapper 有专项单测 | `novaterm_core_tests` | `core` | 全部 | ~30s |
+| `src/core/scrollback/`、`src/core/search/` | `novaterm_scrollback_tests` | `scrollback` | 全部 | <1s |
+| `src/session/`、`src/profile/`、`src/credential/` | `novaterm_session_tests` | `session`／`p6` | 全部 | <1s |
+| `src/renderer/` 的 RenderCommandBuffer / RenderScheduler / TerminalRenderer | `novaterm_renderer_tests` | `renderer` | 全部 | ~2s |
+| `src/renderer/` 的 RowBlockDamageTracker / ScrollDamageHandoff / TerminalHighlighting、`src/session/SerialHighlightRules` | `novaterm_renderer_p5_tests` | `p5` | 全部 | <1s |
+| `src/transport/LocalShellTransport` 与 ConPty 路径 | `novaterm_conpty_tests`（Win）／`novaterm_pty_tests`（Linux） | `conpty`／`pty` | 互斥，见下注 | ~94s |
+| `src/transport/SshTransport`、`SshMonitorProtocol` | `novaterm_ssh_transport_check`（失败路径 + 监控帧协议） | `ssh` | 全部 | <1s |
+| `src/transport/TelnetTransport` | `novaterm_telnet_transport_tests` | `telnet` | 全部 | ~5s |
+| `src/mcp/`、`tools/novaterm-mcp/`、`SessionDirectory`、`McpSettingsDialog`、Session ScriptProvider/SFTP | `novaterm_mcp_tests`（有界协议、分项授权、2025/2026 确认、取消/重放、交互命令、脚本写入及 UI） | `mcp`／`p8` | 全部 | ~10s |
+| TerminalSession + TerminalRenderer + LocalShellTransport 的联通路径 | `novaterm_terminal_session_tests` | `terminal-session` | **仅 Win32** | ~46s |
+| `TerminalTabWidget` 的连接动作/紧凑标题、`SystemInformationDialog` 的滚动范围/布局与 app bar 关闭按钮、`SshHostKeyDialog` 的 Ela 控件与端点标题 | `novaterm_ui_dialog_layout_tests` | `ui` | 全部 | <1s |
+| `src/ui/`、`src/platform/`、`src/service/` | **无覆盖测试** —— 编译通过 + 实跑程序看效果即可（`KeyMapper` 已移出此列，现由 `novaterm_core_tests` 覆盖） | — | — | — |
+
+**平台列不是装饰**：`novaterm_pty_tests` 只在
+`if(CMAKE_SYSTEM_NAME STREQUAL "Linux")` 里注册（macOS/BSD 无 PTY 集成测试），
+而 `novaterm_conpty_tests` 与 `novaterm_terminal_session_tests` 都嵌套在
+`tests/CMakeLists.txt:319` 起的 `if(WIN32)` 块内 —— **Linux 上
+`novaterm_terminal_session_tests` 根本不构建**，那 46s 的联通路径覆盖在 Linux
+工作树上无对应物，别把"跑过了"写进提交消息。
+
+#### 默认注册了哪些测试
+
+以 `tests/CMakeLists.txt` 为准（2026-09 复核）。两个开关的默认值都要注意：
+`include(CTest)` 让 `BUILD_TESTING` 默认 **ON**，而
+`option(NOVATERM_BUILD_BENCHMARKS ... ON)`（`tests/CMakeLists.txt:10`）默认
+**也是 ON** —— 后者不是"可选的 benchmark 工具"，它底下**注册了一项 CTest 测试**。
+
+`BUILD_TESTING=ON` 时的全量清单：
+
+| 测试 | 注册条件 | LABELS | TIMEOUT |
 | --- | --- | --- | --- |
-| `src/core/terminal/`（TerminalCore、ScreenBuffer、VTAdapter、ScrollbackBuffer、BoundedByteQueue、KeyMapper）—— 后三者经 `TerminalCore.h` 传递覆盖；KeyMapper 有专项单测 | `novaterm_core_tests` | `core` | ~30s |
-| `src/core/scrollback/`、`src/core/search/` | `novaterm_scrollback_tests` | `scrollback` | <1s |
-| `src/session/`、`src/profile/`、`src/credential/` | `novaterm_session_tests` | `session`／`p6` | <1s |
-| `src/renderer/` 的 RenderCommandBuffer / RenderScheduler / TerminalRenderer | `novaterm_renderer_tests` | `renderer` | ~2s |
-| `src/renderer/` 的 RowBlockDamageTracker / ScrollDamageHandoff / TerminalHighlighting、`src/session/SerialHighlightRules` | `novaterm_renderer_p5_tests` | `p5` | <1s |
-| `src/transport/LocalShellTransport` 与 ConPty 路径 | `novaterm_conpty_tests`(Win)／`novaterm_pty_tests`(Unix) | `conpty` | ~94s |
-| `src/transport/SshTransport`、`SshMonitorProtocol` | `novaterm_ssh_transport_check`（失败路径 + 监控帧协议） | `ssh` | <1s |
-| `src/transport/TelnetTransport` | `novaterm_telnet_transport_tests` | `telnet` | ~5s |
-| `src/mcp/`、`tools/novaterm-mcp/`、`SessionDirectory`、`McpSettingsDialog`、Session ScriptProvider/SFTP | `novaterm_mcp_tests`（有界协议、分项授权、2025/2026 确认、取消/重放、交互命令、脚本写入及 UI） | `mcp`／`p8` | ~10s |
-| TerminalSession + TerminalRenderer + LocalShellTransport 的联通路径 | `novaterm_terminal_session_tests` | `terminal-session` | ~46s |
-| `TerminalTabWidget` 的连接动作/紧凑标题、`SystemInformationDialog` 的滚动范围/布局与 app bar 关闭按钮、`SshHostKeyDialog` 的 Ela 控件与端点标题 | `novaterm_ui_dialog_layout_tests` | `ui` | <1s |
-| `src/ui/`、`src/platform/`、`src/service/` | **无覆盖测试** —— 编译通过 + 实跑程序看效果即可（`KeyMapper` 已移出此列，现由 `novaterm_core_tests` 覆盖） | — | — |
+| `novaterm_mcp_tests` | 无条件 | `mcp;p8` | 120 |
+| `novaterm_core_tests` | 无条件 | `unit;core` | 60 |
+| `novaterm_scrollback_tests` | 无条件 | `unit;core;scrollback` | 60 |
+| `novaterm_session_tests` | 无条件 | `unit;session;p6` | 60 |
+| `novaterm_renderer_tests` | 无条件 | `unit;renderer` | 60 |
+| `novaterm_renderer_p5_tests` | 无条件 | `unit;renderer;p5` | 60 |
+| `novaterm_telnet_transport_tests` | 无条件 | `transport;telnet` | 60 |
+| `novaterm_ssh_transport_check` | 无条件 | `transport;ssh` | 30 |
+| `novaterm_ui_dialog_layout_tests` | 无条件 | `ui` | 30 |
+| `novaterm_scrollback_tailfrom_scale` | `NOVATERM_BUILD_BENCHMARKS`（**默认 ON**） | `scrollback;perf` | — |
+| `novaterm_pty_tests` | `CMAKE_SYSTEM_NAME STREQUAL "Linux"` | `integration;pty;linux` | 30 |
+| `novaterm_conpty_tests` | `WIN32` | `integration;conpty` | 120 |
+| `novaterm_terminal_session_tests` | `WIN32` | `integration;terminal-session` | 120 |
+
+**Linux 默认 11 项、Windows 默认 12 项**（9 无条件 + 1 缩放护栏 + 1 平台项）。
+`-L core` 命中两项（`unit;core` 与 `unit;core;scrollback`），这是有意的。
+`mcp`／`renderer`／`p5`／`ui` 四项设了
+`ENVIRONMENT QT_QPA_PLATFORM=offscreen`。
+
+`novaterm_scrollback_tailfrom_scale` 不是普通单元测试，而是带 PASS/FAIL 判据的
+缩放护栏（跑 `novaterm_scrollback_benchmark --tailfrom-scale`，比值判据、与机器
+速度无关），几秒跑完、跑一次全量 ctest 时会顺带执行。
+
+唯一**默认不注册**的 CTest 项是 `novaterm_renderer_p5_gpu_acceptance`
+（需 `NOVATERM_BUILD_BENCHMARKS` **且** `-DNOVATERM_RUN_GPU_ACCEPTANCE_TESTS=ON`）。
+数测试项时别用"九项"这种记忆里的数字，直接 `ctest --test-dir build -N` 数。
 
 SSH 资源监控另有不注册到 ctest 的
 `novaterm_ssh_monitor_integration_check`：它读取 AppData 中唯一的 SSH 历史会话
@@ -117,9 +166,10 @@ SSH 资源监控另有不注册到 ctest 的
 属预期，不是失败。
 
 上表 UI 覆盖的例外有两处：`TerminalView` 启动、尺寸传递与生命周期已由
-`novaterm_terminal_session_tests` 的 `TerminalSessionSmokeTests.cpp` 覆盖；
+`novaterm_terminal_session_tests` 的 `TerminalSessionSmokeTests.cpp` 覆盖
+（**Win32 独占**；Linux 上这条只能靠编译 + 实跑）；
 终端标签动作、系统信息对话框的滚动范围/app bar 关闭按钮与 SSH 主机密钥对话框由
-`novaterm_ui_dialog_layout_tests` 覆盖（offscreen 运行）；前者断言
+`novaterm_ui_dialog_layout_tests` 覆盖（offscreen 运行，全平台可用）；前者断言
 连接动作/紧凑标题，系统信息断言"内容高度 == max(视口, heightForWidth)"与
 "滚到底内容底边贴视口底"，防
 "能滚进空白页"回归，后者断言 Ela 控件类型与变更主机端点标题。关闭按钮那条
@@ -135,7 +185,8 @@ use-after-free 稳定复现（否则释放内存内容未变，可能碰巧不�
 
 #### 什么时候才跑全套
 
-只有这几种情况值得付那 190 秒，此外一律按上表挑：
+只有这几种情况值得付那 190 秒（Windows 全套实测；Linux 上因缺 conpty 与
+terminal-session 两项而短得多），此外一律按上表挑：
 
 - 改了各模块共用的地基，且动到**接口或数据布局**：
   `core/terminal/TerminalTypes.h`、`ScreenBuffer`、
@@ -145,24 +196,34 @@ use-after-free 稳定复现（否则释放内存内容未变，可能碰巧不�
 - 合并他人分支之后。
 
 单纯的 UI 改动、注释与文档改动、单模块内的局部修复都不在其中 —— 那些情况下
-跑全套只是在等 190 秒，不会多发现任何东西。
+跑全套只是在等那 190 秒（Linux 上短得多），不会多发现任何东西。
 
-**测试可执行文件是 WIN32 子系统程序，stdout 不接管道** —— 从 Git Bash 直接跑
-它们会看到"零输出、退出码非零"，ctest 的 `LastTest.log` 里同样是空的。要看
-断言详情用 QTest 自带的文件输出：
+**测试可执行文件是 WIN32 子系统程序，stdout 不接管道（Windows 才有这个坑）** ——
+从 Git Bash 直接跑它们会看到"零输出、退出码非零"，ctest 的 `LastTest.log` 里同样
+是空的。要看断言详情用 QTest 自带的文件输出：
 
 ```bash
 ./build/bin/Debug/novaterm_renderer_tests.exe -o D:/qt/NovaTerm/build/rt.txt,txt
 grep -E "FAIL!|Totals" build/rt.txt
 ```
 
-**不要给全套 ctest 设 `QT_QPA_PLATFORM=offscreen`** —— `novaterm_terminal_session_tests`
-会初始化 D3D11，offscreen 下直接崩（`0xc0000409`）。
+**不要给全套 ctest 设 `QT_QPA_PLATFORM=offscreen`（仅 Windows 需注意）** ——
+`novaterm_terminal_session_tests` 会初始化 D3D11，offscreen 下直接崩
+（`0xc0000409`）。四项自带 `ENVIRONMENT QT_QPA_PLATFORM=offscreen` 的测试由
+CMake 各自设置，不要在命令行再全局覆盖。
 
-默认注册到 ctest 的测试即上表九项。另有不注册的人工
+默认注册到 ctest 的测试数见上方「默认注册了哪些测试」。另有不注册的人工
 `novaterm_ssh_monitor_integration_check`；
 `novaterm_renderer_p5_gpu_acceptance` 也默认不注册，需
 `-DNOVATERM_RUN_GPU_ACCEPTANCE_TESTS=ON`。
+
+**Linux 上的 ctest 没有这些 Windows 前提**：单配置 Ninja/Makefile 生成器下
+`-C Debug` 可省（带上也不报错），可执行文件不是 WIN32 子系统、stdout 直接可见，
+Qt bin 与 plugins 从 `/home/super/Qt/6.8.3/gcc_64/` 取（用
+`QT_PLUGIN_PATH=/home/super/Qt/6.8.3/gcc_64/plugins`），且 Linux 无
+`novaterm_conpty_tests` 与 `novaterm_terminal_session_tests`。可直接
+`ctest --test-dir build --output-on-failure`，或 `cmake --build build --target check`
+（`tests/CMakeLists.txt:34` 那个 target 会自动带上 `--build-config`）。
 
 SSH 可选本机验收：Linux 上显式运行
 `build/Release/bin/novaterm_ssh_transport_check --local-ssh-check`。
@@ -179,7 +240,7 @@ SSH 可选本机验收：Linux 上显式运行
 | `novaterm_conpty_tests` 的 `duplexLoadAndBackpressure`、`latestResizeWins` | 偶发；`duplex` 是 20s 超时，`latestResize` 偶尔拿到旧尺寸。未查明 |
 | `novaterm_pty_tests`（Linux 本机） | 环境相关：PTY 子进程未按预期启动 —— `defaultWorkingDirectoryIsHome`、`workingDirectoryAndMergedEnvironmentReachChild` 拿不到子进程输出，`connected.wait(5000)` 超时，退出码收到 `0xFFFFFFFF`。在 `git stash` 掉全部 `src/` 改动后重建的未修改工作树上同样失败，非回归 |
 | `novaterm_ui_dialog_layout_tests`（Linux 本机） | 环境相关：offscreen + 本机 Ela/字体度量下 `1100x760` 一档的滚动上限断言不符（`scrollMax=344` vs `expectedMax=250`），另两档尺寸通过。同样在未修改工作树上复现，非回归 |
-| `novaterm_mcp_tests`、`novaterm_renderer_tests`、`novaterm_renderer_p5_tests`、`novaterm_ui_dialog_layout_tests`（liurui 的 Windows 工作机，2026-09-27 实测） | 全部以 `0xc0000409`（fail-fast）崩溃、零 stdout；conpty 整项 Failed（exit 4、92s）。在**改动前**与改动后各跑两轮、且 conpty 用原始代码 A/B 复测，失败集合与退出码完全一致——机器相关，非回归，未查明根因（刷新 Machine+User PATH 无效）。该机器上跑全套时以"其余 7 项通过"为绿灯标准 |
+| `novaterm_mcp_tests`、`novaterm_renderer_tests`、`novaterm_renderer_p5_tests`、`novaterm_ui_dialog_layout_tests`（liurui 的 Windows 工作机，2026-09-27 实测） | 全部以 `0xc0000409`（fail-fast）崩溃、零 stdout；conpty 整项 Failed（exit 4、92s）。在**改动前**与改动后各跑两轮、且 conpty 用原始代码 A/B 复测，失败集合与退出码完全一致——机器相关，非回归，未查明根因（刷新 Machine+User PATH 无效）。该机器上跑全套时以「除上述失败项外全部通过」为绿灯标准（按当前注册的 12 项算即 7 项通过；本条原先写的"其余 7 项"与当时记的"9 项"和现在的 12 项对不上，已改为不写死数字，以 `ctest -N` 的实际输出为准） |
 
 ## 不可违背的架构约束
 
@@ -917,7 +978,9 @@ Windows Terminal 字段解析和旧 `terminal.colors` 迁移，Renderer 不读 J
 - **Task 7 回归状态**：RelWithDebInfo 全量构建通过；ASan+UBSan 构建
   （`-fsanitize=address,undefined`，Debug）跑 `novaterm_core_tests`
   **58/58 通过、无 ASan 报错、无 UBSan runtime error**；Debug 全套 ctest
-  8/10（仅剩上表两项本机环境失败）；RelWithDebInfo `novaterm_core_benchmark`
+  8/10（**当时的** Linux 注册集，仅剩上表两项本机环境失败；此后
+  `novaterm_scrollback_tailfrom_scale` 被加入默认注册，见「默认注册了哪些测试」，
+  今天的 Linux 全集是 11 项）；RelWithDebInfo `novaterm_core_benchmark`
   20 MiB = 24.40 MiB/s。**当时的未达标项**：perf 重录对比与 GPU 侧 A/B 在本机
   （当时无图形会话、QRhi 拿不到设备）无法执行。perf 重录后已由用户在桌面会话补齐
   （23:08 与 23:26 两次，见下两节）；图形会话自 2026-09-28 起在本机可用，
@@ -1121,7 +1184,8 @@ QString 堆分配（热路径）、TerminalRenderer `_fm` 裸指针 delete/new �
 ### 验证记录
 
 - 构建 OK（/Wall /WX 严格警告全过）；全套 ctest 两轮：同样 5 个本机
-  既有失败，其余 7 项通过，零回归。
+  既有失败，其余项全部通过，零回归（失败项与通过项数见「已知测试失败」表，
+  那张表是权威来源；本条原先写的"其余 7 项"与当时的注册数也对不上）。
 - P2 吞吐基准 **20.46 MiB/s ≥ 20 目标**（本机历史基线 ~19，无下降）。
 - scrollback 基准：100000 行摄入 49.5 万行/s；Budget respected PASS。
 - 空闲 RSS 改前 168.1 / 改后 168.4 MB——第一档不动空闲基线（诚实记录：

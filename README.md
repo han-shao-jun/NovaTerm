@@ -156,21 +156,45 @@ NovaTerm/
 Linux 可用 `novaterm_ssh_transport_check --local-ssh-check` 显式启动隔离本机
 SSH 验收（需要 sshd、ssh-keygen、ninja 和 c++；不修改用户 SSH 信任文件）。
 
-项目包含完整的单元测试和集成测试：
+项目包含完整的单元测试和集成测试。默认注册到 CTest 的测试按平台不同：
+**Windows 12 项、Linux 11 项**（`novaterm_conpty_tests` 与
+`novaterm_terminal_session_tests` 仅 Windows，`novaterm_pty_tests` 仅 Linux）。
 
 ```bash
 # 运行所有测试
-ctest
+ctest --test-dir build --output-on-failure
 
 # 运行特定测试（用 ctest 注册名，不是 QTest 类名）
-ctest -R novaterm_core_tests
-ctest -R novaterm_scrollback_tests
-ctest -R novaterm_renderer_tests
+ctest --test-dir build -R novaterm_core_tests
+ctest --test-dir build -R novaterm_scrollback_tests
+ctest --test-dir build -R novaterm_renderer_tests
+
+# 按标签批量挑（标签见 tests/CMakeLists.txt）
+ctest --test-dir build -L core
 ```
 
-Windows 上运行测试需要 Qt 的 `bin` 目录在 PATH 中（构建输出目录只部署了
-应用自身的运行时，不含 `Qt6Test.dll`）；渲染相关测试还需要
-`QT_PLUGIN_PATH` 指向 Qt 的 `plugins` 目录。
+用 Visual Studio 生成器（多配置）时必须带 `-C`，否则每个测试都会报
+"Test not available without configuration"：
+
+```bash
+ctest --test-dir build -C Debug --output-on-failure
+```
+
+也可以用封装好的 target，它会自动带上正确的 `--build-config`：
+
+```bash
+cmake --build build --target check
+```
+
+环境前提：
+
+- Windows 上运行测试需要 Qt 的 `bin` 目录在 PATH 中（构建输出目录只部署了
+  应用自身的运行时，不含 `Qt6Test.dll`）；依赖 offscreen 平台的渲染测试还需要
+  `QT_PLUGIN_PATH` 指向 Qt 的 `plugins` 目录。
+- `novaterm_session_tests` 会在 Linux/BSD 上读写真实密钥环
+  （freedesktop Secret Service）；没有 `org.freedesktop.secrets` 时相关用例
+  自动 `QSKIP`，属预期而非失败。
+- 已知的、与本机环境相关的失败项见 `AGENTS.md` 的「已知测试失败」。
 
 ## 许可证
 
