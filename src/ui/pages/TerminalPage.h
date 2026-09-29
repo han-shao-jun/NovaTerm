@@ -109,4 +109,11 @@ private:
     TerminalTabWidget* _tabWidget{nullptr};
     QList<TerminalView*> _terminalViews;
     QHash<TerminalView*, SessionEditSnapshot> _sessionEditSnapshots;
+    /**
+     * @brief 析构已开始，期间不得再触碰 _tabWidget。
+     * @note  控件销毁顺序是 _tabWidget 先拆（连带 deleteLater 的
+     *        TerminalView），而视图析构里的 session 关闭还会发信号回到本页；
+     *        那时 _tabWidget 已不可用，`indexOf()` 直接段错误。
+     */
+    bool _shuttingDown{false};
 };

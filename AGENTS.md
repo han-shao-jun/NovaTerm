@@ -700,6 +700,48 @@ base 指针。主题切换只改 QPalette，不动 style。
 拿它算比例）；服务端 `fstat` 返回 0 时比例算不出来，`updateTransferProgress()`
 退化为 `setRange(0, 0)` 的忙碌指示器，而不是把条钉死在 0%。
 
+**`QObject::disconnect` 的两种"全断"写法都是静默无效的**（2026-09-30 踩坑）：
+成员函数里不加限定写 `disconnect(view, nullptr, this, nullptr)`，成员重载隐含
+"发送者是 this"，语义与"断开 view 的一切"不同；而想图省事写
+`QObject::disconnect(nullptr, nullptr, this, nullptr)`（"断开所有以 this 为接收者
+的连接"），本 Qt 版本对 **functor 连接返回 false，一条都不断**（打印返回值确认）。
+要断 functor 连接只能**逐个显式列出信号**。两种错误写法症状与"完全没写"一模一样。
+
+**`TerminalPage` 析构必须按"发送者"逐个断开，不是只断视图**（2026-09-30 崩溃
+修复，core 栈顶 `QStackedWidget::indexOf`）：控件销毁顺序是 `_tabWidget` 先拆
+（连带其 TerminalView），而 `~TerminalView` 会调 `detachTransport()` →
+`session->close()`，途中发出两处信号回到本页：
+
+- `TerminalSession::stateChanged/connected/disconnected` → `updateTerminalTabConnectionAction()`
+- `ITransport::disconnected`（`SshTransport::disconnect()` 直接发，GUI 线程非队列）
+  → `&TerminalPage::emitCurrentSessionContext`
+
+此刻 `_tabWidget` 已进析构，`indexOf()` 直接段错误；第二条则让 Qt 的
+`assertObjectType` 发现"类析构已跑完"而 abort。**两者同一个病：连接活得比它引用的
+东西久**（AGENTS.md 的内存审查一节已把 `SessionPanel` 右侧菜单的同类 UAF 修过一次，
+这里是同一家族的第二处）。所以 `~TerminalPage` 要对每个存活视图断**视图 + 会话 +
+传输层**三个来源，并保留 `_shuttingDown` 标志兜底 —— 逐个列举必然有遗漏，而拆控件
+期间回到本页的任何路径都应当无事发生。`registerTerminalView` 里的
+`workingDirectoryReported/RequestFailed` 只发 MainWindow 侧信号，不碰 `_tabWidget`。
+
+**退出期崩溃的复现/验收命令**（不需要 SSH —— `TerminalPage` 会自动起一个本地
+shell 就足以触发，offscreen 平台可用）：
+
+```bash
+# 修复前：Thread 1 received signal SIGSEGV，栈顶 QStackedWidget::indexOf
+# 修复后：[Inferior 1 (process …) exited normally]
+gdb -q -batch -ex "set pagination off" -ex "set confirm off" \
+    -ex "break QApplication::exec()" -ex "run" \
+    -ex "call (void)_ZN16QCoreApplication4quitEv()" -ex "continue" \
+    -ex "info program" --args ./build/bin/novaterm
+```
+
+`QCoreApplication::quit()` 必须按 mangled 符号调用：Qt 库是 stripped，`call` 一个
+C++ 名字报 `No symbol`；按文件偏移 `call 0x185720` 也不行，那是链接期偏移而非
+运行时地址（会跳到无关地址再 SIGSEGV）。该用例**未进 CTest**：`TerminalPage` 依赖
+`novaterm_core`/renderer/transport/session 整条闭包，而现有 `ui` 测试目标只链
+Ela+Qt；且回归用例要等本地 shell 真正起来，依赖 PTY 时序，Linux 上已知易抖。
+
 **SFTP 面板的三种批次（上传/删除/下载）共用一套骨架，但有一处不对称**：上传和
 删除都会改动远端目录，所以摘要塞进 `_statusAfterNextDirectoryList`，等
 `directoryListed` 到达时再显示（否则被 "N items" 覆盖）；**下载不改动远端目录**，

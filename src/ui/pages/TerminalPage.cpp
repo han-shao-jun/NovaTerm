@@ -192,12 +192,39 @@ void TerminalPage::retranslateUi()
 
 TerminalPage::~TerminalPage()
 {
+    _shuttingDown = true;
     // C++ 成员在 QWidget 析构函数删除子控件之前销毁。下面的 destroyed 处理器
     // 访问 _terminalViews，因此不能在本析构体返回后、列表生命周期结束时仍保持
     // 连接。已关闭的标签页已自行移除；剩余条目此刻仍是存活的子控件。
+    //
+    // 必须**逐个显式**断开发送者是 TerminalSession 的连接：注册视图时那三条
+    // 的 context 是 this，但发送者是 session 而不是 TerminalView，所以
+    // `disconnect(terminalView, nullptr, this, nullptr)` 一条都断不掉它们。
+    // 也不能图省事写 `QObject::disconnect(nullptr, nullptr, this, nullptr)` ——
+    // 本 Qt 版本对 functor 连接返回 false（2026-09-30 实测，打印返回值确认），
+    // 症状与完全不写一模一样。
     for (TerminalView* terminalView : std::as_const(_terminalViews)) {
-        if (terminalView)
-            disconnect(terminalView, nullptr, this, nullptr);
+        if (!terminalView)
+            continue;
+        // 三个来源都要断：视图本身、它的会话、它的传输层。缺任何一个都会在
+        // 析构链里回到本页。`QObject::` 前缀不可省 —— 成员重载的隐含发送者是
+        // this，语义会与预期不同。
+        QObject::disconnect(terminalView, nullptr, this, nullptr);
+        if (TerminalSession* const session = terminalView->session()) {
+            QObject::disconnect(session, &TerminalSession::stateChanged,
+                                this, nullptr);
+            QObject::disconnect(session, &TerminalSession::connected,
+                                this, nullptr);
+            QObject::disconnect(session, &TerminalSession::disconnected,
+                                this, nullptr);
+        }
+        // 传输层是第二个会在视图析构期间发信号的来源：~TerminalView 调
+        // detachTransport() → session->close() → SshTransport::disconnect()
+        // 直接发 ITransport::disconnected（GUI 线程，非队列），命中
+        // &TerminalPage::emitCurrentSessionContext 后 Qt 的 assertObjectType
+        // 发现析构已跑完而 abort。
+        if (ITransport* const transport = terminalView->transport())
+            QObject::disconnect(transport, nullptr, this, nullptr);
     }
     _terminalViews.clear();
     _sessionEditSnapshots.clear();
@@ -368,7 +395,10 @@ void TerminalPage::registerTerminalView(TerminalView* terminalView)
 void TerminalPage::updateTerminalTabConnectionAction(
     TerminalView* terminalView)
 {
-    if (!terminalView || _tabWidget->indexOf(terminalView) < 0)
+    // _shuttingDown 是兜底：上面析构时已显式断开发送者为 session 的连接，但
+    // 发送者还有 ITransport 等其它来源，逐个列举必然有遗漏；而任何在控件拆除
+    // 期间回到本页的路径都应当无事发生 —— 此时 _tabWidget 已不可用。
+    if (_shuttingDown || !terminalView || _tabWidget->indexOf(terminalView) < 0)
         return;
     TerminalSession* const session = terminalView->session();
     ITransport* const transport = session ? session->transport() : nullptr;
