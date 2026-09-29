@@ -359,7 +359,8 @@ src/platform/   windows/conpty/ linux/pty/
 
 - `ElaWidgetTools` **允许并且已经有本地改动**，与上游有分歧（先例 `218afcb`
   修弹窗尺寸告警、`a2d6fb4` 改 tooltip 计时、`5ee1517` 加垂直选项卡、
-  2026-09-14 修 `ElaAppBarPrivate::onCloseButtonClicked()` 的 use-after-free）。
+  2026-09-14 修 `ElaAppBarPrivate::onCloseButtonClicked()` 的 use-after-free、
+  2026-09-29 修 `ElaProgressBarStyle::subElementRect()` 把进度条压成 0 宽）。
   本地新增的组件：
   | 组件 | 用途 |
   | --- | --- |
@@ -648,6 +649,17 @@ base 指针。主题切换只改 QPalette，不动 style。
 嵌在卡片内时那圈边框是多余的，且底色会盖掉透明效果 —— 用
 `ElaTreeWidget::setIsFrameVisible(false)`。实测：`_diskTree` 未关时边框 `#363636`
 ／内部 `#252525` 对面板 `#272727` 明显突出，关掉后三者一致。
+
+**`ElaProgressBar` 曾把轨道和填充压成 0 宽（已修，别改回去）**：
+`ElaProgressBarStyle::subElementRect()` 原先用"内容宽 − 标签宽"给条内文字
+让位，但 QCommonStyle 系（Windows 的 `QWindowsStyle`、Linux 的 Fusion）对
+`SE_ProgressBarLabel` 返回的是**整个控件矩形**，两者等宽，于是
+`setWidth(0)` 让**任何百分比下都不绘制轨道与填充**，只剩那行居中文字 ——
+表现和"只有百分比没有进度条"完全一样，很容易误判成调用方没启用。
+诊断手法：给 `CE_ProgressBarGroove` 临时打日志看 `option->rect.width()`，
+为 0 即命中此坑；注意 `QStyleOptionProgressBar` 必须手工填
+`minimum/maximum/progress`，`QStyleOption::initFrom()` 不含这些字段，
+否则量出来的矩形是假的。
 
 **给自由函数加翻译要用 `Q_DECLARE_TR_FUNCTIONS`，不要 `QCoreApplication::translate()`
 自拟上下文**。项目其余部分的译文都以类名作上下文，自拟一个 `.ts` 里查不到，运行时

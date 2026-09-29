@@ -148,7 +148,16 @@ QRect ElaProgressBarStyle::subElementRect(SubElement element, const QStyleOption
         {
             contentRect.setTop(contentRect.top() + height * 0.45);
             contentRect.setBottom(contentRect.bottom() - height * 0.30);
-            if (!(popt->minimum == 0 && popt->maximum == 0))
+            // 原本无条件用 "内容宽 - 标签宽" 收窄，意图是给条内文字让位。但
+            // QCommonStyle 系（Windows 的 QWindowsStyle、Linux 的 Fusion）对
+            // SE_ProgressBarLabel 返回的是**整个控件矩形**，与 contentRect 等宽，
+            // 于是 setWidth(0) 把轨道与填充一起压成 0 宽 —— 进度条在任何百分比
+            // 下都完全不显示，只剩那行文字，看起来像"只有百分比没有进度条"。
+            // 条内文字本来就由 CE_ProgressBarLabel 居中画在整幅上，不需要靠
+            // 压缩条宽来避让；这里只在基础样式确实返回了明显更窄的标签矩形时
+            // 才收窄，并保证至少留一半宽度。
+            if (!(popt->minimum == 0 && popt->maximum == 0)
+                && textRect.width() > 0 && textRect.width() * 2 < contentRect.width())
             {
                 contentRect.setWidth(contentRect.width() - textRect.width());
             }
