@@ -2892,8 +2892,31 @@ static sftp_limits_t sftp_limits_use_default(sftp_session sftp)
     }
 
     limits->max_packet_length = 34000;
-    limits->max_read_length = 32768;
-    limits->max_write_length = 32768;
+    /*
+     * NovaTerm local change: raise the fallback single-packet limits from the
+     * upstream 32 KiB.
+     *
+     * These defaults only apply when the server did NOT negotiate
+     * limits@openssh.com, i.e. they are a client-side guess, not a constraint
+     * the server actually stated. Measured against a buildroot/dropbear host
+     * (which does not advertise the extension) the guess was the entire
+     * bottleneck: SFTP is request/response, so throughput collapses to
+     * packet_size / RTT. At 32 KiB with a ~4.8 ms RTT that is 6.5 MiB/s, while
+     * OpenSSH's own client on the same host reaches ~14 MB/s because it asks
+     * for more than 32 KiB and the server simply replies with as much as it
+     * has. Keeping the guess at 32 KiB made NovaTerm exactly 2x slower for
+     * reasons that have nothing to do with the caller's buffer sizes.
+     *
+     * 256 KiB matches the largest single SFTP packet in wide use (OpenSSH's
+     * sftp-server advertises exactly this) and matches NovaTerm's own
+     * TransferChunkBytes, so the request never exceeds the caller's buffer.
+     * Servers that cap their reply below this simply produce short reads,
+     * which the protocol and every client already handle. The extension is
+     * still preferred when available: sftp_init() only falls back here when
+     * the server said nothing.
+     */
+    limits->max_read_length = 256 * 1024;
+    limits->max_write_length = 256 * 1024;
 
     /*
      * For max-open-handles field openssh says :

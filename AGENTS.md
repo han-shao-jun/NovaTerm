@@ -373,6 +373,13 @@ src/platform/   windows/conpty/ linux/pty/
 - `libtelnet` **必须保持零改动** —— 它是一份 git clone，本地改动会造成后续 pull
   冲突。所以它不走 `add_subdirectory`，而是在根 `CMakeLists.txt` 里直接声明
   target（见那一段注释）。
+- `libssh` **允许本地改动**（既有先例：`misc.c` 的 `USERPROFILE` 环境回退、
+  `vterm_screen_get_cells()` 那类新增 API）。2026-09-29 又改了
+  `sftp.c` 的 `sftp_limits_use_default()`：把服务端未通告
+  `limits@openssh.com` 时的兜底单包上限从 32 KiB 提到 256 KiB，理由见
+  下「SFTP 传输吞吐被 libssh 的兜底 limits 卡死」一节。**注意
+  `sftp_limits()` 返回的是 `memcpy` 出来的副本**（`sftp.c:2934`），
+  从调用方改它对 `sftp_read`/`sftp_write` 无效，只能改 vendored 源码。
 
 **Ela 子项目的 `FILE(GLOB ...)` 没有 `CONFIGURE_DEPENDS`**（根工程的
 `GLOB_RECURSE src/*` 有）。往 `third_party/ElaWidgetTools/` 加文件后必须显式重跑
@@ -721,6 +728,34 @@ base 指针。主题切换只改 QPalette，不动 style。
 为 0 即命中此坑；注意 `QStyleOptionProgressBar` 必须手工填
 `minimum/maximum/progress`，`QStyleOption::initFrom()` 不含这些字段，
 否则量出来的矩形是假的。
+
+**SFTP 传输吞吐被 libssh 的兜底 limits 卡死（已修，勿回退）**：SFTP 是
+请求/响应式的，吞吐塌成 `单包上限 / RTT`。服务端**不**通告
+`limits@openssh.com` 时，`sftp_init()` 落到 `sftp_limits_use_default()`，
+而上游把 `max_read_length`/`max_write_length` 保守地设成 **32 KiB**。实测
+192.168.10.100（buildroot，多半是 dropbear，不提供该扩展）：32 KiB ÷
+4.822 ms = 6.79 MB/s，与实测 6.48 MiB/s 吻合；而同机 OpenSSH 客户端
+（OpenSSH_9.6，scp 默认也走 SFTP）达 14 MB/s，因为它请求超过 32 KiB、
+服务端就照发那么多 —— 差距**完全**来自这个兜底猜测，与调用方缓冲区无关
+（`TransferChunkBytes` 本来就是 256 KiB，调它毫无作用）。修法是改 vendored
+`libssh` 的兜底值到 256 KiB（= OpenSSH sftp-server 通告的同值，也等于
+NovaTerm 自身的块大小，请求不会超过调用方缓冲区）。服务端若回包更短只是
+产生短读，协议与所有客户端都能处理。
+
+修后实测（256 MiB 下载，两次复现）：`avgBytes/call` 32764 → **261888**、
+吞吐 6.48 → **9.03 / 9.00 MiB/s**（+39%）。**没到 14 MB/s，且不该再调**：
+`avgMs/call` 同时从 4.822 涨到 27.7 ms，说明包一大就脱离 RTT 瓶颈、转为设备
+侧按字节开销（2 核 ARMv7 的 CPU/磁盘/网络）主导 —— 剩下的差距是设备上限，
+客户端侧没有旋钮。**判别是不是这个原因，看协商到的 `maxRead`**：等于 32768
+即命中兜底默认值。
+
+**排查吞吐用"块大小 ÷ RTT"先算，别猜**：SFTP 是请求/响应式的，拿到实测的
+`avgBytes/call` 与 `avgMs/call` 就能定位。若两者之积接近实测吞吐，说明完全受
+该式约束；此时只有两条路 —— 要么把单包上限放开（受服务端是否通告
+`limits@openssh.com` 约束，见上一条），要么确认瓶颈已转移到设备侧的按字节
+开销，此时客户端再调参数只会让单次调用更慢、吞吐不变。**不要再因为"看起来
+还能再调"就去动块大小或窗口**：它们要么无效（被服务端 limits 覆盖），要么把
+时间从别处挪过来。
 
 **给自由函数加翻译要用 `Q_DECLARE_TR_FUNCTIONS`，不要 `QCoreApplication::translate()`
 自拟上下文**。项目其余部分的译文都以类名作上下文，自拟一个 `.ts` 里查不到，运行时
