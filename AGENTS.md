@@ -650,6 +650,67 @@ base 指针。主题切换只改 QPalette，不动 style。
 `ElaTreeWidget::setIsFrameVisible(false)`。实测：`_diskTree` 未关时边框 `#363636`
 ／内部 `#252525` 对面板 `#272727` 明显突出，关掉后三者一致。
 
+**`QAbstractItemView` 多选的三处隐式行为，动选择模型前必读**（`SftpPanel` 的文件
+列表已用 `ExtendedSelection` 踩过一遍，Ctrl/Shift 组合完全由 Qt 提供、不要自绘）：
+
+- **`takeTopLevelItem()` 往返会清空选区**：`QItemSelectionModel` 经
+  `rowsAboutToBeRemoved` 把自己摘掉，`insertTopLevelItems()` 插回来也不会恢复。
+  `SftpPanel::sortFileTree()` 因此要在取出前按 `RemotePathRole` 记下选区、
+  插回后逐条 `setSelected(true)` —— 否则"选好几项再点表头排序"会把选区清空。
+- **`setCurrentItem()` 在 `ExtendedSelection` 下等于 `ClearAndSelect`**：无修饰键
+  的**右键**同样如此。所以右键菜单里必须先判 `item->isSelected()`，点在已选条目上
+  就别调 `setCurrentItem`，否则多选会被右键吃掉。
+- **焦点落在 view 本身而不是 viewport**：装在 `_fileTree` 上的事件过滤器能收到
+  按键（装在 viewport 上也能，但 view 已经够了）。`QAbstractItemView::state()` 是
+  protected，取不到行内编辑态，只能用焦点判定：编辑器是视口子控件且持有焦点，
+  且 `isAncestorOf` 对自身也返回 true，必须先排除 `focus == view`。
+- **补充一条事实**：`QTreeWidgetItem` 的默认 flags **不含 `ItemIsEditable`**，
+  `QStyledItemDelegate::createEditor()` 因此返回空、根本进不了行内编辑。
+  `SftpPanel` 的重命名走的是 `requestRemoteName()` 对话框，不是内联编辑。
+  同理**密码字段不 `trim()` 是正确的**（`SessionPage.cpp` 里只有它不 trim）——
+  密码可以有前后空格，trim 反而会改坏正确密码，不要当 bug"修"掉。
+
+**带默认参数的成员函数不能直接接 Qt 新式 connect**：`void f(T* = nullptr)`
+取成员指针后签名是 `void (C::*)(T*)`，与 `QAbstractButton::clicked(bool)` 推导
+不出合法 `QObject::connect`（报 `makeCallableObject` 的 `enable_if` 失败）。这种
+签名要么在接线处包一层 lambda，要么干脆别给槽函数加默认参数 —— 后者更省事。
+
+**SFTP 传输层没有可调的吞吐旋钮，别去"优化"它**：块大小 `TransferChunkBytes`
+是 256 KiB；libssh 的 `limits@openssh.com` 扩展在 `sftp_init()` 里**自动**协商
+（`sftp.c:565`），协商不到才回落到默认的 32 KiB `max_read_length`
+（`sftp.c:2895`）—— 所以"手动调大块大小"在服务端支持时就毫无作用。
+通道窗口 2 MiB / maxpacket 32 KiB 是 libssh 的 `WINDOW_DEFAULT`，与 OpenSSH
+客户端默认值一致，NovaTerm 未覆盖。密码套件也没钉，libssh 默认首选项是
+`chacha20-poly1305@openssh.com`，OpenSSH 服务端按自己的顺序会选中它。2 核 ARMv7
+设备上实测 6~8 MB/s 时，**先分清是链路（WiFi/百兆）还是设备 CPU/存储上限**：
+用 `sftp` 或 `scp` 官方客户端对同一设备测一次，若量级相同就不是 NovaTerm 的问题。
+
+**进度条是上传/下载共用的，不要再加第二条**：成员名一律 `transfer*` 前缀
+（`_transferProgressBar` / `_activeTransferSize` / `startTransferProgress`），
+延迟显示的判据走 `isTransferActive()`，它同时看两个方向的活动条目名 —— 批次收尾时
+`_uploadBatchActive` / `_downloadBatchActive` 还没清，只看标志位会让空档期误显示。
+`SizeRole` 存的是原始字节数（Size 列是 `QLocale` 格式化后的文本，进度条不能
+拿它算比例）；服务端 `fstat` 返回 0 时比例算不出来，`updateTransferProgress()`
+退化为 `setRange(0, 0)` 的忙碌指示器，而不是把条钉死在 0%。
+
+**SFTP 面板的三种批次（上传/删除/下载）共用一套骨架，但有一处不对称**：上传和
+删除都会改动远端目录，所以摘要塞进 `_statusAfterNextDirectoryList`，等
+`directoryListed` 到达时再显示（否则被 "N items" 覆盖）；**下载不改动远端目录**，
+摘要必须由 `finishDownloadBatch()` 就地 `setBusy(false, ...)` 显示，走那条旁路会
+一直挂着不出现。因此下载的计数由 `resetDownloadBatch()` 自己清，不在
+`directoryListed` 里复位。
+
+**本地文件是否被覆盖由 `SftpSession` 决定，不是面板**：`downloadFile` 用
+`QSaveFile`（`SftpSession.cpp:1312`）写临时文件后 `commit()`，**提交时静默覆盖**
+同名文件，面板拿不到任何"已存在"的反馈。多选下载无法逐条询问，所以
+`queueDownloads()` 自己在下发前用 `QFileInfo::exists()` 统计并只问一次 ——
+与上传批次"覆盖远端文件"的确认对称。不要指望传输层弹框。
+
+**别用 `_activeDownloadName` 拼下载摘要**：`operationFinished` 分支会先把它清空
+（正是为了让随后的 `errorOccurred` 不会误记到已完成的条目上），所以
+`finishDownloadBatch()` 只能用计数拼摘要。这个"清空以防误归属"的模式与
+`_activeUploadRemotePath`、`_activeDeleteName` 一致，三处都别为了好看而省掉。
+
 **`ElaProgressBar` 曾把轨道和填充压成 0 宽（已修，别改回去）**：
 `ElaProgressBarStyle::subElementRect()` 原先用"内容宽 − 标签宽"给条内文字
 让位，但 QCommonStyle 系（Windows 的 `QWindowsStyle`、Linux 的 Fusion）对

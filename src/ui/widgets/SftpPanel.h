@@ -18,6 +18,8 @@ class QDragEnterEvent;
 class QDragLeaveEvent;
 class QDragMoveEvent;
 class QDropEvent;
+class QEvent;
+class QKeyEvent;
 class QPaintEvent;
 class QTimer;
 class QTreeWidgetItem;
@@ -53,12 +55,37 @@ protected:
     void dragLeaveEvent(QDragLeaveEvent* event) override;
     void dropEvent(QDropEvent* event) override;
     void paintEvent(QPaintEvent* event) override;
+    /**
+     * @brief 拦截文件树的按键，实现 Delete 键删除当前多选。
+     * @note  用事件过滤而非 `keyPressEvent`：焦点在树而非面板上，后者收不到。
+     *       裸 Delete 之外（含 Ctrl/Shift/Alt 组合、以及树处于行内编辑时）一律
+     *       放行，避免吞掉编辑态与将来可能要加的组合键。
+     */
+    bool eventFilter(QObject* watched, QEvent* event) override;
 
 private:
     struct UploadRequest
     {
         QString localPath;
         QString remotePath;
+        quint64 size{0};
+        bool directory{false};
+    };
+
+    /** @brief 一次待删除的远端条目。 */
+    struct DeleteRequest
+    {
+        QString remotePath;
+        QString name;
+        bool directory{false};
+    };
+
+    /** @brief 一次待下载的远端条目。 */
+    struct DownloadRequest
+    {
+        QString remotePath;
+        QString name;
+        QString localPath;
         quint64 size{0};
         bool directory{false};
     };
@@ -80,21 +107,44 @@ private:
     void queueUploads(const QStringList& localPaths);
     void startNextUpload();
     void finishUploadBatch();
-    void startUploadProgress(quint64 totalBytes);
-    void updateUploadProgress(quint64 transferred, quint64 totalBytes);
-    void stopUploadProgress();
-    void downloadSelectedFile();
+    void startTransferProgress(quint64 totalBytes);
+    void updateTransferProgress(quint64 transferred, quint64 totalBytes);
+    void stopTransferProgress();
+    /**
+     * @brief 当前是否有任一方向的传输正在进行。
+     * @note  进度条的延迟显示需要它：上传与下载各有一套批次状态，活动条目名
+     *        非空才说明真的在传（批次收尾时标志位还没清）。
+     */
+    [[nodiscard]] bool isTransferActive() const;
+    /**
+     * @brief 下载当前选区（右键菜单与工具栏下载按钮共用）。
+     * @note  多选时**只选一次目标目录**，所有条目按各自文件名落到该目录下 ——
+     *        逐条弹保存对话框会让多选下载无法使用，也与文件管理器不符。
+     *        选区中的软链接按既有规则跳过，并在结果里计入 skipped。
+     */
+    void downloadSelectedEntries();
+    /** @brief 下载指定条目，供双击使用（不依赖选区状态）。 */
+    void downloadEntry(QTreeWidgetItem* item);
+    void queueDownloads(const QList<QTreeWidgetItem*>& items,
+                        const QString& destination,
+                        bool destinationIsExactFilePath);
+    void startNextDownload();
+    void finishDownloadBatch();
+    void deleteSelectedEntries();
+    void startNextDelete();
+    void finishDeleteBatch();
     void showFileContextMenu(const QPoint& position);
     void updateSelectionActions();
     void updateFileTreeIcons();
     void sortFileTree(Qt::SortOrder order);
-    [[nodiscard]] QTreeWidgetItem* selectedItem() const;
+    void resetDeleteBatch();
+    void resetDownloadBatch();
     [[nodiscard]] QString remotePathForName(const QString& name) const;
     [[nodiscard]] bool remotePathExists(const QString& path) const;
 
     ElaText* _availabilityLabel{nullptr};
-    ElaProgressBar* _uploadProgressBar{nullptr};
-    QTimer* _uploadProgressDelay{nullptr};
+    ElaProgressBar* _transferProgressBar{nullptr};
+    QTimer* _transferProgressDelay{nullptr};
     ElaLineEdit* _pathEdit{nullptr};
     ElaIconButton* _parentDirectoryButton{nullptr};
     ElaIconButton* _refreshButton{nullptr};
@@ -108,10 +158,15 @@ private:
     SftpSession* _sftpSession{nullptr};
     QPointer<SshTransport> _sshTransport;
     QQueue<UploadRequest> _pendingUploads;
+    QQueue<DeleteRequest> _pendingDeletes;
+    QQueue<DownloadRequest> _pendingDownloads;
     QString _sessionName;
     QString _currentPath{QStringLiteral("/")};
     QString _activeUploadLocalPath;
     QString _activeUploadRemotePath;
+    QString _activeDeleteName;
+    QString _activeDownloadName;
+    QString _downloadDestination;
     QString _lastUploadLog;
     QString _lastUploadError;
     QString _lastUploadErrorDetail;
@@ -121,14 +176,23 @@ private:
     int _uploadCompleted{0};
     int _uploadFailed{0};
     int _uploadSkipped{0};
-    quint64 _activeUploadSize{0};
+    int _deleteTotal{0};
+    int _deleteCompleted{0};
+    int _deleteFailed{0};
+    int _downloadTotal{0};
+    int _downloadCompleted{0};
+    int _downloadFailed{0};
+    int _downloadSkipped{0};
+    quint64 _activeTransferSize{0};
     bool _backendConnected{false};
     bool _busy{false};
     bool _hasError{false};
     bool _uploadBatchActive{false};
+    bool _deleteBatchActive{false};
+    bool _downloadBatchActive{false};
     bool _dropActive{false};
     Qt::SortOrder _nameSortOrder{Qt::AscendingOrder};
 
-    static constexpr int UploadProgressDelayMs = 400;
-    static constexpr int UploadProgressScale = 1000;
+    static constexpr int TransferProgressDelayMs = 400;
+    static constexpr int TransferProgressScale = 1000;
 };

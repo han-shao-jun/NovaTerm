@@ -1303,436 +1303,529 @@ Termination confirmed: %3
 <context>
     <name>SftpPanel</name>
     <message>
-        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="117"/>
-        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="1267"/>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="121"/>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="1713"/>
         <source>Permissions</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="131"/>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="135"/>
         <source>Modify file permissions</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="147"/>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="151"/>
         <source>Owner</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="149"/>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="153"/>
         <source>Group</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="151"/>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="155"/>
         <source>Others</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="158"/>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="162"/>
         <source>Octal (&amp;O)</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="176"/>
-        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="343"/>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="180"/>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="347"/>
         <source>Cancel</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="179"/>
-        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="344"/>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="183"/>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="348"/>
         <source>Confirm</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="235"/>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="239"/>
         <source>Read</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="236"/>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="240"/>
         <source>Write</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="237"/>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="241"/>
         <source>Execute</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="526"/>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="537"/>
         <source>Reading terminal directory…</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="572"/>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="584"/>
         <source>This folder is empty</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="586"/>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="599"/>
         <source>Symbolic link</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="589"/>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="602"/>
         <source>Link target unavailable</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="590"/>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="603"/>
         <source>Link target unavailable: %1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="594"/>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="607"/>
         <source>Target folder: %1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="597"/>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="610"/>
         <source>Target file: %1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="600"/>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="613"/>
         <source>Hard link</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="603"/>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="616"/>
         <source>Modified: %1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="616"/>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="630"/>
         <source>%1 items</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="641"/>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="668"/>
+        <source>Downloading: %1 (%2/%3) — %4%</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="672"/>
+        <source>Downloading: %1 (%2/%3) — %4</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="682"/>
         <source>Transferring… %1%</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="642"/>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="683"/>
         <source>Transferring… %1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="650"/>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="691"/>
         <source>Uploaded: %1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="662"/>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="720"/>
         <source>Download completed.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="662"/>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="720"/>
         <source>Operation completed.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="674"/>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="732"/>
         <source>Upload failed: %1 — %2</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="685"/>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="746"/>
+        <source>Delete failed: %1 — %2</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="756"/>
+        <source>Download failed: %1 — %2</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="764"/>
         <source>Error: %1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="698"/>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="779"/>
         <source>The SFTP connection was closed.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="812"/>
-        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="813"/>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="920"/>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="921"/>
         <source>Connecting to SFTP…</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="832"/>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="940"/>
         <source>Unable to read terminal directory.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="837"/>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="945"/>
         <source>SFTP file transfer panel</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="838"/>
-        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="839"/>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="946"/>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="947"/>
         <source>Parent directory</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="840"/>
-        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="841"/>
-        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="1275"/>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="948"/>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="949"/>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="1721"/>
         <source>Refresh</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="842"/>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="950"/>
         <source>Paste path to terminal</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="843"/>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="951"/>
         <source>Paste current SFTP path to terminal</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="845"/>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="953"/>
         <source>Synchronize terminal path</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="847"/>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="955"/>
         <source>Change terminal directory to current SFTP path</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="849"/>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="957"/>
         <source>Synchronize SFTP path</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="851"/>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="959"/>
         <source>Change SFTP path to current terminal directory</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="852"/>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="960"/>
         <source>Upload</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="853"/>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="961"/>
         <source>Upload, or drop local files onto this panel</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="854"/>
-        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="855"/>
-        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="1265"/>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="962"/>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="963"/>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="1711"/>
         <source>Download</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="856"/>
-        <source>Upload progress</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="857"/>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="965"/>
         <source>Remote path</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="858"/>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="966"/>
         <source>Name</source>
         <translation type="unfinished">Name</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="858"/>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="966"/>
         <source>Size</source>
         <translation type="unfinished">Size</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="860"/>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="968"/>
         <source>Drop local files here to upload them to the current directory</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="877"/>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="985"/>
         <source>No active SSH session</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="916"/>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="1024"/>
         <source>Release to upload files to %1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="928"/>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="1036"/>
         <source>Loading remote directory…</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="1022"/>
-        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="1031"/>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="1151"/>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="1160"/>
         <source>Upload files</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="1023"/>
-        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="1034"/>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="1152"/>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="1163"/>
         <source>Upload folder</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="1085"/>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="1214"/>
         <source>No local files or folders were available to upload.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="1091"/>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="1220"/>
         <source>%1 remote item(s) already exist. Merge or replace them?</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="1090"/>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="1613"/>
+        <source>Replace local files</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="1614"/>
+        <source>%1 local item(s) already exist. Overwrite them?</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="1639"/>
+        <source>Download stopped because the SFTP connection closed.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="1651"/>
+        <source>Downloading: %1 (%2/%3)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="1653"/>
+        <source>Downloading: %1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="1670"/>
+        <source>Downloaded %1 items</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="1672"/>
+        <source>Downloaded %1, failed %2, skipped %3</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="1219"/>
         <source>Replace remote files</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="1118"/>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="964"/>
+        <source>Transfer progress</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="1247"/>
         <source>Upload stopped because the SFTP connection closed.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="1132"/>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="1261"/>
         <source>Uploading: %1 (%2/%3)</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="1136"/>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="1265"/>
         <source>Uploading: %1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="1161"/>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="1290"/>
         <source>Uploaded %1 files</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="1164"/>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="1293"/>
         <source>Uploaded %1, failed %2, skipped %3</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="1170"/>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="1299"/>
         <source> — %1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="1232"/>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="1339"/>
+        <source>Delete %1 selected items? This action cannot be undone.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="1345"/>
+        <source>Delete remote items</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="1378"/>
+        <source>Delete stopped because the SFTP connection closed.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="1390"/>
+        <source>Deleting: %1 (%2/%3)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="1392"/>
+        <source>Deleting: %1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="1402"/>
+        <source>Deleted %1 items</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="1408"/>
+        <source>Deleted %1, failed %2</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="1498"/>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="1599"/>
+        <source>Symbolic links cannot be downloaded directly. Select other items, or follow the link on the remote host.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="1523"/>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="1547"/>
         <source>Select download directory</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="1238"/>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="1516"/>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="1552"/>
         <source>Download file</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="1244"/>
-        <source>Downloading %1…</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="1266"/>
-        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="1322"/>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="1712"/>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="1790"/>
         <source>Rename</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="1268"/>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="1714"/>
         <source>Copy path</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="1269"/>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="1715"/>
         <source>Delete</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="1272"/>
-        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="1296"/>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="1718"/>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="1741"/>
         <source>New folder</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="1273"/>
-        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="1305"/>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="1719"/>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="1750"/>
         <source>New file</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="1296"/>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="1741"/>
         <source>Folder name:</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="1298"/>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="1743"/>
         <source>Creating folder…</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="1305"/>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="1750"/>
         <source>File name:</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="1307"/>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="1752"/>
         <source>Creating file…</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="1322"/>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="1775"/>
+        <source>%1 paths copied.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="1790"/>
         <source>New name:</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="1325"/>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="1793"/>
         <source>Renaming…</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="1337"/>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="1805"/>
         <source>Changing permissions…</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="1343"/>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="1774"/>
         <source>Path copied.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="1352"/>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="1335"/>
         <source>Delete folder %1 and all its contents? This action cannot be undone.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="1354"/>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="1337"/>
         <source>Delete %1?</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="1355"/>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="1344"/>
         <source>Delete remote entry</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="1359"/>
-        <source>Deleting…</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="883"/>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="991"/>
         <source>Select a connected SSH terminal to browse remote files.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="885"/>
+        <location filename="../../src/ui/widgets/SftpPanel.cpp" line="993"/>
         <source>Waiting for an SSH session</source>
         <translation type="unfinished"></translation>
     </message>

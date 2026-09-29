@@ -30,11 +30,13 @@
 #include <QDragLeaveEvent>
 #include <QDragMoveEvent>
 #include <QDropEvent>
+#include <QEvent>
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QHeaderView>
 #include <QHBoxLayout>
 #include <QGridLayout>
+#include <QKeyEvent>
 #include <QLineEdit>
 #include <QLocale>
 #include <QMimeData>
@@ -64,7 +66,9 @@ enum ItemDataRole {
     DirectoryRole,
     SymbolicLinkRole,
     HardLinkRole,
-    PermissionsRole
+    PermissionsRole,
+    /** 原始字节数。Size 列存的是 QLocale 格式化后的文本，进度条要用原始值。 */
+    SizeRole
 };
 
 /** 在 Ela 菜单原有绘制之上，仅将危险操作重绘为主题危险色。 */
@@ -430,19 +434,21 @@ SftpPanel::SftpPanel(QWidget* parent)
     rootLayout->addWidget(_availabilityLabel);
 
     // 进度条延迟显示：快速上传在 400ms 内完成时始终保持隐藏，避免界面闪烁。
-    _uploadProgressBar = new ElaProgressBar(this);
-    _uploadProgressBar->setRange(0, UploadProgressScale);
-    _uploadProgressBar->setValue(0);
-    _uploadProgressBar->setTextVisible(true);
-    _uploadProgressBar->hide();
-    rootLayout->addWidget(_uploadProgressBar);
+    _transferProgressBar = new ElaProgressBar(this);
+    _transferProgressBar->setRange(0, TransferProgressScale);
+    _transferProgressBar->setValue(0);
+    _transferProgressBar->setTextVisible(true);
+    _transferProgressBar->hide();
+    rootLayout->addWidget(_transferProgressBar);
 
-    _uploadProgressDelay = new QTimer(this);
-    _uploadProgressDelay->setSingleShot(true);
-    _uploadProgressDelay->setInterval(UploadProgressDelayMs);
-    connect(_uploadProgressDelay, &QTimer::timeout, this, [this]() {
-        if (_uploadBatchActive && !_activeUploadRemotePath.isEmpty())
-            _uploadProgressBar->show();
+    _transferProgressDelay = new QTimer(this);
+    _transferProgressDelay->setSingleShot(true);
+    _transferProgressDelay->setInterval(TransferProgressDelayMs);
+    connect(_transferProgressDelay, &QTimer::timeout, this, [this]() {
+        // 延迟显示：快速传输在 400ms 内完成时始终保持隐藏，避免界面闪烁。
+        // 判据用 isTransferActive()，上传与下载都算。
+        if (isTransferActive())
+            _transferProgressBar->show();
     });
 
     // 高频操作保留在紧凑工具栏，低频文件管理操作放到右键菜单。
@@ -485,6 +491,9 @@ SftpPanel::SftpPanel(QWidget* parent)
     _fileTree->setColumnCount(2);
     _fileTree->setRootIsDecorated(false);
     _fileTree->setUniformRowHeights(true);
+    // ExtendedSelection 即文件管理器的多选：Ctrl+点击切换单条、Shift+点击选到
+    // 两端之间。Ctrl/Shift 的组合逻辑完全由 QItemSelectionModel 提供，无需自绘。
+    _fileTree->setSelectionMode(QAbstractItemView::ExtendedSelection);
     _fileTree->setItemHeight(24);
     _fileTree->setItemLeftPadding(1);
     _fileTree->setIconSize(QSize(18, 18));
@@ -495,6 +504,8 @@ SftpPanel::SftpPanel(QWidget* parent)
     _fileTree->header()->setSectionsClickable(true);
     _fileTree->header()->setSortIndicatorShown(true);
     _fileTree->header()->setSortIndicator(0, _nameSortOrder);
+    // Delete 键删除多选：焦点始终在树上，事件过滤是唯一可靠的接入点。
+    _fileTree->installEventFilter(this);
     rootLayout->addWidget(_fileTree, 1);
 
     // 空状态提示挂在树的视口上并居中。ElaText 自己跟随主题，不受树的禁用态
@@ -529,7 +540,7 @@ SftpPanel::SftpPanel(QWidget* parent)
     connect(_uploadButton, &QAbstractButton::clicked,
             this, &SftpPanel::uploadFile);
     connect(_downloadButton, &QAbstractButton::clicked,
-            this, &SftpPanel::downloadSelectedFile);
+            this, &SftpPanel::downloadSelectedEntries);
     connect(_pathEdit, &QLineEdit::returnPressed, this, [this]() {
         const QString path = _pathEdit->text().trimmed();
         if (!path.isEmpty())
@@ -542,7 +553,8 @@ SftpPanel::SftpPanel(QWidget* parent)
         if (item->data(0, DirectoryRole).toBool())
             requestDirectory(item->data(0, RemotePathRole).toString());
         else
-            downloadSelectedFile();
+            // 显式传双击命中的那条，不依赖"按下已把选区收敛为一条"这一隐式行为。
+            downloadEntry(item);
     });
     connect(_fileTree, &QTreeWidget::itemSelectionChanged,
             this, &SftpPanel::updateSelectionActions);
@@ -581,6 +593,7 @@ SftpPanel::SftpPanel(QWidget* parent)
             item->setData(0, SymbolicLinkRole, entry.symbolicLink);
             item->setData(0, HardLinkRole, entry.hardLink);
             item->setData(0, PermissionsRole, entry.permissions);
+            item->setData(0, SizeRole, entry.size);
             QStringList details;
             if (entry.symbolicLink) {
                 details.push_back(tr("Symbolic link"));
@@ -610,20 +623,29 @@ SftpPanel::SftpPanel(QWidget* parent)
         updateFileTreeIcons();
         _currentPath = path;
         _pathEdit->setText(path);
-        const bool uploadBatchRefresh =
-            !_statusAfterNextDirectoryList.isEmpty();
-        const QString status = !uploadBatchRefresh
+        // 上传批次与删除批次都把摘要存到 _statusAfterNextDirectoryList，等这次
+        // 列表到达时再显示，否则会被下面的 "N items" 覆盖掉。
+        const bool pendingStatus = !_statusAfterNextDirectoryList.isEmpty();
+        const QString status = !pendingStatus
             ? tr("%1 items").arg(entries.size())
             : _statusAfterNextDirectoryList;
         _statusAfterNextDirectoryList.clear();
-        if (!uploadBatchRefresh || _uploadFailed == 0)
+        // 批次摘要里已经写明成败；目录列表本身到达不代表出错。两种批次的
+        // 失败计数都要看，只看上传的会在删除失败后误清 _hasError。
+        const bool batchFailed = _uploadFailed > 0 || _deleteFailed > 0;
+        if (!pendingStatus || !batchFailed)
             _hasError = false;
         setBusy(false, status);
-        if (uploadBatchRefresh) {
+        if (pendingStatus) {
             _uploadTotal = 0;
             _uploadCompleted = 0;
             _uploadFailed = 0;
             _uploadSkipped = 0;
+            _deleteTotal = 0;
+            _deleteCompleted = 0;
+            _deleteFailed = 0;
+            // 下载批次不在这里复位：下载不刷新远端目录，摘要在
+            // finishDownloadBatch 里就地显示，计数由它自己清。
             _lastUploadLog.clear();
             _lastUploadError.clear();
             _lastUploadErrorDetail.clear();
@@ -634,7 +656,26 @@ SftpPanel::SftpPanel(QWidget* parent)
         const int percent = total > 0
             ? static_cast<int>((transferred * 100) / total) : 0;
         if (_uploadBatchActive) {
-            updateUploadProgress(transferred, total);
+            updateTransferProgress(transferred, total);
+            return;
+        }
+        // 下载批次期间的传输必然是下载（上传/下载由 _busy 互斥），无需再按
+        // 远端路径区分。逐条串行下发，所以当前条目的序号即已完成+失败+1。
+        if (_downloadBatchActive && !_activeDownloadName.isEmpty()) {
+            // 进度条与文字同步：文字给出"第几个/共几个"，条给出字节比例。
+            updateTransferProgress(transferred, total);
+            const QString progress = total > 0
+                ? tr("Downloading: %1 (%2/%3) — %4%")
+                    .arg(_activeDownloadName)
+                    .arg(_downloadCompleted + _downloadFailed + 1)
+                    .arg(_downloadTotal).arg(percent)
+                : tr("Downloading: %1 (%2/%3) — %4")
+                    .arg(_activeDownloadName)
+                    .arg(_downloadCompleted + _downloadFailed + 1)
+                    .arg(_downloadTotal)
+                    .arg(QLocale().formattedDataSize(
+                        static_cast<qint64>(transferred)));
+            _availabilityLabel->setText(progress);
             return;
         }
         _availabilityLabel->setText(total > 0
@@ -646,15 +687,32 @@ SftpPanel::SftpPanel(QWidget* parent)
     connect(_sftpSession, &SftpSession::operationFinished, this,
             [this](const QString& operation, const QString&) {
         if (operation == QStringLiteral("upload") && _uploadBatchActive) {
-            stopUploadProgress();
+            stopTransferProgress();
             _lastUploadLog = tr("Uploaded: %1")
                 .arg(QFileInfo(_activeUploadLocalPath).fileName());
             _availabilityLabel->setText(_lastUploadLog);
             ++_uploadCompleted;
             _activeUploadLocalPath.clear();
             _activeUploadRemotePath.clear();
-            _activeUploadSize = 0;
+            _activeTransferSize = 0;
             startNextUpload();
+            return;
+        }
+        // 删除同样走批次：单个和多选共用这一条路径，摘要最后由
+        // finishDeleteBatch 汇总，避免每个条目都触发一次目录枚举。
+        if (operation == QStringLiteral("remove") && _deleteBatchActive) {
+            ++_deleteCompleted;
+            _activeDeleteName.clear();
+            startNextDelete();
+            return;
+        }
+        // 下载批次同理：逐条串行下发，摘要由 finishDownloadBatch 汇总。
+        // 下载不改动远端目录，因此不走下面的 requestDirectory。
+        if (operation == QStringLiteral("download") && _downloadBatchActive) {
+            ++_downloadCompleted;
+            _activeDownloadName.clear();
+            stopTransferProgress();
+            startNextDownload();
             return;
         }
         const bool changesRemoteDirectory = operation != QStringLiteral("download");
@@ -667,7 +725,7 @@ SftpPanel::SftpPanel(QWidget* parent)
             [this](const QString& message) {
         _hasError = true;
         if (_uploadBatchActive && !_activeUploadRemotePath.isEmpty()) {
-            stopUploadProgress();
+            stopTransferProgress();
             ++_uploadFailed;
             _lastUploadError = compactUploadError(message);
             _lastUploadErrorDetail = message.simplified();
@@ -678,8 +736,29 @@ SftpPanel::SftpPanel(QWidget* parent)
             _availabilityLabel->setToolTip(_lastUploadErrorDetail);
             _activeUploadLocalPath.clear();
             _activeUploadRemotePath.clear();
-            _activeUploadSize = 0;
+            _activeTransferSize = 0;
             startNextUpload();
+            return;
+        }
+        // 删除失败按活动条目归属并继续下一条，单条失败不中断整批。
+        if (_deleteBatchActive && !_activeDeleteName.isEmpty()) {
+            ++_deleteFailed;
+            _availabilityLabel->setText(tr("Delete failed: %1 — %2")
+                .arg(_activeDeleteName, compactUploadError(message)));
+            _availabilityLabel->setToolTip(message.simplified());
+            _activeDeleteName.clear();
+            startNextDelete();
+            return;
+        }
+        // 下载失败同样不中断整批。
+        if (_downloadBatchActive && !_activeDownloadName.isEmpty()) {
+            ++_downloadFailed;
+            _availabilityLabel->setText(tr("Download failed: %1 — %2")
+                .arg(_activeDownloadName, compactUploadError(message)));
+            _availabilityLabel->setToolTip(message.simplified());
+            _activeDownloadName.clear();
+            stopTransferProgress();
+            startNextDownload();
             return;
         }
         setBusy(false, tr("Error: %1").arg(message));
@@ -690,9 +769,11 @@ SftpPanel::SftpPanel(QWidget* parent)
         _pendingUploads.clear();
         _activeUploadLocalPath.clear();
         _activeUploadRemotePath.clear();
-        _activeUploadSize = 0;
+        _activeTransferSize = 0;
         _uploadBatchActive = false;
-        stopUploadProgress();
+        resetDeleteBatch();
+        resetDownloadBatch();
+        stopTransferProgress();
         setDropActive(false);
         if (!_hasError && _sshTransport)
             _availabilityLabel->setText(tr("The SFTP connection was closed."));
@@ -766,6 +847,31 @@ void SftpPanel::paintEvent(QPaintEvent* event)
     painter.drawRoundedRect(rect().adjusted(2, 2, -3, -3), 6, 6);
 }
 
+bool SftpPanel::eventFilter(QObject* watched, QEvent* event)
+{
+    if (watched == _fileTree && event->type() == QEvent::KeyPress) {
+        // 行内编辑时 Delete 属于编辑器，不能连带删掉远端条目。
+        // QAbstractItemView::state() 是 protected，取不到，改用焦点判定：
+        // 编辑器是视口的子控件且持有焦点；树自己有焦点时 isAncestorOf 对自身
+        // 也返回 true，所以必须先排除 focus == _fileTree。
+        // 注：QTreeWidgetItem 的默认 flags 不含 ItemIsEditable，本面板走的是
+        // requestRemoteName 对话框重命名，因此这条分支目前进不去，保留是为了
+        // 将来有人给 item 补上 ItemIsEditable 时不会静默删数据。
+        const QWidget* focus = QApplication::focusWidget();
+        const bool editing = focus && focus != _fileTree
+            && _fileTree->isAncestorOf(focus);
+        auto* keyEvent = static_cast<QKeyEvent*>(event);
+        if (!editing && keyEvent->key() == Qt::Key_Delete
+            && keyEvent->modifiers() == Qt::NoModifier) {
+            // 吞掉按键：QTreeWidget 本身虽不处理 Delete，但让它继续传播会让
+            // 外层的 dock / 主窗口快捷键对同一按键产生歧义。
+            deleteSelectedEntries();
+            return true;
+        }
+    }
+    return QWidget::eventFilter(watched, event);
+}
+
 void SftpPanel::setSessionContext(const QString& sessionLabel,
                                   SshTransport* transport)
 {
@@ -777,7 +883,7 @@ void SftpPanel::setSessionContext(const QString& sessionLabel,
     if (_sshTransport)
         disconnect(_sshTransport, nullptr, this, nullptr);
     setDropActive(false);
-    stopUploadProgress();
+    stopTransferProgress();
     _sftpSession->disconnectFromHost();
     _sshTransport = transport;
     _sessionName = sessionLabel;
@@ -787,7 +893,7 @@ void SftpPanel::setSessionContext(const QString& sessionLabel,
     _pendingUploads.clear();
     _activeUploadLocalPath.clear();
     _activeUploadRemotePath.clear();
-    _activeUploadSize = 0;
+    _activeTransferSize = 0;
     _lastUploadLog.clear();
     _lastUploadError.clear();
     _lastUploadErrorDetail.clear();
@@ -797,6 +903,8 @@ void SftpPanel::setSessionContext(const QString& sessionLabel,
     _uploadFailed = 0;
     _uploadSkipped = 0;
     _uploadBatchActive = false;
+    resetDeleteBatch();
+    resetDownloadBatch();
     _currentPath = QStringLiteral("/");
     _pathEdit->setText(_currentPath);
 
@@ -853,7 +961,7 @@ void SftpPanel::retranslateUi()
     _uploadButton->setToolTip(tr("Upload, or drop local files onto this panel"));
     _downloadButton->setAccessibleName(tr("Download"));
     _downloadButton->setToolTip(tr("Download"));
-    _uploadProgressBar->setAccessibleName(tr("Upload progress"));
+    _transferProgressBar->setAccessibleName(tr("Transfer progress"));
     _pathEdit->setAccessibleName(tr("Remote path"));
     _fileTree->setHeaderLabels({tr("Name"), tr("Size")});
     _fileTree->setToolTip(
@@ -936,17 +1044,20 @@ QString SftpPanel::remotePathForName(const QString& name) const
         : _currentPath + QLatin1Char('/') + name;
 }
 
-QTreeWidgetItem* SftpPanel::selectedItem() const
-{
-    const QList<QTreeWidgetItem*> selected = _fileTree->selectedItems();
-    return selected.isEmpty() ? nullptr : selected.constFirst();
-}
-
 void SftpPanel::updateSelectionActions()
 {
-    QTreeWidgetItem* item = selectedItem();
-    const bool downloadable = _sshTransport && _backendConnected && !_busy
-        && item && !item->data(0, SymbolicLinkRole).toBool();
+    // 下载支持多选（只选一次目标路径），因此只要有选区且不含纯软链接即可用；
+    // 全是软链接时仍置灰 —— 那批没有任何可下载的东西。
+    const QList<QTreeWidgetItem*> selected = _fileTree->selectedItems();
+    bool hasDownloadable = false;
+    for (const QTreeWidgetItem* item : selected) {
+        if (item && !item->data(0, SymbolicLinkRole).toBool()) {
+            hasDownloadable = true;
+            break;
+        }
+    }
+    const bool downloadable =
+        _sshTransport && _backendConnected && !_busy && hasDownloadable;
     _downloadButton->setEnabled(downloadable);
 }
 
@@ -983,6 +1094,15 @@ void SftpPanel::updateFileTreeIcons()
 
 void SftpPanel::sortFileTree(Qt::SortOrder order)
 {
+    // 重新排列会经 rowsAboutToBeRemoved 清空选区，而点击表头排序时用户往往
+    // 只是想换个观看角度，不该丢掉刚选好的一批条目。按远端路径而不是文件名
+    // 记录：路径是远端唯一标识，不受显示文本影响。
+    QSet<QString> selectedPaths;
+    for (const QTreeWidgetItem* item : _fileTree->selectedItems()) {
+        if (item)
+            selectedPaths.insert(item->data(0, RemotePathRole).toString());
+    }
+
     QList<QTreeWidgetItem*> items;
     items.reserve(_fileTree->topLevelItemCount());
     while (_fileTree->topLevelItemCount() > 0)
@@ -1009,8 +1129,17 @@ void SftpPanel::sortFileTree(Qt::SortOrder order)
     });
 
     _fileTree->insertTopLevelItems(0, items);
+    if (!selectedPaths.isEmpty()) {
+        for (int index = 0; index < items.size(); ++index) {
+            if (selectedPaths.contains(
+                    items.at(index)->data(0, RemotePathRole).toString())) {
+                items.at(index)->setSelected(true);
+            }
+        }
+    }
     _nameSortOrder = order;
     _fileTree->header()->setSortIndicator(0, order);
+    updateSelectionActions();
 }
 
 void SftpPanel::uploadFile()
@@ -1126,7 +1255,7 @@ void SftpPanel::startNextUpload()
     const UploadRequest request = _pendingUploads.dequeue();
     _activeUploadLocalPath = request.localPath;
     _activeUploadRemotePath = request.remotePath;
-    _activeUploadSize = request.size;
+    _activeTransferSize = request.size;
     const int current = _uploadCompleted + _uploadFailed + 1;
     _lastUploadLog = _uploadTotal > 1
         ? tr("Uploading: %1 (%2/%3)")
@@ -1137,7 +1266,7 @@ void SftpPanel::startNextUpload()
             .arg(QFileInfo(request.localPath).fileName());
     _availabilityLabel->setToolTip({});
     setBusy(true, _lastUploadLog);
-    startUploadProgress(request.size);
+    startTransferProgress(request.size);
     if (request.directory) {
         _sftpSession->uploadDirectory(
             request.localPath, request.remotePath);
@@ -1149,10 +1278,10 @@ void SftpPanel::startNextUpload()
 void SftpPanel::finishUploadBatch()
 {
     _uploadBatchActive = false;
-    stopUploadProgress();
+    stopTransferProgress();
     _activeUploadLocalPath.clear();
     _activeUploadRemotePath.clear();
-    _activeUploadSize = 0;
+    _activeTransferSize = 0;
 
     if (_uploadTotal == 1 && !_lastUploadLog.isEmpty()) {
         _statusAfterNextDirectoryList = _lastUploadLog;
@@ -1178,75 +1307,379 @@ void SftpPanel::finishUploadBatch()
         setBusy(false, _statusAfterNextDirectoryList);
 }
 
-void SftpPanel::startUploadProgress(quint64 totalBytes)
+void SftpPanel::resetDeleteBatch()
 {
-    stopUploadProgress();
-    _activeUploadSize = totalBytes;
-    _uploadProgressBar->setRange(0, UploadProgressScale);
-    _uploadProgressBar->setValue(0);
-    _uploadProgressBar->setFormat(QStringLiteral("%p%"));
-    _uploadProgressDelay->start();
+    _pendingDeletes.clear();
+    _activeDeleteName.clear();
+    _deleteBatchActive = false;
+    _deleteTotal = 0;
+    _deleteCompleted = 0;
+    _deleteFailed = 0;
 }
 
-void SftpPanel::updateUploadProgress(quint64 transferred,
-                                     quint64 totalBytes)
+void SftpPanel::deleteSelectedEntries()
 {
-    const quint64 total = totalBytes > 0 ? totalBytes : _activeUploadSize;
-    if (total == 0)
+    if (!_backendConnected || _busy || _deleteBatchActive)
         return;
+
+    const QList<QTreeWidgetItem*> selected = _fileTree->selectedItems();
+    if (selected.isEmpty())
+        return;
+
+    // 一次确认覆盖整批：逐条弹确认框会让多选删除变得无法使用。
+    QString confirmation;
+    if (selected.size() == 1) {
+        const QTreeWidgetItem* item = selected.constFirst();
+        const QString name = item->text(0);
+        confirmation = item->data(0, DirectoryRole).toBool()
+            ? tr("Delete folder %1 and all its contents? "
+                 "This action cannot be undone.").arg(name)
+            : tr("Delete %1?").arg(name);
+    } else {
+        confirmation = tr("Delete %1 selected items? "
+                          "This action cannot be undone.")
+            .arg(selected.size());
+    }
+    if (!NovaTerm::Ui::confirm(this,
+            selected.size() == 1 ? tr("Delete remote entry")
+                                 : tr("Delete remote items"),
+            confirmation)) {
+        return;
+    }
+
+    for (const QTreeWidgetItem* item : selected) {
+        if (!item)
+            continue;
+        _pendingDeletes.enqueue(
+            {item->data(0, RemotePathRole).toString(), item->text(0),
+             item->data(0, DirectoryRole).toBool()});
+    }
+    if (_pendingDeletes.isEmpty())
+        return;
+
+    _deleteTotal = _pendingDeletes.size();
+    _deleteCompleted = 0;
+    _deleteFailed = 0;
+    _deleteBatchActive = true;
+    _availabilityLabel->setToolTip({});
+    setBusy(true);
+    startNextDelete();
+}
+
+void SftpPanel::startNextDelete()
+{
+    if (!_deleteBatchActive)
+        return;
+    if (!_backendConnected) {
+        _pendingDeletes.clear();
+        _activeDeleteName.clear();
+        _deleteBatchActive = false;
+        setBusy(false,
+                tr("Delete stopped because the SFTP connection closed."));
+        return;
+    }
+    if (_pendingDeletes.isEmpty()) {
+        finishDeleteBatch();
+        return;
+    }
+
+    const DeleteRequest request = _pendingDeletes.dequeue();
+    _activeDeleteName = request.name;
+    const int current = _deleteCompleted + _deleteFailed + 1;
+    setBusy(true, _deleteTotal > 1
+        ? tr("Deleting: %1 (%2/%3)")
+            .arg(request.name).arg(current).arg(_deleteTotal)
+        : tr("Deleting: %1").arg(request.name));
+    _sftpSession->removeEntry(request.remotePath, request.directory);
+}
+
+void SftpPanel::finishDeleteBatch()
+{
+    _deleteBatchActive = false;
+    _activeDeleteName.clear();
+
+    if (_deleteFailed == 0) {
+        _statusAfterNextDirectoryList = tr("Deleted %1 items")
+            .arg(_deleteCompleted);
+        // 全成功：清掉可能残留的上一次失败详情。
+        _availabilityLabel->setToolTip({});
+    } else {
+        _statusAfterNextDirectoryList =
+            tr("Deleted %1, failed %2").arg(_deleteCompleted)
+                .arg(_deleteFailed);
+        // 失败详情已在 errorOccurred 里写进 tooltip，保留给用户展开查看。
+    }
+
+    // 与上传批次同理：整批只刷新一次目录。
+    if (_backendConnected)
+        requestDirectory(_currentPath);
+    else
+        setBusy(false, _statusAfterNextDirectoryList);
+}
+
+void SftpPanel::startTransferProgress(quint64 totalBytes)
+{
+    stopTransferProgress();
+    _activeTransferSize = totalBytes;
+    _transferProgressBar->setRange(0, TransferProgressScale);
+    _transferProgressBar->setValue(0);
+    _transferProgressBar->setFormat(QStringLiteral("%p%"));
+    _transferProgressDelay->start();
+}
+
+void SftpPanel::updateTransferProgress(quint64 transferred,
+                                       quint64 totalBytes)
+{
+    const quint64 total = totalBytes > 0 ? totalBytes : _activeTransferSize;
+    if (total == 0) {
+        // 服务端没给出总长度（部分实现 fstat 返回 0），算不出百分比。
+        // 退化成不确定态忙碌指示器，而不是把条钉死在 0% 让人以为卡住。
+        if (_transferProgressBar->maximum() != 0)
+            _transferProgressBar->setRange(0, 0);
+        return;
+    }
+    if (_transferProgressBar->maximum() == 0)
+        _transferProgressBar->setRange(0, TransferProgressScale);
 
     const long double ratio = static_cast<long double>(transferred)
         / static_cast<long double>(total);
     const int value = std::clamp(
-        static_cast<int>(ratio * UploadProgressScale),
-        0, UploadProgressScale);
-    _uploadProgressBar->setValue(value);
+        static_cast<int>(ratio * TransferProgressScale),
+        0, TransferProgressScale);
+    _transferProgressBar->setValue(value);
 }
 
-void SftpPanel::stopUploadProgress()
+bool SftpPanel::isTransferActive() const
 {
-    if (_uploadProgressDelay)
-        _uploadProgressDelay->stop();
-    if (_uploadProgressBar) {
-        _uploadProgressBar->hide();
-        _uploadProgressBar->setValue(0);
+    if (_uploadBatchActive && !_activeUploadRemotePath.isEmpty())
+        return true;
+    return _downloadBatchActive && !_activeDownloadName.isEmpty();
+}
+
+void SftpPanel::stopTransferProgress()
+{
+    if (_transferProgressDelay)
+        _transferProgressDelay->stop();
+    if (_transferProgressBar) {
+        _transferProgressBar->hide();
+        _transferProgressBar->setValue(0);
     }
 }
 
-void SftpPanel::downloadSelectedFile()
+void SftpPanel::resetDownloadBatch()
 {
-    QTreeWidgetItem* item = selectedItem();
+    _pendingDownloads.clear();
+    _activeDownloadName.clear();
+    _downloadDestination.clear();
+    _downloadBatchActive = false;
+    _downloadTotal = 0;
+    _downloadCompleted = 0;
+    _downloadFailed = 0;
+    _downloadSkipped = 0;
+}
+void SftpPanel::downloadSelectedEntries()
+{
+    if (!_backendConnected || _busy)
+        return;
+    const QList<QTreeWidgetItem*> selected = _fileTree->selectedItems();
+    if (selected.isEmpty())
+        return;
+
+    // 选区里一条非软链接都没有时直接说明，不要先弹一次目录对话框再反悔。
+    bool hasDownloadable = false;
+    for (const QTreeWidgetItem* item : selected) {
+        if (item && !item->data(0, SymbolicLinkRole).toBool()) {
+            hasDownloadable = true;
+            break;
+        }
+    }
+    if (!hasDownloadable) {
+        _availabilityLabel->setText(
+            tr("Symbolic links cannot be downloaded directly. Select other "
+               "items, or follow the link on the remote host."));
+        return;
+    }
+
+    QString suggestedDirectory =
+        QStandardPaths::writableLocation(QStandardPaths::DownloadLocation);
+    if (suggestedDirectory.isEmpty())
+        suggestedDirectory = QDir::homePath();
+
+    // 目标路径只选一次：单文件用保存对话框（含覆盖询问），其余情况一律选目录，
+    // 之后每条按各自文件名落到该目录下。逐条弹对话框会让多选下载无法使用。
+    QString destination;
+    bool destinationIsExactFilePath = false;
+    if (selected.size() == 1
+        && !selected.constFirst()->data(0, DirectoryRole).toBool()
+        && !selected.constFirst()->data(0, SymbolicLinkRole).toBool()) {
+        destination = QFileDialog::getSaveFileName(
+            this, tr("Download file"),
+            QDir(suggestedDirectory).filePath(selected.constFirst()->text(0)));
+        if (destination.isEmpty())
+            return;
+        destinationIsExactFilePath = true;
+    } else {
+        destination = QFileDialog::getExistingDirectory(
+            this, tr("Select download directory"), suggestedDirectory);
+        if (destination.isEmpty())
+            return;
+    }
+    queueDownloads(selected, destination, destinationIsExactFilePath);
+}
+
+void SftpPanel::downloadEntry(QTreeWidgetItem* item)
+{
     if (!item || item->data(0, SymbolicLinkRole).toBool()
         || !_backendConnected || _busy) {
         return;
     }
 
-    QString downloadDirectory =
+    QString suggestedDirectory =
         QStandardPaths::writableLocation(QStandardPaths::DownloadLocation);
-    if (downloadDirectory.isEmpty())
-        downloadDirectory = QDir::homePath();
+    if (suggestedDirectory.isEmpty())
+        suggestedDirectory = QDir::homePath();
+
     const bool directory = item->data(0, DirectoryRole).toBool();
-    QString localPath;
+    QString destination;
+    bool destinationIsExactFilePath = false;
     if (directory) {
-        const QString parentDirectory = QFileDialog::getExistingDirectory(
-            this, tr("Select download directory"), downloadDirectory);
-        if (parentDirectory.isEmpty())
+        destination = QFileDialog::getExistingDirectory(
+            this, tr("Select download directory"), suggestedDirectory);
+        if (destination.isEmpty())
             return;
-        localPath = QDir(parentDirectory).filePath(item->text(0));
     } else {
-        localPath = QFileDialog::getSaveFileName(
+        destination = QFileDialog::getSaveFileName(
             this, tr("Download file"),
-            QDir(downloadDirectory).filePath(item->text(0)));
-        if (localPath.isEmpty())
+            QDir(suggestedDirectory).filePath(item->text(0)));
+        if (destination.isEmpty())
             return;
+        destinationIsExactFilePath = true;
+    }
+    queueDownloads({item}, destination, destinationIsExactFilePath);
+}
+
+void SftpPanel::queueDownloads(const QList<QTreeWidgetItem*>& items,
+                               const QString& destination,
+                               bool destinationIsExactFilePath)
+{
+    if (!_backendConnected || _busy || items.isEmpty())
+        return;
+
+    QQueue<DownloadRequest> requests;
+    int skippedCount = 0;
+    // destinationIsExactFilePath 为真时，destination 就是用户在保存对话框里
+    // 敲定的目标文件全路径（可能与远端同名不同名），必须原样使用 —— 用远端
+    // 文件名重新拼会悄悄丢掉用户的输入。该标志只由单条非目录项置位，所以
+    // 只对第一条生效。
+    const QString destinationDirectory =
+        destinationIsExactFilePath ? QFileInfo(destination).absolutePath()
+                                  : destination;
+    for (const QTreeWidgetItem* item : items) {
+        if (!item)
+            continue;
+        // 软链接按既有规则不下载：单选时是禁用动作，多选时改为跳过并计数，
+        // 否则一个软链接会让整批都发不出去。
+        if (item->data(0, SymbolicLinkRole).toBool()) {
+            ++skippedCount;
+            continue;
+        }
+        const QString name = item->text(0);
+        const QString localPath = (destinationIsExactFilePath
+                                   && requests.isEmpty())
+            ? destination
+            : QDir(destinationDirectory).filePath(name);
+        requests.enqueue(
+            {item->data(0, RemotePathRole).toString(), name, localPath,
+             item->data(0, SizeRole).toULongLong(),
+             item->data(0, DirectoryRole).toBool()});
     }
 
-    setBusy(true, tr("Downloading %1…").arg(item->text(0)));
-    const QString remotePath = item->data(0, RemotePathRole).toString();
-    if (directory)
-        _sftpSession->downloadDirectory(remotePath, localPath);
+    if (requests.isEmpty()) {
+        _availabilityLabel->setText(
+            tr("Symbolic links cannot be downloaded directly. Select other "
+               "items, or follow the link on the remote host."));
+        return;
+    }
+
+    // QSaveFile 提交时会静默覆盖同名文件，而多选场景下逐条询问不现实，
+    // 因此这里只问一次 —— 与上传批次的"覆盖远端文件"确认对称。
+    int overwriteCount = 0;
+    for (const DownloadRequest& request : requests) {
+        if (QFileInfo::exists(request.localPath))
+            ++overwriteCount;
+    }
+    if (overwriteCount > 0
+        && !NovaTerm::Ui::confirm(
+            this, tr("Replace local files"),
+            tr("%1 local item(s) already exist. Overwrite them?")
+                .arg(overwriteCount))) {
+        return;
+    }
+
+    _pendingDownloads = std::move(requests);
+    _downloadDestination = destination;
+    _downloadTotal = _pendingDownloads.size();
+    _downloadCompleted = 0;
+    _downloadFailed = 0;
+    _downloadSkipped = skippedCount;
+    _downloadBatchActive = true;
+    _availabilityLabel->setToolTip({});
+    setBusy(true);
+    startNextDownload();
+}
+
+void SftpPanel::startNextDownload()
+{
+    if (!_downloadBatchActive)
+        return;
+    if (!_backendConnected) {
+        resetDownloadBatch();
+        stopTransferProgress();
+        setBusy(false,
+                tr("Download stopped because the SFTP connection closed."));
+        return;
+    }
+    if (_pendingDownloads.isEmpty()) {
+        finishDownloadBatch();
+        return;
+    }
+
+    const DownloadRequest request = _pendingDownloads.dequeue();
+    _activeDownloadName = request.name;
+    const int current = _downloadCompleted + _downloadFailed + 1;
+    setBusy(true, _downloadTotal > 1
+        ? tr("Downloading: %1 (%2/%3)")
+            .arg(request.name).arg(current).arg(_downloadTotal)
+        : tr("Downloading: %1").arg(request.name));
+    // 目录下载由 SftpSession 递归枚举后才能报出总量，这里先按条目上的原始
+    // 字节数起；首个 transferProgress 到达后进度条会自行切到确定态或忙碌态。
+    startTransferProgress(request.size);
+    if (request.directory)
+        _sftpSession->downloadDirectory(request.remotePath, request.localPath);
     else
-        _sftpSession->downloadFile(remotePath, localPath);
+        _sftpSession->downloadFile(request.remotePath, request.localPath);
+}
+
+void SftpPanel::finishDownloadBatch()
+{
+    // 摘要只用计数：operationFinished 分支已把 _activeDownloadName 清空
+    // （那正是为了让随后的 errorOccurred 不会误记到已完成的条目上），
+    // 因此这里不能再拿它拼"Downloaded: <名字>"。
+    QString summary;
+    if (_downloadFailed == 0 && _downloadSkipped == 0)
+        summary = tr("Downloaded %1 items").arg(_downloadCompleted);
+    else
+        summary = tr("Downloaded %1, failed %2, skipped %3")
+            .arg(_downloadCompleted).arg(_downloadFailed)
+            .arg(_downloadSkipped);
+
+    // 目标位置对用户有实际用处（"下载到哪儿去了"），放进 tooltip 供展开查看。
+    _availabilityLabel->setToolTip(_downloadDestination);
+    resetDownloadBatch();
+    stopTransferProgress();
+    // 下载不改动远端目录，因此就地显示摘要，不进 _statusAfterNextDirectoryList
+    // 那条"等下一次列表到达再显示"的旁路。
+    setBusy(false, summary);
 }
 
 void SftpPanel::showFileContextMenu(const QPoint& position)
@@ -1255,10 +1688,23 @@ void SftpPanel::showFileContextMenu(const QPoint& position)
         return;
 
     QTreeWidgetItem* item = _fileTree->itemAt(position);
-    if (item)
-        _fileTree->setCurrentItem(item);
-    else
+    // setCurrentItem 在 ExtendedSelection 下等价于 ClearAndSelect：无修饰键的
+    // 右键会清掉已有的多选。因此仅当右键点中未选中的条目时才切换选区，
+    // 点在已选条目上则保持原选区不变。
+    if (item) {
+        if (!item->isSelected())
+            _fileTree->setCurrentItem(item);
+    } else {
         _fileTree->clearSelection();
+    }
+
+    // 动作一律以"当前选区"为依据而不是光标下的那一条，多选才有一致语义。
+    const QList<QTreeWidgetItem*> selected = _fileTree->selectedItems();
+    const bool single = selected.size() == 1;
+    const bool hasSelection = !selected.isEmpty();
+    QTreeWidgetItem* singleItem = single ? selected.constFirst() : nullptr;
+    const bool symbolicLink = singleItem
+        && singleItem->data(0, SymbolicLinkRole).toBool();
 
     // 文件操作在前、目录创建与刷新在后；空白处右键时保留完整菜单结构。
     SftpContextMenu menu(this);
@@ -1274,21 +1720,20 @@ void SftpPanel::showFileContextMenu(const QPoint& position)
     menu.addSeparator();
     QAction* refreshAction = menu.addAction(tr("Refresh"));
 
-    const bool hasItem = item != nullptr;
-    const bool symbolicLink = hasItem
-        && item->data(0, SymbolicLinkRole).toBool();
-    downloadAction->setEnabled(
-        hasItem && !symbolicLink);
-    renameAction->setEnabled(hasItem);
-    permissionsAction->setEnabled(hasItem && !symbolicLink);
-    copyPathAction->setEnabled(hasItem);
-    removeAction->setEnabled(hasItem);
+    // 下载与删除天然支持多选：多选时只选一次目标路径。软链接在多选里被
+    // 跳过并计入 skipped，所以这里不因选区含软链接而禁用。
+    downloadAction->setEnabled(hasSelection);
+    // 重命名与改权限在语义上只作用于单条，多选时置灰而不是只处理第一条。
+    renameAction->setEnabled(single);
+    permissionsAction->setEnabled(single && !symbolicLink);
+    copyPathAction->setEnabled(hasSelection);
+    removeAction->setEnabled(hasSelection);
 
     QAction* selectedAction = menu.exec(_fileTree->viewport()->mapToGlobal(position));
     if (!selectedAction)
         return;
     if (selectedAction == downloadAction) {
-        downloadSelectedFile();
+        downloadSelectedEntries();
         return;
     }
     if (selectedAction == createDirectoryAction) {
@@ -1313,15 +1758,38 @@ void SftpPanel::showFileContextMenu(const QPoint& position)
         requestDirectory(_currentPath);
         return;
     }
-    if (!item)
+    if (selectedAction == copyPathAction) {
+        QStringList paths;
+        paths.reserve(selected.size());
+        for (const QTreeWidgetItem* entry : selected) {
+            if (entry)
+                paths.push_back(
+                    entry->data(0, RemotePathRole).toString());
+        }
+        if (paths.isEmpty())
+            return;
+        const QString text = paths.join(QLatin1Char('\n'));
+        QApplication::clipboard()->setText(text);
+        _availabilityLabel->setText(
+            paths.size() == 1 ? tr("Path copied.")
+                              : tr("%1 paths copied.").arg(paths.size()));
+        _availabilityLabel->setToolTip(text);
+        return;
+    }
+    if (selectedAction == removeAction) {
+        // 确认与逐条下发都集中在 deleteSelectedEntries()，右键与 Delete 键共用。
+        deleteSelectedEntries();
+        return;
+    }
+    if (!singleItem)
         return;
 
-    const QString oldPath = item->data(0, RemotePathRole).toString();
+    const QString oldPath = singleItem->data(0, RemotePathRole).toString();
     if (selectedAction == renameAction) {
         const auto name = requestRemoteName(
-            this, tr("Rename"), tr("New name:"), item->text(0));
+            this, tr("Rename"), tr("New name:"), singleItem->text(0));
         if (name && isValidRemoteName(*name)
-            && *name != item->text(0)) {
+            && *name != singleItem->text(0)) {
             setBusy(true, tr("Renaming…"));
             _sftpSession->renameEntry(oldPath, remotePathForName(*name));
         }
@@ -1329,33 +1797,12 @@ void SftpPanel::showFileContextMenu(const QPoint& position)
     }
     if (selectedAction == permissionsAction) {
         const quint32 currentPermissions =
-            item->data(0, PermissionsRole).toUInt() & 07777u;
+            singleItem->data(0, PermissionsRole).toUInt() & 07777u;
         SftpPermissionsDialog dialog(
-            item->text(0), currentPermissions, this);
+            singleItem->text(0), currentPermissions, this);
         if (dialog.exec() != QDialog::Accepted)
             return;
         setBusy(true, tr("Changing permissions…"));
         _sftpSession->changePermissions(oldPath, dialog.permissions());
-        return;
     }
-    if (selectedAction == copyPathAction) {
-        QApplication::clipboard()->setText(oldPath);
-        _availabilityLabel->setText(tr("Path copied."));
-        _availabilityLabel->setToolTip(oldPath);
-        return;
-    }
-    if (selectedAction != removeAction)
-        return;
-
-    const bool directory = item->data(0, DirectoryRole).toBool();
-    const QString confirmation = directory
-        ? tr("Delete folder %1 and all its contents? This action cannot be undone.")
-              .arg(item->text(0))
-        : tr("Delete %1?").arg(item->text(0));
-    if (!NovaTerm::Ui::confirm(this, tr("Delete remote entry"), confirmation)) {
-        return;
-    }
-
-    setBusy(true, tr("Deleting…"));
-    _sftpSession->removeEntry(oldPath, directory);
 }
