@@ -69,6 +69,7 @@ struct VTermState
   VTermPos pos;
 
   int at_phantom; /* True if we're on the "81st" phantom column to defer a wraparound */
+  int lf_implies_cr; /* 宿主兼容选项，独立于 ANSI LNM */
 
   int scrollregion_top;
   int scrollregion_bottom; /* -1 means unbounded */

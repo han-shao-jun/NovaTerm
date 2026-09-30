@@ -64,6 +64,7 @@ static VTermState *vterm_state_new(VTerm *vt)
 
   state->rows = vt->rows;
   state->cols = vt->cols;
+  state->lf_implies_cr = 0;
 
   state->mouse_col     = 0;
   state->mouse_row     = 0;
@@ -468,6 +469,11 @@ static int on_control(unsigned char control, void *user)
     break;
 
   case 0x0a: // LF - ECMA-48 8.3.74
+    linefeed(state);
+    if(state->mode.newline || state->lf_implies_cr)
+      state->pos.col = 0;
+    break;
+
   case 0x0b: // VT
   case 0x0c: // FF
     linefeed(state);
@@ -2080,6 +2086,11 @@ VTermState *vterm_obtain_state(VTerm *vt)
   vterm_parser_set_callbacks(vt, &parser_callbacks, state);
 
   return state;
+}
+
+void vterm_state_set_lf_implies_cr(VTermState *state, int enabled)
+{
+  state->lf_implies_cr = !!enabled;
 }
 
 void vterm_state_reset(VTermState *state, int hard)
