@@ -82,6 +82,9 @@ public:
     /**
      * @brief 设置终端默认前景/背景色（用于未指定颜色的 Cell）。
      */
+    /** @brief 设置独立于 ANSI LNM 的 LF 自动回车兼容行为。 */
+    void setLfImpliesCr(bool enabled);
+
     void setDefaultColors(const TerminalColor& foreground,
                           const TerminalColor& background);
 

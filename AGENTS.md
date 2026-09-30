@@ -424,6 +424,17 @@ P3 与 P5 实施完成、部分平台或人工验收待做，P7 计划中。
 
 ## 容易写错的地方
 
+**串口 LF 自动回车只属于解析状态**：`SerialConfig::lfImpliesCr` 默认 false，
+旧历史字段缺失也按 false；SSH/PTTY 等非串口传输默认 false。不要在
+`SerialTransport` 或 `SessionInputPump` 改写接收字节，也不要借用 ANSI LNM
+（会改变 Enter 编码）。独立状态位在 vendored libvterm 的 LF 控制字符分支，
+经 `VTAdapter`、`TerminalCore` 的 Parser 命令设置。解析 Worker 的单次 take
+可能跨越命令字节屏障，必须在屏障处切分后执行模式命令；模式命令队列拒绝
+时不可继续附着传输。串口编辑与历史恢复要同步 `transport.lfImpliesCr`；
+回归见 `TerminalCoreTests` 的 `lfImpliesCrChangesOnlyLfCursorBehavior`、
+`lfModeSwitchHonorsByteBarrierInsideBatch`、`lfModeCommandReportsFullQueue`。
+
+
 **Ninja/MSVC 必须识别头文件依赖**：中文 `/showIncludes` 的代码页可能与 Ninja
 规则里的 UTF-8 前缀不同，导致 `ninja -t deps <obj>` 显示 `#deps 0`，头文件改动
 后继续复用旧对象，产生 ABI 混用和假回归。根 CMake 对 Ninja/MSVC 已固定

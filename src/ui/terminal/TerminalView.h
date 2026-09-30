@@ -90,7 +90,14 @@ public:
      * @return true 表示已交给会话 adopt；false 表示附加失败，transport
      *         的所有权仍留在调用方，由调用方负责回收。
      */
-    bool attachTransport(ITransport* transport);
+    /**
+     * @brief 附着传输并设置接收 LF 的解析兼容模式。
+     * @param transport 待附着的传输，成功后由 Session 接管。
+     * @param lfImpliesCr 串口按配置传入；其他传输保持默认 false。
+     * @return 成功附着返回 true；解析模式命令入队失败时返回 false，
+     *         调用方仍拥有 transport。
+     */
+    bool attachTransport(ITransport* transport, bool lfImpliesCr = false);
     void detachTransport();                              ///< 分离传输层
     ITransport* transport() const;                        ///< 获取当前传输层
     TerminalSession* session() const;                     ///< 获取会话对象

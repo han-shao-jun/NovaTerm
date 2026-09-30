@@ -167,6 +167,11 @@ Session、不清空内容。JSON 的 `schemes` 使用 Windows Terminal 的命名
 
 ### 3.3 TerminalSession
 
+串口配置的 `lfImpliesCr` 默认关闭，旧历史缺省值也按关闭处理；用户可在
+串口会话表单开启。它只影响该会话 VT 解析器收到 LF 时的光标列，原始接收字节
+仍由 InputPump 原样送入 Core。SSH、PTTY 与其他传输默认关闭，保持严格 VT
+行为；此开关独立于 ANSI LNM，不改变 Enter 输出编码。
+
 串口配置的 `reconnectSeconds` 为非负整秒数，默认 0 禁用自动重连。串口
 断线或打开失败后，Session 以单次定时器等待该间隔，再走既有 `reconnect()`
 入口；失败后重新计时。主动断开、关闭和换绑取消待执行重试，成功连接停止
@@ -190,7 +195,10 @@ Session、不清空内容。JSON 的 `schemes` 使用 Windows Terminal 的命名
 
 Parser Worker 采用事件驱动等待：字节入队、Parser 命令入队和停止事件共同唤醒
 Worker。空闲时在条件变量上无限等待，不使用固定周期轮询；命令仍受已提交字节
-完成屏障约束。字节队列容量、6/4 MiB 高低水位和背压恢复判据不受等待方式影响。
+完成屏障约束。一次取出的 64 KiB 字节批次若跨越命令屏障，Worker 在屏障处
+切分解析并执行命令，保证模式更改不会延迟到整批结束。关键解析模式命令入队
+失败时，调用方停止传输附着，不以错误模式开始接收。字节队列容量、6/4 MiB
+高低水位和背压恢复判据不受等待方式影响。
 
 **去 Qt 化进度（原则 3）**：核心层的数据类型与多数组件已不依赖 Qt ——
 `VTAdapter`、`ScreenBuffer`、`ScrollbackBuffer`/`ChunkedScrollback`、`LineLayout`、

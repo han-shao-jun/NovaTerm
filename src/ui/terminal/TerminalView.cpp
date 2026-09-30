@@ -483,7 +483,7 @@ void TerminalView::stopLocalShell()
 //  远程终端模式 — ITransport 数据桥接
 // ═══════════════════════════════════════════════════════════════════
 
-bool TerminalView::attachTransport(ITransport* transport)
+bool TerminalView::attachTransport(ITransport* transport, bool lfImpliesCr)
 {
     detachTransport();
     if (!transport)
@@ -491,6 +491,13 @@ bool TerminalView::attachTransport(ITransport* transport)
     if (_session->state() == SessionState::Closed
         && !_session->resetForReuse()) {
         qWarning() << "TerminalView: failed to prepare the next session";
+        return false;
+    }
+
+    // 解析兼容模式在字节进入 InputPump 前排队；其他传输默认关闭。
+    // 队列拒绝设置时不可继续启动，否则显示行为会与会话配置不符。
+    if (!_core->setLfImpliesCr(lfImpliesCr)) {
+        qWarning() << "TerminalView: failed to queue LF compatibility mode";
         return false;
     }
 

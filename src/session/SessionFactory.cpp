@@ -93,6 +93,7 @@ SessionFactory::create(const RuntimeConfig& runtime,
             values.value(QStringLiteral("flowControl"),
                          QSerialPort::NoFlowControl).toInt());
         config.reconnectSeconds = values.value(QStringLiteral("reconnectSeconds"), 0).toInt();
+        config.lfImpliesCr = values.value(QStringLiteral("lfImpliesCr"), false).toBool();
         config.label = runtime.title;
         if (!config.isValid()) {
             if (error)
@@ -196,7 +197,12 @@ std::unique_ptr<TerminalSession>
 SessionFactory::createSerial(const SerialConfig& config, RuntimeConfig runtime)
 {
     runtime.transport.insert(QStringLiteral("reconnectSeconds"), config.reconnectSeconds);
-    return makeSession<SerialTransport>(config, std::move(runtime), TransportKind::Serial);
+    runtime.transport.insert(QStringLiteral("lfImpliesCr"), config.lfImpliesCr);
+    auto session = makeSession<SerialTransport>(config, std::move(runtime),
+                                               TransportKind::Serial);
+    if (!session->core()->setLfImpliesCr(config.lfImpliesCr))
+        return nullptr;
+    return session;
 }
 
 std::unique_ptr<TerminalSession>

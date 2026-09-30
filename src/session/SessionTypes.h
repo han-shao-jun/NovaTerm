@@ -136,8 +136,8 @@ Q_DECLARE_METATYPE(SessionRestoreMetadata)
 /**
  * @brief 串口会话不可变创建快照。
  *
- * 由 UI/Profile 层构造，transport 层消费。transport 不读取 widget 或 JSON，
- * 仅消费此结构。帧格式配置在构造前解析完成。
+ * 由 UI/Profile 层构造，Transport 消费帧格式，Core 装配层消费解析选项。
+ * Transport 不读取 widget 或 JSON；帧格式在构造前解析完成。
  */
 struct SerialConfig
 {
@@ -149,6 +149,7 @@ struct SerialConfig
     QSerialPort::FlowControl flowControl{QSerialPort::NoFlowControl}; ///< 流控
     QString label;                                           ///< 显示标签
     int reconnectSeconds{0};                                 ///< 自动重连间隔整秒数，0 禁用
+    bool lfImpliesCr{false};                                   ///< 收到 LF 时光标自动回到行首
 
     /**
      * @brief 校验配置是否有效。

@@ -125,6 +125,7 @@ SessionPage::SessionPage(QWidget* parent)
                 _flowControlCombo->currentData().toInt());
             config.label = _serialLabel->text().trimmed();
             config.reconnectSeconds = _serialReconnectTime->text().toInt();
+            config.lfImpliesCr = _serialLfImpliesCr->isChecked();
 
             if (!config.isValid()) {
                 NovaTerm::Ui::warn(this, tr("Serial Session"),
@@ -322,6 +323,8 @@ void SessionPage::applyRuntimeConfig(const RuntimeConfig& runtime,
                                     QSerialPort::NoFlowControl).toInt());
         _serialReconnectTime->setText(QString::number(
             values.value(QStringLiteral("reconnectSeconds"), 0).toInt()));
+        _serialLfImpliesCr->setChecked(
+            values.value(QStringLiteral("lfImpliesCr"), false).toBool());
         _serialLabel->setText(
             values.value(QStringLiteral("label")).toString());
         break;
@@ -667,7 +670,11 @@ void SessionPage::initSerialUi()
     _serialLabel->setPlaceholderText(tr("Optional session name"));
     grid->addWidget(_serialLabel, 7, 1);
 
-    grid->setRowStretch(8, 1);
+    _serialLfImpliesCr = new ElaCheckBox(tr("LF automatic carriage return (LF → CRLF)"), page);
+    _serialLfImpliesCr->setChecked(false);
+    grid->addWidget(_serialLfImpliesCr, 8, 0, 1, 2);
+
+    grid->setRowStretch(9, 1);
 
     _tabWidget->addTab(page, tr("serial port"));
 }

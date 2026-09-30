@@ -156,6 +156,11 @@ public:
     NovaTerm::u64 modelRevision() const;
     NovaTerm::CursorState cursorState() const;
     void flushDamage();
+    /**
+     * @brief 按字节顺序设置 LF 自动回车兼容模式；默认关闭。
+     * @return true 表示命令已进入 Parser 队列；false 表示应停止启动传输。
+     */
+    [[nodiscard]] bool setLfImpliesCr(bool enabled);
     void setDefaultColors(const NovaTerm::TerminalColor& foreground,
                           const NovaTerm::TerminalColor& background);
 

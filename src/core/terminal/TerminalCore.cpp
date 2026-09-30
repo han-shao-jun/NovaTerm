@@ -30,6 +30,7 @@
 #include <chrono>
 #include <condition_variable>
 #include <deque>
+#include <limits>
 #include <mutex>
 #include <thread>
 #include <utility>
@@ -66,6 +67,7 @@ enum class CommandType
     Paste,
     Resize,
     DefaultColors,
+    SetLfImpliesCr,
     FocusIn,
     FocusOut,
     SetScrollbackLimit,
@@ -365,6 +367,22 @@ public:
         return true;
     }
 
+    void completeReadyCommands()
+    {
+        const uint64_t count = processCommands();
+        if (count == 0)
+            return;
+        completedCommands.fetch_add(count, std::memory_order_release);
+        notifyCompletion();
+    }
+
+    [[nodiscard]] uint64_t nextCommandByteBarrier()
+    {
+        std::lock_guard<std::mutex> locker(commandMutex);
+        return commands.empty() ? (std::numeric_limits<uint64_t>::max)()
+                                : commands.front().byteBarrier;
+    }
+
     // worker 线程主循环：libvterm 解析与命令执行均在此串行进行。
     // 每轮先消费已就绪命令（受 byteBarrier 约束），再取一批字节喂给
     // libvterm。模型锁（modelMutex）只在访问 ScreenBuffer/VTAdapter 时
@@ -374,30 +392,40 @@ public:
         NovaTerm::setCurrentThreadName("nvterm-parser");
 
         while (!stopping.load(std::memory_order_acquire)) {
-            const uint64_t processedCommands = processCommands();
-            if (processedCommands > 0) {
-                completedCommands.fetch_add(processedCommands,
-                                            std::memory_order_release);
-                notifyCompletion();
-            }
+            completeReadyCommands();
 
             isize queuedAfterTake = 0;
             const isize taken = bytes.take(batchBuffer.data(), ParserBatchSize,
                                            -1, &queuedAfterTake);
-            if (taken > 0) {
-                // take() 在持锁期间已回报剩余字节数，无需再锁一次 statistics()。
-                if (queuedAfterTake <= QueueLowWatermark)
-                    setBackpressure(false);
+            if (taken <= 0)
+                continue;
+
+            // take() 在持锁期间已回报剩余字节数，无需再锁一次 statistics()。
+            if (queuedAfterTake <= QueueLowWatermark)
+                setBackpressure(false);
+            isize offset = 0;
+            while (offset < taken) {
+                // 一个 take() 可能跨越控制命令的字节屏障。先消费当前已就绪
+                // 命令，再只解析到下一道屏障，避免新字节沿用旧解析模式。
+                completeReadyCommands();
+                const uint64_t completed =
+                    completedBytes.load(std::memory_order_acquire);
+                const uint64_t barrier = nextCommandByteBarrier();
+                if (barrier <= completed)
+                    continue; // 命令刚入队，下一轮先执行它。
+                const isize length = isize((std::min)(
+                    uint64_t(taken - offset), barrier - completed));
                 {
                     std::lock_guard<std::mutex> modelLocker(modelMutex);
-                    adapter->writeInput(NovaTerm::ByteView(batchBuffer.data(),
-                                                           taken));
+                    adapter->writeInput(NovaTerm::ByteView(
+                        batchBuffer.data() + offset, length));
                     adapter->flushDamage();
                     commitPendingModelRevision();
                     maybePublishContextLocked();
                 }
                 publishPendingSignals();
-                completedBytes.fetch_add(uint64_t(taken),
+                offset += length;
+                completedBytes.fetch_add(uint64_t(length),
                                          std::memory_order_release);
                 notifyCompletion();
             }
@@ -579,6 +607,9 @@ public:
             break;
         case CommandType::DefaultColors:
             adapter->setDefaultColors(command.foreground, command.background);
+            break;
+        case CommandType::SetLfImpliesCr:
+            adapter->setLfImpliesCr(command.first != 0);
             break;
         case CommandType::FocusIn:
             adapter->focusIn();
@@ -1401,6 +1432,14 @@ void TerminalCore::flushDamage()
     ParserCommand command;
     command.type = CommandType::Flush;
     _runtime->enqueueCommand(std::move(command));
+}
+
+bool TerminalCore::setLfImpliesCr(bool enabled)
+{
+    ParserCommand command;
+    command.type = CommandType::SetLfImpliesCr;
+    command.first = enabled ? 1 : 0;
+    return _runtime->enqueueCommand(std::move(command));
 }
 
 void TerminalCore::setDefaultColors(

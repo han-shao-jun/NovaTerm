@@ -80,6 +80,7 @@ RuntimeConfig serialRuntime(const SerialConfig& config)
         {QStringLiteral("stopBits"), static_cast<int>(config.stopBits)},
         {QStringLiteral("flowControl"), static_cast<int>(config.flowControl)},
         {QStringLiteral("reconnectSeconds"), config.reconnectSeconds},
+        {QStringLiteral("lfImpliesCr"), config.lfImpliesCr},
         {QStringLiteral("label"), config.label}};
     return runtime;
 }
@@ -499,7 +500,7 @@ bool TerminalPage::replaceTerminalTab(TerminalView* terminalView,
         if (!terminalGuard)
             return;
         auto* transport = new SerialTransport(config, terminalGuard);
-        if (!terminalGuard->attachTransport(transport)) {
+        if (!terminalGuard->attachTransport(transport, config.lfImpliesCr)) {
             delete transport; // 未被 adopt，父对象归还前先行回收
             return;
         }

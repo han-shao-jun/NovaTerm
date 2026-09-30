@@ -715,6 +715,12 @@ void VTAdapter::resize(int columns, int rows)
     }
 }
 
+void VTAdapter::setLfImpliesCr(bool enabled)
+{
+    if (isValid())
+        vterm_state_set_lf_implies_cr(_impl->state, enabled);
+}
+
 void VTAdapter::setDefaultColors(const TerminalColor& foreground,
                                  const TerminalColor& background)
 {

@@ -22,6 +22,9 @@ private slots:
     void parsesUtf8AndAttributes();
     void parsesAnsiIndexedAndTrueColors();
     void parsesFragmentedUtf8();
+    void lfImpliesCrChangesOnlyLfCursorBehavior();
+    void lfModeSwitchHonorsByteBarrierInsideBatch();
+    void lfModeCommandReportsFullQueue();
     void reportsDamage();
     void ctrlCProducesInterruptCharacter();
     void largeBracketedPasteIsBatchedAndOrdered();
@@ -160,6 +163,71 @@ void TerminalCoreTests::parsesFragmentedUtf8()
     QVERIFY(core.getCell(0, 0, cell));
     QCOMPARE(cell.chars[0], uint32_t(0x4E2D));
     QCOMPARE(cell.width, uint8_t(2));
+}
+
+void TerminalCoreTests::lfImpliesCrChangesOnlyLfCursorBehavior()
+{
+    TerminalCore strict(20, 4);
+    strict.writeInput(QByteArrayLiteral("A\nB"));
+    QVERIFY(strict.waitForIdle());
+    QCOMPARE(strict.cursorPosition().col, 2);
+
+    TerminalCore compatible(20, 4);
+    QVERIFY(compatible.setLfImpliesCr(true));
+    compatible.writeInput(QByteArrayLiteral("A\nB"));
+    QVERIFY(compatible.waitForIdle());
+    QCOMPARE(compatible.cursorPosition().col, 1);
+    NovaTerm::Cell cell;
+    QVERIFY(compatible.getCell(1, 0, cell));
+    QCOMPARE(cell.chars[0], uint32_t('B'));
+
+    // 兼容选项不能借用 ANSI LNM；键盘 Enter 仍只发 CR。
+    QSignalSpy outputSpy(&compatible, &TerminalCore::outputData);
+    QKeyEvent enter(QEvent::KeyPress, Qt::Key_Return, Qt::NoModifier);
+    compatible.processKeyPress(&enter);
+    QVERIFY(compatible.waitForIdle());
+    QTRY_VERIFY(!outputSpy.isEmpty());
+    QCOMPARE(outputSpy.takeFirst().at(0).toByteArray(), QByteArrayLiteral("\r"));
+
+    QVERIFY(compatible.setLfImpliesCr(false));
+    compatible.writeInput(QByteArrayLiteral("C\nD"));
+    QVERIFY(compatible.waitForIdle());
+    QCOMPARE(compatible.cursorPosition().col, 3);
+    QVERIFY(compatible.getCell(2, 2, cell));
+    QCOMPARE(cell.chars[0], uint32_t('D'));
+
+    TerminalCore controls(20, 4);
+    QVERIFY(controls.setLfImpliesCr(true));
+    controls.writeInput(QByteArrayLiteral("\x1b[2;5H\vX"));
+    QVERIFY(controls.waitForIdle());
+    QVERIFY(controls.getCell(2, 4, cell));
+    QCOMPARE(cell.chars[0], uint32_t('X'));
+}
+
+void TerminalCoreTests::lfModeSwitchHonorsByteBarrierInsideBatch()
+{
+    TerminalCore core(20, 4);
+    // 旧字节数故意比 64 KiB 批次多一字节：最后一次 take 会把新字节
+    // 与旧字节合并，模式命令必须恰在两者之间执行。
+    const QByteArray oldBytes(6 * 1024 * 1024 + 1, 'x');
+    QVERIFY(core.writeInput(oldBytes).fullyAccepted());
+    QVERIFY(core.setLfImpliesCr(true));
+    QVERIFY(core.writeInput(QByteArrayLiteral("\x1b[1;5H\nZ")).fullyAccepted());
+    QVERIFY(core.waitForIdle(15'000));
+
+    NovaTerm::Cell cell;
+    QVERIFY(core.getCell(1, 0, cell));
+    QCOMPARE(cell.chars[0], uint32_t('Z'));
+}
+
+void TerminalCoreTests::lfModeCommandReportsFullQueue()
+{
+    TerminalCore core(20, 4);
+    // 先让 Parser 忙于旧字节；后续键盘命令的屏障使它们暂时不能消费。
+    QVERIFY(core.writeInput(QByteArray(6 * 1024 * 1024, 'x')).fullyAccepted());
+    for (int index = 0; index < 4096; ++index)
+        core.processTextInput(QStringLiteral("x"));
+    QVERIFY(!core.setLfImpliesCr(true));
 }
 
 void TerminalCoreTests::resizesScreen()

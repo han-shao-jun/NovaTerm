@@ -554,6 +554,19 @@ Serial Transport 目前**没有对应测试文件**（见"实现进度"步骤 8 
   `automaticReconnectDisabledForZeroAndOtherProtocols` 验证禁用、协议隔离与
   连续打开失败后的恢复。真实串口拔插验收尚未执行。
 
+### 串口 LF 自动回车兼容模式（2026-09-30）
+
+`SerialConfig::lfImpliesCr` 默认为 false，表单提供可开启选项；历史记录
+`transport.lfImpliesCr` 持久化该值，旧记录缺字段时按 false 恢复。
+`TerminalView::attachTransport` 在传输启动前将模式作为 Parser 命令提交，
+非串口传输传 false；`SessionFactory::createSerial` 同样设置自有 Core。
+模式命令入队失败时，View 不接管 Transport、工厂不返回会话，避免会话配置
+与实际解析模式不符。
+接收字节不改写，libvterm 的 LF 控制字符处理在下移一行后按该独立状态
+将光标列归零。VT/FF 与键盘 Enter 仍遵从原有 ANSI LNM 语义。
+回归为 `TerminalCoreTests::lfImpliesCrChangesOnlyLfCursorBehavior`；真实串口
+设备上的显示验收尚未执行。
+
 ## 实施禁止项
 
 - 禁止 TerminalView 继续拥有 pending Transport 字节；

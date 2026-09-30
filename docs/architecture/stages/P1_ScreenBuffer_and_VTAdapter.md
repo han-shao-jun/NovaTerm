@@ -648,3 +648,15 @@ Screen Cell 安全，调用 `vterm_state_get_lineinfo()` 则仍会访问旧数�
 **遗留缺口**：`Cell::width` 依赖右邻格，脏矩形不覆盖该格时不会刷新，导致
 分批边界不同可能得到不同 `width`（既有缺陷，回退本次改动同样复现；证据与
 复现输入见 `AGENTS.md`）。修复方向：脏区传播时把宽字符左邻列一并扩入脏区。
+
+## 2026-09-30 增量：串口 LF 自动回车
+
+libvterm 增加独立的 `lf_implies_cr` 状态与设置 API，仅 LF 控制字符在
+行进后按此状态回到第 0 列；ANSI LNM 及 VT/FF、Enter 编码不变。
+`VTAdapter::setLfImpliesCr` 保持 libvterm 类型在实现边界，`TerminalCore`
+通过有界命令队列按字节屏障转发。串口及其他传输默认关闭，用户可为串口开启；
+原始接收数据不改写。后续审查发现单次 `take()` 会跨越旧字节、模式命令、
+新字节的屏障，导致新字节按旧模式解析；Worker 现按队首命令屏障切分批次，
+在段间执行命令。命令队列拒绝模式设置时返回失败，传输不继续启动。回归见
+`TerminalCoreTests::lfImpliesCrChangesOnlyLfCursorBehavior`、
+`lfModeSwitchHonorsByteBarrierInsideBatch` 和 `lfModeCommandReportsFullQueue`。

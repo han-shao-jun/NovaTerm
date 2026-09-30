@@ -277,6 +277,7 @@ RuntimeConfig serialRuntime(const SerialConfig& config)
         {QStringLiteral("stopBits"), static_cast<int>(config.stopBits)},
         {QStringLiteral("flowControl"), static_cast<int>(config.flowControl)},
         {QStringLiteral("reconnectSeconds"), config.reconnectSeconds},
+        {QStringLiteral("lfImpliesCr"), config.lfImpliesCr},
         {QStringLiteral("label"), config.label}};
     runtime.title = sessionName(runtime);
     return runtime;
@@ -867,6 +868,7 @@ void SessionPanel::reconnectSession(const SessionId& id)
         config.flowControl = static_cast<QSerialPort::FlowControl>(
             values.value(QStringLiteral("flowControl")).toInt());
         config.reconnectSeconds = values.value(QStringLiteral("reconnectSeconds"), 0).toInt();
+        config.lfImpliesCr = values.value(QStringLiteral("lfImpliesCr"), false).toBool();
         config.label = values.value(QStringLiteral("label")).toString();
         if (config.isValid())
             emit serialReconnectRequested(config);
