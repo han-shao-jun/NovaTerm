@@ -263,11 +263,11 @@ add_compile_options(
     "$<$<AND:$<CONFIG:RelWithDebInfo>,$<COMPILE_LANG_AND_ID:CXX,GNU,Clang,AppleClang>>:-fno-omit-frame-pointer>"
 )
 
-# Windows 平台标识与 Release 日志策略适用于全部第一方 C++ 目标。
+# Windows 平台标识与跨平台 Release 日志策略适用于全部第一方 C++ 目标。
 add_compile_definitions(
     "$<$<AND:$<COMPILE_LANGUAGE:CXX>,$<PLATFORM_ID:Windows>>:_WIN32>"
     "$<$<AND:$<COMPILE_LANGUAGE:CXX>,$<PLATFORM_ID:Windows>>:_WIN64>"
-    "$<$<AND:$<COMPILE_LANGUAGE:CXX>,$<PLATFORM_ID:Windows>,$<CONFIG:Release>>:QT_NO_DEBUG_OUTPUT>"
+    "$<$<AND:$<COMPILE_LANGUAGE:CXX>,$<CONFIG:Release>>:QT_NO_DEBUG_OUTPUT>"
 )
 
 set(NOVATERM_CORE_SOURCES
@@ -325,6 +325,13 @@ list(FILTER SOURCES EXCLUDE REGEX
 )
 add_subdirectory(tools/novaterm-local-diag)
 add_subdirectory(src/mcp)
+# MCP 桥接与主程序同目录，供运行时按 applicationDirPath 定位。
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    set(_novaterm_linux_runtime_root "${CMAKE_INSTALL_LIBDIR}/novaterm")
+    set(_novaterm_linux_bindir "${_novaterm_linux_runtime_root}/bin")
+    set(_novaterm_linux_libdir "${_novaterm_linux_runtime_root}/lib")
+    set(_novaterm_linux_pluginsdir "${_novaterm_linux_runtime_root}/plugins")
+endif()
 add_subdirectory(tools/novaterm-mcp)
 if(WIN32)
     list(FILTER SOURCES EXCLUDE REGEX "[/\\\\]src[/\\\\]platform[/\\\\]linux[/\\\\]")
@@ -422,15 +429,12 @@ elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     # Debian 可执行文件使用小写名称，与包名及 desktop 文件中的 Exec 一致。
     # Qt、ICU 与 ElaWidgetTools 等随包运行库放入应用私有目录，避免污染或覆盖
     # 发行版在 /usr/lib 中管理的同名库。
-    set(_novaterm_linux_runtime_root "${CMAKE_INSTALL_LIBDIR}/novaterm")
-    set(_novaterm_linux_libdir "${_novaterm_linux_runtime_root}/lib")
-    set(_novaterm_linux_pluginsdir "${_novaterm_linux_runtime_root}/plugins")
     set_target_properties(NovaTerm PROPERTIES
         OUTPUT_NAME novaterm
-        INSTALL_RPATH "\$ORIGIN/../${_novaterm_linux_libdir}"
+        INSTALL_RPATH "\$ORIGIN/../lib"
     )
     set_target_properties(novaterm-mcp PROPERTIES
-        INSTALL_RPATH "\$ORIGIN/../${_novaterm_linux_libdir}")
+        INSTALL_RPATH "\$ORIGIN/../lib")
     # 覆盖 ElaWidgetTools 子项目中面向独立构建的硬编码 Windows Qt RPATH。
     set_target_properties(ElaWidgetTools PROPERTIES
         INSTALL_RPATH "\$ORIGIN"
@@ -566,13 +570,31 @@ endif()
 #  4. 通用平台安装规则
 # ═══════════════════════════════════════════════════════════════════
 
-# Qt 官方部署 API 使用 GNUInstallDirs 的标准布局：Windows/Linux 的可执行文件
-# 位于 bin/，macOS 的 .app bundle 位于安装前缀根目录。
-install(
-    TARGETS NovaTerm
-    BUNDLE DESTINATION .
-    RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
-)
+# Linux 的真实程序和 qt.conf 同处私有 bin，公共 bin 只放启动器，避免其他
+# Qt 程序读取 NovaTerm 的 qt.conf。启动器使用相对路径，支持 DEB 和 ZIP。
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    install(TARGETS NovaTerm RUNTIME DESTINATION "${_novaterm_linux_bindir}")
+    file(RELATIVE_PATH _novaterm_linux_launcher_target
+        "/${CMAKE_INSTALL_BINDIR}"
+        "/${_novaterm_linux_bindir}/novaterm"
+    )
+    set(_novaterm_linux_launcher_content [=[#!/bin/sh
+set -eu
+launcher_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+exec "$launcher_dir/@_novaterm_linux_launcher_target@" "$@"
+]=])
+    string(CONFIGURE "${_novaterm_linux_launcher_content}"
+        _novaterm_linux_launcher_content @ONLY)
+    set(_novaterm_linux_launcher "${CMAKE_CURRENT_BINARY_DIR}/novaterm-launcher")
+    file(GENERATE OUTPUT "${_novaterm_linux_launcher}"
+        CONTENT "${_novaterm_linux_launcher_content}")
+    install(PROGRAMS "${_novaterm_linux_launcher}"
+        DESTINATION "${CMAKE_INSTALL_BINDIR}" RENAME novaterm)
+else()
+    install(TARGETS NovaTerm
+        BUNDLE DESTINATION .
+        RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+endif()
 
 # 在安装阶段收集 Qt 库、插件和平台运行时。Windows/macOS 底层分别调用
 # windeployqt/macdeployqt，Linux 使用 CMake 的运行时依赖扫描。
@@ -668,9 +690,9 @@ if(WIN32 AND EXISTS "${CLINK_SRC_DIR}/clink_x64.exe")
 endif()
 
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
-    # 在包含 Qt 生成的部署脚本前覆盖部署目录。qt.conf 会据此指向私有库和
-    # 插件目录，主程序则通过上面的相对 INSTALL_RPATH 定位这些库。
+    # Qt 生成的 qt.conf 放进主程序私有 bin，并指向私有库和插件目录。
     install(CODE "
+        set(QT_DEPLOY_BIN_DIR \"${_novaterm_linux_bindir}\")
         set(QT_DEPLOY_LIB_DIR \"${_novaterm_linux_libdir}\")
         set(QT_DEPLOY_PLUGINS_DIR \"${_novaterm_linux_pluginsdir}\")
         include(\"${_novaterm_deploy_script}\")
@@ -760,11 +782,15 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     )
 endif()
 
-# Qt 官方基础翻译在不同平台跟随可执行文件的运行目录安装。
+# Qt 官方基础翻译跟随真实程序的运行目录安装。
 if(_NOVATERM_QTBASE_ZH_QM)
     if(APPLE)
         install(FILES "${_NOVATERM_QTBASE_ZH_QM}"
             DESTINATION "NovaTerm.app/Contents/MacOS/translations"
+        )
+    elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+        install(FILES "${_NOVATERM_QTBASE_ZH_QM}"
+            DESTINATION "${_novaterm_linux_bindir}/translations"
         )
     else()
         install(FILES "${_NOVATERM_QTBASE_ZH_QM}"

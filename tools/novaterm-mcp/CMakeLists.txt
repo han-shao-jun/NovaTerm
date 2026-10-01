@@ -10,6 +10,8 @@ target_compile_definitions(novaterm-mcp PRIVATE NOVATERM_VERSION="${PROJECT_VERS
 if(APPLE)
     install(TARGETS novaterm-mcp RUNTIME DESTINATION "NovaTerm.app/Contents/MacOS")
     set_target_properties(novaterm-mcp PROPERTIES INSTALL_RPATH "@loader_path/../Frameworks")
+elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    install(TARGETS novaterm-mcp RUNTIME DESTINATION "${_novaterm_linux_bindir}")
 else()
     install(TARGETS novaterm-mcp RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
 endif()
