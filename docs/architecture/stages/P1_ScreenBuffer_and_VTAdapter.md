@@ -660,3 +660,20 @@ libvterm 增加独立的 `lf_implies_cr` 状态与设置 API，仅 LF 控制字�
 在段间执行命令。命令队列拒绝模式设置时返回失败，传输不继续启动。回归见
 `TerminalCoreTests::lfImpliesCrChangesOnlyLfCursorBehavior`、
 `lfModeSwitchHonorsByteBarrierInsideBatch` 和 `lfModeCommandReportsFullQueue`。
+
+## 2026-10-02 增量：终端全部清除
+
+`TerminalCore::clearAll()` 使用既有有界命令队列和字节屏障，由 Parser 工作线程
+调用 `VTAdapter::clearScreen()` 后清空历史，并发布 damage 与历史变化。适配器
+取消未完成的控制序列，以 CAN、ED 2、CUP 清除当前屏幕并归位光标，保留
+颜色、鼠标跟踪和其他模式，不向 Transport 发送字节。备用屏下隐藏主屏保留。
+回归入口：`TerminalCoreTests::clearAllHonorsByteBarrierAndPreservesModes`。
+
+2026-10-03 审查修正：`clearAll()` 返回 `[[nodiscard]] bool`，明确报告有界
+命令队列拒绝。菜单仅在成功入队后取消选区与搜索，失败时保留界面状态并通过
+现有 Ela 警告入口提示稍后重试。回归
+`clearAllReportsFullQueueAndAllowsRetry` 覆盖队列满时返回 false、拒绝后内容
+保留，以及队列恢复后的显式重试成功。Windows 的 TerminalView 联通测试目标
+补入 `MessagePrompts.cpp/.h`，主程序沿用现有提示组件。
+验证：Debug 主程序及 Core 测试目标构建通过，`novaterm_core_tests` 通过
+（含新增队列拒绝与重试用例）；Windows 联通目标未在本 Linux 环境运行。

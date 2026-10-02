@@ -43,6 +43,8 @@ private slots:
     void publishesTerminalTitle();
     void cursorPropertiesPublishWithoutFollowingMovement();
     void scrollbackKeepsNewestLines();
+    void clearAllHonorsByteBarrierAndPreservesModes();
+    void clearAllReportsFullQueueAndAllowsRetry();
     void softWrappedRowsBecomeOneLogicalHistoryLine();
     void softWrapKeepsTrailingSpaces();
     void rowContinuationTracksAutoWrap();
@@ -117,6 +119,59 @@ void TerminalCoreTests::parsesUtf8AndAttributes()
     QVERIFY(core.getCell(0, 1, cell));
     QCOMPARE(cell.chars[0], uint32_t(0x4E2D));
     QCOMPARE(int(cell.width), 2);
+}
+
+void TerminalCoreTests::clearAllHonorsByteBarrierAndPreservesModes()
+{
+    TerminalCore core(20, 4);
+    QSignalSpy output(&core, &TerminalCore::outputData);
+    core.writeInput(QByteArrayLiteral("old\r\nold\r\nold\r\nold\r\nold"));
+    QVERIFY(core.waitForIdle());
+    QVERIFY(core.scrollbackLineCount() > 0);
+    core.writeInput(QByteArrayLiteral("\x1b[31m\x1b[?1000hbefore\x1b]2;partial"));
+    QVERIFY(core.clearAll());
+    QVERIFY(core.waitForIdle());
+    QCOMPARE(core.scrollbackLineCount(), 0);
+    QCOMPARE(core.cursorState().position.row, 0);
+    QCOMPARE(core.cursorState().position.col, 0);
+    QCOMPARE(core.mouseTrackingMode(), NovaTerm::MouseTrackingMode::Click);
+    for (int row = 0; row < core.rows(); ++row) {
+        for (int col = 0; col < core.columns(); ++col) {
+            NovaTerm::Cell cell;
+            QVERIFY(core.getCell(row, col, cell));
+            QVERIFY(cell.chars[0] == 0 || cell.chars[0] == uint32_t(' '));
+        }
+    }
+    core.writeInput(QByteArrayLiteral("after"));
+    QVERIFY(core.waitForIdle());
+    NovaTerm::Cell cell;
+    QVERIFY(core.getCell(0, 0, cell));
+    QCOMPARE(cell.chars[0], uint32_t('a'));
+    QCOMPARE(cell.foreground.index, uint8_t(1));
+    QCoreApplication::processEvents();
+    QVERIFY(output.isEmpty());
+}
+
+void TerminalCoreTests::clearAllReportsFullQueueAndAllowsRetry()
+{
+    TerminalCore core(20, 4);
+    // 与模式命令的拒绝测试共用饱和条件：旧字节屏障阻止键盘命令消费。
+    QVERIFY(core.writeInput(QByteArray(6 * 1024 * 1024, 'x')).fullyAccepted());
+    for (int index = 0; index < 4096; ++index)
+        core.processTextInput(QStringLiteral("x"));
+    QVERIFY(!core.clearAll());
+    QVERIFY(core.waitForIdle(15'000));
+    // 被拒绝的清除不能在队列恢复后偷偷执行；内容应保持可见。
+    QVERIFY(core.scrollbackLineCount() > 0);
+    NovaTerm::Cell cell;
+    QVERIFY(core.getCell(0, 0, cell));
+    QCOMPARE(cell.chars[0], uint32_t('x'));
+    // 用户稍后重试可以正常清除，不引入无界重试队列。
+    QVERIFY(core.clearAll());
+    QVERIFY(core.waitForIdle());
+    QCOMPARE(core.scrollbackLineCount(), 0);
+    QVERIFY(core.getCell(0, 0, cell));
+    QVERIFY(cell.chars[0] == 0 || cell.chars[0] == uint32_t(' '));
 }
 
 void TerminalCoreTests::reportsDamage()

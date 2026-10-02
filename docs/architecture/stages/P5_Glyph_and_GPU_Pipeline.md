@@ -870,3 +870,36 @@ warm-path `select()`/`makeKey` 由 ~1.2–2.8 µs/op 降到 ~65–84 ns/op（约
 升序（`mergeRowCommandsIncremental()` 与 `assembleSpanInstances()` 都依赖）；
 `contentUploadBytes` 统计的是基础内容区域上传字节（背景 + 内容两层，
 `RendererP5GpuBenchmark` 的保留 stride 不变量按 5 实例/Cell 断言）。
+
+## 2026-10-02 增量：终端全选与滚动条
+
+右键菜单的“选中全部”调用 `TerminalRenderer::selectAll()`，选区覆盖历史
+显示行与当前屏幕；备用屏仅选择活动屏幕。历史布局未就绪时等待既有异步
+分批重排，再建立选区，不在 GUI 线程全量遍历历史。复制沿用 `selectedText()`
+的宽字符与软换行处理。清空历史时取消在途重排，防止迟到批次恢复已删除历史。
+回归入口：`RendererP3Tests::selectAllIncludesHistoryAndVisibleScreen`。
+
+终端滚动条调用 Ela 新增的 `setScrollBarExtent(16)`，将默认 10 个逻辑像素
+加宽到 16，并按比例增加收起状态滑块宽度，保留悬停动画和主题绘制。其他
+页面的滚动条保留默认参数。本项不改变 GPU 管线及阶段验收状态。
+
+验证：Debug 全量构建通过，新增清空与全选回归通过。Linux 默认注册的
+11 项 CTest 均获得通过结果：沙箱内 7 项通过，另外 4 项因本机 socket/显示
+访问受限失败，移到沙箱外并设置 offscreen 后重跑全部通过。
+
+### 2026-10-03 修正：父级样式表下创建终端崩溃
+
+原 UI 测试未覆盖终端继承主窗口 QSS 后插入标签的路径。用户提供的
+`build/Debug/bin/core` 经 GDB 确认：主线程在
+`TerminalPage::addTerminalTab()` → `QTabWidget::insertTab()` →
+`QWidget::setParent()` → `QWidgetPrivate::setStyle_helper()` 中 SIGSEGV。
+`ElaScrollBar::setScrollBarExtent()` 错把 `style()` 返回的 `QStyleSheetStyle`
+强转成 `ElaScrollBarStyle`，写入宽度时破坏包装对象：偏移 0x40 为 16，
+偏移 0x48 的指针被浮点 `3.84`（`0x400eb851eb851eb8`）覆盖。Qt 在后续
+样式刷新中将该值当引用计数指针访问，触发崩溃。
+
+修复：`ElaScrollBarPrivate` 保存创建时的真实样式指针，宽度设置直接使用它，
+不对 QWidget 的包装样式强转。宽度与动画参数保留。新增
+`verifyTerminalScrollBarWithParentStyleSheet()` 回归，覆盖父级 QSS、标签换父、
+再次调整宽度、样式表切换和反复析构。修复前单独运行退出 -11；修复后 GDB
+显示 `exited normally`，Debug 主程序与 UI 目标构建通过，UI CTest 1/1 通过。

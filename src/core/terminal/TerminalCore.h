@@ -169,6 +169,11 @@ public:
     bool getScrollbackCell(int lineIndex, int col, NovaTerm::Cell& out) const;
     void setScrollbackLimit(int lines);
     void clearScrollback();
+    /**
+     * @brief 按字节屏障清空当前屏幕及历史，不断开连接。
+     * @return true 表示成功入队；队列满或停止接收时返回 false，内容不变。
+     */
+    [[nodiscard]] bool clearAll();
     NovaTerm::ScrollbackSnapshot scrollbackSnapshot() const;
 
     /**

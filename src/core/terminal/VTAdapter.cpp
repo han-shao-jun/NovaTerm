@@ -697,6 +697,20 @@ void VTAdapter::flushDamage()
     _impl->syncLineInfo();
 }
 
+void VTAdapter::clearScreen()
+{
+    if (!isValid())
+        return;
+    // 用户清屏同时取消未完成的控制序列，避免清屏指令被当成 OSC/DCS
+    // 内容。直接在适配器内解析，不向远端发送字节，也不重置终端模式。
+    _impl->passthroughScan = Impl::PassthroughScan::Normal;
+    _impl->scanProbe.clear();
+    _impl->passthroughBody.clear();
+    constexpr char sequence[] = "\x18\x1b[2J\x1b[H";
+    vterm_input_write(_impl->vt, sequence, sizeof(sequence) - 1);
+    flushDamage();
+}
+
 void VTAdapter::resize(int columns, int rows)
 {
     if (isValid()) {

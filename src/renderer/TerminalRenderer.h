@@ -141,6 +141,8 @@ public:
     QString selectedText() const;
     bool hasSelection() const;
     void copySelection();
+    /** @brief 选择完整历史与当前屏幕；备用屏仅选择当前屏幕。 */
+    void selectAll();
     void clearSelection();
 
     // ── 从 widget 坐标计算 cell 坐标（供外部使用）─────────────
@@ -406,6 +408,7 @@ private:
     // 鼠标选区
     bool _selecting{false};
     bool _autoCopyCurrentSelection{false};
+    bool _selectAllPending{false}; // 等待异步历史布局完成后建立全选区。
     // 当前按键手势归属 VT 鼠标（按下时跟踪开启）。release 按此判定转发，
     // 不看 release 时刻的跟踪状态 —— 手势期间应用退出/进入鼠标模式
     // 不能切换半途手势的归属。

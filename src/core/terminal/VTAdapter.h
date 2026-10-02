@@ -74,6 +74,9 @@ public:
      */
     void flushDamage();
 
+    /** @brief 清空当前屏幕并归位光标，保留终端模式与连接。 */
+    void clearScreen();
+
     /**
      * @brief 通知终端尺寸变更（触发 TIOCSWINSZ 等价行为）。
      */

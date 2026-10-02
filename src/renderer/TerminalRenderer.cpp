@@ -241,6 +241,8 @@ TerminalRenderer::TerminalRenderer(TerminalCore* core, QWidget* parent)
             return;
         _historyLayout = std::move(_pendingHistoryLayout);
         _layoutColumns = _pendingLayoutColumns;
+        if (_selectAllPending && _layoutColumns == _core->columns())
+            selectAll();
         restoreScrollFromAnchor();
         publishScrollState();
         const bool selectionChanged = dropInvalidSelection();
@@ -593,9 +595,27 @@ void TerminalRenderer::copySelection()
 
 void TerminalRenderer::clearSelection()
 {
+    _selectAllPending = false;
     _selStart = {-1, -1};
     _selEnd   = {-1, -1};
     _selecting = false;
+    requestOverlayFrame();
+}
+
+void TerminalRenderer::selectAll()
+{
+    const bool includeHistory = !_core->isAlternateScreen();
+    if (includeHistory && _core->scrollbackLineCount() > 0
+        && (_layoutColumns != _core->columns() || _historyLayout.isEmpty())) {
+        // 使用现有分批重排，避免全选时在 GUI 线程遍历整份大历史。
+        _selectAllPending = true;
+        scheduleReflow();
+        return;
+    }
+    _selectAllPending = false;
+    _selecting = false;
+    _selStart = {includeHistory ? -int(_historyLayout.size()) : 0, 0};
+    _selEnd = {_core->rows() - 1, _core->columns() - 1};
     requestOverlayFrame();
 }
 
@@ -1073,8 +1093,15 @@ void TerminalRenderer::updateHistoryLayout()
     // 空历史：清掉残留布局，不触发重排。用 O(1) 的 lineCount 判断代替全量
     // 快照，等价原 history.empty() 快路径。
     if (_core->scrollbackLineCount() == 0) {
+        // 清空历史后作废在途重排，防止迟到批次把旧历史重新装回布局。
+        _reflowDebounce->stop();
+        _core->cancelScrollbackReflow(_reflowGeneration);
+        ++_reflowGeneration;
+        _pendingHistoryLayout.clear();
         _historyLayout.clear();
         _layoutColumns = columns;
+        if (_selectAllPending)
+            selectAll();
         return;
     }
     // 列宽变化会让所有已有折点位移，增量维护无从下手；布局尚未建立时也不在
@@ -1279,6 +1306,8 @@ QVariant TerminalRenderer::inputMethodQuery(
 
 void TerminalRenderer::mousePressEvent(QMouseEvent* event)
 {
+    if (event->button() == Qt::LeftButton)
+        _selectAllPending = false;
     emit activityDetected();
     setFocus();
 
@@ -1392,6 +1421,8 @@ void TerminalRenderer::mouseReleaseEvent(QMouseEvent* event)
 
 void TerminalRenderer::mouseDoubleClickEvent(QMouseEvent* event)
 {
+    if (event->button() == Qt::LeftButton)
+        _selectAllPending = false;
     // Qt 把双击的第二次按下投递为 doubleClick 而非 press；VT 跟踪开启时
     // 应用需要收到这次点击（双击选中是开启鼠标跟踪的 TUI 自带语义）。
     if (_core->mouseTrackingMode() != NovaTerm::MouseTrackingMode::None

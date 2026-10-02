@@ -463,6 +463,8 @@ if(BUILD_TESTING)
             ${PROJECT_SOURCE_DIR}/src/service/LanguageManager.cpp
             ${PROJECT_SOURCE_DIR}/src/service/LanguageManager.h
             ${PROJECT_SOURCE_DIR}/src/ui/terminal/TerminalView.cpp
+            ${PROJECT_SOURCE_DIR}/src/ui/widgets/MessagePrompts.cpp
+            ${PROJECT_SOURCE_DIR}/src/ui/widgets/MessagePrompts.h
             ${PROJECT_SOURCE_DIR}/src/ui/terminal/TerminalView.h
             ${PROJECT_SOURCE_DIR}/src/ui/widgets/SshHostKeyDialog.cpp
             ${PROJECT_SOURCE_DIR}/src/ui/widgets/SshHostKeyDialog.h

@@ -185,67 +185,67 @@ Built with:
 <context>
     <name>ElaScrollBar</name>
     <message>
-        <location filename="../../third_party/ElaWidgetTools/ElaWidgetTools/ElaScrollBar.cpp" line="197"/>
+        <location filename="../../third_party/ElaWidgetTools/ElaWidgetTools/ElaScrollBar.cpp" line="206"/>
         <source>滚动到此处</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../third_party/ElaWidgetTools/ElaWidgetTools/ElaScrollBar.cpp" line="200"/>
+        <location filename="../../third_party/ElaWidgetTools/ElaWidgetTools/ElaScrollBar.cpp" line="209"/>
         <source>左边缘</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../third_party/ElaWidgetTools/ElaWidgetTools/ElaScrollBar.cpp" line="200"/>
+        <location filename="../../third_party/ElaWidgetTools/ElaWidgetTools/ElaScrollBar.cpp" line="209"/>
         <source>顶端</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../third_party/ElaWidgetTools/ElaWidgetTools/ElaScrollBar.cpp" line="202"/>
+        <location filename="../../third_party/ElaWidgetTools/ElaWidgetTools/ElaScrollBar.cpp" line="211"/>
         <source>右边缘</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../third_party/ElaWidgetTools/ElaWidgetTools/ElaScrollBar.cpp" line="202"/>
+        <location filename="../../third_party/ElaWidgetTools/ElaWidgetTools/ElaScrollBar.cpp" line="211"/>
         <source>底部</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../third_party/ElaWidgetTools/ElaWidgetTools/ElaScrollBar.cpp" line="205"/>
+        <location filename="../../third_party/ElaWidgetTools/ElaWidgetTools/ElaScrollBar.cpp" line="214"/>
         <source>向左翻页</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../third_party/ElaWidgetTools/ElaWidgetTools/ElaScrollBar.cpp" line="205"/>
+        <location filename="../../third_party/ElaWidgetTools/ElaWidgetTools/ElaScrollBar.cpp" line="214"/>
         <source>向上翻页</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../third_party/ElaWidgetTools/ElaWidgetTools/ElaScrollBar.cpp" line="207"/>
+        <location filename="../../third_party/ElaWidgetTools/ElaWidgetTools/ElaScrollBar.cpp" line="216"/>
         <source>向右翻页</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../third_party/ElaWidgetTools/ElaWidgetTools/ElaScrollBar.cpp" line="207"/>
+        <location filename="../../third_party/ElaWidgetTools/ElaWidgetTools/ElaScrollBar.cpp" line="216"/>
         <source>向下翻页</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../third_party/ElaWidgetTools/ElaWidgetTools/ElaScrollBar.cpp" line="210"/>
+        <location filename="../../third_party/ElaWidgetTools/ElaWidgetTools/ElaScrollBar.cpp" line="219"/>
         <source>向左滚动</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../third_party/ElaWidgetTools/ElaWidgetTools/ElaScrollBar.cpp" line="210"/>
+        <location filename="../../third_party/ElaWidgetTools/ElaWidgetTools/ElaScrollBar.cpp" line="219"/>
         <source>向上滚动</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../third_party/ElaWidgetTools/ElaWidgetTools/ElaScrollBar.cpp" line="212"/>
+        <location filename="../../third_party/ElaWidgetTools/ElaWidgetTools/ElaScrollBar.cpp" line="221"/>
         <source>向右滚动</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../third_party/ElaWidgetTools/ElaWidgetTools/ElaScrollBar.cpp" line="212"/>
+        <location filename="../../third_party/ElaWidgetTools/ElaWidgetTools/ElaScrollBar.cpp" line="221"/>
         <source>向下滚动</source>
         <translation type="unfinished"></translation>
     </message>
@@ -2907,64 +2907,84 @@ Termination confirmed: %3
 <context>
     <name>TerminalView</name>
     <message>
-        <location filename="../../src/ui/terminal/TerminalView.cpp" line="710"/>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="730"/>
         <source>Find in scrollback</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/terminal/TerminalView.cpp" line="632"/>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="638"/>
         <source>Copy</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/terminal/TerminalView.cpp" line="254"/>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="256"/>
         <source>[Disconnected] Press Enter to reconnect.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/terminal/TerminalView.cpp" line="255"/>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="257"/>
         <source>[Disconnected].</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/terminal/TerminalView.cpp" line="271"/>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="273"/>
         <source>[Transport error] %1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/terminal/TerminalView.cpp" line="280"/>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="282"/>
         <source>[Reconnecting] Waiting for the serial port</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/terminal/TerminalView.cpp" line="298"/>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="300"/>
         <source>[Reconnected] Automatic reconnection succeeded.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/terminal/TerminalView.cpp" line="635"/>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="641"/>
         <source>Paste</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/terminal/TerminalView.cpp" line="640"/>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="646"/>
         <source>Find...</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/terminal/TerminalView.cpp" line="645"/>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="651"/>
         <source>Zoom In</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/terminal/TerminalView.cpp" line="648"/>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="654"/>
         <source>Zoom Out</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/terminal/TerminalView.cpp" line="653"/>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="659"/>
         <source>Clear Scrollback</source>
         <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="662"/>
+        <source>Clear All</source>
+        <translation>Clear All</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="665"/>
+        <source>Clear All Failed</source>
+        <translation>Clear All Failed</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="666"/>
+        <source>The terminal is busy. Please try clearing it again shortly.</source>
+        <translation>The terminal is busy. Please try clearing it again shortly.</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="673"/>
+        <source>Select All</source>
+        <translation>Select All</translation>
     </message>
 </context>
 </TS>

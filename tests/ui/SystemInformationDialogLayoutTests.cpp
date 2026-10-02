@@ -35,9 +35,14 @@
 #include "ElaIconButton.h"
 #include "ElaPushButton.h"
 #include "ElaScrollArea.h"
+#include "ElaScrollBar.h"
 #include "ElaScrollPageArea.h"
 #include "ElaTabBar.h"
 #include "ElaText.h"
+
+#include <QHBoxLayout>
+#include <QTabWidget>
+#include <QStyle>
 
 #include <QApplication>
 #include <QFontMetrics>
@@ -473,9 +478,41 @@ QByteArray samplePayload()
 
 } // namespace
 
+// 与主窗口一致：终端先继承样式表，再由 addTab 改挂到堆叠布局。
+// 宽度设置不得把 QStyleSheetStyle 包装对象当成 Ela 样式写入。
+static int verifyTerminalScrollBarWithParentStyleSheet()
+{
+    for (int iteration = 0; iteration < 3; ++iteration) {
+        QWidget window;
+        window.setStyleSheet(QStringLiteral("QWidget { background-color: #202020; }"));
+        QTabWidget tabs(&window);
+        auto* view = new QWidget(&tabs);
+        auto* layout = new QHBoxLayout(view);
+        auto* bar = new ElaScrollBar(Qt::Vertical, view);
+        bar->setScrollBarExtent(16);
+        bar->setRange(0, 100);
+        bar->setPageStep(10);
+        layout->addWidget(bar);
+        tabs.addTab(view, QStringLiteral("Terminal"));
+        bar->setScrollBarExtent(18);
+        window.setStyleSheet(QStringLiteral("QWidget { background-color: #f0f0f0; }"));
+        if (bar->sizeHint().width() != 18) {
+            std::fprintf(stderr, "FAIL: styled terminal scrollbar width is not 18\n");
+            return 1;
+        }
+        bar->setValue(100);
+        if (bar->value() != 100)
+            return 1;
+    }
+    std::printf("styled terminal scrollbar reparent/width/theme/lifecycle -> ok\n");
+    return 0;
+}
+
 int main(int argc, char** argv)
 {
     QApplication app(argc, argv);
+    if (app.arguments().contains(QStringLiteral("--terminal-scrollbar-only")))
+        return verifyTerminalScrollBarWithParentStyleSheet();
     if (app.arguments().size() == 4 && app.arguments().at(1) == QStringLiteral("--scheme-persistence-step"))
         return schemePersistenceStep(app.arguments().at(2), app.arguments().at(3).toInt());
     if (app.arguments().contains(QStringLiteral("--terminal-scheme-only"))) {
@@ -488,6 +525,7 @@ int main(int argc, char** argv)
         return verifyTerminalSchemeSettings();
     }
     int failures = verifyTerminalTabConnectionAction();
+    failures += verifyTerminalScrollBarWithParentStyleSheet();
     failures += verifySchemePersistenceAcrossProcesses();
     failures += verifyTerminalSchemeSettings();
     failures += verifyAppBarCloseButtonClosesDialogSafely();

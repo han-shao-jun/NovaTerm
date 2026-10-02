@@ -12,6 +12,7 @@
 #include "transport/SshTransport.h"
 #include "session/TerminalSession.h"
 #include "ui/widgets/SshHostKeyDialog.h"
+#include "ui/widgets/MessagePrompts.h"
 #include "core/terminal/TerminalCore.h"
 #include "renderer/TerminalRenderer.h"
 #include "renderer/TerminalColorScheme.h"
@@ -141,6 +142,7 @@ TerminalView::TerminalView(TerminalSession* session, QWidget* parent)
     terminalRow->setSpacing(0);
     terminalRow->addWidget(_renderer);
     _scrollBar = new ElaScrollBar(Qt::Vertical, this);
+    _scrollBar->setScrollBarExtent(16);
     // 量程以显示行为单位，单步一行；页步在终端尺寸变化时同步为可见行数，
     // 使滑块长度反映"视口占全部内容的比例"。
     _scrollBar->setSingleStep(1);
@@ -641,8 +643,8 @@ void TerminalView::setupContextMenu(const QPoint& pos)
 
     menu->addSeparator();
 
-    connect(menu->addAction(tr("Find...")), &QAction::triggered,
-            this, &TerminalView::showSearch);
+    connect(menu->addElaIconAction(ElaIconType::MagnifyingGlass, tr("Find...")),
+            &QAction::triggered, this, &TerminalView::showSearch);
 
     menu->addSeparator();
 
@@ -656,6 +658,20 @@ void TerminalView::setupContextMenu(const QPoint& pos)
 
     connect(menu->addElaIconAction(ElaIconType::Broom, tr("Clear Scrollback")),
             &QAction::triggered, _core, &TerminalCore::clearScrollback);
+
+    connect(menu->addElaIconAction(ElaIconType::BroomWide, tr("Clear All")),
+            &QAction::triggered, this, [this] {
+        if (!_core->clearAll()) {
+            NovaTerm::Ui::warn(this, tr("Clear All Failed"),
+                tr("The terminal is busy. Please try clearing it again shortly."));
+            return;
+        }
+        _renderer->clearSelection();
+        hideSearch();
+        _renderer->setFocus(Qt::MouseFocusReason);
+    });
+    connect(menu->addElaIconAction(ElaIconType::SquareCheck, tr("Select All")),
+            &QAction::triggered, _renderer, &TerminalRenderer::selectAll);
 
     menu->popup(mapToGlobal(pos));
 }

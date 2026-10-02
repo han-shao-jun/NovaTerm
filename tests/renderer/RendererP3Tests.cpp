@@ -45,6 +45,7 @@ private slots:
     void scrollStateTracksHistoryGrowthAndOffset();
     void softWrappedSelectionCopiesAsSingleLine();
     void hardBreakSelectionKeepsNewline();
+    void selectAllIncludesHistoryAndVisibleScreen();
     void vtMouseTrackingClaimsLeftButtonGesture();
     void searchMatchesAppendByGeneration();
     void inputMethodCommitProducesUtf8();
@@ -959,6 +960,33 @@ void RendererP3Tests::softWrappedSelectionCopiesAsSingleLine()
     QVERIFY2(!text.contains(QLatin1Char('\n')),
              "soft-wrapped selection must not contain a newline");
     QVERIFY(text.startsWith(QString(total, QLatin1Char('A'))));
+}
+
+void RendererP3Tests::selectAllIncludesHistoryAndVisibleScreen()
+{
+    TerminalCore core(80, 24);
+    TerminalRenderer renderer(&core);
+    QVERIFY(core.waitForIdle());
+    const QByteArray input = QByteArrayLiteral("oldest\r\n")
+        + QByteArray(core.rows() + 2, '\n') + QByteArrayLiteral("newest");
+    core.writeInput(input);
+    QVERIFY(core.waitForIdle());
+    renderer.selectAll();
+    QTRY_VERIFY(renderer.hasSelection());
+    QTRY_VERIFY(renderer.selectedText().contains(QStringLiteral("oldest")));
+    QVERIFY(renderer.selectedText().contains(QStringLiteral("newest")));
+
+    // 备用屏全选不能混入主屏历史；退出后主屏内容仍然存在。
+    core.writeInput(QByteArrayLiteral("\x1b[?1049hALT"));
+    QVERIFY(core.waitForIdle());
+    renderer.selectAll();
+    const QString alternate = renderer.selectedText();
+    QVERIFY(alternate.contains(QStringLiteral("ALT")));
+    QVERIFY(!alternate.contains(QStringLiteral("oldest")));
+    core.writeInput(QByteArrayLiteral("\x1b[?1049l"));
+    QVERIFY(core.waitForIdle());
+    renderer.selectAll();
+    QTRY_VERIFY(renderer.selectedText().contains(QStringLiteral("oldest")));
 }
 
 // 对照：跨真实换行的选区仍必须保留换行。

@@ -72,6 +72,7 @@ enum class CommandType
     FocusOut,
     SetScrollbackLimit,
     ClearScrollback,
+    ClearAll,
     Flush,
     PublishContext,
 };
@@ -621,6 +622,11 @@ public:
             scrollback.setMaxLines(command.first);
             break;
         case CommandType::ClearScrollback:
+            scrollback.clear();
+            scrollbackChanged = true;
+            break;
+        case CommandType::ClearAll:
+            adapter->clearScreen();
             scrollback.clear();
             scrollbackChanged = true;
             break;
@@ -1483,6 +1489,13 @@ void TerminalCore::clearScrollback()
     ParserCommand command;
     command.type = CommandType::ClearScrollback;
     _runtime->enqueueCommand(std::move(command));
+}
+
+bool TerminalCore::clearAll()
+{
+    ParserCommand command;
+    command.type = CommandType::ClearAll;
+    return _runtime->enqueueCommand(std::move(command));
 }
 
 NovaTerm::ScrollbackSnapshot TerminalCore::scrollbackSnapshot() const
