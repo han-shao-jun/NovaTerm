@@ -197,7 +197,15 @@ void ElaScrollBarStyle::startExpandAnimation(bool isExpand)
         extentAnimation->setDuration(250);
         extentAnimation->setEasingCurve(QEasingCurve::InOutSine);
         extentAnimation->setStartValue(_pSliderExtent);
-        extentAnimation->setEndValue(2.4);
+        extentAnimation->setEndValue(_collapsedSliderExtent);
         extentAnimation->start(QAbstractAnimation::DeleteWhenStopped);
     }
+}
+
+void ElaScrollBarStyle::setScrollBarExtent(int extent)
+{
+    _scrollBarExtent = qMax(10, extent);
+    _collapsedSliderExtent = _scrollBarExtent * 0.24;
+    _pSliderExtent = _pIsExpand
+        ? _scrollBarExtent - 2 * _sliderMargin : _collapsedSliderExtent;
 }

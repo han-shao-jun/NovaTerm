@@ -9,6 +9,7 @@
 class QTimer;
 class QPropertyAnimation;
 class ElaScrollBar;
+class ElaScrollBarStyle;
 class ElaScrollBarPrivate : public QObject
 {
     Q_OBJECT
@@ -22,6 +23,8 @@ public:
     Q_SLOT void onRangeChanged(int min, int max);
 
 private:
+    // 保留创建时的真实样式；QWidget::style() 可能返回 QSS 包装对象。
+    ElaScrollBarStyle* _scrollBarStyle{nullptr};
     QScrollBar* _originScrollBar{nullptr};
     QAbstractScrollArea* _originScrollArea{nullptr};
     QTimer* _expandTimer{nullptr};

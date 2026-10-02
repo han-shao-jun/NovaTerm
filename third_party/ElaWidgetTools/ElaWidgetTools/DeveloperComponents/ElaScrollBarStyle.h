@@ -18,11 +18,13 @@ public:
     int pixelMetric(PixelMetric metric, const QStyleOption* option = nullptr, const QWidget* widget = nullptr) const override;
     int styleHint(StyleHint hint, const QStyleOption* option = nullptr, const QWidget* widget = nullptr, QStyleHintReturn* returnData = nullptr) const override;
     void startExpandAnimation(bool isExpand);
+    void setScrollBarExtent(int extent);
 
 private:
     ElaThemeType::ThemeMode _themeMode;
     qreal _sliderMargin{2.5};
     int _scrollBarExtent{10};
+    qreal _collapsedSliderExtent{2.4};
 };
 
 #endif // ELASCROLLBARSTYLE_H

@@ -19,6 +19,9 @@ public:
     explicit ElaScrollBar(QScrollBar* originScrollBar, QAbstractScrollArea* parent = nullptr);
     ~ElaScrollBar() override;
 
+    /** @brief 设置滚动条宽度，同时按比例加宽收起状态的滑块。 */
+    void setScrollBarExtent(int extent);
+
 Q_SIGNALS:
     Q_SIGNAL void rangeAnimationFinished();
 

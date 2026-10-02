@@ -25,6 +25,7 @@ ElaScrollBar::ElaScrollBar(QWidget* parent)
     d->_pIsAnimation = false;
     connect(this, &ElaScrollBar::rangeChanged, d, &ElaScrollBarPrivate::onRangeChanged);
     ElaScrollBarStyle* scrollBarStyle = new ElaScrollBarStyle(style());
+    d->_scrollBarStyle = scrollBarStyle;
     scrollBarStyle->setScrollBar(this);
     setStyle(scrollBarStyle);
     d->_slideSmoothAnimation = new QPropertyAnimation(this, "value");
@@ -80,6 +81,14 @@ ElaScrollBar::ElaScrollBar(QScrollBar* originScrollBar, QAbstractScrollArea* par
 ElaScrollBar::~ElaScrollBar()
 {
     delete this->style();
+}
+
+void ElaScrollBar::setScrollBarExtent(int extent)
+{
+    Q_D(ElaScrollBar);
+    d->_scrollBarStyle->setScrollBarExtent(extent);
+    updateGeometry();
+    update();
 }
 
 bool ElaScrollBar::event(QEvent* event)

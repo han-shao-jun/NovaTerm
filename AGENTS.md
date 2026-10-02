@@ -661,6 +661,15 @@ base 指针。主题切换只改 QPalette，不动 style。
 `setItemHeight()` 表达（`SftpPanel.cpp` 的文件列表是范例）。同理，
 别给这些控件改 `objectName` —— 那个 QSS 是 ID 选择器。
 
+**不要把 `QWidget::style()` 强转成 Ela 样式**：父窗口有 QSS 时，该接口返回
+`QStyleSheetStyle` 包装对象，不是控件创建的 `Ela*Style`。2026-10-03 的 core
+显示 `ElaScrollBar::setScrollBarExtent(16)` 强转后，把滑块宽度 `3.84` 写进包装
+对象的指针字段，随后 `QTabWidget::addTab()` 换父控件触发样式刷新并 SIGSEGV。
+库内须保存创建时的真实样式指针（`ElaScrollBarPrivate::_scrollBarStyle` 为范例），
+不要通过 `style()` 的返回值访问派生类字段。回归在 UI 测试的
+`verifyTerminalScrollBarWithParentStyleSheet()`；可加 `--terminal-scrollbar-only`
+单独运行，覆盖父级 QSS、换父控件、主题样式变更及反复析构。
+
 **`setFrameShape(QFrame::NoFrame)` 关不掉 item view 的外框**：Qt 无条件向 style
 派发 `CE_ShapedFrame`，`NoFrame` 只让 `frameWidth` 归零，而 Ela 的树样式在该元素
 里硬画圆角边线 + `BasicBaseAlpha` 底色（`ElaTreeViewStyle.cpp:127-139`）。控件已
