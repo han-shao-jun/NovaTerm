@@ -17,6 +17,7 @@ GPU 管线，UI 用 ElaWidgetTools（FluentUI 风格）。GPLv2+，仓库在 Git
 | `docs/architecture/README.md` | 阶段文档索引 + 统一术语表 + 文档权威性说明 |
 | `docs/architecture/Development_Roadmap.md` | P0–P8 依赖、状态表、**统一完成定义** |
 | `docs/architecture/stages/P*.md` | 各阶段实施说明。P6 含逐步进度表与剩余工作 |
+| `docs/architecture/stages/P9_File_Transfer_Protocols.md` | P9 独立 XMODEM/YMODEM/ZMODEM 协议库；Linux 六项专项与 124 项对端互通通过，两个上游缺陷用例跳过；Windows/macOS 与串口接线待验收 |
 | `docs/architecture/stages/P8_AI_MCP_Interface.md` | P8 AI MCP：当前实现事实见 §14.2，修订设计与风险边界见 §15；七工具、2025 elicitation/2026 MRTR、低风险普通命令及 LocalShell/SSH 脚本能力已进入代码，真实桌面/跨平台/性能验收仍按阶段文档标记 |
 | `docs/architecture/Rendering_Architecture.md` | Snapshot、调度、命令缓存、QRhi、Glyph |
 | `docs/architecture/Configuration_Profile_Theme.md` | 配置分层、Profile、Session、主题职责。**描述目标设计**，开头有与当前源码的名称对照表 |
@@ -58,7 +59,7 @@ cmd /c "call \"C:\Program Files (x86)\Microsoft Visual Studio\18\BuildTools\VC\A
 ### 跑测试
 
 **默认只跑与改动相关的测试目标，不要跑全套。** 全套耗时**按平台不同**（见下方
-「默认注册了哪些测试」）：Windows 12 项、Linux 11 项。Windows 全套实测约
+「默认注册了哪些测试」）：Windows 18 项、Linux 17 项（新增 P9 六项）。原 Windows 12 项全套实测约
 **190 秒**，其中 `novaterm_conpty_tests` 单项 94s、`novaterm_terminal_session_tests`
 46s、`novaterm_core_tests` 30s；而多数改动只需要其中一两项、几秒就跑完。
 
@@ -93,6 +94,7 @@ ctest --test-dir build -C Debug
 | --- | --- | --- | --- | --- |
 | `src/core/terminal/`（TerminalCore、ScreenBuffer、VTAdapter、ScrollbackBuffer、BoundedByteQueue、KeyMapper）—— 后三者经 `TerminalCore.h` 传递覆盖；KeyMapper 有专项单测 | `novaterm_core_tests` | `core` | 全部 | ~30s |
 | `src/core/scrollback/`、`src/core/search/` | `novaterm_scrollback_tests` | `scrollback` | 全部 | <1s |
+| `src/filetransfer/`、`tests/filetransfer/` | `ctest -L filetransfer`（六项；也可独立配置 `src/filetransfer`，无需 Qt） | `filetransfer`／`p9` | 全部 | <1s |
 | `src/session/`、`src/profile/`、`src/credential/` | `novaterm_session_tests` | `session`／`p6` | 全部 | <1s |
 | `src/renderer/` 的 RenderCommandBuffer / RenderScheduler / TerminalRenderer | `novaterm_renderer_tests` | `renderer` | 全部 | ~2s |
 | `src/renderer/` 的 RowBlockDamageTracker / ScrollDamageHandoff / TerminalHighlighting、`src/session/SerialHighlightRules` | `novaterm_renderer_p5_tests` | `p5` | 全部 | <1s |
@@ -123,6 +125,12 @@ ctest --test-dir build -C Debug
 | 测试 | 注册条件 | LABELS | TIMEOUT |
 | --- | --- | --- | --- |
 | `novaterm_mcp_tests` | 无条件 | `mcp;p8` | 120 |
+| `novaterm_filetransfer_checksum_tests` | 无条件 | `unit;filetransfer;p9` | 60 |
+| `novaterm_filetransfer_support_tests` | 无条件 | `unit;filetransfer;p9` | 60 |
+| `novaterm_xmodem_tests` | 无条件 | `unit;filetransfer;p9` | 60 |
+| `novaterm_ymodem_tests` | 无条件 | `unit;filetransfer;p9` | 60 |
+| `novaterm_zmodem_tests` | 无条件 | `unit;filetransfer;p9` | 60 |
+| `novaterm_filetransfer_no_qt_link_check` | 无条件 | `unit;filetransfer;p9` | 60 |
 | `novaterm_core_tests` | 无条件 | `unit;core` | 60 |
 | `novaterm_scrollback_tests` | 无条件 | `unit;core;scrollback` | 60 |
 | `novaterm_session_tests` | 无条件 | `unit;session;p6` | 60 |
@@ -136,7 +144,9 @@ ctest --test-dir build -C Debug
 | `novaterm_conpty_tests` | `WIN32` | `integration;conpty` | 120 |
 | `novaterm_terminal_session_tests` | `WIN32` | `integration;terminal-session` | 120 |
 
-**Linux 默认 11 项、Windows 默认 12 项**（9 无条件 + 1 缩放护栏 + 1 平台项）。
+**Linux 默认 17 项、Windows 默认 18 项**（15 无条件 + 1 缩放护栏 +
+Linux 1 项或 Windows 2 项平台测试）。Linux 默认注册数已在 2026-10-04 用
+`ctest -N` 复核；Windows 是按注册条件计算，新增协议目标未在 Windows 运行。
 `-L core` 命中两项（`unit;core` 与 `unit;core;scrollback`），这是有意的。
 `mcp`／`renderer`／`p5`／`ui` 四项设了
 `ENVIRONMENT QT_QPA_PLATFORM=offscreen`。
@@ -180,8 +190,10 @@ use-after-free 稳定复现（否则释放内存内容未变，可能碰巧不�
 拿不准某个文件被哪个测试覆盖，就看测试源码的 include。`tests/core`、
 `tests/renderer`、`tests/session`、`tests/transport`、`tests/ui` 五个目录，
 **一个 `.cpp` 对一个测试目标**，翻一眼就能确认。
-测试、人工检查与 benchmark 目标统一声明在 `tests/CMakeLists.txt`；根
-`CMakeLists.txt` 只负责启用 CTest 并通过 `add_subdirectory(tests)` 引入。
+测试、人工检查与 benchmark 目标统一从 `tests/CMakeLists.txt` 引入；
+P9 六个纯标准库测试声明在 `tests/filetransfer/CMakeLists.txt`，供根工程和
+`cmake -S src/filetransfer` 的无 Qt 独立构建共用。根工程启用 CTest 后
+通过 `add_subdirectory(tests)` 注册测试。
 
 #### 什么时候才跑全套
 
@@ -240,7 +252,26 @@ SSH 可选本机验收：Linux 上显式运行
 | `novaterm_conpty_tests` 的 `duplexLoadAndBackpressure`、`latestResizeWins` | 偶发；`duplex` 是 20s 超时，`latestResize` 偶尔拿到旧尺寸。未查明 |
 | `novaterm_pty_tests`（Linux 本机） | 环境相关：PTY 子进程未按预期启动 —— `defaultWorkingDirectoryIsHome`、`workingDirectoryAndMergedEnvironmentReachChild` 拿不到子进程输出，`connected.wait(5000)` 超时，退出码收到 `0xFFFFFFFF`。在 `git stash` 掉全部 `src/` 改动后重建的未修改工作树上同样失败，非回归 |
 | `novaterm_ui_dialog_layout_tests`（Linux 本机） | 环境相关：offscreen + 本机 Ela/字体度量下 `1100x760` 一档的滚动上限断言不符（`scrollMax=344` vs `expectedMax=250`），另两档尺寸通过。同样在未修改工作树上复现，非回归 |
-| `novaterm_mcp_tests`、`novaterm_renderer_tests`、`novaterm_renderer_p5_tests`、`novaterm_ui_dialog_layout_tests`（liurui 的 Windows 工作机，2026-09-27 实测） | 全部以 `0xc0000409`（fail-fast）崩溃、零 stdout；conpty 整项 Failed（exit 4、92s）。在**改动前**与改动后各跑两轮、且 conpty 用原始代码 A/B 复测，失败集合与退出码完全一致——机器相关，非回归，未查明根因（刷新 Machine+User PATH 无效）。该机器上跑全套时以「除上述失败项外全部通过」为绿灯标准（按当前注册的 12 项算即 7 项通过；本条原先写的"其余 7 项"与当时记的"9 项"和现在的 12 项对不上，已改为不写死数字，以 `ctest -N` 的实际输出为准） |
+| `novaterm_mcp_tests`、`novaterm_renderer_tests`、`novaterm_renderer_p5_tests`、`novaterm_ui_dialog_layout_tests`（liurui 的 Windows 工作机，2026-09-27 实测） | 全部以 `0xc0000409`（fail-fast）崩溃、零 stdout；conpty 整项 Failed（exit 4、92s）。在**改动前**与改动后各跑两轮、且 conpty 用原始代码 A/B 复测，失败集合与退出码完全一致——机器相关，非回归，未查明根因（刷新 Machine+User PATH 无效）。该机器上跑全套时以「除上述失败项外全部通过」为绿灯标准（这是新增 P9 前的历史失败集合；新增六项协议测试未在该机器运行，不计入历史通过项，以 `ctest -N` 实际注册和新一轮结果为准） |
+
+
+### P9 独立协议验收（2026-10-04）
+
+协议库可用 `cmake -S src/filetransfer -B build/filetransfer` 独立构建，
+不需要 Qt；根工程测试用 `ctest --test-dir build -L filetransfer`。
+Linux 六项专项及 ASan/UBSan 通过，独立 lrzsz 大文件矩阵为 124 PASS / 2 SKIP，
+详情与命令见 P9 阶段文档。`novaterm_filetransfer_interop_driver` 只在 Linux
+构建，外部对端验收不默认注册 CTest，不连接真实串口或用户服务器。
+
+- 原始 lrzsz 0.12.20 的 `zm.c::zsdata` 用 do/while 处理 size_t length，
+  空文件 CRC16 发送在 length=0 时下溢并越界；对应空文件/含空文件批次接收
+  两项必须写 SKIP，不能算通过。库自身的空文件路径有确定性测试。
+- raw PTY 对端的 lrzsz 恢复阶段调用 `tcflush(TCIOFLUSH)`，可能丢最后 ACK；
+  夹具保留 driver 的 raw PTY，以 socketpair 承接 lrzsz，不伪造 ACK。
+- LeakSanitizer 受本环境 ptrace 限制；本轮 ASan/UBSan 使用
+  `ASAN_OPTIONS=detect_leaks=0`，不得写成泄漏检测通过。
+- Windows/macOS 构建、独立对端和真实 UART 未验收。协议引擎未接入生产
+  Session/Transport/UI；不得把独立协议测试写成串口功能已经可用。
 
 ## 不可违背的架构约束
 

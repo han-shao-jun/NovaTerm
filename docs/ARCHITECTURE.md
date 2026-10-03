@@ -28,6 +28,12 @@ NovaTerm 是基于 Qt 6、libvterm 和 QRhi 的跨平台 GPU 终端。核心目�
   读取与命令工具、允许列表和分级授权；禁止删除、凭据读取、提权等高危险行为。
   首期功能及 Windows 功能验证已完成；跨平台和完整性能验收状态见阶段文档。
 
+P9 的 XMODEM/YMODEM/ZMODEM 独立协议库已落地于 `src/filetransfer/`。
+协议引擎只消费字节、单调时钟和宿主文件结果，输出有界字节与异步文件动作，
+不依赖 Qt、终端解析或 Transport。Linux 验证记录与平台缺口见
+[P9 阶段文档](architecture/stages/P9_File_Transfer_Protocols.md)；
+三个协议先独立验收，串口 Session 接线另行设计，当前主程序不链接该库。
+
 ## 2. 架构原则
 
 1. Parser 单写，Renderer 和 Search 只读。
@@ -424,6 +430,7 @@ src/
 │   ├── terminal/        # BoundedByteQueue、TerminalCore、VTAdapter、ScreenBuffer、KeyMapper
 │   ├── scrollback/      # ChunkedScrollback、ScrollbackChunk、Snapshot、LineLayout(reflow)
 │   └── search/          # SearchEngine（异步、generation 取消）
+├── filetransfer/        # P9 独立 X/Y/ZMODEM Codec/Engine，纯 C++17，无串口接线
 ├── transport/           # ITransport ← LocalShell / Ssh / Serial / Telnet
 ├── session/             # TerminalSession、SessionFactory、InputPump、
 │                        # SessionStore、SftpSession
@@ -442,7 +449,7 @@ src/
 ├── mcp/                 # P8 协议、IPC、授权、请求调度与固定诊断策略
 └── ui/                  # app/(MainWindow)、pages/、terminal/(TerminalView)、widgets/
 tests/
-├── core/  renderer/  session/  transport/  benchmarks/  mcp/
+├── core/  renderer/  session/  transport/  benchmarks/  mcp/  filetransfer/
 tools/
 └── novaterm-mcp/         # 独立 console stdio 桥接程序
 ```

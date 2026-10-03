@@ -42,6 +42,8 @@ if(BUILD_TESTING)
         COMMENT "Running NovaTerm tests with detailed CTest output"
     )
 
+    add_subdirectory(filetransfer)
+
     find_package(Qt${QT_VERSION_MAJOR} 6.8 REQUIRED COMPONENTS Test)
 
     add_executable(novaterm_local_executor_test_child
