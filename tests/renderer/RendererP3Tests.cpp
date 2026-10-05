@@ -7,6 +7,8 @@
 #include <QJsonArray>
 #include <QSignalSpy>
 #include <QInputMethodEvent>
+#include <QApplication>
+#include <QKeyEvent>
 #include <QTest>
 
 class RendererP3Tests : public QObject
@@ -41,6 +43,9 @@ private slots:
     void batchedScreenScrollPublishesExactRowCount();
     void enteringHistoryReusesHistoryLayout();
     void returningToLiveBottomKeepsHistoryLayout();
+    void modifierKeysKeepHistoryAndJumpsReachEnds();
+    void columnReflowKeepsScrollbackPosition();
+    void zoomOutReflowKeepsScrollbackPosition();
     void columnChangeRequestsReflowRowChangeDoesNot();
     void scrollStateTracksHistoryGrowthAndOffset();
     void softWrappedSelectionCopiesAsSingleLine();
@@ -733,6 +738,114 @@ void RendererP3Tests::returningToLiveBottomKeepsHistoryLayout()
     QCOMPARE(renderer.historyDisplayRowCount(), rowsBefore);
     QCOMPARE(renderer.renderStatistics().scrollbackReflowRequests,
              requestsBefore);
+}
+
+// 单独按下修饰键不产生输入，不能把回看拉回实时底部（Ctrl+滚轮缩放的起手式
+// 曾因此丢失回看位置）；普通按键仍回到底部。顶部/底部跳转供右键菜单使用。
+void RendererP3Tests::modifierKeysKeepHistoryAndJumpsReachEnds()
+{
+    TerminalCore core(80, 6);
+    TerminalRenderer renderer(&core);
+    QByteArray input;
+    for (int i = 0; i < 100; ++i)
+        input += QByteArrayLiteral("history\r\n");
+    QVERIFY(core.writeInput(input).fullyAccepted());
+    QVERIFY(core.waitForIdle(1000));
+    QTRY_VERIFY_WITH_TIMEOUT(renderer.historyDisplayRowCount() > 0, 2000);
+
+    renderer.scrollLines(5);
+    QCOMPARE(renderer.scrollOffset(), 5);
+    for (const int key : {int(Qt::Key_Control), int(Qt::Key_Shift),
+                          int(Qt::Key_Alt), int(Qt::Key_Meta)}) {
+        QKeyEvent press(QEvent::KeyPress, key, Qt::NoModifier);
+        QApplication::sendEvent(&renderer, &press);
+        QCOMPARE(renderer.scrollOffset(), 5);
+    }
+
+    renderer.scrollToTop();
+    QCOMPARE(renderer.scrollOffset(), renderer.maximumScrollOffset());
+    QVERIFY(renderer.scrollOffset() > 5);
+
+    QKeyEvent letter(QEvent::KeyPress, Qt::Key_A, Qt::NoModifier,
+                     QStringLiteral("a"));
+    QApplication::sendEvent(&renderer, &letter);
+    QCOMPARE(renderer.scrollOffset(), 0);
+
+    renderer.scrollToTop();
+    renderer.scrollToBottom();
+    QCOMPARE(renderer.scrollOffset(), 0);
+}
+
+// Ctrl+滚轮缩放会改变列宽并触发历史重排。重排在途期间布局为空，旧实现
+// 把回看偏移钳到 0，视图直接跳回实时底部。偏移必须在重排期间与完成后都保留。
+void RendererP3Tests::columnReflowKeepsScrollbackPosition()
+{
+    TerminalCore core(80, 6);
+    TerminalRenderer renderer(&core);
+    QByteArray input;
+    for (int i = 0; i < 100; ++i)
+        input += QByteArrayLiteral("zoom-reflow-probe\r\n");
+    QVERIFY(core.writeInput(input).fullyAccepted());
+    QVERIFY(core.waitForIdle(1000));
+    QTRY_VERIFY_WITH_TIMEOUT(renderer.historyDisplayRowCount() > 0, 2000);
+
+    renderer.scrollLines(30);
+    QCOMPARE(renderer.scrollOffset(), 30);
+    const quint64 requestsBefore =
+        renderer.renderStatistics().scrollbackReflowRequests;
+
+    // 模拟缩放后的列宽变化；一次输出触发 scrollbackChanged → 重排。
+    core.resize(40, 6);
+    QVERIFY(core.waitForIdle(1000));
+    QVERIFY(core.writeInput(QByteArrayLiteral("after-zoom\r\n"))
+                .fullyAccepted());
+    QVERIFY(core.waitForIdle(1000));
+    QTRY_VERIFY_WITH_TIMEOUT(
+        renderer.renderStatistics().scrollbackReflowRequests > requestsBefore,
+        2000);
+    QVERIFY(renderer.scrollOffset() > 0);
+
+    // 重排完成后锚点还原：仍停在历史中而非实时底部。
+    QTRY_VERIFY_WITH_TIMEOUT(renderer.historyDisplayRowCount() > 0, 2000);
+    QVERIFY(renderer.scrollOffset() > 0);
+    QVERIFY(renderer.scrollOffset() <= renderer.maximumScrollOffset());
+}
+
+// 缩小字体是反方向：列数与行数同时变多。屏幕变高会经 sb_popline 把最新
+// 历史行取回屏幕，历史与折行同时变化，回看位置同样不能丢回实时底部。
+void RendererP3Tests::zoomOutReflowKeepsScrollbackPosition()
+{
+    TerminalCore core(40, 6);
+    TerminalRenderer renderer(&core);
+    QByteArray input;
+    for (int i = 0; i < 100; ++i) {
+        // 60 列文本在 40 列下折成两行显示行，放宽到 80 列后合回一行。
+        input += QByteArray(60, char('a' + i % 26));
+        input += QByteArrayLiteral("\r\n");
+    }
+    QVERIFY(core.writeInput(input).fullyAccepted());
+    QVERIFY(core.waitForIdle(1000));
+    QTRY_VERIFY_WITH_TIMEOUT(renderer.historyDisplayRowCount() > 100, 2000);
+
+    // 偏移超过逻辑行数，验证重排期间按逻辑行数钳制也不会归零。
+    renderer.scrollLines(150);
+    QCOMPARE(renderer.scrollOffset(), 150);
+    const quint64 requestsBefore =
+        renderer.renderStatistics().scrollbackReflowRequests;
+
+    core.resize(80, 12);
+    QVERIFY(core.waitForIdle(1000));
+    QVERIFY(core.writeInput(QByteArrayLiteral("after-zoom-out\r\n"))
+                .fullyAccepted());
+    QVERIFY(core.waitForIdle(1000));
+    QTRY_VERIFY_WITH_TIMEOUT(
+        renderer.renderStatistics().scrollbackReflowRequests > requestsBefore,
+        2000);
+    QVERIFY(renderer.scrollOffset() > 0);
+
+    QTRY_VERIFY_WITH_TIMEOUT(renderer.historyDisplayRowCount() > 0, 2000);
+    QVERIFY(renderer.scrollOffset() > 0);
+    QVERIFY(renderer.scrollOffset() <= renderer.maximumScrollOffset());
 }
 
 // 重排判据是**列数**而非尺寸：行数变化不影响折行，不应触发重排。

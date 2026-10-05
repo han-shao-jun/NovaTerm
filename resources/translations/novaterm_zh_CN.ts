@@ -2919,7 +2919,7 @@ Termination confirmed: %3
 <context>
     <name>TerminalView</name>
     <message>
-        <location filename="../../src/ui/terminal/TerminalView.cpp" line="730"/>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="746"/>
         <source>Find in scrollback</source>
         <translation>在滚动回显中查找</translation>
     </message>
@@ -2974,27 +2974,37 @@ Termination confirmed: %3
         <translation>缩小</translation>
     </message>
     <message>
-        <location filename="../../src/ui/terminal/TerminalView.cpp" line="659"/>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="661"/>
+        <source>Scroll to Top</source>
+        <translation>回到顶部</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="668"/>
+        <source>Scroll to Bottom</source>
+        <translation>回到底部</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="675"/>
         <source>Clear Scrollback</source>
         <translation>清除滚动回显</translation>
     </message>
     <message>
-        <location filename="../../src/ui/terminal/TerminalView.cpp" line="662"/>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="678"/>
         <source>Clear All</source>
         <translation>全部清除</translation>
     </message>
     <message>
-        <location filename="../../src/ui/terminal/TerminalView.cpp" line="665"/>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="681"/>
         <source>Clear All Failed</source>
         <translation>全部清除失败</translation>
     </message>
     <message>
-        <location filename="../../src/ui/terminal/TerminalView.cpp" line="666"/>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="682"/>
         <source>The terminal is busy. Please try clearing it again shortly.</source>
         <translation>终端忙碌，未能全部清除，请稍后重试。</translation>
     </message>
     <message>
-        <location filename="../../src/ui/terminal/TerminalView.cpp" line="673"/>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="689"/>
         <source>Select All</source>
         <translation>选中全部</translation>
     </message>

@@ -656,6 +656,22 @@ void TerminalView::setupContextMenu(const QPoint& pos)
 
     menu->addSeparator();
 
+    // 回看位置快速跳转；已在对应端时置灰。
+    QAction* scrollTopAction =
+        menu->addElaIconAction(ElaIconType::ArrowUpToLine, tr("Scroll to Top"));
+    scrollTopAction->setEnabled(
+        _renderer->scrollOffset() < _renderer->maximumScrollOffset());
+    connect(scrollTopAction, &QAction::triggered,
+            _renderer, &TerminalRenderer::scrollToTop);
+
+    QAction* scrollBottomAction =
+        menu->addElaIconAction(ElaIconType::ArrowDownToLine, tr("Scroll to Bottom"));
+    scrollBottomAction->setEnabled(_renderer->scrollOffset() > 0);
+    connect(scrollBottomAction, &QAction::triggered,
+            _renderer, &TerminalRenderer::scrollToBottom);
+
+    menu->addSeparator();
+
     connect(menu->addElaIconAction(ElaIconType::Broom, tr("Clear Scrollback")),
             &QAction::triggered, _core, &TerminalCore::clearScrollback);
 

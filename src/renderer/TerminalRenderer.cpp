@@ -434,6 +434,32 @@ void TerminalRenderer::scrollToBottom()
     // 进入历史也无需等待一次重建。
 }
 
+void TerminalRenderer::scrollToTop()
+{
+    scrollToLine(maximumScrollOffset());
+}
+
+bool TerminalRenderer::isModifierOnlyKey(int key)
+{
+    switch (key) {
+    case Qt::Key_Control:
+    case Qt::Key_Shift:
+    case Qt::Key_Alt:
+    case Qt::Key_AltGr:
+    case Qt::Key_Meta:
+    case Qt::Key_Super_L:
+    case Qt::Key_Super_R:
+    case Qt::Key_Hyper_L:
+    case Qt::Key_Hyper_R:
+    case Qt::Key_CapsLock:
+    case Qt::Key_NumLock:
+    case Qt::Key_ScrollLock:
+        return true;
+    default:
+        return false;
+    }
+}
+
 int TerminalRenderer::maximumScrollOffset() const
 {
     return _historyLayout.isEmpty()
@@ -1170,8 +1196,11 @@ void TerminalRenderer::updateHistoryLayout()
 
 void TerminalRenderer::restoreScrollFromAnchor()
 {
-    _scrollLine = std::clamp(_scrollLine, 0, int(_historyLayout.size()));
-    if (_scrollLine <= 0 || _scrollAnchorLine == 0)
+    // 重排在途时布局为空：按逻辑行数钳制（与 maximumScrollOffset() 同口径），
+    // 而不是钳到 0。Ctrl+滚轮缩放会改变列宽并触发重排，钳到 0 会把回看位置
+    // 直接丢回实时底部；保留偏移与锚点，重排完成后再由锚点精确还原。
+    _scrollLine = std::clamp(_scrollLine, 0, maximumScrollOffset());
+    if (_scrollLine <= 0 || _scrollAnchorLine == 0 || _historyLayout.isEmpty())
         return;
     // 锚点按 (逻辑行 ID, 折行序号) 定位，使折点变化后视口仍停在同一内容。
     for (qsizetype i = 0; i < _historyLayout.size(); ++i) {
@@ -1256,8 +1285,10 @@ void TerminalRenderer::keyPressEvent(QKeyEvent* event)
 {
     emit activityDetected();
 
-    // 滚动到行尾
-    if (_scrollLine > 0)
+    // 有实际输入的按键才回到实时底部。单独按下的修饰键（Ctrl/Shift/Alt/
+    // Meta 等）不产生输入，却是 Ctrl+滚轮缩放、Shift+滚轮本地回看等手势的
+    // 起手式；让它们回到底部会把正在翻看的历史位置直接丢掉。
+    if (_scrollLine > 0 && !isModifierOnlyKey(event->key()))
         scrollToBottom();
 
     _core->processKeyPress(event);

@@ -132,7 +132,17 @@ public:
      *        滚动条不会在每次列宽变化时先塌缩到 0 再恢复。
      */
     [[nodiscard]] int maximumScrollOffset() const;
+    /**
+     * @brief 滚动到历史最顶部（偏移 = maximumScrollOffset()）。
+     */
+    void scrollToTop();
     void scrollToBottom();
+    /**
+     * @brief 判断按键是否为单独的修饰/锁定键（不产生终端输入）。
+     * @param key Qt::Key 值。
+     * @return 是修饰键时返回 true；此类按键不会把回看视图拉回实时底部。
+     */
+    [[nodiscard]] static bool isModifierOnlyKey(int key);
     void scrollToLine(int line);
     void scrollLines(int delta);
     void setConservativeLiveScrollRendering(bool enabled);

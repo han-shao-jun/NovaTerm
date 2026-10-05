@@ -2907,7 +2907,7 @@ Termination confirmed: %3
 <context>
     <name>TerminalView</name>
     <message>
-        <location filename="../../src/ui/terminal/TerminalView.cpp" line="730"/>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="746"/>
         <source>Find in scrollback</source>
         <translation type="unfinished"></translation>
     </message>
@@ -2962,27 +2962,37 @@ Termination confirmed: %3
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/terminal/TerminalView.cpp" line="659"/>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="661"/>
+        <source>Scroll to Top</source>
+        <translation>Scroll to Top</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="668"/>
+        <source>Scroll to Bottom</source>
+        <translation>Scroll to Bottom</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="675"/>
         <source>Clear Scrollback</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/terminal/TerminalView.cpp" line="662"/>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="678"/>
         <source>Clear All</source>
         <translation>Clear All</translation>
     </message>
     <message>
-        <location filename="../../src/ui/terminal/TerminalView.cpp" line="665"/>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="681"/>
         <source>Clear All Failed</source>
         <translation>Clear All Failed</translation>
     </message>
     <message>
-        <location filename="../../src/ui/terminal/TerminalView.cpp" line="666"/>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="682"/>
         <source>The terminal is busy. Please try clearing it again shortly.</source>
         <translation>The terminal is busy. Please try clearing it again shortly.</translation>
     </message>
     <message>
-        <location filename="../../src/ui/terminal/TerminalView.cpp" line="673"/>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="689"/>
         <source>Select All</source>
         <translation>Select All</translation>
     </message>
