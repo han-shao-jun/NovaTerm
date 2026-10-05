@@ -625,6 +625,9 @@ static int on_escape(const char *bytes, size_t len, void *user)
     if(len != 2)
       return 0;
 
+    // NovaTerm 修正：行属性变更与 DECALN 都清除延迟换行（DEC STD 070 D-13）。
+    state->at_phantom = 0;
+
     switch(bytes[1]) {
       case '3': // DECDHL top
         if(state->mode.leftrightmargin)
@@ -653,15 +656,38 @@ static int on_escape(const char *bytes, size_t len, void *user)
       case '8': // DECALN
       {
         VTermPos pos;
+        VTermPos oldpos = state->pos;
         uint32_t E[] = { 'E', 0 };
+        /* NovaTerm 修正：与 xterm / Windows Terminal 一致，DECALN 还要把所有行
+         * 恢复为单宽单高、关闭 DECOM/DECLRMM、清除滚动区并让光标归位。 */
+        for(pos.row = 0; pos.row < state->rows; pos.row++)
+          set_lineinfo(state, pos.row, FORCE, DWL_OFF, DHL_OFF);
         for(pos.row = 0; pos.row < state->rows; pos.row++)
           for(pos.col = 0; pos.col < ROWWIDTH(state, pos.row); pos.col++)
             putglyph(state, E, 1, pos);
+        state->mode.origin = 0;
+        state->mode.leftrightmargin = 0;
+        state->scrollregion_top = 0;
+        state->scrollregion_bottom = -1;
+        state->scrollregion_left = 0;
+        state->scrollregion_right = -1;
+        state->pos.row = 0;
+        state->pos.col = 0;
+        updatecursor(state, &oldpos, 1);
         break;
       }
 
       default:
         return 0;
+    }
+
+    // NovaTerm 修正：切换为双宽行后行宽减半，光标需钳到新行宽内（与 xterm / WT 一致）。
+    if(bytes[1] >= '3' && bytes[1] <= '6') {
+      VTermPos oldpos = state->pos;
+      // UBOUND 宏定义在本函数之后，这里直接写比较。
+      if(state->pos.col > THISROWWIDTH(state) - 1)
+        state->pos.col = THISROWWIDTH(state) - 1;
+      updatecursor(state, &oldpos, 1);
     }
     return 2;
 
@@ -776,6 +802,8 @@ static void set_dec_mode(VTermState *state, int num, int val)
 
   case 7:
     state->mode.autowrap = val;
+    if(!val)
+      state->at_phantom = 0; // NovaTerm 修正：DECAWM 复位清除延迟换行（DEC STD 070 D-13）
     break;
 
   case 12:
@@ -989,6 +1017,7 @@ static int on_csi(const char *leader, const long args[], int argcount, const cha
   switch(intermed_byte << 16 | leader_byte << 8 | command) {
   case 0x40: // ICH - ECMA-48 8.3.64
     count = CSI_ARG_COUNT(args[0]);
+    state->at_phantom = 0; // NovaTerm 修正：见 ED
 
     if(!is_cursor_in_scrollregion(state))
       break;
@@ -1030,18 +1059,25 @@ static int on_csi(const char *leader, const long args[], int argcount, const cha
     break;
 
   case 0x45: // CNL - ECMA-48 8.3.12
-    count = CSI_ARG_COUNT(args[0]);
-    state->pos.col = 0;
-    state->pos.row += count;
-    state->at_phantom = 0;
-    break;
-
   case 0x46: // CPL - ECMA-48 8.3.13
+  {
+    /* NovaTerm 修正：与 xterm / Windows Terminal 一致，起点在左右边距内时
+     * CNL/CPL 被上下边距钳住（只钳起点所在一侧），并回到左边距；
+     * 原实现只在 DECOM 下才钳位。 */
+    VTermPos start = state->pos;
     count = CSI_ARG_COUNT(args[0]);
     state->pos.col = 0;
-    state->pos.row -= count;
+    state->pos.row += command == 0x45 ? count : -count;
+    if(start.col >= SCROLLREGION_LEFT(state) && start.col < SCROLLREGION_RIGHT(state)) {
+      if(start.row >= state->scrollregion_top)
+        LBOUND(state->pos.row, state->scrollregion_top);
+      if(start.row < SCROLLREGION_BOTTOM(state))
+        UBOUND(state->pos.row, SCROLLREGION_BOTTOM(state) - 1);
+      LBOUND(state->pos.col, SCROLLREGION_LEFT(state));
+    }
     state->at_phantom = 0;
     break;
+  }
 
   case 0x47: // CHA - ECMA-48 8.3.9
     val = CSI_ARG_OR(args[0], 1);
@@ -1070,6 +1106,10 @@ static int on_csi(const char *leader, const long args[], int argcount, const cha
   case 0x4a: // ED - ECMA-48 8.3.39
   case LEADER('?', 0x4a): // DECSED - Selective Erase in Display
     selective = (leader_byte == '?');
+    /* NovaTerm 修正：以下擦除/插入/删除操作按 DEC STD 070 D-13 清除
+     * 行尾延迟换行标志。updatecursor() 只在光标移动时清除，这些操作
+     * 不移动光标，因此需要显式清除。 */
+    state->at_phantom = 0;
     switch(CSI_ARG(args[0])) {
     case CSI_ARG_MISSING:
     case 0:
@@ -1134,6 +1174,7 @@ static int on_csi(const char *leader, const long args[], int argcount, const cha
       return 0;
     }
 
+    state->at_phantom = 0; // NovaTerm 修正：见 ED
     if(rect.end_col > rect.start_col)
       erase(state, rect, selective);
 
@@ -1141,9 +1182,13 @@ static int on_csi(const char *leader, const long args[], int argcount, const cha
 
   case 0x4c: // IL - ECMA-48 8.3.67
     count = CSI_ARG_COUNT(args[0]);
+    state->at_phantom = 0; // NovaTerm 修正：见 ED
 
     if(!is_cursor_in_scrollregion(state))
       break;
+
+    // NovaTerm 修正：DEC STD 070 规定 IL/DL 执行后光标回到左边距。
+    state->pos.col = SCROLLREGION_LEFT(state);
 
     rect.start_row = state->pos.row;
     rect.end_row   = SCROLLREGION_BOTTOM(state);
@@ -1156,9 +1201,12 @@ static int on_csi(const char *leader, const long args[], int argcount, const cha
 
   case 0x4d: // DL - ECMA-48 8.3.32
     count = CSI_ARG_COUNT(args[0]);
+    state->at_phantom = 0; // NovaTerm 修正：见 ED
 
     if(!is_cursor_in_scrollregion(state))
       break;
+
+    state->pos.col = SCROLLREGION_LEFT(state); // NovaTerm 修正：见 IL
 
     rect.start_row = state->pos.row;
     rect.end_row   = SCROLLREGION_BOTTOM(state);
@@ -1171,6 +1219,7 @@ static int on_csi(const char *leader, const long args[], int argcount, const cha
 
   case 0x50: // DCH - ECMA-48 8.3.26
     count = CSI_ARG_COUNT(args[0]);
+    state->at_phantom = 0; // NovaTerm 修正：见 ED
 
     if(!is_cursor_in_scrollregion(state))
       break;
@@ -1213,6 +1262,7 @@ static int on_csi(const char *leader, const long args[], int argcount, const cha
 
   case 0x58: // ECH - ECMA-48 8.3.38
     count = CSI_ARG_COUNT(args[0]);
+    state->at_phantom = 0; // NovaTerm 修正：见 ED
 
     rect.start_row = state->pos.row;
     rect.end_row   = state->pos.row + 1;
