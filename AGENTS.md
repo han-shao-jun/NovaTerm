@@ -367,8 +367,10 @@ src/platform/   windows/conpty/ linux/pty/
 
 背压水位：ByteQueue 8 MiB，暂停/恢复 6/4 MiB；`SessionInputPump`
 `MaxPendingBytes` 8 MiB、`InputChunkBytes` 64 KiB。写侧 Serial / SSH / Telnet
-各有 `MaxPendingWriteBytes` = 1 MiB；LocalShell 不用该常量，走
-`tryEnqueueInput()` 由 PTY/ConPTY 会话层自己限容。
+各有 `MaxPendingWriteBytes` = 1 MiB；LocalShell 不用该常量：会话层
+`tryEnqueueInput()` 队列上限 1 MiB，`LocalShellTransport` 在其上维护积压
+（256 KiB 分块、队列满时 5 ms 重试、总量 64 MiB 才报 Overload），大粘贴
+不会被整段拒绝。
 
 ## 代码约定
 

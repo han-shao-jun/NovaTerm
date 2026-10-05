@@ -408,7 +408,8 @@ if(BUILD_TESTING)
         set_tests_properties(novaterm_conpty_tests PROPERTIES
             WORKING_DIRECTORY "${CMAKE_BINARY_DIR}"
             LABELS "integration;conpty"
-            TIMEOUT 120
+            # duplex 用例受 conhost 吞吐限制单独约 40 s，整套约 130 s。
+            TIMEOUT 240
         )
         add_dependencies(check novaterm_conpty_tests)
 
