@@ -64,7 +64,7 @@ void committedOffsetTests()
     const Bytes info{'a',0,'3',' ','0',' ','0',0};
     feed(receiver,ZmodemCodec::data(byteView(info),ZEnd::Wait,true));
     auto offer=receiver.takeAction();
-    check(offer && offer->kind==ActionKind::OfferFile && offer->file.size==3,
+    check(offer && offer->kind==ActionKind::OfferFile && offer->file.size==3U,
           "explicit offer");
     check(receiver.completeOperation(offer->id,{},0), "offer acceptance"); drain(receiver);
     feed(receiver,ZmodemCodec::header(ZFrame::Data,0,ZHeaderFormat::Binary32));
@@ -237,11 +237,11 @@ void closingTests()
     receiver.start(receive,0); drain(receiver);
     const auto finish=ZmodemCodec::header(ZFrame::Finish,0,ZHeaderFormat::Hex);
     feed(receiver,finish); drain(receiver);
-    check(receiver.nextDeadline()==3000,"closing starts after output drain");
+    check(receiver.nextDeadline()==3000U,"closing starts after output drain");
     check(receiver.consume(byteView(finish),2000).consumed==finish.size(),"repeat close consumed");
     const auto pending=receiver.pendingOutput();
     receiver.acknowledgeOutput(static_cast<std::size_t>(pending.size),2000);
-    check(receiver.nextDeadline()==3000,"repeat FIN does not extend close deadline");
+    check(receiver.nextDeadline()==3000U,"repeat FIN does not extend close deadline");
     receiver.advance(3000);
     check(receiver.progress().state==State::Completed,"bounded closing completes without OO");
     check(receiver.consume(byteView(Bytes{'t'}),3000).consumed==0,"completed tail handed back");

@@ -75,7 +75,7 @@ void closingDeadlineStartsAfterAckDrain() {
     YmodemEngine receiver; TransferRequest request; check(receiver.start(request, 0), "Y closing deadline start"); output(receiver);
     feed(receiver, header("", "")); feed(receiver, {1});
     check(!receiver.nextDeadline(), "Y closing partial frame cannot arm response deadline"); output(receiver);
-    check(receiver.nextDeadline() == 3000, "Y closing uses closing deadline"); receiver.advance(3000);
+    check(receiver.nextDeadline() == 3000U, "Y closing uses closing deadline"); receiver.advance(3000);
     check(receiver.progress().state == State::Completed, "Y closing partial frame expires on time");
 }
 void senderBlockNumberWraps() {

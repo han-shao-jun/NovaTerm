@@ -106,7 +106,7 @@ void deadlinesPartialWritesAndSizes() {
     const auto suffix = sender.pendingOutput(); check(Bytes(suffix.data, suffix.data + suffix.size) == Bytes(packet.begin() + 7, packet.end()), "output suffix preserved");
     sender.advance(20000); check(sender.progress().retransmissions == 0, "partial output no premature retry");
     check(sender.acknowledgeOutput(static_cast<std::size_t>(suffix.size), 20000), "output suffix accepted");
-    check(sender.nextDeadline() == 30000, "deadline based on drain"); sender.advance(30000);
+    check(sender.nextDeadline() == 30000U, "deadline based on drain"); sender.advance(30000);
     check(output(sender) == packet && sender.progress().retransmissions == 1, "timeout retries identical packet"); sender.cancel(0); output(sender);
     check(sender.start(request, 0), "long read start"); feed(sender, {'C'}); complete(sender, action(sender, ActionKind::ReadAt), Bytes(129, 0));
     check(sender.progress().error == Error::SizeMismatch, "oversized read rejected");
@@ -135,7 +135,7 @@ void closingDeadlineStartsAfterAckDrain() {
     complete(receiver, action(receiver, ActionKind::OfferFile)); output(receiver); feed(receiver, {4});
     complete(receiver, action(receiver, ActionKind::FinishFile)); feed(receiver, {1});
     check(!receiver.nextDeadline(), "closing partial frame cannot arm response deadline"); output(receiver);
-    check(receiver.nextDeadline() == 3000, "closing uses closing deadline"); receiver.advance(3000);
+    check(receiver.nextDeadline() == 3000U, "closing uses closing deadline"); receiver.advance(3000);
     check(receiver.progress().state == State::Completed, "closing partial frame expires on time");
 }
 void senderBlockNumberWraps() {

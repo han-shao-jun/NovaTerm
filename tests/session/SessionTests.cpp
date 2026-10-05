@@ -163,7 +163,7 @@ private slots:
 void SessionTests::localScriptProviderWritesExactlyRequestedPath()
 {
     QTemporaryDir root;
-    QVERIFY(root.isValid());
+    QVERIFY2(root.isValid(), qPrintable(root.errorString()));
     const QString target = root.filePath(QStringLiteral("scripts/setup.sh"));
     QVERIFY(QDir().mkpath(QFileInfo(target).absolutePath()));
     LocalSessionScriptProvider provider;
@@ -855,7 +855,7 @@ void SessionTests::clinkHookEnablesCmdOnlyWhenInstalled()
     QSKIP("Clink is a Windows CMD integration.");
 #else
     QTemporaryDir directory;
-    QVERIFY(directory.isValid());
+    QVERIFY2(directory.isValid(), qPrintable(directory.errorString()));
     const QString batchPath = directory.filePath(QStringLiteral("clink.bat"));
     QFile batch(batchPath);
     QVERIFY(batch.open(QIODevice::WriteOnly));
@@ -1271,7 +1271,7 @@ void SessionTests::runtimeConfigIsSnapshot()
 void SessionTests::restoreMetadataRoundTrip()
 {
     QTemporaryDir directory;
-    QVERIFY(directory.isValid());
+    QVERIFY2(directory.isValid(), qPrintable(directory.errorString()));
     SessionStore store(directory.filePath(QStringLiteral("sessions.json")));
     SessionRestoreMetadata source;
     source.sessionId = QUuid::createUuid();

@@ -23,6 +23,20 @@ set(NOVATERM_P5_RENDERER_SOURCES
 )
 
 if(BUILD_TESTING)
+    # 测试以 QT_QPA_PLATFORM=offscreen 运行，而 windeployqt 只部署 qwindows，
+    # 这里把 offscreen 平台插件复制到 bin/platforms，避免"no Qt platform plugin"。
+    if(WIN32 AND TARGET Qt${QT_VERSION_MAJOR}::QOffscreenIntegrationPlugin)
+        add_custom_target(novaterm_deploy_offscreen_plugin ALL
+            COMMAND ${CMAKE_COMMAND} -E make_directory
+                "${CMAKE_BINARY_DIR}/bin/platforms"
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "$<TARGET_FILE:Qt${QT_VERSION_MAJOR}::QOffscreenIntegrationPlugin>"
+                "${CMAKE_BINARY_DIR}/bin/platforms/"
+            COMMENT "Deploying qoffscreen platform plugin for tests"
+            VERBATIM
+        )
+    endif()
+
     # 提供一个输出更完整的统一测试入口：
     #   cmake --build <build-dir> --target check
     # 多配置生成器（Visual Studio、Ninja Multi-Config）需要显式传递配置。
