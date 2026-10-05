@@ -61,7 +61,7 @@ cmd /c "call \"C:\Program Files (x86)\Microsoft Visual Studio\18\BuildTools\VC\A
 ### 跑测试
 
 **默认只跑与改动相关的测试目标，不要跑全套。** 全套耗时**按平台不同**（见下方
-「默认注册了哪些测试」）：Windows 18 项、Linux 17 项（新增 P9 六项）。原 Windows 12 项全套实测约
+「默认注册了哪些测试」）：Windows 19 项、Linux 18 项（新增 P9 六项与终端操作一致性一项）。原 Windows 12 项全套实测约
 **190 秒**，其中 `novaterm_conpty_tests` 单项 94s、`novaterm_terminal_session_tests`
 46s、`novaterm_core_tests` 30s；而多数改动只需要其中一两项、几秒就跑完。
 
@@ -77,7 +77,7 @@ QT_PLUGIN_PATH="C:/Programs/Qt/6.8.3/msvc2022_64/plugins"
 
 # 按名字挑（首选，最精确）
 ctest --test-dir build -C Debug -R novaterm_scrollback_tests
-# 按标签挑，label 见下表；注意 -L core 是 core + scrollback 两项
+# 按标签挑，label 见下表；注意 -L core 是 core + terminal_ops + scrollback 三项
 ctest --test-dir build -C Debug -L core
 # 一次改动跨了多个模块就挑多项
 ctest --test-dir build -C Debug -R "novaterm_(renderer|renderer_p5)_tests"
@@ -95,6 +95,7 @@ ctest --test-dir build -C Debug
 | 改动位置 | 跑这个 | label | 平台 | 耗时 |
 | --- | --- | --- | --- | --- |
 | `src/core/terminal/`（TerminalCore、ScreenBuffer、VTAdapter、ScrollbackBuffer、BoundedByteQueue、KeyMapper）—— 后三者经 `TerminalCore.h` 传递覆盖；KeyMapper 有专项单测 | `novaterm_core_tests` | `core` | 全部 | ~30s |
+| `third_party/libvterm-0.3.3/`（本地修正）及 VT 序列语义 | `novaterm_terminal_ops_tests` + `novaterm_core_tests`（`-L core`） | `conformance`／`core` | 全部 | <1s / ~30s |
 | `src/core/scrollback/`、`src/core/search/` | `novaterm_scrollback_tests` | `scrollback` | 全部 | <1s |
 | `src/filetransfer/`、`tests/filetransfer/` | `ctest -L filetransfer`（六项；也可独立配置 `src/filetransfer`，无需 Qt） | `filetransfer`／`p9` | 全部 | <1s |
 | `src/session/`、`src/profile/`、`src/credential/` | `novaterm_session_tests` | `session`／`p6` | 全部 | <1s |
@@ -134,6 +135,7 @@ ctest --test-dir build -C Debug
 | `novaterm_zmodem_tests` | 无条件 | `unit;filetransfer;p9` | 60 |
 | `novaterm_filetransfer_no_qt_link_check` | 无条件 | `unit;filetransfer;p9` | 60 |
 | `novaterm_core_tests` | 无条件 | `unit;core` | 60 |
+| `novaterm_terminal_ops_tests` | 无条件 | `unit;core;conformance` | 60 |
 | `novaterm_scrollback_tests` | 无条件 | `unit;core;scrollback` | 60 |
 | `novaterm_session_tests` | 无条件 | `unit;session;p6` | 60 |
 | `novaterm_renderer_tests` | 无条件 | `unit;renderer` | 60 |
@@ -143,13 +145,14 @@ ctest --test-dir build -C Debug
 | `novaterm_ui_dialog_layout_tests` | 无条件 | `ui` | 30 |
 | `novaterm_scrollback_tailfrom_scale` | `NOVATERM_BUILD_BENCHMARKS`（**默认 ON**） | `scrollback;perf` | — |
 | `novaterm_pty_tests` | `CMAKE_SYSTEM_NAME STREQUAL "Linux"` | `integration;pty;linux` | 30 |
-| `novaterm_conpty_tests` | `WIN32` | `integration;conpty` | 120 |
+| `novaterm_conpty_tests` | `WIN32` | `integration;conpty` | 240 |
 | `novaterm_terminal_session_tests` | `WIN32` | `integration;terminal-session` | 120 |
 
-**Linux 默认 17 项、Windows 默认 18 项**（15 无条件 + 1 缩放护栏 +
+**Linux 默认 18 项、Windows 默认 19 项**（16 无条件 + 1 缩放护栏 +
 Linux 1 项或 Windows 2 项平台测试）。Linux 默认注册数已在 2026-10-04 用
 `ctest -N` 复核；Windows 是按注册条件计算，新增协议目标未在 Windows 运行。
-`-L core` 命中两项（`unit;core` 与 `unit;core;scrollback`），这是有意的。
+`-L core` 命中三项（`unit;core`、`unit;core;conformance` 与
+`unit;core;scrollback`），这是有意的。
 `mcp`／`renderer`／`p5`／`ui` 四项设了
 `ENVIRONMENT QT_QPA_PLATFORM=offscreen`。
 

@@ -677,3 +677,21 @@ libvterm 增加独立的 `lf_implies_cr` 状态与设置 API，仅 LF 控制字�
 补入 `MessagePrompts.cpp/.h`，主程序沿用现有提示组件。
 验证：Debug 主程序及 Core 测试目标构建通过，`novaterm_core_tests` 通过
 （含新增队列拒绝与重试用例）；Windows 联通目标未在本 Linux 环境运行。
+
+## 2026-10-06 增量：终端操作一致性用例与 libvterm 语义修正
+
+新增 `novaterm_terminal_ops_tests`（`tests/core/TerminalOpsTests.cpp`，label
+`unit;core;conformance`）：参考 esctest2 / vttest 覆盖光标移动、擦除、插删、
+SGR、设备应答、制表、自动换行、组合字符与 RIS，并移植 Windows Terminal
+`ScreenBufferTests.cpp` 的延迟换行复位、CNL/CPL、DECALN、边距内换行、
+制表位与 DECSC/DECRC 用例。只断言 Cell 字符、属性与光标位置。
+
+据此修正 vendored `third_party/libvterm-0.3.3/src/state.c`（行为与 xterm /
+Windows Terminal 对齐）：
+- ICH/ED/EL/IL/DL/DECAWM 复位/DEC 行属性按 DEC STD 070 D-13 清除延迟换行；
+- IL/DL 执行后光标回到左边距；
+- CNL/CPL 起点在左右边距内时被上下边距钳住（原实现仅 DECOM 下钳位）；
+- DECALN 同时复位行属性、DECOM/DECLRMM、滚动区并让光标归位；
+- 切换为双宽行后光标钳到新行宽内。
+验证：Windows Release 构建通过；`novaterm_terminal_ops_tests`、
+`novaterm_core_tests` 通过。Linux 未运行。

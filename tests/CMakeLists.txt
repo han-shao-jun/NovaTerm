@@ -148,6 +148,23 @@ if(BUILD_TESTING)
     )
     add_dependencies(check novaterm_core_tests)
 
+    # 常见终端操作用例（参考 esctest2 / vttest 覆盖面）。
+    add_executable(novaterm_terminal_ops_tests
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/TerminalOpsTests.cpp
+    )
+    target_link_libraries(novaterm_terminal_ops_tests
+        PRIVATE
+            novaterm_core
+            Qt${QT_VERSION_MAJOR}::Test
+    )
+    add_test(NAME novaterm_terminal_ops_tests COMMAND novaterm_terminal_ops_tests)
+    set_tests_properties(novaterm_terminal_ops_tests PROPERTIES
+        WORKING_DIRECTORY "${CMAKE_BINARY_DIR}"
+        LABELS "unit;core;conformance"
+        TIMEOUT 60
+    )
+    add_dependencies(check novaterm_terminal_ops_tests)
+
     add_executable(novaterm_scrollback_tests
         ${CMAKE_CURRENT_SOURCE_DIR}/core/ScrollbackTests.cpp
     )
