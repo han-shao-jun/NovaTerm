@@ -143,7 +143,11 @@ NovaTerm/
 │   ├── service/        # 公共服务
 │   ├── credential/     # 凭据管理
 │   ├── profile/        # 配置管理
+│   ├── mcp/            # AI MCP 协议与授权
+│   ├── filetransfer/   # XMODEM/YMODEM/ZMODEM 协议库（不依赖 Qt）
 │   └── platform/       # 平台特定代码
+├── tools/              # novaterm-mcp（stdio 入口）、novaterm-local-diag
+├── scripts/            # OpenSSL 预编译、MSVC 依赖兼容层等脚本
 ├── tests/              # 测试代码
 ├── docs/               # 文档
 ├── resources/          # 资源文件

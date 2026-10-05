@@ -32,8 +32,9 @@ GPU 管线，UI 用 ElaWidgetTools（FluentUI 风格）。GPLv2+，仓库在 Git
 `README.md` 的「环境要求」一节已与这三处对齐（2026-09 复核）；它对
 **测试**一节的描述仍不完整，见下方「跑测试」。
 
-Qt 前缀**硬编码**在 `CMakeLists.txt:14-23` 按宿主平台分支，不是通过
-`CMAKE_PREFIX_PATH` 传入：
+Qt 前缀**硬编码**在 `CMakeLists.txt:53-62`，按 `CMAKE_HOST_SYSTEM_NAME` 分支
+写入 `CMAKE_PREFIX_PATH` 缓存变量（`set(... CACHE PATH ...)`，因此首次配置时
+命令行 `-DCMAKE_PREFIX_PATH=...` 可覆盖）：
 
 - Windows `C:\Programs\Qt\6.8.3\msvc2022_64`
 - Linux `/home/super/Qt/6.8.3/gcc_64/`
@@ -44,10 +45,11 @@ OpenSSL（需 PATH 有 `perl.exe` 与 `nasm.exe`）。产物在
 `third_party/openssl-3.5.7/install/`，已 gitignore。libssh / libvterm /
 libtelnet / ElaWidgetTools 都随项目从源码构建，无需预处理。
 
-> `scripts/build-novaterm.bat` 当前可在本机使用：它加载
-> `C:\Programs\MicrosoftVisualStudio\18\Insiders` 的 MSVC 环境并构建已配置的
-> `E:\code\Qt\NovaTerm\build\Release`。它不会完成首次 CMake 配置或 OpenSSL
-> 预编译，因此仅适合该构建目录已经存在的增量 Release 构建。
+> `scripts/build-novaterm.bat` 写死了
+> `C:\Programs\MicrosoftVisualStudio\18\Insiders` 的 vcvars 与
+> `E:\code\Qt\NovaTerm\build\Release` 构建目录，**在 `D:\qt\NovaTerm` 工作区
+> 不可用**（2026-10-05 复核：两条路径都不存在）。本机用下方 BuildTools 的
+> vcvarsall 命令构建。该脚本也不做首次 CMake 配置或 OpenSSL 预编译。
 
 ### Windows 构建（Ninja + MSVC）
 
@@ -109,7 +111,7 @@ ctest --test-dir build -C Debug
 **平台列不是装饰**：`novaterm_pty_tests` 只在
 `if(CMAKE_SYSTEM_NAME STREQUAL "Linux")` 里注册（macOS/BSD 无 PTY 集成测试），
 而 `novaterm_conpty_tests` 与 `novaterm_terminal_session_tests` 都嵌套在
-`tests/CMakeLists.txt:319` 起的 `if(WIN32)` 块内 —— **Linux 上
+`tests/CMakeLists.txt:321` 起的 `if(WIN32)` 块内 —— **Linux 上
 `novaterm_terminal_session_tests` 根本不构建**，那 46s 的联通路径覆盖在 Linux
 工作树上无对应物，别把"跑过了"写进提交消息。
 
@@ -350,7 +352,9 @@ Session / Transport / Renderer 时先看那一节。
 ```
 src/core/       TerminalCore ScreenBuffer ScrollbackBuffer VTAdapter SearchEngine
 src/transport/  ITransport ← LocalShellTransport SshTransport SerialTransport TelnetTransport
-src/session/    TerminalSession SessionManager SessionFactory SessionInputPump SessionStore SftpSession
+src/session/    TerminalSession SessionFactory SessionInputPump SessionStore SftpSession SessionDirectory
+src/mcp/        MCP 协议与授权（独立库，tools/novaterm-mcp 为 stdio 入口）
+src/filetransfer/ XMODEM/YMODEM/ZMODEM 协议库（纯标准库，不链 Qt）
 src/renderer/   TerminalRenderer RenderScheduler GlyphAtlas FontManager
 src/ui/         TerminalView MainWindow SessionPage SettingsPage SftpPanel SystemMonitorPanel
 src/platform/   windows/conpty/ linux/pty/
@@ -424,8 +428,9 @@ src/platform/   windows/conpty/ linux/pty/
 
 两个已踩过的坑：
 
-- 根 `project()` 只声明了 `LANGUAGES CXX`。在根作用域建 C 目标必须先
-  `enable_language(C)`，否则报 `CMAKE_C_COMPILE_OBJECT` 未设置
+- 根 `project()` 现已声明 `LANGUAGES CXX C`（`CMakeLists.txt:2`）。若将来
+  去掉 `C`，在根作用域建 C 目标（如 libtelnet）前必须 `enable_language(C)`，
+  否则报 `CMAKE_C_COMPILE_OBJECT` 未设置
 - **MSVC 上不要设 `C_STANDARD 11`**：`/std:c11` 会让 MSVC 定义
   `__STDC_VERSION__ >= 199901L`，命中某些 C 库 `INLINE` 宏的 GNU 分支
   展开成 `__inline__` 而编译失败（libtelnet 就是）
@@ -438,16 +443,19 @@ domain、libssh LGPL-2.1、OpenSSL Apache-2.0、Clink GPL-3（仅二进制随包
 
 P0 / P2 / P4 已完成，P1 架构边界完成（宽字符 continuation 与部分属性映射待补），
 P3 与 P5 实施完成、部分平台或人工验收待做，P7 计划中。
-**P6（Session/Transport）进行中**：Transport 层四种全部实现，但编排层未接入。
+**P6（Session/Transport）进行中**：Transport 层四种全部实现；会话编排采用
+「1 TerminalView 拥有 1 TerminalSession」并已在生产，剩少量自包含项。
 
 各阶段状态以**阶段文档自身的状态行**为准；`docs/architecture/README.md` 与
 `Development_Roadmap.md` 的汇总表是同步过去的副本，若发现不一致以阶段文档为真。
 
-最重要的一条：**`SessionManager` 与 `SessionFactory` 实现完整，但生产代码
-零使用** —— `src/ui/` 和 `src/main.cpp` 中均无命中，实际是 `TerminalPage`
-每个 Tab `new TerminalView`、由 View 自建并持有 Session，会话集合由
-`TerminalPage::_terminalViews` 隐式代表。这是 P6 未落地的根因，多数其他
-缺口（detach 语义、Challenge 发布层）都要等它才有落点。
+最重要的一条：**`SessionManager` 已删除，不要再接入**。原设想的
+「SessionManager 拥有 Session、View 非 owning attach、Session 后台存活」已放弃
+（见 `docs/ARCHITECTURE.md` 会话一节与 `src/ui/terminal/TerminalView.h:52`）。
+实际是 `TerminalPage` 每个 Tab `new TerminalView`、由 View 自建并持有 Session，
+会话集合由 `TerminalPage::_terminalViews`（`TerminalPage.h:110`）代表；MCP 通过
+非 owning 的 `SessionDirectory` 访问。`SessionFactory` 仍在 `src/session/`，
+但 `src/` 生产代码中无调用方（2026-10-05 grep 复核）。
 
 其余缺口与按依赖排序的剩余工作见
 `docs/architecture/stages/P6_Session_and_Transport.md` 的"实现进度"与
@@ -977,11 +985,13 @@ updateContentHeight()`）。附带的两个小坑：定时重建内容时旧控�
 
 **`std::vector::size()` 是无符号，与 `isize`/`int` 比较要显式转换**：去 Qt 后核心
 容器从 `QVector`(有符号 `qsizetype`) 换成 `std::vector`(无符号 `size_t`)。诸如
-`row >= vec.size()`、`vec.size() != rows` 直接写会触发有符号/无符号比较，`/W4`
-下告警、边界判断也可能出错。统一写成 `isize(vec.size())` 或 `int(vec.size())`。
+`row >= vec.size()`、`vec.size() != rows` 直接写会触发有符号/无符号比较，
+告警即构建失败、边界判断也可能出错。统一写成 `isize(vec.size())` 或 `int(vec.size())`。
 注意与恒正 `constexpr` 常量的比较（如 `vec.size() > MaxLines`）GCC 不告警，属同类
-隐患。全部第一方 C++ 目标统一开启 `/W4`／`-Wall -Wextra -Wpedantic`
-（vendored 第三方目标保持各自策略），新代码会在常规构建中暴露此类问题。
+隐患。第一方 C++ 目标的警告策略在根 `CMakeLists.txt:224-264`：MSVC 为
+`/Wall /WX` 加一组带注释的 `/wd` 噪音类；GCC/Clang 为 `-Wall -Wextra -Wpedantic`，
+GCC 另加 `-Werror`。P9 协议测试目标自用 `/W4`（`tests/filetransfer/CMakeLists.txt`）。
+vendored 第三方目标保持各自策略。
 `RelWithDebInfo` 下的 GNU、Clang 与 AppleClang 另加
 `-fno-omit-frame-pointer`，供性能分析保留完整调用栈。
 
