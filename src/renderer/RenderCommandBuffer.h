@@ -50,6 +50,15 @@ struct DirtyColumnSpan
     int endColumn{0};
 };
 
+/**
+ * @brief 语义高亮的"未命中"哨兵。
+ *
+ * 高亮角色被烘焙进该行默认色 Cell 的命令里，因此增量重建时必须知道上一帧
+ * 用的是哪个角色（见 TerminalRenderer::rebuildCommandRow）。用整数值而非
+ * std::optional，使本头文件不必包含 TerminalHighlighting.h。
+ */
+inline constexpr int NoHighlightRole = -1;
+
 // 单行的渲染命令集合。backgrounds 在 contents 之前绘制。
 struct RenderCommandRow
 {
@@ -57,8 +66,14 @@ struct RenderCommandRow
     QVector<RenderCommand> contents;
     quint64 revision{0};            // 行模型版本
     quint64 atlasGeneration{0};     // 行字形所基于的 atlas 代际
-    quint64 contentRevision{0};     // 行内容版本（不含背景变化）
-    QVector<DirtyColumnSpan> dirtySpans;
+    /**
+     * @brief 本行命令所烘焙的语义高亮角色。
+     *
+     * 取 `TerminalHighlightRole` 的整数值，NoHighlightRole 表示未命中任何
+     * 规则。角色未变时，未脏列沿用的旧命令仍带着同一个角色色，可以安全
+     * 复用；角色一变就必须整行重建。
+     */
+    int highlightRole{NoHighlightRole};
 };
 
 // 渲染命令缓冲。GUI 线程独占，无需加锁。
@@ -90,24 +105,15 @@ public:
      */
     void finishRow(int index, quint64 atlasGeneration = 0);
 
-    /**
-     * @brief 替换指定行的渲染命令。
-     * @param index 行号。
-     * @param backgrounds 背景层命令。
-     * @param contents 内容层命令。
-     * @param atlasGeneration 该行字形所基于的 atlas 代际。
-     * @param contentRevision 该行内容版本。
-     * @param dirtySpans 该行脏列区间。
-     */
-    void replaceRow(int index,
-                    QVector<RenderCommand> backgrounds,
-                    QVector<RenderCommand> contents,
-                    quint64 atlasGeneration = 0,
-                    quint64 contentRevision = 0,
-                    QVector<DirtyColumnSpan> dirtySpans = {});
-
     const QVector<RenderCommand>& overlays() const { return _overlays; }
-    void replaceOverlays(QVector<RenderCommand> overlays);
+
+    /**
+     * @brief 与调用方的 overlay 暂存向量交换内容。
+     * @param scratch 调用方的复用缓冲；换入本缓冲原有的 overlay 序列。
+     * @note 用交换而不是"接管 + 释放"是为了让两侧的容量都跨帧保留：
+     *       旧写法每帧新建一个 QVector 再把上一个 free 掉。
+     */
+    void swapOverlays(QVector<RenderCommand>& scratch);
 
     /**
      * @brief 把所有行向上滚动 count 行：顶部 count 行被丢弃，
@@ -115,7 +121,6 @@ public:
      */
     void rotateRowsUp(int count);
 
-    qsizetype commandCount() const;
     bool rowsUseAtlasGeneration(quint64 atlasGeneration) const;
     quint64 revision() const { return _revision; }
 

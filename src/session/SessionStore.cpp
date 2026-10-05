@@ -74,8 +74,12 @@ bool SessionStore::save(const QList<SessionRestoreMetadata>& sessions,
             *error = file.errorString();
         return false;
     }
-    file.write(QJsonDocument(array).toJson(QJsonDocument::Indented));
-    if (!file.commit()) {
+    // QSaveFile 不做用户态缓冲，commit() 起始的 flush() 也发现不了短写：
+    // 磁盘写满时会得到一份被截断但语法合法的 JSON 并被原子提交，而内存
+    // 里的条目仍然齐全，直到重启 load() 拒收才整份丢失。因此必须比对
+    // 实际写入长度（与 ConfigManager::save() 同一判据）。
+    const QByteArray data = QJsonDocument(array).toJson(QJsonDocument::Indented);
+    if (file.write(data) != data.size() || !file.commit()) {
         if (error)
             *error = file.errorString();
         return false;

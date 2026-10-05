@@ -451,11 +451,24 @@ public:
     void feedWithPassthrough(ByteView data, int depth)
     {
         // 普通路径按连续段一次性喂给 libvterm，避免逐字节跨库调用。
+        //
+        // runStart 的不变式：它等于 data 中「尚未被状态机消费」的第一个字节
+        // 下标 —— 既没写给 libvterm，也没扣在 scanProbe / passthroughBody 里。
+        // 状态机消费掉第 i 字节（写给 libvterm 或扣进探针/载荷）后必须推进到
+        // i+1；Normal 态的非 ESC 字节不被消费，runStart 原地不动。
+        //
+        // 该不变式是跨 writeInput 分片正确的前提：分片末尾的
+        // flushRun(data.size()) 只写 [runStart, end)，扣在探针/载荷里的字节都
+        // 在该区间之前，不会被重复喂给 libvterm。反之漏推进则会让分片结尾把
+        // 已扣住的字节（或已写过的前缀）再喂一遍 —— 表现为重复字节，或让
+        // libvterm 停在 DCS 字符串态永不终止。
         size_t runStart = 0;
         const auto flushRun = [&](size_t end) {
             if (end > runStart)
                 vterm_input_write(vt, data.data + runStart, end - runStart);
         };
+        // 第 i 字节已被消费（写出或扣住）→ 推进扣字节游标。
+        const auto consumed = [&](isize i) { runStart = size_t(i) + 1; };
         for (isize i = 0; i < data.size; ++i) {
             const char byte = data.data[i];
             switch (passthroughScan) {
@@ -463,12 +476,15 @@ public:
                 if (byte == '\x1b') {
                     flushRun(size_t(i));
                     passthroughScan = PassthroughScan::Esc;
+                    // 该 ESC 转入探测态等待后继字节，扣住不发。
+                    consumed(i);
                 }
                 break;
             case PassthroughScan::Esc:
                 if (byte == 'P') {
                     scanProbe.assign("\x1bP", 2);
                     passthroughScan = PassthroughScan::Probe;
+                    consumed(i);
                 } else {
                     // 不是 DCS：ESC 与当前字节按原顺序送回解析器。
                     // 连续 ESC 保持探测态（下一字节才决定去向）。
@@ -476,12 +492,14 @@ public:
                     if (byte != '\x1b') {
                         vterm_input_write(vt, &byte, 1);
                         passthroughScan = PassthroughScan::Normal;
-                        runStart = size_t(i) + 1;
                     }
+                    // byte == '\x1b' 时它是新的待定 ESC，同样已消费。
+                    consumed(i);
                 }
                 break;
             case PassthroughScan::Probe:
                 scanProbe.push_back(byte);
+                consumed(i);
                 if (size_t(scanProbe.size()) <= kTmuxMagicLen
                     && std::memcmp(scanProbe.data(), kTmuxMagic,
                                    size_t(scanProbe.size())) == 0) {
@@ -493,6 +511,8 @@ public:
                 }
                 // 前缀不匹配：已积累字节（不含当前字节）原样送回解析器，
                 // 当前字节按 Normal 重新分派 —— 非 tmux 的 DCS 行为不变。
+                // scanProbe 首字节就是那枚待定 ESC，故写入 size()-1 字节
+                // 恰为「ESC + 已匹配前缀」，当前字节另行分派。
                 vterm_input_write(vt, scanProbe.data(),
                                   size_t(scanProbe.size()) - 1);
                 scanProbe.clear();
@@ -501,16 +521,16 @@ public:
                     passthroughScan = PassthroughScan::Esc;
                 } else {
                     vterm_input_write(vt, &byte, 1);
-                    runStart = size_t(i) + 1;
                 }
+                consumed(i);
                 break;
             case PassthroughScan::Payload:
                 passthroughBody.push_back(byte);
+                consumed(i);
                 if (passthroughBody.size() > kMaxPassthroughBodyBytes) {
                     // 恶意/损坏流的上界保护：丢弃积累并回到普通扫描。
                     passthroughBody.clear();
                     passthroughScan = PassthroughScan::Normal;
-                    runStart = size_t(i) + 1;
                 } else if (byte == '\x1b') {
                     passthroughScan = PassthroughScan::PayloadEsc;
                 }
@@ -522,7 +542,7 @@ public:
                     std::string inner = unescapeTmuxBody();
                     passthroughBody.clear();
                     passthroughScan = PassthroughScan::Normal;
-                    runStart = size_t(i) + 1;
+                    consumed(i);
                     if (!inner.empty()) {
                         if (depth < kMaxPassthroughDepth) {
                             // 内层可能再次嵌套 passthrough（tmux 套 tmux），
@@ -538,10 +558,10 @@ public:
                 } else {
                     // 加倍的 ESC（ESC ESC）或载荷普通字节。
                     passthroughBody.push_back(byte);
+                    consumed(i);
                     if (passthroughBody.size() > kMaxPassthroughBodyBytes) {
                         passthroughBody.clear();
                         passthroughScan = PassthroughScan::Normal;
-                        runStart = size_t(i) + 1;
                     } else {
                         passthroughScan = PassthroughScan::Payload;
                     }

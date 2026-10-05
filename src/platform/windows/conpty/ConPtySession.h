@@ -112,6 +112,7 @@ private:
     void pollWriterClose();                ///< 轮询 writer 线程退出
     void continueCloseAfterWriter();       ///< writer 回收后继续关闭流程
     void pollPseudoConsoleClose();          ///< 轮询伪控制台关闭与 reader 退出
+    void requestReaderAbort();            ///< 置停止标志并打断在途 ReadFile
     void deliverClosingOutput();            ///< 关闭期间尽力投递剩余输出
     void finalizeClose();                   ///< 关闭流程收尾：join 线程并释放句柄
     void transition(State state);           ///< 状态迁移并发信号
@@ -146,6 +147,8 @@ private:
     bool _pseudoCloserStartFailureReported{false};
     bool _writerCloseTimeoutReported{false};
     bool _writerWaitFailureReported{false};
+    bool _readerAbortRequested{false};
+    bool _readerJoinAbandoned{false};
     bool _discardClosingOutput{false};
     bool _pipeTerminationPending{false};
     int _deliveryInFlightPolls{0};

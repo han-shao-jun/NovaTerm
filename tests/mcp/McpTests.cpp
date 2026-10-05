@@ -26,6 +26,7 @@
 #include <QElapsedTimer>
 #include <QEventLoop>
 #include <QJsonDocument>
+#include <QLockFile>
 #include <QProcess>
 #include <QPushButton>
 #include <QSignalSpy>
@@ -377,6 +378,8 @@ private slots:
     void utf8ExpansionIsBounded();
     void settingsDialogSeparatesReadAndScriptPermission();
     void settingsDialogLocalShellFixedDiagnosticsCanBeSelected();
+    void settingsDialogRefreshPreservesExpandedSessions();
+    void accessStoreReportsDistinctSaveFailureReasons();
     void stateDirectoryOwnedByTokenDefaultOwnerIsSecurable();
     void duplicateIndexSurvivesEvictionAndReset();
     void protocolLifecycleAndOversizedInput();
@@ -2310,6 +2313,85 @@ void McpTests::settingsDialogLocalShellFixedDiagnosticsCanBeSelected()
     QTRY_VERIFY(dialog.isNull());
 #else
     QSKIP("Local fixed diagnostics are not available on this platform.");
+#endif
+}
+
+void McpTests::settingsDialogRefreshPreservesExpandedSessions()
+{
+    // 回归：refresh() 重建整棵树而根项默认折叠，勾选任意一条授权都会经
+    // setGrant → changed → 排队的 refresh 把用户刚展开的层级收起来。
+    // 两个会话才能证明恢复是按会话 ID 逐个生效的，而不是"全部展开"。
+    eApp->init();
+    Fixture f;
+    f.makeSsh();
+    TerminalCore secondCore{80, 24};
+    LocalFake secondLocal;
+    TerminalSession secondSession{&secondCore};
+    secondSession.attach(&secondLocal, TerminalSession::Ownership::Borrowed,
+                          TransportKind::LocalShell);
+    static_cast<void>(secondSession.start());
+    f.service.directory().add(&secondSession);
+    QVERIFY(f.service.access().setEnabled(true));
+    QWidget owner;
+    QPointer<McpSettingsDialog> dialog = new McpSettingsDialog(&f.service, &owner);
+    dialog->show();
+    QTest::qWait(40);
+    auto* tree = dialog->findChild<ElaTreeWidget*>();
+    QVERIFY(tree && tree->topLevelItemCount() == 2);
+    QVERIFY(!tree->topLevelItem(0)->isExpanded());
+    tree->topLevelItem(0)->setExpanded(true);
+    QVERIFY(tree->topLevelItem(0)->isExpanded());
+    // 勾选"读取输出"：itemChanged → setGrant → changed → 排队 refresh。
+    tree->topLevelItem(0)->setCheckState(2, Qt::Checked);
+    QTRY_VERIFY(f.service.access().canRead(
+        f.client, f.service.directory().entries().first()));
+    QTRY_VERIFY(tree->topLevelItem(0)->isExpanded());
+    QCOMPARE(tree->topLevelItem(0)->checkState(2), Qt::Checked);
+    // 未展开的那一项不得被顺带展开。
+    QVERIFY(!tree->topLevelItem(1)->isExpanded());
+    // 直接触发 refresh 也要保留展开状态（会话状态变化走的就是这条路径）。
+    tree->topLevelItem(1)->setExpanded(true);
+    QVERIFY(tree->topLevelItem(1)->isExpanded());
+    emit f.service.changed();
+    QTRY_VERIFY(tree->topLevelItem(0)->isExpanded() && tree->topLevelItem(1)->isExpanded());
+    // 会话从目录消失后不再保留其展开状态，重建出来的其余项也不受影响。
+    f.service.directory().remove(&secondSession);
+    emit f.service.changed();
+    QTRY_COMPARE(tree->topLevelItemCount(), 1);
+    QVERIFY(tree->topLevelItem(0)->isExpanded());
+    dialog->close();
+    QTRY_VERIFY(dialog.isNull());
+}
+
+void McpTests::accessStoreReportsDistinctSaveFailureReasons()
+{
+    // 锁被别的实例占用与状态目录未加固是两种失败：前者要用户关掉另一个实例，
+    // 后者要修目录权限/属主。设置界面据此分别提示，因此原因必须能被区分。
+    QTemporaryDir root;
+    QVERIFY(root.isValid());
+    const auto state = root.path() + "/state";
+    QVERIFY(QDir().mkpath(state));
+    AccessStore store(state, {});
+    QVERIFY(store.setEnabled(true));
+    QVERIFY(store.lastSaveFailure() == AccessStore::SaveFailure::None);
+    // 另一个实例持有同一把共享文件锁。
+    QLockFile foreign(QDir(state).filePath("access.lock"));
+    QVERIFY(foreign.tryLock(0));
+    QVERIFY(!store.setEnabled(false));
+    QCOMPARE(store.lastSaveFailure(),
+             AccessStore::SaveFailure::Locked);
+    // 原因被界面读走即清空，不能污染下一次成功保存。
+    foreign.unlock();
+    QVERIFY(store.setEnabled(false));
+    QVERIFY(store.lastSaveFailure() == AccessStore::SaveFailure::None);
+#ifndef Q_OS_WIN
+    // 目录是符号链接时 secureDirectory() 必失败，属于"目录"这一类原因。
+    const auto link = root.path() + "/link";
+    QVERIFY(QFile::link(state, link));
+    AccessStore linked(link, {});
+    QVERIFY(!linked.setEnabled(true));
+    QCOMPARE(linked.lastSaveFailure(),
+             AccessStore::SaveFailure::Directory);
 #endif
 }
 

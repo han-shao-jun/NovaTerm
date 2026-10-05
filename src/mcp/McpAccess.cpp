@@ -77,14 +77,26 @@ void AccessStore::reload()
 
 bool AccessStore::save()
 {
-    if (!secureDirectory(_directory)) return false;
+    // 保存失败有四种互不相同的成因：状态目录没通过 0700 与属主校验、共享文件被
+    // 另一个实例持锁占用、文件已被并发改写、写盘本身失败。它们的处置完全不同，
+    // 因此逐个记下原因交给界面，而不是让上层只看到一个 false。
+    _lastSaveFailure = SaveFailure::None;
+    if (!secureDirectory(_directory)) {
+        _lastSaveFailure = SaveFailure::Directory;
+        return false;
+    }
     QLockFile lock(QDir(_directory).filePath("access.lock"));
-    if (!lock.tryLock(0)) return false;
+    if (!lock.tryLock(0)) {
+        _lastSaveFailure = SaveFailure::Locked;
+        return false;
+    }
     const auto path = QDir(_directory).filePath("access.json");
     const auto current = readJson(path);
     if ((!current && QFileInfo::exists(path)) || (current
-        && current->value("revision").toString().toULongLong() != _storeRevision))
+        && current->value("revision").toString().toULongLong() != _storeRevision)) {
+        _lastSaveFailure = SaveFailure::Revision;
         return false;
+    }
     QJsonArray clients;
     for (const auto& client : _clients) {
         if (!client.persistent) continue;
@@ -93,6 +105,7 @@ bool AccessStore::save()
     }
     const bool ok = writePrivateJson(path, {{"version", 1}, {"revision", QString::number(_storeRevision + 1)},
         {"enabled", _enabled}, {"clients", clients}});
+    if (!ok) _lastSaveFailure = SaveFailure::Write;
     if (ok) {
         ++_storeRevision;
         if (_watcher.directories().isEmpty()) _watcher.addPath(_directory);

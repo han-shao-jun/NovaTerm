@@ -39,12 +39,9 @@ private slots:
     void glyphCacheRejectsStaleGeneration();
     void glyphCacheWarmHitDoesNotUploadAgain();
     void rowSlotRingReusesScrolledRows();
-    void rowSlotMapHandlesJumpAndForcedRemap();
     void sequentialRowSlotsStayValidAcrossResizeAndScroll();
-    void mappingReconciliationFindsSameRevisionEdits();
     void rowBlockDamageFindsOmittedStaleTail();
     void scrollDamageHandoffWaitsForContentFrame();
-    void mappingRevisionIsIndependent();
     void materialBatchesPreserveLayers();
     void materialBatchesSeparateAtlasPages();
     void fullRowUploadClearsRetainedStride();
@@ -464,43 +461,45 @@ void RendererP5Tests::glyphCacheWarmHitDoesNotUploadAgain()
     QVERIFY(cache.statistics().hits >= quint64(1));
 }
 
+// 固定槽位环的滚动语义：上滚 count 行后，原第 count..rows-1 行保留自己的
+// 槽位（GPU 侧顶点不用重传），只有新进入底部的行拿到原来顶部的槽位。
+//
+// 行身份哈希式的增量槽位分配（RowSlotMap::update）与它的
+// rowsNeedingRebuildAfterMapping 已随渲染器的 live-scroll 旋转快路径删除：
+// 那条快路径在生产配置下不可达，判定所需的 shell 能力位也还没有。见
+// src/renderer/gpu/RowSlotMap.h 文件头。
 void RendererP5Tests::rowSlotRingReusesScrolledRows()
 {
     NovaTerm::RowSlotMap map;
-    QVector<NovaTerm::VisibleRowIdentity> first = {
-        {1, 1, 0, false}, {2, 1, 0, false}, {3, 1, 0, false},
-        {4, 1, 0, false}
-    };
-    auto initial = map.update(first, 20.0f);
-    QCOMPARE(initial.enteringWidgetRows.size(), 4);
-    QVector<NovaTerm::VisibleRowIdentity> scrolled = {
-        first[1], first[2], first[3], {5, 1, 0, false}
-    };
-    const auto update = map.update(scrolled, 20.0f);
-    QCOMPARE(update.reusedRows, 3);
-    QCOMPARE(update.enteringWidgetRows, QVector<int>({3}));
-    QCOMPARE(map.capacity(), 4);
-}
+    map.resetSequential(4, 20.0f);
+    QVERIFY(map.isValidPermutation(4));
+    QCOMPARE(map.slotForWidgetRow(0), 0);
+    QCOMPARE(map.slotForWidgetRow(3), 3);
 
-void RendererP5Tests::rowSlotMapHandlesJumpAndForcedRemap()
-{
-    NovaTerm::RowSlotMap map;
-    QVector<NovaTerm::VisibleRowIdentity> rows = {
-        {1, 1, 0, false}, {2, 1, 0, false}, {3, 1, 0, false}
-    };
-    map.update(rows, 18.0f);
-    QVector<NovaTerm::VisibleRowIdentity> jump = {
-        {20, 1, 0, false}, {21, 1, 0, false}, {22, 1, 0, false}
-    };
-    const auto jumped = map.update(jump, 18.0f);
-    QCOMPARE(jumped.reusedRows, 0);
-    QCOMPARE(jumped.enteringWidgetRows.size(), 3);
-    QCOMPARE(map.capacity(), 3);
-    const auto forced = map.update(jump, 20.0f, true);
-    QVERIFY(forced.fullRemap);
-    QCOMPARE(forced.reusedRows, 0);
-    QCOMPARE(forced.enteringWidgetRows.size(), 3);
-    QCOMPARE(map.capacity(), 3);
+    map.rotateRowsUp(1, 20.0f);
+    QVERIFY(map.isValidPermutation(4));
+    // 新顶行 = 原第 1 行，槽位仍是 1。
+    QCOMPARE(map.slotForWidgetRow(0), 1);
+    QCOMPARE(map.slotForWidgetRow(2), 3);
+    // 新底行拿到原顶行的槽位 0（该槽位的内容已过时，必须重传）。
+    QCOMPARE(map.slotForWidgetRow(3), 0);
+    // widgetRow 与 yTransform 必须随旋转重算，否则着色器把行画到错的高度。
+    for (int widgetRow = 0; widgetRow < 4; ++widgetRow) {
+        QCOMPARE(map.placements()[widgetRow].widgetRow, widgetRow);
+        QCOMPARE(map.placements()[widgetRow].yTransform,
+                 float(widgetRow * 20));
+    }
+
+    // 超出范围的滚动量被夹到行数，且不破坏排列。
+    map.rotateRowsUp(99, 20.0f);
+    QVERIFY(map.isValidPermutation(4));
+    QCOMPARE(map.slotForWidgetRow(0), 1);
+
+    // 行数收缩后旧槽位越界，必须被 isValidPermutation 判为非法排列，
+    // 由渲染器 resetWidgetRowMapping 兜底。
+    map.rotateRowsUp(0, 20.0f);
+    QVERIFY(!map.isValidPermutation(3));
+    QVERIFY(!map.isValidPermutation(5));
 }
 
 void RendererP5Tests::fullRowUploadClearsRetainedStride()
@@ -535,21 +534,6 @@ void RendererP5Tests::sequentialRowSlotsStayValidAcrossResizeAndScroll()
     QCOMPARE(map.slotForWidgetRow(1), 1);
     QCOMPARE(map.slotForWidgetRow(2), 2);
     QCOMPARE(map.slotForWidgetRow(3), -1);
-}
-
-void RendererP5Tests::mappingReconciliationFindsSameRevisionEdits()
-{
-    // After a one-row scroll, retained rows 0..2 already match their rotated
-    // cache. Row 1 also changed in the same parser publication, while row 3 is
-    // the entering row and is already dirty. The extra edit must be recovered
-    // without relying on a newer model revision.
-    const QVector<quint64> rotatedCache = {20, 30, 40, 0};
-    const std::vector<NovaTerm::u64> finalSnapshot = {20, 31, 40, 50};
-    const std::vector<bool> dirtyRows = {false, false, false, true};
-
-    QCOMPARE(NovaTerm::rowsNeedingRebuildAfterMapping(
-                 rotatedCache, finalSnapshot, dirtyRows),
-             QVector<int>({1}));
 }
 
 void RendererP5Tests::rowBlockDamageFindsOmittedStaleTail()
@@ -592,40 +576,34 @@ void RendererP5Tests::rowBlockDamageFindsOmittedStaleTail()
 
 void RendererP5Tests::scrollDamageHandoffWaitsForContentFrame()
 {
+    // 只用 takePending() 一个观察点（queuedRows()/pendingRows() 无生产调用方，
+    // 已作为死代码删除）：内容帧到达前必须取不到任何行数。
     NovaTerm::ScrollDamageHandoff handoff;
     handoff.queue(3);
 
-    QCOMPARE(handoff.queuedRows(), 3);
-    QCOMPARE(handoff.pendingRows(), 0);
     QCOMPARE(handoff.takePending(), 0);
-    QCOMPARE(handoff.queuedRows(), 3);
+    QCOMPARE(handoff.takePending(), 0);
 
     handoff.publish();
-    QCOMPARE(handoff.queuedRows(), 0);
-    QCOMPARE(handoff.pendingRows(), 3);
+    QCOMPARE(handoff.takePending(), 3);
+    QCOMPARE(handoff.takePending(), 0);
 
     // A later publication must survive consumption of the current frame.
     handoff.queue(2);
-    QCOMPARE(handoff.takePending(), 3);
-    QCOMPARE(handoff.queuedRows(), 2);
     handoff.publish();
+    handoff.queue(1);
     QCOMPARE(handoff.takePending(), 2);
+    // 本帧只消费了已 publish 的 2 行；新到但未 publish 的 1 行留给下一帧。
+    QCOMPARE(handoff.takePending(), 0);
+    handoff.publish();
+    QCOMPARE(handoff.takePending(), 1);
 
+    // 饱和而非回绕：溢出后夹到 INT_MAX，让调用方走整屏重建而不是旋转
+    // 一个负数行数。
     handoff.queue(std::numeric_limits<int>::max());
     handoff.queue(1);
-    QCOMPARE(handoff.queuedRows(), std::numeric_limits<int>::max());
-}
-
-void RendererP5Tests::mappingRevisionIsIndependent()
-{
-    NovaTerm::RowSlotMap map;
-    QVector<NovaTerm::VisibleRowIdentity> rows = {{1, 7, 0, true}};
-    const quint64 before = map.mappingRevision();
-    map.update(rows, 10);
-    QVERIFY(map.mappingRevision() > before);
-    const quint64 first = map.mappingRevision();
-    map.update(rows, 12);
-    QVERIFY(map.mappingRevision() > first);
+    handoff.publish();
+    QCOMPARE(handoff.takePending(), std::numeric_limits<int>::max());
 }
 
 void RendererP5Tests::materialBatchesPreserveLayers()

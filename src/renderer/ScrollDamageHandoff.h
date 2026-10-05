@@ -21,6 +21,9 @@
  * `scrollDamageHandoffWaitsForContentFrame()`。
  *
  * @note 纯值状态，无锁；由 Renderer 在 _pendingFrameMutex 保护下访问。
+ *       只暴露 takePending() 一个观察点 —— queuedRows()/pendingRows()
+ *       没有任何生产调用方，观察两段状态改由测试用 takePending() 的返回值
+ *       序列表达。
  */
 #pragma once
 
@@ -66,9 +69,6 @@ public:
     {
         return std::exchange(_pendingRows, 0);
     }
-
-    [[nodiscard]] int queuedRows() const noexcept { return _queuedRows; }
-    [[nodiscard]] int pendingRows() const noexcept { return _pendingRows; }
 
 private:
     // 行数上限饱和而非回绕：溢出后夹到 INT_MAX，让调用方走"滚动行数 >= 行数"

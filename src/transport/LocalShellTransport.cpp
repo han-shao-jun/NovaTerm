@@ -383,8 +383,19 @@ bool LocalShellTransport::connectToHost()
             emit disconnected();
         }
     });
+    // quit 必须用 DirectConnection：thread 这个 QThread 对象本身住在创建
+    // 线程（GUI 线程）里，QueuedConnection 会把 quit() 排到 GUI 事件循环
+    // 上——一旦关闭流程走到事件循环不再转的路径（应用退出、界面正在
+    // 带外拆卸），这次 quit 永远不被投递，ConPTY 线程连同子进程与全部句
+    // 柄就一直活着。QThread::exit()（quit 的实现）按 Qt 文档是线程安全
+    // 的，且此处发送方与线程事件循环同在生命周期线程，直接调用是安全的。
     QObject::connect(session, &ConPtySession::closed,
-                     thread, &QThread::quit, Qt::QueuedConnection);
+                     thread, &QThread::quit, Qt::DirectConnection);
+    // 下面两条仍走队列：接收者分别是 session（生命周期线程）与 thread
+    // （GUI 线程），Auto 解析即 QueuedConnection。Qt 保证 finished 之后
+    // 生命周期线程仍会处理 deferred delete，因此 session 的 deleteLater
+    // 不依赖 GUI 事件循环；而 thread 的 deleteLater 依赖，进程退出路径上
+    // 最多留下这个包装对象本身，worker 本身此时已退出。
     QObject::connect(thread, &QThread::finished,
                      session, &QObject::deleteLater);
     QObject::connect(thread, &QThread::finished, thread, &QObject::deleteLater);

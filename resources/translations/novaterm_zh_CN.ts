@@ -567,87 +567,97 @@ Built with:
         <translation>已复制 CC Switch 配置，其中包含接入令牌，请妥善保管。</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="220"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="229"/>
+        <source>Cannot update MCP access settings: another NovaTerm instance is holding the shared access file. Close that instance and try again.</source>
+        <translation>无法更新 MCP 接入设置：另一个 NovaTerm 实例正持有共享接入文件。请关闭该实例后重试。</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="233"/>
+        <source>Cannot update MCP access settings: the MCP state directory is not private to this user. Fix its permissions and owner, then try again.</source>
+        <translation>无法更新 MCP 接入设置：MCP 状态目录未对本用户私有。请修正其权限与属主后重试。</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="236"/>
         <source>Operation failed. Check the selected client, storage permissions, and active commands.</source>
         <translation>操作失败，请检查选中的客户端、存储权限及正在运行的命令。</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="229"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="245"/>
         <source>Disabled</source>
         <translation>已关闭</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="230"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="246"/>
         <source>Listening</source>
         <translation>正在监听</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="231"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="247"/>
         <source>Starting</source>
         <translation>正在启动</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="232"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="248"/>
         <source>Status: %1; instance: %2</source>
         <translation>状态：%1；实例：%2</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="236"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="252"/>
         <source> (this run only)</source>
         <translation>（仅本次运行有效）</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="253"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="280"/>
         <source>Fixed diagnostics run in an isolated local helper and do not write to the current shell.</source>
         <translation>固定诊断在隔离的本地辅助进程中运行，不会写入当前 Shell。</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="254"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="281"/>
         <source>Only enable for a trusted Linux/POSIX SSH server. Fixed diagnostics run as its connected user.</source>
         <translation>仅对受信任的 Linux/POSIX SSH 服务端启用，固定诊断以当前连接用户的权限运行。</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="257"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="284"/>
         <source>Allows LocalShell/SSH script tasks. Each script still requires MCP-client confirmation; its body is written to the requested host path and is not shown in the terminal UI.</source>
         <translation>允许 LocalShell/SSH 脚本任务。每个脚本仍须经 MCP 客户端确认；脚本正文写入指定主机路径，不会显示在终端 UI 中。</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="260"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="287"/>
         <source>Allows the MCP client to type commands into this session&apos;s current terminal. Ordinary low-risk commands run without confirmation; anything potentially destructive or unclassifiable still requires confirmation in the MCP client. Off by default: sharing read output does not imply permission to type.</source>
         <translation>允许 MCP 客户端在本会话的当前终端中输入命令。普通低风险命令无需确认；可能破坏性或无法判定的命令仍需在 MCP 客户端确认。默认关闭：共享读取输出不等于允许输入。</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="263"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="290"/>
         <source>System identity</source>
         <translation>系统与内核信息</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="264"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="291"/>
         <source>Uptime and load</source>
         <translation>运行时长与负载</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="265"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="292"/>
         <source>Memory summary</source>
         <translation>内存摘要</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="266"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="293"/>
         <source>Filesystem capacity</source>
         <translation>文件系统容量</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="290"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="317"/>
         <source>Protected target %1 — execution %2</source>
         <translation>受保护目标 %1 — 执行 %2</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="299"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="326"/>
         <source>Command is running.</source>
         <translation>命令正在运行。</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="303"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="330"/>
         <source>Status: %1
 Exit code: %2
 Termination confirmed: %3
@@ -662,17 +672,17 @@ Termination confirmed: %3
 %5</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="305"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="332"/>
         <source>Unknown</source>
         <translation>未知</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="306"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="333"/>
         <source>Yes</source>
         <translation>是</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="306"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="333"/>
         <source>No</source>
         <translation>否</translation>
     </message>
@@ -691,34 +701,511 @@ Termination confirmed: %3
     </message>
 </context>
 <context>
+    <name>SerialFileTransferController</name>
+    <message>
+        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="46"/>
+        <source>Waiting for peer handshake</source>
+        <translation>等待对端握手</translation>
+    </message>
+    <message>
+        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="47"/>
+        <source>Transferring</source>
+        <translation>正在传输</translation>
+    </message>
+    <message>
+        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="48"/>
+        <source>Committing file</source>
+        <translation>正在提交文件</translation>
+    </message>
+    <message>
+        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="49"/>
+        <source>Waiting for final confirmation</source>
+        <translation>等待结束确认</translation>
+    </message>
+    <message>
+        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="50"/>
+        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="256"/>
+        <source>Transfer completed</source>
+        <translation>传输已完成</translation>
+    </message>
+    <message>
+        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="51"/>
+        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="227"/>
+        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="401"/>
+        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="402"/>
+        <source>Transfer cancelled</source>
+        <translation>传输已取消</translation>
+    </message>
+    <message>
+        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="52"/>
+        <source>Transfer failed</source>
+        <translation>传输失败</translation>
+    </message>
+    <message>
+        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="53"/>
+        <source>Preparing transfer</source>
+        <translation>正在准备传输</translation>
+    </message>
+    <message>
+        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="286"/>
+        <source>Serial port disconnected</source>
+        <translation>串口已断开</translation>
+    </message>
+    <message>
+        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="150"/>
+        <source>Transfer preparation timed out</source>
+        <translation>传输准备超时</translation>
+    </message>
+    <message>
+        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="165"/>
+        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="325"/>
+        <source>Invalid protocol request</source>
+        <translation>协议请求无效</translation>
+    </message>
+    <message>
+        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="202"/>
+        <source>Invalid serial write queue state</source>
+        <translation>串口写入队列状态无效</translation>
+    </message>
+    <message>
+        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="241"/>
+        <source>File worker is unavailable</source>
+        <translation>文件处理暂不可用</translation>
+    </message>
+    <message>
+        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="249"/>
+        <source>Serial write failed</source>
+        <translation>串口写入失败</translation>
+    </message>
+    <message>
+        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="319"/>
+        <source>A transfer is already active</source>
+        <translation>已有传输正在进行</translation>
+    </message>
+    <message>
+        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="321"/>
+        <source>Serial port is not connected</source>
+        <translation>串口未连接</translation>
+    </message>
+    <message>
+        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="330"/>
+        <source>File transfers require 8 data bits; X/YMODEM cannot use software flow control</source>
+        <translation>文件传输需要 8 位数据位；X/YMODEM 不支持软件流控</translation>
+    </message>
+    <message>
+        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="334"/>
+        <source>Invalid source file count</source>
+        <translation>发送文件数量无效</translation>
+    </message>
+    <message>
+        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="337"/>
+        <source>Select a receive destination</source>
+        <translation>请选择接收文件的保存位置</translation>
+    </message>
+    <message>
+        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="340"/>
+        <source>Expected length exceeds the protocol limit</source>
+        <translation>预期大小超过协议上限</translation>
+    </message>
+    <message>
+        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="343"/>
+        <source>The channel is reserved by another input task</source>
+        <translation>通道正被另一个输入任务占用</translation>
+    </message>
+    <message>
+        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="348"/>
+        <source>Preparing files and channel</source>
+        <translation>正在准备文件和通道</translation>
+    </message>
+    <message>
+        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="392"/>
+        <source>Receive buffer exceeded the 256 KiB limit</source>
+        <translation>接收缓冲区超过 256 KiB 上限</translation>
+    </message>
+    <message>
+        <location filename="../../src/session/transfer/TransferFileWorker.cpp" line="83"/>
+        <source>Cannot open source file or unsafe file name: %1</source>
+        <translation>无法打开源文件或文件名不安全：%1</translation>
+    </message>
+    <message>
+        <location filename="../../src/session/transfer/TransferFileWorker.cpp" line="95"/>
+        <source>Receive target already exists or its name is unsafe</source>
+        <translation>接收目标已存在或文件名不安全</translation>
+    </message>
+    <message>
+        <location filename="../../src/session/transfer/TransferFileWorker.cpp" line="97"/>
+        <source>Receive directory does not exist or is a symbolic link</source>
+        <translation>接收目录不存在或为符号链接</translation>
+    </message>
+    <message>
+        <location filename="../../src/session/transfer/TransferFileWorker.cpp" line="100"/>
+        <source>Receive directory does not exist</source>
+        <translation>接收目录不存在</translation>
+    </message>
+    <message>
+        <location filename="../../src/session/transfer/TransferFileWorker.cpp" line="123"/>
+        <source>Unsafe receive name or target already exists: %1</source>
+        <translation>接收文件名不安全或目标已存在：%1</translation>
+    </message>
+    <message>
+        <location filename="../../src/session/transfer/TransferFileWorker.cpp" line="126"/>
+        <source>Cannot create temporary receive file</source>
+        <translation>无法创建接收临时文件</translation>
+    </message>
+    <message>
+        <location filename="../../src/session/transfer/TransferFileWorker.cpp" line="131"/>
+        <source>Invalid source file index or offset</source>
+        <translation>源文件索引或偏移无效</translation>
+    </message>
+    <message>
+        <location filename="../../src/session/transfer/TransferFileWorker.cpp" line="136"/>
+        <source>Source file was truncated or changed</source>
+        <translation>源文件被截断或已改变</translation>
+    </message>
+    <message>
+        <location filename="../../src/session/transfer/TransferFileWorker.cpp" line="144"/>
+        <source>Temporary receive file write failed</source>
+        <translation>接收临时文件写入失败</translation>
+    </message>
+    <message>
+        <location filename="../../src/session/transfer/TransferFileWorker.cpp" line="148"/>
+        <source>Receive file flush failed</source>
+        <translation>接收文件刷新失败</translation>
+    </message>
+    <message>
+        <location filename="../../src/session/transfer/TransferFileWorker.cpp" line="208"/>
+        <source>Cannot publish the received file without overwriting. Choose another receiving folder or check its permissions: %1</source>
+        <translation>无法在不覆盖已有文件的情况下保存接收文件。请选择其他接收文件夹或检查其权限：%1</translation>
+    </message>
+    <message>
+        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="34"/>
+        <source>File access failed. Check the source file and receiving folder.</source>
+        <translation>文件访问失败，请检查源文件和接收文件夹。</translation>
+    </message>
+    <message>
+        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="26"/>
+        <source>Invalid data from the peer. Check that both devices use the same protocol.</source>
+        <translation>对端数据无效，请确认两端使用相同协议。</translation>
+    </message>
+    <message>
+        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="32"/>
+        <source>The device did not respond in time. Check the connection and peer.</source>
+        <translation>设备响应超时，请检查连接和对端设备。</translation>
+    </message>
+    <message>
+        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="28"/>
+        <source>The peer requested an unsupported protocol variant.</source>
+        <translation>对端请求了不支持的协议变体。</translation>
+    </message>
+    <message>
+        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="30"/>
+        <source>The retry limit was reached. Check the serial connection and peer.</source>
+        <translation>已达到重试次数上限，请检查串口连接和对端设备。</translation>
+    </message>
+    <message>
+        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="265"/>
+        <source>The serial output stopped progressing. Check flow control and the connection.</source>
+        <translation>串口发送已停止推进，请检查流控和连接。</translation>
+    </message>
+    <message>
+        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="38"/>
+        <source>The transfer exceeded its memory or file limit.</source>
+        <translation>传输超过了内存或文件限制。</translation>
+    </message>
+    <message>
+        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="40"/>
+        <source>The transfer failed.</source>
+        <translation>传输失败。</translation>
+    </message>
+    <message>
+        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="24"/>
+        <source>The transfer request is invalid. Check the protocol and selected files.</source>
+        <translation>传输请求无效，请检查协议和所选文件。</translation>
+    </message>
+    <message>
+        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="36"/>
+        <source>The transferred file size does not match the declared size.</source>
+        <translation>已传输文件的大小与声明大小不一致。</translation>
+    </message>
+</context>
+<context>
+    <name>SerialFileTransferDialog</name>
+    <message>
+        <location filename="../../src/ui/widgets/SerialFileTransferDialog.cpp" line="152"/>
+        <source>Transfer completed.</source>
+        <translation>传输已完成。</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SerialFileTransferDialog.cpp" line="153"/>
+        <source>Transfer stopped: %1</source>
+        <translation>传输已停止：%1</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SerialFileTransferDialog.cpp" line="200"/>
+        <source>Files:</source>
+        <translation>文件：</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SerialFileTransferDialog.cpp" line="201"/>
+        <source>Save as:</source>
+        <translation>另存为：</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SerialFileTransferDialog.cpp" line="201"/>
+        <source>Folder:</source>
+        <translation>文件夹：</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SerialFileTransferDialog.cpp" line="203"/>
+        <location filename="../../src/ui/widgets/SerialFileTransferDialog.cpp" line="248"/>
+        <source>Choose files to send</source>
+        <translation>选择要发送的文件</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SerialFileTransferDialog.cpp" line="204"/>
+        <source>Full path of the new file</source>
+        <translation>新文件的完整路径</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SerialFileTransferDialog.cpp" line="204"/>
+        <location filename="../../src/ui/widgets/SerialFileTransferDialog.cpp" line="254"/>
+        <source>Choose a receiving folder</source>
+        <translation>选择接收文件夹</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SerialFileTransferDialog.cpp" line="208"/>
+        <source>On the device, start its receiving program with the same protocol, then click Start.</source>
+        <translation>请先在设备上启动使用相同协议的接收程序，然后点击“开始”。</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SerialFileTransferDialog.cpp" line="209"/>
+        <source>On the device, start its sending program with the same protocol, then click Start.</source>
+        <translation>请先在设备上启动使用相同协议的发送程序，然后点击“开始”。</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SerialFileTransferDialog.cpp" line="210"/>
+        <source>Existing files will not be overwritten. Cancelling or closing an active transfer disconnects the serial port.</source>
+        <translation>不会覆盖已有文件。取消传输或关闭正在传输的窗口会断开串口连接。</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SerialFileTransferDialog.cpp" line="212"/>
+        <source>For XMODEM, enter the exact size to remove padding. Leave it blank to keep padding bytes.</source>
+        <translation>XMODEM 接收时，填写精确大小可移除填充字节；留空则保留填充字节。</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SerialFileTransferDialog.cpp" line="244"/>
+        <source>Choose a file to send</source>
+        <translation>选择要发送的文件</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SerialFileTransferDialog.cpp" line="251"/>
+        <source>Choose a new receiving file</source>
+        <translation>选择新的接收文件</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SerialFileTransferDialog.cpp" line="275"/>
+        <source>Cannot start transfer</source>
+        <translation>无法开始传输</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SerialFileTransferDialog.cpp" line="287"/>
+        <source>Choose at least one file to send.</source>
+        <translation>请至少选择一个要发送的文件。</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SerialFileTransferDialog.cpp" line="291"/>
+        <source>XMODEM sends one file at a time. Choose a single file.</source>
+        <translation>XMODEM 每次只能发送一个文件，请重新选择单个文件。</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SerialFileTransferDialog.cpp" line="295"/>
+        <source>Choose no more than %1 files.</source>
+        <translation>最多可选择 %1 个文件。</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SerialFileTransferDialog.cpp" line="302"/>
+        <source>Choose where to save the received files.</source>
+        <translation>请选择接收文件的保存位置。</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SerialFileTransferDialog.cpp" line="308"/>
+        <source>The receiving file already exists. Choose a new file name.</source>
+        <translation>接收文件已存在，请选择新的文件名。</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SerialFileTransferDialog.cpp" line="316"/>
+        <source>Enter a file size from 0 to 4294967295 bytes, or leave it blank.</source>
+        <translation>请填写 0 到 4294967295 字节的文件大小，或留空。</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SerialFileTransferDialog.cpp" line="322"/>
+        <source>Choose an existing receiving folder.</source>
+        <translation>请选择已有的接收文件夹。</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SerialFileTransferDialog.cpp" line="328"/>
+        <source>The session is no longer available.</source>
+        <translation>会话已不可用。</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SerialFileTransferDialog.cpp" line="334"/>
+        <source>Preparing transfer…</source>
+        <translation>正在准备传输…</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SerialFileTransferDialog.cpp" line="335"/>
+        <source>Transferring…</source>
+        <translation>正在传输…</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SerialFileTransferDialog.cpp" line="335"/>
+        <source>Ready</source>
+        <translation>就绪</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SerialFileTransferDialog.cpp" line="351"/>
+        <source>File: %1</source>
+        <translation>文件：%1</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SerialFileTransferDialog.cpp" line="354"/>
+        <source>%1 / %2 bytes</source>
+        <translation>%1 / %2 字节</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SerialFileTransferDialog.cpp" line="356"/>
+        <source>%1 bytes (total unknown)</source>
+        <translation>%1 字节（总大小未知）</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SerialFileTransferDialog.cpp" line="357"/>
+        <source>%1 · %2 files completed · %3 s elapsed</source>
+        <translation>%1 · 已完成 %2 个文件 · 已用时 %3 秒</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SerialFileTransferDialog.cpp" line="364"/>
+        <source>Serial File Transfer</source>
+        <translation>串口文件传输</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SerialFileTransferDialog.cpp" line="365"/>
+        <location filename="../../src/ui/widgets/SerialFileTransferDialog.cpp" line="366"/>
+        <source>Protocol:</source>
+        <translation>协议：</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SerialFileTransferDialog.cpp" line="367"/>
+        <source>XMODEM (Checksum)</source>
+        <translation>XMODEM（校验和）</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SerialFileTransferDialog.cpp" line="368"/>
+        <source>XMODEM (CRC)</source>
+        <translation>XMODEM（CRC）</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SerialFileTransferDialog.cpp" line="369"/>
+        <source>XMODEM-1K</source>
+        <translation>XMODEM-1K</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SerialFileTransferDialog.cpp" line="370"/>
+        <source>YMODEM</source>
+        <translation>YMODEM</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SerialFileTransferDialog.cpp" line="371"/>
+        <source>ZMODEM</source>
+        <translation>ZMODEM</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SerialFileTransferDialog.cpp" line="372"/>
+        <location filename="../../src/ui/widgets/SerialFileTransferDialog.cpp" line="373"/>
+        <source>Direction:</source>
+        <translation>方向：</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SerialFileTransferDialog.cpp" line="374"/>
+        <source>Send</source>
+        <translation>发送</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SerialFileTransferDialog.cpp" line="375"/>
+        <source>Receive</source>
+        <translation>接收</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SerialFileTransferDialog.cpp" line="376"/>
+        <location filename="../../src/ui/widgets/SerialFileTransferDialog.cpp" line="377"/>
+        <source>Exact size (bytes):</source>
+        <translation>精确大小（字节）：</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SerialFileTransferDialog.cpp" line="378"/>
+        <source>Optional, 0–4294967295</source>
+        <translation>可选，0–4294967295</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SerialFileTransferDialog.cpp" line="379"/>
+        <source>Browse…</source>
+        <translation>浏览…</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SerialFileTransferDialog.cpp" line="380"/>
+        <source>Start</source>
+        <translation>开始</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SerialFileTransferDialog.cpp" line="381"/>
+        <source>Cancel Transfer</source>
+        <translation>取消传输</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/SerialFileTransferDialog.cpp" line="382"/>
+        <source>Close</source>
+        <translation>关闭</translation>
+    </message>
+</context>
+<context>
     <name>SerialTransport</name>
     <message>
-        <location filename="../../src/transport/SerialTransport.cpp" line="42"/>
+        <location filename="../../src/transport/SerialTransport.cpp" line="96"/>
         <source>Invalid serial port configuration.</source>
         <translation>无效的串口配置。</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SerialTransport.cpp" line="65"/>
+        <location filename="../../src/transport/SerialTransport.cpp" line="109"/>
+        <source>Cannot apply serial settings on %1 (%2)</source>
+        <translation>无法在 %1 上应用串口设置（%2）</translation>
+    </message>
+    <message>
+        <location filename="../../src/transport/SerialTransport.cpp" line="122"/>
         <source>Cannot open serial port %1: %2</source>
         <translation>无法打开串口 %1：%2</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SerialTransport.cpp" line="95"/>
+        <location filename="../../src/transport/SerialTransport.cpp" line="138"/>
+        <source>Serial port %1 rejects %2: %3</source>
+        <translation>串口 %1 拒绝 %2：%3</translation>
+    </message>
+    <message>
+        <location filename="../../src/transport/SerialTransport.cpp" line="169"/>
         <source>Serial port is not connected.</source>
         <translation>串口未连接。</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SerialTransport.cpp" line="100"/>
+        <location filename="../../src/transport/SerialTransport.cpp" line="174"/>
         <source>Serial write queue exceeded its 1 MiB limit.</source>
         <translation>串口写入队列已超过 1 MiB 限制。</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SerialTransport.cpp" line="107"/>
+        <location filename="../../src/transport/SerialTransport.cpp" line="181"/>
+        <location filename="../../src/transport/SerialTransport.cpp" line="260"/>
         <source>Serial write failed: %1</source>
         <translation>串口写入失败：%1</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SerialTransport.cpp" line="157"/>
+        <location filename="../../src/transport/SerialTransport.cpp" line="231"/>
         <source>Serial port %1: %2</source>
         <translation>串口 %1：%2</translation>
     </message>
@@ -1073,34 +1560,34 @@ Termination confirmed: %3
         <translation>没有匹配的会话</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="808"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="813"/>
         <source>Delete these %1 saved sessions?
 %2</source>
         <translation>是否删除以下 %1 个历史会话？
 %2</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="907"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="912"/>
         <source>The saved password for this session is unavailable. Edit the session and enter the password again.</source>
         <translation>该会话保存的密码不可用，请编辑会话重新输入密码。</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="938"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="943"/>
         <source>+  New session</source>
         <translation>+  新建会话</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="939"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="944"/>
         <source>New session</source>
         <translation>新建会话</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="941"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="946"/>
         <source>Search by name or host...</source>
         <translation>按名称或主机搜索...</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="942"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="947"/>
         <source>Search sessions</source>
         <translation>搜索会话</translation>
     </message>
@@ -1127,27 +1614,27 @@ Termination confirmed: %3
         <translation>尚无已保存的会话</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="763"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="768"/>
         <source>Edit</source>
         <translation>编辑</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="765"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="770"/>
         <source>Delete</source>
         <translation>删除</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="811"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="816"/>
         <source>Delete session</source>
         <translation>删除会话</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="807"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="812"/>
         <source>Delete the saved session &apos;%1&apos;?</source>
         <translation>删除已保存的会话“%1”？</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="909"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="914"/>
         <source>The saved SSH credential is unavailable. Create the session again to refresh it.</source>
         <translation>已保存的 SSH 凭据不可用。请重新创建会话以刷新凭据。</translation>
     </message>
@@ -1865,52 +2352,52 @@ Termination confirmed: %3
         <translation>SFTP 密码认证失败</translation>
     </message>
     <message>
-        <location filename="../../src/session/SftpSession.cpp" line="609"/>
+        <location filename="../../src/session/SftpSession.cpp" line="615"/>
         <source>Invalid SSH configuration for SFTP.</source>
         <translation>SFTP 的 SSH 配置无效。</translation>
     </message>
     <message>
-        <location filename="../../src/session/SftpSession.cpp" line="832"/>
+        <location filename="../../src/session/SftpSession.cpp" line="872"/>
         <source>Failed to create the SFTP SSH session.</source>
         <translation>创建 SFTP SSH 会话失败。</translation>
     </message>
     <message>
-        <location filename="../../src/session/SftpSession.cpp" line="857"/>
+        <location filename="../../src/session/SftpSession.cpp" line="897"/>
         <source>SFTP SSH connection failed</source>
         <translation>SFTP SSH 连接失败</translation>
     </message>
     <message>
-        <location filename="../../src/session/SftpSession.cpp" line="865"/>
+        <location filename="../../src/session/SftpSession.cpp" line="905"/>
         <source>The SFTP host key is not trusted or has changed. Reconnect the SSH terminal and verify the host key.</source>
         <translation>SFTP 主机密钥不可信或已变更。请重新连接 SSH 终端并验证主机密钥。</translation>
     </message>
     <message>
-        <location filename="../../src/session/SftpSession.cpp" line="888"/>
+        <location filename="../../src/session/SftpSession.cpp" line="928"/>
         <source>Failed to initialize SFTP</source>
         <translation>初始化 SFTP 失败</translation>
     </message>
     <message>
-        <location filename="../../src/session/SftpSession.cpp" line="930"/>
+        <location filename="../../src/session/SftpSession.cpp" line="970"/>
         <source>Cannot resolve the remote directory</source>
         <translation>无法解析远程目录</translation>
     </message>
     <message>
-        <location filename="../../src/session/SftpSession.cpp" line="396"/>
-        <location filename="../../src/session/SftpSession.cpp" line="524"/>
-        <location filename="../../src/session/SftpSession.cpp" line="941"/>
+        <location filename="../../src/session/SftpSession.cpp" line="401"/>
+        <location filename="../../src/session/SftpSession.cpp" line="529"/>
+        <location filename="../../src/session/SftpSession.cpp" line="981"/>
         <source>Cannot open remote directory %1</source>
         <translation>无法打开远程目录 %1</translation>
     </message>
     <message>
-        <location filename="../../src/session/SftpSession.cpp" line="440"/>
-        <location filename="../../src/session/SftpSession.cpp" line="557"/>
-        <location filename="../../src/session/SftpSession.cpp" line="1000"/>
+        <location filename="../../src/session/SftpSession.cpp" line="445"/>
+        <location filename="../../src/session/SftpSession.cpp" line="562"/>
+        <location filename="../../src/session/SftpSession.cpp" line="1040"/>
         <source>Failed while reading remote directory %1</source>
         <translation>读取远程目录 %1 失败</translation>
     </message>
     <message>
         <location filename="../../src/session/SftpSession.cpp" line="208"/>
-        <location filename="../../src/session/SftpSession.cpp" line="1152"/>
+        <location filename="../../src/session/SftpSession.cpp" line="1192"/>
         <source>Cannot open local file %1: %2</source>
         <translation>无法打开本地文件 %1：%2</translation>
     </message>
@@ -1926,100 +2413,106 @@ Termination confirmed: %3
     </message>
     <message>
         <location filename="../../src/session/SftpSession.cpp" line="221"/>
-        <location filename="../../src/session/SftpSession.cpp" line="461"/>
-        <location filename="../../src/session/SftpSession.cpp" line="1165"/>
-        <location filename="../../src/session/SftpSession.cpp" line="1306"/>
+        <location filename="../../src/session/SftpSession.cpp" line="466"/>
+        <location filename="../../src/session/SftpSession.cpp" line="1213"/>
+        <location filename="../../src/session/SftpSession.cpp" line="1377"/>
         <source>Cannot open remote file %1</source>
         <translation>无法打开远程文件 %1</translation>
     </message>
     <message>
-        <location filename="../../src/session/SftpSession.cpp" line="229"/>
-        <location filename="../../src/session/SftpSession.cpp" line="1177"/>
+        <location filename="../../src/session/SftpSession.cpp" line="234"/>
+        <location filename="../../src/session/SftpSession.cpp" line="1235"/>
         <source>Failed to read local file %1: %2</source>
         <translation>读取本地文件 %1 失败：%2</translation>
     </message>
     <message>
-        <location filename="../../src/session/SftpSession.cpp" line="247"/>
-        <location filename="../../src/session/SftpSession.cpp" line="1191"/>
+        <location filename="../../src/session/SftpSession.cpp" line="252"/>
+        <location filename="../../src/session/SftpSession.cpp" line="1249"/>
         <source>Failed to upload %1</source>
         <translation>上传 %1 失败</translation>
     </message>
     <message>
-        <location filename="../../src/session/SftpSession.cpp" line="267"/>
-        <location filename="../../src/session/SftpSession.cpp" line="1215"/>
-        <location filename="../../src/session/SftpSession.cpp" line="1404"/>
+        <location filename="../../src/session/SftpSession.cpp" line="272"/>
+        <location filename="../../src/session/SftpSession.cpp" line="1273"/>
+        <location filename="../../src/session/SftpSession.cpp" line="1475"/>
         <source>Failed to finalize remote file %1</source>
         <translation>完成远程文件 %1 失败</translation>
     </message>
     <message>
-        <location filename="../../src/session/SftpSession.cpp" line="276"/>
+        <location filename="../../src/session/SftpSession.cpp" line="281"/>
+        <location filename="../../src/session/SftpSession.cpp" line="1286"/>
         <source>Failed to replace remote file %1</source>
         <translation>替换远端文件 %1 失败</translation>
     </message>
     <message>
-        <location filename="../../src/session/SftpSession.cpp" line="413"/>
-        <location filename="../../src/session/SftpSession.cpp" line="541"/>
+        <location filename="../../src/session/SftpSession.cpp" line="418"/>
+        <location filename="../../src/session/SftpSession.cpp" line="546"/>
         <source>Unsafe remote entry name in %1</source>
         <translation>%1 中的远程条目名称不安全</translation>
     </message>
     <message>
-        <location filename="../../src/session/SftpSession.cpp" line="466"/>
-        <location filename="../../src/session/SftpSession.cpp" line="1315"/>
+        <location filename="../../src/session/SftpSession.cpp" line="471"/>
+        <location filename="../../src/session/SftpSession.cpp" line="1386"/>
         <source>Cannot create local file %1: %2</source>
         <translation>无法创建本地文件 %1：%2</translation>
     </message>
     <message>
-        <location filename="../../src/session/SftpSession.cpp" line="480"/>
-        <location filename="../../src/session/SftpSession.cpp" line="1332"/>
+        <location filename="../../src/session/SftpSession.cpp" line="485"/>
+        <location filename="../../src/session/SftpSession.cpp" line="1403"/>
         <source>Failed to download %1</source>
         <translation>下载 %1 失败</translation>
     </message>
     <message>
-        <location filename="../../src/session/SftpSession.cpp" line="484"/>
-        <location filename="../../src/session/SftpSession.cpp" line="1338"/>
+        <location filename="../../src/session/SftpSession.cpp" line="489"/>
+        <location filename="../../src/session/SftpSession.cpp" line="1409"/>
         <source>Failed to write local file %1: %2</source>
         <translation>写入本地文件 %1 失败：%2</translation>
     </message>
     <message>
-        <location filename="../../src/session/SftpSession.cpp" line="498"/>
-        <location filename="../../src/session/SftpSession.cpp" line="1364"/>
+        <location filename="../../src/session/SftpSession.cpp" line="503"/>
+        <location filename="../../src/session/SftpSession.cpp" line="1435"/>
         <source>Failed to finalize local file %1: %2</source>
         <translation>完成本地文件 %1 失败：%2</translation>
     </message>
     <message>
-        <location filename="../../src/session/SftpSession.cpp" line="569"/>
+        <location filename="../../src/session/SftpSession.cpp" line="574"/>
         <source>Cannot delete remote entry %1</source>
         <translation>无法删除远程条目 %1</translation>
     </message>
     <message>
-        <location filename="../../src/session/SftpSession.cpp" line="580"/>
+        <location filename="../../src/session/SftpSession.cpp" line="585"/>
         <source>Cannot delete remote directory %1</source>
         <translation>无法删除远程目录 %1</translation>
     </message>
     <message>
-        <location filename="../../src/session/SftpSession.cpp" line="873"/>
+        <location filename="../../src/session/SftpSession.cpp" line="626"/>
+        <source>The previous SFTP session is still shutting down; please try again shortly.</source>
+        <translation>上一个 SFTP 会话仍在关闭中，请稍后重试。</translation>
+    </message>
+    <message>
+        <location filename="../../src/session/SftpSession.cpp" line="913"/>
         <source>The SFTP host key does not match the active SSH session.</source>
         <translation>SFTP 主机密钥与当前 SSH 会话不匹配。</translation>
     </message>
     <message>
-        <location filename="../../src/session/SftpSession.cpp" line="1019"/>
+        <location filename="../../src/session/SftpSession.cpp" line="1059"/>
         <source>Local path is not a directory: %1</source>
         <translation>本地路径不是目录：%1</translation>
     </message>
     <message>
-        <location filename="../../src/session/SftpSession.cpp" line="1237"/>
-        <location filename="../../src/session/SftpSession.cpp" line="1265"/>
-        <location filename="../../src/session/SftpSession.cpp" line="1272"/>
+        <location filename="../../src/session/SftpSession.cpp" line="1308"/>
+        <location filename="../../src/session/SftpSession.cpp" line="1336"/>
+        <location filename="../../src/session/SftpSession.cpp" line="1343"/>
         <source>Cannot create local directory %1</source>
         <translation>无法创建本地目录 %1</translation>
     </message>
     <message>
-        <location filename="../../src/session/SftpSession.cpp" line="1399"/>
+        <location filename="../../src/session/SftpSession.cpp" line="1470"/>
         <source>Cannot create remote file %1</source>
         <translation>无法创建远程文件 %1</translation>
     </message>
     <message>
-        <location filename="../../src/session/SftpSession.cpp" line="1439"/>
+        <location filename="../../src/session/SftpSession.cpp" line="1510"/>
         <source>Remote operation failed for %1</source>
         <translation>%1 的远程操作失败</translation>
     </message>
@@ -2090,229 +2583,229 @@ Termination confirmed: %3
         <translation>无效的 SSH 配置。</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="248"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="251"/>
         <source>SSH write queue exceeded its 1 MiB limit.</source>
         <translation>SSH 写入队列已超过 1 MiB 限制。</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="358"/>
-        <location filename="../../src/transport/SshTransport.cpp" line="1083"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="362"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="1101"/>
         <source>Remote command cancelled.</source>
         <translation>远程命令已取消。</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="549"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="553"/>
         <source>Failed to create SSH session.</source>
         <translation>创建 SSH 会话失败。</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="586"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="590"/>
         <source>Cannot apply SSH options: %1</source>
         <translation>无法应用 SSH 选项：%1</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="595"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="599"/>
         <source>SSH connection to %1:%2 failed: %3</source>
         <translation>连接到 %1:%2 的 SSH 失败：%3</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="607"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="611"/>
         <source>Failed to retrieve the server host key: %1</source>
         <translation>获取服务器主机密钥失败：%1</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="617"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="621"/>
         <source>Cannot read known_hosts file %1: %2</source>
         <translation>无法读取 known_hosts 文件 %1：%2</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="671"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="686"/>
         <source>Host key verification failed; connection aborted.</source>
         <translation>主机密钥验证失败；连接已中止。</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="681"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="696"/>
         <source>Failed to store the host key: %1</source>
         <translation>存储主机密钥失败：%1</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="717"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="732"/>
         <source>Failed to load private key %1: %2</source>
         <translation>加载私钥 %1 失败：%2</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="728"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="743"/>
         <source>Public key authentication failed for %1@%2: %3</source>
         <translation>%1@%2 的公钥认证失败：%3</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="741"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="756"/>
         <source>Password authentication failed for %1@%2: %3</source>
         <translation>%1@%2 的密码认证失败：%3</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="754"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="769"/>
         <source>Failed to open SSH channel: %1</source>
         <translation>打开 SSH 通道失败：%1</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="780"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="798"/>
         <source>Failed to start remote shell: %1</source>
         <translation>启动远程 Shell 失败：%1</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="792"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="810"/>
         <source>Failed to create SSH event loop.</source>
         <translation>创建 SSH 事件循环失败。</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="958"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="976"/>
         <source>Resource monitor receive buffer exceeded 256 KiB.</source>
         <translation>资源监控接收缓冲超过 256 KiB。</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="960"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="978"/>
         <source>Resource monitor line exceeded 16 KiB.</source>
         <translation>资源监控协议行超过 16 KiB。</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="962"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="980"/>
         <source>Resource monitor returned an invalid frame header.</source>
         <translation>资源监控返回了无效的帧头。</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="964"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="982"/>
         <source>Resource monitor frame header was missing.</source>
         <translation>资源监控数据帧缺少帧头。</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="966"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="984"/>
         <source>Resource monitor returned overlapping frames.</source>
         <translation>资源监控返回了重叠的数据帧。</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="968"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="986"/>
         <source>Resource monitor frame identifiers did not match.</source>
         <translation>资源监控帧的请求标识不匹配。</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="970"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="988"/>
         <source>Resource monitor frame exceeded 256 entries.</source>
         <translation>资源监控帧超过 256 个条目。</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="972"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="990"/>
         <source>Resource monitor frame exceeded 128 KiB.</source>
         <translation>资源监控帧超过 128 KiB。</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="1022"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="1040"/>
         <source>SSH channel read error: %1</source>
         <translation>SSH 通道读取错误：%1</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="1063"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="1081"/>
         <source>SSH channel write failed: %1</source>
         <translation>SSH 通道写入失败：%1</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="1106"/>
-        <location filename="../../src/transport/SshTransport.cpp" line="1145"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="1124"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="1163"/>
         <source>Failed to execute remote command: %1</source>
         <translation>执行远程命令失败：%1</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="1119"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="1137"/>
         <source>Failed to monitor remote command completion: %1</source>
         <translation>监控远程命令完成状态失败：%1</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="1134"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="1152"/>
         <source>Failed to open remote command channel: %1</source>
         <translation>无法打开远程命令通道：%1</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="1206"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="1224"/>
         <source>Remote command read failed: %1</source>
         <translation>读取远程命令输出失败：%1</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="1209"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="1227"/>
         <source>Remote command output exceeded its limit.</source>
         <translation>远端命令输出超过限制。</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="1216"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="1234"/>
         <source>Remote command exited with status %1.</source>
         <translation>远程命令以状态 %1 退出。</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="1219"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="1237"/>
         <source>Remote command closed without an exit status.</source>
         <translation>远程命令关闭时未返回退出状态。</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="1222"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="1240"/>
         <source>Remote command timed out.</source>
         <translation>远程命令执行超时。</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="1248"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="1266"/>
         <source>Failed to create the resource monitor channel: %1</source>
         <translation>无法创建资源监控通道：%1</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="1263"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="1281"/>
         <source>Failed to open the resource monitor channel: %1</source>
         <translation>无法打开资源监控通道：%1</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="1277"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="1295"/>
         <source>Failed to start the resource monitor: %1</source>
         <translation>无法启动资源监控：%1</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="1286"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="1304"/>
         <source>Resource monitor channel setup timed out.</source>
         <translation>资源监控通道建立超时。</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="1305"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="1323"/>
         <source>Failed to write a resource sample request: %1</source>
         <translation>无法发送资源采样请求：%1</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="1348"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="1366"/>
         <source>Resource monitor returned an unexpected frame.</source>
         <translation>资源监控返回了非预期数据帧。</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="1361"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="1379"/>
         <source>Resource monitor output was invalid or exceeded its limit.</source>
         <translation>资源监控输出无效或超过上限。</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="1365"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="1383"/>
         <source>Resource monitor channel closed unexpectedly.</source>
         <translation>资源监控通道意外关闭。</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="1366"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="1384"/>
         <source>Resource monitor failed: %1</source>
         <translation>资源监控失败：%1</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="1370"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="1388"/>
         <source>Resource sample timed out.</source>
         <translation>资源采样超时。</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="1385"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="1405"/>
         <source>Failed to resize the remote PTY: %1</source>
         <translation>调整远程 PTY 大小失败：%1</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SshTransport.cpp" line="1433"/>
+        <location filename="../../src/transport/SshTransport.cpp" line="1453"/>
         <source>SSH connection closed before the command completed.</source>
         <translation>命令完成前 SSH 连接已关闭。</translation>
     </message>
@@ -2327,7 +2820,7 @@ Termination confirmed: %3
     <message>
         <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="188"/>
         <source>Collecting…</source>
-        <translation type="unfinished">正在采集…</translation>
+        <translation>正在采集…</translation>
     </message>
     <message>
         <location filename="../../src/ui/widgets/SystemInformationDialog.cpp" line="189"/>
@@ -2891,6 +3384,15 @@ Termination confirmed: %3
     </message>
 </context>
 <context>
+    <name>TerminalSession</name>
+    <message>
+        <location filename="../../src/session/TerminalSession.cpp" line="527"/>
+        <location filename="../../src/session/TerminalSession.cpp" line="625"/>
+        <source>Serial connection changed.</source>
+        <translation>串口连接已更改。</translation>
+    </message>
+</context>
+<context>
     <name>TerminalTabWidget</name>
     <message>
         <location filename="../../src/ui/widgets/TerminalTabWidget.cpp" line="144"/>
@@ -2919,94 +3421,109 @@ Termination confirmed: %3
 <context>
     <name>TerminalView</name>
     <message>
-        <location filename="../../src/ui/terminal/TerminalView.cpp" line="746"/>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="877"/>
         <source>Find in scrollback</source>
         <translation>在滚动回显中查找</translation>
     </message>
     <message>
-        <location filename="../../src/ui/terminal/TerminalView.cpp" line="638"/>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="690"/>
         <source>Copy</source>
         <translation>复制</translation>
     </message>
     <message>
-        <location filename="../../src/ui/terminal/TerminalView.cpp" line="256"/>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="260"/>
         <source>[Disconnected] Press Enter to reconnect.</source>
         <translation>[连接已经断开] 按 Enter 重新连接</translation>
     </message>
     <message>
-        <location filename="../../src/ui/terminal/TerminalView.cpp" line="257"/>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="261"/>
         <source>[Disconnected].</source>
         <translation>[已断开连接]</translation>
     </message>
     <message>
-        <location filename="../../src/ui/terminal/TerminalView.cpp" line="273"/>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="277"/>
         <source>[Transport error] %1</source>
         <translation>[传输错误] %1</translation>
     </message>
     <message>
-        <location filename="../../src/ui/terminal/TerminalView.cpp" line="282"/>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="286"/>
         <source>[Reconnecting] Waiting for the serial port</source>
         <translation>[正在重连] 等待串口恢复</translation>
     </message>
     <message>
-        <location filename="../../src/ui/terminal/TerminalView.cpp" line="300"/>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="304"/>
         <source>[Reconnected] Automatic reconnection succeeded.</source>
         <translation>[已重连] 自动重连成功。</translation>
     </message>
     <message>
-        <location filename="../../src/ui/terminal/TerminalView.cpp" line="641"/>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="693"/>
         <source>Paste</source>
         <translation>粘贴</translation>
     </message>
     <message>
-        <location filename="../../src/ui/terminal/TerminalView.cpp" line="646"/>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="714"/>
         <source>Find...</source>
         <translation>查找...</translation>
     </message>
     <message>
-        <location filename="../../src/ui/terminal/TerminalView.cpp" line="651"/>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="719"/>
         <source>Zoom In</source>
         <translation>放大</translation>
     </message>
     <message>
-        <location filename="../../src/ui/terminal/TerminalView.cpp" line="654"/>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="722"/>
         <source>Zoom Out</source>
         <translation>缩小</translation>
     </message>
     <message>
-        <location filename="../../src/ui/terminal/TerminalView.cpp" line="661"/>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="729"/>
         <source>Scroll to Top</source>
         <translation>回到顶部</translation>
     </message>
     <message>
-        <location filename="../../src/ui/terminal/TerminalView.cpp" line="668"/>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="736"/>
         <source>Scroll to Bottom</source>
         <translation>回到底部</translation>
     </message>
     <message>
-        <location filename="../../src/ui/terminal/TerminalView.cpp" line="675"/>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="743"/>
         <source>Clear Scrollback</source>
         <translation>清除滚动回显</translation>
     </message>
     <message>
-        <location filename="../../src/ui/terminal/TerminalView.cpp" line="678"/>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="746"/>
         <source>Clear All</source>
         <translation>全部清除</translation>
     </message>
     <message>
-        <location filename="../../src/ui/terminal/TerminalView.cpp" line="681"/>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="749"/>
         <source>Clear All Failed</source>
         <translation>全部清除失败</translation>
     </message>
     <message>
-        <location filename="../../src/ui/terminal/TerminalView.cpp" line="682"/>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="750"/>
         <source>The terminal is busy. Please try clearing it again shortly.</source>
         <translation>终端忙碌，未能全部清除，请稍后重试。</translation>
     </message>
     <message>
-        <location filename="../../src/ui/terminal/TerminalView.cpp" line="689"/>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="757"/>
         <source>Select All</source>
         <translation>选中全部</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="699"/>
+        <source>Send Files…</source>
+        <translation>发送文件…</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="702"/>
+        <source>Receive Files…</source>
+        <translation>接收文件…</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="705"/>
+        <source>Transfer Progress</source>
+        <translation>传输进度</translation>
     </message>
 </context>
 </TS>

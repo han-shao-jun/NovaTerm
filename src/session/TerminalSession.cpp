@@ -7,6 +7,8 @@
  * 校验，非法迁移告警并拒绝。
  */
 #include "TerminalSession.h"
+#include "transfer/SerialFileTransferController.h"
+#include "transport/SerialTransport.h"
 
 #include "SessionCommandFacade.h"
 #include "SessionCommandCoordinator.h"
@@ -188,8 +190,8 @@ void TerminalSession::attach(ITransport* transport, Ownership ownership,
             }
             if (!transport->isConnected())
                 return;
-            _statistics.bytesSent += static_cast<quint64>(data.size());
-            _inputArbiter->submitUserInput(data);
+            if (_inputArbiter->submitTerminalOutput(data))
+                _statistics.bytesSent += static_cast<quint64>(data.size());
         });
 
     connectTransportSignals(transport, _statistics.generation);
@@ -520,6 +522,9 @@ bool TerminalSession::transition(SessionState next)
 
 void TerminalSession::stopPump()
 {
+    // 先暂停唯一入口，abort 的 inactive/恢复通知不能重新 drain 旧串口二进制。
+    if (_inputPump) _inputPump->stop();
+    if (_fileTransfer) _fileTransfer->abort(tr("Serial connection changed."));
     if (!_inputPump)
         return;
     delete _inputPump;
@@ -532,6 +537,11 @@ void TerminalSession::startPump()
         return;
     _inputPump = new SessionInputPump(_transport, _core,
                                       _streamFramer.get(), this);
+    _inputPump->setFileTransferConsumer([this](const QByteArray& bytes) {
+        if (!_fileTransfer || !_fileTransfer->isActive()) return false;
+        _fileTransfer->acceptBytes(bytes);
+        return true;
+    });
     connect(_inputPump, &SessionInputPump::overload, this,
             [this](const QString& reason) {
         reportError(SessionErrorCategory::InputOverload, reason);
@@ -566,6 +576,8 @@ void TerminalSession::clearAttachment(bool requestDisconnect)
     _streamFramer->reset(_statistics.generation);
     _commandCoordinator->reset(_statistics.generation);
     _scriptProvider.reset();
+    _fileTransfer.reset();
+    _fileTransferLeaseId = 0;
     _transport = nullptr;
     if (!current)
         return;
@@ -580,4 +592,85 @@ void TerminalSession::reportError(SessionErrorCategory category,
                                   int code)
 {
     emit sessionError(SessionError{category, code, message, retryable});
+}
+
+bool TerminalSession::canTransferFiles() const
+{
+    const auto* serial = qobject_cast<SerialTransport*>(_transport.data());
+    return serial && serial->config().dataBits == QSerialPort::Data8
+        && _state == SessionState::Running && serial->isConnected();
+}
+SerialFileTransferController* TerminalSession::serialFileTransfer()
+{
+    const QPointer<SerialTransport> serial = qobject_cast<SerialTransport*>(_transport.data());
+    if (!serial) return nullptr;
+    if (_fileTransfer) return _fileTransfer.get();
+    SerialFileTransferController::Channel channel;
+    channel.connected = [this, serial] {
+        return serial && _transport == serial && _state == SessionState::Running
+            && serial->isConnected();
+    };
+    channel.reserve = [this, serial](quint64 transferId) {
+        if (!canTransferFiles() || _transport != serial) return false;
+        const auto writer = [serial](QByteArrayView bytes) -> qint64 {
+            return serial ? serial->tryWriteBounded(bytes) : -1;
+        };
+        if (!_inputArbiter->acquireTransferLease(transferId, _statistics.generation, writer))
+            return false;
+        _fileTransferLeaseId = transferId;
+        return true;
+    };
+    channel.activate = [this] {
+        if (!_inputArbiter->activateTransferLease(_fileTransferLeaseId) && _fileTransfer)
+            _fileTransfer->abort(tr("Serial connection changed."));
+    };
+    channel.release = [this] {
+        _inputArbiter->releaseTransferLease(_fileTransferLeaseId);
+        _fileTransferLeaseId = 0;
+    };
+    channel.write = [this](QByteArrayView bytes) -> qint64 {
+        const auto accepted = _inputArbiter->submitTransferInput(_fileTransferLeaseId, bytes);
+        if (accepted > 0) _statistics.bytesSent += static_cast<quint64>(accepted);
+        return accepted;
+    };
+    channel.pendingWriteBytes = [serial] { return serial ? serial->pendingWriteBytes() : -1; };
+    channel.clearWrites = [serial] { return serial && serial->clearPendingOutput(); };
+    channel.coreIdle = [this] {
+        return _core && _inputPump && _inputPump->statistics().pendingBytes == 0
+            && _core->waitForIdle(0);
+    };
+    channel.baudRate = serial->config().baudRate;
+    channel.eightDataBits = serial->config().dataBits == QSerialPort::Data8;
+    channel.softwareFlowControl = serial->config().flowControl == QSerialPort::SoftwareControl;
+    _fileTransfer = std::make_unique<SerialFileTransferController>(std::move(channel), this);
+    auto* controller = _fileTransfer.get();
+    connect(controller, &SerialFileTransferController::activeChanged, this, [this](bool active) {
+        if (_inputPump) _inputPump->setFileTransferMode(active);
+    });
+    connect(controller, &SerialFileTransferController::readPauseChanged, this, [this](bool paused) {
+        if (_inputPump) _inputPump->setFileTransferReadPaused(paused);
+    });
+    connect(controller, &SerialFileTransferController::visibleRemainder, this,
+            [this](const QByteArray& bytes) {
+        if (_inputPump) _inputPump->forwardFramerRemainder(bytes);
+    });
+    connect(controller, &SerialFileTransferController::disconnectRequired, this, [this] {
+        if (_state == SessionState::Running && _transport && _transport->isConnected())
+            static_cast<void>(disconnectForReconnect());
+    });
+    connect(serial, &ITransport::bytesWritten, controller,
+            [controller](qint64) { controller->notifyWritable(); });
+    connect(serial, &ITransport::errorOccurred, controller,
+            [this, controller, serial](const QString& message) {
+        if (!controller->isActive()) return;
+        // 已开始的协议 I/O 错误必须先停读/断开，不能把残留数据交回 VT。
+        if (_state == SessionState::Running && _transport == serial && serial
+            && serial->isConnected())
+            static_cast<void>(disconnectForReconnect());
+        else {
+            if (_inputPump) _inputPump->stop();
+            controller->abort(message);
+        }
+    });
+    return controller;
 }

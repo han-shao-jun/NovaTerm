@@ -217,6 +217,22 @@ McpSettingsDialog::McpSettingsDialog(NovaTerm::Mcp::Service* service, QWidget* p
 
 void McpSettingsDialog::reportFailure()
 {
+    // AccessStore 把最近一次保存失败的原因留在 lastSaveFailure()，这里取用后
+    // 立刻清空，避免上一次失败的原因被下一次无关失败误读。目录未加固与被别的
+    // 实例持锁占用是两种最常见也最难自察的成因，处置完全不同，因此各自给一条
+    // 可操作的提示。
+    if (!_service) return;
+    using Failure = NovaTerm::Mcp::AccessStore::SaveFailure;
+    const Failure reason = _service->access().lastSaveFailure();
+    _service->access().clearSaveFailure();
+    if (reason == Failure::Locked) {
+        _status->setText(tr("Cannot update MCP access settings: another NovaTerm instance is holding the shared access file. Close that instance and try again."));
+        return;
+    }
+    if (reason == Failure::Directory) {
+        _status->setText(tr("Cannot update MCP access settings: the MCP state directory is not private to this user. Fix its permissions and owner, then try again."));
+        return;
+    }
     _status->setText(tr("Operation failed. Check the selected client, storage permissions, and active commands."));
 }
 void McpSettingsDialog::refresh()
@@ -236,11 +252,22 @@ void McpSettingsDialog::refresh()
         _clients->addItem(client.label + (client.persistent ? QString() : tr(" (this run only)")), client.id);
     if (_clients->findData(selected) >= 0) _clients->setCurrentIndex(_clients->findData(selected));
     const auto clientId = _clients->currentData().toString();
+    // 本函数每次都重建整棵树，而根项默认折叠：先按会话 ID 记下当前展开的根项，
+    // 重建后原样恢复。否则勾选任意一条授权（itemChanged → setGrant → changed →
+    // 排队的 refresh）都会把用户刚展开的层级收起来，每次授权都要重新展开。
+    QSet<QString> expandedSessions;
+    for (int i = 0; i < _sessions->topLevelItemCount(); ++i) {
+        const auto* root = _sessions->topLevelItem(i);
+        const auto id = root->data(0, Qt::UserRole).toString();
+        if (root->isExpanded() && !id.isEmpty())
+            expandedSessions.insert(id);
+    }
     _sessions->clear();
     for (const auto& entry : _service->directory().entries()) {
         auto* item = new QTreeWidgetItem(_sessions, {entry.title.isEmpty() ? entry.id : entry.title,
             SessionDirectory::stateName(entry.state), {}, {}, {}, {}});
         item->setData(0, Qt::UserRole, entry.id);
+        if (expandedSessions.contains(entry.id)) item->setExpanded(true);
         item->setCheckState(2,
             _service->access().canRead(clientId, entry) ? Qt::Checked : Qt::Unchecked);
         const auto allowed = _service->access().commands(clientId, entry);

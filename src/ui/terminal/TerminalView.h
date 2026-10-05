@@ -11,6 +11,7 @@
 #include <QPointer>
 #include "core/search/SearchEngine.h"
 #include "session/LocalShellProfile.h"
+#include "session/transfer/SerialTransferTypes.h"
 
 class ITransport;
 class TerminalCore;
@@ -20,6 +21,8 @@ class QTimer;
 class ElaLineEdit;
 class ElaScrollBar;
 class TerminalSession;
+class SerialFileTransferController;
+class SerialFileTransferDialog;
 
 // 终端视图：组合 TerminalCore（libvterm 仿真引擎）+ TerminalRenderer（QRhi GPU
 // 渲染）+ TerminalSession（Transport 编排），通过 ITransport 接口统一桥接
@@ -127,6 +130,9 @@ private:
     void applyColorScheme();
     void retranslateUi();
     void setupContextMenu(const QPoint& pos);
+    /** @brief 获取当前串口传输活动状态，同时绑定输入门禁的观察指针。 */
+    [[nodiscard]] bool fileTransferActive();
+    void showFileTransfer(NovaTerm::FileTransfer::Direction direction);
     /** @brief 右键菜单与鼠标中键共用的系统剪贴板粘贴入口。 */
     void pasteFromClipboard();
     bool eventFilter(QObject* obj, QEvent* event) override;
@@ -144,6 +150,9 @@ private:
     TerminalCore*     _core{nullptr};
     TerminalRenderer* _renderer{nullptr};
     QPointer<TerminalSession> _session;
+    QPointer<SerialFileTransferController> _serialFileTransfer;
+    QPointer<SerialFileTransferDialog> _transferDialog;
+    int _transferWheelAccum{0}; ///< 活动传输时只用于本地滚动的滚轮余量
     ITransport*       _localTransport{nullptr};
     ITransport*       _displayTransport{nullptr};
     bool              _isLocalShell{false};

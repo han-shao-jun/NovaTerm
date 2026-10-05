@@ -2,14 +2,13 @@
  * @file   RenderCommandBuffer.cpp
  * @brief  渲染命令缓冲实现。
  *
- * 详见 RenderCommandBuffer.h。本文件维护按行组织的命令列表，
- * 提供 resize / replaceRow / rotateRowsUp 等基本操作。
+ * 详见 RenderCommandBuffer.h。本文件维护按行组织的命令列表，提供
+ * resize / mutableRow+finishRow 就地重建 / rotateRowsUp 等操作。
  */
 #include "RenderCommandBuffer.h"
 
 #include <QtGlobal>
 
-#include <utility>
 #include <algorithm>
 
 namespace NovaTerm {
@@ -30,8 +29,7 @@ void RenderCommandBuffer::resize(int rows, int columns)
         row.contents.clear();
         row.revision = ++_revision;
         row.atlasGeneration = 0;
-        row.contentRevision = 0;
-        row.dirtySpans.clear();
+        row.highlightRole = NoHighlightRole;
     }
     _overlays.clear();
     ++_revision;
@@ -49,6 +47,9 @@ RenderCommandRow& RenderCommandBuffer::mutableRow(int index)
         // resize 竞态下重建方仍会写入：落点用固定 scratch，写完即丢。
         _scratchRow.backgrounds.clear();
         _scratchRow.contents.clear();
+        // 角色也必须复位：重建方拿它与上一帧比较来决定是否整行替换，
+        // 留着旧值会得到一个基于无关行的判据。
+        _scratchRow.highlightRole = NoHighlightRole;
         return _scratchRow;
     }
     return _rowCommands[index];
@@ -61,33 +62,11 @@ void RenderCommandBuffer::finishRow(int index, quint64 atlasGeneration)
     RenderCommandRow& destination = _rowCommands[index];
     destination.revision = ++_revision;
     destination.atlasGeneration = atlasGeneration;
-    destination.contentRevision = 0;
-    destination.dirtySpans.clear();
 }
 
-void RenderCommandBuffer::replaceRow(
-    int index,
-    QVector<RenderCommand> backgrounds,
-    QVector<RenderCommand> contents,
-    quint64 atlasGeneration,
-    quint64 contentRevision,
-    QVector<DirtyColumnSpan> dirtySpans)
+void RenderCommandBuffer::swapOverlays(QVector<RenderCommand>& scratch)
 {
-    if (index < 0 || index >= _rowCommands.size())
-        return;
-
-    RenderCommandRow& destination = _rowCommands[index];
-    destination.backgrounds = std::move(backgrounds);
-    destination.contents = std::move(contents);
-    destination.revision = ++_revision;
-    destination.atlasGeneration = atlasGeneration;
-    destination.contentRevision = contentRevision;
-    destination.dirtySpans = std::move(dirtySpans);
-}
-
-void RenderCommandBuffer::replaceOverlays(QVector<RenderCommand> overlays)
-{
-    _overlays = std::move(overlays);
+    _overlays.swap(scratch);
     ++_revision;
 }
 
@@ -110,17 +89,8 @@ void RenderCommandBuffer::rotateRowsUp(int count)
         empty.contents.clear();
         empty.revision = ++_revision;
         empty.atlasGeneration = 0;
-        empty.contentRevision = 0;
-        empty.dirtySpans.clear();
+        empty.highlightRole = NoHighlightRole;
     }
-}
-
-qsizetype RenderCommandBuffer::commandCount() const
-{
-    qsizetype count = _overlays.size();
-    for (const RenderCommandRow& row : _rowCommands)
-        count += row.backgrounds.size() + row.contents.size();
-    return count;
 }
 
 bool RenderCommandBuffer::rowsUseAtlasGeneration(

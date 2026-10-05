@@ -27,6 +27,15 @@ namespace {
 
 constexpr quint32 UnknownExitCode = (std::numeric_limits<quint32>::max)();
 
+// 关闭链的轮询周期固定为 2 ms（pollWriterClose / pollPseudoConsoleClose），
+// 下面的预算都按它折算，并与该文件既有的 5 s 等待（2500 次，对应 writer
+// 与 ClosePseudoConsole）同一量级。
+//   · ReaderStopGracePolls  ≈  2 s —— 置停止标志后的宽限，让 reader 自行收尾。
+//   · ReaderAbortPolls      ≈ 10 s —— 硬失败门槛：终止进程树并打断在途
+//                                      ReadFile 之后仍未退出，就不再轮询。
+constexpr int ReaderStopGracePolls = 1000;
+constexpr int ReaderAbortPolls = 5000;
+
 #ifdef NOVATERM_CONPTY_TESTING
 std::atomic<ConPtyFailureStage> failureStage{ConPtyFailureStage::None};
 
@@ -1101,6 +1110,35 @@ void ConPtySession::deliverClosingOutput()
     drainOutput();
 }
 
+void ConPtySession::requestReaderAbort()
+{
+    _readerStopping.store(true, std::memory_order_release);
+    {
+        std::lock_guard<std::mutex> lock(_outputMutex);
+        _outputChanged.notify_all();
+    }
+    if (_readerAbortRequested)
+        return;
+    // 一次性升级：置停止标志只能让 reader 从输出队列的等待里脱身，它仍
+    // 可能阻塞在 ReadFile 上，因此再从外部打断那个系统调用。
+    _readerAbortRequested = true;
+    // 终止进程树：ConPTY 与子进程的写端随之关闭，ReadFile 返回 0 或
+    // ERROR_BROKEN_PIPE，reader 从循环顶部看到停止标志后退出。
+    if (_job)
+        TerminateJobObject(_job.get(), 1);
+    else if (_process)
+        TerminateProcess(_process.get(), 1);
+    if (_readerThread.joinable()) {
+        // CancelSynchronousIo 只针对该线程发出的同步 I/O，正是这里要打
+        // 断的那一次 ReadFile（std::thread 的 native_handle 在 MSVC 上
+        // 就是线程 HANDLE，本文件 pollWriterClose 已按同样方式使用）。
+        CancelSynchronousIo(_readerThread.native_handle());
+    }
+    // 兜底：取消已排入内核、在 CancelSynchronousIo 之后才到达的请求。
+    if (_outputRead)
+        CancelIoEx(_outputRead.get(), nullptr);
+}
+
 void ConPtySession::pollPseudoConsoleClose()
 {
     deliverClosingOutput();
@@ -1127,13 +1165,24 @@ void ConPtySession::pollPseudoConsoleClose()
         _pseudoConsoleCloser.join();
 
     if (!_readerFinished.load(std::memory_order_acquire)) {
-        if (++_readerClosePolls >= 1000)
-            _readerStopping.store(true, std::memory_order_release);
-        QTimer::singleShot(std::chrono::milliseconds(2), this,
-                           &ConPtySession::pollPseudoConsoleClose);
-        return;
+        if (++_readerClosePolls >= ReaderStopGracePolls)
+            requestReaderAbort();
+        if (_readerClosePolls < ReaderAbortPolls) {
+            QTimer::singleShot(std::chrono::milliseconds(2), this,
+                               &ConPtySession::pollPseudoConsoleClose);
+            return;
+        }
+        // 硬失败：reader 在宽限期与终止/CancelSynchronousIo 之后仍未退出
+        // （rescue 链被外部打断时的防御分支）。继续 2 ms 轮询只会让生命
+        // 周期线程永久空转且永远到不了 finalizeClose()，因此就此转入收尾：
+        // 跳过 join 把它留给析构里既有的防御性收尾（那里同样先终止进程
+        // 树再 join）。绝不 detach —— readerMain 捕获的是裸 this，detach
+        // 之后对象被 deleteLater 销毁就是 UAF。
+        _readerJoinAbandoned = true;
+        emit errorOccurred(QStringLiteral(
+            "Reader thread still running; closing without joining it"));
     }
-    if (_readerThread.joinable())
+    if (_readerThread.joinable() && !_readerJoinAbandoned)
         _readerThread.join();
     deliverClosingOutput();
     {

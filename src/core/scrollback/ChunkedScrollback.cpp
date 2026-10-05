@@ -404,6 +404,26 @@ void ChunkedScrollback::tailFrom(LineId sinceId, isize maxLines,
 
     // 正向深拷贝 [startRow .. lineCount)。深拷贝的是尾部少量逻辑行的 cells，
     // 成本远小于全量快照复制所有 ChunkView。
+    //
+    // ⚠ 这份拷贝**是跨线程安全机制本身，不要当成可以优化掉的冗余**。
+    // 调用方（TerminalRenderer::updateHistoryLayout）在锁外消费 out.lines，
+    // 而本函数返回后 active 块会继续被 parser worker 改写（sb_popline 改写
+    // 尾条、appendContinuation 追加），因此不能交出指向源数据的非拥有视图 ——
+    // 那正是 docs/ARCHITECTURE.md §2「跨线程只传不可变快照」要排除的情况。
+    //
+    // 实测代价（103 列，约 80 行/批，24 MiB/s 解析率）：每次发布约 830 KB
+    // memcpy。已通过调用侧按事件循环回合合并（TerminalRenderer 的
+    // syncHistoryLayout 合并）把调用次数降到与 scrollbackChanged 次数同量级；
+    // 更彻底的消除只有两条路，都各有代价，不要顺手改：
+    //   ① 把折行搬进本函数的访问器回调里（即在锁内 wrapLine）—— 消掉拷贝与
+    //      分配churn，但把 GUI 侧计算放进 modelMutex 的排他期；
+    //   ② 把 LogicalLine::cells 改成 shared_ptr<const> + 写时复制 —— 触及
+    //      核心跨线程数据结构，影响面远超收益。
+    //
+    // 另注意 maxLines 上界（调用方传 4096）是**内存尖峰**而非拷贝速率的界：
+    // GUI 线程被阻塞后追帧时，一次可能真拷到 4096 行 ≈ 42 MB。若要调这个
+    // 常数，须在「尖峰内存」与「回退全量重排的频率」之间取舍，没有实测前
+    // 不要改。
     out.lines.reserve(std::size_t(_lineCount - startRow));
     for (isize row = startRow; row < _lineCount; ++row) {
         const LogicalLine* line = lineAt(row);

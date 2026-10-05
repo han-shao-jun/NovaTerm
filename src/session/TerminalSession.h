@@ -26,6 +26,7 @@ class InteractiveStreamFramer;
 class SessionCommandCoordinator;
 class ISessionScriptProvider;
 class TerminalCore;
+class SerialFileTransferController;
 
 /**
  * @brief 终端会话：一个终端运行时 + 一条传输连接。
@@ -113,6 +114,11 @@ public:
     {
         return _scriptProvider.get();
     }
+    /** @brief 已连接的 8 位串口可提供文件传输入口，其他后端返回 false。 */
+    [[nodiscard]] bool canTransferFiles() const;
+    /** @brief 按需取得 Session 所有的传输控制器；非串口返回 nullptr。 */
+    [[nodiscard]] SerialFileTransferController* serialFileTransfer();
+
     /** @brief 由会话目录按当前 Transport 类型安装脚本 provider。 */
     void installScriptProvider(std::unique_ptr<ISessionScriptProvider> provider);
 
@@ -252,7 +258,9 @@ signals:
 
 private:
     QChronoTimer _reconnectTimer; ///< 单次自动重连定时器，支持完整整秒范围
-    bool _manualDisconnect{false}; ///< 主动断开后暂停自动重连
+    bool _manualDisconnect{false};
+    std::unique_ptr<SerialFileTransferController> _fileTransfer;
+    quint64 _fileTransferLeaseId{0}; ///< 主动断开后暂停自动重连
     std::unique_ptr<TerminalContextProvider> _contextProvider;
     std::unique_ptr<SessionCommandFacade> _commandFacade;
     std::unique_ptr<SessionInputArbiter> _inputArbiter;

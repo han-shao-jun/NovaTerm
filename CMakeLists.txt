@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(NovaTerm VERSION 0.2.61 LANGUAGES CXX C)
+project(NovaTerm VERSION 0.2.62 LANGUAGES CXX C)
 
 # ═══════════════════════════════════════════════════════════════════
 #  1. 通用平台编译参数
@@ -221,6 +221,18 @@ endif()
 
 # 第一方 C++ 目标统一使用相同的编码和严格警告策略。此处位于 vendored 子目录之后，
 # 避免把项目编译策略传入 ElaWidgetTools、libvterm 与 libssh。
+#
+# NOMINMAX 必须在这里全局定义，而不是逐个文件加 `#ifndef NOMINMAX` 守卫：
+# windows.h 的 min/max 是无作用域宏，会让 `std::min(a, b)` 变成
+# `std::min((a), (b))` 之外的任意形态直到编译失败，而 windows.h 经常是
+# **间接**包含进来的（ConPtyApi.h、serialport_info.h、WinHandle.h、
+# CredentialStore.cpp、SettingsPage.cpp、main.cpp 等十余个文件经由平台头引入）。
+# 逐文件守卫只能覆盖直接包含者，且新增文件必然漏掉；命令行 /DNOMINMAX 一次性
+# 覆盖所有第一方 TU，包括以后新增的。当前 src/ 下有 132 处 std::min/max
+# 写法，若某天某个 TU 先包含了 windows.h 就是编译失败。
+add_compile_definitions(
+    "$<$<AND:$<COMPILE_LANGUAGE:CXX>,$<CXX_COMPILER_ID:MSVC>>:NOMINMAX>"
+)
 add_compile_options(
     "$<$<AND:$<COMPILE_LANGUAGE:CXX>,$<CXX_COMPILER_ID:MSVC>>:/utf-8>"
     "$<$<AND:$<COMPILE_LANGUAGE:CXX>,$<CXX_COMPILER_ID:MSVC>>:/Wall>"
@@ -319,10 +331,26 @@ target_link_libraries(novaterm_core
 # P9 协议库独立构建；串口接线前不链接进 NovaTerm。
 add_subdirectory(src/filetransfer)
 
+# Qt 门面只负责串口通道与异步文件宿主，纯协议库继续可独立使用。
+qt_add_library(novaterm_serial_transfer STATIC
+    src/session/transfer/SerialTransferTypes.h
+    src/session/transfer/SerialFileTransferController.h
+    src/session/transfer/SerialFileTransferController.cpp
+    src/session/transfer/TransferFileWorker.h
+    src/session/transfer/TransferFileWorker.cpp
+)
+target_include_directories(novaterm_serial_transfer PUBLIC "${PROJECT_SOURCE_DIR}/src")
+target_link_libraries(novaterm_serial_transfer PUBLIC
+    novaterm_filetransfer Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::SerialPort
+    PRIVATE novaterm_core
+)
+
+
 file(GLOB_RECURSE SOURCES CONFIGURE_DEPENDS "src/*.cpp" "src/*.h")
 list(FILTER SOURCES EXCLUDE REGEX "[/\\\\]src[/\\\\]core[/\\\\]")
 list(FILTER SOURCES EXCLUDE REGEX "[/\\\\]src[/\\\\]mcp[/\\\\]")
 list(FILTER SOURCES EXCLUDE REGEX "[/\\\\]src[/\\\\]filetransfer[/\\\\]")
+list(FILTER SOURCES EXCLUDE REGEX "[/\\\\]src[/\\\\]session[/\\\\]transfer[/\\\\]")
 list(FILTER SOURCES EXCLUDE REGEX "[/\\\\]SessionDirectory\\.(cpp|h)$")
 list(FILTER SOURCES EXCLUDE REGEX
     "[/\\\\](CommandPlatformProfile|ISessionCommandExecutor|LocalSessionCommandExecutor|SessionCommandFacade|SshSessionCommandExecutor)\\.(cpp|h)$"
@@ -387,6 +415,7 @@ target_link_libraries(NovaTerm PRIVATE
         ${NOVATERM_SECRET_SERVICE_LIBS}
         ElaWidgetTools
         novaterm_core
+        novaterm_serial_transfer
         novaterm_mcp_runtime
         libtelnet
         ssh::ssh

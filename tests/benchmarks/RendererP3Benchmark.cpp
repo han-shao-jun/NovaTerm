@@ -84,8 +84,12 @@ quint64 rebuildRows(const NovaTerm::RendererSnapshot& snapshot,
             }
         }
         commandCount += quint64(backgrounds.size() + contents.size());
-        buffer.replaceRow(row, std::move(backgrounds),
-                          std::move(contents), 1);
+        // 与生产路径一致：mutableRow() 就地写入 + finishRow() 提交元数据
+        // 旧的 replaceRow() 只被测试/本基准使用，已作为死代码删除。
+        NovaTerm::RenderCommandRow& target = buffer.mutableRow(row);
+        target.backgrounds = std::move(backgrounds);
+        target.contents = std::move(contents);
+        buffer.finishRow(row, 1);
     }
     return commandCount;
 }

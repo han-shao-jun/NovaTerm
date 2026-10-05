@@ -67,9 +67,6 @@ public:
         quint64 cpuFrameP95Nanoseconds{0};
         quint64 cpuFrameP99Nanoseconds{0};
         quint64 dirtyBlocksRebuilt{0};
-        quint64 mappingOnlyUpdates{0};
-        quint64 rowSlotsReused{0};
-        quint64 rowSlotsCreated{0};
         quint64 glyphCacheHits{0};
         quint64 glyphCacheMisses{0};
         quint64 glyphRasters{0};
@@ -86,6 +83,14 @@ public:
         quint64 glyphRasterQueueCancelled{0};
         quint64 glyphRasterQueueStaleDropped{0};
         quint64 scrollbackReflowRequests{0};
+        /**
+         * @brief 走尾部增量路径维护历史显示布局的次数。
+         *
+         * 每次都要调 `TerminalCore::scrollbackTail()`，它把尾部逻辑行深拷贝
+         * 一份。解析按批次发布，该计数用于验证同一事件循环轮次里的多次发布
+         * 被合并成一次（见 syncHistoryLayout）。
+         */
+        quint64 historyLayoutTailUpdates{0};
         quint64 capabilityFallbacks{0};
         quint64 viewportMappingRevision{0};
     };
@@ -145,6 +150,23 @@ public:
     [[nodiscard]] static bool isModifierOnlyKey(int key);
     void scrollToLine(int line);
     void scrollLines(int delta);
+
+    /**
+     * @brief 宿主声明本地 shell 是否需要"保守"的活动屏幕上滚渲染。
+     *
+     * @note 保留此入口只为兼容 `TerminalView::startLocalShell()` 的既有调用。
+     *       它原先用来在"滚动时旋转行槽位环的快路径"与"每批滚动都重建最终
+     *       快照"之间二选一，而快路径在所有生产配置下都不可达
+     *       （`_conservativeLiveScrollRendering` 默认为 true，宿主对除
+     *       wsl.exe 外的每个本地 shell 都传 true），已随该快路径一并删除。
+     *       因此本函数当前不再改变任何渲染行为。
+     *
+     *       若要重新启用该快路径，判定依据（"这个 shell 是否发出光标定位
+     *       重写"）必须来自 shell profile 而不是可执行文件名，且需要
+     *       `LocalShellProfile` 增加一个能力位、在 `TerminalView` 里按该位
+     *       调用本函数。参见 docs/architecture/stages/P5_Glyph_and_GPU_Pipeline.md
+     *       的 live-scroll 行槽位一节。
+     */
     void setConservativeLiveScrollRendering(bool enabled);
 
     // ── 选区 ───────────────────────────────────────────────────
@@ -253,6 +275,25 @@ public:
         int endColumn, int slot, QVector<GpuInstance>& backgroundScratch,
         QVector<GpuInstance>& contentScratch);
 
+    /**
+     * @brief 从正则模式里提取"任何命中都必定包含"的字面量集合。
+     *
+     * 用于高亮规则的廉价前置过滤：集合为空表示无法证明（调用方必须照旧跑
+     * 正则），非空时只有行文本包含其中任意一项才可能命中。
+     *
+     * 识别的形态（其余一律返回空，保持保守）：
+     *  - 顶层零宽断言组（`(?<!…)` / `(?!…)` / `(?=…)` / `(?<=…)`）不产生
+     *    文本，跳过；
+     *  - 纯字面量段：取整段作为唯一必需字面量；
+     *  - 顶层 `(?:a|b|c)` 且各分支均为纯字面量：取各分支；
+     *  - 顶层字符组 `[abc]`（只含单字符，无区间/转义）：取各字符。
+     *
+     * @param pattern 正则模式串。
+     * @return 必需字面量；无法证明时为空。
+     */
+    [[nodiscard]] static QVector<QString> highlightRequiredLiterals(
+        const QString& pattern);
+
 private:
     // ── 渲染辅助 ──────────────────────────────────────────────
     void recalculateCellSize();
@@ -286,9 +327,12 @@ private:
                             QVector<NovaTerm::RenderCommand>& backgrounds,
                             QVector<NovaTerm::RenderCommand>& contents);
     void appendCursorCommand(QVector<NovaTerm::RenderCommand>& commands,
-                             const NovaTerm::CursorState& cursor);
-    void appendSelectionCommands(QVector<NovaTerm::RenderCommand>& commands);
-    void appendSearchCommands(QVector<NovaTerm::RenderCommand>& commands);
+                             const NovaTerm::CursorState& cursor,
+                             int rows, int columns);
+    void appendSelectionCommands(QVector<NovaTerm::RenderCommand>& commands,
+                                 int rows, int columns);
+    void appendSearchCommands(QVector<NovaTerm::RenderCommand>& commands,
+                              int rows, int columns);
     NovaTerm::RenderCommand makeSolidCommand(
         NovaTerm::RenderCommandType type,
         const QRectF& rect,
@@ -322,11 +366,24 @@ private:
     QColor terminalColorToQColor(const NovaTerm::TerminalColor& color,
                                  bool foreground) const;
     QColor highlightColor(NovaTerm::TerminalHighlightRole role) const;
-    std::optional<QColor> rowHighlightColor(
-        int widgetRow, const NovaTerm::RendererSnapshot& screen) const;
+
+    /**
+     * @brief 计算一行的语义高亮角色。
+     * @param widgetRow 可见行号。
+     * @param screen    本帧快照。
+     * @return `TerminalHighlightRole` 的整数值；NovaTerm::NoHighlightRole
+     *         表示本行未命中任何规则。
+     * @note 行文本写入复用的成员缓冲（旧实现为每个 Cell 构造一个 QString），
+     *       并先用字面量前置过滤掉不可能命中的规则再跑 PCRE2。
+     */
+    int rowHighlightRole(int widgetRow,
+                         const NovaTerm::RendererSnapshot& screen);
 
     // ── Unicode 转 UTF-8 ──────────────────────────────────────
     static QString cellCharsToString(const uint32_t* chars, int maxCount);
+    /// 把一个 Cell 的字符簇追加到目标串，不产生临时 QString。
+    static void appendCellChars(QString& out, const uint32_t* chars,
+                                int maxCount);
     static QShader loadShader(const QString& path);
     void releaseRhiResources();
     void ensureAtlasTexture();
@@ -339,6 +396,16 @@ private:
      *        只处理头部淘汰与尾条逻辑行的增长，代价 O(新增内容)。
      */
     void updateHistoryLayout();
+
+    /**
+     * @brief 执行一次合并后的历史布局维护（scrollbackChanged 的处理器体）。
+     *
+     * @note  与 `updateHistoryLayout()` 分开是因为后者要走
+     *        `TerminalCore::scrollbackTail()`，它把尾部逻辑行深拷贝一份；
+     *        一个事件循环轮次里积压的多个解析批次应共用同一次拷贝，故由
+     *        scrollbackChanged 置脏并投递一次 queued 调用到本函数。
+     */
+    void syncHistoryLayout();
 
     /**
      * @brief 按 _scrollAnchorLine/_scrollAnchorWrap 把滚动偏移还原到同一内容。
@@ -374,6 +441,24 @@ private:
     TerminalCore* _core;
     TerminalColorScheme _scheme;
     QVector<NovaTerm::TerminalHighlightRule> _highlightRules;
+    /**
+     * @brief 与 _highlightRules 一一对应的字面量前置过滤表。
+     *
+     * `literals` 为空表示该规则无法前置过滤，必须照旧跑正则。
+     * 由 setHighlightRules() 一次性建好，行文本侧每帧只做 O(1) 的
+     * `contains` 试探，不再让每条规则对整行跑一次 PCRE2。
+     */
+    struct HighlightPrefilter
+    {
+        QVector<QString> literals;
+        bool caseInsensitive{false};
+    };
+    QVector<HighlightPrefilter> _highlightPrefilters;
+    /// 行文本复用缓冲（逐 Cell 追加）与它的小写副本（仅大小写不敏感规则用）。
+    QString _rowTextScratch;
+    QString _rowTextFoldedScratch;
+    /// 是否存在需要小写副本的规则，避免为纯大小写敏感规则集做无用功。
+    bool _highlightNeedsFoldedText{false};
 
     QFont _font;
     QFontMetricsF* _fm{nullptr};
@@ -396,8 +481,11 @@ private:
     // 上次经 scrollStateChanged 发布的量程与偏移，用于只在变化时发信号。
     int _publishedMaximumOffset{0};
     int _publishedScrollOffset{0};
-    bool _conservativeLiveScrollRendering{true};
     quint64 _reflowGeneration{0};
+    /// 有 scrollback 增量待合并（见 syncHistoryLayout 的说明）。
+    bool _historyLayoutDirty{false};
+    /// 已投递一次合并维护，避免重复排队。
+    bool _historyLayoutSyncScheduled{false};
     HistoryLayout _historyLayout;
     QVector<NovaTerm::DisplayLine> _pendingHistoryLayout;
     // _historyLayout 所依据的列宽。0 表示布局未建立。仅当它与当前列宽不一致
@@ -434,6 +522,33 @@ private:
     quint64 _atlasGeneration{0};
     qreal _atlasDpr{0.0};
     quint64 _frameNumber{0};
+    // ── 跨帧复用的暂存缓冲（避免每帧堆分配/释放）────────────────
+    /**
+     * @brief placement uniform 的 CPU 侧副本，固定 kPlacementFloatCount 项。
+     *
+     * 只写头部 4 项、修正矩阵 16 项与 `[0, rowCount)` 的行槽位；着色器对
+     * `instanceMeta.y >= viewport.w` 的槽位提前返回，根本不索引
+     * `rowPlacement[]`，因此槽位表的尾部无需每帧清零。
+     */
+    QVector<float> _placementScratch;
+    /// 本帧脏行标记，容量跨帧保留。
+    std::vector<bool> _dirtyRowsScratch;
+    /// 本帧每行的脏列区间；内层向量容量跨帧保留。
+    QVector<QVector<NovaTerm::DirtyColumnSpan>> _dirtySpansScratch;
+    /// overlay 命令的复用缓冲：与命令缓冲交换内容，两侧容量都保留。
+    QVector<NovaTerm::RenderCommand> _overlayScratch;
+    /// uploadAllRows 时复用的"整行宽"列区间，免去每行一个一元素 QVector。
+    QVector<NovaTerm::DirtyColumnSpan> _fullRowSpanScratch;
+    /**
+     * @brief 本帧是否向栅格化队列入队过任务。
+     *
+     * 用于决定是否需要采样 glyphRasterQueueDepth：该深度来自
+     * `AsyncGlyphRasterizer::size()`，会在栅格化互斥锁下线性扫描整张
+     * `QHash(GlyphKey,bool>`（上限 MaxPendingTasks = 512）。队列只由
+     * enqueue() 增长，所以"深度为 0 且本帧既没入队也没取走结果"必然仍是
+     * 0，此时跳过采样；深度非零时继续采样直到归零。
+     */
+    bool _glyphEnqueuedThisFrame{false};
     QVector<GpuInstance> _instances;
     // 背景/内容分别使用独立的 span scratch：容量跨帧复用（避免每个 span 重新
     // 增长 QList），且两份数据可以分别按实际区间上传，互不干扰。

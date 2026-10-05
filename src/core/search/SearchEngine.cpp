@@ -67,15 +67,24 @@ std::optional<SearchableLine> makeSearchable(const LogicalLine& line,
         for (uint32_t codepoint : cell.chars) {
             if (codepoint == 0 || codepoint == WideCharContinuation)
                 break;
-            const char32_t character = char32_t(codepoint);
-            const QString encoded = QString::fromUcs4(&character, 1);
-            if (result.text.size() + encoded.size()
-                > MaximumSearchLineCharacters) {
+            // 直接以 char16_t 追加，不构造临时 QString。此前每个码点都做一次
+            // QString::fromUcs4 —— 1 个 code unit 的 QString 必然堆分配一个
+            // QArrayData，于是「扫描整个 scrollback 的每个字符」= 一次 malloc
+            // 加一次 free。默认 1000 行 × 200 列即约 20 万次分配/次搜索，
+            // 而 text 上的 reserve 对这些临时对象毫无帮助。
+            // 码点 > 0xFFFF 需代理对，占两个 UTF-16 单元。
+            const qsizetype units = codepoint > 0xFFFF ? 2 : 1;
+            if (result.text.size() + units > MaximumSearchLineCharacters)
                 return std::nullopt;
+            if (units == 1) {
+                result.text.append(QChar(char16_t(codepoint)));
+            } else {
+                const char32_t v = char32_t(codepoint) - 0x10000;
+                result.text.append(QChar(char16_t(0xD800 + (v >> 10))));
+                result.text.append(QChar(char16_t(0xDC00 + (v & 0x3FF))));
             }
-            result.text += encoded;
             // 同一个 Cell 的多个码元都映射到该 Cell 索引。
-            for (isize i = 0; i < encoded.size(); ++i)
+            for (qsizetype i = 0; i < units; ++i)
                 result.utf16ToCell.push_back(cellIndex);
         }
     }
