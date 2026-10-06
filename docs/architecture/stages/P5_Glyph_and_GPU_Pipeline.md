@@ -67,7 +67,7 @@ P5在`119 × 40`或等价可见网格上的默认目标：
 | 指标 | 目标 |
 | --- | ---: |
 | 单Cell内容更新 | 不超过1行；支持脏列/分块后应少于整行命令重建 |
-| 稳态逐行滚屏重建 | P95不超过2个新行槽位/帧 |
+| 稳态逐行滚屏重建 | 每帧不超过2个可见网格（`rowsRebuilt <= 2 * framesRendered * visibleRows`） |
 | 稳态逐行滚屏上传bytes | 相对P3同负载降低至少90% |
 | ASCII稳态Draw Call | 每帧不超过6次 |
 | 混合文本Draw Call | 不超过`4 + 活跃Atlas page/material batch数` |
@@ -289,15 +289,44 @@ sequenceDiagram
     R->>G: update row placement/transform
 ```
 
-滚动映射改变时：
+**⚠ 实现现状（2026-10-05 更新）：本节的槽位复用尚未在生产中启用，代码已删除。**
+
+2026-10-05 的全项目 review 发现：`RowSlotMap::update()` 这套 identity→slot
+复用**没有任何生产调用者**。`_conservativeLiveScrollRendering` 默认 `true`，
+`TerminalView::startLocalShell()` 只对 `wsl.exe` 置 false，因此除 wsl.exe 外的
+每个 shell 都走整帧重建 + `uploadAllRows`。实测（xcb + opengl，6 秒
+`steady_scroll`）该路径的 CPU 帧成本约为快路径的 **6 倍**
+（5.1–5.5 ms vs ~1.0 ms p50），GPU 上传 512 MB vs 23.7 MB。
+换言之本节此前的 P95 判据与三份 perf 记录测的都是一条除 wsl.exe 外没有 shell
+走过的路径。
+
+本轮的处理是**删除死代码**而不是启用它（启用需要跨 `LocalShellProfile` 引入
+能力标志，超出当轮改动范围）：
+
+- 已删除：`RowSlotMap::update()` / `RowSlotUpdate` / `VisibleRowIdentity` /
+  `qHash(VisibleRowIdentity,…)` / `mappingRevision()` / `mappingOnlyUpdates` /
+  `rowSlotsReused` / `rowSlotsCreated` / `rowsNeedingRebuildAfterMapping()`。
+- **保留**：`RowSlotMap::rotateRowsUp()` —— 恢复快路径时只需补回 `update()` 那一半。
+- 行为变化：对除 `wsl.exe` 外的 shell **无变化**（本就走整帧路径）；
+  `wsl.exe` 由「轮转 + 只重建进入行」改为整帧重建。功能不回退（画面正确），
+  只是滚动时 CPU 开销上升。
+- 验收判据同步换成「每帧最多重建两个可见网格」，`rowsP95` 仍作为诊断量输出。
+
+恢复快路径需要三处约 15 行的改动：给 `LocalShellProfile` 加
+`emitsCursorPositionedRewrites` 能力标志、在四个 profile 里分别置值、
+`TerminalView::startLocalShell()` 改传该标志而不是比较可执行文件名。
+
+滚动映射改变时的原设计意图（保留供恢复参考）：
 
 - 计算旧、新可见行identity的最长复用集合；
 - 保持复用行对应的command block和GPU slot；
 - 只回收离开viewport的slot；
 - 只为新进入viewport的行生成命令和实例；
 - 更新小型row placement/transform Buffer；
-- resize、reflow、alternate screen或无法匹配identity时才全屏重建；
-- resize 不再强制回到实时底部：正在回看时改变列宽会按 `_scrollAnchorLine`/`_scrollAnchorWrap` 在重排完成后还原到同一内容处。
+- resize、reflow、alternate screen或无法匹配identity时才全屏重建。
+
+该意图中**仍然生效**的一条：resize 不再强制回到实时底部 —— 正在回看时改变列宽
+会按 `_scrollAnchorLine`/`_scrollAnchorWrap` 在重排完成后还原到同一内容处。
 
 行identity不能只使用可变数组下标。Scrollback使用稳定`LineId + wrapIndex + sourceVersion`；active screen使用screen generation、logical row identity或可证明安全的ring identity。
 

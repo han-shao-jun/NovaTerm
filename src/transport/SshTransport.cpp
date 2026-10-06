@@ -76,7 +76,7 @@ SshTransport::SshTransport(SshConfig config, QObject* parent)
     , _config(std::move(config))
     , _knownHostsPath(defaultKnownHostsPath())
     , _keepAliveMs(_config.keepAliveSeconds > 0 ? _config.keepAliveSeconds * 1000 : 0)
-    , _wakeup(std::make_unique<SshWorkerWakeup>())
+    , _wakeup(std::make_shared<SshWorkerWakeup>())
 {
     // 静态链接 libssh 必须显式初始化（共享库由 DllMain 自动做）。
     // ssh_init()/ssh_finalize() 内部带引用计数，多个实例安全配对。
@@ -134,11 +134,14 @@ bool SshTransport::connectToHost()
         ++_monitorGeneration;
         _monitorRequestId = 0;
     }
-    // 注意：不重置 _pendingCols/_pendingRows —— attachTransport 在
-    // connectToHost() 之前已通过 resizeTerminal() 写入当前终端尺寸，
-    // worker 打开 channel 时以它作为初始 PTY 尺寸。
+    // 注意：不重置 _pendingSize —— attachTransport 在 connectToHost()
+    // 之前已通过 resizeTerminal() 写入当前终端尺寸，worker 打开 channel
+    // 时以它作为初始 PTY 尺寸。
 
-    _thread = QThread::create([this]() { workerMain(); });
+    // 唤醒 socket 按值捕获：被放弃的 worker 可能在本对象析构后仍用它
+    // （见 SshTransport.h 中 _wakeup 的注释）。
+    std::shared_ptr<SshWorkerWakeup> wakeup = _wakeup;
+    _thread = QThread::create([this, wakeup]() { workerMain(wakeup); });
     _thread->setObjectName(QString::fromLatin1(SshWorkerThreadName));
     _thread->start();
     return true;
@@ -258,8 +261,9 @@ void SshTransport::resizeTerminal(int cols, int rows)
 {
     if (cols <= 0 || rows <= 0)
         return;
-    _pendingCols.store(cols);
-    _pendingRows.store(rows);
+    // 单字发布：worker 侧一次 load 即得到一致的 (列, 行)，不会被撕成
+    // 「列来自本次、行来自下次」。此前是两个独立原子，属可发生的竞争。
+    _pendingSize.store(packPendingSize(cols, rows));
     _wakeup->notify();
 }
 
@@ -541,7 +545,7 @@ void SshTransport::emitResourceSampleFinished(quint64 requestId,
         Qt::QueuedConnection);
 }
 
-void SshTransport::workerMain()
+void SshTransport::workerMain(const std::shared_ptr<SshWorkerWakeup>& wakeup)
 {
     NovaTerm::setCurrentThreadName(SshWorkerThreadName);
     ssh_session session = ssh_new();
@@ -649,7 +653,18 @@ void SshTransport::workerMain()
         }
 
         // 请求 UI 决策，然后在此线程上等待（带超时，可被 disconnect 唤醒）。
-        _keyDecision = -1;
+        //
+        // _keyDecision 的复位必须在 _keyMutex 内：其余所有写入方
+        // （acceptHostKey / rejectHostKey / disconnectInternal）都持该锁。
+        // 锁外写会与「取锁前的那个窗口」竞争 —— 若 accept/reject 落在复位与
+        // 取锁之间，该判定会被这里的 -1 覆盖，工作线程随后在永不为假的谓词上
+        // 空等（对话框已关、连接无限挂起）；反向时序则会让连接凭一个用户
+        // 并未为它做过的判定继续，等于跳过主机密钥校验。
+        // 取锁后 while 会重新检查谓词，故复位与等待之间的决策不会丢失。
+        {
+            QMutexLocker lock(&_keyMutex);
+            _keyDecision = -1;
+        }
         QMetaObject::invokeMethod(this, [this, info]() {
             emit hostKeyRequired(info);
         }, Qt::QueuedConnection);
@@ -771,8 +786,11 @@ void SshTransport::workerMain()
                                       value.constData());
     }
 
-    const int startCols = _pendingCols.load() > 0 ? _pendingCols.load() : 80;
-    const int startRows = _pendingRows.load() > 0 ? _pendingRows.load() : 24;
+    // 一次 load 取回成对的尺寸：此前对 _pendingCols 连 load 两次，守卫与
+    // 取值可能来自不同的 resize。
+    const auto [pendingCols, pendingRows] = unpackPendingSize(_pendingSize.load());
+    const int startCols = pendingCols > 0 ? pendingCols : 80;
+    const int startRows = pendingRows > 0 ? pendingRows : 24;
 
     if (ssh_channel_request_pty_size(channel, term.constData(),
                                      startCols, startRows) != SSH_OK
@@ -798,7 +816,7 @@ void SshTransport::workerMain()
         return;
     }
     ssh_event_add_session(event, session);
-    if (ssh_event_add_fd(event, _wakeup->descriptor(), POLLIN,
+    if (ssh_event_add_fd(event, wakeup->descriptor(), POLLIN,
             [](socket_t, int, void* context) {
                 static_cast<SshWorkerWakeup*>(context)->consume();
                 return 0;
@@ -1372,8 +1390,10 @@ void SshTransport::workerMain()
         }
 
         // 应用窗口尺寸变更
-        const int pc = _pendingCols.load();
-        const int pr = _pendingRows.load();
+        const auto [latestCols, latestRows] =
+            unpackPendingSize(_pendingSize.load());
+        const int pc = latestCols;
+        const int pr = latestRows;
         if (pc > 0 && pr > 0 && (pc != appliedCols || pr != appliedRows)) {
             // resize 必须发 window-change（RFC 4254 §6.7），不能重复 pty-req：
             // 服务器对已分配 PTY 的通道再次收到 pty-req 会回 CHANNEL_FAILURE，
@@ -1440,7 +1460,7 @@ void SshTransport::workerMain()
         ssh_channel_free(channel);
     }
     if (event) {
-        ssh_event_remove_fd(event, _wakeup->descriptor());
+        ssh_event_remove_fd(event, wakeup->descriptor());
         ssh_event_free(event);
     }
     if (ssh_is_connected(session))

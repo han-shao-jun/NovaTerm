@@ -13,6 +13,7 @@
 #include "session/SessionTypes.h"
 
 #include <QSerialPort>
+#include <QByteArrayView>
 
 class SerialTransport final : public ITransport
 {
@@ -23,9 +24,14 @@ public:
 
     /**
      * @brief 打开串口并建立连接。
-     * @return true 表示串口配置有效且已异步打开；false 表示配置无效。
+     * @return true 表示串口配置有效且已异步打开；false 表示配置无效，
+     *         或线路参数（波特率/数据位/校验/停止位/流控）被操作系统
+     *         或驱动拒绝——两者都按 Configuration 类错误上报。
      * @note 实际打开在 QueuedConnection 中执行，避免在会话创建栈上
-     *       重入地发出 connected()/errorOccurred() 信号。
+     *       重入地发出 connected()/errorOccurred() 信号。线路参数在
+     *       打开后会再下发一次：端口关闭时 setter 只缓存取值，真正
+     *       触达驱动的校验发生在 open() 内部，此时被拒即关闭端口并
+     *       报错，不会留下 isConnected() 为真而线路参数不匹配的状态。
      */
     bool connectToHost() override;
 
@@ -40,6 +46,12 @@ public:
      * @note 内部限制待写队列不超过 1 MiB，超限会报错。
      */
     void write(const QByteArray& data) override;
+    /** @brief 有界部分写：返回接受前缀、0 队列满、-1 连接/I/O 错误。 */
+    [[nodiscard]] qint64 tryWriteBounded(QByteArrayView data, qint64 limit = 16 * 1024);
+    /** @brief Qt 串口待写字节；不是设备端确认计数。 */
+    [[nodiscard]] qint64 pendingWriteBytes() const;
+    /** @brief 清理尚未发出的字节，用于取消协议；不能撤回已发出的数据。 */
+    [[nodiscard]] bool clearPendingOutput();
 
     /**
      * @brief 调整终端尺寸（串口无此能力，空实现）。

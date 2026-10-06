@@ -8,6 +8,7 @@
 
 #include <QByteArray>
 #include <QMetaType>
+#include <QRegularExpression>
 #include <QVector>
 
 #include <optional>
@@ -61,6 +62,7 @@ private:
         const QByteArray& body);
 
     InteractiveCommandProfile _profile;
+    QRegularExpression _promptMatcher; ///< _profile.promptPattern 的编译结果
     QByteArray _pending;
     QByteArray _executionNonce;
     QByteArray _echoSuffix;

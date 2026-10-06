@@ -5,6 +5,8 @@
 #pragma once
 
 #include <QByteArray>
+#include <QByteArrayView>
+#include <functional>
 #include <QObject>
 #include <QPointer>
 
@@ -15,6 +17,7 @@ enum class SessionInputOrigin
 {
     User,
     Mcp,
+    FileTransfer,
 };
 
 /**
@@ -45,6 +48,18 @@ public:
     /** @brief 仅在 executionId 匹配时释放 MCP Lease。 */
     void releaseMcpLease(quint64 executionId);
 
+    /** @brief 预留独占传输；准备阶段仅允许此前 Core 的输出排空。 */
+    [[nodiscard]] bool acquireTransferLease(quint64 transferId, quint64 generation,
+                                           std::function<qint64(QByteArrayView)> writer);
+    /** @brief 旧输入屏障和普通待写排空后，锁住 Core 输出。 */
+    [[nodiscard]] bool activateTransferLease(quint64 transferId);
+    /** @brief 在有效传输 Lease 下进行有界写入；-1 表示失效。 */
+    [[nodiscard]] qint64 submitTransferInput(quint64 transferId, QByteArrayView data);
+    void releaseTransferLease(quint64 transferId);
+    /** @brief Core 编码后的输出；准备阶段旧命令允许排空，活动传输期间拒绝。 */
+    [[nodiscard]] bool submitTerminalOutput(const QByteArray& data);
+    [[nodiscard]] bool hasTransferLease() const noexcept { return _transferId != 0; }
+
     /** @brief 当前 Session 世代中用户提交非空终端输入的单调代际。 */
     [[nodiscard]] quint64 userInputGeneration() const noexcept
     {
@@ -73,6 +88,9 @@ private:
     QPointer<ITransport> _transport;
     quint64 _generation{0};
     quint64 _executionId{0};
+    quint64 _transferId{0};
+    bool _transferActive{false};
+    std::function<qint64(QByteArrayView)> _transferWriter;
     bool _mcpBytesWritten{false};
     quint64 _userInputGeneration{0};
 };

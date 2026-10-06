@@ -16,6 +16,10 @@ void InteractiveStreamFramer::configure(InteractiveCommandProfile profile)
     if (!profile.isValid())
         profile = InteractiveCommandProfile{};
     _profile = std::move(profile);
+    // 提示符正则来自配置，但生命周期与本 framer 相同，因此在 profile 落地
+    // 时一次性编译成成员：consume() 每个输入分片都会用到它，放在那里编译
+    // 等于每个分片付两次 PCRE2 编译。
+    _promptMatcher = QRegularExpression(_profile.promptPattern);
     _pending.clear();
     _echoSuffix.clear();
     _echoCandidate.clear();
@@ -31,6 +35,9 @@ void InteractiveStreamFramer::reset(quint64 generation,
     _sessionGeneration = generation;
     _executionNonce = std::move(executionNonce);
     _promptGeneration = 0;
+    // _profile 不由 reset() 改动，但重连/重新接线都会走到这里，顺带让
+    // 编译结果与 profile 保持同步，避免将来新增 profile 写入点时漏掉。
+    _promptMatcher = QRegularExpression(_profile.promptPattern);
     _pending.clear();
     _echoSuffix.clear();
     _echoCandidate.clear();
@@ -163,11 +170,12 @@ InteractiveFrameResult InteractiveStreamFramer::consume(
         if (_deviceLine.size() > 512)
             _deviceLine = _deviceLine.right(512);
         const QString line = QString::fromUtf8(_deviceLine);
-        const QRegularExpression passwordPrompt(
+        // 密码提示符模式是常量，编译一次即可；用户配置的提示符模式见
+        // _promptMatcher（由 configure()/reset() 编译）。
+        static const QRegularExpression passwordPrompt(
             QStringLiteral("(?i)(password|passphrase):\\s*$"));
         if (!_alternateScreen && !passwordPrompt.match(line).hasMatch()) {
-            const QRegularExpression prompt(_profile.promptPattern);
-            const auto match = prompt.match(line);
+            const auto match = _promptMatcher.match(line);
             if (match.hasMatch() && match.capturedEnd() == line.size()) {
                 ++_promptGeneration;
                 result.events.append({

@@ -35,6 +35,19 @@ static constexpr int kPlacementFloatCount =
 static constexpr qsizetype kCpuFrameSampleCapacity = 2048;
 static constexpr quint64 kCpuFrameBudgetNanoseconds = 16666667;
 
+namespace {
+
+// 把某行的脏列区间重置为"整行宽"。clear + push_back 而不是 `{0, columns}`
+// 赋值：后者会新建一个一元素 QVector 并释放旧缓冲，整帧重建时每行一次堆
+// 分配/释放。
+void setFullRowSpan(QVector<NovaTerm::DirtyColumnSpan>& spans, int columns)
+{
+    spans.clear();
+    spans.push_back({0, columns});
+}
+
+} // namespace
+
 static QRhiWidget::Api preferredRhiApi()
 {
     const QByteArray api = qgetenv("NOVATERM_RHI_API").trimmed().toLower();
@@ -123,7 +136,8 @@ TerminalRenderer::TerminalRenderer(TerminalCore* core, QWidget* parent)
     resetGlyphAtlas();
     _cpuFrameSamples.reserve(kCpuFrameSampleCapacity);
     _renderScheduler = new NovaTerm::RenderScheduler(this);
-    _renderScheduler->setViewport(_core->columns(), _core->rows());
+    _renderScheduler->setViewport(_core->screenSize().first,
+                                  _core->screenSize().second);
     connect(_renderScheduler, &NovaTerm::RenderScheduler::frameRequested,
             this,
             [this](const QVector<NovaTerm::DirtyRegion>& regions,
@@ -170,42 +184,53 @@ TerminalRenderer::TerminalRenderer(TerminalCore* core, QWidget* parent)
     // ── 连接 TerminalCore 信号 ───────────────────────────────
     connect(_core, &TerminalCore::damage, this,
             [this](const NovaTerm::DirtyRegion& region, quint64 revision) {
-        _renderScheduler->setViewport(_core->columns(), _core->rows());
-        NovaTerm::DirtyRegion visible = region;
-        visible.startRow += _scrollLine;
-        visible.endRow += _scrollLine;
-        _renderScheduler->schedule(visible, revision);
-    });
+                // 视口尺寸改用命令缓冲的已知值：TerminalCore::rows()/columns()
+                // 每次都要取 modelMutex，而解析线程最长持锁约 2.7 ms
+                // （64 KiB 批次 @ 24 MiB/s），每个 damage 区域两次取锁会在
+                // 持续输出时把 GUI 线程拖住。命令缓冲的尺寸每帧由
+                // rendererSnapshot 同步，并在 render() 的尺寸不一致分支里
+                // 回灌调度器，因此这里滞后一帧不影响裁剪正确性。
+                const int rows = _commandBuffer.rows();
+                const int columns = _commandBuffer.columns();
+                if (rows > 0 && columns > 0)
+                    _renderScheduler->setViewport(columns, rows);
+                NovaTerm::DirtyRegion visible = region;
+                visible.startRow += _scrollLine;
+                visible.endRow += _scrollLine;
+                _renderScheduler->schedule(visible, revision);
+            });
 
     connect(_core, &TerminalCore::cursorMoved, this, [this]() {
         requestOverlayFrame();
     });
 
     connect(_core, &TerminalCore::scrollbackChanged, this, [this]() {
-        // 布局常驻：先增量维护到与快照一致，之后一切行数判断都用真实显示行
-        // 数。旧实现在实时底部丢弃布局，使滚动条量程退化成逻辑行数。
-        const int previousScroll = _scrollLine;
-        updateHistoryLayout();
-        restoreScrollFromAnchor();
-        publishScrollState();
-        const bool viewportMappingChanged =
-            _scrollLine > 0 || _scrollLine != previousScroll;
-
-        const bool selectionChanged = dropInvalidSelection();
-
-        // At the live bottom, a scrollback append is accompanied by damage for
-        // the active screen in the same parser publication. Scheduling a full
-        // frame here would turn every output batch (especially shell/Clink
-        // startup) into a complete CPU rebuild and GPU upload. A full rebuild
-        // is only required while history rows are actually mapped into the
-        // viewport or when clamping changed that mapping.
-        if (viewportMappingChanged) {
-            ++_viewportMappingRevision;
-            requestFullFrame();
-        } else {
-            if (selectionChanged)
-                requestOverlayFrame();
-        }
+        // 布局维护被合并到"每个事件循环轮次一次"：
+        //
+        // updateHistoryLayout() 走 TerminalCore::scrollbackTail()，而该接口
+        // 会把 [fromLineId .. lastLineId] 的逻辑行**深拷贝**一份（每行一个
+        // Cell 向量）。解析线程按 64 KiB 一批发布，24 MiB/s 下约 380 次/秒，
+        // 一次 200 列 × 80 行的批次约 830 KB 拷贝。布局只在渲染与命中测试
+        // 时才被读，而渲染最多 60 Hz，因此没必要一个解析批次做一次。
+        //
+        // 做法：置脏标志 + 投递一次 queued 调用。事件队列里积压的多个
+        // scrollbackChanged 会共用同一次维护（Qt 按序处理 posted 事件，
+        // 同步调用排在它们之后）。GUI 比解析快时退化为每批一次 —— 与旧
+        // 实现相同，不会更差。
+        _historyLayoutDirty = true;
+        if (_historyLayoutSyncScheduled)
+            return;
+        _historyLayoutSyncScheduled = true;
+        QMetaObject::invokeMethod(
+            this,
+            [this] {
+                _historyLayoutSyncScheduled = false;
+                if (!_historyLayoutDirty)
+                    return;
+                _historyLayoutDirty = false;
+                syncHistoryLayout();
+            },
+            Qt::QueuedConnection);
     });
 
     connect(_core, &TerminalCore::screenScrolled, this, [this](int rows) {
@@ -352,6 +377,21 @@ void TerminalRenderer::setHighlightRules(
     QVector<NovaTerm::TerminalHighlightRule> rules)
 {
     _highlightRules = std::move(rules);
+    // 前置过滤表只随规则集变化，重建一次即可。行文本侧每帧只做
+    // O(字面量数) 的 contains 试探，跳过不可能命中的规则。
+    _highlightPrefilters.clear();
+    _highlightPrefilters.reserve(_highlightRules.size());
+    _highlightNeedsFoldedText = false;
+    for (const NovaTerm::TerminalHighlightRule& rule : _highlightRules) {
+        HighlightPrefilter filter;
+        filter.caseInsensitive =
+            rule.pattern.patternOptions()
+            & QRegularExpression::CaseInsensitiveOption;
+        filter.literals = highlightRequiredLiterals(rule.pattern.pattern());
+        _highlightNeedsFoldedText =
+            _highlightNeedsFoldedText || filter.caseInsensitive;
+        _highlightPrefilters.push_back(std::move(filter));
+    }
     requestFullFrame();
 }
 
@@ -514,10 +554,9 @@ void TerminalRenderer::publishScrollState()
 
 void TerminalRenderer::setConservativeLiveScrollRendering(bool enabled)
 {
-    if (_conservativeLiveScrollRendering == enabled)
-        return;
-    _conservativeLiveScrollRendering = enabled;
-    requestFullFrame();
+    // 保留入口但不再改变行为，见头文件说明：live-scroll 行槽位旋转快路径
+    // 已删除（它在生产配置下不可达），因此没有可切换的第二种滚动策略。
+    Q_UNUSED(enabled);
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -642,7 +681,8 @@ void TerminalRenderer::selectAll()
     _selectAllPending = false;
     _selecting = false;
     _selStart = {includeHistory ? -int(_historyLayout.size()) : 0, 0};
-    _selEnd = {_core->rows() - 1, _core->columns() - 1};
+    const auto [selectCols, selectRows] = _core->screenSize();
+    _selEnd = {selectRows - 1, selectCols - 1};
     requestOverlayFrame();
 }
 
@@ -652,21 +692,23 @@ void TerminalRenderer::selectAll()
 
 QPoint TerminalRenderer::widgetToCell(const QPoint& pos) const
 {
+    const auto [widgetCols, widgetRows] = _core->screenSize();
     const int col = std::clamp(qFloor(pos.x() / std::max<qreal>(1.0, _cellWidth)),
-                               0, std::max(0, _core->columns() - 1));
+                               0, std::max(0, widgetCols - 1));
     const int widgetRow = qFloor(pos.y() / std::max<qreal>(1.0, _cellHeight));
     const int documentRow = std::clamp(widgetRow - _scrollLine,
                                        -_core->scrollbackLineCount(),
-                                       std::max(0, _core->rows() - 1));
+                                       std::max(0, widgetRows - 1));
     return QPoint(col, documentRow);
 }
 
 QPoint TerminalRenderer::widgetToScreenCell(const QPoint& pos) const
 {
+    const auto [hitCols, hitRows] = _core->screenSize();
     const int col = std::clamp(qFloor(pos.x() / std::max<qreal>(1.0, _cellWidth)),
-                               0, std::max(0, _core->columns() - 1));
+                               0, std::max(0, hitCols - 1));
     const int row = std::clamp(qFloor(pos.y() / std::max<qreal>(1.0, _cellHeight)),
-                               0, std::max(0, _core->rows() - 1));
+                               0, std::max(0, hitRows - 1));
     return QPoint(col, row);
 }
 
@@ -694,6 +736,20 @@ void TerminalRenderer::initialize(QRhiCommandBuffer* cb)
 
 void TerminalRenderer::render(QRhiCommandBuffer* cb)
 {
+    // ── 本函数内 TerminalCore 取锁情况（供后续优化参考）──────────
+    // `rendererSnapshot()` 每帧取一次 modelMutex，这是无法回避的：渲染必须
+    // 拿到一份一致快照（见 docs/ARCHITECTURE.md 的跨线程快照约束）。
+    // 另外两处也取同一把锁：补回段在 `screen.revision > requestedContent
+    // Revision` 时会**再取一次**；`cursorState()` 仅在 overlay-only 帧
+    // （contentPending 为 false）取一次。damage 连接与各 overlay 追加函数
+    // 原本也在逐行/逐匹配调 `rows()/columns()`，已全部改为用命令缓冲的
+    // 尺寸（见 damage 连接与 rebuildOverlays 的注释）。
+    //
+    // 剩下的、真正的根治办法在 TerminalCore 侧：把尺寸与光标状态作为
+    // 由解析 worker 更新的原子量发布出去，渲染器无锁读取 —— 与既有
+    // `alternateScreenActive` / `mouseTrackingMode`（createAdapter() 里
+    // 建立的缓存原子量）同一套做法。该改动属于 TerminalCore 的范围，
+    // 本文件不越界修改。
     QElapsedTimer frameTimer;
     frameTimer.start();
     if (!_rhi || !cb || !renderTarget())
@@ -708,9 +764,13 @@ void TerminalRenderer::render(QRhiCommandBuffer* cb)
     if (!_atlasTexture || !_pipeline || !_srb)
         return;
 
+    _glyphEnqueuedThisFrame = false;
+
     // 仅渲染线程访问 atlas/缓存；worker 只生成不可变 QImage 位图。
     bool glyphsReady = false;
-    for (const auto& bitmap : _glyphRasterQueue.takeResults()) {
+    std::deque<NovaTerm::GlyphBitmap> readyBitmaps =
+        _glyphRasterQueue.takeResults();
+    for (const auto& bitmap : readyBitmaps) {
         if (bitmap.sourceGeneration != _fontManager.generation())
             continue;
         if (_glyphCache.insert(bitmap, _frameNumber))
@@ -725,7 +785,6 @@ void TerminalRenderer::render(QRhiCommandBuffer* cb)
     QVector<NovaTerm::DirtyRegion> pendingDirtyRegions;
     bool fullFramePending = false;
     bool overlayPending = false;
-    bool explicitFullPending = false;
     int pendingLiveScrollRows = 0;
     quint64 requestedContentRevision = 0;
     {
@@ -734,10 +793,8 @@ void TerminalRenderer::render(QRhiCommandBuffer* cb)
         fullFramePending = std::exchange(_fullFramePending, false);
         // requestFullFrame() and RenderScheduler::frameRequested() are
         // asynchronous. An already queued incremental QRhi frame can render
-        // between them; do not let that earlier frame consume the intent that
-        // protects a resize/font/resource rebuild from the live-scroll fast
-        // path. Retire the intent only together with an actual full frame.
-        explicitFullPending = _explicitFullPending;
+        // between them; retire the explicit-intent flag only together with an
+        // actual full frame.
         if (fullFramePending)
             _explicitFullPending = false;
         overlayPending = std::exchange(_overlayPending, false);
@@ -752,8 +809,9 @@ void TerminalRenderer::render(QRhiCommandBuffer* cb)
     int rows = _commandBuffer.rows();
     int columns = _commandBuffer.columns();
     if (rows <= 0 || columns <= 0) {
-        rows = _core->rows();
-        columns = _core->columns();
+        const auto [snapCols, snapRows] = _core->screenSize();
+        columns = snapCols;
+        rows = snapRows;
     }
     if (rows <= 0 || columns <= 0)
         return;
@@ -775,45 +833,25 @@ void TerminalRenderer::render(QRhiCommandBuffer* cb)
     _glyphPendingRows.resize(std::size_t(rows), false);
 
 
-    // A scroll callback only says that lines entered scrollback; it does not
-    // prove that every retained GPU row can be represented by the same slot
-    // permutation. Cursor-positioned Windows shells (PowerShell and Clink in
-    // particular) combine scrolls, erases, and rewrites in one publication.
-    // Their conservative mode rebuilds the final snapshot atomically. Known
-    // line-streaming profiles may opt into the row-slot rotation fast path.
-    bool liveScrollRotated = false;
+    // 活动屏幕上滚只说明"有行进入了 scrollback"，并不能证明每一行保留的
+    // GPU 行都能被同一次排列表示。旧实现在这里按 shell 类型二选一：光标
+    // 定位重写的 shell（PowerShell/Clink）整屏重建，其余走行槽位旋转快路径。
+    // 但该判据落在"可执行文件名是不是 wsl.exe"上，于是所有 POSIX shell、
+    // cmd 与 PowerShell 全部落进重建分支 —— 快路径在生产中不可达，却留下
+    // 一整套行身份哈希槽位分配（RowSlotMap::update）与其计数器。
+    //
+    // 判定所需的"这个 shell 是否发光标定位重写"是 LocalShellProfile 的能力
+    // 位，宿主侧尚未提供（TerminalView 只能按可执行文件名 == wsl.exe 判断，
+    // 见 setConservativeLiveScrollRendering 的说明），因此这里只保留已被
+    // 四种传输 × 三个平台验证过的那一支；快路径连同 RowSlotMap::update
+    // 一并删除，见 gpu/RowSlotMap.h 文件头。
     if (pendingLiveScrollRows > 0) {
-        if (_conservativeLiveScrollRendering || explicitFullPending) {
-            resetWidgetRowMapping(rows);
-            fullFramePending = true;
-            overlayPending = true;
-            contentPending = true;
-            pendingDirtyRegions.clear();
-            ++_renderStatistics.revisionPromotedFullFrames;
-        } else {
-            const int scrollRows = std::min(pendingLiveScrollRows, rows);
-            _commandBuffer.rotateRowsUp(scrollRows);
-            _rowSlotMap.rotateRowsUp(scrollRows, float(_cellHeight));
-            _rowBlockDamageTracker.rotateRowsUp(scrollRows);
-            std::rotate(_rowContentIdentities.begin(),
-                        _rowContentIdentities.begin() + scrollRows,
-                        _rowContentIdentities.end());
-            std::fill(_rowContentIdentities.end() - scrollRows,
-                      _rowContentIdentities.end(), quint64(0));
-            std::rotate(_glyphPendingRows.begin(),
-                        _glyphPendingRows.begin() + scrollRows,
-                        _glyphPendingRows.end());
-            std::fill(_glyphPendingRows.end() - scrollRows,
-                      _glyphPendingRows.end(), false);
-            fullFramePending = false;
-            pendingDirtyRegions.clear();
-            pendingDirtyRegions.push_back(
-                {rows - scrollRows, rows, 0, columns});
-            _renderStatistics.rowSlotsReused += quint64(rows - scrollRows);
-            _renderStatistics.rowSlotsCreated += quint64(scrollRows);
-            ++_renderStatistics.mappingOnlyUpdates;
-            liveScrollRotated = true;
-        }
+        resetWidgetRowMapping(rows);
+        fullFramePending = true;
+        overlayPending = true;
+        contentPending = true;
+        pendingDirtyRegions.clear();
+        ++_renderStatistics.revisionPromotedFullFrames;
     }
 
     if (glyphsReady) {
@@ -824,11 +862,20 @@ void TerminalRenderer::render(QRhiCommandBuffer* cb)
             }
         }
     }
-    std::vector<bool> dirtyRows(std::size_t(rows), fullFramePending);
-    QVector<QVector<NovaTerm::DirtyColumnSpan>> dirtySpans(rows);
-    if (fullFramePending) {
-        for (int row = 0; row < rows; ++row)
-            dirtySpans[row].push_back({0, columns});
+    // 脏行标记与脏列区间写入跨帧复用的成员缓冲：旧写法每帧新建
+    // `std::vector<bool>` 与 `QVector<QVector<...>>(rows)`，全帧时每行还要
+    // 一次内层向量分配（Qt::QList 没有小缓冲优化）。内层向量用 clear +
+    // push_back 而不是 `{0, columns}` 赋值，才能真正保住容量。
+    std::vector<bool>& dirtyRows = _dirtyRowsScratch;
+    QVector<QVector<NovaTerm::DirtyColumnSpan>>& dirtySpans =
+        _dirtySpansScratch;
+    dirtyRows.assign(std::size_t(rows), fullFramePending);
+    dirtySpans.resize(rows);
+    for (int row = 0; row < rows; ++row) {
+        if (fullFramePending)
+            setFullRowSpan(dirtySpans[row], columns);
+        else
+            dirtySpans[row].clear();
     }
     if (!fullFramePending) {
         for (const NovaTerm::DirtyRegion& region : std::as_const(pendingDirtyRegions)) {
@@ -847,16 +894,13 @@ void TerminalRenderer::render(QRhiCommandBuffer* cb)
 
     NovaTerm::RendererSnapshot screen;
     if (contentPending) {
-        // 非 live-scroll 帧：非脏行的内容指纹只在 row revision 超过本帧已投递的
-        // requestedContentRevision 时才会被下方补回段读取，故把它作为门槛传入，
-        // 让 core 跳过其余非脏行的整行哈希。live-scroll 旋转帧要按指纹比对全部
-        // 行（rowsNeedingRebuildAfterMapping），必须传 0 让 core 计算所有指纹。
-        const quint64 identityRevisionThreshold =
-            liveScrollRotated ? 0 : requestedContentRevision;
+        // 非脏行的内容指纹只在 row revision 超过本帧已投递的
+        // requestedContentRevision 时才会被下方补回段读取，故把它作为门槛
+        // 传入，让 core 跳过其余非脏行的整行哈希。
         screen = _core->rendererSnapshot(dirtyRows, _scrollLine,
                                          _scrollAnchorLine,
                                          _scrollAnchorWrap,
-                                         identityRevisionThreshold);
+                                         requestedContentRevision);
         // The parser may publish another batch after its model lock is
         // released but before the queued damage signal reaches the GUI
         // thread. If this snapshot is newer than all damage delivered to the
@@ -876,25 +920,36 @@ void TerminalRenderer::render(QRhiCommandBuffer* cb)
                     if (!dirtyRows[row])
                         ++recoveredRows;
                     dirtyRows[row] = true;
-                    dirtySpans[row] = {{0, columns}};
+                    setFullRowSpan(dirtySpans[row], columns);
                 }
                 _renderStatistics.revisionRecoveredRows +=
                     quint64(recoveredRows);
                 if (recoveredRows > 0) {
+                    // 补回行必须重新拷贝 Cell，因此这第二次快照的 dirtyRows
+                    // 与第一次相同 —— 不能只标补回行：第一次标脏的那些行在
+                    // 新快照里同样只有 Cell 拷贝，不能沿用。
+                    //
+                    // 这里只做一处收窄：把 identity 门槛抬到
+                    // requestedContentRevision，与第一次调用一致，于是 core
+                    // 不必为"row revision 未前进的非脏活动行"重算指纹。真正
+                    // 只取补回行的写法还要把第一次快照的 visibleRows /
+                    // visibleRowBlockIdentities 逐行拼回来，收益是几十微秒的
+                    // memcpy，而 modelMutex 的二次获取（解析线程最长持锁
+                    // 2.7 ms）省不掉 —— 决定不取这个复杂度。
                     screen = _core->rendererSnapshot(
                         dirtyRows, _scrollLine, _scrollAnchorLine,
-                        _scrollAnchorWrap);
+                        _scrollAnchorWrap, requestedContentRevision);
                 }
             } else {
                 std::fill(dirtyRows.begin(), dirtyRows.end(), true);
                 for (int row = 0; row < rows; ++row)
-                    dirtySpans[row] = {{0, columns}};
+                    setFullRowSpan(dirtySpans[row], columns);
                 fullFramePending = true;
                 overlayPending = true;
                 ++_renderStatistics.revisionPromotedFullFrames;
                 screen = _core->rendererSnapshot(
                     dirtyRows, _scrollLine, _scrollAnchorLine,
-                    _scrollAnchorWrap);
+                    _scrollAnchorWrap, requestedContentRevision);
             }
         }
         if (screen.rows != rows || screen.columns != columns) {
@@ -907,54 +962,37 @@ void TerminalRenderer::render(QRhiCommandBuffer* cb)
             // shrunken grid may retain slots outside [0, rows), whose zeroed
             // placement entries draw several character rows at y=0.
             resetWidgetRowMapping(rows);
-            liveScrollRotated = false;
             dirtyRows.assign(std::size_t(rows), true);
             dirtySpans.resize(rows);
             for (int row = 0; row < rows; ++row)
-                dirtySpans[row] = {{0, columns}};
+                setFullRowSpan(dirtySpans[row], columns);
             fullFramePending = true;
             overlayPending = true;
+            // 尺寸以快照为准，回灌调度器：damage 连接里改用命令缓冲的尺寸
+            // 做裁剪判据（避免每个区域两次取 TerminalCore 的 modelMutex），
+            // 尺寸变化必须在这里收敛，否则要等下一帧才更新裁剪范围。
+            if (_renderScheduler)
+                _renderScheduler->setViewport(columns, rows);
             screen = _core->rendererSnapshot(dirtyRows, _scrollLine,
                                              _scrollAnchorLine,
                                              _scrollAnchorWrap);
-        }
-
-        if (liveScrollRotated
-            && screen.visibleRowIdentities.size() == std::size_t(rows)) {
-            const QVector<int> recovered =
-                NovaTerm::rowsNeedingRebuildAfterMapping(
-                    _rowContentIdentities, screen.visibleRowIdentities,
-                    dirtyRows);
-            for (const int row : recovered) {
-                dirtyRows[row] = true;
-                dirtySpans[row] = {{0, columns}};
-            }
-            if (!recovered.isEmpty()) {
-                _renderStatistics.revisionRecoveredRows +=
-                    quint64(recovered.size());
-                screen = _core->rendererSnapshot(
-                    dirtyRows, _scrollLine, _scrollAnchorLine,
-                    _scrollAnchorWrap);
-            }
         }
 
         // ConPTY emits cursor-positioned fragments whose damage rectangle can
         // omit columns cleared later in the same parser publication. Compare
         // every dirty row with the renderer's actual 8-column block cache and
         // add only missing changed blocks rather than rebuilding every row.
-        if (!liveScrollRotated) {
-            const std::vector<NovaTerm::u64> emptyBlockIdentities;
-            for (int row = 0; row < rows; ++row) {
-                if (!(row < int(dirtyRows.size()) && dirtyRows[row]))
-                    continue;
-                const auto& blockIdentities =
-                    row < int(screen.visibleRowBlockIdentities.size())
-                    ? screen.visibleRowBlockIdentities[std::size_t(row)]
-                    : emptyBlockIdentities;
-                dirtySpans[row] = _rowBlockDamageTracker.reconcileRow(
-                    row, blockIdentities, columns,
-                    std::move(dirtySpans[row]));
-            }
+        const std::vector<NovaTerm::u64> emptyBlockIdentities;
+        for (int row = 0; row < rows; ++row) {
+            if (!(row < int(dirtyRows.size()) && dirtyRows[row]))
+                continue;
+            const auto& blockIdentities =
+                row < int(screen.visibleRowBlockIdentities.size())
+                ? screen.visibleRowBlockIdentities[std::size_t(row)]
+                : emptyBlockIdentities;
+            dirtySpans[row] = _rowBlockDamageTracker.reconcileRow(
+                row, blockIdentities, columns,
+                std::move(dirtySpans[row]));
         }
 
     }
@@ -974,7 +1012,7 @@ void TerminalRenderer::render(QRhiCommandBuffer* cb)
         // complete snapshot and repair every row in the same frame.
         std::fill(dirtyRows.begin(), dirtyRows.end(), true);
         for (int row = 0; row < rows; ++row)
-            dirtySpans[row] = {{0, columns}};
+            setFullRowSpan(dirtySpans[row], columns);
         fullFramePending = true;
         overlayPending = true;
         screen = _core->rendererSnapshot(dirtyRows, _scrollLine,
@@ -1060,8 +1098,20 @@ void TerminalRenderer::render(QRhiCommandBuffer* cb)
     _renderStatistics.memoryPeakBytes = std::max(
         _renderStatistics.memoryPeakBytes,
         _renderStatistics.bufferPeakBytes + atlasStatistics.peakBytes);
-    _renderStatistics.glyphRasterQueueDepth =
-        quint64(_glyphRasterQueue.size());
+    // 栅格化队列深度只在"可能非零"时采样：size() 要在栅格化互斥锁下线性
+    // 扫描整张 QHash(GlyphKey,bool>（上限 512 项），而这个计数器没有任何
+    // 生产消费方（renderStatistics()/renderProgress() 只被 tests/ 与
+    // tests/benchmarks/ 调用），每帧无条件扫描纯属浪费。
+    //
+    // 采样条件是精确的而非近似：队列只由 enqueue() 增长，所以
+    // "上次深度为 0 且本帧既没入队（_glyphEnqueuedThisFrame）也没取走结果"
+    // 必然仍是 0；深度非零时继续采样直到归零，因此 GPU 基准
+    // "等 glyphRasterQueueDepth == 0" 的判据仍然可靠。
+    if (_renderStatistics.glyphRasterQueueDepth > 0
+        || _glyphEnqueuedThisFrame || !readyBitmaps.empty()) {
+        _renderStatistics.glyphRasterQueueDepth =
+            quint64(_glyphRasterQueue.size());
+    }
     _renderStatistics.glyphRasterQueuePeakDepth =
         quint64(rasterQueueStatistics.peakDepth);
     _renderStatistics.glyphRasterQueueRejected =
@@ -1108,9 +1158,38 @@ void TerminalRenderer::resizeEvent(QResizeEvent* event)
     // 了。旧写法在此按 _scrollLine 分支，而 resizeTerminalToViewport 会先把
     // _scrollLine 清零，导致该分支在尺寸真变时永远不可达。
     resizeTerminalToViewport();
-    if (_renderScheduler)
-        _renderScheduler->setViewport(_core->columns(), _core->rows());
+    if (_renderScheduler) {
+        const auto [viewportCols, viewportRows] = _core->screenSize();
+        _renderScheduler->setViewport(viewportCols, viewportRows);
+    }
     requestFullFrame();
+}
+
+void TerminalRenderer::syncHistoryLayout()
+{
+    // 布局常驻：先增量维护到与快照一致，之后一切行数判断都用真实显示行
+    // 数。旧实现在实时底部丢弃布局，使滚动条量程退化成逻辑行数。
+    const int previousScroll = _scrollLine;
+    updateHistoryLayout();
+    restoreScrollFromAnchor();
+    publishScrollState();
+    const bool viewportMappingChanged =
+        _scrollLine > 0 || _scrollLine != previousScroll;
+
+    const bool selectionChanged = dropInvalidSelection();
+
+    // At the live bottom, a scrollback append is accompanied by damage for
+    // the active screen in the same parser publication. Scheduling a full
+    // frame here would turn every output batch (especially shell/Clink
+    // startup) into a complete CPU rebuild and GPU upload. A full rebuild
+    // is only required while history rows are actually mapped into the
+    // viewport or when clamping changed that mapping.
+    if (viewportMappingChanged) {
+        ++_viewportMappingRevision;
+        requestFullFrame();
+    } else if (selectionChanged) {
+        requestOverlayFrame();
+    }
 }
 
 void TerminalRenderer::updateHistoryLayout()
@@ -1192,6 +1271,7 @@ void TerminalRenderer::updateHistoryLayout()
              NovaTerm::LineLayout::wrapLine(line, columns))
             _historyLayout.push_back(displayLine);
     }
+    ++_renderStatistics.historyLayoutTailUpdates;
     _layoutColumns = columns;
 }
 
@@ -1264,7 +1344,8 @@ void TerminalRenderer::resizeTerminalToViewport()
     if (cols < kMinCols || rows < kMinRows)
         return;
 
-    if (cols == _core->columns() && rows == _core->rows())
+    const auto [knownCols, knownRows] = _core->screenSize();
+    if (cols == knownCols && rows == knownRows)
         return;
 
     // 不再强制回到实时底部、也不再无条件清选区：正在翻看历史时改变列宽应当
@@ -1620,6 +1701,7 @@ int TerminalRenderer::cellColAt(int widgetX) const
 bool TerminalRenderer::isDocumentPositionValid(
     const NovaTerm::Position& pos) const
 {
+    const auto [screenCols, screenRows] = _core->screenSize();
     if (pos.row < 0) {
         // scrollback 区域：row 从 -1（最新回滚行）到 -scrollbackLineCount（最旧）
         const qsizetype historyRows = _historyLayout.isEmpty()
@@ -1628,10 +1710,10 @@ bool TerminalRenderer::isDocumentPositionValid(
             return false;
     } else {
         // 活跃屏幕：row 从 0 到 rows-1
-        if (pos.row >= _core->rows())
+        if (pos.row >= screenRows)
             return false;
     }
-    if (pos.col < 0 || pos.col >= _core->columns())
+    if (pos.col < 0 || pos.col >= screenCols)
         return false;
     return true;
 }
@@ -1828,6 +1910,8 @@ NovaTerm::GlyphLocation TerminalRenderer::ensureGlyph(
         return *found;
     if (_buildingGlyphRow >= 0)
         _glyphPendingRows[std::size_t(_buildingGlyphRow)] = true;
+    // 本帧"碰过"队列（无论入队成功还是命中去重）：队列深度需要重新采样。
+    _glyphEnqueuedThisFrame = true;
     _glyphRasterQueue.enqueue({keyAndSelection.key,
                                keyAndSelection.selection.font, _cellWidth,
                                _cellHeight, true});
@@ -2129,10 +2213,17 @@ void TerminalRenderer::rebuildCommandRow(
     const NovaTerm::RendererSnapshot& screen,
     const QVector<NovaTerm::DirtyColumnSpan>& dirtySpans)
 {
-    // A token entering or leaving a row can change the semantic colour of all
-    // default-colour cells on that row, so incremental column reuse is unsafe
-    // while highlighting is enabled.
-    const bool replaceAll = !_highlightRules.isEmpty() || dirtySpans.isEmpty()
+    NovaTerm::RenderCommandRow& target =
+        _commandBuffer.mutableRow(widgetRow);
+    // 语义高亮色被烘焙进该行"默认色" Cell 的命令里。旧实现只要配置了规则就
+    // 无条件 replaceAll，理由是"进出行的 token 会改变整行默认色 Cell 的颜色"
+    // —— 但那只在**高亮角色本身发生变化**时成立。角色不变时未脏列沿用的旧
+    // 命令仍带着同一个角色色，逐列增量重建是安全的；而绝大多数串口日志行不
+    // 命中任何规则，角色恒为 NoHighlightRole，于是 1 列损坏过去也要重折
+    // 200 列。改成按角色变化判定。
+    const int role = rowHighlightRole(widgetRow, screen);
+    const bool roleChanged = role != target.highlightRole;
+    const bool replaceAll = roleChanged || dirtySpans.isEmpty()
         || (dirtySpans.size() == 1 && dirtySpans.front().startColumn <= 0
             && dirtySpans.front().endColumn >= screen.columns);
     _glyphPendingRows.resize(std::size_t(screen.rows), false);
@@ -2147,8 +2238,6 @@ void TerminalRenderer::rebuildCommandRow(
     // QVector 倍增自然长到位。增长只发生在行槽位生命周期的早期，容量
     // 随后跨帧保留，不形成每帧 realloc；按最坏 4× 预留会让 200 列视口
     // 白占约 4-7 MB。
-    NovaTerm::RenderCommandRow& target =
-        _commandBuffer.mutableRow(widgetRow);
     _oldBackgrounds.clear();
     _oldContents.clear();
     target.backgrounds.swap(_oldBackgrounds);
@@ -2161,7 +2250,10 @@ void TerminalRenderer::rebuildCommandRow(
         target.contents.reserve(contentCapacity);
 
     const std::optional<QColor> rowColor =
-        rowHighlightColor(widgetRow, screen);
+        role == NovaTerm::NoHighlightRole
+        ? std::nullopt
+        : std::optional<QColor>(
+              highlightColor(NovaTerm::TerminalHighlightRole(role)));
     // 未脏列沿用上一帧命令、脏列重新生成，一次线性扫描完成（不需要排序）。
     NovaTerm::mergeRowCommandsIncremental(
         _oldBackgrounds, _oldContents, screen.columns, dirtySpans, replaceAll,
@@ -2176,6 +2268,7 @@ void TerminalRenderer::rebuildCommandRow(
         },
         target.backgrounds, target.contents);
 
+    target.highlightRole = role;
     _buildingGlyphRow = -1;
     _commandBuffer.finishRow(widgetRow, _atlasGeneration);
     if (widgetRow >= 0 && widgetRow < _rowContentIdentities.size())
@@ -2187,13 +2280,22 @@ void TerminalRenderer::rebuildCommandRow(
 quint64 TerminalRenderer::rebuildOverlays(
     const NovaTerm::CursorState& cursor)
 {
-    QVector<NovaTerm::RenderCommand> overlays;
-    overlays.reserve(_core->rows() + 1);
-    appendSelectionCommands(overlays);
-    appendSearchCommands(overlays);
-    appendCursorCommand(overlays, cursor);
+    // 尺寸取命令缓冲而非 TerminalCore::rows()/columns()：后两者每次都取
+    // modelMutex（解析线程最长持锁约 2.7 ms），而 overlay 每帧都要重建。
+    // 命令缓冲的尺寸每帧由 rendererSnapshot 同步，与 core 一致。
+    const int rows = _commandBuffer.rows();
+    const int columns = _commandBuffer.columns();
+    // 写入复用的成员缓冲，再与命令缓冲交换：两侧容量都跨帧保留。旧写法
+    // 每帧新建一个 rows+1 的 QVector 并把上一个 free 掉（50 行约 6 KB）。
+    QVector<NovaTerm::RenderCommand>& overlays = _overlayScratch;
+    overlays.clear();
+    if (overlays.capacity() < rows + 1)
+        overlays.reserve(rows + 1);
+    appendSelectionCommands(overlays, rows, columns);
+    appendSearchCommands(overlays, rows, columns);
+    appendCursorCommand(overlays, cursor, rows, columns);
     const quint64 commandCount = quint64(overlays.size());
-    _commandBuffer.replaceOverlays(std::move(overlays));
+    _commandBuffer.swapOverlays(overlays);
     return commandCount;
 }
 
@@ -2240,7 +2342,7 @@ qsizetype TerminalRenderer::searchMatchCount() const
 }
 
 void TerminalRenderer::appendSearchCommands(
-    QVector<NovaTerm::RenderCommand>& commands)
+    QVector<NovaTerm::RenderCommand>& commands, int rows, int columns)
 {
     if (_searchMatchesByLine.isEmpty() || _scrollLine <= 0)
         return;
@@ -2249,7 +2351,7 @@ void TerminalRenderer::appendSearchCommands(
         const qsizetype first = std::max<qsizetype>(
             0, _historyLayout.size() - _scrollLine);
         const qsizetype last = std::min<qsizetype>(
-            _historyLayout.size(), first + _core->rows());
+            _historyLayout.size(), first + rows);
         for (qsizetype row = first; row < last; ++row) {
             const auto& display = _historyLayout[row];
             const auto found = _searchMatchesByLine.constFind(display.lineId);
@@ -2273,6 +2375,10 @@ void TerminalRenderer::appendSearchCommands(
         }
         return;
     }
+    // 布局尚未建立的回看视图：按快照把匹配折算到 widget 行。这条路径每帧
+    // 只取一次快照（旧实现同样如此），但 rows/columns 必须来自入参 —— 循环
+    // 内每个匹配各取一次 TerminalCore::rows()/columns() 会把 GUI 线程按在
+    // 解析线程的 modelMutex 上，匹配数无上界。
     const auto history = _core->scrollbackSnapshot();
     for (auto it = _searchMatchesByLine.cbegin();
          it != _searchMatchesByLine.cend(); ++it) {
@@ -2281,13 +2387,13 @@ void TerminalRenderer::appendSearchCommands(
             continue;
         const int widgetRow = int(documentRow - history.lineCount())
             + _scrollLine;
-        if (widgetRow < 0 || widgetRow >= _core->rows())
+        if (widgetRow < 0 || widgetRow >= rows)
             continue;
         for (const NovaTerm::SearchMatch& match : it.value()) {
             const qsizetype start = std::clamp<qsizetype>(
-                match.startCell, 0, _core->columns());
+                match.startCell, 0, columns);
             const qsizetype end = std::clamp<qsizetype>(
-                match.endCell, start, _core->columns());
+                match.endCell, start, columns);
             commands.push_back(makeSolidCommand(
                 NovaTerm::RenderCommandType::SearchOverlay,
                 QRectF(start * _cellWidth, widgetRow * _cellHeight,
@@ -2298,14 +2404,14 @@ void TerminalRenderer::appendSearchCommands(
 
 void TerminalRenderer::appendCursorCommand(
     QVector<NovaTerm::RenderCommand>& commands,
-    const NovaTerm::CursorState& cursor)
+    const NovaTerm::CursorState& cursor, int rows, int columns)
 {
     if (!cursor.visible || _scrollLine != 0
         || (cursor.blink && !_cursorBlinkVisible))
         return;
     const auto position = cursor.position;
-    if (position.row < 0 || position.row >= _core->rows()
-        || position.col < 0 || position.col >= _core->columns())
+    if (position.row < 0 || position.row >= rows
+        || position.col < 0 || position.col >= columns)
         return;
 
     const QColor color = _scheme.cursorColor.isValid()
@@ -2321,7 +2427,7 @@ void TerminalRenderer::appendCursorCommand(
 }
 
 void TerminalRenderer::appendSelectionCommands(
-    QVector<NovaTerm::RenderCommand>& commands)
+    QVector<NovaTerm::RenderCommand>& commands, int rows, int columns)
 {
     if (!hasSelection())
         return;
@@ -2333,10 +2439,10 @@ void TerminalRenderer::appendSelectionCommands(
         ? _scheme.selectionColor : QColor(84, 107, 138, 128);
     for (int row = start.row; row <= end.row; ++row) {
         const int widgetRow = row + _scrollLine;
-        if (widgetRow < 0 || widgetRow >= _core->rows())
+        if (widgetRow < 0 || widgetRow >= rows)
             continue;
         const int firstColumn = row == start.row ? start.col : 0;
-        const int lastColumn = row == end.row ? end.col : _core->columns() - 1;
+        const int lastColumn = row == end.row ? end.col : columns - 1;
         const QPointF topLeft(firstColumn * _cellWidth, widgetRow * _cellHeight);
         const QPointF bottomRight((lastColumn + 1) * _cellWidth,
                                   widgetRow * _cellHeight);
@@ -2439,29 +2545,204 @@ QColor TerminalRenderer::highlightColor(
     return _scheme.foreground;
 }
 
-std::optional<QColor> TerminalRenderer::rowHighlightColor(
+QVector<QString> TerminalRenderer::highlightRequiredLiterals(
+    const QString& pattern)
+{
+    // 目标：找出"任何命中都必定包含"的字面量集合，用于在跑 PCRE2 之前廉价
+    // 排除一行。只有一条硬约束：**绝不能排除任何一次真实命中**。因此每种
+    // 被接受的形态都必须证明其元素是强制的（后面不跟 `?` / `*` 这类可选
+    // 量词），否则一个空匹配就会绕过整个过滤。
+    //
+    // 认得的三种形态（其余一律返回空，调用方照旧执行正则）：
+    //  1. 顶层零宽断言 (?=…) (?!…) (?<=…) (?<!…)：不产生匹配子串，跳过；
+    //  2. 顶层字符组 [abc]（只含单字符、无区间与转义）且强制出现；
+    //  3. 顶层非捕获组 (?:L1|L2|…)（各分支都是纯字面量）且强制出现。
+    // 形如 \S*[>#$] 这类"中间夹着无法证明的结构"的模式拿不到过滤 —— 保守
+    // 放弃比写一个半个正则解析器更可靠。
+    QVector<QString> literals;
+    // 从 open 处的 '(' 起找到配对的 ')'，返回其后的下标；找不到返回 -1。
+    // 字符类里出现的括号会计错深度，此时返回错误结果并让调用方放弃过滤，
+    // 不会漏掉命中。
+    const auto groupEnd = [&pattern](int open) -> int {
+        int depth = 0;
+        for (int scan = open; scan < pattern.size(); ++scan) {
+            const QChar unit = pattern.at(scan);
+            if (unit == QLatin1Char('(')) {
+                ++depth;
+            } else if (unit == QLatin1Char(')')) {
+                --depth;
+                if (depth == 0)
+                    return scan + 1;
+            }
+        }
+        return -1;
+    };
+    // 从 text 的 from 处取一段纯字面量；遇到元字符即停，end 返回停点。
+    // 必须显式收 text：分支字面量取自分组内部，不是原模式串的子串。
+    const auto literalRun = [](const QString& text, int from, int& end) {
+        static const QString metaCharacters =
+            QStringLiteral("\\^$.|?*+()[]{}");
+        int scan = from;
+        while (scan < text.size()
+               && !metaCharacters.contains(text.at(scan))) {
+            ++scan;
+        }
+        end = scan;
+        return text.mid(from, scan - from);
+    };
+    // 量词是否让紧邻的元素变成可选。`?` / `*` 一定可选；`{n,m}` 由下界
+    // 决定；`+` 与无量词都强制。无法解析的量词按可选处理（保守）。
+    const auto isMandatory = [&pattern](int after) {
+        if (after >= pattern.size())
+            return true;
+        const QChar unit = pattern.at(after);
+        if (unit == QLatin1Char('?') || unit == QLatin1Char('*'))
+            return false;
+        if (unit != QLatin1Char('{'))
+            return true;  // 无量词或 '+'
+        const int close = pattern.indexOf(QLatin1Char('}'), after);
+        if (close < 0)
+            return false;
+        const QString body = pattern.mid(after + 1, close - after - 1);
+        const int comma = body.indexOf(QLatin1Char(','));
+        const QString minimum = comma < 0 ? body : body.left(comma);
+        bool ok = false;
+        return minimum.toInt(&ok) > 0 && ok;
+    };
+
+    int index = 0;
+    while (index < pattern.size()) {
+        const QChar unit = pattern.at(index);
+        if (unit != QLatin1Char('(')) {
+            // 顶层字符组。
+            if (unit == QLatin1Char('[')) {
+                const int close = pattern.indexOf(QLatin1Char(']'),
+                                                  index + 1);
+                if (close < 0)
+                    return {};
+                for (int scan = index + 1; scan < close; ++scan) {
+                    const QChar member = pattern.at(scan);
+                    if (member == QLatin1Char('-')
+                        || member == QLatin1Char('^')
+                        || member == QLatin1Char('\\')) {
+                        return {};
+                    }
+                    literals.push_back(QString(member));
+                }
+                return isMandatory(close + 1) ? literals
+                                               : QVector<QString>{};
+            }
+            // 其余只接受"整段就是字面量"的形态：后面还跟着别的东西就放弃。
+            int end = index;
+            const QString literal = literalRun(pattern, index, end);
+            if (literal.isEmpty() || end != pattern.size())
+                return {};
+            literals = {literal};
+            return literals;
+        }
+
+        // 零宽断言：(?=…) (?!…) (?<=…) (?<!…)。不产生匹配子串，跳过。
+        if (index + 2 < pattern.size()
+            && pattern.at(index + 1) == QLatin1Char('?')) {
+            const QChar kind = pattern.at(index + 2);
+            const bool lookbehind =
+                kind == QLatin1Char('<')
+                && index + 3 < pattern.size()
+                && (pattern.at(index + 3) == QLatin1Char('=')
+                    || pattern.at(index + 3) == QLatin1Char('!'));
+            if (kind == QLatin1Char('=') || kind == QLatin1Char('!')
+                || lookbehind) {
+                const int end = groupEnd(index);
+                if (end < 0)
+                    return {};
+                index = end;
+                continue;
+            }
+            // 非捕获组 (?:…)，要求它内部是纯字面量的分支择一。
+            if (kind == QLatin1Char(':')) {
+                const int end = groupEnd(index);
+                if (end < 0)
+                    return {};
+                const QString body = pattern.mid(index + 3,
+                                                 end - 1 - (index + 3));
+                const QStringList branches = body.split(QLatin1Char('|'));
+                for (const QString& branch : branches) {
+                    int branchEnd = 0;
+                    const QString literal = literalRun(branch, 0, branchEnd);
+                    if (literal.isEmpty() || branchEnd != branch.size())
+                        return {};
+                    literals.push_back(literal);
+                }
+                return isMandatory(end) ? literals : QVector<QString>{};
+            }
+        }
+        // 其它分组 / 无 (? 标记的分组：无法证明，放弃。
+        return {};
+    }
+    return literals;
+}
+
+int TerminalRenderer::rowHighlightRole(
     int widgetRow,
-    const NovaTerm::RendererSnapshot& screen) const
+    const NovaTerm::RendererSnapshot& screen)
 {
     if (_highlightRules.isEmpty())
-        return std::nullopt;
+        return NovaTerm::NoHighlightRole;
 
-    QString text;
-    text.reserve(screen.columns);
+    // 行文本写入复用缓冲：旧实现为每个 Cell 调 cellCharsToString() 生成一
+    // 个临时 QString（Qt::QList 没有小缓冲优化），200 列 × 50 行的全帧就是
+    // 约 1 万次堆分配。逐字符追加与旧实现的 UTF-16 序列完全一致。
+    _rowTextScratch.clear();
+    if (_rowTextScratch.capacity() < screen.columns)
+        _rowTextScratch.reserve(screen.columns);
     for (int column = 0; column < screen.columns; ++column) {
         const NovaTerm::Cell* cell = screen.cellAt(widgetRow, column);
         if (!cell || cell->isWideContinuation())
             continue;
-        const QString cellText = cellCharsToString(
-            cell->chars.data(), NovaTerm::MaxCharsPerCell);
-        if (cellText.isEmpty())
-            text.append(QLatin1Char(' '));
+        if (cell->chars[0] == 0)
+            _rowTextScratch.append(QLatin1Char(' '));
         else
-            text.append(cellText);
+            appendCellChars(_rowTextScratch, cell->chars.data(),
+                            NovaTerm::MaxCharsPerCell);
     }
+    const QStringView text(_rowTextScratch);
+    // 只有存在大小写不敏感规则时才需要小写副本；有则整行折叠一次（无堆
+    // 分配），而不是让每次 contains 都走逐字符 toLower。
+    if (_highlightNeedsFoldedText) {
+        _rowTextFoldedScratch.resize(_rowTextScratch.size());
+        const QChar* source = _rowTextScratch.constData();
+        QChar* destination = _rowTextFoldedScratch.data();
+        for (qsizetype index = 0; index < _rowTextScratch.size(); ++index)
+            destination[index] = source[index].toLower();
+    }
+    const QStringView folded(_rowTextFoldedScratch);
 
-    const auto role = NovaTerm::matchTerminalHighlight(_highlightRules, text);
-    return role ? std::optional<QColor>(highlightColor(*role)) : std::nullopt;
+    for (qsizetype index = 0; index < _highlightRules.size(); ++index) {
+        const NovaTerm::TerminalHighlightRule& rule = _highlightRules[index];
+        if (!rule.pattern.isValid())
+            continue;
+        // 前置过滤：字面量一个都不在行里，该正则绝无可能命中，直接跳过。
+        const HighlightPrefilter& filter = _highlightPrefilters[index];
+        if (!filter.literals.isEmpty()) {
+            const QStringView haystack =
+                filter.caseInsensitive ? folded : text;
+            bool maybe = false;
+            for (const QString& literal : filter.literals) {
+                if (haystack.contains(literal,
+                                      filter.caseInsensitive
+                                      ? Qt::CaseInsensitive
+                                      : Qt::CaseSensitive)) {
+                    maybe = true;
+                    break;
+                }
+            }
+            if (!maybe)
+                continue;
+        }
+        if (rule.pattern.matchView(text).hasMatch())
+            return int(rule.role);
+    }
+    return NovaTerm::NoHighlightRole;
 }
 
 void TerminalRenderer::resetWidgetRowMapping(int rows)
@@ -2478,7 +2759,14 @@ void TerminalRenderer::updatePlacementBuffer(
 {
     if (!_placementBuffer || !updates)
         return;
-    QVector<float> values(kPlacementFloatCount, 0.0f);
+    // 复用成员缓冲：旧实现每帧构造一个 kPlacementFloatCount（1048 项，
+    // 4192 字节）的零初始化 QVector。着色器对 `instanceMeta.y >=
+    // viewport.w` 的槽位提前 return，根本不索引 rowPlacement[]，因此除
+    // "[0, rowCount) 内的槽位"以外的内容无需每帧清零 —— 只写头部、修正
+    // 矩阵与实际用到的槽位即可。
+    if (_placementScratch.size() != kPlacementFloatCount)
+        _placementScratch.resize(kPlacementFloatCount);
+    float* values = _placementScratch.data();
     values[0] = float(pixelSize.width());
     values[1] = float(pixelSize.height());
     values[2] = float(devicePixelRatioF());
@@ -2499,10 +2787,10 @@ void TerminalRenderer::updatePlacementBuffer(
         }
     }
     updates->updateDynamicBuffer(_placementBuffer.get(), 0,
-                                 int(values.size() * sizeof(float)),
-                                 values.constData());
+                                 int(_placementScratch.size() * sizeof(float)),
+                                 _placementScratch.constData());
     _renderStatistics.gpuUploadBytes +=
-        quint64(values.size() * sizeof(float));
+        quint64(_placementScratch.size() * sizeof(float));
 }
 
 void TerminalRenderer::uploadAtlasChanges(QRhiResourceUpdateBatch* updates)
@@ -2562,6 +2850,11 @@ void TerminalRenderer::uploadCommands(
 {
     const int rows = _commandBuffer.rows();
     const int contentBase = rows * _backgroundRowStrideVertices;
+    // 整行宽的列区间用一份复用的成员缓冲：旧写法在 uploadAllRows 时为**每一
+    // 行**新建一个一元素 QVector（并顺带拷贝 dirtySpans[row]），全帧就是
+    // 50 次堆分配。
+    _fullRowSpanScratch.resize(1);
+    _fullRowSpanScratch[0] = {0, _commandBuffer.columns()};
     for (int row = 0; row < rows; ++row) {
         if (!uploadAllRows
             && !(row < int(dirtyRows.size()) && dirtyRows[row]))
@@ -2571,11 +2864,12 @@ void TerminalRenderer::uploadCommands(
         const int slot = _rowSlotMap.slotForWidgetRow(row);
         if (slot < 0)
             continue;
-        QVector<NovaTerm::DirtyColumnSpan> spans = uploadAllRows
-            ? QVector<NovaTerm::DirtyColumnSpan>{{0, _commandBuffer.columns()}}
-            : dirtySpans.value(row);
-        if (spans.isEmpty())
-            spans.push_back({0, _commandBuffer.columns()});
+        // 取该行脏区间的引用，避免拷贝那个向量（Qt::QList 逐元素拷贝）。
+        // 脏行却没有任何脏列区间（只有行级命令）时退回整行宽。
+        const QVector<NovaTerm::DirtyColumnSpan>& rowDirtySpans =
+            uploadAllRows ? _fullRowSpanScratch : dirtySpans.value(row);
+        const QVector<NovaTerm::DirtyColumnSpan>& spans =
+            rowDirtySpans.isEmpty() ? _fullRowSpanScratch : rowDirtySpans;
         for (const auto& rawSpan : std::as_const(spans)) {
             const int start = std::clamp(rawSpan.startColumn, 0,
                                          _commandBuffer.columns());
@@ -2688,8 +2982,8 @@ void TerminalRenderer::renderTerminalFrame(QImage& frame)
 
 void TerminalRenderer::renderCells(QPainter& p, const QRect& dirty)
 {
-    const int visRows    = _core->rows();
-    const int cols       = _core->columns();
+    const auto [selCols, visRows] = _core->screenSize();
+    const int cols = selCols;
     const int sbCount    = _core->scrollbackLineCount();
     const int totalLines = sbCount + visRows;
 
@@ -2812,8 +3106,9 @@ void TerminalRenderer::renderCursor(QPainter& p)
         return;
 
     const auto cpos = _core->cursorPosition();
-    if (cpos.row < 0 || cpos.row >= _core->rows() ||
-        cpos.col < 0 || cpos.col >= _core->columns())
+    const auto [cursorCols, cursorRows] = _core->screenSize();
+    if (cpos.row < 0 || cpos.row >= cursorRows ||
+        cpos.col < 0 || cpos.col >= cursorCols)
         return;
 
     const QPoint widgetPos = cellToWidget(cpos.row, cpos.col);
@@ -2871,13 +3166,16 @@ void TerminalRenderer::renderSelection(QPainter& p)
         ? _scheme.selectionColor
         : QColor(84, 107, 138, 128);
 
+    // 提到循环外：原先每个选中行各问一次 rows() 与 columns()（D-016）。
+    const auto [selCols, selRows] = _core->screenSize();
+    const int lastColumn = selCols - 1;
     for (int row = start.row; row <= end.row; ++row) {
         const int widgetRow = row + _scrollLine;
-        if (widgetRow < 0 || widgetRow >= _core->rows())
+        if (widgetRow < 0 || widgetRow >= selRows)
             continue;
 
         int c1 = (row == start.row) ? start.col : 0;
-        int c2 = (row == end.row)   ? end.col   : _core->columns() - 1;
+        int c2 = (row == end.row)   ? end.col   : lastColumn;
 
         const QPoint tl = cellToWidget(widgetRow, c1);
         const QPoint br = cellToWidget(widgetRow, c2 + 1);
@@ -2920,12 +3218,20 @@ QColor TerminalRenderer::terminalColorToQColor(
 QString TerminalRenderer::cellCharsToString(const uint32_t* chars, int maxCount)
 {
     QString result;
+    appendCellChars(result, chars, maxCount);
+    return result;
+}
+
+// 逐字符追加，避免为组合字符簇的每个 Cell 生成临时 QString。产出的 UTF-16
+// 序列与旧实现完全一致：BMP 内直接单 QChar，补充平面走代理对。
+void TerminalRenderer::appendCellChars(QString& out, const uint32_t* chars,
+                                       int maxCount)
+{
     for (int i = 0; i < maxCount && chars[i] != 0; ++i) {
         if (QChar::requiresSurrogates(chars[i])) {
-            result += QChar::fromUcs4(chars[i]);
+            out += QChar::fromUcs4(chars[i]);
         } else {
-            result += QChar(static_cast<ushort>(chars[i]));
+            out += QChar(static_cast<ushort>(chars[i]));
         }
     }
-    return result;
 }

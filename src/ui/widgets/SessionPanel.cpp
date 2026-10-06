@@ -753,7 +753,12 @@ void SessionPanel::showItemContextMenu(const QPoint& position)
     if (!item || item->data(0, Qt::UserRole).toString().isEmpty())
         return;
 
-    _tree->setCurrentItem(item);
+    // setCurrentItem 在 ExtendedSelection 下等价于 ClearAndSelect：无修饰键的
+    // 右键会清掉已有的多选，而同一棵树上的 Delete 键走 selectedSessionIds()
+    // 作用于整批选中项。因此只在右键点中未选中的条目时才切换选区，点在已选
+    // 条目上则保持原选区。两个菜单动作都只作用于右键命中的那一行。
+    if (!item->isSelected())
+        _tree->setCurrentItem(item);
     // 捕获稳定 SessionId 而非 item 指针：菜单是非模态的，关闭前树可能
     // 被 rebuildTree() 重建，item 指针随 clear() 失效。
     const SessionId id(item->data(0, Qt::UserRole).toString());

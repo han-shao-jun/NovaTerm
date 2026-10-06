@@ -2,84 +2,32 @@
  * @file   RowSlotMap.h
  * @brief  可见行 ↔ GPU 槽位映射。
  *
- * 终端滚动时，可见行的内容在源数据（scrollback/活动屏幕）中可能只是
- * 偏移变化。RowSlotMap 维护 widgetRow（屏幕第几行）→ gpuSlot（GPU
- * 缓冲第几个槽位）的映射，当某行 identity 未变时复用原槽位，仅
- * 改变 yTransform，避免重新上传整行顶点数据。
+ * 固定行槽位环：可见第 i 行对应 GPU 缓冲第 `gpuSlot` 个槽位，槽位随行一起
+ * 旋转（`rotateRowsUp`）或整体重排（`resetSequential`）。着色器用
+ * `instanceMeta.y`（槽位号）索引 uniform 里的 `rowPlacement[]` 得到 y 偏移，
+ * 因此**行内容留在原槽位、只改映射**就能整屏滚动而不重传顶点。
+ *
+ * @note 本类只提供两种映射方式，都不依赖行身份哈希：
+ *  - `resetSequential()`：i → i，用于初始化与视口尺寸变化；
+ *  - `rotateRowsUp()`：整体上移 count 行，用于活动屏幕上滚。
+ *  基于 identity 哈希做增量槽位复用的 `update()` 已随渲染器的
+ *  "live-scroll 行槽位旋转快路径" 一并删除（见 TerminalRenderer.cpp
+ *  render() 内的说明）：该快路径在生产配置下永远不可达，保留它只会让
+ *  行身份哈希与 retiredSlots/reusedRows 这些从不被读取的字段成为负担。
  */
 #pragma once
 
-#include "core/CoreTypes.h"
-
-#include <QHash>
 #include <QVector>
 #include <QtGlobal>
 
-#include <vector>
-
 namespace NovaTerm {
 
-/**
- * @brief 比较缓存的行身份与当前行身份，返回需要重建的行号。
- *
- * 行 identity 变化但 widgetRow 不变时，该行的 GPU 槽位内容已过时，
- * 需要重新上传顶点。已标记为脏（dirtyRows=true）的行调用方会单独
- * 处理，此处不重复返回。
- *
- * @param cachedIdentities  上次映射时各行的 identity。
- * @param currentIdentities 本次各行的 identity。
- * @param dirtyRows         已被标记为脏的行（这些行不重复返回）。
- * @return 需要重建的行号列表。
- */
-QVector<int> rowsNeedingRebuildAfterMapping(
-    const QVector<quint64>& cachedIdentities,
-    const std::vector<u64>& currentIdentities,
-    const std::vector<bool>& dirtyRows);
-
-// 可见行身份：唯一标识一行内容来源。同一 sourceId+sourceVersion+wrapIndex
-// 的行内容相同，可复用 GPU 槽位。activeScreen 区分活动屏与 scrollback。
-struct VisibleRowIdentity
-{
-    quint64 sourceId{0};        // 源行 ID（scrollback chunk + 偏移哈希）
-    quint64 sourceVersion{0};   // 源行内容版本
-    qsizetype wrapIndex{0};     // 软换行后的第几段（0=首段）
-    bool activeScreen{false};   // 是否来自活动屏幕（true）而非 scrollback
-
-    friend bool operator==(const VisibleRowIdentity& a,
-                           const VisibleRowIdentity& b)
-    {
-        return a.sourceId == b.sourceId
-            && a.sourceVersion == b.sourceVersion
-            && a.wrapIndex == b.wrapIndex
-            && a.activeScreen == b.activeScreen;
-    }
-};
-
-inline size_t qHash(const VisibleRowIdentity& id, size_t seed = 0) noexcept
-{
-    return qHashMulti(seed, id.sourceId, id.sourceVersion, id.wrapIndex,
-                      id.activeScreen);
-}
-
-// 单行的映射结果：identity + widgetRow + gpuSlot + yTransform。
+// 单行的映射结果：widgetRow + gpuSlot + yTransform。
 struct RowPlacement
 {
-    VisibleRowIdentity identity;
     int widgetRow{-1};        // 屏幕行号（0=最上方可见行）
     int gpuSlot{-1};          // GPU 缓冲槽位号
     float yTransform{0};      // 该行在 GPU 中的 y 偏移（像素）
-    quint64 mappingRevision{0};  // 本次映射的 revision
-    bool reused{false};        // 是否复用了上一帧的槽位
-};
-
-// 一次 update() 的结果：新的全部 placements + 增量信息。
-struct RowSlotUpdate
-{
-    QVector<RowPlacement> placements;  // 新映射（按 widgetRow 顺序）
-    QVector<int> enteringWidgetRows;   // 新进入的行（需上传顶点）
-    QVector<int> retiredSlots;          // 已退役的槽位（可释放或复用）
-    int reusedRows{0};                  // 复用的行数（性能指标）
-    bool fullRemap{false};              // 是否发生了全量重映射
 };
 
 // 可见行 ↔ GPU 槽位映射器。单线程使用。
@@ -87,47 +35,47 @@ class RowSlotMap
 {
 public:
     /**
-     * @brief 用新的可见行列表更新映射。identity 相同的行复用原槽位，
-     *        仅更新 yTransform；identity 变化的行分配新槽位（优先
-     *        复用已释放的）。forceFull=true 时强制全量重映射。
-     * @param rows       新的可见行 identity 列表。
-     * @param rowHeight  单行像素高度，用于计算 yTransform。
-     * @param forceFull  是否强制全量重映射。
-     * @return 更新结果，含新 placements 与增量信息。
-     */
-    RowSlotUpdate update(const QVector<VisibleRowIdentity>& rows,
-                         float rowHeight, bool forceFull = false);
-
-    /**
-     * @brief 重置为顺序映射：第 i 行 → 第 i 个槽位，identity 全部置空。
+     * @brief 重置为顺序映射：第 i 行 → 第 i 个槽位。
      *        用于初始化或视口尺寸变化后的全量重建。
+     * @param rows      行数；<= 0 时清空映射。
+     * @param rowHeight 单行像素高度，用于计算 yTransform。
      */
     void resetSequential(int rows, float rowHeight);
 
     /**
      * @brief 把所有 placements 向上滚动 count 行：顶部 count 行被丢弃，
-     *        底部 count 行变为新行。用于活动屏幕上滚时同步 GPU 槽位。
+     *        底部 count 行变为新行。
+     * @param count     上移行数；<= 0 或超出范围时不做任何事。
+     * @param rowHeight 单行像素高度，用于重算 yTransform。
+     * @note  当前**没有生产调用方**：随 live-scroll 旋转快路径一起被摘掉
+     *        （见文件头）。与被删的 update() 不同，它不携带行身份哈希，
+     *        正是将来按 shell 能力位重新启用快路径时唯一需要的那块机制，
+     *        故按"幸存原语"保留，并由 sequentialRowSlotsStayValidAcrossResize
+     *        AndScroll / rowSlotRingReusesScrolledRows 两个用例守住排列不变
+     *        式。RowBlockDamageTracker::rotateRowsUp() 同理暂时无调用方，
+     *        但那个头文件不在本次改动范围内。
      */
     void rotateRowsUp(int count, float rowHeight);
-    void reset();
-    quint64 mappingRevision() const { return _mappingRevision; }
-    int capacity() const { return _capacity; }
-    int slotForWidgetRow(int widgetRow) const;
 
     /**
      * @brief 校验当前映射是否为合法排列：每行恰好对应一个不重复的槽位。
-     *        用于调试与断言。
+     *        用于渲染帧前的兜底检查。
+     * @param rows 期望行数。
+     * @note  逻辑上是 const（不改映射），去重表用 mutable scratch：调用点在
+     *        渲染热路径上，不能每次分配一张去重表。
      */
-    bool isValidPermutation(int rows) const;
-    const QVector<RowPlacement>& placements() const { return _placements; }
+    [[nodiscard]] bool isValidPermutation(int rows) const;
+
+    [[nodiscard]] int slotForWidgetRow(int widgetRow) const;
+    [[nodiscard]] const QVector<RowPlacement>& placements() const
+    {
+        return _placements;
+    }
 
 private:
-    // 分配一个槽位：优先从 freeSlots 复用，否则扩展容量。
-    int allocateSlot(QVector<int>& freeSlots);
-
     int _capacity{0};            // 已分配过的最大槽位号 +1
-    quint64 _mappingRevision{0};  // 映射版本号，每次 update/rotate 递增
     QVector<RowPlacement> _placements;
+    mutable QVector<bool> _seenSlots;  ///< isValidPermutation 的复用去重表
 };
 
 } // namespace NovaTerm

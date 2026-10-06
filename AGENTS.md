@@ -61,7 +61,8 @@ cmd /c "call \"C:\Program Files (x86)\Microsoft Visual Studio\18\BuildTools\VC\A
 ### 跑测试
 
 **默认只跑与改动相关的测试目标，不要跑全套。** 全套耗时**按平台不同**（见下方
-「默认注册了哪些测试」）：Windows 19 项、Linux 18 项（新增 P9 六项与终端操作一致性一项）。原 Windows 12 项全套实测约
+「默认注册了哪些测试」）：**Linux 注册 21 项**（2026-10-05 实测 21/21 通过），
+Windows 按条件推算 22 项、未实测。原 Windows 12 项全套实测约
 **190 秒**，其中 `novaterm_conpty_tests` 单项 94s、`novaterm_terminal_session_tests`
 46s、`novaterm_core_tests` 30s；而多数改动只需要其中一两项、几秒就跑完。
 
@@ -107,6 +108,7 @@ ctest --test-dir build -C Debug
 | `src/mcp/`、`tools/novaterm-mcp/`、`SessionDirectory`、`McpSettingsDialog`、Session ScriptProvider/SFTP | `novaterm_mcp_tests`（有界协议、分项授权、2025/2026 确认、取消/重放、交互命令、脚本写入及 UI） | `mcp`／`p8` | 全部 | ~10s |
 | TerminalSession + TerminalRenderer + LocalShellTransport 的联通路径 | `novaterm_terminal_session_tests` | `terminal-session` | **仅 Win32** | ~46s |
 | `TerminalTabWidget` 的连接动作/紧凑标题、`SystemInformationDialog` 的滚动范围/布局与 app bar 关闭按钮、`SshHostKeyDialog` 的 Ela 控件与端点标题 | `novaterm_ui_dialog_layout_tests` | `ui` | 全部 | <1s |
+| `src/ui/widgets/SessionPanel.cpp` 的历史树多选与右键菜单 | `novaterm_session_panel_tests` | `ui` | 全部 | <1s |
 | `src/ui/`、`src/platform/`、`src/service/` | **无覆盖测试** —— 编译通过 + 实跑程序看效果即可（`KeyMapper` 已移出此列，现由 `novaterm_core_tests` 覆盖） | — | — | — |
 
 **平台列不是装饰**：`novaterm_pty_tests` 只在
@@ -143,18 +145,23 @@ ctest --test-dir build -C Debug
 | `novaterm_telnet_transport_tests` | 无条件 | `transport;telnet` | 60 |
 | `novaterm_ssh_transport_check` | 无条件 | `transport;ssh` | 30 |
 | `novaterm_ui_dialog_layout_tests` | 无条件 | `ui` | 30 |
+| `novaterm_session_panel_tests` | 无条件 | `ui` | 30 |
 | `novaterm_scrollback_tailfrom_scale` | `NOVATERM_BUILD_BENCHMARKS`（**默认 ON**） | `scrollback;perf` | — |
 | `novaterm_pty_tests` | `CMAKE_SYSTEM_NAME STREQUAL "Linux"` | `integration;pty;linux` | 30 |
 | `novaterm_conpty_tests` | `WIN32` | `integration;conpty` | 240 |
 | `novaterm_terminal_session_tests` | `WIN32` | `integration;terminal-session` | 120 |
 
-**Linux 默认 18 项、Windows 默认 19 项**（16 无条件 + 1 缩放护栏 +
-Linux 1 项或 Windows 2 项平台测试）。Linux 默认注册数已在 2026-10-04 用
-`ctest -N` 复核；Windows 是按注册条件计算，新增协议目标未在 Windows 运行。
+**Linux 注册 21 项，2026-10-05 实测 21/21 通过。** 构成：19 项无条件 +
+1 项缩放护栏（benchmark 开关）+ 1 项 `pty`（Linux 专有）。计数以
+`ctest -N` 为准，别用记忆里的数字。
+**Windows 注册数是按注册条件推算的 22 项**（去掉 `pty`，加上 conpty 与
+terminal-session 两项），**未在 Windows 实测**；`novaterm_session_panel_tests`
+（2026-10-05 新增）、串口文件传输两项、`novaterm_terminal_ops_tests` 与 P9
+协议目标都只在 Linux 上跑过。
 `-L core` 命中三项（`unit;core`、`unit;core;conformance` 与
 `unit;core;scrollback`），这是有意的。
-`mcp`／`renderer`／`p5`／`ui` 四项设了
-`ENVIRONMENT QT_QPA_PLATFORM=offscreen`。
+`mcp`／`renderer`／`p5`／`ui` 五项设了
+`ENVIRONMENT QT_QPA_PLATFORM=offscreen`（两个 `ui` 目标都在内）。
 
 `novaterm_scrollback_tailfrom_scale` 不是普通单元测试，而是带 PASS/FAIL 判据的
 缩放护栏（跑 `novaterm_scrollback_benchmark --tailfrom-scale`，比值判据、与机器
@@ -253,7 +260,10 @@ SSH 可选本机验收：Linux 上显式运行
 
 | 测试 | 原因 |
 | --- | --- |
-| `novaterm_conpty_tests` 的 `injectedStartupStagesRollBack`、`repeatedLifecycleReturnsResourcesToBaseline` | **平台缺陷**：`CreatePseudoConsole`/`ClosePseudoConsole` 每个生命周期泄漏约 1 个句柄。排除性证据见 `tests/transport/conpty_handle_leak_repro.c`（单线程无子进程最小复现，实测 1.04/循环）。ConPtySession 自身 8 个句柄全部正确关闭 |
+| ~~`novaterm_conpty_tests` 崩溃~~（Windows 本机，2026-10-06 发现并修复） | **已修复**：`ce7793a` 把 `LocalShellTransport` 里 `ConPtySession::closed → QThread::quit` 从 `QueuedConnection` 改为 `DirectConnection`，关闭时在 `closed()` 发射栈内直接结束生命周期线程，`injectedStartupStagesRollBack` 与 `startFailureRollsBackAndCanRestart` 因此以 0xc0000005 崩溃（崩帧内层符号 `QVariant::clear`/`QMetaType::registerType`，即排队事件在已释放内存上析构），`exitReasonsAndIdempotentClose` 同时开始丢 `exited`。同机 A/B 仅改这一行：Direct 4/5 崩、Queued 0/6 崩；改回后整套 `novaterm_conpty_tests` 连跑 4 次 0 崩溃。**教训：A/B 换文件时只换了 `ConPtySession.*`，第一轮把结论错记为"平台缺陷"——要一次只换一个可疑文件，别把两个文件一起换**。 |
+| `novaterm_conpty_tests` 的 `injectedStartupStagesRollBack`（末条句柄断言） | **平台缺陷，非崩溃**：用例末尾的 `currentHandleCount() <= baselineHandles` 因 `CreatePseudoConsole`/`ClosePseudoConsole` 每生命周期泄漏约 1 个句柄而失败，用例内注释与 `repeatedLifecycleReturnsResourcesToBaseline` 均记录同一根因（排除性证据 `tests/transport/conpty_handle_leak_repro.c`，实测 1.04/循环）。用例其余部分（各注入阶段回滚、子进程数收束）通过 |
+| `novaterm_conpty_tests` 的 `repeatedLifecycleReturnsResourcesToBaseline` | **平台缺陷**：`CreatePseudoConsole`/`ClosePseudoConsole` 每个生命周期泄漏约 1 个句柄。排除性证据见 `tests/transport/conpty_handle_leak_repro.c`（单线程无子进程最小复现，实测 1.04/循环）。ConPtySession 自身 8 个句柄全部正确关闭 |
+| `novaterm_serial_file_transfer_tests` 的 `cancellationInsidePublicationRollsBackOnlyOwnFile`（Windows 本机，2026-10-06 实测） | **合并 `ce7793a` 带入的新失败**：46 通过 / 3 失败，三个数据行（`own-link`、`foreign-replacement-after-identity-check`、`new-target-blocks-foreign-restore`）失败，需 NTFS 硬链接语义与竞争注入（`tests/session/SerialFileTransferTests.cpp:186-229`）。该提交自述只在 Linux 跑过测试、Windows 路径未实测，且 `ce7793a` 已是 origin/master 顶端。 |
 | `novaterm_conpty_tests` 的 `duplexLoadAndBackpressure`、`latestResizeWins` | 偶发；`duplex` 是 20s 超时，`latestResize` 偶尔拿到旧尺寸。未查明 |
 | `novaterm_pty_tests`（Linux 本机） | 环境相关：PTY 子进程未按预期启动 —— `defaultWorkingDirectoryIsHome`、`workingDirectoryAndMergedEnvironmentReachChild` 拿不到子进程输出，`connected.wait(5000)` 超时，退出码收到 `0xFFFFFFFF`。在 `git stash` 掉全部 `src/` 改动后重建的未修改工作树上同样失败，非回归 |
 | `novaterm_ui_dialog_layout_tests`（Linux 本机） | 环境相关：offscreen + 本机 Ela/字体度量下 `1100x760` 一档的滚动上限断言不符（`scrollMax=344` vs `expectedMax=250`），另两档尺寸通过。同样在未修改工作树上复现，非回归 |
@@ -532,6 +542,18 @@ Linux/macOS 落到 `pthread_setname_np`），QThread 的 `objectName` 只作 Qt 
 `novaterm_ssh_monitor_integration_check`）必须把 `src/core/ThreadNaming.cpp`
 加进源列表，否则新增调用点后链接失败。
 
+**`ConPtySession::closed → QThread::quit` 不能用 `DirectConnection`**（2026-10-06 崩溃，
+`ce7793a` 引入后已改回）：`thread` 是住在 GUI 线程的 `QThread` 包装对象，而 `closed()`
+从生命周期线程发出。直连会在 `closed()` 的发射栈内直接结束该线程的事件循环，Qt 的
+事件投递/延迟删除随即在脏栈上继续，表现为 0xc0000005（崩帧内层是 `QVariant::clear`、
+`QMetaType::registerType`）或信号静默丢失（`exitReasonsAndIdempotentClose` 的
+`exited.wait(5000)` 超时）。用默认的 Auto（跨线程即 Queued）并让接收者为 `session`
+自己，quit 就排到生命周期线程的事件循环、等发射栈退出后再执行；它不依赖 GUI 事件
+循环，`ce7793a` 想修的"退出路径上投递不到"并不由这条连接负责（那条路靠
+`thread->finished → thread->deleteLater`）。回归：`novaterm_conpty_tests` 的
+`injectedStartupStagesRollBack`、`startFailureRollsBackAndCanRestart`、
+`exitReasonsAndIdempotentClose`；同机 A/B 仅改这一行，Direct 4/5 崩、Queued 0/6 崩。
+
 **启动 Transport 不要用 Core 旧尺寸覆盖 Renderer 的目标尺寸**：
 `TerminalCore::resize()` 异步执行，布局激活后 `terminalSizeChanged` 已携带
 新尺寸，但 `core->columns()/rows()` 可能仍是 80×24。`TerminalView`
@@ -584,7 +606,35 @@ libvterm 自己解开。扫描状态跨 `writeInput` 分片保持，内层解开
 保证与后续字节有序，支持嵌套（递归深度上限 8）。回归：
 `osc52WriteDecodesAndEmitsClipboardSignal`、`osc52QueryIsNotAnsweredByDefault`、
 `tmuxPassthroughOsc52ReachesClipboard`、`tmuxPassthroughSurvivesFragmentedInput`、
-`tmuxPassthroughProbeMismatchPassesBytesThrough`。
+`tmuxPassthroughProbeMismatchPassesBytesThrough`、
+`tmuxPassthroughSplitInsidePayloadReachesClipboard`、
+`tmuxPassthroughSplitAtEveryBoundaryIsByteExact`、
+`tmuxPassthroughSplitAtEscapeBoundaryDoesNotDuplicateBytes`。
+
+**预扫描器的 `runStart` 不变式：状态机消费掉第 i 字节就必须推进到 i+1**。
+2026-10-05 修掉一个真实的跨分片缺陷：`feedWithPassthrough` 把扫描状态
+（`passthroughScan`/`scanProbe`/`passthroughBody`）放在 `Impl` 上跨调用保持，
+但"扣住不发"的游标 `runStart` 原是**每次调用的局部变量**，只在部分分支推进。
+后果是分片末尾的 `flushRun(data.size())` 会把已扣在探针/载荷里的字节重复喂给
+libvterm，或把已写过的前缀再写一遍。两个症状：
+分片落在 Payload 态（`ESC P tmux;` 与载荷之间）时，magic 被喂给 libvterm 使其
+停在 DCS 字符串态，内层 OSC 52 **静默失效**；输入以 `ESC` 结尾时前缀被写两遍
+（`"A\x1b"` → 屏幕出现 `AA`）。正确不变式：`runStart` 恒等于 data 中"尚未被状态机
+消费"的第一个字节下标——`Normal` 态的非 ESC 字节不被消费故原地不动，其余每个
+分支（转入 `Esc`、转入 `Probe`、`Probe` push、载荷 push、ST 终止、mismatch）
+都必须推进。
+
+**该缺陷之所以长期未被测出：`tmuxPassthroughSurvivesFragmentedInput` 是假覆盖**。
+它在 `TerminalCore::writeInput` 层逐字节喂，但 parser worker 用一次 `take()` 取走
+队列里全部待处理字节，再按命令 `byteBarrier` 分段调 `adapter->writeInput()`——
+27 次单字节写会被合并成一个 64 KiB 批次，**分片扫描器从未被真正触发**。
+要测跨分片行为必须在 `VTAdapter` 层直接驱动（`novaterm_core_tests` 直连
+`novaterm_core`，可构造 `VTAdapter` + `ScreenBuffer` + `ScrollbackBuffer`）。
+三个新用例都这么做，其中 `tmuxPassthroughSplitAtEveryBoundaryIsByteExact` 用
+**穷举两段切分点 + 逐字节**并断言"分片与整块输入的观察结果完全相同"——
+这是比逐条断言屏幕文本更强、也更贴近本质（预扫描器对非 tmux 输入必须**字节透明**）
+的性质。变异验证：把 `runStart` 的推进改回旧代码，三个新用例全部失败，
+旧三个仍全绿。
 
 **`CSI s` 在 DECLRMM 关闭时是保存光标，不是设置左右边距**：vendored
 libvterm 曾无条件按 DECSLRM 处理并把光标归位，同时缺少 `CSI u` 恢复。
@@ -1116,6 +1166,105 @@ Windows Terminal 字段解析和旧 `terminal.colors` 迁移，Renderer 不读 J
   紧随其后单独一个 `docs:` 提交，但不要跨会话拖延
 - 提交消息里如实写明与原计划不符之处（做不到的、改了方向的、发现是外部原因的），
   不要只写成功路径
+
+## 全项目 review 修复轮（2026-10-05）
+
+一次覆盖 244 个 first-party 文件（63k 行）的分类审查共产出 19 条确认缺陷 +
+10 条待人工确认项。本轮修完，另有一处**改变方向的决策**需要记录在性能章节。
+
+### 已修且带回归测试
+
+- **tmux DCS 预扫描跨分片重复/泄漏字节**（见上节，最高优先级）
+- **`SftpSession` 单文件上传改为临时文件 + rename 就位**（原先直接以 `O_TRUNC`
+  打开最终路径，中途失败/被取消会把远端文件留成截断文件，源文件在 offset 0
+  不可读时还会把远端**清零**）。同一纪律 `uploadRegularFile()` 与
+  `uploadScriptBytes()` 早已有，只有这条路径漏了。
+- **`SerialTransport` 不再丢弃 `QSerialPort` 五个线路设置的结果**。注意一个反直觉
+  事实：Qt 里 `setBaudRate()` 等在**端口未打开时恒返回 true**，真正的驱动协商发生在
+  `open()` 内部（Windows `SetCommState`、Linux `setTermios`+`setBaudRate`），
+  因此只在 `open()` 之前检查是装饰性的。正确做法是**开端口后重设一次**，
+  失败即关端口并报 `Configuration`，否则"已连接但速率被驱动悄悄改掉"
+  这个静默故障仍在。
+- **SFTP 多文件下载的远端文件名路径穿越**已由 `SftpSession::queueDownloads` 的
+  同级校验覆盖（`collectRemoteDirectory` 早已在用）。
+
+### 生命周期与并发
+
+- **停止标志移出对象**：`SftpSession` 的 `WorkerControl`（`running`+`generation`）
+  与 `SshTransport` 的 `_wakeup` 都改成由 worker lambda 按值捕获的 shared_ptr。
+  原因同类：GUI 侧的 `wait()` 必须有上界（阻塞式 libssh 的数据阶段不受
+  `SSH_OPTIONS_TIMEOUT` 约束——那只管 `ssh_connect`），一旦放弃线程，停止标志
+  绝不能是对象成员，否则僵尸线程读的是已释放内存。`SshTransport` 的
+  `_wakeup` 是**最后声明**的成员，也就是析构时**最先**销毁的，而僵尸 worker 仍
+  把它当 libssh `ssh_event_add_fd` 的回调上下文——改成 shared_ptr 才真正消除那个 UAF。
+- **主机密钥判定 `_keyDecision` 的复位必须在 `_keyMutex` 内**：锁外写会与
+  "取锁前的窗口"竞争，accept/reject 可能被 worker 自己的 `-1` 覆盖 →
+  对话框已关而连接在永不为假的谓词上空等；反向时序则让连接凭一个用户
+  **并未为它做过的**判定继续，等于跳过主机密钥校验。
+- **SSH 待定 PTY 尺寸改为单个打包原子字**（高 16 位列、低 16 位行）。此前是两个
+  独立 `std::atomic<int>`，撕裂读会让远端收到"80 列配 50 行"这种既非旧尺寸
+  也非新尺寸的几何，并把它记入 `appliedCols/appliedRows` 当作已应用，从而不
+  自愈；启动路径还把 `_pendingCols` 连 load 两次（守卫与取值可能不同源）。
+- **`TerminalCore` 的屏幕尺寸改为无锁读，且成对读取必须走 `screenSize()`**。
+  起因：`columns()`/`rows()` 原先每次都取 `modelMutex`，而 worker 跨
+  `adapter->writeInput()` 持有该锁最长 64 KiB（实测 24 MiB/s 下约 2.7 ms），
+  渲染器每帧要问很多次 → GUI 线程每帧排若干次无界停顿。
+  **关键教训：打包成单个原子字只保证「发布」原子，不保证「成对读取」原子。**
+  `columns()` 与 `rows()` 各自仍是独立 load，消费者分两次调用照样会读到
+  「列来自本次、行来自下次」。因此新增 `screenSize() -> std::pair<int,int>`
+  作为**单次 load** 的成对访问器，并要求"列与行必须同源"的消费者用它：
+  渲染器的 viewport 设置、选区端点、`widgetToCell`/`widgetToScreenCell`
+  的钳位上下界、坐标合法性判定、光标绘制、选区逐行填充。选区逐行那处原先
+  是每个选中行各问一次两个字段，已提到循环外。
+  回归 `screenSizeStaysAConsistentPairUnderConcurrentResize`：持续输出 + 反复
+  resize，断言 `screenSize()` 只返回**请求过的**组合。**注意该用例必须用
+  `flushDamage()` 把每个 Resize 隔开** —— 同类型 Resize 在队列里会被合并，
+  连发几千次 resize 实际只产生几十次执行，对百万次读取的命中概率约 0.006，
+  变异验证会「假通过」。变异验证（退回两个独立 atomic）确认可抓住。
+- **`LocalMcpServer::stop()` 遗弃已连接 `QLocalSocket`**：`nextPendingConnection()`
+  返回**无 parent** 的 socket（Qt 契约要求调用方 delete），原代码只依赖
+  `disconnected` 回收，于是每次"禁用再启用 MCP 接入"都泄漏 socket + 定时器 + fd。
+  改为 `setParent(this)` 并在 `~IoWorker` 里 `abort()` 收尾。
+
+### 性能
+
+- **P0/P1 性能优化实施记录一节的三个数值需要重新解读**：见下节追加说明。
+
+### 追加：滚动快路径此前在生产中是死代码（2026-10-05）
+
+`RowSlotMap::update()` 那套 identity→slot 复用**没有生产调用者**：
+`_conservativeLiveScrollRendering` 默认为 `true`，而 `TerminalView::startLocalShell()`
+只对 `wsl.exe` 把它置 false —— 于是除 wsl.exe 外的每个 shell（bash/zsh/fish、
+PowerShell/cmd）走的都是整帧重建 + `uploadAllRows` 分支。
+用 xcb + opengl 实测 `novaterm_renderer_p5_gpu_benchmark`（6 秒 `steady_scroll`）：
+
+| 路径 | rows rebuilt | contentUploadBytes | 平均 CPU 帧 |
+| --- | --- | --- | --- |
+| 基准脚本按原样（**它主动 opt-in 了快路径**） | 648/653/496 | 23.7/23.8/17.8 MB | ~1.0 ms p50 |
+| 保守模式（= 生产实际） | 13483/12084/13004 | 512/459/494 MB | 5.52/5.39/5.08 ms |
+
+**所以本节此前记录的三次 profile 与 P95 判据测的是一个除 wsl.exe 外没有 shell
+走过的路径**；生产稳态滚动的 CPU 成本约为那些数字的 6 倍。
+本轮选择了 review 给出的另一条路：**删掉死代码**（`RowSlotMap::update()`/
+`RowSlotUpdate`/`VisibleRowIdentity`/`mappingOnlyUpdates`/`rowSlotsReused` 等），
+保留 `rotateRowsUp()` 以便日后恢复。行为上对除 wsl.exe 外的 shell **无变化**
+（它们本就走保守分支），wsl.exe 由整帧改为整帧（快路径已删）。
+要恢复快路径需要三处约 15 行的改动：
+`LocalShellProfile` 加 `emitsCursorPositionedRewrites` 标志、四个 profile 各自置值、
+`TerminalView` 改传该标志而非比较可执行文件名。
+
+同轮把 P5 基准里 `require(rowsP95 <= 2, …)` 换成
+`require(scroll.rowsRebuilt <= 2 * framesRendered * visibleRows)`：前者守的是
+已删除快路径的不变式。`rowsP95` 仍作为诊断量输出。
+**这不是把验收放宽**：新判据守的是"每帧最多重建两个可见网格"，与保守模式一致。
+
+D-018 的实测收益（`LD_PRELOAD` 计 malloc，2000ms vs 6000ms 两次运行取斜率、
+除以 `steady_scroll` 帧数差，同一保守路径）：**1311.5 → 1140.8 次分配/帧（−13.0%）**、
+**2091 → 1669 KiB/帧（−20.2%）**、平均 CPU 帧 5660 → 5320 µs（−6%，多次运行
+区间 5261–5980 与 4447–5687，属弱信号）。剩下的 1140 次/帧大头是
+`appendCellCommands` → `cellCharsToString` **每个非空白 Cell 一个 `QString`**
+（约 1000 次/帧），因为 `GlyphKey::cluster` 是 `QString` —— 那是下一个收益点，
+本轮未动。
 
 ## P0/P1 性能优化实施记录（2026-09-13 起）
 

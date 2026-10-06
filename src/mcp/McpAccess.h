@@ -13,6 +13,14 @@ class AccessStore final : public QObject
 {
     Q_OBJECT
 public:
+    /** @brief 上一次 save() 失败的成因。调用方取用后应调用 clearSaveFailure()。 */
+    enum class SaveFailure {
+        None,        ///< 无失败，或上次失败已被取用
+        Directory,   ///< 状态目录未通过 0700 与属主校验
+        Locked,      ///< 共享文件被另一个 NovaTerm 实例持锁占用
+        Revision,    ///< 文件已被并发改写，需重载后重试
+        Write,       ///< 写盘本身失败
+    };
     struct Client { QString id; QString label; QByteArray digest; bool persistent{false}; quint64 version{1}; };
     struct Grant {
         QString attachment;
@@ -47,6 +55,8 @@ public:
         const QString& clientId, const SessionDirectory::Entry& entry) const;
     [[nodiscard]] bool canRunScriptTask(
         const QString& clientId, const SessionDirectory::Entry& entry) const;
+    [[nodiscard]] SaveFailure lastSaveFailure() const { return _lastSaveFailure; }
+    void clearSaveFailure() { _lastSaveFailure = SaveFailure::None; }
 signals:
     void changed();
     void revoked(const QString& clientId, const QString& sessionId);
@@ -61,6 +71,8 @@ private:
     QHash<QString, QHash<QString, Grant>> _grants;
     bool _enabled{false};
     quint64 _storeRevision{0};
+    // 最近一次 save() 的成因；成功时复位为 None。
+    SaveFailure _lastSaveFailure{SaveFailure::None};
     QFileSystemWatcher _watcher;
 };
 }

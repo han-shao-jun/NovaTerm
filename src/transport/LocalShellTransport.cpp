@@ -383,8 +383,14 @@ bool LocalShellTransport::connectToHost()
             emit disconnected();
         }
     });
+    // quit 的直连是 2026-10-06 崩溃的确证根因，不要再改成 DirectConnection。
+    // 这里用默认的 Auto（跨线程即 Queued）：接收者 session 与发送者同在
+    // 生命周期线程，quit 会排到该线程自己的事件循环，等 closed() 的发射栈
+    // 完全退出后才执行。同机 A/B（Windows，injectedStartupStagesRollBack
+    // 单独重跑）：DirectConnection 4/5 崩溃（0xc0000005，QVariant 析构落在
+    // 已释放内存），QueuedConnection 0/6；两个版本仅此一行不同。
     QObject::connect(session, &ConPtySession::closed,
-                     thread, &QThread::quit, Qt::QueuedConnection);
+                     thread, &QThread::quit);
     QObject::connect(thread, &QThread::finished,
                      session, &QObject::deleteLater);
     QObject::connect(thread, &QThread::finished, thread, &QObject::deleteLater);

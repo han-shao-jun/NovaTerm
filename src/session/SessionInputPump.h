@@ -13,6 +13,7 @@
 #include <QByteArray>
 #include <QObject>
 #include <QPointer>
+#include <functional>
 
 class ITransport;
 class TerminalCore;
@@ -68,6 +69,12 @@ public:
     [[nodiscard]] Statistics statistics() const;
     /** @brief 将 Framer 取消事务时保留的普通字节送入原输入通路。 */
     void forwardFramerRemainder(const QByteArray& bytes);
+    /** @brief 在现有 readyRead 入口安装协议分流；true 表示整块已被消费。 */
+    void setFileTransferConsumer(std::function<bool(const QByteArray&)> consumer);
+    /** @brief 文件传输阶段绕过 Parser 背压，避免阻塞协议确认。 */
+    void setFileTransferMode(bool active);
+    /** @brief 文件暂存背压独立于 Parser，任一恢复不可解除其他暂停原因。 */
+    void setFileTransferReadPaused(bool paused);
 
 signals:
     /**
@@ -85,6 +92,7 @@ private:
     void forwardVisibleBytes(const QByteArray& data); ///< 转送去 marker 字节
     void handleBackpressure(bool paused);       ///< 响应解析器背压状态变化
     void drainPending();                         ///< 排空待处理缓冲
+    void updateReadPause();
     void reportOverload(const QString& reason); ///< 上报过载并暂停读取
 
     static constexpr qsizetype MaxPendingBytes = 8 * 1024 * 1024; ///< 待处理上限 8 MiB
@@ -96,5 +104,10 @@ private:
     QByteArray _pending;       ///< 解析器满时缓存的待处理字节
     qsizetype _pendingHead{0}; ///< 已消费前缀；排空时一次清理
     bool _running{false};
+    bool _corePaused{false};
+    bool _fileTransferMode{false};
+    bool _fileTransferPaused{false};
+    bool _overloaded{false};
+    std::function<bool(const QByteArray&)> _fileTransferConsumer;
     Statistics _statistics;
 };

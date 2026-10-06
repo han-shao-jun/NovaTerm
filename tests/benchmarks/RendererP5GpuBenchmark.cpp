@@ -132,11 +132,10 @@ TerminalRenderer::RenderStatistics delta(
     DELTA(drawCalls); DELTA(vertexBufferReallocations);
     DELTA(revisionPromotedFullFrames); DELTA(revisionRecoveredRows);
     DELTA(framesRendered); DELTA(cpuFramesOverBudget);
-    DELTA(dirtyBlocksRebuilt); DELTA(mappingOnlyUpdates);
-    DELTA(rowSlotsReused); DELTA(rowSlotsCreated);
+    DELTA(dirtyBlocksRebuilt);
     DELTA(glyphCacheHits); DELTA(glyphCacheMisses); DELTA(glyphRasters);
     DELTA(glyphEvictions); DELTA(capabilityFallbacks);
-    DELTA(scrollbackReflowRequests);
+    DELTA(scrollbackReflowRequests); DELTA(historyLayoutTailUpdates);
 #undef DELTA
     return r;
 }
@@ -156,12 +155,18 @@ void print(QTextStream& out, const QString& name,
         << ", cache_miss=" << s.glyphCacheMisses
         << ", raster=" << s.glyphRasters
         << ", eviction=" << s.glyphEvictions
-        << ", slot_reused=" << s.rowSlotsReused
-        << ", slot_new=" << s.rowSlotsCreated
+        << ", layout_tail_updates=" << s.historyLayoutTailUpdates
         << ", buffer_realloc=" << s.vertexBufferReallocations
         << ", cpu_over_budget=" << s.cpuFramesOverBudget
         << ", reflow_requests=" << s.scrollbackReflowRequests
-        << ", revision_recovered=" << s.revisionRecoveredRows << '\n';
+        << ", revision_recovered=" << s.revisionRecoveredRows
+        << ", mean_cpu_us="
+        << (s.framesRendered ? double(s.cpuFrameNanoseconds)
+                                 / double(s.framesRendered) / 1000.0 : 0.0)
+        << ", mean_cmd_us="
+        << (s.framesRendered ? double(s.commandGenerationNanoseconds)
+                                 / double(s.framesRendered) / 1000.0 : 0.0)
+        << '\n';
 }
 
 } // namespace
@@ -205,9 +210,10 @@ int main(int argc, char** argv)
         return 4;
     }
     TerminalRenderer renderer(&core);
-    // This benchmark measures the opt-in row-slot reuse path. Production
-    // native Windows shells use conservative live-scroll rendering.
-    renderer.setConservativeLiveScrollRendering(false);
+    // No live-scroll row-slot fast path exists any more: it was unreachable in
+    // production (every shell except wsl.exe forced conservative rendering)
+    // and has been removed together with RowSlotMap::update(). This benchmark
+    // therefore measures the only scroll path production uses.
     const bool allowOcclusion = args.contains(
         QStringLiteral("--allow-occlusion"));
     if (!allowOcclusion)
@@ -516,8 +522,18 @@ int main(int argc, char** argv)
     require(rowSamples.sampleCount() >= MinimumScrollSamples
                 && scrollInputTicks >= MinimumScrollSamples,
             QStringLiteral("steady-scroll workload produced too few samples"));
-    require(rowsP95 <= 2,
-            QStringLiteral("steady-scroll row P95 exceeded 2"));
+    // 旧判据是 rowsP95 <= 2 —— 那守的是"滚动时只有新进入的行需要重建"的
+    // 行槽位旋转快路径。该快路径已删除（生产配置下不可达），稳态滚动现在
+    // 走"每批滚动重建一次最终快照"这一支，因此行数判据改为约束该分支真正
+    // 的契约：一帧最多重建两次可见网格（旧实现的 revision 补回与 atlas
+    // 重试各可能再加一遍），超出即为失控重建。rowsP95 仍作为诊断量输出。
+    const quint64 visibleRows = quint64(core.rows());
+    require(scroll.rowsRebuilt <= 2 * scroll.framesRendered * visibleRows,
+            QStringLiteral("steady-scroll rebuilt more than two visible "
+                           "grids per frame"));
+    QTextStream(stderr) << "P5 QRhi benchmark steady-scroll rows P95 = "
+                        << rowsP95 << " (grid rows = " << visibleRows
+                        << ", no row-slot rotation fast path)\n";
     require(scroll.scrollbackReflowRequests == 0,
             QStringLiteral("steady-scroll requested history reflow"));
     require(scroll.vertexBufferReallocations == 0,
