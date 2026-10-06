@@ -9,6 +9,7 @@
 
 #include "core/terminal/TerminalCore.h"
 #include "transport/ITransport.h"
+#include <utility>
 
 SessionInputPump::SessionInputPump(ITransport* transport, TerminalCore* core,
                                    InteractiveStreamFramer* framer,
@@ -39,7 +40,7 @@ void SessionInputPump::start()
     // stop() 会主动暂停 transport，防止输入泵销毁后仍向终端核心投递数据。
     // 新泵必须先订阅 readyRead 再解除暂停：串口恢复读取时可能同步排空缓冲，
     // 若顺序相反会丢失重连后的首批数据；SSH 则会一直保持静默暂停状态。
-    _transport->setReadPaused(false);
+    updateReadPause();
 }
 
 void SessionInputPump::stop()
@@ -63,6 +64,8 @@ void SessionInputPump::acceptBytes(const QByteArray& data)
         return;
 
     _statistics.receivedBytes += static_cast<quint64>(data.size());
+    if (_fileTransferMode && _fileTransferConsumer && _fileTransferConsumer(data))
+        return;
     if (_framer) {
         auto framed = _framer->consume(data);
         qsizetype visibleOffset = 0;
@@ -111,8 +114,7 @@ void SessionInputPump::forwardVisibleBytes(const QByteArray& data)
         }
         _pending.append(data);
         _statistics.pendingBytes = _pending.size() - _pendingHead;
-        if (!_transport->setReadPaused(true))
-            reportOverload(QStringLiteral("transport cannot pause reads"));
+        updateReadPause();
         return;
     }
 
@@ -134,22 +136,17 @@ void SessionInputPump::forwardVisibleBytes(const QByteArray& data)
         _pending.append(data.constData() + offset, suffixSize);
         _statistics.pendingBytes = _pending.size();
         ++_statistics.pauseCount;
-        if (!_transport->setReadPaused(true))
-            reportOverload(QStringLiteral("transport cannot pause reads"));
+        updateReadPause();
         return;
     }
 }
 
 void SessionInputPump::handleBackpressure(bool paused)
 {
-    if (!_running || !_transport || !_core)
-        return;
-    if (paused) {
-        if (!_transport->setReadPaused(true))
-            reportOverload(QStringLiteral("transport cannot pause reads"));
-        return;
-    }
-    drainPending();
+    if (!_running || !_transport || !_core) return;
+    _corePaused = paused;
+    if (!paused) drainPending();
+    else updateReadPause();
 }
 
 void SessionInputPump::drainPending()
@@ -166,17 +163,18 @@ void SessionInputPump::drainPending()
         _statistics.acceptedBytes += static_cast<quint64>(result.acceptedBytes);
         _statistics.pendingBytes = _pending.size() - _pendingHead;
         if (!result.fullyAccepted()) {
-            _transport->setReadPaused(true);
+            _corePaused = true;
+            updateReadPause();
             return;
         }
     }
-    if (_running && _transport)
-        _transport->setReadPaused(false);
+    updateReadPause();
 }
 
 void SessionInputPump::reportOverload(const QString& reason)
 {
     ++_statistics.overloadCount;
+    _overloaded = true;
     if (_transport)
         _transport->setReadPaused(true);
     if (_core)
@@ -189,4 +187,28 @@ SessionInputPump::Statistics SessionInputPump::statistics() const
     auto result = _statistics;
     result.pendingBytes = _pending.size() - _pendingHead;
     return result;
+}
+
+void SessionInputPump::setFileTransferConsumer(
+    std::function<bool(const QByteArray&)> consumer)
+{
+    _fileTransferConsumer = std::move(consumer);
+}
+void SessionInputPump::setFileTransferMode(bool active)
+{
+    _fileTransferMode = active;
+    updateReadPause();
+}
+void SessionInputPump::setFileTransferReadPaused(bool paused)
+{
+    _fileTransferPaused = paused;
+    updateReadPause();
+}
+void SessionInputPump::updateReadPause()
+{
+    if (!_transport) return;
+    const bool paused = !_running || _overloaded || _fileTransferPaused
+        || (!_fileTransferMode && (_corePaused || !_pending.isEmpty()));
+    if (!_transport->setReadPaused(paused) && paused && !_overloaded)
+        reportOverload(QStringLiteral("transport cannot pause reads"));
 }

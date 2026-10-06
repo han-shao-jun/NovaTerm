@@ -17,6 +17,7 @@
 #include <mutex>
 
 class QThread;
+class QTimer;
 namespace NovaTerm::Windows { class ConPtySession; }
 namespace NovaTerm::Linux { class PtySession; }
 
@@ -90,6 +91,22 @@ private:
     LifecycleState _state{LifecycleState::Idle};
 
     void setLifecycleState(LifecycleState state);
+
+    // ── 输入积压（大粘贴分块）────────────────────
+    // 平台会话的输入队列上限 1 MiB；超出部分暂存于此，按块送入会话，
+    // 队列满时由重试定时器等写线程消化后继续。积压上限 64 MiB，
+    // 超限才报 Overload，避免大粘贴整段被拒、又不至于无界占用内存。
+    static constexpr qsizetype MaxPendingInputBytes = 64 * 1024 * 1024;
+    static constexpr qsizetype InputChunkBytes = 256 * 1024;
+    static constexpr int InputRetryIntervalMs = 5;
+    QByteArray _pendingInput;
+    qsizetype _pendingInputHead{0};
+    QTimer* _inputRetryTimer{nullptr};
+
+    void flushPendingInput();
+    void clearPendingInput();
+    [[nodiscard]] bool hasSession() const;
+    [[nodiscard]] bool enqueueToSession(const QByteArray& chunk);
 
     // ── Linux 路径 ────────────────────────────────
 #ifndef _WIN32

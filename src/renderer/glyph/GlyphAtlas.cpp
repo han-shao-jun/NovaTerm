@@ -11,6 +11,7 @@
 
 #include <algorithm>
 #include <limits>
+#include <utility>
 
 namespace NovaTerm {
 
@@ -187,6 +188,9 @@ void GlyphAtlas::pin(const GlyphLocation& location, quint64 retireFrame)
 
 // 合并相邻/重叠的脏矩形以减少上传次数。两矩形在扩展 2px 后相交即视为
 // 可合并；但若合并后面积超过原面积 2 倍则保留独立上传，避免过度放大。
+//
+// 参数按值收，但唯一调用点用 std::move 传入：takeUploads() 每帧对每个
+// 非整页脏的 atlas 页调用本函数，直接传 lvalue 会多一次整表深拷贝。
 QVector<QRect> GlyphAtlas::mergeDirtyRects(QVector<QRect> rects,
                                             const QRect& bounds)
 {
@@ -231,7 +235,9 @@ QVector<GlyphAtlasUpload> GlyphAtlas::takeUploads(quint64 byteBudget)
             rects.push_back(page.image.rect());
         } else {
             _statistics.dirtyRectsBeforeMerge += quint64(page.dirtyRects.size());
-            rects = mergeDirtyRects(page.dirtyRects, page.image.rect());
+            // move 传入：mergeDirtyRects 按值收参数，不 move 会深拷贝整表。
+            rects = mergeDirtyRects(std::move(page.dirtyRects),
+                                    page.image.rect());
             _statistics.dirtyRectsAfterMerge += quint64(rects.size());
         }
         QVector<QRect> deferred;

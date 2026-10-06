@@ -102,6 +102,17 @@ Running。现清理结束后同步发布一次 `disconnected`，Session 进入 F
 `novaterm_ssh_transport_check`、`novaterm_session_tests`、
 `novaterm_ui_dialog_layout_tests` 三项通过；未连接真实服务器做人工验收。
 
+2026-10-06：修复本地 Shell 大粘贴（> 1 MiB）被整段按 Overload 拒绝的问题。
+`LocalShellTransport::write()` 不再把整段数据一次性交给会话层
+`tryEnqueueInput()`（PTY/ConPTY 输入队列上限 1 MiB），而是先进入传输层积压，
+按 256 KiB 分块送入；会话队列满时由 5 ms 单次定时器重试，积压总量超过
+64 MiB 才先发 `transportError(Overload)` 再发 `errorOccurred`。断开与会话关闭时
+清空积压。验证：`novaterm_conpty_tests` 的 `inputDispatchOverloadIsBounded`
+（5 MiB 不报错、再写 64 MiB 报一次 capacity 错误）通过；整项 9/12，失败为
+两项已知句柄泄漏与偶发 `latestResizeWins`（子进程固定 500 ms 后探测尺寸）。
+未覆盖：经 ConPTY 端到端送达 > 1 MiB（conhost VT 输入仅 7~60 KB/s）；
+Linux `novaterm_pty_tests` 未在本机运行。
+
 2026-09-15：终端增加鼠标中键粘贴，与右键菜单共用 `pasteFromClipboard()`，
 读取系统剪贴板并经 `TerminalCore::pasteText()` 保留换行和括号粘贴语义。
 TerminalView 消费中键按下、双击与释放事件，每次按下只粘贴一次，不再向远端

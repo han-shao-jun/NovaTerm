@@ -11,6 +11,7 @@
 
 #include <QDebug>
 #include <QProcessEnvironment>
+#include <QTimer>
 
 // ═══════════════════════════════════════════════════════════════════
 //  跨平台公共部分
@@ -92,6 +93,65 @@ QString LocalShellTransport::errorString() const
     return _errorString;
 }
 
+// 用户输入统一经积压缓冲送入平台会话：小写入立即入队（与旧路径等价），
+// 大粘贴按 InputChunkBytes 分块，会话队列满时留待重试定时器继续。
+void LocalShellTransport::write(const QByteArray& data)
+{
+    if (!hasSession() || _state != LifecycleState::Running || data.isEmpty())
+        return;
+    const qsizetype backlog = _pendingInput.size() - _pendingInputHead;
+    if (data.size() > MaxPendingInputBytes - backlog) {
+        _errorString = QStringLiteral("Local shell input queue capacity exceeded");
+        emit transportError(
+            TransportError{TransportErrorCategory::Overload, 0, _errorString, false});
+        emit errorOccurred(_errorString);
+        return;
+    }
+    if (_pendingInputHead > 0) {
+        _pendingInput.remove(0, _pendingInputHead);
+        _pendingInputHead = 0;
+    }
+    _pendingInput.append(data);
+    flushPendingInput();
+}
+
+void LocalShellTransport::flushPendingInput()
+{
+    if (!hasSession() || _state != LifecycleState::Running) {
+        clearPendingInput();
+        return;
+    }
+    while (_pendingInputHead < _pendingInput.size()) {
+        const qsizetype size = qMin(InputChunkBytes,
+                                    _pendingInput.size() - _pendingInputHead);
+        if (!enqueueToSession(_pendingInput.mid(_pendingInputHead, size))) {
+            // 会话队列已满（或正在关闭）：稍后重试；关闭时 closed 回调会清空积压。
+            if (!_inputRetryTimer) {
+                _inputRetryTimer = new QTimer(this);
+                _inputRetryTimer->setSingleShot(true);
+                _inputRetryTimer->setInterval(InputRetryIntervalMs);
+                connect(_inputRetryTimer, &QTimer::timeout,
+                        this, &LocalShellTransport::flushPendingInput);
+            }
+            if (!_inputRetryTimer->isActive())
+                _inputRetryTimer->start();
+            return;
+        }
+        _pendingInputHead += size;
+        emit bytesWritten(size);
+    }
+    _pendingInput.clear();
+    _pendingInputHead = 0;
+}
+
+void LocalShellTransport::clearPendingInput()
+{
+    _pendingInput.clear();
+    _pendingInputHead = 0;
+    if (_inputRetryTimer)
+        _inputRetryTimer->stop();
+}
+
 // ═══════════════════════════════════════════════════════════════════
 //  Linux 实现 — 独立 PTY 会话后端
 // ═══════════════════════════════════════════════════════════════════
@@ -161,6 +221,7 @@ bool LocalShellTransport::connectToHost()
             return;
         _connected = false;
         _linuxSession = nullptr;
+        clearPendingInput();
         setLifecycleState(LifecycleState::Closed);
         emit disconnected();
         session->deleteLater();
@@ -176,6 +237,7 @@ void LocalShellTransport::disconnect()
         return;
     _connected = false;
     _readPaused.store(false, std::memory_order_release);
+    clearPendingInput();
     setLifecycleState(LifecycleState::Closing);
     if (_linuxSession) {
         QMetaObject::invokeMethod(_linuxSession.data(), &PtySession::requestClose,
@@ -191,18 +253,14 @@ bool LocalShellTransport::setReadPaused(bool paused)
     return true;
 }
 
-void LocalShellTransport::write(const QByteArray& data)
+bool LocalShellTransport::hasSession() const
 {
-    if (!_linuxSession || _state != LifecycleState::Running || data.isEmpty())
-        return;
-    if (!_linuxSession->tryEnqueueInput(data)) {
-        _errorString = QStringLiteral("PTY input queue capacity exceeded or closed");
-        emit transportError(
-            TransportError{TransportErrorCategory::Overload, 0, _errorString, false});
-        emit errorOccurred(_errorString);
-    } else {
-        emit bytesWritten(data.size());
-    }
+    return !_linuxSession.isNull();
+}
+
+bool LocalShellTransport::enqueueToSession(const QByteArray& chunk)
+{
+    return _linuxSession && _linuxSession->tryEnqueueInput(chunk);
 }
 
 void LocalShellTransport::resizeTerminal(int cols, int rows)
@@ -319,13 +377,20 @@ bool LocalShellTransport::connectToHost()
         if (_windowsGeneration == generation) {
             _connected = false;
             _windowsSession = nullptr;
+            clearPendingInput();
             _windowsThread = nullptr;
             setLifecycleState(LifecycleState::Closed);
             emit disconnected();
         }
     });
+    // quit 的直连是 2026-10-06 崩溃的确证根因，不要再改成 DirectConnection。
+    // 这里用默认的 Auto（跨线程即 Queued）：接收者 session 与发送者同在
+    // 生命周期线程，quit 会排到该线程自己的事件循环，等 closed() 的发射栈
+    // 完全退出后才执行。同机 A/B（Windows，injectedStartupStagesRollBack
+    // 单独重跑）：DirectConnection 4/5 崩溃（0xc0000005，QVariant 析构落在
+    // 已释放内存），QueuedConnection 0/6；两个版本仅此一行不同。
     QObject::connect(session, &ConPtySession::closed,
-                     thread, &QThread::quit, Qt::QueuedConnection);
+                     thread, &QThread::quit);
     QObject::connect(thread, &QThread::finished,
                      session, &QObject::deleteLater);
     QObject::connect(thread, &QThread::finished, thread, &QObject::deleteLater);
@@ -343,6 +408,7 @@ void LocalShellTransport::disconnect()
     }
     _connected = false;
     _readPaused.store(false, std::memory_order_release);
+    clearPendingInput();
     setLifecycleState(LifecycleState::Closing);
     if (_windowsSession) {
         QMetaObject::invokeMethod(_windowsSession.data(), &ConPtySession::requestClose,
@@ -363,18 +429,14 @@ bool LocalShellTransport::setReadPaused(bool paused)
     return true;
 }
 
-void LocalShellTransport::write(const QByteArray& data)
+bool LocalShellTransport::hasSession() const
 {
-    if (!_windowsSession || _state != LifecycleState::Running || data.isEmpty())
-        return;
-    if (!_windowsSession->tryEnqueueInput(data)) {
-        _errorString = QStringLiteral("ConPTY input queue capacity exceeded or closed");
-        emit transportError(
-            TransportError{TransportErrorCategory::Overload, 0, _errorString, false});
-        emit errorOccurred(_errorString);
-    } else {
-        emit bytesWritten(data.size());
-    }
+    return !_windowsSession.isNull();
+}
+
+bool LocalShellTransport::enqueueToSession(const QByteArray& chunk)
+{
+    return _windowsSession && _windowsSession->tryEnqueueInput(chunk);
 }
 
 void LocalShellTransport::resizeTerminal(int cols, int rows)

@@ -11,6 +11,7 @@ NovaTerm（原名WindTermQt）是一款基于Qt框架开发的跨平台终端模
 - **现代界面设计**：采用FluentUI设计语言，提供深色/浅色主题切换
 - **GPU加速渲染**：基于Qt QRhi实现高效GPU渲染，支持Vulkan、OpenGL、D3D等多种图形API
 - **SFTP文件传输**：内置SFTP客户端，支持文件上传下载和目录操作
+- **XMODEM / YMODEM / ZMODEM 协议库**：已实现不依赖 Qt 的双向传输引擎，Linux 专项测试和 lrzsz 互通已验证；串口终端接入、Windows/macOS 验收待完成，见 [实现与验收记录](docs/architecture/stages/P9_File_Transfer_Protocols.md)
 - **系统监控**：支持远程SSH会话的系统资源监控
 - **AI MCP 接入**：本机 stdio 接入，按会话授权读取和搜索输出，并可单独授权固定 SSH 诊断命令；默认关闭，见 [使用说明](docs/MCP_Usage.md)
 - **高性能终端**：采用libvterm处理终端解析，支持完整的VT序列
@@ -142,7 +143,11 @@ NovaTerm/
 │   ├── service/        # 公共服务
 │   ├── credential/     # 凭据管理
 │   ├── profile/        # 配置管理
+│   ├── mcp/            # AI MCP 协议与授权
+│   ├── filetransfer/   # XMODEM/YMODEM/ZMODEM 协议库（不依赖 Qt）
 │   └── platform/       # 平台特定代码
+├── tools/              # novaterm-mcp（stdio 入口）、novaterm-local-diag
+├── scripts/            # OpenSSL 预编译、MSVC 依赖兼容层等脚本
 ├── tests/              # 测试代码
 ├── docs/               # 文档
 ├── resources/          # 资源文件
@@ -157,7 +162,7 @@ Linux 可用 `novaterm_ssh_transport_check --local-ssh-check` 显式启动隔离
 SSH 验收（需要 sshd、ssh-keygen、ninja 和 c++；不修改用户 SSH 信任文件）。
 
 项目包含完整的单元测试和集成测试。默认注册到 CTest 的测试按平台不同：
-**Windows 12 项、Linux 11 项**（`novaterm_conpty_tests` 与
+**Windows 18 项、Linux 17 项**（`novaterm_conpty_tests` 与
 `novaterm_terminal_session_tests` 仅 Windows，`novaterm_pty_tests` 仅 Linux）。
 
 ```bash
@@ -195,6 +200,21 @@ cmake --build build --target check
   （freedesktop Secret Service）；没有 `org.freedesktop.secrets` 时相关用例
   自动 `QSKIP`，属预期而非失败。
 - 已知的、与本机环境相关的失败项见 `AGENTS.md` 的「已知测试失败」。
+
+### P9 独立协议测试（无需 Qt）
+
+```bash
+cmake -S src/filetransfer -B build/filetransfer -DCMAKE_BUILD_TYPE=Debug
+cmake --build build/filetransfer
+ctest --test-dir build/filetransfer --output-on-failure
+# 已配置根工程时，仅跑这六项
+ctest --test-dir build -L filetransfer --output-on-failure
+```
+
+独立库包含 XMODEM checksum/CRC/1K、标准 YMODEM batch、ZMODEM CRC16/32。
+XMODEM 未提供真实长度时保留末包填充；协议库不打开文件、不占用串口。
+外部 lrzsz 互通需要显式运行，使用方法及两个上游 CRC16 空文件缺陷跳过项见
+[P9 阶段文档](docs/architecture/stages/P9_File_Transfer_Protocols.md)。
 
 ## 许可证
 

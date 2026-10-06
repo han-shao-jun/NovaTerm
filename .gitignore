@@ -18,3 +18,4 @@ third_party/libssh-0.12.2/out/
 
 # 性能分析产物（本地生成，不入库）
 perf.data*
+perf.txt

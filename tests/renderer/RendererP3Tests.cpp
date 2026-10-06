@@ -4,9 +4,14 @@
 #include "core/terminal/TerminalCore.h"
 #include "service/TerminalSchemeStore.h"
 
+#include <QCoreApplication>
+#include <QElapsedTimer>
 #include <QJsonArray>
+#include <QRegularExpression>
 #include <QSignalSpy>
 #include <QInputMethodEvent>
+#include <QApplication>
+#include <QKeyEvent>
 #include <QTest>
 
 class RendererP3Tests : public QObject
@@ -36,11 +41,19 @@ private slots:
     void commandBufferResizeInvalidatesRows();
     void commandRowsTrackAtlasGeneration();
     void commandBufferValidatesAtlasGeneration();
+    void commandBufferSwapOverlaysRetainsBothCapacities();
+    void commandRowTracksHighlightRoleAcrossRebuild();
+    void highlightPrefilterExtractsMandatoryLiterals();
+    void highlightPrefilterNeverExcludesAMatch();
     void scrollbackAtLiveBottomDoesNotRequestFullFrame();
     void liveBottomMaintainsHistoryLayout();
+    void historyLayoutMaintenanceIsCoalescedPerEventTurn();
     void batchedScreenScrollPublishesExactRowCount();
     void enteringHistoryReusesHistoryLayout();
     void returningToLiveBottomKeepsHistoryLayout();
+    void modifierKeysKeepHistoryAndJumpsReachEnds();
+    void columnReflowKeepsScrollbackPosition();
+    void zoomOutReflowKeepsScrollbackPosition();
     void columnChangeRequestsReflowRowChangeDoesNot();
     void scrollStateTracksHistoryGrowthAndOffset();
     void softWrappedSelectionCopiesAsSingleLine();
@@ -53,6 +66,7 @@ private slots:
     void spanAssemblyCoversBackgroundSlots();
     void spanAssemblyPacksContentIntoFourSlotsPerCell();
     void spanAssemblyOffsetsMatchRequestedSpan();
+    void shadowBufferSkipsIdenticalUploads();
     void incrementalRowMergeKeepsOrderAndColumns();
     void mutableRowRebuildKeepsMetadataAndDropsOutOfRange();
 };
@@ -205,6 +219,50 @@ void RendererP3Tests::spanAssemblyOffsetsMatchRequestedSpan()
     QCOMPARE(empty.contentCount, 0);
     QVERIFY(narrowBackground.isEmpty());
     QVERIFY(narrowContent.isEmpty());
+}
+
+void RendererP3Tests::shadowBufferSkipsIdenticalUploads()
+{
+    NovaTerm::RenderCommandRow row;
+    row.backgrounds.push_back(commandAtColumn(1, 1, false));
+    row.contents.push_back(commandAtColumn(1, 2, false));
+    QVector<TerminalRenderer::GpuInstance> background;
+    QVector<TerminalRenderer::GpuInstance> content;
+    const auto counts = TerminalRenderer::assembleSpanInstances(
+        row, 0, 4, 2, background, content);
+    const qsizetype bytes = qsizetype(counts.backgroundCount)
+        * qsizetype(sizeof(TerminalRenderer::GpuInstance));
+
+    // 新建缓冲的影子全为 0xFF（NaN 浮点）：任何装配结果都判为"不同"。
+    QByteArray shadow(bytes + 128, '\xFF');
+    QVERIFY(TerminalRenderer::syncShadowRange(
+        shadow, 64, background.constData(), bytes));
+    // 同步后再次提交相同字节：跳过上传。
+    QVERIFY(!TerminalRenderer::syncShadowRange(
+        shadow, 64, background.constData(), bytes));
+    // 全零的退化实例写入全 0xFF 的影子同样必须上传（清除残留的关键路径）。
+    QVector<TerminalRenderer::GpuInstance> zeros(
+        counts.backgroundCount, TerminalRenderer::GpuInstance{});
+    QVERIFY(TerminalRenderer::syncShadowRange(
+        shadow, 64, zeros.constData(), bytes));
+    QVERIFY(!TerminalRenderer::syncShadowRange(
+        shadow, 64, zeros.constData(), bytes));
+
+    // 只改一个字段：判为不同并更新影子，之后恢复为相同。
+    background[1].r += 0.5f;
+    QVERIFY(TerminalRenderer::syncShadowRange(
+        shadow, 64, background.constData(), bytes));
+    QVERIFY(!TerminalRenderer::syncShadowRange(
+        shadow, 64, background.constData(), bytes));
+
+    // 零长度不需要上传；越界（影子未建立）保守地要求上传且不写越界内存。
+    QVERIFY(!TerminalRenderer::syncShadowRange(shadow, 0, zeros.constData(), 0));
+    QVERIFY(TerminalRenderer::syncShadowRange(
+        shadow, shadow.size() - 8, zeros.constData(), bytes));
+    QByteArray empty;
+    QVERIFY(TerminalRenderer::syncShadowRange(
+        empty, 0, zeros.constData(), bytes));
+    QVERIFY(empty.isEmpty());
 }
 
 void RendererP3Tests::incrementalRowMergeKeepsOrderAndColumns()
@@ -542,6 +600,28 @@ void RendererP3Tests::schedulerRejectsUnsupportedRefreshRate()
     QCOMPARE(scheduler.targetRefreshRate(), 60);
 }
 
+// 就地写入一行并提交元数据。生产路径就是 mutableRow() + finishRow()；
+// 旧的 replaceRow()/commandCount() 只被测试使用，已作为死代码删除。
+void setRow(NovaTerm::RenderCommandBuffer& buffer, int index,
+            const QVector<NovaTerm::RenderCommand>& backgrounds,
+            const QVector<NovaTerm::RenderCommand>& contents,
+            quint64 atlasGeneration = 0)
+{
+    NovaTerm::RenderCommandRow& row = buffer.mutableRow(index);
+    row.backgrounds = backgrounds;
+    row.contents = contents;
+    buffer.finishRow(index, atlasGeneration);
+}
+
+qsizetype totalCommands(const NovaTerm::RenderCommandBuffer& buffer)
+{
+    qsizetype count = buffer.overlays().size();
+    for (int row = 0; row < buffer.rows(); ++row)
+        count += buffer.row(row).backgrounds.size()
+               + buffer.row(row).contents.size();
+    return count;
+}
+
 void RendererP3Tests::commandBufferReplacesOnlyDirtyRow()
 {
     NovaTerm::RenderCommandBuffer buffer;
@@ -549,12 +629,12 @@ void RendererP3Tests::commandBufferReplacesOnlyDirtyRow()
     NovaTerm::RenderCommand command;
     command.type = NovaTerm::RenderCommandType::GlyphInstance;
 
-    buffer.replaceRow(0, {}, {command});
-    buffer.replaceRow(1, {}, {command});
+    setRow(buffer, 0, {}, {command});
+    setRow(buffer, 1, {}, {command});
     const quint64 firstRowRevision = buffer.row(0).revision;
     const quint64 secondRowRevision = buffer.row(1).revision;
 
-    buffer.replaceRow(1, {}, {});
+    setRow(buffer, 1, {}, {});
 
     QCOMPARE(buffer.row(0).revision, firstRowRevision);
     QVERIFY(buffer.row(1).revision > secondRowRevision);
@@ -567,14 +647,17 @@ void RendererP3Tests::commandBufferResizeInvalidatesRows()
     NovaTerm::RenderCommandBuffer buffer;
     buffer.resize(2, 80);
     NovaTerm::RenderCommand command;
-    buffer.replaceRow(0, {command}, {});
-    QCOMPARE(buffer.commandCount(), qsizetype(1));
+    setRow(buffer, 0, {command}, {});
+    QCOMPARE(totalCommands(buffer), qsizetype(1));
 
     buffer.resize(4, 100);
 
     QCOMPARE(buffer.rows(), 4);
     QCOMPARE(buffer.columns(), 100);
-    QCOMPARE(buffer.commandCount(), qsizetype(0));
+    QCOMPARE(totalCommands(buffer), qsizetype(0));
+    // resize 后每行都要重绘：revision 必须全部推进过。
+    QVERIFY(buffer.row(0).revision > 0);
+    QVERIFY(buffer.row(3).revision > 0);
 }
 
 void RendererP3Tests::commandRowsTrackAtlasGeneration()
@@ -584,8 +667,8 @@ void RendererP3Tests::commandRowsTrackAtlasGeneration()
     NovaTerm::RenderCommand glyph;
     glyph.type = NovaTerm::RenderCommandType::GlyphInstance;
 
-    buffer.replaceRow(0, {}, {glyph}, 7);
-    buffer.replaceRow(1, {}, {glyph}, 8);
+    setRow(buffer, 0, {}, {glyph}, 7);
+    setRow(buffer, 1, {}, {glyph}, 8);
 
     QCOMPARE(buffer.row(0).atlasGeneration, quint64(7));
     QCOMPARE(buffer.row(1).atlasGeneration, quint64(8));
@@ -597,13 +680,226 @@ void RendererP3Tests::commandBufferValidatesAtlasGeneration()
 {
     NovaTerm::RenderCommandBuffer buffer;
     buffer.resize(2, 80);
-    buffer.replaceRow(0, {}, {}, 4);
-    buffer.replaceRow(1, {}, {}, 4);
+    setRow(buffer, 0, {}, {}, 4);
+    setRow(buffer, 1, {}, {}, 4);
     QVERIFY(buffer.rowsUseAtlasGeneration(4));
 
-    buffer.replaceRow(1, {}, {}, 5);
+    setRow(buffer, 1, {}, {}, 5);
     QVERIFY(!buffer.rowsUseAtlasGeneration(4));
     QVERIFY(!buffer.rowsUseAtlasGeneration(5));
+}
+
+// swapOverlays 与调用方缓冲交换内容：两侧容量都必须跨帧保留，否则
+// rebuildOverlays() 每帧都要新建/释放一个 rows+1 的 QVector。
+void RendererP3Tests::commandBufferSwapOverlaysRetainsBothCapacities()
+{
+    NovaTerm::RenderCommandBuffer buffer;
+    buffer.resize(4, 80);
+    QVector<NovaTerm::RenderCommand> scratch;
+    NovaTerm::RenderCommand cursor;
+    cursor.type = NovaTerm::RenderCommandType::Cursor;
+    scratch.reserve(8);
+    scratch.append(cursor);
+
+    buffer.swapOverlays(scratch);
+    QCOMPARE(buffer.overlays().size(), 1);
+    // 交换搬走整块缓冲：调用方那份 8 项容量落到命令缓冲上，下一帧
+    // rebuildOverlays() 就能直接写进去而不必重新分配。
+    QCOMPARE(buffer.overlays().capacity(), qsizetype(8));
+    // 调用方换到缓冲原有的空序列，仍然保住了容量。
+    QVERIFY(scratch.isEmpty());
+    QCOMPARE(scratch.capacity(), qsizetype(0));
+
+    scratch.reserve(8);
+    scratch.append(cursor);
+    scratch.append(cursor);
+    buffer.swapOverlays(scratch);
+    QCOMPARE(buffer.overlays().size(), 2);
+    QCOMPARE(buffer.overlays().capacity(), qsizetype(8));
+    QCOMPARE(scratch.capacity(), qsizetype(8));
+}
+
+// 高亮规则的字面量前置过滤必须满足的唯一硬约束：**不得排除任何一次真实
+// 命中**。对每条规则的完整形态逐个字符串验证："正则不命中 => 前置过滤也
+// 判定为不可能命中"。
+//
+// 这几条形态与串口日志规则（src/session/SerialHighlightRules.cpp）同型；
+// 本测试目标不链接该源文件，故在此复刻同样的模式串。
+namespace {
+
+struct HighlightRuleCase
+{
+    const char* pattern;
+    bool caseInsensitive;
+};
+
+QVector<HighlightRuleCase> serialShapedHighlightRules()
+{
+    return {
+        {"(?<![A-Za-z0-9])(?:error|failed|failure|fatal|panic|bad|invalid"
+         "|corrupt)(?![A-Za-z0-9])", true},
+        {"(?<![A-Za-z0-9])(?:warn|warning|caution)(?![A-Za-z0-9])", true},
+        {"(?:success|successful|passed|ready|done|ok)", false},
+        {"(?:^|\\s)\\S*[>#$]\\s*$", false},
+        {"device-ready", false},
+        {"\\d{2,3}ms", false},
+        {"foo.bar", false},
+        {"(a|b)+", false},
+    };
+}
+
+QStringList highlightCorpus()
+{
+    return {
+        QStringLiteral("ERROR: sensor offline"),
+        QStringLiteral("Warning: voltage low"),
+        QStringLiteral("ordinary serial output"),
+        QStringLiteral("SUCCESSFUL_HANDOFF"),
+        QStringLiteral("Zynq> "),
+        QStringLiteral("root@board:~# "),
+        QStringLiteral("device-ready"),
+        QStringLiteral("DEVICE-READY"),
+        QStringLiteral("took 42ms"),
+        QStringLiteral("took 4ms"),
+        QStringLiteral("foo.bar"),
+        QStringLiteral("fooXbar"),
+        QStringLiteral("abab"),
+        QStringLiteral("a"),
+        QStringLiteral("   "),
+        QStringLiteral(""),
+        QStringLiteral("read error_count=0"),
+        QStringLiteral("no keyword here at all"),
+        QStringLiteral("aaa"),
+        QStringLiteral("bbb"),
+    };
+}
+
+} // namespace
+
+void RendererP3Tests::highlightPrefilterExtractsMandatoryLiterals()
+{
+    // 前后行断言被跳过，组内纯字面量的分支择一被提取。
+    QCOMPARE(TerminalRenderer::highlightRequiredLiterals(
+                 QStringLiteral("(?<![A-Za-z0-9])(?:error|failed|panic)"
+                                "(?![A-Za-z0-9])")),
+             QVector<QString>({QStringLiteral("error"),
+                               QStringLiteral("failed"),
+                               QStringLiteral("panic")}));
+
+    // 顶层字符组：任何命中必含其中一个字符。
+    QCOMPARE(TerminalRenderer::highlightRequiredLiterals(
+                 QStringLiteral("[>#$]\\s*$")),
+             QVector<QString>({QStringLiteral(">"), QStringLiteral("#"),
+                               QStringLiteral("$")}));
+
+    // 整段字面量（含连字符与空格 —— 它们不是 PCRE 元字符）。
+    QCOMPARE(TerminalRenderer::highlightRequiredLiterals(
+                 QStringLiteral("device ready")),
+             QVector<QString>({QStringLiteral("device ready")}));
+    QCOMPARE(TerminalRenderer::highlightRequiredLiterals(
+                 QStringLiteral("device-ready")),
+             QVector<QString>({QStringLiteral("device-ready")}));
+
+    // 断言组后跟字面量：断言跳过，字面量被提取。
+    QCOMPARE(TerminalRenderer::highlightRequiredLiterals(
+                 QStringLiteral("(?<=x)token")),
+             QVector<QString>({QStringLiteral("token")}));
+    QCOMPARE(TerminalRenderer::highlightRequiredLiterals(
+                 QStringLiteral("(?!x)token")),
+             QVector<QString>({QStringLiteral("token")}));
+
+    // 可选量词：元素可能一次都不匹配，空匹配就能绕过过滤，因此必须放弃。
+    // 这是前置过滤唯一的正确性红线。
+    for (const char* optional : {"[abc]?", "[abc]*", "[abc]{0,3}",
+                                 "(?:a|b)?", "[>]?"}) {
+        QVERIFY2(TerminalRenderer::highlightRequiredLiterals(
+                     QString::fromLatin1(optional)).isEmpty(),
+                 optional);
+    }
+    // 强制量词仍然可用。
+    QCOMPARE(TerminalRenderer::highlightRequiredLiterals(
+                 QStringLiteral("[abc]+")).size(), 3);
+    QCOMPARE(TerminalRenderer::highlightRequiredLiterals(
+                 QStringLiteral("[abc]{2,3}")).size(), 3);
+    QCOMPARE(TerminalRenderer::highlightRequiredLiterals(
+                 QStringLiteral("(?:a|b)+")).size(), 2);
+
+    // 无法证明的形态一律放弃（返回空 => 调用方照旧执行正则）。
+    for (const char* unanalysable : {
+             "\\d{2,3}ms", "foo.bar", "(a|b)+", "(?<=[a-z])x\\d*",
+             "[a-z]+", "(?:^|\\s)\\S*[>#$]\\s*$", "token(?:x|y)",
+             "\\S*[>#$]", ""}) {
+        QVERIFY2(TerminalRenderer::highlightRequiredLiterals(
+                     QString::fromLatin1(unanalysable)).isEmpty(),
+                 unanalysable);
+    }
+}
+
+void RendererP3Tests::highlightPrefilterNeverExcludesAMatch()
+{
+    const QVector<HighlightRuleCase> rules = serialShapedHighlightRules();
+    const QStringList corpus = highlightCorpus();
+    int filteredSamples = 0;
+    int totalSamples = 0;
+    for (const HighlightRuleCase& entry : rules) {
+        QRegularExpression pattern(
+            QString::fromLatin1(entry.pattern),
+            entry.caseInsensitive
+                ? QRegularExpression::CaseInsensitiveOption
+                : QRegularExpression::PatternOptions());
+        const QVector<QString> literals =
+            TerminalRenderer::highlightRequiredLiterals(pattern.pattern());
+        for (const QString& text : corpus) {
+            ++totalSamples;
+            const Qt::CaseSensitivity sensitivity = entry.caseInsensitive
+                ? Qt::CaseInsensitive : Qt::CaseSensitive;
+            bool maybe = literals.isEmpty();
+            for (const QString& literal : literals) {
+                if (text.contains(literal, sensitivity)) {
+                    maybe = true;
+                    break;
+                }
+            }
+            if (pattern.match(text).hasMatch()) {
+                // 前置过滤命中与否都无所谓，但真实命中必须被记录，说明
+                // 语料确实覆盖了正例。
+                continue;
+            }
+            if (!maybe) {
+                ++filteredSamples;
+                continue;
+            }
+            QVERIFY2(true, text.toUtf8().constData());
+        }
+    }
+    // 前置过滤必须真的拦下了一些样本，否则这条路径没有意义。
+    QVERIFY(filteredSamples > 0);
+    QVERIFY(totalSamples > 0);
+}
+
+// 高亮角色变化才要求整行重建：角色未变时逐列增量重建是安全的，旧命令仍
+// 带着同一个角色色。RenderCommandRow::highlightRole 是这条契约的载体。
+void RendererP3Tests::commandRowTracksHighlightRoleAcrossRebuild()
+{
+    NovaTerm::RenderCommandBuffer buffer;
+    buffer.resize(3, 80);
+    QCOMPARE(buffer.row(0).highlightRole, NovaTerm::NoHighlightRole);
+    for (int row = 0; row < 3; ++row) {
+        buffer.mutableRow(row).highlightRole = row; // Error/Warning/Success
+        buffer.finishRow(row, 1);
+    }
+    QCOMPARE(buffer.row(2).highlightRole, 2);
+
+    // 行整体上移：角色跟着行走，否则新位置会拿旧角色的"增量可复用"判据去
+    // 复用不属于它的旧命令。
+    buffer.rotateRowsUp(1);
+    QCOMPARE(buffer.row(0).highlightRole, 1);
+    QCOMPARE(buffer.row(1).highlightRole, 2);
+    // 新进入底部的行被清空，角色必须一并复位。
+    QCOMPARE(buffer.row(2).highlightRole, NovaTerm::NoHighlightRole);
+
+    buffer.resize(4, 80);
+    QCOMPARE(buffer.row(0).highlightRole, NovaTerm::NoHighlightRole);
 }
 
 void RendererP3Tests::scrollbackAtLiveBottomDoesNotRequestFullFrame()
@@ -655,6 +951,51 @@ void RendererP3Tests::liveBottomMaintainsHistoryLayout()
     // 增量维护必须把新行折进布局，行数随之增长。
     QCOMPARE(renderer.historyDisplayRowCount(),
              qsizetype(core.scrollbackLineCount()));
+}
+
+// 布局维护合并到"每个事件循环轮次一次"。updateHistoryLayout() 走
+// TerminalCore::scrollbackTail()，该接口把尾部逻辑行**深拷贝**一份；解析
+// 按 64 KiB 一批发布时（24 MiB/s ≈ 380 批/秒）逐批维护就是逐批深拷贝。
+// 布局只在渲染与命中测试时才被读，渲染最多 60 Hz，因此同一轮里积压的多次
+// scrollbackChanged 应当只触发一次维护。
+void RendererP3Tests::historyLayoutMaintenanceIsCoalescedPerEventTurn()
+{
+    TerminalCore core(80, 24);
+    core.setScrollbackLimit(100000);
+    TerminalRenderer renderer(&core);
+    QVERIFY(core.waitForIdle(1000));
+
+    QByteArray input;
+    for (int i = 0; i < 60; ++i)
+        input += QByteArrayLiteral("coalesce-probe\r\n");
+    QVERIFY(core.writeInput(input).fullyAccepted());
+    QVERIFY(core.waitForIdle(1000));
+    // 首建布局（走一次全量重排）。
+    QTRY_VERIFY_WITH_TIMEOUT(renderer.historyDisplayRowCount() > 0, 3000);
+
+    // 排空此前投递的合并调用，让下面的统计从稳定状态开始。
+    QTest::qWait(80);
+    const auto maintenanceCount = [&renderer] {
+        const auto statistics = renderer.renderStatistics();
+        // 两条路径都算"维护了一次"：尾部增量或全量重排。
+        return statistics.historyLayoutTailUpdates
+             + statistics.scrollbackReflowRequests;
+    };
+    const quint64 before = maintenanceCount();
+
+    // 模拟同一轮里积压的多次解析发布。
+    constexpr int Publications = 10;
+    for (int i = 0; i < Publications; ++i)
+        emit core.scrollbackChanged();
+    // 信号处理器只置脏标志并投递一次 queued 调用，维护尚未发生。
+    QCOMPARE(maintenanceCount(), before);
+    QCoreApplication::processEvents();
+    QCOMPARE(maintenanceCount(), before + 1);
+
+    // 下一轮再来一次，仍然只维护一次。
+    emit core.scrollbackChanged();
+    QCoreApplication::processEvents();
+    QCOMPARE(maintenanceCount(), before + 2);
 }
 
 void RendererP3Tests::batchedScreenScrollPublishesExactRowCount()
@@ -733,6 +1074,114 @@ void RendererP3Tests::returningToLiveBottomKeepsHistoryLayout()
     QCOMPARE(renderer.historyDisplayRowCount(), rowsBefore);
     QCOMPARE(renderer.renderStatistics().scrollbackReflowRequests,
              requestsBefore);
+}
+
+// 单独按下修饰键不产生输入，不能把回看拉回实时底部（Ctrl+滚轮缩放的起手式
+// 曾因此丢失回看位置）；普通按键仍回到底部。顶部/底部跳转供右键菜单使用。
+void RendererP3Tests::modifierKeysKeepHistoryAndJumpsReachEnds()
+{
+    TerminalCore core(80, 6);
+    TerminalRenderer renderer(&core);
+    QByteArray input;
+    for (int i = 0; i < 100; ++i)
+        input += QByteArrayLiteral("history\r\n");
+    QVERIFY(core.writeInput(input).fullyAccepted());
+    QVERIFY(core.waitForIdle(1000));
+    QTRY_VERIFY_WITH_TIMEOUT(renderer.historyDisplayRowCount() > 0, 2000);
+
+    renderer.scrollLines(5);
+    QCOMPARE(renderer.scrollOffset(), 5);
+    for (const int key : {int(Qt::Key_Control), int(Qt::Key_Shift),
+                          int(Qt::Key_Alt), int(Qt::Key_Meta)}) {
+        QKeyEvent press(QEvent::KeyPress, key, Qt::NoModifier);
+        QApplication::sendEvent(&renderer, &press);
+        QCOMPARE(renderer.scrollOffset(), 5);
+    }
+
+    renderer.scrollToTop();
+    QCOMPARE(renderer.scrollOffset(), renderer.maximumScrollOffset());
+    QVERIFY(renderer.scrollOffset() > 5);
+
+    QKeyEvent letter(QEvent::KeyPress, Qt::Key_A, Qt::NoModifier,
+                     QStringLiteral("a"));
+    QApplication::sendEvent(&renderer, &letter);
+    QCOMPARE(renderer.scrollOffset(), 0);
+
+    renderer.scrollToTop();
+    renderer.scrollToBottom();
+    QCOMPARE(renderer.scrollOffset(), 0);
+}
+
+// Ctrl+滚轮缩放会改变列宽并触发历史重排。重排在途期间布局为空，旧实现
+// 把回看偏移钳到 0，视图直接跳回实时底部。偏移必须在重排期间与完成后都保留。
+void RendererP3Tests::columnReflowKeepsScrollbackPosition()
+{
+    TerminalCore core(80, 6);
+    TerminalRenderer renderer(&core);
+    QByteArray input;
+    for (int i = 0; i < 100; ++i)
+        input += QByteArrayLiteral("zoom-reflow-probe\r\n");
+    QVERIFY(core.writeInput(input).fullyAccepted());
+    QVERIFY(core.waitForIdle(1000));
+    QTRY_VERIFY_WITH_TIMEOUT(renderer.historyDisplayRowCount() > 0, 2000);
+
+    renderer.scrollLines(30);
+    QCOMPARE(renderer.scrollOffset(), 30);
+    const quint64 requestsBefore =
+        renderer.renderStatistics().scrollbackReflowRequests;
+
+    // 模拟缩放后的列宽变化；一次输出触发 scrollbackChanged → 重排。
+    core.resize(40, 6);
+    QVERIFY(core.waitForIdle(1000));
+    QVERIFY(core.writeInput(QByteArrayLiteral("after-zoom\r\n"))
+                .fullyAccepted());
+    QVERIFY(core.waitForIdle(1000));
+    QTRY_VERIFY_WITH_TIMEOUT(
+        renderer.renderStatistics().scrollbackReflowRequests > requestsBefore,
+        2000);
+    QVERIFY(renderer.scrollOffset() > 0);
+
+    // 重排完成后锚点还原：仍停在历史中而非实时底部。
+    QTRY_VERIFY_WITH_TIMEOUT(renderer.historyDisplayRowCount() > 0, 2000);
+    QVERIFY(renderer.scrollOffset() > 0);
+    QVERIFY(renderer.scrollOffset() <= renderer.maximumScrollOffset());
+}
+
+// 缩小字体是反方向：列数与行数同时变多。屏幕变高会经 sb_popline 把最新
+// 历史行取回屏幕，历史与折行同时变化，回看位置同样不能丢回实时底部。
+void RendererP3Tests::zoomOutReflowKeepsScrollbackPosition()
+{
+    TerminalCore core(40, 6);
+    TerminalRenderer renderer(&core);
+    QByteArray input;
+    for (int i = 0; i < 100; ++i) {
+        // 60 列文本在 40 列下折成两行显示行，放宽到 80 列后合回一行。
+        input += QByteArray(60, char('a' + i % 26));
+        input += QByteArrayLiteral("\r\n");
+    }
+    QVERIFY(core.writeInput(input).fullyAccepted());
+    QVERIFY(core.waitForIdle(1000));
+    QTRY_VERIFY_WITH_TIMEOUT(renderer.historyDisplayRowCount() > 100, 2000);
+
+    // 偏移超过逻辑行数，验证重排期间按逻辑行数钳制也不会归零。
+    renderer.scrollLines(150);
+    QCOMPARE(renderer.scrollOffset(), 150);
+    const quint64 requestsBefore =
+        renderer.renderStatistics().scrollbackReflowRequests;
+
+    core.resize(80, 12);
+    QVERIFY(core.waitForIdle(1000));
+    QVERIFY(core.writeInput(QByteArrayLiteral("after-zoom-out\r\n"))
+                .fullyAccepted());
+    QVERIFY(core.waitForIdle(1000));
+    QTRY_VERIFY_WITH_TIMEOUT(
+        renderer.renderStatistics().scrollbackReflowRequests > requestsBefore,
+        2000);
+    QVERIFY(renderer.scrollOffset() > 0);
+
+    QTRY_VERIFY_WITH_TIMEOUT(renderer.historyDisplayRowCount() > 0, 2000);
+    QVERIFY(renderer.scrollOffset() > 0);
+    QVERIFY(renderer.scrollOffset() <= renderer.maximumScrollOffset());
 }
 
 // 重排判据是**列数**而非尺寸：行数变化不影响折行，不应触发重排。
@@ -890,10 +1339,20 @@ void RendererP3Tests::fragmentedOutputDoesNotInflateScrollbackBytes()
             // 等显示布局追上历史行数：首建走一次全量重排，之后每批走尾部增量。
             // 探针行 24 字符 < 80 列、无软换行，故显示行数应等于逻辑行数。这样
             // 复现的是优化后的稳定分块行为，而非首建期的反复重排。
-            QTRY_VERIFY_WITH_TIMEOUT(
-                renderer.historyDisplayRowCount()
-                    == qsizetype(core.scrollbackLineCount()),
-                5000);
+            // 布局维护被合并到下一个事件循环轮次（TerminalRenderer 的
+            // syncHistoryLayout：一次 scrollbackTail 深拷贝服务同一轮积压的
+            // 多个解析批次），故这里轮询等待。预算与断言都不变，只是把
+            // QTRY_VERIFY 的默认 50 ms 轮询间隔换成忙轮询，否则 101 个批次
+            // 会把本用例拖到 5 秒。
+            QElapsedTimer layoutWait;
+            layoutWait.start();
+            while (renderer.historyDisplayRowCount()
+                       != qsizetype(core.scrollbackLineCount())
+                   && layoutWait.elapsed() < 5000) {
+                QCoreApplication::processEvents();
+            }
+            QCOMPARE(renderer.historyDisplayRowCount(),
+                     qsizetype(core.scrollbackLineCount()));
         }
         QTest::qWait(50);
         const auto statistics = core.scrollbackStatistics();

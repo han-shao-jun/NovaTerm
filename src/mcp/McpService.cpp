@@ -1064,6 +1064,12 @@ public:
             const auto result = timedOut ? error("DEADLINE_EXCEEDED") : success({{"captureId", id},
                 {"revision", data.value("revision")}, {"matches", matches}, {"limited", limited},
                 {"sourceTruncated", data.value("sourceTruncated")}, {"outputTruncated", data.value("outputTruncated")}});
+            // guard 可能在上面那次检查之后、走到这里之前被销毁（Service::stop()
+            // 会 workers.waitForDone()，但 queued 的 lambda 仍待投递）。此时若照样
+            // 投递，Qt 会走 "Invalid nullptr argument" 警告路径且 lambda 不执行 ——
+            // 没有 UAF，但那条警告在日志里与真实协议故障无法区分。显式跳过。
+            if (!guard)
+                return;
             QMetaObject::invokeMethod(guard, [this, guard, job, result] { if (guard) complete(job, result); }, Qt::QueuedConnection);
         }));
     }

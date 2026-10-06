@@ -112,6 +112,12 @@ private:
             if (_peers.size() >= MaxClients) { socket->abort(); socket->deleteLater(); continue; }
             auto peer = std::make_shared<Peer>();
             peer->id = newId();
+            // QLocalServer::nextPendingConnection() 返回**无 parent** 的 socket，
+            // Qt 的契约是「调用方负责 delete」。设为 IoWorker 的子对象后，socket
+            // 绝不会比 worker 活得久 —— 否则 stop() 销毁 IoWorker 时，仍连接的
+            // 每个 peer 都会连同它的 QTimer 与 fd/句柄一起泄漏（每次禁用再启用
+            // MCP 接入都会发生，不只是进程退出）。
+            socket->setParent(this);
             peer->socket = socket;
             peer->acceptedAt = peer->lastProgress = _clock.elapsed();
             peer->timer = new QTimer(socket);
@@ -138,6 +144,8 @@ private:
                     peer->socket->abort();
             });
             connect(socket, &QLocalSocket::disconnected, this, [this, peer] {
+                if (_shuttingDown)
+                    return;
                 peer->timer->stop();
                 _peers.remove(peer->id);
                 bool authenticated = false;
@@ -177,6 +185,27 @@ private:
     std::shared_ptr<Queues> _queues;
     LocalMcpServer* _owner;
     QLocalServer* _server{nullptr};
+    ~IoWorker()
+    {
+        // IoWorker 销毁时（stop() 里的 thread.finished → deleteLater，或析构）
+        // 仍连接的 socket 不会触发 disconnected。socket 已是本对象的子对象，
+        // ~QObject 会 delete 它们；先 abort() 只是为了让对端立刻看到断开而不是
+        // 等超时。_shuttingDown 让 abort() 同步触发的 disconnected 处理器不再
+        // 回头改 _peers（析构进行中）。
+        _shuttingDown = true;
+        const auto peers = _peers;
+        _peers.clear();
+        for (const auto& peer : peers) {
+            if (peer->socket == nullptr)
+                continue;
+            peer->timer->stop();
+            peer->socket->abort();
+        }
+    }
+
+    // 析构收尾期间为 true：此时 abort() 同步触发的 disconnected 处理器不再
+    // 回头改 _peers。
+    bool _shuttingDown{false};
     QHash<QString, std::shared_ptr<Peer>> _peers;
     QElapsedTimer _clock;
 };

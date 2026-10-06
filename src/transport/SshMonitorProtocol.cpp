@@ -45,6 +45,11 @@ SshMonitorFrameParser::append(const QByteArray& data)
                 return fail(Error::LineLimit);
             break;
         }
+        // 行长上限对"本次 append 就带换行"的分支同样生效：否则远端一次
+        // 吐出整行超长内容就能绕过上面的缓冲检查，要等到单帧 128 KiB
+        // 上限才拦住，与 SshTransport 的 16 KiB 提示差 8 倍。
+        if (newline > MaxLineBytes)
+            return fail(Error::LineLimit);
 
         QByteArray line = _buffer.left(newline);
         _buffer.remove(0, newline + 1);

@@ -23,6 +23,20 @@ set(NOVATERM_P5_RENDERER_SOURCES
 )
 
 if(BUILD_TESTING)
+    # 测试以 QT_QPA_PLATFORM=offscreen 运行，而 windeployqt 只部署 qwindows，
+    # 这里把 offscreen 平台插件复制到 bin/platforms，避免"no Qt platform plugin"。
+    if(WIN32 AND TARGET Qt${QT_VERSION_MAJOR}::QOffscreenIntegrationPlugin)
+        add_custom_target(novaterm_deploy_offscreen_plugin ALL
+            COMMAND ${CMAKE_COMMAND} -E make_directory
+                "${CMAKE_BINARY_DIR}/bin/platforms"
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "$<TARGET_FILE:Qt${QT_VERSION_MAJOR}::QOffscreenIntegrationPlugin>"
+                "${CMAKE_BINARY_DIR}/bin/platforms/"
+            COMMENT "Deploying qoffscreen platform plugin for tests"
+            VERBATIM
+        )
+    endif()
+
     # 提供一个输出更完整的统一测试入口：
     #   cmake --build <build-dir> --target check
     # 多配置生成器（Visual Studio、Ninja Multi-Config）需要显式传递配置。
@@ -41,6 +55,8 @@ if(BUILD_TESTING)
         USES_TERMINAL
         COMMENT "Running NovaTerm tests with detailed CTest output"
     )
+
+    add_subdirectory(filetransfer)
 
     find_package(Qt${QT_VERSION_MAJOR} 6.8 REQUIRED COMPONENTS Test)
 
@@ -145,6 +161,23 @@ if(BUILD_TESTING)
         TIMEOUT 60
     )
     add_dependencies(check novaterm_core_tests)
+
+    # 常见终端操作用例（参考 esctest2 / vttest 覆盖面）。
+    add_executable(novaterm_terminal_ops_tests
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/TerminalOpsTests.cpp
+    )
+    target_link_libraries(novaterm_terminal_ops_tests
+        PRIVATE
+            novaterm_core
+            Qt${QT_VERSION_MAJOR}::Test
+    )
+    add_test(NAME novaterm_terminal_ops_tests COMMAND novaterm_terminal_ops_tests)
+    set_tests_properties(novaterm_terminal_ops_tests PROPERTIES
+        WORKING_DIRECTORY "${CMAKE_BINARY_DIR}"
+        LABELS "unit;core;conformance"
+        TIMEOUT 60
+    )
+    add_dependencies(check novaterm_terminal_ops_tests)
 
     add_executable(novaterm_scrollback_tests
         ${CMAKE_CURRENT_SOURCE_DIR}/core/ScrollbackTests.cpp
@@ -406,7 +439,8 @@ if(BUILD_TESTING)
         set_tests_properties(novaterm_conpty_tests PROPERTIES
             WORKING_DIRECTORY "${CMAKE_BINARY_DIR}"
             LABELS "integration;conpty"
-            TIMEOUT 120
+            # duplex 用例受 conhost 吞吐限制单独约 40 s，整套约 130 s。
+            TIMEOUT 240
         )
         add_dependencies(check novaterm_conpty_tests)
 
@@ -637,6 +671,49 @@ if(BUILD_TESTING)
     )
     add_dependencies(check novaterm_ui_dialog_layout_tests)
 
+    # ── SessionPanel 选区回归 ──
+    # 单独成目标而非并入上面的 ui 目标：SessionPanel 拖入 SessionStore /
+    # ProfileStore / MessagePrompts / CredentialStore 一整条依赖链，其中
+    # CredentialStore 在 UNIX 上要 QtDBus（NOVATERM_SECRET_SERVICE_LIBS），
+    # 与 ui 目标刻意保持的「只链 Ela+Qt」轻量闭包不同。
+    qt_add_executable(novaterm_session_panel_tests
+        ${CMAKE_CURRENT_SOURCE_DIR}/ui/SessionPanelTests.cpp
+        ${PROJECT_SOURCE_DIR}/src/ui/widgets/SessionPanel.cpp
+        ${PROJECT_SOURCE_DIR}/src/ui/widgets/SessionPanel.h
+        ${PROJECT_SOURCE_DIR}/src/ui/widgets/MessagePrompts.cpp
+        ${PROJECT_SOURCE_DIR}/src/ui/widgets/MessagePrompts.h
+        ${PROJECT_SOURCE_DIR}/src/session/SessionStore.cpp
+        ${PROJECT_SOURCE_DIR}/src/session/SessionStore.h
+        ${PROJECT_SOURCE_DIR}/src/profile/ProfileStore.cpp
+        ${PROJECT_SOURCE_DIR}/src/profile/ProfileStore.h
+        ${PROJECT_SOURCE_DIR}/src/credential/CredentialStore.cpp
+        ${PROJECT_SOURCE_DIR}/src/credential/CredentialStore.h
+        ${PROJECT_SOURCE_DIR}/src/service/LanguageManager.cpp
+        ${PROJECT_SOURCE_DIR}/src/service/LanguageManager.h
+    )
+    target_include_directories(novaterm_session_panel_tests
+        PRIVATE ${PROJECT_SOURCE_DIR}/src
+    )
+    target_link_libraries(novaterm_session_panel_tests
+        PRIVATE
+            ElaWidgetTools
+            Qt${QT_VERSION_MAJOR}::Core
+            Qt${QT_VERSION_MAJOR}::Gui
+            Qt${QT_VERSION_MAJOR}::Widgets
+            Qt${QT_VERSION_MAJOR}::SerialPort
+            Qt${QT_VERSION_MAJOR}::Test
+            ${NOVATERM_SECRET_SERVICE_LIBS}
+    )
+    add_test(NAME novaterm_session_panel_tests
+             COMMAND novaterm_session_panel_tests)
+    set_tests_properties(novaterm_session_panel_tests PROPERTIES
+        WORKING_DIRECTORY "${CMAKE_BINARY_DIR}"
+        LABELS "ui"
+        TIMEOUT 30
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+    )
+    add_dependencies(check novaterm_session_panel_tests)
+
     # ── TelnetTransport 协议与失败路径测试 ──
     # 用 loopback QTcpServer 充当服务端，不需要真实 telnetd。
     qt_add_executable(novaterm_telnet_transport_tests
@@ -844,4 +921,41 @@ if(NOVATERM_BUILD_BENCHMARKS)
         USES_TERMINAL
         COMMENT "Running NovaTerm P2/P4 performance benchmarks"
     )
+endif()
+
+
+if(BUILD_TESTING)
+    # 三个既有目标直接编译 Session/TerminalView，必须链接新串口门面。
+    foreach(_serial_consumer novaterm_session_tests novaterm_mcp_tests novaterm_terminal_session_tests)
+        if(TARGET ${_serial_consumer})
+            target_link_libraries(${_serial_consumer} PRIVATE novaterm_serial_transfer)
+            target_sources(${_serial_consumer} PRIVATE
+                ${PROJECT_SOURCE_DIR}/src/transport/SerialTransport.cpp)
+        endif()
+    endforeach()
+    if(TARGET novaterm_terminal_session_tests)
+        target_sources(novaterm_terminal_session_tests PRIVATE
+            ${PROJECT_SOURCE_DIR}/src/ui/widgets/SerialFileTransferDialog.cpp
+        )
+    endif()
+    qt_add_executable(novaterm_serial_file_transfer_tests session/SerialFileTransferTests.cpp)
+    target_link_libraries(novaterm_serial_file_transfer_tests PRIVATE
+        novaterm_serial_transfer Qt${QT_VERSION_MAJOR}::Test)
+    set_target_properties(novaterm_serial_file_transfer_tests PROPERTIES WIN32_EXECUTABLE FALSE)
+    add_test(NAME novaterm_serial_file_transfer_tests COMMAND novaterm_serial_file_transfer_tests)
+    set_tests_properties(novaterm_serial_file_transfer_tests PROPERTIES
+        LABELS "session;serial;filetransfer;p9" TIMEOUT 120)
+    qt_add_executable(novaterm_serial_file_transfer_ui_tests
+        ui/SerialFileTransferDialogTests.cpp
+        ${PROJECT_SOURCE_DIR}/src/ui/widgets/SerialFileTransferDialog.cpp
+        ${PROJECT_SOURCE_DIR}/src/ui/widgets/MessagePrompts.cpp
+        ${PROJECT_SOURCE_DIR}/src/service/LanguageManager.cpp
+    )
+    target_link_libraries(novaterm_serial_file_transfer_ui_tests PRIVATE
+        novaterm_serial_transfer ElaWidgetTools Qt${QT_VERSION_MAJOR}::Widgets Qt${QT_VERSION_MAJOR}::Test)
+    set_target_properties(novaterm_serial_file_transfer_ui_tests PROPERTIES WIN32_EXECUTABLE FALSE)
+    add_test(NAME novaterm_serial_file_transfer_ui_tests COMMAND novaterm_serial_file_transfer_ui_tests)
+    set_tests_properties(novaterm_serial_file_transfer_ui_tests PROPERTIES
+        LABELS "ui;serial;filetransfer;p9" TIMEOUT 30 ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+    add_dependencies(check novaterm_serial_file_transfer_tests novaterm_serial_file_transfer_ui_tests)
 endif()

@@ -11,6 +11,16 @@
 #include "session/TerminalSession.h"
 #include "session/SessionInputPump.h"
 #include "transport/ITransport.h"
+#include "transport/SerialTransport.h"
+#include "session/transfer/SerialFileTransferController.h"
+#include "filetransfer/XmodemEngine.h"
+#include <QSocketNotifier>
+#include <QTimer>
+#ifdef Q_OS_LINUX
+#include <fcntl.h>
+#include <unistd.h>
+#include <cstdlib>
+#endif
 
 #include <QSignalSpy>
 #include <QKeyEvent>
@@ -114,6 +124,7 @@ class SessionTests final : public QObject
     Q_OBJECT
 private slots:
     void serialAutomaticReconnect();
+    void realSerialSessionUsesExistingPumpForFileTransfer();
     void automaticReconnectDisabledForZeroAndOtherProtocols();
     void lifecycleReachesRunningThenClosed();
     void manualDisconnectKeepsTransportReconnectable_data();
@@ -127,7 +138,9 @@ private slots:
     void structuredTransportErrorSetsSessionCategory();
     void agentContextFiltersProgressWrapDuplicatesAndAlternate();
     void inputPumpOffsetsPreservePendingSuffix();
+    void fileTransferInputUsesSinglePumpAndIndependentPause();
     void userInputPreemptsPartialMcpWrite();
+    void fileTransferLeaseGatesAllInputAndResets();
     void staleAndDuplicateMcpLeasesAreRejected();
     void emptyInputKeepsMcpLease();
     void interactiveMarkersNeverReachTerminalCore();
@@ -163,7 +176,7 @@ private slots:
 void SessionTests::localScriptProviderWritesExactlyRequestedPath()
 {
     QTemporaryDir root;
-    QVERIFY(root.isValid());
+    QVERIFY2(root.isValid(), qPrintable(root.errorString()));
     const QString target = root.filePath(QStringLiteral("scripts/setup.sh"));
     QVERIFY(QDir().mkpath(QFileInfo(target).absolutePath()));
     LocalSessionScriptProvider provider;
@@ -183,6 +196,177 @@ void SessionTests::localScriptProviderWritesExactlyRequestedPath()
     QFile file(target);
     QVERIFY(file.open(QIODevice::ReadOnly));
     QCOMPARE(file.readAll(), request.content);
+}
+
+void SessionTests::realSerialSessionUsesExistingPumpForFileTransfer()
+{
+#ifdef Q_OS_LINUX
+    const int descriptor = ::posix_openpt(O_RDWR | O_NOCTTY | O_NONBLOCK);
+    QVERIFY(descriptor >= 0);
+    QFile masterOwner;
+    QVERIFY(masterOwner.open(descriptor, QIODevice::ReadWrite, QFileDevice::AutoCloseHandle));
+    QVERIFY(::grantpt(descriptor) == 0);
+    QVERIFY(::unlockpt(descriptor) == 0);
+    const QString slave = QString::fromLocal8Bit(::ptsname(descriptor));
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const QByteArray payload(777, 'L');
+    QFile source(directory.filePath(QStringLiteral("serial-source.bin")));
+    QVERIFY(source.open(QIODevice::WriteOnly));
+    QCOMPARE(source.write(payload), qint64(payload.size()));
+    source.close();
+    TerminalCore core(80,24);
+    RuntimeConfig config; config.transportKind = TransportKind::Serial;
+    TerminalSession session(&core);
+    SerialConfig serialConfig; serialConfig.portName = slave;
+    session.attach(new SerialTransport(serialConfig), TerminalSession::Ownership::Adopt, TransportKind::Serial);
+    QVERIFY(session.start());
+    QTRY_VERIFY(session.state() == SessionState::Running);
+    QVERIFY(session.canTransferFiles());
+    auto* controller = session.serialFileTransfer();
+    QVERIFY(controller);
+    QSignalSpy finished(controller, &SerialFileTransferController::finished);
+    SerialTransferRequest transfer;
+    transfer.protocol = SerialTransferProtocol::XmodemCrc;
+    transfer.files = {source.fileName()};
+    core.pasteText(QStringLiteral("old-command\r"));
+    QVERIFY(controller->start(transfer));
+    session.write(QByteArrayLiteral("SHOULD_NOT_REACH_DEVICE"));
+    namespace FT = NovaTerm::FileTransfer;
+    FT::XmodemEngine peer;
+    FT::TransferRequest peerRequest;
+    peerRequest.expectedSize = static_cast<quint64>(payload.size());
+    QVERIFY(peer.start(peerRequest, 0));
+    QByteArray received, wire, peerInput, peerOutput;
+    bool prompted = false;
+    QElapsedTimer clock; clock.start();
+    QSocketNotifier readable(descriptor, QSocketNotifier::Read);
+    QTimer tick; tick.setInterval(1);
+    const auto drive = [&] {
+        char bytes[8192];
+        const auto count = ::read(descriptor, bytes, sizeof(bytes));
+        if (count > 0) { wire.append(bytes, count); peerInput.append(bytes, count); }
+        for (int turns = 0; turns < 8; ++turns) {
+            while (const auto action = peer.takeAction()) {
+                if (action->kind == FT::ActionKind::WriteAt) {
+                    QCOMPARE(action->offset, static_cast<quint64>(received.size()));
+                    received.append(reinterpret_cast<const char*>(action->bytes.data()),
+                                    static_cast<qsizetype>(action->bytes.size()));
+                }
+                QVERIFY(peer.completeOperation(action->id, {}, static_cast<quint64>(clock.elapsed())));
+            }
+            if (!peerInput.isEmpty()) {
+                const auto consumed = peer.consume({peerInput.constData(),peerInput.size()},
+                                                    static_cast<quint64>(clock.elapsed()));
+                peerInput.remove(0, static_cast<qsizetype>(consumed.consumed));
+            }
+            const auto output = peer.pendingOutput();
+            if (!output.empty()) {
+                peerOutput.append(output.data, output.size);
+                QVERIFY(peer.acknowledgeOutput(static_cast<std::size_t>(output.size),
+                                              static_cast<quint64>(clock.elapsed())));
+            }
+            if (!prompted && peer.progress().state == FT::State::Closing) {
+                peerOutput.append("_SERIAL_AFTER_TRANSFER"); prompted = true;
+            }
+            if (!peerOutput.isEmpty()) {
+                const auto written = ::write(descriptor,peerOutput.constData(),
+                                              static_cast<std::size_t>(peerOutput.size()));
+                if (written > 0) peerOutput.remove(0,written);
+            }
+        }
+        peer.advance(static_cast<quint64>(clock.elapsed()));
+    };
+    connect(&tick, &QTimer::timeout, &tick, drive);
+    connect(&readable, &QSocketNotifier::activated, &tick, drive);
+    tick.start();
+    QTRY_VERIFY_WITH_TIMEOUT(!controller->isActive(), 10000);
+    tick.stop();
+    QCOMPARE(finished.count(), 1);
+    QVERIFY(finished.front().at(0).toBool());
+    QCOMPARE(received, payload);
+    QVERIFY(wire.contains("old-command"));
+    QVERIFY(!wire.contains("SHOULD_NOT_REACH_DEVICE"));
+    QVERIFY(core.waitForIdle());
+    const auto state = core.terminalState();
+    QVERIFY(std::any_of(state.viewport.begin(), state.viewport.end(), [](const auto& line) {
+        return line.text.find("_SERIAL_AFTER_TRANSFER") != std::string::npos;
+    }));
+    QVERIFY(session.transport()->isConnected());
+    QVERIFY(!session.inputArbiter()->hasTransferLease());
+    session.close();
+#else
+    QSKIP("Linux raw PTY fixture; no real user serial device required");
+#endif
+}
+
+void SessionTests::fileTransferInputUsesSinglePumpAndIndependentPause()
+{
+    TerminalCore core(80,24);
+    FakeTransport transport;
+    QVERIFY(transport.connectToHost());
+    SessionInputPump pump(&transport, &core);
+    QByteArray protocol;
+    pump.setFileTransferConsumer([&protocol](const QByteArray& bytes) {
+        protocol.append(bytes); return true;
+    });
+    pump.setFileTransferMode(true);
+    pump.start();
+    QSignalSpy visible(&pump, &SessionInputPump::interactiveBytes);
+    emit transport.readyRead(QByteArray("\0\x18\xff",3));
+    QCOMPARE(protocol, QByteArray("\0\x18\xff",3));
+    QCOMPARE(visible.count(), 0);
+    pump.setFileTransferReadPaused(true);
+    QVERIFY(transport.readPaused);
+    emit core.inputBackpressureChanged(false);
+    QVERIFY(transport.readPaused);
+    pump.setFileTransferReadPaused(false);
+    QVERIFY(!transport.readPaused);
+    emit core.inputBackpressureChanged(true);
+    QVERIFY(!transport.readPaused);
+    pump.setFileTransferMode(false);
+    QVERIFY(transport.readPaused);
+    pump.setFileTransferConsumer({});
+    emit core.inputBackpressureChanged(false);
+    emit transport.readyRead(QByteArrayLiteral("terminal-text"));
+    QCOMPARE(visible.count(), 1);
+    QVERIFY(core.waitForIdle());
+    QVERIFY(core.terminalState().viewport.at(0).text.find("terminal-text") != std::string::npos);
+}
+
+void SessionTests::fileTransferLeaseGatesAllInputAndResets()
+{
+    FakeTransport transport;
+    QVERIFY(transport.connectToHost());
+    SessionInputArbiter arbiter;
+    arbiter.bind(&transport, 7);
+    QByteArray fileBytes;
+    const auto writer = [&fileBytes](QByteArrayView bytes) -> qint64 {
+        const qsizetype accepted = qMin<qsizetype>(2, bytes.size());
+        fileBytes.append(bytes.data(), accepted);
+        return accepted;
+    };
+    QVERIFY(arbiter.acquireMcpLease(1, 7));
+    QVERIFY(!arbiter.acquireTransferLease(2, 7, writer));
+    arbiter.releaseMcpLease(1);
+    QVERIFY(!arbiter.acquireTransferLease(2, 6, writer));
+    QVERIFY(arbiter.acquireTransferLease(2, 7, writer));
+    QVERIFY(!arbiter.acquireMcpLease(3, 7));
+    arbiter.submitUserInput(QByteArrayLiteral("blocked"));
+    QVERIFY(transport.writes.isEmpty());
+    QVERIFY(arbiter.submitTerminalOutput(QByteArrayLiteral("old-command")));
+    QCOMPARE(transport.writes, QByteArrayLiteral("old-command"));
+    QVERIFY(arbiter.activateTransferLease(2));
+    QVERIFY(!arbiter.submitTerminalOutput(QByteArrayLiteral("terminal-reply")));
+    QCOMPARE(arbiter.submitTransferInput(2, QByteArrayView("ABC", 3)), qint64(2));
+    QCOMPARE(fileBytes, QByteArrayLiteral("AB"));
+    QCOMPARE(arbiter.submitTransferInput(4, QByteArrayView("X", 1)), qint64(-1));
+    arbiter.releaseTransferLease(4);
+    QVERIFY(arbiter.hasTransferLease());
+    arbiter.reset(8);
+    QVERIFY(!arbiter.hasTransferLease());
+    arbiter.submitUserInput(QByteArrayLiteral("normal"));
+    QCOMPARE(transport.writes, QByteArrayLiteral("old-commandnormal"));
 }
 
 void SessionTests::userInputPreemptsPartialMcpWrite()
@@ -855,7 +1039,7 @@ void SessionTests::clinkHookEnablesCmdOnlyWhenInstalled()
     QSKIP("Clink is a Windows CMD integration.");
 #else
     QTemporaryDir directory;
-    QVERIFY(directory.isValid());
+    QVERIFY2(directory.isValid(), qPrintable(directory.errorString()));
     const QString batchPath = directory.filePath(QStringLiteral("clink.bat"));
     QFile batch(batchPath);
     QVERIFY(batch.open(QIODevice::WriteOnly));
@@ -1271,7 +1455,7 @@ void SessionTests::runtimeConfigIsSnapshot()
 void SessionTests::restoreMetadataRoundTrip()
 {
     QTemporaryDir directory;
-    QVERIFY(directory.isValid());
+    QVERIFY2(directory.isValid(), qPrintable(directory.errorString()));
     SessionStore store(directory.filePath(QStringLiteral("sessions.json")));
     SessionRestoreMetadata source;
     source.sessionId = QUuid::createUuid();

@@ -293,8 +293,10 @@ void ConPtyTransportTests::exitReasonsAndIdempotentClose()
 
 void ConPtyTransportTests::duplexLoadAndBackpressure()
 {
-    constexpr qsizetype InputBytes = 2 * 1024 * 1024;
-    constexpr qsizetype OutputBytes = 12 * 1024 * 1024;
+    // conhost 在 VT 输入模式下逐字符解析输入，子进程每次 ReadFile 只拿到
+    // ~256 字节，实测吞吐仅 7~60 KB/s；2 MiB 输入无法在超时内送达，故取 256 KiB。
+    constexpr qsizetype InputBytes = 256 * 1024;
+    constexpr qsizetype OutputBytes = 6 * 1024 * 1024; // > OutputCapacity(4 MiB)，保证背压被触发
     QByteArray input(InputBytes, 'I');
     std::uint64_t expectedHash = 1469598103934665603ULL;
     for (const char value : input) {
@@ -328,8 +330,36 @@ void ConPtyTransportTests::duplexLoadAndBackpressure()
     });
     QVERIFY(transport.connectToHost());
     QVERIFY(connected.wait(5000));
-    transport.write(input);
-    QVERIFY(disconnected.wait(20000));
+    // 输入队列上限 1 MiB（ConPtySession::InputCapacity），超限写入按 Overload
+    // 拒绝。这里分块写入，队列满时等写线程消化后重试，同时验证输入侧背压。
+    constexpr qsizetype InputChunk = 256 * 1024;
+    QSignalSpy transportErrors(&transport, &ITransport::transportError);
+    qsizetype sent = 0;
+    int rejected = 0;
+    QTimer pump;
+    pump.setInterval(5);
+    connect(&pump, &QTimer::timeout, this, [&] {
+        while (sent < input.size()) {
+            const qsizetype errorsBefore = transportErrors.count();
+            const QByteArray chunk = input.mid(sent, InputChunk);
+            transport.write(chunk);
+            if (transportErrors.count() != errorsBefore) {
+                ++rejected;
+                return;
+            }
+            sent += chunk.size();
+        }
+        pump.stop();
+    });
+    pump.start();
+    QVERIFY2(disconnected.wait(60000),
+             qPrintable(QStringLiteral("sent=%1 rejected=%2 output=%3 O=%4 paused=%5 tail=%6")
+                            .arg(sent)
+                            .arg(rejected)
+                            .arg(output.size())
+                            .arg(output.count('O'))
+                            .arg(paused)
+                            .arg(QString::fromLatin1(output.right(120).toHex(' ')))));
     QVERIFY(paused);
     QVERIFY(!deliveredWhilePaused);
     QVERIFY2(output.count('O') >= OutputBytes, QByteArray::number(output.size()).constData());
@@ -347,7 +377,11 @@ void ConPtyTransportTests::inputDispatchOverloadIsBounded()
     QSignalSpy disconnected(&transport, &ITransport::disconnected);
     QVERIFY(transport.connectToHost());
     QVERIFY(connected.wait(5000));
+    // 超过会话 1 MiB 队列的大粘贴进入传输层积压，不应被拒绝。
     transport.write(QByteArray(5 * 1024 * 1024, 'X'));
+    QCOMPARE(errors.size(), 0);
+    // 积压总量超过 64 MiB 上限才按 Overload 拒绝。
+    transport.write(QByteArray(64 * 1024 * 1024, 'Y'));
     QCOMPARE(errors.size(), 1);
     QVERIFY(errors.first().first().toString().contains(QStringLiteral("capacity")));
     transport.disconnect();

@@ -16,13 +16,13 @@
 #include "session/SessionTypes.h"
 #include "session/CommandExecutionTypes.h"
 
-#include <QAtomicInt>
 #include <QMutex>
 #include <QQueue>
 #include <QThread>
 #include <QWaitCondition>
 #include <atomic>
 #include <memory>
+#include <utility>
 
 class SshWorkerWakeup;
 
@@ -150,7 +150,10 @@ private:
     void scheduleInboundLocked();
     void deliverInbound(quint64 generation);
     [[nodiscard]] qsizetype inboundCapacity() const;
-    void workerMain();          // 在工作线程中运行整个会话生命周期
+    // 在工作线程中运行整个会话生命周期。wakeup 由调用方（线程 lambda）
+    // 按值捕获一份 shared_ptr 并传入，故本函数体内一律用它而不是 _wakeup：
+    // 被放弃的 worker 可能在 ~SshTransport 之后才返回，届时 _wakeup 已失效。
+    void workerMain(const std::shared_ptr<SshWorkerWakeup>& wakeup);
     // 线程安全：记录 + 投递信号。先发 transportError 再发 errorOccurred，
     // 二者 message 一致（顺序约定见 ITransport.h）。
     void reportError(const QString& message,
@@ -184,6 +187,24 @@ private:
     static constexpr qsizetype MaxCommandOutputBytes = 1024 * 1024;
     static constexpr int CommandTimeoutMs = 5000;
     static constexpr int MonitorEstablishTimeoutMs = 5000;
+
+    /** @brief 把 (cols, rows) 打包成单字待处理尺寸；任一 <= 0 时返回 0。 */
+    [[nodiscard]] static constexpr uint32_t packPendingSize(int cols, int rows)
+    {
+        if (cols <= 0 || rows <= 0)
+            return 0;
+        const uint32_t c = cols > 0xFFFF ? 0xFFFFu : uint32_t(cols);
+        const uint32_t r = rows > 0xFFFF ? 0xFFFFu : uint32_t(rows);
+        return (c << 16) | r;
+    }
+
+    /** @brief 拆回 (cols, rows)；0 返回 {0, 0}。 */
+    [[nodiscard]] static constexpr std::pair<int, int> unpackPendingSize(uint32_t packed)
+    {
+        if (packed == 0)
+            return {0, 0};
+        return {int(packed >> 16), int(packed & 0xFFFFu)};
+    }
     static constexpr int MonitorResponseTimeoutMs = 5000;
     static constexpr int MonitorMaxBackoffMs = 30000;
     static constexpr qsizetype MaxMonitorStderrBytes = 16 * 1024;
@@ -229,9 +250,19 @@ private:
     quint64 _monitorGeneration{0};
     quint64 _monitorRequestId{0};
 
-    // 待处理 PTY 尺寸：-1 表示无。
-    std::atomic<int> _pendingCols{-1};
-    std::atomic<int> _pendingRows{-1};
+    /**
+     * @brief 待处理 PTY 尺寸，打包成单个原子字发布。
+     *
+     * 曾用两个独立的 std::atomic<int>，于是「列取自第 N 次 resize、行取自
+     * 第 N+1 次」这种撕裂读是可能的：worker 会应用一个既非旧尺寸也非新尺寸
+     * 的几何（典型症状是 80 列配 50 行），并把它记入 appliedCols/appliedRows
+     * 当作已应用，从而不再自愈。单个 32 位字里高 16 位存列、低 16 位存行，
+     * 发布即原子，两个字段不可能来自不同的 resize。
+     *
+     * 0 表示「无请求」（resizeTerminal 拒绝 <= 0，故任何已发布值都非 0）。
+     * 列/行各自 16 位对终端尺寸绰绰有余；超过 65535 的值直接钳到 65535。
+     */
+    std::atomic<uint32_t> _pendingSize{0};
 
     // 主机密钥决策：-1 未决，0 拒绝，1 接受。
     mutable QMutex _keyMutex;
@@ -246,8 +277,23 @@ private:
     // true 表示上一任工作线程超时未退出、被放弃（finished→deleteLater
     // 自毁），它可能仍在访问本对象成员；此时禁止启动新会话。
     // 仅 GUI 线程读写。
+    //
+    // ⚠ 放弃路径的保证边界（不要误读成"析构安全"）：
+    //   已消除：_wakeup 是最后声明的成员，也就是析构时最先销毁的那个，而
+    //   僵尸 worker 仍把它当 libssh ssh_event_add_fd 的回调上下文 —— 改由
+    //   线程 lambda 按值捕获的 shared_ptr 持有。
+    //   仍在窗口内：僵尸 worker 还会触碰 _config（含口令/密钥材料）与各
+    //   mutex。这些都在对象里，析构后即失效。要彻底消除需要把整个传输
+    //   状态改为共享所有权（worker 持 shared_ptr<State>），那是 workerMain
+    //   的整体重构，不是一处补丁。触发条件是 waitMs 内停不下来
+    //   （非阻塞 libssh 路径下只可能是事件循环本身卡死），不是常规路径。
     bool _workerAbandoned{false};
-    std::unique_ptr<SshWorkerWakeup> _wakeup;
+    // 唤醒 socket 由 worker lambda 按值捕获一份 shared_ptr，因此它比本对象
+    // 活得久。这不是可有可无的：_wakeup 是**最后一个**声明的成员，也就是
+    // ~SshTransport 时**最先**被销毁的那个，而被放弃的僵尸 worker 仍把它
+    // 当作 libssh ssh_event_add_fd 的回调上下文（并在拆除路径调 descriptor()）。
+    // 用 unique_ptr 时那是对已释放内存的读写，且 libssh 手里还留着野指针。
+    std::shared_ptr<SshWorkerWakeup> _wakeup;
 
     void disconnectInternal(int waitMs);
 };

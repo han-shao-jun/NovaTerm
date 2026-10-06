@@ -458,3 +458,18 @@ i7-14700K 慢，且持续构建+跑分下热降频明显。
 ## 退出标准
 
 自动化测试和 support 基准必须通过；实机确认普通输出 60 FPS、CPU 帧分位数与上传量已记录、停止输出后最终 revision 收敛、无明显同步停顿且最终画面正确，才能将 P3 标记为完成。真实 GPU 时间未有统一无阻塞 QRhi API 时，使用平台 profiler，不在渲染路径强制同步。
+
+## 2026-10-06 增量：缩放与修饰键不再丢失回看位置
+
+- `TerminalRenderer::keyPressEvent()` 只在实际产生输入的按键时回到实时底部；
+  单独按下的修饰/锁定键（`isModifierOnlyKey()`：Ctrl/Shift/Alt/Meta/Super/
+  Hyper/CapsLock 等）是 Ctrl+滚轮缩放、Shift+滚轮回看的起手式，不再触发跳底。
+- `restoreScrollFromAnchor()` 在重排在途、布局为空时按 `maximumScrollOffset()`
+  （逻辑行数）钳制而非钳到 0，保留锚点，重排完成后由锚点还原。缩放放大
+  （列变少）与缩小（列、行变多，经 `sb_popline` 取回历史）两个方向都覆盖。
+- 终端右键菜单新增「回到顶部 / 回到底部」（`scrollToTop()`/`scrollToBottom()`，
+  已在对应端时置灰），两份 `.ts` 已回填。
+回归：`novaterm_renderer_tests` 的 `modifierKeysKeepHistoryAndJumpsReachEnds`、
+`columnReflowKeepsScrollbackPosition`、`zoomOutReflowKeepsScrollbackPosition`。
+验证：Windows Release 构建与 `novaterm_renderer_tests` 通过；菜单项未在窗口
+环境人工实跑。

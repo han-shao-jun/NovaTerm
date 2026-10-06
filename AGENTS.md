@@ -17,6 +17,7 @@ GPU 管线，UI 用 ElaWidgetTools（FluentUI 风格）。GPLv2+，仓库在 Git
 | `docs/architecture/README.md` | 阶段文档索引 + 统一术语表 + 文档权威性说明 |
 | `docs/architecture/Development_Roadmap.md` | P0–P8 依赖、状态表、**统一完成定义** |
 | `docs/architecture/stages/P*.md` | 各阶段实施说明。P6 含逐步进度表与剩余工作 |
+| `docs/architecture/stages/P9_File_Transfer_Protocols.md` | P9 独立 XMODEM/YMODEM/ZMODEM 协议库；Linux 六项专项与 124 项对端互通通过，两个上游缺陷用例跳过；Windows/macOS 与串口接线待验收 |
 | `docs/architecture/stages/P8_AI_MCP_Interface.md` | P8 AI MCP：当前实现事实见 §14.2，修订设计与风险边界见 §15；七工具、2025 elicitation/2026 MRTR、低风险普通命令及 LocalShell/SSH 脚本能力已进入代码，真实桌面/跨平台/性能验收仍按阶段文档标记 |
 | `docs/architecture/Rendering_Architecture.md` | Snapshot、调度、命令缓存、QRhi、Glyph |
 | `docs/architecture/Configuration_Profile_Theme.md` | 配置分层、Profile、Session、主题职责。**描述目标设计**，开头有与当前源码的名称对照表 |
@@ -31,8 +32,9 @@ GPU 管线，UI 用 ElaWidgetTools（FluentUI 风格）。GPLv2+，仓库在 Git
 `README.md` 的「环境要求」一节已与这三处对齐（2026-09 复核）；它对
 **测试**一节的描述仍不完整，见下方「跑测试」。
 
-Qt 前缀**硬编码**在 `CMakeLists.txt:14-23` 按宿主平台分支，不是通过
-`CMAKE_PREFIX_PATH` 传入：
+Qt 前缀**硬编码**在 `CMakeLists.txt:53-62`，按 `CMAKE_HOST_SYSTEM_NAME` 分支
+写入 `CMAKE_PREFIX_PATH` 缓存变量（`set(... CACHE PATH ...)`，因此首次配置时
+命令行 `-DCMAKE_PREFIX_PATH=...` 可覆盖）：
 
 - Windows `C:\Programs\Qt\6.8.3\msvc2022_64`
 - Linux `/home/super/Qt/6.8.3/gcc_64/`
@@ -43,10 +45,11 @@ OpenSSL（需 PATH 有 `perl.exe` 与 `nasm.exe`）。产物在
 `third_party/openssl-3.5.7/install/`，已 gitignore。libssh / libvterm /
 libtelnet / ElaWidgetTools 都随项目从源码构建，无需预处理。
 
-> `scripts/build-novaterm.bat` 当前可在本机使用：它加载
-> `C:\Programs\MicrosoftVisualStudio\18\Insiders` 的 MSVC 环境并构建已配置的
-> `E:\code\Qt\NovaTerm\build\Release`。它不会完成首次 CMake 配置或 OpenSSL
-> 预编译，因此仅适合该构建目录已经存在的增量 Release 构建。
+> `scripts/build-novaterm.bat` 写死了
+> `C:\Programs\MicrosoftVisualStudio\18\Insiders` 的 vcvars 与
+> `E:\code\Qt\NovaTerm\build\Release` 构建目录，**在 `D:\qt\NovaTerm` 工作区
+> 不可用**（2026-10-05 复核：两条路径都不存在）。本机用下方 BuildTools 的
+> vcvarsall 命令构建。该脚本也不做首次 CMake 配置或 OpenSSL 预编译。
 
 ### Windows 构建（Ninja + MSVC）
 
@@ -58,7 +61,8 @@ cmd /c "call \"C:\Program Files (x86)\Microsoft Visual Studio\18\BuildTools\VC\A
 ### 跑测试
 
 **默认只跑与改动相关的测试目标，不要跑全套。** 全套耗时**按平台不同**（见下方
-「默认注册了哪些测试」）：Windows 12 项、Linux 11 项。Windows 全套实测约
+「默认注册了哪些测试」）：**Linux 注册 21 项**（2026-10-05 实测 21/21 通过），
+Windows 按条件推算 22 项、未实测。原 Windows 12 项全套实测约
 **190 秒**，其中 `novaterm_conpty_tests` 单项 94s、`novaterm_terminal_session_tests`
 46s、`novaterm_core_tests` 30s；而多数改动只需要其中一两项、几秒就跑完。
 
@@ -74,7 +78,7 @@ QT_PLUGIN_PATH="C:/Programs/Qt/6.8.3/msvc2022_64/plugins"
 
 # 按名字挑（首选，最精确）
 ctest --test-dir build -C Debug -R novaterm_scrollback_tests
-# 按标签挑，label 见下表；注意 -L core 是 core + scrollback 两项
+# 按标签挑，label 见下表；注意 -L core 是 core + terminal_ops + scrollback 三项
 ctest --test-dir build -C Debug -L core
 # 一次改动跨了多个模块就挑多项
 ctest --test-dir build -C Debug -R "novaterm_(renderer|renderer_p5)_tests"
@@ -92,7 +96,9 @@ ctest --test-dir build -C Debug
 | 改动位置 | 跑这个 | label | 平台 | 耗时 |
 | --- | --- | --- | --- | --- |
 | `src/core/terminal/`（TerminalCore、ScreenBuffer、VTAdapter、ScrollbackBuffer、BoundedByteQueue、KeyMapper）—— 后三者经 `TerminalCore.h` 传递覆盖；KeyMapper 有专项单测 | `novaterm_core_tests` | `core` | 全部 | ~30s |
+| `third_party/libvterm-0.3.3/`（本地修正）及 VT 序列语义 | `novaterm_terminal_ops_tests` + `novaterm_core_tests`（`-L core`） | `conformance`／`core` | 全部 | <1s / ~30s |
 | `src/core/scrollback/`、`src/core/search/` | `novaterm_scrollback_tests` | `scrollback` | 全部 | <1s |
+| `src/filetransfer/`、`tests/filetransfer/` | `ctest -L filetransfer`（六项；也可独立配置 `src/filetransfer`，无需 Qt） | `filetransfer`／`p9` | 全部 | <1s |
 | `src/session/`、`src/profile/`、`src/credential/` | `novaterm_session_tests` | `session`／`p6` | 全部 | <1s |
 | `src/renderer/` 的 RenderCommandBuffer / RenderScheduler / TerminalRenderer | `novaterm_renderer_tests` | `renderer` | 全部 | ~2s |
 | `src/renderer/` 的 RowBlockDamageTracker / ScrollDamageHandoff / TerminalHighlighting、`src/session/SerialHighlightRules` | `novaterm_renderer_p5_tests` | `p5` | 全部 | <1s |
@@ -102,12 +108,13 @@ ctest --test-dir build -C Debug
 | `src/mcp/`、`tools/novaterm-mcp/`、`SessionDirectory`、`McpSettingsDialog`、Session ScriptProvider/SFTP | `novaterm_mcp_tests`（有界协议、分项授权、2025/2026 确认、取消/重放、交互命令、脚本写入及 UI） | `mcp`／`p8` | 全部 | ~10s |
 | TerminalSession + TerminalRenderer + LocalShellTransport 的联通路径 | `novaterm_terminal_session_tests` | `terminal-session` | **仅 Win32** | ~46s |
 | `TerminalTabWidget` 的连接动作/紧凑标题、`SystemInformationDialog` 的滚动范围/布局与 app bar 关闭按钮、`SshHostKeyDialog` 的 Ela 控件与端点标题 | `novaterm_ui_dialog_layout_tests` | `ui` | 全部 | <1s |
+| `src/ui/widgets/SessionPanel.cpp` 的历史树多选与右键菜单 | `novaterm_session_panel_tests` | `ui` | 全部 | <1s |
 | `src/ui/`、`src/platform/`、`src/service/` | **无覆盖测试** —— 编译通过 + 实跑程序看效果即可（`KeyMapper` 已移出此列，现由 `novaterm_core_tests` 覆盖） | — | — | — |
 
 **平台列不是装饰**：`novaterm_pty_tests` 只在
 `if(CMAKE_SYSTEM_NAME STREQUAL "Linux")` 里注册（macOS/BSD 无 PTY 集成测试），
 而 `novaterm_conpty_tests` 与 `novaterm_terminal_session_tests` 都嵌套在
-`tests/CMakeLists.txt:319` 起的 `if(WIN32)` 块内 —— **Linux 上
+`tests/CMakeLists.txt:321` 起的 `if(WIN32)` 块内 —— **Linux 上
 `novaterm_terminal_session_tests` 根本不构建**，那 46s 的联通路径覆盖在 Linux
 工作树上无对应物，别把"跑过了"写进提交消息。
 
@@ -123,7 +130,14 @@ ctest --test-dir build -C Debug
 | 测试 | 注册条件 | LABELS | TIMEOUT |
 | --- | --- | --- | --- |
 | `novaterm_mcp_tests` | 无条件 | `mcp;p8` | 120 |
+| `novaterm_filetransfer_checksum_tests` | 无条件 | `unit;filetransfer;p9` | 60 |
+| `novaterm_filetransfer_support_tests` | 无条件 | `unit;filetransfer;p9` | 60 |
+| `novaterm_xmodem_tests` | 无条件 | `unit;filetransfer;p9` | 60 |
+| `novaterm_ymodem_tests` | 无条件 | `unit;filetransfer;p9` | 60 |
+| `novaterm_zmodem_tests` | 无条件 | `unit;filetransfer;p9` | 60 |
+| `novaterm_filetransfer_no_qt_link_check` | 无条件 | `unit;filetransfer;p9` | 60 |
 | `novaterm_core_tests` | 无条件 | `unit;core` | 60 |
+| `novaterm_terminal_ops_tests` | 无条件 | `unit;core;conformance` | 60 |
 | `novaterm_scrollback_tests` | 无条件 | `unit;core;scrollback` | 60 |
 | `novaterm_session_tests` | 无条件 | `unit;session;p6` | 60 |
 | `novaterm_renderer_tests` | 无条件 | `unit;renderer` | 60 |
@@ -131,15 +145,23 @@ ctest --test-dir build -C Debug
 | `novaterm_telnet_transport_tests` | 无条件 | `transport;telnet` | 60 |
 | `novaterm_ssh_transport_check` | 无条件 | `transport;ssh` | 30 |
 | `novaterm_ui_dialog_layout_tests` | 无条件 | `ui` | 30 |
+| `novaterm_session_panel_tests` | 无条件 | `ui` | 30 |
 | `novaterm_scrollback_tailfrom_scale` | `NOVATERM_BUILD_BENCHMARKS`（**默认 ON**） | `scrollback;perf` | — |
 | `novaterm_pty_tests` | `CMAKE_SYSTEM_NAME STREQUAL "Linux"` | `integration;pty;linux` | 30 |
-| `novaterm_conpty_tests` | `WIN32` | `integration;conpty` | 120 |
+| `novaterm_conpty_tests` | `WIN32` | `integration;conpty` | 240 |
 | `novaterm_terminal_session_tests` | `WIN32` | `integration;terminal-session` | 120 |
 
-**Linux 默认 11 项、Windows 默认 12 项**（9 无条件 + 1 缩放护栏 + 1 平台项）。
-`-L core` 命中两项（`unit;core` 与 `unit;core;scrollback`），这是有意的。
-`mcp`／`renderer`／`p5`／`ui` 四项设了
-`ENVIRONMENT QT_QPA_PLATFORM=offscreen`。
+**Linux 注册 21 项，2026-10-05 实测 21/21 通过。** 构成：19 项无条件 +
+1 项缩放护栏（benchmark 开关）+ 1 项 `pty`（Linux 专有）。计数以
+`ctest -N` 为准，别用记忆里的数字。
+**Windows 注册数是按注册条件推算的 22 项**（去掉 `pty`，加上 conpty 与
+terminal-session 两项），**未在 Windows 实测**；`novaterm_session_panel_tests`
+（2026-10-05 新增）、串口文件传输两项、`novaterm_terminal_ops_tests` 与 P9
+协议目标都只在 Linux 上跑过。
+`-L core` 命中三项（`unit;core`、`unit;core;conformance` 与
+`unit;core;scrollback`），这是有意的。
+`mcp`／`renderer`／`p5`／`ui` 五项设了
+`ENVIRONMENT QT_QPA_PLATFORM=offscreen`（两个 `ui` 目标都在内）。
 
 `novaterm_scrollback_tailfrom_scale` 不是普通单元测试，而是带 PASS/FAIL 判据的
 缩放护栏（跑 `novaterm_scrollback_benchmark --tailfrom-scale`，比值判据、与机器
@@ -180,8 +202,10 @@ use-after-free 稳定复现（否则释放内存内容未变，可能碰巧不�
 拿不准某个文件被哪个测试覆盖，就看测试源码的 include。`tests/core`、
 `tests/renderer`、`tests/session`、`tests/transport`、`tests/ui` 五个目录，
 **一个 `.cpp` 对一个测试目标**，翻一眼就能确认。
-测试、人工检查与 benchmark 目标统一声明在 `tests/CMakeLists.txt`；根
-`CMakeLists.txt` 只负责启用 CTest 并通过 `add_subdirectory(tests)` 引入。
+测试、人工检查与 benchmark 目标统一从 `tests/CMakeLists.txt` 引入；
+P9 六个纯标准库测试声明在 `tests/filetransfer/CMakeLists.txt`，供根工程和
+`cmake -S src/filetransfer` 的无 Qt 独立构建共用。根工程启用 CTest 后
+通过 `add_subdirectory(tests)` 注册测试。
 
 #### 什么时候才跑全套
 
@@ -236,11 +260,33 @@ SSH 可选本机验收：Linux 上显式运行
 
 | 测试 | 原因 |
 | --- | --- |
-| `novaterm_conpty_tests` 的 `injectedStartupStagesRollBack`、`repeatedLifecycleReturnsResourcesToBaseline` | **平台缺陷**：`CreatePseudoConsole`/`ClosePseudoConsole` 每个生命周期泄漏约 1 个句柄。排除性证据见 `tests/transport/conpty_handle_leak_repro.c`（单线程无子进程最小复现，实测 1.04/循环）。ConPtySession 自身 8 个句柄全部正确关闭 |
+| ~~`novaterm_conpty_tests` 崩溃~~（Windows 本机，2026-10-06 发现并修复） | **已修复**：`ce7793a` 把 `LocalShellTransport` 里 `ConPtySession::closed → QThread::quit` 从 `QueuedConnection` 改为 `DirectConnection`，关闭时在 `closed()` 发射栈内直接结束生命周期线程，`injectedStartupStagesRollBack` 与 `startFailureRollsBackAndCanRestart` 因此以 0xc0000005 崩溃（崩帧内层符号 `QVariant::clear`/`QMetaType::registerType`，即排队事件在已释放内存上析构），`exitReasonsAndIdempotentClose` 同时开始丢 `exited`。同机 A/B 仅改这一行：Direct 4/5 崩、Queued 0/6 崩；改回后整套 `novaterm_conpty_tests` 连跑 4 次 0 崩溃。**教训：A/B 换文件时只换了 `ConPtySession.*`，第一轮把结论错记为"平台缺陷"——要一次只换一个可疑文件，别把两个文件一起换**。 |
+| `novaterm_conpty_tests` 的 `injectedStartupStagesRollBack`（末条句柄断言） | **平台缺陷，非崩溃**：用例末尾的 `currentHandleCount() <= baselineHandles` 因 `CreatePseudoConsole`/`ClosePseudoConsole` 每生命周期泄漏约 1 个句柄而失败，用例内注释与 `repeatedLifecycleReturnsResourcesToBaseline` 均记录同一根因（排除性证据 `tests/transport/conpty_handle_leak_repro.c`，实测 1.04/循环）。用例其余部分（各注入阶段回滚、子进程数收束）通过 |
+| `novaterm_conpty_tests` 的 `repeatedLifecycleReturnsResourcesToBaseline` | **平台缺陷**：`CreatePseudoConsole`/`ClosePseudoConsole` 每个生命周期泄漏约 1 个句柄。排除性证据见 `tests/transport/conpty_handle_leak_repro.c`（单线程无子进程最小复现，实测 1.04/循环）。ConPtySession 自身 8 个句柄全部正确关闭 |
+| `novaterm_serial_file_transfer_tests` 的 `cancellationInsidePublicationRollsBackOnlyOwnFile`（Windows 本机，2026-10-06 实测） | **合并 `ce7793a` 带入的新失败**：46 通过 / 3 失败，三个数据行（`own-link`、`foreign-replacement-after-identity-check`、`new-target-blocks-foreign-restore`）失败，需 NTFS 硬链接语义与竞争注入（`tests/session/SerialFileTransferTests.cpp:186-229`）。该提交自述只在 Linux 跑过测试、Windows 路径未实测，且 `ce7793a` 已是 origin/master 顶端。 |
 | `novaterm_conpty_tests` 的 `duplexLoadAndBackpressure`、`latestResizeWins` | 偶发；`duplex` 是 20s 超时，`latestResize` 偶尔拿到旧尺寸。未查明 |
 | `novaterm_pty_tests`（Linux 本机） | 环境相关：PTY 子进程未按预期启动 —— `defaultWorkingDirectoryIsHome`、`workingDirectoryAndMergedEnvironmentReachChild` 拿不到子进程输出，`connected.wait(5000)` 超时，退出码收到 `0xFFFFFFFF`。在 `git stash` 掉全部 `src/` 改动后重建的未修改工作树上同样失败，非回归 |
 | `novaterm_ui_dialog_layout_tests`（Linux 本机） | 环境相关：offscreen + 本机 Ela/字体度量下 `1100x760` 一档的滚动上限断言不符（`scrollMax=344` vs `expectedMax=250`），另两档尺寸通过。同样在未修改工作树上复现，非回归 |
-| `novaterm_mcp_tests`、`novaterm_renderer_tests`、`novaterm_renderer_p5_tests`、`novaterm_ui_dialog_layout_tests`（liurui 的 Windows 工作机，2026-09-27 实测） | 全部以 `0xc0000409`（fail-fast）崩溃、零 stdout；conpty 整项 Failed（exit 4、92s）。在**改动前**与改动后各跑两轮、且 conpty 用原始代码 A/B 复测，失败集合与退出码完全一致——机器相关，非回归，未查明根因（刷新 Machine+User PATH 无效）。该机器上跑全套时以「除上述失败项外全部通过」为绿灯标准（按当前注册的 12 项算即 7 项通过；本条原先写的"其余 7 项"与当时记的"9 项"和现在的 12 项对不上，已改为不写死数字，以 `ctest -N` 的实际输出为准） |
+| `novaterm_mcp_tests`、`novaterm_renderer_tests`、`novaterm_renderer_p5_tests`、`novaterm_ui_dialog_layout_tests`（liurui 的 Windows 工作机，2026-09-27 实测） | 全部以 `0xc0000409`（fail-fast）崩溃、零 stdout；conpty 整项 Failed（exit 4、92s）。在**改动前**与改动后各跑两轮、且 conpty 用原始代码 A/B 复测，失败集合与退出码完全一致——机器相关，非回归，未查明根因（刷新 Machine+User PATH 无效）。该机器上跑全套时以「除上述失败项外全部通过」为绿灯标准（这是新增 P9 前的历史失败集合；新增六项协议测试未在该机器运行，不计入历史通过项，以 `ctest -N` 实际注册和新一轮结果为准） |
+
+
+### P9 独立协议验收（2026-10-04）
+
+协议库可用 `cmake -S src/filetransfer -B build/filetransfer` 独立构建，
+不需要 Qt；根工程测试用 `ctest --test-dir build -L filetransfer`。
+Linux 六项专项及 ASan/UBSan 通过，独立 lrzsz 大文件矩阵为 124 PASS / 2 SKIP，
+详情与命令见 P9 阶段文档。`novaterm_filetransfer_interop_driver` 只在 Linux
+构建，外部对端验收不默认注册 CTest，不连接真实串口或用户服务器。
+
+- 原始 lrzsz 0.12.20 的 `zm.c::zsdata` 用 do/while 处理 size_t length，
+  空文件 CRC16 发送在 length=0 时下溢并越界；对应空文件/含空文件批次接收
+  两项必须写 SKIP，不能算通过。库自身的空文件路径有确定性测试。
+- raw PTY 对端的 lrzsz 恢复阶段调用 `tcflush(TCIOFLUSH)`，可能丢最后 ACK；
+  夹具保留 driver 的 raw PTY，以 socketpair 承接 lrzsz，不伪造 ACK。
+- LeakSanitizer 受本环境 ptrace 限制；本轮 ASan/UBSan 使用
+  `ASAN_OPTIONS=detect_leaks=0`，不得写成泄漏检测通过。
+- Windows/macOS 构建、独立对端和真实 UART 未验收。协议引擎未接入生产
+  Session/Transport/UI；不得把独立协议测试写成串口功能已经可用。
 
 ## 不可违背的架构约束
 
@@ -319,7 +365,9 @@ Session / Transport / Renderer 时先看那一节。
 ```
 src/core/       TerminalCore ScreenBuffer ScrollbackBuffer VTAdapter SearchEngine
 src/transport/  ITransport ← LocalShellTransport SshTransport SerialTransport TelnetTransport
-src/session/    TerminalSession SessionManager SessionFactory SessionInputPump SessionStore SftpSession
+src/session/    TerminalSession SessionFactory SessionInputPump SessionStore SftpSession SessionDirectory
+src/mcp/        MCP 协议与授权（独立库，tools/novaterm-mcp 为 stdio 入口）
+src/filetransfer/ XMODEM/YMODEM/ZMODEM 协议库（纯标准库，不链 Qt）
 src/renderer/   TerminalRenderer RenderScheduler GlyphAtlas FontManager
 src/ui/         TerminalView MainWindow SessionPage SettingsPage SftpPanel SystemMonitorPanel
 src/platform/   windows/conpty/ linux/pty/
@@ -332,8 +380,10 @@ src/platform/   windows/conpty/ linux/pty/
 
 背压水位：ByteQueue 8 MiB，暂停/恢复 6/4 MiB；`SessionInputPump`
 `MaxPendingBytes` 8 MiB、`InputChunkBytes` 64 KiB。写侧 Serial / SSH / Telnet
-各有 `MaxPendingWriteBytes` = 1 MiB；LocalShell 不用该常量，走
-`tryEnqueueInput()` 由 PTY/ConPTY 会话层自己限容。
+各有 `MaxPendingWriteBytes` = 1 MiB；LocalShell 不用该常量：会话层
+`tryEnqueueInput()` 队列上限 1 MiB，`LocalShellTransport` 在其上维护积压
+（256 KiB 分块、队列满时 5 ms 重试、总量 64 MiB 才报 Overload），大粘贴
+不会被整段拒绝。
 
 ## 代码约定
 
@@ -393,8 +443,9 @@ src/platform/   windows/conpty/ linux/pty/
 
 两个已踩过的坑：
 
-- 根 `project()` 只声明了 `LANGUAGES CXX`。在根作用域建 C 目标必须先
-  `enable_language(C)`，否则报 `CMAKE_C_COMPILE_OBJECT` 未设置
+- 根 `project()` 现已声明 `LANGUAGES CXX C`（`CMakeLists.txt:2`）。若将来
+  去掉 `C`，在根作用域建 C 目标（如 libtelnet）前必须 `enable_language(C)`，
+  否则报 `CMAKE_C_COMPILE_OBJECT` 未设置
 - **MSVC 上不要设 `C_STANDARD 11`**：`/std:c11` 会让 MSVC 定义
   `__STDC_VERSION__ >= 199901L`，命中某些 C 库 `INLINE` 宏的 GNU 分支
   展开成 `__inline__` 而编译失败（libtelnet 就是）
@@ -407,16 +458,19 @@ domain、libssh LGPL-2.1、OpenSSL Apache-2.0、Clink GPL-3（仅二进制随包
 
 P0 / P2 / P4 已完成，P1 架构边界完成（宽字符 continuation 与部分属性映射待补），
 P3 与 P5 实施完成、部分平台或人工验收待做，P7 计划中。
-**P6（Session/Transport）进行中**：Transport 层四种全部实现，但编排层未接入。
+**P6（Session/Transport）进行中**：Transport 层四种全部实现；会话编排采用
+「1 TerminalView 拥有 1 TerminalSession」并已在生产，剩少量自包含项。
 
 各阶段状态以**阶段文档自身的状态行**为准；`docs/architecture/README.md` 与
 `Development_Roadmap.md` 的汇总表是同步过去的副本，若发现不一致以阶段文档为真。
 
-最重要的一条：**`SessionManager` 与 `SessionFactory` 实现完整，但生产代码
-零使用** —— `src/ui/` 和 `src/main.cpp` 中均无命中，实际是 `TerminalPage`
-每个 Tab `new TerminalView`、由 View 自建并持有 Session，会话集合由
-`TerminalPage::_terminalViews` 隐式代表。这是 P6 未落地的根因，多数其他
-缺口（detach 语义、Challenge 发布层）都要等它才有落点。
+最重要的一条：**`SessionManager` 已删除，不要再接入**。原设想的
+「SessionManager 拥有 Session、View 非 owning attach、Session 后台存活」已放弃
+（见 `docs/ARCHITECTURE.md` 会话一节与 `src/ui/terminal/TerminalView.h:52`）。
+实际是 `TerminalPage` 每个 Tab `new TerminalView`、由 View 自建并持有 Session，
+会话集合由 `TerminalPage::_terminalViews`（`TerminalPage.h:110`）代表；MCP 通过
+非 owning 的 `SessionDirectory` 访问。`SessionFactory` 仍在 `src/session/`，
+但 `src/` 生产代码中无调用方（2026-10-05 grep 复核）。
 
 其余缺口与按依赖排序的剩余工作见
 `docs/architecture/stages/P6_Session_and_Transport.md` 的"实现进度"与
@@ -488,6 +542,18 @@ Linux/macOS 落到 `pthread_setname_np`），QThread 的 `objectName` 只作 Qt 
 `novaterm_ssh_monitor_integration_check`）必须把 `src/core/ThreadNaming.cpp`
 加进源列表，否则新增调用点后链接失败。
 
+**`ConPtySession::closed → QThread::quit` 不能用 `DirectConnection`**（2026-10-06 崩溃，
+`ce7793a` 引入后已改回）：`thread` 是住在 GUI 线程的 `QThread` 包装对象，而 `closed()`
+从生命周期线程发出。直连会在 `closed()` 的发射栈内直接结束该线程的事件循环，Qt 的
+事件投递/延迟删除随即在脏栈上继续，表现为 0xc0000005（崩帧内层是 `QVariant::clear`、
+`QMetaType::registerType`）或信号静默丢失（`exitReasonsAndIdempotentClose` 的
+`exited.wait(5000)` 超时）。用默认的 Auto（跨线程即 Queued）并让接收者为 `session`
+自己，quit 就排到生命周期线程的事件循环、等发射栈退出后再执行；它不依赖 GUI 事件
+循环，`ce7793a` 想修的"退出路径上投递不到"并不由这条连接负责（那条路靠
+`thread->finished → thread->deleteLater`）。回归：`novaterm_conpty_tests` 的
+`injectedStartupStagesRollBack`、`startFailureRollsBackAndCanRestart`、
+`exitReasonsAndIdempotentClose`；同机 A/B 仅改这一行，Direct 4/5 崩、Queued 0/6 崩。
+
 **启动 Transport 不要用 Core 旧尺寸覆盖 Renderer 的目标尺寸**：
 `TerminalCore::resize()` 异步执行，布局激活后 `terminalSizeChanged` 已携带
 新尺寸，但 `core->columns()/rows()` 可能仍是 80×24。`TerminalView`
@@ -540,7 +606,35 @@ libvterm 自己解开。扫描状态跨 `writeInput` 分片保持，内层解开
 保证与后续字节有序，支持嵌套（递归深度上限 8）。回归：
 `osc52WriteDecodesAndEmitsClipboardSignal`、`osc52QueryIsNotAnsweredByDefault`、
 `tmuxPassthroughOsc52ReachesClipboard`、`tmuxPassthroughSurvivesFragmentedInput`、
-`tmuxPassthroughProbeMismatchPassesBytesThrough`。
+`tmuxPassthroughProbeMismatchPassesBytesThrough`、
+`tmuxPassthroughSplitInsidePayloadReachesClipboard`、
+`tmuxPassthroughSplitAtEveryBoundaryIsByteExact`、
+`tmuxPassthroughSplitAtEscapeBoundaryDoesNotDuplicateBytes`。
+
+**预扫描器的 `runStart` 不变式：状态机消费掉第 i 字节就必须推进到 i+1**。
+2026-10-05 修掉一个真实的跨分片缺陷：`feedWithPassthrough` 把扫描状态
+（`passthroughScan`/`scanProbe`/`passthroughBody`）放在 `Impl` 上跨调用保持，
+但"扣住不发"的游标 `runStart` 原是**每次调用的局部变量**，只在部分分支推进。
+后果是分片末尾的 `flushRun(data.size())` 会把已扣在探针/载荷里的字节重复喂给
+libvterm，或把已写过的前缀再写一遍。两个症状：
+分片落在 Payload 态（`ESC P tmux;` 与载荷之间）时，magic 被喂给 libvterm 使其
+停在 DCS 字符串态，内层 OSC 52 **静默失效**；输入以 `ESC` 结尾时前缀被写两遍
+（`"A\x1b"` → 屏幕出现 `AA`）。正确不变式：`runStart` 恒等于 data 中"尚未被状态机
+消费"的第一个字节下标——`Normal` 态的非 ESC 字节不被消费故原地不动，其余每个
+分支（转入 `Esc`、转入 `Probe`、`Probe` push、载荷 push、ST 终止、mismatch）
+都必须推进。
+
+**该缺陷之所以长期未被测出：`tmuxPassthroughSurvivesFragmentedInput` 是假覆盖**。
+它在 `TerminalCore::writeInput` 层逐字节喂，但 parser worker 用一次 `take()` 取走
+队列里全部待处理字节，再按命令 `byteBarrier` 分段调 `adapter->writeInput()`——
+27 次单字节写会被合并成一个 64 KiB 批次，**分片扫描器从未被真正触发**。
+要测跨分片行为必须在 `VTAdapter` 层直接驱动（`novaterm_core_tests` 直连
+`novaterm_core`，可构造 `VTAdapter` + `ScreenBuffer` + `ScrollbackBuffer`）。
+三个新用例都这么做，其中 `tmuxPassthroughSplitAtEveryBoundaryIsByteExact` 用
+**穷举两段切分点 + 逐字节**并断言"分片与整块输入的观察结果完全相同"——
+这是比逐条断言屏幕文本更强、也更贴近本质（预扫描器对非 tmux 输入必须**字节透明**）
+的性质。变异验证：把 `runStart` 的推进改回旧代码，三个新用例全部失败，
+旧三个仍全绿。
 
 **`CSI s` 在 DECLRMM 关闭时是保存光标，不是设置左右边距**：vendored
 libvterm 曾无条件按 DECSLRM 处理并把光标归位，同时缺少 `CSI u` 恢复。
@@ -946,11 +1040,13 @@ updateContentHeight()`）。附带的两个小坑：定时重建内容时旧控�
 
 **`std::vector::size()` 是无符号，与 `isize`/`int` 比较要显式转换**：去 Qt 后核心
 容器从 `QVector`(有符号 `qsizetype`) 换成 `std::vector`(无符号 `size_t`)。诸如
-`row >= vec.size()`、`vec.size() != rows` 直接写会触发有符号/无符号比较，`/W4`
-下告警、边界判断也可能出错。统一写成 `isize(vec.size())` 或 `int(vec.size())`。
+`row >= vec.size()`、`vec.size() != rows` 直接写会触发有符号/无符号比较，
+告警即构建失败、边界判断也可能出错。统一写成 `isize(vec.size())` 或 `int(vec.size())`。
 注意与恒正 `constexpr` 常量的比较（如 `vec.size() > MaxLines`）GCC 不告警，属同类
-隐患。全部第一方 C++ 目标统一开启 `/W4`／`-Wall -Wextra -Wpedantic`
-（vendored 第三方目标保持各自策略），新代码会在常规构建中暴露此类问题。
+隐患。第一方 C++ 目标的警告策略在根 `CMakeLists.txt:224-264`：MSVC 为
+`/Wall /WX` 加一组带注释的 `/wd` 噪音类；GCC/Clang 为 `-Wall -Wextra -Wpedantic`，
+GCC 另加 `-Werror`。P9 协议测试目标自用 `/W4`（`tests/filetransfer/CMakeLists.txt`）。
+vendored 第三方目标保持各自策略。
 `RelWithDebInfo` 下的 GNU、Clang 与 AppleClang 另加
 `-fno-omit-frame-pointer`，供性能分析保留完整调用栈。
 
@@ -1070,6 +1166,105 @@ Windows Terminal 字段解析和旧 `terminal.colors` 迁移，Renderer 不读 J
   紧随其后单独一个 `docs:` 提交，但不要跨会话拖延
 - 提交消息里如实写明与原计划不符之处（做不到的、改了方向的、发现是外部原因的），
   不要只写成功路径
+
+## 全项目 review 修复轮（2026-10-05）
+
+一次覆盖 244 个 first-party 文件（63k 行）的分类审查共产出 19 条确认缺陷 +
+10 条待人工确认项。本轮修完，另有一处**改变方向的决策**需要记录在性能章节。
+
+### 已修且带回归测试
+
+- **tmux DCS 预扫描跨分片重复/泄漏字节**（见上节，最高优先级）
+- **`SftpSession` 单文件上传改为临时文件 + rename 就位**（原先直接以 `O_TRUNC`
+  打开最终路径，中途失败/被取消会把远端文件留成截断文件，源文件在 offset 0
+  不可读时还会把远端**清零**）。同一纪律 `uploadRegularFile()` 与
+  `uploadScriptBytes()` 早已有，只有这条路径漏了。
+- **`SerialTransport` 不再丢弃 `QSerialPort` 五个线路设置的结果**。注意一个反直觉
+  事实：Qt 里 `setBaudRate()` 等在**端口未打开时恒返回 true**，真正的驱动协商发生在
+  `open()` 内部（Windows `SetCommState`、Linux `setTermios`+`setBaudRate`），
+  因此只在 `open()` 之前检查是装饰性的。正确做法是**开端口后重设一次**，
+  失败即关端口并报 `Configuration`，否则"已连接但速率被驱动悄悄改掉"
+  这个静默故障仍在。
+- **SFTP 多文件下载的远端文件名路径穿越**已由 `SftpSession::queueDownloads` 的
+  同级校验覆盖（`collectRemoteDirectory` 早已在用）。
+
+### 生命周期与并发
+
+- **停止标志移出对象**：`SftpSession` 的 `WorkerControl`（`running`+`generation`）
+  与 `SshTransport` 的 `_wakeup` 都改成由 worker lambda 按值捕获的 shared_ptr。
+  原因同类：GUI 侧的 `wait()` 必须有上界（阻塞式 libssh 的数据阶段不受
+  `SSH_OPTIONS_TIMEOUT` 约束——那只管 `ssh_connect`），一旦放弃线程，停止标志
+  绝不能是对象成员，否则僵尸线程读的是已释放内存。`SshTransport` 的
+  `_wakeup` 是**最后声明**的成员，也就是析构时**最先**销毁的，而僵尸 worker 仍
+  把它当 libssh `ssh_event_add_fd` 的回调上下文——改成 shared_ptr 才真正消除那个 UAF。
+- **主机密钥判定 `_keyDecision` 的复位必须在 `_keyMutex` 内**：锁外写会与
+  "取锁前的窗口"竞争，accept/reject 可能被 worker 自己的 `-1` 覆盖 →
+  对话框已关而连接在永不为假的谓词上空等；反向时序则让连接凭一个用户
+  **并未为它做过的**判定继续，等于跳过主机密钥校验。
+- **SSH 待定 PTY 尺寸改为单个打包原子字**（高 16 位列、低 16 位行）。此前是两个
+  独立 `std::atomic<int>`，撕裂读会让远端收到"80 列配 50 行"这种既非旧尺寸
+  也非新尺寸的几何，并把它记入 `appliedCols/appliedRows` 当作已应用，从而不
+  自愈；启动路径还把 `_pendingCols` 连 load 两次（守卫与取值可能不同源）。
+- **`TerminalCore` 的屏幕尺寸改为无锁读，且成对读取必须走 `screenSize()`**。
+  起因：`columns()`/`rows()` 原先每次都取 `modelMutex`，而 worker 跨
+  `adapter->writeInput()` 持有该锁最长 64 KiB（实测 24 MiB/s 下约 2.7 ms），
+  渲染器每帧要问很多次 → GUI 线程每帧排若干次无界停顿。
+  **关键教训：打包成单个原子字只保证「发布」原子，不保证「成对读取」原子。**
+  `columns()` 与 `rows()` 各自仍是独立 load，消费者分两次调用照样会读到
+  「列来自本次、行来自下次」。因此新增 `screenSize() -> std::pair<int,int>`
+  作为**单次 load** 的成对访问器，并要求"列与行必须同源"的消费者用它：
+  渲染器的 viewport 设置、选区端点、`widgetToCell`/`widgetToScreenCell`
+  的钳位上下界、坐标合法性判定、光标绘制、选区逐行填充。选区逐行那处原先
+  是每个选中行各问一次两个字段，已提到循环外。
+  回归 `screenSizeStaysAConsistentPairUnderConcurrentResize`：持续输出 + 反复
+  resize，断言 `screenSize()` 只返回**请求过的**组合。**注意该用例必须用
+  `flushDamage()` 把每个 Resize 隔开** —— 同类型 Resize 在队列里会被合并，
+  连发几千次 resize 实际只产生几十次执行，对百万次读取的命中概率约 0.006，
+  变异验证会「假通过」。变异验证（退回两个独立 atomic）确认可抓住。
+- **`LocalMcpServer::stop()` 遗弃已连接 `QLocalSocket`**：`nextPendingConnection()`
+  返回**无 parent** 的 socket（Qt 契约要求调用方 delete），原代码只依赖
+  `disconnected` 回收，于是每次"禁用再启用 MCP 接入"都泄漏 socket + 定时器 + fd。
+  改为 `setParent(this)` 并在 `~IoWorker` 里 `abort()` 收尾。
+
+### 性能
+
+- **P0/P1 性能优化实施记录一节的三个数值需要重新解读**：见下节追加说明。
+
+### 追加：滚动快路径此前在生产中是死代码（2026-10-05）
+
+`RowSlotMap::update()` 那套 identity→slot 复用**没有生产调用者**：
+`_conservativeLiveScrollRendering` 默认为 `true`，而 `TerminalView::startLocalShell()`
+只对 `wsl.exe` 把它置 false —— 于是除 wsl.exe 外的每个 shell（bash/zsh/fish、
+PowerShell/cmd）走的都是整帧重建 + `uploadAllRows` 分支。
+用 xcb + opengl 实测 `novaterm_renderer_p5_gpu_benchmark`（6 秒 `steady_scroll`）：
+
+| 路径 | rows rebuilt | contentUploadBytes | 平均 CPU 帧 |
+| --- | --- | --- | --- |
+| 基准脚本按原样（**它主动 opt-in 了快路径**） | 648/653/496 | 23.7/23.8/17.8 MB | ~1.0 ms p50 |
+| 保守模式（= 生产实际） | 13483/12084/13004 | 512/459/494 MB | 5.52/5.39/5.08 ms |
+
+**所以本节此前记录的三次 profile 与 P95 判据测的是一个除 wsl.exe 外没有 shell
+走过的路径**；生产稳态滚动的 CPU 成本约为那些数字的 6 倍。
+本轮选择了 review 给出的另一条路：**删掉死代码**（`RowSlotMap::update()`/
+`RowSlotUpdate`/`VisibleRowIdentity`/`mappingOnlyUpdates`/`rowSlotsReused` 等），
+保留 `rotateRowsUp()` 以便日后恢复。行为上对除 wsl.exe 外的 shell **无变化**
+（它们本就走保守分支），wsl.exe 由整帧改为整帧（快路径已删）。
+要恢复快路径需要三处约 15 行的改动：
+`LocalShellProfile` 加 `emitsCursorPositionedRewrites` 标志、四个 profile 各自置值、
+`TerminalView` 改传该标志而非比较可执行文件名。
+
+同轮把 P5 基准里 `require(rowsP95 <= 2, …)` 换成
+`require(scroll.rowsRebuilt <= 2 * framesRendered * visibleRows)`：前者守的是
+已删除快路径的不变式。`rowsP95` 仍作为诊断量输出。
+**这不是把验收放宽**：新判据守的是"每帧最多重建两个可见网格"，与保守模式一致。
+
+D-018 的实测收益（`LD_PRELOAD` 计 malloc，2000ms vs 6000ms 两次运行取斜率、
+除以 `steady_scroll` 帧数差，同一保守路径）：**1311.5 → 1140.8 次分配/帧（−13.0%）**、
+**2091 → 1669 KiB/帧（−20.2%）**、平均 CPU 帧 5660 → 5320 µs（−6%，多次运行
+区间 5261–5980 与 4447–5687，属弱信号）。剩下的 1140 次/帧大头是
+`appendCellCommands` → `cellCharsToString` **每个非空白 Cell 一个 `QString`**
+（约 1000 次/帧），因为 `GlyphKey::cluster` 是 `QString` —— 那是下一个收益点，
+本轮未动。
 
 ## P0/P1 性能优化实施记录（2026-09-13 起）
 
@@ -1268,7 +1463,8 @@ exe 一致）：113.1 s，cpu_atom 485 + cpu_core 1315 = 1800 样本。三份同
 3. 剩余最大单点仍是 `__memmove` 8.46%（QRhi staging 上传体量，Task 2 的
    scratch 改动不减少它）与 `populateCell` 3.09% / `vterm_screen_get_cells`
    2.79%（moverect 批量同步后的残余：逐字段转换 + libvterm 按行读取本身）。
-   若要继续，方向分别是"只上传真正变化的槽位"与"把 Cell 转换合进 VTAdapter
+   若要继续，方向分别是"只上传真正变化的槽位"（2026-10-06 已用
+   instance 影子缓冲落地，见 P5 阶段文档，收益未做 GPU 复测）与"把 Cell 转换合进 VTAdapter
    的按行读取"，都属新工作项，不在本计划范围内。
 
 ## Effective C++ 全项目审查与 IRON 修复（2026-09-27）

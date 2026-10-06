@@ -26,6 +26,7 @@
 #include <QString>
 
 #include <memory>
+#include <utility>
 #include <optional>
 #include <vector>
 
@@ -100,6 +101,15 @@ public:
     void resize(int cols, int rows);
     int columns() const;
     int rows() const;
+    /**
+     * @brief 一次原子读出成对的 (列, 行)。
+     *
+     * 尺寸打包进单个原子字发布，但**两次独立调用 columns() 与 rows() 仍可能
+     * 读到不同的两次发布**（撕裂）。需要「列与行必须来自同一次 resize」的
+     * 消费者必须用本接口 —— 渲染器构造 viewport、算选区端点、算布局宽度
+     * 等处都属此类。单个字段的查询用 columns()/rows() 即可。
+     */
+    std::pair<int, int> screenSize() const noexcept;
 
     // ── 模型查询（持有 modelMutex，可由 GUI 线程调用）──
     bool getCell(int row, int col, NovaTerm::Cell& out) const;
@@ -143,9 +153,7 @@ public:
      *        仅当其 row revision 严格大于此值时才计算内容指纹，否则填 0——因为
      *        渲染器的 revision 补回检查对 row revision 不超过它的行走 revision 分支、
      *        根本不读指纹（`TerminalRenderer.cpp` render 的补回段）。传 0（默认）
-     *        表示对所有非脏行计算指纹，与旧行为一致；需要按指纹比对全部行的路径
-     *        （如 live-scroll 行槽位旋转后的 rowsNeedingRebuildAfterMapping）必须
-     *        传 0。
+     *        表示对所有非脏行计算指纹，与旧行为一致。
      * @return 渲染快照，包含可见行 Cell 与行身份指纹。
      */
     NovaTerm::RendererSnapshot rendererSnapshot(

@@ -88,6 +88,10 @@ private slots:
     void tmuxPassthroughOsc52ReachesClipboard();
     void tmuxPassthroughSurvivesFragmentedInput();
     void tmuxPassthroughProbeMismatchPassesBytesThrough();
+    void tmuxPassthroughSplitInsidePayloadReachesClipboard();
+    void tmuxPassthroughSplitAtEveryBoundaryIsByteExact();
+    void tmuxPassthroughSplitAtEscapeBoundaryDoesNotDuplicateBytes();
+    void screenSizeStaysAConsistentPairUnderConcurrentResize();
 };
 
 namespace {
@@ -294,6 +298,84 @@ void TerminalCoreTests::resizesScreen()
 
     QCOMPARE(core.columns(), 132);
     QCOMPARE(core.rows(), 40);
+}
+
+// 屏幕尺寸是 GUI 线程每帧都要问的量（每个 damage 区域、每个选中行、每个搜索
+// 匹配各一次），所以它必须能无锁读：TerminalCore 把 (列, 行) 打包进**单个**
+// 原子字发布。若退回两个独立原子，两次 load 之间夹一次 resize 就会读到
+// 「列来自本次、行来自下次」的组合 —— 与两个 SSH 待定尺寸曾有的撕裂同类。
+// 本用例在持续输出的同时反复 resize，断言读到的永远是某一组**请求过的**
+// 尺寸，而不是两组的混合。
+void TerminalCoreTests::screenSizeStaysAConsistentPairUnderConcurrentResize()
+{
+    TerminalCore core(80, 24);
+    // 两组列行都不同，任一混合都能被下面的集合判定抓住。构造时的初始尺寸
+    // 也要算进去：第一个 Resize 命令生效前它就是合法观察值。
+    const QList<QPair<int, int>> sizes = {
+        {80, 24}, {132, 40}, {97, 31}, {200, 50}, {64, 20}
+    };
+
+    std::atomic<bool> stop{false};
+    std::atomic<bool> sawTornPair{false};
+    std::atomic<int> reads{0};
+    // 读取侧：不停问尺寸，记录任何"不在请求集合里"的组合。
+    std::thread reader([&] {
+        while (!stop.load(std::memory_order_acquire)) {
+            // 必须用 screenSize()（单次 load）：两次独立调用 columns() 与
+            // rows() 仍可能落在两次发布之间，那正是本用例最初抓到的问题 ——
+            // 打包只保证「发布」原子，成对读取要靠单次 load 的访问器。
+            const auto [c, r] = core.screenSize();
+            bool known = false;
+            for (const auto& size : sizes) {
+                if (c == size.first && r == size.second) {
+                    known = true;
+                    break;
+                }
+            }
+            if (!known) {
+                // 记录一次撕裂；不停机，让其余循环继续（便于统计）。
+                sawTornPair.store(true, std::memory_order_release);
+                return;
+            }
+            reads.fetch_add(1, std::memory_order_relaxed);
+            // 读侧不能把 GUI 线程饿死：waitForIdle 需要 GUI 线程真正跑起来
+            // 才能观察到队列排空。
+            if ((reads.load(std::memory_order_relaxed) & 0x3ff) == 0)
+                std::this_thread::yield();
+        }
+    });
+
+    // 写入侧：持续喂输出并反复 resize。
+    //
+    // 关键点：同类型 Resize 会在队列里被合并（只保留最新值），所以连续发
+    // resize 几乎不会真的执行 —— 变异验证时 79 个用例全绿正是这个原因：
+    // 12 轮 × 5 个尺寸只产生几十次发布，对百万次读取的命中概率约 0.006。
+    // 必须用 flushDamage() 把每个 Resize 隔开，强制它们逐个执行，
+    // 发布次数才上得去。
+    QByteArray burst(4 * 1024, '\n');
+    for (int round = 0; round < 60 && !stop.load(std::memory_order_acquire);
+         ++round) {
+        core.writeInput(burst);
+        for (const auto& size : sizes) {
+            core.flushDamage();  // 非 Resize 命令，使队尾不再是 Resize
+            core.resize(size.first, size.second);
+        }
+    }
+    QVERIFY(core.waitForIdle());
+    stop.store(true, std::memory_order_release);
+    reader.join();
+
+    // 读到的组合必须始终是某一组**请求过的**尺寸，绝不是两组混合。
+    QVERIFY2(!sawTornPair.load(std::memory_order_acquire),
+             "screenSize() returned a pair that was never requested — "
+             "the pair is not being read from one atomic word");
+    QVERIFY(reads.load(std::memory_order_acquire) > 0);
+    // 末态必须正好是最后一次请求的尺寸。
+    QCOMPARE(core.columns(), sizes.last().first);
+    QCOMPARE(core.rows(), sizes.last().second);
+    // 单字段访问器也必须与成对访问器一致（它们共用同一次发布）。
+    QCOMPARE(core.screenSize().first, core.columns());
+    QCOMPARE(core.screenSize().second, core.rows());
 }
 
 void TerminalCoreTests::resizePublishesFullDamageWithoutLiveScroll()
@@ -1778,6 +1860,223 @@ void TerminalCoreTests::tmuxPassthroughProbeMismatchPassesBytesThrough()
     QVERIFY(core.getCell(0, 0, cell));
     QVERIFY(cell.chars[0] == 0 || cell.chars[0] == ' ');
     Q_UNUSED(damageSpy);
+}
+
+// ── tmux DCS 预扫描器的跨分片正确性 ────────────────────────────
+//
+// 下面三个用例必须在**适配器层**驱动分片：TerminalCore 的 parser worker
+// 用一次 take() 取走队列里所有待处理字节，多次 core.writeInput() 会被合并
+// 成一次 adapter->writeInput()，因此门面层的「逐字节 writeInput」实际上
+// 从未把分片喂到扫描器上（旧的 tmuxPassthroughSurvivesFragmentedInput
+// 正是这个情况）。
+
+namespace {
+
+// 最小适配器夹具：屏幕/历史/回调收集器先行构造，再交给 VTAdapter，
+// 使 observer lambda 捕获的 this 在适配器构造完成时已完全有效。
+struct PassthroughProbe {
+    NovaTerm::ScreenBuffer screen{80, 6};
+    ScrollbackBuffer scrollback{64};
+    std::string clipboard;
+    int clipboardCalls{0};
+    std::string output;
+
+    NovaTerm::VTAdapter::Observer observer()
+    {
+        NovaTerm::VTAdapter::Observer o;
+        o.output = [this](NovaTerm::ByteView v) {
+            output.append(v.data, size_t(v.size));
+        };
+        o.selectionSet = [this](int, const std::string& text) {
+            ++clipboardCalls;
+            clipboard = text;
+        };
+        return o;
+    }
+
+    // 屏幕某一行的可见文本（遇空 Cell 即止）。
+    [[nodiscard]] std::string rowText(int row) const
+    {
+        std::string text;
+        for (int c = 0; c < screen.columns(); ++c) {
+            const NovaTerm::Cell* cell = screen.cellAt(row, c);
+            if (cell == nullptr || cell->chars[0] == 0)
+                break;
+            // 窄 ASCII 足够覆盖本组用例的断言。
+            text.push_back(char(cell->chars[0] & 0x7f));
+        }
+        return text;
+    }
+
+    // 观察到的等价类：终端响应字节 + 全部行的文本。预扫描器对非 tmux
+    // 输入必须字节透明，故「整块输入」与「任意分片」的该值必须完全相同。
+    [[nodiscard]] std::string observable() const
+    {
+        std::string key = output;
+        for (int row = 0; row < screen.rows(); ++row) {
+            key.push_back('\n');
+            key += rowText(row);
+        }
+        return key;
+    }
+};
+
+// 把 bytes 按给定的分片长度依次喂进适配器。
+void feedFragments(NovaTerm::VTAdapter& adapter, const QByteArray& bytes,
+                   const QList<int>& cuts)
+{
+    int offset = 0;
+    for (int cut : cuts) {
+        const int length = cut - offset;
+        if (length > 0) {
+            adapter.writeInput(NovaTerm::ByteView(
+                bytes.constData() + offset, NovaTerm::isize(length)));
+        }
+        offset = cut;
+    }
+    if (offset < bytes.size()) {
+        adapter.writeInput(NovaTerm::ByteView(
+            bytes.constData() + offset,
+            NovaTerm::isize(bytes.size() - offset)));
+    }
+    // Cell 只在 flushDamage() 时落到 ScreenBuffer，与 TerminalCore 的
+    // parser worker 每次 writeInput 后跟一次 flushDamage 的做法一致。
+    adapter.flushDamage();
+}
+
+} // namespace
+
+// 分片落在 Payload 态内部（ESC P tmux; 与载荷之间）时，扫描器必须把
+// 已扣住的字节真正扣住。回归前导会把 "\x1bPtmux;" 交给 libvterm，
+// 使其停在 DCS 字符串态，内层 OSC 52 永远到不了剪贴板。
+void TerminalCoreTests::tmuxPassthroughSplitInsidePayloadReachesClipboard()
+{
+    const QByteArray wrapped = tmuxWrap(
+        QByteArrayLiteral("\x1b]52;c;aGVsbG8=\x07"));
+
+    PassthroughProbe probe;
+    NovaTerm::VTAdapter adapter(80, 6, probe.screen, probe.scrollback,
+                                probe.observer());
+
+    // 三段：magic 恰好结束、载荷、ST。
+    // 切点 1：ESC P tmux; 之后（进入 Payload 态）；切点 2：ST 的 ESC 之前。
+    feedFragments(adapter, wrapped,
+                  {int(wrapped.indexOf(';') + 1), int(wrapped.size() - 2)});
+
+    QCOMPARE(probe.clipboardCalls, 1);
+    QCOMPARE(QString::fromStdString(probe.clipboard), QStringLiteral("hello"));
+    // 外层包裹序列不得作为正文打印。
+    QCOMPARE(QString::fromStdString(probe.rowText(0)), QString());
+}
+
+// 穷举所有两段切分点：切在 ESC P 之间、ESC ESC 之间、magic 中间、载荷
+// 中间、ST 中间都必须既不丢字节也不重字节，且 OSC 52 恰好触发一次。
+void TerminalCoreTests::tmuxPassthroughSplitAtEveryBoundaryIsByteExact()
+{
+    const QByteArray wrapped = tmuxWrap(
+        QByteArrayLiteral("\x1b]52;c;aGVsbG8=\x07"));
+    // 叠加一段可见正文：夹在 ST 之后，确保正文与包裹序列都被正确处理。
+    const QByteArray stream = wrapped + QByteArrayLiteral("OK");
+
+    for (int cut = 1; cut < stream.size(); ++cut) {
+        PassthroughProbe probe;
+        NovaTerm::VTAdapter adapter(80, 6, probe.screen, probe.scrollback,
+                                    probe.observer());
+        feedFragments(adapter, stream, QList<int>{cut});
+
+        QCOMPARE(probe.clipboardCalls, 1);
+        QCOMPARE(QString::fromStdString(probe.clipboard),
+                 QStringLiteral("hello"));
+        QCOMPARE(QString::fromStdString(probe.rowText(0)),
+                 QStringLiteral("OK"));
+    }
+
+    // 逐字节切分：同样必须恰好一次、且不重字节。
+    PassthroughProbe probe;
+    NovaTerm::VTAdapter adapter(80, 6, probe.screen, probe.scrollback,
+                                probe.observer());
+    QList<int> cuts;
+    for (int i = 1; i < stream.size(); ++i)
+        cuts.append(i);
+    feedFragments(adapter, stream, cuts);
+
+    QCOMPARE(probe.clipboardCalls, 1);
+    QCOMPARE(QString::fromStdString(probe.clipboard), QStringLiteral("hello"));
+    QCOMPARE(QString::fromStdString(probe.rowText(0)), QStringLiteral("OK"));
+}
+
+// 预扫描器在跨分片时必须字节透明（见下方注释）。
+// 触发条件是分片结束在「已 flushRun 过但游标未推进」的位置：待定 ESC 态、
+// 扣住等待后继字节，而不是连同前面的正文再喂一遍。回归前导会在同一次
+// writeInput 里先 flushRun(i) 写出前缀、末尾又 flushRun(size()) 把前缀
+// 重喂一次，于是 "A" 变成 "AA"。
+void TerminalCoreTests::tmuxPassthroughSplitAtEscapeBoundaryDoesNotDuplicateBytes()
+{
+    // 非 tmux 输入下预扫描器必须字节透明：任何分片方式都要与整块输入
+    // 给出完全相同的观察结果。这比逐条断言屏幕文本更强，也更贴近本质
+    // ——回归缺陷的本质就是把已写过的字节再写一遍。
+    //
+    // 触发条件是分片恰好结束在「已 flushRun 过但 runStart 未推进」的位置：
+    // 待定 ESC 态、非匹配探针的 passthrough 载荷态。
+    const QList<QByteArray> streams = {
+        QByteArrayLiteral("\x1b"),                  // 结束于待定 ESC
+        QByteArrayLiteral("A\x1b"),                 // 带正文并结束于待定 ESC
+        QByteArrayLiteral("A\x1b\x1b"),            // 结束于第二个待定 ESC
+        QByteArrayLiteral("AB\x1b[31mC"),            // 普通 CSI
+        QByteArrayLiteral("A\x1b\x1b" "B"),        // 连续 ESC
+        QByteArrayLiteral("x\x1b"),                  // 正文后紧跟待定 ESC
+        QByteArrayLiteral("\x1bP$q\"p\x1b\\"),       // 非 tmux 的 DCS：探针不匹配
+        QByteArrayLiteral("y\x1bP1;2|z"),           // 探针不匹配后继续正文
+    };
+    for (const QByteArray& stream : streams) {
+        PassthroughProbe whole;
+        NovaTerm::VTAdapter wholeAdapter(80, 6, whole.screen, whole.scrollback,
+                                        whole.observer());
+        wholeAdapter.writeInput(NovaTerm::ByteView(
+            stream.constData(), NovaTerm::isize(stream.size())));
+        wholeAdapter.flushDamage();
+        const std::string expected = whole.observable();
+        const QByteArray tag = "stream=" + stream.toHex(' ');
+
+        // 逐个两段切分点。
+        for (int cut = 1; cut < stream.size(); ++cut) {
+            PassthroughProbe split;
+            NovaTerm::VTAdapter splitAdapter(80, 6, split.screen,
+                                             split.scrollback,
+                                             split.observer());
+            feedFragments(splitAdapter, stream, QList<int>{cut});
+            QVERIFY2(split.observable() == expected,
+                     qPrintable(QStringLiteral("%1 cut=%2").arg(tag).arg(cut)));
+        }
+        // 逐字节切分。
+        QList<int> perByte;
+        for (int i = 1; i < stream.size(); ++i)
+            perByte.append(i);
+        PassthroughProbe bytes;
+        NovaTerm::VTAdapter byteAdapter(80, 6, bytes.screen, bytes.scrollback,
+                                        bytes.observer());
+        feedFragments(byteAdapter, stream, perByte);
+        QVERIFY2(bytes.observable() == expected,
+                 qPrintable(QStringLiteral("%1 per-byte").arg(tag)));
+    }
+
+    // 跨分片完成一个 CSI：待定 ESC 与后继 '[' 必须合成一个 CSI，
+    // 而不是两个独立序列（后者会让 SGR 提前结束、颜色错位）。
+    {
+        PassthroughProbe probe;
+        NovaTerm::VTAdapter adapter(80, 6, probe.screen, probe.scrollback,
+                                    probe.observer());
+        adapter.writeInput(NovaTerm::ByteView("A\x1b", 2));
+        adapter.writeInput(NovaTerm::ByteView("[31mB", 5));
+        adapter.flushDamage();
+        QCOMPARE(QString::fromStdString(probe.rowText(0)),
+                 QStringLiteral("AB"));
+        // B 必须带 SGR 31 的前景色，证明 CSI 被完整解析。
+        const NovaTerm::Cell* cell = probe.screen.cellAt(0, 1);
+        QVERIFY(cell != nullptr);
+        QCOMPARE(cell->foreground.type, NovaTerm::ColorType::Indexed);
+        QCOMPARE(int(cell->foreground.index), 1);
+    }
 }
 
 QTEST_GUILESS_MAIN(TerminalCoreTests)

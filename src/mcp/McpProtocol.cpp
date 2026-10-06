@@ -26,6 +26,7 @@
 #include <sddl.h>
 #include <aclapi.h>
 #else
+#include <fcntl.h>
 #include <sys/stat.h>
 #include <unistd.h>
 #endif
@@ -398,6 +399,8 @@ QByteArray tokenOwnerIdentities(HANDLE token, QList<QByteArray>& identities)
 
 bool ownerOnly(const QString& path, bool directory)
 {
+    // 便宜的早退，不承担安全职责：真正的判定见下方 POSIX 分支的描述符
+    // 路径（stat 与 chmod 必须是同一个对象）。
     if (QFileInfo(path).isSymLink())
         return false;
 #ifdef Q_OS_WIN
@@ -440,10 +443,33 @@ bool ownerOnly(const QString& path, bool directory)
     LocalFree(descriptor);
     return ok;
 #else
-    struct stat status{};
+    // POSIX 一律以文件描述符为准：O_NOFOLLOW 拒绝"路径最后一段是符号
+    // 链接"，fstat 与 fchmod 全部落在同一个已打开的对象上，于是原
+    // lstat→chmod 之间的换链接 / 换 inode 窗口不再存在（stat 看到的
+    // 与 chmod 落到的必然是同一份 inode）。类型也一并核对：传 true 却
+    // 拿到普通文件（或反之）直接失败。
+    //
+    // 这是纵深防御，不是可利用的现网漏洞：包含目录已由 secureDirectory()
+    // 强制为 0700 且同属主，能动手的只可能是与本进程同用户的进程——它
+    // 本来就能读写 NovaTerm 的全部数据，而这里涉及的文件（access.json
+    // 摘要、实例清单）不含明文秘密。
     const auto native = QFile::encodeName(path);
-    return ::lstat(native.constData(), &status) == 0 && status.st_uid == ::getuid()
-        && !S_ISLNK(status.st_mode) && ::chmod(native.constData(), directory ? 0700 : 0600) == 0;
+    const int flags = (directory ? O_DIRECTORY : 0) | O_NOFOLLOW | O_RDONLY;
+    const int descriptor = ::open(native.constData(), flags);
+    if (descriptor < 0)
+        return false;
+    const bool secured = [descriptor, directory] {
+        struct stat status{};
+        if (::fstat(descriptor, &status) != 0
+            || status.st_uid != ::getuid()) {
+            return false;
+        }
+        if (directory != (S_ISDIR(status.st_mode) != 0))
+            return false;
+        return ::fchmod(descriptor, directory ? 0700 : 0600) == 0;
+    }();
+    ::close(descriptor);
+    return secured;
 #endif
 }
 }
@@ -455,6 +481,12 @@ bool secureDirectory(const QString& path)
 bool secureFile(const QString& path) { return ownerOnly(path, false); }
 bool writePrivateJson(const QString& path, const QJsonObject& object)
 {
+    // 与 ownerOnly() 的 check-then-act 不同，这里的 isSymLink() 不承担安全
+    // 职责：QSaveFile 写的是同目录临时文件，commit() 以 rename 覆盖目标，
+    // 即便目标是符号链接，被替换的是链接本身而不是顺着链接写出去；安全
+    // 边界是上面 secureDirectory() 强制的 0700 目录。权限在 commit 前只
+    // 作用于临时文件句柄，提交后的 secureFile() 走描述符逐项核对最终
+    // 落位的那份 inode。isSymLink() 仅作为"不要覆盖符号链接"的策略保留。
     if (!secureDirectory(QFileInfo(path).absolutePath()) || QFileInfo(path).isSymLink())
         return false;
     QSaveFile file(path);

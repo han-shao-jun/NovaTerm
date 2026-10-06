@@ -13,6 +13,8 @@
 #include "session/TerminalSession.h"
 #include "ui/widgets/SshHostKeyDialog.h"
 #include "ui/widgets/MessagePrompts.h"
+#include "ui/widgets/SerialFileTransferDialog.h"
+#include "session/transfer/SerialFileTransferController.h"
 #include "core/terminal/TerminalCore.h"
 #include "renderer/TerminalRenderer.h"
 #include "renderer/TerminalColorScheme.h"
@@ -36,6 +38,8 @@
 #include <QLineEdit>
 #include <QMouseEvent>
 #include <QTimer>
+#include <QContextMenuEvent>
+#include <QWheelEvent>
 
 #include <algorithm>
 #include <memory>
@@ -515,15 +519,30 @@ bool TerminalView::attachTransport(ITransport* transport, bool lfImpliesCr)
     _session->resize(_latestResizeColumns, _latestResizeRows);
 
     // SSH 专属：主机密钥首次信任 / 变更必须经用户确认（P6 禁止静默接受）。
+    //
+    // 传输层是视图的子对象，而确认对话框的 exec() 会开启嵌套模态事件循环：
+    // 该循环期间视图可能被任何带外拆卸销毁，随后的连接断开会连带析构
+    // TerminalSession 与传输层，exec() 于是退回到一个仍在运行的 lambda，
+    // 此时对 ssh 调 acceptHostKey()/rejectHostKey() 等于写已释放内存。
+    // 因此这里只捕获 QPointer，弹窗返回后重新判活再触碰传输层。
     if (auto* ssh = qobject_cast<SshTransport*>(transport)) {
-        connect(ssh, &SshTransport::hostKeyRequired, this,
-                [this, ssh](const SshHostKeyInfo& info) {
-            auto* dialog = new SshHostKeyDialog(info, this);
+        const QPointer<SshTransport> sshGuard(ssh);
+        connect(sshGuard, &SshTransport::hostKeyRequired, this,
+                [this, sshGuard](const SshHostKeyInfo& info) {
+            if (!sshGuard)
+                return;
+            // 按项目约定挂到窗口一级（Ela 对话框的 parent 不能为空，
+            // 且浮层类控件必须落在窗口层），这样对话框比视图活得更久。
+            // 此处取 window() 时视图必然健在——它尚未进入任何嵌套循环。
+            auto* dialog = new SshHostKeyDialog(info, window());
             dialog->setAttribute(Qt::WA_DeleteOnClose);
-            if (dialog->exec() == QDialog::Accepted)
-                ssh->acceptHostKey();
+            const bool accepted = dialog->exec() == QDialog::Accepted;
+            if (!sshGuard)
+                return;
+            if (accepted)
+                sshGuard->acceptHostKey();
             else
-                ssh->rejectHostKey();
+                sshGuard->rejectHostKey();
         });
     }
 
@@ -548,7 +567,7 @@ TerminalSession* TerminalView::session() const
 
 void TerminalView::pasteText(const QString& text)
 {
-    if (!_core || text.isEmpty())
+    if (!_core || text.isEmpty() || fileTransferActive())
         return;
 
     _core->pasteText(text);
@@ -562,7 +581,7 @@ void TerminalView::pasteFromClipboard()
 
 void TerminalView::submitText(const QString& text)
 {
-    if (!_core || text.isEmpty())
+    if (!_core || text.isEmpty() || fileTransferActive())
         return;
 
     // 粘贴与回车进入同一终端核心命令队列，保证命令完整写入后再执行。
@@ -575,7 +594,7 @@ void TerminalView::submitText(const QString& text)
 
 void TerminalView::requestWorkingDirectory()
 {
-    if (!_core || _workingDirectoryRequestPending)
+    if (!_core || _workingDirectoryRequestPending || fileTransferActive())
         return;
 
     _workingDirectoryRequestPending = true;
@@ -629,6 +648,39 @@ void TerminalView::applyColorScheme()
 //  右键菜单
 // ═══════════════════════════════════════════════════════════════════
 
+bool TerminalView::fileTransferActive()
+{
+    // Session 门面按需创建控制器；检查到串口后记录观察指针，输入不经 UI
+    // 保存或转发。断线和重绑期间旧控制器仍需保持门禁直至 Session 中止它。
+    if (!_serialFileTransfer && _session && _session->canTransferFiles())
+        _serialFileTransfer = _session->serialFileTransfer();
+    return _serialFileTransfer && _serialFileTransfer->isActive();
+}
+
+void TerminalView::showFileTransfer(NovaTerm::FileTransfer::Direction direction)
+{
+    if (!_session || !_session->canTransferFiles())
+        return;
+    auto* controller = _session->serialFileTransfer();
+    if (!controller)
+        return;
+    if (_transferDialog && _serialFileTransfer != controller) {
+        // 重绑后旧窗口观察的控制器可能已经析构，不能复用它启动新通道。
+        _transferDialog->deleteLater();
+        _transferDialog.clear();
+    }
+    _serialFileTransfer = controller;
+    if (!_transferDialog) {
+        _transferDialog = new SerialFileTransferDialog(controller, direction, this);
+    } else {
+        // 活动窗口保持原传输和方向；发送/接收/进度入口只将它带回前台。
+        _transferDialog->setDirection(direction);
+    }
+    _transferDialog->show();
+    _transferDialog->raise();
+    _transferDialog->activateWindow();
+}
+
 void TerminalView::setupContextMenu(const QPoint& pos)
 {
     auto* menu = new ElaMenu(this);
@@ -638,8 +690,24 @@ void TerminalView::setupContextMenu(const QPoint& pos)
     connect(menu->addElaIconAction(ElaIconType::Copy, tr("Copy")),
             &QAction::triggered, _renderer, &TerminalRenderer::copySelection);
 
-    connect(menu->addElaIconAction(ElaIconType::Paste, tr("Paste")),
-            &QAction::triggered, this, &TerminalView::pasteFromClipboard);
+    auto* paste = menu->addElaIconAction(ElaIconType::Paste, tr("Paste"));
+    paste->setEnabled(!fileTransferActive());
+    connect(paste, &QAction::triggered, this, &TerminalView::pasteFromClipboard);
+
+    if (_session && _session->canTransferFiles()) {
+        menu->addSeparator();
+        connect(menu->addAction(tr("Send Files…")), &QAction::triggered, this, [this] {
+            showFileTransfer(NovaTerm::FileTransfer::Direction::Send);
+        });
+        connect(menu->addAction(tr("Receive Files…")), &QAction::triggered, this, [this] {
+            showFileTransfer(NovaTerm::FileTransfer::Direction::Receive);
+        });
+        connect(menu->addAction(tr("Transfer Progress")), &QAction::triggered, this, [this] {
+            showFileTransfer(_serialFileTransfer
+                ? _serialFileTransfer->progress().direction
+                : NovaTerm::FileTransfer::Direction::Send);
+        });
+    }
 
     menu->addSeparator();
 
@@ -653,6 +721,22 @@ void TerminalView::setupContextMenu(const QPoint& pos)
 
     connect(menu->addElaIconAction(ElaIconType::MagnifyingGlassMinus, tr("Zoom Out")),
             &QAction::triggered, _renderer, &TerminalRenderer::zoomOut);
+
+    menu->addSeparator();
+
+    // 回看位置快速跳转；已在对应端时置灰。
+    QAction* scrollTopAction =
+        menu->addElaIconAction(ElaIconType::ArrowUpToLine, tr("Scroll to Top"));
+    scrollTopAction->setEnabled(
+        _renderer->scrollOffset() < _renderer->maximumScrollOffset());
+    connect(scrollTopAction, &QAction::triggered,
+            _renderer, &TerminalRenderer::scrollToTop);
+
+    QAction* scrollBottomAction =
+        menu->addElaIconAction(ElaIconType::ArrowDownToLine, tr("Scroll to Bottom"));
+    scrollBottomAction->setEnabled(_renderer->scrollOffset() > 0);
+    connect(scrollBottomAction, &QAction::triggered,
+            _renderer, &TerminalRenderer::scrollToBottom);
 
     menu->addSeparator();
 
@@ -682,6 +766,69 @@ void TerminalView::setupContextMenu(const QPoint& pos)
 
 bool TerminalView::eventFilter(QObject* obj, QEvent* event)
 {
+    if (obj == _renderer && fileTransferActive()) {
+        if (event->type() == QEvent::ContextMenu) {
+            auto* context = static_cast<QContextMenuEvent*>(event);
+            setupContextMenu(mapFromGlobal(context->globalPos()));
+            event->accept();
+            return true;
+        }
+        if (event->type() == QEvent::KeyPress) {
+            auto* key = static_cast<QKeyEvent*>(event);
+            if (key->matches(QKeySequence::Find)) {
+                showSearch();
+            } else if (key->key() == Qt::Key_Menu
+                       || (key->key() == Qt::Key_F10
+                           && key->modifiers() == Qt::ShiftModifier)) {
+                setupContextMenu(_renderer->mapTo(this, _renderer->rect().center()));
+            } else if (key->matches(QKeySequence::Copy)
+                || (key->key() == Qt::Key_C
+                    && key->modifiers() == (Qt::ControlModifier | Qt::ShiftModifier))) {
+                _renderer->copySelection();
+            } else if (key->modifiers() == Qt::ShiftModifier
+                       && (key->key() == Qt::Key_PageUp || key->key() == Qt::Key_PageDown)) {
+                _renderer->scrollLines(key->key() == Qt::Key_PageUp
+                    ? _core->rows() : -_core->rows());
+            }
+            event->accept();
+            return true;
+        }
+        if (event->type() == QEvent::Wheel) {
+            auto* wheel = static_cast<QWheelEvent*>(event);
+            const int delta = wheel->angleDelta().y() != 0
+                ? wheel->angleDelta().y() : wheel->pixelDelta().y() * 3;
+            _transferWheelAccum += delta;
+            const int notches = _transferWheelAccum / 120;
+            _transferWheelAccum -= notches * 120;
+            if (wheel->modifiers().testFlag(Qt::ControlModifier)) {
+                for (int n = 0; n < std::abs(notches); ++n) {
+                    if (notches > 0)
+                        _renderer->zoomIn();
+                    else
+                        _renderer->zoomOut();
+                }
+            } else {
+                _renderer->scrollLines(notches * 3);
+            }
+            event->accept();
+            return true;
+        }
+        // IME、鼠标及焦点报告也会产生协议字节。准备阶段就消费它们，避免
+        // 新命令持续进入 Parser 而阻塞旧输出屏障。本地复制和右键菜单仍可用。
+        if (event->type() == QEvent::InputMethod
+            || event->type() == QEvent::ShortcutOverride
+            || event->type() == QEvent::MouseButtonPress
+            || event->type() == QEvent::MouseButtonRelease
+            || event->type() == QEvent::MouseButtonDblClick
+            || event->type() == QEvent::MouseMove
+            || event->type() == QEvent::FocusIn
+            || event->type() == QEvent::FocusOut) {
+            event->accept();
+            return true;
+        }
+    } else if (obj == _renderer) {
+        _transferWheelAccum = 0;
+    }
     if (obj == _renderer
         && (event->type() == QEvent::MouseButtonPress
             || event->type() == QEvent::MouseButtonDblClick

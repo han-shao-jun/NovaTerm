@@ -14,6 +14,7 @@
 #include <QWaitCondition>
 
 #include <atomic>
+#include <memory>
 
 class QThread;
 
@@ -51,7 +52,7 @@ public:
     void connectToHost(const SshConfig& config,
                        const QString& expectedHostKeyFingerprint = {},
                        const QString& trustedKnownHostsPath = {});
-    void disconnectFromHost();
+    void disconnectFromHost(bool shuttingDown = false);
 
     void listDirectory(const QString& remotePath);
     void uploadFile(const QString& localPath, const QString& remotePath);
@@ -111,19 +112,37 @@ private:
         QByteArray content{};
     };
 
+    /**
+     * @brief 跨线程的停止标志与世代号，**故意**放在对象之外。
+     *
+     * SFTP worker 用的是阻塞式 libssh 调用：一旦卡在 sftp_read/sftp_write
+     * 内部就看不到停止请求，而 GUI 侧不可能无限等它（详见 disconnectFromHost
+     * 里的上界与放弃策略）。放弃时线程会自毁继续跑一小段，因此停止标志必须
+     * 比 SftpSession 活得久 —— 放在对象里的话，僵尸线程读到的就是已释放内存。
+     * 该控制块由创建线程的 lambda 按值捕获。
+     */
+    struct WorkerControl {
+        std::atomic<bool> running{false};
+        std::atomic<quint64> generation{0};
+    };
     void enqueue(Command command);
-    void workerMain(SshConfig config, QString expectedHostKeyFingerprint,
-                    QString trustedKnownHostsPath,
-                    quint64 generation);
+    void workerMain(std::shared_ptr<WorkerControl> control, SshConfig config,
+                    QString expectedHostKeyFingerprint,
+                    QString trustedKnownHostsPath, quint64 generation);
     void postError(quint64 generation, const QString& message);
     void postDisconnected(quint64 generation);
     [[nodiscard]] bool isUploadCancelled(quint64 requestId);
 
     static constexpr int ConnectTimeoutSeconds = 10;
+    // 停止请求后等待 worker 退出的上界。取 15s 与 SshTransport::TeardownWaitMs
+    // 一致：ConnectTimeoutSeconds 只约束连接/认证阶段，数据阶段是无限阻塞。
+    static constexpr int TeardownWaitMs = 15000;
+    // 析构路径更有耐心，等满阻塞调用串行的最坏场景。
+    static constexpr int TeardownDestructorWaitMs = 60000;
     static constexpr qsizetype MaxQueuedCommands = 256;
     static constexpr qsizetype MaxQueuedUploadBytes = 2 * 1024 * 1024;
 
-    std::atomic<bool> _running{false};
+    std::shared_ptr<WorkerControl> _control;
     std::atomic<bool> _connected{false};
     QMutex _queueMutex;
     QWaitCondition _queueReady;
@@ -132,5 +151,7 @@ private:
     qsizetype _queuedUploadBytes{0};
     quint64 _activeUploadRequestId{0};
     QThread* _thread{nullptr};
-    quint64 _generation{0};
+    // true 表示上一任 worker 超过上界仍未退出、已被放弃（自毁），它可能仍在
+    // 运行；此时禁止再启动新会话。仅 GUI 线程读写。
+    bool _workerAbandoned{false};
 };

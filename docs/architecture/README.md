@@ -11,8 +11,10 @@
 1. [总体架构](../ARCHITECTURE.md)：系统边界、数据流、线程、所有权和目标架构。
 2. [配置、Profile 与主题](Configuration_Profile_Theme.md)：配置分层、Profile、Session 和主题职责。
 3. [渲染架构](Rendering_Architecture.md)：Snapshot、调度、命令缓存、QRhi 和 Glyph 系统。
-4. [阶段路线图](Development_Roadmap.md)：P0～P8 的依赖关系、状态和统一指标。
+4. [阶段路线图](Development_Roadmap.md)：P0～P9 的依赖关系、状态和统一指标。
 5. `stages/`：每个阶段的独立实施说明。
+   - 对照参考：[Windows Terminal 渲染架构](Windows_Terminal_Rendering_Architecture.md)
+     （基于本地源码 `D:\qt\terminal` 的 Renderer/AtlasEngine 全链路分析，供渲染优化对照）。
 6. [P8 AI MCP 接口](stages/P8_AI_MCP_Interface.md)：只读上下文与受限命令设计，含
    stdio/IPC、会话身份、分级授权、工具契约、预算与验收；首期已接入，本机验收中。
 
@@ -29,6 +31,7 @@
 | P6 Session 与 Transport | 进行中：Transport 四种完成，会话编排采用「1 View 拥有 1 Session」已在生产；剩 keyboard-interactive、close 模式、exited→UI、ProfileStore 持久化、contract tests | [P6](stages/P6_Session_and_Transport.md) |
 | P7 系统资源查询 | 已实现为内置功能（常驻监控 2026-09-06、系统信息窗口 2026-09-09）；性能量化验收待补 | [P7](stages/P7_System_Resource_Monitor.md) |
 | P8 AI MCP 接口 | 首期与 v0.6 交互命令已实现；Linux 本机已测响应率（94.2%，未达 99%）、吞吐、RPC 与捕获 P95，GUI frame P95 无法判定；跨平台、桌面 Shell 与端到端帧延迟待完成 | [P8](stages/P8_AI_MCP_Interface.md) |
+| P9 文件传输协议 | 协议库已实现；Linux 六项专项测试、ASan/UBSan 与独立对端 124 项互通通过；两个 lrzsz 上游缺陷用例跳过，Windows/macOS 与串口接线待完成 | [P9](stages/P9_File_Transfer_Protocols.md) |
 
 ## 文档权威性
 

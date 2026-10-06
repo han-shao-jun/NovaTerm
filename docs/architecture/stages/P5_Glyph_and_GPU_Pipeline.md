@@ -67,7 +67,7 @@ P5在`119 × 40`或等价可见网格上的默认目标：
 | 指标 | 目标 |
 | --- | ---: |
 | 单Cell内容更新 | 不超过1行；支持脏列/分块后应少于整行命令重建 |
-| 稳态逐行滚屏重建 | P95不超过2个新行槽位/帧 |
+| 稳态逐行滚屏重建 | 每帧不超过2个可见网格（`rowsRebuilt <= 2 * framesRendered * visibleRows`） |
 | 稳态逐行滚屏上传bytes | 相对P3同负载降低至少90% |
 | ASCII稳态Draw Call | 每帧不超过6次 |
 | 混合文本Draw Call | 不超过`4 + 活跃Atlas page/material batch数` |
@@ -289,15 +289,44 @@ sequenceDiagram
     R->>G: update row placement/transform
 ```
 
-滚动映射改变时：
+**⚠ 实现现状（2026-10-05 更新）：本节的槽位复用尚未在生产中启用，代码已删除。**
+
+2026-10-05 的全项目 review 发现：`RowSlotMap::update()` 这套 identity→slot
+复用**没有任何生产调用者**。`_conservativeLiveScrollRendering` 默认 `true`，
+`TerminalView::startLocalShell()` 只对 `wsl.exe` 置 false，因此除 wsl.exe 外的
+每个 shell 都走整帧重建 + `uploadAllRows`。实测（xcb + opengl，6 秒
+`steady_scroll`）该路径的 CPU 帧成本约为快路径的 **6 倍**
+（5.1–5.5 ms vs ~1.0 ms p50），GPU 上传 512 MB vs 23.7 MB。
+换言之本节此前的 P95 判据与三份 perf 记录测的都是一条除 wsl.exe 外没有 shell
+走过的路径。
+
+本轮的处理是**删除死代码**而不是启用它（启用需要跨 `LocalShellProfile` 引入
+能力标志，超出当轮改动范围）：
+
+- 已删除：`RowSlotMap::update()` / `RowSlotUpdate` / `VisibleRowIdentity` /
+  `qHash(VisibleRowIdentity,…)` / `mappingRevision()` / `mappingOnlyUpdates` /
+  `rowSlotsReused` / `rowSlotsCreated` / `rowsNeedingRebuildAfterMapping()`。
+- **保留**：`RowSlotMap::rotateRowsUp()` —— 恢复快路径时只需补回 `update()` 那一半。
+- 行为变化：对除 `wsl.exe` 外的 shell **无变化**（本就走整帧路径）；
+  `wsl.exe` 由「轮转 + 只重建进入行」改为整帧重建。功能不回退（画面正确），
+  只是滚动时 CPU 开销上升。
+- 验收判据同步换成「每帧最多重建两个可见网格」，`rowsP95` 仍作为诊断量输出。
+
+恢复快路径需要三处约 15 行的改动：给 `LocalShellProfile` 加
+`emitsCursorPositionedRewrites` 能力标志、在四个 profile 里分别置值、
+`TerminalView::startLocalShell()` 改传该标志而不是比较可执行文件名。
+
+滚动映射改变时的原设计意图（保留供恢复参考）：
 
 - 计算旧、新可见行identity的最长复用集合；
 - 保持复用行对应的command block和GPU slot；
 - 只回收离开viewport的slot；
 - 只为新进入viewport的行生成命令和实例；
 - 更新小型row placement/transform Buffer；
-- resize、reflow、alternate screen或无法匹配identity时才全屏重建；
-- resize 不再强制回到实时底部：正在回看时改变列宽会按 `_scrollAnchorLine`/`_scrollAnchorWrap` 在重排完成后还原到同一内容处。
+- resize、reflow、alternate screen或无法匹配identity时才全屏重建。
+
+该意图中**仍然生效**的一条：resize 不再强制回到实时底部 —— 正在回看时改变列宽
+会按 `_scrollAnchorLine`/`_scrollAnchorWrap` 在重排完成后还原到同一内容处。
 
 行identity不能只使用可变数组下标。Scrollback使用稳定`LineId + wrapIndex + sourceVersion`；active screen使用screen generation、logical row identity或可证明安全的ring identity。
 
@@ -903,3 +932,42 @@ warm-path `select()`/`makeKey` 由 ~1.2–2.8 µs/op 降到 ~65–84 ns/op（约
 `verifyTerminalScrollBarWithParentStyleSheet()` 回归，覆盖父级 QSS、标签换父、
 再次调整宽度、样式表切换和反复析构。修复前单独运行退出 -11；修复后 GDB
 显示 `exited normally`，Debug 主程序与 UI 目标构建通过，UI CTest 1/1 通过。
+
+## 2026-10-06 增量：instance 影子缓冲跳过未变上传
+
+对照 Windows Terminal AtlasEngine（每帧只重绘脏行、20 B 紧凑 instance、
+背景走 per-cell 纹理）后，先落地风险最低的一项："只上传真正变化的槽位"。
+`TerminalRenderer` 新增 `_instanceShadow`（与 instance 缓冲等大的 CPU 副本）
+和纯函数 `syncShadowRange()`：`uploadCommands()` 装配每个脏 span 后先与影子
+逐字节比对，相同则跳过 `updateDynamicBuffer`，并累加新统计
+`RenderStatistics::uploadBytesSkipped`。影子在缓冲新建、stride 布局变化与
+`releaseRhiResources()` 时整体填 `0xFF`（NaN 浮点，任何装配结果都判为不同），
+因此全帧/重建路径的行为与此前一致；越界时保守地上传。行槽旋转不搬移
+GPU 字节，影子按字节偏移镜像，无需随 `RowSlotMap` 旋转。
+
+收益来自块指纹 8 列对齐与 ConPTY 多报造成的"脏但未变"span。**同机 A/B
+（`novaterm_renderer_p5_gpu_benchmark`，Windows Release，真实 D3D11，改动前
+后再各重建一次，各取 3~4 次运行）**：
+
+| 指标（steady_scroll） | 改动前 | 改动后 | Δ |
+| --- | --- | --- | --- |
+| `content_upload`（字节/约 5 s） | 10670720 / 10670720 / 10743680 / 10782720 | 8520960 / 8520960 / 8625408 / 8633600 | **约 −20%** |
+| CPU 帧 p50（ns） | 1047200 / 1065200 | 513800 / 579900 / 605000 | **约 −45%** |
+| CPU 帧 p95（ns） | 1526100 / 1628100 | 1458100 / 1516900 / 1580700 | 噪声内，无变化 |
+| `instances`（同负载） | 40763 / 40765 | 40766 / 40895 / 41034 | 一致（几何未变） |
+
+p50 的下降幅度大于上传字节数，说明 QRhi 每个 `updateDynamicBuffer` 调用的固定
+开销不小。`resize` 用例无改善（全帧重建时影子被重置，本就全量上传，符合预期）。
+`atlas_current` 16 MiB、`buffer_current` 约 1.9 MB 两项前后一致，影子是 CPU 侧
+内存、不计入其中。两组 `acceptance=fail` 都是既有的
+"steady-scroll requested history reflow"，改动前后相同。
+
+代价是每个脏 span 一次 memcmp 和一份与 instance 缓冲等大的 CPU 内存。
+回归：`novaterm_renderer_tests::shadowBufferSkipsIdenticalUploads`。验证：
+Windows Release 构建通过，`novaterm_renderer_tests`、
+`novaterm_renderer_p5_tests` 与 `novaterm_terminal_session_tests`（12/12，
+真实 D3D11）通过；Linux 与 GPU 基准未运行。
+
+后续候选（按收益/风险排序，均未做）：atlas 纹理数组按实际页数增长；灰度页
+改 R8；背景改 per-cell 纹理 + 全屏 quad；instance 压缩为 16 位整型布局；
+默认关闭保守滚动整帧重建。

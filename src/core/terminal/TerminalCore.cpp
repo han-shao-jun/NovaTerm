@@ -314,6 +314,12 @@ public:
              || command.type == CommandType::PublishContext)
             && !commands.empty()
             && commands.back().type == command.type) {
+            // 队列只剩一条命令时 back() 就是 front()：合并会改写 worker 此刻
+            // 正在判定是否执行的那一条的 byteBarrier。该行为是安全的（worker
+            // 在 nextCommandByteBarrier() 前必定先调 completeReadyCommands()，
+            // 屏障只能前移；合并沿用最新屏障仍 <= completed），但依赖的是
+            // 调用顺序而不是不变量本身，故在此显式记下。
+            // submittedCommands 也不递增：新命令取代旧命令，净计数不变。
             pendingCommandBytes -= estimatedCommandBytes(commands.back());
             commands.back() = std::move(command);
             pendingCommandBytes += commandBytes;
@@ -459,6 +465,14 @@ public:
             Qt::QueuedConnection);
     }
 
+    // 把屏幕尺寸按「高 16 位列、低 16 位行」打包进单个原子字发布。
+    void publishScreenSize()
+    {
+        const auto cols = uint32_t(screen.columns());
+        const auto rows = uint32_t(screen.rows());
+        screenSize.store((cols << 16) | rows, std::memory_order_release);
+    }
+
     void createAdapter()
     {
         NovaTerm::VTAdapter::Observer observer;
@@ -508,6 +522,9 @@ public:
         observer.mouseModeChanged = [this](NovaTerm::MouseTrackingMode mode) {
             mouseTrackingMode.store(int(mode), std::memory_order_release);
         };
+        // adapter 已按构造尺寸建好屏幕，此刻发布一次初值，否则 GUI 线程在
+        // 第一个 Resize 命令到达前会读到 0。
+        publishScreenSize();
         // OSC 52 在 worker 线程回调；QClipboard 只能在 GUI 线程访问，
         // 与迟到信号同样的方式切线程投递。
         observer.selectionSet = [this](int mask, const std::string& utf8) {
@@ -548,6 +565,14 @@ public:
     // 并发布累积的信号，避免每条命令都触发一次跨线程投递。
     uint64_t processCommands()
     {
+        // 绝大多数调用（满吞吐下约 400-800 次/秒）到这里时 commands 是空的。
+        // std::deque 的默认构造函数就会分配一个节点 + 一张 map，所以在确认
+        // 非空之前不要物化它。
+        {
+            std::lock_guard<std::mutex> locker(commandMutex);
+            if (commands.empty())
+                return 0;
+        }
         std::deque<ParserCommand> local;
         {
             std::lock_guard<std::mutex> locker(commandMutex);
@@ -605,6 +630,7 @@ public:
             break;
         case CommandType::Resize:
             adapter->resize(command.first, command.second);
+            publishScreenSize();
             break;
         case CommandType::DefaultColors:
             adapter->setDefaultColors(command.foreground, command.background);
@@ -790,6 +816,14 @@ public:
     // 解析器侧模式的 GUI 可读缓存（worker 写、GUI 读），见 createAdapter。
     std::atomic<bool> alternateScreenActive{false};
     std::atomic<int> mouseTrackingMode{0};
+    // 屏幕尺寸的 GUI 可读缓存。columns()/rows() 原先每次都取 modelMutex，
+    // 而 worker 跨 adapter->writeInput() 持有该锁最长 64 KiB（实测解析吞吐
+    // 24 MiB/s 下约 2.7 ms）。渲染器每帧要问很多次尺寸（每个 damage 区域、
+    // 每个选中行、每个搜索匹配各一次），于是每帧都在 GUI 线程上排若干次
+    // 无界停顿，第一个就要付掉整个剩余持有时间。尺寸只在 Resize 命令里变，
+    // 由 worker 顺带发布一次即可。打包成单字见 SshTransport 的 _pendingSize：
+    // 两个字段分别发布会被撕成「列来自本次、行来自下次」。
+    std::atomic<uint32_t> screenSize{0};
     // 是否应答 OSC 52 读取查询。默认关闭（剪贴板外泄防护），见
     // createAdapter 的 selectionQuery 注释。
     std::atomic<bool> clipboardQueryAnswerEnabled{false};
@@ -1077,16 +1111,27 @@ void TerminalCore::resize(int cols, int rows)
     _runtime->enqueueCommand(std::move(command));
 }
 
+std::pair<int, int> TerminalCore::screenSize() const noexcept
+{
+    // 一次 load 取回成对的值：这是唯一能保证「列与行来自同一次 resize」的读法。
+    // 不取 modelMutex —— 尺寸由 worker 在 Resize 命令执行后发布，读取因此有界
+    // （见 Runtime::screenSize 的注释）；原先每次询问都要排一次最长 2.7 ms 的锁，
+    // 而渲染器每帧要问很多次。
+    const uint32_t packed =
+        _runtime->screenSize.load(std::memory_order_acquire);
+    if (packed == 0)
+        return {0, 0};
+    return {int(packed >> 16), int(packed & 0xFFFFu)};
+}
+
 int TerminalCore::columns() const
 {
-    std::lock_guard<std::mutex> locker(_runtime->modelMutex);
-    return _runtime->screen.columns();
+    return screenSize().first;
 }
 
 int TerminalCore::rows() const
 {
-    std::lock_guard<std::mutex> locker(_runtime->modelMutex);
-    return _runtime->screen.rows();
+    return screenSize().second;
 }
 
 bool TerminalCore::getCell(int row, int col, NovaTerm::Cell& out) const
