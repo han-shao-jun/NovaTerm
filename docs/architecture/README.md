@@ -13,6 +13,8 @@
 3. [渲染架构](Rendering_Architecture.md)：Snapshot、调度、命令缓存、QRhi 和 Glyph 系统。
 4. [阶段路线图](Development_Roadmap.md)：P0～P9 的依赖关系、状态和统一指标。
 5. `stages/`：每个阶段的独立实施说明。
+   - 对照参考：[Windows Terminal 渲染架构](Windows_Terminal_Rendering_Architecture.md)
+     （基于本地源码 `D:\qt\terminal` 的 Renderer/AtlasEngine 全链路分析，供渲染优化对照）。
 6. [P8 AI MCP 接口](stages/P8_AI_MCP_Interface.md)：只读上下文与受限命令设计，含
    stdio/IPC、会话身份、分级授权、工具契约、预算与验收；首期已接入，本机验收中。
 

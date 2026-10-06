@@ -168,12 +168,18 @@ void TransferFileWorker::run()
                         && !identityError) {
                         // 先原子移入线程独有的隔离名再核对身份，避免检查后直接
                         // unlink 用户目标时，误删检查与删除之间替换进来的文件。
-                        QTemporaryFile quarantine(QDir(destinationDirectory).filePath(".novaterm-rollback-XXXXXX.part"));
-                        if (!quarantine.open()) {
+                        // QTemporaryFile::close() 并不释放原生句柄（引擎仅回绕到开头），
+                        // Windows 上占位文件句柄未关闭时 MoveFileExW 替换会报
+                        // ERROR_ACCESS_DENIED；因此只借它原子占名，随即析构释放句柄。
+                        QString quarantineName;
+                        {
+                            QTemporaryFile quarantine(QDir(destinationDirectory).filePath(".novaterm-rollback-XXXXXX.part"));
+                            if (quarantine.open()) { quarantine.setAutoRemove(false); quarantineName = quarantine.fileName(); }
+                        }
+                        if (quarantineName.isEmpty()) {
                             error = std::make_error_code(std::errc::io_error);
                         } else {
-                            quarantine.close(); quarantine.setAutoRemove(false);
-                            const auto quarantinePath = nativePath(quarantine.fileName());
+                            const auto quarantinePath = nativePath(quarantineName);
                             if (_moveOperation) _moveOperation(targetPath, quarantinePath, error);
                             else {
 #ifdef Q_OS_WIN
@@ -185,7 +191,7 @@ void TransferFileWorker::run()
                             }
                             if (error) {
                                 // 移动失败时此名称仍是本线程新建的空隔离文件。
-                                QFile::remove(quarantine.fileName());
+                                QFile::remove(quarantineName);
                             } else {
                                 identityError.clear();
                                 const auto movedStatus = std::filesystem::symlink_status(quarantinePath, identityError);
