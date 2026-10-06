@@ -16,6 +16,7 @@
 #include <rhi/qshader.h>
 #include <rhi/qrhi.h>
 #include <algorithm>
+#include <cstring>
 #include <limits>
 #include <utility>
 
@@ -1654,6 +1655,7 @@ void TerminalRenderer::releaseRhiResources()
     _vertexBuffer.reset();
     _placementBuffer.reset();
     _vertexBufferSize = 0;
+    _instanceShadow.clear();
     _bufferBudget.release();
     {
         const QMutexLocker lock(&_pendingFrameMutex);
@@ -2388,8 +2390,12 @@ bool TerminalRenderer::ensureVertexBuffer(int rows, int columns)
     _overlayBaseVertex = overlayBase;
     _overlayCapacityVertices = overlayCapacity;
 
-    if (_vertexBuffer && _vertexBufferSize >= requiredBytes)
+    if (_vertexBuffer && _vertexBufferSize >= requiredBytes) {
+        // stride 变化会让同一字节偏移对应不同的行，旧影子不再可比对。
+        if (layoutChanged)
+            _instanceShadow.fill('\xFF', _vertexBufferSize);
         return layoutChanged;
+    }
 
     const auto capacity = _bufferBudget.capacityFor(quint64(requiredBytes));
     if (!capacity) {
@@ -2406,8 +2412,10 @@ bool TerminalRenderer::ensureVertexBuffer(int rows, int columns)
         qWarning() << "TerminalRenderer: failed to create QRhi vertex buffer";
         _vertexBuffer.reset();
         _vertexBufferSize = 0;
+        _instanceShadow.clear();
         return true;
     }
+    _instanceShadow.fill('\xFF', _vertexBufferSize);
     ++_renderStatistics.vertexBufferReallocations;
     _renderStatistics.bufferCurrentBytes = quint64(_vertexBufferSize);
     _renderStatistics.bufferPeakBytes = std::max(
@@ -2529,6 +2537,21 @@ void TerminalRenderer::uploadAtlasChanges(QRhiResourceUpdateBatch* updates)
     }
 }
 
+bool TerminalRenderer::syncShadowRange(QByteArray& shadow, qsizetype offset,
+                                       const void* data, qsizetype bytes)
+{
+    if (bytes <= 0)
+        return false;
+    // 越界（影子未建立或缓冲布局异常）时无法比对，保守地要求上传。
+    if (offset < 0 || offset + bytes > shadow.size())
+        return true;
+    char* target = shadow.data() + offset;
+    if (std::memcmp(target, data, size_t(bytes)) == 0)
+        return false;
+    std::memcpy(target, data, size_t(bytes));
+    return true;
+}
+
 void TerminalRenderer::uploadCommands(
     QRhiResourceUpdateBatch* updates,
     const QSize& pixelSize,
@@ -2581,14 +2604,24 @@ void TerminalRenderer::uploadCommands(
             const int backgroundOffset =
                 (slot * _backgroundRowStrideVertices + start)
                 * int(sizeof(GpuInstance));
-            updates->updateDynamicBuffer(_vertexBuffer.get(), backgroundOffset,
-                                         backgroundBytes,
-                                         _backgroundInstances.constData());
-            _renderStatistics.gpuUploadBytes += quint64(backgroundBytes);
-            // 注意：contentUploadBytes 的口径是"基础内容区域的上传字节"
-            // （背景 + 内容两层），RendererP5GpuBenchmark 的保留 stride
-            // 不变量按 5 实例/Cell 断言，不能只统计内容层。
-            _renderStatistics.contentUploadBytes += quint64(backgroundBytes);
+            // 与影子副本逐字节比对：脏 span 装配出的实例常与 GPU 已有内容
+            // 完全相同（块指纹按 8 列对齐、ConPTY 还会多报），相同就不上传。
+            if (syncShadowRange(_instanceShadow, backgroundOffset,
+                                _backgroundInstances.constData(),
+                                backgroundBytes)) {
+                updates->updateDynamicBuffer(
+                    _vertexBuffer.get(), backgroundOffset, backgroundBytes,
+                    _backgroundInstances.constData());
+                _renderStatistics.gpuUploadBytes += quint64(backgroundBytes);
+                // 注意：contentUploadBytes 的口径是"基础内容区域的上传字节"
+                // （背景 + 内容两层），RendererP5GpuBenchmark 的保留 stride
+                // 不变量按 5 实例/Cell 断言，不能只统计内容层。
+                _renderStatistics.contentUploadBytes +=
+                    quint64(backgroundBytes);
+            } else {
+                _renderStatistics.uploadBytesSkipped +=
+                    quint64(backgroundBytes);
+            }
 
             const int contentVertexCount = NovaTerm::rowUploadVertexCount(
                 counts.contentCount, _contentRowStrideVertices, uploadAllRows);
@@ -2602,11 +2635,16 @@ void TerminalRenderer::uploadCommands(
             const int contentOffset =
                 (contentBase + slot * _contentRowStrideVertices + start * 4)
                 * int(sizeof(GpuInstance));
-            updates->updateDynamicBuffer(_vertexBuffer.get(), contentOffset,
-                                         contentBytes,
-                                         _contentInstances.constData());
-            _renderStatistics.gpuUploadBytes += quint64(contentBytes);
-            _renderStatistics.contentUploadBytes += quint64(contentBytes);
+            if (syncShadowRange(_instanceShadow, contentOffset,
+                                _contentInstances.constData(), contentBytes)) {
+                updates->updateDynamicBuffer(
+                    _vertexBuffer.get(), contentOffset, contentBytes,
+                    _contentInstances.constData());
+                _renderStatistics.gpuUploadBytes += quint64(contentBytes);
+                _renderStatistics.contentUploadBytes += quint64(contentBytes);
+            } else {
+                _renderStatistics.uploadBytesSkipped += quint64(contentBytes);
+            }
         }
     }
 

@@ -1314,7 +1314,8 @@ exe 一致）：113.1 s，cpu_atom 485 + cpu_core 1315 = 1800 样本。三份同
 3. 剩余最大单点仍是 `__memmove` 8.46%（QRhi staging 上传体量，Task 2 的
    scratch 改动不减少它）与 `populateCell` 3.09% / `vterm_screen_get_cells`
    2.79%（moverect 批量同步后的残余：逐字段转换 + libvterm 按行读取本身）。
-   若要继续，方向分别是"只上传真正变化的槽位"与"把 Cell 转换合进 VTAdapter
+   若要继续，方向分别是"只上传真正变化的槽位"（2026-10-06 已用
+   instance 影子缓冲落地，见 P5 阶段文档，收益未做 GPU 复测）与"把 Cell 转换合进 VTAdapter
    的按行读取"，都属新工作项，不在本计划范围内。
 
 ## Effective C++ 全项目审查与 IRON 修复（2026-09-27）

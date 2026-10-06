@@ -903,3 +903,42 @@ warm-path `select()`/`makeKey` 由 ~1.2–2.8 µs/op 降到 ~65–84 ns/op（约
 `verifyTerminalScrollBarWithParentStyleSheet()` 回归，覆盖父级 QSS、标签换父、
 再次调整宽度、样式表切换和反复析构。修复前单独运行退出 -11；修复后 GDB
 显示 `exited normally`，Debug 主程序与 UI 目标构建通过，UI CTest 1/1 通过。
+
+## 2026-10-06 增量：instance 影子缓冲跳过未变上传
+
+对照 Windows Terminal AtlasEngine（每帧只重绘脏行、20 B 紧凑 instance、
+背景走 per-cell 纹理）后，先落地风险最低的一项："只上传真正变化的槽位"。
+`TerminalRenderer` 新增 `_instanceShadow`（与 instance 缓冲等大的 CPU 副本）
+和纯函数 `syncShadowRange()`：`uploadCommands()` 装配每个脏 span 后先与影子
+逐字节比对，相同则跳过 `updateDynamicBuffer`，并累加新统计
+`RenderStatistics::uploadBytesSkipped`。影子在缓冲新建、stride 布局变化与
+`releaseRhiResources()` 时整体填 `0xFF`（NaN 浮点，任何装配结果都判为不同），
+因此全帧/重建路径的行为与此前一致；越界时保守地上传。行槽旋转不搬移
+GPU 字节，影子按字节偏移镜像，无需随 `RowSlotMap` 旋转。
+
+收益来自块指纹 8 列对齐与 ConPTY 多报造成的"脏但未变"span。**同机 A/B
+（`novaterm_renderer_p5_gpu_benchmark`，Windows Release，真实 D3D11，改动前
+后再各重建一次，各取 3~4 次运行）**：
+
+| 指标（steady_scroll） | 改动前 | 改动后 | Δ |
+| --- | --- | --- | --- |
+| `content_upload`（字节/约 5 s） | 10670720 / 10670720 / 10743680 / 10782720 | 8520960 / 8520960 / 8625408 / 8633600 | **约 −20%** |
+| CPU 帧 p50（ns） | 1047200 / 1065200 | 513800 / 579900 / 605000 | **约 −45%** |
+| CPU 帧 p95（ns） | 1526100 / 1628100 | 1458100 / 1516900 / 1580700 | 噪声内，无变化 |
+| `instances`（同负载） | 40763 / 40765 | 40766 / 40895 / 41034 | 一致（几何未变） |
+
+p50 的下降幅度大于上传字节数，说明 QRhi 每个 `updateDynamicBuffer` 调用的固定
+开销不小。`resize` 用例无改善（全帧重建时影子被重置，本就全量上传，符合预期）。
+`atlas_current` 16 MiB、`buffer_current` 约 1.9 MB 两项前后一致，影子是 CPU 侧
+内存、不计入其中。两组 `acceptance=fail` 都是既有的
+"steady-scroll requested history reflow"，改动前后相同。
+
+代价是每个脏 span 一次 memcmp 和一份与 instance 缓冲等大的 CPU 内存。
+回归：`novaterm_renderer_tests::shadowBufferSkipsIdenticalUploads`。验证：
+Windows Release 构建通过，`novaterm_renderer_tests`、
+`novaterm_renderer_p5_tests` 与 `novaterm_terminal_session_tests`（12/12，
+真实 D3D11）通过；Linux 与 GPU 基准未运行。
+
+后续候选（按收益/风险排序，均未做）：atlas 纹理数组按实际页数增长；灰度页
+改 R8；背景改 per-cell 纹理 + 全屏 quad；instance 压缩为 16 位整型布局；
+默认关闭保守滚动整帧重建。

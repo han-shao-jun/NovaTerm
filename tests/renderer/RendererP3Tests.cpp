@@ -58,6 +58,7 @@ private slots:
     void spanAssemblyCoversBackgroundSlots();
     void spanAssemblyPacksContentIntoFourSlotsPerCell();
     void spanAssemblyOffsetsMatchRequestedSpan();
+    void shadowBufferSkipsIdenticalUploads();
     void incrementalRowMergeKeepsOrderAndColumns();
     void mutableRowRebuildKeepsMetadataAndDropsOutOfRange();
 };
@@ -210,6 +211,50 @@ void RendererP3Tests::spanAssemblyOffsetsMatchRequestedSpan()
     QCOMPARE(empty.contentCount, 0);
     QVERIFY(narrowBackground.isEmpty());
     QVERIFY(narrowContent.isEmpty());
+}
+
+void RendererP3Tests::shadowBufferSkipsIdenticalUploads()
+{
+    NovaTerm::RenderCommandRow row;
+    row.backgrounds.push_back(commandAtColumn(1, 1, false));
+    row.contents.push_back(commandAtColumn(1, 2, false));
+    QVector<TerminalRenderer::GpuInstance> background;
+    QVector<TerminalRenderer::GpuInstance> content;
+    const auto counts = TerminalRenderer::assembleSpanInstances(
+        row, 0, 4, 2, background, content);
+    const qsizetype bytes = qsizetype(counts.backgroundCount)
+        * qsizetype(sizeof(TerminalRenderer::GpuInstance));
+
+    // 新建缓冲的影子全为 0xFF（NaN 浮点）：任何装配结果都判为"不同"。
+    QByteArray shadow(bytes + 128, '\xFF');
+    QVERIFY(TerminalRenderer::syncShadowRange(
+        shadow, 64, background.constData(), bytes));
+    // 同步后再次提交相同字节：跳过上传。
+    QVERIFY(!TerminalRenderer::syncShadowRange(
+        shadow, 64, background.constData(), bytes));
+    // 全零的退化实例写入全 0xFF 的影子同样必须上传（清除残留的关键路径）。
+    QVector<TerminalRenderer::GpuInstance> zeros(
+        counts.backgroundCount, TerminalRenderer::GpuInstance{});
+    QVERIFY(TerminalRenderer::syncShadowRange(
+        shadow, 64, zeros.constData(), bytes));
+    QVERIFY(!TerminalRenderer::syncShadowRange(
+        shadow, 64, zeros.constData(), bytes));
+
+    // 只改一个字段：判为不同并更新影子，之后恢复为相同。
+    background[1].r += 0.5f;
+    QVERIFY(TerminalRenderer::syncShadowRange(
+        shadow, 64, background.constData(), bytes));
+    QVERIFY(!TerminalRenderer::syncShadowRange(
+        shadow, 64, background.constData(), bytes));
+
+    // 零长度不需要上传；越界（影子未建立）保守地要求上传且不写越界内存。
+    QVERIFY(!TerminalRenderer::syncShadowRange(shadow, 0, zeros.constData(), 0));
+    QVERIFY(TerminalRenderer::syncShadowRange(
+        shadow, shadow.size() - 8, zeros.constData(), bytes));
+    QByteArray empty;
+    QVERIFY(TerminalRenderer::syncShadowRange(
+        empty, 0, zeros.constData(), bytes));
+    QVERIFY(empty.isEmpty());
 }
 
 void RendererP3Tests::incrementalRowMergeKeepsOrderAndColumns()

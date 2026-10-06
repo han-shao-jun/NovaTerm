@@ -55,6 +55,7 @@ public:
         quint64 cpuFrameNanoseconds{0};
         quint64 gpuUploadBytes{0};
         quint64 contentUploadBytes{0};
+        quint64 uploadBytesSkipped{0}; ///< 影子缓冲比对相同而省下的上传字节
         quint64 atlasUploadBytes{0};
         quint64 drawCalls{0};
         quint64 vertexBufferReallocations{0};
@@ -252,6 +253,25 @@ public:
         const NovaTerm::RenderCommandRow& commands, int startColumn,
         int endColumn, int slot, QVector<GpuInstance>& backgroundScratch,
         QVector<GpuInstance>& contentScratch);
+
+    /**
+     * @brief 与 GPU 缓冲的 CPU 影子副本比对并同步一段字节（纯 CPU，可单测）。
+     *
+     * @param shadow 影子缓冲，内容镜像 GPU instance 缓冲已上传的字节。
+     * @param offset 该段在缓冲内的字节偏移。
+     * @param data 本次要上传的字节。
+     * @param bytes 字节数。
+     * @return true 表示需要上传（内容不同，或范围越界无法比对；内容不同时
+     *         影子已同步为 data）；false 表示与 GPU 现有内容逐字节相同，
+     *         可跳过 updateDynamicBuffer。
+     * @note 影子在缓冲新建或布局（stride）变化时整体填 0xFF。全 0xFF 的
+     *       GpuInstance 是 NaN 浮点，装配结果不可能与之逐字节相同，因此
+     *       "未知"状态天然判为不同，无需额外的有效位。
+     */
+    [[nodiscard]] static bool syncShadowRange(QByteArray& shadow,
+                                              qsizetype offset,
+                                              const void* data,
+                                              qsizetype bytes);
 
 private:
     // ── 渲染辅助 ──────────────────────────────────────────────
@@ -469,6 +489,9 @@ private:
     QVector<quint64> _cpuFrameSamples;
     qsizetype _cpuFrameSampleCursor{0};
     int _vertexBufferSize{0};
+    // 镜像 _vertexBuffer 已上传字节的影子副本，大小等于 _vertexBufferSize。
+    // 仅背景/内容区使用；缓冲重建、布局变化或释放 RHI 资源时重置。
+    QByteArray _instanceShadow;
     std::unique_ptr<QRhiTexture> _atlasTexture;
     std::unique_ptr<QRhiSampler> _sampler;
     std::unique_ptr<QRhiBuffer> _vertexBuffer;
