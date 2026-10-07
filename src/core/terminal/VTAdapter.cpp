@@ -223,7 +223,7 @@ public:
         callbacks.bell = &Impl::onBell;
         callbacks.resize = &Impl::onResize;
         callbacks.sb_pushline_ex = &Impl::onScrollbackPush;
-        callbacks.sb_popline = &Impl::onScrollbackPop;
+        callbacks.sb_popline_ex = &Impl::onScrollbackPop;
         callbacks.sb_clear = &Impl::onScrollbackClear;
         vterm_screen_set_callbacks(vts, &callbacks, this);
 
@@ -629,14 +629,21 @@ public:
     }
 
     // 从 scrollback 弹出一行（reverse index 越过顶部时触发）。
-    static int onScrollbackPop(int columns, VTermScreenCell* cells, void* user)
+    static int onScrollbackPop(int columns, VTermScreenCell* cells,
+                              int* continuation, void* user)
     {
         auto& self = *static_cast<Impl*>(user);
         std::vector<Cell> converted(columns);
-        if (!self.scrollback.popLine(converted.data(), columns))
+        bool hasPrefix = false;
+        if (!self.scrollback.popLine(converted.data(), columns, &hasPrefix))
             return 0;
+        *continuation = hasPrefix ? 1 : 0;
+        // 取回的尾段现在属于屏幕，后续推出行应以屏幕边界为准。
+        self.nextScrollbackContinuation = hasPrefix;
         for (int column = 0; column < columns; ++column)
             cells[column] = toVTermCell(converted[column]);
+        if (self.observer.scrollbackChanged)
+            self.observer.scrollbackChanged();
         return 1;
     }
 

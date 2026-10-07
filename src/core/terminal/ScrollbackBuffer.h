@@ -44,9 +44,10 @@ public:
      * @brief 反向取回紧邻活动屏幕顶部的那一行历史（libvterm sb_popline）。
      * @param cells 输出缓冲，至少 cols 个 Cell；不足部分补默认 Cell。
      * @param cols 活动屏幕列数，即一个屏幕行的宽度。
+     * @param continuation 可选输出：取回行是否仍有前缀留在历史中。
      * @return true 表示取到一行；false 表示历史为空。
      */
-    bool popLine(NovaTerm::Cell* cells, int cols);
+    bool popLine(NovaTerm::Cell* cells, int cols, bool* continuation = nullptr);
 
     // ── 查询 ──
     int lineCount() const;                           // 当前存储行数

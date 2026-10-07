@@ -208,6 +208,10 @@ Session、不清空内容。JSON 的 `schemes` 使用 Windows Terminal 的命名
 
 ### 3.4 Terminal Core
 
+字体或窗口尺寸变化仍由 Parser Worker 重排活动屏幕。resize 历史回填按目标
+列宽取出逻辑行尾段并恢复软换行标志；顶行跨越历史与屏幕时，先取回历史前缀
+再合并重排。放不进视口的逻辑行完整进入历史，光标按逻辑偏移映射到可见尾段。
+
 `TerminalCore` 是线程安全门面；Worker 独占 `VTAdapter` 和 libvterm 可变状态。
 `VTAdapter` 把 libvterm callback 转换成 NovaTerm 的 Cell、DirtyRegion、Cursor 和
 属性变化。

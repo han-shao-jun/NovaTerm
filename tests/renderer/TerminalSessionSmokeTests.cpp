@@ -44,10 +44,61 @@ private slots:
     void terminalViewRepeatedStartStop();
     void terminalViewStartupPreservesPendingSize();
     void terminalViewScrollBarDrivesHistoryScrollback();
+    void fontZoomRoundTripRestoresTerminalContent();
     void comboBoxAnimationTeardownIsSafe();
     void externalSessionOutlivesView();
     void ownedDependenciesAreDestroyedBeforeCore();
 };
+
+void TerminalSessionSmokeTests::fontZoomRoundTripRestoresTerminalContent()
+{
+    TerminalView view;
+    view.resize(800, 480);
+    view.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&view, 3000));
+    auto* renderer = view.renderer();
+    auto* core = view.session()->core();
+    QVERIFY(core->waitForIdle());
+    const QFont originalFont = renderer->font();
+    const int columns = core->columns();
+    const int rows = core->rows();
+    QVERIFY(columns > 20 && rows > 8);
+    QByteArray input("\x1b[?25l");
+    for (int row = 0; row < rows - 1; ++row) {
+        if (row != 0)
+            input += "\r\n";
+        input += QByteArray(columns * 3 / 4, char('A' + row % 26));
+    }
+    QVERIFY(core->writeInput(input).fullyAccepted());
+    QVERIFY(core->waitForIdle());
+    const auto before = core->snapshot();
+
+    QFont enlarged = originalFont;
+    if (enlarged.pixelSize() > 0)
+        enlarged.setPixelSize(enlarged.pixelSize() * 2);
+    else
+        enlarged.setPointSizeF(enlarged.pointSizeF() * 2);
+    renderer->setFont(enlarged);
+    QVERIFY(core->waitForIdle());
+    QVERIFY(core->columns() < columns);
+    QVERIFY(core->rows() < rows);
+    QVERIFY(core->scrollbackSnapshot().lineCount() > 0);
+
+    renderer->setFont(originalFont);
+    QVERIFY(core->waitForIdle());
+    QCOMPARE(core->columns(), columns);
+    QCOMPARE(core->rows(), rows);
+    const auto after = core->snapshot();
+    for (int row = 0; row < rows; ++row) {
+        for (int col = 0; col < columns; ++col)
+            QCOMPARE(after.cellAt(row, col)->chars[0], before.cellAt(row, col)->chars[0]);
+        QVERIFY(!core->rowContinuation(row));
+    }
+    QCOMPARE(after.cursor.position, before.cursor.position);
+    QCOMPARE(core->scrollbackSnapshot().lineCount(), NovaTerm::isize(0));
+    QTRY_COMPARE(view.scrollBar()->maximum(), 0);
+    QVERIFY(!renderer->grabFramebuffer().isNull());
+}
 
 void TerminalSessionSmokeTests::savedSchemeRepaintsExistingTerminalPixels()
 {

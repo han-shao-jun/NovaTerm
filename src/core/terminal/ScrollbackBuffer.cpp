@@ -52,7 +52,7 @@ void ScrollbackBuffer::commitPushLine(bool continuation, bool hardBreak)
     }
 }
 
-bool ScrollbackBuffer::popLine(NovaTerm::Cell* cells, int cols)
+bool ScrollbackBuffer::popLine(NovaTerm::Cell* cells, int cols, bool* continuation)
 {
     if (cols <= 0 || _storage.lineCount() == 0)
         return false;
@@ -65,17 +65,20 @@ bool ScrollbackBuffer::popLine(NovaTerm::Cell* cells, int cols)
     if (!newest)
         return false;
 
-    // 该逻辑行是按 cols 折行存入的：除末行外每段恰好 cols 格，因此末行长度
+    // 按目标 cols 重排该逻辑行：除末行外每段恰好 cols 格，因此末行长度
     // 为 total % cols，整除时说明末行也是满行。空行（total==0）取 cols，
     // takeNewestTail 会移除该空逻辑行并回填一整行空白 —— 不能在此因空行提前
     // 返回 false，否则 libvterm 收到 0 会停止回填，空行以上的历史无法拉回。
     const isize total = newest->cells.size();
     const isize remainder = total % cols;
     const isize rowCells = remainder == 0 ? isize(cols) : remainder;
+    const bool hasPrefix = total > rowCells;
 
     NovaTerm::LogicalLine row;
     if (!_storage.takeNewestTail(rowCells, row))
         return false;
+    if (continuation)
+        *continuation = hasPrefix;
 
     if (cells) {
         const int count = std::min(cols, int(row.cells.size()));

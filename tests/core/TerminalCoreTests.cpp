@@ -32,6 +32,9 @@ private slots:
     void resizesScreen();
     void resizePublishesFullDamageWithoutLiveScroll();
     void narrowerResizeReflowsExistingContent();
+    void resizeRoundTripRestoresLogicalLines_data();
+    void resizeRoundTripRestoresLogicalLines();
+    void resizePreservesStyledBlankHistoryCells();
     void snapshotsAreStableValues();
     void modelPublicationsHaveMonotonicRevisions();
     void publishedContextIsDemandDrivenAndImmutable();
@@ -463,6 +466,86 @@ void TerminalCoreTests::narrowerResizeReflowsExistingContent()
     QCOMPARE(populatedRows,
              QStringList({QStringLiteral("12345678"),
                           QStringLiteral("9012345")}));
+}
+
+void TerminalCoreTests::resizeRoundTripRestoresLogicalLines_data()
+{
+    QTest::addColumn<int>("narrowRows");
+    QTest::addColumn<int>("lineLength");
+    QTest::addColumn<int>("narrowColumns");
+    QTest::addColumn<int>("lineCount");
+    QTest::newRow("visible-only") << 12 << 15 << 8 << 5;
+    QTest::newRow("with-scrollback") << 5 << 15 << 8 << 5;
+    QTest::newRow("already-wrapped") << 5 << 35 << 8 << 5;
+    QTest::newRow("partial-tail") << 5 << 35 << 13 << 5;
+    QTest::newRow("larger-than-viewport") << 5 << 95 << 8 << 1;
+    QTest::newRow("empty-lines") << 2 << 0 << 8 << 5;
+}
+
+void TerminalCoreTests::resizeRoundTripRestoresLogicalLines()
+{
+    QFETCH(int, narrowRows);
+    QFETCH(int, lineLength);
+    QFETCH(int, narrowColumns);
+    QFETCH(int, lineCount);
+    TerminalCore core(20, 12);
+    QByteArray input;
+    for (int row = 0; row < lineCount; ++row) {
+        if (row != 0)
+            input += "\r\n";
+        for (int col = 0; col < lineLength; ++col)
+            input += char('A' + row * 3 + col % 3);
+    }
+    core.writeInput(input);
+    QVERIFY(core.waitForIdle());
+    const auto before = core.snapshot();
+    std::vector<bool> continuations;
+    for (int row = 0; row < before.rows; ++row)
+        continuations.push_back(core.rowContinuation(row));
+    // 字体缩放同时改变列数和行数；连续往返也不能积累错误折行。
+    for (int iteration = 0; iteration < 3; ++iteration) {
+        core.resize(narrowColumns, narrowRows);
+        QVERIFY(core.waitForIdle());
+        if (lineCount == 1 && lineLength > narrowColumns * narrowRows) {
+            QCOMPARE(core.snapshot().cursor.position.row, narrowRows - 1);
+            QCOMPARE(core.snapshot().cursor.position.col, lineLength % narrowColumns);
+        }
+        core.resize(20, 12);
+        QVERIFY(core.waitForIdle());
+        const auto after = core.snapshot();
+        for (int row = 0; row < before.rows; ++row) {
+            for (int col = 0; col < before.columns; ++col) {
+                QCOMPARE(after.cellAt(row, col)->chars[0],
+                         before.cellAt(row, col)->chars[0]);
+            }
+            QCOMPARE(core.rowContinuation(row), bool(continuations[row]));
+        }
+        QCOMPARE(after.cursor.position.row, before.cursor.position.row);
+        QCOMPARE(after.cursor.position.col, before.cursor.position.col);
+        QCOMPARE(core.scrollbackSnapshot().lineCount(), NovaTerm::isize(0));
+    }
+}
+
+void TerminalCoreTests::resizePreservesStyledBlankHistoryCells()
+{
+    TerminalCore core(20, 4);
+    core.writeInput(QByteArrayLiteral(
+        "\x1b[44mA\x1b[K\x1b[0m\r\n"
+        "abcdefghijklmnopq\r\n"
+        "ABCDEFGHIJKLMNOPQ\r\n"
+        "12345678901234567"));
+    QVERIFY(core.waitForIdle());
+    core.resize(8, 4);
+    QVERIFY(core.waitForIdle());
+    const auto history = core.scrollbackSnapshot();
+    QVERIFY(history.lineCount() > 0);
+    const auto* line = history.lineAt(0);
+    QVERIFY(line);
+    QCOMPARE(line->cells.size(), NovaTerm::isize(20));
+    const auto& blank = line->cells.back();
+    QCOMPARE(blank.chars[0], uint32_t(0));
+    QCOMPARE(blank.background.type, NovaTerm::ColorType::Indexed);
+    QCOMPARE(blank.background.index, uint8_t(4));
 }
 
 void TerminalCoreTests::snapshotsAreStableValues()

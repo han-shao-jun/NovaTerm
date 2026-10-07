@@ -1007,15 +1007,18 @@ updateContentHeight()`）。附带的两个小坑：定时重建内容时旧控�
 文本紧接其后，裁掉会让按新列宽重排后的内容整体左移。判据是 `softWrapped == 0`。
 
 **`sb_popline` 取的是最新历史行，不是最旧**：libvterm 在屏幕**变高**时用它
-反向取回紧邻屏幕顶部的那一行（`third_party/libvterm-0.3.3/src/screen.c:737-740`
-是唯一调用点）。NovaTerm 存的是变长逻辑行，一条可能横跨多个屏幕行，因此只能
+反向取回紧邻屏幕顶部的那一行。NovaTerm 存的是变长逻辑行，一条可能横跨
+多个屏幕行，因此只能
 取走尾部一段并把剩余部分写回 —— 早期实现取最旧一行且只回填前 `cols` 格，
 其余 Cell 被永久丢弃，纵向拉高窗口就会破坏历史内容。
 
-**libvterm 不负责跨接缝的逻辑行拼接**：`screen.c:588-595` 明确写了列宽变化后
-它只重排可见片段（"as its own prefix"），scrollback 里的前半段归应用层。所以
-接缝处的短行不是 bug 而是必然结果，正解见
-`docs/architecture/stages/P1_ScreenBuffer_and_VTAdapter.md` 的「剩余工作」。
+**字体缩放往返要保留历史与屏幕的逻辑行身份**（2026-10-07）：本地 libvterm
+的 resize 路径通过 `sb_popline_ex` 按目标列宽回填，并恢复 continuation；若
+顶行继续历史中的逻辑行，先取回前缀再统一重排。resize 推出行时，软换行结束
+标志来自旧 lineinfo 的下一行，不能套用普通滚动后已经移动的 lineinfo。放不进
+视口的逻辑行必须完整推入历史，并按逻辑偏移恢复光标。回归测试为
+`novaterm_core_tests::resizeRoundTripRestoresLogicalLines`，覆盖反复缩放、历史
+回填、已有折行及单行超过整个缩小视口；历史前缀被淘汰时不能恢复已丢弃内容。
 
 **`QTest::mousePress(w, btn, mods, QPoint(0, 0))` 点的是控件中心**：`QPoint(0,0)`
 满足 `isNull()`，QTest 会把它当作"未指定位置"并取控件中心。要点左上角必须用

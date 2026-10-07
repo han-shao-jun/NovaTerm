@@ -546,6 +546,9 @@ typedef struct {
    * original callback for source compatibility with other libvterm users. */
   int (*sb_pushline_ex)(int cols, const VTermScreenCell *cells,
                         int soft_wrapped, void *user);
+  /* NovaTerm 扩展：历史回填同时恢复行的软换行延续标志。 */
+  int (*sb_popline_ex)(int cols, VTermScreenCell *cells,
+                       int *continuation, void *user);
 } VTermScreenCallbacks;
 
 VTermScreen *vterm_obtain_screen(VTerm *vt);

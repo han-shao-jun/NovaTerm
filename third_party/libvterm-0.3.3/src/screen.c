@@ -556,6 +556,35 @@ static void normalize_buffer_rows(VTermScreen *screen, int bufidx)
   vterm_allocator_free(screen->vt, old_buffer);
 }
 
+/* 将历史回调的一行转换为内部 Cell，供回填和接缝重排共用。 */
+static void import_scrollback_row(VTermScreen *screen, ScreenCell *row, int cols)
+{
+  for(int col = 0; col < cols; col++) {
+    VTermScreenCell *src = &screen->sb_buffer[col];
+    ScreenCell *dst = &row[col];
+    clearcell(screen, dst);
+    memcpy(dst->chars, src->chars, sizeof(dst->chars));
+    dst->pen.bold = src->attrs.bold;
+    dst->pen.underline = src->attrs.underline;
+    dst->pen.italic = src->attrs.italic;
+    dst->pen.blink = src->attrs.blink;
+    dst->pen.reverse = src->attrs.reverse ^ screen->global_reverse;
+    dst->pen.conceal = src->attrs.conceal;
+    dst->pen.strike = src->attrs.strike;
+    dst->pen.font = src->attrs.font;
+    dst->pen.small_font = src->attrs.small_font;
+    dst->pen.baseline = src->attrs.baseline;
+    dst->pen.dwl = src->attrs.dwl;
+    dst->pen.dhl = src->attrs.dhl;
+    dst->pen.fg = src->fg;
+    dst->pen.bg = src->bg;
+    if(src->width == 2 && col + 1 < cols) {
+      row[++col] = *dst;
+      row[col].chars[0] = (uint32_t)-1;
+    }
+  }
+}
+
 static void resize_buffer(VTermScreen *screen, int bufidx, int new_rows, int new_cols, bool active, VTermStateFields *statefields)
 {
   int old_rows = screen->rows;
@@ -574,6 +603,53 @@ static void resize_buffer(VTermScreen *screen, int bufidx, int new_rows, int new
   VTermPos old_cursor = statefields->pos;
   VTermPos new_cursor = { -1, -1 };
 
+  /* 顶行继续历史中的逻辑行时，先取回其前缀再统一折行。否则两侧分别
+   * 重排会在缩放往返后留下无法合并的短行。暂存按倍增扩容，避免长行
+   * 每取一段就搬动整个活动屏幕。仅主屏使用历史，不影响备用屏。 */
+  if(REFLOW && bufidx == BUFIDX_PRIMARY && old_lineinfo[0].continuation &&
+      screen->callbacks && screen->callbacks->sb_popline_ex) {
+    ScreenCell *prefix = NULL;
+    int prefix_rows = 0, capacity = 0;
+    int continuation = 1;
+    while(continuation) {
+      if(!screen->callbacks->sb_popline_ex(old_cols, screen->sb_buffer,
+          &continuation, screen->cbdata))
+        break;
+      if(prefix_rows == capacity) {
+        capacity = capacity ? capacity * 2 : 16;
+        ScreenCell *grown = vterm_allocator_malloc(screen->vt,
+            sizeof(ScreenCell) * (size_t)capacity * old_cols);
+        if(prefix_rows)
+          memcpy(grown, prefix, sizeof(ScreenCell) * (size_t)prefix_rows * old_cols);
+        vterm_allocator_free(screen->vt, prefix);
+        prefix = grown;
+      }
+      import_scrollback_row(screen, &prefix[prefix_rows * old_cols], old_cols);
+      prefix_rows++;
+    }
+    if(prefix_rows) {
+      int combined_rows = old_rows + prefix_rows;
+      ScreenCell *combined = vterm_allocator_malloc(screen->vt,
+          sizeof(ScreenCell) * (size_t)combined_rows * old_cols);
+      VTermLineInfo *infos = vterm_allocator_malloc(screen->vt,
+          sizeof(VTermLineInfo) * combined_rows);
+      for(int row = 0; row < prefix_rows; row++) {
+        memcpy(&combined[row * old_cols], &prefix[(prefix_rows - row - 1) * old_cols],
+            sizeof(ScreenCell) * old_cols);
+        infos[row] = (VTermLineInfo){ .continuation = row > 0 || continuation };
+      }
+      memcpy(&combined[prefix_rows * old_cols], old_buffer,
+          sizeof(ScreenCell) * (size_t)old_rows * old_cols);
+      memcpy(&infos[prefix_rows], old_lineinfo, sizeof(VTermLineInfo) * old_rows);
+      old_buffer = combined;
+      old_lineinfo = infos;
+      old_rows = combined_rows;
+      old_row = old_rows - 1;
+      old_cursor.row += prefix_rows;
+    }
+    vterm_allocator_free(screen->vt, prefix);
+  }
+
 #ifdef DEBUG_REFLOW
   fprintf(stderr, "Resizing from %dx%d to %dx%d; cursor was at (%d,%d)\n",
       old_cols, old_rows, new_cols, new_rows, old_cursor.col, old_cursor.row);
@@ -587,12 +663,8 @@ static void resize_buffer(VTermScreen *screen, int bufidx, int new_rows, int new
   while(old_row >= 0) {
     int old_row_end = old_row;
     /* TODO: Stop if dwl or dhl */
-    /* The first visible row may itself continue a logical line whose start
-     * has already moved into scrollback. Stop at row zero: walking to -1
-     * makes old_row_start invalid and the width/copy loops read before
-     * old_buffer during a resize of sustained long output. Reflow the visible
-     * fragment as its own prefix; the preceding fragment remains in the
-     * scrollback callback owned by the application. */
+    /* 首行的前缀可能因历史淘汰或旧回调而无法取回；遍历必须停在零行，
+     * 避免持续长输出重排时越过 old_buffer 起点。 */
     while(REFLOW && old_lineinfo && old_row > 0 && old_lineinfo[old_row].continuation)
       old_row--;
     int old_row_start = old_row;
@@ -655,12 +727,18 @@ static void resize_buffer(VTermScreen *screen, int bufidx, int new_rows, int new
 #endif
 
     if(new_row_start < 0) {
-      if(old_row_start <= old_cursor.row && old_cursor.row < old_row_end) {
-        new_cursor.row = 0;
-        new_cursor.col = old_cursor.col;
-        if(new_cursor.col >= new_cols)
-          new_cursor.col = new_cols-1;
+      if(old_row_start <= old_cursor.row && old_cursor.row <= old_row_end) {
+        /* 历史回填保留逻辑行的尾部，光标也按逻辑偏移映射到该尾部。 */
+        int cursor_offset = (old_cursor.row - old_row_start) * old_cols + old_cursor.col;
+        new_cursor.row = REFLOW ? new_row_start + cursor_offset / new_cols : 0;
+        if(new_cursor.row < 0)
+          new_cursor.row = 0;
+        new_cursor.col = REFLOW ? cursor_offset % new_cols :
+          old_cursor.col < new_cols ? old_cursor.col : new_cols - 1;
       }
+      /* 整条逻辑行都无法放入视口时，将全部原始行交给历史回调。
+       * old_row 此时指向首行；只推到首行会永久丢掉其余软换行片段。 */
+      old_row = old_row_end;
       break;
     }
 
@@ -703,14 +781,15 @@ static void resize_buffer(VTermScreen *screen, int bufidx, int new_rows, int new
         new_col++;
       }
 
-      new_lineinfo[new_row].continuation = (new_row > new_row_start);
+      new_lineinfo[new_row].continuation = (new_row > new_row_start) ||
+          (old_row_start == 0 && old_lineinfo[0].continuation);
     }
 
     old_row = old_row_start - 1;
     new_row = new_row_start - 1;
   }
 
-  if(old_cursor.row <= old_row) {
+  if(old_cursor.row <= old_row && new_cursor.row == -1) {
     /* cursor would have moved entirely off the top of the screen; lets just
      * bring it within range */
     new_cursor.row = 0, new_cursor.col = old_cursor.col;
@@ -728,48 +807,43 @@ static void resize_buffer(VTermScreen *screen, int bufidx, int new_rows, int new
     /* Push spare lines to scrollback buffer */
     if(screen->callbacks &&
        (screen->callbacks->sb_pushline || screen->callbacks->sb_pushline_ex))
-      for(int row = 0; row <= old_row; row++)
-        sb_pushline_from_row(screen, row);
+      for(int row = 0; row <= old_row; row++) {
+        /* resize 未移动旧 lineinfo；普通滚动则已先移动。此处传下一行的
+         * continuation，表示被推入的当前行是否以软换行结尾。 */
+        VTermPos pos = { .row = row };
+        /* 接缝前缀已扩展本地旧屏幕；公共 screen 仍保持原尺寸与所有权。 */
+        VTermScreen old_view = *screen;
+        old_view.rows = old_rows;
+        old_view.buffer = old_view.buffers[bufidx] = old_buffer;
+        old_view.buffer_row_offset[bufidx] = 0;
+        int soft_wrapped = row + 1 < old_rows && old_lineinfo[row + 1].continuation;
+        for(pos.col = 0; pos.col < old_cols; pos.col++)
+          vterm_screen_get_cell(&old_view, pos, screen->sb_buffer + pos.col);
+        if(screen->callbacks->sb_pushline_ex)
+          screen->callbacks->sb_pushline_ex(old_cols, screen->sb_buffer,
+              soft_wrapped,
+              screen->cbdata);
+        else
+          screen->callbacks->sb_pushline(old_cols, screen->sb_buffer, screen->cbdata);
+      }
     if(active)
       statefields->pos.row -= (old_row + 1);
   }
   if(new_row >= 0 && bufidx == BUFIDX_PRIMARY &&
-      screen->callbacks && screen->callbacks->sb_popline) {
+      screen->callbacks &&
+      (screen->callbacks->sb_popline || screen->callbacks->sb_popline_ex)) {
     /* Try to backfill rows by popping scrollback buffer */
     while(new_row >= 0) {
-      if(!(screen->callbacks->sb_popline(old_cols, screen->sb_buffer, screen->cbdata)))
+      int continuation = 0;
+      int popped = screen->callbacks->sb_popline_ex
+        ? screen->callbacks->sb_popline_ex(new_cols, screen->sb_buffer,
+            &continuation, screen->cbdata)
+        : screen->callbacks->sb_popline(new_cols, screen->sb_buffer, screen->cbdata);
+      if(!popped)
         break;
+      new_lineinfo[new_row] = (VTermLineInfo){ .continuation = continuation };
 
-      VTermPos pos = { .row = new_row };
-      for(pos.col = 0; pos.col < old_cols && pos.col < new_cols; pos.col += screen->sb_buffer[pos.col].width) {
-        VTermScreenCell *src = &screen->sb_buffer[pos.col];
-        ScreenCell *dst = &new_buffer[pos.row * new_cols + pos.col];
-
-        for(int i = 0; i < VTERM_MAX_CHARS_PER_CELL; i++) {
-          dst->chars[i] = src->chars[i];
-          if(!src->chars[i])
-            break;
-        }
-
-        dst->pen.bold      = src->attrs.bold;
-        dst->pen.underline = src->attrs.underline;
-        dst->pen.italic    = src->attrs.italic;
-        dst->pen.blink     = src->attrs.blink;
-        dst->pen.reverse   = src->attrs.reverse ^ screen->global_reverse;
-        dst->pen.conceal   = src->attrs.conceal;
-        dst->pen.strike    = src->attrs.strike;
-        dst->pen.font      = src->attrs.font;
-        dst->pen.small_font     = src->attrs.small_font;
-        dst->pen.baseline  = src->attrs.baseline;
-
-        dst->pen.fg = src->fg;
-        dst->pen.bg = src->bg;
-
-        if(src->width == 2 && pos.col < (new_cols-1))
-          (dst + 1)->chars[0] = (uint32_t) -1;
-      }
-      for( ; pos.col < new_cols; pos.col++)
-        clearcell(screen, &new_buffer[pos.row * new_cols + pos.col]);
+      import_scrollback_row(screen, &new_buffer[new_row * new_cols], new_cols);
       new_row--;
 
       if(active)
@@ -791,10 +865,14 @@ static void resize_buffer(VTermScreen *screen, int bufidx, int new_rows, int new
     }
   }
 
+  if(old_buffer != screen->buffers[bufidx])
+    vterm_allocator_free(screen->vt, screen->buffers[bufidx]);
   vterm_allocator_free(screen->vt, old_buffer);
   screen->buffers[bufidx] = new_buffer;
   screen->buffer_row_offset[bufidx] = 0;
 
+  if(old_lineinfo != statefields->lineinfos[bufidx])
+    vterm_allocator_free(screen->vt, statefields->lineinfos[bufidx]);
   vterm_allocator_free(screen->vt, old_lineinfo);
   statefields->lineinfos[bufidx] = new_lineinfo;
 
@@ -938,6 +1016,11 @@ static VTermScreen *screen_new(VTerm *vt)
   screen->callbacks = NULL;
   screen->cbdata    = NULL;
 
+  /* 初始空 Cell 必须携带默认色身份；零初始化的 RGB 黑色会被历史层
+   * 当作带颜色的有效尾部，导致回填多出空行。 */
+  vterm_state_get_default_colors(state, &screen->pen.fg, &screen->pen.bg);
+  screen->pen.fg.type |= VTERM_COLOR_DEFAULT_FG;
+  screen->pen.bg.type |= VTERM_COLOR_DEFAULT_BG;
   screen->buffers[BUFIDX_PRIMARY] = alloc_buffer(screen, rows, cols);
   screen->buffer_row_offset[BUFIDX_PRIMARY] = 0;
   screen->buffer_row_offset[BUFIDX_ALTSCREEN] = 0;

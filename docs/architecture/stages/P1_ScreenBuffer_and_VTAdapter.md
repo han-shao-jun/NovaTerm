@@ -463,6 +463,14 @@ Release benchmark 同时记录 Parser/Core 吞吐和 10 万行 Scrollback。P1 �
 
 **A. 跨接缝的逻辑行不拼接。**
 
+> 2026-10-07 更新：字体缩放往返的 Parser resize 路径现已局部修正。
+> 本地 libvterm 通过 `sb_popline_ex` 取回顶行的历史前缀后统一重排，按目标
+> 列宽回填并恢复 continuation；整条逻辑行放不进视口时完整推入历史并映射
+> 光标。回归见 `resizeRoundTripRestoresLogicalLines` 与
+> `fontZoomRoundTripRestoresTerminalContent`。下述讨论保留为原决策依据，
+> 其中 resize 分别重排两侧的描述已过时；Renderer 历史视图与活动屏幕的
+> 坐标体系、B 项存储模型仍保持原状。
+
 一条超宽行的前几段已滚入 scrollback（合成 `hardBreak=false` 的逻辑行），末段还在活动
 屏幕。列宽变化后 libvterm 明确把两侧的拼接甩给应用层
 （`libvterm/src/screen.c:588-595` 原文："Reflow the visible fragment as its own prefix;
