@@ -30,7 +30,7 @@ SerialFileTransferDialog::SerialFileTransferDialog(
     setIsDefaultClosed(false);
     setWindowButtonFlags(ElaAppBarType::CloseButtonHint);
     setMinimumWidth(460);
-    resize(580, 540);
+    resize(800, 540);
 
     auto* layout = new QVBoxLayout(this);
     layout->setContentsMargins(24, 16, 24, 16);
