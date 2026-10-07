@@ -62,7 +62,7 @@ cmd /c "call \"C:\Program Files (x86)\Microsoft Visual Studio\18\BuildTools\VC\A
 
 **默认只跑与改动相关的测试目标，不要跑全套。** 全套耗时**按平台不同**（见下方
 「默认注册了哪些测试」）：**Linux 注册 21 项**（2026-10-05 实测 21/21 通过），
-Windows 按条件推算 22 项、未实测。原 Windows 12 项全套实测约
+Windows 默认注册 23 项（2026-10-07 用 `ctest -N` 核对注册数，未跑全套）。原 Windows 12 项全套实测约
 **190 秒**，其中 `novaterm_conpty_tests` 单项 94s、`novaterm_terminal_session_tests`
 46s、`novaterm_core_tests` 30s；而多数改动只需要其中一两项、几秒就跑完。
 
@@ -102,6 +102,7 @@ ctest --test-dir build -C Debug
 | `src/session/`、`src/profile/`、`src/credential/` | `novaterm_session_tests` | `session`／`p6` | 全部 | <1s |
 | `src/renderer/` 的 RenderCommandBuffer / RenderScheduler / TerminalRenderer | `novaterm_renderer_tests` | `renderer` | 全部 | ~2s |
 | `src/renderer/` 的 RowBlockDamageTracker / ScrollDamageHandoff / TerminalHighlighting、`src/session/SerialHighlightRules` | `novaterm_renderer_p5_tests` | `p5` | 全部 | <1s |
+| `tests/benchmarks/RendererLargeInputBenchmarkSupport.h` 的参数与 JSON 写出 | `novaterm_renderer_large_input_tests` | `renderer`／`benchmark` | Windows，需 benchmark 开关 | <1s |
 | `src/transport/LocalShellTransport` 与 ConPty 路径 | `novaterm_conpty_tests`（Win）／`novaterm_pty_tests`（Linux） | `conpty`／`pty` | 互斥，见下注 | ~94s |
 | `src/transport/SshTransport`、`SshMonitorProtocol` | `novaterm_ssh_transport_check`（失败路径 + 监控帧协议） | `ssh` | 全部 | <1s |
 | `src/transport/TelnetTransport` | `novaterm_telnet_transport_tests` | `telnet` | 全部 | ~5s |
@@ -142,6 +143,7 @@ ctest --test-dir build -C Debug
 | `novaterm_session_tests` | 无条件 | `unit;session;p6` | 60 |
 | `novaterm_renderer_tests` | 无条件 | `unit;renderer` | 60 |
 | `novaterm_renderer_p5_tests` | 无条件 | `unit;renderer;p5` | 60 |
+| `novaterm_renderer_large_input_tests` | `WIN32` 且 `NOVATERM_BUILD_BENCHMARKS` | `unit;renderer;benchmark` | 30 |
 | `novaterm_telnet_transport_tests` | 无条件 | `transport;telnet` | 60 |
 | `novaterm_ssh_transport_check` | 无条件 | `transport;ssh` | 30 |
 | `novaterm_ui_dialog_layout_tests` | 无条件 | `ui` | 30 |
@@ -154,8 +156,10 @@ ctest --test-dir build -C Debug
 **Linux 注册 21 项，2026-10-05 实测 21/21 通过。** 构成：19 项无条件 +
 1 项缩放护栏（benchmark 开关）+ 1 项 `pty`（Linux 专有）。计数以
 `ctest -N` 为准，别用记忆里的数字。
-**Windows 注册数是按注册条件推算的 22 项**（去掉 `pty`，加上 conpty 与
-terminal-session 两项），**未在 Windows 实测**；`novaterm_session_panel_tests`
+**Windows 默认注册 23 项，2026-10-07 用 `ctest -N` 核对**：此前 22 项基础上新增
+`novaterm_renderer_large_input_tests`，其检查参数拒绝、设备写入失败及短写，不启动 GPU。
+本轮仅跑三个相关渲染测试及会话联通，不代表 Windows 全套通过。
+`novaterm_session_panel_tests`
 （2026-10-05 新增）、串口文件传输两项、`novaterm_terminal_ops_tests` 与 P9
 协议目标都只在 Linux 上跑过。
 `-L core` 命中三项（`unit;core`、`unit;core;conformance` 与

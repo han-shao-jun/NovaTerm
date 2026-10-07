@@ -57,6 +57,21 @@ void RenderScheduler::setTargetRefreshRate(int hz)
     _nextDeadlineNanoseconds = 0;
 }
 
+void RenderScheduler::setEnabled(bool enabled)
+{
+    if (_enabled == enabled)
+        return;
+    _enabled = enabled;
+    _timer.stop();
+    _nextDeadlineNanoseconds = 0;
+    // 停绘期间不保留离散 damage：恢复时按最新快照统一重建。
+    _pending.clear();
+    _fullFramePending = true;
+    _overlayPending = true;
+    if (_enabled)
+        armTimer();
+}
+
 void RenderScheduler::schedule(const DirtyRegion& region, quint64 revision)
 {
     if (_columns <= 0 || _rows <= 0)
@@ -150,7 +165,7 @@ DirtyRegion RenderScheduler::united(const DirtyRegion& lhs,
 
 void RenderScheduler::armTimer()
 {
-    if (_timer.isActive())
+    if (!_enabled || _timer.isActive())
         return;
     const qint64 frameIntervalNanoseconds =
         1000000000LL / _targetRefreshRate;

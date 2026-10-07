@@ -746,6 +746,60 @@ if(BUILD_TESTING)
 endif()
 
 if(NOVATERM_BUILD_BENCHMARKS)
+    # Win32 进程 CPU 计时与计时器精度策略；手工运行，不加入默认 CTest。
+    if(WIN32)
+        if(BUILD_TESTING)
+            qt_add_executable(novaterm_renderer_large_input_tests
+                ${CMAKE_CURRENT_SOURCE_DIR}/benchmarks/RendererLargeInputBenchmarkTests.cpp
+                ${CMAKE_CURRENT_SOURCE_DIR}/benchmarks/RendererLargeInputBenchmarkSupport.h
+            )
+            target_link_libraries(novaterm_renderer_large_input_tests PRIVATE
+                Qt${QT_VERSION_MAJOR}::Core
+                Qt${QT_VERSION_MAJOR}::Test
+            )
+            add_test(NAME novaterm_renderer_large_input_tests
+                COMMAND novaterm_renderer_large_input_tests)
+            set_tests_properties(novaterm_renderer_large_input_tests PROPERTIES
+                LABELS "unit;renderer;benchmark"
+                TIMEOUT 30
+            )
+            add_dependencies(check novaterm_renderer_large_input_tests)
+        endif()
+
+        qt_add_executable(novaterm_renderer_large_input_benchmark
+            ${CMAKE_CURRENT_SOURCE_DIR}/benchmarks/RendererLargeInputBenchmark.cpp
+            ${PROJECT_SOURCE_DIR}/src/renderer/RenderCommandBuffer.cpp
+            ${PROJECT_SOURCE_DIR}/src/renderer/RenderScheduler.cpp
+            ${PROJECT_SOURCE_DIR}/src/renderer/RenderScheduler.h
+            ${PROJECT_SOURCE_DIR}/src/renderer/TerminalColorScheme.cpp
+            ${PROJECT_SOURCE_DIR}/src/renderer/TerminalRenderer.cpp
+            ${PROJECT_SOURCE_DIR}/src/renderer/TerminalRenderer.h
+            ${NOVATERM_P5_RENDERER_SOURCES}
+        )
+        set_target_properties(novaterm_renderer_large_input_benchmark PROPERTIES
+            WIN32_EXECUTABLE FALSE
+        )
+        target_include_directories(novaterm_renderer_large_input_benchmark PRIVATE
+            ${PROJECT_SOURCE_DIR}/src
+            "${CMAKE_PREFIX_PATH}/include/QtGui/${Qt6_VERSION}/QtGui"
+        )
+        target_link_libraries(novaterm_renderer_large_input_benchmark PRIVATE
+            novaterm_core
+            Qt${QT_VERSION_MAJOR}::Core
+            Qt${QT_VERSION_MAJOR}::Gui
+            Qt${QT_VERSION_MAJOR}::Widgets
+            winmm
+        )
+        qt_add_shaders(novaterm_renderer_large_input_benchmark
+            novaterm_renderer_large_input_benchmark_shaders
+            BASE ${PROJECT_SOURCE_DIR}
+            PREFIX "/shaders"
+            FILES
+                ${PROJECT_SOURCE_DIR}/src/renderer/shaders/terminal_texture.vert
+                ${PROJECT_SOURCE_DIR}/src/renderer/shaders/terminal_texture.frag
+        )
+    endif()
+
     add_executable(novaterm_renderer_p5_gpu_benchmark
         ${CMAKE_CURRENT_SOURCE_DIR}/benchmarks/RendererP5GpuBenchmark.cpp
         ${PROJECT_SOURCE_DIR}/src/renderer/RenderCommandBuffer.cpp

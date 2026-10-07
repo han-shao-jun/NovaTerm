@@ -39,6 +39,11 @@ public:
     explicit RenderScheduler(QObject* parent = nullptr);
 
     void setViewport(int columns, int rows);
+    /**
+     * @brief 暂停或恢复绘制请求；暂停期间合并为一次全屏恢复帧。
+     * @param enabled 是否允许投递帧；暂停不丢弃最新内容版本。
+     */
+    void setEnabled(bool enabled);
     void setTargetRefreshRate(int hz);
     int targetRefreshRate() const { return _targetRefreshRate; }
 
@@ -92,6 +97,7 @@ private:
     QTimer _timer;
     QVector<DirtyRegion> _pending;
     bool _fullFramePending{false};
+    bool _enabled{true};
     bool _overlayPending{false};
     quint64 _pendingContentRevision{0};
     RenderScheduleStatistics _statistics;

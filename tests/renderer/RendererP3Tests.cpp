@@ -14,6 +14,10 @@
 #include <QKeyEvent>
 #include <QTest>
 
+namespace {
+QTimer* cursorBlinkTimer(TerminalRenderer& renderer);
+}
+
 class RendererP3Tests : public QObject
 {
     Q_OBJECT
@@ -69,7 +73,213 @@ private slots:
     void shadowBufferSkipsIdenticalUploads();
     void incrementalRowMergeKeepsOrderAndColumns();
     void mutableRowRebuildKeepsMetadataAndDropsOutOfRange();
+    void hiddenRendererDefersFramesUntilShown();
+    void cursorVisibilityChangesRequestOverlay();
+    void outputDoesNotRestartPeriodicCursorTimer();
+    void identicalFontDoesNotInvalidateRows();
+    void overlayColorsDoNotInvalidateRows();
+    void minimizedOutputDoesNotRestartBlink();
+    void minimizedOutputDoesNotRestartBlink_data();
+    void historyViewDoesNotScheduleCursorFrames();
 };
+
+void RendererP3Tests::minimizedOutputDoesNotRestartBlink()
+{
+    QFETCH(bool, embedded);
+    TerminalCore core(80, 24);
+    QWidget host;
+    TerminalRenderer renderer(&core, embedded ? &host : nullptr);
+    renderer.setApi(QRhiWidget::Api::Null);
+    core.writeInput("\x1b[?12h");
+    QTRY_VERIFY(core.cursorBlink());
+    QWidget* window = renderer.window();
+    window->show();
+    auto* timer = cursorBlinkTimer(renderer);
+    QVERIFY(timer);
+    QTRY_VERIFY(timer->isActive());
+    window->showMinimized();
+    QTest::qWait(50);
+    QSignalSpy damage(&core, &TerminalCore::damage);
+    core.writeInput("minimized");
+    QTRY_VERIFY(!damage.isEmpty());
+    QVERIFY(!timer->isActive());
+    window->showNormal();
+    QTRY_VERIFY(timer->isActive());
+}
+
+void RendererP3Tests::minimizedOutputDoesNotRestartBlink_data()
+{
+    QTest::addColumn<bool>("embedded");
+    QTest::newRow("standalone") << false;
+    QTest::newRow("embedded") << true;
+}
+
+void RendererP3Tests::historyViewDoesNotScheduleCursorFrames()
+{
+    TerminalCore core(80, 24);
+    TerminalRenderer renderer(&core);
+    renderer.setApi(QRhiWidget::Api::Null);
+    renderer.show();
+    core.writeInput(QByteArray("\x1b[?12h") + QByteArray("old\r\n").repeated(100));
+    QTRY_VERIFY(renderer.maximumScrollOffset() > 0);
+    auto* timer = cursorBlinkTimer(renderer);
+    QVERIFY(timer);
+    QTRY_VERIFY(renderer.historyDisplayRowCount() > 0);
+    renderer.scrollToTop();
+    QTest::qWait(80);
+    auto* scheduler = renderer.findChild<NovaTerm::RenderScheduler*>();
+    QVERIFY(scheduler);
+    QSignalSpy frames(scheduler, &NovaTerm::RenderScheduler::frameRequested);
+    QTest::qWait(600);
+    QCOMPARE(frames.size(), 0);
+    core.clearScrollback();
+    QTRY_COMPARE(renderer.scrollOffset(), 0);
+    QTRY_VERIFY(timer->isActive());
+}
+
+void RendererP3Tests::hiddenRendererDefersFramesUntilShown()
+{
+    TerminalCore core(80, 24);
+    TerminalRenderer renderer(&core);
+    renderer.setApi(QRhiWidget::Api::Null);
+    auto* scheduler = renderer.findChild<NovaTerm::RenderScheduler*>();
+    QVERIFY(scheduler);
+    QSignalSpy spy(scheduler, &NovaTerm::RenderScheduler::frameRequested);
+    for (int i = 0; i < 100; ++i)
+        scheduler->schedule({0, 1, 0, 1}, i + 1);
+    QTest::qWait(60);
+    QCOMPARE(spy.size(), 0);
+
+    renderer.show();
+    QTRY_VERIFY(!spy.isEmpty());
+    QVERIFY(spy.first().at(1).toBool());
+    renderer.hide();
+    spy.clear();
+    core.writeInput("hidden output\r\n");
+    QTest::qWait(60);
+    QCOMPARE(spy.size(), 0);
+    renderer.show();
+    QTRY_VERIFY(!spy.isEmpty());
+    QVERIFY(spy.first().at(1).toBool());
+}
+
+namespace {
+QTimer* cursorBlinkTimer(TerminalRenderer& renderer)
+{
+    // 光标计时器直接属于 Renderer；调度器和重排计时器不使用该周期。
+    for (auto* timer : renderer.findChildren<QTimer*>(
+             QString(), Qt::FindDirectChildrenOnly)) {
+        if (timer->interval() == 530)
+            return timer;
+    }
+    return nullptr;
+}
+}
+
+void RendererP3Tests::cursorVisibilityChangesRequestOverlay()
+{
+    TerminalCore core(80, 24);
+    TerminalRenderer renderer(&core);
+    renderer.setApi(QRhiWidget::Api::Null);
+    auto* timer = cursorBlinkTimer(renderer);
+    QVERIFY(timer);
+    QVERIFY(!timer->isActive());
+    core.writeInput("\x1b[?12h");
+    QTRY_VERIFY(core.cursorBlink());
+    renderer.show();
+    QTRY_VERIFY(timer->isActive());
+    renderer.hide();
+    QVERIFY(!timer->isActive());
+    renderer.show();
+    QTRY_VERIFY(timer->isActive());
+    QTest::qWait(80);
+    auto* scheduler = renderer.findChild<NovaTerm::RenderScheduler*>();
+    QVERIFY(scheduler);
+    QSignalSpy frames(scheduler, &NovaTerm::RenderScheduler::frameRequested);
+    core.writeInput("\x1b[?25l");
+    QTRY_VERIFY(!core.cursorVisible());
+    QTRY_VERIFY(!frames.isEmpty());
+    // 模式控制序列可同时发布正文 damage，仍必须更新光标绘制状态。
+    QVERIFY(frames.last().at(2).toBool());
+    frames.clear();
+    core.writeInput("\x1b[?25h\x1b[?12l");
+    QTRY_VERIFY(!core.cursorBlink());
+    QTRY_VERIFY(!frames.isEmpty());
+    QVERIFY(frames.last().at(2).toBool());
+}
+
+void RendererP3Tests::outputDoesNotRestartPeriodicCursorTimer()
+{
+    TerminalCore core(80, 24);
+    TerminalRenderer renderer(&core);
+    renderer.setApi(QRhiWidget::Api::Null);
+    core.writeInput("\x1b[?12h");
+    QTRY_VERIFY(core.cursorBlink());
+    renderer.show();
+    auto* timer = cursorBlinkTimer(renderer);
+    QVERIFY(timer);
+    QTRY_VERIFY(timer->isActive());
+    QSignalSpy ticks(timer, &QTimer::timeout);
+    QSignalSpy damage(&core, &TerminalCore::damage);
+    for (int i = 0; i < 4; ++i) {
+        QTest::qWait(180);
+        damage.clear();
+        core.writeInput("x");
+        QTRY_VERIFY(!damage.isEmpty());
+    }
+    // 内容通知不能推迟低频周期；高频通知不再同步查询光标状态。
+    QVERIFY(!ticks.isEmpty());
+}
+
+void RendererP3Tests::identicalFontDoesNotInvalidateRows()
+{
+    TerminalCore core(80, 24);
+    TerminalRenderer renderer(&core);
+    renderer.setApi(QRhiWidget::Api::Null);
+    renderer.show();
+    QTest::qWait(80);
+    auto* scheduler = renderer.findChild<NovaTerm::RenderScheduler*>();
+    QVERIFY(scheduler);
+    QSignalSpy spy(scheduler, &NovaTerm::RenderScheduler::frameRequested);
+    renderer.setFont(renderer.font());
+    QTest::qWait(60);
+    QCOMPARE(spy.size(), 0);
+    QFont changed = renderer.font();
+    changed.setPixelSize(changed.pixelSize() + 1);
+    renderer.setFont(changed);
+    QTRY_VERIFY(!spy.isEmpty());
+    QVERIFY(spy.last().at(1).toBool());
+}
+
+void RendererP3Tests::overlayColorsDoNotInvalidateRows()
+{
+    TerminalCore core(80, 24);
+    TerminalRenderer renderer(&core);
+    renderer.setApi(QRhiWidget::Api::Null);
+    renderer.setColorScheme(renderer.colorScheme());
+    renderer.show();
+    QTest::qWait(80);
+    auto* scheduler = renderer.findChild<NovaTerm::RenderScheduler*>();
+    QVERIFY(scheduler);
+    QSignalSpy spy(scheduler, &NovaTerm::RenderScheduler::frameRequested);
+    auto scheme = renderer.colorScheme();
+    scheme.cursorColor = QColor("#ff1234");
+    scheme.selectionColor = QColor("#5678ab");
+    renderer.setColorScheme(scheme);
+    QTRY_VERIFY(!spy.isEmpty());
+    QVERIFY(!spy.last().at(1).toBool());
+    QVERIFY(spy.last().at(2).toBool());
+    QVERIFY(qvariant_cast<QVector<NovaTerm::DirtyRegion>>(
+                spy.last().at(0)).isEmpty());
+    spy.clear();
+    renderer.setColorScheme(scheme);
+    QTest::qWait(60);
+    QCOMPARE(spy.size(), 0);
+    scheme.palette[1] = QColor("#abcd12");
+    renderer.setColorScheme(scheme);
+    QTRY_VERIFY(!spy.isEmpty());
+    QVERIFY(spy.last().at(1).toBool());
+}
 
 namespace {
 

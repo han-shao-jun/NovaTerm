@@ -1,7 +1,10 @@
 # Windows Terminal 渲染架构（对照参考）
 
-> 来源：本地源码 `D:\qt\terminal`，提交 `2b5336c1f`（2026-09-30 main）。  
-> 整理日期：2026-10-06。行号均对应该提交。  
+> 来源：本地源码 `E:\code\Qt\terminal`，当前提交
+> `805068781c6fed71ef6e2ac85f759e37b954449b`（2026-10-05）。
+> 整理日期：2026-10-06。第 1～5 节原基于 `2b5336c1f`（2026-09-30）；
+> 已核对两提交之间 `src/renderer/` 无差异，原渲染行号仍适用。
+> 第 6～10 节按当前提交补充，新增行号以当前提交为准。
 > 用途：为 NovaTerm 渲染优化提供对照，不是 NovaTerm 自身设计。
 > 标注“推断”的条目未在源码中直接核实。
 
@@ -305,4 +308,245 @@ SRV 手动实例化，HW 实例化在 Nvidia 上约快 50%。
 - 自定义 shader（含复古效果）：主 pass 画到离屏纹理，再全屏 quad 后处理；
   反射发现用了 `time` 变量就要求连续重绘；此时脏矩形强制全屏。
 
-<!-- PART6 -->
+## 6. BackendD2D：共享塑形产物，替换实际绘制实现
+
+### 6.1 边界与帧流程（BackendD2D.cpp:29-185）
+
+D2D 后端仍接收同一份 `RenderingPayload`，复用 AtlasEngine 的行失效、
+DirectWrite 塑形、字体回退、颜色位图和滚动结果；它不会重新读取 TextBuffer，
+也不承担交换链创建与 Present。后两项仍在 `AtlasEngine.r.cpp`。
+
+```text
+设置代号变化 → _handleSettingsUpdate
+BeginDraw
+  _drawBackground
+  _drawCursorPart1
+  _drawText（字形 → 网格线 → sixel）
+  _drawCursorPart2
+EndDraw
+AtlasEngine::_present
+```
+
+- 从交换链 buffer 0 获取 `IDXGISurface`，建立 D2D render target；使用物理像素
+  单位，字体 DPI 与文字抗锯齿模式来自共享设置。
+- `BeginDraw/EndDraw` 成对出现；中途异常也先调用 `EndDraw` 再上抛。
+- `ReleaseResources()` 释放目标及其可选的 DeviceContext4 接口、清空总设置代号，
+  保证 resize 后下次 Render 重建目标。
+- `RequiresContinuousRedraw()` 恒为 false；这里没有 D3D 后端的自定义 shader pass。
+- **D2D 同样每帧画全目标背景、遍历全部可见行**，没有按 `dirtyRectInPx` 对整帧
+  绘制设置裁剪。双高行/波浪线的局部 clip 服务于图元形状，不是脏区绘制优化。
+
+### 6.2 背景：cell 位图放大（cpp:129-207）
+
+- 背景 bitmap 尺寸为 `(cols + 2) × (rows + 2)`，四周各留一个像素，填默认背景色，
+  防止网格外边缘拉伸成最后一个 cell 的颜色。
+- 内部区域只有背景层 generation 变化时才 `CopyFromMemory` 更新。
+- BitmapBrush 使用最近邻插值、CLAMP 和 cell 宽高缩放，偏移一个 cell，
+  一次 `FillRectangle` 覆盖整个目标。
+- 背景使用 `D2D1_PRIMITIVE_BLEND_COPY`，覆盖包括 alpha 在内的旧像素，
+  随后恢复 `SOURCE_OVER` 绘制文字。这是透明背景正确性的组成部分。
+
+### 6.3 文字与内置字形（cpp:210-557）
+
+- 对每行的 `FontMapping`，进一步按 `row->colors` 的相同颜色游程切分，构造
+  `DWRITE_GLYPH_RUN`，使用缓存的 indices/advances/offsets 调 `DrawGlyphRun`。
+  普通字形的光栅缓存交由 D2D 管理，没有 D3D 后端那张自管普通字形 atlas。
+- 源码明确解释为何不采用前景 BitmapBrush：多色文本能更快，但少色文本的
+  额外离屏处理代价很高。注释中的倍率是作者记录，未在本机复测。
+- 彩色字形通过 `TranslateColorGlyphRun` 枚举各层绘制，并累计实际 bounds。
+  普通字形也查询 bounds，更新 `dirtyTop/dirtyBottom`；仅失效行把这些范围
+  合入本帧呈现脏区。
+- 内置方框/Powerline 等字符另有 bitmap 缓存，借 `ID2D1SpriteBatch` 批量绘制，
+  与普通字体缓存分离。缺少 SpriteBatch 时仍推进 advance，但不画这些内置字形。
+- 双宽/双高行通过 render target transform 与上下半行 clip 实现，行结束恢复状态。
+
+### 6.4 光标与 sixel 的差异（cpp:812-917）
+
+- 指定颜色光标在文字之前绘制；反色哨兵 `0xffffffff` 则在文字之后，用按光标
+  尺寸缓存的 mask bitmap 做 `D2D1_COMPOSITE_MODE_MASK_INVERT`。
+  它没有 D3D 后端切分文字实例并重设交集颜色的算法。
+- sixel 在每行文字与装饰之后绘制；**每次 `_drawBitmap` 都重新 `CreateBitmap`**，
+  源码 TODO 明确指出尚未采用 D3D 的 revision 缓存。
+
+| 项目 | BackendD3D | BackendD2D |
+| --- | --- | --- |
+| 行塑形与颜色数据 | 共享 RenderingPayload | 共享 RenderingPayload |
+| 普通字形绘制 | 自管 atlas + quad 实例 | 按字体/颜色游程 DrawGlyphRun |
+| 内置字形 | PS 图案等专门路径 | bitmap + SpriteBatch |
+| sixel GPU 缓存 | 按 revision 缓存入 atlas | 每次绘制创建 bitmap |
+| 反色光标 | 切分文字 quad、调整颜色 | 末尾 MASK_INVERT |
+| 自定义 shader | 离屏主 pass + 后处理 | 未实现该 pass |
+| 每帧绘制范围 | 全目标 | 全目标 |
+
+“D2D 后端”不等于“纯 CPU”：它使用共享 D3D 设备的 DXGI surface。
+是否用软件设备由适配器/WARP 设置决定，与后端选择是两项设置。
+
+## 7. 宿主接线：Terminal、ControlCore 与 XAML
+
+### 7.1 谁持有谁，何时初始化
+
+`Terminal` 实现 `IRenderData`（`Terminal.hpp:55-57`），提供 TextBuffer、视口、
+选区/搜索范围、颜色解析及控制台锁。`IRenderData.hpp` 末尾的注释明确表达了
+按值快照、尽早释放终端锁的期望；当前实现仍在锁内读取并塑形，不能当成已经
+实现不可变 TextBuffer 快照。
+
+`ControlCore` 的初始化分两步（`ControlCore.cpp:153-165, 373-490`）：
+
+1. 构造时先建立 Renderer 并绑定 Terminal，允许 UIA 在 SwapChainPanel 就绪前
+   加入引擎。**构造对象不等于启动渲染线程**：线程实际由
+   `Renderer::EnablePainting()` 创建（`renderer.cpp:80-95`）。
+2. 面板尺寸非零后，在终端写锁内创建 AtlasEngine、注册到 Renderer、更新字体，
+   将逻辑尺寸乘 composition scale 得到像素尺寸，再换算 cell 数、调整连接尺寸、
+   创建 Terminal 缓冲并设置引擎选项。
+
+AtlasEngine 的交换链实际创建仍在锁外 Present 路径，UI 不直接执行 GPU 绘制。
+
+### 7.2 交换链 handle 如何跨到 UI（ControlCore.cpp:2017-2044）
+
+```text
+渲染线程：AtlasEngine 创建 composition surface / swap chain
+  → swapChainChangedCallback(sourceHandle)
+  → ControlCore 立即 DuplicateHandle，持有独立句柄
+  → resume_foreground(dispatcher)
+UI 线程：检查 weakThis → 保存 _lastSwapChainHandle → SwapChainChanged
+  → TermControl::_AttachDxgiSwapChainToXaml
+  → ISwapChainPanelNative2::SetSwapChainHandle
+```
+
+复制必须在切线程前发生：原 handle 属于引擎，可能在 UI 回调执行前被释放。
+弱引用避免宿主销毁后继续访问对象。`TermControl.cpp:1363-1366` 负责挂接，
+交换链变化时经 `RenderEngineSwapChainChanged` 再次挂接（1294-1298）。
+
+像素坐标分工也要分清：面板提供逻辑尺寸与 composition scale，后端按物理像素
+画字；交换链矩阵再乘 `96 / dpi`，抵消 XAML 的缩放
+（`AtlasEngine.r.cpp:433-445`），避免重复缩放。
+
+### 7.3 拆离、重挂与停止（renderer.cpp:56-125）
+
+- `ControlCore::Detach()` 调 `TriggerTeardown()`，等待渲染线程退出后清理旧 UI
+  线程的节流回调；`AttachToNewControl()` 重建 dispatcher/回调，随后由初始化
+  路径重新启用绘制（`ControlCore.cpp:286-308`）。
+- `TriggerTeardown()` 同时唤醒 shutdown event、重绘等待和 enable event，
+  覆盖线程可能停在的各处；等待线程退出、释放线程句柄，最后禁用绘制。
+- `EnablePainting()` 强制视口同步，并全量重绘。原因有二：停绘期间 cell 数可能
+  变化；上一帧可能在消费失效区域之后、Present 之前被停止。
+- `ControlCore` 析构先关闭连接，再显式等待 Renderer 停止
+  （`ControlCore.cpp:278-284`）。不能只依赖智能指针析构顺序来保护回调。
+
+### 7.4 错误恢复有两层
+
+第 2.2 节是 Renderer 内部的逐帧重试；还有宿主层兜底：
+`ControlCore::_rendererEnteredErrorState()` 第一次收到重试耗尽通知时，在终端
+写锁内设置 **Direct2D + 软件渲染 WARP**，重新启用 Renderer；再次失败才向 UI
+发出 `RendererEnteredErrorState`（`ControlCore.cpp:170-182`）。
+
+因此“Renderer 重试耗尽就进入最终错误界面”不完整。设备恢复、帧重试、宿主
+切换后端是不同层次，后端自动选择也不同于这次故障兜底。
+
+## 8. 缓存与失效：五种状态不能混为一谈
+
+### 8.1 设置代号的含义
+
+`til::generational<T>`（`src/inc/til/generational.h`）内部保存值与 32 位 generation；
+`write()` **拿到可写指针时就 bump**，相等判断只比较代号，不比较内容，也不自动
+检测实际值是否变化。它不是带锁容器，也不是自动 CoW。
+
+设置是嵌套的：总 Settings 下有 target/font/cursor/misc 四个代号。
+setter 通常先比较值，再调用 `_api.s.write()->子设置.write()`；这同时更新总代号
+与子代号（如 `AtlasEngine.api.cpp:427-447`）。`StartPaint` 比较总代号，
+`_handleSettingsUpdate` 复制 `_api.s` 到 `_p.s`，按子代号重建相关资源，
+但**任一设置更新仍会标记全部行失效**（`AtlasEngine.cpp:703-727`）。
+
+### 8.2 分层依赖表
+
+| 状态 | 保存什么 | 更新/失效条件 | 节省什么 |
+| --- | --- | --- | --- |
+| ShapedRow | 字体映射、字形索引、advance/offset、颜色、装饰与图片 | 行失效、设置变化；滚动时旋转指针复用 | 未脏行的字体回退与塑形 |
+| bg/fg/ul CPU 位图 | 每 cell 的有效绘制颜色 | 内容真正变化才 bump 各层代号 | 无变化时的后端上传/处理 |
+| D3D 字形 atlas | 光栅覆盖率/彩色像素与条目位置 | 新字形填充；字体变化更新字体依赖；装满重置 | 重复字形光栅化 |
+| 交换链目标资源 | backbuffer 的 RTV / D2D target | resize/交换链重建先 ReleaseResources | 维持目标与设备资源的正确关联 |
+| 呈现元数据 | dirtyRectInPx、scrollDeltaY | 每帧组装，按旧/新字形与光标范围扩张 | 合成/呈现范围提示 |
+
+`RenderingPayload` 内含可变缓冲、COM 资源和交换链状态
+（`common.h:501-595`），不是通用的不可变消息。`_api/_p` 的约定依靠锁内组装与
+同一渲染线程随后锁外消费；不能把 `_p` 交给另一个并发绘制线程直接读。
+
+resize 也不等于清空所有缓存：`_resizeBuffers` 释放后端目标引用、清 D3D 状态，
+然后 `ResizeBuffers`（`AtlasEngine.r.cpp:424-431`）；D3D 的
+`ReleaseResources` 只重置目标视图和总代号（`BackendD3D.cpp:204-209`），
+后续按字体、cell 数等依赖选择性更新资源。
+
+### 8.3 脏范围需要覆盖旧墨迹与新墨迹
+
+`StartPaint` 清行之前并入旧 `dirtyTop/dirtyBottom`，后端绘制时再合入失效行的新
+字形 bounds。这样斜体、组合音标、超高 fallback 字体改成空格后，原先越出 cell
+的像素仍会被呈现更新。只用“新 cell 矩形”会留下旧字形残影。
+
+滚动时连缓存 bounds 也要平移：旋转 ShapedRow 指针后，对所有行的
+`dirtyTop/dirtyBottom` 加 `offset × cellHeight`
+（`AtlasEngine.cpp:187-198`），不能只换行身份而保留旧像素坐标。
+
+## 9. 三个典型帧：增量发生在哪里
+
+### 9.1 单字符变化
+
+```text
+TextBuffer::TriggerRedraw（buffer 坐标）
+  → Renderer 裁到视口、转换为视口坐标
+  → 各 engine Invalidate；Atlas 合并为整行范围
+  → NotifyPaintFrame 合并请求
+  → StartPaint 清理失效行并记录旧墨迹范围
+  → Renderer 输出失效行，Atlas 重塑形
+  → Backend 遍历全视口并绘制，记录新墨迹范围
+  → Present1 呈现受影响像素矩形
+```
+
+入口与坐标转换见 `textBuffer.cpp:1089-1125`、`renderer.cpp:656-682`。
+若两条不相邻行在同一帧失效，Atlas 的 `[start,end)` 会覆盖中间所有行；
+它不是保留多个离散行集合或多个 cell 脏矩形的实现。
+
+### 9.2 向上滚一行
+
+明确滚动量经 `TriggerScroll(delta)` 发给全部 engine，并同步移动上一帧选区
+（`renderer.cpp:891-900`）。Atlas 累计 delta，旋转已有行指针、移动颜色位图与
+墨迹 bounds，重新塑形新露出的底行；但后端仍重画整个目标。
+Present1 的 scroll rect/offset 复用属于合成呈现层，不能算成“GPU 只画底行”。
+
+### 9.3 只有光标闪烁
+
+计时器使旧/新光标区域失效，`StartPaint` 可以在没有文本失效行时继续。
+`EndPaint` 把失效光标区域并入 dirty rect，即使本帧光标不可见也要更新
+（`AtlasEngine.cpp:278-285`）。不必因光标闪烁重新塑形文本，
+但 D3D/D2D 的完整绘制仍会执行。
+
+## 10. 对 NovaTerm 的借鉴与边界
+
+以下是**对照分析与建议**，不是已实施的 NovaTerm 改动。NovaTerm 当前事实以
+[`../ARCHITECTURE.md`](../ARCHITECTURE.md) 和自身源码为准；特别是稳定渲染快照
+已采用共享不可变行，不应按较早文档中的整屏值拷贝描述回退设计。
+
+| 维度 | Windows Terminal 的选择 | NovaTerm 对照与建议 |
+| --- | --- | --- |
+| 模型读取 | 控制台锁内读取并塑形，锁外 GPU/Present | 保持 Parser 单写与不可变快照；无需复制其锁内塑形方案 |
+| CPU 行增量 | 整行 ShapedRow 缓存，连续行范围失效 | 保留已有行/块身份与局部命令重建；衡量脏范围合并扩大多少工作 |
+| GPU 提交 | 全视口重新生成实例、全目标绘制 | 已有行槽位局部上传应保留；一次 draw call 与少上传字节是不同目标 |
+| 滚动 | 指针旋转 + bounds 平移 + 位图移动 + Present1 提示 | 保留行身份/槽位复用，并验证位置、overlay、旧墨迹范围一起更新 |
+| 字形与颜色 | 缓存光栅像素，颜色另行处理 | 避免把选区、搜索色等易变外观绑定进可复用字形缓存 |
+| 缓存淘汰 | 单 atlas，写满 flush 后清空/扩容 | NovaTerm 多页/LRU 方案有不同预算目标，不应仅为仿照而替换 |
+| 帧调度 | 请求合并 + 交换链可等待对象，无提交时节流 | 借鉴事件合并与空闲不忙等；QRhi/QWidget 的帧生命周期需单独适配 |
+| 恢复 | 设备重建、逐帧退避、宿主 D2D/WARP 兜底 | 区分 CPU 数据保留、GPU 资源恢复与最终错误反馈，并验证重新挂接 |
+
+后续评估应分别记录：重塑形/重建行数、可见行扫描量、实例生成量、GPU 上传字节、
+atlas miss/重置次数、draw call、实际帧耗时与呈现延迟。源码注释中的“负载减半”、
+“快 50%”等只解释设计动机，不是 NovaTerm 的性能承诺。
+
+### 10.1 源码阅读顺序
+
+1. `src/renderer/base/renderer.cpp`：调度、锁范围、行输出与重试。
+2. `src/renderer/atlas/AtlasEngine.api.cpp`：失效与 setter。
+3. `src/renderer/atlas/AtlasEngine.cpp` + `common.h`：帧准备、塑形与缓存数据。
+4. `src/renderer/atlas/BackendD3D.cpp`、`BackendD2D.cpp`：两条实际绘制路径。
+5. `src/renderer/atlas/AtlasEngine.r.cpp`：设备、交换链、Present 与资源恢复。
+6. `src/cascadia/TerminalControl/ControlCore.cpp`、`TermControl.cpp`：宿主接线。
+
+本次是本地源码静态核对，未构建或运行 Windows Terminal，未进行 GPU 性能测量。

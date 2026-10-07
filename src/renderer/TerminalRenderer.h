@@ -4,6 +4,7 @@
 #include <QFont>
 #include <QTimer>
 #include <QPoint>
+#include <QPointer>
 #include <QImage>
 #include <QMutex>
 #include <QHash>
@@ -214,6 +215,10 @@ protected:
     void render(QRhiCommandBuffer* cb) override;
     void releaseResources() override;
     void resizeEvent(QResizeEvent* event) override;
+    void showEvent(QShowEvent* event) override;
+    void hideEvent(QHideEvent* event) override;
+    void changeEvent(QEvent* event) override;
+    bool eventFilter(QObject* watched, QEvent* event) override;
     void keyPressEvent(QKeyEvent* event) override;
     void inputMethodEvent(QInputMethodEvent* event) override;
     QVariant inputMethodQuery(Qt::InputMethodQuery query) const override;
@@ -315,6 +320,8 @@ public:
         const QString& pattern);
 
 private:
+    /** @brief 统一处理隐藏、最小化与恢复时的调度和缓存失效。 */
+    void setPaintingEnabled(bool enabled);
     // ── 渲染辅助 ──────────────────────────────────────────────
     void recalculateCellSize();
     void resizeTerminalToViewport();
@@ -518,10 +525,13 @@ private:
         _searchMatchesByLine;
 
     // 光标闪烁
-    QTimer* _blinkTimer;
+    QTimer* _blinkTimer{nullptr};
     QTimer* _reflowDebounce{nullptr};
     NovaTerm::RenderScheduler* _renderScheduler{nullptr};
     bool _cursorBlinkVisible{true};
+    bool _paintingEnabled{false}; ///< show/hide 维护，包含自发最小化隐藏
+    QPointer<QWidget> _renderHostWindow; ///< 宿主最小化恢复的状态通知来源
+    bool _colorSchemeApplied{false}; ///< 首次配色仍需同步核心默认色
 
     // 鼠标选区
     bool _selecting{false};

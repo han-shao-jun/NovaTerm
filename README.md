@@ -162,8 +162,9 @@ Linux 可用 `novaterm_ssh_transport_check --local-ssh-check` 显式启动隔离
 SSH 验收（需要 sshd、ssh-keygen、ninja 和 c++；不修改用户 SSH 信任文件）。
 
 项目包含完整的单元测试和集成测试。默认注册到 CTest 的测试按平台不同：
-**Windows 18 项、Linux 17 项**（`novaterm_conpty_tests` 与
-`novaterm_terminal_session_tests` 仅 Windows，`novaterm_pty_tests` 仅 Linux）。
+**Windows 23 项、Linux 21 项**（默认启用 benchmark 构建；注册数以 `ctest -N`
+为准）。`novaterm_conpty_tests`、`novaterm_terminal_session_tests` 仅 Windows，
+`novaterm_pty_tests` 仅 Linux。
 
 ```bash
 # 运行所有测试
@@ -200,6 +201,17 @@ cmake --build build --target check
   （freedesktop Secret Service）；没有 `org.freedesktop.secrets` 时相关用例
   自动 `QSKIP`，属预期而非失败。
 - 已知的、与本机环境相关的失败项见 `AGENTS.md` 的「已知测试失败」。
+
+Windows 大文本夹具的参数与文件 I/O 回归测试不启动 GPU：
+
+```bash
+cmake --build build --target novaterm_renderer_large_input_tests
+ctest --test-dir build -C Debug -R novaterm_renderer_large_input_tests
+```
+
+真实 GPU 测量手工运行 `novaterm_renderer_large_input_benchmark`，参数为结果 JSON
+路径、分块字节数（65536/262144）与可选 `--stable-timers`。
+构建与同机验收口径见[渲染验收报告](docs/architecture/Performance_Render_Rollback_2026-10-07.md)。
 
 ### P9 独立协议测试（无需 Qt）
 

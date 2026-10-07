@@ -5,6 +5,8 @@
 #include <QInputMethodEvent>
 #include <QMouseEvent>
 #include <QWheelEvent>
+#include <QShowEvent>
+#include <QHideEvent>
 #include <QApplication>
 #include <QByteArray>
 #include <QClipboard>
@@ -138,6 +140,7 @@ TerminalRenderer::TerminalRenderer(TerminalCore* core, QWidget* parent)
     _renderScheduler = new NovaTerm::RenderScheduler(this);
     _renderScheduler->setViewport(_core->screenSize().first,
                                   _core->screenSize().second);
+    _renderScheduler->setEnabled(false);
     connect(_renderScheduler, &NovaTerm::RenderScheduler::frameRequested,
             this,
             [this](const QVector<NovaTerm::DirtyRegion>& regions,
@@ -167,13 +170,17 @@ TerminalRenderer::TerminalRenderer(TerminalCore* core, QWidget* parent)
     _blinkTimer = new QTimer(this);
     _blinkTimer->setInterval(530);  // ≈ 常见终端闪烁速率
     connect(_blinkTimer, &QTimer::timeout, this, [this]() {
-        _cursorBlinkVisible = !_cursorBlinkVisible;
-        // 只重绘光标所在行
-        if (_core->cursorVisible() && _core->cursorBlink() && _scrollLine == 0) {
+        if (!_paintingEnabled || _scrollLine != 0)
+            return;
+        // 光标模式仅在低频计时器中查询，避免高频通知与 Parser 竞争模型锁。
+        const auto cursor = _core->cursorState();
+        if (cursor.visible && cursor.blink) {
+            _cursorBlinkVisible = !_cursorBlinkVisible;
             requestOverlayFrame();
+        } else {
+            _cursorBlinkVisible = true;
         }
     });
-    _blinkTimer->start();
 
     _reflowDebounce = new QTimer(this);
     _reflowDebounce->setSingleShot(true);
@@ -183,7 +190,7 @@ TerminalRenderer::TerminalRenderer(TerminalCore* core, QWidget* parent)
 
     // ── 连接 TerminalCore 信号 ───────────────────────────────
     connect(_core, &TerminalCore::damage, this,
-            [this](const NovaTerm::DirtyRegion& region, quint64 revision) {
+             [this](const NovaTerm::DirtyRegion& region, quint64 revision) {
                 // 视口尺寸改用命令缓冲的已知值：TerminalCore::rows()/columns()
                 // 每次都要取 modelMutex，而解析线程最长持锁约 2.7 ms
                 // （64 KiB 批次 @ 24 MiB/s），每个 damage 区域两次取锁会在
@@ -351,26 +358,40 @@ void TerminalRenderer::setTargetRefreshRate(int hz)
 
 void TerminalRenderer::setColorScheme(const TerminalColorScheme& scheme)
 {
+    const bool defaultsChanged = !_colorSchemeApplied
+        || _scheme.foreground != scheme.foreground
+        || _scheme.background != scheme.background;
+    const bool paletteChanged = !std::equal(
+        std::begin(_scheme.palette), std::end(_scheme.palette),
+        std::begin(scheme.palette));
+    const bool overlayChanged = _scheme.cursorColor != scheme.cursorColor
+        || _scheme.selectionColor != scheme.selectionColor;
     _scheme = scheme;
+    _colorSchemeApplied = true;
 
-    NovaTerm::TerminalColor foreground;
-    foreground.type = NovaTerm::ColorType::Rgb;
-    foreground.red = static_cast<uint8_t>(_scheme.foreground.red());
-    foreground.green = static_cast<uint8_t>(_scheme.foreground.green());
-    foreground.blue = static_cast<uint8_t>(_scheme.foreground.blue());
-    NovaTerm::TerminalColor background;
-    background.type = NovaTerm::ColorType::Rgb;
-    background.red = static_cast<uint8_t>(_scheme.background.red());
-    background.green = static_cast<uint8_t>(_scheme.background.green());
-    background.blue = static_cast<uint8_t>(_scheme.background.blue());
-    _core->setDefaultColors(foreground, background);
+    if (defaultsChanged) {
+        NovaTerm::TerminalColor foreground;
+        foreground.type = NovaTerm::ColorType::Rgb;
+        foreground.red = static_cast<uint8_t>(_scheme.foreground.red());
+        foreground.green = static_cast<uint8_t>(_scheme.foreground.green());
+        foreground.blue = static_cast<uint8_t>(_scheme.foreground.blue());
+        NovaTerm::TerminalColor background;
+        background.type = NovaTerm::ColorType::Rgb;
+        background.red = static_cast<uint8_t>(_scheme.background.red());
+        background.green = static_cast<uint8_t>(_scheme.background.green());
+        background.blue = static_cast<uint8_t>(_scheme.background.blue());
+        _core->setDefaultColors(foreground, background);
 
-    // 容器背景色
-    QPalette pal = palette();
-    pal.setColor(QPalette::Window, _scheme.background);
-    setPalette(pal);
+        // 容器背景色
+        QPalette pal = palette();
+        pal.setColor(QPalette::Window, _scheme.background);
+        setPalette(pal);
+    }
 
-    requestFullFrame();
+    if (defaultsChanged || paletteChanged)
+        requestFullFrame();
+    else if (overlayChanged)
+        requestOverlayFrame();
 }
 
 void TerminalRenderer::setHighlightRules(
@@ -397,16 +418,19 @@ void TerminalRenderer::setHighlightRules(
 
 void TerminalRenderer::setFont(const QFont& font)
 {
-    _font = font;
-    if (_font.pixelSize() > 0) {
-        _font.setPixelSize(std::clamp(_font.pixelSize(),
+    QFont normalized = font;
+    if (normalized.pixelSize() > 0) {
+        normalized.setPixelSize(std::clamp(normalized.pixelSize(),
                                       kMinTerminalFontSize,
                                       kMaxTerminalFontSize));
-    } else if (_font.pointSize() > 0) {
-        _font.setPointSize(std::clamp(_font.pointSize(),
+    } else if (normalized.pointSize() > 0) {
+        normalized.setPointSize(std::clamp(normalized.pointSize(),
                                       kMinTerminalFontSize,
                                       kMaxTerminalFontSize));
     }
+    if (_font == normalized)
+        return;
+    _font = std::move(normalized);
     delete _fm;
     _fm = new QFontMetricsF(_font);
     _fontManager.setPrimaryFont(_font);
@@ -1143,6 +1167,71 @@ void TerminalRenderer::releaseResources()
 {
     releaseRhiResources();
     _rhi = nullptr;
+}
+
+void TerminalRenderer::showEvent(QShowEvent* event)
+{
+    QRhiWidget::showEvent(event);
+    QWidget* host = window();
+    if (_renderHostWindow != host) {
+        if (_renderHostWindow && _renderHostWindow != this)
+            _renderHostWindow->removeEventFilter(this);
+        _renderHostWindow = host;
+        if (host != this)
+            host->installEventFilter(this);
+    }
+    setPaintingEnabled(!window()->isMinimized());
+}
+
+void TerminalRenderer::hideEvent(QHideEvent* event)
+{
+    setPaintingEnabled(false);
+    QRhiWidget::hideEvent(event);
+}
+
+void TerminalRenderer::changeEvent(QEvent* event)
+{
+    QRhiWidget::changeEvent(event);
+    // 作为顶层控件时，部分平台仅发送状态变化而不再次发送 showEvent。
+    if (event->type() == QEvent::WindowStateChange)
+        setPaintingEnabled(isVisible() && !window()->isMinimized());
+}
+
+bool TerminalRenderer::eventFilter(QObject* watched, QEvent* event)
+{
+    if (watched == _renderHostWindow
+        && event->type() == QEvent::WindowStateChange) {
+        setPaintingEnabled(isVisible() && !_renderHostWindow->isMinimized());
+    }
+    return QRhiWidget::eventFilter(watched, event);
+}
+
+void TerminalRenderer::setPaintingEnabled(bool enabled)
+{
+    if (_paintingEnabled == enabled)
+        return;
+    _paintingEnabled = enabled;
+    if (enabled) {
+        resizeTerminalToViewport();
+        const auto [columns, rows] = _core->screenSize();
+        _renderScheduler->setViewport(columns, rows);
+        requestFullFrame();
+        _renderScheduler->setEnabled(true);
+        _cursorBlinkVisible = true;
+        _blinkTimer->start();
+        return;
+    }
+    _renderScheduler->setEnabled(false);
+    _blinkTimer->stop();
+    _cursorBlinkVisible = true;
+    {
+        const QMutexLocker lock(&_pendingFrameMutex);
+        _pendingDirtyRegions.clear();
+        _scrollDamageHandoff = {};
+        _fullFramePending = true;
+        _explicitFullPending = true;
+        _overlayPending = true;
+    }
 }
 
 // ═══════════════════════════════════════════════════════════════════
