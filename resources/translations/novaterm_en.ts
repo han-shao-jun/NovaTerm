@@ -3513,5 +3513,9 @@ Termination confirmed: %3
         <source>Transfer Progress</source>
         <translation>Transfer Progress</translation>
     </message>
+    <message>
+        <source>Serial File Transfer…</source>
+        <translation>Serial File Transfer…</translation>
+    </message>
 </context>
 </TS>

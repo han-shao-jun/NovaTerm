@@ -132,7 +132,7 @@ private:
     void setupContextMenu(const QPoint& pos);
     /** @brief 获取当前串口传输活动状态，同时绑定输入门禁的观察指针。 */
     [[nodiscard]] bool fileTransferActive();
-    void showFileTransfer(NovaTerm::FileTransfer::Direction direction);
+    void showFileTransfer();
     /** @brief 右键菜单与鼠标中键共用的系统剪贴板粘贴入口。 */
     void pasteFromClipboard();
     bool eventFilter(QObject* obj, QEvent* event) override;

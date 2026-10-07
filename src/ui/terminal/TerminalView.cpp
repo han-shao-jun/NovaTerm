@@ -657,7 +657,7 @@ bool TerminalView::fileTransferActive()
     return _serialFileTransfer && _serialFileTransfer->isActive();
 }
 
-void TerminalView::showFileTransfer(NovaTerm::FileTransfer::Direction direction)
+void TerminalView::showFileTransfer()
 {
     if (!_session || !_session->canTransferFiles())
         return;
@@ -671,10 +671,8 @@ void TerminalView::showFileTransfer(NovaTerm::FileTransfer::Direction direction)
     }
     _serialFileTransfer = controller;
     if (!_transferDialog) {
-        _transferDialog = new SerialFileTransferDialog(controller, direction, this);
-    } else {
-        // 活动窗口保持原传输和方向；发送/接收/进度入口只将它带回前台。
-        _transferDialog->setDirection(direction);
+        _transferDialog = new SerialFileTransferDialog(controller,
+            NovaTerm::FileTransfer::Direction::Send, this);
     }
     _transferDialog->show();
     _transferDialog->raise();
@@ -696,17 +694,8 @@ void TerminalView::setupContextMenu(const QPoint& pos)
 
     if (_session && _session->canTransferFiles()) {
         menu->addSeparator();
-        connect(menu->addAction(tr("Send Files…")), &QAction::triggered, this, [this] {
-            showFileTransfer(NovaTerm::FileTransfer::Direction::Send);
-        });
-        connect(menu->addAction(tr("Receive Files…")), &QAction::triggered, this, [this] {
-            showFileTransfer(NovaTerm::FileTransfer::Direction::Receive);
-        });
-        connect(menu->addAction(tr("Transfer Progress")), &QAction::triggered, this, [this] {
-            showFileTransfer(_serialFileTransfer
-                ? _serialFileTransfer->progress().direction
-                : NovaTerm::FileTransfer::Direction::Send);
-        });
+        connect(menu->addElaIconAction(ElaIconType::FileArrowUp, tr("Serial File Transfer…")),
+                &QAction::triggered, this, &TerminalView::showFileTransfer);
     }
 
     menu->addSeparator();

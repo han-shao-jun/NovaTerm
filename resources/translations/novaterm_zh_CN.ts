@@ -3525,5 +3525,9 @@ Termination confirmed: %3
         <source>Transfer Progress</source>
         <translation>传输进度</translation>
     </message>
+    <message>
+        <source>Serial File Transfer…</source>
+        <translation>串口文件传输…</translation>
+    </message>
 </context>
 </TS>
