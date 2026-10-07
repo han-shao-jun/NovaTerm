@@ -30,7 +30,18 @@ GPU 管线，UI 用 ElaWidgetTools（FluentUI 风格）。GPLv2+，仓库在 Git
 环境要求以 `CMakeLists.txt` 为准：`cmake_minimum_required(VERSION 3.20)`、
 `find_package(Qt6 6.8 REQUIRED ...)`、`set(CMAKE_CXX_STANDARD 17)`。
 `README.md` 的「环境要求」一节已与这三处对齐（2026-09 复核）；它对
-**测试**一节的描述仍不完整，见下方「跑测试」。
+**测试**一节已补齐配置选择、运行环境与手工串口验收入口（2026-10-07）；
+模块覆盖关系与本机已知失败仍以本文件和测试源码为准。
+
+Windows 串口手工验收与 CPU 采样夹具位于 `tests/benchmarks/serial-stress/`，
+不注册默认 CTest、不自动占用串口。64 KiB / 1 MiB / 8 MiB 基础矩阵通过，
+4 KiB 驱动 RX 队列下的 8M、64 MiB 长测及不限速突发有真实丢帧；请求并查询
+确认 RX 队列为 256 KiB 后，双向可见/隐藏/仅接收六项长测全部通过。
+WPR/xperf 可在本机进行函数采样，需管理员令牌与独立优化符号构建。
+第一方屏幕同步链占 Parser CPU 栈样本约 67%–70%；尚未实施生产性能优化。
+具体范围与复测命令见夹具 README、
+`docs/architecture/Performance_Serial_Stress_2026-10-07.md` 和
+`docs/architecture/Performance_Serial_Hotspots_2026-10-07.md`。
 
 Qt 前缀**硬编码**在 `CMakeLists.txt:53-62`，按 `CMAKE_HOST_SYSTEM_NAME` 分支
 写入 `CMAKE_PREFIX_PATH` 缓存变量（`set(... CACHE PATH ...)`，因此首次配置时

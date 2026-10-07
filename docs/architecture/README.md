@@ -17,6 +17,10 @@
      （基于本地源码 `D:\qt\terminal` 的 Renderer/AtlasEngine 全链路分析，供渲染优化对照）。
 6. [P8 AI MCP 接口](stages/P8_AI_MCP_Interface.md)：只读上下文与受限命令设计，含
    stdio/IPC、会话身份、分级授权、工具契约、预算与验收；首期已接入，本机验收中。
+7. [Windows 串口压力验收](Performance_Serial_Stress_2026-10-07.md)：虚拟串口
+   数据量矩阵、实际驱动队列查询与 256 KiB 大队列复测；
+   [CPU 热点采样](Performance_Serial_Hotspots_2026-10-07.md)记录 WPR/xperf
+   的线程分离与函数占比。两者为验收记录，不改变阶段完成状态。
 
 ## 阶段文档
 

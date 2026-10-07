@@ -449,7 +449,9 @@ src/
 ├── mcp/                 # P8 协议、IPC、授权、请求调度与固定诊断策略
 └── ui/                  # app/(MainWindow)、pages/、terminal/(TerminalView)、widgets/
 tests/
-├── core/  renderer/  session/  transport/  benchmarks/  mcp/  filetransfer/
+├── core/  renderer/  session/  transport/  mcp/  filetransfer/
+└── benchmarks/
+    └── serial-stress/   # Windows 手工串口压力验收、驱动队列对照与 WPR/xperf 采样
 tools/
 └── novaterm-mcp/         # 独立 console stdio 桥接程序
 ```

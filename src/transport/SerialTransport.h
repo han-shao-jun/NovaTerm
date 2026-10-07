@@ -96,6 +96,10 @@ public:
     [[nodiscard]] const SerialConfig& config() const noexcept { return _config; }
 
 private:
+#ifdef NOVATERM_SERIAL_STRESS
+    // 仅压力夹具访问原生端口来核对驱动队列，生产目标不定义此宏。
+    friend class SerialStressPortAccess;
+#endif
     void readAvailable();                       ///< 串口有数据可读时 drain
     void handleError(QSerialPort::SerialPortError error); ///< 处理串口错误
     /// 记录错误并先发 transportError、再发 errorOccurred（顺序约定见 ITransport.h）。

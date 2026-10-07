@@ -1,0 +1,210 @@
+﻿function,weight,percent
+"ntoskrnl.exe!""Unknown""",20479700,37.73654021724736
+serial_stress.exe!vterm_screen_get_cells,3942454,7.264489905889623
+"ntdll.dll!""Unknown""",3625465,6.680395991089845
+serial_stress.exe!NovaTerm::VTAdapter::Impl::syncRegion,3331999,6.139646296934427
+"evsbc9.sys!""Unknown""",2881209,5.309006445543394
+"Qt6Core.dll!""Unknown""",2755938,5.0781781555999475
+"vcruntime140.dll!""Unknown""",2290844,4.221181303312051
+serial_stress.exe!NovaTerm::`anonymous namespace'::populateCell,2090555,3.852122483916637
+"Qt6Gui.dll!""Unknown""",1859836,3.4269923881445754
+"nvwgf2umx.dll!""Unknown""",1255386,2.3132137813136566
+"win32kbase.sys!""Unknown""",1192633,2.1975831271413337
+serial_stress.exe!sb_pushline_from_row,695886,1.282261460159055
+"win32kfull.sys!""Unknown""",533048,0.9822110328629458
+"Qt6Widgets.dll!""Unknown""",487127,0.8975955520055008
+serial_stress.exe!putglyph,456311,0.8408130198719883
+serial_stress.exe!`anonymous namespace'::rowContentIdentity,358794,0.6611251244259949
+serial_stress.exe!on_text,345700,0.6369977076374367
+serial_stress.exe!TerminalRenderer::fillInstance,334773,0.6168632732973897
+"nvlddmkm.sys!""Unknown""",325111,0.599059767797844
+serial_stress.exe!QtPrivate::QMovableArrayOps<NovaTerm::RenderCommand>::emplace<NovaTerm::RenderCommand const &>,273155,0.5033240058712873
+"KernelBase.dll!""Unknown""",264050,0.4865468461141601
+"serial_stress.exe!std::vector<NovaTerm::Cell,std::allocator<NovaTerm::Cell> >::_Resize_reallocate<std::_Value_init_tag>",256741,0.4730790525210967
+"Qt6SerialPort.dll!""Unknown""",234414,0.4319386191441194
+serial_stress.exe!TerminalRenderer::appendCellCommands,232121,0.4277134651273053
+"win32k.sys!""Unknown""",221200,0.40759008657622503
+serial_stress.exe!erase_internal,218368,0.40237175418389287
+"serial_stress.exe!qHashMulti<unsigned __int64,unsigned __int64,QString,int,int,int,int,int,unsigned __int64,bool,bool,bool,unsigned char,unsigned char>",215382,0.39686965654141276
+"serial_stress.exe!QHashPrivate::Data<QHashPrivate::Node<NovaTerm::GlyphKey,NovaTerm::GlyphCache::Entry> >::findBucket<NovaTerm::GlyphKey>",179268,0.33032486275021117
+serial_stress.exe!TerminalRenderer::makeSolidCommand,165210,0.3044211492009862
+serial_stress.exe!NovaTerm::GlyphCache::findEntry,163983,0.30216024035727446
+serial_stress.exe!NovaTerm::FontManager::makeKeyAndSelection,150232,0.276822214676851
+serial_stress.exe!NovaTerm::mergeRowCommandsIncremental<`TerminalRenderer::rebuildCommandRow'::`2'::<lambda_1> >,135190,0.2491053517370699
+serial_stress.exe!memset,134797,0.24838119755974414
+serial_stress.exe!TerminalRenderer::assembleSpanInstances,127069,0.23414134137049883
+"ucrtbase.dll!""Unknown""",109245,0.20129827761310898
+"dxgmms2.sys!""Unknown""",97327,0.17933779546204454
+"d3d11.dll!""Unknown""",96731,0.17823958709134188
+"user32.dll!""Unknown""",95919,0.17674337031783421
+"win32u.dll!""Unknown""",92866,0.17111781636522475
+serial_stress.exe!NovaTerm::GlyphAtlas::isValid,91661,0.16889744541439133
+serial_stress.exe!NovaTerm::LineLayout::wrapLine,90973,0.16762971494619766
+"kernel32.dll!""Unknown""",80465,0.14826734320233248
+serial_stress.exe!vterm_unicode_width,71084,0.13098161715273227
+"dxgkrnl.sys!""Unknown""",61573,0.11345634900885128
+serial_stress.exe!damagerect,57784,0.10647461827631369
+serial_stress.exe!decode_usascii,52047,0.09590344139255327
+"msvcp140.dll!""Unknown""",51137,0.0942266467325878
+serial_stress.exe!TerminalRenderer::terminalColorToQColor,43371,0.07991677054655269
+serial_stress.exe!NovaTerm::VTAdapter::Impl::onScrollbackPush,43000,0.07923315426210523
+serial_stress.exe!NovaTerm::RendererSnapshot::cellAt,42367,0.07806676852610726
+"WppRecorder.sys!""Unknown""",41574,0.07660556175099448
+serial_stress.exe!TerminalRenderer::uploadCommands,39580,0.07293135455102616
+serial_stress.exe!TerminalRenderer::ensureGlyph,39514,0.0728097408723913
+serial_stress.exe!QHashPrivate::calculateHash<NovaTerm::GlyphKey>,38022,0.0700605346826457
+serial_stress.exe!NovaTerm::GlyphAtlas::touch,32990,0.060788413002484915
+serial_stress.exe!``anonymous namespace'::Sender::start'::`2'::<lambda_1>::operator(),25539,0.0470589657372071
+"Ntfs.sys!""Unknown""",25152,0.04634586734884816
+serial_stress.exe!vterm_unicode_is_combining,24973,0.04601603631133846
+serial_stress.exe!vterm_input_write,22037,0.0406060702435817
+serial_stress.exe!NovaTerm::VTAdapter::Impl::feedWithPassthrough,19291,0.03554620415977377
+serial_stress.exe!NovaTerm::ChunkedScrollback::lineAt,17078,0.031468460662517045
+serial_stress.exe!TerminalCore::Runtime::workerMain,17044,0.03140581119170515
+serial_stress.exe!NovaTerm::GlyphCache::find,17041,0.03140028329722175
+"dxgi.dll!""Unknown""",16140,0.029740072320706475
+"FLTMGR.SYS!""Unknown""",15000,0.02763947241701345
+serial_stress.exe!NovaTerm::RowBlockDamageTracker::mergeSpans,15000,0.02763947241701345
+serial_stress.exe!NovaTerm::RowBlockDamageTracker::reconcileRow,14986,0.027613675576090905
+serial_stress.exe!NovaTerm::ChunkedScrollback::append,13051,0.024048183634296172
+"qwindows.dll!""Unknown""",13023,0.02399658995245108
+"winmm.dll!""Unknown""",13000,0.023954209428078323
+serial_stress.exe!NovaTerm::VTAdapter::Impl::syncLineInfo,13000,0.023954209428078323
+serial_stress.exe!NovaTerm::ChunkedScrollback::enforceLimits,11000,0.020268946439143197
+serial_stress.exe!QList<NovaTerm::RenderCommand>::clear,10498,0.01934394542892048
+"serial_stress.exe!std::vector<NovaTerm::DisplayLine,std::allocator<NovaTerm::DisplayLine> >::_Emplace_reallocate<NovaTerm::DisplayLine const &>",10000,0.018426314944675636
+"DWrite.dll!""Unknown""",9923,0.018284432319601633
+serial_stress.exe!TerminalRenderer::updateHistoryLayout,9000,0.01658368345020807
+"serial_stress.exe!std::_Func_impl_no_alloc<`TerminalCore::Runtime::createAdapter'::`2'::<lambda_3>,void,NovaTerm::CursorState const &>::_Do_call",8000,0.014741051955740507
+"watchdog.sys!""Unknown""",7104,0.01309005413669757
+"""Unknown""!""Unknown""",7047,0.012985024141512919
+"serial_stress.exe!std::vector<NovaTerm::Cell,std::allocator<NovaTerm::Cell> >::~vector<NovaTerm::Cell,std::allocator<NovaTerm::Cell> >",7037,0.012966597826568244
+serial_stress.exe!on_control,7000,0.012898420461272944
+serial_stress.exe!NovaTerm::RowBlockDamageTracker::reset,7000,0.012898420461272944
+serial_stress.exe!NovaTerm::BoundedByteQueue::take,7000,0.012898420461272944
+serial_stress.exe!__security_check_cookie,6958,0.012821029938505306
+"Wdf01000.sys!""Unknown""",6000,0.011055788966805381
+serial_stress.exe!moverect_internal,6000,0.011055788966805381
+serial_stress.exe!scrollrect,6000,0.011055788966805381
+serial_stress.exe!QArrayDataPointer<InteractiveStreamEvent>::reallocateAndGrow,6000,0.011055788966805381
+serial_stress.exe!TerminalCore::writeInput,6000,0.011055788966805381
+serial_stress.exe!QArrayDataPointer<NovaTerm::DirtyRegion>::reallocateAndGrow,5079,0.009358725360400754
+"sysdiag.sys!""Unknown""",5042,0.009290547995105454
+"BTHport.sys!""Unknown""",5000,0.009213157472337818
+"serial_stress.exe!std::_Sort_unchecked<QList<NovaTerm::DirtyColumnSpan>::iterator,`NovaTerm::RowBlockDamageTracker::mergeSpans'::`2'::<lambda_2> >",5000,0.009213157472337818
+serial_stress.exe!ScrollbackBuffer::beginPushLine,5000,0.009213157472337818
+serial_stress.exe!ScrollbackBuffer::commitPushLine,5000,0.009213157472337818
+serial_stress.exe!NovaTerm::VTAdapter::Impl::onMoveCursor,5000,0.009213157472337818
+serial_stress.exe!`main'::`2'::<lambda_5>::operator(),5000,0.009213157472337818
+"serial_stress.exe!std::vector<NovaTerm::LogicalLine,std::allocator<NovaTerm::LogicalLine> >::_Tidy",5000,0.009213157472337818
+"uxtheme.dll!""Unknown""",4868,0.008969930115068098
+serial_stress.exe!vterm_scroll_rect,4808,0.008859372225400045
+"serial_stress.exe!std::_Func_impl_no_alloc<`TerminalCore::Runtime::createAdapter'::`2'::<lambda_2>,void,NovaTerm::DirtyRegion const &>::_Do_call",4763,0.008776453808149004
+serial_stress.exe!NovaTerm::RenderScheduler::schedule,4542,0.008369232247871674
+serial_stress.exe!TerminalCore::scrollbackLineCount,4045,0.007453444395121294
+"intelppm.sys!""Unknown""",4000,0.007370525977870254
+serial_stress.exe!SessionInputPump::forwardVisibleBytes,4000,0.007370525977870254
+serial_stress.exe!TerminalCore::columns,4000,0.007370525977870254
+serial_stress.exe!scroll,4000,0.007370525977870254
+"serial_stress.exe!std::vector<std::shared_ptr<std::vector<NovaTerm::Cell,std::allocator<NovaTerm::Cell> > const >,std::allocator<std::shared_ptr<std::vector<NovaTerm::Cell,std::allocator<NovaTerm::Cell> > const > > >::_Tidy",3951,0.007280237034641343
+"UCPD.sys!""Unknown""",3923,0.007228643352796251
+serial_stress.exe!NovaTerm::ChunkedScrollback::tailFrom,3920,0.007223115458312849
+serial_stress.exe!NovaTerm::RenderCommandBuffer::finishRow,3082,0.00567899026594903
+"gdi32.dll!""Unknown""",3077,0.005669777108476693
+"gameflt.sys!""Unknown""",3056,0.005631081847092874
+serial_stress.exe!TerminalRenderer::render,3008,0.005542635535358431
+"serial_stress.exe!QtPrivate::QCallableObject<`TerminalCore::Runtime::publishPendingSignals'::`2'::<lambda_1>,QtPrivate::List<>,void>::impl",3005,0.005537107640875028
+"SogouPY.ime!""Unknown""",3000,0.0055278944834026905
+serial_stress.exe!TerminalCore::Runtime::publishPendingSignals,3000,0.0055278944834026905
+serial_stress.exe!NovaTerm::VTAdapter::writeInput,3000,0.0055278944834026905
+serial_stress.exe!QArrayDataPointer<NovaTerm::DirtyRegion>::detachAndGrow,3000,0.0055278944834026905
+serial_stress.exe!TerminalRenderer::dropInvalidSelection,3000,0.0055278944834026905
+serial_stress.exe!NovaTerm::VTAdapter::Impl::onDamage,3000,0.0055278944834026905
+serial_stress.exe!TerminalRenderer::restoreScrollFromAnchor,3000,0.0055278944834026905
+serial_stress.exe!NovaTerm::RenderScheduler::armTimer,3000,0.0055278944834026905
+serial_stress.exe!NovaTerm::ScreenBuffer::setRowContinuation,3000,0.0055278944834026905
+serial_stress.exe!QArrayDataPointer<NovaTerm::DirtyColumnSpan>::reallocateAndGrow,3000,0.0055278944834026905
+"serial_stress.exe!QtPrivate::QCallableObject<`TerminalRenderer::TerminalRenderer'::`2'::<lambda_6>,QtPrivate::List<>,void>::impl",3000,0.0055278944834026905
+"serial_stress.exe!QtPrivate::QCallableObject<void (__cdecl QEventLoop::*)(void),QtPrivate::List<>,void>::impl",3000,0.0055278944834026905
+serial_stress.exe!_Mtx_unlock,3000,0.0055278944834026905
+serial_stress.exe!QList<QList<NovaTerm::DirtyColumnSpan> >::resize_internal,3000,0.0055278944834026905
+serial_stress.exe!_Query_perf_frequency,3000,0.0055278944834026905
+"serial_stress.exe!std::_Func_impl_no_alloc<`TerminalCore::Runtime::createAdapter'::`2'::<lambda_7>,void,int>::_Do_call",3000,0.0055278944834026905
+serial_stress.exe!NovaTerm::BoundedByteQueue::enqueue,2922,0.00538416922683422
+serial_stress.exe!QList<NovaTerm::DisplayLine>::remove,2735,0.005039597137368786
+"serial_stress.exe!QtPrivate::QCallableObject<`TerminalRenderer::TerminalRenderer'::`2'::<lambda_4>,QtPrivate::List<NovaTerm::DirtyRegion const &,unsigned __int64>,void>::impl",2035,0.0037497550912414914
+serial_stress.exe!NovaTerm::VTAdapter::Impl::onMoveRect,2033,0.0037460698282525563
+serial_stress.exe!TerminalRenderer::rebuildCommandRows,2026,0.0037331714077912834
+serial_stress.exe!TerminalRenderer::ensureVertexBuffer,2011,0.00370553193537427
+"ibtusb.sys!""Unknown""",2000,0.003685262988935127
+"qmodernwindowsstyle.dll!""Unknown""",2000,0.003685262988935127
+serial_stress.exe!QList<NovaTerm::DirtyColumnSpan>::push_back,2000,0.003685262988935127
+serial_stress.exe!NovaTerm::ChunkedScrollback::ensureActive,2000,0.003685262988935127
+serial_stress.exe!QArrayDataPointer<InteractiveStreamEvent>::allocateGrow,2000,0.003685262988935127
+serial_stress.exe!TerminalRenderer::publishScrollState,2000,0.003685262988935127
+serial_stress.exe!TerminalCore::rendererSnapshot,2000,0.003685262988935127
+serial_stress.exe!std::chrono::steady_clock::now,2000,0.003685262988935127
+serial_stress.exe!TerminalRenderer::rebuildCommandRow,2000,0.003685262988935127
+serial_stress.exe!InteractiveStreamFramer::filterEcho,2000,0.003685262988935127
+serial_stress.exe!QArrayDataPointer<QByteArray>::~QArrayDataPointer<QByteArray>,2000,0.003685262988935127
+serial_stress.exe!QtPrivate::QMovableArrayOps<NovaTerm::DisplayLine>::emplace<NovaTerm::DisplayLine const &>,2000,0.003685262988935127
+serial_stress.exe!QList<NovaTerm::DirtyColumnSpan>::clear,2000,0.003685262988935127
+serial_stress.exe!operator new,2000,0.003685262988935127
+serial_stress.exe!QMetaObject::staticMetaObject<&QObject::staticMetaObject>,2000,0.003685262988935127
+serial_stress.exe!NovaTerm::RowSlotMap::isValidPermutation,2000,0.003685262988935127
+serial_stress.exe!NovaTerm::RenderScheduler::setViewport,2000,0.003685262988935127
+serial_stress.exe!QArrayDataPointer<NovaTerm::DirtyColumnSpan>::allocateGrow,2000,0.003685262988935127
+serial_stress.exe!NovaTerm::VTAdapter::flushDamage,2000,0.003685262988935127
+serial_stress.exe!NovaTerm::RenderCommandBuffer::row,1990,0.0036668366739904513
+"dwmapi.dll!""Unknown""",1974,0.0036373545700789703
+serial_stress.exe!TerminalRenderer::rebuildOverlays,1958,0.0036078724661674894
+serial_stress.exe!QArrayDataPointer<NovaTerm::DirtyRegion>::allocateGrow,1883,0.003469675104082422
+"USBXHCI.SYS!""Unknown""",1473,0.0027141961913507207
+serial_stress.exe!QList<TerminalRenderer::GpuInstance>::resize_internal,1392,0.002564943040298848
+"pci.sys!""Unknown""",1000,0.0018426314944675634
+"fileinfo.sys!""Unknown""",1000,0.0018426314944675634
+"ucx01000.sys!""Unknown""",1000,0.0018426314944675634
+"ExecutionContext.sys!""Unknown""",1000,0.0018426314944675634
+"HIDCLASS.SYS!""Unknown""",1000,0.0018426314944675634
+"rpcrt4.dll!""Unknown""",1000,0.0018426314944675634
+serial_stress.exe!QArrayDataPointer<NovaTerm::DirtyColumnSpan>::detachAndGrow,1000,0.0018426314944675634
+serial_stress.exe!HistoryLayout::remove,1000,0.0018426314944675634
+serial_stress.exe!TerminalCore::scrollbackChanged,1000,0.0018426314944675634
+serial_stress.exe!NovaTerm::RenderScheduler::mergePending,1000,0.0018426314944675634
+serial_stress.exe!QList<bool>::resize,1000,0.0018426314944675634
+"serial_stress.exe!std::vector<NovaTerm::DisplayLine,std::allocator<NovaTerm::DisplayLine> >::_Change_array",1000,0.0018426314944675634
+serial_stress.exe!QList<unsigned __int64>::fill,1000,0.0018426314944675634
+serial_stress.exe!TerminalRenderer::requestOverlayFrame,1000,0.0018426314944675634
+serial_stress.exe!QObject::event,1000,0.0018426314944675634
+serial_stress.exe!SerialTransport::readAvailable,1000,0.0018426314944675634
+serial_stress.exe!NovaTerm::ScreenBuffer::cellAt,1000,0.0018426314944675634
+"serial_stress.exe!QtPrivate::QCallableObject<`TerminalRenderer::TerminalRenderer'::`2'::<lambda_2>,QtPrivate::List<QList<NovaTerm::DirtyRegion> const &,bool,bool,unsigned __int64>,void>::impl",1000,0.0018426314944675634
+"serial_stress.exe!std::_Partition_by_pivot_unchecked<QList<unsigned __int64>::iterator,std::less<void> >",1000,0.0018426314944675634
+serial_stress.exe!vterm_state_get_lineinfo,1000,0.0018426314944675634
+serial_stress.exe!NovaTerm::RenderScheduler::submitFrame,1000,0.0018426314944675634
+"serial_stress.exe!std::_Default_allocator_traits<std::allocator<NovaTerm::LogicalLine> >::construct<NovaTerm::LogicalLine,NovaTerm::LogicalLine const &>",1000,0.0018426314944675634
+serial_stress.exe!InteractiveStreamFramer::consume,1000,0.0018426314944675634
+serial_stress.exe!ScrollbackBuffer::lineCount,1000,0.0018426314944675634
+serial_stress.exe!malloc,1000,0.0018426314944675634
+"serial_stress.exe!QtPrivate::QCallableObject<``TerminalRenderer::TerminalRenderer'::`2'::<lambda_6>::operator()'::`2'::<lambda_1>,QtPrivate::List<>,void>::impl",1000,0.0018426314944675634
+serial_stress.exe!TerminalRenderer::updatePlacementBuffer,1000,0.0018426314944675634
+serial_stress.exe!SessionInputPump::acceptBytes,1000,0.0018426314944675634
+"serial_stress.exe!QtPrivate::QCallableObject<`main'::`2'::<lambda_5>,QtPrivate::List<>,void>::impl",1000,0.0018426314944675634
+serial_stress.exe!erase_user,1000,0.0018426314944675634
+serial_stress.exe!SessionInputPump::interactiveBytes,1000,0.0018426314944675634
+serial_stress.exe!operator delete,1000,0.0018426314944675634
+serial_stress.exe!memmove,1000,0.0018426314944675634
+serial_stress.exe!ITransport::readyRead,1000,0.0018426314944675634
+serial_stress.exe!QWidget::metric,1000,0.0018426314944675634
+serial_stress.exe!TerminalRenderer::ensurePipeline,1000,0.0018426314944675634
+serial_stress.exe!vterm_screen_flush_damage,1000,0.0018426314944675634
+serial_stress.exe!movecursor,1000,0.0018426314944675634
+"serial_stress.exe!std::vector<bool,std::allocator<bool> >::_Insert_x",1000,0.0018426314944675634
+serial_stress.exe!std::_Vb_iterator<std::_Wrap_alloc<std::allocator<unsigned int> > >::operator+,1000,0.0018426314944675634
+"serial_stress.exe!std::vector<unsigned __int64,std::allocator<unsigned __int64> >::_Resize_reallocate<std::_Value_init_tag>",1000,0.0018426314944675634
+serial_stress.exe!TerminalCore::screenSize,1000,0.0018426314944675634
+"serial_stress.exe!std::_Ref_count_obj2<std::vector<NovaTerm::Cell,std::allocator<NovaTerm::Cell> > const >::_Destroy",998,0.0018389462314786283
+"nvppex.dll!""Unknown""",989,0.0018223625480284203
+serial_stress.exe!free,976,0.0017984083386003418
+serial_stress.exe!NovaTerm::GlyphAtlas::takeUploads,975,0.0017965657071058743
+"stornvme.sys!""Unknown""",571,0.0010521425833409787
