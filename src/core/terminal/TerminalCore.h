@@ -175,6 +175,8 @@ public:
     // ── 滚动历史 ──
     int scrollbackLineCount() const;
     bool getScrollbackCell(int lineIndex, int col, NovaTerm::Cell& out) const;
+    static constexpr int UnlimitedScrollbackLines = -1;
+    /** @brief -1 不限行数，0 临时禁用；字节预算始终生效。 */
     void setScrollbackLimit(int lines);
     void clearScrollback();
     /**

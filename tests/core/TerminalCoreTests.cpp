@@ -46,6 +46,7 @@ private slots:
     void publishesTerminalTitle();
     void cursorPropertiesPublishWithoutFollowingMovement();
     void scrollbackKeepsNewestLines();
+    void defaultHistoryKeepsEarliestLogBeyondTenThousandLines();
     void clearAllHonorsByteBarrierAndPreservesModes();
     void clearAllReportsFullQueueAndAllowsRetry();
     void softWrappedRowsBecomeOneLogicalHistoryLine();
@@ -754,6 +755,27 @@ void TerminalCoreTests::cursorPropertiesPublishWithoutFollowingMovement()
     QVERIFY(core.waitForIdle());
     QTRY_VERIFY(cursorSpy.size() > publications);
     QVERIFY(!core.cursorState().visible);
+}
+
+void TerminalCoreTests::defaultHistoryKeepsEarliestLogBeyondTenThousandLines()
+{
+    TerminalCore core(80, 24);
+    QByteArray input;
+    for (int index = 0; index < 12000; ++index)
+        input += "history-" + QByteArray::number(index).rightJustified(5, '0') + "\r\n";
+    QVERIFY(core.writeInput(input).fullyAccepted());
+    QVERIFY(core.waitForIdle(10000));
+    const auto history = core.scrollbackSnapshot();
+    QCOMPARE(history.lineCount(), NovaTerm::isize(11977));
+    QCOMPARE(history.firstLineId(), NovaTerm::LineId(1));
+    std::vector<bool> dirty(24, true);
+    const auto viewport = core.rendererSnapshot(dirty, int(history.lineCount()), history.firstLineId(), 0);
+    const auto* cell = viewport.cellAt(0, 0);
+    QVERIFY(cell); QCOMPARE(cell->chars[0], uint32_t('h'));
+    for (int column = 8; column < 13; ++column) {
+        const auto* digit = viewport.cellAt(0, column);
+        QVERIFY(digit); QCOMPARE(digit->chars[0], uint32_t('0'));
+    }
 }
 
 void TerminalCoreTests::scrollbackKeepsNewestLines()

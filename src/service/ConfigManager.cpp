@@ -123,9 +123,6 @@ bool validateKnownValueRanges(QJsonObject& root,
     repaired |= repairIntegerRange(
         terminal, QStringLiteral("fontSize"), 6, 96,
         defaultTerminal.value(QStringLiteral("fontSize")).toInt());
-    repaired |= repairIntegerRange(
-        terminal, QStringLiteral("scrollbackLines"), 100, 1000000,
-        defaultTerminal.value(QStringLiteral("scrollbackLines")).toInt());
     if (terminal.value(QStringLiteral("fontFamily")).toString().trimmed()
         .isEmpty()) {
         terminal[QStringLiteral("fontFamily")] = defaultTerminal.value(
@@ -252,7 +249,6 @@ QJsonObject ConfigManager::defaults()
             {"fontSize", 12},
             {"appearance", "dark"},
             {"colorScheme", "Campbell"},
-            {"scrollbackLines", 10000},
             // OSC 52 读取查询默认关闭：应答等于允许远端程序读走本机剪贴板。
             {"osc52ClipboardRead", false}
         }},
@@ -308,6 +304,12 @@ void ConfigManager::load(const QString& filePath)
     // 先修复已知字段的类型，再填充缺失字段并校验关键取值范围。
     // 未识别的扩展字段原样保留，兼顾向前兼容与损坏配置恢复。
     TerminalSchemeStore::migrate(_root);
+    // 历史不再按固定行数淘汰，移除旧键，避免旧配置重新启用行数上限。
+    if (_root.value(QStringLiteral("terminal")).isObject()) {
+        auto terminal = _root.value(QStringLiteral("terminal")).toObject();
+        terminal.remove(QStringLiteral("scrollbackLines"));
+        _root[QStringLiteral("terminal")] = terminal;
+    }
     const QJsonObject def = defaults();
     bool repaired = validateKnownValueTypes(def, _root);
     applyDefaults(def, _root);

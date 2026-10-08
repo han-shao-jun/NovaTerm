@@ -243,7 +243,7 @@ public:
     Runtime(TerminalCore* owner, int columns, int rows)
         : owner(owner)
         , screen(columns, rows)
-        , scrollback(1000)
+        , scrollback()
         , bytes(QueueCapacity)
     {
         rowRevisions.assign(std::size_t(rows), 0);

@@ -16,7 +16,8 @@ using ScrollbackCell = NovaTerm::Cell;
 // 唯一后端为 ChunkedScrollback；本类不双写已弃用的逐行环形缓冲。
 class ScrollbackBuffer {
 public:
-    explicit ScrollbackBuffer(int maxLines = 1000);
+    static constexpr int UnlimitedLines = int(NovaTerm::ChunkedScrollback::UnlimitedLines);
+    explicit ScrollbackBuffer(int maxLines = UnlimitedLines);
 
     /**
      * @brief 推入一行 Cell（硬换行）。

@@ -1068,9 +1068,12 @@ updateContentHeight()`）。附带的两个小坑：定时重建内容时旧控�
 超时轮询则会重新引入约 200 次/秒的空闲 futex 唤醒。回归测试
 `boundedByteQueueWakesIdleConsumer`，命令路径由 `resizesScreen` 等 Core 测试覆盖。
 
-**`scrollbackLines` 配置要显式接线**：`ConfigManager` 只校验存储该键，核心构造
-默认 1000 行。必须在 `TerminalView` 创建 core 后 `setScrollbackLimit(配置值)`，
-否则四种 Transport 的历史上限恒为 1000、用户设置形同虚设（`configuredScrollbackLines()`）。
+**历史默认不限行数（2026-10-08）**：`UnlimitedLines=-1`；0 仍用于临时禁用，
+正值只用于显式有限容量策略和测试。四种 Transport 的 Core 默认均不限行数，
+LocalShell 启动后的恢复也必须用 -1，不能恢复旧的 1000/10000 行上限。
+`ConfigManager::load` 移除已弃用的 `terminal.scrollbackLines`，保留其他扩展键。
+历史仍受 256 MiB 保守记账字节预算约束，达到预算后淘汰最早内容，不能写成
+“历史永不丢失”或“内存无限增长”。
 
 **`std::vector::size()` 是无符号，与 `isize`/`int` 比较要显式转换**：去 Qt 后核心
 容器从 `QVector`(有符号 `qsizetype`) 换成 `std::vector`(无符号 `size_t`)。诸如

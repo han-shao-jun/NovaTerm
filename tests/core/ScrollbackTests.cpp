@@ -30,6 +30,9 @@ private slots:
     void regexGuardsAndResultLimitAreEnforced();
     void destroyingBusyWorkersIsBounded();
     void tailFromReturnsIncrementalTail();
+    void defaultHistoryPreservesOldestPastFormerLineLimit();
+    void unlimitedHistoryStillEnforcesByteBudget();
+    void unlimitedHistoryCanReplaceExplicitLineLimit();
 };
 
 namespace {
@@ -47,6 +50,46 @@ NovaTerm::LogicalLine textLine(const QString& text)
 }
 
 } // namespace
+
+void ScrollbackTests::defaultHistoryPreservesOldestPastFormerLineLimit()
+{
+    NovaTerm::ChunkedScrollback history;
+    const auto first = history.append(textLine(QStringLiteral("oldest")));
+    for (int index = 1; index < 100005; ++index)
+        history.append(NovaTerm::LogicalLine{});
+    const auto snapshot = history.snapshot();
+    QCOMPARE(snapshot.lineCount(), NovaTerm::isize(100005));
+    QVERIFY(snapshot.lineById(first));
+    QCOMPARE(snapshot.lineById(first)->cells[0].chars[0], uint32_t('o'));
+    QCOMPARE(history.statistics().evictedLines, NovaTerm::u64(0));
+}
+
+void ScrollbackTests::unlimitedHistoryStillEnforcesByteBudget()
+{
+    NovaTerm::ChunkedScrollback history(-1, 8192, 16);
+    const auto first = history.append(textLine(QStringLiteral("budget")));
+    for (int index = 0; index < 128; ++index)
+        history.append(textLine(QStringLiteral("budget")));
+    const auto snapshot = history.snapshot();
+    QVERIFY(snapshot.lineCount() > 0);
+    QVERIFY(!snapshot.lineById(first));
+    QVERIFY(history.statistics().evictedLines > 0);
+    QVERIFY(history.statistics().effectiveBytes <= 8192);
+}
+
+void ScrollbackTests::unlimitedHistoryCanReplaceExplicitLineLimit()
+{
+    NovaTerm::ChunkedScrollback history(2, 1024 * 1024, 4);
+    history.append(textLine(QStringLiteral("a")));
+    const auto retained = history.append(textLine(QStringLiteral("b")));
+    history.append(textLine(QStringLiteral("c")));
+    history.setLimits(-1, 1024 * 1024);
+    history.append(textLine(QStringLiteral("d")));
+    history.append(textLine(QStringLiteral("e")));
+    const auto snapshot = history.snapshot();
+    QCOMPARE(snapshot.lineCount(), NovaTerm::isize(4));
+    QVERIFY(snapshot.lineById(retained));
+}
 
 void ScrollbackTests::chunkEvictionKeepsSnapshotsStable()
 {

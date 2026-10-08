@@ -22,7 +22,7 @@ constexpr isize ChunkAllocationOverhead = 64;
 
 ChunkedScrollback::ChunkedScrollback(isize maxLines, isize maxBytes,
                                      isize chunkLines)
-    : _maxLines(std::clamp<isize>(maxLines, 0, MaximumMaxLines))
+    : _maxLines(maxLines < 0 ? UnlimitedLines : std::min(maxLines, MaximumMaxLines))
     , _maxBytes(std::max<isize>(0, maxBytes))
     , _chunkLines(std::max<isize>(1, chunkLines))
 {
@@ -238,7 +238,7 @@ void ChunkedScrollback::evictOldest()
 void ChunkedScrollback::enforceLimits()
 {
     while (_lineCount > 0
-           && (_lineCount > _maxLines || _effectiveBytes > _maxBytes)) {
+           && ((_maxLines >= 0 && _lineCount > _maxLines) || _effectiveBytes > _maxBytes)) {
         evictOldest();
     }
 }
@@ -323,7 +323,7 @@ void ChunkedScrollback::clear()
 
 void ChunkedScrollback::setLimits(isize maxLines, isize maxBytes)
 {
-    _maxLines = std::clamp<isize>(maxLines, 0, MaximumMaxLines);
+    _maxLines = maxLines < 0 ? UnlimitedLines : std::min(maxLines, MaximumMaxLines);
     _maxBytes = std::max<isize>(0, maxBytes);
     enforceLimits();
 }

@@ -5,7 +5,7 @@
  * 终端活动屏幕上滚出的行追加到本对象。为平衡追加吞吐与快照共享开销，
  * 行被分批打包为 ScrollbackChunk（默认 1024 行/块），active 块在
  * snapshot() 时封存为不可变 const 共享指针，多个快照可共享同一分块。
- * 当行数或字节数超过上限时，从最旧的分块开始淘汰。
+ * 默认不按行数淘汰；字节数超出预算时回收最旧内容。
  */
 #pragma once
 
@@ -22,7 +22,8 @@ class ChunkedScrollback
 {
 public:
     static constexpr isize DefaultChunkLines = 1024;
-    static constexpr isize DefaultMaxLines = 100'000;
+    static constexpr isize UnlimitedLines = -1;
+    static constexpr isize DefaultMaxLines = UnlimitedLines;
     static constexpr isize MaximumMaxLines = 1'000'000;
     static constexpr isize DefaultMaxBytes = 256 * 1024 * 1024;
 
@@ -100,6 +101,7 @@ public:
 
     const LogicalLine* lineAt(isize index) const;
     isize lineCount() const { return _lineCount; }
+    // -1 表示不限行数，0 禁用历史，正值为显式有限容量策略。
     isize maxLines() const { return _maxLines; }
     isize maxBytes() const { return _maxBytes; }
     isize chunkLines() const { return _chunkLines; }

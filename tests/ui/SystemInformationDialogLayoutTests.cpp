@@ -65,6 +65,14 @@ namespace {
 
 int schemePersistenceStep(const QString& path, int phase)
 {
+    if (phase == 5) {
+        QFile legacy(path);
+        if (!legacy.open(QIODevice::WriteOnly))
+            return 13;
+        const QByteArray data = QByteArrayLiteral("{\"terminal\":{\"scrollbackLines\":10000,\"futureHistoryField\":\"preserve\"}}");
+        if (legacy.write(data) != data.size())
+            return 14;
+    }
     auto& manager = ConfigManager::instance();
     // 资源路径用于模拟保存失败，不改权限，也不碰真实用户配置。
     manager.load(phase == 4 ? QStringLiteral(":/novaterm/terminal-color-schemes.json") : path);
@@ -140,6 +148,17 @@ int schemePersistenceStep(const QString& path, int phase)
             {QStringLiteral("schemes"), QVariantList{}}});
         return !saved && manager.root() == config && notifications == 0 ? 0 : 11;
     }
+    if (phase == 5) {
+        const auto terminal = config.value(QStringLiteral("terminal")).toObject();
+        QFile saved(path);
+        if (!saved.open(QIODevice::ReadOnly))
+            return 15;
+        const auto stored = QJsonDocument::fromJson(saved.readAll()).object()
+            .value(QStringLiteral("terminal")).toObject();
+        return !terminal.contains(QStringLiteral("scrollbackLines"))
+            && !stored.contains(QStringLiteral("scrollbackLines"))
+            && terminal.value(QStringLiteral("futureHistoryField")) == QStringLiteral("preserve") ? 0 : 16;
+    }
     return 12;
 }
 
@@ -149,7 +168,7 @@ int verifySchemePersistenceAcrossProcesses()
     if (!directory.isValid())
         return 1;
     const QString path = directory.filePath(QStringLiteral("novaterm.json"));
-    for (int phase = 0; phase < 5; ++phase) {
+    for (int phase = 0; phase < 6; ++phase) {
         QProcess child;
         child.setProcessChannelMode(QProcess::MergedChannels);
         child.start(QCoreApplication::applicationFilePath(), {

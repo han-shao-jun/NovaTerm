@@ -136,8 +136,7 @@ flowchart LR
     "credentialRef": "system-keychain-id"
   },
   "terminal": {
-    "termType": "xterm-256color",
-    "scrollbackLines": 100000
+    "termType": "xterm-256color"
   },
   "appearance": {
     "scheme": "dracula",

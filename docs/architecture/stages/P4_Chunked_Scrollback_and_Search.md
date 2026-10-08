@@ -42,10 +42,10 @@ live hard budget，而独立计入 `retainedBySnapshots`，释放 Snapshot 后�
 因此诊断时必须同时观察 live、retained 和 RSS，不能把 `effectiveBytes` 当作
 进程总内存。
 
-默认值为 100,000 行、256 MiB、1024 logical lines/chunk；最大可配置行数为
-1,000,000。单行超过 byte budget、0 行或 0 byte budget 都会立即淘汰。四个常量
-定义在 `ChunkedScrollback.h:24-27`（`DefaultChunkLines`、`DefaultMaxLines`、
-`MaximumMaxLines`、`DefaultMaxBytes`）。
+默认不限制历史行数，仍使用 256 MiB 预算和 1024 logical lines/chunk。
+`UnlimitedLines=-1` 表示不限行数；0 行或 0 byte budget 仍表示禁用，
+单行超过 byte budget 会被淘汰。正值行数策略保留供显式有界调用和测试，
+不作为终端默认限制。常量定义在 `ChunkedScrollback.h`。
 
 ## 目标
 
@@ -388,3 +388,16 @@ Snapshot 创建在本矩阵中没有可测 RSS 增量。retention probe 故意�
 Snapshot 并再追加 1024 行，因此总 RSS 增加约一个 8 MiB chunk，释放后由
 既有 retention 回落测试验证可回收。小 workload 的 throughput 包含抽样
 计时开销，更适合观察延迟；大 workload 才代表稳定吞吐。
+
+## 2026-10-08：取消终端历史行数上限
+
+持续日志的早期内容此前会在 Core 默认 1000 行或界面配置 10000 行处淘汰。
+现四种 Transport 共用不限行数的默认策略；旧 `terminal.scrollbackLines`
+在配置加载时迁移移除，LocalShell 临时禁用后恢复也使用不限行数策略。
+`-1` 表示不限行数、`0` 保持禁用语义；显式正值有限策略仍供内部调用和测试。
+256 MiB 保守记账预算不变，达到预算时仍回收最早内容，不保证无限期保留日志。
+
+回归先验证旧实现失败，再验证默认后端超过 100000 行不按行数淘汰、
+Core 输出 12000 行后最早记录仍可回看、不限行数时字节预算仍生效、
+有限策略切回不限行数及旧配置迁移。主程序完整构建与 Linux 21/21 CTest
+均通过。已被旧进程淘汰的内容无法通过此改动恢复。

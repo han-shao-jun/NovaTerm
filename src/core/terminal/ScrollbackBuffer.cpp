@@ -14,9 +14,9 @@
 using NovaTerm::isize;
 
 ScrollbackBuffer::ScrollbackBuffer(int maxLines)
-    : _storage(std::max(0, maxLines),
+    : _storage(maxLines < 0 ? UnlimitedLines : maxLines,
                NovaTerm::ChunkedScrollback::DefaultMaxBytes)
-    , _maxLines(std::max(0, maxLines))
+    , _maxLines(maxLines < 0 ? UnlimitedLines : maxLines)
 {
 }
 
@@ -39,7 +39,7 @@ std::vector<NovaTerm::Cell>& ScrollbackBuffer::beginPushLine(int columns,
 
 void ScrollbackBuffer::commitPushLine(bool continuation, bool hardBreak)
 {
-    if (_maxLines > 0) {
+    if (_maxLines != 0) {
         NovaTerm::LogicalLine line;
         line.cells = std::exchange(_pendingLine, {});
         line.hardBreak = hardBreak;
@@ -100,7 +100,7 @@ void ScrollbackBuffer::clear()
 
 void ScrollbackBuffer::setMaxLines(int max)
 {
-    _maxLines = std::clamp(max, 0,
+    _maxLines = max < 0 ? UnlimitedLines : std::min(max,
         int(NovaTerm::ChunkedScrollback::MaximumMaxLines));
     _storage.setLimits(_maxLines,
                        NovaTerm::ChunkedScrollback::DefaultMaxBytes);

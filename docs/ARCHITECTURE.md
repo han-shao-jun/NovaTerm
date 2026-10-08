@@ -489,8 +489,8 @@ QObject 门面、QtTextMatcher、QtKeyTranslator、metatype 注册）**尚未创
 | UI 线程 Parser 时间 | 0 ms | 入队操作本身另测 P95/P99 |
 | 输入端到端延迟 | < 10 ms | 报告 P50/P95/P99 |
 | 普通输出帧率 | 60 FPS | 支持 120/144 Hz 配置 |
-| 默认 Scrollback | 100,000 行 | 可配置至 1,000,000 行 |
-| 内存 | 有明确预算 | 同时按行数和 bytes 淘汰 |
+| 默认 Scrollback | 不限制历史行数 | 四种 Transport 共用此默认策略，旧 scrollbackLines 配置已弃用 |
+| 内存 | 有明确预算 | 历史仍按 256 MiB 保守记账预算淘汰最早内容 |
 
 所有性能结果必须注明 OS、CPU、GPU、Qt、编译器、Release 配置、数据集、时长和统计口径。
 

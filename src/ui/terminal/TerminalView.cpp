@@ -63,17 +63,6 @@ TransportKind transportKindOf(ITransport* transport)
 
 } // namespace
 
-// 读取用户配置的滚动历史行数（terminal.scrollbackLines）。缺失或越界时
-// 回退到 1000。ConfigManager 已把该键钳制在 [100, 1000000]。
-static int configuredScrollbackLines()
-{
-    const QJsonObject terminal = ConfigManager::instance().root()
-        .value(QStringLiteral("terminal")).toObject();
-    const QJsonValue value = terminal.value(QStringLiteral("scrollbackLines"));
-    const int lines = value.toInt(1000);
-    return lines > 0 ? lines : 1000;
-}
-
 // 是否应答 OSC 52 读取查询（terminal.osc52ClipboardRead，默认 false）。
 // 应答等于允许远端程序读走本机剪贴板，保守默认关闭。
 static bool configuredOsc52ClipboardRead()
@@ -113,9 +102,7 @@ TerminalView::TerminalView(TerminalSession* session, QWidget* parent)
     } else {
         ownedCore = std::make_unique<TerminalCore>(kDefaultCols, kDefaultRows);
         _core = ownedCore.get();
-        // 应用用户配置的滚动历史上限（此前该配置从未被读取，实际恒为
-        // 构造默认的 1000 行）。SSH/Telnet/Serial 也经此路径受益。
-        _core->setScrollbackLimit(configuredScrollbackLines());
+        // Core 默认不限历史行数，四种 Transport 共用字节预算。
     }
     _latestResizeColumns = _core->columns();
     _latestResizeRows = _core->rows();
@@ -441,9 +428,8 @@ void TerminalView::startLocalShell(const LocalShellConfig& config)
     // Core 的 resize 异步执行，此处不能用尚未更新的模型尺寸覆盖目标。
 
     // ── 临时禁用 scrollback 以消除启动时滚动条异常 ──────────
-    // 恢复时用用户配置的行数，而非硬编码 1000（旧实现取
-    // max(1000, 当前行数)，启动时无历史故恒为 1000，配置形同虚设）。
-    const int savedHistorySize = configuredScrollbackLines();
+    // 恢复不限行数策略，不能重新引入旧配置的固定行数上限。
+    const int savedHistorySize = TerminalCore::UnlimitedScrollbackLines;
     _core->setScrollbackLimit(0);
 
     // 通过统一的 ITransport 路径桥接
