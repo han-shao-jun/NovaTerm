@@ -14,6 +14,7 @@
 #include "transport/SerialTransport.h"
 #include "session/transfer/SerialFileTransferController.h"
 #include "filetransfer/XmodemEngine.h"
+#include "SerialLrzszTestSupport.h"
 #include <QSocketNotifier>
 #include <QTimer>
 #ifdef Q_OS_LINUX
@@ -124,7 +125,10 @@ class SessionTests final : public QObject
     Q_OBJECT
 private slots:
     void serialAutomaticReconnect();
+    void realSerialSessionUsesExistingPumpForFileTransfer_data();
     void realSerialSessionUsesExistingPumpForFileTransfer();
+    void serialLrzszSizeMatrix_data();
+    void serialLrzszSizeMatrix();
     void automaticReconnectDisabledForZeroAndOtherProtocols();
     void lifecycleReachesRunningThenClosed();
     void manualDisconnectKeepsTransportReconnectable_data();
@@ -198,9 +202,20 @@ void SessionTests::localScriptProviderWritesExactlyRequestedPath()
     QCOMPARE(file.readAll(), request.content);
 }
 
+void SessionTests::serialLrzszSizeMatrix_data() { SerialLrzszTests::data(); }
+void SessionTests::serialLrzszSizeMatrix() { SerialLrzszTests::run(); }
+
+void SessionTests::realSerialSessionUsesExistingPumpForFileTransfer_data()
+{
+    QTest::addColumn<bool>("cancelTransfer");
+    QTest::newRow("complete") << false;
+    QTest::newRow("protocol-cancel-keeps-session") << true;
+}
+
 void SessionTests::realSerialSessionUsesExistingPumpForFileTransfer()
 {
 #ifdef Q_OS_LINUX
+    QFETCH(bool, cancelTransfer);
     const int descriptor = ::posix_openpt(O_RDWR | O_NOCTTY | O_NONBLOCK);
     QVERIFY(descriptor >= 0);
     QFile masterOwner;
@@ -226,12 +241,18 @@ void SessionTests::realSerialSessionUsesExistingPumpForFileTransfer()
     auto* controller = session.serialFileTransfer();
     QVERIFY(controller);
     QSignalSpy finished(controller, &SerialFileTransferController::finished);
+    QSignalSpy disconnected(&session, &TerminalSession::disconnected);
+    const auto generation = session.statistics().generation;
     SerialTransferRequest transfer;
     transfer.protocol = SerialTransferProtocol::XmodemCrc;
     transfer.files = {source.fileName()};
     core.pasteText(QStringLiteral("old-command\r"));
     QVERIFY(controller->start(transfer));
     session.write(QByteArrayLiteral("SHOULD_NOT_REACH_DEVICE"));
+    if (cancelTransfer) {
+        QTRY_VERIFY(!controller->progress().preparing);
+        controller->cancel();
+    }
     namespace FT = NovaTerm::FileTransfer;
     FT::XmodemEngine peer;
     FT::TransferRequest peerRequest;
@@ -281,10 +302,24 @@ void SessionTests::realSerialSessionUsesExistingPumpForFileTransfer()
     connect(&readable, &QSocketNotifier::activated, &tick, drive);
     tick.start();
     QTRY_VERIFY_WITH_TIMEOUT(!controller->isActive(), 10000);
-    tick.stop();
     QCOMPARE(finished.count(), 1);
-    QVERIFY(finished.front().at(0).toBool());
-    QCOMPARE(received, payload);
+    QCOMPARE(finished.front().at(0).toBool(), !cancelTransfer);
+    if (cancelTransfer) {
+        QCOMPARE(session.state(), SessionState::Running);
+        QCOMPARE(disconnected.size(), 0);
+        QCOMPARE(session.statistics().generation, generation);
+        QTRY_VERIFY(peer.progress().state == FT::State::Cancelled);
+        QCOMPARE(received.size(), 0);
+        const QByteArray prompt("_SERIAL_AFTER_TRANSFER");
+        QCOMPARE(::write(descriptor, prompt.constData(), static_cast<std::size_t>(prompt.size())),
+                 static_cast<ssize_t>(prompt.size()));
+        session.write(QByteArrayLiteral("NORMAL_AFTER_CANCEL"));
+        QTRY_VERIFY(wire.contains("NORMAL_AFTER_CANCEL"));
+        QTRY_VERIFY(core.terminalState().viewport.at(0).text.find("_SERIAL_AFTER_TRANSFER") != std::string::npos);
+    } else {
+        QCOMPARE(received, payload);
+    }
+    tick.stop();
     QVERIFY(wire.contains("old-command"));
     QVERIFY(!wire.contains("SHOULD_NOT_REACH_DEVICE"));
     QVERIFY(core.waitForIdle());

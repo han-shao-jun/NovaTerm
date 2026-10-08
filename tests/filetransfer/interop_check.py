@@ -144,7 +144,7 @@ def main():
     parser.add_argument("--trace", action="store_true")
     parser.add_argument("--skip-known-lrzsz-bugs", action="store_true",
                         help="显式跳过 lrzsz 0.12.20 CRC16 空文件发送崩溃用例")
-    parser.add_argument("--large", action="store_true", help="另外传输 1/10 MiB 文件")
+    parser.add_argument("--large", action="store_true", help="另外传输 64 KiB、1/5/10 MiB 四档文件")
     args = parser.parse_args()
     if not args.driver.is_file() or not all((args.lrzsz_dir / name).is_file() for name in ("lrz", "lsz")):
         parser.error("未运行：缺少 driver 或独立 lrzsz 对端")
@@ -152,15 +152,21 @@ def main():
                                   capture_output=True, text=True, check=True).stdout
     skip_legacy_empty = args.skip_known_lrzsz_bugs and "0.12.20" in peer_version
     modes = [args.protocol] if args.protocol else ["x-checksum", "x-crc", "x-1k", "y", "z", "z16"]
-    cases = [0, 127, 128, 129, 1023, 1024, 1025, 33793]
+    cases = [0, 1, 127, 128, 129, 1023, 1024, 1025, 8191, 8192, 8193, 33793]
     if args.large:
-        cases += [1024 * 1024, 10 * 1024 * 1024]
+        cases += [64 * 1024, 1024 * 1024, 5 * 1024 * 1024, 10 * 1024 * 1024]
     count = 0
     skipped = 0
     with tempfile.TemporaryDirectory(prefix="novaterm-protocol-interop-") as directory:
         root = Path(directory)
         for mode in modes:
-            for size in cases:
+            # X/Y 的一字节序号在 255→0 回绕，覆盖回绕前后及下一包。
+            mode_cases = set(cases)
+            if mode.startswith("x-") or mode == "y":
+                block = 1024 if mode in ("x-1k", "y") else 128
+                mode_cases.update(packets * block + delta
+                                  for packets in (255, 256, 257) for delta in (-1, 0, 1))
+            for size in sorted(mode_cases):
                 source = root / f"source-{mode}-{size}.bin"
                 data = (bytes(range(256)) * ((size + 255) // 256))[:size]
                 if size >= 2:

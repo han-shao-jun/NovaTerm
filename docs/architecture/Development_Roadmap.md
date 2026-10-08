@@ -37,7 +37,7 @@ P9 的协议库与测试独立于 P6/P8，先按 XMODEM → YMODEM → ZMODEM �
 | P6 | 进行中：Transport 四种完成，会话编排采用「1 View 拥有 1 Session」已在生产；剩少量自包含项 | Session（View-owned）、SSH/Serial/Telnet | 每 View 一会话、完整生命周期 |
 | P7 | 已实现为内置功能（常驻监控 2026-09-06、系统信息窗口 2026-09-09）；性能量化验收待补 | SSH 远端资源监控面板、系统信息窗口 | 复用单连接、快慢通道隔离、不反压 Parser |
 | P8 | 首期与 v0.6 交互命令已实现；Linux 本机已测响应率（94.2%，未达 99%）、吞吐、RPC 与捕获 P95，GUI frame P95 无法判定；跨平台、桌面 Shell 与端到端帧延迟待完成 | stdio/本机 IPC、会话发现、输出读取、搜索、命令允许列表与执行 | 分级授权、危险行为拒绝、执行结果/取消/去重、MCP 互操作和性能验收通过 |
-| P9 | 协议库已实现；Linux 六项专项测试、ASan/UBSan 与独立对端 124 项互通通过；两个 lrzsz 上游缺陷用例跳过，Windows/macOS 与串口接线待完成 | 无 Qt 独立协议库，按 XMODEM→YMODEM→ZMODEM 实现 | 三协议双向测试与独立对端互通通过，无 Qt 链接、资源有界；串口接线另行设计 |
+| P9 | 协议库及串口 Session/手动传输窗口已接入；Linux 纯协议、门面、UI 与真实 QSerialPort/raw PTY 通路测试通过；Windows 取消发布竞争用例有已知失败，macOS 与真实 UART 文件传输验收待补 | 独立协议库、Session 输入分流/输出独占、异步文件门面与手动串口窗口 | 三协议双向测试与互通、单通路接线及有界停止；跨平台/真实 UART 文件验收明确收口 |
 
 **P9：文件传输协议**的范围、步骤和验收见
 [P9 阶段文档](stages/P9_File_Transfer_Protocols.md)。

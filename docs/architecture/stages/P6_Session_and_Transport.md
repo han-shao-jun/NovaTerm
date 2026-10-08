@@ -647,3 +647,24 @@ SSH SFTP 的脚本正文队列总量有 2 MiB 上限，SFTP 上传与终端 comm
 MCP 服务必须重验授权、epoch、Transport 目标、Profile、用户输入代际和提示符 generation，
 才可提交后续交互调用。脚本落盘不自动删除；用户输入会取消仍在途的 SFTP upload，任何写入
 或二次校验失败都不能提交调用命令。
+
+
+## 2026-10-07：P9 串口文件传输接线
+
+Session 按需拥有 `SerialFileTransferController`。现有 InputPump 分流活动
+X/Y/Z 协议字节，不另接 readyRead、不把文件载荷送入 VT/交互标记解析；
+InputArbiter 的准备/活动 Lease 与 MCP 互斥。旧 Core 输出和串口待写排空后
+才启动协议独占，普通输入与 Core 自动应答统一受门禁。
+
+SerialTransport 新增有界部分写、pending 查询和取消输出清理，保持字节层。
+控制器驱动独立协议与单任务 `nvterm-file` 文件线程，消息按代际失效，
+stopPump 在暂停入口后终止旧任务；关闭/重连不继续旧传输，GUI 不等待文件。
+成功的尾随文本返回原泵。用户/对端取消发送协议 CAN，保留 Session Running；
+文件/协议错误仍有限发送 CAN 后走 Session 断开路径。
+
+终端右键以“串口文件传输”打开非模态 Ela 窗口，协议和方向在窗口选择。
+Linux Session、串口门面和 UI 专项通过，真实 QSerialPort/raw PTY 通路由
+`SessionTests::realSerialSessionUsesExistingPumpForFileTransfer` 覆盖。
+Windows 取消发布竞争用例有已知失败；macOS/真实 UART 文件验收待补。
+实现、预算、停止策略与证据见 [P9](P9_File_Transfer_Protocols.md)。
+本增量不改变 P6 其余未完成项的阶段状态。

@@ -7,7 +7,9 @@
 #include <QFileInfo>
 #include <QTimer>
 #include <QElapsedTimer>
+#include <QEventLoop>
 #include <QPointer>
+#include <QThread>
 #include <fstream>
 #include "session/transfer/TransferFileWorker.h"
 #include "filetransfer/XmodemEngine.h"
@@ -260,6 +262,285 @@ private slots:
         QVERIFY(!done.at(0).at(0).toBool()); QCOMPARE(disconnected.size(), 1); QVERIFY(!reserved); QVERIFY(!controller.isActive());
         QVERIFY(attempts <= 10); // 无进展时使用有界间隔，不做零延迟 GUI 自旋。
     }
+    void negotiationCancellationKeepsConnection_data() {
+        QTest::addColumn<int>("protocol"); QTest::addColumn<bool>("sending"); QTest::addColumn<bool>("remote");
+        for (int protocol = 0; protocol != 5; ++protocol)
+            for (const bool sending : {false, true}) for (const bool remote : {false, true})
+                QTest::newRow(qPrintable(QString::number(protocol) + (sending ? "-send" : "-receive") + (remote ? "-peer-cancel" : "-user-cancel"))) << protocol << sending << remote;
+    }
+    void negotiationCancellationKeepsConnection() {
+        QFETCH(int, protocol); QFETCH(bool, sending); QFETCH(bool, remote);
+        QTemporaryDir directory; QFile source(directory.filePath("source"));
+        QVERIFY(source.open(QIODevice::WriteOnly)); source.write("payload"); source.close();
+        QByteArray transport, cancellationWire; int activated = 0; bool reserved = false, recording = false;
+        SerialFileTransferController::Channel channel;
+        channel.connected = [] { return true; }; channel.reserve = [&](quint64) { reserved = true; return true; };
+        channel.activate = [&] { ++activated; }; channel.release = [&] { reserved = false; };
+        channel.coreIdle = [] { return true; }; channel.pendingWriteBytes = [&] { return transport.size(); };
+        channel.clearWrites = [&] { transport.clear(); return true; };
+        channel.write = [&](QByteArrayView bytes) -> qint64 {
+            const auto count = std::min<qsizetype>(2, bytes.size());
+            transport.append(bytes.first(count));
+            if (recording) cancellationWire.append(bytes.first(count));
+            return count;
+        };
+        SerialFileTransferController controller(channel); QSignalSpy done(&controller, &SerialFileTransferController::finished);
+        QSignalSpy disconnected(&controller, &SerialFileTransferController::disconnectRequired);
+        QSignalSpy visible(&controller, &SerialFileTransferController::visibleRemainder);
+        std::unique_ptr<FT::ITransferEngine> peer;
+        if (protocol == 3) peer = std::make_unique<FT::YmodemEngine>();
+        else if (protocol == 4) peer = std::make_unique<FT::ZmodemEngine>();
+        else peer = std::make_unique<FT::XmodemEngine>();
+        FT::TransferRequest other; other.direction = sending ? FT::Direction::Receive : FT::Direction::Send;
+        other.files = {{"peer.bin", 7}}; other.expectedSize = 7;
+        if (protocol == 0) other.config.xmodemMode = FT::XmodemMode::Checksum;
+        if (protocol == 2) other.config.xmodemMode = FT::XmodemMode::OneK;
+        QVERIFY(peer->start(other, 0));
+        if (auto action = peer->takeAction()) QVERIFY(peer->completeOperation(action->id, {}, 0));
+        const auto initial = peer->pendingOutput();
+        QVERIFY(peer->acknowledgeOutput(std::size_t(initial.size), 0));
+        SerialTransferRequest request; request.protocol = SerialTransferProtocol(protocol);
+        request.direction = sending ? FT::Direction::Send : FT::Direction::Receive;
+        if (sending) request.files = {source.fileName()};
+        else { request.destination = protocol <= 2 ? directory.filePath("received.bin") : directory.path(); request.expectedSize = 7; }
+        QVERIFY(controller.start(request)); QTRY_COMPARE(activated, 1); recording = true;
+        if (remote) {
+            peer->cancel(1); const auto can = peer->pendingOutput();
+            const QByteArray bytes(can.data, can.size); QVERIFY(peer->acknowledgeOutput(std::size_t(can.size), 1));
+            controller.acceptBytes(bytes);
+        } else controller.cancel();
+        QTimer drain; drain.setInterval(2);
+        QObject::connect(&drain, &QTimer::timeout, &controller, [&] {
+            if (transport.isEmpty()) { controller.notifyWritable(); return; }
+            const QByteArray bytes = transport.first(1); transport.remove(0, 1);
+            peer->consume({bytes.constData(), bytes.size()}, 2); controller.notifyWritable();
+            const auto response = peer->pendingOutput();
+            if (!response.empty()) {
+                const QByteArray reply(response.data, response.size);
+                peer->acknowledgeOutput(std::size_t(response.size), 2); controller.acceptBytes(reply);
+            }
+        });
+        drain.start(); QTRY_COMPARE_WITH_TIMEOUT(done.size(), 1, 2500); drain.stop();
+        QCOMPARE(peer->progress().state, FT::State::Cancelled); QCOMPARE(cancellationWire, QByteArray(5, char(0x18)));
+        QCOMPARE(disconnected.size(), 0); QVERIFY(!controller.isActive()); QVERIFY(!reserved); QCOMPARE(visible.size(), 0);
+        const auto beforeLate = cancellationWire; controller.notifyWritable(); controller.acceptBytes("post-cancel text");
+        QCOMPARE(cancellationWire, beforeLate); QCOMPARE(visible.size(), 0); // 非活动数据由 Session 正常入站处理。
+        QVERIFY(controller.start(request)); QTRY_COMPARE(activated, 2); controller.abort("test cleanup");
+        QCOMPARE(disconnected.size(), 0);
+    }
+    void cancellationFinishesStartedXyPacket_data() {
+        QTest::addColumn<int>("protocol"); QTest::addColumn<bool>("peerCancelled");
+        for (int protocol = 0; protocol < 4; ++protocol) {
+            QTest::newRow(qPrintable(QString::number(protocol) + "-user-cancel")) << protocol << false;
+            QTest::newRow(qPrintable(QString::number(protocol) + "-peer-cancel")) << protocol << true;
+        }
+    }
+    void cancellationFinishesStartedXyPacket() {
+        QFETCH(int, protocol); QFETCH(bool, peerCancelled);
+        QTemporaryDir directory;
+        QFile source(directory.filePath("source.bin"));
+        QVERIFY(source.open(QIODevice::WriteOnly)); source.write(QByteArray(1300,'x')); source.close();
+        QByteArray transport;
+        bool reserved = false;
+        SerialFileTransferController::Channel channel;
+        channel.connected = [] { return true; };
+        channel.reserve = [&](quint64) { reserved = true; return true; };
+        channel.release = [&] { reserved = false; };
+        channel.activate = [] {}; channel.coreIdle = [] { return true; };
+        channel.pendingWriteBytes = [&] { return transport.size(); };
+        channel.clearWrites = [&] { transport.clear(); return true; };
+        channel.write = [&](QByteArrayView bytes) { transport.append(bytes); return bytes.size(); };
+        SerialFileTransferController controller(channel);
+        QSignalSpy disconnected(&controller, &SerialFileTransferController::disconnectRequired);
+        SerialTransferRequest request; request.protocol = SerialTransferProtocol(protocol); request.files = {source.fileName()};
+        QVERIFY(controller.start(request)); QTRY_VERIFY(!controller.progress().preparing);
+        std::unique_ptr<FT::ITransferEngine> peer;
+        if (protocol == 3) peer = std::make_unique<FT::YmodemEngine>();
+        else peer = std::make_unique<FT::XmodemEngine>();
+        FT::TransferRequest peerRequest;
+        peerRequest.config.xmodemMode = protocol == 0 ? FT::XmodemMode::Checksum
+            : protocol == 2 ? FT::XmodemMode::OneK : FT::XmodemMode::Crc;
+        QVERIFY(peer->start(peerRequest, 0));
+        while (const auto action = peer->takeAction()) QVERIFY(peer->completeOperation(action->id, {}, 0));
+        const auto init = peer->pendingOutput();
+        const QByteArray handshake(init.data, init.size);
+        QVERIFY(peer->acknowledgeOutput(std::size_t(init.size),0)); controller.acceptBytes(handshake);
+        QTRY_VERIFY(transport.size() > 17);
+        // 对端已读取包前缀，CAN 此时不能被当作剩余 payload；必须保留当前包尾。
+        const auto prefix = transport.first(17);
+        QCOMPARE(peer->consume({prefix.constData(), prefix.size()},0).consumed,std::size_t(17));
+        transport.remove(0,17); controller.notifyWritable();
+        if (peerCancelled) {
+            peer->cancel(1);
+            const auto abort = peer->pendingOutput();
+            const QByteArray sequence(abort.data,abort.size);
+            QVERIFY(peer->acknowledgeOutput(std::size_t(abort.size),1));
+            controller.acceptBytes(sequence);
+            // 对端已退出时，不能继续补文件包到它的命令行。
+            QCOMPARE(transport,QByteArray(5,char(0x18)));
+        } else controller.cancel();
+        int turns = 0;
+        while (!transport.isEmpty() && !FT::terminal(peer->progress().state) && ++turns < 16) {
+            const auto result = peer->consume({transport.constData(), transport.size()},0);
+            transport.remove(0,qsizetype(result.consumed));
+            while (const auto action = peer->takeAction()) QVERIFY(peer->completeOperation(action->id, {}, 0));
+        }
+        QCOMPARE(peer->progress().state,FT::State::Cancelled);
+        transport.clear(); controller.notifyWritable();
+        QTRY_VERIFY(!controller.isActive());
+        QCOMPARE(disconnected.size(),0); QVERIFY(!reserved);
+    }
+
+    void cancellationResponseAndQuietGrace_data() {
+        QTest::addColumn<bool>("sending"); QTest::addColumn<int>("reply");
+        QTest::newRow("verified-peer-can-then-prompt") << true << 0;
+        QTest::newRow("unverified-prompt-dropped") << true << 1;
+        QTest::newRow("binary-after-can-dropped") << true << 2;
+        QTest::newRow("oversize-prompt-dropped") << true << 3;
+        QTest::newRow("receiving-payload-remains-private") << false << 0;
+    }
+    void cancellationResponseAndQuietGrace() {
+        QFETCH(bool, sending); QFETCH(int, reply); QTemporaryDir directory;
+        QFile source(directory.filePath("source")); QVERIFY(source.open(QIODevice::WriteOnly)); source.write("data"); source.close();
+        int activated = 0; QByteArray sent, visible;
+        SerialFileTransferController::Channel channel;
+        channel.connected = [] { return true; }; channel.reserve = [](quint64) { return true; }; channel.release = [] {};
+        channel.activate = [&] { ++activated; }; channel.coreIdle = [] { return true; }; channel.pendingWriteBytes = [] { return 0; };
+        channel.clearWrites = [] { return true; }; channel.write = [&](QByteArrayView bytes) { sent.append(bytes); return bytes.size(); };
+        SerialFileTransferController controller(channel); QSignalSpy done(&controller, &SerialFileTransferController::finished);
+        QSignalSpy disconnected(&controller, &SerialFileTransferController::disconnectRequired);
+        QObject::connect(&controller, &SerialFileTransferController::visibleRemainder, &controller, [&](const QByteArray& bytes) { visible += bytes; });
+        SerialTransferRequest request; request.protocol = SerialTransferProtocol::XmodemCrc;
+        request.direction = sending ? FT::Direction::Send : FT::Direction::Receive;
+        if (sending) request.files = {source.fileName()}; else request.destination = directory.filePath("received.bin");
+        QVERIFY(controller.start(request)); QTRY_COMPARE(activated, 1); controller.cancel(); QVERIFY(controller.isActive());
+        QTest::qWait(80);
+        QByteArray response = reply == 1 ? QByteArray() : QByteArray(5, char(0x18));
+        response += reply == 2 ? QByteArray("\0binary", 7) : reply == 3 ? QByteArray(8193, 'p') : QByteArray("peer> ");
+        controller.acceptBytes(response); QTest::qWait(90); QVERIFY(controller.isActive());
+        QTRY_COMPARE_WITH_TIMEOUT(done.size(), 1, 1500); QCOMPARE(disconnected.size(), 0);
+        QCOMPARE(visible, sending && reply == 0 ? QByteArray("peer> ") : QByteArray());
+    }
+    void peerCancelKeepsVerifiedPrompt_data() {
+        QTest::addColumn<int>("protocol"); QTest::addColumn<int>("delivery");
+        QTest::addColumn<bool>("sending");
+        for (int protocol = 0; protocol < 5; ++protocol)
+            for (int delivery = 0; delivery < 6; ++delivery)
+                for (const bool sending : {true, false})
+                    QTest::newRow(qPrintable(QStringLiteral("%1-%2-%3").arg(protocol).arg(delivery)
+                        .arg(sending ? QStringLiteral("send") : QStringLiteral("receive"))))
+                        << protocol << delivery << sending;
+    }
+    void peerCancelKeepsVerifiedPrompt() {
+        QFETCH(int, protocol); QFETCH(int, delivery); QFETCH(bool, sending);
+        QTemporaryDir directory; QFile source(directory.filePath("source"));
+        QVERIFY(source.open(QIODevice::WriteOnly)); QCOMPARE(source.write("payload"), qint64(7)); source.close();
+        bool reserved = false; int activated = 0; QByteArray output, visible;
+        SerialFileTransferController::Channel channel;
+        channel.connected = [] { return true; }; channel.coreIdle = [] { return true; };
+        channel.reserve = [&](quint64) { reserved = true; return true; };
+        channel.release = [&] { reserved = false; }; channel.activate = [&] { ++activated; };
+        channel.pendingWriteBytes = [] { return 0; }; channel.clearWrites = [] { return true; };
+        channel.write = [&](QByteArrayView bytes) { output.append(bytes); return bytes.size(); };
+        SerialFileTransferController controller(channel);
+        QSignalSpy done(&controller, &SerialFileTransferController::finished);
+        QSignalSpy disconnected(&controller, &SerialFileTransferController::disconnectRequired);
+        QObject::connect(&controller, &SerialFileTransferController::visibleRemainder, &controller,
+                         [&](const QByteArray& bytes) { visible.append(bytes); });
+        SerialTransferRequest request; request.protocol = SerialTransferProtocol(protocol);
+        request.direction = sending ? FT::Direction::Send : FT::Direction::Receive;
+        if (sending) request.files = {source.fileName()};
+        else request.destination = protocol < 3 ? directory.filePath("received") : directory.path();
+        QVERIFY(controller.start(request)); QTRY_COMPARE(activated, 1);
+        const QByteArray can(protocol == 4 ? 5 : 2, char(0x18));
+        const QByteArray prompt("\r\npeer> ");
+        if (delivery == 0) controller.acceptBytes(can + prompt);
+        else if (delivery == 1) {
+            controller.acceptBytes(can.first(1));
+            controller.acceptBytes(can.sliced(1) + QByteArray(3, char(0x18)) + QByteArray(2, '\b') + "\r\npe");
+            controller.acceptBytes("er> ");
+        } else {
+            controller.acceptBytes(can);
+            if (delivery == 2) controller.acceptBytes(prompt);
+            else if (delivery == 3) controller.acceptBytes(QByteArray("\0binary", 7) + prompt);
+            else if (delivery == 4) controller.acceptBytes(QByteArray(8193, 'p'));
+            else controller.acceptBytes(prompt + QByteArray(1, char(0xff)));
+        }
+        QTRY_COMPARE_WITH_TIMEOUT(done.size(), 1, 1500);
+        QVERIFY(!done.front().front().toBool()); QVERIFY(!controller.isActive()); QVERIFY(!reserved);
+        QCOMPARE(disconnected.size(), 0); QCOMPARE(output.right(5), QByteArray(5, char(0x18)));
+        QCOMPARE(visible, sending && delivery < 3 ? prompt : QByteArray());
+    }
+    void cancellationDeadlineCrossedDuringChannelQueryStillFinishes() {
+        QTemporaryDir directory; QFile source(directory.filePath("source"));
+        QVERIFY(source.open(QIODevice::WriteOnly)); QCOMPARE(source.write("x"), qint64(1)); source.close();
+        bool reserved = false, crossDeadline = false, delayedQuery = false; int activated = 0;
+        SerialFileTransferController::Channel channel;
+        channel.connected = [] { return true; }; channel.coreIdle = [] { return true; };
+        channel.reserve = [&](quint64) { reserved = true; return true; };
+        channel.release = [&] { reserved = false; }; channel.activate = [&] { ++activated; };
+        channel.clearWrites = [] { return true; }; channel.write = [](QByteArrayView bytes) { return bytes.size(); };
+        channel.pendingWriteBytes = [&] {
+            if (crossDeadline) { crossDeadline = false; delayedQuery = true; QThread::msleep(100); }
+            return qint64(0);
+        };
+        SerialFileTransferController controller(channel);
+        QSignalSpy done(&controller, &SerialFileTransferController::finished);
+        QSignalSpy disconnected(&controller, &SerialFileTransferController::disconnectRequired);
+        SerialTransferRequest request; request.protocol = SerialTransferProtocol::XmodemCrc;
+        request.files = {source.fileName()}; QVERIFY(controller.start(request)); QTRY_COMPARE(activated, 1);
+        // 晚到字节保持静默窗口未结束；在总取消期限前模拟一次线程调度延迟，
+        // 使 pending 查询返回时总期限已过、静默期限仍在未来。
+        QTimer lateInput, crossing, timeout; QEventLoop loop;
+        lateInput.setInterval(20); crossing.setSingleShot(true); crossing.setTimerType(Qt::PreciseTimer);
+        timeout.setSingleShot(true);
+        QObject::connect(&lateInput, &QTimer::timeout, &controller, [&] { controller.acceptBytes(QByteArray(1, char(0))); });
+        QObject::connect(&crossing, &QTimer::timeout, &controller, [&] {
+            lateInput.stop(); crossDeadline = true; controller.acceptBytes(QByteArray(1, char(0)));
+        });
+        QObject::connect(&controller, &SerialFileTransferController::finished, &loop, &QEventLoop::quit);
+        QObject::connect(&timeout, &QTimer::timeout, &loop, &QEventLoop::quit);
+        controller.cancel(); lateInput.start(); crossing.start(1430); timeout.start(2600); loop.exec();
+        lateInput.stop(); crossing.stop(); timeout.stop();
+        QVERIFY(delayedQuery); QCOMPARE(done.size(), 1); QVERIFY(!controller.isActive()); QVERIFY(!reserved);
+        QCOMPARE(disconnected.size(), 0);
+    }
+    void stalledOrMalformedCancelRemainsBounded_data() {
+        QTest::addColumn<int>("mode");
+        QTest::newRow("write-zero") << 0;
+        QTest::newRow("accepted-but-stalled") << 1;
+        QTest::newRow("invalid-write-count") << 2;
+        QTest::newRow("transport-write-error") << 3;
+        QTest::newRow("continuous-delayed-input") << 4;
+    }
+    void stalledOrMalformedCancelRemainsBounded() {
+        QFETCH(int, mode); QTemporaryDir directory;
+        QFile file(directory.filePath("source")); QVERIFY(file.open(QIODevice::WriteOnly)); file.write("x"); file.close();
+        qint64 pending = 0; int activated = 0, clears = 0; bool reserved = false;
+        SerialFileTransferController::Channel channel;
+        channel.connected = [] { return true; }; channel.reserve = [&](quint64) { reserved = true; return true; };
+        channel.release = [&] { reserved = false; }; channel.activate = [&] { ++activated; };
+        channel.coreIdle = [] { return true; }; channel.pendingWriteBytes = [&] { return pending; };
+        channel.clearWrites = [&] { ++clears; pending = 0; return true; };
+        channel.write = [&](QByteArrayView bytes) -> qint64 {
+            if (mode == 0) return 0;
+            if (mode == 1) { pending += bytes.size(); return bytes.size(); }
+            if (mode == 2) return bytes.size() + 1;
+            if (mode == 3) return -1;
+            return bytes.size();
+        };
+        SerialFileTransferController controller(channel); QSignalSpy done(&controller, &SerialFileTransferController::finished);
+        QSignalSpy disconnected(&controller, &SerialFileTransferController::disconnectRequired);
+        QSignalSpy visible(&controller, &SerialFileTransferController::visibleRemainder);
+        SerialTransferRequest request; request.protocol = SerialTransferProtocol::XmodemCrc; request.files = {file.fileName()};
+        QVERIFY(controller.start(request)); QTRY_COMPARE(activated, 1); QElapsedTimer elapsed; elapsed.start(); controller.cancel();
+        QTimer delayed; delayed.setInterval(30);
+        QObject::connect(&delayed, &QTimer::timeout, &controller, [&] { controller.acceptBytes(QByteArray(64 * 1024, char(0))); controller.notifyWritable(); });
+        if (mode == 4) delayed.start();
+        QTRY_COMPARE_WITH_TIMEOUT(done.size(), 1, 2500); delayed.stop();
+        QVERIFY(elapsed.elapsed() < 2300); QCOMPARE(disconnected.size(), 0); QCOMPARE(visible.size(), 0); QVERIFY(!reserved);
+        QCOMPARE(pending, qint64(0)); QVERIFY(clears >= 1); controller.notifyWritable(); QCOMPARE(done.size(), 1);
+    }
     void cancellationDuringClosingDoesNotBecomeVisibleText() {
         QTemporaryDir directory; QByteArray output, visible;
         SerialFileTransferController::Channel channel;
@@ -275,7 +556,7 @@ private slots:
         controller.acceptBytes(QByteArray(1, char(4))); QTRY_VERIFY(output.contains(char(6)));
         controller.acceptBytes(QByteArray(2, char(0x18)));
         QTRY_COMPARE_WITH_TIMEOUT(done.size(), 1, 5000); QVERIFY(!done.at(0).at(0).toBool());
-        QVERIFY(visible.isEmpty()); QCOMPARE(disconnected.size(), 1);
+        QVERIFY(visible.isEmpty()); QCOMPARE(disconnected.size(), 0);
     }
     void inputBudgetAndResumeOrdering() {
         QTemporaryDir directory; QFile file(directory.filePath("source")); QVERIFY(file.open(QIODevice::WriteOnly)); file.close();
@@ -320,7 +601,7 @@ private slots:
         }
         QTest::qWait(150); QCOMPARE(writes, 0);
     }
-    void actualDrainGatesAckAndCancelDisconnects() {
+    void actualDrainGatesAckAndCancelKeepsConnection() {
         QTemporaryDir directory; const auto source = directory.filePath("source");
         QFile file(source); QVERIFY(file.open(QIODevice::WriteOnly)); QCOMPARE(file.write(QByteArray(128, 'x')), qint64(128)); file.close();
         QByteArray transport; int activations = 0;
@@ -339,10 +620,11 @@ private slots:
         transport.clear(); controller.acceptBytes(QByteArray(1, char(6)));
         QTRY_COMPARE(controller.progress().transferredBytes, quint64(128));
         QCOMPARE(transport, QByteArray(1, char(4)));
-        controller.cancel(); QVERIFY(controller.isActive()); QCOMPARE(transport, QByteArray(5, char(0x18)));
-        transport.clear(); controller.notifyWritable(); QCOMPARE(disconnected.size(), 1); QVERIFY(!controller.isActive());
+        controller.cancel(); QVERIFY(controller.isActive()); QCOMPARE(transport, QByteArray(1, char(4)) + QByteArray(5, char(0x18)));
+        transport.clear(); controller.notifyWritable(); QVERIFY(controller.isActive());
+        QTRY_VERIFY_WITH_TIMEOUT(!controller.isActive(), 1000); QCOMPARE(disconnected.size(), 0);
         // 迟到写入通知不能改变结束状态或向旧串口写入。
-        controller.notifyWritable(); QCOMPARE(disconnected.size(), 1); QVERIFY(transport.isEmpty());
+        controller.notifyWritable(); QCOMPARE(disconnected.size(), 0); QVERIFY(transport.isEmpty());
     }
     void queuedCoreBarrierWaitsForPriorWrite() {
         QTemporaryDir directory; const auto source = directory.filePath("source");
@@ -363,6 +645,60 @@ private slots:
         QTRY_COMPARE(pending, qint64(7)); QTest::qWait(50); QCOMPARE(activations, 0);
         pending = 0; controller.notifyWritable(); QTRY_COMPARE(activations, 1); controller.abort("done");
     }
+    void cancelReadResumeAllowsSynchronousPeerReply() {
+        QTemporaryDir directory; QFile source(directory.filePath("source"));
+        QVERIFY(source.open(QIODevice::WriteOnly)); source.write("data"); source.close();
+        bool ready = false; QByteArray output, visible;
+        SerialFileTransferController::Channel channel;
+        channel.connected = [] { return true; }; channel.reserve = [](quint64) { return true; };
+        channel.release = [] {}; channel.activate = [] {};
+        channel.coreIdle = [&] { return ready; }; channel.pendingWriteBytes = [] { return 0; };
+        channel.clearWrites = [] { return true; };
+        channel.write = [&](QByteArrayView bytes) { output.append(bytes); return bytes.size(); };
+        SerialFileTransferController controller(channel);
+        QSignalSpy disconnected(&controller,&SerialFileTransferController::disconnectRequired);
+        QObject::connect(&controller,&SerialFileTransferController::visibleRemainder,&controller,
+            [&](const QByteArray& bytes) { visible += bytes; });
+        QObject::connect(&controller,&SerialFileTransferController::readPauseChanged,&controller,
+            [&](bool paused) {
+                if (!paused && controller.isActive()) {
+                    ready = true;
+                    controller.acceptBytes(QByteArray(5,char(0x18)) + QByteArray("peer> "));
+                }
+            });
+        SerialTransferRequest request; request.files = {source.fileName()};
+        QVERIFY(controller.start(request)); controller.acceptBytes(QByteArray(192*1024,'C'));
+        controller.cancel(); QTRY_VERIFY(!controller.isActive());
+        QCOMPARE(disconnected.size(),0); QCOMPARE(output,QByteArray(5,char(0x18)));
+        QCOMPARE(visible,QByteArray("peer> "));
+    }
+
+    void preparingCancelHonorsCoreBarrierBeforeSendingCan() {
+        QTemporaryDir directory; QFile source(directory.filePath("source")); QVERIFY(source.open(QIODevice::WriteOnly)); source.write("data"); source.close();
+        bool idle = false, queued = false; qint64 pending = 7; int activations = 0, clears = 0;
+        QByteArray sent; SerialFileTransferController* pointer = nullptr;
+        SerialFileTransferController::Channel channel;
+        channel.connected = [] { return true; }; channel.reserve = [](quint64) { return true; }; channel.release = [] {};
+        channel.activate = [&] { ++activations; };
+        channel.coreIdle = [&] {
+            if (idle && !queued) { queued = true; QMetaObject::invokeMethod(pointer, [&] { pending = 9; }, Qt::QueuedConnection); }
+            return idle;
+        };
+        channel.pendingWriteBytes = [&] { return pending; };
+        channel.clearWrites = [&] { ++clears; pending = 0; return true; };
+        channel.write = [&](QByteArrayView bytes) { sent.append(bytes); return bytes.size(); };
+        SerialFileTransferController controller(channel); pointer = &controller;
+        QSignalSpy finished(&controller, &SerialFileTransferController::finished);
+        QSignalSpy disconnected(&controller, &SerialFileTransferController::disconnectRequired);
+        SerialTransferRequest request; request.files = {source.fileName()};
+        QVERIFY(controller.start(request)); controller.cancel(); QVERIFY(controller.isActive());
+        QCOMPARE(clears, 0); QCOMPARE(activations, 0); QVERIFY(sent.isEmpty());
+        idle = true; controller.notifyWritable(); QTRY_COMPARE(pending, qint64(9));
+        QCOMPARE(clears, 0); QCOMPARE(activations, 0); QVERIFY(sent.isEmpty());
+        pending = 0; controller.notifyWritable(); QTRY_COMPARE(activations, 1);
+        QTRY_COMPARE(finished.size(), 1); QCOMPARE(sent, QByteArray(5, char(0x18)));
+        QCOMPARE(disconnected.size(), 0); QVERIFY(!controller.isActive());
+    }
     void cancelledPreparationCannotActivateNewGeneration() {
         QTemporaryDir directory; QVERIFY(directory.isValid());
         const auto source = directory.filePath("source"); QFile file(source); QVERIFY(file.open(QIODevice::WriteOnly)); file.write("old"); file.close();
@@ -374,7 +710,8 @@ private slots:
         channel.write = [&](QByteArrayView data) { ++writes; return data.size(); };
         SerialFileTransferController controller(channel); QSignalSpy done(&controller, &SerialFileTransferController::finished);
         SerialTransferRequest request; request.files = {source};
-        QVERIFY(controller.start(request)); controller.cancel(); QVERIFY(!controller.isActive());
+        QVERIFY(controller.start(request)); controller.cancel();
+        QVERIFY(controller.isActive()); QTRY_VERIFY_WITH_TIMEOUT(!controller.isActive(), 2500);
         QVERIFY(controller.start(request)); controller.abort("disconnect");
         QTest::qWait(100); QCOMPARE(done.size(), 2); QCOMPARE(activations, 0); QCOMPARE(writes, 0);
     }

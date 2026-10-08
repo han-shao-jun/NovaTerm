@@ -1,6 +1,7 @@
 /** @file YmodemTests.cpp @brief YMODEM 批次、元信息和结束握手测试。 */
 #include "filetransfer/YmodemEngine.h"
 #include "filetransfer/XyPacketCodec.h"
+#include "ProtocolSizeTestSupport.h"
 #include <cstdlib>
 #include <iostream>
 #include <stdexcept>
@@ -116,5 +117,19 @@ void senderBatch() {
     feed(engine, {6, 'C'}); check(output(engine) == Bytes{4}, "empty EOT"); feed(engine, {6}); complete(engine, action(engine, ActionKind::FinishFile));
     feed(engine, {'C'}); check(output(engine) == header("", ""), "terminator metadata"); feed(engine, {6}); check(engine.progress().state == State::Completed && engine.progress().completedFiles == 2, "sender batch complete");
 }
+void declaredSizeBoundaries() {
+    for (const auto size : {0xfffffffeULL, 0xffffffffULL, 0x100000000ULL}) {
+        YmodemEngine receiver; TransferRequest request;
+        check(receiver.start(request, 0), "Y size declaration start"); output(receiver);
+        feed(receiver, header("limit.bin", std::to_string(size)));
+        if (size <= 0xffffffffULL) {
+            const auto offer = action(receiver, ActionKind::OfferFile);
+            check(offer.file.size == size, "Y maximum size parsed without truncation");
+        } else {
+            check(receiver.progress().error == Error::Protocol && !receiver.takeAction(),
+                  "Y oversized metadata rejected before file offer");
+        }
+    }
 }
-int main() { try { receiveBatch(); unknownLengthAndInvalidMetadata(); recoveryAndBudgets(); closingDeadlineStartsAfterAckDrain(); senderBlockNumberWraps(); delayedAckCannotConfirmUnsentBlock(); senderBatch(); std::cout << "YMODEM tests PASS\n"; } catch (const std::exception& error) { std::cerr << error.what() << '\n'; return EXIT_FAILURE; } }
+}
+int main() { try { ProtocolSizeTests::matrix(ProtocolSizeTests::Mode::Y); declaredSizeBoundaries(); receiveBatch(); unknownLengthAndInvalidMetadata(); recoveryAndBudgets(); closingDeadlineStartsAfterAckDrain(); senderBlockNumberWraps(); delayedAckCannotConfirmUnsentBlock(); senderBatch(); std::cout << "YMODEM tests PASS\n"; } catch (const std::exception& error) { std::cerr << error.what() << '\n'; return EXIT_FAILURE; } }

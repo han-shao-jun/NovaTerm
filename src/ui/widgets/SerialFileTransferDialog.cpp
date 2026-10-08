@@ -207,7 +207,7 @@ void SerialFileTransferDialog::updateSetup()
     _instructions->setText(sending
         ? tr("On the device, start its receiving program with the same protocol, then click Start.")
         : tr("On the device, start its sending program with the same protocol, then click Start."));
-    QString note = tr("Existing files will not be overwritten. Cancelling or closing an active transfer disconnects the serial port.");
+    QString note = tr("Existing files will not be overwritten. Cancelling sends a protocol cancel sequence and keeps the serial port connected.");
     if (receiveX)
         note += QLatin1Char('\n') + tr("For XMODEM, enter the exact size to remove padding. Leave it blank to keep padding bytes.");
     _note->setText(note);

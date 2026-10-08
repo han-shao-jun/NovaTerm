@@ -328,7 +328,7 @@ target_link_libraries(novaterm_core
         libvterm
 )
 
-# P9 协议库独立构建；串口接线前不链接进 NovaTerm。
+# P9 纯协议库可独立构建；生产程序经下方串口 Qt 门面链接。
 add_subdirectory(src/filetransfer)
 
 # Qt 门面只负责串口通道与异步文件宿主，纯协议库继续可独立使用。

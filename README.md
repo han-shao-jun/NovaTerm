@@ -15,8 +15,7 @@ FluentUI 风格。
   并已接入串口 Session 与手动发送／接收窗口；Linux 独立协议测试及 lrzsz
   互通已验证。真实 UART 与跨平台验收仍待补齐，Windows 串口文件传输测试有
   已知失败，见 [AGENTS.md](AGENTS.md)。独立协议阶段的记录见
-  [P9 文档](docs/architecture/stages/P9_File_Transfer_Protocols.md)，
-  其中串口接线状态尚未同步当前源码
+  [P9 文档](docs/architecture/stages/P9_File_Transfer_Protocols.md)
 - **系统监控**：支持远程SSH会话的系统资源监控
 - **AI MCP 接入**：默认关闭的本机 stdio 服务，提供七个工具，支持按会话授权读取输出、搜索已捕获内容、固定诊断、交互命令及 LocalShell/SSH 脚本任务；确认与权限边界见 [使用说明](docs/MCP_Usage.md)
 - **终端解析**：使用 libvterm 处理 ANSI/VT 控制序列，具体语义由终端测试覆盖
@@ -324,6 +323,18 @@ ctest --test-dir build -R '^novaterm_(filetransfer_(checksum_tests|support_tests
 XMODEM 未提供真实长度时保留末包填充；协议库不打开文件、不占用串口。
 外部 lrzsz 互通需要显式运行，使用方法及两个上游 CRC16 空文件缺陷跳过项见
 [P9 阶段文档](docs/architecture/stages/P9_File_Transfer_Protocols.md)。
+
+### 串口终端文件传输
+
+已连接的 8 数据位串口可在终端右键打开“串口文件传输”，在同一非模态窗口
+选择发送／接收和 XMODEM、YMODEM、ZMODEM。先选择好文件或目标，再在
+设备端启动相应收发程序，点击“开始”；程序不自动注入设备命令。
+
+XMODEM 接收可填写真实字节数，留空时保留末包填充；Y/Z 接收选择目录。
+已有目标不会被覆盖，接收目录需支持硬链接。窗口提供进度、取消与结果，
+取消时发送协议 CAN 序列并保留串口会话，收尾后可继续操作；传输错误仍按
+错误分类处理，实际断线才需要重连。
+Windows 已知失败、平台与真实 UART 文件验收范围见 P9 和 AGENTS。
 
 ## 许可证
 

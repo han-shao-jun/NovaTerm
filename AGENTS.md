@@ -17,7 +17,7 @@ GPU 管线，UI 用 ElaWidgetTools（FluentUI 风格）。GPLv2+，仓库在 Git
 | `docs/architecture/README.md` | 阶段文档索引 + 统一术语表 + 文档权威性说明 |
 | `docs/architecture/Development_Roadmap.md` | P0–P8 依赖、状态表、**统一完成定义** |
 | `docs/architecture/stages/P*.md` | 各阶段实施说明。P6 含逐步进度表与剩余工作 |
-| `docs/architecture/stages/P9_File_Transfer_Protocols.md` | P9 独立 XMODEM/YMODEM/ZMODEM 协议库；Linux 六项专项与 124 项对端互通通过，两个上游缺陷用例跳过；Windows/macOS 与串口接线待验收 |
+| `docs/architecture/stages/P9_File_Transfer_Protocols.md` | P9 独立协议库及串口 Session/手动传输窗口；Linux 协议/门面/UI 通路已验证，Windows 取消发布竞争用例有已知失败，跨平台/真实 UART 文件验收待补 |
 | `docs/architecture/stages/P8_AI_MCP_Interface.md` | P8 AI MCP：当前实现事实见 §14.2，修订设计与风险边界见 §15；七工具、2025 elicitation/2026 MRTR、低风险普通命令及 LocalShell/SSH 脚本能力已进入代码，真实桌面/跨平台/性能验收仍按阶段文档标记 |
 | `docs/architecture/Rendering_Architecture.md` | Snapshot、调度、命令缓存、QRhi、Glyph |
 | `docs/architecture/Configuration_Profile_Theme.md` | 配置分层、Profile、Session、主题职责。**描述目标设计**，开头有与当前源码的名称对照表 |
@@ -109,7 +109,8 @@ ctest --test-dir build -C Debug
 | `src/core/terminal/`（TerminalCore、ScreenBuffer、VTAdapter、ScrollbackBuffer、BoundedByteQueue、KeyMapper）—— 后三者经 `TerminalCore.h` 传递覆盖；KeyMapper 有专项单测 | `novaterm_core_tests` | `core` | 全部 | ~30s |
 | `third_party/libvterm-0.3.3/`（本地修正）及 VT 序列语义 | `novaterm_terminal_ops_tests` + `novaterm_core_tests`（`-L core`） | `conformance`／`core` | 全部 | <1s / ~30s |
 | `src/core/scrollback/`、`src/core/search/` | `novaterm_scrollback_tests` | `scrollback` | 全部 | <1s |
-| `src/filetransfer/`、`tests/filetransfer/` | `ctest -L filetransfer`（六项；也可独立配置 `src/filetransfer`，无需 Qt） | `filetransfer`／`p9` | 全部 | <1s |
+| `src/filetransfer/`、`tests/filetransfer/` | `ctest -L filetransfer -LE serial`（六项纯协议；也可独立配置 `src/filetransfer`，无需 Qt） | `filetransfer`／`p9` | 全部 | <1s |
+| `src/session/transfer/`、串口文件传输窗口及接线 | `novaterm_serial_file_transfer_tests`、`novaterm_serial_file_transfer_ui_tests`；接线另跑 `novaterm_session_tests` | `serial`／`filetransfer`／`p9` | 全部 | 门面 ~53s；UI <1s |
 | `src/session/`、`src/profile/`、`src/credential/` | `novaterm_session_tests` | `session`／`p6` | 全部 | <1s |
 | `src/renderer/` 的 RenderCommandBuffer / RenderScheduler / TerminalRenderer | `novaterm_renderer_tests` | `renderer` | 全部 | ~2s |
 | `src/renderer/` 的 RowBlockDamageTracker / ScrollDamageHandoff / TerminalHighlighting、`src/session/SerialHighlightRules` | `novaterm_renderer_p5_tests` | `p5` | 全部 | <1s |
@@ -142,6 +143,8 @@ ctest --test-dir build -C Debug
 | 测试 | 注册条件 | LABELS | TIMEOUT |
 | --- | --- | --- | --- |
 | `novaterm_mcp_tests` | 无条件 | `mcp;p8` | 120 |
+| `novaterm_serial_file_transfer_tests` | 无条件 | `session;serial;filetransfer;p9` | 120 |
+| `novaterm_serial_file_transfer_ui_tests` | 无条件 | `ui;serial;filetransfer;p9` | 30 |
 | `novaterm_filetransfer_checksum_tests` | 无条件 | `unit;filetransfer;p9` | 60 |
 | `novaterm_filetransfer_support_tests` | 无条件 | `unit;filetransfer;p9` | 60 |
 | `novaterm_xmodem_tests` | 无条件 | `unit;filetransfer;p9` | 60 |
@@ -288,7 +291,9 @@ SSH 可选本机验收：Linux 上显式运行
 ### P9 独立协议验收（2026-10-04）
 
 协议库可用 `cmake -S src/filetransfer -B build/filetransfer` 独立构建，
-不需要 Qt；根工程测试用 `ctest --test-dir build -L filetransfer`。
+不需要 Qt；根工程的六项纯协议测试用
+`ctest --test-dir build -L filetransfer -LE serial`，不带 `-LE serial` 会多跑
+门面与 UI 两项（总共八项）。
 Linux 六项专项及 ASan/UBSan 通过，独立 lrzsz 大文件矩阵为 124 PASS / 2 SKIP，
 详情与命令见 P9 阶段文档。`novaterm_filetransfer_interop_driver` 只在 Linux
 构建，外部对端验收不默认注册 CTest，不连接真实串口或用户服务器。
@@ -300,8 +305,19 @@ Linux 六项专项及 ASan/UBSan 通过，独立 lrzsz 大文件矩阵为 124 PA
   夹具保留 driver 的 raw PTY，以 socketpair 承接 lrzsz，不伪造 ACK。
 - LeakSanitizer 受本环境 ptrace 限制；本轮 ASan/UBSan 使用
   `ASAN_OPTIONS=detect_leaks=0`，不得写成泄漏检测通过。
-- Windows/macOS 构建、独立对端和真实 UART 未验收。协议引擎未接入生产
-  Session/Transport/UI；不得把独立协议测试写成串口功能已经可用。
+- 此节是 2026-10-04 独立协议阶段的历史记录；随后已接入生产 Session、
+  串口输入分流/出站独占与手动 Ela 窗口。2026-10-07 收尾复验 Linux 六项
+  纯协议及 Session/门面/UI 三项均通过。Windows 的取消发布竞争用例失败
+  保持在上方表中，不能据 Linux 通过清除；真实 UART 文件传输与 macOS 待补。
+
+### 串口协议取消（2026-10-07）
+
+不增加空闲自动检测。用户/对端取消发送协议 CAN 后保留串口 Session，
+不是 disconnectForReconnect；文件/协议错误仍可断开。
+X/Y 已开始的上传包必须补完当前包尾再发 CAN，不能让接收方把 CAN 当载荷；
+对端已取消时不能继续补包到其命令行。收尾丢弃晚到文件字节、释放独占，
+下一次普通输入/传输继续使用同一连接。Root raw PTY Session 回归覆盖这条语义，
+详见 P9 增量记录；真实 UART/Windows 竞争用例仍待验收。
 
 ## 不可违背的架构约束
 

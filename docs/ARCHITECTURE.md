@@ -10,7 +10,7 @@ NovaTerm 的统一架构文档集中在本文件；文档索引、配置与主�
 - 分层、数据流、线程、所有权、生命周期和背压设计；
 - Profile、Session、配置和主题系统；
 - QRhi 增量渲染与 Glyph/GPU 管线；
-- P0～P8 路线图及每个阶段的独立实施文档。
+- P0～P9 路线图及每个阶段的独立实施文档。
 
 `docs/` 中原有的设计和 P0～P3 实施记录继续作为历史资料保留；发生冲突时，以本文件、`docs/architecture/` 配套文档和当前源码为准。
 
@@ -32,7 +32,9 @@ P9 的 XMODEM/YMODEM/ZMODEM 独立协议库已落地于 `src/filetransfer/`。
 协议引擎只消费字节、单调时钟和宿主文件结果，输出有界字节与异步文件动作，
 不依赖 Qt、终端解析或 Transport。Linux 验证记录与平台缺口见
 [P9 阶段文档](architecture/stages/P9_File_Transfer_Protocols.md)；
-三个协议先独立验收，串口 Session 接线另行设计，当前主程序不链接该库。
+三个协议先独立验证，再通过 `src/session/transfer/` 的 Qt 门面接入串口。
+主程序链接 `novaterm_serial_transfer`；Session 管理控制器和文件任务的生命周期，
+唯一 InputPump 分流协议字节，InputArbiter 独占出站；UI 只负责手动传输窗口。
 
 ## 2. 架构原则
 
@@ -205,6 +207,14 @@ Session、不清空内容。JSON 的 `schemes` 使用 Windows Terminal 的命名
 配置间隔在文本末尾追加一个点；成功输出绿色成功提示，关闭时结束等待行。
 
 `TerminalSession` 聚合一条 `ITransport`、`SessionInputPump`、`TerminalCore` 与 Scrollback，负责 start、close、resize、reconnect 和错误传播，但不负责绘制细节。**采用「1 TerminalView 拥有 1 TerminalSession」模型**：每个终端标签的 `TerminalView` 自建、驱动并销毁其 Session（`_ownsSession` 默认 true），Session 不反向持有 View/Renderer。原设想的「SessionManager 拥有 Session、View 非 owning attach、Session 脱离 View 后台存活」已放弃，`SessionManager` 类已移除。详见 `docs/architecture/stages/P6_Session_and_Transport.md`。
+
+串口文件传输由 Session 按需拥有 `SerialFileTransferController`；
+`SessionInputPump` 在唯一 readyRead 入口把活动协议字节送给控制器，普通字节
+仍经 Framer/Core。InputArbiter 的准备 Lease 允许旧 Core 命令排空，queued
+屏障与串口待写排空后转为独占，键盘、粘贴、Core 应答和 MCP 输入不得混入。
+文件 I/O 仅在 `nvterm-file` worker 内执行，消息按传输代际失效，GUI 不等待文件。
+Parser 暂停与文件队列暂停独立；成功尾随文本先返回原泵；用户/对端取消使用协议 CAN 并保持会话，
+文件/协议错误仍可在清理后断开。实际重连不续传。预算与平台验收见 P9 的串口接线记录。
 
 ### 3.4 Terminal Core
 
@@ -434,10 +444,11 @@ src/
 │   ├── terminal/        # BoundedByteQueue、TerminalCore、VTAdapter、ScreenBuffer、KeyMapper
 │   ├── scrollback/      # ChunkedScrollback、ScrollbackChunk、Snapshot、LineLayout(reflow)
 │   └── search/          # SearchEngine（异步、generation 取消）
-├── filetransfer/        # P9 独立 X/Y/ZMODEM Codec/Engine，纯 C++17，无串口接线
+├── filetransfer/        # P9 独立 X/Y/ZMODEM Codec/Engine，纯 C++17，通过 Session Qt 门面接线
 ├── transport/           # ITransport ← LocalShell / Ssh / Serial / Telnet
 ├── session/             # TerminalSession、SessionFactory、InputPump、
 │                        # SessionStore、SftpSession
+│   └── transfer/        # 串口文件门面/单任务文件 worker，Qt 边界
 ├── credential/          # CredentialStore（Windows 凭据库 / freedesktop
 │                        # Secret Service / 无密钥环时内存回退）
 ├── profile/             # ProfileStore（当前仅 MemoryProfileStore）

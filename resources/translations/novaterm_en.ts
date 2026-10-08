@@ -916,6 +916,14 @@ Termination confirmed: %3
         <source>The transferred file size does not match the declared size.</source>
         <translation>The transferred file size does not match the declared size.</translation>
     </message>
+    <message>
+        <source>Transfer cancelled before the serial channel was ready.</source>
+        <translation>Transfer cancelled before the serial channel was ready.</translation>
+    </message>
+    <message>
+        <source>The cancel sequence could not be sent. Check flow control and the connection.</source>
+        <translation>The cancel sequence could not be sent. Check flow control and the connection.</translation>
+    </message>
 </context>
 <context>
     <name>SerialFileTransferDialog</name>
@@ -973,8 +981,8 @@ Termination confirmed: %3
     </message>
     <message>
         <location filename="../../src/ui/widgets/SerialFileTransferDialog.cpp" line="210"/>
-        <source>Existing files will not be overwritten. Cancelling or closing an active transfer disconnects the serial port.</source>
-        <translation>Existing files will not be overwritten. Cancelling or closing an active transfer disconnects the serial port.</translation>
+        <source>Existing files will not be overwritten. Cancelling sends a protocol cancel sequence and keeps the serial port connected.</source>
+        <translation>Existing files will not be overwritten. Cancelling sends a protocol cancel sequence and keeps the serial port connected.</translation>
     </message>
     <message>
         <location filename="../../src/ui/widgets/SerialFileTransferDialog.cpp" line="212"/>

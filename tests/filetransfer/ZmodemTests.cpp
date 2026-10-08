@@ -1,6 +1,7 @@
 /** @file ZmodemTests.cpp @brief ZMODEM 校验、异步提交与状态机回归。 */
 #include "filetransfer/ZmodemCodec.h"
 #include "filetransfer/ZmodemEngine.h"
+#include "ProtocolSizeTestSupport.h"
 #include <algorithm>
 #include <cstdlib>
 #include <iostream>
@@ -96,6 +97,38 @@ void committedOffsetTests()
     check(receiver.consume(byteView(tail),0).consumed==2,"OO consumes exact prefix");
     check(receiver.progress().state==State::Completed,"receive finished");
 }
+void codecSizeBoundaries()
+{
+    for(const bool use32:{false,true}) {
+        for(const std::size_t size:{0U,1U,8191U,8192U,8193U}) {
+            const Bytes payload(size,0x18);
+            const auto wire=ZmodemCodec::data(byteView(payload),ZEnd::Wait,use32);
+            if(size==8193) { check(wire.empty(),"Z oversized subpacket rejected"); continue; }
+            ZmodemCodec codec; codec.expectData(use32,8192);
+            std::optional<ZEvent> result;
+            for(const auto byte:wire) if(auto item=codec.feed(byte)) result=std::move(item);
+            check(result && result->kind==ZEventKind::Data && result->bytes==payload,
+                  "Z subpacket size boundary preserves escaped payload and CRC");
+        }
+        for(const std::size_t limit:{8192U,8193U}) {
+            ZmodemCodec codec; codec.expectData(use32,limit);
+            for(unsigned index=0;index<8192;++index)
+                check(!codec.feed('A'),"Z decoder accepts payload up to 8 KiB");
+            const auto result=codec.feed('A');
+            check(result && result->kind==ZEventKind::Error,
+                  "Z decoder rejects byte 8193 even with oversized requested limit");
+        }
+        for(const auto position:{0U,255U,256U,65535U,65536U,0x00ffffffU,0x01000000U,
+                                 0x7fffffffU,0x80000000U,0xfffffffeU,0xffffffffU}) {
+            ZmodemCodec codec; std::optional<ZEvent> result;
+            const auto wire=ZmodemCodec::header(ZFrame::Data,position,
+                use32 ? ZHeaderFormat::Binary32 : ZHeaderFormat::Binary16);
+            for(const auto byte:wire) if(auto item=codec.feed(byte)) result=std::move(item);
+            check(result && result->kind==ZEventKind::Header && result->position==position,
+                  "Z offset byte boundaries preserve full 32-bit value");
+        }
+    }
+}
 ZEvent response(ITransferEngine& engine)
 {
     ZmodemCodec codec; std::optional<ZEvent> result;
@@ -111,6 +144,23 @@ void offer(ZmodemEngine& receiver, const Bytes& info, bool accept=true)
     check(action && action->kind==ActionKind::OfferFile,"file offered");
     OperationResult result; result.accepted=accept;
     receiver.completeOperation(action->id,std::move(result),0);
+}
+void declaredSizeBoundaries()
+{
+    for(const auto size:{0xfffffffeULL,0xffffffffULL,0x100000000ULL}) {
+        ZmodemEngine receiver; TransferRequest request;
+        check(receiver.start(request,0),"Z size declaration start"); drain(receiver);
+        Bytes metadata{'l',0}; const auto text=std::to_string(size);
+        metadata.insert(metadata.end(),text.begin(),text.end()); metadata.push_back(0);
+        feed(receiver,ZmodemCodec::header(ZFrame::File,0,ZHeaderFormat::Binary32));
+        feed(receiver,ZmodemCodec::data(byteView(metadata),ZEnd::Wait,true));
+        if(size<=0xffffffffULL) {
+            const auto action=receiver.takeAction();
+            check(action && action->kind==ActionKind::OfferFile && action->file.size==size,
+                  "Z maximum size parsed without truncation");
+        } else check(receiver.progress().error==Error::Protocol && !receiver.takeAction(),
+                     "Z oversized metadata rejected before file offer");
+    }
 }
 void errorTests()
 {
@@ -359,7 +409,7 @@ void batchTests(bool crc32)
 }
 }
 int main()
-{ codecTests(); committedOffsetTests(); errorTests(); duplicateMetadataBudgetTests(); metadataTests();
+{ ProtocolSizeTests::matrix(ProtocolSizeTests::Mode::Z16); ProtocolSizeTests::matrix(ProtocolSizeTests::Mode::Z32); codecTests(); codecSizeBoundaries(); declaredSizeBoundaries(); committedOffsetTests(); errorTests(); duplicateMetadataBudgetTests(); metadataTests();
   senderFeedbackTests(); closingTests(); metadataBudgetTests();
   challengeRetryTests(); timingAndBudgetTests(); batchTests(false); batchTests(true);
   std::cout << "ZMODEM tests passed\n"; }

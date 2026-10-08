@@ -17,6 +17,8 @@ constexpr qsizetype InputLimit = 256 * 1024;
 constexpr qsizetype InputHigh = 192 * 1024;
 constexpr qsizetype InputLow = 64 * 1024;
 constexpr qint64 OutputLimit = 16 * 1024;
+constexpr quint64 CancelQuietMs = 150;
+constexpr qsizetype CancelTailLimit = 8 * 1024;
 QString errorText(FT::Error error)
 {
     switch (error) {
@@ -69,6 +71,15 @@ public:
     }
     ~Impl() { timer.stop(); stopWorker(); if (active && channel.release) channel.release(); }
     FT::TimePoint now() const { return FT::TimePoint(clock.elapsed()); }
+    /**
+     * @brief 单次采样时钟，已到期用零间隔驱动，避免无符号时间差下溢。
+     */
+    void scheduleAt(FT::TimePoint deadline, int limit = std::numeric_limits<int>::max())
+    {
+        const auto current = now();
+        const auto remaining = deadline > current ? deadline - current : 0;
+        timer.start(int(std::min<FT::TimePoint>(remaining, FT::TimePoint(limit))));
+    }
     void stopWorker() { if (worker) { worker->requestStop(); worker = nullptr; } busy = false; }
     void pauseCheck()
     {
@@ -102,7 +113,10 @@ public:
             tail.append(closingPacket); tail.append(input);
             if (!tail.isEmpty()) emit q->visibleRemainder(tail);
         }
-        input.clear(); tail.clear(); closingPacket.clear();
+        if (!success && cancelling && !cancelDisconnect && cancelReplyVerified
+            && request.direction == FT::Direction::Send && !cancelTail.isEmpty())
+            emit q->visibleRemainder(cancelTail);
+        input.clear(); tail.clear(); closingPacket.clear(); cancelTail.clear();
         const bool resumeRead = paused; paused = false;
         if (!success) error = message;
         // 先要求 Session 断开，避免解除独占后新输入进入残留二进制通道。
@@ -119,31 +133,147 @@ public:
         if (!started) { finish(false, message); return; }
         beginCancel(message);
     }
-    void beginCancel(const QString& message)
+    void beginCancel(const QString& message, bool disconnectAfter = true,
+                     bool finishCurrentPacket = true, bool peerCancelled = false)
     {
         if (cancelling) return;
-        stopWorker(); cancelling = true; cancelMessage = message; cancelDeadline = now() + 1500;
-        input.clear(); tail.clear(); closingPacket.clear(); pauseCheck();
-        submitted = 0; cancelBytes = QByteArray(5, char(0x18));
+        stopWorker(); cancelling = true; cancelDisconnect = disconnectAfter;
+        cancelPreparing = !started; cancelBarrierQueued = cancelBarrierPassed = false;
+        cancelMessage = message; cancelDeadline = now() + 1500; lastCancelInput = now();
+        cancelDrainedAt.reset(); cancelTail.clear();
+        // 引擎已验证对端取消边界时，保留同批提示且无需第二份 CAN 回显。
+        // 接收方向仍丢弃尾部，避免把晚到文件载荷猜测为普通终端文本。
+        cancelReplyVerified = peerCancelled && !cancelDisconnect && request.direction == FT::Direction::Send;
+        cancelReplyMatched = 0; cancelTailRejected = false;
+        const QByteArray peerRemainder = cancelReplyVerified ? input : QByteArray{};
+        input.clear(); tail.clear(); closingPacket.clear();
+        // X/Y 的 CAN 在 payload 内是合法数据。已开始发送的当前包必须完整
+        // 排出，再发取消；否则接收方会把 CAN 当包尾，无法退出等待状态。
+        const bool finishXyPacket = finishCurrentPacket && !disconnectAfter && started
+            && request.direction == FT::Direction::Send
+            && request.protocol != SerialTransferProtocol::Zmodem;
+        QByteArray packetSuffix;
+        if (finishXyPacket) {
+            const auto output = engine->pendingOutput();
+            if (output.size > submitted)
+                packetSuffix = QByteArray(output.data + submitted, output.size - submitted);
+        }
+        const auto queued = finishXyPacket && channel.pendingWriteBytes
+            ? std::max<qint64>(0, channel.pendingWriteBytes()) : 0;
+        submitted = 0;
+        // 引擎取消同时使在途文件动作失效；采用引擎定义的 CAN，而不是旧数据。
+        engine->cancel(now());
+        const auto canonical = engine->pendingOutput();
+        cancelSequence = engine->progress().state != FT::State::Cancelled || canonical.empty()
+            ? QByteArray(5, char(0x18)) : QByteArray(canonical.data, canonical.size);
+        cancelBytes = packetSuffix + cancelSequence;
+        if (cancelReplyVerified && !peerRemainder.isEmpty()) acceptCancelBytes(peerRemainder);
+        // 低波特率也需给当前包和 CAN 排空留足时间，期限始终有界。
+        const auto serialTime = quint64(queued + cancelBytes.size()) * 12ULL * 1000
+            / quint64(std::max(1, channel.baudRate));
+        cancelDeadline = now() + std::max<quint64>(1500, serialTime + 1000 + CancelQuietMs);
         progress.status = message;
-        if (!channel.clearWrites || !channel.clearWrites()) { finish(false, message, true); return; }
+        if (!cancelPreparing && !finishXyPacket && (!channel.clearWrites || !channel.clearWrites())) {
+            finish(false, message, cancelDisconnect); return;
+        }
+        if (!active || !cancelling) return;
+        // 恢复读取可能同步调用 acceptBytes/drive，必须在清理旧输出之后。
+        pauseCheck();
+        if (!active || !cancelling) return;
         drive();
+    }
+    /** @brief 仅取消收尾期间验证对端 CAN；不在空闲终端中探测任何协议。 */
+    void acceptCancelBytes(const QByteArray& data)
+    {
+        lastCancelInput = now();
+        // 接收方向的对端可能仍在发送文件 payload，不能猜测其中的文本。
+        if (cancelDisconnect || request.direction != FT::Direction::Send || cancelTailRejected
+            || cancelSequence.isEmpty()) return;
+        if (data.size() > CancelTailLimit + cancelSequence.size()) {
+            cancelTail.clear(); cancelTailRejected = true; return;
+        }
+        for (const auto byte : data) {
+            if (!cancelReplyVerified) {
+                if (byte == cancelSequence.at(cancelReplyMatched)) ++cancelReplyMatched;
+                else cancelReplyMatched = byte == cancelSequence.at(0) ? 1 : 0;
+                if (cancelReplyMatched == cancelSequence.size()) cancelReplyVerified = true;
+            } else {
+                // 常见对端以额外 CAN/退格清理取消提示，只在普通文本开始前跳过。
+                if (cancelTail.isEmpty() && (byte == char(0x18) || byte == '\b' || byte == char(0x7f)))
+                    continue;
+                const auto value = quint8(byte);
+                if ((value < 0x20 && byte != '\r' && byte != '\n' && byte != '\t')
+                    || value > 0x7e || cancelTail.size() >= CancelTailLimit) {
+                    cancelTail.clear(); cancelTailRejected = true; return;
+                }
+                cancelTail.append(byte);
+            }
+        }
+    }
+    /** @brief 准备阶段取消也尊重旧 Core 输出屏障，不清除正常会话待写。 */
+    void preparingCancelDrive()
+    {
+        if (now() >= cancelDeadline) {
+            finish(false, QCoreApplication::translate("SerialFileTransferController", "Transfer cancelled before the serial channel was ready."));
+            return;
+        }
+        if (!channel.coreIdle || !channel.coreIdle()) { timer.start(20); return; }
+        if (!cancelBarrierQueued) {
+            cancelBarrierQueued = true;
+            const auto generation = epoch;
+            QMetaObject::invokeMethod(q, [this, generation] {
+                if (active && epoch == generation && cancelPreparing) {
+                    cancelBarrierPassed = true; drive();
+                }
+            }, Qt::QueuedConnection);
+            return;
+        }
+        if (!cancelBarrierPassed || !channel.coreIdle() || !channel.pendingWriteBytes
+            || channel.pendingWriteBytes() != 0) { timer.start(20); return; }
+        if (channel.activate) channel.activate();
+        if (!active || !cancelling) return;
+        started = true; cancelPreparing = false;
+        if (!channel.clearWrites || !channel.clearWrites()) { finish(false, cancelMessage); return; }
+        driveAgain = true;
     }
     void cancellingDrive()
     {
-        if (!channel.connected || !channel.connected() || now() >= cancelDeadline) {
-            finish(false, cancelMessage, true); return;
+        if (cancelPreparing) { preparingCancelDrive(); return; }
+        if (!channel.connected || !channel.connected()) {
+            finish(false, cancelMessage, cancelDisconnect); return;
         }
-        const auto pending = channel.pendingWriteBytes ? channel.pendingWriteBytes() : 0;
+        if (now() >= cancelDeadline) {
+            // CAN 也不能无限占用 Lease；清掉尚未排出的取消字节，保留连接。
+            const bool incomplete = !cancelBytes.isEmpty() || !channel.pendingWriteBytes
+                || channel.pendingWriteBytes() != 0;
+            if (channel.clearWrites) channel.clearWrites();
+            const auto message = !cancelDisconnect && incomplete
+                ? QCoreApplication::translate("SerialFileTransferController", "The cancel sequence could not be sent. Check flow control and the connection.")
+                : cancelMessage;
+            finish(false, message, cancelDisconnect); return;
+        }
+        const auto pending = channel.pendingWriteBytes ? channel.pendingWriteBytes() : -1;
+        if (pending < 0) { finish(false, cancelMessage, cancelDisconnect); return; }
         if (!cancelBytes.isEmpty() && pending < OutputLimit && channel.write) {
-            const auto count = channel.write(QByteArrayView(cancelBytes).first(std::min<qint64>(cancelBytes.size(), OutputLimit - pending)));
-            if (count < 0 || count > cancelBytes.size()) { finish(false, cancelMessage, true); return; }
+            const auto offered = std::min<qint64>(cancelBytes.size(), OutputLimit - pending);
+            const auto count = channel.write(QByteArrayView(cancelBytes).first(offered));
+            if (count < 0 || count > offered) {
+                if (channel.clearWrites) channel.clearWrites();
+                finish(false, cancelMessage, cancelDisconnect); return;
+            }
             cancelBytes.remove(0, count);
         }
         if (cancelBytes.isEmpty() && channel.pendingWriteBytes && channel.pendingWriteBytes() == 0) {
-            finish(false, cancelMessage, true); return;
+            if (cancelDisconnect) { finish(false, cancelMessage, true); return; }
+            if (!cancelDrainedAt) cancelDrainedAt = now();
+            const auto quietEnd = std::max(*cancelDrainedAt, lastCancelInput) + CancelQuietMs;
+            if (now() >= quietEnd) { finish(false, cancelMessage); return; }
+            scheduleAt(std::min<quint64>(quietEnd, cancelDeadline));
+        } else {
+            cancelDrainedAt.reset();
+            scheduleAt(cancelDeadline, 20);
         }
-        timer.start(int(std::min<quint64>(20, cancelDeadline - now()))); update();
+        update();
     }
     void preparationDrive()
     {
@@ -154,13 +284,14 @@ public:
             const auto generation = epoch;
             // queued 屏障让已发布的旧 Core outputReady 先由 Session 处理。
             QMetaObject::invokeMethod(q, [this, generation] {
-                if (active && epoch == generation) { barrierPassed = true; drive(); }
+                if (active && epoch == generation && !cancelling) { barrierPassed = true; drive(); }
             }, Qt::QueuedConnection);
             return;
         }
         if (!barrierPassed || !channel.coreIdle() || !channel.pendingWriteBytes
             || channel.pendingWriteBytes() != 0) { timer.start(10); return; }
         if (channel.activate) channel.activate();
+        if (!active || cancelling) return;
         started = true;
         if (!engine->start(prepared, now())) { fail(QCoreApplication::translate("SerialFileTransferController", "Invalid protocol request")); return; }
         driveAgain = true;
@@ -226,7 +357,9 @@ public:
             const auto message = p.state == FT::State::Cancelled
                 ? QCoreApplication::translate("SerialFileTransferController", "Transfer cancelled")
                 : (error.isEmpty() ? errorText(p.error) : error);
-            fail(message); return;
+            if (p.state == FT::State::Cancelled) beginCancel(message, false, false, true);
+            else fail(message);
+            return;
         }
         if (!busy) {
             if (auto action = engine->takeAction()) {
@@ -269,10 +402,7 @@ public:
             deadline = deadline ? std::min<FT::TimePoint>(*deadline, pollDeadline) : pollDeadline;
         } else lastOutputProgress.reset();
         timer.stop();
-        if (deadline) {
-            const auto delay = *deadline > now() ? *deadline - now() : 0;
-            timer.start(int(std::min<quint64>(delay, std::numeric_limits<int>::max())));
-        }
+        if (deadline) scheduleAt(*deadline);
         if (budget < 0 && !input.isEmpty()) timer.start(0);
     }
     void drive()
@@ -300,11 +430,15 @@ public:
     SerialTransferRequest request;
     FT::TransferRequest prepared;
     SerialTransferProgress progress;
-    QByteArray input, tail, closingPacket, cancelBytes;
+    QByteArray input, tail, closingPacket, cancelBytes, cancelSequence, cancelTail;
     FT::XyPacketCodec closingCodec;
     QString error, cancelMessage;
     quint64 epoch{0}, began{0}, cancelDeadline{0}, receiveTotal{0}, writeDrainTimeout{15000};
-    std::optional<quint64> lastOutputProgress;
+    std::optional<quint64> lastOutputProgress, cancelDrainedAt;
+    quint64 lastCancelInput{0};
+    qsizetype cancelReplyMatched{0};
+    bool cancelDisconnect{true}, cancelReplyVerified{false}, cancelTailRejected{false};
+    bool cancelPreparing{false}, cancelBarrierQueued{false}, cancelBarrierPassed{false};
     bool receiveLengthKnown{true}, closingCanSeen{false};
     qint64 submitted{0};
     bool active{false}, started{false}, ready{false}, barrier{false}, barrierPassed{false};
@@ -387,7 +521,8 @@ SerialTransferProgress SerialFileTransferController::progress() const { return _
 void SerialFileTransferController::acceptBytes(const QByteArray& data)
 {
     auto& d = *_impl;
-    if (!d.active || d.cancelling || data.isEmpty()) return;
+    if (!d.active || data.isEmpty()) return;
+    if (d.cancelling) { d.acceptCancelBytes(data); d.drive(); return; }
     if (data.size() > InputLimit - d.input.size() - d.tail.size() - d.closingPacket.size()) {
         d.fail(QCoreApplication::translate("SerialFileTransferController", "Receive buffer exceeded the 256 KiB limit")); return;
     }
@@ -398,8 +533,7 @@ void SerialFileTransferController::cancel()
 {
     auto& d = *_impl;
     if (!d.active) return;
-    if (!d.started) d.finish(false, QCoreApplication::translate("SerialFileTransferController", "Transfer cancelled"));
-    else d.beginCancel(QCoreApplication::translate("SerialFileTransferController", "Transfer cancelled"));
+    d.beginCancel(QCoreApplication::translate("SerialFileTransferController", "Transfer cancelled"), false);
 }
 void SerialFileTransferController::abort(const QString& reason)
 {

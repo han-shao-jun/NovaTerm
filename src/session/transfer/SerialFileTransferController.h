@@ -39,7 +39,7 @@ public:
     void acceptBytes(const QByteArray& data);
     /** @brief 字节通道已可继续写；不得将信号计数直接当作设备确认。 */
     void notifyWritable();
-    /** @brief 用户取消；已启动协议时清理输出并发送取消后要求断开链路。 */
+    /** @brief 用户取消；停止后续文件动作，在合法包边界发送 CAN，保持串口连接。 */
     void cancel();
     /** @brief 断连、重绑、关闭时无网络写入的立即失效路径。 */
     void abort(const QString& reason);

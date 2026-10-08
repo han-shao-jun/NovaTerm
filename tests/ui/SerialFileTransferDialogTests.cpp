@@ -128,6 +128,41 @@ private slots:
         QCOMPARE(file.readAll(), QByteArray("preserve"));
     }
 
+    void cancelButtonKeepsChannelConnected()
+    {
+        QTemporaryDir folder;
+        QFile source(folder.filePath("source.bin"));
+        QVERIFY(source.open(QIODevice::WriteOnly));
+        source.write("data"); source.close();
+        QByteArray output;
+        bool reserved = false;
+        SerialFileTransferController::Channel channel;
+        channel.connected = [] { return true; };
+        channel.reserve = [&reserved](quint64) { reserved = true; return true; };
+        channel.release = [&reserved] { reserved = false; };
+        channel.activate = [] {};
+        channel.coreIdle = [] { return true; };
+        channel.pendingWriteBytes = [] { return qint64(0); };
+        channel.clearWrites = [&output] { output.clear(); return true; };
+        channel.write = [&output](QByteArrayView bytes) { output.append(bytes); return bytes.size(); };
+        SerialFileTransferController controller(channel);
+        SerialFileTransferDialog dialog(&controller, NovaTerm::FileTransfer::Direction::Send);
+        QSignalSpy disconnected(&controller, &SerialFileTransferController::disconnectRequired);
+        QSignalSpy finished(&controller, &SerialFileTransferController::finished);
+        SerialTransferRequest request; request.files = {source.fileName()};
+        QVERIFY(controller.start(request));
+        QTRY_VERIFY(!controller.progress().preparing);
+        auto* cancel = transferControl<ElaPushButton>(dialog, "transferCancel");
+        QVERIFY(cancel->isEnabled());
+        cancel->click();
+        QTRY_VERIFY(!controller.isActive());
+        QCOMPARE(disconnected.size(), 0);
+        QCOMPARE(finished.size(), 1);
+        QVERIFY(output.contains(QByteArray(5, char(0x18))));
+        QVERIFY(!reserved);
+        QVERIFY(transferControl<ElaPushButton>(dialog, "transferStart")->isEnabled());
+    }
+
     void closingDuringPreparationCancels()
     {
         QTemporaryDir folder;

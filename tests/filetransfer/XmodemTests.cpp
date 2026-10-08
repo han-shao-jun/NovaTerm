@@ -1,6 +1,7 @@
 /** @file XmodemTests.cpp @brief XMODEM 分片、模式、长度与生命周期测试。 */
 #include "filetransfer/XmodemEngine.h"
 #include "filetransfer/XyPacketCodec.h"
+#include "ProtocolSizeTestSupport.h"
 #include <cstdlib>
 #include <iostream>
 #include <stdexcept>
@@ -178,4 +179,4 @@ void corruptionCancellationAndTimeout() {
     engine.advance(30000); check(engine.progress().error == Error::Timeout, "handshake timeout");
 }
 }
-int main() { try { receiveModes(); exactLengthAndWrap(); sendModesAndErrors(); deadlinesPartialWritesAndSizes(); checksumDoesNotAcceptOneKVariant(); closingDeadlineStartsAfterAckDrain(); senderBlockNumberWraps(); delayedAckCannotConfirmUnsentBlock(); corruptionCancellationAndTimeout(); std::cout << "XMODEM tests PASS\n"; } catch (const std::exception& error) { std::cerr << error.what() << '\n'; return EXIT_FAILURE; } }
+int main() { try { ProtocolSizeTests::matrix(ProtocolSizeTests::Mode::XChecksum); ProtocolSizeTests::matrix(ProtocolSizeTests::Mode::XCrc); ProtocolSizeTests::matrix(ProtocolSizeTests::Mode::XOneK); receiveModes(); exactLengthAndWrap(); sendModesAndErrors(); deadlinesPartialWritesAndSizes(); checksumDoesNotAcceptOneKVariant(); closingDeadlineStartsAfterAckDrain(); senderBlockNumberWraps(); delayedAckCannotConfirmUnsentBlock(); corruptionCancellationAndTimeout(); std::cout << "XMODEM tests PASS\n"; } catch (const std::exception& error) { std::cerr << error.what() << '\n'; return EXIT_FAILURE; } }

@@ -35,7 +35,7 @@
 | P6 Session 与 Transport | 进行中：Transport 四种完成，会话编排采用「1 View 拥有 1 Session」已在生产；剩 keyboard-interactive、close 模式、exited→UI、ProfileStore 持久化、contract tests | [P6](stages/P6_Session_and_Transport.md) |
 | P7 系统资源查询 | 已实现为内置功能（常驻监控 2026-09-06、系统信息窗口 2026-09-09）；性能量化验收待补 | [P7](stages/P7_System_Resource_Monitor.md) |
 | P8 AI MCP 接口 | 首期与 v0.6 交互命令已实现；Linux 本机已测响应率（94.2%，未达 99%）、吞吐、RPC 与捕获 P95，GUI frame P95 无法判定；跨平台、桌面 Shell 与端到端帧延迟待完成 | [P8](stages/P8_AI_MCP_Interface.md) |
-| P9 文件传输协议 | 协议库已实现；Linux 六项专项测试、ASan/UBSan 与独立对端 124 项互通通过；两个 lrzsz 上游缺陷用例跳过，Windows/macOS 与串口接线待完成 | [P9](stages/P9_File_Transfer_Protocols.md) |
+| P9 文件传输协议 | 协议库及串口 Session/手动传输窗口已接入；Linux 纯协议、门面、UI 与真实 QSerialPort/raw PTY 通路测试通过；Windows 取消发布竞争用例有已知失败，macOS 与真实 UART 文件传输验收待补 | [P9](stages/P9_File_Transfer_Protocols.md) |
 
 ## 文档权威性
 
