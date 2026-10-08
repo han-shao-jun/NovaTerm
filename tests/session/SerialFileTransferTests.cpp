@@ -464,7 +464,7 @@ private slots:
             if (delivery == 2) controller.acceptBytes(prompt);
             else if (delivery == 3) controller.acceptBytes(QByteArray("\0binary", 7) + prompt);
             else if (delivery == 4) controller.acceptBytes(QByteArray(8193, 'p'));
-            else controller.acceptBytes(prompt + QByteArray(1, char(0xff)));
+            else controller.acceptBytes(prompt + QByteArray("\xFF", 1));
         }
         QTRY_COMPARE_WITH_TIMEOUT(done.size(), 1, 1500);
         QVERIFY(!done.front().front().toBool()); QVERIFY(!controller.isActive()); QVERIFY(!reserved);

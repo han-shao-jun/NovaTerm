@@ -25,7 +25,9 @@ public:
     static constexpr isize UnlimitedLines = -1;
     static constexpr isize DefaultMaxLines = UnlimitedLines;
     static constexpr isize MaximumMaxLines = 1'000'000;
-    static constexpr isize DefaultMaxBytes = 256 * 1024 * 1024;
+    // 仅作淘汰上限，不预占内存：行与分块均按需动态分配（std::vector / 懒
+    // 分配 chunk），实际占用随历史内容增长，超限才回收最旧内容。
+    static constexpr isize DefaultMaxBytes = 1024 * 1024 * 1024;
 
     explicit ChunkedScrollback(isize maxLines = DefaultMaxLines,
                                isize maxBytes = DefaultMaxBytes,

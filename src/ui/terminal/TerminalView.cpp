@@ -456,7 +456,7 @@ void TerminalView::startLocalShell(const LocalShellConfig& config)
     _isLocalShell = true;
 
     // shell 启动序列完成后恢复历史缓冲区
-    QTimer::singleShot(1500, this, [this, transport, savedHistorySize]() {
+    QTimer::singleShot(1500, this, [this, transport]() {
         if (_core && _localTransport == transport)
             _core->setScrollbackLimit(savedHistorySize);
     });
