@@ -18,6 +18,7 @@
 #include <QJsonArray>
 #include <QJsonObject>
 #include <QTimer>
+#include <QThread>
 #include <QWindow>
 #include <algorithm>
 #include <array>
@@ -27,7 +28,6 @@
 #include <mutex>
 #include <thread>
 #include <vector>
-#define NOMINMAX
 #include <windows.h>
 #include <mmsystem.h>
 #include <psapi.h>
@@ -36,7 +36,8 @@
 /** @brief 仅夹具编译启用的端口访问，不向生产 API 暴露原生句柄。 */
 class SerialStressPortAccess {
 public:
-    static QSerialPort& port(SerialTransport& transport) { return transport._port; }
+    static void requestQueue(SerialTransport& transport, quint32 bytes)
+    { transport.setDriverReceiveQueueForTesting(bytes); }
 };
 
 namespace {
@@ -293,6 +294,15 @@ int main(int argc, char** argv)
         args.removeAt(profileIndex); args.removeAt(profileIndex);
     }
     int requestedDriverRxQueue = 0;
+    int guiStallMs = 0;
+    const int stallIndex = args.indexOf(QStringLiteral("--gui-stall-ms"));
+    if (stallIndex >= 0) {
+        bool ok = false;
+        if (stallIndex + 1 >= args.size()) return 1;
+        guiStallMs = args[stallIndex + 1].toInt(&ok);
+        if (!ok || guiStallMs < 0 || guiStallMs > 10000) return 1;
+        args.removeAt(stallIndex); args.removeAt(stallIndex);
+    }
     const int queueIndex = args.indexOf(QStringLiteral("--driver-rx-queue"));
     if (queueIndex >= 0) {
         bool queueOk = false;
@@ -406,6 +416,8 @@ int main(int argc, char** argv)
     SerialConfig config;
     config.portName = args[2]; config.baudRate = baud;
     SerialTransport transport(config);
+    if (requestedDriverRxQueue > 0)
+        SerialStressPortAccess::requestQueue(transport, quint32(requestedDriverRxQueue));
     InteractiveStreamFramer framer;
     SessionInputPump pump(&transport, &core, &framer);
     Verifier verifier(count);
@@ -424,20 +436,15 @@ int main(int argc, char** argv)
     if (!transport.isConnected()) {
         std::fprintf(stderr, "open failed: %s\n", qPrintable(errors.join(';'))); return 3;
     }
-    auto& receiverPort = SerialStressPortAccess::port(transport);
-    const auto receiverHandle = reinterpret_cast<HANDLE>(receiverPort.handle());
-    COMMPROP queueBefore{};
-    queueBefore.wPacketLength = sizeof(queueBefore);
-    queueBefore.dwProvSpec1 = COMMPROP_INITIALIZED;
-    const bool queriedBefore = GetCommProperties(receiverHandle, &queueBefore) != FALSE;
-    bool queueResizeAccepted = true;
-    if (requestedDriverRxQueue > 0)
-        queueResizeAccepted = SetupComm(receiverHandle, static_cast<DWORD>(requestedDriverRxQueue), 4096) != FALSE;
-    const DWORD queueResizeError = queueResizeAccepted ? 0 : GetLastError();
-    COMMPROP queueAfter{};
-    queueAfter.wPacketLength = sizeof(queueAfter);
-    queueAfter.dwProvSpec1 = COMMPROP_INITIALIZED;
-    const bool queriedAfter = GetCommProperties(receiverHandle, &queueAfter) != FALSE;
+    // 只读 worker 发布的不可变容量结果，不从 GUI 访问端口或原生句柄。
+    const auto driver = transport.ioStatistics();
+    COMMPROP queueBefore{}, queueAfter{};
+    queueBefore.dwCurrentRxQueue = driver.driverRxBefore;
+    queueAfter.dwCurrentRxQueue = driver.driverRxActual;
+    const bool queriedBefore = driver.driverCapacityQueriedBefore;
+    const bool queriedAfter = driver.driverCapacityQueried;
+    const bool queueResizeAccepted = driver.driverRequestAccepted;
+    const DWORD queueResizeError = driver.driverSetupError;
     const bool driverQueueConfirmed = requestedDriverRxQueue == 0
         || (queueResizeAccepted && queriedAfter && queueAfter.dwCurrentRxQueue >= static_cast<DWORD>(requestedDriverRxQueue));
     std::printf("RX queue: before=%lu requested=%d actual=%lu confirmed=%d\n",
@@ -464,6 +471,17 @@ int main(int argc, char** argv)
     QElapsedTimer wall; wall.start();
     Sender sender;
     sender.start(args[1], baud, corpus, burst, senderChunkBytes);
+    quint64 ioReadDuringStall = 0, ioQueuedAfterStall = 0;
+    bool guiDeliveryStoppedDuringStall = false, stallExecuted = false;
+    if (guiStallMs > 0) QTimer::singleShot(1000, &transport, [&] {
+        const auto before = transport.ioStatistics();
+        QThread::msleep(static_cast<unsigned long>(guiStallMs));
+        const auto after = transport.ioStatistics();
+        ioReadDuringStall = after.receivedBytes - before.receivedBytes;
+        ioQueuedAfterStall = quint64(after.receiveBytes);
+        guiDeliveryStoppedDuringStall = after.deliveredBytes == before.deliveredBytes;
+        stallExecuted = true;
+    });
     std::vector<double> tickIntervals;
     qint64 priorNs = wall.nsecsElapsed(), lastReceivedNs = priorNs;
     qint64 previousBytes = 0, peakQueue = 0;
@@ -496,6 +514,7 @@ int main(int argc, char** argv)
     const auto render = renderer.renderStatistics();
     const auto queue = core.queueStatistics();
     const auto stats = pump.statistics();
+    const auto io = transport.ioStatistics();
     if (!signalProfilePhase(profileHandshake, ".done", ".release")) return 8;
     if (deferredVerification) verifier.consume(captured);
     const auto model = rawReceiver
@@ -509,13 +528,20 @@ int main(int argc, char** argv)
         && (rawReceiver || stats.acceptedBytes == static_cast<quint64>(corpus.size())) && stats.overloadCount == 0
         && (rawReceiver || queue.totalDequeued - initialQueue.totalDequeued == static_cast<quint64>(corpus.size()))
         && model["missingOrCorruptFrames"].toInt() == 0 && !renderFailed
-        && (!visible || render.framesRendered > initialRender.framesRendered);
+        && (!visible || render.framesRendered > initialRender.framesRendered)
+        && (guiStallMs == 0 || (stallExecuted && ioReadDuringStall > 0 && guiDeliveryStoppedDuringStall));
     QJsonObject result{{"pass", pass}, {"tx", args[1]}, {"rx", args[2]}, {"baud", baud},
         {"visible", visible}, {"burst", burst}, {"durationTargetSeconds", double(totalBytes) * 10. / baud},
         {"rawReceiver", rawReceiver}, {"deferredVerification", deferredVerification},
         {"pid", double(GetCurrentProcessId())}, {"mainThreadId", double(GetCurrentThreadId())},
         {"senderThreadId", double(sender.threadId.load())}, {"threads", namedThreads},
         {"senderChunkBytes", senderChunkBytes},
+        {"guiStallMs", guiStallMs}, {"ioReadDuringGuiStall", double(ioReadDuringStall)},
+        {"ioQueuedAfterGuiStall", double(ioQueuedAfterStall)},
+        {"guiDeliveryStoppedDuringStall", guiDeliveryStoppedDuringStall},
+        {"ioReceivedBytes", double(io.receivedBytes)}, {"ioDeliveredBytes", double(io.deliveredBytes)},
+        {"ioReceivePeakBytes", double(io.receiveHighWater)}, {"ioReceiveFullCount", double(io.receiveFullCount)},
+        {"ioDiscardedReceiveBytes", double(io.discardedReceiveBytes)}, {"ioWorkerRunning", io.workerRunning},
         {"requestedDriverRxQueue", requestedDriverRxQueue},
         {"driverRxQueueBefore", double(queueBefore.dwCurrentRxQueue)},
         {"driverRxQueueActual", double(queueAfter.dwCurrentRxQueue)},

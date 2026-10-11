@@ -12,6 +12,8 @@
 #include "session/SessionInputPump.h"
 #include "transport/ITransport.h"
 #include "transport/SerialTransport.h"
+#include "transport/SerialDriverReceiveQueue.h"
+#include "transport/SerialIoState.h"
 #include "session/transfer/SerialFileTransferController.h"
 #include "filetransfer/XmodemEngine.h"
 #include "SerialLrzszTestSupport.h"
@@ -30,6 +32,9 @@
 #include <QFileInfo>
 #include <QTemporaryDir>
 #include <QTest>
+#include <algorithm>
+#include <memory>
+#include <vector>
 
 class FakeTransport final : public ITransport
 {
@@ -124,6 +129,18 @@ class SessionTests final : public QObject
 {
     Q_OBJECT
 private slots:
+    void serialIoPausedDeliveryKeepsBoundedBytes();
+    void serialIoReconnectRejectsOldGeneration();
+    void serialIoClearPreservesBarrierBeforeNewWrites();
+    void serialIoNotificationsAreCoalesced();
+    void serialIoStopRejectsFurtherWork();
+    void serialIoFailedOpenAndImmediateDestructionReclaimWorkers();
+    void serialIoReconnectInsideReadCallbackKeepsReceiving();
+    void serialIoClosedBackendCannotReportFalseWriteDrain();
+    void serialDriverReceiveQueueRequiresActualCapacity_data();
+    void serialDriverReceiveQueueRequiresActualCapacity();
+    void serialDriverReceiveQueueIsInitializedAgainAfterReopen();
+    void transportWarningsStayNonFatalAndRejectOldAttachments();
     void serialAutomaticReconnect();
     void realSerialSessionUsesExistingPumpForFileTransfer_data();
     void realSerialSessionUsesExistingPumpForFileTransfer();
@@ -176,6 +193,335 @@ private slots:
     void agentContextJoinsHistorySeamAndBoundsUtf8();
     void secretServiceCredentialStoreSurvivesRestart();
 };
+
+/** @brief 只构造交接状态；真实的门面交付函数与 Qt 信号保持不变。 */
+class SerialTransportIoTestAccess
+{
+public:
+    /** @brief 弱引用过期证明门面、worker 和线程均已释放交接状态。 */
+    static std::weak_ptr<NovaTerm::SerialIoState> ioLifetime(const SerialTransport& transport)
+    { return transport._state; }
+    static void openMemory(SerialTransport& transport)
+    {
+        const auto generation = transport._state->requestOpen();
+        transport._state->opened(generation);
+        transport._connected = true;
+    }
+    static void receive(SerialTransport& transport, const QByteArray& bytes)
+    {
+        transport._state->receive(transport._state->snapshot().generation, bytes);
+        if (transport._state->armReceiveNotification())
+            QMetaObject::invokeMethod(&transport, &SerialTransport::deliverInput, Qt::QueuedConnection);
+    }
+    static void closeBackend(SerialTransport& transport)
+    { transport._state->closed(transport._state->snapshot().generation); }
+};
+
+void SessionTests::serialIoClosedBackendCannotReportFalseWriteDrain()
+{
+    SerialConfig config; config.portName = QStringLiteral("memory-only-not-opened");
+    SerialTransport transport(config);
+    SerialTransportIoTestAccess::openMemory(transport);
+    QCOMPARE(transport.tryWriteBounded(QByteArrayLiteral("not-written")), qint64(11));
+    // I/O 关闭已完成，但 GUI 状态通知尚未消费；不能把丢弃当作写完成。
+    SerialTransportIoTestAccess::closeBackend(transport);
+    QCOMPARE(transport.pendingWriteBytes(), qint64(-1));
+    QVERIFY(!transport.isConnected());
+}
+
+void SessionTests::serialIoReconnectInsideReadCallbackKeepsReceiving()
+{
+    SerialConfig config;
+    config.portName = QStringLiteral("memory-only-not-opened");
+    SerialTransport transport(config);
+    SerialTransportIoTestAccess::openMemory(transport);
+    QSignalSpy received(&transport, &ITransport::readyRead);
+    bool first = true;
+    connect(&transport, &ITransport::readyRead, this, [&](const QByteArray&) {
+        if (!first) return;
+        first = false;
+        SerialTransportIoTestAccess::openMemory(transport);
+        SerialTransportIoTestAccess::receive(transport, QByteArrayLiteral("new-generation"));
+    });
+    SerialTransportIoTestAccess::receive(transport, QByteArrayLiteral("old-generation"));
+    QTRY_COMPARE_WITH_TIMEOUT(received.count(), 2, 1000);
+    QCOMPARE(received.at(0).at(0).toByteArray(), QByteArrayLiteral("old-generation"));
+    QCOMPARE(received.at(1).at(0).toByteArray(), QByteArrayLiteral("new-generation"));
+}
+
+void SessionTests::serialIoPausedDeliveryKeepsBoundedBytes()
+{
+    NovaTerm::SerialIoState state(8, 16);
+    const auto generation = state.requestOpen();
+    QVERIFY(state.opened(generation));
+    state.setDeliveryPaused(true);
+    QVERIFY(state.receive(generation, QByteArrayLiteral("abcdefgh")));
+    QVERIFY(!state.receive(generation, QByteArrayLiteral("x")));
+    QCOMPARE(state.receiveRoom(generation), qint64(0));
+    QVERIFY(state.takeReceived().isEmpty());
+    QVERIFY(!state.armReceiveNotification());
+    state.setDeliveryPaused(false);
+    QCOMPARE(state.takeReceived(3), QByteArrayLiteral("abc"));
+    QCOMPARE(state.takeReceived(), QByteArrayLiteral("defgh"));
+    const auto statistics = state.snapshot();
+    QCOMPARE(statistics.receivedBytes, quint64(8));
+    QCOMPARE(statistics.deliveredBytes, quint64(8));
+    QCOMPARE(statistics.receiveHighWater, quint64(8));
+}
+
+void SessionTests::serialIoReconnectRejectsOldGeneration()
+{
+    NovaTerm::SerialIoState state;
+    const auto first = state.requestOpen();
+    QVERIFY(state.opened(first));
+    QVERIFY(state.receive(first, QByteArrayLiteral("old-rx")));
+    QCOMPARE(state.queueWrite(QByteArrayLiteral("old-tx")), qint64(6));
+    const auto oldWrite = state.takeWrite(first, 6);
+    const auto second = state.requestOpen();
+    QVERIFY(second != first);
+    QVERIFY(state.opened(second));
+    QVERIFY(!state.receive(first, QByteArrayLiteral("late")));
+    QVERIFY(state.takeReceived().isEmpty());
+    QCOMPARE(state.pendingWriteBytes(), qint64(0));
+    QCOMPARE(state.completeWrite(first, oldWrite.epoch, 6), qint64(0));
+    QVERIFY(state.receive(second, QByteArrayLiteral("new")));
+    QCOMPARE(state.takeReceived(), QByteArrayLiteral("new"));
+}
+
+void SessionTests::serialIoClearPreservesBarrierBeforeNewWrites()
+{
+    NovaTerm::SerialIoState state(16, 16);
+    const auto generation = state.requestOpen();
+    QVERIFY(state.opened(generation));
+    QCOMPARE(state.queueWrite(QByteArrayLiteral("0123456789abcdef")), qint64(16));
+    QCOMPARE(state.queueWrite(QByteArrayLiteral("x")), qint64(0));
+    const auto oldWrite = state.takeWrite(generation, 8);
+    QCOMPARE(state.pendingWriteBytes(), qint64(16));
+    QCOMPARE(state.completeWrite(generation, oldWrite.epoch, 4), qint64(4));
+    QCOMPARE(state.pendingWriteBytes(), qint64(12));
+    QVERIFY(state.requestClear());
+    const auto clear = state.snapshot();
+    QCOMPARE(state.pendingWriteBytes(), qint64(5)); // 4 个在途字节 + 屏障
+    QCOMPARE(state.queueWrite(QByteArrayLiteral("CAN")), qint64(3));
+    QVERIFY(state.takeWrite(generation, 8).bytes.isEmpty());
+    QVERIFY(!state.completeClear(generation, oldWrite.epoch));
+    QVERIFY(state.completeClear(generation, clear.writeEpoch));
+    QCOMPARE(state.pendingWriteBytes(), qint64(3));
+    const auto next = state.takeWrite(generation, 8);
+    QCOMPARE(next.bytes, QByteArrayLiteral("CAN"));
+    QCOMPARE(state.completeWrite(generation, oldWrite.epoch, 4), qint64(0));
+    QCOMPARE(state.pendingWriteBytes(), qint64(3));
+    QCOMPARE(state.completeWrite(generation, next.epoch, 3), qint64(3));
+    QCOMPARE(state.pendingWriteBytes(), qint64(0));
+}
+
+void SessionTests::serialIoNotificationsAreCoalesced()
+{
+    NovaTerm::SerialIoState state;
+    const auto generation = state.requestOpen();
+    QVERIFY(state.opened(generation));
+    QVERIFY(state.armNoticeNotification());
+    QVERIFY(!state.armNoticeNotification());
+    QVERIFY(state.takeNotices().opened);
+    QVERIFY(state.receive(generation, QByteArrayLiteral("a")));
+    QVERIFY(state.armReceiveNotification());
+    QVERIFY(state.receive(generation, QByteArrayLiteral("b")));
+    QVERIFY(!state.armReceiveNotification());
+    QCOMPARE(state.takeReceived(), QByteArrayLiteral("ab"));
+    QVERIFY(!state.finishReceiveNotification());
+    QVERIFY(state.armWorkerWake());
+    QVERIFY(!state.armWorkerWake());
+    // 换代不能解除已排队通知，否则快速重连会积累无界 queued 事件。
+    state.requestOpen();
+    QVERIFY(!state.armWorkerWake());
+    state.consumeWorkerWake();
+    QVERIFY(state.armWorkerWake());
+}
+
+void SessionTests::serialIoStopRejectsFurtherWork()
+{
+    NovaTerm::SerialIoState state;
+    const auto generation = state.requestOpen();
+    QVERIFY(state.opened(generation));
+    QVERIFY(state.receive(generation, QByteArrayLiteral("held")));
+    QCOMPARE(state.queueWrite(QByteArrayLiteral("held")), qint64(4));
+    state.requestStop();
+    QVERIFY(state.snapshot().stopping);
+    QCOMPARE(state.snapshot().receiveBytes, qint64(0));
+    QCOMPARE(state.pendingWriteBytes(), qint64(0));
+    QVERIFY(!state.receive(generation, QByteArrayLiteral("late")));
+    QCOMPARE(state.queueWrite(QByteArrayLiteral("late")), qint64(-1));
+    QCOMPARE(state.requestOpen(), quint64(0));
+}
+
+void SessionTests::serialIoFailedOpenAndImmediateDestructionReclaimWorkers()
+{
+    const auto baseline = SerialTransport::activeIoWorkerCount();
+    std::vector<std::weak_ptr<NovaTerm::SerialIoState>> lifetimes;
+    SerialConfig config;
+    config.portName = QStringLiteral("novaterm-no-such-serial-port");
+    for (int iteration = 0; iteration < 8; ++iteration) {
+        SerialTransport transport(config);
+        lifetimes.push_back(SerialTransportIoTestAccess::ioLifetime(transport));
+        QSignalSpy errors(&transport, &ITransport::errorOccurred);
+        bool publishedOnGui = false;
+        connect(&transport, &ITransport::errorOccurred, this, [&] {
+            publishedOnGui = QThread::currentThread() == thread();
+        });
+        QVERIFY(transport.connectToHost());
+        QTRY_COMPARE(errors.count(), 1);
+        QVERIFY(publishedOnGui);
+        QVERIFY(!transport.isConnected());
+        QVERIFY(!transport.hasPendingDisconnect());
+        QVERIFY(transport.connectToHost());
+        transport.disconnect();
+        QTRY_VERIFY(!transport.hasPendingDisconnect());
+        QVERIFY(!transport.isConnected());
+    }
+    for (int iteration = 0; iteration < 8; ++iteration) {
+        auto transport = std::make_unique<SerialTransport>(config);
+        lifetimes.push_back(SerialTransportIoTestAccess::ioLifetime(*transport));
+        QVERIFY(transport->connectToHost());
+        transport.reset(); // start 投递尚未执行时也必须能关闭 worker
+    }
+    // 待启动线程尚未计入 active；逐个等待所有者释放，不能只看瞬时计数。
+    const auto allReleased = [&] {
+        return std::all_of(lifetimes.cbegin(), lifetimes.cend(),
+                           [](const auto& lifetime) { return lifetime.expired(); });
+    };
+    QTRY_VERIFY_WITH_TIMEOUT(allReleased(), 5000);
+    QCOMPARE(SerialTransport::activeIoWorkerCount(), baseline);
+}
+
+namespace {
+/** @brief 只替代 Win32 驱动调用，容量判定使用生产实现。 */
+struct FakeSerialQueueDriver
+{
+    bool acceptsRequest{true};
+    bool reportsCapacity{true};
+    std::uint32_t capacityAfterRequest{262144};
+    std::uint32_t currentCapacity{4096};
+    std::uint32_t requestError{0};
+    std::uint32_t queryError{0};
+    int initializationCount{0};
+
+    bool request(std::uint32_t receiveBytes, std::uint32_t transmitBytes,
+                 std::uint32_t& error)
+    {
+        ++initializationCount;
+        if (receiveBytes != 262144 || transmitBytes != 4096) {
+            error = 87;
+            return false;
+        }
+        error = requestError;
+        if (acceptsRequest) currentCapacity = capacityAfterRequest;
+        return acceptsRequest;
+    }
+
+    bool query(std::uint32_t& actualBytes, std::uint32_t& error) const
+    {
+        error = queryError;
+        actualBytes = reportsCapacity ? currentCapacity : 0;
+        return reportsCapacity;
+    }
+};
+}
+
+void SessionTests::serialDriverReceiveQueueRequiresActualCapacity_data()
+{
+    QTest::addColumn<bool>("accepts");
+    QTest::addColumn<bool>("reports");
+    QTest::addColumn<quint32>("actual");
+    QTest::addColumn<quint32>("requestError");
+    QTest::addColumn<quint32>("queryError");
+    QTest::addColumn<bool>("verified");
+    QTest::newRow("expanded") << true << true << quint32(262144)
+        << quint32(0) << quint32(0) << true;
+    QTest::newRow("larger") << true << true << quint32(1048576)
+        << quint32(0) << quint32(0) << true;
+    QTest::newRow("accepted-but-ignored") << true << true << quint32(4096)
+        << quint32(0) << quint32(0) << false;
+    QTest::newRow("capacity-not-reported") << true << true << quint32(0)
+        << quint32(0) << quint32(0) << false;
+    QTest::newRow("request-rejected") << false << true << quint32(4096)
+        << quint32(5) << quint32(0) << false;
+    QTest::newRow("query-failed") << true << false << quint32(0)
+        << quint32(0) << quint32(6) << false;
+    QTest::newRow("both-failed") << false << false << quint32(0)
+        << quint32(5) << quint32(6) << false;
+    QTest::newRow("already-large-request-rejected") << false << true << quint32(262144)
+        << quint32(5) << quint32(0) << true;
+}
+
+void SessionTests::serialDriverReceiveQueueRequiresActualCapacity()
+{
+    QFETCH(bool, accepts);
+    QFETCH(bool, reports);
+    QFETCH(quint32, actual);
+    QFETCH(quint32, requestError);
+    QFETCH(quint32, queryError);
+    QFETCH(bool, verified);
+    FakeSerialQueueDriver driver;
+    driver.acceptsRequest = accepts;
+    driver.reportsCapacity = reports;
+    driver.capacityAfterRequest = actual;
+    driver.currentCapacity = accepts ? 4096 : actual;
+    driver.requestError = requestError;
+    driver.queryError = queryError;
+    const auto result = NovaTerm::initializeSerialDriverReceiveQueue(driver);
+    QCOMPARE(result.verified(), verified);
+    QCOMPARE(result.requestAccepted, accepts);
+    QCOMPARE(result.capacityQueried, reports);
+    QCOMPARE(result.actualBytes, actual);
+    QCOMPARE(result.requestError, requestError);
+    QCOMPARE(result.queryError, queryError);
+}
+
+void SessionTests::serialDriverReceiveQueueIsInitializedAgainAfterReopen()
+{
+    FakeSerialQueueDriver driver;
+    QVERIFY(NovaTerm::initializeSerialDriverReceiveQueue(driver).verified());
+    // 重开后驱动恢复默认值，不能沿用上一连接的核验结果。
+    driver.currentCapacity = 4096;
+    const auto reopened = NovaTerm::initializeSerialDriverReceiveQueue(driver);
+    QVERIFY(reopened.verified());
+    QCOMPARE(reopened.actualBytes, std::uint32_t(262144));
+    QCOMPARE(driver.initializationCount, 2);
+}
+
+void SessionTests::transportWarningsStayNonFatalAndRejectOldAttachments()
+{
+    TerminalCore core(80, 24);
+    FakeTransport first;
+    FakeTransport second;
+    TerminalSession session(&core);
+    session.attach(&first, TerminalSession::Ownership::Borrowed, TransportKind::Serial);
+    QSignalSpy warnings(&session, &TerminalSession::warningOccurred);
+    QSignalSpy errors(&session, &TerminalSession::sessionError);
+    QVERIFY(session.start());
+    QTRY_COMPARE(session.state(), SessionState::Running);
+    QVERIFY(session.statistics().connectedAt.isValid());
+    first.warningOccurred(QStringLiteral("RX capacity unverified"));
+    QCOMPARE(warnings.count(), 1);
+    QCOMPARE(warnings.last().at(1).toString(), QStringLiteral("RX capacity unverified"));
+    QCOMPARE(session.state(), SessionState::Running);
+    QCOMPARE(errors.count(), 0);
+
+    first.simulateRemoteDisconnect();
+    QTRY_COMPARE(session.state(), SessionState::Failed);
+    QVERIFY(session.reconnect());
+    QTRY_COMPARE(session.state(), SessionState::Running);
+    first.warningOccurred(QStringLiteral("RX capacity still unverified"));
+    QCOMPARE(warnings.count(), 2);
+    QCOMPARE(errors.count(), 0);
+
+    session.attach(&second, TerminalSession::Ownership::Borrowed, TransportKind::Serial);
+    first.warningOccurred(QStringLiteral("old attachment warning"));
+    QCOMPARE(warnings.count(), 2);
+    second.warningOccurred(QStringLiteral("current attachment warning"));
+    QCOMPARE(warnings.count(), 3);
+    QCOMPARE(warnings.last().at(0).value<ITransport*>(), static_cast<ITransport*>(&second));
+}
 
 void SessionTests::localScriptProviderWritesExactlyRequestedPath()
 {

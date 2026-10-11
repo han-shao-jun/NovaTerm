@@ -177,6 +177,17 @@ public:
             finish(false, message, cancelDisconnect); return;
         }
         if (!active || !cancelling) return;
+        if (!cancelPreparing && !finishXyPacket) {
+            // 清写可能只接受了异步请求，底层有限前缀和屏障仍未排空。
+            // 其等待预算必须算在 CAN 之前，不能把低波特率取消提前截断。
+            const auto clearing = channel.pendingWriteBytes ? channel.pendingWriteBytes() : -1;
+            if (!active || !cancelling) return;
+            if (clearing < 0) { finish(false, message, true); return; }
+            const auto clearBytes = std::min<qint64>(clearing, OutputLimit + 1);
+            const auto clearTime = quint64(clearBytes + cancelBytes.size()) * 12ULL * 1000
+                / quint64(std::max(1, channel.baudRate));
+            cancelDeadline = now() + std::max<quint64>(1500, clearTime + 1000 + CancelQuietMs);
+        }
         // 恢复读取可能同步调用 acceptBytes/drive，必须在清理旧输出之后。
         pauseCheck();
         if (!active || !cancelling) return;
@@ -246,11 +257,17 @@ public:
             // CAN 也不能无限占用 Lease；清掉尚未排出的取消字节，保留连接。
             const bool incomplete = !cancelBytes.isEmpty() || !channel.pendingWriteBytes
                 || channel.pendingWriteBytes() != 0;
-            if (channel.clearWrites) channel.clearWrites();
+            // CAN 与待写都已排空，只是静默等待到期；不能新建空清写
+            // 屏障，再把尚未确认的哨兵误认为残留输出而断开连接。
+            if (!incomplete) { finish(false, cancelMessage, cancelDisconnect); return; }
+            const bool clearAccepted = channel.clearWrites && channel.clearWrites();
+            const auto afterClear = channel.pendingWriteBytes ? channel.pendingWriteBytes() : -1;
             const auto message = !cancelDisconnect && incomplete
                 ? QCoreApplication::translate("SerialFileTransferController", "The cancel sequence could not be sent. Check flow control and the connection.")
                 : cancelMessage;
-            finish(false, message, cancelDisconnect); return;
+            // 无法确认清写时先关闭字节通道，再释放独占；否则下一次输入
+            // 会排在仍可能复活的文件字节之后。
+            finish(false, message, cancelDisconnect || !clearAccepted || afterClear != 0); return;
         }
         const auto pending = channel.pendingWriteBytes ? channel.pendingWriteBytes() : -1;
         if (pending < 0) { finish(false, cancelMessage, cancelDisconnect); return; }

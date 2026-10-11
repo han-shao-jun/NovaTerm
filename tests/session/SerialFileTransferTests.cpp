@@ -1,5 +1,6 @@
 /** @file SerialFileTransferTests.cpp @brief 串口传输门面的异步与生命周期回归。 */
 #include "session/transfer/SerialFileTransferController.h"
+#include "transport/SerialIoState.h"
 #include <QSignalSpy>
 #include <QTemporaryDir>
 #include <QTest>
@@ -19,6 +20,152 @@ namespace FT = NovaTerm::FileTransfer;
 class SerialFileTransferTests : public QObject {
     Q_OBJECT
 private slots:
+    void drainedCancelKeepsConnectionWhenLateInputReachesDeadline() {
+        QTemporaryDir directory;
+        QVERIFY(directory.isValid());
+        QFile file(directory.filePath("source"));
+        QVERIFY(file.open(QIODevice::WriteOnly));
+        QCOMPARE(file.write("x"), qint64(1));
+        file.close();
+        NovaTerm::SerialIoState state;
+        const auto generation = state.requestOpen();
+        QVERIFY(state.opened(generation));
+        int activated = 0, clears = 0;
+        bool reserved = false;
+        QByteArray sent;
+        QPointer<SerialFileTransferController> controller;
+        const auto drain = [&] {
+            for (;;) {
+                const auto block = state.takeWrite(generation, 1024);
+                if (block.bytes.isEmpty()) break;
+                sent.append(block.bytes);
+                state.completeWrite(generation, block.epoch, block.bytes.size());
+            }
+        };
+        SerialFileTransferController::Channel channel;
+        channel.connected = [&] { return state.snapshot().connected; };
+        channel.reserve = [&](quint64) { reserved = true; return true; };
+        channel.release = [&] { reserved = false; };
+        channel.activate = [&] { ++activated; };
+        channel.coreIdle = [] { return true; };
+        channel.pendingWriteBytes = [&] { return state.pendingWriteBytes(); };
+        channel.write = [&](QByteArrayView bytes) {
+            const auto accepted = state.queueWrite(bytes);
+            drain();
+            return accepted;
+        };
+        channel.clearWrites = [&] {
+            ++clears;
+            if (!state.requestClear()) return false;
+            const auto epoch = state.snapshot().writeEpoch;
+            // 采用真实交接状态，确认另排一次事件，保留异步屏障哨兵。
+            QTimer::singleShot(0, controller.data(), [&, epoch] {
+                state.completeClear(generation, epoch);
+                drain();
+                controller->notifyWritable();
+            });
+            return true;
+        };
+        SerialFileTransferController transfer(std::move(channel));
+        controller = &transfer;
+        QSignalSpy done(&transfer, &SerialFileTransferController::finished);
+        QSignalSpy disconnected(&transfer, &SerialFileTransferController::disconnectRequired);
+        SerialTransferRequest request;
+        request.protocol = SerialTransferProtocol::Zmodem;
+        request.files = {file.fileName()};
+        QVERIFY(transfer.start(request));
+        QTRY_COMPARE(activated, 1);
+        sent.clear();
+        transfer.cancel();
+        QTRY_VERIFY(sent.count(char(0x18)) >= 5);
+        QCOMPARE(state.pendingWriteBytes(), qint64(0));
+        // CAN 已排空，但晚到输入持续刷新静默窗口，直到总取消期限。
+        QTimer delayed;
+        delayed.setInterval(30);
+        connect(&delayed, &QTimer::timeout, &transfer, [&] {
+            transfer.acceptBytes(QByteArray(64, char(0)));
+        });
+        delayed.start();
+        QTRY_COMPARE_WITH_TIMEOUT(done.size(), 1, 2500);
+        delayed.stop();
+        QCOMPARE(disconnected.size(), 0);
+        QCOMPARE(clears, 1);
+        QVERIFY(!reserved);
+        QVERIFY(state.snapshot().connected);
+    }
+    void expiredAsynchronousClearDisconnectsBeforeReleasingLease() {
+        QTemporaryDir directory;
+        QFile file(directory.filePath("source"));
+        QVERIFY(file.open(QIODevice::WriteOnly)); file.write("x"); file.close();
+        bool reserved = false, clearing = false, disconnectedBeforeRelease = false;
+        int activated = 0;
+        SerialFileTransferController::Channel channel;
+        channel.connected = [] { return true; };
+        channel.reserve = [&](quint64) { reserved = true; return true; };
+        channel.release = [&] { reserved = false; };
+        channel.activate = [&] { ++activated; };
+        channel.coreIdle = [] { return true; };
+        channel.pendingWriteBytes = [&]() -> qint64 { return clearing ? 1 : 0; };
+        channel.clearWrites = [&] { clearing = true; return true; };
+        channel.write = [&](QByteArrayView bytes) -> qint64 { return clearing ? 0 : bytes.size(); };
+        SerialFileTransferController controller(channel);
+        QSignalSpy done(&controller, &SerialFileTransferController::finished);
+        QSignalSpy disconnected(&controller, &SerialFileTransferController::disconnectRequired);
+        connect(&controller, &SerialFileTransferController::disconnectRequired,
+                &controller, [&] { disconnectedBeforeRelease = reserved; });
+        SerialTransferRequest request;
+        request.protocol = SerialTransferProtocol::Zmodem;
+        request.files = {file.fileName()};
+        QVERIFY(controller.start(request)); QTRY_COMPARE(activated, 1);
+        controller.cancel();
+        QTRY_COMPARE_WITH_TIMEOUT(done.count(), 1, 2500);
+        QCOMPARE(disconnected.count(), 1);
+        QVERIFY(disconnectedBeforeRelease);
+        QVERIFY(!reserved);
+    }
+    void asynchronousClearBarrierGetsItsOwnDrainBudget() {
+        QTemporaryDir directory;
+        QFile file(directory.filePath("source"));
+        QVERIFY(file.open(QIODevice::WriteOnly)); file.write("x"); file.close();
+        qint64 pending = 0;
+        bool clearing = false, reserved = false;
+        int activated = 0;
+        QByteArray sent;
+        SerialFileTransferController::Channel channel;
+        channel.baudRate = 300;
+        channel.connected = [] { return true; };
+        channel.reserve = [&](quint64) { reserved = true; return true; };
+        channel.release = [&] { reserved = false; };
+        channel.activate = [&] { ++activated; };
+        channel.coreIdle = [] { return true; };
+        channel.pendingWriteBytes = [&] { return pending; };
+        channel.clearWrites = [&] { clearing = true; return true; };
+        channel.write = [&](QByteArrayView bytes) -> qint64 {
+            if (clearing) return 0;
+            sent.append(bytes.data(), bytes.size());
+            return bytes.size();
+        };
+        SerialFileTransferController controller(channel);
+        QSignalSpy done(&controller, &SerialFileTransferController::finished);
+        QSignalSpy disconnected(&controller, &SerialFileTransferController::disconnectRequired);
+        SerialTransferRequest request;
+        request.protocol = SerialTransferProtocol::Zmodem;
+        request.files = {file.fileName()};
+        QVERIFY(controller.start(request));
+        QTRY_COMPARE(activated, 1);
+        sent.clear(); pending = 60;
+        controller.cancel();
+        QVERIFY(clearing); QVERIFY(reserved);
+        // 模拟 300 baud 下已提交底层的有限前缀异步排空；GUI 不能提前
+        // 宣称清写完成，也不能按只有 CAN 的期限丢掉取消序列。
+        QTimer::singleShot(2400, &controller, [&] {
+            pending = 0; clearing = false; controller.notifyWritable();
+        });
+        QTRY_COMPARE_WITH_TIMEOUT(done.count(), 1, 4500);
+        QVERIFY(sent.count(char(0x18)) >= 5);
+        QCOMPARE(disconnected.count(), 0);
+        QVERIFY(!reserved);
+    }
     void peerRoundTrip_data() {
         QTest::addColumn<int>("protocol"); QTest::addColumn<bool>("sending");
         QTest::addColumn<bool>("empty"); QTest::addColumn<bool>("batch");
@@ -539,7 +686,11 @@ private slots:
         if (mode == 4) delayed.start();
         QTRY_COMPARE_WITH_TIMEOUT(done.size(), 1, 2500); delayed.stop();
         QVERIFY(elapsed.elapsed() < 2300); QCOMPARE(disconnected.size(), 0); QCOMPARE(visible.size(), 0); QVERIFY(!reserved);
-        QCOMPARE(pending, qint64(0)); QVERIFY(clears >= 1); controller.notifyWritable(); QCOMPARE(done.size(), 1);
+        QCOMPARE(pending, qint64(0));
+        // 已排空的 X/Y 取消只等静默期限，不需要再清写空队列。
+        if (mode == 4) QCOMPARE(clears, 0);
+        else QVERIFY(clears >= 1);
+        controller.notifyWritable(); QCOMPARE(done.size(), 1);
     }
     void cancellationDuringClosingDoesNotBecomeVisibleText() {
         QTemporaryDir directory; QByteArray output, visible;

@@ -203,6 +203,13 @@ signals:
     void errorOccurred(const QString& error);
 
     /**
+     * @brief 非致命传输警告；连接继续可用，不代表 I/O 或文件传输失败。
+     * @param warning 人类可读的能力或容量核验诊断。
+     * @note 与其他信号一样在 GUI 线程发出，由 Session 转发给视图。
+     */
+    void warningOccurred(const QString& warning);
+
+    /**
      * @brief 发生结构化传输错误。
      * @param error 携带分类、错误码、可重试标志的错误对象。
      * @note 实现若同时发出本信号与 errorOccurred()，必须**先发 transportError**

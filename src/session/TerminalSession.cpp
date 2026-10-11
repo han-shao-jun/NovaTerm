@@ -241,6 +241,12 @@ void TerminalSession::connectTransportSignals(ITransport* transport,
                 emit automaticReconnectSucceeded();
             }
         }));
+    _transportConnections.append(connect(
+        transport, &ITransport::warningOccurred, this,
+        [this, transport, stale](const QString& warning) {
+            if (!stale())
+                emit warningOccurred(transport, warning);
+        }));
     // 结构化错误只做分类补充，不自行上报，避免与随后的 errorOccurred 重复
     // 产生两条 sessionError。约定见 ITransport.h。
     _transportConnections.append(connect(

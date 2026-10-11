@@ -4,13 +4,15 @@
  *
  * 基于 QtSerialPort 的事件驱动串口传输实现，不包含终端模型知识；
  * 帧格式配置（波特率/数据位/校验/停止位/流控）需在构造前解析完成。
- * 支持暂停读取（背压）与重连能力；物理串口无远程 PTY 概念，
+ * 独立 I/O 线程拥有端口，GUI 门面支持暂停交付（背压）与重连；
+ * 物理串口无远程 PTY 概念，
  * 故不支持终端尺寸调整（resizeTerminal() 为空实现）。
  */
 #pragma once
 
 #include "ITransport.h"
 #include "session/SessionTypes.h"
+#include "SerialIoState.h"
 
 #include <QSerialPort>
 #include <QByteArrayView>
@@ -24,11 +26,9 @@ public:
 
     /**
      * @brief 打开串口并建立连接。
-     * @return true 表示串口配置有效且已异步打开；false 表示配置无效，
-     *         或线路参数（波特率/数据位/校验/停止位/流控）被操作系统
-     *         或驱动拒绝——两者都按 Configuration 类错误上报。
-     * @note 实际打开在 QueuedConnection 中执行，避免在会话创建栈上
-     *       重入地发出 connected()/errorOccurred() 信号。线路参数在
+     * @return true 表示已接受异步打开请求；false 表示配置无效。
+     * @note 实际打开在 I/O 线程执行，结果通过 GUI 排队通知发布。
+     *       驱动拒绝线路参数也按 Configuration 类错误上报。线路参数在
      *       打开后会再下发一次：端口关闭时 setter 只缓存取值，真正
      *       触达驱动的校验发生在 open() 内部，此时被拒即关闭端口并
      *       报错，不会留下 isConnected() 为真而线路参数不匹配的状态。
@@ -48,9 +48,13 @@ public:
     void write(const QByteArray& data) override;
     /** @brief 有界部分写：返回接受前缀、0 队列满、-1 连接/I/O 错误。 */
     [[nodiscard]] qint64 tryWriteBounded(QByteArrayView data, qint64 limit = 16 * 1024);
-    /** @brief Qt 串口待写字节；不是设备端确认计数。 */
+    /** @brief 出件箱与底层待写总量；清写未确认时另含屏障哨兵。 */
     [[nodiscard]] qint64 pendingWriteBytes() const;
-    /** @brief 清理尚未发出的字节，用于取消协议；不能撤回已发出的数据。 */
+    /**
+     * @brief 请求丢弃未提交的输出；返回请求是否接受，不阻塞等待 I/O。
+     * @note 已提交底层的有限前缀不可撤回；pendingWriteBytes() 在清写
+     *       屏障确认前不返回零，新写入只能在此屏障之后提交。
+     */
     [[nodiscard]] bool clearPendingOutput();
 
     /**
@@ -65,6 +69,11 @@ public:
      * @return true 表示串口已打开可读写。
      */
     [[nodiscard]] bool isConnected() const override;
+    [[nodiscard]] bool hasPendingDisconnect() const override;
+    /** @brief 有界收发、底层完成与驱动容量的线程安全统计。 */
+    [[nodiscard]] NovaTerm::SerialIoSnapshot ioStatistics() const;
+    /** @brief 当前进程仍在运行的串口 I/O worker 数，供生命周期诊断。 */
+    [[nodiscard]] static int activeIoWorkerCount() noexcept;
 
     /**
      * @brief 获取最近一次错误的描述。
@@ -73,9 +82,11 @@ public:
     [[nodiscard]] QString errorString() const override;
 
     /**
-     * @brief 暂停或恢复读取对端数据。
-     * @param paused true 暂停读取，false 恢复并立即尝试读取缓冲数据。
-     * @return 始终为 true（串口支持背压）。
+     * @brief 暂停或恢复向 GUI 消费者交付数据。
+     * @param paused true 暂停交付，false 恢复并排队交付缓冲数据。
+     * @return 始终为 true。
+     * @note I/O 继续排空端口到 8 MiB 有界收件箱，满后停止排空；
+     *       无流控链路不能保证任意长停顿无损。
      */
     bool setReadPaused(bool paused) override;
 
@@ -96,12 +107,17 @@ public:
     [[nodiscard]] const SerialConfig& config() const noexcept { return _config; }
 
 private:
+    friend class SerialTransportIoTestAccess;
 #ifdef NOVATERM_SERIAL_STRESS
-    // 仅压力夹具访问原生端口来核对驱动队列，生产目标不定义此宏。
+    // 仅压力夹具在打开前设置队列实验请求，生产目标不定义此宏。
     friend class SerialStressPortAccess;
+    void setDriverReceiveQueueForTesting(quint32 bytes);
 #endif
-    void readAvailable();                       ///< 串口有数据可读时 drain
-    void handleError(QSerialPort::SerialPortError error); ///< 处理串口错误
+    class Impl;
+    void deliverInput();                       ///< GUI 每次最多交付 256 KiB
+    void deliverNotices();                     ///< GUI 合并发布状态与写完成
+    void wakeIo();                             ///< 最多一个待处理控制唤醒
+    Q_SIGNAL void ioWakeRequested();            ///< 仅连接内部 I/O worker
     /// 记录错误并先发 transportError、再发 errorOccurred（顺序约定见 ITransport.h）。
     void reportError(const QString& message,
                      TransportErrorCategory category = TransportErrorCategory::Io,
@@ -110,9 +126,10 @@ private:
     static constexpr qint64 MaxPendingWriteBytes = 1024 * 1024; ///< 写队列上限 1 MiB
 
     SerialConfig _config;
-    QSerialPort _port;
+    std::unique_ptr<Impl> _impl;
+    std::shared_ptr<NovaTerm::SerialIoState> _state; ///< 与 worker 同一份交接状态
     QString _errorString;
-    bool _readPaused{false};        ///< 是否暂停读取
     bool _connectPending{false};    ///< 是否有待完成的异步打开
     bool _disconnectEmitted{false}; ///< 是否已发出 disconnected()（避免重复）
+    bool _connected{false}; ///< 仅由 GUI 发布状态改变
 };

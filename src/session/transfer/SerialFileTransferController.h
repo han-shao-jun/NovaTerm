@@ -21,6 +21,7 @@ public:
         std::function<void()> release;
         std::function<qint64(QByteArrayView)> write; ///< 返回接受长度、0 背压、-1 错误。
         std::function<qint64()> pendingWriteBytes;
+        /// 清写请求可异步接受；pendingWriteBytes 在屏障确认前不得返回零。
         std::function<bool()> clearWrites;
         std::function<bool()> coreIdle; ///< 非阻塞查询旧 Parser 命令与普通 pending。
         int baudRate{115200};

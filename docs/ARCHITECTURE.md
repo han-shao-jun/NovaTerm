@@ -193,6 +193,15 @@ Session、不清空内容。JSON 的 `schemes` 使用 Windows Terminal 的命名
 仍由 InputPump 原样送入 Core。SSH、PTTY 与其他传输默认关闭，保持严格 VT
 行为；此开关独立于 ANSI LNM，不改变 Enter 输出编码。
 
+Windows 串口在每次成功打开、线路参数校验后，请求 256 KiB 驱动 RX 队列，
+并通过同一 QSerialPort 句柄查询实际容量。Qt 软件读缓冲仍为独立的 256 KiB
+上限，不能代替驱动队列。请求成功不代表实际容量达标；容量未报告、查询失败
+或实际值不足时保留连接，经 `ITransport::warningOccurred`、Session 转发到
+视图的黄色非致命警告。该通路不触发文件传输取消，也不被串口重连错误去重
+规则过滤。请求失败但实际容量已足够时仍可核验通过；每次重连重新初始化。
+本机复现、修复验收和 I/O 隔离评估见
+[固定串口行定位记录](architecture/Serial_Fixed_Line_Diagnosis_2026-10-10.md)。
+
 串口配置的 `reconnectSeconds` 为非负整秒数，默认 0 禁用自动重连。串口
 断线或打开失败后，Session 以单次定时器等待该间隔，再走既有 `reconnect()`
 入口；失败后重新计时。主动断开、关闭和换绑取消待执行重试，成功连接停止
@@ -381,6 +390,21 @@ flowchart TB
 
 Transport 可以使用 Qt 事件循环、专用读线程或 OS 异步 I/O；这属于实现策略。关键约束是不能因 Parser 积压阻塞 GUI，也不能静默丢失普通终端输出。
 
+SerialTransport 保留 GUI 线程的 ITransport 门面；独立 `nvterm-serial`
+事件循环内构造、打开、读取、写入和关闭 QSerialPort。收件箱上限 8 MiB，
+Qt 软件读缓冲 256 KiB；GUI 停顿或暂停交付时 I/O 继续收件，收件箱满后
+保留已有字节、停止排空并报告一次警告。GUI 每次最多交付 256 KiB，最多
+一个待处理收件通知，仍经过唯一 SessionInputPump 入站。无流控链路在
+缓冲耗尽后仍可能由驱动丢字节，隔离不替代硬件流控。
+
+出件箱加在途字节共限 1 MiB，每次底层提交最多 1 KiB。同步部分接受不
+等于写完成，`bytesWritten` 只报告底层完成；积压从同一锁下的快照查询。
+清写丢弃未提交字节，已提交的有限前缀排空后确认屏障，新写不得越过屏障。
+文件传输取消预算包含该前缀，屏障超时先断开再释放独占；不能把关闭时
+丢弃输出误认为成功排空。关闭、重连和清写以 generation / writeEpoch
+失效旧数据及通知；GUI 不阻塞等待 worker，原生端口回收不依赖 GUI 往返。
+Windows 驱动 RX 初始化与容量核验仍在 I/O 线程的每次打开中执行。
+
 各工作线程的 **OS 级线程名**由 `NovaTerm::setCurrentThreadName()`
 （`src/core/ThreadNaming.h`）在线程入口第一行固定下来，便于用 `ps -L`、
 `top -H`、VS 调试器或性能分析器直接识别：
@@ -392,6 +416,7 @@ Transport 可以使用 Qt 事件循环、专用读线程或 OS 异步 I/O；这�
 | Reflow Worker | `nvterm-reflow` | `LineLayout.cpp`（`ReflowEngine::Impl::run`） |
 | Glyph Rasterization Worker | `nvterm-glyph` | `GlyphRasterizer.cpp`（`AsyncGlyphRasterizer::run`） |
 | SSH 会话 Worker | `nvterm-ssh` | `SshTransport.cpp`（`workerMain`） |
+| 串口 I/O Worker | `nvterm-serial` | `SerialTransport.cpp`（`SerialIoThread::run`） |
 | SFTP 会话 Worker | `nvterm-sftp` | `SftpSession.cpp`（`workerMain`） |
 | ConPTY 生命周期线程 | `nvterm-conpty` | `ConPtySession.cpp`（`start`，运行在 `LocalShellTransport` 建的生命周期线程上） |
 | ConPTY 读/写/等待/关闭线程 | `conpty-reader` / `conpty-writer` / `conpty-wait` / `conpty-close` | `ConPtySession.cpp` |

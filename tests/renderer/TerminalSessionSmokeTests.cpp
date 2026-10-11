@@ -22,6 +22,35 @@
 
 namespace {
 
+/** @brief 警告显示回归使用的内存传输，不访问实际串口。 */
+class WarningTestTransport final : public ITransport
+{
+public:
+    bool connectToHost() override
+    {
+        _connected = true;
+        QMetaObject::invokeMethod(this, [this] { emit connected(); }, Qt::QueuedConnection);
+        return true;
+    }
+    void disconnect() override
+    {
+        if (!_connected) return;
+        _connected = false;
+        emit disconnected();
+    }
+    void write(const QByteArray&) override {}
+    void resizeTerminal(int, int) override {}
+    bool isConnected() const override { return _connected; }
+    QString errorString() const override { return {}; }
+    bool setReadPaused(bool) override { return true; }
+    TransportCapabilities capabilities() const override
+    {
+        return TransportCapability::Reconnect | TransportCapability::PauseReads;
+    }
+private:
+    bool _connected{false};
+};
+
 class TestComboBox final : public ElaComboBox
 {
 public:
@@ -37,6 +66,7 @@ class TerminalSessionSmokeTests : public QObject
     Q_OBJECT
 
 private slots:
+    void transportWarningsRemainVisibleInConnectedSerialSessions();
     void terminalColorsAreIndependentOfApplicationTheme();
     void savedSchemeRepaintsExistingTerminalPixels();
     void conPtyStartupKeepsUiResponsive();
@@ -49,6 +79,40 @@ private slots:
     void externalSessionOutlivesView();
     void ownedDependenciesAreDestroyedBeforeCore();
 };
+
+void TerminalSessionSmokeTests::transportWarningsRemainVisibleInConnectedSerialSessions()
+{
+    RuntimeConfig runtime;
+    runtime.transportKind = TransportKind::Serial;
+    WarningTestTransport transport;
+    TerminalSession session(runtime);
+    session.attach(&transport, TerminalSession::Ownership::Borrowed);
+    TerminalView view(&session);
+    QSignalSpy errors(&session, &TerminalSession::sessionError);
+    QVERIFY(session.start());
+    QTRY_COMPARE(session.state(), SessionState::Running);
+    QVERIFY(session.statistics().connectedAt.isValid());
+    const auto visibleText = [&session] {
+        const auto snapshot = session.core()->snapshot();
+        QByteArray text;
+        for (const auto& cell : snapshot.visibleCells)
+            if (cell.chars[0] != 0) text.append(char(cell.chars[0]));
+        return text;
+    };
+    transport.warningOccurred(QStringLiteral("RX_UNVERIFIED_FIRST"));
+    QVERIFY(session.core()->waitForIdle());
+    QVERIFY(visibleText().contains("RX_UNVERIFIED_FIRST"));
+    transport.disconnect();
+    QTRY_COMPARE(session.state(), SessionState::Failed);
+    QVERIFY(session.reconnect());
+    QTRY_COMPARE(session.state(), SessionState::Running);
+    QVERIFY(session.statistics().reconnectCount > 0);
+    transport.warningOccurred(QStringLiteral("RX_UNVERIFIED_RECONNECT"));
+    QVERIFY(session.core()->waitForIdle());
+    QVERIFY(visibleText().contains("RX_UNVERIFIED_RECONNECT"));
+    QCOMPARE(session.state(), SessionState::Running);
+    QCOMPARE(errors.count(), 0);
+}
 
 void TerminalSessionSmokeTests::fontZoomRoundTripRestoresTerminalContent()
 {

@@ -217,6 +217,9 @@ signals:
      */
     void sessionError(const SessionError& error);
 
+    /** @brief 当前附着传输的非致命警告，不改变会话或文件传输状态。 */
+    void warningOccurred(ITransport* transport, const QString& warning);
+
     /**
      * @brief 会话标题变更（由终端核心的标题转义序列触发）。
      * @param title 新标题。

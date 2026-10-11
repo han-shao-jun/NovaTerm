@@ -1,0 +1,4 @@
+case,tx,rx,baud,driver_rx_actual_bytes,gui_stall_ms,sent_written_bytes,received_bytes,io_read_during_gui_stall_bytes,io_receive_peak_bytes,missing_frames,corrupt_frames,abnormal_lines,sha256_matches,model_missing,rendered_frames,result
+fixed_83_byte_lines,COM2,COM1,115200,4096,5000,996000,996000,403961,,,,0,,0,,PASS
+highrate_production_queue,COM2,COM1,8000000,262144,5000,8388608,8388608,4001024,4001024,0,0,,true,0,331,PASS
+highrate_small_queue,COM1,COM2,8000000,4096,5000,8388608,8388608,4000384,4000384,0,0,,true,0,331,PASS

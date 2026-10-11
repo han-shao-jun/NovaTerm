@@ -59,7 +59,7 @@ qt_add_executable(serial_stress
     ${REPO}/src/renderer/gpu/RowSlotMap.cpp
     ${REPO}/src/renderer/glyph/GlyphRasterizer.cpp)
 set_target_properties(serial_stress PROPERTIES WIN32_EXECUTABLE FALSE)
-target_compile_definitions(serial_stress PRIVATE NOVATERM_SERIAL_STRESS)
+target_compile_definitions(serial_stress PRIVATE NOVATERM_SERIAL_STRESS NOMINMAX)
 target_include_directories(serial_stress PRIVATE "${REPO}/src"
     "${Qt6Gui_INCLUDE_DIRS}")
 target_link_libraries(serial_stress PRIVATE stress_core

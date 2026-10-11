@@ -509,6 +509,25 @@ P3 与 P5 实施完成、部分平台或人工验收待做，P7 计划中。
 
 ## 容易写错的地方
 
+**固定串口行偶发变长可能在渲染前就已发生**：本机 115200、83 字节
+CRLF 固定行异步发送，默认 4 KiB 驱动 RX 队列下原始 `readyRead` 已有
+110 字符长行；`4096 = 49×83+29`，截断后的 29 字符前缀与后续 81 字符
+拼接。实际扩至 256 KiB 后同负载完整。旧压力帧 128 字节整除 4096，
+同类损失可只表现为整帧缺失。Qt 软件读缓冲 256 KiB 不等于驱动 RX
+已扩容。后续修复已在 Windows 生产打开路径请求并核验 256 KiB RX；
+核验失败通过独立的非致命 `warningOccurred` 显示，不能复用已连接串口
+会过滤的 `errorOccurred`，也不能触发文件传输取消。2026-10-11 已迁移
+独立 `nvterm-serial` I/O worker，GUI 门面仍走唯一 SessionInputPump。
+收件箱 8 MiB、写侧含在途 1 MiB，最多一个收件通知；GUI 暂停交付时
+I/O 继续收件，满后保留字节并警告。清写异步确认，底层最多 1 KiB
+前缀先排空，新写不能越过屏障；取消超时先断开再释放独占。端口回收
+不等待 GUI。真实 D3D11、双向 8M 定速各 8 MiB、GUI 停顿 5 秒验收
+完整（反向实际 RX 4 KiB）；不是任意突发或真实 UART 的无损保证。
+此次解耦后的 Windows Release CTest 23/23，207.84 s；保留历史和
+其他机器的已知失败记录，不据单机通过改写原压力矩阵。
+证据与边界见
+`docs/architecture/Serial_Fixed_Line_Diagnosis_2026-10-10.md`。
+
 **串口 LF 自动回车只属于解析状态**：`SerialConfig::lfImpliesCr` 默认 false，
 旧历史字段缺失也按 false；SSH/PTTY 等非串口传输默认 false。不要在
 `SerialTransport` 或 `SessionInputPump` 改写接收字节，也不要借用 ANSI LNM

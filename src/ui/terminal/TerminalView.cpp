@@ -264,6 +264,17 @@ TerminalView::TerminalView(TerminalSession* session, QWidget* parent)
                     .arg(tr("[Transport error] %1").arg(error)).toUtf8());
         }
     });
+    connect(_session, &TerminalSession::warningOccurred, this,
+            [this](ITransport* transport, const QString& warning) {
+        if (!_session || _session->transport() != transport
+            || !_core || warning.isEmpty())
+            return;
+        // 能力或容量核验警告在每次连接后仍需可见，不套用详细打开错误的
+        // 去重规则；黄色由终端方案提供，不改变 Session 或文件传输状态。
+        _core->writeInput(
+            QStringLiteral("\r\n\x1b[0;33m%1\x1b[0m\r\n")
+                .arg(tr("[Transport warning] %1").arg(warning)).toUtf8());
+    });
     connect(_session, &TerminalSession::automaticReconnectAttemptStarted, this, [this] {
         if (!_core)
             return;

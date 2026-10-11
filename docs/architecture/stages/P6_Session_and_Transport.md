@@ -42,7 +42,7 @@
 | 5 `ITransport` 契约扩展 | 部分完成 | `transportError` 已接通：四种 Transport 全部 emit（按 ITransport.h 约定先发结构化错误、再发 `errorOccurred`），`TerminalSession` 据此把分类映射为 `SessionErrorCategory`，不再硬编码 `Io`，且仍只上报一条 `sessionError`。剩余缺口：`exited` 仅 Local 发出，转发到 `TerminalSession::exited` 后 UI 无消费者 |
 | 6 Local PTY/ConPTY | 已完成（句柄断言受平台缺陷阻塞） | 两处句柄断言失败**不是本项目缺陷**：`CreatePseudoConsole`/`ClosePseudoConsole` 在本机 Windows 版本上不配平，每个伪控制台生命周期泄漏约 1 个句柄（单线程无子进程的最小复现见 `tests/transport/conpty_handle_leak_repro.c`，实测 1.04/循环）。ConPtySession 自建的 8 个句柄全部有对应关闭点，线程数与子进程数断言均通过。另有 `duplexLoadAndBackpressure` 偶发超时待查（与句柄无关）|
 | 7 SSH Transport | 大部完成 | 资源监控辅助通道已改为请求驱动常驻 channel，快速 `/proc` 与低频 `df` 分离并在同一工作线程非阻塞推进（见下方 2026-09-06 记录）。host-key 首信任经 `SshHostKeyDialog` 用户确认（`src/ui/terminal/TerminalView.cpp:447-453`）——在 View 拥有 Session 的架构下，由拥有 transport 的 View 直接处理该决策是自洽的，原「结构化 Challenge 层」为已放弃的 Manager-owns 目标服务，现降为可选。**真实缺口：keyboard-interactive 认证未实现**（连需要它的服务器会失败）|
-| 8 Serial Transport | 已完成 | 无专门测试文件 |
+| 8 Serial Transport | 已完成 | 独立 I/O worker、8 MiB 有界收件箱、1 MiB 写侧与清写屏障；Windows 每次打开请求并核验 256 KiB RX。Session／取消回归及虚拟串口＋D3D11 GUI 停顿验收已实施，真实 UART／跨平台线程验收待补 |
 | 9 Telnet Transport | 已完成 | — |
 | 10 会话集合管理 | 已完成（采纳 View-owned） | 会话集合即 `TerminalPage::_terminalViews`（每 Tab 一个 View、各拥有一个 Session）。原 `SessionManager`（Manager-owns 注册表）已删除。跨标签的枚举/统一关闭由 `TerminalPage` 直接遍历 View 完成 |
 | 11 attach/detach | 已完成（采纳 View-owned） | 1:1 模型下 `TerminalView::detach()` 走 `TerminalSession::detach()`≈`close(Graceful)` 后由 `resetForReuse()` 复用同一 Session 承接下一次连接（`attachTransport`）；这是采纳语义，不再是「与设计冲突」。可见性→GPU 帧策略仍缺失（`RenderScheduler`/`TerminalView` 无 `isVisible`/`occluded` 逻辑），列为剩余项 |
@@ -577,6 +577,32 @@ Serial Transport 目前**没有对应测试文件**（见"实现进度"步骤 8 
 将光标列归零。VT/FF 与键盘 Enter 仍遵从原有 ANSI LNM 语义。
 回归为 `TerminalCoreTests::lfImpliesCrChangesOnlyLfCursorBehavior`；真实串口
 设备上的显示验收尚未执行。
+
+## Windows 串口驱动接收队列修复（2026-10-11）
+
+Windows 串口 RX 队列修复已在生产接入：每次打开请求 256 KiB 并查询实际
+容量，容量不可核验时保留连接，经独立 warningOccurred 显示黄色提示。
+重连与能力警告不会触发文件传输取消。策略、Session 转发与首次连接／重连
+显示均有回归测试；共用接口变化后的 Windows Release CTest 为 23/23。
+带事件循环发送线程的真实虚拟串口＋D3D11 双向、重开和 1 秒 GUI 停顿四项
+验收完整。以下为随后完成的 I/O worker 隔离；证据和评估见
+[固定串口行定位记录](../Serial_Fixed_Line_Diagnosis_2026-10-10.md)。
+
+### 串口 I/O 与 GUI 解耦（2026-10-11）
+
+QSerialPort 在 `nvterm-serial` 线程内创建及析构，GUI 仅保留 ITransport
+门面。8 MiB 收件箱、1 MiB 写侧均有统计、停止和代际失效；最多一个
+收件通知和控制唤醒，GUI 单次交付不超过 256 KiB，保留 SessionInputPump
+唯一入口。底层写完成与软件入队分开记账，清写丢弃未提交字节，最多
+1 KiB 已提交前缀排空后确认；文件传输取消预算随之扩展，屏障超时先
+断开再释放独占。关闭回收不依赖 GUI 往返。
+
+实际 COM1↔COM2、D3D11 下，固定 83 字节行在 RX 4 KiB、GUI 停顿
+5 秒时完整；双向 8M 定速各 8 MiB 同样完整，停顿时各积累约 4 MB，
+反向实际 RX 4 KiB。另验证 GUI 停顿期间 1 MiB 出站完成及 worker 回收。
+此处限于虚拟串口与指定负载，不替代真实 UART、不同驱动和跨平台验收。
+本轮主工程／压力夹具构建及校验器自检通过，Windows Release CTest
+23/23（207.84 s），不据此清除其他机器和历史已知失败。
 
 ## 实施禁止项
 

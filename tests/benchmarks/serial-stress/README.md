@@ -93,11 +93,24 @@ CRC／序号验证对接收热路径的影响。`--tx-chunk 4096` 可改变发�
 允许 128 字节至 64 KiB，要求是 128 的整数倍。
 `--probe COM1 <output.json>` 按生产串口参数打开端口，仅查询驱动队列容量，
 不调用 SetupComm 改变驱动配置。
-`--driver-rx-queue 262144` 则在当前接收端调用 SetupComm，并通过
-GetCommProperties 再次确认实际容量；范围为 4 KiB 至 4 MiB。这是实验控制，
-不修改主程序默认参数。为访问同一个端口，夹具目标定义
-`NOVATERM_SERIAL_STRESS`，启用 SerialTransport 中的测试专用 friend；
-生产目标不定义该宏，不增加公开 API 或改变运行行为。
+`--driver-rx-queue 262144` 在打开前设置实验请求，由当前接收端的 I/O
+worker 调用 SetupComm 并通过 GetCommProperties 核验；范围为 4 KiB 至
+4 MiB。夹具通过线程安全统计读取实际值，不跨线程访问端口或原生句柄。
+目标定义 `NOVATERM_SERIAL_STRESS`，启用私有 friend 实验入口；生产目标
+不定义该宏。当前生产打开默认请求并核验 256 KiB RX。
+
+`--gui-stall-ms 5000` 在开始发送约 1 秒后暂停 GUI 5 秒，范围为 0 至
+10000 ms。发送线程和串口 I/O worker 的事件循环继续运行；PASS 额外
+要求停顿期间 I/O 收件增长、GUI 交付计数不变，最终流 SHA-256、帧、Core
+和模型校验仍全部满足。JSON 记录收件箱峰值、满箱次数、关闭丢弃字节和
+停顿期间收件增量。示例（先释放两端串口）：
+
+```bat
+build\serial-stress-native\serial_stress.exe COM2 COM1 8000000 20 visible paced build\serial-gui-stall.json --bytes 8388608 --stable-timers --deferred-verify --tx-chunk 1024 --gui-stall-ms 5000
+```
+
+收件箱上限 8 MiB；此检查不承诺任意长 GUI 停顿或不限速突发无损，也不
+替代真实 UART 和设备流控测试。历史失败矩阵仍保留原结果。
 `--stable-timers` 只修改测量进程的计时策略，避免 Windows 忽略计时精度请求；
 会记录最大实际发送间隔、单次发送块及超过本机 4 KiB 驱动队列的写入次数。
 平均限速可能在调度延迟后补发成瞬时突发，不能当作精确 UART 线速模拟。
