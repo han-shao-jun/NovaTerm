@@ -1,6 +1,6 @@
 /**
  * @file McpProtocol.h
- * @brief MCP/私有 IPC 共用的限额、格式、签名和安全文件工具。
+ * @brief MCP的限额、格式、签名和安全文件工具。
  */
 #pragma once
 #include <QByteArray>
@@ -36,6 +36,10 @@ inline constexpr const char* ProtocolVersion = "2025-11-25";
 [[nodiscard]] QJsonObject toolResult(const QJsonObject& payload);
 [[nodiscard]] QJsonObject rpcResult(const QJsonValue& id, const QJsonObject& result);
 [[nodiscard]] QJsonObject rpcError(const QJsonValue& id, int code, const QString& message);
+/** @brief 返回空对象表示有效 MCP 消息，否则返回待发送的 JSON-RPC 错误。 */
+[[nodiscard]] QJsonObject rpcValidationError(const QJsonObject& message);
+/** @brief 两种传输分流共用的版本拒绝错误，字段遵守 2026 schema。 */
+[[nodiscard]] QJsonObject unsupportedProtocolError(const QJsonValue& id, const QString& requested);
 [[nodiscard]] QJsonArray tools();
 /** @return 空表示合法，否则为参数错误说明；不接受未知工具和未知字段。 */
 [[nodiscard]] QString validateArguments(const QString& name, const QJsonObject& arguments);
@@ -45,18 +49,4 @@ inline constexpr const char* ProtocolVersion = "2025-11-25";
 [[nodiscard]] std::optional<QJsonObject> readJson(const QString& path, qsizetype maxBytes = 65536);
 [[nodiscard]] QString runtimeDirectory();
 [[nodiscard]] QString dataDirectory();
-[[nodiscard]] QByteArray frame(const QJsonObject& object);
-
-/** @brief 有界长度前缀解析器；调用方按 capacity 读取，避免一次 readAll 无界分配。 */
-class FrameReader final
-{
-public:
-    [[nodiscard]] qsizetype capacity() const { return MaxFrameBytes + 4 - _bytes.size(); }
-    bool append(const QByteArray& bytes);
-    [[nodiscard]] std::optional<QJsonObject> take();
-    [[nodiscard]] bool failed() const { return _failed; }
-private:
-    QByteArray _bytes;
-    bool _failed{false};
-};
 }

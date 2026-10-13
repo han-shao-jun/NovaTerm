@@ -1,12 +1,12 @@
 # NovaTerm AI MCP 使用说明
 
-NovaTerm 提供本机 stdio MCP 服务，可让支持 MCP 的 AI 客户端读取指定终端输出、
+NovaTerm 提供进程内 Streamable HTTP MCP 服务，可让支持 MCP 的 AI 客户端读取指定终端输出、
 搜索已读取的内容、运行授权诊断，以及通过当前交互终端执行受控命令和脚本任务。默认关闭。
 
 ## 开始使用
 
-1. 编译并运行 NovaTerm，同时保留同目录的 `novaterm-mcp.exe`（Linux/macOS 为
-   `novaterm-mcp`）。桥接进程由 MCP 客户端启动，通常不需要手工运行。
+1. 编译并运行 NovaTerm，Qt SDK 需要包含匹配版本的 **HttpServer** 组件。
+   MCP 服务由主程序持有，不需要独立 MCP 桥接进程。
 2. 在主菜单打开 **AI MCP 接入**，勾选 **启用本机 MCP 接入**。
 3. 输入客户端名称，点击 **添加客户端**。
 4. 在会话列表勾选需要共享的 **读取输出**。新建会话和应用重启后的会话默认不共享。
@@ -19,8 +19,32 @@ NovaTerm 提供本机 stdio MCP 服务，可让支持 MCP 的 AI 客户端读取
 只有已经打开且明确授权的会话可见。MCP 不自动启动 NovaTerm、不新建终端、不
 登录服务器。切换当前标签不会改变工具的目标，调用按 sessionId 和 epoch 定位。
 
-多实例时导出的配置会携带 `--instance`，明确选择当前 NovaTerm；该实例退出再
-启动后需要重新复制配置。单实例配置通常无需指定实例，但仍需重新选择共享会话。
+默认接入地址为 `http://127.0.0.1:38973/mcp`，应用重启后保持稳定；应用启动前
+可用环境变量 `NOVATERM_MCP_HTTP_PORT` 覆盖端口。端口占用会明确报错，不自动
+换端口。需要多个应用实例时为各实例显式选择不同端口，使用各自导出的 URL 和令牌。
+应用必须运行且已启用 MCP，客户端不会自动启动主程序。重启后仍需重新选择共享会话。
+
+导出的单个 HTTP server 对象形状如下，令牌仅为占位值：
+
+```json
+{
+  "type": "http",
+  "url": "http://127.0.0.1:38973/mcp",
+  "headers": {"Authorization": "Bearer <从 NovaTerm 导出的接入令牌>"}
+}
+```
+
+Codex 的 TOML 配置使用以下字段：
+
+```toml
+[mcp_servers.novaterm]
+url = "http://127.0.0.1:38973/mcp"
+http_headers = { Authorization = "Bearer <从 NovaTerm 导出的接入令牌>" }
+```
+
+旧 `command`、`args`、`env` 及 `--instance` 配置需要替换成 HTTP 配置；
+`novaterm-mcp` 已删除，不保留 stdio 兼容入口。每个请求都需要 Bearer token，
+`MCP-Session-Id` 或客户端名称不能替代认证。只监听本机回环地址。
 
 ## 七个工具
 
@@ -101,7 +125,12 @@ NovaTerm 对已知凭据读取、关闭安全机制、提权、磁盘格式化�
 支持两种 MCP 确认协议：2025-11-25 客户端通过 `elicitation.form` 能力收到
 `elicitation/create`；2026-07-28 客户端通过 `server/discover` 发现版本，并在每个请求的
 `_meta` 声明协议版本和客户端能力，确认使用 `input_required` / `requestState` /
-`inputResponses` 完成 MRTR 重提。确认状态带 MAC、时限和一次性 nonce，并绑定客户端连接、
+`inputResponses` 完成 MRTR 重提。2025 使用 initialize 与 `MCP-Session-Id` 会话，
+SSE 可传送人工确认请求；客户端通过 POST 回传确认响应。TCP 断开不等于取消，
+DELETE 结束会话。2026 不创建协议会话，每请求声明 metadata；请求流断开取消该请求。
+2026 的 Bearer 身份在服务端保留受限授权上下文，使确认 MAC 能跨 HTTP 请求复核；
+这不将 TCP 连接变成协议 session，重提仍必须携带同一有效令牌。
+确认状态带 MAC、时限和一次性 nonce，并绑定客户端授权上下文、
 Session epoch、目标、Profile/策略版本及命令或脚本摘要。可信 Profile 还绑定提示符
 generation；无提示符 SSH 命令绑定用户输入代际。确认过期、会话变化、授权撤销、
 用户输入变化、正文/路径变化或状态重放都不能继续执行。
@@ -143,7 +172,7 @@ TUI、密码输入或未提交的 Shell 输入，命令可能落入这些位置�
   不能证明远端命令已经终止；不确定结果不得自动重跑。
 - 无法确认终止时暂停该目标的新 MCP 命令；换标签、重连或重启 GUI 不会自动清除。
   在服务端人工核对后，可在 MCP 设置中勾选确认并解除所选目标。此操作不能解禁危险命令。
-- 原 IPC 连接已断开时，旧票据不能在新连接使用。请在 NovaTerm 界面核对旧记录，
+- 授权上下文失效、会话结束或应用重启后，旧票据不能在新上下文使用。请在 NovaTerm 界面核对旧记录，
   不要让客户端获取新票据自动补跑。
 - 撤销读取、固定诊断或脚本任务的授权会使相应在途请求与确认状态失效。移除
   客户端或更换接入令牌会立即撤销该客户端访问。关闭 MCP 总开关
@@ -155,11 +184,14 @@ TUI、密码输入或未提交的 Shell 输入，命令可能落入这些位置�
 
 主程序运行不需要 Python，也不依赖额外的模型 SDK。
 
+Windows 默认注册项暂为 26（新增 wire、HTTP I/O、HTTP endpoint 三项）；Linux
+按条件预计 24 项，尚未实跑核对。注册数以配置后的 `ctest -N` 为准，不代表全部通过。
+
 ```powershell
-cmake --build build/Release --target NovaTerm novaterm-mcp novaterm-local-diag novaterm_mcp_tests
+cmake --build build/Release --target NovaTerm novaterm-local-diag novaterm_mcp_tests novaterm_mcp_wire_tests novaterm_mcp_http_tests novaterm_mcp_endpoint_tests
 $env:Path = 'C:\Programs\Qt\6.8.3\msvc2022_64\bin;' + $env:Path
 $env:QT_PLUGIN_PATH = 'C:\Programs\Qt\6.8.3\msvc2022_64\plugins'
-ctest --test-dir build/Release -C Release -R '^novaterm_mcp_tests$' --output-on-failure
+ctest --test-dir build/Release -C Release -R '^novaterm_mcp_(wire_|http_|endpoint_)?tests$' --output-on-failure
 ```
 
 官方 SDK 与回环 SSH 验证是可选开发检查，依赖只装到构建目录：

@@ -27,8 +27,8 @@ site.addsitedir(_DEPS)
 if _DEPS in sys.path:
     sys.path.remove(_DEPS)
 sys.path.insert(0, _DEPS)
-from mcp import ClientSession, StdioServerParameters
-from mcp.client.stdio import stdio_client
+from mcp import ClientSession
+from mcp.client.streamable_http import streamablehttp_client
 
 FIXTURE_MASK: object = 0
 CLIENT_MASK: object = 0
@@ -83,10 +83,9 @@ async def workload(config: Path, enabled: bool) -> dict:
         clients = []
         if enabled:
             settings = json.loads(config.read_text(encoding="utf-8"))["mcpServers"]["novaterm"]
-            parameters = StdioServerParameters(command=settings["command"], args=settings["args"],
-                env={**os.environ, **settings["env"]})
             for _ in range(CLIENT_COUNT):
-                read, write = await stack.enter_async_context(stdio_client(parameters))
+                read, write, _ = await stack.enter_async_context(
+                    streamablehttp_client(settings["url"], headers=settings["headers"]))
                 client = await stack.enter_async_context(ClientSession(read, write))
                 await client.initialize()
                 result = await client.call_tool("novaterm_list_sessions", {})

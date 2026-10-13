@@ -58,6 +58,23 @@ if(BUILD_TESTING)
 
     add_subdirectory(filetransfer)
 
+    qt_add_executable(novaterm_mcp_wire_tests mcp/WireSessionTests.cpp)
+    target_link_libraries(novaterm_mcp_wire_tests PRIVATE novaterm_mcp_protocol Qt6::Test)
+    set_target_properties(novaterm_mcp_wire_tests PROPERTIES WIN32_EXECUTABLE FALSE)
+    add_test(NAME novaterm_mcp_wire_tests COMMAND novaterm_mcp_wire_tests)
+    set_tests_properties(novaterm_mcp_wire_tests PROPERTIES LABELS "mcp;p8" TIMEOUT 30)
+    qt_add_executable(novaterm_mcp_http_tests mcp/HttpMcpServerTests.cpp)
+    target_link_libraries(novaterm_mcp_http_tests PRIVATE novaterm_mcp_http Qt6::Test)
+    set_target_properties(novaterm_mcp_http_tests PROPERTIES WIN32_EXECUTABLE FALSE)
+    add_test(NAME novaterm_mcp_http_tests COMMAND novaterm_mcp_http_tests)
+    set_tests_properties(novaterm_mcp_http_tests PROPERTIES LABELS "mcp;p8;http" TIMEOUT 60)
+    qt_add_executable(novaterm_mcp_endpoint_tests mcp/HttpMcpEndpointTests.cpp)
+    target_link_libraries(novaterm_mcp_endpoint_tests PRIVATE novaterm_mcp_http Qt6::Test)
+    set_target_properties(novaterm_mcp_endpoint_tests PROPERTIES WIN32_EXECUTABLE FALSE)
+    add_test(NAME novaterm_mcp_endpoint_tests COMMAND novaterm_mcp_endpoint_tests)
+    set_tests_properties(novaterm_mcp_endpoint_tests PROPERTIES LABELS "mcp;p8;http" TIMEOUT 60)
+    add_dependencies(check novaterm_mcp_wire_tests novaterm_mcp_http_tests novaterm_mcp_endpoint_tests)
+
     find_package(Qt${QT_VERSION_MAJOR} 6.8 REQUIRED COMPONENTS Test)
 
     add_executable(novaterm_local_executor_test_child
@@ -129,11 +146,10 @@ if(BUILD_TESTING)
         target_link_libraries(novaterm_mcp_tests PRIVATE ws2_32 crypt32 advapi32)
     endif()
     target_compile_definitions(novaterm_mcp_tests PRIVATE
-        NOVATERM_MCP_BRIDGE="$<TARGET_FILE:novaterm-mcp>"
         NOVATERM_LOCAL_DIAG="$<TARGET_FILE:novaterm-local-diag>"
         NOVATERM_LOCAL_EXECUTOR_TEST_CHILD="$<TARGET_FILE:novaterm_local_executor_test_child>"
     )
-    add_dependencies(novaterm_mcp_tests novaterm-mcp novaterm-local-diag
+    add_dependencies(novaterm_mcp_tests novaterm-local-diag
         novaterm_local_executor_test_child)
     set_target_properties(novaterm_mcp_tests PROPERTIES WIN32_EXECUTABLE FALSE)
     add_test(NAME novaterm_mcp_tests COMMAND novaterm_mcp_tests)

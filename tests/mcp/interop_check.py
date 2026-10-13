@@ -20,16 +20,15 @@ site.addsitedir(_DEPS)
 if _DEPS in sys.path:
     sys.path.remove(_DEPS)
 sys.path.insert(0, _DEPS)
-from mcp import ClientSession, StdioServerParameters
-from mcp.client.stdio import stdio_client
+from mcp import ClientSession
+from mcp.client.streamable_http import streamablehttp_client
+import httpx
 from jsonschema import Draft202012Validator
 
 
 async def check(config: dict) -> None:
     settings = config["mcpServers"]["novaterm"]
-    params = StdioServerParameters(command=settings["command"], args=settings["args"],
-                                  env={**os.environ, **settings["env"]})
-    async with stdio_client(params) as (read, write):
+    async with streamablehttp_client(settings["url"], headers=settings["headers"]) as (read, write, _):
         async with ClientSession(read, write) as session:
             initialization = await session.initialize()
             assert initialization.protocolVersion == "2025-11-25"
@@ -56,7 +55,7 @@ async def check(config: dict) -> None:
             result = await call("novaterm_search_context", {**identity,
                 "captureId": snapshot["captureId"], "query": "ERROR"})
             assert result["data"]["matches"]
-            async with stdio_client(params) as (other_read, other_write):
+            async with streamablehttp_client(settings["url"], headers=settings["headers"]) as (other_read, other_write, _):
                 async with ClientSession(other_read, other_write) as other:
                     await other.initialize()
                     independent = await other.call_tool("novaterm_read_context", identity)
@@ -72,29 +71,33 @@ async def check(config: dict) -> None:
             rejected = await call("novaterm_read_context", {**identity, "command": "not allowed"})
             assert not rejected["ok"] and rejected["error"]["code"] == "INVALID_ARGUMENT"
     await check_modern(settings)
-    print("PASS: official MCP SDK 2025 + 2026 discover/MRTR wire, 7 schemas, bounded reads, search, execution and replay")
+    print("PASS: official MCP SDK 2025 + raw 2026 discover/catalog/read HTTP, 7 schemas, bounded reads, search, execution and replay")
 
 
 async def check_modern(settings: dict) -> None:
-    environment = {**os.environ, **settings["env"]}
-    process = await asyncio.create_subprocess_exec(
-        settings["command"], *settings["args"],
-        stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE, env=environment)
     request_id = 0
+    client = httpx.AsyncClient(timeout=8)
 
     async def rpc(method: str, params: dict) -> dict:
         nonlocal request_id
         request_id += 1
         request = {"jsonrpc": "2.0", "id": request_id,
                    "method": method, "params": params}
-        process.stdin.write(json.dumps(request, separators=(",", ":")).encode() + b"\n")
-        await process.stdin.drain()
-        line = await asyncio.wait_for(process.stdout.readline(), timeout=8)
-        assert line, "MCP bridge closed stdout before responding"
-        response = json.loads(line)
-        assert response.get("id") == request_id, response
-        return response
+        headers = {**settings["headers"], "Accept": "application/json, text/event-stream",
+                   "MCP-Protocol-Version": params["_meta"]["io.modelcontextprotocol/protocolVersion"],
+                   "Mcp-Method": method}
+        if method == "tools/call":
+            headers["Mcp-Name"] = params["name"]
+        response = await client.post(settings["url"], json=request, headers=headers)
+        if response.headers.get("content-type", "").startswith("text/event-stream"):
+            messages = [json.loads(line[5:].strip()) for line in response.text.splitlines()
+                        if line.startswith("data:")]
+            assert messages, "HTTP SSE stream closed before a result"
+            result = messages[-1]
+        else:
+            result = response.json()
+        assert result.get("id") == request_id, result
+        return result
 
     def metadata() -> dict:
         return {
@@ -114,6 +117,7 @@ async def check_modern(settings: dict) -> None:
         unsupported_meta["io.modelcontextprotocol/protocolVersion"] = "2099-01-01"
         unsupported = await rpc("tools/list", {"_meta": unsupported_meta})
         assert unsupported["error"]["code"] == -32022
+        assert "2026-07-28" in unsupported["error"]["data"]["supported"]
         assert unsupported["error"]["data"]["requested"] == "2099-01-01"
         listed = await rpc("tools/list", {"_meta": metadata()})
         assert listed["result"]["resultType"] == "complete"
@@ -128,12 +132,7 @@ async def check_modern(settings: dict) -> None:
         assert context["result"]["resultType"] == "complete"
         assert context["result"]["structuredContent"]["ok"]
     finally:
-        process.stdin.close()
-        try:
-            await asyncio.wait_for(process.wait(), timeout=5)
-        except asyncio.TimeoutError:
-            process.kill()
-            await process.wait()
+        await client.aclose()
 
 
 def main() -> None:

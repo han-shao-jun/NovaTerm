@@ -141,7 +141,14 @@ void Application::init()
     QString savedLang = ConfigManager::get<QString>("ui.language");
     LanguageManager::instance().install(savedLang);
 
-    _mcpService = std::make_unique<NovaTerm::Mcp::Service>();
+    // 稳定本机端点便于客户端重连；测试门面默认使用系统分配端口。
+    const QString portSetting = qEnvironmentVariable("NOVATERM_MCP_HTTP_PORT");
+    bool validPort = false;
+    const uint configuredPort = portSetting.toUInt(&validPort);
+    const quint16 mcpPort = validPort && configuredPort > 0 && configuredPort <= 65535
+        ? quint16(configuredPort) : quint16(38973);
+    _mcpService = std::make_unique<NovaTerm::Mcp::Service>(
+        QString{}, QString{}, nullptr, nullptr, mcpPort);
     _mainWindow = std::make_unique<MainWindow>();
 
     // ElaWindow 构造函数中 setObjectName("ElaWindow") 并设

@@ -18,7 +18,7 @@ GPU 管线，UI 用 ElaWidgetTools（FluentUI 风格）。GPLv2+，仓库在 Git
 | `docs/architecture/Development_Roadmap.md` | P0–P8 依赖、状态表、**统一完成定义** |
 | `docs/architecture/stages/P*.md` | 各阶段实施说明。P6 含逐步进度表与剩余工作 |
 | `docs/architecture/stages/P9_File_Transfer_Protocols.md` | P9 独立协议库及串口 Session/手动传输窗口；Linux 协议/门面/UI 通路已验证，Windows 取消发布竞争用例有已知失败，跨平台/真实 UART 文件验收待补 |
-| `docs/architecture/stages/P8_AI_MCP_Interface.md` | P8 AI MCP：当前实现事实见 §14.2，修订设计与风险边界见 §15；七工具、2025 elicitation/2026 MRTR、低风险普通命令及 LocalShell/SSH 脚本能力已进入代码，真实桌面/跨平台/性能验收仍按阶段文档标记 |
+| `docs/architecture/stages/P8_AI_MCP_Interface.md` | P8 AI MCP：当前入口为进程内 Qt HTTP Server Streamable HTTP（2026-10-12 迁移节），旧 stdio/IPC 已移除；七工具、2025 会话/elicitation、2026 无会话 MRTR；历史验收与跨平台缺口按阶段文档标记 |
 | `docs/architecture/Rendering_Architecture.md` | Snapshot、调度、命令缓存、QRhi、Glyph |
 | `docs/architecture/Configuration_Profile_Theme.md` | 配置分层、Profile、Session、主题职责。**描述目标设计**，开头有与当前源码的名称对照表 |
 
@@ -27,7 +27,8 @@ GPU 管线，UI 用 ElaWidgetTools（FluentUI 风格）。GPLv2+，仓库在 Git
 
 ## 构建与测试
 
-环境要求以 `CMakeLists.txt` 为准：`cmake_minimum_required(VERSION 3.20)`、
+环境要求以 `CMakeLists.txt` 为准：新增 Qt **HttpServer** 组件，与其他 Qt 模块
+使用同一前缀与版本；`cmake_minimum_required(VERSION 3.20)`、
 `find_package(Qt6 6.8 REQUIRED ...)`、`set(CMAKE_CXX_STANDARD 17)`。
 `README.md` 的「环境要求」一节已与这三处对齐（2026-09 复核）；它对
 **测试**一节已补齐配置选择、运行环境与手工串口验收入口（2026-10-07）；
@@ -72,8 +73,11 @@ cmd /c "call \"C:\Program Files (x86)\Microsoft Visual Studio\18\BuildTools\VC\A
 ### 跑测试
 
 **默认只跑与改动相关的测试目标，不要跑全套。** 全套耗时**按平台不同**（见下方
-「默认注册了哪些测试」）：**Linux 注册 21 项**（2026-10-05 实测 21/21 通过），
-Windows 默认注册 23 项（2026-10-07 用 `ctest -N` 核对注册数，未跑全套）。原 Windows 12 项全套实测约
+「默认注册了哪些测试」）：2026-10-12 新增 MCP wire/HTTP 后，**Windows 暂为
+26 项、Linux 按条件预计 24 项**。2026-10-13 Windows 用 `ctest -N` 核对
+26 项，Release 全套 26/26 通过（233.97 秒）；Linux 本轮未验收。历史 Linux 21 项
+于 2026-10-05 实测 21/21 通过；历史 Windows 23 项于 2026-10-07 仅核对注册数。
+原 Windows 12 项全套实测约
 **190 秒**，其中 `novaterm_conpty_tests` 单项 94s、`novaterm_terminal_session_tests`
 46s、`novaterm_core_tests` 30s；而多数改动只需要其中一两项、几秒就跑完。
 
@@ -118,7 +122,7 @@ ctest --test-dir build -C Debug
 | `src/transport/LocalShellTransport` 与 ConPty 路径 | `novaterm_conpty_tests`（Win）／`novaterm_pty_tests`（Linux） | `conpty`／`pty` | 互斥，见下注 | ~94s |
 | `src/transport/SshTransport`、`SshMonitorProtocol` | `novaterm_ssh_transport_check`（失败路径 + 监控帧协议） | `ssh` | 全部 | <1s |
 | `src/transport/TelnetTransport` | `novaterm_telnet_transport_tests` | `telnet` | 全部 | ~5s |
-| `src/mcp/`、`tools/novaterm-mcp/`、`SessionDirectory`、`McpSettingsDialog`、Session ScriptProvider/SFTP | `novaterm_mcp_tests`（有界协议、分项授权、2025/2026 确认、取消/重放、交互命令、脚本写入及 UI） | `mcp`／`p8` | 全部 | ~10s |
+| `src/mcp/`、`SessionDirectory`、`McpSettingsDialog`、Session ScriptProvider/SFTP | `novaterm_mcp_tests`；wire/HTTP/endpoint 另跑 `novaterm_mcp_wire_tests`、`novaterm_mcp_http_tests`、`novaterm_mcp_endpoint_tests`（分项授权、两代协议、取消/重放、命令/脚本及 HTTP 入口） | `mcp`／`p8` | 全部 | 四项合计 ~41s（本机 Release） |
 | TerminalSession + TerminalRenderer + LocalShellTransport 的联通路径 | `novaterm_terminal_session_tests` | `terminal-session` | **仅 Win32** | ~46s |
 | `TerminalTabWidget` 的连接动作/紧凑标题、`SystemInformationDialog` 的滚动范围/布局与 app bar 关闭按钮、`SshHostKeyDialog` 的 Ela 控件与端点标题 | `novaterm_ui_dialog_layout_tests` | `ui` | 全部 | <1s |
 | `src/ui/widgets/SessionPanel.cpp` 的历史树多选与右键菜单 | `novaterm_session_panel_tests` | `ui` | 全部 | <1s |
@@ -143,6 +147,9 @@ ctest --test-dir build -C Debug
 | 测试 | 注册条件 | LABELS | TIMEOUT |
 | --- | --- | --- | --- |
 | `novaterm_mcp_tests` | 无条件 | `mcp;p8` | 120 |
+| `novaterm_mcp_wire_tests` | 无条件 | `mcp;p8` | 30 |
+| `novaterm_mcp_http_tests` | 无条件 | `mcp;p8;http` | 60 |
+| `novaterm_mcp_endpoint_tests` | 无条件 | `mcp;p8;http` | 60 |
 | `novaterm_serial_file_transfer_tests` | 无条件 | `session;serial;filetransfer;p9` | 120 |
 | `novaterm_serial_file_transfer_ui_tests` | 无条件 | `ui;serial;filetransfer;p9` | 30 |
 | `novaterm_filetransfer_checksum_tests` | 无条件 | `unit;filetransfer;p9` | 60 |
@@ -167,7 +174,11 @@ ctest --test-dir build -C Debug
 | `novaterm_conpty_tests` | `WIN32` | `integration;conpty` | 240 |
 | `novaterm_terminal_session_tests` | `WIN32` | `integration;terminal-session` | 120 |
 
-**Linux 注册 21 项，2026-10-05 实测 21/21 通过。** 构成：19 项无条件 +
+**2026-10-12 当前源码新增 wire/HTTP/endpoint 三项，Windows 为 26 项，Linux 按条件
+预计 24 项。2026-10-13 Windows 已核对注册 26 项，Release 全套 26/26 通过，
+耗时 233.97 秒；Linux 本轮未配置或运行。** `ctest -N` 的注册数不代表通过。
+以下为新增三项之前的历史：Linux 注册 21 项，2026-10-05 实测 21/21 通过。
+当时构成：19 项无条件 +
 1 项缩放护栏（benchmark 开关）+ 1 项 `pty`（Linux 专有）。计数以
 `ctest -N` 为准，别用记忆里的数字。
 **Windows 默认注册 23 项，2026-10-07 用 `ctest -N` 核对**：此前 22 项基础上新增
@@ -397,7 +408,7 @@ Session / Transport / Renderer 时先看那一节。
 src/core/       TerminalCore ScreenBuffer ScrollbackBuffer VTAdapter SearchEngine
 src/transport/  ITransport ← LocalShellTransport SshTransport SerialTransport TelnetTransport
 src/session/    TerminalSession SessionFactory SessionInputPump SessionStore SftpSession SessionDirectory
-src/mcp/        MCP 协议与授权（独立库，tools/novaterm-mcp 为 stdio 入口）
+src/mcp/        进程内 Qt HTTP Server、MCP wire 与授权（旧 stdio/IPC 已移除）
 src/filetransfer/ XMODEM/YMODEM/ZMODEM 协议库（纯标准库，不链 Qt）
 src/renderer/   TerminalRenderer RenderScheduler GlyphAtlas FontManager
 src/ui/         TerminalView MainWindow SessionPage SettingsPage SftpPanel SystemMonitorPanel
@@ -481,8 +492,13 @@ src/platform/   windows/conpty/ linux/pty/
   `__STDC_VERSION__ >= 199901L`，命中某些 C 库 `INLINE` 宏的 GNU 分支
   展开成 `__inline__` 而编译失败（libtelnet 就是）
 
-许可证：项目 GPLv2+；ElaWidgetTools MIT、libvterm MIT、libtelnet public
-domain、libssh LGPL-2.1、OpenSSL Apache-2.0、Clink GPL-3（仅二进制随包分发）。
+许可证：项目 GPLv2+；新增 Qt HTTP Server 开源许可 **GPL-3.0-only**（另有商业许可），
+本机 Qt 6.8.3 `include/QtHttpServer/qhttpserver.h` 的 SPDX 已核对。
+采用该开源模块构建的组合程序分发需满足 GPLv3；不能只按 GPLv2 分发该构建。
+源码、许可材料与其他依赖义务仍需核对，此记录不构成法律合规保证。
+依据见 [Qt 官方模块许可](https://doc.qt.io/qt-6.8/qthttpserver-index.html#licenses)。
+ElaWidgetTools MIT、libvterm MIT、libtelnet public domain、libssh LGPL-2.1、
+OpenSSL Apache-2.0、Clink GPL-3（仅二进制随包分发）。
 无 NOTICE / THIRD_PARTY_LICENSES 汇总文件。
 
 ## 当前进度与主要缺口
@@ -603,6 +619,17 @@ Linux/macOS 落到 `pthread_setname_np`），QThread 的 `objectName` 只作 Qt 
 `thread->finished → thread->deleteLater`）。回归：`novaterm_conpty_tests` 的
 `injectedStartupStagesRollBack`、`startFailureRollsBackAndCanRestart`、
 `exitReasonsAndIdempotentClose`；同机 A/B 仅改这一行，Direct 4/5 崩、Queued 0/6 崩。
+
+**MCP 仅提供进程内 Streamable HTTP**（2026-10-12）：旧 stdio 桥接与
+`LocalMcpServer` 已删除，不恢复独立 MCP 子进程或实例目录监视。
+默认 `http://127.0.0.1:38973/mcp`，主应用启动前的 `NOVATERM_MCP_HTTP_PORT`
+可覆盖端口；端口冲突明确失败，不自动切换。每请求使用 Bearer token。
+`clientConfiguration()` 返回 `{type:"http",url,headers:{Authorization:"Bearer …"}}`；
+Codex 配置改用 `url`/`http_headers`，旧 `command`/`args`/`env` 必须迁移。
+2025 的 `MCP-Session-Id` 会话与 SSE elicitation 保留；TCP 断开不等于取消。
+2026 为无会话 MRTR，每请求 metadata，断流取消对应请求。取消与应用退出
+不证明目标命令已终止，仍保留未知结果语义。本轮 HTTP 成绩待实际验收，
+此前 stdio 退出、继承管道取消与子进程测试只作为历史证据。
 
 **启动 Transport 不要用 Core 旧尺寸覆盖 Renderer 的目标尺寸**：
 `TerminalCore::resize()` 异步执行，布局激活后 `terminalSizeChanged` 已携带
@@ -1277,7 +1304,8 @@ Windows Terminal 字段解析和旧 `terminal.colors` 迁移，Renderer 不读 J
   `flushDamage()` 把每个 Resize 隔开** —— 同类型 Resize 在队列里会被合并，
   连发几千次 resize 实际只产生几十次执行，对百万次读取的命中概率约 0.006，
   变异验证会「假通过」。变异验证（退回两个独立 atomic）确认可抓住。
-- **`LocalMcpServer::stop()` 遗弃已连接 `QLocalSocket`**：`nextPendingConnection()`
+- **历史 `LocalMcpServer::stop()` 遗弃已连接 `QLocalSocket`**（该类于
+  2026-10-12 HTTP-only 迁移时删除）：`nextPendingConnection()`
   返回**无 parent** 的 socket（Qt 契约要求调用方 delete），原代码只依赖
   `disconnected` 回收，于是每次"禁用再启用 MCP 接入"都泄漏 socket + 定时器 + fd。
   改为 `setParent(this)` 并在 `~IoWorker` 里 `abort()` 收尾。
@@ -1622,3 +1650,31 @@ QString 堆分配（热路径）、TerminalRenderer `_fm` 裸指针 delete/new �
 - ResourcePrefetch 懒启动（每 SSH 标签省 10-150 KB + 3 条远端命令）
 - 专项：SFTP 递归删除/下载流式化（百万文件 120-250 MB）、
   CellAttributes 位标志（Cell 52→36 B，回滚省 ~30%）
+
+### 进程内 HTTP MCP 验收（2026-10-13）
+
+- Windows Release 主程序、全部默认目标构建通过；windeployqt 部署
+  Qt6HttpServer/Qt6WebSockets，旧 stdio/LocalMcpServer 不再构建或安装。
+- 默认 CTest 注册 26 项，全套 26/26 通过（233.97 秒），含 wire、HTTP I/O、
+  endpoint、业务授权/确认/取消与 UI；`check` 已依赖三个新增测试目标。
+- 官方 Python MCP 1.30.0 SDK 的 2025 HTTP 互操作通过；原始 2026 HTTP 的
+  discover/catalog/read 通过。两代确认/MRTR 与断流取消由业务/endpoint 回归覆盖。
+- HTTP 退出夹具三项通过：空闲关闭、未读待请求 SSE、应用崩溃。
+  夹具只使用自己的临时进程、回环端口与模拟 SSH，不连接用户服务器或串口。
+- Codex CLI 已验证 URL 配置解析为 streamable_http；未自动修改用户客户端配置，
+  未验证 Codex 桌面的新 HTTP 实接。需删除旧 command/args/env 并重新复制配置。
+- 独立审查发现并修复头/正文协议代际混用，原始 socket 回归另复现并修复拒绝连接
+  残留；诊断统计包含不带正文/令牌的 HTTP 队列、socket 与请求计数。
+- Linux/macOS、真实桌面接入及 HTTP 迁移后的性能对照未在本轮重测。
+  本轮日志：`build/mcp-http-full-ctest.txt`、
+  `build/mcp-http-interop-final.txt`、`build/mcp-http-shutdown-final.txt`。
+
+### HTTP MCP 审查修复（2026-10-14）
+
+连接身份为完整 IP/port，消息先校验再分配；版本错误 supported/requested；
+单次 Expect 100 握手；停机当前计数归零。最终 RPC 在 wire 单次编码，Endpoint
+传递不可变字节，SSE 校验/组帧在 I/O。2026 HTTP 通知不分配上下文，取消
+使用请求流关闭。MCP 四项 4/4、SDK、退出三矩阵通过，主程序构建成功。
+本轮仅跑相关目标，不把前轮 26/26 当本轮成绩。wire 大响应微基准约减少35%，
+整机 GUI 帧性能未重测。计划、RED/GREEN 与日志见
+`docs/superpowers/plans/2026-10-14-http-mcp-review-fixes.md`，随 0.2.68 提交。

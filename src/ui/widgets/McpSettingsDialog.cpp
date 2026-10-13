@@ -245,7 +245,9 @@ void McpSettingsDialog::refresh()
     if (state == "Disabled") state = tr("Disabled");
     else if (state == "Listening") state = tr("Listening");
     else if (state == "Starting") state = tr("Starting");
-    _status->setText(tr("Status: %1; instance: %2").arg(state, _service->instanceId()));
+    QString statusText = tr("Status: %1; instance: %2").arg(state, _service->instanceId());
+    if (!_service->httpEndpoint().isEmpty()) statusText += '\n' + _service->httpEndpoint();
+    _status->setText(statusText);
     const auto selected = _clients->currentData().toString();
     _clients->clear();
     for (const auto& client : _service->access().clients())

@@ -28,6 +28,10 @@
 #include <QJsonDocument>
 #include <QLockFile>
 #include <QProcess>
+#include <QNetworkAccessManager>
+#include <QNetworkReply>
+#include <QNetworkRequest>
+#include <QSet>
 #include <QPushButton>
 #include <QSignalSpy>
 #include <QScopeGuard>
@@ -38,9 +42,9 @@
 #include <QTemporaryDir>
 #include <QTest>
 #include <QWindow>
-#include <QtEndian>
 
 #include <algorithm>
+#include <chrono>
 #include <tuple>
 
 using namespace NovaTerm::Mcp;
@@ -219,14 +223,23 @@ class Host
 public:
     ~Host()
     {
-        process.closeWriteChannel();
-        QElapsedTimer timer;
-        timer.start();
-        while (process.state() != QProcess::NotRunning && timer.elapsed() < 1500) {
-            QCoreApplication::processEvents();
-            process.waitForFinished(10);
+        const auto pending = _replies;
+        for (auto* reply : pending) {
+            QObject::disconnect(reply, nullptr, &_network, nullptr);
+            reply->abort();
         }
-        if (process.state() != QProcess::NotRunning) { process.kill(); process.waitForFinished(1000); }
+        if (_session.isEmpty()) return;
+        QNetworkRequest request{_endpoint};
+        request.setTransferTimeout(std::chrono::seconds(1));
+        request.setRawHeader("Authorization", "Bearer " + _token);
+        request.setRawHeader("Mcp-Session-Id", _session);
+        request.setRawHeader("MCP-Protocol-Version", _protocolVersion.toUtf8());
+        auto* reply = _network.deleteResource(request);
+        QElapsedTimer deadline;
+        deadline.start();
+        while (!reply->isFinished() && deadline.elapsed() < 1000) QTest::qWait(1);
+        if (!reply->isFinished()) reply->abort();
+        reply->deleteLater();
     }
     bool start(const QString& runtime, const QByteArray& token,
                const QString& instance = {}, bool humanForm = false,
@@ -234,13 +247,29 @@ public:
     {
         _protocolVersion = protocolVersion;
         _humanForm = humanForm;
-        auto environment = QProcessEnvironment::systemEnvironment();
-        environment.insert("NOVATERM_MCP_RUNTIME_DIR", runtime);
-        environment.insert("NOVATERM_MCP_TOKEN", QString::fromLatin1(token));
-        process.setProcessEnvironment(environment);
-        process.start(QString::fromUtf8(NOVATERM_MCP_BRIDGE), instance.isEmpty()
-            ? QStringList{} : QStringList{QStringLiteral("--instance"), instance});
-        if (!process.waitForStarted(3000)) return false;
+        _token = token;
+        QStringList endpoints;
+        QElapsedTimer discovery;
+        discovery.start();
+        // HTTP 监听与 manifest 发布是异步的；明确选择实例时有界等待发布。
+        // 多个候选立即失败，由测试调用方显式选择，不能默认挑选其中一个。
+        for (;;) {
+            endpoints.clear();
+            for (const auto& file : QDir(runtime).entryList({"*.json"}, QDir::Files)) {
+                const auto manifest = readJson(QDir(runtime).filePath(file), 8192);
+                if (!manifest || manifest->value("transport") != "streamable-http") continue;
+                if (!instance.isEmpty() && manifest->value("instanceId").toString() != instance) continue;
+                endpoints.append(manifest->value("endpoint").toString());
+            }
+            if (!endpoints.isEmpty() || discovery.elapsed() >= 3000) break;
+            QTest::qWait(5);
+        }
+        if (endpoints.size() != 1) {
+            selectionError = endpoints.isEmpty() ? "APP_NOT_RUNNING" : "INSTANCE_SELECTION_REQUIRED";
+            return false;
+        }
+        _endpoint = QUrl(endpoints.first());
+        if (!_endpoint.isValid() || _endpoint.scheme() != "http") return false;
         if (protocolVersion == QStringLiteral("2026-07-28")) {
             send({{"jsonrpc", "2.0"}, {"id", 1}, {"method", "server/discover"},
                 {"params", QJsonObject{{"_meta", requestMeta()}}}});
@@ -257,6 +286,10 @@ public:
             const auto response = next();
             if (response.value("result").toObject().value("protocolVersion") != protocolVersion) return false;
             send({{"jsonrpc", "2.0"}, {"method", "notifications/initialized"}});
+            QElapsedTimer notified;
+            notified.start();
+            while (hasPendingRequests() && notified.elapsed() < 3000) QTest::qWait(1);
+            if (hasPendingRequests() || lastHttpStatus != 202) return false;
         }
         return true;
     }
@@ -272,13 +305,65 @@ public:
     void send(QJsonObject message)
     {
         if (_protocolVersion == QStringLiteral("2026-07-28")
-            && message.value("method") == QStringLiteral("tools/call")) {
+            && message.contains("method")) {
             auto params = message.value("params").toObject();
-            params.insert("_meta", requestMeta());
+            if (!params.contains("_meta")) params.insert("_meta", requestMeta());
             message.insert("params", params);
         }
-        process.write(QJsonDocument(message).toJson(QJsonDocument::Compact) + '\n');
-        process.waitForBytesWritten(10);
+        QNetworkRequest request{_endpoint};
+        // 脚本最长业务截止时间为 120 秒，网络截止留出正常收尾余量。
+        request.setTransferTimeout(std::chrono::seconds(125));
+        request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
+        request.setRawHeader("Accept", "application/json, text/event-stream");
+        request.setRawHeader("Authorization", "Bearer " + _token);
+        if (!_session.isEmpty()) request.setRawHeader("Mcp-Session-Id", _session);
+        if (message.value("method") != "initialize") {
+            const auto version = message.value("params").toObject().value("_meta").toObject()
+                .value("io.modelcontextprotocol/protocolVersion").toString(_protocolVersion);
+            request.setRawHeader("MCP-Protocol-Version", version.toUtf8());
+        }
+        if (_protocolVersion == QStringLiteral("2026-07-28")) {
+            request.setRawHeader("Mcp-Method", message.value("method").toString().toUtf8());
+            if (message.value("method") == "tools/call")
+                request.setRawHeader("Mcp-Name", message.value("params").toObject().value("name").toString().toUtf8());
+        }
+        auto* reply = _network.post(request, QJsonDocument(message).toJson(QJsonDocument::Compact));
+        _replies.insert(reply);
+        auto buffer = std::make_shared<QByteArray>();
+        const auto collect = [this, reply, buffer] {
+            const bool transferFailed = reply->error() != QNetworkReply::NoError
+                && reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt() < 400;
+            if (transferFailed) {
+                transportError = reply->errorString();
+                buffer->clear();
+                if (reply->isOpen()) static_cast<void>(reply->readAll());
+                return;
+            }
+            if (reply->isOpen()) buffer->append(reply->readAll());
+            if (!reply->rawHeader("Content-Type").startsWith("text/event-stream")) return;
+            for (;;) {
+                const auto end = buffer->indexOf('\n');
+                if (end < 0) break;
+                const auto line = buffer->left(end).trimmed();
+                buffer->remove(0, end + 1);
+                if (!line.startsWith("data:")) continue;
+                const auto object = QJsonDocument::fromJson(line.mid(5).trimmed()).object();
+                if (!object.isEmpty()) _messages.append(object);
+            }
+        };
+        QObject::connect(reply, &QNetworkReply::readyRead, &_network, collect);
+        QObject::connect(reply, &QNetworkReply::finished, &_network, [this, reply, buffer, collect] {
+            collect();
+            lastHttpStatus = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+            if (reply->hasRawHeader("Mcp-Session-Id")) _session = reply->rawHeader("Mcp-Session-Id");
+            if (!reply->rawHeader("Content-Type").startsWith("text/event-stream")) {
+                const auto object = QJsonDocument::fromJson(*buffer).object();
+                if (!object.isEmpty()) _messages.append(object);
+            }
+            if (reply->error() != QNetworkReply::NoError) transportError = reply->errorString();
+            _replies.remove(reply);
+            reply->deleteLater();
+        });
     }
     int begin(const QString& name, const QJsonObject& arguments)
     {
@@ -293,15 +378,9 @@ public:
         timer.start();
         while (timer.elapsed() < timeout) {
             QCoreApplication::processEvents();
-            buffered += process.readAllStandardOutput();
-            const auto newline = buffered.indexOf('\n');
-            if (newline >= 0) {
-                const auto line = buffered.left(newline);
-                buffered.remove(0, newline + 1);
-                return QJsonDocument::fromJson(line).object();
-            }
-            if (process.state() == QProcess::NotRunning) return {};
-            process.waitForReadyRead(5);
+            if (!_messages.isEmpty()) return _messages.takeFirst();
+            if (_replies.isEmpty()) return {};
+            QTest::qWait(1);
         }
         return {};
     }
@@ -310,11 +389,19 @@ public:
         begin(name, arguments);
         return next().value("result").toObject().value("structuredContent").toObject();
     }
-    QProcess process;
-    QByteArray buffered;
+    bool hasPendingRequests() const { return !_replies.isEmpty(); }
+    void cancelPendingRequests() { const auto replies = _replies; for (auto* reply : replies) reply->abort(); }
+    QString selectionError, transportError;
+    int lastHttpStatus{0};
     int counter{1};
     QString _protocolVersion{QString::fromLatin1(ProtocolVersion)};
     bool _humanForm{false};
+private:
+    QNetworkAccessManager _network;
+    QSet<QNetworkReply*> _replies;
+    QList<QJsonObject> _messages;
+    QUrl _endpoint;
+    QByteArray _token, _session;
 };
 
 struct Fixture
@@ -364,10 +451,19 @@ class McpTests final : public QObject
 {
     Q_OBJECT
 private slots:
-    void framingAndAuthentication();
+    void tokenSigningAndAuthentication();
     void rejectsDangerousAndOversizedArguments();
     void nonblockingSnapshotPreservesIndependentProgress();
-    void stdioWithoutApplicationAndInitialization();
+    void httpRequiresRunningApplication();
+    void httpConfigurationUsesApplicationEndpoint();
+    void httpInitializedSessionReadsWithAuthorization();
+    void httpRejectsMissingTokenAndForeignOrigin();
+    void httpRequestsFailWhenApplicationStops();
+    void httpInitializedSessionStopsWithApplication();
+    void httpClientReleasesLegacySession();
+    void httpClientConnectsAfterApplicationStarts();
+    void httpPendingCommandStopsWithApplication();
+    void httpModernDisconnectCancelsPendingCommand();
     void readSearchAndClientIsolation();
     void truncatedOutputNeverAdvancesCursor();
     void revokeAndReconnectInvalidateAccess();
@@ -1828,28 +1924,28 @@ void McpTests::sessionCommandFacadeRoutesTrustedExecutors()
 
 void McpTests::protocolLifecycleAndOversizedInput()
 {
+    Fixture f;
+    QVERIFY(f.enable());
+    QTRY_COMPARE(f.service.status(), QStringLiteral("Listening"));
     Host host;
-    host.process.start(QString::fromUtf8(NOVATERM_MCP_BRIDGE));
-    QVERIFY(host.process.waitForStarted(3000));
-    host.send({{"jsonrpc", "2.0"}, {"id", "before"}, {"method", "tools/list"}});
-    QCOMPARE(host.next().value("error").toObject().value("code").toInt(), -32002);
-    host.send({{"jsonrpc", "2.0"}, {"id", 1}, {"method", "initialize"},
-        {"params", QJsonObject{{"protocolVersion", "unsupported-version"},
-            {"capabilities", QJsonObject{}},
-            {"clientInfo", QJsonObject{{"name", "fixture"}, {"version", "1"}}}}}});
-    QCOMPARE(host.next().value("result").toObject().value("protocolVersion").toString(),
-        QString::fromLatin1(ProtocolVersion));
-    host.send({{"jsonrpc", "2.0"}, {"method", "notifications/initialized"}});
+    QVERIFY(host.start(f.runtime(), f.token()));
     host.send({{"jsonrpc", "2.0"}, {"id", "7"}, {"method", "ping"}});
     host.send({{"jsonrpc", "2.0"}, {"id", 7}, {"method", "ping"}});
-    QCOMPARE(host.next().value("id"), QJsonValue("7"));
-    QCOMPARE(host.next().value("id"), QJsonValue(7));
+    const auto first = host.next().value("id");
+    const auto second = host.next().value("id");
+    QVERIFY((first == QJsonValue("7") && second == QJsonValue(7))
+        || (first == QJsonValue(7) && second == QJsonValue("7")));
     host.send({{"jsonrpc", "2.0"}, {"id", 8}, {"method", "unknown/method"}});
     QCOMPARE(host.next().value("error").toObject().value("code").toInt(), -32601);
-    // 无换行的超长输入也必须回收，不能一直等帧尾并增长内存。
-    host.process.write(QByteArray(MaxFrameBytes + 1, 'x'));
-    QVERIFY(host.process.waitForFinished(5000));
-    QCOMPARE(host.process.exitStatus(), QProcess::NormalExit);
+    // 原始 HTTP 的 413 另有覆盖。完整上传期间提前拒绝并关闭 TCP，
+    // Windows/Qt 也可能将其呈现为连接失败；均不得进入工具调度。
+    const auto admitted = f.service.statistics().value("http").toObject().value("acceptedRequests");
+    host.send({{"jsonrpc", "2.0"}, {"id", 9}, {"method", "ping"},
+        {"params", QJsonObject{{"padding", QString(MaxFrameBytes + 1, QLatin1Char('x'))}}}});
+    QTRY_VERIFY_WITH_TIMEOUT(!host.hasPendingRequests(), 5000);
+    QVERIFY(host.lastHttpStatus == 413
+        || (host.lastHttpStatus == 0 && !host.transportError.isEmpty()));
+    QCOMPARE(f.service.statistics().value("http").toObject().value("acceptedRequests"), admitted);
 }
 
 void McpTests::instanceSelectionAndDisconnectStayExplicit()
@@ -1858,60 +1954,50 @@ void McpTests::instanceSelectionAndDisconnectStayExplicit()
     QVERIFY(f.enable());
     QTRY_COMPARE(f.service.status(), QStringLiteral("Listening"));
     const auto other = f.runtime() + "/other.json";
-    QVERIFY(writePrivateJson(other, {{"instanceId", newId()}, {"ipcVersion", 1},
-        {"endpoint", "unused-fixture-endpoint"}}));
+    QVERIFY(writePrivateJson(other, {{"instanceId", newId()}, {"transport", "streamable-http"},
+        {"endpoint", "http://127.0.0.1:1/mcp"}}));
     Host ambiguous;
-    QVERIFY(ambiguous.start(f.runtime(), f.token()));
-    QCOMPARE(ambiguous.call("novaterm_list_sessions").value("error").toObject()
-        .value("code").toString(), QStringLiteral("INSTANCE_SELECTION_REQUIRED"));
+    QVERIFY(!ambiguous.start(f.runtime(), f.token()));
+    QCOMPARE(ambiguous.selectionError, QStringLiteral("INSTANCE_SELECTION_REQUIRED"));
     const auto configuration = f.service.clientConfiguration(f.client)
         .value("mcpServers").toObject().value("novaterm").toObject();
-    QCOMPARE(configuration.value("args").toArray(), QJsonArray({"--instance", f.service.instanceId()}));
+    QCOMPARE(configuration.value("url").toString(), f.service.httpEndpoint());
     Host selected;
     QVERIFY(selected.start(f.runtime(), f.token(), f.service.instanceId()));
     QVERIFY(selected.call("novaterm_list_sessions").value("ok").toBool());
     QVERIFY(QFile::remove(other));
     QVERIFY(f.service.access().setEnabled(false));
-    QCOMPARE(selected.call("novaterm_list_sessions").value("error").toObject()
-        .value("code").toString(), QStringLiteral("APP_UNAVAILABLE"));
+    QVERIFY(selected.call("novaterm_list_sessions").isEmpty());
+    QVERIFY(!selected.transportError.isEmpty());
     QVERIFY(f.enable());
     QTRY_COMPARE(f.service.status(), QStringLiteral("Listening"));
-    // 同一桥接一旦失去已认证实例，即使端点恢复也不能自动改投新连接。
-    QCOMPARE(selected.call("novaterm_list_sessions").value("error").toObject()
-        .value("code").toString(), QStringLiteral("APP_UNAVAILABLE"));
+    // 恢复后显式初始化新 HTTP 会话，不重放旧请求。
+    Host replacement;
+    QVERIFY(replacement.start(f.runtime(), f.token(), f.service.instanceId()));
+    QVERIFY(replacement.call("novaterm_list_sessions").value("ok").toBool());
 }
 
 void McpTests::ccSwitchConfigurationIsSingleServerObject()
 {
     Fixture f;
+    QVERIFY(f.enable());
+    QTRY_COMPARE(f.service.status(), QStringLiteral("Listening"));
     const auto configuration = f.service.ccSwitchConfiguration(f.client);
-    QVERIFY(!configuration.value(QStringLiteral("command")).toString().isEmpty());
-    QVERIFY(configuration.value(QStringLiteral("args")).isArray());
-    QCOMPARE(configuration.value(QStringLiteral("args")).toArray(), QJsonArray{});
-    const auto environment = configuration.value(QStringLiteral("env")).toObject();
-    QVERIFY(!environment.value(QStringLiteral("NOVATERM_MCP_TOKEN")).toString().isEmpty());
-    QCOMPARE(environment.value(QStringLiteral("NOVATERM_MCP_RUNTIME_DIR")).toString(), f.runtime());
+    QCOMPARE(configuration.value(QStringLiteral("type")).toString(), QStringLiteral("http"));
+    QCOMPARE(configuration.value(QStringLiteral("url")).toString(), f.service.httpEndpoint());
+    QVERIFY(!configuration.contains(QStringLiteral("command")));
+    QVERIFY(!configuration.contains(QStringLiteral("args")));
+    QCOMPARE(configuration.value(QStringLiteral("headers")).toObject()
+        .value(QStringLiteral("Authorization")).toString(),
+        QStringLiteral("Bearer ") + QString::fromLatin1(f.token()));
     QVERIFY(!configuration.contains(QStringLiteral("novaterm")));
     QVERIFY(!configuration.contains(QStringLiteral("mcpServers")));
-
-    const auto standard = f.service.clientConfiguration(f.client);
-    QVERIFY(standard.value(QStringLiteral("mcpServers")).toObject()
-        .contains(QStringLiteral("novaterm")));
+    QVERIFY(f.service.clientConfiguration(f.client).value(QStringLiteral("mcpServers"))
+        .toObject().contains(QStringLiteral("novaterm")));
 }
 
-void McpTests::framingAndAuthentication()
+void McpTests::tokenSigningAndAuthentication()
 {
-    FrameReader reader;
-    const auto first = frame({{"value", QStringLiteral("中文")}});
-    for (qsizetype i = 0; i < first.size(); ++i) QVERIFY(reader.append(first.mid(i, 1)));
-    QCOMPARE(reader.take()->value("value").toString(), QStringLiteral("中文"));
-    QVERIFY(reader.append(first + first));
-    QVERIFY(reader.take());
-    QVERIFY(reader.take());
-    QVERIFY(!reader.take());
-    QByteArray invalid(4, Qt::Uninitialized);
-    qToBigEndian<quint32>(quint32(MaxFrameBytes + 1), invalid.data());
-    QVERIFY(!reader.append(invalid));
     const auto secret = randomBytes();
     auto token = signToken({{"scope", "test"}}, secret);
     QVERIFY(verifyToken(token, secret));
@@ -1962,15 +2048,216 @@ void McpTests::nonblockingSnapshotPreservesIndependentProgress()
     QCOMPARE(first->state.revision, before);
 }
 
-void McpTests::stdioWithoutApplicationAndInitialization()
+void McpTests::httpRequiresRunningApplication()
 {
     QTemporaryDir directory;
     Host host;
-    QVERIFY(host.start(directory.path(), {}));
-    host.send({{"jsonrpc", "2.0"}, {"id", 2}, {"method", "tools/list"}});
-    QCOMPARE(host.next().value("result").toObject().value("tools").toArray().size(), 7);
-    const auto result = host.call("novaterm_list_sessions");
-    QCOMPARE(result.value("error").toObject().value("code").toString(), QStringLiteral("APP_NOT_RUNNING"));
+    QVERIFY(!host.start(directory.path(), {}));
+    QCOMPARE(host.selectionError, QStringLiteral("APP_NOT_RUNNING"));
+}
+
+namespace {
+struct HttpResult {
+    int status{0};
+    QJsonObject message;
+    QByteArray session;
+};
+HttpResult httpPost(Service& service, QByteArray token, QJsonObject message,
+                    QByteArray session = {}, QByteArray origin = {})
+{
+    QNetworkAccessManager network;
+    QNetworkRequest request{QUrl(service.httpEndpoint())};
+    request.setTransferTimeout(std::chrono::seconds(5));
+    request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
+    request.setRawHeader("Accept", "application/json, text/event-stream");
+    if (!token.isEmpty()) request.setRawHeader("Authorization", "Bearer " + token);
+    if (!session.isEmpty()) {
+        request.setRawHeader("Mcp-Session-Id", session);
+        request.setRawHeader("MCP-Protocol-Version", ProtocolVersion);
+    }
+    if (!origin.isEmpty()) request.setRawHeader("Origin", origin);
+    auto* reply = network.post(request, QJsonDocument(message).toJson(QJsonDocument::Compact));
+    QEventLoop loop;
+    QObject::connect(reply, &QNetworkReply::finished, &loop, &QEventLoop::quit);
+    QTimer::singleShot(5000, &loop, &QEventLoop::quit);
+    if (!reply->isFinished()) loop.exec();
+    if (!reply->isFinished()) reply->abort();
+    const bool transferFailed = reply->error() != QNetworkReply::NoError
+        && reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt() < 400;
+    const auto bytes = !transferFailed && reply->isOpen() ? reply->readAll() : QByteArray{};
+    QJsonObject result = QJsonDocument::fromJson(bytes).object();
+    if (reply->rawHeader("Content-Type").startsWith("text/event-stream")) {
+        for (auto line : bytes.split('\n')) {
+            if (line.startsWith("data:")) {
+                const auto parsed = QJsonDocument::fromJson(line.mid(5).trimmed()).object();
+                if (!parsed.isEmpty()) result = parsed;
+            }
+        }
+    }
+    const HttpResult response{reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt(), result,
+        reply->rawHeader("Mcp-Session-Id")};
+    reply->deleteLater();
+    return response;
+}
+QJsonObject httpInitialize()
+{
+    return {{"jsonrpc", "2.0"}, {"id", 1}, {"method", "initialize"},
+        {"params", QJsonObject{{"protocolVersion", ProtocolVersion}, {"capabilities", QJsonObject{}},
+            {"clientInfo", QJsonObject{{"name", "HTTP fixture"}, {"version", "1"}}}}}};
+}
+}
+void McpTests::httpConfigurationUsesApplicationEndpoint()
+{
+    Fixture f;
+    QVERIFY(f.enable());
+    QTRY_COMPARE(f.service.status(), QStringLiteral("Listening"));
+    QVERIFY(!f.service.httpEndpoint().isEmpty());
+    const auto config = f.service.ccSwitchConfiguration(f.client);
+    QCOMPARE(config.value("type").toString(), QStringLiteral("http"));
+    QCOMPARE(config.value("url").toString(), f.service.httpEndpoint());
+    QVERIFY(!config.contains("command"));
+    QCOMPARE(config.value("headers").toObject().value("Authorization").toString(),
+        QStringLiteral("Bearer ") + QString::fromLatin1(f.token()));
+}
+void McpTests::httpInitializedSessionReadsWithAuthorization()
+{
+    Fixture f;
+    QVERIFY(f.enable());
+    QTRY_COMPARE(f.service.status(), QStringLiteral("Listening"));
+    QVERIFY(!f.service.httpEndpoint().isEmpty());
+    const auto initialized = httpPost(f.service, f.token(), httpInitialize());
+    QCOMPARE(initialized.status, 200);
+    QVERIFY(!initialized.session.isEmpty());
+    QCOMPARE(initialized.message.value("result").toObject().value("protocolVersion").toString(),
+        QString::fromLatin1(ProtocolVersion));
+    const auto notification = httpPost(f.service, f.token(),
+        {{"jsonrpc", "2.0"}, {"method", "notifications/initialized"}}, initialized.session);
+    QCOMPARE(notification.status, 202);
+    const auto listed = httpPost(f.service, f.token(),
+        {{"jsonrpc", "2.0"}, {"id", 2}, {"method", "tools/call"},
+         {"params", QJsonObject{{"name", "novaterm_list_sessions"}, {"arguments", QJsonObject{}}}}},
+        initialized.session);
+    QCOMPARE(listed.status, 200);
+    QVERIFY(listed.message.value("result").toObject().value("structuredContent").toObject()
+        .value("ok").toBool());
+}
+void McpTests::httpRejectsMissingTokenAndForeignOrigin()
+{
+    Fixture f;
+    QVERIFY(f.enable());
+    QTRY_COMPARE(f.service.status(), QStringLiteral("Listening"));
+    QVERIFY(!f.service.httpEndpoint().isEmpty());
+    QCOMPARE(httpPost(f.service, {}, httpInitialize()).status, 401);
+    QCOMPARE(httpPost(f.service, f.token(), httpInitialize(), {}, "http://evil.invalid").status, 403);
+}
+
+void McpTests::httpRequestsFailWhenApplicationStops()
+{
+    Fixture f;
+    QVERIFY(f.enable());
+    QTRY_COMPARE(f.service.status(), QStringLiteral("Listening"));
+    Host host;
+    QVERIFY(host.start(f.runtime(), f.token()));
+    QVERIFY(host.call("novaterm_list_sessions").value("ok").toBool());
+    f.service.stop();
+    QVERIFY(host.call("novaterm_list_sessions").isEmpty());
+    QVERIFY(!host.transportError.isEmpty());
+}
+
+void McpTests::httpInitializedSessionStopsWithApplication()
+{
+    Fixture f;
+    QVERIFY(f.enable());
+    QTRY_COMPARE(f.service.status(), QStringLiteral("Listening"));
+    Host host;
+    QVERIFY(host.start(f.runtime(), f.token()));
+    f.service.stop();
+    host.send({{"jsonrpc", "2.0"}, {"id", 2}, {"method", "ping"}});
+    QVERIFY(host.next().isEmpty());
+    QVERIFY(!host.transportError.isEmpty());
+}
+
+void McpTests::httpClientReleasesLegacySession()
+{
+    Fixture f;
+    QVERIFY(f.enable());
+    QTRY_COMPARE(f.service.status(), QStringLiteral("Listening"));
+    QCOMPARE(f.service.statistics().value("activeClients").toInt(), 0);
+    {
+        Host host;
+        QVERIFY(host.start(f.runtime(), f.token()));
+        QCOMPARE(f.service.statistics().value("activeClients").toInt(), 1);
+    }
+    // HTTP socket 断开不足以结束 2025 逻辑会话；客户端析构应 DELETE。
+    QTRY_COMPARE(f.service.statistics().value("activeClients").toInt(), 0);
+}
+
+void McpTests::httpClientConnectsAfterApplicationStarts()
+{
+    Fixture f;
+    Host offline;
+    QVERIFY(!offline.start(f.runtime(), f.token()));
+    QCOMPARE(offline.selectionError, QStringLiteral("APP_NOT_RUNNING"));
+    QVERIFY(f.enable());
+    QTRY_COMPARE(f.service.status(), QStringLiteral("Listening"));
+    Host host;
+    QVERIFY(host.start(f.runtime(), f.token()));
+    QVERIFY(host.call("novaterm_list_sessions").value("ok").toBool());
+}
+
+void McpTests::httpPendingCommandStopsWithApplication()
+{
+    Fixture f;
+    f.makeSsh();
+    QVERIFY(f.enable(true));
+    QTRY_COMPARE(f.service.status(), QStringLiteral("Listening"));
+    Host host;
+    QVERIFY(host.start(f.runtime(), f.token()));
+    const auto catalog = host.call("novaterm_list_commands", f.identity()).value("data").toObject();
+    const auto command = catalog.value("commands").toArray().first().toObject();
+    auto arguments = f.identity();
+    arguments.insert("commandId", command.value("commandId"));
+    arguments.insert("policyVersion", catalog.value("policyVersion"));
+    arguments.insert("commandTicket", command.value("commandTicket"));
+    arguments.insert("arguments", QJsonObject{});
+    const auto requestId = host.begin("novaterm_execute_command", arguments);
+    QTRY_COMPARE(SshTransportTestAccess::queued(*f.ssh), 1);
+    f.service.stop();
+    const auto response = host.next();
+    if (!response.isEmpty()) {
+        QCOMPARE(response.value("id"), QJsonValue(requestId));
+        QVERIFY(!response.value("result").toObject().value("structuredContent").toObject()
+            .value("ok").toBool());
+    } else {
+        // 断流只能作为传输失败，客户端不伪造命令执行结果或自动重放。
+        QVERIFY(!host.transportError.isEmpty());
+    }
+    QTRY_VERIFY_WITH_TIMEOUT(!host.hasPendingRequests(), 3000);
+    QCOMPARE(SshTransportTestAccess::queued(*f.ssh), 0);
+}
+
+void McpTests::httpModernDisconnectCancelsPendingCommand()
+{
+    Fixture f;
+    f.makeSsh();
+    QVERIFY(f.enable(true));
+    QTRY_COMPARE(f.service.status(), QStringLiteral("Listening"));
+    Host host;
+    QVERIFY(host.start(f.runtime(), f.token(), {}, false, QStringLiteral("2026-07-28")));
+    const auto catalog = host.call("novaterm_list_commands", f.identity()).value("data").toObject();
+    const auto command = catalog.value("commands").toArray().first().toObject();
+    auto arguments = f.identity();
+    arguments.insert("commandId", command.value("commandId"));
+    arguments.insert("policyVersion", catalog.value("policyVersion"));
+    arguments.insert("commandTicket", command.value("commandTicket"));
+    arguments.insert("arguments", QJsonObject{});
+    host.begin("novaterm_execute_command", arguments);
+    QTRY_COMPARE(SshTransportTestAccess::queued(*f.ssh), 1);
+    // 2026 请求的 HTTP SSE 断流必须取消底层任务，不重放执行请求。
+    host.cancelPendingRequests();
+    QTRY_COMPARE(SshTransportTestAccess::queued(*f.ssh), 0);
+    QTRY_VERIFY(!host.hasPendingRequests());
+    QVERIFY(!host.transportError.isEmpty());
 }
 
 void McpTests::readSearchAndClientIsolation()
@@ -2001,9 +2288,8 @@ void McpTests::readSearchAndClientIsolation()
     QCOMPARE(b.call("novaterm_search_context", arguments).value("error").toObject().value("code").toString(),
         QStringLiteral("CAPTURE_NOT_AVAILABLE"));
     Host invalid;
-    QVERIFY(invalid.start(f.runtime(), QByteArray(64, 'z')));
-    QCOMPARE(invalid.call("novaterm_list_sessions").value("error").toObject().value("code").toString(),
-        QStringLiteral("UNAUTHORIZED"));
+    QVERIFY(!invalid.start(f.runtime(), QByteArray(64, 'z')));
+    QCOMPARE(invalid.lastHttpStatus, 401);
 }
 
 void McpTests::truncatedOutputNeverAdvancesCursor()
@@ -2546,7 +2832,7 @@ int sshLoopbackCheck(quint16 port)
     return failures ? 1 : 0;
 }
 
-int interopFixture(QCoreApplication& application, const QString& configurationFile)
+int interopFixture(QCoreApplication& application, const QString& configurationFile, bool holdCommands = false)
 {
     Fixture fixture;
     fixture.makeSsh();
@@ -2561,7 +2847,7 @@ int interopFixture(QCoreApplication& application, const QString& configurationFi
             exported = writePrivateJson(configurationFile, fixture.service.clientConfiguration(fixture.client));
             if (!exported) application.exit(1);
         }
-        if (SshTransportTestAccess::queued(*fixture.ssh) > 0) SshTransportTestAccess::finish(*fixture.ssh, true);
+        if (!holdCommands && SshTransportTestAccess::queued(*fixture.ssh) > 0) SshTransportTestAccess::finish(*fixture.ssh, true);
         if (QFile::exists(configurationFile + ".stop")) application.quit();
     });
     timer.start();
@@ -2702,6 +2988,8 @@ int main(int argc, char** argv)
     const auto arguments = application.arguments();
     if (arguments.size() == 3 && arguments[1] == "--interop-fixture")
         return interopFixture(application, arguments[2]);
+    if (arguments.size() == 3 && arguments[1] == "--shutdown-fixture")
+        return interopFixture(application, arguments[2], true);
     if (arguments.size() == 3 && (arguments[1] == "--perf-fixture" || arguments[1] == "--perf-baseline"))
         return performanceFixture(application, arguments[2], arguments[1] == "--perf-fixture");
     if (arguments.size() == 3 && arguments[1] == "--ssh-loopback-check") {

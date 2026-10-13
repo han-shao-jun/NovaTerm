@@ -24,7 +24,7 @@ NovaTerm 是基于 Qt 6、libvterm 和 QRhi 的跨平台 GPU 终端。核心目�
 - **近期目标**：P6；
 - **P7**：系统资源查询，SSH 远端资源监控面板与系统信息窗口已作为内置功能落地；
 - **P8**：AI MCP（Model Context Protocol）接口，提供 Session 只读上下文与独立授权的受限命令。
-  [P8 设计文档](architecture/stages/P8_AI_MCP_Interface.md)记录 stdio/本机 IPC、
+  [P8 设计文档](architecture/stages/P8_AI_MCP_Interface.md)记录进程内 Streamable HTTP、
   读取与命令工具、允许列表和分级授权；禁止删除、凭据读取、提权等高危险行为。
   首期功能及 Windows 功能验证已完成；跨平台和完整性能验收状态见阶段文档。
 
@@ -265,15 +265,36 @@ Provider 按需在 Session 线程调用，返回独立值对象；它是 Session
 
 P8 的读取走 `TerminalSession::tryTerminalContext()` 与 Core 的 try-lock 文本快照；
 模型忙时返回 Busy，GUI 不等待 Parser。`SessionDirectory` 仅持弱引用并跟踪 epoch，
-不接管 View-owned 生命周期。`src/mcp/` 负责本机 IPC、分项授权、schema、预算、捕获、
-风险与脚本策略；独立 `novaterm-mcp` 程序对外提供 stdio，并在 Bridge 中适配 2025
-elicitation 与 2026 MRTR。固定诊断仍由受限 Executor 执行；自由命令和脚本 invocation
+不接管 View-owned 生命周期。`src/mcp/` 负责进程内 HTTP、分项授权、schema、预算、捕获、
+风险与脚本策略；`HttpMcpServer` 使用 Qt HTTP Server 处理 HTTP，`WireSession` 与
+共享 `ElicitationBroker` 适配 2025 elicitation 与 2026 MRTR，`HttpMcpEndpoint`
+在 GUI 线程关联 HTTP exchange 与授权上下文。固定诊断仍由受限
+Executor 执行；自由命令和脚本 invocation
 经 `TerminalSession` 的 `SessionInputArbiter`、`InteractiveStreamFramer` 与
 `SessionCommandCoordinator` 走唯一 Transport→Parser 字节通路，在终端 UI 可见。
 SSH/LocalShell 脚本正文由 Session 级 ScriptProvider 写入明确目标路径，不通过 Transport
 输入；用户输入优先，且访问权、确认和 epoch 在写入、注入前复核。脚本仍要求可信
 提示符；普通 SSH/POSIX 命令也可在没有提示符标记时经同一输入通路提交，使用隐藏的
 命令结束标记收口，但无法证明输入最初落在空闲 Shell。
+
+MCP 只提供 NovaTerm 进程拥有的 Streamable HTTP 入口；旧 stdio 程序及
+QLocalServer/QLocalSocket MCP 服务已删除。HTTP I/O worker 在 `nvterm-mcp-http`
+事件循环内拥有服务器与连接，GUI 线程保留授权、会话目录和作业调度。
+默认 URL 为 `http://127.0.0.1:38973/mcp`，应用重启后保持稳定；启动前可设置
+`NOVATERM_MCP_HTTP_PORT` 覆盖端口。只监听回环地址，每个请求核验 Bearer token、
+Host 与 Origin；端口冲突明确失败，不自动换端口或改投另一个实例。
+2025 协议用 initialize、`MCP-Session-Id` 与 SSE elicitation；TCP 断开不等于
+取消，DELETE 结束协议会话。2026 使用无会话的每请求 metadata/MRTR，断流取消
+该请求；取消不证明目标命令已终止，未知结果仍用 `COMMAND_OUTCOME_UNKNOWN`。
+`clientConfiguration()` 导出 `{type:"http",url,headers:{Authorization:"Bearer …"}}`；
+Codex 使用 `url`/`http_headers`，旧 `command`/`args`/`env` 配置需迁移。
+
+Qt HTTP Server 6.8.3 安装头标记 `LicenseRef-Qt-Commercial OR GPL-3.0-only`。
+开源依赖构建的组合程序分发需满足 GPLv3，项目 GPLv2+ 的后续版本选择不等于
+免除其他依赖与源码交付义务；详见 [README 许可说明](../README.md#许可证)及
+[Qt 官方模块许可](https://doc.qt.io/qt-6.8/qthttpserver-index.html#licenses)。
+本记录不作法律合规保证。本轮 HTTP 验收成绩由实际测试另行记录，历史 stdio
+成绩不证明新传输通过。
 
 ### 3.5 Renderer
 
@@ -486,14 +507,14 @@ src/
 │   ├── windows/conpty/  # ConPtyApi、ConPtySession、WinHandle
 │   └── linux/pty/       # PtySession
 ├── service/             # Config、Language
-├── mcp/                 # P8 协议、IPC、授权、请求调度与固定诊断策略
+├── mcp/                 # P8 Streamable HTTP、wire、授权、请求调度与固定诊断策略
 └── ui/                  # app/(MainWindow)、pages/、terminal/(TerminalView)、widgets/
 tests/
 ├── core/  renderer/  session/  transport/  mcp/  filetransfer/
 └── benchmarks/
     └── serial-stress/   # Windows 手工串口压力验收、驱动队列对照与 WPR/xperf 采样
 tools/
-└── novaterm-mcp/         # 独立 console stdio 桥接程序
+└── novaterm-local-diag/  # 固定本地诊断 helper
 ```
 
 `src/session/`、`src/profile/`、`src/credential/` 已落地；主题目前由 service 与

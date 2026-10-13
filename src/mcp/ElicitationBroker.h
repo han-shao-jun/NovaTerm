@@ -18,16 +18,15 @@ public:
         bool confirmed{false};
     };
 
-    explicit ElicitationBroker(QObject* parent = nullptr);
+    explicit ElicitationBroker(QObject *parent = nullptr);
 
     /** @brief 创建最多一个在途的 boolean 人工确认请求。 */
-    [[nodiscard]] std::optional<QJsonObject> requestConfirmation(
-        const QString& wireId, const QString& message);
+    [[nodiscard]] std::optional<QJsonObject> requestConfirmation(const QString &wireId,
+                                                                 const QString &message);
     /** @brief 解析并消费对应的 JSON-RPC 反向响应。 */
-    [[nodiscard]] std::optional<Response> handleResponse(
-        const QJsonObject& response);
+    [[nodiscard]] std::optional<Response> handleResponse(const QJsonObject &response);
     /** @brief 丢弃指定工具调用的确认关联。 */
-    void forget(const QString& wireId);
+    void forget(const QString &wireId);
 
 private:
     QHash<QString, QString> _reverseToWire;

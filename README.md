@@ -17,7 +17,7 @@ FluentUI 风格。
   已知失败，见 [AGENTS.md](AGENTS.md)。独立协议阶段的记录见
   [P9 文档](docs/architecture/stages/P9_File_Transfer_Protocols.md)
 - **系统监控**：支持远程SSH会话的系统资源监控
-- **AI MCP 接入**：默认关闭的本机 stdio 服务，提供七个工具，支持按会话授权读取输出、搜索已捕获内容、固定诊断、交互命令及 LocalShell/SSH 脚本任务；确认与权限边界见 [使用说明](docs/MCP_Usage.md)
+- **AI MCP 接入**：默认关闭的进程内 Streamable HTTP 服务，默认地址为 `http://127.0.0.1:38973/mcp`，通过 Bearer token 认证；提供七个工具，支持按会话授权读取输出、搜索已捕获内容、固定诊断、交互命令及 LocalShell/SSH 脚本任务；确认与权限边界见 [使用说明](docs/MCP_Usage.md)
 - **终端解析**：使用 libvterm 处理 ANSI/VT 控制序列，具体语义由终端测试覆盖
 - **搜索与高亮**：支持终端内容搜索和可配置文本高亮
 
@@ -28,7 +28,7 @@ FluentUI 风格。
 - Qt 6.8 或更高版本（`find_package(Qt6 6.8 REQUIRED)`）
 - CMake 3.20 或更高版本
 - 支持 C++17 的编译器（`CMAKE_CXX_STANDARD 17`）
-- Qt 组件：Widgets、Svg、ShaderTools、LinguistTools、SerialPort、Network；
+- Qt 组件：Widgets、Svg、ShaderTools、LinguistTools、SerialPort、Network、HttpServer；
   默认启用测试时还需要 Test
 - 对于Windows：需要Windows 10 1809或更高版本，以及 MSVC 2022
 - Linux/macOS 需要系统 OpenSSL 开发库；Windows 使用下方脚本预编译
@@ -121,7 +121,13 @@ Parser 单写，Renderer / Search 读取快照，跨线程队列有界。
 ### 协议与 MCP (`src/filetransfer/`、`src/mcp/`)
 
 - `src/filetransfer/`：不依赖 Qt 的 XMODEM/YMODEM/ZMODEM 协议引擎，可独立构建
-- `src/mcp/`：本机 MCP 协议与授权；`tools/novaterm-mcp/` 提供 stdio 入口
+- `src/mcp/`：进程内 Qt HTTP Server、MCP wire 协议与授权；不再构建或启动独立 stdio 桥接
+
+启用 MCP 并导出客户端配置后，HTTP 客户端使用 `type: "http"`、`url` 和
+`headers.Authorization: "Bearer <令牌>"`。Codex 配置使用 `url` 与
+`http_headers.Authorization`。旧配置中的 `command`、`args`、`env` 需要迁移；
+原 `novaterm-mcp` 可执行入口已删除。应用重启后默认 URL 保持稳定，可在启动应用前
+设置 `NOVATERM_MCP_HTTP_PORT` 覆盖端口；端口占用会明确报错，不自动换端口。
 
 ### 渲染层 (`src/renderer/`)
 
@@ -196,7 +202,7 @@ NovaTerm/
 │   ├── mcp/            # AI MCP 协议与授权
 │   ├── filetransfer/   # XMODEM/YMODEM/ZMODEM 协议库（不依赖 Qt）
 │   └── platform/       # 平台特定代码
-├── tools/              # novaterm-mcp（stdio 入口）、novaterm-local-diag
+├── tools/              # novaterm-local-diag（固定本地诊断 helper）
 ├── scripts/            # OpenSSL 预编译、MSVC 依赖兼容层等脚本
 ├── tests/              # 测试代码
 ├── docs/               # 文档
@@ -214,8 +220,9 @@ SSH 验收（需要 sshd、ssh-keygen、ninja 和 c++；不修改用户 SSH 信�
 项目包含单元测试、集成测试和性能护栏，部分 UI 与真实设备路径仍需人工验收。
 `BUILD_TESTING` 与 `NOVATERM_BUILD_BENCHMARKS` 默认均为 ON。
 默认注册到 CTest 的测试按平台不同：
-**Windows 23 项、Linux 21 项**（默认启用 benchmark 构建；注册数以 `ctest -N`
-为准）。`novaterm_conpty_tests`、`novaterm_terminal_session_tests` 仅 Windows，
+**Windows 暂为 26 项、Linux 按条件预计 24 项**（新增 MCP wire/HTTP/endpoint 三项目标；
+默认启用 benchmark 构建，实际注册数以 `ctest -N` 为准；本轮成绩待验收）。
+`novaterm_conpty_tests`、`novaterm_terminal_session_tests` 仅 Windows，
 `novaterm_pty_tests` 仅 Linux。
 
 **日常只运行与改动相关的测试。** 测试注册数不代表已全部通过；仅在公共接口／
@@ -339,6 +346,16 @@ Windows 已知失败、平台与真实 UART 文件验收范围见 P9 和 AGENTS�
 ## 许可证
 
 本项目采用GPLv2+许可证开源，详见 [LICENSE](LICENSE) 文件。
+
+本次新增的 Qt HTTP Server 开源许可为 **GPL-3.0-only**，同时提供商业许可。
+本机 Qt 6.8.3 的 `include/QtHttpServer/qhttpserver.h` SPDX 标记与
+[Qt HTTP Server 官方许可说明](https://doc.qt.io/qt-6.8/qthttpserver-index.html#licenses)
+一致。采用开源 Qt HTTP Server 构建并分发的组合程序需遵守 GPLv3 的分发要求，
+包括提供相应源码及许可证材料，不能仅以 GPLv2 条款分发该构建。
+发行包附带 `LICENSE.GPL3`，安装器采用该许可文本；原 `LICENSE` 保留源码的
+GPLv2+ 授权依据。
+项目的 GPLv2+ 声明允许选择后续版本；具体发布方式与其他依赖的义务仍需核对，
+此记录不构成完整法律合规保证。商业 Qt 许可的适用范围需另行确认。
 
 ## 贡献
 

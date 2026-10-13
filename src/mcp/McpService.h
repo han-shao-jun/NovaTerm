@@ -12,12 +12,13 @@ class Service final : public QObject
     Q_OBJECT
 public:
     explicit Service(QString stateDirectory = {}, QString instanceDirectory = {},
-                     std::unique_ptr<CredentialStore> credentials = {}, QObject* parent = nullptr);
+                     std::unique_ptr<CredentialStore> credentials = {}, QObject* parent = nullptr, quint16 port = 0);
     ~Service() override;
     [[nodiscard]] AccessStore& access();
     [[nodiscard]] SessionDirectory& directory();
     [[nodiscard]] QString instanceId() const;
     [[nodiscard]] QString endpoint() const;
+    [[nodiscard]] QString httpEndpoint() const;
     [[nodiscard]] QString status() const;
     [[nodiscard]] QJsonObject clientConfiguration(const QString& clientId) const;
     [[nodiscard]] QJsonObject ccSwitchConfiguration(const QString& clientId) const;

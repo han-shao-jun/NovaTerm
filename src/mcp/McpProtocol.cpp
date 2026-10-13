@@ -2,6 +2,7 @@
  *  @brief 协议格式与权限辅助实现，不访问终端或凭据。
  */
 #include "McpProtocol.h"
+#include <cmath>
 #include <QCryptographicHash>
 #include <QDir>
 #include <QFile>
@@ -15,7 +16,6 @@
 #include <QStandardPaths>
 #include <QStringDecoder>
 #include <QUuid>
-#include <QtEndian>
 #include <algorithm>
 #include <cmath>
 #ifdef Q_OS_WIN
@@ -159,6 +159,64 @@ QJsonObject rpcError(const QJsonValue& id, int code, const QString& message)
 {
     return {{"jsonrpc", "2.0"}, {"id", id},
         {"error", QJsonObject{{"code", code}, {"message", message}}}};
+}
+QJsonObject unsupportedProtocolError(const QJsonValue& id, const QString& requested)
+{
+    auto packet = rpcError(id, -32022, QStringLiteral("Unsupported MCP protocol version."));
+    auto error = packet.value("error").toObject();
+    error.insert("data", QJsonObject{{"requested", requested},
+        {"supported", QJsonArray{"2026-07-28", ProtocolVersion}}});
+    packet.insert("error", error);
+    return packet;
+}
+QJsonObject rpcValidationError(const QJsonObject& message)
+{
+    const auto validId = [](const QJsonValue& id) {
+        const double number = id.toDouble();
+        return id.isString() || (id.isDouble() && std::isfinite(number)
+            && std::floor(number) == number && std::abs(number) <= 9007199254740991.0);
+    };
+    const auto id = message.value("id");
+    const auto invalid = [&] {
+        return rpcError(validId(id) ? id : QJsonValue(QJsonValue::Null), -32600,
+            QStringLiteral("Invalid JSON-RPC message."));
+    };
+    if (message.value("jsonrpc") != "2.0" || (message.contains("id") && !validId(id)))
+        return invalid();
+    if (message.contains("method")) {
+        const auto method = message.value("method");
+        if (!method.isString() || method.toString().isEmpty() || message.contains("result")
+            || message.contains("error") || (message.contains("params") && !message.value("params").isObject()))
+            return invalid();
+        if (!message.contains("id") && !method.toString().startsWith("notifications/"))
+            return invalid();
+        const auto params = message.value("params").toObject();
+        const auto meta = params.value("_meta").toObject();
+        if (message.contains("id") && method != "initialize"
+            && meta.value("io.modelcontextprotocol/protocolVersion") == "2026-07-28"
+            && !meta.value("io.modelcontextprotocol/clientCapabilities").isObject())
+            return rpcError(id, -32602, QStringLiteral("2026 requests require client capabilities in _meta."));
+        if (method == "initialize" && (!params.value("protocolVersion").isString()
+            || !params.value("capabilities").isObject()
+            || !params.value("clientInfo").toObject().value("name").isString()
+            || !params.value("clientInfo").toObject().value("version").isString()))
+            return rpcError(id, -32602, QStringLiteral("Invalid initialize parameters."));
+        if (method == "notifications/cancelled" && !validId(params.value("requestId")))
+            return rpcError({}, -32602, QStringLiteral("Invalid cancellation parameters."));
+    } else {
+        const bool result = message.contains("result");
+        const bool error = message.contains("error");
+        if (!message.contains("id") || result == error || message.contains("params"))
+            return invalid();
+        if (result && !message.value("result").isObject()) return invalid();
+        if (error) {
+            const auto detail = message.value("error").toObject();
+            if (!detail.value("code").isDouble() || !validId(detail.value("code"))
+                || !detail.value("message").isString())
+                return invalid();
+        }
+    }
+    return {};
 }
 
 namespace {
@@ -515,51 +573,5 @@ QString dataDirectory()
 {
     return QDir(QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation))
         .filePath(QStringLiteral("mcp"));
-}
-QByteArray frame(const QJsonObject& object)
-{
-    const auto body = QJsonDocument(object).toJson(QJsonDocument::Compact);
-    if (body.size() > MaxFrameBytes)
-        return {};
-    QByteArray result(4, Qt::Uninitialized);
-    qToBigEndian<quint32>(quint32(body.size()), result.data());
-    return result + body;
-}
-bool FrameReader::append(const QByteArray& bytes)
-{
-    if (_failed || bytes.size() > capacity())
-        return !(_failed = true);
-    _bytes += bytes;
-    if (_bytes.size() >= 4) {
-        const quint32 size = qFromBigEndian<quint32>(_bytes.constData());
-        if (size == 0 || size > quint32(MaxFrameBytes))
-            _failed = true;
-    }
-    return !_failed;
-}
-std::optional<QJsonObject> FrameReader::take()
-{
-    if (_failed || _bytes.size() < 4)
-        return std::nullopt;
-    const quint32 size = qFromBigEndian<quint32>(_bytes.constData());
-    if (size == 0 || size > quint32(MaxFrameBytes)) {
-        _failed = true;
-        return std::nullopt;
-    }
-    if (_bytes.size() < qsizetype(size) + 4)
-        return std::nullopt;
-    QJsonParseError error;
-    const auto document = QJsonDocument::fromJson(_bytes.mid(4, size), &error);
-    _bytes.remove(0, qsizetype(size) + 4);
-    // 读空即归还容量：remove/clear 都不缩容，传过一帧 2 MiB 脚本后
-    // 这块分配会驻留到断连。帧间隙（take 后通常立刻空闲）是冷点，
-    // realloc 无关性能；后续 append 按实际帧大小重新增长。
-    if (_bytes.isEmpty())
-        _bytes = QByteArray{};
-    if (error.error != QJsonParseError::NoError || !document.isObject()) {
-        _failed = true;
-        return std::nullopt;
-    }
-    return document.object();
 }
 }

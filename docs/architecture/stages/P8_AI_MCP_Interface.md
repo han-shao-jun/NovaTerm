@@ -1,5 +1,12 @@
 # P8：AI MCP 接口
 
+> **2026-10-12 当前传输事实：** MCP 只保留 NovaTerm 进程内 Qt HTTP Server
+> Streamable HTTP；`tools/novaterm-mcp/` 与 `LocalMcpServer` 已删除。
+> 默认 URL 为 `http://127.0.0.1:38973/mcp`，`NOVATERM_MCP_HTTP_PORT` 可覆盖端口，
+> 每请求 Bearer token。§4 与文末 HTTP-only 迁移记录优先于历史 stdio/IPC 设计。
+> 2025 保留会话/elicitation，2026 使用无会话 MRTR 与断流取消。
+> 历史 stdio/IPC 验收成绩不证明新 HTTP 入口已通过；本轮结果待实际验收。
+
 > 状态：v0.2 首期只读/固定诊断功能已实现。v0.6 交互协调、风险确认、脚本写入与执行、
 > 双代际 MCP 确认协议和产品授权已进入代码；模块专项及本机回环验收通过。2026-09-28
 > 收口：`read_context` 默认路径改为 try-read 优先 + 发布物兜底（读取饥饿由约 20~26%
@@ -13,19 +20,20 @@
 > §15 是 v0.6 命令与脚本能力的最新权威设计；与 §1～§13 的 v0.5 命令设计冲突时
 > 以 §15 为准。§14.2 更新记录 v0.6 当前代码事实与验收状态；未完成的平台验收继续明确标记。
 > v0.5 全会话命令执行设计：2026-09-19。命令执行能力从“仅 SSH 独立 exec”扩展为覆盖 SSH、LocalShell、Serial、Telnet 与可声明能力的 Custom Session；不同会话通过统一 SessionCommandFacade/Executor 抽象执行，仍不开放自由 shell、任意按键、凭据读取、删除或提权。
-> v0.5（2026-09-19 历史设计快照）保持当时的五个 MCP 工具和 schemaVersion=1；v0.6 已增至七个工具，并在 Bridge 内按代际适配，不改写 GUI 私有 IPC DTO。
+> v0.5（2026-09-19 历史设计快照）保持当时的五个 MCP 工具和 schemaVersion=1；v0.6 已增至七个工具，当前由 WireSession 按代际适配，不复制两套业务实现。
 > v0.4 性能优化补充：2026-09-18。共享快照、跨客户端复用、请求合并、序列化与复制优化仍作为后续性能路线；其实施状态以 §14 为准。
 > v0.3 设计优化：2026-09-18。协议演进、持续高输出读取、平台 Profile、搜索结果可用性与性能验收语义继续保留。
 > §14.1 记录 v0.2–v0.5 历史实现基线；§14.2 记录 v0.6 已实现与已验证事实。真实桌面、跨平台和性能验收缺口不得写成“已通过”。
 > 初稿日期：2026-09-16；v0.2 修订：2026-09-17；v0.3/v0.4 修订：2026-09-18；v0.5 修订：2026-09-19；v0.6 修订：2026-09-24。
-> 当前代码版本：NovaTerm `0.2.39`；Git 基线 `7116e84`，工作树与本文件同步。
+> 当前代码版本：NovaTerm `0.2.68`（以根 CMakeLists.txt 为准）；HTTP-only 迁移
+> 与审查修复已实现，本批提交包含 Windows MCP、SDK 和退出场景验收记录。
 > 读者：NovaTerm 开发者、MCP 接入开发者和接口评审者。
 > 范围：会话发现、终端输出读取、搜索、覆盖全部 Session 类型的交互命令执行，
 > 以及 SSH/LocalShell 按能力声明的目标主机脚本生成与执行。
 > 读取凭据、关闭安全机制、提权、格式化磁盘等高危险行为按尽力检测永久拒绝；
 > 文件修改、删除、脚本及无法判定的命令必须经 MCP 客户端的人类确认。
 
-## 1. 目标与首期决策
+## 1. 目标与首期决策（v0.5 历史设计，当前传输见 §4）
 
 让支持 MCP 的外部 AI 客户端读取用户已经打开的 NovaTerm 会话，回答“这个终端正在
 显示什么”“最近有哪些有意义的输出”“这段输出中是否有错误”等问题。用户继续通过
@@ -138,9 +146,10 @@ Session 门面层；具体 Executor 可以调用 Transport 专有接口，也可
 
 ```mermaid
 flowchart LR
-    Client[外部 MCP Client] <-->|stdio / JSON-RPC| Bridge[novaterm-mcp]
+    Client[外部 MCP Client]
     subgraph App[NovaTerm GUI 进程]
-        IPC[本机 IPC 服务 / I/O 线程]
+        HTTP[Qt HTTP Server / I/O 线程]
+        Wire[WireSession / MCP wire 适配]
         Broker[有界请求调度 / GUI 线程]
         Registry[SessionDirectory / 非 owning]
         Session[TerminalSession]
@@ -156,7 +165,8 @@ flowchart LR
         Worker[只读搜索 worker / 不可变副本]
         View[TerminalView / 拥有 Session]
 
-        IPC <-->|有界消息| Broker
+        HTTP <-->|有界消息| Wire
+        Wire <-->|授权业务 DTO| Broker
         Broker --> Registry
         Broker --> Session
         View -->|注册与注销| Registry
@@ -174,15 +184,17 @@ flowchart LR
         Interactive --> Lease
         Lease --> Session
     end
-    Bridge <-->|QLocalSocket / 私有 IPC| IPC
+    Client <-->|Streamable HTTP / Bearer token| HTTP
 ```
 
 拟议组件及职责：
 
 | 组件 | 所有者 / 线程 | 职责与禁止事项 |
 | --- | --- | --- |
-| `McpBridge` | 独立进程 / 自身事件循环 | stdio framing、MCP 协议适配、schema、结果编码；不链接 Renderer 或访问终端模型 |
-| `LocalMcpService` | Application / 专用 I/O 线程 | IPC 接入、认证、消息长度与队列上限；不持有可跨线程调用的 Session 指针 |
+| `HttpMcpServer` | NovaTerm / HTTP I/O 事件循环 | Qt HTTP 解析、JSON/SSE 响应、连接及输出限额；不持有 Session 或 UI 指针 |
+| `HttpMcpEndpoint` | McpService / GUI 线程 | HTTP exchange 与两代协议授权上下文路由、认证、会话及断流处理；不直接操作网络 socket |
+| `WireSession` | McpService / GUI 线程 | MCP 两代协议、schema、反向确认与结果编码；通过业务 DTO 调度，不访问 Renderer |
+| `McpService` | Application / GUI 线程 | 每请求认证、授权、会话及内部请求调度；HTTP I/O 不直接解引用 Session |
 | `SessionDirectory` | Application / GUI 线程 | `SessionId → QPointer<TerminalSession>`、epoch、可公开元数据；不创建、关闭或延长 Session 寿命 |
 | `McpRequestBroker` | Application / GUI 线程 | 授权复核、会话定位、请求调度、超时取消、捕获结果发布 |
 | `SessionReadFacade` | Session 一侧 / GUI 线程 | 取得有界上下文、发布不可变 DTO；不暴露可写 Core |
@@ -206,15 +218,16 @@ JSON、CommandPolicy 概念。SessionCommandFacade 可以使用具体后端的�
 
 ### 3.1 注册与销毁
 
-1. Application 创建服务基础设施；用户未启用时不监听 IPC。
+1. Application 创建服务基础设施；用户未启用时不监听 HTTP。
 2. UI 创建 Session 后注册到目录，同时监听状态、标题和 destroyed；已存在会话在
    启用 MCP 时通过 UI 提供的显式枚举快照注册，不从外部遍历 QWidget 树。
 3. View 关闭时先停止该会话的新请求；`Closing/Closed` 或 destroyed 使目录项失效，
    取消排队任务。MCP 不阻止用户关闭标签，也不保留后台无 View 会话。
 4. Application 退出时先停止接入、撤销授权和请求，再按现有顺序销毁 MainWindow；
-   不让桥接进程承担关闭真实会话的职责。
-5. MCP 客户端退出或 stdio EOF 释放该客户端的 IPC、请求、捕获结果和令牌；仅取消
-   归属该客户端的辅助命令，不断开真实终端连接。取消不代表远端已执行的操作被撤回。
+   HTTP 接入层不直接承担关闭真实会话的职责。
+5. 2025 DELETE 释放协议会话；2026 请求流断开取消对应请求。应用退出释放服务
+   和所有客户端上下文；取消归属该客户端的辅助命令，不断开真实终端连接。
+   取消不代表远端已执行的操作被撤回。
 
 跨线程投递只传值对象、不可变共享文本或带版本的请求。禁止 BlockingQueuedConnection
 等待 GUI；每个阶段在入队和结果发布前都检查取消状态、授权及会话 epoch。
@@ -263,69 +276,63 @@ PublishedContextSnapshot (immutable, bounded)
 - **不能复制完整历史**：发布对象仍受 256 KiB / 1024 行等硬上限约束，recentOutput 的摘要/淘汰语义不变。
 - **性能闸门**：只有在正常负载成功率、终端吞吐和 GUI frame P95 同时达到 §9.1 指标时才允许默认启用。2026-09-28 已按 CPU 帧时间口径完成并转为默认路径，帧与吞吐门槛通过、有效响应率 92.0% 未达 ≥99%，详见 §14.2。
 
-## 4. 接入方式与本机 IPC
+## 4. 接入方式：进程内 Streamable HTTP（2026-10-12）
 
-### 4.1 标准 stdio
+### 4.1 地址与客户端配置
 
-客户端启动独立的 `novaterm-mcp`。每条 MCP 消息是单行 UTF-8 JSON-RPC 对象，
-消息以换行分隔；文本中的换行必须 JSON 转义。stdout 仅承载协议，诊断写 stderr，
-不把 Qt 日志、调试输出或终端原始文本直接写进 stdout。不支持 JSON-RPC batch 数组。
+NovaTerm 自身拥有 MCP 服务，启用后只监听 `127.0.0.1`，默认地址为
+`http://127.0.0.1:38973/mcp`。HTTP 解析和分块 SSE 写出由 Qt HTTP Server
+承担，不再使用独立 stdio 进程、私有本机 IPC 或自写 HTTP 解析器。
+默认 URL 在应用重启后保持稳定；主应用启动前可通过 `NOVATERM_MCP_HTTP_PORT`
+覆盖端口。端口冲突明确报错，不自动选新端口或改投其他实例。
 
-拟议配置示例，字段结构由使用方 MCP Host 决定；以下路径和 token 都是占位值：
+`clientConfiguration()` 为一个服务返回以下配置；令牌仅为占位值，真实值从
+NovaTerm 的 MCP 设置导出，不写入日志或文档：
 
 ```json
 {
-  "mcpServers": {
-    "novaterm": {
-      "command": "C:/Programs/NovaTerm/novaterm-mcp.exe",
-      "args": [],
-      "env": {"NOVATERM_MCP_TOKEN": "<由 NovaTerm 生成的本机接入令牌>"}
-    }
-  }
+  "type": "http",
+  "url": "http://127.0.0.1:38973/mcp",
+  "headers": {"Authorization": "Bearer <由 NovaTerm 导出的接入令牌>"}
 }
 ```
 
-MCP 协议入口全部在桥接进程完成：2025-11-25 处理 initialize/initialized，
-v0.3 的 2026-07-28 路径处理 server/discover 与 per-request metadata；工具目录仍为静态五项。
-未运行 NovaTerm、未启用共享或 IPC 暂不可用时，协议发现/工具目录仍可完成，业务调用
-返回相应工具错误。桥接进程不自动启动 GUI、不自动登录服务器。
+Codex 的 TOML 配置使用 `url` 与 `http_headers`：
 
-### 4.2 实例发现与绑定
+```toml
+[mcp_servers.novaterm]
+url = "http://127.0.0.1:38973/mcp"
+http_headers = { Authorization = "Bearer <由 NovaTerm 导出的接入令牌>" }
+```
 
-- 每次 GUI 启动生成随机 `instanceId`，不同 GUI 进程不同；PID 不作为身份。
-- GUI 在当前用户专属运行目录发布实例清单，只有 instanceId、PID、启动时间、
-  应用版本、IPC 版本和 endpoint；清单不含 token、凭据或会话正文。
-- 清单目录由 QStandardPaths 定位；Unix 目录权限 0700、文件 0600，Windows 收紧为
-  “仅当前用户完全访问”的受保护 DACL，收紧前的属主校验按本进程令牌的对象属主身份
-  判定（TokenUser、TokenOwner 与带 `SE_GROUP_OWNER` 的组；提权运行时对象属主是
-  Administrators 而不是 TokenUser）。本机 endpoint 使用 QLocalServer/QLocalSocket，
-  并限制同用户访问。
-- 有 `--instance` 时精确绑定；未指定时只有一个可用实例才自动选择，多实例返回
-  `INSTANCE_SELECTION_REQUIRED`，不默认挑前台窗口或最新窗口。
-- 一旦握手成功，桥接进程固定绑定该 instanceId。GUI 重启后不静默切到新实例。
-  默认不带 --instance 的配置可在重启桥接进程后重新选择唯一实例、重新发现会话；
-  多实例配置若显式指定 --instance，必须先从 NovaTerm 导出新启动配置或更新
-  instanceId，再重启桥接进程。仅重启仍携带旧 --instance 的进程不能恢复绑定。
-- 清单可能过期，连接后必须验证 instanceId 与 IPC 版本；不能仅凭清单认定进程可信。
+旧 `command`、`args`、`env` 及 `--instance` 配置需迁移；客户端不再启动
+`novaterm-mcp`。未运行应用或未启用 MCP 时，URL 不提供离线能力发现。
+不同应用实例如需同时开放服务，应显式配置不同端口，使用各自导出的 URL/token。
 
-### 4.3 私有 IPC 与认证
+### 4.2 两代协议与生命周期
 
-IPC 使用独立版本号 `ipcVersion=1`，不伪装成 MCP Streamable HTTP。帧为 4 字节
-网络字节序长度 + UTF-8 JSON 对象，先检查长度再分配内存，处理分包、合包和半包。
-初次 handshake 携带 instanceId、桥接协议版本和由环境变量取得的 bearer token。
-令牌必须是密码学随机值，验证使用恒定时间比较；连接认证成功后映射到 GUI 中的
-授权记录。普通请求不重复传 token。
+2025-11-25 通过 initialize 建立 `MCP-Session-Id` 会话，后续请求继续携带
+该会话 ID；SSE 支持 `elicitation/create`，客户端确认响应通过 POST 回传。
+普通 TCP 连接断开不等于取消业务，DELETE 结束 MCP 会话，客户端显式取消仍有效。
+2026-07-28 使用无会话请求、每请求 metadata 与 MRTR `input_required`；
+不得沿用 2025 会话，也不得把 2025 的断连语义套到现代请求。
+2026 请求流断开取消对应业务，不自动重放命令。应用停止时关闭服务与请求，
+无法确认已发出命令结果时继续使用 `COMMAND_OUTCOME_UNKNOWN`，不声称远端已终止。
 
-清单用于发现，用户 ACL 和 token 用于访问控制；`clientInfo.name` 只是自报标签，
-不能作为身份认证。每个接入配置可以有独立 token 和会话授权集合，便于单独撤销。
-令牌轮换后旧连接和未完成请求失效。token 不写 SessionStore、Profile、日志或命令行。
-GUI 侧 token 使用凭据存储保存，只在用户导出接入配置时交付；客户端通过环境变量
-传给桥接进程。凭据后端只能内存保存时，明确采用本次运行有效的 token，GUI 重启后
-需要重新导出配置，不回退为明文写入 Profile。会话授权不跨 GUI 重启自动恢复。
-stdio 场景采用环境凭据，不要求 OAuth；以后若增加 HTTP 必须另做 HTTP 授权设计。
+### 4.3 每请求认证与分发许可
 
-同一 OS 账户内的恶意进程可能读取配置或进程环境；本设计不声称可以隔离已攻陷的
-同用户桌面环境。初版不监听 TCP，因此也不提供公网或局域网访问入口。
+每个 HTTP 请求都复核 `Authorization: Bearer …`，同时检查 Host/Origin，
+会话 ID 和 `clientInfo.name` 均不能替代认证。客户端 token 和会话授权分别管理，
+权限撤销及连接 epoch 检查继续由 Service 执行。token 不写 SessionStore、Profile、
+日志或命令行；凭据仅能在内存保存时，重启后须重新导出，不回退为明文存储。
+只提供本机回环入口；不声称能够隔离已攻陷的同用户桌面环境。
+
+本机安装的 Qt 6.8.3 `include/QtHttpServer/qhttpserver.h` 明确标记
+`LicenseRef-Qt-Commercial OR GPL-3.0-only`，与
+[Qt 官方模块许可](https://doc.qt.io/qt-6.8/qthttpserver-index.html#licenses)一致。
+项目 GPLv2+ 允许选择后续版本；使用该开源模块的组合程序分发需满足 GPLv3，
+不能仅按 GPLv2 分发。相应源码、许可材料与其他依赖仍须核对；此记录不是法律
+合规保证，商业 Qt 许可另行确认。
 
 ## 5. 会话身份、授权和数据边界
 
@@ -578,10 +585,11 @@ MCP 不提供解除 quarantine 的工具，仍由用户在 GUI 核对后人工�
 
 ## 6. MCP 协议契约
 
-NovaTerm 将 MCP wire protocol 视为 Bridge 层职责。当前代码已经按 `2025-11-25`
+NovaTerm 将 MCP wire protocol 视为 `WireSession` 层职责。历史实现按 `2025-11-25`
 完成互操作；截至 2026-09-18，MCP 当前正式规范为 `2026-07-28`，其核心已改为
 stateless/self-contained request 和 per-request capability negotiation。v0.3 的兼容目标是
-**同一 `novaterm-mcp` 同时服务两代协议，私有 IPC 与 GUI 业务 DTO 不随协议代际重写**。
+**当前由进程内 HTTP/WireSession 同时服务两代协议，GUI 业务 DTO 不随协议代际重写**；
+2025 会话和 2026 无会话 MRTR 的区别见 §4。
 
 ### 6.1 2025-11-25 兼容路径（已实现基线）
 
@@ -603,21 +611,21 @@ stateless/self-contained request 和 per-request capability negotiation。v0.3 �
 该路径仍采用 initialize → notifications/initialized → tools 调用。版本协商、ping、
 JSON-RPC 错误和取消语义继续按 2025-11-25 验证；旧 Host 不因 v0.3 增加现代协议支持而失效。
 
-### 6.2 2026-07-28 现代路径（v0.3 目标）
+### 6.2 2026-07-28 现代路径（HTTP-only 更新）
 
 2026-07-28 不再依赖 `initialize/initialized` 或 MCP session。每个请求携带自己的协议版本、
-客户端能力以及可选 clientInfo；服务端实现 `server/discover` 供客户端发现能力。对 stdio
-部署，进程与字节流仍可长期存在，但**不能把 MCP 协议正确性依赖于一次 initialize 产生的
-隐藏状态**。
+客户端能力以及可选 clientInfo；服务端实现 `server/discover` 供客户端发现能力。
+HTTP 头与正文 metadata 核验一致；不创建 MCP 协议会话，**不能把正确性依赖于
+一次 initialize 产生的隐藏状态**。
 
-Bridge 适配要求：
+WireSession 适配要求：
 
-1. 2026 请求在进入私有 IPC 前规范化为与 2025 路径相同的内部 ToolRequest DTO；GUI 不解析 MCP `_meta`。
+1. 2026 请求经 wire 适配规范化为与 2025 路径相同的内部 ToolRequest DTO；Session 业务层不解析 MCP `_meta`。
 2. 2026 的 clientInfo/serverInfo 仅用于显示、调试和兼容信息，不能替代本机接入 token、ACL 或授权记录。
-3. `server/discover`、每请求协议版本/能力和 2026 list cache 字段由 Bridge 处理；SessionDirectory 与 capture/token 语义保持不变。
-4. 2025 与 2026 客户端可以并存；工具的业务 schema、权限和错误码应尽可能一致。若协议要求不同 envelope，由 Bridge 转换，不能复制两套业务实现。
-5. 当前命令票据仍可绑定 NovaTerm 的本机接入配置和桥接实例。MCP 2026 的“stateless”不等于允许绕过 commandTicket、epoch、去重记录或目标 quarantine。
-6. 对 2026-era stdio 的普通请求取消，仍遵守“取消后不再发送该请求正常结果”的原则；未来若增加 Streamable HTTP，须按该传输的 2026 取消模型单独实现，不能机械复用 stdio 行为。
+3. `server/discover`、每请求协议版本/能力和 2026 list cache 字段由 WireSession 处理；SessionDirectory 与 capture/token 语义保持不变。
+4. 2025 与 2026 客户端可以并存；工具的业务 schema、权限和错误码应尽可能一致。若协议要求不同 envelope，由 WireSession 转换，不能复制两套业务实现。
+5. 当前命令票据仍绑定 NovaTerm 的接入授权上下文。MCP 2026 的“stateless”不等于允许绕过 commandTicket、epoch、去重记录或目标 quarantine。
+6. 2026 请求流断开取消对应业务，取消后不再发送该请求正常结果；不复用 2025 的“TCP 断开不等于取消”语义。
 
 ### 6.3 工具目录与 annotations
 
@@ -1277,7 +1285,9 @@ profile 证明 UTF-8/sanitize 为主要热点时再做平台级优化。
 
 #### 9.2.8 私有 IPC 编码优化放在 profile 之后
 
-GUI 与 `novaterm-mcp` 之间的私有 IPC 当前使用有界 JSON，优点是可调试、实现简单。
+本节为已删除 stdio/IPC 入口的历史性能设计。当前 HTTP-only 入口没有该进程间
+编码路径；若评估新的编码优化，必须先对当前 HTTP/wire 实现重新采样。
+当时 GUI 与 `novaterm-mcp` 之间的私有 IPC 使用有界 JSON，优点是可调试、实现简单。
 在完成共享快照、请求合并和复制削减前，不优先改 CBOR/二进制协议。只有 profile 显示
 IPC JSON encode/decode 已成为显著热点时，才评估：
 
@@ -1434,7 +1444,8 @@ self-contained requests 与 per-request capability negotiation。Bridge 的双�
 
 ## 14. 首期实施记录（2026-09-17～19）
 
-当前五个工具及 GUI 接入已经存在。本节只记录当前 master 的实际代码事实；前文
+本节保留 2026-09-17～19 五工具及 stdio/IPC 的历史代码事实；该传输入口已删除。
+当前 HTTP-only 入口以 §4 与文末迁移记录为准。前文
 v0.5 的全会话命令执行是下一阶段设计目标，在实现与测试完成前不得写成已支持。
 
 **当前生产固定诊断覆盖 SSH Session 与 Windows/Linux LocalShell：SSH 使用独立
@@ -1632,7 +1643,10 @@ SSH bounded exec 适配，以及 `McpService` 去除 SSH 业务层强耦合已�
 
 用户接入步骤见 [MCP 使用说明](../../MCP_Usage.md)。
 
-### 14.2 v0.6 当前实现与验收记录（2026-09-26，2026-09-28 增量）
+### 14.2 v0.6 实现与历史验收记录（2026-09-26，2026-09-28 增量）
+
+本节的业务能力继续有效；stdio/IPC 配置、构建目标与测试成绩属于当时记录，
+对应入口于 2026-10-12 删除。当前传输事实与 HTTP 验收状态见 §4 及文末迁移节。
 
 2026-09-27 增量：Linux LocalShell 的固定诊断接入独立 helper 和
 `linux-local-v1` Profile，复用现有有界 Executor；四个只读 commandId 通过
@@ -1814,7 +1828,7 @@ flowchart LR
 | `InteractiveStreamFramer` | SessionInputPump 入站路径 | 识别并剥离内部标记；发布有界事务片段；正常字节只转发一次 |
 | `CommandRiskPolicy` | MCP/Session 门面层 | 对命令、脚本、路径和调用方式给出 Allow/Confirm/Deny/Unknown |
 | `ISessionScriptProvider` | Session 能力层 | 在目标主机精确路径写入脚本；不接收 MCP 协议对象，不输出凭据 |
-| `ElicitationBroker` | novaterm-mcp Bridge | 适配 2025 `elicitation/create` 与 2026 MRTR，不代替用户作决定 |
+| `ElicitationBroker` | 进程内 `WireSession` | 适配 2025 `elicitation/create` 与 2026 MRTR，不代替用户作决定 |
 
 唯一数据通路调整为：
 
@@ -2049,3 +2063,113 @@ PTY/回环服务，不以真实生产设备作为功能正确性的唯一证据�
 模型，P6 的 Lease/输入仲裁接口，以及 `AGENTS.md` 的 framing、提示符和用户抢占
 约束。只有代码、自动化测试、相应平台验收和文档全部完成后，才能更新阶段状态；
 不能因本节已写入就宣称 v0.6 已实现。
+
+## 2026-10-12：MCP 桥接随绑定应用退出（历史，入口随后删除）
+
+`novaterm-mcp` 由客户端启动，不属于 NovaTerm 持有的 QProcess。旧
+Bridge 在 IPC 关闭后只返回请求错误，stdin 尚未 EOF 时仍保持进程。
+增加退出后又复现 Windows stdio 收尾卡住：`CancelSynchronousIo` 返回
+`ERROR_NOT_FOUND`（1168），读线程仍未结束。当前收尾同时按线程和
+stdin/stdout 句柄取消未完成 I/O，并等待实际完成后 join；按句柄取消的
+语义参见 [Microsoft CancelIoEx 文档](https://learn.microsoft.com/en-us/windows/win32/api/ioapiset/nf-ioapiset-cancelioex)。
+
+当前约定：初始化时尝试认证绑定唯一可用实例；无应用、缺令牌或多实例
+未选定仍支持离线能力发现。未绑定时监视实例目录；目录不存在时先
+监视最近现存父目录，创建后收窄；应用后启动时也会绑定，不要求客户端
+先调用工具。认证成功后移除目录监视。绑定后 IPC 关闭，拒绝新请求、不自动改投，
+先排空在途请求的错误响应，最多等待 2 秒，随后停止 stdio 并正常退出。
+已发出的执行无法证明完成时保留 `COMMAND_OUTCOME_UNKNOWN`，不据桥接
+退出推断远端进程已终止；客户端需要明确新建桥接才能重新连接。
+
+回归先失败再修复：`boundBridgeExitsWhenApplicationStops`、
+`initializedIdleBridgeFollowsApplicationLifetime`、
+`bridgeFlushesPendingFailureBeforeExit`；另补
+`offlineBridgeBindsWhenApplicationStartsThenExits`，先复现仅客户端
+初始化后应用再启动仍未绑定，再以目录监视修复。多实例／断连回归改为验证旧
+进程退出后由新桥接明确恢复；离线初始化仍通过。Windows 主程序、桥接
+及 MCP 测试目标构建通过，完整 `novaterm_mcp_tests` CTest 1/1 通过，
+11.48 秒。两轮只读线程复核未发现明确新增问题。本轮未重跑其他模块
+或 Linux/macOS，不改变 P8 整体阶段状态。
+
+Windows 独立进程手工检查不注册默认 CTest、不依赖 MCP SDK、不读取
+真实接入令牌，运行方式：
+
+```powershell
+python tests/mcp/shutdown_check.py --fixture build/Release/bin/novaterm_mcp_tests.exe --qt-prefix C:/Programs/Qt/6.8.3/msvc2022_64
+```
+
+三个场景都保持客户端 stdin 打开：应用正常退出，桥接约 16 ms；应用
+强制结束，约 15 ms；stdout 留有阻塞输出且客户端不读，约 2016 ms。
+三项均正常退出、退出码 0。慢读检查只发三份工具定义，避免以长时间
+逐条 ping 先触发原有 10 秒慢写保护而混淆退出期限。临时配置与进程
+均由夹具创建并回收；未连接真实 SSH/串口或终止用户的主程序。
+结果在 `build/mcp-shutdown-ctest-final.txt` 与
+`build/mcp-shutdown-check-final.txt`，改动尚未提交。
+
+## 2026-10-12：仅进程内 Streamable HTTP 迁移
+
+当前入口仅为 NovaTerm 拥有的 Qt HTTP Server。旧 `tools/novaterm-mcp/`、
+`LocalMcpServer`、对应 CMake 目标/安装 RPATH/测试依赖宏已删除；共享
+`ElicitationBroker`、`WireSession` 和 `HttpMcpEndpoint` 位于 `src/mcp/`。
+旧 stdio 桥接退出修复、
+继承管道取消和子进程检查保留为历史记录，不构成 HTTP 入口的验收证据。
+
+默认本机 URL `http://127.0.0.1:38973/mcp` 在重启后保持稳定，主应用启动前
+`NOVATERM_MCP_HTTP_PORT` 可覆盖端口；端口冲突明确失败，不自动切换。
+每请求 Bearer token，配置导出为 `{type:"http",url,headers.Authorization}`；
+Codex 改用 `url`/`http_headers`，旧 `command`/`args`/`env` 配置必须迁移。
+2025 为会话/elicitation，2026 为无会话 MRTR/断流取消，细节与许可见 §4。
+
+新增 CTest 目标为 `novaterm_mcp_wire_tests`、`novaterm_mcp_http_tests` 与
+`novaterm_mcp_endpoint_tests`。2026-10-13 Windows 注册 26 项，Release 全套
+26/26 通过（233.97 秒）；Linux 按条件预计 24，未实跑核对。
+
+本轮验收：
+
+| 范围 | 结果与边界 |
+| --- | --- |
+| 主程序与全部默认目标 | Windows Release 构建通过；Qt HTTP Server/WebSockets DLL 已部署 |
+| CTest | 26/26；四项 MCP 合计 40.76 秒，其余为默认回归 |
+| 官方 Python MCP 1.30.0 SDK | 2025 HTTP 初始化、七工具/schema、有界上下文、搜索、固定诊断与票据重放检查通过 |
+| 原始 2026 HTTP | discover、版本拒绝、catalog/read 通过；MRTR/脚本确认由 Qt 业务回归覆盖 |
+| HTTP 生命周期 | 空闲关闭、未读待请求 SSE、应用崩溃三项通过；停止后监听不可达，未启动 MCP 子进程 |
+| Codex CLI | URL/http_headers 配置解析为 streamable_http；仅配置解析，未验证桌面实接或修改用户配置 |
+| 审查与资源 | 头/正文代际不一致在分流前 400 拒绝；拒绝/半包 socket 断连回收，计数回到基线 |
+| 仍未重测 | Linux/macOS、真实桌面客户端接入、迁移后性能对照 |
+
+HTTP 网络字节由独立 worker 处理，Qt 6.8 官方 parser/responder 负责最终解析
+与响应。为防 Qt parser 消耗无界未完成请求，并拒绝它宽松接受的非法 chunk
+边界，进入 parser 前做有界原始交换核验；正文 2 MiB、头 16 KiB、请求/队列
+均有限额。一次 TCP 只承接一次交换。2025 HTTP 断开保留逻辑 wire，会话 DELETE
+或超时回收；2026 断流只取消该 exchange，Bearer 的内部授权上下文保留短期
+MAC 状态以支持重提，不产生 MCP session。
+
+原始 HTTP 超限用例验证 413；Windows Qt 在完整上传中遇到提前关闭也可能呈现
+传输错误，业务回归要求请求不进入工具调度，不能把该错误当成成功或自动重放。
+
+日志为 `build/mcp-http-full-ctest.txt`、`build/mcp-http-interop-final.txt`、
+`build/mcp-http-shutdown-final.txt`。测试只创建临时回环连接/进程，未连接真实
+用户 SSH/串口。本轮修改随 0.2.68 提交。
+
+## 2026-10-14：HTTP 审查修复与响应编码
+
+连接按完整远端 IP/port 定位、删除核对实例；初始化/消息在上下文分配前
+校验，无法交付初始响应时回收新 context。版本拒绝统一 supported/requested。
+头验证后支持单次 100 Continue，replay 去 Expect 防 Qt 重复握手，未知 Expect
+返回 417；解析后 404/405/503 持有 responder 排空。停机当前 socket 数归零。
+
+最终 RPC 在 wire 编码为 QByteArray，另传错误码，Endpoint 不再重新编码或
+解析；Service 不再编码内部 DTO，SSE 校验/组帧移入 I/O，额度涵盖多行 data
+前缀，超限替代包仍有上限。2026 请求能力字段在共享 validator 前置核验。
+2026 HTTP 不定义客户端核心通知，通知不分配 context，取消按请求流断连。
+通知与 RequestMeta 不混用，依据见
+[2026 Streamable HTTP](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http)。
+
+Windows 主程序构建、MCP 四项 4/4（45.91 秒）、SDK 互操作及退出三矩阵通过；
+独立复核未发现高置信残留。256 KiB wire 微基准约 1.98 → 1.28 ms/次（减少
+约 35%），只代表固定 50 次/median 3 测量，不代表整机 GUI 帧率。
+
+测试网络截止时间、传输错误检查及 reply 收尾已加强；QFile 的 QVERIFY
+本已检查结果，回环 HTTP 不因 SSL 静态提示改 HTTPS。详细 RED/GREEN、计划及
+日志入口见 `docs/superpowers/plans/2026-10-14-http-mcp-review-fixes.md`。
+本轮未重跑非 MCP 全套、跨平台或整机 GPU 压力；改动随 0.2.68 提交。

@@ -5,7 +5,7 @@
 #include "McpProtocol.h"
 #include "CommandPolicy.h"
 #include "CommandRiskPolicy.h"
-#include "LocalMcpServer.h"
+#include "HttpMcpEndpoint.h"
 #include "session/SessionCommandFacade.h"
 #include "session/SessionCommandCoordinator.h"
 #include "session/SessionInputArbiter.h"
@@ -234,37 +234,44 @@ public:
         int timeoutMs{5000};
     };
 
-    Impl(Service* owner, QString stateDir, QString runtimeDir, std::unique_ptr<CredentialStore> credentials)
+    Impl(Service* owner, QString stateDir, QString runtimeDir, std::unique_ptr<CredentialStore> credentials, quint16 port)
         : q(owner), stateDirectory(stateDir.isEmpty() ? dataDirectory() : std::move(stateDir)),
           instanceDirectory(runtimeDir.isEmpty() ? runtimeDirectory() : std::move(runtimeDir)),
           access(stateDirectory, std::move(credentials), owner),
-          sessions(owner), io(owner), guards(QDir(stateDirectory).filePath("targets"))
+          sessions(owner), io(HttpMcpEndpoint::Backend{
+              [this](const QByteArray& token) { return access.authenticate(token); },
+              [this](const QString& id, const QString& client) {
+                  if (connections.size() >= MaxClients) return false;
+                  Connection connection;
+                  connection.client = client;
+                  connection.key = randomBytes();
+                  connections.insert(id, std::move(connection));
+                  emit q->changed();
+                  return true;
+              },
+              [this](const QString& id, const QJsonObject& packet) { receive(id, packet); },
+              [this](const QString& id) { disconnect(id); }
+          }, owner), guards(QDir(stateDirectory).filePath("targets"))
     {
         clock.start();
         workers.setMaxThreadCount(1);
         workers.setExpiryTimeout(1000);
         instance = newId();
-#ifdef Q_OS_WIN
-        address = QStringLiteral("NovaTerm-mcp-") + instance;
-#else
-        address = QDir(instanceDirectory).filePath(instance + ".sock");
-#endif
+        listenPort = port;
         timer.setInterval(100);
         QObject::connect(&timer, &QTimer::timeout, q, [this] { expireJobs(); });
-        QObject::connect(&io, &LocalMcpServer::packet, q,
-            [this](const QString& id, const QJsonObject& packet) { receive(id, packet); });
-        QObject::connect(&io, &LocalMcpServer::disconnected, q,
-            [this](const QString& id) { disconnect(id); });
-        QObject::connect(&io, &LocalMcpServer::listening, q, [this](bool ok) {
+        QObject::connect(&io, &HttpMcpEndpoint::listening, q, [this](bool ok, const QString& url) {
+            if (!started) return;
             listening = ok;
+            address = ok ? url : QString{};
             if (ok) {
                 ok = writePrivateJson(manifestPath(), {{"instanceId", instance},
                     {"pid", QString::number(QCoreApplication::applicationPid())},
                     {"startedAt", utcNow()}, {"applicationVersion", NOVATERM_VERSION},
-                    {"ipcVersion", 1}, {"endpoint", address}});
+                    {"transport", "streamable-http"}, {"endpoint", address}});
             }
-            status = ok ? QStringLiteral("Listening") : QStringLiteral("IPC startup failed");
-            if (!ok) { listening = false; io.stop(); }
+            status = ok ? QStringLiteral("Listening") : QStringLiteral("HTTP startup failed");
+            if (!ok) { listening = false; address.clear(); io.stop(); }
             emit q->changed();
         });
         QObject::connect(&access, &AccessStore::changed, q, [this] { updateEnabled(); emit q->changed(); });
@@ -293,14 +300,16 @@ public:
     {
         if (!access.enabled()) { stop(); status = "Disabled"; return; }
         if (!started) {
-            if (!secureDirectory(instanceDirectory)) { status = "Cannot secure IPC directory"; return; }
+            if (!secureDirectory(instanceDirectory)) { status = "Cannot secure HTTP endpoint directory"; return; }
             started = true;
             status = "Starting";
-            io.start(address);
+            io.start(listenPort);
         }
     }
     void stop()
     {
+        started = listening = false;
+        address.clear();
         const auto connectionIds = connections.keys();
         for (const auto& id : connectionIds)
             disconnect(id);
@@ -327,26 +336,6 @@ public:
     void receive(const QString& connectionId, const QJsonObject& message)
     {
         const auto op = message.value("op").toString();
-        if (op == "hello" && !connections.contains(connectionId)) {
-            const auto token = message.value("token").toString().toLatin1();
-            const auto client = access.authenticate(token);
-            if (client.isEmpty() || message.value("instanceId") != instance
-                || message.value("ipcVersion").toInt() != 1 || connections.size() >= MaxClients) {
-                if (!io.send(connectionId, {{"op", "hello"}, {"ok", false}}))
-                    io.closeConnection(connectionId);
-                return;
-            }
-            Connection newConnection;
-            newConnection.client = client;
-            newConnection.key = randomBytes();
-            connections.insert(connectionId, std::move(newConnection));
-            if (!io.send(connectionId, {{"op", "hello"}, {"ok", true}, {"instanceId", instance}})) {
-                disconnect(connectionId);
-                return;
-            }
-            emit q->changed();
-            return;
-        }
         auto connection = connections.find(connectionId);
         if (connection == connections.end()) { io.closeConnection(connectionId); return; }
         const auto id = message.value("id").toString();
@@ -504,8 +493,7 @@ public:
     void send(const QString& connection, const QString& id, QJsonObject payload)
     {
         QJsonObject packet{{"op", "result"}, {"id", id}, {"payload", payload}};
-        if (frame(packet).isEmpty())
-            packet.insert("payload", error("RESPONSE_TOO_LARGE"));
+        // wire 统一编码最终 RPC 并核验上限；内部 DTO 不再重复序列化。
         if (!io.send(connection, packet)) {
             io.closeConnection(connection);
             disconnect(connection);
@@ -1863,7 +1851,8 @@ public:
     QString status{"Disabled"};
     AccessStore access;
     SessionDirectory sessions;
-    LocalMcpServer io;
+    HttpMcpEndpoint io;
+    quint16 listenPort{0};
     TargetGuard guards;
     QThreadPool workers;
     QElapsedTimer clock;
@@ -1902,31 +1891,25 @@ public:
     std::deque<qint64> snapshotAges;
 };
 
-Service::Service(QString stateDir, QString runtimeDir, std::unique_ptr<CredentialStore> credentials, QObject* parent)
-    : QObject(parent), _impl(std::make_unique<Impl>(this, std::move(stateDir), std::move(runtimeDir), std::move(credentials))) {}
+Service::Service(QString stateDir, QString runtimeDir, std::unique_ptr<CredentialStore> credentials, QObject* parent, quint16 port)
+    : QObject(parent), _impl(std::make_unique<Impl>(this, std::move(stateDir), std::move(runtimeDir), std::move(credentials), port)) {}
 Service::~Service() { stop(); }
 AccessStore& Service::access() { return _impl->access; }
 SessionDirectory& Service::directory() { return _impl->sessions; }
 QString Service::instanceId() const { return _impl->instance; }
 QString Service::endpoint() const { return _impl->address; }
+QString Service::httpEndpoint() const { return _impl->listening ? _impl->address : QString{}; }
 QString Service::status() const { return _impl->status; }
 void Service::stop() { _impl->stop(); }
 QJsonObject Service::clientConfiguration(const QString& clientId) const
 {
     const auto token = _impl->access.exportToken(clientId);
     if (!token) return {};
-    const auto command = QDir(QCoreApplication::applicationDirPath()).filePath(
-#ifdef Q_OS_WIN
-        "novaterm-mcp.exe"
-#else
-        "novaterm-mcp"
-#endif
-    );
-    const bool multipleInstances = QDir(_impl->instanceDirectory).entryList({"*.json"}, QDir::Files).size() > 1;
-    const QJsonArray arguments = multipleInstances ? QJsonArray{"--instance", _impl->instance} : QJsonArray{};
-    return {{"mcpServers", QJsonObject{{"novaterm", QJsonObject{{"command", command},
-        {"args", arguments}, {"env", QJsonObject{{"NOVATERM_MCP_TOKEN", QString::fromLatin1(*token)},
-        {"NOVATERM_MCP_RUNTIME_DIR", _impl->instanceDirectory}}}}}}}};
+    if (httpEndpoint().isEmpty()) return {};
+    return {{"mcpServers", QJsonObject{{"novaterm", QJsonObject{
+        {"type", "http"}, {"url", httpEndpoint()},
+        {"headers", QJsonObject{{"Authorization", "Bearer " + QString::fromLatin1(*token)}}}
+    }}}}};
 }
 QJsonObject Service::ccSwitchConfiguration(const QString& clientId) const
 {
@@ -1960,6 +1943,7 @@ QJsonObject Service::statistics() const
         {"projectionCopiedBytes", QString::number(_impl->projectionCopiedBytes)},
         {"snapshotAgeP95Ms", QString::number(ageP95)},
         {"activeClients", int(_impl->connections.size())}, {"captures", int(_impl->captures.size())},
+        {"http", _impl->io.statistics()},
         {"captureP95Ms", p95}, {"maximumRequestMs", _impl->maximumRequestMs}};
 }
 QJsonObject Service::protectedTargets() const { return _impl->guards.markers(); }

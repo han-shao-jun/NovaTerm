@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(NovaTerm VERSION 0.2.67 LANGUAGES CXX C)
+project(NovaTerm VERSION 0.2.68 LANGUAGES CXX C)
 
 # ═══════════════════════════════════════════════════════════════════
 #  1. 通用平台编译参数
@@ -81,6 +81,7 @@ find_package(Qt${QT_VERSION_MAJOR} 6.8 REQUIRED COMPONENTS
     LinguistTools
     SerialPort
     Network
+    HttpServer
     ${_novaterm_secret_service_component}
 )
 qt_standard_project_setup(REQUIRES 6.8)
@@ -357,14 +358,13 @@ list(FILTER SOURCES EXCLUDE REGEX
 )
 add_subdirectory(tools/novaterm-local-diag)
 add_subdirectory(src/mcp)
-# MCP 桥接与主程序同目录，供运行时按 applicationDirPath 定位。
+# Linux 主程序与私有运行库的安装目录。
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     set(_novaterm_linux_runtime_root "${CMAKE_INSTALL_LIBDIR}/novaterm")
     set(_novaterm_linux_bindir "${_novaterm_linux_runtime_root}/bin")
     set(_novaterm_linux_libdir "${_novaterm_linux_runtime_root}/lib")
     set(_novaterm_linux_pluginsdir "${_novaterm_linux_runtime_root}/plugins")
 endif()
-add_subdirectory(tools/novaterm-mcp)
 if(WIN32)
     list(FILTER SOURCES EXCLUDE REGEX "[/\\\\]src[/\\\\]platform[/\\\\]linux[/\\\\]")
     list(APPEND SOURCES resources/novaterm.rc)
@@ -466,8 +466,6 @@ elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
         OUTPUT_NAME novaterm
         INSTALL_RPATH "\$ORIGIN/../lib"
     )
-    set_target_properties(novaterm-mcp PROPERTIES
-        INSTALL_RPATH "\$ORIGIN/../lib")
     # 覆盖 ElaWidgetTools 子项目中面向独立构建的硬编码 Windows Qt RPATH。
     set_target_properties(ElaWidgetTools PROPERTIES
         INSTALL_RPATH "\$ORIGIN"
@@ -653,7 +651,7 @@ VT/ANSI terminal emulation, and a modern UI powered by ElaWidgetTools."
 )
 
 # 资源目录（LICENSE、README 等，按需放入打包根）
-set(CPACK_RESOURCE_FILE_LICENSE "${CMAKE_SOURCE_DIR}/LICENSE")
+set(CPACK_RESOURCE_FILE_LICENSE "${CMAKE_SOURCE_DIR}/LICENSE.GPL3")
 set(CPACK_RESOURCE_FILE_README  "${CMAKE_SOURCE_DIR}/README.md")
 
 # ── 平台与架构标识（用于 CPACK_PACKAGE_FILE_NAME）──────────────
@@ -815,6 +813,7 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     )
 endif()
 
+install(FILES LICENSE.GPL3 DESTINATION "${CMAKE_INSTALL_DATADIR}/doc/novaterm")
 # Qt 官方基础翻译跟随真实程序的运行目录安装。
 if(_NOVATERM_QTBASE_ZH_QM)
     if(APPLE)
