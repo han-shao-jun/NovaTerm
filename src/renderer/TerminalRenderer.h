@@ -1,4 +1,6 @@
 #pragma once
+
+#include <optional>
 #include "HistoryLayout.h"
 #include <QRhiWidget>
 #include <QFont>
@@ -192,6 +194,15 @@ public:
     void appendSearchMatches(std::vector<NovaTerm::SearchMatch> matches,
                              quint64 generation);
     void clearSearchMatches();
+    /**
+     * @brief 垂直滚动，将历史命中的起始显示行定位到当前可视区域中间。
+     *        超出滚动量程则保留位置。
+     *        重排在途时延迟到布局完成，已淘汰的命中返回 false。
+     */
+    bool scrollToSearchMatch(const NovaTerm::SearchMatch& match);
+    /** @brief 同一次导航复用一份历史快照，避免逐个候选重建快照。 */
+    bool scrollToSearchMatch(const NovaTerm::SearchMatch& match,
+                             const NovaTerm::ScrollbackSnapshot& history);
     qsizetype searchMatchCount() const;
     qsizetype searchMatchedLineCount() const
     {
@@ -199,6 +210,9 @@ public:
     }
 
 signals:
+    /** @brief 重排完成前目标被淘汰，通知视图继续查找有效命中。 */
+    void searchMatchUnavailable(const NovaTerm::SearchMatch& match);
+    void searchJumpFailed(const QString& error);
     void activityDetected();
     void terminalSizeChanged(int columns, int rows);
     /**
@@ -520,7 +534,10 @@ private:
     int _layoutColumns{0};
     // 正在进行的全量重排所用的列宽，重排完成时提交给 _layoutColumns。
     int _pendingLayoutColumns{0};
+    bool _reflowInFlight{false};
     quint64 _searchGeneration{0};
+    std::optional<NovaTerm::SearchMatch> _activeSearchMatch;
+    std::optional<NovaTerm::SearchMatch> _pendingSearchJump;
     QHash<NovaTerm::LineId, QVector<NovaTerm::SearchMatch>>
         _searchMatchesByLine;
 

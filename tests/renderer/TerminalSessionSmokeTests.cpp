@@ -8,6 +8,7 @@
 #include "service/TerminalSchemeStore.h"
 
 #include <ElaComboBox.h>
+#include <ElaLineEdit.h>
 #include <ElaScrollBar.h>
 #include <ElaTheme.h>
 
@@ -16,6 +17,7 @@
 #include <QDir>
 #include <QFileInfo>
 #include <QLayout>
+#include <QLabel>
 #include <QSignalSpy>
 #include <QTest>
 #include <QTimer>
@@ -74,11 +76,114 @@ private slots:
     void terminalViewRepeatedStartStop();
     void terminalViewStartupPreservesPendingSize();
     void terminalViewScrollBarDrivesHistoryScrollback();
+    void terminalSearchNavigatesAndReopens();
+    void terminalSearchBarKeepsCompactHeight();
     void fontZoomRoundTripRestoresTerminalContent();
     void comboBoxAnimationTeardownIsSafe();
     void externalSessionOutlivesView();
     void ownedDependenciesAreDestroyedBeforeCore();
 };
+
+void TerminalSessionSmokeTests::terminalSearchNavigatesAndReopens()
+{
+    RuntimeConfig runtime;
+    TerminalSession session(runtime);
+    TerminalView view(&session);
+    auto* renderer = view.renderer();
+    renderer->setApi(QRhiWidget::Api::Null);
+    auto* core = session.core();
+    QByteArray input;
+    for (int i = 0; i < 100; ++i)
+        input += i == 20 || i == 40 || i == 60 ? "needle\r\n" : "other\r\n";
+    QVERIFY(core->writeInput(input).fullyAccepted());
+    QVERIFY(core->waitForIdle(1000));
+    QTRY_VERIFY(renderer->historyDisplayRowCount() > 0);
+
+    QTest::keyClick(renderer, Qt::Key_F, Qt::ControlModifier);
+    auto* query = view.findChild<ElaLineEdit*>(QStringLiteral("terminalSearchText"));
+    auto* status = view.findChild<QLabel*>(QStringLiteral("terminalSearchStatus"));
+    QVERIFY(query);
+    QVERIFY(status);
+    query->setText(QStringLiteral("needle"));
+    QTRY_COMPARE(renderer->searchMatchCount(), qsizetype(3));
+    QTRY_COMPARE(status->text(), QStringLiteral("1 / 3"));
+    const int first = renderer->scrollOffset();
+    QVERIFY(first > 0);
+    QTest::keyClick(query, Qt::Key_Return);
+    QCOMPARE(status->text(), QStringLiteral("2 / 3"));
+    QVERIFY(renderer->scrollOffset() < first);
+    QTest::keyClick(query, Qt::Key_Return, Qt::ShiftModifier);
+    QCOMPARE(renderer->scrollOffset(), first);
+    QTest::keyClick(query, Qt::Key_Enter, Qt::KeypadModifier);
+    QCOMPARE(status->text(), QStringLiteral("2 / 3"));
+    QTest::keyClick(query, Qt::Key_Enter, Qt::ShiftModifier | Qt::KeypadModifier);
+    QCOMPARE(renderer->scrollOffset(), first);
+    QTest::keyClick(query, Qt::Key_F3, Qt::ShiftModifier);
+    QCOMPARE(status->text(), QStringLiteral("3 / 3"));
+    QSignalSpy output(core, &TerminalCore::outputData);
+    QTest::keyClick(renderer, Qt::Key_F3);
+    QCOMPARE(status->text(), QStringLiteral("1 / 3"));
+    QCOMPARE(renderer->scrollOffset(), first);
+    QVERIFY(core->waitForIdle(1000));
+    QCoreApplication::processEvents();
+    QCOMPARE(output.count(), 0); // 搜索快捷键不发送到 Shell。
+
+    QTest::keyClick(query, Qt::Key_Escape);
+    QCOMPARE(renderer->searchMatchCount(), qsizetype(0));
+    output.clear();
+    QTest::keyClick(renderer, Qt::Key_F3);
+    QTRY_VERIFY(output.count() > 0); // 搜索栏关闭后恢复终端功能键。
+    QTest::keyClick(renderer, Qt::Key_F, Qt::ControlModifier);
+    QTRY_COMPARE(renderer->searchMatchCount(), qsizetype(3));
+    QTRY_COMPARE(status->text(), QStringLiteral("1 / 3"));
+
+    // 当前命中在等待新列宽布局期间被淘汰；自动跳过已失效的前两处。
+    const auto history = core->scrollbackSnapshot();
+    const auto* firstMatchLine = history.lineAt(20);
+    QVERIFY(firstMatchLine);
+    const NovaTerm::SearchMatch pending{firstMatchLine->id, 0, 6};
+    core->resize(40, core->rows());
+    QVERIFY(core->waitForIdle(1000));
+    QVERIFY(renderer->scrollToSearchMatch(pending));
+    core->setScrollbackLimit(25);
+    QVERIFY(core->waitForIdle(1000));
+    QTRY_COMPARE(status->text(), QStringLiteral("3 / 3"));
+    QVERIFY(renderer->scrollOffset() > 0);
+
+    query->setText(QStringLiteral("missing-search-text"));
+    QTRY_COMPARE(status->text(), view.tr("No matches"));
+    QCOMPARE(renderer->searchMatchCount(), qsizetype(0));
+}
+
+void TerminalSessionSmokeTests::terminalSearchBarKeepsCompactHeight()
+{
+    RuntimeConfig runtime;
+    TerminalSession session(runtime);
+    TerminalView view(&session);
+    auto* renderer = view.renderer();
+    renderer->setApi(QRhiWidget::Api::Null);
+    view.setUpdatesEnabled(false); // 只验证显示后的布局分配，无需提交 GPU 帧。
+    view.resize(1000, 760);
+    view.show();
+    auto* query = view.findChild<ElaLineEdit*>(QStringLiteral("terminalSearchText"));
+    QVERIFY(query);
+    auto* bar = query->parentWidget();
+    QVERIFY(bar);
+
+    for (const int height : {360, 760, 1200}) {
+        view.resize(1000, height);
+        QTest::keyClick(renderer, Qt::Key_F, Qt::ControlModifier);
+        QTRY_VERIFY(bar->isVisible());
+        QCoreApplication::processEvents();
+        QCOMPARE(bar->y(), 0);
+        QCOMPARE(bar->height(), bar->sizeHint().height());
+        QCOMPARE(renderer->y(), bar->height());
+        QCOMPARE(renderer->height(), view.height() - bar->height());
+        QTest::keyClick(query, Qt::Key_Escape);
+        QTRY_COMPARE(renderer->height(), view.height());
+        QCOMPARE(renderer->y(), 0);
+    }
+}
 
 void TerminalSessionSmokeTests::transportWarningsRemainVisibleInConnectedSerialSessions()
 {

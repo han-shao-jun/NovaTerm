@@ -20,6 +20,8 @@ struct TerminalColorScheme;
 class QTimer;
 class ElaLineEdit;
 class ElaScrollBar;
+class ElaPushButton;
+class ElaText;
 class TerminalSession;
 class SerialFileTransferController;
 class SerialFileTransferDialog;
@@ -138,6 +140,9 @@ private:
     bool eventFilter(QObject* obj, QEvent* event) override;
     void showSearch();
     void hideSearch();
+    void startSearch();
+    void navigateSearch(bool backwards);
+    void updateSearchStatus();
     /**
      * @brief 把渲染器发布的滚动状态映射到右侧滚动条。
      * @param maximumOffset 渲染器允许的最大回看偏移（历史显示行数）。
@@ -163,6 +168,15 @@ private:
     // SIGWINCH，避免 shell 被连续重绘请求轰击产生输出风暴。
     QTimer*           _resizeDebounce{nullptr};
     ElaLineEdit*      _searchLine{nullptr};
+    QWidget*          _searchBar{nullptr};
+    ElaPushButton*    _searchPrevious{nullptr};
+    ElaPushButton*    _searchNext{nullptr};
+    ElaPushButton*    _searchClose{nullptr};
+    ElaText*          _searchStatus{nullptr};
+    std::vector<NovaTerm::SearchMatch> _searchMatches;
+    qsizetype         _currentSearchMatch{-1};
+    bool              _searchCompleted{true};
+    QString           _searchError;
     ElaScrollBar*     _scrollBar{nullptr};
     // 由 syncScrollBar() 写入滚动条时置位，使 valueChanged 不再反向驱动
     // 渲染器 —— 否则两边互相触发会形成回环。

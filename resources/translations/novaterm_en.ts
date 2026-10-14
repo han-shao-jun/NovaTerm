@@ -3525,5 +3525,45 @@ Termination confirmed: %3
         <source>Serial File Transfer…</source>
         <translation>Serial File Transfer…</translation>
     </message>
+    <message>
+        <source>Previous</source>
+        <translation>Previous</translation>
+    </message>
+    <message>
+        <source>Previous match (Shift+Enter / Shift+F3)</source>
+        <translation>Previous match (Shift+Enter / Shift+F3)</translation>
+    </message>
+    <message>
+        <source>Next</source>
+        <translation>Next</translation>
+    </message>
+    <message>
+        <source>Next match (Enter / F3)</source>
+        <translation>Next match (Enter / F3)</translation>
+    </message>
+    <message>
+        <source>Close</source>
+        <translation>Close</translation>
+    </message>
+    <message>
+        <source>Close search (Esc)</source>
+        <translation>Close search (Esc)</translation>
+    </message>
+    <message>
+        <source>Search failed</source>
+        <translation>Search failed</translation>
+    </message>
+    <message>
+        <source>%1 / %2%3</source>
+        <translation>%1 / %2%3</translation>
+    </message>
+    <message>
+        <source>Searching…</source>
+        <translation>Searching…</translation>
+    </message>
+    <message>
+        <source>No matches</source>
+        <translation>No matches</translation>
+    </message>
 </context>
 </TS>

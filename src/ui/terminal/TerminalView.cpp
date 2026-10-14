@@ -27,6 +27,8 @@
 #include "ElaLineEdit.h"
 #include "ElaMenu.h"
 #include "ElaScrollBar.h"
+#include "ElaPushButton.h"
+#include "ElaText.h"
 #include <QApplication>
 #include <QClipboard>
 #include <QCoreApplication>
@@ -119,10 +121,28 @@ TerminalView::TerminalView(TerminalSession* session, QWidget* parent)
     auto* layout = new QVBoxLayout(this);
     layout->setContentsMargins(0, 0, 0, 0);
     layout->setSpacing(0);
-    _searchLine = new ElaLineEdit(this);
+    _searchBar = new QWidget(this);
+    // 搜索栏只占内容所需的一行高度，窗口增高时空间全部分配给终端。
+    _searchBar->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+    auto* searchLayout = new QHBoxLayout(_searchBar);
+    searchLayout->setContentsMargins(4, 4, 4, 4);
+    searchLayout->setSpacing(4);
+    _searchLine = new ElaLineEdit(_searchBar);
+    _searchLine->setObjectName(QStringLiteral("terminalSearchText"));
     _searchLine->setClearButtonEnabled(true);
-    _searchLine->hide();
-    layout->addWidget(_searchLine);
+    searchLayout->addWidget(_searchLine, 1);
+    _searchStatus = new ElaText(_searchBar);
+    _searchStatus->setObjectName(QStringLiteral("terminalSearchStatus"));
+    searchLayout->addWidget(_searchStatus);
+    _searchPrevious = new ElaPushButton(_searchBar);
+    _searchNext = new ElaPushButton(_searchBar);
+    _searchClose = new ElaPushButton(_searchBar);
+    for (auto* button : {_searchPrevious, _searchNext, _searchClose}) {
+        button->setFocusPolicy(Qt::NoFocus);
+        searchLayout->addWidget(button);
+    }
+    _searchBar->hide();
+    layout->addWidget(_searchBar);
 
     // 终端与右侧滚动条并排。滚动条常驻布局而非按有无历史显示/隐藏：
     // 隐藏会改变渲染器宽度，进而改变列数并触发一次整段历史重排，表现为
@@ -140,7 +160,7 @@ TerminalView::TerminalView(TerminalSession* session, QWidget* parent)
     _scrollBar->setPageStep(_latestResizeRows);
     _scrollBar->setRange(0, 0);
     terminalRow->addWidget(_scrollBar);
-    layout->addLayout(terminalRow);
+    layout->addLayout(terminalRow, 1);
 
     setFocusProxy(_renderer);
     setContextMenuPolicy(Qt::CustomContextMenu);
@@ -167,26 +187,36 @@ TerminalView::TerminalView(TerminalSession* session, QWidget* parent)
     _renderer->installEventFilter(this);
     _searchLine->installEventFilter(this);
 
-    connect(_searchLine, &QLineEdit::textChanged, this,
-            [this](const QString& text) {
-        ++_searchGeneration;
-        _renderer->clearSearchMatches();
-        if (text.isEmpty()) {
-            _core->cancelSearch(_searchGeneration);
+    connect(_searchLine, &QLineEdit::textChanged, this, &TerminalView::startSearch);
+    connect(_searchPrevious, &QPushButton::clicked, this, [this] { navigateSearch(true); });
+    connect(_searchNext, &QPushButton::clicked, this, [this] { navigateSearch(false); });
+    connect(_searchClose, &QPushButton::clicked, this, &TerminalView::hideSearch);
+    connect(_renderer, &TerminalRenderer::searchJumpFailed, this,
+            [this](const QString& error) {
+        _searchError = error;
+        updateSearchStatus();
+    });
+    connect(_renderer, &TerminalRenderer::searchMatchUnavailable, this,
+            [this](const NovaTerm::SearchMatch& match) {
+        if (_currentSearchMatch < 0 || _currentSearchMatch >= qsizetype(_searchMatches.size()))
             return;
-        }
-        NovaTerm::SearchRequest request;
-        request.query = text.toStdString();
-        request.generation = _searchGeneration;
-        request.resultBatchSize = 128;
-        request.maximumResults = 100'000;
-        _core->searchScrollback(std::move(request));
+        const auto& current = _searchMatches[size_t(_currentSearchMatch)];
+        if (current.lineId == match.lineId && current.startCell == match.startCell
+            && current.endCell == match.endCell)
+            navigateSearch(false);
     });
     connect(_core, &TerminalCore::searchResultsReady, this,
             [this](const NovaTerm::SearchBatch& batch) {
-        if (batch.generation != _searchGeneration)
+        if (batch.generation != _searchGeneration || batch.cancelled)
             return;
         _renderer->appendSearchMatches(batch.matches, batch.generation);
+        _searchMatches.insert(_searchMatches.end(), batch.matches.begin(), batch.matches.end());
+        _searchCompleted = batch.completed;
+        if (!batch.error.empty())
+            _searchError = QString::fromStdString(batch.error);
+        if (_currentSearchMatch < 0 && !_searchMatches.empty())
+            navigateSearch(false);
+        updateSearchStatus();
     });
 
     // 这些视图级连接在传输层切换时保持不变。放在 attachTransport() 之外，
@@ -752,6 +782,21 @@ void TerminalView::setupContextMenu(const QPoint& pos)
 
 bool TerminalView::eventFilter(QObject* obj, QEvent* event)
 {
+    // 必须在文件传输输入门禁之前处理；这些键仅控制本地视图。
+    if ((obj == _renderer || obj == _searchLine) && event->type() == QEvent::KeyPress) {
+        const auto* key = static_cast<QKeyEvent*>(event);
+        auto modifiers = key->modifiers();
+        modifiers.setFlag(Qt::KeypadModifier, false);
+        const bool navigationModifiers = modifiers == Qt::NoModifier
+            || modifiers == Qt::ShiftModifier;
+        if (navigationModifiers && !_searchBar->isHidden()
+            && (key->key() == Qt::Key_F3
+                || (obj == _searchLine && (key->key() == Qt::Key_Return
+                                          || key->key() == Qt::Key_Enter)))) {
+            navigateSearch(modifiers == Qt::ShiftModifier);
+            return true;
+        }
+    }
     if (obj == _renderer && fileTransferActive()) {
         if (event->type() == QEvent::ContextMenu) {
             auto* context = static_cast<QContextMenuEvent*>(event);
@@ -857,17 +902,28 @@ bool TerminalView::eventFilter(QObject* obj, QEvent* event)
 
 void TerminalView::retranslateUi()
 {
-    // 搜索栏常驻显示，占位符需在语言切换后重新应用 tr() 结果；右键菜单每次
+    // 搜索栏控件复用，文本需在语言切换后重新应用 tr() 结果；右键菜单每次
     // 弹出时重建，其文本无需在此刷新。
     if (_searchLine)
         _searchLine->setPlaceholderText(tr("Find in scrollback"));
+    _searchPrevious->setText(tr("Previous"));
+    _searchPrevious->setToolTip(tr("Previous match (Shift+Enter / Shift+F3)"));
+    _searchNext->setText(tr("Next"));
+    _searchNext->setToolTip(tr("Next match (Enter / F3)"));
+    _searchClose->setText(tr("Close"));
+    _searchClose->setToolTip(tr("Close search (Esc)"));
+    _searchLine->setAccessibleName(tr("Find in scrollback"));
+    updateSearchStatus();
 }
 
 void TerminalView::showSearch()
 {
-    _searchLine->show();
+    const bool reopening = _searchBar->isHidden();
+    _searchBar->show();
     _searchLine->setFocus(Qt::ShortcutFocusReason);
     _searchLine->selectAll();
+    if (reopening)
+        startSearch();
 }
 
 void TerminalView::hideSearch()
@@ -875,8 +931,73 @@ void TerminalView::hideSearch()
     ++_searchGeneration;
     _core->cancelSearch(_searchGeneration);
     _renderer->clearSearchMatches();
-    _searchLine->hide();
+    _searchMatches.clear();
+    _currentSearchMatch = -1;
+    _searchCompleted = true;
+    _searchError.clear();
+    updateSearchStatus();
+    _searchBar->hide();
     _renderer->setFocus(Qt::ShortcutFocusReason);
+}
+
+void TerminalView::startSearch()
+{
+    ++_searchGeneration;
+    _renderer->clearSearchMatches();
+    _searchMatches.clear();
+    _currentSearchMatch = -1;
+    _searchError.clear();
+    const QString text = _searchLine->text();
+    _searchCompleted = text.isEmpty();
+    updateSearchStatus();
+    if (text.isEmpty()) {
+        _core->cancelSearch(_searchGeneration);
+        return;
+    }
+    NovaTerm::SearchRequest request;
+    request.query = text.toStdString();
+    request.generation = _searchGeneration;
+    request.resultBatchSize = 128;
+    request.maximumResults = 100'000;
+    _core->searchScrollback(std::move(request));
+}
+
+void TerminalView::navigateSearch(bool backwards)
+{
+    const qsizetype count = qsizetype(_searchMatches.size());
+    if (count == 0)
+        return;
+    const auto history = _core->scrollbackSnapshot();
+    qsizetype index = _currentSearchMatch;
+    for (qsizetype tried = 0; tried < count; ++tried) {
+        index = index < 0 ? (backwards ? count - 1 : 0)
+            : (index + (backwards ? count - 1 : 1)) % count;
+        if (_renderer->scrollToSearchMatch(_searchMatches[size_t(index)], history)) {
+            _currentSearchMatch = index;
+            _searchError.clear();
+            updateSearchStatus();
+            return;
+        }
+    }
+    // 快照中的命中已全部淘汰，重新查询当前历史而非跳转到错误位置。
+    startSearch();
+}
+
+void TerminalView::updateSearchStatus()
+{
+    const bool hasMatches = !_searchMatches.empty();
+    _searchPrevious->setEnabled(hasMatches);
+    _searchNext->setEnabled(hasMatches);
+    _searchStatus->setToolTip(_searchError);
+    if (!_searchError.isEmpty())
+        _searchStatus->setText(tr("Search failed"));
+    else if (hasMatches)
+        _searchStatus->setText(tr("%1 / %2%3").arg(_currentSearchMatch + 1)
+            .arg(qulonglong(_searchMatches.size())).arg(_searchCompleted ? QString() : QStringLiteral("…")));
+    else if (!_searchCompleted)
+        _searchStatus->setText(tr("Searching…"));
+    else
+        _searchStatus->setText(_searchLine->text().isEmpty() ? QString() : tr("No matches"));
 }
 
 void TerminalView::syncScrollBar(int maximumOffset, int offset)

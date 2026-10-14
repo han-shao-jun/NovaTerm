@@ -6,6 +6,7 @@
 
 #include <QCoreApplication>
 #include <QElapsedTimer>
+#include <QFontMetricsF>
 #include <QJsonArray>
 #include <QRegularExpression>
 #include <QSignalSpy>
@@ -13,6 +14,7 @@
 #include <QApplication>
 #include <QKeyEvent>
 #include <QTest>
+#include <QtMath>
 
 namespace {
 QTimer* cursorBlinkTimer(TerminalRenderer& renderer);
@@ -65,6 +67,14 @@ private slots:
     void selectAllIncludesHistoryAndVisibleScreen();
     void vtMouseTrackingClaimsLeftButtonGesture();
     void searchMatchesAppendByGeneration();
+    void searchJumpReachesWrappedCell();
+    void searchJumpCentersWithoutCrossingScrollBounds();
+    void searchJumpCentersWithoutCrossingScrollBounds_data();
+    void searchJumpUsesVisibleWidgetCenter();
+    void searchJumpReportsReflowFailureAndCanRetry();
+    void searchJumpReusesSnapshotWithoutPublishingTail();
+    void searchJumpWaitsForReflowAndRejectsEvictedLines();
+    void searchJumpReportsEvictedPendingTarget();
     void inputMethodCommitProducesUtf8();
     void fragmentedOutputDoesNotInflateScrollbackBytes();
     void spanAssemblyCoversBackgroundSlots();
@@ -1740,6 +1750,194 @@ void RendererP3Tests::searchMatchesAppendByGeneration()
     renderer.appendSearchMatches({{4, 0, 1}}, 11);
     QCOMPARE(renderer.searchMatchCount(), qsizetype(1));
     QCOMPARE(renderer.searchMatchedLineCount(), qsizetype(1));
+}
+
+void RendererP3Tests::searchJumpReachesWrappedCell()
+{
+    TerminalCore core(10, 3);
+    TerminalRenderer renderer(&core);
+    renderer.resize(640, qCeil(QFontMetricsF(renderer.font()).height() * 3));
+    // 第一条逻辑行占三个显示行；target 从第三个显示行的第 0 列开始。
+    QVERIFY(core.writeInput("01234567890123456789target\r\nA\r\nB\r\nC\r\nD\r\nE\r\n")
+                .fullyAccepted());
+    QVERIFY(core.waitForIdle(1000));
+    QTRY_COMPARE(renderer.historyDisplayRowCount(), qsizetype(6));
+    const auto history = core.scrollbackSnapshot();
+    const NovaTerm::SearchMatch match{history.firstLineId(), 20, 26};
+    renderer.appendSearchMatches({match}, 1);
+    QVERIFY(renderer.scrollToSearchMatch(match));
+    QCOMPARE(renderer.scrollOffset(), 5);
+
+    // 第一折行上方没有足够内容供居中，保留现有滚动位置。
+    QVERIFY(renderer.scrollToSearchMatch({match.lineId, 1, 3}));
+    QCOMPARE(renderer.scrollOffset(), 5);
+}
+
+void RendererP3Tests::searchJumpCentersWithoutCrossingScrollBounds_data()
+{
+    QTest::addColumn<int>("rows");
+    QTest::addColumn<int>("historyRows");
+    QTest::addColumn<int>("centerRow");
+    QTest::newRow("odd-viewport") << 5 << 8 << 2;
+    QTest::newRow("even-viewport") << 6 << 7 << 3;
+}
+
+void RendererP3Tests::searchJumpCentersWithoutCrossingScrollBounds()
+{
+    QFETCH(int, rows);
+    QFETCH(int, historyRows);
+    QFETCH(int, centerRow);
+    TerminalCore core(80, rows);
+    TerminalRenderer renderer(&core);
+    renderer.resize(640, qCeil(QFontMetricsF(renderer.font()).height() * rows));
+    QByteArray input;
+    for (int i = 0; i < 12; ++i)
+        input += "line\r\n";
+    QVERIFY(core.writeInput(input).fullyAccepted());
+    QVERIFY(core.waitForIdle(1000));
+    QTRY_COMPARE(renderer.historyDisplayRowCount(), qsizetype(historyRows));
+    const auto history = core.scrollbackSnapshot();
+
+    QVERIFY(renderer.scrollToSearchMatch({history.lineAt(4)->id, 0, 4}));
+    QCOMPARE(renderer.scrollOffset(), 6);
+
+    // 居中会越过历史顶部：不能借助 scrollToLine 的钳制强行滚到顶部。
+    renderer.scrollToLine(2);
+    QVERIFY(renderer.scrollToSearchMatch({history.firstLineId(), 0, 4}));
+    QCOMPARE(renderer.scrollOffset(), 2);
+
+    // 刚好可居中到最上方时允许移动。
+    QVERIFY(renderer.scrollToSearchMatch({history.lineAt(centerRow)->id, 0, 4}));
+    QCOMPARE(renderer.scrollOffset(), historyRows);
+
+    // 最新历史之后还有活动屏幕，可在正常量程内居中。
+    QVERIFY(renderer.scrollToSearchMatch({history.lineAt(historyRows - 1)->id, 0, 4}));
+    QCOMPARE(renderer.scrollOffset(), centerRow + 1);
+    renderer.scrollToBottom();
+    QVERIFY(renderer.scrollToSearchMatch({history.firstLineId(), 0, 4}));
+    QCOMPARE(renderer.scrollOffset(), 0);
+}
+
+void RendererP3Tests::searchJumpUsesVisibleWidgetCenter()
+{
+    TerminalCore core(80, 24);
+    TerminalRenderer renderer(&core);
+    const qreal cellHeight = QFontMetricsF(renderer.font()).height();
+    QByteArray input;
+    for (int i = 0; i < 100; ++i)
+        input += "line\r\n";
+    QVERIFY(core.writeInput(input).fullyAccepted());
+    QVERIFY(core.waitForIdle(1000));
+    QTRY_COMPARE(renderer.historyDisplayRowCount(), qsizetype(77));
+    const auto history = core.scrollbackSnapshot();
+    const NovaTerm::SearchMatch match{history.lineAt(40)->id, 0, 4};
+
+    // 可视高度可先于 Parser 的异步 resize 改变；不能按模型中的 24 行居中。
+    renderer.resize(640, qRound(cellHeight * 5.25));
+    QCOMPARE(core.rows(), 24);
+    QVERIFY(renderer.scrollToSearchMatch(match));
+    QCOMPARE(renderer.scrollOffset(), 39);
+    QCOMPARE(renderer.widgetToCell(QPoint(0, renderer.height() / 2)).y(), -37);
+
+    renderer.resize(640, qRound(cellHeight * 9.25));
+    QCOMPARE(core.rows(), 24);
+    QVERIFY(renderer.scrollToSearchMatch(match));
+    QCOMPARE(renderer.scrollOffset(), 41);
+    QCOMPARE(renderer.widgetToCell(QPoint(0, renderer.height() / 2)).y(), -37);
+    QCOMPARE(renderer.width(), 640); // 跳转只改变垂直滚动位置。
+}
+
+void RendererP3Tests::searchJumpWaitsForReflowAndRejectsEvictedLines()
+{
+    TerminalCore core(10, 3);
+    TerminalRenderer renderer(&core);
+    renderer.resize(640, qCeil(QFontMetricsF(renderer.font()).height() * 3));
+    QVERIFY(core.writeInput("01234567890123456789target\r\nA\r\nB\r\nC\r\nD\r\nE\r\n")
+                .fullyAccepted());
+    QVERIFY(core.waitForIdle(1000));
+    // 尚未处理 GUI 事件，历史布局为空；首批搜索结果也可能在此时到达。
+    QCOMPARE(renderer.historyDisplayRowCount(), qsizetype(0));
+    const NovaTerm::SearchMatch match{core.scrollbackSnapshot().firstLineId(), 20, 26};
+    QVERIFY(renderer.scrollToSearchMatch(match));
+    QTRY_COMPARE(renderer.historyDisplayRowCount(), qsizetype(6));
+    QTRY_COMPARE(renderer.scrollOffset(), 5);
+
+    QVERIFY(!renderer.scrollToSearchMatch({match.lineId, -1, 2}));
+    QCOMPARE(renderer.scrollOffset(), 5);
+    core.clearScrollback();
+    QVERIFY(core.waitForIdle(1000));
+    QTRY_COMPARE(renderer.maximumScrollOffset(), 0);
+    QVERIFY(!renderer.scrollToSearchMatch(match));
+    QCOMPARE(renderer.scrollOffset(), 0);
+}
+
+void RendererP3Tests::searchJumpReportsEvictedPendingTarget()
+{
+    TerminalCore core(10, 3);
+    TerminalRenderer renderer(&core);
+    QVERIFY(core.writeInput("target\r\nA\r\nB\r\nC\r\nD\r\nE\r\n").fullyAccepted());
+    QVERIFY(core.waitForIdle(1000));
+    const NovaTerm::SearchMatch target{core.scrollbackSnapshot().firstLineId(), 0, 6};
+    int unavailable = 0;
+    connect(&renderer, &TerminalRenderer::searchMatchUnavailable, this,
+            [&](const NovaTerm::SearchMatch& match) {
+        QCOMPARE(match.lineId, target.lineId);
+        ++unavailable;
+    });
+    QVERIFY(renderer.scrollToSearchMatch(target));
+    // GUI 还没有提交布局，先从 Parser 清掉跳转所依据的历史。
+    core.clearScrollback();
+    QVERIFY(core.waitForIdle(1000));
+    QTRY_COMPARE(unavailable, 1);
+    QCOMPARE(renderer.scrollOffset(), 0);
+}
+
+void RendererP3Tests::searchJumpReportsReflowFailureAndCanRetry()
+{
+    TerminalCore core(10, 3);
+    TerminalRenderer renderer(&core);
+    renderer.resize(640, qCeil(QFontMetricsF(renderer.font()).height() * 3));
+    QVERIFY(core.writeInput("01234567890123456789target\r\nA\r\nB\r\nC\r\nD\r\nE\r\n")
+                .fullyAccepted());
+    QVERIFY(core.waitForIdle(1000));
+    const NovaTerm::SearchMatch target{core.scrollbackSnapshot().firstLineId(), 20, 26};
+    QSignalSpy failures(&renderer, &TerminalRenderer::searchJumpFailed);
+    QVERIFY(renderer.scrollToSearchMatch(target));
+    QCOMPARE(renderer.renderStatistics().scrollbackReflowRequests, quint64(1));
+
+    NovaTerm::ReflowBatch failed;
+    failed.generation = 1;
+    failed.completed = true;
+    failed.error = "injected reflow failure";
+    core.reflowBatchReady(failed);
+    QCOMPARE(failures.size(), qsizetype(1));
+    QCOMPARE(failures.first().first().toString(), QStringLiteral("injected reflow failure"));
+
+    // 失败已终结上次请求；同列宽的下一次导航必须真正重新提交重排。
+    QVERIFY(renderer.scrollToSearchMatch(target));
+    QCOMPARE(renderer.renderStatistics().scrollbackReflowRequests, quint64(2));
+    QTRY_COMPARE(renderer.historyDisplayRowCount(), qsizetype(6));
+    QTRY_COMPARE(renderer.scrollOffset(), 5);
+}
+
+void RendererP3Tests::searchJumpReusesSnapshotWithoutPublishingTail()
+{
+    TerminalCore core(80, 3);
+    TerminalRenderer renderer(&core);
+    QVERIFY(core.writeInput("old\r\nA\r\nB\r\nC\r\n").fullyAccepted());
+    QVERIFY(core.waitForIdle(1000));
+    const auto history = core.scrollbackSnapshot();
+    QVERIFY(core.writeInput("new\r\n").fullyAccepted());
+    QVERIFY(core.waitForIdle(1000));
+    const auto before = core.scrollbackStatistics();
+    QVERIFY(before.activeLines > 0);
+
+    // 过期候选必须在同一份只读快照上被拒绝，不反复封存/复制当前历史。
+    for (int i = 0; i < 1000; ++i)
+        QVERIFY(!renderer.scrollToSearchMatch({0, 0, 1}, history));
+    const auto after = core.scrollbackStatistics();
+    QCOMPARE(after.activeLines, before.activeLines);
+    QCOMPARE(after.sealedChunks, before.sealedChunks);
 }
 
 void RendererP3Tests::inputMethodCommitProducesUtf8()

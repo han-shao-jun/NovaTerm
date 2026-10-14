@@ -3537,5 +3537,45 @@ Termination confirmed: %3
         <source>Serial File Transfer…</source>
         <translation>串口文件传输…</translation>
     </message>
+    <message>
+        <source>Previous</source>
+        <translation>上一处</translation>
+    </message>
+    <message>
+        <source>Previous match (Shift+Enter / Shift+F3)</source>
+        <translation>上一处匹配（Shift+Enter / Shift+F3）</translation>
+    </message>
+    <message>
+        <source>Next</source>
+        <translation>下一处</translation>
+    </message>
+    <message>
+        <source>Next match (Enter / F3)</source>
+        <translation>下一处匹配（Enter / F3）</translation>
+    </message>
+    <message>
+        <source>Close</source>
+        <translation>关闭</translation>
+    </message>
+    <message>
+        <source>Close search (Esc)</source>
+        <translation>关闭搜索（Esc）</translation>
+    </message>
+    <message>
+        <source>Search failed</source>
+        <translation>搜索失败</translation>
+    </message>
+    <message>
+        <source>%1 / %2%3</source>
+        <translation>%1 / %2%3</translation>
+    </message>
+    <message>
+        <source>Searching…</source>
+        <translation>正在搜索…</translation>
+    </message>
+    <message>
+        <source>No matches</source>
+        <translation>未找到匹配项</translation>
+    </message>
 </context>
 </TS>

@@ -272,11 +272,24 @@ TerminalRenderer::TerminalRenderer(TerminalCore* core, QWidget* parent)
         }
         if (!batch.completed)
             return;
+        _reflowInFlight = false;
         _historyLayout = std::move(_pendingHistoryLayout);
         _layoutColumns = _pendingLayoutColumns;
         if (_selectAllPending && _layoutColumns == _core->columns())
             selectAll();
         restoreScrollFromAnchor();
+        if (_pendingSearchJump && !batch.error.empty()) {
+            _pendingSearchJump.reset();
+            _activeSearchMatch.reset();
+            emit searchJumpFailed(QString::fromStdString(batch.error));
+        } else if (_pendingSearchJump && _layoutColumns == _core->columns()) {
+            const auto match = *_pendingSearchJump;
+            _pendingSearchJump.reset();
+            if (!scrollToSearchMatch(match)) {
+                _activeSearchMatch.reset();
+                emit searchMatchUnavailable(match);
+            }
+        }
         publishScrollState();
         const bool selectionChanged = dropInvalidSelection();
         // 重排期间列宽可能又变了（例如仍在拖动窗口）。显式续排，避免在没有
@@ -562,6 +575,62 @@ void TerminalRenderer::scrollToLine(int line)
 void TerminalRenderer::scrollLines(int delta)
 {
     scrollToLine(_scrollLine + delta);
+}
+
+bool TerminalRenderer::scrollToSearchMatch(const NovaTerm::SearchMatch& match)
+{
+    return scrollToSearchMatch(match, _core->scrollbackSnapshot());
+}
+
+bool TerminalRenderer::scrollToSearchMatch(
+    const NovaTerm::SearchMatch& match, const NovaTerm::ScrollbackSnapshot& history)
+{
+    const auto row = history.rowForLineId(match.lineId);
+    const auto* logical = history.lineAt(row);
+    if (!logical || match.startCell < 0 || match.endCell <= match.startCell
+        || match.startCell >= NovaTerm::isize(logical->cells.size())) {
+        return false;
+    }
+    // 不在 GUI 线程重折整段历史；等 worker 的布局提交后再精确定位。
+    if (_historyLayout.isEmpty() || _layoutColumns != _core->columns()) {
+        _activeSearchMatch = match;
+        _pendingSearchJump = match;
+        if (!_reflowInFlight || _pendingLayoutColumns != _core->columns())
+            scheduleReflow();
+        return true;
+    }
+    qsizetype first = 0;
+    qsizetype last = _historyLayout.size();
+    while (first < last) {
+        const qsizetype middle = first + (last - first) / 2;
+        const auto& display = _historyLayout[middle];
+        if (display.lineId < match.lineId
+            || (display.lineId == match.lineId && display.endCell <= match.startCell))
+            first = middle + 1;
+        else
+            last = middle;
+    }
+    if (first == _historyLayout.size() || _historyLayout[first].lineId != match.lineId
+        || _historyLayout[first].startCell > match.startCell) {
+        if (!_historyLayoutDirty && _historyLayout.constLast().lineId >= match.lineId)
+            return false; // 例如超长行被布局上限截断，不反复请求重排。
+        // 尾部布局可能尚未包含本轮刚输出的内容。
+        _activeSearchMatch = match;
+        _pendingSearchJump = match;
+        scheduleReflow();
+        return true;
+    }
+    _pendingSearchJump.reset();
+    _activeSearchMatch = match;
+    // 按渲染控件的实际可视高度居中；Parser 的异步 resize 可能尚未更新 rows。
+    // 越界时保持当前位置，避免钳制后
+    // 把靠近边缘的命中强行移到顶部/底部，或引入内容以外的空白。
+    const qsizetype centerRow = qFloor(height() / (2.0 * std::max<qreal>(1.0, _cellHeight)));
+    const qsizetype targetOffset = _historyLayout.size() - first + centerRow;
+    if (targetOffset >= 0 && targetOffset <= maximumScrollOffset())
+        scrollToLine(int(targetOffset));
+    requestOverlayFrame();
+    return true;
 }
 
 void TerminalRenderer::publishScrollState()
@@ -1292,9 +1361,16 @@ void TerminalRenderer::updateHistoryLayout()
         _reflowDebounce->stop();
         _core->cancelScrollbackReflow(_reflowGeneration);
         ++_reflowGeneration;
+        _reflowInFlight = false;
         _pendingHistoryLayout.clear();
         _historyLayout.clear();
         _layoutColumns = columns;
+        if (_pendingSearchJump) {
+            const auto match = *_pendingSearchJump;
+            _pendingSearchJump.reset();
+            _activeSearchMatch.reset();
+            emit searchMatchUnavailable(match);
+        }
         if (_selectAllPending)
             selectAll();
         return;
@@ -1319,6 +1395,12 @@ void TerminalRenderer::updateHistoryLayout()
     if (tail.lineCount == 0) {  // 历史在增量间隙被清空（clearScrollback）
         _historyLayout.clear();
         _layoutColumns = columns;
+        if (_pendingSearchJump) {
+            const auto match = *_pendingSearchJump;
+            _pendingSearchJump.reset();
+            _activeSearchMatch.reset();
+            emit searchMatchUnavailable(match);
+        }
         return;
     }
     if (tail.resync) {  // sinceId 被头部淘汰或落后过远：交给全量重排
@@ -1409,6 +1491,7 @@ void TerminalRenderer::scheduleReflow()
     _pendingHistoryLayout.clear();
     _layoutColumns = 0;
     _pendingLayoutColumns = _core->columns();
+    _reflowInFlight = true;
     _core->requestScrollbackReflow(_pendingLayoutColumns, _reflowGeneration,
                                    256);
     // 布局清空后量程回退到逻辑行数，外部滚动条需要同步这一过渡值。
@@ -2395,6 +2478,8 @@ void TerminalRenderer::setSearchMatches(
         return;
     _searchMatchesByLine.clear();
     _searchGeneration = generation;
+    _activeSearchMatch.reset();
+    _pendingSearchJump.reset();
     for (NovaTerm::SearchMatch& match : matches)
         _searchMatchesByLine[match.lineId].push_back(std::move(match));
     requestOverlayFrame();
@@ -2408,6 +2493,8 @@ void TerminalRenderer::appendSearchMatches(
     if (generation > _searchGeneration) {
         _searchMatchesByLine.clear();
         _searchGeneration = generation;
+        _activeSearchMatch.reset();
+        _pendingSearchJump.reset();
     }
     for (NovaTerm::SearchMatch& match : matches)
         _searchMatchesByLine[match.lineId].push_back(std::move(match));
@@ -2417,6 +2504,8 @@ void TerminalRenderer::appendSearchMatches(
 void TerminalRenderer::clearSearchMatches()
 {
     _searchMatchesByLine.clear();
+    _activeSearchMatch.reset();
+    _pendingSearchJump.reset();
     requestOverlayFrame();
 }
 
@@ -2436,6 +2525,13 @@ void TerminalRenderer::appendSearchCommands(
     if (_searchMatchesByLine.isEmpty() || _scrollLine <= 0)
         return;
     const QColor color(255, 196, 0, 105);
+    const auto matchColor = [this, color](const NovaTerm::SearchMatch& match) {
+        const bool active = _activeSearchMatch
+            && match.lineId == _activeSearchMatch->lineId
+            && match.startCell == _activeSearchMatch->startCell
+            && match.endCell == _activeSearchMatch->endCell;
+        return active ? QColor(255, 140, 0, 170) : color;
+    };
     if (!_historyLayout.isEmpty() && _scrollLine > 0) {
         const qsizetype first = std::max<qsizetype>(
             0, _historyLayout.size() - _scrollLine);
@@ -2459,7 +2555,7 @@ void TerminalRenderer::appendSearchCommands(
                 commands.push_back(makeSolidCommand(
                     NovaTerm::RenderCommandType::SearchOverlay,
                     QRectF(start * _cellWidth, widgetRow * _cellHeight,
-                           (end - start) * _cellWidth, _cellHeight), color));
+                           (end - start) * _cellWidth, _cellHeight), matchColor(match)));
             }
         }
         return;
@@ -2486,7 +2582,7 @@ void TerminalRenderer::appendSearchCommands(
             commands.push_back(makeSolidCommand(
                 NovaTerm::RenderCommandType::SearchOverlay,
                 QRectF(start * _cellWidth, widgetRow * _cellHeight,
-                       (end - start) * _cellWidth, _cellHeight), color));
+                       (end - start) * _cellWidth, _cellHeight), matchColor(match)));
         }
     }
 }
