@@ -1,10 +1,10 @@
 #include "ConfigManager.h"
 #include "TerminalSchemeStore.h"
-#include <QCoreApplication>
 #include <QDir>
 #include <QFile>
 #include <QJsonArray>
 #include <QJsonDocument>
+#include <QStandardPaths>
 #include <QDebug>
 #include <QSaveFile>
 
@@ -14,6 +14,20 @@ namespace {
 
 constexpr qint64 MaximumConfigFileSize = 1024 * 1024;
 constexpr qsizetype MaximumDockStateTextSize = 256 * 1024;
+constexpr auto ConfigFileName = "novaterm.json";
+
+// 用户级配置路径。创建失败仍保留目标路径，让 save() 正确报告写入失败。
+QString userConfigFilePath()
+{
+    QString base = QStandardPaths::writableLocation(
+        QStandardPaths::GenericConfigLocation);
+    if (base.isEmpty())
+        base = QDir::homePath() + QStringLiteral("/.config");
+    QDir directory(QDir(base).filePath(QStringLiteral("NovaTerm")));
+    if (!directory.mkpath(QStringLiteral(".")))
+        qWarning() << "无法创建用户配置目录：" << directory.path();
+    return directory.filePath(QString::fromUtf8(ConfigFileName));
+}
 
 bool validateKnownValueTypes(const QJsonObject& schema,
                              QJsonObject& target)
@@ -274,9 +288,8 @@ void ConfigManager::load(const QString& filePath)
         return;
     _loaded = true;
 
-    // 配置文件位于可执行文件同目录
-    _filePath = filePath.isEmpty()
-        ? QCoreApplication::applicationDirPath() + "/novaterm.json" : filePath;
+    // 用户目录独立初始化，不读取或迁移程序目录中的旧配置。
+    _filePath = filePath.isEmpty() ? userConfigFilePath() : filePath;
 
     QFile file(_filePath);
     if (file.open(QIODevice::ReadOnly)) {

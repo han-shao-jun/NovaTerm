@@ -85,6 +85,24 @@ cmake --build build-vs --config Release
 不适合作为通用构建入口，也不执行首次 CMake 配置或 OpenSSL 预编译。
 第三方源码均随仓库保存，无需 vcpkg、conan 或 FetchContent。
 
+### 配置文件与 Linux 安装包
+
+全局设置默认保存在用户配置目录的 `NovaTerm/novaterm.json` 中。Linux 通常为
+`~/.config/NovaTerm/novaterm.json`，也遵循 `XDG_CONFIG_HOME`；Windows 为
+`%LOCALAPPDATA%\NovaTerm\novaterm.json`，macOS 为
+`~/Library/Preferences/NovaTerm/novaterm.json`。
+新目录中没有配置时，从默认设置开始，不读取或迁移可执行文件旁的旧
+`novaterm.json`，也不修改旧文件。后续启动直接读取用户目录中的配置。
+会话历史、凭据等仍由各自的存储服务管理。
+
+Linux 的 DEB/ZIP 包会包含 Qt 安装中的 `platforminputcontexts` 与
+`platformthemes` 插件，分别用于输入法接入和桌面主题集成；输入法服务仍由
+系统提供。构建后可运行以下命令生成两种包，配置时缺失插件目录会给出警告：
+
+```bash
+cpack --config build/CPackConfig.cmake -G 'DEB;ZIP' -B build/packages
+```
+
 ## 项目架构
 
 项目采用分层架构设计，权威说明见 [统一架构总览](docs/ARCHITECTURE.md)。

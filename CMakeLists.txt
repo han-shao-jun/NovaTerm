@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(NovaTerm VERSION 0.2.68 LANGUAGES CXX C)
+project(NovaTerm VERSION 0.2.69 LANGUAGES CXX C)
 
 # ═══════════════════════════════════════════════════════════════════
 #  1. 通用平台编译参数
@@ -730,6 +730,34 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     ")
 else()
     install(SCRIPT ${_novaterm_deploy_script})
+endif()
+
+# ── Qt 运行时按需加载、部署 API 收集不到的插件 ─────────────────────
+# Qt 的 CMake 部署 API 只搬运能从模块依赖图收集到 imported target 的插件
+# （见构建目录下的 .qt/NovaTerm-plugins.cmake）。输入平台与平台主题插件不在
+# 其中：fcitx5 插件在本项目的 Qt 安装里没有 imported target，ibus/compose
+# 插件虽有 target 也未被收集。结果是安装包缺少 platforminputcontexts，
+# 用户设了 QT_IM_MODULE=fcitx 也无法输入中文；platformthemes 缺失还会让
+# 原生控件不跟随 GTK 主题。开发环境从 Qt 安装前缀解析插件，所以看不出来。
+# 这里按目录显式安装，缺失时只告警不报错。
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    # Qt 安装目录变量可能相对于 QT6_INSTALL_PREFIX，不能直接按绝对路径使用。
+    get_filename_component(_novaterm_qt_pluginsdir "${QT6_INSTALL_PLUGINS}"
+        ABSOLUTE BASE_DIR "${QT6_INSTALL_PREFIX}")
+    foreach(_plugin_kind platforminputcontexts platformthemes)
+        if(IS_DIRECTORY "${_novaterm_qt_pluginsdir}/${_plugin_kind}")
+            install(
+                DIRECTORY "${_novaterm_qt_pluginsdir}/${_plugin_kind}/"
+                DESTINATION "${_novaterm_linux_pluginsdir}/${_plugin_kind}"
+                FILES_MATCHING
+                    PATTERN "*.so"
+            )
+        else()
+            message(WARNING
+                "Qt 插件目录缺失：${_novaterm_qt_pluginsdir}/${_plugin_kind} —— "
+                "安装包将无法使用该类插件")
+        endif()
+    endforeach()
 endif()
 
 # 便携式 Windows ZIP 使用 App-local MSVC Runtime。Qt 的

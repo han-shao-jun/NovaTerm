@@ -1,5 +1,27 @@
 # 配置、Profile、Session 与主题架构
 
+## 全局配置的当前存储行为（2026-10-14）
+
+`ConfigManager` 默认将设置写入 `QStandardPaths::GenericConfigLocation` 下的
+`NovaTerm/novaterm.json`，不依赖程序目录可写。Linux 遵循 `XDG_CONFIG_HOME`，
+未设置时通常为 `~/.config/NovaTerm/novaterm.json`；Windows 通常位于
+`%LOCALAPPDATA%\NovaTerm`，macOS 通常位于 `~/Library/Preferences/NovaTerm`。
+
+用户目录独立存储全局设置，不读取或迁移程序目录中的旧文件。新目录无配置时
+使用默认值，再通过 `QSaveFile` 原子保存；后续读取该目录已有配置，并沿用
+大小限制、字段校验和默认值补齐。旧文件保持原样。新目录无法创建时仍保留
+写入目标并报告保存失败；`setValues()` 保存失败仍回滚且不发布变更。
+显式 `load(path)` 保留指定文件语义，不访问默认位置的配置。
+
+Linux 路径回归复用 `novaterm_ui_dialog_layout_tests`，通过临时程序目录、
+`XDG_CONFIG_HOME` 和独立子进程覆盖创建、忽略旧配置、已有配置读取、失败回滚
+与显式路径；也可传 `--config-location-only` 单独运行，不读写真实用户配置。
+
+本轮 Linux 验证：Debug/Release 主程序构建、上述五场景与相关 UI CTest 通过；
+DEB/ZIP 均含 3 个输入法插件与 2 个平台主题插件，提取后的五个插件可加载且
+使用包内 Qt 库。桌面探测受当前环境无法连接 X 显示器 `:0` 限制，真实中文
+输入以及 Windows/macOS 的配置目录行为仍待实机验证。
+
 > **本文描述目标设计，图中部分组件名与当前源码不一致。** 名称对照与落地情况：
 >
 > | 本文中的名称 | 当前实现 |

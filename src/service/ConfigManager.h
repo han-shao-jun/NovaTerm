@@ -4,7 +4,9 @@
 #include <QVariant>
 #include <QString>
 
-// 持久化 JSON 配置（单例）。读写可执行文件同目录下的 novaterm.json。
+// 持久化 JSON 配置（单例）。默认读写用户配置目录下的 novaterm.json
+// （Linux ~/.config/NovaTerm、Windows %LOCALAPPDATA%\NovaTerm），
+// 不读取或迁移可执行文件旁的旧配置；新目录无配置时使用默认值。
 // 通过点分隔的键路径（如 "ui.language"）公开嵌套键，并提供带默认值回退的
 // 类型化 getter。
 //
@@ -20,7 +22,7 @@ public:
     static ConfigManager& instance();
 
     // 从磁盘读取，用内置默认值填充缺失键，回写保存。
-    // 可显式指定文件，用于隔离配置或测试；默认位于可执行文件旁。
+    // 可显式指定文件，用于隔离配置或测试；默认位于用户配置目录。
     void load(const QString& filePath = {});
 
     // 将当前状态写入磁盘。

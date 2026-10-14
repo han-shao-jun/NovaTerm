@@ -52,6 +52,11 @@ Qt 前缀**硬编码**在 `CMakeLists.txt:53-62`，按 `CMAKE_HOST_SYSTEM_NAME` 
 - Linux `/home/super/Qt/6.8.3/gcc_64/`
 - macOS `/opt/Qt/6.8.3/macos`
 
+Qt 的 `QT6_INSTALL_PLUGINS` 可能只是相对路径 `plugins`。部署额外插件时先
+以 `QT6_INSTALL_PREFIX` 为基准转成绝对路径；否则配置成功但安装包没有插件。
+Linux 包内容应包含 `platforminputcontexts/*.so` 和 `platformthemes/*.so`，
+仅构建成功不算部署验证，须检查 DEB/ZIP 产物。
+
 Windows 首次构建前需先跑 `scripts/build-OpenSSL-thirdparty.bat` 预编译
 OpenSSL（需 PATH 有 `perl.exe` 与 `nasm.exe`）。产物在
 `third_party/openssl-3.5.7/install/`，已 gitignore。libssh / libvterm /

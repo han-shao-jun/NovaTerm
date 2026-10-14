@@ -63,6 +63,103 @@
 
 namespace {
 
+#if defined(Q_OS_LINUX)
+// 每个子进程在临时程序目录与 XDG 目录内运行，不触碰真实用户配置。
+int configLocationStep(const QString& scenario, const QString& base)
+{
+    auto& manager = ConfigManager::instance();
+    const bool explicitPath = scenario == QStringLiteral("explicit");
+    const QString target = explicitPath
+        ? base + QStringLiteral("/explicit.json")
+        : base + QStringLiteral("/config/NovaTerm/novaterm.json");
+    manager.load(explicitPath ? target : QString{});
+    const QString expected = scenario == QStringLiteral("existing") || explicitPath
+        ? QStringLiteral("user") : QString{};
+    if (ConfigManager::get<QString>(QStringLiteral("locationMarker")) != expected)
+        return 1;
+    const auto previous = manager.root();
+    int notifications = 0;
+    QObject::connect(&manager, &ConfigManager::configChanged, &manager,
+        [&notifications] { ++notifications; });
+    const bool saved = ConfigManager::setValues({
+        {QStringLiteral("locationMarker"), QStringLiteral("saved")}});
+    if (scenario == QStringLiteral("blocked")) {
+        return !saved && manager.root() == previous && notifications == 0 ? 0 : 2;
+    }
+    QFile stored(target);
+    if (!saved || !stored.open(QIODevice::ReadOnly))
+        return 3;
+    const auto document = QJsonDocument::fromJson(stored.readAll());
+    if (!document.isObject())
+        return 4;
+    return document.object()
+        .value(QStringLiteral("locationMarker")) == QStringLiteral("saved") ? 0 : 4;
+}
+
+int verifyConfigLocations()
+{
+    const QStringList scenarios{QStringLiteral("fresh"), QStringLiteral("ignore-legacy"),
+        QStringLiteral("existing"), QStringLiteral("blocked"), QStringLiteral("explicit")};
+    for (const auto& scenario : scenarios) {
+        QTemporaryDir directory;
+        if (!directory.isValid())
+            return 1;
+        const QString base = directory.path();
+        const QString program = base + QStringLiteral("/config-location-check");
+        if (!QFile::copy(QCoreApplication::applicationFilePath(), program))
+            return 1;
+        const QByteArray legacyData = QByteArrayLiteral("{\"locationMarker\":\"legacy\"}");
+        const QString legacyPath = base + QStringLiteral("/novaterm.json");
+        if (scenario != QStringLiteral("fresh")) {
+            QFile legacy(legacyPath);
+            if (!legacy.open(QIODevice::WriteOnly) || legacy.write(legacyData) != legacyData.size())
+                return 1;
+        }
+        if (scenario == QStringLiteral("blocked")) {
+            // 用普通文件挡住目录创建，避免依赖权限或当前用户是否为 root。
+            QFile blocker(base + QStringLiteral("/config"));
+            if (!blocker.open(QIODevice::WriteOnly))
+                return 1;
+        } else if (scenario == QStringLiteral("existing") || scenario == QStringLiteral("explicit")) {
+            const QString target = scenario == QStringLiteral("explicit")
+                ? base + QStringLiteral("/explicit.json")
+                : base + QStringLiteral("/config/NovaTerm/novaterm.json");
+            if (!QDir().mkpath(base + QStringLiteral("/config/NovaTerm")))
+                return 1;
+            QFile user(target);
+            const QByteArray data = QByteArrayLiteral("{\"locationMarker\":\"user\"}");
+            if (!user.open(QIODevice::WriteOnly) || user.write(data) != data.size())
+                return 1;
+        }
+        QProcess child;
+        auto environment = QProcessEnvironment::systemEnvironment();
+        environment.insert(QStringLiteral("XDG_CONFIG_HOME"), base + QStringLiteral("/config"));
+        child.setProcessEnvironment(environment);
+        child.setProcessChannelMode(QProcess::MergedChannels);
+        child.start(program, {QStringLiteral("--config-location-step"), scenario, base});
+        if (!child.waitForFinished(5000) || child.exitStatus() != QProcess::NormalExit
+            || child.exitCode() != 0) {
+            child.kill();
+            child.waitForFinished(1000);
+            std::fprintf(stderr, "FAIL: config location %s, code %d: %s\n",
+                qPrintable(scenario), child.exitCode(), child.readAll().constData());
+            return 1;
+        }
+        if (scenario != QStringLiteral("fresh")) {
+            QFile legacy(legacyPath);
+            if (!legacy.open(QIODevice::ReadOnly) || legacy.readAll() != legacyData)
+                return 1;
+        } else if (QFile::exists(legacyPath)) {
+            return 1;
+        }
+        if (scenario == QStringLiteral("explicit")
+            && QFile::exists(base + QStringLiteral("/config/NovaTerm/novaterm.json")))
+            return 1;
+    }
+    return 0;
+}
+#endif
+
 int schemePersistenceStep(const QString& path, int phase)
 {
     if (phase == 5) {
@@ -530,6 +627,12 @@ static int verifyTerminalScrollBarWithParentStyleSheet()
 int main(int argc, char** argv)
 {
     QApplication app(argc, argv);
+#if defined(Q_OS_LINUX)
+    if (app.arguments().size() == 4 && app.arguments().at(1) == QStringLiteral("--config-location-step"))
+        return configLocationStep(app.arguments().at(2), app.arguments().at(3));
+    if (app.arguments().contains(QStringLiteral("--config-location-only")))
+        return verifyConfigLocations();
+#endif
     if (app.arguments().contains(QStringLiteral("--terminal-scrollbar-only")))
         return verifyTerminalScrollBarWithParentStyleSheet();
     if (app.arguments().size() == 4 && app.arguments().at(1) == QStringLiteral("--scheme-persistence-step"))
@@ -544,6 +647,9 @@ int main(int argc, char** argv)
         return verifyTerminalSchemeSettings();
     }
     int failures = verifyTerminalTabConnectionAction();
+#if defined(Q_OS_LINUX)
+    failures += verifyConfigLocations();
+#endif
     failures += verifyTerminalScrollBarWithParentStyleSheet();
     failures += verifySchemePersistenceAcrossProcesses();
     failures += verifyTerminalSchemeSettings();
