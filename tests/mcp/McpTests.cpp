@@ -20,6 +20,7 @@
 #include "ElaCheckBox.h"
 #include "ElaTreeWidget.h"
 #include <QApplication>
+#include <QClipboard>
 #include <QFontDatabase>
 #include <QCryptographicHash>
 #include <QCoreApplication>
@@ -46,6 +47,14 @@
 #include <algorithm>
 #include <chrono>
 #include <tuple>
+
+#ifdef Q_OS_WIN
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#include <aclapi.h>
+#endif
 
 using namespace NovaTerm::Mcp;
 class SshTransportTestAccess
@@ -477,6 +486,10 @@ private slots:
     void settingsDialogRefreshPreservesExpandedSessions();
     void accessStoreReportsDistinctSaveFailureReasons();
     void stateDirectoryOwnedByTokenDefaultOwnerIsSecurable();
+    void administratorOwnedObjectsMigrateToCurrentUser_data();
+    void administratorOwnedObjectsMigrateToCurrentUser();
+    void unrelatedGroupOwnedDirectoryIsRejected();
+    void settingsDialogCopiesCcSwitchConfiguration();
     void duplicateIndexSurvivesEvictionAndReset();
     void protocolLifecycleAndOversizedInput();
     void instanceSelectionAndDisconnectStayExplicit();
@@ -1996,6 +2009,34 @@ void McpTests::ccSwitchConfigurationIsSingleServerObject()
         .toObject().contains(QStringLiteral("novaterm")));
 }
 
+void McpTests::settingsDialogCopiesCcSwitchConfiguration()
+{
+    eApp->init();
+    Fixture f;
+    QVERIFY(f.enable());
+    QTRY_COMPARE(f.service.status(), QStringLiteral("Listening"));
+    QWidget owner;
+    QPointer<McpSettingsDialog> dialog = new McpSettingsDialog(&f.service, &owner);
+    const auto closeDialog = qScopeGuard([&] { if (dialog) delete dialog.data(); });
+    const auto buttons = dialog->findChildren<QPushButton*>();
+    const auto button = std::find_if(buttons.cbegin(), buttons.cend(), [](QPushButton* candidate) {
+        return candidate->text() == QStringLiteral("Copy for CC Switch");
+    });
+    QVERIFY(button != buttons.cend());
+    auto* clipboard = QApplication::clipboard();
+    const auto previousText = clipboard->text();
+    const auto restoreClipboard = qScopeGuard([&] { clipboard->setText(previousText); });
+    clipboard->setText(QStringLiteral("not a configuration"));
+    (*button)->click();
+    const auto configuration = QJsonDocument::fromJson(clipboard->text().toUtf8()).object();
+    QCOMPARE(configuration.value("type").toString(), QStringLiteral("http"));
+    QCOMPARE(configuration.value("url").toString(), f.service.httpEndpoint());
+    QCOMPARE(configuration.value("headers").toObject().value("Authorization").toString(),
+        QStringLiteral("Bearer ") + QString::fromLatin1(f.token()));
+    QVERIFY(!configuration.contains("mcpServers"));
+    QVERIFY(!configuration.contains("novaterm"));
+}
+
 void McpTests::tokenSigningAndAuthentication()
 {
     const auto secret = randomBytes();
@@ -2698,6 +2739,113 @@ void McpTests::stateDirectoryOwnedByTokenDefaultOwnerIsSecurable()
     QVERIFY(QFile::exists(QDir(directory).filePath("access.json")));
     QVERIFY(store.setEnabled(false));
     QVERIFY(!store.enabled());
+}
+
+void McpTests::administratorOwnedObjectsMigrateToCurrentUser_data()
+{
+    QTest::addColumn<bool>("directory");
+    QTest::newRow("endpoint-directory") << true;
+    QTest::newRow("private-file") << false;
+}
+
+void McpTests::administratorOwnedObjectsMigrateToCurrentUser()
+{
+#ifdef Q_OS_WIN
+    QFETCH(bool, directory);
+    QTemporaryDir root;
+    QVERIFY(root.isValid());
+    const auto path = root.filePath(directory ? "instances" : "access.json");
+    if (directory) {
+        QVERIFY(QDir().mkpath(path));
+    } else {
+        QFile file(path);
+        QVERIFY(file.open(QIODevice::WriteOnly));
+        QCOMPARE(file.write("fixture"), qint64(7));
+    }
+    BYTE adminSid[SECURITY_MAX_SID_SIZE];
+    DWORD adminSize = sizeof(adminSid);
+    QVERIFY(CreateWellKnownSid(WinBuiltinAdministratorsSid, nullptr, adminSid, &adminSize));
+    auto native = QDir::toNativeSeparators(path).toStdWString();
+    const auto setup = SetNamedSecurityInfoW(native.data(), SE_FILE_OBJECT,
+        OWNER_SECURITY_INFORMATION, adminSid, nullptr, nullptr, nullptr);
+    if (setup == ERROR_INVALID_OWNER || setup == ERROR_PRIVILEGE_NOT_HELD
+        || setup == ERROR_ACCESS_DENIED) {
+        QSKIP("Creating an Administrators-owned fixture requires an elevated test process.");
+    }
+    QCOMPARE(setup, DWORD(ERROR_SUCCESS));
+    QVERIFY(directory ? secureDirectory(path) : secureFile(path));
+
+    HANDLE token = nullptr;
+    QVERIFY(OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &token));
+    const auto closeToken = qScopeGuard([&] { CloseHandle(token); });
+    DWORD tokenSize = 0;
+    GetTokenInformation(token, TokenUser, nullptr, 0, &tokenSize);
+    QByteArray userStorage(qsizetype(tokenSize), Qt::Uninitialized);
+    QVERIFY(GetTokenInformation(token, TokenUser, userStorage.data(), tokenSize, &tokenSize));
+    const auto* user = reinterpret_cast<const TOKEN_USER*>(userStorage.constData());
+    PSID objectOwner = nullptr;
+    PACL dacl = nullptr;
+    PSECURITY_DESCRIPTOR descriptor = nullptr;
+    QCOMPARE(GetNamedSecurityInfoW(native.data(), SE_FILE_OBJECT,
+        OWNER_SECURITY_INFORMATION | DACL_SECURITY_INFORMATION,
+        &objectOwner, nullptr, &dacl, nullptr, &descriptor), DWORD(ERROR_SUCCESS));
+    const auto freeDescriptor = qScopeGuard([&] { LocalFree(descriptor); });
+    QVERIFY2(EqualSid(objectOwner, user->User.Sid),
+        "A legacy administrator-owned object must become owned by the current user.");
+    QVERIFY(dacl);
+    QCOMPARE(dacl->AceCount, WORD(1));
+    void* entry = nullptr;
+    QVERIFY(GetAce(dacl, 0, &entry));
+    const auto* ace = static_cast<const ACCESS_ALLOWED_ACE*>(entry);
+    QCOMPARE(ace->Header.AceType, BYTE(ACCESS_ALLOWED_ACE_TYPE));
+    QVERIFY(EqualSid(const_cast<DWORD*>(&ace->SidStart), user->User.Sid));
+    QCOMPARE(ace->Mask, DWORD(FILE_ALL_ACCESS));
+    SECURITY_DESCRIPTOR_CONTROL control = 0;
+    DWORD revision = 0;
+    QVERIFY(GetSecurityDescriptorControl(descriptor, &control, &revision));
+    QVERIFY(control & SE_DACL_PROTECTED);
+    // Repeated startup must still be securable after migration.
+    QVERIFY(directory ? secureDirectory(path) : secureFile(path));
+#else
+    QSKIP("Windows object ownership migration.");
+#endif
+}
+
+void McpTests::unrelatedGroupOwnedDirectoryIsRejected()
+{
+#ifdef Q_OS_WIN
+    QTemporaryDir root;
+    QVERIFY(root.isValid());
+    const auto path = root.filePath("foreign");
+    QVERIFY(QDir().mkpath(path));
+    HANDLE token = nullptr;
+    QVERIFY(OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY | TOKEN_ADJUST_PRIVILEGES, &token));
+    const auto closeToken = qScopeGuard([&] { CloseHandle(token); });
+    TOKEN_PRIVILEGES enable{}, previous{};
+    enable.PrivilegeCount = 1;
+    QVERIFY(LookupPrivilegeValueW(nullptr, SE_RESTORE_NAME, &enable.Privileges[0].Luid));
+    enable.Privileges[0].Attributes = SE_PRIVILEGE_ENABLED;
+    DWORD previousSize = sizeof(previous);
+    QVERIFY(AdjustTokenPrivileges(token, FALSE, &enable, sizeof(previous), &previous, &previousSize));
+    const auto restorePrivileges = qScopeGuard([&] {
+        AdjustTokenPrivileges(token, FALSE, &previous, 0, nullptr, nullptr);
+    });
+    if (GetLastError() == ERROR_NOT_ALL_ASSIGNED)
+        QSKIP("Creating a foreign group-owned fixture requires SeRestorePrivilege.");
+    // Everyone belongs to the token but is not a valid owner identity. Accepting
+    // every token group would silently take over this shared directory.
+    BYTE everyoneSid[SECURITY_MAX_SID_SIZE];
+    DWORD sidSize = sizeof(everyoneSid);
+    QVERIFY(CreateWellKnownSid(WinWorldSid, nullptr, everyoneSid, &sidSize));
+    auto native = QDir::toNativeSeparators(path).toStdWString();
+    QCOMPARE(SetNamedSecurityInfoW(native.data(), SE_FILE_OBJECT, OWNER_SECURITY_INFORMATION,
+        everyoneSid, nullptr, nullptr, nullptr), DWORD(ERROR_SUCCESS));
+    // The production call must not rely on privileges enabled only for setup.
+    QVERIFY(AdjustTokenPrivileges(token, FALSE, &previous, 0, nullptr, nullptr));
+    QVERIFY(!secureDirectory(path));
+#else
+    QSKIP("Windows object ownership validation.");
+#endif
 }
 
 namespace {

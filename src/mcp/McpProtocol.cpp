@@ -420,7 +420,9 @@ PSID sidPointer(const QByteArray& bytes)
  * 提权运行时进程创建的对象属主是令牌的默认属主（通常为 Administrators），而不是
  * TokenUser；Windows 用 TokenOwner 与组属性里的 SE_GROUP_OWNER 标记这些身份。
  * 同一份状态目录会在普通与提权两种形态下反复出现，因此属主判定必须覆盖整个集合，
- * 只比对 TokenUser 会让进程永远无法加固自己刚创建的目录。
+ * 只比对 TokenUser 会让进程永远无法加固自己刚创建的目录。UAC 过滤令牌里的
+ * Administrators 仅用于拒绝、不带 SE_GROUP_OWNER；专门允许迁移这种历史属主，
+ * 后续仍须由 Windows 校验 WRITE_OWNER / WRITE_DAC，不能据任意组成员身份接管对象。
  */
 QByteArray tokenOwnerIdentities(HANDLE token, QList<QByteArray>& identities)
 {
@@ -447,8 +449,11 @@ QByteArray tokenOwnerIdentities(HANDLE token, QList<QByteArray>& identities)
         remember(owner->Owner);
     if (const auto* groups = static_cast<const TOKEN_GROUPS*>(fetch(TokenGroups))) {
         for (DWORD index = 0; index < groups->GroupCount; ++index) {
-            if ((groups->Groups[index].Attributes & SE_GROUP_OWNER) != 0)
-                remember(groups->Groups[index].Sid);
+            const auto& group = groups->Groups[index];
+            if ((group.Attributes & SE_GROUP_OWNER) != 0
+                || IsWellKnownSid(group.Sid, WinBuiltinAdministratorsSid)) {
+                remember(group.Sid);
+            }
         }
     }
     return userBytes;
@@ -483,21 +488,26 @@ bool ownerOnly(const QString& path, bool directory)
             break;
         }
     }
+    const bool migrateOwner = owned && !EqualSid(owner, sidPointer(userBytes));
     LocalFree(existing);
     if (!owned)
         return false;
     LPWSTR sid = nullptr;
     if (!ConvertSidToStringSidW(sidPointer(userBytes), &sid))
         return false;
-    const QString sddl = QStringLiteral("D:P(A;%1;FA;;;%2)")
+    const QString sddl = QStringLiteral("O:%2D:P(A;%1;FA;;;%2)")
         .arg(directory ? QStringLiteral("OICI") : QString(), QString::fromWCharArray(sid));
     LocalFree(sid);
     PSECURITY_DESCRIPTOR descriptor = nullptr;
     if (!ConvertStringSecurityDescriptorToSecurityDescriptorW(
             reinterpret_cast<LPCWSTR>(sddl.utf16()), SDDL_REVISION_1, &descriptor, nullptr))
         return false;
-    const bool ok = SetFileSecurityW(native.c_str(), DACL_SECURITY_INFORMATION
-        | PROTECTED_DACL_SECURITY_INFORMATION, descriptor);
+    // 将旧的组属主规范化到实际用户，使下一次非提权启动也能加固同一对象。
+    // 自有对象不额外要求 WRITE_OWNER；迁移则必须同时有改属主及 DACL 的权限。
+    const SECURITY_INFORMATION information = DACL_SECURITY_INFORMATION
+        | PROTECTED_DACL_SECURITY_INFORMATION
+        | (migrateOwner ? OWNER_SECURITY_INFORMATION : 0);
+    const bool ok = SetFileSecurityW(native.c_str(), information, descriptor);
     LocalFree(descriptor);
     return ok;
 #else

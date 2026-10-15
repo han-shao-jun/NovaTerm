@@ -1521,6 +1521,13 @@ coalescedReadCount=27；snapshotAge P95 为 1.78～2.08 s。正常负载功能�
   DACL。提权运行创建的对象属主是 Administrators，只比对 TokenUser 会让
   `AccessStore::save()` 恒失败、`McpSettingsDialog` 的总开关表现为点不动。
   回归：`novaterm_mcp_tests::stateDirectoryOwnedByTokenDefaultOwnerIsSecurable`。
+- 2026-10-15 补齐提权/非提权切换：UAC 过滤令牌的 Administrators 组没有
+  `SE_GROUP_OWNER`，但历史端点目录可能仍以该组为属主，导致 HTTP 服务启动前报
+  `Cannot secure HTTP endpoint directory`，两种配置复制都返回空。现在仅对令牌中
+  的 Administrators 增加历史属主迁移，成功时用 Windows 的 `WRITE_OWNER` /
+  `WRITE_DAC` 检查把属主规范化为 TokenUser，并写入仅当前用户完全访问的受保护
+  DACL；其他非属主组仍拒绝。回归覆盖目录/文件迁移及 DACL、拒绝 Everyone 属主，
+  以及设置页按钮实际写入 CC Switch 单 server JSON。
 - 单实例导出配置默认自动发现，多实例导出固定当前 instanceId。旧 IPC 的执行票据
   不能在新连接重放；客户端断开后旧执行记录由本机 GUI 核对。
 - 工具支持的固定程序缺失时返回命令失败及退出码，不自动搜索 PATH 或回退解释器。
