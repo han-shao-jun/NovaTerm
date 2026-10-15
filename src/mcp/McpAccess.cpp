@@ -119,7 +119,8 @@ bool AccessStore::setEnabled(bool enabled)
         // 停用先在内存生效；磁盘写入失败也不能让用户无法撤销正在使用的权限。
         _enabled = false;
         _grants.clear();
-        for (auto& client : _clients) ++client.version;
+        for (auto it = _clients.begin(); it != _clients.end(); ++it)
+            ++it->version;
         const bool saved = save();
         emit revoked({}, {});
         emit changed();
@@ -228,6 +229,7 @@ bool AccessStore::setGrant(const QString& clientId, const SessionDirectory::Entr
 {
     if (!_clients.contains(clientId) || !entry.session || (read && !_enabled))
         return false;
+    const bool wasShared = canRead(clientId, entry);
     if (!read) {
         _grants[clientId].remove(entry.id);
     } else {
@@ -245,7 +247,6 @@ bool AccessStore::setGrant(const QString& clientId, const SessionDirectory::Entr
         // 之后的 Parser 线程上，与紧随其后的首个读之间仍有竞态（P8 §14.2 记录的
         // 剩余 Busy 集中在这一窗口）。因此只在会话确实在运行、且本次是首次授予
         // 读取时触发，避免只翻转执行类授权的改动白白占用发布请求与计数器。
-        const bool wasShared = canRead(clientId, entry);
         if (!wasShared && entry.state == SessionState::Running
             && NovaTerm::publishedContextSnapshotEnabled() && entry.session->core()) {
             static_cast<void>(entry.session->core()->requestPublishedTerminalState());

@@ -17,6 +17,7 @@ class ITransport;
 class TerminalCore;
 class TerminalRenderer;
 struct TerminalColorScheme;
+struct RuntimeConfig;
 class QTimer;
 class ElaLineEdit;
 class ElaScrollBar;
@@ -99,10 +100,12 @@ public:
      * @brief 附着传输并设置接收 LF 的解析兼容模式。
      * @param transport 待附着的传输，成功后由 Session 接管。
      * @param lfImpliesCr 串口按配置传入；其他传输保持默认 false。
+     * @param runtime 可选独立配置，本次调用内复制到 Session；不保留指针。
      * @return 成功附着返回 true；解析模式命令入队失败时返回 false，
      *         调用方仍拥有 transport。
      */
-    bool attachTransport(ITransport* transport, bool lfImpliesCr = false);
+    bool attachTransport(ITransport* transport, bool lfImpliesCr = false,
+                         const RuntimeConfig* runtime = nullptr);
     void detachTransport();                              ///< 分离传输层
     ITransport* transport() const;                        ///< 获取当前传输层
     TerminalSession* session() const;                     ///< 获取会话对象

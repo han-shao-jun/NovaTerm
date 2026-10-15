@@ -204,9 +204,21 @@ McpSettingsDialog::McpSettingsDialog(NovaTerm::Mcp::Service* service, QWidget* p
             false, root->checkState(4) == Qt::Checked);
     });
     connect(_records, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this] { if (!_refreshing) showRecord(); });
+    connect(_targets, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this] {
+        if (!_refreshing) _confirmedStopped->setChecked(false);
+    });
+    connect(_confirmedStopped, &QCheckBox::toggled, this, [this](bool checked) {
+        _confirmedFingerprint = checked ? _targets->currentData().toString() : QString{};
+        _confirmedExecutionId = checked
+            ? _targets->currentData(Qt::UserRole + 1).toString() : QString{};
+    });
     connect(acknowledge, &QPushButton::clicked, this, [this] {
         if (!_confirmedStopped->isChecked() || !_service) return;
-        const bool released = _service->acknowledgeTarget(_targets->currentData().toString());
+        const bool released = !_confirmedFingerprint.isEmpty()
+            && !_confirmedExecutionId.isEmpty()
+            && _confirmedFingerprint == _targets->currentData().toString()
+            && _confirmedExecutionId == _targets->currentData(Qt::UserRole + 1).toString()
+            && _service->acknowledgeTarget(_confirmedFingerprint, _confirmedExecutionId);
         _confirmedStopped->setChecked(false);
         if (!released) reportFailure();
     });
@@ -269,6 +281,7 @@ void McpSettingsDialog::refresh()
         auto* item = new QTreeWidgetItem(_sessions, {entry.title.isEmpty() ? entry.id : entry.title,
             SessionDirectory::stateName(entry.state), {}, {}, {}, {}});
         item->setData(0, Qt::UserRole, entry.id);
+        item->setToolTip(0, entry.title.isEmpty() ? entry.id : entry.title + '\n' + entry.id);
         if (expandedSessions.contains(entry.id)) item->setExpanded(true);
         item->setCheckState(2,
             _service->access().canRead(clientId, entry) ? Qt::Checked : Qt::Unchecked);
@@ -313,11 +326,22 @@ void McpSettingsDialog::refresh()
         _recordData.insert(id, record);
     }
     if (_records->findData(previousRecord) >= 0) _records->setCurrentIndex(_records->findData(previousRecord));
+    const auto previousTarget = _targets->currentData().toString();
+    const QSignalBlocker targetsBlocker(_targets);
     _targets->clear();
     const auto targets = _service->protectedTargets();
-    for (auto it = targets.begin(); it != targets.end(); ++it)
+    for (auto it = targets.begin(); it != targets.end(); ++it) {
+        const auto executionId = it.value().toObject().value("executionId").toString();
         _targets->addItem(tr("Protected target %1 — execution %2")
-            .arg(it.key().left(12), it.value().toObject().value("executionId").toString().left(8)), it.key());
+            .arg(it.key().left(12), executionId.left(8)), it.key());
+        _targets->setItemData(_targets->count() - 1, executionId, Qt::UserRole + 1);
+    }
+    const auto previousTargetIndex = _targets->findData(previousTarget);
+    if (previousTargetIndex >= 0) _targets->setCurrentIndex(previousTargetIndex);
+    if (_confirmedFingerprint != _targets->currentData().toString()
+        || _confirmedExecutionId != _targets->currentData(Qt::UserRole + 1).toString()) {
+        _confirmedStopped->setChecked(false);
+    }
     _refreshing = false;
     showRecord();
 }

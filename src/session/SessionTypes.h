@@ -10,6 +10,7 @@
 #pragma once
 
 #include <QMetaType>
+#include <QRegularExpression>
 #include <QMap>
 #include <QDateTime>
 #include <QSerialPort>
@@ -150,6 +151,9 @@ struct SerialConfig
     QString label;                                           ///< 显示标签
     int reconnectSeconds{0};                                 ///< 自动重连间隔整秒数，0 禁用
     bool lfImpliesCr{false};                                   ///< 收到 LF 时光标自动回到行首
+    QString interactivePromptPattern;                         ///< MCP 命令提示符正则，空值禁用
+    QString interactiveLineEnding{QStringLiteral("cr")};      ///< MCP 命令行结束符：cr/lf/crlf
+    bool interactiveRemoteEcho{true};                          ///< 设备是否回显命令输入
 
     /**
      * @brief 校验配置是否有效。
@@ -170,7 +174,13 @@ struct SerialConfig
             || flowControl == QSerialPort::HardwareControl
             || flowControl == QSerialPort::SoftwareControl;
         return !portName.trimmed().isEmpty() && baudRate > 0 && validDataBits
-            && validParity && validStopBits && validFlowControl && reconnectSeconds >= 0;
+            && validParity && validStopBits && validFlowControl && reconnectSeconds >= 0
+            && interactivePromptPattern.size() <= 256
+            && (interactivePromptPattern.isEmpty()
+                || QRegularExpression(interactivePromptPattern).isValid())
+            && (interactiveLineEnding == QStringLiteral("cr")
+                || interactiveLineEnding == QStringLiteral("lf")
+                || interactiveLineEnding == QStringLiteral("crlf"));
     }
 };
 

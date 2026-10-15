@@ -94,6 +94,9 @@ SessionFactory::create(const RuntimeConfig& runtime,
                          QSerialPort::NoFlowControl).toInt());
         config.reconnectSeconds = values.value(QStringLiteral("reconnectSeconds"), 0).toInt();
         config.lfImpliesCr = values.value(QStringLiteral("lfImpliesCr"), false).toBool();
+        config.interactivePromptPattern = values.value(QStringLiteral("interactivePromptPattern")).toString();
+        config.interactiveLineEnding = values.value(QStringLiteral("interactiveLineEnding"), QStringLiteral("cr")).toString();
+        config.interactiveRemoteEcho = values.value(QStringLiteral("interactiveRemoteEcho"), true).toBool();
         config.label = runtime.title;
         if (!config.isValid()) {
             if (error)
@@ -196,8 +199,14 @@ SessionFactory::createLocal(const LocalShellConfig& config, RuntimeConfig runtim
 std::unique_ptr<TerminalSession>
 SessionFactory::createSerial(const SerialConfig& config, RuntimeConfig runtime)
 {
+    if (!config.isValid())
+        return nullptr;
     runtime.transport.insert(QStringLiteral("reconnectSeconds"), config.reconnectSeconds);
     runtime.transport.insert(QStringLiteral("lfImpliesCr"), config.lfImpliesCr);
+    runtime.transport.insert(QStringLiteral("portName"), config.portName);
+    runtime.transport.insert(QStringLiteral("interactivePromptPattern"), config.interactivePromptPattern);
+    runtime.transport.insert(QStringLiteral("interactiveLineEnding"), config.interactiveLineEnding);
+    runtime.transport.insert(QStringLiteral("interactiveRemoteEcho"), config.interactiveRemoteEcho);
     auto session = makeSession<SerialTransport>(config, std::move(runtime),
                                                TransportKind::Serial);
     if (!session->core()->setLfImpliesCr(config.lfImpliesCr))

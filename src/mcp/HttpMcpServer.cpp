@@ -3,6 +3,7 @@
  * @brief Qt HttpServer 的本机 I/O 线程、有界请求与异步响应队列。
  */
 #include "HttpMcpServer.h"
+#include "McpProtocol.h"
 #include "core/ThreadNaming.h"
 #include <QAbstractHttpServer>
 #include <QElapsedTimer>
@@ -23,6 +24,7 @@
 #include <cstring>
 #include <deque>
 #include <mutex>
+#include <utility>
 
 namespace NovaTerm::Mcp
 {
@@ -30,14 +32,20 @@ namespace
 {
 constexpr const char *IoThreadName = "nvterm-mcp-http";
 constexpr qsizetype HeaderLimit = 16 * 1024;
-constexpr qsizetype BodyLimit = 2 * 1024 * 1024;
+constexpr qsizetype BodyLimit = MaxRequestBytes;
+constexpr qsizetype RawRequestLimit = BodyLimit + HeaderLimit;
+// HTTP 头转为 JSON 时最坏有六倍转义；同时覆盖 method/path 字段。
+constexpr qsizetype EnvelopeLimit = BodyLimit + 128 * 1024;
+// 单次最大请求可同时保留 guard、Qt transaction/body 与待投递 JSON 信封。
+// 原始交换与信封共享额度；32个请求与16个 socket 仍各有独立数量上限。
+constexpr qsizetype InputLimit = 4 * RawRequestLimit + 128 * 1024;
 constexpr qsizetype OutputLimit = 4 * 1024 * 1024;
-constexpr qsizetype GlobalLimit = 8 * 1024 * 1024;
+constexpr qsizetype GlobalOutputLimit = 8 * 1024 * 1024;
 constexpr qsizetype SocketBuffer = 16 * 1024;
 constexpr int SocketLimit = 16;
 constexpr int RequestLimit = 32;
 using Status = QHttpServerResponder::StatusCode;
-using PeerEndpoint = QPair<QHostAddress, quint16>;
+using PeerEndpoint = std::pair<QHostAddress, quint16>;
 
 bool token(const QByteArray &value)
 {
@@ -186,7 +194,7 @@ public:
     {
         _clock.start();
         _server->setMaxPendingConnections(SocketLimit);
-        _timer.setInterval(1000);
+        _timer.setInterval(std::chrono::milliseconds{1000});
         connect(&_timer, &QTimer::timeout, this, [this] {
             const auto peers = _peers.values();
             for (const auto &peer : peers) {
@@ -538,7 +546,7 @@ private:
                 std::lock_guard<std::mutex> lock(_queues->mutex);
                 // Qt 解析期间会同时保留 transaction、body 与原始 guard 缓冲。
                 // 按三份预留；解析提交后退还一份，再入队不可变 envelope。
-                overloaded = _queues->stopping || _queues->inputBytes + wanted * 3 > GlobalLimit;
+                overloaded = _queues->stopping || _queues->inputBytes + wanted * 3 > InputLimit;
                 if (!overloaded) {
                     _queues->inputBytes += wanted * 3;
                     peer->chargedRaw += wanted * 3;
@@ -561,7 +569,7 @@ private:
             }
             peer->rawBytes += qsizetype(count);
             peer->socket->raw.append(buffer, qsizetype(count));
-            if (peer->rawBytes > BodyLimit + HeaderLimit) {
+            if (peer->rawBytes > RawRequestLimit) {
                 reject(peer, 413);
                 return;
             }
@@ -737,7 +745,7 @@ private:
         {
             std::lock_guard<std::mutex> lock(_queues->mutex);
             admitted = !_queues->stopping && _queues->credits.size() < RequestLimit &&
-                       _queues->inputBytes + charge <= GlobalLimit;
+                       charge <= EnvelopeLimit && _queues->inputBytes + charge <= InputLimit;
             if (admitted) {
                 peer->id = QUuid::createUuid().toString(QUuid::WithoutBraces);
                 _queues->credits.insert(peer->id, {});
@@ -880,7 +888,7 @@ bool HttpMcpServer::respond(
         it->final || it->abort || (it->started && (it->sse != sse || !headers.isEmpty())))
         return false;
     const bool overflow = charge > OutputLimit - it->pending ||
-                          charge > GlobalLimit - queues->outputBytes ||
+                          charge > GlobalOutputLimit - queues->outputBytes ||
                           queues->outgoing.size() >= 64;
     if (overflow)
         it->abort = true;

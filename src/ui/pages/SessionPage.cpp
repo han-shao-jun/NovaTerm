@@ -97,6 +97,7 @@ SessionPage::SessionPage(QWidget* parent)
     btnLayout->addWidget(cancelBtn);
 
     auto* confirmBtn = new ElaPushButton(tr("Confirm"), _centralWidget);
+    confirmBtn->setObjectName(QStringLiteral("sessionConfirmButton"));
     btnLayout->addWidget(confirmBtn);
 
     centralLayout->addLayout(btnLayout);
@@ -126,6 +127,16 @@ SessionPage::SessionPage(QWidget* parent)
             config.label = _serialLabel->text().trimmed();
             config.reconnectSeconds = _serialReconnectTime->text().toInt();
             config.lfImpliesCr = _serialLfImpliesCr->isChecked();
+            config.interactivePromptPattern = _serialPromptPattern->text();
+            config.interactiveLineEnding = _serialCommandLineEnding->currentData().toString();
+            config.interactiveRemoteEcho = _serialRemoteEcho->isChecked();
+
+            if (!config.interactivePromptPattern.isEmpty()
+                && !QRegularExpression(config.interactivePromptPattern).isValid()) {
+                NovaTerm::Ui::warn(this, tr("Serial Session"),
+                    tr("Provide a valid MCP prompt regular expression, or leave it empty to disable commands."));
+                return;
+            }
 
             if (!config.isValid()) {
                 NovaTerm::Ui::warn(this, tr("Serial Session"),
@@ -325,6 +336,13 @@ void SessionPage::applyRuntimeConfig(const RuntimeConfig& runtime,
             values.value(QStringLiteral("reconnectSeconds"), 0).toInt()));
         _serialLfImpliesCr->setChecked(
             values.value(QStringLiteral("lfImpliesCr"), false).toBool());
+        _serialPromptPattern->setText(
+            values.value(QStringLiteral("interactivePromptPattern")).toString());
+        const int endingIndex = _serialCommandLineEnding->findData(
+            values.value(QStringLiteral("interactiveLineEnding"), QStringLiteral("cr")));
+        _serialCommandLineEnding->setCurrentIndex(endingIndex >= 0 ? endingIndex : 0);
+        _serialRemoteEcho->setChecked(
+            values.value(QStringLiteral("interactiveRemoteEcho"), true).toBool());
         _serialLabel->setText(
             values.value(QStringLiteral("label")).toString());
         break;
@@ -674,7 +692,27 @@ void SessionPage::initSerialUi()
     _serialLfImpliesCr->setChecked(false);
     grid->addWidget(_serialLfImpliesCr, 8, 0, 1, 2);
 
-    grid->setRowStretch(9, 1);
+    addFormLabel(grid, 9, tr("MCP command prompt (regex)"), page);
+    _serialPromptPattern = new ElaLineEdit(page);
+    _serialPromptPattern->setObjectName(QStringLiteral("serialMcpPromptPattern"));
+    _serialPromptPattern->setMaxLength(256);
+    _serialPromptPattern->setPlaceholderText(tr("Leave empty to disable MCP commands"));
+    _serialPromptPattern->setToolTip(tr("Match the device's idle prompt, for example ^device> $. Commands also require separate MCP permission."));
+    grid->addWidget(_serialPromptPattern, 9, 1);
+
+    addFormLabel(grid, 10, tr("MCP command line ending"), page);
+    _serialCommandLineEnding = new ElaComboBox(page);
+    _serialCommandLineEnding->setObjectName(QStringLiteral("serialMcpLineEnding"));
+    _serialCommandLineEnding->addItem(QStringLiteral("CR"), QStringLiteral("cr"));
+    _serialCommandLineEnding->addItem(QStringLiteral("LF"), QStringLiteral("lf"));
+    _serialCommandLineEnding->addItem(QStringLiteral("CRLF"), QStringLiteral("crlf"));
+    grid->addWidget(_serialCommandLineEnding, 10, 1);
+
+    _serialRemoteEcho = new ElaCheckBox(tr("Device echoes command input"), page);
+    _serialRemoteEcho->setObjectName(QStringLiteral("serialMcpRemoteEcho"));
+    _serialRemoteEcho->setChecked(true);
+    grid->addWidget(_serialRemoteEcho, 11, 0, 1, 2);
+    grid->setRowStretch(12, 1);
 
     _tabWidget->addTab(page, tr("serial port"));
 }

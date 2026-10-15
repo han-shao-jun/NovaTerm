@@ -31,15 +31,16 @@ bool validId(const QJsonValue &value)
 class WireSession::Impl
 {
 public:
-    Impl(WireSession *owner, QString prefix) : q(owner), _prefix(std::move(prefix))
+    Impl(WireSession *owner, QString prefix, std::function<qint64()> monotonicClock)
+        : q(owner), _prefix(std::move(prefix)), _monotonicClock(std::move(monotonicClock))
     {
         _clock.start();
-        _timeouts.setInterval(100);
+        _timeouts.setInterval(std::chrono::milliseconds{100});
         QObject::connect(&_timeouts, &QTimer::timeout, q, [this] {
             const auto ids = _calls.keys();
             for (const auto &id : ids) {
                 const auto call = _calls.value(id);
-                if (call.deadline <= _clock.elapsed()) {
+                if (call.deadline <= now()) {
                     if (call.sent)
                         emit q->backendMessage(QJsonObject{{"op", "cancel"}, {"id", call.wireId}});
                     finish(id,
@@ -55,6 +56,7 @@ public:
                 _timeouts.stop();
         });
     }
+    qint64 now() const { return _monotonicClock ? _monotonicClock() : _clock.elapsed(); }
     struct Call {
         QString route;
         QJsonValue rpcId;
@@ -272,10 +274,16 @@ public:
             output(rpcResult(id, toolResult(failure("BUSY", "Request queue is full.", true, 250))));
             return;
         }
-        const qint64 deadline = name == "novaterm_run_script"        ? 120000
-                                : name == "novaterm_run_command"     ? 65000
-                                : name == "novaterm_execute_command" ? 7000
-                                                                     : 2000;
+        // 2025 在同一次请求内等待确认；执行及脚本写入的独立预算不可被等待消耗。
+        // 2026 input_required 已结束本次请求，继续执行由新的 HTTP 请求承接。
+        qint64 budget = name == "novaterm_execute_command" ? 7000 : 2000;
+        if (name == "novaterm_run_command" || name == "novaterm_run_script") {
+            budget = arguments.value("timeoutMs").toInt(5000) + WireDeadlineMargin.count();
+            if (!_requestMrtr)
+                budget += ConfirmationTimeout.count();
+            if (name == "novaterm_run_script")
+                budget += ScriptWriteTimeout.count();
+        }
         Call call;
         call.route = _route;
         call.rpcId = id;
@@ -284,7 +292,7 @@ public:
         call.arguments = arguments;
         call.mrtr = _requestMrtr;
         call.formElicitation = _requestFormElicitation;
-        call.deadline = _clock.elapsed() + deadline + (_available ? 0 : 3000);
+        call.deadline = now() + budget + (_available ? 0 : 3000);
         if (call.mrtr) {
             call.requestState = params.value("requestState").toString();
             call.inputResponses = params.value("inputResponses").toObject();
@@ -402,19 +410,24 @@ public:
     QHash<QString, Call> _calls;
     ElicitationBroker _elicitationBroker;
     QElapsedTimer _clock;
+    std::function<qint64()> _monotonicClock;
     QTimer _timeouts;
     quint64 _nextId{0};
     bool _available{false}, _negotiated{false}, _initialized{false};
     bool _legacyFormElicitation{false}, _requestMrtr{false}, _requestFormElicitation{false};
 };
-WireSession::WireSession(QString prefix, QObject *parent)
-    : QObject(parent), _impl(std::make_unique<Impl>(this, std::move(prefix)))
+WireSession::WireSession(QString prefix, QObject *parent, std::function<qint64()> monotonicClock)
+    : QObject(parent), _impl(std::make_unique<Impl>(this, std::move(prefix), std::move(monotonicClock)))
 {
 }
 WireSession::~WireSession() = default;
 void WireSession::receiveBytes(QByteArray bytes, QString route)
 {
     _impl->_route = std::move(route);
+    if (bytes.size() > MaxRequestBytes) {
+        _impl->output(rpcError(QJsonValue(QJsonValue::Null), -32600, "Request exceeds size limit."));
+        return;
+    }
     QJsonParseError error;
     const auto document = QJsonDocument::fromJson(bytes, &error);
     if (error.error != QJsonParseError::NoError) {
@@ -431,6 +444,10 @@ void WireSession::receiveBytes(QByteArray bytes, QString route)
 void WireSession::receiveMessage(QJsonObject message, QString route)
 {
     _impl->_route = std::move(route);
+    if (QJsonDocument(message).toJson(QJsonDocument::Compact).size() > MaxRequestBytes) {
+        _impl->output(rpcError(QJsonValue(QJsonValue::Null), -32600, "Request exceeds size limit."));
+        return;
+    }
     _impl->receive(message);
 }
 void WireSession::receiveBackend(QJsonObject message) { _impl->backend(message); }

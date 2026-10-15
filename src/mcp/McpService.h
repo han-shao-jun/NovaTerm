@@ -27,6 +27,7 @@ public:
     [[nodiscard]] QJsonObject statistics() const;
     [[nodiscard]] QJsonObject protectedTargets() const;
     bool acknowledgeTarget(const QString& fingerprint);
+    bool acknowledgeTarget(const QString& fingerprint, const QString& expectedExecutionId);
     void stop();
 signals:
     void changed();

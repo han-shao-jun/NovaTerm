@@ -33,7 +33,8 @@ class SessionPanel final : public QWidget
     Q_OBJECT
 
 public:
-    explicit SessionPanel(QWidget* parent = nullptr);
+    /** @brief 历史路径可注入供隔离测试；空值使用用户数据目录。 */
+    explicit SessionPanel(QWidget* parent = nullptr, const QString& historyPath = {});
     ~SessionPanel() override;
 
     void recordLocal(TerminalView::LocalShellType type,

@@ -181,6 +181,8 @@ private slots:
     void configuredDevicePromptDoesNotProbeTransport();
     void configuredDevicePromptRequiresSilence();
     void terminalSessionUsesConfiguredPromptProfile();
+    void attachmentSnapshotConfiguresDeviceCommands();
+    void serialCommandSettingsRejectInvalidInput();
     void localShellPresetsCarryExplicitIntegration();
     void sshShellEnvironmentRequiresExplicitProfile();
     void localScriptProviderWritesExactlyRequestedPath();
@@ -1335,6 +1337,70 @@ void SessionTests::configuredDevicePromptRequiresSilence()
     request.expectedPromptGeneration = coordinator.promptGeneration();
     QVERIFY(coordinator.submit(request));
     QCOMPARE(transport.writes, QByteArrayLiteral("status\r\n"));
+}
+
+void SessionTests::serialCommandSettingsRejectInvalidInput()
+{
+    SerialConfig config;
+    config.portName = QStringLiteral("test-not-opened");
+    QVERIFY(config.isValid());
+    config.interactivePromptPattern = QStringLiteral("[");
+    QVERIFY(!config.isValid());
+    config.interactivePromptPattern = QString(257, QLatin1Char('a'));
+    QVERIFY(!config.isValid());
+    config.interactivePromptPattern = QStringLiteral("^device> $");
+    config.interactiveLineEnding = QStringLiteral("invalid");
+    QVERIFY(!config.isValid());
+    config.interactiveLineEnding = QStringLiteral("crlf");
+    QVERIFY(config.isValid());
+}
+
+void SessionTests::attachmentSnapshotConfiguresDeviceCommands()
+{
+    TerminalCore core(80, 24);
+    TerminalSession session(&core);
+    FakeTransport transport;
+    RuntimeConfig runtime;
+    runtime.transportKind = TransportKind::Serial;
+    runtime.transport = {
+        {QStringLiteral("portName"), QStringLiteral("test-not-opened")},
+        {QStringLiteral("interactivePromptPattern"), QStringLiteral("^device> $")},
+        {QStringLiteral("interactiveLineEnding"), QStringLiteral("crlf")},
+        {QStringLiteral("interactiveRemoteEcho"), false}};
+    session.attach(&transport, TerminalSession::Ownership::Borrowed, runtime);
+    runtime.transport.insert(QStringLiteral("interactivePromptPattern"), QStringLiteral("changed"));
+    QVERIFY(session.start());
+    QTRY_COMPARE(session.state(), SessionState::Running);
+    QVERIFY(!session.commandCoordinator()->isPromptReady());
+    emit transport.readyRead(QByteArrayLiteral("device> "));
+    QTRY_VERIFY_WITH_TIMEOUT(session.commandCoordinator()->isPromptReady(), 500);
+    QCOMPARE(transport.writes, QByteArray{});
+    CommandExecutionRequest request;
+    request.requestId = 102;
+    request.command = QByteArrayLiteral("status");
+    request.executionNonce = QByteArrayLiteral("serial-config-test");
+    request.expectedPromptGeneration = session.commandCoordinator()->promptGeneration();
+    request.limits = {1024, 1000};
+    QVERIFY(session.commandCoordinator()->submit(request));
+    QCOMPARE(transport.writes, QByteArrayLiteral("status\r\n"));
+    QCOMPARE(session.runtimeConfig().transport.value(QStringLiteral("interactivePromptPattern")).toString(),
+             QStringLiteral("^device> $"));
+    QVERIFY(!session.runtimeConfig().transport.value(QStringLiteral("interactiveRemoteEcho")).toBool());
+    session.close(CloseMode::Abort);
+    QTRY_COMPARE(session.state(), SessionState::Closed);
+    QVERIFY(session.resetForReuse());
+    FakeTransport telnet;
+    RuntimeConfig next;
+    next.transportKind = TransportKind::Telnet;
+    next.transport.insert(QStringLiteral("host"), QStringLiteral("other-host"));
+    session.attach(&telnet, TerminalSession::Ownership::Borrowed, next);
+    QVERIFY(session.start());
+    QTRY_COMPARE(session.state(), SessionState::Running);
+    emit telnet.readyRead(QByteArrayLiteral("device> "));
+    QTest::qWait(200);
+    QVERIFY(!session.commandCoordinator()->isPromptReady());
+    QVERIFY(!session.runtimeConfig().transport.contains(QStringLiteral("interactivePromptPattern")));
+    QVERIFY(!session.runtimeConfig().transport.contains(QStringLiteral("portName")));
 }
 
 void SessionTests::terminalSessionUsesConfiguredPromptProfile()

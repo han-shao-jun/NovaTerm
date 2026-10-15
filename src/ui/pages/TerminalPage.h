@@ -103,6 +103,8 @@ private:
     void updateTerminalTabConnectionAction(TerminalView* terminalView);
     [[nodiscard]] TerminalView* currentConnectedSshTerminal() const;
     void registerTerminalView(TerminalView* terminalView);
+    /** @brief 将标签名称同步到工具面板上下文与 MCP 会话目录。 */
+    void setTerminalTabTitle(TerminalView* terminalView, const QString& title);
     void restartTerminalWhenClosed(TerminalView* terminalView,
                                    std::function<void()> restart);
 

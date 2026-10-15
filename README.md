@@ -238,8 +238,10 @@ SSH 验收（需要 sshd、ssh-keygen、ninja 和 c++；不修改用户 SSH 信�
 项目包含单元测试、集成测试和性能护栏，部分 UI 与真实设备路径仍需人工验收。
 `BUILD_TESTING` 与 `NOVATERM_BUILD_BENCHMARKS` 默认均为 ON。
 默认注册到 CTest 的测试按平台不同：
-**Windows 暂为 26 项、Linux 按条件预计 24 项**（新增 MCP wire/HTTP/endpoint 三项目标；
-默认启用 benchmark 构建，实际注册数以 `ctest -N` 为准；本轮成绩待验收）。
+**Linux 已核对 26 项、Windows 按条件预计 28 项**（新增命令/路径与 SFTP
+安全两项目标；默认启用 benchmark 构建，实际以 `ctest -N` 为准）。2026-10-16
+Linux Debug 全部构建及 26/26 CTest 通过，耗时 173.64 秒；这是本机成绩，
+不替代 Windows/macOS 验收。
 `novaterm_conpty_tests`、`novaterm_terminal_session_tests` 仅 Windows，
 `novaterm_pty_tests` 仅 Linux。
 
@@ -287,6 +289,10 @@ cmake --build build-vs --config Release --target check
   自动 `QSKIP`；没有默认集合时也会跳过。有可用密钥环时测试写入临时条目并删除。
 - 已知失败包括平台／环境问题及 Windows 串口文件发布用例失败，见
   [AGENTS.md 的「已知测试失败」](AGENTS.md#已知测试失败不是回归别去追)。
+
+串口 MCP 配置表单的回填、提交、历史保存与重连由
+`novaterm_session_panel_tests` 覆盖；运行配置装配由 `novaterm_session_tests`
+覆盖，假串口上的 MCP 授权/就绪/命令收尾由 `novaterm_mcp_tests` 覆盖。
 
 Windows PowerShell 环境示例（Qt 安装路径按本机调整）：
 

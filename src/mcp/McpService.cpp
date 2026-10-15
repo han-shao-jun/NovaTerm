@@ -19,6 +19,7 @@
 #include <QCryptographicHash>
 #include <QJsonDocument>
 #include <QPointer>
+#include <QScopedValueRollback>
 #include <QRunnable>
 #include <QThreadPool>
 #include <QTimer>
@@ -27,6 +28,7 @@
 #include <atomic>
 #include <chrono>
 #include <deque>
+#include <utility>
 
 #ifndef NOVATERM_VERSION
 #define NOVATERM_VERSION "0.2.30"
@@ -58,7 +60,7 @@ QString safeScriptPreview(const QByteArray& content, qsizetype maximumBytes)
     const QString decoded = QString::fromUtf8(content.left(maximumBytes));
     QString preview;
     preview.reserve(decoded.size());
-    for (const QChar character : decoded) {
+    for (const auto& character : decoded) {
         if (character == QLatin1Char('\n') || character == QLatin1Char('\t')) {
             preview.append(character);
         } else if (character == QLatin1Char('\r')) {
@@ -113,7 +115,7 @@ QString scriptConfirmationMessage(const QByteArray& content,
     bool targetExistsLocally)
 {
     constexpr qsizetype PreviewBytes = 4096;
-    const qsizetype previewLength = qMin(content.size(), PreviewBytes);
+    const qsizetype previewLength = (std::min)(content.size(), PreviewBytes);
     QString preview = safeScriptPreview(content, previewLength);
     if (previewLength < content.size())
         preview += QStringLiteral("\n… preview truncated …");
@@ -135,6 +137,8 @@ QString normalizedScriptTarget(TransportKind kind, const QString& workingDirecto
                                const QString& targetPath)
 {
     if (workingDirectory.isEmpty() || targetPath.isEmpty())
+        return {};
+    if (workingDirectory.contains(QChar::Null) || targetPath.contains(QChar::Null))
         return {};
     if (kind == TransportKind::LocalShell) {
         const QFileInfo targetInfo(targetPath);
@@ -168,6 +172,8 @@ public:
         bool mrtr{false};
         bool formElicitation{false};
         QString scriptPolicyVersion;
+        QString scriptReservationId;
+        QString scriptReservedTarget;
         std::atomic<bool> cancelled{false};
     };
     struct Connection {
@@ -231,7 +237,6 @@ public:
         QByteArray metadataHash, contentHash;
         quint64 promptGeneration{0}, grantVersion{0}, sessionGeneration{0};
         quint64 userInputGeneration{0};
-        int timeoutMs{5000};
     };
 
     Impl(Service* owner, QString stateDir, QString runtimeDir, std::unique_ptr<CredentialStore> credentials, quint16 port)
@@ -277,7 +282,22 @@ public:
         QObject::connect(&access, &AccessStore::changed, q, [this] { updateEnabled(); emit q->changed(); });
         QObject::connect(&access, &AccessStore::revoked, q,
             [this](const QString& client, const QString& session) { revoke(client, session); });
-        QObject::connect(&sessions, &SessionDirectory::changed, q, &Service::changed);
+        QObject::connect(&sessions, &SessionDirectory::changed, q, [this] {
+            if (!checkingSessionState) {
+                QScopedValueRollback<bool> checking(checkingSessionState, true);
+                const auto pending = jobs;
+                for (const auto& job : pending) {
+                    if (job->tool != QStringLiteral("novaterm_run_script")
+                        && job->tool != QStringLiteral("novaterm_run_command")
+                        && job->tool != QStringLiteral("novaterm_execute_command"))
+                        continue;
+                    const auto entry = sessions.find(job->arguments.value("sessionId").toString());
+                    if (!entry || entry->state != SessionState::Running)
+                        cancel(job, error("SESSION_NOT_READY"), true);
+                }
+            }
+            emit q->changed();
+        });
         QObject::connect(&sessions, &SessionDirectory::invalidated, q, [this](const QString& id) {
             lastCapture.remove(id);
             lastRevision.remove(id);
@@ -313,7 +333,8 @@ public:
         const auto connectionIds = connections.keys();
         for (const auto& id : connectionIds)
             disconnect(id);
-        for (auto& execution : executions) {
+        for (auto executionIt = executions.begin(); executionIt != executions.end(); ++executionIt) {
+            auto& execution = executionIt.value();
             if (!execution.complete) {
                 if (execution.coordinator)
                     execution.coordinator->cancel(execution.executorRequestId);
@@ -450,11 +471,11 @@ public:
             send(connectionId, id, error("COMMAND_CONFIRMATION_STALE"));
             return;
         }
-        job->deadline = clock.elapsed() + (name == "novaterm_run_script" ? 120000
-            : name == "novaterm_run_command" ? 60000 : 2000);
+        job->deadline = clock.elapsed() + (name == "novaterm_run_script" ? ScriptWriteTimeout.count()
+            : name == "novaterm_run_command" ? ConfirmationTimeout.count() : 2000);
         job->created = clock.elapsed();
         jobs.insert(jobKey(connectionId, id), job);
-        peakRequests = std::max(peakRequests, jobs.size());
+        peakRequests = (std::max)(peakRequests, jobs.size());
         connection->waiting.push_back(job);
         timer.setInterval(100);
         timer.start();
@@ -522,16 +543,58 @@ public:
         consumedConfirmations.insert(nonce, expiry);
         clearActiveConfirmation(connection, nonce);
     }
-    void complete(const std::shared_ptr<Job>& job, QJsonObject payload)
+    bool hasPendingScriptWrite(const std::shared_ptr<Job>& job) const
     {
-        if (!jobs.contains(jobKey(job->connection, job->id)))
-            return;
-        confirmations.remove(jobKey(job->connection, job->id));
+        return std::any_of(scriptWrites.cbegin(), scriptWrites.cend(),
+            [&job](const ScriptWriteTask& task) { return task.job == job; });
+    }
+    void releaseScriptReservation(const std::shared_ptr<Job>& job, bool releaseTarget)
+    {
+        if (releaseTarget && !job->scriptReservationId.isEmpty())
+            guards.release(job->scriptReservedTarget, job->scriptReservationId);
+        job->scriptReservationId.clear();
+        job->scriptReservedTarget.clear();
         const QString owner = jobKey(job->connection, job->id);
         for (auto it = scriptPathLocks.begin(); it != scriptPathLocks.end();) {
             if (it.value() == owner) it = scriptPathLocks.erase(it);
             else ++it;
         }
+    }
+    void recordScriptWriteOutcome(const ScriptWriteTask& task,
+                                  const ScriptWriteResult& result)
+    {
+        Execution execution;
+        execution.id = task.job->scriptReservationId;
+        execution.connection = task.job->connection;
+        execution.client = task.client;
+        execution.session = task.session;
+        execution.epoch = task.epoch;
+        execution.commandId = QStringLiteral("interactive.script");
+        execution.policyVersion = task.policyVersion;
+        execution.target = task.targetFingerprint;
+        execution.submitted = clock.elapsed();
+        execution.complete = true;
+        execution.interactive = true;
+        const QString code = result.success ? QStringLiteral("SCRIPT_PUBLISHED_NOT_INVOKED")
+            : result.errorCode.isEmpty() ? QStringLiteral("SCRIPT_WRITE_FAILED") : result.errorCode;
+        execution.payload = failure(code, code);
+        auto errorDetail = execution.payload.value("error").toObject();
+        errorDetail.insert("details", QJsonObject{{"executionId", execution.id},
+            {"targetPath", task.targetPath}, {"published", result.success},
+            {"publicationMayHaveOccurred", result.success
+                || result.errorCode == QStringLiteral("SCRIPT_PUBLICATION_OUTCOME_UNKNOWN")},
+            {"invocationStarted", false}, {"status", result.success ? "script_published" : "script_write_failed"}});
+        execution.payload.insert("error", errorDetail);
+        executions.insert(execution.id, std::move(execution));
+        emit q->changed();
+    }
+    void complete(const std::shared_ptr<Job>& job, QJsonObject payload)
+    {
+        if (!jobs.contains(jobKey(job->connection, job->id)))
+            return;
+        confirmations.remove(jobKey(job->connection, job->id));
+        if (!hasPendingScriptWrite(job))
+            releaseScriptReservation(job, true);
         auto connection = connections.find(job->connection);
         if (connection != connections.end()) {
             const auto client = connection->client;
@@ -550,11 +613,11 @@ public:
             }
             connection = connections.find(job->connection);
             if (connection != connections.end() && job->running)
-                connection->active = std::max(0, connection->active - 1);
+                connection->active = (std::max)(0, connection->active - 1);
         }
         jobs.remove(jobKey(job->connection, job->id));
         ++completedCount;
-        maximumRequestMs = std::max(maximumRequestMs, clock.elapsed() - job->created);
+        maximumRequestMs = (std::max)(maximumRequestMs, clock.elapsed() - job->created);
         if (!job->cancelled && connections.contains(job->connection))
             send(job->connection, job->id, payload);
         if (jobs.isEmpty()) {
@@ -574,13 +637,10 @@ public:
         if (job->cancelled.exchange(true))
             return;
         ++cancelledCount;
-        QList<QPair<QPointer<ISessionScriptProvider>, quint64>> scriptCancels;
-        for (auto it = scriptWrites.begin(); it != scriptWrites.end();) {
+        QList<std::pair<QPointer<ISessionScriptProvider>, quint64>> scriptCancels;
+        for (auto it = scriptWrites.cbegin(); it != scriptWrites.cend(); ++it) {
             if (it->job == job) {
                 scriptCancels.append({it->provider, it.key()});
-                it = scriptWrites.erase(it);
-            } else {
-                ++it;
             }
         }
         for (const auto& scriptCancel : scriptCancels) {
@@ -588,7 +648,8 @@ public:
                 scriptCancel.first->cancelWrite(scriptCancel.second);
         }
         QList<quint64> unresolvedRequests;
-        for (auto& execution : executions) {
+        for (auto executionIt = executions.begin(); executionIt != executions.end(); ++executionIt) {
+            auto& execution = executionIt.value();
             if (execution.complete || execution.job != job)
                 continue;
             if (execution.coordinator)
@@ -836,13 +897,16 @@ public:
                 ? entry.session->commandCoordinator() : nullptr;
             const bool unverifiedSsh = entry.kind == TransportKind::Ssh
                 && coordinator && coordinator->allowsUnverifiedPrompt();
+            const bool trustedLocal = entry.kind == TransportKind::LocalShell
+                && coordinator && coordinator->hasTrustedProfile()
+                && coordinator->isPromptReady();
             // 两项能力都以「交互通路可达」为前提，但授权位各自独立：
             // run_command 看 canRunCommand，run_script 看 canRunScriptTask。
             const bool interactiveReachable = facade && facade->isAvailable()
                 && !entry.targetFingerprint.isEmpty()
                 && (facade->capabilities().mode
                         == CommandExecutionMode::InteractiveFramed
-                    || unverifiedSsh);
+                    || unverifiedSsh || trustedLocal);
             if (interactiveReachable
                 && access.canRunCommand(connection.client, entry)) {
                 capabilities.append("run_command");
@@ -959,7 +1023,7 @@ public:
                 {"viewport", viewport}}, connection.key);
         const auto capturedMs = std::chrono::duration_cast<std::chrono::milliseconds>(
             base->capturedAt.time_since_epoch()).count();
-        const qint64 snapshotAge = std::max<qint64>(
+        const qint64 snapshotAge = (std::max<qint64>)(
             0, QDateTime::currentMSecsSinceEpoch() - capturedMs);
         if (snapshotAges.size() == 256) snapshotAges.pop_front();
         snapshotAges.push_back(snapshotAge);
@@ -973,7 +1037,7 @@ public:
             {"viewport", screen}, {"recentOutput", recent}, {"coverage", "bounded_summary"},
             {"historyMayPrecedeEpoch", true}, {"sourceTruncated", sourceTruncated}, {"outputTruncated", outputTruncated},
             {"resetRequired", reset}, {"suppressedDuplicates", versionString(base->suppressedDuplicates)}, {"nextToken", next}};
-        QList<QString> owned;
+        QStringList owned;
         for (auto it = captures.cbegin(); it != captures.cend(); ++it)
             if (it->connection == job->connection) owned.append(it.key());
         if (owned.size() >= MaxCaptures) {
@@ -1031,7 +1095,7 @@ public:
                     while (from <= bytes.size()) {
                         if (job->cancelled || timer.elapsed() > 100) { timedOut = true; break; }
                         // 每 4 KiB 检查取消；保留 query 长度的重叠，避免漏掉块边界命中。
-                        const auto span = std::min(qsizetype(4096) + query.size() - 1, bytes.size() - from);
+                        const auto span = (std::min)(qsizetype(4096) + query.size() - 1, bytes.size() - from);
                         const auto relative = bytes.mid(from, span).indexOf(query);
                         if (relative < 0) {
                             if (span < 4096 || from + span == bytes.size()) break;
@@ -1290,7 +1354,9 @@ public:
             complete(job, error("COMMAND_EXECUTION_QUARANTINED"));
             return;
         }
-        if (lastCommand.contains(entry.targetFingerprint)) {
+        if (lastCommand.contains(entry.targetFingerprint)
+            || scriptWrites.size() >= MaxClients * MaxActiveRequests
+            || executions.size() >= 128) {
             complete(job, error("BUSY", true, 5000));
             return;
         }
@@ -1343,7 +1409,6 @@ public:
         task.grantVersion = access.version(connection.client);
         task.sessionGeneration = entry.generation;
         task.userInputGeneration = inputArbiter->userInputGeneration();
-        task.timeoutMs = arguments.value("timeoutMs").toInt(5000);
         if (!observedScriptProviders.contains(provider)) {
             observedScriptProviders.insert(provider);
             QObject::connect(provider, &ISessionScriptProvider::finished, q,
@@ -1356,15 +1421,30 @@ public:
                         if (scriptWrites.value(id).provider.data() != provider
                             && !scriptWrites.value(id).provider.isNull())
                             continue;
-                        const auto job = scriptWrites.take(id).job;
+                        const auto task = scriptWrites.take(id);
+                        const auto job = task.job;
+                        ScriptWriteResult uncertain;
+                        uncertain.requestId = id;
+                        uncertain.errorCode = QStringLiteral("SCRIPT_PUBLICATION_OUTCOME_UNKNOWN");
+                        recordScriptWriteOutcome(task, uncertain);
+                        // Provider 消失后不能证明远端未提交，保留持久保护标记。
+                        releaseScriptReservation(job, false);
                         complete(job, error("SCRIPT_PROVIDER_UNAVAILABLE"));
                     }
                 });
         }
+        QString rejected;
+        const QString reservationId = newId();
+        if (!guards.reserve(entry.targetFingerprint, reservationId, instance, rejected)) {
+            complete(job, failure(rejected, rejected, rejected == QStringLiteral("BUSY"), 250));
+            return;
+        }
+        job->scriptReservationId = reservationId;
+        job->scriptReservedTarget = entry.targetFingerprint;
         scriptPathLocks.insert(pathLock, owner);
         scriptWrites.insert(requestId, task);
         ScriptWriteRequest request{requestId, content, targetPath, workingDirectory};
-        job->deadline = clock.elapsed() + 120000;
+        job->deadline = clock.elapsed() + ScriptWriteTimeout.count();
         if (!provider->writeScript(request)) {
             scriptWrites.remove(requestId);
             complete(job, error("SCRIPT_WRITE_FAILED"));
@@ -1398,9 +1478,15 @@ public:
         const ScriptWriteTask task = it.value();
         scriptWrites.erase(it);
         const auto job = task.job;
-        if (!jobs.contains(jobKey(job->connection, job->id)))
+        const bool uncertain = result.errorCode == QStringLiteral("SCRIPT_PUBLICATION_OUTCOME_UNKNOWN");
+        if (job->cancelled || !jobs.contains(jobKey(job->connection, job->id))) {
+            recordScriptWriteOutcome(task, result);
+            releaseScriptReservation(job, !uncertain);
             return;
+        }
         if (!result.success) {
+            recordScriptWriteOutcome(task, result);
+            releaseScriptReservation(job, !uncertain);
             complete(job, failure(result.errorCode.isEmpty()
                 ? QStringLiteral("SCRIPT_WRITE_FAILED") : result.errorCode,
                 result.errorCode.isEmpty() ? QStringLiteral("SCRIPT_WRITE_FAILED") : result.errorCode));
@@ -1432,6 +1518,7 @@ public:
             && result.contentHash == task.contentHash
             && result.resolvedTargetPath == task.targetPath;
         if (!valid) {
+            recordScriptWriteOutcome(task, result);
             complete(job, error("COMMAND_CONFIRMATION_STALE"));
             return;
         }
@@ -1440,6 +1527,7 @@ public:
                 QStringLiteral("interactiveShellKind")).toString(),
             task.workingDirectory, task.invocation);
         if (!command || command->toUtf8().size() > 16384) {
+            recordScriptWriteOutcome(task, result);
             complete(job, error("COMMAND_SCRIPT_INVOCATION_INVALID"));
             return;
         }
@@ -1635,7 +1723,15 @@ public:
             complete(job, error("COMMAND_UNAVAILABLE"));
             return;
         }
-        if (guards.markers().contains(entry.targetFingerprint)) {
+        const auto marker = guards.markers().value(entry.targetFingerprint).toObject();
+        const bool ownsReservation = !job->scriptReservationId.isEmpty()
+            && job->scriptReservedTarget == entry.targetFingerprint
+            && marker.value("executionId").toString() == job->scriptReservationId;
+        if (!job->scriptReservationId.isEmpty() && !ownsReservation) {
+            complete(job, error("COMMAND_CONFIRMATION_STALE"));
+            return;
+        }
+        if (!marker.isEmpty() && !ownsReservation) {
             complete(job, error("COMMAND_EXECUTION_QUARANTINED"));
             return;
         }
@@ -1644,14 +1740,14 @@ public:
             if (execution.connection == job->connection)
                 ++clientExecutions;
         }
-        if (clientExecutions >= 32 || executions.size() >= 128
+        if (clientExecutions >= 32 || executions.size() + scriptWrites.size() >= 128
             || lastCommand.contains(entry.targetFingerprint)) {
             complete(job, error("BUSY", true, 5000));
             return;
         }
-        const QString executionId = newId();
+        const QString executionId = ownsReservation ? job->scriptReservationId : newId();
         QString rejected;
-        if (!guards.reserve(entry.targetFingerprint, executionId,
+        if (!ownsReservation && !guards.reserve(entry.targetFingerprint, executionId,
                             instance, rejected)) {
             complete(job, error("BUSY", true, 250));
             return;
@@ -1666,7 +1762,7 @@ public:
                 [this, facade] { observedFacades.remove(facade); });
         }
         const quint64 requestId = nextCommandRequest++;
-        const int timeoutMs = job->arguments.value("timeoutMs").toInt(5000);
+        const auto timeout = std::chrono::milliseconds{job->arguments.value("timeoutMs").toInt(5000)};
         const QString executionCommandId = job->tool == QStringLiteral("novaterm_run_script")
             ? QStringLiteral("interactive.script")
             : QStringLiteral("interactive.free");
@@ -1678,6 +1774,9 @@ public:
             executionPolicyVersion, entry.targetFingerprint, requestId,
             clock.elapsed(), facade, job, {}, false, true, {}, {}};
         executions.insert(executionId, execution);
+        // 上传预留移交给 Execution，之后只由确定的执行终态解除。
+        job->scriptReservationId.clear();
+        job->scriptReservedTarget.clear();
         if (directCoordinator) {
             executions[executionId].coordinator = coordinator;
             if (!observedCoordinators.contains(coordinator)) {
@@ -1693,7 +1792,7 @@ public:
         CommandExecutionRequest request;
         request.requestId = requestId;
         request.command = command.toUtf8();
-        request.limits = {CommandOutputBytes, timeoutMs};
+        request.limits = {CommandOutputBytes, static_cast<int>(timeout.count())};
         request.commandId = executionCommandId;
         request.executionNonce = newId().toUtf8();
         request.expectedPromptGeneration = unverifiedSsh
@@ -1707,7 +1806,7 @@ public:
             return;
         }
         lastCommand.insert(entry.targetFingerprint, clock.elapsed());
-        job->deadline = clock.elapsed() + timeoutMs;
+        job->deadline = clock.elapsed() + timeout.count();
         emit q->changed();
     }
 
@@ -1753,7 +1852,7 @@ public:
         if (guards.markers().contains(entry.targetFingerprint)) {
             complete(job, error("COMMAND_EXECUTION_QUARANTINED")); return;
         }
-        if (count >= 32 || executions.size() >= 128 || lastCommand.contains(entry.targetFingerprint)) {
+        if (count >= 32 || executions.size() + scriptWrites.size() >= 128 || lastCommand.contains(entry.targetFingerprint)) {
             complete(job, error("BUSY", true, 5000)); return;
         }
         QString rejected;
@@ -1860,6 +1959,7 @@ public:
     bool started{false};
     bool listening{false};
     bool scheduled{false};
+    bool checkingSessionState{false};
     QHash<QString, Connection> connections;
     QHash<QString, std::shared_ptr<Job>> jobs;
     QHash<QString, PendingConfirmation> confirmations;
@@ -1949,10 +2049,25 @@ QJsonObject Service::statistics() const
 QJsonObject Service::protectedTargets() const { return _impl->guards.markers(); }
 bool Service::acknowledgeTarget(const QString& fingerprint)
 {
+    for (const auto& task : _impl->scriptWrites)
+        if (task.targetFingerprint == fingerprint) return false;
     for (const auto& execution : _impl->executions)
         if (!execution.complete && execution.target == fingerprint) return false;
     const bool ok = _impl->guards.acknowledge(fingerprint);
     emit changed();
+    return ok;
+}
+bool Service::acknowledgeTarget(const QString& fingerprint, const QString& expectedExecutionId)
+{
+    if (expectedExecutionId.isEmpty())
+        return false;
+    for (const auto& task : _impl->scriptWrites)
+        if (task.targetFingerprint == fingerprint) return false;
+    for (const auto& execution : _impl->executions)
+        if (!execution.complete && execution.target == fingerprint) return false;
+    const bool ok = _impl->guards.release(fingerprint, expectedExecutionId);
+    if (ok)
+        emit changed();
     return ok;
 }
 }

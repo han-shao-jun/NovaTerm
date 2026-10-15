@@ -10,8 +10,13 @@
  * 矛盾。
  */
 #include "ui/widgets/SessionPanel.h"
+#include "ui/pages/SessionPage.h"
 
 #include "ElaTreeWidget.h"
+#include "ElaLineEdit.h"
+#include "ElaComboBox.h"
+#include "ElaCheckBox.h"
+#include "ElaPushButton.h"
 #include "ui/widgets/MessagePrompts.h"
 
 #include <QTemporaryDir>
@@ -23,27 +28,11 @@
 
 namespace {
 
-// 面板把历史写到 AppData。测试必须隔离，否则会污染真实用户数据并让断言
-// 依赖机器上已有的历史条目。
+// 显式注入临时历史路径；Qt test mode 在部分平台不遵循 XDG_DATA_HOME。
 struct ScopedAppDataIsolation
 {
-    ScopedAppDataIsolation()
-    {
-        _previous = qgetenv("XDG_DATA_HOME");
-        if (_dir.isValid())
-            qputenv("XDG_DATA_HOME", _dir.path().toUtf8());
-        QStandardPaths::setTestModeEnabled(true);
-    }
-    ~ScopedAppDataIsolation()
-    {
-        QStandardPaths::setTestModeEnabled(false);
-        if (_previous.isEmpty())
-            qunsetenv("XDG_DATA_HOME");
-        else
-            qputenv("XDG_DATA_HOME", _previous);
-    }
+    QString historyPath() const { return _dir.filePath(QStringLiteral("session-history.json")); }
     QTemporaryDir _dir;
-    QByteArray _previous;
 };
 
 } // namespace
@@ -56,6 +45,7 @@ private slots:
     void contextMenuOnSelectedRowKeepsMultiSelection();
     void contextMenuOnUnselectedRowMovesCurrent();
     void contextMenuOnGroupRowDoesNothing();
+    void serialCommandSettingsRoundTripThroughFormAndHistory();
 
 private:
     // 在树里造出 group -> leaf 的结构，并返回按顺序排列的叶子节点。
@@ -78,10 +68,58 @@ private:
     }
 };
 
+void SessionPanelTests::serialCommandSettingsRoundTripThroughFormAndHistory()
+{
+    ScopedAppDataIsolation isolation;
+    RuntimeConfig runtime;
+    runtime.transportKind = TransportKind::Serial;
+    runtime.transport = {
+        {QStringLiteral("portName"), QStringLiteral("fake-serial-never-opened")},
+        {QStringLiteral("baudRate"), 115200},
+        {QStringLiteral("interactivePromptPattern"), QStringLiteral("^device> $")},
+        {QStringLiteral("interactiveLineEnding"), QStringLiteral("crlf")},
+        {QStringLiteral("interactiveRemoteEcho"), false}};
+    SerialConfig emitted;
+    {
+        SessionPage page;
+        page.applyRuntimeConfig(runtime);
+        auto* pattern = page.findChild<ElaLineEdit*>(QStringLiteral("serialMcpPromptPattern"));
+        auto* ending = page.findChild<ElaComboBox*>(QStringLiteral("serialMcpLineEnding"));
+        auto* echo = page.findChild<ElaCheckBox*>(QStringLiteral("serialMcpRemoteEcho"));
+        auto* confirm = page.findChild<ElaPushButton*>(QStringLiteral("sessionConfirmButton"));
+        QVERIFY(pattern && ending && echo && confirm);
+        QCOMPARE(pattern->text(), QStringLiteral("^device> $"));
+        QCOMPARE(ending->currentData().toString(), QStringLiteral("crlf"));
+        QVERIFY(!echo->isChecked());
+        QSignalSpy requested(&page, &SessionPage::serialSessionRequested);
+        confirm->click();
+        QCOMPARE(requested.size(), 1);
+        emitted = requested.first().first().value<SerialConfig>();
+        QCOMPARE(emitted.interactivePromptPattern, pattern->text());
+        QCOMPARE(emitted.interactiveLineEnding, QStringLiteral("crlf"));
+        QVERIFY(!emitted.interactiveRemoteEcho);
+        auto panel = std::make_unique<SessionPanel>(nullptr, isolation.historyPath());
+        panel->recordSerial(emitted);
+    }
+    // 重建面板后双击历史条目，不打开真实端口，只核对发出的重连配置。
+    SessionPanel restored(nullptr, isolation.historyPath());
+    auto* tree = restored.findChild<ElaTreeWidget*>();
+    QVERIFY(tree && tree->topLevelItemCount() == 1);
+    auto* leaf = tree->topLevelItem(0)->child(0);
+    QVERIFY(leaf);
+    QSignalSpy reconnected(&restored, &SessionPanel::serialReconnectRequested);
+    tree->itemDoubleClicked(leaf, 0);
+    QCOMPARE(reconnected.size(), 1);
+    const auto actual = reconnected.first().first().value<SerialConfig>();
+    QCOMPARE(actual.interactivePromptPattern, emitted.interactivePromptPattern);
+    QCOMPARE(actual.interactiveLineEnding, emitted.interactiveLineEnding);
+    QCOMPARE(actual.interactiveRemoteEcho, emitted.interactiveRemoteEcho);
+}
+
 void SessionPanelTests::contextMenuOnSelectedRowKeepsMultiSelection()
 {
     ScopedAppDataIsolation isolation;
-    auto panel = std::make_unique<SessionPanel>();
+    auto panel = std::make_unique<SessionPanel>(nullptr, isolation.historyPath());
     auto* tree = panel->findChild<ElaTreeWidget*>();
     QVERIFY(tree != nullptr);
     QCOMPARE(tree->selectionMode(), QAbstractItemView::ExtendedSelection);
@@ -107,7 +145,7 @@ void SessionPanelTests::contextMenuOnSelectedRowKeepsMultiSelection()
 void SessionPanelTests::contextMenuOnUnselectedRowMovesCurrent()
 {
     ScopedAppDataIsolation isolation;
-    auto panel = std::make_unique<SessionPanel>();
+    auto panel = std::make_unique<SessionPanel>(nullptr, isolation.historyPath());
     auto* tree = panel->findChild<ElaTreeWidget*>();
     QVERIFY(tree != nullptr);
 
@@ -129,7 +167,7 @@ void SessionPanelTests::contextMenuOnUnselectedRowMovesCurrent()
 void SessionPanelTests::contextMenuOnGroupRowDoesNothing()
 {
     ScopedAppDataIsolation isolation;
-    auto panel = std::make_unique<SessionPanel>();
+    auto panel = std::make_unique<SessionPanel>(nullptr, isolation.historyPath());
     auto* tree = panel->findChild<ElaTreeWidget*>();
     QVERIFY(tree != nullptr);
 

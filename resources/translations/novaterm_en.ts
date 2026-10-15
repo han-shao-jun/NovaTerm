@@ -1210,6 +1210,30 @@ Termination confirmed: %3
 <context>
     <name>SessionPage</name>
     <message>
+        <source>MCP command prompt (regex)</source>
+        <translation>MCP command prompt (regex)</translation>
+    </message>
+    <message>
+        <source>Leave empty to disable MCP commands</source>
+        <translation>Leave empty to disable MCP commands</translation>
+    </message>
+    <message>
+        <source>Match the device's idle prompt, for example ^device&gt; $. Commands also require separate MCP permission.</source>
+        <translation>Match the device's idle prompt, for example ^device&gt; $. Commands also require separate MCP permission.</translation>
+    </message>
+    <message>
+        <source>MCP command line ending</source>
+        <translation>MCP command line ending</translation>
+    </message>
+    <message>
+        <source>Device echoes command input</source>
+        <translation>Device echoes command input</translation>
+    </message>
+    <message>
+        <source>Provide a valid MCP prompt regular expression, or leave it empty to disable commands.</source>
+        <translation>Provide a valid MCP prompt regular expression, or leave it empty to disable commands.</translation>
+    </message>
+    <message>
         <location filename="../../src/ui/pages/SessionPage.cpp" line="70"/>
         <source>Session</source>
         <translation type="unfinished"></translation>

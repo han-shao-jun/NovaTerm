@@ -18,6 +18,7 @@
 #include "ui/widgets/McpSettingsDialog.h"
 #include "ElaApplication.h"
 #include "ElaCheckBox.h"
+#include "ElaComboBox.h"
 #include "ElaTreeWidget.h"
 #include <QApplication>
 #include <QClipboard>
@@ -47,6 +48,7 @@
 #include <algorithm>
 #include <chrono>
 #include <tuple>
+#include <utility>
 
 #ifdef Q_OS_WIN
 #ifndef NOMINMAX
@@ -121,6 +123,18 @@ public:
     {
         if (_request.requestId == requestId)
             ++cancelCount;
+    }
+    void finish(bool success, const QString& errorCode = {})
+    {
+        const auto request = std::exchange(_request, ScriptWriteRequest{});
+        ScriptWriteResult result;
+        result.requestId = request.requestId;
+        result.success = success;
+        result.errorCode = errorCode;
+        result.resolvedTargetPath = QDir::cleanPath(QDir::isAbsolutePath(request.targetPath)
+            ? request.targetPath : QDir(request.workingDirectory).filePath(request.targetPath));
+        result.contentHash = QCryptographicHash::hash(request.content, QCryptographicHash::Sha256);
+        emit finished(result);
     }
 
     int writeCount{0};
@@ -320,8 +334,8 @@ public:
             message.insert("params", params);
         }
         QNetworkRequest request{_endpoint};
-        // 脚本最长业务截止时间为 120 秒，网络截止留出正常收尾余量。
-        request.setTransferTimeout(std::chrono::seconds(125));
+        // 覆盖确认、脚本上传及执行三个独立预算，再留少量网络收尾时间。
+        request.setTransferTimeout(std::chrono::seconds(220));
         request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
         request.setRawHeader("Accept", "application/json, text/event-stream");
         request.setRawHeader("Authorization", "Bearer " + _token);
@@ -439,6 +453,21 @@ struct Fixture
         session.attach(ssh.get(), TerminalSession::Ownership::Borrowed, TransportKind::Ssh);
         static_cast<void>(service.directory().entries());
     }
+    DelayedScriptProvider* makeScriptUpload()
+    {
+        session.close(CloseMode::Abort);
+        if (!session.resetForReuse())
+            return nullptr;
+        RuntimeConfig runtime;
+        runtime.transportKind = TransportKind::LocalShell;
+        runtime.transport.insert(QStringLiteral("interactiveShellKind"), QStringLiteral("posix"));
+        session.attach(&local, TerminalSession::Ownership::Borrowed, runtime);
+        static_cast<void>(session.start());
+        auto provider = std::make_unique<DelayedScriptProvider>();
+        auto* delayed = provider.get();
+        session.installScriptProvider(std::move(provider));
+        return delayed;
+    }
     QJsonObject identity()
     {
         const auto entry = service.directory().entries().first();
@@ -484,6 +513,9 @@ private slots:
     void settingsDialogSeparatesReadAndScriptPermission();
     void settingsDialogLocalShellFixedDiagnosticsCanBeSelected();
     void settingsDialogRefreshPreservesExpandedSessions();
+    void settingsDialogBindsTargetReleaseToExecution();
+    void settingsDialogUsesTabDisplayTitle();
+    void configuredSerialSessionPublishesAndExecutesCommands();
     void accessStoreReportsDistinctSaveFailureReasons();
     void stateDirectoryOwnedByTokenDefaultOwnerIsSecurable();
     void administratorOwnedObjectsMigrateToCurrentUser_data();
@@ -504,6 +536,7 @@ private slots:
     void sessionInvalidationCompletesPendingExecution();
     void publishedSnapshotSwitchDefaultsToEnabled();
     void publishedSnapshotPreservesCaptureTime();
+    void readGrantPrewarmsPublishedSnapshotOnlyOnce();
     void commandRiskPolicyDefaultsToHumanConfirmation();
     void scriptRiskPolicyDeniesCredentialAndSecurityTampering();
     void freeCommandSchemaIsBoundedAndStrict();
@@ -519,6 +552,10 @@ private slots:
     void scriptContentRequiresConfirmationAndNeverEntersTerminal();
     void scriptMrtrConfirmationIsSignedAndOneShot();
     void userTypingCancelsInFlightScriptUploadBeforeInvocation();
+    void scriptUploadReservesTargetUntilProviderFinishes_data();
+    void scriptUploadReservesTargetUntilProviderFinishes();
+    void cancelledScriptUploadRetainsPublicationOutcome_data();
+    void cancelledScriptUploadRetainsPublicationOutcome();
     void commandAndScriptProductGrantsAreIndependent();
     void readGrantAloneDoesNotAllowInteractiveCommand();
 };
@@ -1111,11 +1148,208 @@ void McpTests::userTypingCancelsInFlightScriptUploadBeforeInvocation()
     QVERIFY(!QFile::exists(target));
 }
 
+void McpTests::scriptUploadReservesTargetUntilProviderFinishes_data()
+{
+    QTest::addColumn<bool>("publishSuccess");
+    QTest::newRow("precommit-failure-releases-target") << false;
+    QTest::newRow("success-invokes-with-same-reservation") << true;
+}
+
+void McpTests::scriptUploadReservesTargetUntilProviderFinishes()
+{
+    QFETCH(bool, publishSuccess);
+    Fixture fixture;
+    auto* delayed = fixture.makeScriptUpload();
+    QVERIFY(fixture.service.access().setEnabled(true));
+    const auto entry = fixture.service.directory().entries().first();
+    QVERIFY(fixture.service.access().setGrant(fixture.client, entry,
+        true, {}, true, false, true));
+    emit fixture.local.readyRead(QByteArrayLiteral("\x1b]633;NT;PROMPT;1;0\x07"));
+    QTRY_VERIFY(fixture.session.commandCoordinator()->isPromptReady());
+    QTRY_COMPARE(fixture.service.status(), QStringLiteral("Listening"));
+    Host uploader;
+    QVERIFY(uploader.start(fixture.runtime(), fixture.token(), {}, true));
+    const QJsonObject arguments{{"sessionId", entry.id}, {"epoch", entry.epoch},
+        {"scriptContent", QStringLiteral("#!/bin/sh\nprintf safe\n")},
+        {"targetPath", fixture.root.filePath(QStringLiteral("upload.sh"))},
+        {"workingDirectory", fixture.root.path()},
+        {"invocation", QStringLiteral("sh ./upload.sh")}};
+    const int uploadId = uploader.begin("novaterm_run_script", arguments);
+    const auto confirmation = uploader.next();
+    QCOMPARE(confirmation.value("method").toString(), QStringLiteral("elicitation/create"));
+    uploader.send({{"jsonrpc", "2.0"}, {"id", confirmation.value("id")},
+        {"result", QJsonObject{{"action", "accept"},
+            {"content", QJsonObject{{"confirmed", true}}}}}});
+    QTRY_COMPARE(delayed->writeCount, 1);
+
+    const auto markers = fixture.service.protectedTargets();
+    QCOMPARE(markers.size(), 1);
+    const auto executionId = markers.value(entry.targetFingerprint).toObject()
+                                 .value("executionId").toString();
+    QVERIFY(!executionId.isEmpty());
+    QVERIFY(!fixture.service.acknowledgeTarget(entry.targetFingerprint, executionId));
+    Host contender;
+    QVERIFY(contender.start(fixture.runtime(), fixture.token(), {}, true));
+    auto command = fixture.identity();
+    command.insert("command", "uname -srm");
+    QCOMPARE(contender.call("novaterm_run_command", command).value("error").toObject()
+                 .value("code").toString(), QStringLiteral("COMMAND_EXECUTION_QUARANTINED"));
+    const int secondId = contender.begin("novaterm_run_script", arguments);
+    auto secondResponse = contender.next();
+    if (secondResponse.value("method") == QStringLiteral("elicitation/create")) {
+        contender.send({{"jsonrpc", "2.0"}, {"id", secondResponse.value("id")},
+            {"result", QJsonObject{{"action", "accept"},
+                {"content", QJsonObject{{"confirmed", true}}}}}});
+        secondResponse = contender.next();
+    }
+    QCOMPARE(secondResponse.value("id").toInt(), secondId);
+    QCOMPARE(secondResponse.value("result").toObject().value("structuredContent").toObject()
+                 .value("error").toObject().value("code").toString(),
+             QStringLiteral("COMMAND_EXECUTION_QUARANTINED"));
+    QCOMPARE(delayed->writeCount, 1);
+    QVERIFY(fixture.local.written.isEmpty());
+    QCOMPARE(fixture.service.protectedTargets(), markers);
+
+    if (publishSuccess) {
+        delayed->finish(true);
+        QTRY_VERIFY(fixture.local.written.contains("sh ./upload.sh"));
+        QCOMPARE(fixture.service.protectedTargets(), markers);
+        QVERIFY(!fixture.service.acknowledgeTarget(entry.targetFingerprint, executionId));
+        emit fixture.local.readyRead(fixture.local.written
+            + QByteArrayLiteral("\r\nscript output\r\n\x1b]633;NT;PROMPT;2;0\x07"));
+        const auto completed = uploader.next();
+        QCOMPARE(completed.value("id").toInt(), uploadId);
+        QVERIFY(completed.value("result").toObject().value("structuredContent")
+                    .toObject().value("ok").toBool());
+    } else {
+        delayed->finish(false, QStringLiteral("SCRIPT_WRITE_FAILED"));
+        const auto failed = uploader.next();
+        QCOMPARE(failed.value("id").toInt(), uploadId);
+        QCOMPARE(failed.value("result").toObject().value("structuredContent").toObject()
+                     .value("error").toObject().value("code").toString(),
+                 QStringLiteral("SCRIPT_WRITE_FAILED"));
+    }
+    QVERIFY(fixture.service.protectedTargets().isEmpty());
+}
+
+void McpTests::cancelledScriptUploadRetainsPublicationOutcome_data()
+{
+    QTest::addColumn<QString>("cancellation");
+    QTest::addColumn<QString>("outcome");
+    QTest::newRow("typing-before-publication-failure") << QStringLiteral("typing") << QStringLiteral("failure");
+    QTest::newRow("typing-after-publication-success") << QStringLiteral("typing") << QStringLiteral("success");
+    QTest::newRow("typing-publication-unknown") << QStringLiteral("typing") << QStringLiteral("unknown");
+    QTest::newRow("typing-provider-destroyed") << QStringLiteral("typing") << QStringLiteral("destroyed");
+    QTest::newRow("revoked-before-publication-failure") << QStringLiteral("revoked") << QStringLiteral("failure");
+    QTest::newRow("revoked-after-publication-success") << QStringLiteral("revoked") << QStringLiteral("success");
+    QTest::newRow("disconnected-before-publication-failure") << QStringLiteral("disconnected") << QStringLiteral("failure");
+    QTest::newRow("disconnected-after-publication-success") << QStringLiteral("disconnected") << QStringLiteral("success");
+}
+
+void McpTests::cancelledScriptUploadRetainsPublicationOutcome()
+{
+    QFETCH(QString, cancellation);
+    QFETCH(QString, outcome);
+    Fixture fixture;
+    auto* delayed = fixture.makeScriptUpload();
+    QVERIFY(fixture.service.access().setEnabled(true));
+    const auto entry = fixture.service.directory().entries().first();
+    QVERIFY(fixture.service.access().setGrant(fixture.client, entry,
+        true, {}, true, false, true));
+    emit fixture.local.readyRead(QByteArrayLiteral("\x1b]633;NT;PROMPT;1;0\x07"));
+    QTRY_VERIFY(fixture.session.commandCoordinator()->isPromptReady());
+    QTRY_COMPARE(fixture.service.status(), QStringLiteral("Listening"));
+    Host host;
+    QVERIFY(host.start(fixture.runtime(), fixture.token(), {}, true));
+    const auto target = fixture.root.filePath(QStringLiteral("cancelled.sh"));
+    const QJsonObject arguments{{"sessionId", entry.id}, {"epoch", entry.epoch},
+        {"scriptContent", QStringLiteral("#!/bin/sh\nprintf private-body\n")},
+        {"targetPath", target}, {"workingDirectory", fixture.root.path()},
+        {"invocation", QStringLiteral("sh ./cancelled.sh")}};
+    const int callId = host.begin("novaterm_run_script", arguments);
+    const auto confirmation = host.next();
+    QCOMPARE(confirmation.value("method").toString(), QStringLiteral("elicitation/create"));
+    host.send({{"jsonrpc", "2.0"}, {"id", confirmation.value("id")},
+        {"result", QJsonObject{{"action", "accept"},
+            {"content", QJsonObject{{"confirmed", true}}}}}});
+    QTRY_COMPARE(delayed->writeCount, 1);
+    const auto markers = fixture.service.protectedTargets();
+    QCOMPARE(markers.size(), 1);
+    const auto executionId = markers.value(entry.targetFingerprint).toObject()
+                                 .value("executionId").toString();
+    QVERIFY(!executionId.isEmpty());
+
+    if (cancellation == QStringLiteral("typing")) {
+        fixture.session.inputArbiter()->submitUserInput(QByteArrayLiteral("user input"));
+    } else if (cancellation == QStringLiteral("revoked")) {
+        QVERIFY(fixture.service.access().setGrant(fixture.client, entry,
+            true, {}, true, false, false));
+    } else {
+        fixture.local.disconnect();
+    }
+    const auto cancelled = host.next();
+    QCOMPARE(cancelled.value("id").toInt(), callId);
+    QVERIFY(!cancelled.value("result").toObject().value("structuredContent")
+                 .toObject().value("ok").toBool());
+    QCOMPARE(delayed->cancelCount, 1);
+    QCOMPARE(fixture.service.protectedTargets(), markers);
+    QVERIFY(!fixture.service.acknowledgeTarget(entry.targetFingerprint, executionId));
+
+    if (outcome == QStringLiteral("destroyed")) {
+        fixture.session.installScriptProvider({});
+    } else if (outcome == QStringLiteral("success")) {
+        delayed->finish(true);
+    } else {
+        delayed->finish(false, outcome == QStringLiteral("unknown")
+            ? QStringLiteral("SCRIPT_PUBLICATION_OUTCOME_UNKNOWN")
+            : QStringLiteral("SCRIPT_WRITE_FAILED"));
+    }
+    if (outcome == QStringLiteral("unknown") || outcome == QStringLiteral("destroyed")) {
+        QCOMPARE(fixture.service.protectedTargets(), markers);
+    } else {
+        QVERIFY(fixture.service.protectedTargets().isEmpty());
+    }
+    QVERIFY(!fixture.local.written.contains("sh ./cancelled.sh"));
+    QVERIFY(!fixture.local.written.contains("private-body"));
+    if (outcome != QStringLiteral("failure")) {
+        const auto record = [&fixture, executionId] {
+            for (const auto& value : fixture.service.executionRecords()) {
+                const auto object = value.toObject();
+                if (object.value("executionId") == executionId) return object;
+            }
+            return QJsonObject{};
+        };
+        QTRY_VERIFY(record().value("complete").toBool());
+        const auto error = record().value("result").toObject().value("error").toObject();
+        QVERIFY(!error.isEmpty());
+        if (outcome == QStringLiteral("success")) {
+            QCOMPARE(error.value("code").toString(), QStringLiteral("SCRIPT_PUBLISHED_NOT_INVOKED"));
+            const auto details = error.value("details").toObject();
+            QVERIFY(details.value("published").toBool());
+            QVERIFY(details.contains("invocationStarted"));
+            QVERIFY(!details.value("invocationStarted").toBool());
+            QCOMPARE(details.value("targetPath").toString(), target);
+        } else if (outcome == QStringLiteral("unknown")) {
+            QCOMPARE(error.value("code").toString(), QStringLiteral("SCRIPT_PUBLICATION_OUTCOME_UNKNOWN"));
+        }
+    }
+}
+
 void McpTests::commandAndScriptProductGrantsAreIndependent()
 {
     Fixture fixture;
+    fixture.makeScriptUpload();
     QVERIFY(fixture.enable());
     const auto entry = fixture.service.directory().entries().first();
+    emit fixture.local.readyRead(QByteArrayLiteral("\x1b]633;NT;PROMPT;1;0\x07"));
+    QTRY_VERIFY(fixture.session.commandCoordinator()->isPromptReady());
+    QTRY_COMPARE(fixture.service.status(), QStringLiteral("Listening"));
+    Host host;
+    QVERIFY(host.start(fixture.runtime(), fixture.token()));
+    const auto capabilities = [&host] {
+        return host.call("novaterm_list_sessions").value("data").toObject()
+            .value("sessions").toArray().first().toObject().value("capabilities").toArray();
+    };
 
     QVERIFY(fixture.service.access().setGrant(fixture.client, entry,
         true, {}, false, false, false));
@@ -1123,22 +1357,40 @@ void McpTests::commandAndScriptProductGrantsAreIndependent()
     QVERIFY(!fixture.service.access().canRunCommand(fixture.client, entry));
     QVERIFY(!fixture.service.access().canRunConfirmedCommand(fixture.client, entry));
     QVERIFY(!fixture.service.access().canRunScriptTask(fixture.client, entry));
+    auto advertised = capabilities();
+    QVERIFY(!advertised.contains(QStringLiteral("run_command")));
+    QVERIFY(!advertised.contains(QStringLiteral("run_script")));
 
     QVERIFY(fixture.service.access().setGrant(fixture.client, entry,
         true, {}, true, false, false));
     QVERIFY(fixture.service.access().canRunCommand(fixture.client, entry));
     QVERIFY(!fixture.service.access().canRunConfirmedCommand(fixture.client, entry));
     QVERIFY(!fixture.service.access().canRunScriptTask(fixture.client, entry));
+    advertised = capabilities();
+    QVERIFY(advertised.contains(QStringLiteral("run_command")));
+    QVERIFY(!advertised.contains(QStringLiteral("run_script")));
 
     QVERIFY(fixture.service.access().setGrant(fixture.client, entry,
         true, {}, true, true, false));
     QVERIFY(fixture.service.access().canRunConfirmedCommand(fixture.client, entry));
     QVERIFY(!fixture.service.access().canRunScriptTask(fixture.client, entry));
+    advertised = capabilities();
+    QVERIFY(advertised.contains(QStringLiteral("run_command")));
+    QVERIFY(!advertised.contains(QStringLiteral("run_script")));
 
     QVERIFY(fixture.service.access().setGrant(fixture.client, entry,
         true, {}, true, false, true));
     QVERIFY(!fixture.service.access().canRunConfirmedCommand(fixture.client, entry));
     QVERIFY(fixture.service.access().canRunScriptTask(fixture.client, entry));
+    advertised = capabilities();
+    QVERIFY(advertised.contains(QStringLiteral("run_command")));
+    QVERIFY(advertised.contains(QStringLiteral("run_script")));
+
+    QVERIFY(fixture.service.access().setGrant(fixture.client, entry,
+        true, {}, false, false, true));
+    advertised = capabilities();
+    QVERIFY(!advertised.contains(QStringLiteral("run_command")));
+    QVERIFY(advertised.contains(QStringLiteral("run_script")));
 }
 
 void McpTests::readGrantAloneDoesNotAllowInteractiveCommand()
@@ -1579,6 +1831,34 @@ void McpTests::publishedSnapshotPreservesCaptureTime()
     QCOMPARE(core.publishedContextStatistics().requestCount, before);
 }
 
+void McpTests::readGrantPrewarmsPublishedSnapshotOnlyOnce()
+{
+    const auto previous = qgetenv("NOVATERM_MCP_PUBLISHED_SNAPSHOT");
+    const auto restore = qScopeGuard([previous] {
+        if (previous.isNull()) qunsetenv("NOVATERM_MCP_PUBLISHED_SNAPSHOT");
+        else qputenv("NOVATERM_MCP_PUBLISHED_SNAPSHOT", previous);
+    });
+    qputenv("NOVATERM_MCP_PUBLISHED_SNAPSHOT", "1");
+    Fixture fixture;
+    QVERIFY(fixture.service.access().setEnabled(true));
+    const auto entry = fixture.service.directory().entries().first();
+    QCOMPARE(entry.state, SessionState::Running);
+    const auto before = fixture.core.publishedContextStatistics().requestCount;
+    QVERIFY(fixture.service.access().setGrant(fixture.client, entry, true));
+    QCOMPARE(fixture.core.publishedContextStatistics().requestCount, before + 1);
+    QVERIFY(fixture.service.access().setGrant(fixture.client, entry, true, {}, true, false, true));
+    QCOMPARE(fixture.core.publishedContextStatistics().requestCount, before + 1);
+    QVERIFY(fixture.service.access().setGrant(fixture.client, entry, true));
+    QCOMPARE(fixture.core.publishedContextStatistics().requestCount, before + 1);
+    QVERIFY(fixture.service.access().setGrant(fixture.client, entry, false));
+    QVERIFY(fixture.service.access().setGrant(fixture.client, entry, true));
+    QCOMPARE(fixture.core.publishedContextStatistics().requestCount, before + 2);
+    qputenv("NOVATERM_MCP_PUBLISHED_SNAPSHOT", "0");
+    QVERIFY(fixture.service.access().setGrant(fixture.client, entry, false));
+    QVERIFY(fixture.service.access().setGrant(fixture.client, entry, true));
+    QCOMPARE(fixture.core.publishedContextStatistics().requestCount, before + 2);
+}
+
 void McpTests::sessionInvalidationCompletesPendingExecution()
 {
     Fixture fixture;
@@ -1603,6 +1883,15 @@ void McpTests::sessionInvalidationCompletesPendingExecution()
     host.begin("novaterm_execute_command", arguments);
     QTRY_COMPARE(state->submissions, 1);
 
+    const auto activeTargets = fixture.service.protectedTargets();
+    QCOMPARE(activeTargets.size(), 1);
+    const auto activeFingerprint = activeTargets.begin().key();
+    const auto activeExecutionId = activeTargets.value(activeFingerprint).toObject()
+                                       .value("executionId").toString();
+    QVERIFY(!activeExecutionId.isEmpty());
+    QVERIFY(!fixture.service.acknowledgeTarget(activeFingerprint, activeExecutionId));
+    QCOMPARE(fixture.service.protectedTargets(), activeTargets);
+
     fixture.session.close();
     static_cast<void>(host.next());
 
@@ -1615,7 +1904,10 @@ void McpTests::sessionInvalidationCompletesPendingExecution()
     const auto targets = fixture.service.protectedTargets();
     QCOMPARE(targets.size(), 1);
     const QString fingerprint = targets.begin().key();
-    QVERIFY(fixture.service.acknowledgeTarget(fingerprint));
+    const auto executionId = targets.value(fingerprint).toObject().value("executionId").toString();
+    QVERIFY(!fixture.service.acknowledgeTarget(fingerprint, QStringLiteral("stale-execution")));
+    QCOMPARE(fixture.service.protectedTargets(), targets);
+    QVERIFY(fixture.service.acknowledgeTarget(fingerprint, executionId));
     QVERIFY(fixture.service.protectedTargets().isEmpty());
 }
 
@@ -1954,7 +2246,7 @@ void McpTests::protocolLifecycleAndOversizedInput()
     // Windows/Qt 也可能将其呈现为连接失败；均不得进入工具调度。
     const auto admitted = f.service.statistics().value("http").toObject().value("acceptedRequests");
     host.send({{"jsonrpc", "2.0"}, {"id", 9}, {"method", "ping"},
-        {"params", QJsonObject{{"padding", QString(MaxFrameBytes + 1, QLatin1Char('x'))}}}});
+        {"params", QJsonObject{{"padding", QString(MaxRequestBytes + 1, QLatin1Char('x'))}}}});
     QTRY_VERIFY_WITH_TIMEOUT(!host.hasPendingRequests(), 5000);
     QVERIFY(host.lastHttpStatus == 413
         || (host.lastHttpStatus == 0 && !host.transportError.isEmpty()));
@@ -2641,6 +2933,168 @@ void McpTests::settingsDialogLocalShellFixedDiagnosticsCanBeSelected()
 #else
     QSKIP("Local fixed diagnostics are not available on this platform.");
 #endif
+}
+
+void McpTests::configuredSerialSessionPublishesAndExecutesCommands()
+{
+    QTemporaryDir root;
+    TerminalCore core(80, 24);
+    TerminalSession session(&core);
+    LocalFake transport;
+    RuntimeConfig runtime;
+    runtime.transportKind = TransportKind::Serial;
+    runtime.transport = {
+        {QStringLiteral("portName"), QStringLiteral("fake-serial-only")},
+        {QStringLiteral("interactivePromptPattern"), QStringLiteral("^device> $")},
+        {QStringLiteral("interactiveLineEnding"), QStringLiteral("crlf")},
+        {QStringLiteral("interactiveRemoteEcho"), false}};
+    session.attach(&transport, TerminalSession::Ownership::Borrowed, runtime);
+    QVERIFY(session.start());
+    Service service(root.path() + "/state", root.path() + "/instances",
+                    std::make_unique<MemoryCredentialStore>());
+    service.directory().add(&session);
+    const auto entry = service.directory().entries().first();
+    const auto client = service.access().addClient(QStringLiteral("serial-test"));
+    QVERIFY(service.access().setEnabled(true));
+    QVERIFY(service.access().setGrant(client, entry, true, {}, true));
+    QTRY_COMPARE(service.status(), QStringLiteral("Listening"));
+    Host host;
+    QVERIFY(host.start(root.path() + "/instances",
+                       service.access().exportToken(client).value_or(QByteArray{})));
+    const auto notReady = host.call("novaterm_run_command",
+        QJsonObject{{"sessionId", entry.id}, {"epoch", entry.epoch}, {"command", "uname -srm"}});
+    QCOMPARE(notReady.value("error").toObject().value("code").toString(),
+             QStringLiteral("SESSION_COMMAND_NOT_READY"));
+    QVERIFY(transport.written.isEmpty());
+    emit transport.readyRead(QByteArrayLiteral("device> "));
+    QTRY_VERIFY_WITH_TIMEOUT(session.commandCoordinator()->isPromptReady(), 500);
+    const auto catalog = host.call("novaterm_list_sessions").value("data").toObject()
+        .value("sessions").toArray().first().toObject().value("capabilities").toArray();
+    QVERIFY(catalog.contains(QStringLiteral("run_command")));
+    QVERIFY(!catalog.contains(QStringLiteral("run_script")));
+    const int callId = host.begin("novaterm_run_command",
+        QJsonObject{{"sessionId", entry.id}, {"epoch", entry.epoch}, {"command", "uname -srm"}});
+    QTRY_COMPARE(transport.written, QByteArrayLiteral("uname -srm\r\n"));
+    emit transport.readyRead(QByteArrayLiteral("Linux test\r\ndevice> "));
+    const auto reply = host.next();
+    QCOMPARE(reply.value("id").toInt(), callId);
+    const auto payload = reply.value("result").toObject().value("structuredContent").toObject();
+    QVERIFY(payload.value("ok").toBool());
+    QVERIFY(payload.value("data").toObject().value("stdout").toString().contains(QStringLiteral("Linux test")));
+    QVERIFY(service.access().setGrant(client, entry, true));
+    const auto revoked = host.call("novaterm_run_command",
+        QJsonObject{{"sessionId", entry.id}, {"epoch", entry.epoch}, {"command", "uname -srm"}});
+    QCOMPARE(revoked.value("error").toObject().value("code").toString(),
+             QStringLiteral("COMMAND_PERMISSION_REQUIRED"));
+    QCOMPARE(transport.written, QByteArrayLiteral("uname -srm\r\n"));
+}
+
+void McpTests::settingsDialogUsesTabDisplayTitle()
+{
+    eApp->init();
+    Fixture f;
+    auto& directory = f.service.directory();
+    directory.setDisplayTitle(&f.session, QStringLiteral("本地终端"));
+    const auto before = directory.entries().first();
+    QWidget owner;
+    QPointer<McpSettingsDialog> dialog = new McpSettingsDialog(&f.service, &owner);
+    dialog->show();
+    auto* tree = dialog->findChild<ElaTreeWidget*>();
+    QVERIFY(tree && tree->topLevelItemCount() == 1);
+    QCOMPARE(tree->topLevelItem(0)->text(0), QStringLiteral("本地终端"));
+
+    // Shell 的 OSC 标题不应覆盖标签名称，未上报标题也不再只显示 UUID。
+    emit f.session.titleChanged(QStringLiteral("super@rocket: ~/Documents"));
+    QCOMPARE(directory.entries().first().title, QStringLiteral("本地终端"));
+    directory.setDisplayTitle(&f.session, QStringLiteral("开发终端"));
+    QTRY_COMPARE(tree->topLevelItem(0)->text(0), QStringLiteral("开发终端"));
+    QVERIFY(tree->topLevelItem(0)->toolTip(0).contains(before.id));
+    const auto after = directory.entries().first();
+    QCOMPARE(after.id, before.id);
+    QCOMPARE(after.epoch, before.epoch);
+    QCOMPARE(after.attachmentId, before.attachmentId);
+
+    // 相同名称不反复触发刷新；目录仍保留既有的标题长度上限。
+    const auto revision = directory.revision();
+    directory.setDisplayTitle(&f.session, after.title);
+    QCOMPARE(directory.revision(), revision);
+    directory.setDisplayTitle(&f.session, QString(2048, QLatin1Char('x')));
+    QCOMPARE(directory.entries().first().title.size(), 1024);
+    dialog->close();
+    QTRY_VERIFY(dialog.isNull());
+}
+
+void McpTests::settingsDialogBindsTargetReleaseToExecution()
+{
+    eApp->init();
+    Fixture fixture;
+    TargetGuard guard(fixture.root.path() + "/state/targets");
+    const QString first(64, QLatin1Char('a'));
+    const QString second(64, QLatin1Char('b'));
+    QString error;
+    QVERIFY(guard.reserve(first, "execution-first", "test-instance", error));
+    QVERIFY(guard.reserve(second, "execution-second", "test-instance", error));
+    QWidget owner;
+    QPointer<McpSettingsDialog> dialog = new McpSettingsDialog(&fixture.service, &owner);
+    ElaComboBox* targets{nullptr};
+    for (auto* combo : dialog->findChildren<ElaComboBox*>()) {
+        if (combo->findData(second) >= 0) targets = combo;
+    }
+    QVERIFY(targets);
+    ElaCheckBox* confirmed{nullptr};
+    for (auto* checkbox : dialog->findChildren<ElaCheckBox*>()) {
+        if (checkbox->text() == QStringLiteral("I have checked that the remote command has stopped"))
+            confirmed = checkbox;
+    }
+    QVERIFY(confirmed);
+    QPushButton* release{nullptr};
+    for (auto* button : dialog->findChildren<QPushButton*>()) {
+        if (button->text() == QStringLiteral("Release selected target")) release = button;
+    }
+    QVERIFY(release);
+    const auto refresh = [&fixture, dialog] {
+        emit fixture.service.changed();
+        QCoreApplication::sendPostedEvents(dialog.data(), QEvent::MetaCall);
+    };
+    targets->setCurrentIndex(targets->findData(second));
+    confirmed->setChecked(true);
+    refresh();
+    QCOMPARE(targets->currentData().toString(), second);
+    QVERIFY(confirmed->isChecked());
+
+    targets->setCurrentIndex(targets->findData(first));
+    QVERIFY(!confirmed->isChecked());
+    confirmed->setChecked(true);
+    targets->setCurrentIndex(targets->findData(second));
+    QVERIFY(!confirmed->isChecked());
+
+    confirmed->setChecked(true);
+    QVERIFY(guard.release(second, "execution-second"));
+    QVERIFY(guard.reserve(second, "execution-replaced", "test-instance", error));
+    refresh();
+    QCOMPARE(targets->currentData().toString(), second);
+    QVERIFY(!confirmed->isChecked());
+
+    // The marker may change after the UI refresh but before the user clicks release.
+    confirmed->setChecked(true);
+    QVERIFY(guard.release(second, "execution-replaced"));
+    QVERIFY(guard.reserve(second, "execution-latest", "test-instance", error));
+    release->click();
+    QVERIFY(!confirmed->isChecked());
+    QCOMPARE(guard.markers().value(second).toObject().value("executionId").toString(),
+             QStringLiteral("execution-latest"));
+    QVERIFY(!fixture.service.acknowledgeTarget(second, QString{}));
+
+    refresh();
+    confirmed->setChecked(true);
+    release->click();
+    QVERIFY(!guard.markers().contains(second));
+    QVERIFY(guard.markers().contains(first));
+    refresh();
+    QCOMPARE(targets->currentData().toString(), first);
+    QVERIFY(!confirmed->isChecked());
+    dialog->close();
+    QTRY_VERIFY(dialog.isNull());
 }
 
 void McpTests::settingsDialogRefreshPreservesExpandedSessions()

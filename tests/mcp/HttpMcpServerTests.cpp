@@ -2,6 +2,7 @@
  *  @brief 使用临时 loopback 端口验收 HTTP 分片、边界与生命周期。
  */
 #include "mcp/HttpMcpServer.h"
+#include "mcp/McpProtocol.h"
 #include <QJsonObject>
 #include <QSignalSpy>
 #include <QTcpSocket>
@@ -61,6 +62,8 @@ private slots:
     void responseCreditAndHeaderInjectionAreRejected();
     void socketLimitAndStopWithoutGuiRoundtrip();
     void fullSizeBodyAndRepeatedSmallChunks();
+    void maximumScriptContentFitsRequest_data();
+    void maximumScriptContentFitsRequest();
     void requestFloodWhileGuiBlockedIsBounded();
     void blockedClientOutputEventuallyRejects();
     void rapidStartStopDoesNotNeedGuiEvents();
@@ -358,8 +361,9 @@ void HttpMcpServerTests::fullSizeBodyAndRepeatedSmallChunks()
     const int port = listen(server);
     QVERIFY(port > 0);
     QSignalSpy requests(&server, &HttpMcpServer::request);
-    const QByteArray body = "{\"text\":\"" + QByteArray(2 * 1024 * 1024 - 11, 'a') + "\"}";
-    QCOMPARE(body.size(), 2 * 1024 * 1024);
+    const QByteArray body = "{\"text\":\""
+        + QByteArray(NovaTerm::Mcp::MaxRequestBytes - 11, 'a') + "\"}";
+    QCOMPARE(body.size(), NovaTerm::Mcp::MaxRequestBytes);
     for (bool chunked : {false, true}) {
         QTcpSocket socket;
         socket.connectToHost("127.0.0.1", quint16(port));
@@ -368,7 +372,7 @@ void HttpMcpServerTests::fullSizeBodyAndRepeatedSmallChunks()
         QByteArray headers;
         if (chunked) {
             headers = "Transfer-Encoding: chunked\r\n";
-            // 大正文用少量块；过密分块的原始报文仍受 2 MiB + 16 KiB 限额。
+            // 大正文用少量块；原始报文仍受请求正文及16KiB framing 总额度约束。
             for (int start = 0; start < body.size(); start += 65536) {
                 const auto chunk = body.mid(start, 65536);
                 framing += QByteArray::number(chunk.size(), 16) + ";tag=ok\r\n" + chunk + "\r\n";
@@ -381,10 +385,52 @@ void HttpMcpServerTests::fullSizeBodyAndRepeatedSmallChunks()
         socket.write(getRequest(port, "POST", headers) + framing); socket.flush();
         QTRY_COMPARE_WITH_TIMEOUT(requests.size(), 1, 5000);
         QCOMPARE(requests.first().at(1).toJsonObject().value("message").toObject()
-            .value("text").toString().size(), 2 * 1024 * 1024 - 11);
+            .value("text").toString().size(), NovaTerm::Mcp::MaxRequestBytes - 11);
         QVERIFY(server.respond(requests.takeFirst().at(0).toString(), 202));
         QVERIFY(collect(socket).startsWith("HTTP/1.1 202 "));
     }
+}
+
+void HttpMcpServerTests::maximumScriptContentFitsRequest_data()
+{
+    QTest::addColumn<QString>("content");
+    QTest::newRow("ascii") << QString(2 * 1024 * 1024, QLatin1Char('x'));
+    QTest::newRow("six-byte-json-escape") << QString(2 * 1024 * 1024, QChar(1));
+    QTest::newRow("utf8") << QString(1024 * 1024, QChar(0x00e9));
+}
+
+void HttpMcpServerTests::maximumScriptContentFitsRequest()
+{
+    QFETCH(QString, content);
+    using namespace NovaTerm::Mcp;
+    QCOMPARE(content.toUtf8().size(), MaxScriptBytes);
+    const QJsonObject arguments{{"sessionId", "11111111-1111-1111-1111-111111111111"},
+        {"epoch", "epoch"}, {"scriptContent", content}, {"targetPath", "/tmp/script.sh"},
+        {"workingDirectory", "/tmp"}, {"invocation", "sh /tmp/script.sh"}};
+    QVERIFY(validateArguments("novaterm_run_script", arguments).isEmpty());
+    const QByteArray body = QJsonDocument(QJsonObject{{"jsonrpc", "2.0"}, {"id", 1},
+        {"method", "tools/call"}, {"params", QJsonObject{{"name", "novaterm_run_script"},
+        {"arguments", arguments}}}}).toJson(QJsonDocument::Compact);
+    QVERIFY(body.size() > MaxFrameBytes);
+    HttpMcpServer server;
+    const int port = listen(server);
+    QVERIFY(port > 0);
+    QSignalSpy requests(&server, &HttpMcpServer::request);
+    QTcpSocket socket;
+    socket.connectToHost("127.0.0.1", quint16(port));
+    QVERIFY(socket.waitForConnected());
+    socket.write(getRequest(port, "POST", "Content-Length: "
+        + QByteArray::number(body.size()) + "\r\n") + body);
+    socket.flush();
+    QTRY_VERIFY_WITH_TIMEOUT(requests.size() == 1
+        || socket.state() == QAbstractSocket::UnconnectedState, 5000);
+    QCOMPARE(requests.size(), 1);
+    QCOMPARE(requests.first().at(1).toJsonObject().value("message").toObject()
+        .value("params").toObject().value("arguments").toObject()
+        .value("scriptContent").toString(), content);
+    QVERIFY(server.respond(requests.first().at(0).toString(), 202));
+    QVERIFY(collect(socket).startsWith("HTTP/1.1 202 "));
+    QTRY_COMPARE(server.statistics().value("inputBytes").toInt(), 0);
 }
 
 void HttpMcpServerTests::requestFloodWhileGuiBlockedIsBounded()
@@ -467,19 +513,20 @@ void HttpMcpServerTests::rejectsMalformedHttp_data()
     QTest::newRow("conflicting-framing") << QByteArray("Host: @HOST@\r\nContent-Length: 0\r\nTransfer-Encoding: chunked\r\n") << QByteArray() << 400;
     QTest::newRow("negative-length") << QByteArray("Host: @HOST@\r\nContent-Length: -1\r\n") << QByteArray() << 400;
     QTest::newRow("overflow-length") << QByteArray("Host: @HOST@\r\nContent-Length: 184467440737095516160\r\n") << QByteArray() << 400;
-    QTest::newRow("body-too-large") << QByteArray("Host: @HOST@\r\nContent-Length: 2097153\r\n") << QByteArray() << 413;
+    const auto oversizedLength = QByteArray::number(NovaTerm::Mcp::MaxRequestBytes + 1);
+    QTest::newRow("body-too-large") << QByteArray("Host: @HOST@\r\nContent-Length: ") + oversizedLength + "\r\n" << QByteArray() << 413;
     QTest::newRow("header-too-large") << QByteArray("Host: @HOST@\r\nX-Fill: ") + QByteArray(17000, 'a') + "\r\n" << QByteArray() << 431;
     QTest::newRow("folded-header") << QByteArray("Host: @HOST@\r\n X-Foo: a\r\n") << QByteArray() << 400;
     QTest::newRow("length-list") << QByteArray("Host: @HOST@\r\nContent-Length: 0, 0\r\n") << QByteArray() << 400;
     QTest::newRow("unsupported-coding") << QByteArray("Host: @HOST@\r\nTransfer-Encoding: gzip, chunked\r\n") << QByteArray() << 400;
     QTest::newRow("bad-chunk-size") << QByteArray("Host: @HOST@\r\nTransfer-Encoding: chunked\r\n") << QByteArray("-1\r\n") << 400;
-    QTest::newRow("too-large-chunk") << QByteArray("Host: @HOST@\r\nTransfer-Encoding: chunked\r\n") << QByteArray("200001\r\n") << 413;
+    QTest::newRow("too-large-chunk") << QByteArray("Host: @HOST@\r\nTransfer-Encoding: chunked\r\n") << QByteArray::number(NovaTerm::Mcp::MaxRequestBytes + 1, 16) + "\r\n" << 413;
     QTest::newRow("bad-chunk-crlf") << QByteArray("Host: @HOST@\r\nTransfer-Encoding: chunked\r\n") << QByteArray("2\r\n{}xx") << 400;
     QTest::newRow("framing-trailer") << QByteArray("Host: @HOST@\r\nTransfer-Encoding: chunked\r\n") << QByteArray("0\r\nContent-Length: 0\r\n\r\n") << 400;
     QTest::newRow("unknown-expectation") << QByteArray("Host: @HOST@\r\nContent-Length: 10\r\nExpect: other\r\n") << QByteArray() << 417;
     QTest::newRow("expect-bad-host") << QByteArray("Host: evil.invalid\r\nContent-Length: 10\r\nExpect: 100-continue\r\n") << QByteArray() << 400;
     QTest::newRow("expect-bad-origin") << QByteArray("Host: @HOST@\r\nOrigin: null\r\nContent-Length: 10\r\nExpect: 100-continue\r\n") << QByteArray() << 403;
-    QTest::newRow("expect-body-too-large") << QByteArray("Host: @HOST@\r\nContent-Length: 2097153\r\nExpect: 100-continue\r\n") << QByteArray() << 413;
+    QTest::newRow("expect-body-too-large") << QByteArray("Host: @HOST@\r\nContent-Length: ") + oversizedLength + "\r\nExpect: 100-continue\r\n" << QByteArray() << 413;
 }
 
 void HttpMcpServerTests::rejectsMalformedHttp()

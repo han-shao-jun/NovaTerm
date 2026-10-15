@@ -33,6 +33,8 @@ private:
     ElaPlainTextEdit* _details{nullptr};
     ElaComboBox* _targets{nullptr};
     ElaCheckBox* _confirmedStopped{nullptr};
+    QString _confirmedFingerprint;
+    QString _confirmedExecutionId;
     QHash<QString, QJsonObject> _recordData;
     bool _refreshing{false};
 };

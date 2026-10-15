@@ -100,6 +100,9 @@ private:
     ElaLineEdit* _serialLabel{nullptr};
     ElaLineEdit* _serialReconnectTime{nullptr};
     ElaCheckBox* _serialLfImpliesCr{nullptr};
+    ElaLineEdit* _serialPromptPattern{nullptr};
+    ElaComboBox* _serialCommandLineEnding{nullptr};
+    ElaCheckBox* _serialRemoteEcho{nullptr};
 
 
     ElaLineEdit* _telnetIp{nullptr};

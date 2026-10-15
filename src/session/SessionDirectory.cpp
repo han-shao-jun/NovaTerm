@@ -110,16 +110,20 @@ void SessionDirectory::add(TerminalSession* session)
     connect(session, &TerminalSession::stateChanged, this, [this, session] { refresh(session); });
     connect(session, &TerminalSession::connected, this, [this, session] { refresh(session); });
     connect(session, &TerminalSession::disconnected, this, [this, session] { refresh(session); });
-    connect(session, &TerminalSession::titleChanged, this, [this, session](const QString& title) {
-        auto it = _entries.find(session);
-        if (it != _entries.end() && it->title != title) {
-            it->title = title.left(1024);
-            ++_revision;
-            emit changed();
-        }
-    });
     connect(session, &QObject::destroyed, this, [this, session] { remove(session); });
     refresh(session);
+    ++_revision;
+    emit changed();
+}
+
+void SessionDirectory::setDisplayTitle(TerminalSession* session, const QString& title)
+{
+    Q_ASSERT(QThread::currentThread() == thread());
+    auto it = _entries.find(session);
+    const QString boundedTitle = title.left(1024);
+    if (it == _entries.end() || it->title == boundedTitle)
+        return;
+    it->title = boundedTitle;
     ++_revision;
     emit changed();
 }

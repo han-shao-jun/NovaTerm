@@ -28,6 +28,8 @@ public:
     };
     explicit SessionDirectory(QObject* parent = nullptr);
     void add(TerminalSession* session);
+    /** @brief 同步主界面标签名称；Shell 动态标题不覆盖此名称，不改变会话身份。 */
+    void setDisplayTitle(TerminalSession* session, const QString& title);
     void remove(TerminalSession* session);
     [[nodiscard]] QList<Entry> entries();
     [[nodiscard]] std::optional<Entry> find(const QString& id);

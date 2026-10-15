@@ -9,7 +9,6 @@
 #include <QDir>
 #include <QJsonDocument>
 #include <QJsonObject>
-#include <QJsonDocument>
 
 SshSessionScriptProvider::SshSessionScriptProvider(SshTransport* transport,
                                                    QObject* parent)
@@ -37,15 +36,13 @@ SshSessionScriptProvider::SshSessionScriptProvider(SshTransport* transport,
                const QString& errorCode) {
             if (!_activeRequest || _activeRequest->requestId != requestId)
                 return;
-            if (!activeIdentityMatches()) {
-                finishWrite(false, QStringLiteral("SCRIPT_TARGET_SESSION_CHANGED"));
-                return;
-            }
+            // 上传结果属于原目标；身份改变不能抹去已经发生的发布事实。
+            // 后续能否调用脚本由 Service 按原 task 的 epoch/目标重新核验。
             finishWrite(success, errorCode);
         });
     connect(&_sftp, &SftpSession::errorOccurred, this,
         [this](const QString&) {
-            if (!_activeRequest)
+            if (!_activeRequest || _uploadStarted)
                 return;
             finishWrite(false, _cancelled
                 ? QStringLiteral("SCRIPT_UPLOAD_CANCELLED")
@@ -77,8 +74,9 @@ bool SshSessionScriptProvider::isAvailable() const
 QString SshSessionScriptProvider::resolveRemotePath(
     const ScriptWriteRequest& request)
 {
-    const QString target = request.targetPath.trimmed();
-    const QString directory = request.workingDirectory.trimmed();
+    // Preserve the exact path that the Service confirmed and locked.
+    const QString& target = request.targetPath;
+    const QString& directory = request.workingDirectory;
     if (target.isEmpty() || directory.isEmpty()
         || target.contains(QChar::Null) || directory.contains(QChar::Null)) {
         return {};

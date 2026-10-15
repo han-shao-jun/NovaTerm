@@ -1221,6 +1221,30 @@ Termination confirmed: %3
 <context>
     <name>SessionPage</name>
     <message>
+        <source>MCP command prompt (regex)</source>
+        <translation>MCP 命令提示符（正则）</translation>
+    </message>
+    <message>
+        <source>Leave empty to disable MCP commands</source>
+        <translation>留空禁用 MCP 交互命令</translation>
+    </message>
+    <message>
+        <source>Match the device's idle prompt, for example ^device&gt; $. Commands also require separate MCP permission.</source>
+        <translation>匹配设备空闲时的提示符，例如 ^device&gt; $。命令还需单独授予 MCP 权限。</translation>
+    </message>
+    <message>
+        <source>MCP command line ending</source>
+        <translation>MCP 命令行结束符</translation>
+    </message>
+    <message>
+        <source>Device echoes command input</source>
+        <translation>设备回显命令输入</translation>
+    </message>
+    <message>
+        <source>Provide a valid MCP prompt regular expression, or leave it empty to disable commands.</source>
+        <translation>请输入有效的 MCP 提示符正则表达式，或留空禁用命令。</translation>
+    </message>
+    <message>
         <location filename="../../src/ui/pages/SessionPage.cpp" line="70"/>
         <source>Session</source>
         <translation>会话</translation>

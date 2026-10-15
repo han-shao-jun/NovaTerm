@@ -473,8 +473,21 @@ void TerminalView::startLocalShell(const LocalShellConfig& config)
     const int savedHistorySize = TerminalCore::UnlimitedScrollbackLines;
     _core->setScrollbackLimit(0);
 
+    // 每次启动都使用本次 Shell 的配置，避免复用标签时继承旧目标的提示符。
+    RuntimeConfig runtime;
+    runtime.transportKind = TransportKind::LocalShell;
+    runtime.title = config.profile.name;
+    runtime.transport = {
+        {QStringLiteral("executable"), config.profile.executable},
+        {QStringLiteral("arguments"), config.profile.arguments},
+        {QStringLiteral("workingDirectory"), config.effectiveWorkingDirectory()},
+        {QStringLiteral("interactiveShellKind"), config.profile.interactiveShellKind}};
+    if (config.profile.interactiveShellKind == QStringLiteral("cmd")) {
+        runtime.transport.insert(QStringLiteral("interactiveHookReady"),
+            config.profile.environment.contains(QStringLiteral("CLINK_PATH")));
+    }
     // 通过统一的 ITransport 路径桥接
-    if (!attachTransport(transport)) {
+    if (!attachTransport(transport, false, &runtime)) {
         // attach 失败：transport 无 parent、未被 session adopt，
         // 所有权仍在本地 —— 必须在此回收，否则泄漏且 _localTransport
         // 会指向野指针。
@@ -516,7 +529,8 @@ void TerminalView::stopLocalShell()
 //  远程终端模式 — ITransport 数据桥接
 // ═══════════════════════════════════════════════════════════════════
 
-bool TerminalView::attachTransport(ITransport* transport, bool lfImpliesCr)
+bool TerminalView::attachTransport(ITransport* transport, bool lfImpliesCr,
+                                   const RuntimeConfig* runtime)
 {
     detachTransport();
     if (!transport)
@@ -537,8 +551,15 @@ bool TerminalView::attachTransport(ITransport* transport, bool lfImpliesCr)
     // libvterm 无需 "teletype" 模式 — 它本身不内置 PTY，
     // 所有 I/O 都通过回调/API 驱动。
 
-    _session->attach(transport, TerminalSession::Ownership::Adopt,
-                     transportKindOf(transport));
+    if (runtime) {
+        auto config = *runtime;
+        config.transportKind = transportKindOf(transport);
+        _session->attach(transport, TerminalSession::Ownership::Adopt,
+                         std::move(config));
+    } else {
+        _session->attach(transport, TerminalSession::Ownership::Adopt,
+                         transportKindOf(transport));
+    }
     _displayTransport = transport;
 
     // SSH 在打开 channel 前需要正确的 PTY 尺寸；Serial/Local 对 resize

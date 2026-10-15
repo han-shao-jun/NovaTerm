@@ -29,6 +29,7 @@
 #include <QPainter>
 #include <QStyledItemDelegate>
 #include <QStandardPaths>
+#include <QFileInfo>
 #include <QTreeWidget>
 #include <QTreeWidgetItemIterator>
 #include <QVBoxLayout>
@@ -278,6 +279,9 @@ RuntimeConfig serialRuntime(const SerialConfig& config)
         {QStringLiteral("flowControl"), static_cast<int>(config.flowControl)},
         {QStringLiteral("reconnectSeconds"), config.reconnectSeconds},
         {QStringLiteral("lfImpliesCr"), config.lfImpliesCr},
+        {QStringLiteral("interactivePromptPattern"), config.interactivePromptPattern},
+        {QStringLiteral("interactiveLineEnding"), config.interactiveLineEnding},
+        {QStringLiteral("interactiveRemoteEcho"), config.interactiveRemoteEcho},
         {QStringLiteral("label"), config.label}};
     runtime.title = sessionName(runtime);
     return runtime;
@@ -324,12 +328,15 @@ QByteArray sshSecret(const SshConfig& config)
 
 } // namespace
 
-SessionPanel::SessionPanel(QWidget* parent)
+SessionPanel::SessionPanel(QWidget* parent, const QString& historyPath)
     : QWidget(parent), _credentials(createCredentialStore())
 {
-    QDir dataDirectory(QStandardPaths::writableLocation(QStandardPaths::AppDataLocation));
+    QDir dataDirectory(historyPath.isEmpty()
+        ? QStandardPaths::writableLocation(QStandardPaths::AppDataLocation)
+        : QFileInfo(historyPath).absolutePath());
     dataDirectory.mkpath(QStringLiteral("."));
-    _store = std::make_unique<SessionStore>(dataDirectory.filePath(QStringLiteral("session-history.json")));
+    _store = std::make_unique<SessionStore>(historyPath.isEmpty()
+        ? dataDirectory.filePath(QStringLiteral("session-history.json")) : historyPath);
     _entries = _store->load();
     bool historyNamesChanged = false;
     for (SessionRestoreMetadata& entry : _entries) {
@@ -874,6 +881,9 @@ void SessionPanel::reconnectSession(const SessionId& id)
             values.value(QStringLiteral("flowControl")).toInt());
         config.reconnectSeconds = values.value(QStringLiteral("reconnectSeconds"), 0).toInt();
         config.lfImpliesCr = values.value(QStringLiteral("lfImpliesCr"), false).toBool();
+        config.interactivePromptPattern = values.value(QStringLiteral("interactivePromptPattern")).toString();
+        config.interactiveLineEnding = values.value(QStringLiteral("interactiveLineEnding"), QStringLiteral("cr")).toString();
+        config.interactiveRemoteEcho = values.value(QStringLiteral("interactiveRemoteEcho"), true).toBool();
         config.label = values.value(QStringLiteral("label")).toString();
         if (config.isValid())
             emit serialReconnectRequested(config);

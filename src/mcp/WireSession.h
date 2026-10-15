@@ -3,6 +3,7 @@
 #include <QByteArray>
 #include <QJsonObject>
 #include <QObject>
+#include <functional>
 #include <memory>
 namespace NovaTerm::Mcp
 {
@@ -10,7 +11,9 @@ class WireSession final : public QObject
 {
     Q_OBJECT
 public:
-    explicit WireSession(QString wirePrefix = {}, QObject *parent = nullptr);
+    /** @brief 可注入与会话同生命周期的单调毫秒时钟；默认使用 QElapsedTimer。 */
+    explicit WireSession(QString wirePrefix = {}, QObject *parent = nullptr,
+                         std::function<qint64()> monotonicClock = {});
     ~WireSession() override;
     void receiveBytes(QByteArray bytes, QString route = {});
     void receiveMessage(QJsonObject message, QString route = {});

@@ -28,6 +28,82 @@ class WireSessionTests final : public QObject
 {
     Q_OBJECT
 private slots:
+    void lateConfirmationLeavesFullExecutionBudget_data()
+    {
+        QTest::addColumn<QString>("tool");
+        QTest::addColumn<qint64>("completionTime");
+        QTest::addColumn<qint64>("expiryTime");
+        QTest::newRow("command-30s-after-55s-confirmation")
+            << QString("novaterm_run_command") << qint64(85000) << qint64(95001);
+        QTest::newRow("script-confirmation-upload-and-execution")
+            << QString("novaterm_run_script") << qint64(205000) << qint64(215001);
+    }
+    void lateConfirmationLeavesFullExecutionBudget()
+    {
+        QFETCH(QString, tool);
+        QFETCH(qint64, completionTime);
+        QFETCH(qint64, expiryTime);
+        qint64 elapsed = 0;
+        WireSession wire({}, nullptr, [&elapsed] { return elapsed; });
+        auto init = initialize();
+        auto params = init.value("params").toObject();
+        params.insert("capabilities", QJsonObject{{"elicitation",
+            QJsonObject{{"form", QJsonObject{}}}}});
+        init.insert("params", params);
+        wire.receiveMessage(init);
+        wire.receiveMessage({{"jsonrpc", "2.0"}, {"method", "notifications/initialized"}});
+        wire.setBackendAvailable(true);
+        QSignalSpy backend(&wire, &WireSession::backendMessage);
+        QSignalSpy packets(&wire, &WireSession::packet);
+        QJsonObject arguments{{"sessionId", "11111111-1111-1111-1111-111111111111"},
+            {"epoch", "epoch"}, {"timeoutMs", 30000}};
+        if (tool == "novaterm_run_script") {
+            arguments.insert("scriptContent", "echo hello");
+            arguments.insert("targetPath", "/tmp/script.sh");
+            arguments.insert("workingDirectory", "/tmp");
+            arguments.insert("invocation", "sh /tmp/script.sh");
+        } else
+            arguments.insert("command", "echo hello");
+        wire.receiveMessage({{"jsonrpc", "2.0"}, {"id", 2}, {"method", "tools/call"},
+            {"params", QJsonObject{{"name", tool}, {"arguments", arguments}}}}, "execute");
+        QCOMPARE(backend.size(), 1);
+        const auto id = backend.first().at(0).toJsonObject().value("id");
+        wire.receiveBackend({{"op", "elicitation"}, {"id", id}, {"message", "Confirm execution"}});
+        QCOMPARE(packets.size(), 1);
+        const auto confirmation = QJsonDocument::fromJson(packets.takeFirst().at(1).toByteArray()).object();
+        elapsed = 55000;
+        wire.receiveMessage({{"jsonrpc", "2.0"}, {"id", confirmation.value("id")},
+            {"result", QJsonObject{{"action", "accept"},
+                {"content", QJsonObject{{"confirmed", true}}}}}});
+        QCOMPARE(backend.last().at(0).toJsonObject().value("op").toString(), QString("elicitation_result"));
+        elapsed = completionTime;
+        // 只等待100ms扫描器一次唤醒；55秒确认及120秒上传由单调时钟推进。
+        QTest::qWait(150);
+        QVERIFY2(wire.hasPendingCalls(), "Wire deadline cancelled an operation within its phase budgets");
+        QVERIFY(packets.isEmpty());
+        // 时钟扫描确实生效，且总预算耗尽时仍会取消，不能靠停用扫描器通过回归。
+        elapsed = expiryTime;
+        QTRY_VERIFY_WITH_TIMEOUT(!wire.hasPendingCalls(), 1000);
+        QCOMPARE(packets.size(), 1);
+        QCOMPARE(backend.last().at(0).toJsonObject().value("op").toString(), QString("cancel"));
+        const auto expired = QJsonDocument::fromJson(packets.takeFirst().at(1).toByteArray()).object()
+            .value("result").toObject().value("structuredContent").toObject();
+        QCOMPARE(expired.value("error").toObject().value("code").toString(),
+            QString("COMMAND_OUTCOME_UNKNOWN"));
+        // 下次请求在完整预算内收到实际结果，仍正常完成。
+        wire.receiveMessage({{"jsonrpc", "2.0"}, {"id", 3}, {"method", "tools/call"},
+            {"params", QJsonObject{{"name", tool}, {"arguments", arguments}}}}, "next-execute");
+        const auto nextId = backend.last().at(0).toJsonObject().value("id");
+        elapsed += completionTime;
+        QTest::qWait(150);
+        QVERIFY(wire.hasPendingCalls());
+        wire.receiveBackend({{"op", "result"}, {"id", nextId}, {"payload", success({{"done", true}})}});
+        QCOMPARE(packets.size(), 1);
+        QVERIFY(!wire.hasPendingCalls());
+        const auto result = QJsonDocument::fromJson(packets.first().at(1).toByteArray()).object()
+            .value("result").toObject().value("structuredContent").toObject();
+        QVERIFY(result.value("ok").toBool());
+    }
     void packetCarriesEncodedJsonAndErrorMetadata()
     {
         WireSession wire;
@@ -41,6 +117,45 @@ private slots:
         QCOMPARE(packet.at(0).toString(), QString("invalid-message"));
         QCOMPARE(packet.at(3).toInt(), -32600);
         QVERIFY(packet.at(2).toBool());
+    }
+    void largestEscapedScriptReachesBackend()
+    {
+        WireSession wire;
+        ready(wire);
+        QSignalSpy backend(&wire, &WireSession::backendMessage);
+        QSignalSpy packets(&wire, &WireSession::packet);
+        const QString content(MaxScriptBytes, QChar(1));
+        const QJsonObject arguments{{"sessionId", "11111111-1111-1111-1111-111111111111"},
+            {"epoch", "epoch"}, {"scriptContent", content}, {"targetPath", "/tmp/script.sh"},
+            {"workingDirectory", "/tmp"}, {"invocation", "sh /tmp/script.sh"}};
+        const auto message = QJsonObject{{"jsonrpc", "2.0"}, {"id", 22}, {"method", "tools/call"},
+            {"params", QJsonObject{{"name", "novaterm_run_script"}, {"arguments", arguments}}}};
+        const auto bytes = QJsonDocument(message).toJson(QJsonDocument::Compact);
+        QVERIFY(bytes.size() > MaxFrameBytes);
+        QVERIFY(bytes.size() <= MaxRequestBytes);
+        wire.receiveBytes(bytes, "large-script");
+        QCOMPARE(backend.size(), 1);
+        QCOMPARE(backend.first().at(0).toJsonObject().value("arguments").toObject()
+            .value("scriptContent").toString(), content);
+        QVERIFY(packets.isEmpty());
+    }
+    void oversizedRequestsAreRejectedBeforeDispatch()
+    {
+        WireSession wire;
+        ready(wire);
+        QSignalSpy backend(&wire, &WireSession::backendMessage);
+        QSignalSpy packets(&wire, &WireSession::packet);
+        wire.receiveBytes(QByteArray(MaxRequestBytes + 1, 'x'), "too-large-bytes");
+        QCOMPARE(packets.size(), 1);
+        QCOMPARE(packets.last().at(0).toString(), QString("too-large-bytes"));
+        QCOMPARE(packets.last().at(3).toInt(), -32600);
+        wire.receiveMessage({{"jsonrpc", "2.0"}, {"id", 23}, {"method", "ping"},
+            {"params", QJsonObject{{"padding", QString(MaxRequestBytes, QLatin1Char('x'))}}}},
+            "too-large-object");
+        QCOMPARE(packets.size(), 2);
+        QCOMPARE(packets.last().at(0).toString(), QString("too-large-object"));
+        QCOMPARE(packets.last().at(3).toInt(), -32600);
+        QVERIFY(backend.isEmpty());
     }
     void encodedResultPreservesUnicodeAndOutputLimit()
     {

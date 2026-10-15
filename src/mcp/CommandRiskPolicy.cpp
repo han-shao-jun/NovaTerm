@@ -11,7 +11,7 @@
 #include <utility>
 
 namespace {
-const QString RiskPolicyVersion = QStringLiteral("interactive-risk-v4");
+const QString RiskPolicyVersion = QStringLiteral("interactive-risk-v5");
 
 RiskAssessment assessment(RiskDecision decision, QString reason)
 {
@@ -20,7 +20,7 @@ RiskAssessment assessment(RiskDecision decision, QString reason)
 
 bool hasForbiddenControl(const QString& value)
 {
-    for (const QChar character : value) {
+    for (const QChar& character : value) {
         if (character.category() == QChar::Other_Control
             && character != QLatin1Char('\n')
             && character != QLatin1Char('\r')
@@ -49,14 +49,23 @@ bool hasCompoundSyntax(const QString& command)
 
 RiskAssessment CommandRiskPolicy::classify(QStringView command) const
 {
-    const QString text = command.toString().trimmed();
-    if (text.isEmpty() || hasForbiddenControl(text))
+    const QString text = command.toString();
+    if (text.trimmed().isEmpty() || hasForbiddenControl(text))
         return assessment(RiskDecision::Unknown,
                           QStringLiteral("invalid_or_empty_command"));
     if (containsForbiddenFamily(text))
         return assessment(RiskDecision::Deny,
                           QStringLiteral("forbidden_command_family"));
     if (hasCompoundSyntax(text))
+        return assessment(RiskDecision::Confirm,
+                          QStringLiteral("compound_or_dynamic_shell"));
+
+    // Allow only literal ASCII words and shell separators that cannot expand.
+    // In particular, Zsh =(...) is executable substitution even without '$'.
+    // Check before simplified(): Unicode whitespace is not a shell separator.
+    static const QRegularExpression literalCharacters(
+        QStringLiteral(R"(\A[A-Za-z0-9_./ \t-]+\z)"));
+    if (!literalCharacters.match(text).hasMatch())
         return assessment(RiskDecision::Confirm,
                           QStringLiteral("compound_or_dynamic_shell"));
 
@@ -75,7 +84,7 @@ RiskAssessment CommandRiskPolicy::classify(QStringView command) const
         return assessment(RiskDecision::Allow,
                           QStringLiteral("strict_read_only_template"));
     static const QRegularExpression lowRiskList(
-        QStringLiteral(R"(^ls(?:\s+-[lahtrS1]+)?(?:\s+\S+)?$)"));
+        QStringLiteral(R"(\Als(?: -[lahtrS1]+)?(?: [A-Za-z0-9_./][A-Za-z0-9_./-]*)?\z)"));
     if (lowRiskList.match(normalized).hasMatch()) {
         return assessment(RiskDecision::Allow,
                           QStringLiteral("simple_low_risk_shell"));

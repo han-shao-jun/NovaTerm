@@ -24,6 +24,7 @@ public:
     void cancelWrite(quint64 requestId) override;
 
 private:
+    friend class CommandSafetyTests;
     [[nodiscard]] static QString resolveRemotePath(
         const ScriptWriteRequest& request);
     [[nodiscard]] static QByteArray identityDigest(const SshConfig& config);

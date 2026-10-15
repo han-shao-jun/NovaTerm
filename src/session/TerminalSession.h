@@ -138,6 +138,13 @@ public:
      */
     void attach(ITransport* transport, Ownership ownership,
                 TransportKind transportKind);
+    /**
+     * @brief 换绑时应用独立运行配置，再装配输入泵与交互 Profile。
+     * @param transport 新传输层，同一指针重复附加时保持幂等。
+     * @param ownership 所有权模式。
+     * @param config 按值保存的配置，不继承旧目标的提示符及端点参数。
+     */
+    void attach(ITransport* transport, Ownership ownership, RuntimeConfig config);
 
     /**
      * @brief 重置会话以复用（在到达 Closed 后开启新逻辑连接）。

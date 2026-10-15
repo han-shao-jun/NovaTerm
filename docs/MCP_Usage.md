@@ -168,10 +168,15 @@ TUI、密码输入或未提交的 Shell 输入，命令可能落入这些位置�
 
 - 相同 commandTicket 的重试只查询已有记录，不会再发一次命令。
 - 固定诊断最多等待 5 秒；交互命令与脚本调用的超时由工具参数限定，最多 30 秒。
+  人工确认的 60 秒和脚本上传的 120 秒分别计时，不扣减批准后的执行预算；
+  HTTP 客户端总等待时间需覆盖这些阶段及网络余量。
   stdout/stderr 的原始字节及最终 UTF-8 文本合计最多 64 KiB。超时、断线或关闭通道
   不能证明远端命令已经终止；不确定结果不得自动重跑。
 - 无法确认终止时暂停该目标的新 MCP 命令；换标签、重连或重启 GUI 不会自动清除。
   在服务端人工核对后，可在 MCP 设置中勾选确认并解除所选目标。此操作不能解禁危险命令。
+- 脚本上传取消、撤权或断线后，目标事务保留到写入后端明确回报；活动上传不能
+  手工提前解除。若文件已发布但脚本未调用，执行记录明确保留该事实；发布结果
+  未知则保持目标暂停，不自动重试上传或运行。
 - 授权上下文失效、会话结束或应用重启后，旧票据不能在新上下文使用。请在 NovaTerm 界面核对旧记录，
   不要让客户端获取新票据自动补跑。
 - 撤销读取、固定诊断或脚本任务的授权会使相应在途请求与确认状态失效。移除
@@ -182,16 +187,34 @@ TUI、密码输入或未提交的 Shell 输入，命令可能落入这些位置�
 
 ## 构建与验证
 
+脚本原文最多 2 MiB（UTF-8）；编码后 HTTP JSON 请求最多 12 MiB + 256 KiB，
+用于容纳最坏的字符串转义和其余有界参数。响应仍最多 2 MiB，不随请求上限增大。
+
+### 串口交互命令配置
+
+编辑串口会话，在「MCP 命令提示符（正则）」填写设备空闲提示符的匹配规则，
+如实际提示符为 `device> `，填写 `^device> $`。按设备要求选择 CR、LF 或 CRLF，
+并设置设备是否回显输入。规则留空默认禁用，保存后随该会话重新连接生效。
+设备输出匹配提示符且经过静默窗口后，在「AI MCP 接入」对所需客户端单独勾选
+该会话的「交互命令」。仅共享读取输出不会授予执行权限。
+
+串口命令走当前终端的唯一输入通路；不额外探测设备、不自动发送测试命令。
+匹配到新提示符用于判断事务收尾，不保证设备支持 POSIX 命令或提供退出码。
+串口当前没有脚本写入后端，也没有内置固定诊断模板。
+
+### 自动化检查
+
 主程序运行不需要 Python，也不依赖额外的模型 SDK。
 
-Windows 默认注册项暂为 26（新增 wire、HTTP I/O、HTTP endpoint 三项）；Linux
-按条件预计 24 项，尚未实跑核对。注册数以配置后的 `ctest -N` 为准，不代表全部通过。
+Linux 已核对默认注册 26 项，Windows 按条件预计 28 项，含新增命令/路径与 SFTP
+安全回归。2026-10-16 Linux Debug 全套 26/26 通过（173.64 秒）。
+注册数仍以配置后的 `ctest -N` 为准，历史成绩不代表其他机器或新改动也已通过。
 
 ```powershell
-cmake --build build/Release --target NovaTerm novaterm-local-diag novaterm_mcp_tests novaterm_mcp_wire_tests novaterm_mcp_http_tests novaterm_mcp_endpoint_tests
+cmake --build build/Release --target NovaTerm novaterm-local-diag novaterm_mcp_tests novaterm_mcp_wire_tests novaterm_mcp_http_tests novaterm_mcp_endpoint_tests novaterm_sftp_session_safety_tests novaterm_command_safety_tests
 $env:Path = 'C:\Programs\Qt\6.8.3\msvc2022_64\bin;' + $env:Path
 $env:QT_PLUGIN_PATH = 'C:\Programs\Qt\6.8.3\msvc2022_64\plugins'
-ctest --test-dir build/Release -C Release -R '^novaterm_mcp_(wire_|http_|endpoint_)?tests$' --output-on-failure
+ctest --test-dir build/Release -C Release -L mcp --output-on-failure
 ```
 
 官方 SDK 与回环 SSH 验证是可选开发检查，依赖只装到构建目录：

@@ -143,6 +143,14 @@ void TerminalSession::attach(ITransport* transport, Ownership ownership)
 void TerminalSession::attach(ITransport* transport, Ownership ownership,
                              TransportKind transportKind)
 {
+    auto config = _config;
+    config.transportKind = transportKind;
+    attach(transport, ownership, std::move(config));
+}
+
+void TerminalSession::attach(ITransport* transport, Ownership ownership,
+                             RuntimeConfig config)
+{
     if (_transport == transport)
         return;
     clearAttachment(true);
@@ -151,7 +159,7 @@ void TerminalSession::attach(ITransport* transport, Ownership ownership,
 
     _transport = transport;
     _ownership = ownership;
-    _config.transportKind = transportKind;
+    _config = std::move(config);
     if (const auto interactiveProfile = ShellIntegration::profileFor(_config)) {
         _streamFramer->configure(*interactiveProfile);
         _commandCoordinator->configure(*interactiveProfile);

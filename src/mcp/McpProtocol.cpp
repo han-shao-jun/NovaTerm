@@ -105,7 +105,7 @@ QString outputText(const QByteArray& bytes, qsizetype& remaining, bool& truncate
     QStringDecoder decoder(QStringDecoder::Utf8);
     const auto append = [&](const QString& decoded) {
         QString safe;
-        for (QChar c : decoded) {
+        for (const auto& c : decoded) {
             if (c == '\n' || c == '\t' || (c.unicode() >= 32
                 && !(c.unicode() >= 127 && c.unicode() <= 159)))
                 safe += c;
@@ -122,7 +122,7 @@ QString outputText(const QByteArray& bytes, qsizetype& remaining, bool& truncate
     };
     for (qsizetype offset = 0; offset < bytes.size(); offset += 1024) {
         if (!append(decoder(QByteArrayView(bytes).sliced(offset,
-            std::min(qsizetype(1024), bytes.size() - offset))))) return result;
+            (std::min)(qsizetype(1024), bytes.size() - offset))))) return result;
         if (remaining == 0 && offset + 1024 < bytes.size()) { truncated = true; return result; }
     }
     // 以不进入输出的 NUL 结束解码，确保尾部不完整 UTF-8 也转换为替代字符。

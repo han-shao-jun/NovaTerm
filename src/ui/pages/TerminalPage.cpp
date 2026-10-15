@@ -81,6 +81,9 @@ RuntimeConfig serialRuntime(const SerialConfig& config)
         {QStringLiteral("flowControl"), static_cast<int>(config.flowControl)},
         {QStringLiteral("reconnectSeconds"), config.reconnectSeconds},
         {QStringLiteral("lfImpliesCr"), config.lfImpliesCr},
+        {QStringLiteral("interactivePromptPattern"), config.interactivePromptPattern},
+        {QStringLiteral("interactiveLineEnding"), config.interactiveLineEnding},
+        {QStringLiteral("interactiveRemoteEcho"), config.interactiveRemoteEcho},
         {QStringLiteral("label"), config.label}};
     return runtime;
 }
@@ -393,6 +396,14 @@ void TerminalPage::registerTerminalView(TerminalView* terminalView)
     });
 }
 
+void TerminalPage::setTerminalTabTitle(TerminalView* terminalView, const QString& title)
+{
+    _tabWidget->setTabText(_tabWidget->indexOf(terminalView), title);
+    terminalView->setProperty("novatermSessionLabel", title);
+    if (auto* service = Application::instance().mcpService())
+        service->directory().setDisplayTitle(terminalView->session(), title);
+}
+
 void TerminalPage::updateTerminalTabConnectionAction(
     TerminalView* terminalView)
 {
@@ -450,8 +461,7 @@ bool TerminalPage::replaceTerminalTab(TerminalView* terminalView,
 
     const QString title = label.trimmed().isEmpty()
         ? tr("Terminal %1").arg(index + 1) : label.trimmed();
-    _tabWidget->setTabText(index, title);
-    terminalView->setProperty("novatermSessionLabel", title);
+    setTerminalTabTitle(terminalView, title);
     terminalView->setProperty("novatermSshSession", false);
     terminalView->renderer()->setHighlightRules({});
     _sessionEditSnapshots.insert(
@@ -487,8 +497,7 @@ bool TerminalPage::replaceTerminalTab(TerminalView* terminalView,
 
     const QString title = config.label.trimmed().isEmpty()
         ? config.portName : config.label.trimmed();
-    _tabWidget->setTabText(index, title);
-    terminalView->setProperty("novatermSessionLabel", title);
+    setTerminalTabTitle(terminalView, title);
     terminalView->setProperty("novatermSshSession", false);
     terminalView->renderer()->setHighlightRules(
         NovaTerm::serialLogHighlightRules());
@@ -500,7 +509,8 @@ bool TerminalPage::replaceTerminalTab(TerminalView* terminalView,
         if (!terminalGuard)
             return;
         auto* transport = new SerialTransport(config, terminalGuard);
-        if (!terminalGuard->attachTransport(transport, config.lfImpliesCr)) {
+        const auto runtime = serialRuntime(config);
+        if (!terminalGuard->attachTransport(transport, config.lfImpliesCr, &runtime)) {
             delete transport; // 未被 adopt，父对象归还前先行回收
             return;
         }
@@ -524,8 +534,7 @@ bool TerminalPage::replaceTerminalTab(TerminalView* terminalView,
     const QString title = config.label.trimmed().isEmpty()
         ? QStringLiteral("%1:%2").arg(config.host).arg(config.port)
         : config.label.trimmed();
-    _tabWidget->setTabText(index, title);
-    terminalView->setProperty("novatermSessionLabel", title);
+    setTerminalTabTitle(terminalView, title);
     terminalView->setProperty("novatermSshSession", false);
     terminalView->renderer()->setHighlightRules({});
     _sessionEditSnapshots.insert(
@@ -536,7 +545,8 @@ bool TerminalPage::replaceTerminalTab(TerminalView* terminalView,
         if (!terminalGuard)
             return;
         auto* transport = new TelnetTransport(config, terminalGuard);
-        if (!terminalGuard->attachTransport(transport)) {
+        const auto runtime = telnetRuntime(config);
+        if (!terminalGuard->attachTransport(transport, false, &runtime)) {
             delete transport; // 未被 adopt，父对象归还前先行回收
             return;
         }
@@ -559,9 +569,8 @@ bool TerminalPage::replaceTerminalTab(TerminalView* terminalView,
     const QString title = config.label.isEmpty()
         ? QStringLiteral("%1@%2").arg(config.username, config.host)
         : config.label.trimmed();
-    _tabWidget->setTabText(index, title);
+    setTerminalTabTitle(terminalView, title);
     // 标记 SSH 标签；最终是否可用仍由传输层连接状态决定。
-    terminalView->setProperty("novatermSessionLabel", title);
     terminalView->setProperty("novatermSshSession", true);
     terminalView->renderer()->setHighlightRules({});
     _sessionEditSnapshots.insert(
@@ -573,7 +582,8 @@ bool TerminalPage::replaceTerminalTab(TerminalView* terminalView,
         if (!terminalGuard)
             return;
         auto* transport = new SshTransport(config, terminalGuard);
-        if (!terminalGuard->attachTransport(transport)) {
+        const auto runtime = sshRuntime(config);
+        if (!terminalGuard->attachTransport(transport, false, &runtime)) {
             delete transport; // 未被 adopt，父对象归还前先行回收
             return;
         }

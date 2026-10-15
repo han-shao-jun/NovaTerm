@@ -285,92 +285,6 @@ bool uploadRegularFile(sftp_session sftp, ssh_session session,
     return true;
 }
 
-bool uploadScriptBytes(sftp_session sftp, ssh_session session,
-                       const QString& remotePath, const QByteArray& content,
-                       const std::function<bool()>& cancelled,
-                       QString& error)
-{
-    const QByteArray encodedTarget = remotePath.toUtf8();
-    SftpAttributesPtr existing{
-        sftp_lstat(sftp, encodedTarget.constData()), &sftp_attributes_free};
-    if (existing && (existing->type != SSH_FILEXFER_TYPE_REGULAR
-                     || isHardLinkFromLongName(existing.get()))) {
-        error = QStringLiteral("SCRIPT_TARGET_NOT_REGULAR");
-        return false;
-    }
-    if (cancelled()) {
-        error = QStringLiteral("SCRIPT_UPLOAD_CANCELLED");
-        return false;
-    }
-
-    const QString temporaryPath = temporaryRemotePath(remotePath);
-    const QByteArray encodedPath = temporaryPath.toUtf8();
-    SftpFilePtr remoteFile{
-        sftp_open(sftp, encodedPath.constData(),
-                  O_WRONLY | O_CREAT | O_EXCL, 0600),
-        &sftp_close};
-    if (!remoteFile) {
-        error = sftpError(sftp, session,
-            QStringLiteral("SCRIPT_WRITE_FAILED: %1").arg(remotePath));
-        return false;
-    }
-
-    qsizetype offset = 0;
-    while (offset < content.size()) {
-        if (cancelled()) {
-            error = QStringLiteral("SCRIPT_UPLOAD_CANCELLED");
-            sftp_close(remoteFile.release());
-            sftp_unlink(sftp, encodedPath.constData());
-            return false;
-        }
-        const qsizetype chunkSize = qMin(TransferChunkBytes,
-                                          content.size() - offset);
-        qsizetype chunkOffset = 0;
-        while (chunkOffset < chunkSize) {
-            if (cancelled()) {
-                error = QStringLiteral("SCRIPT_UPLOAD_CANCELLED");
-                sftp_close(remoteFile.release());
-                sftp_unlink(sftp, encodedPath.constData());
-                return false;
-            }
-            const int written = sftp_write(remoteFile.get(),
-                content.constData() + offset + chunkOffset,
-                static_cast<size_t>(chunkSize - chunkOffset));
-            if (written <= 0) {
-                sftp_close(remoteFile.release());
-                sftp_unlink(sftp, encodedPath.constData());
-                error = sftpError(sftp, session,
-                    QStringLiteral("SCRIPT_WRITE_FAILED: %1").arg(remotePath));
-                return false;
-            }
-            chunkOffset += written;
-        }
-        offset += chunkSize;
-    }
-
-    sftp_file rawFile = remoteFile.release();
-    if (sftp_close(rawFile) != SSH_OK) {
-        sftp_unlink(sftp, encodedPath.constData());
-        error = sftpError(sftp, session,
-            QStringLiteral("SCRIPT_WRITE_FAILED: %1").arg(remotePath));
-        return false;
-    }
-    if (sftp_chmod(sftp, encodedPath.constData(), 0700) != SSH_OK) {
-        sftp_unlink(sftp, encodedPath.constData());
-        error = sftpError(sftp, session,
-            QStringLiteral("SCRIPT_WRITE_FAILED: %1").arg(remotePath));
-        return false;
-    }
-    if (sftp_rename(sftp, encodedPath.constData(), encodedTarget.constData())
-        != SSH_OK) {
-        sftp_unlink(sftp, encodedPath.constData());
-        error = sftpError(sftp, session,
-            QStringLiteral("SCRIPT_WRITE_FAILED: %1").arg(remotePath));
-        return false;
-    }
-    return true;
-}
-
 struct RemoteDownloadEntry
 {
     QString remotePath;
@@ -592,18 +506,138 @@ bool removeRemoteDirectoryRecursively(
 
 } // namespace
 
+bool SftpSession::uploadScriptBytes(
+    sftp_session sftp, ssh_session session, const QString& remotePath,
+    const QByteArray& content, const std::function<bool()>& cancelled,
+    QString& error)
+{
+    const QByteArray encodedTarget = remotePath.toUtf8();
+    SftpAttributesPtr existing{
+        sftp_lstat(sftp, encodedTarget.constData()), &sftp_attributes_free};
+    if (existing && (existing->type != SSH_FILEXFER_TYPE_REGULAR
+                     || isHardLinkFromLongName(existing.get()))) {
+        error = QStringLiteral("SCRIPT_TARGET_NOT_REGULAR");
+        return false;
+    }
+    if (cancelled()) {
+        error = QStringLiteral("SCRIPT_UPLOAD_CANCELLED");
+        return false;
+    }
+
+    const QString temporaryPath = temporaryRemotePath(remotePath);
+    const QByteArray encodedPath = temporaryPath.toUtf8();
+    SftpFilePtr remoteFile{
+        sftp_open(sftp, encodedPath.constData(),
+                  O_WRONLY | O_CREAT | O_EXCL, 0600),
+        &sftp_close};
+    if (!remoteFile) {
+        error = sftpError(sftp, session,
+            QStringLiteral("SCRIPT_WRITE_FAILED: %1").arg(remotePath));
+        return false;
+    }
+
+    qsizetype offset = 0;
+    while (offset < content.size()) {
+        if (cancelled()) {
+            error = QStringLiteral("SCRIPT_UPLOAD_CANCELLED");
+            sftp_close(remoteFile.release());
+            sftp_unlink(sftp, encodedPath.constData());
+            return false;
+        }
+        const qsizetype chunkSize = qMin(TransferChunkBytes,
+                                          content.size() - offset);
+        qsizetype chunkOffset = 0;
+        while (chunkOffset < chunkSize) {
+            if (cancelled()) {
+                error = QStringLiteral("SCRIPT_UPLOAD_CANCELLED");
+                sftp_close(remoteFile.release());
+                sftp_unlink(sftp, encodedPath.constData());
+                return false;
+            }
+            const int written = sftp_write(remoteFile.get(),
+                content.constData() + offset + chunkOffset,
+                static_cast<size_t>(chunkSize - chunkOffset));
+            if (written <= 0) {
+                sftp_close(remoteFile.release());
+                sftp_unlink(sftp, encodedPath.constData());
+                error = sftpError(sftp, session,
+                    QStringLiteral("SCRIPT_WRITE_FAILED: %1").arg(remotePath));
+                return false;
+            }
+            chunkOffset += written;
+        }
+        offset += chunkSize;
+    }
+
+    const auto checked = [&](int result) {
+        if (result == SSH_OK)
+            return true;
+        error = sftpError(sftp, session,
+            QStringLiteral("SCRIPT_WRITE_FAILED: %1").arg(remotePath));
+        return false;
+    };
+    return finalizeScriptUpload(cancelled,
+        [&] { return checked(sftp_close(remoteFile.release())); },
+        [&] { return checked(sftp_chmod(sftp, encodedPath.constData(), 0700)); },
+        [&] { return checked(sftp_rename(sftp, encodedPath.constData(),
+                                       encodedTarget.constData())); },
+        [&] { sftp_unlink(sftp, encodedPath.constData()); }, error);
+}
+
+bool SftpSession::finalizeScriptUpload(
+    const std::function<bool()>& cancelled,
+    const std::function<bool()>& close,
+    const std::function<bool()>& makeExecutable,
+    const std::function<bool()>& publish,
+    const std::function<void()>& discard, QString& error)
+{
+    // close 仍需执行以回收句柄；close/chmod 可能阻塞，返回后重查取消。
+    const auto cancelledBeforePublication = [&] {
+        if (!cancelled())
+            return false;
+        error = QStringLiteral("SCRIPT_UPLOAD_CANCELLED");
+        return true;
+    };
+    if (!close() || cancelledBeforePublication()
+        || !makeExecutable() || cancelledBeforePublication()) {
+        discard();
+        return false;
+    }
+    if (!publish()) {
+        // 服务端可能已经 rename，但连接在状态回复前中断；不能声称未发布。
+        error = QStringLiteral("SCRIPT_PUBLICATION_OUTCOME_UNKNOWN");
+        discard();
+        return false;
+    }
+    // rename 已成功：即使它阻塞期间收到取消，也必须报告实际发布成功。
+    return true;
+}
+
+SftpSession::WorkerControl::WorkerControl()
+{
+    ssh_init();
+}
+
+SftpSession::WorkerControl::~WorkerControl()
+{
+    // 放弃的 worker 仍持有控制块，libssh 必须等它结束后才能回收。
+    ssh_finalize();
+}
+
 SftpSession::SftpSession(QObject* parent)
     : QObject(parent)
     , _control(std::make_shared<WorkerControl>())
 {
-    // 静态链接 libssh 时需显式初始化；libssh 内部引用计数允许多个会话配对调用。
-    ssh_init();
+    _control->receiver = this;
 }
 
 SftpSession::~SftpSession()
 {
+    {
+        QMutexLocker lock(&_control->notificationMutex);
+        _control->receiver = nullptr;
+    }
     disconnectFromHost(true);
-    ssh_finalize();
 }
 
 void SftpSession::connectToHost(const SshConfig& config,
@@ -622,20 +656,25 @@ void SftpSession::connectToHost(const SshConfig& config,
     QDir().mkpath(QFileInfo(effectiveKnownHostsPath).absolutePath());
     if (_workerAbandoned) {
         // 上一任 worker 还在收尾（见 disconnectFromHost 的放弃路径），
-        // 此时再开会与它争同一个 ssh_session 与对象成员。
+        // 保持原有重连约束，避免同时保留多个停滞连接。
         emit errorOccurred(tr("The previous SFTP session is still shutting "
                               "down; please try again shortly."));
         return;
     }
     // 每次连接换一个控制块：旧的仍被上一任 worker 持有（若有），互不影响。
+    {
+        QMutexLocker lock(&_control->notificationMutex);
+        _control->receiver = nullptr;
+    }
     _control = std::make_shared<WorkerControl>();
+    _control->receiver = this;
     const quint64 generation = ++_control->generation;
     _control->running.store(true, std::memory_order_release);
-    _connected.store(false, std::memory_order_release);
+    _control->connected.store(false, std::memory_order_release);
     // 控制块按值捕获：被放弃的 worker 可能在本对象析构后仍读它。
     std::shared_ptr<WorkerControl> control = _control;
     _thread = QThread::create(
-        [this, control, config, expectedHostKeyFingerprint,
+        [control, config, expectedHostKeyFingerprint,
          trustedKnownHostsPath, generation]() mutable {
             workerMain(std::move(control), std::move(config),
                        expectedHostKeyFingerprint, trustedKnownHostsPath,
@@ -647,21 +686,26 @@ void SftpSession::connectToHost(const SshConfig& config,
 
 void SftpSession::disconnectFromHost(bool shuttingDown)
 {
+    stopWorker(shuttingDown ? TeardownDestructorWaitMs : TeardownWaitMs);
+}
+
+void SftpSession::stopWorker(int waitMs)
+{
     ++_control->generation; // 使已排队的旧会话 GUI 回调失效。
     _control->running.store(false, std::memory_order_release);
-    _connected.store(false, std::memory_order_release);
+    _control->connected.store(false, std::memory_order_release);
     {
-        QMutexLocker lock(&_queueMutex);
+        QMutexLocker lock(&_control->queueMutex);
         qsizetype queuedUploadBytes = 0;
-        for (const auto& command : std::as_const(_commands)) {
+        for (const auto& command : std::as_const(_control->commands)) {
             if (command.type == CommandType::UploadBytes)
                 queuedUploadBytes += command.content.size();
         }
-        _queuedUploadBytes -= queuedUploadBytes;
-        if (_activeUploadRequestId != 0)
-            _cancelledUploadRequests.insert(_activeUploadRequestId);
-        _commands.clear();
-        _queueReady.wakeAll();
+        _control->queuedUploadBytes -= queuedUploadBytes;
+        if (_control->activeUploadRequestId != 0)
+            _control->cancelledUploadRequests.insert(_control->activeUploadRequestId);
+        _control->commands.clear();
+        _control->queueReady.wakeAll();
     }
 
     if (_thread) {
@@ -672,8 +716,6 @@ void SftpSession::disconnectFromHost(bool shuttingDown)
         // 而它在那些调用内部看不到停止请求。因此这里**必须**有上界，否则关标签
         // /关 SFTP dock 会把 GUI 线程冻住。SshTransport 用同样的办法
         // （disconnectInternal 的 TeardownWaitMs）。
-        const int waitMs = shuttingDown ? TeardownDestructorWaitMs
-                                         : TeardownWaitMs;
         if (_thread->wait(waitMs)) {
             delete _thread;
             _thread = nullptr;
@@ -687,32 +729,35 @@ void SftpSession::disconnectFromHost(bool shuttingDown)
             _thread->disconnect();
             QObject::connect(_thread, &QThread::finished,
                              _thread, &QObject::deleteLater);
+            if (_thread->isFinished())
+                _thread->deleteLater();
             _workerAbandoned = true;
             _thread = nullptr;
         }
     }
-    {
-        QMutexLocker lock(&_queueMutex);
-        _cancelledUploadRequests.clear();
-        _queuedUploadBytes = 0;
-        _activeUploadRequestId = 0;
+    if (!_workerAbandoned) {
+        QMutexLocker lock(&_control->queueMutex);
+        _control->cancelledUploadRequests.clear();
+        _control->queuedUploadBytes = 0;
+        _control->activeUploadRequestId = 0;
     }
 }
 
 bool SftpSession::isConnected() const noexcept
 {
-    return _connected.load(std::memory_order_acquire);
+    return _control->connected.load(std::memory_order_acquire);
 }
 
 void SftpSession::enqueue(Command command)
 {
     if (!_control->running.load(std::memory_order_acquire))
         return;
-    QMutexLocker lock(&_queueMutex);
-    if (_commands.size() >= MaxQueuedCommands)
+    QMutexLocker lock(&_control->queueMutex);
+    if (!_control->running.load(std::memory_order_acquire)
+        || _control->commands.size() >= MaxQueuedCommands)
         return;
-    _commands.enqueue(std::move(command));
-    _queueReady.wakeOne();
+    _control->commands.enqueue(std::move(command));
+    _control->queueReady.wakeOne();
 }
 
 void SftpSession::listDirectory(const QString& remotePath)
@@ -735,10 +780,10 @@ bool SftpSession::uploadBytes(quint64 requestId, QByteArray content,
         || !_control->running.load(std::memory_order_acquire)) {
         return false;
     }
-    QMutexLocker lock(&_queueMutex);
+    QMutexLocker lock(&_control->queueMutex);
     if (!_control->running.load(std::memory_order_acquire)
-        || _commands.size() >= MaxQueuedCommands
-        || _queuedUploadBytes + content.size() > MaxQueuedUploadBytes) {
+        || _control->commands.size() >= MaxQueuedCommands
+        || _control->queuedUploadBytes + content.size() > MaxQueuedUploadBytes) {
         return false;
     }
     Command command;
@@ -746,9 +791,9 @@ bool SftpSession::uploadBytes(quint64 requestId, QByteArray content,
     command.target = remotePath;
     command.requestId = requestId;
     command.content = std::move(content);
-    _queuedUploadBytes += command.content.size();
-    _commands.enqueue(std::move(command));
-    _queueReady.wakeOne();
+    _control->queuedUploadBytes += command.content.size();
+    _control->commands.enqueue(std::move(command));
+    _control->queueReady.wakeOne();
     return true;
 }
 
@@ -759,21 +804,21 @@ void SftpSession::cancelUpload(quint64 requestId)
     QString cancelledPath;
     bool removed = false;
     {
-        QMutexLocker lock(&_queueMutex);
-        for (qsizetype index = 0; index < _commands.size(); ++index) {
-            const auto& command = _commands.at(index);
+        QMutexLocker lock(&_control->queueMutex);
+        for (qsizetype index = 0; index < _control->commands.size(); ++index) {
+            const auto& command = _control->commands.at(index);
             if (command.type != CommandType::UploadBytes
                 || command.requestId != requestId) {
                 continue;
             }
             cancelledPath = command.target;
-            _queuedUploadBytes -= command.content.size();
-            _commands.removeAt(index);
+            _control->queuedUploadBytes -= command.content.size();
+            _control->commands.removeAt(index);
             removed = true;
             break;
         }
-        if (!removed && _activeUploadRequestId == requestId)
-            _cancelledUploadRequests.insert(requestId);
+        if (!removed && _control->activeUploadRequestId == requestId)
+            _control->cancelledUploadRequests.insert(requestId);
     }
     if (removed) {
         emit uploadBytesFinished(requestId, cancelledPath, false,
@@ -781,13 +826,14 @@ void SftpSession::cancelUpload(quint64 requestId)
     }
 }
 
-bool SftpSession::isUploadCancelled(quint64 requestId)
+bool SftpSession::isUploadCancelled(
+    const std::shared_ptr<WorkerControl>& control, quint64 requestId)
 {
-    if (!_control->running.load(std::memory_order_acquire)) {
+    if (!control->running.load(std::memory_order_acquire)) {
         return true;
     }
-    QMutexLocker lock(&_queueMutex);
-    return _cancelledUploadRequests.contains(requestId);
+    QMutexLocker lock(&control->queueMutex);
+    return control->cancelledUploadRequests.contains(requestId);
 }
 
 void SftpSession::uploadDirectory(const QString& localPath,
@@ -837,20 +883,41 @@ void SftpSession::renameEntry(const QString& oldRemotePath,
     enqueue({CommandType::Rename, oldRemotePath, newRemotePath});
 }
 
-void SftpSession::postError(quint64 generation, const QString& message)
+void SftpSession::postNotification(
+    const std::shared_ptr<WorkerControl>& control, quint64 generation,
+    std::function<void(SftpSession&)> callback)
 {
-    QMetaObject::invokeMethod(this, [this, generation, message]() {
-        if (_control->generation == generation)
-            emit errorOccurred(message);
-    }, Qt::QueuedConnection);
+    QMutexLocker lock(&control->notificationMutex);
+    auto* receiver = control->receiver;
+    if (!receiver || control->generation != generation)
+        return;
+    // 析构先在同一锁下撤销 receiver。入队后由 QObject context 负责移除
+    // 未交付事件，因此 worker 无需持有或访问已经销毁的 SftpSession。
+    QMetaObject::invokeMethod(receiver,
+        [control, generation, receiver, callback = std::move(callback)] {
+            if (control->generation == generation)
+                callback(*receiver);
+        }, Qt::QueuedConnection);
 }
 
-void SftpSession::postDisconnected(quint64 generation)
+void SftpSession::postError(const std::shared_ptr<WorkerControl>& control,
+                            quint64 generation, const QString& message)
 {
-    QMetaObject::invokeMethod(this, [this, generation]() {
-        if (_control->generation == generation)
-            emit disconnected();
-    }, Qt::QueuedConnection);
+    postNotification(control, generation,
+        [message](SftpSession& receiver) {
+            emit receiver.errorOccurred(message);
+        });
+}
+
+void SftpSession::finishWorker(const std::shared_ptr<WorkerControl>& control,
+                              quint64 generation)
+{
+    control->connected.store(false, std::memory_order_release);
+    control->running.store(false, std::memory_order_release);
+    postNotification(control, generation,
+        [](SftpSession& receiver) {
+            emit receiver.disconnected();
+        });
 }
 
 void SftpSession::workerMain(std::shared_ptr<WorkerControl> control,
@@ -861,15 +928,13 @@ void SftpSession::workerMain(std::shared_ptr<WorkerControl> control,
 {
     NovaTerm::setCurrentThreadName(SftpWorkerThreadName);
     // 无论连接在哪个阶段退出，都统一清理原子状态并通知 GUI，避免失败路径漏状态。
-    const auto workerCleanup = qScopeGuard([this, control, generation]() {
-        _connected.store(false, std::memory_order_release);
-        control->running.store(false, std::memory_order_release);
-        postDisconnected(generation);
+    const auto workerCleanup = qScopeGuard([control, generation]() {
+        finishWorker(control, generation);
     });
 
     SshSessionPtr session{ssh_new(), &ssh_free};
     if (!session) {
-        postError(generation, tr("Failed to create the SFTP SSH session."));
+        postError(control, generation, tr("Failed to create the SFTP SSH session."));
         return;
     }
 
@@ -893,7 +958,7 @@ void SftpSession::workerMain(std::shared_ptr<WorkerControl> control,
     ssh_options_set(session.get(), SSH_OPTIONS_HOSTKEYS, hostKeyAlgorithms);
 
     if (ssh_connect(session.get()) != SSH_OK) {
-        postError(generation, sessionError(session.get(),
+        postError(control, generation, sessionError(session.get(),
             tr("SFTP SSH connection failed")));
         return;
     }
@@ -901,7 +966,7 @@ void SftpSession::workerMain(std::shared_ptr<WorkerControl> control,
     // SFTP 只在对应终端已完成主机密钥确认后启动；独立连接必须得到相同结果。
     // 若密钥此时未知或发生变化，拒绝继续，绝不在后台静默信任。
     if (ssh_session_is_known_server(session.get()) != SSH_KNOWN_HOSTS_OK) {
-        postError(generation,
+        postError(control, generation,
             tr("The SFTP host key is not trusted or has changed. "
                "Reconnect the SSH terminal and verify the host key."));
         ssh_disconnect(session.get());
@@ -909,7 +974,7 @@ void SftpSession::workerMain(std::shared_ptr<WorkerControl> control,
     }
     if (!expectedHostKeyFingerprint.isEmpty()
         && serverFingerprint(session.get()) != expectedHostKeyFingerprint) {
-        postError(generation,
+        postError(control, generation,
             tr("The SFTP host key does not match the active SSH session."));
         ssh_disconnect(session.get());
         return;
@@ -917,14 +982,14 @@ void SftpSession::workerMain(std::shared_ptr<WorkerControl> control,
 
     QString authenticationError;
     if (!authenticate(session.get(), config, authenticationError)) {
-        postError(generation, authenticationError);
+        postError(control, generation, authenticationError);
         ssh_disconnect(session.get());
         return;
     }
 
     SftpSessionPtr sftp{sftp_new(session.get()), &sftp_free};
     if (!sftp || sftp_init(sftp.get()) != SSH_OK) {
-        postError(generation, sessionError(session.get(),
+        postError(control, generation, sessionError(session.get(),
             tr("Failed to initialize SFTP")));
         ssh_disconnect(session.get());
         return;
@@ -936,29 +1001,29 @@ void SftpSession::workerMain(std::shared_ptr<WorkerControl> control,
     if (canonicalHome)
         ssh_string_free_char(canonicalHome);
 
-    _connected.store(true, std::memory_order_release);
-    QMetaObject::invokeMethod(this, [this, control, generation, homePath]() {
-        if (control->generation == generation)
-            emit connected(homePath);
-    }, Qt::QueuedConnection);
+    control->connected.store(true, std::memory_order_release);
+    postNotification(control, generation,
+        [homePath](SftpSession& receiver) {
+            emit receiver.connected(homePath);
+        });
 
     while (control->running.load(std::memory_order_acquire)
            && ssh_is_connected(session.get())) {
         Command command;
         {
-            QMutexLocker lock(&_queueMutex);
-            while (_commands.isEmpty()
+            QMutexLocker lock(&control->queueMutex);
+            while (control->commands.isEmpty()
                    && control->running.load(std::memory_order_acquire)
                    && ssh_is_connected(session.get())) {
-                _queueReady.wait(&_queueMutex, 200);
+                control->queueReady.wait(&control->queueMutex, 200);
             }
             if (!control->running.load(std::memory_order_acquire)
                 || !ssh_is_connected(session.get())) {
                 break;
             }
-            command = _commands.dequeue();
+            command = control->commands.dequeue();
             if (command.type == CommandType::UploadBytes)
-                _activeUploadRequestId = command.requestId;
+                control->activeUploadRequestId = command.requestId;
         }
 
         if (command.type == CommandType::List) {
@@ -966,7 +1031,7 @@ void SftpSession::workerMain(std::shared_ptr<WorkerControl> control,
             char* canonical =
                 sftp_canonicalize_path(sftp.get(), requested.constData());
             if (!canonical) {
-                postError(generation, sftpError(sftp.get(), session.get(),
+                postError(control, generation, sftpError(sftp.get(), session.get(),
                     tr("Cannot resolve the remote directory")));
                 continue;
             }
@@ -977,7 +1042,7 @@ void SftpSession::workerMain(std::shared_ptr<WorkerControl> control,
                 sftp_opendir(sftp.get(), encodedPath.constData()),
                 &sftp_closedir};
             if (!directory) {
-                postError(generation, sftpError(sftp.get(), session.get(),
+                postError(control, generation, sftpError(sftp.get(), session.get(),
                     tr("Cannot open remote directory %1").arg(directoryPath)));
                 continue;
             }
@@ -1036,18 +1101,16 @@ void SftpSession::workerMain(std::shared_ptr<WorkerControl> control,
                 entries.push_back(std::move(info));
             }
             if (!sftp_dir_eof(directory.get())) {
-                postError(generation, sftpError(sftp.get(), session.get(),
+                postError(control, generation, sftpError(sftp.get(), session.get(),
                     tr("Failed while reading remote directory %1")
                         .arg(directoryPath)));
                 continue;
             }
 
-            QMetaObject::invokeMethod(
-                this, [this, control, generation, directoryPath,
-                       entries = std::move(entries)]() {
-                    if (control->generation == generation)
-                        emit directoryListed(directoryPath, entries);
-                }, Qt::QueuedConnection);
+            postNotification(control, generation,
+                [directoryPath, entries = std::move(entries)](SftpSession& receiver) {
+                    emit receiver.directoryListed(directoryPath, entries);
+                });
             continue;
         }
 
@@ -1055,7 +1118,7 @@ void SftpSession::workerMain(std::shared_ptr<WorkerControl> control,
             const QFileInfo rootInfo(command.source);
             if (!rootInfo.exists() || !rootInfo.isDir()
                 || rootInfo.isSymLink()) {
-                postError(generation,
+                postError(control, generation,
                     tr("Local path is not a directory: %1")
                         .arg(command.source));
                 continue;
@@ -1082,15 +1145,13 @@ void SftpSession::workerMain(std::shared_ptr<WorkerControl> control,
             quint64 transferred = 0;
             quint64 lastReported = 0;
             const auto reportProgress =
-                [this, control, generation, path = command.target](
+                [control, generation, path = command.target](
                     quint64 current, quint64 totalBytes) {
-                QMetaObject::invokeMethod(this,
-                    [this, control, generation, path, current, totalBytes]() {
-                        if (control->generation == generation) {
-                            emit transferProgress(
-                                path, current, totalBytes);
-                        }
-                    }, Qt::QueuedConnection);
+                postNotification(control, generation,
+                    [path, current, totalBytes](SftpSession& receiver) {
+                        emit receiver.transferProgress(
+                            path, current, totalBytes);
+                    });
             };
 
             QDirIterator iterator(rootInfo.absoluteFilePath(), filters,
@@ -1142,53 +1203,46 @@ void SftpSession::workerMain(std::shared_ptr<WorkerControl> control,
             }
             if (!succeeded) {
                 if (control->running.load(std::memory_order_acquire))
-                    postError(generation, error);
+                    postError(control, generation, error);
                 continue;
             }
             if (control->running.load(std::memory_order_acquire)) {
-                QMetaObject::invokeMethod(this,
-                    [this, control, generation, path = command.target]() {
-                        if (control->generation == generation) {
-                            emit operationFinished(
-                                QStringLiteral("upload"), path);
-                        }
-                    }, Qt::QueuedConnection);
+                postNotification(control, generation,
+                    [path = command.target](SftpSession& receiver) {
+                        emit receiver.operationFinished(
+                            QStringLiteral("upload"), path);
+                    });
             }
             continue;
         }
 
         if (command.type == CommandType::UploadBytes) {
             QString error;
-            bool succeeded = uploadScriptBytes(sftp.get(), session.get(),
+            const bool succeeded = uploadScriptBytes(sftp.get(), session.get(),
                 command.target, command.content,
-                [this, requestId = command.requestId] {
-                    return isUploadCancelled(requestId);
+                [control, requestId = command.requestId] {
+                    return isUploadCancelled(control, requestId);
                 }, error);
-            if (isUploadCancelled(command.requestId)) {
-                succeeded = false;
-                error = QStringLiteral("SCRIPT_UPLOAD_CANCELLED");
-            }
             {
-                QMutexLocker lock(&_queueMutex);
-                _queuedUploadBytes -= command.content.size();
-                _activeUploadRequestId = 0;
-                _cancelledUploadRequests.remove(command.requestId);
+                QMutexLocker lock(&control->queueMutex);
+                control->queuedUploadBytes -= command.content.size();
+                control->activeUploadRequestId = 0;
+                control->cancelledUploadRequests.remove(command.requestId);
             }
             const quint64 requestId = command.requestId;
             const QString remotePath = command.target;
-            QMetaObject::invokeMethod(this,
-                [this, control, generation, requestId, remotePath, succeeded, error] {
-                    if (control->generation == generation)
-                        emit uploadBytesFinished(requestId, remotePath,
-                                                 succeeded, error);
-                }, Qt::QueuedConnection);
+            postNotification(control, generation,
+                [requestId, remotePath, succeeded, error](SftpSession& receiver) {
+                    emit receiver.uploadBytesFinished(requestId, remotePath,
+                        succeeded, error);
+                });
             continue;
         }
 
         if (command.type == CommandType::Upload) {
             QFile localFile(command.source);
             if (!localFile.open(QIODevice::ReadOnly)) {
-                postError(generation,
+                postError(control, generation,
                     tr("Cannot open local file %1: %2")
                         .arg(command.source, localFile.errorString()));
                 continue;
@@ -1209,7 +1263,7 @@ void SftpSession::workerMain(std::shared_ptr<WorkerControl> control,
                           O_WRONLY | O_CREAT | O_EXCL, 0644),
                 &sftp_close};
             if (!remoteFile) {
-                postError(generation, sftpError(sftp.get(), session.get(),
+                postError(control, generation, sftpError(sftp.get(), session.get(),
                     tr("Cannot open remote file %1").arg(command.target)));
                 continue;
             }
@@ -1232,7 +1286,7 @@ void SftpSession::workerMain(std::shared_ptr<WorkerControl> control,
                                                       TransferChunkBytes);
                 if (chunk <= 0) {
                     if (localFile.error() != QFileDevice::NoError) {
-                        postError(generation, tr("Failed to read local file %1: %2")
+                        postError(control, generation, tr("Failed to read local file %1: %2")
                             .arg(command.source, localFile.errorString()));
                         failed = true;
                     }
@@ -1245,7 +1299,7 @@ void SftpSession::workerMain(std::shared_ptr<WorkerControl> control,
                         remoteFile.get(), chunkBuffer.constData() + offset,
                         static_cast<size_t>(chunk - offset));
                     if (written <= 0) {
-                        postError(generation, sftpError(sftp.get(), session.get(),
+                        postError(control, generation, sftpError(sftp.get(), session.get(),
                             tr("Failed to upload %1").arg(command.target)));
                         failed = true;
                         break;
@@ -1256,12 +1310,10 @@ void SftpSession::workerMain(std::shared_ptr<WorkerControl> control,
                     if (transferred - lastReported >= ProgressIntervalBytes
                         || transferred == total) {
                         lastReported = transferred;
-                        QMetaObject::invokeMethod(this,
-                            [this, control, generation, path = command.target,
-                             transferred, total]() {
-                                if (control->generation == generation)
-                                    emit transferProgress(path, transferred, total);
-                            }, Qt::QueuedConnection);
+                        postNotification(control, generation,
+                            [path = command.target, transferred, total](SftpSession& receiver) {
+                                emit receiver.transferProgress(path, transferred, total);
+                            });
                     }
                 }
                 if (failed)
@@ -1269,7 +1321,7 @@ void SftpSession::workerMain(std::shared_ptr<WorkerControl> control,
             }
             if (!failed && control->running.load(std::memory_order_acquire)
                 && sftp_close(remoteFile.release()) != SSH_OK) {
-                postError(generation, sftpError(sftp.get(), session.get(),
+                postError(control, generation, sftpError(sftp.get(), session.get(),
                     tr("Failed to finalize remote file %1")
                         .arg(command.target)));
                 failed = true;
@@ -1282,17 +1334,16 @@ void SftpSession::workerMain(std::shared_ptr<WorkerControl> control,
             if (sftp_rename(sftp.get(), temporaryPath.constData(),
                             remotePath.constData()) != SSH_OK) {
                 discardTemporary();
-                postError(generation, sftpError(sftp.get(), session.get(),
+                postError(control, generation, sftpError(sftp.get(), session.get(),
                     tr("Failed to replace remote file %1")
                         .arg(command.target)));
                 continue;
             }
             {
-                QMetaObject::invokeMethod(this,
-                    [this, control, generation, path = command.target]() {
-                        if (control->generation == generation)
-                            emit operationFinished(QStringLiteral("upload"), path);
-                    }, Qt::QueuedConnection);
+                postNotification(control, generation,
+                    [path = command.target](SftpSession& receiver) {
+                        emit receiver.operationFinished(QStringLiteral("upload"), path);
+                    });
             }
             continue;
         }
@@ -1313,15 +1364,13 @@ void SftpSession::workerMain(std::shared_ptr<WorkerControl> control,
             quint64 transferred = 0;
             quint64 lastReported = 0;
             const auto reportProgress =
-                [this, control, generation, path = command.source](
+                [control, generation, path = command.source](
                     quint64 current, quint64 totalBytes) {
-                QMetaObject::invokeMethod(this,
-                    [this, control, generation, path, current, totalBytes]() {
-                        if (control->generation == generation) {
-                            emit transferProgress(
-                                path, current, totalBytes);
-                        }
-                    }, Qt::QueuedConnection);
+                postNotification(control, generation,
+                    [path, current, totalBytes](SftpSession& receiver) {
+                        emit receiver.transferProgress(
+                            path, current, totalBytes);
+                    });
             };
             const QDir localRoot(command.target);
             for (const RemoteDownloadEntry& entry : entries) {
@@ -1352,17 +1401,15 @@ void SftpSession::workerMain(std::shared_ptr<WorkerControl> control,
             }
             if (!succeeded) {
                 if (control->running.load(std::memory_order_acquire))
-                    postError(generation, error);
+                    postError(control, generation, error);
                 continue;
             }
             if (control->running.load(std::memory_order_acquire)) {
-                QMetaObject::invokeMethod(this,
-                    [this, control, generation, path = command.source]() {
-                        if (control->generation == generation) {
-                            emit operationFinished(
-                                QStringLiteral("download"), path);
-                        }
-                    }, Qt::QueuedConnection);
+                postNotification(control, generation,
+                    [path = command.source](SftpSession& receiver) {
+                        emit receiver.operationFinished(
+                            QStringLiteral("download"), path);
+                    });
             }
             continue;
         }
@@ -1373,7 +1420,7 @@ void SftpSession::workerMain(std::shared_ptr<WorkerControl> control,
                 sftp_open(sftp.get(), remotePath.constData(), O_RDONLY, 0),
                 &sftp_close};
             if (!remoteFile) {
-                postError(generation, sftpError(sftp.get(), session.get(),
+                postError(control, generation, sftpError(sftp.get(), session.get(),
                     tr("Cannot open remote file %1").arg(command.source)));
                 continue;
             }
@@ -1382,7 +1429,7 @@ void SftpSession::workerMain(std::shared_ptr<WorkerControl> control,
             const quint64 total = attributes ? attributes->size : 0;
             QSaveFile localFile(command.target);
             if (!localFile.open(QIODevice::WriteOnly)) {
-                postError(generation,
+                postError(control, generation,
                     tr("Cannot create local file %1: %2")
                         .arg(command.target, localFile.errorString()));
                 continue;
@@ -1399,13 +1446,13 @@ void SftpSession::workerMain(std::shared_ptr<WorkerControl> control,
                 if (bytesRead == 0)
                     break;
                 if (bytesRead < 0) {
-                    postError(generation, sftpError(sftp.get(), session.get(),
+                    postError(control, generation, sftpError(sftp.get(), session.get(),
                         tr("Failed to download %1").arg(command.source)));
                     failed = true;
                     break;
                 }
                 if (localFile.write(buffer.constData(), bytesRead) != bytesRead) {
-                    postError(generation,
+                    postError(control, generation,
                         tr("Failed to write local file %1: %2")
                             .arg(command.target, localFile.errorString()));
                     failed = true;
@@ -1415,23 +1462,20 @@ void SftpSession::workerMain(std::shared_ptr<WorkerControl> control,
                 if (transferred - lastReported >= ProgressIntervalBytes
                     || transferred == total) {
                     lastReported = transferred;
-                    QMetaObject::invokeMethod(this,
-                        [this, control, generation, path = command.source,
-                         transferred, total]() {
-                            if (control->generation == generation)
-                                emit transferProgress(path, transferred, total);
-                        }, Qt::QueuedConnection);
+                    postNotification(control, generation,
+                        [path = command.source, transferred, total](SftpSession& receiver) {
+                            emit receiver.transferProgress(path, transferred, total);
+                        });
                 }
             }
             if (!failed && control->running.load(std::memory_order_acquire)
                 && localFile.commit()) {
-                QMetaObject::invokeMethod(this,
-                    [this, control, generation, path = command.source]() {
-                        if (control->generation == generation)
-                            emit operationFinished(QStringLiteral("download"), path);
-                    }, Qt::QueuedConnection);
+                postNotification(control, generation,
+                    [path = command.source](SftpSession& receiver) {
+                        emit receiver.operationFinished(QStringLiteral("download"), path);
+                    });
             } else if (!failed && control->running.load(std::memory_order_acquire)) {
-                postError(generation,
+                postError(control, generation,
                     tr("Failed to finalize local file %1: %2")
                         .arg(command.target, localFile.errorString()));
             }
@@ -1446,16 +1490,14 @@ void SftpSession::workerMain(std::shared_ptr<WorkerControl> control,
                     sftp.get(), session.get(), command.source,
                     control->running, error)) {
                 if (control->running.load(std::memory_order_acquire))
-                    postError(generation, error);
+                    postError(control, generation, error);
                 continue;
             }
-            QMetaObject::invokeMethod(this,
-                [this, control, generation, path = command.source]() {
-                    if (control->generation == generation) {
-                        emit operationFinished(
-                            QStringLiteral("remove"), path);
-                    }
-                }, Qt::QueuedConnection);
+            postNotification(control, generation,
+                [path = command.source](SftpSession& receiver) {
+                    emit receiver.operationFinished(
+                        QStringLiteral("remove"), path);
+                });
             continue;
         }
 
@@ -1466,23 +1508,21 @@ void SftpSession::workerMain(std::shared_ptr<WorkerControl> control,
                           O_WRONLY | O_CREAT | O_EXCL, 0644),
                 &sftp_close};
             if (!remoteFile) {
-                postError(generation, sftpError(sftp.get(), session.get(),
+                postError(control, generation, sftpError(sftp.get(), session.get(),
                     tr("Cannot create remote file %1").arg(command.source)));
                 continue;
             }
             if (sftp_close(remoteFile.release()) != SSH_OK) {
-                postError(generation, sftpError(sftp.get(), session.get(),
+                postError(control, generation, sftpError(sftp.get(), session.get(),
                     tr("Failed to finalize remote file %1")
                         .arg(command.source)));
                 continue;
             }
-            QMetaObject::invokeMethod(this,
-                [this, control, generation, path = command.source]() {
-                    if (control->generation == generation) {
-                        emit operationFinished(
-                            QStringLiteral("create-file"), path);
-                    }
-                }, Qt::QueuedConnection);
+            postNotification(control, generation,
+                [path = command.source](SftpSession& receiver) {
+                    emit receiver.operationFinished(
+                        QStringLiteral("create-file"), path);
+                });
             continue;
         }
 
@@ -1506,15 +1546,14 @@ void SftpSession::workerMain(std::shared_ptr<WorkerControl> control,
         }
 
         if (!succeeded) {
-            postError(generation, sftpError(sftp.get(), session.get(),
+            postError(control, generation, sftpError(sftp.get(), session.get(),
                 tr("Remote operation failed for %1").arg(command.source)));
             continue;
         }
-        QMetaObject::invokeMethod(this,
-            [this, control, generation, operation, path = command.source]() {
-                if (control->generation == generation)
-                    emit operationFinished(operation, path);
-            }, Qt::QueuedConnection);
+        postNotification(control, generation,
+            [operation, path = command.source](SftpSession& receiver) {
+                emit receiver.operationFinished(operation, path);
+            });
     }
 
     // SFTP channel 必须先于底层 SSH session 关闭。

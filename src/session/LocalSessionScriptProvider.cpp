@@ -21,9 +21,12 @@ LocalSessionScriptProvider::LocalSessionScriptProvider(QObject* parent)
 QString LocalSessionScriptProvider::resolvePath(
     const ScriptWriteRequest& request)
 {
-    const QString target = request.targetPath.trimmed();
-    const QString directory = request.workingDirectory.trimmed();
-    if (target.isEmpty() || directory.isEmpty())
+    const QString& target = request.targetPath;
+    const QString& directory = request.workingDirectory;
+    // The Service confirmation and path lock use these exact strings. Trimming
+    // can turn a relative " /path" into an unconfirmed absolute write target.
+    if (target.isEmpty() || directory.isEmpty()
+        || target.contains(QChar::Null) || directory.contains(QChar::Null))
         return {};
     const QFileInfo targetInfo(target);
     const QString path = targetInfo.isAbsolute()

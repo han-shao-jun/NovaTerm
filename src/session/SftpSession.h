@@ -14,9 +14,12 @@
 #include <QWaitCondition>
 
 #include <atomic>
+#include <functional>
 #include <memory>
 
 class QThread;
+struct sftp_session_struct;
+struct ssh_session_struct;
 
 /** 远端目录中的一个条目。 */
 struct SftpFileInfo
@@ -87,6 +90,7 @@ signals:
     void errorOccurred(const QString& message);
 
 private:
+    friend class SftpSessionSafetyTestAccess;
     enum class CommandType {
         List,
         Upload,
@@ -112,26 +116,49 @@ private:
         QByteArray content{};
     };
 
-    /**
-     * @brief 跨线程的停止标志与世代号，**故意**放在对象之外。
-     *
-     * SFTP worker 用的是阻塞式 libssh 调用：一旦卡在 sftp_read/sftp_write
-     * 内部就看不到停止请求，而 GUI 侧不可能无限等它（详见 disconnectFromHost
-     * 里的上界与放弃策略）。放弃时线程会自毁继续跑一小段，因此停止标志必须
-     * 比 SftpSession 活得久 —— 放在对象里的话，僵尸线程读到的就是已释放内存。
-     * 该控制块由创建线程的 lambda 按值捕获。
-     */
+    /** 全部工作线程状态独立于 QObject，允许有界等待后安全放弃阻塞线程。 */
     struct WorkerControl {
+        WorkerControl();
+        ~WorkerControl();
         std::atomic<bool> running{false};
         std::atomic<quint64> generation{0};
+        std::atomic<bool> connected{false};
+        QMutex queueMutex;
+        QWaitCondition queueReady;
+        QQueue<Command> commands;
+        QSet<quint64> cancelledUploadRequests;
+        qsizetype queuedUploadBytes{0};
+        quint64 activeUploadRequestId{0};
+        // 锁只保护入队通知时的 receiver 生命周期；绝不跨阻塞 I/O 持锁。
+        QMutex notificationMutex;
+        SftpSession* receiver{nullptr};
     };
     void enqueue(Command command);
-    void workerMain(std::shared_ptr<WorkerControl> control, SshConfig config,
-                    QString expectedHostKeyFingerprint,
-                    QString trustedKnownHostsPath, quint64 generation);
-    void postError(quint64 generation, const QString& message);
-    void postDisconnected(quint64 generation);
-    [[nodiscard]] bool isUploadCancelled(quint64 requestId);
+    void stopWorker(int waitMs);
+    static void workerMain(std::shared_ptr<WorkerControl> control,
+                            SshConfig config,
+                            QString expectedHostKeyFingerprint,
+                            QString trustedKnownHostsPath, quint64 generation);
+    static void postNotification(const std::shared_ptr<WorkerControl>& control,
+                                 quint64 generation,
+                                 std::function<void(SftpSession&)> callback);
+    static void finishWorker(const std::shared_ptr<WorkerControl>& control,
+                             quint64 generation);
+    static void postError(const std::shared_ptr<WorkerControl>& control,
+                          quint64 generation, const QString& message);
+    [[nodiscard]] static bool isUploadCancelled(
+        const std::shared_ptr<WorkerControl>& control, quint64 requestId);
+    // 每次阻塞收尾后重查取消；成功发布后保持真实提交结果。
+    [[nodiscard]] static bool finalizeScriptUpload(
+        const std::function<bool()>& cancelled,
+        const std::function<bool()>& close,
+        const std::function<bool()>& makeExecutable,
+        const std::function<bool()>& publish,
+        const std::function<void()>& discard, QString& error);
+    [[nodiscard]] static bool uploadScriptBytes(
+        sftp_session_struct* sftp, ssh_session_struct* session,
+        const QString& remotePath, const QByteArray& content,
+        const std::function<bool()>& cancelled, QString& error);
 
     static constexpr int ConnectTimeoutSeconds = 10;
     // 停止请求后等待 worker 退出的上界。取 15s 与 SshTransport::TeardownWaitMs
@@ -143,13 +170,6 @@ private:
     static constexpr qsizetype MaxQueuedUploadBytes = 2 * 1024 * 1024;
 
     std::shared_ptr<WorkerControl> _control;
-    std::atomic<bool> _connected{false};
-    QMutex _queueMutex;
-    QWaitCondition _queueReady;
-    QQueue<Command> _commands;
-    QSet<quint64> _cancelledUploadRequests;
-    qsizetype _queuedUploadBytes{0};
-    quint64 _activeUploadRequestId{0};
     QThread* _thread{nullptr};
     // true 表示上一任 worker 超过上界仍未退出、已被放弃（自毁），它可能仍在
     // 运行；此时禁止再启动新会话。仅 GUI 线程读写。

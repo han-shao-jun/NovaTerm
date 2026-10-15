@@ -78,9 +78,10 @@ cmd /c "call \"C:\Program Files (x86)\Microsoft Visual Studio\18\BuildTools\VC\A
 ### 跑测试
 
 **默认只跑与改动相关的测试目标，不要跑全套。** 全套耗时**按平台不同**（见下方
-「默认注册了哪些测试」）：2026-10-12 新增 MCP wire/HTTP 后，**Windows 暂为
-26 项、Linux 按条件预计 24 项**。2026-10-13 Windows 用 `ctest -N` 核对
-26 项，Release 全套 26/26 通过（233.97 秒）；Linux 本轮未验收。历史 Linux 21 项
+「默认注册了哪些测试」）：2026-10-16 新增命令/路径与 SFTP 安全两项，
+**Linux 实核 26 项、Windows 按条件预计 28 项**。Linux Debug 全套 26/26 通过，
+173.64 秒。此前 2026-10-13 Windows 用 `ctest -N` 核对 26 项，Release 全套
+26/26 通过（233.97 秒），不能作新增两项的 Windows 成绩。历史 Linux 21 项
 于 2026-10-05 实测 21/21 通过；历史 Windows 23 项于 2026-10-07 仅核对注册数。
 原 Windows 12 项全套实测约
 **190 秒**，其中 `novaterm_conpty_tests` 单项 94s、`novaterm_terminal_session_tests`
@@ -127,10 +128,10 @@ ctest --test-dir build -C Debug
 | `src/transport/LocalShellTransport` 与 ConPty 路径 | `novaterm_conpty_tests`（Win）／`novaterm_pty_tests`（Linux） | `conpty`／`pty` | 互斥，见下注 | ~94s |
 | `src/transport/SshTransport`、`SshMonitorProtocol` | `novaterm_ssh_transport_check`（失败路径 + 监控帧协议） | `ssh` | 全部 | <1s |
 | `src/transport/TelnetTransport` | `novaterm_telnet_transport_tests` | `telnet` | 全部 | ~5s |
-| `src/mcp/`、`SessionDirectory`、`McpSettingsDialog`、Session ScriptProvider/SFTP | `novaterm_mcp_tests`；wire/HTTP/endpoint 另跑 `novaterm_mcp_wire_tests`、`novaterm_mcp_http_tests`、`novaterm_mcp_endpoint_tests`（分项授权、两代协议、取消/重放、命令/脚本及 HTTP 入口） | `mcp`／`p8` | 全部 | 四项合计 ~41s（本机 Release） |
+| `src/mcp/`、`SessionDirectory`、`McpSettingsDialog`、Session ScriptProvider/SFTP | `ctest -L mcp` 六项：业务、wire、HTTP、endpoint、`novaterm_sftp_session_safety_tests`、`novaterm_command_safety_tests`（授权/确认/取消、工作线程生命周期、脚本精确路径与发布收尾） | `mcp`／`p8` | 全部 | 六项约 24s（Linux Debug） |
 | TerminalSession + TerminalRenderer + LocalShellTransport 的联通路径 | `novaterm_terminal_session_tests` | `terminal-session` | **仅 Win32** | ~46s |
 | `TerminalTabWidget` 的连接动作/紧凑标题、`SystemInformationDialog` 的滚动范围/布局与 app bar 关闭按钮、`SshHostKeyDialog` 的 Ela 控件与端点标题 | `novaterm_ui_dialog_layout_tests` | `ui` | 全部 | <1s |
-| `src/ui/widgets/SessionPanel.cpp` 的历史树多选与右键菜单 | `novaterm_session_panel_tests` | `ui` | 全部 | <1s |
+| `src/ui/widgets/SessionPanel.cpp` 的历史树多选与右键菜单、串口 MCP 配置表单与历史重连 | `novaterm_session_panel_tests` | `ui` | 全部 | <1s |
 | `src/ui/`、`src/platform/`、`src/service/` | **无覆盖测试** —— 编译通过 + 实跑程序看效果即可（`KeyMapper` 已移出此列，现由 `novaterm_core_tests` 覆盖） | — | — | — |
 
 **平台列不是装饰**：`novaterm_pty_tests` 只在
@@ -155,6 +156,8 @@ ctest --test-dir build -C Debug
 | `novaterm_mcp_wire_tests` | 无条件 | `mcp;p8` | 30 |
 | `novaterm_mcp_http_tests` | 无条件 | `mcp;p8;http` | 60 |
 | `novaterm_mcp_endpoint_tests` | 无条件 | `mcp;p8;http` | 60 |
+| `novaterm_sftp_session_safety_tests` | 无条件 | `mcp;p8;security` | 30 |
+| `novaterm_command_safety_tests` | 无条件 | `mcp;p8;security` | 30 |
 | `novaterm_serial_file_transfer_tests` | 无条件 | `session;serial;filetransfer;p9` | 120 |
 | `novaterm_serial_file_transfer_ui_tests` | 无条件 | `ui;serial;filetransfer;p9` | 30 |
 | `novaterm_filetransfer_checksum_tests` | 无条件 | `unit;filetransfer;p9` | 60 |
@@ -179,9 +182,11 @@ ctest --test-dir build -C Debug
 | `novaterm_conpty_tests` | `WIN32` | `integration;conpty` | 240 |
 | `novaterm_terminal_session_tests` | `WIN32` | `integration;terminal-session` | 120 |
 
-**2026-10-12 当前源码新增 wire/HTTP/endpoint 三项，Windows 为 26 项，Linux 按条件
+**当前 2026-10-16：Linux 实核 26 项、Debug 26/26 通过（173.64 秒）；Windows
+按条件预计 28，新增两项尚未在 Windows 运行。** 以下为历史：
+2026-10-12 新增 wire/HTTP/endpoint 三项，Windows 为 26 项，Linux 按条件
 预计 24 项。2026-10-13 Windows 已核对注册 26 项，Release 全套 26/26 通过，
-耗时 233.97 秒；Linux 本轮未配置或运行。** `ctest -N` 的注册数不代表通过。
+耗时 233.97 秒；Linux 当时未配置或运行。`ctest -N` 的注册数不代表通过。
 以下为新增三项之前的历史：Linux 注册 21 项，2026-10-05 实测 21/21 通过。
 当时构成：19 项无条件 +
 1 项缩放护栏（benchmark 开关）+ 1 项 `pty`（Linux 专有）。计数以
@@ -1683,3 +1688,40 @@ QString 堆分配（热路径）、TerminalRenderer `_fm` 裸指针 delete/new �
 本轮仅跑相关目标，不把前轮 26/26 当本轮成绩。wire 大响应微基准约减少35%，
 整机 GUI 帧性能未重测。计划、RED/GREEN 与日志见
 `docs/superpowers/plans/2026-10-14-http-mcp-review-fixes.md`，随 0.2.68 提交。
+
+### 串口 MCP 接线与 Linux 回归（2026-10-15）
+
+- 串口表单新增 MCP 提示符正则、CR/LF/CRLF 和远端回显；随 SerialConfig、
+  历史与工厂持久传递。空规则默认禁用，实际提示符就绪且单独授权后才允许
+  run_command；串口不提供脚本写入和固定诊断模板。
+- UI 附着传输时必须传本次独立 RuntimeConfig，再由 Session 配置 Framer/
+  Coordinator；不能只写 UI 的编辑快照。跨类型重用标签不得继承旧设备规则。
+- `novaterm_session_panel_tests` 现含 SessionPage 配置往返与历史重连；测试
+  显式注入临时历史路径。Qt test mode 在部分平台不遵循 XDG_DATA_HOME，
+  不要以设置该环境变量作为持久化测试隔离的唯一依据。
+- 本轮全部默认目标构建通过；Linux Debug 实核 24 项，全套 **24/24 通过，
+  170.32 秒**，含 MCP 四项（20.21 秒）、Session、PTY、UI 与文件传输。
+  宿主回环/虚拟 PTY 可用，使用 offscreen；不代表 Windows/macOS 或真实 UART
+  执行验收。历史环境失败表不据本次绿灯删除。
+- MCP 深度审查剩余 10 项，未在接线任务中批量修复，见
+  P8 设计文档的对应实施节；P1 包括保护目标确认错绑、
+  SFTP 退出超时后的对象生命周期、风险分类绕过确认及脚本路径确认不一致。
+  接线步骤/新增回归/日志见 P8 文档对应实施节；以上 10 项随后于 2026-10-16
+  修复，设计变更和验证结果统一保存在 P8 文档，不再作为当前遗留项。
+
+### MCP 审查问题修复（2026-10-16）
+
+- D-001～D-010 已修复并补回归。初始化风格不改；余下 DEP-10 扫描结果都是
+  合法 chrono duration::count()，不应改成不存在的 size()。
+- SFTP 阻塞 worker 完整状态独立共享，通知在同一锁下核对 QObject 接收者；
+  取消后先等 Provider 回报确定写入终态，不能提前释放目标/路径事务。
+  确定发布但未调用与发布未知要保留真实记录；未知结果保持隔离，不能自动重试。
+- 请求上限与响应分离：脚本原文 2 MiB，编码请求 12 MiB + 256 KiB，响应仍
+  2 MiB；HTTP 共享输入额度 49.1875 MiB，所有数量与队列限制保留。
+- 新增 `novaterm_sftp_session_safety_tests` 与 `novaterm_command_safety_tests`，
+  均标记 mcp/p8/security，不连接用户服务器。Linux 实核 26 项，全部默认目标
+  构建与全套 **26/26 通过，173.64 秒**；MCP 六项约 24 秒。
+- SFTP 专项 ASan/UBSan 11/11 通过，detect_leaks=0，不是 LSan 验收；可控回调/
+  状态注入不是延迟真实 SFTP 对端回包验证。Windows/macOS 与真实 UART 未运行。
+- I-001 纯分类近 2 MiB 输入约 24～49 ms，未复现病态回溯；保留回归但不虚称
+  已做 GUI 性能优化。细节与日志见 P8 2026-10-16 节。

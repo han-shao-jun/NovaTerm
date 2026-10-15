@@ -157,6 +157,44 @@ if(BUILD_TESTING)
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
     add_dependencies(check novaterm_mcp_tests)
 
+    qt_add_executable(novaterm_sftp_session_safety_tests
+        mcp/SftpSessionSafetyTests.cpp
+        ${PROJECT_SOURCE_DIR}/src/session/SftpSession.cpp
+        ${PROJECT_SOURCE_DIR}/src/session/SftpSession.h)
+    target_include_directories(novaterm_sftp_session_safety_tests PRIVATE ${PROJECT_SOURCE_DIR}/src)
+    target_link_libraries(novaterm_sftp_session_safety_tests PRIVATE
+        novaterm_core Qt6::Core Qt6::Gui Qt6::SerialPort Qt6::Test ssh::ssh OpenSSL::Crypto OpenSSL::SSL)
+    set_target_properties(novaterm_sftp_session_safety_tests PROPERTIES WIN32_EXECUTABLE FALSE)
+    add_test(NAME novaterm_sftp_session_safety_tests COMMAND novaterm_sftp_session_safety_tests)
+    set_tests_properties(novaterm_sftp_session_safety_tests PROPERTIES LABELS "mcp;p8;security" TIMEOUT 30)
+
+    qt_add_executable(novaterm_command_safety_tests
+        mcp/CommandSafetyTests.cpp
+        ${PROJECT_SOURCE_DIR}/src/mcp/CommandRiskPolicy.cpp
+        ${PROJECT_SOURCE_DIR}/src/session/ISessionScriptProvider.h
+        ${PROJECT_SOURCE_DIR}/src/session/LocalSessionScriptProvider.cpp
+        ${PROJECT_SOURCE_DIR}/src/session/LocalSessionScriptProvider.h
+        ${PROJECT_SOURCE_DIR}/src/session/SshSessionScriptProvider.cpp
+        ${PROJECT_SOURCE_DIR}/src/session/SshSessionScriptProvider.h
+        ${PROJECT_SOURCE_DIR}/src/session/SftpSession.cpp
+        ${PROJECT_SOURCE_DIR}/src/session/SftpSession.h
+        ${PROJECT_SOURCE_DIR}/src/transport/SshTransport.cpp
+        ${PROJECT_SOURCE_DIR}/src/transport/SshTransport.h
+        ${PROJECT_SOURCE_DIR}/src/transport/SshMonitorProtocol.cpp
+        ${PROJECT_SOURCE_DIR}/src/transport/ITransport.h)
+    target_include_directories(novaterm_command_safety_tests PRIVATE ${PROJECT_SOURCE_DIR}/src)
+    target_link_libraries(novaterm_command_safety_tests PRIVATE
+        novaterm_core Qt6::Core Qt6::Network Qt6::Gui Qt6::SerialPort Qt6::Test
+        ssh::ssh OpenSSL::Crypto OpenSSL::SSL)
+    set_target_properties(novaterm_command_safety_tests PROPERTIES WIN32_EXECUTABLE FALSE)
+    add_test(NAME novaterm_command_safety_tests COMMAND novaterm_command_safety_tests)
+    set_tests_properties(novaterm_command_safety_tests PROPERTIES LABELS "mcp;p8;security" TIMEOUT 30)
+    if(WIN32)
+        target_link_libraries(novaterm_sftp_session_safety_tests PRIVATE ws2_32 crypt32)
+        target_link_libraries(novaterm_command_safety_tests PRIVATE ws2_32 crypt32)
+    endif()
+    add_dependencies(check novaterm_sftp_session_safety_tests novaterm_command_safety_tests)
+
     add_executable(novaterm_core_tests
         ${CMAKE_CURRENT_SOURCE_DIR}/core/TerminalCoreTests.cpp
     )
@@ -694,6 +732,13 @@ if(BUILD_TESTING)
     # 与 ui 目标刻意保持的「只链 Ela+Qt」轻量闭包不同。
     qt_add_executable(novaterm_session_panel_tests
         ${CMAKE_CURRENT_SOURCE_DIR}/ui/SessionPanelTests.cpp
+        ${PROJECT_SOURCE_DIR}/src/ui/pages/SessionPage.cpp
+        ${PROJECT_SOURCE_DIR}/src/ui/pages/SessionPage.h
+        ${PROJECT_SOURCE_DIR}/src/ui/widgets/VerticalTabWidget.cpp
+        ${PROJECT_SOURCE_DIR}/src/ui/widgets/VerticalTabWidget.h
+        ${PROJECT_SOURCE_DIR}/src/transport/serialport_info.cpp
+        ${PROJECT_SOURCE_DIR}/src/transport/serialport_info.h
+        ${PROJECT_SOURCE_DIR}/src/session/LocalShellProfile.cpp
         ${PROJECT_SOURCE_DIR}/src/ui/widgets/SessionPanel.cpp
         ${PROJECT_SOURCE_DIR}/src/ui/widgets/SessionPanel.h
         ${PROJECT_SOURCE_DIR}/src/ui/widgets/MessagePrompts.cpp
@@ -720,6 +765,11 @@ if(BUILD_TESTING)
             Qt${QT_VERSION_MAJOR}::Test
             ${NOVATERM_SECRET_SERVICE_LIBS}
     )
+    if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+        target_link_libraries(novaterm_session_panel_tests PRIVATE udev)
+    elseif(WIN32)
+        target_link_libraries(novaterm_session_panel_tests PRIVATE user32)
+    endif()
     add_test(NAME novaterm_session_panel_tests
              COMMAND novaterm_session_panel_tests)
     set_tests_properties(novaterm_session_panel_tests PROPERTIES
