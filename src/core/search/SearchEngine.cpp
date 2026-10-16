@@ -42,24 +42,26 @@ struct SearchableLine
 };
 
 // 把一行 Cell 转换为可搜索字符串。cancelled 回调用于在转换过程中
-// 响应取消请求（每 256 个 Cell 检查一次）。返回 nullopt 表示行过长
-// 或被取消。
+// 响应取消请求（每 256 个 Cell 检查一次）。返回 false 表示行过长
+// 或被取消。复用同一次搜索的缓冲，避免逐行分配文本和坐标数组。
 template <typename Cancelled>
-std::optional<SearchableLine> makeSearchable(const LogicalLine& line,
-                                              Cancelled cancelled)
+bool makeSearchable(const LogicalLine& line, SearchableLine& result,
+                    Cancelled cancelled)
 {
+    // QString::clear() 会释放容量；resize(0) 保留已分配的缓冲。
+    result.text.resize(0);
+    result.utf16ToCell.clear();
     // size() 是无符号 size_t，与 isize 常量/变量比较需显式转换
     // （AGENTS.md「容易写错的地方」记载的模式）。
     const isize cellCount = isize(line.cells.size());
     if (cellCount > MaximumSearchLineCharacters)
-        return std::nullopt;
-    SearchableLine result;
+        return false;
     result.text.reserve(cellCount);
     result.utf16ToCell.reserve(cellCount + 1);
     for (isize cellIndex = 0; cellIndex < cellCount; ++cellIndex) {
         // 每 256 个 Cell 检查一次取消，平衡检查开销与响应延迟。
         if ((cellIndex & 0xff) == 0 && cancelled())
-            return std::nullopt;
+            return false;
         const Cell& cell = line.cells[cellIndex];
         // 宽字符的延续格直接跳过：它属于前一个宽 Cell。
         if (cell.isWideContinuation())
@@ -75,7 +77,7 @@ std::optional<SearchableLine> makeSearchable(const LogicalLine& line,
             // 码点 > 0xFFFF 需代理对，占两个 UTF-16 单元。
             const qsizetype units = codepoint > 0xFFFF ? 2 : 1;
             if (result.text.size() + units > MaximumSearchLineCharacters)
-                return std::nullopt;
+                return false;
             if (units == 1) {
                 result.text.append(QChar(char16_t(codepoint)));
             } else {
@@ -90,7 +92,7 @@ std::optional<SearchableLine> makeSearchable(const LogicalLine& line,
     }
     // 哨兵：text 末尾对应行尾之后的 Cell 索引。
     result.utf16ToCell.push_back(isize(line.cells.size()));
-    return result;
+    return true;
 }
 
 // 启发式检测可能导致灾难性回溯的正则形态：嵌套量词组
@@ -282,6 +284,7 @@ public:
         const isize maximumResults = std::max<isize>(
             0, work.request.maximumResults);
         isize resultCount = 0;
+        SearchableLine line;
 
         for (isize row = startRow; row < endRow; ++row) {
             if (cancelled(work.request.generation)) {
@@ -294,7 +297,7 @@ public:
             if (!logical)
                 continue;
             // makeSearchable 失败可能是取消导致，需再次确认。
-            const auto searchable = makeSearchable(*logical, [this, &work]() {
+            const bool searchable = makeSearchable(*logical, line, [this, &work]() {
                 return cancelled(work.request.generation);
             });
             if (!searchable) {
@@ -305,7 +308,6 @@ public:
                 }
                 continue;
             }
-            const SearchableLine& line = *searchable;
             QRegularExpressionMatchIterator matches = regex.globalMatch(line.text);
             while (matches.hasNext() && resultCount < maximumResults) {
                 if (cancelled(work.request.generation)) {

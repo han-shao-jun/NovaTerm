@@ -187,7 +187,11 @@ TerminalView::TerminalView(TerminalSession* session, QWidget* parent)
     _renderer->installEventFilter(this);
     _searchLine->installEventFilter(this);
 
-    connect(_searchLine, &QLineEdit::textChanged, this, &TerminalView::startSearch);
+    _searchDebounce = new QTimer(this);
+    _searchDebounce->setSingleShot(true);
+    _searchDebounce->setInterval(120);
+    connect(_searchDebounce, &QTimer::timeout, this, &TerminalView::submitSearch);
+    connect(_searchLine, &QLineEdit::textChanged, this, [this] { startSearch(true); });
     connect(_searchPrevious, &QPushButton::clicked, this, [this] { navigateSearch(true); });
     connect(_searchNext, &QPushButton::clicked, this, [this] { navigateSearch(false); });
     connect(_searchClose, &QPushButton::clicked, this, &TerminalView::hideSearch);
@@ -215,7 +219,7 @@ TerminalView::TerminalView(TerminalSession* session, QWidget* parent)
         if (!batch.error.empty())
             _searchError = QString::fromStdString(batch.error);
         if (_currentSearchMatch < 0 && !_searchMatches.empty())
-            navigateSearch(false);
+            navigateSearch(_searchBackwardsOnFirstMatch);
         updateSearchStatus();
     });
 
@@ -949,6 +953,7 @@ void TerminalView::showSearch()
 
 void TerminalView::hideSearch()
 {
+    _searchDebounce->stop();
     ++_searchGeneration;
     _core->cancelSearch(_searchGeneration);
     _renderer->clearSearchMatches();
@@ -961,22 +966,33 @@ void TerminalView::hideSearch()
     _renderer->setFocus(Qt::ShortcutFocusReason);
 }
 
-void TerminalView::startSearch()
+void TerminalView::startSearch(bool delayed)
 {
+    _searchDebounce->stop();
     ++_searchGeneration;
+    // 输入变化时立即取消上一代；等待去抖期间也不能继续扫描或接纳旧结果。
+    _core->cancelSearch(_searchGeneration - 1);
     _renderer->clearSearchMatches();
     _searchMatches.clear();
     _currentSearchMatch = -1;
+    _searchBackwardsOnFirstMatch = false;
     _searchError.clear();
     const QString text = _searchLine->text();
-    _searchCompleted = text.isEmpty();
+    _searchCompleted = text.isEmpty() || _searchBar->isHidden();
     updateSearchStatus();
-    if (text.isEmpty()) {
-        _core->cancelSearch(_searchGeneration);
+    if (_searchCompleted)
         return;
-    }
+    if (delayed)
+        _searchDebounce->start();
+    else
+        submitSearch();
+}
+
+void TerminalView::submitSearch()
+{
+    _searchDebounce->stop();
     NovaTerm::SearchRequest request;
-    request.query = text.toStdString();
+    request.query = _searchLine->text().toStdString();
     request.generation = _searchGeneration;
     request.resultBatchSize = 128;
     request.maximumResults = 100'000;
@@ -985,6 +1001,12 @@ void TerminalView::startSearch()
 
 void TerminalView::navigateSearch(bool backwards)
 {
+    if (_searchDebounce->isActive()) {
+        // Enter/F3 显式查找时立即提交；首批到达后应用本次导航方向。
+        _searchBackwardsOnFirstMatch = backwards;
+        submitSearch();
+        return;
+    }
     const qsizetype count = qsizetype(_searchMatches.size());
     if (count == 0)
         return;

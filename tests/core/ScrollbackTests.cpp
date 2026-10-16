@@ -17,6 +17,7 @@ private slots:
     void layoutKeepsWideCellsTogether();
     void reflowPublishesCurrentGeneration();
     void searchPublishesCellRanges();
+    void searchKeepsCellRangesAcrossDifferentLines();
     void searchCancellationSupersedesGeneration();
     void activeTailSnapshotIsPublishedWithoutCellCopy();
     void continuationAcrossSealedChunkKeepsOneLogicalLine();
@@ -296,6 +297,51 @@ void ScrollbackTests::searchPublishesCellRanges()
     QCOMPARE(matches[1].lineId, matchLine);
     QCOMPARE(matches[1].startCell, qsizetype(8));
     QCOMPARE(matches[1].endCell, qsizetype(13));
+}
+
+void ScrollbackTests::searchKeepsCellRangesAcrossDifferentLines()
+{
+    NovaTerm::ChunkedScrollback history(10, 1024 * 1024, 4);
+    const auto longId = history.append(textLine(QString(1024, QLatin1Char('x'))
+                                               + QStringLiteral("end")));
+    history.append(NovaTerm::LogicalLine{});
+    NovaTerm::LogicalLine unicode;
+    NovaTerm::Cell emoji;
+    emoji.chars[0] = 0x1f600;
+    emoji.width = 2;
+    NovaTerm::Cell continuation;
+    continuation.chars[0] = NovaTerm::WideCharContinuation;
+    NovaTerm::Cell combined;
+    combined.chars[0] = 'e';
+    combined.chars[1] = 0x301;
+    unicode.cells = {emoji, continuation, combined};
+    const auto unicodeId = history.append(std::move(unicode));
+    const auto shortId = history.append(textLine(QStringLiteral("end")));
+
+    NovaTerm::SearchEngine search;
+    QSignalSpy batches(&search, &NovaTerm::SearchEngine::resultsReady);
+    NovaTerm::SearchRequest request;
+    request.query = "\\x{1f600}|\\x{301}|end";
+    request.regularExpression = true;
+    request.generation = 1;
+    search.search(history.snapshot(), request);
+    QTRY_VERIFY(!batches.isEmpty());
+    QTRY_VERIFY(batches.last().at(0).value<NovaTerm::SearchBatch>().completed);
+    const auto batch = batches.last().at(0).value<NovaTerm::SearchBatch>();
+    QVERIFY(batch.error.empty());
+    QCOMPARE(batch.matches.size(), std::size_t(4));
+    QCOMPARE(batch.matches[0].lineId, longId);
+    QCOMPARE(batch.matches[0].startCell, NovaTerm::isize(1024));
+    QCOMPARE(batch.matches[0].endCell, NovaTerm::isize(1027));
+    QCOMPARE(batch.matches[1].lineId, unicodeId);
+    QCOMPARE(batch.matches[1].startCell, NovaTerm::isize(0));
+    QCOMPARE(batch.matches[1].endCell, NovaTerm::isize(2));
+    QCOMPARE(batch.matches[2].lineId, unicodeId);
+    QCOMPARE(batch.matches[2].startCell, NovaTerm::isize(2));
+    QCOMPARE(batch.matches[2].endCell, NovaTerm::isize(3));
+    QCOMPARE(batch.matches[3].lineId, shortId);
+    QCOMPARE(batch.matches[3].startCell, NovaTerm::isize(0));
+    QCOMPARE(batch.matches[3].endCell, NovaTerm::isize(3));
 }
 
 void ScrollbackTests::searchCancellationSupersedesGeneration()

@@ -77,6 +77,7 @@ private slots:
     void terminalViewStartupPreservesPendingSize();
     void terminalViewScrollBarDrivesHistoryScrollback();
     void terminalSearchNavigatesAndReopens();
+    void terminalSearchCoalescesTypingAndCancelsPendingQueries();
     void terminalSearchBarKeepsCompactHeight();
     void fontZoomRoundTripRestoresTerminalContent();
     void comboBoxAnimationTeardownIsSafe();
@@ -153,6 +154,65 @@ void TerminalSessionSmokeTests::terminalSearchNavigatesAndReopens()
     query->setText(QStringLiteral("missing-search-text"));
     QTRY_COMPARE(status->text(), view.tr("No matches"));
     QCOMPARE(renderer->searchMatchCount(), qsizetype(0));
+}
+
+void TerminalSessionSmokeTests::terminalSearchCoalescesTypingAndCancelsPendingQueries()
+{
+    RuntimeConfig runtime;
+    TerminalSession session(runtime);
+    TerminalView view(&session);
+    auto* renderer = view.renderer();
+    renderer->setApi(QRhiWidget::Api::Null);
+    auto* core = session.core();
+    QByteArray input;
+    for (int i = 0; i < 100; ++i)
+        input += i == 20 || i == 40 || i == 60 ? "needle\r\n" : "other\r\n";
+    QVERIFY(core->writeInput(input).fullyAccepted());
+    QVERIFY(core->waitForIdle(1000));
+    QTRY_VERIFY(renderer->historyDisplayRowCount() > 0);
+    QTest::keyClick(renderer, Qt::Key_F, Qt::ControlModifier);
+    auto* query = view.findChild<ElaLineEdit*>(QStringLiteral("terminalSearchText"));
+    auto* status = view.findChild<QLabel*>(QStringLiteral("terminalSearchStatus"));
+    QVERIFY(query);
+    QVERIFY(status);
+    QSignalSpy batches(core, &TerminalCore::searchResultsReady);
+
+    for (const auto& text : {QStringLiteral("n"), QStringLiteral("ne"),
+                             QStringLiteral("needle")}) {
+        query->setText(text);
+        QTest::qWait(20);
+        QCOMPARE(batches.count(), 0); // 连续输入期间不扫描中间查询。
+    }
+    QTRY_COMPARE(status->text(), QStringLiteral("1 / 3"));
+    const auto generation = batches.last().at(0).value<NovaTerm::SearchBatch>().generation;
+    for (const auto& arguments : batches)
+        QCOMPARE(arguments.at(0).value<NovaTerm::SearchBatch>().generation, generation);
+
+    batches.clear();
+    query->setText(QStringLiteral("need"));
+    QCOMPARE(renderer->searchMatchCount(), qsizetype(0));
+    QTest::keyClick(query, Qt::Key_Return, Qt::ShiftModifier);
+    QTRY_COMPARE(status->text(), QStringLiteral("3 / 3"));
+    const auto submitted = batches.count();
+    QTest::qWait(200);
+    QCOMPARE(batches.count(), submitted); // 快捷键提交后不被定时器重复启动。
+    QCOMPARE(status->text(), QStringLiteral("3 / 3"));
+
+    batches.clear();
+    query->setText(QStringLiteral("other"));
+    query->clear();
+    QCOMPARE(renderer->searchMatchCount(), qsizetype(0));
+    QVERIFY(status->text().isEmpty());
+    QTest::qWait(200);
+    QCOMPARE(batches.count(), 0);
+
+    query->setText(QStringLiteral("needle"));
+    QTest::keyClick(query, Qt::Key_Escape);
+    QTest::qWait(200);
+    QCOMPARE(batches.count(), 0); // 关闭搜索也取消尚未提交的查询。
+    QCOMPARE(renderer->searchMatchCount(), qsizetype(0));
+    QTest::keyClick(renderer, Qt::Key_F, Qt::ControlModifier);
+    QTRY_COMPARE(status->text(), QStringLiteral("1 / 3"));
 }
 
 void TerminalSessionSmokeTests::terminalSearchBarKeepsCompactHeight()

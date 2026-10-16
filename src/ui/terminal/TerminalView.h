@@ -143,7 +143,10 @@ private:
     bool eventFilter(QObject* obj, QEvent* event) override;
     void showSearch();
     void hideSearch();
-    void startSearch();
+    /** @brief 使旧查询失效，输入变化可延迟提交；重开/刷新立即提交。 */
+    void startSearch(bool delayed = false);
+    /** @brief 提交当前代际查询，并停止去抖定时器。 */
+    void submitSearch();
     void navigateSearch(bool backwards);
     void updateSearchStatus();
     /**
@@ -170,6 +173,8 @@ private:
     // PTY 尺寸变更去抖定时器：拖动窗口时密集的 resize 事件合并为一次
     // SIGWINCH，避免 shell 被连续重绘请求轰击产生输出风暴。
     QTimer*           _resizeDebounce{nullptr};
+    // 输入停顿后再创建历史快照，避免逐键扫描；显式导航可提前提交。
+    QTimer*           _searchDebounce{nullptr};
     ElaLineEdit*      _searchLine{nullptr};
     QWidget*          _searchBar{nullptr};
     ElaPushButton*    _searchPrevious{nullptr};
@@ -179,6 +184,7 @@ private:
     std::vector<NovaTerm::SearchMatch> _searchMatches;
     qsizetype         _currentSearchMatch{-1};
     bool              _searchCompleted{true};
+    bool              _searchBackwardsOnFirstMatch{false};
     QString           _searchError;
     ElaScrollBar*     _scrollBar{nullptr};
     // 由 syncScrollBar() 写入滚动条时置位，使 valueChanged 不再反向驱动
