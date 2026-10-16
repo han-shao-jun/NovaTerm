@@ -21,6 +21,9 @@ inline constexpr int MaxQueuedRequests = 4;
 inline constexpr int MaxCaptures = 4;
 inline constexpr int CaptureLifetimeMs = 60000;
 inline constexpr int CommandOutputBytes = 65536;
+inline constexpr int MaxTerminalActions = 64;
+inline constexpr qsizetype MaxTerminalActionTextBytes = 16 * 1024;
+inline constexpr int MaxTerminalWaitMs = 30000;
 inline constexpr qsizetype MaxScriptBytes = 2 * 1024 * 1024;
 /** @brief JSON 字符串最坏每 UTF-8 字节展开为六字节；其余有界字段另留信封额度。 */
 inline constexpr qsizetype MaxRequestEnvelopeBytes = 256 * 1024;

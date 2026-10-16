@@ -7,6 +7,7 @@
  * 校验，非法迁移告警并拒绝。
  */
 #include "TerminalSession.h"
+#include "SessionTerminalController.h"
 #include "transfer/SerialFileTransferController.h"
 #include "transport/SerialTransport.h"
 
@@ -124,6 +125,8 @@ TerminalSession::TerminalSession(RuntimeConfig config, QObject* parent)
 
 TerminalSession::~TerminalSession()
 {
+    if (_terminalController) _terminalController->onChanged = {};
+    _terminalController.reset();
     if (_state != SessionState::Closed)
         close(CloseMode::Abort);
     clearAttachment(false);
@@ -184,8 +187,8 @@ void TerminalSession::attach(ITransport* transport, Ownership ownership,
     startPump();
 
     _coreOutputConnection = connect(
-        _core, &TerminalCore::outputData, this,
-        [this, transport](const QByteArray& data) {
+        _core, &TerminalCore::routedOutputData, this,
+        [this, transport](const QByteArray& data, bool userInput) {
             if (!_acceptsUserInput || _transport != transport)
                 return;
 
@@ -198,15 +201,32 @@ void TerminalSession::attach(ITransport* transport, Ownership ownership,
             }
             if (!transport->isConnected())
                 return;
-            if (_inputArbiter->submitTerminalOutput(data))
+            if (_inputArbiter->submitTerminalOutput(data, userInput))
                 _statistics.bytesSent += static_cast<quint64>(data.size());
         });
 
     connectTransportSignals(transport, _statistics.generation);
 }
 
+SessionTerminalController* TerminalSession::terminalController()
+{
+    if (!_terminalController) {
+        const auto profile = ShellIntegration::profileFor(_config);
+        const bool integrated = profile && profile->shellIntegration && !profile->allowUnverifiedPrompt;
+        QByteArray ending = "\r";
+        const auto configured = _config.transport.value(QStringLiteral("interactiveLineEnding")).toString();
+        if (configured == "lf") ending = "\n";
+        if (configured == "crlf") ending = "\r\n";
+        _terminalController = std::make_unique<SessionTerminalController>(_core, _inputArbiter.get(),
+            _commandCoordinator.get(), _streamFramer.get(), _statistics.generation, integrated, ending, this);
+        _terminalController->onChanged = [this] { emit terminalControlChanged(); emit activityChanged(); };
+    }
+    return _terminalController.get();
+}
+
 void TerminalSession::rewireTransportSignals()
 {
+    _terminalController.reset();
     if (!_transport)
         return;
     _commandFacade->reset(_statistics.generation);
@@ -565,6 +585,14 @@ void TerminalSession::startPump()
     connect(_inputPump, &SessionInputPump::interactiveEvent,
             _commandCoordinator.get(),
             &SessionCommandCoordinator::handleInteractiveEvent);
+    connect(_inputPump, &SessionInputPump::interactiveEvent, this,
+            [this](const InteractiveStreamEvent& event) {
+        if (_terminalController) _terminalController->handleEvent(event);
+    });
+    connect(_inputPump, &SessionInputPump::interactiveBytes, this,
+            [this](const QByteArray& bytes) {
+        if (_terminalController) _terminalController->bytes(bytes);
+    });
     connect(_inputPump, &SessionInputPump::interactiveBytes,
             _commandCoordinator.get(),
             &SessionCommandCoordinator::handleInteractiveBytes);
@@ -575,6 +603,7 @@ void TerminalSession::startPump()
 
 void TerminalSession::clearAttachment(bool requestDisconnect)
 {
+    _terminalController.reset();
     _automaticReconnectAttempt = false;
     _reconnectTimer.stop();
     ITransport* current = _transport.data();

@@ -75,6 +75,7 @@ enum class CommandType
     ClearAll,
     Flush,
     PublishContext,
+    AgentInput,
 };
 
 // GUI 线程产生的待执行命令。所有输入事件（键盘、鼠标、resize、paste 等）
@@ -99,6 +100,8 @@ struct ParserCommand
     // 已完成字节数 >= byteBarrier 时才能执行本命令，从而保证命令与
     // 字节流之间的相对顺序（命令"看到"它之前写入的所有解析结果）。
     uint64_t byteBarrier{0};
+    uint64_t operation{0};
+    std::vector<NovaTerm::TerminalInputAction> actions;
 };
 
 // 计算一整行（columns 宽）Cell 内容的 64 位身份哈希（FNV-1a 64-bit 变体）。
@@ -345,8 +348,11 @@ public:
 
     static isize estimatedCommandBytes(const ParserCommand& command)
     {
-        return isize(sizeof(ParserCommand))
+        isize size = isize(sizeof(ParserCommand))
             + command.text.size() * isize(sizeof(QChar));
+        for (const auto& action : command.actions)
+            size += isize(sizeof(action) + action.text.size());
+        return size;
     }
 
     bool waitForIdle(int timeoutMs) const
@@ -477,15 +483,21 @@ public:
     {
         NovaTerm::VTAdapter::Observer observer;
         observer.output = [this](NovaTerm::ByteView data) {
+            if (encodingAgent) {
+                if (data.size > 65536 - encodedAgent.size()) agentEncodingValid = false;
+                else if (agentEncodingValid) encodedAgent.append(data.data, data.size);
+                return;
+            }
             constexpr isize OutputBatchSize = 64 * 1024;
             // pendingOutput 仍是 Qt 门面的暂存容器（QByteArray），在此把
             // core 的 ByteView 桥接过去；阶段 7 建门面后这一步收进门面。
             if (pendingOutput.isEmpty()
-                || pendingOutput.back().size() + data.size > OutputBatchSize) {
+                || pendingOutput.back().first.size() + data.size > OutputBatchSize
+                || pendingOutput.back().second != processingUserInput) {
                 pendingOutput.push_back(
-                    QByteArray(data.data, data.size));
+                    {QByteArray(data.data, data.size), processingUserInput});
             } else {
-                pendingOutput.back().append(data.data, data.size);
+                pendingOutput.back().first.append(data.data, data.size);
             }
         };
         observer.damage = [this](const NovaTerm::DirtyRegion& region) {
@@ -602,7 +614,55 @@ public:
 
     void executeCommand(const ParserCommand& command)
     {
+        processingUserInput = command.type == CommandType::KeyboardCharacter
+            || command.type == CommandType::KeyboardKey || command.type == CommandType::Paste
+            || command.type == CommandType::MouseButton || command.type == CommandType::MouseMove
+            || command.type == CommandType::SendSelection;
         switch (command.type) {
+        case CommandType::AgentInput: {
+            encodingAgent = true;
+            agentEncodingValid = true;
+            encodedAgent.clear();
+            for (const auto& action : command.actions) {
+                const auto text = QString::fromUtf8(action.text);
+                const int mods = int(action.modifiers & 7);
+                if (action.kind == NovaTerm::TerminalInputAction::Kind::Bytes) {
+                    if (action.text.size() > size_t(65536 - encodedAgent.size())) agentEncodingValid = false;
+                    else encodedAgent.append(action.text.data(), qsizetype(action.text.size()));
+                } else if (action.kind == NovaTerm::TerminalInputAction::Kind::Key) {
+                    if (action.key != NovaTerm::InputKey::None) {
+                        VTermKey key;
+                        if (KeyMapper::keyToVTermKey(static_cast<NovaTerm::Key>(action.key), key))
+                            adapter->keyboardKey(int(key), mods);
+                        else agentEncodingValid = false;
+                    } else {
+                        const auto scalars = text.toUcs4();
+                        if (scalars.size() != 1) { agentEncodingValid = false; break; }
+                        uint32_t cp = scalars.front();
+                        if ((mods & VTERM_MOD_CTRL) && KeyMapper::codepointToControlCharacter(cp, cp))
+                            adapter->keyboardUnichar(cp, mods & ~VTERM_MOD_CTRL);
+                        else adapter->keyboardUnichar(cp, mods);
+                    }
+                } else {
+                    QString normalized = text;
+                    const bool paste = action.kind == NovaTerm::TerminalInputAction::Kind::Paste;
+                    if (paste) {
+                        normalized.replace(QStringLiteral("\r\n"), QStringLiteral("\r"));
+                        normalized.replace(QChar('\n'), QChar('\r'));
+                        adapter->startPaste();
+                    }
+                    for (const auto cp : normalized.toUcs4()) adapter->keyboardUnichar(cp, VTERM_MOD_NONE);
+                    if (paste) adapter->endPaste();
+                }
+            }
+            encodingAgent = false;
+            auto data = agentEncodingValid ? std::move(encodedAgent) : QByteArray{};
+            QMetaObject::invokeMethod(owner, [target=owner, id=command.operation,
+                data=std::move(data), valid=agentEncodingValid] {
+                emit target->agentInputEncoded(id, data, valid);
+            }, Qt::QueuedConnection);
+            break;
+        }
         case CommandType::KeyboardCharacter:
             adapter->keyboardUnichar(command.codepoint, command.first);
             break;
@@ -662,6 +722,7 @@ public:
         case CommandType::PublishContext:
             break;
         }
+        processingUserInput = false;
     }
 
     void maybePublishContextLocked()
@@ -701,7 +762,7 @@ public:
         const bool bellValue = std::exchange(bellPending, false);
         const bool scrollbackValue = std::exchange(scrollbackChanged, false);
         const int screenScrollRows = std::exchange(pendingScreenScrollRows, 0);
-        QVector<QByteArray> output;
+        QVector<QPair<QByteArray, bool>> output;
         output.swap(pendingOutput);
         const u64 revisionValue = std::exchange(pendingRevision, 0);
 
@@ -722,8 +783,10 @@ public:
              revisionValue, cursorValue, titleValue, titleCopy, bellValue,
              scrollbackValue, screenScrollRows,
              output = std::move(output)]() {
-                for (const QByteArray& data : output)
-                    emit target->outputData(data);
+                for (const auto& data : output) {
+                    emit target->outputData(data.first);
+                    emit target->routedOutputData(data.first, data.second);
+                }
                 if (screenScrollRows > 0)
                     emit target->screenScrolled(screenScrollRows);
                 for (const NovaTerm::DirtyRegion& region : damageValue)
@@ -807,7 +870,11 @@ public:
     std::unique_ptr<NovaTerm::VTAdapter> adapter;
 
     QVector<NovaTerm::DirtyRegion> pendingDamage;
-    QVector<QByteArray> pendingOutput;
+    QVector<QPair<QByteArray, bool>> pendingOutput;
+    bool processingUserInput{false};
+    bool encodingAgent{false};
+    bool agentEncodingValid{true};
+    QByteArray encodedAgent;
     bool cursorChanged{false};
     bool titleChanged{false};
     bool bellPending{false};
@@ -846,6 +913,21 @@ TerminalCore::~TerminalCore() = default;
 TerminalCore::InputWriteResult TerminalCore::writeInput(QByteArrayView data)
 {
     return _runtime->enqueueBytes(NovaTerm::ByteView(data.data(), data.size()));
+}
+
+bool TerminalCore::encodeAgentInput(quint64 operation, std::vector<NovaTerm::TerminalInputAction> actions)
+{
+    if (!operation || actions.empty() || actions.size() > 64) return false;
+    size_t bytes = 0;
+    for (const auto& action : actions) {
+        bytes += action.text.size();
+        if (bytes > 16384 || action.modifiers > 7) return false;
+    }
+    ParserCommand command;
+    command.type = CommandType::AgentInput;
+    command.operation = operation;
+    command.actions = std::move(actions);
+    return _runtime->enqueueCommand(std::move(command));
 }
 
 void TerminalCore::processKeyPress(QKeyEvent* event)

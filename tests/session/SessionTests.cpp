@@ -7,6 +7,7 @@
 #include "session/LocalShellProfile.h"
 #include "session/LocalSessionScriptProvider.h"
 #include "session/SessionInputArbiter.h"
+#include "session/SessionTerminalController.h"
 #include "session/SessionStore.h"
 #include "session/TerminalSession.h"
 #include "session/SessionInputPump.h"
@@ -161,6 +162,8 @@ private slots:
     void inputPumpOffsetsPreservePendingSuffix();
     void fileTransferInputUsesSinglePumpAndIndependentPause();
     void userInputPreemptsPartialMcpWrite();
+    void terminalProtocolReplyDoesNotPreemptMcpLease();
+    void newInputInvalidatesLegacyCommandReadiness();
     void fileTransferLeaseGatesAllInputAndResets();
     void staleAndDuplicateMcpLeasesAreRejected();
     void emptyInputKeepsMcpLease();
@@ -2062,6 +2065,44 @@ void SessionTests::secretServiceCredentialStoreSurvivesRestart()
 #else
     QSKIP("Secret Service backend is Unix-only");
 #endif
+}
+
+void SessionTests::terminalProtocolReplyDoesNotPreemptMcpLease()
+{
+    TerminalCore core(80, 24);
+    FakeTransport transport;
+    TerminalSession session(&core);
+    session.attach(&transport, TerminalSession::Ownership::Borrowed);
+    QVERIFY(session.start());
+    auto* arbiter = session.inputArbiter();
+    QVERIFY(arbiter->acquireMcpLease(91, session.statistics().generation));
+    const auto generation = arbiter->userInputGeneration();
+    core.writeInput(QByteArrayLiteral("\x1b[6n"));
+    QVERIFY(core.waitForIdle(1000));
+    QCoreApplication::processEvents();
+    QVERIFY(arbiter->hasMcpLease());
+    QCOMPARE(arbiter->userInputGeneration(), generation);
+}
+
+void SessionTests::newInputInvalidatesLegacyCommandReadiness()
+{
+    RuntimeConfig config;
+    config.transportKind = TransportKind::LocalShell;
+    config.transport.insert("interactiveShellKind", "posix");
+    TerminalSession session(config); FakeTransport transport;
+    session.attach(&transport, TerminalSession::Ownership::Borrowed, config);
+    QVERIFY(session.start()); QTRY_COMPARE(session.state(), SessionState::Running);
+    auto* controller = session.terminalController();
+    emit transport.readyRead(QByteArrayLiteral("\x1b]633;NT;PROMPT;1;0\a"));
+    QTRY_VERIFY(controller->readyForCommand());
+    QVERIFY(session.commandCoordinator()->isPromptReady());
+    QVERIFY(controller->acquire("client"));
+    NovaTerm::TerminalInputAction action; action.text = "echo unsafe;";
+    QVERIFY(controller->submit("client", "operation", {action}, false));
+    QTRY_COMPARE(transport.writes, QByteArray("echo unsafe;"));
+    controller->release("client");
+    QVERIFY(!session.commandCoordinator()->isPromptReady());
+    QVERIFY(!controller->readyForCommand());
 }
 
 QTEST_MAIN(SessionTests)

@@ -23,6 +23,7 @@ private:
     void refresh();
     void showRecord();
     void reportFailure();
+    void editElevationCredentials(const QString& sessionId);
     QPointer<NovaTerm::Mcp::Service> _service;
     ElaCheckBox* _enabled{nullptr};
     ElaComboBox* _clients{nullptr};

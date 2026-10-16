@@ -46,7 +46,9 @@ public:
                     finish(id,
                            failure(call.sent && (call.tool == "novaterm_execute_command" ||
                                                  call.tool == "novaterm_run_command" ||
-                                                 call.tool == "novaterm_run_script")
+                                                 call.tool == "novaterm_run_script" ||
+                                                 call.tool == "novaterm_interact_terminal" ||
+                                                 call.tool == "novaterm_request_elevation")
                                        ? "COMMAND_OUTCOME_UNKNOWN"
                                        : "DEADLINE_EXCEEDED",
                                    "Request deadline exceeded."));
@@ -284,6 +286,18 @@ public:
             if (name == "novaterm_run_script")
                 budget += ScriptWriteTimeout.count();
         }
+        if (name == "novaterm_read_context"
+            && (arguments.value("responseMode") == "compact" || arguments.contains("waitMs")))
+            budget = arguments.value("waitMs").toInt() + WireDeadlineMargin.count();
+        if (name == "novaterm_interact_terminal") {
+            const auto actions = arguments.value("actions").toArray();
+            const auto type = actions.first().toObject().value("type").toString();
+            budget = type == "release" ? 2000
+                : arguments.value("waitMs").toInt(type == "command" ? MaxTerminalWaitMs : 1000)
+                    + WireDeadlineMargin.count();
+        }
+        if (name == "novaterm_request_elevation")
+            budget = arguments.value("waitMs").toInt(MaxTerminalWaitMs) + WireDeadlineMargin.count();
         Call call;
         call.route = _route;
         call.rpcId = id;
@@ -468,7 +482,9 @@ void WireSession::instanceUnavailable()
         _impl->finish(id,
                       failure(call.sent && (call.tool == "novaterm_execute_command" ||
                                             call.tool == "novaterm_run_command" ||
-                                            call.tool == "novaterm_run_script")
+                                            call.tool == "novaterm_run_script" ||
+                                            call.tool == "novaterm_interact_terminal" ||
+                                            call.tool == "novaterm_request_elevation")
                                   ? "COMMAND_OUTCOME_UNKNOWN"
                                   : "APP_UNAVAILABLE",
                               "Application disconnected; do not rerun automatically."));

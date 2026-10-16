@@ -102,7 +102,7 @@ private:
 class SecretServiceCredentialStore final : public CredentialStore
 {
 public:
-    SecretServiceCredentialStore();
+    explicit SecretServiceCredentialStore(bool independentConnection = false);
     ~SecretServiceCredentialStore() override;
 
     bool put(const QString& reference, const QByteArray& secret) override;
@@ -118,6 +118,8 @@ public:
      * 热路径上反复调用。无总线/服务缺失/没有默认集合都返回 false。
      */
     [[nodiscard]] static bool isServiceAvailable();
+    /** @brief 在本实例拥有的连接上检查服务；工作线程不得借用 GUI 的连接。 */
+    [[nodiscard]] bool isAvailable() const;
 
 private:
     class Impl;
@@ -132,3 +134,5 @@ private:
  *         MemoryCredentialStore（并打印告警，说明保存的密码重启后不可用）。
  */
 [[nodiscard]] std::unique_ptr<CredentialStore> createCredentialStore();
+/** @brief 在调用线程创建并销毁；Secret Service 使用独立命名 DBus 连接。 */
+[[nodiscard]] std::unique_ptr<CredentialStore> createWorkerCredentialStore();

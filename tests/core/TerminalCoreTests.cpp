@@ -19,6 +19,7 @@ class TerminalCoreTests final : public QObject
     Q_OBJECT
 
 private slots:
+    void agentBatchEncodingUsesTerminalModesWithoutUserOutput();
     void parsesUtf8AndAttributes();
     void parsesAnsiIndexedAndTrueColors();
     void parsesFragmentedUtf8();
@@ -2182,6 +2183,31 @@ void TerminalCoreTests::tmuxPassthroughSplitAtEscapeBoundaryDoesNotDuplicateByte
         QCOMPARE(cell->foreground.type, NovaTerm::ColorType::Indexed);
         QCOMPARE(int(cell->foreground.index), 1);
     }
+}
+
+void TerminalCoreTests::agentBatchEncodingUsesTerminalModesWithoutUserOutput()
+{
+    TerminalCore core(80, 24);
+    core.writeInput(QByteArrayLiteral("\x1b[?1h\x1b[?2004h"));
+    QVERIFY(core.waitForIdle(1000));
+    QSignalSpy encoded(&core, &TerminalCore::agentInputEncoded);
+    QSignalSpy userOutput(&core, &TerminalCore::outputData);
+    using A = NovaTerm::TerminalInputAction;
+    std::vector<A> actions{{A::Kind::Text, "echo ok"},
+        {A::Kind::Key, {}, NovaTerm::InputKey::Enter},
+        {A::Kind::Key, {}, NovaTerm::InputKey::Up},
+        {A::Kind::Paste, "a\r\nb\n"},
+        {A::Kind::Key, "c", NovaTerm::InputKey::None, 4}};
+    QVERIFY(core.encodeAgentInput(81, actions));
+    QTRY_COMPARE(encoded.size(), 1);
+    QCOMPARE(encoded.first().at(0).toULongLong(), quint64(81));
+    QVERIFY(encoded.first().at(2).toBool());
+    QCOMPARE(encoded.first().at(1).toByteArray(), QByteArray("echo ok\r\x1bOA\x1b[200~a\rb\r\x1b[201~\x03"));
+    QCOMPARE(userOutput.size(), 0);
+    actions = {{A::Kind::Text, std::string(16385, 'a')}};
+    QVERIFY(!core.encodeAgentInput(82, actions));
+    QCoreApplication::processEvents();
+    QCOMPARE(encoded.size(), 1);
 }
 
 QTEST_GUILESS_MAIN(TerminalCoreTests)

@@ -28,6 +28,144 @@ class WireSessionTests final : public QObject
 {
     Q_OBJECT
 private slots:
+    void waitingTerminalCallsKeepTheirObservationBudget_data()
+    {
+        QTest::addColumn<QString>("tool");
+        QTest::addColumn<QJsonObject>("extra");
+        QTest::addColumn<qint64>("expiry");
+        QTest::newRow("compact-read") << QString("novaterm_read_context")
+            << QJsonObject{{"responseMode", "compact"}, {"waitMs", 30000}} << qint64(35001);
+        QTest::newRow("waiting-legacy-read") << QString("novaterm_read_context")
+            << QJsonObject{{"waitMs", 30000}} << qint64(35001);
+        QTest::newRow("command") << QString("novaterm_interact_terminal")
+            << QJsonObject{{"actions", QJsonArray{QJsonObject{{"type", "command"}, {"command", "pwd"}}}}}
+            << qint64(35001);
+        QTest::newRow("key") << QString("novaterm_interact_terminal")
+            << QJsonObject{{"actions", QJsonArray{QJsonObject{{"type", "key"}, {"key", "Enter"}}}}}
+            << qint64(6001);
+        QTest::newRow("elevation") << QString("novaterm_request_elevation")
+            << QJsonObject{{"method", "sudo"}, {"mode", "command"}, {"command", "pwd"}}
+            << qint64(35001);
+    }
+    void waitingTerminalCallsKeepTheirObservationBudget()
+    {
+        QFETCH(QString, tool);
+        QFETCH(QJsonObject, extra);
+        QFETCH(qint64, expiry);
+        qint64 elapsed = 0;
+        WireSession wire({}, nullptr, [&elapsed] { return elapsed; });
+        ready(wire);
+        QSignalSpy backend(&wire, &WireSession::backendMessage);
+        QSignalSpy packets(&wire, &WireSession::packet);
+        QJsonObject arguments{{"sessionId", "11111111-1111-1111-1111-111111111111"}, {"epoch", "epoch"}};
+        if (tool != "novaterm_read_context") {
+            arguments.insert("inputToken", "input-token");
+            arguments.insert("operationId", "22222222-2222-2222-2222-222222222222");
+        }
+        for (auto it = extra.begin(); it != extra.end(); ++it) arguments.insert(it.key(), it.value());
+        wire.receiveMessage({{"jsonrpc", "2.0"}, {"id", 2}, {"method", "tools/call"},
+            {"params", QJsonObject{{"name", tool}, {"arguments", arguments}}}});
+        QCOMPARE(backend.size(), 1);
+        elapsed = 2500;
+        QTest::qWait(150);
+        QVERIFY(wire.hasPendingCalls());
+        QVERIFY(packets.isEmpty());
+        elapsed = expiry;
+        QTRY_VERIFY_WITH_TIMEOUT(!wire.hasPendingCalls(), 1000);
+        QCOMPARE(backend.last().at(0).toJsonObject().value("op").toString(), QString("cancel"));
+        QCOMPARE(packets.size(), 1);
+    }
+    void terminalActionsAreStrictlyValidated()
+    {
+        const QJsonObject identity{{"sessionId", "11111111-1111-1111-1111-111111111111"},
+            {"epoch", "epoch"}, {"inputToken", "token"},
+            {"operationId", "22222222-2222-2222-2222-222222222222"}};
+        const auto validate = [&](const QJsonArray& actions) {
+            auto args = identity;
+            args.insert("actions", actions);
+            return validateArguments("novaterm_interact_terminal", args);
+        };
+        QVERIFY(validate({QJsonObject{{"type", "text"}, {"text", "hello"}},
+            QJsonObject{{"type", "key"}, {"key", "c"}, {"modifiers", QJsonArray{"Ctrl"}}}}).isEmpty());
+        QVERIFY(validate({QJsonObject{{"type", "paste"}, {"text", "one\ntwo\tthree\r"}}}).isEmpty());
+        QVERIFY(validate({QJsonObject{{"type", "key"}, {"key", QString::fromUtf8("😀")}}}).isEmpty());
+        QVERIFY(!validate({}).isEmpty());
+        QVERIFY(!validate({QJsonObject{{"type", "text"}, {"text", "bad\ntext"}}}).isEmpty());
+        QVERIFY(!validate({QJsonObject{{"type", "text"}, {"text", QString(QChar(127))}}}).isEmpty());
+        QVERIFY(!validate({QJsonObject{{"type", "paste"}, {"text", QString(QChar::Null)}}}).isEmpty());
+        QVERIFY(!validate({QJsonObject{{"type", "key"}, {"key", "Enter"}, {"text", "extra"}}}).isEmpty());
+        QVERIFY(!validate({QJsonObject{{"type", "key"}, {"key", "ab"}}}).isEmpty());
+        QVERIFY(!validate({QJsonObject{{"type", "key"}, {"key", "c"}, {"modifiers", QJsonArray{"Meta"}}}}).isEmpty());
+        QVERIFY(!validate({QJsonObject{{"type", "line_ending"}, {"text", "extra"}}}).isEmpty());
+        QVERIFY(!validate({QJsonObject{{"type", "release"}}, QJsonObject{{"type", "line_ending"}}}).isEmpty());
+        QVERIFY(!validate({QJsonObject{{"type", "command"}, {"command", "pwd"}}, QJsonObject{{"type", "line_ending"}}}).isEmpty());
+        QVERIFY(!validate({QJsonObject{{"type", "command"}, {"command", "one\ntwo"}}}).isEmpty());
+        QVERIFY(!validate({QJsonObject{{"type", "text"}, {"text", QString(16385, QLatin1Char('a'))}}}).isEmpty());
+        QVERIFY(!validate({QJsonObject{{"type", "text"}, {"text", QString(8193, QChar(0x4e00))}}}).isEmpty());
+        QJsonArray tooMany;
+        for (int i = 0; i < 65; ++i) tooMany.append(QJsonObject{{"type", "line_ending"}});
+        QVERIFY(!validate(tooMany).isEmpty());
+        auto badIdentity = identity;
+        badIdentity.insert("operationId", "not-a-uuid");
+        badIdentity.insert("actions", QJsonArray{QJsonObject{{"type", "release"}}});
+        QVERIFY(!validateArguments("novaterm_interact_terminal", badIdentity).isEmpty());
+        auto elevation = identity;
+        elevation.insert("method", "sudo");
+        elevation.insert("mode", "shell");
+        QVERIFY(validateArguments("novaterm_request_elevation", elevation).isEmpty());
+        elevation.insert("command", "pwd");
+        QVERIFY(!validateArguments("novaterm_request_elevation", elevation).isEmpty());
+        elevation.insert("mode", "command");
+        QVERIFY(validateArguments("novaterm_request_elevation", elevation).isEmpty());
+        elevation.remove("command");
+        QVERIFY(!validateArguments("novaterm_request_elevation", elevation).isEmpty());
+        QJsonObject read{{"sessionId", identity.value("sessionId")}, {"epoch", "epoch"},
+            {"expandToken", "expand"}, {"sinceToken", "since"}};
+        QVERIFY(!validateArguments("novaterm_read_context", read).isEmpty());
+    }
+    void terminalSchemasDescribeStrictActionsAndCompactObservations()
+    {
+        QJsonObject interact, read, sessions;
+        for (const auto& entry : tools()) {
+            const auto tool = entry.toObject();
+            if (tool.value("name") == "novaterm_interact_terminal") interact = tool;
+            if (tool.value("name") == "novaterm_read_context") read = tool;
+            if (tool.value("name") == "novaterm_list_sessions") sessions = tool;
+        }
+        QVERIFY(!interact.isEmpty());
+        const auto actions = interact.value("inputSchema").toObject().value("properties").toObject()
+            .value("actions").toObject();
+        QCOMPARE(actions.value("maxItems").toInt(), 64);
+        const auto variants = actions.value("items").toObject().value("oneOf").toArray();
+        QCOMPARE(variants.size(), 6);
+        for (const auto& variant : variants)
+            QCOMPARE(variant.toObject().value("additionalProperties"), QJsonValue(false));
+        const auto readData = read.value("outputSchema").toObject().value("properties").toObject()
+            .value("data").toObject();
+        QVERIFY(readData.value("additionalProperties").toBool());
+        QVERIFY(!readData.value("required").toArray().contains("viewport"));
+        QVERIFY(readData.value("properties").toObject().contains("inputToken"));
+        const auto sessionItem = sessions.value("outputSchema").toObject().value("properties").toObject()
+            .value("data").toObject().value("properties").toObject().value("sessions").toObject()
+            .value("items").toObject();
+        QVERIFY(sessionItem.value("properties").toObject().contains("permissions"));
+    }
+    void releaseDoesNotWaitForObservation()
+    {
+        qint64 elapsed = 0;
+        WireSession wire({}, nullptr, [&elapsed] { return elapsed; });
+        ready(wire);
+        QSignalSpy backend(&wire, &WireSession::backendMessage);
+        const QJsonObject arguments{{"sessionId", "11111111-1111-1111-1111-111111111111"},
+            {"epoch", "epoch"}, {"inputToken", "token"}, {"waitMs", 30000},
+            {"operationId", "22222222-2222-2222-2222-222222222222"},
+            {"actions", QJsonArray{QJsonObject{{"type", "release"}}}}};
+        wire.receiveMessage({{"jsonrpc", "2.0"}, {"id", 2}, {"method", "tools/call"},
+            {"params", QJsonObject{{"name", "novaterm_interact_terminal"}, {"arguments", arguments}}}});
+        QCOMPARE(backend.size(), 1);
+        elapsed = 2001;
+        QTRY_VERIFY_WITH_TIMEOUT(!wire.hasPendingCalls(), 1000);
+    }
     void lateConfirmationLeavesFullExecutionBudget_data()
     {
         QTest::addColumn<QString>("tool");
@@ -215,7 +353,7 @@ private slots:
         QVERIFY(wire.initialized());
         wire.receiveMessage({{"jsonrpc", "2.0"}, {"id", 2}, {"method", "tools/list"}}, "catalog");
         QCOMPARE(QJsonDocument::fromJson(packets.last().at(1).toByteArray()).object().value("result").toObject()
-            .value("tools").toArray().size(), 7);
+            .value("tools").toArray().size(), 9);
     }
     void asynchronousResultKeepsExchangeRoute()
     {

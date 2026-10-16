@@ -57,7 +57,7 @@ public:
     [[nodiscard]] qint64 submitTransferInput(quint64 transferId, QByteArrayView data);
     void releaseTransferLease(quint64 transferId);
     /** @brief Core 编码后的输出；准备阶段旧命令允许排空，活动传输期间拒绝。 */
-    [[nodiscard]] bool submitTerminalOutput(const QByteArray& data);
+    [[nodiscard]] bool submitTerminalOutput(const QByteArray& data, bool userInput = true);
     [[nodiscard]] bool hasTransferLease() const noexcept { return _transferId != 0; }
 
     /** @brief 当前 Session 世代中用户提交非空终端输入的单调代际。 */

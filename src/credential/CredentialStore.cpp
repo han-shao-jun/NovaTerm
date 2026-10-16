@@ -28,7 +28,10 @@
 #include <QDBusMessage>
 #include <QDBusMetaType>
 #include <QDBusObjectPath>
+#include <QDBusPendingCall>
 #include <QDBusVariant>
+#include <QUuid>
+#include <QThread>
 #endif
 
 namespace {
@@ -238,46 +241,59 @@ signals:
 class SecretServiceCredentialStore::Impl
 {
 public:
-    Impl() { registerSecretValueType(); }
+    explicit Impl(bool independent = false)
+        : _connectionName(independent ? QStringLiteral("novaterm-credentials-")
+              + QUuid::createUuid().toString(QUuid::WithoutBraces) : QString{}),
+          _bus(independent ? QDBusConnection::connectToBus(QDBusConnection::SessionBus, _connectionName)
+                           : QDBusConnection::sessionBus())
+    { registerSecretValueType(); }
+    ~Impl() {
+        if (!_connectionName.isEmpty()) QDBusConnection::disconnectFromBus(_connectionName);
+    }
 
     bool put(const QString& reference, const QByteArray& secret) const;
     [[nodiscard]] std::optional<QByteArray> get(const QString& reference) const;
     bool remove(const QString& reference) const;
 
-    [[nodiscard]] static bool isAvailable();
+    [[nodiscard]] bool isAvailable() const;
 
 private:
-    [[nodiscard]] static QDBusMessage call(const QString& path,
+    [[nodiscard]] QDBusMessage call(const QString& path,
                                            const QString& interface,
                                            const QString& method,
                                            const QVariantList& arguments,
-                                           int timeoutMs = CallTimeoutMs);
+                                           int timeoutMs = CallTimeoutMs) const;
     /// 打开一个 `plain` 会话，返回会话路径；失败返回空串。
-    [[nodiscard]] static QString openSession();
+    [[nodiscard]] QString openSession() const;
     /// 默认集合（alias `default`）路径；没有默认集合返回空串。
-    [[nodiscard]] static QString defaultCollection();
+    [[nodiscard]] QString defaultCollection() const;
     /// 解锁集合，必要时处理系统解锁提示。
-    [[nodiscard]] static bool unlock(const QString& collection);
+    [[nodiscard]] bool unlock(const QString& collection) const;
     /// 调用 Prompt() 并等 Completed 信号；返回 true 表示用户确认。
-    [[nodiscard]] static bool runPrompt(const QString& promptPath);
-    [[nodiscard]] static QList<QDBusObjectPath> searchItems(const QString& reference);
-    [[nodiscard]] static bool deleteItem(const QString& itemPath);
+    [[nodiscard]] bool runPrompt(const QString& promptPath) const;
+    [[nodiscard]] QList<QDBusObjectPath> searchItems(const QString& reference) const;
+    [[nodiscard]] bool deleteItem(const QString& itemPath) const;
     [[nodiscard]] static QMap<QString, QString> attributesFor(const QString& reference);
+    QString _connectionName;
+    QDBusConnection _bus;
 };
 
 QDBusMessage SecretServiceCredentialStore::Impl::call(const QString& path,
                                                       const QString& interface,
                                                       const QString& method,
                                                       const QVariantList& arguments,
-                                                      int timeoutMs)
+                                                      int timeoutMs) const
 {
     QDBusMessage message =
         QDBusMessage::createMethodCall(SecretsService, path, interface, method);
     message.setArguments(arguments);
-    return QDBusConnection::sessionBus().call(message, QDBus::Block, timeoutMs);
+    if (!_connectionName.isEmpty() && QThread::currentThread()->isInterruptionRequested())
+        return QDBusMessage::createError(QStringLiteral("org.novaterm.Cancelled"), QStringLiteral("Cancelled"));
+    return _bus.call(message, QDBus::Block,
+        _connectionName.isEmpty() ? timeoutMs : qMin(timeoutMs, 2000));
 }
 
-QString SecretServiceCredentialStore::Impl::openSession()
+QString SecretServiceCredentialStore::Impl::openSession() const
 {
     // "plain" 算法不加密载荷：会话总线本身只对同一用户开放，密钥环的落盘加密
     // 与它无关，gnome-keyring/KWallet 都支持该算法且不会弹提示。
@@ -291,7 +307,7 @@ QString SecretServiceCredentialStore::Impl::openSession()
     return reply.arguments().at(1).value<QDBusObjectPath>().path();
 }
 
-QString SecretServiceCredentialStore::Impl::defaultCollection()
+QString SecretServiceCredentialStore::Impl::defaultCollection() const
 {
     const QDBusMessage reply =
         call(ServicePath, ServiceInterface, QStringLiteral("ReadAlias"),
@@ -305,12 +321,12 @@ QString SecretServiceCredentialStore::Impl::defaultCollection()
     return path == NoObjectPath ? QString() : path;
 }
 
-bool SecretServiceCredentialStore::Impl::runPrompt(const QString& promptPath)
+bool SecretServiceCredentialStore::Impl::runPrompt(const QString& promptPath) const
 {
     if (promptPath.isEmpty() || promptPath == NoObjectPath)
         return true;
 
-    QDBusConnection bus = QDBusConnection::sessionBus();
+    QDBusConnection bus = _bus;
     SecretPromptWatcher watcher;
     if (!bus.connect(SecretsService, promptPath, PromptInterface,
                      QStringLiteral("Completed"), &watcher,
@@ -321,10 +337,18 @@ bool SecretServiceCredentialStore::Impl::runPrompt(const QString& promptPath)
 
     QEventLoop loop;
     QTimer timeout;
+    QTimer interruption;
     timeout.setSingleShot(true);
     QObject::connect(&watcher, &SecretPromptWatcher::completed, &loop,
                      &QEventLoop::quit);
     QObject::connect(&timeout, &QTimer::timeout, &loop, &QEventLoop::quit);
+    if (!_connectionName.isEmpty()) {
+        interruption.setInterval(100);
+        QObject::connect(&interruption, &QTimer::timeout, &loop, [&loop] {
+            if (QThread::currentThread()->isInterruptionRequested()) loop.quit();
+        });
+        interruption.start();
+    }
 
     // Prompt() 立即返回，结果通过 Completed 信号送达；空 window id 交给密钥环
     // 自己的提示器（gnome-keyring 的 PrivatePrompter）。
@@ -342,13 +366,19 @@ bool SecretServiceCredentialStore::Impl::runPrompt(const QString& promptPath)
                    SLOT(onCompleted(bool, QDBusVariant)));
 
     if (!watcher.finished) {
+        if (!_connectionName.isEmpty() && QThread::currentThread()->isInterruptionRequested()) {
+            const auto dismiss = QDBusMessage::createMethodCall(
+                SecretsService, promptPath, PromptInterface, QStringLiteral("Dismiss"));
+            _bus.asyncCall(dismiss);
+            return false;
+        }
         qWarning() << "Timed out waiting for the keyring unlock prompt";
         return false;
     }
     return !watcher.dismissed;
 }
 
-bool SecretServiceCredentialStore::Impl::unlock(const QString& collection)
+bool SecretServiceCredentialStore::Impl::unlock(const QString& collection) const
 {
     const QDBusMessage reply = call(
         ServicePath, ServiceInterface, QStringLiteral("Unlock"),
@@ -372,7 +402,7 @@ SecretServiceCredentialStore::Impl::attributesFor(const QString& reference)
 }
 
 QList<QDBusObjectPath>
-SecretServiceCredentialStore::Impl::searchItems(const QString& reference)
+SecretServiceCredentialStore::Impl::searchItems(const QString& reference) const
 {
     QList<QDBusObjectPath> items;
     const QDBusMessage reply =
@@ -388,7 +418,7 @@ SecretServiceCredentialStore::Impl::searchItems(const QString& reference)
     return items;
 }
 
-bool SecretServiceCredentialStore::Impl::deleteItem(const QString& itemPath)
+bool SecretServiceCredentialStore::Impl::deleteItem(const QString& itemPath) const
 {
     const QDBusMessage reply =
         call(itemPath, ItemInterface, QStringLiteral("Delete"), {});
@@ -501,16 +531,16 @@ bool SecretServiceCredentialStore::Impl::remove(const QString& reference) const
     return removed;
 }
 
-bool SecretServiceCredentialStore::Impl::isAvailable()
+bool SecretServiceCredentialStore::Impl::isAvailable() const
 {
-    if (!QDBusConnection::sessionBus().isConnected())
+    if (!_bus.isConnected())
         return false;
     // ReadAlias 会按需启动密钥环服务；没有服务时总线直接回错误，不会卡满超时。
     return !defaultCollection().isEmpty();
 }
 
-SecretServiceCredentialStore::SecretServiceCredentialStore()
-    : _impl(std::make_unique<Impl>())
+SecretServiceCredentialStore::SecretServiceCredentialStore(bool independentConnection)
+    : _impl(std::make_unique<Impl>(independentConnection))
 {
 }
 
@@ -535,8 +565,10 @@ bool SecretServiceCredentialStore::remove(const QString& reference)
 
 bool SecretServiceCredentialStore::isServiceAvailable()
 {
-    return Impl::isAvailable();
+    return Impl{}.isAvailable();
 }
+
+bool SecretServiceCredentialStore::isAvailable() const { return _impl->isAvailable(); }
 
 #endif // Q_OS_UNIX && !Q_OS_MACOS
 
@@ -592,6 +624,19 @@ std::unique_ptr<CredentialStore> createCredentialStore()
 #else
     qWarning() << "No platform credential backend on this platform; credentials"
                << "stay in memory and saved sessions cannot reconnect after a restart";
+    return std::make_unique<MemoryCredentialStore>();
+#endif
+}
+
+std::unique_ptr<CredentialStore> createWorkerCredentialStore()
+{
+#if defined(Q_OS_WIN)
+    return std::make_unique<WindowsCredentialStore>();
+#elif defined(Q_OS_UNIX) && !defined(Q_OS_MACOS)
+    auto store = std::make_unique<SecretServiceCredentialStore>(true);
+    if (store->isAvailable()) return store;
+    return std::make_unique<MemoryCredentialStore>();
+#else
     return std::make_unique<MemoryCredentialStore>();
 #endif
 }

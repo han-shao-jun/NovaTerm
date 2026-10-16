@@ -2,6 +2,7 @@
  *  @brief 有界 MCP 请求处理；所有 Session 访问均位于 GUI 线程。
  */
 #include "McpService.h"
+#include "TerminalInteraction.h"
 #include "McpProtocol.h"
 #include "CommandPolicy.h"
 #include "CommandRiskPolicy.h"
@@ -259,6 +260,8 @@ public:
           }, owner), guards(QDir(stateDirectory).filePath("targets"))
     {
         clock.start();
+        terminal = std::make_unique<TerminalInteraction>(&access, &sessions, owner);
+        terminal->onChanged = [this] { emit q->changed(); };
         workers.setMaxThreadCount(1);
         workers.setExpiryTimeout(1000);
         instance = newId();
@@ -328,6 +331,7 @@ public:
     }
     void stop()
     {
+        if (terminal) terminal->revoke({}, {});
         started = listening = false;
         address.clear();
         const auto connectionIds = connections.keys();
@@ -473,6 +477,9 @@ public:
         }
         job->deadline = clock.elapsed() + (name == "novaterm_run_script" ? ScriptWriteTimeout.count()
             : name == "novaterm_run_command" ? ConfirmationTimeout.count() : 2000);
+        if (name == "novaterm_interact_terminal" || name == "novaterm_request_elevation"
+            || (name == "novaterm_read_context" && arguments.contains("waitMs")))
+            job->deadline = clock.elapsed() + arguments.value("waitMs").toInt(30000) + 5000;
         job->created = clock.elapsed();
         jobs.insert(jobKey(connectionId, id), job);
         peakRequests = (std::max)(peakRequests, jobs.size());
@@ -590,6 +597,7 @@ public:
     }
     void complete(const std::shared_ptr<Job>& job, QJsonObject payload)
     {
+        if (terminal) terminal->cancel(jobKey(job->connection, job->id));
         if (!jobs.contains(jobKey(job->connection, job->id)))
             return;
         confirmations.remove(jobKey(job->connection, job->id));
@@ -634,6 +642,7 @@ public:
     }
     void cancel(const std::shared_ptr<Job>& job, QJsonObject payload, bool reply)
     {
+        if (terminal) terminal->cancel(jobKey(job->connection, job->id));
         if (job->cancelled.exchange(true))
             return;
         ++cancelledCount;
@@ -702,6 +711,7 @@ public:
     }
     void revoke(const QString& client, const QString& session)
     {
+        if (terminal) terminal->revoke(client, session);
         for (auto it = activeConfirmationScopes.begin();
              it != activeConfirmationScopes.end();) {
             const bool matchesClient = client.isEmpty() || it->client == client;
@@ -830,6 +840,22 @@ public:
                 : error("STALE_SESSION_EPOCH"));
             return;
         }
+        if (job->tool == "novaterm_interact_terminal" || job->tool == "novaterm_request_elevation"
+            || (job->tool == "novaterm_search_context"
+                && terminal->ownsCapture(connection.client, job->arguments.value("captureId").toString()))
+            || (job->tool == "novaterm_read_context" && (job->arguments.value("responseMode") == "compact"
+                || job->arguments.contains("waitMs") || job->arguments.contains("expandToken")))) {
+            if ((job->tool == "novaterm_interact_terminal" || job->tool == "novaterm_request_elevation")
+                && guards.markers().contains(entry->targetFingerprint)) {
+                complete(job, error("COMMAND_EXECUTION_QUARANTINED")); return;
+            }
+            const QPointer<Service> guard(q);
+            terminal->call(connection.client, jobKey(job->connection, job->id), job->tool, job->arguments,
+                [this, guard, job](QJsonObject value) {
+                    if (guard && !job->cancelled) complete(job, std::move(value));
+                });
+            return;
+        }
         if (job->tool == "novaterm_list_commands") { listCommands(job, *entry); return; }
         if (job->tool == "novaterm_execute_command") { command(job, *entry); return; }
         if (job->tool == "novaterm_run_command") { runCommand(job, *entry); return; }
@@ -878,6 +904,7 @@ public:
             bool truncated = false;
             const auto title = boundedText(entry.title, 256, &truncated);
             QJsonArray capabilities{"read_context", "search_context", "list_commands"};
+            if (access.canControlTerminal(connection.client, entry)) capabilities.append("terminal_interaction");
             if (job->formElicitation)
                 capabilities.append("human_confirmation");
             auto* facade = entry.session ? entry.session->commandFacade() : nullptr;
@@ -917,9 +944,12 @@ public:
                 && entry.session->scriptProvider()->isAvailable()) {
                 capabilities.append("run_script");
             }
-            rows.append(QJsonObject{{"sessionId", entry.id}, {"epoch", entry.epoch},
+            QJsonObject row{{"sessionId", entry.id}, {"epoch", entry.epoch},
                 {"state", SessionDirectory::stateName(entry.state)}, {"transport", SessionDirectory::transportName(entry.kind)},
-                {"displayName", title}, {"displayNameTruncated", truncated}, {"capabilities", capabilities}});
+                {"displayName", title}, {"displayNameTruncated", truncated}, {"capabilities", capabilities}};
+            const auto metadata = terminal->capabilities(connection.client, entry.id);
+            for (auto it = metadata.begin(); it != metadata.end(); ++it) row.insert(it.key(), it.value());
+            rows.append(row);
             last = entry.id;
         }
         QJsonValue next(QJsonValue::Null);
@@ -1951,6 +1981,7 @@ public:
     AccessStore access;
     SessionDirectory sessions;
     HttpMcpEndpoint io;
+    std::unique_ptr<TerminalInteraction> terminal;
     quint16 listenPort{0};
     TargetGuard guards;
     QThreadPool workers;

@@ -24,6 +24,7 @@ class SessionCommandFacade;
 class SessionInputArbiter;
 class InteractiveStreamFramer;
 class SessionCommandCoordinator;
+class SessionTerminalController;
 class ISessionScriptProvider;
 class TerminalCore;
 class SerialFileTransferController;
@@ -109,6 +110,7 @@ public:
     {
         return _commandCoordinator.get();
     }
+    SessionTerminalController* terminalController();
     /** @brief 当前连接对应的 MCP 脚本写入 provider；不支持时返回 nullptr。 */
     [[nodiscard]] ISessionScriptProvider* scriptProvider() const noexcept
     {
@@ -208,6 +210,7 @@ public:
     void resizeTerminal(int columns, int rows) { resize(columns, rows); }
 
 signals:
+    void terminalControlChanged();
     /** @brief 定时自动重连开始一次尝试，供视图更新等待提示。 */
     void automaticReconnectAttemptStarted();
     /** @brief 定时自动重连成功；首次连接和手动重连不发出此信号。 */
@@ -267,6 +270,7 @@ signals:
                 TransportExitReason reason);
 
 private:
+    std::unique_ptr<SessionTerminalController> _terminalController;
     QChronoTimer _reconnectTimer; ///< 单次自动重连定时器，支持完整整秒范围
     bool _manualDisconnect{false};
     std::unique_ptr<SerialFileTransferController> _fileTransfer;

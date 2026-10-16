@@ -157,6 +157,27 @@ if(BUILD_TESTING)
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
     add_dependencies(check novaterm_mcp_tests)
 
+    # Reuse only Session/transport/credential sources; no renderer, UI or live services.
+    get_target_property(_mcp_test_sources novaterm_mcp_tests SOURCES)
+    set(_mcp_access_sources)
+    foreach(_mcp_source IN LISTS _mcp_test_sources)
+        if(_mcp_source MATCHES "[/\\\\]src[/\\\\](session|transport|credential)[/\\\\]")
+            list(APPEND _mcp_access_sources "${_mcp_source}")
+        endif()
+    endforeach()
+    qt_add_executable(novaterm_mcp_access_interaction_tests
+        mcp/McpAccessInteractionTests.cpp ${_mcp_access_sources})
+    target_include_directories(novaterm_mcp_access_interaction_tests PRIVATE ${PROJECT_SOURCE_DIR}/src)
+    target_link_libraries(novaterm_mcp_access_interaction_tests PRIVATE novaterm_mcp_runtime
+        Qt6::Test Qt6::Gui Qt6::Widgets ssh::ssh OpenSSL::Crypto OpenSSL::SSL ${NOVATERM_SECRET_SERVICE_LIBS})
+    if(WIN32)
+        target_link_libraries(novaterm_mcp_access_interaction_tests PRIVATE ws2_32 crypt32 advapi32)
+    endif()
+    set_target_properties(novaterm_mcp_access_interaction_tests PROPERTIES WIN32_EXECUTABLE FALSE)
+    add_test(NAME novaterm_mcp_access_interaction_tests COMMAND novaterm_mcp_access_interaction_tests)
+    set_tests_properties(novaterm_mcp_access_interaction_tests PROPERTIES LABELS "mcp;p8;security" TIMEOUT 30)
+    add_dependencies(check novaterm_mcp_access_interaction_tests)
+
     qt_add_executable(novaterm_sftp_session_safety_tests
         mcp/SftpSessionSafetyTests.cpp
         ${PROJECT_SOURCE_DIR}/src/session/SftpSession.cpp
@@ -1046,7 +1067,8 @@ endif()
 
 if(BUILD_TESTING)
     # 三个既有目标直接编译 Session/TerminalView，必须链接新串口门面。
-    foreach(_serial_consumer novaterm_session_tests novaterm_mcp_tests novaterm_terminal_session_tests)
+    foreach(_serial_consumer novaterm_session_tests novaterm_mcp_tests
+            novaterm_mcp_access_interaction_tests novaterm_terminal_session_tests)
         if(TARGET ${_serial_consumer})
             target_link_libraries(${_serial_consumer} PRIVATE novaterm_serial_transfer)
             target_sources(${_serial_consumer} PRIVATE

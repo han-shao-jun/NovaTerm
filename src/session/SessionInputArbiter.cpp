@@ -110,11 +110,11 @@ void SessionInputArbiter::releaseTransferLease(quint64 transferId)
     if (!transferId || transferId != _transferId) return;
     _transferId = 0; _transferActive = false; _transferWriter = {};
 }
-bool SessionInputArbiter::submitTerminalOutput(const QByteArray& data)
+bool SessionInputArbiter::submitTerminalOutput(const QByteArray& data, bool userInput)
 {
     if (data.isEmpty()) return true;
     if (_transferActive || !_transport || !_transport->isConnected()) return false;
-    if (_transferId) _transport->write(data);
+    if (_transferId || !userInput) _transport->write(data);
     else submitUserInput(data);
     return true;
 }

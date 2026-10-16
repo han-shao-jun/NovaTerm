@@ -12,6 +12,7 @@
  *   同步：BoundedByteQueue + 命令队列 + modelMutex + completionMutex
  */
 #pragma once
+#include "TerminalInput.h"
 #include "PublishedTerminalState.h"
 
 #include "BoundedByteQueue.h"
@@ -65,6 +66,8 @@ public:
 
     // ── 输入事件（异步排队到工作线程）──
     void processKeyPress(QKeyEvent* event);
+    /** Bounded, ordered Parser encoding. Output is returned, never sent as user input. */
+    bool encodeAgentInput(quint64 operation, std::vector<NovaTerm::TerminalInputAction> actions);
     void processTextInput(const QString& text,
                           Qt::KeyboardModifiers modifiers = Qt::NoModifier);
     // 鼠标事件：row/col 为终端单元格坐标（屏幕行，非历史文档行），
@@ -228,6 +231,8 @@ public:
 
 signals:
     void outputData(const QByteArray& data);
+    void routedOutputData(const QByteArray& data, bool userInput);
+    void agentInputEncoded(quint64 operation, const QByteArray& data, bool valid);
     void titleChanged(const QString& title);
     void bell();
     // OSC 52 写剪贴板：mask 为 NovaTerm::Selection 位组合，text 为应用

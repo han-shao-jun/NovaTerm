@@ -5,11 +5,15 @@
 #include "McpProtocol.h"
 #include "session/SessionCommandFacade.h"
 #include "session/TerminalContextProvider.h"
+#include "session/LocalSessionCommandExecutor.h"
+#include "session/SshSessionCommandExecutor.h"
+#include "transport/SshTransport.h"
 #include "core/terminal/TerminalCore.h"
 #include <QCryptographicHash>
 #include <QDir>
 #include <QFileInfo>
 #include <QLockFile>
+#include <QSysInfo>
 
 namespace NovaTerm::Mcp {
 QString AccessStore::reference(const QString& id) { return QStringLiteral("mcp-client-") + id; }
@@ -19,12 +23,28 @@ CredentialStore* AccessStore::credentials() const
     if (!_credentials) _credentials = createCredentialStore();
     return _credentials.get();
 }
-AccessStore::AccessStore(QString directory, std::unique_ptr<CredentialStore> credentials, QObject* parent)
-    : QObject(parent), _directory(std::move(directory)), _credentials(std::move(credentials))
+AccessStore::AccessStore(QString directory, std::unique_ptr<CredentialStore> credentials, QObject* parent,
+    std::function<std::unique_ptr<CredentialStore>()> elevationFactory)
+    : QObject(parent), _directory(std::move(directory)), _credentials(std::move(credentials)),
+      _elevationFactory(std::move(elevationFactory))
 {
+    if (!_elevationFactory) {
+        if (dynamic_cast<MemoryCredentialStore*>(_credentials.get()))
+            _elevationFactory = [] { return std::make_unique<MemoryCredentialStore>(); };
+        else _elevationFactory = createWorkerCredentialStore;
+    }
     reload();
     if (QFileInfo::exists(_directory)) _watcher.addPath(_directory);
     connect(&_watcher, &QFileSystemWatcher::directoryChanged, this, [this] { reload(); });
+}
+
+AccessStore::~AccessStore()
+{
+    if (_elevationThread) {
+        _elevationThread->requestInterruption();
+        _elevationThread->quit();
+        _elevationThread->wait();
+    }
 }
 
 void AccessStore::reload()
@@ -65,6 +85,25 @@ void AccessStore::reload()
             invalidated.append(client.id);
     }
     _clients = std::move(next);
+    const auto elevationRevision = stored->value("elevationRevision").toString().toULongLong();
+    if (elevationRevision != _elevationRevision) {
+        for (auto client = _grants.begin(); client != _grants.end(); ++client)
+            for (auto grant = client->begin(); grant != client->end(); ++grant)
+                grant->useElevation = false;
+        for (auto client = _clients.begin(); client != _clients.end(); ++client) ++client->version;
+        emit revoked({}, {});
+    }
+    _elevationRevision = elevationRevision;
+    // 只加载引用名，绝不为状态/协议刷新解锁密钥环或读取密码。
+    if (_elevationPersistent.value_or(!_credentials || _credentials->isPersistent())) {
+        _elevationReferences.clear();
+        for (const auto& value : stored->value("elevationReferences").toArray()) {
+            const auto ref = value.toString();
+            if (_elevationReferences.size() >= 256) break;
+            if (ref.startsWith("mcp-elevation-") && ref.size() == 78)
+                _elevationReferences.insert(ref);
+        }
+    }
     _storeRevision = revision;
     _enabled = stored->value("enabled").toBool();
     for (const auto& id : invalidated) {
@@ -103,8 +142,12 @@ bool AccessStore::save()
         clients.append(QJsonObject{{"id", client.id}, {"label", client.label},
             {"digest", QString::fromLatin1(client.digest.toHex())}, {"persistent", client.persistent}});
     }
+    QJsonArray elevationReferences;
+    if (_elevationPersistent.value_or(!_credentials || _credentials->isPersistent()))
+        for (const auto& ref : _elevationReferences) elevationReferences.append(ref);
     const bool ok = writePrivateJson(path, {{"version", 1}, {"revision", QString::number(_storeRevision + 1)},
-        {"enabled", _enabled}, {"clients", clients}});
+        {"enabled", _enabled}, {"clients", clients}, {"elevationReferences", elevationReferences},
+        {"elevationRevision", QString::number(_elevationRevision)}});
     if (!ok) _lastSaveFailure = SaveFailure::Write;
     if (ok) {
         ++_storeRevision;
@@ -233,6 +276,9 @@ bool AccessStore::setGrant(const QString& clientId, const SessionDirectory::Entr
     if (!read) {
         _grants[clientId].remove(entry.id);
     } else {
+        const auto previous = _grants.value(clientId).value(entry.id);
+        const bool preserveTerminal = previous.attachment == entry.attachmentId
+            && previous.epoch == entry.epoch && previous.targetFingerprint == entry.targetFingerprint;
         const auto* facade = entry.session->commandFacade();
         if (entry.state != SessionState::Running || !facade
             || !facade->isAvailable() || entry.targetFingerprint.isEmpty()) {
@@ -241,7 +287,9 @@ bool AccessStore::setGrant(const QString& clientId, const SessionDirectory::Entr
         _grants[clientId].insert(entry.id,
             Grant{entry.attachmentId, entry.epoch,
                   std::move(commands), interactiveCommand,
-                  confirmedCommand, scriptTask});
+                  confirmedCommand, scriptTask,
+                  preserveTerminal && previous.terminalControl,
+                  preserveTerminal && previous.useElevation, entry.targetFingerprint});
         // 授予读取共享后提前排一次发布，**缩短**首批读取拿不到可用快照的窗口，
         // 但不保证首个 read_context 可用：发布是 fire-and-forget，真正的构造在
         // 之后的 Parser 线程上，与紧随其后的首个读之间仍有竞态（P8 §14.2 记录的
@@ -300,5 +348,194 @@ bool AccessStore::canRunScriptTask(
         return false;
     const auto grant = _grants.value(clientId).value(entry.id);
     return grant.epoch == entry.epoch && grant.scriptTask;
+}
+
+bool AccessStore::setTerminalGrant(const QString& clientId,
+    const SessionDirectory::Entry& entry, bool control, bool elevation)
+{
+    if (!canRead(clientId, entry) || !entry.session) return false;
+    auto& grant = _grants[clientId][entry.id];
+    if (control && (entry.state != SessionState::Running || entry.epoch.isEmpty()
+        || !entry.transport || !entry.transport->isConnected()
+        || entry.session->transport() != entry.transport
+        || entry.session->statistics().generation != entry.generation)) return false;
+    if (elevation && (!control || _credentialOperationPending
+        || elevationReference(entry, "sudo").isEmpty())) return false;
+    if (grant.epoch != entry.epoch || grant.targetFingerprint != entry.targetFingerprint) {
+        grant.commands.clear();
+        grant.interactiveCommand = false;
+        grant.confirmedCommand = false;
+        grant.scriptTask = false;
+    }
+    // 更新旧接口权限不能跨 epoch 复活完整输入权限。
+    grant.epoch = entry.epoch;
+    grant.targetFingerprint = entry.targetFingerprint;
+    grant.terminalControl = control;
+    grant.useElevation = control && elevation;
+    ++_clients[clientId].version;
+    emit revoked(clientId, entry.id);
+    emit changed();
+    return true;
+}
+
+bool AccessStore::canControlTerminal(const QString& clientId,
+    const SessionDirectory::Entry& entry) const
+{
+    if (!canRead(clientId, entry) || !entry.session || entry.state != SessionState::Running
+        || entry.session->state() != SessionState::Running || !entry.transport
+        || !entry.transport->isConnected() || entry.session->transport() != entry.transport
+        || entry.session->statistics().generation != entry.generation) return false;
+    const auto grant = _grants.value(clientId).value(entry.id);
+    return grant.terminalControl && grant.epoch == entry.epoch
+        && grant.targetFingerprint == entry.targetFingerprint;
+}
+
+bool AccessStore::canUseElevation(const QString& clientId,
+    const SessionDirectory::Entry& entry) const
+{
+    return canControlTerminal(clientId, entry)
+        && _grants.value(clientId).value(entry.id).useElevation;
+}
+
+QString AccessStore::elevationReference(const SessionDirectory::Entry& entry,
+    const QString& method) const
+{
+    if ((method != "sudo" && method != "su") || !entry.session || !entry.transport
+        || entry.state != SessionState::Running || entry.session->state() != SessionState::Running
+        || entry.session->transport() != entry.transport || !entry.transport->isConnected()
+        || entry.session->statistics().generation != entry.generation
+        || entry.kind != entry.session->runtimeConfig().transportKind
+        || entry.targetFingerprint.isEmpty()) return {};
+    QByteArray identity = QSysInfo::machineUniqueId() + '\0' + QDir::homePath().toUtf8() + '\0';
+    if (entry.kind == TransportKind::LocalShell) {
+        LocalSessionCommandExecutor local(QString{});
+        if (local.targetFingerprint() != entry.targetFingerprint) return {};
+        identity += "local\0";
+    } else if (entry.kind == TransportKind::Ssh) {
+        auto* ssh = qobject_cast<SshTransport*>(entry.transport.data());
+        if (!ssh || ssh->serverHostKeyFingerprint().isEmpty()) return {};
+        SshSessionCommandExecutor executor(ssh);
+        if (executor.targetFingerprint() != entry.targetFingerprint) return {};
+        const auto& config = ssh->sessionConfig();
+        if (config.host.isEmpty() || config.host.contains(QChar::Null)
+            || config.username.trimmed().isEmpty() || config.username.contains(QChar::Null)) return {};
+        identity += "ssh\0";
+        identity += config.host.toUtf8() + '\0' + QByteArray::number(config.port) + '\0'
+            + config.username.trimmed().toUtf8() + '\0' + ssh->serverHostKeyFingerprint().toUtf8() + '\0';
+    } else return {};
+    identity += entry.targetFingerprint.toUtf8() + '\0' + method.toLatin1();
+    return QStringLiteral("mcp-elevation-")
+        + QString::fromLatin1(QCryptographicHash::hash(identity, QCryptographicHash::Sha256).toHex());
+}
+
+bool AccessStore::hasElevationCredential(const SessionDirectory::Entry& entry,
+    const QString& method) const
+{
+    const auto ref = elevationReference(entry, method);
+    return !ref.isEmpty() && _elevationReferences.contains(ref);
+}
+
+bool AccessStore::elevationCredentialsPersistent() const
+{
+    return _elevationPersistent.value_or(_credentials && _credentials->isPersistent());
+}
+
+void AccessStore::revokeElevation(const QString& targetFingerprint)
+{
+    for (auto clients = _grants.begin(); clients != _grants.end(); ++clients) {
+        bool invalidated = false;
+        for (auto grant = clients->begin(); grant != clients->end(); ++grant) {
+            if (grant->targetFingerprint == targetFingerprint && grant->useElevation) {
+                grant->useElevation = false;
+                invalidated = true;
+                emit revoked(clients.key(), grant.key());
+            }
+        }
+        if (invalidated) ++_clients[clients.key()].version;
+    }
+}
+
+bool AccessStore::setElevationCredential(const SessionDirectory::Entry& entry,
+    const QString& method, const QByteArray& secret)
+{
+    const auto ref = elevationReference(entry, method);
+    if (_credentialOperationPending || ref.isEmpty() || secret.isEmpty() || secret.size() > 4096
+        || (!_elevationReferences.contains(ref) && _elevationReferences.size() >= 256)
+        || !credentials()) return false;
+    // This local configuration operation is the only write path; no MCP request calls it.
+    if (!_credentials->put(ref, secret)) return false;
+    _elevationReferences.insert(ref);
+    revokeElevation(entry.targetFingerprint);
+    ++_elevationRevision;
+    const bool saved = save();
+    emit changed();
+    return saved;
+}
+
+bool AccessStore::configureElevationCredentialAsync(const SessionDirectory::Entry& entry,
+    const QString& method, QByteArray secret, bool remove, std::function<void(bool)> finished)
+{
+    const auto ref = elevationReference(entry, method);
+    if (_credentialOperationPending || ref.isEmpty()
+        || (remove ? !_elevationReferences.contains(ref) : secret.isEmpty() || secret.size() > 4096)
+        || (!remove && !_elevationReferences.contains(ref) && _elevationReferences.size() >= 256)) {
+        secret.fill('\0');
+        return false;
+    }
+    if (!_elevationThread) {
+        _elevationThread = std::make_unique<QThread>();
+        _elevationStorage = std::make_shared<std::unique_ptr<CredentialStore>>();
+        _elevationWorker = new QObject;
+        _elevationWorker->moveToThread(_elevationThread.get());
+        connect(_elevationThread.get(), &QThread::finished, _elevationWorker,
+            [holder = _elevationStorage] { holder->reset(); }, Qt::DirectConnection);
+        connect(_elevationThread.get(), &QThread::finished, _elevationWorker, &QObject::deleteLater);
+        _elevationThread->start();
+    }
+    _credentialOperationPending = true;
+    revokeElevation(entry.targetFingerprint);
+    emit changed();
+    const auto holder = _elevationStorage;
+    const auto factory = _elevationFactory;
+    QMetaObject::invokeMethod(_elevationWorker,
+        [this, holder, factory, ref, target = entry.targetFingerprint, remove,
+         secret = std::move(secret), finished = std::move(finished)]() mutable {
+        if (!*holder) *holder = factory();
+        const bool persistent = *holder && (*holder)->isPersistent();
+        const bool ok = *holder && (remove ? (*holder)->remove(ref) : (*holder)->put(ref, secret));
+        secret.fill('\0');
+        QMetaObject::invokeMethod(this,
+            [this, ref, target, remove, ok, persistent, finished = std::move(finished)] {
+            _credentialOperationPending = false;
+            _elevationPersistent = persistent;
+            bool saved = false;
+            if (ok) {
+                if (remove) _elevationReferences.remove(ref);
+                else _elevationReferences.insert(ref);
+                revokeElevation(target);
+                ++_elevationRevision;
+                saved = save();
+            }
+            emit changed();
+            if (finished) finished(ok && saved);
+        }, Qt::QueuedConnection);
+    }, Qt::QueuedConnection);
+    return true;
+}
+
+bool AccessStore::removeElevationCredential(const SessionDirectory::Entry& entry,
+    const QString& method)
+{
+    const auto ref = elevationReference(entry, method);
+    if (_credentialOperationPending || ref.isEmpty()
+        || !_elevationReferences.contains(ref) || !credentials()) return false;
+    // Revoke first, including when the system keyring refuses deletion.
+    revokeElevation(entry.targetFingerprint);
+    if (!_credentials->remove(ref)) { emit changed(); return false; }
+    _elevationReferences.remove(ref);
+    ++_elevationRevision;
+    const bool saved = save();
+    emit changed();
+    return saved;
 }
 }

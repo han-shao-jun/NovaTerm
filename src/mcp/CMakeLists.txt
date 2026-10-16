@@ -19,6 +19,7 @@ qt_add_library(novaterm_mcp_runtime STATIC
     CommandPolicy.cpp CommandPolicy.h
     CommandRiskPolicy.cpp CommandRiskPolicy.h
     McpService.cpp McpService.h
+    TerminalInteraction.cpp TerminalInteraction.h
     ../session/SessionDirectory.cpp ../session/SessionDirectory.h
     ../session/ISessionCommandExecutor.h
     ../session/CommandPlatformProfile.cpp ../session/CommandPlatformProfile.h

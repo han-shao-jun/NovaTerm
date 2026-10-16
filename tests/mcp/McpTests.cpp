@@ -14,6 +14,7 @@
 #include "session/SessionCommandFacade.h"
 #include "session/SessionCommandCoordinator.h"
 #include "session/SessionInputArbiter.h"
+#include "session/SessionTerminalController.h"
 #include "transport/SshTransport.h"
 #include "ui/widgets/McpSettingsDialog.h"
 #include "ElaApplication.h"
@@ -489,6 +490,12 @@ class McpTests final : public QObject
 {
     Q_OBJECT
 private slots:
+    void terminalInteractionRequiresNewGrantAndDeduplicates();
+    void compactAttentionWaitCoalescesScrollAndExpires();
+    void managedElevationRejectsWithoutAdapter();
+    void terminalCommandCompletionAndReadinessAreSeparateFromOutput();
+    void compactCaptureExpansionDoesNotMoveLiveCursor();
+    void compactExpansionAdvancesForEscapedLongLine();
     void tokenSigningAndAuthentication();
     void rejectsDangerousAndOversizedArguments();
     void nonblockingSnapshotPreservesIndependentProgress();
@@ -2341,7 +2348,7 @@ void McpTests::tokenSigningAndAuthentication()
 
 void McpTests::rejectsDangerousAndOversizedArguments()
 {
-    QCOMPARE(tools().size(), 7);
+    QCOMPARE(tools().size(), 9);
     QVERIFY(!CommandPolicy::find("rm"));
     QVERIFY(!CommandPolicy::find("credential.read"));
     const QJsonObject identity{{"sessionId", newId()}, {"epoch", "epoch"}};
@@ -2824,7 +2831,7 @@ void McpTests::settingsDialogSeparatesReadAndScriptPermission()
     auto* tree = dialog->findChild<ElaTreeWidget*>();
     QVERIFY(tree && tree->topLevelItemCount() == 1);
     // 6 列：会话、状态、读取输出、固定诊断、脚本任务、交互命令。
-    QCOMPARE(tree->columnCount(), 6);
+    QCOMPARE(tree->columnCount(), 10);
     const auto copyButtons = dialog->findChildren<QPushButton*>();
     QVERIFY(std::any_of(copyButtons.cbegin(), copyButtons.cend(), [](const QPushButton* button) {
         return button->text() == QStringLiteral("Copy for CC Switch");
@@ -3574,6 +3581,154 @@ int performanceFixture(QCoreApplication& application, const QString& file, bool 
     QTimer::singleShot(60000, &application, &QCoreApplication::quit);
     return application.exec();
 }
+}
+
+void McpTests::terminalInteractionRequiresNewGrantAndDeduplicates()
+{
+    Fixture f;
+    QVERIFY(f.enable(false, true));
+    Host host;
+    QVERIFY(host.start(f.runtime(), f.token()));
+    auto read = f.identity(); read.insert("responseMode", "compact");
+    auto initial = host.call("novaterm_read_context", read);
+    QVERIFY(initial.value("ok").toBool());
+    QVERIFY(initial.value("data").toObject().value("inputToken").toString().isEmpty());
+    QVERIFY(f.service.access().setTerminalGrant(f.client, f.service.directory().entries().first(), true));
+    initial = host.call("novaterm_read_context", read);
+    const auto inputToken = initial.value("data").toObject().value("inputToken").toString();
+    QVERIFY(!inputToken.isEmpty());
+    auto input = f.identity();
+    input.insert("inputToken", inputToken);
+    input.insert("operationId", QUuid::createUuid().toString(QUuid::WithoutBraces));
+    input.insert("waitMs", 0);
+    input.insert("actions", QJsonArray{QJsonObject{{"type", "text"}, {"text", "python -i"}},
+        QJsonObject{{"type", "key"}, {"key", "Enter"}}});
+    QVERIFY(host.call("novaterm_interact_terminal", input).value("ok").toBool());
+    QTRY_COMPARE(f.local.written, QByteArray("python -i\r"));
+    QVERIFY(host.call("novaterm_interact_terminal", input).value("ok").toBool());
+    QTest::qWait(20);
+    QCOMPARE(f.local.written, QByteArray("python -i\r"));
+    f.session.writeUserInput("x");
+    input.insert("operationId", QUuid::createUuid().toString(QUuid::WithoutBraces));
+    const auto stale = host.call("novaterm_interact_terminal", input);
+    QVERIFY(!stale.value("ok").toBool());
+    QCOMPARE(f.local.written, QByteArray("python -i\rx"));
+}
+
+void McpTests::compactAttentionWaitCoalescesScrollAndExpires()
+{
+    Fixture f;
+    QVERIFY(f.enable());
+    Host host;
+    QVERIFY(host.start(f.runtime(), f.token()));
+    auto read = f.identity(); read.insert("responseMode", "compact");
+    const auto first = host.call("novaterm_read_context", read);
+    QVERIFY(first.value("ok").toBool());
+    read.insert("sinceToken", first.value("data").toObject().value("nextToken"));
+    read.insert("waitMs", 400); read.insert("waitFor", "attention");
+    QElapsedTimer time; time.start();
+    host.begin("novaterm_read_context", read);
+    emit f.local.readyRead(QByteArray(10000, 'a') + "\r\n");
+    const auto response = host.next(2000);
+    QVERIFY(time.elapsed() >= 350);
+    const auto result = response.value("result").toObject();
+    QVERIFY(QJsonDocument(result).toJson(QJsonDocument::Compact).size() <= 8192);
+    const auto data = result.value("structuredContent").toObject().value("data").toObject();
+    QCOMPARE(data.value("wakeReason").toString(), QString("deadline"));
+    QVERIFY(data.value("command").toObject().value("state") != "finished");
+}
+
+void McpTests::terminalCommandCompletionAndReadinessAreSeparateFromOutput()
+{
+    Fixture f;
+    QVERIFY(f.makeScriptUpload());
+    QVERIFY(f.enable());
+    QVERIFY(f.service.access().setTerminalGrant(f.client, f.service.directory().entries().first(), true));
+    Host host; QVERIFY(host.start(f.runtime(), f.token()));
+    auto read = f.identity(); read.insert("responseMode", "compact");
+    QVERIFY(host.call("novaterm_read_context", read).value("ok").toBool());
+    emit f.local.readyRead(QByteArrayLiteral("\x1b]633;NT;PROMPT;1;0\a"));
+    QTRY_VERIFY(f.session.terminalController()->readyForCommand());
+    const auto observed = host.call("novaterm_read_context", read).value("data").toObject();
+    auto args = f.identity(); args.insert("inputToken", observed.value("inputToken"));
+    args.insert("operationId", QUuid::createUuid().toString(QUuid::WithoutBraces));
+    args.insert("actions", QJsonArray{QJsonObject{{"type", "command"}, {"command", "pwd"}}});
+    args.insert("waitMs", 1500);
+    QTimer::singleShot(100, &f.session, [&f] {
+        emit f.local.readyRead(QByteArrayLiteral("/tmp\r\n\x1b]633;NT;PROMPT;2;0\a"));
+    });
+    const auto result = host.call("novaterm_interact_terminal", args);
+    QVERIFY2(result.value("ok").toBool(), qPrintable(QString::fromUtf8(QJsonDocument(result).toJson())));
+    const auto data = result.value("data").toObject();
+    QCOMPARE(data.value("wakeReason").toString(), QString("command_finished"));
+    QCOMPARE(data.value("command").toObject().value("state").toString(), QString("finished"));
+    QCOMPARE(data.value("command").toObject().value("exitCode").toInt(-1), 0);
+    QVERIFY(data.value("inputReadiness").toObject().value("canSubmitCommand").toBool());
+    QCOMPARE(f.local.written, QByteArray("pwd\r"));
+}
+
+void McpTests::compactCaptureExpansionDoesNotMoveLiveCursor()
+{
+    Fixture f; QVERIFY(f.enable()); Host host; QVERIFY(host.start(f.runtime(), f.token()));
+    emit f.local.readyRead(QByteArrayLiteral("first-line\r\nsecond-line\r\n"));
+    QVERIFY(f.core.waitForIdle(1000));
+    auto read = f.identity(); read.insert("responseMode", "compact"); read.insert("maxLines", 1);
+    auto result = host.call("novaterm_read_context", read);
+    QVERIFY(result.value("ok").toBool());
+    const auto data = result.value("data").toObject();
+    const auto expand = data.value("expandToken").toString();
+    QVERIFY(!expand.isEmpty());
+    auto args = f.identity(); args.insert("responseMode", "compact");
+    args.insert("expandToken", expand); args.insert("maxBytes", 3); args.insert("maxLines", 2);
+    QByteArray text;
+    for (int page = 0; page < 200; ++page) {
+        const auto expanded = host.call("novaterm_read_context", args);
+        QVERIFY(expanded.value("ok").toBool());
+        const auto body = expanded.value("data").toObject();
+        QVERIFY(!body.contains("inputToken"));
+        for (const auto& line : body.value("viewport").toArray()) text += line.toObject().value("text").toString().toUtf8();
+        if (body.value("expandToken").isNull()) break;
+        QVERIFY(body.value("expandToken").toString() != args.value("expandToken").toString());
+        args.insert("expandToken", body.value("expandToken"));
+    }
+    QVERIFY(text.contains("first-line")); QVERIFY(text.contains("second-line"));
+    read.insert("sinceToken", data.value("nextToken")); read.remove("maxLines");
+    const auto unchanged = host.call("novaterm_read_context", read).value("data").toObject();
+    QVERIFY(!unchanged.value("outputChanged").toBool());
+}
+
+void McpTests::compactExpansionAdvancesForEscapedLongLine()
+{
+    Fixture f; QVERIFY(f.enable()); Host host; QVERIFY(host.start(f.runtime(), f.token()));
+    f.core.resize(8000, 2); QVERIFY(f.core.waitForIdle(1000));
+    QByteArray text;
+    for (int i = 0; i < 2500; ++i) text += QByteArrayLiteral("\\\"");
+    emit f.local.readyRead(text + "\r\n"); QVERIFY(f.core.waitForIdle(1000));
+    auto read = f.identity(); read.insert("responseMode", "compact"); read.insert("maxLines", 1);
+    const auto first = host.call("novaterm_read_context", read).value("data").toObject();
+    const auto token = first.value("expandToken").toString(); QVERIFY(!token.isEmpty());
+    auto expand = f.identity(); expand.insert("responseMode", "compact"); expand.insert("expandToken", token);
+    const auto response = host.call("novaterm_read_context", expand);
+    QVERIFY(response.value("ok").toBool());
+    const auto result = response.value("data").toObject();
+    QVERIFY(result.value("expandToken").toString() != token);
+    QVERIFY(!result.value("viewport").toArray().isEmpty());
+}
+
+void McpTests::managedElevationRejectsWithoutAdapter()
+{
+    Fixture f; QVERIFY(f.enable());
+    const auto entry = f.service.directory().entries().first();
+    QVERIFY(f.service.access().setTerminalGrant(f.client, entry, true, true));
+    Host host; QVERIFY(host.start(f.runtime(), f.token()));
+    auto read = f.identity(); read.insert("responseMode", "compact");
+    const auto data = host.call("novaterm_read_context", read).value("data").toObject();
+    auto args = f.identity(); args.insert("inputToken", data.value("inputToken"));
+    args.insert("operationId", QUuid::createUuid().toString(QUuid::WithoutBraces));
+    args.insert("method", "su"); args.insert("mode", "shell");
+    const auto result = host.call("novaterm_request_elevation", args);
+    QVERIFY(!result.value("ok").toBool());
+    QVERIFY(f.local.written.isEmpty());
 }
 
 int main(int argc, char** argv)
