@@ -1,6 +1,7 @@
 #include "mcp/McpAccess.h"
 #include "core/terminal/TerminalCore.h"
 #include "session/SessionDirectory.h"
+#include "TestGrantSupport.h"
 #include <QFile>
 #include <QSignalSpy>
 #include <QTemporaryDir>
@@ -69,23 +70,23 @@ void McpAccessInteractionTests::terminalPermissionRequiresExplicitGrantAndCurren
     QVERIFY(f.access.setEnabled(true));
     const auto a = f.access.addClient("a"), b = f.access.addClient("b");
     auto entry = f.entry();
-    QVERIFY(!f.access.setTerminalGrant(a, entry, true));
-    QVERIFY(f.access.setGrant(a, entry, true, {}, true, true, true));
+    QVERIFY(!NovaTerm::Mcp::TestSupport::setTerminalGrant(f.access, a, entry, true));
+    QVERIFY(NovaTerm::Mcp::TestSupport::setGrant(f.access, a, entry, true, {}, true, true, true));
     QVERIFY(f.access.canRunCommand(a, entry));
     QVERIFY(!f.access.canControlTerminal(a, entry));
-    QVERIFY(f.access.setTerminalGrant(a, entry, true));
+    QVERIFY(NovaTerm::Mcp::TestSupport::setTerminalGrant(f.access, a, entry, true));
     QVERIFY(f.access.canControlTerminal(a, entry));
     QVERIFY(!f.access.canControlTerminal(b, entry));
     QVERIFY(!f.access.canUseElevation(a, entry));
     // Updating an old permission must not silently drop an explicit new grant.
-    QVERIFY(f.access.setGrant(a, entry, true));
+    QVERIFY(NovaTerm::Mcp::TestSupport::setGrant(f.access, a, entry, true));
     QVERIFY(f.access.canControlTerminal(a, entry));
     entry.epoch = "reconnected";
     QVERIFY(!f.access.canControlTerminal(a, entry));
     QVERIFY(!f.access.canUseElevation(a, entry));
-    QVERIFY(f.access.setGrant(a, entry, true));
+    QVERIFY(NovaTerm::Mcp::TestSupport::setGrant(f.access, a, entry, true));
     QVERIFY(!f.access.canControlTerminal(a, entry));
-    QVERIFY(f.access.setTerminalGrant(a, entry, true));
+    QVERIFY(NovaTerm::Mcp::TestSupport::setTerminalGrant(f.access, a, entry, true));
     QVERIFY(!f.access.canRunCommand(a, entry));
 }
 
@@ -95,13 +96,13 @@ void McpAccessInteractionTests::readRevocationClearsNewPermissions()
     QVERIFY(f.access.setEnabled(true));
     const auto client = f.access.addClient("client");
     const auto entry = f.entry();
-    QVERIFY(f.access.setGrant(client, entry, true));
-    QVERIFY(f.access.setTerminalGrant(client, entry, true, true));
+    QVERIFY(NovaTerm::Mcp::TestSupport::setGrant(f.access, client, entry, true));
+    QVERIFY(NovaTerm::Mcp::TestSupport::setTerminalGrant(f.access, client, entry, true, true));
     QVERIFY(f.access.canUseElevation(client, entry));
-    QVERIFY(f.access.setGrant(client, entry, false));
+    QVERIFY(NovaTerm::Mcp::TestSupport::setGrant(f.access, client, entry, false));
     QVERIFY(!f.access.canControlTerminal(client, entry));
     QVERIFY(!f.access.canUseElevation(client, entry));
-    QVERIFY(f.access.setGrant(client, entry, true));
+    QVERIFY(NovaTerm::Mcp::TestSupport::setGrant(f.access, client, entry, true));
     QVERIFY(!f.access.canControlTerminal(client, entry));
 }
 
@@ -137,8 +138,8 @@ void McpAccessInteractionTests::credentialMutationRevokesElevationAcrossClients(
     const auto entry = f.entry();
     const auto a = f.access.addClient("a"), b = f.access.addClient("b");
     for (const auto& client : {a, b}) {
-        QVERIFY(f.access.setGrant(client, entry, true));
-        QVERIFY(f.access.setTerminalGrant(client, entry, true, true));
+        QVERIFY(NovaTerm::Mcp::TestSupport::setGrant(f.access, client, entry, true));
+        QVERIFY(NovaTerm::Mcp::TestSupport::setTerminalGrant(f.access, client, entry, true, true));
     }
     QSignalSpy changed(&f.access, &NovaTerm::Mcp::AccessStore::changed);
     QVERIFY(f.access.setElevationCredential(entry, "sudo", "secret"));
@@ -146,7 +147,7 @@ void McpAccessInteractionTests::credentialMutationRevokesElevationAcrossClients(
     for (const auto& client : {a, b}) {
         QVERIFY(f.access.canControlTerminal(client, entry));
         QVERIFY(!f.access.canUseElevation(client, entry));
-        QVERIFY(f.access.setTerminalGrant(client, entry, true, true));
+        QVERIFY(NovaTerm::Mcp::TestSupport::setTerminalGrant(f.access, client, entry, true, true));
     }
     QVERIFY(f.access.removeElevationCredential(entry, "sudo"));
     QVERIFY(!f.access.canUseElevation(a, entry));
@@ -207,8 +208,8 @@ void McpAccessInteractionTests::anotherInstanceCredentialReplacementRevokesManag
     QVERIFY(first.setEnabled(true));
     const auto client = first.addClient("client");
     QVERIFY(!client.isEmpty());
-    QVERIFY(first.setGrant(client, entry, true));
-    QVERIFY(first.setTerminalGrant(client, entry, true, true));
+    QVERIFY(NovaTerm::Mcp::TestSupport::setGrant(first, client, entry, true));
+    QVERIFY(NovaTerm::Mcp::TestSupport::setTerminalGrant(first, client, entry, true, true));
     NovaTerm::Mcp::AccessStore other(state.path(), std::make_unique<RetainedCredentials>(secrets));
     QVERIFY(other.setElevationCredential(entry, "sudo", "secret"));
     QTRY_VERIFY(!first.canUseElevation(client, entry));

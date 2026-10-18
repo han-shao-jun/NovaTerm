@@ -2,7 +2,9 @@
  *  @brief HTTP 协议头、客户端隔离及两版断流语义的真实 TCP 回归。
  */
 #include "mcp/HttpMcpEndpoint.h"
+#include "mcp/protocol/BackendEvents.h"
 #include "mcp/McpProtocol.h"
+#include <QJsonArray>
 #include <QJsonDocument>
 #include <QElapsedTimer>
 #include <QNetworkAccessManager>
@@ -17,13 +19,13 @@
 using namespace NovaTerm::Mcp;
 namespace {
 struct Harness {
-    QList<QPair<QString, QJsonObject>> messages;
+    QList<QPair<QString, BackendEvent>> messages;
     QSet<QString> peers;
     HttpMcpEndpoint endpoint{HttpMcpEndpoint::Backend{
         [](const QByteArray& token) { return token == "one" ? QString("client-one")
             : token == "two" ? QString("client-two") : QString{}; },
         [this](const QString& peer, const QString&) { peers.insert(peer); return true; },
-        [this](const QString& peer, const QJsonObject& message) { messages.append({peer, message}); },
+        [this](const QString& peer, const BackendEvent& event) { messages.append({peer, event}); },
         [this](const QString& peer) { peers.remove(peer); }
     }};
     QNetworkAccessManager network;
@@ -82,6 +84,8 @@ QJsonObject toolCall(int id = 2)
 }
 int status(QNetworkReply* reply)
 { return reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt(); }
+QString messageId(const BackendEvent& event)
+{ return std::visit([](const auto& value) { return value.id; }, event); }
 }
 class HttpMcpEndpointTests final : public QObject
 {
@@ -324,10 +328,10 @@ private slots:
         const auto a = h.messages.first();
         const auto b = h.messages.last();
         QCOMPARE(a.first, b.first);
-        QVERIFY(a.second.value("id") != b.second.value("id"));
-        QVERIFY(h.endpoint.send(a.first, {{"op", "result"}, {"id", a.second.value("id")},
+        QVERIFY(messageId(a.second) != messageId(b.second));
+        QVERIFY(h.endpoint.send(a.first, {{"op", "result"}, {"id", messageId(a.second)},
             {"payload", success({{"which", 1}})}}));
-        QVERIFY(h.endpoint.send(b.first, {{"op", "result"}, {"id", b.second.value("id")},
+        QVERIFY(h.endpoint.send(b.first, {{"op", "result"}, {"id", messageId(b.second)},
             {"payload", success({{"which", 2}})}}));
         QTRY_VERIFY(first->isFinished() && second->isFinished());
         const auto firstBytes = first->readAll();
@@ -345,8 +349,8 @@ private slots:
         QTRY_COMPARE(h.messages.size(), 2);
         first->abort();
         QTRY_COMPARE(h.messages.size(), 3);
-        QCOMPARE(h.messages.last().second.value("op").toString(), QString("cancel"));
-        QCOMPARE(h.messages.last().second.value("id"), h.messages.first().second.value("id"));
+        QCOMPARE(backendEventKind(h.messages.last().second), QString("cancel"));
+        QCOMPARE(messageId(h.messages.last().second), messageId(h.messages.first().second));
         QVERIFY(!second->isFinished());
         second->abort();
     }
@@ -369,7 +373,7 @@ private slots:
         auto* deleted = h.network.sendCustomRequest(request, "DELETE");
         QTRY_VERIFY(deleted->isFinished());
         QCOMPARE(status(deleted), 200);
-        QCOMPARE(h.messages.last().second.value("op").toString(), QString("cancel"));
+        QCOMPARE(backendEventKind(h.messages.last().second), QString("cancel"));
         QVERIFY(h.peers.isEmpty());
     }
     void sessionLimitAndDeleteReturnCapacity()

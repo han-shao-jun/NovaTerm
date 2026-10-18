@@ -3,12 +3,14 @@
  */
 #include "mcp/HttpMcpServer.h"
 #include "mcp/McpProtocol.h"
+#include "mcp/protocol/ToolCodec.h"
 #include <QJsonObject>
 #include <QSignalSpy>
 #include <QTcpSocket>
 #include <QTest>
 #include <QUrl>
 #include <QElapsedTimer>
+#include <QJsonArray>
 #include <QJsonDocument>
 #include <thread>
 #include <vector>
@@ -407,7 +409,7 @@ void HttpMcpServerTests::maximumScriptContentFitsRequest()
     const QJsonObject arguments{{"sessionId", "11111111-1111-1111-1111-111111111111"},
         {"epoch", "epoch"}, {"scriptContent", content}, {"targetPath", "/tmp/script.sh"},
         {"workingDirectory", "/tmp"}, {"invocation", "sh /tmp/script.sh"}};
-    QVERIFY(validateArguments("novaterm_run_script", arguments).isEmpty());
+    QVERIFY(ToolCodec::validate("novaterm_run_script", arguments).isEmpty());
     const QByteArray body = QJsonDocument(QJsonObject{{"jsonrpc", "2.0"}, {"id", 1},
         {"method", "tools/call"}, {"params", QJsonObject{{"name", "novaterm_run_script"},
         {"arguments", arguments}}}}).toJson(QJsonDocument::Compact);

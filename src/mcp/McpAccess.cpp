@@ -3,6 +3,8 @@
  */
 #include "McpAccess.h"
 #include "McpProtocol.h"
+#include "mcp/application/CapabilityResolver.h"
+#include "CommandPolicy.h"
 #include "session/SessionCommandFacade.h"
 #include "session/TerminalContextProvider.h"
 #include "session/LocalSessionCommandExecutor.h"
@@ -26,6 +28,13 @@ CredentialStore* AccessStore::credentials() const
 AccessStore::AccessStore(QString directory, std::unique_ptr<CredentialStore> credentials, QObject* parent,
     std::function<std::unique_ptr<CredentialStore>()> elevationFactory)
     : QObject(parent), _directory(std::move(directory)), _credentials(std::move(credentials)),
+      _authorization(AuthorizationPorts{
+          [this] { return _enabled; },
+          [this](const ClientId& id) { return _clients.contains(id); },
+          [this](const ClientId& id) { return _clients.version(id); },
+          [this](const ClientId& id) { return _clients.advance(id); },
+          [](const DiagnosticId& id) { return CommandPolicy::find(id.str()).has_value(); },
+          [this] { return _credentialOperationPending; }}),
       _elevationFactory(std::move(elevationFactory))
 {
     if (!_elevationFactory) {
@@ -51,10 +60,10 @@ void AccessStore::reload()
 {
     const auto stored = readJson(QDir(_directory).filePath("access.json"));
     if (!stored) {
-        if (_enabled || !_clients.isEmpty()) {
+        if (_enabled || _clients.size() > 0) {
             _enabled = false;
             _clients.clear();
-            _grants.clear();
+            _authorization.clear();
             _storeRevision = 0;
             emit revoked({}, {});
             emit changed();
@@ -63,34 +72,38 @@ void AccessStore::reload()
     }
     const auto revision = stored->value("revision").toString().toULongLong();
     if (revision != 0 && revision == _storeRevision) return;
-    QHash<QString, Client> next;
+    QList<ClientRecord> next;
     // 易失接入仅属于本进程，不写入共享文件，也不被其他实例的保存清除。
-    for (const auto& client : _clients) if (!client.persistent) next.insert(client.id, client);
+    for (const auto& client : _clients.clients())
+        if (!client.persistent) next.append(client);
     for (const auto& value : stored->value("clients").toArray()) {
         if (next.size() >= 16)
             break;
         const auto object = value.toObject();
-        const auto id = object.value("id").toString();
+        const auto id = ClientId{object.value("id").toString()};
         const auto digest = QByteArray::fromHex(object.value("digest").toString().toLatin1());
         // 内存后端的旧令牌重启后无效，不复活其接入配置。
-        if (QUuid(id).isNull() || digest.size() != 32 || !object.value("persistent").toBool())
+        if (id.isEmpty() || QUuid(id.str()).isNull() || digest.size() != 32
+            || !object.value("persistent").toBool())
             continue;
-        const auto old = _clients.value(id);
-        const auto version = old.digest == digest ? old.version : old.version + 1;
-        next.insert(id, Client{id, object.value("label").toString().left(80), digest, true, version});
+        const auto old = _clients.find(id);
+        const auto oldVersion = old ? old->version.value() : quint64(1);
+        const auto version = old && old->digest == digest ? oldVersion : oldVersion + 1;
+        next.append(ClientRecord{id, object.value("label").toString().left(80), digest,
+            true, ClientAccessVersion{version}});
     }
     QStringList invalidated;
-    for (const auto& client : _clients) {
-        if (!next.contains(client.id) || next.value(client.id).digest != client.digest)
-            invalidated.append(client.id);
+    for (const auto& client : _clients.clients()) {
+        const auto found = std::find_if(next.cbegin(), next.cend(),
+            [&client](const ClientRecord& value) { return value.id == client.id; });
+        if (found == next.cend() || found->digest != client.digest)
+            invalidated.append(client.id.str());
     }
-    _clients = std::move(next);
+    _clients.replaceAll(std::move(next));
     const auto elevationRevision = stored->value("elevationRevision").toString().toULongLong();
     if (elevationRevision != _elevationRevision) {
-        for (auto client = _grants.begin(); client != _grants.end(); ++client)
-            for (auto grant = client->begin(); grant != client->end(); ++grant)
-                grant->useElevation = false;
-        for (auto client = _clients.begin(); client != _clients.end(); ++client) ++client->version;
+        static_cast<void>(_authorization.revokeAllElevation());
+        _clients.advanceAll();
         emit revoked({}, {});
     }
     _elevationRevision = elevationRevision;
@@ -107,10 +120,10 @@ void AccessStore::reload()
     _storeRevision = revision;
     _enabled = stored->value("enabled").toBool();
     for (const auto& id : invalidated) {
-        if (!_clients.contains(id)) _grants.remove(id);
+        if (!_clients.contains(ClientId{id})) _authorization.removeClient(ClientId{id});
         emit revoked(id, {});
     }
-    if (!_enabled) { _grants.clear(); emit revoked({}, {}); }
+    if (!_enabled) { _authorization.clear(); emit revoked({}, {}); }
     emit changed();
 }
 
@@ -137,9 +150,9 @@ bool AccessStore::save()
         return false;
     }
     QJsonArray clients;
-    for (const auto& client : _clients) {
+    for (const auto& client : _clients.clients()) {
         if (!client.persistent) continue;
-        clients.append(QJsonObject{{"id", client.id}, {"label", client.label},
+        clients.append(QJsonObject{{"id", client.id.str()}, {"label", client.label},
             {"digest", QString::fromLatin1(client.digest.toHex())}, {"persistent", client.persistent}});
     }
     QJsonArray elevationReferences;
@@ -161,9 +174,8 @@ bool AccessStore::setEnabled(bool enabled)
     if (!enabled) {
         // 停用先在内存生效；磁盘写入失败也不能让用户无法撤销正在使用的权限。
         _enabled = false;
-        _grants.clear();
-        for (auto it = _clients.begin(); it != _clients.end(); ++it)
-            ++it->version;
+        _authorization.clear();
+        _clients.advanceAll();
         const bool saved = save();
         emit revoked({}, {});
         emit changed();
@@ -178,12 +190,7 @@ bool AccessStore::setEnabled(bool enabled)
     return true;
 }
 
-QList<AccessStore::Client> AccessStore::clients() const
-{
-    auto result = _clients.values();
-    std::sort(result.begin(), result.end(), [](const Client& a, const Client& b) { return a.label < b.label; });
-    return result;
-}
+QList<AccessStore::Client> AccessStore::clients() const { return _clients.clients(); }
 
 QString AccessStore::addClient(const QString& label)
 {
@@ -193,10 +200,11 @@ QString AccessStore::addClient(const QString& label)
     const auto token = randomBytes().toHex();
     if (!_credentials->put(reference(id), token))
         return {};
-    _clients.insert(id, Client{id, label.trimmed().left(80),
-        QCryptographicHash::hash(token, QCryptographicHash::Sha256), _credentials->isPersistent(), 1});
+    _clients.insert(ClientRecord{ClientId{id}, label.trimmed().left(80),
+        QCryptographicHash::hash(token, QCryptographicHash::Sha256),
+        _credentials->isPersistent(), ClientAccessVersion{1}});
     if (!save()) {
-        _clients.remove(id);
+        _clients.remove(ClientId{id});
         _credentials->remove(reference(id));
         return {};
     }
@@ -206,11 +214,12 @@ QString AccessStore::addClient(const QString& label)
 
 bool AccessStore::removeClient(const QString& id)
 {
-    if (!_clients.contains(id) || !credentials())
+    const auto old = _clients.find(ClientId{id});
+    if (!old || !credentials())
         return false;
-    const auto old = _clients.take(id);
-    if (!save()) { _clients.insert(id, old); return false; }
-    _grants.remove(id);
+    _clients.remove(ClientId{id});
+    if (!save()) { _clients.insert(*old); return false; }
+    _authorization.removeClient(ClientId{id});
     _credentials->remove(reference(id));
     emit revoked(id, {});
     emit changed();
@@ -219,19 +228,18 @@ bool AccessStore::removeClient(const QString& id)
 
 bool AccessStore::rotateToken(const QString& id)
 {
-    auto it = _clients.find(id);
-    if (it == _clients.end() || !credentials())
+    const auto old = _clients.find(ClientId{id});
+    if (!old || !credentials())
         return false;
-    const auto old = *it;
     const auto oldToken = _credentials->get(reference(id));
     const auto token = randomBytes().toHex();
     if (!_credentials->put(reference(id), token))
         return false;
-    it->digest = QCryptographicHash::hash(token, QCryptographicHash::Sha256);
-    it->persistent = _credentials->isPersistent();
-    ++it->version;
+    _clients.updateDigest(ClientId{id},
+        QCryptographicHash::hash(token, QCryptographicHash::Sha256),
+        _credentials->isPersistent());
     if (!save()) {
-        *it = old;
+        _clients.insert(*old);
         if (oldToken) _credentials->put(reference(id), *oldToken);
         return false;
     }
@@ -242,7 +250,7 @@ bool AccessStore::rotateToken(const QString& id)
 
 std::optional<QByteArray> AccessStore::exportToken(const QString& id) const
 {
-    if (!_clients.contains(id) || !credentials())
+    if (!_clients.contains(ClientId{id}) || !credentials())
         return std::nullopt;
     return _credentials->get(reference(id));
 }
@@ -253,148 +261,128 @@ QString AccessStore::authenticate(const QByteArray& token) const
         return {};
     const auto digest = QCryptographicHash::hash(token, QCryptographicHash::Sha256);
     QString result;
-    for (const auto& client : _clients) {
+    for (const auto& client : _clients.clients()) {
         if (constantTimeEqual(digest, client.digest))
-            result = client.id;
+            result = client.id.str();
     }
     return result;
 }
 
 quint64 AccessStore::version(const QString& clientId) const
 {
-    return _clients.value(clientId).version;
+    return _clients.version(ClientId{clientId}).value();
 }
 
-bool AccessStore::setGrant(const QString& clientId, const SessionDirectory::Entry& entry,
-                           bool read, QSet<QString> commands,
-                           bool interactiveCommand, bool confirmedCommand,
-                           bool scriptTask)
+std::optional<GrantRow> AccessStore::grantRow(const QString& clientId,
+    const SessionDirectory::Entry& entry) const
 {
-    if (!_clients.contains(clientId) || !entry.session || (read && !_enabled))
-        return false;
-    const bool wasShared = canRead(clientId, entry);
-    if (!read) {
-        _grants[clientId].remove(entry.id);
-    } else {
-        const auto previous = _grants.value(clientId).value(entry.id);
-        const bool preserveTerminal = previous.attachment == entry.attachmentId
-            && previous.epoch == entry.epoch && previous.targetFingerprint == entry.targetFingerprint;
-        const auto* facade = entry.session->commandFacade();
-        if (entry.state != SessionState::Running || !facade
-            || !facade->isAvailable() || entry.targetFingerprint.isEmpty()) {
-            commands.clear();
-        }
-        _grants[clientId].insert(entry.id,
-            Grant{entry.attachmentId, entry.epoch,
-                  std::move(commands), interactiveCommand,
-                  confirmedCommand, scriptTask,
-                  preserveTerminal && previous.terminalControl,
-                  preserveTerminal && previous.useElevation, entry.targetFingerprint});
-        // 授予读取共享后提前排一次发布，**缩短**首批读取拿不到可用快照的窗口，
-        // 但不保证首个 read_context 可用：发布是 fire-and-forget，真正的构造在
-        // 之后的 Parser 线程上，与紧随其后的首个读之间仍有竞态（P8 §14.2 记录的
-        // 剩余 Busy 集中在这一窗口）。因此只在会话确实在运行、且本次是首次授予
-        // 读取时触发，避免只翻转执行类授权的改动白白占用发布请求与计数器。
-        if (!wasShared && entry.state == SessionState::Running
-            && NovaTerm::publishedContextSnapshotEnabled() && entry.session->core()) {
-            static_cast<void>(entry.session->core()->requestPublishedTerminalState());
-        }
+    if (!_enabled || !_clients.contains(ClientId{clientId}) || entry.id.isEmpty())
+        return std::nullopt;
+    const auto row = _authorization.row(ClientId{clientId}, SessionId{entry.id});
+    if (!row || row->binding.attachment.str() != entry.attachmentId)
+        return std::nullopt;
+    return row;
+}
+
+GrantFacts AccessStore::factsOf(const SessionDirectory::Entry& entry)
+{
+    GrantFacts facts;
+    facts.binding.session = SessionId{entry.id};
+    facts.binding.attachment = AttachmentId{entry.attachmentId};
+    facts.binding.epoch = Epoch{entry.epoch};
+    facts.binding.generation = Generation{entry.generation};
+    if (!entry.targetFingerprint.isEmpty())
+        facts.binding.targetFingerprint = entry.targetFingerprint;
+    facts.sessionRunning = entry.state == SessionState::Running
+        && entry.session && entry.session->state() == SessionState::Running;
+    facts.transportConnected = entry.transport && entry.transport->isConnected();
+    facts.transportMatchesSession = entry.session
+        && entry.session->transport() == entry.transport;
+    facts.generationMatches = entry.session
+        && entry.session->statistics().generation == entry.generation;
+    return facts;
+}
+
+GrantSnapshot AccessStore::grantSnapshot(const ClientId& client,
+    const SessionDirectory::Entry& entry) const
+{
+    return _authorization.snapshot(client, factsOf(entry));
+}
+
+Result<GrantSnapshot, AuthorizationError> AccessStore::changePermission(
+    const PermissionChange& change, const SessionDirectory::Entry& entry)
+{
+    if (!entry.session) {
+        return AuthorizationError{AuthorizationRejection::InvalidSelection,
+            grantSnapshot(change.client, entry)};
     }
-    ++_clients[clientId].version;
-    emit revoked(clientId, entry.id);
+    const bool wasShared = canRead(change.client.str(), entry);
+    auto result = _authorization.change(change, factsOf(entry));
+    if (isError(result))
+        return result;
+    emit revoked(change.client.str(), entry.id);
     emit changed();
-    return true;
+    // 首次授予读取后提前排一次发布，缩短首个 read_context 的不可用窗口；
+    // 只翻转执行类授权时不占用发布请求（与旧 setGrant 的既有行为一致）。
+    if (!wasShared && change.kind == PermissionKind::ReadOutput && change.selected
+        && entry.state == SessionState::Running
+        && NovaTerm::publishedContextSnapshotEnabled() && entry.session->core()) {
+        static_cast<void>(entry.session->core()->requestPublishedTerminalState());
+    }
+    return result;
 }
 
 bool AccessStore::canRead(const QString& clientId, const SessionDirectory::Entry& entry) const
 {
-    const auto grants = _grants.constFind(clientId);
-    if (!_enabled || !_clients.contains(clientId) || grants == _grants.cend())
-        return false;
-    const auto grant = grants->constFind(entry.id);
-    return grant != grants->cend() && grant->attachment == entry.attachmentId;
+    const auto row = grantRow(clientId, entry);
+    return row && row->selection.read;
 }
 
 QSet<QString> AccessStore::commands(const QString& clientId, const SessionDirectory::Entry& entry) const
 {
-    if (!canRead(clientId, entry))
-        return {};
-    const auto grant = _grants.value(clientId).value(entry.id);
-    return grant.epoch == entry.epoch ? grant.commands : QSet<QString>{};
+    QSet<QString> result;
+    const auto row = grantRow(clientId, entry);
+    if (!row || !row->selection.read || row->binding.epoch.str() != entry.epoch)
+        return result;
+    for (const auto& id : row->selection.diagnostics)
+        result.insert(id.str());
+    return result;
 }
 
 bool AccessStore::canRunCommand(
     const QString& clientId, const SessionDirectory::Entry& entry) const
 {
-    if (!canRead(clientId, entry))
-        return false;
-    const auto grant = _grants.value(clientId).value(entry.id);
-    return grant.epoch == entry.epoch && grant.interactiveCommand;
-}
-
-bool AccessStore::canRunConfirmedCommand(
-    const QString& clientId, const SessionDirectory::Entry& entry) const
-{
-    if (!canRead(clientId, entry))
-        return false;
-    const auto grant = _grants.value(clientId).value(entry.id);
-    return grant.epoch == entry.epoch && grant.confirmedCommand;
+    const auto row = grantRow(clientId, entry);
+    return row && row->selection.read && row->binding.epoch.str() == entry.epoch
+        && row->selection.riskControlledCommand;
 }
 
 bool AccessStore::canRunScriptTask(
     const QString& clientId, const SessionDirectory::Entry& entry) const
 {
-    if (!canRead(clientId, entry))
-        return false;
-    const auto grant = _grants.value(clientId).value(entry.id);
-    return grant.epoch == entry.epoch && grant.scriptTask;
-}
-
-bool AccessStore::setTerminalGrant(const QString& clientId,
-    const SessionDirectory::Entry& entry, bool control, bool elevation)
-{
-    if (!canRead(clientId, entry) || !entry.session) return false;
-    auto& grant = _grants[clientId][entry.id];
-    if (control && (entry.state != SessionState::Running || entry.epoch.isEmpty()
-        || !entry.transport || !entry.transport->isConnected()
-        || entry.session->transport() != entry.transport
-        || entry.session->statistics().generation != entry.generation)) return false;
-    if (elevation && (!control || _credentialOperationPending
-        || elevationReference(entry, "sudo").isEmpty())) return false;
-    if (grant.epoch != entry.epoch || grant.targetFingerprint != entry.targetFingerprint) {
-        grant.commands.clear();
-        grant.interactiveCommand = false;
-        grant.confirmedCommand = false;
-        grant.scriptTask = false;
-    }
-    // 更新旧接口权限不能跨 epoch 复活完整输入权限。
-    grant.epoch = entry.epoch;
-    grant.targetFingerprint = entry.targetFingerprint;
-    grant.terminalControl = control;
-    grant.useElevation = control && elevation;
-    ++_clients[clientId].version;
-    emit revoked(clientId, entry.id);
-    emit changed();
-    return true;
+    const auto row = grantRow(clientId, entry);
+    return row && row->selection.read && row->binding.epoch.str() == entry.epoch
+        && row->selection.script;
 }
 
 bool AccessStore::canControlTerminal(const QString& clientId,
     const SessionDirectory::Entry& entry) const
 {
-    if (!canRead(clientId, entry) || !entry.session || entry.state != SessionState::Running
+    if (!entry.session || entry.state != SessionState::Running
         || entry.session->state() != SessionState::Running || !entry.transport
         || !entry.transport->isConnected() || entry.session->transport() != entry.transport
         || entry.session->statistics().generation != entry.generation) return false;
-    const auto grant = _grants.value(clientId).value(entry.id);
-    return grant.terminalControl && grant.epoch == entry.epoch
-        && grant.targetFingerprint == entry.targetFingerprint;
+    const auto row = grantRow(clientId, entry);
+    return row && row->selection.read && row->binding.epoch.str() == entry.epoch
+        && row->binding.targetFingerprint.value_or(QString{}) == entry.targetFingerprint
+        && row->selection.fullTerminalInput;
 }
 
 bool AccessStore::canUseElevation(const QString& clientId,
     const SessionDirectory::Entry& entry) const
 {
-    return canControlTerminal(clientId, entry)
-        && _grants.value(clientId).value(entry.id).useElevation;
+    const auto row = grantRow(clientId, entry);
+    return canControlTerminal(clientId, entry) && row && row->selection.elevation;
 }
 
 QString AccessStore::elevationReference(const SessionDirectory::Entry& entry,
@@ -428,6 +416,33 @@ QString AccessStore::elevationReference(const SessionDirectory::Entry& entry,
         + QString::fromLatin1(QCryptographicHash::hash(identity, QCryptographicHash::Sha256).toHex());
 }
 
+QString AccessStore::elevationGrantDisabledReason(const QString& clientId,
+    const SessionDirectory::Entry& entry) const
+{
+    CapabilityFacts facts;
+    facts.sessionRunning = entry.session && entry.state == SessionState::Running
+        && entry.session->state() == SessionState::Running;
+    facts.transportConnected = entry.transport && entry.transport->isConnected();
+    facts.transportMatchesSession = entry.session
+        && entry.session->transport() == entry.transport;
+    facts.generationMatches = entry.session
+        && entry.session->statistics().generation == entry.generation;
+    return CapabilityResolver::elevationGrantDisabledReason(
+        facts, grantSnapshot(ClientId{clientId}, entry), _credentialOperationPending);
+}
+
+bool AccessStore::elevationTargetIdentityVerified(const SessionDirectory::Entry& entry) const
+{
+    return !elevationReference(entry, QStringLiteral("sudo")).isEmpty();
+}
+
+QString AccessStore::elevationExecutionUnavailableReason(const SessionDirectory::Entry& entry) const
+{
+    // 授权不代表取密/执行许可：所有类型仍须有已验收的可信认证适配器。
+    return CapabilityResolver::elevationExecutionUnavailableReason(
+        elevationTargetIdentityVerified(entry));
+}
+
 bool AccessStore::hasElevationCredential(const SessionDirectory::Entry& entry,
     const QString& method) const
 {
@@ -442,16 +457,10 @@ bool AccessStore::elevationCredentialsPersistent() const
 
 void AccessStore::revokeElevation(const QString& targetFingerprint)
 {
-    for (auto clients = _grants.begin(); clients != _grants.end(); ++clients) {
-        bool invalidated = false;
-        for (auto grant = clients->begin(); grant != clients->end(); ++grant) {
-            if (grant->targetFingerprint == targetFingerprint && grant->useElevation) {
-                grant->useElevation = false;
-                invalidated = true;
-                emit revoked(clients.key(), grant.key());
-            }
-        }
-        if (invalidated) ++_clients[clients.key()].version;
+    const auto revokedRows = _authorization.revokeElevation(targetFingerprint);
+    for (const auto& row : revokedRows) {
+        static_cast<void>(_clients.advance(row.first));
+        emit revoked(row.first.str(), row.second.str());
     }
 }
 

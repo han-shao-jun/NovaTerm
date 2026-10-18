@@ -2,6 +2,7 @@
 #include "WireSession.h"
 #include "ElicitationBroker.h"
 #include "McpProtocol.h"
+#include "protocol/ToolCodec.h"
 #include <QElapsedTimer>
 #include <QHash>
 #include <QJsonDocument>
@@ -42,7 +43,7 @@ public:
                 const auto call = _calls.value(id);
                 if (call.deadline <= now()) {
                     if (call.sent)
-                        emit q->backendMessage(QJsonObject{{"op", "cancel"}, {"id", call.wireId}});
+                        emit q->backendEvent(BackendCancel{call.wireId});
                     finish(id,
                            failure(call.sent && (call.tool == "novaterm_execute_command" ||
                                                  call.tool == "novaterm_run_command" ||
@@ -136,10 +137,8 @@ public:
             const auto resolution = _elicitationBroker.handleResponse(message);
             if (!resolution)
                 return;
-            emit q->backendMessage({{"op", "elicitation_result"},
-                                    {"id", resolution->wireId},
-                                    {"action", resolution->action},
-                                    {"confirmed", resolution->confirmed}});
+            emit q->backendEvent(BackendElicitationResult{resolution->wireId,
+                resolution->action, resolution->confirmed});
             return;
         }
         const auto params = message.value("params").toObject();
@@ -172,7 +171,7 @@ public:
                     const auto call = _calls.take(identifier);
                     _elicitationBroker.forget(call.wireId);
                     if (call.sent)
-                        emit q->backendMessage(QJsonObject{{"op", "cancel"}, {"id", call.wireId}});
+                        emit q->backendEvent(BackendCancel{call.wireId});
                     emit q->completed(call.route);
                 }
             }
@@ -240,7 +239,7 @@ public:
             return;
         }
         if (method == "tools/list") {
-            output(rpcResult(id, {{"tools", tools()}}));
+            output(rpcResult(id, {{"tools", ToolCodec::catalog()}}));
             return;
         }
         if (method != "tools/call") {
@@ -249,7 +248,7 @@ public:
         }
         const auto name = params.value("name").toString();
         bool known = false;
-        for (const auto &tool : tools())
+        for (const auto &tool : ToolCodec::catalog())
             known |= tool.toObject().value("name") == name;
         if (!known) {
             output(rpcError(id, -32602, "Unknown tool."));
@@ -262,7 +261,7 @@ public:
             return;
         }
         const auto arguments = params.value("arguments").toObject();
-        const auto invalid = validateArguments(name, arguments);
+        const auto invalid = ToolCodec::validate(name, arguments);
         if (!invalid.isEmpty()) {
             output(rpcResult(id, toolResult(failure("INVALID_ARGUMENT", invalid))));
             return;
@@ -272,7 +271,7 @@ public:
             output(rpcError(id, -32600, "Duplicate active request id."));
             return;
         }
-        if (_calls.size() >= 6) {
+        if (_calls.size() >= Budget::MaxWireCalls) {
             output(rpcResult(id, toolResult(failure("BUSY", "Request queue is full.", true, 250))));
             return;
         }
@@ -329,17 +328,10 @@ public:
                 continue;
             const auto call = _calls.value(id);
             _calls[id].sent = true;
-            QJsonObject packet{{"op", "call"},
-                               {"id", call.wireId},
-                               {"tool", call.tool},
-                               {"arguments", call.arguments},
-                               {"mrtr", call.mrtr},
-                               {"formElicitation", call.formElicitation}};
-            if (call.mrtr && !call.requestState.isEmpty()) {
-                packet.insert("requestState", call.requestState);
-                packet.insert("inputResponses", call.inputResponses);
-            }
-            emit q->backendMessage(packet);
+            emit q->backendEvent(BackendCall{call.wireId, call.tool, call.arguments,
+                call.mrtr, call.formElicitation,
+                call.mrtr && !call.requestState.isEmpty() ? call.requestState : QString(),
+                call.mrtr && !call.requestState.isEmpty() ? call.inputResponses : QJsonObject{}});
         }
     }
     void backend(const QJsonObject &message)
@@ -396,14 +388,14 @@ public:
             if (identifier.isEmpty())
                 return;
             if (_calls.value(identifier).mrtr) {
-                emit q->backendMessage({{"op", "cancel"}, {"id", wire}});
+                emit q->backendEvent(BackendCancel{wire});
                 finish(identifier,
                        failure("CLIENT_CONFIRMATION_UNAVAILABLE",
                                "Client confirmation is unavailable."));
                 return;
             }
             if (!_calls.value(identifier).formElicitation) {
-                emit q->backendMessage({{"op", "cancel"}, {"id", wire}});
+                emit q->backendEvent(BackendCancel{wire});
                 finish(identifier,
                        failure(QStringLiteral("CLIENT_CONFIRMATION_UNAVAILABLE"),
                                QStringLiteral("CLIENT_CONFIRMATION_UNAVAILABLE")));
@@ -412,7 +404,7 @@ public:
             const auto request =
                 _elicitationBroker.requestConfirmation(wire, packet->value("message").toString());
             if (!request) {
-                emit q->backendMessage({{"op", "cancel"}, {"id", wire}});
+                emit q->backendEvent(BackendCancel{wire});
                 finish(identifier, failure("BUSY", "A confirmation is already pending."));
                 return;
             }
@@ -478,7 +470,7 @@ void WireSession::instanceUnavailable()
     for (const auto &id : ids) {
         const auto call = _impl->_calls.value(id);
         if (call.sent)
-            emit backendMessage(QJsonObject{{"op", "cancel"}, {"id", call.wireId}});
+            emit backendEvent(BackendCancel{call.wireId});
         _impl->finish(id,
                       failure(call.sent && (call.tool == "novaterm_execute_command" ||
                                             call.tool == "novaterm_run_command" ||
@@ -497,7 +489,7 @@ void WireSession::cancelAll()
     for (const auto &call : calls) {
         _impl->_elicitationBroker.forget(call.wireId);
         if (call.sent)
-            emit backendMessage(QJsonObject{{"op", "cancel"}, {"id", call.wireId}});
+            emit backendEvent(BackendCancel{call.wireId});
         emit completed(call.route);
     }
 }

@@ -1,0 +1,315 @@
+/**
+ * @file ContractsTests.cpp
+ * @brief MCP 契约与解码边界：目录兼容、参数接受/拒绝、强类型 ID、错误编码。
+ */
+#include "mcp/contracts/Errors.h"
+#include "mcp/contracts/Identifiers.h"
+#include "mcp/protocol/ToolCodec.h"
+#include "mcp/protocol/ProtocolProjectionSizer.h"
+#include "mcp/McpProtocol.h"
+
+#include <QFile>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QTest>
+
+#include <cstddef>
+#include <type_traits>
+
+using namespace NovaTerm::Mcp;
+
+namespace {
+const QString SessionUuid = QStringLiteral("11111111-1111-4111-8111-111111111111");
+const QString OperationUuid = QStringLiteral("22222222-2222-4222-8222-222222222222");
+
+QJsonObject identity()
+{
+    return {{QStringLiteral("sessionId"), SessionUuid},
+        {QStringLiteral("epoch"), QStringLiteral("epoch-1")}};
+}
+
+QJsonObject argumentsFor(const QString& name)
+{
+    QJsonObject arguments = identity();
+    if (name == QLatin1String("novaterm_list_sessions"))
+        return {};
+    if (name == QLatin1String("novaterm_search_context")) {
+        arguments.insert(QStringLiteral("captureId"), QStringLiteral("capture-1"));
+        arguments.insert(QStringLiteral("query"), QStringLiteral("hello"));
+    } else if (name == QLatin1String("novaterm_execute_command")) {
+        arguments.insert(QStringLiteral("commandId"), QStringLiteral("os.uname"));
+        arguments.insert(QStringLiteral("policyVersion"), QStringLiteral("policy-1"));
+        arguments.insert(QStringLiteral("commandTicket"), QStringLiteral("ticket"));
+        arguments.insert(QStringLiteral("arguments"), QJsonObject{});
+    } else if (name == QLatin1String("novaterm_run_command")) {
+        arguments.insert(QStringLiteral("command"), QStringLiteral("uname -a"));
+    } else if (name == QLatin1String("novaterm_run_script")) {
+        arguments.insert(QStringLiteral("scriptContent"), QStringLiteral("#!/bin/sh\ntrue\n"));
+        arguments.insert(QStringLiteral("targetPath"), QStringLiteral("/tmp/novaterm.sh"));
+        arguments.insert(QStringLiteral("workingDirectory"), QStringLiteral("/tmp"));
+        arguments.insert(QStringLiteral("invocation"), QStringLiteral("/tmp/novaterm.sh"));
+    } else if (name == QLatin1String("novaterm_interact_terminal")) {
+        arguments.insert(QStringLiteral("inputToken"), QStringLiteral("input"));
+        arguments.insert(QStringLiteral("operationId"), OperationUuid);
+        arguments.insert(QStringLiteral("actions"),
+            QJsonArray{QJsonObject{{QStringLiteral("type"), QStringLiteral("line_ending")}}});
+    } else if (name == QLatin1String("novaterm_request_elevation")) {
+        arguments.insert(QStringLiteral("inputToken"), QStringLiteral("input"));
+        arguments.insert(QStringLiteral("operationId"), OperationUuid);
+        arguments.insert(QStringLiteral("method"), QStringLiteral("sudo"));
+        arguments.insert(QStringLiteral("mode"), QStringLiteral("shell"));
+    }
+    return arguments;
+}
+
+const QStringList& toolNames()
+{
+    static const QStringList names{
+        QStringLiteral("novaterm_list_sessions"),
+        QStringLiteral("novaterm_read_context"),
+        QStringLiteral("novaterm_search_context"),
+        QStringLiteral("novaterm_list_commands"),
+        QStringLiteral("novaterm_execute_command"),
+        QStringLiteral("novaterm_run_command"),
+        QStringLiteral("novaterm_run_script"),
+        QStringLiteral("novaterm_interact_terminal"),
+        QStringLiteral("novaterm_request_elevation"),
+    };
+    return names;
+}
+} // namespace
+
+class ContractsTests : public QObject
+{
+    Q_OBJECT
+private slots:
+    void catalogMatchesCompatibilityFixture();
+    void catalogExposesNineToolsInOrder();
+    void everyToolDecodesToItsOwnRequest();
+    void rejectedArgumentsKeepCompatibleMessages();
+    void optionalArgumentsPreservePresence();
+    void actionsDecodeWithoutFieldOverlap();
+    void failureEncodingKeepsEnvelope();
+    void errorCodeMappingRoundTrips();
+    void strongIdentifiersRejectLooseText();
+    void projectionSizerMatchesWireEncoding();
+};
+
+void ContractsTests::catalogMatchesCompatibilityFixture()
+{
+    QFile fixture(QStringLiteral(NOVATERM_SOURCE_DIR)
+        + QStringLiteral("/tests/mcp/fixtures/tool-catalog-2026-10-18.json"));
+    QVERIFY2(fixture.open(QIODevice::ReadOnly), qPrintable(fixture.errorString()));
+    QJsonParseError error{};
+    const auto document = QJsonDocument::fromJson(fixture.readAll(), &error);
+    QCOMPARE(error.error, QJsonParseError::NoError);
+    QVERIFY(document.isArray());
+    // 对象比较，不是文本比较：键顺序与空白不参与语义，字段/枚举/默认值参与。
+    QVERIFY2(ToolCodec::catalog() == document.array(),
+        "Tool catalog drifted from the pre-refactor fixture.");
+}
+
+void ContractsTests::catalogExposesNineToolsInOrder()
+{
+    QStringList actual;
+    for (const auto& tool : ToolCodec::catalog())
+        actual.append(tool.toObject().value(QStringLiteral("name")).toString());
+    QCOMPARE(actual, toolNames());
+    for (const auto& name : toolNames())
+        QVERIFY2(ToolCodec::isKnownTool(name), qPrintable(name));
+    QVERIFY(!ToolCodec::isKnownTool(QStringLiteral("novaterm_unknown")));
+}
+
+void ContractsTests::everyToolDecodesToItsOwnRequest()
+{
+    for (const auto& name : toolNames()) {
+        const auto arguments = argumentsFor(name);
+        QVERIFY2(ToolCodec::validate(name, arguments).isEmpty(),
+            qPrintable(ToolCodec::validate(name, arguments)));
+        const auto decoded = ToolCodec::decode(name, arguments);
+        QVERIFY2(!isError(decoded), qPrintable(name));
+        const auto& request = std::get<ToolRequest>(decoded);
+        QCOMPARE(ToolCodec::toolName(request), name);
+        QVERIFY(std::visit([](const auto& value) {
+            using Type = std::decay_t<decltype(value)>;
+            if constexpr (std::is_same_v<Type, ListSessionsRequest>) {
+                return true;
+            } else {
+                return value.session.str() == SessionUuid
+                    && value.epoch.str() == QStringLiteral("epoch-1");
+            }
+        }, request));
+    }
+}
+
+void ContractsTests::rejectedArgumentsKeepCompatibleMessages()
+{
+    const auto sessionArguments = identity();
+    QCOMPARE(ToolCodec::validate(QStringLiteral("novaterm_missing_tool"), {}),
+        QStringLiteral("Unknown tool."));
+
+    auto missing = sessionArguments;
+    missing.remove(QStringLiteral("epoch"));
+    QCOMPARE(ToolCodec::validate(QStringLiteral("novaterm_read_context"), missing),
+        QStringLiteral("Missing required argument: epoch"));
+    const auto missingDecoded =
+        ToolCodec::decode(QStringLiteral("novaterm_read_context"), missing);
+    QVERIFY(isError(missingDecoded));
+    QCOMPARE(errorIfAny(missingDecoded)->code, ErrorCode::InvalidArgument);
+    QCOMPARE(errorIfAny(missingDecoded)->message,
+        QStringLiteral("Missing required argument: epoch"));
+
+    auto unknown = sessionArguments;
+    unknown.insert(QStringLiteral("extra"), true);
+    QCOMPARE(ToolCodec::validate(QStringLiteral("novaterm_read_context"), unknown),
+        QStringLiteral("Unknown argument: extra"));
+
+    auto search = argumentsFor(QStringLiteral("novaterm_search_context"));
+    search.insert(QStringLiteral("query"), QStringLiteral("line\nbreak"));
+    QCOMPARE(ToolCodec::validate(QStringLiteral("novaterm_search_context"), search),
+        QStringLiteral("Invalid argument: query"));
+
+    auto expand = sessionArguments;
+    expand.insert(QStringLiteral("expandToken"), QStringLiteral("token"));
+    expand.insert(QStringLiteral("sinceToken"), QStringLiteral("cursor"));
+    QCOMPARE(ToolCodec::validate(QStringLiteral("novaterm_read_context"), expand),
+        QStringLiteral("expandToken and sinceToken are mutually exclusive."));
+
+    auto mixed = argumentsFor(QStringLiteral("novaterm_interact_terminal"));
+    mixed.insert(QStringLiteral("actions"), QJsonArray{
+        QJsonObject{{QStringLiteral("type"), QStringLiteral("command")},
+            {QStringLiteral("command"), QStringLiteral("uptime")}},
+        QJsonObject{{QStringLiteral("type"), QStringLiteral("text")},
+            {QStringLiteral("text"), QStringLiteral("x")}}});
+    QCOMPARE(ToolCodec::validate(QStringLiteral("novaterm_interact_terminal"), mixed),
+        QStringLiteral("command and release must be the only action."));
+
+    auto elevation = argumentsFor(QStringLiteral("novaterm_request_elevation"));
+    elevation.insert(QStringLiteral("command"), QStringLiteral("id"));
+    QCOMPARE(ToolCodec::validate(QStringLiteral("novaterm_request_elevation"), elevation),
+        QStringLiteral("command is required only in command mode."));
+}
+
+void ContractsTests::optionalArgumentsPreservePresence()
+{
+    const auto name = QStringLiteral("novaterm_read_context");
+    const auto minimal = ToolCodec::decode(name, identity());
+    QVERIFY(!isError(minimal));
+    const auto& plain = std::get<ReadContextRequest>(std::get<ToolRequest>(minimal));
+    QVERIFY(!plain.projection.has_value());
+    QVERIFY(!plain.wait.has_value());
+    QVERIFY(!plain.waitFor.has_value());
+    QVERIFY(!plain.includeViewport.has_value());
+    QVERIFY(!plain.maxBytes.has_value());
+    QVERIFY(!plain.expandToken.has_value());
+
+    auto arguments = identity();
+    arguments.insert(QStringLiteral("responseMode"), QStringLiteral("compact"));
+    arguments.insert(QStringLiteral("waitMs"), 0);
+    arguments.insert(QStringLiteral("waitFor"), QStringLiteral("change"));
+    arguments.insert(QStringLiteral("includeViewport"), false);
+    arguments.insert(QStringLiteral("maxBytes"), 4096);
+    const auto decoded = ToolCodec::decode(name, arguments);
+    QVERIFY(!isError(decoded));
+    const auto& request = std::get<ReadContextRequest>(std::get<ToolRequest>(decoded));
+    QCOMPARE(request.projection.value_or(ProjectionMode::Full), ProjectionMode::Compact);
+    QCOMPARE(request.wait->count(), 0);
+    QCOMPARE(request.waitFor.value_or(WaitCondition::Attention), WaitCondition::Change);
+    QCOMPARE(request.includeViewport.value_or(true), false);
+    QCOMPARE(request.maxBytes.value_or(65536), 4096);
+}
+
+void ContractsTests::actionsDecodeWithoutFieldOverlap()
+{
+    auto arguments = argumentsFor(QStringLiteral("novaterm_interact_terminal"));
+    arguments.insert(QStringLiteral("actions"), QJsonArray{
+        QJsonObject{{QStringLiteral("type"), QStringLiteral("key")},
+            {QStringLiteral("key"), QStringLiteral("c")},
+            {QStringLiteral("modifiers"), QJsonArray{QStringLiteral("Ctrl")}}},
+        QJsonObject{{QStringLiteral("type"), QStringLiteral("text")},
+            {QStringLiteral("text"), QStringLiteral("ls")}},
+        QJsonObject{{QStringLiteral("type"), QStringLiteral("line_ending")}}});
+    const auto decoded = ToolCodec::decode(QStringLiteral("novaterm_interact_terminal"), arguments);
+    QVERIFY(!isError(decoded));
+    const auto& request = std::get<InteractTerminalRequest>(std::get<ToolRequest>(decoded));
+    QCOMPARE(request.actions.size(), std::size_t(3));
+    const auto* key = std::get_if<KeyAction>(&request.actions[0]);
+    QVERIFY(key);
+    QCOMPARE(key->key, QStringLiteral("c"));
+    QCOMPARE(key->modifiers.size(), std::size_t(1));
+    QCOMPARE(key->modifiers[0], KeyModifier::Ctrl);
+    QVERIFY(std::holds_alternative<TextAction>(request.actions[1]));
+    QVERIFY(std::holds_alternative<LineEndingAction>(request.actions[2]));
+}
+
+void ContractsTests::failureEncodingKeepsEnvelope()
+{
+    Error busy{ErrorCode::Busy, QStringLiteral("queue full"),
+        RetryHint{true, std::chrono::milliseconds{250}}};
+    const auto encoded = ToolCodec::encodeFailure(busy);
+    const QJsonObject expected{
+        {QStringLiteral("schemaVersion"), 1},
+        {QStringLiteral("ok"), false},
+        {QStringLiteral("error"), QJsonObject{
+            {QStringLiteral("code"), QStringLiteral("BUSY")},
+            {QStringLiteral("message"), QStringLiteral("queue full")},
+            {QStringLiteral("retryable"), true},
+            {QStringLiteral("retryAfterMs"), 250}}}};
+    QCOMPARE(encoded, expected);
+
+    // 历史 `error(code)` 形态：消息缺省使用错误码名称，且不出现可重试字段值。
+    const auto unnamed = ToolCodec::encodeFailure(Error{ErrorCode::SessionNotAvailable});
+    QCOMPARE(unnamed.value(QStringLiteral("error")).toObject()
+                 .value(QStringLiteral("message")).toString(),
+        QStringLiteral("SESSION_NOT_AVAILABLE"));
+    QCOMPARE(unnamed.value(QStringLiteral("error")).toObject()
+                 .value(QStringLiteral("retryable")).toBool(),
+        false);
+    QVERIFY(!unnamed.value(QStringLiteral("error")).toObject()
+        .contains(QStringLiteral("retryAfterMs")));
+}
+
+void ContractsTests::errorCodeMappingRoundTrips()
+{
+    const QList<ErrorCode> codes{ErrorCode::InvalidArgument, ErrorCode::Busy,
+        ErrorCode::DeadlineExceeded, ErrorCode::CommandConfirmationStale,
+        ErrorCode::ScriptPublicationOutcomeUnknown, ErrorCode::SessionCommandNotReady};
+    for (const auto code : codes) {
+        const auto name = QString::fromLatin1(errorCodeName(code));
+        QVERIFY(!name.isEmpty());
+        QCOMPARE(errorCodeFromName(name).value_or(ErrorCode::InvalidArgument), code);
+    }
+    QVERIFY(!errorCodeFromName(QStringLiteral("NOT_A_REAL_CODE")).has_value());
+}
+
+void ContractsTests::strongIdentifiersRejectLooseText()
+{
+    QVERIFY(isCanonicalUuid(SessionUuid));
+    // 与重构前 QUuid 往返判据一致：大小写规范化后相等即接受。
+    QVERIFY(isCanonicalUuid(SessionUuid.toUpper()));
+    QVERIFY(!isCanonicalUuid(QStringLiteral("{") + SessionUuid + QStringLiteral("}")));
+    QVERIFY(!parseUuidId<SessionId>(QStringLiteral("not-a-uuid")).has_value());
+    QVERIFY(!parseUuidId<SessionId>(QString{}).has_value());
+    QCOMPARE(parseUuidId<SessionId>(SessionUuid)->str(), SessionUuid);
+    QVERIFY(!parseBoundedId<Epoch>(QString{}, 64).has_value());
+    QVERIFY(!parseBoundedId<Epoch>(QString(65, QLatin1Char('x')), 64).has_value());
+    QVERIFY(parseBoundedId<Epoch>(QString(64, QLatin1Char('x')), 64).has_value());
+    // 不同类型的 ID 不能互相赋值；相等比较只在同类型内成立。
+    const SessionId session{SessionUuid};
+    const Epoch epoch{SessionUuid};
+    QCOMPARE(session.str(), epoch.str());
+}
+
+void ContractsTests::projectionSizerMatchesWireEncoding()
+{
+    const QJsonObject payload{{QStringLiteral("text"), QString(4096, QLatin1Char('x'))},
+        {QStringLiteral("rows"), 24}};
+    const auto expected = QJsonDocument(
+        toolResult(success(payload))).toJson(QJsonDocument::Compact).size();
+    QCOMPARE(ProtocolProjectionSizer::encodedToolResultBytes(payload), expected);
+    QVERIFY(expected > 4096);
+}
+
+QTEST_MAIN(ContractsTests)
+#include "ContractsTests.moc"

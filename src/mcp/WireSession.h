@@ -1,5 +1,7 @@
 /** @file WireSession.h @brief MCP wire 协议适配，不持有传输或 Session 指针。 */
 #pragma once
+#include "protocol/BackendEvents.h"
+
 #include <QByteArray>
 #include <QJsonObject>
 #include <QObject>
@@ -25,7 +27,7 @@ public:
     [[nodiscard]] bool initialized() const;
     [[nodiscard]] bool hasPendingCalls() const;
 signals:
-    void backendMessage(QJsonObject message);
+    void backendEvent(const BackendEvent &event);
     /** @brief 最终 RPC 已编码；错误码单独传递，接线无需再次解析正文。 */
     void packet(QString route, QByteArray message, bool final, int errorCode);
     void completed(QString route);

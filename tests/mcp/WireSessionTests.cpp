@@ -1,11 +1,29 @@
 /** @file WireSessionTests.cpp @brief 共享 MCP wire 的初始化、路由与取消回归。 */
 #include "mcp/WireSession.h"
 #include "mcp/McpProtocol.h"
+#include "mcp/protocol/ToolCodec.h"
 #include <QSignalSpy>
+#include <QJsonArray>
 #include <QJsonDocument>
 #include <QTest>
 using namespace NovaTerm::Mcp;
 namespace {
+QString backendId(const QSignalSpy& spy, int index)
+{
+    return std::visit([](const auto& value) { return value.id; },
+        spy.at(index).at(0).value<BackendEvent>());
+}
+QString backendOp(const QSignalSpy& spy, int index)
+{
+    return backendEventKind(spy.at(index).at(0).value<BackendEvent>());
+}
+QJsonObject backendArguments(const QSignalSpy& spy, int index)
+{
+    const auto event = spy.at(index).at(0).value<BackendEvent>();
+    if (const auto* call = std::get_if<BackendCall>(&event))
+        return call->arguments;
+    return {};
+}
 QJsonObject initialize()
 {
     return {{"jsonrpc", "2.0"}, {"id", 1}, {"method", "initialize"},
@@ -55,7 +73,7 @@ private slots:
         qint64 elapsed = 0;
         WireSession wire({}, nullptr, [&elapsed] { return elapsed; });
         ready(wire);
-        QSignalSpy backend(&wire, &WireSession::backendMessage);
+        QSignalSpy backend(&wire, &WireSession::backendEvent);
         QSignalSpy packets(&wire, &WireSession::packet);
         QJsonObject arguments{{"sessionId", "11111111-1111-1111-1111-111111111111"}, {"epoch", "epoch"}};
         if (tool != "novaterm_read_context") {
@@ -72,7 +90,7 @@ private slots:
         QVERIFY(packets.isEmpty());
         elapsed = expiry;
         QTRY_VERIFY_WITH_TIMEOUT(!wire.hasPendingCalls(), 1000);
-        QCOMPARE(backend.last().at(0).toJsonObject().value("op").toString(), QString("cancel"));
+        QCOMPARE(backendOp(backend, backend.size() - 1), QString("cancel"));
         QCOMPARE(packets.size(), 1);
     }
     void terminalActionsAreStrictlyValidated()
@@ -83,7 +101,7 @@ private slots:
         const auto validate = [&](const QJsonArray& actions) {
             auto args = identity;
             args.insert("actions", actions);
-            return validateArguments("novaterm_interact_terminal", args);
+            return ToolCodec::validate("novaterm_interact_terminal", args);
         };
         QVERIFY(validate({QJsonObject{{"type", "text"}, {"text", "hello"}},
             QJsonObject{{"type", "key"}, {"key", "c"}, {"modifiers", QJsonArray{"Ctrl"}}}}).isEmpty());
@@ -108,25 +126,25 @@ private slots:
         auto badIdentity = identity;
         badIdentity.insert("operationId", "not-a-uuid");
         badIdentity.insert("actions", QJsonArray{QJsonObject{{"type", "release"}}});
-        QVERIFY(!validateArguments("novaterm_interact_terminal", badIdentity).isEmpty());
+        QVERIFY(!ToolCodec::validate("novaterm_interact_terminal", badIdentity).isEmpty());
         auto elevation = identity;
         elevation.insert("method", "sudo");
         elevation.insert("mode", "shell");
-        QVERIFY(validateArguments("novaterm_request_elevation", elevation).isEmpty());
+        QVERIFY(ToolCodec::validate("novaterm_request_elevation", elevation).isEmpty());
         elevation.insert("command", "pwd");
-        QVERIFY(!validateArguments("novaterm_request_elevation", elevation).isEmpty());
+        QVERIFY(!ToolCodec::validate("novaterm_request_elevation", elevation).isEmpty());
         elevation.insert("mode", "command");
-        QVERIFY(validateArguments("novaterm_request_elevation", elevation).isEmpty());
+        QVERIFY(ToolCodec::validate("novaterm_request_elevation", elevation).isEmpty());
         elevation.remove("command");
-        QVERIFY(!validateArguments("novaterm_request_elevation", elevation).isEmpty());
+        QVERIFY(!ToolCodec::validate("novaterm_request_elevation", elevation).isEmpty());
         QJsonObject read{{"sessionId", identity.value("sessionId")}, {"epoch", "epoch"},
             {"expandToken", "expand"}, {"sinceToken", "since"}};
-        QVERIFY(!validateArguments("novaterm_read_context", read).isEmpty());
+        QVERIFY(!ToolCodec::validate("novaterm_read_context", read).isEmpty());
     }
     void terminalSchemasDescribeStrictActionsAndCompactObservations()
     {
         QJsonObject interact, read, sessions;
-        for (const auto& entry : tools()) {
+        for (const auto& entry : ToolCodec::catalog()) {
             const auto tool = entry.toObject();
             if (tool.value("name") == "novaterm_interact_terminal") interact = tool;
             if (tool.value("name") == "novaterm_read_context") read = tool;
@@ -155,7 +173,7 @@ private slots:
         qint64 elapsed = 0;
         WireSession wire({}, nullptr, [&elapsed] { return elapsed; });
         ready(wire);
-        QSignalSpy backend(&wire, &WireSession::backendMessage);
+        QSignalSpy backend(&wire, &WireSession::backendEvent);
         const QJsonObject arguments{{"sessionId", "11111111-1111-1111-1111-111111111111"},
             {"epoch", "epoch"}, {"inputToken", "token"}, {"waitMs", 30000},
             {"operationId", "22222222-2222-2222-2222-222222222222"},
@@ -191,7 +209,7 @@ private slots:
         wire.receiveMessage(init);
         wire.receiveMessage({{"jsonrpc", "2.0"}, {"method", "notifications/initialized"}});
         wire.setBackendAvailable(true);
-        QSignalSpy backend(&wire, &WireSession::backendMessage);
+        QSignalSpy backend(&wire, &WireSession::backendEvent);
         QSignalSpy packets(&wire, &WireSession::packet);
         QJsonObject arguments{{"sessionId", "11111111-1111-1111-1111-111111111111"},
             {"epoch", "epoch"}, {"timeoutMs", 30000}};
@@ -205,7 +223,7 @@ private slots:
         wire.receiveMessage({{"jsonrpc", "2.0"}, {"id", 2}, {"method", "tools/call"},
             {"params", QJsonObject{{"name", tool}, {"arguments", arguments}}}}, "execute");
         QCOMPARE(backend.size(), 1);
-        const auto id = backend.first().at(0).toJsonObject().value("id");
+        const auto id = backendId(backend, 0);
         wire.receiveBackend({{"op", "elicitation"}, {"id", id}, {"message", "Confirm execution"}});
         QCOMPARE(packets.size(), 1);
         const auto confirmation = QJsonDocument::fromJson(packets.takeFirst().at(1).toByteArray()).object();
@@ -213,7 +231,7 @@ private slots:
         wire.receiveMessage({{"jsonrpc", "2.0"}, {"id", confirmation.value("id")},
             {"result", QJsonObject{{"action", "accept"},
                 {"content", QJsonObject{{"confirmed", true}}}}}});
-        QCOMPARE(backend.last().at(0).toJsonObject().value("op").toString(), QString("elicitation_result"));
+        QCOMPARE(backendOp(backend, backend.size() - 1), QString("elicitation_result"));
         elapsed = completionTime;
         // 只等待100ms扫描器一次唤醒；55秒确认及120秒上传由单调时钟推进。
         QTest::qWait(150);
@@ -223,7 +241,7 @@ private slots:
         elapsed = expiryTime;
         QTRY_VERIFY_WITH_TIMEOUT(!wire.hasPendingCalls(), 1000);
         QCOMPARE(packets.size(), 1);
-        QCOMPARE(backend.last().at(0).toJsonObject().value("op").toString(), QString("cancel"));
+        QCOMPARE(backendOp(backend, backend.size() - 1), QString("cancel"));
         const auto expired = QJsonDocument::fromJson(packets.takeFirst().at(1).toByteArray()).object()
             .value("result").toObject().value("structuredContent").toObject();
         QCOMPARE(expired.value("error").toObject().value("code").toString(),
@@ -231,7 +249,7 @@ private slots:
         // 下次请求在完整预算内收到实际结果，仍正常完成。
         wire.receiveMessage({{"jsonrpc", "2.0"}, {"id", 3}, {"method", "tools/call"},
             {"params", QJsonObject{{"name", tool}, {"arguments", arguments}}}}, "next-execute");
-        const auto nextId = backend.last().at(0).toJsonObject().value("id");
+        const auto nextId = backendId(backend, backend.size() - 1);
         elapsed += completionTime;
         QTest::qWait(150);
         QVERIFY(wire.hasPendingCalls());
@@ -260,7 +278,7 @@ private slots:
     {
         WireSession wire;
         ready(wire);
-        QSignalSpy backend(&wire, &WireSession::backendMessage);
+        QSignalSpy backend(&wire, &WireSession::backendEvent);
         QSignalSpy packets(&wire, &WireSession::packet);
         const QString content(MaxScriptBytes, QChar(1));
         const QJsonObject arguments{{"sessionId", "11111111-1111-1111-1111-111111111111"},
@@ -273,15 +291,14 @@ private slots:
         QVERIFY(bytes.size() <= MaxRequestBytes);
         wire.receiveBytes(bytes, "large-script");
         QCOMPARE(backend.size(), 1);
-        QCOMPARE(backend.first().at(0).toJsonObject().value("arguments").toObject()
-            .value("scriptContent").toString(), content);
+        QCOMPARE(backendArguments(backend, 0).value("scriptContent").toString(), content);
         QVERIFY(packets.isEmpty());
     }
     void oversizedRequestsAreRejectedBeforeDispatch()
     {
         WireSession wire;
         ready(wire);
-        QSignalSpy backend(&wire, &WireSession::backendMessage);
+        QSignalSpy backend(&wire, &WireSession::backendEvent);
         QSignalSpy packets(&wire, &WireSession::packet);
         wire.receiveBytes(QByteArray(MaxRequestBytes + 1, 'x'), "too-large-bytes");
         QCOMPARE(packets.size(), 1);
@@ -299,11 +316,11 @@ private slots:
     {
         WireSession wire;
         ready(wire);
-        QSignalSpy backend(&wire, &WireSession::backendMessage);
+        QSignalSpy backend(&wire, &WireSession::backendEvent);
         QSignalSpy packets(&wire, &WireSession::packet);
         const QString text = QString::fromUtf8("中文\r\n引号\"与反斜线\\");
         wire.receiveMessage(call(20), "unicode");
-        wire.receiveBackend({{"op", "result"}, {"id", backend.last().at(0).toJsonObject().value("id")},
+        wire.receiveBackend({{"op", "result"}, {"id", backendId(backend, backend.size() - 1)},
             {"payload", success({{"text", text}})}});
         const auto bytes = packets.last().at(1).toByteArray();
         QVERIFY(!bytes.contains('\n') && !bytes.contains('\r'));
@@ -311,7 +328,7 @@ private slots:
             .value("structuredContent").toObject().value("data").toObject().value("text").toString(), text);
         QCOMPARE(packets.last().at(3).toInt(), 0);
         wire.receiveMessage(call(21), "oversized");
-        wire.receiveBackend({{"op", "result"}, {"id", backend.last().at(0).toJsonObject().value("id")},
+        wire.receiveBackend({{"op", "result"}, {"id", backendId(backend, backend.size() - 1)},
             {"payload", success({{"text", QString(MaxFrameBytes, QLatin1Char('x'))}})}});
         const auto bounded = packets.last().at(1).toByteArray();
         QVERIFY(bounded.size() <= MaxFrameBytes);
@@ -324,10 +341,10 @@ private slots:
         WireSession wire;
         ready(wire);
         const auto payload = success({{"text", QString(256 * 1024, QLatin1Char('x'))}});
-        QObject::connect(&wire, &WireSession::backendMessage, &wire,
-            [&wire, payload](const QJsonObject& message) {
-                if (message.value("op") == "call")
-                    wire.receiveBackend({{"op", "result"}, {"id", message.value("id")},
+        QObject::connect(&wire, &WireSession::backendEvent, &wire,
+            [&wire, payload](const BackendEvent& event) {
+                if (const auto* call = std::get_if<BackendCall>(&event))
+                    wire.receiveBackend({{"op", "result"}, {"id", call->id},
                         {"payload", payload}});
             });
         int count = 0;
@@ -359,14 +376,14 @@ private slots:
     {
         WireSession wire("unique-prefix-");
         ready(wire);
-        QSignalSpy backend(&wire, &WireSession::backendMessage);
+        QSignalSpy backend(&wire, &WireSession::backendEvent);
         QSignalSpy packets(&wire, &WireSession::packet);
         wire.receiveMessage(call(7), "exchange-A");
         QCOMPARE(backend.size(), 1);
-        const auto privateCall = backend.first().at(0).toJsonObject();
-        QVERIFY(privateCall.value("id").toString().startsWith("unique-prefix-"));
+        const auto privateId = backendId(backend, 0);
+        QVERIFY(privateId.startsWith("unique-prefix-"));
         QVERIFY(wire.hasPendingCalls());
-        wire.receiveBackend({{"op", "result"}, {"id", privateCall.value("id")},
+        wire.receiveBackend({{"op", "result"}, {"id", privateId},
             {"payload", success({{"value", "ok"}})}});
         QCOMPARE(packets.size(), 1);
         QCOMPARE(packets.first().at(0).toString(), QStringLiteral("exchange-A"));
@@ -378,15 +395,15 @@ private slots:
     {
         WireSession wire;
         ready(wire);
-        QSignalSpy backend(&wire, &WireSession::backendMessage);
+        QSignalSpy backend(&wire, &WireSession::backendEvent);
         QSignalSpy packets(&wire, &WireSession::packet);
         QSignalSpy completed(&wire, &WireSession::completed);
         wire.receiveMessage(call(8), "cancelled-exchange");
         QCOMPARE(backend.size(), 1);
-        const auto id = backend.first().at(0).toJsonObject().value("id");
+        const auto id = backendId(backend, 0);
         wire.receiveMessage({{"jsonrpc", "2.0"}, {"method", "notifications/cancelled"},
             {"params", QJsonObject{{"requestId", 8}}}});
-        QCOMPARE(backend.last().at(0).toJsonObject().value("op").toString(), QStringLiteral("cancel"));
+        QCOMPARE(backendOp(backend, backend.size() - 1), QStringLiteral("cancel"));
         QCOMPARE(completed.size(), 1);
         QCOMPARE(completed.first().at(0).toString(), QStringLiteral("cancelled-exchange"));
         wire.receiveBackend({{"op", "result"}, {"id", id}, {"payload", success({})}});

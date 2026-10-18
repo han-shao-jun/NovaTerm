@@ -467,6 +467,174 @@ Built with:
 <context>
     <name>McpSettingsDialog</name>
     <message>
+        <source>仅对已确认的 Linux/POSIX 目标使用固定诊断；授权不代表目标支持这些命令。</source>
+        <translation>仅对已确认的 Linux/POSIX 目标使用固定诊断；授权不代表目标支持这些命令。</translation>
+    </message>
+    <message>
+        <source>后端不可用</source>
+        <translation>后端不可用</translation>
+    </message>
+    <message>
+        <source>可以保存诊断授权，但当前没有可用的目标 Profile 或执行后端；不会自动向终端发送诊断命令。</source>
+        <translation>可以保存诊断授权，但当前没有可用的目标 Profile 或执行后端；不会自动向终端发送诊断命令。</translation>
+    </message>
+    <message>
+        <source>可以保存提权授权，但目标身份尚未验证，不能绑定凭据或实际提权。</source>
+        <translation>可以保存提权授权，但目标身份尚未验证，不能绑定凭据或实际提权。</translation>
+    </message>
+    <message>
+        <source>适配器不可用</source>
+        <translation>适配器不可用</translation>
+    </message>
+    <message>
+        <source>可以保存提权授权，但当前没有可信认证适配器，不会读取或发送密码。</source>
+        <translation>可以保存提权授权，但当前没有可信认证适配器，不会读取或发送密码。</translation>
+    </message>
+    <message>
+        <source>不支持</source>
+        <translation>不支持</translation>
+    </message>
+    <message>
+        <source>串口、Telnet 和自定义连接不支持托管提权。</source>
+        <translation>串口、Telnet 和自定义连接不支持托管提权。</translation>
+    </message>
+    <message>
+        <source>未连接</source>
+        <translation>未连接</translation>
+    </message>
+    <message>
+        <source>会话未连接，暂不能授权托管提权。</source>
+        <translation>会话未连接，暂不能授权托管提权。</translation>
+    </message>
+    <message>
+        <source>需执行权限</source>
+        <translation>需执行权限</translation>
+    </message>
+    <message>
+        <source>请先勾选允许执行命令，再授权托管提权。</source>
+        <translation>请先勾选允许执行命令，再授权托管提权。</translation>
+    </message>
+    <message>
+        <source>凭据更新中</source>
+        <translation>凭据更新中</translation>
+    </message>
+    <message>
+        <source>正在更新提权凭据，请稍后重新授权。</source>
+        <translation>正在更新提权凭据，请稍后重新授权。</translation>
+    </message>
+    <message>
+        <source>身份未验证</source>
+        <translation>身份未验证</translation>
+    </message>
+    <message>
+        <source>尚未验证目标身份，暂不能授权托管提权。</source>
+        <translation>尚未验证目标身份，暂不能授权托管提权。</translation>
+    </message>
+    <message>
+        <source>允许执行命令授予当前连接的完整终端输入权限，不再逐条确认。旧命令接口的诊断、脚本和交互权限保持独立。托管提权必须另外授权；保存密码不会启用提权，可信认证适配器尚不可用。</source>
+        <translation>允许执行命令授予当前连接的完整终端输入权限，不再逐条确认。旧命令接口的诊断、脚本和交互权限保持独立。托管提权必须另外授权；保存密码不会启用提权，可信认证适配器尚不可用。</translation>
+    </message>
+    <message>
+        <source>接管选中会话</source>
+        <translation>接管选中会话</translation>
+    </message>
+    <message>
+        <source>允许执行命令</source>
+        <translation>允许执行命令</translation>
+    </message>
+    <message>
+        <source>允许托管提权</source>
+        <translation>允许托管提权</translation>
+    </message>
+    <message>
+        <source>提权凭据</source>
+        <translation>提权凭据</translation>
+    </message>
+    <message>
+        <source>当前操作</source>
+        <translation>当前操作</translation>
+    </message>
+    <message>
+        <source>显示旧命令接口详细权限</source>
+        <translation>显示旧命令接口详细权限</translation>
+    </message>
+    <message>
+        <source>提权凭据 — %1</source>
+        <translation>提权凭据 — %1</translation>
+    </message>
+    <message>
+        <source>sudo 认证密码和 su root 密码分别保存，不使用 SSH 登录密码。保存后不回填。只有明确授权且可信适配器可用时才能托管认证；当前适配器不可用。撤销授权不会退出已经获得的 root Shell。</source>
+        <translation>sudo 认证密码和 su root 密码分别保存，不使用 SSH 登录密码。保存后不回填。只有明确授权且可信适配器可用时才能托管认证；当前适配器不可用。撤销授权不会退出已经获得的 root Shell。</translation>
+    </message>
+    <message>
+        <source>存储：系统凭据库。密码仅在本机设置，不对 MCP 客户端开放。</source>
+        <translation>存储：系统凭据库。密码仅在本机设置，不对 MCP 客户端开放。</translation>
+    </message>
+    <message>
+        <source>存储：仅本次运行。密码仅在本机设置，不对 MCP 客户端开放。</source>
+        <translation>存储：仅本次运行。密码仅在本机设置，不对 MCP 客户端开放。</translation>
+    </message>
+    <message>
+        <source>sudo 认证密码</source>
+        <translation>sudo 认证密码</translation>
+    </message>
+    <message>
+        <source>su root 密码</source>
+        <translation>su root 密码</translation>
+    </message>
+    <message>
+        <source>输入新密码；留空不会删除</source>
+        <translation>输入新密码；留空不会删除</translation>
+    </message>
+    <message>
+        <source>保存 / 替换</source>
+        <translation>保存 / 替换</translation>
+    </message>
+    <message>
+        <source>删除</source>
+        <translation>删除</translation>
+    </message>
+    <message>
+        <source>会话连接或目标已变化，未提交凭据操作。请关闭并重新打开设置。</source>
+        <translation>会话连接或目标已变化，未提交凭据操作。请关闭并重新打开设置。</translation>
+    </message>
+    <message>
+        <source>正在访问本机凭据库；可以关闭此窗口。</source>
+        <translation>正在访问本机凭据库；可以关闭此窗口。</translation>
+    </message>
+    <message>
+        <source>允许当前客户端在本次连接输入文本、按键并执行命令。重连、撤权或目标变化后需要重新授权。</source>
+        <translation>允许当前客户端在本次连接输入文本、按键并执行命令。重连、撤权或目标变化后需要重新授权。</translation>
+    </message>
+    <message>
+        <source>须先允许执行命令；勾选仅保存授权。实际提权还需要可信目标身份及认证适配器，保存密码不会自动启用提权。</source>
+        <translation>须先允许执行命令；勾选仅保存授权。实际提权还需要可信目标身份及认证适配器，保存密码不会自动启用提权。</translation>
+    </message>
+    <message>
+        <source>未配置</source>
+        <translation>未配置</translation>
+    </message>
+    <message>
+        <source>密码保存在系统凭据库；保存不代表授权使用，也不启用认证适配器。</source>
+        <translation>密码保存在系统凭据库；保存不代表授权使用，也不启用认证适配器。</translation>
+    </message>
+    <message>
+        <source>密码仅本次运行保留；保存不代表授权使用，也不启用认证适配器。</source>
+        <translation>密码仅本次运行保留；保存不代表授权使用，也不启用认证适配器。</translation>
+    </message>
+    <message>
+        <source>空闲</source>
+        <translation>空闲</translation>
+    </message>
+    <message>
+        <source>Agent 操作</source>
+        <translation>Agent 操作</translation>
+    </message>
+    <message>
+        <source>用户接管</source>
+        <translation>用户接管</translation>
+    </message>
+    <message>
         <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="65"/>
         <source>AI MCP access</source>
         <translation>AI MCP 接入</translation>
@@ -3600,6 +3768,25 @@ Termination confirmed: %3
     <message>
         <source>No matches</source>
         <translation>未找到匹配项</translation>
+    </message>
+</context>
+<context>
+    <name>QObject</name>
+    <message>
+        <source>会话连接或目标已变化；凭据操作针对打开窗口时的原目标。请关闭并重新打开设置。</source>
+        <translation>会话连接或目标已变化；凭据操作针对打开窗口时的原目标。请关闭并重新打开设置。</translation>
+    </message>
+    <message>
+        <source>已更新系统凭据库。托管提权授权已撤销，请按需重新授权。</source>
+        <translation>已更新系统凭据库。托管提权授权已撤销，请按需重新授权。</translation>
+    </message>
+    <message>
+        <source>已更新，仅本次运行保存。托管提权授权已撤销，请按需重新授权。</source>
+        <translation>已更新，仅本次运行保存。托管提权授权已撤销，请按需重新授权。</translation>
+    </message>
+    <message>
+        <source>凭据操作失败；请检查会话身份、密码是否为空及凭据库权限。</source>
+        <translation>凭据操作失败；请检查会话身份、密码是否为空及凭据库权限。</translation>
     </message>
 </context>
 </TS>

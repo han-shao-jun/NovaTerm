@@ -79,16 +79,14 @@ public:
         wires.insert(wire);
         QObject::connect(wire, &QObject::destroyed, q, [this, wire] { wires.remove(wire); });
         QObject::connect(wire,
-                         &WireSession::backendMessage,
+                         &WireSession::backendEvent,
                          q,
-                         [this, wire, peer](const QJsonObject &message) {
-            const auto id = message.value("id").toString();
-            const auto key = peer + '/' + id;
-            if (message.value("op") == "call")
-                jobs.insert(key, wire);
-            backend.receive(peer, message);
-            if (message.value("op") == "cancel")
-                jobs.remove(key);
+                         [this, wire, peer](const BackendEvent &event) {
+            if (const auto *call = std::get_if<BackendCall>(&event))
+                jobs.insert(peer + '/' + call->id, wire);
+            backend.receive(peer, event);
+            if (const auto *cancel = std::get_if<BackendCancel>(&event))
+                jobs.remove(peer + '/' + cancel->id);
         });
         QObject::connect(
             wire,

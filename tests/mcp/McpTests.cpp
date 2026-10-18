@@ -3,6 +3,7 @@
  */
 #include "mcp/McpService.h"
 #include "mcp/McpProtocol.h"
+#include "mcp/protocol/ToolCodec.h"
 #include "mcp/CommandPolicy.h"
 #include "mcp/CommandRiskPolicy.h"
 #include "renderer/TerminalRenderer.h"
@@ -17,10 +18,12 @@
 #include "session/SessionTerminalController.h"
 #include "transport/SshTransport.h"
 #include "ui/widgets/McpSettingsDialog.h"
+#include "TestGrantSupport.h"
 #include "ElaApplication.h"
 #include "ElaCheckBox.h"
 #include "ElaComboBox.h"
 #include "ElaTreeWidget.h"
+#include "ElaTheme.h"
 #include <QApplication>
 #include <QClipboard>
 #include <QFontDatabase>
@@ -28,12 +31,17 @@
 #include <QCoreApplication>
 #include <QElapsedTimer>
 #include <QEventLoop>
+#include <QJsonArray>
 #include <QJsonDocument>
 #include <QLockFile>
 #include <QProcess>
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
 #include <QNetworkRequest>
+#include <QPersistentModelIndex>
+#include <QAbstractItemDelegate>
+#include <QMouseEvent>
+#include <QStyleOptionViewItem>
 #include <QSet>
 #include <QPushButton>
 #include <QSignalSpy>
@@ -479,7 +487,7 @@ struct Fixture
         QSet<QString> commands;
         if (execute) for (const auto& command : CommandPolicy::catalog()) commands.insert(command.id);
         return !client.isEmpty() && service.access().setEnabled(true)
-            && service.access().setGrant(client, service.directory().entries().first(),
+            && NovaTerm::Mcp::TestSupport::setGrant(service.access(), client, service.directory().entries().first(),
                 true, commands, interactive);
     }
     QByteArray token() { return service.access().exportToken(client).value_or(QByteArray{}); }
@@ -490,12 +498,25 @@ class McpTests final : public QObject
 {
     Q_OBJECT
 private slots:
+    void terminalInteractionSupportsEveryTransport_data();
+    void terminalInteractionSupportsEveryTransport();
+    void compactCapturesRetainNewestFour();
+    void compactBaseSnapshotsAreRateLimited();
+    void elevationAvailabilityUsesIdentityNotConnectionType();
+    void terminalInputReportsSequenceAndReleaseAdmission();
     void terminalInteractionRequiresNewGrantAndDeduplicates();
     void compactAttentionWaitCoalescesScrollAndExpires();
     void managedElevationRejectsWithoutAdapter();
     void terminalCommandCompletionAndReadinessAreSeparateFromOutput();
     void compactCaptureExpansionDoesNotMoveLiveCursor();
+    void fullProjectionExpansionStartsAtOmittedLine();
     void compactExpansionAdvancesForEscapedLongLine();
+    void compactExpansionRejectsTooSmallUtf8Budget();
+    void compactCursorSupportsFullProjection();
+    void fullProjectionTruncationRequiresReset_data();
+    void fullProjectionTruncationRequiresReset();
+    void compactExpansionPreservesSourceGap();
+    void maximumTerminalCommandIncludesConfiguredLineEnding();
     void tokenSigningAndAuthentication();
     void rejectsDangerousAndOversizedArguments();
     void nonblockingSnapshotPreservesIndependentProgress();
@@ -518,6 +539,15 @@ private slots:
     void cancelledCommandNeverReplays();
     void utf8ExpansionIsBounded();
     void settingsDialogSeparatesReadAndScriptPermission();
+    void settingsDialogRoundTripsTerminalPermissions();
+    void settingsDialogKeepsPendingGrantsForEveryTerminal_data();
+    void settingsDialogKeepsPendingGrantsForEveryTerminal();
+    void settingsDialogRejectsStaleConnectionRow_data();
+    void settingsDialogRejectsStaleConnectionRow();
+    void settingsDialogRejectsElevationWithoutResettingActiveModel_data();
+    void settingsDialogRejectsElevationWithoutResettingActiveModel();
+    void settingsDialogElevationCheckboxRequiresSupportedContext_data();
+    void settingsDialogElevationCheckboxRequiresSupportedContext();
     void settingsDialogLocalShellFixedDiagnosticsCanBeSelected();
     void settingsDialogRefreshPreservesExpandedSessions();
     void settingsDialogBindsTargetReleaseToExecution();
@@ -584,7 +614,7 @@ void McpTests::humanDeclineLeavesTerminalUntouched()
     const auto client = service.access().addClient("fixture");
     QVERIFY(service.access().setEnabled(true));
     const auto entry = service.directory().entries().first();
-    QVERIFY(service.access().setGrant(client, entry, true, {}, true, true));
+    QVERIFY(NovaTerm::Mcp::TestSupport::setGrant(service.access(), client, entry, true, {}, true, true));
     QTRY_COMPARE(service.status(), QStringLiteral("Listening"));
     emit transport.readyRead(QByteArrayLiteral("device> "));
     QTRY_VERIFY(session.commandCoordinator()->isPromptReady());
@@ -666,7 +696,7 @@ void McpTests::humanAcceptRunsOnlyAfterConfirmation()
     const auto client = service.access().addClient("fixture");
     QVERIFY(service.access().setEnabled(true));
     const auto entry = service.directory().entries().first();
-    QVERIFY(service.access().setGrant(client, entry, true, {}, true));
+    QVERIFY(NovaTerm::Mcp::TestSupport::setGrant(service.access(), client, entry, true, {}, true));
     QTRY_COMPARE(service.status(), QStringLiteral("Listening"));
     emit transport.readyRead(QByteArrayLiteral("device> "));
     QTRY_VERIFY(session.commandCoordinator()->isPromptReady());
@@ -713,7 +743,7 @@ void McpTests::unknownRiskCanBeConfirmed()
     const auto client = service.access().addClient(QStringLiteral("fixture"));
     QVERIFY(service.access().setEnabled(true));
     const auto entry = service.directory().entries().first();
-    QVERIFY(service.access().setGrant(client, entry, true, {}, true));
+    QVERIFY(NovaTerm::Mcp::TestSupport::setGrant(service.access(), client, entry, true, {}, true));
     QTRY_COMPARE(service.status(), QStringLiteral("Listening"));
     emit transport.readyRead(QByteArrayLiteral("device> "));
     QTRY_VERIFY(session.commandCoordinator()->isPromptReady());
@@ -757,7 +787,7 @@ void McpTests::mrtrRequiresBoundOneShotConfirmation()
     const auto client = service.access().addClient("fixture");
     QVERIFY(service.access().setEnabled(true));
     const auto entry = service.directory().entries().first();
-    QVERIFY(service.access().setGrant(client, entry, true, {}, true, true));
+    QVERIFY(NovaTerm::Mcp::TestSupport::setGrant(service.access(), client, entry, true, {}, true, true));
     QTRY_COMPARE(service.status(), QStringLiteral("Listening"));
     emit transport.readyRead(QByteArrayLiteral("device> "));
     QTRY_VERIFY(session.commandCoordinator()->isPromptReady());
@@ -865,7 +895,7 @@ void McpTests::scriptContentRequiresConfirmationAndNeverEntersTerminal()
     // interactiveCommand=false 是本用例的核心前提；若 run_script 反过来依赖
     // 交互命令授权，本例会在这里之后失败（脚本正文已落盘却报
     // COMMAND_PERMISSION_REQUIRED，而不是 SCRIPT_PERMISSION_REQUIRED）。
-    QVERIFY(service.access().setGrant(client, entry, true, {}, false, false, true));
+    QVERIFY(NovaTerm::Mcp::TestSupport::setGrant(service.access(), client, entry, true, {}, false, false, true));
     QVERIFY(!service.access().canRunCommand(client, entry));
     QVERIFY(service.access().canRunScriptTask(client, entry));
     QTRY_COMPARE(service.status(), QStringLiteral("Listening"));
@@ -992,7 +1022,7 @@ void McpTests::scriptMrtrConfirmationIsSignedAndOneShot()
     const auto client = service.access().addClient(QStringLiteral("fixture"));
     QVERIFY(service.access().setEnabled(true));
     const auto entry = service.directory().entries().first();
-    QVERIFY(service.access().setGrant(client, entry, true, {}, true, false, true));
+    QVERIFY(NovaTerm::Mcp::TestSupport::setGrant(service.access(), client, entry, true, {}, true, false, true));
     QTRY_COMPARE(service.status(), QStringLiteral("Listening"));
     emit transport.readyRead(QByteArrayLiteral("\x1b]633;NT;PROMPT;1;0\x07"));
     QTRY_VERIFY(session.commandCoordinator()->isPromptReady());
@@ -1018,7 +1048,7 @@ void McpTests::scriptMrtrConfirmationIsSignedAndOneShot()
     QVERIFY(!QFile::exists(targetPath));
     QVERIFY(transport.written.isEmpty());
 
-    QVERIFY(service.access().setGrant(client, entry, true, {}, true, false, false));
+    QVERIFY(NovaTerm::Mcp::TestSupport::setGrant(service.access(), client, entry, true, {}, true, false, false));
     const int revokedRetryId = ++host.counter;
     host.send({{"jsonrpc", "2.0"}, {"id", revokedRetryId}, {"method", "tools/call"},
         {"params", QJsonObject{{"name", "novaterm_run_script"},
@@ -1032,7 +1062,7 @@ void McpTests::scriptMrtrConfirmationIsSignedAndOneShot()
     QVERIFY(!QFile::exists(targetPath));
     QVERIFY(transport.written.isEmpty());
 
-    QVERIFY(service.access().setGrant(client, entry, true, {}, true, false, true));
+    QVERIFY(NovaTerm::Mcp::TestSupport::setGrant(service.access(), client, entry, true, {}, true, false, true));
     const int reissuedId = host.begin("novaterm_run_script", arguments);
     const auto reissued = host.next();
     QCOMPARE(reissued.value("id").toInt(), reissuedId);
@@ -1120,7 +1150,7 @@ void McpTests::userTypingCancelsInFlightScriptUploadBeforeInvocation()
     const auto client = service.access().addClient(QStringLiteral("fixture"));
     QVERIFY(service.access().setEnabled(true));
     const auto entry = service.directory().entries().first();
-    QVERIFY(service.access().setGrant(client, entry, true, {}, true, false, true));
+    QVERIFY(NovaTerm::Mcp::TestSupport::setGrant(service.access(), client, entry, true, {}, true, false, true));
     QTRY_COMPARE(service.status(), QStringLiteral("Listening"));
     emit transport.readyRead(QByteArrayLiteral("\x1b]633;NT;PROMPT;1;0\x07"));
     QTRY_VERIFY(session.commandCoordinator()->isPromptReady());
@@ -1169,7 +1199,7 @@ void McpTests::scriptUploadReservesTargetUntilProviderFinishes()
     auto* delayed = fixture.makeScriptUpload();
     QVERIFY(fixture.service.access().setEnabled(true));
     const auto entry = fixture.service.directory().entries().first();
-    QVERIFY(fixture.service.access().setGrant(fixture.client, entry,
+    QVERIFY(NovaTerm::Mcp::TestSupport::setGrant(fixture.service.access(), fixture.client, entry,
         true, {}, true, false, true));
     emit fixture.local.readyRead(QByteArrayLiteral("\x1b]633;NT;PROMPT;1;0\x07"));
     QTRY_VERIFY(fixture.session.commandCoordinator()->isPromptReady());
@@ -1261,7 +1291,7 @@ void McpTests::cancelledScriptUploadRetainsPublicationOutcome()
     auto* delayed = fixture.makeScriptUpload();
     QVERIFY(fixture.service.access().setEnabled(true));
     const auto entry = fixture.service.directory().entries().first();
-    QVERIFY(fixture.service.access().setGrant(fixture.client, entry,
+    QVERIFY(NovaTerm::Mcp::TestSupport::setGrant(fixture.service.access(), fixture.client, entry,
         true, {}, true, false, true));
     emit fixture.local.readyRead(QByteArrayLiteral("\x1b]633;NT;PROMPT;1;0\x07"));
     QTRY_VERIFY(fixture.session.commandCoordinator()->isPromptReady());
@@ -1289,7 +1319,7 @@ void McpTests::cancelledScriptUploadRetainsPublicationOutcome()
     if (cancellation == QStringLiteral("typing")) {
         fixture.session.inputArbiter()->submitUserInput(QByteArrayLiteral("user input"));
     } else if (cancellation == QStringLiteral("revoked")) {
-        QVERIFY(fixture.service.access().setGrant(fixture.client, entry,
+        QVERIFY(NovaTerm::Mcp::TestSupport::setGrant(fixture.service.access(), fixture.client, entry,
             true, {}, true, false, false));
     } else {
         fixture.local.disconnect();
@@ -1358,42 +1388,38 @@ void McpTests::commandAndScriptProductGrantsAreIndependent()
             .value("sessions").toArray().first().toObject().value("capabilities").toArray();
     };
 
-    QVERIFY(fixture.service.access().setGrant(fixture.client, entry,
+    QVERIFY(NovaTerm::Mcp::TestSupport::setGrant(fixture.service.access(), fixture.client, entry,
         true, {}, false, false, false));
     QVERIFY(fixture.service.access().canRead(fixture.client, entry));
     QVERIFY(!fixture.service.access().canRunCommand(fixture.client, entry));
-    QVERIFY(!fixture.service.access().canRunConfirmedCommand(fixture.client, entry));
     QVERIFY(!fixture.service.access().canRunScriptTask(fixture.client, entry));
     auto advertised = capabilities();
     QVERIFY(!advertised.contains(QStringLiteral("run_command")));
     QVERIFY(!advertised.contains(QStringLiteral("run_script")));
 
-    QVERIFY(fixture.service.access().setGrant(fixture.client, entry,
+    QVERIFY(NovaTerm::Mcp::TestSupport::setGrant(fixture.service.access(), fixture.client, entry,
         true, {}, true, false, false));
     QVERIFY(fixture.service.access().canRunCommand(fixture.client, entry));
-    QVERIFY(!fixture.service.access().canRunConfirmedCommand(fixture.client, entry));
     QVERIFY(!fixture.service.access().canRunScriptTask(fixture.client, entry));
     advertised = capabilities();
     QVERIFY(advertised.contains(QStringLiteral("run_command")));
     QVERIFY(!advertised.contains(QStringLiteral("run_script")));
 
-    QVERIFY(fixture.service.access().setGrant(fixture.client, entry,
+    QVERIFY(NovaTerm::Mcp::TestSupport::setGrant(fixture.service.access(), fixture.client, entry,
         true, {}, true, true, false));
-    QVERIFY(fixture.service.access().canRunConfirmedCommand(fixture.client, entry));
     QVERIFY(!fixture.service.access().canRunScriptTask(fixture.client, entry));
     advertised = capabilities();
     QVERIFY(advertised.contains(QStringLiteral("run_command")));
     QVERIFY(!advertised.contains(QStringLiteral("run_script")));
 
-    QVERIFY(fixture.service.access().setGrant(fixture.client, entry,
+    QVERIFY(NovaTerm::Mcp::TestSupport::setGrant(fixture.service.access(), fixture.client, entry,
         true, {}, true, false, true));
-    QVERIFY(!fixture.service.access().canRunConfirmedCommand(fixture.client, entry));
     QVERIFY(fixture.service.access().canRunScriptTask(fixture.client, entry));
     advertised = capabilities();
     QVERIFY(advertised.contains(QStringLiteral("run_command")));
     QVERIFY(advertised.contains(QStringLiteral("run_script")));
 
-    QVERIFY(fixture.service.access().setGrant(fixture.client, entry,
+    QVERIFY(NovaTerm::Mcp::TestSupport::setGrant(fixture.service.access(), fixture.client, entry,
         true, {}, false, false, true));
     advertised = capabilities();
     QVERIFY(!advertised.contains(QStringLiteral("run_command")));
@@ -1427,7 +1453,7 @@ void McpTests::readGrantAloneDoesNotAllowInteractiveCommand()
     QVERIFY(!client.isEmpty());
     QVERIFY(service.access().setEnabled(true));
     // 只授予读取共享：固定诊断模板与交互命令都不给。
-    QVERIFY(service.access().setGrant(client, entry, true));
+    QVERIFY(NovaTerm::Mcp::TestSupport::setGrant(service.access(), client, entry, true));
     QVERIFY(!service.access().canRunCommand(client, entry));
     QTRY_COMPARE(service.status(), QStringLiteral("Listening"));
     Host host;
@@ -1451,7 +1477,7 @@ void McpTests::readGrantAloneDoesNotAllowInteractiveCommand()
 
     // 单独授予交互命令后：capability 出现，且命令**真的**被写进当前终端 ——
     // 这是权限闸门接线的正面证据，而不是「错误码不等于某个值」这种弱断言。
-    QVERIFY(service.access().setGrant(client, entry, true, {}, true));
+    QVERIFY(NovaTerm::Mcp::TestSupport::setGrant(service.access(), client, entry, true, {}, true));
     QVERIFY(service.access().canRunCommand(client, entry));
     QVERIFY(capabilities().contains(QStringLiteral("run_command")));
     const int callId = host.begin("novaterm_run_command",
@@ -1471,7 +1497,7 @@ void McpTests::readGrantAloneDoesNotAllowInteractiveCommand()
         .toObject().value("ok").toBool(), qPrintable(QJsonDocument(response).toJson()));
 
     // 撤销交互命令授权后必须立刻回到权限拒绝，且不再广告该能力。
-    QVERIFY(service.access().setGrant(client, entry, true, {}, false));
+    QVERIFY(NovaTerm::Mcp::TestSupport::setGrant(service.access(), client, entry, true, {}, false));
     QVERIFY(!capabilities().contains(QStringLiteral("run_command")));
     const auto reDenied = host.call("novaterm_run_command",
         QJsonObject{{"sessionId", entry.id}, {"epoch", entry.epoch},
@@ -1502,7 +1528,7 @@ void McpTests::lowRiskCommandUsesCurrentInteractiveTransport()
     QVERIFY(!client.isEmpty());
     QVERIFY(service.access().setEnabled(true));
     const auto entry = service.directory().entries().first();
-    QVERIFY(service.access().setGrant(client, entry, true, {}, true));
+    QVERIFY(NovaTerm::Mcp::TestSupport::setGrant(service.access(), client, entry, true, {}, true));
     QTRY_COMPARE(service.status(), QStringLiteral("Listening"));
 
     emit transport.readyRead(QByteArrayLiteral("device> "));
@@ -1552,7 +1578,7 @@ void McpTests::unverifiedSshCommandUsesCurrentTerminal()
     const QString client = service.access().addClient(QStringLiteral("unverified"));
     QVERIFY(!client.isEmpty());
     QVERIFY(service.access().setEnabled(true));
-    QVERIFY(service.access().setGrant(client, entry, true, {}, true));
+    QVERIFY(NovaTerm::Mcp::TestSupport::setGrant(service.access(), client, entry, true, {}, true));
     QTRY_COMPARE(service.status(), QStringLiteral("Listening"));
     Host host;
     QVERIFY(host.start(root.filePath(QStringLiteral("instances")),
@@ -1611,7 +1637,7 @@ void McpTests::unverifiedSshRiskyCommandRequiresHumanConfirmation()
     const QString client = service.access().addClient(QStringLiteral("confirmed"));
     QVERIFY(!client.isEmpty());
     QVERIFY(service.access().setEnabled(true));
-    QVERIFY(service.access().setGrant(client, entry, true, {}, true));
+    QVERIFY(NovaTerm::Mcp::TestSupport::setGrant(service.access(), client, entry, true, {}, true));
     QTRY_COMPARE(service.status(), QStringLiteral("Listening"));
     Host host;
     QVERIFY(host.start(root.filePath(QStringLiteral("instances")),
@@ -1688,11 +1714,11 @@ void McpTests::interactiveGrantIsSeparateFromReadAndFixedCommands()
     QVERIFY(fixture.service.access().canRead(fixture.client, entry));
     QVERIFY(!fixture.service.access().canRunCommand(fixture.client, entry));
 
-    QVERIFY(fixture.service.access().setGrant(fixture.client, entry,
+    QVERIFY(NovaTerm::Mcp::TestSupport::setGrant(fixture.service.access(), fixture.client, entry,
                                              true, {}, true));
     QVERIFY(fixture.service.access().canRunCommand(fixture.client, entry));
     QVERIFY(fixture.service.access().commands(fixture.client, entry).isEmpty());
-    QVERIFY(fixture.service.access().setGrant(fixture.client, entry,
+    QVERIFY(NovaTerm::Mcp::TestSupport::setGrant(fixture.service.access(), fixture.client, entry,
                                              true, {}, false));
     QVERIFY(!fixture.service.access().canRunCommand(fixture.client, entry));
 }
@@ -1704,19 +1730,19 @@ void McpTests::freeCommandSchemaIsBoundedAndStrict()
          QStringLiteral("7abf0022-9546-4c2b-a046-5b40589d38ec")},
         {QStringLiteral("epoch"), QStringLiteral("epoch-1")},
         {QStringLiteral("command"), QStringLiteral("pwd")}};
-    QVERIFY(validateArguments(QStringLiteral("novaterm_run_command"),
+    QVERIFY(ToolCodec::validate(QStringLiteral("novaterm_run_command"),
                               base).isEmpty());
     auto invalid = base;
     invalid.insert(QStringLiteral("command"), QString{});
-    QVERIFY(!validateArguments(QStringLiteral("novaterm_run_command"),
+    QVERIFY(!ToolCodec::validate(QStringLiteral("novaterm_run_command"),
                                invalid).isEmpty());
     invalid = base;
     invalid.insert(QStringLiteral("command"), QString(16385, QLatin1Char('x')));
-    QVERIFY(!validateArguments(QStringLiteral("novaterm_run_command"),
+    QVERIFY(!ToolCodec::validate(QStringLiteral("novaterm_run_command"),
                                invalid).isEmpty());
     invalid = base;
     invalid.insert(QStringLiteral("stdin"), QStringLiteral("secret"));
-    QVERIFY(!validateArguments(QStringLiteral("novaterm_run_command"),
+    QVERIFY(!ToolCodec::validate(QStringLiteral("novaterm_run_command"),
                                invalid).isEmpty());
 }
 
@@ -1851,18 +1877,18 @@ void McpTests::readGrantPrewarmsPublishedSnapshotOnlyOnce()
     const auto entry = fixture.service.directory().entries().first();
     QCOMPARE(entry.state, SessionState::Running);
     const auto before = fixture.core.publishedContextStatistics().requestCount;
-    QVERIFY(fixture.service.access().setGrant(fixture.client, entry, true));
+    QVERIFY(NovaTerm::Mcp::TestSupport::setGrant(fixture.service.access(), fixture.client, entry, true));
     QCOMPARE(fixture.core.publishedContextStatistics().requestCount, before + 1);
-    QVERIFY(fixture.service.access().setGrant(fixture.client, entry, true, {}, true, false, true));
+    QVERIFY(NovaTerm::Mcp::TestSupport::setGrant(fixture.service.access(), fixture.client, entry, true, {}, true, false, true));
     QCOMPARE(fixture.core.publishedContextStatistics().requestCount, before + 1);
-    QVERIFY(fixture.service.access().setGrant(fixture.client, entry, true));
+    QVERIFY(NovaTerm::Mcp::TestSupport::setGrant(fixture.service.access(), fixture.client, entry, true));
     QCOMPARE(fixture.core.publishedContextStatistics().requestCount, before + 1);
-    QVERIFY(fixture.service.access().setGrant(fixture.client, entry, false));
-    QVERIFY(fixture.service.access().setGrant(fixture.client, entry, true));
+    QVERIFY(NovaTerm::Mcp::TestSupport::setGrant(fixture.service.access(), fixture.client, entry, false));
+    QVERIFY(NovaTerm::Mcp::TestSupport::setGrant(fixture.service.access(), fixture.client, entry, true));
     QCOMPARE(fixture.core.publishedContextStatistics().requestCount, before + 2);
     qputenv("NOVATERM_MCP_PUBLISHED_SNAPSHOT", "0");
-    QVERIFY(fixture.service.access().setGrant(fixture.client, entry, false));
-    QVERIFY(fixture.service.access().setGrant(fixture.client, entry, true));
+    QVERIFY(NovaTerm::Mcp::TestSupport::setGrant(fixture.service.access(), fixture.client, entry, false));
+    QVERIFY(NovaTerm::Mcp::TestSupport::setGrant(fixture.service.access(), fixture.client, entry, true));
     QCOMPARE(fixture.core.publishedContextStatistics().requestCount, before + 2);
 }
 
@@ -2177,6 +2203,8 @@ void McpTests::registeredSessionExecutorIsUsedWithoutTransportCast()
     arguments.insert("arguments", QJsonObject{});
     const auto response = host.call("novaterm_execute_command", arguments);
     QVERIFY(response.value("ok").toBool());
+    QCOMPARE(response.value("data").toObject().value("instanceId").toString(),
+        fixture.service.instanceId());
     QCOMPARE(observedExecutor->submissionCount, 1);
     QCOMPARE(observedExecutor->lastRequest.command,
              QByteArrayLiteral("uname -srm"));
@@ -2348,19 +2376,19 @@ void McpTests::tokenSigningAndAuthentication()
 
 void McpTests::rejectsDangerousAndOversizedArguments()
 {
-    QCOMPARE(tools().size(), 9);
+    QCOMPARE(ToolCodec::catalog().size(), 9);
     QVERIFY(!CommandPolicy::find("rm"));
     QVERIFY(!CommandPolicy::find("credential.read"));
     const QJsonObject identity{{"sessionId", newId()}, {"epoch", "epoch"}};
     auto arguments = identity;
     arguments.insert("command", "rm -rf /");
-    QVERIFY(!validateArguments("novaterm_read_context", arguments).isEmpty());
+    QVERIFY(!ToolCodec::validate("novaterm_read_context", arguments).isEmpty());
     arguments = identity;
     arguments.insert("maxBytes", MaxTextBytes + 1);
-    QVERIFY(!validateArguments("novaterm_read_context", arguments).isEmpty());
+    QVERIFY(!ToolCodec::validate("novaterm_read_context", arguments).isEmpty());
     arguments = identity;
     arguments.insert("maxLines", 0.5);
-    QVERIFY(!validateArguments("novaterm_read_context", arguments).isEmpty());
+    QVERIFY(!ToolCodec::validate("novaterm_read_context", arguments).isEmpty());
     qsizetype remaining = 5;
     bool truncated = false;
     const auto result = outputText(QStringLiteral("中文测试").toUtf8(), remaining, truncated);
@@ -2664,10 +2692,10 @@ void McpTests::revokeAndReconnectInvalidateAccess()
     Host host;
     QVERIFY(host.start(f.runtime(), f.token()));
     const auto old = f.identity();
-    QVERIFY(f.service.access().setGrant(f.client, f.service.directory().entries().first(), false));
+    QVERIFY(NovaTerm::Mcp::TestSupport::setGrant(f.service.access(), f.client, f.service.directory().entries().first(), false));
     QCOMPARE(host.call("novaterm_read_context", old).value("error").toObject().value("code").toString(),
         QStringLiteral("SESSION_NOT_AVAILABLE"));
-    QVERIFY(f.service.access().setGrant(f.client, f.service.directory().entries().first(), true));
+    QVERIFY(NovaTerm::Mcp::TestSupport::setGrant(f.service.access(), f.client, f.service.directory().entries().first(), true));
     f.session.close();
     QVERIFY(f.session.resetForReuse());
     QCOMPARE(host.call("novaterm_read_context", old).value("error").toObject().value("code").toString(),
@@ -2782,6 +2810,7 @@ void McpTests::cancelledCommandNeverReplays()
     QCOMPARE(host.next().value("id").toString(), QStringLiteral("after-cancel"));
     const auto replay = host.call("novaterm_execute_command", arguments);
     const auto details = replay.value("error").toObject().value("details").toObject();
+    QCOMPARE(details.value("instanceId").toString(), f.service.instanceId());
     QCOMPARE(details.value("status").toString(), QStringLiteral("cancelled"));
     QVERIFY(!details.value("executionMayHaveStarted").toBool());
     QCOMPARE(SshTransportTestAccess::queued(*f.ssh), 0);
@@ -2830,7 +2859,7 @@ void McpTests::settingsDialogSeparatesReadAndScriptPermission()
     QTest::qWait(40);
     auto* tree = dialog->findChild<ElaTreeWidget*>();
     QVERIFY(tree && tree->topLevelItemCount() == 1);
-    // 6 列：会话、状态、读取输出、固定诊断、脚本任务、交互命令。
+    // 原六列加完整输入、托管提权、凭据和当前操作四列。
     QCOMPARE(tree->columnCount(), 10);
     const auto copyButtons = dialog->findChildren<QPushButton*>();
     QVERIFY(std::any_of(copyButtons.cbegin(), copyButtons.cend(), [](const QPushButton* button) {
@@ -2963,7 +2992,7 @@ void McpTests::configuredSerialSessionPublishesAndExecutesCommands()
     const auto entry = service.directory().entries().first();
     const auto client = service.access().addClient(QStringLiteral("serial-test"));
     QVERIFY(service.access().setEnabled(true));
-    QVERIFY(service.access().setGrant(client, entry, true, {}, true));
+    QVERIFY(NovaTerm::Mcp::TestSupport::setGrant(service.access(), client, entry, true, {}, true));
     QTRY_COMPARE(service.status(), QStringLiteral("Listening"));
     Host host;
     QVERIFY(host.start(root.path() + "/instances",
@@ -2988,7 +3017,7 @@ void McpTests::configuredSerialSessionPublishesAndExecutesCommands()
     const auto payload = reply.value("result").toObject().value("structuredContent").toObject();
     QVERIFY(payload.value("ok").toBool());
     QVERIFY(payload.value("data").toObject().value("stdout").toString().contains(QStringLiteral("Linux test")));
-    QVERIFY(service.access().setGrant(client, entry, true));
+    QVERIFY(NovaTerm::Mcp::TestSupport::setGrant(service.access(), client, entry, true));
     const auto revoked = host.call("novaterm_run_command",
         QJsonObject{{"sessionId", entry.id}, {"epoch", entry.epoch}, {"command", "uname -srm"}});
     QCOMPARE(revoked.value("error").toObject().value("code").toString(),
@@ -3140,8 +3169,12 @@ void McpTests::settingsDialogRefreshPreservesExpandedSessions()
     // 直接触发 refresh 也要保留展开状态（会话状态变化走的就是这条路径）。
     tree->topLevelItem(1)->setExpanded(true);
     QVERIFY(tree->topLevelItem(1)->isExpanded());
+    tree->setCurrentItem(tree->topLevelItem(0));
+    const auto selectedSession = tree->topLevelItem(0)->data(0, Qt::UserRole).toString();
     emit f.service.changed();
     QTRY_VERIFY(tree->topLevelItem(0)->isExpanded() && tree->topLevelItem(1)->isExpanded());
+    QTRY_VERIFY(tree->currentItem());
+    QCOMPARE(tree->currentItem()->data(0, Qt::UserRole).toString(), selectedSession);
     // 会话从目录消失后不再保留其展开状态，重建出来的其余项也不受影响。
     f.service.directory().remove(&secondSession);
     emit f.service.changed();
@@ -3408,7 +3441,7 @@ int sshLoopbackCheck(quint16 port)
             const bool enabled = !client.isEmpty() && service.access().setEnabled(true)
                 && waitFor([&] { return service.status() == QStringLiteral("Listening"); }, 1000);
             const auto entry = service.directory().entries().first();
-            if (enabled && service.access().setGrant(client, entry, true, {}, true)) {
+            if (enabled && NovaTerm::Mcp::TestSupport::setGrant(service.access(), client, entry, true, {}, true)) {
                 Host host;
                 if (host.start(root.filePath("instances"),
                     service.access().exportToken(client).value_or(QByteArray{}))) {
@@ -3583,6 +3616,164 @@ int performanceFixture(QCoreApplication& application, const QString& file, bool 
 }
 }
 
+void McpTests::settingsDialogRoundTripsTerminalPermissions()
+{
+    eApp->init();
+    Fixture f;
+    QVERIFY(f.service.access().setEnabled(true));
+    QWidget owner;
+    QPointer<McpSettingsDialog> dialog = new McpSettingsDialog(&f.service, &owner);
+    auto* tree = dialog->findChild<ElaTreeWidget*>();
+    QVERIFY(tree && tree->topLevelItemCount() == 1);
+    const auto entry = f.service.directory().entries().first();
+    QVERIFY(!f.service.access().canRead(f.client, entry));
+    tree->topLevelItem(0)->setCheckState(6, Qt::Checked);
+    QTRY_VERIFY(f.service.access().canControlTerminal(f.client, entry));
+    QVERIFY(f.service.access().canRead(f.client, entry));
+    QVERIFY(!f.service.access().canRunCommand(f.client, entry));
+    QVERIFY(!f.service.access().canRunScriptTask(f.client, entry));
+    QVERIFY(!f.service.access().canUseElevation(f.client, entry));
+    QCoreApplication::processEvents();
+    tree->topLevelItem(0)->setCheckState(7, Qt::Checked);
+    QTRY_VERIFY(f.service.access().canUseElevation(f.client, entry));
+    QCoreApplication::processEvents();
+    tree->topLevelItem(0)->setCheckState(6, Qt::Unchecked);
+    QTRY_VERIFY(!f.service.access().canControlTerminal(f.client, entry));
+    QVERIFY(!f.service.access().canUseElevation(f.client, entry));
+    QVERIFY(f.service.access().canRead(f.client, entry));
+    QCoreApplication::processEvents();
+    tree->topLevelItem(0)->setCheckState(6, Qt::Checked);
+    tree->topLevelItem(0)->setCheckState(7, Qt::Checked);
+    QVERIFY(f.service.access().canUseElevation(f.client, entry));
+    tree->topLevelItem(0)->setCheckState(2, Qt::Unchecked);
+    QTRY_VERIFY(!f.service.access().canRead(f.client, entry));
+    QVERIFY(!f.service.access().canControlTerminal(f.client, entry));
+    QVERIFY(!f.service.access().canUseElevation(f.client, entry));
+    QCoreApplication::processEvents();
+    QCOMPARE(tree->topLevelItem(0)->checkState(6), Qt::Unchecked);
+    QCOMPARE(tree->topLevelItem(0)->checkState(7), Qt::Unchecked);
+}
+
+void McpTests::settingsDialogRejectsElevationWithoutResettingActiveModel_data()
+{
+    QTest::addColumn<bool>("telnet");
+    QTest::newRow("serial") << false;
+    QTest::newRow("telnet") << true;
+}
+
+void McpTests::settingsDialogRejectsElevationWithoutResettingActiveModel()
+{
+    QFETCH(bool, telnet);
+    eApp->init();
+    Fixture f;
+    // 使用假传输；MCP 状态变化后，旧 UI 项目的后端拒绝仍不得删除活动节点。
+    f.session.close(CloseMode::Abort);
+    QVERIFY(f.session.resetForReuse());
+    f.session.attach(&f.local, TerminalSession::Ownership::Borrowed,
+        telnet ? TransportKind::Telnet : TransportKind::Serial);
+    QVERIFY(f.session.start());
+    QVERIFY(f.enable());
+    const auto entry = f.service.directory().entries().first();
+    QVERIFY(NovaTerm::Mcp::TestSupport::setTerminalGrant(f.service.access(), f.client, entry, true));
+    QVERIFY(!f.service.access().canUseElevation(f.client, entry));
+    QWidget owner;
+    QPointer<McpSettingsDialog> dialog = new McpSettingsDialog(&f.service, &owner);
+    auto* tree = dialog->findChild<ElaTreeWidget*>();
+    QVERIFY(tree && tree->topLevelItemCount() == 1);
+    const auto index = tree->indexFromItem(tree->topLevelItem(0), 7);
+    const QPersistentModelIndex retained(index);
+    QSignalSpy resets(tree->model(), &QAbstractItemModel::modelReset);
+    QVERIFY(f.service.access().setEnabled(false));
+    // 即使程序直接写入模型而绕过禁用的 UI，后端拒绝也不得同步删除活动节点。
+    QVERIFY(tree->model()->setData(index, Qt::Checked, Qt::CheckStateRole));
+    // Qt setData 尚在使用当前 item 时，权限拒绝不能同步 clear/rebuild 模型。
+    QVERIFY(retained.isValid());
+    QCOMPARE(resets.size(), 0);
+    QVERIFY(!f.service.access().canUseElevation(f.client, entry));
+    QTRY_VERIFY(!retained.isValid());
+    QVERIFY(tree->topLevelItemCount() == 1);
+    QCOMPARE(tree->topLevelItem(0)->checkState(7), Qt::Unchecked);
+    QVERIFY(!f.service.access().canControlTerminal(f.client, entry));
+}
+
+void McpTests::settingsDialogElevationCheckboxRequiresSupportedContext_data()
+{
+    QTest::addColumn<QString>("connection");
+    QTest::addColumn<bool>("control");
+    QTest::addColumn<bool>("canGrant");
+    QTest::newRow("serial") << QString("serial") << true << true;
+    QTest::newRow("telnet") << QString("telnet") << true << true;
+    QTest::newRow("local-without-input") << QString("local") << false << false;
+    QTest::newRow("local-with-input") << QString("local") << true << true;
+}
+
+void McpTests::settingsDialogElevationCheckboxRequiresSupportedContext()
+{
+    QFETCH(QString, connection);
+    QFETCH(bool, control);
+    QFETCH(bool, canGrant);
+    eApp->init();
+    Fixture f;
+    if (connection != "local") {
+        f.session.close(CloseMode::Abort);
+        QVERIFY(f.session.resetForReuse());
+        f.session.attach(&f.local, TerminalSession::Ownership::Borrowed,
+            connection == "serial" ? TransportKind::Serial : TransportKind::Telnet);
+        QVERIFY(f.session.start());
+    }
+    QVERIFY(f.enable());
+    QTRY_COMPARE(f.service.status(), QStringLiteral("Listening"));
+    const auto entry = f.service.directory().entries().first();
+    if (control) QVERIFY(NovaTerm::Mcp::TestSupport::setTerminalGrant(f.service.access(), f.client, entry, true));
+    QWidget owner;
+    QPointer<McpSettingsDialog> dialog = new McpSettingsDialog(&f.service, &owner);
+    auto* tree = dialog->findChild<ElaTreeWidget*>();
+    QVERIFY(tree && tree->topLevelItemCount() == 1);
+    const auto preview = qEnvironmentVariable("NOVATERM_MCP_PERMISSION_PREVIEW");
+    if (!preview.isEmpty()) {
+        const auto originalTheme = eTheme->getThemeMode();
+        const auto restoreTheme = qScopeGuard([originalTheme] { eTheme->setThemeMode(originalTheme); });
+        dialog->resize(1400, 860);
+        dialog->show();
+        for (const auto theme : {ElaThemeType::Light, ElaThemeType::Dark}) {
+            eTheme->setThemeMode(theme);
+            QTest::qWait(20);
+            const auto path = preview + '-' + connection + (control ? "-input-" : "-no-input-")
+                + (theme == ElaThemeType::Dark ? "dark.png" : "light.png");
+            QVERIFY(dialog->grab().save(path));
+        }
+        dialog->hide();
+    }
+    const auto index = tree->indexFromItem(tree->topLevelItem(0), 7);
+    const QPersistentModelIndex retained(index);
+    QSignalSpy revoked(&f.service.access(), &AccessStore::revoked);
+    QStyleOptionViewItem option;
+    option.rect = QRect(0, 0, 120, 30);
+    QMouseEvent release(QEvent::MouseButtonRelease, QPointF(60, 15), QPointF(60, 15),
+        Qt::LeftButton, Qt::NoButton, Qt::NoModifier);
+    auto* delegate = tree->itemDelegateForColumn(7);
+    QVERIFY(delegate);
+    QCOMPARE(delegate->editorEvent(&release, tree->model(), option, index), canGrant);
+    QCOMPARE(f.service.access().canUseElevation(f.client, entry), canGrant);
+    if (!canGrant) {
+        QVERIFY(!tree->topLevelItem(0)->text(7).isEmpty());
+        QVERIFY(!tree->topLevelItem(0)->toolTip(7).isEmpty());
+        QCOMPARE(revoked.size(), 0);
+        QCOMPARE(tree->topLevelItem(0)->checkState(7), Qt::Unchecked);
+        QCoreApplication::processEvents();
+        QVERIFY(retained.isValid());
+        QCOMPARE(f.service.access().canControlTerminal(f.client, entry), control);
+    }
+    if (connection == "local" && !control) {
+        tree->topLevelItem(0)->setCheckState(6, Qt::Checked);
+        QTRY_VERIFY(f.service.access().canControlTerminal(f.client, entry));
+        QCoreApplication::processEvents();
+        const auto enabledIndex = tree->indexFromItem(tree->topLevelItem(0), 7);
+        QVERIFY(delegate->editorEvent(&release, tree->model(), option, enabledIndex));
+        QVERIFY(f.service.access().canUseElevation(f.client, entry));
+    }
+}
+
 void McpTests::terminalInteractionRequiresNewGrantAndDeduplicates()
 {
     Fixture f;
@@ -3593,7 +3784,7 @@ void McpTests::terminalInteractionRequiresNewGrantAndDeduplicates()
     auto initial = host.call("novaterm_read_context", read);
     QVERIFY(initial.value("ok").toBool());
     QVERIFY(initial.value("data").toObject().value("inputToken").toString().isEmpty());
-    QVERIFY(f.service.access().setTerminalGrant(f.client, f.service.directory().entries().first(), true));
+    QVERIFY(NovaTerm::Mcp::TestSupport::setTerminalGrant(f.service.access(), f.client, f.service.directory().entries().first(), true));
     initial = host.call("novaterm_read_context", read);
     const auto inputToken = initial.value("data").toObject().value("inputToken").toString();
     QVERIFY(!inputToken.isEmpty());
@@ -3613,6 +3804,287 @@ void McpTests::terminalInteractionRequiresNewGrantAndDeduplicates()
     const auto stale = host.call("novaterm_interact_terminal", input);
     QVERIFY(!stale.value("ok").toBool());
     QCOMPARE(f.local.written, QByteArray("python -i\rx"));
+}
+
+void McpTests::terminalInteractionSupportsEveryTransport_data()
+{
+    QTest::addColumn<int>("kind");
+    QTest::newRow("local") << int(TransportKind::LocalShell);
+    QTest::newRow("ssh") << int(TransportKind::Ssh);
+    QTest::newRow("serial") << int(TransportKind::Serial);
+    QTest::newRow("telnet") << int(TransportKind::Telnet);
+    QTest::newRow("custom") << int(TransportKind::Custom);
+}
+
+void McpTests::terminalInteractionSupportsEveryTransport()
+{
+    QFETCH(int, kind);
+    Fixture f;
+    f.session.close(CloseMode::Abort);
+    QVERIFY(f.session.resetForReuse());
+    RuntimeConfig config;
+    config.transportKind = static_cast<TransportKind>(kind);
+    config.transport.insert("interactiveLineEnding", "crlf");
+    f.session.attach(&f.local, TerminalSession::Ownership::Borrowed, config);
+    QVERIFY(f.session.start());
+    QVERIFY(f.enable());
+    const auto entry = f.service.directory().entries().first();
+    QVERIFY(NovaTerm::Mcp::TestSupport::setTerminalGrant(f.service.access(), f.client, entry, true));
+    Host host; QVERIFY(host.start(f.runtime(), f.token()));
+    auto read = f.identity(); read.insert("responseMode", "compact");
+    const auto observed = host.call("novaterm_read_context", read);
+    QVERIFY(observed.value("ok").toBool());
+    const auto inputToken = observed.value("data").toObject().value("inputToken").toString();
+    QVERIFY2(!inputToken.isEmpty(), "A connected terminal must not be denied by its transport kind.");
+    QVERIFY(f.local.written.isEmpty()); // No hidden Shell/OS probe.
+    auto args = f.identity();
+    args.insert("inputToken", inputToken);
+    args.insert("operationId", QUuid::createUuid().toString(QUuid::WithoutBraces));
+    args.insert("waitMs", 0);
+    args.insert("actions", QJsonArray{QJsonObject{{"type", "text"}, {"text", "echo"}},
+        QJsonObject{{"type", "paste"}, {"text", " hello"}},
+        QJsonObject{{"type", "key"}, {"key", "c"}, {"modifiers", QJsonArray{"Ctrl"}}},
+        QJsonObject{{"type", "line_ending"}}});
+    const auto result = host.call("novaterm_interact_terminal", args);
+    QVERIFY(result.value("ok").toBool());
+    QTRY_COMPARE(f.local.written, QByteArray("echo hello\x03\r\n"));
+    QCOMPARE(result.value("data").toObject().value("operation").toObject()
+        .value("acceptedActionCount").toInt(-1), 4);
+}
+
+void McpTests::compactCapturesRetainNewestFour()
+{
+    Fixture f; QVERIFY(f.enable()); Host host; QVERIFY(host.start(f.runtime(), f.token()));
+    emit f.local.readyRead(QByteArrayLiteral("capture-retention-marker\r\n"));
+    QVERIFY(f.core.waitForIdle(1000));
+    auto read = f.identity(); read.insert("responseMode", "compact");
+    QStringList newest;
+    for (int i = 0; i < 12; ++i) {
+        const auto response = host.call("novaterm_read_context", read);
+        QVERIFY(response.value("ok").toBool());
+        newest.append(response.value("data").toObject().value("captureId").toString());
+        if (newest.size() > 4) {
+            auto search = f.identity(); search.insert("captureId", newest.takeFirst());
+            search.insert("query", "capture-retention-marker");
+            QVERIFY(!host.call("novaterm_search_context", search).value("ok").toBool());
+        }
+        for (const auto& id : newest) {
+            auto search = f.identity(); search.insert("captureId", id);
+            search.insert("query", "capture-retention-marker");
+            const auto found = host.call("novaterm_search_context", search);
+            QVERIFY2(found.value("ok").toBool(), "A newer capture was evicted before an older one.");
+            QVERIFY(!found.value("data").toObject().value("matches").toArray().isEmpty());
+        }
+    }
+}
+
+void McpTests::compactBaseSnapshotsAreRateLimited()
+{
+    Fixture f; QVERIFY(f.enable()); Host host; QVERIFY(host.start(f.runtime(), f.token()));
+    auto read = f.identity(); read.insert("responseMode", "compact");
+    QList<qint64> captured;
+    for (int i = 0; i < 14; ++i) {
+        emit f.local.readyRead(QByteArray("snapshot-") + QByteArray::number(i) + "\r\n");
+        QVERIFY(f.core.waitForIdle(1000));
+        const auto response = host.call("novaterm_read_context", read);
+        QVERIFY(response.value("ok").toBool());
+        const auto stamp = QDateTime::fromString(response.value("data").toObject()
+            .value("capturedAt").toString(), Qt::ISODateWithMs).toMSecsSinceEpoch();
+        if (captured.isEmpty() || captured.last() != stamp) captured.append(stamp);
+        QTest::qWait(30);
+    }
+    QVERIFY(captured.size() >= 2); // Must eventually publish new output, not freeze forever.
+    for (int i = 1; i < captured.size(); ++i)
+        QVERIFY2(captured[i] - captured[i - 1] >= 240,
+            "Ordinary output must share one base snapshot for a 250 ms sampling interval.");
+}
+
+void McpTests::elevationAvailabilityUsesIdentityNotConnectionType()
+{
+    for (const auto kind : {TransportKind::Serial, TransportKind::Telnet, TransportKind::Custom}) {
+        Fixture f;
+        f.session.close(CloseMode::Abort); QVERIFY(f.session.resetForReuse());
+        f.session.attach(&f.local, TerminalSession::Ownership::Borrowed, kind);
+        QVERIFY(f.session.start()); QVERIFY(f.enable());
+        const auto entry = f.service.directory().entries().first();
+        QCOMPARE(f.service.access().elevationGrantDisabledReason(f.client, entry),
+            QString("TERMINAL_PERMISSION_REQUIRED"));
+        QVERIFY(NovaTerm::Mcp::TestSupport::setTerminalGrant(f.service.access(), f.client, entry, true));
+        QCOMPARE(f.service.access().elevationGrantDisabledReason(f.client, entry),
+            QString{});
+        QVERIFY(NovaTerm::Mcp::TestSupport::setTerminalGrant(f.service.access(), f.client, entry, true, true));
+        QVERIFY(f.service.access().canUseElevation(f.client, entry));
+        QVERIFY(!f.service.access().hasElevationCredential(entry, "sudo"));
+        QVERIFY(f.local.written.isEmpty());
+    }
+}
+
+void McpTests::settingsDialogKeepsPendingGrantsForEveryTerminal_data()
+{
+    QTest::addColumn<int>("kind");
+    QTest::addColumn<bool>("backendReady");
+#if defined(Q_OS_WIN) || defined(Q_OS_LINUX)
+    QTest::newRow("local-ready") << int(TransportKind::LocalShell) << true;
+#endif
+    QTest::newRow("local-backend-missing") << int(TransportKind::LocalShell) << false;
+    QTest::newRow("ssh-ready") << int(TransportKind::Ssh) << true;
+    QTest::newRow("ssh-backend-missing") << int(TransportKind::Ssh) << false;
+    QTest::newRow("serial") << int(TransportKind::Serial) << false;
+    QTest::newRow("telnet") << int(TransportKind::Telnet) << false;
+    QTest::newRow("custom") << int(TransportKind::Custom) << false;
+}
+
+void McpTests::settingsDialogKeepsPendingGrantsForEveryTerminal()
+{
+    QFETCH(int, kind); QFETCH(bool, backendReady);
+    eApp->init();
+    Fixture f;
+    if (static_cast<TransportKind>(kind) == TransportKind::Ssh) f.makeSsh();
+    else if (static_cast<TransportKind>(kind) != TransportKind::LocalShell) {
+        f.session.close(CloseMode::Abort); QVERIFY(f.session.resetForReuse());
+        f.session.attach(&f.local, TerminalSession::Ownership::Borrowed, static_cast<TransportKind>(kind));
+        QVERIFY(f.session.start());
+    }
+    if (!backendReady) f.session.commandFacade()->reset(f.session.statistics().generation);
+    QVERIFY(f.enable());
+    f.service.directory().setDisplayTitle(&f.session, QString::fromLatin1(QTest::currentDataTag()));
+    const auto entry = f.service.directory().entries().first();
+    QVERIFY(NovaTerm::Mcp::TestSupport::setTerminalGrant(f.service.access(), f.client, entry, true));
+    QWidget owner; McpSettingsDialog dialog(&f.service, &owner);
+    auto* tree = dialog.findChild<ElaTreeWidget*>();
+    QVERIFY(tree && tree->topLevelItemCount() == 1);
+    QCOMPARE(tree->topLevelItem(0)->childCount(), 4);
+    QStyleOptionViewItem option; option.rect = QRect(0, 0, 120, 30);
+    QMouseEvent release(QEvent::MouseButtonRelease, QPointF(60, 15), QPointF(60, 15),
+        Qt::LeftButton, Qt::NoButton, Qt::NoModifier);
+    const auto click = [&](int column) {
+        return tree->itemDelegateForColumn(column)->editorEvent(&release, tree->model(), option,
+            tree->indexFromItem(tree->topLevelItem(0), column));
+    };
+    QVERIFY(click(3));
+    QTRY_COMPARE(f.service.access().commands(f.client, entry).size(), 4);
+    QCoreApplication::processEvents();
+    QCOMPARE(tree->topLevelItem(0)->checkState(3), Qt::Checked);
+    QVERIFY(click(7));
+    QTRY_VERIFY(f.service.access().canUseElevation(f.client, entry));
+    QCoreApplication::processEvents();
+    QCOMPARE(tree->topLevelItem(0)->checkState(7), Qt::Checked);
+    if (!backendReady) QVERIFY(!tree->topLevelItem(0)->text(3).isEmpty());
+    QVERIFY(!tree->topLevelItem(0)->text(7).isEmpty());
+    QCOMPARE(tree->itemWidget(tree->topLevelItem(0), 8)->isEnabled(), backendReady);
+    const auto preview = qEnvironmentVariable("NOVATERM_MCP_GRANT_PREVIEW");
+    if (!preview.isEmpty()) {
+        const auto previousTheme = eTheme->getThemeMode();
+        const auto restoreTheme = qScopeGuard([previousTheme] { eTheme->setThemeMode(previousTheme); });
+        dialog.resize(1600, 900); dialog.show();
+        for (const auto theme : {ElaThemeType::Light, ElaThemeType::Dark}) {
+            eTheme->setThemeMode(theme); QTest::qWait(20);
+            QVERIFY(dialog.grab().save(preview + '-' + QTest::currentDataTag()
+                + (theme == ElaThemeType::Dark ? "-dark.png" : "-light.png")));
+        }
+        dialog.hide();
+    }
+    Host host; QVERIFY(host.start(f.runtime(), f.token()));
+    const auto sessions = host.call("novaterm_list_sessions", {});
+    const auto listed = sessions.value("data").toObject().value("sessions").toArray();
+    QCOMPARE(listed.size(), 1);
+    QVERIFY(listed[0].toObject().value("permissions").toObject().value("useElevation").toBool());
+    QVERIFY(!listed[0].toObject().value("availability").toObject().value("elevationAvailable").toBool());
+    QVERIFY(!listed[0].toObject().value("availability").toObject().value("elevationDisabledReason").toString().isEmpty());
+    const auto commands = host.call("novaterm_list_commands", f.identity());
+    QVERIFY(commands.value("ok").toBool());
+    QCOMPARE(commands.value("data").toObject().value("executionEnabled").toBool(), backendReady);
+    QCOMPARE(commands.value("data").toObject().value("commands").toArray().size(), backendReady ? 4 : 0);
+    auto read = f.identity(); read.insert("responseMode", "compact");
+    const auto observed = host.call("novaterm_read_context", read);
+    auto elevate = f.identity(); elevate.insert("inputToken", observed.value("data").toObject().value("inputToken"));
+    elevate.insert("operationId", QUuid::createUuid().toString(QUuid::WithoutBraces));
+    elevate.insert("method", "sudo"); elevate.insert("mode", "shell");
+    const auto denied = host.call("novaterm_request_elevation", elevate);
+    QVERIFY(!denied.value("ok").toBool());
+    if (!backendReady) QVERIFY(!f.service.access().setElevationCredential(entry, "sudo", "not-a-real-password"));
+    QVERIFY(!f.service.access().hasElevationCredential(entry, "sudo"));
+    QVERIFY(f.local.written.isEmpty());
+    tree->topLevelItem(0)->setCheckState(2, Qt::Unchecked);
+    QTRY_VERIFY(!f.service.access().canUseElevation(f.client, entry));
+    QVERIFY(f.service.access().commands(f.client, entry).isEmpty());
+}
+
+void McpTests::settingsDialogRejectsStaleConnectionRow_data()
+{
+    QTest::addColumn<int>("kind");
+    QTest::newRow("local") << int(TransportKind::LocalShell);
+    QTest::newRow("ssh") << int(TransportKind::Ssh);
+    QTest::newRow("serial") << int(TransportKind::Serial);
+    QTest::newRow("telnet") << int(TransportKind::Telnet);
+    QTest::newRow("custom") << int(TransportKind::Custom);
+}
+
+void McpTests::settingsDialogRejectsStaleConnectionRow()
+{
+    QFETCH(int, kind);
+    eApp->init(); Fixture f;
+    f.session.close(CloseMode::Abort); QVERIFY(f.session.resetForReuse());
+    f.session.attach(&f.local, TerminalSession::Ownership::Borrowed, static_cast<TransportKind>(kind));
+    QVERIFY(f.session.start()); QVERIFY(f.enable());
+    const auto original = f.service.directory().entries().first();
+    QVERIFY(NovaTerm::Mcp::TestSupport::setTerminalGrant(f.service.access(), f.client, original, true, true));
+    LocalFake replacement; QVERIFY(replacement.connectToHost());
+    QWidget owner; McpSettingsDialog dialog(&f.service, &owner);
+    auto* tree = dialog.findChild<ElaTreeWidget*>();
+    QVERIFY(tree && tree->topLevelItemCount() == 1);
+    auto* oldRow = tree->topLevelItem(0);
+    QCOMPARE(oldRow->checkState(6), Qt::Checked);
+    QCOMPARE(oldRow->checkState(7), Qt::Checked);
+    const QPersistentModelIndex retained(tree->indexFromItem(oldRow, 7));
+    f.session.attach(&replacement, TerminalSession::Ownership::Borrowed, static_cast<TransportKind>(kind));
+    const auto current = f.service.directory().entries().first();
+    QCOMPARE(current.id, original.id);
+    QVERIFY(current.epoch != original.epoch);
+    QVERIFY(!f.service.access().canControlTerminal(f.client, current));
+    // Queued refresh has not run: a revoke on the previous connection must never
+    // copy its still-checked input permission onto the replacement connection.
+    oldRow->setCheckState(7, Qt::Unchecked);
+    QVERIFY(retained.isValid()); // No deletion while itemChanged/setData is active.
+    QVERIFY(!f.service.access().canControlTerminal(f.client, current));
+    QVERIFY(!f.service.access().canUseElevation(f.client, current));
+    QVERIFY(!f.service.access().canRead(f.client, current));
+    QTRY_VERIFY(!retained.isValid());
+    QVERIFY(replacement.written.isEmpty());
+}
+
+void McpTests::terminalInputReportsSequenceAndReleaseAdmission()
+{
+    Fixture f; QVERIFY(f.enable());
+    QVERIFY(NovaTerm::Mcp::TestSupport::setTerminalGrant(f.service.access(), f.client, f.service.directory().entries().first(), true));
+    Host host; QVERIFY(host.start(f.runtime(), f.token()));
+    auto read = f.identity(); read.insert("responseMode", "compact");
+    auto input = f.identity(); input.insert("waitMs", 0);
+    const auto observe = [&] { return host.call("novaterm_read_context", read).value("data").toObject(); };
+    input.insert("inputToken", observe().value("inputToken"));
+    input.insert("operationId", QUuid::createUuid().toString(QUuid::WithoutBraces));
+    input.insert("actions", QJsonArray{QJsonObject{{"type", "text"}, {"text", "a"}}});
+    QVERIFY(host.call("novaterm_interact_terminal", input).value("ok").toBool());
+    QTRY_COMPARE(f.local.written, QByteArray("a"));
+    input.insert("inputToken", observe().value("inputToken"));
+    input.insert("operationId", QUuid::createUuid().toString(QUuid::WithoutBraces));
+    QVERIFY(host.call("novaterm_interact_terminal", input).value("ok").toBool());
+    QTRY_COMPARE(f.local.written, QByteArray("aa"));
+    input.insert("operationId", QUuid::createUuid().toString(QUuid::WithoutBraces));
+    const auto stale = host.call("novaterm_interact_terminal", input);
+    QCOMPARE(stale.value("error").toObject().value("code").toString(), QString("INPUT_ALREADY_SUBMITTED"));
+    QCOMPARE(f.local.written, QByteArray("aa"));
+    input.insert("inputToken", observe().value("inputToken"));
+    const auto releaseId = QUuid::createUuid().toString(QUuid::WithoutBraces);
+    input.insert("operationId", releaseId);
+    input.insert("actions", QJsonArray{QJsonObject{{"type", "release"}}});
+    const auto released = host.call("novaterm_interact_terminal", input);
+    QVERIFY(released.value("ok").toBool());
+    const auto operation = released.value("data").toObject().value("operation").toObject();
+    QCOMPARE(operation.value("id").toString(), releaseId);
+    QCOMPARE(operation.value("acceptedActionCount").toInt(-1), 1);
+    QVERIFY(!operation.value("inputMayHaveBeenSent").toBool());
+    QCOMPARE(f.local.written, QByteArray("aa"));
 }
 
 void McpTests::compactAttentionWaitCoalescesScrollAndExpires()
@@ -3643,7 +4115,7 @@ void McpTests::terminalCommandCompletionAndReadinessAreSeparateFromOutput()
     Fixture f;
     QVERIFY(f.makeScriptUpload());
     QVERIFY(f.enable());
-    QVERIFY(f.service.access().setTerminalGrant(f.client, f.service.directory().entries().first(), true));
+    QVERIFY(NovaTerm::Mcp::TestSupport::setTerminalGrant(f.service.access(), f.client, f.service.directory().entries().first(), true));
     Host host; QVERIFY(host.start(f.runtime(), f.token()));
     auto read = f.identity(); read.insert("responseMode", "compact");
     QVERIFY(host.call("novaterm_read_context", read).value("ok").toBool());
@@ -3697,6 +4169,27 @@ void McpTests::compactCaptureExpansionDoesNotMoveLiveCursor()
     QVERIFY(!unchanged.value("outputChanged").toBool());
 }
 
+void McpTests::fullProjectionExpansionStartsAtOmittedLine()
+{
+    Fixture f; QVERIFY(f.enable()); Host host; QVERIFY(host.start(f.runtime(), f.token()));
+    emit f.local.readyRead(QByteArrayLiteral("alpha\r\nbeta\r\ngamma\r\n"));
+    QVERIFY(f.core.waitForIdle(1000));
+    auto read = f.identity(); read.insert("responseMode", "full"); read.insert("maxLines", 1);
+    const auto first = host.call("novaterm_read_context", read);
+    QVERIFY(first.value("ok").toBool());
+    const auto token = first.value("data").toObject().value("expandToken").toString();
+    QVERIFY(!token.isEmpty());
+    auto expand = f.identity(); expand.insert("responseMode", "full");
+    expand.insert("expandToken", token); expand.insert("maxLines", 1);
+    const auto second = host.call("novaterm_read_context", expand);
+    QVERIFY(second.value("ok").toBool());
+    QString text;
+    for (const auto& line : second.value("data").toObject().value("viewport").toArray())
+        text += line.toObject().value("text").toString();
+    QVERIFY(text.contains(QStringLiteral("beta")));
+    QVERIFY(!text.contains(QStringLiteral("alpha")));
+}
+
 void McpTests::compactExpansionAdvancesForEscapedLongLine()
 {
     Fixture f; QVERIFY(f.enable()); Host host; QVERIFY(host.start(f.runtime(), f.token()));
@@ -3706,20 +4199,169 @@ void McpTests::compactExpansionAdvancesForEscapedLongLine()
     emit f.local.readyRead(text + "\r\n"); QVERIFY(f.core.waitForIdle(1000));
     auto read = f.identity(); read.insert("responseMode", "compact"); read.insert("maxLines", 1);
     const auto first = host.call("novaterm_read_context", read).value("data").toObject();
+    auto token = first.value("expandToken").toString(); QVERIFY(!token.isEmpty());
+    auto expand = f.identity(); expand.insert("responseMode", "compact");
+    QByteArray expanded;
+    for (int page = 0; page < 100 && !token.isEmpty(); ++page) {
+        expand.insert("expandToken", token);
+        const auto response = host.call("novaterm_read_context", expand);
+        QVERIFY(response.value("ok").toBool());
+        QVERIFY(QJsonDocument(toolResult(response)).toJson(QJsonDocument::Compact).size() <= 8192);
+        const auto result = response.value("data").toObject();
+        const auto viewport = result.value("viewport").toArray();
+        QVERIFY(!viewport.isEmpty());
+        for (const auto& line : viewport)
+            expanded += line.toObject().value("text").toString().toUtf8();
+        const auto next = result.value("expandToken").toString();
+        QVERIFY(next != token);
+        token = next;
+    }
+    QVERIFY(token.isEmpty());
+    QVERIFY(expanded.contains(text));
+}
+
+void McpTests::compactExpansionRejectsTooSmallUtf8Budget()
+{
+    Fixture f; QVERIFY(f.enable()); Host host; QVERIFY(host.start(f.runtime(), f.token()));
+    emit f.local.readyRead(QString::fromUtf8(u8"中").toUtf8());
+    QVERIFY(f.core.waitForIdle(1000));
+    auto read = f.identity(); read.insert("responseMode", "compact"); read.insert("maxLines", 1);
+    const auto first = host.call("novaterm_read_context", read).value("data").toObject();
     const auto token = first.value("expandToken").toString(); QVERIFY(!token.isEmpty());
-    auto expand = f.identity(); expand.insert("responseMode", "compact"); expand.insert("expandToken", token);
+    auto expand = f.identity(); expand.insert("responseMode", "compact");
+    expand.insert("expandToken", token); expand.insert("maxBytes", 1); expand.insert("maxLines", 1);
+    const auto response = host.call("novaterm_read_context", expand);
+    QVERIFY(!response.value("ok").toBool());
+    QCOMPARE(response.value("error").toObject().value("code").toString(),
+        QStringLiteral("TEXT_BUDGET_TOO_SMALL"));
+}
+
+void McpTests::compactCursorSupportsFullProjection()
+{
+    Fixture f; QVERIFY(f.enable()); Host host; QVERIFY(host.start(f.runtime(), f.token()));
+    emit f.local.readyRead(QByteArrayLiteral("full-snapshot-marker\r\n"));
+    QVERIFY(f.core.waitForIdle(1000));
+    auto read = f.identity(); read.insert("responseMode", "compact");
+    const auto first = host.call("novaterm_read_context", read);
+    QVERIFY(first.value("ok").toBool());
+    read.insert("responseMode", "full");
+    read.insert("includeViewport", true);
+    read.insert("sinceToken", first.value("data").toObject().value("nextToken"));
+    const auto full = host.call("novaterm_read_context", read);
+    QVERIFY2(full.value("ok").toBool(), qPrintable(QString::fromUtf8(QJsonDocument(full).toJson())));
+    const auto containsMarker = [](const QJsonObject& response) {
+        const auto viewport = response.value("data").toObject().value("viewport").toArray();
+        return std::any_of(viewport.begin(), viewport.end(), [](const QJsonValue& line) {
+            return line.toObject().value("text").toString().contains("full-snapshot-marker");
+        });
+    };
+    QVERIFY(containsMarker(full));
+    read.remove("responseMode");
+    read.insert("sinceToken", full.value("data").toObject().value("nextToken"));
+    const auto implicitFull = host.call("novaterm_read_context", read);
+    QVERIFY(implicitFull.value("ok").toBool());
+    QVERIFY(containsMarker(implicitFull));
+
+    const auto legacy = host.call("novaterm_read_context", f.identity());
+    QVERIFY(legacy.value("ok").toBool());
+    read.insert("responseMode", "full");
+    read.insert("sinceToken", legacy.value("data").toObject().value("nextToken"));
+    const auto migratedFull = host.call("novaterm_read_context", read);
+    QVERIFY(migratedFull.value("ok").toBool());
+    QVERIFY(containsMarker(migratedFull));
+    read.insert("responseMode", "compact");
+    read.insert("sinceToken", migratedFull.value("data").toObject().value("nextToken"));
+    const auto explicitViewport = host.call("novaterm_read_context", read);
+    QVERIFY(explicitViewport.value("ok").toBool());
+    QVERIFY(containsMarker(explicitViewport));
+    read.remove("includeViewport");
+    const auto compact = host.call("novaterm_read_context", read);
+    QVERIFY(compact.value("ok").toBool());
+    QVERIFY(compact.value("data").toObject().value("viewport").toArray().isEmpty());
+}
+
+void McpTests::fullProjectionTruncationRequiresReset_data()
+{
+    QTest::addColumn<bool>("byteBudget");
+    QTest::newRow("line-budget") << false;
+    QTest::newRow("byte-budget") << true;
+}
+
+void McpTests::fullProjectionTruncationRequiresReset()
+{
+    QFETCH(bool, byteBudget);
+    Fixture f; QVERIFY(f.enable()); Host host; QVERIFY(host.start(f.runtime(), f.token()));
+    emit f.local.readyRead(QByteArrayLiteral("full-first\r\nfull-second\r\n"));
+    QVERIFY(f.core.waitForIdle(1000));
+    auto read = f.identity(); read.insert("responseMode", "full");
+    read.insert("includeViewport", true);
+    read.insert("maxBytes", byteBudget ? 3 : 65536);
+    read.insert("maxLines", byteBudget ? 1024 : 1);
+    const auto response = host.call("novaterm_read_context", read);
+    QVERIFY(response.value("ok").toBool());
+    const auto data = response.value("data").toObject();
+    QVERIFY(!data.value("sourceTruncated").toBool());
+    QVERIFY(data.value("outputTruncated").toBool());
+    QVERIFY(data.value("resetRequired").toBool());
+    QVERIFY(data.value("nextToken").isNull());
+    const auto viewport = data.value("viewport").toArray();
+    QVERIFY(!viewport.isEmpty());
+    QCOMPARE(viewport.first().toObject().value("text").toString(),
+        byteBudget ? QStringLiteral("ful") : QStringLiteral("full-first"));
+    read.insert("responseMode", "compact");
+    const auto compact = host.call("novaterm_read_context", read);
+    QVERIFY(compact.value("ok").toBool());
+    const auto compactData = compact.value("data").toObject();
+    QVERIFY(compactData.value("projectionLimited").toBool());
+    QVERIFY(!compactData.value("resetRequired").toBool());
+    QVERIFY(!compactData.value("nextToken").toString().isEmpty());
+    QVERIFY(!compactData.value("expandToken").toString().isEmpty());
+}
+
+void McpTests::compactExpansionPreservesSourceGap()
+{
+    Fixture f; QVERIFY(f.enable()); Host host; QVERIFY(host.start(f.runtime(), f.token()));
+    QByteArray output;
+    for (int line = 0; line < 1100; ++line) output += QByteArrayLiteral("x\r\n");
+    emit f.local.readyRead(output); QVERIFY(f.core.waitForIdle(1000));
+    auto read = f.identity(); read.insert("responseMode", "compact"); read.insert("maxLines", 1);
+    const auto first = host.call("novaterm_read_context", read).value("data").toObject();
+    QVERIFY(first.value("sourceGap").toBool());
+    auto expand = f.identity(); expand.insert("responseMode", "compact");
+    expand.insert("expandToken", first.value("expandToken")); expand.insert("maxLines", 1);
     const auto response = host.call("novaterm_read_context", expand);
     QVERIFY(response.value("ok").toBool());
-    const auto result = response.value("data").toObject();
-    QVERIFY(result.value("expandToken").toString() != token);
-    QVERIFY(!result.value("viewport").toArray().isEmpty());
+    const auto data = response.value("data").toObject();
+    QVERIFY(data.value("sourceGap").toBool());
+    QVERIFY(data.value("sourceTruncated").toBool());
+    QVERIFY(data.value("resetRequired").toBool());
+}
+
+void McpTests::maximumTerminalCommandIncludesConfiguredLineEnding()
+{
+    Fixture f; QVERIFY(f.makeScriptUpload()); QVERIFY(f.enable());
+    QVERIFY(NovaTerm::Mcp::TestSupport::setTerminalGrant(f.service.access(),
+        f.client, f.service.directory().entries().first(), true));
+    Host host; QVERIFY(host.start(f.runtime(), f.token()));
+    emit f.local.readyRead(QByteArrayLiteral("\x1b]633;NT;PROMPT;1;0\a"));
+    QTRY_VERIFY(f.session.terminalController()->readyForCommand());
+    auto read = f.identity(); read.insert("responseMode", "compact");
+    const auto observed = host.call("novaterm_read_context", read).value("data").toObject();
+    const QString command(16 * 1024, QLatin1Char('a'));
+    auto args = f.identity(); args.insert("inputToken", observed.value("inputToken"));
+    args.insert("operationId", QUuid::createUuid().toString(QUuid::WithoutBraces));
+    args.insert("actions", QJsonArray{QJsonObject{{"type", "command"}, {"command", command}}});
+    args.insert("waitMs", 0);
+    const auto response = host.call("novaterm_interact_terminal", args);
+    QVERIFY2(response.value("ok").toBool(), qPrintable(QString::fromUtf8(QJsonDocument(response).toJson())));
+    QTRY_COMPARE(f.local.written, command.toUtf8() + '\r');
 }
 
 void McpTests::managedElevationRejectsWithoutAdapter()
 {
     Fixture f; QVERIFY(f.enable());
     const auto entry = f.service.directory().entries().first();
-    QVERIFY(f.service.access().setTerminalGrant(f.client, entry, true, true));
+    QVERIFY(NovaTerm::Mcp::TestSupport::setTerminalGrant(f.service.access(), f.client, entry, true, true));
     Host host; QVERIFY(host.start(f.runtime(), f.token()));
     auto read = f.identity(); read.insert("responseMode", "compact");
     const auto data = host.call("novaterm_read_context", read).value("data").toObject();

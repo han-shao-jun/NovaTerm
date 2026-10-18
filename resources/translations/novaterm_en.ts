@@ -461,6 +461,174 @@ Built with:
 <context>
     <name>McpSettingsDialog</name>
     <message>
+        <source>仅对已确认的 Linux/POSIX 目标使用固定诊断；授权不代表目标支持这些命令。</source>
+        <translation>Use fixed diagnostics only for a confirmed Linux/POSIX target. Permission does not prove that the target supports these commands.</translation>
+    </message>
+    <message>
+        <source>后端不可用</source>
+        <translation>Backend unavailable</translation>
+    </message>
+    <message>
+        <source>可以保存诊断授权，但当前没有可用的目标 Profile 或执行后端；不会自动向终端发送诊断命令。</source>
+        <translation>You can save diagnostic permissions, but no target profile or execution backend is available. No diagnostic command will be sent automatically.</translation>
+    </message>
+    <message>
+        <source>可以保存提权授权，但目标身份尚未验证，不能绑定凭据或实际提权。</source>
+        <translation>You can save elevation permission, but the target identity is unverified. Credentials cannot be bound and elevation cannot run.</translation>
+    </message>
+    <message>
+        <source>适配器不可用</source>
+        <translation>Adapter unavailable</translation>
+    </message>
+    <message>
+        <source>可以保存提权授权，但当前没有可信认证适配器，不会读取或发送密码。</source>
+        <translation>You can save elevation permission, but no trusted authentication adapter is available. Passwords will not be read or sent.</translation>
+    </message>
+    <message>
+        <source>不支持</source>
+        <translation>Unsupported</translation>
+    </message>
+    <message>
+        <source>串口、Telnet 和自定义连接不支持托管提权。</source>
+        <translation>Managed elevation is not supported on serial, Telnet or custom connections.</translation>
+    </message>
+    <message>
+        <source>未连接</source>
+        <translation>Offline</translation>
+    </message>
+    <message>
+        <source>会话未连接，暂不能授权托管提权。</source>
+        <translation>Connect the session before granting managed elevation.</translation>
+    </message>
+    <message>
+        <source>需执行权限</source>
+        <translation>Needs input</translation>
+    </message>
+    <message>
+        <source>请先勾选允许执行命令，再授权托管提权。</source>
+        <translation>Enable Allow commands before granting managed elevation.</translation>
+    </message>
+    <message>
+        <source>凭据更新中</source>
+        <translation>Updating</translation>
+    </message>
+    <message>
+        <source>正在更新提权凭据，请稍后重新授权。</source>
+        <translation>Elevation credentials are being updated. Grant permission again after the update finishes.</translation>
+    </message>
+    <message>
+        <source>身份未验证</source>
+        <translation>Unverified</translation>
+    </message>
+    <message>
+        <source>尚未验证目标身份，暂不能授权托管提权。</source>
+        <translation>Verify the target identity before granting managed elevation.</translation>
+    </message>
+    <message>
+        <source>允许执行命令授予当前连接的完整终端输入权限，不再逐条确认。旧命令接口的诊断、脚本和交互权限保持独立。托管提权必须另外授权；保存密码不会启用提权，可信认证适配器尚不可用。</source>
+        <translation>Allow commands grants full terminal input access for this connection without confirming each command. Legacy diagnostic, script and interactive permissions remain separate. Managed elevation requires separate permission; saving a password does not enable it. Trusted authentication adapters are not yet available.</translation>
+    </message>
+    <message>
+        <source>接管选中会话</source>
+        <translation>Take over selected session</translation>
+    </message>
+    <message>
+        <source>允许执行命令</source>
+        <translation>Allow commands</translation>
+    </message>
+    <message>
+        <source>允许托管提权</source>
+        <translation>Allow managed elevation</translation>
+    </message>
+    <message>
+        <source>提权凭据</source>
+        <translation>Elevation credentials</translation>
+    </message>
+    <message>
+        <source>当前操作</source>
+        <translation>Current operation</translation>
+    </message>
+    <message>
+        <source>显示旧命令接口详细权限</source>
+        <translation>Show legacy command permissions</translation>
+    </message>
+    <message>
+        <source>提权凭据 — %1</source>
+        <translation>Elevation credentials — %1</translation>
+    </message>
+    <message>
+        <source>sudo 认证密码和 su root 密码分别保存，不使用 SSH 登录密码。保存后不回填。只有明确授权且可信适配器可用时才能托管认证；当前适配器不可用。撤销授权不会退出已经获得的 root Shell。</source>
+        <translation>The sudo authentication password and su root password are stored separately from the SSH login password and are never shown again. Managed authentication requires explicit permission and a trusted adapter, which is currently unavailable. Revoking permission does not exit an existing root shell.</translation>
+    </message>
+    <message>
+        <source>存储：系统凭据库。密码仅在本机设置，不对 MCP 客户端开放。</source>
+        <translation>Storage: system credential store. Passwords are configured locally and are not exposed to MCP clients.</translation>
+    </message>
+    <message>
+        <source>存储：仅本次运行。密码仅在本机设置，不对 MCP 客户端开放。</source>
+        <translation>Storage: this run only. Passwords are configured locally and are not exposed to MCP clients.</translation>
+    </message>
+    <message>
+        <source>sudo 认证密码</source>
+        <translation>sudo authentication password</translation>
+    </message>
+    <message>
+        <source>su root 密码</source>
+        <translation>su root password</translation>
+    </message>
+    <message>
+        <source>输入新密码；留空不会删除</source>
+        <translation>Enter a new password; leaving it blank does not delete it</translation>
+    </message>
+    <message>
+        <source>保存 / 替换</source>
+        <translation>Save / Replace</translation>
+    </message>
+    <message>
+        <source>删除</source>
+        <translation>Delete</translation>
+    </message>
+    <message>
+        <source>会话连接或目标已变化，未提交凭据操作。请关闭并重新打开设置。</source>
+        <translation>The session connection or target has changed. No credential operation was submitted. Close and reopen these settings.</translation>
+    </message>
+    <message>
+        <source>正在访问本机凭据库；可以关闭此窗口。</source>
+        <translation>Accessing the local credential store. You may close this window.</translation>
+    </message>
+    <message>
+        <source>允许当前客户端在本次连接输入文本、按键并执行命令。重连、撤权或目标变化后需要重新授权。</source>
+        <translation>Allow this client to enter text, press keys and run commands on this connection. Reauthorize after reconnecting, revoking access or changing the target.</translation>
+    </message>
+    <message>
+        <source>须先允许执行命令；勾选仅保存授权。实际提权还需要可信目标身份及认证适配器，保存密码不会自动启用提权。</source>
+        <translation>Allow terminal input first. Checking this box only saves permission. Actual elevation also requires a trusted target identity and authentication adapter; saving a password does not enable elevation.</translation>
+    </message>
+    <message>
+        <source>未配置</source>
+        <translation>Not configured</translation>
+    </message>
+    <message>
+        <source>密码保存在系统凭据库；保存不代表授权使用，也不启用认证适配器。</source>
+        <translation>Passwords are stored in the system credential store. Saving does not grant permission to use them or enable an authentication adapter.</translation>
+    </message>
+    <message>
+        <source>密码仅本次运行保留；保存不代表授权使用，也不启用认证适配器。</source>
+        <translation>Passwords are retained for this run only. Saving does not grant permission to use them or enable an authentication adapter.</translation>
+    </message>
+    <message>
+        <source>空闲</source>
+        <translation>Idle</translation>
+    </message>
+    <message>
+        <source>Agent 操作</source>
+        <translation>Agent control</translation>
+    </message>
+    <message>
+        <source>用户接管</source>
+        <translation>User takeover</translation>
+    </message>
+    <message>
         <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="65"/>
         <source>AI MCP access</source>
         <translation type="unfinished"></translation>
@@ -3588,6 +3756,25 @@ Termination confirmed: %3
     <message>
         <source>No matches</source>
         <translation>No matches</translation>
+    </message>
+</context>
+<context>
+    <name>QObject</name>
+    <message>
+        <source>会话连接或目标已变化；凭据操作针对打开窗口时的原目标。请关闭并重新打开设置。</source>
+        <translation>The session connection or target has changed. The credential operation applies to the original target when this window opened. Close and reopen these settings.</translation>
+    </message>
+    <message>
+        <source>已更新系统凭据库。托管提权授权已撤销，请按需重新授权。</source>
+        <translation>System credential store updated. Managed elevation permission was revoked; reauthorize if needed.</translation>
+    </message>
+    <message>
+        <source>已更新，仅本次运行保存。托管提权授权已撤销，请按需重新授权。</source>
+        <translation>Updated for this run only. Managed elevation permission was revoked; reauthorize if needed.</translation>
+    </message>
+    <message>
+        <source>凭据操作失败；请检查会话身份、密码是否为空及凭据库权限。</source>
+        <translation>Credential operation failed. Check the session identity, password and credential store permissions.</translation>
     </message>
 </context>
 </TS>

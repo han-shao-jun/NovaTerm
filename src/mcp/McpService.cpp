@@ -4,6 +4,24 @@
 #include "McpService.h"
 #include "TerminalInteraction.h"
 #include "McpProtocol.h"
+#include "protocol/ToolCodec.h"
+#include "CapabilityAdapter.h"
+#include "application/CaptureStore.h"
+#include "ObservationService.h"
+#include "tasks/ConfirmationRegistry.h"
+#include "application/RequestScheduler.h"
+#include "application/CommandDedup.h"
+#include "tasks/ExecutionRegistry.h"
+#include "tasks/TargetReservation.h"
+#include "tasks/Job.h"
+#include "tasks/ScriptTaskRegistry.h"
+#include "tasks/TaskRegistry.h"
+#include "tasks/ReadUseCases.h"
+#include "tasks/DiagnosticCommandUseCase.h"
+#include "tasks/ScriptResultUseCase.h"
+#include "tasks/ScriptCommandUseCase.h"
+#include "tasks/ExecutionService.h"
+#include "protocol/BackendEvents.h"
 #include "CommandPolicy.h"
 #include "CommandRiskPolicy.h"
 #include "HttpMcpEndpoint.h"
@@ -29,6 +47,7 @@
 #include <atomic>
 #include <chrono>
 #include <deque>
+#include <type_traits>
 #include <utility>
 
 #ifndef NOVATERM_VERSION
@@ -37,10 +56,8 @@
 
 namespace NovaTerm::Mcp {
 namespace {
-constexpr int CancelCompletionGraceMs = 250;
 QString utcNow() { return QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs); }
 QString jobKey(const QString& connection, const QString& id) { return connection + '/' + id; }
-QString versionString(quint64 version) { return QString::number(version); }
 QJsonObject error(const char* code, bool retryable = false, int retryAfter = 0)
 {
     return failure(QString::fromLatin1(code), QString::fromLatin1(code), retryable, retryAfter);
@@ -56,189 +73,27 @@ QByteArray scriptMetadataDigest(QJsonObject arguments)
     arguments.remove(QStringLiteral("scriptContent"));
     return scriptArgumentsDigest(arguments);
 }
-QString safeScriptPreview(const QByteArray& content, qsizetype maximumBytes)
+/** @brief 请求中的会话身份；list_sessions 没有会话。 */
+std::optional<SessionReference> requestSession(const ToolRequest& request)
 {
-    const QString decoded = QString::fromUtf8(content.left(maximumBytes));
-    QString preview;
-    preview.reserve(decoded.size());
-    for (const auto& character : decoded) {
-        if (character == QLatin1Char('\n') || character == QLatin1Char('\t')) {
-            preview.append(character);
-        } else if (character == QLatin1Char('\r')) {
-            preview.append(QStringLiteral("\\r"));
-        } else if (character.category() == QChar::Other_Control) {
-            preview.append(QStringLiteral("\\u%1").arg(
-                character.unicode(), 4, 16, QLatin1Char('0')));
-        } else {
-            preview.append(character);
-        }
-    }
-    return preview;
-}
-QString shellQuotePosix(QString value)
-{
-    value.replace(QLatin1Char('\''), QStringLiteral("'\\''"));
-    return QLatin1Char('\'') + value + QLatin1Char('\'');
-}
-std::optional<QString> scriptInvocationCommand(const QString& shellKind,
-    const QString& workingDirectory, const QString& invocation)
-{
-    if (workingDirectory.isEmpty() || invocation.isEmpty()
-        || workingDirectory.contains(QChar::Null)
-        || workingDirectory.contains(QLatin1Char('\r'))
-        || workingDirectory.contains(QLatin1Char('\n')))
-        return std::nullopt;
-    if (shellKind == QStringLiteral("posix")) {
-        return QStringLiteral("cd -- %1 && %2")
-            .arg(shellQuotePosix(workingDirectory), invocation);
-    }
-    if (shellKind == QStringLiteral("powershell")) {
-        QString quoted = workingDirectory;
-        quoted.replace(QLatin1Char('\''), QStringLiteral("''"));
-        return QStringLiteral("Set-Location -LiteralPath '%1' -ErrorAction Stop; %2")
-            .arg(quoted, invocation);
-    }
-    if (shellKind == QStringLiteral("cmd")) {
-        if (workingDirectory.contains(QLatin1Char('"'))
-            || workingDirectory.contains(QLatin1Char('%'))
-            || workingDirectory.contains(QLatin1Char('^')))
+    return std::visit([](const auto& value) -> std::optional<SessionReference> {
+        using Type = std::decay_t<decltype(value)>;
+        if constexpr (std::is_same_v<Type, ListSessionsRequest>)
             return std::nullopt;
-        QString quoted = workingDirectory;
-        quoted.replace(QLatin1Char('/'), QLatin1Char('\\'));
-        return QStringLiteral("cd /d \"%1\" && %2")
-            .arg(quoted, invocation);
-    }
-    return std::nullopt;
-}
-QString scriptConfirmationMessage(const QByteArray& content,
-    const QString& targetPath, const QString& workingDirectory,
-    const QString& invocation, const QStringList& reasons,
-    bool targetExistsLocally)
-{
-    constexpr qsizetype PreviewBytes = 4096;
-    const qsizetype previewLength = (std::min)(content.size(), PreviewBytes);
-    QString preview = safeScriptPreview(content, previewLength);
-    if (previewLength < content.size())
-        preview += QStringLiteral("\n… preview truncated …");
-    const QString hash = QString::fromLatin1(
-        QCryptographicHash::hash(content, QCryptographicHash::Sha256).toHex());
-    const QString overwrite = targetExistsLocally
-        ? QStringLiteral("The existing local target will be overwritten after approval.")
-        : QStringLiteral("The requested target may exist and will be overwritten after approval.");
-    return QStringLiteral(
-        "Confirm writing and running this script on the selected host.\n\n"
-        "Target: %1\nWorking directory: %2\nInvocation shown in terminal: %3\n"
-        "Size: %4 bytes\nSHA-256: %5\nRisk: %6\n%7 "
-        "The file is not automatically deleted. Script contents are not sent to the terminal.\n\n"
-        "Script preview:\n%8")
-        .arg(targetPath).arg(workingDirectory).arg(invocation).arg(content.size())
-        .arg(hash).arg(reasons.join(QStringLiteral(", "))).arg(overwrite).arg(preview);
-}
-QString normalizedScriptTarget(TransportKind kind, const QString& workingDirectory,
-                               const QString& targetPath)
-{
-    if (workingDirectory.isEmpty() || targetPath.isEmpty())
-        return {};
-    if (workingDirectory.contains(QChar::Null) || targetPath.contains(QChar::Null))
-        return {};
-    if (kind == TransportKind::LocalShell) {
-        const QFileInfo targetInfo(targetPath);
-        return QDir::cleanPath(targetInfo.isAbsolute()
-            ? targetInfo.absoluteFilePath()
-            : QDir(workingDirectory).absoluteFilePath(targetPath));
-    }
-    if (kind == TransportKind::Ssh) {
-        const QString joined = targetPath.startsWith(QLatin1Char('/'))
-            ? targetPath : workingDirectory + QLatin1Char('/') + targetPath;
-        return QDir::cleanPath(joined);
-    }
-    return {};
+        else
+            return SessionReference{value.session, value.epoch};
+    }, request);
 }
 }
 
 class Service::Impl
 {
 public:
-    struct Job {
-        QString connection;
-        QString id;
-        QString tool;
-        QJsonObject arguments;
-        QString requestState;
-        QJsonObject inputResponses;
-        qint64 deadline{0};
-        qint64 created{0};
-        bool running{false};
-        bool confirmationAccepted{false};
-        bool mrtr{false};
-        bool formElicitation{false};
-        QString scriptPolicyVersion;
-        QString scriptReservationId;
-        QString scriptReservedTarget;
-        std::atomic<bool> cancelled{false};
-    };
     struct Connection {
         QString client;
         QByteArray key;
-        int active{0};
-        std::deque<std::shared_ptr<Job>> waiting;
     };
-    struct PendingConfirmation {
-        std::shared_ptr<Job> job;
-        QString client, session, epoch, command, policyVersion, tool;
-        QString profileVersion, targetFingerprint;
-        quint64 grantVersion{0};
-        quint64 promptGeneration{0};
-        quint64 userInputGeneration{0};
-        QByteArray payloadHash;
-        qint64 expires{0};
-    };
-    struct ConfirmationScope {
-        QString connection, client, session;
-        qint64 expires{0};
-    };
-    struct Capture {
-        QString connection;
-        QString session;
-        QString epoch;
-        QString revision;
-        QJsonArray viewport;
-        QJsonArray recentOutput;
-        std::shared_ptr<const TerminalContextProvider::Snapshot> base;
-        bool sourceTruncated{false};
-        bool outputTruncated{false};
-        qint64 expires{0};
-        qint64 created{0};
-    };
-    struct Execution {
-        QString id;
-        QString connection;
-        QString client;
-        QString session;
-        QString epoch;
-        QString commandId;
-        QString policyVersion;
-        QString target;
-        quint64 executorRequestId{0};
-        qint64 submitted{0};
-        QPointer<SessionCommandFacade> facade;
-        std::shared_ptr<Job> job;
-        QJsonObject payload;
-        bool complete{false};
-        bool interactive{false};
-        QString scriptPathLock;
-        QPointer<SessionCommandCoordinator> coordinator;
-    };
-    struct ScriptWriteTask {
-        std::shared_ptr<Job> job;
-        QPointer<ISessionScriptProvider> provider;
-        QString client, session, epoch, targetFingerprint;
-        QString policyVersion, profileVersion, targetPath, workingDirectory;
-        QString invocation, scriptPathLock;
-        QByteArray metadataHash, contentHash;
-        quint64 promptGeneration{0}, grantVersion{0}, sessionGeneration{0};
-        quint64 userInputGeneration{0};
-    };
+    using ScriptWriteTask = ScriptTaskRegistry::Task;
 
     Impl(Service* owner, QString stateDir, QString runtimeDir, std::unique_ptr<CredentialStore> credentials, quint16 port)
         : q(owner), stateDirectory(stateDir.isEmpty() ? dataDirectory() : std::move(stateDir)),
@@ -255,16 +110,41 @@ public:
                   emit q->changed();
                   return true;
               },
-              [this](const QString& id, const QJsonObject& packet) { receive(id, packet); },
+              [this](const QString& id, const BackendEvent& event) { receive(id, event); },
               [this](const QString& id) { disconnect(id); }
           }, owner), guards(QDir(stateDirectory).filePath("targets"))
     {
         clock.start();
-        terminal = std::make_unique<TerminalInteraction>(&access, &sessions, owner);
+        terminal = std::make_unique<TerminalInteraction>(&access, &sessions, &observation, owner);
         terminal->onChanged = [this] { emit q->changed(); };
         workers.setMaxThreadCount(1);
         workers.setExpiryTimeout(1000);
         instance = newId();
+        scriptCommands = std::make_unique<ScriptCommandUseCase>(ScriptCommandUseCase::Ports{
+            &access, &executions, &scriptWrites, &jobs, &guards, &lastCommand,
+            &confirmations, &observedScriptProviders, &observedInputArbiters,
+            &observedFacades, &observedCoordinators, &nextCommandRequest,
+            &nextScriptWrite, instance, [this] { return clock.elapsed(); }, q,
+            [this](const QString& id) { return connections.value(id).client; },
+            [this](const QString& id) { return connections.value(id).key; },
+            [this](const QString& id, const QJsonObject& message) {
+                return io.send(id, message);
+            },
+            [this](const std::shared_ptr<Job>& job, QJsonObject payload) {
+                complete(job, std::move(payload));
+            },
+            [this](const std::shared_ptr<Job>& job, bool release) {
+                releaseScriptReservation(job, release);
+            },
+            [this](const ScriptTaskRegistry::Task& task, const ScriptWriteResult& result) {
+                recordScriptWriteOutcome(task, result);
+            },
+            [this](const CommandExecutionResult& result) { finishExecution(result); },
+            [this](TerminalSession* session, quint64 userGeneration) {
+                cancelScriptWritesForUserInput(session, userGeneration);
+            },
+            [this](const ScriptWriteResult& result) { finishScriptWrite(result); },
+            [this] { emit q->changed(); }});
         listenPort = port;
         timer.setInterval(100);
         QObject::connect(&timer, &QTimer::timeout, q, [this] { expireJobs(); });
@@ -288,13 +168,16 @@ public:
         QObject::connect(&sessions, &SessionDirectory::changed, q, [this] {
             if (!checkingSessionState) {
                 QScopedValueRollback<bool> checking(checkingSessionState, true);
-                const auto pending = jobs;
+                const auto pending = jobs.snapshot();
                 for (const auto& job : pending) {
                     if (job->tool != QStringLiteral("novaterm_run_script")
                         && job->tool != QStringLiteral("novaterm_run_command")
                         && job->tool != QStringLiteral("novaterm_execute_command"))
                         continue;
-                    const auto entry = sessions.find(job->arguments.value("sessionId").toString());
+                    const auto reference = requestSession(job->request);
+                    if (!reference)
+                        continue;
+                    const auto entry = sessions.find(reference->session.str());
                     if (!entry || entry->state != SessionState::Running)
                         cancel(job, error("SESSION_NOT_READY"), true);
                 }
@@ -302,17 +185,12 @@ public:
             emit q->changed();
         });
         QObject::connect(&sessions, &SessionDirectory::invalidated, q, [this](const QString& id) {
-            lastCapture.remove(id);
-            lastRevision.remove(id);
-            lastBase.remove(id);
-            publishedStats.remove(id);
-            const auto jobsCopy = jobs;
+            observation.removeSession(id);
+            const auto jobsCopy = jobs.snapshot();
             for (const auto& job : jobsCopy) {
-                if (job->arguments.value("sessionId").toString() == id)
+                const auto reference = requestSession(job->request);
+                if (reference && reference->session.str() == id)
                     cancel(job, error("STALE_SESSION_EPOCH"), true);
-            }
-            for (auto it = captures.begin(); it != captures.end();) {
-                if (it->session == id) it = captures.erase(it); else ++it;
             }
         });
         updateEnabled();
@@ -337,8 +215,7 @@ public:
         const auto connectionIds = connections.keys();
         for (const auto& id : connectionIds)
             disconnect(id);
-        for (auto executionIt = executions.begin(); executionIt != executions.end(); ++executionIt) {
-            auto& execution = executionIt.value();
+        for (const auto& execution : executions.records()) {
             if (!execution.complete) {
                 if (execution.coordinator)
                     execution.coordinator->cancel(execution.executorRequestId);
@@ -358,26 +235,25 @@ public:
         workers.waitForDone();
     }
 
-    void receive(const QString& connectionId, const QJsonObject& message)
+    void receive(const QString& connectionId, const BackendEvent& event)
     {
-        const auto op = message.value("op").toString();
         auto connection = connections.find(connectionId);
         if (connection == connections.end()) { io.closeConnection(connectionId); return; }
-        const auto id = message.value("id").toString();
+        const auto id = std::visit([](const auto& value) { return value.id; }, event);
         if (id.isEmpty() || id.size() > 64) { io.closeConnection(connectionId); return; }
-        if (op == "elicitation_result") {
+        if (const auto* result = std::get_if<BackendElicitationResult>(&event)) {
             const auto key = jobKey(connectionId, id);
-            auto pending = confirmations.find(key);
-            if (pending == confirmations.end()) return;
-            const auto confirmation = pending.value();
-            confirmations.erase(pending);
-            const QString action = message.value("action").toString();
-            if (action != "accept" || !message.value("confirmed").toBool()) {
-                complete(confirmation.job, error(action == "cancel"
+            const auto pending = confirmations.takePending(key);
+            if (!pending) return;
+            const auto job = jobs.find(pending->jobKey);
+            if (!job) return;
+            const QString action = result->action;
+            if (action != "accept" || !result->confirmed) {
+                complete(job, error(action == "cancel"
                     ? "COMMAND_CONFIRMATION_CANCELLED" : "COMMAND_CONFIRMATION_DECLINED"));
                 return;
             }
-            const auto entry = sessions.find(confirmation.session);
+            const auto entry = sessions.find(pending->session);
             const auto currentConnection = connections.constFind(connectionId);
             auto* coordinator = entry && entry->session
                 ? entry->session->commandCoordinator() : nullptr;
@@ -390,73 +266,72 @@ public:
             const auto profile = facade ? facade->profile() : CommandPlatformProfile{};
             RiskAssessment currentRisk;
             QByteArray digest;
-            if (confirmation.tool == QStringLiteral("novaterm_run_script")) {
-                const auto& arguments = confirmation.job->arguments;
-                const QByteArray content = arguments.value("scriptContent").toString().toUtf8();
-                currentRisk = CommandRiskPolicy{}.classifyScript(content,
-                    arguments.value("targetPath").toString(),
-                    arguments.value("workingDirectory").toString(),
-                    arguments.value("invocation").toString());
-                digest = scriptArgumentsDigest(arguments);
+            if (pending->tool == QStringLiteral("novaterm_run_script")) {
+                const auto& script = std::get<RunScriptRequest>(job->request);
+                currentRisk = CommandRiskPolicy{}.classifyScript(
+                    script.scriptContent.toUtf8(), script.targetPath,
+                    script.workingDirectory, script.invocation);
+                digest = job->confirmationDigest;
             } else {
-                currentRisk = CommandRiskPolicy{}.classify(confirmation.command);
-                digest = QCryptographicHash::hash(confirmation.command.toUtf8(),
+                currentRisk = CommandRiskPolicy{}.classify(pending->command);
+                digest = QCryptographicHash::hash(pending->command.toUtf8(),
                     QCryptographicHash::Sha256);
             }
             if (!entry || currentConnection == connections.cend()
-                || currentConnection->client != confirmation.client
-                || !access.canRead(confirmation.client, *entry)
-                || (confirmation.tool == QStringLiteral("novaterm_run_script")
-                    && !access.canRunScriptTask(confirmation.client, *entry))
-                || (confirmation.tool == QStringLiteral("novaterm_run_command")
-                    && !access.canRunCommand(confirmation.client, *entry))
-                || entry->epoch != confirmation.epoch || !coordinator
+                || currentConnection->client != pending->client
+                || !access.canRead(pending->client, *entry)
+                || (pending->tool == QStringLiteral("novaterm_run_script")
+                    && !access.canRunScriptTask(pending->client, *entry))
+                || (pending->tool == QStringLiteral("novaterm_run_command")
+                    && !access.canRunCommand(pending->client, *entry))
+                || entry->epoch != pending->epoch || !coordinator
                 || (!unverifiedSsh && !coordinator->isPromptReady())
                 || (unverifiedSsh && (!inputArbiter
                     || inputArbiter->userInputGeneration()
-                        != confirmation.userInputGeneration))
-                || !facade || profile.version() != confirmation.profileVersion
-                || entry->targetFingerprint != confirmation.targetFingerprint
-                || access.version(confirmation.client) != confirmation.grantVersion
-                || coordinator->promptGeneration() != confirmation.promptGeneration
-                || digest != confirmation.payloadHash
-                || currentRisk.policyVersion != confirmation.policyVersion
+                        != pending->userInputGeneration))
+                || !facade || profile.version() != pending->profileVersion
+                || entry->targetFingerprint != pending->targetFingerprint
+                || access.version(pending->client) != pending->grantVersion
+                || coordinator->promptGeneration() != pending->promptGeneration
+                || digest != pending->payloadHash
+                || currentRisk.policyVersion != pending->policyVersion
                 || (currentRisk.decision != RiskDecision::Confirm
                     && currentRisk.decision != RiskDecision::Unknown)
-                || (confirmation.tool == QStringLiteral("novaterm_run_script")
+                || (pending->tool == QStringLiteral("novaterm_run_script")
                     && (!entry->session->scriptProvider()
                         || !entry->session->scriptProvider()->isAvailable()))) {
-                complete(confirmation.job, error("COMMAND_CONFIRMATION_STALE"));
+                complete(job, error("COMMAND_CONFIRMATION_STALE"));
                 return;
             }
-            confirmation.job->confirmationAccepted = true;
-            confirmation.job->deadline = clock.elapsed() + 60000;
-            if (confirmation.tool == QStringLiteral("novaterm_run_script"))
-                runScript(confirmation.job, *entry);
+            job->confirmationAccepted = true;
+            job->deadline = clock.elapsed() + Budget::ConfirmationTimeout.count();
+            if (pending->tool == QStringLiteral("novaterm_run_script"))
+                runScript(job, *entry);
             else
-                runCommand(confirmation.job, *entry);
+                runCommand(job, *entry);
             return;
         }
-        if (op == "cancel") {
-            const auto job = jobs.value(jobKey(connectionId, id));
+        if (std::get_if<BackendCancel>(&event)) {
+            const auto job = jobs.find(jobKey(connectionId, id));
             if (job) cancel(job, {}, false);
             return;
         }
-        if (op != "call" || !message.value("arguments").isObject()
-            || jobs.contains(jobKey(connectionId, id))) {
+        const auto& call = std::get<BackendCall>(event);
+        if (jobs.contains(jobKey(connectionId, id))) {
             io.closeConnection(connectionId);
             return;
         }
-        const auto name = message.value("tool").toString();
+        const auto name = call.tool;
         ++requestCount;
-        const auto arguments = message.value("arguments").toObject();
-        const auto invalid = validateArguments(name, arguments);
-        if (!invalid.isEmpty()) {
+        const auto arguments = call.arguments;
+        auto decoded = ToolCodec::decode(name, arguments);
+        if (isError(decoded)) {
             ++rejectedCount;
-            send(connectionId, id, failure("INVALID_ARGUMENT", invalid));
+            send(connectionId, id, ToolCodec::encodeFailure(*errorIfAny(decoded)));
             return;
         }
-        if (connection->waiting.size() >= MaxQueuedRequests) {
+        auto& request = std::get<ToolRequest>(decoded);
+        if (scheduler.queuedCount(connectionId) >= Budget::MaxQueuedRequests) {
             ++rejectedCount;
             send(connectionId, id, error("BUSY", true, 250));
             return;
@@ -465,11 +340,14 @@ public:
         job->connection = connectionId;
         job->id = id;
         job->tool = name;
-        job->arguments = arguments;
-        job->mrtr = message.value("mrtr").toBool();
-        job->formElicitation = message.value("formElicitation").toBool();
-        job->requestState = message.value("requestState").toString();
-        job->inputResponses = message.value("inputResponses").toObject();
+        if (std::holds_alternative<RunScriptRequest>(request)) {
+            job->confirmationDigest = scriptArgumentsDigest(arguments);
+            job->scriptMetadataHash = scriptMetadataDigest(arguments);
+        }
+        job->mrtr = call.mrtr;
+        job->formElicitation = call.formElicitation;
+        job->requestState = call.requestState;
+        job->inputResponses = call.inputResponses;
         if (job->requestState.size() > 4096 || (!job->mrtr
             && (!job->requestState.isEmpty() || !job->inputResponses.isEmpty()))) {
             send(connectionId, id, error("COMMAND_CONFIRMATION_STALE"));
@@ -477,13 +355,32 @@ public:
         }
         job->deadline = clock.elapsed() + (name == "novaterm_run_script" ? ScriptWriteTimeout.count()
             : name == "novaterm_run_command" ? ConfirmationTimeout.count() : 2000);
+        const auto waitMilliseconds = [](const ToolRequest& value, int fallback) {
+            return std::visit([fallback](const auto& request) -> int {
+                using Type = std::decay_t<decltype(request)>;
+                if constexpr (std::is_same_v<Type, ReadContextRequest>
+                    || std::is_same_v<Type, InteractTerminalRequest>
+                    || std::is_same_v<Type, RequestElevationRequest>) {
+                    return request.wait ? int(request.wait->count()) : fallback;
+                }
+                return fallback;
+            }, value);
+        };
         if (name == "novaterm_interact_terminal" || name == "novaterm_request_elevation"
-            || (name == "novaterm_read_context" && arguments.contains("waitMs")))
-            job->deadline = clock.elapsed() + arguments.value("waitMs").toInt(30000) + 5000;
+            || (name == "novaterm_read_context" && waitMilliseconds(request, -1) >= 0))
+            job->deadline = clock.elapsed() + waitMilliseconds(request, Budget::MaxTerminalWaitMs)
+            + Budget::WireDeadlineMargin.count();
+        job->request = std::move(request);
         job->created = clock.elapsed();
         jobs.insert(jobKey(connectionId, id), job);
-        peakRequests = (std::max)(peakRequests, jobs.size());
-        connection->waiting.push_back(job);
+        peakRequests = (std::max)(peakRequests, qsizetype(jobs.size()));
+        if (scheduler.enqueue(connectionId, id, [this, job] { execute(job); })
+            != RequestScheduler::Admission::Accepted) {
+            jobs.remove(jobKey(connectionId, id));
+            ++rejectedCount;
+            send(connectionId, id, error("BUSY", true, 250));
+            return;
+        }
         timer.setInterval(100);
         timer.start();
         schedule();
@@ -496,25 +393,14 @@ public:
         scheduled = true;
         QTimer::singleShot(0, q, [this] {
             scheduled = false;
-            const auto ids = connections.keys();
-            for (const auto& id : ids) {
-                auto it = connections.find(id);
-                if (it == connections.end() || it->active >= MaxActiveRequests || it->waiting.empty())
+            for (auto& delivery : scheduler.takeReady()) {
+                const auto job = jobs.find(jobKey(delivery.peer, delivery.request));
+                if (!job || job->cancelled)
                     continue;
-                auto job = it->waiting.front();
-                it->waiting.pop_front();
-                if (job->cancelled)
-                    continue;
-                ++it->active;
-                job->running = true;
-                execute(job);
+                delivery.run();
             }
-            for (const auto& connection : connections) {
-                if (connection.active < MaxActiveRequests && !connection.waiting.empty()) {
-                    schedule();
-                    break;
-                }
-            }
+            if (scheduler.hasReady())
+                schedule();
         });
     }
 
@@ -527,111 +413,87 @@ public:
             disconnect(connection);
         }
     }
-    void registerActiveConfirmation(const QString& connection,
-        const QString& client, const QString& session, const QString& nonce,
-        qint64 expiry)
-    {
-        activeConfirmations.insert(connection, nonce);
-        confirmationExpiries.insert(nonce, expiry);
-        activeConfirmationScopes.insert(nonce,
-            ConfirmationScope{connection, client, session, expiry});
-    }
-    void clearActiveConfirmation(const QString& connection,
-                                 const QString& nonce)
-    {
-        if (activeConfirmations.value(connection) == nonce)
-            activeConfirmations.remove(connection);
-        confirmationExpiries.remove(nonce);
-        activeConfirmationScopes.remove(nonce);
-    }
-    void consumeActiveConfirmation(const QString& connection,
-                                   const QString& nonce, qint64 expiry)
-    {
-        consumedConfirmations.insert(nonce, expiry);
-        clearActiveConfirmation(connection, nonce);
-    }
     bool hasPendingScriptWrite(const std::shared_ptr<Job>& job) const
     {
-        return std::any_of(scriptWrites.cbegin(), scriptWrites.cend(),
-            [&job](const ScriptWriteTask& task) { return task.job == job; });
+        return scriptWrites.containsJob(job);
     }
     void releaseScriptReservation(const std::shared_ptr<Job>& job, bool releaseTarget)
     {
-        if (releaseTarget && !job->scriptReservationId.isEmpty())
-            guards.release(job->scriptReservedTarget, job->scriptReservationId);
-        job->scriptReservationId.clear();
-        job->scriptReservedTarget.clear();
-        const QString owner = jobKey(job->connection, job->id);
-        for (auto it = scriptPathLocks.begin(); it != scriptPathLocks.end();) {
-            if (it.value() == owner) it = scriptPathLocks.erase(it);
-            else ++it;
-        }
+        if (releaseTarget && job->reservation)
+            job->reservation->release();
+        job->reservation.reset();
+        scriptWrites.unlockOwner(jobKey(job->connection, job->id));
+    }
+    ScriptResultUseCase scriptResults()
+    {
+        return ScriptResultUseCase{ScriptResultUseCase::Ports{
+            &access, &executions, &scriptWrites, &jobs, &sessions, instance,
+            [this] { return clock.elapsed(); },
+            [this] { emit q->changed(); },
+            [this](const std::shared_ptr<Job>& job, QJsonObject payload) {
+                complete(job, std::move(payload));
+            },
+            [this](const std::shared_ptr<Job>& job, bool release) {
+                releaseScriptReservation(job, release);
+            },
+            [this](const std::shared_ptr<Job>& job,
+                const SessionDirectory::Entry& entry) { runCommand(job, entry); }}};
     }
     void recordScriptWriteOutcome(const ScriptWriteTask& task,
                                   const ScriptWriteResult& result)
     {
-        Execution execution;
-        execution.id = task.job->scriptReservationId;
-        execution.connection = task.job->connection;
-        execution.client = task.client;
-        execution.session = task.session;
-        execution.epoch = task.epoch;
-        execution.commandId = QStringLiteral("interactive.script");
-        execution.policyVersion = task.policyVersion;
-        execution.target = task.targetFingerprint;
-        execution.submitted = clock.elapsed();
-        execution.complete = true;
-        execution.interactive = true;
-        const QString code = result.success ? QStringLiteral("SCRIPT_PUBLISHED_NOT_INVOKED")
-            : result.errorCode.isEmpty() ? QStringLiteral("SCRIPT_WRITE_FAILED") : result.errorCode;
-        execution.payload = failure(code, code);
-        auto errorDetail = execution.payload.value("error").toObject();
-        errorDetail.insert("details", QJsonObject{{"executionId", execution.id},
-            {"targetPath", task.targetPath}, {"published", result.success},
-            {"publicationMayHaveOccurred", result.success
-                || result.errorCode == QStringLiteral("SCRIPT_PUBLICATION_OUTCOME_UNKNOWN")},
-            {"invocationStarted", false}, {"status", result.success ? "script_published" : "script_write_failed"}});
-        execution.payload.insert("error", errorDetail);
-        executions.insert(execution.id, std::move(execution));
-        emit q->changed();
+        scriptResults().recordOutcome(task, result);
     }
+
     void complete(const std::shared_ptr<Job>& job, QJsonObject payload)
     {
         if (terminal) terminal->cancel(jobKey(job->connection, job->id));
         if (!jobs.contains(jobKey(job->connection, job->id)))
             return;
-        confirmations.remove(jobKey(job->connection, job->id));
+        const QString publishedExecutionId = job->scriptPublished && job->reservation
+            ? job->reservation->executionId() : QString();
+        confirmations.removePending(jobKey(job->connection, job->id));
         if (!hasPendingScriptWrite(job))
             releaseScriptReservation(job, true);
         auto connection = connections.find(job->connection);
         if (connection != connections.end()) {
             const auto client = connection->client;
             if (!job->cancelled) {
-                const auto sessionId = job->arguments.value("sessionId").toString();
-                if (!sessionId.isEmpty()) {
-                    const auto entry = sessions.find(sessionId);
+                const auto reference = requestSession(job->request);
+                if (reference) {
+                    const auto entry = sessions.find(reference->session.str());
                     if (!jobs.contains(jobKey(job->connection, job->id)))
                         return;
                     if (!entry || !access.canRead(client, *entry))
                         payload = error("SESSION_NOT_AVAILABLE");
-                    else if (entry->epoch != job->arguments.value("epoch").toString())
+                    else if (entry->epoch != reference->epoch.str())
                         payload = error("STALE_SESSION_EPOCH");
                 }
                 // find() 可能同步发布会话失效，失效处理已经完成响应时不得再发送。
             }
-            connection = connections.find(job->connection);
-            if (connection != connections.end() && job->running)
-                connection->active = (std::max)(0, connection->active - 1);
         }
+        if (job->scriptPublished && !payload.value("ok").toBool()) {
+            auto error = payload.value("error").toObject();
+            auto details = error.value("details").toObject();
+            details.insert("published", true);
+            details.insert("publicationMayHaveOccurred", true);
+            details.insert("invocationStarted", false);
+            if (!details.contains("status"))
+                details.insert("status", "script_published");
+            if (!publishedExecutionId.isEmpty())
+                details.insert("executionId", publishedExecutionId);
+            error.insert("details", details);
+            payload.insert("error", error);
+        }
+        scheduler.complete(job->connection, job->id);
         jobs.remove(jobKey(job->connection, job->id));
         ++completedCount;
         maximumRequestMs = (std::max)(maximumRequestMs, clock.elapsed() - job->created);
         if (!job->cancelled && connections.contains(job->connection))
             send(job->connection, job->id, payload);
-        if (jobs.isEmpty()) {
-            if (captures.isEmpty() && executions.isEmpty()
-                && lastCommand.isEmpty() && confirmations.isEmpty()
-                && activeConfirmations.isEmpty() && consumedConfirmations.isEmpty()) {
+        if (jobs.empty()) {
+            if (observation.captures().size() == 0 && executions.size() == 0
+                && lastCommand.empty() && confirmations.empty()) {
                 timer.stop();
             } else {
                 timer.setInterval(1000);
@@ -640,26 +502,27 @@ public:
         }
         schedule();
     }
-    void cancel(const std::shared_ptr<Job>& job, QJsonObject payload, bool reply)
+    void cancel(std::shared_ptr<Job> job, QJsonObject payload, bool reply)
     {
         if (terminal) terminal->cancel(jobKey(job->connection, job->id));
         if (job->cancelled.exchange(true))
             return;
+        scheduler.cancel(job->connection, job->id);
         ++cancelledCount;
         QList<std::pair<QPointer<ISessionScriptProvider>, quint64>> scriptCancels;
-        for (auto it = scriptWrites.cbegin(); it != scriptWrites.cend(); ++it) {
-            if (it->job == job) {
-                scriptCancels.append({it->provider, it.key()});
-            }
+        for (const quint64 id : scriptWrites.ids()) {
+            const auto* task = scriptWrites.find(id);
+            if (task && task->job == job)
+                scriptCancels.append({task->provider, id});
         }
         for (const auto& scriptCancel : scriptCancels) {
             if (scriptCancel.first)
                 scriptCancel.first->cancelWrite(scriptCancel.second);
         }
         QList<quint64> unresolvedRequests;
-        for (auto executionIt = executions.begin(); executionIt != executions.end(); ++executionIt) {
-            auto& execution = executionIt.value();
-            if (execution.complete || execution.job != job)
+        const auto jobId = jobKey(job->connection, job->id);
+        for (const auto& execution : executions.records()) {
+            if (execution.complete || execution.jobKey != jobId)
                 continue;
             if (execution.coordinator)
                 execution.coordinator->cancel(execution.executorRequestId);
@@ -673,13 +536,9 @@ public:
             // SSH 队列取消会 queued 返回“未开始”的确定证据；Local helper 也可能
             // 在 terminate/kill 后很快给出 finished。短暂等待这些更强证据，只有
             // Executor 没有回报时才合成保守的 unknown 终态。
-            QTimer::singleShot(CancelCompletionGraceMs, q, [this, requestId] {
-                const auto execution = std::find_if(
-                    executions.cbegin(), executions.cend(),
-                    [requestId](const Execution& value) {
-                        return value.executorRequestId == requestId;
-                    });
-                if (execution == executions.cend() || execution->complete)
+            QTimer::singleShot(Budget::CancelCompletionGrace, q, [this, requestId] {
+                const auto* execution = executions.findByRequest(requestId);
+                if (!execution || execution->complete)
                     return;
                 CommandExecutionResult result;
                 result.requestId = requestId;
@@ -695,36 +554,21 @@ public:
     }
     void disconnect(const QString& connection)
     {
-        const QString nonce = activeConfirmations.take(connection);
-        confirmationExpiries.remove(nonce);
-        activeConfirmationScopes.remove(nonce);
-        const auto copy = jobs;
+        static_cast<void>(confirmations.takeConnection(connection));
+        const auto copy = jobs.snapshot();
         for (const auto& job : copy) {
             if (job->connection == connection)
                 cancel(job, {}, false);
         }
+        scheduler.removePeer(connection);
         connections.remove(connection);
-        for (auto it = captures.begin(); it != captures.end();) {
-            if (it->connection == connection) it = captures.erase(it); else ++it;
-        }
+        observation.captures().removeConnection(connection);
         emit q->changed();
     }
     void revoke(const QString& client, const QString& session)
     {
         if (terminal) terminal->revoke(client, session);
-        for (auto it = activeConfirmationScopes.begin();
-             it != activeConfirmationScopes.end();) {
-            const bool matchesClient = client.isEmpty() || it->client == client;
-            const bool matchesSession = session.isEmpty() || it->session == session;
-            if (matchesClient && matchesSession) {
-                if (activeConfirmations.value(it->connection) == it.key())
-                    activeConfirmations.remove(it->connection);
-                confirmationExpiries.remove(it.key());
-                it = activeConfirmationScopes.erase(it);
-            } else {
-                ++it;
-            }
-        }
+        confirmations.removeScope(client, session);
         const auto ids = connections.keys();
         for (const auto& id : ids) {
             if (!client.isEmpty() && connections.value(id).client != client)
@@ -733,25 +577,26 @@ public:
                 io.closeConnection(id);
                 disconnect(id);
             } else {
-                const auto copy = jobs;
+                const auto copy = jobs.snapshot();
                 for (const auto& job : copy) {
-                    if (job->connection == id && job->arguments.value("sessionId").toString() == session)
+                    const auto reference = requestSession(job->request);
+                    if (job->connection == id && reference && reference->session.str() == session)
                         cancel(job, error("SESSION_NOT_AVAILABLE"), true);
                 }
-                for (auto it = captures.begin(); it != captures.end();) {
-                    if (it->connection == id && it->session == session) it = captures.erase(it); else ++it;
-                }
+                observation.captures().removeConnectionSession(id, session);
             }
         }
     }
     void expireJobs()
     {
-        const auto copy = jobs;
+        const auto copy = jobs.snapshot();
+        const auto executionRecords = executions.records();
         for (const auto& job : copy) {
             if (job->deadline > clock.elapsed()) continue;
             bool commandExpired = false;
-            for (const auto& execution : executions) {
-                if (!execution.complete && execution.job == job) {
+            const auto jobId = jobKey(job->connection, job->id);
+            for (const auto& execution : executionRecords) {
+                if (!execution.complete && execution.jobKey == jobId) {
                     if (execution.coordinator)
                         execution.coordinator->expire(execution.executorRequestId);
                     else if (execution.facade)
@@ -768,49 +613,23 @@ public:
             if (!commandExpired) cancel(job, error("DEADLINE_EXCEEDED"), true);
         }
         cleanup();
-        if (jobs.isEmpty()) {
-            if (captures.isEmpty() && executions.isEmpty()
-                && lastCommand.isEmpty() && confirmations.isEmpty()
-                && activeConfirmations.isEmpty() && consumedConfirmations.isEmpty()) timer.stop();
+        if (jobs.empty()) {
+            if (observation.captures().size() == 0 && executions.size() == 0
+                && lastCommand.empty() && confirmations.empty()) timer.stop();
             else timer.setInterval(1000);
         }
     }
     void cleanup()
     {
         const auto now = clock.elapsed();
-        for (auto it = consumedConfirmations.begin(); it != consumedConfirmations.end();) {
-            if (it.value() <= now) it = consumedConfirmations.erase(it);
-            else ++it;
-        }
-        for (auto it = activeConfirmations.begin(); it != activeConfirmations.end();) {
-            const QString nonce = it.value();
-            const auto expiry = confirmationExpiries.value(nonce, 0);
-            if (expiry <= now) {
-                confirmationExpiries.remove(nonce);
-                activeConfirmationScopes.remove(nonce);
-                it = activeConfirmations.erase(it);
-            } else {
-                ++it;
-            }
-        }
-        for (auto it = confirmations.begin(); it != confirmations.end();) {
-            if (it->expires <= now) {
-                const auto job = it->job;
-                it = confirmations.erase(it);
+        for (const auto& expired : confirmations.sweep(now)) {
+            const auto job = jobs.find(expired.jobKey);
+            if (job)
                 complete(job, error("COMMAND_CONFIRMATION_EXPIRED"));
-            } else {
-                ++it;
-            }
         }
-        for (auto it = captures.begin(); it != captures.end();) {
-            if (it->expires <= now) it = captures.erase(it); else ++it;
-        }
-        for (auto it = executions.begin(); it != executions.end();) {
-            if (it->complete && now - it->submitted >= 600000) it = executions.erase(it); else ++it;
-        }
-        for (auto it = lastCommand.begin(); it != lastCommand.end();) {
-            if (now - *it >= 5000) it = lastCommand.erase(it); else ++it;
-        }
+        observation.captures().sweep(now);
+        executions.expireCompleted(now, Budget::ExecutionRecordRetention.count());
+        lastCommand.sweep(now);
     }
 
     void execute(const std::shared_ptr<Job>& job)
@@ -826,7 +645,9 @@ public:
         const auto connection = connections.value(job->connection);
         if (!access.enabled()) { complete(job, error("MCP_DISABLED")); return; }
         if (job->tool == "novaterm_list_sessions") { listSessions(job); return; }
-        const auto entry = sessions.find(job->arguments.value("sessionId").toString());
+        const auto reference = requestSession(job->request);
+        if (!reference) { complete(job, error("INVALID_ARGUMENT")); return; }
+        const auto entry = sessions.find(reference->session.str());
         if (job->cancelled) return;
         if (!entry || !access.canRead(connection.client, *entry)) {
             complete(job, !job->requestState.isEmpty()
@@ -834,26 +655,32 @@ public:
                 : error("SESSION_NOT_AVAILABLE"));
             return;
         }
-        if (entry->epoch != job->arguments.value("epoch").toString()) {
+        if (entry->epoch != reference->epoch.str()) {
             complete(job, !job->requestState.isEmpty()
                 ? error("COMMAND_CONFIRMATION_STALE")
                 : error("STALE_SESSION_EPOCH"));
             return;
         }
-        if (job->tool == "novaterm_interact_terminal" || job->tool == "novaterm_request_elevation"
-            || (job->tool == "novaterm_search_context"
-                && terminal->ownsCapture(connection.client, job->arguments.value("captureId").toString()))
-            || (job->tool == "novaterm_read_context" && (job->arguments.value("responseMode") == "compact"
-                || job->arguments.contains("waitMs") || job->arguments.contains("expandToken")))) {
-            if ((job->tool == "novaterm_interact_terminal" || job->tool == "novaterm_request_elevation")
-                && guards.markers().contains(entry->targetFingerprint)) {
+        const bool mutatingInteraction = std::holds_alternative<InteractTerminalRequest>(job->request)
+            || std::holds_alternative<RequestElevationRequest>(job->request);
+        bool usesObservation = mutatingInteraction;
+        if (const auto* read = std::get_if<ReadContextRequest>(&job->request)) {
+            usesObservation = read->projection.has_value() || read->wait.has_value()
+                || read->waitFor.has_value() || read->expandToken.has_value()
+                || terminal->ownsCursor(connection.client,
+                    read->sinceToken.value_or(QString{}));
+        } else if (const auto* search = std::get_if<SearchContextRequest>(&job->request)) {
+            usesObservation = terminal->ownsCapture(connection.client, search->capture.str());
+        }
+        if (usesObservation) {
+            if (mutatingInteraction && guards.markers().contains(entry->targetFingerprint)) {
                 complete(job, error("COMMAND_EXECUTION_QUARANTINED")); return;
             }
             const QPointer<Service> guard(q);
-            terminal->call(connection.client, jobKey(job->connection, job->id), job->tool, job->arguments,
+            terminal->call(connection.client, jobKey(job->connection, job->id), job->request,
                 [this, guard, job](QJsonObject value) {
                     if (guard && !job->cancelled) complete(job, std::move(value));
-                });
+                }, connection.key);
             return;
         }
         if (job->tool == "novaterm_list_commands") { listCommands(job, *entry); return; }
@@ -873,279 +700,62 @@ public:
     void listSessions(const std::shared_ptr<Job>& job)
     {
         const auto connection = connections.value(job->connection);
-        QString after;
-        const auto cursor = job->arguments.value("cursor").toString();
-        if (!cursor.isEmpty()) {
-            const auto token = verifyToken(cursor, connection.key);
-            if (!token || token->value("kind") != "directory"
-                || token->value("version").toString() != versionString(sessions.revision())
-                || token->value("grant").toString() != versionString(access.version(connection.client))) {
-                complete(job, error("CURSOR_STALE")); return;
-            }
-            after = token->value("after").toString();
-        }
-        const int limit = job->arguments.value("limit").toInt(50);
-        const auto versionBeforePage = sessions.revision();
-        const auto all = sessions.pageAfter(after, limit + 1, [&](const SessionDirectory::Entry& entry) {
-            return access.canRead(connection.client, entry) && entry.state != SessionState::Closing
-                && entry.state != SessionState::Closed;
-        });
-        if (!cursor.isEmpty() && versionBeforePage != sessions.revision()) {
-            complete(job, error("CURSOR_STALE")); return;
-        }
-        QJsonArray rows;
-        QString last;
-        bool more = false;
-        for (const auto& entry : all) {
-            if (entry.id <= after || !access.canRead(connection.client, entry)
-                || entry.state == SessionState::Closing || entry.state == SessionState::Closed)
-                continue;
-            if (rows.size() >= limit) { more = true; break; }
-            bool truncated = false;
-            const auto title = boundedText(entry.title, 256, &truncated);
-            QJsonArray capabilities{"read_context", "search_context", "list_commands"};
-            if (access.canControlTerminal(connection.client, entry)) capabilities.append("terminal_interaction");
-            if (job->formElicitation)
-                capabilities.append("human_confirmation");
-            auto* facade = entry.session ? entry.session->commandFacade() : nullptr;
-            const auto profile = facade ? facade->profile() : CommandPlatformProfile{};
-            const auto granted = access.commands(connection.client, entry);
-            bool canExecute = facade && facade->isAvailable()
-                && profile.isAvailable();
-            if (canExecute) {
-                canExecute = std::any_of(granted.cbegin(), granted.cend(),
-                    [&profile](const QString& commandId) {
-                        return profile.supports(commandId);
-                    });
-            }
-            if (canExecute)
-                capabilities.append("execute_command");
-            auto* coordinator = entry.session
-                ? entry.session->commandCoordinator() : nullptr;
-            const bool unverifiedSsh = entry.kind == TransportKind::Ssh
-                && coordinator && coordinator->allowsUnverifiedPrompt();
-            const bool trustedLocal = entry.kind == TransportKind::LocalShell
-                && coordinator && coordinator->hasTrustedProfile()
-                && coordinator->isPromptReady();
-            // 两项能力都以「交互通路可达」为前提，但授权位各自独立：
-            // run_command 看 canRunCommand，run_script 看 canRunScriptTask。
-            const bool interactiveReachable = facade && facade->isAvailable()
-                && !entry.targetFingerprint.isEmpty()
-                && (facade->capabilities().mode
-                        == CommandExecutionMode::InteractiveFramed
-                    || unverifiedSsh || trustedLocal);
-            if (interactiveReachable
-                && access.canRunCommand(connection.client, entry)) {
-                capabilities.append("run_command");
-            }
-            if (interactiveReachable && !unverifiedSsh
-                && access.canRunScriptTask(connection.client, entry)
-                && entry.session->scriptProvider()
-                && entry.session->scriptProvider()->isAvailable()) {
-                capabilities.append("run_script");
-            }
-            QJsonObject row{{"sessionId", entry.id}, {"epoch", entry.epoch},
-                {"state", SessionDirectory::stateName(entry.state)}, {"transport", SessionDirectory::transportName(entry.kind)},
-                {"displayName", title}, {"displayNameTruncated", truncated}, {"capabilities", capabilities}};
-            const auto metadata = terminal->capabilities(connection.client, entry.id);
-            for (auto it = metadata.begin(); it != metadata.end(); ++it) row.insert(it.key(), it.value());
-            rows.append(row);
-            last = entry.id;
-        }
-        QJsonValue next(QJsonValue::Null);
-        if (more) next = signToken({{"kind", "directory"}, {"after", last},
-            {"version", versionString(sessions.revision())}, {"grant", versionString(access.version(connection.client))}}, connection.key);
-        complete(job, success({{"instanceId", instance}, {"applicationVersion", NOVATERM_VERSION},
-            {"sessions", rows}, {"nextCursor", next}}));
+        const auto& request = std::get<ListSessionsRequest>(job->request);
+        const ReadUseCases reads{{&access, &sessions, &observation, terminal.get(), instance}};
+        const auto result = reads.listSessions(connection.client, connection.key,
+            job->formElicitation, request);
+        if (isError(result)) { complete(job, ToolCodec::encodeFailure(*errorIfAny(result))); return; }
+        complete(job, success(std::get<QJsonObject>(result)));
     }
 
     void readContext(const std::shared_ptr<Job>& job, const SessionDirectory::Entry& entry)
     {
-        QElapsedTimer captureTimer;
-        captureTimer.start();
         const auto connection = connections.value(job->connection);
-        quint64 since = 0;
-        const bool viewport = job->arguments.value("includeViewport").toBool(true);
-        const auto encoded = job->arguments.value("sinceToken").toString();
-        if (!encoded.isEmpty()) {
-            const auto token = verifyToken(encoded, connection.key);
-            bool ok = false;
-            if (token) since = token->value("revision").toString().toULongLong(&ok);
-            if (!token || !ok || token->value("kind") != "context" || token->value("session") != entry.id
-                || token->value("epoch") != entry.epoch || token->value("viewport").toBool() != viewport
-                || token->value("grant").toString() != versionString(access.version(connection.client))) {
-                complete(job, error("CURSOR_STALE")); return;
-            }
-        }
-        const auto now = clock.elapsed();
-        const bool usePublished = NovaTerm::publishedContextSnapshotEnabled();
-        std::shared_ptr<const TerminalContextProvider::Snapshot> base;
-        if (lastCapture.contains(entry.id) && now - lastCapture.value(entry.id) < 250) {
-            if (!usePublished) {
-                // 仅旧 try-read 路径需要严格 revision 校验：合并窗内模型已推进就
-                // 立即 Busy，不把陈旧结果当成新鲜捕获。发布路径按设计允许有界陈旧
-                // （保留原 capturedAt），因此不做这项拒绝。
-                const auto current = entry.session->core()->tryModelRevision();
-                if (!current || lastRevision.value(entry.id) != *current) {
-                    complete(job, error("BUSY", true, 250)); return;
-                }
-            }
-            ++reusedCaptureCount;
-            ++coalescedReadCount;
-            base = lastBase.value(entry.id);
-        }
-        if (!base) {
-            // 每次真正向 Provider 取一份新基础摘要才计数；合并窗内复用不重复计。
-            // 与 snapshotPublishCount（Parser 侧发布次数，≤4 Hz）是两个不同口径，
-            // 二者比值即「客户端读取需求被合并/发布吸收了多少」。
-            ++coreCaptureCount;
-            base = entry.session->tryTerminalContext();
-            if (usePublished) {
-                const auto currentStats = entry.session->core()
-                    ->publishedContextStatistics();
-                const auto previousStats = publishedStats.value(entry.id);
-                snapshotPublishCount += currentStats.publishCount
-                    - previousStats.publishCount;
-                snapshotReuseCount += currentStats.reuseCount
-                    - previousStats.reuseCount;
-                publishedStats.insert(entry.id, currentStats);
-            }
-            if (base) {
-                lastCapture.insert(entry.id, now);
-                lastRevision.insert(entry.id, base->state.revision);
-                lastBase.insert(entry.id, base);
-            }
-        }
-        if (!base) { complete(job, error("BUSY", true, 50)); return; }
-        const bool sourceTruncated = base->state.truncated;
-        bool outputTruncated = false;
-        bool reset = sourceTruncated || (!encoded.isEmpty() && (since < base->resetRevision
-            || since > base->state.revision || (base->cacheFloor > 0 && since <= base->cacheFloor)));
-        qsizetype remaining = job->arguments.value("maxBytes").toInt(65536);
-        int remainingLines = job->arguments.value("maxLines").toInt(256);
-        const auto text = [&](const std::string& string) {
-            const auto bytes = QByteArray::fromStdString(string);
-            const auto clipped = clipUtf8(bytes, remaining);
-            outputTruncated |= clipped.size() != bytes.size();
-            remaining -= clipped.size();
-            projectionCopiedBytes += quint64(clipped.size());
-            return QString::fromUtf8(clipped);
-        };
-        const auto title = text(base->state.title);
-        QJsonArray screen, recent;
-        const auto line = [&](QJsonArray& array, const std::string& value) {
-            if (remainingLines == 0 || remaining == 0) { outputTruncated = true; return; }
-            array.append(QJsonObject{{"text", text(value)}});
-            --remainingLines;
-        };
-        if (viewport) for (const auto& value : base->state.viewport) line(screen, value.text);
-        if (!base->state.alternateScreen) {
-            for (const auto& value : base->entries) {
-                if (encoded.isEmpty() || reset || value.revision > since) line(recent, value.text);
-            }
-        }
-        reset |= outputTruncated;
-        const auto captureId = newId();
-        QJsonValue next(QJsonValue::Null);
-        if (!sourceTruncated && !outputTruncated)
-            next = signToken({{"kind", "context"}, {"session", entry.id}, {"epoch", entry.epoch},
-                {"revision", versionString(base->state.revision)}, {"grant", versionString(access.version(connection.client))},
-                {"viewport", viewport}}, connection.key);
-        const auto capturedMs = std::chrono::duration_cast<std::chrono::milliseconds>(
-            base->capturedAt.time_since_epoch()).count();
-        const qint64 snapshotAge = (std::max<qint64>)(
-            0, QDateTime::currentMSecsSinceEpoch() - capturedMs);
-        if (snapshotAges.size() == 256) snapshotAges.pop_front();
-        snapshotAges.push_back(snapshotAge);
-        const QString capturedAt = QDateTime::fromMSecsSinceEpoch(
-            capturedMs, QTimeZone::UTC).toString(Qt::ISODateWithMs);
-        QJsonObject data{{"instanceId", instance}, {"sessionId", entry.id}, {"epoch", entry.epoch},
-            {"revision", versionString(base->state.revision)}, {"captureId", captureId}, {"capturedAt", capturedAt},
-            {"state", SessionDirectory::stateName(entry.state)}, {"transport", SessionDirectory::transportName(entry.kind)},
-            {"title", title}, {"alternateScreen", base->state.alternateScreen},
-            {"cursor", QJsonObject{{"row", base->state.cursor.position.row}, {"column", base->state.cursor.position.col}}},
-            {"viewport", screen}, {"recentOutput", recent}, {"coverage", "bounded_summary"},
-            {"historyMayPrecedeEpoch", true}, {"sourceTruncated", sourceTruncated}, {"outputTruncated", outputTruncated},
-            {"resetRequired", reset}, {"suppressedDuplicates", versionString(base->suppressedDuplicates)}, {"nextToken", next}};
-        QStringList owned;
-        for (auto it = captures.cbegin(); it != captures.cend(); ++it)
-            if (it->connection == job->connection) owned.append(it.key());
-        if (owned.size() >= MaxCaptures) {
-            const auto oldest = *std::min_element(owned.begin(), owned.end(), [this](const QString& a, const QString& b) {
-                return captures.value(a).created < captures.value(b).created;
-            });
-            captures.remove(oldest);
-        }
-        captures.insert(captureId, Capture{job->connection, entry.id,
-            entry.epoch, data.value("revision").toString(), screen, recent,
-            base, sourceTruncated, outputTruncated,
-            now + CaptureLifetimeMs, now});
-        complete(job, success(data));
-        if (captureDurations.size() == 256) captureDurations.pop_front();
-        captureDurations.push_back(captureTimer.nsecsElapsed());
+        const auto& request = std::get<ReadContextRequest>(job->request);
+        const ReadUseCases reads{{&access, &sessions, &observation, terminal.get(), instance}};
+        const auto result = reads.readContext(entry, job->connection, connection.client, connection.key, request);
+        if (isError(result)) { complete(job, ToolCodec::encodeFailure(*errorIfAny(result))); return; }
+        complete(job, success(std::get<QJsonObject>(result)));
     }
 
     void search(const std::shared_ptr<Job>& job, const SessionDirectory::Entry& entry)
     {
-        const auto id = job->arguments.value("captureId").toString();
-        const auto capture = captures.constFind(id);
-        if (capture == captures.cend() || capture->connection != job->connection
-            || capture->session != entry.id || capture->epoch != entry.epoch) {
+        const auto& typed = std::get<SearchContextRequest>(job->request);
+        const auto id = typed.capture.str();
+        const auto captured = observation.captures().find(id);
+        if (!captured || captured->scope != CaptureScope::Connection
+            || captured->owner != job->connection
+            || captured->session != entry.id || captured->epoch != entry.epoch) {
             complete(job, error("CAPTURE_NOT_AVAILABLE")); return;
         }
-        const QJsonObject data{{"revision", capture->revision},
-            {"viewport", capture->viewport},
-            {"recentOutput", capture->recentOutput},
-            {"sourceTruncated", capture->sourceTruncated},
-            {"outputTruncated", capture->outputTruncated}};
+        const auto record = *captured;
+        const QString query = typed.query;
+        const bool caseSensitive = typed.caseSensitive;
+        const QString scope = typed.scope == SearchScope::Viewport ? QStringLiteral("viewport")
+            : typed.scope == SearchScope::RecentOutput ? QStringLiteral("recent_output")
+            : QStringLiteral("both");
+        const int maxMatches = typed.maxMatches;
         QPointer<Service> guard(q);
-        workers.start(QRunnable::create([this, guard, job, data, id] {
+        workers.start(QRunnable::create([this, guard, job, record, id, query, caseSensitive, scope, maxMatches] {
             NovaTerm::setCurrentThreadName("nvterm-mcp-srch");
             QElapsedTimer timer;
             timer.start();
-            const bool sensitive = job->arguments.value("caseSensitive").toBool(true);
-            const auto fold = [sensitive](QByteArray bytes) {
-                if (!sensitive) for (char& c : bytes) if (c >= 'A' && c <= 'Z') c = char(c + ('a' - 'A'));
-                return bytes;
-            };
-            const auto query = fold(job->arguments.value("query").toString().toUtf8());
-            const auto scope = job->arguments.value("scope").toString("both");
-            const int limit = job->arguments.value("maxMatches").toInt(20);
-            QJsonArray matches;
-            bool limited = false;
-            bool timedOut = false;
-            for (const QString& source : {QStringLiteral("viewport"), QStringLiteral("recentOutput")}) {
-                const auto label = source == "viewport" ? QStringLiteral("viewport") : QStringLiteral("recent_output");
-                if (scope != "both" && scope != label) continue;
-                const auto lines = data.value(source).toArray();
-                for (qsizetype lineIndex = 0; lineIndex < lines.size() && !limited; ++lineIndex) {
-                    if (job->cancelled || timer.elapsed() > 100) { timedOut = true; break; }
-                    const auto bytes = fold(lines[lineIndex].toObject().value("text").toString().toUtf8());
-                    qsizetype from = 0;
-                    while (from <= bytes.size()) {
-                        if (job->cancelled || timer.elapsed() > 100) { timedOut = true; break; }
-                        // 每 4 KiB 检查取消；保留 query 长度的重叠，避免漏掉块边界命中。
-                        const auto span = (std::min)(qsizetype(4096) + query.size() - 1, bytes.size() - from);
-                        const auto relative = bytes.mid(from, span).indexOf(query);
-                        if (relative < 0) {
-                            if (span < 4096 || from + span == bytes.size()) break;
-                            from += 4096;
-                            continue;
-                        }
-                        const auto found = from + relative;
-                        if (matches.size() == limit) { limited = true; break; }
-                        matches.append(QJsonObject{{"source", label}, {"lineIndex", int(lineIndex)},
-                            {"startByte", int(found)}, {"endByte", int(found + query.size())}});
-                        from = found + query.size();
-                    }
-                    if (timedOut) break;
-                }
-                if (timedOut || limited) break;
-            }
+            // 搜索语义由 ObservationService 统一实现；这里只注入取消/超时条件。
+            const auto found = observation.search(record, query,
+                caseSensitive, scope, maxMatches,
+                [&job, &timer] { return job->cancelled || timer.elapsed() > 100; });
             if (job->cancelled || !guard) return;
-            const auto result = timedOut ? error("DEADLINE_EXCEEDED") : success({{"captureId", id},
-                {"revision", data.value("revision")}, {"matches", matches}, {"limited", limited},
-                {"sourceTruncated", data.value("sourceTruncated")}, {"outputTruncated", data.value("outputTruncated")}});
+            QJsonArray matches;
+            for (const auto& match : found.matches) {
+                matches.append(QJsonObject{{"source", match.source},
+                    {"lineIndex", match.lineIndex}, {"startByte", match.startByte},
+                    {"endByte", match.endByte}});
+            }
+            const auto result = found.interrupted ? error("DEADLINE_EXCEEDED")
+                : success({{"captureId", id}, {"revision", record.revision},
+                    {"matches", matches}, {"limited", found.limited},
+                    {"sourceTruncated", record.sourceTruncated},
+                    {"outputTruncated", record.outputTruncated}});
             // guard 可能在上面那次检查之后、走到这里之前被销毁（Service::stop()
             // 会 workers.waitForDone()，但 queued 的 lambda 仍待投递）。此时若照样
             // 投递，Qt 会走 "Invalid nullptr argument" 警告路径且 lambda 不执行 ——
@@ -1159,329 +769,17 @@ public:
     void listCommands(const std::shared_ptr<Job>& job, const SessionDirectory::Entry& entry)
     {
         const auto connection = connections.value(job->connection);
-        const auto allowed = access.commands(connection.client, entry);
-        QString reason;
-        auto* facade = entry.session ? entry.session->commandFacade() : nullptr;
-        const auto profile = facade ? facade->profile() : CommandPlatformProfile{};
-        const QString policyVersion = CommandPolicy::version(profile);
-        if (entry.state != SessionState::Running) reason = "SESSION_NOT_READY";
-        else if (!profile.isAvailable()) reason = "COMMAND_PROFILE_UNAVAILABLE";
-        else if (!facade || !facade->isAvailable()) reason = "COMMAND_UNAVAILABLE";
-        else if (allowed.isEmpty()) reason = "COMMAND_PERMISSION_REQUIRED";
-        else if (entry.targetFingerprint.isEmpty()) reason = "COMMAND_UNAVAILABLE";
-        QJsonArray catalog;
-        if (reason.isEmpty()) for (const auto& command : CommandPolicy::catalog(profile)) {
-            if (!allowed.contains(command.id)) continue;
-            const auto ticket = signToken({{"kind", "command"}, {"execution", newId()},
-                {"session", entry.id}, {"epoch", entry.epoch}, {"command", command.id},
-                {"policy", policyVersion}, {"profile", profile.version()},
-                {"grant", versionString(access.version(connection.client))},
-                {"expires", clock.elapsed() + 60000}}, connection.key);
-            const QString preview = entry.kind == TransportKind::LocalShell
-                && facade->capabilities().mode == CommandExecutionMode::Isolated
-                ? QStringLiteral("novaterm-local-diag ") + command.id
-                : QString::fromUtf8(command.command);
-            catalog.append(QJsonObject{{"commandId", command.id}, {"title", command.title},
-                {"preview", preview},
-                {"argumentSchema", QJsonObject{{"type", "object"}, {"additionalProperties", false}}},
-                {"timeoutMs", 5000}, {"maxOutputBytes", CommandOutputBytes}, {"commandTicket", ticket}});
-        }
-        complete(job, success({{"instanceId", instance}, {"sessionId", entry.id}, {"epoch", entry.epoch},
-            {"policyVersion", policyVersion}, {"executionEnabled", reason.isEmpty()},
-            {"disabledReason", reason.isEmpty() ? QJsonValue(QJsonValue::Null) : QJsonValue(reason)}, {"commands", catalog}}));
+        const ReadUseCases reads{{&access, &sessions, &observation, terminal.get(), instance}};
+        const auto result = reads.listCommands(entry, connection.client, connection.key,
+            clock.elapsed());
+        if (isError(result)) { complete(job, ToolCodec::encodeFailure(*errorIfAny(result))); return; }
+        complete(job, success(std::get<QJsonObject>(result)));
     }
 
-    void runScript(const std::shared_ptr<Job>& job,
-                   const SessionDirectory::Entry& entry)
+    void runScript(const std::shared_ptr<Job>& job, const SessionDirectory::Entry& entry)
     {
-        const auto connection = connections.value(job->connection);
-        if (!access.canRunScriptTask(connection.client, entry)) {
-            complete(job, !job->requestState.isEmpty()
-                ? error("COMMAND_CONFIRMATION_STALE")
-                : error("SCRIPT_PERMISSION_REQUIRED"));
-            return;
-        }
-        if (entry.state != SessionState::Running || !entry.session) {
-            complete(job, error("SESSION_NOT_READY"));
-            return;
-        }
-        auto* provider = entry.session->scriptProvider();
-        if (!provider || !provider->isAvailable()) {
-            complete(job, error("SCRIPT_PROVIDER_UNAVAILABLE"));
-            return;
-        }
-        auto* coordinator = entry.session->commandCoordinator();
-        auto* facade = entry.session->commandFacade();
-        const bool localIsolated = entry.kind == TransportKind::LocalShell
-            && facade && facade->capabilities().mode == CommandExecutionMode::Isolated;
-        if (!coordinator || !coordinator->hasTrustedProfile() || !facade
-            || !facade->isAvailable()
-            || (facade->capabilities().mode != CommandExecutionMode::InteractiveFramed
-                && !localIsolated)) {
-            complete(job, error("COMMAND_PROFILE_UNAVAILABLE"));
-            return;
-        }
-
-        const auto& arguments = job->arguments;
-        const QByteArray content = arguments.value("scriptContent").toString().toUtf8();
-        const QString targetPath = arguments.value("targetPath").toString();
-        const QString workingDirectory = arguments.value("workingDirectory").toString();
-        const QString invocation = arguments.value("invocation").toString();
-        const auto risk = CommandRiskPolicy{}.classifyScript(
-            content, targetPath, workingDirectory, invocation);
-        if (risk.decision == RiskDecision::Deny) {
-            complete(job, error("COMMAND_NOT_ALLOWED"));
-            return;
-        }
-        if (risk.decision != RiskDecision::Confirm) {
-            complete(job, error("COMMAND_SCRIPT_RISK_UNKNOWN"));
-            return;
-        }
-        const QString displayTarget = normalizedScriptTarget(
-            entry.kind, workingDirectory, targetPath);
-        if (displayTarget.isEmpty()) {
-            complete(job, error("SCRIPT_TARGET_INVALID"));
-            return;
-        }
-        const bool targetExistsLocally = entry.kind == TransportKind::LocalShell
-            && QFileInfo(displayTarget).exists();
-        if (!coordinator->isPromptReady()) {
-            complete(job, error("SESSION_COMMAND_NOT_READY"));
-            return;
-        }
-        const auto profile = facade->profile();
-        const QByteArray argumentHash = scriptArgumentsDigest(arguments);
-
-        if (!job->confirmationAccepted) {
-            if (!job->formElicitation && job->requestState.isEmpty()) {
-                complete(job, error("CLIENT_CONFIRMATION_UNAVAILABLE"));
-                return;
-            }
-            if (!job->requestState.isEmpty() || !job->inputResponses.isEmpty()) {
-                const auto state = verifyToken(job->requestState, connection.key);
-                const auto response = job->inputResponses.value("confirm").toObject();
-                const QString nonce = state ? state->value("nonce").toString() : QString{};
-                const bool valid = job->mrtr && state
-                    && state->value("kind") == QStringLiteral("interactive-confirmation")
-                    && state->value("tool") == QStringLiteral("novaterm_run_script")
-                    && state->value("client") == connection.client
-                    && state->value("connection") == job->connection
-                    && state->value("session") == entry.id
-                    && state->value("epoch") == entry.epoch
-                    && state->value("target") == entry.targetFingerprint
-                    && state->value("payloadHash").toString()
-                        == QString::fromLatin1(argumentHash.toHex())
-                    && state->value("policyVersion") == risk.policyVersion
-                    && state->value("profileVersion") == profile.version()
-                    && state->value("grantVersion")
-                        == versionString(access.version(connection.client))
-                    && access.canRunScriptTask(connection.client, entry)
-                    && state->value("promptGeneration").toString()
-                        == QString::number(coordinator->promptGeneration())
-                    && state->value("expires").toDouble() > clock.elapsed()
-                    && !nonce.isEmpty()
-                    && activeConfirmations.value(job->connection) == nonce
-                    && !consumedConfirmations.contains(nonce);
-                if (!valid) {
-                    complete(job, error("COMMAND_CONFIRMATION_STALE"));
-                    return;
-                }
-                consumeActiveConfirmation(job->connection, nonce,
-                    qint64(state->value("expires").toDouble()));
-                const QString action = response.value("action").toString();
-                if (action != QStringLiteral("accept")
-                    || !response.value("content").toObject()
-                        .value("confirmed").toBool()) {
-                    complete(job, error(action == QStringLiteral("cancel")
-                        ? "COMMAND_CONFIRMATION_CANCELLED"
-                        : "COMMAND_CONFIRMATION_DECLINED"));
-                    return;
-                }
-                job->confirmationAccepted = true;
-                job->requestState.clear();
-                job->inputResponses = {};
-            } else if (job->mrtr) {
-                if (activeConfirmations.contains(job->connection)) {
-                    complete(job, error("BUSY", true, 250));
-                    return;
-                }
-                const QString nonce = newId();
-                const QJsonObject state{{"kind", "interactive-confirmation"},
-                    {"tool", "novaterm_run_script"},
-                    {"client", connection.client}, {"connection", job->connection},
-                    {"session", entry.id}, {"epoch", entry.epoch},
-                    {"target", entry.targetFingerprint},
-                    {"payloadHash", QString::fromLatin1(argumentHash.toHex())},
-                    {"policyVersion", risk.policyVersion},
-                    {"profileVersion", profile.version()},
-                    {"grantVersion", versionString(access.version(connection.client))},
-                    {"promptGeneration", QString::number(coordinator->promptGeneration())},
-                    {"nonce", nonce}, {"expires", double(clock.elapsed() + 60000)}};
-                const QString token = signToken(state, connection.key);
-                const QString message = scriptConfirmationMessage(
-                    content, displayTarget, workingDirectory, invocation,
-                    risk.reasons, targetExistsLocally);
-                const qint64 expires = clock.elapsed() + 60000;
-                registerActiveConfirmation(job->connection, connection.client,
-                                           entry.id, nonce, expires);
-                if (!io.send(job->connection, {{"op", "input_required"},
-                        {"id", job->id}, {"message", message}, {"requestState", token}})) {
-                    clearActiveConfirmation(job->connection, nonce);
-                    complete(job, error("CLIENT_CONFIRMATION_UNAVAILABLE"));
-                    return;
-                }
-                job->cancelled = true;
-                complete(job, {});
-                return;
-            } else {
-                const QString prefix = job->connection + QLatin1Char('/');
-                for (auto it = confirmations.cbegin(); it != confirmations.cend(); ++it) {
-                    if (it.key().startsWith(prefix)) {
-                        complete(job, error("BUSY", true, 250));
-                        return;
-                    }
-                }
-                const QString pendingKey = jobKey(job->connection, job->id);
-                PendingConfirmation pending;
-                pending.job = job;
-                pending.client = connection.client;
-                pending.session = entry.id;
-                pending.epoch = entry.epoch;
-                pending.command = invocation;
-                pending.policyVersion = risk.policyVersion;
-                pending.tool = job->tool;
-                pending.profileVersion = profile.version();
-                pending.targetFingerprint = entry.targetFingerprint;
-                pending.grantVersion = access.version(connection.client);
-                pending.promptGeneration = coordinator->promptGeneration();
-                pending.payloadHash = argumentHash;
-                pending.expires = clock.elapsed() + 60000;
-                confirmations.insert(pendingKey, pending);
-                const QString message = scriptConfirmationMessage(
-                    content, displayTarget, workingDirectory, invocation,
-                    risk.reasons, targetExistsLocally);
-                if (!io.send(job->connection, {{"op", "elicitation"},
-                        {"id", job->id}, {"message", message}})) {
-                    confirmations.remove(pendingKey);
-                    complete(job, error("CLIENT_CONFIRMATION_UNAVAILABLE"));
-                    return;
-                }
-                job->deadline = clock.elapsed() + 60000;
-                return;
-            }
-        }
-
-        const bool readyAfterConfirmation = coordinator->isPromptReady();
-        const bool stillAuthorized = access.canRunScriptTask(connection.client, entry);
-        const bool sameProvider = provider == entry.session->scriptProvider();
-        const bool providerAvailable = provider->isAvailable();
-        if (!readyAfterConfirmation || !stillAuthorized || !sameProvider
-            || !providerAvailable) {
-            complete(job, error("COMMAND_CONFIRMATION_STALE"));
-            return;
-        }
-        if (guards.markers().contains(entry.targetFingerprint)) {
-            complete(job, error("COMMAND_EXECUTION_QUARANTINED"));
-            return;
-        }
-        if (lastCommand.contains(entry.targetFingerprint)
-            || scriptWrites.size() >= MaxClients * MaxActiveRequests
-            || executions.size() >= 128) {
-            complete(job, error("BUSY", true, 5000));
-            return;
-        }
-        auto* inputArbiter = entry.session->inputArbiter();
-        if (!inputArbiter) {
-            complete(job, error("SESSION_COMMAND_NOT_READY"));
-            return;
-        }
-        if (!observedInputArbiters.contains(inputArbiter)) {
-            observedInputArbiters.insert(inputArbiter);
-            QObject::connect(inputArbiter, &SessionInputArbiter::userInputStarted, q,
-                [this, session = entry.session.data()](quint64 userGeneration) {
-                    cancelScriptWritesForUserInput(session, userGeneration);
-                });
-            QObject::connect(inputArbiter, &QObject::destroyed, q,
-                [this, inputArbiter] { observedInputArbiters.remove(inputArbiter); });
-        }
-        const QString pathLock = entry.targetFingerprint + QLatin1Char('/')
-            + displayTarget;
-        if (scriptPathLocks.contains(pathLock)) {
-            complete(job, error("BUSY", true, 500));
-            return;
-        }
-        const auto command = scriptInvocationCommand(
-            entry.session->runtimeConfig().transport.value(
-                QStringLiteral("interactiveShellKind")).toString(),
-            workingDirectory, invocation);
-        if (!command || command->toUtf8().size() > 16384) {
-            complete(job, error("COMMAND_SCRIPT_INVOCATION_INVALID"));
-            return;
-        }
-        const QString owner = jobKey(job->connection, job->id);
-        const quint64 requestId = nextScriptWrite++;
-        ScriptWriteTask task;
-        task.job = job;
-        task.provider = provider;
-        task.client = connection.client;
-        task.session = entry.id;
-        task.epoch = entry.epoch;
-        task.targetFingerprint = entry.targetFingerprint;
-        task.policyVersion = risk.policyVersion;
-        task.profileVersion = profile.version();
-        task.targetPath = normalizedScriptTarget(entry.kind, workingDirectory, targetPath);
-        task.workingDirectory = workingDirectory;
-        task.invocation = invocation;
-        task.scriptPathLock = pathLock;
-        task.metadataHash = scriptMetadataDigest(arguments);
-        task.contentHash = QCryptographicHash::hash(content, QCryptographicHash::Sha256);
-        task.promptGeneration = coordinator->promptGeneration();
-        task.grantVersion = access.version(connection.client);
-        task.sessionGeneration = entry.generation;
-        task.userInputGeneration = inputArbiter->userInputGeneration();
-        if (!observedScriptProviders.contains(provider)) {
-            observedScriptProviders.insert(provider);
-            QObject::connect(provider, &ISessionScriptProvider::finished, q,
-                [this](const ScriptWriteResult& result) { finishScriptWrite(result); });
-            QObject::connect(provider, &QObject::destroyed, q,
-                [this, provider] {
-                    observedScriptProviders.remove(provider);
-                    const auto ids = scriptWrites.keys();
-                    for (const auto id : ids) {
-                        if (scriptWrites.value(id).provider.data() != provider
-                            && !scriptWrites.value(id).provider.isNull())
-                            continue;
-                        const auto task = scriptWrites.take(id);
-                        const auto job = task.job;
-                        ScriptWriteResult uncertain;
-                        uncertain.requestId = id;
-                        uncertain.errorCode = QStringLiteral("SCRIPT_PUBLICATION_OUTCOME_UNKNOWN");
-                        recordScriptWriteOutcome(task, uncertain);
-                        // Provider 消失后不能证明远端未提交，保留持久保护标记。
-                        releaseScriptReservation(job, false);
-                        complete(job, error("SCRIPT_PROVIDER_UNAVAILABLE"));
-                    }
-                });
-        }
-        QString rejected;
-        const QString reservationId = newId();
-        if (!guards.reserve(entry.targetFingerprint, reservationId, instance, rejected)) {
-            complete(job, failure(rejected, rejected, rejected == QStringLiteral("BUSY"), 250));
-            return;
-        }
-        job->scriptReservationId = reservationId;
-        job->scriptReservedTarget = entry.targetFingerprint;
-        scriptPathLocks.insert(pathLock, owner);
-        scriptWrites.insert(requestId, task);
-        ScriptWriteRequest request{requestId, content, targetPath, workingDirectory};
-        job->deadline = clock.elapsed() + ScriptWriteTimeout.count();
-        if (!provider->writeScript(request)) {
-            scriptWrites.remove(requestId);
-            complete(job, error("SCRIPT_WRITE_FAILED"));
-            return;
-        }
-        job->scriptPolicyVersion = risk.policyVersion;
-        job->arguments.remove(QStringLiteral("scriptContent"));
+        if (scriptCommands)
+            scriptCommands->runScript(job, entry);
     }
 
     void cancelScriptWritesForUserInput(TerminalSession* session,
@@ -1490,486 +788,50 @@ public:
         if (!session)
             return;
         const QString sessionId = session->id().toString(QUuid::WithoutBraces);
-        const auto ids = scriptWrites.keys();
+        const auto ids = scriptWrites.ids();
         for (const quint64 requestId : ids) {
-            const auto task = scriptWrites.value(requestId);
-            if (task.session == sessionId
-                && task.userInputGeneration != userGeneration) {
-                cancel(task.job, error("SCRIPT_CANCELLED_BY_USER"), true);
+            const auto* task = scriptWrites.find(requestId);
+            if (task && task->session == sessionId
+                && task->userInputGeneration != userGeneration) {
+                cancel(task->job, error("SCRIPT_CANCELLED_BY_USER"), true);
             }
         }
     }
 
     void finishScriptWrite(const ScriptWriteResult& result)
     {
-        const auto it = scriptWrites.find(result.requestId);
-        if (it == scriptWrites.end())
-            return;
-        const ScriptWriteTask task = it.value();
-        scriptWrites.erase(it);
-        const auto job = task.job;
-        const bool uncertain = result.errorCode == QStringLiteral("SCRIPT_PUBLICATION_OUTCOME_UNKNOWN");
-        if (job->cancelled || !jobs.contains(jobKey(job->connection, job->id))) {
-            recordScriptWriteOutcome(task, result);
-            releaseScriptReservation(job, !uncertain);
-            return;
-        }
-        if (!result.success) {
-            recordScriptWriteOutcome(task, result);
-            releaseScriptReservation(job, !uncertain);
-            complete(job, failure(result.errorCode.isEmpty()
-                ? QStringLiteral("SCRIPT_WRITE_FAILED") : result.errorCode,
-                result.errorCode.isEmpty() ? QStringLiteral("SCRIPT_WRITE_FAILED") : result.errorCode));
-            return;
-        }
-        auto connection = connections.constFind(job->connection);
-        const auto entry = sessions.find(task.session);
-        auto* coordinator = entry && entry->session
-            ? entry->session->commandCoordinator() : nullptr;
-        auto* facade = entry && entry->session
-            ? entry->session->commandFacade() : nullptr;
-        const auto provider = entry && entry->session
-            ? entry->session->scriptProvider() : nullptr;
-        const bool valid = entry && connection != connections.cend()
-            && connection->client == task.client
-            && access.canRunScriptTask(task.client, *entry)
-            && entry->state == SessionState::Running
-            && entry->epoch == task.epoch
-            && entry->targetFingerprint == task.targetFingerprint
-            && entry->generation == task.sessionGeneration
-            && coordinator && coordinator->isPromptReady()
-            && coordinator->promptGeneration() == task.promptGeneration
-            && facade && facade->isAvailable()
-            && facade->profile().version() == task.profileVersion
-            && provider && provider == task.provider.data()
-            && provider->isAvailable()
-            && access.version(task.client) == task.grantVersion
-            && scriptMetadataDigest(job->arguments) == task.metadataHash
-            && result.contentHash == task.contentHash
-            && result.resolvedTargetPath == task.targetPath;
-        if (!valid) {
-            recordScriptWriteOutcome(task, result);
-            complete(job, error("COMMAND_CONFIRMATION_STALE"));
-            return;
-        }
-        const auto command = scriptInvocationCommand(
-            entry->session->runtimeConfig().transport.value(
-                QStringLiteral("interactiveShellKind")).toString(),
-            task.workingDirectory, task.invocation);
-        if (!command || command->toUtf8().size() > 16384) {
-            recordScriptWriteOutcome(task, result);
-            complete(job, error("COMMAND_SCRIPT_INVOCATION_INVALID"));
-            return;
-        }
-        job->arguments.insert(QStringLiteral("command"), *command);
-        job->scriptPolicyVersion = task.policyVersion;
-        runCommand(job, *entry);
+        scriptResults().handleResult(result);
     }
 
-    void runCommand(const std::shared_ptr<Job>& job,
-                    const SessionDirectory::Entry& entry)
+    void runCommand(const std::shared_ptr<Job>& job, const SessionDirectory::Entry& entry)
     {
-        const auto connection = connections.value(job->connection);
-        // 「允许交互命令」只约束 novaterm_run_command。脚本任务有自己的独立授权位
-        // （scriptTask）与逐次人类确认；其调用命令虽然同样会打进当前终端，但那已经
-        // 由「脚本授权 + 每次确认」显式承担。若在这里一并要求交互命令授权，
-        // 「只授脚本任务」的合法配置会在脚本正文已落盘之后才失败，且报出
-        // COMMAND_PERMISSION_REQUIRED 而不是 SCRIPT_PERMISSION_REQUIRED。
-        // novaterm_run_script 走 runScript 入口的 canRunScriptTask 检查。
-        if (job->tool == QStringLiteral("novaterm_run_command")
-            && !access.canRunCommand(connection.client, entry)) {
-            complete(job, !job->requestState.isEmpty()
-                ? error("COMMAND_CONFIRMATION_STALE")
-                : error("COMMAND_PERMISSION_REQUIRED"));
-            return;
-        }
-        if (entry.state != SessionState::Running || !entry.session) {
-            complete(job, error("SESSION_NOT_READY"));
-            return;
-        }
-        const QString command = job->arguments.value("command").toString();
-        const RiskAssessment risk = CommandRiskPolicy{}.classify(command);
-        if (risk.decision == RiskDecision::Deny) {
-            complete(job, error("COMMAND_NOT_ALLOWED"));
-            return;
-        }
-        if (risk.decision == RiskDecision::Allow
-            && (!job->requestState.isEmpty() || !job->inputResponses.isEmpty())) {
-            complete(job, error("COMMAND_CONFIRMATION_STALE"));
-            return;
-        }
-        if (risk.decision != RiskDecision::Allow && !job->confirmationAccepted
-            && !job->formElicitation && job->requestState.isEmpty()) {
-            complete(job, error("CLIENT_CONFIRMATION_UNAVAILABLE"));
-            return;
-        }
-        auto* coordinator = entry.session->commandCoordinator();
-        const bool unverifiedSsh = entry.kind == TransportKind::Ssh
-            && coordinator && coordinator->allowsUnverifiedPrompt();
-        if (!coordinator || (!coordinator->hasTrustedProfile() && !unverifiedSsh)) {
-            complete(job, error("COMMAND_PROFILE_UNAVAILABLE"));
-            return;
-        }
-        if (!unverifiedSsh && !coordinator->isPromptReady()) {
-            complete(job, error("SESSION_COMMAND_NOT_READY"));
-            return;
-        }
-        auto* facade = entry.session->commandFacade();
-        // LocalShell 的固定诊断使用隔离 helper，交互命令与脚本仍由协调器
-        // 写入当前终端，避免把自由命令交给只接受四个 commandId 的 helper。
-        const bool directCoordinator = unverifiedSsh
-            || (entry.kind == TransportKind::LocalShell && facade
-                && facade->capabilities().mode == CommandExecutionMode::Isolated);
-        const auto profile = facade ? facade->profile() : CommandPlatformProfile{};
-        if (risk.decision != RiskDecision::Allow && !job->confirmationAccepted) {
-            if (!job->formElicitation && job->requestState.isEmpty()) {
-                complete(job, error("CLIENT_CONFIRMATION_UNAVAILABLE"));
-                return;
-            }
-            if (!job->requestState.isEmpty() || !job->inputResponses.isEmpty()) {
-                const auto state = verifyToken(job->requestState, connection.key);
-                const auto response = job->inputResponses.value("confirm").toObject();
-                const QString action = response.value("action").toString();
-                const QString expectedDecision = risk.decision == RiskDecision::Confirm
-                    ? QStringLiteral("confirm") : QStringLiteral("unknown");
-                const QString commandHash = QString::fromLatin1(
-                    QCryptographicHash::hash(command.toUtf8(), QCryptographicHash::Sha256).toHex());
-                const QString nonce = state ? state->value("nonce").toString() : QString{};
-                const bool valid = job->mrtr && state
-                    && state->value("kind") == QStringLiteral("interactive-confirmation")
-                    && state->value("client") == connection.client
-                    && state->value("connection") == job->connection
-                    && state->value("session") == entry.id
-                    && state->value("epoch") == entry.epoch
-                    && state->value("target") == entry.targetFingerprint
-                    && state->value("commandHash") == commandHash
-                    && state->value("policyVersion") == risk.policyVersion
-                    && state->value("decision") == expectedDecision
-                    && state->value("profileVersion") == profile.version()
-                    && state->value("grantVersion") == versionString(access.version(connection.client))
-                    && state->value("promptGeneration").toString()
-                        == QString::number(coordinator->promptGeneration())
-                    && state->value("userInputGeneration").toString()
-                        == QString::number(entry.session->inputArbiter()->userInputGeneration())
-                    && state->value("expires").toDouble() > clock.elapsed()
-                    && activeConfirmations.value(job->connection) == nonce
-                    && !nonce.isEmpty() && !consumedConfirmations.contains(nonce);
-                if (!valid) {
-                    complete(job, error("COMMAND_CONFIRMATION_STALE"));
-                    return;
-                }
-                consumeActiveConfirmation(job->connection, nonce,
-                    qint64(state->value("expires").toDouble()));
-                if ((!unverifiedSsh && !coordinator->isPromptReady())
-                    || coordinator->promptGeneration() != state->value("promptGeneration").toString().toULongLong()) {
-                    complete(job, error("COMMAND_CONFIRMATION_STALE"));
-                    return;
-                }
-                if (action != QStringLiteral("accept")
-                    || !response.value("content").toObject().value("confirmed").toBool()) {
-                    complete(job, error(action == QStringLiteral("cancel")
-                        ? "COMMAND_CONFIRMATION_CANCELLED" : "COMMAND_CONFIRMATION_DECLINED"));
-                    return;
-                }
-                job->confirmationAccepted = true;
-            } else if (job->mrtr) {
-                if (activeConfirmations.contains(job->connection)) {
-                    complete(job, error("BUSY", true, 250));
-                    return;
-                }
-                const QString decision = risk.decision == RiskDecision::Confirm
-                    ? QStringLiteral("confirm") : QStringLiteral("unknown");
-                const QString nonce = newId();
-                const QJsonObject state{{"kind", "interactive-confirmation"},
-                    {"client", connection.client}, {"connection", job->connection},
-                    {"session", entry.id}, {"epoch", entry.epoch},
-                    {"target", entry.targetFingerprint},
-                    {"commandHash", QString::fromLatin1(QCryptographicHash::hash(
-                        command.toUtf8(), QCryptographicHash::Sha256).toHex())},
-                    {"policyVersion", risk.policyVersion}, {"decision", decision},
-                    {"profileVersion", profile.version()},
-                    {"grantVersion", versionString(access.version(connection.client))},
-                    {"promptGeneration", QString::number(coordinator->promptGeneration())},
-                    {"userInputGeneration", QString::number(entry.session->inputArbiter()->userInputGeneration())},
-                    {"nonce", nonce}, {"expires", double(clock.elapsed() + 60000)}};
-                const QString token = signToken(state, connection.key);
-                const qint64 expires = clock.elapsed() + 60000;
-                registerActiveConfirmation(job->connection, connection.client,
-                                           entry.id, nonce, expires);
-                const QString message = QStringLiteral("NovaTerm requests confirmation to run this terminal command:\n\n%1\n\nRisk: %2")
-                    .arg(command, risk.reasons.join(QStringLiteral(", ")));
-                if (!io.send(job->connection, {{"op", "input_required"},
-                        {"id", job->id}, {"message", message}, {"requestState", token}})) {
-                    clearActiveConfirmation(job->connection, nonce);
-                    complete(job, error("CLIENT_CONFIRMATION_UNAVAILABLE"));
-                    return;
-                }
-                job->cancelled = true;
-                complete(job, {});
-                return;
-            }
-            if (job->confirmationAccepted) {
-                // MRTR 回合在这里重新进入与 2025 accept 相同的执行分支。
-            } else {
-            const QString confirmationPrefix = job->connection + QLatin1Char('/');
-            for (auto it = confirmations.cbegin(); it != confirmations.cend(); ++it) {
-                if (it.key().startsWith(confirmationPrefix)) {
-                    complete(job, error("BUSY", true, 250));
-                    return;
-                }
-            }
-            const QString pendingKey = jobKey(job->connection, job->id);
-            PendingConfirmation pending;
-            pending.job = job;
-            pending.client = connection.client;
-            pending.session = entry.id;
-            pending.epoch = entry.epoch;
-            pending.command = command;
-            pending.policyVersion = risk.policyVersion;
-            pending.tool = job->tool;
-            pending.profileVersion = profile.version();
-            pending.targetFingerprint = entry.targetFingerprint;
-            pending.grantVersion = access.version(connection.client);
-            pending.promptGeneration = coordinator->promptGeneration();
-            pending.userInputGeneration = entry.session->inputArbiter()->userInputGeneration();
-            pending.payloadHash = QCryptographicHash::hash(command.toUtf8(),
-                QCryptographicHash::Sha256);
-            pending.expires = clock.elapsed() + 60000;
-            confirmations.insert(pendingKey, pending);
-            const QString message = QStringLiteral("NovaTerm requests confirmation to run this terminal command:\n\n%1\n\nRisk: %2")
-                .arg(command, risk.reasons.join(QStringLiteral(", ")));
-            if (!io.send(job->connection, {{"op", "elicitation"},
-                    {"id", job->id}, {"message", message}})) {
-                confirmations.remove(pendingKey);
-                complete(job, error("CLIENT_CONFIRMATION_UNAVAILABLE"));
-                return;
-            }
-            job->deadline = clock.elapsed() + 60000;
-            return;
-            }
-        }
-        if (!facade || !facade->isAvailable()
-            || entry.targetFingerprint.isEmpty()) {
-            complete(job, error("COMMAND_UNAVAILABLE"));
-            return;
-        }
-        const auto marker = guards.markers().value(entry.targetFingerprint).toObject();
-        const bool ownsReservation = !job->scriptReservationId.isEmpty()
-            && job->scriptReservedTarget == entry.targetFingerprint
-            && marker.value("executionId").toString() == job->scriptReservationId;
-        if (!job->scriptReservationId.isEmpty() && !ownsReservation) {
-            complete(job, error("COMMAND_CONFIRMATION_STALE"));
-            return;
-        }
-        if (!marker.isEmpty() && !ownsReservation) {
-            complete(job, error("COMMAND_EXECUTION_QUARANTINED"));
-            return;
-        }
-        int clientExecutions = 0;
-        for (const auto& execution : executions) {
-            if (execution.connection == job->connection)
-                ++clientExecutions;
-        }
-        if (clientExecutions >= 32 || executions.size() + scriptWrites.size() >= 128
-            || lastCommand.contains(entry.targetFingerprint)) {
-            complete(job, error("BUSY", true, 5000));
-            return;
-        }
-        const QString executionId = ownsReservation ? job->scriptReservationId : newId();
-        QString rejected;
-        if (!ownsReservation && !guards.reserve(entry.targetFingerprint, executionId,
-                            instance, rejected)) {
-            complete(job, error("BUSY", true, 250));
-            return;
-        }
-        if (!observedFacades.contains(facade)) {
-            observedFacades.insert(facade);
-            QObject::connect(facade, &SessionCommandFacade::finished, q,
-                [this](const CommandExecutionResult& result) {
-                    finishExecution(result);
-                });
-            QObject::connect(facade, &QObject::destroyed, q,
-                [this, facade] { observedFacades.remove(facade); });
-        }
-        const quint64 requestId = nextCommandRequest++;
-        const auto timeout = std::chrono::milliseconds{job->arguments.value("timeoutMs").toInt(5000)};
-        const QString executionCommandId = job->tool == QStringLiteral("novaterm_run_script")
-            ? QStringLiteral("interactive.script")
-            : QStringLiteral("interactive.free");
-        const QString executionPolicyVersion = job->tool == QStringLiteral("novaterm_run_script")
-            && !job->scriptPolicyVersion.isEmpty()
-            ? job->scriptPolicyVersion : risk.policyVersion;
-        Execution execution{executionId, job->connection, connection.client,
-            entry.id, entry.epoch, executionCommandId,
-            executionPolicyVersion, entry.targetFingerprint, requestId,
-            clock.elapsed(), facade, job, {}, false, true, {}, {}};
-        executions.insert(executionId, execution);
-        // 上传预留移交给 Execution，之后只由确定的执行终态解除。
-        job->scriptReservationId.clear();
-        job->scriptReservedTarget.clear();
-        if (directCoordinator) {
-            executions[executionId].coordinator = coordinator;
-            if (!observedCoordinators.contains(coordinator)) {
-                observedCoordinators.insert(coordinator);
-                QObject::connect(coordinator, &SessionCommandCoordinator::finished, q,
-                    [this](const CommandExecutionResult& result) {
-                        finishExecution(result);
-                    });
-                QObject::connect(coordinator, &QObject::destroyed, q,
-                    [this, coordinator] { observedCoordinators.remove(coordinator); });
-            }
-        }
-        CommandExecutionRequest request;
-        request.requestId = requestId;
-        request.command = command.toUtf8();
-        request.limits = {CommandOutputBytes, static_cast<int>(timeout.count())};
-        request.commandId = executionCommandId;
-        request.executionNonce = newId().toUtf8();
-        request.expectedPromptGeneration = unverifiedSsh
-            ? 0 : coordinator->promptGeneration();
-        const bool submitted = directCoordinator
-            ? coordinator->submit(request) : facade->execute(request);
-        if (!submitted) {
-            executions.remove(executionId);
-            guards.release(entry.targetFingerprint, executionId);
-            complete(job, error("SESSION_COMMAND_BUSY"));
-            return;
-        }
-        lastCommand.insert(entry.targetFingerprint, clock.elapsed());
-        job->deadline = clock.elapsed() + timeout.count();
-        emit q->changed();
+        if (scriptCommands)
+            scriptCommands->runCommand(job, entry);
     }
 
     void command(const std::shared_ptr<Job>& job, const SessionDirectory::Entry& entry)
     {
         const auto connection = connections.value(job->connection);
-        const auto commandId = job->arguments.value("commandId").toString();
-        auto* facade = entry.session ? entry.session->commandFacade() : nullptr;
-        const auto profile = facade ? facade->profile() : CommandPlatformProfile{};
-        const auto definition = CommandPolicy::find(commandId, profile);
-        if (!definition) { complete(job, error("COMMAND_NOT_ALLOWED")); return; }
-        if (!access.commands(connection.client, entry).contains(commandId)) {
-            complete(job, error("COMMAND_PERMISSION_REQUIRED")); return;
-        }
-        const auto ticket = verifyToken(job->arguments.value("commandTicket").toString(), connection.key);
-        if (!ticket || ticket->value("kind") != "command" || ticket->value("session") != entry.id
-            || ticket->value("epoch") != entry.epoch || ticket->value("command") != commandId
-            || ticket->value("policy") != job->arguments.value("policyVersion")
-            || ticket->value("profile") != profile.version()) {
-            complete(job, error("COMMAND_TICKET_SCOPE_INVALID")); return;
-        }
-        const QString executionId = ticket->value("execution").toString();
-        if (executions.contains(executionId)) {
-            const auto previous = executions.value(executionId);
-            if (previous.connection != job->connection) { complete(job, error("COMMAND_TICKET_SCOPE_INVALID")); return; }
-            complete(job, previous.complete ? previous.payload : error("COMMAND_IN_PROGRESS", true, 250));
-            return;
-        }
-        if (ticket->value("expires").toDouble() <= clock.elapsed()) { complete(job, error("COMMAND_TICKET_EXPIRED")); return; }
-        if (ticket->value("grant").toString() != versionString(access.version(connection.client))) {
-            complete(job, error("COMMAND_PERMISSION_REQUIRED")); return;
-        }
-        const QString policyVersion = CommandPolicy::version(profile);
-        if (ticket->value("policy") != policyVersion) { complete(job, error("COMMAND_POLICY_CHANGED")); return; }
-        if (!job->arguments.value("arguments").toObject().isEmpty()) { complete(job, error("COMMAND_NOT_ALLOWED")); return; }
-        if (!facade || !facade->isAvailable() || entry.targetFingerprint.isEmpty()) {
-            complete(job, error(profile.isAvailable()
-                ? "COMMAND_UNAVAILABLE" : "COMMAND_PROFILE_UNAVAILABLE")); return;
-        }
-        if (entry.state != SessionState::Running) { complete(job, error("SESSION_NOT_READY")); return; }
-        int count = 0;
-        for (const auto& value : executions) if (value.connection == job->connection) ++count;
-        if (guards.markers().contains(entry.targetFingerprint)) {
-            complete(job, error("COMMAND_EXECUTION_QUARANTINED")); return;
-        }
-        if (count >= 32 || executions.size() + scriptWrites.size() >= 128 || lastCommand.contains(entry.targetFingerprint)) {
-            complete(job, error("BUSY", true, 5000)); return;
-        }
-        QString rejected;
-        if (!guards.reserve(entry.targetFingerprint, executionId, instance, rejected)) {
-            complete(job, failure(rejected, rejected, rejected == "BUSY", 250)); return;
-        }
-        if (!observedFacades.contains(facade)) {
-            observedFacades.insert(facade);
-            QObject::connect(facade, &SessionCommandFacade::finished, q,
-                [this](const CommandExecutionResult& result) { finishExecution(result); });
-            QObject::connect(facade, &QObject::destroyed, q,
-                [this, facade] { observedFacades.remove(facade); });
-        }
-        const quint64 request = nextCommandRequest++;
-        Execution execution{executionId, job->connection, connection.client, entry.id, entry.epoch,
-            commandId, policyVersion, entry.targetFingerprint, request,
-            clock.elapsed(), facade, job, {}, false, false, {}, {}};
-        executions.insert(executionId, execution);
-        CommandExecutionRequest executionRequest{
-            request, definition->command, {CommandOutputBytes, 5000},
-            commandId, {}, 0};
-        if (facade->capabilities().mode == CommandExecutionMode::InteractiveFramed
-            && entry.session && entry.session->commandCoordinator()) {
-            executionRequest.executionNonce = newId().toUtf8();
-            executionRequest.expectedPromptGeneration =
-                entry.session->commandCoordinator()->promptGeneration();
-        }
-        if (!facade->execute(executionRequest)) {
-            executions.remove(executionId);
-            guards.release(entry.targetFingerprint, executionId);
-            complete(job, error("BUSY", true, 250)); return;
-        }
-        lastCommand.insert(entry.targetFingerprint, clock.elapsed());
-        job->deadline = clock.elapsed() + 5000;
-        emit q->changed();
+        DiagnosticCommandUseCase use{DiagnosticCommandUseCase::Ports{
+            &access, &executions, &scriptWrites, &guards, &lastCommand,
+            &observedFacades, &nextCommandRequest, instance,
+            [this] { return clock.elapsed(); }, q,
+            [this](const std::shared_ptr<Job>& target, QJsonObject payload) {
+                complete(target, std::move(payload));
+            },
+            [this] { emit q->changed(); },
+            [this](const CommandExecutionResult& result) { finishExecution(result); }}};
+        use.run(job, entry, connection.client, connection.key);
     }
 
     void finishExecution(const CommandExecutionResult& result)
     {
-        auto found = executions.end();
-        for (auto it = executions.begin(); it != executions.end(); ++it) {
-            if (it->executorRequestId == result.requestId) { found = it; break; }
-        }
-        if (found == executions.end()) return;
-        if (found->complete) {
-            // 超时响应已经发布；迟到的确定退出只解除保护，不再发第二次 RPC 响应。
-            if (!result.executionMayHaveStarted || result.terminationConfirmed) {
-                guards.release(found->target, found->id);
-                emit q->changed();
-            }
-            return;
-        }
-        auto& execution = *found;
-        execution.complete = true;
-        bool truncated = result.outputTruncated;
-        qsizetype remaining = CommandOutputBytes;
-        const auto out = outputText(result.standardOutput, remaining, truncated);
-        const auto err = outputText(result.standardError, remaining, truncated);
-        const bool completed = result.outcome == CommandExecutionOutcome::Completed
-            && !truncated && result.terminationConfirmed
-            && (result.exitCode ? *result.exitCode == 0
-                                : execution.interactive);
-        QString state = completed ? "completed" : "failed";
-        QString code = "COMMAND_FAILED";
-        if (truncated) code = "COMMAND_OUTPUT_LIMIT";
-        else if (result.outcome == CommandExecutionOutcome::TimedOut) { code = "COMMAND_TIMEOUT"; state = "timed_out"; }
-        else if (result.outcome == CommandExecutionOutcome::Cancelled) { code = "COMMAND_OUTCOME_UNKNOWN"; state = "cancelled"; }
-        else if (result.executionMayHaveStarted && !result.terminationConfirmed) { code = "COMMAND_OUTCOME_UNKNOWN"; state = "unknown"; }
-        QJsonObject data{{"executionId", execution.id}, {"instanceId", instance}, {"sessionId", execution.session},
-            {"epoch", execution.epoch}, {"commandId", execution.commandId},
-            {"policyVersion", execution.policyVersion},
-            {"status", state}, {"executionMayHaveStarted", result.executionMayHaveStarted},
-            {"terminationConfirmed", result.terminationConfirmed}, {"startedAt", QJsonValue(QJsonValue::Null)},
-            {"finishedAt", result.terminationConfirmed ? QJsonValue(utcNow()) : QJsonValue(QJsonValue::Null)},
-            {"exitCode", result.exitCode ? QJsonValue(*result.exitCode) : QJsonValue(QJsonValue::Null)},
-            {"stdout", out}, {"stderr", err}, {"outputTruncated", truncated}};
-        execution.payload = completed ? success(data) : failure(code, code);
-        if (!completed) {
-            auto detail = execution.payload.value("error").toObject();
-            detail.insert("details", data);
-            execution.payload.insert("error", detail);
-        }
-        if (!result.executionMayHaveStarted || result.terminationConfirmed)
-            guards.release(execution.target, execution.id);
-        if (execution.job) complete(execution.job, execution.payload);
-        execution.job.reset();
-        emit q->changed();
+        ExecutionService service{{&executions, &guards, &jobs, instance,
+            [this](const std::shared_ptr<Job>& job, QJsonObject payload) {
+                complete(job, std::move(payload));
+            },
+            [this] { emit q->changed(); }}};
+        service.finish(result);
     }
 
     Service* q;
@@ -1981,45 +843,34 @@ public:
     AccessStore access;
     SessionDirectory sessions;
     HttpMcpEndpoint io;
-    std::unique_ptr<TerminalInteraction> terminal;
     quint16 listenPort{0};
     TargetGuard guards;
-    QThreadPool workers;
     QElapsedTimer clock;
+    ObservationService observation{[this] { return qint64(clock.elapsed()); }};
+    std::unique_ptr<TerminalInteraction> terminal;
+    QThreadPool workers;
     QTimer timer;
     bool started{false};
     bool listening{false};
     bool scheduled{false};
     bool checkingSessionState{false};
     QHash<QString, Connection> connections;
-    QHash<QString, std::shared_ptr<Job>> jobs;
-    QHash<QString, PendingConfirmation> confirmations;
-    QHash<QString, qint64> consumedConfirmations;
-    QHash<QString, QString> activeConfirmations;
-    QHash<QString, qint64> confirmationExpiries;
-    QHash<QString, ConfirmationScope> activeConfirmationScopes;
-    QHash<quint64, ScriptWriteTask> scriptWrites;
-    QHash<QString, QString> scriptPathLocks;
+    RequestScheduler scheduler;
+    TaskRegistry jobs;
+    ConfirmationRegistry confirmations;
+    ScriptTaskRegistry scriptWrites;
     QSet<ISessionScriptProvider*> observedScriptProviders;
     QSet<SessionInputArbiter*> observedInputArbiters;
-    QHash<QString, Capture> captures;
-    QHash<QString, Execution> executions;
-    QHash<QString, qint64> lastCapture;
-    QHash<QString, quint64> lastRevision;
-    QHash<QString, std::shared_ptr<const TerminalContextProvider::Snapshot>> lastBase;
-    QHash<QString, qint64> lastCommand;
+    ExecutionRegistry executions;
+    CommandDedup lastCommand;
     QSet<SessionCommandFacade*> observedFacades;
     QSet<SessionCommandCoordinator*> observedCoordinators;
+    std::unique_ptr<ScriptCommandUseCase> scriptCommands;
     quint64 nextCommandRequest{quint64(1) << 60};
     quint64 nextScriptWrite{quint64(1) << 59};
-    quint64 requestCount{0}, rejectedCount{0}, completedCount{0}, cancelledCount{0}, reusedCaptureCount{0};
-    quint64 coreCaptureCount{0}, snapshotPublishCount{0}, snapshotReuseCount{0};
-    quint64 coalescedReadCount{0}, projectionCopiedBytes{0};
-    QHash<QString, NovaTerm::PublishedContextStatistics> publishedStats;
+    quint64 requestCount{0}, rejectedCount{0}, completedCount{0}, cancelledCount{0};
     qsizetype peakRequests{0};
     qint64 maximumRequestMs{0};
-    std::deque<qint64> captureDurations;
-    std::deque<qint64> snapshotAges;
 };
 
 Service::Service(QString stateDir, QString runtimeDir, std::unique_ptr<CredentialStore> credentials, QObject* parent, quint16 port)
@@ -2051,38 +902,41 @@ QJsonObject Service::ccSwitchConfiguration(const QString& clientId) const
 QJsonArray Service::executionRecords() const
 {
     QJsonArray result;
-    for (const auto& execution : _impl->executions)
+    for (const auto& execution : _impl->executions.records())
         result.append(QJsonObject{{"executionId", execution.id}, {"commandId", execution.commandId},
             {"sessionId", execution.session}, {"complete", execution.complete}, {"result", execution.payload}});
     return result;
 }
 QJsonObject Service::statistics() const
 {
-    std::vector<qint64> durations(_impl->captureDurations.begin(), _impl->captureDurations.end());
+    const auto& captureDurations = _impl->observation.captureDurations();
+    std::vector<qint64> durations(captureDurations.begin(), captureDurations.end());
     std::sort(durations.begin(), durations.end());
     const double p95 = durations.empty() ? 0.0 : double(durations[(durations.size() * 95 + 99) / 100 - 1]) / 1000000.0;
-    std::vector<qint64> ages(_impl->snapshotAges.begin(), _impl->snapshotAges.end());
+    const auto& snapshotAges = _impl->observation.snapshotAges();
+    std::vector<qint64> ages(snapshotAges.begin(), snapshotAges.end());
     std::sort(ages.begin(), ages.end());
     const qint64 ageP95 = ages.empty() ? 0 : ages[(ages.size() * 95 + 99) / 100 - 1];
     return {{"requests", QString::number(_impl->requestCount)}, {"rejected", QString::number(_impl->rejectedCount)},
         {"completed", QString::number(_impl->completedCount)}, {"cancelled", QString::number(_impl->cancelledCount)},
-        {"reusedCaptures", QString::number(_impl->reusedCaptureCount)}, {"peakRequests", int(_impl->peakRequests)},
-        {"coreCaptureCount", QString::number(_impl->coreCaptureCount)},
-        {"snapshotPublishCount", QString::number(_impl->snapshotPublishCount)},
-        {"snapshotReuseCount", QString::number(_impl->snapshotReuseCount)},
-        {"coalescedReadCount", QString::number(_impl->coalescedReadCount)},
-        {"projectionCopiedBytes", QString::number(_impl->projectionCopiedBytes)},
+        {"reusedCaptures", QString::number(_impl->observation.reusedCaptureCount())},
+        {"peakRequests", int(_impl->peakRequests)},
+        {"coreCaptureCount", QString::number(_impl->observation.coreCaptureCount())},
+        {"snapshotPublishCount", QString::number(_impl->observation.snapshotPublishCount())},
+        {"snapshotReuseCount", QString::number(_impl->observation.snapshotReuseCount())},
+        {"coalescedReadCount", QString::number(_impl->observation.coalescedReadCount())},
+        {"projectionCopiedBytes", QString::number(_impl->observation.projectionCopiedBytes())},
         {"snapshotAgeP95Ms", QString::number(ageP95)},
-        {"activeClients", int(_impl->connections.size())}, {"captures", int(_impl->captures.size())},
+        {"activeClients", int(_impl->connections.size())}, {"captures", int(_impl->observation.captures().size())},
         {"http", _impl->io.statistics()},
         {"captureP95Ms", p95}, {"maximumRequestMs", _impl->maximumRequestMs}};
 }
 QJsonObject Service::protectedTargets() const { return _impl->guards.markers(); }
 bool Service::acknowledgeTarget(const QString& fingerprint)
 {
-    for (const auto& task : _impl->scriptWrites)
+    for (const auto& task : _impl->scriptWrites.tasks())
         if (task.targetFingerprint == fingerprint) return false;
-    for (const auto& execution : _impl->executions)
+    for (const auto& execution : _impl->executions.records())
         if (!execution.complete && execution.target == fingerprint) return false;
     const bool ok = _impl->guards.acknowledge(fingerprint);
     emit changed();
@@ -2092,9 +946,9 @@ bool Service::acknowledgeTarget(const QString& fingerprint, const QString& expec
 {
     if (expectedExecutionId.isEmpty())
         return false;
-    for (const auto& task : _impl->scriptWrites)
+    for (const auto& task : _impl->scriptWrites.tasks())
         if (task.targetFingerprint == fingerprint) return false;
-    for (const auto& execution : _impl->executions)
+    for (const auto& execution : _impl->executions.records())
         if (!execution.complete && execution.target == fingerprint) return false;
     const bool ok = _impl->guards.release(fingerprint, expectedExecutionId);
     if (ok)

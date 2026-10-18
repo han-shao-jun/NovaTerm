@@ -3,7 +3,8 @@
  */
 #include "McpSettingsDialog.h"
 #include "mcp/McpService.h"
-#include "mcp/CommandPolicy.h"
+#include "mcp/CapabilityAdapter.h"
+#include "ui/models/SettingsController.h"
 #include "session/SessionCommandFacade.h"
 #include "session/SessionTerminalController.h"
 #include "ElaCheckBox.h"
@@ -13,33 +14,120 @@
 #include "ElaPushButton.h"
 #include "ElaText.h"
 #include "ElaTreeWidget.h"
+#include "ElaTheme.h"
+#include <QScrollBar>
 #include <QApplication>
 #include <QClipboard>
+#include <QFontMetrics>
 #include <QHeaderView>
 #include <QJsonDocument>
+#include <QMetaObject>
 #include <QMouseEvent>
+#include <QPainter>
+#include <QPainterPath>
+#include <QRegion>
 #include <QSignalBlocker>
 #include <QStyledItemDelegate>
 #include <QVBoxLayout>
 
 namespace {
 
-/* 本文件的列号是裸数字：Qt lupdate 的 C++ 解析器靠花括号嵌套推断 tr() 的
- * context，在此处加任何类型/枚举声明都会让 McpSettingsDialog 的既有 33 条
- * 译文被误判成新条目而清空。列号与授权字段的对应关系由
- * McpTests::settingsDialogSeparatesReadAndScriptPermission 逐列往返断言守住。 */
+/* 授权列来自 SessionPermissionModel 的具名枚举，委托不写业务列号。
+ * 本文件仍避免在匿名命名空间新增类型/枚举声明：Qt lupdate 的 C++ 解析器靠
+ * 花括号嵌套推断 tr() 的 context，声明会让既有译文被误判成新条目而清空。
+ * 列与权限种类的对应关系由 McpTests 的对话框权限用例逐项守住。 */
 
 class PermissionCellDelegate final : public QStyledItemDelegate
 {
 public:
     using QStyledItemDelegate::QStyledItemDelegate;
 
+    void paint(QPainter* painter, const QStyleOptionViewItem& option,
+               const QModelIndex& index) const override
+    {
+        if (!index.data(Qt::CheckStateRole).isValid()) {
+            QStyledItemDelegate::paint(painter, option, index);
+            return;
+        }
+        QStyleOptionViewItem cell(option);
+        initStyleOption(&cell, index);
+        auto* style = cell.widget ? cell.widget->style() : QApplication::style();
+        const QRect indicator = style->subElementRect(QStyle::SE_ItemViewItemCheckIndicator,
+            &cell, cell.widget);
+        if (!indicator.isValid()) {
+            QStyledItemDelegate::paint(painter, option, index);
+            return;
+        }
+        const bool available = cell.state.testFlag(QStyle::State_Enabled)
+            && index.flags().testFlag(Qt::ItemIsEnabled)
+            && index.flags().testFlag(Qt::ItemIsUserCheckable)
+            && (index.column()
+                    != NovaTerm::Ui::SessionPermissionModel::index(
+                        NovaTerm::Ui::SessionPermissionModel::Column::Elevation)
+                || index.data(Qt::UserRole).toBool());
+        if (!available) cell.state &= ~QStyle::State_Enabled;
+        const QRect indicatorArea = indicator.adjusted(-2, -2, 2, 2).intersected(cell.rect);
+
+        // 保留 Ela 的行背景、文字、选中与焦点绘制，只替换复选框颜色。
+        painter->save();
+        painter->setClipRect(indicatorArea, Qt::IntersectClip);
+        style->drawPrimitive(QStyle::PE_PanelItemViewItem, &cell, painter, cell.widget);
+        painter->restore();
+        painter->save();
+        painter->setClipRegion(QRegion(cell.rect).subtracted(QRegion(indicatorArea)), Qt::IntersectClip);
+        QStyledItemDelegate::paint(painter, cell, index);
+        painter->restore();
+
+        const auto mode = eTheme->getThemeMode();
+        const bool selected = cell.checkState != Qt::Unchecked;
+        const bool highlighted = available && (cell.state.testFlag(QStyle::State_MouseOver)
+            || cell.state.testFlag(QStyle::State_HasFocus));
+        QColor fill = available ? ElaThemeColor(mode, BasicBase) : ElaThemeColor(mode, BasicDisable);
+        QColor border = available ? ElaThemeColor(mode, PrimaryNormal) : ElaThemeColor(mode, BasicBorder);
+        if (available && selected) {
+            fill = ElaThemeColor(mode, PrimaryNormal);
+            border = fill;
+        } else if (highlighted) {
+            border = ElaThemeColor(mode, PrimaryHover);
+        }
+        painter->save();
+        painter->setClipRect(cell.rect, Qt::IntersectClip);
+        painter->setRenderHint(QPainter::Antialiasing);
+        const QRectF box = QRectF(indicator).adjusted(0.75, 0.75, -0.75, -0.75);
+        painter->setPen(QPen(border, available ? 1.5 : 1.0));
+        painter->setBrush(fill);
+        painter->drawRoundedRect(box, 3, 3);
+        if (selected) {
+            const QColor mark = !available ? ElaThemeColor(mode, BasicTextDisable)
+                : fill.lightness() > 128 ? ElaThemeColor(ElaThemeType::Light, BasicText)
+                : ElaThemeColor(ElaThemeType::Dark, BasicText);
+            painter->setPen(QPen(mark, 1.8, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+            if (cell.checkState == Qt::PartiallyChecked) {
+                painter->drawLine(QPointF(box.left() + box.width() * 0.25, box.center().y()),
+                    QPointF(box.right() - box.width() * 0.25, box.center().y()));
+            } else {
+                QPainterPath tick;
+                tick.moveTo(box.left() + box.width() * 0.23, box.top() + box.height() * 0.52);
+                tick.lineTo(box.left() + box.width() * 0.43, box.top() + box.height() * 0.72);
+                tick.lineTo(box.left() + box.width() * 0.78, box.top() + box.height() * 0.30);
+                painter->drawPath(tick);
+            }
+        }
+        painter->restore();
+    }
+
     bool editorEvent(QEvent* event, QAbstractItemModel* model,
                      const QStyleOptionViewItem& option,
                      const QModelIndex& index) override
     {
-        if (index.column() >= 2
-            && index.column() <= 7
+        // QTreeWidgetItem 的 flags 作用于整行；按列拦截以保留其余权限可编辑。
+        if (index.column()
+                == NovaTerm::Ui::SessionPermissionModel::index(
+                    NovaTerm::Ui::SessionPermissionModel::Column::Elevation)
+            && !index.data(Qt::UserRole).toBool()) {
+            return false;
+        }
+        if (NovaTerm::Ui::SessionPermissionModel::isPermissionColumn(index.column())
             && index.flags().testFlag(Qt::ItemIsEnabled)
             && index.flags().testFlag(Qt::ItemIsUserCheckable)
             && model->data(index, Qt::CheckStateRole).isValid()
@@ -60,7 +148,9 @@ public:
 } // namespace
 
 McpSettingsDialog::McpSettingsDialog(NovaTerm::Mcp::Service* service, QWidget* parent)
-    : ElaDialog(parent), _service(service)
+    : ElaDialog(parent), _service(service),
+      _model(std::make_unique<NovaTerm::Ui::SessionPermissionModel>()),
+      _controller(std::make_unique<NovaTerm::Ui::SettingsController>(service))
 {
     setAttribute(Qt::WA_DeleteOnClose);
     setWindowTitle(tr("AI MCP access"));
@@ -110,19 +200,30 @@ McpSettingsDialog::McpSettingsDialog(NovaTerm::Mcp::Service* service, QWidget* p
     actions->addStretch();
     layout->addLayout(actions);
     _sessions = new ElaTreeWidget(this);
-    _sessions->setColumnCount(10);
+    _sessions->setColumnCount(NovaTerm::Ui::SessionPermissionModel::ColumnCount);
     _sessions->setHeaderLabels({tr("Session"), tr("State"), tr("Read output"),
         tr("Fixed diagnostics"), tr("Script tasks"), tr("Interactive commands"),
         tr("允许执行命令"), tr("允许托管提权"), tr("提权凭据"), tr("当前操作")});
     // 授权列整格均可点击，避免仅命中小尺寸复选框时才能切换状态。
     auto* permissionDelegate = new PermissionCellDelegate(_sessions);
-    for (int column = 2; column < 8; ++column)
-        _sessions->setItemDelegateForColumn(column, permissionDelegate);
+    for (int column = 0; column < NovaTerm::Ui::SessionPermissionModel::ColumnCount; ++column) {
+        if (NovaTerm::Ui::SessionPermissionModel::isPermissionColumn(column))
+            _sessions->setItemDelegateForColumn(column, permissionDelegate);
+    }
     _sessions->setRootIsDecorated(true);
     _sessions->setItemHeight(30);
-    _sessions->header()->setSectionResizeMode(0, QHeaderView::Stretch);
-    for (int column = 1; column < 10; ++column)
-        _sessions->header()->setSectionResizeMode(column, QHeaderView::ResizeToContents);
+    connect(eTheme, &ElaTheme::themeModeChanged, _sessions,
+        [this] { _sessions->viewport()->update(); });
+    auto* sessionHeader = _sessions->header();
+    sessionHeader->setStretchLastSection(false);
+    sessionHeader->setSectionResizeMode(0, QHeaderView::Interactive);
+    // 首列仅预留常见主机名和两级树缩进，避免大窗口把空白都分给会话名。
+    sessionHeader->resizeSection(0,
+        _sessions->fontMetrics().horizontalAdvance(QStringLiteral("192.168.100.100"))
+            + 2 * _sessions->indentation() + _sessions->getItemLeftPadding() + 24);
+    for (int column = 1; column < 9; ++column)
+        sessionHeader->setSectionResizeMode(column, QHeaderView::ResizeToContents);
+    sessionHeader->setSectionResizeMode(9, QHeaderView::Stretch);
     layout->addWidget(_sessions, 2);
     auto* legacyPermissions = new ElaCheckBox(tr("显示旧命令接口详细权限"), this);
     legacyPermissions->setChecked(true);
@@ -146,19 +247,19 @@ McpSettingsDialog::McpSettingsDialog(NovaTerm::Mcp::Service* service, QWidget* p
     release->addWidget(acknowledge);
     layout->addLayout(release);
     connect(_enabled, &QCheckBox::toggled, this, [this](bool enabled) {
-        if (!_refreshing && _service && !_service->access().setEnabled(enabled)) { refresh(); reportFailure(); }
+        if (!_refreshing && _controller && !_controller->setEnabled(enabled)) { refresh(); reportFailure(); }
     });
     connect(_clients, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this] { if (!_refreshing) refresh(); });
     connect(add, &QPushButton::clicked, this, [this] {
         if (!_service) return;
-        const auto id = _service->access().addClient(_label->text());
+        const auto id = _controller->addClient(_label->text());
         if (id.isEmpty()) { reportFailure(); return; }
         _label->clear();
         refresh();
         _clients->setCurrentIndex(_clients->findData(id));
     });
     connect(remove, &QPushButton::clicked, this, [this] {
-        if (_service && !_service->access().removeClient(_clients->currentData().toString())) reportFailure();
+        if (_controller && !_controller->removeClient(_clients->currentData().toString())) reportFailure();
     });
     connect(copy, &QPushButton::clicked, this, [this] {
         if (!_service) return;
@@ -175,7 +276,7 @@ McpSettingsDialog::McpSettingsDialog(NovaTerm::Mcp::Service* service, QWidget* p
         _status->setText(tr("CC Switch configuration copied. It contains an access token; keep it private."));
     });
     connect(rotate, &QPushButton::clicked, this, [this] {
-        if (_service && !_service->access().rotateToken(_clients->currentData().toString())) reportFailure();
+        if (_controller && !_controller->rotateToken(_clients->currentData().toString())) reportFailure();
     });
     connect(takeOver, &QPushButton::clicked, this, [this] {
         if (!_service || !_sessions->currentItem()) return;
@@ -187,61 +288,85 @@ McpSettingsDialog::McpSettingsDialog(NovaTerm::Mcp::Service* service, QWidget* p
         refresh();
     });
     connect(_sessions, &QTreeWidget::itemChanged, this, [this](QTreeWidgetItem* item, int column) {
-        if (_refreshing || !_service || column < 2
-            || column > 7) {
+        if (_refreshing || !_service || !_model || !_controller
+            || !NovaTerm::Ui::SessionPermissionModel::isPermissionColumn(column)) {
             return;
         }
+        using Model = NovaTerm::Ui::SessionPermissionModel;
+        const int readColumn = Model::index(Model::Column::ReadOutput);
+        const int diagnosticsColumn = Model::index(Model::Column::Diagnostics);
+        const int terminalColumn = Model::index(Model::Column::TerminalInput);
+        const int elevationColumn = Model::index(Model::Column::Elevation);
         auto* root = item->parent() ? item->parent() : item;
         const auto id = root->data(0, Qt::UserRole).toString();
-        const auto entry = _service->directory().find(id);
-        if (!entry) return;
-        if (column >= 6) {
-            const QSignalBlocker blocker(_sessions);
-            if (column == 6 && root->checkState(6) == Qt::Checked)
-                root->setCheckState(2, Qt::Checked);
-            if (root->checkState(6) != Qt::Checked) root->setCheckState(7, Qt::Unchecked);
+        const auto* row = _model->find(id);
+        if (!row || row->client.str() != _clients->currentData().toString()) {
+            // 刷新排队期间可能已重连或换客户端。旧行的“撤权”不能把其他仍勾选
+            // 的权限写到新连接；也不能在 Qt setData 发射栈里删除旧行。
+            QMetaObject::invokeMethod(this, [this] { refresh(); }, Qt::QueuedConnection);
+            return;
         }
-        const bool read = root->checkState(2) == Qt::Checked;
-        if (column == 3 && !item->parent()) {
+        {
+            // 完整终端输入在现有界面语义里同时选择读取共享；取消输入则撤销提权。
             const QSignalBlocker blocker(_sessions);
-            const auto state = root->checkState(3) == Qt::Checked
-                ? Qt::Checked : Qt::Unchecked;
-            for (int i = 0; i < root->childCount(); ++i)
-                root->child(i)->setCheckState(3, state);
-        } else if (column == 3 && item->parent()) {
-            const QSignalBlocker blocker(_sessions);
-            int checked = 0;
-            for (int i = 0; i < root->childCount(); ++i)
-                checked += root->child(i)->checkState(3) == Qt::Checked;
-            root->setCheckState(3, checked == 0 ? Qt::Unchecked
-                : checked == root->childCount() ? Qt::Checked : Qt::PartiallyChecked);
+            if (column == terminalColumn && root->checkState(terminalColumn) == Qt::Checked)
+                root->setCheckState(readColumn, Qt::Checked);
+            if (column == terminalColumn && root->checkState(terminalColumn) != Qt::Checked)
+                root->setCheckState(elevationColumn, Qt::Unchecked);
         }
-        if (!read) {
-            const QSignalBlocker blocker(_sessions);
-            root->setCheckState(3, Qt::Unchecked);
-            root->setCheckState(4, Qt::Unchecked);
-            root->setCheckState(5, Qt::Unchecked);
-            root->setCheckState(6, Qt::Unchecked);
-            root->setCheckState(7, Qt::Unchecked);
-            for (int i = 0; i < root->childCount(); ++i)
-                root->child(i)->setCheckState(3, Qt::Unchecked);
+        const bool read = root->checkState(readColumn) == Qt::Checked;
+        if (!read && column != readColumn) {
+            // 读取未共享时执行类授权不可保存；排队刷新复原控件，不提交事务。
+            QMetaObject::invokeMethod(this, [this] { refresh(); }, Qt::QueuedConnection);
+            return;
         }
-        QSet<QString> allowed;
-        if (read) for (int i = 0; i < root->childCount(); ++i) {
-            if (root->child(i)->checkState(3) == Qt::Checked)
-                allowed.insert(root->child(i)->data(0, Qt::UserRole).toString());
+        bool applied = true;
+        if (column == readColumn) {
+            if (!read) {
+                const QSignalBlocker blocker(_sessions);
+                for (int current = diagnosticsColumn; current <= elevationColumn; ++current)
+                    root->setCheckState(current, Qt::Unchecked);
+                for (int i = 0; i < root->childCount(); ++i)
+                    root->child(i)->setCheckState(diagnosticsColumn, Qt::Unchecked);
+            }
+            applied = applyPermission(root, *row,
+                NovaTerm::Mcp::PermissionKind::ReadOutput, std::nullopt, read);
+        } else if (column == diagnosticsColumn) {
+            const bool selected = item->checkState(diagnosticsColumn) == Qt::Checked;
+            if (!item->parent()) {
+                // 根项一次操作整组诊断：仍按单项事务逐条提交，每条都使用最新行版本。
+                for (int i = 0; i < root->childCount() && applied; ++i) {
+                    const auto* current = _model->find(id);
+                    if (!current) {
+                        applied = false;
+                        break;
+                    }
+                    const auto diagnostic = NovaTerm::Mcp::DiagnosticId{
+                        root->child(i)->data(0, Qt::UserRole).toString()};
+                    applied = applyPermission(root, *current,
+                        NovaTerm::Mcp::PermissionKind::Diagnostic, diagnostic, selected);
+                }
+            } else {
+                applied = applyPermission(root, *row,
+                    NovaTerm::Mcp::PermissionKind::Diagnostic,
+                    NovaTerm::Mcp::DiagnosticId{item->data(0, Qt::UserRole).toString()},
+                    selected);
+            }
+        } else {
+            const auto kind = NovaTerm::Ui::SessionPermissionModel::permissionForColumn(column);
+            applied = kind && applyPermission(root, *row, *kind, std::nullopt,
+                root->checkState(column) == Qt::Checked);
         }
-        const auto client = _clients->currentData().toString();
-        const bool grantSaved = _service->access().setGrant(client, *entry,
-            read, allowed, root->checkState(5) == Qt::Checked,
-            false, root->checkState(4) == Qt::Checked);
-        if (!grantSaved || (column >= 6 && read
-            && !_service->access().setTerminalGrant(client, *entry,
-                root->checkState(6) == Qt::Checked, root->checkState(7) == Qt::Checked))) {
-            refresh();
-            reportFailure();
+        if (!applied) {
+            // itemChanged 位于 QTreeWidgetItem::setData 的发射栈内；此处
+            // 同步 clear/rebuild 会删除 Qt 尚在访问的 item。退回事件循环后刷新。
+            QMetaObject::invokeMethod(this, [this] {
+                refresh();
+                reportFailure();
+            }, Qt::QueuedConnection);
         }
     });
+
     connect(_records, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this] { if (!_refreshing) showRecord(); });
     connect(_targets, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this] {
         if (!_refreshing) _confirmedStopped->setChecked(false);
@@ -265,6 +390,8 @@ McpSettingsDialog::McpSettingsDialog(NovaTerm::Mcp::Service* service, QWidget* p
         this, &McpSettingsDialog::refresh, Qt::QueuedConnection);
     refresh();
 }
+
+McpSettingsDialog::~McpSettingsDialog() = default;
 
 void McpSettingsDialog::editElevationCredentials(const QString& sessionId)
 {
@@ -291,7 +418,7 @@ void McpSettingsDialog::editElevationCredentials(const QString& sessionId)
     auto* explanation = new ElaText(tr("sudo 认证密码和 su root 密码分别保存，不使用 SSH 登录密码。保存后不回填。只有明确授权且可信适配器可用时才能托管认证；当前适配器不可用。撤销授权不会退出已经获得的 root Shell。"), dialog);
     explanation->setWordWrap(true);
     layout->addWidget(explanation);
-    auto* status = new ElaText(_service->access().elevationCredentialsPersistent()
+    auto* status = new ElaText(_controller->elevationCredentialsPersistent()
         ? tr("存储：系统凭据库。密码仅在本机设置，不对 MCP 客户端开放。")
         : tr("存储：仅本次运行。密码仅在本机设置，不对 MCP 客户端开放。"), dialog);
     status->setWordWrap(true);
@@ -309,14 +436,15 @@ void McpSettingsDialog::editElevationCredentials(const QString& sessionId)
         auto* remove = new ElaPushButton(tr("删除"), dialog);
         save->setObjectName(QStringLiteral("mcpElevationSave_") + method);
         remove->setObjectName(QStringLiteral("mcpElevationRemove_") + method);
-        remove->setEnabled(_service->access().hasElevationCredential(*entry, method));
+        remove->setEnabled(_controller->hasElevationCredential(*entry, method));
         row->addWidget(password, 1);
         row->addWidget(save);
         row->addWidget(remove);
         layout->addLayout(row);
         const auto update = [this, sessionId, binding, matchesBinding, method, password, save, remove, status,
                              guard = QPointer<ElaDialog>(dialog)](bool deleting) {
-            if (!guard || !_service) return;
+            if (!guard || !_service || !_controller) return;
+            auto* controller = _controller.get();
             const auto current = _service->directory().find(sessionId);
             if (!current || !matchesBinding(*current)) {
                 password->clear();
@@ -330,8 +458,8 @@ void McpSettingsDialog::editElevationCredentials(const QString& sessionId)
             save->setEnabled(false);
             remove->setEnabled(false);
             status->setText(tr("正在访问本机凭据库；可以关闭此窗口。"));
-            const auto completed = [guard, service = _service, sessionId, matchesBinding, method,
-                                    save, remove, status](bool ok) {
+            const auto completed = [guard, service = _service, controller, sessionId,
+                                    matchesBinding, method, save, remove, status](bool ok) {
                 if (!guard || !service) return;
                 const auto active = service->directory().find(sessionId);
                 if (!active || !matchesBinding(*active)) {
@@ -341,20 +469,70 @@ void McpSettingsDialog::editElevationCredentials(const QString& sessionId)
                     return;
                 }
                 save->setEnabled(true);
-                remove->setEnabled(service->access().hasElevationCredential(*active, method));
+                remove->setEnabled(controller->hasElevationCredential(*active, method));
                 status->setText(ok
-                    ? (service->access().elevationCredentialsPersistent()
+                    ? (controller->elevationCredentialsPersistent()
                         ? QObject::tr("已更新系统凭据库。托管提权授权已撤销，请按需重新授权。")
                         : QObject::tr("已更新，仅本次运行保存。托管提权授权已撤销，请按需重新授权。"))
                     : QObject::tr("凭据操作失败；请检查会话身份、密码是否为空及凭据库权限。"));
             };
-            if (!_service->access().configureElevationCredentialAsync(
+            if (!controller->configureElevationCredentialAsync(
                     binding, method, std::move(secret), deleting, completed)) completed(false);
         };
         connect(save, &QPushButton::clicked, dialog, [update] { update(false); });
         connect(remove, &QPushButton::clicked, dialog, [update] { update(true); });
     }
     dialog->open();
+}
+
+bool McpSettingsDialog::applyPermission(QTreeWidgetItem* root,
+    const NovaTerm::Ui::SessionPermissionRow& row,
+    NovaTerm::Mcp::PermissionKind kind,
+    std::optional<NovaTerm::Mcp::DiagnosticId> diagnostic, bool selected)
+{
+    if (!_model || !_controller || !root)
+        return false;
+    const auto outcome = _controller->submit(row, kind, diagnostic, selected);
+    if (outcome.status != NovaTerm::Ui::SettingsController::Status::Applied)
+        return false;
+    if (!_model->replaceRow(outcome.row))
+        return false;
+    const auto& updated = outcome.row;
+    using Model = NovaTerm::Ui::SessionPermissionModel;
+    const int readColumn = Model::index(Model::Column::ReadOutput);
+    const int diagnosticsColumn = Model::index(Model::Column::Diagnostics);
+    const int scriptColumn = Model::index(Model::Column::Script);
+    const int interactiveColumn = Model::index(Model::Column::Interactive);
+    const int terminalColumn = Model::index(Model::Column::TerminalInput);
+    const int elevationColumn = Model::index(Model::Column::Elevation);
+    root->setData(0, Qt::UserRole + 4,
+        QVariant::fromValue<qulonglong>(updated.revision.value()));
+    // 服务端级联结果回写控件；整个过程屏蔽信号，避免在 itemChanged 栈内递归。
+    const QSignalBlocker blocker(_sessions);
+    root->setCheckState(readColumn, updated.selection.read ? Qt::Checked : Qt::Unchecked);
+    int granted = 0;
+    for (int i = 0; i < root->childCount(); ++i) {
+        const NovaTerm::Mcp::DiagnosticId id{
+            root->child(i)->data(0, Qt::UserRole).toString()};
+        const bool on = updated.selection.diagnostics.contains(id);
+        root->child(i)->setCheckState(diagnosticsColumn, on ? Qt::Checked : Qt::Unchecked);
+        if (on)
+            ++granted;
+    }
+    if (root->childCount() > 0) {
+        root->setCheckState(diagnosticsColumn, granted == 0 ? Qt::Unchecked
+            : granted == root->childCount() ? Qt::Checked : Qt::PartiallyChecked);
+    }
+    root->setCheckState(scriptColumn,
+        updated.selection.script ? Qt::Checked : Qt::Unchecked);
+    root->setCheckState(interactiveColumn,
+        updated.selection.riskControlledCommand ? Qt::Checked : Qt::Unchecked);
+    root->setCheckState(terminalColumn,
+        updated.selection.fullTerminalInput ? Qt::Checked : Qt::Unchecked);
+    root->setCheckState(elevationColumn,
+        updated.selection.elevation ? Qt::Checked : Qt::Unchecked);
+    root->setData(elevationColumn, Qt::UserRole, updated.elevationSelectable);
+    return true;
 }
 
 void McpSettingsDialog::reportFailure()
@@ -364,9 +542,9 @@ void McpSettingsDialog::reportFailure()
     // 实例持锁占用是两种最常见也最难自察的成因，处置完全不同，因此各自给一条
     // 可操作的提示。
     if (!_service) return;
-    using Failure = NovaTerm::Mcp::AccessStore::SaveFailure;
-    const Failure reason = _service->access().lastSaveFailure();
-    _service->access().clearSaveFailure();
+    using Failure = NovaTerm::Ui::SettingsController::SaveFailure;
+    const Failure reason = _controller->lastSaveFailure();
+    _controller->clearSaveFailure();
     if (reason == Failure::Locked) {
         _status->setText(tr("Cannot update MCP access settings: another NovaTerm instance is holding the shared access file. Close that instance and try again."));
         return;
@@ -382,7 +560,7 @@ void McpSettingsDialog::refresh()
     if (_refreshing || !_service) return;
     _refreshing = true;
     const QSignalBlocker clientsBlocker(_clients), sessionsBlocker(_sessions), enabledBlocker(_enabled);
-    _enabled->setChecked(_service->access().enabled());
+    _enabled->setChecked(_controller->enabled());
     QString state = _service->status();
     if (state == "Disabled") state = tr("Disabled");
     else if (state == "Listening") state = tr("Listening");
@@ -392,13 +570,18 @@ void McpSettingsDialog::refresh()
     _status->setText(statusText);
     const auto selected = _clients->currentData().toString();
     _clients->clear();
-    for (const auto& client : _service->access().clients())
-        _clients->addItem(client.label + (client.persistent ? QString() : tr(" (this run only)")), client.id);
+    for (const auto& client : _controller->clients())
+        _clients->addItem(client.label + (client.persistent ? QString() : tr(" (this run only)")), client.id.str());
     if (_clients->findData(selected) >= 0) _clients->setCurrentIndex(_clients->findData(selected));
     const auto clientId = _clients->currentData().toString();
     // 本函数每次都重建整棵树，而根项默认折叠：先按会话 ID 记下当前展开的根项，
-    // 重建后原样恢复。否则勾选任意一条授权（itemChanged → setGrant → changed →
+    // 重建后原样恢复。否则勾选任意一条授权（itemChanged → changePermission → changed →
     // 排队的 refresh）都会把用户刚展开的层级收起来，每次授权都要重新展开。
+    QString currentSession;
+    if (const auto* current = _sessions->currentItem())
+        currentSession = (current->parent() ? current->parent() : current)
+            ->data(0, Qt::UserRole).toString();
+    const int scrollPosition = _sessions->verticalScrollBar()->value();
     QSet<QString> expandedSessions;
     for (int i = 0; i < _sessions->topLevelItemCount(); ++i) {
         const auto* root = _sessions->topLevelItem(i);
@@ -407,77 +590,110 @@ void McpSettingsDialog::refresh()
             expandedSessions.insert(id);
     }
     _sessions->clear();
-    for (const auto& entry : _service->directory().entries()) {
-        auto* item = new QTreeWidgetItem(_sessions, {entry.title.isEmpty() ? entry.id : entry.title,
-            SessionDirectory::stateName(entry.state), {}, {}, {}, {}});
-        item->setData(0, Qt::UserRole, entry.id);
-        item->setToolTip(0, entry.title.isEmpty() ? entry.id : entry.title + '\n' + entry.id);
-        if (expandedSessions.contains(entry.id)) item->setExpanded(true);
-        item->setCheckState(2,
-            _service->access().canRead(clientId, entry) ? Qt::Checked : Qt::Unchecked);
-        const auto allowed = _service->access().commands(clientId, entry);
-        const auto profile = entry.session
-            ? entry.session->commandFacade()->profile() : CommandPlatformProfile{};
-        const auto catalog = NovaTerm::Mcp::CommandPolicy::catalog(profile);
-        item->setCheckState(3, allowed.isEmpty() ? Qt::Unchecked
-            : allowed.size() == catalog.size() ? Qt::Checked : Qt::PartiallyChecked);
-        item->setToolTip(3, entry.kind == TransportKind::LocalShell
+    _model->rebuild(_controller->rows(clientId), expandedSessions);
+    using Model = NovaTerm::Ui::SessionPermissionModel;
+    const int readColumn = Model::index(Model::Column::ReadOutput);
+    const int diagnosticsColumn = Model::index(Model::Column::Diagnostics);
+    const int scriptColumn = Model::index(Model::Column::Script);
+    const int interactiveColumn = Model::index(Model::Column::Interactive);
+    const int terminalColumn = Model::index(Model::Column::TerminalInput);
+    const int elevationColumn = Model::index(Model::Column::Elevation);
+    const int credentialsColumn = Model::index(Model::Column::Credentials);
+    const int operationColumn = Model::index(Model::Column::Operation);
+    for (const auto& row : _model->rows()) {
+        auto* item = new QTreeWidgetItem(_sessions, {row.title, row.state, {}, {}, {}, {}});
+        item->setData(0, Qt::UserRole, row.key.sessionId);
+        item->setData(0, Qt::UserRole + 1, row.key.epoch);
+        item->setData(0, Qt::UserRole + 2, row.key.attachmentId);
+        item->setData(0, Qt::UserRole + 3, row.client.str());
+        item->setData(0, Qt::UserRole + 4,
+            QVariant::fromValue<qulonglong>(row.revision.value()));
+        item->setData(0, Qt::UserRole + 5, QVariant::fromValue<qulonglong>(row.key.generation));
+        item->setData(0, Qt::UserRole + 6, row.key.targetFingerprint);
+        item->setToolTip(0, row.title + '\n' + row.key.sessionId);
+        if (_model->isExpanded(row.key.sessionId))
+            item->setExpanded(true);
+        item->setCheckState(readColumn,
+            row.selection.read ? Qt::Checked : Qt::Unchecked);
+        int granted = 0;
+        for (const auto& diagnostic : row.diagnostics)
+            if (diagnostic.granted) ++granted;
+        item->setCheckState(diagnosticsColumn, granted == 0 ? Qt::Unchecked
+            : granted == row.diagnostics.size() ? Qt::Checked : Qt::PartiallyChecked);
+        const auto diagnosticHelp = row.localShell
             ? tr("Fixed diagnostics run in an isolated local helper and do not write to the current shell.")
-            : tr("Only enable for a trusted Linux/POSIX SSH server. Fixed diagnostics run as its connected user."));
-        item->setCheckState(4,
-            _service->access().canRunScriptTask(clientId, entry) ? Qt::Checked : Qt::Unchecked);
-        item->setToolTip(4, tr("Allows LocalShell/SSH script tasks. Each script still requires MCP-client confirmation; its body is written to the requested host path and is not shown in the terminal UI."));
-        item->setCheckState(5,
-            _service->access().canRunCommand(clientId, entry) ? Qt::Checked : Qt::Unchecked);
-        item->setToolTip(5, tr("Allows the MCP client to type commands into this session's current terminal. Ordinary low-risk commands run without confirmation; anything potentially destructive or unclassifiable still requires confirmation in the MCP client. Off by default: sharing read output does not imply permission to type."));
-        item->setCheckState(6,
-            _service->access().canControlTerminal(clientId, entry) ? Qt::Checked : Qt::Unchecked);
-        item->setToolTip(6, tr("允许当前客户端在本次连接输入文本、按键并执行命令。重连、撤权或目标变化后需要重新授权。"));
-        item->setCheckState(7,
-            _service->access().canUseElevation(clientId, entry) ? Qt::Checked : Qt::Unchecked);
-        item->setToolTip(7, tr("须先允许执行命令。此授权不会配置密码或启用认证适配器；当前没有通过验收的 sudo/su 适配器，提权请求将返回不可用。串口和 Telnet 不支持托管提权。"));
-        const bool sudoSaved = _service->access().hasElevationCredential(entry, "sudo");
-        const bool suSaved = _service->access().hasElevationCredential(entry, "su");
-        auto* credentials = new ElaPushButton(sudoSaved && suSaved ? tr("sudo / su")
-            : sudoSaved ? tr("sudo") : suSaved ? tr("su") : tr("未配置"), _sessions);
-        credentials->setEnabled(entry.state == SessionState::Running
-            && !entry.targetFingerprint.isEmpty()
-            && (entry.kind == TransportKind::LocalShell || entry.kind == TransportKind::Ssh));
-        credentials->setToolTip(_service->access().elevationCredentialsPersistent()
+            : tr("仅对已确认的 Linux/POSIX 目标使用固定诊断；授权不代表目标支持这些命令。");
+        if (!row.capability.diagnosticsReady)
+            item->setText(diagnosticsColumn, tr("后端不可用"));
+        item->setToolTip(diagnosticsColumn, row.capability.diagnosticsReady ? diagnosticHelp
+            : tr("可以保存诊断授权，但当前没有可用的目标 Profile 或执行后端；不会自动向终端发送诊断命令。")
+                + '\n' + diagnosticHelp);
+        item->setCheckState(scriptColumn,
+            row.selection.script ? Qt::Checked : Qt::Unchecked);
+        item->setToolTip(scriptColumn, tr("Allows LocalShell/SSH script tasks. Each script still requires MCP-client confirmation; its body is written to the requested host path and is not shown in the terminal UI."));
+        item->setCheckState(interactiveColumn,
+            row.selection.riskControlledCommand ? Qt::Checked : Qt::Unchecked);
+        item->setToolTip(interactiveColumn, tr("Allows the MCP client to type commands into this session's current terminal. Ordinary low-risk commands run without confirmation; anything potentially destructive or unclassifiable still requires confirmation in the MCP client. Off by default: sharing read output does not imply permission to type."));
+        item->setCheckState(terminalColumn,
+            row.selection.fullTerminalInput ? Qt::Checked : Qt::Unchecked);
+        item->setToolTip(terminalColumn, tr("允许当前客户端在本次连接输入文本、按键并执行命令。重连、撤权或目标变化后需要重新授权。"));
+        item->setCheckState(elevationColumn,
+            row.selection.elevation ? Qt::Checked : Qt::Unchecked);
+        // 已有授权始终允许撤销；不满足条件时仅禁止新勾选，不能锁住整行。
+        item->setData(elevationColumn, Qt::UserRole, row.elevationSelectable);
+        const auto& elevationDisabled = row.capability.elevationGrantDisabledReason;
+        const auto& elevationUnavailable = row.capability.elevationDisabledReason;
+        QString elevationStatus, elevationReason;
+        if (elevationDisabled == "SESSION_NOT_READY") {
+            elevationStatus = tr("未连接");
+            elevationReason = tr("会话未连接，暂不能授权托管提权。");
+        } else if (elevationDisabled == "TERMINAL_PERMISSION_REQUIRED") {
+            elevationStatus = tr("需执行权限");
+            elevationReason = tr("请先勾选允许执行命令，再授权托管提权。");
+        } else if (elevationDisabled == "CREDENTIAL_UPDATE_IN_PROGRESS") {
+            elevationStatus = tr("凭据更新中");
+            elevationReason = tr("正在更新提权凭据，请稍后重新授权。");
+        } else if (elevationUnavailable == "TARGET_IDENTITY_UNVERIFIED") {
+            elevationStatus = tr("身份未验证");
+            elevationReason = tr("可以保存提权授权，但目标身份尚未验证，不能绑定凭据或实际提权。");
+        } else if (elevationUnavailable == "ELEVATION_ADAPTER_UNAVAILABLE") {
+            elevationStatus = tr("适配器不可用");
+            elevationReason = tr("可以保存提权授权，但当前没有可信认证适配器，不会读取或发送密码。");
+        }
+        item->setText(elevationColumn, elevationStatus);
+        const auto elevationHelp = tr("须先允许执行命令；勾选仅保存授权。实际提权还需要可信目标身份及认证适配器，保存密码不会自动启用提权。");
+        item->setToolTip(elevationColumn, elevationReason.isEmpty() ? elevationHelp
+            : elevationReason + '\n' + elevationHelp);
+        auto* credentials = new ElaPushButton(row.sudoSaved && row.suSaved ? tr("sudo / su")
+            : row.sudoSaved ? tr("sudo") : row.suSaved ? tr("su") : tr("未配置"), _sessions);
+        credentials->setEnabled(elevationUnavailable != "TARGET_IDENTITY_UNVERIFIED");
+        credentials->setToolTip(row.credentialsPersistent
             ? tr("密码保存在系统凭据库；保存不代表授权使用，也不启用认证适配器。")
             : tr("密码仅本次运行保留；保存不代表授权使用，也不启用认证适配器。"));
         connect(credentials, &QPushButton::clicked, this,
-            [this, id = entry.id] { editElevationCredentials(id); });
-        _sessions->setItemWidget(item, 8, credentials);
-        if (entry.session) {
-            auto* controller = entry.session->terminalController();
-            const auto current = controller->observation(clientId);
-            const auto command = current.value("command").toObject();
-            QString operation = controller->owner().isEmpty() ? tr("空闲") : tr("Agent 操作");
-            for (const auto& client : _service->access().clients())
-                if (client.id == controller->owner()) operation += " / " + client.label;
-            const auto controlState = current.value("control").toObject().value("state").toString();
-            if (controlState == "preempted") operation = tr("用户接管");
-            if (!command.value("state").toString().isEmpty())
-                operation += " / " + command.value("state").toString();
-            item->setText(9, operation);
-        }
-        for (const auto& command : catalog) {
-            QString title = command.title;
-            if (command.id == "system.identity") title = tr("System identity");
-            else if (command.id == "system.uptime") title = tr("Uptime and load");
-            else if (command.id == "memory.summary") title = tr("Memory summary");
-            else if (command.id == "filesystem.usage") title = tr("Filesystem capacity");
+            [this, id = row.key.sessionId] { editElevationCredentials(id); });
+        _sessions->setItemWidget(item, credentialsColumn, credentials);
+        QString operation = row.terminalOwner.isEmpty() ? tr("空闲") : tr("Agent 操作");
+        for (const auto& client : _controller->clients())
+            if (client.id.str() == row.terminalOwner)
+                operation += " / " + client.label;
+        if (row.controlState == "preempted") operation = tr("用户接管");
+        if (!row.commandState.isEmpty()) operation += " / " + row.commandState;
+        item->setText(operationColumn, operation);
+        for (const auto& diagnostic : row.diagnostics) {
+            QString title = diagnostic.title;
+            if (diagnostic.id == "system.identity") title = tr("System identity");
+            else if (diagnostic.id == "system.uptime") title = tr("Uptime and load");
+            else if (diagnostic.id == "memory.summary") title = tr("Memory summary");
+            else if (diagnostic.id == "filesystem.usage") title = tr("Filesystem capacity");
             auto* child = new QTreeWidgetItem(item, {title});
-            child->setData(0, Qt::UserRole, command.id);
-            child->setToolTip(0, entry.kind == TransportKind::LocalShell
-                ? QStringLiteral("novaterm-local-diag ") + command.id
-                : QString::fromUtf8(command.command));
-            child->setCheckState(3,
-                allowed.contains(command.id) ? Qt::Checked : Qt::Unchecked);
+            child->setData(0, Qt::UserRole, diagnostic.id);
+            child->setToolTip(0, diagnostic.preview);
+            child->setCheckState(diagnosticsColumn,
+                diagnostic.granted ? Qt::Checked : Qt::Unchecked);
         }
     }
-    _sessions->setEnabled(!clientId.isEmpty() && _service->access().enabled());
+    _sessions->setEnabled(!clientId.isEmpty() && _controller->enabled());
     const auto previousRecord = _records->currentData().toString();
     _records->clear();
     _recordData.clear();
@@ -504,6 +720,16 @@ void McpSettingsDialog::refresh()
         || _confirmedExecutionId != _targets->currentData(Qt::UserRole + 1).toString()) {
         _confirmedStopped->setChecked(false);
     }
+    if (!currentSession.isEmpty()) {
+        for (int i = 0; i < _sessions->topLevelItemCount(); ++i) {
+            if (_sessions->topLevelItem(i)->data(0, Qt::UserRole).toString()
+                == currentSession) {
+                _sessions->setCurrentItem(_sessions->topLevelItem(i));
+                break;
+            }
+        }
+    }
+    _sessions->verticalScrollBar()->setValue(scrollPosition);
     _refreshing = false;
     showRecord();
 }

@@ -3,6 +3,9 @@
  */
 #pragma once
 #include "credential/CredentialStore.h"
+#include "mcp/application/AuthorizationService.h"
+#include "mcp/security/ClientRegistry.h"
+#include "mcp/contracts/Permissions.h"
 #include "session/SessionDirectory.h"
 #include <QJsonObject>
 #include <QSet>
@@ -23,18 +26,8 @@ public:
         Revision,    ///< 文件已被并发改写，需重载后重试
         Write,       ///< 写盘本身失败
     };
-    struct Client { QString id; QString label; QByteArray digest; bool persistent{false}; quint64 version{1}; };
-    struct Grant {
-        QString attachment;
-        QString epoch;
-        QSet<QString> commands;
-        bool interactiveCommand{false};
-        bool confirmedCommand{false};
-        bool scriptTask{false};
-        bool terminalControl{false};
-        bool useElevation{false};
-        QString targetFingerprint;
-    };
+    /** @brief 兼容旧调用点的名称；实现已迁到 `ClientRegistry`。 */
+    using Client = ClientRecord;
     explicit AccessStore(QString directory, std::unique_ptr<CredentialStore> credentials,
                          QObject* parent = nullptr,
                          std::function<std::unique_ptr<CredentialStore>()> elevationFactory = {});
@@ -48,26 +41,36 @@ public:
     [[nodiscard]] std::optional<QByteArray> exportToken(const QString& id) const;
     [[nodiscard]] QString authenticate(const QByteArray& token) const;
     [[nodiscard]] quint64 version(const QString& clientId) const;
-    bool setGrant(const QString& clientId, const SessionDirectory::Entry& entry,
-                  bool read, QSet<QString> commands = {},
-                  bool interactiveCommand = false,
-                  bool confirmedCommand = false,
-                  bool scriptTask = false);
+    /**
+     * @brief 唯一授权修改入口：带连接绑定与预期行版本的单项选择。
+     *
+     * 拒绝结果携带当前视图；调用方不得把旧整组状态写回新连接。
+     */
+    [[nodiscard]] Result<GrantSnapshot, AuthorizationError> changePermission(
+        const PermissionChange& change, const SessionDirectory::Entry& entry);
+    /** @brief 当前绑定下的授权视图；执行类权限在重连后隐藏。 */
+    [[nodiscard]] GrantSnapshot grantSnapshot(
+        const ClientId& client, const SessionDirectory::Entry& entry) const;
     [[nodiscard]] bool canRead(const QString& clientId, const SessionDirectory::Entry& entry) const;
     [[nodiscard]] QSet<QString> commands(const QString& clientId, const SessionDirectory::Entry& entry) const;
     /** @brief 当前客户端是否单独获准在该 Session 执行交互命令。 */
     [[nodiscard]] bool canRunCommand(const QString& clientId,
                                      const SessionDirectory::Entry& entry) const;
-    [[nodiscard]] bool canRunConfirmedCommand(
-        const QString& clientId, const SessionDirectory::Entry& entry) const;
     [[nodiscard]] bool canRunScriptTask(
         const QString& clientId, const SessionDirectory::Entry& entry) const;
-    bool setTerminalGrant(const QString& clientId, const SessionDirectory::Entry& entry,
-                          bool control, bool elevation = false);
     [[nodiscard]] bool canControlTerminal(const QString& clientId,
                                           const SessionDirectory::Entry& entry) const;
     [[nodiscard]] bool canUseElevation(const QString& clientId,
                                        const SessionDirectory::Entry& entry) const;
+    /** @brief 新授予提权权限的阻止原因；不以目标/适配器的暂不可用限制授权选择。 */
+    [[nodiscard]] QString elevationGrantDisabledReason(
+        const QString& clientId, const SessionDirectory::Entry& entry) const;
+    /** @brief 实际执行提权所缺少的条件，与授权选择分离；不访问密码。 */
+    [[nodiscard]] QString elevationExecutionUnavailableReason(const SessionDirectory::Entry& entry) const;
+    /** @brief 目标身份是否已通过 Profile/指纹核验；不读取凭据。 */
+    [[nodiscard]] bool elevationTargetIdentityVerified(const SessionDirectory::Entry& entry) const;
+    /** @brief 凭据工作线程是否正在变更（新提权授权需等待）。 */
+    [[nodiscard]] bool credentialUpdatePending() const { return _credentialOperationPending; }
     // 本机配置入口。协议处理和状态读取均不取密；没有公开的取密接口。
     bool setElevationCredential(const SessionDirectory::Entry& entry,
                                 const QString& method, const QByteArray& secret);
@@ -92,10 +95,13 @@ private:
     [[nodiscard]] QString elevationReference(const SessionDirectory::Entry& entry,
                                               const QString& method) const;
     void revokeElevation(const QString& targetFingerprint);
+    [[nodiscard]] std::optional<GrantRow> grantRow(
+        const QString& clientId, const SessionDirectory::Entry& entry) const;
+    [[nodiscard]] static GrantFacts factsOf(const SessionDirectory::Entry& entry);
     QString _directory;
     mutable std::unique_ptr<CredentialStore> _credentials;
-    QHash<QString, Client> _clients;
-    QHash<QString, QHash<QString, Grant>> _grants;
+    ClientRegistry _clients;
+    AuthorizationService _authorization;
     QSet<QString> _elevationReferences; // 非秘密元数据；状态展示不访问系统凭据库。
     std::function<std::unique_ptr<CredentialStore>()> _elevationFactory;
     std::unique_ptr<QThread> _elevationThread;

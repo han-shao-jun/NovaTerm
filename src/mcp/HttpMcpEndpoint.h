@@ -3,6 +3,7 @@
  */
 #pragma once
 #include "HttpMcpServer.h"
+#include "protocol/BackendEvents.h"
 #include <functional>
 #include <memory>
 
@@ -15,7 +16,7 @@ public:
     struct Backend {
         std::function<QString(const QByteArray &)> authenticate;
         std::function<bool(const QString &, const QString &)> attach;
-        std::function<void(const QString &, const QJsonObject &)> receive;
+        std::function<void(const QString &, const BackendEvent &)> receive;
         std::function<void(const QString &)> detach;
     };
     explicit HttpMcpEndpoint(Backend backend, QObject *parent = nullptr);

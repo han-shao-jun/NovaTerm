@@ -58,6 +58,28 @@ if(BUILD_TESTING)
 
     add_subdirectory(filetransfer)
 
+    # 契约与解码边界：目录 fixture、参数接受/拒绝集合、强类型 ID 与错误映射。
+    qt_add_executable(novaterm_mcp_contracts_tests mcp/ContractsTests.cpp)
+    target_link_libraries(novaterm_mcp_contracts_tests PRIVATE
+        novaterm_mcp_protocol Qt6::Test)
+    target_compile_definitions(novaterm_mcp_contracts_tests PRIVATE
+        NOVATERM_SOURCE_DIR="${PROJECT_SOURCE_DIR}")
+    set_target_properties(novaterm_mcp_contracts_tests PROPERTIES WIN32_EXECUTABLE FALSE)
+    add_test(NAME novaterm_mcp_contracts_tests COMMAND novaterm_mcp_contracts_tests)
+    set_tests_properties(novaterm_mcp_contracts_tests PROPERTIES
+        LABELS "mcp;p8;contracts" TIMEOUT 30)
+    add_dependencies(check novaterm_mcp_contracts_tests)
+
+    # 授权事务：绑定/版本拒绝、级联规则、重连语义与版本推进（纯应用层，无 Session）。
+    qt_add_executable(novaterm_mcp_authorization_tests mcp/AuthorizationTests.cpp)
+    target_link_libraries(novaterm_mcp_authorization_tests PRIVATE
+        novaterm_mcp_application Qt6::Test)
+    set_target_properties(novaterm_mcp_authorization_tests PROPERTIES WIN32_EXECUTABLE FALSE)
+    add_test(NAME novaterm_mcp_authorization_tests COMMAND novaterm_mcp_authorization_tests)
+    set_tests_properties(novaterm_mcp_authorization_tests PROPERTIES
+        LABELS "mcp;p8;security" TIMEOUT 30)
+    add_dependencies(check novaterm_mcp_authorization_tests)
+
     qt_add_executable(novaterm_mcp_wire_tests mcp/WireSessionTests.cpp)
     target_link_libraries(novaterm_mcp_wire_tests PRIVATE novaterm_mcp_protocol Qt6::Test)
     set_target_properties(novaterm_mcp_wire_tests PROPERTIES WIN32_EXECUTABLE FALSE)
@@ -88,6 +110,10 @@ if(BUILD_TESTING)
         mcp/McpTests.cpp
         ${PROJECT_SOURCE_DIR}/src/ui/widgets/McpSettingsDialog.cpp
         ${PROJECT_SOURCE_DIR}/src/ui/widgets/McpSettingsDialog.h
+        ${PROJECT_SOURCE_DIR}/src/ui/models/SessionPermissionModel.cpp
+        ${PROJECT_SOURCE_DIR}/src/ui/models/SessionPermissionModel.h
+        ${PROJECT_SOURCE_DIR}/src/ui/models/SettingsController.cpp
+        ${PROJECT_SOURCE_DIR}/src/ui/models/SettingsController.h
         ${PROJECT_SOURCE_DIR}/src/session/TerminalSession.cpp
         ${PROJECT_SOURCE_DIR}/src/session/TerminalSession.h
         ${PROJECT_SOURCE_DIR}/src/session/ISessionScriptProvider.h

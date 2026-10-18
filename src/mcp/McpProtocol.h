@@ -3,34 +3,39 @@
  * @brief MCP的限额、格式、签名和安全文件工具。
  */
 #pragma once
+#include "mcp/contracts/Budget.h"
+
 #include <QByteArray>
-#include <QJsonArray>
 #include <QJsonObject>
 #include <QString>
 #include <chrono>
 #include <optional>
 
 namespace NovaTerm::Mcp {
-/** @brief 编码后响应的上限；请求另用 MaxRequestBytes。 */
-inline constexpr qsizetype MaxFrameBytes = 2 * 1024 * 1024;
-inline constexpr qsizetype MaxOutputQueueBytes = 4 * 1024 * 1024;
-inline constexpr qsizetype MaxTextBytes = 256 * 1024;
-inline constexpr int MaxClients = 4;
-inline constexpr int MaxActiveRequests = 2;
-inline constexpr int MaxQueuedRequests = 4;
-inline constexpr int MaxCaptures = 4;
-inline constexpr int CaptureLifetimeMs = 60000;
-inline constexpr int CommandOutputBytes = 65536;
-inline constexpr int MaxTerminalActions = 64;
-inline constexpr qsizetype MaxTerminalActionTextBytes = 16 * 1024;
-inline constexpr int MaxTerminalWaitMs = 30000;
-inline constexpr qsizetype MaxScriptBytes = 2 * 1024 * 1024;
-/** @brief JSON 字符串最坏每 UTF-8 字节展开为六字节；其余有界字段另留信封额度。 */
-inline constexpr qsizetype MaxRequestEnvelopeBytes = 256 * 1024;
-inline constexpr qsizetype MaxRequestBytes = 6 * MaxScriptBytes + MaxRequestEnvelopeBytes;
-inline constexpr auto ConfirmationTimeout = std::chrono::milliseconds{60000};
-inline constexpr auto ScriptWriteTimeout = std::chrono::milliseconds{120000};
-inline constexpr auto WireDeadlineMargin = std::chrono::milliseconds{5000};
+/**
+ * @brief 协议层沿用的旧常量名；取值统一在 `contracts/Budget.h`。
+ *
+ * 迁移期保留这些别名，避免同一数字散落在函数里；新代码直接使用
+ * `NovaTerm::Mcp::Budget`。
+ */
+inline constexpr qsizetype MaxFrameBytes = Budget::MaxFrameBytes;
+inline constexpr qsizetype MaxOutputQueueBytes = Budget::MaxOutputQueueBytes;
+inline constexpr qsizetype MaxTextBytes = Budget::MaxTextBytes;
+inline constexpr int MaxClients = Budget::MaxClients;
+inline constexpr int MaxActiveRequests = Budget::MaxActiveRequests;
+inline constexpr int MaxQueuedRequests = Budget::MaxQueuedRequests;
+inline constexpr int MaxCaptures = Budget::MaxCapturesPerConnection;
+inline constexpr int CaptureLifetimeMs = int(Budget::CaptureLifetime.count());
+inline constexpr int CommandOutputBytes = Budget::CommandOutputBytes;
+inline constexpr int MaxTerminalActions = Budget::MaxTerminalActions;
+inline constexpr qsizetype MaxTerminalActionTextBytes = Budget::MaxTerminalActionTextBytes;
+inline constexpr int MaxTerminalWaitMs = Budget::MaxTerminalWaitMs;
+inline constexpr qsizetype MaxScriptBytes = Budget::MaxScriptBytes;
+inline constexpr qsizetype MaxRequestEnvelopeBytes = Budget::MaxRequestEnvelopeBytes;
+inline constexpr qsizetype MaxRequestBytes = Budget::MaxRequestBytes;
+inline constexpr auto ConfirmationTimeout = Budget::ConfirmationTimeout;
+inline constexpr auto ScriptWriteTimeout = Budget::ScriptWriteTimeout;
+inline constexpr auto WireDeadlineMargin = Budget::WireDeadlineMargin;
 inline constexpr const char* ProtocolVersion = "2025-11-25";
 
 [[nodiscard]] QString newId();
@@ -51,9 +56,6 @@ inline constexpr const char* ProtocolVersion = "2025-11-25";
 [[nodiscard]] QJsonObject rpcValidationError(const QJsonObject& message);
 /** @brief 两种传输分流共用的版本拒绝错误，字段遵守 2026 schema。 */
 [[nodiscard]] QJsonObject unsupportedProtocolError(const QJsonValue& id, const QString& requested);
-[[nodiscard]] QJsonArray tools();
-/** @return 空表示合法，否则为参数错误说明；不接受未知工具和未知字段。 */
-[[nodiscard]] QString validateArguments(const QString& name, const QJsonObject& arguments);
 [[nodiscard]] bool secureDirectory(const QString& path);
 [[nodiscard]] bool secureFile(const QString& path);
 [[nodiscard]] bool writePrivateJson(const QString& path, const QJsonObject& object);
