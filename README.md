@@ -1,5 +1,7 @@
 # NovaTerm
 
+历史MCP测试、审查与缺口详见[实施与验收记录](docs/architecture/stages/P8_AI_MCP_Interface/03_Implementation_and_Verification.md)；引用成绩须按日期与平台区分。
+
 NovaTerm（原名 WindTermQt）是一款基于 Qt 6 的跨平台终端模拟器和 SSH 客户端。
 终端解析使用 libvterm，渲染使用 Qt QRhi，界面使用 ElaWidgetTools，采用
 FluentUI 风格。
@@ -17,7 +19,7 @@ FluentUI 风格。
   已知失败，见 [AGENTS.md](AGENTS.md)。独立协议阶段的记录见
   [P9 文档](docs/architecture/stages/P9_File_Transfer_Protocols.md)
 - **系统监控**：支持远程SSH会话的系统资源监控
-- **AI MCP 接入**：默认关闭的进程内 Streamable HTTP 服务，默认地址为 `http://127.0.0.1:38973/mcp`，通过 Bearer token 认证；提供七个工具，支持按会话授权读取输出、搜索已捕获内容、固定诊断、交互命令及 LocalShell/SSH 脚本任务；确认与权限边界见 [使用说明](docs/MCP_Usage.md)
+- **AI MCP 接入**：默认关闭的进程内 Streamable HTTP 服务，默认地址为 `http://127.0.0.1:38973/mcp`，通过 Bearer token 认证；提供九个工具，支持按会话授权读取、搜索、终端观察/操作、固定诊断和脚本任务；托管提权目前返回适配器不可用，确认与权限边界见 [使用说明](docs/MCP_Usage.md)
 - **终端解析**：使用 libvterm 处理 ANSI/VT 控制序列，具体语义由终端测试覆盖
 - **搜索与高亮**：支持终端内容搜索和可配置文本高亮
 
@@ -199,6 +201,7 @@ Parser 单写，Renderer / Search 读取快照，跨线程队列有界。
 - [阶段路线图](docs/architecture/Development_Roadmap.md)
 - [各阶段实现文档](docs/architecture/stages/)
 - [AI MCP 使用说明](docs/MCP_Usage.md)
+- [MCP、诊断与 AI Agent 架构和阶段计划](docs/architecture/stages/P8_AI_MCP_Interface/README.md)
 - [开发与测试注意事项](AGENTS.md)
 
 配置、Profile 与主题文档包含目标设计，当前名称与实现需结合其对照表和源码
@@ -238,9 +241,9 @@ SSH 验收（需要 sshd、ssh-keygen、ninja 和 c++；不修改用户 SSH 信�
 项目包含单元测试、集成测试和性能护栏，部分 UI 与真实设备路径仍需人工验收。
 `BUILD_TESTING` 与 `NOVATERM_BUILD_BENCHMARKS` 默认均为 ON。
 默认注册到 CTest 的测试按平台不同：
-**Linux 已核对 26 项、Windows 按条件预计 28 项**（新增命令/路径与 SFTP
-安全两项目标；默认启用 benchmark 构建，实际以 `ctest -N` 为准）。2026-10-16
-Linux Debug 全部构建及 26/26 CTest 通过，耗时 173.64 秒；这是本机成绩，
+**Linux 已核对 27 项、Windows 按条件预计 29 项**（含新增终端授权/凭据隔离、命令/路径与 SFTP
+安全目标；默认启用 benchmark 构建，实际以 `ctest -N` 为准）。2026-10-17
+Linux Debug 全部构建及 27/27 CTest 通过，耗时 178.00 秒；验证范围见 MCP实施与验收记录，这是本机成绩，
 不替代 Windows/macOS 验收。
 `novaterm_conpty_tests`、`novaterm_terminal_session_tests` 仅 Windows，
 `novaterm_pty_tests` 仅 Linux。

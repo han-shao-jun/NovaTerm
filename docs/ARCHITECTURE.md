@@ -1,5 +1,10 @@
 # NovaTerm 统一架构设计
 
+历史MCP测试、审查与缺口详见[实施与验收记录](architecture/stages/P8_AI_MCP_Interface/03_Implementation_and_Verification.md)；引用成绩须按日期与平台区分。
+
+MCP、诊断与内置 AI Agent 的专项总体架构和阶段实施见 [MCP 文档集](architecture/stages/P8_AI_MCP_Interface/README.md)。本页全项目原则仍适用；专项计划中的未来能力不代表当前已实现。
+
+
 NovaTerm 的统一架构文档集中在本文件；文档索引、配置与主题、渲染架构、路线图及阶段实施说明仍位于 [architecture/README.md](architecture/README.md)。
 
 本文件合并自原 `docs/ARCHITECTURE.md`、`docs/architecture/NovaTerm_Architecture.md` 和 `docs/01_Architecture.md`，完整保留三者内容。
@@ -23,9 +28,10 @@ NovaTerm 是基于 Qt 6、libvterm 和 QRhi 的跨平台 GPU 终端。核心目�
 - **当前实现**：P0～P5 已完成；P5 已完成 Linux Vulkan/OpenGL、Windows D3D11/D3D12 与 Windows 30 分钟长稳验收，macOS Metal 和真实高刷硬件仍待补充；
 - **近期目标**：P6；
 - **P7**：系统资源查询，SSH 远端资源监控面板与系统信息窗口已作为内置功能落地；
-- **P8**：AI MCP（Model Context Protocol）接口，提供 Session 只读上下文与独立授权的受限命令。
-  [P8 设计文档](architecture/stages/P8_AI_MCP_Interface.md)记录进程内 Streamable HTTP、
-  读取与命令工具、允许列表和分级授权；禁止删除、凭据读取、提权等高危险行为。
+- **P8**：AI MCP（Model Context Protocol）接口，提供 Session 只读上下文与独立授权的终端操作。
+  [MCP当前接口契约](architecture/stages/P8_AI_MCP_Interface/02_Current_MCP_Contract.md)记录进程内 Streamable HTTP、
+  读取与命令工具、允许列表和分级授权；旧命令接口继续执行风险策略，新版完整输入
+  权限须另行授予，不逐条确认。凭据读取不向 MCP 开放，托管提权适配器尚不可用。
   首期功能及 Windows 功能验证已完成；跨平台和完整性能验收状态见阶段文档。
 
 P9 的 XMODEM/YMODEM/ZMODEM 独立协议库已落地于 `src/filetransfer/`。
@@ -173,6 +179,16 @@ CPU 频率随静态批次查询，优先读 sysfs，回退 `/proc/cpuinfo`。文
 本地解析，首查返回前显示「采集中」，失败保留已有缓存。详情可见时共享采样继续，
 面板与详情均不可见或主窗口最小化时暂停动态采样，恢复后重建差分基线。
 
+AI MCP 接入表格的会话列按常见主机名的字体宽度及树缩进初始化，可拖动调整，
+不随窗口自动拉宽；状态、权限和凭据列按内容适配，当前操作列填充剩余宽度。
+长会话名仍由 tooltip 提供全文，隐藏旧权限列后多出的空间也归当前操作列。
+权限委托沿用 Ela 主题色：可编辑空心强调色、已选实心强调色、不可编辑灰底灰框。
+托管提权的授权勾选按客户端输入授权、连接状态和凭据更新状态控制；可信身份与认证
+适配器是实际执行条件，不再阻止保存授权，未就绪原因显示在单元格/tooltip。
+未验证身份不能绑定凭据，无适配器仍不取密/发送密码。固定诊断展示完整已知授权
+目录，后端缺失不丢选择；MCP 执行目录仍按实际 Profile/后端/目标严格过滤。
+按列拦截真正不可编辑的事件，不因某项不可用而锁住整行。
+
 ### 3.2 Application Services
 
 负责配置加载、Profile 解析、主题解析、Session 创建与列表管理。服务层输出结构化对象，不要求 Renderer 自行读取 JSON。
@@ -208,11 +224,19 @@ Windows 串口在每次成功打开、线路参数校验后，请求 256 KiB 驱
 定时器。该配置随串口历史记录保存并在编辑时回填，不改变字节输入通路。
 
 串口交互命令的提示符正则、命令行结束符和远端回显由会话表单显式配置，
-随 SerialConfig/历史快照保存。提示符规则留空时不开放 MCP 交互执行；
+随 SerialConfig/历史快照保存。提示符规则留空时不开放旧 run_command 路径；
+新版已授权的 text/key/paste 基础输入不要求提示符，command 快捷动作仍需就绪证据；
 规则有效且活动行提示符通过静默窗口后，仍需客户端独立取得交互命令授权。
 UI 每次附着传输都把本次 RuntimeConfig 同步到 Session，再配置 Framer、
 Coordinator 和唯一 InputPump，防止编辑或跨类型复用标签时继承旧目标规则。
 Transport 只消费帧格式与连接配置，不解释提示符；串口仍不提供脚本写入后端。
+
+新版 MCP 终端闭环对 LocalShell/SSH/Serial/Telnet/Custom 共用读屏、文本、粘贴、
+按键和输入仲裁，不以连接类型禁用基础交互。显式 Shell/提示符 Profile 描述对端
+环境，可跨传输复用；类型简写 attach 跨类型时清除旧传输配置，显式 RuntimeConfig
+入口使用新快照，避免继承旧提示符。命令快捷操作仍需就绪证据，未知设备不自动探测。
+新版观察后端每会话复用至少 250 ms 的基础快照，状态变化单独发布；采样时间与
+命令/控制状态时间不能混为一谈。最近完成记录独立保留最多 10 分钟。
 
 自动重连成功由 Session 发布独立通知，TerminalView 写入终端状态提示。
 成功、断开警告、传输错误分别使用当前终端方案的 ANSI 绿色、黄色、红色，
@@ -283,6 +307,24 @@ SSH/LocalShell 脚本正文由 Session 级 ScriptProvider 写入明确目标路�
 输入；用户输入优先，且访问权、确认和 epoch 在写入、注入前复核。脚本仍要求可信
 提示符；普通 SSH/POSIX 命令也可在没有提示符标记时经同一输入通路提交，使用隐藏的
 命令结束标记收口，但无法证明输入最初落在空闲 Shell。
+
+2026-10-17 终端操作闭环增量：`SessionTerminalController` 由 Session 按需拥有，
+通过 Core 有界队列编码文本、按键、粘贴和设备行尾，再经唯一 Arbiter/Transport
+写入。普通用户输出、协议回复和 Agent 编码结果按 Parser 顺序发布；同一批次
+更早的用户输入会先触发抢占，DSR/DA 回复不会冒充用户输入。非空 Agent 输入
+同时失效新 Controller 和旧 Coordinator 的提示符证据，空输入保留原就绪状态。
+
+`TerminalInteraction` 负责客户端绑定的输入/观察令牌、最近操作去重、最多 32 个
+观察等待器及有界 capture；旧七工具加 `interact_terminal` / `request_elevation`
+共九工具。新增 `terminalControl` 权限默认关闭，旧 `interactiveCommand` 不自动
+升级。compact 默认 4 KiB/24 行、最终含双份兼容内容的工具结果最多 8 KiB；
+省略内容用同一 capture 的 expandToken 分页，源缺口单独报告。无变化或普通滚屏
+到期不等于命令结束，完成状态只消费既有 Shell/设备事件。等待最多 30 秒，
+不阻塞 GUI；完整性能验收与设计差距见 MCP实施与验收记录。
+
+本机 sudo/su 凭据分开保存；UI 的异步凭据入口由专用工作线程拥有独立系统连接。
+MCP 协议状态读取只查询引用元数据，不取密。当前可信认证适配器为空，托管提权
+在取密或输入前返回 `ELEVATION_ADAPTER_UNAVAILABLE`；保存密码不开放代填能力。
 
 脚本写入前预留持久目标事务；取消、撤权或断线后，该预留与路径锁保留至
 Provider 返回写入终态，不能以 RPC 已结束推断后台写盘已停止。确定发布但未调用

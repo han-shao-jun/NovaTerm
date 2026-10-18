@@ -7,7 +7,7 @@
 > **范围说明**：本阶段是 SSH 远端资源监控面板与系统信息查询窗口两项内置能力
 > 的设计与实现记录，直接编进主程序、直接持有 `QWidget` 与 `SshTransport`。
 > 远端 AI 上下文与工具调用能力不在本阶段范围内，归入
-> [P8：AI MCP 接口](P8_AI_MCP_Interface.md)。P8 已接入只读上下文与受限命令，验收范围见该阶段记录。
+> [MCP当前接口契约](P8_AI_MCP_Interface/02_Current_MCP_Contract.md)。P8 已接入只读上下文与受限命令，验收范围见该阶段记录。
 
 ## 目标
 

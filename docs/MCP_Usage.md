@@ -1,5 +1,7 @@
 # NovaTerm AI MCP 使用说明
 
+历史MCP测试、审查与缺口详见[实施与验收记录](architecture/stages/P8_AI_MCP_Interface/03_Implementation_and_Verification.md)；引用成绩须按日期与平台区分。
+
 NovaTerm 提供进程内 Streamable HTTP MCP 服务，可让支持 MCP 的 AI 客户端读取指定终端输出、
 搜索已读取的内容、运行授权诊断，以及通过当前交互终端执行受控命令和脚本任务。默认关闭。
 
@@ -10,6 +12,8 @@ NovaTerm 提供进程内 Streamable HTTP MCP 服务，可让支持 MCP 的 AI �
 2. 在主菜单打开 **AI MCP 接入**，勾选 **启用本机 MCP 接入**。
 3. 输入客户端名称，点击 **添加客户端**。
 4. 在会话列表勾选需要共享的 **读取输出**。新建会话和应用重启后的会话默认不共享。
+   如需让 Agent 连续操作当前终端，再明确勾选 **允许执行命令**。它授予文本、按键、
+   粘贴和命令输入权限，之后不逐条确认；原有交互命令授权不会自动升级为此权限。
 5. 点击 **复制 MCP 配置**，粘贴到所使用的 MCP 客户端配置中。配置含接入令牌，
    不要公开、提交到仓库或发送给其他人。
 6. 使用 CC Switch 时点击 **复制 CC Switch 配置**，把单个 server 对象粘贴到
@@ -46,13 +50,15 @@ http_headers = { Authorization = "Bearer <从 NovaTerm 导出的接入令牌>" }
 `novaterm-mcp` 已删除，不保留 stdio 兼容入口。每个请求都需要 Bearer token，
 `MCP-Session-Id` 或客户端名称不能替代认证。只监听本机回环地址。
 
-## 七个工具
+## 九个工具
 
 | 工具 | 用途 |
 | --- | --- |
 | `novaterm_list_sessions` | 列出该客户端获准访问的会话及身份 |
 | `novaterm_read_context` | 读取活动屏幕和最近有意义输出的有界摘要 |
 | `novaterm_search_context` | 搜索一次已返回的 capture，不搜索整个历史或执行正则 |
+| `novaterm_interact_terminal` | 按观察返回的输入令牌操作当前终端，并等待下一次有用反馈 |
+| `novaterm_request_elevation` | 请求托管 sudo/su；当前没有可信认证适配器，返回不可用且不读取密码、不输入命令 |
 | `novaterm_list_commands` | 查看当前获准的固定诊断模板与短期执行票据 |
 | `novaterm_execute_command` | 用票据执行对应模板；不接受 shell 文本 |
 | `novaterm_run_command` | 在明确共享的当前交互终端执行命令；高风险或无法分类的命令需要 MCP 客户端人工确认 |
@@ -60,14 +66,88 @@ http_headers = { Authorization = "Bearer <从 NovaTerm 导出的接入令牌>" }
 
 终端上下文不是完整日志：重复行和进度噪声可能被过滤，长输出可能截断；备用屏
 主要返回当前屏幕。必须检查 `sourceTruncated`、`outputTruncated`、`resetRequired`。
-有截断时不会给出可跳过未返回内容的 nextToken，客户端不能宣称已经读完全部日志。
+旧读取在截断时不返回可推进的 nextToken。compact 读取另外区分 `projectionLimited`
+（本次预算省略，可用 `expandToken` 补读）和 `sourceGap`（源摘要已有缺口，不能补齐）；
+其 nextToken 可以继续观察新事件，不能据此声称已读完全部日志。
 
 终端中已经显示的敏感信息可能随授权输出被读取。程序不提供获取会话密码、私钥
 或凭据引用的 MCP 工具，但也不会声称可以自动识别终端里所有敏感文字。
 
+## 终端观察与操作
+
+新客户端优先使用 `read_context` / `interact_terminal` 闭环。先读取目标的
+`permissions` 和 `availability`，再用 compact 观察返回的 `inputToken` 提交操作：
+
+```json
+{
+  "sessionId": "<session id>",
+  "epoch": "<current epoch>",
+  "responseMode": "compact"
+}
+```
+
+将其 `data.inputToken` 用于 `novaterm_interact_terminal`；例如在已就绪的命令行运行 pwd：
+
+```json
+{
+  "sessionId": "<session id>",
+  "epoch": "<current epoch>",
+  "inputToken": "<from observation>",
+  "operationId": "<new UUID>",
+  "actions": [{"type": "command", "command": "pwd"}]
+}
+```
+
+`command` 要求提示符就绪；没有提示符时可基于屏幕用 `text`、`key`、`paste` 或
+`line_ending` 操作 REPL、TUI 和设备 CLI。一次最多 64 动作、原文合计 16 KiB，
+编码字节最多 64 KiB。`release` 必须独立调用，只释放输入权。用户输入或本机
+“接管选中会话”可打断控制；重连、撤权和用户输入后需重新观察，旧令牌拒绝使用。
+
+这套基础闭环适用于 LocalShell、SSH、Serial、Telnet 和 Custom；不会仅因串口或
+自定义连接而禁用输入。Shell/提示符规则描述对端环境，可显式跨传输配置；不自动
+向未知设备发送探测或安装 hook。切换连接类型时，简写 attach 不继承旧端点规则。
+
+命令默认等待 `attention` 最多 30 秒；按键/文本默认等待 `change` 最多 1 秒。
+仍在运行时，用 `nextToken` 作为下一次读取的 `sinceToken`，并设置
+`responseMode=compact`、`waitFor=attention`、`waitMs=30000` 继续等待。
+`completion` 只等待完成或必须处理的控制事件；`waitMs=0` 可立即读取。
+工具调用到期不会终止远端程序，也不能推断命令成功。检查 `command` 的证据、
+退出码和 `inputReadiness.canSubmitCommand`；活动命令的追加输入要带
+`replyToExecutionId`，避免将迟到应答写入新的命令行。
+
+普通输出的基础快照最多每 250 ms 更新一次，同一会话的多个等待/读取复用它；
+控制和命令状态独立更新。`capturedAt` 是屏幕采样时间，快速连续读取可能得到同一
+屏幕而控制状态已经变化；需要后续输出时继续增量读取，不把一次完成反馈当作全部
+后台输出的终点。自由 text/key 输入只有收到可关联的集成事件后才生成命令记录。
+`lastCommand` 独立保留最近完成记录最多 10 分钟，新输入不会把旧 finished 当作当前
+命令；记录过期也不会清除另一条活动命令。`operation.acceptedActionCount` 表示接纳
+的协议动作数，command 内部附加的提交按键不额外计数，release 接纳一项且不发送字节。
+
+compact 默认 4 KiB/24 行文本，含两份兼容 payload 的最终编码工具结果不超过
+8 KiB。省略的内容可用 `read_context(expandToken=...)` 从同一保留 capture 分页补读，
+不能同时传 sinceToken 或等待。补读不续租控制权、不更新实时游标；capture 最多
+保留 60 秒，每客户端最多四个、全局最多 32 个，按最旧优先淘汰。`TEXT_BUDGET_TOO_SMALL` 表示 maxBytes 连下一个
+UTF-8 字符都放不下，应增大预算。full 可用于更大的有界投影；旧读取游标切入新版
+前仍校验原连接身份，新版观察游标可在 compact/full 间继续使用。
+full 默认提供有界屏幕，显式 `includeViewport=true` 也可在 revision 未变化时取屏。
+full 因字节或行数预算截断时设置 `resetRequired=true`、`nextToken=null`，需要扩大
+预算重新读取；compact 的预算省略仍通过 expandToken 补读，不因此强制 reset。
+
+相同已接纳 `operationId` 与动作的精确重试不会再次输入；内容变化、失效代际
+或过期上下文会拒绝。`submitted` 只证明交给了本机 Transport，不能证明远端
+收到；回复丢失或结果未知时不要换一个 operationId 自动重发。
+有效控制上下文中的旧输入序号返回 `INPUT_ALREADY_SUBMITTED`，超前序号返回
+`INPUT_OUT_OF_ORDER`，过期令牌返回 `INPUT_TOKEN_EXPIRED`；上下文/控制代际变化仍
+返回 `CONTROL_INVALID`。这些都是零新增输入的拒绝，不能据此换 ID 自动重试。
+
+会话的“提权凭据”可分别保存/替换/删除 sudo 与 su 密码；显示系统凭据库或仅本次
+运行，保存后不回填，修改会撤销托管提权授权。当前 `elevationMethods` 为空，
+`request_elevation` 返回 `ELEVATION_ADAPTER_UNAVAILABLE`。未完成可信本地/SSH
+认证适配器验收前，不会依据 Password 提示符代填密码。
+
 ## 授权诊断命令
 
-固定诊断模板仍需逐项授权；普通 Shell 命令使用已共享会话的 `novaterm_run_command`。
+固定诊断模板仍需逐项授权；旧命令接口使用 `novaterm_run_command`。
 SSH 固定诊断只有在用户确认目标是受信任的
 **Linux/POSIX SSH 服务端**后才能授权；Windows/Linux LocalShell 会话使用
 NovaTerm 同目录的独立诊断 helper。展开会话可逐项选择诊断模板。
@@ -101,7 +181,19 @@ Windows/Linux LocalShell 固定诊断通过独立 helper 子进程运行。固�
 输入命令的权限**：
 
 - **读取输出**：共享该会话的终端内容，供 `read_context` / `search_context` 使用。
-- **固定诊断**：逐项选择旧接口的四种只读模板。
+- **允许执行命令**：授予新版完整终端输入权限，无逐条风险确认。它与下面旧命令
+  接口的权限独立，默认关闭；应只给需要操作该终端的受信任客户端。
+- **允许托管提权**：依赖“允许执行命令”，保存密码不会自动勾选；当前适配器不可用。
+  **授权选择与执行条件分开**：已允许终端输入时，所有连接类型都可保存这项授权。
+  未连接、无输入权限或正在更新凭据才阻止新授权；身份/适配器未就绪不再让勾选回退。
+  串口/Telnet/Custom 当前显示“身份未验证”，本地/已验证 SSH 显示“适配器不可用”；
+  都不代表可以实际提权。未验证身份仍不能保存凭据，任何提权请求仍不会读取/发送密码。
+  MCP 返回 permissions.useElevation 与 availability.elevationAvailable/对应原因，不能
+  只看授权布尔值推断可执行。取消读取/输入会级联撤权，重连/换目标需重新授权。
+  可勾选项为主题色空心框，已勾选为主题色实心框加勾，真正禁用项为灰底灰框。
+- **固定诊断**：所有类型都可选择四种已知模板授权，刷新不再因空 Profile 丢失选择。
+  当前没有 Profile/执行后端时显示“后端不可用”，list_commands 不发执行票据，
+  不会因此向未知串口设备发送 Linux 命令；授权不等于自动安装/启用后端。
 - **交互命令**：允许 `novaterm_run_command` 向该会话的当前终端输入命令。**默认关闭**；
   未授权时 `list_sessions` 不会返回 `run_command` 能力，调用会得到
   `COMMAND_PERMISSION_REQUIRED`。
@@ -117,7 +209,7 @@ Windows/Linux LocalShell 固定诊断通过独立 helper 子进程运行。固�
 不接受模型在工具参数里自报的布尔值。确认只决定是否继续提交命令，不能保证已
 接受的命令不会造成破坏。
 
-NovaTerm 对已知凭据读取、关闭安全机制、提权、磁盘格式化等危险行为尽力检测并永久拒绝；
+旧命令/脚本接口对已知凭据读取、关闭安全机制、提权、磁盘格式化等危险行为尽力检测并永久拒绝；
 其他风险命令和无法分类的命令须确认。检测是策略扫描，不是 shell 沙箱，也不能证明任意脚本安全。
 客户端未声明并实现 Form Elicitation 时，危险/未知命令和所有脚本返回
 `CLIENT_CONFIRMATION_UNAVAILABLE`，不会降级为普通二次调用。
@@ -194,9 +286,14 @@ TUI、密码输入或未提交的 Shell 输入，命令可能落入这些位置�
 
 编辑串口会话，在「MCP 命令提示符（正则）」填写设备空闲提示符的匹配规则，
 如实际提示符为 `device> `，填写 `^device> $`。按设备要求选择 CR、LF 或 CRLF，
-并设置设备是否回显输入。规则留空默认禁用，保存后随该会话重新连接生效。
+并设置设备是否回显输入。规则留空默认禁用旧交互命令路径，保存后随该会话重新连接生效。
 设备输出匹配提示符且经过静默窗口后，在「AI MCP 接入」对所需客户端单独勾选
 该会话的「交互命令」。仅共享读取输出不会授予执行权限。
+
+这里的提示符开关用于旧 run_command 和新版 command 快捷动作的就绪证据；
+规则留空不禁用已独立授权的新版 text/key/paste。混合回车/尾部文字或多行输入时，
+服务端保守跟踪未提交尾部和待返回提示符，不会把首个提示符当成整批已完成；
+无法确认行编辑上下文时继续使用观察与自由输入，不盲目追加 command。
 
 串口命令走当前终端的唯一输入通路；不额外探测设备、不自动发送测试命令。
 匹配到新提示符用于判断事务收尾，不保证设备支持 POSIX 命令或提供退出码。
@@ -206,12 +303,15 @@ TUI、密码输入或未提交的 Shell 输入，命令可能落入这些位置�
 
 主程序运行不需要 Python，也不依赖额外的模型 SDK。
 
-Linux 已核对默认注册 26 项，Windows 按条件预计 28 项，含新增命令/路径与 SFTP
-安全回归。2026-10-16 Linux Debug 全套 26/26 通过（173.64 秒）。
+Linux 已核对默认注册 27 项，Windows 按条件预计 29 项，包含新增交互授权/凭据
+隔离目标 `novaterm_mcp_access_interaction_tests`。本轮成绩见 MCP实施与验收记录的验证记录。
+2026-10-17 最终续作 Linux Debug 全部默认目标构建成功，27/27 CTest 通过，181.21 秒；
+MCP 七项 7/7，29.05 秒。日志为 `build/mcp-final-continuation-full-2026-10-17.log`
+及同名 JUnit XML。Windows/macOS 与真实设备/认证适配器未在本轮验收。
 注册数仍以配置后的 `ctest -N` 为准，历史成绩不代表其他机器或新改动也已通过。
 
 ```powershell
-cmake --build build/Release --target NovaTerm novaterm-local-diag novaterm_mcp_tests novaterm_mcp_wire_tests novaterm_mcp_http_tests novaterm_mcp_endpoint_tests novaterm_sftp_session_safety_tests novaterm_command_safety_tests
+cmake --build build/Release --target NovaTerm novaterm-local-diag novaterm_mcp_tests novaterm_mcp_wire_tests novaterm_mcp_http_tests novaterm_mcp_endpoint_tests novaterm_mcp_access_interaction_tests novaterm_sftp_session_safety_tests novaterm_command_safety_tests
 $env:Path = 'C:\Programs\Qt\6.8.3\msvc2022_64\bin;' + $env:Path
 $env:QT_PLUGIN_PATH = 'C:\Programs\Qt\6.8.3\msvc2022_64\plugins'
 ctest --test-dir build/Release -C Release -L mcp --output-on-failure
@@ -232,4 +332,4 @@ python tests/mcp/performance_check.py
 客户端的用户/系统 SSH 配置加载，避免继承代理或其他外部连接设置。该检查不能
 替代真实服务器验收。
 
-详细协议、预算和验收缺口见 [P8 AI MCP 接口](architecture/stages/P8_AI_MCP_Interface.md)。
+详细协议、预算和验收缺口见 [MCP当前接口契约](architecture/stages/P8_AI_MCP_Interface/02_Current_MCP_Contract.md)。

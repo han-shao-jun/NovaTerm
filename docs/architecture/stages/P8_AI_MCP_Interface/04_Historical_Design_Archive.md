@@ -1,4 +1,35 @@
-# P8：AI MCP 接口
+# 历史设计档案：原项目 P8 设计演进
+
+整理日期：2026-10-18。当前入口：[总体架构](00_Overall_Architecture.md)、[当前接口契约](02_Current_MCP_Contract.md)、[实施与验收记录](03_Implementation_and_Verification.md)。
+
+## 档案用途与状态
+
+本文件保存原P8的导读、原§1～§13和§15，供设计追溯，不承担现行规范或未来实施计划。原文中的“当前”“最新”“权威”“拟议”“已实现”均按其日期/版本理解，不能越过02当前契约、当前源码或新版阶段计划。
+这里仍可见已删除stdio/IPC、早期五工具/七工具、旧字段/类型/目标预算等内容；保留它们不表示恢复这些实现。协议和风险变化见02§11，未验收范围见03。
+
+| 原内容范围 | 归档去向与关系 |
+| --- | --- |
+| 原导读、§1～§13 | 下方第一部分；旧规范/预算/优化路线及版本说明 |
+| 原§14实施记录 | 03实施与验收记录第一部分 |
+| 原§15 v0.6交互设计 | 下方第二部分；后续完整输入/提权/重构由当前契约覆盖 |
+| 原2026-10-12及后续记录 | 03实施与验收记录第二部分 |
+| 当前规则/未来任务 | 02当前契约 / P0～P8阶段计划，不以档案改动规范 |
+
+保持正文段落、表格、代码和测量值；仅降一级标题和修正迁入mcp后的相对链接。原章节编号跨文件引用时按本表定位，不再依赖原文件路径。
+原来源为项目P8文档，共3253个按换行划分的行元素；本文件承接原第1～1459行及第1789～2088行，其余由03承接。
+
+## 第一部分：原导读与§1～§13
+
+## P8：AI MCP 接口
+
+后续 MCP 内核、诊断与 AI Agent 的统一规划入口：[文档集](README.md)、[总体架构](00_Overall_Architecture.md)、[阶段划分](01_Phases_and_Acceptance.md)。本页保留按日期的设计演进与验收历史；阅读当前规划时先看新文档集。
+
+
+> **2026-10-17 当前终端接口：** 旧七工具扩展为九工具，新增
+> `novaterm_interact_terminal` 与 `novaterm_request_elevation`。完整终端输入用新增
+> `terminalControl` 独立授权，默认关闭，授权后不逐条确认；历史风险策略继续约束
+> 旧命令/脚本接口。基础观察/操作闭环已实现，可信 sudo/su 适配器尚不可用。
+> 本稿历史章节的工具数和能力限制应按其日期阅读，当前事实、回归和设计差距见文末。
 
 > **2026-10-12 当前传输事实：** MCP 只保留 NovaTerm 进程内 Qt HTTP Server
 > Streamable HTTP；`tools/novaterm-mcp/` 与 `LocalMcpServer` 已删除。
@@ -25,7 +56,7 @@
 > v0.3 设计优化：2026-09-18。协议演进、持续高输出读取、平台 Profile、搜索结果可用性与性能验收语义继续保留。
 > §14.1 记录 v0.2–v0.5 历史实现基线；§14.2 记录 v0.6 已实现与已验证事实。真实桌面、跨平台和性能验收缺口不得写成“已通过”。
 > 初稿日期：2026-09-16；v0.2 修订：2026-09-17；v0.3/v0.4 修订：2026-09-18；v0.5 修订：2026-09-19；v0.6 修订：2026-09-24。
-> 当前代码版本：NovaTerm `0.2.68`（以根 CMakeLists.txt 为准）；HTTP-only 迁移
+> 当前代码版本：NovaTerm `0.2.70`（以根 CMakeLists.txt 为准）；HTTP-only 迁移
 > 与审查修复已实现，本批提交包含 Windows MCP、SDK 和退出场景验收记录。
 > 读者：NovaTerm 开发者、MCP 接入开发者和接口评审者。
 > 范围：会话发现、终端输出读取、搜索、覆盖全部 Session 类型的交互命令执行，
@@ -33,7 +64,7 @@
 > 读取凭据、关闭安全机制、提权、格式化磁盘等高危险行为按尽力检测永久拒绝；
 > 文件修改、删除、脚本及无法判定的命令必须经 MCP 客户端的人类确认。
 
-## 1. 目标与首期决策（v0.5 历史设计，当前传输见 §4）
+### 1. 目标与首期决策（v0.5 历史设计，当前传输见 §4）
 
 让支持 MCP 的外部 AI 客户端读取用户已经打开的 NovaTerm 会话，回答“这个终端正在
 显示什么”“最近有哪些有意义的输出”“这段输出中是否有错误”等问题。用户继续通过
@@ -75,7 +106,7 @@ Serial/Telnet 的 `InteractiveFramed` 是**服务端内部的固定命令执行�
 单独鉴权、限流、去重和记录执行状态；对共享交互流还必须额外满足 CommandLease、
 Prompt/Frame 同步和用户输入优先规则。
 
-### 1.1 阶段依赖与边界
+#### 1.1 阶段依赖与边界
 
 P8 复用 P4 的有界终端文本/滚动历史模型及 P6 的 Session 生命周期、身份和 Transport
 能力边界。P8 不改变 Parser 单写、View 拥有 Session、Transport 只负责字节链路的既定
@@ -93,7 +124,7 @@ P7 不是上下文读取的前置条件。命令执行与 P7 的关系按后端�
 Session 门面层；具体 Executor 可以调用 Transport 专有接口，也可以创建独立本地进程，
 但不得让 MCP Handler 依赖具体 Transport 类型。
 
-### 1.2 规范层级与兼容原则
+#### 1.2 规范层级与兼容原则
 
 本文件同时描述接口契约、设计目标和实施事实，三者必须明确区分：
 
@@ -103,7 +134,7 @@ Session 门面层；具体 Executor 可以调用 Transport 专有接口，也可
 - MCP wire protocol 与 NovaTerm 私有 IPC 分层演进：Bridge 负责适配 MCP 协议代际，GUI 内的 SessionDirectory、授权、capture、commandTicket 和执行记录不依赖某一代 MCP handshake。
 - 外部协议升级不得成为放宽权限的理由。`2026-07-28` 的无状态协议只改变 MCP 交互方式，不改变本机 token、会话授权、epoch、命令票据和目标保护状态。
 
-## 2. 当前已有能力与待补缺口
+### 2. 当前已有能力与待补缺口
 
 以下是设计时 `8030dc0` 基线的能力与所需补齐项；当前实施进度见 §14。下表的「局限或
 前置工作」列描述的是当时状态，其中读取饥饿一项已在 2026-09-28 收口，见 §14.2。
@@ -136,13 +167,13 @@ Session 门面层；具体 Executor 可以调用 Transport 专有接口，也可
 - 核心去 Qt 化和搜索匹配器重构仍未完成。本设计不把恢复这些工作作为默认任务，
   MCP、IPC、JSON 与授权全部留在门面层及以上。
 
-源码参考：[TerminalSession](../../../src/session/TerminalSession.h)、
-[TerminalContextProvider](../../../src/session/TerminalContextProvider.h)、
-[TerminalStateCache](../../../src/session/TerminalStateCache.h)、
-[TerminalState](../../../src/core/terminal/TerminalState.h)、
-[SearchEngine](../../../src/core/search/SearchEngine.h)。
+源码参考：[TerminalSession](../../../../src/session/TerminalSession.h)、
+[TerminalContextProvider](../../../../src/session/TerminalContextProvider.h)、
+[TerminalStateCache](../../../../src/session/TerminalStateCache.h)、
+[TerminalState](../../../../src/core/terminal/TerminalState.h)、
+[SearchEngine](../../../../src/core/search/SearchEngine.h)。
 
-## 3. 进程、线程与所有权
+### 3. 进程、线程与所有权
 
 ```mermaid
 flowchart LR
@@ -216,7 +247,7 @@ JSON、CommandPolicy 概念。SessionCommandFacade 可以使用具体后端的�
 受控事务。因此它必须显式暴露“是否可安全开始”给 Session 层，并在用户输入、断线、
 模式切换或 framing 失配时保守结束为 `unknown`，而不是继续猜测输出边界。
 
-### 3.1 注册与销毁
+#### 3.1 注册与销毁
 
 1. Application 创建服务基础设施；用户未启用时不监听 HTTP。
 2. UI 创建 Session 后注册到目录，同时监听状态和 destroyed；已存在会话在
@@ -236,7 +267,7 @@ JSON、CommandPolicy 概念。SessionCommandFacade 可以使用具体后端的�
 跨线程投递只传值对象、不可变共享文本或带版本的请求。禁止 BlockingQueuedConnection
 等待 GUI；每个阶段在入队和结果发布前都检查取消状态、授权及会话 epoch。
 
-### 3.2 模型读取前置条件
+#### 3.2 模型读取前置条件
 
 把同步方法放进 queued callback，不能消除 `terminalState()` 等待模型锁的风险。
 v0.2 已采用 try-read：模型锁忙时立即返回 Busy，保证 GUI 和 Parser 不因 MCP 无限等待。
@@ -251,7 +282,7 @@ v0.2 已采用 try-read：模型锁忙时立即返回 Busy，保证 GUI 和 Pars
 4. 返回的数据必须是自洽的同一 revision 快照；不能把不同时间点的 title/cursor/viewport/recentOutput 拼成一次“原子捕获”。
 5. Busy 仍是合法背压结果，但在设计负载内不应成为常态；持续输出时应优先复用最近的自洽快照，而不是让所有客户端长期饥饿。
 
-### 3.3 v0.3 按需不可变快照发布
+#### 3.3 v0.3 按需不可变快照发布
 
 为解决持续高输出下 try-read 长时间失败，v0.3 引入**候选优化** `PublishedContextSnapshot`。
 该设计须先通过 A/B 性能测试再替换现有 try-read 主路径，不能仅凭理论启用。
@@ -280,9 +311,9 @@ PublishedContextSnapshot (immutable, bounded)
 - **不能复制完整历史**：发布对象仍受 256 KiB / 1024 行等硬上限约束，recentOutput 的摘要/淘汰语义不变。
 - **性能闸门**：只有在正常负载成功率、终端吞吐和 GUI frame P95 同时达到 §9.1 指标时才允许默认启用。2026-09-28 已按 CPU 帧时间口径完成并转为默认路径，帧与吞吐门槛通过、有效响应率 92.0% 未达 ≥99%，详见 §14.2。
 
-## 4. 接入方式：进程内 Streamable HTTP（2026-10-12）
+### 4. 接入方式：进程内 Streamable HTTP（2026-10-12）
 
-### 4.1 地址与客户端配置
+#### 4.1 地址与客户端配置
 
 NovaTerm 自身拥有 MCP 服务，启用后只监听 `127.0.0.1`，默认地址为
 `http://127.0.0.1:38973/mcp`。HTTP 解析和分块 SSE 写出由 Qt HTTP Server
@@ -313,7 +344,7 @@ http_headers = { Authorization = "Bearer <由 NovaTerm 导出的接入令牌>" }
 `novaterm-mcp`。未运行应用或未启用 MCP 时，URL 不提供离线能力发现。
 不同应用实例如需同时开放服务，应显式配置不同端口，使用各自导出的 URL/token。
 
-### 4.2 两代协议与生命周期
+#### 4.2 两代协议与生命周期
 
 2025-11-25 通过 initialize 建立 `MCP-Session-Id` 会话，后续请求继续携带
 该会话 ID；SSE 支持 `elicitation/create`，客户端确认响应通过 POST 回传。
@@ -323,7 +354,7 @@ http_headers = { Authorization = "Bearer <由 NovaTerm 导出的接入令牌>" }
 2026 请求流断开取消对应业务，不自动重放命令。应用停止时关闭服务与请求，
 无法确认已发出命令结果时继续使用 `COMMAND_OUTCOME_UNKNOWN`，不声称远端已终止。
 
-### 4.3 每请求认证与分发许可
+#### 4.3 每请求认证与分发许可
 
 每个 HTTP 请求都复核 `Authorization: Bearer …`，同时检查 Host/Origin，
 会话 ID 和 `clientInfo.name` 均不能替代认证。客户端 token 和会话授权分别管理，
@@ -338,9 +369,9 @@ http_headers = { Authorization = "Bearer <由 NovaTerm 导出的接入令牌>" }
 不能仅按 GPLv2 分发。相应源码、许可材料与其他依赖仍须核对；此记录不是法律
 合规保证，商业 Qt 许可另行确认。
 
-## 5. 会话身份、授权和数据边界
+### 5. 会话身份、授权和数据边界
 
-### 5.1 身份与版本标识
+#### 5.1 身份与版本标识
 
 | 字段 | 格式 | 生命周期 |
 | --- | --- | --- |
@@ -357,7 +388,7 @@ epoch 是路由和缓存隔离标记，不意味着终端历史已清空。现�
 保留旧屏幕/历史；读取结果明确带 `historyMayPrecedeEpoch=true`，不声称所有行都
 产生于本次连接。首版不具备按连接边界精确切分历史行的能力。
 
-### 5.2 用户授权
+#### 5.2 用户授权
 
 - 用户显式开启 MCP，并为某个接入配置选择允许读取的现有会话；新建会话默认不共享。
 - 授权后普通只读调用不反复弹确认。用户可随时撤销单个会话或整个接入配置。
@@ -373,7 +404,7 @@ epoch 是路由和缓存隔离标记，不意味着终端历史已清空。现�
 - 每次调用在调度前和结果提交到连接输出队列前各复核一次授权。已写给客户端的
   数据不能因撤销追回；尚未发布的结果应丢弃。
 
-### 5.3 文本安全语义
+#### 5.3 文本安全语义
 
 终端文本、标题和路径均是不可信数据，可能包含远端给 AI 的诱导指令。工具说明
 必须提醒客户端把这些内容作为待分析材料，不能当系统指令执行。控制字符过滤只
@@ -383,7 +414,7 @@ epoch 是路由和缓存隔离标记，不意味着终端历史已清空。现�
 RuntimeConfig、SessionEditSnapshot 或凭据引用。用户已经在终端输出中的敏感文本
 仍可能被授权客户端读到；产品需要明确告知共享范围，不能宣称自动识别全部秘密。
 
-### 5.4 受限命令策略
+#### 5.4 受限命令策略
 
 危险程度按操作行为判断，不按是否需要 root/Administrator 判断。普通用户的文件删除
 同样禁止；即使 SSH、LocalShell、Serial/Telnet 背后的目标拥有高权限，仍只能运行
@@ -428,7 +459,7 @@ shell 片段。Profile 内部固定 wrapper 不等同于开放自由 shell。
 执行结果或日志都不得读取或返回这些凭据。用户已经在终端输出中的敏感文本仍受 §5.3
 共享边界约束。
 
-#### 5.4.1 两类执行模式
+##### 5.4.1 两类执行模式
 
 v0.5 统一定义两类命令执行模式：
 
@@ -461,7 +492,7 @@ v0.5 统一定义两类命令执行模式：
 新的 schemaVersion/兼容机制演进，不能直接向当前 `additionalProperties=false`
 输出对象塞入旧客户端未知的必填字段。
 
-#### 5.4.2 SessionCommandFacade 与 Executor
+##### 5.4.2 SessionCommandFacade 与 Executor
 
 `McpService` 不再按 Transport 类型直接执行命令。拟议接口：
 
@@ -504,7 +535,7 @@ signals:
 Serial/Telnet 的 Executor 通过 Session 受控路径写入固定 framing，而不是把
 `writeUserInput()` 暴露给 MCP。
 
-#### 5.4.3 SessionCommandLease 与用户输入优先
+##### 5.4.3 SessionCommandLease 与用户输入优先
 
 InteractiveFramed 与用户共享同一终端流，必须引入每 Session 一个
 `SessionCommandLease`：
@@ -534,7 +565,7 @@ Executing
 - Lease 只限制 MCP Interactive 事务，不阻止用户关闭/断开 Session；
 - 断线、epoch 改变、Session Close 或 Profile 变化立即使 Lease 失效。
 
-#### 5.4.4 CommandPlatformProfile
+##### 5.4.4 CommandPlatformProfile
 
 固定绝对路径和参数是 Isolated 执行的安全边界；Interactive 执行还需要固定命令语法
 与 framing。
@@ -571,7 +602,7 @@ Profile **不能**通过 PATH 搜索、`command -v`、终端标题、模型推�
 `list_commands` 时偷偷执行。目标无法可靠匹配时返回 `COMMAND_PROFILE_UNAVAILABLE`，
 不降级到任意 shell、交互输入或路径猜测。
 
-#### 5.4.5 目标保护与 quarantine
+##### 5.4.5 目标保护与 quarantine
 
 结果不确定时仍使用目标保护，范围由 Executor 提供的**非秘密 targetFingerprint**
 决定。不同后端可采用不同稳定身份：
@@ -587,7 +618,7 @@ Profile **不能**通过 PATH 搜索、`command -v`、终端标题、模型推�
 作为放宽理由；应拒绝该执行能力或扩大到更保守的 Session/实例级 quarantine。
 MCP 不提供解除 quarantine 的工具，仍由用户在 GUI 核对后人工解除。
 
-## 6. MCP 协议契约
+### 6. MCP 协议契约
 
 NovaTerm 将 MCP wire protocol 视为 `WireSession` 层职责。历史实现按 `2025-11-25`
 完成互操作；截至 2026-09-18，MCP 当前正式规范为 `2026-07-28`，其核心已改为
@@ -595,7 +626,7 @@ stateless/self-contained request 和 per-request capability negotiation。v0.3 �
 **当前由进程内 HTTP/WireSession 同时服务两代协议，GUI 业务 DTO 不随协议代际重写**；
 2025 会话和 2026 无会话 MRTR 的区别见 §4。
 
-### 6.1 2025-11-25 兼容路径（已实现基线）
+#### 6.1 2025-11-25 兼容路径（已实现基线）
 
 初始化响应形状如下，serverInfo.version 使用实际构建版本：
 
@@ -615,7 +646,7 @@ stateless/self-contained request 和 per-request capability negotiation。v0.3 �
 该路径仍采用 initialize → notifications/initialized → tools 调用。版本协商、ping、
 JSON-RPC 错误和取消语义继续按 2025-11-25 验证；旧 Host 不因 v0.3 增加现代协议支持而失效。
 
-### 6.2 2026-07-28 现代路径（HTTP-only 更新）
+#### 6.2 2026-07-28 现代路径（HTTP-only 更新）
 
 2026-07-28 不再依赖 `initialize/initialized` 或 MCP session。每个请求携带自己的协议版本、
 客户端能力以及可选 clientInfo；服务端实现 `server/discover` 供客户端发现能力。
@@ -631,7 +662,7 @@ WireSession 适配要求：
 5. 当前命令票据仍绑定 NovaTerm 的接入授权上下文。MCP 2026 的“stateless”不等于允许绕过 commandTicket、epoch、去重记录或目标 quarantine。
 6. 2026 请求流断开取消对应业务，取消后不再发送该请求正常结果；不复用 2025 的“TCP 断开不等于取消”语义。
 
-### 6.3 工具目录与 annotations
+#### 6.3 工具目录与 annotations
 
 `tools/list` 返回 §7 的五个固定工具，具体可用权限由会话能力和命令目录表达：
 
@@ -659,9 +690,9 @@ structuredContent 返回结构化对象，content 同时包含一个序列化该
 首期仍只声明 tools，不声明 resources、prompts、sampling 或 Tasks。未来增加任何扩展时
 必须按对应协议版本/扩展协商，不能把内部事件名直接伪装成 MCP 标准方法。
 
-## 7. 首期工具与参数
+### 7. 首期工具与参数
 
-### 7.1 `novaterm_list_sessions`
+#### 7.1 `novaterm_list_sessions`
 
 用途：列出该接入配置可读取的现有会话，返回可供后续调用使用的明确身份。
 
@@ -687,7 +718,7 @@ telnet / custom。字段使用固定协议枚举，不能直接把 C++ 枚举整
 注册/注销或可见授权集合变化时返回 CURSOR_STALE，客户端从第一页重试。目录
 不能被一次无上限复制。Closing/Closed 会话不再进入新一页结果。
 
-### 7.2 `novaterm_read_context`
+#### 7.2 `novaterm_read_context`
 
 用途：读取活动屏幕和最近有意义输出的有界摘要，不等待 shell 输出结束。
 
@@ -776,7 +807,7 @@ resetRevision 初值为 0；主屏/备用屏切换或模型 revision 回退导�
 无 token 时按首次快照处理，只有截断需要 resetRequired；不能把一次内部
 sinceRevision=0 调用得到的 resetRequired 原样复用给所有客户端。
 
-### 7.3 `novaterm_search_context`
+#### 7.3 `novaterm_search_context`
 
 用途：搜索某次 read_context 已返回的不可变文本，避免「读取时一份、搜索时另一份」。
 
@@ -813,7 +844,7 @@ endByte 继续。两个数组中相同文字可分别命中，不做跨 source �
 失去会话授权时先返回 SESSION_NOT_AVAILABLE；只有前述检查通过，而捕获过期、被
 淘汰或属于其他客户端时，才返回 CAPTURE_NOT_AVAILABLE，不泄漏他人的捕获是否存在。
 
-### 7.4 `novaterm_list_commands`
+#### 7.4 `novaterm_list_commands`
 
 用途：列出该已共享 Session 当前获准且**当前 Profile/Executor 能实际执行**的诊断模板，
 不为了识别平台偷偷执行探测命令。输入 `sessionId`、`epoch`，均必填 string；
@@ -843,7 +874,7 @@ epoch、commandId、policyVersion、参数规范哈希和有效期。v0.5 还应
 `COMMAND_PROFILE_UNAVAILABLE`；`UNSUPPORTED_COMMAND_TARGET` 仅保留为当前 SSH-only
 实现的兼容错误，不作为 v0.5 对 Serial/Telnet/LocalShell 的设计结论。
 
-### 7.5 `novaterm_execute_command`
+#### 7.5 `novaterm_execute_command`
 
 用途：对一个当前允许且已授权的 Session 执行固定诊断 commandId，等待有界结果。
 同一个工具覆盖 SSH、LocalShell、Serial、Telnet 与已声明命令能力的 Custom Session。
@@ -923,7 +954,7 @@ CommandExecution 继续保持当前字段集合，避免破坏 schema v1：
 | stdout / stderr | string | Isolated 为独立输出；Interactive 的 stdout 为共享流 framing 区间，stderr 为空 |
 | outputTruncated | boolean | 是否达到原始或转换后输出预算 |
 
-#### 7.5.1 重试、取消与结果不确定性
+##### 7.5.1 重试、取消与结果不确定性
 
 - 同一 commandTicket 最多提交一次；重复调用只查询原执行记录。
 - 策略/Profile 变化只使尚未执行票据失效；已执行记录在授权和 epoch 仍有效时按原记录查询。
@@ -944,7 +975,7 @@ CommandExecution 继续保持当前字段集合，避免破坏 schema v1：
 但 Interactive Profile 可在不放宽全局上限的前提下声明更短超时。超时只代表 NovaTerm
 停止等待/请求取消，不保证目标命令已经被终止。
 
-## 8. 响应、错误与示例
+### 8. 响应、错误与示例
 
 五个工具的 structuredContent 使用以下联合格式，作为 outputSchema 的规范定义：
 
@@ -1049,7 +1080,7 @@ CommandExecution 继续保持当前字段集合，避免破坏 schema v1：
 stdio EOF、IPC 断开、授权撤销和实例关闭同样触发取消及资源回收；命令执行记录
 按 §7.5.1 保留去重证据，取消不等于远端操作回滚。
 
-## 9. 有界性、背压与性能预算
+### 9. 有界性、背压与性能预算
 
 下表是拟议初始限制，属于待验收配置，不是已经测得的性能。
 
@@ -1099,7 +1130,7 @@ ByteQueue 施加新的背压，不阻塞交互 Shell 或 Renderer。
 正文的 10 分钟保留期淘汰。目标标记表也需有硬上限，达到上限时停止接收新执行，
 不能通过丢弃未解决标记重新启用目标；初始上限为本机每 OS 用户 128 个目标。
 
-### 9.1 性能指标必须区分正常负载与过载保护
+#### 9.1 性能指标必须区分正常负载与过载保护
 
 只统计“成功请求的 P95”不足以证明 MCP 可用；大量快速 Busy 会让延迟数字很好看，
 但 Agent 实际拿不到上下文。验收必须同时记录成功率、有效响应吞吐（goodput）、Busy、
@@ -1119,7 +1150,7 @@ ByteQueue 施加新的背压，不阻塞交互 Shell 或 Renderer。
 - 若启用已发布快照，可用“最近自洽快照”吸收重复读请求，而不是为每次调用抢 Core 锁；
 - 过载结果单独报告，不得与正常负载成功率混为一组，也不得以 Busy 的低延迟冒充成功读取性能。
 
-### 9.2 v0.4 数据路径优化路线
+#### 9.2 v0.4 数据路径优化路线
 
 v0.4 的目标不是通过增加锁等待、线程数或无界缓存“顶住”高负载，而是减少 Core 捕获次数、
 减少文本复制和序列化次数，并让相同 revision 的结果在客户端之间共享。优化原则为：
@@ -1162,7 +1193,7 @@ Immutable PublishedContextSnapshot
                     MCP Host
 ```
 
-#### 9.2.1 跨客户端共享基础快照与 capture
+##### 9.2.1 跨客户端共享基础快照与 capture
 
 `PublishedContextSnapshot` 应作为 session/epoch/revision 级别的不可变对象，而不是
 “每个客户端的一份 256 KiB 文本”。多个客户端读取同一 revision 时共享底层对象：
@@ -1187,7 +1218,7 @@ Immutable PublishedContextSnapshot
   即便共享对象因其他内部引用暂时存在，也必须先通过权限/epoch 校验；
 - capture TTL/LRU 淘汰只释放客户端引用，不要求复制或重建 underlying snapshot。
 
-#### 9.2.2 Snapshot 内部采用分块/结构共享，避免每次复制完整摘要
+##### 9.2.2 Snapshot 内部采用分块/结构共享，避免每次复制完整摘要
 
 即使跨客户端共享，如果每次模型 revision 都重新复制完整 256 KiB `recentOutput`，持续
 高输出下仍会产生可观的内存带宽和 allocator 压力。建议将发布对象拆成稳定的小块：
@@ -1210,7 +1241,7 @@ PublishedContextSnapshot
 该优化不得改变现有 `cacheFloor/resetRevision/sourceTruncated` 语义。容量淘汰仍按摘要
 语义推进 floor；chunk 只是内部存储策略，不能成为新的公开游标域。
 
-#### 9.2.3 read_context 请求合并（coalescing）
+##### 9.2.3 read_context 请求合并（coalescing）
 
 限流只能减少工作量，不能自动避免重复工作。同一个 session 在一个发布窗口内，如果多个
 客户端几乎同时请求新内容，应只允许一个 capture/publish 工作进入 GUI/Core 路径：
@@ -1234,7 +1265,7 @@ C4 read_context ─┘
 等待者仍分别进行授权、epoch、token 和输出 budget 校验；请求合并只共享基础采样，不能
 把一个客户端的安全上下文或 projection 结果复用给另一个客户端。
 
-#### 9.2.4 读取路径区分“新鲜度”和“可用性”
+##### 9.2.4 读取路径区分“新鲜度”和“可用性”
 
 对于 Agent 分析，最近一次自洽快照通常比持续返回 Busy 更有价值。内部实现可以维护
 `publishedRevision/currentRevision` 与 `capturedAt`，在同 epoch 内允许返回最近快照，
@@ -1244,7 +1275,7 @@ C4 read_context ─┘
 正常负载下仍应尽量提供当前 revision；只有 Parser 持续写入或 capture 正在合并时才复用
 最近快照。freshness budget 必须有硬上限并可观测，不能把“有结果”变成长期返回旧数据。
 
-#### 9.2.5 capture/search 共用 immutable blocks
+##### 9.2.5 capture/search 共用 immutable blocks
 
 `search_context` 直接搜索 `captureId` 引用的 immutable snapshot/projection，不为搜索重新
 复制整个 viewport/recentOutput。若同一 capture 多次搜索，可缓存轻量的 line-start offset
@@ -1254,7 +1285,7 @@ C4 read_context ─┘
 搜索 worker 只读 immutable memory，不调用 Session/Core；capture 淘汰时依赖引用计数
 自然释放，不能发生 worker 持有悬垂 view。取消仍按固定字节间隔检查。
 
-#### 9.2.6 UTF-8、控制字符处理和预算裁切做单遍流水
+##### 9.2.6 UTF-8、控制字符处理和预算裁切做单遍流水
 
 持续 kernel build 等场景中，重复构造 `QString/QByteArray` 很容易成为隐性热点。建议把
 输出处理收敛为单遍或尽量少遍的线性流水：
@@ -1275,7 +1306,7 @@ source text
 allocation 次数和 copiedBytes。不要为了减少一次扫描手写未经验证的复杂 SIMD 路径；只有
 profile 证明 UTF-8/sanitize 为主要热点时再做平台级优化。
 
-#### 9.2.7 structuredContent / text 兼容副本只序列化一次
+##### 9.2.7 structuredContent / text 兼容副本只序列化一次
 
 当前协议为了兼容不同 Host，会同时返回 `structuredContent` 和内容等价的 text block。
 这意味着 64 KiB 逻辑正文可能在 JSON envelope 中出现两份，线缆和内存预算都必须按
@@ -1289,7 +1320,7 @@ profile 证明 UTF-8/sanitize 为主要热点时再做平台级优化。
 - 在正式 Host/SDK 能力允许且协议契约升级后，可评估只发送 structuredContent 的新模式，
   但不能在当前兼容契约下静默删除 text 副本。
 
-#### 9.2.8 私有 IPC 编码优化放在 profile 之后
+##### 9.2.8 私有 IPC 编码优化放在 profile 之后
 
 本节为已删除 stdio/IPC 入口的历史性能设计。当前 HTTP-only 入口没有该进程间
 编码路径；若评估新的编码优化，必须先对当前 HTTP/wire 实现重新采样。
@@ -1304,14 +1335,14 @@ IPC JSON encode/decode 已成为显著热点时，才评估：
 任何替换仍必须保留消息长度上限、认证、版本协商、取消和慢消费者背压；不能为了性能
 绕过现有安全边界。
 
-#### 9.2.9 暂不优先的优化
+##### 9.2.9 暂不优先的优化
 
 在以下项目没有 profile 证据前，不作为 P8 性能主线：增加线程池、lock-free queue、
 SIMD 搜索、全文索引、无界 ring buffer、提高 try-lock 等待时间、按客户端独立后台采集。
 这些措施容易增加复杂度，却不能解决当前“同一数据被重复捕获/复制”和 read starvation
 这一主要矛盾。
 
-### 9.3 v0.4 性能观测指标
+#### 9.3 v0.4 性能观测指标
 
 下一轮 A/B 除现有 success/Busy/P95/吞吐/frame 指标外，至少新增以下计数器，才能判断
 优化究竟减少了哪里：
@@ -1338,7 +1369,7 @@ v0.4 的挑战目标可设为：在持续 kernel-build 类高输出正常负载�
 `read_context` 有效响应率 ≥99%，同时终端吞吐下降争取压到 **≤2～3%**；正式硬性验收
 仍沿用 §9.1 的 ≤5%，待跨平台 A/B 数据稳定后再决定是否收紧。
 
-## 10. 观测与隐私
+### 10. 观测与隐私
 
 记录工具名、匿名客户端/请求 ID、阶段耗时、错误码、收发字节、队列峰值、
 限流/取消次数、捕获复用和淘汰次数。默认不记录终端正文、搜索词、标题、目标
@@ -1351,7 +1382,7 @@ UI 提供 MCP 总开关、读取共享与受限命令的独立开关、允许模
 并尝试取消所属辅助命令，不需要关闭终端。协议日志与终端会话日志分开，stdout
 始终只传 MCP。执行记录与终端内容分开展示，超时/断线时保留“结果不确定”的提示。
 
-## 11. 拟议实施顺序与验收
+### 11. 拟议实施顺序与验收
 
 以下为 v0.5 后的实施分解。已有 P8.1～P8.5 的 v0.2 代码事实不倒写；全会话命令能力
 作为增量工作加入，§14 在代码/测试完成前继续标记为未实现。
@@ -1405,7 +1436,7 @@ UI 提供 MCP 总开关、读取共享与受限命令的独立开关、允许模
 Windows、Linux、macOS 分别验证本地 Executor；Serial/Telnet fixture 可跨平台自动化，
 真实设备/真实 Telnet 服务属于部署验收，不写成功能正确性的唯一证据。
 
-## 12. 后续能力与当前不确定项
+### 12. 后续能力与当前不确定项
 
 | 候选能力 | 必须先解决的问题 |
 | --- | --- |
@@ -1427,7 +1458,7 @@ v0.6 已将受控自由命令和按能力声明的脚本文件写入纳入设计
 脱离命令事务的任意按键仍不属于本期。任何新增入口不得绕过 §15 的风险、确认、
 提示符就绪、Lease、世代和有界性约束。
 
-## 13. 规范与项目依据
+### 13. 规范与项目依据
 
 当前实现按 MCP 2025-11-25 完成互操作；v0.3 同时把 2026-07-28 作为现代协议适配目标。
 2026-07-28 是截至 2026-09-18 的正式规范，其 Base Protocol 明确采用 stateless、
@@ -1443,341 +1474,15 @@ self-contained requests 与 per-request capability negotiation。Bridge 的双�
 - [MCP 2025-11-25 Cancellation](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/cancellation)
 - [MCP 2025-11-25 Authorization](https://modelcontextprotocol.io/specification/2025-11-25/basic/authorization)
 - [MCP 2025-11-25 Security Best Practices](https://modelcontextprotocol.io/specification/2025-11-25/basic/security_best_practices)
-- [统一架构](../../ARCHITECTURE.md)：§2、§3.3/3.4、§5/6/7。
-- [P6](P6_Session_and_Transport.md)：所有权、生命周期、实施禁止项。
-- [性能与 Agent 上下文验收记录](../Performance_Optimization_2026-09-10.md)：当前摘要接口的测试与适用边界。
-- [现有 Session 测试](../../../tests/session/SessionTests.cpp)：agentContext 两组用例仅证明当前局部行为，不等于 MCP 已验收。
+- [统一架构](../../../ARCHITECTURE.md)：§2、§3.3/3.4、§5/6/7。
+- [P6](../P6_Session_and_Transport.md)：所有权、生命周期、实施禁止项。
+- [性能与 Agent 上下文验收记录](../../Performance_Optimization_2026-09-10.md)：当前摘要接口的测试与适用边界。
+- [现有 Session 测试](../../../../tests/session/SessionTests.cpp)：agentContext 两组用例仅证明当前局部行为，不等于 MCP 已验收。
 
-## 14. 首期实施记录（2026-09-17～19）
 
-本节保留 2026-09-17～19 五工具及 stdio/IPC 的历史代码事实；该传输入口已删除。
-当前 HTTP-only 入口以 §4 与文末迁移记录为准。前文
-v0.5 的全会话命令执行是下一阶段设计目标，在实现与测试完成前不得写成已支持。
+## 第二部分：原§15交互设计
 
-**当前生产固定诊断覆盖 SSH Session 与 Windows/Linux LocalShell：SSH 使用独立
-exec channel，本地会话使用固定 `novaterm-local-diag` helper 子进程。
-macOS LocalShell、Serial、Telnet、Custom 的固定诊断 Executor 仍未实现。**
-
-v0.3/v0.4 的协议/性能新增项也继续以代码和测试为准；设计文档中的候选优化不能倒写成
-实施事实。
-
-| 步骤 | 当前代码 | 实施内容 |
-| --- | --- | --- |
-| P8.1 | `TerminalCore::tryTerminalState/tryModelRevision`、`TerminalContextProvider::trySnapshot` | 模型锁忙时立即失败；基础摘要与客户端进度分离，保留 cacheFloor/resetRevision |
-| P8.1 | `src/session/SessionDirectory.*` | 弱引用目录、连接 epoch、Transport 附加身份、授权过滤后的有界分页；View 仍拥有 Session |
-| P8.2 | `src/mcp/McpProtocol.*`、`LocalMcpServer.*` | 五工具 schema、参数校验、MAC、当前用户 IPC、帧/队列限制和合并唤醒 |
-| P8.2 | `tools/novaterm-mcp/` | console stdio 桥接、初始化、取消、stdout 隔离、慢写退出、明确实例绑定 |
-| P8.3 | `src/mcp/McpService.*` | 会话列表、上下文、capture 搜索、预算裁切和每客户端 token/capture 隔离 |
-| P8.4 | `CommandPolicy.*`、`CommandPlatformProfile.*`、`CommandExecutionTypes.h`、`SessionCommandFacade.*`、`ISessionCommandExecutor.h`、`SshSessionCommandExecutor.*`、`LocalSessionCommandExecutor.*`、`tools/novaterm-local-diag/`、`McpService.*` | 固定诊断模板、通用执行 DTO、Session 级 Executor 路由、SSH 与 Windows/Linux LocalShell Isolated 适配、执行票据/去重、持久目标保护标记及结构化完成证据 |
-| P8.5 | `McpAccess.*`、`McpSettingsDialog.*`、Application/MainWindow/TerminalPage 接线 | 总开关、客户端令牌、读取与逐项诊断授权、复制配置、执行记录和人工解除保护 |
-
-当前实现中 RequestBroker/SessionReadFacade 的职责主要由 `McpService::Impl` 与 Session
-显式读取入口组合承担。命令侧已经具备通用 `SessionCommandFacade`、
-`ISessionCommandExecutor` 和第一个 SSH Isolated Executor；Facade 用 Session generation
-与绑定序号丢弃换绑后的迟到完成结果，并在换绑或销毁前取消已登记的在途请求；
-MCP 的执行、取消和完成映射不再持有 SSH 类型。
-Windows/Linux LocalShell 分别由 `windows-local-v1` / `linux-local-v1` Profile
-注册同一组语义 commandId。Executor 只启动应用目录中的固定 helper，以独立
-stdout/stderr、退出码和进程终止证据返回结果；不向当前 PTY/ConPTY 写入，
-也不继承交互 shell 的 cwd/alias/history。
-当前 SSH 辅助 exec 输出不回灌交互终端；Serial/Telnet InteractiveFramed 仍只是设计，
-因此当前代码也尚未产生第二条共享交互命令写入路径。
-
-实施细节与边界：
-
-- `TerminalStateCache` 当前以 `std::deque<Entry>` 保存稳定节点，并在淘汰
-  `front()` 前从借用 `string_view` 的去重索引中删除对应 key；对象不可复制。
-  这比仅依赖“不可复制”更完整地满足当前 borrowed-view 生命周期约束。仍应保留
-  容器增长、淘汰、重复插入的回归测试；快照、JSON 和索引元数据另占有界空间。
-- 命令返回保留 stdout/stderr 合计最多 64 KiB 原始内容；在边界最多多读一个探测
-  字节来判断是否超限。转换后的 UTF-8 文本另限 64 KiB，不会因替代字符膨胀而失控。
-- SSH 增加 `executeBoundedCommand` / `boundedCommandFinished`，保留旧的通用命令
-  API 供 P7 使用。对未知是否已开始/结束的情况保持保守，不把 close/TERM 请求当成退出证明。
-- Windows/Linux LocalShell 的 `novaterm-local-diag` 只接受四个固定 commandId，
-  分别使用 Qt/Windows API 与 Qt/Linux `/proc` 读取采集，拒绝额外参数与未知命令；
-  `LocalSessionCommandExecutor` 清理环境、合计限制 64 KiB 输出并在超时、取消、
-  换绑或销毁时终止 helper。macOS 尚不安装 Local Executor；任何平台都不能
-  回退到 `writeUserInput()` 或 shell wrapper。
-- 客户端取消、撤权或 Session epoch 失效时，服务端先给 Executor 250 ms 发布更强的
-  完成证据；若仍无结果，则把 Execution 完成为保守的 cancelled/unknown，保留目标
-  quarantine 但允许用户核对后解除，避免执行记录永久停在 running 并耗尽 128 条上限。
-- Core 已加入按真实读取需求、最多 4 Hz 合并的不可变 `PublishedTerminalState` 候选路径；
-  Parser 在稳定提交点发布 shared snapshot，Provider 保留真实 capturedAt 且不再重复消费
-  旧 history line。**本段记录 2026-09-22 当时的候选状态**；该路径已于 2026-09-28
-  完成闸门并转为默认取数路径，`NOVATERM_MCP_PUBLISHED_SNAPSHOT` 语义已反转为
-  「未设置即启用、显式置 0 才退回 try-read」。现状与新数据见 §14.2「2026-09-28 收口」。
-
-2026-09-22 候选路径过载 A/B（四客户端各 10 Hz、64 MiB、三轮）显示吞吐中位数
-`27.93 → 27.99 MiB/s`（无下降），capture P95 为 0.807～0.848 ms；成功读取分别
-75/78、75/76、78/79，Busy 为 3/1/1。该结果显著改善旧路径的 read starvation，
-但过载成功率仍非每轮 ≥99%，且正常 4 Hz 与 GUI frame P95 尚未补齐，因此继续保持
-测试开关，不写成默认性能验收通过。
-
-2026-09-22 正常设计负载 A/B（四客户端各 1 Hz、256 MiB、三轮）在授权时预热首份
-快照后达到 36/36、36/36、36/36 成功读取，Busy 为 0；成功 RPC P95 为
-45.10～48.77 ms，capture P95 为 0.986～1.011 ms，吞吐中位数
-`29.01 → 29.08 MiB/s`（无下降）。每轮仅 8 次 Core publish 服务 40 次请求，
-coalescedReadCount=27；snapshotAge P95 为 1.78～2.08 s。正常负载功能与吞吐门槛
-已通过。当时真实 GUI frame P95 仍无设备级证据，因此候选路径保持显式测试开关；该缺口已于 2026-09-28 以 CPU 帧时间口径补齐，见 §14.2。
-- 基础摘要缓存与增量筛选不共享客户端进度。截断时 nextToken 为空；语义不是完整日志。
-- 多实例的接入配置通过版本校验与文件监听同步；令牌存取仅在用户管理客户端时
-  触碰凭据库，协议认证只核对摘要。总开关关闭时清除本次授权，即使保存失败也先撤销内存访问。
-- Windows 加固状态目录时，属主校验先算本进程令牌的对象属主身份集合（TokenUser、
-  TokenOwner 与带 `SE_GROUP_OWNER` 的组），再写入“仅当前用户完全访问”的受保护
-  DACL。提权运行创建的对象属主是 Administrators，只比对 TokenUser 会让
-  `AccessStore::save()` 恒失败、`McpSettingsDialog` 的总开关表现为点不动。
-  回归：`novaterm_mcp_tests::stateDirectoryOwnedByTokenDefaultOwnerIsSecurable`。
-- 2026-10-15 补齐提权/非提权切换：UAC 过滤令牌的 Administrators 组没有
-  `SE_GROUP_OWNER`，但历史端点目录可能仍以该组为属主，导致 HTTP 服务启动前报
-  `Cannot secure HTTP endpoint directory`，两种配置复制都返回空。现在仅对令牌中
-  的 Administrators 增加历史属主迁移，成功时用 Windows 的 `WRITE_OWNER` /
-  `WRITE_DAC` 检查把属主规范化为 TokenUser，并写入仅当前用户完全访问的受保护
-  DACL；其他非属主组仍拒绝。回归覆盖目录/文件迁移及 DACL、拒绝 Everyone 属主，
-  以及设置页按钮实际写入 CC Switch 单 server JSON。
-- 单实例导出配置默认自动发现，多实例导出固定当前 instanceId。旧 IPC 的执行票据
-  不能在新连接重放；客户端断开后旧执行记录由本机 GUI 核对。
-- 工具支持的固定程序缺失时返回命令失败及退出码，不自动搜索 PATH 或回退解释器。
-- stdio 断连时桥接进程可能只能返回 COMMAND_OUTCOME_UNKNOWN，没有可信的完整执行
-  DTO 时不伪造 details；有结构化完成证据的服务端错误保留完整执行详情。
-
-验证入口均已加入仓库：
-
-- `novaterm_mcp_tests`：实际子进程 stdio/IPC、授权、跨客户端、UTF-8、截断、搜索、
-  取消、票据去重、持久保护、缓存淘汰、界面授权，以及 Windows 本地 helper 的固定
-  参数拒绝、独立输出、非零退出、输出上限、超时、取消和 PTY 零写入。
-- `tests/mcp/interop_check.py`：官方 MCP Python SDK 1.30.0、全部输出 schema、两个
-  独立客户端和执行重试。依赖仅在测试时装入 build/mcp-test-deps。
-- `tests/mcp/ssh_loopback_check.py`：仅回环的 SSH 协议测试端返回固定数据，验证正常
-  退出、非零退出、原始输出上限和超时；不执行真实 shell、不读取用户保存的凭据。
-- `tests/mcp/performance_check.py`：64 MiB 唯一文本、100 万行历史配置、四客户端
-  各 10 Hz、三组开/关对照；同时记录成功读取数和 Busy 数，不能把快速 Busy 当成功读取延迟。
-  Windows 在 CPU 数足够时固定负载与客户端的不同 CPU 集，结果文件记录 affinity mask。
-
-本机验收过程中发现既有 Ninja/MSVC 的中文 `/showIncludes` 前缀与诊断代码页不一致，
-头文件依赖记录可能为 0。根 CMake 已对 Ninja/MSVC 加入原始字节解码与前缀兼容层：
-由 PowerShell 优先按 UTF-8、失败时按系统代码页解码，统一输出 Ninja 可识别的
-ASCII 依赖前缀。路径选项另规范化为正斜杠，保留宏定义转义。已在修正后完成
-干净构建，并抽查 Core、主程序、MCP 与 SSH 测试对象均记录真实头文件依赖；
-以下结果仅使用这轮二进制。
-
-Windows 验证结果（2026-09-18，MSVC + Qt 6.8.3，Release）：
-
-| 验证 | 结果 |
-| --- | --- |
-| 主程序、stdio 桥接及全部测试目标构建 | 通过；翻译资源已刷新 |
-| MCP 自动化 | 18 通过、0 失败；含真实 stdio/IPC、授权隔离、票据去重、输入上限、多实例与断连不自动改投 |
-| 全套 CTest | 11/12 目标通过，154.19 秒；唯一失败目标为既有 ConPTY 用例，详见下述说明 |
-| 官方 MCP Python SDK 1.30.0 | 五个工具的 schema、双客户端、读取/搜索、执行及重放检查通过 |
-| 临时回环 SSH | 正常退出、退出码 42、输出超限、超时四项通过；没有连接用户保存的服务器或执行真实 shell |
-| 文档与本地化 | Python 语法、翻译 XML、JSON 示例及 P8 相对链接通过 |
-
-回环 SSH 的 libssh 在本机沙箱内初始化连接选项失败，因此经授权在沙箱外验证；
-测试仍只监听 `127.0.0.1`，关闭用户/系统 SSH 配置加载，使用临时主机密钥和
-known_hosts。此结果只证明真实 SSH 协议与通道处理，不代表真实服务器部署验收。
-
-ConPTY 单独输出断言日志后为 8 通过、4 失败，均对应 `AGENTS.md` 的既有问题：
-`duplexLoadAndBackpressure`、`latestResizeWins` 的偶发超时/旧尺寸，以及
-`injectedStartupStagesRollBack`、`repeatedLifecycleReturnsResourcesToBaseline`
-的系统句柄泄漏。没有将这四项标成 P8 通过，也没有扩大本次修改去修复 ConPTY。
-
-高输出对照**未达到性能验收门槛**：每轮 64 MiB 唯一文本、百万行容量配置、
-四个客户端各 10 Hz，三组 A/B，负载/客户端 CPU mask 分别为 15/1048560。
-
-| 项目 | 第 1 组 | 第 2 组 | 第 3 组 |
-| --- | --- | --- | --- |
-| MCP 关闭吞吐（MiB/s） | 12.96 | 16.35 | 16.07 |
-| MCP 开启吞吐（MiB/s） | 14.98 | 14.25 | 15.33 |
-| 成功读取 / 总读取 | 7/168 | 6/175 | 4/165 |
-| Busy 次数 | 161 | 169 | 161 |
-| 成功捕获 P95（ms） | 2.2705 | 3.3639 | 0.2503 |
-| 成功 RPC P95（ms） | 81.82 | 80.06 | 72.44 |
-
-吞吐中位数为 **16.07 → 14.98 MiB/s（下降 6.79%）**；基线本身低于 20 MiB/s，
-轮次波动较大，且成功样本很少。这些数据既不能证明吞吐损失在门槛内，也不能
-用大量 Busy 的低耗时替代成功读取延迟。当前现象应按“持续写锁竞争导致 read
-starvation”处理，而不是简单调大 try-lock 等待时间。下一轮优先实现/验证 §3.3 的
-按需不可变快照复用，并按 §9.1 分离正常负载与过载测试；同时补齐 GPU frame P95
-与真实终端场景。保留 try-lock 失败即返回 Busy 的安全边界，不为提高成功率阻塞 GUI
-或暂停 Parser；只有 A/B 数据证明 PublishedContextSnapshot 同时提高有效响应率且不突破
-吞吐/frame 门槛时，才将其设为默认读取路径。
-
-尚需单独注明的验收范围：Linux/macOS 实机、具体桌面 MCP Host、真实 Linux 服务端
-部署及 GPU frame P95 尚未覆盖；持续满负载下 try-read 可能频繁返回 Busy，短时
-夹具不能替代完整性能验收。ConPTY 的既有系统句柄泄漏不归入 P8 功能修复。
-
-v0.3 下一轮完成判据：
-
-- MCP 2025-11-25 现有互操作不回归，新增 2026-07-28 `server/discover`/per-request metadata 路径通过至少一个 Tier 1 SDK；
-- 正常设计负载 `read_context` 有效响应率 ≥99%，且终端吞吐、GUI frame P95 满足 §9.1；
-- 至少输出 §9.3 的 coreCaptureCount、snapshotPublish/Reuse、coalescedRead、copiedBytes、snapshotAge 和 per-client starvation 指标，证明优化不是靠返回长期旧快照或隐藏 Busy；
-- 4 客户端共享同一 session 时，同 revision 的基础文本不得按客户端数线性复制；capture/search 应复用 immutable snapshot/blocks；
-- 过载测试不再只看成功请求 P95，必须报告各客户端 goodput、Busy 与最长无成功响应时间；
-- search excerpt 不越过 capture 边界，CommandPlatformProfile 不通过探测或 PATH 放宽命令安全策略；
-- `TerminalStateCache` 的借用字符串索引生命周期 invariant 有代码级证明和回归测试。
-
-v0.4/v0.5 性能实施建议顺序（与全会话命令执行可并行推进）：
-
-1. `PublishedContextSnapshot` 发布与跨客户端共享；
-2. capture 仅持 shared snapshot/projection 元数据，去除同 revision 文本重复副本；
-3. per-session capture in-flight coalescing；
-4. recentOutput 分块/结构共享，减少完整 256 KiB 重建；
-5. 增加 §9.3 copiedBytes/allocation/reuse/freshness 观测；
-6. 再根据 profile 决定 UTF-8/JSON/私有 IPC 编码是否值得继续优化。
-
-上述条目在代码和 A/B 验证完成前均属于设计目标，不写入“已实现”列表。
-
-### 14.1 v0.5 全会话命令执行的剩余增量
-
-> 本节保留 v0.5 实施基线。v0.6 已选择统一的 Session 级交互命令协调器，后续
-> 实施顺序和完成定义改以 §15.10 为准；不得继续把 v0.5 的 isolated-only 目标
-> 当成最终架构。
->
-> 2026-09-28 校对：下条第 2、3 条已被 v0.6 覆盖，不再是缺口 —— Interactive
-> framing/ready-state 由 `InteractiveCommandProfile` + `SessionCommandCoordinator`
-> 承担（不再是 `CommandPlatformProfile` 的职责，见 §5.4.4），`SessionCommandLease`
-> 已由 `SessionInputArbiter` 的单 Lease + 用户抢占实现。Serial/Telnet 确实有
-> InteractiveFramed Profile，但 commandId 集合为空、fixture 与 contract tests
-> 仍缺。SSH 的 Profile 现为 `linux-diagnostics-v2`。
-
-通用 `CommandExecutionRequest/Result/Outcome`、`SessionCommandFacade`、Executor 接口、
-SSH bounded exec 适配，以及 `McpService` 去除 SSH 业务层强耦合已经完成并由
-`novaterm_mcp_tests` 与 `novaterm_ssh_transport_check` 覆盖。以下条目仍不属于当前
-“已实现”列表：
-
-1. 补齐 macOS LocalShell 独立进程 Executor；Linux LocalShell 固定诊断已通过本机自动化测试，桌面人工验收仍待完成；
-2. ~~扩展 `CommandPlatformProfile` 的 Interactive framing/ready-state 定义~~ — **已由 v0.6 覆盖**，改为 `InteractiveCommandProfile` + `SessionCommandCoordinator`（§5.4.4）；
-3. 实现 `SessionCommandLease` 和 Serial/Telnet InteractiveFramed fixture — **Lease 部分已由 v0.6 覆盖**；Serial/Telnet 的 InteractiveFramed **fixture 与 contract tests 仍缺**，其 Profile 的 commandId 集合当前为空；
-4. Custom 只通过显式 Executor 注册加入能力，不设置隐式默认行为；
-5. 补齐 Serial/Telnet/Custom 的命令目录、错误码和 UI 风险提示；保持现有五工具和 schemaVersion=1；
-6. 跑 SSH 回归 + Linux/macOS Local + Serial/Telnet contract tests 后，才能把 §14 状态改成全会话已支持。
-
-实现过程中若发现某类 Session 无法可靠建立命令边界或终止语义，应保守地让该 Profile
-`executionEnabled=false`，而不是为了覆盖率退化成任意 `writeUserInput()`。
-
-用户接入步骤见 [MCP 使用说明](../../MCP_Usage.md)。
-
-### 14.2 v0.6 实现与历史验收记录（2026-09-26，2026-09-28 增量）
-
-本节的业务能力继续有效；stdio/IPC 配置、构建目标与测试成绩属于当时记录，
-对应入口于 2026-10-12 删除。当前传输事实与 HTTP 验收状态见 §4 及文末迁移节。
-
-2026-09-27 增量：Linux LocalShell 的固定诊断接入独立 helper 和
-`linux-local-v1` Profile，复用现有有界 Executor；四个只读 commandId 通过
-`novaterm_mcp_tests` 的 helper、授权、GUI 勾选和独立执行检查。
-真实 Linux 桌面人工验收仍待补充。
-
-2026-09-28 增量（三批收口，见下文「2026-09-28 收口」小节）：
-`read_context` 默认取数路径改为 try-read 优先、发布物兜底；补齐 §9.1 的 CPU 帧
-指标并把 Published 路径转为默认；「允许交互命令」产品授权真正接线且默认关闭；
-`cd` 不再判为低风险。
-
-以下内容是当前 `0.2.39` 工作树中已经进入代码的实现，不将尚未做的桌面人工验收、
-跨平台验收或性能闸门宣称为完成。
-
-| 能力 | 当前实现 |
-| --- | --- |
-| 用户抢占 | `SessionInputArbiter` 记录用户输入代际；用户输入会先通知 MCP、使已缓存的提示符 readiness 失效，再写入 Transport。脚本 SFTP 上传时用户开始键入会取消尚未完成的 provider 写入；注入后的交互命令沿现有 Coordinator 抢占路径结束。 |
-| 交互输入/输出 | `InteractiveStreamFramer` 在进入 `TerminalCore` 前隐藏内部结束标记及普通 SSH/POSIX 命令附带的完成片段；`SessionCommandCoordinator` 用有界分块、单次 Lease 和输出预算收尾。配置了可信 Profile 的会话继续使用 ready prompt；未配置 Shell integration 的 SSH 会话可在没有提示符证据时直接写入当前终端，依靠命令末尾的 nonce/退出码标记证明完成。此模式无法可靠排除 TUI、密码提示或未提交用户输入，缺少完成证据时返回不确定结果。 |
-| 人类确认 | MCP 2025-11-25 使用 `ElicitationBroker` 的反向 `elicitation/create`；MCP 2026-07-28 使用现代 `server/discover`、逐请求 `_meta`、`resultType=input_required` 与 MRTR `requestState/inputResponses`。缺少表单 Elicitation 时，Confirm/Unknown 命令和所有脚本均返回 `CLIENT_CONFIRMATION_UNAVAILABLE`，不降级到工具参数里的自报布尔值。 |
-| 一次性状态 | MRTR 状态由当前本机 IPC 会话密钥 MAC 签名，绑定客户端身份、Session/epoch、目标指纹、Profile/风险策略、权限代际、命令或完整脚本请求摘要及过期时间；可信 Profile 绑定提示符代际，无提示符 SSH 命令额外绑定用户输入代际。服务端再次核验并消费一次性 nonce。权限撤销、重放、正文/路径篡改或状态变化均拒绝继续。 |
-| 产品授权 | AccessStore/UI 有四项独立授权：读取共享、逐项固定诊断、脚本任务、**交互命令**。读取共享只允许读，**不蕴含向当前终端输入的权限**；`run_command` 需单独授予「交互命令」，默认关闭。未授权时 `list_sessions` 不发布 `run_command` capability，直接调用报 `COMMAND_PERMISSION_REQUIRED`（重提确认且已撤销时报 `COMMAND_CONFIRMATION_STALE`）。已授予交互命令后，普通低风险命令无需客户端确认，Confirm/Unknown 命令仍只通过 MCP 客户端人类确认继续。脚本仍需独立脚本授权，且每次确认。确认是提交授权，不能保证接受后的命令没有破坏性。 |
-| 脚本目标文件 | LocalShell 用 `QSaveFile` 原子写入明确目标并设为仅属主可读写执行；SSH 用独立 SFTP 字节上传，单次与排队正文总量最多 2 MiB，并绑定活动 SSH endpoint/account/secret、known_hosts 路径及已验证主机密钥指纹。父目录必须存在；确认后可覆盖目标，脚本文件保留且不自动删除。 |
-| 脚本调用 | 高危脚本/命令扫描到凭据读取、关闭安全机制、提权或格式化等已知行为时永久拒绝；其余脚本一律确认。写入成功后再次验证 Session、epoch、授权、Profile、提示符、目标与正文摘要，再通过协调器在当前终端显示/执行 invocation。正文不进入终端 UI；用户输入、写入失败或状态变化不会提交后续调用命令。 |
-
-本次自动化与回环验收：
-
-- `NovaTerm`、`novaterm_mcp_tests`、`novaterm_session_tests`、`novaterm-mcp` 与 `novaterm_ssh_transport_check` 构建成功；
-- MCP/Session 专项 CTest 通过；覆盖 2025 accept/decline/cancel、2026 discover/MRTR、MAC 篡改/重放、权限撤销、脚本确认前后落盘、调用命令不含正文、写入失败零注入、无提示符 SSH 的本终端命令/危险命令确认及用户输入抢占；
-- 官方 2025 MCP Python SDK 互操作和 2026 原始 stdio wire 检查通过；
-- `ssh_loopback_check.py` 只连 `127.0.0.1` Paramiko 夹具，SSH 固定命令、无提示符交互 `pwd` 的命令/输出进入 TerminalCore 且内部片段隐藏，以及 SFTP 写入字节核对通过；夹具不运行真实 shell 命令；
-- `novaterm_ssh_transport_check.exe` Transport/Profile/协议专项通过。
-
-仍未完成的验收：真实 SSH Shell 的回显过滤、TUI/密码提示误输入风险及 Windows 桌面 PowerShell/Clink 人工场景；Linux/macOS PTY shell 人工场景；命令运行期间 GUI frame P95 和现有性能预算复测。完整 CTest 状态应以本轮最终验证记录为准。
-
-#### 2026-09-28 收口
-
-三批改动的代码事实：
-
-1. **`read_context` 默认取数路径**。`TerminalContextProvider::trySnapshot()` 改为
-   **try-read 优先、发布物兜底**：try-read 是非阻塞 try-lock，模型空闲时总能取到最新
-   数据，因此是主路径；只在持续输出把模型锁占满、try-read 失败时才用 Parser 发布的
-   不可变快照，不再直接返回 Busy。发布物带 2 s 硬性年龄上限，防止解析器停摆后把旧
-   快照当成当前数据（年龄判据双侧拒绝，时钟回拨产生的负值同样按不可用处理），并只
-   接受 revision 前进的发布物。发布请求带调用方的历史行高水位
-   （`requestPublishedTerminalState(sinceLineId)`），使兜底路径的截断/增量语义与直接
-   捕获一致 —— 固定传 0 会让发布物恒带 `truncated`，消费方每次都被迫全量重发。
-   `NOVATERM_MCP_PUBLISHED_SNAPSHOT` 语义反转为「未设置即启用，显式置 0 才退回
-   try-read」，并集中到 `publishedContextSnapshotEnabled()`：变量名只出现一次，避免
-   拼错导致逃生开关永久失效。
-2. **产品授权接线**。`Grant::interactiveCommand` 与 `AccessStore::canRunCommand`
-   此前一直存在但从未被 `McpService` 调用，UI 恒传 `false`，`run_command` 全链路只看
-   `canRead` —— 没有任何途径拒绝 AI 向当前终端输入。现已在 `runCommand()` 入口、
-   `list_sessions` 的 capability 门与 2025 elicitation 恢复路径三处接线。
-   该闸门**只约束 `novaterm_run_command`**：`run_script` 有自己的独立授权位与逐次确认，
-   两项能力在 `list_sessions` 里也各自判定。若一并要求交互命令授权，「只授脚本任务」
-   的合法配置会在脚本正文已落盘之后才失败，并报出错误的错误码。
-3. **`cd` 不再判为低风险**。`run_command` 的执行目录是当前交互 shell 的动态工作目录，
-   免确认的 `cd` 会静默改变此后所有相对路径命令的语义，且它在终端里只是一行普通回显、
-   不进执行记录。现落到 `Unknown`，服务层按既有设计把 `Unknown` 与 `Confirm` 同样处理
-   为需客户端确认。`RiskPolicyVersion` 升到 `interactive-risk-v4`，使旧的 Allow 分类
-   无法被重放。
-
-性能闸门（本机 Linux，Release，Xorg + kwin + NVIDIA RTX 4070，xcb + OpenGL，负载与
-SDK 客户端分配到不同 CPU 集 0-3 / 4-27）：
-
-| 项目 | 门槛（§9.1） | 正常负载实测 | 过载实测 | 判定 |
-| --- | --- | --- | --- | --- |
-| 有效响应率 | ≥99% | 94.2%（162/172，Busy 3~4） | 98.8%（324/328，Busy 1~2） | **未达标** |
-| 成功 RPC P95 | ≤100 ms | 45.9~67.1 ms | 45.1~68.9 ms | 通过 |
-| GUI 捕获 P95 | ≤2 ms | 0.888~1.284 ms | 0.495~0.992 ms | 通过 |
-| 终端吞吐下降 | ≤5% | 无下降（15.97 → 17.10 MiB/s） | 无下降（17.14 → 19.09 MiB/s） | 通过 |
-| GUI frame P95 增量 | ≤2 ms | **无法判定**（见下） | **无法判定**（见下） | **未闭合** |
-
-对照旧默认路径（纯 try-read）同机实测：正常负载有效读取率只有 20~26%（Busy 39~52），
-过载只有约 14%（Busy 91~111）。发布物兜底把 Busy 降到 3~4 与 1~2。
-
-**必须同时记录的口径与偏差**：
-
-- **帧指标无法判定门槛，且不得写成通过。** 三条独立原因叠加：
-  1. 口径只是 `render()` 入口到出口的 **CPU 时间**（`cpuFrameP95Nanoseconds`），
-     不含 present/fence、帧间隔与合成器；`QRhiWidget` 没有 `frameSwapped` 信号，
-     端到端 GUI 帧延迟当前测不到。
-  2. P95 取自最近 2048 帧的**滚动窗口**，而本轮每轮只有 120~965 帧，窗口从未填满，
-     P95 实质是「第 9（或第 1）大的那一帧」，抽样误差极大。
-  3. 更关键的是**离散度远大于待测差值**：过载轮 baseline 臂三次为
-     9.185 / **13.059** / 9.060 ms（臂内极差 **3.999 ms**），mcp 臂 9.229 / 9.244 /
-     9.413（极差 0.184 ms）。此前报告的 delta（+0.117 / +0.088 ms）比 baseline 臂
-     自身极差小一个数量级，不具备可辨识性。
-  因此 `performance_check.py` 现在**拒绝输出 delta**：每轮帧数低于
-  `NOVATERM_MCP_PERF_MIN_FRAMES`（默认 1000）时，把 `cpuFrameP95DeltaMs` 置为 null、
-  `cpuFrameP95Reliable=false`，只如实报告两臂原值与极差。**§9.1 的 frame 一项因此仍未
-  闭合，不得表述为「帧门槛已过」。** 要真正闭合需要：把负载拉长到每轮 ≥2048 帧以填满
-  窗口、在 GUI 线程上另量一段含 `readContext` 投影/编码的窗口时间，并增加轮数以压低
-  离散度。
-- 本机 offscreen 平台插件拿不到 QRhi（`QRhiWidget: QRhi is not supported on this
-  platform`），必须用 xcb + `QT_WIDGETS_RHI=1` + `NOVATERM_RHI_API=opengl`。因此
-  `performance_check.py` 会为夹具子进程设置这三项；常规 ctest 仍保持
-  `QT_QPA_PLATFORM=offscreen`，因为渲染器只在 `--perf-*` 路径实例化。夹具在拿不到设备
-  时以退出码 3、负载期间零帧时以退出码 4 失败，不把「零帧」当成 0 ms 的好成绩。
-- **有效响应率 92.0% 未达 §9.1 的 ≥99% 目标，是本次未闭合项**，不得写成性能验收通过。
-  剩余 Busy 集中在首批读取（此时尚无发布物可兜底）。
-
-本轮验证：`novaterm_mcp_tests` 48/48；本机全套 ctest 11/11 通过（27.96 s）。未跑
-`novaterm_terminal_session_tests`（Windows-only，本机构建无此目标）。
-
-#### 剩余缺口（2026-09-28）
-
-1. **`run_command` 没有 `commandTicket` 幂等保护**。`execute_command` 有票据 + 至多提交
-   一次 + `idempotentHint=true`；`run_command`（≤16 KiB，可含复合 shell、重定向、解释器）
-   完全没有，客户端超时重试就是第二次真实执行。本次不修。
-2. **有效响应率未达 ≥99%**（正常负载 94.2%、过载 98.8%），见上表。
-3. **§9.1 的 GUI frame P95 一项未闭合**，原因与所需补测见上节口径说明。此前写入本节的
-   「帧门槛已过」结论已撤回。
-4. `Grant::confirmedCommand` / `canRunConfirmedCommand` 仍全项目零调用。危险命令的确认
-   完全由 MCP 客户端 elicitation 承担，该字段暂为预留，删除它需改动 12 处测试调用点。
-5. 真实桌面 Shell/TUI 验收、跨平台验收与端到端 GUI 帧延迟测量（见上节与 AGENTS.md）。
-
-## 15. v0.6 Session 级交互终端“手”设计（2026-09-24，2026-09-26 修订）
+### 15. v0.6 Session 级交互终端“手”设计（2026-09-24，2026-09-26 修订）
 
 本节定义 v0.6 命令与脚本能力的权威设计；§14.2 记录其中已实现及自动化/回环验收的部分。
 真实桌面、跨平台与性能检查仍按 §14.2 的验收状态分别记录，设计条目本身不构成验收证据。
@@ -1786,7 +1491,7 @@ v0.6 的目标是让 MCP 在经过授权和风险控制后，像用户在当前�
 操作既有 Session：命令回显、输出、滚动历史与上下文读取都来自同一终端模型。
 它仍受 Session 生命周期、用户输入优先权、风险拒绝与客户端人类确认约束。
 
-### 15.1 决策与不可变约束
+#### 15.1 决策与不可变约束
 
 | 决策 | v0.6 方案 |
 | --- | --- |
@@ -1809,7 +1514,7 @@ v0.6 的目标是让 MCP 在经过授权和风险控制后，像用户在当前�
 额外换行、空格、Ctrl-C、Esc 等试探字符来“看看是不是提示符”。风险检测是
 尽力而为，不能对任意 Shell、别名、解释器或动态下载脚本宣称已证明安全。
 
-### 15.2 组件、所有权与唯一数据通路
+#### 15.2 组件、所有权与唯一数据通路
 
 ```mermaid
 flowchart LR
@@ -1856,7 +1561,7 @@ flowchart LR
 `TerminalCore::pasteText()`；不得为 MCP 建立绕过 TerminalCore 的第二份终端日志。
 Transport 继续只理解字节和连接状态，Renderer 不理解 MCP、Shell 或 framing。
 
-### 15.3 提示符状态与 Profile
+#### 15.3 提示符状态与 Profile
 
 SSH 与 LocalShell 的 Shell integration 至少发布以下隐藏事件：
 
@@ -1886,7 +1591,7 @@ Serial/Telnet 的提示符仍须在当前活动行末匹配，并经过 Profile 
 匹配歧义或规则缺失时不开放命令能力。Custom 只有注册并通过统一 contract tests
 的 Profile 才能发布能力。无提示符回退当前只适用于 SSH/POSIX，不根据屏幕末行猜测。
 
-### 15.4 MCP 工具与兼容契约
+#### 15.4 MCP 工具与兼容契约
 
 现有工具继续保留：
 
@@ -1904,14 +1609,14 @@ SSH 会话仍保留独立 exec 通道，Windows/Linux LocalShell 仍保留本地
 
 新增工具：
 
-#### `novaterm_run_command`
+##### `novaterm_run_command`
 
 输入至少包含 `sessionId`、`epoch`、UTF-8 `command`；可选超时只能在服务端硬上限内
 收窄或扩展到 Profile 允许值。命令正文上限 16 KiB，允许复合 Shell、多行、管道、
 重定向和解释器调用，但这些结构不得判为低风险；整段正文参与风险检查与确认哈希。
 执行目录是当前交互 Shell 的动态工作目录。
 
-#### `novaterm_run_script`
+##### `novaterm_run_script`
 
 输入至少包含 `sessionId`、`epoch`、UTF-8 脚本正文、目标路径、工作目录和
 调用方式。脚本正文上限 2 MiB；首期仅 SSH/LocalShell 的 Profile 可发布能力。
@@ -1923,7 +1628,7 @@ SSH 会话仍保留独立 exec 通道，Windows/Linux LocalShell 仍保留本地
 命令仍必须由 MCP 客户端 elicitation 取得人类确认。
 脚本仍需独立授权及逐次确认，固定诊断模板的旧授权保持兼容。
 
-### 15.5 风险分析与人类 elicitation
+#### 15.5 风险分析与人类 elicitation
 
 风险分类：
 
@@ -1957,7 +1662,7 @@ NovaTerm 信任合规 MCP 客户端把 accept 限制在人类 UI；普通 elicit
 不能提供密码学上的“真实点击”证明。若未来需要服务端独立证明，必须另行设计可信
 客户端证明或带外确认，不能在本协议里伪称已经做到。
 
-### 15.6 执行状态机、用户抢占与结果证据
+#### 15.6 执行状态机、用户抢占与结果证据
 
 ```text
 Unavailable → PromptReady（可信模式）或 UnverifiedReady（无提示符 SSH）
@@ -1987,7 +1692,7 @@ Session、目标、策略和用户输入代际（可信模式还验证 promptGen
 nonce/退出码标记可提供完成证据；标记缺失时 `terminationConfirmed=false`，结果
 未知并不得自动重试。该标记不能证明命令进入了正确的 Shell 上下文。
 
-### 15.7 脚本文件能力
+#### 15.7 脚本文件能力
 
 `ISessionScriptProvider` 是独立、按 Profile 声明的能力：
 
@@ -2010,7 +1715,7 @@ nonce/退出码标记可提供完成证据；标记缺失时 `terminationConfirm
 写入失败时不得注入调用命令。确认后、执行前若 Session/提示符变化，停止并要求重新
 确认；不得拿已经确认的脚本内容改写其他路径或换到其他 Session。
 
-### 15.8 有界性、隐私和错误码
+#### 15.8 有界性、隐私和错误码
 
 - 每 Session 同时最多一个交互命令或脚本事务；全局并发继续受 MCP 执行预算约束；
 - MCP 捕获输出继续使用 64 KiB 原始/UTF-8 合计边界；UI 正常终端流不因 MCP 捕获
@@ -2036,7 +1741,7 @@ nonce/退出码标记可提供完成证据；标记缺失时 `terminationConfirm
 `COMMAND_EXECUTION_QUARANTINED` 等既有错误继续使用。错误消息不得回显凭据、完整
 脚本正文或内部 framing nonce。
 
-### 15.9 测试与验收矩阵
+#### 15.9 测试与验收矩阵
 
 自动化测试至少覆盖：
 
@@ -2060,7 +1765,7 @@ nonce/退出码标记可提供完成证据；标记缺失时 `terminationConfirm
 Linux/macOS 验证 PTY 和支持的 Shell；SSH 只用回环 fixture；Serial/Telnet 使用虚拟
 PTY/回环服务，不以真实生产设备作为功能正确性的唯一证据。
 
-### 15.10 实施顺序与完成定义
+#### 15.10 实施顺序与完成定义
 
 | 步骤 | 交付 | 退出条件 |
 | --- | --- | --- |
@@ -2076,393 +1781,3 @@ PTY/回环服务，不以真实生产设备作为功能正确性的唯一证据�
 模型，P6 的 Lease/输入仲裁接口，以及 `AGENTS.md` 的 framing、提示符和用户抢占
 约束。只有代码、自动化测试、相应平台验收和文档全部完成后，才能更新阶段状态；
 不能因本节已写入就宣称 v0.6 已实现。
-
-## 2026-10-12：MCP 桥接随绑定应用退出（历史，入口随后删除）
-
-`novaterm-mcp` 由客户端启动，不属于 NovaTerm 持有的 QProcess。旧
-Bridge 在 IPC 关闭后只返回请求错误，stdin 尚未 EOF 时仍保持进程。
-增加退出后又复现 Windows stdio 收尾卡住：`CancelSynchronousIo` 返回
-`ERROR_NOT_FOUND`（1168），读线程仍未结束。当前收尾同时按线程和
-stdin/stdout 句柄取消未完成 I/O，并等待实际完成后 join；按句柄取消的
-语义参见 [Microsoft CancelIoEx 文档](https://learn.microsoft.com/en-us/windows/win32/api/ioapiset/nf-ioapiset-cancelioex)。
-
-当前约定：初始化时尝试认证绑定唯一可用实例；无应用、缺令牌或多实例
-未选定仍支持离线能力发现。未绑定时监视实例目录；目录不存在时先
-监视最近现存父目录，创建后收窄；应用后启动时也会绑定，不要求客户端
-先调用工具。认证成功后移除目录监视。绑定后 IPC 关闭，拒绝新请求、不自动改投，
-先排空在途请求的错误响应，最多等待 2 秒，随后停止 stdio 并正常退出。
-已发出的执行无法证明完成时保留 `COMMAND_OUTCOME_UNKNOWN`，不据桥接
-退出推断远端进程已终止；客户端需要明确新建桥接才能重新连接。
-
-回归先失败再修复：`boundBridgeExitsWhenApplicationStops`、
-`initializedIdleBridgeFollowsApplicationLifetime`、
-`bridgeFlushesPendingFailureBeforeExit`；另补
-`offlineBridgeBindsWhenApplicationStartsThenExits`，先复现仅客户端
-初始化后应用再启动仍未绑定，再以目录监视修复。多实例／断连回归改为验证旧
-进程退出后由新桥接明确恢复；离线初始化仍通过。Windows 主程序、桥接
-及 MCP 测试目标构建通过，完整 `novaterm_mcp_tests` CTest 1/1 通过，
-11.48 秒。两轮只读线程复核未发现明确新增问题。本轮未重跑其他模块
-或 Linux/macOS，不改变 P8 整体阶段状态。
-
-Windows 独立进程手工检查不注册默认 CTest、不依赖 MCP SDK、不读取
-真实接入令牌，运行方式：
-
-```powershell
-python tests/mcp/shutdown_check.py --fixture build/Release/bin/novaterm_mcp_tests.exe --qt-prefix C:/Programs/Qt/6.8.3/msvc2022_64
-```
-
-三个场景都保持客户端 stdin 打开：应用正常退出，桥接约 16 ms；应用
-强制结束，约 15 ms；stdout 留有阻塞输出且客户端不读，约 2016 ms。
-三项均正常退出、退出码 0。慢读检查只发三份工具定义，避免以长时间
-逐条 ping 先触发原有 10 秒慢写保护而混淆退出期限。临时配置与进程
-均由夹具创建并回收；未连接真实 SSH/串口或终止用户的主程序。
-结果在 `build/mcp-shutdown-ctest-final.txt` 与
-`build/mcp-shutdown-check-final.txt`，改动尚未提交。
-
-## 2026-10-12：仅进程内 Streamable HTTP 迁移
-
-当前入口仅为 NovaTerm 拥有的 Qt HTTP Server。旧 `tools/novaterm-mcp/`、
-`LocalMcpServer`、对应 CMake 目标/安装 RPATH/测试依赖宏已删除；共享
-`ElicitationBroker`、`WireSession` 和 `HttpMcpEndpoint` 位于 `src/mcp/`。
-旧 stdio 桥接退出修复、
-继承管道取消和子进程检查保留为历史记录，不构成 HTTP 入口的验收证据。
-
-默认本机 URL `http://127.0.0.1:38973/mcp` 在重启后保持稳定，主应用启动前
-`NOVATERM_MCP_HTTP_PORT` 可覆盖端口；端口冲突明确失败，不自动切换。
-每请求 Bearer token，配置导出为 `{type:"http",url,headers.Authorization}`；
-Codex 改用 `url`/`http_headers`，旧 `command`/`args`/`env` 配置必须迁移。
-2025 为会话/elicitation，2026 为无会话 MRTR/断流取消，细节与许可见 §4。
-
-新增 CTest 目标为 `novaterm_mcp_wire_tests`、`novaterm_mcp_http_tests` 与
-`novaterm_mcp_endpoint_tests`。2026-10-13 Windows 注册 26 项，Release 全套
-26/26 通过（233.97 秒）；Linux 按条件预计 24，未实跑核对。
-
-本轮验收：
-
-| 范围 | 结果与边界 |
-| --- | --- |
-| 主程序与全部默认目标 | Windows Release 构建通过；Qt HTTP Server/WebSockets DLL 已部署 |
-| CTest | 26/26；四项 MCP 合计 40.76 秒，其余为默认回归 |
-| 官方 Python MCP 1.30.0 SDK | 2025 HTTP 初始化、七工具/schema、有界上下文、搜索、固定诊断与票据重放检查通过 |
-| 原始 2026 HTTP | discover、版本拒绝、catalog/read 通过；MRTR/脚本确认由 Qt 业务回归覆盖 |
-| HTTP 生命周期 | 空闲关闭、未读待请求 SSE、应用崩溃三项通过；停止后监听不可达，未启动 MCP 子进程 |
-| Codex CLI | URL/http_headers 配置解析为 streamable_http；仅配置解析，未验证桌面实接或修改用户配置 |
-| 审查与资源 | 头/正文代际不一致在分流前 400 拒绝；拒绝/半包 socket 断连回收，计数回到基线 |
-| 仍未重测 | Linux/macOS、真实桌面客户端接入、迁移后性能对照 |
-
-HTTP 网络字节由独立 worker 处理，Qt 6.8 官方 parser/responder 负责最终解析
-与响应。为防 Qt parser 消耗无界未完成请求，并拒绝它宽松接受的非法 chunk
-边界，进入 parser 前做有界原始交换核验；正文 2 MiB、头 16 KiB、请求/队列
-均有限额。一次 TCP 只承接一次交换。2025 HTTP 断开保留逻辑 wire，会话 DELETE
-或超时回收；2026 断流只取消该 exchange，Bearer 的内部授权上下文保留短期
-MAC 状态以支持重提，不产生 MCP session。
-
-原始 HTTP 超限用例验证 413；Windows Qt 在完整上传中遇到提前关闭也可能呈现
-传输错误，业务回归要求请求不进入工具调度，不能把该错误当成成功或自动重放。
-
-日志为 `build/mcp-http-full-ctest.txt`、`build/mcp-http-interop-final.txt`、
-`build/mcp-http-shutdown-final.txt`。测试只创建临时回环连接/进程，未连接真实
-用户 SSH/串口。本轮修改随 0.2.68 提交。
-
-## 2026-10-14：HTTP 审查修复与响应编码
-
-连接按完整远端 IP/port 定位、删除核对实例；初始化/消息在上下文分配前
-校验，无法交付初始响应时回收新 context。版本拒绝统一 supported/requested。
-头验证后支持单次 100 Continue，replay 去 Expect 防 Qt 重复握手，未知 Expect
-返回 417；解析后 404/405/503 持有 responder 排空。停机当前 socket 数归零。
-
-最终 RPC 在 wire 编码为 QByteArray，另传错误码，Endpoint 不再重新编码或
-解析；Service 不再编码内部 DTO，SSE 校验/组帧移入 I/O，额度涵盖多行 data
-前缀，超限替代包仍有上限。2026 请求能力字段在共享 validator 前置核验。
-2026 HTTP 不定义客户端核心通知，通知不分配 context，取消按请求流断连。
-通知与 RequestMeta 不混用，依据见
-[2026 Streamable HTTP](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http)。
-
-Windows 主程序构建、MCP 四项 4/4（45.91 秒）、SDK 互操作及退出三矩阵通过；
-独立复核未发现高置信残留。256 KiB wire 微基准约 1.98 → 1.28 ms/次（减少
-约 35%），只代表固定 50 次/median 3 测量，不代表整机 GUI 帧率。
-
-测试网络截止时间、传输错误检查及 reply 收尾已加强；QFile 的 QVERIFY
-本已检查结果，回环 HTTP 不因 SSL 静态提示改 HTTPS。详细 RED/GREEN、计划及
-日志入口见 `docs/superpowers/plans/2026-10-14-http-mcp-review-fixes.md`。
-本轮未重跑非 MCP 全套、跨平台或整机 GPU 压力；改动随 0.2.68 提交。
-
-## 2026-10-15：Linux MCP 专项与实际客户端只读用例
-
-环境：Ubuntu 24.04、Linux 6.8.0-146-generic、Qt 6.8.3、GCC 13.3.0，
-NovaTerm 0.2.69；使用 `build/` 的 Debug 配置，含本轮标签名称同步的未提交改动。
-`ctest -N -L mcp` 实际注册四个目标。本节追加本轮结果，不改写此前 Windows
-验收记录，也不代表非 MCP 全套、macOS 或性能验收通过。
-
-### 自动化执行与结果
-
-在仓库根目录执行：
-
-```bash
-cmake --build build --target novaterm_mcp_tests novaterm_mcp_wire_tests novaterm_mcp_http_tests novaterm_mcp_endpoint_tests -j 4
-ctest --test-dir build -N -L mcp
-ctest --test-dir build -L '^mcp$' --output-on-failure --verbose \
-  --output-log build/mcp-validation-2026-10-15.log \
-  --output-junit build/mcp-validation-2026-10-15.xml
-```
-
-HTTP 测试需要允许本机回环监听，因此本轮在沙箱外运行。此前沙箱内的
-`HTTP startup failed`/超时不计为通过；以下成绩来自本轮完整重跑。
-GUI 用例由测试目标自带的 `QT_QPA_PLATFORM=offscreen` 运行。
-
-| CTest 目标 | QTest 通过 / 失败 / 跳过 | CTest 耗时 | 结论 |
-| --- | --- | --- | --- |
-| `novaterm_mcp_wire_tests` | 10 / 0 / 0 | 0.40 s | 通过 |
-| `novaterm_mcp_http_tests` | 50 / 0 / 0 | 1.79 s | 通过 |
-| `novaterm_mcp_endpoint_tests` | 28 / 0 / 0 | 2.61 s | 通过 |
-| `novaterm_mcp_tests` | 61 / 0 / 3 | 14.90 s | 通过，含平台跳过 |
-
-CTest **4/4 通过，总墙钟时间 19.70 秒**。表中 QTest 数量含数据行及每个套件的
-`initTestCase`/`cleanupTestCase`，不是测试函数数。三条跳过均为 Windows
-所有权检查：`administratorOwnedObjectsMigrateToCurrentUser(endpoint-directory)`、
-`administratorOwnedObjectsMigrateToCurrentUser(private-file)` 和
-`unrelatedGroupOwnedDirectoryIsRejected`；不能据此声称 Linux 验证了 Windows ACL。
-日志中的 offscreen `propagateSizeHints` 和夹具的状态迁移 QWARN 未导致断言失败。
-
-以下按场景归类记录本轮已运行的关键 case；完整函数及数据行结果见上述日志。
-名称不带套件前缀时属于 `McpTests`。
-
-| Case | 操作与预期断言 | 本轮结果 |
-| --- | --- | --- |
-| `WireSessionTests::initializationAndCatalog`、`modernDiscoverDoesNotRequireInitialization` | 2025 初始化后提供七工具；2026 discover 无需初始化 | 通过 |
-| `WireSessionTests::encodedResultPreservesUnicodeAndOutputLimit`、`cancelledCallNeverProducesNormalResult` | 中文/转义往返保真、响应超限有界；取消后的迟到结果不作为正常响应发布 | 通过 |
-| `HttpMcpServerTests::rejectsMalformedHttp`、`expectContinueBeforeBody` | 非法 Host/Origin、重复长度、非法 chunk、超限及未知 Expect 被拒绝；合法 Expect 单次 100 Continue | 全部数据行通过 |
-| `HttpMcpServerTests::requestFloodWhileGuiBlockedIsBounded`、`rejectedSocketsReturnResourcesToBaseline`、`stopResetsLiveSocketsAndPreservesPeak` | GUI 阻塞时请求受限；拒绝连接回收；停机连接归零并保留峰值统计 | 通过 |
-| `HttpMcpEndpointTests::modernHeaderMismatchDoesNotDispatch`、`invalidInitializeDoesNotReserveClient`、`legacySessionCannotBeUsedByOtherClient` | 版本/头正文不匹配不分发，非法初始化不占容量，会话不能跨客户端复用 | 全部数据行通过 |
-| `HttpMcpEndpointTests::modernDisconnectCancelsOnlyItsRequest`、`legacyDisconnectDoesNotCancelButDeleteDoes` | 2026 断流只取消对应请求；2025 普通断流不取消、DELETE 取消 | 通过 |
-| `httpInitializedSessionReadsWithAuthorization`、`httpRejectsMissingTokenAndForeignOrigin`、`httpPendingCommandStopsWithApplication` | 真实回环 HTTP 读取、认证拒绝及应用停止时在途请求收尾 | 通过 |
-| `readSearchAndClientIsolation`、`truncatedOutputNeverAdvancesCursor`、`revokeAndReconnectInvalidateAccess` | 有界读取/搜索隔离；截断不推进增量游标；撤权与重连使旧访问失效 | 通过 |
-| `commandsRequireSeparateGrantAndAreDeduplicated`、`cancelledCommandNeverReplays` | 固定诊断独立授权、参数与票据校验、执行去重及取消不重放 | 通过 |
-| `unknownExecutionProtectsTarget`、`privateMarkersSurviveServiceRestart`、`sessionInvalidationCompletesPendingExecution` | 未知结果隔离目标、保护标记持久化、会话失效收尾及人工确认后解除保护 | 通过；人工解除为服务接口测试，不代表手工点击确认框验收 |
-| `humanDeclineLeavesTerminalUntouched`、`humanAcceptRunsOnlyAfterConfirmation`、`mrtrRequiresBoundOneShotConfirmation` | 拒绝不写终端；接受后才提交；MRTR 确认绑定请求且只能使用一次 | 通过，使用假 Transport |
-| `scriptContentRequiresConfirmationAndNeverEntersTerminal`、`scriptMrtrConfirmationIsSignedAndOneShot`、`userTypingCancelsInFlightScriptUploadBeforeInvocation` | 脚本需确认、正文不注入终端；确认不可重放；用户输入取消尚未调用的上传 | 通过，使用夹具 |
-| `settingsDialogSeparatesReadAndScriptPermission`、`settingsDialogLocalShellFixedDiagnosticsCanBeSelected`、`settingsDialogRefreshPreservesExpandedSessions` | 读取/诊断/脚本/交互命令授权独立，复选框整格点击有效，刷新保留展开状态 | 通过 |
-| `settingsDialogUsesTabDisplayTitle` | 中文标签名显示；OSC 动态标题不覆盖；改名刷新且 id/epoch/attachmentId 不变；同名不刷新，长度仍受限 | 通过 |
-
-### 实际 MCP 客户端只读冒烟
-
-使用当前客户端连接 NovaTerm 0.2.69，只操作显式共享的串口会话 `ttyUSB1`。
-sessionId、epoch、captureId 均取自对应接口响应，不通过当前活动标签隐式选择。
-搜索词从本次已返回的 viewport 中选取，未把终端正文、搜索词或接入令牌写入报告。
-
-| 编号 | 接口 / Case | 参数与预期 | 实测结果 |
-| --- | --- | --- | --- |
-| LIVE-MCP-01 | `novaterm_list_sessions` | `limit=50`，列举授权会话及主界面标签名称 | 通过：返回 `ttyUSB1`、`serial`、`running`，`displayNameTruncated=false` |
-| LIVE-MCP-02 | `novaterm_read_context` | `includeViewport=true,maxBytes=8192,maxLines=32`，返回有界快照并准确报告截断 | 通过：viewport 32 行；`outputTruncated=true,resetRequired=true,nextToken=null`，截断未推进游标 |
-| LIVE-MCP-03 | `novaterm_search_context` | 使用上一快照的 captureId，`scope=viewport,caseSensitive=true,maxMatches=5` | 通过：命中 1 条；逐条核对 `lineIndex/startByte/endByte` 对应原快照的 UTF-8 字节 |
-| LIVE-MCP-04 | `novaterm_list_commands` | 查询当前串口会话的固定诊断能力，不执行命令 | 通过：`commands=[]`、`executionEnabled=false`、`disabledReason=COMMAND_PROFILE_UNAVAILABLE` |
-| LIVE-MCP-05 | `novaterm_read_context` 错误 epoch | 保持有效 sessionId，将 epoch 改为全零 UUID | 通过：`ok=false`、`STALE_SESSION_EPOCH`、`retryable=false` |
-
-五项 **5/5 通过**。当前串口会话未提供可执行 Profile，未在真实串口上运行固定
-诊断、交互命令或脚本，也未变更授权、断开连接或点击解除目标暂停；这些执行与
-保护分支的本轮结果仅来自自动化夹具。官方 Python SDK、真实 SSH 执行、桌面
-人工交互、Windows/macOS 及 GPU/高输出性能本轮未重跑。
-
-原始自动化日志和 JUnit 为 `build/mcp-validation-2026-10-15.log`、
-`build/mcp-validation-2026-10-15.xml`；只读冒烟的脱敏结果为
-`build/mcp-live-validation-2026-10-15.json`。这些 `build/` 文件为本机产物；
-本节保留可提交的 case、参数、结果及验收边界。
-
-### 2026-10-15 增量：仅通过当前 `novaterm` MCP 执行设计 case
-
-本次通过当前环境真实的 `novaterm` MCP 工具发起请求，未运行 CTest 或测试
-可执行文件。应用仍为 0.2.69，共享会话为 `ttyUSB1`（serial、running）。
-先调用 `novaterm_list_sessions` 取得 sessionId/epoch，再据响应明确路由；
-后续 captureId 与 sinceToken 均来自本次调用结果。仅调用会话列举、上下文读取、
-上下文搜索和命令目录四个工具，没有向串口写入测试文本或执行命令。
-
-§7.1–7.4 与此前 LIVE-MCP-01～05 的本次复测、扩展结果如下。下表数值为
-当次快照，不要求设备后续输出逐字节保持一致。
-
-| Case | 设计依据 / 请求 | 本次断言与结果 |
-| --- | --- | --- |
-| LIVE-MCP-01 | §7.1，`list_sessions(limit=50)` | PASS：返回 `ttyUSB1`、serial、running，与标签名称一致 |
-| LIVE-MCP-02 | §7.2，`read_context(maxBytes=8192,maxLines=32,includeViewport=true)` | PASS：32 行、文本 2281 UTF-8 字节；输出截断且要求重置，nextToken=null |
-| LIVE-MCP-03 | §7.3，搜索 LIVE-MCP-02 的原 capture，`scope=viewport,maxMatches=5` | PASS：命中 1 条；capture/revision 相同，字节区间逐条还原为查询词 |
-| LIVE-MCP-04 | §7.4，`list_commands` | PASS：模板为空、executionEnabled=false、COMMAND_PROFILE_UNAVAILABLE |
-| LIVE-MCP-05 | §7.2，实际 sessionId + 全零 epoch | PASS：STALE_SESSION_EPOCH，retryable=false |
-| LIVE-MCP-06 | §7.1，`list_sessions(limit=1)` | PASS：仅返回同一授权会话、nextCursor=null；当前只有一项，不代表多页遍历验收 |
-| LIVE-MCP-07 | §7.1，传入伪造目录 cursor | PASS：CURSOR_STALE |
-| LIVE-MCP-08 | §7.2，`read_context(maxBytes=1,maxLines=1)` | PASS：文本仅 1 字节，outputTruncated/resetRequired=true，nextToken=null |
-| LIVE-MCP-09 | §7.2，小预算后无 token 用 `maxBytes=262144,maxLines=1024` 重读 | PASS：返回 51776 文本字节、56 viewport 行和 735 recentOutput 行；源及输出均未截断，取得有效 nextToken |
-| LIVE-MCP-10 | §7.2，用 LIVE-MCP-09 的 token 保持同一投影增量读取 | PASS：56 viewport 行、0 recentOutput 行、resetRequired=false，没有重复消费摘要 |
-| LIVE-MCP-11 | §7.2，复用上述 token 但改 `includeViewport=false` | PASS：CURSOR_STALE，投影变化不能沿用旧游标 |
-| LIVE-MCP-12 | §7.2，传入伪造 sinceToken | PASS：CURSOR_STALE |
-| LIVE-MCP-13 | §7.3，授权会话与有效 epoch + 不存在的 captureId | PASS：CAPTURE_NOT_AVAILABLE |
-| LIVE-MCP-14 | §7.3，在原 capture 的 both 范围查询特定未出现字面量 | PASS：matches=[]；仅证明该快照范围未命中 |
-| LIVE-MCP-15 | §7.2，合法 UUID 格式但未共享的 sessionId | PASS：SESSION_NOT_AVAILABLE |
-| LIVE-MCP-16 | §7.3，从原快照选择 ASCII 词并转大写，`caseSensitive=false,maxMatches=5` | PASS：返回 5 条；逐条核对原行字节区间，ASCII 折叠后与查询词一致 |
-| LIVE-MCP-17 | §7.3，空 query | PASS：INVALID_ARGUMENT |
-| LIVE-MCP-18 | §7.1，`limit=0` | PASS：INVALID_ARGUMENT |
-
-总计 **18/18 case 通过，19 次 MCP 工具请求**。多出的一次是 LIVE-MCP-15
-的参数探测：初次使用全零 sessionId，原先预期 SESSION_NOT_AVAILABLE，实际
-返回 INVALID_ARGUMENT；全零 UUID 属于非法 sessionId，校验先于目录查询。
-改用合法格式且未共享的 UUID 后得到 SESSION_NOT_AVAILABLE。保留该原始探测
-及预期修正，不把参数校验当成会话可见性用例的通过证据。
-
-当前能力为 read_context/search_context/list_commands/human_confirmation；
-human_confirmation 仅表示客户端确认能力，不等于会话具有执行授权或可用后端。
-本次未执行的设计 case：
-
-| 范围 | 未执行原因 / 所需条件 |
-| --- | --- |
-| §7.5 固定诊断执行、票据重放与去重 | 当前 Profile 不可执行，目录不提供模板或 commandTicket；需有可执行 Profile 且独立授权的测试会话 |
-| §15.4 命令/脚本，§15.5–15.9 确认接受/拒绝、取消、抢占、写入与执行 | 当前会话未发布 run_command/run_script；需专用测试 Session、对应独立授权及客户端确认通路 |
-| 跨客户端 token/capture 隔离 | 当前仅一个接入身份，不能用伪造 sessionId 代替第二个真实客户端的隔离验收 |
-| 重连、换绑、应用退出、HTTP 原始报文、GUI 布局与负载性能 | 当前七工具不提供相应控制/观测入口；需专门夹具或 UI 操作，本次未中断真实串口及应用 |
-
-以上未执行项不计为 PASS，也不由此前 CTest 成绩替代本次实测。脱敏逐项结果
-保存在 `build/mcp-live-design-cases-2026-10-15.json`，不含终端正文、查询词、
-sinceToken、commandTicket 或接入令牌。该文件为本机产物，本节为可提交记录。
-
-## 2026-10-15：串口命令配置接线与 MCP 代码审查
-
-本轮补齐产品入口，保留默认禁用及分项授权：
-
-- `SerialConfig` 新增提示符正则、命令行结束符 cr/lf/crlf、远端回显三项；
-  端口表单显式配置，编辑时回填，SessionPanel 历史保存与重连及 SessionFactory
-  创建均传递相同值。正则长度上限 256，非法正则和结束符拒绝；空规则保持禁用。
-- `TerminalSession::attach(..., RuntimeConfig)` 在装配 Framer/Coordinator 和
-  InputPump 前按值保存配置。TerminalView 和 TerminalPage 的串口、SSH、Telnet
-  与本地 Shell 创建/编辑路径都传入本次独立配置，避免跨目标继承旧提示符或端点。
-- 串口有效规则识别到当前行末提示符并通过 150 ms 静默窗口后，且客户端单独
-  取得交互命令授权，才发布 `run_command`。没有提示符时拒绝执行，不注入探测命令。
-  文件/字节仍走唯一 Session 输入通路；本轮未增加串口脚本写入或固定诊断模板。
-- 新表单提供中英文翻译；已有串口历史缺省仍是空规则、CR、回显开启。
-  SessionPanel 的测试历史路径改为显式注入临时目录，避免 Qt test mode 忽略
-  XDG_DATA_HOME 后误用固定的测试用户目录。
-
-新增回归：
-
-| Case | 验证内容 | 本轮结果 |
-| --- | --- | --- |
-| `SessionTests::attachmentSnapshotConfiguresDeviceCommands` | 借用 Core 的真实 Session 在 attach 时取得独立配置；无提示符时不执行，提示符就绪后按 CRLF 输出；更换 Telnet 配置不继承串口规则 | 通过 |
-| `SessionTests::serialCommandSettingsRejectInvalidInput` | 正则语法错误、超过 256 字符及非法结束符被拒绝 | 通过 |
-| `SessionPanelTests::serialCommandSettingsRoundTripThroughFormAndHistory` | 表单回填/确认、临时历史保存、重建面板与双击重连保留三项值，不打开端口 | 通过 |
-| `McpTests::configuredSerialSessionPublishesAndExecutesCommands` | 本机 HTTP + 假串口：未就绪拒绝、发布 run_command、不发布 run_script、独立授权、CRLF 发送与提示符收尾、撤权后零追加写入 | 通过 |
-
-主程序及全部默认目标构建通过。共享 SerialConfig 数据布局与 Session 附着接口有
-改动，因此按项目约定重建并运行了全套，而非只重用之前的专项成绩：
-
-```bash
-cmake --build build -j 4
-QT_QPA_PLATFORM=offscreen ctest --test-dir build --output-on-failure --verbose \
-  --output-log build/mcp-wiring-full-ctest-2026-10-15.log
-```
-
-运行环境为 Linux Debug，允许宿主回环网络、虚拟 PTY 及当前会话密钥环；全局
-offscreen 仅用于本次 Linux 检查，不应照搬到 Windows D3D11 全套。
-实际注册 **24 项，24/24 通过，总墙钟 170.32 秒**；MCP 四项合计 20.21 秒。
-McpTests 为 62 通过/3 平台跳过，SessionTests 为 70 通过/2 跳过，SessionPanelTests
-为 6 通过；均含初始化/清理。Session 跳过是 Windows Clink 与需显式开启的
-虚拟串口 lrzsz 大文件矩阵，不视为真实设备验收。当前机器的 PTY 和 UI 布局项
-本轮通过，不据此删除 AGENTS 中其他环境/历史的失败记录。
-
-未重启或改动用户正在运行的 NovaTerm/ttyUSB1，未向真实串口发送命令。
-真实设备仍需启动新版、编辑提示符规则并单独授权后验收；Windows/macOS 本轮
-未运行。首次小范围验证遇到的测试问题（未设 offscreen、测试命令误用非免确认
-模板、固定测试数据目录不可写）均已通过对应环境设置或夹具修正后复测。
-
-按 qt-cpp-review 进行确定性扫描和六方向只读审查，去重后确认 **10 项剩余缺陷**
-（P1 四项、P2 五项、P3 一项），尚未在本轮修复。高优先级为：解除暂停确认错绑
-目标、SFTP 超时放弃线程后的 use-after-free、Zsh 进程替换绕过低风险确认、
-脚本确认路径与实际落盘路径不一致。另有取消/上传事务竞争、LocalShell 能力漏报、
-确认与执行期限不一致、首次共享预热死分支及脚本/HTTP 容量约束不一致。
-以上为当时的审查发现；后续设计修复与回归统一记录在下一节，不单独维护审查报告。
-
-两个本机探针仅对字符串进行风险分类、在自动回收的临时目录写入脚本内容，
-证实了风险分类误放行与路径偏差；没有执行 Shell 或脚本。其他 SFTP 故障/长时
-确认竞态当时主要为源码证据，不能把本轮 24/24 当成这些缺陷不存在；
-下一节补充了对应修复和确定性回归。
-
-## 2026-10-16：审查问题修复与安全回归
-
-已完成前节记录的 10 项审查问题；本节统一保存设计变更和对应回归，
-不单独维护审查报告或临时计划文档。初始化风格不改；其余机械检查按实际语义
-处理，合法的 chrono duration::count() 类型误报不改成不存在的 size()。
-
-关键行为：
-
-- 手工解除暂停绑定目标指纹和执行 ID；列表刷新保留选择，目标/执行变化撤销
-  确认，最终在锁内核对同一 ID，活动上传及执行不能被提前解除。
-- SFTP worker 不捕获 QObject。队列、取消、连接状态、通知邮箱和 libssh 租约
-  完整共享；有界等待后放弃工作线程时，其状态继续存活，旧代通知不触达析构对象。
-- close/chmod 后重查取消；rename 成功不改报取消，失败使用
-  `SCRIPT_PUBLICATION_OUTCOME_UNKNOWN`。Provider 身份变化或普通错误通知不能
-  抹去已发布事实，是否调用由 Service 重新核对原请求身份。
-- 确认通过后、写盘前持久预留目标，成功沿用同一预留进入 invocation。
-  取消/撤权/断线后保留任务与锁直至 Provider 回报；确定发布但未调用记录
-  `SCRIPT_PUBLISHED_NOT_INVOKED`，结果未知或 Provider 消失保留隔离。
-  待回报上传最多 8 项；执行容量检查同时计入这些任务，不能通过反复取消绕过上限。
-- 风险策略为 `interactive-risk-v5`，仅严格 ASCII 字面形式可免确认；Zsh 进程
-  替换及其他扩展、Unicode 空白、引号和未知 ls 参数不误判 Allow。
-  脚本路径不再隐式 trimmed()，风险、确认、写盘及校验使用同一原始路径，拒绝 NUL。
-- LocalShell 的可信 coordinator 计入能力发布，命令/脚本独立授权保持不变；
-  首次共享提前排一次快照发布，调整执行权限不重复预热。
-
-### 预算与协议
-
-| 项目 | 当前值 |
-| --- | --- |
-| 脚本 UTF-8 原文 | 2 MiB |
-| 编码后 HTTP JSON 请求 | 12 MiB + 256 KiB；脚本最坏六倍转义 + 有界信封 |
-| 编码后响应 | 2 MiB，保持不变 |
-| HTTP 共享输入额度 | 49.1875 MiB，涵盖 raw/Qt 解析事务及待投递信封 |
-| HTTP 输出队列 | 单请求 4 MiB / 全局 8 MiB，保持不变 |
-| 2025 命令 wire 总期限 | 确认 60 s + 请求执行时限（默认 5 s、最大 30 s）+ 5 s 余量 |
-| 2025 脚本 wire 总期限 | 再加独立写入 120 s；不扣减批准后的执行预算 |
-| 2026 MRTR | 确认通过新 HTTP 请求继续，wire 不重复计入确认等待预算 |
-
-后端仍对确认、写入和执行分别计时；客户端网络截止时间应覆盖总流程。
-预算扩展没有取消 socket/请求数、输出、捕获及执行记录的既有限额。
-
-### 用例与结果
-
-新增 CTest 目标 `novaterm_sftp_session_safety_tests`、
-`novaterm_command_safety_tests`，均标记 `mcp;p8;security`、超时 30 s。
-Linux 实核默认注册 26 项；Windows 按条件预计 28，尚未运行核对。
-
-| 用例组 | 新增或加强的断言 | 最终专项结果 |
-| --- | --- | --- |
-| MCP 业务/UI | 多目标确认绑定与替换竞争；首次共享预热；上传/调用互斥、同一预留移交；取消后成功/失败/未知/Provider 销毁；撤权及断线；LocalShell 独立授权能力 | 74 通过、3 条 Windows 平台跳过 |
-| Wire | 注入单调时钟：第 55 秒批准后仍有完整执行预算；脚本额外写入预算；到期确实取消；最大转义请求进入后端而超限被拒绝 | 14 通过 |
-| HTTP | 满额 content-length/chunked；2 MiB ASCII、六字节转义和 UTF-8 脚本；入队、回收及原有解析/认证拒绝 | 53 通过 |
-| Endpoint | 两代协议、能力校验、交换/客户端隔离与断流语义保持原回归 | 28 通过 |
-| SFTP 安全 | 暂停 worker 后销毁接收者再恢复；通知丢弃/代际；close/chmod/rename 取消边界；rename 失败结果未知 | 11 通过 |
-| 命令/路径安全 | 替换语法与非字面参数；临时文件精确路径；SSH resolver；身份变化不掩盖发布结果；近 2 MiB 纯分类 | 61 通过 |
-
-以上 QTest 计数含数据行及初始化/清理，不是函数数。六项 CTest 最终专项
-**6/6，通过耗时 23.49 s**；全部默认目标构建后，全套 **26/26 通过，173.64 s**。
-
-```bash
-cmake --build build -j 4
-ctest --test-dir build -L mcp --output-on-failure --verbose \
-  --output-log build/mcp-fixes-targeted-final-2026-10-16.log
-QT_QPA_PLATFORM=offscreen ctest --test-dir build --output-on-failure --verbose \
-  --output-log build/mcp-fixes-full-ctest-2026-10-16.log \
-  --output-junit build/mcp-fixes-full-ctest-2026-10-16.xml
-```
-
-运行环境为 Linux Debug、Qt 6.8.3、GCC 13.3.0，允许宿主回环/虚拟 PTY；
-offscreen 仅用于本次 Linux 全套，不适用于 Windows 的 D3D11 联通测试。
-SFTP 专项另以 ASan/UBSan 直接编译运行，**11/11 通过**，
-`ASAN_OPTIONS=detect_leaks=0`，不宣称 LeakSanitizer 通过。
-
-I-001 用近 2 MiB 重复前缀与空白进行纯分类测量，约 24～49 ms，未复现怀疑的
-病态回溯；保留宽松看门狗及危险后缀检测，未作没有证据的性能重写。
-独立复核 worker/发布、授权/事务、wire/HTTP/UI 接线后未发现新的高置信度问题。
-
-边界：SFTP 故障测试为共享状态与可控回调注入，不是延迟真实服务器回包测试；
-未执行真实 Shell/脚本、未连接用户 SSH 或串口，未重启现有应用。
-Windows/macOS、真实 UART 交互、桌面客户端全流程和整机 GPU 帧性能仍需各自验收。
-
-本批设计变更与实现归入 **0.2.70**。提交前递增版本后，主程序及 MCP 相关目标
-重新构建通过，六项 MCP CTest **6/6 复验通过，23.87 s**；日志为
-`build/mcp-0.2.70-precommit-2026-10-16.log`。独立审查报告与临时计划不纳入仓库，
-设计变更、case 和验证边界统一保留在本文。

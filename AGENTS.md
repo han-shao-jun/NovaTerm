@@ -18,7 +18,9 @@ GPU 管线，UI 用 ElaWidgetTools（FluentUI 风格）。GPLv2+，仓库在 Git
 | `docs/architecture/Development_Roadmap.md` | P0–P8 依赖、状态表、**统一完成定义** |
 | `docs/architecture/stages/P*.md` | 各阶段实施说明。P6 含逐步进度表与剩余工作 |
 | `docs/architecture/stages/P9_File_Transfer_Protocols.md` | P9 独立协议库及串口 Session/手动传输窗口；Linux 协议/门面/UI 通路已验证，Windows 取消发布竞争用例有已知失败，跨平台/真实 UART 文件验收待补 |
-| `docs/architecture/stages/P8_AI_MCP_Interface.md` | P8 AI MCP：当前入口为进程内 Qt HTTP Server Streamable HTTP（2026-10-12 迁移节），旧 stdio/IPC 已移除；七工具、2025 会话/elicitation、2026 无会话 MRTR；历史验收与跨平台缺口按阶段文档标记 |
+| [当前MCP接口契约](docs/architecture/stages/P8_AI_MCP_Interface/02_Current_MCP_Contract.md)、[实施与验收记录](docs/architecture/stages/P8_AI_MCP_Interface/03_Implementation_and_Verification.md)、[历史设计档案](docs/architecture/stages/P8_AI_MCP_Interface/04_Historical_Design_Archive.md) | 原P8已整合：当前九工具/HTTP/确认/预算与历史设计分开；逐日期/平台记录回归及未验收范围，不从历史成绩推断新版本通过 |
+| [docs/architecture/stages/P8_AI_MCP_Interface/README.md](docs/architecture/stages/P8_AI_MCP_Interface/README.md) | MCP、诊断与 AI Agent 总分文档入口；总体架构、阶段依赖及 mcp/P0～P8 实施计划。历史录制、诊断包、Agent 属后续规划，不代表已有功能 |
+| [MCP 总体架构](docs/architecture/stages/P8_AI_MCP_Interface/00_Overall_Architecture.md)、[阶段划分](docs/architecture/stages/P8_AI_MCP_Interface/01_Phases_and_Acceptance.md)、[内核收敛计划](docs/architecture/stages/P8_AI_MCP_Interface/P0_Runtime_Consolidation.md) | 原三份设计/计划已整合；W1～W5 主要迁移已落地，纯应用边界、任务所有权等结构差距及平台验收按新计划复核，不将旧待办或历史成绩当当前事实 |
 | `docs/architecture/Rendering_Architecture.md` | Snapshot、调度、命令缓存、QRhi、Glyph |
 | `docs/architecture/Configuration_Profile_Theme.md` | 配置分层、Profile、Session、主题职责。**描述目标设计**，开头有与当前源码的名称对照表 |
 
@@ -78,9 +80,14 @@ cmd /c "call \"C:\Program Files (x86)\Microsoft Visual Studio\18\BuildTools\VC\A
 ### 跑测试
 
 **默认只跑与改动相关的测试目标，不要跑全套。** 全套耗时**按平台不同**（见下方
-「默认注册了哪些测试」）：2026-10-16 新增命令/路径与 SFTP 安全两项，
-**Linux 实核 26 项、Windows 按条件预计 28 项**。Linux Debug 全套 26/26 通过，
-173.64 秒。此前 2026-10-13 Windows 用 `ctest -N` 核对 26 项，Release 全套
+「默认注册了哪些测试」）：新增授权/凭据隔离后，
+**Linux 实核 27 项、Windows 按条件预计 29 项**；2026-10-18 新增契约/解码与
+授权事务两项后 **Linux 29 项、Windows 按条件预计 31 项**。2026-10-18 MCP
+九项 9/9 通过（约 29 秒，含 `novaterm_mcp_contracts_tests` 与
+`novaterm_mcp_authorization_tests`）；Linux 全套 27/29，失败两项为
+`openpty` 环境问题（见下方清单）。
+此前 Linux Debug 全套 27/27 通过，最终续作复验 181.21 秒，MCP 七项 29.05 秒；
+详见 MCP实施与验收记录；再此前 Linux Debug 全套 26/26 通过，173.64 秒。2026-10-13 Windows 用 `ctest -N` 核对 26 项，Release 全套
 26/26 通过（233.97 秒），不能作新增两项的 Windows 成绩。历史 Linux 21 项
 于 2026-10-05 实测 21/21 通过；历史 Windows 23 项于 2026-10-07 仅核对注册数。
 原 Windows 12 项全套实测约
@@ -128,7 +135,7 @@ ctest --test-dir build -C Debug
 | `src/transport/LocalShellTransport` 与 ConPty 路径 | `novaterm_conpty_tests`（Win）／`novaterm_pty_tests`（Linux） | `conpty`／`pty` | 互斥，见下注 | ~94s |
 | `src/transport/SshTransport`、`SshMonitorProtocol` | `novaterm_ssh_transport_check`（失败路径 + 监控帧协议） | `ssh` | 全部 | <1s |
 | `src/transport/TelnetTransport` | `novaterm_telnet_transport_tests` | `telnet` | 全部 | ~5s |
-| `src/mcp/`、`SessionDirectory`、`McpSettingsDialog`、Session ScriptProvider/SFTP | `ctest -L mcp` 六项：业务、wire、HTTP、endpoint、`novaterm_sftp_session_safety_tests`、`novaterm_command_safety_tests`（授权/确认/取消、工作线程生命周期、脚本精确路径与发布收尾） | `mcp`／`p8` | 全部 | 六项约 24s（Linux Debug） |
+| `src/mcp/`、`SessionDirectory`、`McpSettingsDialog`、Session ScriptProvider/SFTP | `ctest -L mcp` 九项：业务、wire、HTTP、endpoint、`novaterm_mcp_access_interaction_tests`、SFTP 安全、命令/路径安全、契约/解码（目录 fixture、参数接受/拒绝、强类型 ID 与错误映射）、授权事务（绑定/版本拒绝、级联、重连语义） | `mcp`／`p8` | 全部 | 九项约 29s（Linux Debug） |
 | TerminalSession + TerminalRenderer + LocalShellTransport 的联通路径 | `novaterm_terminal_session_tests` | `terminal-session` | **仅 Win32** | ~46s |
 | `TerminalTabWidget` 的连接动作/紧凑标题、`SystemInformationDialog` 的滚动范围/布局与 app bar 关闭按钮、`SshHostKeyDialog` 的 Ela 控件与端点标题 | `novaterm_ui_dialog_layout_tests` | `ui` | 全部 | <1s |
 | `src/ui/widgets/SessionPanel.cpp` 的历史树多选与右键菜单、串口 MCP 配置表单与历史重连 | `novaterm_session_panel_tests` | `ui` | 全部 | <1s |
@@ -156,6 +163,9 @@ ctest --test-dir build -C Debug
 | `novaterm_mcp_wire_tests` | 无条件 | `mcp;p8` | 30 |
 | `novaterm_mcp_http_tests` | 无条件 | `mcp;p8;http` | 60 |
 | `novaterm_mcp_endpoint_tests` | 无条件 | `mcp;p8;http` | 60 |
+| `novaterm_mcp_contracts_tests` | 无条件 | `mcp;p8;contracts` | 30 |
+| `novaterm_mcp_authorization_tests` | 无条件 | `mcp;p8;security` | 30 |
+| `novaterm_mcp_access_interaction_tests` | 无条件 | `mcp;p8;security` | 30 |
 | `novaterm_sftp_session_safety_tests` | 无条件 | `mcp;p8;security` | 30 |
 | `novaterm_command_safety_tests` | 无条件 | `mcp;p8;security` | 30 |
 | `novaterm_serial_file_transfer_tests` | 无条件 | `session;serial;filetransfer;p9` | 120 |
@@ -182,8 +192,13 @@ ctest --test-dir build -C Debug
 | `novaterm_conpty_tests` | `WIN32` | `integration;conpty` | 240 |
 | `novaterm_terminal_session_tests` | `WIN32` | `integration;terminal-session` | 120 |
 
-**当前 2026-10-16：Linux 实核 26 项、Debug 26/26 通过（173.64 秒）；Windows
-按条件预计 28，新增两项尚未在 Windows 运行。** 以下为历史：
+**当前 2026-10-18：Linux 实核 29 项；Windows 按条件预计 31，尚未在 Windows 运行核对。**
+2026-10-18 运行内核重构后 Linux 全套 **27/29**：失败两项均为既有环境问题
+（`novaterm_pty_tests` 无法创建 PTY；`novaterm_session_tests` 的
+`realSerialSessionUsesExistingPumpForFileTransfer` 同样因 `openpty` 失败），
+非本轮回归。MCP 九项 9/9 通过（28.25 秒）；其余 20 项通过。
+此前 2026-10-17 Linux Debug 27/27 通过（178.00 秒），含 MCP 七项（26.95 秒）。
+当前验证范围见 MCP实施与验收记录。2026-10-16 Linux Debug 26/26 通过（173.64 秒）为历史；以下同为历史：
 2026-10-12 新增 wire/HTTP/endpoint 三项，Windows 为 26 项，Linux 按条件
 预计 24 项。2026-10-13 Windows 已核对注册 26 项，Release 全套 26/26 通过，
 耗时 233.97 秒；Linux 当时未配置或运行。`ctest -N` 的注册数不代表通过。
@@ -418,10 +433,11 @@ Session / Transport / Renderer 时先看那一节。
 src/core/       TerminalCore ScreenBuffer ScrollbackBuffer VTAdapter SearchEngine
 src/transport/  ITransport ← LocalShellTransport SshTransport SerialTransport TelnetTransport
 src/session/    TerminalSession SessionFactory SessionInputPump SessionStore SftpSession SessionDirectory
-src/mcp/        进程内 Qt HTTP Server、MCP wire 与授权（旧 stdio/IPC 已移除）
+src/mcp/        进程内 Qt HTTP Server、MCP wire、contracts/protocol/application/tasks/security 分层
 src/filetransfer/ XMODEM/YMODEM/ZMODEM 协议库（纯标准库，不链 Qt）
 src/renderer/   TerminalRenderer RenderScheduler GlyphAtlas FontManager
 src/ui/         TerminalView MainWindow SessionPage SettingsPage SftpPanel SystemMonitorPanel
+src/ui/models/  SessionPermissionModel SettingsController（设置对话框只读快照与单项意图）
 src/platform/   windows/conpty/ linux/pty/
 ```
 
@@ -1725,3 +1741,52 @@ QString 堆分配（热路径）、TerminalRenderer `_fm` 裸指针 delete/new �
   状态注入不是延迟真实 SFTP 对端回包验证。Windows/macOS 与真实 UART 未运行。
 - I-001 纯分类近 2 MiB 输入约 24～49 ms，未复现病态回溯；保留回归但不虚称
   已做 GUI 性能优化。细节与日志见 P8 2026-10-16 节。
+
+### MCP 终端闭环续作（2026-10-17）
+
+- 接手 f067c91，修复八类回归：同批用户抢占被 Agent 回调越序、两套提示符
+  readiness 不一致、空输入清掉 readiness、16 KiB 文本与行尾/字符按键计额冲突、
+  转义长行/小 UTF-8 预算补读不前进、compact/full 游标兼容、补读丢 source gap。
+  前四项横跨 Core/Session，必须同时保留协议自动回复不抢占和超长文本拒绝断言。
+- 新增权限默认关闭；旧交互命令不自动升级。九工具、凭据本机异步配置、中英文
+  文本与 UI 授权往返已验证。托管 sudo/su 当前返回适配器不可用，协议不取密。
+- 全部默认目标构建及 Linux Debug 全套 **27/27，178.00 秒**，MCP 七项 26.95 秒。
+  沙箱内 HTTP 监听会失败；验证需放开宿主回环/虚拟 PTY/会话总线。Windows/macOS、
+  真实 UART/SSH/TUI、认证适配器、4 Hz 快照合并与性能目标仍待补；详情见 MCP实施与验收记录。
+
+### MCP 续作第二轮审查修复（2026-10-17）
+
+- D-001～D-003 已修复：提示符保存绑定证据 revision，reset/输出/新提示符后不恢复
+  旧证据；full 与显式 includeViewport 可取未变化屏幕；full 行/字节预算截断后
+  resetRequired=true、nextToken=null，compact 仍保留增量游标与补读行为。
+- 五行 Session 事件交错和 full 屏幕/两种预算断言均先 RED 后 GREEN。
+  主程序及相关目标构建通过，`ctest -L 'mcp|p6'` **8/8，41.08 秒**。
+  此轮为 Session/MCP 局部修复，仅跑相关项；上节 27/27 是此前全套成绩。
+  精确用例与日志路径见 MCP实施与验收记录，未连接真实服务器/串口，未自动提交。
+
+### MCP 权限拒绝的 core 修复（2026-10-17）
+
+- 用户 `build/Debug/bin/core`：主线程 SIGSEGV，PermissionCellDelegate 在 Qt
+  setData 内崩溃，原索引 row=0/column=7。串口/Telnet 的提权授权被拒绝后，
+  itemChanged 错误分支同步 refresh/clear，删除了 setData 尚在使用的节点。
+- 失败刷新必须排队到当前模型写入返回之后，不能在 itemChanged 发射栈内重建。
+  新 `settingsDialogRejectsElevationWithoutResettingActiveModel` 两行先在 gdb
+  复现相同崩溃，再验证无同步 modelReset、随后撤回失败勾选且权限保持拒绝。
+- 实际运行目录为 build/Debug，不能仅重建 build/bin 后让用户重试旧程序。
+  原 core 保留，匹配旧程序备份为 build/Debug/bin/novaterm.core-20261017；
+  重建后分析旧 core 要用该备份。详细堆栈与本轮验证范围见 MCP实施与验收记录。
+- 两个构建目录的主程序均重建成功；实际 Debug 目录 MCP **7/7，26.95 秒**，
+  业务 QTest 89 通过/3 条 Windows 跳过，含 Serial/Telnet 拒绝路径。
+  gdb 定向两行正常退出；只跑 UI 所属 MCP 专项，未据此宣称全套通过。
+
+### MCP 提权可编辑条件与颜色（2026-10-17）
+
+- 用户反馈提权勾选回退：AccessStore 的 elevationGrantDisabledReason 只查本机
+  授权/连接/身份/凭据操作状态，不取密，也不代表认证适配器可用。UI 按列禁用并
+  显示原因，不能用 QTreeWidgetItem::setFlags 禁用整行，以免连读取/输入一并锁住。
+- 权限委托第 7 列 Qt::UserRole 保存可编辑性；鼠标和键盘编辑入口均受此闸门。
+  有效已有授权允许撤销。此前 core 回归保留为直接写 model 的防御测试，不能因为
+  UI 已屏蔽点击就删掉 queued 错误回退保护。
+- 可勾选空心强调色、已选实心强调色、不可勾选灰底灰框；只改表格委托，未改
+  全局 Ela。四行 UI 条件回归先 RED→GREEN，深浅主题预览检查通过。
+  两个主程序目录重建，Debug MCP **7/7，27.79 秒**；当前认证适配器仍不可用。

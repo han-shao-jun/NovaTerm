@@ -36,16 +36,19 @@ P9 的协议库与测试独立于 P6/P8，先按 XMODEM → YMODEM → ZMODEM �
 | P5 | 实施完成；Linux Vulkan/OpenGL、Windows D3D11/D3D12 与 30 分钟长稳验收完成（2026-08-02）；macOS Metal、多屏 DPR 与 120/144 Hz 验收待完成 | 多页 Atlas、fallback、instancing | CJK/Emoji/DPI 正确且上传增量化 |
 | P6 | 进行中：Transport 四种完成，会话编排采用「1 View 拥有 1 Session」已在生产；剩少量自包含项 | Session（View-owned）、SSH/Serial/Telnet | 每 View 一会话、完整生命周期 |
 | P7 | 已实现为内置功能（常驻监控 2026-09-06、系统信息窗口 2026-09-09）；性能量化验收待补 | SSH 远端资源监控面板、系统信息窗口 | 复用单连接、快慢通道隔离、不反压 Parser |
-| P8 | 首期与 v0.6 交互命令已实现；Linux 本机已测响应率（94.2%，未达 99%）、吞吐、RPC 与捕获 P95，GUI frame P95 无法判定；跨平台、桌面 Shell 与端到端帧延迟待完成 | stdio/本机 IPC、会话发现、输出读取、搜索、命令允许列表与执行 | 分级授权、危险行为拒绝、执行结果/取消/去重、MCP 互操作和性能验收通过 |
+| P8 | HTTP 九工具及基础终端观察/操作闭环已实现（2026-10-17）；托管提权适配器、完整命令跟踪和 4 Hz 合并待收口；历史响应率 94.2% 未达 99%，GUI frame P95、跨平台/真实 Shell 验收未完成 | 进程内 Streamable HTTP、独立读取/输入授权、观察等待/补读、固定诊断与旧命令/脚本兼容 | 用户抢占、输入去重、有界观察与明确命令证据；真实认证适配器及互操作/性能验收分别完成 |
 | P9 | 协议库及串口 Session/手动传输窗口已接入；Linux 纯协议、门面、UI 与真实 QSerialPort/raw PTY 通路测试通过；Windows 取消发布竞争用例有已知失败，macOS 与真实 UART 文件传输验收待补 | 独立协议库、Session 输入分流/输出独占、异步文件门面与手动串口窗口 | 三协议双向测试与互通、单通路接线及有界停止；跨平台/真实 UART 文件验收明确收口 |
 
 **P9：文件传输协议**的范围、步骤和验收见
 [P9 阶段文档](stages/P9_File_Transfer_Protocols.md)。
 
-**P8：AI MCP 接口**采用 Session 只读上下文与独立授权的受限命令能力。
-[P8 设计文档](stages/P8_AI_MCP_Interface.md)已扩展命令允许列表，禁止删除文件、
-读取会话密码/私钥、提权等高危险行为。首期功能已实现，验证证据和剩余验收见 P8 §14，
-现有 P0～P7 状态不变。
+**P8：AI MCP 接口**采用 Session 只读上下文与独立授权的输入/命令能力。
+[MCP当前接口契约](stages/P8_AI_MCP_Interface/02_Current_MCP_Contract.md)说明九工具行为；[实施与验收记录](stages/P8_AI_MCP_Interface/03_Implementation_and_Verification.md)保留历次结果及未收口目标；
+旧命令接口继续执行允许列表/风险确认，新版完整终端输入需单独明确授权且不逐条确认。
+不向 MCP 开放密码读取，托管提权当前在取密/输入前拒绝。现有 P0～P7 状态不变。
+
+MCP 后续专项路线见 [总体架构](stages/P8_AI_MCP_Interface/00_Overall_Architecture.md)与[阶段划分](stages/P8_AI_MCP_Interface/01_Phases_and_Acceptance.md)，分阶段计划统一在 stages/P8_AI_MCP_Interface/。其中 mcp/P0～P8 是专项内部编号，不改变本页项目阶段编号和已验收状态。
+
 
 ## 3. 跨阶段质量门
 
