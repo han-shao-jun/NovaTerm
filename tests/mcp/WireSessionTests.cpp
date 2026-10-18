@@ -17,11 +17,11 @@ QString backendOp(const QSignalSpy& spy, int index)
 {
     return backendEventKind(spy.at(index).at(0).value<BackendEvent>());
 }
-QJsonObject backendArguments(const QSignalSpy& spy, int index)
+QString backendScriptContent(const QSignalSpy& spy, int index)
 {
     const auto event = spy.at(index).at(0).value<BackendEvent>();
     if (const auto* call = std::get_if<BackendCall>(&event))
-        return call->arguments;
+        return std::get<RunScriptRequest>(call->request).scriptContent;
     return {};
 }
 QJsonObject initialize()
@@ -46,6 +46,82 @@ class WireSessionTests final : public QObject
 {
     Q_OBJECT
 private slots:
+    void elicitationResponsesResolveOnce_data()
+    {
+        QTest::addColumn<QJsonObject>("response");
+        QTest::addColumn<QString>("action");
+        QTest::addColumn<bool>("confirmed");
+        QTest::newRow("accept") << QJsonObject{{"result", QJsonObject{{"action", "accept"},
+            {"content", QJsonObject{{"confirmed", true}}}}}} << QString("accept") << true;
+        QTest::newRow("decline") << QJsonObject{{"result", QJsonObject{{"action", "decline"}}}}
+            << QString("decline") << false;
+        QTest::newRow("cancel") << QJsonObject{{"result", QJsonObject{{"action", "cancel"}}}}
+            << QString("cancel") << false;
+        QTest::newRow("client-error") << QJsonObject{{"error", QJsonObject{{"code", -32603}, {"message", "closed"}}}}
+            << QString("cancel") << false;
+        QTest::newRow("accept-without-confirmation") << QJsonObject{{"result", QJsonObject{{"action", "accept"}}}}
+            << QString("decline") << false;
+    }
+    void elicitationResponsesResolveOnce()
+    {
+        QFETCH(QJsonObject, response);
+        QFETCH(QString, action);
+        QFETCH(bool, confirmed);
+        WireSession wire;
+        auto init = initialize();
+        auto params = init.value("params").toObject();
+        params.insert("capabilities", QJsonObject{{"elicitation", QJsonObject{{"form", QJsonObject{}}}}});
+        init.insert("params", params);
+        wire.receiveMessage(init);
+        wire.receiveMessage({{"jsonrpc", "2.0"}, {"method", "notifications/initialized"}});
+        wire.setBackendAvailable(true);
+        QSignalSpy backend(&wire, &WireSession::backendEvent);
+        QSignalSpy packets(&wire, &WireSession::packet);
+        wire.receiveMessage(call(2), "original");
+        QCOMPARE(backend.size(), 1);
+        const auto id = backendId(backend, 0);
+        wire.receiveBackend({{"op", "elicitation"}, {"id", id}, {"message", "Confirm execution"}});
+        QCOMPARE(packets.size(), 1);
+        const auto prompt = QJsonDocument::fromJson(packets.takeFirst().at(1).toByteArray()).object();
+        QCOMPARE(prompt.value("method").toString(), QStringLiteral("elicitation/create"));
+        response.insert("jsonrpc", "2.0");
+        response.insert("id", prompt.value("id"));
+        wire.receiveMessage(response);
+        QCOMPARE(backend.size(), 2);
+        const auto event = backend.last().at(0).value<BackendEvent>();
+        const auto* resolution = std::get_if<BackendElicitationResult>(&event);
+        QVERIFY(resolution);
+        QCOMPARE(resolution->id, id);
+        QCOMPARE(resolution->answer, action == "cancel" ? ConfirmationAnswer::Cancel
+            : confirmed ? ConfirmationAnswer::Accept : ConfirmationAnswer::Decline);
+        wire.receiveMessage(response);
+        QCOMPARE(backend.size(), 2);
+        QVERIFY(packets.isEmpty());
+        wire.receiveBackend({{"op", "result"}, {"id", id}, {"payload", success({})}});
+        QCOMPARE(packets.size(), 1);
+        QVERIFY(!wire.hasPendingCalls());
+        wire.receiveBackend({{"op", "result"}, {"id", id}, {"payload", success({})}});
+        QCOMPARE(packets.size(), 1);
+    }
+    void duplicateActiveRpcIdKeepsOriginalCall()
+    {
+        WireSession wire;
+        ready(wire);
+        QSignalSpy backend(&wire, &WireSession::backendEvent);
+        QSignalSpy packets(&wire, &WireSession::packet);
+        wire.receiveMessage(call(7), "original");
+        wire.receiveMessage(call(7), "duplicate");
+        QCOMPARE(backend.size(), 1);
+        QCOMPARE(packets.size(), 1);
+        QCOMPARE(packets.first().at(0).toString(), QStringLiteral("duplicate"));
+        const auto rejected = QJsonDocument::fromJson(packets.first().at(1).toByteArray()).object();
+        QCOMPARE(rejected.value("error").toObject().value("code").toInt(), -32600);
+        QVERIFY(wire.hasPendingCalls());
+        wire.receiveBackend({{"op", "result"}, {"id", backendId(backend, 0)}, {"payload", success({})}});
+        QCOMPARE(packets.size(), 2);
+        QCOMPARE(packets.last().at(0).toString(), QStringLiteral("original"));
+        QVERIFY(!wire.hasPendingCalls());
+    }
     void waitingTerminalCallsKeepTheirObservationBudget_data()
     {
         QTest::addColumn<QString>("tool");
@@ -291,7 +367,7 @@ private slots:
         QVERIFY(bytes.size() <= MaxRequestBytes);
         wire.receiveBytes(bytes, "large-script");
         QCOMPARE(backend.size(), 1);
-        QCOMPARE(backendArguments(backend, 0).value("scriptContent").toString(), content);
+        QCOMPARE(backendScriptContent(backend, 0), content);
         QVERIFY(packets.isEmpty());
     }
     void oversizedRequestsAreRejectedBeforeDispatch()

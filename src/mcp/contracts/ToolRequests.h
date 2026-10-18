@@ -13,6 +13,7 @@
 #include "SessionBinding.h"
 
 #include <QString>
+#include <QByteArray>
 
 #include <chrono>
 #include <type_traits>
@@ -21,6 +22,36 @@
 #include <vector>
 
 namespace NovaTerm::Mcp {
+
+enum class ConfirmationTool { Command, Script };
+enum class ConfirmationDecision { Confirm, Unknown };
+enum class ConfirmationAnswer { Accept, Decline, Cancel };
+
+/** @brief 两代人类确认共同绑定的业务事实；用户输入代际仅在该执行路径要求时提供。 */
+struct ConfirmationBinding
+{
+    PeerId connection;
+    ClientId client;
+    SessionId session;
+    Epoch epoch;
+    QString targetFingerprint;
+    QString policyVersion;
+    QString profileVersion;
+    ClientAccessVersion grantVersion;
+    PromptRevision promptGeneration;
+    std::optional<InputRevision> userInputGeneration;
+    QByteArray payloadHash;
+    ConfirmationTool tool{ConfirmationTool::Command};
+    ConfirmationDecision decision{ConfirmationDecision::Confirm};
+};
+
+/** @brief 单调期限与一次性随机 nonce；不持有任务或 Session。 */
+struct ConfirmationTransaction
+{
+    ConfirmationBinding binding;
+    QString nonce;
+    qint64 expires{0};
+};
 
 /** @brief 读取投影模式；缺省语义由具体工具决定。 */
 enum class ProjectionMode

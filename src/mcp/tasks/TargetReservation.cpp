@@ -1,12 +1,13 @@
 /** @file TargetReservation.cpp @brief 持久目标标记 owner 实现。 */
 #include "TargetReservation.h"
-#include "mcp/CommandPolicy.h"
+#include "CommandRuntime.h"
+#include <QDateTime>
 
 #include <utility>
 
 namespace NovaTerm::Mcp {
 
-TargetReservation::TargetReservation(TargetGuard& guard, QString fingerprint,
+TargetReservation::TargetReservation(CommandTargetStore& guard, QString fingerprint,
     QString executionId)
     : _guard(&guard), _fingerprint(std::move(fingerprint)),
       _executionId(std::move(executionId))
@@ -43,12 +44,16 @@ TargetReservation& TargetReservation::operator=(TargetReservation&& other) noexc
     return *this;
 }
 
-std::unique_ptr<TargetReservation> TargetReservation::acquire(TargetGuard& guard,
+std::unique_ptr<TargetReservation> TargetReservation::acquire(CommandTargetStore& guard,
     const QString& fingerprint, const QString& executionId, const QString& instance,
-    QString& error)
+    Error& error)
 {
-    if (!guard.reserve(fingerprint, executionId, instance, error))
+    const auto saved = guard.reserve(TargetProtection{fingerprint, executionId, instance,
+        QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs)});
+    if (const auto* rejected = errorIfAny(saved)) {
+        error = *rejected;
         return nullptr;
+    }
     return std::unique_ptr<TargetReservation>(
         new TargetReservation(guard, fingerprint, executionId));
 }

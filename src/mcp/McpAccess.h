@@ -11,6 +11,7 @@
 #include <QSet>
 #include <QFileSystemWatcher>
 #include <QThread>
+#include <QPointer>
 #include <functional>
 
 namespace NovaTerm::Mcp {
@@ -104,7 +105,9 @@ private:
     AuthorizationService _authorization;
     QSet<QString> _elevationReferences; // 非秘密元数据；状态展示不访问系统凭据库。
     std::function<std::unique_ptr<CredentialStore>()> _elevationFactory;
-    std::unique_ptr<QThread> _elevationThread;
+    struct CredentialMailbox;
+    std::shared_ptr<CredentialMailbox> _elevationMailbox;
+    QPointer<QThread> _elevationThread;
     QObject* _elevationWorker{nullptr};
     std::shared_ptr<std::unique_ptr<CredentialStore>> _elevationStorage;
     std::optional<bool> _elevationPersistent;

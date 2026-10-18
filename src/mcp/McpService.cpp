@@ -8,27 +8,12 @@
 #include "CapabilityAdapter.h"
 #include "application/CaptureStore.h"
 #include "ObservationService.h"
-#include "tasks/ConfirmationRegistry.h"
 #include "application/RequestScheduler.h"
-#include "application/CommandDedup.h"
-#include "tasks/ExecutionRegistry.h"
-#include "tasks/TargetReservation.h"
-#include "tasks/Job.h"
-#include "tasks/ScriptTaskRegistry.h"
-#include "tasks/TaskRegistry.h"
 #include "tasks/ReadUseCases.h"
-#include "tasks/DiagnosticCommandUseCase.h"
-#include "tasks/ScriptResultUseCase.h"
-#include "tasks/ScriptCommandUseCase.h"
-#include "tasks/ExecutionService.h"
+#include "CommandSessionAdapter.h"
 #include "protocol/BackendEvents.h"
 #include "CommandPolicy.h"
-#include "CommandRiskPolicy.h"
 #include "HttpMcpEndpoint.h"
-#include "session/SessionCommandFacade.h"
-#include "session/SessionCommandCoordinator.h"
-#include "session/SessionInputArbiter.h"
-#include "session/ISessionScriptProvider.h"
 #include "core/ThreadNaming.h"
 #include <QCoreApplication>
 #include <QDateTime>
@@ -49,6 +34,8 @@
 #include <deque>
 #include <type_traits>
 #include <utility>
+#include <map>
+#include <mutex>
 
 #ifndef NOVATERM_VERSION
 #define NOVATERM_VERSION "0.2.30"
@@ -57,21 +44,10 @@
 namespace NovaTerm::Mcp {
 namespace {
 QString utcNow() { return QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs); }
-QString jobKey(const QString& connection, const QString& id) { return connection + '/' + id; }
+QString requestKey(const QString& connection, const QString& id) { return connection + '/' + id; }
 QJsonObject error(const char* code, bool retryable = false, int retryAfter = 0)
 {
     return failure(QString::fromLatin1(code), QString::fromLatin1(code), retryable, retryAfter);
-}
-QByteArray scriptArgumentsDigest(const QJsonObject& arguments)
-{
-    return QCryptographicHash::hash(
-        QJsonDocument(arguments).toJson(QJsonDocument::Compact),
-        QCryptographicHash::Sha256);
-}
-QByteArray scriptMetadataDigest(QJsonObject arguments)
-{
-    arguments.remove(QStringLiteral("scriptContent"));
-    return scriptArgumentsDigest(arguments);
 }
 /** @brief 请求中的会话身份；list_sessions 没有会话。 */
 std::optional<SessionReference> requestSession(const ToolRequest& request)
@@ -93,7 +69,37 @@ public:
         QString client;
         QByteArray key;
     };
-    using ScriptWriteTask = ScriptTaskRegistry::Task;
+    struct SearchMailbox {
+        explicit SearchMailbox(Service* service) : receiver(service) {}
+        std::mutex mutex;
+        Service* receiver;
+    };
+    struct PendingRequest {
+        QString connection, id, tool;
+        ToolRequest request;
+        QByteArray confirmationDigest;
+        QString requestState;
+        std::optional<ConfirmationAnswer> answer;
+        bool mrtr{false}, formElicitation{false};
+        qint64 deadline{0}, created{0};
+        std::shared_ptr<std::atomic<bool>> cancelled{std::make_shared<std::atomic<bool>>(false)};
+    };
+    PendingRequest* findRequest(const QString& key) const {
+        const auto found = requests.find(key);
+        return found == requests.end() ? nullptr : found->second.get();
+    }
+    std::unique_ptr<PendingRequest> takeRequest(const QString& key) {
+        const auto found = requests.find(key);
+        if (found == requests.end()) return {};
+        auto request = std::move(found->second);
+        requests.erase(found);
+        return request;
+    }
+    QStringList requestKeys() const {
+        QStringList keys;
+        for (const auto& item : requests) keys.append(item.first);
+        return keys;
+    }
 
     Impl(Service* owner, QString stateDir, QString runtimeDir, std::unique_ptr<CredentialStore> credentials, quint16 port)
         : q(owner), stateDirectory(stateDir.isEmpty() ? dataDirectory() : std::move(stateDir)),
@@ -112,39 +118,22 @@ public:
               },
               [this](const QString& id, const BackendEvent& event) { receive(id, event); },
               [this](const QString& id) { disconnect(id); }
-          }, owner), guards(QDir(stateDirectory).filePath("targets"))
+          }, owner)
     {
         clock.start();
         terminal = std::make_unique<TerminalInteraction>(&access, &sessions, &observation, owner);
         terminal->onChanged = [this] { emit q->changed(); };
-        workers.setMaxThreadCount(1);
-        workers.setExpiryTimeout(1000);
         instance = newId();
-        scriptCommands = std::make_unique<ScriptCommandUseCase>(ScriptCommandUseCase::Ports{
-            &access, &executions, &scriptWrites, &jobs, &guards, &lastCommand,
-            &confirmations, &observedScriptProviders, &observedInputArbiters,
-            &observedFacades, &observedCoordinators, &nextCommandRequest,
-            &nextScriptWrite, instance, [this] { return clock.elapsed(); }, q,
-            [this](const QString& id) { return connections.value(id).client; },
-            [this](const QString& id) { return connections.value(id).key; },
-            [this](const QString& id, const QJsonObject& message) {
-                return io.send(id, message);
-            },
-            [this](const std::shared_ptr<Job>& job, QJsonObject payload) {
-                complete(job, std::move(payload));
-            },
-            [this](const std::shared_ptr<Job>& job, bool release) {
-                releaseScriptReservation(job, release);
-            },
-            [this](const ScriptTaskRegistry::Task& task, const ScriptWriteResult& result) {
-                recordScriptWriteOutcome(task, result);
-            },
-            [this](const CommandExecutionResult& result) { finishExecution(result); },
-            [this](TerminalSession* session, quint64 userGeneration) {
-                cancelScriptWritesForUserInput(session, userGeneration);
-            },
-            [this](const ScriptWriteResult& result) { finishScriptWrite(result); },
-            [this] { emit q->changed(); }});
+        commands = std::make_unique<CommandSessionAdapter>(access, sessions,
+            QDir(stateDirectory).filePath("targets"), instance, CommandSessionAdapter::Delivery{
+                [this](const TaskId& task, QJsonObject payload) {
+                    complete(task.str(), std::move(payload));
+                },
+                [this](const TaskId& task, std::chrono::milliseconds remaining) {
+                    if (auto* pending = findRequest(task.str())) pending->deadline = clock.elapsed() + remaining.count();
+                },
+                [this](const QString& peer, const QJsonObject& message) { return io.send(peer, message); },
+                [this] { emit q->changed(); }});
         listenPort = port;
         timer.setInterval(100);
         QObject::connect(&timer, &QTimer::timeout, q, [this] { expireJobs(); });
@@ -168,29 +157,33 @@ public:
         QObject::connect(&sessions, &SessionDirectory::changed, q, [this] {
             if (!checkingSessionState) {
                 QScopedValueRollback<bool> checking(checkingSessionState, true);
-                const auto pending = jobs.snapshot();
-                for (const auto& job : pending) {
-                    if (job->tool != QStringLiteral("novaterm_run_script")
-                        && job->tool != QStringLiteral("novaterm_run_command")
-                        && job->tool != QStringLiteral("novaterm_execute_command"))
+                const auto pending = requestKeys();
+                for (const auto& key : pending) {
+                    auto* pending = findRequest(key);
+                    if (!pending) continue;
+                    if (pending->tool != QStringLiteral("novaterm_run_script")
+                        && pending->tool != QStringLiteral("novaterm_run_command")
+                        && pending->tool != QStringLiteral("novaterm_execute_command"))
                         continue;
-                    const auto reference = requestSession(job->request);
+                    const auto reference = requestSession(pending->request);
                     if (!reference)
                         continue;
                     const auto entry = sessions.find(reference->session.str());
                     if (!entry || entry->state != SessionState::Running)
-                        cancel(job, error("SESSION_NOT_READY"), true);
+                        cancel(key, error("SESSION_NOT_READY"), true);
                 }
             }
             emit q->changed();
         });
         QObject::connect(&sessions, &SessionDirectory::invalidated, q, [this](const QString& id) {
             observation.removeSession(id);
-            const auto jobsCopy = jobs.snapshot();
-            for (const auto& job : jobsCopy) {
-                const auto reference = requestSession(job->request);
+            const auto jobsCopy = requestKeys();
+            for (const auto& key : jobsCopy) {
+                auto* pending = findRequest(key);
+                if (!pending) continue;
+                const auto reference = requestSession(pending->request);
                 if (reference && reference->session.str() == id)
-                    cancel(job, error("STALE_SESSION_EPOCH"), true);
+                    cancel(key, error("STALE_SESSION_EPOCH"), true);
             }
         });
         updateEnabled();
@@ -215,24 +208,26 @@ public:
         const auto connectionIds = connections.keys();
         for (const auto& id : connectionIds)
             disconnect(id);
-        for (const auto& execution : executions.records()) {
-            if (!execution.complete) {
-                if (execution.coordinator)
-                    execution.coordinator->cancel(execution.executorRequestId);
-                else if (execution.facade)
-                    execution.facade->cancel(execution.executorRequestId);
-                CommandExecutionResult result;
-                result.requestId = execution.executorRequestId;
-                result.executionMayHaveStarted = true;
-                result.outcome = CommandExecutionOutcome::Disconnected;
-                finishExecution(result);
-            }
-        }
+        commands->stop();
         io.stop();
         QFile::remove(manifestPath());
         timer.stop();
         started = listening = false;
-        workers.waitForDone();
+        if (searchMailbox) {
+            const std::lock_guard<std::mutex> lock(searchMailbox->mutex);
+            searchMailbox->receiver = nullptr;
+        }
+        searchMailbox.reset();
+        if (workers) {
+            workers->clear();
+            // GUI不等待文件/计算线程退出；worker只持有值和已关闭的投递邮箱。
+            auto retiring = std::move(workers);
+            QThreadPool::globalInstance()->start(QRunnable::create(
+                [pool = retiring.release()] {
+                    const std::unique_ptr<QThreadPool> owner(pool);
+                    owner->waitForDone();
+                }));
+        }
     }
 
     void receive(const QString& connectionId, const BackendEvent& event)
@@ -242,121 +237,43 @@ public:
         const auto id = std::visit([](const auto& value) { return value.id; }, event);
         if (id.isEmpty() || id.size() > 64) { io.closeConnection(connectionId); return; }
         if (const auto* result = std::get_if<BackendElicitationResult>(&event)) {
-            const auto key = jobKey(connectionId, id);
-            const auto pending = confirmations.takePending(key);
-            if (!pending) return;
-            const auto job = jobs.find(pending->jobKey);
-            if (!job) return;
-            const QString action = result->action;
-            if (action != "accept" || !result->confirmed) {
-                complete(job, error(action == "cancel"
-                    ? "COMMAND_CONFIRMATION_CANCELLED" : "COMMAND_CONFIRMATION_DECLINED"));
-                return;
-            }
-            const auto entry = sessions.find(pending->session);
-            const auto currentConnection = connections.constFind(connectionId);
-            auto* coordinator = entry && entry->session
-                ? entry->session->commandCoordinator() : nullptr;
-            auto* inputArbiter = entry && entry->session
-                ? entry->session->inputArbiter() : nullptr;
-            auto* facade = entry && entry->session
-                ? entry->session->commandFacade() : nullptr;
-            const bool unverifiedSsh = entry && entry->kind == TransportKind::Ssh
-                && coordinator && coordinator->allowsUnverifiedPrompt();
-            const bool idleSerial = entry && entry->kind == TransportKind::Serial
-                && coordinator && coordinator->allowsIdleCompletion();
-            const bool promptFree = unverifiedSsh || idleSerial;
-            const auto profile = facade ? facade->profile() : CommandPlatformProfile{};
-            RiskAssessment currentRisk;
-            QByteArray digest;
-            if (pending->tool == QStringLiteral("novaterm_run_script")) {
-                const auto& script = std::get<RunScriptRequest>(job->request);
-                currentRisk = CommandRiskPolicy{}.classifyScript(
-                    script.scriptContent.toUtf8(), script.targetPath,
-                    script.workingDirectory, script.invocation);
-                digest = job->confirmationDigest;
-            } else {
-                currentRisk = CommandRiskPolicy{}.classify(pending->command);
-                digest = QCryptographicHash::hash(pending->command.toUtf8(),
-                    QCryptographicHash::Sha256);
-            }
-            if (!entry || currentConnection == connections.cend()
-                || currentConnection->client != pending->client
-                || !access.canRead(pending->client, *entry)
-                || (pending->tool == QStringLiteral("novaterm_run_script")
-                    && !access.canRunScriptTask(pending->client, *entry))
-                || (pending->tool == QStringLiteral("novaterm_run_command")
-                    && !access.canRunCommand(pending->client, *entry))
-                || entry->epoch != pending->epoch || !coordinator
-                || (!promptFree && !coordinator->isPromptReady())
-                || (promptFree && (!inputArbiter
-                    || inputArbiter->userInputGeneration()
-                        != pending->userInputGeneration))
-                || !facade || profile.version() != pending->profileVersion
-                || entry->targetFingerprint != pending->targetFingerprint
-                || access.version(pending->client) != pending->grantVersion
-                || coordinator->promptGeneration() != pending->promptGeneration
-                || digest != pending->payloadHash
-                || currentRisk.policyVersion != pending->policyVersion
-                || (currentRisk.decision != RiskDecision::Confirm
-                    && currentRisk.decision != RiskDecision::Unknown)
-                || (pending->tool == QStringLiteral("novaterm_run_script")
-                    && (!entry->session->scriptProvider()
-                        || !entry->session->scriptProvider()->isAvailable()))) {
-                complete(job, error("COMMAND_CONFIRMATION_STALE"));
-                return;
-            }
-            job->confirmationAccepted = true;
-            job->deadline = clock.elapsed() + Budget::ConfirmationTimeout.count();
-            if (pending->tool == QStringLiteral("novaterm_run_script"))
-                runScript(job, *entry);
-            else
-                runCommand(job, *entry);
+            commands->confirm(connectionId, id, result->answer);
             return;
         }
         if (std::get_if<BackendCancel>(&event)) {
-            const auto job = jobs.find(jobKey(connectionId, id));
-            if (job) cancel(job, {}, false);
+            const auto pending = findRequest(requestKey(connectionId, id));
+            if (pending) cancel(requestKey(connectionId, id), {}, false);
             return;
         }
         const auto& call = std::get<BackendCall>(event);
-        if (jobs.contains(jobKey(connectionId, id))) {
+        if (findRequest(requestKey(connectionId, id))) {
             io.closeConnection(connectionId);
             return;
         }
-        const auto name = call.tool;
+        const auto name = ToolCodec::toolName(call.request);
         ++requestCount;
-        const auto arguments = call.arguments;
-        auto decoded = ToolCodec::decode(name, arguments);
-        if (isError(decoded)) {
-            ++rejectedCount;
-            send(connectionId, id, ToolCodec::encodeFailure(*errorIfAny(decoded)));
-            return;
-        }
-        auto& request = std::get<ToolRequest>(decoded);
+        auto request = call.request;
         if (scheduler.queuedCount(connectionId) >= Budget::MaxQueuedRequests) {
             ++rejectedCount;
             send(connectionId, id, error("BUSY", true, 250));
             return;
         }
-        auto job = std::make_shared<Job>();
-        job->connection = connectionId;
-        job->id = id;
-        job->tool = name;
-        if (std::holds_alternative<RunScriptRequest>(request)) {
-            job->confirmationDigest = scriptArgumentsDigest(arguments);
-            job->scriptMetadataHash = scriptMetadataDigest(arguments);
-        }
-        job->mrtr = call.mrtr;
-        job->formElicitation = call.formElicitation;
-        job->requestState = call.requestState;
-        job->inputResponses = call.inputResponses;
-        if (job->requestState.size() > 4096 || (!job->mrtr
-            && (!job->requestState.isEmpty() || !job->inputResponses.isEmpty()))) {
+        auto requestOwner = std::make_unique<PendingRequest>();
+        auto* pending = requestOwner.get();
+        pending->connection = connectionId;
+        pending->id = id;
+        pending->tool = name;
+        pending->confirmationDigest = call.confirmationDigest;
+        pending->mrtr = call.mrtr;
+        pending->formElicitation = call.formElicitation;
+        pending->requestState = call.requestState;
+        pending->answer = call.answer;
+        if (pending->requestState.size() > 4096 || (!pending->mrtr
+            && (!pending->requestState.isEmpty() || pending->answer.has_value()))) {
             send(connectionId, id, error("COMMAND_CONFIRMATION_STALE"));
             return;
         }
-        job->deadline = clock.elapsed() + (name == "novaterm_run_script" ? ScriptWriteTimeout.count()
+        pending->deadline = clock.elapsed() + (name == "novaterm_run_script" ? ScriptWriteTimeout.count()
             : name == "novaterm_run_command" ? ConfirmationTimeout.count() : 2000);
         const auto waitMilliseconds = [](const ToolRequest& value, int fallback) {
             return std::visit([fallback](const auto& request) -> int {
@@ -371,15 +288,15 @@ public:
         };
         if (name == "novaterm_interact_terminal" || name == "novaterm_request_elevation"
             || (name == "novaterm_read_context" && waitMilliseconds(request, -1) >= 0))
-            job->deadline = clock.elapsed() + waitMilliseconds(request, Budget::MaxTerminalWaitMs)
+            pending->deadline = clock.elapsed() + waitMilliseconds(request, Budget::MaxTerminalWaitMs)
             + Budget::WireDeadlineMargin.count();
-        job->request = std::move(request);
-        job->created = clock.elapsed();
-        jobs.insert(jobKey(connectionId, id), job);
-        peakRequests = (std::max)(peakRequests, qsizetype(jobs.size()));
-        if (scheduler.enqueue(connectionId, id, [this, job] { execute(job); })
+        pending->request = std::move(request);
+        pending->created = clock.elapsed();
+        requests.emplace(requestKey(connectionId, id), std::move(requestOwner));
+        peakRequests = (std::max)(peakRequests, qsizetype(requests.size()));
+        if (scheduler.enqueue(connectionId, id, [this, key=requestKey(connectionId, id)] { if (auto* pending = findRequest(key)) execute(pending); })
             != RequestScheduler::Admission::Accepted) {
-            jobs.remove(jobKey(connectionId, id));
+            requests.erase(requestKey(connectionId, id));
             ++rejectedCount;
             send(connectionId, id, error("BUSY", true, 250));
             return;
@@ -397,8 +314,8 @@ public:
         QTimer::singleShot(0, q, [this] {
             scheduled = false;
             for (auto& delivery : scheduler.takeReady()) {
-                const auto job = jobs.find(jobKey(delivery.peer, delivery.request));
-                if (!job || job->cancelled)
+                const auto pending = findRequest(requestKey(delivery.peer, delivery.request));
+                if (!pending || *pending->cancelled)
                     continue;
                 delivery.run();
             }
@@ -416,152 +333,53 @@ public:
             disconnect(connection);
         }
     }
-    bool hasPendingScriptWrite(const std::shared_ptr<Job>& job) const
+    void finishRequest(std::unique_ptr<PendingRequest> pending, QJsonObject payload, bool reply)
     {
-        return scriptWrites.containsJob(job);
-    }
-    void releaseScriptReservation(const std::shared_ptr<Job>& job, bool releaseTarget)
-    {
-        if (releaseTarget && job->reservation)
-            job->reservation->release();
-        job->reservation.reset();
-        scriptWrites.unlockOwner(jobKey(job->connection, job->id));
-    }
-    ScriptResultUseCase scriptResults()
-    {
-        return ScriptResultUseCase{ScriptResultUseCase::Ports{
-            &access, &executions, &scriptWrites, &jobs, &sessions, instance,
-            [this] { return clock.elapsed(); },
-            [this] { emit q->changed(); },
-            [this](const std::shared_ptr<Job>& job, QJsonObject payload) {
-                complete(job, std::move(payload));
-            },
-            [this](const std::shared_ptr<Job>& job, bool release) {
-                releaseScriptReservation(job, release);
-            },
-            [this](const std::shared_ptr<Job>& job,
-                const SessionDirectory::Entry& entry) { runCommand(job, entry); }}};
-    }
-    void recordScriptWriteOutcome(const ScriptWriteTask& task,
-                                  const ScriptWriteResult& result)
-    {
-        scriptResults().recordOutcome(task, result);
-    }
-
-    void complete(const std::shared_ptr<Job>& job, QJsonObject payload)
-    {
-        if (terminal) terminal->cancel(jobKey(job->connection, job->id));
-        if (!jobs.contains(jobKey(job->connection, job->id)))
-            return;
-        const QString publishedExecutionId = job->scriptPublished && job->reservation
-            ? job->reservation->executionId() : QString();
-        confirmations.removePending(jobKey(job->connection, job->id));
-        if (!hasPendingScriptWrite(job))
-            releaseScriptReservation(job, true);
-        auto connection = connections.find(job->connection);
-        if (connection != connections.end()) {
-            const auto client = connection->client;
-            if (!job->cancelled) {
-                const auto reference = requestSession(job->request);
-                if (reference) {
-                    const auto entry = sessions.find(reference->session.str());
-                    if (!jobs.contains(jobKey(job->connection, job->id)))
-                        return;
-                    if (!entry || !access.canRead(client, *entry))
-                        payload = error("SESSION_NOT_AVAILABLE");
-                    else if (entry->epoch != reference->epoch.str())
-                        payload = error("STALE_SESSION_EPOCH");
-                }
-                // find() 可能同步发布会话失效，失效处理已经完成响应时不得再发送。
+        const auto key = requestKey(pending->connection, pending->id);
+        terminal->cancel(key);
+        if (!*pending->cancelled) {
+            if (const auto reference = requestSession(pending->request)) {
+                const auto entry = sessions.find(reference->session.str());
+                const auto client = connections.value(pending->connection).client;
+                if (!entry || !access.canRead(client, *entry)) payload = error("SESSION_NOT_AVAILABLE");
+                else if (entry->epoch != reference->epoch.str()) payload = error("STALE_SESSION_EPOCH");
             }
         }
-        if (job->scriptPublished && !payload.value("ok").toBool()) {
-            auto error = payload.value("error").toObject();
-            auto details = error.value("details").toObject();
-            details.insert("published", true);
-            details.insert("publicationMayHaveOccurred", true);
-            details.insert("invocationStarted", false);
-            if (!details.contains("status"))
-                details.insert("status", "script_published");
-            if (!publishedExecutionId.isEmpty())
-                details.insert("executionId", publishedExecutionId);
-            error.insert("details", details);
-            payload.insert("error", error);
-        }
-        scheduler.complete(job->connection, job->id);
-        jobs.remove(jobKey(job->connection, job->id));
+        scheduler.complete(pending->connection, pending->id);
         ++completedCount;
-        maximumRequestMs = (std::max)(maximumRequestMs, clock.elapsed() - job->created);
-        if (!job->cancelled && connections.contains(job->connection))
-            send(job->connection, job->id, payload);
-        if (jobs.empty()) {
-            if (observation.captures().size() == 0 && executions.size() == 0
-                && lastCommand.empty() && confirmations.empty()) {
-                timer.stop();
-            } else {
-                timer.setInterval(1000);
-                timer.start();
-            }
+        maximumRequestMs = (std::max)(maximumRequestMs, clock.elapsed() - pending->created);
+        if (reply && !payload.isEmpty() && connections.contains(pending->connection))
+            send(pending->connection, pending->id, std::move(payload));
+        if (requests.empty()) {
+            if (observation.captures().size() == 0 && commands->idle()) timer.stop();
+            else { timer.setInterval(1000); timer.start(); }
         }
         schedule();
     }
-    void cancel(std::shared_ptr<Job> job, QJsonObject payload, bool reply)
+    void complete(const QString& key, QJsonObject payload)
     {
-        if (terminal) terminal->cancel(jobKey(job->connection, job->id));
-        if (job->cancelled.exchange(true))
-            return;
-        scheduler.cancel(job->connection, job->id);
+        if (auto owned = takeRequest(key))
+            finishRequest(std::move(owned), std::move(payload), true);
+    }
+    void cancel(const QString& key, QJsonObject payload, bool reply)
+    {
+        auto owned = takeRequest(key);
+        if (!owned) return;
+        *owned->cancelled = true;
+        scheduler.cancel(owned->connection, owned->id);
         ++cancelledCount;
-        QList<std::pair<QPointer<ISessionScriptProvider>, quint64>> scriptCancels;
-        for (const quint64 id : scriptWrites.ids()) {
-            const auto* task = scriptWrites.find(id);
-            if (task && task->job == job)
-                scriptCancels.append({task->provider, id});
-        }
-        for (const auto& scriptCancel : scriptCancels) {
-            if (scriptCancel.first)
-                scriptCancel.first->cancelWrite(scriptCancel.second);
-        }
-        QList<quint64> unresolvedRequests;
-        const auto jobId = jobKey(job->connection, job->id);
-        for (const auto& execution : executions.records()) {
-            if (execution.complete || execution.jobKey != jobId)
-                continue;
-            if (execution.coordinator)
-                execution.coordinator->cancel(execution.executorRequestId);
-            else if (execution.facade)
-                execution.facade->cancel(execution.executorRequestId);
-            // cancel() 允许同步发布确定结果；只有仍未完成的执行才合成保守终态。
-            if (!execution.complete)
-                unresolvedRequests.append(execution.executorRequestId);
-        }
-        for (const quint64 requestId : unresolvedRequests) {
-            // SSH 队列取消会 queued 返回“未开始”的确定证据；Local helper 也可能
-            // 在 terminate/kill 后很快给出 finished。短暂等待这些更强证据，只有
-            // Executor 没有回报时才合成保守的 unknown 终态。
-            QTimer::singleShot(Budget::CancelCompletionGrace, q, [this, requestId] {
-                const auto* execution = executions.findByRequest(requestId);
-                if (!execution || execution->complete)
-                    return;
-                CommandExecutionResult result;
-                result.requestId = requestId;
-                result.outcome = CommandExecutionOutcome::Cancelled;
-                result.executionMayHaveStarted = true;
-                result.terminationConfirmed = false;
-                finishExecution(result);
-            });
-        }
-        if (reply && connections.contains(job->connection))
-            send(job->connection, job->id, payload);
-        complete(job, {});
+        commands->cancel(TaskId{key});
+        finishRequest(std::move(owned), std::move(payload), reply);
     }
     void disconnect(const QString& connection)
     {
-        static_cast<void>(confirmations.takeConnection(connection));
-        const auto copy = jobs.snapshot();
-        for (const auto& job : copy) {
-            if (job->connection == connection)
-                cancel(job, {}, false);
+        commands->disconnect(connection);
+        const auto copy = requestKeys();
+        for (const auto& key : copy) {
+            auto* pending = findRequest(key);
+            if (!pending) continue;
+            if (pending->connection == connection)
+                cancel(key, {}, false);
         }
         scheduler.removePeer(connection);
         connections.remove(connection);
@@ -571,7 +389,6 @@ public:
     void revoke(const QString& client, const QString& session)
     {
         if (terminal) terminal->revoke(client, session);
-        confirmations.removeScope(client, session);
         const auto ids = connections.keys();
         for (const auto& id : ids) {
             if (!client.isEmpty() && connections.value(id).client != client)
@@ -580,156 +397,148 @@ public:
                 io.closeConnection(id);
                 disconnect(id);
             } else {
-                const auto copy = jobs.snapshot();
-                for (const auto& job : copy) {
-                    const auto reference = requestSession(job->request);
-                    if (job->connection == id && reference && reference->session.str() == session)
-                        cancel(job, error("SESSION_NOT_AVAILABLE"), true);
+                const auto copy = requestKeys();
+                for (const auto& key : copy) {
+                    auto* pending = findRequest(key);
+                    if (!pending) continue;
+                    const auto reference = requestSession(pending->request);
+                    if (pending->connection == id && reference && reference->session.str() == session)
+                        cancel(key, error("SESSION_NOT_AVAILABLE"), true);
                 }
                 observation.captures().removeConnectionSession(id, session);
             }
         }
+        commands->revoke(client, session);
     }
     void expireJobs()
     {
-        const auto copy = jobs.snapshot();
-        const auto executionRecords = executions.records();
-        for (const auto& job : copy) {
-            if (job->deadline > clock.elapsed()) continue;
-            bool commandExpired = false;
-            const auto jobId = jobKey(job->connection, job->id);
-            for (const auto& execution : executionRecords) {
-                if (!execution.complete && execution.jobKey == jobId) {
-                    if (execution.coordinator)
-                        execution.coordinator->expire(execution.executorRequestId);
-                    else if (execution.facade)
-                        execution.facade->cancel(execution.executorRequestId);
-                    CommandExecutionResult result;
-                    result.requestId = execution.executorRequestId;
-                    result.executionMayHaveStarted = true;
-                    result.outcome = CommandExecutionOutcome::TimedOut;
-                    finishExecution(result);
-                    commandExpired = true;
-                    break;
-                }
-            }
-            if (!commandExpired) cancel(job, error("DEADLINE_EXCEEDED"), true);
+        for (const auto& key : requestKeys()) {
+            auto* pending = findRequest(key);
+            if (!pending || pending->deadline > clock.elapsed()) continue;
+            commands->expire(TaskId{key});
+            if ((pending = findRequest(key))) cancel(key, error("DEADLINE_EXCEEDED"), true);
         }
         cleanup();
-        if (jobs.empty()) {
-            if (observation.captures().size() == 0 && executions.size() == 0
-                && lastCommand.empty() && confirmations.empty()) timer.stop();
+        if (requests.empty()) {
+            if (observation.captures().size() == 0 && commands->idle()) timer.stop();
             else timer.setInterval(1000);
         }
     }
     void cleanup()
     {
-        const auto now = clock.elapsed();
-        for (const auto& expired : confirmations.sweep(now)) {
-            const auto job = jobs.find(expired.jobKey);
-            if (job)
-                complete(job, error("COMMAND_CONFIRMATION_EXPIRED"));
-        }
-        observation.captures().sweep(now);
-        executions.expireCompleted(now, Budget::ExecutionRecordRetention.count());
-        lastCommand.sweep(now);
+        observation.captures().sweep(clock.elapsed());
+        commands->sweep();
     }
 
-    void execute(const std::shared_ptr<Job>& job)
+    void execute(PendingRequest* pending)
     {
+        const auto key = requestKey(pending->connection, pending->id);
         cleanup();
-        if (job->deadline <= clock.elapsed()) { complete(job, error("DEADLINE_EXCEEDED")); return; }
-        if ((!job->requestState.isEmpty() || !job->inputResponses.isEmpty())
-            && job->tool != "novaterm_run_command"
-            && job->tool != "novaterm_run_script") {
-            complete(job, error("COMMAND_CONFIRMATION_STALE"));
+        pending = findRequest(key);
+        if (!pending) return;
+        if (pending->deadline <= clock.elapsed()) { complete(key, error("DEADLINE_EXCEEDED")); return; }
+        if ((!pending->requestState.isEmpty() || pending->answer.has_value())
+            && pending->tool != "novaterm_run_command"
+            && pending->tool != "novaterm_run_script") {
+            complete(key, error("COMMAND_CONFIRMATION_STALE"));
             return;
         }
-        const auto connection = connections.value(job->connection);
-        if (!access.enabled()) { complete(job, error("MCP_DISABLED")); return; }
-        if (job->tool == "novaterm_list_sessions") { listSessions(job); return; }
-        const auto reference = requestSession(job->request);
-        if (!reference) { complete(job, error("INVALID_ARGUMENT")); return; }
+        const auto connection = connections.value(pending->connection);
+        if (!access.enabled()) { complete(key, error("MCP_DISABLED")); return; }
+        if (pending->tool == "novaterm_list_sessions") { listSessions(pending); return; }
+        const auto reference = requestSession(pending->request);
+        if (!reference) { complete(key, error("INVALID_ARGUMENT")); return; }
         const auto entry = sessions.find(reference->session.str());
-        if (job->cancelled) return;
+        pending = findRequest(key);
+        if (!pending) return;
         if (!entry || !access.canRead(connection.client, *entry)) {
-            complete(job, !job->requestState.isEmpty()
+            complete(key, !pending->requestState.isEmpty()
                 ? error("COMMAND_CONFIRMATION_STALE")
                 : error("SESSION_NOT_AVAILABLE"));
             return;
         }
         if (entry->epoch != reference->epoch.str()) {
-            complete(job, !job->requestState.isEmpty()
+            complete(key, !pending->requestState.isEmpty()
                 ? error("COMMAND_CONFIRMATION_STALE")
                 : error("STALE_SESSION_EPOCH"));
             return;
         }
-        const bool mutatingInteraction = std::holds_alternative<InteractTerminalRequest>(job->request)
-            || std::holds_alternative<RequestElevationRequest>(job->request);
+        const bool mutatingInteraction = std::holds_alternative<InteractTerminalRequest>(pending->request)
+            || std::holds_alternative<RequestElevationRequest>(pending->request);
         bool usesObservation = mutatingInteraction;
-        if (const auto* read = std::get_if<ReadContextRequest>(&job->request)) {
+        if (const auto* read = std::get_if<ReadContextRequest>(&pending->request)) {
             usesObservation = read->projection.has_value() || read->wait.has_value()
                 || read->waitFor.has_value() || read->expandToken.has_value()
                 || terminal->ownsCursor(connection.client,
                     read->sinceToken.value_or(QString{}));
-        } else if (const auto* search = std::get_if<SearchContextRequest>(&job->request)) {
+        } else if (const auto* search = std::get_if<SearchContextRequest>(&pending->request)) {
             usesObservation = terminal->ownsCapture(connection.client, search->capture.str());
         }
         if (usesObservation) {
-            if (mutatingInteraction && guards.markers().contains(entry->targetFingerprint)) {
-                complete(job, error("COMMAND_EXECUTION_QUARANTINED")); return;
+            if (mutatingInteraction && commands->quarantined(entry->targetFingerprint)) {
+                complete(key, error("COMMAND_EXECUTION_QUARANTINED")); return;
             }
             const QPointer<Service> guard(q);
-            terminal->call(connection.client, jobKey(job->connection, job->id), job->request,
-                [this, guard, job](QJsonObject value) {
-                    if (guard && !job->cancelled) complete(job, std::move(value));
+            const auto request = pending->request;
+            terminal->call(connection.client, key, request,
+                [this, guard, key](QJsonObject value) {
+                    if (guard)
+                        complete(key, std::move(value));
                 }, connection.key);
             return;
         }
-        if (job->tool == "novaterm_list_commands") { listCommands(job, *entry); return; }
-        if (job->tool == "novaterm_execute_command") { command(job, *entry); return; }
-        if (job->tool == "novaterm_run_command") { runCommand(job, *entry); return; }
-        if (job->tool == "novaterm_run_script") { runScript(job, *entry); return; }
+        if (pending->tool == "novaterm_list_commands") { listCommands(pending, *entry); return; }
+        if (pending->tool == "novaterm_execute_command" || pending->tool == "novaterm_run_command"
+            || pending->tool == "novaterm_run_script") {
+            commands->start(CommandCall{TaskId{requestKey(pending->connection, pending->id)},
+                pending->connection, pending->id, ClientId{connection.client}, connection.key,
+                pending->request, pending->confirmationDigest,
+                pending->requestState, pending->answer, pending->mrtr, pending->formElicitation}, *entry);
+            return;
+        }
         if (entry->state == SessionState::Closing || entry->state == SessionState::Closed) {
-            complete(job, error("SESSION_CLOSED")); return;
+            complete(key, error("SESSION_CLOSED")); return;
         }
         if (entry->state != SessionState::Running && entry->state != SessionState::Failed) {
-            complete(job, error("SESSION_NOT_READY")); return;
+            complete(key, error("SESSION_NOT_READY")); return;
         }
-        if (job->tool == "novaterm_read_context") readContext(job, *entry);
-        else search(job, *entry);
+        if (pending->tool == "novaterm_read_context") readContext(pending, *entry);
+        else search(pending, *entry);
     }
 
-    void listSessions(const std::shared_ptr<Job>& job)
+    void listSessions(PendingRequest* pending)
     {
-        const auto connection = connections.value(job->connection);
-        const auto& request = std::get<ListSessionsRequest>(job->request);
-        const ReadUseCases reads{{&access, &sessions, &observation, terminal.get(), instance}};
+        const auto key = requestKey(pending->connection, pending->id);
+        const auto connection = connections.value(pending->connection);
+        const auto request = std::get<ListSessionsRequest>(pending->request);
+        const ReadUseCaseAdapter reads{{&access, &sessions, &observation, instance}};
         const auto result = reads.listSessions(connection.client, connection.key,
-            job->formElicitation, request);
-        if (isError(result)) { complete(job, ToolCodec::encodeFailure(*errorIfAny(result))); return; }
-        complete(job, success(std::get<QJsonObject>(result)));
+            pending->formElicitation, request);
+        if (isError(result)) { complete(key, ToolCodec::encodeFailure(*errorIfAny(result))); return; }
+        complete(key, success(std::get<QJsonObject>(result)));
     }
 
-    void readContext(const std::shared_ptr<Job>& job, const SessionDirectory::Entry& entry)
+    void readContext(PendingRequest* pending, const SessionDirectory::Entry& entry)
     {
-        const auto connection = connections.value(job->connection);
-        const auto& request = std::get<ReadContextRequest>(job->request);
-        const ReadUseCases reads{{&access, &sessions, &observation, terminal.get(), instance}};
-        const auto result = reads.readContext(entry, job->connection, connection.client, connection.key, request);
-        if (isError(result)) { complete(job, ToolCodec::encodeFailure(*errorIfAny(result))); return; }
-        complete(job, success(std::get<QJsonObject>(result)));
+        const auto key = requestKey(pending->connection, pending->id);
+        const auto connection = connections.value(pending->connection);
+        const auto request = std::get<ReadContextRequest>(pending->request);
+        const ReadUseCaseAdapter reads{{&access, &sessions, &observation, instance}};
+        const auto result = reads.readContext(entry, pending->connection, connection.client, connection.key, request);
+        if (isError(result)) { complete(key, ToolCodec::encodeFailure(*errorIfAny(result))); return; }
+        complete(key, success(std::get<QJsonObject>(result)));
     }
 
-    void search(const std::shared_ptr<Job>& job, const SessionDirectory::Entry& entry)
+    void search(PendingRequest* pending, const SessionDirectory::Entry& entry)
     {
-        const auto& typed = std::get<SearchContextRequest>(job->request);
+        const auto key = requestKey(pending->connection, pending->id);
+        const auto& typed = std::get<SearchContextRequest>(pending->request);
         const auto id = typed.capture.str();
         const auto captured = observation.captures().find(id);
         if (!captured || captured->scope != CaptureScope::Connection
-            || captured->owner != job->connection
+            || captured->owner != pending->connection
             || captured->session != entry.id || captured->epoch != entry.epoch) {
-            complete(job, error("CAPTURE_NOT_AVAILABLE")); return;
+            complete(key, error("CAPTURE_NOT_AVAILABLE")); return;
         }
         const auto record = *captured;
         const QString query = typed.query;
@@ -738,16 +547,23 @@ public:
             : typed.scope == SearchScope::RecentOutput ? QStringLiteral("recent_output")
             : QStringLiteral("both");
         const int maxMatches = typed.maxMatches;
-        QPointer<Service> guard(q);
-        workers.start(QRunnable::create([this, guard, job, record, id, query, caseSensitive, scope, maxMatches] {
+        if (!workers) {
+            workers = std::make_unique<QThreadPool>();
+            workers->setMaxThreadCount(1);
+            workers->setExpiryTimeout(1000);
+            searchMailbox = std::make_shared<SearchMailbox>(q);
+        }
+        const auto mailbox = searchMailbox;
+        const auto cancelled = pending->cancelled;
+        workers->start(QRunnable::create([mailbox, key, cancelled, record, id, query, caseSensitive, scope, maxMatches] {
             NovaTerm::setCurrentThreadName("nvterm-mcp-srch");
             QElapsedTimer timer;
             timer.start();
-            // 搜索语义由 ObservationService 统一实现；这里只注入取消/超时条件。
-            const auto found = observation.search(record, query,
+            // 纯搜索只消费不可变capture；不访问Service、Session或UI。
+            const auto found = searchCapture(record, query,
                 caseSensitive, scope, maxMatches,
-                [&job, &timer] { return job->cancelled || timer.elapsed() > 100; });
-            if (job->cancelled || !guard) return;
+                [&cancelled, &timer] { return *cancelled || timer.elapsed() > 100; });
+            if (*cancelled) return;
             QJsonArray matches;
             for (const auto& match : found.matches) {
                 matches.append(QJsonObject{{"source", match.source},
@@ -759,82 +575,26 @@ public:
                     {"matches", matches}, {"limited", found.limited},
                     {"sourceTruncated", record.sourceTruncated},
                     {"outputTruncated", record.outputTruncated}});
-            // guard 可能在上面那次检查之后、走到这里之前被销毁（Service::stop()
-            // 会 workers.waitForDone()，但 queued 的 lambda 仍待投递）。此时若照样
-            // 投递，Qt 会走 "Invalid nullptr argument" 警告路径且 lambda 不执行 ——
-            // 没有 UAF，但那条警告在日志里与真实协议故障无法区分。显式跳过。
-            if (!guard)
-                return;
-            QMetaObject::invokeMethod(guard, [this, guard, job, result] { if (guard) complete(job, result); }, Qt::QueuedConnection);
+            // stop()与投递共用邮箱锁，关闭后不再向已析构的接收者排队。
+            const std::lock_guard<std::mutex> lock(mailbox->mutex);
+            auto* receiver = mailbox->receiver;
+            if (!receiver) return;
+            QMetaObject::invokeMethod(receiver, [receiver, key, cancelled, result] {
+                if (!*cancelled)
+                    receiver->_impl->complete(key, result);
+            }, Qt::QueuedConnection);
         }));
     }
 
-    void listCommands(const std::shared_ptr<Job>& job, const SessionDirectory::Entry& entry)
+    void listCommands(PendingRequest* pending, const SessionDirectory::Entry& entry)
     {
-        const auto connection = connections.value(job->connection);
-        const ReadUseCases reads{{&access, &sessions, &observation, terminal.get(), instance}};
+        const auto key = requestKey(pending->connection, pending->id);
+        const auto connection = connections.value(pending->connection);
+        const ReadUseCaseAdapter reads{{&access, &sessions, &observation, instance}};
         const auto result = reads.listCommands(entry, connection.client, connection.key,
             clock.elapsed());
-        if (isError(result)) { complete(job, ToolCodec::encodeFailure(*errorIfAny(result))); return; }
-        complete(job, success(std::get<QJsonObject>(result)));
-    }
-
-    void runScript(const std::shared_ptr<Job>& job, const SessionDirectory::Entry& entry)
-    {
-        if (scriptCommands)
-            scriptCommands->runScript(job, entry);
-    }
-
-    void cancelScriptWritesForUserInput(TerminalSession* session,
-                                        quint64 userGeneration)
-    {
-        if (!session)
-            return;
-        const QString sessionId = session->id().toString(QUuid::WithoutBraces);
-        const auto ids = scriptWrites.ids();
-        for (const quint64 requestId : ids) {
-            const auto* task = scriptWrites.find(requestId);
-            if (task && task->session == sessionId
-                && task->userInputGeneration != userGeneration) {
-                cancel(task->job, error("SCRIPT_CANCELLED_BY_USER"), true);
-            }
-        }
-    }
-
-    void finishScriptWrite(const ScriptWriteResult& result)
-    {
-        scriptResults().handleResult(result);
-    }
-
-    void runCommand(const std::shared_ptr<Job>& job, const SessionDirectory::Entry& entry)
-    {
-        if (scriptCommands)
-            scriptCommands->runCommand(job, entry);
-    }
-
-    void command(const std::shared_ptr<Job>& job, const SessionDirectory::Entry& entry)
-    {
-        const auto connection = connections.value(job->connection);
-        DiagnosticCommandUseCase use{DiagnosticCommandUseCase::Ports{
-            &access, &executions, &scriptWrites, &guards, &lastCommand,
-            &observedFacades, &nextCommandRequest, instance,
-            [this] { return clock.elapsed(); }, q,
-            [this](const std::shared_ptr<Job>& target, QJsonObject payload) {
-                complete(target, std::move(payload));
-            },
-            [this] { emit q->changed(); },
-            [this](const CommandExecutionResult& result) { finishExecution(result); }}};
-        use.run(job, entry, connection.client, connection.key);
-    }
-
-    void finishExecution(const CommandExecutionResult& result)
-    {
-        ExecutionService service{{&executions, &guards, &jobs, instance,
-            [this](const std::shared_ptr<Job>& job, QJsonObject payload) {
-                complete(job, std::move(payload));
-            },
-            [this] { emit q->changed(); }}};
-        service.finish(result);
+        if (isError(result)) { complete(key, ToolCodec::encodeFailure(*errorIfAny(result))); return; }
+        complete(key, success(std::get<QJsonObject>(result)));
     }
 
     Service* q;
@@ -847,11 +607,11 @@ public:
     SessionDirectory sessions;
     HttpMcpEndpoint io;
     quint16 listenPort{0};
-    TargetGuard guards;
     QElapsedTimer clock;
     ObservationService observation{[this] { return qint64(clock.elapsed()); }};
     std::unique_ptr<TerminalInteraction> terminal;
-    QThreadPool workers;
+    std::unique_ptr<QThreadPool> workers;
+    std::shared_ptr<SearchMailbox> searchMailbox;
     QTimer timer;
     bool started{false};
     bool listening{false};
@@ -859,18 +619,8 @@ public:
     bool checkingSessionState{false};
     QHash<QString, Connection> connections;
     RequestScheduler scheduler;
-    TaskRegistry jobs;
-    ConfirmationRegistry confirmations;
-    ScriptTaskRegistry scriptWrites;
-    QSet<ISessionScriptProvider*> observedScriptProviders;
-    QSet<SessionInputArbiter*> observedInputArbiters;
-    ExecutionRegistry executions;
-    CommandDedup lastCommand;
-    QSet<SessionCommandFacade*> observedFacades;
-    QSet<SessionCommandCoordinator*> observedCoordinators;
-    std::unique_ptr<ScriptCommandUseCase> scriptCommands;
-    quint64 nextCommandRequest{quint64(1) << 60};
-    quint64 nextScriptWrite{quint64(1) << 59};
+    std::map<QString, std::unique_ptr<PendingRequest>> requests;
+    std::unique_ptr<CommandSessionAdapter> commands;
     quint64 requestCount{0}, rejectedCount{0}, completedCount{0}, cancelledCount{0};
     qsizetype peakRequests{0};
     qint64 maximumRequestMs{0};
@@ -902,14 +652,7 @@ QJsonObject Service::ccSwitchConfiguration(const QString& clientId) const
     return configuration.value(QStringLiteral("mcpServers")).toObject()
         .value(QStringLiteral("novaterm")).toObject();
 }
-QJsonArray Service::executionRecords() const
-{
-    QJsonArray result;
-    for (const auto& execution : _impl->executions.records())
-        result.append(QJsonObject{{"executionId", execution.id}, {"commandId", execution.commandId},
-            {"sessionId", execution.session}, {"complete", execution.complete}, {"result", execution.payload}});
-    return result;
-}
+QJsonArray Service::executionRecords() const { return _impl->commands->executionRecords(); }
 QJsonObject Service::statistics() const
 {
     const auto& captureDurations = _impl->observation.captureDurations();
@@ -934,28 +677,9 @@ QJsonObject Service::statistics() const
         {"http", _impl->io.statistics()},
         {"captureP95Ms", p95}, {"maximumRequestMs", _impl->maximumRequestMs}};
 }
-QJsonObject Service::protectedTargets() const { return _impl->guards.markers(); }
+QJsonObject Service::protectedTargets() const { return _impl->commands->protectedTargets(); }
 bool Service::acknowledgeTarget(const QString& fingerprint)
-{
-    for (const auto& task : _impl->scriptWrites.tasks())
-        if (task.targetFingerprint == fingerprint) return false;
-    for (const auto& execution : _impl->executions.records())
-        if (!execution.complete && execution.target == fingerprint) return false;
-    const bool ok = _impl->guards.acknowledge(fingerprint);
-    emit changed();
-    return ok;
-}
-bool Service::acknowledgeTarget(const QString& fingerprint, const QString& expectedExecutionId)
-{
-    if (expectedExecutionId.isEmpty())
-        return false;
-    for (const auto& task : _impl->scriptWrites.tasks())
-        if (task.targetFingerprint == fingerprint) return false;
-    for (const auto& execution : _impl->executions.records())
-        if (!execution.complete && execution.target == fingerprint) return false;
-    const bool ok = _impl->guards.release(fingerprint, expectedExecutionId);
-    if (ok)
-        emit changed();
-    return ok;
-}
+{ return _impl->commands->acknowledgeTarget(fingerprint); }
+bool Service::acknowledgeTarget(const QString& fingerprint, const QString& executionId)
+{ return !executionId.isEmpty() && _impl->commands->acknowledgeTarget(fingerprint, executionId); }
 }

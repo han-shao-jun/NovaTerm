@@ -4,15 +4,13 @@
 #include "CapabilityAdapter.h"
 #include "ObservationService.h"
 #include "mcp/contracts/Budget.h"
+#include "mcp/application/ObservationState.h"
 #include "protocol/ProtocolProjectionSizer.h"
 #include "protocol/ToolCodec.h"
 #include "session/SessionTerminalController.h"
 #include <QElapsedTimer>
 #include <QJsonArray>
-#include <QJsonDocument>
-#include <QCryptographicHash>
 #include <QDateTime>
-#include <QRegularExpression>
 #include <QSet>
 #include <QTimer>
 #include <QTimeZone>
@@ -21,45 +19,12 @@
 namespace NovaTerm::Mcp {
 namespace {
 QString number(quint64 value) { return QString::number(value); }
-QByteArray digest(const QJsonObject& value) {
-    return QCryptographicHash::hash(QJsonDocument(value).toJson(QJsonDocument::Compact), QCryptographicHash::Sha256);
-}
 bool commandAction(const ToolRequest& request)
 {
     if (const auto* value = std::get_if<InteractTerminalRequest>(&request))
         return !value->actions.empty()
             && std::holds_alternative<CommandAction>(value->actions.front());
     return false;
-}
-
-std::optional<std::chrono::milliseconds> waitOf(const ToolRequest& request)
-{
-    return std::visit([](const auto& value) -> std::optional<std::chrono::milliseconds> {
-        using Type = std::decay_t<decltype(value)>;
-        if constexpr (std::is_same_v<Type, ReadContextRequest>
-            || std::is_same_v<Type, InteractTerminalRequest>
-            || std::is_same_v<Type, RequestElevationRequest>)
-            return value.wait;
-        return std::nullopt;
-    }, request);
-}
-
-QString waitMode(const ToolRequest& request, bool interaction)
-{
-    std::optional<WaitCondition> condition;
-    std::visit([&condition](const auto& value) {
-        using Type = std::decay_t<decltype(value)>;
-        if constexpr (std::is_same_v<Type, ReadContextRequest>
-            || std::is_same_v<Type, InteractTerminalRequest>
-            || std::is_same_v<Type, RequestElevationRequest>)
-            condition = value.waitFor;
-    }, request);
-    if (condition)
-        return *condition == WaitCondition::Change ? QStringLiteral("change")
-            : *condition == WaitCondition::Completion ? QStringLiteral("completion")
-            : QStringLiteral("attention");
-    return interaction && !commandAction(request)
-        ? QStringLiteral("change") : QStringLiteral("attention");
 }
 
 std::optional<ProjectionMode> projectionOf(const ToolRequest& request)
@@ -98,21 +63,11 @@ std::optional<int> maxLinesOf(const ToolRequest& request)
 
 class TerminalInteraction::Impl {
 public:
-    struct Replay {
-        quint64 generation{0}, next{0}; QString operation, epoch;
-        QByteArray hash; quint64 grant{0};
-    };
-    struct Pending {
-        QString client, request, tool, session, epoch, mode, wake;
-        ToolRequest typed; Completion done;
-        quint64 since{0}, event{0}, user{0}, control{0}, grant{0};
-        qint64 deadline{0}, created{0}; bool initial{false}, interaction{false};
-        bool completed{false};
-    };
+    using Pending = ObservationWait;
     Impl(TerminalInteraction* owner, AccessStore* store, SessionDirectory* directory,
          ObservationService* observationService)
         : q(owner), access(store), sessions(directory), observation(observationService),
-          key(randomBytes()) {
+          key(randomBytes()), state([this] { return clock.elapsed(); }) {
         clock.start(); poll.setInterval(250);
         wake.setSingleShot(true);
         QObject::connect(&wake, &QTimer::timeout, q, [this] { flush(); });
@@ -126,13 +81,10 @@ public:
     ObservationService* observation;
     QByteArray key;
     QElapsedTimer clock;
+    ObservationState state;
     QTimer poll;
     QTimer wake;
-    QList<std::shared_ptr<Pending>> waiting;
-    QHash<QString, Replay> replays;
-    QHash<QString, quint64> lastModel;
-    QHash<QString, qint64> lastOutput;
-    QHash<QString, QSet<QByteArray>> deliveredHints;
+    QHash<RequestId, Completion> deliveries;
     QSet<TerminalSession*> watched;
     bool flushing{false};
 
@@ -140,21 +92,22 @@ public:
         if (watched.contains(session)) return;
         watched.insert(session);
         QObject::connect(session, &TerminalSession::activityChanged, q, [this, session] {
-            const auto id = session->id().toString(QUuid::WithoutBraces);
-            const auto revision = session->core()->modelRevision();
-            if (lastModel.value(id) != revision) {
-                lastModel[id] = revision;
-                lastOutput[id] = clock.elapsed();
-            }
+            state.outputChanged(SessionId{session->id().toString(QUuid::WithoutBraces)},
+                session->core()->modelRevision());
             scheduleFlush();
         });
         QObject::connect(session, &TerminalSession::terminalControlChanged, q, [this] {
             if (q->onChanged) q->onChanged();
+            scheduleFlush();
         });
         QObject::connect(session, &QObject::destroyed, q, [this, session] { watched.remove(session); });
     }
     void scheduleFlush() {
-        if (!waiting.isEmpty() && !wake.isActive()) wake.start(0);
+        if (state.hasWaiters() && !wake.isActive()) wake.start(0);
+    }
+    void updatePolling() {
+        if (!state.hasWaiters()) { poll.stop(); wake.stop(); }
+        else if (!poll.isActive()) poll.start();
     }
     std::shared_ptr<const TerminalContextProvider::Snapshot> baseSnapshot(
         const SessionDirectory::Entry& entry) {
@@ -188,35 +141,83 @@ public:
                 {"available", capability.shellIntegrationAvailable}}},
             {"elevationMethods", QJsonArray{}}}; // No unverified password-prompt adapter.
     }
-    std::optional<QJsonObject> token(const QString& encoded, const QString& client,
-                                    const SessionDirectory::Entry& entry, const char* kind) {
-        const auto result = verifyToken(encoded, key);
-        if (!result || result->value("k") != kind || result->value("c") != client
-            || result->value("s") != entry.id || result->value("e") != entry.epoch
-            || result->value("g").toString() != number(access->version(client))) return std::nullopt;
-        return result;
+    std::optional<QJsonObject> token(const QString& encoded, const char* kind) const {
+        const auto decoded = verifyToken(encoded, key);
+        return decoded && decoded->value("k") == kind ? decoded : std::nullopt;
     }
-    QJsonObject inputState(const QString& client, const SessionDirectory::Entry& entry) {
+    ObservationBinding binding(const std::optional<QJsonObject>& value) const {
+        if (!value) return {};
+        bool valid = false;
+        const auto grant = value->value("g").toString().toULongLong(&valid);
+        return {valid, ClientId{value->value("c").toString()},
+            {SessionId{value->value("s").toString()}, Epoch{value->value("e").toString()}},
+            ClientAccessVersion{grant}};
+    }
+    TerminalControlFacts controlFacts(const QString& client, const SessionDirectory::Entry& entry,
+                                     bool admission = false) const {
         auto* ctrl = entry.session->terminalController();
-        const auto replay = replays.value(client + '/' + entry.id);
-        return {{"k", "i"}, {"c", client}, {"s", entry.id}, {"e", entry.epoch},
-            {"g", number(access->version(client))}, {"u", number(ctrl->userGeneration())},
-            {"t", number(ctrl->controlGeneration())}, {"p", number(ctrl->promptGeneration())},
-            {"x", ctrl->executionId()}, {"n", number(replay.generation == ctrl->controlGeneration() ? replay.next : 0)},
-            {"expires", double(clock.elapsed() + Budget::MaxTerminalWaitMs)}};
+        TerminalControlFacts facts;
+        facts.session = {SessionId{entry.id}, Epoch{entry.epoch}};
+        facts.grant = ClientAccessVersion{access->version(client)};
+        facts.user = ctrl->userGeneration(); facts.control = ctrl->controlGeneration();
+        facts.prompt = ctrl->promptGeneration(); facts.execution = ExecutionId{ctrl->executionId()};
+        facts.owner = ClientId{ctrl->owner()}; facts.commandActive = ctrl->commandActive();
+        facts.readyForCommand = ctrl->readyForCommand(); facts.integrated = ctrl->integrated();
+        facts.pending = ctrl->pending();
+        if (admission) {
+            const auto capability = sessionCapabilities(entry, client, *access, false);
+            if (!capability.terminalInputDisabledReason.isEmpty())
+                facts.unavailable = errorCodeFromName(capability.terminalInputDisabledReason)
+                    .value_or(ErrorCode::ControlInvalid);
+            for (const auto& row : sessions->entries())
+                if (row.session && !row.session->terminalController()->owner().isEmpty()) ++facts.controlledSessions;
+        }
+        return facts;
     }
-    QString inputError(const QString& encoded, const QString& client, const SessionDirectory::Entry& entry) {
-        const auto value = token(encoded, client, entry, "i");
-        if (!value) return QStringLiteral("CONTROL_INVALID");
-        if (value->value("expires").toDouble() <= clock.elapsed()) return QStringLiteral("INPUT_TOKEN_EXPIRED");
-        auto expected = inputState(client, entry);
-        for (const auto& field : {"u", "t", "p", "x"})
-            if (value->value(field) != expected.value(field)) return QStringLiteral("CONTROL_INVALID");
-        const auto sequence = value->value("n").toString().toULongLong();
-        const auto next = expected.value("n").toString().toULongLong();
-        if (sequence < next) return QStringLiteral("INPUT_ALREADY_SUBMITTED");
-        if (sequence > next) return QStringLiteral("INPUT_OUT_OF_ORDER");
-        return {};
+    InputClaims inputClaims(const QString& encoded) const {
+        const auto value = token(encoded, "i");
+        InputClaims claims;
+        claims.binding = binding(value);
+        if (!value) return claims;
+        bool valid = true;
+        const auto count = [&](const char* name) {
+            bool ok = false;
+            const auto result = value->value(QLatin1String(name)).toString().toULongLong(&ok);
+            valid &= ok;
+            return result;
+        };
+        claims.user = count("u"); claims.control = count("t"); claims.prompt = count("p");
+        claims.sequence = count("n"); claims.execution = ExecutionId{value->value("x").toString()};
+        claims.expires = qint64(value->value("expires").toDouble());
+        claims.binding.verified &= valid && value->value("expires").isDouble();
+        return claims;
+    }
+    QJsonObject inputState(const QString& client, const SessionDirectory::Entry& entry) const {
+        const auto claims = state.inputClaims(ClientId{client}, controlFacts(client, entry));
+        return {{"k", "i"}, {"c", client}, {"s", entry.id}, {"e", entry.epoch},
+            {"g", number(claims.binding.grant.value())}, {"u", number(claims.user)},
+            {"t", number(claims.control)}, {"p", number(claims.prompt)},
+            {"x", claims.execution.str()}, {"n", number(claims.sequence)}, {"expires", double(claims.expires)}};
+    }
+    ObservationCursor readCursor(const QString& encoded, const QString& client,
+                                 const QByteArray& legacyKey) const {
+        ObservationCursor cursor;
+        if (const auto value = token(encoded, "r")) {
+            cursor.binding = binding(value);
+            bool modelValid = false, eventValid = false;
+            cursor.model = value->value("r").toString().toULongLong(&modelValid);
+            cursor.event = value->value("v").toString().toULongLong(&eventValid);
+            cursor.binding.verified &= modelValid && eventValid;
+        } else if (const auto legacy = legacyKey.isEmpty() ? std::nullopt : verifyToken(encoded, legacyKey)) {
+            bool modelValid = false, grantValid = false;
+            cursor.model = legacy->value("revision").toString().toULongLong(&modelValid);
+            const auto grant = legacy->value("grant").toString().toULongLong(&grantValid);
+            cursor.binding = {modelValid && grantValid && legacy->value("kind") == "context", ClientId{client},
+                {SessionId{legacy->value("session").toString()}, Epoch{legacy->value("epoch").toString()}},
+                ClientAccessVersion{grant}};
+            cursor.legacy = true; cursor.includeViewport = legacy->value("viewport").toBool();
+        }
+        return cursor;
     }
     void call(const QString& client, const QString& request, const ToolRequest& typed,
               Completion done, const QByteArray& legacyCursorKey) {
@@ -227,129 +228,72 @@ public:
         if (entry->epoch != reference->epoch.str()) { done(failure("STALE_SESSION_EPOCH", "Refresh the session identity.")); return; }
         watch(entry->session);
         auto* ctrl = entry->session->terminalController();
-        const QString tool = ToolCodec::toolName(typed);
         if (const auto* searchRequest = std::get_if<SearchContextRequest>(&typed)) {
-            search(client, *entry, *searchRequest, std::move(done));
-            return;
+            search(client, *entry, *searchRequest, std::move(done)); return;
         }
         const auto* readRequest = std::get_if<ReadContextRequest>(&typed);
         if (readRequest && readRequest->expandToken) {
-            expand(client, *entry, *readRequest, std::move(done));
-            return;
+            expand(client, *entry, *readRequest, std::move(done)); return;
         }
-        bool replacesWait = false;
-        for (const auto& old : waiting) if (old->client == client && old->session == entry->id) replacesWait = true;
-        if (waiting.size() >= Budget::MaxObservationWaiters && !replacesWait) { done(failure("BUSY", "Observation waiter budget is full.")); return; }
-        auto job = std::make_shared<Pending>();
-        job->client = client; job->request = request; job->tool = tool; job->typed = typed;
-        job->session = entry->id; job->epoch = entry->epoch; job->done = std::move(done);
-        job->created = clock.elapsed(); job->grant = access->version(client);
-        job->interaction = tool != "novaterm_read_context";
+        if (!state.canAdmit(ClientId{client}, SessionId{entry->id})) {
+            done(failure("BUSY", "Observation waiter budget is full.")); return;
+        }
+        Pending job;
+        job.client = ClientId{client}; job.request = RequestId{request}; job.typed = typed;
+        job.session = *reference; job.grant = ClientAccessVersion{access->version(client)};
+        job.interaction = !readRequest;
         const auto snapshot = baseSnapshot(*entry);
-        if (!snapshot) { job->done(failure("BUSY", "Snapshot is being prepared.", true, 50)); return; }
-        job->since = snapshot->state.revision; job->event = ctrl->revision();
-        job->user = ctrl->userGeneration(); job->control = ctrl->controlGeneration();
-        const auto wait = waitOf(typed);
-        int duration = wait ? int(wait->count())
-            : job->interaction ? (commandAction(typed) ? Budget::MaxTerminalWaitMs : 1000) : 0;
-        job->mode = waitMode(typed, job->interaction);
-        if (!job->interaction) {
+        if (!snapshot) { done(failure("BUSY", "Snapshot is being prepared.", true, 50)); return; }
+        job.since = snapshot->state.revision; job.event = ctrl->revision();
+        job.user = ctrl->userGeneration(); job.control = ctrl->controlGeneration();
+        if (readRequest) {
             const auto encoded = readRequest->sinceToken.value_or(QString());
-            job->initial = encoded.isEmpty();
-            if (!encoded.isEmpty()) {
-                const auto cursor = token(encoded, client, *entry, "r");
-                if (cursor) {
-                    job->since = cursor->value("r").toString().toULongLong();
-                    job->event = cursor->value("v").toString().toULongLong();
-                } else {
-                    // A client may opt into compact/waiting after a legacy read.
-                    // Verify its original connection-bound cursor before migrating.
-                    const auto legacy = legacyCursorKey.isEmpty() ? std::nullopt
-                        : verifyToken(encoded, legacyCursorKey);
-                    bool validRevision = false;
-                    const auto revision = legacy
-                        ? legacy->value("revision").toString().toULongLong(&validRevision) : 0;
-                    if (!legacy || !validRevision || legacy->value("kind") != "context"
-                        || legacy->value("session") != entry->id || legacy->value("epoch") != entry->epoch
-                        || legacy->value("grant").toString() != number(job->grant)
-                        || legacy->value("viewport").toBool() != readRequest->includeViewport.value_or(true)) {
-                        job->done(failure("CURSOR_STALE", "Refresh the observation.")); return;
-                    }
-                    job->since = revision;
-                }
+            job.initial = encoded.isEmpty();
+            if (!job.initial) {
+                const auto restored = state.restoreCursor(readCursor(encoded, client, legacyCursorKey),
+                    job.client, job.session, job.grant, readRequest->includeViewport.value_or(true));
+                if (const auto* error = errorIfAny(restored)) { done(ToolCodec::encodeFailure(*error)); return; }
+                const auto& cursor = std::get<ObservationCursor>(restored);
+                job.since = cursor.model;
+                if (!cursor.legacy) job.event = cursor.event;
             }
         } else {
-            const auto availability = capabilities(client, entry->id).value("availability").toObject();
-            const auto denied = availability.value("disabledReason").toString();
-            if (!denied.isEmpty()) { job->done(failure(denied, denied)); return; }
-            const auto* elevation = std::get_if<RequestElevationRequest>(&typed);
-            const auto* interaction = std::get_if<InteractTerminalRequest>(&typed);
-            if (elevation) {
-                if (!access->canUseElevation(client, *entry)) job->done(failure("ELEVATION_PERMISSION_REQUIRED", "Managed elevation is not authorized."));
-                else if (const auto error = inputError(elevation->inputToken, client, *entry); !error.isEmpty())
-                    job->done(failure(error, "Observe before requesting elevation."));
-                else job->done(failure("ELEVATION_ADAPTER_UNAVAILABLE", "No trusted authentication adapter is installed for this connection."));
-                return; // Never retrieve or submit a credential through ordinary terminal input.
+            const auto facts = controlFacts(client, *entry, true);
+            if (facts.unavailable) { done(ToolCodec::encodeFailure(Error{*facts.unavailable})); return; }
+            if (const auto* elevation = std::get_if<RequestElevationRequest>(&typed)) {
+                if (!access->canUseElevation(client, *entry))
+                    done(failure("ELEVATION_PERMISSION_REQUIRED", "Managed elevation is not authorized."));
+                else if (const auto error = state.validateInput(inputClaims(elevation->inputToken), job.client, facts))
+                    done(ToolCodec::encodeFailure(*error));
+                else done(failure("ELEVATION_ADAPTER_UNAVAILABLE", "No trusted authentication adapter is installed for this connection."));
+                return;
             }
-            const QString replayKey = client + '/' + entry->id;
-            const QString operation = interaction->operation.str();
-            const QString reply = interaction->replyToExecution
-                ? interaction->replyToExecution->str() : QString();
-            QJsonObject actionIdentity{{"actions", ToolCodec::encodeActions(interaction->actions)},
-                {"replyToExecutionId", reply},
-                {"requireVerifiedReady", interaction->requireVerifiedReady}};
-            const auto hash = digest(actionIdentity);
-            auto& replay = replays[replayKey];
-            if (replay.operation == operation && replay.epoch == entry->epoch && replay.grant == job->grant
-                && replay.generation == ctrl->controlGeneration()) {
-                if (replay.hash != hash) { job->done(failure("INPUT_SEQUENCE_CONFLICT", "Operation ID was used with other actions.")); return; }
-                duration = 0; job->wake = "state_changed";
-            } else {
-                const auto error = inputError(interaction->inputToken, client, *entry);
-                if (!error.isEmpty()) { job->done(failure(error, "Input context changed; observe again.")); return; }
-                const auto& actions = interaction->actions;
-                const bool release = !actions.empty()
-                    && std::holds_alternative<ReleaseAction>(actions.front());
-                const bool command = commandAction(typed);
-                if ((!reply.isEmpty() && (!ctrl->commandActive() || ctrl->executionId() != reply))
-                    || (ctrl->commandActive() && !release && reply.isEmpty())) {
-                    job->done(failure("COMMAND_CONTEXT_CHANGED", "Associate the input with the active command.")); return;
-                }
-                if (command && (!ctrl->readyForCommand()
-                    || (interaction->requireVerifiedReady && !ctrl->integrated()))) {
-                    job->done(failure("CONTEXT_NOT_READY", "Observe the current program before submitting a command.")); return;
-                }
-                if (ctrl->pending()) { job->done(failure("INPUT_BUSY", "The previous input batch is still being encoded.", true, 50)); return; }
-                if (release) {
-                    ctrl->release(client, QStringLiteral("released"), operation); duration = 0;
-                } else {
-                    int controlled = 0;
-                    for (const auto& session : sessions->entries()) if (session.session
-                        && !session.session->terminalController()->owner().isEmpty()) ++controlled;
-                    if (controlled >= Budget::MaxObservedControlSessions && ctrl->owner().isEmpty()) { job->done(failure("BUSY", "Terminal control budget is full.")); return; }
-                    if (!ctrl->acquire(client)) { job->done(failure("TERMINAL_BUSY", "Terminal input is owned by another operation.")); return; }
-                    if (!ctrl->submit(client, operation, encode(actions, ctrl->lineEnding()),
-                        command, int(actions.size()))) {
-                        job->done(failure("INPUT_BUSY", "Input was not accepted.")); return;
+            const auto& input = std::get<InteractTerminalRequest>(typed);
+            const auto prepared = state.prepareInput(job.client, input, inputClaims(input.inputToken), facts);
+            if (const auto* error = errorIfAny(prepared)) { done(ToolCodec::encodeFailure(*error)); return; }
+            const auto admission = std::get<InputAdmission>(prepared);
+            if (admission == InputAdmission::Replay) job.immediate = ObservationWake::StateChanged;
+            else {
+                if (admission == InputAdmission::Release)
+                    ctrl->release(client, QStringLiteral("released"), input.operation.str());
+                else {
+                    if (!ctrl->acquire(client)) { done(failure("TERMINAL_BUSY", "Terminal input is owned by another operation.")); return; }
+                    if (!ctrl->submit(client, input.operation.str(), encode(input.actions, ctrl->lineEnding()),
+                        commandAction(typed), int(input.actions.size()))) {
+                        done(failure("INPUT_BUSY", "Input was not accepted.")); return;
                     }
                 }
-                if (replay.generation != ctrl->controlGeneration()) replay.next = 0;
-                replay.generation = ctrl->controlGeneration(); ++replay.next;
-                replay.operation = operation; replay.epoch = entry->epoch;
-                replay.grant = job->grant; replay.hash = hash;
-                deliveredHints.remove(replayKey);
-                // Do not return merely because admission changed the state to queued/submitted.
-                job->event = ctrl->revision(); job->control = ctrl->controlGeneration();
+                state.inputAccepted(job.client, input, controlFacts(client, *entry));
+                job.event = ctrl->revision(); job.control = ctrl->controlGeneration();
             }
         }
-        for (const auto& old : waiting) if (old->client == client && old->session == entry->id) {
-            old->deadline = clock.elapsed(); old->wake = "state_changed";
-        }
-        job->deadline = clock.elapsed() + duration;
-        if (job->initial) job->deadline = clock.elapsed();
-        waiting.append(job); ctrl->touch(client);
-        if (!poll.isActive()) poll.start();
-        scheduleFlush();
+        const auto admitted = state.admit(job);
+        if (const auto* error = errorIfAny(admitted)) { done(ToolCodec::encodeFailure(*error)); return; }
+        deliveries.insert(job.request, std::move(done));
+        ctrl->touch(client);
+        for (const auto& replaced : std::get<QList<ObservationCompletion>>(admitted))
+            deliver(replaced, entry, snapshot);
+        updatePolling(); scheduleFlush();
     }
 
     std::vector<NovaTerm::TerminalInputAction> encode(
@@ -395,68 +339,62 @@ public:
         return result;
     }
 
+    static QString wakeName(ObservationWake wake) {
+        switch (wake) {
+        case ObservationWake::Initial: return QStringLiteral("initial");
+        case ObservationWake::Deadline: return QStringLiteral("deadline");
+        case ObservationWake::StateChanged: return QStringLiteral("state_changed");
+        case ObservationWake::ControlChanged: return QStringLiteral("control_changed");
+        case ObservationWake::CommandFinished: return QStringLiteral("command_finished");
+        case ObservationWake::OutputChanged: return QStringLiteral("output_changed");
+        case ObservationWake::AttentionCandidate: return QStringLiteral("attention_candidate");
+        case ObservationWake::DiagnosticCandidate: return QStringLiteral("diagnostic_candidate");
+        }
+        return {};
+    }
+    void deliver(const ObservationCompletion& completed,
+                 const std::optional<SessionDirectory::Entry>& entry = std::nullopt,
+                 const std::shared_ptr<const TerminalContextProvider::Snapshot>& snapshot = {}) {
+        auto done = deliveries.take(completed.wait.request);
+        if (!done) return;
+        if (completed.error) done(ToolCodec::encodeFailure(*completed.error));
+        else if (!entry || !entry->session || !snapshot)
+            done(failure("SESSION_NOT_AVAILABLE", "The observation connection changed."));
+        else done(project(completed.wait, *entry, *snapshot, wakeName(completed.wake)));
+    }
     void flush() {
         if (flushing) return;
         flushing = true;
-        const auto copy = waiting;
-        for (const auto& job : copy) {
-            if (!waiting.contains(job)) continue;
-            const auto entry = sessions->find(job->session);
-            if (job->completed || !waiting.contains(job)) continue;
-            if (!entry || !entry->session || !access->canRead(job->client, *entry)
-                || entry->epoch != job->epoch || access->version(job->client) != job->grant) {
-                finish(job, failure("SESSION_NOT_AVAILABLE", "The observation permission or connection changed.")); continue;
+        for (const auto& job : state.waiters()) {
+            const auto entry = sessions->find(job.session.session.str());
+            ObservationFacts facts;
+            facts.available = entry && entry->session && access->canRead(job.client.str(), *entry);
+            std::shared_ptr<const TerminalContextProvider::Snapshot> snapshot;
+            if (facts.available) {
+                facts.session = {SessionId{entry->id}, Epoch{entry->epoch}};
+                facts.grant = ClientAccessVersion{access->version(job.client.str())};
+                auto* ctrl = entry->session->terminalController();
+                facts.event = ctrl->revision(); facts.user = ctrl->userGeneration();
+                facts.control = ctrl->controlGeneration(); facts.running = entry->state == SessionState::Running;
+                facts.commandFinished = ctrl->observation(job.client.str()).value("command").toObject().value("state") == "finished";
+                snapshot = baseSnapshot(*entry);
+                facts.snapshotAvailable = bool(snapshot);
+                if (snapshot) {
+                    facts.model = snapshot->state.revision;
+                    for (auto it = snapshot->state.viewport.crbegin(); it != snapshot->state.viewport.crend(); ++it) {
+                        auto line = QString::fromUtf8(it->text.data(), qsizetype(it->text.size()));
+                        if (!line.trimmed().isEmpty()) { facts.lastVisibleLine = std::move(line); break; }
+                    }
+                }
             }
-            auto* ctrl = entry->session->terminalController();
-            const auto snapshot = baseSnapshot(*entry);
-            if (!snapshot) {
-                if (clock.elapsed() >= job->deadline) finish(job, failure("BUSY", "Snapshot is being prepared.", true, 50));
-                continue;
-            }
-            const auto revision = snapshot->state.revision;
-            QString wake = job->wake;
-            const auto command = ctrl->observation(job->client).value("command").toObject();
-            const bool event = job->event != ctrl->revision();
-            const bool model = job->since != revision;
-            if (wake.isEmpty() && (ctrl->userGeneration() != job->user || ctrl->controlGeneration() != job->control
-                || entry->state != SessionState::Running)) wake = "control_changed";
-            if (wake.isEmpty() && event && command.value("state") == "finished") wake = "command_finished";
-            if (wake.isEmpty() && job->mode == "change" && (model || event)
-                && clock.elapsed() - lastOutput.value(entry->id) >= 150) wake = "output_changed";
-            if (wake.isEmpty() && job->mode == "attention" && model
-                && clock.elapsed() - lastOutput.value(entry->id) >= 150) wake = attention(*job, *snapshot);
-            if (wake.isEmpty() && clock.elapsed() >= job->deadline) wake = job->initial ? "initial" : "deadline";
-            if (!wake.isEmpty() && !job->completed && waiting.contains(job)) {
-                ctrl->touch(job->client);
-                finish(job, project(*job, *entry, *snapshot, wake));
+            if (const auto completed = state.evaluate(job.request, facts)) {
+                if (!completed->error && entry && entry->session)
+                    entry->session->terminalController()->touch(job.client.str());
+                deliver(*completed, entry, snapshot);
             }
         }
         flushing = false;
-        if (waiting.isEmpty()) poll.stop();
-    }
-    QString attention(const Pending& job, const TerminalContextProvider::Snapshot& snapshot) {
-        auto& hints = deliveredHints[job.client + '/' + job.session];
-        if (hints.size() >= 4) return {};
-        QString last;
-        for (auto it = snapshot.state.viewport.crbegin();
-             it != snapshot.state.viewport.crend(); ++it) {
-            const auto text = QString::fromUtf8(it->text.data(), qsizetype(it->text.size()));
-            if (!text.trimmed().isEmpty()) { last = text; break; }
-        }
-        static const QRegularExpression prompt(QStringLiteral("(?i)(\\[[yn]/[yn]\\]|\\([yn]/[yn]\\)|(?:password|passphrase):\\s*$|(?:continue|proceed).{0,32}\\?|press .{0,32}key)"));
-        static const QRegularExpression error(QStringLiteral("(?i)^(?:fatal error:|error:|traceback|panic:)|: fatal error:"));
-        const QString type = prompt.match(last).hasMatch() ? "attention_candidate"
-            : error.match(last).hasMatch() ? "diagnostic_candidate" : "";
-        if (type.isEmpty()) return {};
-        const auto fingerprint = QCryptographicHash::hash((type + last).toUtf8(), QCryptographicHash::Sha256);
-        if (hints.contains(fingerprint) || hints.size() >= 4) return {};
-        hints.insert(fingerprint); return type;
-    }
-    void finish(const std::shared_ptr<Pending>& job, const QJsonObject& result) {
-        if (job->completed) return;
-        job->completed = true;
-        waiting.removeAll(job);
-        job->done(result);
+        updatePolling();
     }
 
     QJsonObject project(const Pending& job, const SessionDirectory::Entry& entry,
@@ -466,7 +404,7 @@ public:
             job.interaction ? ProjectionMode::Compact : ProjectionMode::Full)
             == ProjectionMode::Compact;
         const bool changed = job.since != snapshot.state.revision;
-        QJsonObject data = ctrl->observation(job.client);
+        QJsonObject data = ctrl->observation(job.client.str());
         data.insert("sessionId", entry.id); data.insert("epoch", entry.epoch);
         data.insert("observationId", newId()); data.insert("modelRevision", number(snapshot.state.revision));
         data.insert("eventRevision", number(ctrl->revision())); data.insert("sessionState", SessionDirectory::stateName(entry.state));
@@ -478,11 +416,11 @@ public:
         data.insert("alternateScreen", snapshot.state.alternateScreen);
         data.insert("cursor", QJsonObject{{"row", snapshot.state.cursor.position.row}, {"column", snapshot.state.cursor.position.col}});
         data.insert("operation", job.interaction ? QJsonValue(ctrl->operation()) : QJsonValue(QJsonValue::Undefined));
-        QJsonObject cursor{{"k", "r"}, {"c", job.client}, {"s", entry.id}, {"e", entry.epoch},
-            {"g", number(job.grant)}, {"r", number(snapshot.state.revision)}, {"v", number(ctrl->revision())}};
+        QJsonObject cursor{{"k", "r"}, {"c", job.client.str()}, {"s", entry.id}, {"e", entry.epoch},
+            {"g", number(job.grant.value())}, {"r", number(snapshot.state.revision)}, {"v", number(ctrl->revision())}};
         data.insert("nextToken", signToken(cursor, key));
-        const bool canInput = capabilities(job.client, entry.id).value("availability").toObject().value("inputAvailable").toBool();
-        if (canInput) data.insert("inputToken", signToken(inputState(job.client, entry), key));
+        const bool canInput = capabilities(job.client.str(), entry.id).value("availability").toObject().value("inputAvailable").toBool();
+        if (canInput) data.insert("inputToken", signToken(inputState(job.client.str(), entry), key));
         auto readiness = data.value("inputReadiness").toObject();
         readiness.insert("canInteract", canInput && readiness.value("canInteract").toBool());
         readiness.insert("canSubmitCommand", canInput && readiness.value("canSubmitCommand").toBool());
@@ -515,10 +453,10 @@ public:
             observation->captures().sweep(now);
             CaptureRecord record;
             record.scope = CaptureScope::Client;
-            record.owner = job.client;
+            record.owner = job.client.str();
             record.session = entry.id;
             record.epoch = entry.epoch;
-            record.grantVersion = job.grant;
+            record.grantVersion = job.grant.value();
             record.revision = number(snapshot.state.revision);
             record.lines.reserve(lines.size());
             for (const auto& item : lines) {
@@ -533,7 +471,7 @@ public:
         }
         data.insert("captureId", captureId);
         return fit(data, lines, compact, maxBytesOf(job.typed), maxLinesOf(job.typed),
-            captureId, job.client, entry, false);
+            captureId, job.client.str(), entry, false);
     }
     QJsonObject fit(QJsonObject data, const QJsonArray& all, bool compact,
                    std::optional<int> maxBytes, std::optional<int> maxLinesOption,
@@ -661,14 +599,13 @@ public:
     }
     void expand(const QString& client, const SessionDirectory::Entry& entry,
                 const ReadContextRequest& request, Completion done) {
-        const auto value = token(request.expandToken.value_or(QString()), client, entry, "z");
+        const auto value = token(request.expandToken.value_or(QString()), "z");
         const auto captured = value
             ? observation->captures().find(value->value("id").toString()) : std::optional<CaptureRecord>{};
-        if (!value || !captured || captured->scope != CaptureScope::Client
-            || captured->owner != client || captured->session != entry.id
-            || captured->epoch != entry.epoch
-            || captured->grantVersion != access->version(client)
-            || captured->expires <= clock.elapsed()) {
+        const SessionReference reference{SessionId{entry.id}, Epoch{entry.epoch}};
+        const auto grant = ClientAccessVersion{access->version(client)};
+        if (!value || !captured || !state.matches(binding(value), ClientId{client}, reference, grant)
+            || !state.captureAvailable(*captured, ClientId{client}, reference, grant)) {
             done(failure("CAPTURE_EXPIRED", "The bounded capture is no longer available.")); return;
         }
         QJsonObject data{{"sessionId", entry.id}, {"epoch", entry.epoch},
@@ -691,10 +628,8 @@ public:
     void search(const QString& client, const SessionDirectory::Entry& entry,
                 const SearchContextRequest& request, Completion done) {
         const auto captured = observation->captures().find(request.capture.str());
-        if (!captured || captured->scope != CaptureScope::Client || captured->owner != client
-            || captured->session != entry.id || captured->epoch != entry.epoch
-            || captured->grantVersion != access->version(client)
-            || captured->expires <= clock.elapsed()) {
+        if (!captured || !state.captureAvailable(*captured, ClientId{client},
+            {SessionId{entry.id}, Epoch{entry.epoch}}, ClientAccessVersion{access->version(client)})) {
             done(failure("CAPTURE_NOT_AVAILABLE", "Capture is not available.")); return;
         }
         const QString scope = request.scope == SearchScope::Viewport ? QStringLiteral("viewport")
@@ -714,31 +649,24 @@ public:
             {"outputTruncated", captured->outputTruncated}}));
     }
     void cancel(const QString& request) {
-        const auto copy = waiting;
-        for (const auto& job : copy) if (job->request == request) waiting.removeAll(job);
-        if (waiting.isEmpty()) poll.stop();
+        state.cancel(RequestId{request});
+        deliveries.remove(RequestId{request});
+        updatePolling();
     }
     void revoke(const QString& client, const QString& session) {
+        // Remove application state before releasing Session control or invoking a callback.
+        const auto revoked = state.revoke(ClientId{client}, SessionId{session});
         for (const auto& entry : sessions->entries()) if ((session.isEmpty() || session == entry.id) && entry.session) {
             auto* ctrl = entry.session->terminalController();
             if (client.isEmpty() || ctrl->owner() == client) ctrl->release(client, "revoked");
         }
-        const auto copy = waiting;
-        for (const auto& job : copy) if ((client.isEmpty() || job->client == client) && (session.isEmpty() || job->session == session))
-            finish(job, failure("SESSION_NOT_AVAILABLE", "Access or connection changed."));
         if (client.isEmpty() && session.isEmpty()) observation->captures().clear();
         else if (session.isEmpty()) observation->captures().removeClient(client);
         else if (client.isEmpty()) observation->captures().removeSession(session);
         else observation->captures().removeClientSession(client, session);
-        for (auto it = replays.begin(); it != replays.end();) {
-            if ((client.isEmpty() || it.key().startsWith(client + '/')) && (session.isEmpty() || it.key().endsWith('/' + session))) it = replays.erase(it); else ++it;
-        }
-        for (auto it = deliveredHints.begin(); it != deliveredHints.end();) {
-            if ((client.isEmpty() || it.key().startsWith(client + '/')) && (session.isEmpty() || it.key().endsWith('/' + session))) it = deliveredHints.erase(it); else ++it;
-        }
-        if (!session.isEmpty()) {
-            lastModel.remove(session); lastOutput.remove(session); observation->removeSession(session);
-        }
+        if (!session.isEmpty()) observation->removeSession(session);
+        for (const auto& completed : revoked) deliver(completed);
+        updatePolling();
     }
 };
 

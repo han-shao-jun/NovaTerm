@@ -8,11 +8,16 @@
 #pragma once
 
 #include "mcp/application/CapabilityResolver.h"
+#include "mcp/contracts/ToolRequests.h"
+#include "mcp/tasks/ReadUseCases.h"
 #include "session/SessionDirectory.h"
+
+#include <QJsonObject>
 
 namespace NovaTerm::Mcp {
 
 class AccessStore;
+class ObservationService;
 
 [[nodiscard]] CapabilityFacts capabilityFacts(const SessionDirectory::Entry& entry,
                                               const AccessStore& access);
@@ -20,5 +25,37 @@ class AccessStore;
 /** @brief 解析当前客户端在该会话上的统一能力视图。 */
 [[nodiscard]] CapabilitySnapshot sessionCapabilities(const SessionDirectory::Entry& entry,
     const QString& clientId, const AccessStore& access, bool humanConfirmation);
+
+/** @brief Session、观察服务与 MCP 令牌/结果编码的只读集成适配器。 */
+class ReadUseCaseAdapter final : private ReadSessionPort
+{
+public:
+    struct Ports
+    {
+        AccessStore* access;
+        SessionDirectory* sessions;
+        ObservationService* observation;
+        QString instance;
+    };
+
+    explicit ReadUseCaseAdapter(Ports ports);
+    [[nodiscard]] Result<QJsonObject> listSessions(const QString& client,
+        const QByteArray& key, bool formElicitation, const ListSessionsRequest& request) const;
+    [[nodiscard]] Result<QJsonObject> readContext(const SessionDirectory::Entry& entry,
+        const QString& owner, const QString& client, const QByteArray& key,
+        const ReadContextRequest& request) const;
+    [[nodiscard]] Result<QJsonObject> listCommands(const SessionDirectory::Entry& entry,
+        const QString& client, const QByteArray& key, qint64 now) const;
+
+private:
+    [[nodiscard]] quint64 directoryRevision() const override;
+    [[nodiscard]] ClientAccessVersion accessVersion(const ClientId& client) const override;
+    [[nodiscard]] QList<ReadSession> pageAfter(const ClientId& client, const SessionId& after,
+        int limit, bool humanConfirmation) const override;
+    [[nodiscard]] Result<ContextSummary> readContext(const ContextQuery& query) const override;
+    [[nodiscard]] DiagnosticCatalog commandCatalog(const ClientId& client,
+        const SessionReference& session) const override;
+    Ports _ports;
+};
 
 } // namespace NovaTerm::Mcp

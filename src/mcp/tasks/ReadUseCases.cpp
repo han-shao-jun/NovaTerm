@@ -1,191 +1,85 @@
-/** @file ReadUseCases.cpp @brief 只读工具用例实现。 */
+/** @file ReadUseCases.cpp @brief 分页绑定、上下文续读与诊断目录规则。 */
 #include "ReadUseCases.h"
-
-#include "mcp/CapabilityAdapter.h"
-#include "mcp/McpAccess.h"
-#include "mcp/McpProtocol.h"
-#include "mcp/contracts/Budget.h"
-#include "mcp/ObservationService.h"
-#include "mcp/TerminalInteraction.h"
-#include "mcp/CommandPolicy.h"
-#include "session/SessionCommandFacade.h"
-
-#include <QJsonArray>
-#include <QJsonValue>
 
 namespace NovaTerm::Mcp {
 
-ReadUseCases::ReadUseCases(Ports ports) : _ports(std::move(ports)) {}
+ReadUseCases::ReadUseCases(const ReadSessionPort& sessions) : _sessions(sessions) {}
 
-Result<QJsonObject> ReadUseCases::listSessions(const QString& client,
-    const QByteArray& key, bool formElicitation, const ListSessionsRequest& request) const
+Result<SessionPage> ReadUseCases::listSessions(const ClientId& client, int limit,
+    const std::optional<DirectoryCursor>& cursor, bool humanConfirmation) const
 {
-    const auto* access = _ports.access;
-    auto* sessions = _ports.sessions;
-    if (!access || !sessions || !_ports.terminal) {
-        return Error{ErrorCode::SessionNotAvailable, QStringLiteral("SESSION_NOT_AVAILABLE")};
-    }
-    QString after;
-    const auto cursor = request.cursor.value_or(QString{});
-    if (!cursor.isEmpty()) {
-        const auto token = verifyToken(cursor, key);
-        if (!token || token->value("kind") != "directory"
-            || token->value("version").toString() != QString::number(sessions->revision())
-            || token->value("grant").toString()
-                != QString::number(access->version(client))) {
-            return Error{ErrorCode::CursorStale, QStringLiteral("CURSOR_STALE")};
-        }
-        after = token->value("after").toString();
-    }
-    const int limit = request.limit;
-    const auto versionBeforePage = sessions->revision();
-    const auto all = sessions->pageAfter(after, limit + 1, [&](const SessionDirectory::Entry& entry) {
-        return access->canRead(client, entry) && entry.state != SessionState::Closing
-            && entry.state != SessionState::Closed;
-    });
-    if (!cursor.isEmpty() && versionBeforePage != sessions->revision())
-        return Error{ErrorCode::CursorStale, QStringLiteral("CURSOR_STALE")};
-    QJsonArray rows;
-    QString last;
-    bool more = false;
-    for (const auto& entry : all) {
-        if (entry.id <= after || !access->canRead(client, entry)
-            || entry.state == SessionState::Closing || entry.state == SessionState::Closed)
+    // 同样供非 MCP 入口调用，不能依赖 wire Schema 提供有效页大小。
+    if (limit < 1 || limit > 200)
+        return Error{ErrorCode::InvalidArgument};
+    const auto revision = _sessions.directoryRevision();
+    const auto grant = _sessions.accessVersion(client);
+    if (cursor && (cursor->directoryRevision != revision || cursor->accessVersion != grant))
+        return Error{ErrorCode::CursorStale};
+
+    const auto after = cursor ? cursor->after : SessionId{};
+    const auto rows = _sessions.pageAfter(client, after, limit + 1, humanConfirmation);
+    if (revision != _sessions.directoryRevision() || grant != _sessions.accessVersion(client))
+        return Error{ErrorCode::CursorStale};
+
+    SessionPage page;
+    for (const auto& row : rows) {
+        if (!row.visible || row.reference.session.str() <= after.str())
             continue;
-        if (rows.size() >= limit) { more = true; break; }
-        bool truncated = false;
-        const auto title = boundedText(entry.title, 256, &truncated);
-        const auto metadata = _ports.terminal->capabilities(client, entry.id,
-            formElicitation);
-        QJsonObject row{{"sessionId", entry.id}, {"epoch", entry.epoch},
-            {"state", SessionDirectory::stateName(entry.state)},
-            {"transport", SessionDirectory::transportName(entry.kind)},
-            {"displayName", title}, {"displayNameTruncated", truncated},
-            {"capabilities", QJsonArray{}}};
-        for (auto it = metadata.begin(); it != metadata.end(); ++it)
-            row.insert(it.key(), it.value());
-        rows.append(row);
-        last = entry.id;
+        if (page.sessions.size() == limit) {
+            page.next = DirectoryCursor{page.sessions.last().reference.session, revision, grant};
+            break;
+        }
+        page.sessions.append(row);
     }
-    QJsonValue next(QJsonValue::Null);
-    if (more) next = signToken({{"kind", "directory"}, {"after", last},
-        {"version", QString::number(sessions->revision())},
-        {"grant", QString::number(access->version(client))}}, key);
-    return QJsonObject{{"instanceId", _ports.instance},
-        {"applicationVersion", NOVATERM_VERSION}, {"sessions", rows},
-        {"nextCursor", next}};
+    return page;
 }
 
-Result<QJsonObject> ReadUseCases::readContext(const SessionDirectory::Entry& entry,
-    const QString& owner, const QString& client, const QByteArray& key,
-    const ReadContextRequest& request) const
+Result<ContextPage> ReadUseCases::readContext(const ClientId& client,
+    ContextQuery query, const std::optional<ContextCursor>& cursor) const
 {
-    auto* access = _ports.access;
-    if (!access || !_ports.observation) {
-        return Error{ErrorCode::SessionNotAvailable, QStringLiteral("SESSION_NOT_AVAILABLE")};
+    query.client = client;
+    const auto grant = _sessions.accessVersion(client);
+    if (cursor) {
+        if (cursor->session.session != query.session.session
+            || cursor->session.epoch != query.session.epoch
+            || cursor->includeViewport != query.includeViewport
+            || cursor->accessVersion != grant)
+            return Error{ErrorCode::CursorStale};
+        query.sinceRevision = cursor->revision;
     }
-    quint64 since = 0;
-    const bool viewport = request.includeViewport.value_or(true);
-    const auto encoded = request.sinceToken.value_or(QString());
-    if (!encoded.isEmpty()) {
-        const auto token = verifyToken(encoded, key);
-        bool ok = false;
-        if (token) since = token->value("revision").toString().toULongLong(&ok);
-        if (!token || !ok || token->value("kind") != "context"
-            || token->value("session") != entry.id
-            || token->value("epoch") != entry.epoch
-            || token->value("viewport").toBool() != viewport
-            || token->value("grant").toString() != QString::number(access->version(client))) {
-            return Error{ErrorCode::CursorStale, QStringLiteral("CURSOR_STALE")};
+    const auto read = _sessions.readContext(query);
+    if (const auto* error = errorIfAny(read))
+        return *error;
+    if (grant != _sessions.accessVersion(client))
+        return Error{ErrorCode::CursorStale};
+    ContextPage page{std::get<ContextSummary>(read), std::nullopt};
+    if (!page.summary.sourceTruncated && !page.summary.outputTruncated)
+        page.next = ContextCursor{query.session, page.summary.revision, grant, query.includeViewport};
+    return page;
+}
+
+Result<CommandList> ReadUseCases::listCommands(const ClientId& client,
+    const ReadSession& session, qint64 now) const
+{
+    const auto catalog = _sessions.commandCatalog(client, session.reference);
+    CommandList result;
+    result.session = session.reference;
+    result.policyVersion = catalog.policyVersion;
+    result.profileVersion = catalog.profileVersion;
+    result.accessVersion = _sessions.accessVersion(client);
+    result.expires = now + Budget::ConfirmationTimeout.count();
+    if (!session.running) result.disabledReason = ErrorCode::SessionNotReady;
+    else if (!catalog.profileAvailable) result.disabledReason = ErrorCode::CommandProfileUnavailable;
+    else if (!catalog.executorAvailable) result.disabledReason = ErrorCode::CommandUnavailable;
+    else if (catalog.allowed.isEmpty()) result.disabledReason = ErrorCode::CommandPermissionRequired;
+    else if (!catalog.targetVerified) result.disabledReason = ErrorCode::CommandUnavailable;
+    if (!result.disabledReason) {
+        for (const auto& command : catalog.commands) {
+            if (catalog.allowed.contains(command.id))
+                result.commands.append(command);
         }
     }
-    ObservationReadRequest read;
-    read.sessionId = entry.id;
-    read.epoch = entry.epoch;
-    read.owner = owner;
-    read.captureId = newId();
-    read.includeViewport = viewport;
-    read.sinceProvided = !encoded.isEmpty();
-    read.sinceRevision = since;
-    read.freshness = NovaTerm::publishedContextSnapshotEnabled()
-        ? FreshnessPolicy::BoundedStaleness : FreshnessPolicy::StrictRevision;
-    read.maxBytes = request.maxBytes.value_or(Budget::ObservationDefaultPayloadBytes);
-    read.maxLines = request.maxLines.value_or(Budget::ObservationDefaultLines);
-    const auto observed = _ports.observation->read(read, entry);
-    if (observed.status == ObservationRead::Status::Busy)
-        return Error{ErrorCode::Busy, QStringLiteral("BUSY"), RetryHint{true, std::chrono::milliseconds(250)}};
-    if (observed.status == ObservationRead::Status::BusyShort)
-        return Error{ErrorCode::Busy, QStringLiteral("BUSY"), RetryHint{true, std::chrono::milliseconds(50)}};
-    QJsonValue next(QJsonValue::Null);
-    if (!observed.sourceTruncated && !observed.outputTruncated) {
-        next = signToken({{"kind", "context"}, {"session", entry.id},
-            {"epoch", entry.epoch}, {"revision", observed.revision},
-            {"grant", QString::number(access->version(client))},
-            {"viewport", viewport}}, key);
-    }
-    QJsonArray screen, recent;
-    for (const auto& line : observed.viewport)
-        screen.append(QJsonObject{{"text", line.text}});
-    for (const auto& line : observed.recent)
-        recent.append(QJsonObject{{"text", line.text}});
-    return QJsonObject{{"instanceId", _ports.instance}, {"sessionId", entry.id},
-        {"epoch", entry.epoch}, {"revision", observed.revision},
-        {"captureId", observed.captureId}, {"capturedAt", observed.capturedAt},
-        {"state", SessionDirectory::stateName(entry.state)},
-        {"transport", SessionDirectory::transportName(entry.kind)},
-        {"title", observed.title}, {"alternateScreen", observed.alternateScreen},
-        {"cursor", QJsonObject{{"row", observed.cursorRow},
-            {"column", observed.cursorColumn}}},
-        {"viewport", screen}, {"recentOutput", recent},
-        {"coverage", "bounded_summary"},
-        {"historyMayPrecedeEpoch", observed.historyMayPrecedeEpoch},
-        {"sourceTruncated", observed.sourceTruncated},
-        {"outputTruncated", observed.outputTruncated},
-        {"resetRequired", observed.resetRequired},
-        {"suppressedDuplicates", QString::number(observed.suppressedDuplicates)},
-        {"nextToken", next}};
-}
-
-Result<QJsonObject> ReadUseCases::listCommands(const SessionDirectory::Entry& entry,
-    const QString& client, const QByteArray& key, qint64 now) const
-{
-    auto* access = _ports.access;
-    if (!access) {
-        return Error{ErrorCode::SessionNotAvailable, QStringLiteral("SESSION_NOT_AVAILABLE")};
-    }
-    const auto allowed = access->commands(client, entry);
-    QString reason;
-    auto* facade = entry.session ? entry.session->commandFacade() : nullptr;
-    const auto profile = facade ? facade->profile() : CommandPlatformProfile{};
-    const QString policyVersion = CommandPolicy::version(profile);
-    if (entry.state != SessionState::Running) reason = "SESSION_NOT_READY";
-    else if (!profile.isAvailable()) reason = "COMMAND_PROFILE_UNAVAILABLE";
-    else if (!facade || !facade->isAvailable()) reason = "COMMAND_UNAVAILABLE";
-    else if (allowed.isEmpty()) reason = "COMMAND_PERMISSION_REQUIRED";
-    else if (entry.targetFingerprint.isEmpty()) reason = "COMMAND_UNAVAILABLE";
-    QJsonArray catalog;
-    if (reason.isEmpty()) for (const auto& command : CommandPolicy::catalog(profile)) {
-        if (!allowed.contains(command.id)) continue;
-        const auto ticket = signToken({{"kind", "command"}, {"execution", newId()},
-            {"session", entry.id}, {"epoch", entry.epoch}, {"command", command.id},
-            {"policy", policyVersion}, {"profile", profile.version()},
-            {"grant", QString::number(access->version(client))},
-            {"expires", now + Budget::ConfirmationTimeout.count()}}, key);
-        const QString preview = entry.kind == TransportKind::LocalShell
-            && facade->capabilities().mode == CommandExecutionMode::Isolated
-            ? QStringLiteral("novaterm-local-diag ") + command.id
-            : QString::fromUtf8(command.command);
-        catalog.append(QJsonObject{{"commandId", command.id}, {"title", command.title},
-            {"preview", preview},
-            {"argumentSchema", QJsonObject{{"type", "object"}, {"additionalProperties", false}}},
-            {"timeoutMs", int(Budget::CommandTimeout.count())}, {"maxOutputBytes", CommandOutputBytes},
-            {"commandTicket", ticket}});
-    }
-    return QJsonObject{{"instanceId", _ports.instance}, {"sessionId", entry.id},
-        {"epoch", entry.epoch}, {"policyVersion", policyVersion},
-        {"executionEnabled", reason.isEmpty()},
-        {"disabledReason", reason.isEmpty() ? QJsonValue(QJsonValue::Null) : QJsonValue(reason)},
-        {"commands", catalog}};
+    return result;
 }
 
 } // namespace NovaTerm::Mcp

@@ -16,6 +16,7 @@
 
 #include <cstddef>
 #include <type_traits>
+#include <tuple>
 
 using namespace NovaTerm::Mcp;
 
@@ -84,11 +85,15 @@ class ContractsTests : public QObject
 {
     Q_OBJECT
 private slots:
+    void confirmationClaimsKeepWireFormatAndRejectTampering();
     void catalogMatchesCompatibilityFixture();
     void catalogExposesNineToolsInOrder();
     void everyToolDecodesToItsOwnRequest();
     void rejectedArgumentsKeepCompatibleMessages();
     void optionalArgumentsPreservePresence();
+    void remainingRequestDefaultsAreStable();
+    void everyToolRejectsUnknownFieldsAndInvalidEnums();
+    void utf8LimitsCountEncodedBytes();
     void actionsDecodeWithoutFieldOverlap();
     void failureEncodingKeepsEnvelope();
     void errorCodeMappingRoundTrips();
@@ -220,6 +225,91 @@ void ContractsTests::optionalArgumentsPreservePresence()
     QCOMPARE(request.maxBytes.value_or(65536), 4096);
 }
 
+void ContractsTests::remainingRequestDefaultsAreStable()
+{
+    const auto list = ToolCodec::decode(QStringLiteral("novaterm_list_sessions"), {});
+    QVERIFY(!isError(list));
+    const auto& listed = std::get<ListSessionsRequest>(std::get<ToolRequest>(list));
+    QCOMPARE(listed.limit, 50);
+    QVERIFY(!listed.cursor);
+
+    const auto search = ToolCodec::decode(QStringLiteral("novaterm_search_context"),
+        argumentsFor(QStringLiteral("novaterm_search_context")));
+    QVERIFY(!isError(search));
+    const auto& searched = std::get<SearchContextRequest>(std::get<ToolRequest>(search));
+    QCOMPARE(searched.scope, SearchScope::Both);
+    QVERIFY(searched.caseSensitive);
+    QCOMPARE(searched.maxMatches, 20);
+
+    for (const auto& tool : {QStringLiteral("novaterm_run_command"), QStringLiteral("novaterm_run_script")}) {
+        const auto result = ToolCodec::decode(tool, argumentsFor(tool));
+        QVERIFY(!isError(result));
+        QCOMPARE(std::visit([](const auto& request) -> qint64 {
+            using Type = std::decay_t<decltype(request)>;
+            if constexpr (std::is_same_v<Type, RunCommandRequest> || std::is_same_v<Type, RunScriptRequest>)
+                return request.timeout.count();
+            else return -1;
+        }, std::get<ToolRequest>(result)), 5000);
+    }
+    const auto input = ToolCodec::decode(QStringLiteral("novaterm_interact_terminal"),
+        argumentsFor(QStringLiteral("novaterm_interact_terminal")));
+    QVERIFY(!isError(input));
+    const auto& interacted = std::get<InteractTerminalRequest>(std::get<ToolRequest>(input));
+    QVERIFY(!interacted.wait && !interacted.waitFor && !interacted.projection);
+    QVERIFY(!interacted.replyToExecution && !interacted.requireVerifiedReady);
+    const auto elevation = ToolCodec::decode(QStringLiteral("novaterm_request_elevation"),
+        argumentsFor(QStringLiteral("novaterm_request_elevation")));
+    QVERIFY(!isError(elevation));
+    const auto& elevated = std::get<RequestElevationRequest>(std::get<ToolRequest>(elevation));
+    QVERIFY(!elevated.wait && !elevated.waitFor && !elevated.projection && !elevated.command);
+}
+
+void ContractsTests::everyToolRejectsUnknownFieldsAndInvalidEnums()
+{
+    for (const auto& tool : toolNames()) {
+        auto args = argumentsFor(tool);
+        args.insert(QStringLiteral("extra"), true);
+        const auto result = ToolCodec::decode(tool, args);
+        QVERIFY2(isError(result), qPrintable(tool));
+        QCOMPARE(errorIfAny(result)->code, ErrorCode::InvalidArgument);
+        QCOMPARE(errorIfAny(result)->message, QStringLiteral("Unknown argument: extra"));
+    }
+    const QList<QPair<QString, QStringList>> fields{
+        {QStringLiteral("novaterm_read_context"), {QStringLiteral("responseMode"), QStringLiteral("waitFor")}},
+        {QStringLiteral("novaterm_search_context"), {QStringLiteral("scope")}},
+        {QStringLiteral("novaterm_interact_terminal"), {QStringLiteral("responseMode"), QStringLiteral("waitFor")}},
+        {QStringLiteral("novaterm_request_elevation"), {QStringLiteral("responseMode"), QStringLiteral("waitFor"),
+            QStringLiteral("method"), QStringLiteral("mode")}},
+    };
+    for (const auto& [tool, names] : fields) {
+        for (const auto& field : names) {
+            auto args = argumentsFor(tool);
+            args.insert(field, QStringLiteral("unsupported"));
+            const auto result = ToolCodec::decode(tool, args);
+            QVERIFY2(isError(result), qPrintable(tool + QLatin1Char('/') + field));
+            QCOMPARE(errorIfAny(result)->message, QStringLiteral("Invalid argument: ") + field);
+        }
+    }
+}
+
+void ContractsTests::utf8LimitsCountEncodedBytes()
+{
+    const QString scalar = QString::fromUtf8("😀");
+    for (const auto& [tool, field, scalars] : {
+             std::tuple{QStringLiteral("novaterm_run_command"), QStringLiteral("command"), 4096},
+             std::tuple{QStringLiteral("novaterm_search_context"), QStringLiteral("query"), 256}}) {
+        auto args = argumentsFor(tool);
+        const auto boundary = scalar.repeated(scalars);
+        QCOMPARE(boundary.toUtf8().size(), scalars * 4);
+        args.insert(field, boundary);
+        QVERIFY(!isError(ToolCodec::decode(tool, args)));
+        args.insert(field, boundary + QLatin1Char('x'));
+        const auto oversized = ToolCodec::decode(tool, args);
+        QVERIFY(isError(oversized));
+        QCOMPARE(errorIfAny(oversized)->message, QStringLiteral("Invalid argument: ") + field);
+    }
+}
+
 void ContractsTests::actionsDecodeWithoutFieldOverlap()
 {
     auto arguments = argumentsFor(QStringLiteral("novaterm_interact_terminal"));
@@ -309,6 +399,68 @@ void ContractsTests::projectionSizerMatchesWireEncoding()
         toolResult(success(payload))).toJson(QJsonDocument::Compact).size();
     QCOMPARE(ProtocolProjectionSizer::encodedToolResultBytes(payload), expected);
     QVERIFY(expected > 4096);
+}
+
+void ContractsTests::confirmationClaimsKeepWireFormatAndRejectTampering()
+{
+    ConfirmationBinding binding;
+    binding.connection = PeerId{QStringLiteral("peer")};
+    binding.client = ClientId{QStringLiteral("client")};
+    binding.session = SessionId{SessionUuid};
+    binding.epoch = Epoch{QStringLiteral("epoch")};
+    binding.targetFingerprint = QStringLiteral("target");
+    binding.policyVersion = QStringLiteral("policy");
+    binding.profileVersion = QStringLiteral("profile");
+    binding.grantVersion = ClientAccessVersion{7};
+    binding.promptGeneration = PromptRevision{8};
+    binding.payloadHash = QByteArray(32, 'h');
+    const QByteArray key{"secret"};
+    for (auto tool : {ConfirmationTool::Command, ConfirmationTool::Script}) {
+        for (auto user : {std::optional<InputRevision>{}, std::optional<InputRevision>{InputRevision{0}}}) {
+            binding.tool = tool;
+            binding.userInputGeneration = user;
+            const ConfirmationTransaction transaction{binding, QStringLiteral("nonce"), 1000};
+            const auto claims = ToolCodec::encodeConfirmation(transaction);
+            QCOMPARE(claims.value("kind").toString(), QStringLiteral("interactive-confirmation"));
+            QCOMPARE(claims.contains("tool"), tool == ConfirmationTool::Script);
+            QCOMPARE(claims.contains("payloadHash"), tool == ConfirmationTool::Script);
+            QCOMPARE(claims.contains("commandHash"), tool == ConfirmationTool::Command);
+            QCOMPARE(claims.contains("decision"), tool == ConfirmationTool::Command);
+            QCOMPARE(claims.contains("userInputGeneration"), user.has_value());
+            QCOMPARE(claims.value("grantVersion").toString(), QStringLiteral("7"));
+            const auto token = ToolCodec::signConfirmation(transaction, key);
+            QCOMPARE(token, signToken(claims, key));
+            const auto verified = ToolCodec::verifyConfirmation(token, key);
+            QVERIFY(verified);
+            QCOMPARE(ToolCodec::encodeConfirmation(*verified), claims);
+            QVERIFY(!ToolCodec::verifyConfirmation(token, QByteArray{"other"}));
+            auto tampered = token;
+            tampered[0] = tampered[0] == QLatin1Char('a') ? QLatin1Char('b') : QLatin1Char('a');
+            QVERIFY(!ToolCodec::verifyConfirmation(tampered, key));
+
+            for (const auto* field : {"client", "connection", "session", "epoch", "target",
+                     "policyVersion", "profileVersion", "grantVersion", "promptGeneration",
+                     "nonce", "expires"}) {
+                auto missing = claims;
+                missing.remove(QLatin1String(field));
+                QVERIFY(!ToolCodec::decodeConfirmation(missing));
+            }
+            for (const auto& invalid : {QJsonValue{-1}, QJsonValue{1.5}, QJsonValue{"1000"}}) {
+                auto malformed = claims;
+                malformed.insert("expires", invalid);
+                QVERIFY(!ToolCodec::decodeConfirmation(malformed));
+            }
+            auto malformed = claims;
+            malformed.insert("grantVersion", QStringLiteral("-1"));
+            QVERIFY(!ToolCodec::decodeConfirmation(malformed));
+            malformed = claims;
+            malformed.insert("userInputGeneration", QJsonValue::Null);
+            QVERIFY(!ToolCodec::decodeConfirmation(malformed));
+            malformed = claims;
+            malformed.insert(tool == ConfirmationTool::Script ? "payloadHash" : "commandHash", "invalid");
+            QVERIFY(!ToolCodec::decodeConfirmation(malformed));
+        }
+    }
 }
 
 QTEST_MAIN(ContractsTests)

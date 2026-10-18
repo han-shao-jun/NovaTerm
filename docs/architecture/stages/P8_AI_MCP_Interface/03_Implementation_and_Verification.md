@@ -1583,3 +1583,51 @@ P8 结构删除清单同步：`jobs` 并行表 → `TaskRegistry`。MCP 九项 *
 `idleQuietMs` 覆盖窗口，默认 3000ms 由 Profile 用例断言。真实 UART、
 Windows/macOS 未运行；空闲证据弱于提示符/结束标记，可能把"仍在运行但静默"
 的命令判为完成，该局限保留在契约文档与表单提示中。
+
+
+#### 按职责收敛执行组件与只读应用边界（2026-10-18）
+
+本次以可读性、状态所有权和减少跨文件回调为主要标准；保留此前已提交的串口空提示符/空闲收尾语义（aa5b91e），不恢复旧提示符模型或修改九工具fixture。
+
+- Service只拥有接纳/排队/交付中的PendingRequest（unique_ptr），遍历时保存请求ID，回调重新解析；搜索worker只携带有界capture、请求ID及共享原子取消邮箱，不持有可变请求对象。
+- CommandRuntime集中持有命令操作、发布任务、路径锁、执行记录、确认事务、观察连接及计数器。删除ScriptCommandUseCase、ScriptResultUseCase、DiagnosticCommandUseCase、ExecutionService、ExecutionRegistry、ScriptTaskRegistry、TaskRegistry、Job、ScriptInvocation共17份文件，新增CommandRuntime.h/.cpp，生产C++文件78→63。相关状态不再通过巨大Ports在组件间修改。
+- 私有CommandOperation的shared_ptr只服务同一组件内的同步回调和迟到发布保活；对外只传TaskId和不可变调用值。RPC交付完成/取消与真实发布/执行终态分别处理，不因析构解除未知结果保护。
+- 确认绑定/期限/一次消费由纯应用ConfirmationRegistry校验；两代协议共用同一类型化事务。ToolCodec负责签名声明与确认答复编解码。重验授权、目标、Profile、提示符/用户代际和Provider可用性仍保留。
+- 操作从Preparing开始，持久预留成功后Reserved，执行提交前Submitted，等待结果Observing，收口Final。固定诊断补齐Observing；同步完成回调后不把Final回退成Observing。
+- ReadUseCases只依赖Qt Core和值契约，通过ReadSessionPort消费会话事实；具体Session、观察服务、令牌和JSON投影集中在现有CapabilityAdapter。新增novaterm_mcp_read_use_cases_tests仅链接application/QtTest；readelf核对动态依赖只有Qt6Core/Qt6Test及标准运行库，无HTTP、Network或Widgets。
+
+新增回归：固定诊断活动/终态阶段、提交前已有目标预留、同步完成只收口一次且精确重试不再提交、确认等待期间Provider失效时COMMAND_CONFIRMATION_STALE及零写入。阶段缺失及Provider错误码两项均先观察到失败，再修改为通过；既有取消/迟到发布/未知结果和串口空闲完成回归保留。
+
+验证：Linux Debug主程序及相关测试目标构建通过；`ctest --test-dir build -C Debug -L mcp --output-on-failure` **10/10通过，29.20秒**。`ctest -N`实核Linux **30项**；本次没有运行全套，不将注册数当通过数。独立复核未发现Important/Critical回归，`git diff --check`通过。日志保存在本机`/tmp/novaterm-mcp-consolidation/`。
+
+本次不宣告mcp/P0整体完成：TerminalInteraction的wait/replay尚未迁入共享入口，P1完整执行端口与跨平台/真实设备验收仍按计划推进。Windows/macOS、真实UART/SSH、提权适配器和Windows文件竞争未运行。
+
+
+#### P0剩余边界、停机与验收收口（2026-10-18）
+
+本轮继续上一轮未提交工作树，完成P0的剩余实现及Linux专项验收，未自动提交或重置工作树。
+
+**实现边界**
+
+- CommandRuntime移入novaterm_mcp_application，只见类型化CommandSessionPort、CommandTargetStore、时钟及输出通知；具体Session/Provider/Transport对象、签名token和JSON投影移到CommandSessionAdapter。命令、脚本、确认、预留、取消、迟到结果仍由同一运行期owner管理。原有ScriptMetadataHash重复状态已删除：不可变请求和完整确认摘要已经绑定路径/cwd/invocation/正文，发布结果另核对内容hash与实际目标路径。
+- ObservationState拥有等待者准入/替换/预算/唤醒/撤销、输入重放/序号、150ms静默窗和注意提示去重；TerminalInteraction只保留投递关联及Session/令牌/投影适配。仍消费同一个ObservationService/SnapshotStore/CaptureStore，没有第二个采样源或永久fallback。
+- WireSession负责Schema校验、ToolRequest解码、脚本摘要及类型化确认答复；BackendCall不再携带JSON arguments，Service不再重复解码业务参数。
+- 搜索worker只持有不可变capture、取消邮箱和受锁保护的投递邮箱，Service停止后关闭接收者并异步回收pool。凭据worker同样关闭受保护邮箱，后端与secret擦除holder独立收尾，GUI析构不等待密钥库。HTTP邮箱在停止前关闭，线程等待有1000ms上限，异常退出使用独立队列及线程收尾，重启不复用旧代际队列。
+- CMake仅向纯应用公开contracts/Qt Core；runtime的HTTP/protocol为PRIVATE，实际使用Network的测试显式声明依赖。compile_commands检查每个MCP生产cpp仅一个生产消费者，Session源码无反向MCP include。
+
+**测试与修复证据**
+
+- 新增ObservationStateTests与CommandRuntimeTests，仅链接application/Qt Test。三个纯应用测试（含上一轮ReadUseCases）readelf动态依赖均只有Qt6Core/Qt6Test和标准运行库，无Gui/Widgets/Network/HTTP或Session实现。
+- 增补默认值、全部九工具未知字段/枚举、UTF-8精确字节界限、每个绑定维度失效、跨客户端行版本隔离、真实诊断权限级联、五种确认答复和重复活动RPC ID断言；九工具fixture未改。
+- UI新增保留旧行再切换客户端的回调测试：两个客户端版本均不变，不在setData栈删树，排队刷新后旧索引失效，零输入。
+- 独立命令测试覆盖真实用例的同步完成、票据校验、取消后unknown保护、迟到发布、Provider消失、发布后撤权、owner销毁、固定时钟确认过期和无需Service的撤权。owner析构未发取消、独立撤权未收口两项先观察RED，再补最小处理为GREEN；未知标记不会随析构删除。
+- 阻塞假凭据后端的析构测试先复现GUI等待500ms，再验证后端释放前AccessStore已析构、迟到完成不回调；secret holder在正常完成及排队任务销毁时擦除。
+- 保留并通过确认期间Provider失效的COMMAND_CONFIRMATION_STALE兼容断言，以及既有串口空提示符/空闲完成、用户抢占、full/compact和极小UTF-8补读、重启保护测试。
+
+**本轮成绩与范围**
+
+Linux Debug主程序及相关测试目标构建通过。MCP与Session联合专项**13/13通过，46.30秒**（MCP12项、Session1项）；收紧构建依赖及删除未使用元数据后，最终MCP **12/12通过，30.23秒**。Linux `ctest -N`实核**32项**；本轮未运行全套，注册数不作通过数。`git diff --check`通过。日志位于本机`/tmp/novaterm-p0-acceptance.log`、`/tmp/novaterm-p0-latest-mcp.log`及`/tmp/novaterm-p0-final-build.log`。
+
+当前MCP生产文件67份，较原78份净减少11份；增加的两对文件分别承担真实Session集成边界和纯观察状态职责，不以文件数替代结构验收。P0的T1～T5及端口/owner/依赖证据已在P0计划中逐项登记。
+
+Windows/macOS、真实UART/SSH/TUI、可信提权适配器和Windows文件竞争仍未运行，不据Linux结果宣称这些平台通过；后续平台补验继续在P8跟踪。P1能力目录、通用跨入口Runtime及新Recipe均未开始，不以实现P1空框架作为P0完成条件。后半段变更由主助手完成自审和回归，未对最终差异另做独立复核。

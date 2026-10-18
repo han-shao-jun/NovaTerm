@@ -7,6 +7,7 @@
 #include "core/ThreadNaming.h"
 #include <QAbstractHttpServer>
 #include <QElapsedTimer>
+#include <QDeadlineTimer>
 #include <QHash>
 #include <QHostAddress>
 #include <QHttpHeaders>
@@ -135,6 +136,7 @@ struct Queues {
     bool stopping{true};
     quint64 generation{0};
     QObject *worker{nullptr};
+    HttpMcpServer* receiver{nullptr};
 };
 
 /** @brief 在交给 Qt parser 前暂存并核验原始交换，读缓冲与 socket 同属 I/O 线程。 */
@@ -189,8 +191,8 @@ private:
 class HttpWorker final : public QAbstractHttpServer
 {
 public:
-    HttpWorker(std::shared_ptr<Queues> queues, HttpMcpServer *owner)
-        : _queues(std::move(queues)), _owner(owner), _server(new AcceptServer(this))
+    HttpWorker(std::shared_ptr<Queues> queues)
+        : _queues(std::move(queues)), _server(new AcceptServer(this))
     {
         _clock.start();
         _server->setMaxPendingConnections(SocketLimit);
@@ -381,19 +383,14 @@ private:
     }
     void enqueue(Event event)
     {
-        bool wake = false;
-        {
-            std::lock_guard<std::mutex> lock(_queues->mutex);
-            if (_queues->stopping)
-                return;
-            _queues->incoming.push_back(std::move(event));
-            if (!_queues->guiScheduled) {
-                _queues->guiScheduled = true;
-                wake = true;
-            }
+        const std::lock_guard<std::mutex> lock(_queues->mutex);
+        if (_queues->stopping) return;
+        _queues->incoming.push_back(std::move(event));
+        if (!_queues->guiScheduled) {
+            _queues->guiScheduled = true;
+            if (_queues->receiver)
+                QMetaObject::invokeMethod(_queues->receiver, "drain", Qt::QueuedConnection);
         }
-        if (wake)
-            QMetaObject::invokeMethod(_owner, "drain", Qt::QueuedConnection);
     }
     void
     reject(const std::shared_ptr<Peer> &peer, int status, QHttpServerResponder *responder = nullptr)
@@ -767,7 +764,6 @@ private:
         responder.write(Status::NotFound);
     }
     std::shared_ptr<Queues> _queues;
-    HttpMcpServer *_owner;
     AcceptServer *_server;
     QHash<PeerEndpoint, std::shared_ptr<Peer>> _peers;
     QElapsedTimer _clock;
@@ -781,12 +777,11 @@ class IoThread final : public QThread
 {
 public:
     std::shared_ptr<Queues> queues;
-    HttpMcpServer *owner{nullptr};
     quint16 port{0};
     void run() override
     {
         NovaTerm::setCurrentThreadName(IoThreadName);
-        HttpWorker worker(queues, owner);
+        HttpWorker worker(queues);
         {
             std::lock_guard<std::mutex> lock(queues->mutex);
             queues->worker = &worker;
@@ -803,7 +798,7 @@ class HttpMcpServer::Impl
 {
 public:
     std::shared_ptr<Queues> queues{std::make_shared<Queues>()};
-    IoThread thread;
+    std::unique_ptr<IoThread> thread;
 };
 HttpMcpServer::HttpMcpServer(QObject *parent) : QObject(parent), _impl(std::make_unique<Impl>()) {}
 HttpMcpServer::~HttpMcpServer() { stop(); }
@@ -823,36 +818,47 @@ QJsonObject HttpMcpServer::statistics() const
 }
 void HttpMcpServer::start(quint16 port)
 {
-    if (_impl->thread.isRunning())
-        return;
+    if (_impl->thread && _impl->thread->isRunning()) return;
+    const auto previous = _impl->queues;
+    auto queues = std::make_shared<Queues>();
     {
-        std::lock_guard<std::mutex> lock(_impl->queues->mutex);
-        _impl->queues->stopping = false;
-        ++_impl->queues->generation;
+        const std::lock_guard<std::mutex> lock(previous->mutex);
+        queues->generation = previous->generation + 1;
+        queues->peakSockets = previous->peakSockets;
+        queues->acceptedRequests = previous->acceptedRequests;
+        queues->rejectedRequests = previous->rejectedRequests;
     }
-    _impl->thread.queues = _impl->queues;
-    _impl->thread.owner = this;
-    _impl->thread.port = port;
-    _impl->thread.setObjectName(QString::fromLatin1(IoThreadName));
-    _impl->thread.start();
+    queues->stopping = false;
+    queues->receiver = this;
+    _impl->queues = queues;
+    _impl->thread = std::make_unique<IoThread>();
+    _impl->thread->queues = queues;
+    _impl->thread->port = port;
+    _impl->thread->setObjectName(QString::fromLatin1(IoThreadName));
+    _impl->thread->start();
 }
 void HttpMcpServer::stop()
 {
+    const auto queues = _impl->queues;
     {
-        std::lock_guard<std::mutex> lock(_impl->queues->mutex);
-        _impl->queues->stopping = true;
+        const std::lock_guard<std::mutex> lock(queues->mutex);
+        queues->stopping = true;
+        queues->receiver = nullptr;
     }
-    _impl->thread.quit();
-    _impl->thread.wait();
-    std::lock_guard<std::mutex> lock(_impl->queues->mutex);
-    _impl->queues->incoming.clear();
-    _impl->queues->outgoing.clear();
-    _impl->queues->credits.clear();
-    _impl->queues->inputBytes = _impl->queues->outputBytes = 0;
-    // worker 的 QObject 析构会先断开 destroyed 槽；线程退出后已无存活 socket。
-    // 仅归零当前值，历史峰值仍可跨 stop/start 用于诊断。
-    _impl->queues->liveSockets = 0;
-    _impl->queues->ioScheduled = false;
+    if (auto thread = std::move(_impl->thread)) {
+        thread->quit();
+        // 本地I/O正常立即退出；异常调度也不能让GUI无期限join。
+        if (!thread->wait(QDeadlineTimer(1000))) {
+            auto* retiring = thread.release();
+            QObject::connect(retiring, &QThread::finished, retiring, &QObject::deleteLater);
+            if (retiring->isFinished()) retiring->deleteLater();
+        }
+    }
+    const std::lock_guard<std::mutex> lock(queues->mutex);
+    queues->incoming.clear(); queues->outgoing.clear(); queues->credits.clear();
+    queues->inputBytes = queues->outputBytes = 0;
+    queues->liveSockets = 0;
+    queues->ioScheduled = queues->guiScheduled = false;
 }
 bool HttpMcpServer::respond(
     QString id, int status, QByteArray body, QJsonObject headers, bool sse, bool final)

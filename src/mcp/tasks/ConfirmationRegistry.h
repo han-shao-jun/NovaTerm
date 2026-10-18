@@ -1,11 +1,13 @@
 /**
  * @file ConfirmationRegistry.h
- * @brief 确认事务的唯一存储：2025 一次性 nonce 生命周期与待确认记录。
+ * @brief 两代协议共用的确认绑定校验、一次消费与待确认记录。
  *
  * 这里只保存值（绑定、摘要、代际、过期与作用域），不持 Job/Session 指针；
  * 任务完成、撤权、过期与断连都由调用方按记录中的键解析后处理。
  */
 #pragma once
+
+#include "mcp/contracts/ToolRequests.h"
 
 #include <QByteArray>
 #include <QHash>
@@ -21,25 +23,20 @@ namespace NovaTerm::Mcp {
 struct PendingConfirmationRecord
 {
     QString jobKey; ///< 作业索引键；调用方据此解析仍存活的 Job。
-    QString connection;
-    QString client;
-    QString session;
-    QString epoch;
     QString command;
-    QString policyVersion;
-    QString tool;
-    QString profileVersion;
-    QString targetFingerprint;
-    quint64 grantVersion{0};
-    quint64 promptGeneration{0};
-    quint64 userInputGeneration{0};
-    QByteArray payloadHash;
-    qint64 expires{0};
+    ConfirmationTransaction transaction;
 };
 
 class ConfirmationRegistry
 {
 public:
+    /** @brief 两代协议共用的绑定与到期验证；当前事实由执行用例取得。 */
+    [[nodiscard]] static bool validate(const ConfirmationTransaction& transaction,
+        const ConfirmationBinding& current, qint64 now);
+    /** @brief MRTR 验证后一次消费；失败不消费，不延长期限。 */
+    [[nodiscard]] bool consume(const ConfirmationTransaction& transaction,
+        const ConfirmationBinding& current, qint64 now);
+    void registerActive(const ConfirmationTransaction& transaction);
     void registerActive(const QString& connection, const QString& client,
         const QString& session, const QString& nonce, qint64 expiry);
     void clearActive(const QString& connection, const QString& nonce);

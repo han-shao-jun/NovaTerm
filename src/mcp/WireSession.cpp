@@ -6,6 +6,7 @@
 #include <QElapsedTimer>
 #include <QHash>
 #include <QJsonDocument>
+#include <QCryptographicHash>
 #include <QTimer>
 #include <cmath>
 #include <utility>
@@ -64,7 +65,8 @@ public:
         QString route;
         QJsonValue rpcId;
         QString wireId, tool;
-        QJsonObject arguments;
+        ToolRequest typed;
+        QByteArray confirmationDigest;
         qint64 deadline{0};
         QString requestState;
         QJsonObject inputResponses;
@@ -138,7 +140,7 @@ public:
             if (!resolution)
                 return;
             emit q->backendEvent(BackendElicitationResult{resolution->wireId,
-                resolution->action, resolution->confirmed});
+                ToolCodec::confirmationAnswer(resolution->action, resolution->confirmed)});
             return;
         }
         const auto params = message.value("params").toObject();
@@ -261,9 +263,9 @@ public:
             return;
         }
         const auto arguments = params.value("arguments").toObject();
-        const auto invalid = ToolCodec::validate(name, arguments);
-        if (!invalid.isEmpty()) {
-            output(rpcResult(id, toolResult(failure("INVALID_ARGUMENT", invalid))));
+        auto decoded = ToolCodec::decode(name, arguments);
+        if (const auto* error = errorIfAny(decoded)) {
+            output(rpcResult(id, toolResult(ToolCodec::encodeFailure(*error))));
             return;
         }
         const auto identifier = key(id);
@@ -302,7 +304,11 @@ public:
         call.rpcId = id;
         call.wireId = _prefix + QString::number(++_nextId);
         call.tool = name;
-        call.arguments = arguments;
+        call.typed = std::get<ToolRequest>(std::move(decoded));
+        if (std::holds_alternative<RunScriptRequest>(call.typed)) {
+            call.confirmationDigest = QCryptographicHash::hash(
+                QJsonDocument(arguments).toJson(QJsonDocument::Compact), QCryptographicHash::Sha256);
+        }
         call.mrtr = _requestMrtr;
         call.formElicitation = _requestFormElicitation;
         call.deadline = now() + budget + (_available ? 0 : 3000);
@@ -328,10 +334,11 @@ public:
                 continue;
             const auto call = _calls.value(id);
             _calls[id].sent = true;
-            emit q->backendEvent(BackendCall{call.wireId, call.tool, call.arguments,
+            emit q->backendEvent(BackendCall{call.wireId, call.typed, call.confirmationDigest,
                 call.mrtr, call.formElicitation,
                 call.mrtr && !call.requestState.isEmpty() ? call.requestState : QString(),
-                call.mrtr && !call.requestState.isEmpty() ? call.inputResponses : QJsonObject{}});
+                call.mrtr && !call.requestState.isEmpty()
+                    ? ToolCodec::confirmationAnswer(call.inputResponses) : std::nullopt});
         }
     }
     void backend(const QJsonObject &message)

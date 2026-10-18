@@ -3,6 +3,7 @@
  */
 #include "McpAccess.h"
 #include "McpProtocol.h"
+#include "core/ThreadNaming.h"
 #include "mcp/application/CapabilityResolver.h"
 #include "CommandPolicy.h"
 #include "session/SessionCommandFacade.h"
@@ -16,8 +17,22 @@
 #include <QFileInfo>
 #include <QLockFile>
 #include <QSysInfo>
+#include <mutex>
 
 namespace NovaTerm::Mcp {
+struct AccessStore::CredentialMailbox {
+    explicit CredentialMailbox(AccessStore* value) : receiver(value) {}
+    std::mutex mutex;
+    AccessStore* receiver;
+};
+namespace {
+struct CredentialSecret {
+    explicit CredentialSecret(QByteArray value) : bytes(std::move(value)) {}
+    ~CredentialSecret() { bytes.fill('\0'); }
+    QByteArray bytes;
+};
+}
+
 QString AccessStore::reference(const QString& id) { return QStringLiteral("mcp-client-") + id; }
 CredentialStore* AccessStore::credentials() const
 {
@@ -49,10 +64,13 @@ AccessStore::AccessStore(QString directory, std::unique_ptr<CredentialStore> cre
 
 AccessStore::~AccessStore()
 {
+    if (_elevationMailbox) {
+        const std::lock_guard<std::mutex> lock(_elevationMailbox->mutex);
+        _elevationMailbox->receiver = nullptr;
+    }
     if (_elevationThread) {
         _elevationThread->requestInterruption();
         _elevationThread->quit();
-        _elevationThread->wait();
     }
 }
 
@@ -492,13 +510,15 @@ bool AccessStore::configureElevationCredentialAsync(const SessionDirectory::Entr
         return false;
     }
     if (!_elevationThread) {
-        _elevationThread = std::make_unique<QThread>();
+        _elevationThread = new QThread;
+        _elevationMailbox = std::make_shared<CredentialMailbox>(this);
+        connect(_elevationThread, &QThread::finished, _elevationThread, &QObject::deleteLater);
         _elevationStorage = std::make_shared<std::unique_ptr<CredentialStore>>();
         _elevationWorker = new QObject;
-        _elevationWorker->moveToThread(_elevationThread.get());
-        connect(_elevationThread.get(), &QThread::finished, _elevationWorker,
+        _elevationWorker->moveToThread(_elevationThread.data());
+        connect(_elevationThread.data(), &QThread::finished, _elevationWorker,
             [holder = _elevationStorage] { holder->reset(); }, Qt::DirectConnection);
-        connect(_elevationThread.get(), &QThread::finished, _elevationWorker, &QObject::deleteLater);
+        connect(_elevationThread.data(), &QThread::finished, _elevationWorker, &QObject::deleteLater);
         _elevationThread->start();
     }
     _credentialOperationPending = true;
@@ -506,26 +526,32 @@ bool AccessStore::configureElevationCredentialAsync(const SessionDirectory::Entr
     emit changed();
     const auto holder = _elevationStorage;
     const auto factory = _elevationFactory;
+    const auto mailbox = _elevationMailbox;
+    auto protectedSecret = std::make_shared<CredentialSecret>(std::move(secret));
     QMetaObject::invokeMethod(_elevationWorker,
-        [this, holder, factory, ref, target = entry.targetFingerprint, remove,
-         secret = std::move(secret), finished = std::move(finished)]() mutable {
+        [mailbox, holder, factory, ref, target = entry.targetFingerprint, remove,
+         protectedSecret = std::move(protectedSecret), finished = std::move(finished)]() mutable {
+        NovaTerm::setCurrentThreadName("nvterm-mcp-cred");
         if (!*holder) *holder = factory();
         const bool persistent = *holder && (*holder)->isPersistent();
-        const bool ok = *holder && (remove ? (*holder)->remove(ref) : (*holder)->put(ref, secret));
-        secret.fill('\0');
-        QMetaObject::invokeMethod(this,
-            [this, ref, target, remove, ok, persistent, finished = std::move(finished)] {
-            _credentialOperationPending = false;
-            _elevationPersistent = persistent;
+        const bool ok = *holder && (remove ? (*holder)->remove(ref) : (*holder)->put(ref, protectedSecret->bytes));
+        protectedSecret.reset();
+        const std::lock_guard<std::mutex> lock(mailbox->mutex);
+        auto* receiver = mailbox->receiver;
+        if (!receiver) return;
+        QMetaObject::invokeMethod(receiver,
+            [receiver, ref, target, remove, ok, persistent, finished = std::move(finished)] {
+            receiver->_credentialOperationPending = false;
+            receiver->_elevationPersistent = persistent;
             bool saved = false;
             if (ok) {
-                if (remove) _elevationReferences.remove(ref);
-                else _elevationReferences.insert(ref);
-                revokeElevation(target);
-                ++_elevationRevision;
-                saved = save();
+                if (remove) receiver->_elevationReferences.remove(ref);
+                else receiver->_elevationReferences.insert(ref);
+                receiver->revokeElevation(target);
+                ++receiver->_elevationRevision;
+                saved = receiver->save();
             }
-            emit changed();
+            emit receiver->changed();
             if (finished) finished(ok && saved);
         }, Qt::QueuedConnection);
     }, Qt::QueuedConnection);

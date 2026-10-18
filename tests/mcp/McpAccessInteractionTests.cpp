@@ -7,6 +7,10 @@
 #include <QTemporaryDir>
 #include <QTest>
 #include <QThread>
+#include <QSemaphore>
+#include <QElapsedTimer>
+#include <atomic>
+#include <thread>
 
 namespace {
 class OfflineTransport final : public ITransport {
@@ -32,6 +36,22 @@ public:
     bool remove(const QString& ref) override { return values->remove(ref) != 0; }
     bool isPersistent() const override { return true; }
     std::shared_ptr<QHash<QString, QByteArray>> values;
+};
+struct BlockedCredentialState {
+    QSemaphore entered, release;
+    std::atomic<bool> destroyed{false};
+};
+class BlockingCredentials final : public CredentialStore {
+public:
+    explicit BlockingCredentials(std::shared_ptr<BlockedCredentialState> state) : state(std::move(state)) {}
+    ~BlockingCredentials() override { state->destroyed = true; }
+    bool put(const QString&, const QByteArray&) override {
+        state->entered.release(); state->release.acquire(); return true;
+    }
+    std::optional<QByteArray> get(const QString&) const override { return std::nullopt; }
+    bool remove(const QString&) override { return false; }
+    bool isPersistent() const override { return false; }
+    std::shared_ptr<BlockedCredentialState> state;
 };
 struct Fixture {
     QTemporaryDir root;
@@ -59,6 +79,7 @@ private slots:
     void credentialMutationRevokesElevationAcrossClients();
     void unsupportedOrStaleCredentialIdentityIsRejected();
     void asyncCredentialsKeepGuiResponsiveAndRejectConcurrentUpdates();
+    void destructionDoesNotWaitForCredentialBackend();
     void anotherInstanceCredentialReplacementRevokesManagedGrant();
     void staleCredentialBindingCannotWriteToReattachedSession();
     void asyncPersistentCredentialsReloadOtherInstanceMetadata();
@@ -196,6 +217,32 @@ void McpAccessInteractionTests::asyncCredentialsKeepGuiResponsiveAndRejectConcur
     QTRY_VERIFY(finished);
     QVERIFY(success);
     QVERIFY(!f.access.hasElevationCredential(entry, "sudo"));
+}
+
+void McpAccessInteractionTests::destructionDoesNotWaitForCredentialBackend()
+{
+    Fixture fixture;
+    auto state = std::make_shared<BlockedCredentialState>();
+    auto access = std::make_unique<NovaTerm::Mcp::AccessStore>(fixture.root.filePath("blocked"),
+        std::make_unique<MemoryCredentialStore>(), nullptr,
+        [state] { return std::make_unique<BlockingCredentials>(state); });
+    int callbacks = 0;
+    QVERIFY(access->configureElevationCredentialAsync(fixture.entry(), "sudo", "private", false,
+        [&](bool) { ++callbacks; }));
+    QVERIFY(state->entered.tryAcquire(1, 2000));
+    // 仅用于让旧的无界wait失败而非挂死；正常路径在释放后端之前即可析构。
+    std::thread watchdog([state] {
+        std::this_thread::sleep_for(std::chrono::milliseconds(500));
+        state->release.release();
+    });
+    QElapsedTimer timer; timer.start();
+    access.reset();
+    const auto elapsed = timer.elapsed();
+    state->release.release();
+    watchdog.join();
+    QTRY_VERIFY(state->destroyed.load());
+    QCOMPARE(callbacks, 0);
+    QVERIFY2(elapsed < 200, qPrintable(QStringLiteral("GUI destruction blocked for %1 ms").arg(elapsed)));
 }
 
 void McpAccessInteractionTests::anotherInstanceCredentialReplacementRevokesManagedGrant()

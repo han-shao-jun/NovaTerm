@@ -7,6 +7,7 @@
  */
 #include "ToolCodec.h"
 #include "mcp/contracts/Budget.h"
+#include "mcp/McpProtocol.h"
 
 #include <QJsonArray>
 #include <QJsonObject>
@@ -743,6 +744,126 @@ QString ToolCodec::toolName(const ToolRequest& request)
         else
             return QStringLiteral("novaterm_request_elevation");
     }, request);
+}
+
+ConfirmationAnswer ToolCodec::confirmationAnswer(const QString& action, bool confirmed)
+{
+    if (action == QStringLiteral("cancel")) return ConfirmationAnswer::Cancel;
+    return action == QStringLiteral("accept") && confirmed
+        ? ConfirmationAnswer::Accept : ConfirmationAnswer::Decline;
+}
+
+std::optional<ConfirmationAnswer> ToolCodec::confirmationAnswer(const QJsonObject& responses)
+{
+    if (responses.isEmpty()) return std::nullopt;
+    const auto response = responses.value(QStringLiteral("confirm")).toObject();
+    return confirmationAnswer(response.value(QStringLiteral("action")).toString(),
+        response.value(QStringLiteral("content")).toObject().value(QStringLiteral("confirmed")).toBool());
+}
+
+QJsonObject ToolCodec::encodeConfirmation(const ConfirmationTransaction& transaction)
+{
+    const auto& binding = transaction.binding;
+    QJsonObject claims{{"kind", "interactive-confirmation"},
+        {"client", binding.client.str()}, {"connection", binding.connection.str()},
+        {"session", binding.session.str()}, {"epoch", binding.epoch.str()},
+        {"target", binding.targetFingerprint}, {"policyVersion", binding.policyVersion},
+        {"profileVersion", binding.profileVersion},
+        {"grantVersion", QString::number(binding.grantVersion.value())},
+        {"promptGeneration", QString::number(binding.promptGeneration.value())},
+        {"nonce", transaction.nonce}, {"expires", double(transaction.expires)}};
+    const auto hash = QString::fromLatin1(binding.payloadHash.toHex());
+    if (binding.tool == ConfirmationTool::Script) {
+        claims.insert("tool", "novaterm_run_script");
+        claims.insert("payloadHash", hash);
+    } else {
+        claims.insert("commandHash", hash);
+        claims.insert("decision", binding.decision == ConfirmationDecision::Confirm
+            ? "confirm" : "unknown");
+    }
+    if (binding.userInputGeneration)
+        claims.insert("userInputGeneration", QString::number(binding.userInputGeneration->value()));
+    return claims;
+}
+
+std::optional<ConfirmationTransaction> ToolCodec::decodeConfirmation(const QJsonObject& claims)
+{
+    if (claims.value("kind") != QStringLiteral("interactive-confirmation"))
+        return std::nullopt;
+    ConfirmationTransaction transaction;
+    auto& binding = transaction.binding;
+    const auto tool = claims.value("tool");
+    if (tool.isUndefined()) {
+        binding.tool = ConfirmationTool::Command;
+        const auto decision = claims.value("decision").toString();
+        if (decision != QStringLiteral("confirm") && decision != QStringLiteral("unknown"))
+            return std::nullopt;
+        binding.decision = decision == QStringLiteral("confirm")
+            ? ConfirmationDecision::Confirm : ConfirmationDecision::Unknown;
+    } else if (tool == QStringLiteral("novaterm_run_script")) {
+        binding.tool = ConfirmationTool::Script;
+    } else {
+        return std::nullopt;
+    }
+    for (const auto* field : {"client", "connection", "session", "epoch", "target",
+             "policyVersion", "profileVersion", "nonce"}) {
+        const auto text = claims.value(QLatin1String(field)).toString();
+        if (text.isEmpty() || text.contains(QChar::Null))
+            return std::nullopt;
+    }
+    binding.client = ClientId{claims.value("client").toString()};
+    binding.connection = PeerId{claims.value("connection").toString()};
+    binding.session = SessionId{claims.value("session").toString()};
+    binding.epoch = Epoch{claims.value("epoch").toString()};
+    binding.targetFingerprint = claims.value("target").toString();
+    binding.policyVersion = claims.value("policyVersion").toString();
+    binding.profileVersion = claims.value("profileVersion").toString();
+    transaction.nonce = claims.value("nonce").toString();
+    const auto revision = [&claims](const char* field) -> std::optional<quint64> {
+        const auto text = claims.value(QLatin1String(field)).toString();
+        bool valid = false;
+        const auto value = text.toULongLong(&valid);
+        return valid && text == QString::number(value)
+            ? std::optional<quint64>{value} : std::nullopt;
+    };
+    const auto grant = revision("grantVersion");
+    const auto prompt = revision("promptGeneration");
+    if (!grant || !prompt)
+        return std::nullopt;
+    binding.grantVersion = ClientAccessVersion{*grant};
+    binding.promptGeneration = PromptRevision{*prompt};
+    if (claims.contains("userInputGeneration")) {
+        const auto user = revision("userInputGeneration");
+        if (!user)
+            return std::nullopt;
+        binding.userInputGeneration = InputRevision{*user};
+    }
+    const auto hash = claims.value(binding.tool == ConfirmationTool::Script
+        ? "payloadHash" : "commandHash").toString().toLatin1();
+    binding.payloadHash = QByteArray::fromHex(hash);
+    if (hash.size() != 64 || binding.payloadHash.toHex() != hash)
+        return std::nullopt;
+    const auto expires = claims.value("expires");
+    const auto deadline = expires.toDouble();
+    // JSON doubles exactly represent the monotonic millisecond values we issue.
+    if (!expires.isDouble() || !std::isfinite(deadline) || deadline <= 0
+        || deadline > 9007199254740991.0 || std::floor(deadline) != deadline)
+        return std::nullopt;
+    transaction.expires = qint64(deadline);
+    return transaction;
+}
+
+QString ToolCodec::signConfirmation(const ConfirmationTransaction& transaction,
+    const QByteArray& key)
+{
+    return signToken(encodeConfirmation(transaction), key);
+}
+
+std::optional<ConfirmationTransaction> ToolCodec::verifyConfirmation(
+    const QString& token, const QByteArray& key)
+{
+    const auto claims = verifyToken(token, key);
+    return claims ? decodeConfirmation(*claims) : std::nullopt;
 }
 
 } // namespace NovaTerm::Mcp

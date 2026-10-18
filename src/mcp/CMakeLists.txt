@@ -5,6 +5,7 @@ qt_add_library(novaterm_mcp_contracts STATIC
     contracts/Budget.h
     contracts/TaskPhases.h
     contracts/SessionBinding.h
+    contracts/Permissions.h
     contracts/ToolRequests.h)
 target_include_directories(novaterm_mcp_contracts PUBLIC ${PROJECT_SOURCE_DIR}/src)
 target_link_libraries(novaterm_mcp_contracts PUBLIC Qt6::Core)
@@ -19,6 +20,11 @@ qt_add_library(novaterm_mcp_application STATIC
     application/CaptureSearch.cpp application/CaptureSearch.h
     application/CaptureStore.cpp application/CaptureStore.h
     application/SnapshotStore.h
+    application/ObservationState.cpp application/ObservationState.h
+    tasks/CommandRuntime.cpp tasks/CommandRuntime.h
+    tasks/TargetReservation.cpp tasks/TargetReservation.h
+    CommandRiskPolicy.cpp CommandRiskPolicy.h
+    tasks/ReadUseCases.cpp tasks/ReadUseCases.h
     tasks/ConfirmationRegistry.cpp tasks/ConfirmationRegistry.h
     security/ClientRegistry.cpp security/ClientRegistry.h)
 target_include_directories(novaterm_mcp_application PUBLIC ${PROJECT_SOURCE_DIR}/src)
@@ -65,24 +71,14 @@ target_link_libraries(novaterm_session_automation PUBLIC
 qt_add_library(novaterm_mcp_runtime STATIC
     McpAccess.cpp McpAccess.h
     CommandPolicy.cpp CommandPolicy.h
-    CommandRiskPolicy.cpp CommandRiskPolicy.h
     McpService.cpp McpService.h
-    tasks/ExecutionRegistry.cpp tasks/ExecutionRegistry.h
-    tasks/ScriptTaskRegistry.cpp tasks/ScriptTaskRegistry.h
-    tasks/Job.h
-    tasks/ScriptResultUseCase.cpp tasks/ScriptResultUseCase.h
-    tasks/ScriptInvocation.cpp tasks/ScriptInvocation.h
-    tasks/ScriptCommandUseCase.cpp tasks/ScriptCommandUseCase.h
-    tasks/ExecutionService.cpp tasks/ExecutionService.h
-    tasks/DiagnosticCommandUseCase.cpp tasks/DiagnosticCommandUseCase.h
-    tasks/ReadUseCases.cpp tasks/ReadUseCases.h
-    tasks/TaskRegistry.cpp tasks/TaskRegistry.h
-    tasks/TargetReservation.cpp tasks/TargetReservation.h
+    CommandSessionAdapter.cpp CommandSessionAdapter.h
     CapabilityAdapter.cpp CapabilityAdapter.h
     ObservationService.cpp ObservationService.h
     TerminalInteraction.cpp TerminalInteraction.h
 )
 target_link_libraries(novaterm_mcp_runtime PUBLIC
-    novaterm_mcp_http novaterm_mcp_application novaterm_session_automation
-    novaterm_core Qt6::SerialPort)
+    novaterm_mcp_application novaterm_session_automation
+    novaterm_core Qt6::SerialPort
+    PRIVATE novaterm_mcp_http novaterm_mcp_protocol)
 target_compile_definitions(novaterm_mcp_runtime PRIVATE NOVATERM_VERSION="${PROJECT_VERSION}")

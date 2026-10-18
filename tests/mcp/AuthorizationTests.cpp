@@ -18,6 +18,8 @@
 #include <QSet>
 #include <QTest>
 
+#include <functional>
+
 using namespace NovaTerm::Mcp;
 
 namespace {
@@ -100,10 +102,14 @@ class AuthorizationTests : public QObject
 {
     Q_OBJECT
 private slots:
+    void confirmationRejectsChangedFactsAndReplay();
+    void confirmationUserGenerationPreservesPresence();
     void taskPhasesAdvanceOnlyForward();
 
     void singleChangeAdvancesRowAndClientVersions();
     void staleBindingAndRevisionAreRejected();
+    void staleBindingRejectsEveryIdentityChange();
+    void clientRowsNeverCopyAnotherClientsSelections();
     void readRevocationClearsExecutionPermissions();
     void fullInputImpliesReadAndRequiresLiveSession();
     void elevationRequiresFullInputAndIdleCredentials();
@@ -167,6 +173,58 @@ void AuthorizationTests::staleBindingAndRevisionAreRejected()
     QCOMPARE(errorIfAny(staleRevision)->current.revision.value(), 1u);
 }
 
+void AuthorizationTests::staleBindingRejectsEveryIdentityChange()
+{
+    FakePorts ports;
+    AuthorizationService service{ports.ports()};
+    const auto original = facts();
+    const auto selected = apply(service, change(PermissionKind::FullTerminalInput, true), original);
+    const auto version = ports.version;
+    const std::vector<std::function<void(SessionBinding&)>> mutate{
+        [](auto& value) { value.session = SessionId{QStringLiteral("other-session")}; },
+        [](auto& value) { value.attachment = AttachmentId{QStringLiteral("other-attachment")}; },
+        [](auto& value) { value.epoch = Epoch{QStringLiteral("other-epoch")}; },
+        [](auto& value) { value.generation = Generation{6}; },
+        [](auto& value) { value.targetFingerprint = QStringLiteral("other-target"); },
+    };
+    for (const auto& changeBinding : mutate) {
+        auto current = original;
+        changeBinding(current.binding);
+        const auto rejected = service.change(change(PermissionKind::FullTerminalInput, false,
+            selected.revision, std::nullopt, original.binding), current);
+        QVERIFY(isError(rejected));
+        QCOMPARE(errorIfAny(rejected)->reason, AuthorizationRejection::StaleBinding);
+        QVERIFY(!errorIfAny(rejected)->current.selection.fullTerminalInput);
+        QCOMPARE(ports.version, version);
+    }
+    QVERIFY(service.snapshot(ClientId{QStringLiteral("client-1")}, original).selection.fullTerminalInput);
+}
+
+void AuthorizationTests::clientRowsNeverCopyAnotherClientsSelections()
+{
+    FakePorts ports;
+    ports.clients.insert(QStringLiteral("client-2"));
+    AuthorizationService service{ports.ports()};
+    const auto current = facts();
+    const auto first = apply(service, change(PermissionKind::FullTerminalInput, true), current);
+    auto second = change(PermissionKind::ReadOutput, true, first.revision);
+    second.client = ClientId{QStringLiteral("client-2")};
+    const auto stale = service.change(second, current);
+    QVERIFY(isError(stale));
+    QCOMPARE(errorIfAny(stale)->reason, AuthorizationRejection::StaleRevision);
+    QVERIFY(!errorIfAny(stale)->current.selection.read);
+    second.expectedRevision = GrantRevision{0};
+    const auto read = apply(service, second, current);
+    QVERIFY(read.selection.read);
+    QVERIFY(!read.selection.fullTerminalInput && !read.selection.elevation);
+    second.selected = false;
+    second.expectedRevision = read.revision;
+    QVERIFY(!apply(service, second, current).selection.read);
+    const auto unchanged = service.snapshot(ClientId{QStringLiteral("client-1")}, current);
+    QVERIFY(unchanged.selection.fullTerminalInput);
+    QCOMPARE(unchanged.revision, first.revision);
+}
+
 void AuthorizationTests::readRevocationClearsExecutionPermissions()
 {
     FakePorts ports;
@@ -178,15 +236,18 @@ void AuthorizationTests::readRevocationClearsExecutionPermissions()
         GrantRevision{2}), current);
     apply(service, change(PermissionKind::FullTerminalInput, true, GrantRevision{3}), current);
     apply(service, change(PermissionKind::ManagedElevation, true, GrantRevision{4}), current);
+    const auto diagnostic = apply(service, change(PermissionKind::Diagnostic, true, GrantRevision{5},
+        DiagnosticId{QStringLiteral("os.uname")}), current);
+    QVERIFY(!diagnostic.selection.diagnostics.isEmpty());
     const auto revoked = apply(service,
-        change(PermissionKind::ReadOutput, false, GrantRevision{5}), current);
+        change(PermissionKind::ReadOutput, false, GrantRevision{6}), current);
     QVERIFY(!revoked.selection.read);
     QVERIFY(revoked.selection.diagnostics.isEmpty());
     QVERIFY(!revoked.selection.riskControlledCommand);
     QVERIFY(!revoked.selection.script);
     QVERIFY(!revoked.selection.fullTerminalInput);
     QVERIFY(!revoked.selection.elevation);
-    QCOMPARE(revoked.revision.value(), 6u);
+    QCOMPARE(revoked.revision.value(), 7u);
 }
 
 void AuthorizationTests::fullInputImpliesReadAndRequiresLiveSession()
@@ -656,8 +717,8 @@ void AuthorizationTests::confirmationsKeepNonceAndPendingState()
 
     PendingConfirmationRecord pending;
     pending.jobKey = QStringLiteral("conn-1/7");
-    pending.connection = QStringLiteral("conn-1");
-    pending.expires = 500;
+    pending.transaction.binding.connection = PeerId{QStringLiteral("conn-1")};
+    pending.transaction.expires = 500;
     registry.insertPending(pending.jobKey, pending);
     QVERIFY(registry.hasPendingForConnection(QStringLiteral("conn-1")));
     QVERIFY(!registry.hasPendingForConnection(QStringLiteral("conn-4")));
@@ -751,6 +812,74 @@ void AuthorizationTests::taskPhasesAdvanceOnlyForward()
     QVERIFY(NovaTerm::Mcp::taskPhaseCanAdvance(TaskPhase::Submitted, TaskPhase::Final));
     QVERIFY(!NovaTerm::Mcp::taskPhaseCanAdvance(TaskPhase::Observing, TaskPhase::Submitted));
     QVERIFY(!NovaTerm::Mcp::taskPhaseCanAdvance(TaskPhase::Final, TaskPhase::Final));
+}
+
+void AuthorizationTests::confirmationRejectsChangedFactsAndReplay()
+{
+    ConfirmationBinding current;
+    current.connection = PeerId{QStringLiteral("peer")};
+    current.client = ClientId{QStringLiteral("client")};
+    current.session = SessionId{QStringLiteral("session")};
+    current.epoch = Epoch{QStringLiteral("epoch")};
+    current.targetFingerprint = QStringLiteral("target");
+    current.policyVersion = QStringLiteral("policy");
+    current.profileVersion = QStringLiteral("profile");
+    current.grantVersion = ClientAccessVersion{7};
+    current.promptGeneration = PromptRevision{8};
+    current.userInputGeneration = InputRevision{9};
+    current.payloadHash = QByteArray(32, 'h');
+    const ConfirmationTransaction transaction{current, QStringLiteral("nonce"), 1000};
+    QVERIFY(ConfirmationRegistry::validate(transaction, current, 999));
+    QVERIFY(!ConfirmationRegistry::validate(transaction, current, 1000));
+    const std::vector<std::function<void(ConfirmationBinding&)>> changeFact{
+        [](auto& value) { value.connection = PeerId{QStringLiteral("other")}; },
+        [](auto& value) { value.client = ClientId{QStringLiteral("other")}; },
+        [](auto& value) { value.session = SessionId{QStringLiteral("other")}; },
+        [](auto& value) { value.epoch = Epoch{QStringLiteral("other")}; },
+        [](auto& value) { value.targetFingerprint += QLatin1Char('x'); },
+        [](auto& value) { value.policyVersion += QLatin1Char('x'); },
+        [](auto& value) { value.profileVersion += QLatin1Char('x'); },
+        [](auto& value) { value.grantVersion = ClientAccessVersion{10}; },
+        [](auto& value) { value.promptGeneration = PromptRevision{10}; },
+        [](auto& value) { value.userInputGeneration = InputRevision{10}; },
+        [](auto& value) { value.payloadHash[0] = 'x'; },
+        [](auto& value) { value.tool = ConfirmationTool::Script; },
+        [](auto& value) { value.decision = ConfirmationDecision::Unknown; },
+    };
+    ConfirmationRegistry registry;
+    registry.registerActive(transaction);
+    for (const auto& change : changeFact) {
+        auto stale = current;
+        change(stale);
+        QVERIFY(!ConfirmationRegistry::validate(transaction, stale, 999));
+        QVERIFY(!registry.consume(transaction, stale, 999));
+    }
+    auto alteredDeadline = transaction;
+    alteredDeadline.expires += 1000;
+    QVERIFY(!registry.consume(alteredDeadline, current, 999));
+    QVERIFY(!registry.consume(transaction, current, 1000));
+    QVERIFY(registry.consume(transaction, current, 999));
+    QVERIFY(!registry.consume(transaction, current, 999));
+    registry.registerActive(transaction);
+    QVERIFY(!registry.consume(transaction, current, 999));
+    static_cast<void>(registry.sweep(1000));
+    QVERIFY(!registry.consume(transaction, current, 1001));
+}
+
+void AuthorizationTests::confirmationUserGenerationPreservesPresence()
+{
+    for (auto tool : {ConfirmationTool::Command, ConfirmationTool::Script}) {
+        ConfirmationBinding current;
+        current.tool = tool;
+        ConfirmationTransaction transaction{current, QStringLiteral("nonce"), 1000};
+        QVERIFY(ConfirmationRegistry::validate(transaction, current, 1));
+        current.userInputGeneration = InputRevision{0};
+        QVERIFY(!ConfirmationRegistry::validate(transaction, current, 1));
+        transaction.binding.userInputGeneration = InputRevision{0};
+        QVERIFY(ConfirmationRegistry::validate(transaction, current, 1));
+        current.userInputGeneration = InputRevision{1};
+        QVERIFY(!ConfirmationRegistry::validate(transaction, current, 1));
+    }
 }
 
 QTEST_MAIN(AuthorizationTests)

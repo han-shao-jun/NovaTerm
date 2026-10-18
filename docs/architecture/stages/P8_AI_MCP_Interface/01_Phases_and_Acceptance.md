@@ -10,7 +10,7 @@
 
 | 阶段 | 目标与独立交付 | 依赖 | 当前状态 |
 | --- | --- | --- | --- |
-| [P0](P0_Runtime_Consolidation.md) | 九工具运行内核、结构收口、基线 | 现有代码 | W1～W5 主要代码已落地；结构/纯依赖与平台差距待审计 |
+| [P0](P0_Runtime_Consolidation.md) | 九工具运行内核、结构收口、基线 | 现有代码 | 实现与结构收口完成；Linux专项通过，其他平台保留补验范围 |
 | [P1](P1_Capability_Runtime.md) | 通用能力目录、本机应用入口、目标环境与执行路由 | P0 对应兼容/安全闸门 | 规划 |
 | [P2](P2_History_Recording.md) | 用户主动开启的保真录制、分块持久化、恢复和管理 UI | P1 资源/授权契约 | 规划 |
 | [P3](P3_History_Search_and_Evidence.md) | 原文分页、跨块搜索、证据、离线资源授权、三历史工具 | P2；任务证据契约可提前定义 | 规划 |
@@ -62,14 +62,9 @@ flowchart LR
 
 ## 3. 状态冲突的处理
 
-旧内核设计头部和计划 W4/W5 的待办落后于03实施与验收记录 后续 W5g～W5l 记录：
-Job::arguments 删除、TerminalEvidenceModel、TaskRegistry、typed TerminalInteraction、ReadUseCases、DiagnosticCommandUseCase、ScriptResultUseCase、ScriptCommandUseCase、ExecutionService 已有代码，不能重新安排为“从零创建”。
+历史W1～W5的迁移记录保留作追溯；随后执行包装和三个可变注册表已按职责合并，P0又完成纯执行/观察边界、类型化wire入口与停机收口。当前文件、owner和退出证据以[P0§2及验收索引](P0_Runtime_Consolidation.md)为准，不重建已经删除的旧类。
 
-同时“已拆分”不等于完全满足原纯应用/unique_ptr/无业务 JSON 目标；P0 列出当前 shared_ptr/Ports/依赖等差距。按源码和 P8 最新有日期记录判定，不选取最乐观的历史一句话。
-
-历史成绩：P8 W5l 记录 Linux MCP 九项 9/9（28.36 秒）、全套 27/29（190.26 秒）；失败为 openpty 环境相关两项。Windows/macOS、真实设备/提权适配器未验收。这些是沿用记录，本次没有重新运行。
-
-旧诊断草案“七项 MCP 测试”更新为当前九目标；新能力测试为未来目标，不能计入现有注册数。
+当前P0实现及Linux专项已验收；不同日期的历史测试数字不作新成绩。现有MCP为12个CTest目标，Linux总注册32项；未运行的Windows/macOS和真实设备范围继续单列，不能用Linux或注册数冒充通过。
 
 ## 4. 每阶段实施模板
 
@@ -93,7 +88,7 @@ Job::arguments 删除、TerminalEvidenceModel、TaskRegistry、typed TerminalInt
 - [ ] 文档、Schema、目录、配置和删除清单同步；历史恢复不重发操作。
 - [ ] 真目标连接、hook/helper/适配器部署另有明确授权，不用模拟成绩替代。
 
-当前九目标：novaterm_mcp_tests、novaterm_mcp_wire_tests、novaterm_mcp_http_tests、novaterm_mcp_endpoint_tests、novaterm_mcp_contracts_tests、novaterm_mcp_authorization_tests、novaterm_mcp_access_interaction_tests、novaterm_sftp_session_safety_tests、novaterm_command_safety_tests。
+当前十二目标：novaterm_mcp_tests、novaterm_mcp_wire_tests、novaterm_mcp_http_tests、novaterm_mcp_endpoint_tests、novaterm_mcp_contracts_tests、novaterm_mcp_authorization_tests、novaterm_mcp_read_use_cases_tests、novaterm_mcp_command_runtime_tests、novaterm_mcp_observation_state_tests、novaterm_mcp_access_interaction_tests、novaterm_sftp_session_safety_tests、novaterm_command_safety_tests。
 
 ## 6. 推荐首个可见交付
 

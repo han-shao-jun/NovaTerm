@@ -28,7 +28,7 @@
 
 ## 2. 当前事实与目标分层
 
-已有：contracts/ToolCodec、单项授权、CapabilityResolver、统一观察存储、请求调度、确认/执行/脚本注册表、Session 证据模型及拆分用例。构建目标以 src/mcp/CMakeLists.txt 为准。
+已有：contracts/ToolCodec、单项授权、CapabilityResolver、统一观察存储、请求调度、统一确认事务、CommandRuntime执行生命周期、Session证据模型及独立只读用例。构建目标以 src/mcp/CMakeLists.txt 为准。
 未有：通用能力 Registry/Dispatcher、本机 Agent 入口、保真历史、诊断 Pack、模型 Driver、完整聊天 UI、外部 Agent 托管。
 
 ~~~mermaid
@@ -122,7 +122,7 @@ Evidence作为独立应用职责：History、诊断、导入分别提供来源�
 | CapabilityResolver | 授权 + 当前事实 → 是否可执行及明确原因；不探测、不授予 |
 | ObservationService | 一个基础快照源、CaptureStore、读取/搜索；不执行命令 |
 | RequestScheduler | 请求名额、排队、取消/交付；不决定远端是否结束 |
-| TaskRegistry / 各用例 | 任务所有权、阶段与执行；索引仅定位任务 |
+| Service请求表 / CommandRuntime | 请求由Service唯一持有；命令状态、阶段、发布与取消由CommandRuntime拥有，跨组件仅传ID和调用值 |
 | ConfirmationRegistry/业务事务 | 摘要、目标/策略/代际绑定、一次消费；协议两代共享语义 |
 | CredentialBroker/现有凭据边界 | 私有秘密引用和有界 worker；不向模型/Result 返回 secret |
 | Session evidence / Coordinator / Arbiter | 唯一提示符与输入证据、人机仲裁、提交和完成事实 |
@@ -131,7 +131,7 @@ Evidence作为独立应用职责：History、诊断、导入分别提供来源�
 | AgentManager / Runtime（规划） | 应用级聊天与回合、Driver、事件、取消和上下文 |
 | UI model / controller | 只读快照和本机意图；不持可变 AccessStore，不判定后端能力 |
 
-目标是每项可变状态有一个明确 owner；观察者只保存 ID/弱引用，不复制 Job。当前 TaskRegistry 使用 shared_ptr 快照、部分 Ports 仍含 JSON/Session，这是 mcp/P0 需要如实登记的差距，不把原 unique_ptr/纯契约目标写成已完成。
+目标是每项可变状态有一个明确 owner；观察者只保存 ID/弱引用，不复制 Job。当前Service已用unique_ptr拥有请求；CommandRuntime内部的共享引用仅用于同步回调和迟到发布保活，不跨组件暴露。ReadUseCases已可独立链接；执行已通过CommandSessionPort隔离具体Session；wait/replay由纯应用ObservationState拥有，平台验收差距按mcp/P0记录，不把P1通用入口写成已完成。
 QObject 统一选择 parent 或 unique_ptr 所有权；Session 观察者在适配边界使用 QPointer，worker 不保存 Session/UI QObject 裸指针。
 
 ## 4. 身份、资源、权限与可用性

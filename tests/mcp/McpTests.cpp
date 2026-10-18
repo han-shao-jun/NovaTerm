@@ -46,6 +46,7 @@
 #include <QSet>
 #include <QPushButton>
 #include <QSignalSpy>
+#include <QSignalBlocker>
 #include <QScopeGuard>
 #include <QFile>
 #include <QDir>
@@ -120,7 +121,7 @@ public:
 class DelayedScriptProvider final : public ISessionScriptProvider
 {
 public:
-    [[nodiscard]] bool isAvailable() const override { return true; }
+    [[nodiscard]] bool isAvailable() const override { return available; }
     bool writeScript(const ScriptWriteRequest& request) override
     {
         if (_request.requestId != 0)
@@ -149,6 +150,7 @@ public:
 
     int writeCount{0};
     int cancelCount{0};
+    bool available{true};
 
 private:
     ScriptWriteRequest _request;
@@ -189,6 +191,12 @@ public:
         result.terminationConfirmed = true;
         result.exitCode = 0;
         result.standardOutput = QByteArrayLiteral("fixture executor\n");
+        if (beforeCompletion)
+            beforeCompletion();
+        if (finishSynchronously) {
+            emit finished(result);
+            return true;
+        }
         QMetaObject::invokeMethod(this, [this, result] { emit finished(result); },
                                   Qt::QueuedConnection);
         return true;
@@ -201,6 +209,8 @@ public:
     }
 
     int submissionCount{0};
+    bool finishSynchronously{false};
+    std::function<void()> beforeCompletion;
     CommandExecutionRequest lastRequest;
     quint64 cancelledRequest{0};
 
@@ -535,6 +545,7 @@ private slots:
     void truncatedOutputNeverAdvancesCursor();
     void revokeAndReconnectInvalidateAccess();
     void commandsRequireSeparateGrantAndAreDeduplicated();
+    void synchronousCommandCompletionKeepsFinalState();
     void unknownExecutionProtectsTarget();
     void privateMarkersSurviveServiceRestart();
     void cancelledCommandNeverReplays();
@@ -545,6 +556,7 @@ private slots:
     void settingsDialogKeepsPendingGrantsForEveryTerminal();
     void settingsDialogRejectsStaleConnectionRow_data();
     void settingsDialogRejectsStaleConnectionRow();
+    void settingsDialogRejectsRowFromPreviousClient();
     void settingsDialogRejectsElevationWithoutResettingActiveModel_data();
     void settingsDialogRejectsElevationWithoutResettingActiveModel();
     void settingsDialogElevationCheckboxRequiresSupportedContext_data();
@@ -589,6 +601,7 @@ private slots:
     void unknownRiskCanBeConfirmed();
     void mrtrRequiresBoundOneShotConfirmation();
     void scriptContentRequiresConfirmationAndNeverEntersTerminal();
+    void scriptConfirmationRejectsUnavailableProvider();
     void scriptMrtrConfirmationIsSignedAndOneShot();
     void userTypingCancelsInFlightScriptUploadBeforeInvocation();
     void scriptUploadReservesTargetUntilProviderFinishes_data();
@@ -987,6 +1000,41 @@ void McpTests::scriptContentRequiresConfirmationAndNeverEntersTerminal()
     QVERIFY(!transport.written.contains("SCRIPT_BODY_MUST_NOT_ENTER_TERMINAL"));
     QVERIFY(payload.value("data").toObject().value("stdout")
         .toString().contains(QStringLiteral("SCRIPT_OUTPUT_OK")));
+}
+
+void McpTests::scriptConfirmationRejectsUnavailableProvider()
+{
+    Fixture fixture;
+    auto* provider = fixture.makeScriptUpload();
+    QVERIFY(provider);
+    QVERIFY(fixture.service.access().setEnabled(true));
+    const auto entry = fixture.service.directory().entries().first();
+    QVERIFY(NovaTerm::Mcp::TestSupport::setGrant(fixture.service.access(), fixture.client, entry,
+        true, {}, true, false, true));
+    emit fixture.local.readyRead(QByteArrayLiteral("\x1b]633;NT;PROMPT;1;0\x07"));
+    QTRY_VERIFY(fixture.session.commandCoordinator()->isPromptReady());
+    QTRY_COMPARE(fixture.service.status(), QStringLiteral("Listening"));
+    Host host;
+    QVERIFY(host.start(fixture.runtime(), fixture.token(), {}, true));
+    const auto target = fixture.root.filePath(QStringLiteral("unavailable.sh"));
+    auto arguments = fixture.identity();
+    arguments.insert("scriptContent", "#!/bin/sh\nprintf safe\n");
+    arguments.insert("targetPath", target);
+    arguments.insert("workingDirectory", fixture.root.path());
+    arguments.insert("invocation", "sh ./unavailable.sh");
+    host.begin("novaterm_run_script", arguments);
+    const auto prompt = host.next();
+    QCOMPARE(prompt.value("method").toString(), QStringLiteral("elicitation/create"));
+    provider->available = false;
+    host.send({{"jsonrpc", "2.0"}, {"id", prompt.value("id")},
+        {"result", QJsonObject{{"action", "accept"}, {"content", QJsonObject{{"confirmed", true}}}}}});
+    const auto result = host.next().value("result").toObject().value("structuredContent").toObject();
+    QCOMPARE(result.value("error").toObject().value("code").toString(),
+        QStringLiteral("COMMAND_CONFIRMATION_STALE"));
+    QCOMPARE(provider->writeCount, 0);
+    QVERIFY(fixture.local.written.isEmpty());
+    QVERIFY(!QFile::exists(target));
+    QVERIFY(fixture.service.protectedTargets().isEmpty());
 }
 
 void McpTests::scriptRiskPolicyDeniesCredentialAndSecurityTampering()
@@ -2732,6 +2780,8 @@ void McpTests::commandsRequireSeparateGrantAndAreDeduplicated()
     arguments.insert("commandId", permittedId);
     host.begin("novaterm_execute_command", arguments);
     QTRY_COMPARE(SshTransportTestAccess::queued(*f.ssh), 1);
+    QCOMPARE(f.service.executionRecords().first().toObject()
+                 .value("phase").toString(), QStringLiteral("observing"));
     QCOMPARE(SshTransportTestAccess::queuedCommand(*f.ssh),
              QByteArrayLiteral("uname -srm"));
     SshTransportTestAccess::finish(*f.ssh, true);
@@ -2739,8 +2789,46 @@ void McpTests::commandsRequireSeparateGrantAndAreDeduplicated()
     QVERIFY(completed.value("ok").toBool());
     const auto replay = host.call("novaterm_execute_command", arguments);
     QCOMPARE(replay, completed);
+    QCOMPARE(f.service.executionRecords().first().toObject()
+                 .value("phase").toString(), QStringLiteral("final"));
     QCOMPARE(SshTransportTestAccess::queued(*f.ssh), 0);
     QVERIFY(f.service.protectedTargets().isEmpty());
+}
+
+void McpTests::synchronousCommandCompletionKeepsFinalState()
+{
+    Fixture fixture;
+    auto executor = std::make_unique<TestCommandExecutor>();
+    auto* executorView = executor.get();
+    executorView->finishSynchronously = true;
+    QString submittedPhase;
+    bool reservedBeforeSubmission = false;
+    executorView->beforeCompletion = [&] {
+        submittedPhase = fixture.service.executionRecords().first().toObject().value("phase").toString();
+        reservedBeforeSubmission = !fixture.service.protectedTargets().isEmpty();
+    };
+    fixture.session.commandFacade()->installExecutor(std::move(executor), fixture.session.statistics().generation);
+    static_cast<void>(fixture.service.directory().entries());
+    QVERIFY(fixture.enable(true));
+    QTRY_COMPARE(fixture.service.status(), QStringLiteral("Listening"));
+    Host host;
+    QVERIFY(host.start(fixture.runtime(), fixture.token()));
+    const auto catalog = host.call("novaterm_list_commands", fixture.identity()).value("data").toObject();
+    const auto command = catalog.value("commands").toArray().first().toObject();
+    auto arguments = fixture.identity();
+    arguments.insert("commandId", command.value("commandId"));
+    arguments.insert("commandTicket", command.value("commandTicket"));
+    arguments.insert("policyVersion", catalog.value("policyVersion"));
+    arguments.insert("arguments", QJsonObject{});
+    const auto completed = host.call("novaterm_execute_command", arguments);
+    QVERIFY(completed.value("ok").toBool());
+    QCOMPARE(submittedPhase, QStringLiteral("submitted"));
+    QVERIFY(reservedBeforeSubmission);
+    QCOMPARE(fixture.service.executionRecords().size(), 1);
+    QCOMPARE(fixture.service.executionRecords().first().toObject().value("phase").toString(), QStringLiteral("final"));
+    QVERIFY(fixture.service.protectedTargets().isEmpty());
+    QCOMPARE(host.call("novaterm_execute_command", arguments), completed);
+    QCOMPARE(executorView->submissionCount, 1);
 }
 
 void McpTests::unknownExecutionProtectsTarget()
@@ -4063,6 +4151,48 @@ void McpTests::settingsDialogKeepsPendingGrantsForEveryTerminal()
     tree->topLevelItem(0)->setCheckState(2, Qt::Unchecked);
     QTRY_VERIFY(!f.service.access().canUseElevation(f.client, entry));
     QVERIFY(f.service.access().commands(f.client, entry).isEmpty());
+}
+
+void McpTests::settingsDialogRejectsRowFromPreviousClient()
+{
+    eApp->init();
+    Fixture fixture;
+    QVERIFY(fixture.enable());
+    const auto entry = fixture.service.directory().entries().first();
+    const auto otherClient = fixture.service.access().addClient(QStringLiteral("other"));
+    QVERIFY(!otherClient.isEmpty());
+    QWidget owner;
+    McpSettingsDialog dialog(&fixture.service, &owner);
+    auto* tree = dialog.findChild<ElaTreeWidget*>();
+    QVERIFY(tree && tree->topLevelItemCount() == 1);
+    ElaComboBox* clients = nullptr;
+    for (auto* combo : dialog.findChildren<ElaComboBox*>()) {
+        if (combo->findData(fixture.client) >= 0 && combo->findData(otherClient) >= 0) {
+            clients = combo;
+            break;
+        }
+    }
+    QVERIFY(clients);
+    clients->setCurrentIndex(clients->findData(fixture.client));
+    auto* oldRow = tree->topLevelItem(0);
+    QCOMPARE(oldRow->checkState(2), Qt::Checked);
+    const auto firstVersion = fixture.service.access().version(fixture.client);
+    const auto otherVersion = fixture.service.access().version(otherClient);
+    const QPersistentModelIndex retained(tree->indexFromItem(oldRow, 2));
+    {
+        // 模拟客户端已切换、旧行的排队刷新尚未执行的窗口。
+        const QSignalBlocker blocker(clients);
+        clients->setCurrentIndex(clients->findData(otherClient));
+    }
+    oldRow->setCheckState(2, Qt::Unchecked);
+    QVERIFY(retained.isValid());
+    QCOMPARE(fixture.service.access().version(fixture.client), firstVersion);
+    QCOMPARE(fixture.service.access().version(otherClient), otherVersion);
+    QVERIFY(fixture.service.access().canRead(fixture.client, entry));
+    QVERIFY(!fixture.service.access().canRead(otherClient, entry));
+    QTRY_VERIFY(!retained.isValid());
+    QCOMPARE(tree->topLevelItem(0)->checkState(2), Qt::Unchecked);
+    QVERIFY(fixture.local.written.isEmpty());
 }
 
 void McpTests::settingsDialogRejectsStaleConnectionRow_data()

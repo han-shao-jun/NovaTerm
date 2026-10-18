@@ -8,19 +8,20 @@
  */
 #pragma once
 
+#include "mcp/contracts/Errors.h"
 #include <QString>
 
 #include <memory>
 
 namespace NovaTerm::Mcp {
 
-class TargetGuard;
+class CommandTargetStore;
 
 class TargetReservation
 {
 public:
     TargetReservation() = default;
-    TargetReservation(TargetGuard& guard, QString fingerprint, QString executionId);
+    TargetReservation(CommandTargetStore& guard, QString fingerprint, QString executionId);
     ~TargetReservation();
 
     TargetReservation(TargetReservation&& other) noexcept;
@@ -33,8 +34,8 @@ public:
      * @return 失败时返回空（标记未写入）。
      */
     [[nodiscard]] static std::unique_ptr<TargetReservation> acquire(
-        TargetGuard& guard, const QString& fingerprint, const QString& executionId,
-        const QString& instance, QString& error);
+        CommandTargetStore& guard, const QString& fingerprint, const QString& executionId,
+        const QString& instance, Error& error);
 
     [[nodiscard]] bool held() const;
     [[nodiscard]] const QString& fingerprint() const { return _fingerprint; }
@@ -46,7 +47,7 @@ public:
     void relinquish();
 
 private:
-    TargetGuard* _guard{nullptr};
+    CommandTargetStore* _guard{nullptr};
     QString _fingerprint;
     QString _executionId;
     bool _releasePending{false};

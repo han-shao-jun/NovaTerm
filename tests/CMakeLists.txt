@@ -80,6 +80,30 @@ if(BUILD_TESTING)
         LABELS "mcp;p8;security" TIMEOUT 30)
     add_dependencies(check novaterm_mcp_authorization_tests)
 
+    # 只读应用用例只通过值契约/假端口测试，不链接 Session、HTTP 或 Widgets。
+    qt_add_executable(novaterm_mcp_read_use_cases_tests mcp/ReadUseCasesTests.cpp)
+    target_link_libraries(novaterm_mcp_read_use_cases_tests PRIVATE
+        novaterm_mcp_application Qt6::Test)
+    set_target_properties(novaterm_mcp_read_use_cases_tests PROPERTIES WIN32_EXECUTABLE FALSE)
+    add_test(NAME novaterm_mcp_read_use_cases_tests COMMAND novaterm_mcp_read_use_cases_tests)
+    set_tests_properties(novaterm_mcp_read_use_cases_tests PROPERTIES
+        LABELS "mcp;p8" TIMEOUT 30)
+    add_dependencies(check novaterm_mcp_read_use_cases_tests)
+
+    qt_add_executable(novaterm_mcp_observation_state_tests mcp/ObservationStateTests.cpp)
+    target_link_libraries(novaterm_mcp_observation_state_tests PRIVATE novaterm_mcp_application Qt6::Test)
+    set_target_properties(novaterm_mcp_observation_state_tests PROPERTIES WIN32_EXECUTABLE FALSE)
+    add_test(NAME novaterm_mcp_observation_state_tests COMMAND novaterm_mcp_observation_state_tests)
+    set_tests_properties(novaterm_mcp_observation_state_tests PROPERTIES LABELS "mcp;p8" TIMEOUT 30)
+    add_dependencies(check novaterm_mcp_observation_state_tests)
+
+    qt_add_executable(novaterm_mcp_command_runtime_tests mcp/CommandRuntimeTests.cpp)
+    target_link_libraries(novaterm_mcp_command_runtime_tests PRIVATE novaterm_mcp_application Qt6::Test)
+    set_target_properties(novaterm_mcp_command_runtime_tests PROPERTIES WIN32_EXECUTABLE FALSE)
+    add_test(NAME novaterm_mcp_command_runtime_tests COMMAND novaterm_mcp_command_runtime_tests)
+    set_tests_properties(novaterm_mcp_command_runtime_tests PROPERTIES LABELS "mcp;p8" TIMEOUT 30)
+    add_dependencies(check novaterm_mcp_command_runtime_tests)
+
     qt_add_executable(novaterm_mcp_wire_tests mcp/WireSessionTests.cpp)
     target_link_libraries(novaterm_mcp_wire_tests PRIVATE novaterm_mcp_protocol Qt6::Test)
     set_target_properties(novaterm_mcp_wire_tests PROPERTIES WIN32_EXECUTABLE FALSE)
@@ -166,7 +190,7 @@ if(BUILD_TESTING)
             ${PROJECT_SOURCE_DIR}/src/renderer/shaders/terminal_texture.vert
             ${PROJECT_SOURCE_DIR}/src/renderer/shaders/terminal_texture.frag
     )
-    target_link_libraries(novaterm_mcp_tests PRIVATE novaterm_mcp_runtime Qt6::Test Qt6::Gui Qt6::Widgets ElaWidgetTools
+    target_link_libraries(novaterm_mcp_tests PRIVATE novaterm_mcp_runtime Qt6::Test Qt6::Gui Qt6::Widgets Qt6::Network ElaWidgetTools
         ssh::ssh OpenSSL::Crypto OpenSSL::SSL ${NOVATERM_SECRET_SERVICE_LIBS})
     if(WIN32)
         target_link_libraries(novaterm_mcp_tests PRIVATE ws2_32 crypt32 advapi32)

@@ -148,6 +148,24 @@ ctest --test-dir build -C Debug
 `novaterm_terminal_session_tests` 根本不构建**，那 46s 的联通路径覆盖在 Linux
 工作树上无对应物，别把"跑过了"写进提交消息。
 
+#### MCP 执行收敛增量（2026-10-18）
+
+MCP新增`novaterm_mcp_read_use_cases_tests`：只链接纯application/Qt Core/Test，
+以假端口检查目录分页、游标绑定、撤权、截断和诊断目录。当前Linux实核30项、
+MCP标签10项；下文29项/九项是本增量前的历史基线，Windows按条件预计32项，未实核。
+执行实现集中在`src/mcp/tasks/CommandRuntime.*`，旧ScriptCommandUseCase/
+ScriptResultUseCase/DiagnosticCommandUseCase/ExecutionService及三个可变注册表文件已删除。
+具体职责与本次验证范围见mcp/P0和实施记录；不据此次专项推断全套/其他平台通过。
+
+#### P0收口验收增量（2026-10-18）
+
+新增纯应用`novaterm_mcp_command_runtime_tests`与`novaterm_mcp_observation_state_tests`，
+只链接application/Qt Core/Test，分别覆盖完整命令生命周期和等待/输入重放。
+当前Linux实核**32项**，MCP标签**12项**；Windows按条件预计34项，未实核。
+本轮Linux MCP12/12与Session专项通过，未运行全套；此前10项/30项及九项/29项均为历史。
+CommandRuntime已成为纯应用用例，具体Session/TargetGuard/token/JSON接线位于
+`src/mcp/CommandSessionAdapter.*`；TerminalInteraction消费ObservationState，未新增采样源。
+
 #### 默认注册了哪些测试
 
 以 `tests/CMakeLists.txt` 为准（2026-09 复核）。两个开关的默认值都要注意：
@@ -165,6 +183,9 @@ ctest --test-dir build -C Debug
 | `novaterm_mcp_endpoint_tests` | 无条件 | `mcp;p8;http` | 60 |
 | `novaterm_mcp_contracts_tests` | 无条件 | `mcp;p8;contracts` | 30 |
 | `novaterm_mcp_authorization_tests` | 无条件 | `mcp;p8;security` | 30 |
+| `novaterm_mcp_read_use_cases_tests` | 无条件 | `mcp;p8` | 30 |
+| `novaterm_mcp_command_runtime_tests` | 无条件 | `mcp;p8` | 30 |
+| `novaterm_mcp_observation_state_tests` | 无条件 | `mcp;p8` | 30 |
 | `novaterm_mcp_access_interaction_tests` | 无条件 | `mcp;p8;security` | 30 |
 | `novaterm_sftp_session_safety_tests` | 无条件 | `mcp;p8;security` | 30 |
 | `novaterm_command_safety_tests` | 无条件 | `mcp;p8;security` | 30 |

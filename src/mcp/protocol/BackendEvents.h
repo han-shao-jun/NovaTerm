@@ -7,7 +7,8 @@
  */
 #pragma once
 
-#include <QJsonObject>
+#include "mcp/contracts/ToolRequests.h"
+#include <QMetaType>
 #include <QString>
 
 #include <variant>
@@ -17,12 +18,12 @@ namespace NovaTerm::Mcp {
 struct BackendCall
 {
     QString id;
-    QString tool;
-    QJsonObject arguments;
+    ToolRequest request;
+    QByteArray confirmationDigest;
     bool mrtr{false};
     bool formElicitation{false};
     QString requestState;
-    QJsonObject inputResponses;
+    std::optional<ConfirmationAnswer> answer;
 };
 
 struct BackendCancel
@@ -33,8 +34,7 @@ struct BackendCancel
 struct BackendElicitationResult
 {
     QString id;
-    QString action;
-    bool confirmed{false};
+    ConfirmationAnswer answer{ConfirmationAnswer::Decline};
 };
 
 using BackendEvent = std::variant<BackendCall, BackendCancel, BackendElicitationResult>;
