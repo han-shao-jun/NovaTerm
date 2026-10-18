@@ -2208,6 +2208,17 @@ void TerminalCoreTests::agentBatchEncodingUsesTerminalModesWithoutUserOutput()
     QVERIFY(!core.encodeAgentInput(82, actions));
     QCoreApplication::processEvents();
     QCOMPARE(encoded.size(), 1);
+    // 宿主添加的设备行尾不消耗原文额度，文本本身仍受 16 KiB 限制。
+    actions = {{A::Kind::Text, std::string(16384, 'a')}, {A::Kind::Bytes, "\r\n"}};
+    QVERIFY(core.encodeAgentInput(83, actions));
+    QTRY_COMPARE(encoded.size(), 2);
+    QVERIFY(encoded.last().at(2).toBool());
+    QCOMPARE(encoded.last().at(1).toByteArray(), QByteArray(16384, 'a') + "\r\n");
+    actions = {{A::Kind::Text, std::string(16384, 'a')},
+        {A::Kind::Key, "c", NovaTerm::InputKey::None, 4}};
+    QVERIFY(core.encodeAgentInput(84, actions));
+    QTRY_COMPARE(encoded.size(), 3);
+    QCOMPARE(encoded.last().at(1).toByteArray(), QByteArray(16384, 'a') + '\x03');
 }
 
 QTEST_GUILESS_MAIN(TerminalCoreTests)

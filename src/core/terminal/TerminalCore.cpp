@@ -48,6 +48,8 @@ namespace {
 constexpr isize QueueCapacity = 8 * 1024 * 1024;
 // 每次喂给 libvterm 的最大字节数；过大会延长单次模型锁持有时间。
 constexpr isize ParserBatchSize = 64 * 1024;
+constexpr size_t AgentInputTextLimit = 16 * 1024;
+constexpr isize AgentInputByteLimit = 64 * 1024;
 // 高水位：队列填充至此触发背压，建议上游停止投递。
 constexpr isize QueueHighWatermark = QueueCapacity * 3 / 4;
 // 低水位：队列消费至此解除背压。
@@ -102,6 +104,15 @@ struct ParserCommand
     uint64_t byteBarrier{0};
     uint64_t operation{0};
     std::vector<NovaTerm::TerminalInputAction> actions;
+};
+
+// Qt 门面的有序输出发布物：普通输出与 Agent 编码结果共用一条发布序列。
+struct EncodedOutput
+{
+    QByteArray bytes;
+    bool userInput{false};
+    quint64 operation{0};
+    bool valid{true};
 };
 
 // 计算一整行（columns 宽）Cell 内容的 64 位身份哈希（FNV-1a 64-bit 变体）。
@@ -484,7 +495,7 @@ public:
         NovaTerm::VTAdapter::Observer observer;
         observer.output = [this](NovaTerm::ByteView data) {
             if (encodingAgent) {
-                if (data.size > 65536 - encodedAgent.size()) agentEncodingValid = false;
+                if (data.size > AgentInputByteLimit - encodedAgent.size()) agentEncodingValid = false;
                 else if (agentEncodingValid) encodedAgent.append(data.data, data.size);
                 return;
             }
@@ -492,12 +503,13 @@ public:
             // pendingOutput 仍是 Qt 门面的暂存容器（QByteArray），在此把
             // core 的 ByteView 桥接过去；阶段 7 建门面后这一步收进门面。
             if (pendingOutput.isEmpty()
-                || pendingOutput.back().first.size() + data.size > OutputBatchSize
-                || pendingOutput.back().second != processingUserInput) {
+                || pendingOutput.back().operation != 0
+                || pendingOutput.back().bytes.size() + data.size > OutputBatchSize
+                || pendingOutput.back().userInput != processingUserInput) {
                 pendingOutput.push_back(
                     {QByteArray(data.data, data.size), processingUserInput});
             } else {
-                pendingOutput.back().first.append(data.data, data.size);
+                pendingOutput.back().bytes.append(data.data, data.size);
             }
         };
         observer.damage = [this](const NovaTerm::DirtyRegion& region) {
@@ -627,7 +639,7 @@ public:
                 const auto text = QString::fromUtf8(action.text);
                 const int mods = int(action.modifiers & 7);
                 if (action.kind == NovaTerm::TerminalInputAction::Kind::Bytes) {
-                    if (action.text.size() > size_t(65536 - encodedAgent.size())) agentEncodingValid = false;
+                    if (action.text.size() > size_t(AgentInputByteLimit - encodedAgent.size())) agentEncodingValid = false;
                     else encodedAgent.append(action.text.data(), qsizetype(action.text.size()));
                 } else if (action.kind == NovaTerm::TerminalInputAction::Kind::Key) {
                     if (action.key != NovaTerm::InputKey::None) {
@@ -657,10 +669,8 @@ public:
             }
             encodingAgent = false;
             auto data = agentEncodingValid ? std::move(encodedAgent) : QByteArray{};
-            QMetaObject::invokeMethod(owner, [target=owner, id=command.operation,
-                data=std::move(data), valid=agentEncodingValid] {
-                emit target->agentInputEncoded(id, data, valid);
-            }, Qt::QueuedConnection);
+            // 保留和用户/协议输出的顺序，使此前用户输入先触发 Session 抢占。
+            pendingOutput.push_back({std::move(data), false, command.operation, agentEncodingValid});
             break;
         }
         case CommandType::KeyboardCharacter:
@@ -762,7 +772,7 @@ public:
         const bool bellValue = std::exchange(bellPending, false);
         const bool scrollbackValue = std::exchange(scrollbackChanged, false);
         const int screenScrollRows = std::exchange(pendingScreenScrollRows, 0);
-        QVector<QPair<QByteArray, bool>> output;
+        QVector<EncodedOutput> output;
         output.swap(pendingOutput);
         const u64 revisionValue = std::exchange(pendingRevision, 0);
 
@@ -781,11 +791,14 @@ public:
             owner,
             [target = owner, damageValue = std::move(damageValue),
              revisionValue, cursorValue, titleValue, titleCopy, bellValue,
-             scrollbackValue, screenScrollRows,
-             output = std::move(output)]() {
+             scrollbackValue, screenScrollRows, output = std::move(output)]() {
                 for (const auto& data : output) {
-                    emit target->outputData(data.first);
-                    emit target->routedOutputData(data.first, data.second);
+                    if (data.operation != 0) {
+                        emit target->agentInputEncoded(data.operation, data.bytes, data.valid);
+                    } else {
+                        emit target->outputData(data.bytes);
+                        emit target->routedOutputData(data.bytes, data.userInput);
+                    }
                 }
                 if (screenScrollRows > 0)
                     emit target->screenScrolled(screenScrollRows);
@@ -870,7 +883,7 @@ public:
     std::unique_ptr<NovaTerm::VTAdapter> adapter;
 
     QVector<NovaTerm::DirtyRegion> pendingDamage;
-    QVector<QPair<QByteArray, bool>> pendingOutput;
+    QVector<EncodedOutput> pendingOutput;
     bool processingUserInput{false};
     bool encodingAgent{false};
     bool agentEncodingValid{true};
@@ -919,9 +932,17 @@ bool TerminalCore::encodeAgentInput(quint64 operation, std::vector<NovaTerm::Ter
 {
     if (!operation || actions.empty() || actions.size() > 64) return false;
     size_t bytes = 0;
+    size_t textBytes = 0;
     for (const auto& action : actions) {
+        if (action.text.size() > size_t(AgentInputByteLimit) - bytes) return false;
         bytes += action.text.size();
-        if (bytes > 16384 || action.modifiers > 7) return false;
+        // 仅文本/粘贴消耗协议的原文预算；按键和宿主行尾消耗总编码预算。
+        if (action.kind == NovaTerm::TerminalInputAction::Kind::Text
+            || action.kind == NovaTerm::TerminalInputAction::Kind::Paste) {
+            if (action.text.size() > AgentInputTextLimit - textBytes) return false;
+            textBytes += action.text.size();
+        }
+        if (action.modifiers > 7) return false;
     }
     ParserCommand command;
     command.type = CommandType::AgentInput;
