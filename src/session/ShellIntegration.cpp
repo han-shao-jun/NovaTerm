@@ -28,17 +28,9 @@ std::optional<InteractiveCommandProfile> ShellIntegration::profileFor(
     profile.remoteEcho = values.value(
         QStringLiteral("interactiveRemoteEcho"), true).toBool();
 
-    switch (runtime.transportKind) {
-    case TransportKind::LocalShell:
-    case TransportKind::Ssh: {
-        const QString kind = values.value(
-            QStringLiteral("interactiveShellKind")).toString();
-        if (kind.isEmpty() && runtime.transportKind == TransportKind::Ssh) {
-            profile.shellIntegration = true;
-            profile.requiresStartMarker = false;
-            profile.allowUnverifiedPrompt = true;
-            return profile;
-        }
+    // Shell/提示符描述对端环境，与承载字节的连接协议无关。
+    const QString kind = values.value(QStringLiteral("interactiveShellKind")).toString();
+    if (!kind.isEmpty()) {
         if (kind != QStringLiteral("posix")
             && kind != QStringLiteral("powershell")
             && !(kind == QStringLiteral("cmd")
@@ -50,12 +42,9 @@ std::optional<InteractiveCommandProfile> ShellIntegration::profileFor(
         profile.requiresStartMarker = false;
         return profile;
     }
-    case TransportKind::Serial:
-    case TransportKind::Telnet: {
-        const QString pattern = values.value(
-            QStringLiteral("interactivePromptPattern")).toString();
-        if (pattern.isEmpty() || pattern.size() > 256)
-            return std::nullopt;
+    const QString pattern = values.value(QStringLiteral("interactivePromptPattern")).toString();
+    if (!pattern.isEmpty()) {
+        if (pattern.size() > 256) return std::nullopt;
         const QRegularExpression expression(pattern);
         if (!expression.isValid())
             return std::nullopt;
@@ -63,8 +52,12 @@ std::optional<InteractiveCommandProfile> ShellIntegration::profileFor(
         profile.requiresStartMarker = false;
         return profile;
     }
-    case TransportKind::Custom:
-        return std::nullopt;
+    // 保留旧 SSH 未配置时的被动观察兼容行为，不向未知目标自动探测。
+    if (runtime.transportKind == TransportKind::Ssh) {
+        profile.shellIntegration = true;
+        profile.requiresStartMarker = false;
+        profile.allowUnverifiedPrompt = true;
+        return profile;
     }
     return std::nullopt;
 }

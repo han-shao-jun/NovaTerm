@@ -164,6 +164,18 @@ private slots:
     void userInputPreemptsPartialMcpWrite();
     void terminalProtocolReplyDoesNotPreemptMcpLease();
     void newInputInvalidatesLegacyCommandReadiness();
+    void emptyAgentBatchPreservesCommandReadiness();
+    void shellIntegrationIsIndependentOfTransport_data();
+    void shellIntegrationIsIndependentOfTransport();
+    void freeTerminalInputTracksOnlyIntegratedEvidence();
+    void recentCommandExpiresWithoutDiscardingActiveCommand();
+    void freeInputKeepsTrailingTextOutOfCommandReadiness_data();
+    void freeInputKeepsTrailingTextOutOfCommandReadiness();
+    void nonemptyAgentBatchInvalidatesPreWritePrompt_data();
+    void nonemptyAgentBatchInvalidatesPreWritePrompt();
+    void emptyAgentBatchKeepsLatestPromptEvidence_data();
+    void emptyAgentBatchKeepsLatestPromptEvidence();
+    void queuedUserInputPreemptsLaterAgentBatch();
     void fileTransferLeaseGatesAllInputAndResets();
     void staleAndDuplicateMcpLeasesAreRejected();
     void emptyInputKeepsMcpLease();
@@ -1546,6 +1558,7 @@ void SessionTests::transportRebindDropsPreviousPromptProfile()
     FakeTransport ssh;
     session.attach(&ssh, TerminalSession::Ownership::Borrowed,
                    TransportKind::Ssh);
+    QVERIFY(!session.runtimeConfig().transport.contains(QStringLiteral("interactivePromptPattern")));
     QVERIFY(session.start());
     QTRY_COMPARE(session.state(), SessionState::Running);
     emit ssh.readyRead(QByteArrayLiteral("device> "));
@@ -2103,6 +2116,279 @@ void SessionTests::newInputInvalidatesLegacyCommandReadiness()
     controller->release("client");
     QVERIFY(!session.commandCoordinator()->isPromptReady());
     QVERIFY(!controller->readyForCommand());
+}
+
+void SessionTests::emptyAgentBatchPreservesCommandReadiness()
+{
+    RuntimeConfig config;
+    config.transportKind = TransportKind::LocalShell;
+    config.transport.insert("interactiveShellKind", "posix");
+    TerminalSession session(config); FakeTransport transport;
+    session.attach(&transport, TerminalSession::Ownership::Borrowed, config);
+    QVERIFY(session.start()); QTRY_COMPARE(session.state(), SessionState::Running);
+    auto* controller = session.terminalController();
+    emit transport.readyRead(QByteArrayLiteral("\x1b]633;NT;PROMPT;1;0\a"));
+    QTRY_VERIFY(controller->readyForCommand());
+    QVERIFY(controller->acquire("client"));
+    NovaTerm::TerminalInputAction action;
+    QVERIFY(controller->submit("client", "operation", {action}, false));
+    QTRY_VERIFY(!controller->pending());
+    QVERIFY(transport.writes.isEmpty());
+    QVERIFY(session.commandCoordinator()->isPromptReady());
+    QVERIFY(controller->readyForCommand());
+}
+
+void SessionTests::shellIntegrationIsIndependentOfTransport_data()
+{
+    QTest::addColumn<int>("kind");
+    QTest::newRow("local") << int(TransportKind::LocalShell);
+    QTest::newRow("ssh") << int(TransportKind::Ssh);
+    QTest::newRow("serial") << int(TransportKind::Serial);
+    QTest::newRow("telnet") << int(TransportKind::Telnet);
+    QTest::newRow("custom") << int(TransportKind::Custom);
+}
+
+void SessionTests::shellIntegrationIsIndependentOfTransport()
+{
+    QFETCH(int, kind);
+    RuntimeConfig config;
+    config.transportKind = static_cast<TransportKind>(kind);
+    config.transport.insert("interactiveShellKind", "posix");
+    TerminalSession session(config); FakeTransport transport;
+    session.attach(&transport, TerminalSession::Ownership::Borrowed, config);
+    QVERIFY(session.start());
+    auto* controller = session.terminalController();
+    QVERIFY(controller->integrated());
+    QVERIFY(transport.writes.isEmpty());
+    emit transport.readyRead(QByteArrayLiteral("\x1b]633;NT;PROMPT;1;0\a"));
+    QTRY_VERIFY(controller->readyForCommand());
+    QVERIFY(controller->acquire("client"));
+    NovaTerm::TerminalInputAction text; text.text = "pwd";
+    NovaTerm::TerminalInputAction enter;
+    enter.kind = NovaTerm::TerminalInputAction::Kind::Bytes; enter.text = "\r";
+    QVERIFY(controller->submit("client", "command", {text, enter}, true));
+    QTRY_COMPARE(transport.writes, QByteArray("pwd\r"));
+    emit transport.readyRead(QByteArrayLiteral("/tmp\r\n\x1b]633;NT;PROMPT;2;0\a"));
+    QTRY_VERIFY(!controller->commandActive());
+    const auto command = controller->observation("client").value("command").toObject();
+    QCOMPARE(command.value("state").toString(), QString("finished"));
+    QCOMPARE(command.value("exitCode").toInt(-1), 0);
+}
+
+void SessionTests::freeTerminalInputTracksOnlyIntegratedEvidence()
+{
+    RuntimeConfig config; config.transportKind = TransportKind::Serial;
+    config.transport.insert("interactiveShellKind", "posix");
+    TerminalSession session(config); FakeTransport transport;
+    session.attach(&transport, TerminalSession::Ownership::Borrowed, config);
+    QVERIFY(session.start());
+    auto* controller = session.terminalController();
+    emit transport.readyRead(QByteArrayLiteral("\x1b]633;NT;PROMPT;1;0\a"));
+    QTRY_VERIFY(controller->readyForCommand());
+    QVERIFY(controller->acquire("client"));
+    NovaTerm::TerminalInputAction text; text.text = "false";
+    NovaTerm::TerminalInputAction enter;
+    enter.kind = NovaTerm::TerminalInputAction::Kind::Key; enter.key = NovaTerm::InputKey::Enter;
+    QVERIFY(controller->submit("client", "free-input", {text, enter}, false));
+    QTRY_COMPARE(transport.writes, QByteArray("false\r"));
+    // Input newline alone must not invent a command boundary or exit status.
+    QCOMPARE(controller->observation("client").value("command").toObject()
+        .value("state").toString(), QString("none"));
+    emit transport.readyRead(QByteArrayLiteral("\x1b]633;NT;PROMPT;2;1\a"));
+    QTRY_COMPARE(controller->observation("client").value("command").toObject()
+        .value("state").toString(), QString("finished"));
+    const auto observation = controller->observation("client");
+    const auto command = observation.value("command").toObject();
+    QVERIFY(!command.value("executionId").toString().isEmpty());
+    QCOMPARE(command.value("exitCode").toInt(-1), 1);
+    QCOMPARE(command.value("result").toString(), QString("failure"));
+    QCOMPARE(observation.value("lastCommand").toObject().value("executionId"), command.value("executionId"));
+    QVERIFY(controller->submit("client", "typing-next", {text}, false));
+    QTRY_VERIFY(!controller->pending());
+    QCOMPARE(controller->observation("client").value("command").toObject()
+        .value("state").toString(), QString("none"));
+    QCOMPARE(controller->observation("client").value("lastCommand").toObject()
+        .value("executionId"), command.value("executionId"));
+}
+
+void SessionTests::recentCommandExpiresWithoutDiscardingActiveCommand()
+{
+    TerminalCore core(80, 24); FakeTransport transport; QVERIFY(transport.connectToHost());
+    SessionInputArbiter arbiter; arbiter.bind(&transport, 1);
+    InteractiveStreamFramer framer;
+    InteractiveCommandProfile profile; profile.shellIntegration = true;
+    framer.configure(profile); framer.reset(1);
+    SessionCommandCoordinator coordinator(&arbiter, &framer);
+    SessionTerminalController controller(&core, &arbiter, &coordinator, &framer,
+        1, true, "\r", nullptr);
+    QVERIFY(controller.acquire("client"));
+    controller.handleEvent({InteractiveStreamEventKind::PromptReady, 1, std::nullopt});
+    NovaTerm::TerminalInputAction text; text.text = "pwd";
+    QVERIFY(controller.submit("client", "first", {text}, true));
+    QTRY_VERIFY(!controller.pending());
+    controller.handleEvent({InteractiveStreamEventKind::CommandFinishedAtPrompt, 2, 0});
+    const auto first = controller.observation("client").value("command").toObject();
+    QVERIFY(controller.submit("client", "second", {text}, true));
+    QTRY_VERIFY(!controller.pending());
+    const auto secondId = controller.executionId();
+    QCOMPARE(controller.observation("client").value("lastCommand").toObject()
+        .value("executionId"), first.value("executionId"));
+    // Exercise the real expiration handler with a short interval, without adding a
+    // production test-only clock/expiration method or waiting ten minutes.
+    auto* retention = controller.findChild<QTimer*>("commandRecordRetention");
+    QVERIFY(retention);
+    retention->start(20);
+    QTRY_VERIFY(controller.observation("client").value("lastCommand").toObject().isEmpty());
+    QVERIFY(controller.commandActive());
+    QCOMPARE(controller.executionId(), secondId);
+}
+
+void SessionTests::freeInputKeepsTrailingTextOutOfCommandReadiness_data()
+{
+    QTest::addColumn<QByteArray>("paste");
+    QTest::newRow("enter-then-text") << QByteArray{};
+    QTest::newRow("blank-line-and-tail") << QByteArray("\nrm ");
+    QTest::newRow("command-and-tail") << QByteArray("true\nrm ");
+    QTest::newRow("two-submitted-lines") << QByteArray("true\nfalse\n");
+}
+
+void SessionTests::freeInputKeepsTrailingTextOutOfCommandReadiness()
+{
+    QFETCH(QByteArray, paste);
+    RuntimeConfig config; config.transportKind = TransportKind::Serial;
+    config.transport.insert("interactiveShellKind", "posix");
+    TerminalSession session(config); FakeTransport transport;
+    session.attach(&transport, TerminalSession::Ownership::Borrowed, config);
+    QVERIFY(session.start());
+    auto* controller = session.terminalController();
+    emit transport.readyRead(QByteArrayLiteral("\x1b]633;NT;PROMPT;1;0\a"));
+    QTRY_VERIFY(controller->readyForCommand());
+    QVERIFY(controller->acquire("client"));
+    std::vector<NovaTerm::TerminalInputAction> actions;
+    if (paste.isEmpty()) {
+        NovaTerm::TerminalInputAction enter;
+        enter.kind = NovaTerm::TerminalInputAction::Kind::Key; enter.key = NovaTerm::InputKey::Enter;
+        NovaTerm::TerminalInputAction tail; tail.text = "rm "; actions = {enter, tail};
+    } else {
+        NovaTerm::TerminalInputAction action; action.kind = NovaTerm::TerminalInputAction::Kind::Paste;
+        action.text = paste.toStdString(); actions = {action};
+    }
+    QVERIFY(controller->submit("client", "free", actions, false));
+    QTRY_VERIFY(!controller->pending());
+    const auto written = transport.writes;
+    emit transport.readyRead(QByteArrayLiteral("\x1b]633;NT;PROMPT;2;0\a"));
+    QTest::qWait(30);
+    QVERIFY(!controller->readyForCommand());
+    QCOMPARE(controller->observation("client").value("command").toObject()
+        .value("state").toString(), QString("none"));
+    NovaTerm::TerminalInputAction next; next.text = "x";
+    QVERIFY(!controller->submit("client", "must-not-append", {next}, true));
+    QCOMPARE(transport.writes, written);
+    if (paste == "true\nfalse\n") {
+        emit transport.readyRead(QByteArrayLiteral("\x1b]633;NT;PROMPT;3;1\a"));
+        QTRY_VERIFY(controller->readyForCommand());
+    }
+}
+
+void SessionTests::nonemptyAgentBatchInvalidatesPreWritePrompt_data()
+{
+    QTest::addColumn<bool>("device");
+    QTest::addColumn<bool>("candidate");
+    QTest::newRow("integrated-ready") << false << false;
+    QTest::newRow("device-ready") << true << false;
+    QTest::newRow("device-candidate") << true << true;
+}
+
+void SessionTests::nonemptyAgentBatchInvalidatesPreWritePrompt()
+{
+    QFETCH(bool, device); QFETCH(bool, candidate);
+    RuntimeConfig config; config.transportKind = TransportKind::Serial;
+    if (device) config.transport.insert("interactivePromptPattern", "^device> $");
+    else config.transport.insert("interactiveShellKind", "posix");
+    TerminalSession session(config); FakeTransport transport;
+    session.attach(&transport, TerminalSession::Ownership::Borrowed, config);
+    QVERIFY(session.start());
+    auto* controller = session.terminalController();
+    QVERIFY(controller->acquire("client"));
+    NovaTerm::TerminalInputAction text; text.text = "rm ";
+    QVERIFY(controller->submit("client", "partial", {text}, false));
+    QVERIFY(session.core()->waitForIdle(1000));
+    controller->handleEvent({candidate ? InteractiveStreamEventKind::PromptCandidate
+        : InteractiveStreamEventKind::PromptReady, 2, std::nullopt});
+    QTRY_COMPARE(transport.writes, QByteArray("rm "));
+    QTest::qWait(200);
+    QVERIFY(!controller->readyForCommand());
+}
+
+void SessionTests::queuedUserInputPreemptsLaterAgentBatch()
+{
+    TerminalCore core(80, 24);
+    FakeTransport transport;
+    TerminalSession session(&core);
+    session.attach(&transport, TerminalSession::Ownership::Borrowed);
+    QVERIFY(session.start()); QTRY_COMPARE(session.state(), SessionState::Running);
+    auto* controller = session.terminalController();
+    QVERIFY(controller->acquire("client"));
+    QVERIFY(core.writeInput(QByteArray(6 * 1024 * 1024, 'x')).fullyAccepted());
+    core.processTextInput(QStringLiteral("u"));
+    NovaTerm::TerminalInputAction action; action.text = "a";
+    QVERIFY(controller->submit("client", "operation", {action}, false));
+    QVERIFY(core.waitForIdle(15'000));
+    QTRY_COMPARE(transport.writes, QByteArray("u"));
+    QVERIFY(controller->owner().isEmpty());
+}
+
+void SessionTests::emptyAgentBatchKeepsLatestPromptEvidence_data()
+{
+    QTest::addColumn<bool>("device");
+    QTest::addColumn<bool>("initialReady");
+    QTest::addColumn<QByteArray>("incoming");
+    QTest::addColumn<bool>("framingError");
+    QTest::addColumn<quint64>("expectedPrompt");
+    QTest::newRow("shell-reset") << false << true
+        << QByteArray("\x1b]633;NT;RESET\a") << false << quint64(0);
+    QTest::newRow("framing-error") << false << true
+        << QByteArray{} << true << quint64(0);
+    QTest::newRow("device-output") << true << true
+        << QByteArray("Password: ") << false << quint64(0);
+    QTest::newRow("new-shell-prompt") << false << true
+        << QByteArray("\x1b]633;NT;PROMPT;2;0\a") << false << quint64(2);
+    QTest::newRow("first-shell-prompt") << false << false
+        << QByteArray("\x1b]633;NT;PROMPT;2;0\a") << false << quint64(2);
+}
+
+void SessionTests::emptyAgentBatchKeepsLatestPromptEvidence()
+{
+    QFETCH(bool, device);
+    QFETCH(bool, initialReady);
+    QFETCH(QByteArray, incoming);
+    QFETCH(bool, framingError);
+    QFETCH(quint64, expectedPrompt);
+    RuntimeConfig config;
+    config.transportKind = device ? TransportKind::Serial : TransportKind::LocalShell;
+    if (device) config.transport.insert("interactivePromptPattern", "^device> $");
+    else config.transport.insert("interactiveShellKind", "posix");
+    TerminalSession session(config); FakeTransport transport;
+    session.attach(&transport, TerminalSession::Ownership::Borrowed, config);
+    QVERIFY(session.start()); QTRY_COMPARE(session.state(), SessionState::Running);
+    auto* controller = session.terminalController();
+    if (initialReady) {
+        emit transport.readyRead(device ? QByteArray("device> ")
+            : QByteArray("\x1b]633;NT;PROMPT;1;0\a"));
+        QTRY_VERIFY(controller->readyForCommand());
+    }
+    QVERIFY(controller->acquire("client"));
+    NovaTerm::TerminalInputAction action;
+    QVERIFY(controller->submit("client", "operation", {action}, false));
+    // 编码结果仅排队至 GUI；在处理回调前注入真实入站事件，固定事件顺序。
+    QVERIFY(session.core()->waitForIdle(1000));
+    if (!incoming.isEmpty()) emit transport.readyRead(incoming);
+    if (framingError)
+        controller->handleEvent({InteractiveStreamEventKind::FramingError, 0, std::nullopt});
+    QTRY_VERIFY(!controller->pending());
+    QVERIFY(transport.writes.isEmpty());
+    QCOMPARE(controller->promptGeneration(), expectedPrompt);
+    QCOMPARE(controller->readyForCommand(), expectedPrompt != 0);
 }
 
 QTEST_MAIN(SessionTests)

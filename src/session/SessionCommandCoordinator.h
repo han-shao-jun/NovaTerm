@@ -6,6 +6,7 @@
 
 #include "CommandExecutionTypes.h"
 #include "InteractiveStreamFramer.h"
+#include "session/automation/TerminalEvidenceModel.h"
 
 #include <QByteArray>
 #include <QObject>
@@ -29,6 +30,8 @@ public:
     [[nodiscard]] bool submit(const CommandExecutionRequest& request);
     void cancel(quint64 requestId);
     void expire(quint64 requestId);
+    /** @brief 终端收到其他输入后废弃此前提示符证据，不影响活动命令。 */
+    void invalidatePromptReadiness();
     [[nodiscard]] bool isPromptReady() const noexcept;
     /** @brief 当前 Session 是否安装了显式可信交互 Profile。 */
     [[nodiscard]] bool hasTrustedProfile() const noexcept
@@ -42,8 +45,16 @@ public:
     }
     [[nodiscard]] quint64 promptGeneration() const noexcept
     {
-        return _promptGeneration;
+        return _evidence.promptGeneration();
     }
+    [[nodiscard]] quint64 promptUserGeneration() const noexcept
+    {
+        return _evidence.promptUserGeneration();
+    }
+    /** @brief 仅用于控制器的编码失败回滚；不重新验证候选/静默窗。 */
+    void restorePromptEvidence(quint64 generation, quint64 userGeneration);
+    /** @brief 已知提示符证据（控制器事件路径）；幂等写入单一真源。 */
+    void notePromptReady(quint64 generation, quint64 userGeneration);
 
 public slots:
     void handleInteractiveEvent(const InteractiveStreamEvent& event);
@@ -51,6 +62,8 @@ public slots:
 
 signals:
     void finished(const CommandExecutionResult& result);
+    /** @brief 候选提示符静默窗结束、成为可提交证据。 */
+    void promptReady(quint64 generation);
     /** @brief 将取消时尚未完成匹配的普通回显交还输入泵。 */
     void visibleRemainder(const QByteArray& bytes);
 
@@ -63,17 +76,13 @@ private:
     SessionInputArbiter* _arbiter{nullptr};
     InteractiveStreamFramer* _framer{nullptr};
     QTimer _timeout;
-    QTimer _promptSilence;
+    NovaTerm::Session::TerminalEvidenceModel _evidence;
     InteractiveCommandProfile _profile;
     std::optional<CommandExecutionRequest> _active;
     QByteArray _pendingInput;
     qsizetype _pendingInputOffset{0};
     QByteArray _standardOutput;
     quint64 _sessionGeneration{0};
-    quint64 _promptGeneration{0};
-    quint64 _candidatePromptGeneration{0};
-    quint64 _promptUserInputGeneration{0};
-    quint64 _candidateUserInputGeneration{0};
     bool _executionMayHaveStarted{false};
     bool _commandStarted{false};
     bool _outputTruncated{false};

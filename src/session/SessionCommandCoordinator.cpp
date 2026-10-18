@@ -23,23 +23,13 @@ SessionCommandCoordinator::SessionCommandCoordinator(
     : QObject(parent)
     , _arbiter(arbiter)
     , _framer(framer)
+    , _evidence([this] { return _arbiter ? _arbiter->userInputGeneration() : 0; })
 {
     _timeout.setSingleShot(true);
-    _promptSilence.setSingleShot(true);
-    connect(&_promptSilence, &QTimer::timeout, this, [this] {
-        if (_candidatePromptGeneration != 0) {
-            if (!_arbiter || _candidateUserInputGeneration
-                    != _arbiter->userInputGeneration()) {
-                _candidatePromptGeneration = 0;
-                return;
-            }
-            const quint64 readyGeneration = _candidatePromptGeneration;
-            if (_active)
-                finish(CommandExecutionOutcome::Completed, true);
-            _promptGeneration = readyGeneration;
-            _promptUserInputGeneration = _candidateUserInputGeneration;
-        }
-        _candidatePromptGeneration = 0;
+    _evidence.setReadyHandler([this](quint64 generation) {
+        if (_active)
+            finish(CommandExecutionOutcome::Completed, true);
+        emit promptReady(generation);
     });
     connect(&_timeout, &QTimer::timeout, this, [this] {
         finish(CommandExecutionOutcome::TimedOut, false);
@@ -53,17 +43,13 @@ SessionCommandCoordinator::SessionCommandCoordinator(
 void SessionCommandCoordinator::configure(InteractiveCommandProfile profile)
 {
     _profile = std::move(profile);
-    _promptSilence.stop();
-    _candidatePromptGeneration = 0;
-    _candidateUserInputGeneration = _arbiter
-        ? _arbiter->userInputGeneration() : 0;
-    _promptGeneration = 0;
+    _evidence.configure(_profile.promptSilenceMs);
 }
 
 void SessionCommandCoordinator::reset(quint64 sessionGeneration)
 {
     _timeout.stop();
-    _promptSilence.stop();
+    _evidence.reset();
     if (_active && _arbiter)
         _arbiter->releaseMcpLease(_active->requestId);
     _active.reset();
@@ -71,11 +57,6 @@ void SessionCommandCoordinator::reset(quint64 sessionGeneration)
     _pendingInputOffset = 0;
     _standardOutput.clear();
     _sessionGeneration = sessionGeneration;
-    _promptGeneration = 0;
-    _candidatePromptGeneration = 0;
-    _promptUserInputGeneration = _arbiter
-        ? _arbiter->userInputGeneration() : 0;
-    _candidateUserInputGeneration = _promptUserInputGeneration;
     _executionMayHaveStarted = false;
     _commandStarted = false;
     _outputTruncated = false;
@@ -87,8 +68,8 @@ bool SessionCommandCoordinator::submit(const CommandExecutionRequest& request)
     if (_active || !_arbiter || !_framer || request.requestId == 0
         || request.command.isEmpty() || request.executionNonce.isEmpty()
         || (!unverifiedPrompt && (request.expectedPromptGeneration == 0
-            || request.expectedPromptGeneration != _promptGeneration
-            || _promptUserInputGeneration != _arbiter->userInputGeneration()))
+            || request.expectedPromptGeneration != _evidence.promptGeneration()
+            || _evidence.promptUserGeneration() != _arbiter->userInputGeneration()))
         || (unverifiedPrompt && request.expectedPromptGeneration != 0)
         || request.limits.maxOutputBytes <= 0 || request.limits.timeoutMs <= 0
         || !_arbiter->acquireMcpLease(request.requestId,
@@ -97,7 +78,7 @@ bool SessionCommandCoordinator::submit(const CommandExecutionRequest& request)
     }
 
     _active = request;
-    _promptGeneration = 0;
+    _evidence.invalidate();
     _standardOutput.clear();
     _executionMayHaveStarted = false;
     _commandStarted = !_profile.requiresStartMarker;
@@ -157,10 +138,27 @@ void SessionCommandCoordinator::expire(quint64 requestId)
         finish(CommandExecutionOutcome::TimedOut, false);
 }
 
+void SessionCommandCoordinator::restorePromptEvidence(quint64 generation,
+    quint64 userGeneration)
+{
+    _evidence.restore(generation, userGeneration);
+}
+
+void SessionCommandCoordinator::notePromptReady(quint64 generation,
+    quint64 userGeneration)
+{
+    _evidence.notePromptReady(generation, userGeneration);
+}
+
+void SessionCommandCoordinator::invalidatePromptReadiness()
+{
+    _evidence.invalidate();
+}
+
 bool SessionCommandCoordinator::isPromptReady() const noexcept
 {
-    return _promptGeneration != 0 && !_active && _arbiter
-        && _promptUserInputGeneration == _arbiter->userInputGeneration();
+    return _evidence.promptGeneration() != 0 && !_active && _arbiter
+        && _evidence.promptUserGeneration() == _arbiter->userInputGeneration();
 }
 
 void SessionCommandCoordinator::handleInteractiveEvent(
@@ -168,17 +166,11 @@ void SessionCommandCoordinator::handleInteractiveEvent(
 {
     switch (event.kind) {
     case InteractiveStreamEventKind::PromptReady:
-        _promptSilence.stop();
-        _candidatePromptGeneration = 0;
-        _promptGeneration = event.promptGeneration;
-        _promptUserInputGeneration = _arbiter
-            ? _arbiter->userInputGeneration() : 0;
+        _evidence.notePromptReady(event.promptGeneration,
+            _arbiter ? _arbiter->userInputGeneration() : 0);
         break;
     case InteractiveStreamEventKind::PromptCandidate:
-        _candidatePromptGeneration = event.promptGeneration;
-        _candidateUserInputGeneration = _arbiter
-            ? _arbiter->userInputGeneration() : 0;
-        _promptSilence.start(_profile.promptSilenceMs);
+        _evidence.noteCandidate(event.promptGeneration);
         break;
     case InteractiveStreamEventKind::CommandStarted:
         if (_active)
@@ -198,18 +190,12 @@ void SessionCommandCoordinator::handleInteractiveEvent(
             finish(succeeded ? CommandExecutionOutcome::Completed
                              : CommandExecutionOutcome::Failed,
                    true, event.exitCode);
-            _promptGeneration = event.promptGeneration;
-            _promptUserInputGeneration = _arbiter
-                ? _arbiter->userInputGeneration() : 0;
+            _evidence.notePromptReady(event.promptGeneration,
+                _arbiter ? _arbiter->userInputGeneration() : 0);
         }
         break;
     case InteractiveStreamEventKind::ShellReset:
-        _promptSilence.stop();
-        _candidatePromptGeneration = 0;
-        _promptGeneration = 0;
-        _promptUserInputGeneration = _arbiter
-            ? _arbiter->userInputGeneration() : 0;
-        _candidateUserInputGeneration = _promptUserInputGeneration;
+        _evidence.invalidate();
         if (_active)
             finish(CommandExecutionOutcome::Disconnected, false);
         break;
@@ -222,16 +208,8 @@ void SessionCommandCoordinator::handleInteractiveEvent(
 
 void SessionCommandCoordinator::handleInteractiveBytes(const QByteArray& bytes)
 {
-    if (!bytes.isEmpty() && _promptSilence.isActive()
-        && !_profile.shellIntegration) {
-        _promptSilence.stop();
-        _candidatePromptGeneration = 0;
-    }
-    if (!_active && !bytes.isEmpty() && !_profile.shellIntegration) {
-        _promptSilence.stop();
-        _candidatePromptGeneration = 0;
-        _promptGeneration = 0;
-    }
+    if (!bytes.isEmpty())
+        _evidence.noteBytes(_profile.shellIntegration, _active.has_value());
     if (!_active || !_commandStarted || bytes.isEmpty())
         return;
     const qsizetype remaining = _active->limits.maxOutputBytes

@@ -147,6 +147,9 @@ void TerminalSession::attach(ITransport* transport, Ownership ownership,
                              TransportKind transportKind)
 {
     auto config = _config;
+    // 类型简写入口没有提供新端点的环境/提示符配置；跨类型换绑不能继承
+    // 旧端点规则。显式 RuntimeConfig 入口仍完整使用调用方的新快照。
+    if (config.transportKind != transportKind) config.transport.clear();
     config.transportKind = transportKind;
     attach(transport, ownership, std::move(config));
 }
