@@ -467,365 +467,402 @@ Built with:
 <context>
     <name>McpSettingsDialog</name>
     <message>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="625"/>
         <source>仅对已确认的 Linux/POSIX 目标使用固定诊断；授权不代表目标支持这些命令。</source>
         <translation>仅对已确认的 Linux/POSIX 目标使用固定诊断；授权不代表目标支持这些命令。</translation>
     </message>
     <message>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="627"/>
         <source>后端不可用</source>
         <translation>后端不可用</translation>
     </message>
     <message>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="629"/>
         <source>可以保存诊断授权，但当前没有可用的目标 Profile 或执行后端；不会自动向终端发送诊断命令。</source>
         <translation>可以保存诊断授权，但当前没有可用的目标 Profile 或执行后端；不会自动向终端发送诊断命令。</translation>
     </message>
     <message>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="658"/>
         <source>可以保存提权授权，但目标身份尚未验证，不能绑定凭据或实际提权。</source>
         <translation>可以保存提权授权，但目标身份尚未验证，不能绑定凭据或实际提权。</translation>
     </message>
     <message>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="660"/>
         <source>适配器不可用</source>
         <translation>适配器不可用</translation>
     </message>
     <message>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="661"/>
         <source>可以保存提权授权，但当前没有可信认证适配器，不会读取或发送密码。</source>
         <translation>可以保存提权授权，但当前没有可信认证适配器，不会读取或发送密码。</translation>
     </message>
     <message>
-        <source>不支持</source>
-        <translation>不支持</translation>
-    </message>
-    <message>
-        <source>串口、Telnet 和自定义连接不支持托管提权。</source>
-        <translation>串口、Telnet 和自定义连接不支持托管提权。</translation>
-    </message>
-    <message>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="648"/>
         <source>未连接</source>
         <translation>未连接</translation>
     </message>
     <message>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="649"/>
         <source>会话未连接，暂不能授权托管提权。</source>
         <translation>会话未连接，暂不能授权托管提权。</translation>
     </message>
     <message>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="651"/>
         <source>需执行权限</source>
         <translation>需执行权限</translation>
     </message>
     <message>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="652"/>
         <source>请先勾选允许执行命令，再授权托管提权。</source>
         <translation>请先勾选允许执行命令，再授权托管提权。</translation>
     </message>
     <message>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="654"/>
         <source>凭据更新中</source>
         <translation>凭据更新中</translation>
     </message>
     <message>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="655"/>
         <source>正在更新提权凭据，请稍后重新授权。</source>
         <translation>正在更新提权凭据，请稍后重新授权。</translation>
     </message>
     <message>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="657"/>
         <source>身份未验证</source>
         <translation>身份未验证</translation>
     </message>
     <message>
-        <source>尚未验证目标身份，暂不能授权托管提权。</source>
-        <translation>尚未验证目标身份，暂不能授权托管提权。</translation>
-    </message>
-    <message>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="170"/>
         <source>允许执行命令授予当前连接的完整终端输入权限，不再逐条确认。旧命令接口的诊断、脚本和交互权限保持独立。托管提权必须另外授权；保存密码不会启用提权，可信认证适配器尚不可用。</source>
         <translation>允许执行命令授予当前连接的完整终端输入权限，不再逐条确认。旧命令接口的诊断、脚本和交互权限保持独立。托管提权必须另外授权；保存密码不会启用提权，可信认证适配器尚不可用。</translation>
     </message>
     <message>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="195"/>
         <source>接管选中会话</source>
         <translation>接管选中会话</translation>
     </message>
     <message>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="206"/>
         <source>允许执行命令</source>
         <translation>允许执行命令</translation>
     </message>
     <message>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="206"/>
         <source>允许托管提权</source>
         <translation>允许托管提权</translation>
     </message>
     <message>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="206"/>
         <source>提权凭据</source>
         <translation>提权凭据</translation>
     </message>
     <message>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="206"/>
         <source>当前操作</source>
         <translation>当前操作</translation>
     </message>
     <message>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="228"/>
         <source>显示旧命令接口详细权限</source>
         <translation>显示旧命令接口详细权限</translation>
     </message>
     <message>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="413"/>
         <source>提权凭据 — %1</source>
         <translation>提权凭据 — %1</translation>
     </message>
     <message>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="418"/>
         <source>sudo 认证密码和 su root 密码分别保存，不使用 SSH 登录密码。保存后不回填。只有明确授权且可信适配器可用时才能托管认证；当前适配器不可用。撤销授权不会退出已经获得的 root Shell。</source>
         <translation>sudo 认证密码和 su root 密码分别保存，不使用 SSH 登录密码。保存后不回填。只有明确授权且可信适配器可用时才能托管认证；当前适配器不可用。撤销授权不会退出已经获得的 root Shell。</translation>
     </message>
     <message>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="422"/>
         <source>存储：系统凭据库。密码仅在本机设置，不对 MCP 客户端开放。</source>
         <translation>存储：系统凭据库。密码仅在本机设置，不对 MCP 客户端开放。</translation>
     </message>
     <message>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="423"/>
         <source>存储：仅本次运行。密码仅在本机设置，不对 MCP 客户端开放。</source>
         <translation>存储：仅本次运行。密码仅在本机设置，不对 MCP 客户端开放。</translation>
     </message>
     <message>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="427"/>
         <source>sudo 认证密码</source>
         <translation>sudo 认证密码</translation>
     </message>
     <message>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="427"/>
         <source>su root 密码</source>
         <translation>su root 密码</translation>
     </message>
     <message>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="434"/>
         <source>输入新密码；留空不会删除</source>
         <translation>输入新密码；留空不会删除</translation>
     </message>
     <message>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="435"/>
         <source>保存 / 替换</source>
         <translation>保存 / 替换</translation>
     </message>
     <message>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="436"/>
         <source>删除</source>
         <translation>删除</translation>
     </message>
     <message>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="453"/>
         <source>会话连接或目标已变化，未提交凭据操作。请关闭并重新打开设置。</source>
         <translation>会话连接或目标已变化，未提交凭据操作。请关闭并重新打开设置。</translation>
     </message>
     <message>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="460"/>
         <source>正在访问本机凭据库；可以关闭此窗口。</source>
         <translation>正在访问本机凭据库；可以关闭此窗口。</translation>
     </message>
     <message>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="639"/>
         <source>允许当前客户端在本次连接输入文本、按键并执行命令。重连、撤权或目标变化后需要重新授权。</source>
         <translation>允许当前客户端在本次连接输入文本、按键并执行命令。重连、撤权或目标变化后需要重新授权。</translation>
     </message>
     <message>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="664"/>
         <source>须先允许执行命令；勾选仅保存授权。实际提权还需要可信目标身份及认证适配器，保存密码不会自动启用提权。</source>
         <translation>须先允许执行命令；勾选仅保存授权。实际提权还需要可信目标身份及认证适配器，保存密码不会自动启用提权。</translation>
     </message>
     <message>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="667"/>
+        <source>sudo / su</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="668"/>
         <source>未配置</source>
         <translation>未配置</translation>
     </message>
     <message>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="668"/>
+        <source>sudo</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="668"/>
+        <source>su</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="671"/>
         <source>密码保存在系统凭据库；保存不代表授权使用，也不启用认证适配器。</source>
         <translation>密码保存在系统凭据库；保存不代表授权使用，也不启用认证适配器。</translation>
     </message>
     <message>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="672"/>
         <source>密码仅本次运行保留；保存不代表授权使用，也不启用认证适配器。</source>
         <translation>密码仅本次运行保留；保存不代表授权使用，也不启用认证适配器。</translation>
     </message>
     <message>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="676"/>
         <source>空闲</source>
         <translation>空闲</translation>
     </message>
     <message>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="676"/>
         <source>Agent 操作</source>
         <translation>Agent 操作</translation>
     </message>
     <message>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="680"/>
         <source>用户接管</source>
         <translation>用户接管</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="65"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="156"/>
         <source>AI MCP access</source>
         <translation>AI MCP 接入</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="71"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="162"/>
         <source>Enable local MCP access</source>
         <translation>启用本机 MCP 接入</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="88"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="183"/>
         <source>New client label</source>
         <translation>新客户端名称</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="91"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="186"/>
         <source>Add client</source>
         <translation>添加客户端</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="92"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="187"/>
         <source>Remove client</source>
         <translation>移除客户端</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="97"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="192"/>
         <source>Copy MCP configuration</source>
         <translation>复制 MCP 配置</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="98"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="193"/>
         <source>Copy for CC Switch</source>
         <translation>复制 CC Switch 配置</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="99"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="194"/>
         <source>Rotate access token</source>
         <translation>更换接入令牌</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="107"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="204"/>
         <source>Session</source>
         <translation>会话</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="107"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="204"/>
         <source>State</source>
         <translation>状态</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="107"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="204"/>
         <source>Read output</source>
         <translation>读取输出</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="108"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="205"/>
         <source>Fixed diagnostics</source>
         <translation>固定诊断</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="73"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="164"/>
         <source>Share only the sessions you select. Terminal output may contain sensitive information. Fixed diagnostics stay separate from interactive terminal input. Shared sessions can run ordinary commands; potentially destructive commands and every script require confirmation in the MCP client. Script contents are written to the selected host path and are never sent to the terminal UI. Risk checks are best-effort, not a sandbox.</source>
         <translation>只共享你选择的会话。终端输出可能包含敏感信息。固定诊断与交互终端输入分开；已共享会话可运行普通命令，可能造成破坏的命令和所有脚本须在 MCP 客户端确认。脚本正文写入指定主机路径，不发送到终端 UI。风险扫描只能尽力检测，并非沙箱。</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="108"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="205"/>
         <source>Script tasks</source>
         <translation>脚本任务</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="108"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="205"/>
         <source>Interactive commands</source>
         <translation>交互命令</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="124"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="239"/>
         <source>Command results appear here. A disconnected or timed-out command may still be running remotely.</source>
         <translation>命令结果显示在这里。连接中断或超时后，命令仍可能在远端运行。</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="128"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="243"/>
         <source>I have checked that the remote command has stopped</source>
         <translation>我已确认远端命令已经停止</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="129"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="244"/>
         <source>Release selected target</source>
         <translation>解除所选目标的暂停</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="154"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="269"/>
         <source>Configuration copied. It contains an access token; keep it private.</source>
         <translation>已复制配置，其中包含接入令牌，请妥善保管。</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="161"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="276"/>
         <source>CC Switch configuration copied. It contains an access token; keep it private.</source>
         <translation>已复制 CC Switch 配置，其中包含接入令牌，请妥善保管。</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="229"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="549"/>
         <source>Cannot update MCP access settings: another NovaTerm instance is holding the shared access file. Close that instance and try again.</source>
         <translation>无法更新 MCP 接入设置：另一个 NovaTerm 实例正持有共享接入文件。请关闭该实例后重试。</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="233"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="553"/>
         <source>Cannot update MCP access settings: the MCP state directory is not private to this user. Fix its permissions and owner, then try again.</source>
         <translation>无法更新 MCP 接入设置：MCP 状态目录未对本用户私有。请修正其权限与属主后重试。</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="236"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="556"/>
         <source>Operation failed. Check the selected client, storage permissions, and active commands.</source>
         <translation>操作失败，请检查选中的客户端、存储权限及正在运行的命令。</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="245"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="565"/>
         <source>Disabled</source>
         <translation>已关闭</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="246"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="566"/>
         <source>Listening</source>
         <translation>正在监听</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="247"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="567"/>
         <source>Starting</source>
         <translation>正在启动</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="248"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="568"/>
         <source>Status: %1; instance: %2</source>
         <translation>状态：%1；实例：%2</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="252"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="574"/>
         <source> (this run only)</source>
         <translation>（仅本次运行有效）</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="280"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="624"/>
         <source>Fixed diagnostics run in an isolated local helper and do not write to the current shell.</source>
         <translation>固定诊断在隔离的本地辅助进程中运行，不会写入当前 Shell。</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="281"/>
-        <source>Only enable for a trusted Linux/POSIX SSH server. Fixed diagnostics run as its connected user.</source>
-        <translation>仅对受信任的 Linux/POSIX SSH 服务端启用，固定诊断以当前连接用户的权限运行。</translation>
-    </message>
-    <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="284"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="633"/>
         <source>Allows LocalShell/SSH script tasks. Each script still requires MCP-client confirmation; its body is written to the requested host path and is not shown in the terminal UI.</source>
         <translation>允许 LocalShell/SSH 脚本任务。每个脚本仍须经 MCP 客户端确认；脚本正文写入指定主机路径，不会显示在终端 UI 中。</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="287"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="636"/>
         <source>Allows the MCP client to type commands into this session&apos;s current terminal. Ordinary low-risk commands run without confirmation; anything potentially destructive or unclassifiable still requires confirmation in the MCP client. Off by default: sharing read output does not imply permission to type.</source>
         <translation>允许 MCP 客户端在本会话的当前终端中输入命令。普通低风险命令无需确认；可能破坏性或无法判定的命令仍需在 MCP 客户端确认。默认关闭：共享读取输出不等于允许输入。</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="290"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="685"/>
         <source>System identity</source>
         <translation>系统与内核信息</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="291"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="686"/>
         <source>Uptime and load</source>
         <translation>运行时长与负载</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="292"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="687"/>
         <source>Memory summary</source>
         <translation>内存摘要</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="293"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="688"/>
         <source>Filesystem capacity</source>
         <translation>文件系统容量</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="317"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="713"/>
         <source>Protected target %1 — execution %2</source>
         <translation>受保护目标 %1 — 执行 %2</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="326"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="740"/>
         <source>Command is running.</source>
         <translation>命令正在运行。</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="330"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="744"/>
         <source>Status: %1
 Exit code: %2
 Termination confirmed: %3
@@ -840,17 +877,17 @@ Termination confirmed: %3
 %5</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="332"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="746"/>
         <source>Unknown</source>
         <translation>未知</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="333"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="747"/>
         <source>Yes</source>
         <translation>是</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="333"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="747"/>
         <source>No</source>
         <translation>否</translation>
     </message>
@@ -869,124 +906,146 @@ Termination confirmed: %3
     </message>
 </context>
 <context>
+    <name>QObject</name>
+    <message>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="468"/>
+        <source>会话连接或目标已变化；凭据操作针对打开窗口时的原目标。请关闭并重新打开设置。</source>
+        <translation>会话连接或目标已变化；凭据操作针对打开窗口时的原目标。请关闭并重新打开设置。</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="475"/>
+        <source>已更新系统凭据库。托管提权授权已撤销，请按需重新授权。</source>
+        <translation>已更新系统凭据库。托管提权授权已撤销，请按需重新授权。</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="476"/>
+        <source>已更新，仅本次运行保存。托管提权授权已撤销，请按需重新授权。</source>
+        <translation>已更新，仅本次运行保存。托管提权授权已撤销，请按需重新授权。</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="477"/>
+        <source>凭据操作失败；请检查会话身份、密码是否为空及凭据库权限。</source>
+        <translation>凭据操作失败；请检查会话身份、密码是否为空及凭据库权限。</translation>
+    </message>
+</context>
+<context>
     <name>SerialFileTransferController</name>
     <message>
-        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="46"/>
+        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="48"/>
         <source>Waiting for peer handshake</source>
         <translation>等待对端握手</translation>
     </message>
     <message>
-        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="47"/>
+        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="49"/>
         <source>Transferring</source>
         <translation>正在传输</translation>
     </message>
     <message>
-        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="48"/>
+        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="50"/>
         <source>Committing file</source>
         <translation>正在提交文件</translation>
     </message>
     <message>
-        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="49"/>
+        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="51"/>
         <source>Waiting for final confirmation</source>
         <translation>等待结束确认</translation>
     </message>
     <message>
-        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="50"/>
-        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="256"/>
+        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="52"/>
+        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="406"/>
         <source>Transfer completed</source>
         <translation>传输已完成</translation>
     </message>
     <message>
-        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="51"/>
-        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="227"/>
-        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="401"/>
-        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="402"/>
+        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="53"/>
+        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="375"/>
+        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="553"/>
         <source>Transfer cancelled</source>
         <translation>传输已取消</translation>
     </message>
     <message>
-        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="52"/>
+        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="54"/>
         <source>Transfer failed</source>
         <translation>传输失败</translation>
     </message>
     <message>
-        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="53"/>
+        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="55"/>
         <source>Preparing transfer</source>
         <translation>正在准备传输</translation>
     </message>
     <message>
-        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="286"/>
+        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="433"/>
         <source>Serial port disconnected</source>
         <translation>串口已断开</translation>
     </message>
     <message>
-        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="150"/>
+        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="297"/>
         <source>Transfer preparation timed out</source>
         <translation>传输准备超时</translation>
     </message>
     <message>
-        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="165"/>
-        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="325"/>
+        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="313"/>
+        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="476"/>
         <source>Invalid protocol request</source>
         <translation>协议请求无效</translation>
     </message>
     <message>
-        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="202"/>
+        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="350"/>
         <source>Invalid serial write queue state</source>
         <translation>串口写入队列状态无效</translation>
     </message>
     <message>
-        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="241"/>
+        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="391"/>
         <source>File worker is unavailable</source>
         <translation>文件处理暂不可用</translation>
     </message>
     <message>
-        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="249"/>
+        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="399"/>
         <source>Serial write failed</source>
         <translation>串口写入失败</translation>
     </message>
     <message>
-        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="319"/>
+        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="470"/>
         <source>A transfer is already active</source>
         <translation>已有传输正在进行</translation>
     </message>
     <message>
-        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="321"/>
+        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="472"/>
         <source>Serial port is not connected</source>
         <translation>串口未连接</translation>
     </message>
     <message>
-        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="330"/>
+        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="481"/>
         <source>File transfers require 8 data bits; X/YMODEM cannot use software flow control</source>
         <translation>文件传输需要 8 位数据位；X/YMODEM 不支持软件流控</translation>
     </message>
     <message>
-        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="334"/>
+        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="485"/>
         <source>Invalid source file count</source>
         <translation>发送文件数量无效</translation>
     </message>
     <message>
-        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="337"/>
+        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="488"/>
         <source>Select a receive destination</source>
         <translation>请选择接收文件的保存位置</translation>
     </message>
     <message>
-        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="340"/>
+        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="491"/>
         <source>Expected length exceeds the protocol limit</source>
         <translation>预期大小超过协议上限</translation>
     </message>
     <message>
-        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="343"/>
+        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="494"/>
         <source>The channel is reserved by another input task</source>
         <translation>通道正被另一个输入任务占用</translation>
     </message>
     <message>
-        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="348"/>
+        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="499"/>
         <source>Preparing files and channel</source>
         <translation>正在准备文件和通道</translation>
     </message>
     <message>
-        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="392"/>
+        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="544"/>
         <source>Receive buffer exceeded the 256 KiB limit</source>
         <translation>接收缓冲区超过 256 KiB 上限</translation>
     </message>
@@ -1041,65 +1100,67 @@ Termination confirmed: %3
         <translation>接收文件刷新失败</translation>
     </message>
     <message>
-        <location filename="../../src/session/transfer/TransferFileWorker.cpp" line="208"/>
+        <location filename="../../src/session/transfer/TransferFileWorker.cpp" line="214"/>
         <source>Cannot publish the received file without overwriting. Choose another receiving folder or check its permissions: %1</source>
         <translation>无法在不覆盖已有文件的情况下保存接收文件。请选择其他接收文件夹或检查其权限：%1</translation>
     </message>
     <message>
-        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="34"/>
+        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="36"/>
         <source>File access failed. Check the source file and receiving folder.</source>
         <translation>文件访问失败，请检查源文件和接收文件夹。</translation>
     </message>
     <message>
-        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="26"/>
+        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="28"/>
         <source>Invalid data from the peer. Check that both devices use the same protocol.</source>
         <translation>对端数据无效，请确认两端使用相同协议。</translation>
     </message>
     <message>
-        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="32"/>
+        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="34"/>
         <source>The device did not respond in time. Check the connection and peer.</source>
         <translation>设备响应超时，请检查连接和对端设备。</translation>
     </message>
     <message>
-        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="28"/>
+        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="30"/>
         <source>The peer requested an unsupported protocol variant.</source>
         <translation>对端请求了不支持的协议变体。</translation>
     </message>
     <message>
-        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="30"/>
+        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="32"/>
         <source>The retry limit was reached. Check the serial connection and peer.</source>
         <translation>已达到重试次数上限，请检查串口连接和对端设备。</translation>
     </message>
     <message>
-        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="265"/>
+        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="415"/>
         <source>The serial output stopped progressing. Check flow control and the connection.</source>
         <translation>串口发送已停止推进，请检查流控和连接。</translation>
     </message>
     <message>
-        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="38"/>
+        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="40"/>
         <source>The transfer exceeded its memory or file limit.</source>
         <translation>传输超过了内存或文件限制。</translation>
     </message>
     <message>
-        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="40"/>
+        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="42"/>
         <source>The transfer failed.</source>
         <translation>传输失败。</translation>
     </message>
     <message>
-        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="24"/>
+        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="26"/>
         <source>The transfer request is invalid. Check the protocol and selected files.</source>
         <translation>传输请求无效，请检查协议和所选文件。</translation>
     </message>
     <message>
-        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="36"/>
+        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="38"/>
         <source>The transferred file size does not match the declared size.</source>
         <translation>已传输文件的大小与声明大小不一致。</translation>
     </message>
     <message>
+        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="228"/>
         <source>Transfer cancelled before the serial channel was ready.</source>
         <translation>串口尚未就绪，传输已取消。</translation>
     </message>
     <message>
+        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="266"/>
         <source>The cancel sequence could not be sent. Check flow control and the connection.</source>
         <translation>取消序列未能发送，请检查流控与连接。</translation>
     </message>
@@ -1345,43 +1406,52 @@ Termination confirmed: %3
 <context>
     <name>SerialTransport</name>
     <message>
-        <location filename="../../src/transport/SerialTransport.cpp" line="96"/>
+        <location filename="../../src/transport/SerialTransport.cpp" line="406"/>
         <source>Invalid serial port configuration.</source>
         <translation>无效的串口配置。</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SerialTransport.cpp" line="109"/>
-        <source>Cannot apply serial settings on %1 (%2)</source>
-        <translation>无法在 %1 上应用串口设置（%2）</translation>
-    </message>
-    <message>
-        <location filename="../../src/transport/SerialTransport.cpp" line="122"/>
+        <location filename="../../src/transport/SerialTransport.cpp" line="229"/>
         <source>Cannot open serial port %1: %2</source>
         <translation>无法打开串口 %1：%2</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SerialTransport.cpp" line="138"/>
+        <location filename="../../src/transport/SerialTransport.cpp" line="227"/>
         <source>Serial port %1 rejects %2: %3</source>
         <translation>串口 %1 拒绝 %2：%3</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SerialTransport.cpp" line="169"/>
+        <location filename="../../src/transport/SerialTransport.cpp" line="289"/>
+        <source>Serial port %1 receive buffer could not be verified (requested %2 bytes, reported %3 bytes, setup error %4, query error %5). Continuing with the driver&apos;s buffer; burst input may be lost.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../src/transport/SerialTransport.cpp" line="309"/>
+        <source>Serial receive queue reached its 8 MiB limit. Input delivery must resume; flow control is required to prevent overrun.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../src/transport/SerialTransport.cpp" line="510"/>
         <source>Serial port is not connected.</source>
         <translation>串口未连接。</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SerialTransport.cpp" line="174"/>
+        <location filename="../../src/transport/SerialTransport.cpp" line="515"/>
         <source>Serial write queue exceeded its 1 MiB limit.</source>
         <translation>串口写入队列已超过 1 MiB 限制。</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SerialTransport.cpp" line="181"/>
-        <location filename="../../src/transport/SerialTransport.cpp" line="260"/>
+        <location filename="../../src/transport/SerialTransport.cpp" line="519"/>
+        <source>Serial write failed.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../src/transport/SerialTransport.cpp" line="342"/>
         <source>Serial write failed: %1</source>
         <translation>串口写入失败：%1</translation>
     </message>
     <message>
-        <location filename="../../src/transport/SerialTransport.cpp" line="231"/>
+        <location filename="../../src/transport/SerialTransport.cpp" line="265"/>
         <source>Serial port %1: %2</source>
         <translation>串口 %1：%2</translation>
     </message>
@@ -1389,26 +1459,22 @@ Termination confirmed: %3
 <context>
     <name>SessionPage</name>
     <message>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="695"/>
         <source>MCP command prompt (regex)</source>
         <translation>MCP 命令提示符（正则）</translation>
     </message>
     <message>
-        <source>Leave empty to disable MCP commands</source>
-        <translation>留空禁用 MCP 交互命令</translation>
-    </message>
-    <message>
-        <source>Match the device's idle prompt, for example ^device&gt; $. Commands also require separate MCP permission.</source>
-        <translation>匹配设备空闲时的提示符，例如 ^device&gt; $。命令还需单独授予 MCP 权限。</translation>
-    </message>
-    <message>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="703"/>
         <source>MCP command line ending</source>
         <translation>MCP 命令行结束符</translation>
     </message>
     <message>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="711"/>
         <source>Device echoes command input</source>
         <translation>设备回显命令输入</translation>
     </message>
     <message>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="137"/>
         <source>Provide a valid MCP prompt regular expression, or leave it empty to disable commands.</source>
         <translation>请输入有效的 MCP 提示符正则表达式，或留空禁用命令。</translation>
     </message>
@@ -1428,296 +1494,307 @@ Termination confirmed: %3
         <translation>确认</translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="131"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="136"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="142"/>
         <source>Serial Session</source>
         <translation>串口会话</translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="132"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="143"/>
         <source>Select a serial port and provide a valid baud rate.</source>
         <translation>请选择一个串口并提供有效的波特率。</translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="159"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="170"/>
         <source>SSH Session</source>
         <translation>SSH 会话</translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="160"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="171"/>
         <source>Provide a host, user name and the credentials for the selected authentication method.</source>
         <translation>请提供主机、用户名以及所选认证方式所需的凭据。</translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="179"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="190"/>
         <source>Telnet Session</source>
         <translation>Telnet 会话</translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="180"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="191"/>
         <source>Provide a host address and a valid port.</source>
         <translation>请提供主机地址和有效的端口。</translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="365"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="383"/>
         <source>Type</source>
         <translation>类型</translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="419"/>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="508"/>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="668"/>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="737"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="437"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="526"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="686"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="775"/>
         <source>Label</source>
         <translation>标签</translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="425"/>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="510"/>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="670"/>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="739"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="443"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="528"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="688"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="777"/>
         <source>Optional session name</source>
         <translation>可选的会话名称</translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="411"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="429"/>
         <source>Startup Directory</source>
         <translation>启动目录</translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="430"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="448"/>
         <source>local shell</source>
         <translation>本地 Shell</translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="445"/>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="700"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="463"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="738"/>
         <source>IPv4 Address</source>
         <translation>IPv4 地址</translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="447"/>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="702"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="465"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="740"/>
         <source>IPv4 address, e.g. 192.168.0.1</source>
         <translation>IPv4 地址，例如 192.168.0.1</translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="452"/>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="549"/>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="707"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="470"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="567"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="745"/>
         <source>Port</source>
         <translation>端口</translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="458"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="476"/>
         <source>User Name</source>
         <translation>用户名</translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="460"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="478"/>
         <source>User name</source>
         <translation>用户名</translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="464"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="482"/>
         <source>Authentication</source>
         <translation>认证</translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="466"/>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="470"/>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="472"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="484"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="488"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="490"/>
         <source>Password</source>
         <translation>密码</translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="467"/>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="476"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="485"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="494"/>
         <source>Private Key</source>
         <translation>私钥</translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="481"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="499"/>
         <source>Private key file</source>
         <translation>私钥文件</translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="483"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="501"/>
         <source>Browse...</source>
         <translation>浏览...</translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="488"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="506"/>
         <source>Key Passphrase</source>
         <translation>密钥口令</translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="490"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="508"/>
         <source>Optional passphrase</source>
         <translation>可选的口令</translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="495"/>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="712"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="513"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="750"/>
         <source>Terminal Type</source>
         <translation>终端类型</translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="500"/>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="729"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="518"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="767"/>
         <source>Keep Alive</source>
         <translation>保持连接</translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="504"/>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="733"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="522"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="771"/>
         <source> s</source>
         <translation> 秒</translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="505"/>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="734"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="523"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="772"/>
         <source>Disabled</source>
         <translation>禁用</translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="524"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="542"/>
         <source>Select SSH Private Key</source>
         <translation>选择 SSH 私钥</translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="525"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="543"/>
         <source>Private keys (*)</source>
         <translation>私钥 (*)</translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="533"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="551"/>
         <source>ssh</source>
         <translation>SSH</translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="551"/>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="570"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="569"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="588"/>
         <source>Select one or more serial ports</source>
         <translation>选择一个或多个串口</translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="569"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="587"/>
         <source>No serial ports detected</source>
         <translation>未检测到串口</translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="621"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="639"/>
         <source>Parity</source>
         <translation>校验</translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="623"/>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="648"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="641"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="666"/>
         <source>None</source>
         <translation>无</translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="624"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="642"/>
         <source>Even</source>
         <translation>偶校验</translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="625"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="643"/>
         <source>Odd</source>
         <translation>奇校验</translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="626"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="644"/>
         <source>Mark</source>
         <translation>标记校验</translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="627"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="645"/>
         <source>Space</source>
         <translation>空格校验</translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="605"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="623"/>
         <source>Baud Rate</source>
         <translation>波特率</translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="630"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="648"/>
         <source>Data Bits</source>
         <translation>数据位</translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="639"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="657"/>
         <source>Stop Bits</source>
         <translation>停止位</translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="646"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="664"/>
         <source>Flow Control</source>
         <translation>流控</translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="649"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="667"/>
         <source>Hardware (RTS/CTS)</source>
         <translation>硬件（RTS/CTS）</translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="651"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="669"/>
         <source>Software (XON/XOFF)</source>
         <translation>软件（XON/XOFF）</translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="655"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="673"/>
         <source>Reconnect Time</source>
         <translation>重连时间</translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="663"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="681"/>
         <source>Optional reconnect interval in whole seconds; 0 disables reconnection</source>
         <translation>可选：重连时间（整秒数），0 表示不重连</translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="673"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="691"/>
         <source>LF automatic carriage return (LF → CRLF)</source>
         <translation>LF 自动回车（LF → CRLF）</translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="679"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="699"/>
+        <source>Leave empty to finish by idle detection</source>
+        <translation>留空则按空闲检测判定命令完成</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="700"/>
+        <source>Optional. Leave empty to finish commands by idle silence without exit status; set a prompt regex such as ^device&gt; $ for verified completion. Commands also require separate MCP permission.</source>
+        <translation>可选。留空则按空闲静默判定命令完成，不含退出码；设置提示符正则（如 ^device&gt; $）可获得验证完成。命令还需要单独授予 MCP 权限。</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="717"/>
         <source>serial port</source>
         <translation>串口</translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="695"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="733"/>
         <source>Warning: Telnet sends all data without encryption.</source>
         <translation>警告：Telnet 发送的所有数据未加密。</translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="717"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="755"/>
         <source>Negotiation</source>
         <translation>协商</translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="721"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="759"/>
         <source>Window size (NAWS)</source>
         <translation>窗口大小（NAWS）</translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="723"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="761"/>
         <source>Binary mode</source>
         <translation>二进制模式</translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="744"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="782"/>
         <source>telnet</source>
         <translation>Telnet</translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="391"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="409"/>
         <source>WSL is unavailable on this Windows system.</source>
         <translation>此 Windows 系统上的 WSL 不可用。</translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="395"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="413"/>
         <source>WSL is enabled, but no distribution is installed.</source>
         <translation>WSL 已启用，但尚未安装任何发行版。</translation>
     </message>
@@ -1725,116 +1802,116 @@ Termination confirmed: %3
 <context>
     <name>SessionPanel</name>
     <message>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="204"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="205"/>
         <source>Custom</source>
         <translation>自定义</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="214"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="215"/>
         <source>Local terminals</source>
         <translation>本地终端</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="216"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="217"/>
         <source>SSH hosts</source>
         <translation>SSH 主机</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="218"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="219"/>
         <source>Serial ports</source>
         <translation>串口</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="220"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="221"/>
         <source>Telnet hosts</source>
         <translation>Telnet 主机</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="222"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="223"/>
         <source>Other sessions</source>
         <translation>其他会话</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="744"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="751"/>
         <source>No matching sessions</source>
         <translation>没有匹配的会话</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="813"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="820"/>
         <source>Delete these %1 saved sessions?
 %2</source>
         <translation>是否删除以下 %1 个历史会话？
 %2</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="912"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="922"/>
         <source>The saved password for this session is unavailable. Edit the session and enter the password again.</source>
         <translation>该会话保存的密码不可用，请编辑会话重新输入密码。</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="943"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="953"/>
         <source>+  New session</source>
         <translation>+  新建会话</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="944"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="954"/>
         <source>New session</source>
         <translation>新建会话</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="946"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="956"/>
         <source>Search by name or host...</source>
         <translation>按名称或主机搜索...</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="947"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="957"/>
         <source>Search sessions</source>
         <translation>搜索会话</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="513"/>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="516"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="520"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="523"/>
         <source>Expand quick connections</source>
         <translation>展开快速连接</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="514"/>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="517"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="521"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="524"/>
         <source>Collapse quick connections</source>
         <translation>折叠快速连接</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="737"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="744"/>
         <source>Double-click to reconnect</source>
         <translation>双击重新连接</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="743"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="750"/>
         <source>No saved sessions yet</source>
         <translation>尚无已保存的会话</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="768"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="775"/>
         <source>Edit</source>
         <translation>编辑</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="770"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="777"/>
         <source>Delete</source>
         <translation>删除</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="816"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="823"/>
         <source>Delete session</source>
         <translation>删除会话</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="812"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="819"/>
         <source>Delete the saved session &apos;%1&apos;?</source>
         <translation>删除已保存的会话“%1”？</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="914"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="924"/>
         <source>The saved SSH credential is unavailable. Create the session again to refresh it.</source>
         <translation>已保存的 SSH 凭据不可用。请重新创建会话以刷新凭据。</translation>
     </message>
@@ -2552,52 +2629,52 @@ Termination confirmed: %3
         <translation>SFTP 密码认证失败</translation>
     </message>
     <message>
-        <location filename="../../src/session/SftpSession.cpp" line="615"/>
+        <location filename="../../src/session/SftpSession.cpp" line="649"/>
         <source>Invalid SSH configuration for SFTP.</source>
         <translation>SFTP 的 SSH 配置无效。</translation>
     </message>
     <message>
-        <location filename="../../src/session/SftpSession.cpp" line="872"/>
+        <location filename="../../src/session/SftpSession.cpp" line="937"/>
         <source>Failed to create the SFTP SSH session.</source>
         <translation>创建 SFTP SSH 会话失败。</translation>
     </message>
     <message>
-        <location filename="../../src/session/SftpSession.cpp" line="897"/>
+        <location filename="../../src/session/SftpSession.cpp" line="962"/>
         <source>SFTP SSH connection failed</source>
         <translation>SFTP SSH 连接失败</translation>
     </message>
     <message>
-        <location filename="../../src/session/SftpSession.cpp" line="905"/>
+        <location filename="../../src/session/SftpSession.cpp" line="970"/>
         <source>The SFTP host key is not trusted or has changed. Reconnect the SSH terminal and verify the host key.</source>
         <translation>SFTP 主机密钥不可信或已变更。请重新连接 SSH 终端并验证主机密钥。</translation>
     </message>
     <message>
-        <location filename="../../src/session/SftpSession.cpp" line="928"/>
+        <location filename="../../src/session/SftpSession.cpp" line="993"/>
         <source>Failed to initialize SFTP</source>
         <translation>初始化 SFTP 失败</translation>
     </message>
     <message>
-        <location filename="../../src/session/SftpSession.cpp" line="970"/>
+        <location filename="../../src/session/SftpSession.cpp" line="1035"/>
         <source>Cannot resolve the remote directory</source>
         <translation>无法解析远程目录</translation>
     </message>
     <message>
-        <location filename="../../src/session/SftpSession.cpp" line="401"/>
-        <location filename="../../src/session/SftpSession.cpp" line="529"/>
-        <location filename="../../src/session/SftpSession.cpp" line="981"/>
+        <location filename="../../src/session/SftpSession.cpp" line="315"/>
+        <location filename="../../src/session/SftpSession.cpp" line="443"/>
+        <location filename="../../src/session/SftpSession.cpp" line="1046"/>
         <source>Cannot open remote directory %1</source>
         <translation>无法打开远程目录 %1</translation>
     </message>
     <message>
-        <location filename="../../src/session/SftpSession.cpp" line="445"/>
-        <location filename="../../src/session/SftpSession.cpp" line="562"/>
-        <location filename="../../src/session/SftpSession.cpp" line="1040"/>
+        <location filename="../../src/session/SftpSession.cpp" line="359"/>
+        <location filename="../../src/session/SftpSession.cpp" line="476"/>
+        <location filename="../../src/session/SftpSession.cpp" line="1105"/>
         <source>Failed while reading remote directory %1</source>
         <translation>读取远程目录 %1 失败</translation>
     </message>
     <message>
         <location filename="../../src/session/SftpSession.cpp" line="208"/>
-        <location filename="../../src/session/SftpSession.cpp" line="1192"/>
+        <location filename="../../src/session/SftpSession.cpp" line="1246"/>
         <source>Cannot open local file %1: %2</source>
         <translation>无法打开本地文件 %1：%2</translation>
     </message>
@@ -2613,106 +2690,106 @@ Termination confirmed: %3
     </message>
     <message>
         <location filename="../../src/session/SftpSession.cpp" line="221"/>
-        <location filename="../../src/session/SftpSession.cpp" line="466"/>
-        <location filename="../../src/session/SftpSession.cpp" line="1213"/>
-        <location filename="../../src/session/SftpSession.cpp" line="1377"/>
+        <location filename="../../src/session/SftpSession.cpp" line="380"/>
+        <location filename="../../src/session/SftpSession.cpp" line="1267"/>
+        <location filename="../../src/session/SftpSession.cpp" line="1424"/>
         <source>Cannot open remote file %1</source>
         <translation>无法打开远程文件 %1</translation>
     </message>
     <message>
         <location filename="../../src/session/SftpSession.cpp" line="234"/>
-        <location filename="../../src/session/SftpSession.cpp" line="1235"/>
+        <location filename="../../src/session/SftpSession.cpp" line="1289"/>
         <source>Failed to read local file %1: %2</source>
         <translation>读取本地文件 %1 失败：%2</translation>
     </message>
     <message>
         <location filename="../../src/session/SftpSession.cpp" line="252"/>
-        <location filename="../../src/session/SftpSession.cpp" line="1249"/>
+        <location filename="../../src/session/SftpSession.cpp" line="1303"/>
         <source>Failed to upload %1</source>
         <translation>上传 %1 失败</translation>
     </message>
     <message>
         <location filename="../../src/session/SftpSession.cpp" line="272"/>
-        <location filename="../../src/session/SftpSession.cpp" line="1273"/>
-        <location filename="../../src/session/SftpSession.cpp" line="1475"/>
+        <location filename="../../src/session/SftpSession.cpp" line="1325"/>
+        <location filename="../../src/session/SftpSession.cpp" line="1517"/>
         <source>Failed to finalize remote file %1</source>
         <translation>完成远程文件 %1 失败</translation>
     </message>
     <message>
         <location filename="../../src/session/SftpSession.cpp" line="281"/>
-        <location filename="../../src/session/SftpSession.cpp" line="1286"/>
+        <location filename="../../src/session/SftpSession.cpp" line="1338"/>
         <source>Failed to replace remote file %1</source>
         <translation>替换远端文件 %1 失败</translation>
     </message>
     <message>
-        <location filename="../../src/session/SftpSession.cpp" line="418"/>
-        <location filename="../../src/session/SftpSession.cpp" line="546"/>
+        <location filename="../../src/session/SftpSession.cpp" line="332"/>
+        <location filename="../../src/session/SftpSession.cpp" line="460"/>
         <source>Unsafe remote entry name in %1</source>
         <translation>%1 中的远程条目名称不安全</translation>
     </message>
     <message>
-        <location filename="../../src/session/SftpSession.cpp" line="471"/>
-        <location filename="../../src/session/SftpSession.cpp" line="1386"/>
+        <location filename="../../src/session/SftpSession.cpp" line="385"/>
+        <location filename="../../src/session/SftpSession.cpp" line="1433"/>
         <source>Cannot create local file %1: %2</source>
         <translation>无法创建本地文件 %1：%2</translation>
     </message>
     <message>
-        <location filename="../../src/session/SftpSession.cpp" line="485"/>
-        <location filename="../../src/session/SftpSession.cpp" line="1403"/>
+        <location filename="../../src/session/SftpSession.cpp" line="399"/>
+        <location filename="../../src/session/SftpSession.cpp" line="1450"/>
         <source>Failed to download %1</source>
         <translation>下载 %1 失败</translation>
     </message>
     <message>
-        <location filename="../../src/session/SftpSession.cpp" line="489"/>
-        <location filename="../../src/session/SftpSession.cpp" line="1409"/>
+        <location filename="../../src/session/SftpSession.cpp" line="403"/>
+        <location filename="../../src/session/SftpSession.cpp" line="1456"/>
         <source>Failed to write local file %1: %2</source>
         <translation>写入本地文件 %1 失败：%2</translation>
     </message>
     <message>
-        <location filename="../../src/session/SftpSession.cpp" line="503"/>
-        <location filename="../../src/session/SftpSession.cpp" line="1435"/>
+        <location filename="../../src/session/SftpSession.cpp" line="417"/>
+        <location filename="../../src/session/SftpSession.cpp" line="1479"/>
         <source>Failed to finalize local file %1: %2</source>
         <translation>完成本地文件 %1 失败：%2</translation>
     </message>
     <message>
-        <location filename="../../src/session/SftpSession.cpp" line="574"/>
+        <location filename="../../src/session/SftpSession.cpp" line="488"/>
         <source>Cannot delete remote entry %1</source>
         <translation>无法删除远程条目 %1</translation>
     </message>
     <message>
-        <location filename="../../src/session/SftpSession.cpp" line="585"/>
+        <location filename="../../src/session/SftpSession.cpp" line="499"/>
         <source>Cannot delete remote directory %1</source>
         <translation>无法删除远程目录 %1</translation>
     </message>
     <message>
-        <location filename="../../src/session/SftpSession.cpp" line="626"/>
+        <location filename="../../src/session/SftpSession.cpp" line="660"/>
         <source>The previous SFTP session is still shutting down; please try again shortly.</source>
         <translation>上一个 SFTP 会话仍在关闭中，请稍后重试。</translation>
     </message>
     <message>
-        <location filename="../../src/session/SftpSession.cpp" line="913"/>
+        <location filename="../../src/session/SftpSession.cpp" line="978"/>
         <source>The SFTP host key does not match the active SSH session.</source>
         <translation>SFTP 主机密钥与当前 SSH 会话不匹配。</translation>
     </message>
     <message>
-        <location filename="../../src/session/SftpSession.cpp" line="1059"/>
+        <location filename="../../src/session/SftpSession.cpp" line="1122"/>
         <source>Local path is not a directory: %1</source>
         <translation>本地路径不是目录：%1</translation>
     </message>
     <message>
-        <location filename="../../src/session/SftpSession.cpp" line="1308"/>
-        <location filename="../../src/session/SftpSession.cpp" line="1336"/>
-        <location filename="../../src/session/SftpSession.cpp" line="1343"/>
+        <location filename="../../src/session/SftpSession.cpp" line="1359"/>
+        <location filename="../../src/session/SftpSession.cpp" line="1385"/>
+        <location filename="../../src/session/SftpSession.cpp" line="1392"/>
         <source>Cannot create local directory %1</source>
         <translation>无法创建本地目录 %1</translation>
     </message>
     <message>
-        <location filename="../../src/session/SftpSession.cpp" line="1470"/>
+        <location filename="../../src/session/SftpSession.cpp" line="1512"/>
         <source>Cannot create remote file %1</source>
         <translation>无法创建远程文件 %1</translation>
     </message>
     <message>
-        <location filename="../../src/session/SftpSession.cpp" line="1510"/>
+        <location filename="../../src/session/SftpSession.cpp" line="1550"/>
         <source>Remote operation failed for %1</source>
         <translation>%1 的远程操作失败</translation>
     </message>
@@ -3374,13 +3451,13 @@ Termination confirmed: %3
 <context>
     <name>TerminalPage</name>
     <message>
-        <location filename="../../src/ui/pages/TerminalPage.cpp" line="191"/>
+        <location filename="../../src/ui/pages/TerminalPage.cpp" line="194"/>
         <source>Terminal</source>
         <translation>终端</translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/TerminalPage.cpp" line="318"/>
-        <location filename="../../src/ui/pages/TerminalPage.cpp" line="452"/>
+        <location filename="../../src/ui/pages/TerminalPage.cpp" line="321"/>
+        <location filename="../../src/ui/pages/TerminalPage.cpp" line="463"/>
         <source>Terminal %1</source>
         <translation>终端 %1</translation>
     </message>
@@ -3586,8 +3663,8 @@ Termination confirmed: %3
 <context>
     <name>TerminalSession</name>
     <message>
-        <location filename="../../src/session/TerminalSession.cpp" line="527"/>
-        <location filename="../../src/session/TerminalSession.cpp" line="625"/>
+        <location filename="../../src/session/TerminalSession.cpp" line="564"/>
+        <location filename="../../src/session/TerminalSession.cpp" line="671"/>
         <source>Serial connection changed.</source>
         <translation>串口连接已更改。</translation>
     </message>
@@ -3621,172 +3698,155 @@ Termination confirmed: %3
 <context>
     <name>TerminalView</name>
     <message>
-        <location filename="../../src/ui/terminal/TerminalView.cpp" line="877"/>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="933"/>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="940"/>
         <source>Find in scrollback</source>
         <translation>在滚动回显中查找</translation>
     </message>
     <message>
-        <location filename="../../src/ui/terminal/TerminalView.cpp" line="690"/>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="740"/>
         <source>Copy</source>
         <translation>复制</translation>
     </message>
     <message>
-        <location filename="../../src/ui/terminal/TerminalView.cpp" line="260"/>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="281"/>
         <source>[Disconnected] Press Enter to reconnect.</source>
         <translation>[连接已经断开] 按 Enter 重新连接</translation>
     </message>
     <message>
-        <location filename="../../src/ui/terminal/TerminalView.cpp" line="261"/>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="282"/>
         <source>[Disconnected].</source>
         <translation>[已断开连接]</translation>
     </message>
     <message>
-        <location filename="../../src/ui/terminal/TerminalView.cpp" line="277"/>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="298"/>
         <source>[Transport error] %1</source>
         <translation>[传输错误] %1</translation>
     </message>
     <message>
-        <location filename="../../src/ui/terminal/TerminalView.cpp" line="286"/>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="310"/>
+        <source>[Transport warning] %1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="318"/>
         <source>[Reconnecting] Waiting for the serial port</source>
         <translation>[正在重连] 等待串口恢复</translation>
     </message>
     <message>
-        <location filename="../../src/ui/terminal/TerminalView.cpp" line="304"/>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="336"/>
         <source>[Reconnected] Automatic reconnection succeeded.</source>
         <translation>[已重连] 自动重连成功。</translation>
     </message>
     <message>
-        <location filename="../../src/ui/terminal/TerminalView.cpp" line="693"/>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="743"/>
         <source>Paste</source>
         <translation>粘贴</translation>
     </message>
     <message>
-        <location filename="../../src/ui/terminal/TerminalView.cpp" line="714"/>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="755"/>
         <source>Find...</source>
         <translation>查找...</translation>
     </message>
     <message>
-        <location filename="../../src/ui/terminal/TerminalView.cpp" line="719"/>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="760"/>
         <source>Zoom In</source>
         <translation>放大</translation>
     </message>
     <message>
-        <location filename="../../src/ui/terminal/TerminalView.cpp" line="722"/>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="763"/>
         <source>Zoom Out</source>
         <translation>缩小</translation>
     </message>
     <message>
-        <location filename="../../src/ui/terminal/TerminalView.cpp" line="729"/>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="770"/>
         <source>Scroll to Top</source>
         <translation>回到顶部</translation>
     </message>
     <message>
-        <location filename="../../src/ui/terminal/TerminalView.cpp" line="736"/>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="777"/>
         <source>Scroll to Bottom</source>
         <translation>回到底部</translation>
     </message>
     <message>
-        <location filename="../../src/ui/terminal/TerminalView.cpp" line="743"/>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="784"/>
         <source>Clear Scrollback</source>
         <translation>清除滚动回显</translation>
     </message>
     <message>
-        <location filename="../../src/ui/terminal/TerminalView.cpp" line="746"/>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="787"/>
         <source>Clear All</source>
         <translation>全部清除</translation>
     </message>
     <message>
-        <location filename="../../src/ui/terminal/TerminalView.cpp" line="749"/>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="790"/>
         <source>Clear All Failed</source>
         <translation>全部清除失败</translation>
     </message>
     <message>
-        <location filename="../../src/ui/terminal/TerminalView.cpp" line="750"/>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="791"/>
         <source>The terminal is busy. Please try clearing it again shortly.</source>
         <translation>终端忙碌，未能全部清除，请稍后重试。</translation>
     </message>
     <message>
-        <location filename="../../src/ui/terminal/TerminalView.cpp" line="757"/>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="798"/>
         <source>Select All</source>
         <translation>选中全部</translation>
     </message>
     <message>
-        <location filename="../../src/ui/terminal/TerminalView.cpp" line="699"/>
-        <source>Send Files…</source>
-        <translation>发送文件…</translation>
-    </message>
-    <message>
-        <location filename="../../src/ui/terminal/TerminalView.cpp" line="702"/>
-        <source>Receive Files…</source>
-        <translation>接收文件…</translation>
-    </message>
-    <message>
-        <location filename="../../src/ui/terminal/TerminalView.cpp" line="705"/>
-        <source>Transfer Progress</source>
-        <translation>传输进度</translation>
-    </message>
-    <message>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="749"/>
         <source>Serial File Transfer…</source>
         <translation>串口文件传输…</translation>
     </message>
     <message>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="934"/>
         <source>Previous</source>
         <translation>上一处</translation>
     </message>
     <message>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="935"/>
         <source>Previous match (Shift+Enter / Shift+F3)</source>
         <translation>上一处匹配（Shift+Enter / Shift+F3）</translation>
     </message>
     <message>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="936"/>
         <source>Next</source>
         <translation>下一处</translation>
     </message>
     <message>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="937"/>
         <source>Next match (Enter / F3)</source>
         <translation>下一处匹配（Enter / F3）</translation>
     </message>
     <message>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="938"/>
         <source>Close</source>
         <translation>关闭</translation>
     </message>
     <message>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="939"/>
         <source>Close search (Esc)</source>
         <translation>关闭搜索（Esc）</translation>
     </message>
     <message>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="1036"/>
         <source>Search failed</source>
         <translation>搜索失败</translation>
     </message>
     <message>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="1038"/>
         <source>%1 / %2%3</source>
         <translation>%1 / %2%3</translation>
     </message>
     <message>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="1041"/>
         <source>Searching…</source>
         <translation>正在搜索…</translation>
     </message>
     <message>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="1043"/>
         <source>No matches</source>
         <translation>未找到匹配项</translation>
-    </message>
-</context>
-<context>
-    <name>QObject</name>
-    <message>
-        <source>会话连接或目标已变化；凭据操作针对打开窗口时的原目标。请关闭并重新打开设置。</source>
-        <translation>会话连接或目标已变化；凭据操作针对打开窗口时的原目标。请关闭并重新打开设置。</translation>
-    </message>
-    <message>
-        <source>已更新系统凭据库。托管提权授权已撤销，请按需重新授权。</source>
-        <translation>已更新系统凭据库。托管提权授权已撤销，请按需重新授权。</translation>
-    </message>
-    <message>
-        <source>已更新，仅本次运行保存。托管提权授权已撤销，请按需重新授权。</source>
-        <translation>已更新，仅本次运行保存。托管提权授权已撤销，请按需重新授权。</translation>
-    </message>
-    <message>
-        <source>凭据操作失败；请检查会话身份、密码是否为空及凭据库权限。</source>
-        <translation>凭据操作失败；请检查会话身份、密码是否为空及凭据库权限。</translation>
     </message>
 </context>
 </TS>

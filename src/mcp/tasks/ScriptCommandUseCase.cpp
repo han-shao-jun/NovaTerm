@@ -442,18 +442,21 @@ const SessionDirectory::Entry& entry)
     auto* coordinator = entry.session->commandCoordinator();
     const bool unverifiedSsh = entry.kind == TransportKind::Ssh
         && coordinator && coordinator->allowsUnverifiedPrompt();
-    if (!coordinator || (!coordinator->hasTrustedProfile() && !unverifiedSsh)) {
+    const bool idleSerial = entry.kind == TransportKind::Serial
+        && coordinator && coordinator->allowsIdleCompletion();
+    const bool promptFree = unverifiedSsh || idleSerial;
+    if (!coordinator || (!coordinator->hasTrustedProfile() && !promptFree)) {
         _ports.complete(job, error("COMMAND_PROFILE_UNAVAILABLE"));
         return;
     }
-    if (!unverifiedSsh && !coordinator->isPromptReady()) {
+    if (!promptFree && !coordinator->isPromptReady()) {
         _ports.complete(job, error("SESSION_COMMAND_NOT_READY"));
         return;
     }
     auto* facade = entry.session->commandFacade();
     // LocalShell 的固定诊断使用隔离 helper，交互命令与脚本仍由协调器
     // 写入当前终端，避免把自由命令交给只接受四个 commandId 的 helper。
-    const bool directCoordinator = unverifiedSsh
+    const bool directCoordinator = promptFree
         || (entry.kind == TransportKind::LocalShell && facade
             && facade->capabilities().mode == CommandExecutionMode::Isolated);
     const auto profile = facade ? facade->profile() : CommandPlatformProfile{};
@@ -496,7 +499,7 @@ const SessionDirectory::Entry& entry)
             }
             _ports.confirmations->consumeActive(job->connection, nonce,
                 qint64(state->value("expires").toDouble()));
-            if ((!unverifiedSsh && !coordinator->isPromptReady())
+            if ((!promptFree && !coordinator->isPromptReady())
                 || coordinator->promptGeneration() != state->value("promptGeneration").toString().toULongLong()) {
                 _ports.complete(job, error("COMMAND_CONFIRMATION_STALE"));
                 return;
@@ -676,7 +679,7 @@ const SessionDirectory::Entry& entry)
     request.limits = {CommandOutputBytes, static_cast<int>(timeout.count())};
     request.commandId = executionCommandId;
     request.executionNonce = newId().toUtf8();
-    request.expectedPromptGeneration = unverifiedSsh
+    request.expectedPromptGeneration = promptFree
         ? 0 : coordinator->promptGeneration();
     const bool submitted = directCoordinator
         ? coordinator->submit(request) : facade->execute(request);

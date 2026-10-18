@@ -43,6 +43,11 @@ public:
     {
         return _profile.allowUnverifiedPrompt;
     }
+    /** @brief 当前 Profile 是否由空闲静默窗收口（串口无提示符降级）。 */
+    [[nodiscard]] bool allowsIdleCompletion() const noexcept
+    {
+        return _profile.allowIdleCompletion;
+    }
     [[nodiscard]] quint64 promptGeneration() const noexcept
     {
         return _evidence.promptGeneration();
@@ -76,6 +81,8 @@ private:
     SessionInputArbiter* _arbiter{nullptr};
     InteractiveStreamFramer* _framer{nullptr};
     QTimer _timeout;
+    QTimer _idleQuiet;
+    QTimer _noResponse;
     NovaTerm::Session::TerminalEvidenceModel _evidence;
     InteractiveCommandProfile _profile;
     std::optional<CommandExecutionRequest> _active;

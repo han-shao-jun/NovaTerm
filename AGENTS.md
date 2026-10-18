@@ -657,6 +657,26 @@ Codex 配置改用 `url`/`http_headers`，旧 `command`/`args`/`env` 必须迁�
 不证明目标命令已终止，仍保留未知结果语义。本轮 HTTP 成绩待实际验收，
 此前 stdio 退出、继承管道取消与子进程测试只作为历史证据。
 
+**串口空提示符 = 空闲收尾降级，不是禁用（2026-10-18）**：串口、空提示符、
+非 shell-integration 的配置由 `ShellIntegration::profileFor` 返回
+`allowIdleCompletion=true` 的降级 Profile（`idleQuietMs` 默认 3000）——
+命令与行结束符直发，设备静默判完成，`exitCode=nullopt`、按"完成未验证"上报。
+三条容易改坏的约束：(1) 空闲完成必须写 `terminationConfirmed=true`：
+`ExecutionService` 只在其为真（或未开始）时释放目标保护，否则每条串口命令
+都会 `COMMAND_EXECUTION_QUARANTINED`；(2)
+`InteractiveSessionCommandExecutor::isAvailable()` 必须放行
+`allowsIdleCompletion()`——`ScriptCommandUseCase` 确认后的复核依赖它，漏掉会
+让确认通过的串口命令在执行前又报不可用；(3) 回显剥离只在
+`allowIdleCompletion && remoteEcho` 时做且只剔首行（首行 trim 后等于命令或
+以命令结尾），避免把远端未回显设备的第一行正常输出误删。完全无输出的兜底是
+`min(4×静默窗, 预算/2)`（默认 5s 预算下约 2.5s）——不要改成无上限的
+4×静默窗，否则会先撞整体超时进 TimedOut 隔离。`CapabilityFacts::idleCompletion`
+只对 Serial 成立并用于把空闲目标排除在 `run_script` 之外。回归：
+`SessionTests` 的 `configuredDevicePromptDoesNotProbeTransport` 与
+`serialWithoutPromptCompletesByIdleQuiet`/`serialIdleCompletion*` 共五个用例
+（用 `session.commandCoordinator()->configure()` 缩短静默窗，不要改默认值）
+及 `McpTests::serialWithoutPromptCompletesByQuietWindow`。
+
 **启动 Transport 不要用 Core 旧尺寸覆盖 Renderer 的目标尺寸**：
 `TerminalCore::resize()` 异步执行，布局激活后 `terminalSizeChanged` 已携带
 新尺寸，但 `core->columns()/rows()` 可能仍是 80×24。`TerminalView`
@@ -1708,8 +1728,9 @@ QString 堆分配（热路径）、TerminalRenderer `_fm` 裸指针 delete/new �
 ### 串口 MCP 接线与 Linux 回归（2026-10-15）
 
 - 串口表单新增 MCP 提示符正则、CR/LF/CRLF 和远端回显；随 SerialConfig、
-  历史与工厂持久传递。空规则默认禁用，实际提示符就绪且单独授权后才允许
-  run_command；串口不提供脚本写入和固定诊断模板。
+  历史与工厂持久传递。空规则自 2026-10-18 起降级为空闲收尾（见文末对应
+  小节）；配置提示符时仍是"就绪且单独授权后才允许 run_command"。
+  串口不提供脚本写入和固定诊断模板。
 - UI 附着传输时必须传本次独立 RuntimeConfig，再由 Session 配置 Framer/
   Coordinator；不能只写 UI 的编辑快照。跨类型重用标签不得继承旧设备规则。
 - `novaterm_session_panel_tests` 现含 SessionPage 配置往返与历史重连；测试
@@ -1790,3 +1811,25 @@ QString 堆分配（热路径）、TerminalRenderer `_fm` 裸指针 delete/new �
 - 可勾选空心强调色、已选实心强调色、不可勾选灰底灰框；只改表格委托，未改
   全局 Ela。四行 UI 条件回归先 RED→GREEN，深浅主题预览检查通过。
   两个主程序目录重建，Debug MCP **7/7，27.79 秒**；当前认证适配器仍不可用。
+
+### 串口命令空闲收尾降级（2026-10-18）
+
+- 用户反馈 Netcatty 的 AI Agent 可在串口终端直接执行命令，而 NovaTerm 必须
+  先配置 MCP 提示符正则与命令行结束符。本轮为**串口**空提示符增加空闲收尾
+  降级（Telnet/Custom 不变），显式提示符仍是高可信路径。
+- 机制：`allowIdleCompletion`/`idleQuietMs`（默认 3000）Profile；命令直发，
+  收到设备字节后由静默窗判完成；完全无输出由 `min(4×静默窗, 预算/2)` 兜底；
+  结果 `exitCode=nullopt`、`terminationConfirmed=true`（必须为真，见"容易写错
+  的地方"）；仅在 `allowIdleCompletion && remoteEcho` 时剥离首行回显（只作用于
+  捕获输出，屏幕照常显示）。
+- `McpService` 确认后复核与 `ScriptCommandUseCase` 就绪闸门统一为 `promptFree`
+  （未验证 SSH 或空闲串口）；`CapabilityFacts` 新增 Serial 专属
+  `idleCompletion`，排除在 `run_script` 之外；表单文案中英文已回填。
+- 范围仅 `novaterm_run_command` 与能力发布：`interact_terminal` 的 `command`
+  动作仍要求提示符就绪（`SessionTerminalController::readyForCommand`），
+  空闲降级不改变它；`run_script` 对串口本就不可用。
+- 全部默认目标构建通过；`novaterm_session_tests` 全项通过（15.97 秒）、
+  MCP 九项 **9/9（28.06 秒）**、`novaterm_session_panel_tests` 通过。
+  真实 UART/Windows/macOS 未运行；空闲证据弱于提示符/结束标记，可能把
+  "仍在运行但静默"的命令判为完成，该局限已写入契约文档与表单提示。
+  细节见 P8 实施记录 2026-10-18 对应小节。

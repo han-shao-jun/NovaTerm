@@ -24,9 +24,12 @@ InteractiveSessionCommandExecutor::InteractiveSessionCommandExecutor(
 
 bool InteractiveSessionCommandExecutor::isAvailable() const
 {
+    // 空闲收尾（串口无提示符降级）没有提示符就绪证据，但命令可直发并由
+    // 空闲静默窗收口，因此同样视为可用。
     return _coordinator && _profile.isAvailable()
         && !_targetFingerprint.isEmpty()
-        && _coordinator->isPromptReady();
+        && (_coordinator->isPromptReady()
+            || _coordinator->allowsIdleCompletion());
 }
 
 CommandExecutorCapabilities

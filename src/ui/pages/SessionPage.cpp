@@ -696,8 +696,8 @@ void SessionPage::initSerialUi()
     _serialPromptPattern = new ElaLineEdit(page);
     _serialPromptPattern->setObjectName(QStringLiteral("serialMcpPromptPattern"));
     _serialPromptPattern->setMaxLength(256);
-    _serialPromptPattern->setPlaceholderText(tr("Leave empty to disable MCP commands"));
-    _serialPromptPattern->setToolTip(tr("Match the device's idle prompt, for example ^device> $. Commands also require separate MCP permission."));
+    _serialPromptPattern->setPlaceholderText(tr("Leave empty to finish by idle detection"));
+    _serialPromptPattern->setToolTip(tr("Optional. Leave empty to finish commands by idle silence without exit status; set a prompt regex such as ^device> $ for verified completion. Commands also require separate MCP permission."));
     grid->addWidget(_serialPromptPattern, 9, 1);
 
     addFormLabel(grid, 10, tr("MCP command line ending"), page);

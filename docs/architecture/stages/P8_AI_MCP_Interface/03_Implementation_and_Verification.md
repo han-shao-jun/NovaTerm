@@ -14,6 +14,7 @@
 | 2026-10-12～14 | HTTP-only迁移、绑定应用退出、协议/编码修复与当时平台记录；不推广为当前全平台验证 |
 | 2026-10-15～17 | Linux专项/客户端只读、串口接线、输入/观察闭环、提权UI与安全回归；九工具不等于可信提权已实现 |
 | 2026-10-18 W1～W5l | contracts/授权/统一观察/任务/证据/typed用例迁移及删除记录；最新W5l为Linux MCP九项9/9、28.36秒，全套27/29、190.26秒 |
+| 2026-10-18 串口空闲收尾 | 串口空提示符降级为静默完成（无退出码、完成未验证），显式提示符仍为验证路径；Session/MCP/面板回归见文件末尾对应小节 |
 | 当前仍未验收 | Windows/macOS重构后范围、真实UART/SSH/Shell/TUI、可信认证适配器、Windows文件竞争；按每条记录精确界定 |
 
 Linux全套两项openpty环境失败分别涉及novaterm_session_tests串口PTY与novaterm_pty_tests。不得把27/29改写为全绿，亦不得用当时Linux成绩代表Windows/macOS。
@@ -616,7 +617,8 @@ sinceToken、commandTicket 或接入令牌。该文件为本机产物，本节�
 
 - `SerialConfig` 新增提示符正则、命令行结束符 cr/lf/crlf、远端回显三项；
   端口表单显式配置，编辑时回填，SessionPanel 历史保存与重连及 SessionFactory
-  创建均传递相同值。正则长度上限 256，非法正则和结束符拒绝；空规则保持禁用。
+  创建均传递相同值。正则长度上限 256，非法正则和结束符拒绝；空规则保持禁用
+  （2026-10-18 起空规则改为空闲收尾降级，见文件末尾对应小节）。
 - `TerminalSession::attach(..., RuntimeConfig)` 在装配 Framer/Coordinator 和
   InputPump 前按值保存配置。TerminalView 和 TerminalPage 的串口、SSH、Telnet
   与本地 Shell 创建/编辑路径都传入本次独立配置，避免跨目标继承旧提示符或端点。
@@ -1530,3 +1532,54 @@ P8 结构删除清单同步：`jobs` 并行表 → `TaskRegistry`。MCP 九项 *
 两项仍是 `openpty` 环境问题（`novaterm_session_tests` 串口 PTY、
 `novaterm_pty_tests`），非本轮回归。Windows/macOS、真实设备、受管提权适配器
 与 Windows 文件系统竞争用例未运行，不能据 Linux 结果宣称通过。
+
+#### 串口空闲收尾降级（2026-10-18）
+
+用户反馈 Netcatty 的 AI Agent 可在串口终端直接执行命令，而 NovaTerm 必须先
+配置 MCP 提示符正则与命令行结束符。本轮为**串口**空提示符增加空闲收尾降级
+（Telnet/Custom 不变），显式提示符仍是高可信路径：
+
+- `InteractiveCommandProfile` 新增 `allowIdleCompletion`（默认 false）与
+  `idleQuietMs`（默认 3000）；`ShellIntegration::profileFor` 在串口、空提示符、
+  非 shell-integration 时返回降级 Profile：`requiresStartMarker=false`，
+  不要求提示符就绪，命令与行结束符直发。
+- `SessionCommandCoordinator` 新增两条计时器：命令活跃且已开始后，收到首批
+  设备字节即启动 `_idleQuiet`（静默窗到达即完成，写
+  `terminationConfirmed=true`）；从未收到任何设备输出时由
+  `_noResponse = min(4×静默窗, 预算/2)` 兜底收口，避免无回显设备把已跑完的
+  命令拖到整体超时（TimedOut 会隔离目标，代价更高）。结果 `exitCode=nullopt`，
+  按"完成未验证"上报；`ExecutionService` 对交互执行仍映射为成功状态。
+- `terminationConfirmed` 必须为真：`ExecutionService` 只在其为真（或未开始）
+  时释放目标保护，否则每条串口命令都会进入 `COMMAND_EXECUTION_QUARANTINED`。
+- 回显剥离只在 `allowIdleCompletion && remoteEcho` 时执行：首行 trim 首尾
+  空白后等于命令或以命令结尾则丢弃首行，其余字节原样保留；屏幕仍显示回显，
+  仅捕获结果剥离。远端未回显的设备不受影响。
+- `InteractiveSessionCommandExecutor::isAvailable()` 放行空闲模式（确认后
+  复核在 `ScriptCommandUseCase` 里依赖它）；`McpService` 确认后复核与
+  `ScriptCommandUseCase` 的就绪闸门改为 `promptFree`（未验证 SSH 或空闲串口）。
+  `CapabilityFacts` 新增 Serial 专属 `idleCompletion`，能力解析将其排除在
+  `run_script` 之外。串口表单占位与提示文案同步修改，中英文已回填。
+- 范围仅 `novaterm_run_command` 与能力发布：`interact_terminal` 的 `command`
+  动作仍要求提示符就绪（`SessionTerminalController::readyForCommand`），空闲
+  降级不改变它；串口本无脚本写入与固定诊断后端。
+- 不改 wire schema/枚举与错误码；成功响应 `terminationConfirmed=true` 与
+  目录 fixture 兼容基线一致。
+
+新增回归：
+
+| Case | 验证内容 | 本轮结果 |
+| --- | --- | --- |
+| `SessionTests::configuredDevicePromptDoesNotProbeTransport` | 空规则得到降级 Profile（`allowIdleCompletion`、默认窗 3000ms、CR 行结束）；配置正则后不再降级 | 通过 |
+| `SessionTests::serialWithoutPromptCompletesByIdleQuiet` | 直发命令 + 回显上屏；静默窗完成、终止确认、无退出码、输出剥离回显 | 通过 |
+| `SessionTests::serialIdleCompletionNoOutputFallsBackToDone` | 完全无输出时按无响应兜底（min(4×50, 2500)）收口 | 通过 |
+| `SessionTests::serialIdleCompletionKeepsEchoWhenRemoteEchoDisabled` | 远端未回显时不误剥第一行输出 | 通过 |
+| `SessionTests::serialIdleCompletionTimeoutWinsOverLongQuiet` | 整体预算先到 → TimedOut、`terminationConfirmed=false` | 通过 |
+| `SessionTests::serialIdleCompletionPreemptedByUserInput` | 用户输入抢占 → Cancelled，输入照常送出 | 通过 |
+| `McpTests::serialWithoutPromptCompletesByQuietWindow` | 空规则串口发布 `run_command` 且不发 `run_script`；直发命令、静默完成、stdout 不含回显 | 通过 |
+
+本轮验证（Linux Debug）：全部默认目标构建通过；`novaterm_session_tests`
+全项通过（15.97 秒，含同日 W 系列用例与本节新增六项）；MCP 九项 **9/9
+（28.06 秒）**；`novaterm_session_panel_tests` 通过（0.11 秒）。单测通过缩短
+`idleQuietMs` 覆盖窗口，默认 3000ms 由 Profile 用例断言。真实 UART、
+Windows/macOS 未运行；空闲证据弱于提示符/结束标记，可能把"仍在运行但静默"
+的命令判为完成，该局限保留在契约文档与表单提示中。

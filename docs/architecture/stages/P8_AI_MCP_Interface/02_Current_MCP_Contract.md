@@ -61,7 +61,7 @@ Session ID、epoch、attachment、连接generation与目标身份共同约束实
 View拥有Session，目录只保存弱引用；HTTP I/O不解引用Session。应用/授权/任务与Session操作在其所属线程串行，搜索worker只读有界不可变内容，不复用UI SearchEngine的可变搜索实例。
 出站：User/MCP→SessionInputArbiter→ITransport::write。入站：ITransport::readyRead→SessionInputPump→Framer剥离内部标记→TerminalCore→Renderer/回滚/上下文；同一入站流的有界事务片段供Coordinator形成完成证据。
 Parser仍为单写；MCP不直接调用TerminalView输入、Core paste或具体Transport，不建立绕过终端模型的第二份日志。可信提示符证据只有Session EvidenceModel一个写入真源，静默/候选与用户输入代际不能由不同消费者独立复活。
-Serial/Telnet的Profile显式描述提示符正则、CR/LF/CRLF和回显，不自动探测。提示符匹配只证明对应输入/完成状态，不证明目标支持POSIX或可信凭据接收者。当前候选静默窗150ms，缺可靠行编辑上下文保持未知。
+Serial/Telnet的Profile显式描述提示符正则、CR/LF/CRLF和回显，不自动探测。Serial提示符为空时 run_command 降级为空闲收尾：命令与行结束符直发，设备静默（默认3秒）判完成，结果标注完成未验证、无退出码且不证明终止；该证据弱于提示符/结束标记，配置正则可获得验证完成；interact_terminal 的 command 动作仍要求提示符就绪。提示符匹配只证明对应输入/完成状态，不证明目标支持POSIX或可信凭据接收者。当前候选静默窗150ms，缺可靠行编辑上下文保持未知。
 
 ## 4. 九工具输入字段与 annotations
 

@@ -15,6 +15,37 @@ QByteArray unverifiedPosixSuffix(const QByteArray& nonce)
         + nonce
         + QByteArrayLiteral(";%d\\007' \"$__nvterm_rc\"");
 }
+
+/**
+ * @brief 串口降级模式剥离设备回显的首行（宽松匹配，只处理首行）。
+ *
+ * 与 Netcatty 的 raw 串口收尾一致：首行去掉首尾空白后等于命令或以命令
+ * 结尾即视为回显并丢弃；其余字节原样保留。
+ */
+QByteArray stripCommandEcho(QByteArray output, const QByteArray& command)
+{
+    if (output.isEmpty() || command.isEmpty())
+        return output;
+    const qsizetype lineFeed = output.indexOf('\n');
+    qsizetype lineEnd = lineFeed;
+    qsizetype resumeAt = lineFeed >= 0 ? lineFeed + 1 : -1;
+    if (lineEnd < 0) {
+        const qsizetype carriageReturn = output.indexOf('\r');
+        lineEnd = carriageReturn >= 0 ? carriageReturn : output.size();
+        resumeAt = carriageReturn >= 0 ? carriageReturn + 1 : output.size();
+    }
+    QByteArray firstLine = output.left(lineEnd);
+    while (!firstLine.isEmpty()
+           && (firstLine.endsWith(' ') || firstLine.endsWith('\t')
+               || firstLine.endsWith('\r')))
+        firstLine.chop(1);
+    while (!firstLine.isEmpty()
+           && (firstLine.startsWith(' ') || firstLine.startsWith('\t')))
+        firstLine.remove(0, 1);
+    if (firstLine == command || firstLine.endsWith(command))
+        return output.mid(resumeAt);
+    return output;
+}
 }
 
 SessionCommandCoordinator::SessionCommandCoordinator(
@@ -34,6 +65,19 @@ SessionCommandCoordinator::SessionCommandCoordinator(
     connect(&_timeout, &QTimer::timeout, this, [this] {
         finish(CommandExecutionOutcome::TimedOut, false);
     });
+    // 串口降级模式：设备没有可匹配的提示符，由空闲静默窗收口完成；
+    // 完全无输出时用无响应兜底，避免把已经跑完的静默命令拖到整体超时
+    // （TimedOut 会隔离目标，代价更高）。两条证据都弱于提示符/结束标记。
+    _idleQuiet.setSingleShot(true);
+    connect(&_idleQuiet, &QTimer::timeout, this, [this] {
+        if (_active && _profile.allowIdleCompletion)
+            finish(CommandExecutionOutcome::Completed, true);
+    });
+    _noResponse.setSingleShot(true);
+    connect(&_noResponse, &QTimer::timeout, this, [this] {
+        if (_active && _profile.allowIdleCompletion)
+            finish(CommandExecutionOutcome::Completed, true);
+    });
     if (_arbiter) {
         connect(_arbiter, &SessionInputArbiter::mcpPreempted, this,
                 &SessionCommandCoordinator::handlePreempted);
@@ -49,6 +93,8 @@ void SessionCommandCoordinator::configure(InteractiveCommandProfile profile)
 void SessionCommandCoordinator::reset(quint64 sessionGeneration)
 {
     _timeout.stop();
+    _idleQuiet.stop();
+    _noResponse.stop();
     _evidence.reset();
     if (_active && _arbiter)
         _arbiter->releaseMcpLease(_active->requestId);
@@ -64,13 +110,14 @@ void SessionCommandCoordinator::reset(quint64 sessionGeneration)
 
 bool SessionCommandCoordinator::submit(const CommandExecutionRequest& request)
 {
-    const bool unverifiedPrompt = _profile.allowUnverifiedPrompt;
+    const bool promptFree = _profile.allowUnverifiedPrompt
+        || _profile.allowIdleCompletion;
     if (_active || !_arbiter || !_framer || request.requestId == 0
         || request.command.isEmpty() || request.executionNonce.isEmpty()
-        || (!unverifiedPrompt && (request.expectedPromptGeneration == 0
+        || (!promptFree && (request.expectedPromptGeneration == 0
             || request.expectedPromptGeneration != _evidence.promptGeneration()
             || _evidence.promptUserGeneration() != _arbiter->userInputGeneration()))
-        || (unverifiedPrompt && request.expectedPromptGeneration != 0)
+        || (promptFree && request.expectedPromptGeneration != 0)
         || request.limits.maxOutputBytes <= 0 || request.limits.timeoutMs <= 0
         || !_arbiter->acquireMcpLease(request.requestId,
                                      _sessionGeneration)) {
@@ -83,7 +130,7 @@ bool SessionCommandCoordinator::submit(const CommandExecutionRequest& request)
     _executionMayHaveStarted = false;
     _commandStarted = !_profile.requiresStartMarker;
     _outputTruncated = false;
-    const QByteArray echoSuffix = unverifiedPrompt
+    const QByteArray echoSuffix = _profile.allowUnverifiedPrompt
         ? unverifiedPosixSuffix(request.executionNonce) : QByteArray{};
     _framer->beginTransaction(request.executionNonce, echoSuffix);
     _pendingInput = request.command + echoSuffix + _profile.lineEnding;
@@ -97,6 +144,11 @@ bool SessionCommandCoordinator::submit(const CommandExecutionRequest& request)
         return false;
     }
     _timeout.start(request.limits.timeoutMs);
+    if (_profile.allowIdleCompletion) {
+        const qint64 noResponseMs = qMin<qint64>(
+            qint64(4) * _profile.idleQuietMs, request.limits.timeoutMs / 2);
+        _noResponse.start(int(qMax<qint64>(1, noResponseMs)));
+    }
     return true;
 }
 
@@ -212,6 +264,11 @@ void SessionCommandCoordinator::handleInteractiveBytes(const QByteArray& bytes)
         _evidence.noteBytes(_profile.shellIntegration, _active.has_value());
     if (!_active || !_commandStarted || bytes.isEmpty())
         return;
+    if (_profile.allowIdleCompletion) {
+        // 任何设备输出都重置空闲静默窗；无响应兜底随之失效。
+        _noResponse.stop();
+        _idleQuiet.start(_profile.idleQuietMs);
+    }
     const qsizetype remaining = _active->limits.maxOutputBytes
         - _standardOutput.size();
     if (remaining <= 0 || bytes.size() > remaining) {
@@ -240,6 +297,8 @@ void SessionCommandCoordinator::finish(CommandExecutionOutcome outcome,
     if (!_active)
         return;
     _timeout.stop();
+    _idleQuiet.stop();
+    _noResponse.stop();
     CommandExecutionResult result;
     result.requestId = _active->requestId;
     result.connectionGeneration = _sessionGeneration;
@@ -249,6 +308,9 @@ void SessionCommandCoordinator::finish(CommandExecutionOutcome outcome,
     result.outputTruncated = _outputTruncated;
     result.exitCode = exitCode;
     result.standardOutput = std::move(_standardOutput);
+    if (_profile.allowIdleCompletion && _profile.remoteEcho)
+        result.standardOutput = stripCommandEcho(
+            std::move(result.standardOutput), _active->command);
     const quint64 requestId = _active->requestId;
     _active.reset();
     _pendingInput.clear();

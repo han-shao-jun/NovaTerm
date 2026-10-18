@@ -75,6 +75,7 @@ CapabilitySnapshot CapabilityResolver::resolve(const GrantSnapshot& grant,
     if (facts.interactiveReachable && grant.selection.riskControlledCommand)
         snapshot.capabilities.append(QStringLiteral("run_command"));
     if (facts.interactiveReachable && !facts.unverifiedPrompt
+        && !facts.idleCompletion
         && grant.selection.script && facts.scriptProviderAvailable)
         snapshot.capabilities.append(QStringLiteral("run_script"));
 

@@ -136,7 +136,7 @@ Built with:
     <message>
         <location filename="../../third_party/ElaWidgetTools/ElaWidgetTools/private/ElaDoubleSpinBoxPrivate.cpp" line="76"/>
         <source>删除</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">Delete</translation>
     </message>
     <message>
         <location filename="../../third_party/ElaWidgetTools/ElaWidgetTools/private/ElaDoubleSpinBoxPrivate.cpp" line="91"/>
@@ -174,7 +174,7 @@ Built with:
     <message>
         <location filename="../../third_party/ElaWidgetTools/ElaWidgetTools/ElaLineEdit.cpp" line="164"/>
         <source>删除</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">Delete</translation>
     </message>
     <message>
         <location filename="../../third_party/ElaWidgetTools/ElaWidgetTools/ElaLineEdit.cpp" line="179"/>
@@ -293,7 +293,7 @@ Built with:
     <message>
         <location filename="../../third_party/ElaWidgetTools/ElaWidgetTools/private/ElaSpinBoxPrivate.cpp" line="70"/>
         <source>删除</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">Delete</translation>
     </message>
     <message>
         <location filename="../../third_party/ElaWidgetTools/ElaWidgetTools/private/ElaSpinBoxPrivate.cpp" line="85"/>
@@ -461,365 +461,402 @@ Built with:
 <context>
     <name>McpSettingsDialog</name>
     <message>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="625"/>
         <source>仅对已确认的 Linux/POSIX 目标使用固定诊断；授权不代表目标支持这些命令。</source>
         <translation>Use fixed diagnostics only for a confirmed Linux/POSIX target. Permission does not prove that the target supports these commands.</translation>
     </message>
     <message>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="627"/>
         <source>后端不可用</source>
         <translation>Backend unavailable</translation>
     </message>
     <message>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="629"/>
         <source>可以保存诊断授权，但当前没有可用的目标 Profile 或执行后端；不会自动向终端发送诊断命令。</source>
         <translation>You can save diagnostic permissions, but no target profile or execution backend is available. No diagnostic command will be sent automatically.</translation>
     </message>
     <message>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="658"/>
         <source>可以保存提权授权，但目标身份尚未验证，不能绑定凭据或实际提权。</source>
         <translation>You can save elevation permission, but the target identity is unverified. Credentials cannot be bound and elevation cannot run.</translation>
     </message>
     <message>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="660"/>
         <source>适配器不可用</source>
         <translation>Adapter unavailable</translation>
     </message>
     <message>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="661"/>
         <source>可以保存提权授权，但当前没有可信认证适配器，不会读取或发送密码。</source>
         <translation>You can save elevation permission, but no trusted authentication adapter is available. Passwords will not be read or sent.</translation>
     </message>
     <message>
-        <source>不支持</source>
-        <translation>Unsupported</translation>
-    </message>
-    <message>
-        <source>串口、Telnet 和自定义连接不支持托管提权。</source>
-        <translation>Managed elevation is not supported on serial, Telnet or custom connections.</translation>
-    </message>
-    <message>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="648"/>
         <source>未连接</source>
         <translation>Offline</translation>
     </message>
     <message>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="649"/>
         <source>会话未连接，暂不能授权托管提权。</source>
         <translation>Connect the session before granting managed elevation.</translation>
     </message>
     <message>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="651"/>
         <source>需执行权限</source>
         <translation>Needs input</translation>
     </message>
     <message>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="652"/>
         <source>请先勾选允许执行命令，再授权托管提权。</source>
         <translation>Enable Allow commands before granting managed elevation.</translation>
     </message>
     <message>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="654"/>
         <source>凭据更新中</source>
         <translation>Updating</translation>
     </message>
     <message>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="655"/>
         <source>正在更新提权凭据，请稍后重新授权。</source>
         <translation>Elevation credentials are being updated. Grant permission again after the update finishes.</translation>
     </message>
     <message>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="657"/>
         <source>身份未验证</source>
         <translation>Unverified</translation>
     </message>
     <message>
-        <source>尚未验证目标身份，暂不能授权托管提权。</source>
-        <translation>Verify the target identity before granting managed elevation.</translation>
-    </message>
-    <message>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="170"/>
         <source>允许执行命令授予当前连接的完整终端输入权限，不再逐条确认。旧命令接口的诊断、脚本和交互权限保持独立。托管提权必须另外授权；保存密码不会启用提权，可信认证适配器尚不可用。</source>
         <translation>Allow commands grants full terminal input access for this connection without confirming each command. Legacy diagnostic, script and interactive permissions remain separate. Managed elevation requires separate permission; saving a password does not enable it. Trusted authentication adapters are not yet available.</translation>
     </message>
     <message>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="195"/>
         <source>接管选中会话</source>
         <translation>Take over selected session</translation>
     </message>
     <message>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="206"/>
         <source>允许执行命令</source>
         <translation>Allow commands</translation>
     </message>
     <message>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="206"/>
         <source>允许托管提权</source>
         <translation>Allow managed elevation</translation>
     </message>
     <message>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="206"/>
         <source>提权凭据</source>
         <translation>Elevation credentials</translation>
     </message>
     <message>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="206"/>
         <source>当前操作</source>
         <translation>Current operation</translation>
     </message>
     <message>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="228"/>
         <source>显示旧命令接口详细权限</source>
         <translation>Show legacy command permissions</translation>
     </message>
     <message>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="413"/>
         <source>提权凭据 — %1</source>
         <translation>Elevation credentials — %1</translation>
     </message>
     <message>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="418"/>
         <source>sudo 认证密码和 su root 密码分别保存，不使用 SSH 登录密码。保存后不回填。只有明确授权且可信适配器可用时才能托管认证；当前适配器不可用。撤销授权不会退出已经获得的 root Shell。</source>
         <translation>The sudo authentication password and su root password are stored separately from the SSH login password and are never shown again. Managed authentication requires explicit permission and a trusted adapter, which is currently unavailable. Revoking permission does not exit an existing root shell.</translation>
     </message>
     <message>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="422"/>
         <source>存储：系统凭据库。密码仅在本机设置，不对 MCP 客户端开放。</source>
         <translation>Storage: system credential store. Passwords are configured locally and are not exposed to MCP clients.</translation>
     </message>
     <message>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="423"/>
         <source>存储：仅本次运行。密码仅在本机设置，不对 MCP 客户端开放。</source>
         <translation>Storage: this run only. Passwords are configured locally and are not exposed to MCP clients.</translation>
     </message>
     <message>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="427"/>
         <source>sudo 认证密码</source>
         <translation>sudo authentication password</translation>
     </message>
     <message>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="427"/>
         <source>su root 密码</source>
         <translation>su root password</translation>
     </message>
     <message>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="434"/>
         <source>输入新密码；留空不会删除</source>
         <translation>Enter a new password; leaving it blank does not delete it</translation>
     </message>
     <message>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="435"/>
         <source>保存 / 替换</source>
         <translation>Save / Replace</translation>
     </message>
     <message>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="436"/>
         <source>删除</source>
         <translation>Delete</translation>
     </message>
     <message>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="453"/>
         <source>会话连接或目标已变化，未提交凭据操作。请关闭并重新打开设置。</source>
         <translation>The session connection or target has changed. No credential operation was submitted. Close and reopen these settings.</translation>
     </message>
     <message>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="460"/>
         <source>正在访问本机凭据库；可以关闭此窗口。</source>
         <translation>Accessing the local credential store. You may close this window.</translation>
     </message>
     <message>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="639"/>
         <source>允许当前客户端在本次连接输入文本、按键并执行命令。重连、撤权或目标变化后需要重新授权。</source>
         <translation>Allow this client to enter text, press keys and run commands on this connection. Reauthorize after reconnecting, revoking access or changing the target.</translation>
     </message>
     <message>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="664"/>
         <source>须先允许执行命令；勾选仅保存授权。实际提权还需要可信目标身份及认证适配器，保存密码不会自动启用提权。</source>
         <translation>Allow terminal input first. Checking this box only saves permission. Actual elevation also requires a trusted target identity and authentication adapter; saving a password does not enable elevation.</translation>
     </message>
     <message>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="667"/>
+        <source>sudo / su</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="668"/>
         <source>未配置</source>
         <translation>Not configured</translation>
     </message>
     <message>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="668"/>
+        <source>sudo</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="668"/>
+        <source>su</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="671"/>
         <source>密码保存在系统凭据库；保存不代表授权使用，也不启用认证适配器。</source>
         <translation>Passwords are stored in the system credential store. Saving does not grant permission to use them or enable an authentication adapter.</translation>
     </message>
     <message>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="672"/>
         <source>密码仅本次运行保留；保存不代表授权使用，也不启用认证适配器。</source>
         <translation>Passwords are retained for this run only. Saving does not grant permission to use them or enable an authentication adapter.</translation>
     </message>
     <message>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="676"/>
         <source>空闲</source>
         <translation>Idle</translation>
     </message>
     <message>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="676"/>
         <source>Agent 操作</source>
         <translation>Agent control</translation>
     </message>
     <message>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="680"/>
         <source>用户接管</source>
         <translation>User takeover</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="65"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="156"/>
         <source>AI MCP access</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="71"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="162"/>
         <source>Enable local MCP access</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="88"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="183"/>
         <source>New client label</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="91"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="186"/>
         <source>Add client</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="92"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="187"/>
         <source>Remove client</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="97"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="192"/>
         <source>Copy MCP configuration</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="98"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="193"/>
         <source>Copy for CC Switch</source>
         <translation>Copy for CC Switch</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="99"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="194"/>
         <source>Rotate access token</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="107"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="204"/>
         <source>Session</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="107"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="204"/>
         <source>State</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="107"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="204"/>
         <source>Read output</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="108"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="205"/>
         <source>Fixed diagnostics</source>
         <translation>Fixed diagnostics</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="73"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="164"/>
         <source>Share only the sessions you select. Terminal output may contain sensitive information. Fixed diagnostics stay separate from interactive terminal input. Shared sessions can run ordinary commands; potentially destructive commands and every script require confirmation in the MCP client. Script contents are written to the selected host path and are never sent to the terminal UI. Risk checks are best-effort, not a sandbox.</source>
         <translation>Share only the sessions you select. Terminal output may contain sensitive information. Fixed diagnostics stay separate from interactive terminal input. Shared sessions can run ordinary commands; potentially destructive commands and every script require confirmation in the MCP client. Script contents are written to the selected host path and are never sent to the terminal UI. Risk checks are best-effort, not a sandbox.</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="108"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="205"/>
         <source>Script tasks</source>
         <translation>Script tasks</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="108"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="205"/>
         <source>Interactive commands</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="124"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="239"/>
         <source>Command results appear here. A disconnected or timed-out command may still be running remotely.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="128"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="243"/>
         <source>I have checked that the remote command has stopped</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="129"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="244"/>
         <source>Release selected target</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="154"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="269"/>
         <source>Configuration copied. It contains an access token; keep it private.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="161"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="276"/>
         <source>CC Switch configuration copied. It contains an access token; keep it private.</source>
         <translation>CC Switch configuration copied. It contains an access token; keep it private.</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="229"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="549"/>
         <source>Cannot update MCP access settings: another NovaTerm instance is holding the shared access file. Close that instance and try again.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="233"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="553"/>
         <source>Cannot update MCP access settings: the MCP state directory is not private to this user. Fix its permissions and owner, then try again.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="236"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="556"/>
         <source>Operation failed. Check the selected client, storage permissions, and active commands.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="245"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="565"/>
         <source>Disabled</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="246"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="566"/>
         <source>Listening</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="247"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="567"/>
         <source>Starting</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="248"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="568"/>
         <source>Status: %1; instance: %2</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="252"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="574"/>
         <source> (this run only)</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="280"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="624"/>
         <source>Fixed diagnostics run in an isolated local helper and do not write to the current shell.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="281"/>
-        <source>Only enable for a trusted Linux/POSIX SSH server. Fixed diagnostics run as its connected user.</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="284"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="633"/>
         <source>Allows LocalShell/SSH script tasks. Each script still requires MCP-client confirmation; its body is written to the requested host path and is not shown in the terminal UI.</source>
         <translation>Allows LocalShell/SSH script tasks. Each script still requires MCP-client confirmation; its body is written to the requested host path and is not shown in the terminal UI.</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="287"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="636"/>
         <source>Allows the MCP client to type commands into this session&apos;s current terminal. Ordinary low-risk commands run without confirmation; anything potentially destructive or unclassifiable still requires confirmation in the MCP client. Off by default: sharing read output does not imply permission to type.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="290"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="685"/>
         <source>System identity</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="291"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="686"/>
         <source>Uptime and load</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="292"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="687"/>
         <source>Memory summary</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="293"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="688"/>
         <source>Filesystem capacity</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="317"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="713"/>
         <source>Protected target %1 — execution %2</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="326"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="740"/>
         <source>Command is running.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="330"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="744"/>
         <source>Status: %1
 Exit code: %2
 Termination confirmed: %3
@@ -829,17 +866,17 @@ Termination confirmed: %3
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="332"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="746"/>
         <source>Unknown</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="333"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="747"/>
         <source>Yes</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="333"/>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="747"/>
         <source>No</source>
         <translation type="unfinished"></translation>
     </message>
@@ -858,124 +895,146 @@ Termination confirmed: %3
     </message>
 </context>
 <context>
+    <name>QObject</name>
+    <message>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="468"/>
+        <source>会话连接或目标已变化；凭据操作针对打开窗口时的原目标。请关闭并重新打开设置。</source>
+        <translation>The session connection or target has changed. The credential operation applies to the original target when this window opened. Close and reopen these settings.</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="475"/>
+        <source>已更新系统凭据库。托管提权授权已撤销，请按需重新授权。</source>
+        <translation>System credential store updated. Managed elevation permission was revoked; reauthorize if needed.</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="476"/>
+        <source>已更新，仅本次运行保存。托管提权授权已撤销，请按需重新授权。</source>
+        <translation>Updated for this run only. Managed elevation permission was revoked; reauthorize if needed.</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="477"/>
+        <source>凭据操作失败；请检查会话身份、密码是否为空及凭据库权限。</source>
+        <translation>Credential operation failed. Check the session identity, password and credential store permissions.</translation>
+    </message>
+</context>
+<context>
     <name>SerialFileTransferController</name>
     <message>
-        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="46"/>
+        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="48"/>
         <source>Waiting for peer handshake</source>
         <translation>Waiting for peer handshake</translation>
     </message>
     <message>
-        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="47"/>
+        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="49"/>
         <source>Transferring</source>
         <translation>Transferring</translation>
     </message>
     <message>
-        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="48"/>
+        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="50"/>
         <source>Committing file</source>
         <translation>Committing file</translation>
     </message>
     <message>
-        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="49"/>
+        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="51"/>
         <source>Waiting for final confirmation</source>
         <translation>Waiting for final confirmation</translation>
     </message>
     <message>
-        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="50"/>
-        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="256"/>
+        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="52"/>
+        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="406"/>
         <source>Transfer completed</source>
         <translation>Transfer completed</translation>
     </message>
     <message>
-        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="51"/>
-        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="227"/>
-        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="401"/>
-        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="402"/>
+        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="53"/>
+        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="375"/>
+        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="553"/>
         <source>Transfer cancelled</source>
         <translation>Transfer cancelled</translation>
     </message>
     <message>
-        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="52"/>
+        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="54"/>
         <source>Transfer failed</source>
         <translation>Transfer failed</translation>
     </message>
     <message>
-        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="53"/>
+        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="55"/>
         <source>Preparing transfer</source>
         <translation>Preparing transfer</translation>
     </message>
     <message>
-        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="286"/>
+        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="433"/>
         <source>Serial port disconnected</source>
         <translation>Serial port disconnected</translation>
     </message>
     <message>
-        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="150"/>
+        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="297"/>
         <source>Transfer preparation timed out</source>
         <translation>Transfer preparation timed out</translation>
     </message>
     <message>
-        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="165"/>
-        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="325"/>
+        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="313"/>
+        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="476"/>
         <source>Invalid protocol request</source>
         <translation>Invalid protocol request</translation>
     </message>
     <message>
-        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="202"/>
+        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="350"/>
         <source>Invalid serial write queue state</source>
         <translation>Invalid serial write queue state</translation>
     </message>
     <message>
-        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="241"/>
+        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="391"/>
         <source>File worker is unavailable</source>
         <translation>File worker is unavailable</translation>
     </message>
     <message>
-        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="249"/>
+        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="399"/>
         <source>Serial write failed</source>
         <translation>Serial write failed</translation>
     </message>
     <message>
-        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="319"/>
+        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="470"/>
         <source>A transfer is already active</source>
         <translation>A transfer is already active</translation>
     </message>
     <message>
-        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="321"/>
+        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="472"/>
         <source>Serial port is not connected</source>
         <translation>Serial port is not connected</translation>
     </message>
     <message>
-        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="330"/>
+        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="481"/>
         <source>File transfers require 8 data bits; X/YMODEM cannot use software flow control</source>
         <translation>File transfers require 8 data bits; X/YMODEM cannot use software flow control</translation>
     </message>
     <message>
-        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="334"/>
+        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="485"/>
         <source>Invalid source file count</source>
         <translation>Invalid source file count</translation>
     </message>
     <message>
-        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="337"/>
+        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="488"/>
         <source>Select a receive destination</source>
         <translation>Select a receive destination</translation>
     </message>
     <message>
-        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="340"/>
+        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="491"/>
         <source>Expected length exceeds the protocol limit</source>
         <translation>Expected length exceeds the protocol limit</translation>
     </message>
     <message>
-        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="343"/>
+        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="494"/>
         <source>The channel is reserved by another input task</source>
         <translation>The channel is reserved by another input task</translation>
     </message>
     <message>
-        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="348"/>
+        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="499"/>
         <source>Preparing files and channel</source>
         <translation>Preparing files and channel</translation>
     </message>
     <message>
-        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="392"/>
+        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="544"/>
         <source>Receive buffer exceeded the 256 KiB limit</source>
         <translation>Receive buffer exceeded the 256 KiB limit</translation>
     </message>
@@ -1030,65 +1089,67 @@ Termination confirmed: %3
         <translation>Receive file flush failed</translation>
     </message>
     <message>
-        <location filename="../../src/session/transfer/TransferFileWorker.cpp" line="208"/>
+        <location filename="../../src/session/transfer/TransferFileWorker.cpp" line="214"/>
         <source>Cannot publish the received file without overwriting. Choose another receiving folder or check its permissions: %1</source>
         <translation>Cannot publish the received file without overwriting. Choose another receiving folder or check its permissions: %1</translation>
     </message>
     <message>
-        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="34"/>
+        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="36"/>
         <source>File access failed. Check the source file and receiving folder.</source>
         <translation>File access failed. Check the source file and receiving folder.</translation>
     </message>
     <message>
-        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="26"/>
+        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="28"/>
         <source>Invalid data from the peer. Check that both devices use the same protocol.</source>
         <translation>Invalid data from the peer. Check that both devices use the same protocol.</translation>
     </message>
     <message>
-        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="32"/>
+        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="34"/>
         <source>The device did not respond in time. Check the connection and peer.</source>
         <translation>The device did not respond in time. Check the connection and peer.</translation>
     </message>
     <message>
-        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="28"/>
+        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="30"/>
         <source>The peer requested an unsupported protocol variant.</source>
         <translation>The peer requested an unsupported protocol variant.</translation>
     </message>
     <message>
-        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="30"/>
+        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="32"/>
         <source>The retry limit was reached. Check the serial connection and peer.</source>
         <translation>The retry limit was reached. Check the serial connection and peer.</translation>
     </message>
     <message>
-        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="265"/>
+        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="415"/>
         <source>The serial output stopped progressing. Check flow control and the connection.</source>
         <translation>The serial output stopped progressing. Check flow control and the connection.</translation>
     </message>
     <message>
-        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="38"/>
+        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="40"/>
         <source>The transfer exceeded its memory or file limit.</source>
         <translation>The transfer exceeded its memory or file limit.</translation>
     </message>
     <message>
-        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="40"/>
+        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="42"/>
         <source>The transfer failed.</source>
         <translation>The transfer failed.</translation>
     </message>
     <message>
-        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="24"/>
+        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="26"/>
         <source>The transfer request is invalid. Check the protocol and selected files.</source>
         <translation>The transfer request is invalid. Check the protocol and selected files.</translation>
     </message>
     <message>
-        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="36"/>
+        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="38"/>
         <source>The transferred file size does not match the declared size.</source>
         <translation>The transferred file size does not match the declared size.</translation>
     </message>
     <message>
+        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="228"/>
         <source>Transfer cancelled before the serial channel was ready.</source>
         <translation>Transfer cancelled before the serial channel was ready.</translation>
     </message>
     <message>
+        <location filename="../../src/session/transfer/SerialFileTransferController.cpp" line="266"/>
         <source>The cancel sequence could not be sent. Check flow control and the connection.</source>
         <translation>The cancel sequence could not be sent. Check flow control and the connection.</translation>
     </message>
@@ -1334,43 +1395,52 @@ Termination confirmed: %3
 <context>
     <name>SerialTransport</name>
     <message>
-        <location filename="../../src/transport/SerialTransport.cpp" line="96"/>
+        <location filename="../../src/transport/SerialTransport.cpp" line="406"/>
         <source>Invalid serial port configuration.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/transport/SerialTransport.cpp" line="109"/>
-        <source>Cannot apply serial settings on %1 (%2)</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../../src/transport/SerialTransport.cpp" line="122"/>
+        <location filename="../../src/transport/SerialTransport.cpp" line="229"/>
         <source>Cannot open serial port %1: %2</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/transport/SerialTransport.cpp" line="138"/>
+        <location filename="../../src/transport/SerialTransport.cpp" line="227"/>
         <source>Serial port %1 rejects %2: %3</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/transport/SerialTransport.cpp" line="169"/>
+        <location filename="../../src/transport/SerialTransport.cpp" line="289"/>
+        <source>Serial port %1 receive buffer could not be verified (requested %2 bytes, reported %3 bytes, setup error %4, query error %5). Continuing with the driver&apos;s buffer; burst input may be lost.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../src/transport/SerialTransport.cpp" line="309"/>
+        <source>Serial receive queue reached its 8 MiB limit. Input delivery must resume; flow control is required to prevent overrun.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../src/transport/SerialTransport.cpp" line="510"/>
         <source>Serial port is not connected.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/transport/SerialTransport.cpp" line="174"/>
+        <location filename="../../src/transport/SerialTransport.cpp" line="515"/>
         <source>Serial write queue exceeded its 1 MiB limit.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/transport/SerialTransport.cpp" line="181"/>
-        <location filename="../../src/transport/SerialTransport.cpp" line="260"/>
+        <location filename="../../src/transport/SerialTransport.cpp" line="519"/>
+        <source>Serial write failed.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../src/transport/SerialTransport.cpp" line="342"/>
         <source>Serial write failed: %1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/transport/SerialTransport.cpp" line="231"/>
+        <location filename="../../src/transport/SerialTransport.cpp" line="265"/>
         <source>Serial port %1: %2</source>
         <translation type="unfinished"></translation>
     </message>
@@ -1378,26 +1448,22 @@ Termination confirmed: %3
 <context>
     <name>SessionPage</name>
     <message>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="695"/>
         <source>MCP command prompt (regex)</source>
         <translation>MCP command prompt (regex)</translation>
     </message>
     <message>
-        <source>Leave empty to disable MCP commands</source>
-        <translation>Leave empty to disable MCP commands</translation>
-    </message>
-    <message>
-        <source>Match the device's idle prompt, for example ^device&gt; $. Commands also require separate MCP permission.</source>
-        <translation>Match the device's idle prompt, for example ^device&gt; $. Commands also require separate MCP permission.</translation>
-    </message>
-    <message>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="703"/>
         <source>MCP command line ending</source>
         <translation>MCP command line ending</translation>
     </message>
     <message>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="711"/>
         <source>Device echoes command input</source>
         <translation>Device echoes command input</translation>
     </message>
     <message>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="137"/>
         <source>Provide a valid MCP prompt regular expression, or leave it empty to disable commands.</source>
         <translation>Provide a valid MCP prompt regular expression, or leave it empty to disable commands.</translation>
     </message>
@@ -1417,296 +1483,307 @@ Termination confirmed: %3
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="131"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="136"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="142"/>
         <source>Serial Session</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="132"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="143"/>
         <source>Select a serial port and provide a valid baud rate.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="159"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="170"/>
         <source>SSH Session</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="160"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="171"/>
         <source>Provide a host, user name and the credentials for the selected authentication method.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="179"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="190"/>
         <source>Telnet Session</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="180"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="191"/>
         <source>Provide a host address and a valid port.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="365"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="383"/>
         <source>Type</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="419"/>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="508"/>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="668"/>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="737"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="437"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="526"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="686"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="775"/>
         <source>Label</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="425"/>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="510"/>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="670"/>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="739"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="443"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="528"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="688"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="777"/>
         <source>Optional session name</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="411"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="429"/>
         <source>Startup Directory</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="430"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="448"/>
         <source>local shell</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="445"/>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="700"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="463"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="738"/>
         <source>IPv4 Address</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="447"/>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="702"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="465"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="740"/>
         <source>IPv4 address, e.g. 192.168.0.1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="452"/>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="549"/>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="707"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="470"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="567"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="745"/>
         <source>Port</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="458"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="476"/>
         <source>User Name</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="460"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="478"/>
         <source>User name</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="464"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="482"/>
         <source>Authentication</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="466"/>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="470"/>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="472"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="484"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="488"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="490"/>
         <source>Password</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="467"/>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="476"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="485"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="494"/>
         <source>Private Key</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="481"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="499"/>
         <source>Private key file</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="483"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="501"/>
         <source>Browse...</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="488"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="506"/>
         <source>Key Passphrase</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="490"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="508"/>
         <source>Optional passphrase</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="495"/>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="712"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="513"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="750"/>
         <source>Terminal Type</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="500"/>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="729"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="518"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="767"/>
         <source>Keep Alive</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="504"/>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="733"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="522"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="771"/>
         <source> s</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="505"/>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="734"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="523"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="772"/>
         <source>Disabled</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="524"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="542"/>
         <source>Select SSH Private Key</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="525"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="543"/>
         <source>Private keys (*)</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="533"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="551"/>
         <source>ssh</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="551"/>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="570"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="569"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="588"/>
         <source>Select one or more serial ports</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="569"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="587"/>
         <source>No serial ports detected</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="621"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="639"/>
         <source>Parity</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="623"/>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="648"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="641"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="666"/>
         <source>None</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="624"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="642"/>
         <source>Even</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="625"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="643"/>
         <source>Odd</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="626"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="644"/>
         <source>Mark</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="627"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="645"/>
         <source>Space</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="605"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="623"/>
         <source>Baud Rate</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="630"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="648"/>
         <source>Data Bits</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="639"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="657"/>
         <source>Stop Bits</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="646"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="664"/>
         <source>Flow Control</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="649"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="667"/>
         <source>Hardware (RTS/CTS)</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="651"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="669"/>
         <source>Software (XON/XOFF)</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="655"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="673"/>
         <source>Reconnect Time</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="663"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="681"/>
         <source>Optional reconnect interval in whole seconds; 0 disables reconnection</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="673"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="691"/>
         <source>LF automatic carriage return (LF → CRLF)</source>
         <translation>LF automatic carriage return (LF → CRLF)</translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="679"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="699"/>
+        <source>Leave empty to finish by idle detection</source>
+        <translation>Leave empty to finish by idle detection</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="700"/>
+        <source>Optional. Leave empty to finish commands by idle silence without exit status; set a prompt regex such as ^device&gt; $ for verified completion. Commands also require separate MCP permission.</source>
+        <translation>Optional. Leave empty to finish commands by idle silence without exit status; set a prompt regex such as ^device&gt; $ for verified completion. Commands also require separate MCP permission.</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="717"/>
         <source>serial port</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="695"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="733"/>
         <source>Warning: Telnet sends all data without encryption.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="717"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="755"/>
         <source>Negotiation</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="721"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="759"/>
         <source>Window size (NAWS)</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="723"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="761"/>
         <source>Binary mode</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="744"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="782"/>
         <source>telnet</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="391"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="409"/>
         <source>WSL is unavailable on this Windows system.</source>
         <translation>WSL is unavailable on this Windows system.</translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/SessionPage.cpp" line="395"/>
+        <location filename="../../src/ui/pages/SessionPage.cpp" line="413"/>
         <source>WSL is enabled, but no distribution is installed.</source>
         <translation>WSL is enabled, but no distribution is installed.</translation>
     </message>
@@ -1714,115 +1791,115 @@ Termination confirmed: %3
 <context>
     <name>SessionPanel</name>
     <message>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="204"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="205"/>
         <source>Custom</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="214"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="215"/>
         <source>Local terminals</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="216"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="217"/>
         <source>SSH hosts</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="218"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="219"/>
         <source>Serial ports</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="220"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="221"/>
         <source>Telnet hosts</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="222"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="223"/>
         <source>Other sessions</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="744"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="751"/>
         <source>No matching sessions</source>
         <translation>No matching sessions</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="813"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="820"/>
         <source>Delete these %1 saved sessions?
 %2</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="912"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="922"/>
         <source>The saved password for this session is unavailable. Edit the session and enter the password again.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="943"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="953"/>
         <source>+  New session</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="944"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="954"/>
         <source>New session</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="946"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="956"/>
         <source>Search by name or host...</source>
         <translation>Search by name or host...</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="947"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="957"/>
         <source>Search sessions</source>
         <translation>Search sessions</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="513"/>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="516"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="520"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="523"/>
         <source>Expand quick connections</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="514"/>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="517"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="521"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="524"/>
         <source>Collapse quick connections</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="737"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="744"/>
         <source>Double-click to reconnect</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="743"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="750"/>
         <source>No saved sessions yet</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="768"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="775"/>
         <source>Edit</source>
         <translation>Edit</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="770"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="777"/>
         <source>Delete</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="816"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="823"/>
         <source>Delete session</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="812"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="819"/>
         <source>Delete the saved session &apos;%1&apos;?</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="914"/>
+        <location filename="../../src/ui/widgets/SessionPanel.cpp" line="924"/>
         <source>The saved SSH credential is unavailable. Create the session again to refresh it.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -2540,52 +2617,52 @@ Termination confirmed: %3
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/session/SftpSession.cpp" line="615"/>
+        <location filename="../../src/session/SftpSession.cpp" line="649"/>
         <source>Invalid SSH configuration for SFTP.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/session/SftpSession.cpp" line="872"/>
+        <location filename="../../src/session/SftpSession.cpp" line="937"/>
         <source>Failed to create the SFTP SSH session.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/session/SftpSession.cpp" line="897"/>
+        <location filename="../../src/session/SftpSession.cpp" line="962"/>
         <source>SFTP SSH connection failed</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/session/SftpSession.cpp" line="905"/>
+        <location filename="../../src/session/SftpSession.cpp" line="970"/>
         <source>The SFTP host key is not trusted or has changed. Reconnect the SSH terminal and verify the host key.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/session/SftpSession.cpp" line="928"/>
+        <location filename="../../src/session/SftpSession.cpp" line="993"/>
         <source>Failed to initialize SFTP</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/session/SftpSession.cpp" line="970"/>
+        <location filename="../../src/session/SftpSession.cpp" line="1035"/>
         <source>Cannot resolve the remote directory</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/session/SftpSession.cpp" line="401"/>
-        <location filename="../../src/session/SftpSession.cpp" line="529"/>
-        <location filename="../../src/session/SftpSession.cpp" line="981"/>
+        <location filename="../../src/session/SftpSession.cpp" line="315"/>
+        <location filename="../../src/session/SftpSession.cpp" line="443"/>
+        <location filename="../../src/session/SftpSession.cpp" line="1046"/>
         <source>Cannot open remote directory %1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/session/SftpSession.cpp" line="445"/>
-        <location filename="../../src/session/SftpSession.cpp" line="562"/>
-        <location filename="../../src/session/SftpSession.cpp" line="1040"/>
+        <location filename="../../src/session/SftpSession.cpp" line="359"/>
+        <location filename="../../src/session/SftpSession.cpp" line="476"/>
+        <location filename="../../src/session/SftpSession.cpp" line="1105"/>
         <source>Failed while reading remote directory %1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
         <location filename="../../src/session/SftpSession.cpp" line="208"/>
-        <location filename="../../src/session/SftpSession.cpp" line="1192"/>
+        <location filename="../../src/session/SftpSession.cpp" line="1246"/>
         <source>Cannot open local file %1: %2</source>
         <translation type="unfinished"></translation>
     </message>
@@ -2601,106 +2678,106 @@ Termination confirmed: %3
     </message>
     <message>
         <location filename="../../src/session/SftpSession.cpp" line="221"/>
-        <location filename="../../src/session/SftpSession.cpp" line="466"/>
-        <location filename="../../src/session/SftpSession.cpp" line="1213"/>
-        <location filename="../../src/session/SftpSession.cpp" line="1377"/>
+        <location filename="../../src/session/SftpSession.cpp" line="380"/>
+        <location filename="../../src/session/SftpSession.cpp" line="1267"/>
+        <location filename="../../src/session/SftpSession.cpp" line="1424"/>
         <source>Cannot open remote file %1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
         <location filename="../../src/session/SftpSession.cpp" line="234"/>
-        <location filename="../../src/session/SftpSession.cpp" line="1235"/>
+        <location filename="../../src/session/SftpSession.cpp" line="1289"/>
         <source>Failed to read local file %1: %2</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
         <location filename="../../src/session/SftpSession.cpp" line="252"/>
-        <location filename="../../src/session/SftpSession.cpp" line="1249"/>
+        <location filename="../../src/session/SftpSession.cpp" line="1303"/>
         <source>Failed to upload %1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
         <location filename="../../src/session/SftpSession.cpp" line="272"/>
-        <location filename="../../src/session/SftpSession.cpp" line="1273"/>
-        <location filename="../../src/session/SftpSession.cpp" line="1475"/>
+        <location filename="../../src/session/SftpSession.cpp" line="1325"/>
+        <location filename="../../src/session/SftpSession.cpp" line="1517"/>
         <source>Failed to finalize remote file %1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
         <location filename="../../src/session/SftpSession.cpp" line="281"/>
-        <location filename="../../src/session/SftpSession.cpp" line="1286"/>
+        <location filename="../../src/session/SftpSession.cpp" line="1338"/>
         <source>Failed to replace remote file %1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/session/SftpSession.cpp" line="418"/>
-        <location filename="../../src/session/SftpSession.cpp" line="546"/>
+        <location filename="../../src/session/SftpSession.cpp" line="332"/>
+        <location filename="../../src/session/SftpSession.cpp" line="460"/>
         <source>Unsafe remote entry name in %1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/session/SftpSession.cpp" line="471"/>
-        <location filename="../../src/session/SftpSession.cpp" line="1386"/>
+        <location filename="../../src/session/SftpSession.cpp" line="385"/>
+        <location filename="../../src/session/SftpSession.cpp" line="1433"/>
         <source>Cannot create local file %1: %2</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/session/SftpSession.cpp" line="485"/>
-        <location filename="../../src/session/SftpSession.cpp" line="1403"/>
+        <location filename="../../src/session/SftpSession.cpp" line="399"/>
+        <location filename="../../src/session/SftpSession.cpp" line="1450"/>
         <source>Failed to download %1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/session/SftpSession.cpp" line="489"/>
-        <location filename="../../src/session/SftpSession.cpp" line="1409"/>
+        <location filename="../../src/session/SftpSession.cpp" line="403"/>
+        <location filename="../../src/session/SftpSession.cpp" line="1456"/>
         <source>Failed to write local file %1: %2</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/session/SftpSession.cpp" line="503"/>
-        <location filename="../../src/session/SftpSession.cpp" line="1435"/>
+        <location filename="../../src/session/SftpSession.cpp" line="417"/>
+        <location filename="../../src/session/SftpSession.cpp" line="1479"/>
         <source>Failed to finalize local file %1: %2</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/session/SftpSession.cpp" line="574"/>
+        <location filename="../../src/session/SftpSession.cpp" line="488"/>
         <source>Cannot delete remote entry %1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/session/SftpSession.cpp" line="585"/>
+        <location filename="../../src/session/SftpSession.cpp" line="499"/>
         <source>Cannot delete remote directory %1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/session/SftpSession.cpp" line="626"/>
+        <location filename="../../src/session/SftpSession.cpp" line="660"/>
         <source>The previous SFTP session is still shutting down; please try again shortly.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/session/SftpSession.cpp" line="913"/>
+        <location filename="../../src/session/SftpSession.cpp" line="978"/>
         <source>The SFTP host key does not match the active SSH session.</source>
         <translation>The SFTP host key does not match the active SSH session.</translation>
     </message>
     <message>
-        <location filename="../../src/session/SftpSession.cpp" line="1059"/>
+        <location filename="../../src/session/SftpSession.cpp" line="1122"/>
         <source>Local path is not a directory: %1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/session/SftpSession.cpp" line="1308"/>
-        <location filename="../../src/session/SftpSession.cpp" line="1336"/>
-        <location filename="../../src/session/SftpSession.cpp" line="1343"/>
+        <location filename="../../src/session/SftpSession.cpp" line="1359"/>
+        <location filename="../../src/session/SftpSession.cpp" line="1385"/>
+        <location filename="../../src/session/SftpSession.cpp" line="1392"/>
         <source>Cannot create local directory %1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/session/SftpSession.cpp" line="1470"/>
+        <location filename="../../src/session/SftpSession.cpp" line="1512"/>
         <source>Cannot create remote file %1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/session/SftpSession.cpp" line="1510"/>
+        <location filename="../../src/session/SftpSession.cpp" line="1550"/>
         <source>Remote operation failed for %1</source>
         <translation type="unfinished"></translation>
     </message>
@@ -3362,13 +3439,13 @@ Termination confirmed: %3
 <context>
     <name>TerminalPage</name>
     <message>
-        <location filename="../../src/ui/pages/TerminalPage.cpp" line="191"/>
+        <location filename="../../src/ui/pages/TerminalPage.cpp" line="194"/>
         <source>Terminal</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/pages/TerminalPage.cpp" line="318"/>
-        <location filename="../../src/ui/pages/TerminalPage.cpp" line="452"/>
+        <location filename="../../src/ui/pages/TerminalPage.cpp" line="321"/>
+        <location filename="../../src/ui/pages/TerminalPage.cpp" line="463"/>
         <source>Terminal %1</source>
         <translation type="unfinished"></translation>
     </message>
@@ -3574,8 +3651,8 @@ Termination confirmed: %3
 <context>
     <name>TerminalSession</name>
     <message>
-        <location filename="../../src/session/TerminalSession.cpp" line="527"/>
-        <location filename="../../src/session/TerminalSession.cpp" line="625"/>
+        <location filename="../../src/session/TerminalSession.cpp" line="564"/>
+        <location filename="../../src/session/TerminalSession.cpp" line="671"/>
         <source>Serial connection changed.</source>
         <translation>Serial connection changed.</translation>
     </message>
@@ -3609,172 +3686,155 @@ Termination confirmed: %3
 <context>
     <name>TerminalView</name>
     <message>
-        <location filename="../../src/ui/terminal/TerminalView.cpp" line="877"/>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="933"/>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="940"/>
         <source>Find in scrollback</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/terminal/TerminalView.cpp" line="690"/>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="740"/>
         <source>Copy</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/terminal/TerminalView.cpp" line="260"/>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="281"/>
         <source>[Disconnected] Press Enter to reconnect.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/terminal/TerminalView.cpp" line="261"/>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="282"/>
         <source>[Disconnected].</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/terminal/TerminalView.cpp" line="277"/>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="298"/>
         <source>[Transport error] %1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/terminal/TerminalView.cpp" line="286"/>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="310"/>
+        <source>[Transport warning] %1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="318"/>
         <source>[Reconnecting] Waiting for the serial port</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/terminal/TerminalView.cpp" line="304"/>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="336"/>
         <source>[Reconnected] Automatic reconnection succeeded.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/terminal/TerminalView.cpp" line="693"/>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="743"/>
         <source>Paste</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/terminal/TerminalView.cpp" line="714"/>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="755"/>
         <source>Find...</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/terminal/TerminalView.cpp" line="719"/>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="760"/>
         <source>Zoom In</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/terminal/TerminalView.cpp" line="722"/>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="763"/>
         <source>Zoom Out</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/terminal/TerminalView.cpp" line="729"/>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="770"/>
         <source>Scroll to Top</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/terminal/TerminalView.cpp" line="736"/>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="777"/>
         <source>Scroll to Bottom</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/terminal/TerminalView.cpp" line="743"/>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="784"/>
         <source>Clear Scrollback</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/terminal/TerminalView.cpp" line="746"/>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="787"/>
         <source>Clear All</source>
         <translation>Clear All</translation>
     </message>
     <message>
-        <location filename="../../src/ui/terminal/TerminalView.cpp" line="749"/>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="790"/>
         <source>Clear All Failed</source>
         <translation>Clear All Failed</translation>
     </message>
     <message>
-        <location filename="../../src/ui/terminal/TerminalView.cpp" line="750"/>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="791"/>
         <source>The terminal is busy. Please try clearing it again shortly.</source>
         <translation>The terminal is busy. Please try clearing it again shortly.</translation>
     </message>
     <message>
-        <location filename="../../src/ui/terminal/TerminalView.cpp" line="757"/>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="798"/>
         <source>Select All</source>
         <translation>Select All</translation>
     </message>
     <message>
-        <location filename="../../src/ui/terminal/TerminalView.cpp" line="699"/>
-        <source>Send Files…</source>
-        <translation>Send Files…</translation>
-    </message>
-    <message>
-        <location filename="../../src/ui/terminal/TerminalView.cpp" line="702"/>
-        <source>Receive Files…</source>
-        <translation>Receive Files…</translation>
-    </message>
-    <message>
-        <location filename="../../src/ui/terminal/TerminalView.cpp" line="705"/>
-        <source>Transfer Progress</source>
-        <translation>Transfer Progress</translation>
-    </message>
-    <message>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="749"/>
         <source>Serial File Transfer…</source>
         <translation>Serial File Transfer…</translation>
     </message>
     <message>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="934"/>
         <source>Previous</source>
         <translation>Previous</translation>
     </message>
     <message>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="935"/>
         <source>Previous match (Shift+Enter / Shift+F3)</source>
         <translation>Previous match (Shift+Enter / Shift+F3)</translation>
     </message>
     <message>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="936"/>
         <source>Next</source>
         <translation>Next</translation>
     </message>
     <message>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="937"/>
         <source>Next match (Enter / F3)</source>
         <translation>Next match (Enter / F3)</translation>
     </message>
     <message>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="938"/>
         <source>Close</source>
         <translation>Close</translation>
     </message>
     <message>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="939"/>
         <source>Close search (Esc)</source>
         <translation>Close search (Esc)</translation>
     </message>
     <message>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="1036"/>
         <source>Search failed</source>
         <translation>Search failed</translation>
     </message>
     <message>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="1038"/>
         <source>%1 / %2%3</source>
         <translation>%1 / %2%3</translation>
     </message>
     <message>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="1041"/>
         <source>Searching…</source>
         <translation>Searching…</translation>
     </message>
     <message>
+        <location filename="../../src/ui/terminal/TerminalView.cpp" line="1043"/>
         <source>No matches</source>
         <translation>No matches</translation>
-    </message>
-</context>
-<context>
-    <name>QObject</name>
-    <message>
-        <source>会话连接或目标已变化；凭据操作针对打开窗口时的原目标。请关闭并重新打开设置。</source>
-        <translation>The session connection or target has changed. The credential operation applies to the original target when this window opened. Close and reopen these settings.</translation>
-    </message>
-    <message>
-        <source>已更新系统凭据库。托管提权授权已撤销，请按需重新授权。</source>
-        <translation>System credential store updated. Managed elevation permission was revoked; reauthorize if needed.</translation>
-    </message>
-    <message>
-        <source>已更新，仅本次运行保存。托管提权授权已撤销，请按需重新授权。</source>
-        <translation>Updated for this run only. Managed elevation permission was revoked; reauthorize if needed.</translation>
-    </message>
-    <message>
-        <source>凭据操作失败；请检查会话身份、密码是否为空及凭据库权限。</source>
-        <translation>Credential operation failed. Check the session identity, password and credential store permissions.</translation>
     </message>
 </context>
 </TS>

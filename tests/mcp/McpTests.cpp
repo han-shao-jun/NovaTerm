@@ -16,6 +16,7 @@
 #include "session/SessionCommandCoordinator.h"
 #include "session/SessionInputArbiter.h"
 #include "session/SessionTerminalController.h"
+#include "session/ShellIntegration.h"
 #include "transport/SshTransport.h"
 #include "ui/widgets/McpSettingsDialog.h"
 #include "TestGrantSupport.h"
@@ -553,6 +554,7 @@ private slots:
     void settingsDialogBindsTargetReleaseToExecution();
     void settingsDialogUsesTabDisplayTitle();
     void configuredSerialSessionPublishesAndExecutesCommands();
+    void serialWithoutPromptCompletesByQuietWindow();
     void accessStoreReportsDistinctSaveFailureReasons();
     void stateDirectoryOwnedByTokenDefaultOwnerIsSecurable();
     void administratorOwnedObjectsMigrateToCurrentUser_data();
@@ -3023,6 +3025,59 @@ void McpTests::configuredSerialSessionPublishesAndExecutesCommands()
     QCOMPARE(revoked.value("error").toObject().value("code").toString(),
              QStringLiteral("COMMAND_PERMISSION_REQUIRED"));
     QCOMPARE(transport.written, QByteArrayLiteral("uname -srm\r\n"));
+}
+
+void McpTests::serialWithoutPromptCompletesByQuietWindow()
+{
+    QTemporaryDir root;
+    TerminalCore core(80, 24);
+    TerminalSession session(&core);
+    LocalFake transport;
+    RuntimeConfig runtime;
+    runtime.transportKind = TransportKind::Serial;
+    runtime.transport = {
+        {QStringLiteral("portName"), QStringLiteral("fake-serial-idle")}};
+    session.attach(&transport, TerminalSession::Ownership::Borrowed, runtime);
+    QVERIFY(session.start());
+    // 空规则降级为空闲收尾；单测缩短静默窗，默认 3000ms 由 Profile 用例断言。
+    auto idleProfile = *ShellIntegration::profileFor(runtime);
+    QVERIFY(idleProfile.allowIdleCompletion);
+    idleProfile.idleQuietMs = 80;
+    session.commandCoordinator()->configure(idleProfile);
+
+    Service service(root.path() + "/state", root.path() + "/instances",
+                    std::make_unique<MemoryCredentialStore>());
+    service.directory().add(&session);
+    const auto entry = service.directory().entries().first();
+    const auto client = service.access().addClient(QStringLiteral("serial-idle-test"));
+    QVERIFY(service.access().setEnabled(true));
+    QVERIFY(NovaTerm::Mcp::TestSupport::setGrant(service.access(), client, entry, true, {}, true));
+    QTRY_COMPARE(service.status(), QStringLiteral("Listening"));
+    Host host;
+    QVERIFY(host.start(root.path() + "/instances",
+                       service.access().exportToken(client).value_or(QByteArray{})));
+
+    const auto catalog = host.call("novaterm_list_sessions").value("data").toObject()
+        .value("sessions").toArray().first().toObject().value("capabilities").toArray();
+    QVERIFY(catalog.contains(QStringLiteral("run_command")));
+    QVERIFY(!catalog.contains(QStringLiteral("run_script")));
+
+    // 没有提示符就绪步骤：命令直发，静默窗收口为"完成未验证"。
+    const int callId = host.begin("novaterm_run_command",
+        QJsonObject{{"sessionId", entry.id}, {"epoch", entry.epoch}, {"command", "uname -srm"}});
+    QTRY_COMPARE(transport.written, QByteArrayLiteral("uname -srm\r"));
+    emit transport.readyRead(QByteArrayLiteral("uname -srm\r\nLinux test\r\n"));
+    const auto reply = host.next();
+    QCOMPARE(reply.value("id").toInt(), callId);
+    const auto payload = reply.value("result").toObject().value("structuredContent").toObject();
+    QVERIFY(payload.value("ok").toBool());
+    const auto data = payload.value("data").toObject();
+    QCOMPARE(data.value("status").toString(), QStringLiteral("completed"));
+    QVERIFY(data.value("terminationConfirmed").toBool());
+    QVERIFY(data.value("exitCode").isNull());
+    const auto stdout = data.value("stdout").toString();
+    QVERIFY(stdout.contains(QStringLiteral("Linux test")));
+    QVERIFY(!stdout.contains(QStringLiteral("uname -srm")));
 }
 
 void McpTests::settingsDialogUsesTabDisplayTitle()

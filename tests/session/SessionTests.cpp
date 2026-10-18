@@ -194,6 +194,11 @@ private slots:
     void unverifiedCommandDeadlineReportsTimeout();
     void unknownInteractiveProfileDoesNotEnableCommands();
     void configuredDevicePromptDoesNotProbeTransport();
+    void serialWithoutPromptCompletesByIdleQuiet();
+    void serialIdleCompletionNoOutputFallsBackToDone();
+    void serialIdleCompletionKeepsEchoWhenRemoteEchoDisabled();
+    void serialIdleCompletionTimeoutWinsOverLongQuiet();
+    void serialIdleCompletionPreemptedByUserInput();
     void configuredDevicePromptRequiresSilence();
     void terminalSessionUsesConfiguredPromptProfile();
     void attachmentSnapshotConfiguresDeviceCommands();
@@ -1286,11 +1291,22 @@ void SessionTests::configuredDevicePromptDoesNotProbeTransport()
 {
     RuntimeConfig runtime;
     runtime.transportKind = TransportKind::Serial;
-    QVERIFY(!ShellIntegration::profileFor(runtime));
+    // 空规则不再禁用串口命令：降级为空闲收尾，仍不向设备探测提示符。
+    const auto idle = ShellIntegration::profileFor(runtime);
+    QVERIFY(idle);
+    QVERIFY(idle->allowIdleCompletion);
+    QVERIFY(!idle->allowUnverifiedPrompt);
+    QVERIFY(!idle->shellIntegration);
+    QVERIFY(idle->promptPattern.isEmpty());
+    QVERIFY(!idle->requiresStartMarker);
+    QCOMPARE(idle->lineEnding, QByteArrayLiteral("\r"));
+    QCOMPARE(idle->idleQuietMs, 3000);
+
     runtime.transport.insert(QStringLiteral("interactivePromptPattern"),
                              QStringLiteral("device> $"));
     const auto profile = ShellIntegration::profileFor(runtime);
     QVERIFY(profile);
+    QVERIFY(!profile->allowIdleCompletion);
     QCOMPARE(profile->promptPattern, QStringLiteral("device> $"));
 
     FakeTransport transport;
@@ -1309,6 +1325,173 @@ void SessionTests::configuredDevicePromptDoesNotProbeTransport()
     request.expectedPromptGeneration = 1;
     QVERIFY(!coordinator.submit(request));
     QCOMPARE(transport.writes, QByteArray{});
+}
+
+namespace {
+/** @brief 构造空闲收尾串口 Profile 的测试装置（静默窗缩短）。 */
+struct IdleSerialHarness
+{
+    InteractiveCommandProfile profile;
+    std::unique_ptr<TerminalCore> core;
+    FakeTransport transport;
+    SessionInputArbiter arbiter;
+    InteractiveStreamFramer framer;
+    std::unique_ptr<SessionCommandCoordinator> coordinator;
+    std::unique_ptr<SessionInputPump> pump;
+
+    explicit IdleSerialHarness(int idleQuietMs, bool remoteEcho = true)
+    {
+        RuntimeConfig runtime;
+        runtime.transportKind = TransportKind::Serial;
+        runtime.transport.insert(QStringLiteral("interactiveRemoteEcho"), remoteEcho);
+        const auto configured = ShellIntegration::profileFor(runtime);
+        if (!configured)
+            qFatal("串口空闲收尾 Profile 缺失");
+        profile = *configured;
+        profile.idleQuietMs = idleQuietMs;
+        core = std::make_unique<TerminalCore>(80, 24);
+        if (!transport.connectToHost())
+            qFatal("FakeTransport 连接失败");
+        arbiter.bind(&transport, 60);
+        framer.configure(profile);
+        framer.reset(60);
+        coordinator = std::make_unique<SessionCommandCoordinator>(&arbiter, &framer);
+        coordinator->configure(profile);
+        coordinator->reset(60);
+        pump = std::make_unique<SessionInputPump>(&transport, core.get(), &framer);
+        QObject::connect(pump.get(), &SessionInputPump::interactiveEvent,
+                         coordinator.get(),
+                         &SessionCommandCoordinator::handleInteractiveEvent);
+        QObject::connect(pump.get(), &SessionInputPump::interactiveBytes,
+                         coordinator.get(),
+                         &SessionCommandCoordinator::handleInteractiveBytes);
+        pump->start();
+    }
+};
+} // namespace
+
+void SessionTests::serialWithoutPromptCompletesByIdleQuiet()
+{
+    IdleSerialHarness harness(60);
+    CommandExecutionRequest request;
+    request.requestId = 501;
+    request.command = QByteArrayLiteral("uname -srm");
+    request.executionNonce = QByteArrayLiteral("idle-501");
+    request.expectedPromptGeneration = 0;
+    request.limits = {4096, 5000};
+    QSignalSpy finished(harness.coordinator.get(),
+                        &SessionCommandCoordinator::finished);
+    QVERIFY(harness.coordinator->submit(request));
+    QCOMPARE(harness.transport.writes, QByteArrayLiteral("uname -srm\r"));
+
+    emit harness.transport.readyRead(
+        QByteArrayLiteral("uname -srm\r\nLinux test\r\n"));
+    QTRY_COMPARE(finished.count(), 1);
+    const auto result = qvariant_cast<CommandExecutionResult>(finished.first().front());
+    QCOMPARE(result.outcome, CommandExecutionOutcome::Completed);
+    QVERIFY(result.terminationConfirmed);
+    QCOMPARE(result.exitCode, std::optional<int>{});
+    QCOMPARE(result.standardOutput, QByteArrayLiteral("Linux test\r\n"));
+    QVERIFY(result.executionMayHaveStarted);
+    // 回显仍照常上屏，只有捕获结果剥离首行。
+    QVERIFY(harness.core->waitForIdle());
+    QByteArray visible;
+    for (const auto& line : harness.core->terminalState().viewport)
+        visible += QByteArray::fromStdString(line.text);
+    QVERIFY(visible.contains(QByteArrayLiteral("uname -srm")));
+    QVERIFY(visible.contains(QByteArrayLiteral("Linux test")));
+}
+
+void SessionTests::serialIdleCompletionNoOutputFallsBackToDone()
+{
+    IdleSerialHarness harness(50);
+    CommandExecutionRequest request;
+    request.requestId = 502;
+    request.command = QByteArrayLiteral("sync");
+    request.executionNonce = QByteArrayLiteral("idle-502");
+    request.expectedPromptGeneration = 0;
+    request.limits = {4096, 5000};
+    QSignalSpy finished(harness.coordinator.get(),
+                        &SessionCommandCoordinator::finished);
+    QVERIFY(harness.coordinator->submit(request));
+    QCOMPARE(harness.transport.writes, QByteArrayLiteral("sync\r"));
+
+    // 无任何设备输出：无响应兜底（min(4×50, 5000/2) = 200ms）收口，
+    // 不会把已经跑完的静默命令拖到整体超时。
+    QTRY_COMPARE(finished.count(), 1);
+    const auto result = qvariant_cast<CommandExecutionResult>(finished.first().front());
+    QCOMPARE(result.outcome, CommandExecutionOutcome::Completed);
+    QVERIFY(result.terminationConfirmed);
+    QCOMPARE(result.exitCode, std::optional<int>{});
+    QVERIFY(result.standardOutput.isEmpty());
+}
+
+void SessionTests::serialIdleCompletionKeepsEchoWhenRemoteEchoDisabled()
+{
+    IdleSerialHarness harness(60, /*remoteEcho=*/false);
+    QVERIFY(!harness.profile.remoteEcho);
+
+    CommandExecutionRequest request;
+    request.requestId = 503;
+    request.command = QByteArrayLiteral("status");
+    request.executionNonce = QByteArrayLiteral("idle-503");
+    request.expectedPromptGeneration = 0;
+    request.limits = {4096, 5000};
+    QSignalSpy finished(harness.coordinator.get(),
+                        &SessionCommandCoordinator::finished);
+    QVERIFY(harness.coordinator->submit(request));
+    QCOMPARE(harness.transport.writes, QByteArrayLiteral("status\r"));
+
+    emit harness.transport.readyRead(QByteArrayLiteral("status\r\nok\r\n"));
+    QTRY_COMPARE(finished.count(), 1);
+    const auto result = qvariant_cast<CommandExecutionResult>(finished.first().front());
+    QCOMPARE(result.outcome, CommandExecutionOutcome::Completed);
+    // 远端未回显时不得把设备的第一行正常输出误当回显剥掉。
+    QCOMPARE(result.standardOutput, QByteArrayLiteral("status\r\nok\r\n"));
+}
+
+void SessionTests::serialIdleCompletionTimeoutWinsOverLongQuiet()
+{
+    IdleSerialHarness harness(5000);
+    CommandExecutionRequest request;
+    request.requestId = 504;
+    request.command = QByteArrayLiteral("tick");
+    request.executionNonce = QByteArrayLiteral("idle-504");
+    request.expectedPromptGeneration = 0;
+    request.limits = {4096, 400};
+    QSignalSpy finished(harness.coordinator.get(),
+                        &SessionCommandCoordinator::finished);
+    QVERIFY(harness.coordinator->submit(request));
+    emit harness.transport.readyRead(QByteArrayLiteral("booting\r\n"));
+
+    QTRY_COMPARE(finished.count(), 1);
+    const auto result = qvariant_cast<CommandExecutionResult>(finished.first().front());
+    QCOMPARE(result.outcome, CommandExecutionOutcome::TimedOut);
+    QVERIFY(!result.terminationConfirmed);
+    QCOMPARE(result.exitCode, std::optional<int>{});
+}
+
+void SessionTests::serialIdleCompletionPreemptedByUserInput()
+{
+    IdleSerialHarness harness(3000);
+    CommandExecutionRequest request;
+    request.requestId = 505;
+    request.command = QByteArrayLiteral("sleep 1");
+    request.executionNonce = QByteArrayLiteral("idle-505");
+    request.expectedPromptGeneration = 0;
+    request.limits = {4096, 5000};
+    QSignalSpy finished(harness.coordinator.get(),
+                        &SessionCommandCoordinator::finished);
+    QVERIFY(harness.coordinator->submit(request));
+    QCOMPARE(harness.transport.writes, QByteArrayLiteral("sleep 1\r"));
+
+    harness.arbiter.submitUserInput(QByteArrayLiteral("x"));
+    QCOMPARE(finished.count(), 1);
+    const auto result = qvariant_cast<CommandExecutionResult>(finished.first().front());
+    QCOMPARE(result.outcome, CommandExecutionOutcome::Cancelled);
+    QVERIFY(result.executionMayHaveStarted);
+    QVERIFY(!result.terminationConfirmed);
+    QCOMPARE(harness.transport.writes, QByteArrayLiteral("sleep 1\rx"));
 }
 
 void SessionTests::configuredDevicePromptRequiresSilence()

@@ -31,6 +31,8 @@ struct CapabilityFacts
     /** @brief 交互终端通路可达；授权位另行判断。 */
     bool interactiveReachable{false};
     bool unverifiedPrompt{false};
+    /** @brief 无提示符目标由空闲静默窗收口（串口降级）；弱于提示符证据。 */
+    bool idleCompletion{false};
     bool scriptProviderAvailable{false};
 
     bool transferLease{false};

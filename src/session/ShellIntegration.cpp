@@ -52,6 +52,14 @@ std::optional<InteractiveCommandProfile> ShellIntegration::profileFor(
         profile.requiresStartMarker = false;
         return profile;
     }
+    // 串口等直连设备通常没有可表述的提示符；未配置正则时降级为空闲收尾：
+    // 命令 + 行结束符直发，空闲静默判完成。证据弱于提示符/结束标记，
+    // 结果按"完成未验证"上报。
+    if (runtime.transportKind == TransportKind::Serial) {
+        profile.requiresStartMarker = false;
+        profile.allowIdleCompletion = true;
+        return profile;
+    }
     // 保留旧 SSH 未配置时的被动观察兼容行为，不向未知目标自动探测。
     if (runtime.transportKind == TransportKind::Ssh) {
         profile.shellIntegration = true;

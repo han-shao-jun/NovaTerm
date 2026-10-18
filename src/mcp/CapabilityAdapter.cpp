@@ -32,13 +32,15 @@ CapabilityFacts capabilityFacts(const SessionDirectory::Entry& entry,
     auto* coordinator = entry.session ? entry.session->commandCoordinator() : nullptr;
     facts.unverifiedPrompt = entry.kind == TransportKind::Ssh
         && coordinator && coordinator->allowsUnverifiedPrompt();
+    facts.idleCompletion = entry.kind == TransportKind::Serial
+        && coordinator && coordinator->allowsIdleCompletion();
     const bool trustedLocal = entry.kind == TransportKind::LocalShell
         && coordinator && coordinator->hasTrustedProfile()
         && coordinator->isPromptReady();
     facts.interactiveReachable = facade && facade->isAvailable()
         && !entry.targetFingerprint.isEmpty()
         && (facade->capabilities().mode == CommandExecutionMode::InteractiveFramed
-            || facts.unverifiedPrompt || trustedLocal);
+            || facts.unverifiedPrompt || facts.idleCompletion || trustedLocal);
     facts.scriptProviderAvailable = entry.session && entry.session->scriptProvider()
         && entry.session->scriptProvider()->isAvailable();
 

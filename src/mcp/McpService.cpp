@@ -263,6 +263,9 @@ public:
                 ? entry->session->commandFacade() : nullptr;
             const bool unverifiedSsh = entry && entry->kind == TransportKind::Ssh
                 && coordinator && coordinator->allowsUnverifiedPrompt();
+            const bool idleSerial = entry && entry->kind == TransportKind::Serial
+                && coordinator && coordinator->allowsIdleCompletion();
+            const bool promptFree = unverifiedSsh || idleSerial;
             const auto profile = facade ? facade->profile() : CommandPlatformProfile{};
             RiskAssessment currentRisk;
             QByteArray digest;
@@ -285,8 +288,8 @@ public:
                 || (pending->tool == QStringLiteral("novaterm_run_command")
                     && !access.canRunCommand(pending->client, *entry))
                 || entry->epoch != pending->epoch || !coordinator
-                || (!unverifiedSsh && !coordinator->isPromptReady())
-                || (unverifiedSsh && (!inputArbiter
+                || (!promptFree && !coordinator->isPromptReady())
+                || (promptFree && (!inputArbiter
                     || inputArbiter->userInputGeneration()
                         != pending->userInputGeneration))
                 || !facade || profile.version() != pending->profileVersion
