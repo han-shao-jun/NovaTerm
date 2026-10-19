@@ -1,114 +1,214 @@
 /*
- * conpty_handle_leak_repro.c —— ConPTY 句柄泄漏最小复现（不参与 CMake 构建）
+ * Standalone ConPTY handle investigation (not registered in CTest).
+ * No Qt, application child process or application worker threads.
+ * CreatePseudoConsole itself starts conhost.exe.
  *
- * 结论：`CreatePseudoConsole` / `ClosePseudoConsole` 在本机 Windows 版本上不配平，
- * 每创建并关闭一个伪控制台泄漏约 1 个内核句柄。NovaTerm 的 ConPtySession 自身
- * 句柄管理是正确的——它创建的 8 个句柄（2 条管道的宿主端、进程、主线程、Job、
- * 以及 3 个工作线程句柄）全部有对应的关闭点。
+ * MSVC developer prompt:
+ *   cl /nologo /W4 /O2 conpty_handle_leak_repro.c /Fe:repro.exe
+ *   repro.exe --inspect --settle-ms 5000
+ *   repro.exe --input-first --settle-ms 5000
+ *   repro.exe --pipes-only
  *
- * 这解释了 ConPtyTransportTests 中两处句柄断言的失败：
- *   - injectedStartupStagesRollBack
- *   - repeatedLifecycleReturnsResourcesToBaseline
- * 二者都要求 200/15 次完整生命周期后进程句柄数回到基线，而平台开销无法消除。
- * 线程数与子进程数断言均通过，说明泄漏只发生在伪控制台这一项。
- *
- * 本程序刻意不创建子进程、不起工作线程、单线程运行，以排除 NovaTerm 代码与
- * 并发计数噪声的干扰；关闭顺序与 ConPtySession::createStartupResources() 一致
- * （CreatePseudoConsole 之后立即释放交给 ConPTY 的子端）。
- *
- * 手工编译与运行（需 MSVC 环境）：
- *   vcvarsall.bat x64
- *   cl /nologo /O2 conpty_handle_leak_repro.c /link /OUT:repro.exe
- *   repro.exe
- *
- * 2026-09-02 在 Windows 10 Enterprise 19045 / MSVC 19.51 上的实测输出：
- *   iter   0 handles 344
- *   iter  50 handles 403
- *   iter 100 handles 453
- *   iter 150 handles 503
- *   baseline 343 -> end 552  =>  每次循环泄漏 1.04 个句柄
- *
- * 若某个 Windows 版本修好了这个问题，本程序的泄漏值应降到 0，届时上述两处
- * 断言即可恢复为硬性检查。
+ * --inspect uses diagnostic-only NT handle snapshots. It never closes handles
+ * owned by the API or dereferences the opaque HPCON implementation.
+ * Exit: 0 = no net growth, 1 = growth, 2 = bad options, 3 = API/query failure.
+ * See docs/architecture/ConPTY_Handle_Investigation_2026-10-19.md.
  */
 #include <windows.h>
+#include <winternl.h>
+#include <stddef.h>
 #include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 
 typedef HRESULT (WINAPI *CreatePseudoConsoleFn)(COORD, HANDLE, HANDLE, DWORD, void**);
-typedef void    (WINAPI *ClosePseudoConsoleFn)(void*);
+typedef void (WINAPI *ClosePseudoConsoleFn)(void*);
+typedef NTSTATUS (NTAPI *QueryProcessFn)(HANDLE, ULONG, PVOID, ULONG, PULONG);
+typedef NTSTATUS (NTAPI *QueryObjectFn)(HANDLE, ULONG, PVOID, ULONG, PULONG);
+
+/* ProcessHandleInformation (51), available on Windows versions with ConPTY. */
+typedef struct HandleEntry {
+    HANDLE handle;
+    ULONG_PTR handleCount, pointerCount;
+    ULONG access, type, attributes, reserved;
+} HandleEntry;
+typedef struct HandleSnapshot {
+    ULONG_PTR count, reserved;
+    HandleEntry entries[1];
+} HandleSnapshot;
+static QueryProcessFn queryProcess;
+static QueryObjectFn queryObject;
 
 static DWORD handleCount(void)
 {
-    DWORD n = 0;
-    return GetProcessHandleCount(GetCurrentProcess(), &n) ? n : 0;
+    DWORD count = 0;
+    if (!GetProcessHandleCount(GetCurrentProcess(), &count)) {
+        fprintf(stderr, "GetProcessHandleCount failed: %lu\n", GetLastError());
+        exit(3);
+    }
+    return count;
 }
 
-/* 一轮完整的伪控制台创建/关闭，无子进程、无线程。 */
-static int cycle(CreatePseudoConsoleFn create, ClosePseudoConsoleFn close_)
+static HandleSnapshot* snapshot(void)
 {
-    HANDLE inputRead = NULL, inputWrite = NULL;
-    HANDLE outputRead = NULL, outputWrite = NULL;
-    void* pseudoConsole = NULL;
-    COORD size = {80, 24};
+    const ULONG capacity = 1024 * 1024;
+    ULONG returned = 0;
+    HandleSnapshot* result = (HandleSnapshot*)malloc(capacity);
+    NTSTATUS status;
+    if (!result) exit(3);
+    status = queryProcess(GetCurrentProcess(), 51, result, capacity, &returned);
+    if (status < 0 || returned > capacity
+        || result->count > (capacity - offsetof(HandleSnapshot, entries)) / sizeof(HandleEntry)) {
+        fprintf(stderr, "ProcessHandleInformation failed: 0x%08lx\n", (ULONG)status);
+        free(result);
+        exit(3);
+    }
+    return result;
+}
 
-    if (!CreatePipe(&inputRead, &inputWrite, NULL, 0))
-        return 0;
-    if (!CreatePipe(&outputRead, &outputWrite, NULL, 0)) {
-        CloseHandle(inputRead);
-        CloseHandle(inputWrite);
+static int contains(const HandleSnapshot* snapshot_, HANDLE handle)
+{
+    ULONG_PTR i;
+    for (i = 0; i < snapshot_->count; ++i)
+        if (snapshot_->entries[i].handle == handle) return 1;
+    return 0;
+}
+
+static void describeProcesses(const char* phase, const HandleSnapshot* before,
+                              const HandleSnapshot* after)
+{
+    ULONG_PTR i;
+    for (i = 0; i < after->count; ++i) {
+        const HandleEntry* entry = &after->entries[i];
+        union { ULONG_PTR alignment; unsigned char bytes[4096]; } buffer;
+        UNICODE_STRING* type = (UNICODE_STRING*)buffer.bytes;
+        ULONG returned = 0;
+        NTSTATUS status;
+        if (contains(before, entry->handle)) continue;
+        status = queryObject(entry->handle, 2, buffer.bytes, sizeof(buffer.bytes), &returned);
+        if (status < 0) {
+            fprintf(stderr, "ObjectTypeInformation failed: 0x%08lx\n", (ULONG)status);
+            exit(3);
+        }
+        if (type->Length == 7 * sizeof(wchar_t) && wcsncmp(type->Buffer, L"Process", 7) == 0) {
+            wchar_t path[32768];
+            DWORD length = ARRAYSIZE(path), code = 0;
+            const BOOL queried = GetExitCodeProcess(entry->handle, &code);
+            printf("%s handle=%p type=Process access=0x%lx pid=%lu exitKnown=%d exit=%lu wait=%lu",
+                   phase, entry->handle, entry->access, GetProcessId(entry->handle),
+                   queried, code, WaitForSingleObject(entry->handle, 0));
+            if (QueryFullProcessImageNameW(entry->handle, 0, path, &length))
+                printf(" image=%ls", path);
+            printf("\n");
+        }
+    }
+}
+
+static int closeHandle(HANDLE* handle)
+{
+    if (*handle && !CloseHandle(*handle)) {
+        fprintf(stderr, "CloseHandle failed: %lu\n", GetLastError());
         return 0;
     }
-    if (create(size, inputRead, outputWrite, 0, &pseudoConsole) != S_OK) {
-        CloseHandle(inputRead);  CloseHandle(inputWrite);
-        CloseHandle(outputRead); CloseHandle(outputWrite);
-        return 0;
-    }
-    /* 与 ConPtySession 同序：ConPTY 已复制所需端，宿主立即释放原始子端。 */
-    CloseHandle(inputRead);
-    CloseHandle(outputWrite);
-    close_(pseudoConsole);
-    CloseHandle(inputWrite);
-    CloseHandle(outputRead);
+    *handle = NULL;
     return 1;
 }
 
-int main(void)
+static int cycle(CreatePseudoConsoleFn create, ClosePseudoConsoleFn close_,
+                 int pipesOnly, int inputFirst, int inspect)
+{
+    HANDLE inputRead = NULL, inputWrite = NULL, outputRead = NULL, outputWrite = NULL;
+    void* pseudoConsole = NULL;
+    const COORD size = {80, 24};
+    HandleSnapshot *before = NULL, *created = NULL, *closed = NULL;
+    int ok = 0;
+    if (!CreatePipe(&inputRead, &inputWrite, NULL, 0)
+        || !CreatePipe(&outputRead, &outputWrite, NULL, 0)) {
+        fprintf(stderr, "CreatePipe failed: %lu\n", GetLastError());
+        goto cleanup;
+    }
+    if (inspect) before = snapshot();
+    if (!pipesOnly) {
+        const HRESULT result = create(size, inputRead, outputWrite, 0, &pseudoConsole);
+        if (FAILED(result)) {
+            fprintf(stderr, "CreatePseudoConsole failed: 0x%08lx\n", (ULONG)result);
+            goto cleanup;
+        }
+    }
+    if (inspect) {
+        created = snapshot();
+        describeProcesses("created", before, created);
+    }
+    ok = 1;
+cleanup:
+    /* ConPTY duplicates its pipe ends; release the application's originals. */
+    ok = closeHandle(&inputRead) && ok;
+    ok = closeHandle(&outputWrite) && ok;
+    if (inputFirst) ok = closeHandle(&inputWrite) && ok;
+    if (pseudoConsole) close_(pseudoConsole);
+    ok = closeHandle(&inputWrite) && ok;
+    ok = closeHandle(&outputRead) && ok;
+    if (inspect && before && created) {
+        closed = snapshot();
+        describeProcesses("remaining", before, closed);
+    }
+    free(closed);
+    free(created);
+    free(before);
+    return ok;
+}
+
+static int number(const char* value, int maximum)
+{
+    char* end = NULL;
+    long parsed = strtol(value, &end, 10);
+    if (!*value || *end || parsed < 0 || parsed > maximum) return -1;
+    return (int)parsed;
+}
+
+int main(int argc, char** argv)
 {
     HMODULE kernel32 = GetModuleHandleW(L"kernel32.dll");
-    CreatePseudoConsoleFn create =
-        (CreatePseudoConsoleFn)GetProcAddress(kernel32, "CreatePseudoConsole");
-    ClosePseudoConsoleFn close_ =
-        (ClosePseudoConsoleFn)GetProcAddress(kernel32, "ClosePseudoConsole");
-    const int iterations = 200;
-    DWORD baseline = 0, final = 0;
-    int i = 0;
-
-    if (!create || !close_) {
-        printf("ConPTY API unavailable on this Windows version\n");
-        return 2;
-    }
-
-    /* 预热：首次调用会加载并初始化 conhost 相关模块，其一次性开销不计入基线。 */
-    for (i = 0; i < 3; ++i) {
-        if (!cycle(create, close_)) {
-            printf("warmup cycle failed\n");
-            return 3;
+    CreatePseudoConsoleFn create = (CreatePseudoConsoleFn)GetProcAddress(kernel32, "CreatePseudoConsole");
+    ClosePseudoConsoleFn close_ = (ClosePseudoConsoleFn)GetProcAddress(kernel32, "ClosePseudoConsole");
+    int iterations = 200, settleMs = 0, inspect = 0, pipesOnly = 0, inputFirst = 0, i;
+    DWORD baseline, final, settled;
+    for (i = 1; i < argc; ++i) {
+        if (strcmp(argv[i], "--inspect") == 0) inspect = 1;
+        else if (strcmp(argv[i], "--pipes-only") == 0) pipesOnly = 1;
+        else if (strcmp(argv[i], "--input-first") == 0) inputFirst = 1;
+        else if (strcmp(argv[i], "--iterations") == 0 && i + 1 < argc) iterations = number(argv[++i], 10000);
+        else if (strcmp(argv[i], "--settle-ms") == 0 && i + 1 < argc) settleMs = number(argv[++i], 60000);
+        else {
+            fprintf(stderr, "Unknown or incomplete option: %s\n", argv[i]);
+            return 2;
         }
     }
-
+    if (iterations <= 0 || settleMs < 0) return 2;
+    if (!pipesOnly && (!create || !close_)) {
+        fprintf(stderr, "ConPTY API unavailable\n");
+        return 3;
+    }
+    if (inspect) {
+        HMODULE ntdll = GetModuleHandleW(L"ntdll.dll");
+        queryProcess = (QueryProcessFn)GetProcAddress(ntdll, "NtQueryInformationProcess");
+        queryObject = (QueryObjectFn)GetProcAddress(ntdll, "NtQueryObject");
+        if (!queryProcess || !queryObject) return 3;
+    }
+    printf("mode=%s order=%s iterations=%d settleMs=%d\n",
+           pipesOnly ? "pipes-only" : "conpty", inputFirst ? "input-first" : "console-first",
+           iterations, settleMs);
+    for (i = 0; i < 3; ++i)
+        if (!cycle(create, close_, pipesOnly, inputFirst, 0)) return 3;
     baseline = handleCount();
-    for (i = 0; i < iterations; ++i) {
-        if (!cycle(create, close_)) {
-            printf("cycle %d failed\n", i);
-            return 4;
-        }
-        if (i % 50 == 0)
-            printf("  iter %3d handles %lu\n", i, (unsigned long)handleCount());
-    }
+    for (i = 0; i < iterations; ++i)
+        /* Inspect only the first measured cycle; growth covers all cycles. */
+        if (!cycle(create, close_, pipesOnly, inputFirst, inspect && i == 0)) return 3;
     final = handleCount();
-
-    printf("baseline %lu -> end %lu  =>  每次循环泄漏 %.2f 个句柄\n",
-           (unsigned long)baseline, (unsigned long)final,
-           (double)((long)final - (long)baseline) / iterations);
-    return 0;
+    Sleep((DWORD)settleMs);
+    settled = handleCount();
+    printf("baseline=%lu final=%lu settled=%lu delta=%ld perCycle=%.3f\n",
+           baseline, final, settled, (long)settled - (long)baseline,
+           ((double)settled - baseline) / iterations);
+    return settled > baseline ? 1 : 0;
 }

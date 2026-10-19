@@ -1,0 +1,4 @@
+mode=conpty order=console-first iterations=200 settleMs=5000
+created handle=000000000000016C type=Process access=0x1fffff pid=4676 exitKnown=1 exit=259 wait=258 image=C:\Windows\System32\conhost.exe
+remaining handle=000000000000016C type=Process access=0x1fffff pid=4676 exitKnown=1 exit=0 wait=0
+baseline=66 final=266 settled=266 delta=200 perCycle=1.000

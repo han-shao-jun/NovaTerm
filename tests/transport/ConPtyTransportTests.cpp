@@ -473,11 +473,11 @@ void ConPtyTransportTests::injectedStartupStagesRollBack()
                                   baselineProcesses, 5000);
     }
     NovaTerm::Windows::setConPtyFailureStageForTest(ConPtyFailureStage::None);
-    // 已知平台缺陷：CreatePseudoConsole/ClosePseudoConsole 在部分 Windows 版本上
-    // 不配平，每个伪控制台生命周期泄漏约 1 个内核句柄，因此下面这条断言当前必然
-    // 失败。ConPtySession 自身的 8 个句柄均已正确关闭——排除性证据见
-    // tests/transport/conpty_handle_leak_repro.c（单线程、无子进程、无工作线程的
-    // 最小复现，实测 1.04 句柄/循环）。线程数与子进程数断言仍是硬性检查。
+    qInfo("Startup rollback handles: baseline=%lu final=%lu",
+          baselineHandles, currentHandleCount());
+    // 部分 Windows 10 版本在 ConPTY API 内遗留已退出 conhost 的 Process 句柄。
+    // 独立复现及关闭顺序对照见 conpty_handle_leak_repro.c；保留严格句柄断言，
+    // 不按循环次数扣除平台泄漏，否则可能掩盖本项目新增的泄漏。
     QTRY_VERIFY_WITH_TIMEOUT(currentHandleCount() <= baselineHandles, 5000);
 }
 
@@ -506,14 +506,17 @@ void ConPtyTransportTests::repeatedLifecycleReturnsResourcesToBaseline()
         QVERIFY2(disconnected.wait(5000), qPrintable(QString::number(iteration)));
         QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
     }
-    // 已知平台缺陷：CreatePseudoConsole/ClosePseudoConsole 在部分 Windows 版本上
-    // 不配平，每个伪控制台生命周期泄漏约 1 个内核句柄，因此下面这条断言当前必然
-    // 失败。ConPtySession 自身的 8 个句柄均已正确关闭——排除性证据见
-    // tests/transport/conpty_handle_leak_repro.c（单线程、无子进程、无工作线程的
-    // 最小复现，实测 1.04 句柄/循环）。线程数与子进程数断言仍是硬性检查。
-    QTRY_COMPARE_WITH_TIMEOUT(currentHandleCount(), baselineHandles, 5000);
-    QTRY_COMPARE_WITH_TIMEOUT(currentThreadCount(), baselineThreads, 5000);
+    qInfo("Repeated lifecycle resources: handles=%lu/%lu threads=%d/%d children=%d/%d (final/baseline)",
+          currentHandleCount(), baselineHandles, currentThreadCount(), baselineThreads,
+          currentTestChildProcessCount(), baselineProcesses);
+    // 先核对线程/子进程；句柄断言失败会立即返回，不能再将后续未执行的断言记为通过。
+    // 进程内临时线程可以在长循环中退出；减少不是泄漏。查询失败（-1）也不能通过。
+    QTRY_VERIFY_WITH_TIMEOUT(currentThreadCount() > 0
+                                && currentThreadCount() <= baselineThreads, 5000);
     QTRY_COMPARE_WITH_TIMEOUT(currentTestChildProcessCount(), baselineProcesses, 5000);
+    qInfo("Repeated lifecycle thread/child checks passed");
+    // 与启动回滚一样，保留严格句柄断言。详见独立复现及 2026-10-19 排查记录。
+    QTRY_COMPARE_WITH_TIMEOUT(currentHandleCount(), baselineHandles, 5000);
 }
 
 QTEST_GUILESS_MAIN(ConPtyTransportTests)
