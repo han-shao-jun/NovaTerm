@@ -20,6 +20,7 @@
 #include "TerminalState.h"
 #include "core/scrollback/LineLayout.h"
 #include "core/search/SearchEngine.h"
+#include "history/HistoryCompressionService.h"
 
 #include <QByteArray>
 #include <QByteArrayView>
@@ -175,6 +176,10 @@ public:
     void setDefaultColors(const NovaTerm::TerminalColor& foreground,
                           const NovaTerm::TerminalColor& background);
 
+    /** @brief 四种终端共用的可选历史压缩；在 Parser 命令队列应用，不清历史。 */
+    bool configureHistory(std::shared_ptr<NovaTerm::HistoryCompressionService> runtime,
+                          NovaTerm::HistoryCompressionPolicy policy = {});
+    [[nodiscard]] bool historyCompressionAvailable() const;
     // ── 滚动历史 ──
     int scrollbackLineCount() const;
     bool getScrollbackCell(int lineIndex, int col, NovaTerm::Cell& out) const;
@@ -244,6 +249,8 @@ signals:
     void damage(const NovaTerm::DirtyRegion& region, NovaTerm::u64 revision);
     void cursorMoved();
     void scrollbackChanged();
+    void historyDataReady();
+    void historyPolicyChanged();
     // 本次发布的活动屏幕上滚行数。与 scrollbackChanged 分离，因为后者
     // 会被合并以减少信号风暴。
     void screenScrolled(int rows);

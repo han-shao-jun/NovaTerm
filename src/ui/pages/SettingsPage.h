@@ -13,6 +13,7 @@
 #include "ElaTheme.h"
 #include <ElaComboBox.h>
 #include <ElaRadioButton.h>
+class ElaCheckBox;
 
 // 设置视图（ElaScrollPage）。管理语言、主题（含"自动 = 跟随系统"），
 // 以及宿主 ElaWindow 的外观（绘制模式、窗口特效、页面切换动画）。
@@ -79,6 +80,7 @@ private:
     ElaText* _langLabel{nullptr};
     ElaText* _themeSectionText{nullptr};
     ElaText* _themeSwitchText{nullptr};
+    ElaCheckBox* _historyCompression{nullptr};
     ElaText* _appSectionText{nullptr};
     ElaText* _windowPaintText{nullptr};
     ElaText* _micaText{nullptr};

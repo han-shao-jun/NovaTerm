@@ -8,7 +8,8 @@
  */
 #pragma once
 
-#include "ScrollbackTypes.h"
+#include "PinnedHistoryLine.h"
+#include "history/HistoryReadContext.h"
 
 #include <vector>
 
@@ -38,17 +39,17 @@ public:
 
     /**
      * @brief 按文档行号（0-based，从最旧行起算）查询逻辑行。
-     * @param documentRow 文档行号，越界返回 nullptr。
-     * @return 逻辑行指针，未命中返回 nullptr。
+     * @param documentRow 文档行号，越界返回 NotFound。
+     * @return 拥有型读取结果，未命中返回 NotFound。
      */
-    const LogicalLine* lineAt(isize documentRow) const;
+    PinnedHistoryLine lineAt(isize documentRow, HistoryReadMode mode = HistoryReadMode::Synchronous) const;
 
     /**
      * @brief 按全局 LineId 查询逻辑行。
      * @param id 全局行 ID。
-     * @return 逻辑行指针，未命中返回 nullptr。
+     * @return 拥有型读取结果，未命中返回 NotFound。
      */
-    const LogicalLine* lineById(LineId id) const;
+    PinnedHistoryLine lineById(LineId id, HistoryReadMode mode = HistoryReadMode::Synchronous) const;
 
     /**
      * @brief 把全局 LineId 折算为文档行号。
@@ -56,17 +57,31 @@ public:
      * @return 文档行号（0-based），未命中返回 -1。
      */
     isize rowForLineId(LineId id) const;
+    HistoryLineIndex lineInfoAt(isize row) const;
     bool contains(LineId id) const { return rowForLineId(id) >= 0; }
+    [[nodiscard]] bool requiresBackgroundRead() const;
     const std::vector<ChunkView>& chunks() const { return _chunks; }
 
 private:
     // 仅 ChunkedScrollback 在构建快照时可写。
     friend class ChunkedScrollback;
+    friend class HistoryReadCursor;
     std::vector<ChunkView> _chunks;
     u64 _version{0};
     isize _lineCount{0};
     LineId _firstLineId{0};
     LineId _lastLineId{0};
+};
+
+/** @brief 顺序读者仅持最近一个块；不把整个扫描灌入共享 LRU。 */
+class HistoryReadCursor {
+public:
+    explicit HistoryReadCursor(ScrollbackSnapshot snapshot) : _snapshot(std::move(snapshot)) {}
+    PinnedHistoryLine lineAt(isize row);
+private:
+    ScrollbackSnapshot _snapshot;
+    PinnedHistoryLine _pin;
+    isize _pinnedRow{-1}, _first{-1}, _last{-1};
 };
 
 // 滚动历史的尾部增量视图。只携带增量维护显示布局所需的最小信息 ——

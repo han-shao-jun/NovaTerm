@@ -23,6 +23,8 @@
 #include "service/LanguageManager.h"
 #include "service/ConfigManager.h"
 #include "ui/widgets/TerminalSchemeSettings.h"
+#include "ElaCheckBox.h"
+#include <QSignalBlocker>
 
 bool SettingsPage::s_themeProgrammaticChange = false;
 
@@ -346,6 +348,16 @@ SettingsPage::SettingsPage(QWidget* parent)
     centerLayout->addWidget(themeSwitchArea);
     centerLayout->addSpacing(15);
     centerLayout->addWidget(new TerminalSchemeSettings(_centralWidget));
+    _historyCompression = new ElaCheckBox(tr("Compress terminal history (all terminal types, experimental)"), _centralWidget);
+    _historyCompression->setObjectName(QStringLiteral("historyCompressionEnabled"));
+    _historyCompression->setChecked(ConfigManager::get<bool>(QStringLiteral("terminal.historyCompression.enabled")));
+    connect(_historyCompression, &QCheckBox::toggled, this, [this](bool checked) {
+        if (!ConfigManager::setValues({{QStringLiteral("terminal.historyCompression.enabled"), checked}})) {
+            const QSignalBlocker blocker(_historyCompression);
+            _historyCompression->setChecked(!checked);
+        }
+    });
+    centerLayout->addWidget(_historyCompression);
     centerLayout->addSpacing(15);
     centerLayout->addWidget(_appSectionText);
     centerLayout->addSpacing(10);
@@ -361,6 +373,7 @@ void SettingsPage::retranslateUi()
     setWindowTitle(tr("Settings"));
     if (_centralWidget) _centralWidget->setWindowTitle(tr("Settings"));
 
+    if (_historyCompression) _historyCompression->setText(tr("Compress terminal history (all terminal types, experimental)"));
     // 段落标题
     if (_langSectionText) _langSectionText->setText(tr("Language"));
     if (_themeSectionText) _themeSectionText->setText(tr("Theme"));

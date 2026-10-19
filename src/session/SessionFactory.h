@@ -10,10 +10,15 @@
 
 #include "LocalShellProfile.h"
 #include "SessionTypes.h"
+#include "history/HistoryCompressionService.h"
 
 #include <memory>
 #include <optional>
 
+struct SessionHistoryConfig {
+    std::shared_ptr<NovaTerm::HistoryCompressionService> runtime;
+    NovaTerm::HistoryCompressionPolicy policy;
+};
 class TerminalSession;
 class CredentialStore;
 struct ConnectionProfile;
@@ -47,7 +52,7 @@ public:
      */
     [[nodiscard]] static std::unique_ptr<TerminalSession>
     create(const RuntimeConfig& runtime, const CredentialStore* credentials = nullptr,
-           QString* error = nullptr);
+           QString* error = nullptr, SessionHistoryConfig history = {});
 
     /**
      * @brief 直接创建本地 shell 会话。
@@ -56,7 +61,7 @@ public:
      * @return 已装配 LocalShellTransport 的会话。
      */
     [[nodiscard]] static std::unique_ptr<TerminalSession>
-    createLocal(const LocalShellConfig& config, RuntimeConfig runtime = {});
+    createLocal(const LocalShellConfig& config, RuntimeConfig runtime = {}, SessionHistoryConfig history = {});
 
     /**
      * @brief 直接创建串口会话。
@@ -65,7 +70,7 @@ public:
      * @return 已装配 SerialTransport 的会话。
      */
     [[nodiscard]] static std::unique_ptr<TerminalSession>
-    createSerial(const SerialConfig& config, RuntimeConfig runtime = {});
+    createSerial(const SerialConfig& config, RuntimeConfig runtime = {}, SessionHistoryConfig history = {});
 
     /**
      * @brief 直接创建 SSH 会话。
@@ -74,7 +79,7 @@ public:
      * @return 已装配 SshTransport 的会话。
      */
     [[nodiscard]] static std::unique_ptr<TerminalSession>
-    createSsh(const SshConfig& config, RuntimeConfig runtime = {});
+    createSsh(const SshConfig& config, RuntimeConfig runtime = {}, SessionHistoryConfig history = {});
 
     /**
      * @brief 直接创建 Telnet 会话。
@@ -83,5 +88,5 @@ public:
      * @return 已装配 TelnetTransport 的会话。
      */
     [[nodiscard]] static std::unique_ptr<TerminalSession>
-    createTelnet(const TelnetConfig& config, RuntimeConfig runtime = {});
+    createTelnet(const TelnetConfig& config, RuntimeConfig runtime = {}, SessionHistoryConfig history = {});
 };

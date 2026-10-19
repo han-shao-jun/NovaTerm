@@ -9,6 +9,7 @@
 #pragma once
 
 #include "TerminalTypes.h"
+#include "core/scrollback/PinnedHistoryLine.h"
 
 #include <memory>
 #include <vector>
@@ -90,6 +91,9 @@ struct TerminalSnapshot
 struct RendererSnapshot
 {
     static constexpr int IdentityBlockColumns = 8;
+    bool historyPending{false};
+    NovaTerm::HistoryReadStatus historyStatus{NovaTerm::HistoryReadStatus::Found};
+    std::vector<PinnedHistoryLine> historyPins;
 
     u64 revision{0};
     int columns{0};

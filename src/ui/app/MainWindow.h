@@ -38,7 +38,7 @@ class MainWindow : public ElaWindow
 {
     Q_OBJECT
 public:
-    explicit MainWindow(QWidget* parent = nullptr);
+    explicit MainWindow(QWidget* parent = nullptr, std::shared_ptr<NovaTerm::HistoryCompressionService> history = {});
     ~MainWindow() override;
 
 protected:
@@ -54,6 +54,7 @@ private:
         Height
     };
 
+    std::shared_ptr<NovaTerm::HistoryCompressionService> _historyRuntime;
     void initWindow();
     void retranslateUi();
     /** @brief 将 SFTP 会话文案合并到停靠面板标题。 */

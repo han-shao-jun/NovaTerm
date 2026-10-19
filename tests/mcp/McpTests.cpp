@@ -3163,9 +3163,9 @@ void McpTests::serialWithoutPromptCompletesByQuietWindow()
     QCOMPARE(data.value("status").toString(), QStringLiteral("completed"));
     QVERIFY(data.value("terminationConfirmed").toBool());
     QVERIFY(data.value("exitCode").isNull());
-    const auto stdout = data.value("stdout").toString();
-    QVERIFY(stdout.contains(QStringLiteral("Linux test")));
-    QVERIFY(!stdout.contains(QStringLiteral("uname -srm")));
+    const auto stdoutText = data.value("stdout").toString();
+    QVERIFY(stdoutText.contains(QStringLiteral("Linux test")));
+    QVERIFY(!stdoutText.contains(QStringLiteral("uname -srm")));
 }
 
 void McpTests::settingsDialogUsesTabDisplayTitle()

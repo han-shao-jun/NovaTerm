@@ -242,7 +242,7 @@ QJsonObject validateModel(TerminalCore& core, qint64 totalFrames)
     const auto history = core.scrollbackSnapshot();
     const auto first = std::max<NovaTerm::isize>(0, history.lineCount() - 1200);
     for (auto row = first; row < history.lineCount(); ++row) {
-        const auto* line = history.lineAt(row);
+        const auto line = history.lineAt(row);
         if (!line) continue;
         QByteArray segment;
         for (const auto& cell : line->cells) {

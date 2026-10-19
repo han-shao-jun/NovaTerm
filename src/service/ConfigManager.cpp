@@ -264,7 +264,8 @@ QJsonObject ConfigManager::defaults()
             {"appearance", "dark"},
             {"colorScheme", "Campbell"},
             // OSC 52 读取查询默认关闭：应答等于允许远端程序读走本机剪贴板。
-            {"osc52ClipboardRead", false}
+            {"osc52ClipboardRead", false},
+            {"historyCompression", QJsonObject{{"enabled", false}}}
         }},
         {"schemes", QJsonArray{}},
         {"monitor", QJsonObject{

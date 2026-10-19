@@ -10,6 +10,7 @@
 #pragma once
 
 #include "ScrollbackSnapshot.h"
+#include "history/HistoryCompressionService.h"
 
 #include <deque>
 #include <memory>
@@ -32,6 +33,8 @@ public:
     explicit ChunkedScrollback(isize maxLines = DefaultMaxLines,
                                isize maxBytes = DefaultMaxBytes,
                                isize chunkLines = DefaultChunkLines);
+
+    ~ChunkedScrollback();
 
     // 单线程拥有语义：隐式拷贝会共享可变 active 块并分叉行计数/ID 状态，
     // 移动同样无意义（含 deque 与 ID 计数器）。显式删除以落实「不可拷贝」
@@ -101,7 +104,16 @@ public:
      */
     void tailFrom(LineId sinceId, isize maxLines, ScrollbackTail& out) const;
 
-    const LogicalLine* lineAt(isize index) const;
+    PinnedHistoryLine lineAt(isize index, HistoryReadMode mode = HistoryReadMode::Synchronous) const;
+    [[nodiscard]] HistoryLineIndex lineInfoAt(isize index) const;
+    /** @brief 仅单写线程调用；显式注入共享服务，注册通知通过 wake 唤醒宿主。 */
+    // 已注册资源域不被后续非空注入替换；关闭传空会撤销全部宿主通知。
+    void setHistoryRuntime(std::shared_ptr<HistoryCompressionService> runtime,
+                           std::function<void()> wake = {});
+    void setCompressionPolicy(HistoryCompressionPolicy policy);
+    /** @brief 应用完成结果并逐步调度；不等待 worker。 */
+    bool processHistory();
+    [[nodiscard]] bool compressionAvailable() const { return bool(_registration); }
     isize lineCount() const { return _lineCount; }
     // -1 表示不限行数，0 禁用历史，正值为显式有限容量策略。
     isize maxLines() const { return _maxLines; }
@@ -126,9 +138,7 @@ private:
         isize firstLine{0};
         isize lineCount{0};
         isize effectiveBytes{0};
-        // 已搬到 active 块的尾行字节数，其字节已从 _effectiveBytes 扣除。
-        // 整块退休时须扣除 byteSize - detachedBytes，避免二次扣减。
-        isize detachedBytes{0};
+        u64 attemptedEpoch{0};
     };
     // 已被淘汰但可能仍被旧快照持有的分块。通过 weak_ptr 跟踪，
     // 当所有快照释放后才能真正回收内存。
@@ -138,6 +148,8 @@ private:
         isize bytes{0};
     };
 
+    std::pair<const StoredChunk*, isize> locate(isize index) const;
+    const LogicalLine* borrowRawAt(isize index) const;
     void ensureActive();
     void sealActive();
     void enforceLimits();
@@ -155,7 +167,16 @@ private:
     void retireChunk(StoredChunk& stored, bool countAsEvicted);
     static isize lineBytes(const LogicalLine& line);
     void collectRetired() const;
+    void reportCharge() const;
 
+    std::shared_ptr<HistoryCompressionService> _historyRuntime;
+    std::shared_ptr<HistoryRegistration> _registration;
+    std::function<void()> _historyWake;
+    HistoryCompressionPolicy _compressionPolicy;
+    u64 _diagnosticId{0};
+    ChunkId _nextCompressionChunkId{0};
+    u64 _compressedBlocks{0}, _skippedBlocks{0}, _compressionFailures{0};
+    mutable u64 _storageErrors{0};
     std::deque<StoredChunk> _chunks;
     std::shared_ptr<ScrollbackChunk> _active;
     isize _activeFirstLine{0};

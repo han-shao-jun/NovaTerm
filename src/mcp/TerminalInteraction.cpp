@@ -398,7 +398,7 @@ public:
     }
 
     QJsonObject project(const Pending& job, const SessionDirectory::Entry& entry,
-                        const TerminalContextProvider::Snapshot& snapshot, const QString& wake) {
+                        const TerminalContextProvider::Snapshot& snapshot, const QString& wakeReason) {
         auto* ctrl = entry.session->terminalController();
         const bool compact = projectionOf(job.typed).value_or(
             job.interaction ? ProjectionMode::Compact : ProjectionMode::Full)
@@ -412,7 +412,7 @@ public:
         data.insert("capturedAt", QDateTime::fromMSecsSinceEpoch(ms, QTimeZone::UTC).toString(Qt::ISODateWithMs));
         const auto size = entry.session->core()->screenSize();
         data.insert("screenSize", QJsonObject{{"columns", size.first}, {"rows", size.second}});
-        data.insert("wakeReason", wake); data.insert("outputChanged", changed); data.insert("screenChanged", changed);
+        data.insert("wakeReason", wakeReason); data.insert("outputChanged", changed); data.insert("screenChanged", changed);
         data.insert("alternateScreen", snapshot.state.alternateScreen);
         data.insert("cursor", QJsonObject{{"row", snapshot.state.cursor.position.row}, {"column", snapshot.state.cursor.position.col}});
         data.insert("operation", job.interaction ? QJsonValue(ctrl->operation()) : QJsonValue(QJsonValue::Undefined));

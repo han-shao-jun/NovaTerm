@@ -1,6 +1,12 @@
 #include "TerminalRenderer.h"
 #include "core/terminal/TerminalCore.h"
 #include <QPainter>
+#include <QFutureWatcher>
+#include <QPromise>
+#include <QThreadPool>
+#include <QThread>
+#include <stdexcept>
+#include "core/ThreadNaming.h"
 #include <QKeyEvent>
 #include <QInputMethodEvent>
 #include <QMouseEvent>
@@ -207,6 +213,7 @@ TerminalRenderer::TerminalRenderer(TerminalCore* core, QWidget* parent)
                 _renderScheduler->schedule(visible, revision);
             });
 
+    connect(_core, &TerminalCore::historyDataReady, this, [this] { requestFullFrame(); });
     connect(_core, &TerminalCore::cursorMoved, this, [this]() {
         requestOverlayFrame();
     });
@@ -320,6 +327,7 @@ TerminalRenderer::TerminalRenderer(TerminalCore* core, QWidget* parent)
 
 TerminalRenderer::~TerminalRenderer()
 {
+    _copyFuture.cancel();
     _glyphRasterQueue.stop();
     if (_blinkTimer) {
         _blinkTimer->stop();
@@ -558,9 +566,9 @@ void TerminalRenderer::scrollToLine(int line)
             _scrollAnchorWrap = _historyLayout[row].wrapIndex;
         } else if (_scrollLine > 0) {
             const auto history = _core->scrollbackSnapshot();
-            const auto* logical = history.lineAt(std::max<qsizetype>(
+            const auto logical = history.lineInfoAt(std::max<qsizetype>(
                 0, history.lineCount() - _scrollLine));
-            _scrollAnchorLine = logical ? logical->id : history.firstLineId();
+            _scrollAnchorLine = logical.id ? logical.id : history.firstLineId();
             _scrollAnchorWrap = 0;
         } else {
             _scrollAnchorLine = 0;
@@ -586,9 +594,9 @@ bool TerminalRenderer::scrollToSearchMatch(
     const NovaTerm::SearchMatch& match, const NovaTerm::ScrollbackSnapshot& history)
 {
     const auto row = history.rowForLineId(match.lineId);
-    const auto* logical = history.lineAt(row);
-    if (!logical || match.startCell < 0 || match.endCell <= match.startCell
-        || match.startCell >= NovaTerm::isize(logical->cells.size())) {
+    const auto logical = history.lineInfoAt(row);
+    if (!logical.id || match.startCell < 0 || match.endCell <= match.startCell
+        || match.startCell >= NovaTerm::isize(logical.cells)) {
         return false;
     }
     // 不在 GUI 线程重折整段历史；等 worker 的布局提交后再精确定位。
@@ -700,7 +708,7 @@ QString TerminalRenderer::selectedText() const
 
         // 历史行先解析出所属显示行与逻辑行，避免在列循环内重复查找。
         const NovaTerm::DisplayLine* display = nullptr;
-        const NovaTerm::LogicalLine* logical = nullptr;
+        NovaTerm::PinnedHistoryLine logical;
         if (row < 0) {
             const qsizetype displayIndex = _historyLayout.size() + row;
             if (displayIndex >= 0 && displayIndex < _historyLayout.size()) {
@@ -748,8 +756,74 @@ bool TerminalRenderer::hasSelection() const
 
 void TerminalRenderer::copySelection()
 {
-    if (!hasSelection()) return;
-    QApplication::clipboard()->setText(selectedText());
+    if (!hasSelection() || _copyInFlight) return;
+    auto start = _selStart, end = _selEnd;
+    if (end < start) std::swap(start, end);
+    // 一份快照贯穿复制；后台只读不可变值，绝不捕获 Renderer/Core 指针。
+    const auto history = start.row < 0 ? _core->scrollbackSnapshot() : NovaTerm::ScrollbackSnapshot{};
+    const bool hasCold = history.requiresBackgroundRead();
+    if (!hasCold) { QApplication::clipboard()->setText(selectedText()); return; }
+    const auto layout = _historyLayout;
+    const auto screen = _core->snapshot();
+    std::vector<bool> continuation(std::size_t(screen.rows));
+    for (int row = 0; row < screen.rows; ++row) continuation[std::size_t(row)] = _core->rowContinuation(row);
+    auto promise = std::make_shared<QPromise<QPair<QString, QString>>>();
+    promise->start(); _copyFuture = promise->future(); _copyInFlight = true;
+    auto* watcher = new QFutureWatcher<QPair<QString, QString>>(this);
+    connect(watcher, &QFutureWatcher<QPair<QString, QString>>::finished, this, [this, watcher] {
+        _copyInFlight = false;
+        if (!watcher->isCanceled() && watcher->future().resultCount()) {
+            const auto result = watcher->result();
+            if (result.second.isEmpty()) { QApplication::clipboard()->setText(result.first); emit historyReadMessage(tr("History copied")); }
+            else emit historyReadMessage(tr("Copy failed: %1").arg(result.second));
+        }
+        watcher->deleteLater();
+    });
+    watcher->setFuture(_copyFuture);
+    emit historyReadMessage(tr("Loading selected history…"));
+    QThreadPool::globalInstance()->start([promise, history, layout, screen, continuation, start, end] {
+        NovaTerm::setCurrentThreadName("nvterm-copy");
+        QString text, error;
+        try {
+            NovaTerm::HistoryReadCursor cursor(history);
+            for (int row = start.row; row <= end.row && !promise->isCanceled(); ++row) {
+                const auto displayIndex = layout.size() + row;
+                const NovaTerm::DisplayLine* display = row < 0 && displayIndex >= 0 && displayIndex < layout.size() ? &layout[displayIndex] : nullptr;
+                const bool continued = row < 0 ? display && display->wrapIndex > 0
+                    : row < screen.rows && continuation[std::size_t(row)];
+                if (row > start.row && !continued) text += QLatin1Char('\n');
+                NovaTerm::PinnedHistoryLine logical;
+                if (display) {
+                    const auto documentRow = history.rowForLineId(display->lineId);
+                    logical = cursor.lineAt(documentRow);
+                    while (logical.status() == NovaTerm::HistoryReadStatus::Busy && !promise->isCanceled()) {
+                        QThread::msleep(2); logical = cursor.lineAt(documentRow);
+                    }
+                    if (!logical && !promise->isCanceled()) throw std::runtime_error(logical.error().empty() ? "history is unavailable" : logical.error());
+                }
+                const int first = row == start.row ? start.col : 0;
+                const int last = row == end.row ? end.col : screen.columns - 1;
+                for (int col = first; col <= last; ++col) {
+                    if ((col & 255) == 0 && promise->isCanceled()) break;
+                    const NovaTerm::Cell* cell = nullptr;
+                    if (row < 0) {
+                        if (!display || !logical) continue;
+                        const auto index = display->startCell + col;
+                        if (index < 0 || index >= display->endCell || index >= NovaTerm::isize(logical->cells.size())) continue;
+                        cell = &logical->cells[std::size_t(index)];
+                    } else cell = screen.cellAt(row, col);
+                    if (!cell || cell->isWideContinuation()) continue;
+                    if (!cell->chars[0]) text += QLatin1Char(' ');
+                    else appendCellChars(text, cell->chars.data(), NovaTerm::MaxCharsPerCell);
+                    // 超额明确失败，不能把截断文本写成成功复制。
+                    if (text.size() > 32 * 1024 * 1024) throw std::runtime_error("selection exceeds 64 MiB text limit");
+                }
+            }
+        } catch (const std::exception& e) { error = QString::fromUtf8(e.what()); }
+          catch (...) { error = QStringLiteral("history copy failed"); }
+        if (!promise->isCanceled()) promise->addResult(qMakePair(text, error));
+        promise->finish();
+    });
 }
 
 void TerminalRenderer::clearSelection()
@@ -994,6 +1068,11 @@ void TerminalRenderer::render(QRhiCommandBuffer* cb)
                                          _scrollAnchorLine,
                                          _scrollAnchorWrap,
                                          requestedContentRevision);
+        if (screen.historyPending) {
+            contentPending = false; fullFramePending = false; overlayPending = false;
+            std::fill(dirtyRows.begin(), dirtyRows.end(), false);
+            for (auto& spans : dirtySpans) spans.clear();
+        } else {
         // The parser may publish another batch after its model lock is
         // released but before the queued damage signal reaches the GUI
         // thread. If this snapshot is newer than all damage delivered to the
@@ -1088,6 +1167,7 @@ void TerminalRenderer::render(QRhiCommandBuffer* cb)
                 std::move(dirtySpans[row]));
         }
 
+        }
     }
 
     QElapsedTimer commandTimer;

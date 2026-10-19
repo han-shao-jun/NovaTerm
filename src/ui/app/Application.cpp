@@ -10,6 +10,7 @@
  * Windows 10 上由 main() 改用的 windows11 style（详见 main.cpp 的说明）。
  */
 #include "Application.h"
+#include "history/HistoryCompressionService.h"
 #include "MainWindow.h"
 #include "mcp/McpService.h"
 #include "ElaApplication.h"
@@ -39,6 +40,8 @@ void Application::shutdown()
     if (_mcpService) _mcpService->stop();
     _mainWindow.reset();
     _mcpService.reset();
+    if (_historyRuntime) _historyRuntime->stop();
+    _historyRuntime.reset();
 }
 
 void Application::init()
@@ -149,7 +152,8 @@ void Application::init()
         ? quint16(configuredPort) : quint16(38973);
     _mcpService = std::make_unique<NovaTerm::Mcp::Service>(
         QString{}, QString{}, nullptr, nullptr, mcpPort);
-    _mainWindow = std::make_unique<MainWindow>();
+    _historyRuntime = std::make_shared<NovaTerm::HistoryCompressionService>();
+    _mainWindow = std::make_unique<MainWindow>(nullptr, _historyRuntime);
 
     // ElaWindow 构造函数中 setObjectName("ElaWindow") 并设
     // 样式表 #ElaWindow{background:transparent}。

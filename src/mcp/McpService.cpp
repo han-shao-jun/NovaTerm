@@ -157,8 +157,8 @@ public:
         QObject::connect(&sessions, &SessionDirectory::changed, q, [this] {
             if (!checkingSessionState) {
                 QScopedValueRollback<bool> checking(checkingSessionState, true);
-                const auto pending = requestKeys();
-                for (const auto& key : pending) {
+                const auto pendingKeys = requestKeys();
+                for (const auto& key : pendingKeys) {
                     auto* pending = findRequest(key);
                     if (!pending) continue;
                     if (pending->tool != QStringLiteral("novaterm_run_script")
@@ -282,8 +282,9 @@ public:
                     || std::is_same_v<Type, InteractTerminalRequest>
                     || std::is_same_v<Type, RequestElevationRequest>) {
                     return request.wait ? int(request.wait->count()) : fallback;
+                } else {
+                    return fallback;
                 }
-                return fallback;
             }, value);
         };
         if (name == "novaterm_interact_terminal" || name == "novaterm_request_elevation"

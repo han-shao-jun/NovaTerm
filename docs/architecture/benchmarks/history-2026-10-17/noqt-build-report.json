@@ -1,0 +1,20 @@
+{
+  "build": "build/history-isolated-final",
+  "entry": "tests/history-noqt",
+  "compiler": "MSVC 19.51.36256.0",
+  "standard": "C++17",
+  "configuration": "Release",
+  "Qt_prefix_explicitly_ignored": true,
+  "Qt_in_compile_or_link_commands": false,
+  "public_consumer_has_lz4_include_path": false,
+  "scope": [
+    "codec",
+    "ChunkedScrollback",
+    "snapshot",
+    "shared cache and pins",
+    "background service",
+    "clear/cancel/stop/join",
+    "multi-store admission",
+    "allocation lifetime after owner close"
+  ]
+}

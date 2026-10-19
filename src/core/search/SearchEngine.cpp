@@ -19,6 +19,7 @@
 #include <algorithm>
 #include <atomic>
 #include <condition_variable>
+#include <chrono>
 #include <limits>
 #include <mutex>
 #include <optional>
@@ -285,6 +286,7 @@ public:
             0, work.request.maximumResults);
         isize resultCount = 0;
         SearchableLine line;
+        HistoryReadCursor historyCursor(work.snapshot);
 
         for (isize row = startRow; row < endRow; ++row) {
             if (cancelled(work.request.generation)) {
@@ -293,9 +295,18 @@ public:
                 publish(std::move(batch));
                 return;
             }
-            const LogicalLine* logical = work.snapshot.lineAt(row);
-            if (!logical)
-                continue;
+            auto logical = historyCursor.lineAt(row);
+            while (logical.status() == HistoryReadStatus::Busy && !cancelled(work.request.generation)) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(2));
+                logical = historyCursor.lineAt(row);
+            }
+            if (!logical) {
+                batch.cancelled = cancelled(work.request.generation);
+                batch.completed = !batch.cancelled;
+                batch.error = batch.cancelled ? "" : logical.error();
+                if (!batch.cancelled && batch.error.empty()) batch.error = "history read failed";
+                publish(std::move(batch)); return;
+            }
             // makeSearchable 失败可能是取消导致，需再次确认。
             const bool searchable = makeSearchable(*logical, line, [this, &work]() {
                 return cancelled(work.request.generation);

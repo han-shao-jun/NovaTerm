@@ -1,0 +1,20 @@
+********* Start testing of ConPtyTransportTests *********
+Config: Using QtTest library 6.8.3, Qt 6.8.3 (x86_64-little_endian-llp64 shared (dynamic) release build; by MSVC 2022), windows 10
+PASS   : ConPtyTransportTests::initTestCase()
+PASS   : ConPtyTransportTests::profilesAndEnvironmentMerge()
+PASS   : ConPtyTransportTests::windowsArgumentRoundTrip()
+PASS   : ConPtyTransportTests::workingDirectoryAndEnvironmentReachChild()
+PASS   : ConPtyTransportTests::exitReasonsAndIdempotentClose()
+PASS   : ConPtyTransportTests::duplexLoadAndBackpressure()
+PASS   : ConPtyTransportTests::inputDispatchOverloadIsBounded()
+PASS   : ConPtyTransportTests::latestResizeWins()
+PASS   : ConPtyTransportTests::startFailureRollsBackAndCanRestart()
+FAIL!  : ConPtyTransportTests::injectedStartupStagesRollBack() 'currentHandleCount() <= baselineHandles' returned FALSE. ()
+D:\qt\NovaTerm\tests\transport\ConPtyTransportTests.cpp(481) : failure location
+FAIL!  : ConPtyTransportTests::repeatedLifecycleReturnsResourcesToBaseline() Compared values are not the same
+   Actual   (currentHandleCount()): 479
+   Expected (baselineHandles)     : 282
+D:\qt\NovaTerm\tests\transport\ConPtyTransportTests.cpp(514) : failure location
+PASS   : ConPtyTransportTests::cleanupTestCase()
+Totals: 10 passed, 2 failed, 0 skipped, 0 blacklisted, 98227ms
+********* Finished testing of ConPtyTransportTests *********

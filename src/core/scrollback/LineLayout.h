@@ -48,6 +48,8 @@ struct ViewportSnapshot
     u64 generation{0};
     int columns{0};
     std::vector<DisplayLine> rows;
+    HistoryReadStatus status{HistoryReadStatus::Found};
+    std::vector<PinnedHistoryLine> pins;
 };
 
 // 一批 reflow 结果。completed=true 表示 reflow 已结束；
@@ -95,7 +97,8 @@ public:
                                      LineId anchorLine, isize wrapOffset,
                                      int columns, isize rowCount,
                                      isize trailingCache = 32,
-                                     u64 generation = 0);
+                                     u64 generation = 0,
+                                     HistoryReadMode mode = HistoryReadMode::Synchronous);
 };
 
 // 历史重排引擎：在独立线程中对整个滚动历史执行完整 reflow，分批通过

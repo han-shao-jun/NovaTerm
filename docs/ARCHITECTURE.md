@@ -547,6 +547,7 @@ Session 状态建议统一为 `Created → Connecting → Running → Paused/Rec
 
 ```text
 src/
+├── history/            # C++17 codec/共享预算缓存/后台服务；无 Qt
 ├── core/                # 不依赖 Qt（原则 3）；CoreTypes.h 提供 isize/u8/u32/u64/ByteView
 │   ├── terminal/        # BoundedByteQueue、TerminalCore、VTAdapter、ScreenBuffer、KeyMapper
 │   ├── scrollback/      # ChunkedScrollback、ScrollbackChunk、Snapshot、LineLayout(reflow)
@@ -571,11 +572,16 @@ src/
 ├── mcp/                 # P8 Streamable HTTP、wire、授权、请求调度与固定诊断策略
 └── ui/                  # app/(MainWindow)、pages/、terminal/(TerminalView)、widgets/
 tests/
-├── core/  renderer/  session/  transport/  mcp/  filetransfer/
+├── core/  renderer/  session/  transport/  mcp/  filetransfer/  history/
+├── history-noqt/       # 不经过根 Qt 配置的完整历史后端验收
 └── benchmarks/
+    ├── history/         # 独立进程 OFF/ON 合成语料及 JSON 矩阵
     └── serial-stress/   # Windows 手工串口压力验收、驱动队列对照与 WPR/xperf 采样
 tools/
 └── novaterm-local-diag/  # 固定本地诊断 helper
+
+third_party/
+└── lz4-1.10.0/          # LZ4 v1.10.0 完整上游源码；仅 lib/lz4.c 接入私有静态库
 ```
 
 `src/session/`、`src/profile/`、`src/credential/` 已落地；主题目前由 service 与
@@ -1363,3 +1369,49 @@ NovaTerm 的核心思想：
   空闲窗口零定时器唤醒；需要"持续跟踪"的拖动场景用单次定时器续订。
 
 实现细节、逐项证据与未达标项见 `AGENTS.md` 的「P0/P1 性能优化实施记录」。
+
+## LZ4 历史压缩增量（2026-10-19）
+
+统一适用于 Serial、SSH、Telnet、LocalShell，保持 Transport 字节边界不变。
+`novaterm_core` 单向依赖纯 C++17 `novaterm_history`；后者包含生产 ChunkedScrollback、
+ScrollbackSnapshot/Chunk、codec、HistoryReadContext 和 HistoryCompressionService，
+PRIVATE 链 LZ4，仅实现文件包含 `lz4.h`。纯 `TerminalData.h`/`ScrollbackData.h`
+承载同一套数据声明，旧 Types 入口只补 Qt 元类型，未扩展为 coreqt 重构。
+
+所有权与数据流：Application 创建一个共享历史服务，经 MainWindow、TerminalPage、
+TerminalView 明确注入 Core；SessionFactory 也接受显式 `SessionHistoryConfig`。
+Parser 单写活动块和 live 索引；封存块不可变。worker 不接触 QObject 或存储容器，
+携带 source identity/epoch 的结果通过有界完成队列交还 Parser，使用现有 ByteQueue
+唤醒链，不轮询。clear/策略变更失效旧任务，close 线性撤销 wake；应用退出先销毁
+Core，再 stop/join 共享 worker，只收束当前普通块，不排空历史。
+
+读取返回 `PinnedHistoryLine`，cache 淘汰只解除 cache 引用。活动行复制并申请同一
+共享额度；首尾 ID、contains、rowForLineId 和 tail 定位只读索引。
+Search/Reflow 用顺序 cursor，读最近一个块，不污染共享 LRU；GUI 冷视口只查缓存，
+未命中返回 Pending/Busy/Error，保留上一份画面，完成后唤醒重绘。复制在后台消费
+不可变快照；模型锁下 MCP 文本捕获不等待冷解码，额度/加载不足返回 Busy。
+Parser `sb_popline` 的同步冷读使用预留槽，完全不等后台队列或 cache 额度。
+
+默认普通块目标 512 KiB，最大 1 MiB，至少 1024 行条件也封块；活动块和最近
+4 MiB 保持热区。超长逻辑行不拆 LineId，保持独立 Raw，预算不足按最旧优先淘汰。
+Live 块 charge 含容量和元数据，压缩必须节省至少 12.5% 和 4 KiB 才采用。
+遗留快照/任务持有的替换/淘汰块用分配 token 跟踪到真实生命周期结束，不提前减账；
+部分淘汰仍计整个不可变 payload。统计另列 cache/pin 和临时工作区，pin 是 cache
+子集，不能再相加。token 只改变诊断计数，历史内容及已发布索引始终不可变。
+
+进程共享限额：等待/在途/完成共最多 32 项，源块合计 16 MiB；每存储最多 2 个
+压缩任务及额外一个冷读槽。单 worker 同级按存储轮转、冷视口优先。完成 payload
+合计最多 1 MiB，包含于 4 MiB worker 峰值工作区。共享解码额度 32 MiB/进程、
+8 MiB/存储，已 pin 以及序列化临时空间也保守计入，满即 Busy，不旁路分配。
+工作区共 16 MiB，含每获准 Core 的 3 MiB Parser 槽，故默认最多 4 个 Core
+获准创建压缩历史；申请失败保留 Raw 并提示，不能把降级会话列为 ON 成绩。
+
+`terminal.historyCompression.enabled` 默认 false，切换不清历史、不重置 ID、不重连。
+关闭后不继续压缩，但保留旧块读取和必要资源，直到遗留块释放。
+所有活动终端的 live/retained 诊断及跨 Core 生命周期 payload charge 由共享服务汇总；
+UI 显示节省、淘汰和错误，并在 Windows/Linux 可用物理内存低于 512 MiB 时提示。
+每终端仍有自己的 1 GiB live budget，未加入全进程 live 公平淘汰；RSS 另测。
+
+独立入口实际编译/链接/运行上述完整生产后端，没有 Qt 搜索路径或 Qt 事件循环。
+Qt 门面仍依赖 Qt，不能据此宣称整个 core 去 Qt。性能发布门槛未完成，具体 RED/
+GREEN、Release JSON、未测指标和长稳/跨平台缺口见 LZ4 实施计划增量记录。

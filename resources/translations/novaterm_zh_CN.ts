@@ -2080,6 +2080,8 @@ Termination confirmed: %3
         <source>Stack Switch Mode</source>
         <translation>堆栈切换模式</translation>
     </message>
+
+    <message><source>Compress terminal history (all terminal types, experimental)</source><translation>压缩终端历史（适用于所有终端类型，实验性）</translation></message>
 </context>
 <context>
     <name>SftpPanel</name>
@@ -3848,5 +3850,32 @@ Termination confirmed: %3
         <source>No matches</source>
         <translation>未找到匹配项</translation>
     </message>
+
+    <message><source>History: %1 MiB resident, %2 MiB saved; %3 lines evicted</source><translation>历史：驻留 %1 MiB，节省 %2 MiB；已淘汰 %3 行</translation></message>
+
+    <message><source> — Compression unavailable: shared workspace is full</source><translation> — 压缩不可用：共享工作区额度不足</translation></message>
+
+    <message><source> — History storage errors: %1</source><translation> — 历史存储错误：%1</translation></message>
+
+    <message><source>Shared decode cache: %1 MiB; workspace reservations: %2 MiB; queued tasks: %3. History uses a separate budget per terminal.</source><translation>共享解码缓存：%1 MiB；工作区预留：%2 MiB；排队任务：%3。每个终端分别使用历史预算。</translation></message>
+
+    <message><source>All terminals: %4 MiB history charge. Shared decode cache: %1 MiB; workspace reservations: %2 MiB; queued tasks: %3. History uses a separate budget per terminal.</source><translation>所有终端历史记账：%4 MiB。共享解码缓存：%1 MiB；工作区预留：%2 MiB；排队任务：%3。每个终端分别使用历史预算。</translation></message>
+
+    <message><source> — Low system memory: old history may be evicted</source><translation> — 系统可用内存不足：旧历史可能被淘汰</translation></message>
+</context>
+<context>
+    <name>TerminalRenderer</name>
+
+    <message><source>Copy failed: %1</source><translation>复制失败：%1</translation></message>
+
+    <message><source>Loading selected history…</source><translation>正在加载所选历史…</translation></message>
+
+    <message><source>History copied</source><translation>历史已复制</translation></message>
+
+    <message><source>History decode failed</source><translation>历史解码失败</translation></message>
+
+    <message><source>History is busy; release other readers and retry</source><translation>历史读取繁忙；请结束其他读取后重试</translation></message>
+
+    <message><source>Loading history…</source><translation>正在加载历史…</translation></message>
 </context>
 </TS>

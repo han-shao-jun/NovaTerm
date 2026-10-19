@@ -130,7 +130,8 @@ QByteArray sshSecret(const SshConfig& config)
 
 } // namespace
 
-TerminalPage::TerminalPage(QWidget* parent) : QWidget(parent)
+TerminalPage::TerminalPage(QWidget* parent, std::shared_ptr<NovaTerm::HistoryCompressionService> history)
+    : QWidget(parent), _historyRuntime(std::move(history))
 {
     _tabWidget = new TerminalTabWidget(this);
     _tabWidget->setTabPosition(QTabWidget::North);
@@ -315,7 +316,7 @@ TerminalView* TerminalPage::addTerminalTab(const QString& title,
                                            const QString& wslDistribution,
                                            const QString& workingDirectory)
 {
-    auto* terminalView = new TerminalView(_tabWidget);
+    auto* terminalView = new TerminalView(_tabWidget, _historyRuntime);
     registerTerminalView(terminalView);
     const QString tabTitle = title.isEmpty()
         ? tr("Terminal %1").arg(_terminalViews.size()) : title;
@@ -327,7 +328,7 @@ TerminalView* TerminalPage::addTerminalTab(const QString& title,
 
 TerminalView* TerminalPage::addSerialTerminalTab(const SerialConfig& config)
 {
-    auto* terminalView = new TerminalView(_tabWidget);
+    auto* terminalView = new TerminalView(_tabWidget, _historyRuntime);
     registerTerminalView(terminalView);
     const QString title = config.label.isEmpty() ? config.portName : config.label;
     _tabWidget->setCurrentIndex(_tabWidget->addTab(terminalView, title));
@@ -337,7 +338,7 @@ TerminalView* TerminalPage::addSerialTerminalTab(const SerialConfig& config)
 
 TerminalView* TerminalPage::addTelnetTerminalTab(const TelnetConfig& config)
 {
-    auto* terminalView = new TerminalView(_tabWidget);
+    auto* terminalView = new TerminalView(_tabWidget, _historyRuntime);
     registerTerminalView(terminalView);
     const QString title = config.label.isEmpty()
         ? QStringLiteral("%1:%2").arg(config.host).arg(config.port)
@@ -349,7 +350,7 @@ TerminalView* TerminalPage::addTelnetTerminalTab(const TelnetConfig& config)
 
 TerminalView* TerminalPage::addSshTerminalTab(const SshConfig& config)
 {
-    auto* terminalView = new TerminalView(_tabWidget);
+    auto* terminalView = new TerminalView(_tabWidget, _historyRuntime);
     registerTerminalView(terminalView);
     const QString title = config.label.isEmpty()
         ? QStringLiteral("%1@%2").arg(config.username, config.host)

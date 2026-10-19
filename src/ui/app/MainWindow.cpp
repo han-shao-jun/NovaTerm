@@ -705,7 +705,8 @@ private:
 
 } // namespace
 
-MainWindow::MainWindow(QWidget* parent) : ElaWindow(parent)
+MainWindow::MainWindow(QWidget* parent, std::shared_ptr<NovaTerm::HistoryCompressionService> history)
+    : ElaWindow(parent), _historyRuntime(std::move(history))
 {
     qDebug() << "main id: " << QThread::currentThreadId();
     // 主题切换 → 持久化到配置 + 同步 QPalette（必须在 initContent 之前
@@ -1189,7 +1190,7 @@ void MainWindow::initWindow()
     customLayout->addStretch();
     setCustomWidget(ElaAppBarType::LeftArea, customWidget, this, "processHitTest");
 
-    _terminalPage = new TerminalPage(this);
+    _terminalPage = new TerminalPage(this, _historyRuntime);
 
     // 1 号区域：会话面板固定在左侧。标题已由面板内部绘制，因此隐藏
     // QDockWidget 标题栏，并禁止用户将它拖离快捷连接区域。

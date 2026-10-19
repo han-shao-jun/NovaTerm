@@ -7,12 +7,14 @@
  */
 #pragma once
 #include <QWidget>
+#include <QElapsedTimer>
 #include <QEvent>
 #include <QPointer>
 #include "core/search/SearchEngine.h"
 #include "session/LocalShellProfile.h"
 #include "session/transfer/SerialTransferTypes.h"
 
+namespace NovaTerm { class HistoryCompressionService; }
 class ITransport;
 class TerminalCore;
 class TerminalRenderer;
@@ -69,8 +71,8 @@ public:
     // 该值（始终走平台默认 shell）。显式固定数值以兼容已经保存的历史配置。
     enum class LocalShellType { Cmd = 0, PowerShell = 1, Wsl = 2 };
 
-    explicit TerminalView(QWidget* parent = nullptr);
-    explicit TerminalView(TerminalSession* session, QWidget* parent = nullptr);
+    explicit TerminalView(QWidget* parent = nullptr, std::shared_ptr<NovaTerm::HistoryCompressionService> history = {});
+    explicit TerminalView(TerminalSession* session, QWidget* parent = nullptr, std::shared_ptr<NovaTerm::HistoryCompressionService> history = {});
     ~TerminalView() override;
 
     // ── 本地终端：通过 LocalShellTransport 驱动真实 shell ──
@@ -133,6 +135,13 @@ signals:
 private:
     bool _serialReconnectPromptActive{false}; ///< 当前是否在追加串口重连等待点
     void applyColorScheme();
+    void applyHistoryPolicy();
+    void updateHistoryStatus();
+    std::shared_ptr<NovaTerm::HistoryCompressionService> _historyRuntime;
+    ElaText* _historyStatus{nullptr};
+    bool _historyStatusPending{false};
+    bool _historyMemoryPressure{false};
+    QElapsedTimer _historyMemoryCheck;
     void retranslateUi();
     void setupContextMenu(const QPoint& pos);
     /** @brief 获取当前串口传输活动状态，同时绑定输入门禁的观察指针。 */

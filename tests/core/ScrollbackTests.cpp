@@ -405,7 +405,7 @@ void ScrollbackTests::continuationAcrossSealedChunkKeepsOneLogicalLine()
     QCOMPARE(scrollback.appendContinuation(std::move(fragment)), softId);
     QCOMPARE(scrollback.lineCount(), qsizetype(2));
 
-    const NovaTerm::LogicalLine* merged = scrollback.lineAt(1);
+    const auto merged = scrollback.lineAt(1);
     QVERIFY(merged);
     QCOMPARE(merged->id, softId);
     QCOMPARE(merged->cells.size(), std::size_t(4));
@@ -439,7 +439,7 @@ void ScrollbackTests::takeNewestTailAcrossSealedChunkPreservesHistory()
 
     // 剩余部分留在历史里，且不再以硬换行结尾（尾段已回到活动屏幕）。
     QCOMPARE(scrollback.lineCount(), qsizetype(2));
-    const NovaTerm::LogicalLine* remainder = scrollback.lineAt(1);
+    const auto remainder = scrollback.lineAt(1);
     QVERIFY(remainder);
     QCOMPARE(remainder->cells.size(), std::size_t(4));
     QVERIFY(!remainder->hardBreak);

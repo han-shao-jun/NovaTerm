@@ -23,6 +23,22 @@ FluentUI 风格。
 - **终端解析**：使用 libvterm 处理 ANSI/VT 控制序列，具体语义由终端测试覆盖
 - **搜索与高亮**：支持终端内容搜索和可配置文本高亮
 
+终端历史提供可选的无损 LZ4 压缩，统一适用于本地 Shell、SSH、Telnet 和串口。
+在设置页勾选「压缩终端历史」后对新建与已打开的终端生效；配置键为
+`terminal.historyCompression.enabled`，当前默认 **false**（实验性，性能发布门槛未达成）。
+关闭只停止新压缩，已有历史仍能回看、复制和搜索，不需要重新连接。
+
+每个终端沿用约 1 GiB 的历史记账预算，不预分配，不恢复旧的行数限制。
+共享解码缓存最多 32 MiB（每终端 8 MiB），队列最多 32 项/16 MiB 源块；
+16 MiB 工作区包含每个获准 Core 的 3 MiB Parser 预留槽和 4 MiB worker 槽，
+初始参数最多批准 4 个终端同时创建压缩历史，其他终端保持原始存储并显示原因。
+状态栏显示驻留、节省和淘汰行数，提示解码错误与系统内存压力；提示中的总量是保守
+charge，不能当成 RSS。压缩不是落盘或完整保留承诺，达到预算仍淘汰最旧内容。
+实测、发布缺口和复测命令见 [实施记录](docs/architecture/LZ4_Scrollback_Implementation_Plan_2026-10-17.md)。
+
+LZ4 v1.10.0 完整上游源码位于 `third_party/lz4-1.10.0/`，无需下载；仅编译
+`lib/lz4.c`，BSD-2-Clause 库许可证随安装产物保存为 `LICENSE.lz4`。
+
 ## 快速开始
 
 ### 环境要求
@@ -374,6 +390,13 @@ Windows 已知失败、平台与真实 UART 文件验收范围见 P9 和 AGENTS�
 
 本项目采用GPLv2+许可证开源，详见 [LICENSE](LICENSE) 文件。
 
+LZ4 v1.10.0 的 `lib/` 使用 BSD-2-Clause 许可证，完整源码树的其他文件默认使用
+GPL-2.0-or-later，个别文件以自身声明为准。上游许可说明见
+[LICENSE](third_party/lz4-1.10.0/LICENSE) 和
+[库许可证](third_party/lz4-1.10.0/lib/LICENSE)。源码固定于官方标签 `v1.10.0`，
+对应提交 `ebb370ca83af193212df4dcbadcc5d87bc0de2f0`，来源为
+[LZ4 官方仓库](https://github.com/lz4/lz4/tree/v1.10.0)。
+
 本次新增的 Qt HTTP Server 开源许可为 **GPL-3.0-only**，同时提供商业许可。
 本机 Qt 6.8.3 的 `include/QtHttpServer/qhttpserver.h` SPDX 标记与
 [Qt HTTP Server 官方许可说明](https://doc.qt.io/qt-6.8/qthttpserver-index.html#licenses)
@@ -396,3 +419,21 @@ GPLv2+ 授权依据。
 
 - 项目地址：[Gitee / NovaTerm](https://gitee.com/han-shao-jun/NovaTerm)
 - 问题反馈：请在Gitee Issues中提交
+
+### 历史后端独立验收
+
+`novaterm_history` 使用纯 C++17，包含生产存储、快照、codec、共享缓存和后台服务。
+它不链接 `novaterm_core` 或 Qt；这不代表整个 core 已去 Qt。Windows 先进入 MSVC
+x64 环境，再运行（Linux 可直接运行同一组 CMake/CTest 命令）：
+
+```sh
+cmake -S tests/history-noqt -B build/history-standalone -G Ninja -DCMAKE_BUILD_TYPE=Release
+cmake --build build/history-standalone --parallel 4
+ctest --test-dir build/history-standalone --output-on-failure
+```
+
+轻量测试 `novaterm_history_no_qt_link_check` 同时注册在主工程，标签为
+`unit;history;scrollback`。2026-10-19 Windows 实核 35 项，Release 34/35 通过；唯一失败为已记录的 ConPTY 句柄泄漏断言。详见实施记录，计数以当前配置为准。
+合成 OFF/ON 矩阵使用 `tests/benchmarks/history/run-matrix.ps1`，每个样本独立进程，
+输出种子、字段哈希、保留量、charge、RSS、追加/扫描耗时和读取 P95/P99。
+它不等于真实串口或 GUI 性能验收，不自动占用端口。

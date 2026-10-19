@@ -10,6 +10,7 @@
 #include "SessionFactory.h"
 
 #include "TerminalSession.h"
+#include "core/terminal/TerminalCore.h"
 #include "credential/CredentialStore.h"
 #include "profile/ProfileStore.h"
 #include "ShellIntegration.h"
@@ -22,10 +23,11 @@ namespace {
 
 template <typename Transport, typename Config>
 std::unique_ptr<TerminalSession> makeSession(Config config, RuntimeConfig runtime,
-                                             TransportKind kind)
+                                             TransportKind kind, SessionHistoryConfig history)
 {
     runtime.transportKind = kind;
     auto session = std::make_unique<TerminalSession>(std::move(runtime));
+    static_cast<void>(session->core()->configureHistory(history.runtime, history.policy));
     session->attach(new Transport(std::move(config)), TerminalSession::Ownership::Adopt);
     return session;
 }
@@ -60,7 +62,7 @@ SessionFactory::resolve(const ConnectionProfile& profile,
 
 std::unique_ptr<TerminalSession>
 SessionFactory::create(const RuntimeConfig& runtime,
-                       const CredentialStore* credentials, QString* error)
+                       const CredentialStore* credentials, QString* error, SessionHistoryConfig history)
 {
     const QVariantMap& values = runtime.transport;
     switch (runtime.transportKind) {
@@ -77,7 +79,7 @@ SessionFactory::create(const RuntimeConfig& runtime,
                 *error = QStringLiteral("invalid local shell runtime config");
             return nullptr;
         }
-        return createLocal(config, runtime);
+        return createLocal(config, runtime, history);
     }
     case TransportKind::Serial: {
         SerialConfig config;
@@ -103,7 +105,7 @@ SessionFactory::create(const RuntimeConfig& runtime,
                 *error = QStringLiteral("invalid serial runtime config");
             return nullptr;
         }
-        return createSerial(config, runtime);
+        return createSerial(config, runtime, history);
     }
     case TransportKind::Ssh: {
         SshConfig config;
@@ -146,7 +148,7 @@ SessionFactory::create(const RuntimeConfig& runtime,
                 *error = QStringLiteral("invalid SSH runtime config");
             return nullptr;
         }
-        return createSsh(config, runtime);
+        return createSsh(config, runtime, history);
     }
     case TransportKind::Telnet: {
         TelnetConfig config;
@@ -167,7 +169,7 @@ SessionFactory::create(const RuntimeConfig& runtime,
                 *error = QStringLiteral("invalid Telnet runtime config");
             return nullptr;
         }
-        return createTelnet(config, runtime);
+        return createTelnet(config, runtime, history);
     }
     case TransportKind::Custom:
         if (error)
@@ -178,7 +180,7 @@ SessionFactory::create(const RuntimeConfig& runtime,
 }
 
 std::unique_ptr<TerminalSession>
-SessionFactory::createLocal(const LocalShellConfig& config, RuntimeConfig runtime)
+SessionFactory::createLocal(const LocalShellConfig& config, RuntimeConfig runtime, SessionHistoryConfig history)
 {
     runtime.transportKind = TransportKind::LocalShell;
     if (!config.profile.interactiveShellKind.isEmpty()) {
@@ -190,6 +192,7 @@ SessionFactory::createLocal(const LocalShellConfig& config, RuntimeConfig runtim
         }
     }
     auto session = std::make_unique<TerminalSession>(std::move(runtime));
+    static_cast<void>(session->core()->configureHistory(history.runtime, history.policy));
     auto* transport = new LocalShellTransport;
     transport->setSessionConfig(config);
     session->attach(transport, TerminalSession::Ownership::Adopt);
@@ -197,7 +200,7 @@ SessionFactory::createLocal(const LocalShellConfig& config, RuntimeConfig runtim
 }
 
 std::unique_ptr<TerminalSession>
-SessionFactory::createSerial(const SerialConfig& config, RuntimeConfig runtime)
+SessionFactory::createSerial(const SerialConfig& config, RuntimeConfig runtime, SessionHistoryConfig history)
 {
     if (!config.isValid())
         return nullptr;
@@ -208,14 +211,14 @@ SessionFactory::createSerial(const SerialConfig& config, RuntimeConfig runtime)
     runtime.transport.insert(QStringLiteral("interactiveLineEnding"), config.interactiveLineEnding);
     runtime.transport.insert(QStringLiteral("interactiveRemoteEcho"), config.interactiveRemoteEcho);
     auto session = makeSession<SerialTransport>(config, std::move(runtime),
-                                               TransportKind::Serial);
+                                               TransportKind::Serial, std::move(history));
     if (!session->core()->setLfImpliesCr(config.lfImpliesCr))
         return nullptr;
     return session;
 }
 
 std::unique_ptr<TerminalSession>
-SessionFactory::createSsh(const SshConfig& config, RuntimeConfig runtime)
+SessionFactory::createSsh(const SshConfig& config, RuntimeConfig runtime, SessionHistoryConfig history)
 {
     auto configured = config;
     if (!configured.interactiveShellKind.isEmpty()) {
@@ -223,12 +226,12 @@ SessionFactory::createSsh(const SshConfig& config, RuntimeConfig runtime)
                                  configured.interactiveShellKind);
         configured.environment = ShellIntegration::startupEnvironmentFor(runtime);
     }
-    return makeSession<SshTransport>(configured, std::move(runtime), TransportKind::Ssh);
+    return makeSession<SshTransport>(configured, std::move(runtime), TransportKind::Ssh, std::move(history));
 }
 
 std::unique_ptr<TerminalSession>
-SessionFactory::createTelnet(const TelnetConfig& config, RuntimeConfig runtime)
+SessionFactory::createTelnet(const TelnetConfig& config, RuntimeConfig runtime, SessionHistoryConfig history)
 {
     return makeSession<TelnetTransport>(config, std::move(runtime),
-                                        TransportKind::Telnet);
+                                        TransportKind::Telnet, std::move(history));
 }

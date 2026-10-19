@@ -1,4 +1,6 @@
 #pragma once
+#include <QFuture>
+#include <QPair>
 
 #include <optional>
 #include "HistoryLayout.h"
@@ -210,6 +212,7 @@ public:
     }
 
 signals:
+    void historyReadMessage(const QString& message);
     /** @brief 重排完成前目标被淘汰，通知视图继续查找有效命中。 */
     void searchMatchUnavailable(const NovaTerm::SearchMatch& match);
     void searchJumpFailed(const QString& error);
@@ -558,6 +561,9 @@ private:
     // 不看 release 时刻的跟踪状态 —— 手势期间应用退出/进入鼠标模式
     // 不能切换半途手势的归属。
     bool _activeGestureIsVtMouse{false};
+    QFuture<QPair<QString, QString>> _copyFuture;
+    bool _copyInFlight{false};
+    int _historyLoadingStatus{0};
     NovaTerm::Position _selStart{-1, -1};
     NovaTerm::Position _selEnd{-1, -1};
 
