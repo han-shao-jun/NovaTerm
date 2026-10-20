@@ -306,7 +306,7 @@ int main(int argc, char* argv[])
     for (qsizetype i = 0; i < lookupSamples && !snapshot.empty(); ++i) {
         const NovaTerm::LineId id = snapshot.firstLineId()
             + NovaTerm::LineId((i * snapshot.lineCount()) / lookupSamples);
-        lookupHits += snapshot.lineById(id) != nullptr;
+        lookupHits += bool(snapshot.lineById(id));
     }
     const qint64 lookupNs = lookupTimer.nsecsElapsed();
 

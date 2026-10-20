@@ -68,6 +68,7 @@ class TerminalSessionSmokeTests : public QObject
     Q_OBJECT
 
 private slots:
+    void historyPolicyAppliesToEveryTransportAndExternalCore();
     void transportWarningsRemainVisibleInConnectedSerialSessions();
     void terminalColorsAreIndependentOfApplicationTheme();
     void savedSchemeRepaintsExistingTerminalPixels();
@@ -84,6 +85,28 @@ private slots:
     void externalSessionOutlivesView();
     void ownedDependenciesAreDestroyedBeforeCore();
 };
+
+void TerminalSessionSmokeTests::historyPolicyAppliesToEveryTransportAndExternalCore()
+{
+    auto history = std::make_shared<NovaTerm::HistoryCompressionService>();
+    ConfigManager::instance().set(QStringLiteral("terminal.historyCompression.enabled"), true);
+    for (auto kind : {TransportKind::LocalShell, TransportKind::Serial, TransportKind::Ssh, TransportKind::Telnet}) {
+        RuntimeConfig runtime; runtime.transportKind = kind;
+        TerminalSession session(runtime);
+        {
+            TerminalView view(&session, nullptr, history);
+            QVERIFY(session.core()->waitForIdle());
+            QVERIFY(session.core()->historyCompressionAvailable());
+            ConfigManager::instance().set(QStringLiteral("terminal.historyCompression.enabled"), false);
+            QVERIFY(session.core()->waitForIdle());
+            ConfigManager::instance().set(QStringLiteral("terminal.historyCompression.enabled"), true);
+            QVERIFY(session.core()->waitForIdle());
+        }
+        QVERIFY(session.core()->writeInput("still alive").fullyAccepted());
+        QVERIFY(session.core()->waitForIdle());
+    }
+    ConfigManager::instance().set(QStringLiteral("terminal.historyCompression.enabled"), false);
+}
 
 void TerminalSessionSmokeTests::terminalSearchNavigatesAndReopens()
 {
@@ -140,7 +163,7 @@ void TerminalSessionSmokeTests::terminalSearchNavigatesAndReopens()
 
     // 当前命中在等待新列宽布局期间被淘汰；自动跳过已失效的前两处。
     const auto history = core->scrollbackSnapshot();
-    const auto* firstMatchLine = history.lineAt(20);
+    const auto firstMatchLine = history.lineAt(20);
     QVERIFY(firstMatchLine);
     const NovaTerm::SearchMatch pending{firstMatchLine->id, 0, 6};
     core->resize(40, core->rows());

@@ -24,6 +24,9 @@ MCP、诊断与 AI Agent 专项文档已统一为总分结构：[文档入口](s
    数据量矩阵、实际驱动队列查询与 256 KiB 大队列复测；
    [CPU 热点采样](Performance_Serial_Hotspots_2026-10-07.md)记录 WPR/xperf
    的线程分离与函数占比。两者为验收记录，不改变阶段完成状态。
+8. [LZ4 历史压缩实施计划](LZ4_Scrollback_Implementation_Plan_2026-10-17.md)：
+   P4 增量特性，覆盖无损分块编码、拥有型读取、后台压缩、内存预算与验收。
+   已接入可选压缩与完整无 Qt 后端；默认关闭，性能发布门槛与长稳/跨平台验收未完成。
 
 ## 阶段文档
 
@@ -33,7 +36,7 @@ MCP、诊断与 AI Agent 专项文档已统一为总分结构：[文档入口](s
 | P1 ScreenBuffer 与 VTAdapter | 退出标准已达成（2026-07-29 架构边界落地）；已完成增量：宽字符 continuation 回归（2026-09-03）、chunk 快照碎片化成本优化（尾部增量窄接口，2026-09-08）；剩余两个不阻塞边角项——活动屏幕不参与搜索、`dim`/`protectedCell` 因 vendored libvterm screen 层无来源 | [P1](stages/P1_ScreenBuffer_and_VTAdapter.md) |
 | P2 异步 Parser 与背压 | 功能与 20 MiB/s 性能目标完成（2026-08-01） | [P2](stages/P2_Async_Parser_and_Backpressure.md) |
 | P3 增量渲染 | 实现与 Vulkan/OpenGL 实机 60 FPS 跑分完成（2026-08-01）；待高刷新率、资源恢复与人工视觉验收 | [P3](stages/P3_Incremental_Rendering.md) |
-| P4 Chunked Scrollback 与搜索 | 已完成（2026-08-01） | [P4](stages/P4_Chunked_Scrollback_and_Search.md) |
+| P4 Chunked Scrollback 与搜索 | 原 P4 已完成（2026-08-01）；LZ4 可选增量已接入，性能/长稳验收未完成，默认关闭（2026-10-19） | [P4](stages/P4_Chunked_Scrollback_and_Search.md) |
 | P5 Glyph 与 GPU 管线 | 实施完成；Linux Vulkan/OpenGL、Windows D3D11/D3D12 与 30 分钟长稳验收完成（2026-08-02）；macOS Metal、多屏 DPR 与 120/144 Hz 验收待完成 | [P5](stages/P5_Glyph_and_GPU_Pipeline.md) |
 | P6 Session 与 Transport | 进行中：Transport 四种完成，会话编排采用「1 View 拥有 1 Session」已在生产；剩 keyboard-interactive、close 模式、exited→UI、ProfileStore 持久化、contract tests | [P6](stages/P6_Session_and_Transport.md) |
 | P7 系统资源查询 | 已实现为内置功能（常驻监控 2026-09-06、系统信息窗口 2026-09-09）；性能量化验收待补 | [P7](stages/P7_System_Resource_Monitor.md) |

@@ -45,6 +45,10 @@
 
 #include <algorithm>
 #include <memory>
+#include <QFile>
+#ifdef Q_OS_WIN
+#include <windows.h>
+#endif
 
 namespace {
 
@@ -85,13 +89,13 @@ static QByteArray terminalTitleSequence(QString title)
     return sequence;
 }
 
-TerminalView::TerminalView(QWidget* parent)
-    : TerminalView(nullptr, parent)
+TerminalView::TerminalView(QWidget* parent, std::shared_ptr<NovaTerm::HistoryCompressionService> history)
+    : TerminalView(nullptr, parent, std::move(history))
 {
 }
 
-TerminalView::TerminalView(TerminalSession* session, QWidget* parent)
-    : QWidget(parent)
+TerminalView::TerminalView(TerminalSession* session, QWidget* parent, std::shared_ptr<NovaTerm::HistoryCompressionService> history)
+    : QWidget(parent), _historyRuntime(std::move(history))
 {
     // ── 初始终端尺寸：用合理的默认值，resizeEvent 会马上更新 ──
     constexpr int kDefaultCols = 80;
@@ -116,6 +120,7 @@ TerminalView::TerminalView(TerminalSession* session, QWidget* parent)
     _session = session ? session : new TerminalSession(_core, this);
 
     applyColorScheme();
+    applyHistoryPolicy();
 
     // 布局
     auto* layout = new QVBoxLayout(this);
@@ -161,6 +166,22 @@ TerminalView::TerminalView(TerminalSession* session, QWidget* parent)
     _scrollBar->setRange(0, 0);
     terminalRow->addWidget(_scrollBar);
     layout->addLayout(terminalRow, 1);
+    _historyStatus = new ElaText(this);
+    _historyStatus->setObjectName(QStringLiteral("terminalHistoryStatus"));
+    _historyStatus->setTextPixelSize(11);
+    _historyStatus->hide();
+    layout->addWidget(_historyStatus);
+    const auto historyChanged = [this] {
+        if (_historyStatusPending) return;
+        _historyStatusPending = true;
+        QTimer::singleShot(0, this, [this] { _historyStatusPending = false; updateHistoryStatus(); });
+    };
+    connect(_core, &TerminalCore::scrollbackChanged, this, historyChanged);
+    connect(_core, &TerminalCore::historyDataReady, this, historyChanged);
+    connect(_core, &TerminalCore::historyPolicyChanged, this, historyChanged);
+    connect(_renderer, &TerminalRenderer::historyReadMessage, this, [this](const QString& message) {
+        _historyStatus->setText(message); _historyStatus->show();
+    });
 
     setFocusProxy(_renderer);
     setContextMenuPolicy(Qt::CustomContextMenu);
@@ -170,6 +191,7 @@ TerminalView::TerminalView(TerminalSession* session, QWidget* parent)
     // 终端自身选择深浅分类，窗口的 ElaTheme 变化不改变终端颜色。
     connect(&ConfigManager::instance(), &ConfigManager::configChanged, this,
             [this](const QString& path) {
+        if (path == QStringLiteral("terminal.historyCompression.enabled")) { applyHistoryPolicy(); return; }
         if (path != QStringLiteral("schemes")
             && path != QStringLiteral("terminal.appearance")
             && path != QStringLiteral("terminal.colorScheme"))
@@ -673,6 +695,49 @@ void TerminalView::requestWorkingDirectory()
 //  主题适配
 // ═══════════════════════════════════════════════════════════════════
 
+void TerminalView::applyHistoryPolicy()
+{
+    NovaTerm::HistoryCompressionPolicy policy;
+    policy.enabled = ConfigManager::get<bool>(QStringLiteral("terminal.historyCompression.enabled"));
+    static_cast<void>(_core->configureHistory(_historyRuntime, policy));
+}
+void TerminalView::updateHistoryStatus()
+{
+    const bool enabled = ConfigManager::get<bool>(QStringLiteral("terminal.historyCompression.enabled"));
+    if (!_historyMemoryCheck.isValid() || _historyMemoryCheck.elapsed() >= 1000) {
+        _historyMemoryCheck.start();
+#ifdef Q_OS_WIN
+        MEMORYSTATUSEX memory{}; memory.dwLength = sizeof(memory);
+        if (GlobalMemoryStatusEx(&memory)) _historyMemoryPressure = memory.ullAvailPhys < 512ULL * 1024 * 1024;
+#elif defined(Q_OS_LINUX)
+        QFile info(QStringLiteral("/proc/meminfo"));
+        if (info.open(QIODevice::ReadOnly)) for (const auto& line : info.readAll().split('\n')) {
+            if (line.startsWith("MemAvailable:")) {
+                const auto fields = line.simplified().split(' ');
+                _historyMemoryPressure = fields.size() > 1 && fields[1].toULongLong() < 512ULL * 1024;
+                break;
+            }
+        }
+#endif
+    }
+    const auto stats = _core->scrollbackStatistics();
+    _historyStatus->setVisible(enabled || stats.compressedBytes > 0 || stats.storageErrors > 0 || _historyMemoryPressure);
+    const auto resident = stats.effectiveBytes + stats.retainedBySnapshots + stats.decodedBytes + stats.temporaryBytes;
+    QString text = tr("History: %1 MiB resident, %2 MiB saved; %3 lines evicted")
+        .arg(double(resident) / (1024 * 1024), 0, 'f', 1)
+        .arg(double(stats.savedBytes) / (1024 * 1024), 0, 'f', 1).arg(stats.evictedLines);
+    if (enabled && !_core->historyCompressionAvailable()) text += tr(" — Compression unavailable: shared workspace is full");
+    if (_historyMemoryPressure) text += tr(" — Low system memory: old history may be evicted");
+    if (stats.compressionFailures || stats.storageErrors) text += tr(" — History storage errors: %1").arg(stats.compressionFailures + stats.storageErrors);
+    if (_historyRuntime) {
+        const auto process = _historyRuntime->statistics();
+        _historyStatus->setToolTip(tr("All terminals: %4 MiB history charge. Shared decode cache: %1 MiB; workspace reservations: %2 MiB; queued tasks: %3. History uses a separate budget per terminal.")
+            .arg(double(process.resources.decodedBytes) / (1024 * 1024), 0, 'f', 1)
+            .arg(double(process.resources.reservedTemporaryBytes) / (1024 * 1024), 0, 'f', 1).arg(process.outstandingTasks).arg(double(process.residentHistoryCharge) / (1024 * 1024), 0, 'f', 1));
+    }
+    _historyStatus->setText(text);
+}
+
 void TerminalView::applyColorScheme()
 {
     if (!_renderer)
@@ -927,6 +992,7 @@ bool TerminalView::eventFilter(QObject* obj, QEvent* event)
 
 void TerminalView::retranslateUi()
 {
+    if (_historyStatus) updateHistoryStatus();
     // 搜索栏控件复用，文本需在语言切换后重新应用 tr() 结果；右键菜单每次
     // 弹出时重建，其文本无需在此刷新。
     if (_searchLine)

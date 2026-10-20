@@ -60,16 +60,15 @@ bool ScrollbackBuffer::popLine(NovaTerm::Cell* cells, int cols, bool* continuati
     // libvterm 在屏幕变高时用 sb_popline 反向取回紧邻屏幕顶部的那一行 ——
     // 是**最新**的历史行。旧实现取的是最旧一行，且把整条逻辑行弹出后只回填
     // 前 cols 格，其余 Cell 被永久丢弃。
-    const NovaTerm::LogicalLine* newest =
-        _storage.lineAt(_storage.lineCount() - 1);
-    if (!newest)
+    const auto newest = _storage.lineInfoAt(_storage.lineCount() - 1);
+    if (!newest.id)
         return false;
 
     // 按目标 cols 重排该逻辑行：除末行外每段恰好 cols 格，因此末行长度
     // 为 total % cols，整除时说明末行也是满行。空行（total==0）取 cols，
     // takeNewestTail 会移除该空逻辑行并回填一整行空白 —— 不能在此因空行提前
     // 返回 false，否则 libvterm 收到 0 会停止回填，空行以上的历史无法拉回。
-    const isize total = newest->cells.size();
+    const isize total = isize(newest.cells);
     const isize remainder = total % cols;
     const isize rowCells = remainder == 0 ? isize(cols) : remainder;
     const bool hasPrefix = total > rowCells;
@@ -111,16 +110,14 @@ int ScrollbackBuffer::lineCount() const
     return int(_storage.lineCount());
 }
 
-const ScrollbackCell* ScrollbackBuffer::lineAt(int index) const
+NovaTerm::PinnedHistoryCells ScrollbackBuffer::lineAt(int index) const
 {
-    const NovaTerm::LogicalLine* line = _storage.lineAt(index);
-    return line ? line->cells.data() : nullptr;
+    return NovaTerm::PinnedHistoryCells(_storage.lineAt(index));
 }
 
-const std::vector<ScrollbackCell>* ScrollbackBuffer::lineVectorAt(int index) const
+NovaTerm::PinnedHistoryCells ScrollbackBuffer::lineVectorAt(int index) const
 {
-    const NovaTerm::LogicalLine* line = _storage.lineAt(index);
-    return line ? &line->cells : nullptr;
+    return NovaTerm::PinnedHistoryCells(_storage.lineAt(index));
 }
 
 NovaTerm::ScrollbackSnapshot ScrollbackBuffer::snapshot()

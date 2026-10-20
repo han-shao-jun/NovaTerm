@@ -42,8 +42,10 @@ void ChunkedScrollback::ensureActive()
     _active->id = _nextChunkId++;
     _active->lines.reserve(_chunkLines);
     _activeFirstLine = 0;
-    _activeBytes = sizeof(ScrollbackChunk) + ChunkAllocationOverhead;
+    _activeBytes = sizeof(ScrollbackChunk) + ChunkAllocationOverhead
+        + _chunkLines * isize(sizeof(LogicalLine));
     _effectiveBytes += _activeBytes;
+    if (_historyRuntime) _active->allocation = _historyRuntime->trackPayload(std::size_t(_activeBytes));
 }
 
 LineId ChunkedScrollback::append(LogicalLine line)
@@ -53,6 +55,9 @@ LineId ChunkedScrollback::append(LogicalLine line)
     line.id = _nextLineId++;
     const LineId id = line.id;
 
+    if (_registration && _active && !_active->lines.empty()
+        && std::size_t(_activeBytes + lineBytes(line)) > _compressionPolicy.targetBlockBytes)
+        sealActive();
     ensureActive();
     const isize bytes = lineBytes(line);
     _cellCount += line.cells.size();
@@ -116,24 +121,15 @@ void ChunkedScrollback::sealActive()
         _activeBytes = 0;
         return;
     }
-    // active 头部已被淘汰的行仍占用 lines 数组，封存时需把它们的
-    // 字节从分块有效字节数中扣除，避免统计虚高。
-    const isize skippedBytes = [&]() {
-        isize value = 0;
-        for (isize i = 0; i < _activeFirstLine; ++i)
-            value += lineBytes(_active->lines[i]);
-        return value;
-    }();
     const isize firstLine = _activeFirstLine;
     ScrollbackChunkPtr sealed = sealChunk(std::move(_active));
+    _effectiveBytes += sealed->byteSize - _activeBytes;
+    if (sealed->allocation) sealed->allocation->set(std::size_t(sealed->byteSize));
     StoredChunk stored;
     stored.chunk = sealed;
     stored.firstLine = firstLine;
-    stored.lineCount = isize(sealed->lines.size()) - firstLine;
-    stored.effectiveBytes = isize(sealed->byteSize
-                                      - isize(sizeof(ScrollbackChunk))
-                                      - ChunkAllocationOverhead
-                                      - skippedBytes);
+    stored.lineCount = chunkLineCount(*sealed) - firstLine;
+    stored.effectiveBytes = sealed->byteSize;
     _chunks.push_back(std::move(stored));
     _activeFirstLine = 0;
     _activeBytes = 0;
@@ -150,8 +146,9 @@ bool ChunkedScrollback::makeNewestLineWritable()
     StoredChunk& stored = _chunks.back();
     if (stored.lineCount <= 0)
         return false;
-    const LogicalLine& newest =
-        stored.chunk->lines[stored.firstLine + stored.lineCount - 1];
+    const auto pinned = pinChunkLine(stored.chunk, stored.firstLine + stored.lineCount - 1, HistoryReadMode::Parser);
+    if (!pinned) { ++_storageErrors; return false; }
+    const LogicalLine& newest = *pinned;
     const isize movedBytes = lineBytes(newest);
 
     // 只复制这一行；ensureActive 可能新分配一个 active 块并计入固定开销。
@@ -160,12 +157,9 @@ bool ChunkedScrollback::makeNewestLineWritable()
     _activeBytes += movedBytes;
     _effectiveBytes += movedBytes;
 
-    // 封存分块的有效区间从尾部裁掉一行。该行的字节记入 detachedBytes，
-    // 使整块退休时不会把已搬走的部分二次扣除。
+    // 只裁有效区间；不可变 payload 直到实际释放前始终计算完整分配。
     --stored.lineCount;
-    stored.effectiveBytes -= movedBytes;
-    stored.detachedBytes += movedBytes;
-    _effectiveBytes -= movedBytes;
+
     if (stored.lineCount <= 0)
         retireChunk(stored, false);
     return true;
@@ -177,7 +171,7 @@ bool ChunkedScrollback::makeNewestLineWritable()
 // 避免虚增 evictedChunks 统计。
 void ChunkedScrollback::retireChunk(StoredChunk& stored, bool countAsEvicted)
 {
-    _effectiveBytes -= stored.chunk->byteSize - stored.detachedBytes;
+    _effectiveBytes -= stored.chunk->byteSize;
     _retired.push_back({stored.chunk, stored.chunk->byteSize});
     if (&stored == &_chunks.front())
         _chunks.pop_front();
@@ -210,7 +204,7 @@ void ChunkedScrollback::evictOldest()
     isize oldestCellCount = 0;
     if (!_chunks.empty()) {
         StoredChunk& stored = _chunks.front();
-        oldestCellCount = stored.chunk->lines[stored.firstLine].cells.size();
+        oldestCellCount = isize(chunkLineInfo(*stored.chunk, stored.firstLine).cells);
         evicted = true;
         ++stored.firstLine;
         --stored.lineCount;
@@ -308,6 +302,7 @@ bool ChunkedScrollback::takeNewestTail(isize cellCount, LogicalLine& out)
 
 void ChunkedScrollback::clear()
 {
+    if (_historyRuntime) _historyRuntime->invalidate(_registration);
     // 所有封存块进入 retired，等旧快照释放后才真正回收。
     for (const StoredChunk& stored : _chunks)
         _retired.push_back({stored.chunk, stored.chunk->byteSize});
@@ -346,8 +341,8 @@ ScrollbackSnapshot ChunkedScrollback::snapshot()
         documentStart += stored.lineCount;
     }
     if (_lineCount > 0) {
-        result._firstLineId = result.lineAt(0)->id;
-        result._lastLineId = result.lineAt(_lineCount - 1)->id;
+        result._firstLineId = result.lineInfoAt(0).id;
+        result._lastLineId = result.lineInfoAt(_lineCount - 1).id;
     }
     return result;
 }
@@ -361,15 +356,8 @@ void ChunkedScrollback::tailFrom(LineId sinceId, isize maxLines,
     if (_lineCount == 0)
         return;  // 空历史：first/last/from=0、lines 空、resync=false
 
-    const LogicalLine* firstLine = lineAt(0);
-    const LogicalLine* lastLine = lineAt(_lineCount - 1);
-    if (!firstLine || !lastLine) {  // 理论不可达，防御性 resync
-        out.resync = true;
-        return;
-    }
-    out.firstLineId = firstLine->id;
-    out.lastLineId = lastLine->id;
-
+    out.firstLineId = lineInfoAt(0).id;
+    out.lastLineId = lineInfoAt(_lineCount - 1).id;
     // sinceId 那行已被头部淘汰（或调用方无有效锚点 sinceId==0）：历史剧变，
     // 交给全量重排。
     if (sinceId == 0 || sinceId < out.firstLineId) {
@@ -386,15 +374,15 @@ void ChunkedScrollback::tailFrom(LineId sinceId, isize maxLines,
     isize startRow = _lineCount;
     isize scanned = 0;
     for (isize row = _lineCount - 1; row >= 0; --row) {
-        const LogicalLine* line = lineAt(row);
-        if (!line || line->id < effectiveSince)
+        const auto info = lineInfoAt(row);
+        if (!info.id || info.id < effectiveSince)
             break;  // 越过起点（id 空洞时的兜底）
         startRow = row;
         if (++scanned > maxCollect) {  // 落后过远：交给全量重排（worker 共享 cells）
             out.resync = true;
             return;
         }
-        if (line->id == effectiveSince)
+        if (info.id == effectiveSince)
             break;
     }
     if (startRow >= _lineCount) {  // 未定位到（effectiveSince<=last 时理论必命中）
@@ -426,44 +414,57 @@ void ChunkedScrollback::tailFrom(LineId sinceId, isize maxLines,
     // 不要改。
     out.lines.reserve(std::size_t(_lineCount - startRow));
     for (isize row = startRow; row < _lineCount; ++row) {
-        const LogicalLine* line = lineAt(row);
-        if (!line)
-            break;
+        const auto* line = borrowRawAt(row);
+        if (!line) { out.lines.clear(); out.resync = true; return; }
         out.lines.push_back(*line);
     }
     out.fromLineId = out.lines.empty() ? 0 : out.lines.front().id;
 }
 
-const LogicalLine* ChunkedScrollback::lineAt(isize index) const
+std::pair<const ChunkedScrollback::StoredChunk*, isize> ChunkedScrollback::locate(isize index) const
 {
-    if (index < 0 || index >= _lineCount)
-        return nullptr;
-    // 从较近的一端扫描分块：tailFrom（每批 updateHistoryLayout 跑）与
-    // snapshot() 的 lineAt(_lineCount-1) 都访问尾部，从头扫是 O(chunks)（大
-    // scrollback 下约千块）。按 index 落在前/后半选择扫描方向，尾部访问接近
-    // O(1)，最坏仍是 O(chunks/2)。active 块逻辑上位于所有 sealed 块之后。
-    const isize activeLines =
-        _active ? isize(_active->lines.size()) - _activeFirstLine : 0;
-    if (index >= _lineCount - activeLines)
-        return &_active->lines[_activeFirstLine + (index - (_lineCount - activeLines))];
-
-    if (index <= (_lineCount - activeLines) / 2) {
-        // 前半：从最旧分块正向累加。
-        for (const StoredChunk& stored : _chunks) {
-            if (index < stored.lineCount)
-                return &stored.chunk->lines[stored.firstLine + index];
-            index -= stored.lineCount;
+    if (index < 0 || index >= _lineCount) return {nullptr, -1};
+    const isize active = _active ? isize(_active->lines.size()) - _activeFirstLine : 0;
+    const isize sealed = _lineCount - active;
+    if (index >= sealed) return {nullptr, _activeFirstLine + index - sealed};
+    if (index <= sealed / 2) {
+        for (const auto& item : _chunks) {
+            if (index < item.lineCount) return {&item, item.firstLine + index};
+            index -= item.lineCount;
         }
     } else {
-        // 后半：从最新分块反向累加，remaining 为「index 到 sealed 尾的距离」。
-        isize remaining = (_lineCount - activeLines) - index;
+        isize remaining = sealed - index;
         for (auto it = _chunks.rbegin(); it != _chunks.rend(); ++it) {
-            if (remaining <= it->lineCount)
-                return &it->chunk->lines[it->firstLine + it->lineCount - remaining];
+            if (remaining <= it->lineCount) return {&*it, it->firstLine + it->lineCount - remaining};
             remaining -= it->lineCount;
         }
     }
-    return nullptr;
+    return {nullptr, -1};
+}
+HistoryLineIndex ChunkedScrollback::lineInfoAt(isize index) const
+{
+    const auto found = locate(index);
+    if (found.second < 0) return {};
+    if (found.first) return chunkLineInfo(*found.first->chunk, found.second);
+    const auto& line = _active->lines[std::size_t(found.second)];
+    return {line.id, u64(line.cells.size()), 0, line.hardBreak};
+}
+const LogicalLine* ChunkedScrollback::borrowRawAt(isize index) const
+{
+    const auto found = locate(index);
+    if (found.second < 0) return nullptr;
+    if (found.first) return found.first->chunk->encoded ? nullptr : &found.first->chunk->lines[std::size_t(found.second)];
+    return &_active->lines[std::size_t(found.second)];
+}
+PinnedHistoryLine ChunkedScrollback::lineAt(isize index, HistoryReadMode mode) const
+{
+    const auto found = locate(index);
+    if (found.second < 0) return {};
+    if (found.first) return pinChunkLine(found.first->chunk, found.second, mode);
+    const auto& line = _active->lines[std::size_t(found.second)];
+    if (_registration) return _registration->reader()->copy(line);
+    auto copy = std::make_shared<const LogicalLine>(line);
+    return {copy, copy.get()};
 }
 
 // 清理 _retired 中已无任何快照引用的分块，回收其统计计数。
@@ -490,13 +491,117 @@ ScrollbackStatistics ChunkedScrollback::statistics() const
         ? isize(_active->lines.size()) - _activeFirstLine : 0;
     result.evictedLines = _evictedLines;
     result.evictedChunks = _evictedChunks;
+    result.rawBytes = _activeBytes;
+    for (const auto& item : _chunks) {
+        if (item.chunk->encoded) {
+            result.savedBytes += std::max<isize>(0, isize(item.chunk->encoded->originalCharge) - item.chunk->byteSize);
+            result.compressedBytes += isize(item.chunk->encoded->payload.capacity());
+            result.metadataBytes += item.chunk->byteSize - isize(item.chunk->encoded->payload.capacity());
+        } else result.rawBytes += item.chunk->byteSize;
+    }
+    result.compressedBlocks = _compressedBlocks;
+    result.skippedBlocks = _skippedBlocks;
+    result.compressionFailures = _compressionFailures;
+    result.storageErrors = _storageErrors;
+    if (_registration) {
+        const auto resource = _registration->reader()->statistics();
+        result.decodedBytes = isize(resource.decodedBytes);
+        result.pinnedDecodedBytes = isize(resource.pinnedDecodedBytes);
+        result.temporaryBytes = isize(resource.reservedTemporaryBytes);
+    }
     // 仍被旧快照持有的淘汰分块计入 retainedBySnapshots，便于排查内存
     // 无法回收的问题（通常是某个长生命周期快照未释放）。
     for (const RetiredChunk& item : _retired) {
         if (!item.chunk.expired())
             result.retainedBySnapshots += item.bytes;
     }
+    reportCharge();
     return result;
+}
+
+
+ChunkedScrollback::~ChunkedScrollback() {
+    if (_historyRuntime) { _historyRuntime->unregisterStore(_registration); _historyRuntime->removeDiagnostic(_diagnosticId); }
+}
+void ChunkedScrollback::reportCharge() const {
+    if (!_historyRuntime || !_diagnosticId) return;
+    if (_active && _active->allocation) _active->allocation->set(std::size_t(_activeBytes));
+    std::size_t retained = 0;
+    for (const auto& item : _retired) if (!item.chunk.expired()) retained += std::size_t(item.bytes);
+    _historyRuntime->updateDiagnostic(_diagnosticId, std::size_t(std::max<isize>(0, _effectiveBytes)), retained);
+}
+void ChunkedScrollback::setHistoryRuntime(std::shared_ptr<HistoryCompressionService> runtime,
+                                        std::function<void()> wake) {
+    if (_historyRuntime == runtime) return;
+    // 活历史固定在首次注入的资源域；外部 View 附着时不把已有压缩块
+    // 拆到另一个进程预算实例。传空只用于宿主关闭，明确撤销通知。
+    if (runtime && _historyRuntime && _registration) return;
+    // 已有压缩记录持有旧 reader/槽，关闭后仍可同步读取。
+    if (_historyRuntime) { _historyRuntime->unregisterStore(_registration); _historyRuntime->removeDiagnostic(_diagnosticId); }
+    _historyRuntime = std::move(runtime); _historyWake = std::move(wake); _registration.reset();
+    _diagnosticId = _historyRuntime ? _historyRuntime->registerDiagnostic() : 0;
+    if (_historyRuntime) {
+        if (_active && !_active->allocation) _active->allocation = _historyRuntime->trackPayload(std::size_t(_activeBytes));
+        for (const auto& stored : _chunks) if (!stored.chunk->allocation) stored.chunk->allocation = _historyRuntime->trackPayload(std::size_t(stored.chunk->byteSize));
+    }
+    _nextCompressionChunkId = 0;
+    for (auto& stored : _chunks) stored.attemptedEpoch = 0;
+    if (_historyRuntime && _compressionPolicy.enabled) _registration = _historyRuntime->registerStore(_historyWake);
+}
+void ChunkedScrollback::setCompressionPolicy(HistoryCompressionPolicy policy) {
+    if (_historyRuntime) _historyRuntime->invalidate(_registration);
+    policy.maximumBlockBytes = std::clamp<std::size_t>(policy.maximumBlockBytes, 4096, 1024 * 1024);
+    policy.targetBlockBytes = std::clamp<std::size_t>(policy.targetBlockBytes, 4096, policy.maximumBlockBytes);
+    _compressionPolicy = policy;
+    _nextCompressionChunkId = 0;
+    if (policy.enabled && _historyRuntime && !_registration) _registration = _historyRuntime->registerStore(_historyWake);
+    // 关闭只取消新任务；旧块继续持 reader，不能在此一次性展开。
+}
+bool ChunkedScrollback::processHistory() {
+    reportCharge();
+    if (!_historyRuntime || !_registration) return false;
+    bool changed = false; HistoryCompletion result;
+    while (_historyRuntime->take(_registration, result)) {
+        if (result.epoch != _registration->epoch()) continue;
+        auto it = std::find_if(_chunks.begin(), _chunks.end(), [&](const StoredChunk& item) { return item.chunk == result.source; });
+        if (it == _chunks.end()) continue;
+        if (!result.error.empty()) { ++_compressionFailures; continue; }
+        if (!result.encoded) { ++_skippedBlocks; continue; }
+        auto replacement = std::make_shared<ScrollbackChunk>();
+        replacement->id = result.source->id; replacement->sealed = true;
+        replacement->encoded = std::move(result.encoded); replacement->reader = _registration->reader();
+        replacement->byteSize = estimateChunkBytes(*replacement);
+        replacement->allocation = _historyRuntime->trackPayload(std::size_t(replacement->byteSize));
+        _retired.push_back({it->chunk, it->chunk->byteSize});
+        _effectiveBytes += replacement->byteSize - it->chunk->byteSize;
+        it->chunk = std::move(replacement); it->effectiveBytes = it->chunk->byteSize;
+        ++_compressedBlocks; changed = true;
+    }
+    collectRetired();
+    if (_compressionPolicy.enabled && !_chunks.empty()) {
+        // 热区仅逆向扫描最近若干块；冷块调度位置单调推进，避免每批扫描全历史。
+        std::size_t hot = std::size_t(std::max<isize>(0, _activeBytes));
+        auto boundary = _chunks.end();
+        while (boundary != _chunks.begin()) {
+            --boundary; hot += std::size_t(boundary->chunk->byteSize);
+            if (hot > _compressionPolicy.hotBytes) break;
+        }
+        const auto lastColdId = boundary->chunk->id;
+        auto it = std::lower_bound(_chunks.begin(), _chunks.end(), _nextCompressionChunkId,
+            [](const StoredChunk& item, ChunkId id) { return item.chunk->id < id; });
+        for (; it != _chunks.end() && it->chunk->id < lastColdId; ++it) {
+            if (it->chunk->encoded || it->attemptedEpoch == _registration->epoch()) {
+                _nextCompressionChunkId = it->chunk->id + 1; continue;
+            }
+            const auto bytes = std::size_t(it->chunk->byteSize);
+            if (bytes < _compressionPolicy.minimumBlockBytes || bytes > _compressionPolicy.maximumBlockBytes) {
+                it->attemptedEpoch = _registration->epoch(); ++_skippedBlocks;
+            } else if (_historyRuntime->submit(_registration, it->chunk)) it->attemptedEpoch = _registration->epoch();
+            else break;
+            _nextCompressionChunkId = it->chunk->id + 1;
+        }
+    }
+    enforceLimits(); reportCharge(); return changed;
 }
 
 } // namespace NovaTerm

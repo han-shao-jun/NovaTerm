@@ -1,4 +1,6 @@
 build/
+# LZ4 的 build/ 是上游构建脚本源码，不是本地构建产物。
+!third_party/lz4-1.10.0/build/
 .vs/
 *.user
 *.pro.user

@@ -24,7 +24,7 @@ class TerminalPage : public QWidget
 {
     Q_OBJECT
 public:
-    explicit TerminalPage(QWidget* parent = nullptr);
+    explicit TerminalPage(QWidget* parent = nullptr, std::shared_ptr<NovaTerm::HistoryCompressionService> history = {});
     ~TerminalPage() override;
 
     /**
@@ -102,6 +102,7 @@ private:
     /** 按会话状态刷新指定终端标签的断开/重连动作。 */
     void updateTerminalTabConnectionAction(TerminalView* terminalView);
     [[nodiscard]] TerminalView* currentConnectedSshTerminal() const;
+    std::shared_ptr<NovaTerm::HistoryCompressionService> _historyRuntime;
     void registerTerminalView(TerminalView* terminalView);
     /** @brief 将标签名称同步到工具面板上下文与 MCP 会话目录。 */
     void setTerminalTabTitle(TerminalView* terminalView, const QString& title);

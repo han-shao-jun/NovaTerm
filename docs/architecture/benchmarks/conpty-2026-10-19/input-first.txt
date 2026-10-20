@@ -1,0 +1,2 @@
+mode=conpty order=input-first iterations=200 settleMs=5000
+baseline=66 final=266 settled=266 delta=200 perCycle=1.000

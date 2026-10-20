@@ -53,11 +53,20 @@ public:
     // ── 查询 ──
     int lineCount() const;                           // 当前存储行数
     int columns() const { return _cols; }
-    const ScrollbackCell* lineAt(int index) const;   // index=0 是最旧的行
-    const std::vector<ScrollbackCell>* lineVectorAt(int index) const;
-    /** @brief 在调用方持有模型锁时借用逻辑行，避免快照或深拷贝。 */
-    [[nodiscard]] const NovaTerm::LogicalLine* logicalLineAt(NovaTerm::isize index) const
-    { return _storage.lineAt(index); }
+    NovaTerm::PinnedHistoryCells lineAt(int index) const;   // index=0 是最旧的行
+    NovaTerm::PinnedHistoryCells lineVectorAt(int index) const;
+    /** @brief 调用方持有模型锁时获取拥有型行；活动行复制后交出。 */
+    [[nodiscard]] NovaTerm::PinnedHistoryLine logicalLineAt(NovaTerm::isize index, NovaTerm::HistoryReadMode mode = NovaTerm::HistoryReadMode::Synchronous) const
+    { return _storage.lineAt(index, mode); }
+    void configureHistory(std::shared_ptr<NovaTerm::HistoryCompressionService> runtime,
+                          NovaTerm::HistoryCompressionPolicy policy,
+                          std::function<void()> wake) {
+        _storage.setHistoryRuntime(std::move(runtime), std::move(wake));
+        _storage.setCompressionPolicy(policy);
+    }
+    bool processHistory() { return _storage.processHistory(); }
+    bool compressionAvailable() const { return _storage.compressionAvailable(); }
+    NovaTerm::HistoryLineIndex lineInfoAt(NovaTerm::isize row) const { return _storage.lineInfoAt(row); }
     int maxLines() const { return _maxLines; }
     NovaTerm::ScrollbackSnapshot snapshot();
     // 尾部增量视图（转发到 ChunkedScrollback::tailFrom）。供渲染器增量维护

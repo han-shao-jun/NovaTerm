@@ -1,0 +1,15 @@
+{
+  "scope": "production history public transitive headers",
+  "headers": [
+    "src\\core\\CoreTypes.h",
+    "src\\core\\scrollback\\ChunkedScrollback.h",
+    "src\\core\\scrollback\\PinnedHistoryLine.h",
+    "src\\core\\scrollback\\ScrollbackData.h",
+    "src\\core\\scrollback\\ScrollbackSnapshot.h",
+    "src\\core\\terminal\\TerminalData.h",
+    "src\\history\\HistoryCompressionService.h",
+    "src\\history\\HistoryReadContext.h",
+    "src\\history\\ScrollbackBlockCodec.h"
+  ],
+  "forbidden": []
+}

@@ -125,6 +125,7 @@ ctest --test-dir build -C Debug
 | --- | --- | --- | --- | --- |
 | `src/core/terminal/`（TerminalCore、ScreenBuffer、VTAdapter、ScrollbackBuffer、BoundedByteQueue、KeyMapper）—— 后三者经 `TerminalCore.h` 传递覆盖；KeyMapper 有专项单测 | `novaterm_core_tests` | `core` | 全部 | ~30s |
 | `third_party/libvterm-0.3.3/`（本地修正）及 VT 序列语义 | `novaterm_terminal_ops_tests` + `novaterm_core_tests`（`-L core`） | `conformance`／`core` | 全部 | <1s / ~30s |
+| `src/history/`、历史纯数据/codec/块/快照/后台预算 | `novaterm_history_no_qt_link_check`（另跑独立 `tests/history-noqt`） | `history`／`scrollback` | 全部 | <1s |
 | `src/core/scrollback/`、`src/core/search/` | `novaterm_scrollback_tests` | `scrollback` | 全部 | <1s |
 | `src/filetransfer/`、`tests/filetransfer/` | `ctest -L filetransfer -LE serial`（六项纯协议；也可独立配置 `src/filetransfer`，无需 Qt） | `filetransfer`／`p9` | 全部 | <1s |
 | `src/session/transfer/`、串口文件传输窗口及接线 | `novaterm_serial_file_transfer_tests`、`novaterm_serial_file_transfer_ui_tests`；接线另跑 `novaterm_session_tests` | `serial`／`filetransfer`／`p9` | 全部 | 门面 ~53s；UI <1s |
@@ -217,6 +218,7 @@ Windows/macOS、真实 UART 与 P4/P6 产品集成未验收。下文 32/12、29/
 | `novaterm_ymodem_tests` | 无条件 | `unit;filetransfer;p9` | 60 |
 | `novaterm_zmodem_tests` | 无条件 | `unit;filetransfer;p9` | 60 |
 | `novaterm_filetransfer_no_qt_link_check` | 无条件 | `unit;filetransfer;p9` | 60 |
+| `novaterm_history_no_qt_link_check` | 无条件 | `unit;history;scrollback` | 30 |
 | `novaterm_core_tests` | 无条件 | `unit;core` | 60 |
 | `novaterm_terminal_ops_tests` | 无条件 | `unit;core;conformance` | 60 |
 | `novaterm_scrollback_tests` | 无条件 | `unit;core;scrollback` | 60 |
@@ -356,8 +358,8 @@ SSH 可选本机验收：Linux 上显式运行
 | 测试 | 原因 |
 | --- | --- |
 | ~~`novaterm_conpty_tests` 崩溃~~（Windows 本机，2026-10-06 发现并修复） | **已修复**：`ce7793a` 把 `LocalShellTransport` 里 `ConPtySession::closed → QThread::quit` 从 `QueuedConnection` 改为 `DirectConnection`，关闭时在 `closed()` 发射栈内直接结束生命周期线程，`injectedStartupStagesRollBack` 与 `startFailureRollsBackAndCanRestart` 因此以 0xc0000005 崩溃（崩帧内层符号 `QVariant::clear`/`QMetaType::registerType`，即排队事件在已释放内存上析构），`exitReasonsAndIdempotentClose` 同时开始丢 `exited`。同机 A/B 仅改这一行：Direct 4/5 崩、Queued 0/6 崩；改回后整套 `novaterm_conpty_tests` 连跑 4 次 0 崩溃。**教训：A/B 换文件时只换了 `ConPtySession.*`，第一轮把结论错记为"平台缺陷"——要一次只换一个可疑文件，别把两个文件一起换**。 |
-| `novaterm_conpty_tests` 的 `injectedStartupStagesRollBack`（末条句柄断言） | **平台缺陷，非崩溃**：用例末尾的 `currentHandleCount() <= baselineHandles` 因 `CreatePseudoConsole`/`ClosePseudoConsole` 每生命周期泄漏约 1 个句柄而失败，用例内注释与 `repeatedLifecycleReturnsResourcesToBaseline` 均记录同一根因（排除性证据 `tests/transport/conpty_handle_leak_repro.c`，实测 1.04/循环）。用例其余部分（各注入阶段回滚、子进程数收束）通过 |
-| `novaterm_conpty_tests` 的 `repeatedLifecycleReturnsResourcesToBaseline` | **平台缺陷**：`CreatePseudoConsole`/`ClosePseudoConsole` 每个生命周期泄漏约 1 个句柄。排除性证据见 `tests/transport/conpty_handle_leak_repro.c`（单线程无子进程最小复现，实测 1.04/循环）。ConPtySession 自身 8 个句柄全部正确关闭 |
+| `novaterm_conpty_tests` 的 `injectedStartupStagesRollBack`（末条句柄断言） | **本机系统 ConPTY API 泄漏，非崩溃**：2026-10-19 Windows 19045.6456 独立复现定位为已退出 `conhost.exe` 的 Process 句柄，200 次增加 200 个，等待 5 秒不回收。无 Qt/应用子进程/工作线程；系统 API 自身会启动 conhost。各注入阶段回滚和测试子进程数检查通过，句柄检查仍失败。证据见 `docs/architecture/ConPTY_Handle_Investigation_2026-10-19.md` |
+| `novaterm_conpty_tests` 的 `repeatedLifecycleReturnsResourcesToBaseline` | 同上。先关输入端或先关 HPCON 均 +200/200；只建关管道为零增长。旧句柄断言失败会跳过后续线程/子进程断言，不能把未执行项记为通过。现先检查这两项；线程减少（实测 8→6）不算泄漏，要求有效计数且不高于基线；子进程严格回到基线，句柄严格相等断言不放宽。独立诊断工具仍为 `tests/transport/conpty_handle_leak_repro.c`，未修改生产关闭路径 |
 | `novaterm_serial_file_transfer_tests` 的 `cancellationInsidePublicationRollsBackOnlyOwnFile`（Windows 本机，2026-10-06 实测） | **合并 `ce7793a` 带入的新失败**：46 通过 / 3 失败，三个数据行（`own-link`、`foreign-replacement-after-identity-check`、`new-target-blocks-foreign-restore`）失败，需 NTFS 硬链接语义与竞争注入（`tests/session/SerialFileTransferTests.cpp:186-229`）。该提交自述只在 Linux 跑过测试、Windows 路径未实测，且 `ce7793a` 已是 origin/master 顶端。 |
 | `novaterm_conpty_tests` 的 `duplexLoadAndBackpressure`、`latestResizeWins` | 偶发；`duplex` 是 20s 超时，`latestResize` 偶尔拿到旧尺寸。未查明 |
 | `novaterm_pty_tests`（Linux 本机） | 环境相关：PTY 子进程未按预期启动 —— `defaultWorkingDirectoryIsHome`、`workingDirectoryAndMergedEnvironmentReachChild` 拿不到子进程输出，`connected.wait(5000)` 超时，退出码收到 `0xFFFFFFFF`。在 `git stash` 掉全部 `src/` 改动后重建的未修改工作树上同样失败，非回归 |
@@ -532,6 +534,10 @@ src/platform/   windows/conpty/ linux/pty/
 - `libtelnet` **必须保持零改动** —— 它是一份 git clone，本地改动会造成后续 pull
   冲突。所以它不走 `add_subdirectory`，而是在根 `CMakeLists.txt` 里直接声明
   target（见那一段注释）。
+- `LZ4` 完整上游源码位于 `third_party/lz4-1.10.0/`，固定官方 `v1.10.0`
+  （`ebb370ca83af193212df4dcbadcc5d87bc0de2f0`），保持上游零改动、无嵌套
+  Git 仓库。`src/history/CMakeLists.txt` 定义 `novaterm_lz4`，仅编译 `lib/lz4.c`，
+  不构建上游 CLI、测试或安装规则；仅 codec 实现可包含 `lz4.h`。
 - `libssh` **允许本地改动**（既有先例：`misc.c` 的 `USERPROFILE` 环境回退、
   `vterm_screen_get_cells()` 那类新增 API）。2026-09-29 又改了
   `sftp.c` 的 `sftp_limits_use_default()`：把服务端未通告
@@ -565,7 +571,9 @@ src/platform/   windows/conpty/ linux/pty/
 源码、许可材料与其他依赖义务仍需核对，此记录不构成法律合规保证。
 依据见 [Qt 官方模块许可](https://doc.qt.io/qt-6.8/qthttpserver-index.html#licenses)。
 ElaWidgetTools MIT、libvterm MIT、libtelnet public domain、libssh LGPL-2.1、
-OpenSSL Apache-2.0、Clink GPL-3（仅二进制随包分发）。
+OpenSSL Apache-2.0、Clink GPL-3（仅二进制随包分发）。LZ4 `lib/` 为 BSD-2-Clause；
+完整源码树的其他文件默认 GPL-2.0-or-later，个别文件以自身声明为准，详见
+`third_party/lz4-1.10.0/LICENSE` 与 `lib/LICENSE`。
 无 NOTICE / THIRD_PARTY_LICENSES 汇总文件。
 
 ## 当前进度与主要缺口
@@ -1874,3 +1882,64 @@ QString 堆分配（热路径）、TerminalRenderer `_fm` 裸指针 delete/new �
   真实 UART/Windows/macOS 未运行；空闲证据弱于提示符/结束标记，可能把
   "仍在运行但静默"的命令判为完成，该局限已写入契约文档与表单提示。
   细节见 P8 实施记录 2026-10-18 对应小节。
+
+## LZ4 历史压缩增量（2026-10-19）
+
+针对 `f662302` 的性能工具补充：`tests/benchmarks/history/README.md` 说明
+schema 2 的追加/扫描隔离计时、进程 CPU、首次压缩冷读/热读、索引与空闲关闭。
+`run-matrix.ps1` 各项至少三次独立进程，生成原始样本、中位数/范围及可选
+`-EnforceGates`；不新增默认 CTest。历史后端改动仍跑
+`novaterm_history_no_qt_link_check`。本次 Windows Release 两组共 72 样本
+内容校验通过，普通日志 charge 下降约 74%，扫描约 OFF 的 13%，性能门槛
+未收口；报告见 `docs/architecture/benchmarks/history-f662302-2026-10-19/`。
+schema 2 不与旧 append/scan/hash 直接做前后比值。生产实现未改，默认 false。
+
+- 统一适用于 Serial/SSH/Telnet/LocalShell。配置
+  `terminal.historyCompression.enabled` 默认 false；性能门槛未通过，不改默认值。
+- 生产纯后端为 `novaterm_history`，根工程与 `tests/history-noqt` 复用目标清单。
+  `TerminalData.h`/`ScrollbackData.h` 是纯声明；旧 Types 头仅兼容 Qt 元类型。
+  `ChunkedScrollback.cpp`/Snapshot/Chunk/ThreadNaming 只编入 history，不重复编入 core。
+- `lineAt/lineById/logicalLineAt` 返回 `PinnedHistoryLine`，无裸指针转换；活动行
+  复制后交出句柄。`lineInfoAt/contains/rowForLineId/tailFrom` 定位不解压。
+  Search/Reflow 用 `HistoryReadCursor` 只 pin 最近块，不灌入共享 LRU。
+- Application 显式创建共享服务，经 MainWindow/TerminalPage/TerminalView 注入 Core；
+  SessionFactory 接受 `SessionHistoryConfig`，外部 Core 和已打开视图同样应用配置。
+  已注册存储固定在首次注入的资源域；后续非空注入不会替换它。关闭传空撤销 wake。
+- 队列 32 项/16 MiB 源块、每存储 2 个压缩任务和额外 1 个冷读槽；单 worker
+  优先冷读、同级轮转。完成 payload 合计最多 1 MiB，包含在 4 MiB worker 槽内。
+  Parser 预留槽每 Core 3 MiB，进程工作区 16 MiB，默认最多批准 4 个压缩 Core。
+  8 会话实验不能把剩余 4 个 Raw 降级会话计为 ON。
+- 共享缓存含 pin 的 charge 为 32 MiB/进程、8 MiB/存储。序列化解码临时缓冲也
+  保守计入该额度；Parser 使用预留槽，不等后台队列/缓存额度。
+- 分配 charge token 跟随真实块生命周期；压缩替换、clear、Core 关闭后旧快照仍
+  持有的 payload 继续计入共享统计。局部淘汰不按有效行比例减小块 charge。
+- GUI 冷读 CacheOnly，Pending 保留上一画面，后台完成唤醒重绘；Busy/Error 有
+  提示，错误请求不反复提交。复制冷历史在后台进行，取消/文本限额显式处理。
+- 新增 `novaterm_history_no_qt_link_check`（unit/history/scrollback），独立无 Qt
+  构建运行已验证 codec/生产存储/缓存/服务，不能据此宣称整个 core 去 Qt。
+  整合远端 MCP 新目标前本机实核 30 项；整合后按实际 ctest -N 记录，不能沿用旧数。
+- Ninja/MSVC 独立入口复用主工程 `/showIncludes` 规范化脚本；缺少它会在中文系统
+  漏掉头依赖并链接旧对象。纯目标显式关闭 AUTOMOC/AUTOUIC/AUTORCC。
+- 基线、逐阶段回归、性能与未验收项统一记录在 LZ4 实施计划及相邻 benchmarks/
+  JSON。原 P4/P5 历史实测不代表新增压缩性能。真实 UART、ASan/TSan 和 30 分钟
+  多终端长稳未执行时必须保持未验收标记。
+
+- 推送整合至 Gitee 7475adb 后，Windows 实核默认注册 **35 项**；此前本增量中
+  的 30 项及原 28/29/31/34 预计数都对应各自历史树，不表示当前测试通过。
+  根工程及干净独立后端均已构建；最终 CTest 成绩以实施计划末尾追加结果为准。
+- 远端 MCP 的 Windows 严格编译修复仅包括：pendingKeys/wakeReason 消除遮蔽、
+  if constexpr 分支改为 else 消除不可达 return、测试 stdoutText 避开 CRT 宏。
+
+- 2026-10-19 Windows 最终 **34/35，371.66 s**；唯一失败 `novaterm_conpty_tests`，
+  文件输出复跑仅已有两个句柄计数失败（10 passed/2 failed，98.227 s）。完整历史
+  no-Qt、Core/Renderer/TerminalSession 与 MCP 12 项通过。串口发布取消本轮通过，
+  不据此删除此前 NTFS 平台历史记录。JSON 与断言日志在 LZ4 benchmarks 目录。
+
+### P1 与远端 LZ4 合并复验（2026-10-20，0.2.76）
+
+合并本地 `cbe85df` 与远端 `b57a196` 后，Linux 实核 **37** 项、MCP **16** 项。
+Debug/Release 完整构建通过；Debug 全套 **37/37**（185.52 秒），Release 的
+`-L 'mcp|history|core'` **20/20**（38.59 秒），历史后端独立无 Qt Release **1/1**。
+本轮没有运行 Release 全套、消毒器、其他平台、真实 UART 或输入法人工验收；
+历史压缩默认关闭，性能门槛状态保持原记录。具体命令与日志见
+[P1 实施记录](docs/architecture/stages/P8_AI_MCP_Interface/P1_Implementation_and_Verification.md)。

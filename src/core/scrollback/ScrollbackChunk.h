@@ -4,7 +4,8 @@
  */
 #pragma once
 
-#include "ScrollbackTypes.h"
+#include "PinnedHistoryLine.h"
+#include "history/HistoryReadContext.h"
 
 namespace NovaTerm {
 
@@ -13,6 +14,11 @@ namespace NovaTerm {
  * @param chunk 待估算的分块。
  * @return 字节估算值，作为容量上限而非 RSS 实测值。
  */
+/** @brief 首尾/定位/淘汰仅访问索引，不物化 Cell。 */
+isize chunkLineCount(const ScrollbackChunk& chunk);
+HistoryLineIndex chunkLineInfo(const ScrollbackChunk& chunk, isize row);
+PinnedHistoryLine pinChunkLine(ScrollbackChunkPtr chunk, isize row,
+                              HistoryReadMode mode = HistoryReadMode::Synchronous);
 isize estimateChunkBytes(const ScrollbackChunk& chunk);
 
 /**

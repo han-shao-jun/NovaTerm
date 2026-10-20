@@ -11,6 +11,7 @@
 #include <memory>
 
 class MainWindow;
+namespace NovaTerm { class HistoryCompressionService; }
 namespace NovaTerm::Mcp { class Service; }
 
 /**
@@ -58,6 +59,7 @@ public:
 
 private:
     Application() = default;
+    std::shared_ptr<NovaTerm::HistoryCompressionService> _historyRuntime;
     std::unique_ptr<MainWindow> _mainWindow;
     std::unique_ptr<NovaTerm::Mcp::Service> _mcpService;
 };

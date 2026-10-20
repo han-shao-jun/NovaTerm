@@ -1,0 +1,221 @@
+{
+  "configuration": "Windows x64 Release / MSVC 19.51 / Qt 6.8.3",
+  "base": "7475adb + LZ4 working tree",
+  "tests": [
+    {
+      "name": "novaterm_mcp_contracts_tests",
+      "seconds": 0.0397009,
+      "status": "passed",
+      "failure": null
+    },
+    {
+      "name": "novaterm_mcp_authorization_tests",
+      "seconds": 0.0391622,
+      "status": "passed",
+      "failure": null
+    },
+    {
+      "name": "novaterm_mcp_read_use_cases_tests",
+      "seconds": 0.0367617,
+      "status": "passed",
+      "failure": null
+    },
+    {
+      "name": "novaterm_mcp_observation_state_tests",
+      "seconds": 0.036325,
+      "status": "passed",
+      "failure": null
+    },
+    {
+      "name": "novaterm_mcp_command_runtime_tests",
+      "seconds": 0.0392774,
+      "status": "passed",
+      "failure": null
+    },
+    {
+      "name": "novaterm_mcp_wire_tests",
+      "seconds": 2.85137,
+      "status": "passed",
+      "failure": null
+    },
+    {
+      "name": "novaterm_mcp_http_tests",
+      "seconds": 3.3012,
+      "status": "passed",
+      "failure": null
+    },
+    {
+      "name": "novaterm_mcp_endpoint_tests",
+      "seconds": 3.66954,
+      "status": "passed",
+      "failure": null
+    },
+    {
+      "name": "novaterm_mcp_tests",
+      "seconds": 64.3367,
+      "status": "passed",
+      "failure": null
+    },
+    {
+      "name": "novaterm_mcp_access_interaction_tests",
+      "seconds": 1.22021,
+      "status": "passed",
+      "failure": null
+    },
+    {
+      "name": "novaterm_sftp_session_safety_tests",
+      "seconds": 0.139585,
+      "status": "passed",
+      "failure": null
+    },
+    {
+      "name": "novaterm_command_safety_tests",
+      "seconds": 0.371193,
+      "status": "passed",
+      "failure": null
+    },
+    {
+      "name": "novaterm_core_tests",
+      "seconds": 11.6096,
+      "status": "passed",
+      "failure": null
+    },
+    {
+      "name": "novaterm_terminal_ops_tests",
+      "seconds": 0.250764,
+      "status": "passed",
+      "failure": null
+    },
+    {
+      "name": "novaterm_scrollback_tests",
+      "seconds": 0.6407,
+      "status": "passed",
+      "failure": null
+    },
+    {
+      "name": "novaterm_session_tests",
+      "seconds": 14.8197,
+      "status": "passed",
+      "failure": null
+    },
+    {
+      "name": "novaterm_renderer_tests",
+      "seconds": 5.88543,
+      "status": "passed",
+      "failure": null
+    },
+    {
+      "name": "novaterm_renderer_p5_tests",
+      "seconds": 0.332373,
+      "status": "passed",
+      "failure": null
+    },
+    {
+      "name": "novaterm_conpty_tests",
+      "seconds": 100.425,
+      "status": "failed",
+      "failure": {
+        "message": "Failed"
+      }
+    },
+    {
+      "name": "novaterm_terminal_session_tests",
+      "seconds": 44.9531,
+      "status": "passed",
+      "failure": null
+    },
+    {
+      "name": "novaterm_ssh_transport_check",
+      "seconds": 11.0466,
+      "status": "passed",
+      "failure": null
+    },
+    {
+      "name": "novaterm_ui_dialog_layout_tests",
+      "seconds": 0.713856,
+      "status": "passed",
+      "failure": null
+    },
+    {
+      "name": "novaterm_session_panel_tests",
+      "seconds": 0.274504,
+      "status": "passed",
+      "failure": null
+    },
+    {
+      "name": "novaterm_telnet_transport_tests",
+      "seconds": 5.28312,
+      "status": "passed",
+      "failure": null
+    },
+    {
+      "name": "novaterm_renderer_large_input_tests",
+      "seconds": 0.0471265,
+      "status": "passed",
+      "failure": null
+    },
+    {
+      "name": "novaterm_scrollback_tailfrom_scale",
+      "seconds": 3.41404,
+      "status": "passed",
+      "failure": null
+    },
+    {
+      "name": "novaterm_serial_file_transfer_tests",
+      "seconds": 90.9352,
+      "status": "passed",
+      "failure": null
+    },
+    {
+      "name": "novaterm_serial_file_transfer_ui_tests",
+      "seconds": 1.89799,
+      "status": "passed",
+      "failure": null
+    },
+    {
+      "name": "novaterm_history_no_qt_link_check",
+      "seconds": 0.171423,
+      "status": "passed",
+      "failure": null
+    },
+    {
+      "name": "novaterm_filetransfer_checksum_tests",
+      "seconds": 0.0436086,
+      "status": "passed",
+      "failure": null
+    },
+    {
+      "name": "novaterm_filetransfer_support_tests",
+      "seconds": 0.024401,
+      "status": "passed",
+      "failure": null
+    },
+    {
+      "name": "novaterm_xmodem_tests",
+      "seconds": 0.944149,
+      "status": "passed",
+      "failure": null
+    },
+    {
+      "name": "novaterm_ymodem_tests",
+      "seconds": 0.423003,
+      "status": "passed",
+      "failure": null
+    },
+    {
+      "name": "novaterm_zmodem_tests",
+      "seconds": 1.34659,
+      "status": "passed",
+      "failure": null
+    },
+    {
+      "name": "novaterm_filetransfer_no_qt_link_check",
+      "seconds": 0.0436913,
+      "status": "passed",
+      "failure": null
+    }
+  ],
+  "passed": 34,
+  "failed": 1,
+  "total_seconds": 371.66
+}

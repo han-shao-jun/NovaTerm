@@ -21,6 +21,7 @@ struct TerminalState {
     std::string title;
     bool alternateScreen{false};
     bool truncated{false};
+    bool historyBusy{false};
     std::vector<TerminalStateLine> viewport;
     std::vector<TerminalStateLine> recentOutput;
 };

@@ -2068,6 +2068,8 @@ Termination confirmed: %3
         <source>Stack Switch Mode</source>
         <translation type="unfinished"></translation>
     </message>
+
+    <message><source>Compress terminal history (all terminal types, experimental)</source><translation>Compress terminal history (all terminal types, experimental)</translation></message>
 </context>
 <context>
     <name>SftpPanel</name>
@@ -3836,5 +3838,32 @@ Termination confirmed: %3
         <source>No matches</source>
         <translation>No matches</translation>
     </message>
+
+    <message><source>History: %1 MiB resident, %2 MiB saved; %3 lines evicted</source><translation>History: %1 MiB resident, %2 MiB saved; %3 lines evicted</translation></message>
+
+    <message><source> — Compression unavailable: shared workspace is full</source><translation> — Compression unavailable: shared workspace is full</translation></message>
+
+    <message><source> — History storage errors: %1</source><translation> — History storage errors: %1</translation></message>
+
+    <message><source>Shared decode cache: %1 MiB; workspace reservations: %2 MiB; queued tasks: %3. History uses a separate budget per terminal.</source><translation>Shared decode cache: %1 MiB; workspace reservations: %2 MiB; queued tasks: %3. History uses a separate budget per terminal.</translation></message>
+
+    <message><source>All terminals: %4 MiB history charge. Shared decode cache: %1 MiB; workspace reservations: %2 MiB; queued tasks: %3. History uses a separate budget per terminal.</source><translation>All terminals: %4 MiB history charge. Shared decode cache: %1 MiB; workspace reservations: %2 MiB; queued tasks: %3. History uses a separate budget per terminal.</translation></message>
+
+    <message><source> — Low system memory: old history may be evicted</source><translation> — Low system memory: old history may be evicted</translation></message>
+</context>
+<context>
+    <name>TerminalRenderer</name>
+
+    <message><source>Copy failed: %1</source><translation>Copy failed: %1</translation></message>
+
+    <message><source>Loading selected history…</source><translation>Loading selected history…</translation></message>
+
+    <message><source>History copied</source><translation>History copied</translation></message>
+
+    <message><source>History decode failed</source><translation>History decode failed</translation></message>
+
+    <message><source>History is busy; release other readers and retry</source><translation>History is busy; release other readers and retry</translation></message>
+
+    <message><source>Loading history…</source><translation>Loading history…</translation></message>
 </context>
 </TS>

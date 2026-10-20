@@ -73,6 +73,7 @@ enum class CommandType
     FocusIn,
     FocusOut,
     SetScrollbackLimit,
+    ConfigureHistory,
     ClearScrollback,
     ClearAll,
     Flush,
@@ -86,6 +87,8 @@ enum class CommandType
 struct ParserCommand
 {
     CommandType type{CommandType::Flush};
+    std::shared_ptr<NovaTerm::HistoryCompressionService> historyRuntime;
+    NovaTerm::HistoryCompressionPolicy historyPolicy;
     uint32_t codepoint{0};
     int first{0};
     int second{0};
@@ -280,6 +283,8 @@ public:
         bytes.stop();
         if (thread.joinable())
             thread.join();
+        // 在 bytes 销毁前线性撤销 wake，遗留快照仍持有其解码资源。
+        scrollback.configureHistory({}, {}, {});
     }
 
     TerminalCore::InputWriteResult enqueueBytes(NovaTerm::ByteView data)
@@ -417,6 +422,13 @@ public:
 
         while (!stopping.load(std::memory_order_acquire)) {
             completeReadyCommands();
+            {
+                std::lock_guard<std::mutex> lock(modelMutex);
+                scrollback.processHistory();
+            }
+            if (historyReady.exchange(false)) {
+                QMetaObject::invokeMethod(owner, [target = owner] { emit target->historyDataReady(); }, Qt::QueuedConnection);
+            }
 
             isize queuedAfterTake = 0;
             const isize taken = bytes.take(batchBuffer.data(), ParserBatchSize,
@@ -444,6 +456,7 @@ public:
                     adapter->writeInput(NovaTerm::ByteView(
                         batchBuffer.data() + offset, length));
                     adapter->flushDamage();
+                    scrollback.processHistory();
                     commitPendingModelRevision();
                     maybePublishContextLocked();
                 }
@@ -714,6 +727,14 @@ public:
         case CommandType::FocusOut:
             adapter->focusOut();
             break;
+        case CommandType::ConfigureHistory:
+            scrollback.configureHistory(command.historyRuntime, command.historyPolicy, [this] {
+                historyReady.store(true, std::memory_order_release);
+                bytes.wakeConsumer();
+            });
+            scrollback.processHistory();
+            QMetaObject::invokeMethod(owner, [target = owner] { emit target->historyPolicyChanged(); }, Qt::QueuedConnection);
+            break;
         case CommandType::SetScrollbackLimit:
             scrollback.setMaxLines(command.first);
             break;
@@ -752,6 +773,7 @@ public:
         published->state = owner->terminalStateLocked(
             sinceLineId, NovaTerm::TerminalState::MaxBytes,
             NovaTerm::TerminalState::MaxLines);
+        if (published->state.historyBusy) return;
         published->capturedAt = std::chrono::system_clock::now();
         std::atomic_store(&publishedContext,
             std::shared_ptr<const NovaTerm::PublishedTerminalState>(
@@ -846,6 +868,7 @@ public:
 
     TerminalCore* owner;
     mutable std::mutex modelMutex;
+    std::atomic<bool> historyReady{false};
     NovaTerm::ScreenBuffer screen;
     ScrollbackBuffer scrollback;
     NovaTerm::CursorState cursor;
@@ -1275,7 +1298,9 @@ std::optional<NovaTerm::TerminalState> TerminalCore::tryTerminalState(
     std::unique_lock<std::mutex> locker(_runtime->modelMutex, std::try_to_lock);
     if (!locker.owns_lock())
         return std::nullopt;
-    return terminalStateLocked(sinceLineId, maxBytes, maxLines);
+    auto result = terminalStateLocked(sinceLineId, maxBytes, maxLines);
+    if (result.historyBusy) return std::nullopt;
+    return result;
 }
 
 std::optional<NovaTerm::u64> TerminalCore::tryModelRevision() const
@@ -1383,8 +1408,9 @@ NovaTerm::TerminalState TerminalCore::terminalStateLocked(
             result.viewport.push_back({static_cast<NovaTerm::u64>(row), {}});
             // 可见首行可能是历史尾部未完成逻辑行的延续，保留跨接缝前缀。
             if (row == 0 && continuation && !result.alternateScreen) {
-                const auto* prefix = _runtime->scrollback.logicalLineAt(
-                    _runtime->scrollback.lineCount() - 1);
+                const auto prefix = _runtime->scrollback.logicalLineAt(
+                    _runtime->scrollback.lineCount() - 1, NovaTerm::HistoryReadMode::CacheOnly);
+                if (!prefix && prefix.status() != NovaTerm::HistoryReadStatus::NotFound) result.historyBusy = true;
                 if (prefix && !prefix->hardBreak) {
                     // 前缀最多占一半预算，并从尾部取，保留当前屏幕的输出空间。
                     constexpr std::size_t MaxUtf8CellBytes = NovaTerm::MaxCharsPerCell * 4;
@@ -1415,13 +1441,15 @@ NovaTerm::TerminalState TerminalCore::terminalStateLocked(
         const auto count = _runtime->scrollback.lineCount();
         const auto first = std::max<NovaTerm::isize>(0, count - NovaTerm::isize(maxLines));
         if (first > 0) {
-            const auto* preceding = _runtime->scrollback.logicalLineAt(first - 1);
-            if (preceding && preceding->id > sinceLineId)
+            const auto preceding = _runtime->scrollback.lineInfoAt(first - 1);
+            if (preceding.id > sinceLineId)
                 result.truncated = true;
         }
         for (NovaTerm::isize index = count - 1; index >= first && remaining > 0; --index) {
-            const auto* line = _runtime->scrollback.logicalLineAt(index);
-            if (!line || line->id <= sinceLineId || !line->hardBreak) continue;
+            const auto info = _runtime->scrollback.lineInfoAt(index);
+            if (info.id <= sinceLineId || !info.hardBreak) continue;
+            const auto line = _runtime->scrollback.logicalLineAt(index, NovaTerm::HistoryReadMode::CacheOnly);
+            if (!line) { result.historyBusy = true; result.truncated = true; break; }
             if (result.recentOutput.size() + result.viewport.size() >= maxLines) {
                 result.truncated = true;
                 break;
@@ -1472,21 +1500,26 @@ NovaTerm::RendererSnapshot TerminalCore::rendererSnapshot(
         // nullptr，若不兜底会导致 historyViewport 为空、整个回看区渲染成
         // 空白。回退到"末尾行 + scrollLine"（与 anchorLine==0 同路径），
         // 保证有历史时回看区始终有内容。
-        const NovaTerm::LogicalLine* anchor =
-            anchorLine != 0 ? history.lineById(anchorLine) : nullptr;
+        auto anchor = history.lineInfoAt(history.rowForLineId(anchorLine));
         isize effectiveWrap = anchorWrap;
-        if (!anchor) {
-            anchor = history.lineAt(
+        if (!anchor.id) {
+            anchor = history.lineInfoAt(
                 std::max<isize>(0, history.lineCount() - scrollLine));
             effectiveWrap = 0;
         }
-        if (anchor) {
+        if (anchor.id) {
             historyViewport = NovaTerm::LineLayout::viewport(
-                history, anchor->id, effectiveWrap, snapshot.columns,
+                history, anchor.id, effectiveWrap, snapshot.columns,
                 std::min<isize>(scrollLine, snapshot.rows), 0,
-                history.version());
+                history.version(), NovaTerm::HistoryReadMode::CacheOnly);
+            if (historyViewport.status != NovaTerm::HistoryReadStatus::Found) {
+                snapshot.historyPending = true;
+                snapshot.historyStatus = historyViewport.status;
+                return snapshot;
+            }
         }
     }
+    snapshot.historyPins = historyViewport.pins;
     // widgetRow 是渲染器视角下的行号；screenRow 是它在活动屏幕中的位置。
     // screenRow < 0 表示该行落在 scrollback 中，需要从 historyViewport 取。
     for (int widgetRow = 0; widgetRow < snapshot.rows; ++widgetRow) {
@@ -1516,7 +1549,7 @@ NovaTerm::RendererSnapshot TerminalCore::rendererSnapshot(
                 // 哈希与非脏帧的 0 不一致，会被渲染器误判为内容变化而多余重建。
                 // 直接哈希历史切片（count = 切片长，补白隐含），零分配。
                 const auto& display = historyViewport.rows[widgetRow];
-                const auto* logical = history.lineById(display.lineId);
+                const auto logical = history.lineById(display.lineId, NovaTerm::HistoryReadMode::CacheOnly);
                 if (logical) {
                     const isize count = std::min<isize>(
                         snapshot.columns, display.endCell - display.startCell);
@@ -1534,7 +1567,7 @@ NovaTerm::RendererSnapshot TerminalCore::rendererSnapshot(
         if (screenRow < 0) {
             if (widgetRow < isize(historyViewport.rows.size())) {
                 const auto& display = historyViewport.rows[widgetRow];
-                const auto* logical = history.lineById(display.lineId);
+                const auto logical = history.lineById(display.lineId, NovaTerm::HistoryReadMode::CacheOnly);
                 if (logical) {
                     const isize count = std::min<isize>(
                         snapshot.columns, display.endCell - display.startCell);
@@ -1617,11 +1650,24 @@ bool TerminalCore::getScrollbackCell(int lineIndex, int col,
                                      NovaTerm::Cell& out) const
 {
     std::lock_guard<std::mutex> locker(_runtime->modelMutex);
-    const auto* line = _runtime->scrollback.lineVectorAt(lineIndex);
+    const auto line = NovaTerm::PinnedHistoryCells(_runtime->scrollback.logicalLineAt(lineIndex, NovaTerm::HistoryReadMode::CacheOnly));
     if (!line || col < 0 || col >= _runtime->scrollback.columns())
         return false;
     out = col < isize(line->size()) ? line->at(col) : NovaTerm::Cell{};
     return true;
+}
+
+bool TerminalCore::configureHistory(std::shared_ptr<NovaTerm::HistoryCompressionService> runtime,
+                                    NovaTerm::HistoryCompressionPolicy policy)
+{
+    ParserCommand command; command.type = CommandType::ConfigureHistory;
+    command.historyRuntime = std::move(runtime); command.historyPolicy = policy;
+    return _runtime->enqueueCommand(std::move(command));
+}
+bool TerminalCore::historyCompressionAvailable() const
+{
+    std::lock_guard<std::mutex> lock(_runtime->modelMutex);
+    return _runtime->scrollback.compressionAvailable();
 }
 
 void TerminalCore::setScrollbackLimit(int lines)

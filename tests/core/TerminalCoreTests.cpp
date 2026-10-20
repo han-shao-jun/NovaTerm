@@ -19,6 +19,7 @@ class TerminalCoreTests final : public QObject
     Q_OBJECT
 
 private slots:
+    void compressedHistorySupportsColdViewportSearchAndResize();
     void agentBatchEncodingUsesTerminalModesWithoutUserOutput();
     void parsesUtf8AndAttributes();
     void parsesAnsiIndexedAndTrueColors();
@@ -108,6 +109,48 @@ void writeBytes(NovaTerm::VTAdapter& adapter, const QByteArray& data)
 }
 
 } // namespace
+
+void TerminalCoreTests::compressedHistorySupportsColdViewportSearchAndResize()
+{
+    auto historyRuntime = std::make_shared<NovaTerm::HistoryCompressionService>();
+    TerminalCore core(80, 4);
+    NovaTerm::HistoryCompressionPolicy policy; policy.enabled = true; policy.hotBytes = 0;
+    QVERIFY(core.configureHistory(historyRuntime, policy));
+    QVERIFY(core.waitForIdle());
+    QVERIFY(core.historyCompressionAvailable());
+    QByteArray input;
+    for (int i = 0; i < 2500; ++i) input += QByteArray::number(i).rightJustified(6, '0') + " needle " + QByteArray(55, 'x') + "\r\n";
+    QVERIFY(core.writeInput(input).fullyAccepted()); QVERIFY(core.waitForIdle(10000));
+    QTRY_VERIFY_WITH_TIMEOUT(core.scrollbackStatistics().compressedBlocks > 0, 5000);
+    const auto frozen = core.scrollbackSnapshot();
+    auto cold = core.rendererSnapshot(std::vector<bool>(4, true), 20, frozen.firstLineId(), 0);
+    if (cold.historyPending) QTRY_VERIFY_WITH_TIMEOUT(!core.rendererSnapshot(std::vector<bool>(4, true), 20, frozen.firstLineId(), 0).historyPending, 5000);
+    cold = core.rendererSnapshot(std::vector<bool>(4, true), 20, frozen.firstLineId(), 0);
+    QVERIFY(!cold.historyPending); QVERIFY(cold.cellAt(0, 0)); QCOMPARE(cold.cellAt(0, 0)->chars[0], uint32_t('0'));
+    QSignalSpy results(&core, &TerminalCore::searchResultsReady);
+    NovaTerm::SearchRequest search; search.query = "needle"; search.generation = 1; search.maximumResults = 10000;
+    core.searchScrollback(search);
+    QTRY_VERIFY_WITH_TIMEOUT(!results.isEmpty() && qvariant_cast<NovaTerm::SearchBatch>(results.last().first()).completed, 10000);
+    qsizetype matches = 0; for (const auto& row : results) { const auto batch = qvariant_cast<NovaTerm::SearchBatch>(row.first()); QVERIFY(batch.error.empty()); matches += qsizetype(batch.matches.size()); }
+    QCOMPARE(matches, qsizetype(frozen.lineCount()));
+    const auto allCharacters = [&core] {
+        std::vector<uint32_t> text; const auto history = core.scrollbackSnapshot(); NovaTerm::HistoryReadCursor cursor(history);
+        for (NovaTerm::isize row = 0; row < history.lineCount(); ++row) {
+            const auto line = cursor.lineAt(row); if (!line) return std::vector<uint32_t>{};
+            for (const auto& cell : line->cells) if (cell.chars[0]) text.push_back(cell.chars[0]);
+        }
+        for (const auto& cell : core.snapshot().visibleCells) if (cell.chars[0]) text.push_back(cell.chars[0]);
+        return text;
+    };
+    const auto before = allCharacters(); QVERIFY(!before.empty());
+    policy.enabled = false; QVERIFY(core.configureHistory(historyRuntime, policy)); QVERIFY(core.waitForIdle());
+    core.resize(80, 350); QVERIFY(core.waitForIdle(10000));
+    core.resize(80, 4); QVERIFY(core.waitForIdle(10000));
+    QCOMPARE(allCharacters(), before);
+    QCOMPARE(frozen.lineAt(0)->cells[0].chars[0], uint32_t('0'));
+    core.clearScrollback(); QVERIFY(core.waitForIdle()); QCOMPARE(core.scrollbackLineCount(), 0);
+    QVERIFY(frozen.lineAt(0));
+}
 
 void TerminalCoreTests::parsesUtf8AndAttributes()
 {
@@ -541,7 +584,7 @@ void TerminalCoreTests::resizePreservesStyledBlankHistoryCells()
     QVERIFY(core.waitForIdle());
     const auto history = core.scrollbackSnapshot();
     QVERIFY(history.lineCount() > 0);
-    const auto* line = history.lineAt(0);
+    const auto line = history.lineAt(0);
     QVERIFY(line);
     QCOMPARE(line->cells.size(), NovaTerm::isize(20));
     const auto& blank = line->cells.back();
@@ -808,7 +851,7 @@ void TerminalCoreTests::softWrappedRowsBecomeOneLogicalHistoryLine()
 
     const auto history = core.scrollbackSnapshot();
     QCOMPARE(history.lineCount(), qsizetype(1));
-    const auto* line = history.lineAt(0);
+    const auto line = history.lineAt(0);
     QVERIFY(line);
     QCOMPARE(line->cells.size(), qsizetype(12));
     QString text;
@@ -832,7 +875,7 @@ void TerminalCoreTests::softWrapKeepsTrailingSpaces()
 
     const auto history = core.scrollbackSnapshot();
     QCOMPARE(history.lineCount(), qsizetype(1));
-    const auto* line = history.lineAt(0);
+    const auto line = history.lineAt(0);
     QVERIFY(line);
     QCOMPARE(line->cells.size(), qsizetype(8));
     QString text;

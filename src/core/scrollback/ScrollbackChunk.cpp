@@ -6,6 +6,24 @@
 
 namespace NovaTerm {
 
+isize chunkLineCount(const ScrollbackChunk& chunk) {
+    return isize(chunk.encoded ? chunk.encoded->index.size() : chunk.lines.size());
+}
+HistoryLineIndex chunkLineInfo(const ScrollbackChunk& chunk, isize row) {
+    if (row < 0 || row >= chunkLineCount(chunk)) return {};
+    if (chunk.encoded) return chunk.encoded->index[std::size_t(row)];
+    const auto& line = chunk.lines[std::size_t(row)];
+    return {line.id, u64(line.cells.size()), 0, line.hardBreak};
+}
+PinnedHistoryLine pinChunkLine(ScrollbackChunkPtr chunk, isize row, HistoryReadMode mode) {
+    if (!chunk || row < 0 || row >= chunkLineCount(*chunk)) return {};
+    if (chunk->encoded) {
+        if (!chunk->reader) return PinnedHistoryLine(HistoryReadStatus::DecodeError, "missing history reader");
+        return chunk->reader->read(chunk->encoded, row, mode);
+    }
+    const auto* line = &chunk->lines[std::size_t(row)];
+    return {std::move(chunk), line};
+}
 isize estimateChunkBytes(const ScrollbackChunk& chunk)
 {
     // 保守的分配器/控制块开销估算，作为上限估计而非 RSS 实测值。
@@ -13,6 +31,7 @@ isize estimateChunkBytes(const ScrollbackChunk& chunk)
     // ensureActive 的 reserve(_chunkLines) 预留约 40 KB/块，不计数则
     // maxBytes 限额管不到它——回看期间每帧封存的几行碎块可累积
     // 数百 MB 未入账的预留。
+    if (chunk.encoded) return isize(sizeof(ScrollbackChunk) + 64 + chunk.encoded->byteSize());
     isize bytes = sizeof(ScrollbackChunk) + 64
         + isize(chunk.lines.capacity()) * isize(sizeof(LogicalLine));
     for (const LogicalLine& line : chunk.lines)

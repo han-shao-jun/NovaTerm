@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(NovaTerm VERSION 0.2.72 LANGUAGES CXX C)
+project(NovaTerm VERSION 0.2.76 LANGUAGES CXX C)
 
 # ═══════════════════════════════════════════════════════════════════
 #  1. 通用平台编译参数
@@ -283,8 +283,9 @@ add_compile_definitions(
     "$<$<AND:$<COMPILE_LANGUAGE:CXX>,$<CONFIG:Release>>:QT_NO_DEBUG_OUTPUT>"
 )
 
+add_subdirectory(src/history)
+
 set(NOVATERM_CORE_SOURCES
-    src/core/ThreadNaming.cpp
     src/core/ThreadNaming.h
     src/core/terminal/BoundedByteQueue.cpp
     src/core/terminal/BoundedByteQueue.h
@@ -299,13 +300,10 @@ set(NOVATERM_CORE_SOURCES
     src/core/terminal/TerminalTypes.h
     src/core/terminal/VTAdapter.cpp
     src/core/terminal/VTAdapter.h
-    src/core/scrollback/ChunkedScrollback.cpp
     src/core/scrollback/ChunkedScrollback.h
     src/core/scrollback/LineLayout.cpp
     src/core/scrollback/LineLayout.h
-    src/core/scrollback/ScrollbackChunk.cpp
     src/core/scrollback/ScrollbackChunk.h
-    src/core/scrollback/ScrollbackSnapshot.cpp
     src/core/scrollback/ScrollbackSnapshot.h
     src/core/scrollback/ScrollbackTypes.h
     src/core/search/SearchEngine.cpp
@@ -325,6 +323,7 @@ target_link_libraries(novaterm_core
     PUBLIC
         Qt${QT_VERSION_MAJOR}::Core
         Qt${QT_VERSION_MAJOR}::Gui
+        novaterm_history
     PRIVATE
         libvterm
 )
@@ -352,6 +351,7 @@ list(FILTER SOURCES EXCLUDE REGEX "[/\\\\]src[/\\\\]core[/\\\\]")
 list(FILTER SOURCES EXCLUDE REGEX "[/\\\\]src[/\\\\]mcp[/\\\\]")
 list(FILTER SOURCES EXCLUDE REGEX "[/\\\\]src[/\\\\]capabilities[/\\\\]")
 list(FILTER SOURCES EXCLUDE REGEX "[/\\\\]EnvironmentTracker\\.(cpp|h)$")
+list(FILTER SOURCES EXCLUDE REGEX "[/\\\\]src[/\\\\]history[/\\\\]")
 list(FILTER SOURCES EXCLUDE REGEX "[/\\\\]src[/\\\\]filetransfer[/\\\\]")
 list(FILTER SOURCES EXCLUDE REGEX "[/\\\\]src[/\\\\]session[/\\\\]transfer[/\\\\]")
 list(FILTER SOURCES EXCLUDE REGEX "[/\\\\]SessionDirectory\\.(cpp|h)$")
@@ -942,3 +942,7 @@ if(NOT TARGET package-zip)
         COMMENT "Building NovaTerm and packaging as ZIP archive"
     )
 endif()
+
+# LZ4 基础块库的 BSD-2-Clause 许可随发行包保留。
+install(FILES third_party/lz4-1.10.0/lib/LICENSE
+    DESTINATION "${CMAKE_INSTALL_DATADIR}/doc/novaterm" RENAME LICENSE.lz4)

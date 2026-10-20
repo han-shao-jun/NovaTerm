@@ -159,3 +159,27 @@ I-002（Recipe steps 与 planDigest 的规范生成责任）仍按 P4 Provider �
 本机最终日志为 `build/p1-verification/review-fixes-0.2.72-{debug,release}-build.log`、
 `review-fixes-0.2.72-{debug,release}-mcp.log` 和 `review-fixes-0.2.72-asan.log`。
 Windows/macOS、真实 UART、P4/P5/P6 产品集成及 Release 全套仍不在本轮验证范围。
+
+## 合并远端历史压缩与输入法更新（2026-10-20，0.2.76）
+
+将 `origin/master` 的 `b57a196`（五个新提交，含官方 LZ4 源码、历史压缩、
+ConPTY 检查、性能工具和输入法预编辑显示）合入本地 P1 提交 `cbe85df`，保留双方历史。
+唯一文本冲突为根 CMake 的版本号和源文件排除规则：版本递增至 0.2.76，
+同时保留 capabilities、EnvironmentTracker 和 history 的排除规则，避免重复编译。
+自动合并的 MCP Windows 严格编译修复保留；历史压缩仍默认关闭。
+
+本次 Linux / Qt 6.8.3 / GCC 验证：
+
+- Debug 与 Release 完整构建通过。
+- `ctest --test-dir build -N` 实核 **37** 项，MCP 标签 **16** 项。
+- Debug 全套 **37/37** 通过，185.52 秒，含本机 HTTP/PTY 和串口文件传输夹具。
+- Release `ctest --test-dir build/Release -C Release -L 'mcp|history|core' --output-on-failure`：
+  **20/20** 通过，38.59 秒。
+- `tests/history-noqt` 独立 Release 配置、构建及测试 **1/1** 通过，0.11 秒。
+- 第一方变更 `git diff --cached --check` 通过。
+
+日志：`build/merge-origin-2026-10-20/`，分别为 `debug-full-ctest.log`、
+`release-related-ctest.log`、`history-noqt-ctest.log` 及对应 configure/build 日志。
+HTTP/PTY 测试使用沙箱外本机隔离环境；未连接用户服务器或真实 UART。
+本轮未运行 Release 全套、ASan/TSan、Windows/macOS、输入法人工验收或压缩性能矩阵，
+不以合并回归结果代替这些验收，不改写此前平台失败与性能门槛记录。

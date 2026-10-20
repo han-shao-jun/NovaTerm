@@ -40,7 +40,7 @@
 | 3 `SessionInputPump` | 已完成 | 暂存点为 `SessionInputPump.h:85` 的 `_pending`（上限 `MaxPendingBytes` 8 MiB / 单次 `InputChunkBytes` 64 KiB，`SessionInputPump.h:80-81`）；`src/ui/` 下无未入队 Transport 字节残留 |
 | 4 生命周期与关闭协议 | 部分完成 | `TerminalSession::close(CloseMode)` 首行 `Q_UNUSED(mode)`（`TerminalSession.cpp:317-319`），Graceful 与 Abort 未区分。**仍待做**（自包含） |
 | 5 `ITransport` 契约扩展 | 部分完成 | `transportError` 已接通：四种 Transport 全部 emit（按 ITransport.h 约定先发结构化错误、再发 `errorOccurred`），`TerminalSession` 据此把分类映射为 `SessionErrorCategory`，不再硬编码 `Io`，且仍只上报一条 `sessionError`。剩余缺口：`exited` 仅 Local 发出，转发到 `TerminalSession::exited` 后 UI 无消费者 |
-| 6 Local PTY/ConPTY | 已完成（句柄断言受平台缺陷阻塞） | 两处句柄断言失败**不是本项目缺陷**：`CreatePseudoConsole`/`ClosePseudoConsole` 在本机 Windows 版本上不配平，每个伪控制台生命周期泄漏约 1 个句柄（单线程无子进程的最小复现见 `tests/transport/conpty_handle_leak_repro.c`，实测 1.04/循环）。ConPtySession 自建的 8 个句柄全部有对应关闭点，线程数与子进程数断言均通过。另有 `duplexLoadAndBackpressure` 偶发超时待查（与句柄无关）|
+| 6 Local PTY/ConPTY | 已完成（句柄断言受平台缺陷阻塞） | 2026-10-19 本机 Windows 19045.6456 独立对照定位为系统 ConPTY API 遗留已退出 conhost 的 Process 句柄，200 次 +200，等待及关闭顺序对照均未消除；仅管道对照零增长。旧句柄失败日志不能证明后续线程/子进程断言通过，现已调整检查顺序并修正线程减少误报。保留严格句柄断言，生产路径未改；详见[排查记录](../ConPTY_Handle_Investigation_2026-10-19.md)。另有 `duplexLoadAndBackpressure` 偶发超时待查（与句柄无关）|
 | 7 SSH Transport | 大部完成 | 资源监控辅助通道已改为请求驱动常驻 channel，快速 `/proc` 与低频 `df` 分离并在同一工作线程非阻塞推进（见下方 2026-09-06 记录）。host-key 首信任经 `SshHostKeyDialog` 用户确认（`src/ui/terminal/TerminalView.cpp:447-453`）——在 View 拥有 Session 的架构下，由拥有 transport 的 View 直接处理该决策是自洽的，原「结构化 Challenge 层」为已放弃的 Manager-owns 目标服务，现降为可选。**真实缺口：keyboard-interactive 认证未实现**（连需要它的服务器会失败）|
 | 8 Serial Transport | 已完成 | 独立 I/O worker、8 MiB 有界收件箱、1 MiB 写侧与清写屏障；Windows 每次打开请求并核验 256 KiB RX。Session／取消回归及虚拟串口＋D3D11 GUI 停顿验收已实施，真实 UART／跨平台线程验收待补 |
 | 9 Telnet Transport | 已完成 | — |
@@ -390,6 +390,12 @@ CloseMode 至少区分 Graceful 与 Abort。析构可执行有界 Abort，但正
 把当前 LocalShellTransport 作为参考实现：Unix PTY 用 notifier 暂停读取，Windows ConPTY reader 用条件变量暂停。补齐部分写、子进程退出码、关闭超时、SIGWINCH/ConPTY resize、shell 环境和句柄回收测试。
 
 Local shell 命令解析属于 Profile/SessionFactory，Transport 接收已解析启动参数，不读取 UI 控件。
+
+2026-10-19 ConPTY 句柄专项：独立工具增加类型/PID/存活状态诊断、管道对照、
+关闭顺序和等待参数；诊断 NT API 仅用于手工复现，不进入生产。
+当前 Windows 的泄漏仍存在，未验证其他 Windows 版本或独立 conpty.dll。
+项目定向测试、原始日志及测试断言修正见
+[ConPTY 句柄排查](../ConPTY_Handle_Investigation_2026-10-19.md)。
 
 ### 步骤 7：实现 SSH Transport
 
