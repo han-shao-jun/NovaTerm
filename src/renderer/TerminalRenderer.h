@@ -32,6 +32,7 @@
 #include "RowBlockDamageTracker.h"
 #include "ScrollDamageHandoff.h"
 
+class QLabel;
 class TerminalCore;
 class QRhi;
 class QRhiBuffer;
@@ -545,6 +546,9 @@ private:
         _searchMatchesByLine;
 
     // 光标闪烁
+    // IME composition belongs to the view, never the terminal byte stream.
+    QLabel* _preeditLabel{nullptr};
+    void updatePreeditOverlay();
     QTimer* _blinkTimer{nullptr};
     QTimer* _reflowDebounce{nullptr};
     NovaTerm::RenderScheduler* _renderScheduler{nullptr};

@@ -11,6 +11,8 @@
 #include <QRegularExpression>
 #include <QSignalSpy>
 #include <QInputMethodEvent>
+#include <QLabel>
+#include <QFocusEvent>
 #include <QApplication>
 #include <QKeyEvent>
 #include <QTest>
@@ -76,6 +78,7 @@ private slots:
     void searchJumpWaitsForReflowAndRejectsEvictedLines();
     void searchJumpReportsEvictedPendingTarget();
     void inputMethodCommitProducesUtf8();
+    void inputMethodPreeditIsVisibleAndLocal();
     void fragmentedOutputDoesNotInflateScrollbackBytes();
     void spanAssemblyCoversBackgroundSlots();
     void spanAssemblyPacksContentIntoFourSlotsPerCell();
@@ -1938,6 +1941,42 @@ void RendererP3Tests::searchJumpReusesSnapshotWithoutPublishingTail()
     const auto after = core.scrollbackStatistics();
     QCOMPARE(after.activeLines, before.activeLines);
     QCOMPARE(after.sealedChunks, before.sealedChunks);
+}
+
+void RendererP3Tests::inputMethodPreeditIsVisibleAndLocal()
+{
+    TerminalCore core(80, 24);
+    TerminalRenderer renderer(&core);
+    renderer.resize(800, 480);
+    QSignalSpy output(&core, &TerminalCore::outputData);
+    QInputMethodEvent composing(QStringLiteral("xian'shi"), {});
+    QCoreApplication::sendEvent(&renderer, &composing);
+    auto* preedit = renderer.findChild<QLabel*>(QStringLiteral("terminalPreedit"));
+    QVERIFY(preedit);
+    QVERIFY(!preedit->isHidden());
+    QCOMPARE(preedit->text(), QStringLiteral("xian'shi"));
+    QVERIFY(preedit->width() > 20);
+    QVERIFY(core.waitForIdle());
+    QCOMPARE(output.size(), 0);
+
+    QInputMethodEvent cancel;
+    QCoreApplication::sendEvent(&renderer, &cancel);
+    QVERIFY(preedit->isHidden());
+    QCOMPARE(output.size(), 0);
+
+    QCoreApplication::sendEvent(&renderer, &composing);
+    QInputMethodEvent commit;
+    commit.setCommitString(QString::fromUtf8(u8"显示"));
+    QCoreApplication::sendEvent(&renderer, &commit);
+    QVERIFY(preedit->isHidden());
+    QTRY_COMPARE(output.size(), 1);
+    QCOMPARE(output.first().first().toByteArray(), QString::fromUtf8(u8"显示").toUtf8());
+
+    QCoreApplication::sendEvent(&renderer, &composing);
+    QFocusEvent focusOut(QEvent::FocusOut);
+    QCoreApplication::sendEvent(&renderer, &focusOut);
+    QVERIFY(preedit->isHidden());
+    QVERIFY(preedit->text().isEmpty());
 }
 
 void RendererP3Tests::inputMethodCommitProducesUtf8()

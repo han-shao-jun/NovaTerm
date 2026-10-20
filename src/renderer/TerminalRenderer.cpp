@@ -9,6 +9,8 @@
 #include "core/ThreadNaming.h"
 #include <QKeyEvent>
 #include <QInputMethodEvent>
+#include <QLabel>
+#include <QInputMethod>
 #include <QMouseEvent>
 #include <QWheelEvent>
 #include <QShowEvent>
@@ -114,6 +116,13 @@ TerminalRenderer::TerminalRenderer(TerminalCore* core, QWidget* parent)
     setMouseTracking(true);
     setCursor(Qt::IBeamCursor);
     setAutoFillBackground(true);
+    _preeditLabel = new QLabel(this);
+    _preeditLabel->setObjectName(QStringLiteral("terminalPreedit"));
+    _preeditLabel->setTextFormat(Qt::PlainText);
+    _preeditLabel->setFocusPolicy(Qt::NoFocus);
+    _preeditLabel->setAttribute(Qt::WA_TransparentForMouseEvents);
+    _preeditLabel->setAutoFillBackground(true);
+    _preeditLabel->hide();
 
     // The application UI font is proportional and must not be used for a
     // terminal grid. Keep a dedicated monospace font whose advance matches the
@@ -215,6 +224,7 @@ TerminalRenderer::TerminalRenderer(TerminalCore* core, QWidget* parent)
 
     connect(_core, &TerminalCore::historyDataReady, this, [this] { requestFullFrame(); });
     connect(_core, &TerminalCore::cursorMoved, this, [this]() {
+        updatePreeditOverlay();
         requestOverlayFrame();
     });
 
@@ -389,6 +399,7 @@ void TerminalRenderer::setColorScheme(const TerminalColorScheme& scheme)
         || _scheme.selectionColor != scheme.selectionColor;
     _scheme = scheme;
     _colorSchemeApplied = true;
+    updatePreeditOverlay();
 
     if (defaultsChanged) {
         NovaTerm::TerminalColor foreground;
@@ -1640,7 +1651,38 @@ void TerminalRenderer::inputMethodEvent(QInputMethodEvent* event)
 
     if (!event->commitString().isEmpty())
         _core->processTextInput(event->commitString());
+    _preeditLabel->setText(event->preeditString());
+    updatePreeditOverlay();
     event->accept();
+}
+
+void TerminalRenderer::updatePreeditOverlay()
+{
+    if (!_preeditLabel)
+        return;
+    if (_preeditLabel->text().isEmpty()) {
+        _preeditLabel->hide();
+        return;
+    }
+    QFont preeditFont = _font;
+    preeditFont.setUnderline(true);
+    _preeditLabel->setFont(preeditFont);
+    QPalette colors = _preeditLabel->palette();
+    colors.setColor(QPalette::Window, _scheme.background);
+    colors.setColor(QPalette::WindowText, _scheme.foreground);
+    _preeditLabel->setPalette(colors);
+    const auto cursor = _core->cursorPosition();
+    const QPoint origin = cellToWidget(cursor.row, cursor.col);
+    const int textWidth = qCeil(QFontMetricsF(preeditFont).horizontalAdvance(
+        _preeditLabel->text())) + 2;
+    // Keep the complete composition visible even at the right edge.
+    const int overlayWidth = std::min(textWidth, width());
+    const int x = std::clamp(origin.x(), 0, std::max(0, width() - overlayWidth));
+    _preeditLabel->setGeometry(x, origin.y(), overlayWidth, qCeil(_cellHeight));
+    _preeditLabel->show();
+    _preeditLabel->raise();
+    if (auto* inputMethod = QGuiApplication::inputMethod())
+        inputMethod->update(Qt::ImCursorRectangle);
 }
 
 QVariant TerminalRenderer::inputMethodQuery(
@@ -1909,6 +1951,8 @@ void TerminalRenderer::focusOutEvent(QFocusEvent* event)
 {
     QWidget::focusOutEvent(event);
     _core->focusOut();
+    _preeditLabel->clear();
+    _preeditLabel->hide();
 }
 
 bool TerminalRenderer::focusNextPrevChild(bool next)
@@ -1933,6 +1977,7 @@ void TerminalRenderer::recalculateCellSize()
     if (_cellWidth < 4) _cellWidth = 8;  // 安全下限
     _cellHeight = _fm->height();
     if (_cellHeight < 4) _cellHeight = 16;
+    updatePreeditOverlay();
 }
 
 QPoint TerminalRenderer::cellToWidget(int row, int col) const
