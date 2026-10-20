@@ -9,3 +9,6 @@ if(WIN32)
     target_link_libraries(novaterm_history_benchmark PRIVATE psapi)
 endif()
 set_target_properties(novaterm_history_benchmark PROPERTIES AUTOMOC OFF AUTOUIC OFF AUTORCC OFF)
+target_compile_definitions(novaterm_history_benchmark PRIVATE
+    NOVATERM_HISTORY_BENCHMARK_BUILD_TYPE="$<CONFIG>"
+    NOVATERM_HISTORY_BENCHMARK_COMPILER="${CMAKE_CXX_COMPILER_ID}-${CMAKE_CXX_COMPILER_VERSION}")

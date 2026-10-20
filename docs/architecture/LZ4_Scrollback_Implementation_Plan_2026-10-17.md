@@ -472,3 +472,22 @@ D:/qt/NovaTerm/build/history-package-check` 成功，实际包含
 复测：先按 README 构建 `tests/history-noqt`；PowerShell 执行 `tests/benchmarks/history/run-matrix.ps1 -Executable build/history-isolated-final/checks/novaterm_history_benchmark.exe`，等预算加 `-Rows 25000 -Budget 33554432`，节拍实验再加 `-PaceMilliseconds 2`。报告必须同时保留尽快追加与节拍数据，不能用后者掩盖突发性能缺口。
 
 结论：可选功能与依赖隔离已实现，自动化正确性回归可用；正式性能发布验收仍未完成，开关保持 false，步骤 7 的发布门槛/长稳复选框继续未勾选。
+
+### f662302 性能基准补充（2026-10-19）
+
+扩展现有无 Qt benchmark，未修改生产实现。schema 2 将生成/字段校验与
+append/scan 计时分离，新增进程 CPU、不同块首次 CacheOnly 冷读/随后的热读、
+无解码索引定位、空闲关闭；补充 continuation 语料、淘汰后逐行校验、超时与
+非法参数拒绝。矩阵各项至少三次独立进程、轮换 OFF/ON 顺序，自动保存
+中位数/范围、源/可执行文件哈希及合成门槛结果，`-EnforceGates` 可非零退出。
+
+Windows Release 同内容 1 GiB / 等预算 32 MiB 两组共 72 样本内容校验通过；
+重复/变量日志总 charge 节省约 74%，但同内容扫描吞吐仅约 OFF 的 13%，
+追加调用吞吐也未达合成门槛。此为后端计量，不能外推 Parser/真实接收性能。
+压缩块冷请求到 Found 的 P95/P99 通过后端门槛，未测 GUI frame。
+独立后端 CTest 1/1；非法参数、预算淘汰校验及门槛拒绝路径通过。
+未新增默认 CTest 项，未重复无关全套。schema 2 不与历史 schema 1 直接比较。
+
+完整数据与范围见 [本轮报告](benchmarks/history-f662302-2026-10-19/README.md)，
+复测见 [基准说明](../../tests/benchmarks/history/README.md)。步骤 7 与发布状态
+保持未完成；真实 UART/GUI、多会话长稳及其他平台等缺口仍在。

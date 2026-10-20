@@ -1865,6 +1865,15 @@ QString 堆分配（热路径）、TerminalRenderer `_fm` 裸指针 delete/new �
 
 ## LZ4 历史压缩增量（2026-10-19）
 
+针对 `f662302` 的性能工具补充：`tests/benchmarks/history/README.md` 说明
+schema 2 的追加/扫描隔离计时、进程 CPU、首次压缩冷读/热读、索引与空闲关闭。
+`run-matrix.ps1` 各项至少三次独立进程，生成原始样本、中位数/范围及可选
+`-EnforceGates`；不新增默认 CTest。历史后端改动仍跑
+`novaterm_history_no_qt_link_check`。本次 Windows Release 两组共 72 样本
+内容校验通过，普通日志 charge 下降约 74%，扫描约 OFF 的 13%，性能门槛
+未收口；报告见 `docs/architecture/benchmarks/history-f662302-2026-10-19/`。
+schema 2 不与旧 append/scan/hash 直接做前后比值。生产实现未改，默认 false。
+
 - 统一适用于 Serial/SSH/Telnet/LocalShell。配置
   `terminal.historyCompression.enabled` 默认 false；性能门槛未通过，不改默认值。
 - 生产纯后端为 `novaterm_history`，根工程与 `tests/history-noqt` 复用目标清单。
