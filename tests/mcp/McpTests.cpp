@@ -2,6 +2,10 @@
  *  @brief MCP 协议、授权、跨客户端摘要及受限命令的离线端到端检查。
  */
 #include "mcp/McpService.h"
+#include "mcp/CommandSessionAdapter.h"
+#include "capabilities/SessionRecipeAdapter.h"
+#include "capabilities/LocalAgentAdapter.h"
+#include "capabilities/McpCapabilityAdapter.h"
 #include "mcp/McpProtocol.h"
 #include "mcp/protocol/ToolCodec.h"
 #include "mcp/CommandPolicy.h"
@@ -509,6 +513,9 @@ class McpTests final : public QObject
 {
     Q_OBJECT
 private slots:
+    void commandTimeoutKeepsExecutionFacts();
+    void recipeAdapterUsesExistingSessionAndInvalidatesOnInput();
+    void recipeAdapterSubmitsSharedAndIsolatedRequests();
     void terminalInteractionSupportsEveryTransport_data();
     void terminalInteractionSupportsEveryTransport();
     void compactCapturesRetainNewestFour();
@@ -3947,6 +3954,122 @@ void McpTests::terminalInteractionRequiresNewGrantAndDeduplicates()
     const auto stale = host.call("novaterm_interact_terminal", input);
     QVERIFY(!stale.value("ok").toBool());
     QCOMPARE(f.local.written, QByteArray("python -i\rx"));
+}
+
+void McpTests::commandTimeoutKeepsExecutionFacts()
+{
+    namespace C = NovaTerm::Capabilities;
+    Fixture f;
+    QVERIFY(f.makeScriptUpload());
+    auto pending = std::make_shared<PendingExecutorState>();
+    f.session.commandFacade()->installExecutor(std::make_unique<PendingCommandExecutor>(pending), f.session.statistics().generation);
+    const auto entry = f.service.directory().entries().first();
+    QVERIFY(f.enable(false, true));
+    f.session.commandCoordinator()->notePromptReady(1, f.session.inputArbiter()->userInputGeneration());
+    auto registry = C::CapabilityRegistry::terminalCapabilities();
+    C::CapabilityAuthorization auth{[&f](const C::PrincipalId&, C::EntryKind, const C::ResourceBinding& resource,
+        const C::Definition&) { return std::optional<C::AuthorizationSnapshot>{{resource, f.service.access().version(f.client)}}; }};
+    C::CapabilityDispatcher dispatcher{registry, auth};
+    C::McpCapabilityAdapter source{auth, C::PrincipalId{f.client}};
+    C::SessionBinding binding{C::SessionId{entry.id}, C::AttachmentId{entry.attachmentId}, C::Epoch{entry.epoch}, entry.generation, entry.targetFingerprint};
+    QJsonObject delivered;
+    CommandSessionAdapter adapter{f.service.access(), f.service.directory(), f.root.path() + "/timeout-targets", "fixture",
+        {[&delivered](const TaskId&, QJsonObject value) { delivered = std::move(value); },
+            [](const TaskId&, std::chrono::milliseconds) {}, [](const QString&, const QJsonObject&) { return false; }, [] {}}, dispatcher};
+    CommandCall call; call.task = TaskId{"timeout/request"}; call.connection = "timeout"; call.id = "request";
+    call.client = ClientId{f.client};
+    call.request = RunCommandRequest{NovaTerm::Mcp::SessionId{entry.id}, Epoch{entry.epoch}, "pwd", std::chrono::milliseconds(1)};
+    adapter.start(std::move(call), entry, source.context(binding, f.service.access().version(f.client), C::OperationId{"timeout"},
+        C::Clock::now() + std::chrono::seconds(10)));
+    QVERIFY(!f.local.written.isEmpty());
+    QVERIFY(delivered.isEmpty());
+    QTest::qSleep(10); // Advance beyond the 1 ms budget without processing the backend timer.
+    adapter.expire(TaskId{"timeout/request"});
+    const auto error = delivered.value("error").toObject();
+    QCOMPARE(error.value("code").toString(), QString("COMMAND_TIMEOUT"));
+    const auto details = error.value("details").toObject();
+    QVERIFY(!details.value("executionId").toString().isEmpty());
+    QVERIFY(details.value("executionMayHaveStarted").toBool());
+    QVERIFY(!details.value("terminationConfirmed").toBool());
+    QVERIFY(!adapter.protectedTargets().isEmpty());
+}
+
+void McpTests::recipeAdapterSubmitsSharedAndIsolatedRequests()
+{
+    namespace C = NovaTerm::Capabilities;
+    Fixture f;
+    const auto entry = f.service.directory().entries().first();
+    C::SessionBinding binding{C::SessionId{entry.id}, C::AttachmentId{entry.attachmentId},
+        C::Epoch{entry.epoch}, entry.generation, entry.targetFingerprint};
+    C::SessionRecipeAdapter adapter{f.service.directory(), f.root.path() + "/targets", "instance",
+        [](const C::InvocationContext&, const C::CapabilityId&) { return true; }};
+    InteractiveCommandProfile profile;
+    profile.allowUnverifiedPrompt = true;
+    profile.requiresStartMarker = false;
+    f.session.commandCoordinator()->configure(profile);
+    f.session.commandCoordinator()->notePromptReady(9, f.session.inputArbiter()->userInputGeneration());
+    C::RecipeStep step{"uname", 65536, std::chrono::seconds(5)};
+    bool completed = false;
+    QVERIFY(adapter.submit(C::ExecutionRoute::SharedTerminal, binding, C::OperationId{"shared"}, step,
+        [&completed](auto) { completed = true; }));
+    QVERIFY(!f.local.written.isEmpty());
+    QVERIFY(f.local.written.contains("uname"));
+    adapter.cancel(binding, C::OperationId{"shared"});
+    QVERIFY(completed);
+    f.local.written.clear();
+    step.commandId = QString(NovaTerm::LocalDiagnostic::SystemIdentity);
+    completed = false;
+    QVERIFY(adapter.submit(C::ExecutionRoute::Isolated, binding, C::OperationId{"isolated"}, step,
+        [&completed](auto result) { QVERIFY(result.success); QVERIFY(result.terminationConfirmed); completed = true; }));
+    QTRY_VERIFY_WITH_TIMEOUT(completed, 5000);
+    QVERIFY(f.local.written.isEmpty());
+}
+
+void McpTests::recipeAdapterUsesExistingSessionAndInvalidatesOnInput()
+{
+    namespace C = NovaTerm::Capabilities;
+    Fixture f;
+    const auto entry = f.service.directory().entries().first();
+    C::SessionBinding binding{C::SessionId{entry.id}, C::AttachmentId{entry.attachmentId},
+        C::Epoch{entry.epoch}, entry.generation, entry.targetFingerprint};
+    auto registry = C::CapabilityRegistry::terminalCapabilities();
+    QVERIFY(registry.add({C::CapabilityId{"test.recipe"}, 1, C::ImplementationStatus::Implemented,
+        C::ResourceKind::Session, C::Policy::Recipe, {}}));
+    C::CapabilityAuthorization auth{[](const C::PrincipalId&, C::EntryKind,
+        const C::ResourceBinding& resource, const C::Definition&) {
+        return std::optional<C::AuthorizationSnapshot>{{resource, 1}};
+    }};
+    C::CapabilityDispatcher dispatcher{registry, auth};
+    C::LocalAgentAdapter local{auth, C::PrincipalId{"local-agent"}};
+    bool granted = false;
+    C::SessionRecipeAdapter adapter{f.service.directory(), f.root.path() + "/targets", "instance",
+        [&granted](const C::InvocationContext&, const C::CapabilityId&) { return granted; }};
+    C::DiagnosticTaskManager tasks{adapter};
+    C::RecipeInvocation recipe{{C::CapabilityId{"test.recipe"}, C::EnvironmentKind::Linux,
+        C::ExecutionRoute::SharedTerminal, "digest"}, {{"uname", 65536, std::chrono::seconds(1)}}};
+    const auto start = [&](const char* operation) {
+        auto context = local.context(binding, 1, C::OperationId{operation}, C::Clock::now() + std::chrono::seconds(5));
+        auto admitted = dispatcher.admit(C::CapabilityId{"test.recipe"}, context);
+        QVERIFY(std::holds_alternative<C::InvocationLease>(admitted));
+        tasks.start(recipe, std::move(std::get<C::InvocationLease>(admitted)), [](auto result) {
+            QCOMPARE(result.outcome, C::DiagnosticOutcome::Denied);
+        });
+    };
+    // No new connection, transport write bypass, or POSIX probe on Unknown.
+    start("unknown");
+    QVERIFY(f.local.written.isEmpty());
+    granted = true;
+    start("still-unknown");
+    QVERIFY(f.local.written.isEmpty());
+    f.session.environmentTracker().confirmOnce(C::EnvironmentKind::Linux,
+        C::PrincipalId{"local-agent"}, C::CapabilityId{"test.recipe"}, "digest");
+    const auto before = f.session.environmentTracker().snapshot().revision;
+    f.session.writeUserInput("manual");
+    QVERIFY(f.session.environmentTracker().snapshot().revision > before);
+    QCOMPARE(f.session.environmentTracker().snapshot().kind, C::EnvironmentKind::Unknown);
+    f.local.written.clear();
+    start("after-manual");
+    QVERIFY(f.local.written.isEmpty());
 }
 
 void McpTests::terminalInteractionSupportsEveryTransport_data()

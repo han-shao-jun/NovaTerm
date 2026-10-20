@@ -6,6 +6,7 @@
  * 控制器分支只在这里出现，界面和业务查询不重复这些规则。
  */
 #pragma once
+#include "capabilities/terminal/ReadCapabilities.h"
 
 #include "mcp/application/CapabilityResolver.h"
 #include "mcp/contracts/ToolRequests.h"
@@ -27,7 +28,7 @@ class ObservationService;
     const QString& clientId, const AccessStore& access, bool humanConfirmation);
 
 /** @brief Session、观察服务与 MCP 令牌/结果编码的只读集成适配器。 */
-class ReadUseCaseAdapter final : private ReadSessionPort
+class ReadUseCaseAdapter final : public ReadSessionPort
 {
 public:
     struct Ports
@@ -38,7 +39,7 @@ public:
         QString instance;
     };
 
-    explicit ReadUseCaseAdapter(Ports ports);
+    ReadUseCaseAdapter(Ports ports, Capabilities::CapabilityDispatcher&, const Capabilities::InvocationContext&);
     [[nodiscard]] Result<QJsonObject> listSessions(const QString& client,
         const QByteArray& key, bool formElicitation, const ListSessionsRequest& request) const;
     [[nodiscard]] Result<QJsonObject> readContext(const SessionDirectory::Entry& entry,
@@ -56,6 +57,8 @@ private:
     [[nodiscard]] DiagnosticCatalog commandCatalog(const ClientId& client,
         const SessionReference& session) const override;
     Ports _ports;
+    Capabilities::CapabilityDispatcher& _dispatcher;
+    const Capabilities::InvocationContext& _context;
 };
 
 } // namespace NovaTerm::Mcp

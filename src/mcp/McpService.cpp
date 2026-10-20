@@ -2,6 +2,10 @@
  *  @brief 有界 MCP 请求处理；所有 Session 访问均位于 GUI 线程。
  */
 #include "McpService.h"
+#include "CapabilityAdmission.h"
+#include "capabilities/terminal/SearchCapabilities.h"
+#include "capabilities/terminal/LegacyTerminalMapping.h"
+#include "capabilities/McpCapabilityAdapter.h"
 #include "TerminalInteraction.h"
 #include "McpProtocol.h"
 #include "protocol/ToolCodec.h"
@@ -68,6 +72,7 @@ public:
     struct Connection {
         QString client;
         QByteArray key;
+        std::shared_ptr<Capabilities::McpCapabilityAdapter> capabilities;
     };
     struct SearchMailbox {
         explicit SearchMailbox(Service* service) : receiver(service) {}
@@ -82,6 +87,8 @@ public:
         std::optional<ConfirmationAnswer> answer;
         bool mrtr{false}, formElicitation{false};
         qint64 deadline{0}, created{0};
+        std::optional<Capabilities::InvocationContext> invocation;
+        std::optional<Capabilities::InvocationLease> lease;
         std::shared_ptr<std::atomic<bool>> cancelled{std::make_shared<std::atomic<bool>>(false)};
     };
     PendingRequest* findRequest(const QString& key) const {
@@ -112,6 +119,8 @@ public:
                   Connection connection;
                   connection.client = client;
                   connection.key = randomBytes();
+                  connection.capabilities = std::make_shared<Capabilities::McpCapabilityAdapter>(
+                      capabilityAuthorization, Capabilities::PrincipalId{client});
                   connections.insert(id, std::move(connection));
                   emit q->changed();
                   return true;
@@ -121,7 +130,7 @@ public:
           }, owner)
     {
         clock.start();
-        terminal = std::make_unique<TerminalInteraction>(&access, &sessions, &observation, owner);
+        terminal = std::make_unique<TerminalInteraction>(&access, &sessions, &observation, capabilityDispatcher, owner);
         terminal->onChanged = [this] { emit q->changed(); };
         instance = newId();
         commands = std::make_unique<CommandSessionAdapter>(access, sessions,
@@ -130,10 +139,13 @@ public:
                     complete(task.str(), std::move(payload));
                 },
                 [this](const TaskId& task, std::chrono::milliseconds remaining) {
-                    if (auto* pending = findRequest(task.str())) pending->deadline = clock.elapsed() + remaining.count();
+                    if (auto* pending = findRequest(task.str())) {
+                        pending->deadline = clock.elapsed() + remaining.count();
+                        if (pending->lease) pending->lease->setDeadline(Capabilities::Clock::now() + remaining);
+                    }
                 },
                 [this](const QString& peer, const QJsonObject& message) { return io.send(peer, message); },
-                [this] { emit q->changed(); }});
+                [this] { emit q->changed(); }}, capabilityDispatcher);
         listenPort = port;
         timer.setInterval(100);
         QObject::connect(&timer, &QTimer::timeout, q, [this] { expireJobs(); });
@@ -292,6 +304,15 @@ public:
             + Budget::WireDeadlineMargin.count();
         pending->request = std::move(request);
         pending->created = clock.elapsed();
+        Capabilities::ResourceBinding resource{Capabilities::DirectoryBinding{}};
+        if (const auto reference = sessionReference(pending->request)) {
+            const auto entry = sessions.find(reference->session.str());
+            if (entry && entry->epoch == reference->epoch.str())
+                resource = capabilityBinding(access.grantSnapshot(ClientId{connection->client}, *entry).binding);
+        }
+        pending->invocation = connection->capabilities->context(std::move(resource),
+            access.version(connection->client), Capabilities::OperationId{newId()},
+            Capabilities::Clock::now() + std::chrono::milliseconds(pending->deadline - clock.elapsed()));
         requests.emplace(requestKey(connectionId, id), std::move(requestOwner));
         peakRequests = (std::max)(peakRequests, qsizetype(requests.size()));
         if (scheduler.enqueue(connectionId, id, [this, key=requestKey(connectionId, id)] { if (auto* pending = findRequest(key)) execute(pending); })
@@ -345,6 +366,8 @@ public:
                 else if (entry->epoch != reference->epoch.str()) payload = error("STALE_SESSION_EPOCH");
             }
         }
+        if (pending->lease && !pending->lease->finish() && !*pending->cancelled)
+            payload = error("SESSION_NOT_AVAILABLE");
         scheduler.complete(pending->connection, pending->id);
         ++completedCount;
         maximumRequestMs = (std::max)(maximumRequestMs, clock.elapsed() - pending->created);
@@ -366,6 +389,8 @@ public:
         auto owned = takeRequest(key);
         if (!owned) return;
         *owned->cancelled = true;
+        if (owned->invocation)
+            capabilityDispatcher.cancel(owned->invocation->principal, owned->invocation->operation);
         scheduler.cancel(owned->connection, owned->id);
         ++cancelledCount;
         commands->cancel(TaskId{key});
@@ -430,6 +455,21 @@ public:
         commands->sweep();
     }
 
+    bool admit(PendingRequest* pending)
+    {
+        if (!pending->invocation) { complete(requestKey(pending->connection, pending->id), error("SESSION_NOT_AVAILABLE")); return false; }
+        auto result = capabilityDispatcher.admit(terminalCapability(pending->request), *pending->invocation);
+        if (const auto* reason = std::get_if<Capabilities::Rejection>(&result)) {
+            complete(requestKey(pending->connection, pending->id),
+                *reason == Capabilities::Rejection::DeadlineExceeded ? error("DEADLINE_EXCEEDED")
+                : *reason == Capabilities::Rejection::Busy ? error("BUSY", true, 250)
+                : error("SESSION_NOT_AVAILABLE"));
+            return false;
+        }
+        pending->lease = std::move(std::get<Capabilities::InvocationLease>(result));
+        return true;
+    }
+
     void execute(PendingRequest* pending)
     {
         const auto key = requestKey(pending->connection, pending->id);
@@ -445,7 +485,10 @@ public:
         }
         const auto connection = connections.value(pending->connection);
         if (!access.enabled()) { complete(key, error("MCP_DISABLED")); return; }
-        if (pending->tool == "novaterm_list_sessions") { listSessions(pending); return; }
+        if (std::holds_alternative<ListSessionsRequest>(pending->request)) {
+            listSessions(pending);
+            return;
+        }
         const auto reference = requestSession(pending->request);
         if (!reference) { complete(key, error("INVALID_ARGUMENT")); return; }
         const auto entry = sessions.find(reference->session.str());
@@ -475,6 +518,7 @@ public:
             usesObservation = terminal->ownsCapture(connection.client, search->capture.str());
         }
         if (usesObservation) {
+            if (!admit(pending)) return;
             if (mutatingInteraction && commands->quarantined(entry->targetFingerprint)) {
                 complete(key, error("COMMAND_EXECUTION_QUARANTINED")); return;
             }
@@ -484,16 +528,17 @@ public:
                 [this, guard, key](QJsonObject value) {
                     if (guard)
                         complete(key, std::move(value));
-                }, connection.key);
+                }, connection.key, *pending->invocation);
             return;
         }
-        if (pending->tool == "novaterm_list_commands") { listCommands(pending, *entry); return; }
-        if (pending->tool == "novaterm_execute_command" || pending->tool == "novaterm_run_command"
-            || pending->tool == "novaterm_run_script") {
+        if (std::holds_alternative<ListCommandsRequest>(pending->request)) { listCommands(pending, *entry); return; }
+        if (std::holds_alternative<ExecuteCommandRequest>(pending->request)
+            || std::holds_alternative<RunCommandRequest>(pending->request)
+            || std::holds_alternative<RunScriptRequest>(pending->request)) {
             commands->start(CommandCall{TaskId{requestKey(pending->connection, pending->id)},
                 pending->connection, pending->id, ClientId{connection.client}, connection.key,
                 pending->request, pending->confirmationDigest,
-                pending->requestState, pending->answer, pending->mrtr, pending->formElicitation}, *entry);
+                pending->requestState, pending->answer, pending->mrtr, pending->formElicitation}, *entry, *pending->invocation);
             return;
         }
         if (entry->state == SessionState::Closing || entry->state == SessionState::Closed) {
@@ -502,7 +547,7 @@ public:
         if (entry->state != SessionState::Running && entry->state != SessionState::Failed) {
             complete(key, error("SESSION_NOT_READY")); return;
         }
-        if (pending->tool == "novaterm_read_context") readContext(pending, *entry);
+        if (std::holds_alternative<ReadContextRequest>(pending->request)) readContext(pending, *entry);
         else search(pending, *entry);
     }
 
@@ -511,7 +556,8 @@ public:
         const auto key = requestKey(pending->connection, pending->id);
         const auto connection = connections.value(pending->connection);
         const auto request = std::get<ListSessionsRequest>(pending->request);
-        const ReadUseCaseAdapter reads{{&access, &sessions, &observation, instance}};
+        const ReadUseCaseAdapter reads{{&access, &sessions, &observation, instance},
+            capabilityDispatcher, *pending->invocation};
         const auto result = reads.listSessions(connection.client, connection.key,
             pending->formElicitation, request);
         if (isError(result)) { complete(key, ToolCodec::encodeFailure(*errorIfAny(result))); return; }
@@ -523,7 +569,8 @@ public:
         const auto key = requestKey(pending->connection, pending->id);
         const auto connection = connections.value(pending->connection);
         const auto request = std::get<ReadContextRequest>(pending->request);
-        const ReadUseCaseAdapter reads{{&access, &sessions, &observation, instance}};
+        const ReadUseCaseAdapter reads{{&access, &sessions, &observation, instance},
+            capabilityDispatcher, *pending->invocation};
         const auto result = reads.readContext(entry, pending->connection, connection.client, connection.key, request);
         if (isError(result)) { complete(key, ToolCodec::encodeFailure(*errorIfAny(result))); return; }
         complete(key, success(std::get<QJsonObject>(result)));
@@ -532,65 +579,58 @@ public:
     void search(PendingRequest* pending, const SessionDirectory::Entry& entry)
     {
         const auto key = requestKey(pending->connection, pending->id);
-        const auto& typed = std::get<SearchContextRequest>(pending->request);
-        const auto id = typed.capture.str();
-        const auto captured = observation.captures().find(id);
-        if (!captured || captured->scope != CaptureScope::Connection
-            || captured->owner != pending->connection
+        const auto typed = std::get<SearchContextRequest>(pending->request);
+        const auto captured = observation.captures().find(typed.capture.str());
+        if (!captured || captured->scope != CaptureScope::Connection || captured->owner != pending->connection
             || captured->session != entry.id || captured->epoch != entry.epoch) {
             complete(key, error("CAPTURE_NOT_AVAILABLE")); return;
         }
-        const auto record = *captured;
-        const QString query = typed.query;
-        const bool caseSensitive = typed.caseSensitive;
-        const QString scope = typed.scope == SearchScope::Viewport ? QStringLiteral("viewport")
-            : typed.scope == SearchScope::RecentOutput ? QStringLiteral("recent_output")
-            : QStringLiteral("both");
-        const int maxMatches = typed.maxMatches;
         if (!workers) {
             workers = std::make_unique<QThreadPool>();
-            workers->setMaxThreadCount(1);
-            workers->setExpiryTimeout(1000);
+            workers->setMaxThreadCount(1); workers->setExpiryTimeout(1000);
             searchMailbox = std::make_shared<SearchMailbox>(q);
         }
         const auto mailbox = searchMailbox;
         const auto cancelled = pending->cancelled;
-        workers->start(QRunnable::create([mailbox, key, cancelled, record, id, query, caseSensitive, scope, maxMatches] {
-            NovaTerm::setCurrentThreadName("nvterm-mcp-srch");
-            QElapsedTimer timer;
-            timer.start();
-            // 纯搜索只消费不可变capture；不访问Service、Session或UI。
-            const auto found = searchCapture(record, query,
-                caseSensitive, scope, maxMatches,
-                [&cancelled, &timer] { return *cancelled || timer.elapsed() > 100; });
-            if (*cancelled) return;
+        const Capabilities::Terminal::SearchCapabilities ports{capabilityDispatcher,
+            [record = *captured](const auto&, const auto&) -> Result<CaptureRecord> { return record; },
+            [this, mailbox, cancelled](CaptureRecord record, SearchContextRequest request, auto done) {
+                workers->start(QRunnable::create([mailbox, cancelled, record = std::move(record), request = std::move(request), done = std::move(done)] {
+                    NovaTerm::setCurrentThreadName("nvterm-mcp-srch");
+                    QElapsedTimer timer; timer.start();
+                    const auto scope = request.scope == SearchScope::Viewport ? QStringLiteral("viewport")
+                        : request.scope == SearchScope::RecentOutput ? QStringLiteral("recent_output") : QStringLiteral("both");
+                    const auto found = searchCapture(record, request.query, request.caseSensitive, scope, request.maxMatches,
+                        [cancelled, &timer] { return *cancelled || timer.elapsed() > 100; });
+                    if (*cancelled) return;
+                    const std::lock_guard<std::mutex> lock(mailbox->mutex);
+                    if (!mailbox->receiver) return;
+                    QMetaObject::invokeMethod(mailbox->receiver, [cancelled, found, done] {
+                        if (!*cancelled) done(found);
+                    }, Qt::QueuedConnection);
+                }));
+            }};
+        const QPointer<Service> guard(q);
+        ports.search.invoke(typed, *pending->invocation, [this, guard, key](auto value) {
+            if (!guard) return;
+            const auto* domain = std::get_if<Result<Capabilities::Terminal::ContextSearchResult>>(&value);
+            if (!domain) { complete(key, error("SESSION_NOT_AVAILABLE")); return; }
+            if (const auto* failure = errorIfAny(*domain)) { complete(key, ToolCodec::encodeFailure(*failure)); return; }
+            const auto& result = std::get<Capabilities::Terminal::ContextSearchResult>(*domain);
             QJsonArray matches;
-            for (const auto& match : found.matches) {
-                matches.append(QJsonObject{{"source", match.source},
-                    {"lineIndex", match.lineIndex}, {"startByte", match.startByte},
-                    {"endByte", match.endByte}});
-            }
-            const auto result = found.interrupted ? error("DEADLINE_EXCEEDED")
-                : success({{"captureId", id}, {"revision", record.revision},
-                    {"matches", matches}, {"limited", found.limited},
-                    {"sourceTruncated", record.sourceTruncated},
-                    {"outputTruncated", record.outputTruncated}});
-            // stop()与投递共用邮箱锁，关闭后不再向已析构的接收者排队。
-            const std::lock_guard<std::mutex> lock(mailbox->mutex);
-            auto* receiver = mailbox->receiver;
-            if (!receiver) return;
-            QMetaObject::invokeMethod(receiver, [receiver, key, cancelled, result] {
-                if (!*cancelled)
-                    receiver->_impl->complete(key, result);
-            }, Qt::QueuedConnection);
-        }));
+            for (const auto& match : result.search.matches) matches.append(QJsonObject{{"source", match.source},
+                {"lineIndex", match.lineIndex}, {"startByte", match.startByte}, {"endByte", match.endByte}});
+            complete(key, success({{"captureId", result.capture.str()}, {"revision", result.revision}, {"matches", matches},
+                {"limited", result.search.limited}, {"sourceTruncated", result.sourceTruncated}, {"outputTruncated", result.outputTruncated}}));
+        });
     }
 
     void listCommands(PendingRequest* pending, const SessionDirectory::Entry& entry)
     {
         const auto key = requestKey(pending->connection, pending->id);
         const auto connection = connections.value(pending->connection);
-        const ReadUseCaseAdapter reads{{&access, &sessions, &observation, instance}};
+        const ReadUseCaseAdapter reads{{&access, &sessions, &observation, instance},
+            capabilityDispatcher, *pending->invocation};
         const auto result = reads.listCommands(entry, connection.client, connection.key,
             clock.elapsed());
         if (isError(result)) { complete(key, ToolCodec::encodeFailure(*errorIfAny(result))); return; }
@@ -605,6 +645,23 @@ public:
     QString status{"Disabled"};
     AccessStore access;
     SessionDirectory sessions;
+    Capabilities::CapabilityRegistry capabilityRegistry{Capabilities::CapabilityRegistry::terminalCapabilities()};
+    Capabilities::CapabilityAuthorization capabilityAuthorization{
+        [this](const Capabilities::PrincipalId& principal, Capabilities::EntryKind kind,
+               const Capabilities::ResourceBinding& binding, const Capabilities::Definition&)
+            -> std::optional<Capabilities::AuthorizationSnapshot> {
+            if (kind != Capabilities::EntryKind::Mcp || !access.enabled() || !access.version(principal.value()))
+                return std::nullopt;
+            if (const auto* target = std::get_if<Capabilities::SessionBinding>(&binding)) {
+                const auto entry = sessions.find(target->session.value());
+                if (!entry || !access.canRead(principal.value(), *entry)) return std::nullopt;
+                const auto current = capabilityBinding(access.grantSnapshot(ClientId{principal.value()}, *entry).binding);
+                return Capabilities::AuthorizationSnapshot{current, access.version(principal.value())};
+            }
+            if (!std::holds_alternative<Capabilities::DirectoryBinding>(binding)) return std::nullopt;
+            return Capabilities::AuthorizationSnapshot{binding, access.version(principal.value())};
+        }};
+    Capabilities::CapabilityDispatcher capabilityDispatcher{capabilityRegistry, capabilityAuthorization};
     HttpMcpEndpoint io;
     quint16 listenPort{0};
     QElapsedTimer clock;

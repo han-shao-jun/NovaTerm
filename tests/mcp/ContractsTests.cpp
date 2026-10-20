@@ -3,6 +3,7 @@
  * @brief MCP 契约与解码边界：目录兼容、参数接受/拒绝、强类型 ID、错误编码。
  */
 #include "mcp/contracts/Errors.h"
+#include "capabilities/CapabilityRegistry.h"
 #include "mcp/contracts/Identifiers.h"
 #include "mcp/protocol/ToolCodec.h"
 #include "mcp/protocol/ProtocolProjectionSizer.h"
@@ -117,6 +118,14 @@ void ContractsTests::catalogMatchesCompatibilityFixture()
 
 void ContractsTests::catalogExposesNineToolsInOrder()
 {
+    const auto registry = NovaTerm::Capabilities::CapabilityRegistry::terminalCapabilities();
+    QCOMPARE(registry.definitions().size(), size_t(ToolCodec::catalog().size()));
+    for (const auto& tool : ToolCodec::catalog()) {
+        const auto name = tool.toObject().value("name").toString();
+        const auto definition = registry.findByMcpTool(name);
+        QVERIFY(definition);
+        QVERIFY(definition->id.value() != name);
+    }
     QStringList actual;
     for (const auto& tool : ToolCodec::catalog())
         actual.append(tool.toObject().value(QStringLiteral("name")).toString());

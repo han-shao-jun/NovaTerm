@@ -7,6 +7,14 @@
 **Tech Stack:** C++17、Qt Core、Qt Test、现有 Session 自动化。
 **Spec:** [总体架构](00_Overall_Architecture.md)；依赖 [P0](P0_Runtime_Consolidation.md)。
 
+## 实施状态（2026-10-19）
+
+P1 运行期接口与 Session 适配已落地，当前目录版本 1，仍只发布九工具。
+实际文件/依赖、计划用例到现有测试的映射、Linux 验收及未覆盖范围见
+[P1 实施与验收记录](P1_Implementation_and_Verification.md)。
+LocalAgentAdapter 为 P6 提供类型化应用入口，不表示模型/聊天 UI 已实现；Recipe 不在 P4/P5 实现前注册。
+下列任务的验收以该记录为准，历史“九项 MCP”是计划编写时基线，当前为 16 个标签目标。
+
 ## Global Constraints
 
 不重写 HTTP、不开新终端、不升级旧权限、不新增 Transport 写旁路；完整输入维持既有免逐条确认，新增诊断权限独立。原诊断草案 QJsonObject Request/Context 只是语义示意，业务请求必须采用 typed variant，Schema 可在协议映射边界保存 JSON。
@@ -24,6 +32,8 @@
 ## 文件与接口
 
 新建 src/capabilities/CapabilityTypes.h、CapabilityResult.h、CapabilityRegistry.h/.cpp、CapabilityDispatcher.h/.cpp、CapabilityAuthorization.h/.cpp、DiagnosticTaskManager.h/.cpp、CMakeLists.txt。
+实施采用 header-only 的 CapabilityEntry / McpCapabilityAdapter / LocalAgentAdapter，以及 terminal/ 下独立领域端口；
+EnvironmentTracker 位于 src/session/，具体 SessionRecipeAdapter 仅编译到集成目标。实际依赖见实施记录。
 按消费者新增 src/capabilities/TargetEnvironment.h、SessionExecutionRouter.h/.cpp、McpCapabilityAdapter.h/.cpp、LocalAgentAdapter.h/.cpp；Session 具体适配保留在集成目标。
 修改 src/mcp/McpService.*、protocol/ToolCodec.*、src/session/CommandPlatformProfile.*、根/测试 CMakeLists.txt。
 新测试 tests/capabilities/CapabilityRuntimeTests.cpp，目标 novaterm_capabilities_tests。
@@ -42,40 +52,40 @@
 ## T1：建立目录与兼容映射
 
 **Consumes:** P0 ToolRequest/ToolCodec/Errors；**Produces:** stable capability definition 与 MCP 映射。
-- [ ] 在 CapabilityRuntimeTests 加 catalogHasStableIds、unimplementedToolsNotRegistered、legacySchemasUnchanged；断言旧 fixture 对象相等、重复 ID 拒绝、未实现不发布。
-- [ ] 配置新测试目标，运行并确认失败来自缺失 Registry/映射。
-- [ ] 最小实现 Registry，先接 terminal.context.read，再接 session.list/context.search。MCP tool name/RPC ID 不充当内部能力 ID。
-- [ ] 分离静态 tools/list 与逐目标 available/disabledReason；不随选中标签变动目录，不引入 Netcatty 式动态加载器。
-- [ ] 验证 novaterm_capabilities_tests 与 MCP contracts/wire；记录目录版本和消费者。
+- [x] 在 CapabilityRuntimeTests 加 catalogHasStableIds、unimplementedToolsNotRegistered、legacySchemasUnchanged；断言旧 fixture 对象相等、重复 ID 拒绝、未实现不发布。
+- [x] 配置新测试目标，运行并确认失败来自缺失 Registry/映射。
+- [x] 最小实现 Registry，先接 terminal.context.read，再接 session.list/context.search。MCP tool name/RPC ID 不充当内部能力 ID。
+- [x] 分离静态 tools/list 与逐目标 available/disabledReason；不随选中标签变动目录，不引入 Netcatty 式动态加载器。
+- [x] 验证 novaterm_capabilities_tests 与 MCP contracts/wire；记录目录版本和消费者。
 
 ## T2：可信 principal 与共用应用入口
 
 **Consumes:** Registry、P0 授权/用例；**Produces:** MCP/本机适配可调用的同一 Dispatcher。
-- [ ] 测 forgedPrincipalRejected、revokedBeforeDispatchDoesNotRun、sessionAndOfflineBindingsNotInterchangeable；断言 Handler 调用次数0。
-- [ ] 测 readOnlyEntryParity：假 MCP 与本机入口在同绑定下得到同允许/拒绝和投影，动态字段规范化。
-- [ ] 实现认证入口构造 Context，模型输入不可覆盖身份；排队和结果前校验版本。
-- [ ] 先迁移读工具，再迁移执行工具；每次仅一条副作用提交路径，保留票据/elicitation/MRTR/unknown。
-- [ ] 内置入口的开关/授权与外部服务开关明确分开，运行在相同下层规则之上。
-- [ ] 删除迁移后的旧分派接缝，跑 capabilities + MCP 九项。
+- [x] 测 forgedPrincipalRejected、revokedBeforeDispatchDoesNotRun、sessionAndOfflineBindingsNotInterchangeable；断言 Handler 调用次数0。
+- [x] 测 readOnlyEntryParity：假 MCP 与本机入口在同绑定下得到同允许/拒绝和投影，动态字段规范化。
+- [x] 实现认证入口构造 Context，模型输入不可覆盖身份；排队和结果前校验版本。
+- [x] 先迁移读工具，再迁移执行工具；每次仅一条副作用提交路径，保留票据/elicitation/MRTR/unknown。
+- [x] 内置入口的开关/授权与外部服务开关明确分开，运行在相同下层规则之上。
+- [x] 删除迁移后的旧分派接缝，跑 capabilities + MCP 九项。
 
 ## T3：目标环境、路由与任务预算
 
 **Consumes:** Session facts、授权快照；**Produces:** 不自动换路的 Route/不可用原因，任务容量与取消语义。
-- [ ] 测 unknownEnvironmentSendsNoProbe、uartBootToLinuxInvalidatesRecipe、sharedDiagnosticDoesNotGrantFreeInput、backendFailureDoesNotRetryOtherRoute。
-- [ ] 分离 TransportKind 与 TargetEnvironment；环境记录来源/revision，不将 Shell 标记当可信密码身份。
-- [ ] 独立模式复用 SessionCommandFacade；共享模式走 Coordinator/Controller/Arbiter，不直接 Transport::write。
-- [ ] 共享路径要求可见占用同意和就绪；TUI/REPL/登录/文件传输时零输入，不自动 Ctrl+C/退出。
-- [ ] 引入诊断任务预算全局32/Principal4；每步提交前再验；出错/取消只终结一次，未知远端保留保护。
-- [ ] 基础 text/key/paste 不因串口/无 Shell 禁用；command 快捷动作缺就绪拒绝。
-- [ ] 跑 capabilities、Session/MCP 专项，五类连接矩阵使用隔离 fake，不连接真实设备。
+- [x] 测 unknownEnvironmentSendsNoProbe、uartBootToLinuxInvalidatesRecipe、sharedDiagnosticDoesNotGrantFreeInput、backendFailureDoesNotRetryOtherRoute。
+- [x] 分离 TransportKind 与 TargetEnvironment；环境记录来源/revision，不将 Shell 标记当可信密码身份。
+- [x] 独立模式复用 SessionCommandFacade；共享模式走 Coordinator/Controller/Arbiter，不直接 Transport::write。
+- [x] 共享路径要求可见占用同意和就绪；TUI/REPL/登录/文件传输时零输入，不自动 Ctrl+C/退出。
+- [x] 引入诊断任务预算全局32/Principal4；每步提交前再验；出错/取消只终结一次，未知远端保留保护。
+- [x] 基础 text/key/paste 不因串口/无 Shell 禁用；command 快捷动作缺就绪拒绝。
+- [x] 跑 capabilities、Session/MCP 专项，五类连接矩阵使用隔离 fake，不连接真实设备。
 
 ## T4：构建与删除收口
 
 **Consumes:** 已迁用例；**Produces:** 无 HTTP 反向依赖的 novaterm_capabilities 及适配器。
-- [ ] 在不链接 HttpServer/Widgets/具体 Session 的小测试链接 Registry/授权/分派，具体 Session 仅由注入端口提供。
-- [ ] 统一 Schema/工具映射消费者，去掉重复注册与旧 Handler 路由。
-- [ ] 跑既有九目标，确认目录/确认/取消/输入去重不变。
-- [ ] 更新阶段状态、实际依赖和未覆盖项；P6只读子集可按阶段划分§6.1提前消费已收口端口，P2/P6其余能力按对应闸门开放，不宣称P1全部完成。
+- [x] 在不链接 HttpServer/Widgets/具体 Session 的小测试链接 Registry/授权/分派，具体 Session 仅由注入端口提供。
+- [x] 统一 Schema/工具映射消费者，去掉重复注册与旧 Handler 路由。
+- [x] 跑既有九目标，确认目录/确认/取消/输入去重不变（本轮为 MCP 标签 16/16，含新增四项）。
+- [x] 更新阶段状态、实际依赖和未覆盖项；P6只读子集可按阶段划分§6.1提前消费已收口端口，P2/P6其余能力按对应闸门开放，不宣称P1全部完成。
 
 ~~~bash
 cmake -S . -B build
@@ -90,8 +100,8 @@ ctest --test-dir build -C Debug -L mcp --output-on-failure
 - Registry管理目录，Dispatcher只做关联/分派；授权、任务、观察和执行规则由各自用例拥有，不能将它们的注册表全部传入Dispatcher。
 - CapabilityTypes.h只容纳轻量ID/绑定/错误等稳定值，领域请求/结果与其模块共置；不建立随每个Provider扩大的全系统variant、std::any或JSON业务总线。
 - Handler通过窄调用端口在组合根注册；能力核心不include诊断/历史/SFTP/Agent实现。Session观察、输入与独立执行按实际消费者给出小端口。
-- [ ] 增加registryDoesNotDependOnConcreteHandlers构建验证：目录/分派测试仅链接契约与fake handler；加入一个测试能力时不修改Dispatcher业务分支。
-- [ ] 记录认证/资源/执行路由的直接依赖与owner，拒绝循环依赖和依靠PUBLIC传递链接访问实现。
+- [x] 增加registryDoesNotDependOnConcreteHandlers构建验证：目录/分派测试仅链接契约与fake handler；加入一个测试能力时不修改Dispatcher业务分支。
+- [x] 记录认证/资源/执行路由的直接依赖与owner，拒绝循环依赖和依靠PUBLIC传递链接访问实现。
 
 ## 补充契约：领域类型化分派
 
@@ -108,8 +118,8 @@ ctest --test-dir build -C Debug -L mcp --output-on-failure
 
 MCP和模型工具的JSON只存在于各能力的codec适配器；工具名称到codec的映射在组合根登记。codec只负责类型解码/编码，然后调用领域端口，不能包含策略或直接调用Transport。相同Schema由对应codec提供给各入口，不手写第二套。新增能力可新增领域值契约、端口、codec和组合根注册，不修改Dispatcher、既有领域类型或UI业务分支。
 
-- [ ] T1/T2增加twoUnrelatedTypedPortsShareAdmission、deniedAdmissionNeverInvokesHandler、cancelLeaseDoesNotClaimRemoteStopped。
-- [ ] T4用fake日志分析端口证明新增能力无需修改中心请求/结果集合；协议适配链接领域契约，Dispatcher测试不链接具体领域实现。
+- [x] T1/T2增加twoUnrelatedTypedPortsShareAdmission、deniedAdmissionNeverInvokesHandler、cancelLeaseDoesNotClaimRemoteStopped。
+- [x] T4用fake日志分析端口证明新增能力无需修改中心请求/结果集合；协议适配链接领域契约，Dispatcher测试不链接具体领域实现。
 
 ## 补充契约：环境事实与失效
 
@@ -128,5 +138,5 @@ EnvironmentTracker位于Session集成适配层，是环境事实唯一写入owne
 
 同一连接上无可观测信号的远端切换无法可靠检测；文档和UI必须保留这一限制。可信适配器存在时仍需在提交前验证最新绑定。此约束只适用于新增Recipe共享路由，不暗改现行九工具的输入语义。
 
-- [ ] T3增加plainBootTextCannotAuthorizeLinux、unobservedSwitchCannotReuseExpiredEvidence、manualInputInvalidatesRecipe、confirmationAllowsOneSubmission、oldAdapterSequenceRejected。
-- [ ] P4/P5共享路由复用以上事实；没有适配器/一次性本机确认的fixture必须断言零输入。
+- [x] T3增加plainBootTextCannotAuthorizeLinux、unobservedSwitchCannotReuseExpiredEvidence、manualInputInvalidatesRecipe、confirmationAllowsOneSubmission、oldAdapterSequenceRejected。
+- [x] P1 的共享路由端口及无适配器/无一次性确认 fixture 已验证零输入；P4/P5 实际接入仍由其阶段验收，不据此宣称产品集成完成。

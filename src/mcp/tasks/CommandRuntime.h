@@ -88,6 +88,8 @@ struct CommandInvocation
     std::optional<ConfirmationTransaction> confirmation;
     std::optional<ConfirmationAnswer> answer;
     bool confirmationSupplied{false}, detachedConfirmation{false}, formElicitation{false};
+    // Optional application admission boundary. Checked at every deferred submission.
+    std::function<std::optional<Error>()> admission;
 };
 struct CommandExecutionSummary
 {

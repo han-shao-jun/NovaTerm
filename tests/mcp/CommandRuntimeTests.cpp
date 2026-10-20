@@ -1,4 +1,7 @@
 #include "mcp/tasks/CommandRuntime.h"
+#include "capabilities/terminal/CommandCapabilities.h"
+#include "capabilities/LocalAgentAdapter.h"
+#include "capabilities/McpCapabilityAdapter.h"
 
 #include <QCryptographicHash>
 #include <QTest>
@@ -73,8 +76,12 @@ struct Fixture
     qint64 now{100};
     QList<std::optional<CommandResult>> results;
     std::optional<CommandPrompt> prompt;
+    NovaTerm::Capabilities::Terminal::CommandCapabilities* capabilities{};
     CommandRuntime runtime{sessions, targets, "instance", CommandRuntime::Delivery{
-        [this](const TaskId&, std::optional<CommandResult> result) { results.append(std::move(result)); },
+        [this](const TaskId& task, std::optional<CommandResult> result) {
+            if (capabilities) capabilities->complete(task, std::move(result));
+            else results.append(std::move(result));
+        },
         [](const TaskId&, std::chrono::milliseconds) {},
         [this](const TaskId&, const CommandPrompt& value) { prompt = value; return true; },
         [] {}}, [this] { return now; }};
@@ -108,6 +115,145 @@ class CommandRuntimeTests : public QObject
 {
     Q_OBJECT
 private slots:
+    void typedExecutionPortsShareRuntimeAndRejectRevocation()
+    {
+        namespace C = NovaTerm::Capabilities;
+        Fixture f;
+        auto registry = C::CapabilityRegistry::terminalCapabilities();
+        bool allowed = true;
+        C::CapabilityAuthorization auth{[&allowed](const C::PrincipalId&, C::EntryKind,
+            const C::ResourceBinding& resource, const C::Definition&) -> std::optional<C::AuthorizationSnapshot> {
+            if (!allowed) return std::nullopt;
+            return C::AuthorizationSnapshot{resource, 5};
+        }};
+        C::CapabilityDispatcher dispatcher{registry, auth};
+        C::Terminal::CommandCapabilities ports{dispatcher, f.runtime};
+        f.capabilities = &ports;
+        C::LocalAgentAdapter local{auth, C::PrincipalId{"client"}};
+        C::McpCapabilityAdapter mcp{auth, C::PrincipalId{"client"}};
+        C::SessionBinding binding{C::SessionId{"session"}, C::AttachmentId{"attach"}, C::Epoch{"epoch"}, 1, "target"};
+        f.sessions.synchronous = true;
+        int responses = 0;
+        for (int i = 0; i < 2; ++i) {
+            f.now += 5001; // Preserve the existing target cooldown for both entrypoints.
+            f.runtime.sweep();
+            auto call = f.command();
+            call.task = TaskId{QString::number(i)};
+            call.client = ClientId{"forged"};
+            const auto context = i == 0
+                ? local.context(binding, 5, C::OperationId{QString::number(i)}, C::Clock::now() + std::chrono::seconds(5))
+                : mcp.context(binding, 5, C::OperationId{QString::number(i)}, C::Clock::now() + std::chrono::seconds(5));
+            ports.command.invoke(std::move(call), context, [&](auto result) {
+                QVERIFY(std::holds_alternative<std::optional<CommandResult>>(result));
+                const auto& command = std::get<std::optional<CommandResult>>(result);
+                QVERIFY2(command && !command->error, command && command->error ? errorCodeName(command->error->code) : "missing result");
+                ++responses;
+            });
+        }
+        QCOMPARE(responses, 2);
+        QCOMPARE(f.sessions.submissions, 2);
+        allowed = false;
+        local.invoke(ports.command, f.command(), binding, 5, C::OperationId{"revoked"},
+            C::Clock::now() + std::chrono::seconds(5), [](auto result) {
+                QVERIFY(std::holds_alternative<C::Rejection>(result));
+            });
+        QCOMPARE(f.sessions.submissions, 2);
+        f.capabilities = nullptr;
+    }
+    void disablingLocalEntryBlocksDeferredCommandSubmission_data()
+    {
+        QTest::addColumn<bool>("duringPublication");
+        QTest::newRow("confirmation") << false;
+        QTest::newRow("publication") << true;
+    }
+    void disablingLocalEntryBlocksDeferredCommandSubmission()
+    {
+        QFETCH(bool, duringPublication);
+        namespace C = NovaTerm::Capabilities;
+        Fixture f;
+        auto registry = C::CapabilityRegistry::terminalCapabilities();
+        C::CapabilityAuthorization auth{[](const C::PrincipalId&, C::EntryKind,
+            const C::ResourceBinding& resource, const C::Definition&) {
+            return std::optional<C::AuthorizationSnapshot>{{resource, 5}};
+        }};
+        C::CapabilityDispatcher dispatcher{registry, auth};
+        C::Terminal::CommandCapabilities ports{dispatcher, f.runtime}; f.capabilities = &ports;
+        C::LocalAgentAdapter local{auth, C::PrincipalId{"client"}};
+        C::SessionBinding binding{C::SessionId{"session"}, C::AttachmentId{"attach"}, C::Epoch{"epoch"}, 1, "target"};
+        auto call = duringPublication ? f.script() : f.command();
+        if (!duringPublication) call.request = RunCommandRequest{SessionId{"session"}, Epoch{"epoch"}, "rm -rf /tmp/test"};
+        call.formElicitation = true;
+        local.invoke(duringPublication ? ports.script : ports.command, std::move(call), binding, 5, C::OperationId{"op"},
+            C::Clock::now() + std::chrono::seconds(5), [](auto) {});
+        QVERIFY(f.prompt);
+        if (duringPublication) {
+            f.runtime.confirm(TaskId{"task"}, ConfirmationAnswer::Accept);
+            QCOMPARE(f.sessions.publications, 1);
+        }
+        local.setEnabled(false);
+        if (duringPublication)
+            f.runtime.publicationFinished({f.sessions.published, true, {}, "/tmp/test.sh",
+                QCryptographicHash::hash(QByteArray{"echo hello\n"}, QCryptographicHash::Sha256)});
+        else f.runtime.confirm(TaskId{"task"}, ConfirmationAnswer::Accept);
+        QCOMPARE(f.sessions.submissions, 0);
+        f.capabilities = nullptr;
+    }
+    void commandPortDestructionCancelsDeferredSubmission()
+    {
+        namespace C = NovaTerm::Capabilities;
+        Fixture f;
+        auto registry = C::CapabilityRegistry::terminalCapabilities();
+        C::CapabilityAuthorization auth{[](const C::PrincipalId&, C::EntryKind,
+            const C::ResourceBinding& resource, const C::Definition&) { return std::optional<C::AuthorizationSnapshot>{{resource, 5}}; }};
+        C::CapabilityDispatcher dispatcher{registry, auth};
+        C::LocalAgentAdapter local{auth, C::PrincipalId{"client"}};
+        C::SessionBinding binding{C::SessionId{"session"}, C::AttachmentId{"attach"}, C::Epoch{"epoch"}, 1, "target"};
+        auto ports = std::make_unique<C::Terminal::CommandCapabilities>(dispatcher, f.runtime);
+        f.capabilities = ports.get();
+        auto call = f.command(); call.formElicitation = true;
+        call.request = RunCommandRequest{SessionId{"session"}, Epoch{"epoch"}, "rm -rf /tmp/test"};
+        local.invoke(ports->command, std::move(call), binding, 5, C::OperationId{"op"},
+            C::Clock::now() + std::chrono::seconds(5), [](auto) { QFAIL("destroyed port delivered"); });
+        QVERIFY(f.prompt);
+        ports.reset(); f.capabilities = nullptr;
+        f.runtime.confirm(TaskId{"task"}, ConfirmationAnswer::Accept);
+        QCOMPARE(f.sessions.submissions, 0);
+        QCOMPARE(dispatcher.activeCount(), size_t(0));
+    }
+    void cancelledCapabilityCommandsReturnAdmissionBudget()
+    {
+        namespace C = NovaTerm::Capabilities;
+        Fixture f;
+        auto registry = C::CapabilityRegistry::terminalCapabilities();
+        C::CapabilityAuthorization auth{[](const C::PrincipalId&, C::EntryKind, const C::ResourceBinding& resource,
+            const C::Definition&) { return std::optional<C::AuthorizationSnapshot>{{resource, 5}}; }};
+        C::CapabilityDispatcher dispatcher{registry, auth};
+        C::Terminal::CommandCapabilities ports{dispatcher, f.runtime}; f.capabilities = &ports;
+        C::LocalAgentAdapter local{auth, C::PrincipalId{"client"}};
+        C::SessionBinding binding{C::SessionId{"session"}, C::AttachmentId{"attach"}, C::Epoch{"epoch"}, 1, "target"};
+        for (size_t i = 0; i <= C::CapabilityDispatcher::MaxOperations; ++i) {
+            auto call = f.command(); call.task = TaskId{QString::number(i)}; call.formElicitation = true;
+            call.request = RunCommandRequest{SessionId{"session"}, Epoch{"epoch"}, "rm -rf /tmp/test"};
+            const C::OperationId operation{QString::number(i)};
+            local.invoke(ports.command, std::move(call), binding, 5, operation, C::Clock::now() + std::chrono::seconds(5),
+                [](auto) { QFAIL("cancelled request must not deliver a reply"); });
+            QVERIFY(dispatcher.cancel(C::PrincipalId{"client"}, operation));
+            QCOMPARE(dispatcher.activeCount(), size_t(0));
+        }
+        QCOMPARE(f.sessions.submissions, 0);
+        for (const auto& peer : {QString("peer-one"), QString("peer-two")}) {
+            auto call = f.command(); call.task = TaskId{peer}; call.connection = PeerId{peer}; call.formElicitation = true;
+            call.request = RunCommandRequest{SessionId{"session"}, Epoch{"epoch"}, "rm -rf /tmp/test"};
+            local.invoke(ports.command, std::move(call), binding, 5, C::OperationId{peer}, C::Clock::now() + std::chrono::seconds(5),
+                [](auto) { QFAIL("disconnected request delivered"); });
+        }
+        QCOMPARE(dispatcher.activeCount(), size_t(2));
+        ports.disconnect("peer-one");
+        QCOMPARE(dispatcher.activeCount(), size_t(1));
+        ports.stop();
+        QCOMPARE(dispatcher.activeCount(), size_t(0));
+        f.capabilities = nullptr;
+    }
     void synchronousCompletionRetainsFinalRecord()
     {
         Fixture f; f.sessions.synchronous = true;

@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(NovaTerm VERSION 0.2.71 LANGUAGES CXX C)
+project(NovaTerm VERSION 0.2.72 LANGUAGES CXX C)
 
 # ═══════════════════════════════════════════════════════════════════
 #  1. 通用平台编译参数
@@ -350,6 +350,8 @@ target_link_libraries(novaterm_serial_transfer PUBLIC
 file(GLOB_RECURSE SOURCES CONFIGURE_DEPENDS "src/*.cpp" "src/*.h")
 list(FILTER SOURCES EXCLUDE REGEX "[/\\\\]src[/\\\\]core[/\\\\]")
 list(FILTER SOURCES EXCLUDE REGEX "[/\\\\]src[/\\\\]mcp[/\\\\]")
+list(FILTER SOURCES EXCLUDE REGEX "[/\\\\]src[/\\\\]capabilities[/\\\\]")
+list(FILTER SOURCES EXCLUDE REGEX "[/\\\\]EnvironmentTracker\\.(cpp|h)$")
 list(FILTER SOURCES EXCLUDE REGEX "[/\\\\]src[/\\\\]filetransfer[/\\\\]")
 list(FILTER SOURCES EXCLUDE REGEX "[/\\\\]src[/\\\\]session[/\\\\]transfer[/\\\\]")
 list(FILTER SOURCES EXCLUDE REGEX "[/\\\\]SessionDirectory\\.(cpp|h)$")
@@ -357,6 +359,7 @@ list(FILTER SOURCES EXCLUDE REGEX
     "[/\\\\](CommandPlatformProfile|ISessionCommandExecutor|LocalSessionCommandExecutor|SessionCommandFacade|SshSessionCommandExecutor)\\.(cpp|h)$"
 )
 add_subdirectory(tools/novaterm-local-diag)
+add_subdirectory(src/capabilities)
 add_subdirectory(src/mcp)
 # Linux 主程序与私有运行库的安装目录。
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
@@ -417,6 +420,8 @@ target_link_libraries(NovaTerm PRIVATE
         novaterm_core
         novaterm_serial_transfer
         novaterm_mcp_runtime
+        novaterm_capabilities
+        novaterm_session_environment
         libtelnet
         ssh::ssh
         OpenSSL::Crypto

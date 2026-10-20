@@ -138,9 +138,10 @@ Parser 单写，Renderer / Search 读取快照，跨线程队列有界。
 - `SessionInputPump`：输入泵，处理数据流和背压
 - `SerialFileTransferController`：串口文件传输控制器，经 Session 的输入分流与出站独占机制接入协议库
 
-### 协议与 MCP (`src/filetransfer/`、`src/mcp/`)
+### 协议与 MCP (`src/filetransfer/`、`src/capabilities/`、`src/mcp/`)
 
 - `src/filetransfer/`：不依赖 Qt 的 XMODEM/YMODEM/ZMODEM 协议引擎，可独立构建
+- `src/capabilities/`：共享能力目录、可信准入、类型化应用端口与 Recipe 路由；本机 Agent 产品 UI 和诊断包仍按后续阶段交付
 - `src/mcp/`：进程内 Qt HTTP Server、MCP wire 协议与授权；不再构建或启动独立 stdio 桥接
 
 启用 MCP 并导出客户端配置后，HTTP 客户端使用 `type: "http"`、`url` 和
@@ -220,6 +221,7 @@ NovaTerm/
 │   ├── service/        # 公共服务
 │   ├── credential/     # 凭据管理
 │   ├── profile/        # 配置管理
+│   ├── capabilities/   # 共享能力目录、准入与类型化端口
 │   ├── mcp/            # AI MCP 协议与授权
 │   ├── filetransfer/   # XMODEM/YMODEM/ZMODEM 协议库（不依赖 Qt）
 │   └── platform/       # 平台特定代码
@@ -245,6 +247,9 @@ SSH 验收（需要 sshd、ssh-keygen、ninja 和 c++；不修改用户 SSH 信�
 安全目标；默认启用 benchmark 构建，实际以 `ctest -N` 为准）。2026-10-17
 Linux Debug 全部构建及 27/27 CTest 通过，耗时 178.00 秒；验证范围见 MCP实施与验收记录，这是本机成绩，
 不替代 Windows/macOS 验收。
+mcp/P1 增量后 Linux 当前注册 36 项、MCP 标签 16 项，其中新增四项有 `capabilities` 标签。
+能力运行期改动可先跑 `ctest --test-dir build -L capabilities --output-on-failure`；跨 MCP 接线跑 `-L mcp`。
+Debug/Release 构建与专项、历史全套范围见 [P1 实施记录](docs/architecture/stages/P8_AI_MCP_Interface/P1_Implementation_and_Verification.md)。
 `novaterm_conpty_tests`、`novaterm_terminal_session_tests` 仅 Windows，
 `novaterm_pty_tests` 仅 Linux。
 

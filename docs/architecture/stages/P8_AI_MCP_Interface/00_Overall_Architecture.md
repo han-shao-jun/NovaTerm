@@ -117,7 +117,7 @@ Evidence作为独立应用职责：History、诊断、导入分别提供来源�
 | --- | --- |
 | Service / 集成组合根 | 生命周期、组件装配、入口接线；不重新内联九工具业务 |
 | ToolCodec / 协议适配 | Schema、类型化解码、错误/结果编码；不拥有授权/Session |
-| CapabilityRegistry / Dispatcher（规划） | 版本化能力元数据、类型化请求分派；不复制各用例状态 |
+| CapabilityRegistry / Dispatcher（P1 已实现） | 版本化能力元数据、类型化请求分派；不复制各用例状态 |
 | AuthorizationService / GrantStore | 单项授权事务、绑定/版本、级联与失效 |
 | CapabilityResolver | 授权 + 当前事实 → 是否可执行及明确原因；不探测、不授予 |
 | ObservationService | 一个基础快照源、CaptureStore、读取/搜索；不执行命令 |
@@ -131,7 +131,7 @@ Evidence作为独立应用职责：History、诊断、导入分别提供来源�
 | AgentManager / Runtime（规划） | 应用级聊天与回合、Driver、事件、取消和上下文 |
 | UI model / controller | 只读快照和本机意图；不持可变 AccessStore，不判定后端能力 |
 
-目标是每项可变状态有一个明确 owner；观察者只保存 ID/弱引用，不复制 Job。当前Service已用unique_ptr拥有请求；CommandRuntime内部的共享引用仅用于同步回调和迟到发布保活，不跨组件暴露。ReadUseCases已可独立链接；执行已通过CommandSessionPort隔离具体Session；wait/replay由纯应用ObservationState拥有，平台验收差距按mcp/P0记录，不把P1通用入口写成已完成。
+目标是每项可变状态有一个明确 owner；观察者只保存 ID/弱引用，不复制 Job。当前Service已用unique_ptr拥有请求；CommandRuntime内部的共享引用仅用于同步回调和迟到发布保活，不跨组件暴露。ReadUseCases已可独立链接；执行已通过CommandSessionPort隔离具体Session；wait/replay由纯应用ObservationState拥有，平台验收差距按mcp/P0记录，P1 通用入口与 Session 适配已实现，P4/P6 产品集成和平台范围见 P1 实施记录。
 QObject 统一选择 parent 或 unique_ptr 所有权；Session 观察者在适配边界使用 QPointer，worker 不保存 Session/UI QObject 裸指针。
 
 ## 4. 身份、资源、权限与可用性
@@ -222,7 +222,7 @@ Ela 侧栏包含 Agent/模型/推理/权限、消息与工具/批准卡片、选
 | 发布/记录 | 脚本 2 MiB、待发布 8；每客户端执行记录 32、执行+发布总 128 |
 | 命令/确认 | 默认输出 64 KiB；确认 60 秒、发布 120 秒；HTTP 原报文/帧/SSE 额度不变 |
 
-未来初值：诊断任务全局 32/Principal 4；历史单 Session 队列 16 MiB/全局 64 MiB、chunk 4 MiB；扫描并发全局 2/Principal 1、页扫描 2 秒/16 MiB；历史单结果默认 ≤64 KiB。这些是设计值，不是性能成绩。
+诊断任务全局 32/Principal 4 已在 P1 TaskManager 实现并做行为测试；其余未来初值：历史单 Session 队列 16 MiB/全局 64 MiB、chunk 4 MiB；扫描并发全局 2/Principal 1、页扫描 2 秒/16 MiB；历史单结果默认 ≤64 KiB。这些是设计值，不是性能成绩。
 
 Session/授权/应用状态串行于所属 GUI 线程，网络、Parser、文件/SFTP、搜索和凭据各走异步边界。worker 仅交换有界值或不可变引用；拒绝符号链接重定向，私有文件含 WAL/SHM 与派生索引统一清理，不承诺 SSD 物理擦除。
 秘密不进入工具结果、普通输入批次、capture、日志/审计。审计记录能力、匿名目标、状态/耗时，不记录 Bearer/密码/脚本正文。远端输出、附件、标题均为不可信数据。
@@ -234,9 +234,9 @@ Session/授权/应用状态串行于所属 GUI 线程，网络、Parser、文件
 执行顺序和状态见 [阶段划分](01_Phases_and_Acceptance.md)，每阶段任务只扩展其范围。
 当前接口说明见 [MCP 使用说明](../../../MCP_Usage.md)，历史验证见 [实施与验收记录](03_Implementation_and_Verification.md)。
 
-## 11. 设计补充契约（2026-10-18，尚未实现）
+## 11. 设计补充契约（2026-10-18）
 
-本节补齐跨阶段语义；不修改02现行九工具契约、不新增实现或验收成绩。具体接口和失败用例分别归所属阶段。
+本节补齐跨阶段语义，不修改 02 现行九工具契约。P1 的环境事实与类型化准入已按 2026-10-19 实施记录落地；模型发送、历史与证据部分仍是后续规划。具体接口和失败用例分别归所属阶段。
 
 - **模型发送边界**：本机读取、向指定模型服务发送、持久保存分别授权。ContextManager保留消息/摘要/artifact的来源依赖，ModelEgressPolicy在每次模型请求提交前校验接收方和来源；切换服务、撤权、摘要恢复不绕过校验。已发送数据无法追回，不声称撤权可删除远端副本。详见[P6补充契约](P6_Agent_Runtime_and_UI.md#补充契约模型发送与派生内容授权)。
 - **环境事实边界**：Session适配层唯一拥有EnvironmentTracker，区分环境声明、可信就绪和目标身份。普通输出只作候选，不能建立执行就绪；证据失效或切换不确定时退回Unknown并提升revision。详见[P1环境契约](P1_Capability_Runtime.md#补充契约环境事实与失效)。

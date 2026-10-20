@@ -1,6 +1,7 @@
 /** @file CommandSessionAdapter.h @brief Session I/O, signed claims and MCP projection for the command runtime. */
 #pragma once
 #include "tasks/CommandRuntime.h"
+#include "capabilities/terminal/CommandCapabilities.h"
 #include "session/SessionDirectory.h"
 #include <QJsonArray>
 #include <QJsonObject>
@@ -30,11 +31,11 @@ public:
         std::function<void()> changed;
     };
     CommandSessionAdapter(AccessStore&, SessionDirectory&, QString targetDirectory,
-        QString instance, Delivery);
+        QString instance, Delivery, Capabilities::CapabilityDispatcher&);
     ~CommandSessionAdapter();
     CommandSessionAdapter(const CommandSessionAdapter&) = delete;
     CommandSessionAdapter& operator=(const CommandSessionAdapter&) = delete;
-    void start(CommandCall, const SessionDirectory::Entry&);
+    void start(CommandCall, const SessionDirectory::Entry&, const Capabilities::InvocationContext&);
     void confirm(const QString& connection, const QString& request, ConfirmationAnswer);
     void cancel(const TaskId&);
     void expire(const TaskId&);

@@ -1,0 +1,59 @@
+#include "CapabilityRegistry.h"
+#include <type_traits>
+namespace NovaTerm::Capabilities {
+ResourceKind resourceKind(const ResourceBinding& binding) { return static_cast<ResourceKind>(binding.index()); }
+bool sameResource(const ResourceBinding& a, const ResourceBinding& b)
+{
+    if (a.index() != b.index()) return false;
+    return std::visit([&b](const auto& left) {
+        using T = std::decay_t<decltype(left)>;
+        const auto& right = std::get<T>(b);
+        if constexpr (std::is_same_v<T, DirectoryBinding>) return true;
+        else if constexpr (std::is_same_v<T, SessionBinding>)
+            return left.session == right.session && left.attachment == right.attachment
+                && left.epoch == right.epoch && left.connectionGeneration == right.connectionGeneration
+                && left.targetFingerprint == right.targetFingerprint;
+        else if constexpr (std::is_same_v<T, ImportedFileBinding>)
+            return left.id == right.id && left.contentHash == right.contentHash && left.size == right.size;
+        else return left.id == right.id && left.generation == right.generation;
+    }, a);
+}
+bool CapabilityRegistry::add(Definition definition)
+{
+    if (definition.id.empty() || definition.version == 0
+        || definition.status != ImplementationStatus::Implemented || find(definition.id)
+        || (!definition.mcpTool.isEmpty() && findByMcpTool(definition.mcpTool))) return false;
+    _definitions.push_back(std::move(definition));
+    return true;
+}
+std::optional<Definition> CapabilityRegistry::find(const CapabilityId& id) const
+{
+    for (const auto& definition : _definitions) if (definition.id == id) return definition;
+    return std::nullopt;
+}
+std::optional<Definition> CapabilityRegistry::findByMcpTool(const QString& tool) const
+{
+    if (tool.isEmpty()) return std::nullopt;
+    for (const auto& definition : _definitions) if (definition.mcpTool == tool) return definition;
+    return std::nullopt;
+}
+CapabilityRegistry CapabilityRegistry::terminalCapabilities()
+{
+    CapabilityRegistry registry;
+    const auto add = [&registry](const char* id, const char* tool, Policy policy,
+                                ResourceKind kind = ResourceKind::Session) {
+        registry.add({CapabilityId{QString::fromLatin1(id)}, 1, ImplementationStatus::Implemented,
+            kind, policy, QString::fromLatin1(tool)});
+    };
+    add("session.list", "novaterm_list_sessions", Policy::DirectoryRead, ResourceKind::Directory);
+    add("terminal.context.read", "novaterm_read_context", Policy::ReadOutput);
+    add("terminal.context.search", "novaterm_search_context", Policy::ReadOutput);
+    add("terminal.diagnostic.list", "novaterm_list_commands", Policy::ReadOutput);
+    add("terminal.diagnostic.execute", "novaterm_execute_command", Policy::Diagnostic);
+    add("terminal.command.run", "novaterm_run_command", Policy::RiskCommand);
+    add("terminal.script.run", "novaterm_run_script", Policy::Script);
+    add("terminal.interact", "novaterm_interact_terminal", Policy::FullInput);
+    add("terminal.elevation.request", "novaterm_request_elevation", Policy::Elevation);
+    return registry;
+}
+}

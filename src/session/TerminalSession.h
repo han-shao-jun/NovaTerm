@@ -9,6 +9,7 @@
 #pragma once
 
 #include "SessionTypes.h"
+#include "EnvironmentTracker.h"
 #include "TerminalContextProvider.h"
 #include "transport/ITransport.h"
 
@@ -105,6 +106,8 @@ public:
     {
         return _inputArbiter.get();
     }
+    /** @brief 仅本机/配对适配器写入环境事实；能力层只消费 snapshot。 */
+    [[nodiscard]] NovaTerm::Session::EnvironmentTracker& environmentTracker() noexcept { return _environment; }
     /** @brief 当前 Session 的交互命令协调器。 */
     [[nodiscard]] SessionCommandCoordinator* commandCoordinator() const noexcept
     {
@@ -270,6 +273,7 @@ signals:
                 TransportExitReason reason);
 
 private:
+    NovaTerm::Session::EnvironmentTracker _environment;
     std::unique_ptr<SessionTerminalController> _terminalController;
     QChronoTimer _reconnectTimer; ///< 单次自动重连定时器，支持完整整秒范围
     bool _manualDisconnect{false};

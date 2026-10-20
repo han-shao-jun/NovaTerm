@@ -58,10 +58,38 @@ if(BUILD_TESTING)
 
     add_subdirectory(filetransfer)
 
+    qt_add_executable(novaterm_capabilities_tests capabilities/CapabilityRuntimeTests.cpp)
+    target_link_libraries(novaterm_capabilities_tests PRIVATE novaterm_capabilities Qt6::Test)
+    set_target_properties(novaterm_capabilities_tests PROPERTIES WIN32_EXECUTABLE FALSE)
+    add_test(NAME novaterm_capabilities_tests COMMAND novaterm_capabilities_tests)
+    set_tests_properties(novaterm_capabilities_tests PROPERTIES LABELS "capabilities;mcp;p8" TIMEOUT 30)
+    add_dependencies(check novaterm_capabilities_tests)
+
+    qt_add_executable(novaterm_capability_routes_tests capabilities/EnvironmentRoutingTests.cpp)
+    target_link_libraries(novaterm_capability_routes_tests PRIVATE novaterm_capabilities novaterm_session_environment Qt6::Test)
+    set_target_properties(novaterm_capability_routes_tests PROPERTIES WIN32_EXECUTABLE FALSE)
+    add_test(NAME novaterm_capability_routes_tests COMMAND novaterm_capability_routes_tests)
+    set_tests_properties(novaterm_capability_routes_tests PROPERTIES LABELS "capabilities;mcp;p8" TIMEOUT 30)
+    add_dependencies(check novaterm_capability_routes_tests)
+
+    qt_add_executable(novaterm_diagnostic_tasks_tests capabilities/DiagnosticTaskTests.cpp)
+    target_link_libraries(novaterm_diagnostic_tasks_tests PRIVATE novaterm_capabilities Qt6::Test)
+    set_target_properties(novaterm_diagnostic_tasks_tests PROPERTIES WIN32_EXECUTABLE FALSE)
+    add_test(NAME novaterm_diagnostic_tasks_tests COMMAND novaterm_diagnostic_tasks_tests)
+    set_tests_properties(novaterm_diagnostic_tasks_tests PROPERTIES LABELS "capabilities;mcp;p8" TIMEOUT 30)
+    add_dependencies(check novaterm_diagnostic_tasks_tests)
+
+    qt_add_executable(novaterm_capability_entry_tests capabilities/EntryParityTests.cpp)
+    target_link_libraries(novaterm_capability_entry_tests PRIVATE novaterm_terminal_capabilities Qt6::Test)
+    set_target_properties(novaterm_capability_entry_tests PROPERTIES WIN32_EXECUTABLE FALSE)
+    add_test(NAME novaterm_capability_entry_tests COMMAND novaterm_capability_entry_tests)
+    set_tests_properties(novaterm_capability_entry_tests PROPERTIES LABELS "capabilities;mcp;p8" TIMEOUT 30)
+    add_dependencies(check novaterm_capability_entry_tests)
+
     # 契约与解码边界：目录 fixture、参数接受/拒绝集合、强类型 ID 与错误映射。
     qt_add_executable(novaterm_mcp_contracts_tests mcp/ContractsTests.cpp)
     target_link_libraries(novaterm_mcp_contracts_tests PRIVATE
-        novaterm_mcp_protocol Qt6::Test)
+        novaterm_mcp_protocol novaterm_capabilities Qt6::Test)
     target_compile_definitions(novaterm_mcp_contracts_tests PRIVATE
         NOVATERM_SOURCE_DIR="${PROJECT_SOURCE_DIR}")
     set_target_properties(novaterm_mcp_contracts_tests PROPERTIES WIN32_EXECUTABLE FALSE)
@@ -98,7 +126,7 @@ if(BUILD_TESTING)
     add_dependencies(check novaterm_mcp_observation_state_tests)
 
     qt_add_executable(novaterm_mcp_command_runtime_tests mcp/CommandRuntimeTests.cpp)
-    target_link_libraries(novaterm_mcp_command_runtime_tests PRIVATE novaterm_mcp_application Qt6::Test)
+    target_link_libraries(novaterm_mcp_command_runtime_tests PRIVATE novaterm_mcp_application novaterm_terminal_capabilities Qt6::Test)
     set_target_properties(novaterm_mcp_command_runtime_tests PROPERTIES WIN32_EXECUTABLE FALSE)
     add_test(NAME novaterm_mcp_command_runtime_tests COMMAND novaterm_mcp_command_runtime_tests)
     set_tests_properties(novaterm_mcp_command_runtime_tests PROPERTIES LABELS "mcp;p8" TIMEOUT 30)
@@ -362,7 +390,7 @@ if(BUILD_TESTING)
     )
     target_link_libraries(novaterm_session_tests
         PRIVATE
-            novaterm_core
+            novaterm_core novaterm_session_environment
             Qt${QT_VERSION_MAJOR}::SerialPort
             Qt${QT_VERSION_MAJOR}::Test
             ${NOVATERM_SECRET_SERVICE_LIBS}
@@ -635,7 +663,7 @@ if(BUILD_TESTING)
         )
         target_link_libraries(novaterm_terminal_session_tests
             PRIVATE
-                novaterm_core
+                novaterm_core novaterm_session_environment
                 ElaWidgetTools
                 Qt${QT_VERSION_MAJOR}::Core
                 Qt${QT_VERSION_MAJOR}::Gui

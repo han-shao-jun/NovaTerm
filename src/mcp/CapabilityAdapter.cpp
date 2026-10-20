@@ -131,7 +131,24 @@ Result<ContextCursor> contextCursor(const QString& encoded, const QByteArray& ke
 }
 } // namespace
 
-ReadUseCaseAdapter::ReadUseCaseAdapter(Ports ports) : _ports(std::move(ports)) {}
+namespace {
+template<class Query, class Value>
+Result<Value> invokeRead(const Capabilities::TypedCapabilityPort<Query, Result<Value>>& port,
+    Query query, const Capabilities::InvocationContext& context)
+{
+    Result<Value> result{Error{ErrorCode::SessionNotAvailable}};
+    port.invoke(std::move(query), context, [&result](Capabilities::Result<Result<Value>> value) {
+        if (const auto* accepted = std::get_if<Result<Value>>(&value)) result = *accepted;
+        else if (std::get<Capabilities::Rejection>(value) == Capabilities::Rejection::DeadlineExceeded)
+            result = Error{ErrorCode::DeadlineExceeded};
+    });
+    return result;
+}
+} // namespace
+
+ReadUseCaseAdapter::ReadUseCaseAdapter(Ports ports, Capabilities::CapabilityDispatcher& dispatcher,
+    const Capabilities::InvocationContext& context)
+    : _ports(std::move(ports)), _dispatcher(dispatcher), _context(context) {}
 
 quint64 ReadUseCaseAdapter::directoryRevision() const { return _ports.sessions->revision(); }
 ClientAccessVersion ReadUseCaseAdapter::accessVersion(const ClientId& client) const
@@ -232,7 +249,10 @@ Result<QJsonObject> ReadUseCaseAdapter::listSessions(const QString& client,
         if (const auto* error = errorIfAny(decoded)) return *error;
         cursor = std::get<DirectoryCursor>(decoded);
     }
-    const auto result = ReadUseCases{*this}.listSessions(ClientId{client}, request.limit, cursor, formElicitation);
+    Q_UNUSED(client);
+    const Capabilities::Terminal::ReadCapabilities ports{_dispatcher, *this};
+    const auto result = invokeRead(ports.sessions,
+        Capabilities::Terminal::SessionListQuery{request.limit, cursor, formElicitation}, _context);
     if (const auto* error = errorIfAny(result)) return *error;
     const auto& page = std::get<SessionPage>(result);
     QJsonArray rows;
@@ -271,7 +291,9 @@ Result<QJsonObject> ReadUseCaseAdapter::readContext(const SessionDirectory::Entr
     query.includeViewport = request.includeViewport.value_or(true);
     query.maxBytes = request.maxBytes.value_or(Budget::ObservationDefaultPayloadBytes);
     query.maxLines = request.maxLines.value_or(Budget::ObservationDefaultLines);
-    const auto result = ReadUseCases{*this}.readContext(ClientId{client}, query, cursor);
+    Q_UNUSED(client);
+    const Capabilities::Terminal::ReadCapabilities ports{_dispatcher, *this};
+    const auto result = invokeRead(ports.context, Capabilities::Terminal::ContextReadQuery{query, cursor}, _context);
     if (const auto* error = errorIfAny(result)) return *error;
     const auto& page = std::get<ContextPage>(result);
     const auto& observed = page.summary;
@@ -299,7 +321,10 @@ Result<QJsonObject> ReadUseCaseAdapter::readContext(const SessionDirectory::Entr
 Result<QJsonObject> ReadUseCaseAdapter::listCommands(const SessionDirectory::Entry& entry,
     const QString& client, const QByteArray& key, qint64 now) const
 {
-    const auto result = ReadUseCases{*this}.listCommands(ClientId{client}, readSession(entry), now);
+    Q_UNUSED(client);
+    const Capabilities::Terminal::ReadCapabilities ports{_dispatcher, *this};
+    const auto result = invokeRead(ports.diagnostics,
+        Capabilities::Terminal::DiagnosticListQuery{readSession(entry), now}, _context);
     if (const auto* error = errorIfAny(result)) return *error;
     const auto& list = std::get<CommandList>(result);
     QJsonArray catalog;

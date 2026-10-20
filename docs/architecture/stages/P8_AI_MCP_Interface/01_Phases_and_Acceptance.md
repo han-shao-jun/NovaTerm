@@ -11,7 +11,7 @@
 | 阶段 | 目标与独立交付 | 依赖 | 当前状态 |
 | --- | --- | --- | --- |
 | [P0](P0_Runtime_Consolidation.md) | 九工具运行内核、结构收口、基线 | 现有代码 | 实现与结构收口完成；Linux专项通过，其他平台保留补验范围 |
-| [P1](P1_Capability_Runtime.md) | 通用能力目录、本机应用入口、目标环境与执行路由 | P0 对应兼容/安全闸门 | 规划 |
+| [P1](P1_Capability_Runtime.md) | 通用能力目录、本机应用入口、目标环境与执行路由 | P0 对应兼容/安全闸门 | 运行期/Session 适配已落地；[范围与验收](P1_Implementation_and_Verification.md)，P4/P6 产品集成另验 |
 | [P2](P2_History_Recording.md) | 用户主动开启的保真录制、分块持久化、恢复和管理 UI | P1 资源/授权契约 | 规划 |
 | [P3](P3_History_Search_and_Evidence.md) | 原文分页、跨块搜索、证据、离线资源授权、三历史工具 | P2；任务证据契约可提前定义 | 规划 |
 | [P4](P4_Backend_Diagnostics.md) | Linux 可信 Recipe、独立/共享路由、Backend Pack | P1、P3 证据契约 | 规划 |
@@ -64,7 +64,7 @@ flowchart LR
 
 历史W1～W5的迁移记录保留作追溯；随后执行包装和三个可变注册表已按职责合并，P0又完成纯执行/观察边界、类型化wire入口与停机收口。当前文件、owner和退出证据以[P0§2及验收索引](P0_Runtime_Consolidation.md)为准，不重建已经删除的旧类。
 
-当前P0实现及Linux专项已验收；不同日期的历史测试数字不作新成绩。现有MCP为12个CTest目标，Linux总注册32项；未运行的Windows/macOS和真实设备范围继续单列，不能用Linux或注册数冒充通过。
+当前P0实现及Linux专项已验收；不同日期的历史测试数字不作新成绩。P1 增量后 MCP 标签为 16 个 CTest 目标，Linux 总注册 36 项；未运行的Windows/macOS和真实设备范围继续单列，不能用Linux或注册数冒充通过。
 
 ## 4. 每阶段实施模板
 
@@ -88,7 +88,9 @@ flowchart LR
 - [ ] 文档、Schema、目录、配置和删除清单同步；历史恢复不重发操作。
 - [ ] 真目标连接、hook/helper/适配器部署另有明确授权，不用模拟成绩替代。
 
-当前十二目标：novaterm_mcp_tests、novaterm_mcp_wire_tests、novaterm_mcp_http_tests、novaterm_mcp_endpoint_tests、novaterm_mcp_contracts_tests、novaterm_mcp_authorization_tests、novaterm_mcp_read_use_cases_tests、novaterm_mcp_command_runtime_tests、novaterm_mcp_observation_state_tests、novaterm_mcp_access_interaction_tests、novaterm_sftp_session_safety_tests、novaterm_command_safety_tests。
+P0 基线十二目标：novaterm_mcp_tests、novaterm_mcp_wire_tests、novaterm_mcp_http_tests、novaterm_mcp_endpoint_tests、novaterm_mcp_contracts_tests、novaterm_mcp_authorization_tests、novaterm_mcp_read_use_cases_tests、novaterm_mcp_command_runtime_tests、novaterm_mcp_observation_state_tests、novaterm_mcp_access_interaction_tests、novaterm_sftp_session_safety_tests、novaterm_command_safety_tests。
+
+P1 新增 novaterm_capabilities_tests、novaterm_capability_routes_tests、novaterm_diagnostic_tasks_tests、novaterm_capability_entry_tests，均属 MCP 标签；本轮证据见 P1 实施记录。
 
 ## 6. 推荐首个可见交付
 

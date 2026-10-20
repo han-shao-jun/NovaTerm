@@ -1,8 +1,8 @@
 # NovaTerm MCP、诊断与 AI Agent 文档集
 
-更新日期：2026-10-18。结构：总体架构 → 阶段划分 → 各阶段实施计划。
+更新日期：2026-10-19。结构：总体架构 → 阶段划分 → 各阶段实施计划。
 
-本目录整合原运行期内核重构设计、实施计划、MCP 诊断扩展 v1.1 草案、项目P8接口及完整实施记录，以及 Netcatty Agent 架构调研。此次仅整理文档，不执行功能开发，不改变已发布工具、授权或部署方式。
+本目录整合原运行期内核重构设计、实施计划、MCP 诊断扩展 v1.1 草案、项目P8接口及完整实施记录，以及 Netcatty Agent 架构调研。2026-10-18 的初次整合仅整理文档；2026-10-19 已补 P1 实施状态，已发布九工具和部署方式不变。
 
 ## 阅读入口
 
@@ -15,7 +15,7 @@
 | 阶段 | 计划 | 状态 |
 | --- | --- | --- |
 | mcp/P0 | [运行内核收敛](P0_Runtime_Consolidation.md) | 实现与结构收口完成，Linux专项通过；其他平台范围见P0验收表 |
-| mcp/P1 | [能力目录、应用入口与执行路由](P1_Capability_Runtime.md) | 规划，尚未实现通用跨入口 Runtime |
+| mcp/P1 | [能力目录、应用入口与执行路由](P1_Capability_Runtime.md) | 运行期/类型化入口与 Session 适配已落地；[验收与范围](P1_Implementation_and_Verification.md)，产品集成按 P4/P6 |
 | mcp/P2 | [保真历史录制与存储](P2_History_Recording.md) | 规划，录制默认关闭 |
 | mcp/P3 | [历史搜索、证据与离线授权](P3_History_Search_and_Evidence.md) | 规划 |
 | mcp/P4 | [Backend 诊断](P4_Backend_Diagnostics.md) | 规划 |

@@ -568,6 +568,7 @@ src/
 │   ├── windows/conpty/  # ConPtyApi、ConPtySession、WinHandle
 │   └── linux/pty/       # PtySession
 ├── service/             # Config、Language
+├── capabilities/        # mcp/P1 目录、准入、类型化领域端口与 Recipe 路由（无 HTTP/UI）
 ├── mcp/                 # P8 Streamable HTTP、wire、授权、请求调度与固定诊断策略
 └── ui/                  # app/(MainWindow)、pages/、terminal/(TerminalView)、widgets/
 tests/

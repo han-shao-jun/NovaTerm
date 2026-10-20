@@ -1,4 +1,5 @@
 #include "CommandSessionAdapter.h"
+#include "mcp/contracts/Budget.h"
 #include "McpAccess.h"
 #include "McpProtocol.h"
 #include "CommandPolicy.h"
@@ -155,20 +156,24 @@ QJsonObject project(const CommandResult& result)
 class CommandSessionAdapter::Impl final : public CommandSessionPort, public CommandTargetStore
 {
 public:
-    Impl(AccessStore& access, SessionDirectory& sessions, QString directory, QString instance, Delivery delivery)
+    Impl(AccessStore& access, SessionDirectory& sessions, QString directory, QString instance, Delivery delivery, Capabilities::CapabilityDispatcher& dispatcher)
         : access(access), sessions(sessions), guard(std::move(directory)), delivery(std::move(delivery))
     {
         clock.start();
         runtime = std::make_unique<CommandRuntime>(*this, *this, std::move(instance), CommandRuntime::Delivery{
             [this](const TaskId& task, std::optional<CommandResult> result) {
-                calls.remove(task.str());
-                this->delivery.complete(task, result ? project(*result) : QJsonObject{});
+                capabilities->complete(task, std::move(result));
             },
-            this->delivery.deadline,
+            [this](const TaskId& task, std::chrono::milliseconds remaining) {
+                // Execution may finish by timing out; keep its terminal result deliverable.
+                capabilities->deadline(task, Capabilities::Clock::now() + remaining + Budget::WireDeadlineMargin);
+                this->delivery.deadline(task, remaining);
+            },
             [this](const TaskId& task, const CommandPrompt& prompt) { return confirmPrompt(task, prompt); },
             this->delivery.changed}, [this] { return clock.elapsed(); });
+        capabilities = std::make_unique<Capabilities::Terminal::CommandCapabilities>(dispatcher, *runtime);
     }
-    ~Impl() { runtime->stop(); }
+    ~Impl() { capabilities->stop(); }
     struct CallContext { QString peer, request; QByteArray key; };
     quint64 observe(QObject* object)
     {
@@ -328,14 +333,16 @@ public:
     QSet<SessionInputArbiter*> arbiters;
     quint64 nextChannel{1};
     std::unique_ptr<CommandRuntime> runtime;
+    std::unique_ptr<Capabilities::Terminal::CommandCapabilities> capabilities;
     QObject context; // 先断开Session回调，再销毁运行期状态。
 };
 
 CommandSessionAdapter::CommandSessionAdapter(AccessStore& access, SessionDirectory& sessions,
-    QString directory, QString instance, Delivery delivery)
-    : _impl(std::make_unique<Impl>(access, sessions, std::move(directory), std::move(instance), std::move(delivery))) {}
+    QString directory, QString instance, Delivery delivery, Capabilities::CapabilityDispatcher& dispatcher)
+    : _impl(std::make_unique<Impl>(access, sessions, std::move(directory), std::move(instance), std::move(delivery), dispatcher)) {}
 CommandSessionAdapter::~CommandSessionAdapter() = default;
-void CommandSessionAdapter::start(CommandCall call, const SessionDirectory::Entry&)
+void CommandSessionAdapter::start(CommandCall call, const SessionDirectory::Entry&,
+    const Capabilities::InvocationContext& context)
 {
     CommandInvocation invocation;
     invocation.task = call.task; invocation.connection = PeerId{call.connection}; invocation.client = call.client;
@@ -352,14 +359,35 @@ void CommandSessionAdapter::start(CommandCall call, const SessionDirectory::Entr
         }
     }
     _impl->calls.insert(call.task.str(), {call.connection, call.id, call.connectionKey});
-    _impl->runtime->start(std::move(invocation));
+    const auto task = call.task;
+    const auto completed = [this, task](Capabilities::Result<std::optional<CommandResult>> response) {
+        _impl->calls.remove(task.str());
+        if (const auto* result = std::get_if<std::optional<CommandResult>>(&response))
+            _impl->delivery.complete(task, *result ? project(**result) : QJsonObject{});
+        else {
+            const auto reason = std::get<Capabilities::Rejection>(response);
+            _impl->delivery.complete(task, ToolCodec::encodeFailure(Error{
+                reason == Capabilities::Rejection::DeadlineExceeded ? ErrorCode::DeadlineExceeded
+                : reason == Capabilities::Rejection::Busy ? ErrorCode::Busy : ErrorCode::SessionNotAvailable}));
+        }
+    };
+    auto& ports = *_impl->capabilities;
+    if (std::holds_alternative<ExecuteCommandRequest>(invocation.request))
+        ports.diagnostic.invoke(std::move(invocation), context, completed);
+    else if (std::holds_alternative<RunCommandRequest>(invocation.request))
+        ports.command.invoke(std::move(invocation), context, completed);
+    else ports.script.invoke(std::move(invocation), context, completed);
 }
 void CommandSessionAdapter::confirm(const QString& peer, const QString& request, ConfirmationAnswer answer) { _impl->runtime->confirm(TaskId{peer + '/' + request}, answer); }
-void CommandSessionAdapter::cancel(const TaskId& task) { _impl->calls.remove(task.str()); _impl->runtime->cancel(task); }
+void CommandSessionAdapter::cancel(const TaskId& task) { _impl->calls.remove(task.str()); _impl->capabilities->cancel(task); }
 void CommandSessionAdapter::expire(const TaskId& task) { _impl->runtime->expire(task); }
-void CommandSessionAdapter::disconnect(const QString& peer) { _impl->runtime->disconnect(peer); }
+void CommandSessionAdapter::disconnect(const QString& peer)
+{
+    for (const auto& task : _impl->calls.keys()) if (_impl->calls.value(task).peer == peer) _impl->calls.remove(task);
+    _impl->capabilities->disconnect(peer);
+}
 void CommandSessionAdapter::revoke(const QString& client, const QString& session) { _impl->runtime->revoke(client, session); }
-void CommandSessionAdapter::stop() { _impl->runtime->stop(); }
+void CommandSessionAdapter::stop() { _impl->calls.clear(); _impl->capabilities->stop(); }
 void CommandSessionAdapter::sweep() { _impl->runtime->sweep(); }
 bool CommandSessionAdapter::idle() const { return _impl->runtime->idle(); }
 bool CommandSessionAdapter::quarantined(const QString& target) const { return _impl->runtime->quarantined(target); }

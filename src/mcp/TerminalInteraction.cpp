@@ -1,4 +1,7 @@
 #include "TerminalInteraction.h"
+#include "capabilities/terminal/InputCapabilities.h"
+#include "capabilities/terminal/ObservationCapabilities.h"
+#include "capabilities/terminal/SearchCapabilities.h"
 #include "McpAccess.h"
 #include "McpProtocol.h"
 #include "CapabilityAdapter.h"
@@ -61,13 +64,13 @@ std::optional<int> maxLinesOf(const ToolRequest& request)
 }
 }
 
-class TerminalInteraction::Impl {
+class TerminalInteraction::Impl final : public Capabilities::Terminal::TerminalInputPort {
 public:
     using Pending = ObservationWait;
     Impl(TerminalInteraction* owner, AccessStore* store, SessionDirectory* directory,
-         ObservationService* observationService)
+         ObservationService* observationService, Capabilities::CapabilityDispatcher& dispatcher)
         : q(owner), access(store), sessions(directory), observation(observationService),
-          key(randomBytes()), state([this] { return clock.elapsed(); }) {
+          key(randomBytes()), state([this] { return clock.elapsed(); }), dispatcher(dispatcher), observationPorts(dispatcher, state) {
         clock.start(); poll.setInterval(250);
         wake.setSingleShot(true);
         QObject::connect(&wake, &QTimer::timeout, q, [this] { flush(); });
@@ -82,9 +85,10 @@ public:
     QByteArray key;
     QElapsedTimer clock;
     ObservationState state;
+    Capabilities::CapabilityDispatcher& dispatcher;
+    Capabilities::Terminal::ObservationCapabilities observationPorts;
     QTimer poll;
     QTimer wake;
-    QHash<RequestId, Completion> deliveries;
     QSet<TerminalSession*> watched;
     bool flushing{false};
 
@@ -220,7 +224,7 @@ public:
         return cursor;
     }
     void call(const QString& client, const QString& request, const ToolRequest& typed,
-              Completion done, const QByteArray& legacyCursorKey) {
+              Completion done, const QByteArray& legacyCursorKey, const Capabilities::InvocationContext& context) {
         const auto reference = sessionReference(typed);
         if (!reference) { done(failure("SESSION_NOT_AVAILABLE", "Session is not shared.")); return; }
         const auto entry = sessions->find(reference->session.str());
@@ -229,7 +233,7 @@ public:
         watch(entry->session);
         auto* ctrl = entry->session->terminalController();
         if (const auto* searchRequest = std::get_if<SearchContextRequest>(&typed)) {
-            search(client, *entry, *searchRequest, std::move(done)); return;
+            search(client, *entry, *searchRequest, std::move(done), context); return;
         }
         const auto* readRequest = std::get_if<ReadContextRequest>(&typed);
         if (readRequest && readRequest->expandToken) {
@@ -260,40 +264,75 @@ public:
         } else {
             const auto facts = controlFacts(client, *entry, true);
             if (facts.unavailable) { done(ToolCodec::encodeFailure(Error{*facts.unavailable})); return; }
+            const Capabilities::Terminal::InputCapabilities ports{dispatcher, state, *this};
+            auto inputContext = context;
+            inputContext.operation = Capabilities::OperationId{context.operation.value() + "/input"};
             if (const auto* elevation = std::get_if<RequestElevationRequest>(&typed)) {
-                if (!access->canUseElevation(client, *entry))
-                    done(failure("ELEVATION_PERMISSION_REQUIRED", "Managed elevation is not authorized."));
-                else if (const auto error = state.validateInput(inputClaims(elevation->inputToken), job.client, facts))
-                    done(ToolCodec::encodeFailure(*error));
-                else done(failure("ELEVATION_ADAPTER_UNAVAILABLE", "No trusted authentication adapter is installed for this connection."));
-                return;
+                QJsonObject response;
+                ports.elevation.invoke({*elevation, inputClaims(elevation->inputToken)}, inputContext,
+                    [&response](auto value) {
+                        if (const auto* result = std::get_if<Result<std::monostate>>(&value)) {
+                            if (const auto* error = errorIfAny(*result)) response = ToolCodec::encodeFailure(*error);
+                        } else response = ToolCodec::encodeFailure(Error{ErrorCode::SessionNotAvailable});
+                    });
+                done(std::move(response)); return;
             }
             const auto& input = std::get<InteractTerminalRequest>(typed);
-            const auto prepared = state.prepareInput(job.client, input, inputClaims(input.inputToken), facts);
+            Result<InputAdmission> prepared{Error{ErrorCode::SessionNotAvailable}};
+            ports.input.invoke({input, inputClaims(input.inputToken)}, inputContext, [&prepared](auto value) {
+                if (const auto* result = std::get_if<Result<InputAdmission>>(&value)) prepared = *result;
+            });
             if (const auto* error = errorIfAny(prepared)) { done(ToolCodec::encodeFailure(*error)); return; }
-            const auto admission = std::get<InputAdmission>(prepared);
-            if (admission == InputAdmission::Replay) job.immediate = ObservationWake::StateChanged;
-            else {
-                if (admission == InputAdmission::Release)
-                    ctrl->release(client, QStringLiteral("released"), input.operation.str());
-                else {
-                    if (!ctrl->acquire(client)) { done(failure("TERMINAL_BUSY", "Terminal input is owned by another operation.")); return; }
-                    if (!ctrl->submit(client, input.operation.str(), encode(input.actions, ctrl->lineEnding()),
-                        commandAction(typed), int(input.actions.size()))) {
-                        done(failure("INPUT_BUSY", "Input was not accepted.")); return;
-                    }
-                }
-                state.inputAccepted(job.client, input, controlFacts(client, *entry));
-                job.event = ctrl->revision(); job.control = ctrl->controlGeneration();
-            }
+            if (std::get<InputAdmission>(prepared) == InputAdmission::Replay) job.immediate = ObservationWake::StateChanged;
+            else { job.event = ctrl->revision(); job.control = ctrl->controlGeneration(); }
+
         }
-        const auto admitted = state.admit(job);
-        if (const auto* error = errorIfAny(admitted)) { done(ToolCodec::encodeFailure(*error)); return; }
-        deliveries.insert(job.request, std::move(done));
+        auto waitContext = context;
+        waitContext.operation = Capabilities::OperationId{context.operation.value() + "/observe"};
+        auto& port = readRequest ? observationPorts.read : observationPorts.input;
+        const QPointer<TerminalInteraction> guard(q);
+        port.invoke(job, waitContext, [this, guard, done = std::move(done)](auto result) {
+            if (!guard) return;
+            const auto* completed = std::get_if<ObservationCompletion>(&result);
+            if (!completed) { done(ToolCodec::encodeFailure(Error{ErrorCode::SessionNotAvailable})); return; }
+            if (completed->error) { done(ToolCodec::encodeFailure(*completed->error)); return; }
+            const auto current = sessions->find(completed->wait.session.session.str());
+            const auto base = current && current->session ? baseSnapshot(*current) : nullptr;
+            if (!current || !base) done(failure("SESSION_NOT_AVAILABLE", "The observation connection changed."));
+            else done(project(completed->wait, *current, *base, wakeName(completed->wake)));
+        });
         ctrl->touch(client);
-        for (const auto& replaced : std::get<QList<ObservationCompletion>>(admitted))
-            deliver(replaced, entry, snapshot);
         updatePolling(); scheduleFlush();
+    }
+
+    TerminalControlFacts facts(const ClientId& client, const SessionReference& reference) override {
+        const auto entry = sessions->find(reference.session.str());
+        if (!entry || entry->epoch != reference.epoch.str() || !access->canRead(client.str(), *entry)) {
+            TerminalControlFacts result; result.unavailable = ErrorCode::SessionNotAvailable; return result;
+        }
+        return controlFacts(client.str(), *entry, true);
+    }
+    bool acquire(const ClientId& client, const SessionReference& reference) override {
+        const auto entry = sessions->find(reference.session.str());
+        return entry && entry->session && entry->epoch == reference.epoch.str()
+            && entry->session->terminalController()->acquire(client.str());
+    }
+    bool submit(const ClientId& client, const InteractTerminalRequest& request) override {
+        const auto entry = sessions->find(request.session.str());
+        if (!entry || !entry->session || entry->epoch != request.epoch.str()
+            || !access->canControlTerminal(client.str(), *entry)) return false;
+        auto* controller = entry->session->terminalController();
+        return controller->submit(client.str(), request.operation.str(), encode(request.actions, controller->lineEnding()),
+            commandAction(ToolRequest{request}), int(request.actions.size()));
+    }
+    void release(const ClientId& client, const InteractTerminalRequest& request) override {
+        const auto entry = sessions->find(request.session.str());
+        if (entry && entry->session && entry->epoch == request.epoch.str())
+            entry->session->terminalController()->release(client.str(), QStringLiteral("released"), request.operation.str());
+    }
+    bool canElevate(const ClientId& client, const SessionReference& reference) override {
+        const auto entry = sessions->find(reference.session.str());
+        return entry && entry->epoch == reference.epoch.str() && access->canUseElevation(client.str(), *entry);
     }
 
     std::vector<NovaTerm::TerminalInputAction> encode(
@@ -352,16 +391,7 @@ public:
         }
         return {};
     }
-    void deliver(const ObservationCompletion& completed,
-                 const std::optional<SessionDirectory::Entry>& entry = std::nullopt,
-                 const std::shared_ptr<const TerminalContextProvider::Snapshot>& snapshot = {}) {
-        auto done = deliveries.take(completed.wait.request);
-        if (!done) return;
-        if (completed.error) done(ToolCodec::encodeFailure(*completed.error));
-        else if (!entry || !entry->session || !snapshot)
-            done(failure("SESSION_NOT_AVAILABLE", "The observation connection changed."));
-        else done(project(completed.wait, *entry, *snapshot, wakeName(completed.wake)));
-    }
+    void deliver(const ObservationCompletion& completed) { observationPorts.complete(completed); }
     void flush() {
         if (flushing) return;
         flushing = true;
@@ -390,7 +420,7 @@ public:
             if (const auto completed = state.evaluate(job.request, facts)) {
                 if (!completed->error && entry && entry->session)
                     entry->session->terminalController()->touch(job.client.str());
-                deliver(*completed, entry, snapshot);
+                deliver(*completed);
             }
         }
         flushing = false;
@@ -626,31 +656,35 @@ public:
             true, value->value("offset").toInt(), value->value("byte").toInt()));
     }
     void search(const QString& client, const SessionDirectory::Entry& entry,
-                const SearchContextRequest& request, Completion done) {
+                const SearchContextRequest& request, Completion done, const Capabilities::InvocationContext& context) {
         const auto captured = observation->captures().find(request.capture.str());
         if (!captured || !state.captureAvailable(*captured, ClientId{client},
             {SessionId{entry.id}, Epoch{entry.epoch}}, ClientAccessVersion{access->version(client)})) {
             done(failure("CAPTURE_NOT_AVAILABLE", "Capture is not available.")); return;
         }
-        const QString scope = request.scope == SearchScope::Viewport ? QStringLiteral("viewport")
-            : request.scope == SearchScope::RecentOutput ? QStringLiteral("recent_output")
-            : QStringLiteral("both");
-        const auto found = observation->search(*captured, request.query,
-            request.caseSensitive, scope, request.maxMatches);
-        QJsonArray matches;
-        for (const auto& match : found.matches) {
-            matches.append(QJsonObject{{"source", match.source},
-                {"lineIndex", match.lineIndex}, {"startByte", match.startByte},
-                {"endByte", match.endByte}});
-        }
-        done(success({{"captureId", request.capture.str()},
-            {"revision", captured->revision}, {"matches", matches},
-            {"limited", found.limited}, {"sourceTruncated", captured->sourceTruncated},
-            {"outputTruncated", captured->outputTruncated}}));
+        const Capabilities::Terminal::SearchCapabilities ports{dispatcher,
+            [record = *captured](const auto&, const auto&) -> Result<CaptureRecord> { return record; },
+            [](CaptureRecord record, SearchContextRequest query, auto deliver) {
+                const auto scope = query.scope == SearchScope::Viewport ? QStringLiteral("viewport")
+                    : query.scope == SearchScope::RecentOutput ? QStringLiteral("recent_output") : QStringLiteral("both");
+                deliver(searchCapture(record, query.query, query.caseSensitive, scope, query.maxMatches));
+            }};
+        auto searchContext = context;
+        searchContext.operation = Capabilities::OperationId{context.operation.value() + "/search"};
+        ports.search.invoke(request, searchContext, [done = std::move(done)](auto value) {
+            const auto* domain = std::get_if<Result<Capabilities::Terminal::ContextSearchResult>>(&value);
+            if (!domain) { done(ToolCodec::encodeFailure(Error{ErrorCode::SessionNotAvailable})); return; }
+            if (const auto* error = errorIfAny(*domain)) { done(ToolCodec::encodeFailure(*error)); return; }
+            const auto& result = std::get<Capabilities::Terminal::ContextSearchResult>(*domain);
+            QJsonArray matches;
+            for (const auto& match : result.search.matches) matches.append(QJsonObject{{"source", match.source},
+                {"lineIndex", match.lineIndex}, {"startByte", match.startByte}, {"endByte", match.endByte}});
+            done(success({{"captureId", result.capture.str()}, {"revision", result.revision}, {"matches", matches},
+                {"limited", result.search.limited}, {"sourceTruncated", result.sourceTruncated}, {"outputTruncated", result.outputTruncated}}));
+        });
     }
     void cancel(const QString& request) {
-        state.cancel(RequestId{request});
-        deliveries.remove(RequestId{request});
+        observationPorts.cancel(RequestId{request});
         updatePolling();
     }
     void revoke(const QString& client, const QString& session) {
@@ -671,12 +705,12 @@ public:
 };
 
 TerminalInteraction::TerminalInteraction(AccessStore* access, SessionDirectory* sessions,
-    ObservationService* observation, QObject* parent)
-    : QObject(parent), _impl(std::make_unique<Impl>(this, access, sessions, observation)) {}
+    ObservationService* observation, Capabilities::CapabilityDispatcher& dispatcher, QObject* parent)
+    : QObject(parent), _impl(std::make_unique<Impl>(this, access, sessions, observation, dispatcher)) {}
 TerminalInteraction::~TerminalInteraction() = default;
 void TerminalInteraction::call(const QString& c, const QString& r,
-    const ToolRequest& request, Completion done, const QByteArray& legacyCursorKey) {
-    _impl->call(c, r, request, std::move(done), legacyCursorKey);
+    const ToolRequest& request, Completion done, const QByteArray& legacyCursorKey, const Capabilities::InvocationContext& context) {
+    _impl->call(c, r, request, std::move(done), legacyCursorKey, context);
 }
 void TerminalInteraction::cancel(const QString& request) { _impl->cancel(request); }
 void TerminalInteraction::revoke(const QString& client, const QString& session) { _impl->revoke(client,session); }

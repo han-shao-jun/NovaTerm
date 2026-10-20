@@ -113,6 +113,15 @@ public:
     }
     void deadline(const std::shared_ptr<Operation>& operation, qint64 expires)
     { delivery.deadline(operation->call.task, std::chrono::milliseconds{expires - now()}); }
+    bool admitted(const std::shared_ptr<Operation>& operation)
+    {
+        if (operation->call.admission) {
+            if (const auto error = operation->call.admission()) {
+                CommandResult result; result.error = *error; complete(operation, std::move(result)); return false;
+            }
+        }
+        return true;
+    }
     std::optional<CommandSessionFacts> facts(const std::shared_ptr<Operation>& operation)
     {
         const auto reference = sessionReference(operation->call.request);
@@ -130,6 +139,7 @@ public:
                 ? ErrorCode::CommandConfirmationStale : ErrorCode::StaleSessionEpoch));
             return {};
         }
+        if (!admitted(operation)) return {};
         return current;
     }
     ConfirmationBinding binding(const Operation& operation, const CommandSessionFacts& facts,
@@ -229,6 +239,7 @@ public:
         const QString& executionId, const QByteArray& command, const QString& commandId,
         const QString& policy, bool direct, bool interactive, std::chrono::milliseconds timeout)
     {
+        if (!admitted(operation)) return;
         advance(operation->phase, TaskPhase::Submitted);
         const auto requestId = nextCommand++;
         Execution execution;
@@ -396,6 +407,12 @@ void CommandRuntime::Impl::runScript(const std::shared_ptr<Operation>& operation
     paths.insert(pathLock, operation->call.task.str());
     operation->scriptPolicyVersion = risk.policyVersion;
     deadline(operation, now() + Budget::ScriptWriteTimeout.count());
+    if (operation->call.admission) {
+        if (const auto error = operation->call.admission()) {
+            uploads.remove(requestId); CommandResult result; result.error = *error;
+            complete(operation, std::move(result)); return;
+        }
+    }
     if (!sessions.publish(facts.provider, ScriptPublicationRequest{requestId, content, request.targetPath, request.workingDirectory})) {
         uploads.remove(requestId); complete(operation, rejected(ErrorCode::ScriptWriteFailed));
     }

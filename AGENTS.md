@@ -166,6 +166,26 @@ ScriptResultUseCase/DiagnosticCommandUseCase/ExecutionService及三个可变注�
 CommandRuntime已成为纯应用用例，具体Session/TargetGuard/token/JSON接线位于
 `src/mcp/CommandSessionAdapter.*`；TerminalInteraction消费ObservationState，未新增采样源。
 
+#### mcp/P1 能力运行期增量（2026-10-19）
+
+新增 `src/capabilities/`，目录/准入/授权/Recipe 任务只依赖 Qt Core；终端领域端口复用 P0 应用用例，
+Session 环境事实由 `src/session/EnvironmentTracker.*` 唯一维护。旧九工具 Schema、确认、输入重放保持兼容。
+新测试 `novaterm_capabilities_tests`、`novaterm_capability_routes_tests`、
+`novaterm_diagnostic_tasks_tests`、`novaterm_capability_entry_tests` 均有 `capabilities;mcp;p8` 标签。
+这类改动优先 `ctest -L capabilities`；跨 MCP 接线跑 `ctest -L mcp`，Session 接线另跑 Session 专项。
+
+当前 Linux 注册 **36** 项、MCP 标签 **16** 项。本轮沙箱外全套 **36/36**（184.45 秒）；
+最后命令端口析构收口后完整重建与 MCP **16/16**（30.23 秒）复验；纯应用 ASan/UBSan **5/5**，
+`detect_leaks=0`，不含泄漏检测。本机 HTTP/PTY 用例需允许回环/PTY，沙箱内 HTTP 启动失败不能作回归结论。
+Windows/macOS、真实 UART 与 P4/P6 产品集成未验收。下文 32/12、29/9 等数字是此前基线。
+详细依赖、状态 owner、审查修复及复测命令见
+[实施记录](docs/architecture/stages/P8_AI_MCP_Interface/P1_Implementation_and_Verification.md)。
+
+0.2.72 提交前审查增量（2026-10-20）：命令取消不会触发 Runtime 的正常 completion，
+能力层必须单独回收租约；执行 timeout 与交付 deadline 保留 wire margin；环境标记 overlap 须跨任意多个 chunk。
+诊断结果交付的授权复核不能被 Cancelled/DeadlineExceeded 短路；授权回调可能重入，sweep 需持有任务快照并复核身份。
+复现/修复用例与本次专项结果见上方 P1 实施记录，旧全套成绩不替代本轮专项验证。
+
 #### 默认注册了哪些测试
 
 以 `tests/CMakeLists.txt` 为准（2026-09 复核）。两个开关的默认值都要注意：
