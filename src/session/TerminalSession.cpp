@@ -373,6 +373,8 @@ bool TerminalSession::resetForReuse()
 {
     if (_state != SessionState::Closed || _transport)
         return false;
+    if (_core && !_core->resetForConnection())
+        return false;
     _sessionId = QUuid::createUuid();
     _contextProvider.reset();
     _commandFacade->reset(0);
@@ -394,6 +396,8 @@ bool TerminalSession::start()
                         && _state != SessionState::Failed)) {
         return false;
     }
+    if (_statistics.generation > 0 && _core && !_core->resetForConnection())
+        return false;
     _acceptsUserInput = true;
     startPump();
     if (_state == SessionState::Created)
@@ -505,7 +509,13 @@ bool TerminalSession::canReconnect() const noexcept
 
 bool TerminalSession::beginReconnect(bool automatic)
 {
-    if (!_transport || !transition(SessionState::Reconnecting))
+    if (!_transport)
+        return false;
+    stopPump();
+    // 命令的 byte barrier 保证旧字节先解析、新字节在重置后解析。
+    if (_core && !_core->resetForConnection())
+        return false;
+    if (!transition(SessionState::Reconnecting))
         return false;
 
     ++_statistics.reconnectCount;

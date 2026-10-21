@@ -25,6 +25,8 @@ public:
         NovaTerm::FileTransfer::Direction direction, QWidget* parent = nullptr);
     /** @brief 空闲时切换方向；活动传输的设置保持锁定。 */
     void setDirection(NovaTerm::FileTransfer::Direction direction);
+    /** @brief 窗口实际观察的通道，用于换绑后判定是否需要重建窗口。 */
+    [[nodiscard]] SerialFileTransferController* controller() const;
     /** @brief 关闭或按 Esc 时取消活动传输，然后隐藏窗口。 */
     void reject() override;
 

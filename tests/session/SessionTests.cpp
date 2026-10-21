@@ -157,6 +157,8 @@ private slots:
     void restoreMetadataRoundTrip();
     void persistentStoresRejectSecrets();
     void reconnectBumpsGenerationAndKeepsHandlersLive();
+    void reconnectResetsTerminalParser_data();
+    void reconnectResetsTerminalParser();
     void structuredTransportErrorSetsSessionCategory();
     void agentContextFiltersProgressWrapDuplicatesAndAlternate();
     void inputPumpOffsetsPreservePendingSuffix();
@@ -2139,6 +2141,39 @@ void SessionTests::persistentStoresRejectSecrets()
     QVERIFY(credentials.put(QStringLiteral("credential-ref"), QByteArrayLiteral("secret")));
     QCOMPARE(credentials.get(QStringLiteral("credential-ref")).value(),
              QByteArrayLiteral("secret"));
+}
+
+void SessionTests::reconnectResetsTerminalParser_data()
+{
+    QTest::addColumn<QByteArray>("residue");
+    QTest::newRow("graphics-charset") << QByteArray("\x1b(0");
+    QTest::newRow("unfinished-osc") << QByteArray("\x1b]2;unfinished");
+    QTest::newRow("unfinished-csi") << QByteArray("\x1b[12;");
+    QTest::newRow("unfinished-utf8") << QByteArray::fromHex("e4b8");
+    QTest::newRow("alternate-screen") << QByteArray("\x1b[?1049h\x1b[?1003h");
+}
+
+void SessionTests::reconnectResetsTerminalParser()
+{
+    QFETCH(QByteArray, residue);
+    RuntimeConfig config;
+    config.transportKind = TransportKind::Ssh;
+    TerminalSession session(config);
+    auto* transport = new FakeTransport;
+    session.attach(transport, TerminalSession::Ownership::Adopt, TransportKind::Ssh);
+    QVERIFY(session.start());
+    QTRY_COMPARE(session.state(), SessionState::Running);
+    emit transport->readyRead(residue);
+    QVERIFY(session.core()->waitForIdle());
+    transport->simulateRemoteDisconnect();
+    QVERIFY(session.reconnect());
+    QTRY_COMPARE(session.state(), SessionState::Running);
+    emit transport->readyRead(QByteArray("lqqk ASCII ") + QByteArray::fromHex("e4b8ade69687"));
+    QVERIFY(session.core()->waitForIdle());
+    QVERIFY(!session.core()->isAlternateScreen());
+    const auto state = session.core()->terminalState();
+    QCOMPARE(QByteArray::fromStdString(state.viewport.at(0).text),
+             QByteArray("lqqk ASCII ") + QByteArray::fromHex("e4b8ade69687"));
 }
 
 void SessionTests::reconnectBumpsGenerationAndKeepsHandlersLive()

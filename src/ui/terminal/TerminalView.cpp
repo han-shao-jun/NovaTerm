@@ -334,12 +334,10 @@ TerminalView::TerminalView(TerminalSession* session, QWidget* parent, std::share
     connect(_session, &TerminalSession::automaticReconnectAttemptStarted, this, [this] {
         if (!_core)
             return;
-        if (!_serialReconnectPromptActive) {
-            _serialReconnectPromptActive = true;
-            _core->writeInput(QStringLiteral("\r\n\x1b[0;33m%1\x1b[0m")
-                .arg(tr("[Reconnecting] Waiting for the serial port")).toUtf8());
-        }
-        // 每次定时重试追加一个点，不重复输出整行错误或状态文本。
+        // 每次新连接都会重置 Parser 并清屏，因此等待提示也须重新显示。
+        _serialReconnectPromptActive = true;
+        _core->writeInput(QStringLiteral("\r\n\x1b[0;33m%1\x1b[0m")
+            .arg(tr("[Reconnecting] Waiting for the serial port")).toUtf8());
         _core->writeInput(QByteArrayLiteral("\x1b[0;33m.\x1b[0m"));
     });
     connect(_session, &TerminalSession::stateChanged, this, [this](SessionState state) {
@@ -781,7 +779,7 @@ void TerminalView::showFileTransfer()
     auto* controller = _session->serialFileTransfer();
     if (!controller)
         return;
-    if (_transferDialog && _serialFileTransfer != controller) {
+    if (_transferDialog && _transferDialog->controller() != controller) {
         // 重绑后旧窗口观察的控制器可能已经析构，不能复用它启动新通道。
         _transferDialog->deleteLater();
         _transferDialog.clear();

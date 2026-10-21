@@ -192,6 +192,9 @@ public:
      * @return true 表示成功入队；队列满或停止接收时返回 false，内容不变。
      */
     [[nodiscard]] bool clearAll();
+
+    /** @brief 有序重置新连接的解析状态，保留滚动历史；失败时不可启动连接。 */
+    [[nodiscard]] bool resetForConnection();
     NovaTerm::ScrollbackSnapshot scrollbackSnapshot() const;
 
     /**

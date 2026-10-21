@@ -186,6 +186,11 @@ NovaTerm::FileTransfer::Direction SerialFileTransferDialog::direction() const
     return static_cast<NovaTerm::FileTransfer::Direction>(_direction->currentData().toInt());
 }
 
+SerialFileTransferController* SerialFileTransferDialog::controller() const
+{
+    return _controller.data();
+}
+
 void SerialFileTransferDialog::setDirection(NovaTerm::FileTransfer::Direction value)
 {
     if (!_active && (!_controller || !_controller->isActive()))

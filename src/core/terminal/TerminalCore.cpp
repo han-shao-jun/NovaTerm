@@ -76,6 +76,7 @@ enum class CommandType
     ConfigureHistory,
     ClearScrollback,
     ClearAll,
+    ResetForConnection,
     Flush,
     PublishContext,
     AgentInput,
@@ -746,6 +747,9 @@ public:
             adapter->clearScreen();
             scrollback.clear();
             scrollbackChanged = true;
+            break;
+        case CommandType::ResetForConnection:
+            adapter->resetForConnection();
             break;
         case CommandType::Flush:
             adapter->flushDamage();
@@ -1683,6 +1687,13 @@ void TerminalCore::clearScrollback()
     ParserCommand command;
     command.type = CommandType::ClearScrollback;
     _runtime->enqueueCommand(std::move(command));
+}
+
+bool TerminalCore::resetForConnection()
+{
+    ParserCommand command;
+    command.type = CommandType::ResetForConnection;
+    return _runtime->enqueueCommand(std::move(command));
 }
 
 bool TerminalCore::clearAll()
