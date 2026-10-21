@@ -1394,7 +1394,9 @@ Search/Reflow 用顺序 cursor，读最近一个块，不污染共享 LRU；GUI 
 Parser `sb_popline` 的同步冷读使用预留槽，完全不等后台队列或 cache 额度。
 
 默认普通块目标 512 KiB，最大 1 MiB，至少 1024 行条件也封块；活动块和最近
-4 MiB 保持热区。超长逻辑行不拆 LineId，保持独立 Raw，预算不足按最旧优先淘汰。
+2 MiB 保持热区（2026-10-21 三轮 GUI 调参；原初值为 4 MiB）。超长逻辑行不拆
+LineId，保持独立 Raw，预算不足按最旧优先淘汰。选型与默认调度复验见
+[三轮调参报告](architecture/benchmarks/history-gui-tuning-linux-2026-10-21/README.md)。
 Live 块 charge 含容量和元数据，压缩必须节省至少 12.5% 和 4 KiB 才采用。
 遗留快照/任务持有的替换/淘汰块用分配 token 跟踪到真实生命周期结束，不提前减账；
 部分淘汰仍计整个不可变 payload。统计另列 cache/pin 和临时工作区，pin 是 cache
@@ -1409,9 +1411,25 @@ Live 块 charge 含容量和元数据，压缩必须节省至少 12.5% 和 4 KiB
 
 `terminal.historyCompression.enabled` 默认 false，切换不清历史、不重置 ID、不重连。
 关闭后不继续压缩，但保留旧块读取和必要资源，直到遗留块释放。
+
+GUI 性能观测复用 Renderer 的值类型统计，不增加采样线程或历史 owner。
+`completedViewportRevision/completedScrollOffset/completedHistoryAnchor` 只在当前
+映射已完整重建并实际完成绘制、且历史与字形均就绪时更新；等待冷数据或旧增量帧
+先于完整重绘执行时保留旧完成标记。`historyPendingFrames` 单列等待帧，不能把
+重复提交旧画面等同于正确历史内容更新。手工 GUI 基准使用 `frameSubmitted`
+关联请求与完成视口；合成器/显示器呈现仍在该测量边界之外。
 所有活动终端的 live/retained 诊断及跨 Core 生命周期 payload charge 由共享服务汇总；
 UI 显示节省、淘汰和错误，并在 Windows/Linux 可用物理内存低于 512 MiB 时提示。
 每终端仍有自己的 1 GiB live budget，未加入全进程 live 公平淘汰；RSS 另测。
+
+GUI 滚动目标变更时，每事件轮次最多投递一次 CacheOnly 准备，执行时读取最新目标。
+准备沿用列宽匹配的 HistoryLayout，以可见首尾 LineId 定位不可变快照中相交的块，
+每块仅查询一次，不按输入事件重新折行，不保留额外长期快照或缓存。正常 render
+遇首个 Pending 时，也在剩余可见行数限定的候选范围内请求后续块，避免跨块逐帧发现；
+仍返回 Pending、保留旧画面，原队列/缓存/临时额度及完成标记判据不变。未开始的
+GUI 准备采用最新目标，已提交 worker 的过期单块任务仍可执行至结束；布局未就绪、
+改宽或淘汰时沿用原绘制兜底。复测见
+[2026-10-21 GUI 报告](architecture/benchmarks/history-gui-linux-2026-10-21/README.md)。
 
 独立入口实际编译/链接/运行上述完整生产后端，没有 Qt 搜索路径或 Qt 事件循环。
 Qt 门面仍依赖 Qt，不能据此宣称整个 core 去 Qt。性能发布门槛未完成，具体 RED/

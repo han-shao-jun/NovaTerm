@@ -1,0 +1,3 @@
+usage: run-gui-matrix.py [-h] [--executable EXECUTABLE] [--output OUTPUT]
+                         [--rows ROWS] [--samples SAMPLES] [--runs RUNS]
+run-gui-matrix.py: error: output directory must be empty; preserve previous samples in their original directory

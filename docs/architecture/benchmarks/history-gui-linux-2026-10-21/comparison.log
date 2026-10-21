@@ -1,0 +1,66 @@
+{
+  "variable": {
+    "hot_renderer_cpu_after_over_before": 0.6017215601330538,
+    "hot_renderer_cpu_on_over_off": 0.9991307594312602,
+    "initial_charge_saving": 0.9208669417007722,
+    "cold": {
+      "cold_pages": {
+        "p95_ms": {
+          "median": 34.7649,
+          "min": 34.548582,
+          "max": 34.934214
+        },
+        "p99_ms": {
+          "median": 50.304485,
+          "min": 50.180827,
+          "max": 50.336376
+        }
+      },
+      "cold_scrollbar_jumps": {
+        "p95_ms": {
+          "median": 34.903542,
+          "min": 34.682654,
+          "max": 34.970347
+        },
+        "p99_ms": {
+          "median": 49.754911,
+          "min": 49.710142,
+          "max": 49.933892
+        }
+      }
+    },
+    "cold_all_runs_pass": true
+  },
+  "mixed": {
+    "hot_renderer_cpu_after_over_before": 0.9519440045532037,
+    "hot_renderer_cpu_on_over_off": 1.413394527267081,
+    "initial_charge_saving": 0.9231158079659629,
+    "cold": {
+      "cold_pages": {
+        "p95_ms": {
+          "median": 34.919053,
+          "min": 34.842445,
+          "max": 35.016491
+        },
+        "p99_ms": {
+          "median": 50.050513,
+          "min": 49.908149,
+          "max": 51.625641
+        }
+      },
+      "cold_scrollbar_jumps": {
+        "p95_ms": {
+          "median": 34.682878,
+          "min": 34.659909,
+          "max": 34.959777
+        },
+        "p99_ms": {
+          "median": 35.0479,
+          "min": 35.02208,
+          "max": 35.133674
+        }
+      }
+    },
+    "cold_all_runs_pass": true
+  }
+}

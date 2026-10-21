@@ -1,0 +1,14 @@
+[1/14] Building CXX object history/CMakeFiles/novaterm_history.dir/ScrollbackBlockCodec.cpp.o
+[2/14] Building CXX object history/CMakeFiles/novaterm_history.dir/home/super/Documents/qt_app/NovaTerm/src/core/ThreadNaming.cpp.o
+[3/14] Building CXX object history/CMakeFiles/novaterm_history.dir/HistoryReadContext.cpp.o
+[4/14] Building CXX object history/CMakeFiles/novaterm_history.dir/HistoryCompressionService.cpp.o
+[5/14] Building CXX object history/CMakeFiles/novaterm_history.dir/home/super/Documents/qt_app/NovaTerm/src/core/scrollback/ScrollbackSnapshot.cpp.o
+[6/14] Building CXX object history/CMakeFiles/novaterm_history.dir/home/super/Documents/qt_app/NovaTerm/src/core/scrollback/ChunkedScrollback.cpp.o
+[7/14] Building CXX object history/CMakeFiles/novaterm_history.dir/home/super/Documents/qt_app/NovaTerm/src/core/scrollback/ScrollbackChunk.cpp.o
+[8/14] Building C object history/CMakeFiles/novaterm_lz4.dir/home/super/Documents/qt_app/NovaTerm/third_party/lz4-1.10.0/lib/lz4.c.o
+[9/14] Linking C static library history/libnovaterm_lz4.a
+[10/14] Linking CXX static library history/libnovaterm_history.a
+[11/14] Building CXX object checks/CMakeFiles/novaterm_history_no_qt_link_check.dir/HistoryTests.cpp.o
+[12/14] Linking CXX executable checks/novaterm_history_no_qt_link_check
+[13/14] Building CXX object checks/CMakeFiles/novaterm_history_benchmark.dir/home/super/Documents/qt_app/NovaTerm/tests/benchmarks/history/HistoryBenchmark.cpp.o
+[14/14] Linking CXX executable checks/novaterm_history_benchmark

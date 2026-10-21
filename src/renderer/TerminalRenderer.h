@@ -100,6 +100,15 @@ public:
         quint64 historyLayoutTailUpdates{0};
         quint64 capabilityFallbacks{0};
         quint64 viewportMappingRevision{0};
+        /** Last viewport whose content and glyphs reached a completed draw pass.
+         * Pending history frames retain these values, even if scrollOffset()
+         * already identifies a newer request. frameSubmitted is the submission
+         * boundary; these counters do not measure compositor presentation.
+         */
+        quint64 completedViewportRevision{0};
+        int completedScrollOffset{-1};
+        NovaTerm::LineId completedHistoryAnchor{0};
+        quint64 historyPendingFrames{0};
     };
 
     struct RenderProgress
@@ -340,6 +349,7 @@ public:
 private:
     /** @brief 统一处理隐藏、最小化与恢复时的调度和缓存失效。 */
     void setPaintingEnabled(bool enabled);
+    void prepareHistoryViewport();
     // ── 渲染辅助 ──────────────────────────────────────────────
     void recalculateCellSize();
     void resizeTerminalToViewport();
@@ -554,6 +564,7 @@ private:
     NovaTerm::RenderScheduler* _renderScheduler{nullptr};
     bool _cursorBlinkVisible{true};
     bool _paintingEnabled{false}; ///< show/hide 维护，包含自发最小化隐藏
+    bool _historyPreparationScheduled{false}; ///< one queued preparation, newest target wins
     QPointer<QWidget> _renderHostWindow; ///< 宿主最小化恢复的状态通知来源
     bool _colorSchemeApplied{false}; ///< 首次配色仍需同步核心默认色
 
@@ -621,6 +632,8 @@ private:
     QVector<quint64> _rowContentIdentities;
     NovaTerm::RowBlockDamageTracker _rowBlockDamageTracker;
     quint64 _viewportMappingRevision{0};
+    /// Mapping actually rebuilt as a full viewport, including pending glyph rows.
+    quint64 _contentViewportRevision{0};
     NovaTerm::RenderCommandBuffer _commandBuffer;
     // QRhi may consume a frame while queued terminal damage/scroll state is
     // being published. Protect the complete hand-off and never combine a

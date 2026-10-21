@@ -1,0 +1,10 @@
+TerminalRenderer: GPU glyph renderer initialized with OpenGL
+prefill settled: completed=0 mapping=196 completed revision=196
+starting hot_wheel
+hot_wheel: 128/128 responses, 0 coalesced
+starting cold_pages
+cold_pages: 128/128 responses, 0 coalesced
+starting cold_scrollbar_jumps
+cold_scrollbar_jumps: 128/128 responses, 0 coalesced
+starting live_input_wheel
+live_input_wheel: 120/128 responses, 8 coalesced

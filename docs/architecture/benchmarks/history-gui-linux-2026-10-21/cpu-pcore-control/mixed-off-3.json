@@ -1,0 +1,4982 @@
+{
+    "build_type": "Release",
+    "columns": 123,
+    "compiler": "GNU-13.3.0",
+    "corpus": "mixed",
+    "dpr": 1.8229166666666667,
+    "font": "DejaVu Sans Mono,-1,16,7,400,0,0,0,1,0,0,0,0,0,0,1",
+    "hot_bytes": 4194304,
+    "initial_compressed_blocks": 0,
+    "initial_resident_charge": 204065824,
+    "initial_retained_lines": 49959,
+    "input_rows": 50000,
+    "measurement_boundary": "synthetic event posted to completed content+glyph draw pass frameSubmitted; not compositor presentation",
+    "peak_rss": 448319488,
+    "pixel_check_scope": "independent final-state grabFramebuffer after each measured stage; readback redraws; not a capture of each timed frame",
+    "pixel_checks": 4,
+    "pixel_readback": {
+        "max_ms": 22.170614,
+        "min_ms": 19.735134,
+        "p50_ms": 21.154417,
+        "p95_ms": 22.170614,
+        "p99_ms": 22.170614,
+        "samples": 4
+    },
+    "platform": "xcb",
+    "prefill_process_cpu_ms": 1465.477,
+    "prefill_wall_ms": 1622.178019,
+    "profile": "off",
+    "qt": "6.8.3",
+    "queue_high_water": 0,
+    "rejected_tasks": 0,
+    "rhi_api": 1,
+    "rows": 42,
+    "rss": 450953216,
+    "samples_per_scenario": 128,
+    "scenarios": [
+        {
+            "busy_reads": 0,
+            "cache_hits": 0,
+            "cache_misses": 0,
+            "closed_loop": true,
+            "coalesced": 0,
+            "completed": 128,
+            "correct_content_fps": 29.99472012152678,
+            "correct_content_frame_interval": {
+                "max_ms": 36.495402,
+                "min_ms": 30.246853,
+                "p50_ms": 33.329115,
+                "p95_ms": 33.874234,
+                "p99_ms": 34.952099,
+                "samples": 127
+            },
+            "correct_content_gaps_over_16_7_ms": 127,
+            "correct_content_gaps_over_33_3_ms": 87,
+            "decode_errors": 0,
+            "duration_ms": 4249.905599,
+            "event_to_frame": {
+                "max_ms": 36.443474,
+                "min_ms": 15.73977,
+                "p50_ms": 33.269465,
+                "p95_ms": 33.820205,
+                "p99_ms": 34.890967,
+                "samples": 128
+            },
+            "event_to_handler": {
+                "max_ms": 0.025971,
+                "min_ms": 0.00324,
+                "p50_ms": 0.014102,
+                "p95_ms": 0.017396,
+                "p99_ms": 0.020698,
+                "samples": 128
+            },
+            "events": [
+                {
+                    "anchor": 49927,
+                    "coalesced": false,
+                    "event_to_frame_ms": 15.73977,
+                    "offset": 33,
+                    "posted_ms": 0.019376,
+                    "queued_to_handler_ms": 0.018075,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 49924,
+                    "coalesced": false,
+                    "event_to_frame_ms": 32.381772,
+                    "offset": 36,
+                    "posted_ms": 16.871878,
+                    "queued_to_handler_ms": 0.006685,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 49921,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.266478,
+                    "offset": 39,
+                    "posted_ms": 49.291259,
+                    "queued_to_handler_ms": 0.010382,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 49918,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.313361,
+                    "offset": 42,
+                    "posted_ms": 82.617476,
+                    "queued_to_handler_ms": 0.014211,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 49915,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.161715,
+                    "offset": 45,
+                    "posted_ms": 116.001676,
+                    "queued_to_handler_ms": 0.016758,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 49912,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.211582,
+                    "offset": 48,
+                    "posted_ms": 149.233125,
+                    "queued_to_handler_ms": 0.014595,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 49909,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.491655,
+                    "offset": 51,
+                    "posted_ms": 182.501218,
+                    "queued_to_handler_ms": 0.015111,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 49906,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.061599,
+                    "offset": 54,
+                    "posted_ms": 216.049858,
+                    "queued_to_handler_ms": 0.014201,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 49903,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.276068,
+                    "offset": 57,
+                    "posted_ms": 249.177378,
+                    "queued_to_handler_ms": 0.015618,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 49900,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.266449,
+                    "offset": 60,
+                    "posted_ms": 282.504286,
+                    "queued_to_handler_ms": 0.012256,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 49897,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.40947,
+                    "offset": 63,
+                    "posted_ms": 315.82864,
+                    "queued_to_handler_ms": 0.01434,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 49894,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.150054,
+                    "offset": 66,
+                    "posted_ms": 349.291392,
+                    "queued_to_handler_ms": 0.014015,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 49891,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.386927,
+                    "offset": 69,
+                    "posted_ms": 382.49584,
+                    "queued_to_handler_ms": 0.01508,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 49888,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.317212,
+                    "offset": 72,
+                    "posted_ms": 415.923874,
+                    "queued_to_handler_ms": 0.012129,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 49885,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.585244,
+                    "offset": 75,
+                    "posted_ms": 449.293351,
+                    "queued_to_handler_ms": 0.012365,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 49882,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.042105,
+                    "offset": 78,
+                    "posted_ms": 482.937361,
+                    "queued_to_handler_ms": 0.015714,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 49879,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.271789,
+                    "offset": 81,
+                    "posted_ms": 516.033509,
+                    "queued_to_handler_ms": 0.015354,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 49876,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.37416,
+                    "offset": 84,
+                    "posted_ms": 549.364625,
+                    "queued_to_handler_ms": 0.014143,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 49873,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.563735,
+                    "offset": 87,
+                    "posted_ms": 582.781109,
+                    "queued_to_handler_ms": 0.009679,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 49870,
+                    "coalesced": false,
+                    "event_to_frame_ms": 32.790765,
+                    "offset": 90,
+                    "posted_ms": 616.400947,
+                    "queued_to_handler_ms": 0.015099,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 49867,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.389499,
+                    "offset": 93,
+                    "posted_ms": 649.242008,
+                    "queued_to_handler_ms": 0.016212,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 49864,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.190886,
+                    "offset": 96,
+                    "posted_ms": 682.700974,
+                    "queued_to_handler_ms": 0.015114,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 49861,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.238742,
+                    "offset": 99,
+                    "posted_ms": 715.957277,
+                    "queued_to_handler_ms": 0.014287,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 49858,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.259708,
+                    "offset": 102,
+                    "posted_ms": 749.252969,
+                    "queued_to_handler_ms": 0.014051,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 49855,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.402467,
+                    "offset": 105,
+                    "posted_ms": 782.550928,
+                    "queued_to_handler_ms": 0.013044,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 49852,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.266146,
+                    "offset": 108,
+                    "posted_ms": 815.986641,
+                    "queued_to_handler_ms": 0.01106,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 49849,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.233652,
+                    "offset": 111,
+                    "posted_ms": 849.298306,
+                    "queued_to_handler_ms": 0.011416,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 49846,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.652478,
+                    "offset": 114,
+                    "posted_ms": 882.582214,
+                    "queued_to_handler_ms": 0.013368,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 49843,
+                    "coalesced": false,
+                    "event_to_frame_ms": 32.997075,
+                    "offset": 117,
+                    "posted_ms": 916.264281,
+                    "queued_to_handler_ms": 0.008816,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 49840,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.2222,
+                    "offset": 120,
+                    "posted_ms": 949.286193,
+                    "queued_to_handler_ms": 0.008317,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 49837,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.385577,
+                    "offset": 123,
+                    "posted_ms": 982.520084,
+                    "queued_to_handler_ms": 0.00324,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 49834,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.270532,
+                    "offset": 126,
+                    "posted_ms": 1015.944234,
+                    "queued_to_handler_ms": 0.012907,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 49831,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.307729,
+                    "offset": 129,
+                    "posted_ms": 1049.269097,
+                    "queued_to_handler_ms": 0.01629,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 49828,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.137717,
+                    "offset": 132,
+                    "posted_ms": 1082.636396,
+                    "queued_to_handler_ms": 0.019535,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 49825,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.441389,
+                    "offset": 135,
+                    "posted_ms": 1115.786213,
+                    "queued_to_handler_ms": 0.003383,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 49822,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.299825,
+                    "offset": 138,
+                    "posted_ms": 1149.287426,
+                    "queued_to_handler_ms": 0.014947,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 49819,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.820205,
+                    "offset": 141,
+                    "posted_ms": 1182.652775,
+                    "queued_to_handler_ms": 0.015019,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 49816,
+                    "coalesced": false,
+                    "event_to_frame_ms": 32.666402,
+                    "offset": 144,
+                    "posted_ms": 1216.53864,
+                    "queued_to_handler_ms": 0.014416,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 49813,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.37903,
+                    "offset": 147,
+                    "posted_ms": 1249.251489,
+                    "queued_to_handler_ms": 0.013063,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 49810,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.171652,
+                    "offset": 150,
+                    "posted_ms": 1282.694489,
+                    "queued_to_handler_ms": 0.014382,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 49807,
+                    "coalesced": false,
+                    "event_to_frame_ms": 36.443474,
+                    "offset": 153,
+                    "posted_ms": 1315.918069,
+                    "queued_to_handler_ms": 0.01393,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 49804,
+                    "coalesced": false,
+                    "event_to_frame_ms": 30.188269,
+                    "offset": 156,
+                    "posted_ms": 1352.420127,
+                    "queued_to_handler_ms": 0.014347,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 49801,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.292345,
+                    "offset": 159,
+                    "posted_ms": 1382.670677,
+                    "queued_to_handler_ms": 0.01539,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 49798,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.18995,
+                    "offset": 162,
+                    "posted_ms": 1416.014504,
+                    "queued_to_handler_ms": 0.014036,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 49795,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.343164,
+                    "offset": 165,
+                    "posted_ms": 1449.248045,
+                    "queued_to_handler_ms": 0.012521,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 49792,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.233337,
+                    "offset": 168,
+                    "posted_ms": 1482.642861,
+                    "queued_to_handler_ms": 0.014897,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 49789,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.701166,
+                    "offset": 171,
+                    "posted_ms": 1515.92603,
+                    "queued_to_handler_ms": 0.020541,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 49786,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.151291,
+                    "offset": 174,
+                    "posted_ms": 1549.686574,
+                    "queued_to_handler_ms": 0.01424,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 49783,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.118679,
+                    "offset": 177,
+                    "posted_ms": 1582.883784,
+                    "queued_to_handler_ms": 0.013845,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 49780,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.265204,
+                    "offset": 180,
+                    "posted_ms": 1616.064886,
+                    "queued_to_handler_ms": 0.014048,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 49777,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.267493,
+                    "offset": 183,
+                    "posted_ms": 1649.434727,
+                    "queued_to_handler_ms": 0.017852,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 49774,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.118263,
+                    "offset": 186,
+                    "posted_ms": 1682.767637,
+                    "queued_to_handler_ms": 0.014504,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 49771,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.268652,
+                    "offset": 189,
+                    "posted_ms": 1715.943959,
+                    "queued_to_handler_ms": 0.012445,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 49768,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.304793,
+                    "offset": 192,
+                    "posted_ms": 1749.256609,
+                    "queued_to_handler_ms": 0.011962,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 49765,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.278543,
+                    "offset": 195,
+                    "posted_ms": 1782.618192,
+                    "queued_to_handler_ms": 0.014333,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 49762,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.280126,
+                    "offset": 198,
+                    "posted_ms": 1815.949251,
+                    "queued_to_handler_ms": 0.012548,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 49759,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.985864,
+                    "offset": 201,
+                    "posted_ms": 1849.276219,
+                    "queued_to_handler_ms": 0.012048,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 49756,
+                    "coalesced": false,
+                    "event_to_frame_ms": 32.630469,
+                    "offset": 204,
+                    "posted_ms": 1883.326149,
+                    "queued_to_handler_ms": 0.014441,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 49753,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.823114,
+                    "offset": 207,
+                    "posted_ms": 1916.007738,
+                    "queued_to_handler_ms": 0.013395,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 49750,
+                    "coalesced": false,
+                    "event_to_frame_ms": 32.69021,
+                    "offset": 210,
+                    "posted_ms": 1949.885165,
+                    "queued_to_handler_ms": 0.014315,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 49747,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.260668,
+                    "offset": 213,
+                    "posted_ms": 1982.637796,
+                    "queued_to_handler_ms": 0.016053,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 49744,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.286756,
+                    "offset": 216,
+                    "posted_ms": 2015.949709,
+                    "queued_to_handler_ms": 0.012775,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 49741,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.259306,
+                    "offset": 219,
+                    "posted_ms": 2049.288038,
+                    "queued_to_handler_ms": 0.013132,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 49738,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.275956,
+                    "offset": 222,
+                    "posted_ms": 2082.591064,
+                    "queued_to_handler_ms": 0.020698,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 49735,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.29436,
+                    "offset": 225,
+                    "posted_ms": 2115.910208,
+                    "queued_to_handler_ms": 0.011565,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 49732,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.335331,
+                    "offset": 228,
+                    "posted_ms": 2149.250829,
+                    "queued_to_handler_ms": 0.011554,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 49729,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.241102,
+                    "offset": 231,
+                    "posted_ms": 2182.643117,
+                    "queued_to_handler_ms": 0.013696,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 49726,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.330288,
+                    "offset": 234,
+                    "posted_ms": 2215.934058,
+                    "queued_to_handler_ms": 0.014198,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 49723,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.265309,
+                    "offset": 237,
+                    "posted_ms": 2249.330654,
+                    "queued_to_handler_ms": 0.012431,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 49720,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.249172,
+                    "offset": 240,
+                    "posted_ms": 2282.660135,
+                    "queued_to_handler_ms": 0.012868,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 49717,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.272128,
+                    "offset": 243,
+                    "posted_ms": 2315.967105,
+                    "queued_to_handler_ms": 0.01453,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 49714,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.50361,
+                    "offset": 246,
+                    "posted_ms": 2349.301797,
+                    "queued_to_handler_ms": 0.014408,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 49711,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.037614,
+                    "offset": 249,
+                    "posted_ms": 2382.854846,
+                    "queued_to_handler_ms": 0.014171,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 49708,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.32656,
+                    "offset": 252,
+                    "posted_ms": 2415.937396,
+                    "queued_to_handler_ms": 0.012297,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 49705,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.244074,
+                    "offset": 255,
+                    "posted_ms": 2449.320037,
+                    "queued_to_handler_ms": 0.014759,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 49702,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.324893,
+                    "offset": 258,
+                    "posted_ms": 2482.621672,
+                    "queued_to_handler_ms": 0.014869,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 49699,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.252797,
+                    "offset": 261,
+                    "posted_ms": 2516.015174,
+                    "queued_to_handler_ms": 0.014686,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 49696,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.276402,
+                    "offset": 264,
+                    "posted_ms": 2549.329612,
+                    "queued_to_handler_ms": 0.014384,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 49693,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.330274,
+                    "offset": 267,
+                    "posted_ms": 2582.667408,
+                    "queued_to_handler_ms": 0.01393,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 49690,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.216742,
+                    "offset": 270,
+                    "posted_ms": 2616.057476,
+                    "queued_to_handler_ms": 0.013651,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 49687,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.271195,
+                    "offset": 273,
+                    "posted_ms": 2649.337657,
+                    "queued_to_handler_ms": 0.01597,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 49684,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.27487,
+                    "offset": 276,
+                    "posted_ms": 2682.663812,
+                    "queued_to_handler_ms": 0.014623,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 49681,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.380521,
+                    "offset": 279,
+                    "posted_ms": 2715.991743,
+                    "queued_to_handler_ms": 0.013512,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 49678,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.1614,
+                    "offset": 282,
+                    "posted_ms": 2749.435029,
+                    "queued_to_handler_ms": 0.015971,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 49675,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.404691,
+                    "offset": 285,
+                    "posted_ms": 2782.651203,
+                    "queued_to_handler_ms": 0.014513,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 49672,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.659375,
+                    "offset": 288,
+                    "posted_ms": 2816.107315,
+                    "queued_to_handler_ms": 0.025971,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 49669,
+                    "coalesced": false,
+                    "event_to_frame_ms": 32.839372,
+                    "offset": 291,
+                    "posted_ms": 2849.831246,
+                    "queued_to_handler_ms": 0.013113,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 49666,
+                    "coalesced": false,
+                    "event_to_frame_ms": 34.743351,
+                    "offset": 294,
+                    "posted_ms": 2882.728277,
+                    "queued_to_handler_ms": 0.015742,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 49663,
+                    "coalesced": false,
+                    "event_to_frame_ms": 32.51037,
+                    "offset": 297,
+                    "posted_ms": 2917.52682,
+                    "queued_to_handler_ms": 0.014192,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 49660,
+                    "coalesced": false,
+                    "event_to_frame_ms": 32.778384,
+                    "offset": 300,
+                    "posted_ms": 2950.088755,
+                    "queued_to_handler_ms": 0.013827,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 49657,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.766268,
+                    "offset": 303,
+                    "posted_ms": 2982.918303,
+                    "queued_to_handler_ms": 0.012915,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 49654,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.153369,
+                    "offset": 306,
+                    "posted_ms": 3016.738984,
+                    "queued_to_handler_ms": 0.014102,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 49651,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.242941,
+                    "offset": 309,
+                    "posted_ms": 3049.960764,
+                    "queued_to_handler_ms": 0.015761,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 49648,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.047702,
+                    "offset": 312,
+                    "posted_ms": 3083.259458,
+                    "queued_to_handler_ms": 0.014176,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 49645,
+                    "coalesced": false,
+                    "event_to_frame_ms": 32.898979,
+                    "offset": 315,
+                    "posted_ms": 3116.362148,
+                    "queued_to_handler_ms": 0.014883,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 49642,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.405743,
+                    "offset": 318,
+                    "posted_ms": 3149.314902,
+                    "queued_to_handler_ms": 0.013519,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 49639,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.141657,
+                    "offset": 321,
+                    "posted_ms": 3182.787852,
+                    "queued_to_handler_ms": 0.0139,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 49636,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.275329,
+                    "offset": 324,
+                    "posted_ms": 3215.978467,
+                    "queued_to_handler_ms": 0.013102,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 49633,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.280876,
+                    "offset": 327,
+                    "posted_ms": 3249.307083,
+                    "queued_to_handler_ms": 0.01467,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 49630,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.317453,
+                    "offset": 330,
+                    "posted_ms": 3282.650308,
+                    "queued_to_handler_ms": 0.0157,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 49627,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.237519,
+                    "offset": 333,
+                    "posted_ms": 3316.029669,
+                    "queued_to_handler_ms": 0.013608,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 49624,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.285666,
+                    "offset": 336,
+                    "posted_ms": 3349.319235,
+                    "queued_to_handler_ms": 0.012914,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 49621,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.255451,
+                    "offset": 339,
+                    "posted_ms": 3382.668525,
+                    "queued_to_handler_ms": 0.014869,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 49618,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.302619,
+                    "offset": 342,
+                    "posted_ms": 3415.97937,
+                    "queued_to_handler_ms": 0.015558,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 49615,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.260186,
+                    "offset": 345,
+                    "posted_ms": 3449.337817,
+                    "queued_to_handler_ms": 0.015101,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 49612,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.424683,
+                    "offset": 348,
+                    "posted_ms": 3482.650778,
+                    "queued_to_handler_ms": 0.013523,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 49609,
+                    "coalesced": false,
+                    "event_to_frame_ms": 34.890967,
+                    "offset": 351,
+                    "posted_ms": 3516.136593,
+                    "queued_to_handler_ms": 0.013688,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 49606,
+                    "coalesced": false,
+                    "event_to_frame_ms": 31.49083,
+                    "offset": 354,
+                    "posted_ms": 3551.092619,
+                    "queued_to_handler_ms": 0.013888,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 49603,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.307056,
+                    "offset": 357,
+                    "posted_ms": 3582.630917,
+                    "queued_to_handler_ms": 0.009522,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 49600,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.354553,
+                    "offset": 360,
+                    "posted_ms": 3615.964633,
+                    "queued_to_handler_ms": 0.004292,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 49597,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.245141,
+                    "offset": 363,
+                    "posted_ms": 3649.357451,
+                    "queued_to_handler_ms": 0.006674,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 49594,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.399709,
+                    "offset": 366,
+                    "posted_ms": 3682.660234,
+                    "queued_to_handler_ms": 0.014066,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 49591,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.242766,
+                    "offset": 369,
+                    "posted_ms": 3716.136818,
+                    "queued_to_handler_ms": 0.014411,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 49588,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.336125,
+                    "offset": 372,
+                    "posted_ms": 3749.43779,
+                    "queued_to_handler_ms": 0.014757,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 49585,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.265124,
+                    "offset": 375,
+                    "posted_ms": 3782.837906,
+                    "queued_to_handler_ms": 0.013894,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 49582,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.257224,
+                    "offset": 378,
+                    "posted_ms": 3816.167013,
+                    "queued_to_handler_ms": 0.0133,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 49579,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.269442,
+                    "offset": 381,
+                    "posted_ms": 3849.480403,
+                    "queued_to_handler_ms": 0.012757,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 49576,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.269465,
+                    "offset": 384,
+                    "posted_ms": 3882.805968,
+                    "queued_to_handler_ms": 0.012129,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 49573,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.248052,
+                    "offset": 387,
+                    "posted_ms": 3916.140812,
+                    "queued_to_handler_ms": 0.013741,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 49570,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.306329,
+                    "offset": 390,
+                    "posted_ms": 3949.451119,
+                    "queued_to_handler_ms": 0.014289,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 49567,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.392612,
+                    "offset": 393,
+                    "posted_ms": 3982.834975,
+                    "queued_to_handler_ms": 0.017396,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 49564,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.605063,
+                    "offset": 396,
+                    "posted_ms": 4016.296261,
+                    "queued_to_handler_ms": 0.013882,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 49561,
+                    "coalesced": false,
+                    "event_to_frame_ms": 32.820479,
+                    "offset": 399,
+                    "posted_ms": 4049.968499,
+                    "queued_to_handler_ms": 0.016577,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 49558,
+                    "coalesced": false,
+                    "event_to_frame_ms": 34.611336,
+                    "offset": 402,
+                    "posted_ms": 4082.845691,
+                    "queued_to_handler_ms": 0.013385,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 49555,
+                    "coalesced": false,
+                    "event_to_frame_ms": 32.361855,
+                    "offset": 405,
+                    "posted_ms": 4117.50052,
+                    "queued_to_handler_ms": 0.009868,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 49552,
+                    "coalesced": false,
+                    "event_to_frame_ms": 32.770515,
+                    "offset": 408,
+                    "posted_ms": 4149.942645,
+                    "queued_to_handler_ms": 0.012869,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 49549,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.224628,
+                    "offset": 411,
+                    "posted_ms": 4182.782489,
+                    "queued_to_handler_ms": 0.015223,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 49546,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.76239,
+                    "offset": 414,
+                    "posted_ms": 4216.07527,
+                    "queued_to_handler_ms": 0.014592,
+                    "superseded_batch_age_ms": null
+                }
+            ],
+            "frame_cpu": {
+                "max_ms": 3.819556,
+                "min_ms": 0.037866,
+                "p50_ms": 3.6053,
+                "p95_ms": 3.71113,
+                "p99_ms": 3.744679,
+                "samples": 129
+            },
+            "frame_gaps_over_16_7_ms": 127,
+            "frame_gaps_over_33_3_ms": 86,
+            "frame_interval": {
+                "max_ms": 36.495402,
+                "min_ms": 16.604622,
+                "p50_ms": 33.326711,
+                "p95_ms": 33.874234,
+                "p99_ms": 34.952099,
+                "samples": 128
+            },
+            "heartbeat_lag": {
+                "max_ms": 14.533024000000001,
+                "min_ms": 8.721912,
+                "p50_ms": 11.665872,
+                "p95_ms": 13.201273,
+                "p99_ms": 13.728784000000001,
+                "samples": 255
+            },
+            "history_pending_frames": 0,
+            "input_bytes": 0,
+            "input_rejected": 0,
+            "name": "hot_wheel",
+            "oldest_coalesced_batch_to_frame": {
+                "max_ms": 36.443474,
+                "min_ms": 15.73977,
+                "p50_ms": 33.269465,
+                "p95_ms": 33.820205,
+                "p99_ms": 34.890967,
+                "samples": 128
+            },
+            "pipeline_trace": [
+            ],
+            "process_cpu_ms": 1399.406,
+            "requests": 128,
+            "resident_charge_after": 204038304,
+            "resident_charge_before": 204038304
+        },
+        {
+            "busy_reads": 0,
+            "cache_hits": 0,
+            "cache_misses": 0,
+            "closed_loop": true,
+            "coalesced": 0,
+            "completed": 128,
+            "correct_content_fps": 29.764635335176553,
+            "correct_content_frame_interval": {
+                "max_ms": 50.88096,
+                "min_ms": 30.880524,
+                "p50_ms": 33.335557,
+                "p95_ms": 34.879726,
+                "p99_ms": 45.543484,
+                "samples": 127
+            },
+            "correct_content_gaps_over_16_7_ms": 127,
+            "correct_content_gaps_over_33_3_ms": 80,
+            "decode_errors": 0,
+            "duration_ms": 4281.505348,
+            "event_to_frame": {
+                "max_ms": 45.360584,
+                "min_ms": 14.582858,
+                "p50_ms": 33.241469,
+                "p95_ms": 34.775301,
+                "p99_ms": 36.156553,
+                "samples": 128
+            },
+            "event_to_handler": {
+                "max_ms": 0.0272,
+                "min_ms": 0.002874,
+                "p50_ms": 0.013882,
+                "p95_ms": 0.015949,
+                "p99_ms": 0.024225,
+                "samples": 128
+            },
+            "events": [
+                {
+                    "anchor": 2043,
+                    "coalesced": false,
+                    "event_to_frame_ms": 14.582858,
+                    "offset": 47917,
+                    "posted_ms": 0.017687,
+                    "queued_to_handler_ms": 0.017991,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 2085,
+                    "coalesced": false,
+                    "event_to_frame_ms": 31.288921,
+                    "offset": 47875,
+                    "posted_ms": 16.813981,
+                    "queued_to_handler_ms": 0.005772,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 2127,
+                    "coalesced": false,
+                    "event_to_frame_ms": 36.156553,
+                    "offset": 47833,
+                    "posted_ms": 48.163457,
+                    "queued_to_handler_ms": 0.014019,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 2169,
+                    "coalesced": false,
+                    "event_to_frame_ms": 30.81082,
+                    "offset": 47791,
+                    "posted_ms": 84.389714,
+                    "queued_to_handler_ms": 0.013916,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 2211,
+                    "coalesced": false,
+                    "event_to_frame_ms": 32.624871,
+                    "offset": 47749,
+                    "posted_ms": 115.254695,
+                    "queued_to_handler_ms": 0.012575,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 2253,
+                    "coalesced": false,
+                    "event_to_frame_ms": 34.584008,
+                    "offset": 47707,
+                    "posted_ms": 147.949659,
+                    "queued_to_handler_ms": 0.015561,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 2295,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.762238,
+                    "offset": 47665,
+                    "posted_ms": 182.597435,
+                    "queued_to_handler_ms": 0.013472,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 2337,
+                    "coalesced": false,
+                    "event_to_frame_ms": 31.73833,
+                    "offset": 47623,
+                    "posted_ms": 216.432122,
+                    "queued_to_handler_ms": 0.013715,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 2379,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.277166,
+                    "offset": 47581,
+                    "posted_ms": 248.235533,
+                    "queued_to_handler_ms": 0.013994,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 2421,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.223605,
+                    "offset": 47539,
+                    "posted_ms": 281.579505,
+                    "queued_to_handler_ms": 0.013736,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 2463,
+                    "coalesced": false,
+                    "event_to_frame_ms": 32.928274,
+                    "offset": 47497,
+                    "posted_ms": 314.871151,
+                    "queued_to_handler_ms": 0.014409,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 2505,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.567881,
+                    "offset": 47455,
+                    "posted_ms": 347.919417,
+                    "queued_to_handler_ms": 0.01113,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 2547,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.234917,
+                    "offset": 47413,
+                    "posted_ms": 381.598384,
+                    "queued_to_handler_ms": 0.011718,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 2589,
+                    "coalesced": false,
+                    "event_to_frame_ms": 34.482412,
+                    "offset": 47371,
+                    "posted_ms": 414.963972,
+                    "queued_to_handler_ms": 0.011378,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 2631,
+                    "coalesced": false,
+                    "event_to_frame_ms": 31.576976,
+                    "offset": 47329,
+                    "posted_ms": 449.568728,
+                    "queued_to_handler_ms": 0.011359,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 2673,
+                    "coalesced": false,
+                    "event_to_frame_ms": 34.753093,
+                    "offset": 47287,
+                    "posted_ms": 481.272337,
+                    "queued_to_handler_ms": 0.0272,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 2715,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.226536,
+                    "offset": 47245,
+                    "posted_ms": 516.141185,
+                    "queued_to_handler_ms": 0.010664,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 2757,
+                    "coalesced": false,
+                    "event_to_frame_ms": 32.061418,
+                    "offset": 47203,
+                    "posted_ms": 549.475072,
+                    "queued_to_handler_ms": 0.010384,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 2799,
+                    "coalesced": false,
+                    "event_to_frame_ms": 34.43991,
+                    "offset": 47161,
+                    "posted_ms": 581.667924,
+                    "queued_to_handler_ms": 0.013572,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 2841,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.223291,
+                    "offset": 47119,
+                    "posted_ms": 616.179833,
+                    "queued_to_handler_ms": 0.014811,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 2883,
+                    "coalesced": false,
+                    "event_to_frame_ms": 31.895917,
+                    "offset": 47077,
+                    "posted_ms": 649.534984,
+                    "queued_to_handler_ms": 0.011452,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 2925,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.291938,
+                    "offset": 47035,
+                    "posted_ms": 681.547901,
+                    "queued_to_handler_ms": 0.011742,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 2967,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.175373,
+                    "offset": 46993,
+                    "posted_ms": 714.967487,
+                    "queued_to_handler_ms": 0.011738,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 3009,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.332888,
+                    "offset": 46951,
+                    "posted_ms": 748.263056,
+                    "queued_to_handler_ms": 0.011663,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 3051,
+                    "coalesced": false,
+                    "event_to_frame_ms": 34.278191,
+                    "offset": 46909,
+                    "posted_ms": 781.721459,
+                    "queued_to_handler_ms": 0.011548,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 3093,
+                    "coalesced": false,
+                    "event_to_frame_ms": 32.084209,
+                    "offset": 46867,
+                    "posted_ms": 816.102803,
+                    "queued_to_handler_ms": 0.011572,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 3135,
+                    "coalesced": false,
+                    "event_to_frame_ms": 32.947479,
+                    "offset": 46825,
+                    "posted_ms": 848.322473,
+                    "queued_to_handler_ms": 0.012396,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 3177,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.362948,
+                    "offset": 46783,
+                    "posted_ms": 881.399261,
+                    "queued_to_handler_ms": 0.011541,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 3219,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.272819,
+                    "offset": 46741,
+                    "posted_ms": 914.87015,
+                    "queued_to_handler_ms": 0.011393,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 3261,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.24795,
+                    "offset": 46699,
+                    "posted_ms": 948.31156,
+                    "queued_to_handler_ms": 0.012153,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 3303,
+                    "coalesced": false,
+                    "event_to_frame_ms": 34.380169,
+                    "offset": 46657,
+                    "posted_ms": 981.706591,
+                    "queued_to_handler_ms": 0.012472,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 3345,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.314503,
+                    "offset": 46615,
+                    "posted_ms": 1016.219931,
+                    "queued_to_handler_ms": 0.011804,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 3387,
+                    "coalesced": false,
+                    "event_to_frame_ms": 32.033618,
+                    "offset": 46573,
+                    "posted_ms": 1049.604176,
+                    "queued_to_handler_ms": 0.01463,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 3429,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.302287,
+                    "offset": 46531,
+                    "posted_ms": 1081.711173,
+                    "queued_to_handler_ms": 0.014165,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 3471,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.2578,
+                    "offset": 46489,
+                    "posted_ms": 1115.08001,
+                    "queued_to_handler_ms": 0.013908,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 3513,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.214304,
+                    "offset": 46447,
+                    "posted_ms": 1148.402683,
+                    "queued_to_handler_ms": 0.013341,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 3555,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.305518,
+                    "offset": 46405,
+                    "posted_ms": 1181.673393,
+                    "queued_to_handler_ms": 0.012089,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 3597,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.87685,
+                    "offset": 46363,
+                    "posted_ms": 1231.983021,
+                    "queued_to_handler_ms": 0.012029,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 3639,
+                    "coalesced": false,
+                    "event_to_frame_ms": 32.132708,
+                    "offset": 46321,
+                    "posted_ms": 1265.932153,
+                    "queued_to_handler_ms": 0.014615,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 3681,
+                    "coalesced": false,
+                    "event_to_frame_ms": 30.49098,
+                    "offset": 46279,
+                    "posted_ms": 1300.542773,
+                    "queued_to_handler_ms": 0.015949,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 3723,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.155657,
+                    "offset": 46237,
+                    "posted_ms": 1331.216082,
+                    "queued_to_handler_ms": 0.015835,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 3765,
+                    "coalesced": false,
+                    "event_to_frame_ms": 32.149997,
+                    "offset": 46195,
+                    "posted_ms": 1365.502411,
+                    "queued_to_handler_ms": 0.013628,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 3807,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.187267,
+                    "offset": 46153,
+                    "posted_ms": 1397.800698,
+                    "queued_to_handler_ms": 0.012975,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 3849,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.2284,
+                    "offset": 46111,
+                    "posted_ms": 1431.139771,
+                    "queued_to_handler_ms": 0.013146,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 3891,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.088226,
+                    "offset": 46069,
+                    "posted_ms": 1464.565247,
+                    "queued_to_handler_ms": 0.01165,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 3933,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.35263,
+                    "offset": 46027,
+                    "posted_ms": 1497.799924,
+                    "queued_to_handler_ms": 0.012846,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 3975,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.097516,
+                    "offset": 45985,
+                    "posted_ms": 1531.291795,
+                    "queued_to_handler_ms": 0.011624,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 4017,
+                    "coalesced": false,
+                    "event_to_frame_ms": 32.07374,
+                    "offset": 45943,
+                    "posted_ms": 1565.601031,
+                    "queued_to_handler_ms": 0.007206,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 4059,
+                    "coalesced": false,
+                    "event_to_frame_ms": 34.095504,
+                    "offset": 45901,
+                    "posted_ms": 1597.748881,
+                    "queued_to_handler_ms": 0.005869,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 4101,
+                    "coalesced": false,
+                    "event_to_frame_ms": 32.712753,
+                    "offset": 45859,
+                    "posted_ms": 1631.980294,
+                    "queued_to_handler_ms": 0.009918,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 4143,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.029056,
+                    "offset": 45817,
+                    "posted_ms": 1664.762045,
+                    "queued_to_handler_ms": 0.014702,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 4185,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.25959,
+                    "offset": 45775,
+                    "posted_ms": 1697.858206,
+                    "queued_to_handler_ms": 0.015704,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 4227,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.15065,
+                    "offset": 45733,
+                    "posted_ms": 1731.183594,
+                    "queued_to_handler_ms": 0.014836,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 4269,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.27556,
+                    "offset": 45691,
+                    "posted_ms": 1764.407452,
+                    "queued_to_handler_ms": 0.013952,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 4311,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.177092,
+                    "offset": 45649,
+                    "posted_ms": 1797.81813,
+                    "queued_to_handler_ms": 0.011789,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 4353,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.24119,
+                    "offset": 45607,
+                    "posted_ms": 1831.114458,
+                    "queued_to_handler_ms": 0.011476,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 4395,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.312271,
+                    "offset": 45565,
+                    "posted_ms": 1864.427985,
+                    "queued_to_handler_ms": 0.013645,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 4437,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.287754,
+                    "offset": 45523,
+                    "posted_ms": 1897.811057,
+                    "queued_to_handler_ms": 0.014841,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 4479,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.251884,
+                    "offset": 45481,
+                    "posted_ms": 1931.173399,
+                    "queued_to_handler_ms": 0.014387,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 4521,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.717939,
+                    "offset": 45439,
+                    "posted_ms": 1964.499999,
+                    "queued_to_handler_ms": 0.014326,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 4563,
+                    "coalesced": false,
+                    "event_to_frame_ms": 32.781671,
+                    "offset": 45397,
+                    "posted_ms": 1998.271572,
+                    "queued_to_handler_ms": 0.024225,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 4605,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.238785,
+                    "offset": 45355,
+                    "posted_ms": 2031.124706,
+                    "queued_to_handler_ms": 0.014468,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 4647,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.354182,
+                    "offset": 45313,
+                    "posted_ms": 2064.423417,
+                    "queued_to_handler_ms": 0.013661,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 4689,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.224938,
+                    "offset": 45271,
+                    "posted_ms": 2097.855625,
+                    "queued_to_handler_ms": 0.014908,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 4731,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.262252,
+                    "offset": 45229,
+                    "posted_ms": 2131.155331,
+                    "queued_to_handler_ms": 0.014355,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 4773,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.201814,
+                    "offset": 45187,
+                    "posted_ms": 2164.491468,
+                    "queued_to_handler_ms": 0.013674,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 4815,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.306665,
+                    "offset": 45145,
+                    "posted_ms": 2197.756047,
+                    "queued_to_handler_ms": 0.013168,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 4857,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.342646,
+                    "offset": 45103,
+                    "posted_ms": 2231.131426,
+                    "queued_to_handler_ms": 0.013137,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 4899,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.207464,
+                    "offset": 45061,
+                    "posted_ms": 2264.550372,
+                    "queued_to_handler_ms": 0.014295,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 4941,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.240435,
+                    "offset": 45019,
+                    "posted_ms": 2297.83252,
+                    "queued_to_handler_ms": 0.013217,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 4983,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.238655,
+                    "offset": 44977,
+                    "posted_ms": 2331.143946,
+                    "queued_to_handler_ms": 0.015111,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 5025,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.7078,
+                    "offset": 44935,
+                    "posted_ms": 2364.450071,
+                    "queued_to_handler_ms": 0.01541,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 5067,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.241469,
+                    "offset": 44893,
+                    "posted_ms": 2398.225882,
+                    "queued_to_handler_ms": 0.014632,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 5109,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.157216,
+                    "offset": 44851,
+                    "posted_ms": 2431.551453,
+                    "queued_to_handler_ms": 0.014853,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 5151,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.224841,
+                    "offset": 44809,
+                    "posted_ms": 2464.791544,
+                    "queued_to_handler_ms": 0.015737,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 5193,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.256765,
+                    "offset": 44767,
+                    "posted_ms": 2498.095448,
+                    "queued_to_handler_ms": 0.014111,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 5235,
+                    "coalesced": false,
+                    "event_to_frame_ms": 32.886634,
+                    "offset": 44725,
+                    "posted_ms": 2531.426269,
+                    "queued_to_handler_ms": 0.013635,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 5277,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.538007,
+                    "offset": 44683,
+                    "posted_ms": 2564.39656,
+                    "queued_to_handler_ms": 0.014496,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 5319,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.261661,
+                    "offset": 44641,
+                    "posted_ms": 2598.003836,
+                    "queued_to_handler_ms": 0.013126,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 5361,
+                    "coalesced": false,
+                    "event_to_frame_ms": 35.144545,
+                    "offset": 44599,
+                    "posted_ms": 2631.367436,
+                    "queued_to_handler_ms": 0.014485,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 5403,
+                    "coalesced": false,
+                    "event_to_frame_ms": 30.981369,
+                    "offset": 44557,
+                    "posted_ms": 2666.588978,
+                    "queued_to_handler_ms": 0.014687,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 5445,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.87352,
+                    "offset": 44515,
+                    "posted_ms": 2697.641056,
+                    "queued_to_handler_ms": 0.014029,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 5487,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.137427,
+                    "offset": 44473,
+                    "posted_ms": 2731.593313,
+                    "queued_to_handler_ms": 0.021021,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 5529,
+                    "coalesced": false,
+                    "event_to_frame_ms": 32.900523,
+                    "offset": 44431,
+                    "posted_ms": 2764.799994,
+                    "queued_to_handler_ms": 0.014384,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 5571,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.222728,
+                    "offset": 44389,
+                    "posted_ms": 2797.772427,
+                    "queued_to_handler_ms": 0.013796,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 5613,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.204024,
+                    "offset": 44347,
+                    "posted_ms": 2831.070254,
+                    "queued_to_handler_ms": 0.013842,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 5655,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.249653,
+                    "offset": 44305,
+                    "posted_ms": 2864.359493,
+                    "queued_to_handler_ms": 0.014711,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 5697,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.176664,
+                    "offset": 44263,
+                    "posted_ms": 2897.68841,
+                    "queued_to_handler_ms": 0.014715,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 5739,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.320028,
+                    "offset": 44221,
+                    "posted_ms": 2930.928388,
+                    "queued_to_handler_ms": 0.013921,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 5781,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.247696,
+                    "offset": 44179,
+                    "posted_ms": 2964.342466,
+                    "queued_to_handler_ms": 0.014656,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 5823,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.232226,
+                    "offset": 44137,
+                    "posted_ms": 2997.665243,
+                    "queued_to_handler_ms": 0.014324,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 5865,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.257527,
+                    "offset": 44095,
+                    "posted_ms": 3030.963595,
+                    "queued_to_handler_ms": 0.013971,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 5907,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.300061,
+                    "offset": 44053,
+                    "posted_ms": 3064.302393,
+                    "queued_to_handler_ms": 0.01516,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 5949,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.20008,
+                    "offset": 44011,
+                    "posted_ms": 3097.682029,
+                    "queued_to_handler_ms": 0.015513,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 5991,
+                    "coalesced": false,
+                    "event_to_frame_ms": 34.906207,
+                    "offset": 43969,
+                    "posted_ms": 3130.950749,
+                    "queued_to_handler_ms": 0.020696,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 6033,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.5869,
+                    "offset": 43927,
+                    "posted_ms": 3165.934013,
+                    "queued_to_handler_ms": 0.015303,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 6075,
+                    "coalesced": false,
+                    "event_to_frame_ms": 32.11196,
+                    "offset": 43885,
+                    "posted_ms": 3199.593056,
+                    "queued_to_handler_ms": 0.012917,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 6117,
+                    "coalesced": false,
+                    "event_to_frame_ms": 35.387774,
+                    "offset": 43843,
+                    "posted_ms": 3231.725981,
+                    "queued_to_handler_ms": 0.003564,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 6159,
+                    "coalesced": false,
+                    "event_to_frame_ms": 34.693315,
+                    "offset": 43801,
+                    "posted_ms": 3267.129659,
+                    "queued_to_handler_ms": 0.002956,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 6201,
+                    "coalesced": false,
+                    "event_to_frame_ms": 45.360584,
+                    "offset": 43759,
+                    "posted_ms": 3302.005874,
+                    "queued_to_handler_ms": 0.009093,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 6243,
+                    "coalesced": false,
+                    "event_to_frame_ms": 34.150174,
+                    "offset": 43717,
+                    "posted_ms": 3347.384306,
+                    "queued_to_handler_ms": 0.003251,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 6285,
+                    "coalesced": false,
+                    "event_to_frame_ms": 32.705081,
+                    "offset": 43675,
+                    "posted_ms": 3381.55755,
+                    "queued_to_handler_ms": 0.00364,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 6327,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.258201,
+                    "offset": 43633,
+                    "posted_ms": 3414.277503,
+                    "queued_to_handler_ms": 0.002874,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 6369,
+                    "coalesced": false,
+                    "event_to_frame_ms": 34.022268,
+                    "offset": 43591,
+                    "posted_ms": 3447.551925,
+                    "queued_to_handler_ms": 0.003237,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 6411,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.01531,
+                    "offset": 43549,
+                    "posted_ms": 3481.645596,
+                    "queued_to_handler_ms": 0.014702,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 6453,
+                    "coalesced": false,
+                    "event_to_frame_ms": 34.742037,
+                    "offset": 43507,
+                    "posted_ms": 3514.74321,
+                    "queued_to_handler_ms": 0.014014,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 6495,
+                    "coalesced": false,
+                    "event_to_frame_ms": 31.656361,
+                    "offset": 43465,
+                    "posted_ms": 3549.567116,
+                    "queued_to_handler_ms": 0.01531,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 6537,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.433597,
+                    "offset": 43423,
+                    "posted_ms": 3581.300982,
+                    "queued_to_handler_ms": 0.014223,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 6579,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.137905,
+                    "offset": 43381,
+                    "posted_ms": 3614.82058,
+                    "queued_to_handler_ms": 0.014565,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 6621,
+                    "coalesced": false,
+                    "event_to_frame_ms": 34.724742,
+                    "offset": 43339,
+                    "posted_ms": 3648.041534,
+                    "queued_to_handler_ms": 0.014065,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 6663,
+                    "coalesced": false,
+                    "event_to_frame_ms": 31.728136,
+                    "offset": 43297,
+                    "posted_ms": 3682.847542,
+                    "queued_to_handler_ms": 0.013882,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 6705,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.354848,
+                    "offset": 43255,
+                    "posted_ms": 3714.66973,
+                    "queued_to_handler_ms": 0.015082,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 6747,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.146826,
+                    "offset": 43213,
+                    "posted_ms": 3748.108897,
+                    "queued_to_handler_ms": 0.014374,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 6789,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.280665,
+                    "offset": 43171,
+                    "posted_ms": 3781.326348,
+                    "queued_to_handler_ms": 0.011852,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 6831,
+                    "coalesced": false,
+                    "event_to_frame_ms": 34.64892,
+                    "offset": 43129,
+                    "posted_ms": 3814.676648,
+                    "queued_to_handler_ms": 0.012862,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 6873,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.28275,
+                    "offset": 43087,
+                    "posted_ms": 3849.391038,
+                    "queued_to_handler_ms": 0.012768,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 6915,
+                    "coalesced": false,
+                    "event_to_frame_ms": 31.84932,
+                    "offset": 43045,
+                    "posted_ms": 3882.75299,
+                    "queued_to_handler_ms": 0.019873,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 6957,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.261115,
+                    "offset": 43003,
+                    "posted_ms": 3914.684606,
+                    "queued_to_handler_ms": 0.014536,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 6999,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.305493,
+                    "offset": 42961,
+                    "posted_ms": 3948.022729,
+                    "queued_to_handler_ms": 0.013996,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 7041,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.217864,
+                    "offset": 42919,
+                    "posted_ms": 3981.412098,
+                    "queued_to_handler_ms": 0.014062,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 7083,
+                    "coalesced": false,
+                    "event_to_frame_ms": 32.820593,
+                    "offset": 42877,
+                    "posted_ms": 4014.72189,
+                    "queued_to_handler_ms": 0.013445,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 7125,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.462726,
+                    "offset": 42835,
+                    "posted_ms": 4047.624864,
+                    "queued_to_handler_ms": 0.013875,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 7167,
+                    "coalesced": false,
+                    "event_to_frame_ms": 34.783615,
+                    "offset": 42793,
+                    "posted_ms": 4081.170065,
+                    "queued_to_handler_ms": 0.013741,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 7209,
+                    "coalesced": false,
+                    "event_to_frame_ms": 31.709173,
+                    "offset": 42751,
+                    "posted_ms": 4116.034302,
+                    "queued_to_handler_ms": 0.014375,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 7251,
+                    "coalesced": false,
+                    "event_to_frame_ms": 34.775301,
+                    "offset": 42709,
+                    "posted_ms": 4147.825431,
+                    "queued_to_handler_ms": 0.015006,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 7293,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.154942,
+                    "offset": 42667,
+                    "posted_ms": 4182.676113,
+                    "queued_to_handler_ms": 0.014795,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 7335,
+                    "coalesced": false,
+                    "event_to_frame_ms": 31.918973,
+                    "offset": 42625,
+                    "posted_ms": 4215.91217,
+                    "queued_to_handler_ms": 0.014484,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 7377,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.496821,
+                    "offset": 42583,
+                    "posted_ms": 4247.912256,
+                    "queued_to_handler_ms": 0.01384,
+                    "superseded_batch_age_ms": null
+                }
+            ],
+            "frame_cpu": {
+                "max_ms": 3.942777,
+                "min_ms": 0.030645,
+                "p50_ms": 3.595344,
+                "p95_ms": 3.708148,
+                "p99_ms": 3.891226,
+                "samples": 130
+            },
+            "frame_gaps_over_16_7_ms": 128,
+            "frame_gaps_over_33_3_ms": 80,
+            "frame_interval": {
+                "max_ms": 36.5135,
+                "min_ms": 9.029984,
+                "p50_ms": 33.334868,
+                "p95_ms": 34.86609,
+                "p99_ms": 36.217108,
+                "samples": 129
+            },
+            "heartbeat_lag": {
+                "max_ms": 31.489176,
+                "min_ms": 2.812893,
+                "p50_ms": 11.689387,
+                "p95_ms": 14.914534,
+                "p99_ms": 21.069796,
+                "samples": 255
+            },
+            "history_pending_frames": 0,
+            "input_bytes": 0,
+            "input_rejected": 0,
+            "name": "cold_pages",
+            "oldest_coalesced_batch_to_frame": {
+                "max_ms": 45.360584,
+                "min_ms": 14.582858,
+                "p50_ms": 33.241469,
+                "p95_ms": 34.775301,
+                "p99_ms": 36.156553,
+                "samples": 128
+            },
+            "pipeline_trace": [
+            ],
+            "process_cpu_ms": 1458.9719999999998,
+            "requests": 128,
+            "resident_charge_after": 204038304,
+            "resident_charge_before": 204038304
+        },
+        {
+            "busy_reads": 0,
+            "cache_hits": 0,
+            "cache_misses": 0,
+            "closed_loop": true,
+            "coalesced": 0,
+            "completed": 128,
+            "correct_content_fps": 29.99952330757464,
+            "correct_content_frame_interval": {
+                "max_ms": 42.540505,
+                "min_ms": 24.070608,
+                "p50_ms": 33.329929,
+                "p95_ms": 35.084396,
+                "p99_ms": 37.244921,
+                "samples": 127
+            },
+            "correct_content_gaps_over_16_7_ms": 127,
+            "correct_content_gaps_over_33_3_ms": 85,
+            "decode_errors": 0,
+            "duration_ms": 4249.972909,
+            "event_to_frame": {
+                "max_ms": 42.443126,
+                "min_ms": 16.43255,
+                "p50_ms": 33.253668,
+                "p95_ms": 35.010571,
+                "p99_ms": 37.179081,
+                "samples": 128
+            },
+            "event_to_handler": {
+                "max_ms": 0.022149,
+                "min_ms": 0.002737,
+                "p50_ms": 0.013844,
+                "p95_ms": 0.015499,
+                "p99_ms": 0.017779,
+                "samples": 128
+            },
+            "events": [
+                {
+                    "anchor": 48787,
+                    "coalesced": false,
+                    "event_to_frame_ms": 16.43255,
+                    "offset": 1173,
+                    "posted_ms": 0.015858,
+                    "queued_to_handler_ms": 0.017065,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 40868,
+                    "coalesced": false,
+                    "event_to_frame_ms": 32.183013,
+                    "offset": 9092,
+                    "posted_ms": 17.597025,
+                    "queued_to_handler_ms": 0.007732,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 32949,
+                    "coalesced": false,
+                    "event_to_frame_ms": 35.010571,
+                    "offset": 17011,
+                    "posted_ms": 49.845575,
+                    "queued_to_handler_ms": 0.012434,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 25030,
+                    "coalesced": false,
+                    "event_to_frame_ms": 31.606646,
+                    "offset": 24930,
+                    "posted_ms": 84.929688,
+                    "queued_to_handler_ms": 0.01201,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 17111,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.151868,
+                    "offset": 32849,
+                    "posted_ms": 116.611692,
+                    "queued_to_handler_ms": 0.015002,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 9192,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.615594,
+                    "offset": 40768,
+                    "posted_ms": 149.831351,
+                    "queued_to_handler_ms": 0.012732,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 46232,
+                    "coalesced": false,
+                    "event_to_frame_ms": 37.179081,
+                    "offset": 3728,
+                    "posted_ms": 183.512785,
+                    "queued_to_handler_ms": 0.011543,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 38313,
+                    "coalesced": false,
+                    "event_to_frame_ms": 29.362279,
+                    "offset": 11647,
+                    "posted_ms": 220.776886,
+                    "queued_to_handler_ms": 0.014001,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 30394,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.182271,
+                    "offset": 19566,
+                    "posted_ms": 250.20731,
+                    "queued_to_handler_ms": 0.012202,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 22475,
+                    "coalesced": false,
+                    "event_to_frame_ms": 36.071615,
+                    "offset": 27485,
+                    "posted_ms": 283.478092,
+                    "queued_to_handler_ms": 0.014042,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 14556,
+                    "coalesced": false,
+                    "event_to_frame_ms": 34.590831,
+                    "offset": 35404,
+                    "posted_ms": 319.61943,
+                    "queued_to_handler_ms": 0.01315,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 6637,
+                    "coalesced": false,
+                    "event_to_frame_ms": 30.550208,
+                    "offset": 43323,
+                    "posted_ms": 354.277508,
+                    "queued_to_handler_ms": 0.012639,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 43677,
+                    "coalesced": false,
+                    "event_to_frame_ms": 31.81368,
+                    "offset": 6283,
+                    "posted_ms": 384.910949,
+                    "queued_to_handler_ms": 0.012715,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 35758,
+                    "coalesced": false,
+                    "event_to_frame_ms": 32.943414,
+                    "offset": 14202,
+                    "posted_ms": 416.805827,
+                    "queued_to_handler_ms": 0.014185,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 27839,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.26958,
+                    "offset": 22121,
+                    "posted_ms": 449.837872,
+                    "queued_to_handler_ms": 0.013411,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 19920,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.340438,
+                    "offset": 30040,
+                    "posted_ms": 483.189353,
+                    "queued_to_handler_ms": 0.013583,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 12001,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.148341,
+                    "offset": 37959,
+                    "posted_ms": 516.616508,
+                    "queued_to_handler_ms": 0.014751,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 4082,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.288145,
+                    "offset": 45878,
+                    "posted_ms": 549.840902,
+                    "queued_to_handler_ms": 0.013997,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 41122,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.1886,
+                    "offset": 8838,
+                    "posted_ms": 583.217884,
+                    "queued_to_handler_ms": 0.014408,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 33203,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.280105,
+                    "offset": 16757,
+                    "posted_ms": 616.481171,
+                    "queued_to_handler_ms": 0.013061,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 25284,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.220122,
+                    "offset": 24676,
+                    "posted_ms": 649.839061,
+                    "queued_to_handler_ms": 0.01387,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 17365,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.279836,
+                    "offset": 32595,
+                    "posted_ms": 683.143377,
+                    "queued_to_handler_ms": 0.014437,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 9446,
+                    "coalesced": false,
+                    "event_to_frame_ms": 35.022916,
+                    "offset": 40514,
+                    "posted_ms": 716.499978,
+                    "queued_to_handler_ms": 0.013547,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 46486,
+                    "coalesced": false,
+                    "event_to_frame_ms": 31.469943,
+                    "offset": 3474,
+                    "posted_ms": 751.608402,
+                    "queued_to_handler_ms": 0.014594,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 38567,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.232187,
+                    "offset": 11393,
+                    "posted_ms": 783.154038,
+                    "queued_to_handler_ms": 0.014519,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 30648,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.247855,
+                    "offset": 19312,
+                    "posted_ms": 816.472978,
+                    "queued_to_handler_ms": 0.015268,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 22729,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.266462,
+                    "offset": 27231,
+                    "posted_ms": 849.79999,
+                    "queued_to_handler_ms": 0.013549,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 14810,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.236512,
+                    "offset": 35150,
+                    "posted_ms": 883.148332,
+                    "queued_to_handler_ms": 0.01397,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 6891,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.274432,
+                    "offset": 43069,
+                    "posted_ms": 916.46069,
+                    "queued_to_handler_ms": 0.012956,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 43931,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.279462,
+                    "offset": 6029,
+                    "posted_ms": 949.812472,
+                    "queued_to_handler_ms": 0.013726,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 36012,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.13878,
+                    "offset": 13948,
+                    "posted_ms": 983.172347,
+                    "queued_to_handler_ms": 0.014261,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 28093,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.318011,
+                    "offset": 21867,
+                    "posted_ms": 1016.331577,
+                    "queued_to_handler_ms": 0.004175,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 20174,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.26992,
+                    "offset": 29786,
+                    "posted_ms": 1049.68062,
+                    "queued_to_handler_ms": 0.004595,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 12255,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.322523,
+                    "offset": 37705,
+                    "posted_ms": 1082.970405,
+                    "queued_to_handler_ms": 0.003672,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 4336,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.292033,
+                    "offset": 45624,
+                    "posted_ms": 1116.313699,
+                    "queued_to_handler_ms": 0.004712,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 41376,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.354844,
+                    "offset": 8584,
+                    "posted_ms": 1149.622219,
+                    "queued_to_handler_ms": 0.002737,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 33457,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.295323,
+                    "offset": 16503,
+                    "posted_ms": 1182.992511,
+                    "queued_to_handler_ms": 0.002824,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 25538,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.330294,
+                    "offset": 24422,
+                    "posted_ms": 1216.30377,
+                    "queued_to_handler_ms": 0.003349,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 17619,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.26816,
+                    "offset": 32341,
+                    "posted_ms": 1249.656367,
+                    "queued_to_handler_ms": 0.003407,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 9700,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.41453,
+                    "offset": 40260,
+                    "posted_ms": 1282.942966,
+                    "queued_to_handler_ms": 0.002876,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 46740,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.294571,
+                    "offset": 3220,
+                    "posted_ms": 1316.376272,
+                    "queued_to_handler_ms": 0.00344,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 38821,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.291872,
+                    "offset": 11139,
+                    "posted_ms": 1349.686742,
+                    "queued_to_handler_ms": 0.00278,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 30902,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.33885,
+                    "offset": 19058,
+                    "posted_ms": 1382.997195,
+                    "queued_to_handler_ms": 0.003943,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 22983,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.30177,
+                    "offset": 26977,
+                    "posted_ms": 1416.351575,
+                    "queued_to_handler_ms": 0.002816,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 15064,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.299348,
+                    "offset": 34896,
+                    "posted_ms": 1449.674074,
+                    "queued_to_handler_ms": 0.004404,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 7145,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.353809,
+                    "offset": 42815,
+                    "posted_ms": 1482.994502,
+                    "queued_to_handler_ms": 0.003313,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 44185,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.249085,
+                    "offset": 5775,
+                    "posted_ms": 1516.375859,
+                    "queued_to_handler_ms": 0.00654,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 36266,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.34213,
+                    "offset": 13694,
+                    "posted_ms": 1549.658608,
+                    "queued_to_handler_ms": 0.005317,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 28347,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.2952,
+                    "offset": 21613,
+                    "posted_ms": 1583.022315,
+                    "queued_to_handler_ms": 0.004139,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 20428,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.303383,
+                    "offset": 29532,
+                    "posted_ms": 1616.344061,
+                    "queued_to_handler_ms": 0.004198,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 12509,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.391233,
+                    "offset": 37451,
+                    "posted_ms": 1649.66424,
+                    "queued_to_handler_ms": 0.002759,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 4590,
+                    "coalesced": false,
+                    "event_to_frame_ms": 34.960046,
+                    "offset": 45370,
+                    "posted_ms": 1683.078698,
+                    "queued_to_handler_ms": 0.0039,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 41630,
+                    "coalesced": false,
+                    "event_to_frame_ms": 34.038252,
+                    "offset": 8330,
+                    "posted_ms": 1718.068838,
+                    "queued_to_handler_ms": 0.003531,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 33711,
+                    "coalesced": false,
+                    "event_to_frame_ms": 32.68183,
+                    "offset": 16249,
+                    "posted_ms": 1752.134735,
+                    "queued_to_handler_ms": 0.003791,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 25792,
+                    "coalesced": false,
+                    "event_to_frame_ms": 31.501359,
+                    "offset": 24168,
+                    "posted_ms": 1784.848965,
+                    "queued_to_handler_ms": 0.005645,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 17873,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.240107,
+                    "offset": 32087,
+                    "posted_ms": 1816.385991,
+                    "queued_to_handler_ms": 0.005548,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 9954,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.28295,
+                    "offset": 40006,
+                    "posted_ms": 1849.645867,
+                    "queued_to_handler_ms": 0.004523,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 46994,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.646551,
+                    "offset": 2966,
+                    "posted_ms": 1882.962722,
+                    "queued_to_handler_ms": 0.005543,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 39075,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.053508,
+                    "offset": 10885,
+                    "posted_ms": 1916.636138,
+                    "queued_to_handler_ms": 0.005723,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 31156,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.251088,
+                    "offset": 18804,
+                    "posted_ms": 1949.775338,
+                    "queued_to_handler_ms": 0.01482,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 23237,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.246871,
+                    "offset": 26723,
+                    "posted_ms": 1983.111488,
+                    "queued_to_handler_ms": 0.014093,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 15318,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.283325,
+                    "offset": 34642,
+                    "posted_ms": 2016.430972,
+                    "queued_to_handler_ms": 0.012875,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 7399,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.292159,
+                    "offset": 42561,
+                    "posted_ms": 2049.793424,
+                    "queued_to_handler_ms": 0.014356,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 44439,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.239922,
+                    "offset": 5521,
+                    "posted_ms": 2083.177324,
+                    "queued_to_handler_ms": 0.015068,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 36520,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.196517,
+                    "offset": 13440,
+                    "posted_ms": 2116.512244,
+                    "queued_to_handler_ms": 0.014562,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 28601,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.621872,
+                    "offset": 21359,
+                    "posted_ms": 2149.804199,
+                    "queued_to_handler_ms": 0.015214,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 20682,
+                    "coalesced": false,
+                    "event_to_frame_ms": 34.212648,
+                    "offset": 29278,
+                    "posted_ms": 2183.51328,
+                    "queued_to_handler_ms": 0.013963,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 12763,
+                    "coalesced": false,
+                    "event_to_frame_ms": 32.240537,
+                    "offset": 37197,
+                    "posted_ms": 2217.816947,
+                    "queued_to_handler_ms": 0.014157,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 4844,
+                    "coalesced": false,
+                    "event_to_frame_ms": 42.443126,
+                    "offset": 45116,
+                    "posted_ms": 2250.154863,
+                    "queued_to_handler_ms": 0.015007,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 41884,
+                    "coalesced": false,
+                    "event_to_frame_ms": 23.978512,
+                    "offset": 8076,
+                    "posted_ms": 2292.690085,
+                    "queued_to_handler_ms": 0.014974,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 33965,
+                    "coalesced": false,
+                    "event_to_frame_ms": 32.831024,
+                    "offset": 15995,
+                    "posted_ms": 2316.758464,
+                    "queued_to_handler_ms": 0.014169,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 26046,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.184007,
+                    "offset": 23914,
+                    "posted_ms": 2349.668467,
+                    "queued_to_handler_ms": 0.012841,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 18127,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.380839,
+                    "offset": 31833,
+                    "posted_ms": 2382.94514,
+                    "queued_to_handler_ms": 0.013853,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 10208,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.257412,
+                    "offset": 39752,
+                    "posted_ms": 2416.411831,
+                    "queued_to_handler_ms": 0.01567,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 47248,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.391567,
+                    "offset": 2712,
+                    "posted_ms": 2449.754275,
+                    "queued_to_handler_ms": 0.014214,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 39329,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.110022,
+                    "offset": 10631,
+                    "posted_ms": 2483.237906,
+                    "queued_to_handler_ms": 0.014071,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 31410,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.324945,
+                    "offset": 18550,
+                    "posted_ms": 2516.427805,
+                    "queued_to_handler_ms": 0.013844,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 23491,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.167696,
+                    "offset": 26469,
+                    "posted_ms": 2549.852608,
+                    "queued_to_handler_ms": 0.014079,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 15572,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.210877,
+                    "offset": 34388,
+                    "posted_ms": 2583.113295,
+                    "queued_to_handler_ms": 0.015499,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 7653,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.238088,
+                    "offset": 42307,
+                    "posted_ms": 2616.440281,
+                    "queued_to_handler_ms": 0.017164,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 44693,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.243401,
+                    "offset": 5267,
+                    "posted_ms": 2649.758501,
+                    "queued_to_handler_ms": 0.013479,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 36774,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.23331,
+                    "offset": 13186,
+                    "posted_ms": 2683.081734,
+                    "queued_to_handler_ms": 0.014088,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 28855,
+                    "coalesced": false,
+                    "event_to_frame_ms": 35.838901,
+                    "offset": 21105,
+                    "posted_ms": 2716.405703,
+                    "queued_to_handler_ms": 0.014095,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 20936,
+                    "coalesced": false,
+                    "event_to_frame_ms": 31.701844,
+                    "offset": 29024,
+                    "posted_ms": 2752.333778,
+                    "queued_to_handler_ms": 0.013913,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 13017,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.256659,
+                    "offset": 36943,
+                    "posted_ms": 2784.122792,
+                    "queued_to_handler_ms": 0.013329,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 5098,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.279072,
+                    "offset": 44862,
+                    "posted_ms": 2817.461222,
+                    "queued_to_handler_ms": 0.01428,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 42138,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.177689,
+                    "offset": 7822,
+                    "posted_ms": 2850.83716,
+                    "queued_to_handler_ms": 0.014683,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 34219,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.201584,
+                    "offset": 15741,
+                    "posted_ms": 2884.092762,
+                    "queued_to_handler_ms": 0.009635,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 26300,
+                    "coalesced": false,
+                    "event_to_frame_ms": 32.383263,
+                    "offset": 23660,
+                    "posted_ms": 2917.387366,
+                    "queued_to_handler_ms": 0.01332,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 18381,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.13549,
+                    "offset": 31579,
+                    "posted_ms": 2949.866769,
+                    "queued_to_handler_ms": 0.01432,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 10462,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.284584,
+                    "offset": 39498,
+                    "posted_ms": 2983.0886,
+                    "queued_to_handler_ms": 0.013615,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 47502,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.251137,
+                    "offset": 2458,
+                    "posted_ms": 3016.461324,
+                    "queued_to_handler_ms": 0.013137,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 39583,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.238357,
+                    "offset": 10377,
+                    "posted_ms": 3049.794023,
+                    "queued_to_handler_ms": 0.013919,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 31664,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.215078,
+                    "offset": 18296,
+                    "posted_ms": 3083.107208,
+                    "queued_to_handler_ms": 0.014413,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 23745,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.222846,
+                    "offset": 26215,
+                    "posted_ms": 3116.406851,
+                    "queued_to_handler_ms": 0.012983,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 15826,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.773635,
+                    "offset": 34134,
+                    "posted_ms": 3149.717507,
+                    "queued_to_handler_ms": 0.013926,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 7907,
+                    "coalesced": false,
+                    "event_to_frame_ms": 32.72147,
+                    "offset": 42053,
+                    "posted_ms": 3183.577325,
+                    "queued_to_handler_ms": 0.014931,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 44947,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.262403,
+                    "offset": 5013,
+                    "posted_ms": 3216.387622,
+                    "queued_to_handler_ms": 0.014561,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 37028,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.253668,
+                    "offset": 12932,
+                    "posted_ms": 3249.735406,
+                    "queued_to_handler_ms": 0.014284,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 29109,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.248243,
+                    "offset": 20851,
+                    "posted_ms": 3283.073157,
+                    "queued_to_handler_ms": 0.013408,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 21190,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.289706,
+                    "offset": 28770,
+                    "posted_ms": 3316.409349,
+                    "queued_to_handler_ms": 0.014722,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 13271,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.197301,
+                    "offset": 36689,
+                    "posted_ms": 3349.785123,
+                    "queued_to_handler_ms": 0.01411,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 5352,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.234113,
+                    "offset": 44608,
+                    "posted_ms": 3383.066429,
+                    "queued_to_handler_ms": 0.014367,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 42392,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.263086,
+                    "offset": 7568,
+                    "posted_ms": 3416.385215,
+                    "queued_to_handler_ms": 0.022149,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 34473,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.227016,
+                    "offset": 15487,
+                    "posted_ms": 3449.737891,
+                    "queued_to_handler_ms": 0.013719,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 26554,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.252975,
+                    "offset": 23406,
+                    "posted_ms": 3483.05076,
+                    "queued_to_handler_ms": 0.013779,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 18635,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.208426,
+                    "offset": 31325,
+                    "posted_ms": 3516.402177,
+                    "queued_to_handler_ms": 0.013289,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 10716,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.30299,
+                    "offset": 39244,
+                    "posted_ms": 3549.699743,
+                    "queued_to_handler_ms": 0.014322,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 47756,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.479779,
+                    "offset": 2204,
+                    "posted_ms": 3583.097422,
+                    "queued_to_handler_ms": 0.014107,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 39837,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.260358,
+                    "offset": 10123,
+                    "posted_ms": 3616.676248,
+                    "queued_to_handler_ms": 0.01567,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 31918,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.134433,
+                    "offset": 18042,
+                    "posted_ms": 3650.028124,
+                    "queued_to_handler_ms": 0.014552,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 23999,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.328637,
+                    "offset": 25961,
+                    "posted_ms": 3683.24447,
+                    "queued_to_handler_ms": 0.013614,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 16080,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.195955,
+                    "offset": 33880,
+                    "posted_ms": 3716.670177,
+                    "queued_to_handler_ms": 0.014355,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 8161,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.007431,
+                    "offset": 41799,
+                    "posted_ms": 3749.956753,
+                    "queued_to_handler_ms": 0.01415,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 45201,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.563746,
+                    "offset": 4759,
+                    "posted_ms": 3783.056762,
+                    "queued_to_handler_ms": 0.014921,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 37282,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.892619,
+                    "offset": 12678,
+                    "posted_ms": 3816.714508,
+                    "queued_to_handler_ms": 0.015029,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 29363,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.256891,
+                    "offset": 20597,
+                    "posted_ms": 3850.700489,
+                    "queued_to_handler_ms": 0.014148,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 21444,
+                    "coalesced": false,
+                    "event_to_frame_ms": 32.956989,
+                    "offset": 28516,
+                    "posted_ms": 3884.055177,
+                    "queued_to_handler_ms": 0.014113,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 13525,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.540425,
+                    "offset": 36435,
+                    "posted_ms": 3917.103262,
+                    "queued_to_handler_ms": 0.014452,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 5606,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.229911,
+                    "offset": 44354,
+                    "posted_ms": 3950.743169,
+                    "queued_to_handler_ms": 0.017779,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 42646,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.212447,
+                    "offset": 7314,
+                    "posted_ms": 3984.066693,
+                    "queued_to_handler_ms": 0.013619,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 34727,
+                    "coalesced": false,
+                    "event_to_frame_ms": 32.811732,
+                    "offset": 15233,
+                    "posted_ms": 4017.386095,
+                    "queued_to_handler_ms": 0.013238,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 26808,
+                    "coalesced": false,
+                    "event_to_frame_ms": 32.64268,
+                    "offset": 23152,
+                    "posted_ms": 4050.288087,
+                    "queued_to_handler_ms": 0.013696,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 18889,
+                    "coalesced": false,
+                    "event_to_frame_ms": 35.084477,
+                    "offset": 31071,
+                    "posted_ms": 4083.000147,
+                    "queued_to_handler_ms": 0.013022,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 10970,
+                    "coalesced": false,
+                    "event_to_frame_ms": 31.671417,
+                    "offset": 38990,
+                    "posted_ms": 4118.183862,
+                    "queued_to_handler_ms": 0.014504,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 48010,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.139065,
+                    "offset": 1950,
+                    "posted_ms": 4149.939124,
+                    "queued_to_handler_ms": 0.013177,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 40091,
+                    "coalesced": false,
+                    "event_to_frame_ms": 34.983121,
+                    "offset": 9869,
+                    "posted_ms": 4183.179464,
+                    "queued_to_handler_ms": 0.015255,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 32172,
+                    "coalesced": false,
+                    "event_to_frame_ms": 31.574018,
+                    "offset": 17788,
+                    "posted_ms": 4218.274991,
+                    "queued_to_handler_ms": 0.01468,
+                    "superseded_batch_age_ms": null
+                }
+            ],
+            "frame_cpu": {
+                "max_ms": 3.893501,
+                "min_ms": 0.75621,
+                "p50_ms": 3.5929,
+                "p95_ms": 3.685379,
+                "p99_ms": 3.808395,
+                "samples": 128
+            },
+            "frame_gaps_over_16_7_ms": 127,
+            "frame_gaps_over_33_3_ms": 85,
+            "frame_interval": {
+                "max_ms": 42.540505,
+                "min_ms": 24.070608,
+                "p50_ms": 33.329929,
+                "p95_ms": 35.084396,
+                "p99_ms": 37.244921,
+                "samples": 127
+            },
+            "heartbeat_lag": {
+                "max_ms": 22.186105,
+                "min_ms": 2.787027,
+                "p50_ms": 11.676846000000001,
+                "p95_ms": 14.196558,
+                "p99_ms": 17.86104,
+                "samples": 255
+            },
+            "history_pending_frames": 0,
+            "input_bytes": 0,
+            "input_rejected": 0,
+            "name": "cold_scrollbar_jumps",
+            "oldest_coalesced_batch_to_frame": {
+                "max_ms": 42.443126,
+                "min_ms": 16.43255,
+                "p50_ms": 33.253668,
+                "p95_ms": 35.010571,
+                "p99_ms": 37.179081,
+                "samples": 128
+            },
+            "pipeline_trace": [
+            ],
+            "process_cpu_ms": 1235.2439999999997,
+            "requests": 128,
+            "resident_charge_after": 204038304,
+            "resident_charge_before": 204038304
+        },
+        {
+            "busy_reads": 0,
+            "cache_hits": 0,
+            "cache_misses": 0,
+            "closed_loop": false,
+            "coalesced": 38,
+            "completed": 90,
+            "correct_content_fps": 41.74789648309983,
+            "correct_content_frame_interval": {
+                "max_ms": 50.612206,
+                "min_ms": 14.755056,
+                "p50_ms": 16.769258,
+                "p95_ms": 50.331395,
+                "p99_ms": 50.612206,
+                "samples": 89
+            },
+            "correct_content_gaps_over_16_7_ms": 48,
+            "correct_content_gaps_over_33_3_ms": 29,
+            "decode_errors": 0,
+            "duration_ms": 2149.935506,
+            "event_to_frame": {
+                "max_ms": 34.836526,
+                "min_ms": 15.981105,
+                "p50_ms": 32.7439,
+                "p95_ms": 34.569549,
+                "p99_ms": 34.836526,
+                "samples": 90
+            },
+            "event_to_handler": {
+                "max_ms": 18.264132,
+                "min_ms": 0.010363,
+                "p50_ms": 16.149682,
+                "p95_ms": 17.964069,
+                "p99_ms": 18.096394,
+                "samples": 128
+            },
+            "events": [
+                {
+                    "anchor": 24978,
+                    "coalesced": false,
+                    "event_to_frame_ms": 17.601088,
+                    "offset": 24982,
+                    "posted_ms": 0.352019,
+                    "queued_to_handler_ms": 0.024346,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 24975,
+                    "coalesced": false,
+                    "event_to_frame_ms": 34.672247,
+                    "offset": 25001,
+                    "posted_ms": 17.000929,
+                    "queued_to_handler_ms": 0.998531,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 24972,
+                    "coalesced": true,
+                    "event_to_frame_ms": null,
+                    "offset": 25020,
+                    "posted_ms": 33.691008,
+                    "queued_to_handler_ms": 18.071326,
+                    "superseded_batch_age_ms": 51.203194
+                },
+                {
+                    "anchor": 24969,
+                    "coalesced": true,
+                    "event_to_frame_ms": null,
+                    "offset": 25023,
+                    "posted_ms": 50.350605,
+                    "queued_to_handler_ms": 1.513692,
+                    "superseded_batch_age_ms": 34.543597
+                },
+                {
+                    "anchor": 24966,
+                    "coalesced": false,
+                    "event_to_frame_ms": 17.877401,
+                    "offset": 25058,
+                    "posted_ms": 67.016801,
+                    "queued_to_handler_ms": 1.354891,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 24963,
+                    "coalesced": false,
+                    "event_to_frame_ms": 34.836526,
+                    "offset": 25077,
+                    "posted_ms": 83.687664,
+                    "queued_to_handler_ms": 1.29549,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 24960,
+                    "coalesced": true,
+                    "event_to_frame_ms": null,
+                    "offset": 25096,
+                    "posted_ms": 100.346352,
+                    "queued_to_handler_ms": 18.264132,
+                    "superseded_batch_age_ms": 50.034329
+                },
+                {
+                    "anchor": 24957,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.359423,
+                    "offset": 25099,
+                    "posted_ms": 117.021258,
+                    "queued_to_handler_ms": 1.688508,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 24954,
+                    "coalesced": true,
+                    "event_to_frame_ms": null,
+                    "offset": 25134,
+                    "posted_ms": 133.686471,
+                    "queued_to_handler_ms": 16.765951,
+                    "superseded_batch_age_ms": 51.31003
+                },
+                {
+                    "anchor": 24951,
+                    "coalesced": true,
+                    "event_to_frame_ms": null,
+                    "offset": 25137,
+                    "posted_ms": 150.367678,
+                    "queued_to_handler_ms": 0.748549,
+                    "superseded_batch_age_ms": 34.628823
+                },
+                {
+                    "anchor": 24948,
+                    "coalesced": false,
+                    "event_to_frame_ms": 17.98284,
+                    "offset": 25172,
+                    "posted_ms": 167.013661,
+                    "queued_to_handler_ms": 0.025599,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 24945,
+                    "coalesced": false,
+                    "event_to_frame_ms": 16.094627,
+                    "offset": 25175,
+                    "posted_ms": 183.702072,
+                    "queued_to_handler_ms": 1.411152,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 24942,
+                    "coalesced": true,
+                    "event_to_frame_ms": null,
+                    "offset": 25210,
+                    "posted_ms": 200.345903,
+                    "queued_to_handler_ms": 0.014016,
+                    "superseded_batch_age_ms": 32.770223
+                },
+                {
+                    "anchor": 24939,
+                    "coalesced": false,
+                    "event_to_frame_ms": 16.07608,
+                    "offset": 25245,
+                    "posted_ms": 217.040046,
+                    "queued_to_handler_ms": 1.355298,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 24936,
+                    "coalesced": true,
+                    "event_to_frame_ms": null,
+                    "offset": 25248,
+                    "posted_ms": 233.679335,
+                    "queued_to_handler_ms": 0.016508,
+                    "superseded_batch_age_ms": 32.749565
+                },
+                {
+                    "anchor": 24933,
+                    "coalesced": false,
+                    "event_to_frame_ms": 16.073137,
+                    "offset": 25283,
+                    "posted_ms": 250.355763,
+                    "queued_to_handler_ms": 1.354139,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 24930,
+                    "coalesced": false,
+                    "event_to_frame_ms": 32.838245,
+                    "offset": 25286,
+                    "posted_ms": 267.015346,
+                    "queued_to_handler_ms": 0.015168,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 24927,
+                    "coalesced": false,
+                    "event_to_frame_ms": 32.811851,
+                    "offset": 25305,
+                    "posted_ms": 283.697876,
+                    "queued_to_handler_ms": 16.233178,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 24924,
+                    "coalesced": false,
+                    "event_to_frame_ms": 32.762622,
+                    "offset": 25324,
+                    "posted_ms": 300.357411,
+                    "queued_to_handler_ms": 16.208396,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 24921,
+                    "coalesced": false,
+                    "event_to_frame_ms": 32.798856,
+                    "offset": 25343,
+                    "posted_ms": 317.019456,
+                    "queued_to_handler_ms": 16.173606,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 24918,
+                    "coalesced": false,
+                    "event_to_frame_ms": 32.786931,
+                    "offset": 25362,
+                    "posted_ms": 333.691536,
+                    "queued_to_handler_ms": 16.199742,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 24915,
+                    "coalesced": false,
+                    "event_to_frame_ms": 32.744984,
+                    "offset": 25381,
+                    "posted_ms": 350.372608,
+                    "queued_to_handler_ms": 16.198716,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 24912,
+                    "coalesced": false,
+                    "event_to_frame_ms": 32.724803,
+                    "offset": 25400,
+                    "posted_ms": 367.037337,
+                    "queued_to_handler_ms": 16.147767,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 24909,
+                    "coalesced": false,
+                    "event_to_frame_ms": 34.330133,
+                    "offset": 25419,
+                    "posted_ms": 383.693632,
+                    "queued_to_handler_ms": 16.150945,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 24906,
+                    "coalesced": true,
+                    "event_to_frame_ms": null,
+                    "offset": 25438,
+                    "posted_ms": 400.355632,
+                    "queued_to_handler_ms": 17.700334,
+                    "superseded_batch_age_ms": 32.655956
+                },
+                {
+                    "anchor": 24903,
+                    "coalesced": false,
+                    "event_to_frame_ms": 15.981105,
+                    "offset": 25441,
+                    "posted_ms": 417.030483,
+                    "queued_to_handler_ms": 1.067,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 24900,
+                    "coalesced": true,
+                    "event_to_frame_ms": null,
+                    "offset": 25476,
+                    "posted_ms": 433.650068,
+                    "queued_to_handler_ms": 16.137593,
+                    "superseded_batch_age_ms": 49.973726
+                },
+                {
+                    "anchor": 24897,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.312942,
+                    "offset": 25495,
+                    "posted_ms": 450.310852,
+                    "queued_to_handler_ms": 16.095715,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 24894,
+                    "coalesced": true,
+                    "event_to_frame_ms": null,
+                    "offset": 25514,
+                    "posted_ms": 467.020668,
+                    "queued_to_handler_ms": 16.658351,
+                    "superseded_batch_age_ms": 32.859296
+                },
+                {
+                    "anchor": 24891,
+                    "coalesced": false,
+                    "event_to_frame_ms": 16.185016,
+                    "offset": 25517,
+                    "posted_ms": 483.694948,
+                    "queued_to_handler_ms": 0.500671,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 24888,
+                    "coalesced": false,
+                    "event_to_frame_ms": 16.201984,
+                    "offset": 25552,
+                    "posted_ms": 500.35261,
+                    "queued_to_handler_ms": 0.015483,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 24885,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.253829,
+                    "offset": 25571,
+                    "posted_ms": 517.035891,
+                    "queued_to_handler_ms": 16.253142,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 24882,
+                    "coalesced": true,
+                    "event_to_frame_ms": null,
+                    "offset": 25590,
+                    "posted_ms": 533.685016,
+                    "queued_to_handler_ms": 16.660298,
+                    "superseded_batch_age_ms": 32.85746
+                },
+                {
+                    "anchor": 24879,
+                    "coalesced": false,
+                    "event_to_frame_ms": 16.20456,
+                    "offset": 25593,
+                    "posted_ms": 550.337916,
+                    "queued_to_handler_ms": 0.407734,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 24876,
+                    "coalesced": false,
+                    "event_to_frame_ms": 16.188444,
+                    "offset": 25628,
+                    "posted_ms": 567.010702,
+                    "queued_to_handler_ms": 0.014881,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 24873,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.568453,
+                    "offset": 25647,
+                    "posted_ms": 583.700593,
+                    "queued_to_handler_ms": 16.244701,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 24870,
+                    "coalesced": true,
+                    "event_to_frame_ms": null,
+                    "offset": 25666,
+                    "posted_ms": 600.352902,
+                    "queued_to_handler_ms": 17.019466,
+                    "superseded_batch_age_ms": 32.867013
+                },
+                {
+                    "anchor": 24867,
+                    "coalesced": false,
+                    "event_to_frame_ms": 16.196403,
+                    "offset": 25669,
+                    "posted_ms": 617.023512,
+                    "queued_to_handler_ms": 0.762407,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 24864,
+                    "coalesced": false,
+                    "event_to_frame_ms": 32.774928,
+                    "offset": 25704,
+                    "posted_ms": 633.707702,
+                    "queued_to_handler_ms": 0.014642,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 24861,
+                    "coalesced": false,
+                    "event_to_frame_ms": 32.762552,
+                    "offset": 25723,
+                    "posted_ms": 650.372806,
+                    "queued_to_handler_ms": 16.195445,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 24858,
+                    "coalesced": false,
+                    "event_to_frame_ms": 32.763208,
+                    "offset": 25742,
+                    "posted_ms": 667.02628,
+                    "queued_to_handler_ms": 16.188735,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 24855,
+                    "coalesced": false,
+                    "event_to_frame_ms": 32.733531,
+                    "offset": 25761,
+                    "posted_ms": 683.702189,
+                    "queued_to_handler_ms": 16.179869,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 24852,
+                    "coalesced": false,
+                    "event_to_frame_ms": 32.739967,
+                    "offset": 25780,
+                    "posted_ms": 700.358247,
+                    "queued_to_handler_ms": 16.150925,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 24849,
+                    "coalesced": false,
+                    "event_to_frame_ms": 34.59221,
+                    "offset": 25799,
+                    "posted_ms": 717.036645,
+                    "queued_to_handler_ms": 16.150402,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 24846,
+                    "coalesced": true,
+                    "event_to_frame_ms": null,
+                    "offset": 25818,
+                    "posted_ms": 733.702761,
+                    "queued_to_handler_ms": 18.013701,
+                    "superseded_batch_age_ms": 32.721852
+                },
+                {
+                    "anchor": 24843,
+                    "coalesced": false,
+                    "event_to_frame_ms": 16.056572,
+                    "offset": 25821,
+                    "posted_ms": 750.368041,
+                    "queued_to_handler_ms": 1.440415,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 24840,
+                    "coalesced": false,
+                    "event_to_frame_ms": 32.7943,
+                    "offset": 25856,
+                    "posted_ms": 767.015987,
+                    "queued_to_handler_ms": 0.012701,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 24837,
+                    "coalesced": false,
+                    "event_to_frame_ms": 34.376479,
+                    "offset": 25875,
+                    "posted_ms": 783.717454,
+                    "queued_to_handler_ms": 16.190252,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 24834,
+                    "coalesced": true,
+                    "event_to_frame_ms": null,
+                    "offset": 25894,
+                    "posted_ms": 800.368588,
+                    "queued_to_handler_ms": 17.808124,
+                    "superseded_batch_age_ms": 32.714151
+                },
+                {
+                    "anchor": 24831,
+                    "coalesced": false,
+                    "event_to_frame_ms": 16.056957,
+                    "offset": 25897,
+                    "posted_ms": 817.025782,
+                    "queued_to_handler_ms": 1.235525,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 24828,
+                    "coalesced": true,
+                    "event_to_frame_ms": null,
+                    "offset": 25932,
+                    "posted_ms": 833.698603,
+                    "queued_to_handler_ms": 16.23354,
+                    "superseded_batch_age_ms": 49.750506
+                },
+                {
+                    "anchor": 24825,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.096288,
+                    "offset": 25951,
+                    "posted_ms": 850.352821,
+                    "queued_to_handler_ms": 16.166937,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 24822,
+                    "coalesced": true,
+                    "event_to_frame_ms": null,
+                    "offset": 25970,
+                    "posted_ms": 867.035557,
+                    "queued_to_handler_ms": 16.518879,
+                    "superseded_batch_age_ms": 49.723274
+                },
+                {
+                    "anchor": 24819,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.060548,
+                    "offset": 25989,
+                    "posted_ms": 883.698283,
+                    "queued_to_handler_ms": 16.158983,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 24816,
+                    "coalesced": true,
+                    "event_to_frame_ms": null,
+                    "offset": 26008,
+                    "posted_ms": 900.354526,
+                    "queued_to_handler_ms": 16.501659,
+                    "superseded_batch_age_ms": 50.063458
+                },
+                {
+                    "anchor": 24813,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.382478,
+                    "offset": 26027,
+                    "posted_ms": 917.035506,
+                    "queued_to_handler_ms": 16.126009,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 24810,
+                    "coalesced": true,
+                    "event_to_frame_ms": null,
+                    "offset": 26046,
+                    "posted_ms": 933.693165,
+                    "queued_to_handler_ms": 16.828126,
+                    "superseded_batch_age_ms": 32.741508
+                },
+                {
+                    "anchor": 24807,
+                    "coalesced": false,
+                    "event_to_frame_ms": 16.078337,
+                    "offset": 26049,
+                    "posted_ms": 950.356336,
+                    "queued_to_handler_ms": 0.769281,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 24804,
+                    "coalesced": false,
+                    "event_to_frame_ms": 32.759489,
+                    "offset": 26084,
+                    "posted_ms": 967.049821,
+                    "queued_to_handler_ms": 0.020774,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 24801,
+                    "coalesced": false,
+                    "event_to_frame_ms": 34.419223,
+                    "offset": 26103,
+                    "posted_ms": 983.697723,
+                    "queued_to_handler_ms": 16.203357,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 24798,
+                    "coalesced": true,
+                    "event_to_frame_ms": null,
+                    "offset": 26122,
+                    "posted_ms": 1000.365287,
+                    "queued_to_handler_ms": 17.836419,
+                    "superseded_batch_age_ms": 32.708744
+                },
+                {
+                    "anchor": 24795,
+                    "coalesced": false,
+                    "event_to_frame_ms": 16.050883,
+                    "offset": 26125,
+                    "posted_ms": 1017.023148,
+                    "queued_to_handler_ms": 1.268394,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 24792,
+                    "coalesced": true,
+                    "event_to_frame_ms": null,
+                    "offset": 26160,
+                    "posted_ms": 1033.712534,
+                    "queued_to_handler_ms": 0.015278,
+                    "superseded_batch_age_ms": 32.667882
+                },
+                {
+                    "anchor": 24789,
+                    "coalesced": false,
+                    "event_to_frame_ms": 16.02174,
+                    "offset": 26195,
+                    "posted_ms": 1050.358676,
+                    "queued_to_handler_ms": 1.404611,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 24786,
+                    "coalesced": true,
+                    "event_to_frame_ms": null,
+                    "offset": 26198,
+                    "posted_ms": 1067.026039,
+                    "queued_to_handler_ms": 16.178476,
+                    "superseded_batch_age_ms": 49.685772
+                },
+                {
+                    "anchor": 24783,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.002142,
+                    "offset": 26217,
+                    "posted_ms": 1083.709669,
+                    "queued_to_handler_ms": 16.149682,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 24780,
+                    "coalesced": true,
+                    "event_to_frame_ms": null,
+                    "offset": 26236,
+                    "posted_ms": 1100.352554,
+                    "queued_to_handler_ms": 16.475289,
+                    "superseded_batch_age_ms": 49.781676
+                },
+                {
+                    "anchor": 24777,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.10585,
+                    "offset": 26255,
+                    "posted_ms": 1117.02838,
+                    "queued_to_handler_ms": 16.134512,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 24774,
+                    "coalesced": false,
+                    "event_to_frame_ms": 32.721054,
+                    "offset": 26274,
+                    "posted_ms": 1133.701409,
+                    "queued_to_handler_ms": 16.512936,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 24771,
+                    "coalesced": true,
+                    "event_to_frame_ms": null,
+                    "offset": 26293,
+                    "posted_ms": 1150.355038,
+                    "queued_to_handler_ms": 16.164462,
+                    "superseded_batch_age_ms": 49.426896
+                },
+                {
+                    "anchor": 24768,
+                    "coalesced": false,
+                    "event_to_frame_ms": 32.764244,
+                    "offset": 26312,
+                    "posted_ms": 1167.01769,
+                    "queued_to_handler_ms": 16.284156,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 24765,
+                    "coalesced": false,
+                    "event_to_frame_ms": 32.714309,
+                    "offset": 26331,
+                    "posted_ms": 1183.716833,
+                    "queued_to_handler_ms": 16.159943,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 24762,
+                    "coalesced": false,
+                    "event_to_frame_ms": 32.712462,
+                    "offset": 26350,
+                    "posted_ms": 1200.375327,
+                    "queued_to_handler_ms": 16.147531,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 24759,
+                    "coalesced": false,
+                    "event_to_frame_ms": 32.767306,
+                    "offset": 26369,
+                    "posted_ms": 1217.049232,
+                    "queued_to_handler_ms": 16.130161,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 24756,
+                    "coalesced": false,
+                    "event_to_frame_ms": 32.709784,
+                    "offset": 26388,
+                    "posted_ms": 1233.699626,
+                    "queued_to_handler_ms": 16.219105,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 24753,
+                    "coalesced": false,
+                    "event_to_frame_ms": 34.546909,
+                    "offset": 26407,
+                    "posted_ms": 1250.370613,
+                    "queued_to_handler_ms": 16.117583,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 24750,
+                    "coalesced": true,
+                    "event_to_frame_ms": null,
+                    "offset": 26426,
+                    "posted_ms": 1267.031422,
+                    "queued_to_handler_ms": 17.976743,
+                    "superseded_batch_age_ms": 32.661899
+                },
+                {
+                    "anchor": 24747,
+                    "coalesced": false,
+                    "event_to_frame_ms": 15.990179,
+                    "offset": 26429,
+                    "posted_ms": 1283.703142,
+                    "queued_to_handler_ms": 1.397914,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 24744,
+                    "coalesced": false,
+                    "event_to_frame_ms": 32.757352,
+                    "offset": 26464,
+                    "posted_ms": 1300.354492,
+                    "queued_to_handler_ms": 0.010603,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 24741,
+                    "coalesced": false,
+                    "event_to_frame_ms": 32.7439,
+                    "offset": 26483,
+                    "posted_ms": 1317.052063,
+                    "queued_to_handler_ms": 16.171886,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 24738,
+                    "coalesced": false,
+                    "event_to_frame_ms": 32.775073,
+                    "offset": 26502,
+                    "posted_ms": 1333.71908,
+                    "queued_to_handler_ms": 16.1888,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 24735,
+                    "coalesced": false,
+                    "event_to_frame_ms": 34.401469,
+                    "offset": 26521,
+                    "posted_ms": 1350.389429,
+                    "queued_to_handler_ms": 16.21138,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 24732,
+                    "coalesced": true,
+                    "event_to_frame_ms": null,
+                    "offset": 26540,
+                    "posted_ms": 1367.047717,
+                    "queued_to_handler_ms": 17.846275,
+                    "superseded_batch_age_ms": 32.673067
+                },
+                {
+                    "anchor": 24729,
+                    "coalesced": false,
+                    "event_to_frame_ms": 16.012604,
+                    "offset": 26543,
+                    "posted_ms": 1383.70818,
+                    "queued_to_handler_ms": 1.285235,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 24726,
+                    "coalesced": true,
+                    "event_to_frame_ms": null,
+                    "offset": 26578,
+                    "posted_ms": 1400.357379,
+                    "queued_to_handler_ms": 16.215495,
+                    "superseded_batch_age_ms": 49.855819
+                },
+                {
+                    "anchor": 24723,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.173517,
+                    "offset": 26597,
+                    "posted_ms": 1417.039681,
+                    "queued_to_handler_ms": 16.170031,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 24720,
+                    "coalesced": true,
+                    "event_to_frame_ms": null,
+                    "offset": 26616,
+                    "posted_ms": 1433.711399,
+                    "queued_to_handler_ms": 16.605667,
+                    "superseded_batch_age_ms": 32.720127
+                },
+                {
+                    "anchor": 24717,
+                    "coalesced": false,
+                    "event_to_frame_ms": 16.05041,
+                    "offset": 26619,
+                    "posted_ms": 1450.381116,
+                    "queued_to_handler_ms": 0.786647,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 24714,
+                    "coalesced": false,
+                    "event_to_frame_ms": 32.752334,
+                    "offset": 26654,
+                    "posted_ms": 1467.034814,
+                    "queued_to_handler_ms": 0.016092,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 24711,
+                    "coalesced": false,
+                    "event_to_frame_ms": 34.376587,
+                    "offset": 26673,
+                    "posted_ms": 1483.709727,
+                    "queued_to_handler_ms": 16.167876,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 24708,
+                    "coalesced": true,
+                    "event_to_frame_ms": null,
+                    "offset": 26692,
+                    "posted_ms": 1500.371576,
+                    "queued_to_handler_ms": 17.809269,
+                    "superseded_batch_age_ms": 32.710233
+                },
+                {
+                    "anchor": 24705,
+                    "coalesced": false,
+                    "event_to_frame_ms": 16.042605,
+                    "offset": 26695,
+                    "posted_ms": 1517.039204,
+                    "queued_to_handler_ms": 1.245769,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 24702,
+                    "coalesced": false,
+                    "event_to_frame_ms": 32.746078,
+                    "offset": 26730,
+                    "posted_ms": 1533.693887,
+                    "queued_to_handler_ms": 0.013528,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 24699,
+                    "coalesced": false,
+                    "event_to_frame_ms": 34.429974,
+                    "offset": 26749,
+                    "posted_ms": 1550.373018,
+                    "queued_to_handler_ms": 16.147359,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 24696,
+                    "coalesced": true,
+                    "event_to_frame_ms": null,
+                    "offset": 26768,
+                    "posted_ms": 1567.039592,
+                    "queued_to_handler_ms": 17.867358,
+                    "superseded_batch_age_ms": 32.705645
+                },
+                {
+                    "anchor": 24693,
+                    "coalesced": false,
+                    "event_to_frame_ms": 16.051042,
+                    "offset": 26771,
+                    "posted_ms": 1583.694195,
+                    "queued_to_handler_ms": 1.314416,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 24690,
+                    "coalesced": true,
+                    "event_to_frame_ms": null,
+                    "offset": 26806,
+                    "posted_ms": 1600.362773,
+                    "queued_to_handler_ms": 0.013496,
+                    "superseded_batch_age_ms": 32.717457
+                },
+                {
+                    "anchor": 24687,
+                    "coalesced": false,
+                    "event_to_frame_ms": 16.040621,
+                    "offset": 26841,
+                    "posted_ms": 1617.039609,
+                    "queued_to_handler_ms": 1.289057,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 24684,
+                    "coalesced": true,
+                    "event_to_frame_ms": null,
+                    "offset": 26844,
+                    "posted_ms": 1633.699959,
+                    "queued_to_handler_ms": 16.224057,
+                    "superseded_batch_age_ms": 49.855746
+                },
+                {
+                    "anchor": 24681,
+                    "coalesced": true,
+                    "event_to_frame_ms": null,
+                    "offset": 26863,
+                    "posted_ms": 1650.379073,
+                    "queued_to_handler_ms": 16.592456,
+                    "superseded_batch_age_ms": 33.176632
+                },
+                {
+                    "anchor": 24678,
+                    "coalesced": false,
+                    "event_to_frame_ms": 16.498267,
+                    "offset": 26866,
+                    "posted_ms": 1667.057438,
+                    "queued_to_handler_ms": 0.752594,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 24675,
+                    "coalesced": false,
+                    "event_to_frame_ms": 16.092141,
+                    "offset": 26901,
+                    "posted_ms": 1683.712033,
+                    "queued_to_handler_ms": 0.638418,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 24672,
+                    "coalesced": false,
+                    "event_to_frame_ms": 32.800229,
+                    "offset": 26920,
+                    "posted_ms": 1700.38024,
+                    "queued_to_handler_ms": 0.045752,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 24669,
+                    "coalesced": false,
+                    "event_to_frame_ms": 34.569549,
+                    "offset": 26939,
+                    "posted_ms": 1717.048983,
+                    "queued_to_handler_ms": 16.229307,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 24666,
+                    "coalesced": true,
+                    "event_to_frame_ms": null,
+                    "offset": 26958,
+                    "posted_ms": 1733.711817,
+                    "queued_to_handler_ms": 17.991144,
+                    "superseded_batch_age_ms": 32.661771
+                },
+                {
+                    "anchor": 24663,
+                    "coalesced": false,
+                    "event_to_frame_ms": 15.991692,
+                    "offset": 26961,
+                    "posted_ms": 1750.381896,
+                    "queued_to_handler_ms": 1.430238,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 24660,
+                    "coalesced": false,
+                    "event_to_frame_ms": 32.735093,
+                    "offset": 26996,
+                    "posted_ms": 1767.025989,
+                    "queued_to_handler_ms": 0.011006,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 24657,
+                    "coalesced": false,
+                    "event_to_frame_ms": 32.731179,
+                    "offset": 27015,
+                    "posted_ms": 1783.702587,
+                    "queued_to_handler_ms": 16.145278,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 24654,
+                    "coalesced": false,
+                    "event_to_frame_ms": 32.697215,
+                    "offset": 27034,
+                    "posted_ms": 1800.378646,
+                    "queued_to_handler_ms": 16.138688,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 24651,
+                    "coalesced": false,
+                    "event_to_frame_ms": 32.737902,
+                    "offset": 27053,
+                    "posted_ms": 1817.0423,
+                    "queued_to_handler_ms": 16.116535,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 24648,
+                    "coalesced": false,
+                    "event_to_frame_ms": 32.731808,
+                    "offset": 27072,
+                    "posted_ms": 1833.703,
+                    "queued_to_handler_ms": 16.15457,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 24645,
+                    "coalesced": false,
+                    "event_to_frame_ms": 32.708232,
+                    "offset": 27091,
+                    "posted_ms": 1850.369327,
+                    "queued_to_handler_ms": 16.153982,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 24642,
+                    "coalesced": false,
+                    "event_to_frame_ms": 32.812751,
+                    "offset": 27110,
+                    "posted_ms": 1867.034066,
+                    "queued_to_handler_ms": 16.119903,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 24639,
+                    "coalesced": false,
+                    "event_to_frame_ms": 34.676279,
+                    "offset": 27129,
+                    "posted_ms": 1883.695836,
+                    "queued_to_handler_ms": 16.23731,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 24636,
+                    "coalesced": true,
+                    "event_to_frame_ms": null,
+                    "offset": 27148,
+                    "posted_ms": 1900.372444,
+                    "queued_to_handler_ms": 18.096394,
+                    "superseded_batch_age_ms": 32.790359
+                },
+                {
+                    "anchor": 24633,
+                    "coalesced": false,
+                    "event_to_frame_ms": 16.11868,
+                    "offset": 27151,
+                    "posted_ms": 1917.044123,
+                    "queued_to_handler_ms": 1.527769,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 24630,
+                    "coalesced": false,
+                    "event_to_frame_ms": 32.813205,
+                    "offset": 27186,
+                    "posted_ms": 1933.700846,
+                    "queued_to_handler_ms": 0.010363,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 24627,
+                    "coalesced": false,
+                    "event_to_frame_ms": 34.510229,
+                    "offset": 27205,
+                    "posted_ms": 1950.395391,
+                    "queued_to_handler_ms": 16.202043,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 24624,
+                    "coalesced": true,
+                    "event_to_frame_ms": null,
+                    "offset": 27224,
+                    "posted_ms": 1967.042088,
+                    "queued_to_handler_ms": 17.964069,
+                    "superseded_batch_age_ms": 32.774531
+                },
+                {
+                    "anchor": 24621,
+                    "coalesced": false,
+                    "event_to_frame_ms": 16.092919,
+                    "offset": 27227,
+                    "posted_ms": 1983.7237,
+                    "queued_to_handler_ms": 1.385201,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 24618,
+                    "coalesced": true,
+                    "event_to_frame_ms": null,
+                    "offset": 27262,
+                    "posted_ms": 2000.365089,
+                    "queued_to_handler_ms": 16.231858,
+                    "superseded_batch_age_ms": 49.73649
+                },
+                {
+                    "anchor": 24615,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.048158,
+                    "offset": 27281,
+                    "posted_ms": 2017.053421,
+                    "queued_to_handler_ms": 16.245237,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 24612,
+                    "coalesced": true,
+                    "event_to_frame_ms": null,
+                    "offset": 27300,
+                    "posted_ms": 2033.71236,
+                    "queued_to_handler_ms": 16.48791,
+                    "superseded_batch_age_ms": 49.685006
+                },
+                {
+                    "anchor": 24609,
+                    "coalesced": false,
+                    "event_to_frame_ms": 33.002688,
+                    "offset": 27319,
+                    "posted_ms": 2050.394678,
+                    "queued_to_handler_ms": 16.113264,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 24606,
+                    "coalesced": false,
+                    "event_to_frame_ms": 32.737431,
+                    "offset": 27338,
+                    "posted_ms": 2067.013343,
+                    "queued_to_handler_ms": 16.483464,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 24603,
+                    "coalesced": true,
+                    "event_to_frame_ms": null,
+                    "offset": 27357,
+                    "posted_ms": 2083.729362,
+                    "queued_to_handler_ms": 16.106452,
+                    "superseded_batch_age_ms": 49.365729
+                },
+                {
+                    "anchor": 24600,
+                    "coalesced": false,
+                    "event_to_frame_ms": 32.722078,
+                    "offset": 27376,
+                    "posted_ms": 2100.373013,
+                    "queued_to_handler_ms": 16.182256,
+                    "superseded_batch_age_ms": null
+                },
+                {
+                    "anchor": 24597,
+                    "coalesced": false,
+                    "event_to_frame_ms": 32.73877,
+                    "offset": 27395,
+                    "posted_ms": 2117.058274,
+                    "queued_to_handler_ms": 16.137476,
+                    "superseded_batch_age_ms": null
+                }
+            ],
+            "frame_cpu": {
+                "max_ms": 3.744772,
+                "min_ms": 0.829503,
+                "p50_ms": 3.142368,
+                "p95_ms": 3.689381,
+                "p99_ms": 3.744772,
+                "samples": 96
+            },
+            "frame_gaps_over_16_7_ms": 53,
+            "frame_gaps_over_33_3_ms": 29,
+            "frame_interval": {
+                "max_ms": 34.61582,
+                "min_ms": 14.755056,
+                "p50_ms": 16.753214,
+                "p95_ms": 33.735126,
+                "p99_ms": 34.61582,
+                "samples": 95
+            },
+            "heartbeat_lag": {
+                "max_ms": 13.732036999999998,
+                "min_ms": 0.8223229999999999,
+                "p50_ms": 11.685907,
+                "p95_ms": 13.46866,
+                "p99_ms": 13.675602000000001,
+                "samples": 130
+            },
+            "history_pending_frames": 0,
+            "input_bytes": 212400,
+            "input_rejected": 0,
+            "name": "live_input_wheel",
+            "oldest_coalesced_batch_to_frame": {
+                "max_ms": 51.31003,
+                "min_ms": 16.092141,
+                "p50_ms": 32.770223,
+                "p95_ms": 49.973726,
+                "p99_ms": 51.31003,
+                "samples": 90
+            },
+            "pipeline_trace": [
+            ],
+            "process_cpu_ms": 1280.923999999999,
+            "requests": 128,
+            "resident_charge_after": 212250144,
+            "resident_charge_before": 204038304
+        }
+    ],
+    "schema_version": 1,
+    "screen_hz": 59.996624662466246,
+    "target_block_bytes": 524288,
+    "verified": true
+}

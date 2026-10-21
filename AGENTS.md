@@ -1943,3 +1943,64 @@ Debug/Release 完整构建通过；Debug 全套 **37/37**（185.52 秒），Rele
 本轮没有运行 Release 全套、消毒器、其他平台、真实 UART 或输入法人工验收；
 历史压缩默认关闭，性能门槛状态保持原记录。具体命令与日志见
 [P1 实施记录](docs/architecture/stages/P8_AI_MCP_Interface/P1_Implementation_and_Verification.md)。
+
+### Linux LZ4 性能复测（2026-10-20）
+
+基于 `06bae54` 的独立 Release 后端，三次独立进程/轮换 OFF/ON：同内容与等预算
+六类矩阵 72 样本，另加普通日志节拍 12 样本，84/84 内容校验通过。普通日志 charge
+下降约 74%，但追加/扫描合成门槛未通过；本机等预算 ON 普通日志完整保留 25000 行，
+不外推历史 Windows/真实串口。后端 no-Qt 与 Release tailFrom 护栏各 1/1。
+生产实现/默认 false 未改；GUI、固定速率接收 CPU、在途关闭及多会话长稳仍未验收。
+原始数据、Linux Python 复现脚本与具体范围见
+[本轮报告](docs/architecture/benchmarks/history-linux-2026-10-20/README.md)。
+
+### GUI 历史滚动性能（2026-10-20）
+
+新增手工 `novaterm_history_gui_benchmark`，不注册默认 CTest；可见 GPU 窗口的
+`--self-test` 覆盖 Pending 保留旧完成标记及“增量帧先画、完整重绘尚未交付”的交错。
+完成统计必须绑定实际全量重建的视口代次，不能只看当前 scrollOffset 或累计帧数。
+Release 全部目标与 Debug 相关目标构建通过，两个配置 Renderer 专项各 2/2。
+
+三次独立进程×两类语料×四组参数：24/24 通过、12288 次请求记账、96 次最终像素
+抽检通过。默认压缩热区约 34–35 ms，冷页 P95/P99 约 51/67 ms，冷跳约 68/68–83 ms；
+冷区 P95 50 ms 门槛未通过，256 KiB 小块或 8 MiB 热区未带来跨语料一致优势，默认不改。
+测量截止 frameSubmitted，不代表显示器呈现；正确内容间隔与旧画面 GPU 帧分开记录，
+合并请求另记最早批次等待。`grabFramebuffer` 会重新绘制，阶段后抽检不当作逐计时帧证明。
+命令与原始数据见 [GUI 报告](docs/architecture/benchmarks/history-gui-linux-2026-10-20/README.md)。
+
+### GUI 冷区准备与复测（2026-10-21）
+
+滚动目标变更现在合并一次 queued CacheOnly 准备，用已有 HistoryLayout 首尾 ID
+请求相交块；不要在输入事件中调用完整 viewport 折行，超长逻辑行会放大 CPU 成本。
+render 首个 Pending 也会在剩余可见行数范围请求后续块，仍不交付部分视口。
+预算、Parser 单写与 completedViewportRevision 的完整重建绑定保持不变。
+
+本轮先复现 24 进程，再跑相同完整 24 进程；默认冷区三轮 P95 均约 35 ms、
+P99 最大 51.63 ms，charge 收益约 92%。但不绑核 mixed 热区 Renderer P95 的
+ON/OFF=1.413，不能说相对 OFF 的 CPU 门槛已全部通过；同类核心控制另列，
+不得替换默认调度结果。原始矩阵、源码/初始 patch、四种帧口径和剩余缺口见
+[新报告](docs/architecture/benchmarks/history-gui-linux-2026-10-21/README.md)。
+P 核集合控制中热区 CPU ON/OFF 为 1.015/0.989，但另有一轮冷页 P95=50.08 ms；
+不得用控制实验替换原矩阵，也不得省略这轮略超 50 ms 的样本。
+Release 相关五项、Debug 相关四项与两配置 GPU 自测通过，未跑无关全套。
+GPU 自测的准备顺序应在首次冷读回调内记录 handoff 次数，不能在事件循环返回后
+观察累计值（正常帧定时器可能已到期）；Pending 与增量帧先执行检查继续保留。
+
+### 三轮 GUI 参数收敛（2026-10-21，0.2.77）
+
+固定 reference=512 KiB/4 MiB，与 384/4、512/2、384/2 三组调整比较；两语料每组
+三独立进程，受控矩阵 30/30，默认调度 OFF/reference/实际默认复验 18/18。
+按采样前的门槛与尾延迟/charge 规则选择 **512 KiB 块、2 MiB 热区**，已改策略
+默认值，enabled 仍 false，8/32 MiB 解码与队列/工作区额度不变。
+
+新默认两语料最终最差冷区 P95/P99 中位数为 35.14/49.93、35.72/50.18 ms，
+所有单轮冷区 P95≤36.02/P99≤51.37 ms；热区 CPU/OFF=0.973/0.992，charge
+约 13.16/13.14 MiB，比 reference 再降约 12%，相对 OFF 节省 93.0%/93.2%。
+mixed 新默认/reference 的 CPU 比值仍为 1.158；不把所有调度波动当成参数收益。
+此前 CPU 失败/略超 50 ms 样本保留为历史，不据新成绩删除。
+
+长时间可见 GUI 采样使用 runner 的 `--keep-display-on`：要求桌面解锁，临时
+抑制息屏并检查状态，异常回收子进程及租约，不改持久电源设置。首次锁屏/息屏
+中断的 22 个样本独立保留、不混入正式选型。显示保护 6/6，Release 相关 5/5、
+Debug 相关 4/4 及两配置实际 GPU 自测通过；未跑无关全套或跨平台/长稳。
+完整范围与复现见 [调参报告](docs/architecture/benchmarks/history-gui-tuning-linux-2026-10-21/README.md)。

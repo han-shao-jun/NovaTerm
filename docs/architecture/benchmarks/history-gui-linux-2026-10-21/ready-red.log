@@ -1,0 +1,21 @@
+********* Start testing of RendererP3Tests *********
+Config: Using QtTest library 6.8.3, Qt 6.8.3 (x86_64-little_endian-lp64 shared (dynamic) release build; by GCC 10.3.1 20210422 (Red Hat 10.3.1-1)), ubuntu 24.04
+PASS   : RendererP3Tests::initTestCase()
+QWARN  : RendererP3Tests::historyReadyDoesNotRedrawUnblockedViewport() QRhiWidget: QRhi is not supported on this platform.
+QWARN  : RendererP3Tests::historyReadyDoesNotRedrawUnblockedViewport() QRhiWidget: No QRhi
+QWARN  : RendererP3Tests::historyReadyDoesNotRedrawUnblockedViewport() TerminalRenderer: QRhi render failed. Set NOVATERM_RHI_API=d3d11, d3d12, vulkan, or opengl to try another backend.
+QWARN  : RendererP3Tests::historyReadyDoesNotRedrawUnblockedViewport() QRhiWidget: No QRhi
+QWARN  : RendererP3Tests::historyReadyDoesNotRedrawUnblockedViewport() TerminalRenderer: QRhi render failed. Set NOVATERM_RHI_API=d3d11, d3d12, vulkan, or opengl to try another backend.
+QWARN  : RendererP3Tests::historyReadyDoesNotRedrawUnblockedViewport() QRhiWidget: No QRhi
+QWARN  : RendererP3Tests::historyReadyDoesNotRedrawUnblockedViewport() TerminalRenderer: QRhi render failed. Set NOVATERM_RHI_API=d3d11, d3d12, vulkan, or opengl to try another backend.
+QWARN  : RendererP3Tests::historyReadyDoesNotRedrawUnblockedViewport() QRhiWidget: No QRhi
+QWARN  : RendererP3Tests::historyReadyDoesNotRedrawUnblockedViewport() TerminalRenderer: QRhi render failed. Set NOVATERM_RHI_API=d3d11, d3d12, vulkan, or opengl to try another backend.
+QWARN  : RendererP3Tests::historyReadyDoesNotRedrawUnblockedViewport() QRhiWidget: No QRhi
+QWARN  : RendererP3Tests::historyReadyDoesNotRedrawUnblockedViewport() TerminalRenderer: QRhi render failed. Set NOVATERM_RHI_API=d3d11, d3d12, vulkan, or opengl to try another backend.
+FAIL!  : RendererP3Tests::historyReadyDoesNotRedrawUnblockedViewport() Compared values are not the same
+   Actual   (frames.size()): 1
+   Expected (0)            : 0
+   Loc: [/home/super/Documents/qt_app/NovaTerm/tests/renderer/RendererP3Tests.cpp(113)]
+PASS   : RendererP3Tests::cleanupTestCase()
+Totals: 2 passed, 1 failed, 0 skipped, 0 blacklisted, 180ms
+********* Finished testing of RendererP3Tests *********

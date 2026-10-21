@@ -1,0 +1,15 @@
+Internal ctest changing into directory: /home/super/Documents/qt_app/NovaTerm/build/Release
+Test project /home/super/Documents/qt_app/NovaTerm/build/Release
+    Start 21: novaterm_renderer_tests
+1/2 Test #21: novaterm_renderer_tests ..........   Passed    5.24 sec
+    Start 22: novaterm_renderer_p5_tests
+2/2 Test #22: novaterm_renderer_p5_tests .......   Passed    0.29 sec
+
+100% tests passed, 0 tests failed out of 2
+
+Label Time Summary:
+p5          =   0.29 sec*proc (1 test)
+renderer    =   5.53 sec*proc (2 tests)
+unit        =   5.53 sec*proc (2 tests)
+
+Total Test time (real) =   5.53 sec

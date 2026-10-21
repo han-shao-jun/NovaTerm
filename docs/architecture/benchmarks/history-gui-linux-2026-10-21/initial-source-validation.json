@@ -1,0 +1,32 @@
+[
+  {
+    "file": "tests/benchmarks/HistoryGuiScrollBenchmark.cpp",
+    "expected": "a125b37e06ff16f0d56a48f01ea8141ef0e418c7d3fabffa7d4647ef6b11fff5",
+    "restored": "a125b37e06ff16f0d56a48f01ea8141ef0e418c7d3fabffa7d4647ef6b11fff5",
+    "matches": true
+  },
+  {
+    "file": "tests/benchmarks/history/run-gui-matrix.py",
+    "expected": "e0c7dd647e8c79f368c7412d285ef92cc78f7e079ada16d8f8018f3e1d946531",
+    "restored": "e0c7dd647e8c79f368c7412d285ef92cc78f7e079ada16d8f8018f3e1d946531",
+    "matches": true
+  },
+  {
+    "file": "src/renderer/TerminalRenderer.cpp",
+    "expected": "d02e68123623e6b56f697490fca61c27aabe8f49cec04d7346bf4cc121165868",
+    "restored": "d02e68123623e6b56f697490fca61c27aabe8f49cec04d7346bf4cc121165868",
+    "matches": true
+  },
+  {
+    "file": "src/renderer/TerminalRenderer.h",
+    "expected": "f7cd54bd6df953d2bf6ae82797b8f269240e7da81ac197ff6173b70887123cb1",
+    "restored": "f7cd54bd6df953d2bf6ae82797b8f269240e7da81ac197ff6173b70887123cb1",
+    "matches": true
+  },
+  {
+    "file": "tests/CMakeLists.txt",
+    "expected": "cff007359157bd60a9011d9e1763887154355fd782c599a2a63faa1e7c7c0a17",
+    "restored": "cff007359157bd60a9011d9e1763887154355fd782c599a2a63faa1e7c7c0a17",
+    "matches": true
+  }
+]

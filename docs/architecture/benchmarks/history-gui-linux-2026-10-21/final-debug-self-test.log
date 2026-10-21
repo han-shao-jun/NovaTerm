@@ -1,0 +1,2 @@
+TerminalRenderer: GPU glyph renderer initialized with OpenGL
+history GUI benchmark: scroll must prepare cold data before the first GPU frame handoff

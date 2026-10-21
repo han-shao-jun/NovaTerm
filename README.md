@@ -446,3 +446,14 @@ ctest --test-dir build/history-standalone --output-on-failure
 用法见 [基准说明](tests/benchmarks/history/README.md)，
 本次 72 样本结果见 [f662302 性能补充](docs/architecture/benchmarks/history-f662302-2026-10-19/README.md)。
 它不等于真实串口或 GUI 性能验收，不自动占用端口。
+
+GUI 历史回看另有手工目标 `novaterm_history_gui_benchmark`：使用可见 QRhi 窗口，
+模拟热区滚轮、冷历史翻页、滚动条跳转和持续输入下回看，比较 OFF/默认压缩/
+256 KiB 小块/8 MiB 热区。`tests/benchmarks/history/run-gui-matrix.py` 串行运行
+各组三次独立进程，记录事件到完整目标内容帧提交的 P95/P99、正确内容更新间隔、
+请求合并、CPU 和内存成本。它不注册默认 CTest；必须使用真实桌面/GPU，
+帧提交时间不等于合成器或显示器呈现时间。用法同见上述基准说明。
+
+2026-10-21 三轮参数比较选用 512 KiB 块 / 2 MiB 热区，压缩仍默认关闭；
+固定旧参数对照可用 `on-reference`（512 KiB / 4 MiB）。选型、成本和默认调度
+复验见 [调参报告](docs/architecture/benchmarks/history-gui-tuning-linux-2026-10-21/README.md)。

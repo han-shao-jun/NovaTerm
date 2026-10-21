@@ -1,0 +1,2 @@
+TerminalRenderer: GPU glyph renderer initialized with OpenGL
+history GUI benchmark: sparse frame must not complete a new viewport mapping

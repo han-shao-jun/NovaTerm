@@ -1,0 +1,2 @@
+TerminalRenderer: GPU glyph renderer initialized with OpenGL
+history GUI benchmark: completed viewport must identify the actual history target

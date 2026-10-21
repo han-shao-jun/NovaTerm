@@ -109,7 +109,30 @@ ViewportSnapshot LineLayout::viewport(const ScrollbackSnapshot& snapshot,
     for (; row < snapshot.lineCount()
          && isize(result.rows.size()) < wanted; ++row) {
         auto logical = snapshot.lineAt(row, mode);
-        if (!logical) { result.status = logical.status(); result.rows.clear(); return result; }
+        if (!logical) {
+            if (mode == HistoryReadMode::CacheOnly
+                && logical.status() == HistoryReadStatus::Pending) {
+                // Every logical line occupies at least one display row. Until
+                // the missing line can be wrapped, at most the remaining row
+                // count of logical lines can contribute to this viewport.
+                // Request once per candidate chunk, without waiting for a GPU
+                // frame/GUI wake between blocks. Existing queue/cache limits
+                // still apply; rejected work is retried on the next data wake.
+                const isize remaining = wanted - isize(result.rows.size());
+                const isize end = row + std::min(remaining, snapshot.lineCount() - row);
+                const auto& chunks = snapshot.chunks();
+                auto next = std::lower_bound(chunks.cbegin(), chunks.cend(), row,
+                    [](const ScrollbackSnapshot::ChunkView& view, isize at) {
+                        return view.documentStart + view.lineCount <= at;
+                    });
+                if (next != chunks.cend()) ++next; // first miss already submitted
+                for (; next != chunks.cend() && next->documentStart < end; ++next)
+                    (void)snapshot.lineAt(next->documentStart, mode);
+            }
+            result.status = logical.status();
+            result.rows.clear();
+            return result;
+        }
         result.pins.push_back(logical);
         std::vector<DisplayLine> wrapped = wrapLine(*logical, result.columns);
         // anchorLine 起始行可能从 wrapOffset 开始（用于精确还原滚动位置），

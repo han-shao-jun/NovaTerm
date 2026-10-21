@@ -1,0 +1,7 @@
+[0/2] Re-checking globbed directories...
+[1/8] Automatic MOC and UIC for target novaterm_renderer_tests
+[2/7] Automatic MOC and UIC for target novaterm_scrollback_tests
+[3/6] Building CXX object tests/CMakeFiles/novaterm_scrollback_tests.dir/core/ScrollbackTests.cpp.o
+[4/6] Linking CXX executable bin/novaterm_scrollback_tests
+[5/6] Building CXX object tests/CMakeFiles/novaterm_renderer_tests.dir/renderer/RendererP3Tests.cpp.o
+[6/6] Linking CXX executable bin/novaterm_renderer_tests

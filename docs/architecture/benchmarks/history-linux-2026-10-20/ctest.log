@@ -1,0 +1,13 @@
+Internal ctest changing into directory: /home/super/Documents/qt_app/NovaTerm/build/history-perf-linux-2026-10-20
+Test project /home/super/Documents/qt_app/NovaTerm/build/history-perf-linux-2026-10-20
+    Start 1: novaterm_history_no_qt_link_check
+1/1 Test #1: novaterm_history_no_qt_link_check ...   Passed    0.11 sec
+
+100% tests passed, 0 tests failed out of 1
+
+Label Time Summary:
+history       =   0.11 sec*proc (1 test)
+scrollback    =   0.11 sec*proc (1 test)
+unit          =   0.11 sec*proc (1 test)
+
+Total Test time (real) =   0.11 sec

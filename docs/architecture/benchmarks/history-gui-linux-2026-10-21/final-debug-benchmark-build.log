@@ -1,0 +1,4 @@
+[0/2] Re-checking globbed directories...
+[1/4] Automatic MOC and UIC for target novaterm_history_gui_benchmark
+[2/3] Building CXX object tests/CMakeFiles/novaterm_history_gui_benchmark.dir/benchmarks/HistoryGuiScrollBenchmark.cpp.o
+[3/3] Linking CXX executable bin/novaterm_history_gui_benchmark

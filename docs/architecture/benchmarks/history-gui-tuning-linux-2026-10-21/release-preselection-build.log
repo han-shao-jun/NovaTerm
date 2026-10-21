@@ -1,0 +1,152 @@
+[0/2] Re-checking globbed directories...
+[1/2] Re-running CMake...
+-- Host OS: Linux
+-- setting qt sdk path: /home/super/Qt/6.8.3/gcc_64
+-- Using Qt 6.8
+在CMAKE中配置 QT_SDK_DIR 选项指定QT路径; 当前路径: C:/Programs/Qt/6.8.3/msvc2022_64
+-- Building libvterm from third_party/libvterm-0.3.3
+-- Building libtelnet from third_party/libtelnet
+-- Found OpenSSL: /usr/lib/x86_64-linux-gnu/libcrypto.so (found version "3.0.13")  
+-- Found OpenSSL: /usr/lib/x86_64-linux-gnu/libcrypto.so (found suitable version "3.0.13", minimum required is "1.1.1")  
+-- Could not find `abimap` in PATH. It can be found in PyPI as `abimap` (try `pip install abimap`)
+-- Could NOT find ABIMap (missing: ABIMAP_EXECUTABLE) (Required is at least version "0.4.0")
+-- Could NOT find Doxygen (missing: DOXYGEN_EXECUTABLE) 
+-- Threads_FOUND=TRUE
+-- ********************************************
+-- ********** libssh build options : **********
+-- Build type: Release
+-- Coverage: 
+-- zlib support: OFF
+-- libgcrypt support: OFF
+-- libmbedTLS support: OFF
+-- libnacl support: OFF
+-- SFTP support: ON
+-- Server support : OFF
+-- GSSAPI support : OFF
+-- GEX support : ON
+-- Support insecure none cipher and MAC : OFF
+-- Support exec : ON
+-- Pcap debugging support : OFF
+-- Build shared library: OFF
+-- Unit testing: OFF
+-- Client code testing: OFF
+-- Blowfish cipher support: 
+-- PKCS #11 URI support: OFF
+-- With PKCS #11 provider support: OFF
+-- With FIDO2/U2F support: OFF
+-- Server code testing: OFF
+-- Public API documentation generation
+-- Benchmarks: OFF
+-- Symbol versioning: ON
+-- Allow ABI break: OFF
+-- Release is final: 
+-- Global client config: /etc/ssh/ssh_config
+-- ********************************************
+src/renderer/shaders/terminal_texture.vert -> src/renderer/shaders/terminal_texture.vert.qsb exposed as :/shaders/src/renderer/shaders/terminal_texture.vert.qsb
+src/renderer/shaders/terminal_texture.frag -> src/renderer/shaders/terminal_texture.frag.qsb exposed as :/shaders/src/renderer/shaders/terminal_texture.frag.qsb
+/home/super/Documents/qt_app/NovaTerm/src/renderer/shaders/terminal_texture.vert -> src/renderer/shaders/terminal_texture.vert.qsb exposed as :/shaders/src/renderer/shaders/terminal_texture.vert.qsb
+/home/super/Documents/qt_app/NovaTerm/src/renderer/shaders/terminal_texture.frag -> src/renderer/shaders/terminal_texture.frag.qsb exposed as :/shaders/src/renderer/shaders/terminal_texture.frag.qsb
+/home/super/Documents/qt_app/NovaTerm/src/renderer/shaders/terminal_texture.vert -> src/renderer/shaders/terminal_texture.vert.qsb exposed as :/shaders/src/renderer/shaders/terminal_texture.vert.qsb
+/home/super/Documents/qt_app/NovaTerm/src/renderer/shaders/terminal_texture.frag -> src/renderer/shaders/terminal_texture.frag.qsb exposed as :/shaders/src/renderer/shaders/terminal_texture.frag.qsb
+/home/super/Documents/qt_app/NovaTerm/src/renderer/shaders/terminal_texture.vert -> src/renderer/shaders/terminal_texture.vert.qsb exposed as :/shaders/src/renderer/shaders/terminal_texture.vert.qsb
+/home/super/Documents/qt_app/NovaTerm/src/renderer/shaders/terminal_texture.frag -> src/renderer/shaders/terminal_texture.frag.qsb exposed as :/shaders/src/renderer/shaders/terminal_texture.frag.qsb
+/home/super/Documents/qt_app/NovaTerm/src/renderer/shaders/terminal_texture.vert -> src/renderer/shaders/terminal_texture.vert.qsb exposed as :/shaders/src/renderer/shaders/terminal_texture.vert.qsb
+/home/super/Documents/qt_app/NovaTerm/src/renderer/shaders/terminal_texture.frag -> src/renderer/shaders/terminal_texture.frag.qsb exposed as :/shaders/src/renderer/shaders/terminal_texture.frag.qsb
+/home/super/Documents/qt_app/NovaTerm/src/renderer/shaders/terminal_texture.vert -> src/renderer/shaders/terminal_texture.vert.qsb exposed as :/shaders/src/renderer/shaders/terminal_texture.vert.qsb
+/home/super/Documents/qt_app/NovaTerm/src/renderer/shaders/terminal_texture.frag -> src/renderer/shaders/terminal_texture.frag.qsb exposed as :/shaders/src/renderer/shaders/terminal_texture.frag.qsb
+-- Qt qtbase_zh_CN.qm: /home/super/Qt/6.8.3/gcc_64/translations/qtbase_zh_CN.qm
+-- CPack generators: DEB;ZIP
+-- CPack file name: novaterm-0.2.77-linux-x64
+-- Configuring done (0.3s)
+-- Generating done (0.1s)
+-- Build files have been written to: /home/super/Documents/qt_app/NovaTerm/build/Release
+[0/2] Re-checking globbed directories...
+[1/98] Automatic MOC and UIC for target novaterm_core
+[2/91] Automatic MOC and UIC for target novaterm_serial_transfer
+[3/89] Running AUTOMOC file extraction for target novaterm_serial_transfer
+[4/89] Running moc --collect-json for target novaterm_serial_transfer
+[5/89] Building CXX object src/mcp/CMakeFiles/novaterm_mcp_protocol.dir/protocol/ProtocolProjectionSizer.cpp.o
+[6/89] Building CXX object src/mcp/CMakeFiles/novaterm_mcp_protocol.dir/novaterm_mcp_protocol_autogen/mocs_compilation.cpp.o
+[7/89] Building CXX object src/mcp/CMakeFiles/novaterm_mcp_protocol.dir/McpProtocol.cpp.o
+[8/89] Building CXX object src/mcp/CMakeFiles/novaterm_mcp_protocol.dir/ElicitationBroker.cpp.o
+[9/89] Building CXX object src/mcp/CMakeFiles/novaterm_mcp_protocol.dir/WireSession.cpp.o
+[10/89] Building CXX object src/mcp/CMakeFiles/novaterm_mcp_protocol.dir/protocol/ToolCodec.cpp.o
+[11/89] Linking CXX static library bin/libnovaterm_mcp_protocol.a
+[12/89] Building CXX object src/mcp/CMakeFiles/novaterm_mcp_runtime.dir/novaterm_mcp_runtime_autogen/mocs_compilation.cpp.o
+[13/89] Building CXX object src/mcp/CMakeFiles/novaterm_mcp_runtime.dir/CommandPolicy.cpp.o
+[14/89] Building CXX object src/mcp/CMakeFiles/novaterm_mcp_runtime.dir/__/capabilities/SessionRecipeAdapter.cpp.o
+[15/89] Building CXX object src/mcp/CMakeFiles/novaterm_mcp_runtime.dir/McpAccess.cpp.o
+[16/89] Building CXX object src/mcp/CMakeFiles/novaterm_mcp_runtime.dir/CommandSessionAdapter.cpp.o
+[17/89] Building CXX object src/mcp/CMakeFiles/novaterm_mcp_runtime.dir/ObservationService.cpp.o
+[18/89] Building CXX object src/mcp/CMakeFiles/novaterm_mcp_runtime.dir/CapabilityAdapter.cpp.o
+[19/89] Building CXX object src/mcp/CMakeFiles/novaterm_mcp_runtime.dir/McpService.cpp.o
+[20/89] Building CXX object src/mcp/CMakeFiles/novaterm_mcp_runtime.dir/TerminalInteraction.cpp.o
+[21/89] Linking CXX static library bin/libnovaterm_mcp_runtime.a
+[22/89] Automatic MOC and UIC for target NovaTerm
+[23/89] Building CXX object CMakeFiles/NovaTerm.dir/src/main.cpp.o
+[24/89] Building CXX object CMakeFiles/NovaTerm.dir/src/platform/linux/pty/PtySession.cpp.o
+[25/89] Building CXX object CMakeFiles/NovaTerm.dir/src/renderer/RenderCommandBuffer.cpp.o
+[26/89] Building CXX object CMakeFiles/NovaTerm.dir/src/credential/CredentialStore.cpp.o
+[27/89] Building CXX object CMakeFiles/NovaTerm.dir/src/profile/ProfileStore.cpp.o
+[28/89] Building CXX object CMakeFiles/NovaTerm.dir/src/renderer/TerminalColorScheme.cpp.o
+[29/89] Building CXX object CMakeFiles/NovaTerm.dir/src/renderer/RenderScheduler.cpp.o
+[30/89] Building CXX object CMakeFiles/NovaTerm.dir/src/renderer/font/FontManager.cpp.o
+[31/89] Building CXX object CMakeFiles/NovaTerm.dir/src/renderer/glyph/GlyphAtlas.cpp.o
+[32/89] Building CXX object CMakeFiles/NovaTerm.dir/NovaTerm_autogen/mocs_compilation.cpp.o
+[33/89] Building CXX object CMakeFiles/NovaTerm.dir/src/renderer/gpu/BufferBudget.cpp.o
+[34/89] Building CXX object CMakeFiles/NovaTerm.dir/src/renderer/glyph/GlyphCache.cpp.o
+[35/89] Building CXX object CMakeFiles/NovaTerm.dir/src/renderer/gpu/MaterialBatcher.cpp.o
+[36/89] Building CXX object CMakeFiles/NovaTerm.dir/src/renderer/glyph/GlyphRasterizer.cpp.o
+[37/89] Building CXX object CMakeFiles/NovaTerm.dir/src/renderer/gpu/RowSlotMap.cpp.o
+[38/89] Building CXX object CMakeFiles/NovaTerm.dir/src/renderer/gpu/RendererCapabilities.cpp.o
+[39/89] Building CXX object CMakeFiles/NovaTerm.dir/src/service/LanguageManager.cpp.o
+[40/89] Building CXX object CMakeFiles/NovaTerm.dir/src/service/ConfigManager.cpp.o
+[41/89] Building CXX object CMakeFiles/NovaTerm.dir/src/session/InteractiveCommandProfile.cpp.o
+[42/89] Building CXX object CMakeFiles/NovaTerm.dir/src/service/TerminalSchemeStore.cpp.o
+[43/89] Building CXX object CMakeFiles/NovaTerm.dir/src/session/InteractiveSessionCommandExecutor.cpp.o
+[44/89] Building CXX object CMakeFiles/NovaTerm.dir/src/renderer/TerminalRenderer.cpp.o
+[45/89] Building CXX object CMakeFiles/NovaTerm.dir/src/session/InteractiveStreamFramer.cpp.o
+[46/89] Building CXX object CMakeFiles/NovaTerm.dir/src/session/LocalSessionScriptProvider.cpp.o
+[47/89] Building CXX object CMakeFiles/NovaTerm.dir/src/session/SerialHighlightRules.cpp.o
+[48/89] Building CXX object CMakeFiles/NovaTerm.dir/src/session/LocalShellProfile.cpp.o
+[49/89] Building CXX object CMakeFiles/NovaTerm.dir/src/session/SessionCommandCoordinator.cpp.o
+[50/89] Building CXX object CMakeFiles/NovaTerm.dir/src/session/SessionInputArbiter.cpp.o
+[51/89] Building CXX object CMakeFiles/NovaTerm.dir/src/session/SessionInputPump.cpp.o
+[52/89] Building CXX object CMakeFiles/NovaTerm.dir/src/session/SessionFactory.cpp.o
+[53/89] Building CXX object CMakeFiles/NovaTerm.dir/src/session/SessionStore.cpp.o
+[54/89] Building CXX object CMakeFiles/NovaTerm.dir/src/session/ShellIntegration.cpp.o
+[55/89] Building CXX object CMakeFiles/NovaTerm.dir/src/session/SshSessionScriptProvider.cpp.o
+[56/89] Building CXX object CMakeFiles/NovaTerm.dir/src/transport/LocalShellTransport.cpp.o
+[57/89] Building CXX object CMakeFiles/NovaTerm.dir/src/transport/SshMonitorProtocol.cpp.o
+[58/89] Building CXX object CMakeFiles/NovaTerm.dir/src/session/SftpSession.cpp.o
+[59/89] Building CXX object CMakeFiles/NovaTerm.dir/src/session/TerminalSession.cpp.o
+[60/89] Building CXX object CMakeFiles/NovaTerm.dir/src/transport/SerialTransport.cpp.o
+[61/89] Building CXX object CMakeFiles/NovaTerm.dir/src/transport/TelnetTransport.cpp.o
+[62/89] Building CXX object CMakeFiles/NovaTerm.dir/src/transport/SshTransport.cpp.o
+[63/89] Building CXX object CMakeFiles/NovaTerm.dir/src/ui/app/Application.cpp.o
+[64/89] Building CXX object CMakeFiles/NovaTerm.dir/src/transport/serialport_info.cpp.o
+[65/89] Building CXX object CMakeFiles/NovaTerm.dir/src/ui/models/SessionPermissionModel.cpp.o
+[66/89] Building CXX object CMakeFiles/NovaTerm.dir/src/ui/pages/AboutPage.cpp.o
+[67/89] Building CXX object CMakeFiles/NovaTerm.dir/src/ui/app/MainWindow.cpp.o
+[68/89] Building CXX object CMakeFiles/NovaTerm.dir/src/ui/pages/SettingsPage.cpp.o
+[69/89] Building CXX object CMakeFiles/NovaTerm.dir/src/ui/models/SettingsController.cpp.o
+[70/89] Building CXX object CMakeFiles/NovaTerm.dir/src/ui/pages/SessionPage.cpp.o
+[71/89] Building CXX object CMakeFiles/NovaTerm.dir/src/ui/widgets/MessagePrompts.cpp.o
+[72/89] Building CXX object CMakeFiles/NovaTerm.dir/src/ui/pages/TerminalPage.cpp.o
+[73/89] Building CXX object CMakeFiles/NovaTerm.dir/src/ui/terminal/TerminalView.cpp.o
+[74/89] Building CXX object CMakeFiles/NovaTerm.dir/src/ui/widgets/McpSettingsDialog.cpp.o
+[75/89] Building CXX object CMakeFiles/NovaTerm.dir/src/ui/widgets/SerialFileTransferDialog.cpp.o
+[76/89] Building CXX object CMakeFiles/NovaTerm.dir/src/ui/widgets/SshHostKeyDialog.cpp.o
+[77/89] Building CXX object CMakeFiles/NovaTerm.dir/src/ui/widgets/SystemInformationDialog.cpp.o
+[78/89] Building CXX object CMakeFiles/NovaTerm.dir/src/ui/widgets/SessionPanel.cpp.o
+[79/89] Building CXX object CMakeFiles/NovaTerm.dir/src/ui/widgets/TabActionWidget.cpp.o
+[80/89] Building CXX object CMakeFiles/NovaTerm.dir/src/ui/widgets/SftpPanel.cpp.o
+[81/89] Building CXX object CMakeFiles/NovaTerm.dir/src/ui/widgets/TerminalSchemeSettings.cpp.o
+[82/89] Building CXX object CMakeFiles/NovaTerm.dir/build/Release/.qt/rcc/qrc_NovaTerm_scheme_presets.cpp.o
+[83/89] Building CXX object CMakeFiles/NovaTerm.dir/build/Release/.qt/rcc/qrc_novaterm_renderer_shaders.cpp.o
+[84/89] Building CXX object CMakeFiles/NovaTerm.dir/build/Release/.qt/rcc/qrc_NovaTerm_translations.cpp.o
+[85/89] Building CXX object CMakeFiles/NovaTerm.dir/NovaTerm_autogen/3YJK5W5UP7/qrc_resources.cpp.o
+[86/89] Building CXX object CMakeFiles/NovaTerm.dir/src/ui/widgets/VerticalTabWidget.cpp.o
+[87/89] Building CXX object CMakeFiles/NovaTerm.dir/src/ui/widgets/TerminalTabWidget.cpp.o
+[88/89] Building CXX object CMakeFiles/NovaTerm.dir/src/ui/widgets/SystemMonitorPanel.cpp.o
+[89/89] Linking CXX executable bin/novaterm

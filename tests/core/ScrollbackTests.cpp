@@ -34,6 +34,7 @@ private slots:
     void defaultHistoryPreservesOldestPastFormerLineLimit();
     void unlimitedHistoryStillEnforcesByteBudget();
     void unlimitedHistoryCanReplaceExplicitLineLimit();
+    void coldViewportRequestsAllCandidateBlocksWithoutPartialRows();
 };
 
 namespace {
@@ -51,6 +52,63 @@ NovaTerm::LogicalLine textLine(const QString& text)
 }
 
 } // namespace
+
+void ScrollbackTests::coldViewportRequestsAllCandidateBlocksWithoutPartialRows()
+{
+    auto runtime = std::make_shared<NovaTerm::HistoryCompressionService>();
+    NovaTerm::ChunkedScrollback store(-1, 16 * 1024 * 1024, 16);
+    store.setHistoryRuntime(runtime);
+    NovaTerm::HistoryCompressionPolicy policy;
+    policy.enabled = true;
+    policy.hotBytes = 0;
+    store.setCompressionPolicy(policy);
+    for (int row = 0; row < 64; ++row)
+        store.append(textLine(QString(80, QChar('a' + row % 26))));
+    store.publish();
+    QTRY_VERIFY(([&] {
+        store.processHistory();
+        return store.statistics().compressedBlocks == 3
+            && runtime->statistics().outstandingTasks == 0;
+    })());
+    const auto snapshot = store.snapshot();
+    auto reader = snapshot.chunks().front().chunk->reader;
+    QVERIFY(reader);
+    // Hold delivery at the real read-context's task boundary. Neither block
+    // can finish before the first viewport call has requested the whole range.
+    std::vector<std::shared_ptr<const NovaTerm::EncodedHistoryBlock>> requests;
+    reader->setColdRequest([&requests](auto block) {
+        requests.push_back(std::move(block));
+        return true;
+    });
+    const auto anchor = snapshot.lineInfoAt(15).id;
+    auto viewport = NovaTerm::LineLayout::viewport(snapshot, anchor, 0, 80, 3, 0,
+        1, NovaTerm::HistoryReadMode::CacheOnly);
+    QCOMPARE(viewport.status, NovaTerm::HistoryReadStatus::Pending);
+    QVERIFY(viewport.rows.empty());
+    QCOMPARE(requests.size(), std::size_t(2));
+    QVERIFY(requests[0] != requests[1]);
+    viewport = NovaTerm::LineLayout::viewport(snapshot, anchor, 0, 80, 3, 0,
+        1, NovaTerm::HistoryReadMode::CacheOnly);
+    QCOMPARE(requests.size(), std::size_t(2)); // no duplicate pending tasks
+    for (const auto& block : requests) {
+        const auto loaded = reader->read(block, 0, NovaTerm::HistoryReadMode::Synchronous);
+        QVERIFY(loaded);
+        reader->completeCold(block, loaded);
+    }
+    viewport = NovaTerm::LineLayout::viewport(snapshot, anchor, 0, 80, 3, 0,
+        1, NovaTerm::HistoryReadMode::CacheOnly);
+    QCOMPARE(viewport.status, NovaTerm::HistoryReadStatus::Found);
+    QCOMPARE(viewport.rows.size(), std::size_t(3));
+    QCOMPARE(viewport.rows[0].lineId, NovaTerm::LineId(16));
+    QCOMPARE(viewport.rows[2].lineId, NovaTerm::LineId(18));
+    // A one-row viewport must not speculate into the following cold block.
+    requests.clear();
+    const auto third = snapshot.lineInfoAt(32).id;
+    viewport = NovaTerm::LineLayout::viewport(snapshot, third, 0, 80, 1, 0,
+        2, NovaTerm::HistoryReadMode::CacheOnly);
+    QCOMPARE(viewport.status, NovaTerm::HistoryReadStatus::Pending);
+    QCOMPARE(requests.size(), std::size_t(1));
+}
 
 void ScrollbackTests::defaultHistoryPreservesOldestPastFormerLineLimit()
 {

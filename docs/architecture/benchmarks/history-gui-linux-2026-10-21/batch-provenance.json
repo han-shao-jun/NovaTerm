@@ -1,0 +1,7 @@
+{
+  "src/core/scrollback/LineLayout.cpp": "1f5ff3843bb5b3e57b3046cc755bdf2899c5b9f10503577d5be5adb7d2647bd7",
+  "src/renderer/TerminalRenderer.cpp": "d02e68123623e6b56f697490fca61c27aabe8f49cec04d7346bf4cc121165868",
+  "src/renderer/TerminalRenderer.h": "f7cd54bd6df953d2bf6ae82797b8f269240e7da81ac197ff6173b70887123cb1",
+  "tests/benchmarks/HistoryGuiScrollBenchmark.cpp": "827716d878a0a275eda0a79989ec06bd7fd3c397a3f5d7e74e050d9d9e3baa77",
+  "build/Release/bin/novaterm_history_gui_benchmark": "676334a76ba956987d14c58940aed23c8013588a6300ae904dc01424e5c7fc61"
+}

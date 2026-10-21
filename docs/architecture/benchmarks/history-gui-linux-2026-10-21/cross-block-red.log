@@ -1,0 +1,10 @@
+********* Start testing of ScrollbackTests *********
+Config: Using QtTest library 6.8.3, Qt 6.8.3 (x86_64-little_endian-lp64 shared (dynamic) release build; by GCC 10.3.1 20210422 (Red Hat 10.3.1-1)), ubuntu 24.04
+PASS   : ScrollbackTests::initTestCase()
+FAIL!  : ScrollbackTests::coldViewportRequestsAllCandidateBlocksWithoutPartialRows() Compared values are not the same
+   Actual   (requests.size()): 1
+   Expected (std::size_t(2)) : 2
+   Loc: [/home/super/Documents/qt_app/NovaTerm/tests/core/ScrollbackTests.cpp(88)]
+PASS   : ScrollbackTests::cleanupTestCase()
+Totals: 2 passed, 1 failed, 0 skipped, 0 blacklisted, 101ms
+********* Finished testing of ScrollbackTests *********

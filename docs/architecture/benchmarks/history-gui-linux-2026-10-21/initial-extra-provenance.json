@@ -1,0 +1,14 @@
+{
+  "revision": "06bae544df106ef73364a6c89f64cce170d9d1e3",
+  "source_files": {
+    "src/core/scrollback/LineLayout.cpp": "4c868deb5c796639b67774c42e560ecb15b6e6845f4805764bbef86e406b4cf5",
+    "src/core/scrollback/ScrollbackSnapshot.cpp": "2a6976755c9a20559c383637000a0e65b2e48e8919d1fce44cff219c1754b239",
+    "src/core/scrollback/ScrollbackSnapshot.h": "35c12b43f6e7adf37f7990dddbb11e0c3884674241f4573b78c3aa0cc61292bc",
+    "src/history/HistoryReadContext.cpp": "41c922a3abed31488be6955a911ca1982af3b0c4500a6103aad9d816ebe19c37",
+    "src/history/HistoryReadContext.h": "90255c51791f9ad65f538b2c94e868be88f55753b767e29751443f68b7d7671e",
+    "src/history/HistoryCompressionService.cpp": "e2e9a7fe2bb5e40f390221a4d82d038739e87fd68e1e4bae239080d1083bf7d3",
+    "src/history/HistoryCompressionService.h": "956fcbad4ba89506cd6f97fc63207633b32b72e9b1254dc10d873c44841c0316",
+    "src/renderer/RenderScheduler.cpp": "055082763c37525b445de8c44e888c5884bd8b4aedc02d8d972e5b58dac0ff50",
+    "src/renderer/RenderScheduler.h": "156956e39c210ab11fe895344576c79a5332357f8580dccba793dd0892208a09"
+  }
+}
