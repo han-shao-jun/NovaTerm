@@ -1,5 +1,8 @@
 # Linux LZ4 历史后端性能复测（2026-10-20）
 
+> 归档清理：可重跑生成的 JSON、日志及重复表格已移除；本文保留历史结论。
+> 文中输出文件名用于标识重跑产物，已不在仓库中；重跑生成的是新样本。
+
 测试源码与生产后端基于干净提交 `06bae544df106ef73364a6c89f64cce170d9d1e3`（0.2.76），
 本轮只运行基准并记录结果，未修改生产实现、参数或默认开关。**内存收益达到本轮合成门槛，追加与扫描性能未达标，默认压缩继续关闭。**
 
@@ -14,7 +17,7 @@ GCC 13.3.0、Ninja、独立 Release `-O3 -DNDEBUG`，链接完整生产 `novater
 本机未安装 PowerShell，因此使用随报告保存的 [run-matrix.py](run-matrix.py)，
 逐项复现现有 `run-matrix.ps1` 的参数、OFF/ON 轮换、校验、指标汇总和门槛判定。
 每个样本独立进程，每项三次；使用同一 schema 2 C++ 可执行文件。构建后 smoke
-仅检查工具可用，不计入以下 84 个样本。原始 JSON 保留每轮结果和中位数/min/max，
+仅检查工具可用，不计入以下 84 个样本。采样时的 JSON 包含每轮结果和中位数/min/max（已清理），
 包含全部 Cell 字段及行索引校验、输入/保留哈希、P95/P99、RSS/峰值 RSS、进程 CPU、
 队列、冷读样本数、构建/可执行文件/源文件/运行脚本哈希。
 
@@ -49,7 +52,7 @@ long 没有压缩块，不能用其扫描通过证明压缩扫描达标。`synth
 
 CPU 为整个进程 user+kernel，含语料生成、全字段哈希、追加、worker 和排空；
 并非固定频率接收 CPU。RSS 是追加完成后值，peak 含生成/扫描/校验等全程峰值，
-不等于纯历史净分配。详见 [same-content.json](same-content.json)。
+不等于纯历史净分配。详见 `same-content.json`（重跑生成）。
 
 Linux 当前 RSS 来自 `/proc/self/statm`，peak 来自 `getrusage(RUSAGE_SELF).ru_maxrss`。
 本轮部分样本出现 peak 小于当前 RSS；上表保留工具原值，没有人为调整。
@@ -78,7 +81,7 @@ long 无压缩块，其差异包含 ON/OFF 分块粒度影响，不归功于 LZ4
 
 本组 `synthetic_gates_passed=true` **仅表示实测压缩冷读门槛通过**；
 等预算组未评定同内容追加/扫描/节省门槛，不代表发布性能全部达标。
-详见 [equal-budget.json](equal-budget.json)。
+详见 `equal-budget.json`（重跑生成）。
 
 ## 节拍补充：32 MiB、每 64 行请求 sleep 2 ms，12 样本
 
@@ -89,7 +92,7 @@ long 无压缩块，其差异包含 ON/OFF 分块粒度影响，不归功于 LZ4
 
 两种模式完整 ingest 约 1 秒；请求 sleep 2 ms 不等于真实调度精度或 UART 速率。
 本组作为额外实验单列，未替代前述尽快追加数据。
-详见 [equal-budget-paced.json](equal-budget-paced.json)。
+详见 `equal-budget-paced.json`（重跑生成）。
 
 ## 校验、冷读与关闭范围
 
@@ -115,8 +118,6 @@ ctest --test-dir build/Release -C Release -R '^novaterm_scrollback_tailfrom_scal
 ```
 
 复现命令应在仓库根运行；runner 需要 Linux `/proc`、Python 3、Git 和 `lspci`。
-本轮 [validation.json](validation.json) 汇总样本/校验/哈希检查；
-[ctest.log](ctest.log)、[tailfrom-scale.log](tailfrom-scale.log) 为专项原始日志；
-[configure.log](configure.log)、[build.log](build.log)、[build-commands.txt](build-commands.txt)
-与 [dependencies.txt](dependencies.txt) 保留构建和动态依赖证据。原始 Windows 成绩继续保留，
+本轮 `validation.json`（重跑生成） 汇总样本/校验/哈希检查。编译、依赖与测试
+控制台日志已按[归档规则](../README.md)清理，验证结论和复现命令保留。原始 Windows 成绩继续保留，
 本报告不将不同编译器/硬件的数值当作生产代码前后优化比较。

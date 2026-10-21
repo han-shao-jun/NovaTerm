@@ -71,11 +71,15 @@ def run_matrix(args, display=None):
     out.mkdir(parents=True, exist_ok=True)
     def git(*command):
         return subprocess.check_output(['git', '-C', str(root), *command], text=True).strip()
-    sources = ['CMakeLists.txt', 'tests/benchmarks/HistoryGuiScrollBenchmark.cpp', 'tests/benchmarks/history/HistoryBenchmarkSupport.h',
+    sources = ['CMakeLists.txt', 'tests/benchmarks/HistoryGuiScrollBenchmark.cpp',
+               'tests/benchmarks/HistoryGuiScrollBenchmarkSupport.h', 'tests/benchmarks/history/HistoryBenchmarkSupport.h',
                'tests/benchmarks/history/run-gui-matrix.py', 'tests/CMakeLists.txt',
                'src/renderer/TerminalRenderer.cpp', 'src/renderer/TerminalRenderer.h',
                'src/renderer/RenderScheduler.cpp', 'src/renderer/RenderScheduler.h',
                'src/core/scrollback/LineLayout.cpp', 'src/core/scrollback/ScrollbackSnapshot.cpp',
+               'src/core/scrollback/ChunkedScrollback.cpp', 'src/core/scrollback/ChunkedScrollback.h',
+               'src/core/terminal/ScreenBuffer.h', 'src/core/terminal/ScrollbackBuffer.h',
+               'src/core/terminal/TerminalCore.h',
                'src/core/terminal/TerminalCore.cpp', 'src/history/HistoryReadContext.cpp',
                'src/history/HistoryCompressionService.cpp', 'src/history/HistoryCompressionService.h']
     if display:

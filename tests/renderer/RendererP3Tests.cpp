@@ -3,6 +3,7 @@
 #include "renderer/TerminalRenderer.h"
 #include "core/terminal/TerminalCore.h"
 #include "service/TerminalSchemeStore.h"
+#include "../benchmarks/HistoryGuiScrollBenchmarkSupport.h"
 
 #include <QCoreApplication>
 #include <QElapsedTimer>
@@ -17,6 +18,7 @@
 #include <QKeyEvent>
 #include <QTest>
 #include <QtMath>
+#include <algorithm>
 
 namespace {
 QTimer* cursorBlinkTimer(TerminalRenderer& renderer);
@@ -94,7 +96,27 @@ private slots:
     void minimizedOutputDoesNotRestartBlink();
     void minimizedOutputDoesNotRestartBlink_data();
     void historyViewDoesNotScheduleCursorFrames();
+    void benchmarkJumpTargetsAlwaysChangeViewport();
 };
+
+void RendererP3Tests::benchmarkJumpTargetsAlwaysChangeViewport()
+{
+    // A 42-row viewport after 12960 input rows gives maximum=12919.
+    // The former modulus equals the fixed stride, making every target 1173.
+    for (int maximum : {12919, 20838, 49959}) {
+        int previous = 1173;
+        const auto targets = HistoryGuiBenchmark::jumpTargets(maximum, 128, previous);
+        QCOMPARE(targets.size(), std::size_t(128));
+        for (int target : targets) {
+            QVERIFY(target >= 1000 && target < maximum - 4000);
+            QVERIFY2(target != previous, "scrollbar target must change the viewport");
+            previous = target;
+        }
+        auto unique = targets;
+        std::sort(unique.begin(), unique.end());
+        QVERIFY(std::unique(unique.begin(), unique.end()) == unique.end());
+    }
+}
 
 void RendererP3Tests::minimizedOutputDoesNotRestartBlink()
 {

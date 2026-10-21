@@ -467,7 +467,7 @@ D:/qt/NovaTerm/build/history-package-check` 成功，实际包含
 
 相同 32 MiB live budget：尽快追加 25,000 行时，普通日志 OFF 保留 7,592 行，ON 7,711 行；后台来不及压缩前发生的预算淘汰无法逆转，不能以最终更低的占用假装这轮已保住所有内容。另测每 64 行请求 sleep 2 ms 的节拍输入，Windows 实际每轮约 6.05 s，OFF 仍保留 7,592 行，ON 完整保留 25,000 行（3.29×），ON 总 charge 为重复日志 12.44 MiB、变量日志 12.65 MiB。该实验的实际速率由 wall time 给出，不把请求的 2 ms 当作实际调度精度或真实串口成绩。
 
-结果路径：`off-baseline.json` 为早期原始基线；`off-on-synthetic.json` 为早期未对全部语义字段哈希的探索轮；`off-on-under-build-load.json` 保留编译负载期间结果；`off-on-final.json` 与 `equal-budget-final.json` 是无编译负载的最终尽快追加样本；`equal-budget-paced.json` 为额外节拍样本；`performance-summary.json` 含中位数/范围。每份记录带种子、内容哈希、参数、保留量、RSS 和分位数。`noqt-build-report.json`/`noqt-dependencies.txt`/`dependency-audit.json` 分别记录独立构建、DLL 和公共头依赖证据；`windows-ctest-summary.json` 给出全部 35 项状态与时间。
+结果路径：`off-baseline.json` 为早期原始基线；`off-on-synthetic.json` 为早期未对全部语义字段哈希的探索轮；`off-on-under-build-load.json` 保留编译负载期间结果；`off-on-final.json` 与 `equal-budget-final.json` 是无编译负载的最终尽快追加样本；`equal-budget-paced.json` 为额外节拍样本；`performance-summary.json` 含中位数/范围。每份记录带种子、内容哈希、参数、保留量、RSS 和分位数。`noqt-build-report.json`/`dependency-audit.json` 保留独立构建与公共头依赖检查结果；DLL 依赖控制台输出已按归档规则清理；`windows-ctest-summary.json` 给出全部 35 项状态与时间。
 
 复测：先按 README 构建 `tests/history-noqt`；PowerShell 执行 `tests/benchmarks/history/run-matrix.ps1 -Executable build/history-isolated-final/checks/novaterm_history_benchmark.exe`，等预算加 `-Rows 25000 -Budget 33554432`，节拍实验再加 `-PaceMilliseconds 2`。报告必须同时保留尽快追加与节拍数据，不能用后者掩盖突发性能缺口。
 
@@ -603,3 +603,27 @@ Release 相关 5/5、Debug 相关 4/4、两配置 GPU self-test 和显示保护 
 [三轮调参报告](benchmarks/history-gui-tuning-linux-2026-10-21/README.md)。
 Linux 可见 GUI 指标通过本轮范围，不替代其他平台、真实 UART、显示器呈现或
 多会话长稳；此前后端追加/扫描缺口不关闭，步骤 7 与默认 enabled=false 均不变。
+
+### GUI 审查修复（2026-10-21，0.2.78）
+
+修复 da29c2c 的三项审查问题：预取直接二分定位现有封存块，不再复制完整索引或
+封存活动尾块；完成锚点绑定快照实际首行，同映射淘汰回退须完整重建；合法参数
+导致重复目标的基准使用互质步长及初始目标避让，常规负载与冷区范围保持不变。
+Parser 单写、不可变快照、缓存/队列/工作区预算、512 KiB/2 MiB 与 enabled=false
+不变。新增存储、Core、Renderer 回归及 GPU 的完整帧/稀疏帧淘汰检查，保留原
+Pending 与“增量帧先执行”检查。Release 全套 37/37，Debug 相关 5/5，独立无 Qt
+1/1，两配置 GPU 自测通过；12960 行/16 次请求的真实 GUI 专项通过。
+完整复测 24/24，12288 请求及 96 次像素抽检通过。默认冷区各轮最大
+P95/P99=36.03/51.27 ms，热区 CPU/OFF=1.038/1.018，初始 charge 保持
+13.16/13.14 MiB；mixed 连续最新请求 P99 中位数 35.38→39.68 ms，不称全面下降。
+复测命令、三轮中位数/范围、CPU/内存与剩余缺口见
+[审查修复报告](benchmarks/history-gui-review-fixes-linux-2026-10-21/README.md)。
+本轮不改变步骤 7 及跨平台/长稳等未验收状态。
+
+### 基准产物归档清理（2026-10-21）
+
+按用户要求，`docs/architecture/benchmarks/` 中可重跑生成的 JSON、日志、重复表格
+及临时运行标记已移除。本文和各报告中的指标、测试结论、失败与未验收范围保留；
+文件名与结果路径用于标识重跑产物，不表示原始文件仍在仓库中。复测应输出到
+`build/` 下的新目录；归档分析脚本需先准备其相应输入。清理不是重新验收，既有
+测试成绩和剩余缺口不变。归档范围见 [归档说明](benchmarks/README.md)。

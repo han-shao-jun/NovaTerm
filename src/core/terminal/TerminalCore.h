@@ -193,6 +193,9 @@ public:
      */
     [[nodiscard]] bool clearAll();
     NovaTerm::ScrollbackSnapshot scrollbackSnapshot() const;
+    /** @brief Bounded CacheOnly preflight; no snapshot publication or active-tail sealing. */
+    void prepareHistoryRange(NovaTerm::LineId first, NovaTerm::LineId last,
+                             NovaTerm::isize maxChunks) const;
 
     /**
      * @brief 取滚动历史尾部增量视图（不封存分块、不复制 ChunkView）。

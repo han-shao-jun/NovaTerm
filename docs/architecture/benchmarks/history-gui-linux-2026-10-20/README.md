@@ -1,5 +1,8 @@
 # Linux 终端 GUI 历史滚动响应测试（2026-10-20）
 
+> 归档清理：可重跑生成的 JSON、日志及重复表格已移除；本文保留历史结论。
+> 文中输出文件名用于标识重跑产物，已不在仓库中；重跑生成的是新样本。
+
 **默认压缩的热区响应接近 OFF，但冷历史翻页/跳转 P95 未达到 50 ms 目标。**
 减小块或扩大热区都没有在两类语料中给出一致优势；本轮不修改生产参数或默认关闭策略。
 测量的是滚动事件投递到目标内容完整绘制后的 **frameSubmitted**，不是显示器呈现时间。
@@ -10,7 +13,7 @@
 完成统计；尚未创建本轮提交。完整源码/可执行文件 SHA256 和 dirty 标记保存在原始报告。
 采样后仅将新 Qt 目标的 `add_executable` 改为 `qt_add_executable`；重新生成后该目标
 全部构建命令与可执行文件 SHA256 均未改变。原采样 CMake 快照与核对结果分别保存在
-`sampled-tests-CMakeLists.txt`、`sampled-build-commands.txt` 和 `validation.json`，
+`sampled-tests-CMakeLists.txt` 和 `validation.json`，
 原始 matrix 的采样来源哈希保持原值。
 Ubuntu / Linux 6.8.0-147-generic x86_64，Intel Core i7-14700K、约 31.03 GiB RAM，
 NVIDIA GeForce RTX 4070 Ti，Qt 6.8.3 / GCC 13.3.0 / Release / X11 / OpenGL。
@@ -30,7 +33,7 @@ Ela 滚动条动画、多标签或真实 Transport。每个进程先经 Parser �
 
 ## 响应延迟：OFF 与默认压缩
 
-单位 ms，P95 / P99 均为三个进程各自分位数的中位数。原始 JSON 还保留每轮及 min/max；
+单位 ms，P95 / P99 均为三个进程各自分位数的中位数。采样时的 JSON 包含每轮及 min/max（已清理）；
 不是合并三轮分位数。完成标记要求该视口映射先经过全量重建，且历史与字形均已就绪。
 
 | 语料 | 场景 | OFF P95 / P99 | 默认压缩 P95 / P99 | 默认组各轮 P99 最大值 |
@@ -130,7 +133,7 @@ RSS/peak RSS 保留每个进程原值；Linux statm/ru_maxrss 的口径尚未校
 - Release 全部默认目标构建通过；Debug GUI 基准与两个相关 Renderer 目标构建通过。
 - Release Renderer 2/2（5.53 秒），Debug Renderer 2/2（5.56 秒）。
 - Debug / Release 真实 GPU `--self-test` 均通过，未增加默认 CTest 注册项，当前仍 37 项。
-- 未重复无关全套；记录与限制见 [validation.json](validation.json) 和 [review.md](review.md)。
+- 未重复无关全套；记录与限制见 `validation.json`（重跑生成） 和 [review.md](review.md)。
 
 ```sh
 cmake --build build/Release --target novaterm_history_gui_benchmark -j4
@@ -140,8 +143,8 @@ NOVATERM_RHI_API=opengl python3 tests/benchmarks/history/run-gui-matrix.py \
   --output build/history-gui-performance
 ```
 
-先完成构建、再串行采样，不能边编译边测。原始 [matrix.json](matrix.json) 包含全部 24 进程、
+先完成构建、再串行采样，不能边编译边测。原始 `matrix.json`（重跑生成） 包含全部 24 进程、
 逐事件与跨进程汇总、来源哈希、环境及参数。使用说明见
 [基准 README](../../../../tests/benchmarks/history/README.md#可见-gui-历史滚动基准)。
-`*-self-test.log`、`interleaving-{red,green}.log` 保存真实 GPU 回归证据；
-`renderer-ctest.log` / `debug-renderer-ctest.log` 与构建日志保存本次验证范围。
+真实 GPU 回归及 Renderer 验证结论保留在本报告；编译、测试和 lint 控制台日志
+已按[归档规则](../README.md)清理，可再生 JSON 也已清理，源码快照、历史汇总与复现命令保留。

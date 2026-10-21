@@ -35,6 +35,7 @@ private slots:
     void unlimitedHistoryStillEnforcesByteBudget();
     void unlimitedHistoryCanReplaceExplicitLineLimit();
     void coldViewportRequestsAllCandidateBlocksWithoutPartialRows();
+    void coldRangePreparationBoundsRequestsAndPreservesActiveTail();
 };
 
 namespace {
@@ -52,6 +53,63 @@ NovaTerm::LogicalLine textLine(const QString& text)
 }
 
 } // namespace
+
+void ScrollbackTests::coldRangePreparationBoundsRequestsAndPreservesActiveTail()
+{
+    auto runtime = std::make_shared<NovaTerm::HistoryCompressionService>();
+    NovaTerm::ChunkedScrollback store(-1, 16 * 1024 * 1024, 16);
+    store.setHistoryRuntime(runtime);
+    NovaTerm::HistoryCompressionPolicy policy;
+    policy.enabled = true;
+    policy.hotBytes = 0;
+    store.setCompressionPolicy(policy);
+    for (int row = 0; row < 64; ++row)
+        store.append(textLine(QString(80, QChar('a' + row % 26))));
+    store.publish();
+    QTRY_VERIFY(([&] {
+        store.processHistory();
+        return store.statistics().compressedBlocks == 3
+            && runtime->statistics().outstandingTasks == 0;
+    })());
+    const auto snapshot = store.snapshot();
+    auto reader = snapshot.chunks().front().chunk->reader;
+    QVERIFY(reader);
+    std::vector<std::shared_ptr<const NovaTerm::EncodedHistoryBlock>> requests;
+    reader->setColdRequest([&requests](auto block) {
+        requests.push_back(std::move(block));
+        return true;
+    });
+    store.append(textLine(QStringLiteral("active")));
+    const auto before = store.statistics();
+    QVERIFY(before.activeLines > 0);
+    // [15,32] crosses three blocks, but preflight may inspect only one/two.
+    store.prepareColdRange(snapshot.lineInfoAt(15).id, snapshot.lineInfoAt(32).id, 1);
+    QCOMPARE(requests.size(), std::size_t(1));
+    QCOMPARE(requests.front(), snapshot.chunks()[0].chunk->encoded);
+    store.prepareColdRange(snapshot.lineInfoAt(15).id, snapshot.lineInfoAt(32).id, 2);
+    QCOMPARE(requests.size(), std::size_t(2));
+    QCOMPARE(requests.back(), snapshot.chunks()[1].chunk->encoded);
+    store.prepareColdRange(snapshot.lineInfoAt(32).id, snapshot.lineInfoAt(47).id, 2);
+    QCOMPARE(requests.size(), std::size_t(3));
+    QCOMPARE(requests.back(), snapshot.chunks()[2].chunk->encoded);
+    // Repeated pending requests and raw/active ranges do not enqueue more work.
+    store.prepareColdRange(snapshot.firstLineId(), store.lineInfoAt(64).id, 10);
+    store.prepareColdRange(0, snapshot.lastLineId(), 10);
+    store.prepareColdRange(snapshot.lastLineId(), snapshot.firstLineId(), 10);
+    store.prepareColdRange(snapshot.firstLineId(), snapshot.lastLineId(), 0);
+    QCOMPARE(requests.size(), std::size_t(3));
+    QCOMPARE(store.statistics().activeLines, before.activeLines);
+    QCOMPARE(store.statistics().sealedChunks, before.sealedChunks);
+    reader->setColdRequest({});
+
+    NovaTerm::ChunkedScrollback raw(-1, 1024 * 1024, 2);
+    for (int row = 0; row < 5; ++row)
+        raw.append(textLine(QStringLiteral("raw")));
+    const auto rawBefore = raw.statistics();
+    raw.prepareColdRange(raw.lineInfoAt(0).id, raw.lineInfoAt(4).id, 5);
+    QCOMPARE(raw.statistics().activeLines, rawBefore.activeLines);
+    QCOMPARE(raw.statistics().sealedChunks, rawBefore.sealedChunks);
+}
 
 void ScrollbackTests::coldViewportRequestsAllCandidateBlocksWithoutPartialRows()
 {

@@ -2,6 +2,7 @@
 #include "core/terminal/TerminalCore.h"
 #include "renderer/TerminalRenderer.h"
 #include "history/HistoryBenchmarkSupport.h"
+#include "HistoryGuiScrollBenchmarkSupport.h"
 
 #include <QApplication>
 #include <QElapsedTimer>
@@ -97,6 +98,12 @@ void selfTest()
     await([&] { return renderer.historyDisplayRowCount() == core.scrollbackLineCount(); });
     await([&] { return renderer.renderStatistics().glyphRasterQueueDepth == 0 && renderer.renderProgress().framesRendered > 0; });
     events(80); // settle prefill handoffs before observing this scroll's preparation
+    const auto history = core.scrollbackSnapshot();
+    auto reader = history.chunks().front().chunk->reader;
+    require(bool(reader), "history reader missing");
+    require(core.writeInput("active-tail\r\n").fullyAccepted() && core.waitForIdle(), "active tail setup failed");
+    await([&] { return renderer.historyDisplayRowCount() == core.scrollbackLineCount(); });
+    events(80);
     const auto before = renderer.renderStatistics();
     auto pendingCount = before.historyPendingFrames;
     bool pendingPreserved = true, sawPending = false;
@@ -110,9 +117,6 @@ void selfTest()
     });
     // Hold cold delivery so early viewport preparation cannot make the Pending
     // preservation check disappear on a fast worker/GPU.
-    const auto history = core.scrollbackSnapshot();
-    auto reader = history.chunks().front().chunk->reader;
-    require(bool(reader), "history reader missing");
     std::vector<std::shared_ptr<const NovaTerm::EncodedHistoryBlock>> held;
     auto* preparationScheduler = renderer.findChild<NovaTerm::RenderScheduler*>();
     int handoffs = 0;
@@ -124,7 +128,14 @@ void selfTest()
     });
     const auto preparationCheck = QObject::connect(preparationScheduler, &NovaTerm::RenderScheduler::frameRequested,
         &renderer, [&] { ++handoffs; });
+    const auto activeBefore = core.scrollbackStatistics();
+    require(activeBefore.activeLines > 0, "active tail missing");
     renderer.scrollToLine(2000);
+    // Run only queued preparation, before the normal GPU frame can publish a
+    // render snapshot. Preflight must leave the parser's active tail intact.
+    QCoreApplication::sendPostedEvents(&renderer, QEvent::MetaCall);
+    require(core.scrollbackStatistics().activeLines == activeBefore.activeLines,
+            "cold preparation must not seal active history");
     await([&] { return !held.empty(); });
     require(handoffsAtFirstRequest == 0, "scroll must prepare cold data before the first GPU frame handoff");
     QObject::disconnect(preparationCheck);
@@ -139,7 +150,8 @@ void selfTest()
         const auto progress = renderer.renderProgress();
         return progress.framesRendered > before.framesRendered
             && progress.rowsRebuilt >= before.rowsRebuilt + quint64(core.rows())
-            && renderer.renderStatistics().glyphRasterQueueDepth == 0;
+            && renderer.renderStatistics().glyphRasterQueueDepth == 0
+            && renderer.renderStatistics().completedScrollOffset == 2000;
     });
     const auto completed = renderer.renderStatistics();
     require(completed.completedScrollOffset == 2000, "completed viewport must identify the actual history target");
@@ -162,6 +174,25 @@ void selfTest()
     require(renderer.renderStatistics().completedViewportRevision == beforeInterleaving.completedViewportRevision,
             "sparse frame must not complete a new viewport mapping");
     await([&] { return renderer.renderStatistics().completedScrollOffset == 1999; });
+    // Evict the displayed anchor before its layout update is delivered. Check
+    // both an explicit full draw and a sparse draw promoted by changed content.
+    for (bool full : {true, false}) {
+        scheduler->cancel();
+        const auto beforeEvictionDraw = renderer.renderStatistics();
+        core.setScrollbackLimit(core.rows() * (full ? 3 : 2));
+        require(core.waitForIdle(), "eviction setup failed");
+        const auto retained = core.scrollbackSnapshot();
+        require(retained.firstLineId() > beforeEvictionDraw.completedHistoryAnchor, "anchor was not evicted");
+        // Isolate anchor provenance from the separately tested Pending path.
+        for (int row = 0; row < core.rows(); ++row)
+            require(bool(retained.lineAt(row, NovaTerm::HistoryReadMode::Synchronous)), "fallback preload failed");
+        scheduler->frameRequested({{0, 1, 0, 1}}, full, false, core.modelRevision());
+        require(!renderer.grabFramebuffer().isNull(), "eviction readback failed");
+        require(renderer.renderStatistics().rowsRebuilt >= beforeEvictionDraw.rowsRebuilt + quint64(core.rows()),
+                "fallback must rebuild the entire viewport before completion");
+        require(renderer.renderStatistics().completedHistoryAnchor == retained.firstLineId(),
+                "completed anchor must identify the drawn fallback after eviction");
+    }
     renderer.close();
 }
 
@@ -400,8 +431,7 @@ QJsonObject measure(QApplication& app)
             const auto tick = nowNs(); heartbeatLag.push_back((std::max)(0., double(tick - heartbeatAt) / 1e6 - 5.)); heartbeatAt = tick;
         });
         heartbeat.start();
-        std::vector<int> targets;
-        for (int i = 0; i < count; ++i) targets.push_back(1000 + ((i * 7919 + 173) % (maximum - 5000)));
+        const auto targets = HistoryGuiBenchmark::jumpTargets(maximum, count, renderer.scrollOffset());
         int inputRejected = 0;
         quint64 inputBytes = 0;
         {

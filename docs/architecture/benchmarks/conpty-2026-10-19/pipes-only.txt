@@ -1,2 +1,0 @@
-mode=pipes-only order=console-first iterations=200 settleMs=0
-baseline=61 final=61 settled=61 delta=0 perCycle=0.000

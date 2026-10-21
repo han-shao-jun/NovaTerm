@@ -69,6 +69,9 @@ public:
     NovaTerm::HistoryLineIndex lineInfoAt(NovaTerm::isize row) const { return _storage.lineInfoAt(row); }
     int maxLines() const { return _maxLines; }
     NovaTerm::ScrollbackSnapshot snapshot();
+    void prepareColdRange(NovaTerm::LineId first, NovaTerm::LineId last,
+                          NovaTerm::isize maxChunks) const
+    { _storage.prepareColdRange(first, last, maxChunks); }
     // 尾部增量视图（转发到 ChunkedScrollback::tailFrom）。供渲染器增量维护
     // 显示布局，避免每批输出都构造全量快照。
     void tailFrom(NovaTerm::LineId sinceId, NovaTerm::isize maxLines,

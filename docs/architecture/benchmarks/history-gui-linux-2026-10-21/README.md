@@ -1,5 +1,8 @@
 # Linux LZ4 GUI 滚动优化（2026-10-21）
 
+> 归档清理：可重跑生成的 JSON、日志及重复表格已移除；本文保留历史结论。
+> 文中输出文件名用于标识重跑产物，已不在仓库中；重跑生成的是新样本。
+
 本轮在现有未提交基准/统计改动上实施，不重置工作树，不修改历史样本，不创建提交或推送。
 生产改动为提前、合并的 CacheOnly 视口准备，以及首个缺块时的有界跨块请求。
 完成标记仍绑定实际全量视口重建及字形就绪；测量截止 `frameSubmitted`，不包含合成器/显示器呈现。
@@ -33,7 +36,7 @@ RenderScheduler → QRhi 完整重建。原实现首次冷读直到 render 才�
 
 单独启用跨块请求的探索样本，variable 冷跳转 P95/P99 为 51.65/66.64 ms，仍未达到 P95 门槛。
 原时间线该场景 128 次请求中 46 次发生多轮 Pending；仅跨块后为 3 次，最终索引预取版为 0 次；
-最终版 128 次冷跳转均在首次 render 前收到数据就绪。见 [pipeline-analysis.json](pipeline-analysis.json)。
+最终版 128 次冷跳转均在首次 render 前收到数据就绪。见 `pipeline-analysis.json`（重跑生成）。
 这些跟踪进程带有诊断记录开销，用于解释顺序，不混入最终三轮矩阵。
 
 - `scrollToLine` 每事件轮次至多投递一个准备回调，执行时读取最新目标，合并尚未开始的过期准备工作。
@@ -46,7 +49,7 @@ RenderScheduler → QRhi 完整重建。原实现首次冷读直到 render 才�
 本轮只合并尚未启动的 GUI 准备，未实现按视口取消 worker。cache_misses 含重试，不等于实际解码任务数。
 
 审查指出早期原型在每次输入事件调用完整 viewport 折行，会放大超长 Raw 行成本；最终版改用索引定位。
-通知过滤原型曾一次完整负载超时、随后诊断复跑通过，原因未证实，因此已撤回过滤，保留失败日志及原型 patch。
+通知过滤原型曾一次完整负载超时、随后诊断复跑通过，原因未证实，因此已撤回过滤，保留失败结论及原型 patch；原始控制台日志已按归档规则清理。
 不得把该原型的单轮收益当作最终结果。
 
 ## 完整响应矩阵
@@ -167,7 +170,7 @@ RSS/peak RSS 沿用原基准 Linux statm/getrusage 口径，其一致性未校�
 Renderer 的 frame_cpu 是 QElapsedTimer 测得的渲染函数墙钟耗时，包含调度影响；
 整进程 CPU 为 user+kernel 时间，两者不能混为一谈。未绑核 OFF 的绝对耗时本轮也较旧样本下降，
 不把所有绝对 CPU 下降都归因于本次代码。亲和性控制的原始样本、范围及实际集合保存在
-[cpu-pcore-control/matrix.json](cpu-pcore-control/matrix.json)。
+`cpu-pcore-control/matrix.json`（重跑生成）。
 
 ## 验证、来源与复现
 
@@ -178,10 +181,10 @@ Renderer 的 frame_cpu 是 QElapsedTimer 测得的渲染函数墙钟耗时，包
 - 跨块请求回归先 RED（请求 1 块，期望 2 块）后 GREEN，验证无重复 Pending 任务、无部分视口及单行范围。
 - 最终只读复审未发现新的高置信问题；没有运行无关全套，没有新增默认 CTest 注册项。
 - 前后完整矩阵共 24576 次请求、192 次最终像素抽检；CPU 控制另有 6144 次请求、48 次抽检，均显式记账/通过。
-  测试范围、来源哈希复核和已知缺口另见 [validation.json](validation.json) 与 [review.md](review.md)。
-- 基线 [before-desktop/matrix.json](before-desktop/matrix.json)、最终 [after/matrix.json](after/matrix.json)、
-  [comparison.json](comparison.json) 保存所有原始请求、三轮范围及各自来源哈希。
-  初始额外后端来源见 [initial-extra-provenance.json](initial-extra-provenance.json)。
+  测试范围、来源哈希复核和已知缺口另见 `validation.json`（重跑生成） 与 [review.md](review.md)。
+- 基线 `before-desktop/matrix.json`（重跑生成）、最终 `after/matrix.json`（重跑生成）、
+  `comparison.json`（重跑生成） 保存所有原始请求、三轮范围及各自来源哈希。
+  初始额外后端来源见 `initial-extra-provenance.json`（重跑生成）。
 
 ```sh
 cmake --build build/Release --target NovaTerm novaterm_history_gui_benchmark novaterm_renderer_tests novaterm_renderer_p5_tests novaterm_scrollback_tests novaterm_history_no_qt_link_check -j4

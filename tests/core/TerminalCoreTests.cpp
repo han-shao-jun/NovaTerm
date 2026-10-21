@@ -1187,6 +1187,9 @@ void TerminalCoreTests::rendererSnapshotFallsBackWhenAnchorEvicted()
     const NovaTerm::Cell* cell = rendered.cellAt(0, 0);
     QVERIFY(cell);
     QCOMPARE(cell->chars[0], uint32_t('r'));  // "row" 的首字符，而非空白
+    QCOMPARE(rendered.historyAnchor, history.lineInfoAt(history.lineCount() - 2).id);
+    QVERIFY(rendered.historyAnchor != NovaTerm::LineId(1));
+    QCOMPARE(core.rendererSnapshot(dirty, 0, 1, 0).historyAnchor, NovaTerm::LineId(0));
 }
 
 void TerminalCoreTests::liveRendererSnapshotDoesNotPublishHistoryTail()

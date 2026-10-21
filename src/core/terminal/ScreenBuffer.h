@@ -94,6 +94,9 @@ struct RendererSnapshot
     bool historyPending{false};
     NovaTerm::HistoryReadStatus historyStatus{NovaTerm::HistoryReadStatus::Found};
     std::vector<PinnedHistoryLine> historyPins;
+    // Actual first history line in this snapshot, after eviction fallback.
+    // Zero for live/empty history; Pending never publishes completion.
+    LineId historyAnchor{0};
 
     u64 revision{0};
     int columns{0};

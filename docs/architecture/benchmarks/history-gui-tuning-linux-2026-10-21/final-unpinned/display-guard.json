@@ -1,9 +1,0 @@
-{
-  "mode": "X11 monitor-on + unlocked session; temporary D-Bus inhibition",
-  "persistent_settings_changed": false,
-  "released": true,
-  "checks": 360,
-  "release_errors": [],
-  "aborted": false,
-  "error": null
-}

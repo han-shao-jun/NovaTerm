@@ -1,12 +1,15 @@
 ## Qt Code Review Report
 
+> 归档清理：可重跑生成的 JSON、日志及重复表格已移除；本文保留历史结论。
+> 文中输出文件名用于标识重跑产物，已不在仓库中；重跑生成的是新样本。
+
 **Scope**: 本轮 GUI 基准、tests/CMakeLists.txt 新目标及 TerminalRenderer 新增统计的 diff；不扩展到既有渲染代码重构。
 **Files reviewed**: 4
 **Issues found**: 2（0 个 lint 确认行为缺陷，2 个深审计量缺陷；均已修复）
 
 ### Lint findings
 
-原始确定性输出见 [review-lint.txt](review-lint.txt)，同时包含 Renderer 既有未改行的提示。
+原始 lint 控制台输出已按归档规则清理；审查结论保留如下。
 新增基准的三条机械提示逐项核对如下，未以批量风格重写代替行为验证。
 
 - L-001 / DEP-10：`nowNs()` 使用 `std::chrono::duration::count()`；这是时长取值 API，不能改成容器 size。
@@ -52,4 +55,4 @@
 
 六个领域各由独立只读分析覆盖，没有启动 GPU 或构建干扰采样。
 实现修复在只读审查之外完成，遵循 effective-cpp 约束：值类型统计、显式线程 RAII 回收、无新生产 owner。
-Debug/Release self-test、Renderer 专项及矩阵均通过；RED/GREEN 日志与验证范围见主报告。
+Debug/Release self-test、Renderer 专项及矩阵均通过；RED/GREEN 检查结论与验证范围见主报告，原始控制台日志已清理。

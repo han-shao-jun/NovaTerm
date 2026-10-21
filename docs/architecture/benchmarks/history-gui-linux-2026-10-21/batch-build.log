@@ -1,6 +1,0 @@
-[0/2] Re-checking globbed directories...
-[1/6] Automatic MOC and UIC for target novaterm_core
-[2/5] Building CXX object CMakeFiles/novaterm_core.dir/src/core/scrollback/LineLayout.cpp.o
-[3/5] Linking CXX static library bin/libnovaterm_core.a
-[4/5] Linking CXX executable bin/novaterm_scrollback_tests
-[5/5] Linking CXX executable bin/novaterm_history_gui_benchmark

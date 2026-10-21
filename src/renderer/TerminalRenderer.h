@@ -634,6 +634,7 @@ private:
     quint64 _viewportMappingRevision{0};
     /// Mapping actually rebuilt as a full viewport, including pending glyph rows.
     quint64 _contentViewportRevision{0};
+    NovaTerm::LineId _contentHistoryAnchor{0}; ///< Anchor of the last full content rebuild.
     NovaTerm::RenderCommandBuffer _commandBuffer;
     // QRhi may consume a frame while queued terminal damage/scroll state is
     // being published. Protect the complete hand-off and never combine a

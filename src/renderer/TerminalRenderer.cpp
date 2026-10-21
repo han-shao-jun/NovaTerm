@@ -609,19 +609,10 @@ void TerminalRenderer::prepareHistoryViewport()
     const qsizetype count = std::min<qsizetype>(
         std::min(_scrollLine, _commandBuffer.rows()), _historyLayout.size() - first);
     if (count <= 0) return;
-    const auto history = _core->scrollbackSnapshot();
-    const auto begin = history.rowForLineId(_historyLayout[first].lineId);
-    const auto end = history.rowForLineId(_historyLayout[first + count - 1].lineId);
-    if (begin < 0 || end < begin) return; // stale/evicted layout: normal draw resolves it
-    const auto& chunks = history.chunks();
-    auto next = std::lower_bound(chunks.cbegin(), chunks.cend(), begin,
-        [](const NovaTerm::ScrollbackSnapshot::ChunkView& view, NovaTerm::isize row) {
-            return view.documentStart + view.lineCount <= row;
-        });
-    for (; next != chunks.cend() && next->documentStart <= end; ++next)
-        (void)history.lineAt(std::max(begin, next->documentStart), NovaTerm::HistoryReadMode::CacheOnly);
-    // Snapshot/pins stay local. Existing queue/cache budgets bound all work;
-    // no additional history owner or speculative rows beyond the viewport.
+    _core->prepareHistoryRange(_historyLayout[first].lineId,
+        _historyLayout[first + count - 1].lineId, count);
+    // O(log(chunks) + visible rows), without copying the full chunk index or
+    // sealing the active tail. Raw blocks need no read; no pin survives preflight.
 }
 
 void TerminalRenderer::scrollLines(int delta)
@@ -1112,6 +1103,18 @@ void TerminalRenderer::render(QRhiCommandBuffer* cb)
                                          _scrollAnchorLine,
                                          _scrollAnchorWrap,
                                          requestedContentRevision);
+        if (!screen.historyPending && !fullFramePending
+            && _contentViewportRevision == _viewportMappingRevision
+            && screen.historyAnchor != _contentHistoryAnchor) {
+            // Eviction may change the effective anchor without a user mapping
+            // revision. Sparse rows cannot complete that fallback viewport.
+            fullFramePending = true;
+            overlayPending = true;
+            std::fill(dirtyRows.begin(), dirtyRows.end(), true);
+            for (auto& spans : dirtySpans) setFullRowSpan(spans, columns);
+            screen = _core->rendererSnapshot(dirtyRows, _scrollLine,
+                _scrollAnchorLine, _scrollAnchorWrap, requestedContentRevision);
+        }
         if (screen.historyPending) {
             ++_renderStatistics.historyPendingFrames;
             contentPending = false; fullFramePending = false; overlayPending = false;
@@ -1299,15 +1302,24 @@ void TerminalRenderer::render(QRhiCommandBuffer* cb)
     }
     cb->endPass();
 
-    if (contentPending && !screen.historyPending && fullFramePending)
+    // Recovery/resize can take another model snapshot after the initial anchor
+    // check. If eviction raced that second read, wait for a full rebuild too.
+    if (contentPending && !screen.historyPending && !fullFramePending
+        && _contentViewportRevision == _viewportMappingRevision
+        && screen.historyAnchor != _contentHistoryAnchor)
+        requestFullFrame();
+    if (contentPending && !screen.historyPending && fullFramePending) {
         _contentViewportRevision = _viewportMappingRevision;
+        _contentHistoryAnchor = screen.historyAnchor;
+    }
     if (contentPending && !screen.historyPending
         && _contentViewportRevision == _viewportMappingRevision
+        && screen.historyAnchor == _contentHistoryAnchor
         && std::none_of(_glyphPendingRows.cbegin(), _glyphPendingRows.cend(),
                         [](bool pending) { return pending; })) {
         _renderStatistics.completedViewportRevision = _viewportMappingRevision;
         _renderStatistics.completedScrollOffset = _scrollLine;
-        _renderStatistics.completedHistoryAnchor = _scrollAnchorLine;
+        _renderStatistics.completedHistoryAnchor = _contentHistoryAnchor;
     }
     if (contentPending)
         _renderStatistics.lastRenderedRevision = screen.revision;

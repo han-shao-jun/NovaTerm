@@ -1,5 +1,8 @@
 # 实施审查记录
 
+> 归档清理：可重跑生成的 JSON、日志及重复表格已移除；本文保留历史结论。
+> 文中输出文件名用于标识重跑产物，已不在仓库中；重跑生成的是新样本。
+
 实现遵循 effective-cpp 的先测量、RAII、显式所有权及受保护并发状态约束。
 
 只读代码复审覆盖 LineLayout 前瞻、Renderer 排队准备、不可变快照/句柄、
@@ -14,7 +17,7 @@ GUI 生命周期及真实 GPU 自测。审查未运行编译或采样，避免�
 均沿用原配置，已开始的后台单块任务未增加抢占取消机制。
 
 通知过滤原型曾一次完整负载超时，后续诊断复跑通过，未确定根因；最终撤回
-过滤并恢复原 historyDataReady 接线。失败日志与 rejected-gating-and-wrapping.patch
+过滤并恢复原 historyDataReady 接线。失败结论与 rejected-gating-and-wrapping.patch
 只用于追溯，不能计为最终版本的性能或稳定性成绩。
 
 GPU 自测保留 Pending 不更新旧完成标记和增量帧先执行的交错。为稳定触发

@@ -1520,6 +1520,8 @@ NovaTerm::RendererSnapshot TerminalCore::rendererSnapshot(
         }
     }
     snapshot.historyPins = historyViewport.pins;
+    if (!historyViewport.rows.empty())
+        snapshot.historyAnchor = historyViewport.rows.front().lineId;
     // widgetRow 是渲染器视角下的行号；screenRow 是它在活动屏幕中的位置。
     // screenRow < 0 表示该行落在 scrollback 中，需要从 historyViewport 取。
     for (int widgetRow = 0; widgetRow < snapshot.rows; ++widgetRow) {
@@ -1696,6 +1698,13 @@ NovaTerm::ScrollbackSnapshot TerminalCore::scrollbackSnapshot() const
 {
     std::lock_guard<std::mutex> locker(_runtime->modelMutex);
     return _runtime->scrollback.snapshot();
+}
+
+void TerminalCore::prepareHistoryRange(NovaTerm::LineId first, NovaTerm::LineId last,
+                                       isize maxChunks) const
+{
+    std::lock_guard<std::mutex> locker(_runtime->modelMutex);
+    _runtime->scrollback.prepareColdRange(first, last, maxChunks);
 }
 
 NovaTerm::ScrollbackTail TerminalCore::scrollbackTail(

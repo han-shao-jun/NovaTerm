@@ -91,6 +91,12 @@ public:
     // 已发出的快照保持对应版本数据不变。
     ScrollbackSnapshot snapshot();
 
+    /** @brief Best-effort CacheOnly preparation of at most maxChunks in an ID range.
+     * Does not publish active data, copy the chunk index, or retain pins.
+     * The caller holds the model lock; only sealed encoded blocks are read.
+     */
+    void prepareColdRange(LineId first, LineId last, isize maxChunks) const;
+
     /**
      * @brief 取尾部增量视图（不封存 active、不复制 ChunkView）。
      * @param sinceId  调用方上次已消费到的逻辑行 ID（其显示行需要重折）。

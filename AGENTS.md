@@ -2004,3 +2004,17 @@ mixed 新默认/reference 的 CPU 比值仍为 1.158；不把所有调度波动�
 中断的 22 个样本独立保留、不混入正式选型。显示保护 6/6，Release 相关 5/5、
 Debug 相关 4/4 及两配置实际 GPU 自测通过；未跑无关全套或跨平台/长稳。
 完整范围与复现见 [调参报告](docs/architecture/benchmarks/history-gui-tuning-linux-2026-10-21/README.md)。
+
+### GUI 历史滚动审查修复（2026-10-21，0.2.78）
+
+`prepareHistoryViewport` 改经 Core 模型锁内的 `prepareColdRange` 二分定位封存块，
+最多检查可见行数个块，只读 encoded；不再复制完整历史索引或封存活动尾块。
+实际完成锚点由 `RendererSnapshot.historyAnchor` 提供，完整重建后再发布；同一
+映射的淘汰回退也须完整重建，保留 Pending 与增量帧先执行交错检查。
+基准目标 helper 保证互质步长及首个目标不同，修复 12960 行合法参数超时。
+默认 512 KiB/2 MiB、enabled=false 与全部预算保持不变。因为修改公共快照结构，
+Release 全套 37/37，Debug 相关 5/5、独立无 Qt 1/1、两配置真实 GPU 自测通过。
+完整 GUI 矩阵 24/24、12288 请求记账及 96 像素抽检通过；默认冷区各轮最大
+P95/P99=36.03/51.27 ms，热区 CPU/OFF=1.038/1.018，charge 节省约 93%。
+mixed 连续最新请求 P99 中位数 35.38→39.68 ms 的反向波动仍单列。完整范围见
+[审查修复报告](docs/architecture/benchmarks/history-gui-review-fixes-linux-2026-10-21/README.md)。

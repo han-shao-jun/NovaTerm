@@ -1,5 +1,0 @@
-TerminalRenderer: GPU glyph renderer initialized with OpenGL
-hot_wheel: 128/128 responses, 0 coalesced
-cold_pages: 128/128 responses, 0 coalesced
-cold_scrollbar_jumps: 128/128 responses, 0 coalesced
-live_input_wheel: 78/128 responses, 50 coalesced
