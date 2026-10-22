@@ -1519,13 +1519,27 @@ NovaTerm::RendererSnapshot TerminalCore::rendererSnapshot(
             }
         }
     }
-    snapshot.historyPins = historyViewport.pins;
+    snapshot.historyPins = std::move(historyViewport.pins);
     if (!historyViewport.rows.empty())
         snapshot.historyAnchor = historyViewport.rows.front().lineId;
     // widgetRow 是渲染器视角下的行号；screenRow 是它在活动屏幕中的位置。
     // screenRow < 0 表示该行落在 scrollback 中，需要从 historyViewport 取。
+    auto historyPin = snapshot.historyPins.cbegin();
     for (int widgetRow = 0; widgetRow < snapshot.rows; ++widgetRow) {
         const int screenRow = widgetRow - scrollLine;
+        // viewport() already pinned each logical line. Display rows and pins
+        // have increasing line IDs; wrapped rows reuse the same owned pin.
+        // Re-reading by ID would repeat index/cache lookups for every slice.
+        const NovaTerm::LogicalLine* historyLine = nullptr;
+        if (screenRow < 0 && widgetRow < isize(historyViewport.rows.size())) {
+            const auto id = historyViewport.rows[widgetRow].lineId;
+            while (historyPin != snapshot.historyPins.cend()
+                   && (*historyPin)->id < id)
+                ++historyPin;
+            if (historyPin != snapshot.historyPins.cend()
+                && (*historyPin)->id == id)
+                historyLine = &**historyPin;
+        }
         snapshot.visibleRowRevisions[widgetRow] = screenRow >= 0
             && screenRow < isize(_runtime->rowRevisions.size())
             ? _runtime->rowRevisions[screenRow]
@@ -1551,7 +1565,7 @@ NovaTerm::RendererSnapshot TerminalCore::rendererSnapshot(
                 // 哈希与非脏帧的 0 不一致，会被渲染器误判为内容变化而多余重建。
                 // 直接哈希历史切片（count = 切片长，补白隐含），零分配。
                 const auto& display = historyViewport.rows[widgetRow];
-                const auto logical = history.lineById(display.lineId, NovaTerm::HistoryReadMode::CacheOnly);
+                const auto* logical = historyLine;
                 if (logical) {
                     const isize count = std::min<isize>(
                         snapshot.columns, display.endCell - display.startCell);
@@ -1569,7 +1583,7 @@ NovaTerm::RendererSnapshot TerminalCore::rendererSnapshot(
         if (screenRow < 0) {
             if (widgetRow < isize(historyViewport.rows.size())) {
                 const auto& display = historyViewport.rows[widgetRow];
-                const auto logical = history.lineById(display.lineId, NovaTerm::HistoryReadMode::CacheOnly);
+                const auto* logical = historyLine;
                 if (logical) {
                     const isize count = std::min<isize>(
                         snapshot.columns, display.endCell - display.startCell);

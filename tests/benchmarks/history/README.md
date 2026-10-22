@@ -157,3 +157,9 @@ X11 长时间采样建议加 `--keep-display-on`（本机需要系统 Python 的
 并避开当前初始目标，保持原冷区范围。12960 行、16 次请求的合法参数组合已有专项。
 矩阵来源哈希补入该 helper、ChunkedScrollback 和相关门面/快照头。复现与本轮结果见
 [审查修复报告](../../../docs/architecture/benchmarks/history-gui-review-fixes-linux-2026-10-21/README.md)。
+
+2026-10-22 Windows 热区排查使用优化 PDB 与 WPR CPU/CSwitch/ReadyThread，
+区分 CPU 样本和 Renderer 墙钟分位数；移除视口布局后按显示行重复读取逻辑行的路径。
+修复前后按原负载做三轮交错 OFF/ON，未用录制中的成绩作性能验收；mixed 热区
+相对 OFF 的门槛仍未通过。采样边界、读取计数和所有失败项见
+[Windows 热区报告](../../../docs/architecture/benchmarks/history-gui-hotpath-windows-2026-10-22/README.md)。

@@ -208,7 +208,8 @@ struct RequestEvent final : QEvent {
 };
 class ProbeRenderer final : public TerminalRenderer {
 public:
-    using TerminalRenderer::TerminalRenderer;
+    explicit ProbeRenderer(TerminalCore* core, QWidget* parent = nullptr)
+        : TerminalRenderer(core, parent) {}
     std::function<void(const RequestEvent&)> dispatch;
     std::function<void(const char*)> trace;
 protected:

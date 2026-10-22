@@ -60,6 +60,8 @@ private slots:
     void rendererSnapshotUsesLogicalWrapAnchor();
     void rendererSnapshotFallsBackWhenAnchorEvicted();
     void rendererSnapshotHistoryRowsCarryStableIdentity();
+    void rendererSnapshotReusesViewportPins_data();
+    void rendererSnapshotReusesViewportPins();
     void liveRendererSnapshotDoesNotPublishHistoryTail();
     void fullScreenScrollPreservesContent();
     void batchedScreenEditsMatchIncrementalInput();
@@ -1065,6 +1067,72 @@ void TerminalCoreTests::rendererSnapshotHistoryRowsCarryStableIdentity()
         core.rendererSnapshot(dirty, 1, history.firstLineId(), 2);
     QCOMPARE(repeatFrame.visibleRowBlockIdentities[0],
              dirtyFrame.visibleRowBlockIdentities[0]);
+}
+
+void TerminalCoreTests::rendererSnapshotReusesViewportPins_data()
+{
+    QTest::addColumn<int>("dirtyMask");
+    QTest::newRow("dirty-history") << 0xf;
+    QTest::newRow("clean-history") << 0x0;
+    QTest::newRow("mixed-history") << 0x5;
+}
+
+void TerminalCoreTests::rendererSnapshotReusesViewportPins()
+{
+    QFETCH(int, dirtyMask);
+    auto runtime = std::make_shared<NovaTerm::HistoryCompressionService>();
+    TerminalCore core(16, 4);
+    NovaTerm::HistoryCompressionPolicy policy;
+    policy.enabled = true;
+    policy.hotBytes = 0;
+    QVERIFY(core.configureHistory(runtime, policy));
+    QVERIFY(core.waitForIdle());
+    const QByteArray firstLine = QByteArray(16, 'a') + QByteArray(16, 'b')
+        + QByteArray(8, 'c') + "\r\n";
+    const QByteArray secondLine = QByteArray(16, 'd') + QByteArray(16, 'e')
+        + QByteArray(8, 'f') + "\r\n";
+    QVERIFY(core.writeInput((firstLine + secondLine).repeated(1250)).fullyAccepted());
+    QVERIFY(core.waitForIdle(10000));
+    QTRY_VERIFY_WITH_TIMEOUT(core.scrollbackStatistics().compressedBlocks > 0, 5000);
+    QTRY_COMPARE_WITH_TIMEOUT(runtime->statistics().outstandingTasks, std::size_t(0), 5000);
+    const auto history = core.scrollbackSnapshot();
+    // Preload before measuring reads; the viewport starts inside a wrapped line.
+    QVERIFY(history.lineAt(0, NovaTerm::HistoryReadMode::Synchronous));
+    QVERIFY(history.lineAt(1, NovaTerm::HistoryReadMode::Synchronous));
+    const auto before = runtime->statistics().resources;
+    std::vector<bool> dirtyRows(4, false);
+    for (int row = 0; row < 4; ++row)
+        dirtyRows[std::size_t(row)] = (dirtyMask & (1 << row)) != 0;
+    const auto snapshot = core.rendererSnapshot(dirtyRows,
+                                                8, history.firstLineId(), 1);
+    const auto after = runtime->statistics().resources;
+    QVERIFY(!snapshot.historyPending);
+    QCOMPARE(snapshot.historyPins.size(), std::size_t(2));
+    QCOMPARE(after.cacheMisses, before.cacheMisses);
+    // A logical line can supply multiple display rows without another lookup.
+    QCOMPARE(after.cacheHits - before.cacheHits, NovaTerm::u64(snapshot.historyPins.size()));
+    for (int row = 0; row < 4; ++row) {
+        QVERIFY(snapshot.visibleRowIdentities[std::size_t(row)] != 0);
+        if (dirtyRows[std::size_t(row)]) {
+            const char expected[] = {'b', 'c', 'd', 'e'};
+            for (int column = 0; column < 16; ++column) {
+                const auto* cell = snapshot.cellAt(row, column);
+                QVERIFY(cell);
+                const uint32_t character = row == 1 && column >= 8
+                    ? 0 : uint32_t(expected[row]);
+                QCOMPARE(cell->chars[0], character);
+            }
+        } else {
+            QVERIFY(!snapshot.cellAt(row, 0));
+        }
+    }
+    const auto clean = core.rendererSnapshot(std::vector<bool>(4, false),
+                                             8, history.firstLineId(), 1);
+    QCOMPARE(clean.visibleRowIdentities, snapshot.visibleRowIdentities);
+    // Clearing the store cannot invalidate the pins owned by the snapshot.
+    QVERIFY(core.clearAll());
+    QVERIFY(core.waitForIdle());
+    QCOMPARE(snapshot.historyPins.front()->cells.front().chars[0], uint32_t('a'));
 }
 
 // 按行批量同步必须完整保留宽字符语义：宽字符自身 width=2、右邻格是延续标记，

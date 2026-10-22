@@ -52,6 +52,11 @@ Scheduler 裁剪并合并相邻/重叠 DirtyRegion；区域超过 32 个或覆�
 
 每帧只获取一次稳定 Snapshot。普通 damage 只重建相交行；未变化行保留 CPU 命令和 GPU 数据。当前值语义 Snapshot 后续可替换为共享不可变行/Chunk，但 Renderer API 应继续只读。
 
+历史视口折行时取得的逻辑行 pin 直接移交 `RendererSnapshot.historyPins`。
+Core 按行 ID 顺序复用这些 pin，为每个显示切片复制 Cell 或计算身份指纹，
+避免同一逻辑行在布局后再经 `lineById()` 重读。pin 保持快照所有权，不能借用
+缓存或活动尾块的裸引用；Pending 仍不交付部分视口，完成锚点仍绑定实际全量重建。
+
 ## 5. Glyph 目标架构
 
 ```mermaid

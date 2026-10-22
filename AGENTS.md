@@ -2018,3 +2018,15 @@ Release 全套 37/37，Debug 相关 5/5、独立无 Qt 1/1、两配置真实 GPU
 P95/P99=36.03/51.27 ms，热区 CPU/OFF=1.038/1.018，charge 节省约 93%。
 mixed 连续最新请求 P99 中位数 35.38→39.68 ms 的反向波动仍单列。完整范围见
 [审查修复报告](docs/architecture/benchmarks/history-gui-review-fixes-linux-2026-10-21/README.md)。
+
+### Windows 历史热区 pin 复用（2026-10-22）
+
+`LineLayout::viewport()` 已取得的 pin 移交 `RendererSnapshot.historyPins`，
+Core 按逻辑行 ID 顺序复用，不对每个显示切片重新 `lineById()`；不新增缓存或
+放宽预算，Pending 和完成锚点不变。Core 专项覆盖全脏/全净/混合脏行、不同
+逻辑行/折行切片、补白与 clear 后 pin 生命周期；两逻辑行/四显示行的缓存查询 6→2。
+Windows WPR 八进程零丢事件；未录制的三轮交错 A/B 24/24、12288 请求、96 像素
+检查通过。热区墙钟受调度/等待影响，不能把前轮全部比值归给计算；本轮修复后
+mixed 的 ON/OFF=1.151，仍未过 1.10。Release 相关五项和 GPU 自测通过，未跑
+无关全套/其他平台/真实 UART。结果及消毒器范围见
+[热区报告](docs/architecture/benchmarks/history-gui-hotpath-windows-2026-10-22/README.md)。
