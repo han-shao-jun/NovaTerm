@@ -463,6 +463,7 @@ Built with:
         <source>OK</source>
         <translation>确定</translation>
     </message>
+    <message><source>History recording</source><translation>历史录制</translation></message>
 </context>
 <context>
     <name>McpSettingsDialog</name>
@@ -3877,5 +3878,44 @@ Termination confirmed: %3
     <message><source>History is busy; release other readers and retry</source><translation>历史读取繁忙；请结束其他读取后重试</translation></message>
 
     <message><source>Loading history…</source><translation>正在加载历史…</translation></message>
+</context>
+<context>
+    <name>HistoryCaptureModel</name>
+    <message><source>Capture / started</source><translation>录制 / 开始时间</translation></message>
+    <message><source>Connection</source><translation>连接</translation></message>
+    <message><source>State / integrity</source><translation>状态 / 完整性</translation></message>
+    <message><source>Stored</source><translation>占用容量</translation></message>
+    <message><source>Known missing</source><translation>已知缺失</translation></message>
+    <message><source>Keep</source><translation>保留</translation></message>
+    <message><source>Recording — unsealed</source><translation>录制中（未封口）</translation></message>
+    <message><source>Stopped — complete</source><translation>已停止，完整</translation></message>
+    <message><source>Stopped — known gaps</source><translation>已停止，存在已知缺口</translation></message>
+    <message><source>Recovered — unknown tail</source><translation>已恢复，尾部未知</translation></message>
+    <message><source>Stopped — unknown tail</source><translation>已停止，尾部未知</translation></message>
+    <message><source>Kept</source><translation>长期保留</translation></message>
+    <message><source>Automatic retention</source><translation>自动保留策略</translation></message>
+    <message><source>Working…</source><translation>正在处理…</translation></message>
+    <message><source>Saved</source><translation>已保存</translation></message>
+    <message><source>Recording request queue is full</source><translation>录制请求队列已满</translation></message>
+    <message><source>Invalid limits or request queue is full</source><translation>容量设置无效或请求队列已满</translation></message>
+</context>
+<context>
+    <name>HistoryRecordingPanel</name>
+    <message><source>History recording</source><translation>历史录制</translation></message>
+    <message><source>Recording starts only when you choose Start. Sharing history requires separate permission. Remote output may contain passwords or other secrets; automatic masking is unavailable. File transfers are omitted and marked as gaps.</source><translation>仅点击开始后才会录制，共享历史需要另行授权。远端输出可能包含密码等秘密，目前不提供自动脱敏。文件传输载荷会省略并标记缺口。</translation></message>
+    <message><source>Start for current terminal</source><translation>开始录制当前终端</translation></message>
+    <message><source>Stop selected</source><translation>停止所选录制</translation></message>
+    <message><source>Keep / release selected</source><translation>保留 / 取消保留</translation></message>
+    <message><source>Delete selected</source><translation>删除所选录制</translation></message>
+    <message><source> MiB total</source><translation> MiB 总容量</translation></message>
+    <message><source> MiB / capture</source><translation> MiB / 次录制</translation></message>
+    <message><source> days</source><translation> 天</translation></message>
+    <message><source>Apply retention limits</source><translation>应用保留设置</translation></message>
+    <message><source>Kept captures are excluded from automatic cleanup and still count toward the total limit. If space cannot be reclaimed, recording stops with an unknown tail.</source><translation>长期保留的录制不参与自动清理，仍占用总容量。无法回收空间时会停止录制，并报告尾部未知。</translation></message>
+    <message><source>Delete recording</source><translation>删除录制</translation></message>
+    <message><source>Delete this recording and its derived files?
+%1</source><translation>删除此录制及其派生文件？
+%1</translation></message>
+    <message><source>Current terminal: %1</source><translation>当前终端：%1</translation></message>
 </context>
 </TS>

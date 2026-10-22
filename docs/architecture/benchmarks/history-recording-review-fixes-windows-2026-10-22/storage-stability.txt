@@ -1,0 +1,51 @@
+Test project D:/qt/NovaTerm/build/Release
+    Start 35: novaterm_history_store_tests
+    Test #35: novaterm_history_store_tests .....   Passed    3.51 sec
+    Start 35: novaterm_history_store_tests
+    Test #35: novaterm_history_store_tests .....   Passed    2.96 sec
+    Start 35: novaterm_history_store_tests
+    Test #35: novaterm_history_store_tests .....   Passed    3.55 sec
+    Start 35: novaterm_history_store_tests
+    Test #35: novaterm_history_store_tests .....   Passed    2.89 sec
+    Start 35: novaterm_history_store_tests
+    Test #35: novaterm_history_store_tests .....   Passed    3.01 sec
+    Start 35: novaterm_history_store_tests
+    Test #35: novaterm_history_store_tests .....   Passed    3.09 sec
+    Start 35: novaterm_history_store_tests
+    Test #35: novaterm_history_store_tests .....   Passed    3.13 sec
+    Start 35: novaterm_history_store_tests
+    Test #35: novaterm_history_store_tests .....   Passed    3.12 sec
+    Start 35: novaterm_history_store_tests
+    Test #35: novaterm_history_store_tests .....   Passed    3.08 sec
+    Start 35: novaterm_history_store_tests
+    Test #35: novaterm_history_store_tests .....   Passed    3.45 sec
+    Start 35: novaterm_history_store_tests
+    Test #35: novaterm_history_store_tests .....   Passed    3.25 sec
+    Start 35: novaterm_history_store_tests
+    Test #35: novaterm_history_store_tests .....   Passed    3.51 sec
+    Start 35: novaterm_history_store_tests
+    Test #35: novaterm_history_store_tests .....   Passed    4.92 sec
+    Start 35: novaterm_history_store_tests
+    Test #35: novaterm_history_store_tests .....   Passed    2.91 sec
+    Start 35: novaterm_history_store_tests
+    Test #35: novaterm_history_store_tests .....   Passed    2.93 sec
+    Start 35: novaterm_history_store_tests
+    Test #35: novaterm_history_store_tests .....   Passed    3.38 sec
+    Start 35: novaterm_history_store_tests
+    Test #35: novaterm_history_store_tests .....   Passed    3.15 sec
+    Start 35: novaterm_history_store_tests
+    Test #35: novaterm_history_store_tests .....   Passed    3.32 sec
+    Start 35: novaterm_history_store_tests
+    Test #35: novaterm_history_store_tests .....   Passed    3.56 sec
+    Start 35: novaterm_history_store_tests
+1/1 Test #35: novaterm_history_store_tests .....   Passed    3.62 sec
+
+100% tests passed, 0 tests failed out of 1
+
+Label Time Summary:
+history      =   3.62 sec*proc (1 test)
+p8           =   3.62 sec*proc (1 test)
+recording    =   3.62 sec*proc (1 test)
+unit         =   3.62 sec*proc (1 test)
+
+Total Test time (real) =  66.36 sec

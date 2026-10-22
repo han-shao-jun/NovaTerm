@@ -46,35 +46,38 @@ history/<capture-uuid>/
 设计初值：chunk4MiB、单Session队列16MiB、全局64MiB。原草案要求磁盘总额、单capture额和保留期限都有可配置默认值，但未给出数值；T3必须基于T2磁盘基线冻结默认值并记录依据，在此之前不得将录制能力标记可发布。
 达到上限先清理无活动租约的最旧停止 capture；仍不足则停止当前录制并记录原因/gap，不静默覆盖活动分块。活动读取租约有界，到期可清理并使续读报告缺失。
 
+> 2026-10-22：下列实现/专项复选项已按 Windows 本机证据核对；勾选不表示跨平台、断电或真实性能发布门槛通过。具体结果、默认容量依据及保留闸门见 [实施与验证记录](P2_Implementation_and_Verification.md)。
+
 ## T1：采集挂点和有界接纳
 
 **Consumes:** Session lifecycle、P1 ResourceBinding；**Produces:** 保真 HistoryRecord/GapRecord。
-- [ ] 写 preservesRepeatedAnsiCrLfNullInvalidUtf8、recordsOnceAcrossBackpressure、omitsFileTransferWithBoundary、tailDropProducesGap，断言拼接原始字节完全相等。
-- [ ] 注册测试并验证缺失采集实现导致失败。
-- [ ] 审查实际 InputPump 文件传输分流、Framer、Parser 顺序；仅在分流后/Framer前接只读观察，forwardFramerRemainder/重投不重复入队。
-- [ ] 接纳点分配独立 recordId；超限不等待，写可合并但有界的 gap 元数据；跨重连/boot 边界保留标记。
-- [ ] 启停/Session销毁/重连有显式收口；停止时即使没有后续 payload 也记录尾部缺口。
-- [ ] 跑 store 与 Session/文件传输相关测试，证明普通输入路径未改变。
+- [x] 写 preservesRepeatedAnsiCrLfNullInvalidUtf8、recordsOnceAcrossBackpressure、omitsFileTransferWithBoundary、tailDropProducesGap，断言拼接原始字节完全相等。
+- [x] 注册测试并验证缺失采集实现导致失败。
+- [x] 审查实际 InputPump 文件传输分流、Framer、Parser 顺序；仅在分流后/Framer前接只读观察，forwardFramerRemainder/重投不重复入队。
+- [x] 接纳点分配独立 recordId；超限不等待，写可合并但有界的 gap 元数据；跨重连/boot 边界保留标记。
+- [x] 启停/Session销毁/重连有显式收口；停止时即使没有后续 payload 也记录尾部缺口。
+- [x] 跑 store 与 Session/文件传输相关测试，证明普通输入路径未改变。
 
 ## T2：分块提交、索引和恢复
 
 **Consumes:** 有序 records/gaps；**Produces:** 可验证持久前缀和只读范围。
-- [ ] 写 partialRecordTailNotPublished、indexLagsChunkRecovers、corruptIndexRebuilt、diskFullIsBounded、queuedBytesLostAreReported。
-- [ ] 实现带长度/recordId/hash 的 chunk 记录；完整写入/提交后再发布索引，manifest 持已提交高水位。
-- [ ] 崩溃恢复扫描校验尾部并重建索引，丢弃半条记录，不承诺恢复尚在队列的字节。
-- [ ] SQLite/WAL 与 chunk 不是跨文件原子事务；使用故障注入逐点中断验证。
-- [ ] 本项目当前无 Qt Sql 依赖；若用 Qt SQL，明确 find_package/link Qt6::Sql 并与 SDK 版本一致，或明确独立 sqlite3 依赖，不依靠传递链接。
-- [ ] 后台索引/文件 I/O 不反向持 Session/GUI 指针；取消/退出有界。
+- [x] 写 partialRecordTailNotPublished、indexLagsChunkRecovers、corruptIndexRebuilt、diskFullIsBounded、queuedBytesLostAreReported。
+- [x] 实现带长度/recordId/hash 的 chunk 记录；完整写入/提交后再发布索引，manifest 持已提交高水位。
+- [x] 崩溃恢复扫描校验尾部并重建索引，丢弃半条记录，不承诺恢复尚在队列的字节。
+- [x] SQLite/WAL 与 chunk 不是跨文件原子事务；使用故障注入逐点中断验证。
+- [x] 本项目当前无 Qt Sql 依赖；若用 Qt SQL，明确 find_package/link Qt6::Sql 并与 SDK 版本一致，或明确独立 sqlite3 依赖，不依靠传递链接。
+- [x] 后台索引/文件 I/O 不反向持 Session/GUI 指针；按批次/记录协作取消，worker 释放全部 SQL 后再销毁 QApplication。
+- [ ] 不可中断的系统 I/O 的严格退出时限：当前给 500 ms 排空窗口后取消并 join；系统调用未返回时保留 Qt 运行时等待，不再宣称 detach 可安全提供硬时限。隔离存储进程才能进一步关闭此闸门。
 
 ## T3：保留策略、私有存储与管理 UI
 
 **Consumes:** RecordingIntent、配额、用户删除/保留选择；**Produces:** 状态与离线 capture 清单，不自动授权。
-- [ ] 测 globalQueueDoesNotStarveOtherSession、leaseExpiresBeforeCleanup、symlinkRejected、deleteRemovesWalAndEvidenceDependencies。
-- [ ] 私有目录/分块/临时文件拒绝符号链接重定向；删除涵盖 WAL/SHM 和后续派生证据索引。
-- [ ] 根据磁盘基线冻结全局/单capture容量与保留期限默认值并记录依据，再落实配额/期限/读租约与 stopped/disk_full/gap 状态；清理后的读取不能跳过缺失范围伪装完整。
-- [ ] Ela UI 提供开始/停止、缺口、容量、删除和保留设置；模型仅发本机意图。
-- [ ] 后续可信认证隔离才能暂停敏感输出并记 privacy gap；当前无适配器时明确尚无该保证。
-- [ ] 运行相关 UI/存储测试；不启动可能自动重连真实设备的主程序做自动验收。
+- [x] 测 globalQueueDoesNotStarveOtherSession、leaseExpiresBeforeCleanup、symlinkRejected、deleteRemovesWalAndEvidenceDependencies。
+- [x] 私有目录/分块/临时文件拒绝符号链接重定向；删除涵盖 WAL/SHM 和后续派生证据索引。
+- [x] 根据磁盘基线冻结全局/单capture容量与保留期限默认值并记录依据，再落实配额/期限/读租约与 stopped/disk_full/gap 状态；清理后的读取不能跳过缺失范围伪装完整。
+- [x] Ela UI 提供开始/停止、缺口、容量、删除和保留设置；模型仅发本机意图。
+- [x] 后续可信认证隔离才能暂停敏感输出并记 privacy gap；当前无适配器时明确尚无该保证。
+- [x] 运行相关 UI/存储测试；不启动可能自动重连真实设备的主程序做自动验收。
 
 ## 验证与退出
 
@@ -89,8 +92,8 @@ ctest --test-dir build -C Debug -R novaterm_history_store_tests --output-on-fail
 
 - History内聚录制接纳、提交、恢复、配额与回收；Session仅向有界接纳端口提供字节/边界，History不反查Session或操纵终端。
 - 存储/索引/时钟仅在真实I/O边界可替换，不为了每个内部算法增加虚接口；公开结果不泄露SQLite连接、文件句柄或存储内部容器。
-- [ ] 独立链接录制/存储测试，不需要Session/Widgets/Agent/诊断Provider；用假字节源验证关闭或替换录制不改变普通终端流程。
-- [ ] worker停止、磁盘失败与gap由History owner收口，不让UI或Session同时维护另一份录制状态。
+- [x] 独立链接录制/存储测试，不需要Session/Widgets/Agent/诊断Provider；用假字节源验证关闭或替换录制不改变普通终端流程。
+- [x] worker停止、磁盘失败与gap由History owner收口，不让UI或Session同时维护另一份录制状态。
 
 ## 补充契约：持久提交与异常尾部
 
@@ -104,6 +107,6 @@ Capture在接纳首条数据前持久写入open标记。stop先停止接纳、�
 
 无seal、半条尾部、同步失败、进程崩溃或磁盘满无法记录尾部时，恢复结果为unknown_tail：最后可验证边界明确，lostRecordCount/lostByteCount允许null，完整性为unknown。不得填0或宣称完整。恢复标记可先作为内存状态返回，存储恢复可写后再持久化；不依赖故障发生时一定还能写GapRecord。GapRecord支持known_gap和unknown_tail，后者只提供已知起点与未知终点。
 
-- [ ] T2增加crashBeforeSealReportsUnknownTail、diskFullWithoutGapWriteStillUnsealed、writtenBeyondManifestNotPublished、sealWithGapIsNotLossless。
-- [ ] 分别在数据写入/同步、manifest替换、索引提交、seal持久化处注入失败；正常停止有seal，异常恢复不出现“丢失0字节”的假完整结果。
-- [ ] P3读取/证据、P5时间线、管理UI携带完整性状态；消费者不能通过去掉尾部gap将未知变成完整。
+- [x] T2增加crashBeforeSealReportsUnknownTail、diskFullWithoutGapWriteStillUnsealed、writtenBeyondManifestNotPublished、sealWithGapIsNotLossless。
+- [x] 分别在数据写入/同步、manifest替换、索引提交、seal持久化处注入失败；正常停止有seal，异常恢复不出现“丢失0字节”的假完整结果。
+- [ ] P3读取/证据、P5时间线、管理UI携带完整性状态；消费者不能通过去掉尾部gap将未知变成完整。P2结果/管理UI已携带并测试；P3/P5消费者尚未实现，随对应阶段验收。

@@ -93,6 +93,7 @@ private:
     QAction* _toggleSystemMonitorAction{nullptr};
     QAction* _actSettings{nullptr};
     QAction* _actMcp{nullptr};
+    QAction* _actHistoryRecording{nullptr};
     QPointer<McpSettingsDialog> _mcpDialog;
     QAction* _actAbout{nullptr};
     QAction* _localSessionAction{nullptr};

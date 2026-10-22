@@ -663,6 +663,7 @@ public:
     CursorState cursorState;
     std::string title;
     bool alternateScreen{false};
+    bool lfImpliesCr{false};
     MouseTrackingMode mouseMode{MouseTrackingMode::None};
     // OSC 52 选区回调与解码缓冲：与 Impl 同寿命，libvterm 只存指针。
     VTermSelectionCallbacks selectionCallbacks{};
@@ -738,6 +739,30 @@ void VTAdapter::clearScreen()
     flushDamage();
 }
 
+void VTAdapter::resetForConnection()
+{
+    if (!isValid())
+        return;
+    // RIS/DECSTR 不清空 libvterm 的全部 UTF-8 解码/解析缓存。新连接需要
+    // 新的解析器；继续使用同一个 ScreenBuffer 和 ScrollbackBuffer。
+    VTermColor foreground, background;
+    vterm_state_get_default_colors(_impl->state, &foreground, &background);
+    const bool lfImpliesCr = _impl->lfImpliesCr;
+    auto replacement = std::make_unique<Impl>(_impl->screen.columns(),
+        _impl->screen.rows(), _impl->screen, _impl->scrollback, _impl->observer);
+    _impl = std::move(replacement);
+    vterm_screen_set_default_colors(_impl->vts, &foreground, &background);
+    setLfImpliesCr(lfImpliesCr);
+    vterm_screen_reset(_impl->vts, 1);
+    flushDamage();
+    if (_impl->observer.alternateScreenChanged)
+        _impl->observer.alternateScreenChanged(false);
+    if (_impl->observer.mouseModeChanged)
+        _impl->observer.mouseModeChanged(MouseTrackingMode::None);
+    if (_impl->observer.cursorChanged)
+        _impl->observer.cursorChanged(_impl->cursorState);
+}
+
 void VTAdapter::resize(int columns, int rows)
 {
     if (isValid()) {
@@ -758,8 +783,10 @@ void VTAdapter::resize(int columns, int rows)
 
 void VTAdapter::setLfImpliesCr(bool enabled)
 {
-    if (isValid())
+    if (isValid()) {
+        _impl->lfImpliesCr = enabled;
         vterm_state_set_lf_implies_cr(_impl->state, enabled);
+    }
 }
 
 void VTAdapter::setDefaultColors(const TerminalColor& foreground,

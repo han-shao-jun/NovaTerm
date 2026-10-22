@@ -1439,3 +1439,15 @@ GUI 准备采用最新目标，已提交 worker 的过期单块任务仍可执�
 独立入口实际编译/链接/运行上述完整生产后端，没有 Qt 搜索路径或 Qt 事件循环。
 Qt 门面仍依赖 Qt，不能据此宣称整个 core 去 Qt。性能发布门槛未完成，具体 RED/
 GREEN、Release JSON、未测指标和长稳/跨平台缺口见 LZ4 实施计划增量记录。
+
+### 2026-10-22：mcp/P2 接收流录制
+
+`novaterm_history_recording` 为独立 Qt Core/Sql 目标，与上述纯 C++ scrollback 库分离。
+唯一 InputPump 在文件传输分流后、Framer 前发只读原始字节信号；重投/remainder 不触发录制。
+TerminalSession 只报告连接/环境边界，不依赖 History 类型；Application 组合根接入 HistoryService。
+录制 owner 管理有界队列、后台 chunk/manifest/SQLite、异常尾部、容量、租约和清理；worker 不持 Session/UI 指针。
+UI 只发本机意图，默认关闭，不自动共享或增加 MCP 历史工具。
+
+manifest 与逐记录校验共同限定已提交前缀；正常 seal 与已知 gap 分开，异常/未封口保持 unknown_tail，
+不把未知丢失数量填零。Windows 已跑专项及影响范围回归，跨平台、断电与真实终端性能门槛未关闭。
+具体契约、默认容量依据和结果见 [P2 实施与验证](architecture/stages/P8_AI_MCP_Interface/P2_Implementation_and_Verification.md)。

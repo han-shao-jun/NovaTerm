@@ -1,0 +1,13 @@
+{
+    "accepted_bytes": 67108864,
+    "cpu_s": 8.203125,
+    "dropped_bytes": 0,
+    "elapsed_s": 16.3840093,
+    "event_loop_interval_p95_ms": 5.5074,
+    "mode": "on",
+    "note": "synthetic QWidget repaint / event-loop interval; not real terminal GUI P95",
+    "peak_process_bytes": 21737472,
+    "source_bytes": 67108864,
+    "source_mib_s": 3.906247782708473,
+    "stored_bytes": 71206829
+}

@@ -70,6 +70,7 @@ class TerminalSessionSmokeTests : public QObject
 private slots:
     void historyPolicyAppliesToEveryTransportAndExternalCore();
     void transportWarningsRemainVisibleInConnectedSerialSessions();
+    void automaticReconnectRebuildsWaitingPromptAfterParserReset();
     void terminalColorsAreIndependentOfApplicationTheme();
     void savedSchemeRepaintsExistingTerminalPixels();
     void conPtyStartupKeepsUiResponsive();
@@ -85,6 +86,24 @@ private slots:
     void externalSessionOutlivesView();
     void ownedDependenciesAreDestroyedBeforeCore();
 };
+
+void TerminalSessionSmokeTests::automaticReconnectRebuildsWaitingPromptAfterParserReset()
+{
+    RuntimeConfig runtime;
+    runtime.transportKind = TransportKind::Serial;
+    TerminalSession session(runtime);
+    TerminalView view(&session);
+    auto* core = session.core();
+    for (int attempt = 0; attempt < 2; ++attempt) {
+        QVERIFY(core->resetForConnection());
+        emit session.automaticReconnectAttemptStarted();
+        QVERIFY(core->waitForIdle());
+        QByteArray visible;
+        for (const auto& line : core->terminalState().viewport)
+            visible += QByteArray::fromStdString(line.text);
+        QVERIFY2(visible.contains("Waiting for the serial port"), visible.constData());
+    }
+}
 
 void TerminalSessionSmokeTests::historyPolicyAppliesToEveryTransportAndExternalCore()
 {

@@ -95,9 +95,13 @@ private slots:
             SerialFileTransferController::Channel{});
         SerialFileTransferDialog dialog(controller.get(),
             NovaTerm::FileTransfer::Direction::Receive);
+        QCOMPARE(dialog.controller(), controller.get());
         dialog.show();
         QVERIFY(dialog.isVisible());
         controller.reset();
+        QVERIFY(!dialog.controller());
+        SerialFileTransferController replacement({});
+        QVERIFY(dialog.controller() != &replacement);
         QVERIFY(!dialog.isVisible());
         QVERIFY(!transferControl<ElaPushButton>(dialog, "transferStart")->isEnabled());
         dialog.reject();

@@ -11,6 +11,8 @@
 #include "session/SessionStore.h"
 #include "session/TerminalSession.h"
 #include "session/SessionInputPump.h"
+#include "service/HistoryRecordingBinding.h"
+#include "history/HistoryService.h"
 #include "transport/ITransport.h"
 #include "transport/SerialTransport.h"
 #include "transport/SerialDriverReceiveQueue.h"
@@ -130,6 +132,9 @@ class SessionTests final : public QObject
 {
     Q_OBJECT
 private slots:
+    void recordsOnceAcrossBackpressure();
+    void recordingLifecycleFollowsConnectionGeneration();
+    void recordingBindingFollowsSessionIdentityReuse();
     void serialIoPausedDeliveryKeepsBoundedBytes();
     void serialIoReconnectRejectsOldGeneration();
     void serialIoClearPreservesBarrierBeforeNewWrites();
@@ -157,6 +162,8 @@ private slots:
     void restoreMetadataRoundTrip();
     void persistentStoresRejectSecrets();
     void reconnectBumpsGenerationAndKeepsHandlersLive();
+    void reconnectResetsTerminalParser_data();
+    void reconnectResetsTerminalParser();
     void structuredTransportErrorSetsSessionCategory();
     void agentContextFiltersProgressWrapDuplicatesAndAlternate();
     void inputPumpOffsetsPreservePendingSuffix();
@@ -701,6 +708,65 @@ void SessionTests::realSerialSessionUsesExistingPumpForFileTransfer()
 #else
     QSKIP("Linux raw PTY fixture; no real user serial device required");
 #endif
+}
+
+void SessionTests::recordsOnceAcrossBackpressure()
+{
+    TerminalCore core(80, 24); FakeTransport transport; SessionInputPump pump(&transport, &core);
+    QByteArray observed; quint64 omitted = 0;
+    connect(&pump, &SessionInputPump::receiveObserved, this, [&](const QByteArray& b) { observed += b; });
+    connect(&pump, &SessionInputPump::fileTransferOmitted, this, [&](quint64 n) { omitted += n; });
+    pump.start();
+    core.setScrollbackLimit(0);
+    const QByteArray prefill(core.queueStatistics().capacity, 'p');
+    QVERIFY(core.writeInput(prefill).acceptedBytes > 0);
+    const QByteArray raw = QByteArray::fromHex("1b5b33316d410d0a00ffc328").repeated(50000);
+    emit transport.readyRead(raw);
+    QVERIFY(pump.statistics().pendingBytes > 0); // Exercise a real full Parser queue.
+    pump.forwardFramerRemainder("replayed");
+    emit core.inputBackpressureChanged(false);
+    QTRY_COMPARE_WITH_TIMEOUT(pump.statistics().pendingBytes, qsizetype(0), 20000);
+    QVERIFY(core.waitForIdle(20000)); QCoreApplication::processEvents();
+    QCOMPARE(observed, raw);
+    pump.setFileTransferConsumer([](const QByteArray&) { return true; });
+    pump.setFileTransferMode(true); emit transport.readyRead(QByteArray(1024, '\xff'));
+    QCOMPARE(omitted, quint64(1024)); QCOMPARE(observed, raw);
+    pump.setFileTransferMode(false); emit transport.readyRead("after");
+    QCOMPARE(observed, raw + "after");
+}
+
+void SessionTests::recordingLifecycleFollowsConnectionGeneration()
+{
+    TerminalCore core(80, 24); FakeTransport transport; TerminalSession session(&core);
+    QSignalSpy received(&session, &TerminalSession::receiveObserved);
+    QSignalSpy closed(&session, &TerminalSession::receiveStreamClosed);
+    session.attach(&transport, TerminalSession::Ownership::Borrowed); QVERIFY(session.start());
+    QTRY_COMPARE(session.state(), SessionState::Running);
+    emit transport.readyRead("first"); QCOMPARE(received.size(), 1);
+    QCOMPARE(received[0][0].toULongLong(), session.statistics().generation);
+    const auto old = session.statistics().generation; transport.simulateRemoteDisconnect();
+    QVERIFY(!closed.empty()); QCOMPARE(closed.back()[0].toULongLong(), old);
+    QVERIFY(session.start()); QTRY_COMPARE(session.state(), SessionState::Running);
+    emit transport.readyRead("second"); QCOMPARE(received.size(), 2);
+    QCOMPARE(received[1][0].toULongLong(), session.statistics().generation);
+    QVERIFY(session.statistics().generation > old);
+}
+
+void SessionTests::recordingBindingFollowsSessionIdentityReuse()
+{
+    using namespace NovaTerm::Recording;
+    QTemporaryDir dir; HistoryService recording(dir.path()); TerminalCore core(80, 24);
+    FakeTransport transport; TerminalSession session(&core); bindHistoryRecording(&session, &recording);
+    const auto original = session.id(); session.close(); QVERIFY(session.resetForReuse()); QVERIFY(session.id() != original);
+    session.attach(&transport, TerminalSession::Ownership::Borrowed); QVERIFY(session.start()); QTRY_COMPARE(session.state(), SessionState::Running);
+    bool started = false; HistoryCaptureId capture;
+    QVERIFY(recording.start({session.id(), session.statistics().generation}, [&](auto r) { QVERIFY(r.success); capture = r.captureId; started = true; })); QTRY_VERIFY(started);
+    emit transport.readyRead("recorded after reuse"); transport.simulateRemoteDisconnect();
+    QTRY_VERIFY_WITH_TIMEOUT(!recording.captures().front().active, 1000);
+    bool read = false; QVERIFY(recording.readCommitted(capture, {}, [&](auto r) {
+        QCOMPARE(r.integrity, Integrity::Lossless); QCOMPARE(r.records.size(), size_t(1));
+        QCOMPARE(r.records.front().payload, QByteArray("recorded after reuse")); read = true;
+    })); QTRY_VERIFY(read);
 }
 
 void SessionTests::fileTransferInputUsesSinglePumpAndIndependentPause()
@@ -2139,6 +2205,39 @@ void SessionTests::persistentStoresRejectSecrets()
     QVERIFY(credentials.put(QStringLiteral("credential-ref"), QByteArrayLiteral("secret")));
     QCOMPARE(credentials.get(QStringLiteral("credential-ref")).value(),
              QByteArrayLiteral("secret"));
+}
+
+void SessionTests::reconnectResetsTerminalParser_data()
+{
+    QTest::addColumn<QByteArray>("residue");
+    QTest::newRow("graphics-charset") << QByteArray("\x1b(0");
+    QTest::newRow("unfinished-osc") << QByteArray("\x1b]2;unfinished");
+    QTest::newRow("unfinished-csi") << QByteArray("\x1b[12;");
+    QTest::newRow("unfinished-utf8") << QByteArray::fromHex("e4b8");
+    QTest::newRow("alternate-screen") << QByteArray("\x1b[?1049h\x1b[?1003h");
+}
+
+void SessionTests::reconnectResetsTerminalParser()
+{
+    QFETCH(QByteArray, residue);
+    RuntimeConfig config;
+    config.transportKind = TransportKind::Ssh;
+    TerminalSession session(config);
+    auto* transport = new FakeTransport;
+    session.attach(transport, TerminalSession::Ownership::Adopt, TransportKind::Ssh);
+    QVERIFY(session.start());
+    QTRY_COMPARE(session.state(), SessionState::Running);
+    emit transport->readyRead(residue);
+    QVERIFY(session.core()->waitForIdle());
+    transport->simulateRemoteDisconnect();
+    QVERIFY(session.reconnect());
+    QTRY_COMPARE(session.state(), SessionState::Running);
+    emit transport->readyRead(QByteArray("lqqk ASCII ") + QByteArray::fromHex("e4b8ade69687"));
+    QVERIFY(session.core()->waitForIdle());
+    QVERIFY(!session.core()->isAlternateScreen());
+    const auto state = session.core()->terminalState();
+    QCOMPARE(QByteArray::fromStdString(state.viewport.at(0).text),
+             QByteArray("lqqk ASCII ") + QByteArray::fromHex("e4b8ade69687"));
 }
 
 void SessionTests::reconnectBumpsGenerationAndKeepsHandlersLive()

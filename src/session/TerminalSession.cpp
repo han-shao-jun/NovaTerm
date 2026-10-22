@@ -373,6 +373,8 @@ bool TerminalSession::resetForReuse()
 {
     if (_state != SessionState::Closed || _transport)
         return false;
+    if (_core && !_core->resetForConnection())
+        return false;
     _sessionId = QUuid::createUuid();
     _contextProvider.reset();
     _commandFacade->reset(0);
@@ -394,6 +396,8 @@ bool TerminalSession::start()
                         && _state != SessionState::Failed)) {
         return false;
     }
+    if (_statistics.generation > 0 && _core && !_core->resetForConnection())
+        return false;
     _acceptsUserInput = true;
     startPump();
     if (_state == SessionState::Created)
@@ -505,7 +509,13 @@ bool TerminalSession::canReconnect() const noexcept
 
 bool TerminalSession::beginReconnect(bool automatic)
 {
-    if (!_transport || !transition(SessionState::Reconnecting))
+    if (!_transport)
+        return false;
+    stopPump();
+    // 命令的 byte barrier 保证旧字节先解析、新字节在重置后解析。
+    if (_core && !_core->resetForConnection())
+        return false;
+    if (!transition(SessionState::Reconnecting))
         return false;
 
     ++_statistics.reconnectCount;
@@ -569,7 +579,10 @@ bool TerminalSession::transition(SessionState next)
 void TerminalSession::stopPump()
 {
     // 先暂停唯一入口，abort 的 inactive/恢复通知不能重新 drain 旧串口二进制。
-    if (_inputPump) _inputPump->stop();
+    if (_inputPump) {
+        emit receiveStreamClosed(_statistics.generation);
+        _inputPump->stop();
+    }
     if (_fileTransfer) _fileTransfer->abort(tr("Serial connection changed."));
     if (!_inputPump)
         return;
@@ -583,6 +596,13 @@ void TerminalSession::startPump()
         return;
     _inputPump = new SessionInputPump(_transport, _core,
                                       _streamFramer.get(), this);
+    connect(_inputPump, &SessionInputPump::receiveObserved, this,
+        [this](const QByteArray& bytes) { emit receiveObserved(_statistics.generation, bytes); });
+    connect(_inputPump, &SessionInputPump::fileTransferOmitted, this,
+        [this](quint64 bytes) { emit receiveOmitted(_statistics.generation, bytes); });
+    connect(_inputPump, &SessionInputPump::fileTransferBoundary, this,
+        [this](bool active) { emit receiveBoundary(_statistics.generation,
+            active ? QStringLiteral("file_transfer_begin") : QStringLiteral("file_transfer_end")); });
     _inputPump->setFileTransferConsumer([this](const QByteArray& bytes) {
         if (!_fileTransfer || !_fileTransfer->isActive()) return false;
         _fileTransfer->acceptBytes(bytes);
@@ -602,7 +622,10 @@ void TerminalSession::startPump()
         if (event.kind == InteractiveStreamEventKind::ShellReset
             || event.kind == InteractiveStreamEventKind::FramingError
             || event.kind == InteractiveStreamEventKind::CommandStarted)
+        {
             _environment.invalidate();
+            emit receiveBoundary(_statistics.generation, QStringLiteral("environment_invalidated"));
+        }
         if (_terminalController) _terminalController->handleEvent(event);
     });
     connect(_inputPump, &SessionInputPump::interactiveBytes, this,

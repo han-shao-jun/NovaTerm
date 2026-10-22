@@ -16,7 +16,7 @@
 | --- | --- | --- |
 | mcp/P0 | [运行内核收敛](P0_Runtime_Consolidation.md) | 实现与结构收口完成，Linux专项通过；其他平台范围见P0验收表 |
 | mcp/P1 | [能力目录、应用入口与执行路由](P1_Capability_Runtime.md) | 运行期/类型化入口与 Session 适配已落地；[验收与范围](P1_Implementation_and_Verification.md)，产品集成按 P4/P6 |
-| mcp/P2 | [保真历史录制与存储](P2_History_Recording.md) | 规划，录制默认关闭 |
+| mcp/P2 | [保真历史录制与存储](P2_History_Recording.md) | 已实现，默认关闭；Windows 专项通过，跨平台/断电/真实性能门槛待验收，见[实施记录](P2_Implementation_and_Verification.md) |
 | mcp/P3 | [历史搜索、证据与离线授权](P3_History_Search_and_Evidence.md) | 规划 |
 | mcp/P4 | [Backend 诊断](P4_Backend_Diagnostics.md) | 规划 |
 | mcp/P5 | [Embedded Linux 诊断](P5_Embedded_Diagnostics.md) | 规划，离线解析优先 |

@@ -50,6 +50,7 @@ private slots:
     void scrollbackKeepsNewestLines();
     void defaultHistoryKeepsEarliestLogBeyondTenThousandLines();
     void clearAllHonorsByteBarrierAndPreservesModes();
+    void connectionResetPreservesHostConfigurationAndHistory();
     void clearAllReportsFullQueueAndAllowsRetry();
     void softWrappedRowsBecomeOneLogicalHistoryLine();
     void softWrapKeepsTrailingSpaces();
@@ -175,6 +176,36 @@ void TerminalCoreTests::parsesUtf8AndAttributes()
     QCOMPARE(int(cell.width), 2);
 }
 
+void TerminalCoreTests::connectionResetPreservesHostConfigurationAndHistory()
+{
+    TerminalCore core(20, 4);
+    QSignalSpy output(&core, &TerminalCore::outputData);
+    QVERIFY(core.setLfImpliesCr(true));
+    core.writeInput("history\r\nhistory\r\nhistory\r\nhistory\r\n");
+    QVERIFY(core.waitForIdle());
+    const auto historyLines = core.scrollbackLineCount();
+    QVERIFY(historyLines > 0);
+    // 排队旧字节、重置与新字节，中间不等待，验证 Parser 的字节屏障。
+    core.writeInput("\x1b[?1049h\x1b[?1003h\x1b[?2004h\x1b(0\x1b]2;partial");
+    QVERIFY(core.resetForConnection());
+    core.writeInput("abc\ndef");
+    QVERIFY(core.waitForIdle());
+    QCOMPARE(core.columns(), 20);
+    QCOMPARE(core.rows(), 4);
+    QCOMPARE(core.scrollbackLineCount(), historyLines);
+    QVERIFY(!core.isAlternateScreen());
+    QCOMPARE(core.mouseTrackingMode(), NovaTerm::MouseTrackingMode::None);
+    NovaTerm::Cell cell;
+    QVERIFY(core.getCell(0, 0, cell));
+    QCOMPARE(cell.chars[0], uint32_t('a'));
+    QCOMPARE(cell.foreground.type, NovaTerm::ColorType::Default);
+    QCOMPARE(cell.background.type, NovaTerm::ColorType::Default);
+    QVERIFY(core.getCell(1, 0, cell));
+    QCOMPARE(cell.chars[0], uint32_t('d')); // 宿主 LF 兼容配置仍有效。
+    QCoreApplication::processEvents();
+    QVERIFY(output.isEmpty()); // 重置不会向新连接发送 RIS 或其他控制字节。
+}
+
 void TerminalCoreTests::clearAllHonorsByteBarrierAndPreservesModes()
 {
     TerminalCore core(20, 4);
@@ -214,6 +245,7 @@ void TerminalCoreTests::clearAllReportsFullQueueAndAllowsRetry()
     for (int index = 0; index < 4096; ++index)
         core.processTextInput(QStringLiteral("x"));
     QVERIFY(!core.clearAll());
+    QVERIFY(!core.resetForConnection());
     QVERIFY(core.waitForIdle(15'000));
     // 被拒绝的清除不能在队列恢复后偷偷执行；内容应保持可见。
     QVERIFY(core.scrollbackLineCount() > 0);

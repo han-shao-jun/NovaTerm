@@ -1,0 +1,15 @@
+********* Start testing of ConPtyTransportTests *********
+Config: Using QtTest library 6.8.3, Qt 6.8.3 (x86_64-little_endian-llp64 shared (dynamic) release build; by MSVC 2022), windows 10
+PASS   : ConPtyTransportTests::initTestCase()
+QINFO  : ConPtyTransportTests::injectedStartupStagesRollBack() Startup rollback handles: baseline=229 final=266
+FAIL!  : ConPtyTransportTests::injectedStartupStagesRollBack() 'currentHandleCount() <= baselineHandles' returned FALSE. ()
+D:\qt\NovaTerm\tests\transport\ConPtyTransportTests.cpp(481) : failure location
+QINFO  : ConPtyTransportTests::repeatedLifecycleReturnsResourcesToBaseline() Repeated lifecycle resources: handles=485/288 threads=6/7 children=0/0 (final/baseline)
+QINFO  : ConPtyTransportTests::repeatedLifecycleReturnsResourcesToBaseline() Repeated lifecycle thread/child checks passed
+FAIL!  : ConPtyTransportTests::repeatedLifecycleReturnsResourcesToBaseline() Compared values are not the same
+   Actual   (currentHandleCount()): 485
+   Expected (baselineHandles)     : 288
+D:\qt\NovaTerm\tests\transport\ConPtyTransportTests.cpp(519) : failure location
+PASS   : ConPtyTransportTests::cleanupTestCase()
+Totals: 2 passed, 2 failed, 0 skipped, 0 blacklisted, 62518ms
+********* Finished testing of ConPtyTransportTests *********

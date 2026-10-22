@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(NovaTerm VERSION 0.2.79 LANGUAGES CXX C)
+project(NovaTerm VERSION 0.2.80 LANGUAGES CXX C)
 
 # ═══════════════════════════════════════════════════════════════════
 #  1. 通用平台编译参数
@@ -64,8 +64,7 @@ endif()
 message(STATUS "setting qt sdk path: ${CMAKE_PREFIX_PATH}")
 
 # Find Qt
-# 注意：Qt6::Sql 已从依赖中移除——项目当前使用 MemoryProfileStore / 平台密钥链，
-# 不依赖 QSqlDatabase。若将来引入 SQLite 等持久化存储，需重新加回 Sql 组件。
+# 录制元数据索引显式使用同一 SDK 的 Qt SQL / QSQLITE；原始字节保存在 chunk。
 # Qt6::DBus 只在非 Apple 的 Unix 上需要：那里的凭据持久化走 freedesktop Secret
 # Service（见 src/credential/CredentialStore.cpp），Windows 用 Credential Manager。
 set(_novaterm_secret_service_component)
@@ -82,6 +81,7 @@ find_package(Qt${QT_VERSION_MAJOR} 6.8 REQUIRED COMPONENTS
     SerialPort
     Network
     HttpServer
+    Sql
     ${_novaterm_secret_service_component}
 )
 qt_standard_project_setup(REQUIRES 6.8)
@@ -284,6 +284,7 @@ add_compile_definitions(
 )
 
 add_subdirectory(src/history)
+include(src/history/Recording.cmake)
 
 set(NOVATERM_CORE_SOURCES
     src/core/ThreadNaming.h
@@ -421,6 +422,7 @@ target_link_libraries(NovaTerm PRIVATE
         novaterm_serial_transfer
         novaterm_mcp_runtime
         novaterm_capabilities
+        novaterm_history_recording
         novaterm_session_environment
         libtelnet
         ssh::ssh

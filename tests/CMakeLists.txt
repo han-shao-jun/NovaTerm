@@ -397,6 +397,9 @@ if(BUILD_TESTING)
             ${NOVATERM_SECRET_SERVICE_LIBS}
     )
     add_test(NAME novaterm_session_tests COMMAND novaterm_session_tests)
+    target_sources(novaterm_session_tests PRIVATE
+        ${PROJECT_SOURCE_DIR}/src/service/HistoryRecordingBinding.cpp)
+    target_link_libraries(novaterm_session_tests PRIVATE novaterm_history_recording)
     set_tests_properties(novaterm_session_tests PROPERTIES
         WORKING_DIRECTORY "${CMAKE_BINARY_DIR}"
         LABELS "unit;session;p6"
