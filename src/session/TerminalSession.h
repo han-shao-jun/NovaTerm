@@ -213,6 +213,11 @@ public:
     void resizeTerminal(int columns, int rows) { resize(columns, rows); }
 
 signals:
+    /** Read-only receive observation; no History storage dependency. Same thread. */
+    void receiveObserved(quint64 generation, const QByteArray& bytes);
+    void receiveOmitted(quint64 generation, quint64 bytes);
+    void receiveBoundary(quint64 generation, const QString& reason);
+    void receiveStreamClosed(quint64 generation);
     void terminalControlChanged();
     /** @brief 定时自动重连开始一次尝试，供视图更新等待提示。 */
     void automaticReconnectAttemptStarted();

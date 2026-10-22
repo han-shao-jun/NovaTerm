@@ -1,0 +1,16 @@
+********* Start testing of HistoryStoreTests *********
+Config: Using QtTest library 6.8.3, Qt 6.8.3 (x86_64-little_endian-llp64 shared (dynamic) release build; by MSVC 2022), windows 10
+PASS   : HistoryStoreTests::initTestCase()
+FAIL!  : HistoryStoreTests::missingIndexRowsCannotAppearLossless(first) 'result.missing' returned FALSE. ()
+D:\qt\NovaTerm\tests\history\HistoryStoreTests.cpp(42) : failure location
+FAIL!  : HistoryStoreTests::missingIndexRowsCannotAppearLossless(middle) 'result.missing' returned FALSE. ()
+D:\qt\NovaTerm\tests\history\HistoryStoreTests.cpp(42) : failure location
+FAIL!  : HistoryStoreTests::missingIndexRowsCannotAppearLossless(last) 'result.missing' returned FALSE. ()
+D:\qt\NovaTerm\tests\history\HistoryStoreTests.cpp(42) : failure location
+FAIL!  : HistoryStoreTests::readFailureCannotRetainLosslessStatus() 'result.missing' returned FALSE. ()
+D:\qt\NovaTerm\tests\history\HistoryStoreTests.cpp(49) : failure location
+FAIL!  : HistoryStoreTests::rangeQueryUsesBothIdBounds() 'plan.contains("rowid>?") && plan.contains("rowid<?")' returned FALSE. (SEARCH records USING INTEGER PRIMARY KEY (rowid<?))
+D:\qt\NovaTerm\tests\history\HistoryStoreTests.cpp(59) : failure location
+PASS   : HistoryStoreTests::cleanupTestCase()
+Totals: 2 passed, 5 failed, 0 skipped, 0 blacklisted, 358ms
+********* Finished testing of HistoryStoreTests *********

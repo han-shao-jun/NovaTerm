@@ -34,6 +34,7 @@ public:
 
     /** @brief 当前标签页的终端视图。 */
     TerminalView* currentTerminal() const;
+    void showHistoryRecording();
 
     /**
      * @brief 添加一个新的终端标签页。

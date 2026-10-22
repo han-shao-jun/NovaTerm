@@ -457,6 +457,7 @@ Built with:
         <source>OK</source>
         <translation type="unfinished"></translation>
     </message>
+    <message><source>History recording</source><translation>History recording</translation></message>
 </context>
 <context>
     <name>McpSettingsDialog</name>
@@ -3865,5 +3866,44 @@ Termination confirmed: %3
     <message><source>History is busy; release other readers and retry</source><translation>History is busy; release other readers and retry</translation></message>
 
     <message><source>Loading history…</source><translation>Loading history…</translation></message>
+</context>
+<context>
+    <name>HistoryCaptureModel</name>
+    <message><source>Capture / started</source><translation>Capture / started</translation></message>
+    <message><source>Connection</source><translation>Connection</translation></message>
+    <message><source>State / integrity</source><translation>State / integrity</translation></message>
+    <message><source>Stored</source><translation>Stored</translation></message>
+    <message><source>Known missing</source><translation>Known missing</translation></message>
+    <message><source>Keep</source><translation>Keep</translation></message>
+    <message><source>Recording — unsealed</source><translation>Recording — unsealed</translation></message>
+    <message><source>Stopped — complete</source><translation>Stopped — complete</translation></message>
+    <message><source>Stopped — known gaps</source><translation>Stopped — known gaps</translation></message>
+    <message><source>Recovered — unknown tail</source><translation>Recovered — unknown tail</translation></message>
+    <message><source>Stopped — unknown tail</source><translation>Stopped — unknown tail</translation></message>
+    <message><source>Kept</source><translation>Kept</translation></message>
+    <message><source>Automatic retention</source><translation>Automatic retention</translation></message>
+    <message><source>Working…</source><translation>Working…</translation></message>
+    <message><source>Saved</source><translation>Saved</translation></message>
+    <message><source>Recording request queue is full</source><translation>Recording request queue is full</translation></message>
+    <message><source>Invalid limits or request queue is full</source><translation>Invalid limits or request queue is full</translation></message>
+</context>
+<context>
+    <name>HistoryRecordingPanel</name>
+    <message><source>History recording</source><translation>History recording</translation></message>
+    <message><source>Recording starts only when you choose Start. Sharing history requires separate permission. Remote output may contain passwords or other secrets; automatic masking is unavailable. File transfers are omitted and marked as gaps.</source><translation>Recording starts only when you choose Start. Sharing history requires separate permission. Remote output may contain passwords or other secrets; automatic masking is unavailable. File transfers are omitted and marked as gaps.</translation></message>
+    <message><source>Start for current terminal</source><translation>Start for current terminal</translation></message>
+    <message><source>Stop selected</source><translation>Stop selected</translation></message>
+    <message><source>Keep / release selected</source><translation>Keep / release selected</translation></message>
+    <message><source>Delete selected</source><translation>Delete selected</translation></message>
+    <message><source> MiB total</source><translation> MiB total</translation></message>
+    <message><source> MiB / capture</source><translation> MiB / capture</translation></message>
+    <message><source> days</source><translation> days</translation></message>
+    <message><source>Apply retention limits</source><translation>Apply retention limits</translation></message>
+    <message><source>Kept captures are excluded from automatic cleanup and still count toward the total limit. If space cannot be reclaimed, recording stops with an unknown tail.</source><translation>Kept captures are excluded from automatic cleanup and still count toward the total limit. If space cannot be reclaimed, recording stops with an unknown tail.</translation></message>
+    <message><source>Delete recording</source><translation>Delete recording</translation></message>
+    <message><source>Delete this recording and its derived files?
+%1</source><translation>Delete this recording and its derived files?
+%1</translation></message>
+    <message><source>Current terminal: %1</source><translation>Current terminal: %1</translation></message>
 </context>
 </TS>

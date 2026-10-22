@@ -187,6 +187,31 @@ Windows/macOS、真实 UART 与 P4/P6 产品集成未验收。下文 32/12、29/
 诊断结果交付的授权复核不能被 Cancelled/DeadlineExceeded 短路；授权回调可能重入，sweep 需持有任务快照并复核身份。
 复现/修复用例与本次专项结果见上方 P1 实施记录，旧全套成绩不替代本轮专项验证。
 
+#### mcp/P2 录制增量（2026-10-22）
+
+新增独立 Qt Core/Sql `novaterm_history_recording`，旧 `novaterm_history` 仍无 Qt。
+根工程明确要求 Sql，部署须有 `sqldrivers/qsqlite`。默认关闭，由主菜单「历史录制」手动管理，
+不增加 MCP 历史工具/授权、不自动录制或重连设备。相关改动首选 `ctest -L recording`，
+InputPump/TerminalSession 改动另跑 Session 和文件传输；旧 `-L mcp` 不覆盖这四项。
+新增 `novaterm_history_recorder_tests`、`novaterm_history_store_tests`、
+`novaterm_history_service_tests`、`novaterm_history_recording_ui_tests`（UI 自带 offscreen）。
+
+本机 Windows `ctest -N` 实核 **43** 项；既有 39 项 **38/39**（394.02 秒），
+新增录制四项 **4/4**（最终 5.44 秒），合计 **42/43**。唯一失败为已知 ConPTY 两条句柄断言，
+专项核对线程/子进程检查通过；本轮串口传输两项通过，不从旧失败清单推断仍失败。
+存储最终 QTest **25/25**，Service **8/8**；含私有 DACL、未知 gap、配额、恢复、启停竞争。
+合成 64 MiB 输入零丢失，不代表真实终端性能/断电/其他平台验收。
+命令、独立审查修复、磁盘基线和未验收范围见
+`docs/architecture/stages/P8_AI_MCP_Interface/P2_Implementation_and_Verification.md`。
+
+P2 第二轮审查修复：9 项确认问题及 I-001 已修复；接线回调取当前 Session ID，开始时重核代际，
+保留保护独立于恢复，分页核对连续性并使用主键下界，活动配额同步、空闲不扫目录。
+SQL worker 不再 detach；500 ms 排空后协作取消并 join，底层不可中断 I/O 可延迟退出，不能宣称硬限时。
+初次跨模块回归（排除已知 ConPTY）41/42；存储瞬态删除失败经真实 Windows 拒绝删除共享夹具复现并修复。
+最终相关 **5/5**（26.56 秒），存储 **33/33**、Service **13/13**、UI **8/8**，存储 CTest 连续 **20** 轮通过。
+录制 CTest 现在把 QTest 断言保存到 `build/Release/tests/history/*.ctest.txt`，stdout 为空时直接读该文件。
+前轮失败日志与新命令见上方实施记录及 `docs/architecture/benchmarks/history-recording-review-fixes-windows-2026-10-22/`。
+
 #### 默认注册了哪些测试
 
 以 `tests/CMakeLists.txt` 为准（2026-09 复核）。两个开关的默认值都要注意：

@@ -77,6 +77,10 @@ public:
     void setFileTransferReadPaused(bool paused);
 
 signals:
+    /** Raw receive bytes, once after transfer routing and before framing/replay. */
+    void receiveObserved(const QByteArray& bytes);
+    void fileTransferOmitted(quint64 bytes);
+    void fileTransferBoundary(bool active);
     /**
      * @brief 输入过载（待处理超限或 Transport 不支持暂停）。
      * @param reason 过载原因。

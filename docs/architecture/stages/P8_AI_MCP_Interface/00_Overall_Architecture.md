@@ -181,6 +181,11 @@ Recipe 路由选择必须显式：
 
 ## 7. 四类数据不能互相替代
 
+2026-10-22 增量：P2 保真接收录制已实现，应用所有的独立 `novaterm_history_recording`
+（Qt Core/Sql）与既有无 Qt scrollback 分离。Session 只发只读接收/边界信号，录制默认关闭；
+本机菜单管理，未注册历史 MCP 工具或自动共享授权。Windows 专项及已知回归范围、
+合成磁盘基线与未关闭的跨平台/断电/真实终端性能门槛见 [P2 实施记录](P2_Implementation_and_Verification.md)。
+
 | 数据 | 语义与生命周期 |
 | --- | --- |
 | TerminalStateCache / Scrollback | 屏幕/有限摘要，可过滤/去重；不是保真日志 |

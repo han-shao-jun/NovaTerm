@@ -46,8 +46,10 @@ LZ4 v1.10.0 完整上游源码位于 `third_party/lz4-1.10.0/`，无需下载；
 - Qt 6.8 或更高版本（`find_package(Qt6 6.8 REQUIRED)`）
 - CMake 3.20 或更高版本
 - 支持 C++17 的编译器（`CMAKE_CXX_STANDARD 17`）
-- Qt 组件：Widgets、Svg、ShaderTools、LinguistTools、SerialPort、Network、HttpServer；
+- Qt 组件：Widgets、Svg、ShaderTools、LinguistTools、SerialPort、Network、HttpServer、Sql；
   默认启用测试时还需要 Test
+- 历史录制使用同一 Qt SDK 的 QSQLITE 驱动，运行/部署须包含 `sqldrivers/qsqlite` 插件。
+  主菜单「历史录制」由本机用户手动启停，默认关闭；录制不自动授权共享。
 - 对于Windows：需要Windows 10 1809或更高版本，以及 MSVC 2022
 - Linux/macOS 需要系统 OpenSSL 开发库；Windows 使用下方脚本预编译
   vendored OpenSSL

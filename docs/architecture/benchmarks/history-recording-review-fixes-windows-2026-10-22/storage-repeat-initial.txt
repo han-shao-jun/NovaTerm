@@ -1,0 +1,46 @@
+Test project D:/qt/NovaTerm/build/Release
+    Start 35: novaterm_history_store_tests
+    Test #35: novaterm_history_store_tests .....   Passed    2.67 sec
+    Start 35: novaterm_history_store_tests
+    Test #35: novaterm_history_store_tests .....   Passed    3.03 sec
+    Start 35: novaterm_history_store_tests
+    Test #35: novaterm_history_store_tests .....   Passed    3.80 sec
+    Start 35: novaterm_history_store_tests
+    Test #35: novaterm_history_store_tests .....   Passed    2.87 sec
+    Start 35: novaterm_history_store_tests
+    Test #35: novaterm_history_store_tests .....   Passed    2.73 sec
+    Start 35: novaterm_history_store_tests
+    Test #35: novaterm_history_store_tests .....   Passed    2.70 sec
+    Start 35: novaterm_history_store_tests
+    Test #35: novaterm_history_store_tests .....   Passed    3.64 sec
+    Start 35: novaterm_history_store_tests
+    Test #35: novaterm_history_store_tests .....   Passed    3.06 sec
+    Start 35: novaterm_history_store_tests
+    Test #35: novaterm_history_store_tests .....   Passed    2.61 sec
+    Start 35: novaterm_history_store_tests
+    Test #35: novaterm_history_store_tests .....   Passed    2.50 sec
+    Start 35: novaterm_history_store_tests
+    Test #35: novaterm_history_store_tests .....   Passed    2.70 sec
+    Start 35: novaterm_history_store_tests
+    Test #35: novaterm_history_store_tests .....   Passed    2.52 sec
+    Start 35: novaterm_history_store_tests
+    Test #35: novaterm_history_store_tests .....   Passed    2.86 sec
+    Start 35: novaterm_history_store_tests
+    Test #35: novaterm_history_store_tests .....   Passed    2.62 sec
+    Start 35: novaterm_history_store_tests
+    Test #35: novaterm_history_store_tests .....***Failed    3.56 sec
+
+
+0% tests passed, 1 tests failed out of 1
+
+Label Time Summary:
+history      =   3.56 sec*proc (1 test)
+p8           =   3.56 sec*proc (1 test)
+recording    =   3.56 sec*proc (1 test)
+unit         =   3.56 sec*proc (1 test)
+
+Total Test time (real) =  43.89 sec
+
+The following tests FAILED:
+	 35 - novaterm_history_store_tests (Failed)             history p8 recording unit
+Errors while running CTest

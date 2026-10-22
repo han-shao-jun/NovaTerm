@@ -11,6 +11,8 @@
  */
 #include "Application.h"
 #include "history/HistoryCompressionService.h"
+#include "history/HistoryService.h"
+#include <QStandardPaths>
 #include "MainWindow.h"
 #include "mcp/McpService.h"
 #include "ElaApplication.h"
@@ -39,6 +41,7 @@ void Application::shutdown()
 {
     if (_mcpService) _mcpService->stop();
     _mainWindow.reset();
+    _historyRecording.reset();
     _mcpService.reset();
     if (_historyRuntime) _historyRuntime->stop();
     _historyRuntime.reset();
@@ -153,6 +156,8 @@ void Application::init()
     _mcpService = std::make_unique<NovaTerm::Mcp::Service>(
         QString{}, QString{}, nullptr, nullptr, mcpPort);
     _historyRuntime = std::make_shared<NovaTerm::HistoryCompressionService>();
+    _historyRecording = std::make_unique<NovaTerm::Recording::HistoryService>(
+        QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation) + "/history");
     _mainWindow = std::make_unique<MainWindow>(nullptr, _historyRuntime);
 
     // ElaWindow 构造函数中 setObjectName("ElaWindow") 并设

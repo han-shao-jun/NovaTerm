@@ -1053,6 +1053,7 @@ void MainWindow::retranslateUi()
     if (_actSession)  _actSession->setText(tr("Session"));
     if (_actSettings) _actSettings->setText(tr("Settings"));
     if (_actMcp) _actMcp->setText(tr("AI MCP access"));
+    if (_actHistoryRecording) _actHistoryRecording->setText(tr("History recording"));
     if (_actAbout)    _actAbout->setText(tr("About"));
     if (_localSessionAction)  _localSessionAction->setText(tr("Local"));
     if (_sshSessionAction)    _sshSessionAction->setText(tr("SSH"));
@@ -1600,6 +1601,8 @@ void MainWindow::buildMainMenu()
     connect(_actSettings, &QAction::triggered, this, &MainWindow::showSettingsDialog);
     _actMcp = _mainMenu->addElaIconAction(ElaIconType::Terminal, tr("AI MCP access"));
     connect(_actMcp, &QAction::triggered, this, &MainWindow::showMcpSettingsDialog);
+    _actHistoryRecording = _mainMenu->addElaIconAction(ElaIconType::Terminal, tr("History recording"));
+    connect(_actHistoryRecording, &QAction::triggered, _terminalPage, &TerminalPage::showHistoryRecording);
 
     // ── 关于：模态对话框（行为不变）──
     _actAbout = _mainMenu->addElaIconAction(ElaIconType::CircleInfo, tr("About"));

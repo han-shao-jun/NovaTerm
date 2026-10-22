@@ -208,6 +208,7 @@ struct RequestEvent final : QEvent {
 };
 class ProbeRenderer final : public TerminalRenderer {
 public:
+    ProbeRenderer() = delete; // MSVC /Wall: the inherited base constructor requires a core.
     using TerminalRenderer::TerminalRenderer;
     std::function<void(const RequestEvent&)> dispatch;
     std::function<void(const char*)> trace;

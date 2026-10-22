@@ -10,8 +10,11 @@
 #include "mcp/McpService.h"
 #include "ui/terminal/TerminalView.h"
 #include "ui/widgets/TerminalTabWidget.h"
+#include "ui/widgets/HistoryRecordingPanel.h"
+#include "history/HistoryService.h"
 #include "renderer/TerminalRenderer.h"
 #include "service/LanguageManager.h"
+#include "service/HistoryRecordingBinding.h"
 #include "session/SerialHighlightRules.h"
 #include "session/TerminalSession.h"
 #include "transport/SerialTransport.h"
@@ -383,18 +386,46 @@ void TerminalPage::registerTerminalView(TerminalView* terminalView)
             emit currentSshTerminalPathLookupFailed();
     });
     TerminalSession* const session = terminalView->session();
+    bindHistoryRecording(session, Application::instance().historyRecording());
     connect(session, &TerminalSession::stateChanged, this,
             [this, terminalView](SessionState) {
         updateTerminalTabConnectionAction(terminalView);
+        if (terminalView == currentTerminal()) emitCurrentSessionContext();
     });
     connect(session, &TerminalSession::connected, this,
             [this, terminalView](ITransport*) {
         updateTerminalTabConnectionAction(terminalView);
+        if (terminalView == currentTerminal()) emitCurrentSessionContext();
     });
     connect(session, &TerminalSession::disconnected, this,
             [this, terminalView](ITransport*) {
         updateTerminalTabConnectionAction(terminalView);
+        if (terminalView == currentTerminal()) emitCurrentSessionContext();
     });
+}
+
+void TerminalPage::showHistoryRecording()
+{
+    auto* recording = Application::instance().historyRecording();
+    if (!recording) return;
+    auto* panel = findChild<HistoryRecordingPanel*>(QString{}, Qt::FindDirectChildrenOnly);
+    if (!panel) {
+        panel = new HistoryRecordingPanel(recording, this);
+        panel->setTargetResolver([this] {
+            const auto* view = currentTerminal(); const auto* session = view ? view->session() : nullptr;
+            if (!session || session->state() != SessionState::Running) return NovaTerm::Recording::RecordingIntent{};
+            return NovaTerm::Recording::RecordingIntent{session->id(), session->statistics().generation};
+        });
+        connect(this, &TerminalPage::currentSessionContextChanged, panel, [this, panel] {
+            const auto* view = currentTerminal(); const auto* session = view ? view->session() : nullptr;
+            panel->setRecordingTarget(session ? NovaTerm::Recording::RecordingIntent{session->id(), session->statistics().generation} : NovaTerm::Recording::RecordingIntent{},
+                session && session->state() == SessionState::Running, session ? session->runtimeConfig().title : QString{});
+        });
+    }
+    const auto* view = currentTerminal(); const auto* session = view ? view->session() : nullptr;
+    panel->setRecordingTarget(session ? NovaTerm::Recording::RecordingIntent{session->id(), session->statistics().generation} : NovaTerm::Recording::RecordingIntent{},
+        session && session->state() == SessionState::Running, session ? session->runtimeConfig().title : QString{});
+    panel->show(); panel->raise(); panel->activateWindow();
 }
 
 void TerminalPage::setTerminalTabTitle(TerminalView* terminalView, const QString& title)

@@ -64,8 +64,11 @@ void SessionInputPump::acceptBytes(const QByteArray& data)
         return;
 
     _statistics.receivedBytes += static_cast<quint64>(data.size());
-    if (_fileTransferMode && _fileTransferConsumer && _fileTransferConsumer(data))
+    if (_fileTransferMode && _fileTransferConsumer && _fileTransferConsumer(data)) {
+        emit fileTransferOmitted(quint64(data.size()));
         return;
+    }
+    emit receiveObserved(data);
     if (_framer) {
         auto framed = _framer->consume(data);
         qsizetype visibleOffset = 0;
@@ -196,6 +199,7 @@ void SessionInputPump::setFileTransferConsumer(
 }
 void SessionInputPump::setFileTransferMode(bool active)
 {
+    if (_fileTransferMode != active) emit fileTransferBoundary(active);
     _fileTransferMode = active;
     updateReadPause();
 }
