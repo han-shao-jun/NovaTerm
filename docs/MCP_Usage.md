@@ -5,6 +5,10 @@
 NovaTerm 提供进程内 Streamable HTTP MCP 服务，可让支持 MCP 的 AI 客户端读取指定终端输出、
 搜索已读取的内容、运行授权诊断，以及通过当前交互终端执行受控命令和脚本任务。默认关闭。
 
+历史录制与读取另行授权：在主菜单 **历史录制** 中手动开始/停止录制，选择录制条目和已登记的 MCP 客户端，填写 record 范围后点击 **Share selected**。终端的「读取输出」权限不会授权完整历史。范围终点为 `0` 表示每次请求时的已提交高水位，活动录制后续提交的数据也在此选择范围内；指定有限 record ID 可固定共享范围。默认共享到退出，勾选 **Keep permission after restart** 才保存离线权限；关闭终端不会撤销，撤回请用 **Revoke history permission**。
+
+历史工具为 `novaterm_list_captures`（仅列获准录制）、`novaterm_read_history`（base64 原文字节分页）、`novaterm_search_history`（UTF-8 文本或原文字节 literal 搜索）。按返回的 nextCursor 续页，不把 `complete=false` 或 unknown_tail 当成无缺失/无故障。搜索证据默认仅保留期限内存，退出后不可恢复；历史工具不会自动启用录制、恢复设备连接或执行命令。本机 **Share local log file…** 只共享明确选择的文件资源，最多 16 MiB，权限到退出，可用 **Revoke imported files** 撤回；离线分析器随后续阶段交付。
+
 ## 开始使用
 
 1. 编译并运行 NovaTerm，Qt SDK 需要包含匹配版本的 **HttpServer** 组件。

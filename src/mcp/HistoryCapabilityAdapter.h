@@ -1,0 +1,40 @@
+#pragma once
+#include "capabilities/CapabilityAuthorization.h"
+#include "history/HistoryTypes.h"
+#include "mcp/contracts/ToolRequests.h"
+#include <QJsonObject>
+#include <QObject>
+#include <atomic>
+#include <memory>
+namespace NovaTerm::Recording { class HistoryService; }
+namespace NovaTerm::Mcp {
+class AccessStore;
+// Integration boundary only: authenticated identity, explicit local grants and JSON.
+// History owns read/search state; Evidence owns source-independent references.
+class HistoryCapabilityAdapter final : public QObject {
+public:
+    struct ImportResult { QString error, resourceId, contentHash; quint64 byteCount{0}; };
+    explicit HistoryCapabilityAdapter(AccessStore&, QString stateDirectory, QObject* parent = nullptr);
+    ~HistoryCapabilityAdapter() override;
+    HistoryCapabilityAdapter(const HistoryCapabilityAdapter&) = delete;
+    HistoryCapabilityAdapter& operator=(const HistoryCapabilityAdapter&) = delete;
+    HistoryCapabilityAdapter(HistoryCapabilityAdapter&&) = delete;
+    HistoryCapabilityAdapter& operator=(HistoryCapabilityAdapter&&) = delete;
+    void setSource(Recording::HistoryService*);
+    QString share(const QString& client, Recording::HistoryCaptureId, quint64 firstRecord,
+                  quint64 lastRecord, bool persistent);
+    QString revoke(const QString& client, Recording::HistoryCaptureId);
+    QString sharingStatus(const QString& client, Recording::HistoryCaptureId) const;
+    void importFile(QString client, QString selectedPath, std::function<void(ImportResult)>);
+    void clearImportedFiles(const QString& client);
+    Capabilities::ResourceBinding binding(const ToolRequest&) const;
+    quint64 accessVersion(const QString& client, const Capabilities::ResourceBinding&) const;
+    std::optional<Capabilities::AuthorizationSnapshot> snapshot(const QString& client,
+        const Capabilities::ResourceBinding&) const;
+    void call(const ToolRequest&, QString client, std::shared_ptr<std::atomic<bool>> cancelled,
+              std::function<void(QJsonObject)>);
+private:
+    struct Impl;
+    std::unique_ptr<Impl> _impl;
+};
+}

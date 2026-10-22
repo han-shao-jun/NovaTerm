@@ -9,6 +9,7 @@
 #include "TerminalInteraction.h"
 #include "McpProtocol.h"
 #include "protocol/ToolCodec.h"
+#include "HistoryCapabilityAdapter.h"
 #include "CapabilityAdapter.h"
 #include "application/CaptureStore.h"
 #include "ObservationService.h"
@@ -56,13 +57,7 @@ QJsonObject error(const char* code, bool retryable = false, int retryAfter = 0)
 /** @brief 请求中的会话身份；list_sessions 没有会话。 */
 std::optional<SessionReference> requestSession(const ToolRequest& request)
 {
-    return std::visit([](const auto& value) -> std::optional<SessionReference> {
-        using Type = std::decay_t<decltype(value)>;
-        if constexpr (std::is_same_v<Type, ListSessionsRequest>)
-            return std::nullopt;
-        else
-            return SessionReference{value.session, value.epoch};
-    }, request);
+    return sessionReference(request);
 }
 }
 
@@ -287,6 +282,7 @@ public:
         }
         pending->deadline = clock.elapsed() + (name == "novaterm_run_script" ? ScriptWriteTimeout.count()
             : name == "novaterm_run_command" ? ConfirmationTimeout.count() : 2000);
+        if (std::holds_alternative<SearchHistoryRequest>(request)) pending->deadline = clock.elapsed() + 12000;
         const auto waitMilliseconds = [](const ToolRequest& value, int fallback) {
             return std::visit([fallback](const auto& request) -> int {
                 using Type = std::decay_t<decltype(request)>;
@@ -311,8 +307,12 @@ public:
             if (entry && entry->epoch == reference->epoch.str())
                 resource = capabilityBinding(access.grantSnapshot(ClientId{connection->client}, *entry).binding);
         }
+        const bool historyCall = std::holds_alternative<ListCapturesRequest>(pending->request)
+            || std::holds_alternative<ReadHistoryRequest>(pending->request) || std::holds_alternative<SearchHistoryRequest>(pending->request);
+        if (historyCall) resource = history.binding(pending->request);
+        const auto version = historyCall ? history.accessVersion(connection->client, resource) : access.version(connection->client);
         pending->invocation = connection->capabilities->context(std::move(resource),
-            access.version(connection->client), Capabilities::OperationId{newId()},
+            version, Capabilities::OperationId{newId()},
             Capabilities::Clock::now() + std::chrono::milliseconds(pending->deadline - clock.elapsed()));
         requests.emplace(requestKey(connectionId, id), std::move(requestOwner));
         peakRequests = (std::max)(peakRequests, qsizetype(requests.size()));
@@ -486,6 +486,15 @@ public:
         }
         const auto connection = connections.value(pending->connection);
         if (!access.enabled()) { complete(key, error("MCP_DISABLED")); return; }
+        if (std::holds_alternative<ListCapturesRequest>(pending->request)
+            || std::holds_alternative<ReadHistoryRequest>(pending->request) || std::holds_alternative<SearchHistoryRequest>(pending->request)) {
+            if (!admit(pending)) return;
+            const QPointer<Service> guard(q);
+            history.call(pending->request, connection.client, pending->cancelled, [this, guard, key](QJsonObject result) {
+                if (guard) complete(key, std::move(result));
+            });
+            return;
+        }
         if (std::holds_alternative<ListSessionsRequest>(pending->request)) {
             listSessions(pending);
             return;
@@ -646,13 +655,15 @@ public:
     QString status{"Disabled"};
     AccessStore access;
     SessionDirectory sessions;
-    Capabilities::CapabilityRegistry capabilityRegistry{Capabilities::CapabilityRegistry::terminalCapabilities()};
+    HistoryCapabilityAdapter history{access, stateDirectory, q};
+    Capabilities::CapabilityRegistry capabilityRegistry{Capabilities::CapabilityRegistry::implementedCapabilities()};
     Capabilities::CapabilityAuthorization capabilityAuthorization{
         [this](const Capabilities::PrincipalId& principal, Capabilities::EntryKind kind,
-               const Capabilities::ResourceBinding& binding, const Capabilities::Definition&)
+               const Capabilities::ResourceBinding& binding, const Capabilities::Definition& definition)
             -> std::optional<Capabilities::AuthorizationSnapshot> {
             if (kind != Capabilities::EntryKind::Mcp || !access.enabled() || !access.version(principal.value()))
                 return std::nullopt;
+            if (definition.policy == Capabilities::Policy::HistoryRead) return history.snapshot(principal.value(), binding);
             if (const auto* target = std::get_if<Capabilities::SessionBinding>(&binding)) {
                 const auto entry = sessions.find(target->session.value());
                 if (!entry || !access.canRead(principal.value(), *entry)) return std::nullopt;
@@ -689,6 +700,8 @@ Service::Service(QString stateDir, QString runtimeDir, std::unique_ptr<Credentia
 Service::~Service() { stop(); }
 AccessStore& Service::access() { return _impl->access; }
 SessionDirectory& Service::directory() { return _impl->sessions; }
+HistoryCapabilityAdapter& Service::history() { return _impl->history; }
+void Service::setHistorySource(Recording::HistoryService* source) { _impl->history.setSource(source); }
 QString Service::instanceId() const { return _impl->instance; }
 QString Service::endpoint() const { return _impl->address; }
 QString Service::httpEndpoint() const { return _impl->listening ? _impl->address : QString{}; }

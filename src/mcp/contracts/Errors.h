@@ -80,6 +80,17 @@ enum class ErrorCode {
     CredentialUpdateInProgress,
     SessionCommandBusy,
     SessionCommandNotReady,
+    PermissionDenied,
+    EvidenceExpired,
+    EvidenceLimit,
+    EvidencePersistenceUnavailable,
+    HistoryRangeMissing,
+    HistorySourceUnavailable,
+    HistorySourceLimit,
+    HistoryCursorExpired,
+    SearchCursorExpired,
+    CursorMismatch,
+    Cancelled,
 };
 
 /** @brief 错误码对应的对外字符串；唯一映射点。 */

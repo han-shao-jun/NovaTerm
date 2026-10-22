@@ -7,6 +7,8 @@
 **Tech Stack:** C++17、Qt Core、P2 ChunkStore/Index、Qt Test、现有 MCP adapter。
 **Spec:** [总体架构](00_Overall_Architecture.md)；依赖 [P2](P2_History_Recording.md)，接口供 P4/P5/P6 使用。
 
+> 2026-10-23：首版原文/搜索、离线授权、期限内存证据和三个历史工具已实现。下列复选项只表示已核对的实现与专项范围；生产诊断来源、组合报告、持久证据、完整压力矩阵和其他平台仍单列。命令与当前成绩见 [实施记录](P3_Implementation_and_Verification.md)。
+
 ## Global Constraints
 
 Capture 元数据仅记录来源，不继承 Session grant。关闭标签不撤销显式持久授权；客户端移除/令牌轮换/撤权/缩范围使旧 cursor 失效。EvidenceRef 与 cursor 都不是授权凭证。导入仅经本机文件选择/明确共享资源，不接受任意本机路径。
@@ -29,51 +31,51 @@ Capture 元数据仅记录来源，不继承 Session grant。关闭标签不撤�
 新增 tests/history/HistorySearchTests.cpp、HistoryAuthorizationTests.cpp，目标 novaterm_history_search_tests；Evidence测试置 tests/evidence/EvidenceTests.cpp，独立目标 novaterm_evidence_tests；MCP 新工具兼容用例加入 tests/mcp/ContractsTests.cpp/McpTests.cpp。
 
 接口：
-- readAsync(HistoryReadRequest, ResourceContext, ReadCallback)：base64 原文字节、byteCount、records/gap/truncated/nextCursor。
+- readAsync(HistoryReadRequest, ResourceContext, ReadCallback)：原文字节片段、byteCount、records/gap/truncated/nextCursor；仅协议边界转 base64，核心不依赖 JSON。
 - searchAsync(HistorySearchRequest, ResourceContext, SearchCallback)：命中原始范围、evidenceIds、nextCursor、complete。
 - HistorySearchRequest.mode：raw_bytes 或 text；text 首版明确 UTF-8，非法序列替换并保留原始偏移，不自动猜编码。
 - EvidenceRef：source(kind)、resourceId、原始范围、contentHash、采集时间、权限归属、来源版本/状态、expiresAt/persistence。
-- EvidenceStore::resolve(ref, ResourceContext) → 已授权有界 bytes/元数据或 EVIDENCE_EXPIRED/权限拒绝。
+- EvidenceStore::createAsync/resolveAsync(ref, ResourceContext) → 已授权有界 bytes/元数据或 EVIDENCE_EXPIRED/权限拒绝；来源适配器异步读取。
 - ResourceGrant：Principal、资源代际、允许 record/时间范围、独立 accessVersion。
 - ImportedResource：显式共享后分配 ID、hash/大小/代际；解析无任意文件系统能力。
 
-拟新增三个 MCP 工具：novaterm_list_captures、novaterm_read_history、novaterm_search_history。新增 input/output Schema 在实现时冻结为 fixture；旧九工具 Schema 不改。cursor 绑定资源/代际/范围/授权/高水位/期限。
+已新增三个 MCP 工具：novaterm_list_captures、novaterm_read_history、novaterm_search_history。新增 input/output Schema 已冻结为 history-tool-catalog-2026-10-23.json；旧九工具 Schema 不改。cursor 绑定资源/代际/范围/授权/高水位/期限。
 
 ## T1：离线授权和读取
 
 **Consumes:** P2 committed range、P1 trusted principal；**Produces:** 资源 grant 和分页原文。
-- [ ] 测 closedSessionExplicitCaptureGrantWorks、sessionGrantDoesNotAuthorizeHistory、rotatedTokenInvalidatesCursor、rangeShrinkRejectsOldCursor。
-- [ ] 实现独立授权存储与版本推进；列举/读/搜索/分析/证据解析均调用同一验证。
-- [ ] 原文字节返回 base64 和明确 byteCount，单响应默认≤64KiB，按最终编码预算裁剪，不把任意二进制直接塞 JSON UTF-8。
-- [ ] 页面保持固定已提交高水位；缺失/清理范围明确报错或 gap，不推进 cursor 隐藏缺口。
-- [ ] UI 增加离线共享范围/撤销入口，重启仅保留用户选择的持久授权，不重新继承临时 Session 权限。
+- [x] 测 closedSessionExplicitCaptureGrantWorks、sessionGrantDoesNotAuthorizeHistory、rotatedTokenInvalidatesCursor、rangeShrinkRejectsOldCursor。
+- [x] 实现独立授权存储与版本推进；列举/读/搜索/证据解析共用资源验证，未来 Analyzer 复用该端口。
+- [x] 原文字节返回 base64 和明确 byteCount，单响应默认≤64KiB，按最终编码预算裁剪，不把任意二进制直接塞 JSON UTF-8。
+- [x] 页面保持固定已提交高水位；缺失/清理范围明确报错或 gap，不推进 cursor 隐藏缺口。
+- [x] UI 增加离线共享范围/撤销入口，重启仅保留用户选择的持久授权，不重新继承临时 Session 权限。
 
 ## T2：有状态投影和有界搜索
 
 **Consumes:** immutable chunks/high-water mark；**Produces:** 带原文定位命中和可取消游标。
-- [ ] 测 literalAcrossChunk、splitUtf8AndAnsi、crProjectionMapsToRaw、matchDoesNotCrossGapOrBoot、budgetReturnsIncomplete、cancelDoesNotBlockInput。
-- [ ] 在跨 record/chunk decoder 保留 UTF-8/控制状态，CR 覆盖/ANSI 去除规则版本化；匹配区间映射回原 recordId/byteOffset。
-- [ ] raw_bytes 做精确字节匹配；text 做 UTF-8 投影 literal 匹配，首期不开放任意正则。
-- [ ] 全局扫描并发2/Principal1，单页扫描2秒或16MiB；预算先到返回 complete=false 和同高水位续扫位置。
-- [ ] query、命中数、返回文本、队列和取消检查均有上限；不一次复制几GB为 QString。
+- [x] 覆盖跨记录 literal、splitUtf8AndAnsi、crProjectionMapsToRaw、matchDoesNotCrossGapOrBoot、预算内续扫和初始取消零 I/O；真实终端并行输入性能按 P8 验收。
+- [x] 在跨 record/chunk decoder 保留 UTF-8/控制状态，CR 覆盖/ANSI 去除规则版本化；匹配区间映射回原 recordId/byteOffset。
+- [x] raw_bytes 做精确字节匹配；text 做 UTF-8 投影 literal 匹配，首期不开放任意正则。
+- [x] 全局扫描并发2/Principal1，单页扫描2秒或16MiB；预算先到返回 complete=false 和同高水位续扫位置。
+- [x] query、命中数、返回文本、队列和取消检查均有上限；不一次复制几GB为 QString。
 
 ## T3：证据与导入资源
 
 **Consumes:** 历史命中、在线任务结果或用户导入；**Produces:** 可解析 EvidenceRef/小摘要。
-- [ ] 测 expiredSourceDoesNotClaimVerifiable、memoryEvidenceGoneAfterRestart、diagnosticEvidenceRequiresOwner、importedPathNotAcceptedFromModel。
-- [ ] 支持 terminal_capture、diagnostic_result、imported_file 三类来源；诊断记录 Recipe版本、目标/环境代际、执行路由、完成/截断。
-- [ ] shared_terminal 结果标共享来源，不假定隔离 stdout 归属。
-- [ ] 录制关闭且无持久化授权仅存期限内存证据；显式返回 persistence=memory/expiresAt，不自动开启录制。
-- [ ] 跨客户端共享和任务结果持久化另授权；Session撤权阻止在途结果交付，已明确共享离线资源按自身版本控制。
-- [ ] 导入校验大小/hash，离线分析只读资源ID；删除联动引用失效，报告 EVIDENCE_EXPIRED。
+- [x] 测 expiredSourceDoesNotClaimVerifiable、memoryEvidenceGoneAfterRestart、diagnosticEvidenceRequiresOwner、importedPathNotAcceptedFromModel。
+- [ ] 三类来源的通用契约及 fake 均已验证，历史/导入已接线；生产 diagnostic_result 适配与 Recipe 结果发布随 P4。
+- [x] shared_terminal 来源标记及 Recipe/目标/环境/截断元数据已由核心与 fake 验证，不假定隔离 stdout；生产消费者随 P4。
+- [x] 仅存期限内存证据；显式返回 persistence=memory/expiresAt，不自动开启录制。
+- [ ] 首版默认拒绝跨客户端共享与持久证据请求；后续显式权限和持久化实现另验收。已共享离线资源按自身版本控制。
+- [x] 本机显式导入校验大小/hash，解析只接受资源 ID；删除联动引用失效，报告 EVIDENCE_EXPIRED。Analyzer 属 P5。
 
 ## T4：MCP 与工具目录集成
 
 **Consumes:** T1～T3；**Produces:** 三个历史工具和兼容证据。
-- [ ] 测 newHistoryToolsDoNotChangeLegacyCatalog、listOnlyAuthorizedCaptures、reportCannotMixUnauthorizedEvidence。
-- [ ] 经 P1 adapter 注册已实现工具，稳定 tools/list，不按活动标签动态删工具。
-- [ ] 保持 HTTP/认证/双协议/取消；后台扫描不运行 GUI 同步磁盘I/O。
-- [ ] 跑新搜索目标、MCP contracts/业务/wire；记录未覆盖平台和资源上界。
+- [ ] 新目录兼容和仅列授权 capture 已由 fixture/HTTP 测试验证；组合报告尚未实现，reportCannotMixUnauthorizedEvidence 随报告消费者验收。
+- [x] 经 P1 adapter 注册已实现工具，稳定 tools/list，不按活动标签动态删工具。
+- [x] 保持 HTTP/认证/双协议/取消；后台扫描不运行 GUI 同步磁盘I/O。
+- [x] 跑新搜索目标、MCP contracts/业务/wire；记录未覆盖平台和资源上界。
 
 ~~~bash
 cmake --build build --config Debug --target novaterm_history_search_tests novaterm_evidence_tests
@@ -86,15 +88,15 @@ ctest --test-dir build -C Debug -L mcp --output-on-failure
 
 - History读/投影/搜索围绕原始记录与偏移内聚；Evidence/导入是独立应用模块，不能继续作为History容纳所有来源的工具集合。
 - Evidence核心通过资源授权与只读来源解析端口工作；HistoryCapture、DiagnosticResult、ImportedFile适配器由组合根注册。核心不includeHistoryChunkStore、诊断任务或Agent消息。
-- [ ] 分别独立链接History搜索和Evidence测试，用三个fake来源验证统一hash/权限/到期契约；替换History reader时Evidence核心和Analyzer不改。
-- [ ] 所有资源回收/引用失效仍由所属owner产生事实；不靠共享可变缓存或“证据ID可猜即查”跨模块访问。
-- [ ] novaterm_evidence（规划）只暴露EvidenceTypes、来源读取/授权端口及服务；History和诊断无需互相链接实现，来源适配在集成目标装配。
+- [x] 独立链接History搜索和Evidence测试，三个fake来源验证统一hash/权限/到期契约；Evidence核心不依赖History reader具体实现。Analyzer 随 P5。
+- [x] 所有资源回收/引用失效仍由所属owner产生事实；不靠共享可变缓存或“证据ID可猜即查”跨模块访问。
+- [x] novaterm_evidence 只暴露EvidenceTypes、来源读取/授权端口及服务；来源适配在集成目标装配，不反向链接History/诊断实现。
 
 ## 补充契约：搜索续页与有界状态
 
-首版选择服务端SearchSession，避免把decoder内部状态放进可篡改cursor或每页从日志头重扫。SearchSession由HistorySearchService拥有：Principal、资源/授权版本、固定提交高水位、规范化query hash（含mode/匹配选项）、投影版本、原始位置、UTF-8/ANSI/CR状态、匹配尾部及映射、页序号、单调期限。cursor为不可猜测句柄加页序号并作完整性保护，每次读取仍重新授权。
+首版选择服务端SearchSession，避免把decoder内部状态放进可篡改cursor或每页从日志头重扫。SearchSession由HistorySearchService拥有：Principal、资源/授权版本、固定提交高水位、query/mode、投影版本、原始位置、UTF-8/ANSI/CR状态、匹配尾部及映射和单调期限。实现采用每页随机不透明句柄，服务端仅接纳下一页或上一页精确重试，页序和完整状态均不接受客户端重写；每次读取仍重新授权。
 
-cursor绑定query及投影版本；更换query/mode返回CURSOR_MISMATCH，状态到期/重启/淘汰返回SEARCH_CURSOR_EXPIRED，资源删除返回EVIDENCE_EXPIRED。授权撤销按权限拒绝，不把游标有效当授权有效。以上为新能力拟定错误，不能修改旧九工具错误语义。
+cursor绑定query及投影版本；更换query/mode返回CURSOR_MISMATCH，状态到期/重启/淘汰返回SEARCH_CURSOR_EXPIRED，资源删除返回EVIDENCE_EXPIRED。授权撤销按权限拒绝，不把游标有效当授权有效。这些新能力错误已实现，不修改旧九工具错误语义。
 
 设计初值：搜索状态全局16个/Principal2个，单状态最多1MiB、空闲TTL60秒、绝对TTL5分钟；达到容量拒绝新搜索，不淘汰正在执行的页。扫描worker并发仍为全局2/Principal1。单query最多4KiB；每页最多128命中且最终编码≤64KiB，扫描仍为2秒/16MiB先到。1MiB包含decoder、映射、匹配尾部及上一页缓存；所有租约受绝对TTL限制，取消/撤权/完成释放扫描资源。
 
@@ -104,6 +106,6 @@ cursor绑定query及投影版本；更换query/mode返回CURSOR_MISMATCH，状�
 
 text投影首版按行缓冲，单行及单控制序列分别限制64KiB和4KiB。遇超限不无界累积：返回projection_gap及原始区间、停止该次搜索并释放状态，complete=false、nextCursor=null、reason=PROJECTION_LIMIT，提示可用raw_bytes新建搜索。complete只在固定高水位全部扫描且无投影遗漏时为true；尾部unknown_tail另由sourceCompleteness返回，不能被complete覆盖。
 
-- [ ] T2增加pagedMatchesEqualContinuousScan、budgetInsideUtf8AnsiAndLiteral、changedQueryRejectsCursor、cursorExpiryDoesNotRestartScan、duplicatePageDoesNotAdvance、longLineProjectionLimitIsExplicit。
+- [x] T2增加pagedMatchesEqualContinuousScan、budgetInsideUtf8AnsiAndLiteral、changedQueryRejectsCursor、cursorExpiryDoesNotRestartScan、duplicatePageDoesNotAdvance、longLineProjectionLimitIsExplicit。
 - [ ] 覆盖状态总内存/Principal限额、租约到期与清理并发；查询上下文不在GUI同步重建。
-- [ ] T3将sourceCompleteness、projectionVersion和多片段原始范围带入EvidenceRef，禁止报告把不完整扫描解释为“没有故障”。
+- [x] T3将sourceCompleteness、projectionVersion和多片段原始范围带入EvidenceRef；未来报告消费者须保留不完整状态，不能解释为“没有故障”。

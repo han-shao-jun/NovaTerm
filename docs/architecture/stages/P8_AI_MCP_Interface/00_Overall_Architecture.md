@@ -29,18 +29,19 @@
 ## 2. 当前事实与目标分层
 
 已有：contracts/ToolCodec、单项授权、CapabilityResolver、统一观察存储、请求调度、统一确认事务、CommandRuntime执行生命周期、Session证据模型及独立只读用例。构建目标以 src/mcp/CMakeLists.txt 为准。
-未有：通用能力 Registry/Dispatcher、本机 Agent 入口、保真历史、诊断 Pack、模型 Driver、完整聊天 UI、外部 Agent 托管。
+当前增量：P1 通用能力 Registry/Dispatcher 与可信入口、P2 保真录制、P3 有界原文/搜索和独立授权内存证据已实现；具体平台与未验收范围按各阶段实施记录，不能从规划或历史测试推断。
+未有：生产诊断 Pack、模型 Driver、完整聊天 UI、外部 Agent 托管；内置 Agent 产品入口按 P6 交付。
 
 ~~~mermaid
 flowchart TB
-    MCP[现有 HTTP / WireSession / ToolCodec] --> Entry[共享应用入口与能力分派：待收敛]
+    MCP[现有 HTTP / WireSession / ToolCodec] --> Entry[共享应用入口与能力分派]
     Agent[内置 Agent Runtime：规划] --> Local[本机工具适配]
     CLI[未来 CLI / 外部托管适配] --> Entry
     Local --> Entry
     Entry --> Auth[授权 / 能力解析 / 确认 / 审计]
     Entry --> Observe[统一观察服务]
     Entry --> Exec[任务与执行用例]
-    Entry --> History[历史 / 搜索 / 证据：规划]
+    Entry --> History[录制 / 原文搜索 / 内存证据]
     Entry --> Packs[诊断 Provider：规划]
     Packs --> Exec
     Packs --> History
@@ -126,8 +127,8 @@ Evidence作为独立应用职责：History、诊断、导入分别提供来源�
 | ConfirmationRegistry/业务事务 | 摘要、目标/策略/代际绑定、一次消费；协议两代共享语义 |
 | CredentialBroker/现有凭据边界 | 私有秘密引用和有界 worker；不向模型/Result 返回 secret |
 | Session evidence / Coordinator / Arbiter | 唯一提示符与输入证据、人机仲裁、提交和完成事实 |
-| History（规划） | 保真录制、已提交记录、容量/恢复/回收；不管理诊断任务 |
-| Evidence / 导入资源（规划） | 来源无关的证据引用、独立资源授权与解析；通过来源端口读取原文 |
+| History | 保真录制、已提交记录、容量/恢复/回收与有界只读搜索；不管理诊断任务 |
+| Evidence / 导入资源 | 来源无关的期限内存证据、独立资源授权与解析；通过来源端口读取原文，生产诊断适配及持久化另验 |
 | AgentManager / Runtime（规划） | 应用级聊天与回合、Driver、事件、取消和上下文 |
 | UI model / controller | 只读快照和本机意图；不持可变 AccessStore，不判定后端能力 |
 

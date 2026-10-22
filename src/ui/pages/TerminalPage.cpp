@@ -8,6 +8,7 @@
 #include "TerminalPage.h"
 #include "ui/app/Application.h"
 #include "mcp/McpService.h"
+#include "mcp/HistoryCapabilityAdapter.h"
 #include "ui/terminal/TerminalView.h"
 #include "ui/widgets/TerminalTabWidget.h"
 #include "ui/widgets/HistoryRecordingPanel.h"
@@ -425,6 +426,29 @@ void TerminalPage::showHistoryRecording()
     const auto* view = currentTerminal(); const auto* session = view ? view->session() : nullptr;
     panel->setRecordingTarget(session ? NovaTerm::Recording::RecordingIntent{session->id(), session->statistics().generation} : NovaTerm::Recording::RecordingIntent{},
         session && session->state() == SessionState::Running, session ? session->runtimeConfig().title : QString{});
+    if (auto* mcp = Application::instance().mcpService()) {
+        HistorySharingActions sharing;
+        for (const auto& client : mcp->access().clients()) sharing.clients.push_back({client.id.str(), client.label});
+        const QPointer<NovaTerm::Mcp::Service> guard(mcp);
+        sharing.share = [guard](QString client, NovaTerm::Recording::HistoryCaptureId capture, quint64 first, quint64 last, bool persistent) {
+            return guard ? guard->history().share(client, capture, first, last, persistent) : QStringLiteral("MCP service unavailable");
+        };
+        sharing.revoke = [guard](QString client, NovaTerm::Recording::HistoryCaptureId capture) {
+            return guard ? guard->history().revoke(client, capture) : QStringLiteral("MCP service unavailable");
+        };
+        sharing.status = [guard](QString client, NovaTerm::Recording::HistoryCaptureId capture) {
+            return guard ? guard->history().sharingStatus(client, capture) : QString{};
+        };
+        sharing.importFile = [guard](QString client, QString path, std::function<void(QString)> finished) {
+            if (!guard) { finished(QStringLiteral("MCP service unavailable")); return; }
+            guard->history().importFile(client, path, [finished = std::move(finished)](const auto& result) {
+                finished(result.error.isEmpty() ? QStringLiteral("Shared file %1 (%2 bytes, SHA-256 %3). Permission expires on exit; offline analyzers are not yet available.")
+                    .arg(result.resourceId).arg(result.byteCount).arg(result.contentHash) : result.error);
+            });
+        };
+        sharing.clearImports = [guard](QString client) { if (guard) guard->history().clearImportedFiles(client); };
+        panel->setSharingActions(std::move(sharing));
+    }
     panel->show(); panel->raise(); panel->activateWindow();
 }
 

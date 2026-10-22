@@ -3,6 +3,10 @@
 整理日期：2026-10-18。入口：[总体架构](00_Overall_Architecture.md) / [阶段划分](01_Phases_and_Acceptance.md)。
 本文件从原P8提取现行契约，并用当前ToolCodec、九工具fixture、Budget、Errors和MCP使用说明核对。只描述NovaTerm工作区实现，不宣称外部MCP规范的最新状态，也不证明所有平台已验收。
 
+2026-10-23 增量：当前目录为原九工具 + `novaterm_list_captures`、`novaterm_read_history`、`novaterm_search_history`，共 **12** 项。原九工具对象保持兼容；新增目录/Schema 冻结在 `tests/mcp/fixtures/history-tool-catalog-2026-10-23.json`。历史工具使用独立 capture 授权，不接受 sessionId、epoch、principal/client 或本机路径参数。实现与平台范围见 [P3 实施记录](P3_Implementation_and_Verification.md)。以下原九工具分节仍是其兼容契约。
+
+历史工具返回原文的 base64、原始 record/byte 多片段、固定高水位、独立 sourceCompleteness 与分页 complete。text 查询为 UTF-8 literal；raw_bytes 的 query 为规范 base64，不接受任意正则。录制与共享分别由本机用户选择；Session 关闭不会撤销显式离线共享，令牌轮换、客户端删除、capture 删除及授权缩范围会拒绝旧游标。EvidenceRef 和 cursor 不能代替授权。
+
 ## 1. 责任和事实来源
 
 | 内容 | 事实来源 |

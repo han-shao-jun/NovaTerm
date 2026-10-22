@@ -13,6 +13,9 @@ template<> inline const char* terminalCapabilityName<RunCommandRequest>() { retu
 template<> inline const char* terminalCapabilityName<RunScriptRequest>() { return "terminal.script.run"; }
 template<> inline const char* terminalCapabilityName<InteractTerminalRequest>() { return "terminal.interact"; }
 template<> inline const char* terminalCapabilityName<RequestElevationRequest>() { return "terminal.elevation.request"; }
+template<> inline const char* terminalCapabilityName<ListCapturesRequest>() { return "history.capture.list"; }
+template<> inline const char* terminalCapabilityName<ReadHistoryRequest>() { return "history.raw.read"; }
+template<> inline const char* terminalCapabilityName<SearchHistoryRequest>() { return "history.literal.search"; }
 inline Capabilities::CapabilityId terminalCapability(const ToolRequest& request)
 {
     return std::visit([](const auto& value) {

@@ -285,6 +285,8 @@ add_compile_definitions(
 
 add_subdirectory(src/history)
 include(src/history/Recording.cmake)
+include(src/history/HistoryP3.cmake)
+add_subdirectory(src/evidence)
 
 set(NOVATERM_CORE_SOURCES
     src/core/ThreadNaming.h
@@ -353,6 +355,7 @@ list(FILTER SOURCES EXCLUDE REGEX "[/\\\\]src[/\\\\]mcp[/\\\\]")
 list(FILTER SOURCES EXCLUDE REGEX "[/\\\\]src[/\\\\]capabilities[/\\\\]")
 list(FILTER SOURCES EXCLUDE REGEX "[/\\\\]EnvironmentTracker\\.(cpp|h)$")
 list(FILTER SOURCES EXCLUDE REGEX "[/\\\\]src[/\\\\]history[/\\\\]")
+list(FILTER SOURCES EXCLUDE REGEX "[/\\\\]src[/\\\\]evidence[/\\\\]")
 list(FILTER SOURCES EXCLUDE REGEX "[/\\\\]src[/\\\\]filetransfer[/\\\\]")
 list(FILTER SOURCES EXCLUDE REGEX "[/\\\\]src[/\\\\]session[/\\\\]transfer[/\\\\]")
 list(FILTER SOURCES EXCLUDE REGEX "[/\\\\]SessionDirectory\\.(cpp|h)$")

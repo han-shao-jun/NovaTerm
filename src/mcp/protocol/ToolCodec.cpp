@@ -6,6 +6,7 @@
  * `tests/mcp/fixtures/tool-catalog-2026-10-18.json` 锁定外部兼容性。
  */
 #include "ToolCodec.h"
+#include "HistoryToolCodec.h"
 #include "mcp/contracts/TerminalInputValidation.h"
 #include "capabilities/terminal/LegacyTerminalMapping.h"
 #include "capabilities/CapabilityRegistry.h"
@@ -314,6 +315,7 @@ const QJsonArray& ToolCodec::catalog()
             {"not", QJsonObject{{"required", QJsonArray{"command"}}}}}});
     add("terminal.elevation.request", "Request separately authorized managed sudo/su using local credentials and a verified authentication adapter. Observe first and pass inputToken; never provide a password. Unavailable adapters fail without sending credentials.",
         elevationInput, true, true);
+    for (const auto& tool : HistoryToolCodec::catalog()) result.append(tool);
     return result;
     }();
     return catalog;
@@ -321,6 +323,7 @@ const QJsonArray& ToolCodec::catalog()
 
 QString ToolCodec::validate(const QString& name, const QJsonObject& arguments)
 {
+    if (HistoryToolCodec::known(name)) return HistoryToolCodec::validate(name, arguments);
     QJsonObject input;
     for (const auto& tool : catalog()) {
         if (tool.toObject().value("name").toString() == name)
@@ -482,12 +485,13 @@ QString textArgument(const QJsonObject& arguments, const char* key)
 
 bool ToolCodec::isKnownTool(const QString& name)
 {
-    static const auto registry = Capabilities::CapabilityRegistry::terminalCapabilities();
+    static const auto registry = Capabilities::CapabilityRegistry::implementedCapabilities();
     return registry.findByMcpTool(name).has_value();
 }
 
 Result<ToolRequest> ToolCodec::decode(const QString& name, const QJsonObject& arguments)
 {
+    if (HistoryToolCodec::known(name)) return HistoryToolCodec::decode(name, arguments);
     const QString invalid = validate(name, arguments);
     if (!invalid.isEmpty())
         return Error{ErrorCode::InvalidArgument, invalid};
@@ -706,7 +710,7 @@ QJsonArray ToolCodec::encodeActions(const std::vector<TerminalAction>& actions)
 
 QString ToolCodec::toolName(const ToolRequest& request)
 {
-    static const auto registry = Capabilities::CapabilityRegistry::terminalCapabilities();
+    static const auto registry = Capabilities::CapabilityRegistry::implementedCapabilities();
     const auto definition = registry.find(terminalCapability(request));
     return definition ? definition->mcpTool : QString{};
 }

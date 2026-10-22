@@ -6,6 +6,15 @@ set_tests_properties(novaterm_history_no_qt_link_check PROPERTIES LABELS "unit;h
 
 if(TARGET Qt6::Core)
 find_package(Qt6 6.8 REQUIRED COMPONENTS Test)
+foreach(_p3 Authorization Search)
+    string(TOLOWER "${_p3}" _p3lower)
+    qt_add_executable(novaterm_history_${_p3lower}_tests History${_p3}Tests.cpp)
+    target_link_libraries(novaterm_history_${_p3lower}_tests PRIVATE novaterm_history_search Qt6::Test)
+    set_target_properties(novaterm_history_${_p3lower}_tests PROPERTIES WIN32_EXECUTABLE FALSE)
+    add_test(NAME novaterm_history_${_p3lower}_tests COMMAND novaterm_history_${_p3lower}_tests
+        -o "${CMAKE_CURRENT_BINARY_DIR}/History${_p3}Tests.ctest.txt,txt")
+    set_tests_properties(novaterm_history_${_p3lower}_tests PROPERTIES LABELS "unit;history;history-search;p8" TIMEOUT 30)
+endforeach()
 foreach(_suite Recorder Store Service)
     string(TOLOWER "${_suite}" _lower)
     qt_add_executable(novaterm_history_${_lower}_tests History${_suite}Tests.cpp)

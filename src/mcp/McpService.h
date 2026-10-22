@@ -5,8 +5,10 @@
 #include "McpAccess.h"
 #include <QJsonArray>
 #include <memory>
+namespace NovaTerm::Recording { class HistoryService; }
 
 namespace NovaTerm::Mcp {
+class HistoryCapabilityAdapter;
 class Service final : public QObject
 {
     Q_OBJECT
@@ -16,6 +18,8 @@ public:
     ~Service() override;
     [[nodiscard]] AccessStore& access();
     [[nodiscard]] SessionDirectory& directory();
+    [[nodiscard]] HistoryCapabilityAdapter& history();
+    void setHistorySource(Recording::HistoryService*);
     [[nodiscard]] QString instanceId() const;
     [[nodiscard]] QString endpoint() const;
     [[nodiscard]] QString httpEndpoint() const;

@@ -56,4 +56,15 @@ CapabilityRegistry CapabilityRegistry::terminalCapabilities()
     add("terminal.elevation.request", "novaterm_request_elevation", Policy::Elevation);
     return registry;
 }
+CapabilityRegistry CapabilityRegistry::implementedCapabilities()
+{
+    auto registry = terminalCapabilities();
+    registry.add({CapabilityId{"history.capture.list"}, 1, ImplementationStatus::Implemented,
+        ResourceKind::Directory, Policy::HistoryRead, "novaterm_list_captures"});
+    registry.add({CapabilityId{"history.raw.read"}, 1, ImplementationStatus::Implemented,
+        ResourceKind::HistoryCapture, Policy::HistoryRead, "novaterm_read_history"});
+    registry.add({CapabilityId{"history.literal.search"}, 1, ImplementationStatus::Implemented,
+        ResourceKind::HistoryCapture, Policy::HistoryRead, "novaterm_search_history"});
+    return registry;
+}
 }

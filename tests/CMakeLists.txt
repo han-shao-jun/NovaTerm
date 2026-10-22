@@ -23,7 +23,9 @@ set(NOVATERM_P5_RENDERER_SOURCES
 )
 
 if(BUILD_TESTING)
-    add_subdirectory(history)
+add_subdirectory(history)
+include(mcp/History.cmake)
+add_subdirectory(evidence)
     # 测试以 QT_QPA_PLATFORM=offscreen 运行，而 windeployqt 只部署 qwindows，
     # 这里把 offscreen 平台插件复制到 bin/platforms，避免"no Qt platform plugin"。
     if(WIN32 AND TARGET Qt${QT_VERSION_MAJOR}::QOffscreenIntegrationPlugin)
@@ -56,6 +58,8 @@ if(BUILD_TESTING)
         USES_TERMINAL
         COMMENT "Running NovaTerm tests with detailed CTest output"
     )
+    add_dependencies(check novaterm_history_contracts_tests novaterm_history_authorization_tests
+        novaterm_history_search_tests novaterm_evidence_tests)
 
     add_subdirectory(filetransfer)
 

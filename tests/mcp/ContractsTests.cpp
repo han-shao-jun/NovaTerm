@@ -112,13 +112,14 @@ void ContractsTests::catalogMatchesCompatibilityFixture()
     QCOMPARE(error.error, QJsonParseError::NoError);
     QVERIFY(document.isArray());
     // 对象比较，不是文本比较：键顺序与空白不参与语义，字段/枚举/默认值参与。
-    QVERIFY2(ToolCodec::catalog() == document.array(),
-        "Tool catalog drifted from the pre-refactor fixture.");
+    const auto legacy = document.array();
+    QVERIFY(ToolCodec::catalog().size() >= legacy.size());
+    for (qsizetype i = 0; i < legacy.size(); ++i) QCOMPARE(ToolCodec::catalog()[i], legacy[i]);
 }
 
 void ContractsTests::catalogExposesNineToolsInOrder()
 {
-    const auto registry = NovaTerm::Capabilities::CapabilityRegistry::terminalCapabilities();
+    const auto registry = NovaTerm::Capabilities::CapabilityRegistry::implementedCapabilities();
     QCOMPARE(registry.definitions().size(), size_t(ToolCodec::catalog().size()));
     for (const auto& tool : ToolCodec::catalog()) {
         const auto name = tool.toObject().value("name").toString();
@@ -127,8 +128,8 @@ void ContractsTests::catalogExposesNineToolsInOrder()
         QVERIFY(definition->id.value() != name);
     }
     QStringList actual;
-    for (const auto& tool : ToolCodec::catalog())
-        actual.append(tool.toObject().value(QStringLiteral("name")).toString());
+    for (qsizetype i = 0; i < toolNames().size(); ++i)
+        actual.append(ToolCodec::catalog()[i].toObject().value(QStringLiteral("name")).toString());
     QCOMPARE(actual, toolNames());
     for (const auto& name : toolNames())
         QVERIFY2(ToolCodec::isKnownTool(name), qPrintable(name));
@@ -145,15 +146,9 @@ void ContractsTests::everyToolDecodesToItsOwnRequest()
         QVERIFY2(!isError(decoded), qPrintable(name));
         const auto& request = std::get<ToolRequest>(decoded);
         QCOMPARE(ToolCodec::toolName(request), name);
-        QVERIFY(std::visit([](const auto& value) {
-            using Type = std::decay_t<decltype(value)>;
-            if constexpr (std::is_same_v<Type, ListSessionsRequest>) {
-                return true;
-            } else {
-                return value.session.str() == SessionUuid
-                    && value.epoch.str() == QStringLiteral("epoch-1");
-            }
-        }, request));
+        const auto reference = sessionReference(request);
+        QVERIFY(!reference || (reference->session.str() == SessionUuid
+            && reference->epoch.str() == QStringLiteral("epoch-1")));
     }
 }
 

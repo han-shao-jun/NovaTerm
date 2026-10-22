@@ -212,7 +212,29 @@ SQL worker 不再 detach；500 ms 排空后协作取消并 join，底层不可�
 录制 CTest 现在把 QTest 断言保存到 `build/Release/tests/history/*.ctest.txt`，stdout 为空时直接读该文件。
 前轮失败日志与新命令见上方实施记录及 `docs/architecture/benchmarks/history-recording-review-fixes-windows-2026-10-22/`。
 
+#### mcp/P3 首版增量（2026-10-23）
+
+新增独立 Qt Core `novaterm_history_search`（授权/读取/搜索）和 `novaterm_evidence`。
+MCP 为旧九工具兼容对象 + 三个历史工具，共 12 项；历史读取不继承 Session grant。
+本机「历史录制」提供客户端/record 范围、持久授权选择、撤回和显式本地文件共享；
+文件读取/hash 异步、最多 16 MiB，未增加任意本机路径 MCP 参数或自动录制。
+证据默认期限内存；生产诊断来源、持久证据/跨客户端共享及报告消费者仍待后续阶段。
+
+新增 `novaterm_history_authorization_tests`、`novaterm_history_search_tests`、
+`novaterm_evidence_tests`、`novaterm_history_contracts_tests`；前两项可按
+`-L history-search` 选择，历史协议/接线另跑 MCP contracts/wire/业务，UI 跑录制 UI。
+当前 Windows `ctest -N` 实核 **47** 项；最后名额回收修复前的分段跨模块回归合计 **46/47**，
+唯一失败目标是既有清单中的 `novaterm_conpty_tests`，本轮没有放宽其断言。
+该轮相关八目标 **8/8**；名额回收修复后完整重建，MCP 业务目标复验 **1/1**。
+授权 QTest **6/6**、读取/搜索 **23/23**、证据 **17/17**，
+官方 SDK 2025 / raw HTTP 2026 的十二工具 Schema 互操作通过。
+沙箱内临时目录私有权限/PDB 管理器异常须与产品失败区分；本轮最终验证在沙箱外进行。
+详细命令、审查修复、最后授权回收验证和保留范围见
+`docs/architecture/stages/P8_AI_MCP_Interface/P3_Implementation_and_Verification.md`。
+
 #### 默认注册了哪些测试
+
+以下清单/数字为历史基线，当前注册数及本轮范围见上方 P3 增量和源码。
 
 以 `tests/CMakeLists.txt` 为准（2026-09 复核）。两个开关的默认值都要注意：
 `include(CTest)` 让 `BUILD_TESTING` 默认 **ON**，而

@@ -6,6 +6,7 @@ class CapabilityRegistry
 {
 public:
     static CapabilityRegistry terminalCapabilities();
+    static CapabilityRegistry implementedCapabilities();
     bool add(Definition definition);
     std::optional<Definition> find(const CapabilityId&) const;
     std::optional<Definition> findByMcpTool(const QString&) const;

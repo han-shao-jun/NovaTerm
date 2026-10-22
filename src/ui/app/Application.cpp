@@ -41,6 +41,7 @@ void Application::shutdown()
 {
     if (_mcpService) _mcpService->stop();
     _mainWindow.reset();
+    if (_mcpService) _mcpService->setHistorySource(nullptr);
     _historyRecording.reset();
     _mcpService.reset();
     if (_historyRuntime) _historyRuntime->stop();
@@ -158,6 +159,7 @@ void Application::init()
     _historyRuntime = std::make_shared<NovaTerm::HistoryCompressionService>();
     _historyRecording = std::make_unique<NovaTerm::Recording::HistoryService>(
         QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation) + "/history");
+    _mcpService->setHistorySource(_historyRecording.get());
     _mainWindow = std::make_unique<MainWindow>(nullptr, _historyRuntime);
 
     // ElaWindow 构造函数中 setObjectName("ElaWindow") 并设

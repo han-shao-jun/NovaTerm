@@ -2,6 +2,8 @@
  *  @brief MCP 协议、授权、跨客户端摘要及受限命令的离线端到端检查。
  */
 #include "mcp/McpService.h"
+#include "mcp/HistoryCapabilityAdapter.h"
+#include "history/HistoryService.h"
 #include "mcp/CommandSessionAdapter.h"
 #include "capabilities/SessionRecipeAdapter.h"
 #include "capabilities/LocalAgentAdapter.h"
@@ -513,6 +515,9 @@ class McpTests final : public QObject
 {
     Q_OBJECT
 private slots:
+    void historyOfflineAccessRequiresExplicitGrant();
+    void historyOnlyExplicitPersistentGrantsSurviveAdapterRestart();
+    void expiredCapturesDoNotExhaustHistoryGrantCapacity();
     void commandTimeoutKeepsExecutionFacts();
     void recipeAdapterUsesExistingSessionAndInvalidatesOnInput();
     void recipeAdapterSubmitsSharedAndIsolatedRequests();
@@ -618,6 +623,108 @@ private slots:
     void commandAndScriptProductGrantsAreIndependent();
     void readGrantAloneDoesNotAllowInteractiveCommand();
 };
+
+void McpTests::historyOnlyExplicitPersistentGrantsSurviveAdapterRestart()
+{
+    using namespace NovaTerm::Recording;
+    Fixture f;
+    HistoryService recording(f.root.path() + "/history-persistent"); QTRY_VERIFY(recording.ready());
+    HistoryCaptureId capture; bool started = false;
+    QVERIFY(recording.start({f.session.id(), 1}, [&](auto r) { capture = r.captureId; started = r.success; })); QTRY_VERIFY(started);
+    QCOMPARE(recording.submit(f.session.id(), 1, "public"), SubmitResult::Accepted);
+    QCOMPARE(recording.submit(f.session.id(), 1, "secret"), SubmitResult::Accepted);
+    recording.stop({f.session.id(), 1}); QTRY_VERIFY(!recording.captures().front().active);
+    const auto other = f.service.access().addClient("temporary-history"); QVERIFY(!other.isEmpty());
+    const auto state = f.root.path() + "/separate-history-grants";
+    {
+        HistoryCapabilityAdapter first(f.service.access(), state); first.setSource(&recording);
+        QVERIFY(first.share(f.client, capture, 1, 1, true).isEmpty());
+        QVERIFY(first.share(other, capture, 1, 0, false).isEmpty());
+    }
+    HistoryCapabilityAdapter restored(f.service.access(), state); restored.setSource(&recording);
+    QVERIFY(restored.sharingStatus(f.client, capture).contains("persistent"));
+    QCOMPARE(restored.sharingStatus(other, capture), QString("Not shared"));
+    auto identity = restored.binding(ToolRequest{ReadHistoryRequest{HistoryResourceId{capture.text()}, {}, 1}});
+    QVERIFY(restored.accessVersion(f.client, identity) != 0);
+    QVERIFY(f.service.access().rotateToken(f.client));
+    QCOMPARE(restored.accessVersion(f.client, identity), quint64(0));
+}
+
+void McpTests::expiredCapturesDoNotExhaustHistoryGrantCapacity()
+{
+    using namespace NovaTerm::Recording;
+    Fixture f; HistoryService recording(f.root.path() + "/history-capacity"); QTRY_VERIFY(recording.ready());
+    HistoryCaptureId capture; bool started = false;
+    QVERIFY(recording.start({f.session.id(), 1}, [&](auto r) { capture = r.captureId; started = r.success; })); QTRY_VERIFY(started);
+    recording.stop({f.session.id(), 1}); QTRY_VERIFY(!recording.captures().front().active);
+    const auto state = f.root.path() + "/history-capacity-grants";
+    quint64 tokenEpoch = 0;
+    { HistoryCapabilityAdapter adapter(f.service.access(), state);
+      tokenEpoch = adapter.accessVersion(f.client, NovaTerm::Capabilities::DirectoryBinding{}); }
+    QJsonArray expired;
+    HistoryCaptureId firstExpired;
+    for (int i = 0; i < 128; ++i) {
+        const HistoryCaptureId id{QUuid::createUuid()}; if (!i) firstExpired = id;
+        expired.append(QJsonObject{{"principal", f.client}, {"tokenEpoch", QString::number(tokenEpoch)},
+            {"captureId", id.text()}, {"generation", "1"}, {"first", "1"}, {"last", "0"}});
+    }
+    QVERIFY(writePrivateJson(state + "/history-grants.json", {{"version", 1}, {"grants", expired}}));
+    HistoryCapabilityAdapter restored(f.service.access(), state); restored.setSource(&recording);
+    QVERIFY2(restored.share(f.client, capture, 1, 0, false).isEmpty(), "Deleted capture grants blocked a new explicit share");
+    QCOMPARE(restored.sharingStatus(f.client, firstExpired), QString("Not shared"));
+}
+
+void McpTests::historyOfflineAccessRequiresExplicitGrant()
+{
+    using namespace NovaTerm::Recording;
+    Fixture f;
+    HistoryService recording(f.root.path() + "/history");
+    QTRY_VERIFY(recording.ready());
+    f.service.setHistorySource(&recording);
+    HistoryCaptureId capture;
+    QString startError;
+    bool started = false;
+    QVERIFY(recording.start({f.session.id(), 1}, [&](RecordingResult r) { capture = r.captureId; startError = r.error; started = r.success; }));
+    QTRY_VERIFY(capture.valid());
+    QVERIFY2(started, qPrintable(startError));
+    const auto payload = QByteArray::fromHex("61626300ff6572726f720a") + " a a a a\n";
+    QCOMPARE(recording.submit(f.session.id(), 1, payload), SubmitResult::Accepted);
+    recording.stop({f.session.id(), 1});
+    QTRY_VERIFY(!recording.captures().empty() && !recording.captures().front().active);
+    QVERIFY(f.enable());
+    QTRY_COMPARE(f.service.status(), QStringLiteral("Listening"));
+    Host host;
+    QVERIFY(host.start(f.runtime(), f.token()));
+    QCOMPARE(host.call("novaterm_list_captures").value("data").toObject().value("captures").toArray().size(), 0);
+    QVERIFY(!host.call("novaterm_read_history", {{"captureId", capture.text()}}).value("ok").toBool());
+    QVERIFY2(f.service.history().share(f.client, capture, 1, 0, false).isEmpty(), "Explicit capture share failed");
+    f.session.close(CloseMode::Abort);
+    QCOMPARE(host.call("novaterm_list_captures").value("data").toObject().value("captures").toArray().size(), 1);
+    const auto response = host.call("novaterm_read_history", {{"captureId", capture.text()}});
+    QVERIFY2(response.value("ok").toBool(), qPrintable(QString::fromUtf8(QJsonDocument(response).toJson())));
+    QByteArray actual;
+    for (const auto& item : response.value("data").toObject().value("records").toArray())
+        actual += QByteArray::fromBase64(item.toObject().value("base64").toString().toLatin1());
+    QCOMPARE(actual, payload);
+    const auto search = host.call("novaterm_search_history", {{"captureId", capture.text()}, {"query", "error"}, {"mode", "text"}});
+    QVERIFY2(search.value("ok").toBool(), qPrintable(QString::fromUtf8(QJsonDocument(search).toJson())));
+    const auto hits = search.value("data").toObject().value("matches").toArray();
+    QCOMPARE(hits.size(), 1);
+    QVERIFY(!hits[0].toObject().value("evidenceId").toString().isEmpty());
+    QJsonObject pages{{"captureId", capture.text()}, {"query", "YQ=="}, {"mode", "raw_bytes"}, {"maxMatches", 1}};
+    const auto firstPage = host.call("novaterm_search_history", pages);
+    const auto firstCursor = firstPage.value("data").toObject().value("nextCursor").toString(); QVERIFY(!firstCursor.isEmpty());
+    pages.insert("cursor", firstCursor);
+    const auto secondPage = host.call("novaterm_search_history", pages); QVERIFY(secondPage.value("ok").toBool());
+    QCOMPARE(host.call("novaterm_search_history", pages), secondPage); // Exact retry keeps the same evidence reference.
+    pages.insert("cursor", secondPage.value("data").toObject().value("nextCursor"));
+    QVERIFY(host.call("novaterm_search_history", pages).value("ok").toBool());
+    pages.insert("cursor", firstCursor);
+    QVERIFY(!host.call("novaterm_search_history", pages).value("ok").toBool());
+    f.service.history().revoke(f.client, capture);
+    QVERIFY(!host.call("novaterm_read_history", {{"captureId", capture.text()}}).value("ok").toBool());
+    f.service.setHistorySource(nullptr);
+}
 
 void McpTests::humanDeclineLeavesTerminalUntouched()
 {
@@ -2433,7 +2540,7 @@ void McpTests::tokenSigningAndAuthentication()
 
 void McpTests::rejectsDangerousAndOversizedArguments()
 {
-    QCOMPARE(ToolCodec::catalog().size(), 9);
+    QCOMPARE(ToolCodec::catalog().size(), 12);
     QVERIFY(!CommandPolicy::find("rm"));
     QVERIFY(!CommandPolicy::find("credential.read"));
     const QJsonObject identity{{"sessionId", newId()}, {"epoch", "epoch"}};

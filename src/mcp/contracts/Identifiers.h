@@ -73,6 +73,7 @@ using AttachmentId = StrongId<AttachmentIdTag>;
 using Epoch = StrongId<EpochTag>;
 using OperationId = StrongId<OperationIdTag>;
 using CaptureId = StrongId<CaptureIdTag>;
+using HistoryResourceId = StrongId<struct HistoryResourceIdTag>;
 using DiagnosticId = StrongId<DiagnosticIdTag>;
 using ExecutionId = StrongId<ExecutionIdTag>;
 

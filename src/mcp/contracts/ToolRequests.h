@@ -1,6 +1,6 @@
 /**
  * @file ToolRequests.h
- * @brief 九工具的类型化请求、终端动作与执行模式枚举。
+ * @brief 终端与历史工具的类型化请求、终端动作与执行模式枚举。
  *
  * 这些值只由 `protocol/ToolCodec` 从已通过 Schema 校验的参数构造；构造后
  * 按只读值使用。字段是否出现用 `std::optional` 保留：现有协议对
@@ -229,11 +229,21 @@ struct RequestElevationRequest
     std::optional<ProjectionMode> projection;
 };
 
-/** @brief 九工具的判别联合；替代 `tool` 字符串加 `QJsonObject arguments`。 */
+struct ListCapturesRequest { int limit{50}; QString cursor; };
+struct ReadHistoryRequest { HistoryResourceId capture; QString cursor; int maxBytes{65536}; };
+struct SearchHistoryRequest {
+    HistoryResourceId capture;
+    QByteArray query;
+    bool rawBytes{false};
+    QString cursor;
+    int maxMatches{128};
+};
+
+/** @brief 工具的判别联合；历史资源 ID 与短期观察 capture 分开解码。 */
 using ToolRequest = std::variant<ListSessionsRequest, ReadContextRequest,
     SearchContextRequest, ListCommandsRequest, ExecuteCommandRequest,
     RunCommandRequest, RunScriptRequest, InteractTerminalRequest,
-    RequestElevationRequest>;
+    RequestElevationRequest, ListCapturesRequest, ReadHistoryRequest, SearchHistoryRequest>;
 
 /** @brief 从 typed 请求提取会话身份；list_sessions 返回空。 */
 [[nodiscard]] inline std::optional<SessionReference> sessionReference(
@@ -241,7 +251,10 @@ using ToolRequest = std::variant<ListSessionsRequest, ReadContextRequest,
 {
     return std::visit([](const auto& value) -> std::optional<SessionReference> {
         using Type = std::decay_t<decltype(value)>;
-        if constexpr (std::is_same_v<Type, ListSessionsRequest>)
+        if constexpr (std::is_same_v<Type, ListSessionsRequest>
+            || std::is_same_v<Type, ListCapturesRequest>
+            || std::is_same_v<Type, ReadHistoryRequest>
+            || std::is_same_v<Type, SearchHistoryRequest>)
             return std::nullopt;
         else
             return SessionReference{value.session, value.epoch};

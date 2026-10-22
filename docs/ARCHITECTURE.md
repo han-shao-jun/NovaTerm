@@ -316,13 +316,14 @@ SSH/LocalShell 脚本正文由 Session 级 ScriptProvider 写入明确目标路�
 
 `TerminalInteraction` 负责客户端绑定的输入/观察令牌、最近操作去重、最多 32 个
 观察等待器及有界 capture；旧七工具加 `interact_terminal` / `request_elevation`
-共九工具。新增 `terminalControl` 权限默认关闭，旧 `interactiveCommand` 不自动
+为原九工具兼容基线；2026-10-23 增加三个独立授权的历史工具，当前共十二工具，见下方 P3 增量。新增 `terminalControl` 权限默认关闭，旧 `interactiveCommand` 不自动
 升级。compact 默认 4 KiB/24 行、最终含双份兼容内容的工具结果最多 8 KiB；
 省略内容用同一 capture 的 expandToken 分页，源缺口单独报告。无变化或普通滚屏
 到期不等于命令结束，完成状态只消费既有 Shell/设备事件。等待最多 30 秒，
 不阻塞 GUI；完整性能验收与设计差距见 MCP实施与验收记录。
 
 本机 sudo/su 凭据分开保存；UI 的异步凭据入口由专用工作线程拥有独立系统连接。
+历史 P3 增量：录制接收流、只读原文/搜索、来源无关 Evidence 分别由 `novaterm_history_recording`、`novaterm_history_search`、`novaterm_evidence` 拥有。搜索只依赖异步记录端口和 Qt Core；Evidence 只见来源读取与授权端口，不链接 History/Session/诊断实现。MCP 集成层创建可信身份、装配 P1 准入及来源适配；UI 仅发本机共享/撤回意图。capture grant 不继承 Session grant，读取和搜索固定提交高水位，证据默认期限内存；完整性与页扫描 complete 分开。具体资源上限、原九工具兼容和未验收范围见 [P3 实施记录](architecture/stages/P8_AI_MCP_Interface/P3_Implementation_and_Verification.md)。
 MCP 协议状态读取只查询引用元数据，不取密。当前可信认证适配器为空，托管提权
 在取密或输入前返回 `ELEVATION_ADAPTER_UNAVAILABLE`；保存密码不开放代填能力。
 

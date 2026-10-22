@@ -33,7 +33,7 @@ async def check(config: dict) -> None:
             initialization = await session.initialize()
             assert initialization.protocolVersion == "2025-11-25"
             catalog = await session.list_tools()
-            assert len(catalog.tools) == 7
+            assert len(catalog.tools) == 12
             schemas = {tool.name: tool.outputSchema for tool in catalog.tools}
             for tool in catalog.tools:
                 Draft202012Validator.check_schema(tool.inputSchema)
@@ -45,6 +45,11 @@ async def check(config: dict) -> None:
                 Draft202012Validator(schemas[name]).validate(payload)
                 assert json.loads(result.content[0].text) == payload
                 return payload
+
+            assert (await call("novaterm_list_captures", {}))["data"]["captures"] == []
+            capture = "11111111-1111-4111-8111-111111111111"
+            assert not (await call("novaterm_read_history", {"captureId": capture}))["ok"]
+            assert not (await call("novaterm_search_history", {"captureId": capture, "query": "error"}))["ok"]
 
             sessions = (await call("novaterm_list_sessions", {}))["data"]["sessions"]
             assert len(sessions) == 1
@@ -71,7 +76,7 @@ async def check(config: dict) -> None:
             rejected = await call("novaterm_read_context", {**identity, "command": "not allowed"})
             assert not rejected["ok"] and rejected["error"]["code"] == "INVALID_ARGUMENT"
     await check_modern(settings)
-    print("PASS: official MCP SDK 2025 + raw 2026 discover/catalog/read HTTP, 7 schemas, bounded reads, search, execution and replay")
+    print("PASS: official MCP SDK 2025 + raw 2026 discover/catalog/read HTTP, 12 schemas, history admission, bounded reads, search, execution and replay")
 
 
 async def check_modern(settings: dict) -> None:
@@ -121,7 +126,7 @@ async def check_modern(settings: dict) -> None:
         assert unsupported["error"]["data"]["requested"] == "2099-01-01"
         listed = await rpc("tools/list", {"_meta": metadata()})
         assert listed["result"]["resultType"] == "complete"
-        assert len(listed["result"]["tools"]) == 7
+        assert len(listed["result"]["tools"]) == 12
         sessions = await rpc("tools/call", {"name": "novaterm_list_sessions",
             "arguments": {}, "_meta": metadata()})
         assert sessions["result"]["resultType"] == "complete"

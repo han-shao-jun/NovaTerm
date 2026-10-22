@@ -65,6 +65,17 @@ constexpr std::pair<ErrorCode, const char*> ErrorNames[] = {
     {ErrorCode::CredentialUpdateInProgress, "CREDENTIAL_UPDATE_IN_PROGRESS"},
     {ErrorCode::SessionCommandBusy, "SESSION_COMMAND_BUSY"},
     {ErrorCode::SessionCommandNotReady, "SESSION_COMMAND_NOT_READY"},
+    {ErrorCode::PermissionDenied, "PERMISSION_DENIED"},
+    {ErrorCode::EvidenceExpired, "EVIDENCE_EXPIRED"},
+    {ErrorCode::EvidenceLimit, "EVIDENCE_LIMIT"},
+    {ErrorCode::EvidencePersistenceUnavailable, "EVIDENCE_PERSISTENCE_UNAVAILABLE"},
+    {ErrorCode::HistoryRangeMissing, "HISTORY_RANGE_MISSING"},
+    {ErrorCode::HistorySourceUnavailable, "SOURCE_UNAVAILABLE"},
+    {ErrorCode::HistorySourceLimit, "SOURCE_LIMIT"},
+    {ErrorCode::HistoryCursorExpired, "CURSOR_EXPIRED"},
+    {ErrorCode::SearchCursorExpired, "SEARCH_CURSOR_EXPIRED"},
+    {ErrorCode::CursorMismatch, "CURSOR_MISMATCH"},
+    {ErrorCode::Cancelled, "CANCELLED"},
 };
 } // namespace
 

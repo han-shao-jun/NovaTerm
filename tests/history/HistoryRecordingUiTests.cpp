@@ -11,6 +11,7 @@
 #include <QtTest>
 #include <QFontDatabase>
 #include <QLineEdit>
+#include <ElaCheckBox.h>
 
 using namespace NovaTerm::Recording;
 template<class T> T* control(QWidget& panel, const char* role) {
@@ -20,6 +21,31 @@ template<class T> T* control(QWidget& panel, const char* role) {
 class HistoryRecordingUiTests : public QObject {
     Q_OBJECT
 private slots:
+    void offlineSharingFormRejectsInvalidRanges() {
+        QTemporaryDir dir; HistoryService service(dir.path()); QTRY_VERIFY(service.ready());
+        const RecordingIntent intent{QUuid::createUuid(), 1}; bool done = false;
+        QVERIFY(service.start(intent, [&](auto r) { QVERIFY(r.success); done = true; })); QTRY_VERIFY(done);
+        service.stop(intent); QTRY_VERIFY(!service.captures().front().active);
+        HistoryRecordingPanel panel(&service);
+        int granted = 0; HistoryCaptureId chosen; quint64 first = 0, last = 9; bool persistent = false;
+        HistorySharingActions actions; actions.clients = {{"client-id", "Client"}};
+        actions.share = [&](QString client, HistoryCaptureId id, quint64 a, quint64 b, bool keep) {
+            if (client == "client-id") { ++granted; chosen = id; first = a; last = b; persistent = keep; } return QString{};
+        };
+        panel.setSharingActions(std::move(actions));
+        auto* table = control<QTableView>(panel, "historyCaptures"); QVERIFY(table); table->selectRow(0);
+        auto* from = control<QLineEdit>(panel, "historyShareFirst");
+        auto* to = control<QLineEdit>(panel, "historyShareLast");
+        auto* share = control<ElaPushButton>(panel, "historyShare");
+        auto* keep = control<ElaCheckBox>(panel, "historySharePersistent");
+        QVERIFY(from && to && share && keep); QVERIFY(share->isEnabled());
+        from->setText("2"); to->setText("1"); share->click(); QCOMPARE(granted, 0);
+        from->setText("1"); to->setText("0"); keep->setChecked(true); share->click();
+        QCOMPARE(granted, 1); QCOMPARE(chosen, service.captures().front().id);
+        QCOMPARE(first, quint64(1)); QCOMPARE(last, quint64(0)); QVERIFY(persistent);
+        const auto preview = qEnvironmentVariable("NOVATERM_HISTORY_SHARING_UI_PREVIEW");
+        if (!preview.isEmpty()) { panel.resize(1000, 820); panel.show(); QTest::qWait(100); QVERIFY(panel.grab().save(preview)); }
+    }
     void partialSpinboxTextSurvivesExternalRefresh() {
         QTemporaryDir dir; HistoryService service(dir.path()); HistoryRecordingPanel panel(&service);
         const auto spins = panel.findChildren<ElaSpinBox*>(); QTRY_VERIFY(spins[0]->isEnabled());

@@ -1,6 +1,6 @@
 /**
  * @file ToolCodec.h
- * @brief 九工具 Schema、参数校验、强类型解码与错误编码的唯一边界。
+ * @brief 工具 Schema、参数校验、强类型解码与错误编码的唯一边界。
  *
  * 职责边界（2026-10-18 运行期重构设计 §5）：只做协议形状到业务值的转换；
  * 不授权、不访问 Session、不持有任务状态。
@@ -21,7 +21,7 @@ class ToolCodec
 public:
     ToolCodec() = delete;
 
-    /** @brief 九工具目录；与重构前 `tools()` 完全相同的对象内容。 */
+    /** @brief 原九工具对象保持兼容，末尾追加独立授权的三个历史工具。 */
     [[nodiscard]] static const QJsonArray& catalog();
 
     [[nodiscard]] static bool isKnownTool(const QString& name);
