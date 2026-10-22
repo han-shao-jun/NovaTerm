@@ -467,7 +467,7 @@ D:/qt/NovaTerm/build/history-package-check` 成功，实际包含
 
 相同 32 MiB live budget：尽快追加 25,000 行时，普通日志 OFF 保留 7,592 行，ON 7,711 行；后台来不及压缩前发生的预算淘汰无法逆转，不能以最终更低的占用假装这轮已保住所有内容。另测每 64 行请求 sleep 2 ms 的节拍输入，Windows 实际每轮约 6.05 s，OFF 仍保留 7,592 行，ON 完整保留 25,000 行（3.29×），ON 总 charge 为重复日志 12.44 MiB、变量日志 12.65 MiB。该实验的实际速率由 wall time 给出，不把请求的 2 ms 当作实际调度精度或真实串口成绩。
 
-结果路径：`off-baseline.json` 为早期原始基线；`off-on-synthetic.json` 为早期未对全部语义字段哈希的探索轮；`off-on-under-build-load.json` 保留编译负载期间结果；`off-on-final.json` 与 `equal-budget-final.json` 是无编译负载的最终尽快追加样本；`equal-budget-paced.json` 为额外节拍样本；`performance-summary.json` 含中位数/范围。每份记录带种子、内容哈希、参数、保留量、RSS 和分位数。`noqt-build-report.json`/`noqt-dependencies.txt`/`dependency-audit.json` 分别记录独立构建、DLL 和公共头依赖证据；`windows-ctest-summary.json` 给出全部 35 项状态与时间。
+结果路径：`off-baseline.json` 为早期原始基线；`off-on-synthetic.json` 为早期未对全部语义字段哈希的探索轮；`off-on-under-build-load.json` 保留编译负载期间结果；`off-on-final.json` 与 `equal-budget-final.json` 是无编译负载的最终尽快追加样本；`equal-budget-paced.json` 为额外节拍样本；`performance-summary.json` 含中位数/范围。每份记录带种子、内容哈希、参数、保留量、RSS 和分位数。`noqt-build-report.json`/`dependency-audit.json` 保留独立构建与公共头依赖检查结果；DLL 依赖控制台输出已按归档规则清理；`windows-ctest-summary.json` 给出全部 35 项状态与时间。
 
 复测：先按 README 构建 `tests/history-noqt`；PowerShell 执行 `tests/benchmarks/history/run-matrix.ps1 -Executable build/history-isolated-final/checks/novaterm_history_benchmark.exe`，等预算加 `-Rows 25000 -Budget 33554432`，节拍实验再加 `-PaceMilliseconds 2`。报告必须同时保留尽快追加与节拍数据，不能用后者掩盖突发性能缺口。
 
@@ -491,3 +491,139 @@ Windows Release 同内容 1 GiB / 等预算 32 MiB 两组共 72 样本内容校�
 完整数据与范围见 [本轮报告](benchmarks/history-f662302-2026-10-19/README.md)，
 复测见 [基准说明](../../tests/benchmarks/history/README.md)。步骤 7 与发布状态
 保持未完成；真实 UART/GUI、多会话长稳及其他平台等缺口仍在。
+
+### Linux 性能复测（2026-10-20，0.2.76）
+
+基于干净提交 `06bae54`，Ubuntu 24.04.5 / i7-14700K / GCC 13.3.0 / Ninja Release，
+独立生产后端无 Qt 构建通过。本机无 PowerShell，采用随报告保存的 Python runner，
+按原矩阵脚本参数和口径串行运行同一个 schema 2 可执行文件：六类语料的同内容
+1 GiB 和等预算 32 MiB 两组各 36 样本，另补重复/变量日志 2 ms 节拍 12 样本。
+三次独立进程并轮换 OFF/ON 顺序，**84/84** 样本逐字段/保留哈希校验通过。
+
+- 同内容重复/变量日志总 charge 下降 **73.7% / 73.5%**；追加调用吞吐 ON/OFF
+  为 **0.471 / 0.586**，扫描吞吐为 **0.202 / 0.194**。内存目标通过，追加与扫描
+  合成门槛未通过。计量口径仍是后端存储调用和 Cell 扫描，非接收吞吐。
+- 等预算尽快追加时，普通日志 OFF 保留 7592 行，ON 完整保留 25000 行（3.293×）；
+  节拍实验也完整保留。该 Linux 结果不覆盖历史 Windows 突发性能缺口，不能外推
+  更高输入速率、其他平台或真实 UART。long 不压缩，保留量差异不归功于 LZ4。
+- 实测压缩块冷读分位数通过后端 50/100 ms 门槛，同内容组各轮 P99 最大值小于
+  0.48 ms；long 无压缩冷读样本，记未测，不将后端耗时当 GUI 帧耗时。
+- 独立后端 CTest **1/1**（0.11 秒），Release tailFrom 缩放护栏 **1/1**（1.66 秒）。
+
+原始样本、中位数/范围、RSS/峰值、进程 CPU、分位数、脚本/构建哈希与复现命令见
+[Linux 完整报告](benchmarks/history-linux-2026-10-20/README.md)。未改生产代码或默认策略；
+Linux 两路 RSS 采样部分出现 peak 小于当前值，保留原始值并标记记账一致性待校准。
+固定速率接收 CPU、Parser/真实吞吐、GUI、Search/Reflow/取消、模型锁、在途关闭、
+1/4/8 会话 30 分钟长稳与真实 UART 等发布缺口继续未验收，步骤 7 保持未完成。
+
+### GUI 历史回看性能复测（2026-10-20，工作树）
+
+新增手工 `novaterm_history_gui_benchmark` 与 `run-gui-matrix.py`：使用可见 X11/OpenGL
+终端控件，经过 Parser 预填 50000 行，模拟热区滚轮、冷区翻页、滚动条跳转及持续输入
+下连续滚轮。variable/mixed 两类语料，OFF、512 KiB/4 MiB 默认、256 KiB 小块、8 MiB
+热区四组策略，每组三次独立进程，24/24 进程通过；12288 次请求全部记账，96/96 次
+阶段后最终画面像素抽检通过。未修改生产压缩参数/开关，默认 CTest 仍 37 项。
+
+本轮边界为事件投递到目标内容/字形就绪后的 `frameSubmitted`，未测显示器呈现。
+每进程 P95/P99 再取三轮中位数；默认压缩的结果为：
+
+| 场景 | variable P95 / P99 ms | mixed P95 / P99 ms |
+| --- | ---: | ---: |
+| 热区滚轮 | 34.43 / 34.86 | 34.73 / 34.94 |
+| 冷区翻页 | 51.33 / 66.72 | 51.28 / 66.73 |
+| 冷区滚动条跳转 | 68.24 / 83.41 | 67.63 / 68.21 |
+| 持续输入下最新滚动请求 | 34.20 / 35.78 | 34.04 / 34.75 |
+
+连续场景同时报告合并请求：默认组最早合并请求等待 P99 为 81.84 / 66.10 ms，
+正确内容更新间隔 P99 为 67.66 / 51.44 ms，不能只用最新请求延迟或 GPU 帧数判断流畅度。
+前三项为闭环响应实验，不把闭环更新率当连续滚动帧率上限。
+
+这种合成日志下默认 charge 从 189.28/194.61 MiB 降到 14.98/14.96 MiB；热区 Renderer
+CPU P95 中位数相对 OFF 增幅约 3.2%/5.4%。但**冷区 P95 ≤50 ms 未通过**。小块增加
+未命中且未稳定改善跳转；扩大热区多用约 4.1 MiB，尾延迟收益在两种语料间不一致。
+保留 512 KiB/4 MiB 为后续对照，优先进一步验证冷读预取/合并及唤醒到完整绘制的调度
+往返，不能靠增加内存预算宣布发布达标。
+
+新增 Renderer 值类型完成统计与真实 GPU RED/GREEN 检查，防止 Pending 旧画面或已排队
+增量帧提前认领新视口。Release 全部目标、Debug 相关目标构建通过，两个配置 Renderer
+专项各 2/2，真实 GPU self-test 均通过，未重跑无关全套。原始逐事件数据、三轮范围、
+CPU/内存取舍、审查修复和命令见
+[GUI 完整报告](benchmarks/history-gui-linux-2026-10-20/README.md)。
+合成器/显示器、完整主窗口/Ela 动画、多会话长稳、真实 UART 等仍未验收；步骤 7 不勾选。
+
+### GUI 冷区滚动优化（2026-10-21，工作树）
+
+先复现原四策略/两语料/每组三进程的 24 进程基线，再实施有界跨块请求与
+每事件轮次合并的 CacheOnly 准备。准备复用已有显示布局及块索引，不重新折行，
+在正常 RenderScheduler 等待期间启动冷读；预算、开关、Parser 所有权及完整视口
+完成标记的判据不变。已提交 worker 的旧块仍可能执行完毕，不宣称新增抢占取消。
+
+最终同负载完整矩阵 24/24，与本轮复现基线合计 48 个独立进程；每个 50000 行、
+四场景各 128 次请求，前后各 96 次阶段后最终像素抽检均通过。默认压缩三轮分位数
+中位数：variable 冷页 P95/P99 51.38/66.57 → 34.76/50.30 ms，冷跳
+67.75/83.69 → 34.90/49.75 ms；mixed 冷页 51.45/66.97 → 34.92/50.05 ms，
+冷跳 67.56/68.19 → 34.68/35.05 ms。两类冷区全部三轮 P95≤50/P99≤100 ms，
+边界仍是 frameSubmitted，不代表显示器呈现。
+
+默认策略初始 charge 保持约 14.98/14.96 MiB，比同内容 OFF 下降 92.1%/92.3%。
+热区 Renderer P95 相对本轮旧默认组未增加，但不绑核 mixed 的 ON/OFF 为 1.413，
+**相对 OFF 的 10% CPU 门槛不能记为默认环境已通过**。补充相同 P 核集合、原负载的
+三轮 CPU 控制实验单独报告，不能替换完整不绑核矩阵。
+同一 P 核集合的 ON/OFF 热区 Renderer P95 比值为 variable 1.015、mixed 0.989；
+控制样本另有一轮 variable 冷页 P95=50.08 ms，严格 50 ms 门槛的跨调度余量仍不足。
+
+Release Core/Scrollback/Renderer/P5/纯历史后端 5/5、Debug Scrollback/Renderer/P5/
+纯历史后端 4/4 通过；两个配置的最终真实 GPU self-test 通过，继续覆盖 Pending、
+提前请求与增量帧先执行交错。未运行无关全套；没有提交或推送。初始工作树、原基准
+源码及报告均保留，完整矩阵、三轮范围、四种延迟口径、CPU/内存、RED/GREEN、
+阶段跟踪、审查与复现命令见
+[本轮报告](benchmarks/history-gui-linux-2026-10-21/README.md)。
+默认不绑核 CPU 稳定性、显示器呈现、真实 UART、跨平台和多会话长稳等仍为缺口；
+不因 GUI 冷区改善关闭此前后端扫描/追加缺口，步骤 7 保持未完成，默认开关 false。
+
+### 三轮参数比较与默认热区调整（2026-10-21，0.2.77）
+
+固定旧参数 512 KiB/4 MiB，比较 384/4、512/2、384/2 三组调整，每组两语料
+各三独立进程，加 OFF 共 30 进程；同类核心环境下按事先写定规则选择
+**512 KiB/2 MiB**。组合小块未获得跨语料更低的最差 charge，384 KiB 冷跳转
+P95 约 50 ms，512 KiB 约 35 ms，保留 512 KiB 更有延迟余量。
+
+实际默认值改为 512 KiB/2 MiB 后，默认调度 OFF/reference/on-default 再测
+18/18；本轮正式两矩阵合计 24576 次请求、192 次最终像素抽检通过。
+新默认 variable/mixed 最差冷区 P95/P99 中位数 35.14/49.93、35.72/50.18 ms，
+所有单轮冷区 P95 最大 36.02 ms、P99 最大 51.37 ms；热区 CPU/OFF
+0.973/0.992，charge 13.16/13.14 MiB，比旧参数下降约 12%。
+mixed 新默认/reference CPU 比值 1.158，保留范围和调度差异，不声称所有成本均下降。
+
+首次采样因锁屏/息屏中断，部分 22 样本独立保留；用户解锁后，临时显示租约
+保护下完整重跑，不与中断数据混用。所有租约最终释放，没有持久电源配置变化。
+Release 相关 5/5、Debug 相关 4/4、两配置 GPU self-test 和显示保护 6/6 通过。
+版本准备为 0.2.77，交付提交见 Git 历史。方法、选择规则、原始数据、单轮范围、
+四种帧口径、CPU/内存、复现命令及未覆盖范围见
+[三轮调参报告](benchmarks/history-gui-tuning-linux-2026-10-21/README.md)。
+Linux 可见 GUI 指标通过本轮范围，不替代其他平台、真实 UART、显示器呈现或
+多会话长稳；此前后端追加/扫描缺口不关闭，步骤 7 与默认 enabled=false 均不变。
+
+### GUI 审查修复（2026-10-21，0.2.78）
+
+修复 da29c2c 的三项审查问题：预取直接二分定位现有封存块，不再复制完整索引或
+封存活动尾块；完成锚点绑定快照实际首行，同映射淘汰回退须完整重建；合法参数
+导致重复目标的基准使用互质步长及初始目标避让，常规负载与冷区范围保持不变。
+Parser 单写、不可变快照、缓存/队列/工作区预算、512 KiB/2 MiB 与 enabled=false
+不变。新增存储、Core、Renderer 回归及 GPU 的完整帧/稀疏帧淘汰检查，保留原
+Pending 与“增量帧先执行”检查。Release 全套 37/37，Debug 相关 5/5，独立无 Qt
+1/1，两配置 GPU 自测通过；12960 行/16 次请求的真实 GUI 专项通过。
+完整复测 24/24，12288 请求及 96 次像素抽检通过。默认冷区各轮最大
+P95/P99=36.03/51.27 ms，热区 CPU/OFF=1.038/1.018，初始 charge 保持
+13.16/13.14 MiB；mixed 连续最新请求 P99 中位数 35.38→39.68 ms，不称全面下降。
+复测命令、三轮中位数/范围、CPU/内存与剩余缺口见
+[审查修复报告](benchmarks/history-gui-review-fixes-linux-2026-10-21/README.md)。
+本轮不改变步骤 7 及跨平台/长稳等未验收状态。
+
+### 基准产物归档清理（2026-10-21）
+
+按用户要求，`docs/architecture/benchmarks/` 中可重跑生成的 JSON、日志、重复表格
+及临时运行标记已移除。本文和各报告中的指标、测试结论、失败与未验收范围保留；
+文件名与结果路径用于标识重跑产物，不表示原始文件仍在仓库中。复测应输出到
+`build/` 下的新目录；归档分析脚本需先准备其相应输入。清理不是重新验收，既有
+测试成绩和剩余缺口不变。归档范围见 [归档说明](benchmarks/README.md)。

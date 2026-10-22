@@ -1,5 +1,8 @@
 # f662302 历史压缩性能补充（2026-10-19）
 
+> 归档清理：可重跑生成的 JSON、日志及重复表格已移除；本文保留历史结论。
+> 文中输出文件名用于标识重跑产物，已不在仓库中；重跑生成的是新样本。
+
 测试对象为提交 `f662302aa964e81c4ea5b9aefda1bbe3b2f2189b` 引入的生产历史后端；
 工作树基于 `22d2f5866a623ad269c4579b1104045a948a8186`，只改 benchmark/文档及
 benchmark 目标的构建元数据。未修改生产压缩策略或实现。
@@ -27,7 +30,7 @@ Windows 10 x64（10.0.19045）、Intel Core i7-13700H、Intel Iris Xe Graphics
 全部 CPU/等待；不是 Parser/网络吞吐。`ingest_wall_ms`、`ingest_cpu_ms` 另列
 生成/哈希、节拍与压缩排空在内的完整进程成本。扫描在冷缓存采样前运行，使用
 生产 cursor 并累计 chars[0]，全字段验证另计。完整参数、各轮分位数、中位数及
-范围见 [same-content.json](same-content.json)。
+范围见 `same-content.json`（重跑生成）。
 
 重复/变量日志的 charge 节省超过 40%，但追加调用和扫描吞吐均低于 90%/80%
 合成门槛，`synthetic_gates_passed=false`。本轮普通日志扫描仅约 OFF 的 13%。
@@ -54,7 +57,7 @@ Windows 10 x64（10.0.19045）、Intel Core i7-13700H、Intel Iris Xe Graphics
 本轮普通日志保留量提升约 1.6%，不能从最终 charge 节省推导额外可保留行数。
 long 没有压缩块，其保留量差异含 ON/OFF 分块粒度的影响，不归功于 LZ4。
 不同保留量使用 Cell MiB/s 对比扫描，不能比较总扫描耗时后宣称算法变快。
-详见 [equal-budget.json](equal-budget.json)；其中 gates 仅覆盖实测压缩冷读，
+详见 `equal-budget.json`（重跑生成）；其中 gates 仅覆盖实测压缩冷读，
 `synthetic_gates_passed=true` 不代表完整性能门槛通过。
 
 ## 工具与验证

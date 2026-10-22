@@ -966,6 +966,38 @@ if(NOVATERM_BUILD_BENCHMARKS)
         )
     endif()
 
+    # Manual history GUI latency probe: requires a real exposed GPU window.
+    qt_add_executable(novaterm_history_gui_benchmark
+        ${CMAKE_CURRENT_SOURCE_DIR}/benchmarks/HistoryGuiScrollBenchmark.cpp
+        ${PROJECT_SOURCE_DIR}/src/renderer/RenderCommandBuffer.cpp
+        ${PROJECT_SOURCE_DIR}/src/renderer/RenderScheduler.cpp
+        ${PROJECT_SOURCE_DIR}/src/renderer/TerminalColorScheme.cpp
+        ${PROJECT_SOURCE_DIR}/src/renderer/TerminalRenderer.cpp
+        ${NOVATERM_P5_RENDERER_SOURCES}
+    )
+    target_compile_definitions(novaterm_history_gui_benchmark PRIVATE
+        NOVATERM_GUI_BENCHMARK_BUILD_TYPE="$<CONFIG>"
+        NOVATERM_GUI_BENCHMARK_COMPILER="${CMAKE_CXX_COMPILER_ID}-${CMAKE_CXX_COMPILER_VERSION}"
+    )
+    target_include_directories(novaterm_history_gui_benchmark PRIVATE
+        ${PROJECT_SOURCE_DIR}/src
+        "${CMAKE_PREFIX_PATH}/include/QtGui/${Qt6_VERSION}/QtGui"
+    )
+    target_link_libraries(novaterm_history_gui_benchmark PRIVATE
+        novaterm_core
+        Qt${QT_VERSION_MAJOR}::Core
+        Qt${QT_VERSION_MAJOR}::Gui
+        Qt${QT_VERSION_MAJOR}::Widgets
+    )
+    qt_add_shaders(novaterm_history_gui_benchmark
+        novaterm_history_gui_benchmark_shaders
+        BASE ${PROJECT_SOURCE_DIR}
+        PREFIX "/shaders"
+        FILES
+            ${PROJECT_SOURCE_DIR}/src/renderer/shaders/terminal_texture.vert
+            ${PROJECT_SOURCE_DIR}/src/renderer/shaders/terminal_texture.frag
+    )
+
     add_executable(novaterm_renderer_p5_gpu_benchmark
         ${CMAKE_CURRENT_SOURCE_DIR}/benchmarks/RendererP5GpuBenchmark.cpp
         ${PROJECT_SOURCE_DIR}/src/renderer/RenderCommandBuffer.cpp

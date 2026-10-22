@@ -1,0 +1,102 @@
+diff --git a/src/renderer/TerminalRenderer.cpp b/src/renderer/TerminalRenderer.cpp
+index 04870d3..10d840b 100644
+--- a/src/renderer/TerminalRenderer.cpp
++++ b/src/renderer/TerminalRenderer.cpp
+@@ -222,7 +222,13 @@ TerminalRenderer::TerminalRenderer(TerminalCore* core, QWidget* parent)
+                 _renderScheduler->schedule(visible, revision);
+             });
+ 
+-    connect(_core, &TerminalCore::historyDataReady, this, [this] { requestFullFrame(); });
++    connect(_core, &TerminalCore::historyDataReady, this, [this] {
++        // Compression/prefetch completions do not invalidate a ready viewport.
++        // Only resume a draw that actually stopped on cold history. Multiple
++        // block completions share the same throttled full-frame request.
++        if (_paintingEnabled && std::exchange(_historyFrameWaiting, false))
++            requestFullFrame();
++    });
+     connect(_core, &TerminalCore::cursorMoved, this, [this]() {
+         updatePreeditOverlay();
+         requestOverlayFrame();
+@@ -585,6 +591,18 @@ void TerminalRenderer::scrollToLine(int line)
+             _scrollAnchorLine = 0;
+             _scrollAnchorWrap = 0;
+         }
++        _historyFrameWaiting = false;
++        if (_paintingEnabled && _scrollLine > 0) {
++            // Start bounded CacheOnly work while the normal frame scheduler
++            // is waiting, rather than first discovering cold blocks inside a
++            // GPU pass which then submits the old viewport. The snapshot and
++            // pins are local; no second history cache/owner survives this call.
++            const auto history = _core->scrollbackSnapshot();
++            (void)NovaTerm::LineLayout::viewport(history, _scrollAnchorLine,
++                _scrollAnchorWrap, std::max(1, _commandBuffer.columns()),
++                std::min(_scrollLine, std::max(1, _commandBuffer.rows())), 0,
++                history.version(), NovaTerm::HistoryReadMode::CacheOnly);
++        }
+         requestFullFrame();
+         // 布局已常驻且与当前列宽一致，进入历史无需重排。
+     }
+@@ -1079,7 +1097,9 @@ void TerminalRenderer::render(QRhiCommandBuffer* cb)
+                                          _scrollAnchorLine,
+                                          _scrollAnchorWrap,
+                                          requestedContentRevision);
++        _historyFrameWaiting = screen.historyPending;
+         if (screen.historyPending) {
++            ++_renderStatistics.historyPendingFrames;
+             contentPending = false; fullFramePending = false; overlayPending = false;
+             std::fill(dirtyRows.begin(), dirtyRows.end(), false);
+             for (auto& spans : dirtySpans) spans.clear();
+@@ -1265,6 +1285,16 @@ void TerminalRenderer::render(QRhiCommandBuffer* cb)
+     }
+     cb->endPass();
+ 
++    if (contentPending && !screen.historyPending && fullFramePending)
++        _contentViewportRevision = _viewportMappingRevision;
++    if (contentPending && !screen.historyPending
++        && _contentViewportRevision == _viewportMappingRevision
++        && std::none_of(_glyphPendingRows.cbegin(), _glyphPendingRows.cend(),
++                        [](bool pending) { return pending; })) {
++        _renderStatistics.completedViewportRevision = _viewportMappingRevision;
++        _renderStatistics.completedScrollOffset = _scrollLine;
++        _renderStatistics.completedHistoryAnchor = _scrollAnchorLine;
++    }
+     if (contentPending)
+         _renderStatistics.lastRenderedRevision = screen.revision;
+     ++_frameNumber;
+diff --git a/src/renderer/TerminalRenderer.h b/src/renderer/TerminalRenderer.h
+index 72e3c6d..241e669 100644
+--- a/src/renderer/TerminalRenderer.h
++++ b/src/renderer/TerminalRenderer.h
+@@ -100,6 +100,15 @@ public:
+         quint64 historyLayoutTailUpdates{0};
+         quint64 capabilityFallbacks{0};
+         quint64 viewportMappingRevision{0};
++        /** Last viewport whose content and glyphs reached a completed draw pass.
++         * Pending history frames retain these values, even if scrollOffset()
++         * already identifies a newer request. frameSubmitted is the submission
++         * boundary; these counters do not measure compositor presentation.
++         */
++        quint64 completedViewportRevision{0};
++        int completedScrollOffset{-1};
++        NovaTerm::LineId completedHistoryAnchor{0};
++        quint64 historyPendingFrames{0};
+     };
+ 
+     struct RenderProgress
+@@ -554,6 +563,7 @@ private:
+     NovaTerm::RenderScheduler* _renderScheduler{nullptr};
+     bool _cursorBlinkVisible{true};
+     bool _paintingEnabled{false}; ///< show/hide 维护，包含自发最小化隐藏
++    bool _historyFrameWaiting{false}; ///< GUI draw stopped on Pending/Busy/Error history
+     QPointer<QWidget> _renderHostWindow; ///< 宿主最小化恢复的状态通知来源
+     bool _colorSchemeApplied{false}; ///< 首次配色仍需同步核心默认色
+ 
+@@ -621,6 +631,8 @@ private:
+     QVector<quint64> _rowContentIdentities;
+     NovaTerm::RowBlockDamageTracker _rowBlockDamageTracker;
+     quint64 _viewportMappingRevision{0};
++    /// Mapping actually rebuilt as a full viewport, including pending glyph rows.
++    quint64 _contentViewportRevision{0};
+     NovaTerm::RenderCommandBuffer _commandBuffer;
+     // QRhi may consume a frame while queued terminal damage/scroll state is
+     // being published. Protect the complete hand-off and never combine a

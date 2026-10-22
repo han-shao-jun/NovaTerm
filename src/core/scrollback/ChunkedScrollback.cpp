@@ -347,6 +347,24 @@ ScrollbackSnapshot ChunkedScrollback::snapshot()
     return result;
 }
 
+void ChunkedScrollback::prepareColdRange(LineId first, LineId last, isize maxChunks) const
+{
+    if (!first || last < first || maxChunks <= 0)
+        return;
+    // deque random access keeps lookup logarithmic even for fragmented history.
+    // ID ordering is stable across partial eviction and holes from sb_popline.
+    auto next = std::lower_bound(_chunks.cbegin(), _chunks.cend(), first,
+        [](const StoredChunk& stored, LineId id) {
+            return chunkLineInfo(*stored.chunk, stored.firstLine + stored.lineCount - 1).id < id;
+        });
+    for (; next != _chunks.cend() && maxChunks > 0; ++next, --maxChunks) {
+        if (chunkLineInfo(*next->chunk, next->firstLine).id > last)
+            break;
+        if (next->chunk->encoded)
+            (void)pinChunkLine(next->chunk, next->firstLine, HistoryReadMode::CacheOnly);
+    }
+}
+
 void ChunkedScrollback::tailFrom(LineId sinceId, isize maxLines,
                                  ScrollbackTail& out) const
 {

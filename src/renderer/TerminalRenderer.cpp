@@ -585,10 +585,34 @@ void TerminalRenderer::scrollToLine(int line)
             _scrollAnchorLine = 0;
             _scrollAnchorWrap = 0;
         }
+        if (_paintingEnabled && _scrollLine > 0 && !_historyPreparationScheduled) {
+            _historyPreparationScheduled = true;
+            QMetaObject::invokeMethod(this, [this] {
+                _historyPreparationScheduled = false;
+                prepareHistoryViewport();
+            }, Qt::QueuedConnection);
+        }
         requestFullFrame();
         // 布局已常驻且与当前列宽一致，进入历史无需重排。
     }
     publishScrollState();
+}
+
+void TerminalRenderer::prepareHistoryViewport()
+{
+    // Coalesce to the newest target before the normal frame timer expires.
+    // Use the existing display layout, never rewrap long lines per input event.
+    if (!_paintingEnabled || _scrollLine <= 0 || _historyLayout.isEmpty()
+        || _layoutColumns != _commandBuffer.columns() || _commandBuffer.rows() <= 0)
+        return;
+    const qsizetype first = std::max<qsizetype>(0, _historyLayout.size() - _scrollLine);
+    const qsizetype count = std::min<qsizetype>(
+        std::min(_scrollLine, _commandBuffer.rows()), _historyLayout.size() - first);
+    if (count <= 0) return;
+    _core->prepareHistoryRange(_historyLayout[first].lineId,
+        _historyLayout[first + count - 1].lineId, count);
+    // O(log(chunks) + visible rows), without copying the full chunk index or
+    // sealing the active tail. Raw blocks need no read; no pin survives preflight.
 }
 
 void TerminalRenderer::scrollLines(int delta)
@@ -1079,7 +1103,20 @@ void TerminalRenderer::render(QRhiCommandBuffer* cb)
                                          _scrollAnchorLine,
                                          _scrollAnchorWrap,
                                          requestedContentRevision);
+        if (!screen.historyPending && !fullFramePending
+            && _contentViewportRevision == _viewportMappingRevision
+            && screen.historyAnchor != _contentHistoryAnchor) {
+            // Eviction may change the effective anchor without a user mapping
+            // revision. Sparse rows cannot complete that fallback viewport.
+            fullFramePending = true;
+            overlayPending = true;
+            std::fill(dirtyRows.begin(), dirtyRows.end(), true);
+            for (auto& spans : dirtySpans) setFullRowSpan(spans, columns);
+            screen = _core->rendererSnapshot(dirtyRows, _scrollLine,
+                _scrollAnchorLine, _scrollAnchorWrap, requestedContentRevision);
+        }
         if (screen.historyPending) {
+            ++_renderStatistics.historyPendingFrames;
             contentPending = false; fullFramePending = false; overlayPending = false;
             std::fill(dirtyRows.begin(), dirtyRows.end(), false);
             for (auto& spans : dirtySpans) spans.clear();
@@ -1265,6 +1302,25 @@ void TerminalRenderer::render(QRhiCommandBuffer* cb)
     }
     cb->endPass();
 
+    // Recovery/resize can take another model snapshot after the initial anchor
+    // check. If eviction raced that second read, wait for a full rebuild too.
+    if (contentPending && !screen.historyPending && !fullFramePending
+        && _contentViewportRevision == _viewportMappingRevision
+        && screen.historyAnchor != _contentHistoryAnchor)
+        requestFullFrame();
+    if (contentPending && !screen.historyPending && fullFramePending) {
+        _contentViewportRevision = _viewportMappingRevision;
+        _contentHistoryAnchor = screen.historyAnchor;
+    }
+    if (contentPending && !screen.historyPending
+        && _contentViewportRevision == _viewportMappingRevision
+        && screen.historyAnchor == _contentHistoryAnchor
+        && std::none_of(_glyphPendingRows.cbegin(), _glyphPendingRows.cend(),
+                        [](bool pending) { return pending; })) {
+        _renderStatistics.completedViewportRevision = _viewportMappingRevision;
+        _renderStatistics.completedScrollOffset = _scrollLine;
+        _renderStatistics.completedHistoryAnchor = _contentHistoryAnchor;
+    }
     if (contentPending)
         _renderStatistics.lastRenderedRevision = screen.revision;
     ++_frameNumber;

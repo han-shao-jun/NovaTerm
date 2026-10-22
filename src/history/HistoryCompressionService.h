@@ -9,7 +9,7 @@ struct HistoryCompressionPolicy {
     bool enabled{false};
     std::size_t targetBlockBytes{512 * 1024};
     std::size_t maximumBlockBytes{1024 * 1024};
-    std::size_t hotBytes{4 * 1024 * 1024};
+    std::size_t hotBytes{2 * 1024 * 1024};
     std::size_t minimumBlockBytes{32 * 1024};
 };
 struct HistoryServiceStatistics {

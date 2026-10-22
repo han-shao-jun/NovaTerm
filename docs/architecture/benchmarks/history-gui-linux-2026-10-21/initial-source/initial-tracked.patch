@@ -1,0 +1,274 @@
+--- a/AGENTS.md
++++ b/AGENTS.md
+@@ -1943,3 +1943,27 @@
+ 本轮没有运行 Release 全套、消毒器、其他平台、真实 UART 或输入法人工验收；
+ 历史压缩默认关闭，性能门槛状态保持原记录。具体命令与日志见
+ [P1 实施记录](docs/architecture/stages/P8_AI_MCP_Interface/P1_Implementation_and_Verification.md)。
++
++### Linux LZ4 性能复测（2026-10-20）
++
++基于 `06bae54` 的独立 Release 后端，三次独立进程/轮换 OFF/ON：同内容与等预算
++六类矩阵 72 样本，另加普通日志节拍 12 样本，84/84 内容校验通过。普通日志 charge
++下降约 74%，但追加/扫描合成门槛未通过；本机等预算 ON 普通日志完整保留 25000 行，
++不外推历史 Windows/真实串口。后端 no-Qt 与 Release tailFrom 护栏各 1/1。
++生产实现/默认 false 未改；GUI、固定速率接收 CPU、在途关闭及多会话长稳仍未验收。
++原始数据、Linux Python 复现脚本与具体范围见
++[本轮报告](docs/architecture/benchmarks/history-linux-2026-10-20/README.md)。
++
++### GUI 历史滚动性能（2026-10-20）
++
++新增手工 `novaterm_history_gui_benchmark`，不注册默认 CTest；可见 GPU 窗口的
++`--self-test` 覆盖 Pending 保留旧完成标记及“增量帧先画、完整重绘尚未交付”的交错。
++完成统计必须绑定实际全量重建的视口代次，不能只看当前 scrollOffset 或累计帧数。
++Release 全部目标与 Debug 相关目标构建通过，两个配置 Renderer 专项各 2/2。
++
++三次独立进程×两类语料×四组参数：24/24 通过、12288 次请求记账、96 次最终像素
++抽检通过。默认压缩热区约 34–35 ms，冷页 P95/P99 约 51/67 ms，冷跳约 68/68–83 ms；
++冷区 P95 50 ms 门槛未通过，256 KiB 小块或 8 MiB 热区未带来跨语料一致优势，默认不改。
++测量截止 frameSubmitted，不代表显示器呈现；正确内容间隔与旧画面 GPU 帧分开记录，
++合并请求另记最早批次等待。`grabFramebuffer` 会重新绘制，阶段后抽检不当作逐计时帧证明。
++命令与原始数据见 [GUI 报告](docs/architecture/benchmarks/history-gui-linux-2026-10-20/README.md)。
+--- a/README.md
++++ b/README.md
+@@ -446,3 +446,10 @@
+ 用法见 [基准说明](tests/benchmarks/history/README.md)，
+ 本次 72 样本结果见 [f662302 性能补充](docs/architecture/benchmarks/history-f662302-2026-10-19/README.md)。
+ 它不等于真实串口或 GUI 性能验收，不自动占用端口。
++
++GUI 历史回看另有手工目标 `novaterm_history_gui_benchmark`：使用可见 QRhi 窗口，
++模拟热区滚轮、冷历史翻页、滚动条跳转和持续输入下回看，比较 OFF/默认压缩/
++256 KiB 小块/8 MiB 热区。`tests/benchmarks/history/run-gui-matrix.py` 串行运行
++各组三次独立进程，记录事件到完整目标内容帧提交的 P95/P99、正确内容更新间隔、
++请求合并、CPU 和内存成本。它不注册默认 CTest；必须使用真实桌面/GPU，
++帧提交时间不等于合成器或显示器呈现时间。用法同见上述基准说明。
+--- a/docs/ARCHITECTURE.md
++++ b/docs/ARCHITECTURE.md
+@@ -1409,6 +1409,13 @@
+ 
+ `terminal.historyCompression.enabled` 默认 false，切换不清历史、不重置 ID、不重连。
+ 关闭后不继续压缩，但保留旧块读取和必要资源，直到遗留块释放。
++
++GUI 性能观测复用 Renderer 的值类型统计，不增加采样线程或历史 owner。
++`completedViewportRevision/completedScrollOffset/completedHistoryAnchor` 只在当前
++映射已完整重建并实际完成绘制、且历史与字形均就绪时更新；等待冷数据或旧增量帧
++先于完整重绘执行时保留旧完成标记。`historyPendingFrames` 单列等待帧，不能把
++重复提交旧画面等同于正确历史内容更新。手工 GUI 基准使用 `frameSubmitted`
++关联请求与完成视口；合成器/显示器呈现仍在该测量边界之外。
+ 所有活动终端的 live/retained 诊断及跨 Core 生命周期 payload charge 由共享服务汇总；
+ UI 显示节省、淘汰和错误，并在 Windows/Linux 可用物理内存低于 512 MiB 时提示。
+ 每终端仍有自己的 1 GiB live budget，未加入全进程 live 公平淘汰；RSS 另测。
+--- a/docs/architecture/LZ4_Scrollback_Implementation_Plan_2026-10-17.md
++++ b/docs/architecture/LZ4_Scrollback_Implementation_Plan_2026-10-17.md
+@@ -491,3 +491,62 @@
+ 完整数据与范围见 [本轮报告](benchmarks/history-f662302-2026-10-19/README.md)，
+ 复测见 [基准说明](../../tests/benchmarks/history/README.md)。步骤 7 与发布状态
+ 保持未完成；真实 UART/GUI、多会话长稳及其他平台等缺口仍在。
++
++### Linux 性能复测（2026-10-20，0.2.76）
++
++基于干净提交 `06bae54`，Ubuntu 24.04.5 / i7-14700K / GCC 13.3.0 / Ninja Release，
++独立生产后端无 Qt 构建通过。本机无 PowerShell，采用随报告保存的 Python runner，
++按原矩阵脚本参数和口径串行运行同一个 schema 2 可执行文件：六类语料的同内容
++1 GiB 和等预算 32 MiB 两组各 36 样本，另补重复/变量日志 2 ms 节拍 12 样本。
++三次独立进程并轮换 OFF/ON 顺序，**84/84** 样本逐字段/保留哈希校验通过。
++
++- 同内容重复/变量日志总 charge 下降 **73.7% / 73.5%**；追加调用吞吐 ON/OFF
++  为 **0.471 / 0.586**，扫描吞吐为 **0.202 / 0.194**。内存目标通过，追加与扫描
++  合成门槛未通过。计量口径仍是后端存储调用和 Cell 扫描，非接收吞吐。
++- 等预算尽快追加时，普通日志 OFF 保留 7592 行，ON 完整保留 25000 行（3.293×）；
++  节拍实验也完整保留。该 Linux 结果不覆盖历史 Windows 突发性能缺口，不能外推
++  更高输入速率、其他平台或真实 UART。long 不压缩，保留量差异不归功于 LZ4。
++- 实测压缩块冷读分位数通过后端 50/100 ms 门槛，同内容组各轮 P99 最大值小于
++  0.48 ms；long 无压缩冷读样本，记未测，不将后端耗时当 GUI 帧耗时。
++- 独立后端 CTest **1/1**（0.11 秒），Release tailFrom 缩放护栏 **1/1**（1.66 秒）。
++
++原始样本、中位数/范围、RSS/峰值、进程 CPU、分位数、脚本/构建哈希与复现命令见
++[Linux 完整报告](benchmarks/history-linux-2026-10-20/README.md)。未改生产代码或默认策略；
++Linux 两路 RSS 采样部分出现 peak 小于当前值，保留原始值并标记记账一致性待校准。
++固定速率接收 CPU、Parser/真实吞吐、GUI、Search/Reflow/取消、模型锁、在途关闭、
++1/4/8 会话 30 分钟长稳与真实 UART 等发布缺口继续未验收，步骤 7 保持未完成。
++
++### GUI 历史回看性能复测（2026-10-20，工作树）
++
++新增手工 `novaterm_history_gui_benchmark` 与 `run-gui-matrix.py`：使用可见 X11/OpenGL
++终端控件，经过 Parser 预填 50000 行，模拟热区滚轮、冷区翻页、滚动条跳转及持续输入
++下连续滚轮。variable/mixed 两类语料，OFF、512 KiB/4 MiB 默认、256 KiB 小块、8 MiB
++热区四组策略，每组三次独立进程，24/24 进程通过；12288 次请求全部记账，96/96 次
++阶段后最终画面像素抽检通过。未修改生产压缩参数/开关，默认 CTest 仍 37 项。
++
++本轮边界为事件投递到目标内容/字形就绪后的 `frameSubmitted`，未测显示器呈现。
++每进程 P95/P99 再取三轮中位数；默认压缩的结果为：
++
++| 场景 | variable P95 / P99 ms | mixed P95 / P99 ms |
++| --- | ---: | ---: |
++| 热区滚轮 | 34.43 / 34.86 | 34.73 / 34.94 |
++| 冷区翻页 | 51.33 / 66.72 | 51.28 / 66.73 |
++| 冷区滚动条跳转 | 68.24 / 83.41 | 67.63 / 68.21 |
++| 持续输入下最新滚动请求 | 34.20 / 35.78 | 34.04 / 34.75 |
++
++连续场景同时报告合并请求：默认组最早合并请求等待 P99 为 81.84 / 66.10 ms，
++正确内容更新间隔 P99 为 67.66 / 51.44 ms，不能只用最新请求延迟或 GPU 帧数判断流畅度。
++前三项为闭环响应实验，不把闭环更新率当连续滚动帧率上限。
++
++这种合成日志下默认 charge 从 189.28/194.61 MiB 降到 14.98/14.96 MiB；热区 Renderer
++CPU P95 中位数相对 OFF 增幅约 3.2%/5.4%。但**冷区 P95 ≤50 ms 未通过**。小块增加
++未命中且未稳定改善跳转；扩大热区多用约 4.1 MiB，尾延迟收益在两种语料间不一致。
++保留 512 KiB/4 MiB 为后续对照，优先进一步验证冷读预取/合并及唤醒到完整绘制的调度
++往返，不能靠增加内存预算宣布发布达标。
++
++新增 Renderer 值类型完成统计与真实 GPU RED/GREEN 检查，防止 Pending 旧画面或已排队
++增量帧提前认领新视口。Release 全部目标、Debug 相关目标构建通过，两个配置 Renderer
++专项各 2/2，真实 GPU self-test 均通过，未重跑无关全套。原始逐事件数据、三轮范围、
++CPU/内存取舍、审查修复和命令见
++[GUI 完整报告](benchmarks/history-gui-linux-2026-10-20/README.md)。
++合成器/显示器、完整主窗口/Ela 动画、多会话长稳、真实 UART 等仍未验收；步骤 7 不勾选。
+--- a/src/renderer/TerminalRenderer.cpp
++++ b/src/renderer/TerminalRenderer.cpp
+@@ -1080,6 +1080,7 @@
+                                          _scrollAnchorWrap,
+                                          requestedContentRevision);
+         if (screen.historyPending) {
++            ++_renderStatistics.historyPendingFrames;
+             contentPending = false; fullFramePending = false; overlayPending = false;
+             std::fill(dirtyRows.begin(), dirtyRows.end(), false);
+             for (auto& spans : dirtySpans) spans.clear();
+@@ -1265,6 +1266,16 @@
+     }
+     cb->endPass();
+ 
++    if (contentPending && !screen.historyPending && fullFramePending)
++        _contentViewportRevision = _viewportMappingRevision;
++    if (contentPending && !screen.historyPending
++        && _contentViewportRevision == _viewportMappingRevision
++        && std::none_of(_glyphPendingRows.cbegin(), _glyphPendingRows.cend(),
++                        [](bool pending) { return pending; })) {
++        _renderStatistics.completedViewportRevision = _viewportMappingRevision;
++        _renderStatistics.completedScrollOffset = _scrollLine;
++        _renderStatistics.completedHistoryAnchor = _scrollAnchorLine;
++    }
+     if (contentPending)
+         _renderStatistics.lastRenderedRevision = screen.revision;
+     ++_frameNumber;
+--- a/src/renderer/TerminalRenderer.h
++++ b/src/renderer/TerminalRenderer.h
+@@ -100,6 +100,15 @@
+         quint64 historyLayoutTailUpdates{0};
+         quint64 capabilityFallbacks{0};
+         quint64 viewportMappingRevision{0};
++        /** Last viewport whose content and glyphs reached a completed draw pass.
++         * Pending history frames retain these values, even if scrollOffset()
++         * already identifies a newer request. frameSubmitted is the submission
++         * boundary; these counters do not measure compositor presentation.
++         */
++        quint64 completedViewportRevision{0};
++        int completedScrollOffset{-1};
++        NovaTerm::LineId completedHistoryAnchor{0};
++        quint64 historyPendingFrames{0};
+     };
+ 
+     struct RenderProgress
+@@ -621,6 +630,8 @@
+     QVector<quint64> _rowContentIdentities;
+     NovaTerm::RowBlockDamageTracker _rowBlockDamageTracker;
+     quint64 _viewportMappingRevision{0};
++    /// Mapping actually rebuilt as a full viewport, including pending glyph rows.
++    quint64 _contentViewportRevision{0};
+     NovaTerm::RenderCommandBuffer _commandBuffer;
+     // QRhi may consume a frame while queued terminal damage/scroll state is
+     // being published. Protect the complete hand-off and never combine a
+--- a/tests/CMakeLists.txt
++++ b/tests/CMakeLists.txt
+@@ -966,6 +966,38 @@
+         )
+     endif()
+ 
++    # Manual history GUI latency probe: requires a real exposed GPU window.
++    qt_add_executable(novaterm_history_gui_benchmark
++        ${CMAKE_CURRENT_SOURCE_DIR}/benchmarks/HistoryGuiScrollBenchmark.cpp
++        ${PROJECT_SOURCE_DIR}/src/renderer/RenderCommandBuffer.cpp
++        ${PROJECT_SOURCE_DIR}/src/renderer/RenderScheduler.cpp
++        ${PROJECT_SOURCE_DIR}/src/renderer/TerminalColorScheme.cpp
++        ${PROJECT_SOURCE_DIR}/src/renderer/TerminalRenderer.cpp
++        ${NOVATERM_P5_RENDERER_SOURCES}
++    )
++    target_compile_definitions(novaterm_history_gui_benchmark PRIVATE
++        NOVATERM_GUI_BENCHMARK_BUILD_TYPE="$<CONFIG>"
++        NOVATERM_GUI_BENCHMARK_COMPILER="${CMAKE_CXX_COMPILER_ID}-${CMAKE_CXX_COMPILER_VERSION}"
++    )
++    target_include_directories(novaterm_history_gui_benchmark PRIVATE
++        ${PROJECT_SOURCE_DIR}/src
++        "${CMAKE_PREFIX_PATH}/include/QtGui/${Qt6_VERSION}/QtGui"
++    )
++    target_link_libraries(novaterm_history_gui_benchmark PRIVATE
++        novaterm_core
++        Qt${QT_VERSION_MAJOR}::Core
++        Qt${QT_VERSION_MAJOR}::Gui
++        Qt${QT_VERSION_MAJOR}::Widgets
++    )
++    qt_add_shaders(novaterm_history_gui_benchmark
++        novaterm_history_gui_benchmark_shaders
++        BASE ${PROJECT_SOURCE_DIR}
++        PREFIX "/shaders"
++        FILES
++            ${PROJECT_SOURCE_DIR}/src/renderer/shaders/terminal_texture.vert
++            ${PROJECT_SOURCE_DIR}/src/renderer/shaders/terminal_texture.frag
++    )
++
+     add_executable(novaterm_renderer_p5_gpu_benchmark
+         ${CMAKE_CURRENT_SOURCE_DIR}/benchmarks/RendererP5GpuBenchmark.cpp
+         ${PROJECT_SOURCE_DIR}/src/renderer/RenderCommandBuffer.cpp
+--- a/tests/benchmarks/history/README.md
++++ b/tests/benchmarks/history/README.md
+@@ -64,3 +64,52 @@
+ schema 2 改变了哈希与计时口径，不能直接与 schema 1 的 `append_ms`/
+ `scan_ms` 做前后优化比较。本工具测存储后端；Parser、固定速率接收 CPU、
+ GUI 帧、Search/Reflow/取消、模型锁、在途关闭、多会话长稳及真实 UART 另验。
++
++## 可见 GUI 历史滚动基准
++
++`novaterm_history_gui_benchmark` 使用生产 TerminalCore/TerminalRenderer 和可见 QRhi
++窗口，模拟滚轮、逐页回看、滚动条位置跳转及持续输入下回看。不连接串口或服务器。
++需可用桌面/GPU；不注册默认 CTest，不能以 offscreen/Null 后端代替 GUI 成绩。
++
++```sh
++cmake --build build/Release --target novaterm_history_gui_benchmark -j4
++NOVATERM_RHI_API=opengl build/Release/bin/novaterm_history_gui_benchmark --self-test
++NOVATERM_RHI_API=opengl python3 tests/benchmarks/history/run-gui-matrix.py \
++  --executable build/Release/bin/novaterm_history_gui_benchmark \
++  --output build/history-gui-performance
++```
++
++先完成构建，再串行采样。矩阵默认为 variable/mixed 两种语料、每个参数组合三次
++独立进程，每次预填 50000 行、每场景 128 次请求，四种策略依次轮换：
++
++- `off`：关闭压缩。
++- `on-default`：512 KiB 块、4 MiB 热区。
++- `on-small`：256 KiB 块、4 MiB 热区，仅改变封块目标。
++- `on-hot`：512 KiB 块、8 MiB 热区，仅扩大热区。
++
++策略仅用于基准对象，不修改应用配置。单进程可传 `--profile`、`--corpus`、`--rows`、
++`--samples`、`--output`，参数与实际窗口网格/刷新率/DPR 写入 JSON。
++Windows 加 `.exe` 并按生成器定位目录；其他操作系统须单独运行，不引用 Linux 成绩。
++
++计量边界与判读：
++
++| 指标 | 含义及限制 |
++| --- | --- |
++| `event_to_frame` | 合成滚动请求投递至完整目标内容和字形的 `frameSubmitted`；不等于合成器/显示器呈现 |
++| `event_to_handler` | GUI 队列等待；连续场景由独立线程按 16.667 ms 投递，不依赖 GUI 定时器产生输入 |
++| `oldest_coalesced_batch_to_frame` | 本次更新所合并的最早请求到帧提交；与最新请求延迟一起报告 |
++| `coalesced` | 中间请求被更新的目标取代；不算作已完成，不能删掉后只报告最快存活请求 |
++| `correct_content_frame_interval` / `correct_content_fps` | 实际目标内容更新间隔/速率；与重复提交旧画面的 GPU 帧分开 |
++| `frame_interval` / `frame_cpu` | 所有 GPU 帧提交间隔/Renderer CPU；含等待冷数据时提交旧画面的帧 |
++| `*_gaps_over_16_7_ms` / `*_gaps_over_33_3_ms` | 两套间隔各自超预算的次数，分母在对应分布的 samples；不是合成器掉帧率 |
++| `heartbeat_lag` | 5 ms GUI 定时器的超额等待，辅助识别事件循环阻塞 |
++| `pixel_checks` / `pixel_readback` | 每阶段结束后抽查最终目标颜色标记；读回会重新绘制，单独计时且不混入阶段结果，不声称捕获了每个计时帧 |
++| `process_cpu_ms` / cache/charge | 整个场景进程 CPU、缓存命中/未命中、解码 Pending、内存记账；用于评估策略成本 |
++
++前三个场景逐请求等待目标完成并按不快于 60 Hz 的节拍发下一次，属于闭环响应实验；
++它们的帧间隔受输入节拍影响，不能直接解释成持续滚动掉帧。第四场景为 60 Hz 开环
++滚轮并同时注入约 960 行/秒合成日志，报告实际请求/合并/输入量、正确内容速率及尾延迟。
++所有分位数按每进程最近秩计算，跨进程汇总中位数和范围，不合并分位数。
++
++`--self-test` 在真实 GPU 上检查冷数据等待时保留旧完成标记，以及“先排增量帧、
++再滚动、完整重绘尚未交付”的交错，防止统计提前认领新视口。该探针不作绝对耗时断言。

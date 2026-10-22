@@ -37,9 +37,7 @@ remaining handle=0x16C type=Process access=0x1fffff pid=4676
 正常退出码与 `WAIT_OBJECT_0`。句柄值和 PID 在关闭前后相同；此观察区间
 没有另一个应用线程创建或回收句柄。等待后总数也不下降。
 
-原始日志：[inspect](benchmarks/conpty-2026-10-19/inspect.txt)、
-[input-first](benchmarks/conpty-2026-10-19/input-first.txt)、
-[pipes-only](benchmarks/conpty-2026-10-19/pipes-only.txt)。
+原始控制台日志已按[归档规则](benchmarks/README.md)清理；上文保留独立复现的计数和句柄观察，后文保留命令。
 独立程序在沙箱内成功运行；Qt 测试在沙箱内 DLL 初始化失败（0xc0000142），
 以下项目测试是在沙箱外运行。没有连接用户服务器或串口。
 
@@ -47,7 +45,6 @@ remaining handle=0x16C type=Process access=0x1fffff pid=4676
 
 初始二项定向复测仍是两处句柄失败，200 次循环句柄 `268 -> 465`。
 总进程计数受其他资源退出影响，`+197` 不能解释成只有 197 次 ConPTY 泄漏。
-日志：[baseline-original](benchmarks/conpty-2026-10-19/baseline-original.txt)。
 
 旧用例在句柄宏断言失败后立即返回，后面的线程/子进程检查未执行。
 因此旧注释“线程数与子进程数断言均通过”不能由这些失败日志推出。
@@ -57,13 +54,11 @@ remaining handle=0x16C type=Process access=0x1fffff pid=4676
 线程减少不构成泄漏，现改为有效计数且不高于基线；子进程仍要求严格等于
 基线。**句柄断言不放宽、不按循环数扣除泄漏、不跳过。**
 线程总数检查只是粗粒度护栏，不证明每一个应用线程都已回收。
-日志：[thread-equality-failure](benchmarks/conpty-2026-10-19/thread-equality-failure.txt)。
 
 最终重建 `novaterm_conpty_tests` 成功，两个资源用例定向复验 60.461 秒：
 启动回滚句柄 `227 -> 264`，循环句柄 `286 -> 483`，仍是 **两个句柄断言失败**。
 循环线程 `7 -> 6`、测试子进程 `0 -> 0`，两项检查已实际执行并通过。
 QTest 总计 2 passed / 2 failed，其中 passed 是 init/cleanup，不代表资源用例通过。
-日志：[resource-checks](benchmarks/conpty-2026-10-19/resource-checks.txt)。
 未跑全套 CTest 或 ConPTY 的其他功能用例；生产代码未改。
 独立工具 `/W4` 构建无警告，三组对照及非法参数退出码检查通过；
 对照中的 ConPTY 两组按设计返回 1，表示仍检测到增长。
