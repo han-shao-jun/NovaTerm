@@ -26,6 +26,7 @@ class QShowEvent;
 class SessionPanel;
 class SftpPanel;
 class SystemMonitorPanel;
+template<class Panel> class SshPanelStack;
 class McpSettingsDialog;
 class QWidget;
 
@@ -61,6 +62,7 @@ private:
     void updateSftpDockTitle();
     /** @brief 将资源监控的连接信息合并到停靠面板标题。 */
     void updateSystemMonitorDockTitle();
+    void updateMonitorPresentation();
     void showMcpSettingsDialog();
     void saveWindowLayout();
     void updateDockResizeHighlight(const QPoint& position);
@@ -107,8 +109,8 @@ private:
     // 主页面与四区布局：终端固定中央，会话固定左侧，SFTP/监视可停靠。
     TerminalPage* _terminalPage{nullptr};
     SessionPanel* _sessionPanel{nullptr};
-    SftpPanel* _sftpPanel{nullptr};
-    SystemMonitorPanel* _systemMonitorPanel{nullptr};
+    SshPanelStack<SftpPanel>* _sftpPanels{nullptr};
+    SshPanelStack<SystemMonitorPanel>* _systemMonitorPanels{nullptr};
     QDockWidget* _sessionDock{nullptr};
     QDockWidget* _sftpDock{nullptr};
     QDockWidget* _systemMonitorDock{nullptr};

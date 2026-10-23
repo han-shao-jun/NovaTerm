@@ -828,6 +828,46 @@ if(BUILD_TESTING)
     )
     add_dependencies(check novaterm_ui_dialog_layout_tests)
 
+    # SFTP 面板会话路径回归；无真实 SSH 连接。
+    qt_add_executable(novaterm_sftp_panel_tests
+        ${CMAKE_CURRENT_SOURCE_DIR}/ui/SftpPanelTests.cpp
+        ${PROJECT_SOURCE_DIR}/src/ui/widgets/SftpPanel.cpp
+        ${PROJECT_SOURCE_DIR}/src/ui/widgets/SftpPanel.h
+        ${PROJECT_SOURCE_DIR}/src/ui/widgets/SshPanelStack.h
+        ${PROJECT_SOURCE_DIR}/src/ui/widgets/SystemMonitorPanel.cpp
+        ${PROJECT_SOURCE_DIR}/src/ui/widgets/SystemMonitorPanel.h
+        ${PROJECT_SOURCE_DIR}/src/ui/widgets/SystemInformationDialog.cpp
+        ${PROJECT_SOURCE_DIR}/src/ui/widgets/SystemInformationDialog.h
+        ${PROJECT_SOURCE_DIR}/src/service/ResourcePrefetch.h
+        ${PROJECT_SOURCE_DIR}/src/ui/widgets/MessagePrompts.cpp
+        ${PROJECT_SOURCE_DIR}/src/service/LanguageManager.cpp
+        ${PROJECT_SOURCE_DIR}/src/session/SftpSession.cpp
+        ${PROJECT_SOURCE_DIR}/src/session/SftpSession.h
+        ${PROJECT_SOURCE_DIR}/src/transport/SshTransport.cpp
+        ${PROJECT_SOURCE_DIR}/src/transport/SshTransport.h
+        ${PROJECT_SOURCE_DIR}/src/transport/ITransport.h
+        ${PROJECT_SOURCE_DIR}/src/transport/SshMonitorProtocol.cpp
+        ${PROJECT_SOURCE_DIR}/src/core/ThreadNaming.cpp
+    )
+    target_include_directories(novaterm_sftp_panel_tests PRIVATE ${PROJECT_SOURCE_DIR}/src)
+    target_link_libraries(novaterm_sftp_panel_tests PRIVATE
+        ElaWidgetTools Qt${QT_VERSION_MAJOR}::Widgets
+        Qt${QT_VERSION_MAJOR}::SerialPort Qt${QT_VERSION_MAJOR}::Test
+        ssh::ssh OpenSSL::Crypto OpenSSL::SSL
+    )
+    if(WIN32)
+        target_link_libraries(novaterm_sftp_panel_tests PRIVATE ws2_32 crypt32 user32)
+    endif()
+    add_test(NAME novaterm_sftp_panel_tests COMMAND novaterm_sftp_panel_tests
+        -o "${CMAKE_CURRENT_BINARY_DIR}/sftp-panel.ctest.txt,txt")
+    set_tests_properties(novaterm_sftp_panel_tests PROPERTIES
+        WORKING_DIRECTORY "${CMAKE_BINARY_DIR}"
+        LABELS "ui;sftp"
+        TIMEOUT 30
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+    )
+    add_dependencies(check novaterm_sftp_panel_tests)
+
     # ── SessionPanel 选区回归 ──
     # 单独成目标而非并入上面的 ui 目标：SessionPanel 拖入 SessionStore /
     # ProfileStore / MessagePrompts / CredentialStore 一整条依赖链，其中

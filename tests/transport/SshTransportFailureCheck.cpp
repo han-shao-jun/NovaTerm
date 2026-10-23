@@ -235,52 +235,36 @@ int main(int argc, char** argv)
         return localSshCheck(app);
     int failures = 0;
 
-    // 初始只留给面板；详情分批预热，迟到时也不能集中补发。
-    // 断言按常量推导，调参只需改 PrefetchSchedule 本身。
+    // 详情保留原延后与错峰节奏，不影响独立的基础采样。
     {
         using NovaTerm::LinuxResource::PrefetchSchedule;
-        // 三条硬约束：连接后 2~3 秒内点开详情要有内容（首批不晚、总时长有界）、
-        // 批次之间保持足够间隔，且批次数要少 —— 实测每条远端命令约 15ms CPU
-        // 且与内容基本无关，命令数才是远端负载的主要来源。
-        const int totalReadyMs = PrefetchSchedule::InitialDelayMs
-            + (PrefetchSchedule::BatchCount - 1) * PrefetchSchedule::BatchSpacingMs;
-        if (PrefetchSchedule::InitialDelayMs > 1500 || totalReadyMs > 3500
-            || PrefetchSchedule::BatchSpacingMs < 500
-            || PrefetchSchedule::BatchCount > 3)
-            ++failures;
-
         PrefetchSchedule schedule;
-        if (schedule.ready(0) || schedule.ready(PrefetchSchedule::InitialDelayMs - 1))
+        if (schedule.ready(0) || schedule.ready(1199) || !schedule.ready(1200))
             ++failures;
-        for (int batch = 0; batch < PrefetchSchedule::BatchCount; ++batch) {
-            const int due = PrefetchSchedule::InitialDelayMs
-                + batch * PrefetchSchedule::BatchSpacingMs;
-            if (schedule.batch() != batch || !schedule.ready(due))
+        for (int batch = 0; batch < 3; ++batch) {
+            const int start = 1200 + batch * 1000;
+            if (schedule.batch() != batch || !schedule.ready(start))
                 ++failures;
-            schedule.started(due);
-            if (schedule.ready(due + 10))
+            schedule.started(start);
+            if (schedule.ready(start + 10))
                 ++failures;
-            schedule.finished(due + 40);
-            if (!schedule.complete()
-                && schedule.ready(due + PrefetchSchedule::BatchSpacingMs - 1))
+            schedule.finished(start + 40);
+            if (!schedule.complete() && schedule.ready(start + 999))
                 ++failures;
         }
-        if (!schedule.complete() || schedule.ready(totalReadyMs + 1000))
+        if (!schedule.complete() || schedule.ready(10000))
             ++failures;
-
-        // 慢批次：完成后按冷却时间重排，不立刻补发，也不吞掉批间隔。
         PrefetchSchedule delayed;
-        delayed.started(PrefetchSchedule::InitialDelayMs);
-        delayed.finished(3000);
-        const int slowDue = 3000 + PrefetchSchedule::CompletionGapMs;
-        if (delayed.ready(slowDue - 1) || !delayed.ready(slowDue))
+        delayed.started(1200);
+        delayed.finished(5000);
+        if (delayed.ready(5249) || !delayed.ready(5250))
             ++failures;
-        delayed.started(slowDue);
-        delayed.finished(slowDue + 10);
-        const int nextDue = slowDue + PrefetchSchedule::BatchSpacingMs;
-        if (delayed.ready(nextDue - 1) || !delayed.ready(nextDue))
+        PrefetchSchedule failed;
+        failed.started(1200);
+        failed.finished(1240, false);
+        if (failed.ready(2239) || !failed.ready(2240))
             ++failures;
-        std::printf("[resource-prefetch] startup spacing/slow completion/no catch-up checked\n");
+        std::printf("[resource-prefetch] deferred startup/spaced batches/slow completion checked\n");
     }
 
     // 分批次序本身就是体验约束：概览（os/kernel/host/arch/connection，含 IP）
@@ -526,6 +510,35 @@ int main(int argc, char** argv)
             ++failures;
         }
         std::printf("[command-completion] EOF/status ordering checked\n");
+    }
+
+    // 可选磁盘段超过条目/字节预算时保留核心指标，下一帧仍按严格预算解析。
+    for (int padding : {0, 1800}) {
+        SshMonitorFrameParser parser;
+        QByteArray frame = "__NOVATERM_METRICS_BEGIN__\t90\n"
+            "@@stat\ncpu 100 0 50 200 0 0 0 0\n"
+            "@@meminfo\nMemTotal: 1000 kB\nMemAvailable: 500 kB\n"
+            "@@filesystems\nFilesystem 1024-blocks Used Available Capacity Mounted on\n";
+        const int rows = padding == 0 ? 600 : 100;
+        for (int row = 0; row < rows; ++row)
+            frame += "/dev/root 1000 500 500 50% /" + QByteArray(padding, 'x') + '\n';
+        frame += "__NOVATERM_METRICS_END__\t90\n";
+        const auto result = parser.append(frame);
+        NovaTerm::LinuxResource::Sample sample;
+        if (result.error != SshMonitorFrameParser::Error::None || result.frames.size() != 1) {
+            ++failures;
+            continue;
+        }
+        const auto& payload = result.frames[0].payload;
+        if (!NovaTerm::LinuxResource::parseMetrics(payload, sample)
+            || sample.memoryTotalKiB != 1000 || payload.size() > SshMonitorFrameParser::MaxFrameBytes
+            || NovaTerm::LinuxResource::fileSystems(payload).size() > 128)
+            ++failures;
+        QByteArray next = "__NOVATERM_METRICS_BEGIN__\t91\n";
+        for (int row = 0; row <= SshMonitorFrameParser::MaxFrameEntries; ++row)
+            next += "required\n";
+        if (parser.append(next).error != SshMonitorFrameParser::Error::EntryLimit)
+            ++failures;
     }
 
     // ── 协议解析：分片、合帧、错误帧和上限 ──────────────────
