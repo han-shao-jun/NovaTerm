@@ -119,9 +119,11 @@ public:
     void stopResourceMonitoring();
     /**
      * @brief 在常驻通道上请求一帧 CPU、内存和网络计数。
+     * @param includeFileSystems 详情可见时在同一帧附加 df 原文。
      * @return 请求已接收时返回 true；未连接、未启用或已有在途请求时返回 false。
      */
-    [[nodiscard]] bool requestResourceSample(quint64 requestId);
+    [[nodiscard]] bool requestResourceSample(quint64 requestId,
+                                             bool includeFileSystems = false);
 
 signals:
     // 需要 UI 决策：首次信任 / 主机密钥变更。未处理（无连接）时等待方会
@@ -249,6 +251,7 @@ private:
     bool _monitorEnabled{false};
     quint64 _monitorGeneration{0};
     quint64 _monitorRequestId{0};
+    bool _monitorIncludeFileSystems{false};
 
     /**
      * @brief 待处理 PTY 尺寸，打包成单个原子字发布。

@@ -1,9 +1,9 @@
 /**
  * @file SystemMonitorPanel.cpp
- * @brief 卡片式远端系统资源监视面板与分频 SSH 采集。
+ * @brief 卡片式远端系统资源监视面板：初始化按完成推进，后续按固定周期采样。
  *
- * 复用当前终端的 SSH 连接：常驻请求驱动 channel 读取 Linux /proc，独立
- * exec channel 仅在系统详情可见时查询 df。隐藏、折叠、最小化或切换标签时停采。
+ * 复用当前终端的 SSH 连接：常驻请求驱动 channel 读取 Linux /proc，
+ * 详情可见时附加 df 原始数据。会话切换保留采样，Dock 关闭或最小化时暂停。
  */
 #include "SystemMonitorPanel.h"
 #include "SystemInformationDialog.h"
@@ -387,12 +387,6 @@ SystemMonitorPanel::SystemMonitorPanel(QWidget* parent)
     connect(_fastTimer, &QTimer::timeout,
             this, &SystemMonitorPanel::requestFastMetrics);
 
-    _fileSystemTimer = new QTimer(this);
-    _fileSystemTimer->setSingleShot(true);
-    _fileSystemTimer->setTimerType(Qt::CoarseTimer);
-    connect(_fileSystemTimer, &QTimer::timeout,
-            this, &SystemMonitorPanel::requestFileSystems);
-
     retranslateUi();
     applyTheme();
     refreshAvailability();
@@ -405,8 +399,6 @@ SystemMonitorPanel::~SystemMonitorPanel()
     if (!_sshTransport)
         return;
     _sshTransport->stopResourceMonitoring();
-    if (_pendingFileSystemRequestId != 0)
-        _sshTransport->cancelCommand(_pendingFileSystemRequestId);
 }
 
 QSize SystemMonitorPanel::sizeHint() const
@@ -438,9 +430,12 @@ void SystemMonitorPanel::updateContentHeight()
 void SystemMonitorPanel::setSessionContext(const QString& sessionLabel,
                                            SshTransport* transport)
 {
-    if (transport && _sshTransport == transport && _sessionName == sessionLabel
-        && _connectionGeneration == transport->connectionGeneration())
+    if (transport && _sshTransport == transport
+        && _connectionGeneration == transport->connectionGeneration()) {
+        _sessionName = sessionLabel;
+        refreshAvailability();
         return;
+    }
 
     if (_systemInformationDialog) {
         _systemInformationDialog->close();
@@ -448,12 +443,9 @@ void SystemMonitorPanel::setSessionContext(const QString& sessionLabel,
     }
     if (_sshTransport) {
         _sshTransport->stopResourceMonitoring();
-        if (_pendingFileSystemRequestId != 0)
-            _sshTransport->cancelCommand(_pendingFileSystemRequestId);
         disconnect(_sshTransport, nullptr, this, nullptr);
     }
     _fastTimer->stop();
-    _fileSystemTimer->stop();
     _samplingActive = false;
     _fileSystemSamplingActive = false;
     _sessionName = sessionLabel;
@@ -462,8 +454,7 @@ void SystemMonitorPanel::setSessionContext(const QString& sessionLabel,
 
     if (_sshTransport) {
         _connectionGeneration = _sshTransport->connectionGeneration();
-        // 详情（系统信息对话框）交给连接绑定的分批预取：首批概览先行，其余按
-        // 调度均匀铺开；常驻指标持续刷新，df 仅在详情可见时按需采集。
+        // 基础指标先显示；静态详情保持原延后与分批时序，彼此不阻塞。
         auto* const prefetch = NovaTerm::LinuxResource::ResourcePrefetch::forTransport(
             _sshTransport);
         if (_prefetch != prefetch) {
@@ -471,6 +462,12 @@ void SystemMonitorPanel::setSessionContext(const QString& sessionLabel,
             // 预取对象归 transport 所有；销毁时置空，避免借用指针悬垂。
             connect(_prefetch, &QObject::destroyed, this,
                     [this] { _prefetch = nullptr; });
+            connect(_prefetch, &NovaTerm::LinuxResource::ResourcePrefetch::updated,
+                    this, [this, prefetch](bool) {
+                if (_prefetch != prefetch)
+                    return;
+                updateInformationDialog();
+            });
         }
         // 捕获当前 transport，并在回调中复核，屏蔽切换会话后迟到的异步结果。
         SshTransport* const current = _sshTransport.data();
@@ -480,15 +477,6 @@ void SystemMonitorPanel::setSessionContext(const QString& sessionLabel,
                 // 重连等待期可能已同步代际；即使上下文相同也必须恢复采样。
                 updateSamplingState();
                 refreshAvailability();
-            }
-        });
-        connect(current, &SshTransport::commandFinished, this,
-                [this, current](quint64 requestId, const QByteArray& output,
-                                const QByteArray&,
-                                const QString& errorMessage) {
-            if (_sshTransport == current && current->isConnected()
-                && _connectionGeneration == current->connectionGeneration()) {
-                handleFileSystems(requestId, output, errorMessage);
             }
         });
         connect(current, &SshTransport::resourceSampleFinished, this,
@@ -548,6 +536,12 @@ void SystemMonitorPanel::setPresentationActive(bool active)
     if (_presentationActive == active)
         return;
     _presentationActive = active;
+    updateSamplingState();
+}
+
+void SystemMonitorPanel::setBackgroundSamplingEnabled(bool enabled)
+{
+    _backgroundSamplingEnabled = enabled;
     updateSamplingState();
 }
 
@@ -611,9 +605,6 @@ void SystemMonitorPanel::refreshAvailability()
     } else if (!_collectionError.isEmpty()) {
         _availabilityLabel->setText(_collectionError);
         _availabilityLabel->show();
-    } else if (!_hasMetrics) {
-        _availabilityLabel->setText(tr("Collecting remote resources…"));
-        _availabilityLabel->show();
     } else {
         _availabilityLabel->hide();
     }
@@ -626,20 +617,15 @@ void SystemMonitorPanel::updateSamplingState()
         && _systemInformationDialog->isVisible()
         && !_systemInformationDialog->isMinimized();
     const bool shouldSample = _presentationActive
-        && (isVisible() || detailsVisible)
+        && (isVisible() || detailsVisible || _backgroundSamplingEnabled)
         && _sshTransport && _sshTransport->isConnected();
-    // 详情开关与面板快采独立，必须在快采状态未变化的提前返回之前处理。
     const bool shouldQueryFileSystems = shouldSample && detailsVisible;
     if (_fileSystemSamplingActive != shouldQueryFileSystems) {
         _fileSystemSamplingActive = shouldQueryFileSystems;
-        if (_fileSystemSamplingActive) {
+        if (shouldQueryFileSystems) {
             _hasFileSystemResult = false;
-            _fileSystemTimer->start(0);
-        } else {
-            _fileSystemTimer->stop();
-            const quint64 requestId = std::exchange(_pendingFileSystemRequestId, 0);
-            if (_sshTransport && requestId != 0)
-                _sshTransport->cancelCommand(requestId);
+            _lastFileSystemSampleElapsedMs = -1;
+            QTimer::singleShot(0, this, &SystemMonitorPanel::requestFastMetrics);
         }
     }
     if (_samplingActive == shouldSample)
@@ -658,15 +644,13 @@ void SystemMonitorPanel::updateSamplingState()
         _previousNetworkBytes.clear();
         _networkRates.clear();
         _hasCpuBaseline = false;
-        _warmupIntervals = 0;
+        _lastFileSystemSampleElapsedMs = -1;
         _cpuUsage.clear();
         updateNetworkView();
         return;
     }
 
     _sampleClock.restart();
-    _sshTransport->startResourceMonitoring();
-    _fastTimer->start();
     QTimer::singleShot(0, this, &SystemMonitorPanel::requestFastMetrics);
 }
 
@@ -676,44 +660,26 @@ void SystemMonitorPanel::requestFastMetrics()
         setSessionContext(_sessionName, _sshTransport);
         return;
     }
-    // 只提交面板自己需要的指标；详情由 ResourcePrefetch 分批推进，不在这里触发。
+    // 基础采样走常驻通道，不等待另一条命令通道上的延后详情查询。
     // 最多一个在途请求；慢服务端不会积压定时任务。
     if (!_samplingActive || !_sshTransport
         || !_sshTransport->isConnected() || _pendingFastRequestId != 0) {
         return;
     }
+    _sshTransport->startResourceMonitoring();
     const quint64 requestId = _nextRequestId++;
-    if (_sshTransport->requestResourceSample(requestId)) {
+    const bool includeFileSystems = _fileSystemSamplingActive
+        && (_lastFileSystemSampleElapsedMs < 0
+            || _sampleClock.elapsed() - _lastFileSystemSampleElapsedMs >= FileSystemIntervalMs);
+    if (_sshTransport->requestResourceSample(requestId, includeFileSystems)) {
         _pendingFastRequestId = requestId;
+        _pendingSampleIncludesFileSystems = includeFileSystems;
         if (!_hasMetrics) {
             _collectionError.clear();
             refreshAvailability();
         }
-    }
-}
-
-void SystemMonitorPanel::requestFileSystems()
-{
-    if (!_fileSystemSamplingActive || !_samplingActive || !_sshTransport
-        || !_systemInformationDialog || !_systemInformationDialog->isVisible()
-        || _systemInformationDialog->isMinimized()
-        || !_sshTransport->isConnected()
-        || _connectionGeneration != _sshTransport->connectionGeneration()
-        || _pendingFileSystemRequestId != 0) {
-        return;
-    }
-    // 文件系统只服务详情窗口，仍须让开静态预取，避免叠加远端负载。
-    if (_prefetch && !_prefetch->allowsSlowQuery()) {
-        _fileSystemTimer->start(FileSystemDeferralMs);
-        return;
-    }
-    const quint64 requestId = _nextRequestId++;
-    // CPU 频率由详情预取（该批同时读 cpuinfo）负责，这里只查文件系统。
-    if (_sshTransport->executeCommand(requestId,
-            NovaTerm::LinuxResource::slowCommand(/*includeFrequency=*/false))) {
-        _pendingFileSystemRequestId = requestId;
     } else {
-        _fileSystemTimer->start(FileSystemDeferralMs);
+        _fastTimer->start(ResourceRetryDelayMs);
     }
 }
 
@@ -721,7 +687,7 @@ void SystemMonitorPanel::updateInformationDialog()
 {
     if (!_systemInformationDialog)
         return;
-    // 静态详情可能仍在分批到达；对话框按已有分节渲染，缺的卡片标为采集中。
+    // 静态详情分批到达；对话框保留卡片结构并逐项填入已有数据。
     const QByteArray staticRaw = _prefetch ? _prefetch->data() : QByteArray{};
     _systemInformationDialog->populate(
         NovaTerm::LinuxResource::information(
@@ -737,6 +703,10 @@ void SystemMonitorPanel::handleFastMetrics(
     if (requestId == 0 || requestId != _pendingFastRequestId)
         return;
     _pendingFastRequestId = 0;
+    if (_pendingSampleIncludesFileSystems) {
+        _hasFileSystemResult = true;
+        _lastFileSystemSampleElapsedMs = _sampleClock.elapsed();
+    }
 
     RemoteMetrics metrics;
     if (!errorMessage.isEmpty() || !parseMetrics(payload, metrics)) {
@@ -745,27 +715,31 @@ void SystemMonitorPanel::handleFastMetrics(
             ? tr("The remote system did not return supported Linux metrics.")
             : tr("Remote resource query failed: %1").arg(details);
         refreshAvailability();
+        if (_samplingActive) {
+            _fastTimer->start(ResourceRetryDelayMs);
+        }
         return;
     }
     _collectionError.clear();
+    if (_pendingSampleIncludesFileSystems) {
+        // 失败保留上次有效磁盘结果；原始文本与指标在本地统一解析。
+        if (!NovaTerm::LinuxResource::fileSystems(payload).isEmpty())
+            _slowInformation = payload;
+    }
 
-    _cpuUsage = _hasCpuBaseline
-        ? NovaTerm::LinuxResource::cpuUsage(metrics.ticks, _latestSample.ticks)
-        : QByteArray{};
+    const bool repeatedCpuTicks = _hasCpuBaseline && metrics.ticks == _latestSample.ticks;
+    // 连续采样可能快于内核 tick；没有新计数时保留上次有效读数。
+    if (!repeatedCpuTicks) {
+        _cpuUsage = _hasCpuBaseline
+            ? NovaTerm::LinuxResource::cpuUsage(metrics.ticks, _latestSample.ticks)
+            : QByteArray{};
+    }
     _latestSample = metrics;
     _hasCpuBaseline = true;
 
-    // 连接后的前两个采样区间属于预热：登录 shell 启动、常驻通道建立与
-    // 概览批都落在其中。实测（单核设备，每条远端命令约 10ms CPU）这些一次性开销
-    // 可达数个百分点，若计入显示值会被误读成远端持续占用 —— 预热期只更新基线，
-    // 不发布 CPU/网络读数（内存与交换是绝对值，照常显示）。
-    const bool warmup = _warmupIntervals < WarmupIntervals;
-    if (warmup)
-        ++_warmupIntervals;
-
     const qint64 nowMs = _sampleClock.elapsed();
     // /proc/stat 是开机以来的累计 tick；首个样本仅建立基线，后续才可计算占用率。
-    if (!warmup && !_cpuUsage.isEmpty() && _previousCpuTotal > 0
+    if (!_cpuUsage.isEmpty() && _previousCpuTotal > 0
         && metrics.cpuTotal > _previousCpuTotal) {
         const quint64 totalDelta = metrics.cpuTotal - _previousCpuTotal;
         const quint64 idleDelta = metrics.cpuIdle >= _previousCpuIdle
@@ -776,9 +750,9 @@ void SystemMonitorPanel::handleFastMetrics(
             0, 100);
         _cpuProgress->setValue(cpuPercent);
         _cpuProgress->setFormat(QStringLiteral("%1%").arg(cpuPercent));
-    } else {
+    } else if (!repeatedCpuTicks || _cpuUsage.isEmpty()) {
         _cpuProgress->setValue(0);
-        _cpuProgress->setFormat(tr("Collecting…"));
+        _cpuProgress->setFormat(QStringLiteral("—"));
     }
     _previousCpuTotal = metrics.cpuTotal;
     _previousCpuIdle = metrics.cpuIdle;
@@ -835,28 +809,22 @@ void SystemMonitorPanel::handleFastMetrics(
     updateNetworkView();
 
     _previousSampleElapsedMs = nowMs;
+    const bool firstSample = !_hasMetrics;
     _hasMetrics = true;
     refreshAvailability();
     updateInformationDialog();
-}
-
-void SystemMonitorPanel::handleFileSystems(
-    quint64 requestId, const QByteArray& standardOutput,
-    const QString& errorMessage)
-{
-    if (requestId == 0 || requestId != _pendingFileSystemRequestId)
-        return;
-    _pendingFileSystemRequestId = 0;
-
-    _hasFileSystemResult = true;
-    // 失败时保留最近一次有效结果；首查失败则结束“采集中”，由详情显示空状态。
-    if (errorMessage.isEmpty()
-        && !NovaTerm::LinuxResource::fileSystems(standardOutput).isEmpty()) {
-        _slowInformation = standardOutput;
+    if (_prefetch)
+        _prefetch->start();
+    if (_samplingActive) {
+        // 基础初始化仅补取一次差分样本；随后恢复固定周期，与详情时序独立。
+        if (firstSample) {
+            QTimer::singleShot(0, this, &SystemMonitorPanel::requestFastMetrics);
+        } else if (!_fastTimer->isActive()) {
+            _fastTimer->start(DefaultFastIntervalMs);
+        }
+        if (!firstSample && _fileSystemSamplingActive && !_hasFileSystemResult)
+            QTimer::singleShot(0, this, &SystemMonitorPanel::requestFastMetrics);
     }
-    updateInformationDialog();
-    if (_fileSystemSamplingActive)
-        _fileSystemTimer->start(FileSystemIntervalMs);
 }
 
 void SystemMonitorPanel::updateNetworkView()
@@ -880,12 +848,11 @@ void SystemMonitorPanel::resetMetrics()
 {
     // transport 上下文变化后累计计数不可跨主机比较，必须连同请求状态一起清空。
     _pendingFastRequestId = 0;
-    _pendingFileSystemRequestId = 0;
     _slowInformation.clear();
     _latestSample = {};
     _cpuUsage.clear();
     _hasCpuBaseline = false;
-    _warmupIntervals = 0;
+    _lastFileSystemSampleElapsedMs = -1;
     _previousCpuTotal = 0;
     _previousCpuIdle = 0;
     _previousSampleElapsedMs = -1;

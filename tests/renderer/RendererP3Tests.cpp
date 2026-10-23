@@ -3,7 +3,7 @@
 #include "renderer/TerminalRenderer.h"
 #include "core/terminal/TerminalCore.h"
 #include "service/TerminalSchemeStore.h"
-#include "../benchmarks/HistoryGuiScrollBenchmarkSupport.h"
+#include "../benchmarks/history/lz4/HistoryGuiScrollBenchmarkSupport.h"
 
 #include <QCoreApplication>
 #include <QElapsedTimer>

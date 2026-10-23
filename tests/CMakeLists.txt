@@ -516,7 +516,7 @@ add_subdirectory(evidence)
         )
 
         add_executable(novaterm_conpty_residue_repro
-            ${CMAKE_CURRENT_SOURCE_DIR}/benchmarks/ConPtyResidueRepro.cpp
+            ${CMAKE_CURRENT_SOURCE_DIR}/benchmarks/repro/ConPtyResidueRepro.cpp
             ${PROJECT_SOURCE_DIR}/src/renderer/RenderCommandBuffer.cpp
             ${PROJECT_SOURCE_DIR}/src/renderer/RenderCommandBuffer.h
             ${PROJECT_SOURCE_DIR}/src/renderer/RenderScheduler.cpp
@@ -832,6 +832,46 @@ add_subdirectory(evidence)
     )
     add_dependencies(check novaterm_ui_dialog_layout_tests)
 
+    # SFTP 面板会话路径回归；无真实 SSH 连接。
+    qt_add_executable(novaterm_sftp_panel_tests
+        ${CMAKE_CURRENT_SOURCE_DIR}/ui/SftpPanelTests.cpp
+        ${PROJECT_SOURCE_DIR}/src/ui/widgets/SftpPanel.cpp
+        ${PROJECT_SOURCE_DIR}/src/ui/widgets/SftpPanel.h
+        ${PROJECT_SOURCE_DIR}/src/ui/widgets/SshPanelStack.h
+        ${PROJECT_SOURCE_DIR}/src/ui/widgets/SystemMonitorPanel.cpp
+        ${PROJECT_SOURCE_DIR}/src/ui/widgets/SystemMonitorPanel.h
+        ${PROJECT_SOURCE_DIR}/src/ui/widgets/SystemInformationDialog.cpp
+        ${PROJECT_SOURCE_DIR}/src/ui/widgets/SystemInformationDialog.h
+        ${PROJECT_SOURCE_DIR}/src/service/ResourcePrefetch.h
+        ${PROJECT_SOURCE_DIR}/src/ui/widgets/MessagePrompts.cpp
+        ${PROJECT_SOURCE_DIR}/src/service/LanguageManager.cpp
+        ${PROJECT_SOURCE_DIR}/src/session/SftpSession.cpp
+        ${PROJECT_SOURCE_DIR}/src/session/SftpSession.h
+        ${PROJECT_SOURCE_DIR}/src/transport/SshTransport.cpp
+        ${PROJECT_SOURCE_DIR}/src/transport/SshTransport.h
+        ${PROJECT_SOURCE_DIR}/src/transport/ITransport.h
+        ${PROJECT_SOURCE_DIR}/src/transport/SshMonitorProtocol.cpp
+        ${PROJECT_SOURCE_DIR}/src/core/ThreadNaming.cpp
+    )
+    target_include_directories(novaterm_sftp_panel_tests PRIVATE ${PROJECT_SOURCE_DIR}/src)
+    target_link_libraries(novaterm_sftp_panel_tests PRIVATE
+        ElaWidgetTools Qt${QT_VERSION_MAJOR}::Widgets
+        Qt${QT_VERSION_MAJOR}::SerialPort Qt${QT_VERSION_MAJOR}::Test
+        ssh::ssh OpenSSL::Crypto OpenSSL::SSL
+    )
+    if(WIN32)
+        target_link_libraries(novaterm_sftp_panel_tests PRIVATE ws2_32 crypt32 user32)
+    endif()
+    add_test(NAME novaterm_sftp_panel_tests COMMAND novaterm_sftp_panel_tests
+        -o "${CMAKE_CURRENT_BINARY_DIR}/sftp-panel.ctest.txt,txt")
+    set_tests_properties(novaterm_sftp_panel_tests PROPERTIES
+        WORKING_DIRECTORY "${CMAKE_BINARY_DIR}"
+        LABELS "ui;sftp"
+        TIMEOUT 30
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+    )
+    add_dependencies(check novaterm_sftp_panel_tests)
+
     # ── SessionPanel 选区回归 ──
     # 单独成目标而非并入上面的 ui 目标：SessionPanel 拖入 SessionStore /
     # ProfileStore / MessagePrompts / CredentialStore 一整条依赖链，其中
@@ -923,8 +963,8 @@ if(NOVATERM_BUILD_BENCHMARKS)
     if(WIN32)
         if(BUILD_TESTING)
             qt_add_executable(novaterm_renderer_large_input_tests
-                ${CMAKE_CURRENT_SOURCE_DIR}/benchmarks/RendererLargeInputBenchmarkTests.cpp
-                ${CMAKE_CURRENT_SOURCE_DIR}/benchmarks/RendererLargeInputBenchmarkSupport.h
+                ${CMAKE_CURRENT_SOURCE_DIR}/benchmarks/renderer/RendererLargeInputBenchmarkTests.cpp
+                ${CMAKE_CURRENT_SOURCE_DIR}/benchmarks/renderer/RendererLargeInputBenchmarkSupport.h
             )
             target_link_libraries(novaterm_renderer_large_input_tests PRIVATE
                 Qt${QT_VERSION_MAJOR}::Core
@@ -940,7 +980,7 @@ if(NOVATERM_BUILD_BENCHMARKS)
         endif()
 
         qt_add_executable(novaterm_renderer_large_input_benchmark
-            ${CMAKE_CURRENT_SOURCE_DIR}/benchmarks/RendererLargeInputBenchmark.cpp
+            ${CMAKE_CURRENT_SOURCE_DIR}/benchmarks/renderer/RendererLargeInputBenchmark.cpp
             ${PROJECT_SOURCE_DIR}/src/renderer/RenderCommandBuffer.cpp
             ${PROJECT_SOURCE_DIR}/src/renderer/RenderScheduler.cpp
             ${PROJECT_SOURCE_DIR}/src/renderer/RenderScheduler.h
@@ -975,7 +1015,7 @@ if(NOVATERM_BUILD_BENCHMARKS)
 
     # Manual history GUI latency probe: requires a real exposed GPU window.
     qt_add_executable(novaterm_history_gui_benchmark
-        ${CMAKE_CURRENT_SOURCE_DIR}/benchmarks/HistoryGuiScrollBenchmark.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/benchmarks/history/lz4/HistoryGuiScrollBenchmark.cpp
         ${PROJECT_SOURCE_DIR}/src/renderer/RenderCommandBuffer.cpp
         ${PROJECT_SOURCE_DIR}/src/renderer/RenderScheduler.cpp
         ${PROJECT_SOURCE_DIR}/src/renderer/TerminalColorScheme.cpp
@@ -1006,7 +1046,7 @@ if(NOVATERM_BUILD_BENCHMARKS)
     )
 
     add_executable(novaterm_renderer_p5_gpu_benchmark
-        ${CMAKE_CURRENT_SOURCE_DIR}/benchmarks/RendererP5GpuBenchmark.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/benchmarks/renderer/RendererP5GpuBenchmark.cpp
         ${PROJECT_SOURCE_DIR}/src/renderer/RenderCommandBuffer.cpp
         ${PROJECT_SOURCE_DIR}/src/renderer/RenderScheduler.cpp
         ${PROJECT_SOURCE_DIR}/src/renderer/TerminalColorScheme.cpp
@@ -1050,7 +1090,7 @@ if(NOVATERM_BUILD_BENCHMARKS)
     endif()
 
     add_executable(novaterm_renderer_p3_gpu_benchmark
-        ${CMAKE_CURRENT_SOURCE_DIR}/benchmarks/RendererP3GpuBenchmark.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/benchmarks/renderer/RendererP3GpuBenchmark.cpp
         ${PROJECT_SOURCE_DIR}/src/renderer/RenderCommandBuffer.cpp
         ${PROJECT_SOURCE_DIR}/src/renderer/RenderCommandBuffer.h
         ${PROJECT_SOURCE_DIR}/src/renderer/RenderScheduler.cpp
@@ -1082,7 +1122,7 @@ if(NOVATERM_BUILD_BENCHMARKS)
     )
 
     add_executable(novaterm_residue_repro
-        ${CMAKE_CURRENT_SOURCE_DIR}/benchmarks/ResidueRepro.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/benchmarks/repro/ResidueRepro.cpp
         ${PROJECT_SOURCE_DIR}/src/renderer/RenderCommandBuffer.cpp
         ${PROJECT_SOURCE_DIR}/src/renderer/RenderCommandBuffer.h
         ${PROJECT_SOURCE_DIR}/src/renderer/RenderScheduler.cpp
@@ -1114,7 +1154,7 @@ if(NOVATERM_BUILD_BENCHMARKS)
     )
 
     add_executable(novaterm_renderer_p3_benchmark
-        ${CMAKE_CURRENT_SOURCE_DIR}/benchmarks/RendererP3Benchmark.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/benchmarks/renderer/RendererP3Benchmark.cpp
         ${PROJECT_SOURCE_DIR}/src/renderer/RenderCommandBuffer.cpp
         ${PROJECT_SOURCE_DIR}/src/renderer/RenderCommandBuffer.h
     )
@@ -1129,12 +1169,12 @@ if(NOVATERM_BUILD_BENCHMARKS)
     )
 
     add_executable(novaterm_core_benchmark
-        ${CMAKE_CURRENT_SOURCE_DIR}/benchmarks/CoreBenchmark.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/benchmarks/core/CoreBenchmark.cpp
     )
     target_link_libraries(novaterm_core_benchmark PRIVATE novaterm_core)
 
     add_executable(novaterm_scrollback_benchmark
-        ${CMAKE_CURRENT_SOURCE_DIR}/benchmarks/ScrollbackBenchmark.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/benchmarks/core/ScrollbackBenchmark.cpp
     )
     target_link_libraries(novaterm_scrollback_benchmark PRIVATE novaterm_core)
 

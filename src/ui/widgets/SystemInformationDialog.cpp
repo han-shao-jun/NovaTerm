@@ -183,9 +183,9 @@ QWidget* createTable(const QStringList& headers, const Rows& rows,
         grid->setColumnStretch(int(column), 1);
     }
     if (rows.isEmpty()) {
-        // 详情按批到达：还没拿到的卡片说"采集中"，采完仍为空才是"No data"。
+        // 先展示卡片结构与占位值，已到的数据逐项填入。
         grid->addWidget(createText(pending
-                             ? SystemInformationDialog::tr("Collecting…")
+                             ? QStringLiteral("—")
                              : SystemInformationDialog::tr("No data"), table),
                         1, 0, 1, int(headers.size()));
         return table;
@@ -257,28 +257,14 @@ SystemInformationDialog::SystemInformationDialog(
         }
         update();
     });
-    showStatus(tr("Collecting system information…"));
+    populate({}, true);
 
-}
-
-void SystemInformationDialog::showStatus(const QString& text)
-{
-    clearLayout(_contentLayout);
-    auto* status = createText(text, this, false, 14);
-    status->setAlignment(Qt::AlignCenter);
-    _contentLayout->addWidget(status, 1);
-    updateContentHeight();
 }
 
 void SystemInformationDialog::populate(const QByteArray& output, bool pending)
 {
     _lastOutput = output;
     _pending = pending;
-    if (output.isEmpty()) {
-        // 首批概览还没到：保持"正在采集"，下一次面板刷新会再进来。
-        showStatus(tr("Collecting system information…"));
-        return;
-    }
     const SystemInformation info = parseInformation(output);
     // 面板每秒都会重推数据；重建期间保留滚动位置，避免用户正在查看时被弹回顶部。
     const int previousScroll = _scroll && _scroll->verticalScrollBar()

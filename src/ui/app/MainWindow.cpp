@@ -27,6 +27,7 @@
 #include "ui/widgets/MessagePrompts.h"
 #include "ui/widgets/SessionPanel.h"
 #include "ui/widgets/SftpPanel.h"
+#include "ui/widgets/SshPanelStack.h"
 #include "ui/widgets/SystemMonitorPanel.h"
 #include "ui/widgets/McpSettingsDialog.h"
 #include "ui/app/Application.h"
@@ -912,8 +913,7 @@ bool MainWindow::event(QEvent* event)
             _dockResizeHighlight->hide();
         break;
     case QEvent::WindowStateChange:
-        if (_systemMonitorPanel)
-            _systemMonitorPanel->setPresentationActive(!isMinimized());
+        updateMonitorPresentation();
         scheduleDockResizeHoverCheck();
         break;
     default:
@@ -1082,18 +1082,29 @@ void MainWindow::retranslateUi()
 
 void MainWindow::updateSftpDockTitle()
 {
-    if (!_sftpDock || !_sftpPanel)
+    if (!_sftpDock || !_sftpPanels)
         return;
     _sftpDock->setWindowTitle(tr("SFTP transfer") + QStringLiteral(" — ")
-                             + _sftpPanel->windowTitle());
+                             + _sftpPanels->windowTitle());
 }
 
 void MainWindow::updateSystemMonitorDockTitle()
 {
-    if (!_systemMonitorDock || !_systemMonitorPanel)
+    if (!_systemMonitorDock || !_systemMonitorPanels)
         return;
     _systemMonitorDock->setWindowTitle(tr("System resources")
-        + QStringLiteral(" — ") + _systemMonitorPanel->windowTitle());
+        + QStringLiteral(" — ") + _systemMonitorPanels->windowTitle());
+}
+
+void MainWindow::updateMonitorPresentation()
+{
+    if (!_systemMonitorPanels || !_systemMonitorDock)
+        return;
+    for (auto* panel : _systemMonitorPanels->findChildren<SystemMonitorPanel*>(
+             QString{}, Qt::FindDirectChildrenOnly)) {
+        panel->setBackgroundSamplingEnabled(_systemMonitorDock->isVisible());
+        panel->setPresentationActive(!isMinimized());
+    }
 }
 
 void MainWindow::initWindow()
@@ -1214,10 +1225,17 @@ void MainWindow::initWindow()
     _sftpDock->setAllowedAreas(Qt::AllDockWidgetAreas);
     _sftpDock->setFeatures(QDockWidget::DockWidgetClosable
                            | QDockWidget::DockWidgetMovable);
-    _sftpPanel = new SftpPanel(_sftpDock);
-    _sftpDock->setWidget(_sftpPanel);
+    _sftpPanels = new SshPanelStack<SftpPanel>(_sftpDock, [this](SftpPanel* panel) {
+        connect(panel, &SftpPanel::pastePathToTerminalRequested,
+                _terminalPage, &TerminalPage::pastePathToCurrentSshTerminal);
+        connect(panel, &SftpPanel::synchronizeTerminalPathRequested,
+                _terminalPage, &TerminalPage::synchronizeCurrentSshTerminalPath);
+        connect(panel, &SftpPanel::synchronizeSftpPathFromTerminalRequested,
+                _terminalPage, &TerminalPage::requestCurrentSshTerminalPath);
+    });
+    _sftpDock->setWidget(_sftpPanels);
     static_cast<DraggableDockWidget*>(_sftpDock)->setFitTitleWidth(true);
-    connect(_sftpPanel, &QWidget::windowTitleChanged,
+    connect(_sftpPanels, &QWidget::windowTitleChanged,
             this, &MainWindow::updateSftpDockTitle);
     updateSftpDockTitle();
     addDockWidget(Qt::LeftDockWidgetArea, _sftpDock);
@@ -1232,11 +1250,17 @@ void MainWindow::initWindow()
     _systemMonitorDock->setAllowedAreas(Qt::AllDockWidgetAreas);
     _systemMonitorDock->setFeatures(QDockWidget::DockWidgetClosable
                                     | QDockWidget::DockWidgetMovable);
-    _systemMonitorPanel = new SystemMonitorPanel(_systemMonitorDock);
-    _systemMonitorDock->setWidget(_systemMonitorPanel);
+    _systemMonitorPanels = new SshPanelStack<SystemMonitorPanel>(
+        _systemMonitorDock, [this](SystemMonitorPanel* panel) {
+            panel->setPresentationActive(!isMinimized());
+            panel->setBackgroundSamplingEnabled(_systemMonitorDock->isVisible());
+        });
+    _systemMonitorDock->setWidget(_systemMonitorPanels);
     static_cast<DraggableDockWidget*>(_systemMonitorDock)->setFitTitleWidth(true);
-    connect(_systemMonitorPanel, &QWidget::windowTitleChanged,
+    connect(_systemMonitorPanels, &QWidget::windowTitleChanged,
             this, &MainWindow::updateSystemMonitorDockTitle);
+    connect(_systemMonitorDock, &QDockWidget::visibilityChanged,
+            this, [this] { updateMonitorPresentation(); });
     updateSystemMonitorDockTitle();
     addDockWidget(Qt::RightDockWidgetArea, _systemMonitorDock);
 
@@ -1289,24 +1313,20 @@ void MainWindow::initWindow()
         NovaTerm::Ui::warn(this, tr("Reconnect session"), message);
     });
 
-    connect(_terminalPage, &TerminalPage::currentSftpContextChanged,
-            _sftpPanel, &SftpPanel::setSessionContext);
-    connect(_sftpPanel, &SftpPanel::pastePathToTerminalRequested,
-            _terminalPage, &TerminalPage::pastePathToCurrentSshTerminal);
-    connect(_sftpPanel, &SftpPanel::synchronizeTerminalPathRequested,
-            _terminalPage,
-            &TerminalPage::synchronizeCurrentSshTerminalPath);
-    connect(_sftpPanel,
-            &SftpPanel::synchronizeSftpPathFromTerminalRequested,
-            _terminalPage, &TerminalPage::requestCurrentSshTerminalPath);
+    connect(_terminalPage, &TerminalPage::currentSftpContextChanged, this,
+            [this](const QString& label, SshTransport* transport) {
+        _sftpPanels->setSessionContext(label, transport);
+        _systemMonitorPanels->setSessionContext(label, transport);
+    });
     connect(_terminalPage, &TerminalPage::currentSshTerminalPathResolved,
-            _sftpPanel, &SftpPanel::synchronizePathFromTerminal);
+            this, [this](const QString& path) {
+        _sftpPanels->currentPanel()->synchronizePathFromTerminal(path);
+    });
     connect(_terminalPage,
             &TerminalPage::currentSshTerminalPathLookupFailed,
-            _sftpPanel, &SftpPanel::terminalPathLookupFailed);
-    // 资源面板需要具体 SshTransport，以便在现有会话上创建独立 exec channel。
-    connect(_terminalPage, &TerminalPage::currentSftpContextChanged,
-            _systemMonitorPanel, &SystemMonitorPanel::setSessionContext);
+            this, [this] {
+        _sftpPanels->currentPanel()->terminalPathLookupFailed();
+    });
 
     // 先应用快捷面板内部状态。setExpandedWidth()/setCollapsed() 会触发
     // resizeDocks，因此必须放在 restoreState() 之前，不能覆盖恢复后的尺寸。

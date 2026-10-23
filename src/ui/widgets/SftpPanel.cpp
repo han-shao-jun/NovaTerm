@@ -875,8 +875,9 @@ bool SftpPanel::eventFilter(QObject* watched, QEvent* event)
 void SftpPanel::setSessionContext(const QString& sessionLabel,
                                   SshTransport* transport)
 {
-    if (transport && _sshTransport == transport
-        && _sessionName == sessionLabel) {
+    if (transport && _sshTransport == transport) {
+        _sessionName = sessionLabel;
+        refreshAvailability();
         return;
     }
 

@@ -201,7 +201,7 @@ sequenceDiagram
 | `src/core/search/SearchEngine.*` | 可取消异步搜索 |
 | `src/core/terminal/ScrollbackBuffer.*` | 旧 API 兼容外观层（步骤 5），唯一后端为 `ChunkedScrollback` |
 | `tests/core/ScrollbackTests.cpp` | Chunk/淘汰/reflow 正确性（目标 `novaterm_scrollback_tests`）|
-| `tests/benchmarks/ScrollbackBenchmark.cpp` | 百万行内存和性能（目标 `novaterm_scrollback_benchmark`）|
+| `tests/benchmarks/core/ScrollbackBenchmark.cpp` | 百万行内存和性能（目标 `novaterm_scrollback_benchmark`）|
 
 ## 实施禁止项
 
@@ -472,5 +472,5 @@ Parser 单写、不可变快照、预算与实际完整视口/字形完成的绑
 三轮参数比较及独立默认调度复验共 48 进程，选用 512 KiB 块/2 MiB 热区；
 新默认两语料冷区 P95/P99 中位数均小于 36/51 ms，热区 CPU/OFF≤1.0，
 charge 比 512 KiB/4 MiB 再降约 12%。完整原始数据、范围及 CPU 调度差异见
-[调参报告](../benchmarks/history-gui-tuning-linux-2026-10-21/README.md)。
+[调参报告](../../../tests/benchmarks/archive/lz4/history-gui-tuning-linux-2026-10-21/README.md)。
 原平台/长稳/后端吞吐缺口不据此关闭，压缩仍默认 false，性能发布验收未全面完成。

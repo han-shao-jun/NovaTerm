@@ -514,7 +514,7 @@ Linux RelWithDebInfo 静态运行时，旧 Worker 为了发现独立命令队列
 | `src/transport/LocalShellTransport.*` | PTY/ConPTY 暂停和恢复 |
 | `src/session/SessionInputPump.*` | 精确后缀 pending 重试与暂停/恢复（P2 落地在 `TerminalView`，P6 已下沉至此）|
 | `tests/core/TerminalCoreTests.cpp` | 队列、并发、精确部分接收、行环边界、背压和销毁测试 |
-| `tests/benchmarks/CoreBenchmark.cpp` | Release 吞吐与 Scrollback 测量 |
+| `tests/benchmarks/core/CoreBenchmark.cpp` | Release 吞吐与 Scrollback 测量 |
 
 ## 实施过程中的禁止项
 

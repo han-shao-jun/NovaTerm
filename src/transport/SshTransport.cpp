@@ -38,8 +38,9 @@ QByteArray resourceMonitorCommand()
 {
     // 常驻 shell 阻塞等待请求；只传原始文本，计算留在 NovaTerm。
     return QByteArrayLiteral(R"NOVATERM(LC_ALL=C; export LC_ALL
-while IFS= read -r nt_request; do
+while IFS=' ' read -r nt_request nt_filesystems; do
 case "$nt_request" in *[!0-9]*|'') continue;; esac
+case "$nt_filesystems" in 0|1) ;; *) continue;; esac
 printf '__NOVATERM_METRICS_BEGIN__\t%s\n' "$nt_request"
 printf '@@stat\n'
 IFS= read -r nt_cpu < /proc/stat; printf '%s\n' "$nt_cpu"
@@ -51,6 +52,10 @@ for nt_file in loadavg uptime; do
   IFS= read -r nt_value < "/proc/$nt_file"
   printf '%s\n' "$nt_value"
 done
+if [ "$nt_filesystems" = 1 ]; then
+  printf '\n@@filesystems\n'
+  df -Pk 2>/dev/null || df -k 2>/dev/null
+fi
 printf '__NOVATERM_METRICS_END__\t%s\n' "$nt_request"
 done
 )NOVATERM");
@@ -390,7 +395,7 @@ void SshTransport::stopResourceMonitoring()
     _wakeup->notify();
 }
 
-bool SshTransport::requestResourceSample(quint64 requestId)
+bool SshTransport::requestResourceSample(quint64 requestId, bool includeFileSystems)
 {
     if (!_connected.load(std::memory_order_acquire) || requestId == 0)
         return false;
@@ -398,6 +403,7 @@ bool SshTransport::requestResourceSample(quint64 requestId)
     if (!_monitorEnabled || _monitorRequestId != 0)
         return false;
     _monitorRequestId = requestId;
+    _monitorIncludeFileSystems = includeFileSystems;
     _wakeup->notify();
     return true;
 }
@@ -1245,11 +1251,13 @@ void SshTransport::workerMain(const std::shared_ptr<SshWorkerWakeup>& wakeup)
         // 旧 channel 和旧请求结果均不得进入新的 UI 上下文。
         bool monitorEnabled = false;
         quint64 requestedMonitorId = 0;
+        bool requestedFileSystems = false;
         quint64 requestedGeneration = 0;
         {
             QMutexLocker lock(&_monitorMutex);
             monitorEnabled = _monitorEnabled;
             requestedMonitorId = _monitorRequestId;
+            requestedFileSystems = _monitorIncludeFileSystems;
             requestedGeneration = _monitorGeneration;
         }
 
@@ -1308,7 +1316,8 @@ void SshTransport::workerMain(const std::shared_ptr<SshWorkerWakeup>& wakeup)
             if (monitorRequestId == 0 && requestedMonitorId != 0
                 && requestedGeneration == monitorGeneration) {
                 monitorRequestId = requestedMonitorId;
-                monitorWrite = QByteArray::number(monitorRequestId) + '\n';
+                monitorWrite = QByteArray::number(monitorRequestId)
+                    + (requestedFileSystems ? " 1\n" : " 0\n");
                 monitorTimer.restart();
             }
             if (!monitorWrite.isEmpty()) {

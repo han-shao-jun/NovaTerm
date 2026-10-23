@@ -269,7 +269,7 @@ temporaryBytes、压缩前逻辑字节、压缩/跳过/失败次数、任务队�
 
 | 步骤 | 工作与主要文件 | 完成判据 |
 | --- | --- | --- |
-| 0. 基线 | `tests/benchmarks/ScrollbackBenchmark.cpp`、`tests/benchmarks/serial-stress/`；新增可重复日志语料生成与 JSON 报告 | 固定负载、参数、种子、内容哈希，记录未压缩 Release 基线与现有测试结果 |
+| 0. 基线 | `tests/benchmarks/core/ScrollbackBenchmark.cpp`、`tests/benchmarks/serial-stress/`；新增可重复日志语料生成与 JSON 报告 | 固定负载、参数、种子、内容哈希，记录未压缩 Release 基线与现有测试结果 |
 | 1. LZ4 与 codec | 声明 `novaterm_lz4` 与 `novaterm_history` 静态目标；抽出无 Qt 数据声明，原类型头保持兼容；新增 `ScrollbackBlockCodec.h/.cpp` | LZ4 只编译 `lib/lz4.c`；core 单向依赖 history，history PRIVATE 链接 LZ4；纯目标关闭 Qt 自动生成，往返/拒绝输入及无 Qt 链接检查通过 |
 | 2. 拥有型访问器 | `ScrollbackTypes/Chunk/Snapshot`、`ChunkedScrollback`、`ScrollbackBuffer`、`TerminalCore`、`SearchEngine`、`LineLayout`、`TerminalRenderer` | 所有读取迁移到 pin/cursor，原始表示下原有回归通过；索引查询不物化 Cell，无残留直接访问冷块 `lines` |
 | 3. 表示与记账 | 新增不可变 Raw/LZ4 block 记录和有界解码缓存，改 `ChunkedScrollback`；纯存储实现归入 history 目标 | 可同步注入压缩块做测试，原始/压缩/retained/cache/temp 计数与释放正确，预算压力不会产生额外无限缓存；同一源文件不重复编入 core 与 history |
@@ -469,7 +469,7 @@ D:/qt/NovaTerm/build/history-package-check` 成功，实际包含
 
 结果路径：`off-baseline.json` 为早期原始基线；`off-on-synthetic.json` 为早期未对全部语义字段哈希的探索轮；`off-on-under-build-load.json` 保留编译负载期间结果；`off-on-final.json` 与 `equal-budget-final.json` 是无编译负载的最终尽快追加样本；`equal-budget-paced.json` 为额外节拍样本；`performance-summary.json` 含中位数/范围。每份记录带种子、内容哈希、参数、保留量、RSS 和分位数。`noqt-build-report.json`/`dependency-audit.json` 保留独立构建与公共头依赖检查结果；DLL 依赖控制台输出已按归档规则清理；`windows-ctest-summary.json` 给出全部 35 项状态与时间。
 
-复测：先按 README 构建 `tests/history-noqt`；PowerShell 执行 `tests/benchmarks/history/run-matrix.ps1 -Executable build/history-isolated-final/checks/novaterm_history_benchmark.exe`，等预算加 `-Rows 25000 -Budget 33554432`，节拍实验再加 `-PaceMilliseconds 2`。报告必须同时保留尽快追加与节拍数据，不能用后者掩盖突发性能缺口。
+复测：先按 README 构建 `tests/history-noqt`；Python 执行 `python tests/benchmarks/history/lz4/run-matrix.py --executable build/history-isolated-final/checks/novaterm_history_benchmark.exe`，等预算加 `--rows 25000 --budget 33554432`，节拍实验再加 `--pace-milliseconds 2`。报告必须同时保留尽快追加与节拍数据，不能用后者掩盖突发性能缺口。
 
 结论：可选功能与依赖隔离已实现，自动化正确性回归可用；正式性能发布验收仍未完成，开关保持 false，步骤 7 的发布门槛/长稳复选框继续未勾选。
 
@@ -479,7 +479,7 @@ D:/qt/NovaTerm/build/history-package-check` 成功，实际包含
 append/scan 计时分离，新增进程 CPU、不同块首次 CacheOnly 冷读/随后的热读、
 无解码索引定位、空闲关闭；补充 continuation 语料、淘汰后逐行校验、超时与
 非法参数拒绝。矩阵各项至少三次独立进程、轮换 OFF/ON 顺序，自动保存
-中位数/范围、源/可执行文件哈希及合成门槛结果，`-EnforceGates` 可非零退出。
+中位数/范围、源/可执行文件哈希及合成门槛结果，`--enforce-gates` 可非零退出。
 
 Windows Release 同内容 1 GiB / 等预算 32 MiB 两组共 72 样本内容校验通过；
 重复/变量日志总 charge 节省约 74%，但同内容扫描吞吐仅约 OFF 的 13%，
@@ -488,8 +488,8 @@ Windows Release 同内容 1 GiB / 等预算 32 MiB 两组共 72 样本内容校�
 独立后端 CTest 1/1；非法参数、预算淘汰校验及门槛拒绝路径通过。
 未新增默认 CTest 项，未重复无关全套。schema 2 不与历史 schema 1 直接比较。
 
-完整数据与范围见 [本轮报告](benchmarks/history-f662302-2026-10-19/README.md)，
-复测见 [基准说明](../../tests/benchmarks/history/README.md)。步骤 7 与发布状态
+完整数据与范围见 [本轮报告](../../tests/benchmarks/archive/lz4/history-f662302-2026-10-19/README.md)，
+复测见 [基准说明](../../tests/benchmarks/history/lz4/README.md)。步骤 7 与发布状态
 保持未完成；真实 UART/GUI、多会话长稳及其他平台等缺口仍在。
 
 ### Linux 性能复测（2026-10-20，0.2.76）
@@ -511,7 +511,7 @@ Windows Release 同内容 1 GiB / 等预算 32 MiB 两组共 72 样本内容校�
 - 独立后端 CTest **1/1**（0.11 秒），Release tailFrom 缩放护栏 **1/1**（1.66 秒）。
 
 原始样本、中位数/范围、RSS/峰值、进程 CPU、分位数、脚本/构建哈希与复现命令见
-[Linux 完整报告](benchmarks/history-linux-2026-10-20/README.md)。未改生产代码或默认策略；
+[Linux 完整报告](../../tests/benchmarks/archive/lz4/history-linux-2026-10-20/README.md)。未改生产代码或默认策略；
 Linux 两路 RSS 采样部分出现 peak 小于当前值，保留原始值并标记记账一致性待校准。
 固定速率接收 CPU、Parser/真实吞吐、GUI、Search/Reflow/取消、模型锁、在途关闭、
 1/4/8 会话 30 分钟长稳与真实 UART 等发布缺口继续未验收，步骤 7 保持未完成。
@@ -548,7 +548,7 @@ CPU P95 中位数相对 OFF 增幅约 3.2%/5.4%。但**冷区 P95 ≤50 ms 未�
 增量帧提前认领新视口。Release 全部目标、Debug 相关目标构建通过，两个配置 Renderer
 专项各 2/2，真实 GPU self-test 均通过，未重跑无关全套。原始逐事件数据、三轮范围、
 CPU/内存取舍、审查修复和命令见
-[GUI 完整报告](benchmarks/history-gui-linux-2026-10-20/README.md)。
+[GUI 完整报告](../../tests/benchmarks/archive/lz4/history-gui-linux-2026-10-20/README.md)。
 合成器/显示器、完整主窗口/Ela 动画、多会话长稳、真实 UART 等仍未验收；步骤 7 不勾选。
 
 ### GUI 冷区滚动优化（2026-10-21，工作树）
@@ -577,7 +577,7 @@ Release Core/Scrollback/Renderer/P5/纯历史后端 5/5、Debug Scrollback/Rende
 提前请求与增量帧先执行交错。未运行无关全套；没有提交或推送。初始工作树、原基准
 源码及报告均保留，完整矩阵、三轮范围、四种延迟口径、CPU/内存、RED/GREEN、
 阶段跟踪、审查与复现命令见
-[本轮报告](benchmarks/history-gui-linux-2026-10-21/README.md)。
+[本轮报告](../../tests/benchmarks/archive/lz4/history-gui-linux-2026-10-21/README.md)。
 默认不绑核 CPU 稳定性、显示器呈现、真实 UART、跨平台和多会话长稳等仍为缺口；
 不因 GUI 冷区改善关闭此前后端扫描/追加缺口，步骤 7 保持未完成，默认开关 false。
 
@@ -600,7 +600,7 @@ mixed 新默认/reference CPU 比值 1.158，保留范围和调度差异，不�
 Release 相关 5/5、Debug 相关 4/4、两配置 GPU self-test 和显示保护 6/6 通过。
 版本准备为 0.2.77，交付提交见 Git 历史。方法、选择规则、原始数据、单轮范围、
 四种帧口径、CPU/内存、复现命令及未覆盖范围见
-[三轮调参报告](benchmarks/history-gui-tuning-linux-2026-10-21/README.md)。
+[三轮调参报告](../../tests/benchmarks/archive/lz4/history-gui-tuning-linux-2026-10-21/README.md)。
 Linux 可见 GUI 指标通过本轮范围，不替代其他平台、真实 UART、显示器呈现或
 多会话长稳；此前后端追加/扫描缺口不关闭，步骤 7 与默认 enabled=false 均不变。
 
@@ -617,13 +617,13 @@ Pending 与“增量帧先执行”检查。Release 全套 37/37，Debug 相关 
 P95/P99=36.03/51.27 ms，热区 CPU/OFF=1.038/1.018，初始 charge 保持
 13.16/13.14 MiB；mixed 连续最新请求 P99 中位数 35.38→39.68 ms，不称全面下降。
 复测命令、三轮中位数/范围、CPU/内存与剩余缺口见
-[审查修复报告](benchmarks/history-gui-review-fixes-linux-2026-10-21/README.md)。
+[审查修复报告](../../tests/benchmarks/archive/lz4/history-gui-review-fixes-linux-2026-10-21/README.md)。
 本轮不改变步骤 7 及跨平台/长稳等未验收状态。
 
 ### 基准产物归档清理（2026-10-21）
 
-按用户要求，`docs/architecture/benchmarks/` 中可重跑生成的 JSON、日志、重复表格
+按用户要求，`tests/benchmarks/` 中可重跑生成的 JSON、日志、重复表格
 及临时运行标记已移除。本文和各报告中的指标、测试结论、失败与未验收范围保留；
 文件名与结果路径用于标识重跑产物，不表示原始文件仍在仓库中。复测应输出到
 `build/` 下的新目录；归档分析脚本需先准备其相应输入。清理不是重新验收，既有
-测试成绩和剩余缺口不变。归档范围见 [归档说明](benchmarks/README.md)。
+测试成绩和剩余缺口不变。归档范围见 [归档说明](../../tests/benchmarks/README.md)。

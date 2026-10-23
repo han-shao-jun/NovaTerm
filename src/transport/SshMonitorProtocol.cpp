@@ -65,6 +65,8 @@ SshMonitorFrameParser::append(const QByteArray& data)
                 _requestId = markerId;
                 _payload.clear();
                 _entryCount = 0;
+                _fileSystems = false;
+                _fileSystemEntries = 0;
             } else if (line.startsWith(EndMarker)) {
                 return fail(Error::MissingBegin);
             }
@@ -84,9 +86,20 @@ SshMonitorFrameParser::append(const QByteArray& data)
             _payload.clear();
             _requestId = 0;
             _entryCount = 0;
+            _fileSystems = false;
+            _fileSystemEntries = 0;
             continue;
         }
 
+        if (line == "@@filesystems")
+            _fileSystems = true;
+        // df 在本地最多显示 128 项（另含表头和分节标记）。目录过多时仍排空
+        // 到 END，不让可选磁盘结果挤掉 CPU/内存/网络，且不增加远端过滤命令。
+        if (_fileSystems
+            && (++_fileSystemEntries > 130 || _entryCount >= MaxFrameEntries
+                || _payload.size() + line.size() + 1 > MaxFrameBytes)) {
+            continue;
+        }
         if (++_entryCount > MaxFrameEntries)
             return fail(Error::EntryLimit);
         if (_payload.size() + line.size() + 1 > MaxFrameBytes)
@@ -103,6 +116,8 @@ void SshMonitorFrameParser::reset() noexcept
     _payload.clear();
     _requestId = 0;
     _entryCount = 0;
+    _fileSystems = false;
+    _fileSystemEntries = 0;
 }
 
 SshMonitorFrameParser::Result

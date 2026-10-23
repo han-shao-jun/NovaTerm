@@ -1,8 +1,0 @@
-********* Start testing of HistoryStoreTests *********
-Config: Using QtTest library 6.8.3, Qt 6.8.3 (x86_64-little_endian-llp64 shared (dynamic) release build; by MSVC 2022), windows 10
-PASS   : HistoryStoreTests::initTestCase()
-FAIL!  : HistoryStoreTests::transientWindowsIndexReaderDoesNotPreventRecovery() 'success' returned FALSE. (cannot replace derived index)
-D:\qt\NovaTerm\tests\history\HistoryStoreTests.cpp(40) : failure location
-PASS   : HistoryStoreTests::cleanupTestCase()
-Totals: 2 passed, 1 failed, 0 skipped, 0 blacklisted, 249ms
-********* Finished testing of HistoryStoreTests *********

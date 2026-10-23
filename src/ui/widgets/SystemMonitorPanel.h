@@ -46,6 +46,8 @@ public:
     void setSessionContext(const QString& sessionLabel, SshTransport* transport);
     /** 主窗口最小化时关闭，恢复时重新按控件可见性决定是否采样。 */
     void setPresentationActive(bool active);
+    /** 会话页面隐藏时仍采样；由外层 Dock 统一控制最小化/关闭时的暂停。 */
+    void setBackgroundSamplingEnabled(bool enabled);
 
 protected:
     void paintEvent(QPaintEvent* event) override;
@@ -61,19 +63,14 @@ private:
     void showSystemInformation();
     void refreshAvailability();
     void updateSamplingState();
-    /** 提交一次有界、非重入的快速资源采集请求（仅面板需要的 CPU/内存/网络）。 */
+    /** 提交一个有界采样请求；详情可见时在同一常驻通道附加磁盘原始数据。 */
     void requestFastMetrics();
-    /** 仅在详情窗口可见时查询文件系统；详情预取在途时让路。 */
-    void requestFileSystems();
     void updateInformationDialog();
     /** 校验请求归属，解析结果并用相邻样本计算 CPU/网络速率。 */
     void handleFastMetrics(quint64 requestId, const QByteArray& payload,
                            const QString& errorMessage);
-    void handleFileSystems(quint64 requestId,
-                           const QByteArray& standardOutput,
-                           const QString& errorMessage);
     void updateNetworkView();
-    /** 切换或断开会话时清除所有累计值基线。 */
+    /** 绑定不同 transport 或断开重连时清除累计值基线；切换页面不调用。 */
     void resetMetrics();
 
     ElaScrollArea* _scrollArea{nullptr};
@@ -92,7 +89,6 @@ private:
     ElaComboBox* _interfaceCombo{nullptr};
     TrafficChart* _trafficChart{nullptr};
     QTimer* _fastTimer{nullptr};
-    QTimer* _fileSystemTimer{nullptr};
     QPointer<SshTransport> _sshTransport;
     QPointer<SystemInformationDialog> _systemInformationDialog;
     QString _sessionName;
@@ -105,7 +101,7 @@ private:
     // 单调递增 ID 用于区分不同采集；pending 为 0 表示当前没有在途请求。
     quint64 _nextRequestId{1};
     quint64 _pendingFastRequestId{0};
-    quint64 _pendingFileSystemRequestId{0};
+    bool _pendingSampleIncludesFileSystems{false};
     quint64 _connectionGeneration{0};
     // 系统信息对话框的静态详情由连接绑定的分批预取持有：切换标签不重启采集，
     // 回连后按新代际重来（见 service/ResourcePrefetch.h）。对象归 transport 所有，
@@ -115,31 +111,24 @@ private:
     QByteArray _cpuUsage;
     NovaTerm::LinuxResource::Sample _latestSample;
     bool _hasCpuBaseline{false};
-    /** 已计入的采样区间数；小于 WarmupIntervals 时不发布读数。 */
-    int _warmupIntervals{0};
     // CPU 与网络字段均为远端累计计数，只有相邻样本做差才有实际意义。
     quint64 _previousCpuTotal{0};
     quint64 _previousCpuIdle{0};
     QElapsedTimer _sampleClock;
     qint64 _previousSampleElapsedMs{-1};
+    qint64 _lastFileSystemSampleElapsedMs{-1};
     QHash<QString, QPair<quint64, quint64>> _previousNetworkBytes;
     QHash<QString, QPair<double, double>> _networkRates;
     QHash<QString, QVector<QPair<double, double>>> _networkHistory;
     bool _hasMetrics{false};
     bool _hasFileSystemResult{false};
     bool _presentationActive{true};
+    bool _backgroundSamplingEnabled{false};
     bool _samplingActive{false};
     bool _fileSystemSamplingActive{false};
 
-    // Fast 每秒采样；Slow 仅在详情可见时每 10 秒查询，Static 按连接分批预取。
+    // 初始化按完成推进；之后保持原快速指标/磁盘刷新周期。
     static constexpr int DefaultFastIntervalMs = 1'000;
     static constexpr int FileSystemIntervalMs = 10'000;
-    /** 详情预取占用时间片时，文件系统查询的退避重试间隔。 */
-    static constexpr int FileSystemDeferralMs = 250;
-    /**
-     * 连接后的前两个 1 秒区间作为预热：登录 shell 启动、常驻通道建立
-     * 与概览批都落在其中，一次性开销可达数个百分点，不代表远端稳态负载。
-     * 预热期只更新差分基线，不发布 CPU/网络读数。
-     */
-    static constexpr int WarmupIntervals = 2;
+    static constexpr int ResourceRetryDelayMs = 1'000;
 };

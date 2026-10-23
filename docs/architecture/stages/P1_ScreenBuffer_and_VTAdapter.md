@@ -364,7 +364,7 @@ Release benchmark 同时记录 Parser/Core 吞吐和 10 万行 Scrollback。P1 �
 | `src/core/terminal/KeyMapper.*` | Qt 输入到终端键语义的过渡桥接 |
 | `src/renderer/TerminalRenderer.*` | 仅消费 NovaTerm 类型 |
 | `tests/core/TerminalCoreTests.cpp` | 转换、快照和终端行为测试 |
-| `tests/benchmarks/CoreBenchmark.cpp` | P0/P1 性能对比 |
+| `tests/benchmarks/core/CoreBenchmark.cpp` | P0/P1 性能对比 |
 | `CMakeLists.txt` | Core 静态库与 libvterm 私有依赖 |
 
 ## 实施过程中的禁止项

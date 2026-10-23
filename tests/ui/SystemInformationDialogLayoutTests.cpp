@@ -663,6 +663,8 @@ int main(int argc, char** argv)
     dialog.populate(samplePayload(), /*pending=*/false);
     dialog.show();
     QApplication::processEvents();
+    // 构造时已有占位卡片；与真实事件循环一致，先回收本次 populate 替换的旧卡片。
+    QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
 
     const auto informationCards =
         dialog.findChildren<ElaScrollPageArea*>();

@@ -20,6 +20,7 @@ struct SshMonitorFrame
  *
  * 解析器支持任意分片及一次输入多帧，并对行长、单帧、累计缓冲和条目数
  * 设置硬上限。协议错误后会丢弃当前状态，调用方应重建远端通道。
+ * 最后的可选文件系统段超出条目/帧预算时截断尾部，保留此前有效核心指标。
  */
 class SshMonitorFrameParser final
 {
@@ -57,4 +58,7 @@ private:
     QByteArray _payload;
     quint64 _requestId{0};
     int _entryCount{0};
+    // 磁盘段是最后一个可选段；超预算时只丢弃磁盘尾部，保留核心指标。
+    bool _fileSystems{false};
+    int _fileSystemEntries{0};
 };

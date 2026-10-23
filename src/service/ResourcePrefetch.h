@@ -18,6 +18,7 @@ namespace NovaTerm::LinuxResource {
 /** @brief 仅持有连接和数据；不依赖面板/对话框，切换标签不重启静态采集。 */
 class ResourcePrefetch final : public QObject
 {
+    Q_OBJECT
 public:
     [[nodiscard]] static ResourcePrefetch* forTransport(SshTransport* transport)
     {
@@ -32,12 +33,18 @@ public:
 
     [[nodiscard]] const QByteArray& data() const noexcept { return _data; }
     [[nodiscard]] bool complete() const noexcept { return _schedule.complete(); }
-    /** @brief 首次文件系统查询可先行；随后让详情预取用完各自时间片。 */
-    [[nodiscard]] bool allowsSlowQuery() const
+    [[nodiscard]] bool started() const noexcept { return _started; }
+    /** 首帧基础指标完成后启动，避免静态详情阻塞面板首次显示。 */
+    void start()
     {
-        return _schedule.complete() || (_clock.isValid() && _schedule.batch() == 0
-            && !_schedule.inFlight() && _clock.elapsed() < PrefetchSchedule::InitialDelayMs);
+        if (_started || !_clock.isValid())
+            return;
+        _started = true;
+        armTimer();
     }
+signals:
+    /** 本批结果已在本地缓存；后续批次仍按延后/错峰节奏推进。 */
+    void updated(bool success);
 
 private:
     explicit ResourcePrefetch(SshTransport* transport)
@@ -60,9 +67,11 @@ private:
             }
             _requestId = 0;
             // 每批至多查询一次；缺命令、超时等只影响该批，不覆盖已取得的字段。
-            if (error.isEmpty() && output.contains("@@done"))
+            const bool success = error.isEmpty() && output.contains("@@done");
+            if (success)
                 _data += output + '\n';
-            _schedule.finished(_clock.elapsed());
+            _schedule.finished(_clock.elapsed(), success);
+            emit updated(success);
             armTimer();
         });
         synchronize();
@@ -76,18 +85,18 @@ private:
             _generation = generation;
             _requestId = 0;
             _schedule = {};
+            _started = false;
             _data.clear();
             _clock.invalidate();
             if (_transport->isConnected()) {
                 _clock.start();
-                armTimer();
             }
         }
     }
 
     void armTimer()
     {
-        if (!_schedule.complete() && !_schedule.inFlight() && _clock.isValid())
+        if (_started && !_schedule.complete() && !_schedule.inFlight() && _clock.isValid())
             _timer.start(static_cast<int>(_schedule.delay(_clock.elapsed())));
     }
 
@@ -119,6 +128,7 @@ private:
     quint64 _generation{std::numeric_limits<quint64>::max()};
     quint64 _requestId{0};
     QByteArray _data;
+    bool _started{false};
 };
 
 } // namespace NovaTerm::LinuxResource

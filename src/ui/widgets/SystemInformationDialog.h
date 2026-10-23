@@ -22,7 +22,7 @@ public:
     /**
      * @brief 展示面板共享的本地计算结果，不重复发起远端查询。
      * @param output  面板已汇总的信息行；为空表示首批尚未到达。
-     * @param pending 详情预取尚未完成；缺失的卡片显示"采集中"而非"No data"。
+     * @param pending 详情预取尚未完成；缺失的卡片显示占位值，数据到达后逐项填入。
      */
     void populate(const QByteArray& output, bool pending = false);
 
@@ -30,7 +30,6 @@ protected:
     void resizeEvent(QResizeEvent* event) override;
 
 private:
-    void showStatus(const QString& text);
     /**
      * @brief 按视口宽度固定滚动内容的高度。
      *
