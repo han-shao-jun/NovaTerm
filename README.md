@@ -441,7 +441,7 @@ ctest --test-dir build/history-standalone --output-on-failure
 
 轻量测试 `novaterm_history_no_qt_link_check` 同时注册在主工程，标签为
 `unit;history;scrollback`。2026-10-19 Windows 实核 35 项，Release 34/35 通过；唯一失败为已记录的 ConPTY 句柄泄漏断言。详见实施记录，计数以当前配置为准。
-合成 OFF/ON 矩阵使用 `tests/benchmarks/history/lz4/run-matrix.ps1`，每个样本独立进程，
+合成 OFF/ON 矩阵使用 `tests/benchmarks/history/lz4/run-matrix.py`，每个样本独立进程，
 输出种子、字段哈希、保留量、charge、RSS、追加/扫描耗时和读取 P95/P99。
 新增 schema 2 将生成/校验与追加/扫描计时分离，增加进程 CPU、冷读/热读、
 索引和空闲关闭指标，自动汇总中位数/范围及合成性能门槛。

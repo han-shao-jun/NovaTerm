@@ -1912,8 +1912,8 @@ QString 堆分配（热路径）、TerminalRenderer `_fm` 裸指针 delete/new �
 
 针对 `f662302` 的性能工具补充：`tests/benchmarks/history/lz4/README.md` 说明
 schema 2 的追加/扫描隔离计时、进程 CPU、首次压缩冷读/热读、索引与空闲关闭。
-`run-matrix.ps1` 各项至少三次独立进程，生成原始样本、中位数/范围及可选
-`-EnforceGates`；不新增默认 CTest。历史后端改动仍跑
+`run-matrix.py` 各项至少三次独立进程，生成原始样本、中位数/范围及可选
+`--enforce-gates`；不新增默认 CTest。历史后端改动仍跑
 `novaterm_history_no_qt_link_check`。本次 Windows Release 两组共 72 样本
 内容校验通过，普通日志 charge 下降约 74%，扫描约 OFF 的 13%，性能门槛
 未收口；报告见 `tests/benchmarks/archive/lz4/history-f662302-2026-10-19/`。

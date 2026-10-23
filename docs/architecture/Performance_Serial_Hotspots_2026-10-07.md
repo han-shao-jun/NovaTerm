@@ -107,7 +107,7 @@ Linux `perf` 可作为跨平台交叉复核，当前 Windows 已取得可用函�
 - [可见全进程函数 CSV](serial-hotspots-2026-10-07-visible.csv)
 - [隐藏全进程函数 CSV](serial-hotspots-2026-10-07-hidden.csv)
 - [线程样本汇总](serial-hotspots-2026-10-07-threads.csv)
-- 采集脚本：`tests/benchmarks/serial-stress/profile-windows.ps1`
+- 采集脚本：`tests/benchmarks/serial-stress/profile-windows.py`
 - 解析脚本：`tests/benchmarks/serial-stress/analyze-windows-profile.py`
 
 采集使用已验证的 PowerShell 7。脚本只停止自己启动的 WPR，会拒绝覆盖其他

@@ -28,3 +28,8 @@ perf.txt
 !/tests/**/requirements.txt
 !/tests/benchmarks/**/sampled-tests-CMakeLists.txt
 !/tests/benchmarks/**/cpu-topology.txt
+
+# Python test and benchmark bytecode
+/tests/**/__pycache__/
+/tests/**/*.pyc
+/tests/**/*.pyo

@@ -15,7 +15,7 @@ GCC 13.3.0、Ninja、独立 Release `-O3 -DNDEBUG`，链接完整生产 `novater
 本任务采样串行进行，期间不并行编译或运行其他测试。
 
 本机未安装 PowerShell，因此使用随报告保存的 [run-matrix.py](run-matrix.py)，
-逐项复现现有 `run-matrix.ps1` 的参数、OFF/ON 轮换、校验、指标汇总和门槛判定。
+逐项复现现有 `run-matrix.py` 的参数、OFF/ON 轮换、校验、指标汇总和门槛判定。
 每个样本独立进程，每项三次；使用同一 schema 2 C++ 可执行文件。构建后 smoke
 仅检查工具可用，不计入以下 84 个样本。采样时的 JSON 包含每轮结果和中位数/min/max（已清理），
 包含全部 Cell 字段及行索引校验、输入/保留哈希、P95/P99、RSS/峰值 RSS、进程 CPU、

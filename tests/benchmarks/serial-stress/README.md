@@ -6,6 +6,10 @@
 夹具不运行完整 MainWindow，不覆盖 Session 重连或文件传输协议。
 不注册默认 CTest，不修改串口历史、凭据或主程序配置。
 
+矩阵和 WPR 采样入口已改用 Python 3.9+ 标准库，不依赖 PowerShell。
+当前 C++ 夹具仍使用 Win32 CPU/RSS、驱动队列与计时 API，仅能在 Windows 构建运行；
+WPR 采样也仅支持 Windows。脚本语言迁移不等于夹具已完成跨平台移植。
+
 ## Case 矩阵
 
 端口默认 COM1 ↔ COM2，8N1，无流控。每个方向单独运行，不是同时双向。
@@ -51,8 +55,8 @@ Qt 和编译配置匹配。不会重新编译或修改主工程。
 ```bat
 cmake -S tests/benchmarks/serial-stress -B build/serial-stress-native -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH=C:/Programs/Qt/6.8.3/msvc2022_64
 cmake --build build/serial-stress-native
-powershell -NoProfile -ExecutionPolicy Bypass -File tests/benchmarks/serial-stress/run.ps1 -Smoke
-powershell -NoProfile -ExecutionPolicy Bypass -File tests/benchmarks/serial-stress/run.ps1
+python tests/benchmarks/serial-stress/run.py --smoke
+python tests/benchmarks/serial-stress/run.py
 ```
 
 本机默认 PATH 上的 CMake/Ninja 位于 MSYS 安装目录。本轮在沙箱内的编译器 ABI
@@ -61,24 +65,24 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tests/benchmarks/serial-stre
 Ninja 位于 `Common7/IDE/CommonExtensions/Microsoft/CMake/Ninja/ninja.exe`，
 可通过 `-DCMAKE_MAKE_PROGRAM=<绝对路径>` 指定。
 
-`-Smoke` 仅运行校验器自检及可见／隐藏各一次 1 秒预检。
+`--smoke` 仅运行校验器自检及可见／隐藏各一次 1 秒预检。
 完整矩阵默认结果写到 `build/serial-stress-results/matrix/`。
 完整矩阵包含刻意超出串口速率的突发 case；本机这部分及 8M、64 MiB 定速长测
 都发生丢帧，所以脚本返回非零属真实验收结果，不能掩盖失败或否定其他 case。
-`-LongCases` 单独运行两个 8M、64 MiB 定速 case。
-`-Diagnostics` 对比延后校验的完整终端和仅接收模式，四项 64 MiB 突发；
-`-ChunkControls` 查询驱动队列并运行四项 4 KiB 分块、8 MiB 突发对照。
+`--long-cases` 单独运行两个 8M、64 MiB 定速 case。
+`--diagnostics` 对比延后校验的完整终端和仅接收模式，四项 64 MiB 突发；
+`--chunk-controls` 查询驱动队列并运行四项 4 KiB 分块、8 MiB 突发对照。
 两种对照默认分别输出到 `controls/` 和 `block-controls/`，避免混入正式矩阵。
-`-TimingControls` 运行 COM1 → COM2 的四项 8M、64 MiB 时序对照：默认计时的
+`--timing-controls` 运行 COM1 → COM2 的四项 8M、64 MiB 时序对照：默认计时的
 仅接收、稳定计时的完整终端、稳定计时的仅接收、稳定计时且延后校验的完整终端。
-`-StableRawCase` / `-StableTerminalCase` 分别单独运行后两项。
+`--stable-raw-case` / `--stable-terminal-case` 分别单独运行后两项。
 时序对照默认输出到 `timing-controls/`。
-`-DriverQueueProbe` 请求并查询确认驱动 RX 队列扩大到 256 KiB，做 1 MiB 预检。
-`-LargeQueueCases` 在每次打开后核对实际 RX 队列，再运行两个方向的可见／隐藏／
+`--driver-queue-probe` 请求并查询确认驱动 RX 队列扩大到 256 KiB，做 1 MiB 预检。
+`--large-queue-cases` 在每次打开后核对实际 RX 队列，再运行两个方向的可见／隐藏／
 仅接收模式，六项 8M、64 MiB 定速、稳定计时、延后校验的长测。
 两者默认输出到 `large-queue/`。如果驱动拒绝扩容或实际值小于请求，退出 7，
 不发送测试数据，也不会宣称已排除驱动小队列影响。
-脚本支持 `-PortA`、`-PortB`、`-QtPrefix`、`-ExecutablePath`、`-OutputDirectory`。
+脚本支持 `--port-a`、`--port-b`、`--qt-prefix`、`--executable-path`、`--output-directory`。
 运行前释放两端串口；输出目录相同且文件名相同时复测会覆盖上一轮结果。
 
 单个 case 示例（需要 Qt bin 在 PATH、Qt plugins 可用）：
@@ -133,7 +137,7 @@ build\serial-stress-native\serial_stress.exe COM2 COM1 8000000 20 visible paced 
 ```bat
 cmake -S tests/benchmarks/serial-stress -B build/serial-stress-symbols -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH=C:/Programs/Qt/6.8.3/msvc2022_64 -DNOVATERM_STRESS_PROFILE_SYMBOLS=ON
 cmake --build build/serial-stress-symbols
-pwsh -NoProfile -File tests/benchmarks/serial-stress/profile-windows.ps1
+python tests/benchmarks/serial-stress/profile-windows.py
 ```
 
 采样握手排除语料构造和离线校验；record/stop 控制和 rundown 等空闲阶段仍可能
@@ -156,6 +160,13 @@ xperf -i capture.etl -symbols -o visible-parser-stack.html -a stack -butterfly 1
 
 ```bat
 python tests/benchmarks/serial-stress/analyze-windows-profile.py --capture-dir build/serial-stress-profile/captures --output build/serial-stress-profile/hotspots.json
+```
+
+脚本专项测试只使用假进程与临时文件，不打开串口或启动 WPR：
+
+```sh
+python -B tests/benchmarks/serial-stress/test_run.py
+python -B tests/benchmarks/serial-stress/test_profile_windows.py
 ```
 
 本机结果与估算边界见

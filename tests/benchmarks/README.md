@@ -8,7 +8,7 @@
 | [renderer/](renderer/) | P3 CPU/GPU、P5 GPU、大输入渲染及参数测试 | `novaterm_renderer_p3_benchmark`、`novaterm_renderer_p3_gpu_benchmark`、`novaterm_renderer_p5_gpu_benchmark`、`novaterm_renderer_large_input_benchmark`、`novaterm_renderer_large_input_tests` |
 | [history/](history/README.md) | 分为 `lz4/` 压缩与滚动基准、`mcp/` 历史模块录制基准 | `novaterm_history_benchmark`、`novaterm_history_recording_benchmark`、`novaterm_history_gui_benchmark` |
 | [repro/](repro/) | 终端渲染残影与 ConPTY 残留问题复现 | `novaterm_residue_repro`、`novaterm_conpty_residue_repro` |
-| [serial-stress/](serial-stress/README.md) | 真实串口压力、CPU 采样及分析 | 独立 CMake 工程与 `run.ps1` |
+| [serial-stress/](serial-stress/README.md) | 真实串口压力、CPU 采样及分析 | 独立 CMake 工程与 `run.py` |
 | [archive/](archive/README.md) | 按主题、日期保存历史报告、复现脚本、源码快照及本地输出 | `archive/lz4/`、`archive/mcp-history/` |
 
 常规构建目标由 [tests/CMakeLists.txt](../CMakeLists.txt) 声明；历史压缩/录制基准另见

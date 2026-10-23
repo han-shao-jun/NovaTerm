@@ -26,20 +26,26 @@ Windows 可执行文件加 `.exe`；多配置生成器需 `--config Release` 并
 固定种子，字段哈希包含全部 Cell 语义及行 ID、hardBreak、Cell 数；预算淘汰后
 也逐行核对仍保留的内容。拒绝无效参数、ON 申请失败、冷读错误/超时、存储错误。
 
-PowerShell 5.1/7 矩阵（每个样本独立进程，每项至少三次，轮换 OFF/ON 顺序）：
+Python 3.9+ 标准库矩阵（每个样本独立进程，每项至少三次，轮换 OFF/ON 顺序）：
 
-```powershell
-./tests/benchmarks/history/lz4/run-matrix.ps1 -Executable build/history-standalone/checks/novaterm_history_benchmark.exe -Output build/history-same-content.json
-./tests/benchmarks/history/lz4/run-matrix.ps1 -Executable build/history-standalone/checks/novaterm_history_benchmark.exe -Scenario EqualBudget -Rows 25000 -Budget 33554432 -Output build/history-equal-budget.json
+```sh
+python tests/benchmarks/history/lz4/run-matrix.py --executable build/history-standalone/checks/novaterm_history_benchmark.exe --output build/history-same-content.json
+python tests/benchmarks/history/lz4/run-matrix.py --executable build/history-standalone/checks/novaterm_history_benchmark.exe --scenario EqualBudget --rows 25000 --budget 33554432 --output build/history-equal-budget.json
 ```
 
-可用 `-Corpora repeat,variable` 缩小矩阵；`-LongRows`、`-Runs`、`-ReadSamples`
-调整规模，`-PaceMilliseconds 2` 追加节拍实验。保留不加节拍的数据。
+可用 `--corpora repeat variable` 缩小矩阵；`--long-rows`、`--runs`、`--read-samples`
+调整规模，`--pace-milliseconds 2` 追加节拍实验。保留不加节拍的数据。
 脚本拒绝非 Release/旧 schema，自动校验输入一致、逐样本 retained 哈希、
 同内容组的 OFF/ON 哈希；JSON 保存原始样本、环境、各指标中位数/范围、比值及
-后端合成门槛结果。`-EnforceGates` 在保存报告后因门槛失败返回非零，默认只报告。
+后端合成门槛结果。`--enforce-gates` 在保存报告后因门槛失败返回非零，默认只报告。
 等预算场景仅展示保留量及归一化扫描吞吐，不用不同内容的总扫描时间判断退化。
-CPU/GPU 元数据查询不可用时保留空值，发布报告前需补齐。
+CPU/GPU 元数据查询不可用时保留空值，发布报告前需补齐。Windows、Linux、macOS 使用同一 Python 入口；Linux/macOS 可用 `python3`，并去掉示例可执行文件的 `.exe` 后缀。
+
+脚本专项测试（不执行性能采样）：
+
+```sh
+python -B tests/benchmarks/history/lz4/test_run_matrix.py
+```
 
 计量口径：
 

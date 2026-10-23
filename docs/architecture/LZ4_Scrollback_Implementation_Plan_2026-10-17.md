@@ -469,7 +469,7 @@ D:/qt/NovaTerm/build/history-package-check` 成功，实际包含
 
 结果路径：`off-baseline.json` 为早期原始基线；`off-on-synthetic.json` 为早期未对全部语义字段哈希的探索轮；`off-on-under-build-load.json` 保留编译负载期间结果；`off-on-final.json` 与 `equal-budget-final.json` 是无编译负载的最终尽快追加样本；`equal-budget-paced.json` 为额外节拍样本；`performance-summary.json` 含中位数/范围。每份记录带种子、内容哈希、参数、保留量、RSS 和分位数。`noqt-build-report.json`/`dependency-audit.json` 保留独立构建与公共头依赖检查结果；DLL 依赖控制台输出已按归档规则清理；`windows-ctest-summary.json` 给出全部 35 项状态与时间。
 
-复测：先按 README 构建 `tests/history-noqt`；PowerShell 执行 `tests/benchmarks/history/lz4/run-matrix.ps1 -Executable build/history-isolated-final/checks/novaterm_history_benchmark.exe`，等预算加 `-Rows 25000 -Budget 33554432`，节拍实验再加 `-PaceMilliseconds 2`。报告必须同时保留尽快追加与节拍数据，不能用后者掩盖突发性能缺口。
+复测：先按 README 构建 `tests/history-noqt`；Python 执行 `python tests/benchmarks/history/lz4/run-matrix.py --executable build/history-isolated-final/checks/novaterm_history_benchmark.exe`，等预算加 `--rows 25000 --budget 33554432`，节拍实验再加 `--pace-milliseconds 2`。报告必须同时保留尽快追加与节拍数据，不能用后者掩盖突发性能缺口。
 
 结论：可选功能与依赖隔离已实现，自动化正确性回归可用；正式性能发布验收仍未完成，开关保持 false，步骤 7 的发布门槛/长稳复选框继续未勾选。
 
@@ -479,7 +479,7 @@ D:/qt/NovaTerm/build/history-package-check` 成功，实际包含
 append/scan 计时分离，新增进程 CPU、不同块首次 CacheOnly 冷读/随后的热读、
 无解码索引定位、空闲关闭；补充 continuation 语料、淘汰后逐行校验、超时与
 非法参数拒绝。矩阵各项至少三次独立进程、轮换 OFF/ON 顺序，自动保存
-中位数/范围、源/可执行文件哈希及合成门槛结果，`-EnforceGates` 可非零退出。
+中位数/范围、源/可执行文件哈希及合成门槛结果，`--enforce-gates` 可非零退出。
 
 Windows Release 同内容 1 GiB / 等预算 32 MiB 两组共 72 样本内容校验通过；
 重复/变量日志总 charge 节省约 74%，但同内容扫描吞吐仅约 OFF 的 13%，

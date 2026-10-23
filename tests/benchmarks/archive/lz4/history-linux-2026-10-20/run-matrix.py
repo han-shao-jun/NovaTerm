@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Linux reproduction of the existing PowerShell schema-2 benchmark matrices.
+"""Archived multi-scenario reproduction of the schema-2 benchmark matrices.
 Usage: python3 run-matrix.py REPO EXECUTABLE OUTPUT_DIRECTORY
 Runs serially; does not modify production code or policy.
 """
@@ -39,7 +39,7 @@ metrics = ('resident_charge rss peak_rss retained_lines append_ms append_wall_ms
     'read_p95_us read_p99_us cold_p95_us cold_p99_us cold_encoded_p95_us cold_encoded_p99_us hot_p95_us hot_p99_us '
     'index_ms idle_store_close_ms idle_service_stop_ms compressed_blocks cold_encoded_samples').split()
 sources = [dict(file=name, sha256=sha(ROOT / 'tests/benchmarks/history/lz4' / name))
-    for name in ('HistoryBenchmark.cpp', 'HistoryBenchmarkSupport.h', 'run-matrix.ps1')]
+    for name in ('HistoryBenchmark.cpp', 'HistoryBenchmarkSupport.h', 'run-matrix.py')]
 corpora = ('repeat', 'variable', 'mixed', 'entropy', 'long', 'rewrite')
 scenarios = [
     ('same-content', 'SameContent', 10000, 1073741824, 0, corpora),
@@ -102,7 +102,7 @@ for filename, scenario, rows, budget, pace, selected in scenarios:
         working_tree_dirty=dirty, scenario=scenario, started_utc=started, elapsed_seconds=time.monotonic() - begin,
         parameters=dict(rows=rows, long_rows=100, budget=budget, pace_ms=pace, read_samples=64, runs=3, corpora=selected),
         environment=environment, executable_sha256=sha(EXE), benchmark_sources=sources,
-        runner=dict(file=pathlib.Path(__file__).name, sha256=sha(pathlib.Path(__file__)), methodology='matches run-matrix.ps1; all subprocesses run sequentially'),
+        runner=dict(file=pathlib.Path(__file__).name, sha256=sha(pathlib.Path(__file__)), methodology='matches the current Python matrix entry; all subprocesses run sequentially'),
         measurement=dict(append='append/continuation + processHistory + publish calls; excludes generation/hash/pacing',
             ingest_cpu='process user+kernel including worker, generation/hash/ingestion/settle; not receive CPU',
             scan='cursor reads + chars[0] checksum before cold-cache sampling; excludes full-field verification',
