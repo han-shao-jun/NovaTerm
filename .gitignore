@@ -21,3 +21,10 @@ third_party/libssh-0.12.2/out/
 # 性能分析产物（本地生成，不入库）
 perf.data*
 perf.txt
+
+# Generated benchmark/test text output (keep source and environment notes)
+/tests/**/*.txt
+!/tests/**/CMakeLists.txt
+!/tests/**/requirements.txt
+!/tests/benchmarks/**/sampled-tests-CMakeLists.txt
+!/tests/benchmarks/**/cpu-topology.txt

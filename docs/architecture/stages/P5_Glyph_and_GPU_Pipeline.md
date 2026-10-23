@@ -557,7 +557,7 @@ Renderer初始化时形成后端能力表：
 | `src/renderer/ScrollDamageHandoff.h` | 建议结构未列出 | `screenScrolled` 与后到的 damage 帧两段交接 |
 | `src/renderer/TerminalRenderer.*` | 一致 | Snapshot协调、失效和QRhi提交；`GpuInstance`（16 float / 64 byte）定义于此 |
 | `tests/renderer/RendererP5Tests.cpp` | **合并了 `GlyphTests.cpp` + `GpuPipelineTests.cpp`** | key、fallback、raster、cache、Atlas、batch、slot ring、预算和失效（目标 `novaterm_renderer_p5_tests`）|
-| `tests/benchmarks/RendererP5GpuBenchmark.cpp` | 原名 `RendererP5Benchmark.cpp` | cold/warm Glyph、滚屏、Overlay和GPU基准（目标 `novaterm_renderer_p5_gpu_benchmark`；acceptance 变体 `novaterm_renderer_p5_gpu_acceptance` 需 `-DNOVATERM_RUN_GPU_ACCEPTANCE_TESTS=ON`）|
+| `tests/benchmarks/renderer/RendererP5GpuBenchmark.cpp` | 原名 `RendererP5Benchmark.cpp` | cold/warm Glyph、滚屏、Overlay和GPU基准（目标 `novaterm_renderer_p5_gpu_benchmark`；acceptance 变体 `novaterm_renderer_p5_gpu_acceptance` 需 `-DNOVATERM_RUN_GPU_ACCEPTANCE_TESTS=ON`）|
 
 关键实现常量（便于核对，均已在代码中）：Atlas 页 2048 × 2048、总预算
 64 MiB、每帧上传预算 4 MiB、frames-in-flight 3（`GlyphAtlas.h:30-34`）；

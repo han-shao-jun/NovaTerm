@@ -132,7 +132,7 @@ ctest --test-dir build -C Debug
 | `src/session/`、`src/profile/`、`src/credential/` | `novaterm_session_tests` | `session`／`p6` | 全部 | <1s |
 | `src/renderer/` 的 RenderCommandBuffer / RenderScheduler / TerminalRenderer | `novaterm_renderer_tests` | `renderer` | 全部 | ~2s |
 | `src/renderer/` 的 RowBlockDamageTracker / ScrollDamageHandoff / TerminalHighlighting、`src/session/SerialHighlightRules` | `novaterm_renderer_p5_tests` | `p5` | 全部 | <1s |
-| `tests/benchmarks/RendererLargeInputBenchmarkSupport.h` 的参数与 JSON 写出 | `novaterm_renderer_large_input_tests` | `renderer`／`benchmark` | Windows，需 benchmark 开关 | <1s |
+| `tests/benchmarks/renderer/RendererLargeInputBenchmarkSupport.h` 的参数与 JSON 写出 | `novaterm_renderer_large_input_tests` | `renderer`／`benchmark` | Windows，需 benchmark 开关 | <1s |
 | `src/transport/LocalShellTransport` 与 ConPty 路径 | `novaterm_conpty_tests`（Win）／`novaterm_pty_tests`（Linux） | `conpty`／`pty` | 互斥，见下注 | ~94s |
 | `src/transport/SshTransport`、`SshMonitorProtocol` | `novaterm_ssh_transport_check`（失败路径 + 监控帧协议） | `ssh` | 全部 | <1s |
 | `src/transport/TelnetTransport` | `novaterm_telnet_transport_tests` | `telnet` | 全部 | ~5s |
@@ -210,7 +210,7 @@ SQL worker 不再 detach；500 ms 排空后协作取消并 join，底层不可�
 初次跨模块回归（排除已知 ConPTY）41/42；存储瞬态删除失败经真实 Windows 拒绝删除共享夹具复现并修复。
 最终相关 **5/5**（26.56 秒），存储 **33/33**、Service **13/13**、UI **8/8**，存储 CTest 连续 **20** 轮通过。
 录制 CTest 现在把 QTest 断言保存到 `build/Release/tests/history/*.ctest.txt`，stdout 为空时直接读该文件。
-前轮失败日志与新命令见上方实施记录及 `docs/architecture/benchmarks/history-recording-review-fixes-windows-2026-10-22/`。
+前轮失败日志与新命令见上方实施记录及 `tests/benchmarks/archive/mcp-history/history-recording-review-fixes-windows-2026-10-22/`。
 
 #### 默认注册了哪些测试
 
@@ -1910,13 +1910,13 @@ QString 堆分配（热路径）、TerminalRenderer `_fm` 裸指针 delete/new �
 
 ## LZ4 历史压缩增量（2026-10-19）
 
-针对 `f662302` 的性能工具补充：`tests/benchmarks/history/README.md` 说明
+针对 `f662302` 的性能工具补充：`tests/benchmarks/history/lz4/README.md` 说明
 schema 2 的追加/扫描隔离计时、进程 CPU、首次压缩冷读/热读、索引与空闲关闭。
 `run-matrix.ps1` 各项至少三次独立进程，生成原始样本、中位数/范围及可选
 `-EnforceGates`；不新增默认 CTest。历史后端改动仍跑
 `novaterm_history_no_qt_link_check`。本次 Windows Release 两组共 72 样本
 内容校验通过，普通日志 charge 下降约 74%，扫描约 OFF 的 13%，性能门槛
-未收口；报告见 `docs/architecture/benchmarks/history-f662302-2026-10-19/`。
+未收口；报告见 `tests/benchmarks/archive/lz4/history-f662302-2026-10-19/`。
 schema 2 不与旧 append/scan/hash 直接做前后比值。生产实现未改，默认 false。
 
 - 统一适用于 Serial/SSH/Telnet/LocalShell。配置
@@ -1977,7 +1977,7 @@ Debug/Release 完整构建通过；Debug 全套 **37/37**（185.52 秒），Rele
 不外推历史 Windows/真实串口。后端 no-Qt 与 Release tailFrom 护栏各 1/1。
 生产实现/默认 false 未改；GUI、固定速率接收 CPU、在途关闭及多会话长稳仍未验收。
 原始数据、Linux Python 复现脚本与具体范围见
-[本轮报告](docs/architecture/benchmarks/history-linux-2026-10-20/README.md)。
+[本轮报告](tests/benchmarks/archive/lz4/history-linux-2026-10-20/README.md)。
 
 ### GUI 历史滚动性能（2026-10-20）
 
@@ -1991,7 +1991,7 @@ Release 全部目标与 Debug 相关目标构建通过，两个配置 Renderer �
 冷区 P95 50 ms 门槛未通过，256 KiB 小块或 8 MiB 热区未带来跨语料一致优势，默认不改。
 测量截止 frameSubmitted，不代表显示器呈现；正确内容间隔与旧画面 GPU 帧分开记录，
 合并请求另记最早批次等待。`grabFramebuffer` 会重新绘制，阶段后抽检不当作逐计时帧证明。
-命令与原始数据见 [GUI 报告](docs/architecture/benchmarks/history-gui-linux-2026-10-20/README.md)。
+命令与原始数据见 [GUI 报告](tests/benchmarks/archive/lz4/history-gui-linux-2026-10-20/README.md)。
 
 ### GUI 冷区准备与复测（2026-10-21）
 
@@ -2004,7 +2004,7 @@ render 首个 Pending 也会在剩余可见行数范围请求后续块，仍不�
 P99 最大 51.63 ms，charge 收益约 92%。但不绑核 mixed 热区 Renderer P95 的
 ON/OFF=1.413，不能说相对 OFF 的 CPU 门槛已全部通过；同类核心控制另列，
 不得替换默认调度结果。原始矩阵、源码/初始 patch、四种帧口径和剩余缺口见
-[新报告](docs/architecture/benchmarks/history-gui-linux-2026-10-21/README.md)。
+[新报告](tests/benchmarks/archive/lz4/history-gui-linux-2026-10-21/README.md)。
 P 核集合控制中热区 CPU ON/OFF 为 1.015/0.989，但另有一轮冷页 P95=50.08 ms；
 不得用控制实验替换原矩阵，也不得省略这轮略超 50 ms 的样本。
 Release 相关五项、Debug 相关四项与两配置 GPU 自测通过，未跑无关全套。
@@ -2028,7 +2028,7 @@ mixed 新默认/reference 的 CPU 比值仍为 1.158；不把所有调度波动�
 抑制息屏并检查状态，异常回收子进程及租约，不改持久电源设置。首次锁屏/息屏
 中断的 22 个样本独立保留、不混入正式选型。显示保护 6/6，Release 相关 5/5、
 Debug 相关 4/4 及两配置实际 GPU 自测通过；未跑无关全套或跨平台/长稳。
-完整范围与复现见 [调参报告](docs/architecture/benchmarks/history-gui-tuning-linux-2026-10-21/README.md)。
+完整范围与复现见 [调参报告](tests/benchmarks/archive/lz4/history-gui-tuning-linux-2026-10-21/README.md)。
 
 ### GUI 历史滚动审查修复（2026-10-21，0.2.78）
 
@@ -2042,7 +2042,7 @@ Release 全套 37/37，Debug 相关 5/5、独立无 Qt 1/1、两配置真实 GPU
 完整 GUI 矩阵 24/24、12288 请求记账及 96 像素抽检通过；默认冷区各轮最大
 P95/P99=36.03/51.27 ms，热区 CPU/OFF=1.038/1.018，charge 节省约 93%。
 mixed 连续最新请求 P99 中位数 35.38→39.68 ms 的反向波动仍单列。完整范围见
-[审查修复报告](docs/architecture/benchmarks/history-gui-review-fixes-linux-2026-10-21/README.md)。
+[审查修复报告](tests/benchmarks/archive/lz4/history-gui-review-fixes-linux-2026-10-21/README.md)。
 
 ### Windows 历史热区 pin 复用（2026-10-22）
 
@@ -2054,7 +2054,7 @@ Windows WPR 八进程零丢事件；未录制的三轮交错 A/B 24/24、12288 �
 检查通过。热区墙钟受调度/等待影响，不能把前轮全部比值归给计算；本轮修复后
 mixed 的 ON/OFF=1.151，仍未过 1.10。Release 相关五项和 GPU 自测通过，未跑
 无关全套/其他平台/真实 UART。结果及消毒器范围见
-[热区报告](docs/architecture/benchmarks/history-gui-hotpath-windows-2026-10-22/README.md)。
+[热区报告](tests/benchmarks/archive/lz4/history-gui-hotpath-windows-2026-10-22/README.md)。
 
 ### Gitee 合并验证（2026-10-22，0.2.80）
 

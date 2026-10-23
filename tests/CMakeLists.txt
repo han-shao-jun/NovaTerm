@@ -512,7 +512,7 @@ if(BUILD_TESTING)
         )
 
         add_executable(novaterm_conpty_residue_repro
-            ${CMAKE_CURRENT_SOURCE_DIR}/benchmarks/ConPtyResidueRepro.cpp
+            ${CMAKE_CURRENT_SOURCE_DIR}/benchmarks/repro/ConPtyResidueRepro.cpp
             ${PROJECT_SOURCE_DIR}/src/renderer/RenderCommandBuffer.cpp
             ${PROJECT_SOURCE_DIR}/src/renderer/RenderCommandBuffer.h
             ${PROJECT_SOURCE_DIR}/src/renderer/RenderScheduler.cpp
@@ -919,8 +919,8 @@ if(NOVATERM_BUILD_BENCHMARKS)
     if(WIN32)
         if(BUILD_TESTING)
             qt_add_executable(novaterm_renderer_large_input_tests
-                ${CMAKE_CURRENT_SOURCE_DIR}/benchmarks/RendererLargeInputBenchmarkTests.cpp
-                ${CMAKE_CURRENT_SOURCE_DIR}/benchmarks/RendererLargeInputBenchmarkSupport.h
+                ${CMAKE_CURRENT_SOURCE_DIR}/benchmarks/renderer/RendererLargeInputBenchmarkTests.cpp
+                ${CMAKE_CURRENT_SOURCE_DIR}/benchmarks/renderer/RendererLargeInputBenchmarkSupport.h
             )
             target_link_libraries(novaterm_renderer_large_input_tests PRIVATE
                 Qt${QT_VERSION_MAJOR}::Core
@@ -936,7 +936,7 @@ if(NOVATERM_BUILD_BENCHMARKS)
         endif()
 
         qt_add_executable(novaterm_renderer_large_input_benchmark
-            ${CMAKE_CURRENT_SOURCE_DIR}/benchmarks/RendererLargeInputBenchmark.cpp
+            ${CMAKE_CURRENT_SOURCE_DIR}/benchmarks/renderer/RendererLargeInputBenchmark.cpp
             ${PROJECT_SOURCE_DIR}/src/renderer/RenderCommandBuffer.cpp
             ${PROJECT_SOURCE_DIR}/src/renderer/RenderScheduler.cpp
             ${PROJECT_SOURCE_DIR}/src/renderer/RenderScheduler.h
@@ -971,7 +971,7 @@ if(NOVATERM_BUILD_BENCHMARKS)
 
     # Manual history GUI latency probe: requires a real exposed GPU window.
     qt_add_executable(novaterm_history_gui_benchmark
-        ${CMAKE_CURRENT_SOURCE_DIR}/benchmarks/HistoryGuiScrollBenchmark.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/benchmarks/history/lz4/HistoryGuiScrollBenchmark.cpp
         ${PROJECT_SOURCE_DIR}/src/renderer/RenderCommandBuffer.cpp
         ${PROJECT_SOURCE_DIR}/src/renderer/RenderScheduler.cpp
         ${PROJECT_SOURCE_DIR}/src/renderer/TerminalColorScheme.cpp
@@ -1002,7 +1002,7 @@ if(NOVATERM_BUILD_BENCHMARKS)
     )
 
     add_executable(novaterm_renderer_p5_gpu_benchmark
-        ${CMAKE_CURRENT_SOURCE_DIR}/benchmarks/RendererP5GpuBenchmark.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/benchmarks/renderer/RendererP5GpuBenchmark.cpp
         ${PROJECT_SOURCE_DIR}/src/renderer/RenderCommandBuffer.cpp
         ${PROJECT_SOURCE_DIR}/src/renderer/RenderScheduler.cpp
         ${PROJECT_SOURCE_DIR}/src/renderer/TerminalColorScheme.cpp
@@ -1046,7 +1046,7 @@ if(NOVATERM_BUILD_BENCHMARKS)
     endif()
 
     add_executable(novaterm_renderer_p3_gpu_benchmark
-        ${CMAKE_CURRENT_SOURCE_DIR}/benchmarks/RendererP3GpuBenchmark.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/benchmarks/renderer/RendererP3GpuBenchmark.cpp
         ${PROJECT_SOURCE_DIR}/src/renderer/RenderCommandBuffer.cpp
         ${PROJECT_SOURCE_DIR}/src/renderer/RenderCommandBuffer.h
         ${PROJECT_SOURCE_DIR}/src/renderer/RenderScheduler.cpp
@@ -1078,7 +1078,7 @@ if(NOVATERM_BUILD_BENCHMARKS)
     )
 
     add_executable(novaterm_residue_repro
-        ${CMAKE_CURRENT_SOURCE_DIR}/benchmarks/ResidueRepro.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/benchmarks/repro/ResidueRepro.cpp
         ${PROJECT_SOURCE_DIR}/src/renderer/RenderCommandBuffer.cpp
         ${PROJECT_SOURCE_DIR}/src/renderer/RenderCommandBuffer.h
         ${PROJECT_SOURCE_DIR}/src/renderer/RenderScheduler.cpp
@@ -1110,7 +1110,7 @@ if(NOVATERM_BUILD_BENCHMARKS)
     )
 
     add_executable(novaterm_renderer_p3_benchmark
-        ${CMAKE_CURRENT_SOURCE_DIR}/benchmarks/RendererP3Benchmark.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/benchmarks/renderer/RendererP3Benchmark.cpp
         ${PROJECT_SOURCE_DIR}/src/renderer/RenderCommandBuffer.cpp
         ${PROJECT_SOURCE_DIR}/src/renderer/RenderCommandBuffer.h
     )
@@ -1125,12 +1125,12 @@ if(NOVATERM_BUILD_BENCHMARKS)
     )
 
     add_executable(novaterm_core_benchmark
-        ${CMAKE_CURRENT_SOURCE_DIR}/benchmarks/CoreBenchmark.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/benchmarks/core/CoreBenchmark.cpp
     )
     target_link_libraries(novaterm_core_benchmark PRIVATE novaterm_core)
 
     add_executable(novaterm_scrollback_benchmark
-        ${CMAKE_CURRENT_SOURCE_DIR}/benchmarks/ScrollbackBenchmark.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/benchmarks/core/ScrollbackBenchmark.cpp
     )
     target_link_libraries(novaterm_scrollback_benchmark PRIVATE novaterm_core)
 

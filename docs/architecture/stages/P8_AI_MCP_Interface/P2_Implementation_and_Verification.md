@@ -69,7 +69,7 @@ Windows Release / Qt 6.8.3 / MSVC 19.51，独立假接收源，每 16 ms 提交 
 | 进程峰值内存 | 19,726,336 B | 21,737,472 B |
 | chunk + 索引/WAL/SHM 等目录占用 | 0 | 71,206,829 B |
 
-原始 JSON 及日志见 [Windows 录制基线目录](../../benchmarks/history-recording-windows-2026-10-22/README.md)。目录占用含停止后内部只读索引仍打开时的 WAL/SHM，不能将差额全算作记录格式开销；后续 checkpoint/关闭可能减少占用。
+原始 JSON 及日志见 [Windows 录制基线目录](../../../../tests/benchmarks/archive/mcp-history/history-recording-windows-2026-10-22/README.md)。目录占用含停止后内部只读索引仍打开时的 WAL/SHM，不能将差额全算作记录格式开销；后续 checkpoint/关闭可能减少占用。
 
 基于这一 **64 MiB / 约 68 MiB 实际落盘** 基线，首版冻结：单 capture **512 MiB**、全局 **2 GiB**、默认期限 **7 天**。这是约 7 倍/30 倍本次目录样本的保守磁盘预算，不承诺在任意速率下录满一天；配额按实际目录占用计量，追加前保留记录/索引余量，达到边界先清无租约、未保留的停止 capture，仍不足则停止当前录制并保持 unknown_tail。保留期限独立可配（UI 为天），长期保留仍计入容量，不覆盖活动分块。
 
@@ -148,7 +148,7 @@ ctest --test-dir build/Release -C Release -R '^novaterm_history_store_tests$' --
 ctest --test-dir build/Release -C Release -R '^novaterm_(history_(recorder|store|service|recording_ui)|session)_tests$' --output-on-failure
 ```
 
-本轮原始记录见 [审查修复证据](../../benchmarks/history-recording-review-fixes-windows-2026-10-22/README.md)。中期合成 64 MiB 复验零丢失，但不据单次合成数据宣称 CPU 目标改善或真实性能发布闸门通过。
+本轮原始记录见 [审查修复证据](../../../../tests/benchmarks/archive/mcp-history/history-recording-review-fixes-windows-2026-10-22/README.md)。中期合成 64 MiB 复验零丢失，但不据单次合成数据宣称 CPU 目标改善或真实性能发布闸门通过。
 
 ## 基线
 

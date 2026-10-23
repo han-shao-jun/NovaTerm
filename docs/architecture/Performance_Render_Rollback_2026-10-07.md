@@ -119,7 +119,7 @@ GPU 执行时间、功耗、真实 RSS、其他后端、跨平台与长稳仍未
 - `renderer-ctest.log`、`terminal-session.txt`、`app-build.log`：最终通过的功能
   测试及主程序构建记录。
 - 上级目录 `hardware.json`、`rollback-measured.patch`：环境及最终代码差异。
-- 正式夹具为 [`../../tests/benchmarks/RendererLargeInputBenchmark.cpp`](../../tests/benchmarks/RendererLargeInputBenchmark.cpp)，
+- 正式夹具为 [`../../tests/benchmarks/renderer/RendererLargeInputBenchmark.cpp`](../../tests/benchmarks/renderer/RendererLargeInputBenchmark.cpp)，
   在 `tests/CMakeLists.txt` 注册 `novaterm_renderer_large_input_benchmark`。
   Windows 且 `NOVATERM_BUILD_BENCHMARKS=ON` 时构建；硬件测量手工运行，不进入
   默认 CTest。它直接链接项目 `novaterm_core`，无需临时工程或硬编码的 `.lib` 路径。

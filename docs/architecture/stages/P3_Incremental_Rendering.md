@@ -225,8 +225,8 @@ P3 保留现有 Glyph Atlas 行为；新 Glyph 导致整图上传属于 P5 优�
 | `src/renderer/TerminalRenderer.*` | 脏行重建、固定槽位和局部上传 |
 | `tests/renderer/RendererP3Tests.cpp` | Scheduler/CommandBuffer 单测 |
 | `tests/renderer/TerminalSessionSmokeTests.cpp` | Core 到 Renderer 冒烟验证 |
-| `tests/benchmarks/RendererP3Benchmark.cpp` | Snapshot、脏行遍历与命令缓存 CPU 基准 |
-| `tests/benchmarks/RendererP3GpuBenchmark.cpp` | 真实 QRhi 后端的单 Cell、全屏和持续输出跑分 |
+| `tests/benchmarks/renderer/RendererP3Benchmark.cpp` | Snapshot、脏行遍历与命令缓存 CPU 基准 |
+| `tests/benchmarks/renderer/RendererP3GpuBenchmark.cpp` | 真实 QRhi 后端的单 Cell、全屏和持续输出跑分 |
 | `CMakeLists.txt` | Renderer 测试目标和 Shader 资源 |
 
 ## 实施禁止项
@@ -314,7 +314,7 @@ Renderer/Core 新增回归覆盖：最高 content revision 合并、cancel 清�
 
 **“模型上传量”一列的口径注意**：该列由 benchmark 自行按 P3 的六顶点模型
 （`VerticesPerQuad = 6`、`GpuVertexBytes = 8 × sizeof(float)`，见
-`tests/benchmarks/RendererP3Benchmark.cpp:15-16`）估算，**不是**当前 Renderer
+`tests/benchmarks/renderer/RendererP3Benchmark.cpp:15-16`）估算，**不是**当前 Renderer
 的真实上传量。P5 起真实格式为 64 bytes/实例，同样命令数的实际上传约为该列的
 1/3。要看真实上传 bytes 请用 `novaterm_renderer_p5_gpu_benchmark`
 或 `RenderStatistics::gpuUploadBytes`。下表数字保留为 P3 当时的对比基线。

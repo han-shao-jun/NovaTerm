@@ -1396,7 +1396,7 @@ Parser `sb_popline` 的同步冷读使用预留槽，完全不等后台队列或
 默认普通块目标 512 KiB，最大 1 MiB，至少 1024 行条件也封块；活动块和最近
 2 MiB 保持热区（2026-10-21 三轮 GUI 调参；原初值为 4 MiB）。超长逻辑行不拆
 LineId，保持独立 Raw，预算不足按最旧优先淘汰。选型与默认调度复验见
-[三轮调参报告](architecture/benchmarks/history-gui-tuning-linux-2026-10-21/README.md)。
+[三轮调参报告](../tests/benchmarks/archive/lz4/history-gui-tuning-linux-2026-10-21/README.md)。
 Live 块 charge 含容量和元数据，压缩必须节省至少 12.5% 和 4 KiB 才采用。
 遗留快照/任务持有的替换/淘汰块用分配 token 跟踪到真实生命周期结束，不提前减账；
 部分淘汰仍计整个不可变 payload。统计另列 cache/pin 和临时工作区，pin 是 cache
@@ -1433,8 +1433,8 @@ GUI 滚动目标变更时，每事件轮次最多投递一次 CacheOnly 准备�
 仍返回 Pending、保留旧画面，原队列/缓存/临时额度及完成标记判据不变。未开始的
 GUI 准备采用最新目标，已提交 worker 的过期单块任务仍可执行至结束；布局未就绪、
 改宽或淘汰时沿用原绘制兜底。复测见
-[2026-10-21 GUI 报告](architecture/benchmarks/history-gui-linux-2026-10-21/README.md)，
-最新审查修复与复验见[审查修复报告](architecture/benchmarks/history-gui-review-fixes-linux-2026-10-21/README.md)。
+[2026-10-21 GUI 报告](../tests/benchmarks/archive/lz4/history-gui-linux-2026-10-21/README.md)，
+最新审查修复与复验见[审查修复报告](../tests/benchmarks/archive/lz4/history-gui-review-fixes-linux-2026-10-21/README.md)。
 
 独立入口实际编译/链接/运行上述完整生产后端，没有 Qt 搜索路径或 Qt 事件循环。
 Qt 门面仍依赖 Qt，不能据此宣称整个 core 去 Qt。性能发布门槛未完成，具体 RED/

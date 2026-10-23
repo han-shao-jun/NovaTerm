@@ -8,7 +8,7 @@
 
 **Tech stack:** Qt 6.8.3, C++17, MSVC `/O2 /Ob2`, WPR CPU sampled/CSwitch/ReadyThread, xperf and local PDBs.
 
-**Spec:** user's request; `docs/ARCHITECTURE.md`, `docs/architecture/Rendering_Architecture.md`, `tests/benchmarks/history/README.md`.
+**Spec:** user's request; `docs/ARCHITECTURE.md`, `docs/architecture/Rendering_Architecture.md`, `tests/benchmarks/history/lz4/README.md`.
 
 ## Constraints and review focus
 

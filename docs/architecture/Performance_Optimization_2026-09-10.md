@@ -29,7 +29,7 @@ Agent 上下文作为 Session 内置只读接口提供。
 
 测试文件：`tests/transport/SshTransportFailureCheck.cpp`、
 `tests/session/SessionTests.cpp`、`tests/renderer/RendererP5Tests.cpp`、
-`tests/benchmarks/RendererP5GpuBenchmark.cpp`。
+`tests/benchmarks/renderer/RendererP5GpuBenchmark.cpp`。
 
 ## 实测环境
 
