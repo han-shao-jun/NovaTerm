@@ -6,7 +6,7 @@
 
 在现有 Session 和进程内 Streamable HTTP 上，形成可由外部 MCP、内置 Agent、未来 CLI 复用的能力应用内核；再增加保真历史、证据、Linux/嵌入式诊断和聊天交互。不得为新入口复制授权、输入泵、会话目录或执行真源。
 
-兼容基线是当前九工具及 tests/mcp/fixtures/tool-catalog-2026-10-18.json。名称、input/output Schema、默认值、enum、可选性、未知字段拒绝、错误码、retryable、封装、预算、确认/取消语义保持不变。动态 ID、时间、随机签名不要求逐字相同。新增工具是后续版本扩展，不与内部迁移混做。
+兼容基线是原九工具及 tests/mcp/fixtures/tool-catalog-2026-10-18.json。名称、input/output Schema、默认值、enum、可选性、未知字段拒绝、错误码、retryable、封装、预算、确认/取消语义保持不变。动态 ID、时间、随机签名不要求逐字相同。2026-10-23 已作为独立增量追加三个历史工具，精确目录/验证与剩余范围见 [P3 实施记录](P3_Implementation_and_Verification.md)，不与原九工具内部迁移混做。
 
 | 当前工具 | 语义 |
 | --- | --- |
@@ -40,7 +40,7 @@ flowchart TB
     Entry --> Auth[授权 / 能力解析 / 确认 / 审计]
     Entry --> Observe[统一观察服务]
     Entry --> Exec[任务与执行用例]
-    Entry --> History[历史 / 搜索 / 证据：规划]
+    Entry --> History[历史 / 搜索 / 证据：P2/P3 实现及范围见实施记录]
     Entry --> Packs[诊断 Provider：规划]
     Packs --> Exec
     Packs --> History
@@ -241,7 +241,7 @@ Session/授权/应用状态串行于所属 GUI 线程，网络、Parser、文件
 
 ## 11. 设计补充契约（2026-10-18）
 
-本节补齐跨阶段语义，不修改 02 现行九工具契约。P1 的环境事实与类型化准入已按 2026-10-19 实施记录落地；模型发送、历史与证据部分仍是后续规划。具体接口和失败用例分别归所属阶段。
+本节为 2026-10-18 跨阶段设计补充，不修改原九工具契约。P1 环境事实与类型化准入已按 2026-10-19 实施记录落地；P2/P3 历史与证据子集按各自实施记录区分已实现和未覆盖范围；模型发送仍属 P6 后续工作。具体接口和失败用例分别归所属阶段。
 
 - **模型发送边界**：本机读取、向指定模型服务发送、持久保存分别授权。ContextManager保留消息/摘要/artifact的来源依赖，ModelEgressPolicy在每次模型请求提交前校验接收方和来源；切换服务、撤权、摘要恢复不绕过校验。已发送数据无法追回，不声称撤权可删除远端副本。详见[P6补充契约](P6_Agent_Runtime_and_UI.md#补充契约模型发送与派生内容授权)。
 - **环境事实边界**：Session适配层唯一拥有EnvironmentTracker，区分环境声明、可信就绪和目标身份。普通输出只作候选，不能建立执行就绪；证据失效或切换不确定时退回Unknown并提升revision。详见[P1环境契约](P1_Capability_Runtime.md#补充契约环境事实与失效)。

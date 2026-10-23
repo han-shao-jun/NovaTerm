@@ -33,6 +33,7 @@ target_link_libraries(novaterm_mcp_application PUBLIC novaterm_mcp_contracts Qt6
 # MCP wire 协议库不依赖终端或 UI，由进程内 HTTP 服务复用。
 qt_add_library(novaterm_mcp_protocol STATIC McpProtocol.cpp McpProtocol.h
     protocol/ToolCodec.cpp protocol/ToolCodec.h
+    protocol/HistoryToolCodec.cpp protocol/HistoryToolCodec.h
     protocol/BackendEvents.h
     protocol/ProtocolProjectionSizer.cpp protocol/ProtocolProjectionSizer.h
     WireSession.cpp WireSession.h ElicitationBroker.cpp ElicitationBroker.h)
@@ -77,6 +78,7 @@ qt_add_library(novaterm_mcp_runtime STATIC
     McpService.cpp McpService.h
     CommandSessionAdapter.cpp CommandSessionAdapter.h
     CapabilityAdapter.cpp CapabilityAdapter.h
+    HistoryCapabilityAdapter.cpp HistoryCapabilityAdapter.h
     ObservationService.cpp ObservationService.h
     TerminalInteraction.cpp TerminalInteraction.h
 )
@@ -84,4 +86,5 @@ target_link_libraries(novaterm_mcp_runtime PUBLIC
     novaterm_mcp_application novaterm_session_automation
     novaterm_core Qt6::SerialPort novaterm_terminal_capabilities
     PRIVATE novaterm_mcp_http novaterm_mcp_protocol novaterm_capabilities novaterm_session_environment)
+target_link_libraries(novaterm_mcp_runtime PRIVATE novaterm_history_search novaterm_history_recording novaterm_evidence)
 target_compile_definitions(novaterm_mcp_runtime PRIVATE NOVATERM_VERSION="${PROJECT_VERSION}")

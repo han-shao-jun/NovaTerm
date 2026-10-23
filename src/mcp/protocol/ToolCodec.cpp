@@ -6,6 +6,7 @@
  * `tests/mcp/fixtures/tool-catalog-2026-10-18.json` 锁定外部兼容性。
  */
 #include "ToolCodec.h"
+#include "HistoryToolCodec.h"
 #include "mcp/contracts/TerminalInputValidation.h"
 #include "capabilities/terminal/LegacyTerminalMapping.h"
 #include "capabilities/CapabilityRegistry.h"
@@ -319,10 +320,16 @@ const QJsonArray& ToolCodec::catalog()
     return catalog;
 }
 
+const QJsonArray& ToolCodec::publishedCatalog()
+{
+    static const QJsonArray result=[] {auto tools=catalog();for(const auto& tool:HistoryToolCodec::catalog())tools.append(tool);return tools;}();
+    return result;
+}
+
 QString ToolCodec::validate(const QString& name, const QJsonObject& arguments)
 {
     QJsonObject input;
-    for (const auto& tool : catalog()) {
+    for (const auto& tool : publishedCatalog()) {
         if (tool.toObject().value("name").toString() == name)
             input = tool.toObject().value("inputSchema").toObject();
     }
@@ -343,7 +350,7 @@ QString ToolCodec::validate(const QString& name, const QJsonObject& arguments)
             const auto text = value.toString();
             if (it.key() == "sessionId" || it.key() == "operationId")
                 valid = valid && !QUuid(text).isNull() && QUuid(text).toString(QUuid::WithoutBraces) == text;
-            if (it.key() == "query")
+            if (it.key() == "query" && name == "novaterm_search_context")
                 valid = valid && !text.contains('\n') && !text.contains('\r');
             if (it.key() == "scriptContent")
                 valid = valid && !text.toUtf8().isEmpty()
@@ -483,7 +490,7 @@ QString textArgument(const QJsonObject& arguments, const char* key)
 bool ToolCodec::isKnownTool(const QString& name)
 {
     static const auto registry = Capabilities::CapabilityRegistry::terminalCapabilities();
-    return registry.findByMcpTool(name).has_value();
+    return registry.findByMcpTool(name).has_value() || HistoryToolCodec::known(name);
 }
 
 Result<ToolRequest> ToolCodec::decode(const QString& name, const QJsonObject& arguments)

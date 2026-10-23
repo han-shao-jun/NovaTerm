@@ -11,6 +11,12 @@
 #include <QItemSelectionModel>
 #include <QSignalBlocker>
 #include <QLineEdit>
+#include <QComboBox>
+#include <QCheckBox>
+#include <QDialogButtonBox>
+#include <QFormLayout>
+#include <QRegularExpressionValidator>
+#include <QDialog>
 
 using namespace NovaTerm::Recording;
 HistoryRecordingPanel::HistoryRecordingPanel(HistoryService* service, QWidget* parent)
@@ -31,7 +37,9 @@ HistoryRecordingPanel::HistoryRecordingPanel(HistoryService* service, QWidget* p
     _stop = new ElaPushButton(tr("Stop selected"), this); _stop->setProperty("historyCaptureRole", "historyStop");
     _keep = new ElaPushButton(tr("Keep / release selected"), this);
     _remove = new ElaPushButton(tr("Delete selected"), this); _remove->setProperty("historyCaptureRole", "historyDelete");
-    for (auto* button : {_start, _stop, _keep, _remove}) actions->addWidget(button);
+    _share = new ElaPushButton(tr("Share history…"), this); _share->setProperty("historyCaptureRole", "historyShare");
+    connect(_share,&ElaPushButton::clicked,this,&HistoryRecordingPanel::manageSharing);
+    for (auto* button : {_start, _stop, _keep, _remove, _share}) actions->addWidget(button);
     layout->addLayout(actions);
     auto* limits = new QHBoxLayout;
     _global = new ElaSpinBox(this); _global->setRange(1, 65536); _global->setSuffix(tr(" MiB total"));
@@ -92,6 +100,33 @@ void HistoryRecordingPanel::updateActions() {
     _start->setEnabled(_model->settingsReady() && _connected && _target.sessionId != QUuid{} && !active && !_model->busy());
     _stop->setEnabled(selected && selected->active); _remove->setEnabled(selected && !selected->active && !_model->busy());
     _keep->setEnabled(bool(selected) && !_model->busy());
+    _share->setEnabled(_sharing && bool(selected) && !_model->busy());
+}
+void HistoryRecordingPanel::setSharingPort(HistorySharingPort* port){_sharing=port;updateActions();}
+void HistoryRecordingPanel::manageSharing(){
+    const auto selected=_model->capture(selectedRow());if(!_sharing||!selected)return;
+    const auto clients=_sharing->clients();if(clients.empty()){_status->setText(tr("Add an MCP client in MCP settings first."));return;}
+    const auto capture=selected->id;
+    QDialog dialog(this);dialog.setWindowTitle(tr("Share recorded history"));auto* layout=new QVBoxLayout(&dialog);
+    auto* note=new QLabel(tr("This permission allows the selected client to read and search the chosen recording even after its terminal is closed. Terminal permissions are separate. Token rotation requires sharing again."),&dialog);note->setWordWrap(true);layout->addWidget(note);
+    auto* form=new QFormLayout;auto* client=new QComboBox(&dialog);for(const auto& c:clients)client->addItem(c.label,c.id);form->addRow(tr("Client"),client);
+    const auto edit=[&]{auto* e=new QLineEdit(&dialog);e->setValidator(new QRegularExpressionValidator(QRegularExpression("[0-9]{1,20}"),e));return e;};
+    auto* first=edit();auto* last=edit();auto* from=edit();auto* to=edit();
+    form->addRow(tr("First record"),first);form->addRow(tr("Last record (0 = future committed records)"),last);
+    form->addRow(tr("From timestamp (Unix ms, 0 = any)"),from);form->addRow(tr("To timestamp (Unix ms, 0 = any)"),to);
+    auto* persistent=new QCheckBox(tr("Keep this sharing permission after restart"),&dialog);form->addRow(persistent);layout->addLayout(form);
+    const auto refresh=[&]{const auto g=_sharing->grant(client->currentData().toString(),capture);
+        first->setText(QString::number(g?g->first:1));last->setText(QString::number(g?g->last:selected->highWaterRecordId));
+        from->setText(QString::number(g?g->fromMs:0));to->setText(QString::number(g?g->toMs:0));persistent->setChecked(g&&g->persistent);};
+    connect(client,&QComboBox::currentIndexChanged,&dialog,refresh);refresh();
+    auto* buttons=new QDialogButtonBox(QDialogButtonBox::Save|QDialogButtonBox::Cancel,&dialog);auto* revoke=buttons->addButton(tr("Revoke"),QDialogButtonBox::DestructiveRole);layout->addWidget(buttons);
+    connect(buttons,&QDialogButtonBox::rejected,&dialog,&QDialog::reject);
+    connect(revoke,&QPushButton::clicked,&dialog,[&]{if(_sharing->revoke(client->currentData().toString(),capture)){_status->setText(tr("History sharing revoked."));dialog.accept();}});
+    connect(buttons,&QDialogButtonBox::accepted,&dialog,[&]{bool a,b,c,d;ResourceGrant g;g.principal=client->currentData().toString();g.capture=capture;
+        g.first=first->text().toULongLong(&a);g.last=last->text().toULongLong(&b);g.fromMs=from->text().toLongLong(&c);g.toMs=to->text().toLongLong(&d);g.persistent=persistent->isChecked();
+        if(a&&b&&c&&d&&_sharing->share(g)){_status->setText(tr("History sharing saved."));dialog.accept();}
+        else QMessageBox::warning(&dialog,tr("History sharing"),tr("Cannot save sharing. Check the record/time range and local storage."));});
+    dialog.resize(640,360);dialog.exec();
 }
 void HistoryRecordingPanel::syncSettings() {
     const bool ready = _model->settingsReady();

@@ -294,6 +294,11 @@ Visual Studio / Ninja Multi-Config 必须用 `-C` 选择已构建配置，否则
 ctest --test-dir build-vs -C Release -R "^novaterm_scrollback_tests$" --output-on-failure
 ```
 
+MCP 历史读取/搜索与证据改动优先运行 `ctest --test-dir build -L mcp --output-on-failure`，
+包括新增授权、分页读取、投影搜索、续页状态和独立证据五个目标。
+录制共享界面另运行 `novaterm_history_recording_ui_tests`；多配置构建仍须加 `-C Release`。
+精确接口、限额与平台验证范围见 [P3 实施记录](docs/architecture/stages/P8_AI_MCP_Interface/P3_Implementation_and_Verification.md)。
+
 确需全套时，可运行 `ctest --test-dir build --output-on-failure`，或使用
 `check` 目标（会构建相关目标并执行全套，多配置时传入对应 `--config`）：
 

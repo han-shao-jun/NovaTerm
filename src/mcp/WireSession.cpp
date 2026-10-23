@@ -3,6 +3,7 @@
 #include "ElicitationBroker.h"
 #include "McpProtocol.h"
 #include "protocol/ToolCodec.h"
+#include "protocol/HistoryToolCodec.h"
 #include <QElapsedTimer>
 #include <QHash>
 #include <QJsonDocument>
@@ -66,6 +67,7 @@ public:
         QJsonValue rpcId;
         QString wireId, tool;
         ToolRequest typed;
+        std::optional<HistoryToolRequest> history;
         QByteArray confirmationDigest;
         qint64 deadline{0};
         QString requestState;
@@ -241,7 +243,7 @@ public:
             return;
         }
         if (method == "tools/list") {
-            output(rpcResult(id, {{"tools", ToolCodec::catalog()}}));
+            output(rpcResult(id, {{"tools", ToolCodec::publishedCatalog()}}));
             return;
         }
         if (method != "tools/call") {
@@ -250,7 +252,7 @@ public:
         }
         const auto name = params.value("name").toString();
         bool known = false;
-        for (const auto &tool : ToolCodec::catalog())
+        for (const auto &tool : ToolCodec::publishedCatalog())
             known |= tool.toObject().value("name") == name;
         if (!known) {
             output(rpcError(id, -32602, "Unknown tool."));
@@ -263,7 +265,10 @@ public:
             return;
         }
         const auto arguments = params.value("arguments").toObject();
-        auto decoded = ToolCodec::decode(name, arguments);
+        const bool history=HistoryToolCodec::known(name);
+        const auto historyDecoded=history ? HistoryToolCodec::decode(name,arguments) : Result<HistoryToolRequest>{HistoryToolRequest{}};
+        if(const auto* reason=errorIfAny(historyDecoded)) {output(rpcResult(id,toolResult(ToolCodec::encodeFailure(*reason))));return;}
+        auto decoded = history ? Result<ToolRequest>{ToolRequest{ListSessionsRequest{}}} : ToolCodec::decode(name, arguments);
         if (const auto* error = errorIfAny(decoded)) {
             output(rpcResult(id, toolResult(ToolCodec::encodeFailure(*error))));
             return;
@@ -280,6 +285,7 @@ public:
         // 2025 在同一次请求内等待确认；执行及脚本写入的独立预算不可被等待消耗。
         // 2026 input_required 已结束本次请求，继续执行由新的 HTTP 请求承接。
         qint64 budget = name == "novaterm_execute_command" ? 7000 : 2000;
+        if(history) budget=10000; // scan <=2s; bounded evidence reads and wire delivery have separate margin
         if (name == "novaterm_run_command" || name == "novaterm_run_script") {
             budget = arguments.value("timeoutMs").toInt(5000) + WireDeadlineMargin.count();
             if (!_requestMrtr)
@@ -305,6 +311,7 @@ public:
         call.wireId = _prefix + QString::number(++_nextId);
         call.tool = name;
         call.typed = std::get<ToolRequest>(std::move(decoded));
+        if(history) call.history=std::get<HistoryToolRequest>(historyDecoded);
         if (std::holds_alternative<RunScriptRequest>(call.typed)) {
             call.confirmationDigest = QCryptographicHash::hash(
                 QJsonDocument(arguments).toJson(QJsonDocument::Compact), QCryptographicHash::Sha256);
@@ -334,6 +341,10 @@ public:
                 continue;
             const auto call = _calls.value(id);
             _calls[id].sent = true;
+            if(call.history) {
+                emit q->backendEvent(BackendHistoryCall{call.wireId,*call.history});
+                continue;
+            }
             emit q->backendEvent(BackendCall{call.wireId, call.typed, call.confirmationDigest,
                 call.mrtr, call.formElicitation,
                 call.mrtr && !call.requestState.isEmpty() ? call.requestState : QString(),

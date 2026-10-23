@@ -13,7 +13,7 @@
 | [P0](P0_Runtime_Consolidation.md) | 九工具运行内核、结构收口、基线 | 现有代码 | 实现与结构收口完成；Linux专项通过，其他平台保留补验范围 |
 | [P1](P1_Capability_Runtime.md) | 通用能力目录、本机应用入口、目标环境与执行路由 | P0 对应兼容/安全闸门 | 运行期/Session 适配已落地；[范围与验收](P1_Implementation_and_Verification.md)，P4/P6 产品集成另验 |
 | [P2](P2_History_Recording.md) | 用户主动开启的保真录制、分块持久化、恢复和管理 UI | P1 资源/授权契约 | 实现已落地，Windows 专项通过；跨平台/断电/真实性能退出门槛未关闭，见[实施记录](P2_Implementation_and_Verification.md) |
-| [P3](P3_History_Search_and_Evidence.md) | 原文分页、跨块搜索、证据、离线资源授权、三历史工具 | P2；任务证据契约可提前定义 | 规划 |
+| [P3](P3_History_Search_and_Evidence.md) | 原文分页、跨块搜索、证据、离线资源授权、三历史工具 | P2；任务证据契约可提前定义 | 实现已落地；[Windows 验证与未覆盖范围](P3_Implementation_and_Verification.md)，不代替跨平台/真实设备验收 |
 | [P4](P4_Backend_Diagnostics.md) | Linux 可信 Recipe、独立/共享路由、Backend Pack | P1、P3 证据契约 | 规划 |
 | [P5](P5_Embedded_Diagnostics.md) | Boot/Crash/DDR 离线解析，驱动/DT/PCIe 在线采集 | 离线依赖 P3；在线依赖 P4 路由 | 规划 |
 | [P6](P6_Agent_Runtime_and_UI.md) | 内置模型回合、统一事件、上下文、聊天与批准 UI | 基础依赖 P1；历史/诊断集成依赖 P3～P5 对应能力 | 规划 |

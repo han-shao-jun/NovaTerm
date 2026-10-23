@@ -11,6 +11,10 @@
 #include <QtTest>
 #include <QFontDatabase>
 #include <QLineEdit>
+#include <QDialogButtonBox>
+#include <QPushButton>
+#include <QTimer>
+#include <QComboBox>
 
 using namespace NovaTerm::Recording;
 template<class T> T* control(QWidget& panel, const char* role) {
@@ -20,6 +24,29 @@ template<class T> T* control(QWidget& panel, const char* role) {
 class HistoryRecordingUiTests : public QObject {
     Q_OBJECT
 private slots:
+    void offlineSharingRequiresExplicitClientAndRange() {
+        struct Sharing final:HistorySharingPort {
+            std::optional<ResourceGrant> saved;
+            std::vector<SharingClient> clients()const override{return {{"client-a","Client A"},{"client-b","Client B"}};}
+            std::optional<ResourceGrant> grant(const QString&,HistoryCaptureId)const override{return {};}
+            bool share(ResourceGrant g)override{saved=std::move(g);return true;}
+            bool revoke(const QString&,HistoryCaptureId)override{return true;}
+        } sharing;
+        QTemporaryDir dir;HistoryService service(dir.path());HistoryRecordingPanel panel(&service);
+        const RecordingIntent intent{QUuid::createUuid(),1};bool started=false;
+        QTRY_VERIFY(service.ready());QVERIFY(service.start(intent,[&](auto r){started=r.success;}));QTRY_VERIFY(started);
+        service.submit(intent.sessionId,1,"recorded");service.stop(intent);QTRY_VERIFY(!service.captures().front().active);
+        auto* table=control<QTableView>(panel,"historyCaptures");QTRY_COMPARE(table->model()->rowCount(),1);table->selectRow(0);
+        auto* share=control<ElaPushButton>(panel,"historyShare");QVERIFY(share);QVERIFY(!share->isEnabled());
+        panel.setSharingPort(&sharing);QVERIFY(share->isEnabled());QVERIFY(!sharing.saved);
+        QTimer::singleShot(0,&panel,[&]{
+            auto* dialog=panel.findChild<QDialog*>();QVERIFY(dialog);auto* client=dialog->findChild<QComboBox*>();QVERIFY(client);client->setCurrentIndex(1);
+            const auto edits=dialog->findChildren<QLineEdit*>();QCOMPARE(edits.size(),4);edits[0]->setText("1");edits[1]->setText("1");
+            auto* buttons=dialog->findChild<QDialogButtonBox*>();QVERIFY(buttons);buttons->button(QDialogButtonBox::Save)->click();
+        });
+        share->click();QVERIFY(sharing.saved);QCOMPARE(sharing.saved->principal,QString("client-b"));QCOMPARE(sharing.saved->capture,service.captures().front().id);
+        QCOMPARE(sharing.saved->first,1ull);QCOMPARE(sharing.saved->last,1ull);QVERIFY(!sharing.saved->persistent);
+    }
     void partialSpinboxTextSurvivesExternalRefresh() {
         QTemporaryDir dir; HistoryService service(dir.path()); HistoryRecordingPanel panel(&service);
         const auto spins = panel.findChildren<ElaSpinBox*>(); QTRY_VERIFY(spins[0]->isEnabled());

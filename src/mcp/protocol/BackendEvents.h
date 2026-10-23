@@ -8,6 +8,7 @@
 #pragma once
 
 #include "mcp/contracts/ToolRequests.h"
+#include "mcp/contracts/HistoryToolRequest.h"
 #include <QMetaType>
 #include <QString>
 
@@ -31,20 +32,22 @@ struct BackendCancel
     QString id;
 };
 
+struct BackendHistoryCall { QString id; HistoryToolRequest request; };
+
 struct BackendElicitationResult
 {
     QString id;
     ConfirmationAnswer answer{ConfirmationAnswer::Decline};
 };
 
-using BackendEvent = std::variant<BackendCall, BackendCancel, BackendElicitationResult>;
+using BackendEvent = std::variant<BackendCall, BackendCancel, BackendElicitationResult, BackendHistoryCall>;
 
 /** @brief 事件类别；仅用于日志与测试断言，不参与业务分派。 */
 [[nodiscard]] inline QString backendEventKind(const BackendEvent& event)
 {
     return std::visit([](const auto& value) -> QString {
         using Type = std::decay_t<decltype(value)>;
-        if constexpr (std::is_same_v<Type, BackendCall>)
+        if constexpr (std::is_same_v<Type, BackendCall> || std::is_same_v<Type, BackendHistoryCall>)
             return QStringLiteral("call");
         else if constexpr (std::is_same_v<Type, BackendCancel>)
             return QStringLiteral("cancel");

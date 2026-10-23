@@ -52,6 +52,8 @@ http_headers = { Authorization = "Bearer <从 NovaTerm 导出的接入令牌>" }
 
 ## 九个工具
 
+以下九个终端工具保留原有契约；另有三个历史工具，见后文「历史录制的离线访问」。
+
 | 工具 | 用途 |
 | --- | --- |
 | `novaterm_list_sessions` | 列出该客户端获准访问的会话及身份 |
@@ -63,6 +65,34 @@ http_headers = { Authorization = "Bearer <从 NovaTerm 导出的接入令牌>" }
 | `novaterm_execute_command` | 用票据执行对应模板；不接受 shell 文本 |
 | `novaterm_run_command` | 在明确共享的当前交互终端执行命令；高风险或无法分类的命令需要 MCP 客户端人工确认 |
 | `novaterm_run_script` | 确认后将脚本写入 LocalShell/SSH 主机的指定路径，再在当前交互终端显示并执行调用命令 |
+
+## 历史录制的离线访问
+
+先在主菜单「历史录制」中手动开始录制。录制默认关闭，不自动重连终端；传输文件等省略段会记为缺口。
+在录制列表选中一项，点击「Share history…」，选择 MCP 客户端、首末记录和可选时间范围。
+末记录 `0` 表示允许读取该录制未来提交的记录；不希望扩大共享范围时保留界面预填的当前末记录。
+只有明确勾选「Keep this sharing permission after restart」才持久保存共享；「Revoke」撤销此客户端对此录制的授权。
+
+| 工具 | 参数与行为 |
+| --- | --- |
+| `novaterm_list_captures` | 只列显式共享的录制；`limit` 默认 32、最多 64，使用 `nextCursor` 续页 |
+| `novaterm_read_history` | `captureId` 必填；原文为 `bytesBase64`，`byteCount` 是解码后的字节数，`maxBytes` 默认/最多 16384；`cursor` 延续同一已提交高水位 |
+| `novaterm_search_history` | `captureId`、`query` 必填；`mode=text` 为 UTF-8 literal（去 ANSI、CR 按字符覆写），`mode=raw_bytes` 的 query 为规范 base64；`maxMatches` 默认/最多 8 |
+
+Session 的读取权限不授权历史。关闭标签后，显式历史共享仍有效；删除客户端、轮换令牌或撤销/收窄历史共享会使旧访问或游标失效。
+捕获 ID、游标和 evidence ID 均不代替权限。时间范围按原始记录的接收时间（Unix 毫秒）筛选，不按日志内打印的时间猜测。
+
+历史搜索只扫描首次请求时已提交的前缀。每页最多扫描 2 秒或 16 MiB；`complete=false` 且存在 `nextCursor` 时需要续扫，不能解释为“没有故障”。
+同一续页的精确重试不会重复推进；改变 query/mode/页大小会拒绝旧游标。`complete` 仅描述固定前缀，仍须独立检查 `sourceCompleteness`：`unknown_tail`、`known_gap` 等不代表完整日志。
+
+文本投影最多缓存 64 KiB 原始行、4096 字符列/来源片段和 4 KiB 控制序列；超限返回 `PROJECTION_LIMIT`、`projectionGap` 的原始起止位置，`complete=false` 且无续页。
+单个命中的原始片段超过 128 时返回 `MATCH_RANGE_LIMIT`。这些情况可改用 `raw_bytes` 或缩小查询范围，程序不会静默跳过内容。
+命中携带原始 `recordId`/字节范围、SHA-256、内存 evidence ID 和 `expiresAtMs`；证据句柄默认五分钟后失效，重启不恢复句柄，也不自动持久化诊断或启用录制。
+
+全局最多 16 个搜索状态、每客户端 2 个；扫描并发最多全局 2/每客户端 1。空闲游标 60 秒、绝对 5 分钟到期；到期不会从头偷偷重扫。
+历史工具不接受本机文件路径。导入/诊断来源的证据应用 API 只消费已明确共享的不可变资源，尚未增加对应 MCP 工具。
+
+## 终端上下文的范围
 
 终端上下文不是完整日志：重复行和进度噪声可能被过滤，长输出可能截断；备用屏
 主要返回当前屏幕。必须检查 `sourceTruncated`、`outputTruncated`、`resetRequired`。

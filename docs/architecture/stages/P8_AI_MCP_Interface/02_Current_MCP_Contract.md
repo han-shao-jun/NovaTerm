@@ -3,6 +3,10 @@
 整理日期：2026-10-18。入口：[总体架构](00_Overall_Architecture.md) / [阶段划分](01_Phases_and_Acceptance.md)。
 本文件从原P8提取现行契约，并用当前ToolCodec、九工具fixture、Budget、Errors和MCP使用说明核对。只描述NovaTerm工作区实现，不宣称外部MCP规范的最新状态，也不证明所有平台已验收。
 
+2026-10-23 增量：对外 `tools/list` 现为 **12** 项，原九项对象级兼容；新增三个历史工具单独冻结在 [history-tool-catalog-2026-10-23.json](../../../../tests/mcp/fixtures/history-tool-catalog-2026-10-23.json)。
+历史工具由 `HistoryToolCodec` 解码为独立类型，`ToolCodec::publishedCatalog()` 合并目录；下面原九工具的语义不变。
+历史权限/游标/预算见本文件末尾和 [P3 实施记录](P3_Implementation_and_Verification.md)。
+
 ## 1. 责任和事实来源
 
 | 内容 | 事实来源 |
@@ -388,3 +392,23 @@ HTTP input公式对应当前实现49.1875MiB，不将原档案旧IPC握手/执�
 - 原v0.6只有run_command/script，后续完整输入/提权加入后是九工具；工具存在不证明提权或所有后端可用。
 - 历史“最终结构验收”仅是当时迁移结论；低耦合/纯应用/任务owner等剩余审计按当前P0/P1计划继续，不因归档改为已完成。
 - 本次只做文档迁移；没有重新运行功能/性能/平台测试，历史成绩在03按日期保存。
+
+## 2026-10-23：历史工具增量
+
+- `novaterm_list_captures`：只列显式共享录制，分页 `limit` 1–64，默认 32。
+- `novaterm_read_history`：`captureId` + 可选 `cursor/maxBytes`；maxBytes 1–16384。
+  records 内含 recordId/lastRecordId（十进制字符串）、byteOffset、byteCount、bytesBase64、kind/reason/timestampMs。
+- `novaterm_search_history`：`captureId/query` + `mode=text|raw_bytes`、cursor、maxMatches 1–8。
+  raw query 为规范 base64，解码后最多 4 KiB；text 为 UTF-8 literal，可含换行，投影版本 1。
+  返回原始多片段范围、evidenceId/contentHash/persistence/expiresAtMs、固定 highWaterRecordId、sourceCompleteness。
+
+历史 ID 与原有观察 capture/token 完全分开。cursor 为不可猜测、服务端精确匹配的状态句柄，绑定 Principal/credential、资源、授权版本、固定高水位、查询/投影/页大小和期限。
+历史授权不继承 Session grant；关闭标签后独立共享继续生效，令牌轮换后须重新共享。
+读取/搜索/证据创建与最终 wire 交付均重验授权；新错误码不改旧九工具映射。
+
+读取每次最多一条记录的切片，空页仍可能带续页（时间范围过滤）；gap/boundary 明确返回，缺失/损坏返回 EVIDENCE_EXPIRED，不跳过缺口。
+搜索全局状态 16/客户端 2，并发扫描 2/客户端 1；2 秒/16 MiB 每页；空闲 60 秒/绝对 5 分钟。
+原始行 64 KiB、控制序列 4 KiB，另限 4096 字符列/来源片段；单页原始范围总数 128。
+`PROJECTION_LIMIT`/`MATCH_RANGE_LIMIT` 返回 complete=false、无续页和 projectionGap 的 start/endExclusive；范围含 recordId/byteOffset，不能解释为无命中。
+精确续页重试返回同一页及稳定证据引用；query/mode/页大小改变返回 CURSOR_MISMATCH；状态到期返回 SEARCH_CURSOR_EXPIRED，不从头重扫。
+引用默认 persistence=memory，期限五分钟；源不可用或哈希不符返回 EVIDENCE_EXPIRED，权限变化返回 PERMISSION_DENIED。

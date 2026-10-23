@@ -7,6 +7,12 @@
 **Tech Stack:** C++17、Qt Core、P2 ChunkStore/Index、Qt Test、现有 MCP adapter。
 **Spec:** [总体架构](00_Overall_Architecture.md)；依赖 [P2](P2_History_Recording.md)，接口供 P4/P5/P6 使用。
 
+**2026-10-23 实施增量：** T1～T4 已有实现与本机专项；精确交付、设计初值的收紧和未覆盖范围见[实施记录](P3_Implementation_and_Verification.md)。下列复选项仍按证据逐项核对，不把一个专项通过当整阶段跨平台退出。
+
+源码布局差异：持久录制查询使用 `novaterm_history_search`（Qt Core），原有 `novaterm_history` 仍无 Qt；P2 SQL/I/O 经 `HistorySourceReader` 适配。
+协议用 `HistoryToolRequest`/`HistoryToolCodec` 和 `BackendHistoryCall` 独立承载历史领域，不向终端请求 variant 添加历史字段；`publishedCatalog()` 追加历史工具，旧 `catalog()`/九工具 fixture 保持不变。
+导入资源应用 API 接纳本机明确共享的不可变字节，当前无模型路径参数或导入 MCP 工具；诊断来源发布和本机文件选择器的产品接线由 P4/P5 消费时补验。
+
 ## Global Constraints
 
 Capture 元数据仅记录来源，不继承 Session grant。关闭标签不撤销显式持久授权；客户端移除/令牌轮换/撤权/缩范围使旧 cursor 失效。EvidenceRef 与 cursor 都不是授权凭证。导入仅经本机文件选择/明确共享资源，不接受任意本机路径。
@@ -42,38 +48,38 @@ Capture 元数据仅记录来源，不继承 Session grant。关闭标签不撤�
 ## T1：离线授权和读取
 
 **Consumes:** P2 committed range、P1 trusted principal；**Produces:** 资源 grant 和分页原文。
-- [ ] 测 closedSessionExplicitCaptureGrantWorks、sessionGrantDoesNotAuthorizeHistory、rotatedTokenInvalidatesCursor、rangeShrinkRejectsOldCursor。
+- [x] 测 closedSessionExplicitCaptureGrantWorks、sessionGrantDoesNotAuthorizeHistory、rotatedTokenInvalidatesCursor、rangeShrinkRejectsOldCursor（覆盖合并在授权/读取与双协议 HTTP 用例）。
 - [ ] 实现独立授权存储与版本推进；列举/读/搜索/分析/证据解析均调用同一验证。
-- [ ] 原文字节返回 base64 和明确 byteCount，单响应默认≤64KiB，按最终编码预算裁剪，不把任意二进制直接塞 JSON UTF-8。
-- [ ] 页面保持固定已提交高水位；缺失/清理范围明确报错或 gap，不推进 cursor 隐藏缺口。
-- [ ] UI 增加离线共享范围/撤销入口，重启仅保留用户选择的持久授权，不重新继承临时 Session 权限。
+- [x] 原文字节返回 base64 和明确 byteCount，单响应默认≤64KiB，按最终编码预算裁剪，不把任意二进制直接塞 JSON UTF-8。
+- [x] 页面保持固定已提交高水位；缺失/清理范围明确报错或 gap，不推进 cursor 隐藏缺口。
+- [x] UI 增加离线共享范围/撤销入口，重启仅保留用户选择的持久授权，不重新继承临时 Session 权限（存储序列化专项通过，其他平台重启体验未验收）。
 
 ## T2：有状态投影和有界搜索
 
 **Consumes:** immutable chunks/high-water mark；**Produces:** 带原文定位命中和可取消游标。
 - [ ] 测 literalAcrossChunk、splitUtf8AndAnsi、crProjectionMapsToRaw、matchDoesNotCrossGapOrBoot、budgetReturnsIncomplete、cancelDoesNotBlockInput。
-- [ ] 在跨 record/chunk decoder 保留 UTF-8/控制状态，CR 覆盖/ANSI 去除规则版本化；匹配区间映射回原 recordId/byteOffset。
-- [ ] raw_bytes 做精确字节匹配；text 做 UTF-8 投影 literal 匹配，首期不开放任意正则。
-- [ ] 全局扫描并发2/Principal1，单页扫描2秒或16MiB；预算先到返回 complete=false 和同高水位续扫位置。
-- [ ] query、命中数、返回文本、队列和取消检查均有上限；不一次复制几GB为 QString。
+- [x] 在跨 record/chunk decoder 保留 UTF-8/控制状态，CR 覆盖/ANSI 去除规则版本化；匹配区间映射回原 recordId/byteOffset。
+- [x] raw_bytes 做精确字节匹配；text 做 UTF-8 投影 literal 匹配，首期不开放任意正则。
+- [x] 全局扫描并发2/Principal1，单页扫描2秒或16MiB；预算先到返回 complete=false 和同高水位续扫位置。
+- [x] query、命中数、返回文本、队列和取消检查均有上限；不一次复制几GB为 QString。
 
 ## T3：证据与导入资源
 
 **Consumes:** 历史命中、在线任务结果或用户导入；**Produces:** 可解析 EvidenceRef/小摘要。
-- [ ] 测 expiredSourceDoesNotClaimVerifiable、memoryEvidenceGoneAfterRestart、diagnosticEvidenceRequiresOwner、importedPathNotAcceptedFromModel。
+- [x] 测 expiredSourceDoesNotClaimVerifiable、memoryEvidenceGoneAfterRestart、diagnosticEvidenceRequiresOwner、importedPathNotAcceptedFromModel（来源 fake/显式导入应用 API/拒绝路径参数用例）。
 - [ ] 支持 terminal_capture、diagnostic_result、imported_file 三类来源；诊断记录 Recipe版本、目标/环境代际、执行路由、完成/截断。
 - [ ] shared_terminal 结果标共享来源，不假定隔离 stdout 归属。
-- [ ] 录制关闭且无持久化授权仅存期限内存证据；显式返回 persistence=memory/expiresAt，不自动开启录制。
+- [x] 录制关闭且无持久化授权仅存期限内存证据；显式返回 persistence=memory/expiresAt，不自动开启录制。
 - [ ] 跨客户端共享和任务结果持久化另授权；Session撤权阻止在途结果交付，已明确共享离线资源按自身版本控制。
-- [ ] 导入校验大小/hash，离线分析只读资源ID；删除联动引用失效，报告 EVIDENCE_EXPIRED。
+- [x] 导入应用 API 校验大小/证据 hash、按资源ID读取；删除联动引用失效，报告 EVIDENCE_EXPIRED。离线 Analyzer 产品接线待 P5。
 
 ## T4：MCP 与工具目录集成
 
 **Consumes:** T1～T3；**Produces:** 三个历史工具和兼容证据。
 - [ ] 测 newHistoryToolsDoNotChangeLegacyCatalog、listOnlyAuthorizedCaptures、reportCannotMixUnauthorizedEvidence。
-- [ ] 经 P1 adapter 注册已实现工具，稳定 tools/list，不按活动标签动态删工具。
-- [ ] 保持 HTTP/认证/双协议/取消；后台扫描不运行 GUI 同步磁盘I/O。
-- [ ] 跑新搜索目标、MCP contracts/业务/wire；记录未覆盖平台和资源上界。
+- [x] 经 P1 adapter 注册已实现工具，稳定 tools/list，不按活动标签动态删工具。
+- [x] 保持 HTTP/认证/双协议/取消；后台扫描不运行 GUI 同步磁盘I/O。
+- [x] 跑新搜索目标、MCP contracts/业务/wire；记录未覆盖平台和资源上界。
 
 ~~~bash
 cmake --build build --config Debug --target novaterm_history_search_tests novaterm_evidence_tests

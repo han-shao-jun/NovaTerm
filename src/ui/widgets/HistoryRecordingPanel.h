@@ -1,5 +1,6 @@
 #pragma once
 #include "history/HistoryTypes.h"
+#include "history/HistorySharingPort.h"
 #include <ElaDialog.h>
 #include <functional>
 #include <utility>
@@ -15,6 +16,7 @@ class HistoryRecordingPanel final : public ElaDialog {
 public:
     explicit HistoryRecordingPanel(NovaTerm::Recording::HistoryService*, QWidget* parent = nullptr);
     void setRecordingTarget(NovaTerm::Recording::RecordingIntent, bool connected, const QString& title);
+    void setSharingPort(NovaTerm::Recording::HistorySharingPort* port);
     void setTargetResolver(std::function<NovaTerm::Recording::RecordingIntent()> resolver) { _resolveTarget = std::move(resolver); }
 private:
     HistoryCaptureModel* _model;
@@ -29,6 +31,8 @@ private:
     ElaSpinBox* _capture;
     ElaSpinBox* _days;
     ElaPushButton* _apply;
+    ElaPushButton* _share;
+    NovaTerm::Recording::HistorySharingPort* _sharing{nullptr};
     NovaTerm::Recording::RecordingIntent _target;
     bool _connected{false};
     bool _settingsEdited{false};
@@ -36,4 +40,5 @@ private:
     int selectedRow() const;
     void updateActions();
     void syncSettings();
+    void manageSharing();
 };

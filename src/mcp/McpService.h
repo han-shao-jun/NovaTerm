@@ -5,6 +5,7 @@
 #include "McpAccess.h"
 #include <QJsonArray>
 #include <memory>
+namespace NovaTerm::Recording {class HistoryService;class HistorySharingPort;}
 
 namespace NovaTerm::Mcp {
 class Service final : public QObject
@@ -29,6 +30,8 @@ public:
     bool acknowledgeTarget(const QString& fingerprint);
     bool acknowledgeTarget(const QString& fingerprint, const QString& expectedExecutionId);
     void stop();
+    void setHistoryService(Recording::HistoryService*);
+    [[nodiscard]] Recording::HistorySharingPort* historySharing();
 signals:
     void changed();
 private:

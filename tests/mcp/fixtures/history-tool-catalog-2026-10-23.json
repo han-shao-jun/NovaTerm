@@ -1,0 +1,252 @@
+[
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true
+    },
+    "description": "List only explicitly shared persistent receive captures. Live Session grants do not authorize history.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "cursor": {
+          "maxLength": 64,
+          "minLength": 1,
+          "type": "string"
+        },
+        "limit": {
+          "default": 32,
+          "maximum": 64,
+          "minimum": 1,
+          "type": "integer"
+        }
+      },
+      "required": [],
+      "type": "object"
+    },
+    "name": "novaterm_list_captures",
+    "outputSchema": {
+      "properties": {
+        "data": {
+          "properties": {
+            "captures": {
+              "type": "array"
+            },
+            "nextCursor": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "type": "object"
+        },
+        "error": {
+          "type": "object"
+        },
+        "ok": {
+          "type": "boolean"
+        },
+        "schemaVersion": {
+          "const": 1
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "ok"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true
+    },
+    "description": "Read authorized raw receive bytes as base64 at a fixed committed high-water. Gaps and unknown tails remain explicit.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "captureId": {
+          "maxLength": 36,
+          "minLength": 1,
+          "type": "string"
+        },
+        "cursor": {
+          "maxLength": 64,
+          "minLength": 1,
+          "type": "string"
+        },
+        "maxBytes": {
+          "default": 16384,
+          "maximum": 16384,
+          "minimum": 1,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "captureId"
+      ],
+      "type": "object"
+    },
+    "name": "novaterm_read_history",
+    "outputSchema": {
+      "properties": {
+        "data": {
+          "properties": {
+            "byteCount": {
+              "type": "integer"
+            },
+            "captureId": {
+              "type": "string"
+            },
+            "highWaterRecordId": {
+              "type": "string"
+            },
+            "nextCursor": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "records": {
+              "type": "array"
+            },
+            "sourceCompleteness": {
+              "type": "string"
+            },
+            "truncated": {
+              "type": "boolean"
+            }
+          },
+          "type": "object"
+        },
+        "error": {
+          "type": "object"
+        },
+        "ok": {
+          "type": "boolean"
+        },
+        "schemaVersion": {
+          "const": 1
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "ok"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true
+    },
+    "description": "Search a fixed authorized committed prefix. text is UTF-8 with ANSI stripping and CR overwrite; raw_bytes query is canonical base64. Literal matching only; incomplete pages require continuation. Evidence expires after five minutes.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "captureId": {
+          "maxLength": 36,
+          "minLength": 1,
+          "type": "string"
+        },
+        "cursor": {
+          "maxLength": 64,
+          "minLength": 1,
+          "type": "string"
+        },
+        "maxMatches": {
+          "default": 8,
+          "maximum": 8,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "mode": {
+          "default": "text",
+          "enum": [
+            "text",
+            "raw_bytes"
+          ],
+          "type": "string"
+        },
+        "query": {
+          "maxLength": 5464,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "captureId",
+        "query"
+      ],
+      "type": "object"
+    },
+    "name": "novaterm_search_history",
+    "outputSchema": {
+      "properties": {
+        "data": {
+          "properties": {
+            "captureId": {
+              "type": "string"
+            },
+            "complete": {
+              "type": "boolean"
+            },
+            "highWaterRecordId": {
+              "type": "string"
+            },
+            "matches": {
+              "type": "array"
+            },
+            "nextCursor": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "projectionGap": {
+              "type": [
+                "object",
+                "null"
+              ]
+            },
+            "projectionVersion": {
+              "type": "integer"
+            },
+            "reason": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "sourceCompleteness": {
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "error": {
+          "type": "object"
+        },
+        "ok": {
+          "type": "boolean"
+        },
+        "schemaVersion": {
+          "const": 1
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "ok"
+      ],
+      "type": "object"
+    }
+  }
+]

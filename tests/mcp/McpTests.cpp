@@ -8,6 +8,9 @@
 #include "capabilities/McpCapabilityAdapter.h"
 #include "mcp/McpProtocol.h"
 #include "mcp/protocol/ToolCodec.h"
+#include "mcp/protocol/HistoryToolCodec.h"
+#include "history/HistoryService.h"
+#include "history/HistorySharingPort.h"
 #include "mcp/CommandPolicy.h"
 #include "mcp/CommandRiskPolicy.h"
 #include "renderer/TerminalRenderer.h"
@@ -513,6 +516,7 @@ class McpTests final : public QObject
 {
     Q_OBJECT
 private slots:
+    void historyOfflineReadSearchAndRevocation();
     void commandTimeoutKeepsExecutionFacts();
     void recipeAdapterUsesExistingSessionAndInvalidatesOnInput();
     void recipeAdapterSubmitsSharedAndIsolatedRequests();
@@ -618,6 +622,44 @@ private slots:
     void commandAndScriptProductGrantsAreIndependent();
     void readGrantAloneDoesNotAllowInteractiveCommand();
 };
+
+void McpTests::historyOfflineReadSearchAndRevocation()
+{
+    using namespace NovaTerm::Recording;
+    for(const auto& protocol:{QString("2025-11-25"),QString("2026-07-28")}) {
+        Fixture f;QVERIFY(f.enable());
+        HistoryService history(f.root.path()+"/history");f.service.setHistoryService(&history);QTRY_VERIFY(history.ready());
+        RecordingResult started;bool done=false;const RecordingIntent intent{f.session.id(),1};
+        QVERIFY(history.start(intent,[&](auto result){started=result;done=true;}));QTRY_VERIFY(done);QVERIFY(started.success);
+        QByteArray raw("abc\rXbc\x1b[31m hello hello\x1b[0m\n");raw.append('\0');
+        QCOMPARE(history.submit(intent.sessionId,1,raw),SubmitResult::Accepted);history.stop(intent);
+        QTRY_VERIFY(!history.captures().empty()&&!history.captures().front().active);
+        Host rpc;QVERIFY(rpc.start(f.runtime(),f.token(),f.service.instanceId(),false,protocol));
+        const QJsonObject arguments{{"captureId",started.captureId.text()}};
+        auto listed=rpc.call("novaterm_list_captures");QVERIFY2(listed.value("ok").toBool(),qPrintable(QString::fromUtf8(QJsonDocument(listed).toJson())+rpc.transportError));QVERIFY(listed.value("data").toObject().value("captures").toArray().isEmpty());
+        QCOMPARE(rpc.call("novaterm_read_history",arguments).value("error").toObject().value("code").toString(),QString("PERMISSION_DENIED"));
+        auto* sharing=f.service.historySharing();QVERIFY(sharing);QVERIFY(sharing->share({f.client,{},started.captureId}));
+        f.session.close(CloseMode::Abort); // no live target is needed for this resource grant
+        listed=rpc.call("novaterm_list_captures");QCOMPARE(listed.value("data").toObject().value("captures").toArray().size(),1);
+        auto readArgs=arguments;readArgs.insert("maxBytes",4);
+        const auto first=rpc.call("novaterm_read_history",readArgs);QVERIFY2(first.value("ok").toBool(),qPrintable(QString::fromUtf8(QJsonDocument(first).toJson())));
+        const auto data=first.value("data").toObject();QCOMPARE(QByteArray::fromBase64(data.value("records").toArray().first().toObject().value("bytesBase64").toString().toLatin1()),raw.left(4));
+        const auto cursor=data.value("nextCursor").toString();QVERIFY(!cursor.isEmpty());
+        auto searchArgs=arguments;searchArgs.insert("query","hello");searchArgs.insert("maxMatches",1);
+        const auto found=rpc.call("novaterm_search_history",searchArgs);QVERIFY2(found.value("ok").toBool(),qPrintable(QString::fromUtf8(QJsonDocument(found).toJson())));
+        auto page=found.value("data").toObject();QCOMPARE(page.value("matches").toArray().size(),1);
+        QVERIFY(!page.value("matches").toArray().first().toObject().value("contentHash").toString().isEmpty());
+        searchArgs.insert("cursor",page.value("nextCursor"));const auto second=rpc.call("novaterm_search_history",searchArgs);
+        const auto retry=rpc.call("novaterm_search_history",searchArgs);QCOMPARE(retry,second);
+        QVERIFY(sharing->revoke(f.client,started.captureId));readArgs.insert("cursor",cursor);
+        QCOMPARE(rpc.call("novaterm_read_history",readArgs).value("error").toObject().value("code").toString(),QString("PERMISSION_DENIED"));
+        QVERIFY(sharing->share({f.client,{},started.captureId}));QVERIFY(f.service.access().rotateToken(f.client));
+        Host rotated;QVERIFY(rotated.start(f.runtime(),f.token(),f.service.instanceId(),false,protocol));
+        QCOMPARE(rotated.call("novaterm_list_captures").value("data").toObject().value("captures").toArray().size(),0);
+        QCOMPARE(rotated.call("novaterm_read_history",readArgs).value("error").toObject().value("code").toString(),QString("PERMISSION_DENIED"));
+        f.service.stop();
+    }
+}
 
 void McpTests::humanDeclineLeavesTerminalUntouched()
 {

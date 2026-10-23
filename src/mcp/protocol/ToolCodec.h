@@ -23,6 +23,8 @@ public:
 
     /** @brief 九工具目录；与重构前 `tools()` 完全相同的对象内容。 */
     [[nodiscard]] static const QJsonArray& catalog();
+    /** @brief Published catalog: legacy nine objects plus independent history tools. */
+    [[nodiscard]] static const QJsonArray& publishedCatalog();
 
     [[nodiscard]] static bool isKnownTool(const QString& name);
 

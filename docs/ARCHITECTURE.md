@@ -558,7 +558,8 @@ Session 状态建议统一为 `Created → Connecting → Running → Paused/Rec
 
 ```text
 src/
-├── history/            # C++17 codec/共享预算缓存/后台服务；无 Qt
+├── history/            # scrollback/codec 无 Qt；录制 Core/Sql、授权/读取/搜索 Core 独立目标
+├── evidence/           # mcp/P3 来源无关证据、授权/哈希/期限与明确共享资源，仅 Qt Core
 ├── core/                # 不依赖 Qt（原则 3）；CoreTypes.h 提供 isize/u8/u32/u64/ByteView
 │   ├── terminal/        # BoundedByteQueue、TerminalCore、VTAdapter、ScreenBuffer、KeyMapper
 │   ├── scrollback/      # ChunkedScrollback、ScrollbackChunk、Snapshot、LineLayout(reflow)
@@ -584,7 +585,7 @@ src/
 ├── mcp/                 # P8 Streamable HTTP、wire、授权、请求调度与固定诊断策略
 └── ui/                  # app/(MainWindow)、pages/、terminal/(TerminalView)、widgets/
 tests/
-├── core/  renderer/  session/  transport/  mcp/  filetransfer/  history/
+├── core/  renderer/  session/  transport/  mcp/  filetransfer/  history/  evidence/
 ├── history-noqt/       # 不经过根 Qt 配置的完整历史后端验收
 └── benchmarks/
     ├── history/         # 独立进程 OFF/ON 合成语料及 JSON 矩阵
@@ -1457,8 +1458,24 @@ GREEN、Release JSON、未测指标和长稳/跨平台缺口见 LZ4 实施计划
 唯一 InputPump 在文件传输分流后、Framer 前发只读原始字节信号；重投/remainder 不触发录制。
 TerminalSession 只报告连接/环境边界，不依赖 History 类型；Application 组合根接入 HistoryService。
 录制 owner 管理有界队列、后台 chunk/manifest/SQLite、异常尾部、容量、租约和清理；worker 不持 Session/UI 指针。
-UI 只发本机意图，默认关闭，不自动共享或增加 MCP 历史工具。
+P2 UI 只发本机录制意图，默认关闭，不自动共享；后续 P3 的独立历史工具与授权见下文增量。
 
 manifest 与逐记录校验共同限定已提交前缀；正常 seal 与已知 gap 分开，异常/未封口保持 unknown_tail，
 不把未知丢失数量填零。Windows 已跑专项及影响范围回归，跨平台、断电与真实终端性能门槛未关闭。
 具体契约、默认容量依据和结果见 [P2 实施与验证](architecture/stages/P8_AI_MCP_Interface/P2_Implementation_and_Verification.md)。
+
+## mcp/P3 历史读取、搜索与证据增量（2026-10-23）
+
+`novaterm_history_search` 只链接 Qt Core，通过 `HistorySourceReader` 消费 P2 后台只读提交快照。
+`HistoryAuthorizationStore` 独立维护 capture 范围/时间授权和版本；只由本机共享 UI 修改，不继承 Session grant。
+可信客户端上下文由 MCP 入口填入客户端 ID/令牌摘要，模型参数不能指定 Principal 或文件路径。
+读游标固定高水位，原文按字节切片并 base64 交付；搜索 decoder/matcher 在有界 worker 上运行，GUI 不做扫描或磁盘读取。
+
+`novaterm_evidence` 独立依赖 Qt Core，以来源授权/读取端口接入 capture、diagnostic、imported 资源。
+证据引用不授权，每次解析复核 owner、来源状态/范围、期限和 SHA-256；默认内存、五分钟期限，不自动录制或持久化诊断。
+诊断/导入的不可变字节发布 API 可独立验证，实际产品发布/文件选择接线待 P4/P5。
+
+MCP 历史请求由独立类型和适配器承载。`tools/list` 稳定追加三个工具，原九对象不改；
+授权、列表、读取、搜索、证据和交付分别由各 owner 维护，Dispatcher 不加入 History 业务分支。
+录制管理面板提供按客户端/记录/时间范围共享及撤销、显式持久授权入口；关闭 Session 不撤销独立授权，轮换令牌后须重新共享。
+精确限额、审查修复、测试和未覆盖范围见 [P3 实施记录](architecture/stages/P8_AI_MCP_Interface/P3_Implementation_and_Verification.md)。

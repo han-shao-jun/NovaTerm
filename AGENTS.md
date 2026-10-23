@@ -2064,3 +2064,17 @@ mixed 的 ON/OFF=1.151，仍未过 1.10。Release 相关五项和 GPU 自测通�
 重复生命周期线程/子进程检查通过。本轮计数有下降/波动，未重查平台根因或
 放宽断言，不据它宣称复现历史 +200 句柄泄漏。录制四项与 GPU 自测通过。
 范围和原始日志入口见 [合并记录](docs/architecture/Merge_Gitee_2026-10-22.md)。
+
+### mcp/P3 历史工具增量（2026-10-23）
+
+当前源码已追加独立历史授权、分页/搜索和证据模块；对外 tools/list 为 12 项，原九对象及 fixture 保留。
+新增五个 CTest 目标：novaterm_history_authorization_tests、novaterm_history_read_tests、
+novaterm_history_search_tests、novaterm_history_search_service_tests、novaterm_evidence_tests；均有 mcp 标签，
+前四项另有 history，证据有 evidence。当前本机 ctest -N 实核 49 项、mcp 标签 21 项；注册数不是成绩。
+相关改动优先 -L mcp；录制共享 UI 另跑 novaterm_history_recording_ui_tests。History 搜索和 Evidence 测试仅链接各自应用模块/Qt Core/Test，
+不链接 SQL/Session/Widgets；P2 存储 I/O 由 MCP 集成适配器接入。旧 novaterm_history 仍无 Qt。
+具体限额、审查修复、运行命令与本轮最终验证见
+[实施记录](docs/architecture/stages/P8_AI_MCP_Interface/P3_Implementation_and_Verification.md)。
+本轮 Windows Release 完整重建成功，全套 **48/49（416.03 秒）**，唯一失败为 ConPTY 既有两条句柄断言，
+文件复跑已核对；MCP **21/21**，录制四项 **4/4**，共享 UI QTest **9/9**。最后局部范围编码调整后重建及 HTTP/搜索专项通过，未重复无关全套。
+导入/诊断仅有明确共享不可变字节的应用 API，尚无文件选择/新增 MCP 工具或 P4/P5 产品接线；不据此声称后续阶段完成。

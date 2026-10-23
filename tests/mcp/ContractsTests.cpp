@@ -6,6 +6,7 @@
 #include "capabilities/CapabilityRegistry.h"
 #include "mcp/contracts/Identifiers.h"
 #include "mcp/protocol/ToolCodec.h"
+#include "mcp/protocol/HistoryToolCodec.h"
 #include "mcp/protocol/ProtocolProjectionSizer.h"
 #include "mcp/McpProtocol.h"
 
@@ -86,6 +87,7 @@ class ContractsTests : public QObject
 {
     Q_OBJECT
 private slots:
+    void historyCatalogMatchesFixtureAndRejectsPaths();
     void confirmationClaimsKeepWireFormatAndRejectTampering();
     void catalogMatchesCompatibilityFixture();
     void catalogExposesNineToolsInOrder();
@@ -101,6 +103,21 @@ private slots:
     void strongIdentifiersRejectLooseText();
     void projectionSizerMatchesWireEncoding();
 };
+
+void ContractsTests::historyCatalogMatchesFixtureAndRejectsPaths()
+{
+    const auto path=QStringLiteral(NOVATERM_SOURCE_DIR)+"/tests/mcp/fixtures/history-tool-catalog-2026-10-23.json";
+    QFile fixture(path);QVERIFY(fixture.open(QIODevice::ReadOnly));QCOMPARE(QJsonDocument::fromJson(fixture.readAll()).array(),HistoryToolCodec::catalog());
+    QCOMPARE(ToolCodec::publishedCatalog().size(),12);
+    for(int i=0;i<9;++i)QCOMPARE(ToolCodec::publishedCatalog()[i],ToolCodec::catalog()[i]);
+    const QJsonObject identity{{"captureId",SessionUuid}};
+    QVERIFY(!isError(HistoryToolCodec::decode("novaterm_read_history",identity)));
+    auto args=identity;args.insert("path","C:/private.txt");QVERIFY(isError(HistoryToolCodec::decode("novaterm_read_history",args)));
+    args=identity;args.insert("query","YQ==");args.insert("mode","raw_bytes");
+    const auto raw=HistoryToolCodec::decode("novaterm_search_history",args);QVERIFY(!isError(raw));QCOMPARE(std::get<HistoryToolRequest>(raw).query,QByteArray("a"));
+    args.insert("query","YQ");QVERIFY(isError(HistoryToolCodec::decode("novaterm_search_history",args)));
+    args.insert("mode","text");args.insert("query","line\nnext");QVERIFY(!isError(HistoryToolCodec::decode("novaterm_search_history",args)));
+}
 
 void ContractsTests::catalogMatchesCompatibilityFixture()
 {

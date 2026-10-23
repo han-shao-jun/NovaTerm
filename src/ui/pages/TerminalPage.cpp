@@ -411,6 +411,7 @@ void TerminalPage::showHistoryRecording()
     auto* panel = findChild<HistoryRecordingPanel*>(QString{}, Qt::FindDirectChildrenOnly);
     if (!panel) {
         panel = new HistoryRecordingPanel(recording, this);
+        if(auto* mcp=Application::instance().mcpService())panel->setSharingPort(mcp->historySharing());
         panel->setTargetResolver([this] {
             const auto* view = currentTerminal(); const auto* session = view ? view->session() : nullptr;
             if (!session || session->state() != SessionState::Running) return NovaTerm::Recording::RecordingIntent{};

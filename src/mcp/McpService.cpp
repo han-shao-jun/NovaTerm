@@ -10,6 +10,7 @@
 #include "McpProtocol.h"
 #include "protocol/ToolCodec.h"
 #include "CapabilityAdapter.h"
+#include "HistoryCapabilityAdapter.h"
 #include "application/CaptureStore.h"
 #include "ObservationService.h"
 #include "application/RequestScheduler.h"
@@ -129,6 +130,7 @@ public:
               [this](const QString& id) { disconnect(id); }
           }, owner)
     {
+        registerHistoryCapabilities(capabilityRegistry);
         clock.start();
         terminal = std::make_unique<TerminalInteraction>(&access, &sessions, &observation, capabilityDispatcher, owner);
         terminal->onChanged = [this] { emit q->changed(); };
@@ -214,6 +216,7 @@ public:
     }
     void stop()
     {
+        if (history) history->stop();
         if (terminal) terminal->revoke({}, {});
         started = listening = false;
         address.clear();
@@ -253,8 +256,16 @@ public:
             return;
         }
         if (std::get_if<BackendCancel>(&event)) {
+            if (history) history->cancel(connectionId,id);
             const auto pending = findRequest(requestKey(connectionId, id));
             if (pending) cancel(requestKey(connectionId, id), {}, false);
+            return;
+        }
+        if (const auto* call=std::get_if<BackendHistoryCall>(&event)) {
+            if (!history) {send(connectionId,id,error("HISTORY_UNAVAILABLE"));return;}
+            const auto entry=connection->capabilities;const auto client=connection->client;
+            history->call(connectionId,id,call->request,*entry,client,
+                [this,connectionId,id](QJsonObject value){if(connections.contains(connectionId))send(connectionId,id,std::move(value));});
             return;
         }
         const auto& call = std::get<BackendCall>(event);
@@ -399,6 +410,7 @@ public:
     }
     void disconnect(const QString& connection)
     {
+        if (history) history->cancel(connection);
         commands->disconnect(connection);
         const auto copy = requestKeys();
         for (const auto& key : copy) {
@@ -659,6 +671,8 @@ public:
                 const auto current = capabilityBinding(access.grantSnapshot(ClientId{principal.value()}, *entry).binding);
                 return Capabilities::AuthorizationSnapshot{current, access.version(principal.value())};
             }
+            if (const auto* capture=std::get_if<Capabilities::HistoryCaptureBinding>(&binding))
+                return history ? history->authorization(principal.value(),*capture) : std::nullopt;
             if (!std::holds_alternative<Capabilities::DirectoryBinding>(binding)) return std::nullopt;
             return Capabilities::AuthorizationSnapshot{binding, access.version(principal.value())};
         }};
@@ -679,6 +693,7 @@ public:
     RequestScheduler scheduler;
     std::map<QString, std::unique_ptr<PendingRequest>> requests;
     std::unique_ptr<CommandSessionAdapter> commands;
+    std::unique_ptr<HistoryCapabilityAdapter> history;
     quint64 requestCount{0}, rejectedCount{0}, completedCount{0}, cancelledCount{0};
     qsizetype peakRequests{0};
     qint64 maximumRequestMs{0};
@@ -740,4 +755,10 @@ bool Service::acknowledgeTarget(const QString& fingerprint)
 { return _impl->commands->acknowledgeTarget(fingerprint); }
 bool Service::acknowledgeTarget(const QString& fingerprint, const QString& executionId)
 { return !executionId.isEmpty() && _impl->commands->acknowledgeTarget(fingerprint, executionId); }
+void Service::setHistoryService(Recording::HistoryService* service)
+{
+    _impl->history=std::make_unique<HistoryCapabilityAdapter>(_impl->access,service,_impl->capabilityDispatcher,
+        QDir(_impl->stateDirectory).filePath("history-grants.json"));
+}
+Recording::HistorySharingPort* Service::historySharing(){return _impl->history.get();}
 }

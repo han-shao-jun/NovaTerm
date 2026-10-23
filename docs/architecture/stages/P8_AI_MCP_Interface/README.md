@@ -1,14 +1,14 @@
 # NovaTerm MCP、诊断与 AI Agent 文档集
 
-更新日期：2026-10-19。结构：总体架构 → 阶段划分 → 各阶段实施计划。
+更新日期：2026-10-23。结构：总体架构 → 阶段划分 → 各阶段实施计划。
 
-本目录整合原运行期内核重构设计、实施计划、MCP 诊断扩展 v1.1 草案、项目P8接口及完整实施记录，以及 Netcatty Agent 架构调研。2026-10-18 的初次整合仅整理文档；2026-10-19 已补 P1 实施状态，已发布九工具和部署方式不变。
+本目录整合原运行期内核重构设计、实施计划、MCP 诊断扩展 v1.1 草案、项目P8接口及完整实施记录，以及 Netcatty Agent 架构调研。2026-10-18 初次整合仅整理文档；2026-10-19 补 P1 实施状态；2026-10-23 追加三个历史工具，保留原九工具对象与部署方式。
 
 ## 阅读入口
 
 1. [总体架构](00_Overall_Architecture.md)：统一术语、系统分层、数据/控制流、身份授权、线程、预算和外部契约。
 2. [阶段划分与验收](01_Phases_and_Acceptance.md)：依赖、当前状态、旧 W/M 阶段映射、实施顺序和统一完成定义。
-3. [当前MCP接口契约](02_Current_MCP_Contract.md)：九工具、HTTP/双协议、字段/annotations、权限、观察/输入/脚本、错误与预算。
+3. [当前MCP接口契约](02_Current_MCP_Contract.md)：原九工具及三个历史工具、HTTP/双协议、字段/annotations、权限、观察/输入/脚本、错误与预算。
 4. [实施与验收记录](03_Implementation_and_Verification.md)：按日期/平台保存原P8的完整实施、审查和测量证据；[历史设计档案](04_Historical_Design_Archive.md)只作追溯。
 5. 按阶段阅读下列实施计划。P0～P8 是本目录内部阶段编号，与上级项目 P0～P9 不同；引用时写“mcp/Pn”。
 
@@ -17,7 +17,7 @@
 | mcp/P0 | [运行内核收敛](P0_Runtime_Consolidation.md) | 实现与结构收口完成，Linux专项通过；其他平台范围见P0验收表 |
 | mcp/P1 | [能力目录、应用入口与执行路由](P1_Capability_Runtime.md) | 运行期/类型化入口与 Session 适配已落地；[验收与范围](P1_Implementation_and_Verification.md)，产品集成按 P4/P6 |
 | mcp/P2 | [保真历史录制与存储](P2_History_Recording.md) | 已实现，默认关闭；Windows 专项通过，跨平台/断电/真实性能门槛待验收，见[实施记录](P2_Implementation_and_Verification.md) |
-| mcp/P3 | [历史搜索、证据与离线授权](P3_History_Search_and_Evidence.md) | 规划 |
+| mcp/P3 | [历史搜索、证据与离线授权](P3_History_Search_and_Evidence.md) | 历史授权/分页/搜索、证据及三个工具已实现；本机范围与剩余验收见[实施记录](P3_Implementation_and_Verification.md) |
 | mcp/P4 | [Backend 诊断](P4_Backend_Diagnostics.md) | 规划 |
 | mcp/P5 | [Embedded Linux 诊断](P5_Embedded_Diagnostics.md) | 规划，离线解析优先 |
 | mcp/P6 | [内置 Agent 与聊天 UI](P6_Agent_Runtime_and_UI.md) | 规划；基础聊天不依赖历史录制或诊断包全部完成 |
