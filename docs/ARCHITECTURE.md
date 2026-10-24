@@ -4,6 +4,8 @@
 
 MCP、诊断与内置 AI Agent 的专项总体架构和阶段实施见 [MCP 文档集](architecture/stages/P8_AI_MCP_Interface/README.md)。本页全项目原则仍适用；专项计划中的未来能力不代表当前已实现。
 
+2026-10-24 资源共享边界：Application 显式持有独立 Qt Core 共享服务，管理历史授权事务和查询/证据发布；MCP 仅适配协议与可信身份，原终端请求固定九工具。读取取消在流 owner 提交前回收，录制来源替换不撤销独立导入文件。实际构建/验证与未验收范围见 [本轮记录](architecture/stages/P8_AI_MCP_Interface/P3_Architecture_Fixes_2026-10-24.md)。
+
 
 NovaTerm 的统一架构文档集中在本文件；文档索引、配置与主题、渲染架构、路线图及阶段实施说明仍位于 [architecture/README.md](architecture/README.md)。
 
@@ -142,6 +144,8 @@ SFTP 文件列表使用紧凑行高 24 个逻辑像素，减少图标上下留�
 SFTP 与系统资源 Dock 使用 `SshPanelStack`，按 `SshTransport` 保留各自的面板。
 切换终端只更换可见页面，不断开 SFTP、不取消正在传输的批次、不重建资源监视
 通道，路径、文件列表、采样基线与图表随原会话保留；关闭会话后回收对应页面。
+SFTP 反向同步目录查询在发起时绑定来源 SSH；成功和超时即使发生在后台标签也只交给
+对应面板，不经“当前标签”过滤或重定向，避免保留面板持续 busy。
 首列附加左边距为 1（Ela 默认
 为 11），使图标与文件名向左靠近边框。通过 `ElaTreeWidget::setItemHeight()`
 和 `setItemLeftPadding()` 局部设置，保留原有主题与其他树控件的默认布局。

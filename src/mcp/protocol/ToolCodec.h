@@ -9,6 +9,7 @@
 
 #include "mcp/contracts/Errors.h"
 #include "mcp/contracts/ToolRequests.h"
+#include "ToolCall.h"
 
 #include <QJsonArray>
 #include <QJsonObject>
@@ -33,19 +34,22 @@ public:
     [[nodiscard]] static QString validate(const QString& name, const QJsonObject& arguments);
 
     /**
-     * @brief 校验并解码为强类型请求。
+     * @brief 旧九工具的终端领域解码；完整协议调用使用 decodeCall。
      *
      * 返回 `Error{InvalidArgument}` 时 `message` 与 `validate()` 的文本一致，
      * 保证外部错误报文不变。
      */
     [[nodiscard]] static Result<ToolRequest> decode(
         const QString& name, const QJsonObject& arguments);
+    /** @brief 协议组合边界：分别解码终端/历史 DTO，不扩张终端应用请求集合。 */
+    [[nodiscard]] static Result<ToolCall> decodeCall(const QString& name, const QJsonObject& arguments);
 
     /** @brief 编码 `{schemaVersion, ok:false, error}` 失败封装。 */
     [[nodiscard]] static QJsonObject encodeFailure(const Error& error);
 
     /** @brief 请求对应的工具名；用于日志、记录与迁移期路由。 */
     [[nodiscard]] static QString toolName(const ToolRequest& request);
+    [[nodiscard]] static QString toolName(const ToolCall& request);
     /** @brief 把 typed 动作编码回规范化 wire 形状；用于幂等摘要与提交。 */
     [[nodiscard]] static QJsonArray encodeActions(
         const std::vector<TerminalAction>& actions);

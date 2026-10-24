@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(NovaTerm VERSION 0.2.81 LANGUAGES CXX C)
+project(NovaTerm VERSION 0.2.82 LANGUAGES CXX C)
 
 # ═══════════════════════════════════════════════════════════════════
 #  1. 通用平台编译参数
@@ -356,6 +356,7 @@ list(FILTER SOURCES EXCLUDE REGEX "[/\\\\]src[/\\\\]capabilities[/\\\\]")
 list(FILTER SOURCES EXCLUDE REGEX "[/\\\\]EnvironmentTracker\\.(cpp|h)$")
 list(FILTER SOURCES EXCLUDE REGEX "[/\\\\]src[/\\\\]history[/\\\\]")
 list(FILTER SOURCES EXCLUDE REGEX "[/\\\\]src[/\\\\]evidence[/\\\\]")
+list(FILTER SOURCES EXCLUDE REGEX "[/\\\\]src[/\\\\]resources[/\\\\]")
 list(FILTER SOURCES EXCLUDE REGEX "[/\\\\]src[/\\\\]filetransfer[/\\\\]")
 list(FILTER SOURCES EXCLUDE REGEX "[/\\\\]src[/\\\\]session[/\\\\]transfer[/\\\\]")
 list(FILTER SOURCES EXCLUDE REGEX "[/\\\\]SessionDirectory\\.(cpp|h)$")
@@ -364,6 +365,7 @@ list(FILTER SOURCES EXCLUDE REGEX
 )
 add_subdirectory(tools/novaterm-local-diag)
 add_subdirectory(src/capabilities)
+add_subdirectory(src/resources)
 add_subdirectory(src/mcp)
 # Linux 主程序与私有运行库的安装目录。
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")

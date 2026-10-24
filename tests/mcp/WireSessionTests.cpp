@@ -46,6 +46,25 @@ class WireSessionTests final : public QObject
 {
     Q_OBJECT
 private slots:
+    void historyCallsUseTheirOwnProtocolEvent() {
+        WireSession wire; ready(wire); QSignalSpy backend(&wire, &WireSession::backendEvent);
+        wire.receiveMessage({{"jsonrpc", "2.0"}, {"id", 2}, {"method", "tools/call"},
+            {"params", QJsonObject{{"name", "novaterm_list_captures"}, {"arguments", QJsonObject{}}}}}, "history");
+        QCOMPARE(backend.size(), 1); const auto event = backend.first().at(0).value<BackendEvent>();
+        const auto* history = std::get_if<BackendHistoryCall>(&event); QVERIFY(history);
+        QVERIFY(std::holds_alternative<ListCapturesRequest>(history->request));
+        QVERIFY(!std::holds_alternative<BackendCall>(event));
+    }
+    void historyResponsesWithoutRequestStateDoNotBecomeConfirmation() {
+        WireSession wire; wire.setBackendAvailable(true); QSignalSpy backend(&wire, &WireSession::backendEvent);
+        wire.receiveMessage({{"jsonrpc", "2.0"}, {"id", 2}, {"method", "tools/call"},
+            {"params", QJsonObject{{"name", "novaterm_list_captures"}, {"arguments", QJsonObject{}},
+                {"inputResponses", QJsonObject{{"confirmed", true}}},
+                {"_meta", QJsonObject{{"io.modelcontextprotocol/protocolVersion", "2026-07-28"},
+                    {"io.modelcontextprotocol/clientCapabilities", QJsonObject{}}}}}}});
+        QCOMPARE(backend.size(), 1); const auto event = backend.first().at(0).value<BackendEvent>();
+        const auto* history = std::get_if<BackendHistoryCall>(&event); QVERIFY(history); QVERIFY(!history->confirmationSupplied);
+    }
     void elicitationResponsesResolveOnce_data()
     {
         QTest::addColumn<QJsonObject>("response");

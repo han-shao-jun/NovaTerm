@@ -26,6 +26,7 @@ if(BUILD_TESTING)
 add_subdirectory(history)
 include(mcp/History.cmake)
 add_subdirectory(evidence)
+add_subdirectory(resources)
     # 测试以 QT_QPA_PLATFORM=offscreen 运行，而 windeployqt 只部署 qwindows，
     # 这里把 offscreen 平台插件复制到 bin/platforms，避免"no Qt platform plugin"。
     if(WIN32 AND TARGET Qt${QT_VERSION_MAJOR}::QOffscreenIntegrationPlugin)

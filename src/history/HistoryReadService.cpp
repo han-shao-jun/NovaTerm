@@ -45,6 +45,7 @@ void HistoryReadService::readAsync(HistoryReadRequest request, ResourceContext c
     if (!resource) { fail("EVIDENCE_EXPIRED"); return; }
     const auto grant = impl.authorization.authorize(context, request.captureId, resource->generation);
     if (!grant) { fail("PERMISSION_DENIED"); return; }
+    if ((request.cancelled && request.cancelled->load()) || (request.admitted && !request.admitted())) { fail("CANCELLED"); return; }
     impl.expire();
     std::shared_ptr<Impl::Stream> stream;
     if (!request.cursor.isEmpty()) {
@@ -84,11 +85,13 @@ void HistoryReadService::readAsync(HistoryReadRequest request, ResourceContext c
     const QPointer<HistoryReadService> self(this);
     HistoryRange range; range.firstRecordId = position.recordId; range.lastRecordId = position.highWater;
     range.maxBytes = 256 * 1024; range.maxRecords = 64;
-    // Storage may invoke from any thread, including synchronously. Always marshal delivery.
+    // Always defer owner-thread completion, including synchronous storage adapters.
     const bool accepted = impl.port.readCommitted(request.captureId, range,
         [self, stream, position, request, callback](ReadResult result) mutable {
             if (!self) return;
             QMetaObject::invokeMethod(self, [self, stream, position, request, callback, result = std::move(result)]() mutable {
+                if (!self) return;
+                const bool admitted = !request.admitted || request.admitted();
                 if (!self) return;
                 auto& owner = *self->_impl; --owner.active; stream->busy = false;
                 HistoryReadPage page; page.highWaterRecordId = position.highWater; page.sourceCompleteness = result.integrity;
@@ -97,6 +100,7 @@ void HistoryReadService::readAsync(HistoryReadRequest request, ResourceContext c
                 if (!resourceNow) page.error = "EVIDENCE_EXPIRED";
                 else if (!grantNow || grantNow->accessVersion != position.grant.accessVersion
                          || resourceNow->generation != position.grant.resourceGeneration) page.error = "PERMISSION_DENIED";
+                else if (!admitted || (request.cancelled && request.cancelled->load())) page.error = "CANCELLED";
                 else if (owner.stale(*stream)) page.error = "CURSOR_EXPIRED";
                 else if (result.missing || resourceNow->capture.highWaterRecordId < position.highWater) page.error = "HISTORY_RANGE_MISSING";
                 else if (!result.error.isEmpty()) page.error = "SOURCE_UNAVAILABLE";

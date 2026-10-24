@@ -10,6 +10,7 @@
 #include <QObject>
 #include <memory>
 namespace NovaTerm::Recording { class HistoryService; }
+namespace NovaTerm::Resources { class ResourceSharingService; }
 
 class MainWindow;
 namespace NovaTerm { class HistoryCompressionService; }
@@ -44,6 +45,7 @@ public:
     MainWindow& mainWindow() { return *_mainWindow; }
     [[nodiscard]] NovaTerm::Mcp::Service* mcpService() const { return _mcpService.get(); }
     [[nodiscard]] NovaTerm::Recording::HistoryService* historyRecording() const { return _historyRecording.get(); }
+    [[nodiscard]] std::shared_ptr<NovaTerm::Resources::ResourceSharingService> resourceSharing() const { return _resourceSharing; }
 
     /**
      * @brief 在 QApplication 仍存活时主动销毁 MainWindow。
@@ -63,6 +65,7 @@ private:
     Application() = default;
     std::shared_ptr<NovaTerm::HistoryCompressionService> _historyRuntime;
     std::unique_ptr<NovaTerm::Recording::HistoryService> _historyRecording;
+    std::shared_ptr<NovaTerm::Resources::ResourceSharingService> _resourceSharing;
     std::unique_ptr<MainWindow> _mainWindow;
     std::unique_ptr<NovaTerm::Mcp::Service> _mcpService;
 };

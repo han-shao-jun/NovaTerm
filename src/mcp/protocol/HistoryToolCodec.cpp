@@ -1,6 +1,7 @@
 #include "HistoryToolCodec.h"
 #include <QUuid>
 #include <cmath>
+#include <type_traits>
 namespace NovaTerm::Mcp {
 namespace {
 QJsonObject text(int limit, bool nonempty = false) {
@@ -97,15 +98,23 @@ QString HistoryToolCodec::validate(const QString& name, const QJsonObject& args)
     }
     return {};
 }
-Result<ToolRequest> HistoryToolCodec::decode(const QString& name, const QJsonObject& args) {
+QString HistoryToolCodec::toolName(const HistoryToolRequest& request) {
+    return std::visit([](const auto& value) -> QString {
+        using T = std::decay_t<decltype(value)>;
+        if constexpr (std::is_same_v<T, ListCapturesRequest>) return "novaterm_list_captures";
+        else if constexpr (std::is_same_v<T, ReadHistoryRequest>) return "novaterm_read_history";
+        else return "novaterm_search_history";
+    }, request);
+}
+Result<HistoryToolRequest> HistoryToolCodec::decode(const QString& name, const QJsonObject& args) {
     const auto invalid = validate(name, args);
     if (!invalid.isEmpty()) return Error{ErrorCode::InvalidArgument, invalid};
-    if (name == "novaterm_list_captures") return ToolRequest{ListCapturesRequest{args.value("limit").toInt(50), args.value("cursor").toString()}};
-    if (name == "novaterm_read_history") return ToolRequest{ReadHistoryRequest{HistoryResourceId{args.value("captureId").toString()}, args.value("cursor").toString(), args.value("maxBytes").toInt(65536)}};
+    if (name == "novaterm_list_captures") return HistoryToolRequest{ListCapturesRequest{args.value("limit").toInt(50), args.value("cursor").toString()}};
+    if (name == "novaterm_read_history") return HistoryToolRequest{ReadHistoryRequest{HistoryResourceId{args.value("captureId").toString()}, args.value("cursor").toString(), args.value("maxBytes").toInt(65536)}};
     SearchHistoryRequest value;
     value.capture = HistoryResourceId{args.value("captureId").toString()}; value.rawBytes = args.value("mode") == "raw_bytes";
     value.query = value.rawBytes ? QByteArray::fromBase64(args.value("query").toString().toLatin1()) : args.value("query").toString().toUtf8();
     value.cursor = args.value("cursor").toString(); value.maxMatches = args.value("maxMatches").toInt(128);
-    return ToolRequest{std::move(value)};
+    return HistoryToolRequest{std::move(value)};
 }
 }

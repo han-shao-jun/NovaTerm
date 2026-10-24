@@ -65,7 +65,7 @@ public:
         QString route;
         QJsonValue rpcId;
         QString wireId, tool;
-        ToolRequest typed;
+        ToolCall typed;
         QByteArray confirmationDigest;
         qint64 deadline{0};
         QString requestState;
@@ -263,7 +263,7 @@ public:
             return;
         }
         const auto arguments = params.value("arguments").toObject();
-        auto decoded = ToolCodec::decode(name, arguments);
+        auto decoded = ToolCodec::decodeCall(name, arguments);
         if (const auto* error = errorIfAny(decoded)) {
             output(rpcResult(id, toolResult(ToolCodec::encodeFailure(*error))));
             return;
@@ -304,8 +304,9 @@ public:
         call.rpcId = id;
         call.wireId = _prefix + QString::number(++_nextId);
         call.tool = name;
-        call.typed = std::get<ToolRequest>(std::move(decoded));
-        if (std::holds_alternative<RunScriptRequest>(call.typed)) {
+        call.typed = std::get<ToolCall>(std::move(decoded));
+        const auto* terminalRequest = std::get_if<ToolRequest>(&call.typed);
+        if (terminalRequest && std::holds_alternative<RunScriptRequest>(*terminalRequest)) {
             call.confirmationDigest = QCryptographicHash::hash(
                 QJsonDocument(arguments).toJson(QJsonDocument::Compact), QCryptographicHash::Sha256);
         }
@@ -334,7 +335,12 @@ public:
                 continue;
             const auto call = _calls.value(id);
             _calls[id].sent = true;
-            emit q->backendEvent(BackendCall{call.wireId, call.typed, call.confirmationDigest,
+            if (const auto* history = std::get_if<HistoryToolRequest>(&call.typed)) {
+                emit q->backendEvent(BackendHistoryCall{call.wireId, *history,
+                    !call.requestState.isEmpty()});
+                continue;
+            }
+            emit q->backendEvent(BackendCall{call.wireId, std::get<ToolRequest>(call.typed), call.confirmationDigest,
                 call.mrtr, call.formElicitation,
                 call.mrtr && !call.requestState.isEmpty() ? call.requestState : QString(),
                 call.mrtr && !call.requestState.isEmpty()

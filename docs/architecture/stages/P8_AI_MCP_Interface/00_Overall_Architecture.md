@@ -101,6 +101,10 @@ flowchart TB
 
 Evidence作为独立应用职责：History、诊断、导入分别提供来源适配器，组合根向Evidence注册；Evidence核心只见原文读取/授权契约，不include它们的存储或任务实现，来源模块也不依赖Evidence内部索引。这样避免History→Evidence→诊断→History循环。
 
+2026-10-24：P3 的显式共享/授权事务和查询证据发布由独立 Qt Core `ResourceSharingService` 应用服务组合；`HistoryCapabilities` 提供领域类型化入口。Application 显式持有共享实例，MCP 只映射身份和协议，不以 MCP enabled 控制应用资源生命周期。替换录制来源不清空 imported_file；私有文件/身份实现通过窄端口注入，详见 [结构与验证](P3_Architecture_Fixes_2026-10-24.md)。
+
+旧终端 ToolRequest 固定九工具；History wire DTO 仅在 protocol envelope/事件中组合，不传入 terminal application/tasks 或 LegacyTerminalMapping。新增领域允许修改协议组合注册，不得扩大终端应用的业务联合类型或 Dispatcher 业务分支。
+
 新增模型后端通过Driver扩展，新增诊断通过Provider/Analyzer扩展，新增存储通过读取/写入边界扩展；这些常规扩展不要求修改Dispatcher业务分支、已有UI分支或其他领域模型。只有公共语义变化才演进契约，并由独立兼容测试证明。
 
 ### 2.4 结构验收
@@ -128,6 +132,7 @@ Evidence作为独立应用职责：History、诊断、导入分别提供来源�
 | CredentialBroker/现有凭据边界 | 私有秘密引用和有界 worker；不向模型/Result 返回 secret |
 | Session evidence / Coordinator / Arbiter | 唯一提示符与输入证据、人机仲裁、提交和完成事实 |
 | History | 保真录制、已提交记录、容量/恢复/回收与有界只读搜索；不管理诊断任务 |
+| ResourceSharingService | 应用级显式资源授权/持久化事务与查询证据发布；只见身份事实、grant 文件及 History 读取端口，不依赖 MCP/HTTP/Session |
 | Evidence / 导入资源 | 来源无关的期限内存证据、独立资源授权与解析；通过来源端口读取原文，生产诊断适配及持久化另验 |
 | AgentManager / Runtime（规划） | 应用级聊天与回合、Driver、事件、取消和上下文 |
 | UI model / controller | 只读快照和本机意图；不持可变 AccessStore，不判定后端能力 |

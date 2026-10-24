@@ -30,18 +30,34 @@ void HistoryProjectionDecoder::feed(unsigned char byte, quint64 recordId, qsizet
     if (++_lineBytes > 64 * 1024) { _limited = true; return; }
     if (_escape != Escape::None) {
         if (++_controlBytes > 4096) { _limited = true; return; }
+        if (byte == 0x18 || byte == 0x1a) { _escape = Escape::None; return; }
         switch (_escape) {
         case Escape::Esc:
             if (byte == '[') _escape = Escape::Csi;
             else if (byte == ']') _escape = Escape::Osc;
+            else if (byte == 'P' || byte == 'X' || byte == '^' || byte == '_') _escape = Escape::String;
+            else if (byte >= 0x20 && byte <= 0x2f) _escape = Escape::Intermediate;
+            else if (byte == 0x1b) _controlBytes = 1;
             else _escape = Escape::None;
             break;
-        case Escape::Csi: if (byte >= 0x40 && byte <= 0x7e) _escape = Escape::None; break;
+        case Escape::Intermediate:
+            if (byte == 0x1b) { _escape = Escape::Esc; _controlBytes = 1; }
+            else if (byte >= 0x30 && byte <= 0x7e) _escape = Escape::None;
+            break;
+        case Escape::Csi:
+            if (byte == 0x1b) { _escape = Escape::Esc; _controlBytes = 1; }
+            else if (byte >= 0x40 && byte <= 0x7e) _escape = Escape::None;
+            break;
         case Escape::Osc:
             if (byte == 7) _escape = Escape::None;
             else if (byte == 0x1b) _escape = Escape::OscEsc;
             break;
         case Escape::OscEsc: _escape = byte == '\\' ? Escape::None : Escape::Osc; break;
+        case Escape::String: if (byte == 0x1b) _escape = Escape::StringEsc; break;
+        case Escape::StringEsc:
+            if (byte == '\\') _escape = Escape::None;
+            else if (byte != 0x1b) _escape = Escape::String;
+            break;
         case Escape::None: break;
         }
         return;

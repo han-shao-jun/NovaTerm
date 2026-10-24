@@ -11,6 +11,7 @@
 #include "ui/terminal/TerminalView.h"
 #include "session/SessionTypes.h"
 #include <QHash>
+#include <QPointer>
 #include <QWidget>
 #include <functional>
 
@@ -83,15 +84,16 @@ signals:
     /** 当前已连接 SSH 传输，专供 SFTP 面板建立辅助文件通道。 */
     void currentSftpContextChanged(const QString& label,
                                    SshTransport* transport);
-    /** 当前 SSH Shell 工作目录查询完成，供 SFTP 面板反向同步。 */
-    void currentSshTerminalPathResolved(const QString& path);
-    void currentSshTerminalPathLookupFailed();
+    /** 工作目录查询终态绑定请求时的 SSH 传输，不取决于当前标签。 */
+    void sshTerminalPathResolved(SshTransport* source, const QString& path);
+    void sshTerminalPathLookupFailed(SshTransport* source);
     /** 与历史条目“编辑”一致：请求用当前参数打开会话编辑对话框。 */
     void editSessionRequested(TerminalView* terminalView,
                               const RuntimeConfig& runtime,
                               const QByteArray& secret);
 
 private:
+    QHash<TerminalView*, QPointer<SshTransport>> _workingDirectoryRequests;
     struct SessionEditSnapshot
     {
         RuntimeConfig runtime;

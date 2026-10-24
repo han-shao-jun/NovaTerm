@@ -64,6 +64,14 @@ public:
     }
 };
 
+class TerminalDirectoryResults final : public QObject
+{
+    Q_OBJECT
+signals:
+    void resolved(SshTransport* source, const QString& path);
+    void failed(SshTransport* source);
+};
+
 class SftpPanelTests final : public QObject
 {
     Q_OBJECT
@@ -87,6 +95,51 @@ private:
         QVERIFY(QMetaObject::invokeMethod(timer, "timeout", Qt::DirectConnection));
     }
 private slots:
+    void backgroundDirectoryQueryFinishesOnItsOriginPanel_data()
+    {
+        QTest::addColumn<bool>("success");
+        QTest::newRow("success") << true;
+        QTest::newRow("timeout") << false;
+    }
+    void backgroundDirectoryQueryFinishesOnItsOriginPanel()
+    {
+        QFETCH(bool, success);
+        SshTransport a(SshConfig{}), b(SshConfig{});
+        SshTransportTestAccess::connected(a); SshTransportTestAccess::connected(b);
+        SshPanelStack<SftpPanel> stack; TerminalDirectoryResults results;
+        const auto prepare = [&](SshTransport& transport, const QString& label, const QString& path) {
+            stack.setSessionContext(label, &transport); auto* panel = stack.currentPanel();
+            auto* backend = panel->findChild<SftpSession*>();
+            SftpSessionSafetyTestAccess::connected(*backend, path); emit backend->directoryListed(path, {});
+            return panel;
+        };
+        auto* panelA = prepare(a, "A", "/a");
+        QVERIFY(connect(&results, SIGNAL(resolved(SshTransport*,QString)), panelA,
+                        SLOT(synchronizePathFromTerminal(SshTransport*,QString))));
+        QVERIFY(connect(&results, SIGNAL(failed(SshTransport*)), panelA, SLOT(terminalPathLookupFailed(SshTransport*))));
+        const auto begin = [](SftpPanel* panel) {
+            for (auto* button : panel->findChildren<ElaIconButton*>())
+                if (button->accessibleName() == "Synchronize SFTP path") { button->click(); return true; }
+            return false;
+        };
+        QVERIFY(begin(panelA)); QVERIFY(!panelA->findChild<ElaLineEdit*>()->isEnabled());
+        auto* panelB = prepare(b, "B", "/b");
+        QVERIFY(connect(&results, SIGNAL(resolved(SshTransport*,QString)), panelB,
+                        SLOT(synchronizePathFromTerminal(SshTransport*,QString))));
+        QVERIFY(connect(&results, SIGNAL(failed(SshTransport*)), panelB, SLOT(terminalPathLookupFailed(SshTransport*))));
+        QVERIFY(begin(panelB)); QVERIFY(!panelB->findChild<ElaLineEdit*>()->isEnabled());
+        emit results.failed(nullptr); QVERIFY(!panelA->findChild<ElaLineEdit*>()->isEnabled());
+        if (success) {
+            emit results.resolved(&a, "/from-a");
+            emit panelA->findChild<SftpSession*>()->directoryListed("/from-a", {});
+        } else emit results.failed(&a);
+        QVERIFY(panelA->findChild<ElaLineEdit*>()->isEnabled());
+        QVERIFY(!panelB->findChild<ElaLineEdit*>()->isEnabled());
+        QCOMPARE(panelA->findChild<ElaLineEdit*>()->text(), success ? QString("/from-a") : QString("/a"));
+        QCOMPARE(panelB->findChild<ElaLineEdit*>()->text(), QString("/b"));
+        stack.setSessionContext("A", &a); QVERIFY(panelA->findChild<ElaLineEdit*>()->isEnabled());
+        emit results.failed(&b); QVERIFY(panelB->findChild<ElaLineEdit*>()->isEnabled());
+    }
     void detailScheduleRetainsOriginalDeferral()
     {
         NovaTerm::LinuxResource::PrefetchSchedule schedule;

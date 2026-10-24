@@ -6,6 +6,10 @@ using namespace NovaTerm::Mcp;
 class HistoryContractsTests final : public QObject {
     Q_OBJECT
 private slots:
+    void terminalRequestSetStaysFrozen() {
+        static_assert(std::variant_size_v<ToolRequest> == 9, "New domains must not expand terminal application requests");
+        QCOMPARE(std::variant_size_v<ToolRequest>, size_t(9));
+    }
     void newCatalogMatchesFrozenFixture() {
         QFile fixture(QStringLiteral(NOVATERM_SOURCE_DIR "/tests/mcp/fixtures/history-tool-catalog-2026-10-23.json"));
         QVERIFY(fixture.open(QIODevice::ReadOnly));
@@ -30,11 +34,11 @@ private slots:
             {"novaterm_search_history", {{"captureId", capture}, {"query", "error"}}}};
         for (const auto& item : cases) {
             QVERIFY(ToolCodec::isKnownTool(item.first));
-            const auto decoded = ToolCodec::decode(item.first, item.second);
+            const auto decoded = ToolCodec::decodeCall(item.first, item.second);
             QVERIFY2(!isError(decoded), qPrintable(item.first));
-            const auto& request = std::get<ToolRequest>(decoded);
+            const auto& request = std::get<ToolCall>(decoded);
             QCOMPARE(ToolCodec::toolName(request), item.first);
-            QVERIFY(!sessionReference(request));
+            QVERIFY(std::holds_alternative<HistoryToolRequest>(request));
         }
     }
     void historyRejectsPathsMalformedIdsAndInvalidBinaryQuery() {
@@ -46,8 +50,8 @@ private slots:
             {"novaterm_search_history", {{"captureId", capture}, {"query", "***"}, {"mode", "raw_bytes"}}},
             {"novaterm_search_history", {{"captureId", capture}, {"query", ""}}},
             {"novaterm_search_history", {{"captureId", capture}, {"query", "error"}, {"mode", "regex"}}}};
-        for (const auto& item : cases) QVERIFY(isError(ToolCodec::decode(item.first, item.second)));
-        QVERIFY(!isError(ToolCodec::decode("novaterm_search_history", {{"captureId", capture}, {"query", "AP8="}, {"mode", "raw_bytes"}})));
+        for (const auto& item : cases) QVERIFY(isError(ToolCodec::decodeCall(item.first, item.second)));
+        QVERIFY(!isError(ToolCodec::decodeCall("novaterm_search_history", {{"captureId", capture}, {"query", "AP8="}, {"mode", "raw_bytes"}})));
     }
 };
 QTEST_GUILESS_MAIN(HistoryContractsTests)

@@ -6,6 +6,7 @@
 #include <QJsonArray>
 #include <memory>
 namespace NovaTerm::Recording { class HistoryService; }
+namespace NovaTerm::Resources { class ResourceSharingService; }
 
 namespace NovaTerm::Mcp {
 class HistoryCapabilityAdapter;
@@ -14,11 +15,13 @@ class Service final : public QObject
     Q_OBJECT
 public:
     explicit Service(QString stateDirectory = {}, QString instanceDirectory = {},
-                     std::unique_ptr<CredentialStore> credentials = {}, QObject* parent = nullptr, quint16 port = 0);
+                     std::unique_ptr<CredentialStore> credentials = {}, QObject* parent = nullptr, quint16 port = 0,
+                     std::shared_ptr<Resources::ResourceSharingService> resources = {});
     ~Service() override;
     [[nodiscard]] AccessStore& access();
     [[nodiscard]] SessionDirectory& directory();
     [[nodiscard]] HistoryCapabilityAdapter& history();
+    [[nodiscard]] std::shared_ptr<Resources::ResourceSharingService> resources() const;
     void setHistorySource(Recording::HistoryService*);
     [[nodiscard]] QString instanceId() const;
     [[nodiscard]] QString endpoint() const;

@@ -352,6 +352,13 @@ shouldSample = _presentationActive
 - 面板与窗口本身无自动化回归；目前只有系统信息对话框的滚动范围有
   `novaterm_ui_dialog_layout_tests` 覆盖，卡片内容、门控与差分逻辑仍依赖人工实跑。
 
+## 2026-10-23 共享面板接线修复
+
+SFTP 与资源面板的按 transport 保留策略不变。SFTP 目录查询结果改为携带发起时的 SSH 来源，
+后台标签成功/超时也可结束对应面板 busy，不影响其他面板查询；资源采样通道与调度未改。
+回归覆盖真实 SftpPanel 状态和替身结果源，真实 SSH/TerminalPage 映射端到端仍待人工验收。
+详见 [本轮修复记录](P8_AI_MCP_Interface/P3_Review_Fixes_2026-10-23.md)。
+
 ## 相关文档
 
 - P6「SSH 远端资源监控（2026-09-06 起）」：常驻通道、帧协议、超时退避、

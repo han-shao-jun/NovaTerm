@@ -21,6 +21,8 @@ struct ResourceGrant {
 };
 struct HistoryResource { CaptureDescriptor capture; quint64 generation{1}; };
 struct HistoryReadPort {
+    // Owner-thread boundary. Storage adapters deliver completions on the same
+    // application thread; false means no operation was queued.
     std::function<std::optional<HistoryResource>(HistoryCaptureId)> describe;
     std::function<bool(HistoryCaptureId, HistoryRange, std::function<void(ReadResult)>)> readCommitted;
 };
@@ -34,6 +36,9 @@ struct HistoryReadRequest {
     QString cursor;
     qsizetype maxResponseBytes{64 * 1024};
     qsizetype maxPayloadBytes{64 * 1024};
+    std::shared_ptr<std::atomic<bool>> cancelled;
+    // Owner-thread admission predicate; never evaluated by a CPU/storage worker.
+    std::function<bool()> admitted;
 };
 struct HistoryReadFragment {
     HistoryRecord record;
@@ -59,6 +64,7 @@ struct HistorySearchRequest {
     qsizetype scanBytes{16 * 1024 * 1024};
     int scanMilliseconds{2000};
     std::shared_ptr<std::atomic<bool>> cancelled;
+    std::function<bool()> admitted;
 };
 struct HistorySearchHit { std::vector<HistoryRawRange> ranges; };
 struct HistorySearchPage {

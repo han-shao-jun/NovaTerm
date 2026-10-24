@@ -518,6 +518,9 @@ private slots:
     void historyOfflineAccessRequiresExplicitGrant();
     void historyOnlyExplicitPersistentGrantsSurviveAdapterRestart();
     void expiredCapturesDoNotExhaustHistoryGrantCapacity();
+    void revokedPendingImportsCannotPublishButOtherClientsCan();
+    void localImportsDoNotRequireRecordingSource();
+    void historyAdapterBindsTheInjectedSourceGeneration();
     void commandTimeoutKeepsExecutionFacts();
     void recipeAdapterUsesExistingSessionAndInvalidatesOnInput();
     void recipeAdapterSubmitsSharedAndIsolatedRequests();
@@ -624,6 +627,55 @@ private slots:
     void readGrantAloneDoesNotAllowInteractiveCommand();
 };
 
+void McpTests::historyAdapterBindsTheInjectedSourceGeneration()
+{
+    Fixture f; const NovaTerm::Recording::HistoryCaptureId capture{QUuid::createUuid()};
+    auto resources = std::make_shared<NovaTerm::Resources::ResourceSharingService>(
+        [principal = f.client](const QString& id) -> quint64 { return id == principal ? 7 : 0; },
+        NovaTerm::Resources::GrantPersistence{{}, [](const auto&) { return true; }});
+    resources->setHistorySource({[capture](auto id) -> std::optional<NovaTerm::Recording::HistoryResource> {
+        if (id != capture) return {}; NovaTerm::Recording::HistoryResource resource;
+        resource.capture.id = capture; resource.generation = 3; return resource;
+    }, {}});
+    QVERIFY(resources->share(f.client, capture, 1, 0, false).isEmpty());
+    HistoryCapabilityAdapter adapter(f.service.access(), resources);
+    const auto binding = adapter.binding(HistoryToolRequest{ReadHistoryRequest{HistoryResourceId{capture.text()}, {}, 1}});
+    QCOMPARE(std::get<NovaTerm::Capabilities::HistoryCaptureBinding>(binding).generation, quint64(3));
+    QVERIFY(f.enable()); QVERIFY(adapter.snapshot(f.client, binding));
+}
+
+void McpTests::localImportsDoNotRequireRecordingSource()
+{
+    Fixture f; QFile file(f.root.path() + "/offline.log"); QVERIFY(file.open(QIODevice::WriteOnly));
+    QCOMPARE(file.write("offline contents"), qint64(16)); file.close();
+    std::optional<HistoryCapabilityAdapter::ImportResult> imported;
+    f.service.history().importFile(f.client, file.fileName(), [&](auto value) { imported = std::move(value); });
+    QTRY_VERIFY(imported.has_value()); QVERIFY2(imported->error.isEmpty(), qPrintable(imported->error));
+    QVERIFY(!imported->resourceId.isEmpty());
+}
+
+void McpTests::revokedPendingImportsCannotPublishButOtherClientsCan()
+{
+    Fixture f; NovaTerm::Recording::HistoryService recording(f.root.path() + "/import-revocation");
+    QTRY_VERIFY(recording.ready()); f.service.setHistorySource(&recording);
+    QFile file(f.root.path() + "/explicit.log"); QVERIFY(file.open(QIODevice::WriteOnly));
+    QCOMPARE(file.write("explicit shared contents"), qint64(24)); file.close();
+    const auto other = f.service.access().addClient("other-import-owner"); QVERIFY(!other.isEmpty());
+    std::optional<HistoryCapabilityAdapter::ImportResult> revoked, unaffected, reshared;
+    auto& adapter = f.service.history();
+    adapter.importFile(f.client, file.fileName(), [&](auto result) { revoked = std::move(result); });
+    adapter.importFile(other, file.fileName(), [&](auto result) { unaffected = std::move(result); });
+    // No event loop turn: even a completed worker cannot have delivered its result yet.
+    adapter.clearImportedFiles(f.client);
+    QTRY_VERIFY(revoked.has_value() && unaffected.has_value());
+    QVERIFY(!revoked->error.isEmpty()); QVERIFY(revoked->resourceId.isEmpty());
+    QVERIFY2(unaffected->error.isEmpty(), qPrintable(unaffected->error)); QVERIFY(!unaffected->resourceId.isEmpty());
+    adapter.importFile(f.client, file.fileName(), [&](auto result) { reshared = std::move(result); });
+    QTRY_VERIFY(reshared.has_value()); QVERIFY2(reshared->error.isEmpty(), qPrintable(reshared->error));
+    QVERIFY(!reshared->resourceId.isEmpty());
+    f.service.setHistorySource(nullptr);
+}
+
 void McpTests::historyOnlyExplicitPersistentGrantsSurviveAdapterRestart()
 {
     using namespace NovaTerm::Recording;
@@ -644,7 +696,7 @@ void McpTests::historyOnlyExplicitPersistentGrantsSurviveAdapterRestart()
     HistoryCapabilityAdapter restored(f.service.access(), state); restored.setSource(&recording);
     QVERIFY(restored.sharingStatus(f.client, capture).contains("persistent"));
     QCOMPARE(restored.sharingStatus(other, capture), QString("Not shared"));
-    auto identity = restored.binding(ToolRequest{ReadHistoryRequest{HistoryResourceId{capture.text()}, {}, 1}});
+    auto identity = restored.binding(HistoryToolRequest{ReadHistoryRequest{HistoryResourceId{capture.text()}, {}, 1}});
     QVERIFY(restored.accessVersion(f.client, identity) != 0);
     QVERIFY(f.service.access().rotateToken(f.client));
     QCOMPARE(restored.accessVersion(f.client, identity), quint64(0));
@@ -717,6 +769,8 @@ void McpTests::historyOfflineAccessRequiresExplicitGrant()
     pages.insert("cursor", firstCursor);
     const auto secondPage = host.call("novaterm_search_history", pages); QVERIFY(secondPage.value("ok").toBool());
     QCOMPARE(host.call("novaterm_search_history", pages), secondPage); // Exact retry keeps the same evidence reference.
+    auto changedLimits = pages; changedLimits.insert("maxMatches", 2);
+    QCOMPARE(host.call("novaterm_search_history", changedLimits).value("error").toObject().value("code").toString(), QString("CURSOR_MISMATCH"));
     pages.insert("cursor", secondPage.value("data").toObject().value("nextCursor"));
     QVERIFY(host.call("novaterm_search_history", pages).value("ok").toBool());
     pages.insert("cursor", firstCursor);

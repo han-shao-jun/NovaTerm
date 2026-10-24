@@ -229,21 +229,11 @@ struct RequestElevationRequest
     std::optional<ProjectionMode> projection;
 };
 
-struct ListCapturesRequest { int limit{50}; QString cursor; };
-struct ReadHistoryRequest { HistoryResourceId capture; QString cursor; int maxBytes{65536}; };
-struct SearchHistoryRequest {
-    HistoryResourceId capture;
-    QByteArray query;
-    bool rawBytes{false};
-    QString cursor;
-    int maxMatches{128};
-};
-
-/** @brief 工具的判别联合；历史资源 ID 与短期观察 capture 分开解码。 */
+/** @brief 原九工具的终端领域兼容联合；新领域不得加入。 */
 using ToolRequest = std::variant<ListSessionsRequest, ReadContextRequest,
     SearchContextRequest, ListCommandsRequest, ExecuteCommandRequest,
     RunCommandRequest, RunScriptRequest, InteractTerminalRequest,
-    RequestElevationRequest, ListCapturesRequest, ReadHistoryRequest, SearchHistoryRequest>;
+    RequestElevationRequest>;
 
 /** @brief 从 typed 请求提取会话身份；list_sessions 返回空。 */
 [[nodiscard]] inline std::optional<SessionReference> sessionReference(
@@ -251,10 +241,7 @@ using ToolRequest = std::variant<ListSessionsRequest, ReadContextRequest,
 {
     return std::visit([](const auto& value) -> std::optional<SessionReference> {
         using Type = std::decay_t<decltype(value)>;
-        if constexpr (std::is_same_v<Type, ListSessionsRequest>
-            || std::is_same_v<Type, ListCapturesRequest>
-            || std::is_same_v<Type, ReadHistoryRequest>
-            || std::is_same_v<Type, SearchHistoryRequest>)
+        if constexpr (std::is_same_v<Type, ListSessionsRequest>)
             return std::nullopt;
         else
             return SessionReference{value.session, value.epoch};

@@ -1232,6 +1232,10 @@ void MainWindow::initWindow()
                 _terminalPage, &TerminalPage::synchronizeCurrentSshTerminalPath);
         connect(panel, &SftpPanel::synchronizeSftpPathFromTerminalRequested,
                 _terminalPage, &TerminalPage::requestCurrentSshTerminalPath);
+        connect(_terminalPage, &TerminalPage::sshTerminalPathResolved,
+                panel, &SftpPanel::synchronizePathFromTerminal);
+        connect(_terminalPage, &TerminalPage::sshTerminalPathLookupFailed,
+                panel, &SftpPanel::terminalPathLookupFailed);
     });
     _sftpDock->setWidget(_sftpPanels);
     static_cast<DraggableDockWidget*>(_sftpDock)->setFitTitleWidth(true);
@@ -1318,16 +1322,6 @@ void MainWindow::initWindow()
         _sftpPanels->setSessionContext(label, transport);
         _systemMonitorPanels->setSessionContext(label, transport);
     });
-    connect(_terminalPage, &TerminalPage::currentSshTerminalPathResolved,
-            this, [this](const QString& path) {
-        _sftpPanels->currentPanel()->synchronizePathFromTerminal(path);
-    });
-    connect(_terminalPage,
-            &TerminalPage::currentSshTerminalPathLookupFailed,
-            this, [this] {
-        _sftpPanels->currentPanel()->terminalPathLookupFailed();
-    });
-
     // 先应用快捷面板内部状态。setExpandedWidth()/setCollapsed() 会触发
     // resizeDocks，因此必须放在 restoreState() 之前，不能覆盖恢复后的尺寸。
     _sessionPanel->setExpandedWidth(ConfigManager::get<int>(

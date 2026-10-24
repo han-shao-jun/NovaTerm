@@ -10,6 +10,8 @@
 #include "McpProtocol.h"
 #include "protocol/ToolCodec.h"
 #include "HistoryCapabilityAdapter.h"
+#include "ResourceComposition.h"
+#include "protocol/HistoryToolCodec.h"
 #include "CapabilityAdapter.h"
 #include "application/CaptureStore.h"
 #include "ObservationService.h"
@@ -77,6 +79,7 @@ public:
     struct PendingRequest {
         QString connection, id, tool;
         ToolRequest request;
+        std::optional<HistoryToolRequest> historyRequest;
         QByteArray confirmationDigest;
         QString requestState;
         std::optional<ConfirmationAnswer> answer;
@@ -103,11 +106,13 @@ public:
         return keys;
     }
 
-    Impl(Service* owner, QString stateDir, QString runtimeDir, std::unique_ptr<CredentialStore> credentials, quint16 port)
+    Impl(Service* owner, QString stateDir, QString runtimeDir, std::unique_ptr<CredentialStore> credentials, quint16 port,
+         std::shared_ptr<Resources::ResourceSharingService> resources)
         : q(owner), stateDirectory(stateDir.isEmpty() ? dataDirectory() : std::move(stateDir)),
           instanceDirectory(runtimeDir.isEmpty() ? runtimeDirectory() : std::move(runtimeDir)),
           access(stateDirectory, std::move(credentials), owner),
-          sessions(owner), io(HttpMcpEndpoint::Backend{
+          sessions(owner), history(access, resources ? std::move(resources) : makeResourceSharingService(access, stateDirectory), owner),
+          io(HttpMcpEndpoint::Backend{
               [this](const QByteArray& token) { return access.authenticate(token); },
               [this](const QString& id, const QString& client) {
                   if (connections.size() >= MaxClients) return false;
@@ -125,6 +130,7 @@ public:
           }, owner)
     {
         clock.start();
+        history.bindDispatcher(capabilityDispatcher);
         terminal = std::make_unique<TerminalInteraction>(&access, &sessions, &observation, capabilityDispatcher, owner);
         terminal->onChanged = [this] { emit q->changed(); };
         instance = newId();
@@ -252,12 +258,17 @@ public:
             if (pending) cancel(requestKey(connectionId, id), {}, false);
             return;
         }
-        const auto& call = std::get<BackendCall>(event);
+        const auto* historyCall = std::get_if<BackendHistoryCall>(&event);
+        BackendCall call;
+        if (historyCall) {
+            call.id = historyCall->id;
+            if (historyCall->confirmationSupplied) { send(connectionId, id, error("COMMAND_CONFIRMATION_STALE")); return; }
+        } else call = std::get<BackendCall>(event);
         if (findRequest(requestKey(connectionId, id))) {
             io.closeConnection(connectionId);
             return;
         }
-        const auto name = ToolCodec::toolName(call.request);
+        const auto name = historyCall ? HistoryToolCodec::toolName(historyCall->request) : ToolCodec::toolName(call.request);
         ++requestCount;
         auto request = call.request;
         if (scheduler.queuedCount(connectionId) >= Budget::MaxQueuedRequests) {
@@ -270,6 +281,7 @@ public:
         pending->connection = connectionId;
         pending->id = id;
         pending->tool = name;
+        if (historyCall) pending->historyRequest = historyCall->request;
         pending->confirmationDigest = call.confirmationDigest;
         pending->mrtr = call.mrtr;
         pending->formElicitation = call.formElicitation;
@@ -282,7 +294,7 @@ public:
         }
         pending->deadline = clock.elapsed() + (name == "novaterm_run_script" ? ScriptWriteTimeout.count()
             : name == "novaterm_run_command" ? ConfirmationTimeout.count() : 2000);
-        if (std::holds_alternative<SearchHistoryRequest>(request)) pending->deadline = clock.elapsed() + 12000;
+        if (historyCall && std::holds_alternative<SearchHistoryRequest>(historyCall->request)) pending->deadline = clock.elapsed() + 12000;
         const auto waitMilliseconds = [](const ToolRequest& value, int fallback) {
             return std::visit([fallback](const auto& request) -> int {
                 using Type = std::decay_t<decltype(request)>;
@@ -307,9 +319,7 @@ public:
             if (entry && entry->epoch == reference->epoch.str())
                 resource = capabilityBinding(access.grantSnapshot(ClientId{connection->client}, *entry).binding);
         }
-        const bool historyCall = std::holds_alternative<ListCapturesRequest>(pending->request)
-            || std::holds_alternative<ReadHistoryRequest>(pending->request) || std::holds_alternative<SearchHistoryRequest>(pending->request);
-        if (historyCall) resource = history.binding(pending->request);
+        if (historyCall) resource = history.binding(*pending->historyRequest);
         const auto version = historyCall ? history.accessVersion(connection->client, resource) : access.version(connection->client);
         pending->invocation = connection->capabilities->context(std::move(resource),
             version, Capabilities::OperationId{newId()},
@@ -486,11 +496,9 @@ public:
         }
         const auto connection = connections.value(pending->connection);
         if (!access.enabled()) { complete(key, error("MCP_DISABLED")); return; }
-        if (std::holds_alternative<ListCapturesRequest>(pending->request)
-            || std::holds_alternative<ReadHistoryRequest>(pending->request) || std::holds_alternative<SearchHistoryRequest>(pending->request)) {
-            if (!admit(pending)) return;
+        if (pending->historyRequest) {
             const QPointer<Service> guard(q);
-            history.call(pending->request, connection.client, pending->cancelled, [this, guard, key](QJsonObject result) {
+            history.call(*pending->historyRequest, *pending->invocation, pending->cancelled, [this, guard, key](QJsonObject result) {
                 if (guard) complete(key, std::move(result));
             });
             return;
@@ -655,7 +663,7 @@ public:
     QString status{"Disabled"};
     AccessStore access;
     SessionDirectory sessions;
-    HistoryCapabilityAdapter history{access, stateDirectory, q};
+    HistoryCapabilityAdapter history;
     Capabilities::CapabilityRegistry capabilityRegistry{Capabilities::CapabilityRegistry::implementedCapabilities()};
     Capabilities::CapabilityAuthorization capabilityAuthorization{
         [this](const Capabilities::PrincipalId& principal, Capabilities::EntryKind kind,
@@ -695,12 +703,14 @@ public:
     qint64 maximumRequestMs{0};
 };
 
-Service::Service(QString stateDir, QString runtimeDir, std::unique_ptr<CredentialStore> credentials, QObject* parent, quint16 port)
-    : QObject(parent), _impl(std::make_unique<Impl>(this, std::move(stateDir), std::move(runtimeDir), std::move(credentials), port)) {}
+Service::Service(QString stateDir, QString runtimeDir, std::unique_ptr<CredentialStore> credentials, QObject* parent, quint16 port,
+                 std::shared_ptr<Resources::ResourceSharingService> resources)
+    : QObject(parent), _impl(std::make_unique<Impl>(this, std::move(stateDir), std::move(runtimeDir), std::move(credentials), port, std::move(resources))) {}
 Service::~Service() { stop(); }
 AccessStore& Service::access() { return _impl->access; }
 SessionDirectory& Service::directory() { return _impl->sessions; }
 HistoryCapabilityAdapter& Service::history() { return _impl->history; }
+std::shared_ptr<Resources::ResourceSharingService> Service::resources() const { return _impl->history.resources(); }
 void Service::setHistorySource(Recording::HistoryService* source) { _impl->history.setSource(source); }
 QString Service::instanceId() const { return _impl->instance; }
 QString Service::endpoint() const { return _impl->address; }

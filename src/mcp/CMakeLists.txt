@@ -34,6 +34,7 @@ target_link_libraries(novaterm_mcp_application PUBLIC novaterm_mcp_contracts Qt6
 qt_add_library(novaterm_mcp_protocol STATIC McpProtocol.cpp McpProtocol.h
     protocol/ToolCodec.cpp protocol/ToolCodec.h
     protocol/HistoryToolCodec.cpp protocol/HistoryToolCodec.h
+    protocol/HistoryToolRequest.h protocol/ToolCall.h
     protocol/BackendEvents.h
     protocol/ProtocolProjectionSizer.cpp protocol/ProtocolProjectionSizer.h
     WireSession.cpp WireSession.h ElicitationBroker.cpp ElicitationBroker.h)
@@ -77,6 +78,7 @@ qt_add_library(novaterm_mcp_runtime STATIC
     CommandPolicy.cpp CommandPolicy.h
     McpService.cpp McpService.h
     HistoryCapabilityAdapter.cpp HistoryCapabilityAdapter.h
+    ResourceComposition.cpp ResourceComposition.h
     CommandSessionAdapter.cpp CommandSessionAdapter.h
     CapabilityAdapter.cpp CapabilityAdapter.h
     ObservationService.cpp ObservationService.h
@@ -86,5 +88,5 @@ target_link_libraries(novaterm_mcp_runtime PUBLIC
     novaterm_mcp_application novaterm_session_automation
     novaterm_core Qt6::SerialPort novaterm_terminal_capabilities
     PRIVATE novaterm_mcp_http novaterm_mcp_protocol novaterm_capabilities novaterm_session_environment)
-target_link_libraries(novaterm_mcp_runtime PRIVATE novaterm_history_search novaterm_history_recording novaterm_evidence)
+target_link_libraries(novaterm_mcp_runtime PRIVATE novaterm_resource_sharing novaterm_history_search novaterm_history_recording novaterm_evidence)
 target_compile_definitions(novaterm_mcp_runtime PRIVATE NOVATERM_VERSION="${PROJECT_VERSION}")

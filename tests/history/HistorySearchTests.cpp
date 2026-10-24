@@ -59,6 +59,77 @@ HistoryReadPage read(HistoryReadService& service, HistoryReadRequest request, Re
 class HistorySearchTests : public QObject {
     Q_OBJECT
 private slots:
+    void cancelledReadsDoNotRetainUnreachableCursors() {
+        Fixture f; f.add(QByteArray(65536, 'x')); f.grant(); HistoryReadService service(f.port(), f.authorization);
+        HistoryReadRequest request; request.captureId = f.id; request.maxPayloadBytes = 1;
+        for (int i = 0; i < 70; ++i) {
+            auto cancelled = std::make_shared<std::atomic<bool>>(false);
+            request.cancelled = cancelled; std::optional<HistoryReadPage> page;
+            service.readAsync(request, f.context, [&](auto result) { page = std::move(result); });
+            cancelled->store(true); QTRY_VERIFY(page.has_value());
+            QCOMPARE(page->error, QString("CANCELLED")); QVERIFY(page->records.empty()); QVERIFY(page->nextCursor.isEmpty());
+        }
+        ResourceGrant other = f.grant(); other.principalId = "other"; f.authorization.setGrant(other);
+        request.cancelled.reset(); QVERIFY(read(service, request, {"other", 7}).error.isEmpty());
+    }
+    void preCancelledReadDoesNotCallStorage() {
+        Fixture f; f.add("log"); f.grant(); int calls = 0; auto port = f.port(); const auto original = port.readCommitted;
+        port.readCommitted = [&](auto id, auto range, auto done) { ++calls; return original(id, range, std::move(done)); };
+        HistoryReadService service(port, f.authorization); HistoryReadRequest request; request.captureId = f.id;
+        request.cancelled = std::make_shared<std::atomic<bool>>(true);
+        QCOMPARE(read(service, request, f.context).error, QString("CANCELLED")); QCOMPARE(calls, 0);
+    }
+    void completedInitialSearchesReleaseStateSlots() {
+        Fixture f; f.add("hello\n"); f.grant(); HistorySearchService service(f.port(), f.authorization);
+        HistorySearchRequest q; q.captureId = f.id; q.query = "hello";
+        for (int i = 0; i < 4; ++i) {
+            const auto page = search(service, q, f.context);
+            QVERIFY2(page.error.isEmpty(), qPrintable(page.error));
+            QVERIFY(page.complete); QVERIFY(page.nextCursor.isEmpty()); QCOMPARE(page.hits.size(), size_t(1));
+        }
+    }
+    void searchRetryBindsResponseLimits() {
+        Fixture f; f.add(QByteArray("ab ").repeated(60)); f.grant(); HistorySearchService service(f.port(), f.authorization);
+        HistorySearchRequest q; q.captureId = f.id; q.query = "ab"; q.mode = HistorySearchMode::RawBytes; q.maxMatches = 16;
+        q.cursor = search(service, q, f.context).nextCursor; QVERIFY(!q.cursor.isEmpty());
+        const auto page = search(service, q, f.context); QCOMPARE(page.hits.size(), size_t(16));
+        auto changed = q; changed.maxMatches = 1;
+        QCOMPARE(search(service, changed, f.context).error, QString("CURSOR_MISMATCH"));
+        changed = q; changed.maxResponseBytes = 2048;
+        QCOMPARE(search(service, changed, f.context).error, QString("CURSOR_MISMATCH"));
+        const auto retry = search(service, q, f.context);
+        QCOMPARE(retry.hits.size(), page.hits.size()); QCOMPARE(retry.nextCursor, page.nextCursor);
+        q.cursor = page.nextCursor; q.maxMatches = 1;
+        const auto next = search(service, q, f.context); QVERIFY(next.error.isEmpty()); QCOMPARE(next.hits.size(), size_t(1));
+    }
+    void ansiIntermediateAndControlStringsAreStripped_data() {
+        QTest::addColumn<QByteArray>("control");
+        QTest::newRow("charset") << QByteArray("\x1b(B");
+        QTest::newRow("multiple-intermediates") << QByteArray("\x1b(#B");
+        QTest::newRow("dcs") << QByteArray("\x1bPhidden\x1b\\");
+        QTest::newRow("sos") << QByteArray("\x1bXhidden\x1b\\");
+        QTest::newRow("pm") << QByteArray("\x1b^hidden\x1b\\");
+        QTest::newRow("apc") << QByteArray("\x1b_hidden\x1b\\");
+    }
+    void ansiIntermediateAndControlStringsAreStripped() {
+        QFETCH(QByteArray, control);
+        Fixture f;
+        f.add("err"); for (const auto byte : control) f.add(QByteArray(1, byte)); f.add("or\n"); f.grant();
+        HistorySearchService service(f.port(), f.authorization); HistorySearchRequest q; q.captureId = f.id; q.query = "error";
+        const auto page = search(service, q, f.context); QVERIFY(page.error.isEmpty()); QVERIFY(page.complete);
+        QCOMPARE(page.hits.size(), size_t(1)); QCOMPARE(page.hits.front().ranges.size(), size_t(2));
+        QCOMPARE(page.hits.front().ranges.front().recordId, quint64(1));
+        QCOMPARE(page.hits.front().ranges.back().recordId, quint64(control.size() + 2));
+        q.query = "hidden"; const auto hidden = search(service, q, f.context);
+        QVERIFY(hidden.error.isEmpty()); QVERIFY(hidden.hits.empty()); QVERIFY(hidden.complete);
+    }
+    void controlStringLimitStaysExplicit() {
+        Fixture f; f.add(QByteArray("\x1bP") + QByteArray(4096, 'x') + "\x1b\\\n"); f.grant();
+        HistorySearchService service(f.port(), f.authorization); HistorySearchRequest q; q.captureId = f.id; q.query = "missing";
+        const auto page = search(service, q, f.context);
+        QVERIFY(page.error.isEmpty()); QVERIFY(!page.complete); QVERIFY(page.nextCursor.isEmpty());
+        QCOMPARE(page.reason, QString("PROJECTION_LIMIT"));
+    }
     void clippedCoalescedGapIsExplicitInsteadOfSkipped() {
         Fixture f; HistoryRecord gap; gap.captureId = f.id; gap.recordId = 1; gap.lastRecordId = 20;
         gap.kind = RecordKind::Gap; gap.lostRecordCount = 20; gap.reason = "outside-grant metadata";

@@ -25,6 +25,8 @@ Capture 元数据仅记录来源，不继承 Session grant。关闭标签不撤�
 
 ## 文件与契约
 
+2026-10-24 当前接线：`src/resources/ResourceSharingService.*` 组合授权事务、历史查询与证据发布，`HistoryCapabilities.*` 提供三领域端口；应用服务独立链接 Qt Core/领域库。`HistoryCapabilityAdapter` 保留协议投影和具体录制适配，UI 经 Application 的应用实例发出共享意图。History/Evidence 核心之间不建立反向实现依赖。具体 owner、身份/持久化端口与各轮回归见 [架构修复记录](P3_Architecture_Fixes_2026-10-24.md)。
+
 新增 src/history/HistoryReadService.*、HistorySearchService.*、HistoryProjectionDecoder.*、HistoryAuthorizationStore.*；History仅持有记录读取/搜索与capture授权。
 新增 src/evidence/EvidenceTypes.h、EvidenceStore.*、ImportedResourceStore.*、EvidenceSourceReader.h、EvidenceAuthorization.h、CMakeLists.txt；来源适配器在集成层注册，不让Evidence核心链接History或诊断实现。
 修改 P1 Registry/McpCapabilityAdapter、src/mcp/protocol/ToolCodec.*（仅追加新工具）、McpAccess.* 或独立资源授权适配、HistoryCaptureModel/Panel。
@@ -102,7 +104,9 @@ cursor绑定query及投影版本；更换query/mode返回CURSOR_MISMATCH，状�
 
 完成后释放decoder/扫描租约，仍可在原TTL内保留最后一页缓存供精确重试；该终态缓存仍计入状态数量和内存额度，不续租。
 
-同一页只运行一次，精确重试返回有界上一页缓存；相同SearchSession并发续页返回Busy，旧于缓存的页序号拒绝。不因网络重试推进两次。budget耗尽在UTF-8、ANSI序列或匹配中间时保留状态；EOF、gap、boot边界各有明确flush/reset，命中不跨gap/boot。原始范围可为多个片段，不假定CR覆盖后的文本对应单个连续字节区间。
+同一页只运行一次，精确重试返回有界上一页缓存；重试必须保持生成该页时的有效命中数和响应预算，否则返回 CURSOR_MISMATCH，合法推进下一页仍可调整预算。初始即终结且没有重试句柄的搜索立即释放状态。相同SearchSession并发续页返回Busy，旧于缓存的页序号拒绝。不因网络重试推进两次。budget耗尽在UTF-8、ANSI序列或匹配中间时保留状态；EOF、gap、boot边界各有明确flush/reset，命中不跨gap/boot。原始范围可为多个片段，不假定CR覆盖后的文本对应单个连续字节区间。
+
+ANSI 去除包含 ESC intermediate/final、CSI、OSC 与 DCS/SOS/PM/APC 控制字符串；状态跨 record 保存，控制字符串至 ST 结束，CAN/SUB 可取消序列，仍受原 4 KiB 序列上限限制，不模拟完整终端光标定位。
 
 text投影首版按行缓冲，单行及单控制序列分别限制64KiB和4KiB。遇超限不无界累积：返回projection_gap及原始区间、停止该次搜索并释放状态，complete=false、nextCursor=null、reason=PROJECTION_LIMIT，提示可用raw_bytes新建搜索。complete只在固定高水位全部扫描且无投影遗漏时为true；尾部unknown_tail另由sourceCompleteness返回，不能被complete覆盖。
 

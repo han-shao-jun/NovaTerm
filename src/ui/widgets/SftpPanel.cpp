@@ -928,16 +928,16 @@ void SftpPanel::setSessionContext(const QString& sessionLabel,
     refreshAvailability();
 }
 
-void SftpPanel::synchronizePathFromTerminal(const QString& path)
+void SftpPanel::synchronizePathFromTerminal(SshTransport* source, const QString& path)
 {
-    if (!_sshTransport || !_backendConnected || path.isEmpty())
+    if (!source || source != _sshTransport || !_backendConnected || path.isEmpty())
         return;
     requestDirectory(path);
 }
 
-void SftpPanel::terminalPathLookupFailed()
+void SftpPanel::terminalPathLookupFailed(SshTransport* source)
 {
-    if (_sshTransport && _backendConnected)
+    if (source && source == _sshTransport && _backendConnected)
         setBusy(false, tr("Unable to read terminal directory."));
 }
 

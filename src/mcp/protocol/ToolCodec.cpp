@@ -491,7 +491,7 @@ bool ToolCodec::isKnownTool(const QString& name)
 
 Result<ToolRequest> ToolCodec::decode(const QString& name, const QJsonObject& arguments)
 {
-    if (HistoryToolCodec::known(name)) return HistoryToolCodec::decode(name, arguments);
+    if (HistoryToolCodec::known(name)) return Error{ErrorCode::InvalidArgument, "Use the history protocol decoder."};
     const QString invalid = validate(name, arguments);
     if (!invalid.isEmpty())
         return Error{ErrorCode::InvalidArgument, invalid};
@@ -708,6 +708,22 @@ QJsonArray ToolCodec::encodeActions(const std::vector<TerminalAction>& actions)
     return result;
 }
 
+Result<ToolCall> ToolCodec::decodeCall(const QString& name, const QJsonObject& arguments)
+{
+    if (HistoryToolCodec::known(name)) {
+        auto result = HistoryToolCodec::decode(name, arguments);
+        if (const auto* error = errorIfAny(result)) return *error;
+        return ToolCall{std::get<HistoryToolRequest>(std::move(result))};
+    }
+    auto result = decode(name, arguments);
+    if (const auto* error = errorIfAny(result)) return *error;
+    return ToolCall{std::get<ToolRequest>(std::move(result))};
+}
+QString ToolCodec::toolName(const ToolCall& request)
+{
+    if (const auto* history = std::get_if<HistoryToolRequest>(&request)) return HistoryToolCodec::toolName(*history);
+    return toolName(std::get<ToolRequest>(request));
+}
 QString ToolCodec::toolName(const ToolRequest& request)
 {
     static const auto registry = Capabilities::CapabilityRegistry::implementedCapabilities();

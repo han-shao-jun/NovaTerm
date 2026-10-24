@@ -12,6 +12,8 @@
 #include "Application.h"
 #include "history/HistoryCompressionService.h"
 #include "history/HistoryService.h"
+#include "history/HistoryRecordingReadPort.h"
+#include "resources/ResourceSharingService.h"
 #include <QStandardPaths>
 #include "MainWindow.h"
 #include "mcp/McpService.h"
@@ -44,6 +46,7 @@ void Application::shutdown()
     if (_mcpService) _mcpService->setHistorySource(nullptr);
     _historyRecording.reset();
     _mcpService.reset();
+    _resourceSharing.reset();
     if (_historyRuntime) _historyRuntime->stop();
     _historyRuntime.reset();
 }
@@ -156,10 +159,11 @@ void Application::init()
         ? quint16(configuredPort) : quint16(38973);
     _mcpService = std::make_unique<NovaTerm::Mcp::Service>(
         QString{}, QString{}, nullptr, nullptr, mcpPort);
+    _resourceSharing = _mcpService->resources();
     _historyRuntime = std::make_shared<NovaTerm::HistoryCompressionService>();
     _historyRecording = std::make_unique<NovaTerm::Recording::HistoryService>(
         QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation) + "/history");
-    _mcpService->setHistorySource(_historyRecording.get());
+    _resourceSharing->setHistorySource(NovaTerm::Recording::recordingReadPort(_historyRecording.get()));
     _mainWindow = std::make_unique<MainWindow>(nullptr, _historyRuntime);
 
     // ElaWindow 构造函数中 setObjectName("ElaWindow") 并设

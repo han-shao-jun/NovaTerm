@@ -42,6 +42,8 @@ struct HistorySearchService::Impl {
         qint64 created{0}, touched{0};
         QString id, nextCursor, cachedCursor;
         HistorySearchPage cached;
+        int cachedMaxMatches{0};
+        qsizetype cachedMaxResponseBytes{0};
         std::atomic<bool> cancelled{false}, expired{false};
     };
     struct Job {
@@ -209,13 +211,16 @@ struct HistorySearchService::Impl {
         } else if (budget(j)) j.stop = true;
     }
     void finish(const std::shared_ptr<Job>& j) {
+        const QPointer<HistorySearchService> self(owner);
+        const bool admitted = !j->request.admitted || j->request.admitted();
+        if (!self) return;
         auto& s = *j->state;
         --active; activePrincipals.erase(s.context.principalId); s.busy = false;
         auto page = std::move(j->page); page.highWaterRecordId = s.highWater; page.sourceCompleteness = s.integrity;
         const auto error = validate(s);
         if (!error.isEmpty()) page.error = error;
         else if (s.expired || stale(s)) page.error = "SEARCH_CURSOR_EXPIRED";
-        else if (cancelled(*j)) page.error = "CANCELLED";
+        else if (!admitted || cancelled(*j)) page.error = "CANCELLED";
         if (!page.error.isEmpty()) { page.hits.clear(); page.nextCursor.clear(); page.complete = false; j->terminal = true; }
         if (j->terminal) {
             s.decoder.reset(); s.ready.clear(); s.matched.clear(); s.pendingHit.reset(); s.terminal = true;
@@ -223,8 +228,9 @@ struct HistorySearchService::Impl {
             s.touched = clock.elapsed(); page.nextCursor = opaqueHandle(); s.nextCursor = page.nextCursor;
         }
         s.cachedCursor = j->request.cursor; s.cached = page;
-        // Failed and cancelled states cannot be used as a capability or retained indefinitely.
-        if (!page.error.isEmpty()) states.erase(s.id);
+        s.cachedMaxMatches = j->request.maxMatches; s.cachedMaxResponseBytes = j->request.maxResponseBytes;
+        // Initial terminal pages have no retry handle and must not retain a state lease.
+        if (!page.error.isEmpty() || (j->terminal && s.cachedCursor.isEmpty())) states.erase(s.id);
         j->callback(std::move(page));
     }
     void dispatch(const std::shared_ptr<Job>& job, ReadResult result, bool bufferedOnly = false) {
@@ -275,11 +281,18 @@ void HistorySearchService::searchAsync(HistorySearchRequest request, ResourceCon
         || request.maxMatches < 1 || request.maxMatches > 128 || request.maxResponseBytes < 2048 || request.maxResponseBytes > 65536
         || request.scanBytes < 1 || request.scanBytes > 16 * 1024 * 1024
         || request.scanMilliseconds < 1 || request.scanMilliseconds > 2000) { fail("INVALID_ARGUMENT"); return; }
+    const QString text = request.mode == HistorySearchMode::Text ? QString::fromUtf8(request.query) : QString{};
+    if (request.mode == HistorySearchMode::Text && (text.isEmpty() || text.toUtf8() != request.query)) {
+        fail("INVALID_ARGUMENT"); return;
+    }
     p.expire();
     const auto resource = p.port.describe ? p.port.describe(request.captureId) : std::nullopt;
     if (!resource) { fail("EVIDENCE_EXPIRED"); return; }
     const auto grant = p.authorization.authorize(context, request.captureId, resource->generation);
     if (!grant) { fail("PERMISSION_DENIED"); return; }
+    if ((request.cancelled && request.cancelled->load()) || (request.admitted && !request.admitted())) {
+        fail("CANCELLED"); return;
+    }
     std::shared_ptr<Impl::State> state;
     bool retry = false;
     if (!request.cursor.isEmpty()) {
@@ -296,7 +309,15 @@ void HistorySearchService::searchAsync(HistorySearchRequest request, ResourceCon
         }
         const auto error = p.validate(*state); if (!error.isEmpty()) { fail(error); return; }
         if (state->busy) { fail("BUSY"); return; }
-        if (retry) { callback(state->cached); return; }
+        if ((request.cancelled && request.cancelled->load()) || (request.admitted && !request.admitted())) {
+            fail("CANCELLED"); return;
+        }
+        if (retry) {
+            if (request.maxMatches != state->cachedMaxMatches || request.maxResponseBytes != state->cachedMaxResponseBytes) {
+                fail("CURSOR_MISMATCH"); return;
+            }
+            callback(state->cached); return;
+        }
         if (state->terminal) { fail("SEARCH_CURSOR_EXPIRED"); return; }
     } else {
         size_t principalStates = 0;
@@ -312,8 +333,6 @@ void HistorySearchService::searchAsync(HistorySearchRequest request, ResourceCon
         } else {
             // A streaming decoder keeps an unfinished suffix without reporting an error.
             // Requests are complete strings: reject replacement or an unfinished code point.
-            const QString text = QString::fromUtf8(request.query);
-            if (text.isEmpty() || text.toUtf8() != request.query) { fail("INVALID_ARGUMENT"); return; }
             const auto unicode = text.toUcs4(); state->query.assign(unicode.begin(), unicode.end());
         }
         state->prefix.resize(state->query.size());

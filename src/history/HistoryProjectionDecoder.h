@@ -13,7 +13,7 @@ public:
     bool limited() const { return _limited; }
     size_t memoryBytes() const;
 private:
-    enum class Escape { None, Esc, Csi, Osc, OscEsc };
+    enum class Escape { None, Esc, Intermediate, Csi, Osc, OscEsc, String, StringEsc };
     Escape _escape{Escape::None};
     size_t _controlBytes{0}, _lineBytes{0}, _column{0};
     std::deque<HistoryProjectedUnit> _line;
