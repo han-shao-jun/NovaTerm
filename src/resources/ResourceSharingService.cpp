@@ -1,7 +1,7 @@
 #include "ResourceSharingService.h"
-#include "history/HistoryAuthorizationStore.h"
-#include "history/HistoryReadService.h"
-#include "history/HistorySearchService.h"
+#include "historysearch/HistoryAuthorizationStore.h"
+#include "historysearch/HistoryReadService.h"
+#include "historysearch/HistorySearchService.h"
 #include "evidence/EvidenceStore.h"
 #include "evidence/ImportedResourceStore.h"
 #include <QCryptographicHash>

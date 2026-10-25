@@ -1,6 +1,5 @@
 #include "resources/HistoryCapabilities.h"
 #include "capabilities/McpCapabilityAdapter.h"
-#include "capabilities/LocalAgentAdapter.h"
 #include <QFile>
 #include <QTemporaryDir>
 #include <QTest>
@@ -72,7 +71,7 @@ private slots:
         });
         C::CapabilityDispatcher dispatcher(registry, authorization); Resources::HistoryCapabilities ports(dispatcher, resources);
         C::McpCapabilityAdapter external(authorization, C::PrincipalId{"external"});
-        C::LocalAgentAdapter local(authorization, C::PrincipalId{"local"});
+        C::McpCapabilityAdapter local(authorization, C::PrincipalId{"local"});
         const auto run = [&](auto& entry, const QString& principal) {
             const auto grant = resources.authorize(resources.context(principal), capture);
             const auto invocation = entry.context(C::HistoryCaptureBinding{C::ResourceId{capture.text()}, 1}, grant->accessVersion,

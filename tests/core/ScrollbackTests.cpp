@@ -11,6 +11,10 @@ class ScrollbackTests final : public QObject
     Q_OBJECT
 
 private slots:
+    void logPaginationPreservesRepeatedUnicodeAndEmptyLines();
+    void logBookmarksEvictionAndInvalidation();
+    void logLongLineAndColdBlocksRemainBounded();
+    void logResumesAcrossIdHolesAfterHistoryPop();
     void chunkEvictionKeepsSnapshotsStable();
     void enforcesLineAndByteBudgets();
     void snapshotUsesStableLineIds();
@@ -53,6 +57,139 @@ NovaTerm::LogicalLine textLine(const QString& text)
 }
 
 } // namespace
+
+void ScrollbackTests::logPaginationPreservesRepeatedUnicodeAndEmptyLines()
+{
+    using namespace NovaTerm;
+    ChunkedScrollback store(-1, 16 * 1024 * 1024, 2);
+    const auto text = QString::fromUtf8("重复🙂é");
+    store.append(textLine(text)); store.append(textLine(text)); store.append(textLine(""));
+    auto pending = textLine("soft"); pending.hardBreak = false; store.append(pending);
+    LogRequest request; request.maxBytes = 4; request.maxLines = 1;
+    std::string joined;
+    auto page = store.readLog(request);
+    const auto first = page.next;
+    for (int count = 0; count < 40; ++count) {
+        QCOMPARE(page.status, LogStatus::Ok);
+        QVERIFY(page.fragments.size() <= 1);
+        for (const auto& part : page.fragments) {
+            QVERIFY(part.text.size() <= 4);
+            QCOMPARE(QString::fromUtf8(part.text).toUtf8(), QByteArray::fromStdString(part.text));
+            joined += part.text;
+        }
+        if (page.caughtUp) break;
+        const auto before = page.next;
+        request.cursor = LogCursor{page.generation, page.next}; page = store.readLog(request);
+        QVERIFY(page.next != before);
+    }
+    QCOMPARE(joined, (text + "\n" + text + "\n\n").toUtf8().toStdString());
+    QVERIFY(page.caughtUp);
+    store.appendContinuation(textLine("tail"));
+    request.cursor = LogCursor{page.generation, page.next}; page = store.readLog(request);
+    QVERIFY(page.hasMore); // completed soft line now available, exactly once
+    LogRequest small; small.maxBytes = 1;
+    QCOMPARE(store.readLog(small).status, LogStatus::BudgetTooSmall);
+    LogRequest retry; retry.maxBytes = 4; retry.maxLines = 1;
+    QCOMPARE(store.readLog(retry).next, first);
+}
+
+void ScrollbackTests::logBookmarksEvictionAndInvalidation()
+{
+    using namespace NovaTerm;
+    ChunkedScrollback store(2, 16 * 1024 * 1024, 1);
+    store.append(textLine("a"));
+    LogRequest tail; tail.start = LogStart::Tail;
+    auto bookmark = store.readLog(tail);
+    QVERIFY(bookmark.fragments.empty()); QVERIFY(bookmark.caughtUp);
+    store.append(textLine("b"));
+    LogRequest continuation; continuation.cursor = LogCursor{bookmark.generation, bookmark.next};
+    auto next = store.readLog(continuation);
+    QCOMPARE(next.fragments.size(), size_t(1)); QCOMPARE(next.fragments[0].text, std::string("b\n"));
+    store.append(textLine("c")); store.append(textLine("d"));
+    auto gap = store.readLog(continuation);
+    QCOMPARE(gap.status, LogStatus::Gap); QVERIFY(gap.fragments.empty()); QVERIFY(gap.next == bookmark.next);
+    continuation.cursor = LogCursor{gap.generation, gap.earliest};
+    QCOMPARE(store.readLog(continuation).fragments.size(), size_t(2));
+    store.clear();
+    QCOMPARE(store.readLog(continuation).status, LogStatus::Invalidated);
+    store.append(textLine("x")); auto latest = store.readLog(tail);
+    LogicalLine popped; QVERIFY(store.takeNewestTail(1, popped));
+    continuation.cursor = LogCursor{latest.generation, latest.next};
+    QCOMPARE(store.readLog(continuation).status, LogStatus::Invalidated);
+}
+
+void ScrollbackTests::logLongLineAndColdBlocksRemainBounded()
+{
+    using namespace NovaTerm;
+    auto runtime = std::make_shared<HistoryCompressionService>();
+    ChunkedScrollback store(-1, 64 * 1024 * 1024, 1);
+    store.setHistoryRuntime(runtime);
+    HistoryCompressionPolicy policy; policy.enabled = true; policy.hotBytes = 0;
+    store.setCompressionPolicy(policy);
+    const auto longText = QString::fromUtf8("🙂é").repeated(4000);
+    store.append(textLine(longText)); store.append(textLine("last"));
+    QTRY_VERIFY(([&] { store.processHistory(); return store.statistics().compressedBlocks >= 1
+        && runtime->statistics().outstandingTasks == 0; })());
+    const auto snapshot = store.snapshot();
+    auto reader = snapshot.chunks().front().chunk->reader; QVERIFY(reader);
+    int coldRequests = 0;
+    reader->setColdRequest([&coldRequests](auto) { ++coldRequests; return true; });
+    LogRequest query; query.maxBytes = 17; query.maxLines = 1;
+    const auto pending = store.readLog(query);
+    QCOMPARE(pending.status, LogStatus::Pending); QVERIFY(pending.fragments.empty());
+    QVERIFY(!pending.caughtUp); QCOMPARE(pending.next, pending.earliest); QCOMPARE(coldRequests, 1);
+    // Explicit synchronous test preparation only; production log reads remain CacheOnly.
+    QVERIFY(snapshot.lineAt(0));
+    std::string joined; u64 previousByte = 0;
+    for (int iteration = 0; iteration < 20000; ++iteration) {
+        const auto page = store.readLog(query); QCOMPARE(page.status, LogStatus::Ok);
+        QVERIFY(page.fragments.size() <= 1);
+        for (const auto& part : page.fragments) {
+            QVERIFY(part.text.size() <= 17); QCOMPARE(part.byteOffset, previousByte);
+            joined += part.text; previousByte += part.text.size();
+            if (part.lineComplete) previousByte = 0;
+        }
+        query.cursor = LogCursor{page.generation, page.next};
+        if (page.caughtUp) break;
+    }
+    QCOMPARE(joined, (longText + "\nlast\n").toUtf8().toStdString());
+    QCOMPARE(store.readLog(query).fragments.size(), size_t(0));
+    // An uncompressed active row can exceed the maximum response size. Reading
+    // must neither copy that whole row nor skip its undisclosed suffix.
+    ChunkedScrollback raw(-1, 64 * 1024 * 1024);
+    const auto huge = QString::fromUtf8("🙂").repeated(70000);
+    raw.append(textLine(huge));
+    const auto activeBefore = raw.statistics().activeLines;
+    LogRequest bounded; joined.clear(); int pages = 0;
+    for (; pages < 10; ++pages) {
+        const auto part = raw.readLog(bounded); QCOMPARE(part.status, LogStatus::Ok);
+        for (const auto& fragment : part.fragments) {
+            QVERIFY(fragment.text.size() <= bounded.maxBytes); joined += fragment.text;
+        }
+        bounded.cursor = LogCursor{part.generation, part.next};
+        if (part.caughtUp) break;
+    }
+    QVERIFY(pages >= 4); QCOMPARE(joined, (huge + "\n").toUtf8().toStdString());
+    QCOMPARE(raw.statistics().activeLines, activeBefore); // no publication/sealing for log consumers
+}
+
+void ScrollbackTests::logResumesAcrossIdHolesAfterHistoryPop()
+{
+    using namespace NovaTerm;
+    ChunkedScrollback store(-1, 16 * 1024 * 1024, 2);
+    store.append(textLine("a")); store.append(textLine("b")); store.append(textLine("removed"));
+    LogicalLine popped; QVERIFY(store.takeNewestTail(100, popped));
+    store.append(textLine("c")); // IDs 1,2,4 in the current generation
+    LogRequest query; query.maxLines = 2;
+    const auto first = store.readLog(query);
+    QCOMPARE(first.status, LogStatus::Ok); QCOMPARE(first.fragments.size(), size_t(2));
+    QCOMPARE(first.next.line, u64(4));
+    store.setLimits(1, 16 * 1024 * 1024); // drop only rows already delivered
+    query.cursor = LogCursor{first.generation, first.next};
+    const auto last = store.readLog(query);
+    QCOMPARE(last.status, LogStatus::Ok); QVERIFY(last.caughtUp);
+    QCOMPARE(last.fragments.size(), size_t(1)); QCOMPARE(last.fragments[0].text, std::string("c\n"));
+}
 
 void ScrollbackTests::coldRangePreparationBoundsRequestsAndPreservesActiveTail()
 {

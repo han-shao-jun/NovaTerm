@@ -24,6 +24,8 @@ set(NOVATERM_P5_RENDERER_SOURCES
 
 if(BUILD_TESTING)
 add_subdirectory(history)
+add_subdirectory(recording)
+add_subdirectory(historysearch)
 include(mcp/History.cmake)
 add_subdirectory(evidence)
 add_subdirectory(resources)
@@ -71,19 +73,6 @@ add_subdirectory(resources)
     set_tests_properties(novaterm_capabilities_tests PROPERTIES LABELS "capabilities;mcp;p8" TIMEOUT 30)
     add_dependencies(check novaterm_capabilities_tests)
 
-    qt_add_executable(novaterm_capability_routes_tests capabilities/EnvironmentRoutingTests.cpp)
-    target_link_libraries(novaterm_capability_routes_tests PRIVATE novaterm_capabilities novaterm_session_environment Qt6::Test)
-    set_target_properties(novaterm_capability_routes_tests PROPERTIES WIN32_EXECUTABLE FALSE)
-    add_test(NAME novaterm_capability_routes_tests COMMAND novaterm_capability_routes_tests)
-    set_tests_properties(novaterm_capability_routes_tests PROPERTIES LABELS "capabilities;mcp;p8" TIMEOUT 30)
-    add_dependencies(check novaterm_capability_routes_tests)
-
-    qt_add_executable(novaterm_diagnostic_tasks_tests capabilities/DiagnosticTaskTests.cpp)
-    target_link_libraries(novaterm_diagnostic_tasks_tests PRIVATE novaterm_capabilities Qt6::Test)
-    set_target_properties(novaterm_diagnostic_tasks_tests PROPERTIES WIN32_EXECUTABLE FALSE)
-    add_test(NAME novaterm_diagnostic_tasks_tests COMMAND novaterm_diagnostic_tasks_tests)
-    set_tests_properties(novaterm_diagnostic_tasks_tests PROPERTIES LABELS "capabilities;mcp;p8" TIMEOUT 30)
-    add_dependencies(check novaterm_diagnostic_tasks_tests)
 
     qt_add_executable(novaterm_capability_entry_tests capabilities/EntryParityTests.cpp)
     target_link_libraries(novaterm_capability_entry_tests PRIVATE novaterm_terminal_capabilities Qt6::Test)
@@ -396,7 +385,7 @@ add_subdirectory(resources)
     )
     target_link_libraries(novaterm_session_tests
         PRIVATE
-            novaterm_core novaterm_session_environment
+            novaterm_core
             Qt${QT_VERSION_MAJOR}::SerialPort
             Qt${QT_VERSION_MAJOR}::Test
             ${NOVATERM_SECRET_SERVICE_LIBS}
@@ -672,7 +661,7 @@ add_subdirectory(resources)
         )
         target_link_libraries(novaterm_terminal_session_tests
             PRIVATE
-                novaterm_core novaterm_session_environment
+                novaterm_core
                 ElaWidgetTools
                 Qt${QT_VERSION_MAJOR}::Core
                 Qt${QT_VERSION_MAJOR}::Gui

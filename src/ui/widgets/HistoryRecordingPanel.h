@@ -1,5 +1,5 @@
 #pragma once
-#include "history/HistoryTypes.h"
+#include "recording/HistoryTypes.h"
 #include <ElaDialog.h>
 #include <functional>
 #include <utility>

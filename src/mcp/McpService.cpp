@@ -13,6 +13,7 @@
 #include "ResourceComposition.h"
 #include "protocol/HistoryToolCodec.h"
 #include "CapabilityAdapter.h"
+#include "LogReadAdapter.h"
 #include "application/CaptureStore.h"
 #include "ObservationService.h"
 #include "application/RequestScheduler.h"
@@ -528,10 +529,10 @@ public:
             || std::holds_alternative<RequestElevationRequest>(pending->request);
         bool usesObservation = mutatingInteraction;
         if (const auto* read = std::get_if<ReadContextRequest>(&pending->request)) {
-            usesObservation = read->projection.has_value() || read->wait.has_value()
+            usesObservation = read->source != ContextSource::Log && (read->projection.has_value() || read->wait.has_value()
                 || read->waitFor.has_value() || read->expandToken.has_value()
                 || terminal->ownsCursor(connection.client,
-                    read->sinceToken.value_or(QString{}));
+                    read->sinceToken.value_or(QString{})));
         } else if (const auto* search = std::get_if<SearchContextRequest>(&pending->request)) {
             usesObservation = terminal->ownsCapture(connection.client, search->capture.str());
         }
@@ -587,6 +588,13 @@ public:
         const auto key = requestKey(pending->connection, pending->id);
         const auto connection = connections.value(pending->connection);
         const auto request = std::get<ReadContextRequest>(pending->request);
+        if (request.source == ContextSource::Log) {
+            if (!admit(pending)) return;
+            const auto result = readLogContext(access, sessions, instance, connection.client, logCursorKey, request);
+            if (isError(result)) { complete(key, ToolCodec::encodeFailure(*errorIfAny(result))); return; }
+            complete(key, success(std::get<QJsonObject>(result)));
+            return;
+        }
         const ReadUseCaseAdapter reads{{&access, &sessions, &observation, instance},
             capabilityDispatcher, *pending->invocation};
         const auto result = reads.readContext(entry, pending->connection, connection.client, connection.key, request);
@@ -686,6 +694,7 @@ public:
     quint16 listenPort{0};
     QElapsedTimer clock;
     ObservationService observation{[this] { return qint64(clock.elapsed()); }};
+    const QByteArray logCursorKey{randomBytes()};
     std::unique_ptr<TerminalInteraction> terminal;
     std::unique_ptr<QThreadPool> workers;
     std::shared_ptr<SearchMailbox> searchMailbox;

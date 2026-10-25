@@ -69,11 +69,10 @@ qt_add_library(novaterm_session_automation STATIC
 )
 target_include_directories(novaterm_session_automation PUBLIC ${PROJECT_SOURCE_DIR}/src)
 target_link_libraries(novaterm_session_automation PUBLIC
-    novaterm_core novaterm_session_environment Qt6::Core Qt6::SerialPort)
+    novaterm_core Qt6::Core Qt6::SerialPort)
 
 qt_add_library(novaterm_mcp_runtime STATIC
-    ${PROJECT_SOURCE_DIR}/src/capabilities/SessionRecipeAdapter.cpp
-    ${PROJECT_SOURCE_DIR}/src/capabilities/SessionRecipeAdapter.h
+    LogReadAdapter.cpp LogReadAdapter.h tasks/LogReadUseCase.h
     McpAccess.cpp McpAccess.h
     CommandPolicy.cpp CommandPolicy.h
     McpService.cpp McpService.h
@@ -87,6 +86,6 @@ qt_add_library(novaterm_mcp_runtime STATIC
 target_link_libraries(novaterm_mcp_runtime PUBLIC
     novaterm_mcp_application novaterm_session_automation
     novaterm_core Qt6::SerialPort novaterm_terminal_capabilities
-    PRIVATE novaterm_mcp_http novaterm_mcp_protocol novaterm_capabilities novaterm_session_environment)
+    PRIVATE novaterm_mcp_http novaterm_mcp_protocol novaterm_capabilities)
 target_link_libraries(novaterm_mcp_runtime PRIVATE novaterm_resource_sharing novaterm_history_search novaterm_history_recording novaterm_evidence)
 target_compile_definitions(novaterm_mcp_runtime PRIVATE NOVATERM_VERSION="${PROJECT_VERSION}")

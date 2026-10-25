@@ -11,8 +11,8 @@
  */
 #include "Application.h"
 #include "history/HistoryCompressionService.h"
-#include "history/HistoryService.h"
-#include "history/HistoryRecordingReadPort.h"
+#include "recording/HistoryService.h"
+#include "resources/RecordingHistoryReadAdapter.h"
 #include "resources/ResourceSharingService.h"
 #include <QStandardPaths>
 #include "MainWindow.h"

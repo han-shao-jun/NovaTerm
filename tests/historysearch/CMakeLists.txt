@@ -1,0 +1,10 @@
+find_package(Qt6 6.8 REQUIRED COMPONENTS Test)
+foreach(_suite Authorization Search)
+    string(TOLOWER "${_suite}" _lower)
+    qt_add_executable(novaterm_history_${_lower}_tests History${_suite}Tests.cpp)
+    target_link_libraries(novaterm_history_${_lower}_tests PRIVATE novaterm_history_search Qt6::Test)
+    set_target_properties(novaterm_history_${_lower}_tests PROPERTIES WIN32_EXECUTABLE FALSE)
+    add_test(NAME novaterm_history_${_lower}_tests COMMAND novaterm_history_${_lower}_tests
+        -o "${CMAKE_CURRENT_BINARY_DIR}/History${_suite}Tests.ctest.txt,txt")
+    set_tests_properties(novaterm_history_${_lower}_tests PROPERTIES LABELS "unit;history;history-search;p8" TIMEOUT 30)
+endforeach()

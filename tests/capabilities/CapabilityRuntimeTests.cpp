@@ -1,7 +1,6 @@
 #include "capabilities/CapabilityRegistry.h"
 #include "capabilities/CapabilityDispatcher.h"
 #include "capabilities/TypedCapabilityPort.h"
-#include "capabilities/LocalAgentAdapter.h"
 #include "capabilities/McpCapabilityAdapter.h"
 #include <QtTest>
 using namespace NovaTerm::Capabilities;
@@ -58,22 +57,22 @@ private slots:
         TypedCapabilityPort<Analyze, QString> analyze{dispatcher, CapabilityId{"test.log.analyze"},
             [&](Analyze value, InvocationLease, auto done) { ++calls; done(value.text.toUpper()); }};
         McpCapabilityAdapter mcp{auth, PrincipalId{"client"}};
-        LocalAgentAdapter local{auth, PrincipalId{"client"}};
+        McpCapabilityAdapter second{auth, PrincipalId{"client"}};
         int readValue = 0;
         mcp.invoke(read, Read{4}, DirectoryBinding{}, 1, OperationId{"mcp"},
             Clock::now() + std::chrono::seconds(5), [&](auto result) { readValue = std::get<int>(result); });
         QCOMPARE(readValue, 4);
-        local.invoke(read, Read{4}, DirectoryBinding{}, 1, OperationId{"local"},
+        second.invoke(read, Read{4}, DirectoryBinding{}, 1, OperationId{"second"},
             Clock::now() + std::chrono::seconds(5), [&](auto result) { readValue = std::get<int>(result); });
         QCOMPARE(readValue, 4);
         QString text;
-        local.invoke(analyze, Analyze{"boot"}, ImportedFileBinding{ResourceId{"file"}, "hash", 4}, 1,
+        second.invoke(analyze, Analyze{"boot"}, ImportedFileBinding{ResourceId{"file"}, "hash", 4}, 1,
             OperationId{"analysis"}, Clock::now() + std::chrono::seconds(5),
             [&](auto result) { text = std::get<QString>(result); });
         QCOMPARE(text, QString("BOOT"));
         QCOMPARE(calls, 3);
         allowed = false;
-        local.invoke(read, Read{4}, DirectoryBinding{}, 1, OperationId{"denied"},
+        second.invoke(read, Read{4}, DirectoryBinding{}, 1, OperationId{"denied"},
             Clock::now() + std::chrono::seconds(5), [](auto result) { QVERIFY(std::holds_alternative<Rejection>(result)); });
         QCOMPARE(calls, 3);
         QCOMPARE(dispatcher.activeCount(), size_t(0));
@@ -84,7 +83,7 @@ private slots:
         CapabilityAuthorization auth{[](const PrincipalId&, EntryKind, const ResourceBinding& resource,
                                         const Definition&) { return std::optional<AuthorizationSnapshot>{{resource, 1}}; }};
         CapabilityDispatcher dispatcher{registry, auth};
-        const auto principal = auth.trust(PrincipalId{"client"}, EntryKind::LocalAgent);
+        const auto principal = auth.trust(PrincipalId{"client"}, EntryKind::Mcp);
         auto context = auth.context(principal, ImportedFileBinding{ResourceId{"file"}, "hash", 4}, 1,
             OperationId{"op"}, Clock::now() + std::chrono::seconds(5));
         QCOMPARE(std::get<Rejection>(dispatcher.admit(CapabilityId{"terminal.context.read"}, context)),
@@ -109,8 +108,8 @@ private slots:
         CapabilityAuthorization auth{[&version](const PrincipalId&, EntryKind, const ResourceBinding& resource,
             const Definition&) { return std::optional<AuthorizationSnapshot>{{resource, version}}; }};
         CapabilityDispatcher dispatcher{registry, auth, [&now] { return now; }};
-        LocalAgentAdapter local{auth, PrincipalId{"client"}};
-        auto context = local.context(DirectoryBinding{}, 1, OperationId{"queued"}, now + std::chrono::seconds(5));
+        McpCapabilityAdapter second{auth, PrincipalId{"client"}};
+        auto context = second.context(DirectoryBinding{}, 1, OperationId{"queued"}, now + std::chrono::seconds(5));
         int calls = 0;
         Completion<int> delivery;
         std::optional<InvocationLease> held;

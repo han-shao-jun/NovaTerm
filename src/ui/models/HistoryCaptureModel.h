@@ -1,5 +1,5 @@
 #pragma once
-#include "history/HistoryService.h"
+#include "recording/HistoryService.h"
 #include <QAbstractTableModel>
 #include <QPointer>
 

@@ -1,6 +1,6 @@
 // Isolated synthetic receive source. Never starts NovaTerm, a transport, or reconnects devices.
-#include "history/HistoryChunkStore.h"
-#include "history/HistoryService.h"
+#include "recording/HistoryChunkStore.h"
+#include "recording/HistoryService.h"
 #include <QApplication>
 #include <QDateTime>
 #include <QElapsedTimer>

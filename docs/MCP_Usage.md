@@ -1,13 +1,13 @@
 # NovaTerm AI MCP 使用说明
 
-历史MCP测试、审查与缺口详见[实施与验收记录](architecture/stages/P8_AI_MCP_Interface/03_Implementation_and_Verification.md)；引用成绩须按日期与平台区分。
+历史MCP测试、审查与缺口详见[实施与验收记录](architecture/stages/P8_AI_MCP_Interface/records/03_Implementation_and_Verification.md)；引用成绩须按日期与平台区分。
 
 NovaTerm 提供进程内 Streamable HTTP MCP 服务，可让支持 MCP 的 AI 客户端读取指定终端输出、
 搜索已读取的内容、运行授权诊断，以及通过当前交互终端执行受控命令和脚本任务。默认关闭。
 
 历史录制与读取另行授权：在主菜单 **历史录制** 中手动开始/停止录制，选择录制条目和已登记的 MCP 客户端，填写 record 范围后点击 **Share selected**。终端的「读取输出」权限不会授权完整历史。范围终点为 `0` 表示每次请求时的已提交高水位，活动录制后续提交的数据也在此选择范围内；指定有限 record ID 可固定共享范围。默认共享到退出，勾选 **Keep permission after restart** 才保存离线权限；关闭终端不会撤销，撤回请用 **Revoke history permission**。
 
-历史工具为 `novaterm_list_captures`（仅列获准录制）、`novaterm_read_history`（base64 原文字节分页）、`novaterm_search_history`（UTF-8 文本或原文字节 literal 搜索）。按返回的 nextCursor 续页，不把 `complete=false` 或 unknown_tail 当成无缺失/无故障。搜索证据默认仅保留期限内存，退出后不可恢复；历史工具不会自动启用录制、恢复设备连接或执行命令。本机 **Share local log file…** 只共享明确选择的文件资源，最多 16 MiB，权限到退出，可用 **Revoke imported files** 撤回；离线分析器随后续阶段交付。
+历史工具为 `novaterm_list_captures`（仅列获准录制）、`novaterm_read_history`（base64 原文字节分页）、`novaterm_search_history`（UTF-8 文本或原文字节 literal 搜索）。按返回的 nextCursor 续页，不把 `complete=false` 或 unknown_tail 当成无缺失/无故障。搜索证据默认仅保留期限内存，退出后不可恢复；历史工具不会自动启用录制、恢复设备连接或执行命令。本机 **Share local log file…** 只共享明确选择的文件资源，最多 16 MiB，权限到退出，可用 **Revoke imported files** 撤回；本轮不规划离线分析器。
 
 ## 开始使用
 
@@ -59,7 +59,7 @@ http_headers = { Authorization = "Bearer <从 NovaTerm 导出的接入令牌>" }
 | 工具 | 用途 |
 | --- | --- |
 | `novaterm_list_sessions` | 列出该客户端获准访问的会话及身份 |
-| `novaterm_read_context` | 读取活动屏幕和最近有意义输出的有界摘要 |
+| `novaterm_read_context` | 缺省读取屏幕/摘要；source=log 按精确位置读取保留的终端历史 |
 | `novaterm_search_context` | 搜索一次已返回的 capture，不搜索整个历史或执行正则 |
 | `novaterm_interact_terminal` | 按观察返回的输入令牌操作当前终端，并等待下一次有用反馈 |
 | `novaterm_request_elevation` | 请求托管 sudo/su；当前没有可信认证适配器，返回不可用且不读取密码、不输入命令 |
@@ -68,7 +68,7 @@ http_headers = { Authorization = "Bearer <从 NovaTerm 导出的接入令牌>" }
 | `novaterm_run_command` | 在明确共享的当前交互终端执行命令；高风险或无法分类的命令需要 MCP 客户端人工确认 |
 | `novaterm_run_script` | 确认后将脚本写入 LocalShell/SSH 主机的指定路径，再在当前交互终端显示并执行调用命令 |
 
-终端上下文不是完整日志：重复行和进度噪声可能被过滤，长输出可能截断；备用屏
+缺省观察上下文是摘要：重复行和进度噪声可能被过滤，长输出可能截断；备用屏
 主要返回当前屏幕。必须检查 `sourceTruncated`、`outputTruncated`、`resetRequired`。
 旧读取在截断时不返回可推进的 nextToken。compact 读取另外区分 `projectionLimited`
 （本次预算省略，可用 `expandToken` 补读）和 `sourceGap`（源摘要已有缺口，不能补齐）；
@@ -76,6 +76,28 @@ http_headers = { Authorization = "Bearer <从 NovaTerm 导出的接入令牌>" }
 
 终端中已经显示的敏感信息可能随授权输出被读取。程序不提供获取会话密码、私钥
 或凭据引用的 MCP 工具，但也不会声称可以自动识别终端里所有敏感文字。
+
+## 按位置读取日志（B1）
+
+日志与屏幕分开读取。先用 `novaterm_read_context` 保存当前已提交历史的尾书签：
+
+```json
+{"sessionId":"<session id>","epoch":"<current epoch>","source":"log","start":"tail"}
+```
+
+要回查仍保留的旧文本，将 start 改为 oldest。后续传日志响应的 nextToken：
+
+```json
+{"sessionId":"<session id>","epoch":"<current epoch>","source":"log","sinceToken":"<log nextToken>","maxBytes":65536,"maxLines":256}
+```
+
+串接 fragments[].text，按 lineId/byteOffset 识别重试重叠，保留不同位置的相同文本。lineComplete 表示该历史行已交付完；hardBreak=true 的末段含 LF，重连后遗留的软行 hardBreak=false，不补 LF。hasMore 时续页，caughtUp 只表示追上本次采样上界，后续输出继续沿 nextToken 读取。
+
+status=gap 表示旧位置被淘汰；status=invalidated 表示本机 clear 或 resize 回填改变了缓存代际。两者都不自动换起点，明确记录不完整后用 earliestToken（保留起点）或 sampledEndToken（当前尾书签）重新建立基线。pending/busy 表示冷页尚未就绪/资源忙，保留已返回片段并沿 nextToken 稍后重试；unavailable 如实报告源不可用。Core 锁忙会返回 BUSY，仍用原请求重试。TEXT_BUDGET_TOO_SMALL 要增大 maxBytes。
+
+预算缺省 65536 字节/256 分段，最大 262144/1024；compact 只改缺省为 4096/24。初次 start 与续读 sinceToken 必须二选一；日志模式不要传 expandToken、waitFor、非零 waitMs 或 includeViewport=true。只有读取授权也可建立书签，整个过程没有输入或清空。
+
+当前软尾行、未换行提示、CR 进度条和备用屏仍看缺省 observation。日志只读已稳定的终端缓存，没有原始字节或覆写前屏幕帧；分页完整不证明 UART 硬件零丢失。日志 token 与观察 token/capture/expandToken 不混用，不产生 inputToken；需要操作时另读屏幕。MCP 清空、文本条件等待、长任务、文件传输和保存目标建连工具尚未开放。
 
 ## 终端观察与操作
 

@@ -1315,6 +1315,13 @@ std::optional<NovaTerm::u64> TerminalCore::tryModelRevision() const
     return _runtime->modelRevision;
 }
 
+std::optional<NovaTerm::LogPage> TerminalCore::tryReadLog(const NovaTerm::LogRequest& request) const
+{
+    std::unique_lock<std::mutex> locker(_runtime->modelMutex, std::try_to_lock);
+    if (!locker.owns_lock()) return std::nullopt;
+    return _runtime->scrollback.readLog(request);
+}
+
 std::shared_ptr<const NovaTerm::PublishedTerminalState>
 TerminalCore::requestPublishedTerminalState(u64 sinceLineId)
 {

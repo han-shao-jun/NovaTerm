@@ -46,6 +46,22 @@ class WireSessionTests final : public QObject
 {
     Q_OBJECT
 private slots:
+    void bothHandshakesUseTheSameAgentInstructions() {
+        WireSession legacy; QSignalSpy legacyPackets(&legacy, &WireSession::packet);
+        legacy.receiveMessage(initialize(), "init");
+        const auto a = QJsonDocument::fromJson(legacyPackets.last()[1].toByteArray()).object()
+            .value("result").toObject().value("instructions").toString();
+        WireSession modern; QSignalSpy modernPackets(&modern, &WireSession::packet);
+        modern.receiveMessage({{"jsonrpc", "2.0"}, {"id", 1}, {"method", "server/discover"},
+            {"params", QJsonObject{{"_meta", QJsonObject{{"io.modelcontextprotocol/protocolVersion", "2026-07-28"},
+                {"io.modelcontextprotocol/clientCapabilities", QJsonObject{}}}}}}}, "discover");
+        const auto b = QJsonDocument::fromJson(modernPackets.last()[1].toByteArray()).object()
+            .value("result").toObject().value("instructions").toString();
+        QCOMPARE(a, agentInstructions()); QCOMPARE(b, a);
+        QVERIFY(a.contains("no per-command risk confirmation"));
+        QVERIFY(a.contains("UART idle completion is unverified"));
+        QVERIFY(a.contains("source=log")); QVERIFY(a.contains("Never rerun uncertain"));
+    }
     void historyCallsUseTheirOwnProtocolEvent() {
         WireSession wire; ready(wire); QSignalSpy backend(&wire, &WireSession::backendEvent);
         wire.receiveMessage({{"jsonrpc", "2.0"}, {"id", 2}, {"method", "tools/call"},
@@ -255,9 +271,15 @@ private slots:
             QCOMPARE(variant.toObject().value("additionalProperties"), QJsonValue(false));
         const auto readData = read.value("outputSchema").toObject().value("properties").toObject()
             .value("data").toObject();
-        QVERIFY(readData.value("additionalProperties").toBool());
-        QVERIFY(!readData.value("required").toArray().contains("viewport"));
-        QVERIFY(readData.value("properties").toObject().contains("inputToken"));
+        const auto sources = readData.value("anyOf").toArray(); QCOMPARE(sources.size(), 2);
+        const auto observation = sources.first().toObject();
+        QVERIFY(observation.value("additionalProperties").toBool());
+        QVERIFY(!observation.value("required").toArray().contains("viewport"));
+        QVERIFY(observation.value("properties").toObject().contains("inputToken"));
+        const auto log = sources.last().toObject();
+        QCOMPARE(log.value("additionalProperties"), QJsonValue(false));
+        QVERIFY(log.value("required").toArray().contains("fragments"));
+        QVERIFY(log.value("required").toArray().contains("earliestToken"));
         const auto sessionItem = sessions.value("outputSchema").toObject().value("properties").toObject()
             .value("data").toObject().value("properties").toObject().value("sessions").toObject()
             .value("items").toObject();

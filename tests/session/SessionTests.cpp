@@ -12,7 +12,7 @@
 #include "session/TerminalSession.h"
 #include "session/SessionInputPump.h"
 #include "service/HistoryRecordingBinding.h"
-#include "history/HistoryService.h"
+#include "recording/HistoryService.h"
 #include "transport/ITransport.h"
 #include "transport/SerialTransport.h"
 #include "transport/SerialDriverReceiveQueue.h"
@@ -1975,15 +1975,15 @@ void SessionTests::agentContextJoinsHistorySeamAndBoundsUtf8()
     QVERIFY(core.writeInput(wrapped).fullyAccepted());
     QVERIFY(core.waitForIdle());
     TerminalContextProvider provider(&core);
-    const auto context = provider.context({});
-    QVERIFY(std::any_of(context.recentOutput.begin(), context.recentOutput.end(), [](const auto& line) {
+    const auto context = provider.trySnapshot(); QVERIFY(context);
+    QVERIFY(std::any_of(context->entries.begin(), context->entries.end(), [](const auto& line) {
         return line.text == "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMN";
     }));
     QVERIFY(core.writeInput(QByteArray("\x1b]2;") + QStringLiteral("中文").toUtf8() + '\x07').fullyAccepted());
     QVERIFY(core.waitForIdle());
-    const auto bounded = provider.context({0, 4, 1, true});
-    QCOMPARE(bounded.title, QStringLiteral("中").toStdString());
-    QVERIFY(bounded.truncated);
+    const auto bounded = core.tryTerminalState(0, 4, 1); QVERIFY(bounded);
+    QCOMPARE(bounded->title, QStringLiteral("中").toStdString());
+    QVERIFY(bounded->truncated);
     TerminalStateCache cache;
     for (NovaTerm::u64 revision = 1; revision <= 2048; ++revision)
         cache.append(revision, std::to_string(revision));
@@ -1994,55 +1994,50 @@ void SessionTests::agentContextJoinsHistorySeamAndBoundsUtf8()
 void SessionTests::agentContextFiltersProgressWrapDuplicatesAndAlternate()
 {
     TerminalCore core(10, 6);
-    core.resize(10, 6);
     QVERIFY(core.waitForIdle());
     TerminalContextProvider provider(&core);
     const auto feed = [&](const QByteArray& data) {
         return core.writeInput(data).fullyAccepted() && core.waitForIdle();
     };
     const auto contains = [](const auto& lines, const std::string& value) {
-        return std::any_of(lines.begin(), lines.end(), [&](const auto& line) {
-            return line.text == value;
-        });
+        return std::any_of(lines.begin(), lines.end(), [&](const auto& line) { return line.text == value; });
     };
     QVERIFY(feed("1234567890AB\r\n"));
-    auto context = provider.context({});
-    QVERIFY(contains(context.recentOutput, "1234567890AB"));
-    auto revision = context.revision;
+    auto context = provider.trySnapshot(); QVERIFY(context);
+    QVERIFY(contains(context->entries, "1234567890AB"));
+    const auto retainedEntries = context->entries.size();
     for (int percent = 1; percent < 100; ++percent) {
         QVERIFY(feed("\r" + QByteArray::number(percent) + "%"));
-        context = provider.context({revision, 65536, 256, true});
-        QVERIFY(context.recentOutput.empty());
-        revision = context.revision;
+        context = provider.trySnapshot(); QVERIFY(context);
+        QCOMPARE(context->entries.size(), retainedEntries);
     }
+    const auto revision = context->state.revision;
     QVERIFY(feed("\r\x1b[2Kdone\r\ndone\r\n|\r\n"));
-    context = provider.context({revision, 65536, 256, true});
-    QCOMPARE(std::count_if(context.recentOutput.begin(), context.recentOutput.end(),
-        [](const auto& line) { return line.text == "done"; }), 1);
-    QVERIFY(!contains(context.recentOutput, "|"));
-    revision = context.revision;
+    context = provider.trySnapshot(); QVERIFY(context);
+    QCOMPARE(std::count_if(context->entries.begin(), context->entries.end(), [revision](const auto& line) {
+        return line.revision > revision && line.text == "done";
+    }), 1);
+    QVERIFY(!contains(context->entries, "|"));
+    const auto beforeAlternate = context->state.revision;
     QVERIFY(feed("\x1b[?1049h\x1b[Htop 1"));
-    context = provider.context({revision, 65536, 256, true});
-    QVERIFY(context.alternateScreen);
-    QVERIFY(context.recentOutput.empty());
-    QVERIFY(context.resetRequired);
+    context = provider.trySnapshot(); QVERIFY(context);
+    QVERIFY(context->state.alternateScreen); QVERIFY(context->entries.empty());
+    QVERIFY(context->resetRevision > beforeAlternate);
     for (int frame = 0; frame < 100; ++frame) {
         QVERIFY(feed("\x1b[Htop " + QByteArray::number(frame)));
-        context = provider.context({0, 65536, 256, true});
-        QVERIFY(context.recentOutput.empty());
-        QVERIFY(context.viewport.size() <= 6);
+        context = provider.trySnapshot(); QVERIFY(context);
+        QVERIFY(context->entries.empty()); QVERIFY(context->state.viewport.size() <= 6);
     }
     QVERIFY(feed("\x1b[?1049l\x1b]2;agent-title\x07"));
-    context = provider.context({});
-    QVERIFY(!context.alternateScreen);
-    QCOMPARE(context.title, std::string("agent-title"));
-    context = provider.context({0, 12, 2, true});
-    std::size_t bytes = context.title.size();
-    for (const auto& line : context.viewport) bytes += line.text.size();
-    for (const auto& line : context.recentOutput) bytes += line.text.size();
+    context = provider.trySnapshot(); QVERIFY(context);
+    QVERIFY(!context->state.alternateScreen); QCOMPARE(context->state.title, std::string("agent-title"));
+    const auto bounded = core.tryTerminalState(0, 12, 2); QVERIFY(bounded);
+    std::size_t bytes = bounded->title.size();
+    for (const auto& line : bounded->viewport) bytes += line.text.size();
+    for (const auto& line : bounded->recentOutput) bytes += line.text.size();
     QVERIFY(bytes <= 12);
-    QVERIFY(context.viewport.size() + context.recentOutput.size() <= 2);
-    QVERIFY(context.truncated);
+    QVERIFY(bounded->viewport.size() + bounded->recentOutput.size() <= 2);
+    QVERIFY(bounded->truncated);
 }
 
 void SessionTests::lifecycleReachesRunningThenClosed()

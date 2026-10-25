@@ -265,6 +265,8 @@ bool ChunkedScrollback::takeNewestTail(isize cellCount, LogicalLine& out)
     if (!makeNewestLineWritable())
         return false;
 
+    ++_logGeneration; // resize may move already delivered history back to the mutable screen
+
     LogicalLine& line = _active->lines.back();
     const isize before = lineBytes(line);
     const isize taken = takeTailCells(line, cellCount, out);
@@ -302,6 +304,7 @@ bool ChunkedScrollback::takeNewestTail(isize cellCount, LogicalLine& out)
 
 void ChunkedScrollback::clear()
 {
+    ++_logGeneration;
     if (_historyRuntime) _historyRuntime->invalidate(_registration);
     // 所有封存块进入 retired，等旧快照释放后才真正回收。
     for (const StoredChunk& stored : _chunks)

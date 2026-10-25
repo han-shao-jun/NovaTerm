@@ -18,6 +18,7 @@
 #include "BoundedByteQueue.h"
 #include "ScreenBuffer.h"
 #include "TerminalState.h"
+#include "core/scrollback/TerminalLog.h"
 #include "core/scrollback/LineLayout.h"
 #include "core/search/SearchEngine.h"
 #include "history/HistoryCompressionService.h"
@@ -138,6 +139,7 @@ public:
         std::size_t maxLines = 256) const;
     /** @brief 非阻塞读取模型版本，供只读门面复用未变化的快照。 */
     [[nodiscard]] std::optional<NovaTerm::u64> tryModelRevision() const;
+    [[nodiscard]] std::optional<NovaTerm::LogPage> tryReadLog(const NovaTerm::LogRequest& request) const;
     /** @brief 返回最近发布物，并按最多 4 Hz 合并请求 Parser 刷新。
      *  @param sinceLineId 调用方已消费到的历史行高水位。发布物按该水位截断，
      *  与直接捕获路径（Provider 传自己的高水位）语义一致；传 0 表示需要完整

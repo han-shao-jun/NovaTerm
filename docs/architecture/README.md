@@ -6,10 +6,12 @@
 
 本目录收录 NovaTerm 的架构配套文档。统一架构总览位于 [`docs/ARCHITECTURE.md`](../ARCHITECTURE.md)；本目录中的配置、渲染、路线图和阶段实施文档用于补充细节与追溯设计来源。
 
-MCP、诊断与 AI Agent 专项文档已统一为总分结构：[文档入口](stages/P8_AI_MCP_Interface/README.md)、[总体架构](stages/P8_AI_MCP_Interface/00_Overall_Architecture.md)、[阶段划分与验收](stages/P8_AI_MCP_Interface/01_Phases_and_Acceptance.md)。各阶段实施计划位于 stages/P8_AI_MCP_Interface/；原项目P8的当前契约、完整验收记录和历史设计已分别归入mcp/02、03、04。
+外部 Agent 的 SSH/UART MCP 专项入口：[文档导航](stages/P8_AI_MCP_Interface/README.md)、[总体架构](stages/P8_AI_MCP_Interface/00_Overall_Architecture.md)、[闭环缺口](stages/P8_AI_MCP_Interface/03_Gaps_and_Evidence.md)、[实施与验收](stages/P8_AI_MCP_Interface/01_Phases_and_Acceptance.md)。2026-10-24 已删除旧 mcp/P0～P8 平台方案，采用 B0～B4 终端闭环任务；实施证据独立保存在 records/。
 
 
 ## 阅读顺序
+
+2026-10-25 MCP 对照补齐见 [工作流扩展](stages/P8_AI_MCP_Interface/06_Terminal_Workflow_Extensions.md)：B3a 为条件等待和长任务，B3b 为单文件传输与获准保存目标连接；产品能力尚未实施，不新增通过成绩。
 
 1. [总体架构](../ARCHITECTURE.md)：系统边界、数据流、线程、所有权和目标架构。
 2. [配置、Profile 与主题](Configuration_Profile_Theme.md)：配置分层、Profile、Session 和主题职责。
@@ -19,7 +21,7 @@ MCP、诊断与 AI Agent 专项文档已统一为总分结构：[文档入口](s
    - 对照参考：[Windows Terminal 渲染架构](Windows_Terminal_Rendering_Architecture.md)
      （基于本地源码 `D:\qt\terminal` 的 Renderer/AtlasEngine 全链路分析，供渲染优化对照）。
 6. [MCP当前接口契约](stages/P8_AI_MCP_Interface/02_Current_MCP_Contract.md)：进程内 Streamable HTTP、会话身份、
-   独立读取/输入授权、九工具契约、预算与验收；基础观察/操作闭环已接入；[完整验收记录](stages/P8_AI_MCP_Interface/03_Implementation_and_Verification.md)与[历史设计档案](stages/P8_AI_MCP_Interface/04_Historical_Design_Archive.md)分开保存。
+   独立读取/输入授权、九终端工具与三历史工具的兼容基线；基础观察/操作已接入，B1 精确日志游标已实施，MCP 清空仍为 B2 目标。[验收档案](stages/P8_AI_MCP_Interface/records/README.md)按日期记录已有成绩。
 7. [Windows 串口压力验收](Performance_Serial_Stress_2026-10-07.md)：虚拟串口
    数据量矩阵、实际驱动队列查询与 256 KiB 大队列复测；
    [CPU 热点采样](Performance_Serial_Hotspots_2026-10-07.md)记录 WPR/xperf
@@ -40,7 +42,7 @@ MCP、诊断与 AI Agent 专项文档已统一为总分结构：[文档入口](s
 | P5 Glyph 与 GPU 管线 | 实施完成；Linux Vulkan/OpenGL、Windows D3D11/D3D12 与 30 分钟长稳验收完成（2026-08-02）；macOS Metal、多屏 DPR 与 120/144 Hz 验收待完成 | [P5](stages/P5_Glyph_and_GPU_Pipeline.md) |
 | P6 Session 与 Transport | 进行中：Transport 四种完成，会话编排采用「1 View 拥有 1 Session」已在生产；剩 keyboard-interactive、close 模式、exited→UI、ProfileStore 持久化、contract tests | [P6](stages/P6_Session_and_Transport.md) |
 | P7 系统资源查询 | 已实现为内置功能（常驻监控 2026-09-06、系统信息窗口 2026-09-09）；性能量化验收待补 | [P7](stages/P7_System_Resource_Monitor.md) |
-| P8 AI MCP 接口 | HTTP 九工具及基础终端观察/操作闭环已实现（2026-10-17）；托管提权适配器、完整命令跟踪和 4 Hz 合并待收口；历史响应率 94.2% 未达 99%，GUI frame P95、跨平台/真实 Shell 验收未完成；mcp/P1 能力目录/类型化端口与路由已落地，Linux 范围见 [P1验收](stages/P8_AI_MCP_Interface/P1_Implementation_and_Verification.md) | [MCP契约](stages/P8_AI_MCP_Interface/02_Current_MCP_Contract.md) |
+| P8 AI MCP 接口 | 已有十二工具兼容基线；B0/B1 日志准确分页、缺口/代际及统一说明已实施；未发布 P4/P1 专属原型已退役。外部 Agent 的 SSH/UART BSP 闭环仍待 B2 清空/观察失效与真机验收，见 [缺口表](stages/P8_AI_MCP_Interface/03_Gaps_and_Evidence.md) | [MCP契约](stages/P8_AI_MCP_Interface/02_Current_MCP_Contract.md) |
 | P9 文件传输协议 | 协议库及串口 Session/手动传输窗口已接入；Linux 纯协议、门面、UI 与真实 QSerialPort/raw PTY 通路测试通过；Windows 取消发布竞争用例有已知失败，macOS 与真实 UART 文件传输验收待补 | [P9](stages/P9_File_Transfer_Protocols.md) |
 
 ## 文档权威性
@@ -72,3 +74,5 @@ MCP、诊断与 AI Agent 专项文档已统一为总分结构：[文档入口](s
 | MiB/s | 以 1 MiB = 1,048,576 bytes 计算的吞吐量 |
 | CoreTypes | `src/core/CoreTypes.h`：核心层不依赖 Qt 的基础类型（`isize`/`u8`/`u32`/`u64`/`ByteView`），与 `qsizetype`/`quint*`/`QByteArrayView` 同义但不引入 Qt |
 | 门面层 / coreqt | 承载 Qt 依赖（QObject 信号、QString、QKeyEvent、QRegularExpression）的层。当前即 `TerminalCore` 的门面部分；计划中的独立目录 `src/coreqt/` 尚未创建（见 `ARCHITECTURE.md` §3.4）|
+
+当前模块边界另见 [历史模块目录重构](History_Module_Layout_2026-10-25.md)：LZ4/录制/离线查询分置独立目录，MCP 可以引用，具体源适配属于组合边界。

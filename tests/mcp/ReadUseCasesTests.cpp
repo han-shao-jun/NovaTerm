@@ -1,5 +1,6 @@
 /** @file ReadUseCasesTests.cpp @brief 只链接纯应用目标的读取边界验收。 */
 #include "mcp/tasks/ReadUseCases.h"
+#include "mcp/tasks/LogReadUseCase.h"
 
 #include <QTest>
 
@@ -71,6 +72,30 @@ class ReadUseCasesTests : public QObject
 {
     Q_OBJECT
 private slots:
+    void logReadRechecksGrantAndBoundsWithoutMutableState()
+    {
+        class Port final : public LogReadPort {
+        public:
+            mutable int calls{0}; mutable quint64 grant{1}; mutable bool allowed{true};
+            bool revoke{false}, changeVersion{false};
+            bool authorized(const ClientId&, const SessionReference&) const override { return allowed; }
+            ClientAccessVersion version(const ClientId&) const override { return ClientAccessVersion{grant}; }
+            Result<NovaTerm::LogPage> read(const SessionReference&, const NovaTerm::LogRequest&) const override {
+                ++calls; if (revoke) allowed = false; if (changeVersion) ++grant;
+                return NovaTerm::LogPage{};
+            }
+        } port;
+        const SessionReference target{SessionId{"s"}, Epoch{"e"}};
+        NovaTerm::LogRequest query;
+        QVERIFY(!isError(readLog(port, client, target, query, ClientAccessVersion{1})));
+        query.maxBytes = 0; QVERIFY(isError(readLog(port, client, target, query, {}))); QCOMPARE(port.calls, 1);
+        query.maxBytes = 8;
+        QVERIFY(isError(readLog(port, client, target, query, ClientAccessVersion{2}))); QCOMPARE(port.calls, 1);
+        port.changeVersion = true;
+        QCOMPARE(errorIfAny(readLog(port, client, target, query, {}))->code, ErrorCode::CursorStale);
+        port.changeVersion = false; port.revoke = true;
+        QCOMPARE(errorIfAny(readLog(port, client, target, query, {}))->code, ErrorCode::SessionNotAvailable);
+    }
     void paginationIsBoundedAndResumesAfterLastVisibleSession()
     {
         FakeSessions port;

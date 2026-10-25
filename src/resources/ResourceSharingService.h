@@ -1,5 +1,5 @@
 #pragma once
-#include "history/HistorySearchTypes.h"
+#include "historysearch/HistorySearchTypes.h"
 #include "evidence/EvidenceTypes.h"
 #include <QObject>
 #include <functional>

@@ -1,10 +1,14 @@
 # NovaTerm 统一架构设计
 
-历史MCP测试、审查与缺口详见[实施与验收记录](architecture/stages/P8_AI_MCP_Interface/03_Implementation_and_Verification.md)；引用成绩须按日期与平台区分。
+2026-10-25 B0/B1：`read_context source=log` 已复用现有 ChunkedScrollback 提供稳定位置、UTF-8 分页、重复行及淘汰/代际状态；模型观察游标原义保持。Core 只 try-lock，冷页 CacheOnly，不建立第二日志存储。已退役未发布 P4 诊断平台及无生产消费者的 Recipe/EnvironmentTracker/本机 Agent 原型；CommandRuntime/Controller/EvidenceModel 保持现行执行与就绪事实。精确契约、范围及本轮成绩见 [B0/B1 记录](architecture/stages/P8_AI_MCP_Interface/records/B0_B1_Implementation_2026-10-25.md)。MCP 清空与 G05 观察失效留待 B2。
 
-MCP、诊断与内置 AI Agent 的专项总体架构和阶段实施见 [MCP 文档集](architecture/stages/P8_AI_MCP_Interface/README.md)。本页全项目原则仍适用；专项计划中的未来能力不代表当前已实现。
+2026-10-25 MCP 目标设计补充：[等待、长任务、文件传输与保存目标连接](architecture/stages/P8_AI_MCP_Interface/06_Terminal_Workflow_Extensions.md) 纳入外部 Agent 的 BSP 闭环，复用既有终端、执行、SSH/SFTP 和 View-owned Session 边界。仅为规划，不代表新工具已实现，不改变当前数据通路或所有权。
 
-2026-10-24 资源共享边界：Application 显式持有独立 Qt Core 共享服务，管理历史授权事务和查询/证据发布；MCP 仅适配协议与可信身份，原终端请求固定九工具。读取取消在流 owner 提交前回收，录制来源替换不撤销独立导入文件。实际构建/验证与未验收范围见 [本轮记录](architecture/stages/P8_AI_MCP_Interface/P3_Architecture_Fixes_2026-10-24.md)。
+历史MCP测试、审查与缺口详见[实施与验收记录](architecture/stages/P8_AI_MCP_Interface/records/03_Implementation_and_Verification.md)；引用成绩须按日期与平台区分。
+
+外部 Agent 的 SSH/UART MCP 终端工具总体架构、缓存游标与 BSP 闭环验收见 [MCP 文档集](architecture/stages/P8_AI_MCP_Interface/README.md)。本页全项目原则仍适用；专项计划中的未来能力不代表当前已实现。
+
+2026-10-24 资源共享边界：Application 显式持有独立 Qt Core 共享服务，管理历史授权事务和查询/证据发布；MCP 仅适配协议与可信身份，原终端请求固定九工具。读取取消在流 owner 提交前回收，录制来源替换不撤销独立导入文件。实际构建/验证与未验收范围见 [本轮记录](architecture/stages/P8_AI_MCP_Interface/records/P3_Architecture_Fixes_2026-10-24.md)。
 
 
 NovaTerm 的统一架构文档集中在本文件；文档索引、配置与主题、渲染架构、路线图及阶段实施说明仍位于 [architecture/README.md](architecture/README.md)。
@@ -20,6 +24,8 @@ NovaTerm 的统一架构文档集中在本文件；文档索引、配置与主�
 - P0～P9 路线图及每个阶段的独立实施文档。
 
 `docs/` 中原有的设计和 P0～P3 实施记录继续作为历史资料保留；发生冲突时，以本文件、`docs/architecture/` 配套文档和当前源码为准。
+
+2026-10-25 目录边界：内存历史/LZ4、持久录制与离线查询已经分置 `src/history/`、`src/recording/`、`src/historysearch/`；MCP/应用可引用各模块。三构建目标、类型名与持久格式保持，具体录制源端口适配位于 resources 组合边界。见 [本轮目录重构](architecture/History_Module_Layout_2026-10-25.md)。
 
 ## 1. 愿景与范围
 
@@ -337,7 +343,7 @@ SSH/LocalShell 脚本正文由 Session 级 ScriptProvider 写入明确目标路�
 不阻塞 GUI；完整性能验收与设计差距见 MCP实施与验收记录。
 
 本机 sudo/su 凭据分开保存；UI 的异步凭据入口由专用工作线程拥有独立系统连接。
-历史 P3 增量：录制接收流、只读原文/搜索、来源无关 Evidence 分别由 `novaterm_history_recording`、`novaterm_history_search`、`novaterm_evidence` 拥有。搜索只依赖异步记录端口和 Qt Core；Evidence 只见来源读取与授权端口，不链接 History/Session/诊断实现。MCP 集成层创建可信身份、装配 P1 准入及来源适配；UI 仅发本机共享/撤回意图。capture grant 不继承 Session grant，读取和搜索固定提交高水位，证据默认期限内存；完整性与页扫描 complete 分开。具体资源上限、原九工具兼容和未验收范围见 [P3 实施记录](architecture/stages/P8_AI_MCP_Interface/P3_Implementation_and_Verification.md)。
+历史 P3 增量：录制接收流、只读原文/搜索、来源无关 Evidence 分别由 `novaterm_history_recording`、`novaterm_history_search`、`novaterm_evidence` 拥有。搜索只依赖异步记录端口和 Qt Core；Evidence 只见来源读取与授权端口，不链接 History/Session/诊断实现。MCP 集成层创建可信身份、装配 P1 准入及来源适配；UI 仅发本机共享/撤回意图。capture grant 不继承 Session grant，读取和搜索固定提交高水位，证据默认期限内存；完整性与页扫描 complete 分开。具体资源上限、原九工具兼容和未验收范围见 [P3 实施记录](architecture/stages/P8_AI_MCP_Interface/records/P3_Implementation_and_Verification.md)。
 MCP 协议状态读取只查询引用元数据，不取密。当前可信认证适配器为空，托管提权
 在取密或输入前返回 `ELEVATION_ADAPTER_UNAVAILABLE`；保存密码不开放代填能力。
 
@@ -561,6 +567,8 @@ Session 状态建议统一为 `Created → Connecting → Running → Paused/Rec
 
 ## 9. 当前目录映射
 
+专项文档位于 docs/architecture/stages/P8_AI_MCP_Interface/；根目录只保留当前架构、契约、缺口、游标设计、使用流程和实施顺序，records/ 仅保存测试与故障证据。旧 mcp/P0～P8 方案已删除，不再作为实施路线。
+
 ```text
 src/
 ├── history/            # C++17 codec/共享预算缓存/后台服务；无 Qt
@@ -585,11 +593,15 @@ src/
 │   ├── windows/conpty/  # ConPtyApi、ConPtySession、WinHandle
 │   └── linux/pty/       # PtySession
 ├── service/             # Config、Language
-├── capabilities/        # mcp/P1 目录、准入、类型化领域端口与 Recipe 路由（无 HTTP/UI）
+├── history/             # 纯 C++ 内存历史/LZ4、后台预算/冷读；无 Qt/MCP
+├── recording/           # 持久接收流录制、块文件/SQLite/保留策略
+├── historysearch/       # 离线资源授权/读取/搜索/投影；端口注入数据源
+├── resources/           # 共享事务/证据；具体录制源适配供组合根使用
+├── capabilities/        # 目录、准入、类型化领域端口（无 HTTP/UI；Recipe/本机 Agent 原型已退役）
 ├── mcp/                 # P8 Streamable HTTP、wire、授权、请求调度与固定诊断策略
 └── ui/                  # app/(MainWindow)、pages/、terminal/(TerminalView)、widgets/
 tests/
-├── core/  renderer/  session/  transport/  mcp/  filetransfer/  history/
+├── core/  renderer/  session/  transport/  mcp/  filetransfer/  history/  recording/  historysearch/
 ├── history-noqt/       # 不经过根 Qt 配置的完整历史后端验收
 └── benchmarks/
     ├── history/         # 独立进程 OFF/ON 合成语料及 JSON 矩阵
@@ -1466,4 +1478,4 @@ UI 只发本机意图，默认关闭，不自动共享或增加 MCP 历史工具
 
 manifest 与逐记录校验共同限定已提交前缀；正常 seal 与已知 gap 分开，异常/未封口保持 unknown_tail，
 不把未知丢失数量填零。Windows 已跑专项及影响范围回归，跨平台、断电与真实终端性能门槛未关闭。
-具体契约、默认容量依据和结果见 [P2 实施与验证](architecture/stages/P8_AI_MCP_Interface/P2_Implementation_and_Verification.md)。
+具体契约、默认容量依据和结果见 [P2 实施与验证](architecture/stages/P8_AI_MCP_Interface/records/P2_Implementation_and_Verification.md)。

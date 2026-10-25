@@ -86,6 +86,7 @@ class ContractsTests : public QObject
 {
     Q_OBJECT
 private slots:
+    void logReadRequiresExplicitSourceAndStart();
     void confirmationClaimsKeepWireFormatAndRejectTampering();
     void catalogMatchesCompatibilityFixture();
     void catalogExposesNineToolsInOrder();
@@ -102,6 +103,29 @@ private slots:
     void projectionSizerMatchesWireEncoding();
 };
 
+void ContractsTests::logReadRequiresExplicitSourceAndStart()
+{
+    auto args = identity();
+    args.insert("source", "log");
+    args.insert("start", "oldest");
+    QVERIFY2(ToolCodec::validate("novaterm_read_context", args).isEmpty(), "B1 log selection must be accepted");
+    args.remove("start");
+    QVERIFY(!ToolCodec::validate("novaterm_read_context", args).isEmpty());
+    args.insert("sinceToken", "signed-log-position");
+    QVERIFY(ToolCodec::validate("novaterm_read_context", args).isEmpty());
+    args.insert("start", "tail");
+    QVERIFY(!ToolCodec::validate("novaterm_read_context", args).isEmpty());
+    args.remove("start");
+    for (const auto& field : QStringList{"expandToken", "waitFor", "includeViewport", "waitMs"}) {
+        auto invalid = args;
+        invalid.insert(field, field == "includeViewport" ? QJsonValue(true)
+            : field == "waitMs" ? QJsonValue(1) : QJsonValue("x"));
+        QVERIFY(!ToolCodec::validate("novaterm_read_context", invalid).isEmpty());
+    }
+    args = identity(); args.insert("start", "tail");
+    QVERIFY(!ToolCodec::validate("novaterm_read_context", args).isEmpty());
+}
+
 void ContractsTests::catalogMatchesCompatibilityFixture()
 {
     QFile fixture(QStringLiteral(NOVATERM_SOURCE_DIR)
@@ -114,7 +138,25 @@ void ContractsTests::catalogMatchesCompatibilityFixture()
     // 对象比较，不是文本比较：键顺序与空白不参与语义，字段/枚举/默认值参与。
     const auto legacy = document.array();
     QVERIFY(ToolCodec::catalog().size() >= legacy.size());
-    for (qsizetype i = 0; i < legacy.size(); ++i) QCOMPARE(ToolCodec::catalog()[i], legacy[i]);
+    for (qsizetype i = 0; i < legacy.size(); ++i) {
+        const auto current = ToolCodec::catalog()[i].toObject();
+        if (legacy[i].toObject().value("name") != "novaterm_read_context") {
+            QCOMPARE(current, legacy[i].toObject()); continue;
+        }
+        QFile logFixture(QStringLiteral(NOVATERM_SOURCE_DIR "/tests/mcp/fixtures/read-context-log-2026-10-25.json"));
+        QVERIFY(logFixture.open(QIODevice::ReadOnly));
+        QCOMPARE(current, QJsonDocument::fromJson(logFixture.readAll()).object());
+        const auto previous = legacy[i].toObject();
+        QCOMPARE(current.value("annotations"), previous.value("annotations"));
+        const auto oldInput = previous.value("inputSchema").toObject();
+        const auto newInput = current.value("inputSchema").toObject();
+        QCOMPARE(newInput.value("required"), oldInput.value("required"));
+        const auto props = oldInput.value("properties").toObject();
+        for (auto it = props.begin(); it != props.end(); ++it)
+            QCOMPARE(newInput.value("properties").toObject().value(it.key()), it.value());
+        QCOMPARE(current.value("outputSchema").toObject().value("properties").toObject().value("data")
+            .toObject().value("anyOf").toArray().first(), previous.value("outputSchema").toObject().value("properties").toObject().value("data"));
+    }
 }
 
 void ContractsTests::catalogExposesNineToolsInOrder()

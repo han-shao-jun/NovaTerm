@@ -39,6 +39,7 @@ inline constexpr auto WireDeadlineMargin = Budget::WireDeadlineMargin;
 inline constexpr const char* ProtocolVersion = "2025-11-25";
 
 [[nodiscard]] QString newId();
+[[nodiscard]] QString agentInstructions();
 [[nodiscard]] QByteArray randomBytes(int count = 32);
 [[nodiscard]] bool constantTimeEqual(const QByteArray& a, const QByteArray& b);
 [[nodiscard]] QString signToken(const QJsonObject& fields, const QByteArray& key);

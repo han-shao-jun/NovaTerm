@@ -186,13 +186,6 @@ void SessionDirectory::refresh(TerminalSession* session)
         it->targetFingerprint = target;
     it->state = state;
     it->kind = kind;
-    if (identityChanged || targetChanged) {
-        NovaTerm::Capabilities::SessionBinding binding{
-            NovaTerm::Capabilities::SessionId{it->id}, NovaTerm::Capabilities::AttachmentId{it->attachmentId},
-            NovaTerm::Capabilities::Epoch{it->epoch}, it->generation, {}};
-        if (!it->targetFingerprint.isEmpty()) binding.targetFingerprint = it->targetFingerprint;
-        session->environmentTracker().newConnection(std::move(binding));
-    }
     ++_revision;
     if (identityChanged || targetChanged || state == SessionState::Closing
         || state == SessionState::Closed)

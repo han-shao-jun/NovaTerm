@@ -1,5 +1,5 @@
 #include "HistoryRecordingBinding.h"
-#include "history/HistoryService.h"
+#include "recording/HistoryService.h"
 #include "session/TerminalSession.h"
 
 void bindHistoryRecording(TerminalSession* session, NovaTerm::Recording::HistoryService* recording) {

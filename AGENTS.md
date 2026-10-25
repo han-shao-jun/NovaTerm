@@ -3,6 +3,14 @@
 给 AI 助手的项目上手说明。目标是让新会话在不重复摸索的前提下开始工作。
 **权威信息在 `docs/`，本文件只做导航与记录"读文档看不出来的东西"。**
 
+### 外部 Agent MCP B0/B1（2026-10-25，工作区增量）
+
+本轮已实现 `read_context source=log`，`start=tail|oldest` 建基线、日志 token 精确分页，保留重复行/空行、UTF-8 分段及淘汰/冷页/代际提示。旧 observation/full/compact/expand/inputToken 行为保持。未发布 P4 诊断工具及无生产消费者的 P1 Recipe/环境/本机 Agent 原型已退役，工具仍十二项；旧同步 Provider 投影已删除，非阻塞屏幕摘要仍被生产使用。B2 清空事务/G05 观察失效、B3 及真实设备留待后续。本轮 Windows 实核注册 47 项，最终固定 Release 全套 46/47（326.68 秒），仅 ConPTY 失败；MCP 16/16，独立无 Qt 1/1。实际变更、消费者清理、当前测试和下一起点见 [B0/B1 记录](docs/architecture/stages/P8_AI_MCP_Interface/records/B0_B1_Implementation_2026-10-25.md)，历史类名/成绩不能替代当前源码或本轮成绩。
+
+### 历史模块目录边界（2026-10-25）
+
+`src/history/` 现在只保留纯 C++ 内存历史/LZ4、预算与冷读；持久录制移至 `src/recording/`，离线授权/读取/搜索移至 `src/historysearch/`。MCP 可以引用这些独立模块，具体录制源适配在 `src/resources/RecordingHistoryReadAdapter.h`。测试相应拆入 `tests/history/`、`tests/recording/`、`tests/historysearch/`；录制 QTest 文件输出现在位于 `build/Release/tests/recording/`，搜索位于 `build/Release/tests/historysearch/`。旧段落和历史记录中的混合目录路径仅反映当时状态。本轮 Release 构建通过，全套 46/47（351.54 秒），仅既有 ConPTY 目标失败；MCP16/16、录制4/4、独立 no-Qt 1/1。变更与本轮验证见 [历史模块目录重构](docs/architecture/History_Module_Layout_2026-10-25.md)。
+
 ## 项目
 
 NovaTerm（原 WindTermQt）是基于 Qt 6 的跨平台终端模拟器 / SSH 客户端。
@@ -18,9 +26,10 @@ GPU 管线，UI 用 ElaWidgetTools（FluentUI 风格）。GPLv2+，仓库在 Git
 | `docs/architecture/Development_Roadmap.md` | P0–P8 依赖、状态表、**统一完成定义** |
 | `docs/architecture/stages/P*.md` | 各阶段实施说明。P6 含逐步进度表与剩余工作 |
 | `docs/architecture/stages/P9_File_Transfer_Protocols.md` | P9 独立协议库及串口 Session/手动传输窗口；Linux 协议/门面/UI 通路已验证，Windows 取消发布竞争用例有已知失败，跨平台/真实 UART 文件验收待补 |
-| [当前MCP接口契约](docs/architecture/stages/P8_AI_MCP_Interface/02_Current_MCP_Contract.md)、[实施与验收记录](docs/architecture/stages/P8_AI_MCP_Interface/03_Implementation_and_Verification.md)、[历史设计档案](docs/architecture/stages/P8_AI_MCP_Interface/04_Historical_Design_Archive.md) | 原P8已整合：当前九工具/HTTP/确认/预算与历史设计分开；逐日期/平台记录回归及未验收范围，不从历史成绩推断新版本通过 |
-| [docs/architecture/stages/P8_AI_MCP_Interface/README.md](docs/architecture/stages/P8_AI_MCP_Interface/README.md) | MCP、诊断与 AI Agent 总分文档入口；总体架构、阶段依赖及 mcp/P0～P8 实施计划。历史录制、诊断包、Agent 属后续规划，不代表已有功能 |
-| [MCP 总体架构](docs/architecture/stages/P8_AI_MCP_Interface/00_Overall_Architecture.md)、[阶段划分](docs/architecture/stages/P8_AI_MCP_Interface/01_Phases_and_Acceptance.md)、[内核收敛计划](docs/architecture/stages/P8_AI_MCP_Interface/P0_Runtime_Consolidation.md) | 原三份设计/计划已整合；W1～W5 主要迁移已落地，纯应用边界、任务所有权等结构差距及平台验收按新计划复核，不将旧待办或历史成绩当当前事实 |
+| [当前MCP接口契约](docs/architecture/stages/P8_AI_MCP_Interface/02_Current_MCP_Contract.md)、[验收档案](docs/architecture/stages/P8_AI_MCP_Interface/records/README.md) | 十二工具冻结基线与工作区未验收扩展分开；逐日期/平台记录回归，不从历史成绩推断新版本通过 |
+| [MCP 文档入口](docs/architecture/stages/P8_AI_MCP_Interface/README.md) | 外部 Agent 经 MCP 操作 SSH/UART，完成 BSP 开发调试闭环；不内置 Agent。2026-10-24 删除旧 mcp/P0～P8 方案，当前路线为 B0～B4 |
+| [MCP 总体架构](docs/architecture/stages/P8_AI_MCP_Interface/00_Overall_Architecture.md)、[闭环缺口](docs/architecture/stages/P8_AI_MCP_Interface/03_Gaps_and_Evidence.md)、[游标设计](docs/architecture/stages/P8_AI_MCP_Interface/04_Cursor_Observation_and_Clear.md) | 复用终端缓存，补齐准确分页、清空失效和 SSH/UART 验收；目标设计不代表已实现 |
+| [MCP 工作流补齐](docs/architecture/stages/P8_AI_MCP_Interface/06_Terminal_Workflow_Extensions.md) | 2026-10-25 补充 B3a 指定文本等待/长任务、B3b 受限单文件传输/已保存目标连接；均为未实施设计，不迁 Agent 或脚本平台 |
 | `docs/architecture/Rendering_Architecture.md` | Snapshot、调度、命令缓存、QRhi、Glyph |
 | `docs/architecture/Configuration_Profile_Theme.md` | 配置分层、Profile、Session、主题职责。**描述目标设计**，开头有与当前源码的名称对照表 |
 
@@ -126,6 +135,8 @@ ctest --test-dir build -C Debug
 | `src/core/terminal/`（TerminalCore、ScreenBuffer、VTAdapter、ScrollbackBuffer、BoundedByteQueue、KeyMapper）—— 后三者经 `TerminalCore.h` 传递覆盖；KeyMapper 有专项单测 | `novaterm_core_tests` | `core` | 全部 | ~30s |
 | `third_party/libvterm-0.3.3/`（本地修正）及 VT 序列语义 | `novaterm_terminal_ops_tests` + `novaterm_core_tests`（`-L core`） | `conformance`／`core` | 全部 | <1s / ~30s |
 | `src/history/`、历史纯数据/codec/块/快照/后台预算 | `novaterm_history_no_qt_link_check`（另跑独立 `tests/history-noqt`） | `history`／`scrollback` | 全部 | <1s |
+| `src/recording/`、`tests/recording/` | `ctest -L recording` | `recording` | 全部 | 见本轮记录 |
+| `src/historysearch/`、`tests/historysearch/` | `ctest -L history-search`；MCP 接线另跑契约/业务 | `history-search` | 全部 | 见本轮记录 |
 | `src/core/scrollback/`、`src/core/search/` | `novaterm_scrollback_tests` | `scrollback` | 全部 | <1s |
 | `src/filetransfer/`、`tests/filetransfer/` | `ctest -L filetransfer -LE serial`（六项纯协议；也可独立配置 `src/filetransfer`，无需 Qt） | `filetransfer`／`p9` | 全部 | <1s |
 | `src/session/transfer/`、串口文件传输窗口及接线 | `novaterm_serial_file_transfer_tests`、`novaterm_serial_file_transfer_ui_tests`；接线另跑 `novaterm_session_tests` | `serial`／`filetransfer`／`p9` | 全部 | 门面 ~53s；UI <1s |
@@ -180,7 +191,7 @@ Session 环境事实由 `src/session/EnvironmentTracker.*` 唯一维护。旧九
 `detect_leaks=0`，不含泄漏检测。本机 HTTP/PTY 用例需允许回环/PTY，沙箱内 HTTP 启动失败不能作回归结论。
 Windows/macOS、真实 UART 与 P4/P6 产品集成未验收。下文 32/12、29/9 等数字是此前基线。
 详细依赖、状态 owner、审查修复及复测命令见
-[实施记录](docs/architecture/stages/P8_AI_MCP_Interface/P1_Implementation_and_Verification.md)。
+[实施记录](docs/architecture/stages/P8_AI_MCP_Interface/records/P1_Implementation_and_Verification.md)。
 
 0.2.72 提交前审查增量（2026-10-20）：命令取消不会触发 Runtime 的正常 completion，
 能力层必须单独回收租约；执行 timeout 与交付 deadline 保留 wire margin；环境标记 overlap 须跨任意多个 chunk。
@@ -202,7 +213,7 @@ InputPump/TerminalSession 改动另跑 Session 和文件传输；旧 `-L mcp` �
 存储最终 QTest **25/25**，Service **8/8**；含私有 DACL、未知 gap、配额、恢复、启停竞争。
 合成 64 MiB 输入零丢失，不代表真实终端性能/断电/其他平台验收。
 命令、独立审查修复、磁盘基线和未验收范围见
-`docs/architecture/stages/P8_AI_MCP_Interface/P2_Implementation_and_Verification.md`。
+`docs/architecture/stages/P8_AI_MCP_Interface/records/P2_Implementation_and_Verification.md`。
 
 P2 第二轮审查修复：9 项确认问题及 I-001 已修复；接线回调取当前 Session ID，开始时重核代际，
 保留保护独立于恢复，分页核对连续性并使用主键下界，活动配额同步、空闲不扫目录。
@@ -230,7 +241,7 @@ MCP 为旧九工具兼容对象 + 三个历史工具，共 12 项；历史读取
 官方 SDK 2025 / raw HTTP 2026 的十二工具 Schema 互操作通过。
 沙箱内临时目录私有权限/PDB 管理器异常须与产品失败区分；本轮最终验证在沙箱外进行。
 详细命令、审查修复、最后授权回收验证和保留范围见
-`docs/architecture/stages/P8_AI_MCP_Interface/P3_Implementation_and_Verification.md`。
+`docs/architecture/stages/P8_AI_MCP_Interface/records/P3_Implementation_and_Verification.md`。
 
 #### 默认注册了哪些测试
 
@@ -1989,7 +2000,7 @@ Debug/Release 完整构建通过；Debug 全套 **37/37**（185.52 秒），Rele
 `-L 'mcp|history|core'` **20/20**（38.59 秒），历史后端独立无 Qt Release **1/1**。
 本轮没有运行 Release 全套、消毒器、其他平台、真实 UART 或输入法人工验收；
 历史压缩默认关闭，性能门槛状态保持原记录。具体命令与日志见
-[P1 实施记录](docs/architecture/stages/P8_AI_MCP_Interface/P1_Implementation_and_Verification.md)。
+[P1 实施记录](docs/architecture/stages/P8_AI_MCP_Interface/records/P1_Implementation_and_Verification.md)。
 
 ### Linux LZ4 性能复测（2026-10-20）
 
@@ -2114,7 +2125,7 @@ Release 默认目标构建/重链接成功，沙箱外相关 CTest **21/21**（9
 历史读取/搜索 **32/32**、SFTP 面板 **19/19**。新增断言先 RED 后 GREEN，
 独立复核未发现阻断项；SFTP 回归使用替身结果源，未直接覆盖真实 TerminalPage
 请求映射/SSH。未运行无关全套、ConPTY、真实设备、其他平台和消毒器；未自动提交。
-详细选择、日志和保留范围见 [修复记录](docs/architecture/stages/P8_AI_MCP_Interface/P3_Review_Fixes_2026-10-23.md)。
+详细选择、日志和保留范围见 [修复记录](docs/architecture/stages/P8_AI_MCP_Interface/records/P3_Review_Fixes_2026-10-23.md)。
 
 ### MCP / P3 应用边界收敛（2026-10-24，工作区增量）
 
@@ -2139,7 +2150,7 @@ ConPTY 文件完整复跑 **10/12**，仍仅两条句柄断言，线程/子进�
 资源/协议独立复核完成，修复搜索缓存与证据后半段的准入复核后未见明确阻断项。
 I-001 GUI 停机等待延迟仍待测；其他平台、真实设备、消毒器及生产 P4/P6 未验收。
 未自动提交/推送，用户 `.dide/` 保留。所有命令、各轮失败与最终成绩见
-[架构修复记录](docs/architecture/stages/P8_AI_MCP_Interface/P3_Architecture_Fixes_2026-10-24.md)。
+[架构修复记录](docs/architecture/stages/P8_AI_MCP_Interface/records/P3_Architecture_Fixes_2026-10-24.md)。
 
 ### 0.2.82 提交收口（2026-10-24）
 
@@ -2147,3 +2158,7 @@ I-001 GUI 停机等待延迟仍待测；其他平台、真实设备、消毒器�
 版本递增后 Release 默认目标构建通过，提交前相关 CTest **22/22**（91.85 秒）；这是新一轮
 完整专项，不替代较早各轮记录。命令、日志及未验收范围见架构修复记录§6；未重跑无关全套，
 ConPTY 已知两条句柄断言保持。`.dide/` 不纳入提交，不自动推送。
+
+### 0.2.83 提交收口（2026-10-25）
+
+B0/B1、旧诊断/本机 Agent 原型退役及历史模块目录拆分一并收口；根版本递增至 0.2.83 后 Release 全构建通过，相关 CTest 23/23（90.28 秒），资源共享单项1/1。目录重构此前全套46/47、独立无 Qt1/1保持各自记录，ConPTY既有失败未改。下一功能批次从B2清空事务/G05观察失效开始，详见B0/B1与历史模块记录。不推送，不纳入构建产物或本机辅助文件。

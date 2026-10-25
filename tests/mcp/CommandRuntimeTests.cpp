@@ -1,6 +1,5 @@
 #include "mcp/tasks/CommandRuntime.h"
 #include "capabilities/terminal/CommandCapabilities.h"
-#include "capabilities/LocalAgentAdapter.h"
 #include "capabilities/McpCapabilityAdapter.h"
 
 #include <QCryptographicHash>
@@ -129,7 +128,7 @@ private slots:
         C::CapabilityDispatcher dispatcher{registry, auth};
         C::Terminal::CommandCapabilities ports{dispatcher, f.runtime};
         f.capabilities = &ports;
-        C::LocalAgentAdapter local{auth, C::PrincipalId{"client"}};
+        C::McpCapabilityAdapter local{auth, C::PrincipalId{"client"}};
         C::McpCapabilityAdapter mcp{auth, C::PrincipalId{"client"}};
         C::SessionBinding binding{C::SessionId{"session"}, C::AttachmentId{"attach"}, C::Epoch{"epoch"}, 1, "target"};
         f.sessions.synchronous = true;
@@ -178,7 +177,7 @@ private slots:
         }};
         C::CapabilityDispatcher dispatcher{registry, auth};
         C::Terminal::CommandCapabilities ports{dispatcher, f.runtime}; f.capabilities = &ports;
-        C::LocalAgentAdapter local{auth, C::PrincipalId{"client"}};
+        C::McpCapabilityAdapter local{auth, C::PrincipalId{"client"}};
         C::SessionBinding binding{C::SessionId{"session"}, C::AttachmentId{"attach"}, C::Epoch{"epoch"}, 1, "target"};
         auto call = duringPublication ? f.script() : f.command();
         if (!duringPublication) call.request = RunCommandRequest{SessionId{"session"}, Epoch{"epoch"}, "rm -rf /tmp/test"};
@@ -206,7 +205,7 @@ private slots:
         C::CapabilityAuthorization auth{[](const C::PrincipalId&, C::EntryKind,
             const C::ResourceBinding& resource, const C::Definition&) { return std::optional<C::AuthorizationSnapshot>{{resource, 5}}; }};
         C::CapabilityDispatcher dispatcher{registry, auth};
-        C::LocalAgentAdapter local{auth, C::PrincipalId{"client"}};
+        C::McpCapabilityAdapter local{auth, C::PrincipalId{"client"}};
         C::SessionBinding binding{C::SessionId{"session"}, C::AttachmentId{"attach"}, C::Epoch{"epoch"}, 1, "target"};
         auto ports = std::make_unique<C::Terminal::CommandCapabilities>(dispatcher, f.runtime);
         f.capabilities = ports.get();
@@ -229,7 +228,7 @@ private slots:
             const C::Definition&) { return std::optional<C::AuthorizationSnapshot>{{resource, 5}}; }};
         C::CapabilityDispatcher dispatcher{registry, auth};
         C::Terminal::CommandCapabilities ports{dispatcher, f.runtime}; f.capabilities = &ports;
-        C::LocalAgentAdapter local{auth, C::PrincipalId{"client"}};
+        C::McpCapabilityAdapter local{auth, C::PrincipalId{"client"}};
         C::SessionBinding binding{C::SessionId{"session"}, C::AttachmentId{"attach"}, C::Epoch{"epoch"}, 1, "target"};
         for (size_t i = 0; i <= C::CapabilityDispatcher::MaxOperations; ++i) {
             auto call = f.command(); call.task = TaskId{QString::number(i)}; call.formElicitation = true;

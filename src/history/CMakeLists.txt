@@ -6,6 +6,7 @@ target_include_directories(novaterm_lz4 PRIVATE "${NOVATERM_HISTORY_ROOT}/third_
 add_library(novaterm_history STATIC ScrollbackBlockCodec.cpp
     HistoryReadContext.cpp HistoryCompressionService.cpp ../core/ThreadNaming.cpp
     ../core/scrollback/ChunkedScrollback.cpp
+    ../core/scrollback/TerminalLog.cpp
     ../core/scrollback/ScrollbackSnapshot.cpp
     ../core/scrollback/ScrollbackChunk.cpp)
 target_compile_features(novaterm_history PUBLIC cxx_std_17)

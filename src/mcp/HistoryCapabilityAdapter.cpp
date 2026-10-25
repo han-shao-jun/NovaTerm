@@ -1,8 +1,8 @@
 #include "HistoryCapabilityAdapter.h"
 #include "McpAccess.h"
 #include "McpProtocol.h"
-#include "history/HistoryService.h"
-#include "history/HistoryRecordingReadPort.h"
+#include "recording/HistoryService.h"
+#include "resources/RecordingHistoryReadAdapter.h"
 #include <QElapsedTimer>
 #include <QJsonDocument>
 #include <QJsonArray>

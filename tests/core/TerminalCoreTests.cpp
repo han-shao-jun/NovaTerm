@@ -19,6 +19,8 @@ class TerminalCoreTests final : public QObject
     Q_OBJECT
 
 private slots:
+    void logReadKeepsActiveScreenAndAlternateScreenSeparate();
+    void logReadPassesAbandonedSoftHistoryAfterConnectionReset();
     void compressedHistorySupportsColdViewportSearchAndResize();
     void agentBatchEncodingUsesTerminalModesWithoutUserOutput();
     void parsesUtf8AndAttributes();
@@ -102,6 +104,53 @@ private slots:
     void tmuxPassthroughSplitAtEscapeBoundaryDoesNotDuplicateBytes();
     void screenSizeStaysAConsistentPairUnderConcurrentResize();
 };
+
+void TerminalCoreTests::logReadKeepsActiveScreenAndAlternateScreenSeparate()
+{
+    using namespace NovaTerm;
+    TerminalCore core(40, 2);
+    QVERIFY(core.writeInput("repeat\r\nrepeat\r\nprompt").fullyAccepted()); QVERIFY(core.waitForIdle());
+    LogRequest query;
+    auto read = core.tryReadLog(query); QVERIFY(read);
+    QCOMPARE(read->fragments.size(), size_t(1)); QCOMPARE(read->fragments[0].text, std::string("repeat\n"));
+    query.cursor = LogCursor{read->generation, read->next};
+    QVERIFY(core.writeInput("\rNEW").fullyAccepted()); QVERIFY(core.waitForIdle());
+    read = core.tryReadLog(query); QVERIFY(read); QVERIFY(read->caughtUp); QVERIFY(read->fragments.empty());
+    const auto screen = core.tryTerminalState(); QVERIFY(screen); QVERIFY(!screen->viewport.empty());
+    QVERIFY(QString::fromStdString(screen->viewport.back().text).contains("NEW"));
+    QVERIFY(core.writeInput("\x1b[?1049hTOP\r\nUPDATE\r\n").fullyAccepted()); QVERIFY(core.waitForIdle());
+    QVERIFY(core.isAlternateScreen());
+    read = core.tryReadLog(query); QVERIFY(read); QVERIFY(read->caughtUp); QVERIFY(read->fragments.empty());
+    QVERIFY(core.writeInput("\x1b[?1049l").fullyAccepted()); QVERIFY(core.waitForIdle());
+    core.resize(40, 8); QVERIFY(core.waitForIdle());
+    read = core.tryReadLog(query); QVERIFY(read); QCOMPARE(read->status, LogStatus::Invalidated);
+    query.cursor.reset(); read = core.tryReadLog(query); QVERIFY(read);
+    query.cursor = LogCursor{read->generation, read->next};
+    core.clearScrollback(); QVERIFY(core.waitForIdle());
+    read = core.tryReadLog(query); QVERIFY(read); QCOMPARE(read->status, LogStatus::Invalidated);
+}
+
+void TerminalCoreTests::logReadPassesAbandonedSoftHistoryAfterConnectionReset()
+{
+    using namespace NovaTerm;
+    TerminalCore core(4, 2);
+    QVERIFY(core.writeInput("abcdefghijkl").fullyAccepted()); QVERIFY(core.waitForIdle());
+    QVERIFY(core.scrollbackLineCount() > 0);
+    const auto before = core.scrollbackSnapshot();
+    QVERIFY(!before.lineInfoAt(0).hardBreak);
+    QVERIFY(core.resetForConnection()); QVERIFY(core.waitForIdle());
+    LogRequest query;
+    const auto bookmark = core.tryReadLog(query); QVERIFY(bookmark); QVERIFY(bookmark->caughtUp);
+    QVERIFY(core.writeInput("X\r\nY\r\nZ\r\n").fullyAccepted()); QVERIFY(core.waitForIdle());
+    const auto page = core.tryReadLog(query); QVERIFY(page);
+    QCOMPARE(page->status, LogStatus::Ok); QVERIFY(page->caughtUp);
+    QVERIFY(page->fragments.size() >= 2);
+    QCOMPARE(page->fragments[0].text, std::string("abcd"));
+    QVERIFY(page->fragments[0].lineComplete); QVERIFY(!page->fragments[0].hardBreak);
+    query.cursor = LogCursor{bookmark->generation, bookmark->next};
+    const auto continued = core.tryReadLog(query); QVERIFY(continued);
+    QCOMPARE(continued->status, LogStatus::Ok); QVERIFY(continued->caughtUp);
+}
 
 namespace {
 

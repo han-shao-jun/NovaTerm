@@ -29,10 +29,10 @@ using Epoch = Id<struct EpochTag>;
 using ResourceId = Id<struct ResourceTag>;
 using Clock = std::chrono::steady_clock;
 using TimePoint = Clock::time_point;
-enum class EntryKind { Mcp, LocalAgent, Cli };
+enum class EntryKind { Mcp };
 enum class ResourceKind { Directory, Session, HistoryCapture, DiagnosticResult, ImportedFile };
 enum class ImplementationStatus { Implemented, Planned };
-enum class Policy { DirectoryRead, ReadOutput, Diagnostic, RiskCommand, Script, FullInput, Elevation, Recipe, HistoryRead };
+enum class Policy { DirectoryRead, ReadOutput, Diagnostic, RiskCommand, Script, FullInput, Elevation, HistoryRead };
 struct DirectoryBinding {};
 struct SessionBinding {
     SessionId session;

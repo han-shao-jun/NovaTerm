@@ -10,6 +10,7 @@
 #pragma once
 
 #include "ScrollbackSnapshot.h"
+#include "TerminalLog.h"
 #include "history/HistoryCompressionService.h"
 
 #include <deque>
@@ -132,6 +133,8 @@ public:
      */
     void setLimits(isize maxLines, isize maxBytes);
     ScrollbackStatistics statistics() const;
+    // Caller holds the Core model lock. No publication, history copy or synchronous cold read.
+    [[nodiscard]] LogPage readLog(const LogRequest& request) const;
 
 private:
     // 已封存的分块及其在文档中的有效行区间与字节数。
@@ -196,6 +199,7 @@ private:
     LineId _nextLineId{1};
     ChunkId _nextChunkId{1};
     u64 _version{0};
+    u64 _logGeneration{1};
     u64 _evictedLines{0};
     u64 _evictedChunks{0};
     mutable std::vector<RetiredChunk> _retired;

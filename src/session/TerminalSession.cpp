@@ -98,8 +98,6 @@ TerminalSession::TerminalSession(TerminalCore* core, QObject* parent)
           _inputArbiter.get(), _streamFramer.get(), this))
     , _core(core)
 {
-    connect(_inputArbiter.get(), &SessionInputArbiter::userInputStarted, this,
-        [this](quint64) { _environment.invalidate(); });
     if (_core) {
         connect(_core, &TerminalCore::titleChanged,
                 this, &TerminalSession::titleChanged);
@@ -119,8 +117,6 @@ TerminalSession::TerminalSession(RuntimeConfig config, QObject* parent)
     , _ownedCore(std::make_unique<TerminalCore>(80, 24))
     , _core(_ownedCore.get())
 {
-    connect(_inputArbiter.get(), &SessionInputArbiter::userInputStarted, this,
-        [this](quint64) { _environment.invalidate(); });
     connect(_core, &TerminalCore::titleChanged,
             this, &TerminalSession::titleChanged);
     connect(_core, &TerminalCore::damage,
@@ -405,8 +401,6 @@ bool TerminalSession::start()
     else
         transition(SessionState::Reconnecting);
     ++_statistics.generation;
-    _environment.newConnection({NovaTerm::Capabilities::SessionId{_sessionId.toString(QUuid::WithoutBraces)},
-        {}, {}, _statistics.generation, {}});
     rewireTransportSignals();
     if (_transport->connectAsync())
         return true;
@@ -521,8 +515,6 @@ bool TerminalSession::beginReconnect(bool automatic)
     ++_statistics.reconnectCount;
     _automaticReconnectAttempt = automatic;
     ++_statistics.generation;
-    _environment.newConnection({NovaTerm::Capabilities::SessionId{_sessionId.toString(QUuid::WithoutBraces)},
-        {}, {}, _statistics.generation, {}});
     rewireTransportSignals();
     _acceptsUserInput = true;
     startPump();
@@ -561,7 +553,6 @@ bool TerminalSession::transition(SessionState next)
                    << "->" << static_cast<int>(next) << _sessionId;
         return false;
     }
-    if (next != SessionState::Running) _environment.invalidate();
     _state = next;
     _reconnectTimer.stop();
     const int seconds = _config.transport.value(
@@ -623,14 +614,12 @@ void TerminalSession::startPump()
             || event.kind == InteractiveStreamEventKind::FramingError
             || event.kind == InteractiveStreamEventKind::CommandStarted)
         {
-            _environment.invalidate();
             emit receiveBoundary(_statistics.generation, QStringLiteral("environment_invalidated"));
         }
         if (_terminalController) _terminalController->handleEvent(event);
     });
     connect(_inputPump, &SessionInputPump::interactiveBytes, this,
             [this](const QByteArray& bytes) {
-        _environment.observeOutput(bytes);
         if (_terminalController) _terminalController->bytes(bytes);
     });
     connect(_inputPump, &SessionInputPump::interactiveBytes,
@@ -643,7 +632,6 @@ void TerminalSession::startPump()
 
 void TerminalSession::clearAttachment(bool requestDisconnect)
 {
-    _environment.invalidate();
     _terminalController.reset();
     _automaticReconnectAttempt = false;
     _reconnectTimer.stop();
@@ -701,7 +689,6 @@ SerialFileTransferController* TerminalSession::serialFileTransfer()
         };
         if (!_inputArbiter->acquireTransferLease(transferId, _statistics.generation, writer))
             return false;
-        _environment.invalidate();
         _fileTransferLeaseId = transferId;
         return true;
     };

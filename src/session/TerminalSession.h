@@ -9,7 +9,6 @@
 #pragma once
 
 #include "SessionTypes.h"
-#include "EnvironmentTracker.h"
 #include "TerminalContextProvider.h"
 #include "transport/ITransport.h"
 
@@ -79,14 +78,6 @@ public:
     [[nodiscard]] const SessionStatistics& statistics() const noexcept { return _statistics; }
     /** @brief 终端核心指针。 */
     [[nodiscard]] TerminalCore* core() const noexcept { return _core; }
-    /** @brief 按需提供有界 Agent 上下文；调用方只消费解析后的文本。 */
-    [[nodiscard]] TerminalContextProvider::Context terminalContext(
-        const TerminalContextProvider::Request& request)
-    {
-        if (!_contextProvider)
-            _contextProvider = std::make_unique<TerminalContextProvider>(_core);
-        return _contextProvider->context(request);
-    }
     /** @brief 非阻塞取得共享基础摘要；只能在 Session 所在线程调用。 */
     [[nodiscard]] std::shared_ptr<const TerminalContextProvider::Snapshot> tryTerminalContext()
     {
@@ -107,7 +98,6 @@ public:
         return _inputArbiter.get();
     }
     /** @brief 仅本机/配对适配器写入环境事实；能力层只消费 snapshot。 */
-    [[nodiscard]] NovaTerm::Session::EnvironmentTracker& environmentTracker() noexcept { return _environment; }
     /** @brief 当前 Session 的交互命令协调器。 */
     [[nodiscard]] SessionCommandCoordinator* commandCoordinator() const noexcept
     {
@@ -278,7 +268,6 @@ signals:
                 TransportExitReason reason);
 
 private:
-    NovaTerm::Session::EnvironmentTracker _environment;
     std::unique_ptr<SessionTerminalController> _terminalController;
     QChronoTimer _reconnectTimer; ///< 单次自动重连定时器，支持完整整秒范围
     bool _manualDisconnect{false};

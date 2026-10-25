@@ -12,7 +12,7 @@
 #include "ui/terminal/TerminalView.h"
 #include "ui/widgets/TerminalTabWidget.h"
 #include "ui/widgets/HistoryRecordingPanel.h"
-#include "history/HistoryService.h"
+#include "recording/HistoryService.h"
 #include "renderer/TerminalRenderer.h"
 #include "service/LanguageManager.h"
 #include "service/HistoryRecordingBinding.h"

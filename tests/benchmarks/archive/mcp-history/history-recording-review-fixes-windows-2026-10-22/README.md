@@ -1,6 +1,6 @@
 # P2 第二轮审查修复证据
 
-2026-10-22 Windows Release / Qt 6.8.3。说明、约束与修复映射见 [实施记录](../../../../../docs/architecture/stages/P8_AI_MCP_Interface/P2_Implementation_and_Verification.md)。
+2026-10-22 Windows Release / Qt 6.8.3。说明、约束与修复映射见 [实施记录](../../../../../docs/architecture/stages/P8_AI_MCP_Interface/records/P2_Implementation_and_Verification.md)。
 
 | 文件 | 含义 |
 | --- | --- |

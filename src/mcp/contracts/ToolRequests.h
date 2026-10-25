@@ -60,6 +60,9 @@ enum class ProjectionMode
     Full,
 };
 
+enum class ContextSource { Observation, Log };
+enum class LogInitialPosition { Tail, Oldest };
+
 /** @brief 等待条件。 */
 enum class WaitCondition
 {
@@ -151,6 +154,8 @@ struct ReadContextRequest
     std::optional<WaitCondition> waitFor;
     std::optional<std::chrono::milliseconds> wait;
     std::optional<QString> expandToken;
+    ContextSource source{ContextSource::Observation};
+    std::optional<LogInitialPosition> start;
 };
 
 struct SearchContextRequest

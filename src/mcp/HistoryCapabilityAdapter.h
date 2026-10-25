@@ -1,6 +1,6 @@
 #pragma once
 #include "capabilities/CapabilityAuthorization.h"
-#include "history/HistoryTypes.h"
+#include "recording/HistoryTypes.h"
 #include "protocol/HistoryToolRequest.h"
 #include "resources/ResourceSharingService.h"
 #include <QJsonObject>

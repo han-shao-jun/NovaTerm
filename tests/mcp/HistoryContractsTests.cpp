@@ -24,7 +24,13 @@ private slots:
         const auto legacy = QJsonDocument::fromJson(fixture.readAll()).array();
         const auto current = ToolCodec::catalog();
         QCOMPARE(current.size(), legacy.size() + 3);
-        for (qsizetype i = 0; i < legacy.size(); ++i) QCOMPARE(current[i], legacy[i]);
+        for (qsizetype i = 0; i < legacy.size(); ++i) {
+            if (legacy[i].toObject().value("name") == "novaterm_read_context") {
+                QFile logFixture(QStringLiteral(NOVATERM_SOURCE_DIR "/tests/mcp/fixtures/read-context-log-2026-10-25.json"));
+                QVERIFY(logFixture.open(QIODevice::ReadOnly));
+                QCOMPARE(current[i].toObject(), QJsonDocument::fromJson(logFixture.readAll()).object());
+            } else QCOMPARE(current[i], legacy[i]);
+        }
     }
     void historyToolsDecodeWithoutSessionIdentity() {
         const QString capture = "11111111-1111-4111-8111-111111111111";

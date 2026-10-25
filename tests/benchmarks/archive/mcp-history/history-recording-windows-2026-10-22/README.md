@@ -1,6 +1,6 @@
 # P2 Windows 录制基线（2026-10-22）
 
-实现、默认值依据、审查及未验收范围见 [P2 实施记录](../../../../../docs/architecture/stages/P8_AI_MCP_Interface/P2_Implementation_and_Verification.md)。
+实现、默认值依据、审查及未验收范围见 [P2 实施记录](../../../../../docs/architecture/stages/P8_AI_MCP_Interface/records/P2_Implementation_and_Verification.md)。
 
 - `off.json` / `on.json`：同一 64 MiB、64 KiB/16 ms 合成源，开启录制零丢失，正常封口。进程级独立运行。
 - `regression.txt`：既有 39 项 38/39；唯一失败 ConPTY。

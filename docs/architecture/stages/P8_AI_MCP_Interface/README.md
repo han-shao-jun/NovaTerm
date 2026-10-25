@@ -1,70 +1,37 @@
-# NovaTerm MCP、诊断与 AI Agent 文档集
+# 外部 Agent 的 SSH/UART MCP 终端工具
 
-更新日期：2026-10-19。结构：总体架构 → 阶段划分 → 各阶段实施计划。
+更新：2026-10-25。**唯一主线：本地外部 Agent 编码、编译和部署，通过 NovaTerm MCP 操作 SSH/UART、观察终端反馈，再继续修复。** NovaTerm 不内置 Agent，不托管模型，不编排开发流程。
 
-本目录整合原运行期内核重构设计、实施计划、MCP 诊断扩展 v1.1 草案、项目P8接口及完整实施记录，以及 Netcatty Agent 架构调研。2026-10-18 的初次整合仅整理文档；2026-10-19 已补 P1 实施状态，已发布九工具和部署方式不变。
+本目录已全面重构。旧 mcp/P0～P8 方案、Netcatty AI 模块迁移方案和历史设计档案删除；原编号只在验收记录中用于追溯。已实施过的方案不因实施过而继续充当路线图。此次只改文档，不删除现有生产功能。
 
-## 阅读入口
+## 阅读顺序
 
-1. [总体架构](00_Overall_Architecture.md)：统一术语、系统分层、数据/控制流、身份授权、线程、预算和外部契约。
-2. [阶段划分与验收](01_Phases_and_Acceptance.md)：依赖、当前状态、旧 W/M 阶段映射、实施顺序和统一完成定义。
-3. [当前MCP接口契约](02_Current_MCP_Contract.md)：九工具、HTTP/双协议、字段/annotations、权限、观察/输入/脚本、错误与预算。
-4. [实施与验收记录](03_Implementation_and_Verification.md)：按日期/平台保存原P8的完整实施、审查和测量证据；[历史设计档案](04_Historical_Design_Archive.md)只作追溯。
-5. 按阶段阅读下列实施计划。P0～P8 是本目录内部阶段编号，与上级项目 P0～P9 不同；引用时写“mcp/Pn”。
-
-| 阶段 | 计划 | 状态 |
-| --- | --- | --- |
-| mcp/P0 | [运行内核收敛](P0_Runtime_Consolidation.md) | 实现与结构收口完成，Linux专项通过；其他平台范围见P0验收表 |
-| mcp/P1 | [能力目录、应用入口与执行路由](P1_Capability_Runtime.md) | 运行期/类型化入口与 Session 适配已落地；[验收与范围](P1_Implementation_and_Verification.md)，产品集成按 P4/P6 |
-| mcp/P2 | [保真历史录制与存储](P2_History_Recording.md) | 已实现，默认关闭；Windows 专项通过，跨平台/断电/真实性能门槛待验收，见[实施记录](P2_Implementation_and_Verification.md) |
-| mcp/P3 | [历史搜索、证据与离线授权](P3_History_Search_and_Evidence.md) | 读取/搜索、独立离线授权、内存证据与三个历史工具已落地；本机回归和保留范围见[实施记录](P3_Implementation_and_Verification.md) |
-| mcp/P4 | [Backend 诊断](P4_Backend_Diagnostics.md) | 规划 |
-| mcp/P5 | [Embedded Linux 诊断](P5_Embedded_Diagnostics.md) | 规划，离线解析优先 |
-| mcp/P6 | [内置 Agent 与聊天 UI](P6_Agent_Runtime_and_UI.md) | 规划；基础聊天不依赖历史录制或诊断包全部完成 |
-| mcp/P7 | [外部 Agent 与产品能力扩展](P7_External_Agents_and_Product_Tools.md) | 规划，逐后端/逐能力交付 |
-| mcp/P8 | [集成、性能与跨平台验收](P8_Integration_and_Performance.md) | 持续验证；综合退出条件尚未达成 |
-
-## 核心架构要求
-
-2026-10-24 P3 接线更新：资源共享事务/查询发布移入独立应用目标，历史领域不再扩张旧终端 ToolRequest；读取取消及证据后半段复核已补回归。[结构与验证记录](P3_Architecture_Fixes_2026-10-24.md)列出分段成绩和保留范围，不从旧全套成绩推断当前通过。
-
-**低耦合、高内聚为所有阶段的强制约束**：按职责和不变量归属状态，以窄契约单向协作，组合根只装配、Dispatcher只分派。不得以拆文件、通用Manager、巨大Ports或全局事件总线替代模块边界。具体依赖矩阵与验收见[总体架构](00_Overall_Architecture.md)§2.1～§2.4和[阶段验收](01_Phases_and_Acceptance.md)§7。
-
-## 文档权威与状态
-
-- 全项目原则仍以 [统一架构](../../../ARCHITECTURE.md)、当前源码和已验证接口为准。
-- 当前MCP精确契约见[接口契约](02_Current_MCP_Contract.md)，用户操作见[MCP使用说明](../../../MCP_Usage.md)；完整实施证据见[验收记录](03_Implementation_and_Verification.md)，被替代设计见[历史档案](04_Historical_Design_Archive.md)。原项目P8不再承担文档入口。
-- 本目录是 MCP/诊断/Agent 后续架构与阶段实施的统一入口；总体架构定义共性，阶段计划定义局部交付。
-- “已有代码”“历史测试记录”“尚未实施的设计”分别表述。旧计划中的未完成条目若已被后续 W5 记录覆盖，不再作为当前待办。
-- 不因组件已拆文件就宣布原目标全部完成；本次请求所有权/确认/只读边界收敛及wait/replay、执行入口和平台剩余范围见mcp/P0。
-- 所有未来类型、文件和测试目标均为计划，只有实际加入构建并验证后才能改为已实现。
-- 历史测试数字不代表此次重新运行；本次文档整理不产生新的构建、性能或平台通过结论。
-
-## 来源迁移与删除范围
-
-| 原文档 | 内容去向 |
+| 文档 | 职责 |
 | --- | --- |
-| docs/superpowers/specs/2026-10-18-mcp-runtime-refactor-design.md | 总体架构、mcp/P0 的兼容/所有权/状态机/删除与结构验收 |
-| docs/superpowers/plans/2026-10-18-mcp-runtime-refactor.md | mcp/P0 的 W1～W5 状态、目标库、迁移去向、验证与遗留差距 |
-| docs/NovaTerm_MCP_Diagnostics_Design.md | 总体架构及 mcp/P1～P5、mcp/P8 的能力/历史/证据/诊断/性能计划 |
-| docs/architecture/stages/P8_AI_MCP_Interface.md | 02当前契约（源码/fixture核对）、03完整实施/验收记录、04原设计档案；P0/P8吸收当前结构及性能验收要求 |
-| Netcatty 本地源码调研及本次会话总结 | 总体架构及 mcp/P6、mcp/P7 的回合、事件、工具、上下文、权限和 UI |
+| [总体架构](00_Overall_Architecture.md) | 目标、分工、唯一数据通路、所有权和兼容边界 |
+| [现行契约](02_Current_MCP_Contract.md) | 已冻结工具和现有行为；与目标设计分开 |
+| [闭环缺口与证据](03_Gaps_and_Evidence.md) | 已有能力、确认差距、待验证场景，附源码依据 |
+| [游标与清空](04_Cursor_Observation_and_Clear.md) | 已选方案、位置/分页/失效/清空事务的目标语义 |
+| [Agent 使用流程](05_Agent_Workflow.md) | 从目标确认到部署、观察、重试和结果判断 |
+| [等待、任务、传输与连接](06_Terminal_Workflow_Extensions.md) | Netcatty 对照后的最小补齐设计；全部尚未实施 |
+| [实施顺序与验收](01_Phases_and_Acceptance.md) | B0～B4 工作项、测试选择和真机退出条件 |
+| [验收档案](records/README.md) | 日期、平台、命令、失败和限制；不作为新方案 |
 
-完成内容、分区覆盖与引用核对后，原三份设计和原项目P8均可移除；P8的历史内容已分区保存在03/04，不依赖旧文件。MCP使用说明、其他文档和测试fixture不在删除范围。表中旧名称仅用于来源追溯，不作为有效路径链接。
+## 范围
 
-Netcatty 参考包括 AgentRuntime、TurnDriver、AgentEvent、Capability Catalog、ToolOutputStore、AIChatSidePanel。借鉴语义边界，不移植 Electron/Node 拓扑，不把其实验 App Server 或未来全局 Agent 写成 NovaTerm 已有能力。
+做：显式目标、屏幕观察、终端缓存增量读取、文本/按键输入、有界文本条件等待、长任务状态、可选清空、授权/取消/人工接管。后续补齐受限 SSH/SFTP 单文件传输及已获准保存目标的打开/复用/关闭，按范围完成真实 SSH/UART 验收。
 
-## 2026-10-18 设计补齐索引
+不做：聊天侧栏、Codex App Server/多后端宿主、Catty、模型压缩/规划循环、自动诊断 Pack/分析器、自动部署烧录平台、自动连接任意设备。
 
-本轮只补设计与未来验收，不改变当前实现状态或02接口契约：
+已有录制、历史搜索和证据能力保持现状，但不是实时缓存观察的依赖；删除相关旧计划不意味着删除其代码或接口。现有 MCP 读取、完整输入、命令和脚本权限也不被文档变更重置。
 
-| 评审缺口 | 决策与任务位置 |
-| --- | --- |
-| 模型发送、摘要/历史再次使用授权 | [总体§11](00_Overall_Architecture.md#11-设计补充契约2026-10-18尚未实现)、[P6发送契约](P6_Agent_Runtime_and_UI.md#补充契约模型发送与派生内容授权)、[P7外部后端](P7_External_Agents_and_Product_Tools.md#补充实施约束外部后端的数据发送) |
-| 环境revision的来源与失效 | [P1环境契约](P1_Capability_Runtime.md#补充契约环境事实与失效)，P4/P5消费 |
-| 崩溃后的未知尾部与持久前缀 | [P2提交契约](P2_History_Recording.md#补充契约持久提交与异常尾部) |
-| 搜索续页的decoder/query/租约 | [P3续扫契约](P3_History_Search_and_Evidence.md#补充契约搜索续页与有界状态) |
-| 异构领域的类型化分派 | [P1分派契约](P1_Capability_Runtime.md#补充契约领域类型化分派) |
-| 首个交付前置范围 | [阶段划分§6.1](01_Phases_and_Acceptance.md#61-增量交付闸门)、[P8补充矩阵](P8_Integration_and_Performance.md#补充验收矩阵跨阶段契约) |
+## 当前判断
 
-物理目录统一为docs/architecture/stages/P8_AI_MCP_Interface/；mcp/P0～P8继续作为专项阶段简称，不对应另一个mcp目录。历史档案不改写成当前设计。
+- 已有 sinceToken/nextToken 是模型观察游标；recentOutput 有过滤和去重，不能当作完整日志。
+- B1 缓存日志位置、重复行、有界分页及淘汰/代际提示已实施；清空 MCP 事务与旧观察 capture 失效仍待 B2。
+- UART 静默和命令完成/测试成功必须区分；Agent 使用说明需与现有工具行为对齐。
+- 指定文本等待、长任务直接入口、MCP 文件传输和保存目标连接已纳入 B3a/B3b 设计，不代表现有 tools/list 已提供它们。
+- 真实板卡双通道闭环、重启恢复和高输出完整性尚需本次专项验收。
+- 冻结兼容基线为九个终端工具加三个离线历史工具。未发布 P4 诊断扩展及无生产消费者的 P1 Recipe/本机 Agent 原型已退役；十二工具保留，read_context 显式新增 source=log。见 [B0/B1 实施与验收](records/B0_B1_Implementation_2026-10-25.md)。
+
+全项目约束以 [统一架构](../../../ARCHITECTURE.md) 为准。本目录当前方向以本页及 00/01 为准，精确已实现行为以 02 和源码为准；04 的 B1 已实施，清空及 06 仍为目标。文档验收不产生产品测试通过结论。

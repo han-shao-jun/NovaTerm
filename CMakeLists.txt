@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(NovaTerm VERSION 0.2.82 LANGUAGES CXX C)
+project(NovaTerm VERSION 0.2.83 LANGUAGES CXX C)
 
 # ═══════════════════════════════════════════════════════════════════
 #  1. 通用平台编译参数
@@ -284,8 +284,8 @@ add_compile_definitions(
 )
 
 add_subdirectory(src/history)
-include(src/history/Recording.cmake)
-include(src/history/HistoryP3.cmake)
+add_subdirectory(src/recording)
+add_subdirectory(src/historysearch)
 add_subdirectory(src/evidence)
 
 set(NOVATERM_CORE_SOURCES
@@ -353,8 +353,9 @@ file(GLOB_RECURSE SOURCES CONFIGURE_DEPENDS "src/*.cpp" "src/*.h")
 list(FILTER SOURCES EXCLUDE REGEX "[/\\\\]src[/\\\\]core[/\\\\]")
 list(FILTER SOURCES EXCLUDE REGEX "[/\\\\]src[/\\\\]mcp[/\\\\]")
 list(FILTER SOURCES EXCLUDE REGEX "[/\\\\]src[/\\\\]capabilities[/\\\\]")
-list(FILTER SOURCES EXCLUDE REGEX "[/\\\\]EnvironmentTracker\\.(cpp|h)$")
 list(FILTER SOURCES EXCLUDE REGEX "[/\\\\]src[/\\\\]history[/\\\\]")
+list(FILTER SOURCES EXCLUDE REGEX "[/\\\\]src[/\\\\]recording[/\\\\]")
+list(FILTER SOURCES EXCLUDE REGEX "[/\\\\]src[/\\\\]historysearch[/\\\\]")
 list(FILTER SOURCES EXCLUDE REGEX "[/\\\\]src[/\\\\]evidence[/\\\\]")
 list(FILTER SOURCES EXCLUDE REGEX "[/\\\\]src[/\\\\]resources[/\\\\]")
 list(FILTER SOURCES EXCLUDE REGEX "[/\\\\]src[/\\\\]filetransfer[/\\\\]")
@@ -428,7 +429,6 @@ target_link_libraries(NovaTerm PRIVATE
         novaterm_mcp_runtime
         novaterm_capabilities
         novaterm_history_recording
-        novaterm_session_environment
         libtelnet
         ssh::ssh
         OpenSSL::Crypto

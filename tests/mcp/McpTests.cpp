@@ -3,10 +3,8 @@
  */
 #include "mcp/McpService.h"
 #include "mcp/HistoryCapabilityAdapter.h"
-#include "history/HistoryService.h"
+#include "recording/HistoryService.h"
 #include "mcp/CommandSessionAdapter.h"
-#include "capabilities/SessionRecipeAdapter.h"
-#include "capabilities/LocalAgentAdapter.h"
 #include "capabilities/McpCapabilityAdapter.h"
 #include "mcp/McpProtocol.h"
 #include "mcp/protocol/ToolCodec.h"
@@ -515,6 +513,8 @@ class McpTests final : public QObject
 {
     Q_OBJECT
 private slots:
+    void logReadsPageAndBindClientEpochAndMode_data();
+    void logReadsPageAndBindClientEpochAndMode();
     void historyOfflineAccessRequiresExplicitGrant();
     void historyOnlyExplicitPersistentGrantsSurviveAdapterRestart();
     void expiredCapturesDoNotExhaustHistoryGrantCapacity();
@@ -522,8 +522,6 @@ private slots:
     void localImportsDoNotRequireRecordingSource();
     void historyAdapterBindsTheInjectedSourceGeneration();
     void commandTimeoutKeepsExecutionFacts();
-    void recipeAdapterUsesExistingSessionAndInvalidatesOnInput();
-    void recipeAdapterSubmitsSharedAndIsolatedRequests();
     void terminalInteractionSupportsEveryTransport_data();
     void terminalInteractionSupportsEveryTransport();
     void compactCapturesRetainNewestFour();
@@ -626,6 +624,81 @@ private slots:
     void commandAndScriptProductGrantsAreIndependent();
     void readGrantAloneDoesNotAllowInteractiveCommand();
 };
+
+void McpTests::logReadsPageAndBindClientEpochAndMode_data()
+{
+    QTest::addColumn<QString>("version"); QTest::addColumn<bool>("serial");
+    QTest::newRow("2025-ssh") << QString(ProtocolVersion) << false;
+    QTest::newRow("2026-ssh") << QString("2026-07-28") << false;
+    QTest::newRow("2025-uart") << QString(ProtocolVersion) << true;
+    QTest::newRow("2026-uart") << QString("2026-07-28") << true;
+}
+
+void McpTests::logReadsPageAndBindClientEpochAndMode()
+{
+    QFETCH(QString, version); QFETCH(bool, serial);
+    Fixture f;
+    if (serial) {
+        f.session.close(CloseMode::Abort); QVERIFY(f.session.resetForReuse());
+        f.session.attach(&f.local, TerminalSession::Ownership::Borrowed, TransportKind::Serial);
+        QVERIFY(f.session.start());
+    } else f.makeSsh();
+    QVERIFY(f.enable());
+    f.core.resize(40, 2); QVERIFY(f.core.waitForIdle());
+    QVERIFY(f.core.clearAll()); QVERIFY(f.core.waitForIdle());
+    Host host; QVERIFY(host.start(f.runtime(), f.token(), {}, false, version));
+    auto args = f.identity(); args.insert("source", "log"); args.insert("start", "tail");
+    const auto bookmark = host.call("novaterm_read_context", args);
+    QVERIFY2(bookmark.value("ok").toBool(), qPrintable(QString::fromUtf8(QJsonDocument(bookmark).toJson())));
+    const auto token = bookmark.value("data").toObject().value("nextToken").toString(); QVERIFY(!token.isEmpty());
+    const auto input = QByteArray("same\r\nsame\r\nsame\r\nsame\r\nsame\r\n");
+    QVERIFY(f.core.writeInput(input).fullyAccepted()); QVERIFY(f.core.waitForIdle());
+    args.remove("start"); args.insert("sinceToken", token); args.insert("maxBytes", 3); args.insert("maxLines", 1);
+    QString joined; QJsonObject page;
+    QString firstPageToken;
+    for (int count = 0; count < 30; ++count) {
+        const auto response = host.call("novaterm_read_context", args);
+        QVERIFY2(response.value("ok").toBool(), qPrintable(QString::fromUtf8(QJsonDocument(response).toJson())));
+        page = response.value("data").toObject(); QCOMPARE(page.value("status").toString(), QString("ok"));
+        const auto fragments = page.value("fragments").toArray(); QVERIFY(fragments.size() <= 1);
+        for (const auto& part : fragments) joined += part.toObject().value("text").toString();
+        if (firstPageToken.isEmpty()) firstPageToken = page.value("nextToken").toString();
+        args.insert("sinceToken", page.value("nextToken"));
+        if (page.value("caughtUp").toBool()) break;
+    }
+    QCOMPARE(joined, QString("same\nsame\nsame\nsame\n"));
+    QVERIFY(page.value("caughtUp").toBool()); QVERIFY(!page.value("hasMore").toBool());
+    QVERIFY(page.value("historyMayPrecedeEpoch").toBool());
+    auto retry = args; retry.insert("sinceToken", token);
+    const auto again = host.call("novaterm_read_context", retry).value("data").toObject();
+    QCOMPARE(again.value("nextToken").toString(), firstPageToken);
+    // Observation tokens never become log positions, and log tokens cannot observe.
+    auto observation = f.identity(); observation.insert("responseMode", "compact");
+    const auto observed = host.call("novaterm_read_context", observation).value("data").toObject();
+    auto wrongMode = args; wrongMode.insert("sinceToken", observed.value("nextToken"));
+    QCOMPARE(host.call("novaterm_read_context", wrongMode).value("error").toObject().value("code").toString(), QString("CURSOR_STALE"));
+    wrongMode = f.identity(); wrongMode.insert("sinceToken", token);
+    QVERIFY(!host.call("novaterm_read_context", wrongMode).value("ok").toBool());
+    auto wrongEpoch = args; wrongEpoch.insert("epoch", "different-epoch");
+    QCOMPARE(host.call("novaterm_read_context", wrongEpoch).value("error").toObject().value("code").toString(), QString("STALE_SESSION_EPOCH"));
+    const auto other = f.service.access().addClient("other");
+    const auto entry = f.service.directory().entries().first();
+    QVERIFY(NovaTerm::Mcp::TestSupport::setGrant(f.service.access(), other, entry, true, {}));
+    Host second; QVERIFY(second.start(f.runtime(), *f.service.access().exportToken(other), {}, false, version));
+    QCOMPARE(second.call("novaterm_read_context", args).value("error").toObject().value("code").toString(), QString("CURSOR_STALE"));
+    f.core.clearScrollback(); QVERIFY(f.core.waitForIdle());
+    const auto invalid = host.call("novaterm_read_context", args).value("data").toObject();
+    QCOMPARE(invalid.value("status").toString(), QString("invalidated"));
+    args.insert("sinceToken", invalid.value("nextToken"));
+    QCOMPARE(host.call("novaterm_read_context", args).value("data").toObject().value("status").toString(), QString("invalidated"));
+    args.insert("sinceToken", invalid.value("earliestToken"));
+    QVERIFY(host.call("novaterm_read_context", args).value("data").toObject().value("caughtUp").toBool());
+    QVERIFY(NovaTerm::Mcp::TestSupport::setGrant(f.service.access(), f.client, entry, false, {}));
+    QCOMPARE(host.call("novaterm_read_context", args).value("error").toObject().value("code").toString(), QString("SESSION_NOT_AVAILABLE"));
+    QVERIFY(f.enable());
+    QCOMPARE(host.call("novaterm_read_context", args).value("error").toObject().value("code").toString(), QString("CURSOR_STALE"));
+    QVERIFY(f.local.written.isEmpty());
+}
 
 void McpTests::historyAdapterBindsTheInjectedSourceGeneration()
 {
@@ -4153,84 +4226,6 @@ void McpTests::commandTimeoutKeepsExecutionFacts()
     QVERIFY(details.value("executionMayHaveStarted").toBool());
     QVERIFY(!details.value("terminationConfirmed").toBool());
     QVERIFY(!adapter.protectedTargets().isEmpty());
-}
-
-void McpTests::recipeAdapterSubmitsSharedAndIsolatedRequests()
-{
-    namespace C = NovaTerm::Capabilities;
-    Fixture f;
-    const auto entry = f.service.directory().entries().first();
-    C::SessionBinding binding{C::SessionId{entry.id}, C::AttachmentId{entry.attachmentId},
-        C::Epoch{entry.epoch}, entry.generation, entry.targetFingerprint};
-    C::SessionRecipeAdapter adapter{f.service.directory(), f.root.path() + "/targets", "instance",
-        [](const C::InvocationContext&, const C::CapabilityId&) { return true; }};
-    InteractiveCommandProfile profile;
-    profile.allowUnverifiedPrompt = true;
-    profile.requiresStartMarker = false;
-    f.session.commandCoordinator()->configure(profile);
-    f.session.commandCoordinator()->notePromptReady(9, f.session.inputArbiter()->userInputGeneration());
-    C::RecipeStep step{"uname", 65536, std::chrono::seconds(5)};
-    bool completed = false;
-    QVERIFY(adapter.submit(C::ExecutionRoute::SharedTerminal, binding, C::OperationId{"shared"}, step,
-        [&completed](auto) { completed = true; }));
-    QVERIFY(!f.local.written.isEmpty());
-    QVERIFY(f.local.written.contains("uname"));
-    adapter.cancel(binding, C::OperationId{"shared"});
-    QVERIFY(completed);
-    f.local.written.clear();
-    step.commandId = QString(NovaTerm::LocalDiagnostic::SystemIdentity);
-    completed = false;
-    QVERIFY(adapter.submit(C::ExecutionRoute::Isolated, binding, C::OperationId{"isolated"}, step,
-        [&completed](auto result) { QVERIFY(result.success); QVERIFY(result.terminationConfirmed); completed = true; }));
-    QTRY_VERIFY_WITH_TIMEOUT(completed, 5000);
-    QVERIFY(f.local.written.isEmpty());
-}
-
-void McpTests::recipeAdapterUsesExistingSessionAndInvalidatesOnInput()
-{
-    namespace C = NovaTerm::Capabilities;
-    Fixture f;
-    const auto entry = f.service.directory().entries().first();
-    C::SessionBinding binding{C::SessionId{entry.id}, C::AttachmentId{entry.attachmentId},
-        C::Epoch{entry.epoch}, entry.generation, entry.targetFingerprint};
-    auto registry = C::CapabilityRegistry::terminalCapabilities();
-    QVERIFY(registry.add({C::CapabilityId{"test.recipe"}, 1, C::ImplementationStatus::Implemented,
-        C::ResourceKind::Session, C::Policy::Recipe, {}}));
-    C::CapabilityAuthorization auth{[](const C::PrincipalId&, C::EntryKind,
-        const C::ResourceBinding& resource, const C::Definition&) {
-        return std::optional<C::AuthorizationSnapshot>{{resource, 1}};
-    }};
-    C::CapabilityDispatcher dispatcher{registry, auth};
-    C::LocalAgentAdapter local{auth, C::PrincipalId{"local-agent"}};
-    bool granted = false;
-    C::SessionRecipeAdapter adapter{f.service.directory(), f.root.path() + "/targets", "instance",
-        [&granted](const C::InvocationContext&, const C::CapabilityId&) { return granted; }};
-    C::DiagnosticTaskManager tasks{adapter};
-    C::RecipeInvocation recipe{{C::CapabilityId{"test.recipe"}, C::EnvironmentKind::Linux,
-        C::ExecutionRoute::SharedTerminal, "digest"}, {{"uname", 65536, std::chrono::seconds(1)}}};
-    const auto start = [&](const char* operation) {
-        auto context = local.context(binding, 1, C::OperationId{operation}, C::Clock::now() + std::chrono::seconds(5));
-        auto admitted = dispatcher.admit(C::CapabilityId{"test.recipe"}, context);
-        QVERIFY(std::holds_alternative<C::InvocationLease>(admitted));
-        tasks.start(recipe, std::move(std::get<C::InvocationLease>(admitted)), [](auto result) {
-            QCOMPARE(result.outcome, C::DiagnosticOutcome::Denied);
-        });
-    };
-    // No new connection, transport write bypass, or POSIX probe on Unknown.
-    start("unknown");
-    QVERIFY(f.local.written.isEmpty());
-    granted = true;
-    start("still-unknown");
-    QVERIFY(f.local.written.isEmpty());
-    f.session.environmentTracker().confirmOnce(C::EnvironmentKind::Linux,
-        C::PrincipalId{"local-agent"}, C::CapabilityId{"test.recipe"}, "digest");
-    const auto before = f.session.environmentTracker().snapshot().revision;
-    f.session.writeUserInput("manual");
-    QVERIFY(f.session.environmentTracker().snapshot().revision > before);
-    QCOMPARE(f.session.environmentTracker().snapshot().kind, C::EnvironmentKind::Unknown);
-    f.local.written.clear();
-    start("after-manual");
-    QVERIFY(f.local.written.isEmpty());
 }
 
 void McpTests::terminalInteractionSupportsEveryTransport_data()

@@ -1,6 +1,6 @@
 # NovaTerm
 
-历史MCP测试、审查与缺口详见[实施与验收记录](docs/architecture/stages/P8_AI_MCP_Interface/03_Implementation_and_Verification.md)；引用成绩须按日期与平台区分。
+历史MCP测试、审查与缺口详见[实施与验收记录](docs/architecture/stages/P8_AI_MCP_Interface/records/03_Implementation_and_Verification.md)；引用成绩须按日期与平台区分。
 
 NovaTerm（原名 WindTermQt）是一款基于 Qt 6 的跨平台终端模拟器和 SSH 客户端。
 终端解析使用 libvterm，渲染使用 Qt QRhi，界面使用 ElaWidgetTools，采用
@@ -157,10 +157,19 @@ Parser 单写，Renderer / Search 读取快照，跨线程队列有界。
 - `SessionInputPump`：输入泵，处理数据流和背压
 - `SerialFileTransferController`：串口文件传输控制器，经 Session 的输入分流与出站独占机制接入协议库
 
+### 历史、录制与离线查询
+
+- `src/history/`：纯 C++ 内存终端历史/LZ4、后台预算与冷块读取，目标 `novaterm_history`。
+- `src/recording/`：持久接收流录制、块文件、SQLite 索引与保留策略，目标 `novaterm_history_recording`。
+- `src/historysearch/`：独立离线授权、分页读取、字面搜索与投影，目标 `novaterm_history_search`；通过读取端口注入源。
+- `src/resources/RecordingHistoryReadAdapter.h`：组合根使用的具体录制源适配；MCP 可以引用模块，模块不依赖 MCP。
+
+构建目标、现有接口和持久格式保持；职责和本轮验证见 [目录重构记录](docs/architecture/History_Module_Layout_2026-10-25.md)。
+
 ### 协议与 MCP (`src/filetransfer/`、`src/capabilities/`、`src/mcp/`)
 
 - `src/filetransfer/`：不依赖 Qt 的 XMODEM/YMODEM/ZMODEM 协议引擎，可独立构建
-- `src/capabilities/`：共享能力目录、可信准入、类型化应用端口与 Recipe 路由；本机 Agent 产品 UI 和诊断包仍按后续阶段交付
+- `src/capabilities/`：共享能力目录、可信准入和类型化终端应用端口；外部 Agent 经 MCP 操作 SSH/UART，不内置 Agent 或诊断平台
 - `src/mcp/`：进程内 Qt HTTP Server、MCP wire 协议与授权；不再构建或启动独立 stdio 桥接
 
 启用 MCP 并导出客户端配置后，HTTP 客户端使用 `type: "http"`、`url` 和
@@ -268,7 +277,7 @@ Linux Debug 全部构建及 27/27 CTest 通过，耗时 178.00 秒；验证范�
 不替代 Windows/macOS 验收。
 mcp/P1 增量后 Linux 当前注册 36 项、MCP 标签 16 项，其中新增四项有 `capabilities` 标签。
 能力运行期改动可先跑 `ctest --test-dir build -L capabilities --output-on-failure`；跨 MCP 接线跑 `-L mcp`。
-Debug/Release 构建与专项、历史全套范围见 [P1 实施记录](docs/architecture/stages/P8_AI_MCP_Interface/P1_Implementation_and_Verification.md)。
+Debug/Release 构建与专项、历史全套范围见 [P1 实施记录](docs/architecture/stages/P8_AI_MCP_Interface/records/P1_Implementation_and_Verification.md)。
 `novaterm_conpty_tests`、`novaterm_terminal_session_tests` 仅 Windows，
 `novaterm_pty_tests` 仅 Linux。
 

@@ -77,6 +77,7 @@ public:
     void tailFrom(NovaTerm::LineId sinceId, NovaTerm::isize maxLines,
                   NovaTerm::ScrollbackTail& out) const;
     NovaTerm::ScrollbackStatistics statistics() const;
+    NovaTerm::LogPage readLog(const NovaTerm::LogRequest& request) const { return _storage.readLog(request); }
 
     // ── 修改 ──
     void setMaxLines(int max);

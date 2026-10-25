@@ -1,11 +1,50 @@
 # 当前 MCP 接口契约与兼容基线
 
-整理日期：2026-10-18。入口：[总体架构](00_Overall_Architecture.md) / [阶段划分](01_Phases_and_Acceptance.md)。
-本文件从原P8提取现行契约，并用当前ToolCodec、九工具fixture、Budget、Errors和MCP使用说明核对。只描述NovaTerm工作区实现，不宣称外部MCP规范的最新状态，也不证明所有平台已验收。
+兼容基线整理于 2026-10-18，2026-10-23 加入历史工具；2026-10-24 校正目录与状态说明。入口：[总体架构](00_Overall_Architecture.md) / [实施与验收](01_Phases_and_Acceptance.md)。
+本文件记录已有冻结契约，依据 ToolCodec、fixture、Budget、Errors 和 MCP 使用说明；不宣称外部 MCP 规范的最新状态，也不证明所有平台已验收。2026-10-25 B0/B1 已退役未发布 P4 两个诊断工具及专属接线，当前仍为十二工具。清理、日志扩展及本轮验证见 [B0/B1 实施与验收](records/B0_B1_Implementation_2026-10-25.md)。
 
-2026-10-23 增量：当前目录为原九工具 + `novaterm_list_captures`、`novaterm_read_history`、`novaterm_search_history`，共 **12** 项。原九工具对象保持兼容；新增目录/Schema 冻结在 `tests/mcp/fixtures/history-tool-catalog-2026-10-23.json`。历史工具使用独立 capture 授权，不接受 sessionId、epoch、principal/client 或本机路径参数。实现与平台范围见 [P3 实施记录](P3_Implementation_and_Verification.md)。以下原九工具分节仍是其兼容契约。
+**B1 日志模式已实施，MCP 清空仍未实施**：缺省 source=observation 的 sinceToken 仍是模型观察游标，recentOutput 仍是摘要；显式 source=log 使用独立位置游标。read_context 的兼容 Schema 扩展见下节及 [04](04_Cursor_Observation_and_Clear.md)，其他十一工具对象保持。
+
+2026-10-25 后续设计：指定文本等待、长任务直接入口、SSH/SFTP 单文件传输及保存目标打开/关闭同样只是 [06](06_Terminal_Workflow_Extensions.md) 的目标设计，未加入本文工具列表，也未在此次修改产品说明或代码。
+
+2026-10-23 增量：当前目录为原九工具 + `novaterm_list_captures`、`novaterm_read_history`、`novaterm_search_history`，共 **12** 项。原九工具对象保持兼容；新增目录/Schema 冻结在 `tests/mcp/fixtures/history-tool-catalog-2026-10-23.json`。历史工具使用独立 capture 授权，不接受 sessionId、epoch、principal/client 或本机路径参数。实现与平台范围见 [P3 实施记录](records/P3_Implementation_and_Verification.md)。以下原九工具分节仍是其兼容契约。
 
 历史工具返回原文的 base64、原始 record/byte 多片段、固定高水位、独立 sourceCompleteness 与分页 complete。text 查询为 UTF-8 literal；raw_bytes 的 query 为规范 base64，不接受任意正则。录制与共享分别由本机用户选择；Session 关闭不会撤销显式离线共享，令牌轮换、客户端删除、capture 删除及授权缩范围会拒绝旧游标。EvidenceRef 和 cursor 不能代替授权。
+
+
+## B1：read_context 的显式日志契约（2026-10-25）
+
+新 fixture：`tests/mcp/fixtures/read-context-log-2026-10-25.json`。旧 fixture 保留，回归检查旧必填/default/参数约束、原观察输出分支、其他十一工具对象；本节是已实现契约。工具数为十二，未新增空工具。
+
+| 输入 | 精确规则 |
+| --- | --- |
+| source | observation/log；省略为 observation |
+| start | tail/oldest；仅 log 首次请求必填，与 sinceToken 二选一。tail 建立当前已提交历史尾书签，不返回旧日志；oldest 从最早仍保留的位置读 |
+| sinceToken | log 续读必须非空；签名、kind=log、version=1，绑定可信 client、Session/epoch、grant version、cache generation 和下一个位置。支持同进程同客户端跨协议连接续读；退出/权限版本变更后无效 |
+| includeViewport | log 省略时不返回屏幕；显式 true 拒绝，false 接受。旧 observation 的 Schema default=true 保持，客户端不要向 log 自动填 true |
+| maxBytes/maxLines | log 文本字节/分段数预算，full/缺省 65536/256，compact 缺省 4096/24；范围 1..262144 / 1..1024。LF 计一字节；不是 JSON 信封预算 |
+| responseMode | full/compact 只选择缺省预算，不改变日志来源/保真性；显式预算优先 |
+| expandToken/waitFor/waitMs | log 拒绝 expandToken/waitFor/非零 waitMs；waitMs=0 可接受。B3 条件等待尚未开放 |
+
+返回 source=log、coverage=committed_history、historyMayPrecedeEpoch=true、capturedAt、cacheGeneration。输出 Scrollback 中已稳定的解析后逻辑行；当前仍可继续增长的软尾行和活动屏幕用 observation 读取。重连若遗留非尾部软行，该行也可读，以 hardBreak=false 明确来源边界。不会按内容去重，不合并不同 ID 的相同文本，也不把滚动视口重复拼进日志。
+
+`fragments[]` 含 lineId、byteOffset（当前行 UTF-8 字节偏移）、text、lineComplete、hardBreak。lineComplete 表示该历史行已交付完；仅 hardBreak=true 的最终分段包含 LF，空硬行也有 LF。重连遗留的非尾部软行在末段 lineComplete=true、hardBreak=false，不补造 LF；软折行属于同一逻辑行。位置还包含 cellOffset/scalarOffset，用于从超长行断点继续编码，调用方视为不透明坐标。数字 ID/偏移/generation 用十进制字符串避免 JSON 精度丢失。
+
+`nextPosition/nextToken` 只推进实际交付位置；`earliestPosition/earliestToken` 给出当前可读起点；`sampledEndPosition/sampledEndToken` 给出本次采样上界及书签。无 pin/服务端全文进度，不无限保留旧块。相同位置重试在源仍保留时位置解释一致；新输出可延长下一请求上界。历史行 ID 可因 resize 回填产生空洞，nextPosition 指向实际后继 ID，不能假定加一。
+
+| status / 错误 | 行为 |
+| --- | --- |
+| ok | hasMore 表示距本次上界还有内容；caughtUp=true 仅表示该页读到上界，不代表设备停止/测试成功 |
+| gap | 请求位置已被淘汰，空片段，不自动跳过；nextToken 仍为原位置，显式用 earliestToken 恢复。不编造丢失行数 |
+| invalidated | clear 或 resize 的历史回填改写导致缓存代际变化；空片段，nextToken 保持旧代际，显式选择 earliestToken 或 sampledEndToken 建新基线 |
+| pending/busy/unavailable | 冷块排队/资源忙/源解码不可用，可能含已交付前缀，nextToken 指向首个未交付处；caughtUp=false。pending/busy 可稍后重试，不伪装为空日志；不可用不保证自动修复 |
+| BUSY | Core 模型 try-lock 失败，沿原请求重试；没有等待 GUI 或 Parser |
+| TEXT_BUDGET_TOO_SMALL | 本页容不下下一个 UTF-8 标量，增大 maxBytes；已交付前缀的页先返回进度，后续页再报告不足 |
+| CURSOR_STALE | token 类型/签名/客户端/Session/epoch/授权版本不匹配或位置无效；禁止将观察 token 当日志位置 |
+| SESSION_NOT_AVAILABLE / STALE_SESSION_EPOCH | 现行共享/生命周期闸门拒绝，旧 token 不能恢复权限 |
+| INVALID_ARGUMENT | 初始/续读参数冲突、非法来源/预算或日志不支持的观察参数 |
+
+本机菜单与远端控制序列引发的历史 clear 共用后端 generation；本轮未开放 MCP 清空操作，也未修复旧摘要/capture 的清空失效（G05 → B2）。重连另由 epoch 拒绝；同 UART 链路重启不凭日志猜测换代。日志不是原始串口字节记录，不保证已被控制序列覆盖的屏幕帧或硬件零丢失。日志不生成 captureId/inputToken，不交给 search_context，当前屏幕/交互照常另读。
 
 ## 1. 责任和事实来源
 
@@ -16,8 +55,8 @@
 | 数量、字节与时间上限 | [Budget](../../../../src/mcp/contracts/Budget.h)、[HTTP实现](../../../../src/mcp/HttpMcpServer.cpp) |
 | 错误映射/失败封装 | [Errors](../../../../src/mcp/contracts/Errors.cpp)、ToolCodec::encodeFailure |
 | 使用与人工接管语义 | [MCP使用说明](../../../MCP_Usage.md) |
-| 已运行成绩/已知缺口 | [实施与验收记录](03_Implementation_and_Verification.md)，只按日期/平台引用 |
-| 被替代的设计 | [历史设计档案](04_Historical_Design_Archive.md)，不是当前规范 |
+| 已运行成绩/已知缺口 | [实施与验收记录](records/03_Implementation_and_Verification.md)，只按日期/平台引用 |
+| 旧方案处理 | 旧设计与阶段实施计划已删除；[档案目录](records/README.md)仅保留实施和验证证据 |
 
 低耦合、高内聚仍按总体架构执行。对外协议属于适配层；Session只理解连接、输入/执行与证据，核心用例不解析HTTP、MCP metadata或QWidget状态。
 接口完整性由fixture对象级比较保证，不在文档中手写第二份可编译Schema。协议/业务/资源错误分层，不为保留旧文字恢复stdio或双实现。
@@ -257,7 +296,7 @@ actions支持text、paste、key、line_ending、command、release六分支。key
 | 旧→新游标 | 校验原连接/epoch/授权；不是尝试多个后端直到某个接受 |
 
 maxBytes连下一个UTF-8字符都容不下返回TEXT_BUDGET_TOO_SMALL，不应补读死循环。full/compact可沿新版观察cursor继续；补读与实时增量是不同坐标域。控制空闲续期60秒，展开不续期，用户输入立即抢占。
-HistoryCapture和Agent output artifact不使用这里的短期capture假冒长期证据，分别按P2/P3/P6资源模型管理。
+独立录制/离线共享不使用这里的短期 capture 假冒长期证据，继续遵守其既有资源授权和保留规则；本项目不规划 Agent output artifact 或聊天历史模块。
 
 ## 7. 固定诊断、普通命令与脚本
 
@@ -390,5 +429,5 @@ HTTP input公式对应当前实现49.1875MiB，不将原档案旧IPC握手/执�
 - 2025/2026路由/确认/断流由WireSession/HTTP/endpoint验证；授权、输入、脚本、unknown/目标保护由MCP专项验证。
 - 旧P8中的五工具/七工具、stdio/IPC、多实例discovery、execute_command旧idempotentHint=true、旧Grant整组写入和双提示符模型均为历史，不作为新实现要求。
 - 原v0.6只有run_command/script，后续完整输入/提权加入后是九工具；工具存在不证明提权或所有后端可用。
-- 历史“最终结构验收”仅是当时迁移结论；低耦合/纯应用/任务owner等剩余审计按当前P0/P1计划继续，不因归档改为已完成。
-- 本次只做文档迁移；没有重新运行功能/性能/平台测试，历史成绩在03按日期保存。
+- 历史“最终结构验收”仅是当时迁移结论；后续结构和行为验证按 [当前实施顺序](01_Phases_and_Acceptance.md) 执行，不再沿用旧 P0/P1 计划。
+- 本次只做文档重构；没有重新运行功能/性能/平台测试，历史成绩在 [验收档案](records/README.md) 按日期保存。

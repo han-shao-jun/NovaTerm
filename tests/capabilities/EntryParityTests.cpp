@@ -2,7 +2,6 @@
 #include "capabilities/terminal/InputCapabilities.h"
 #include "capabilities/terminal/ObservationCapabilities.h"
 #include "capabilities/terminal/SearchCapabilities.h"
-#include "capabilities/LocalAgentAdapter.h"
 #include "capabilities/McpCapabilityAdapter.h"
 #include <QtTest>
 namespace C = NovaTerm::Capabilities;
@@ -39,7 +38,7 @@ private slots:
         C::CapabilityAuthorization auth{[](const C::PrincipalId&, C::EntryKind, const C::ResourceBinding& resource,
             const C::Definition&) { return std::optional<C::AuthorizationSnapshot>{{resource, 1}}; }};
         C::CapabilityDispatcher dispatcher{registry, auth};
-        C::LocalAgentAdapter local{auth, C::PrincipalId{"client"}};
+        C::McpCapabilityAdapter second{auth, C::PrincipalId{"client"}};
         C::McpCapabilityAdapter mcp{auth, C::PrincipalId{"client"}};
         C::SessionBinding binding{C::SessionId{"session"}, C::AttachmentId{"attach"}, C::Epoch{"epoch"}, 1, {}};
         M::ObservationState state{[] { return 100; }};
@@ -50,7 +49,7 @@ private slots:
         M::ReadContextRequest read; read.session = wait.session.session; read.epoch = wait.session.epoch;
         wait.typed = read;
         int completions = 0;
-        local.invoke(observations.read, wait, binding, 1, C::OperationId{"observe"}, C::Clock::now() + std::chrono::seconds(5),
+        second.invoke(observations.read, wait, binding, 1, C::OperationId{"observe"}, C::Clock::now() + std::chrono::seconds(5),
             [&completions](auto result) {
                 const auto& completed = std::get<M::ObservationCompletion>(result);
                 QCOMPARE(completed.wait.client.str(), QString("client")); ++completions;
@@ -74,10 +73,10 @@ private slots:
             const auto& value = std::get<C::Terminal::ContextSearchResult>(std::get<M::Result<C::Terminal::ContextSearchResult>>(result));
             QCOMPARE(value.search.matches.size(), 1); QCOMPARE(value.search.matches.front().startByte, 0);
         };
-        local.invoke(searches.search, query, binding, 1, C::OperationId{"local-search"}, C::Clock::now() + std::chrono::seconds(5), done);
+        second.invoke(searches.search, query, binding, 1, C::OperationId{"second-search"}, C::Clock::now() + std::chrono::seconds(5), done);
         mcp.invoke(searches.search, query, binding, 1, C::OperationId{"mcp-search"}, C::Clock::now() + std::chrono::seconds(5), done);
         wait.request = M::RequestId{"cancelled"};
-        local.invoke(observations.read, wait, binding, 1, C::OperationId{"cancel-observe"}, C::Clock::now() + std::chrono::seconds(5), [](auto) { QFAIL("cancelled observation delivered"); });
+        second.invoke(observations.read, wait, binding, 1, C::OperationId{"cancel-observe"}, C::Clock::now() + std::chrono::seconds(5), [](auto) { QFAIL("cancelled observation delivered"); });
         QVERIFY(dispatcher.cancel(C::PrincipalId{"client"}, C::OperationId{"cancel-observe"}));
         QCOMPARE(state.waiterCount(), 0);
     }
@@ -104,7 +103,7 @@ private slots:
         C::CapabilityDispatcher dispatcher{registry, auth};
         M::ObservationState state{[] { return 100; }};
         C::Terminal::InputCapabilities ports{dispatcher, state, source};
-        C::LocalAgentAdapter local{auth, C::PrincipalId{"client"}};
+        C::McpCapabilityAdapter second{auth, C::PrincipalId{"client"}};
         C::McpCapabilityAdapter mcp{auth, C::PrincipalId{"client"}};
         source.current.session = {M::SessionId{"session"}, M::Epoch{"epoch"}};
         source.current.grant = M::ClientAccessVersion{1};
@@ -113,14 +112,14 @@ private slots:
         call.request.session = M::SessionId{"session"}; call.request.epoch = M::Epoch{"epoch"};
         call.request.operation = M::OperationId{"input-op"}; call.request.actions = {M::TextAction{"hello"}};
         call.claims = state.inputClaims(M::ClientId{"client"}, source.current);
-        local.invoke(ports.input, call, binding, 1, C::OperationId{"local"}, C::Clock::now() + std::chrono::seconds(5),
+        second.invoke(ports.input, call, binding, 1, C::OperationId{"second"}, C::Clock::now() + std::chrono::seconds(5),
             [](auto result) { QCOMPARE(std::get<M::InputAdmission>(std::get<M::Result<M::InputAdmission>>(result)), M::InputAdmission::Submit); });
         mcp.invoke(ports.input, call, binding, 1, C::OperationId{"mcp"}, C::Clock::now() + std::chrono::seconds(5),
             [](auto result) { QCOMPARE(std::get<M::InputAdmission>(std::get<M::Result<M::InputAdmission>>(result)), M::InputAdmission::Replay); });
         QCOMPARE(source.submissions, 1);
         auto oversized = call;
         oversized.request.actions = {M::TextAction{QString(16385, 'x')}};
-        local.invoke(ports.input, oversized, binding, 1, C::OperationId{"oversized"}, C::Clock::now() + std::chrono::seconds(5),
+        second.invoke(ports.input, oversized, binding, 1, C::OperationId{"oversized"}, C::Clock::now() + std::chrono::seconds(5),
             [](auto result) {
                 const auto& domain = std::get<M::Result<M::InputAdmission>>(result);
                 QCOMPARE(M::errorIfAny(domain)->code, M::ErrorCode::InvalidArgument);
@@ -130,7 +129,7 @@ private slots:
         call.claims = state.inputClaims(M::ClientId{"client"}, source.current);
         call.request.operation = M::OperationId{"new-input"};
         source.acquired = [&allowed] { allowed = false; };
-        local.invoke(ports.input, call, binding, 1, C::OperationId{"revoke-on-acquire"}, C::Clock::now() + std::chrono::seconds(5),
+        second.invoke(ports.input, call, binding, 1, C::OperationId{"revoke-on-acquire"}, C::Clock::now() + std::chrono::seconds(5),
             [](auto result) { QVERIFY(std::holds_alternative<C::Rejection>(result)); });
         QCOMPARE(source.submissions, 1);
     }
@@ -143,7 +142,7 @@ private slots:
         ReadSessions source;
         C::Terminal::ReadCapabilities ports{dispatcher, source};
         C::McpCapabilityAdapter mcp{auth, C::PrincipalId{"client"}};
-        C::LocalAgentAdapter local{auth, C::PrincipalId{"client"}};
+        C::McpCapabilityAdapter second{auth, C::PrincipalId{"client"}};
         C::SessionBinding binding{C::SessionId{"session"}, C::AttachmentId{"attachment"}, C::Epoch{"epoch"}, 1, {}};
         C::Terminal::ContextReadQuery query;
         query.query.session = {M::SessionId{"session"}, M::Epoch{"epoch"}};
@@ -155,18 +154,18 @@ private slots:
             return result;
         };
         const auto external = read(mcp, "external");
-        const auto internal = read(local, "internal");
-        QVERIFY(external && internal);
+        const auto secondResult = read(second, "second-connection");
+        QVERIFY(external && secondResult);
         const auto& a = std::get<M::ContextPage>(std::get<M::Result<M::ContextPage>>(*external));
-        const auto& b = std::get<M::ContextPage>(std::get<M::Result<M::ContextPage>>(*internal));
+        const auto& b = std::get<M::ContextPage>(std::get<M::Result<M::ContextPage>>(*secondResult));
         QCOMPARE(a.summary.viewport, b.summary.viewport);
         QCOMPARE(a.summary.revision, b.summary.revision);
         QCOMPARE(source.observed.str(), QString("client"));
         mcp.setEnabled(false);
         QVERIFY(std::holds_alternative<C::Rejection>(*read(mcp, "disabled")));
-        QVERIFY(std::holds_alternative<M::Result<M::ContextPage>>(*read(local, "still-enabled")));
-        local.setEnabled(false);
-        QVERIFY(std::holds_alternative<C::Rejection>(*read(local, "local-disabled")));
+        QVERIFY(std::holds_alternative<M::Result<M::ContextPage>>(*read(second, "still-enabled")));
+        second.setEnabled(false);
+        QVERIFY(std::holds_alternative<C::Rejection>(*read(second, "second-disabled")));
     }
 };
 QTEST_GUILESS_MAIN(EntryParityTests)
