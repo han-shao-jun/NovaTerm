@@ -76,6 +76,7 @@ enum class CommandType
     ConfigureHistory,
     ClearScrollback,
     ClearAll,
+    ClearTransaction,
     ResetForConnection,
     Flush,
     PublishContext,
@@ -107,6 +108,8 @@ struct ParserCommand
     // 字节流之间的相对顺序（命令"看到"它之前写入的所有解析结果）。
     uint64_t byteBarrier{0};
     uint64_t operation{0};
+    quint64 expectedGeneration{0};
+    std::shared_ptr<std::atomic_bool> cancelled;
     std::vector<NovaTerm::TerminalInputAction> actions;
 };
 
@@ -117,6 +120,14 @@ struct EncodedOutput
     bool userInput{false};
     quint64 operation{0};
     bool valid{true};
+};
+
+struct ClearCompletion
+{
+    quint64 operation{0};
+    quint64 generation{0};
+    int status{0};
+    quint64 nextLine{0};
 };
 
 // 计算一整行（columns 宽）Cell 内容的 64 位身份哈希（FNV-1a 64-bit 变体）。
@@ -270,6 +281,7 @@ public:
         // adapter；若创建留给 worker，抢锁先于 worker 的那次读取就是
         // 空指针解引用。
         createAdapter();
+        cacheGeneration.store(scrollback.cacheGeneration(), std::memory_order_release);
         thread = std::thread([this]() { workerMain(); });
     }
 
@@ -548,6 +560,7 @@ public:
         };
         observer.scrollbackChanged = [this]() {
             scrollbackChanged = true;
+            publishCacheGenerationLocked();
         };
         observer.screenScrolled = [this](int rows) {
             pendingScreenScrollRows += rows;
@@ -748,6 +761,25 @@ public:
             scrollback.clear();
             scrollbackChanged = true;
             break;
+        case CommandType::ClearTransaction: {
+            int status = 0;
+            quint64 nextLine = 0;
+            if (command.cancelled && command.cancelled->load(std::memory_order_acquire)) {
+                status = 1;
+            } else if (command.expectedGeneration != scrollback.cacheGeneration()) {
+                status = 2;
+            } else {
+                if (command.first != 0)
+                    adapter->clearScreen();
+                scrollback.clear();
+                scrollbackChanged = true;
+                NovaTerm::LogRequest tail;
+                tail.start = NovaTerm::LogStart::Tail;
+                nextLine = scrollback.readLog(tail).sampledEnd.line;
+            }
+            pendingClearCompletions.push_back({command.operation, scrollback.cacheGeneration(), status, nextLine});
+            break;
+        }
         case CommandType::ResetForConnection:
             adapter->resetForConnection();
             break;
@@ -757,7 +789,17 @@ public:
         case CommandType::PublishContext:
             break;
         }
+        publishCacheGenerationLocked();
         processingUserInput = false;
+    }
+
+    // The backend owns generation. Publish immediately at its mutation callbacks,
+    // before releasing the model lock or delivering any queued GUI notification.
+    void publishCacheGenerationLocked()
+    {
+        const auto generation = scrollback.cacheGeneration();
+        if (cacheGeneration.exchange(generation, std::memory_order_acq_rel) != generation)
+            pendingInvalidations.push_back(generation);
     }
 
     void maybePublishContextLocked()
@@ -800,10 +842,15 @@ public:
         const int screenScrollRows = std::exchange(pendingScreenScrollRows, 0);
         QVector<EncodedOutput> output;
         output.swap(pendingOutput);
+        QVector<ClearCompletion> clears;
+        clears.swap(pendingClearCompletions);
+        QVector<quint64> invalidations;
+        invalidations.swap(pendingInvalidations);
         const u64 revisionValue = std::exchange(pendingRevision, 0);
 
         if (damageValue.isEmpty() && !cursorValue && !titleValue && !bellValue
-            && !scrollbackValue && screenScrollRows == 0 && output.isEmpty()) {
+            && !scrollbackValue && screenScrollRows == 0 && output.isEmpty()
+            && clears.isEmpty() && invalidations.isEmpty()) {
             return;
         }
 
@@ -817,7 +864,12 @@ public:
             owner,
             [target = owner, damageValue = std::move(damageValue),
              revisionValue, cursorValue, titleValue, titleCopy, bellValue,
-             scrollbackValue, screenScrollRows, output = std::move(output)]() {
+             scrollbackValue, screenScrollRows, output = std::move(output),
+             clears = std::move(clears), invalidations = std::move(invalidations)]() {
+                for (const auto generation : invalidations)
+                    emit target->cacheInvalidated(generation);
+                for (const auto& completion : clears)
+                    emit target->clearCompleted(completion.operation, completion.generation, completion.status, completion.nextLine);
                 for (const auto& data : output) {
                     if (data.operation != 0) {
                         emit target->agentInputEncoded(data.operation, data.bytes, data.valid);
@@ -896,6 +948,7 @@ public:
     std::atomic<uint64_t> completedCommands{0};
     std::atomic<bool> accepting{true};
     std::atomic<bool> stopping{false};
+    std::atomic<quint64> cacheGeneration{1};
     std::shared_ptr<const NovaTerm::PublishedTerminalState> publishedContext;
     std::atomic<bool> contextRequested{false};
     // 调用方已消费到的历史行高水位，随发布请求一起带进下一次发布。多次请求
@@ -911,6 +964,8 @@ public:
 
     QVector<NovaTerm::DirtyRegion> pendingDamage;
     QVector<EncodedOutput> pendingOutput;
+    QVector<ClearCompletion> pendingClearCompletions;
+    QVector<quint64> pendingInvalidations;
     bool processingUserInput{false};
     bool encodingAgent{false};
     bool agentEncodingValid{true};
@@ -1365,6 +1420,7 @@ NovaTerm::TerminalState TerminalCore::terminalStateLocked(
 {
     NovaTerm::TerminalState result;
     result.revision = _runtime->modelRevision;
+    result.cacheGeneration = _runtime->scrollback.cacheGeneration();
     result.cursor = _runtime->cursor;
     result.alternateScreen = _runtime->adapter->alternateScreen();
     maxBytes = std::min(maxBytes, NovaTerm::TerminalState::MaxBytes);
@@ -1705,11 +1761,30 @@ void TerminalCore::setScrollbackLimit(int lines)
     _runtime->enqueueCommand(std::move(command));
 }
 
-void TerminalCore::clearScrollback()
+bool TerminalCore::clearScrollback()
 {
     ParserCommand command;
     command.type = CommandType::ClearScrollback;
-    _runtime->enqueueCommand(std::move(command));
+    return _runtime->enqueueCommand(std::move(command));
+}
+
+quint64 TerminalCore::cacheGeneration() const noexcept
+{
+    return _runtime->cacheGeneration.load(std::memory_order_acquire);
+}
+
+bool TerminalCore::requestClear(quint64 operation, bool all,
+    quint64 expectedGeneration, std::shared_ptr<std::atomic_bool> cancelled)
+{
+    if (operation == 0)
+        return false;
+    ParserCommand command;
+    command.type = CommandType::ClearTransaction;
+    command.operation = operation;
+    command.first = all ? 1 : 0;
+    command.expectedGeneration = expectedGeneration;
+    command.cancelled = std::move(cancelled);
+    return _runtime->enqueueCommand(std::move(command));
 }
 
 bool TerminalCore::resetForConnection()

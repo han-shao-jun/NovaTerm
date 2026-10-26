@@ -3,7 +3,7 @@
  * @brief 每个 Session 共享的基础摘要缓存；合并窗口内的请求复用同一次采样。
  *
  * 纯模板，不依赖 Session 类型或线程设施；时钟由调用方注入单调毫秒源。
- * 缓存键是 Session 与会话 epoch：换绑后旧摘要不会被当成新连接的数据。
+ * 缓存键是 Session、会话 epoch 与缓存代际：换绑或清空后不会复用旧摘要。
  */
 #pragma once
 
@@ -38,11 +38,12 @@ public:
      * @return loader 失败时返回空指针，不缓存失败结果。
      */
     [[nodiscard]] std::shared_ptr<const Snapshot> acquire(const QString& session,
-        const QString& epoch, const Loader& load, bool* reused = nullptr)
+        const QString& epoch, const Loader& load, bool* reused = nullptr, quint64 cacheGeneration = 0)
     {
         const qint64 now = _clock ? _clock() : 0;
         auto entry = _entries.find(session);
         if (entry != _entries.end() && entry->epoch == epoch && entry->snapshot
+            && entry->cacheGeneration == cacheGeneration
             && now - entry->sampledAt < _intervalMs) {
             if (reused)
                 *reused = true;
@@ -53,7 +54,7 @@ public:
         auto snapshot = load ? load() : std::shared_ptr<const Snapshot>{};
         if (!snapshot)
             return {};
-        _entries.insert(session, Entry{epoch, now, snapshot});
+        _entries.insert(session, Entry{epoch, cacheGeneration, now, snapshot});
         return snapshot;
     }
 
@@ -65,6 +66,7 @@ private:
     struct Entry
     {
         QString epoch;
+        quint64 cacheGeneration{0};
         qint64 sampledAt{0};
         std::shared_ptr<const Snapshot> snapshot;
     };

@@ -1,6 +1,6 @@
 # NovaTerm 统一架构设计
 
-2026-10-25 B0/B1：`read_context source=log` 已复用现有 ChunkedScrollback 提供稳定位置、UTF-8 分页、重复行及淘汰/代际状态；模型观察游标原义保持。Core 只 try-lock，冷页 CacheOnly，不建立第二日志存储。已退役未发布 P4 诊断平台及无生产消费者的 Recipe/EnvironmentTracker/本机 Agent 原型；CommandRuntime/Controller/EvidenceModel 保持现行执行与就绪事实。精确契约、范围及本轮成绩见 [B0/B1 记录](architecture/stages/P8_AI_MCP_Interface/records/B0_B1_Implementation_2026-10-25.md)。MCP 清空与 G05 观察失效留待 B2。
+2026-10-25 B0/B1：`read_context source=log` 已复用现有 ChunkedScrollback 提供稳定位置、UTF-8 分页、重复行及淘汰/代际状态；模型观察游标原义保持。Core 只 try-lock，冷页 CacheOnly，不建立第二日志存储。已退役未发布 P4 诊断平台及无生产消费者的 Recipe/EnvironmentTracker/本机 Agent 原型；CommandRuntime/Controller/EvidenceModel 保持现行执行与就绪事实。精确契约、范围及本轮成绩见 [B0/B1 记录](architecture/stages/P8_AI_MCP_Interface/records/B0_B1_Implementation_2026-10-25.md)。B2 已通过现有 Parser 队列与字节屏障接入独立授权清空，应用持有有界幂等记录，Core/Provider/实时 capture 与输入 token 共用缓存代际；当前追加第十三项工具，见 [B2 记录](architecture/stages/P8_AI_MCP_Interface/records/B2_Implementation_2026-10-25.md)。
 
 2026-10-25 MCP 目标设计补充：[等待、长任务、文件传输与保存目标连接](architecture/stages/P8_AI_MCP_Interface/06_Terminal_Workflow_Extensions.md) 纳入外部 Agent 的 BSP 闭环，复用既有终端、执行、SSH/SFTP 和 View-owned Session 边界。仅为规划，不代表新工具已实现，不改变当前数据通路或所有权。
 
@@ -336,7 +336,7 @@ SSH/LocalShell 脚本正文由 Session 级 ScriptProvider 写入明确目标路�
 
 `TerminalInteraction` 负责客户端绑定的输入/观察令牌、最近操作去重、最多 32 个
 观察等待器及有界 capture；旧七工具加 `interact_terminal` / `request_elevation`
-为原九工具兼容基线；2026-10-23 增加三个独立授权的历史工具，当前共十二工具，见下方 P3 增量。新增 `terminalControl` 权限默认关闭，旧 `interactiveCommand` 不自动
+为原九工具兼容基线；2026-10-23 增加三个独立授权的历史工具，P3 时共十二工具；B2 独立追加清空，当前十三项，见 02 契约与 B2 记录。新增 `terminalControl` 权限默认关闭，旧 `interactiveCommand` 不自动
 升级。compact 默认 4 KiB/24 行、最终含双份兼容内容的工具结果最多 8 KiB；
 省略内容用同一 capture 的 expandToken 分页，源缺口单独报告。无变化或普通滚屏
 到期不等于命令结束，完成状态只消费既有 Shell/设备事件。等待最多 30 秒，

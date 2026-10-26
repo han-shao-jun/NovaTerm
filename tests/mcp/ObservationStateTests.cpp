@@ -1,4 +1,5 @@
 #include "mcp/application/ObservationState.h"
+#include "mcp/application/SnapshotStore.h"
 #include <QTest>
 using namespace NovaTerm::Mcp;
 class ObservationStateTests final : public QObject {
@@ -9,6 +10,8 @@ private slots:
     void deadlineAndControlWake();
     void outputQuietWindow();
     void cursorAndCaptureBinding();
+    void cacheGenerationInvalidatesInputReplayCursorCaptureAndWait();
+    void cacheGenerationBypassesSnapshotCoalescing();
 };
 void ObservationStateTests::inputReplayAndGenerations()
 {
@@ -99,5 +102,65 @@ void ObservationStateTests::cursorAndCaptureBinding()
     QVERIFY(state.captureAvailable(record, client, session, ClientAccessVersion{1}));
     now = 101; QVERIFY(!state.captureAvailable(record, client, session, ClientAccessVersion{1}));
 }
+void ObservationStateTests::cacheGenerationInvalidatesInputReplayCursorCaptureAndWait()
+{
+    ObservationState state{[] { return qint64(100); }};
+    const ClientId client{"c"};
+    TerminalControlFacts facts;
+    facts.session = {SessionId{"s"}, Epoch{"e"}};
+    facts.cacheGeneration = 7;
+    InteractTerminalRequest input;
+    input.session = facts.session.session; input.epoch = facts.session.epoch;
+    input.operation = OperationId{"op"}; input.actions = {TextAction{"x"}};
+    const auto claims = state.inputClaims(client, facts);
+    state.inputAccepted(client, input, facts);
+    QCOMPARE(std::get<InputAdmission>(state.prepareInput(client, input, claims, facts)), InputAdmission::Replay);
+    facts.cacheGeneration = 8;
+    const auto staleInput = state.prepareInput(client, input, claims, facts);
+    QVERIFY(isError(staleInput));
+    QCOMPARE(errorIfAny(staleInput)->code, ErrorCode::ControlInvalid);
+    const auto freshClaims = state.inputClaims(client, facts);
+    QCOMPARE(std::get<InputAdmission>(state.prepareInput(client, input, freshClaims, facts)), InputAdmission::Submit);
+    state.inputAccepted(client, input, facts);
+    const auto oldTokenForNewReplay = state.prepareInput(client, input, claims, facts);
+    QVERIFY(isError(oldTokenForNewReplay));
+    QCOMPARE(errorIfAny(oldTokenForNewReplay)->code, ErrorCode::ControlInvalid);
+
+    ObservationCursor cursor{{true, client, facts.session, {}}, 4, 2};
+    cursor.cacheGeneration = 7;
+    QCOMPARE(errorIfAny(state.restoreCursor(cursor, client, facts.session, {}, true, 8))->code, ErrorCode::CursorStale);
+    CaptureRecord capture;
+    capture.scope = CaptureScope::Client; capture.owner = "c"; capture.session = "s";
+    capture.epoch = "e"; capture.expires = 200; capture.cacheGeneration = 7;
+    QVERIFY(state.captureAvailable(capture, client, facts.session, {}, 7));
+    QVERIFY(!state.captureAvailable(capture, client, facts.session, {}, 8));
+
+    ObservationWait wait;
+    wait.client = client; wait.request = RequestId{"wait"}; wait.session = facts.session;
+    wait.cacheGeneration = 7;
+    ReadContextRequest read; read.wait = std::chrono::milliseconds{1000}; wait.typed = read;
+    QVERIFY(!isError(state.admit(wait)));
+    ObservationFacts observed;
+    observed.available = observed.running = true; observed.session = facts.session;
+    observed.cacheGeneration = 8;
+    // A missing new snapshot must not keep an old-generation waiter alive.
+    const auto completed = state.evaluate(wait.request, observed);
+    QVERIFY(completed && completed->error);
+    QCOMPARE(completed->error->code, ErrorCode::CursorStale);
+}
+
+void ObservationStateTests::cacheGenerationBypassesSnapshotCoalescing()
+{
+    SnapshotStore<int> store{[] { return qint64(100); }};
+    int loads = 0;
+    const auto load = [&] { return std::make_shared<const int>(++loads); };
+    bool reused = false;
+    QCOMPARE(*store.acquire("s", "e", load, &reused, 7), 1);
+    QCOMPARE(*store.acquire("s", "e", load, &reused, 7), 1);
+    QVERIFY(reused);
+    QCOMPARE(*store.acquire("s", "e", load, &reused, 8), 2);
+    QVERIFY(!reused);
+}
+
 QTEST_GUILESS_MAIN(ObservationStateTests)
 #include "ObservationStateTests.moc"

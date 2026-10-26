@@ -51,6 +51,11 @@ private slots:
     void cursorPropertiesPublishWithoutFollowingMovement();
     void scrollbackKeepsNewestLines();
     void defaultHistoryKeepsEarliestLogBeyondTenThousandLines();
+    void clearTransactionPublishesCompletedFacts();
+    void clearTransactionPreservesBaselineAtEachExecutionPoint();
+    void clearTransactionCancellationAndStaleAreNoOps();
+    void clearTransactionCancelledWhileQueuedIsNotApplied();
+    void cacheGenerationTracksEveryInvalidation();
     void clearAllHonorsByteBarrierAndPreservesModes();
     void connectionResetPreservesHostConfigurationAndHistory();
     void clearAllReportsFullQueueAndAllowsRetry();
@@ -255,6 +260,123 @@ void TerminalCoreTests::connectionResetPreservesHostConfigurationAndHistory()
     QVERIFY(output.isEmpty()); // 重置不会向新连接发送 RIS 或其他控制字节。
 }
 
+void TerminalCoreTests::clearTransactionPublishesCompletedFacts()
+{
+    TerminalCore core(20, 4);
+    QSignalSpy completed(&core, &TerminalCore::clearCompleted);
+    QSignalSpy invalidated(&core, &TerminalCore::cacheInvalidated);
+    QSignalSpy output(&core, &TerminalCore::outputData);
+    const auto initial = core.cacheGeneration();
+    QVERIFY(initial != 0);
+    QVERIFY(!core.requestClear(0, true, initial, {}));
+    QVERIFY(core.writeInput("before\r\nold\r\nold\r\nold\r\n").fullyAccepted());
+    QVERIFY(core.requestClear(71, true, initial, {}));
+    QVERIFY(core.writeInput("after").fullyAccepted());
+    QVERIFY(core.requestClear(72, false, initial, {}));
+    QVERIFY(core.requestClear(73, false, initial + 1, {}));
+    QVERIFY(core.waitForIdle());
+    // Publication is visible before queued GUI completion delivery.
+    QVERIFY(completed.empty());
+    const auto generation = core.cacheGeneration(); QVERIFY(generation > initial);
+    QCOMPARE(core.terminalState().cacheGeneration, generation);
+    QCOMPARE(core.scrollbackLineCount(), 0);
+    NovaTerm::Cell cell; QVERIFY(core.getCell(0, 0, cell)); QCOMPARE(cell.chars[0], uint32_t('a'));
+    QTRY_COMPARE(completed.size(), 3);
+    QCOMPARE(completed.at(0).at(0).toULongLong(), quint64(71));
+    QCOMPARE(completed.at(0).at(1).toULongLong(), initial + 1);
+    QCOMPARE(completed.at(0).at(2).toInt(), 0);
+    QCOMPARE(completed.at(1).at(0).toULongLong(), quint64(72));
+    QCOMPARE(completed.at(1).at(1).toULongLong(), initial + 1);
+    QCOMPARE(completed.at(1).at(2).toInt(), 2);
+    QCOMPARE(completed.at(2).at(0).toULongLong(), quint64(73));
+    QCOMPARE(completed.at(2).at(1).toULongLong(), generation);
+    QCOMPARE(completed.at(2).at(2).toInt(), 0);
+    NovaTerm::LogRequest tail;
+    tail.start = NovaTerm::LogStart::Tail;
+    const auto baseline = core.tryReadLog(tail); QVERIFY(baseline);
+    QCOMPARE(completed.at(0).at(3).toULongLong(), baseline->sampledEnd.line);
+    QCOMPARE(completed.at(2).at(3).toULongLong(), baseline->sampledEnd.line);
+    QCOMPARE(generation, initial + 2);
+    QCOMPARE(invalidated.size(), 2); QVERIFY(output.empty());
+}
+
+void TerminalCoreTests::clearTransactionPreservesBaselineAtEachExecutionPoint()
+{
+    TerminalCore core(20, 4);
+    QSignalSpy completed(&core, &TerminalCore::clearCompleted);
+    QVERIFY(core.writeInput("old\r\nold\r\nold\r\nold\r\nold\r\n").fullyAccepted());
+    QVERIFY(core.waitForIdle());
+    NovaTerm::LogRequest tail;
+    tail.start = NovaTerm::LogStart::Tail;
+    const auto before = core.tryReadLog(tail); QVERIFY(before);
+    const auto generation = core.cacheGeneration();
+    QVERIFY(core.requestClear(101, true, generation, {}));
+    QVERIFY(core.writeInput("between\r\nnew\r\nnew\r\nnew\r\nnew\r\nnew\r\n").fullyAccepted());
+    QVERIFY(core.requestClear(102, true, generation + 1, {}));
+    QVERIFY(core.waitForIdle());
+    const auto after = core.tryReadLog(tail); QVERIFY(after);
+    QVERIFY(after->sampledEnd.line > before->sampledEnd.line);
+    QCOMPARE(after->earliest.line, after->sampledEnd.line);
+    QTRY_COMPARE(completed.size(), 2);
+    QCOMPARE(completed.at(0).at(0).toULongLong(), quint64(101));
+    QCOMPARE(completed.at(0).at(3).toULongLong(), before->sampledEnd.line);
+    QCOMPARE(completed.at(1).at(0).toULongLong(), quint64(102));
+    QCOMPARE(completed.at(1).at(3).toULongLong(), after->sampledEnd.line);
+}
+
+void TerminalCoreTests::clearTransactionCancellationAndStaleAreNoOps()
+{
+    TerminalCore core(20, 4);
+    QVERIFY(core.writeInput("retained\r\na\r\nb\r\nc\r\nd").fullyAccepted());
+    QVERIFY(core.waitForIdle());
+    const auto before = core.terminalState();
+    const auto history = core.scrollbackLineCount();
+    auto cancelled = std::make_shared<std::atomic_bool>(true);
+    QSignalSpy completed(&core, &TerminalCore::clearCompleted);
+    QVERIFY(core.requestClear(81, true, core.cacheGeneration(), cancelled));
+    QVERIFY(core.requestClear(82, true, core.cacheGeneration() + 1, {}));
+    QVERIFY(core.waitForIdle());
+    QCOMPARE(core.terminalState().revision, before.revision);
+    QCOMPARE(core.scrollbackLineCount(), history);
+    QCOMPARE(core.cacheGeneration(), before.cacheGeneration);
+    QTRY_COMPARE(completed.size(), 2);
+    QCOMPARE(completed.at(0).at(2).toInt(), 1);
+    QCOMPARE(completed.at(1).at(2).toInt(), 2);
+}
+
+void TerminalCoreTests::clearTransactionCancelledWhileQueuedIsNotApplied()
+{
+    TerminalCore core(20, 4);
+    QSignalSpy completed(&core, &TerminalCore::clearCompleted);
+    auto cancelled = std::make_shared<std::atomic_bool>(false);
+    const auto generation = core.cacheGeneration();
+    QVERIFY(core.writeInput(QByteArray(6 * 1024 * 1024, 'q')).fullyAccepted());
+    QVERIFY(core.requestClear(91, true, generation, cancelled));
+    cancelled->store(true, std::memory_order_release);
+    QVERIFY(core.waitForIdle(15000));
+    QCOMPARE(core.cacheGeneration(), generation);
+    QVERIFY(core.scrollbackLineCount() > 0);
+    QTRY_COMPARE(completed.size(), 1);
+    QCOMPARE(completed.front().at(0).toULongLong(), quint64(91));
+    QCOMPARE(completed.front().at(1).toULongLong(), generation);
+    QCOMPARE(completed.front().at(2).toInt(), 1);
+}
+void TerminalCoreTests::cacheGenerationTracksEveryInvalidation()
+{
+    TerminalCore core(20, 3);
+    QVERIFY(core.writeInput("a\r\nb\r\nc\r\nd\r\ne\r\n").fullyAccepted());
+    QVERIFY(core.waitForIdle());
+    auto previous = core.cacheGeneration();
+    core.resize(20, 6); QVERIFY(core.waitForIdle());
+    QVERIFY(core.cacheGeneration() > previous); previous = core.cacheGeneration();
+    QVERIFY(core.clearScrollback()); QVERIFY(core.waitForIdle());
+    QVERIFY(core.cacheGeneration() > previous); previous = core.cacheGeneration();
+    QVERIFY(core.writeInput("\x1b[3J").fullyAccepted()); QVERIFY(core.waitForIdle());
+    QVERIFY(core.cacheGeneration() > previous);
+    NovaTerm::LogRequest query; query.start = NovaTerm::LogStart::Oldest;
+    const auto log = core.tryReadLog(query); QVERIFY(log);
+    QCOMPARE(log->generation, core.cacheGeneration());
+}
 void TerminalCoreTests::clearAllHonorsByteBarrierAndPreservesModes()
 {
     TerminalCore core(20, 4);
@@ -294,8 +416,13 @@ void TerminalCoreTests::clearAllReportsFullQueueAndAllowsRetry()
     for (int index = 0; index < 4096; ++index)
         core.processTextInput(QStringLiteral("x"));
     QVERIFY(!core.clearAll());
+    QVERIFY(!core.clearScrollback());
+    QSignalSpy completion(&core, &TerminalCore::clearCompleted);
+    QVERIFY(!core.requestClear(99, true, core.cacheGeneration(), {}));
     QVERIFY(!core.resetForConnection());
     QVERIFY(core.waitForIdle(15'000));
+    QCoreApplication::processEvents();
+    QVERIFY(completion.empty());
     // 被拒绝的清除不能在队列恢复后偷偷执行；内容应保持可见。
     QVERIFY(core.scrollbackLineCount() > 0);
     NovaTerm::Cell cell;

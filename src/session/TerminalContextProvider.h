@@ -54,10 +54,19 @@ public:
     {
         if (!_core)
             return {};
+        const auto generation = _core->cacheGeneration();
+        if (_initialized && _state.cacheGeneration != generation)
+            invalidateCache();
         auto next = _core->tryTerminalState(_historyId,
             TerminalStateCache::MaxBytes, TerminalStateCache::MaxLines);
         if (next) {
-            if (!_initialized || next->revision != _state.revision)
+            if (next->cacheGeneration != generation
+                || next->cacheGeneration != _core->cacheGeneration()) {
+                invalidateCache();
+                return {};
+            }
+            if (!_initialized || next->revision != _state.revision
+                || next->cacheGeneration != _state.cacheGeneration)
                 acceptState(std::move(*next));
             _capturedAt = std::chrono::system_clock::now();
         } else if (NovaTerm::publishedContextSnapshotEnabled()) {
@@ -65,6 +74,10 @@ public:
             // 固定传 0 会让发布物恒带 truncated，消费方每次都被迫全量重发。
             const auto published = _core->requestPublishedTerminalState(_historyId);
             if (!published)
+                return {};
+            // A valid age/revision cannot resurrect a capture from before clear.
+            if (published->state.cacheGeneration != generation
+                || published->state.cacheGeneration != _core->cacheGeneration())
                 return {};
             // 年龄判据双侧拒绝：system_clock 被 NTP 回拨时年龄为负，只判上界会
             // 让任意旧发布物通过；负值同样按不可用处理。
@@ -77,7 +90,9 @@ public:
             // 缓存，而 _historyId 不随之归零，缓存无法重建。
             if (_initialized && published->state.revision <= _state.revision) {
                 // 没有更新可取：沿用既有快照，不伪造 capturedAt。
-                return _snapshot ? _snapshot : std::shared_ptr<const Snapshot>{};
+                if (_snapshot && _snapshot->state.cacheGeneration == _core->cacheGeneration())
+                    return _snapshot;
+                return {};
             }
             acceptState(published->state);
             _capturedAt = published->capturedAt;
@@ -94,6 +109,10 @@ public:
             snapshot->capturedAt = _capturedAt;
             _snapshot = std::move(snapshot);
         }
+        if (_snapshot->state.cacheGeneration != _core->cacheGeneration()) {
+            invalidateCache();
+            return {};
+        }
         return _snapshot;
     }
 
@@ -103,11 +122,19 @@ private:
      *  的兜底闸门，宁可返回 Busy 也不把旧快照当当前数据。 */
     static constexpr std::chrono::seconds MaxPublishAge{2};
 
+    void invalidateCache()
+    {
+        _cache.clear();
+        _historyId = 0;
+        _snapshot.reset();
+    }
+
     void acceptState(NovaTerm::TerminalState next)
     {
         if (_initialized && (next.alternateScreen != _state.alternateScreen
+                             || next.cacheGeneration != _state.cacheGeneration
                              || next.revision < _state.revision)) {
-            _cache.clear();
+            invalidateCache();
             _resetRevision = next.revision;
         }
         if (!next.alternateScreen) {

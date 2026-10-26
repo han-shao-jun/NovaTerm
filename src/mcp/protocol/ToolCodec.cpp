@@ -255,7 +255,7 @@ const QJsonArray& ToolCodec::catalog()
         {"status", enumeration({"ok", "gap", "invalidated", "pending", "busy", "unavailable"})},
         {"fragments", array(object({{"lineId", decimal}, {"byteOffset", decimal}, {"text", text}, {"lineComplete", boolean}, {"hardBreak", boolean}}))},
         {"nextPosition", logPosition}, {"earliestPosition", logPosition}, {"sampledEndPosition", logPosition},
-        {"nextToken", text}, {"earliestToken", text}, {"sampledEndToken", text},
+        {"nextToken", text}, {"earliestToken", text}, {"sampledEndToken", text}, {"clearToken", text},
         {"hasMore", boolean}, {"caughtUp", boolean}});
     dataSchemas.insert("novaterm_read_context", QJsonObject{{"anyOf", QJsonArray{observation, log}}});
     const QJsonObject operation{{"type", "object"}, {"properties", QJsonObject{{"id", text},
@@ -328,6 +328,20 @@ const QJsonArray& ToolCodec::catalog()
     add("terminal.elevation.request", "Request separately authorized managed sudo/su using local credentials and a verified authentication adapter. Observe first and pass inputToken; never provide a password. Unavailable adapters fail without sending credentials.",
         elevationInput, true, true);
     for (const auto& tool : HistoryToolCodec::catalog()) result.append(tool);
+    const auto clearInput = schema({{"sessionId", stringSchema(36)}, {"epoch", stringSchema(64)},
+        {"operationId", stringSchema(36)}, {"scope", enumeration({"scrollback", "all"})},
+        {"expectedGeneration", QJsonObject{{"type", "string"}, {"pattern", "^[1-9][0-9]*$"}, {"maxLength", 20}}}, {"clearToken", stringSchema(2048)}},
+        {"sessionId", "epoch", "operationId", "scope", "expectedGeneration", "clearToken"});
+    auto clearOutput = output;
+    auto clearProperties = clearOutput.value("properties").toObject();
+    clearProperties.insert("data", object({{"operationId", text}, {"scope", enumeration({"scrollback", "all"})},
+        {"status", enumeration({"applied"})}, {"cacheGeneration", decimal}, {"baseline", log}}));
+    clearOutput.insert("properties", clearProperties);
+    result.append(QJsonObject{{"name", "novaterm_clear_terminal"},
+        {"description", "Clear local scrollback or screen and scrollback after explicit separate authorization. Obtain clearToken and cacheGeneration from a fresh source=log read. Reuse operationId and all arguments only for an identical retry; never change ID after an uncertain result. Success means Parser applied the clear. Does not send device bytes, stop programs or clear recordings."},
+        {"inputSchema", clearInput},
+        {"outputSchema", clearOutput},
+        {"annotations", QJsonObject{{"readOnlyHint", false}, {"destructiveHint", true}, {"idempotentHint", true}, {"openWorldHint", false}}}});
     return result;
     }();
     return catalog;
@@ -336,6 +350,13 @@ const QJsonArray& ToolCodec::catalog()
 QString ToolCodec::validate(const QString& name, const QJsonObject& arguments)
 {
     if (HistoryToolCodec::known(name)) return HistoryToolCodec::validate(name, arguments);
+    if (name == "novaterm_clear_terminal") {
+        const auto text = arguments.value("expectedGeneration").toString();
+        bool valid = false; const auto value = text.toULongLong(&valid);
+        if (!valid || value == 0 || QString::number(value) != text)
+            return "Invalid argument: expectedGeneration";
+        if (arguments.value("clearToken").toString().isEmpty()) return "Invalid argument: clearToken";
+    }
     QJsonObject input;
     for (const auto& tool : catalog()) {
         if (tool.toObject().value("name").toString() == name)
@@ -738,6 +759,14 @@ QJsonArray ToolCodec::encodeActions(const std::vector<TerminalAction>& actions)
 
 Result<ToolCall> ToolCodec::decodeCall(const QString& name, const QJsonObject& arguments)
 {
+    if (name == "novaterm_clear_terminal") {
+        const auto invalid = validate(name, arguments);
+        if (!invalid.isEmpty()) return Error{ErrorCode::InvalidArgument, invalid};
+        return ToolCall{ClearRequest{SessionId{arguments.value("sessionId").toString()},
+            Epoch{arguments.value("epoch").toString()}, OperationId{arguments.value("operationId").toString()},
+            arguments.value("scope") == "all", arguments.value("expectedGeneration").toString().toULongLong(),
+            arguments.value("clearToken").toString()}};
+    }
     if (HistoryToolCodec::known(name)) {
         auto result = HistoryToolCodec::decode(name, arguments);
         if (const auto* error = errorIfAny(result)) return *error;
@@ -749,6 +778,7 @@ Result<ToolCall> ToolCodec::decodeCall(const QString& name, const QJsonObject& a
 }
 QString ToolCodec::toolName(const ToolCall& request)
 {
+    if (std::holds_alternative<ClearRequest>(request)) return "novaterm_clear_terminal";
     if (const auto* history = std::get_if<HistoryToolRequest>(&request)) return HistoryToolCodec::toolName(*history);
     return toolName(std::get<ToolRequest>(request));
 }

@@ -29,6 +29,7 @@
 #endif
 
 #include <QSignalSpy>
+#include <QStringList>
 #include <QKeyEvent>
 #include <QFile>
 #include <QDir>
@@ -36,7 +37,9 @@
 #include <QTemporaryDir>
 #include <QTest>
 #include <algorithm>
+#include <functional>
 #include <memory>
+#include <thread>
 #include <vector>
 
 class FakeTransport final : public ITransport
@@ -166,12 +169,18 @@ private slots:
     void reconnectResetsTerminalParser();
     void structuredTransportErrorSetsSessionCategory();
     void agentContextFiltersProgressWrapDuplicatesAndAlternate();
+    void agentContextClearDropsPreviousSummary();
+    void agentContextRejectsPreviousGenerationPublishedFallback();
     void inputPumpOffsetsPreservePendingSuffix();
     void fileTransferInputUsesSinglePumpAndIndependentPause();
     void userInputPreemptsPartialMcpWrite();
     void terminalProtocolReplyDoesNotPreemptMcpLease();
     void newInputInvalidatesLegacyCommandReadiness();
     void emptyAgentBatchPreservesCommandReadiness();
+    void cacheInvalidationRejectsDeferredAgentInput_data();
+    void cacheInvalidationRejectsDeferredAgentInput();
+    void deferredInputAdmissionRejectsOldCacheGeneration();
+    void cacheClearCanOverlapAnAdmittedTransportWrite();
     void shellIntegrationIsIndependentOfTransport_data();
     void shellIntegrationIsIndependentOfTransport();
     void freeTerminalInputTracksOnlyIntegratedEvidence();
@@ -1968,6 +1977,56 @@ void SessionTests::inputPumpOffsetsPreservePendingSuffix()
     }));
 }
 
+void SessionTests::agentContextClearDropsPreviousSummary()
+{
+    TerminalCore core(20, 3);
+    QVERIFY(core.writeInput("old-summary\r\nold-history\r\nthird\r\nfourth\r\n").fullyAccepted());
+    QVERIFY(core.waitForIdle());
+    TerminalContextProvider provider(&core);
+    auto before = provider.trySnapshot(); QVERIFY(before); QVERIFY(!before->entries.empty());
+    QVERIFY(core.clearAll()); QVERIFY(core.waitForIdle());
+    auto after = provider.trySnapshot(); QVERIFY(after);
+    QVERIFY(after->entries.empty());
+    QVERIFY(after->resetRevision > before->state.revision);
+    QVERIFY(core.writeInput("fresh-history\r\ntwo\r\nthree\r\nfour\r\n").fullyAccepted());
+    QVERIFY(core.waitForIdle());
+    after = provider.trySnapshot(); QVERIFY(after);
+    QVERIFY(std::any_of(after->entries.begin(), after->entries.end(), [](const auto& entry) {
+        return entry.text == "fresh-history";
+    }));
+}
+void SessionTests::agentContextRejectsPreviousGenerationPublishedFallback()
+{
+    TerminalCore core(20, 3);
+    QVERIFY(core.writeInput("obsolete-summary\r\nold\r\nold\r\nold\r\n").fullyAccepted());
+    QVERIFY(core.waitForIdle());
+    TerminalContextProvider provider(&core);
+    QVERIFY(provider.trySnapshot());
+    (void)core.requestPublishedTerminalState();
+    QVERIFY(core.waitForIdle());
+    const auto old = core.requestPublishedTerminalState(); QVERIFY(old);
+    QVERIFY(core.clearAll()); QVERIFY(core.waitForIdle());
+    const auto generation = core.cacheGeneration();
+    QVERIFY(old->state.cacheGeneration != generation);
+    const auto requests = core.publishedContextStatistics().requestCount;
+    QVERIFY(core.writeInput(QByteArray(6 * 1024 * 1024, 'n')).fullyAccepted());
+    for (int sample = 0; sample < 10000; ++sample) {
+        const auto snapshot = provider.trySnapshot();
+        if (snapshot) {
+            QCOMPARE(snapshot->state.cacheGeneration, generation);
+            QVERIFY(std::none_of(snapshot->entries.begin(), snapshot->entries.end(), [](const auto& entry) {
+                return entry.text == "obsolete-summary";
+            }));
+        }
+        if (core.publishedContextStatistics().requestCount > requests)
+            break; // A busy model forced the real published-state fallback.
+        std::this_thread::yield();
+    }
+    QVERIFY(core.publishedContextStatistics().requestCount > requests);
+    QVERIFY(core.waitForIdle(15000));
+    const auto snapshot = provider.trySnapshot(); QVERIFY(snapshot);
+    QCOMPARE(snapshot->state.cacheGeneration, generation);
+}
 void SessionTests::agentContextJoinsHistorySeamAndBoundsUtf8()
 {
     TerminalCore core(10, 3);
@@ -2486,6 +2545,151 @@ void SessionTests::freeTerminalInputTracksOnlyIntegratedEvidence()
         .value("state").toString(), QString("none"));
     QCOMPARE(controller->observation("client").value("lastCommand").toObject()
         .value("executionId"), command.value("executionId"));
+}
+
+void SessionTests::cacheInvalidationRejectsDeferredAgentInput_data()
+{
+    QTest::addColumn<int>("mutation");
+    QTest::addColumn<int>("inputKind");
+    for (int mutation = 0; mutation < 3; ++mutation)
+        for (int kind = 0; kind < 3; ++kind)
+            QTest::newRow(qPrintable(QString("mutation-%1-input-%2").arg(mutation).arg(kind)))
+                << mutation << kind;
+}
+
+void SessionTests::cacheInvalidationRejectsDeferredAgentInput()
+{
+    QFETCH(int, mutation);
+    QFETCH(int, inputKind);
+    TerminalCore core(80, 3);
+    QVERIFY(core.writeInput("old\r\nold\r\nold\r\nold\r\nold\r\n").fullyAccepted());
+    QVERIFY(core.waitForIdle());
+    FakeTransport transport;
+    QVERIFY(transport.connectToHost());
+    SessionInputArbiter arbiter;
+    arbiter.bind(&transport, 1);
+    InteractiveStreamFramer framer;
+    InteractiveCommandProfile profile;
+    profile.shellIntegration = true;
+    framer.configure(profile);
+    framer.reset(1);
+    SessionCommandCoordinator coordinator(&arbiter, &framer);
+    SessionTerminalController controller(&core, &arbiter, &coordinator, &framer,
+        1, true, "\r", nullptr);
+    QVERIFY(controller.acquire("client"));
+    controller.handleEvent({InteractiveStreamEventKind::PromptReady, 1, std::nullopt});
+    NovaTerm::TerminalInputAction action;
+    action.text = "deferred";
+    if (inputKind == 2) {
+        QVERIFY(controller.submit("client", "running", {action}, true));
+        QTRY_VERIFY(!controller.pending());
+        QVERIFY(controller.commandActive());
+        transport.writes.clear();
+    }
+    const auto running = controller.observation("client").value("command").toObject();
+    const auto generation = core.cacheGeneration();
+    QVERIFY(controller.submit("client", "deferred", {action}, inputKind == 1));
+    // Let Parser finish encoding and invalidate the cache, while withholding all
+    // GUI event delivery. Its queued encoding callback must recheck generation.
+    if (mutation == 0) QVERIFY(core.clearAll());
+    else if (mutation == 1) QVERIFY(core.writeInput("\x1b[3J").fullyAccepted());
+    else core.resize(80, 12);
+    QVERIFY(core.waitForIdle());
+    QVERIFY(core.cacheGeneration() != generation);
+    QVERIFY(controller.pending());
+    QVERIFY(transport.writes.isEmpty());
+    QTRY_VERIFY(!controller.pending());
+    QVERIFY(transport.writes.isEmpty());
+    QCOMPARE(controller.operation().value("status").toString(), QString("failed"));
+    QVERIFY(!controller.operation().value("inputMayHaveBeenSent").toBool());
+    QVERIFY(!controller.readyForCommand());
+    if (inputKind == 2) {
+        QVERIFY(controller.commandActive());
+        QCOMPARE(controller.observation("client").value("command").toObject(), running);
+    } else QVERIFY(!controller.commandActive());
+}
+
+void SessionTests::deferredInputAdmissionRejectsOldCacheGeneration()
+{
+    TerminalCore core(80, 3);
+    FakeTransport transport;
+    QVERIFY(transport.connectToHost());
+    SessionInputArbiter arbiter;
+    arbiter.bind(&transport, 1);
+    InteractiveStreamFramer framer;
+    SessionCommandCoordinator coordinator(&arbiter, &framer);
+    SessionTerminalController controller(&core, &arbiter, &coordinator, &framer,
+        1, false, "\r", nullptr);
+    QVERIFY(controller.acquire("client"));
+    const auto generation = core.cacheGeneration();
+    QVERIFY(core.clearAll());
+    QVERIFY(core.waitForIdle());
+    QVERIFY(core.cacheGeneration() != generation);
+    NovaTerm::TerminalInputAction action;
+    action.text = "stale";
+    QVERIFY(!controller.submit("client", "old-observation", {action}, false, -1, generation));
+    QVERIFY(!controller.pending());
+    QVERIFY(core.waitForIdle());
+    QCoreApplication::processEvents();
+    QVERIFY(transport.writes.isEmpty());
+    QCOMPARE(controller.operation().value("status").toString(), QString("none"));
+    QVERIFY(controller.submit("client", "new-observation", {action}, false, -1, core.cacheGeneration()));
+    QTRY_VERIFY(!controller.pending());
+    QCOMPARE(transport.writes, QByteArray("stale"));
+}
+
+void SessionTests::cacheClearCanOverlapAnAdmittedTransportWrite()
+{
+    TerminalCore core(80, 3);
+    QVERIFY(core.waitForIdle());
+    class OverlapTransport final : public ITransport {
+    public:
+        bool connectToHost() override { return true; }
+        void disconnect() override {}
+        void write(const QByteArray& data) override {
+            if (onWrite) onWrite();
+            writes += data;
+            timeline.append("write-return");
+        }
+        void resizeTerminal(int, int) override {}
+        bool isConnected() const override { return true; }
+        QString errorString() const override { return {}; }
+        std::function<void()> onWrite;
+        QByteArray writes;
+        QStringList timeline;
+    } transport;
+    SessionInputArbiter arbiter; arbiter.bind(&transport, 1);
+    InteractiveStreamFramer framer;
+    SessionCommandCoordinator coordinator(&arbiter, &framer);
+    SessionTerminalController controller(&core, &arbiter, &coordinator, &framer,
+        1, false, "\r", nullptr);
+    QVERIFY(controller.acquire("client"));
+    const auto generation = core.cacheGeneration();
+    connect(&core, &TerminalCore::clearCompleted, &controller,
+        [&transport](quint64 operation, quint64, int status, quint64) {
+            QCOMPARE(operation, quint64(777)); QCOMPARE(status, 0);
+            transport.timeline.append("clear-notified");
+        });
+    transport.onWrite = [&] {
+        transport.timeline.append("write-enter");
+        QVERIFY(!controller.pending());
+        QCOMPARE(controller.operation().value("status").toString(), QString("submitted"));
+        // A transport may queue work. Once the GUI has admitted this write,
+        // Parser can clear independently while the same GUI callback is still
+        // running; only the GUI completion notification must remain ordered.
+        QVERIFY(core.requestClear(777, true, generation, {}));
+        QVERIFY(core.waitForIdle());
+        QVERIFY(core.cacheGeneration() != generation);
+        QVERIFY(transport.writes.isEmpty());
+        QVERIFY(!transport.timeline.contains("clear-notified"));
+        transport.timeline.append("parser-cleared");
+    };
+    NovaTerm::TerminalInputAction action; action.text = "admitted";
+    QVERIFY(controller.submit("client", "accepted-before-clear", {action}, false, -1, generation));
+    QTRY_COMPARE(transport.writes, QByteArray("admitted"));
+    QTRY_VERIFY(transport.timeline.contains("clear-notified"));
+    QCOMPARE(transport.timeline, (QStringList{"write-enter", "parser-cleared", "write-return", "clear-notified"}));
+    QVERIFY(controller.operation().value("inputMayHaveBeenSent").toBool());
 }
 
 void SessionTests::recentCommandExpiresWithoutDiscardingActiveCommand()

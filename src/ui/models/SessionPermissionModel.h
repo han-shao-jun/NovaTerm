@@ -63,6 +63,7 @@ struct SessionPermissionRow
     QString controlState;        ///< idle/controlled/preempted 等控制状态。
     QString commandState;        ///< 当前交互命令状态；空表示无命令。
     bool elevationSelectable{false};
+    bool clearTerminalSelectable{false};
     bool sudoSaved{false};
     bool suSaved{false};
     bool credentialsPersistent{false};
@@ -82,6 +83,7 @@ public:
         Interactive,
         TerminalInput,
         Elevation,
+        ClearTerminal,
         Credentials,
         Operation,
         Count,
@@ -93,7 +95,7 @@ public:
     /** @brief 该列对应的独立权限；诊断列与文本列返回空。 */
     [[nodiscard]] static std::optional<NovaTerm::Mcp::PermissionKind> permissionForColumn(
         int column);
-    /** @brief 是否为可勾选的业务权限列（读取/诊断/脚本/交互/完整输入/提权）。 */
+    /** @brief 是否为可勾选的业务权限列（读取/诊断/脚本/交互/完整输入/提权/清空）。 */
     [[nodiscard]] static bool isPermissionColumn(int column);
 
     /** @brief 用新快照替换整表；按 sessionId 保留展开状态。 */

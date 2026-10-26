@@ -46,7 +46,14 @@ public:
             if (!_pending || id != _encodingId) return;
             _pending = false;
             bool accepted = false;
-            if (valid && !_owner.isEmpty()) {
+            // Parser may have cleared the cache after encoding but before this
+            // GUI callback. This successful check is the input admission point:
+            // an invalidation already visible here rejects the queued input.
+            // Once admitted, this GUI submission may overlap a later Parser
+            // clear; its GUI completion notification runs after this callback.
+            const bool cacheCurrent = _encodingCacheGeneration == _core->cacheGeneration();
+            if (!cacheCurrent) invalidatePromptEvidence();
+            if (valid && cacheCurrent && !_owner.isEmpty()) {
                 if (!bytes.isEmpty()) {
                     const auto previousEvidence = _promptEvidenceRevision;
                     invalidatePromptEvidence();
@@ -64,7 +71,7 @@ public:
                 clearCandidateCommand();
                 _maySent = false;
                 _operationStatus = QStringLiteral("failed");
-                if (_commandActive) {
+                if (_pendingStartsCommand && _commandActive) {
                     _commandActive = false; _commandState = QStringLiteral("unknown");
                     if (_framer) { const auto remainder = _framer->endTransaction(); Q_UNUSED(remainder); }
                 }
@@ -132,9 +139,14 @@ public:
     }
     bool submit(const QString& client, const QString& operation,
                 std::vector<NovaTerm::TerminalInputAction> actions, bool command,
-                int acceptedActionCount = -1) {
-        if (_pending || _owner != client || (command && !readyForCommand())) return false;
+                int acceptedActionCount = -1,
+                std::optional<quint64> expectedCacheGeneration = std::nullopt) {
+        const auto cacheGeneration = expectedCacheGeneration.value_or(_core->cacheGeneration());
+        if (cacheGeneration != _core->cacheGeneration()
+            || _pending || _owner != client || (command && !readyForCommand())) return false;
         _encodingId = nextId(); _operation = operation; _operationStatus = QStringLiteral("queued");
+        _encodingCacheGeneration = cacheGeneration;
+        _pendingStartsCommand = command;
         _maySent = false; _pending = true;
         _acceptedActionCount = acceptedActionCount >= 0 ? acceptedActionCount : int(actions.size());
         _savedPrompt = _coordinator->promptGeneration();
@@ -320,10 +332,12 @@ private:
     SessionCommandCoordinator* _coordinator;
     InteractiveStreamFramer* _framer;
     quint64 _generation, _lease{0}, _encodingId{0}, _revision{1}, _controlGeneration{1};
+    quint64 _encodingCacheGeneration{0};
     quint64 _savedPromptUser{0};
     quint64 _savedPrompt{0};
     quint64 _promptEvidenceRevision{1}, _savedPromptEvidenceRevision{0};
     bool _integrated, _pending{false}, _maySent{false}, _commandActive{false}, _terminated{false};
+    bool _pendingStartsCommand{false};
     int _acceptedActionCount{0};
     QByteArray _lineEnding;
     QString _owner, _operation, _execution;

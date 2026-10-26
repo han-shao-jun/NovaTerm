@@ -12,6 +12,18 @@ namespace {
 
 using namespace NovaTerm::Mcp;
 
+bool clearTerminalSelectable(const SessionDirectory::Entry& entry,
+                             const PermissionSelection& selection)
+{
+    // 已授予权限始终可以撤回；新授权由服务端再次核验同一就绪事实。
+    return selection.clearTerminal || (selection.read
+        && entry.session && entry.transport && entry.state == SessionState::Running
+        && entry.session->state() == SessionState::Running
+        && entry.transport->isConnected() && entry.session->transport() == entry.transport
+        && entry.session->statistics().generation == entry.generation
+        && !entry.epoch.isEmpty() && !entry.attachmentId.isEmpty());
+}
+
 QString rejectionName(AuthorizationRejection reason)
 {
     switch (reason) {
@@ -73,6 +85,7 @@ QVector<SessionPermissionRow> SettingsController::rows(const QString& clientId) 
                 grant.selection.diagnostics.contains(DiagnosticId{command.id})});
         }
         row.elevationSelectable = row.capability.elevationGrantSelectable;
+        row.clearTerminalSelectable = clearTerminalSelectable(entry, row.selection);
         row.sudoSaved = access.hasElevationCredential(entry, QStringLiteral("sudo"));
         row.suSaved = access.hasElevationCredential(entry, QStringLiteral("su"));
         row.credentialsPersistent = access.elevationCredentialsPersistent();
@@ -123,6 +136,7 @@ SettingsController::Outcome SettingsController::submit(const SessionPermissionRo
     outcome.row.selection = grant.selection;
     outcome.row.revision = grant.revision;
     outcome.row.binding = grant.binding;
+    outcome.row.clearTerminalSelectable = clearTerminalSelectable(*entry, grant.selection);
     outcome.row.capability = sessionCapabilities(
         *entry, row.client.str(), _service->access(), false);
     for (auto& diagnosticRow : outcome.row.diagnostics)

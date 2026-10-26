@@ -18,6 +18,9 @@ inline constexpr int MaxClients = 4;
 inline constexpr int MaxActiveRequests = 2;
 inline constexpr int MaxQueuedRequests = 4;
 inline constexpr int MaxWireCalls = 6;
+inline constexpr int MaxClearRecordsPerClient = 32;
+inline constexpr int MaxClearRecords = 128;
+inline constexpr std::chrono::milliseconds ClearRecordRetention{600000};
 
 // --- 观察与 capture -------------------------------------------------------
 inline constexpr std::chrono::milliseconds SnapshotCoalesceInterval{250};

@@ -6,6 +6,8 @@
 
 | 记录 | 保留原因 |
 | --- | --- |
+| [B2 审查修复](B2_Review_Fixes_2026-10-26.md) | expand 精确错误码、输入提交边界核验及本轮专项结果 |
+| [B2 清空与代际](B2_Implementation_2026-10-25.md) | 独立权限、Parser 完成、有界幂等与 G05 失效，本轮验收/限制 |
 | [B0/B1 日志与清理](B0_B1_Implementation_2026-10-25.md) | 当前日志契约、P4/P1 退役、兼容和本轮验证 |
 | [MCP 历次实施](03_Implementation_and_Verification.md) | 原终端工具、HTTP、授权、输入/取消、快照和性能的逐次证据 |
 | [运行内核收敛](Runtime_Consolidation_Verification.md) | 从旧 P0 提取已落地与验收片段；其余实施计划已删除 |

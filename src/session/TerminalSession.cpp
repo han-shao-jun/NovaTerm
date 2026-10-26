@@ -99,6 +99,8 @@ TerminalSession::TerminalSession(TerminalCore* core, QObject* parent)
     , _core(core)
 {
     if (_core) {
+        connect(_core, &TerminalCore::clearCompleted, this, &TerminalSession::terminalClearCompleted);
+        connect(_core, &TerminalCore::cacheInvalidated, this, &TerminalSession::terminalCacheInvalidated);
         connect(_core, &TerminalCore::titleChanged,
                 this, &TerminalSession::titleChanged);
         connect(_core, &TerminalCore::damage,
@@ -117,6 +119,8 @@ TerminalSession::TerminalSession(RuntimeConfig config, QObject* parent)
     , _ownedCore(std::make_unique<TerminalCore>(80, 24))
     , _core(_ownedCore.get())
 {
+    connect(_core, &TerminalCore::clearCompleted, this, &TerminalSession::terminalClearCompleted);
+    connect(_core, &TerminalCore::cacheInvalidated, this, &TerminalSession::terminalCacheInvalidated);
     connect(_core, &TerminalCore::titleChanged,
             this, &TerminalSession::titleChanged);
     connect(_core, &TerminalCore::damage,
@@ -130,6 +134,13 @@ TerminalSession::~TerminalSession()
     if (_state != SessionState::Closed)
         close(CloseMode::Abort);
     clearAttachment(false);
+}
+
+bool TerminalSession::requestTerminalClear(quint64 operation, bool all, quint64 expectedGeneration,
+    std::shared_ptr<std::atomic_bool> cancelled)
+{
+    return _core && _state == SessionState::Running && !_inputArbiter->hasTransferLease()
+        && _core->requestClear(operation, all, expectedGeneration, std::move(cancelled));
 }
 
 void TerminalSession::installScriptProvider(

@@ -15,7 +15,8 @@ private slots:
         QVERIFY(fixture.open(QIODevice::ReadOnly));
         const auto expected = QJsonDocument::fromJson(fixture.readAll()).array();
         QJsonArray actual; const auto all = ToolCodec::catalog();
-        for (qsizetype i = 9; i < all.size(); ++i) actual.append(all[i]);
+        QCOMPARE(all.size(), 13);
+        for (qsizetype i = 9; i < 12; ++i) actual.append(all[i]);
         QCOMPARE(actual, expected);
     }
     void legacyCatalogObjectsUnchanged() {
@@ -23,10 +24,10 @@ private slots:
         QVERIFY(fixture.open(QIODevice::ReadOnly));
         const auto legacy = QJsonDocument::fromJson(fixture.readAll()).array();
         const auto current = ToolCodec::catalog();
-        QCOMPARE(current.size(), legacy.size() + 3);
+        QCOMPARE(current.size(), legacy.size() + 4);
         for (qsizetype i = 0; i < legacy.size(); ++i) {
             if (legacy[i].toObject().value("name") == "novaterm_read_context") {
-                QFile logFixture(QStringLiteral(NOVATERM_SOURCE_DIR "/tests/mcp/fixtures/read-context-log-2026-10-25.json"));
+                QFile logFixture(QStringLiteral(NOVATERM_SOURCE_DIR "/tests/mcp/fixtures/read-context-clear-2026-10-25.json"));
                 QVERIFY(logFixture.open(QIODevice::ReadOnly));
                 QCOMPARE(current[i].toObject(), QJsonDocument::fromJson(logFixture.readAll()).object());
             } else QCOMPARE(current[i], legacy[i]);

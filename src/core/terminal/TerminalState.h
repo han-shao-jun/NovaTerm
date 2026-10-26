@@ -17,6 +17,7 @@ struct TerminalState {
     static constexpr std::size_t MaxBytes = 256 * 1024;
     static constexpr std::size_t MaxLines = 1024;
     u64 revision{0};
+    u64 cacheGeneration{0};
     CursorState cursor;
     std::string title;
     bool alternateScreen{false};

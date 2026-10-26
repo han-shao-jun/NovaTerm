@@ -3,6 +3,14 @@
 给 AI 助手的项目上手说明。目标是让新会话在不重复摸索的前提下开始工作。
 **权威信息在 `docs/`，本文件只做导航与记录"读文档看不出来的东西"。**
 
+### B2 审查修复（2026-10-26，工作区增量）
+
+expand 在缓存换代时明确返回 `CAPTURE_NOT_AVAILABLE`，投影未换代而淘汰/过期仍为 `CAPTURE_EXPIRED`，包括投影先淘汰再换代的旧 token。输入提交点明确为 Controller GUI 回调内最后一次成功代际复核：此前已清空的旧输入拒绝，此后已开始提交可与 Parser 清空重叠，完成通知仍按 GUI 顺序交付，不承诺物理发送互斥。原九组零写入断言保留，新增确定性重叠回归。正常环境 Release 全构建通过，相关 CTest **18/18（106.60秒，含 MCP17项与Session）**；本轮未跑无关全套或连接真实设备。沙箱 ACL/C1902 与真实 RED 分开记录，详见 [B2审查修复](docs/architecture/stages/P8_AI_MCP_Interface/records/B2_Review_Fixes_2026-10-26.md)。
+
+### 外部 Agent MCP B2（2026-10-25，工作区增量）
+
+新增独立授权 `novaterm_clear_terminal`，当前十三工具；旧十二工具兼容基线及九项终端应用联合保持。清空经 Session → 现有 Parser 命令队列/字节屏障，成功代表执行完成；应用记录每客户端32/全局128，十分钟 clearToken 与精确重试不重复清空，旧输入 grant 不自动升级。Core 缓存代际统一失效 Provider、合并快照、capture/expand/search、观察与输入 token；已排队未写出的旧代际输入也拒绝，不删除已有命令事实。最终 Windows Release 全构建通过，实际注册48项，全套 **47/48（348.53秒）**，MCP **17/17**，独立无Qt **1/1**；唯一既有ConPTY失败，文件复核仅两条句柄断言，线程/子进程检查通过。未提交/推送、未连接真实设备；B3及跨平台/消毒器/真机与性能仍待后续。冻结契约、审查修复及原始证据见 [B2记录](docs/architecture/stages/P8_AI_MCP_Interface/records/B2_Implementation_2026-10-25.md)。
+
 ### 外部 Agent MCP B0/B1（2026-10-25，工作区增量）
 
 本轮已实现 `read_context source=log`，`start=tail|oldest` 建基线、日志 token 精确分页，保留重复行/空行、UTF-8 分段及淘汰/冷页/代际提示。旧 observation/full/compact/expand/inputToken 行为保持。未发布 P4 诊断工具及无生产消费者的 P1 Recipe/环境/本机 Agent 原型已退役，工具仍十二项；旧同步 Provider 投影已删除，非阻塞屏幕摘要仍被生产使用。B2 清空事务/G05 观察失效、B3 及真实设备留待后续。本轮 Windows 实核注册 47 项，最终固定 Release 全套 46/47（326.68 秒），仅 ConPTY 失败；MCP 16/16，独立无 Qt 1/1。实际变更、消费者清理、当前测试和下一起点见 [B0/B1 记录](docs/architecture/stages/P8_AI_MCP_Interface/records/B0_B1_Implementation_2026-10-25.md)，历史类名/成绩不能替代当前源码或本轮成绩。

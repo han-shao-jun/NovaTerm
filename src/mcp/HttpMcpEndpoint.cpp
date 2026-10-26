@@ -86,6 +86,8 @@ public:
                 jobs.insert(peer + '/' + call->id, wire);
             else if (const auto *history = std::get_if<BackendHistoryCall>(&event))
                 jobs.insert(peer + '/' + history->id, wire);
+            else if (const auto *clear = std::get_if<BackendClearCall>(&event))
+                jobs.insert(peer + '/' + clear->id, wire);
             backend.receive(peer, event);
             if (const auto *cancel = std::get_if<BackendCancel>(&event))
                 jobs.remove(peer + '/' + cancel->id);

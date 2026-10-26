@@ -13,6 +13,7 @@ std::optional<NovaTerm::Mcp::PermissionKind> SessionPermissionModel::permissionF
     case index(Column::Interactive): return PermissionKind::RiskControlledTerminalCommand;
     case index(Column::TerminalInput): return PermissionKind::FullTerminalInput;
     case index(Column::Elevation): return PermissionKind::ManagedElevation;
+    case index(Column::ClearTerminal): return PermissionKind::ClearTerminal;
     default: return std::nullopt;
     }
 }
@@ -21,7 +22,8 @@ bool SessionPermissionModel::isPermissionColumn(int column)
 {
     return column == index(Column::ReadOutput) || column == index(Column::Diagnostics)
         || column == index(Column::Script) || column == index(Column::Interactive)
-        || column == index(Column::TerminalInput) || column == index(Column::Elevation);
+        || column == index(Column::TerminalInput) || column == index(Column::Elevation)
+        || column == index(Column::ClearTerminal);
 }
 
 void SessionPermissionModel::rebuild(QVector<SessionPermissionRow> rows,

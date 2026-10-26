@@ -48,6 +48,7 @@ struct CaptureRecord
     qint64 expires{0};
     quint64 sequence{0}; ///< 插入序号，由存储分配。
     qint64 created{0};
+    quint64 cacheGeneration{0};
 };
 
 struct CaptureQuotas

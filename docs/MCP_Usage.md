@@ -97,7 +97,19 @@ status=gap 表示旧位置被淘汰；status=invalidated 表示本机 clear 或 
 
 预算缺省 65536 字节/256 分段，最大 262144/1024；compact 只改缺省为 4096/24。初次 start 与续读 sinceToken 必须二选一；日志模式不要传 expandToken、waitFor、非零 waitMs 或 includeViewport=true。只有读取授权也可建立书签，整个过程没有输入或清空。
 
-当前软尾行、未换行提示、CR 进度条和备用屏仍看缺省 observation。日志只读已稳定的终端缓存，没有原始字节或覆写前屏幕帧；分页完整不证明 UART 硬件零丢失。日志 token 与观察 token/capture/expandToken 不混用，不产生 inputToken；需要操作时另读屏幕。MCP 清空、文本条件等待、长任务、文件传输和保存目标建连工具尚未开放。
+当前软尾行、未换行提示、CR 进度条和备用屏仍看缺省 observation。日志只读已稳定的终端缓存，没有原始字节或覆写前屏幕帧；分页完整不证明 UART 硬件零丢失。日志 token 与观察 token/capture/expandToken 不混用，不产生 inputToken；需要操作时另读屏幕。MCP 清空已按下节独立授权开放；文本条件等待、长任务、文件传输和保存目标建连工具尚未开放。
+
+## 本地清空（B2）
+
+默认不允许 MCP 清空。在本机 MCP 设置中为指定客户端/会话单独勾选清空权限后，先读取一次日志页，再显式调用 `novaterm_clear_terminal`：
+
+```json
+{"sessionId":"<session id>","epoch":"<current epoch>","operationId":"<new UUID>","scope":"scrollback","expectedGeneration":"<log cacheGeneration>","clearToken":"<log clearToken>"}
+```
+
+scope=all 同时清屏与历史；scrollback 仅清历史。成功表示 Parser 已完成，响应 baseline 是该执行点的新日志书签，不保证新输出尚未到达。相同 operationId 只可连同全部原参数精确重试，返回原结果且不再清空。clearToken 有效十分钟；过期/撤权/会话换代/人工接管要明确处理，未知结果不能换票据或 ID 自动重放。清空会使旧观察、日志游标与实时 capture/expand/inputToken 失效，须取新基线。
+
+清空不会向设备发送字节、停止远端程序、断开连接或删除录制/离线共享。独立清空授权不会授予终端输入，旧完整输入授权也不会自动获得清空权限。
 
 ## 终端观察与操作
 

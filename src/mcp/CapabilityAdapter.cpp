@@ -95,6 +95,7 @@ QJsonObject capabilityMetadata(const CapabilitySnapshot& capability)
         names.append(name);
     return {{"capabilities", names},
         {"permissions", QJsonObject{{"readOutput", capability.permissions.read},
+            {"clearTerminal", capability.permissions.clearTerminal},
             {"terminalInput", capability.terminalInputAvailable},
             {"useElevation", capability.terminalInputAvailable && capability.permissions.elevation}}},
         {"availability", QJsonObject{{"inputAvailable", capability.terminalInputAvailable},
@@ -121,13 +122,14 @@ Result<DirectoryCursor> directoryCursor(const QString& encoded, const QByteArray
 Result<ContextCursor> contextCursor(const QString& encoded, const QByteArray& key)
 {
     const auto token = verifyToken(encoded, key);
-    bool revisionValid = false, grantValid = false;
+    bool revisionValid = false, grantValid = false, generationValid = false;
     const auto revision = token ? token->value("revision").toString().toULongLong(&revisionValid) : 0;
     const auto grant = token ? token->value("grant").toString().toULongLong(&grantValid) : 0;
-    if (!token || token->value("kind") != "context" || !revisionValid || !grantValid)
+    const auto generation = token ? token->value("generation").toString().toULongLong(&generationValid) : 0;
+    if (!token || token->value("kind") != "context" || !revisionValid || !grantValid || !generationValid)
         return Error{ErrorCode::CursorStale};
     return ContextCursor{{SessionId{token->value("session").toString()}, Epoch{token->value("epoch").toString()}},
-        revision, ClientAccessVersion{grant}, token->value("viewport").toBool()};
+        revision, ClientAccessVersion{grant}, token->value("viewport").toBool(), generation};
 }
 } // namespace
 
@@ -179,6 +181,8 @@ Result<ContextSummary> ReadUseCaseAdapter::readContext(const ContextQuery& query
     if (!entry || !entry->session || entry->epoch != query.session.epoch.str()
         || !_ports.access->canRead(query.client.str(), *entry))
         return Error{ErrorCode::SessionNotAvailable};
+    if (query.cacheGeneration != entry->session->core()->cacheGeneration())
+        return Error{ErrorCode::CursorStale};
     ObservationReadRequest request;
     request.sessionId = query.session.session.str();
     request.epoch = query.session.epoch.str();
@@ -199,6 +203,7 @@ Result<ContextSummary> ReadUseCaseAdapter::readContext(const ContextQuery& query
     ContextSummary summary;
     summary.capture = CaptureId{observed.captureId};
     summary.revision = observed.revision.toULongLong();
+    summary.cacheGeneration = observed.cacheGeneration;
     summary.capturedAt = observed.capturedAt;
     summary.title = observed.title;
     summary.sourceTruncated = observed.sourceTruncated;
@@ -211,6 +216,8 @@ Result<ContextSummary> ReadUseCaseAdapter::readContext(const ContextQuery& query
     summary.suppressedDuplicates = observed.suppressedDuplicates;
     for (const auto& line : observed.viewport) summary.viewport.append(line.text);
     for (const auto& line : observed.recent) summary.recent.append(line.text);
+    if (summary.cacheGeneration != entry->session->core()->cacheGeneration())
+        return Error{ErrorCode::CursorStale};
     return summary;
 }
 
@@ -291,15 +298,19 @@ Result<QJsonObject> ReadUseCaseAdapter::readContext(const SessionDirectory::Entr
     query.includeViewport = request.includeViewport.value_or(true);
     query.maxBytes = request.maxBytes.value_or(Budget::ObservationDefaultPayloadBytes);
     query.maxLines = request.maxLines.value_or(Budget::ObservationDefaultLines);
+    query.cacheGeneration = entry.session->core()->cacheGeneration();
     Q_UNUSED(client);
     const Capabilities::Terminal::ReadCapabilities ports{_dispatcher, *this};
     const auto result = invokeRead(ports.context, Capabilities::Terminal::ContextReadQuery{query, cursor}, _context);
     if (const auto* error = errorIfAny(result)) return *error;
     const auto& page = std::get<ContextPage>(result);
     const auto& observed = page.summary;
+    if (observed.cacheGeneration != entry.session->core()->cacheGeneration())
+        return Error{ErrorCode::CursorStale};
     QJsonValue next(QJsonValue::Null);
     if (page.next) next = signToken({{"kind", "context"}, {"session", page.next->session.session.str()},
         {"epoch", page.next->session.epoch.str()}, {"revision", QString::number(page.next->revision)},
+        {"generation", QString::number(page.next->cacheGeneration)},
         {"grant", QString::number(page.next->accessVersion.value())}, {"viewport", page.next->includeViewport}}, key);
     QJsonArray screen, recent;
     for (const auto& line : observed.viewport) screen.append(QJsonObject{{"text", line}});

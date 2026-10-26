@@ -25,6 +25,7 @@ struct ContextCursor
     quint64 revision{0};
     ClientAccessVersion accessVersion;
     bool includeViewport{true};
+    quint64 cacheGeneration{0};
 };
 
 /** @brief 一页所需的不可变会话事实；不暴露 Session 对象。 */
@@ -56,6 +57,7 @@ struct ContextQuery
     std::optional<quint64> sinceRevision;
     qsizetype maxBytes{Budget::ObservationDefaultPayloadBytes};
     int maxLines{Budget::ObservationDefaultLines};
+    quint64 cacheGeneration{0};
 };
 
 /** @brief 有界读取结果；不携带协议对象或已编码令牌。 */
@@ -75,6 +77,7 @@ struct ContextSummary
     quint64 suppressedDuplicates{0};
     QStringList viewport;
     QStringList recent;
+    quint64 cacheGeneration{0};
 };
 
 struct ContextPage

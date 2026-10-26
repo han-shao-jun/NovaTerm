@@ -45,7 +45,8 @@ QString agentInstructions()
         "run_command and run_script retain their own authorization and confirmation rules. "
         "UART idle completion is unverified, not proof of remote termination or test success. "
         "Never rerun uncertain operations with a new operationId. Release or stopped observation does not stop a remote process. "
-        "Only call tools actually listed; clear, text-condition waits, background tasks, MCP file transfer and saved-target connection tools are not available.");
+        "Local cache clear requires its separate grant and a fresh log clearToken; retry only identical operationId and arguments. It does not stop remote programs. "
+        "Only call tools actually listed; text-condition waits, background tasks, MCP file transfer and saved-target connection tools are not available.");
 }
 QString newId() { return QUuid::createUuid().toString(QUuid::WithoutBraces); }
 

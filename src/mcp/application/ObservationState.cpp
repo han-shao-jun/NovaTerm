@@ -80,9 +80,10 @@ bool ObservationState::matches(const ObservationBinding& binding, const ClientId
 
 Result<ObservationCursor> ObservationState::restoreCursor(const ObservationCursor& cursor,
     const ClientId& client, const SessionReference& session, ClientAccessVersion grant,
-    bool includeViewport) const
+    bool includeViewport, quint64 cacheGeneration) const
 {
     if (!matches(cursor.binding, client, session, grant)
+        || cursor.cacheGeneration != cacheGeneration
         || (cursor.legacy && cursor.includeViewport != includeViewport))
         return Error{ErrorCode::CursorStale};
     return cursor;
@@ -92,12 +93,14 @@ InputClaims ObservationState::inputClaims(const ClientId& client, const Terminal
 {
     InputClaims claims;
     claims.binding = {true, client, facts.session, facts.grant};
+    claims.cacheGeneration = facts.cacheGeneration;
     claims.user = facts.user;
     claims.control = facts.control;
     claims.prompt = facts.prompt;
     claims.execution = facts.execution;
     const auto replay = _replays.constFind({client, facts.session.session});
     if (replay != _replays.cend() && replay->generation == facts.control
+        && replay->cacheGeneration == facts.cacheGeneration
         && replay->epoch == facts.session.epoch && replay->grant == facts.grant)
         claims.sequence = replay->next;
     claims.expires = _clock() + Budget::MaxTerminalWaitMs;
@@ -107,7 +110,8 @@ InputClaims ObservationState::inputClaims(const ClientId& client, const Terminal
 std::optional<Error> ObservationState::validateInput(const InputClaims& claims,
     const ClientId& client, const TerminalControlFacts& facts) const
 {
-    if (!matches(claims.binding, client, facts.session, facts.grant))
+    if (!matches(claims.binding, client, facts.session, facts.grant)
+        || claims.cacheGeneration != facts.cacheGeneration)
         return Error{ErrorCode::ControlInvalid};
     if (claims.expires <= _clock()) return Error{ErrorCode::InputTokenExpired};
     const auto expected = inputClaims(client, facts);
@@ -126,9 +130,12 @@ Result<InputAdmission> ObservationState::prepareInput(const ClientId& client,
     if (request.session != facts.session.session || request.epoch != facts.session.epoch)
         return Error{ErrorCode::ControlInvalid};
     if (facts.unavailable) return Error{*facts.unavailable};
+    if (claims.cacheGeneration != facts.cacheGeneration)
+        return Error{ErrorCode::ControlInvalid};
     const auto replay = _replays.constFind({client, facts.session.session});
     if (replay != _replays.cend() && replay->operation == request.operation
         && replay->epoch == facts.session.epoch && replay->grant == facts.grant
+        && replay->cacheGeneration == facts.cacheGeneration
         && replay->generation == facts.control) {
         if (replay->identity != inputIdentity(request))
             return Error{ErrorCode::InputSequenceConflict};
@@ -156,9 +163,11 @@ void ObservationState::inputAccepted(const ClientId& client, const InteractTermi
     const TerminalControlFacts& facts)
 {
     auto& replay = _replays[{client, facts.session.session}];
-    if (replay.generation != facts.control || replay.epoch != facts.session.epoch || replay.grant != facts.grant)
+    if (replay.generation != facts.control || replay.cacheGeneration != facts.cacheGeneration
+        || replay.epoch != facts.session.epoch || replay.grant != facts.grant)
         replay.next = 0;
     replay.generation = facts.control;
+    replay.cacheGeneration = facts.cacheGeneration;
     ++replay.next;
     replay.epoch = facts.session.epoch;
     replay.grant = facts.grant;
@@ -218,6 +227,8 @@ std::optional<ObservationCompletion> ObservationState::evaluate(const RequestId&
     if (!facts.available || facts.session.session != wait.session.session
         || facts.session.epoch != wait.session.epoch || facts.grant != wait.grant)
         error = Error{ErrorCode::SessionNotAvailable};
+    else if (facts.cacheGeneration != wait.cacheGeneration)
+        error = Error{ErrorCode::CursorStale};
     else if (!facts.snapshotAvailable) {
         if (now < it->deadline) return std::nullopt;
         error = Error{ErrorCode::Busy, {}, RetryHint{true, std::chrono::milliseconds(50)}};
@@ -300,11 +311,12 @@ QList<ObservationCompletion> ObservationState::revoke(const ClientId& client, co
 }
 
 bool ObservationState::captureAvailable(const CaptureRecord& capture, const ClientId& client,
-    const SessionReference& session, ClientAccessVersion grant) const
+    const SessionReference& session, ClientAccessVersion grant, quint64 cacheGeneration) const
 {
     return capture.scope == CaptureScope::Client && capture.owner == client.str()
         && capture.session == session.session.str() && capture.epoch == session.epoch.str()
-        && capture.grantVersion == grant.value() && capture.expires > _clock();
+        && capture.grantVersion == grant.value() && capture.expires > _clock()
+        && capture.cacheGeneration == cacheGeneration;
 }
 
 } // namespace NovaTerm::Mcp

@@ -9,6 +9,7 @@
 
 #include "mcp/contracts/ToolRequests.h"
 #include "HistoryToolRequest.h"
+#include "mcp/contracts/ClearRequest.h"
 #include <QMetaType>
 #include <QString>
 
@@ -36,6 +37,7 @@ struct BackendHistoryCall {
     HistoryToolRequest request;
     bool confirmationSupplied{false};
 };
+struct BackendClearCall { QString id; ClearRequest request; bool confirmationSupplied{false}; };
 
 struct BackendElicitationResult
 {
@@ -43,14 +45,14 @@ struct BackendElicitationResult
     ConfirmationAnswer answer{ConfirmationAnswer::Decline};
 };
 
-using BackendEvent = std::variant<BackendCall, BackendHistoryCall, BackendCancel, BackendElicitationResult>;
+using BackendEvent = std::variant<BackendCall, BackendHistoryCall, BackendClearCall, BackendCancel, BackendElicitationResult>;
 
 /** @brief 事件类别；仅用于日志与测试断言，不参与业务分派。 */
 [[nodiscard]] inline QString backendEventKind(const BackendEvent& event)
 {
     return std::visit([](const auto& value) -> QString {
         using Type = std::decay_t<decltype(value)>;
-        if constexpr (std::is_same_v<Type, BackendCall> || std::is_same_v<Type, BackendHistoryCall>)
+        if constexpr (std::is_same_v<Type, BackendCall> || std::is_same_v<Type, BackendHistoryCall> || std::is_same_v<Type, BackendClearCall>)
             return QStringLiteral("call");
         else if constexpr (std::is_same_v<Type, BackendCancel>)
             return QStringLiteral("cancel");

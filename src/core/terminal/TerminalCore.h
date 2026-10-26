@@ -29,6 +29,7 @@
 #include <QString>
 
 #include <memory>
+#include <atomic>
 #include <utility>
 #include <optional>
 #include <vector>
@@ -188,7 +189,12 @@ public:
     static constexpr int UnlimitedScrollbackLines = -1;
     /** @brief -1 不限行数，0 临时禁用；字节预算始终生效。 */
     void setScrollbackLimit(int lines);
-    void clearScrollback();
+    bool clearScrollback();
+    /** @brief Completed cache generation, available without taking the model lock. */
+    [[nodiscard]] quint64 cacheGeneration() const noexcept;
+    /** @brief Queue one non-coalescing clear transaction; false means no operation was accepted. */
+    [[nodiscard]] bool requestClear(quint64 operation, bool all,
+        quint64 expectedGeneration, std::shared_ptr<std::atomic_bool> cancelled);
     /**
      * @brief 按字节屏障清空当前屏幕及历史，不断开连接。
      * @return true 表示成功入队；队列满或停止接收时返回 false，内容不变。
@@ -257,6 +263,8 @@ signals:
     void damage(const NovaTerm::DirtyRegion& region, NovaTerm::u64 revision);
     void cursorMoved();
     void scrollbackChanged();
+    void clearCompleted(quint64 operation, quint64 generation, int status, quint64 nextLine);
+    void cacheInvalidated(quint64 generation);
     void historyDataReady();
     void historyPolicyChanged();
     // 本次发布的活动屏幕上滚行数。与 scrollbackChanged 分离，因为后者

@@ -43,6 +43,7 @@ Result<ContextPage> ReadUseCases::readContext(const ClientId& client,
         if (cursor->session.session != query.session.session
             || cursor->session.epoch != query.session.epoch
             || cursor->includeViewport != query.includeViewport
+            || cursor->cacheGeneration != query.cacheGeneration
             || cursor->accessVersion != grant)
             return Error{ErrorCode::CursorStale};
         query.sinceRevision = cursor->revision;
@@ -50,11 +51,13 @@ Result<ContextPage> ReadUseCases::readContext(const ClientId& client,
     const auto read = _sessions.readContext(query);
     if (const auto* error = errorIfAny(read))
         return *error;
-    if (grant != _sessions.accessVersion(client))
+    if (grant != _sessions.accessVersion(client)
+        || std::get<ContextSummary>(read).cacheGeneration != query.cacheGeneration)
         return Error{ErrorCode::CursorStale};
     ContextPage page{std::get<ContextSummary>(read), std::nullopt};
     if (!page.summary.sourceTruncated && !page.summary.outputTruncated)
-        page.next = ContextCursor{query.session, page.summary.revision, grant, query.includeViewport};
+        page.next = ContextCursor{query.session, page.summary.revision, grant,
+            query.includeViewport, page.summary.cacheGeneration};
     return page;
 }
 

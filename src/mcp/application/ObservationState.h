@@ -30,6 +30,7 @@ struct ObservationCursor
     quint64 event{0};
     bool legacy{false};
     bool includeViewport{true};
+    quint64 cacheGeneration{0};
 };
 
 struct TerminalControlFacts
@@ -47,6 +48,7 @@ struct TerminalControlFacts
     bool pending{false};
     int controlledSessions{0};
     std::optional<ErrorCode> unavailable;
+    quint64 cacheGeneration{0};
 };
 
 struct InputClaims
@@ -58,6 +60,7 @@ struct InputClaims
     ExecutionId execution;
     quint64 sequence{0};
     qint64 expires{0};
+    quint64 cacheGeneration{0};
 };
 
 enum class InputAdmission { Replay, Submit, Release };
@@ -83,6 +86,7 @@ struct ObservationWait
     bool initial{false};
     bool interaction{false};
     std::optional<ObservationWake> immediate;
+    quint64 cacheGeneration{0};
 };
 
 struct ObservationFacts
@@ -98,6 +102,7 @@ struct ObservationFacts
     bool running{false};
     bool commandFinished{false};
     QString lastVisibleLine;
+    quint64 cacheGeneration{0};
 };
 
 struct ObservationCompletion
@@ -117,7 +122,7 @@ public:
         const SessionReference& session, ClientAccessVersion grant) const;
     [[nodiscard]] Result<ObservationCursor> restoreCursor(const ObservationCursor& cursor,
         const ClientId& client, const SessionReference& session, ClientAccessVersion grant,
-        bool includeViewport) const;
+        bool includeViewport, quint64 cacheGeneration = 0) const;
     [[nodiscard]] InputClaims inputClaims(const ClientId& client, const TerminalControlFacts& facts) const;
     [[nodiscard]] std::optional<Error> validateInput(const InputClaims& claims,
         const ClientId& client, const TerminalControlFacts& facts) const;
@@ -138,7 +143,7 @@ public:
     [[nodiscard]] bool hasWaiters() const noexcept { return !_waiting.isEmpty(); }
     [[nodiscard]] qsizetype waiterCount() const noexcept { return _waiting.size(); }
     [[nodiscard]] bool captureAvailable(const CaptureRecord& capture, const ClientId& client,
-        const SessionReference& session, ClientAccessVersion grant) const;
+        const SessionReference& session, ClientAccessVersion grant, quint64 cacheGeneration = 0) const;
 
 private:
     struct Scope
@@ -153,6 +158,7 @@ private:
     struct Replay
     {
         quint64 generation{0};
+        quint64 cacheGeneration{0};
         quint64 next{0};
         Epoch epoch;
         ClientAccessVersion grant;

@@ -403,6 +403,21 @@ bool AccessStore::canUseElevation(const QString& clientId,
     return canControlTerminal(clientId, entry) && row && row->selection.elevation;
 }
 
+bool AccessStore::canClearTerminal(const QString& clientId,
+    const SessionDirectory::Entry& entry) const
+{
+    const auto facts = factsOf(entry);
+    if (!facts.sessionRunning || !facts.transportConnected
+        || !facts.transportMatchesSession || !facts.generationMatches
+        || facts.binding.epoch.isEmpty() || facts.binding.attachment.isEmpty())
+        return false;
+    const auto row = grantRow(clientId, entry);
+    return row && row->selection.read && row->selection.clearTerminal
+        && row->binding.epoch == facts.binding.epoch
+        && row->binding.generation == facts.binding.generation
+        && row->binding.targetFingerprint == facts.binding.targetFingerprint;
+}
+
 QString AccessStore::elevationReference(const SessionDirectory::Entry& entry,
     const QString& method) const
 {

@@ -127,6 +127,7 @@ public:
     isize maxBytes() const { return _maxBytes; }
     isize chunkLines() const { return _chunkLines; }
     u64 version() const { return _version; }
+    [[nodiscard]] u64 cacheGeneration() const noexcept { return _logGeneration; }
 
     /**
      * @brief 调整行数与字节上限，立即触发淘汰以满足新约束。

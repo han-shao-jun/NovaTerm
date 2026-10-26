@@ -19,7 +19,7 @@ FluentUI 风格。
   已知失败，见 [AGENTS.md](AGENTS.md)。独立协议阶段的记录见
   [P9 文档](docs/architecture/stages/P9_File_Transfer_Protocols.md)
 - **系统监控**：支持远程SSH会话的系统资源监控
-- **AI MCP 接入**：默认关闭的进程内 Streamable HTTP 服务，默认地址为 `http://127.0.0.1:38973/mcp`，通过 Bearer token 认证；提供九个工具，支持按会话授权读取、搜索、终端观察/操作、固定诊断和脚本任务；托管提权目前返回适配器不可用，确认与权限边界见 [使用说明](docs/MCP_Usage.md)
+- **AI MCP 接入**：默认关闭的进程内 Streamable HTTP 服务，默认地址为 `http://127.0.0.1:38973/mcp`，通过 Bearer token 认证；提供十三个工具（九项终端兼容工具、三项离线历史工具和独立授权清空工具），支持按会话授权观察/操作、精确缓存日志分页、搜索、固定诊断和脚本任务；托管提权目前返回适配器不可用，确认与权限边界见 [使用说明](docs/MCP_Usage.md)
 - **终端解析**：使用 libvterm 处理 ANSI/VT 控制序列，具体语义由终端测试覆盖
 - **搜索与高亮**：支持终端内容搜索和可配置文本高亮
 

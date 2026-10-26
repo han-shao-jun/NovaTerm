@@ -66,6 +66,7 @@ public:
     }
     bool processHistory() { return _storage.processHistory(); }
     bool compressionAvailable() const { return _storage.compressionAvailable(); }
+    [[nodiscard]] NovaTerm::u64 cacheGeneration() const noexcept { return _storage.cacheGeneration(); }
     NovaTerm::HistoryLineIndex lineInfoAt(NovaTerm::isize row) const { return _storage.lineInfoAt(row); }
     int maxLines() const { return _maxLines; }
     NovaTerm::ScrollbackSnapshot snapshot();

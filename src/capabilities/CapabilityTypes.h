@@ -32,7 +32,7 @@ using TimePoint = Clock::time_point;
 enum class EntryKind { Mcp };
 enum class ResourceKind { Directory, Session, HistoryCapture, DiagnosticResult, ImportedFile };
 enum class ImplementationStatus { Implemented, Planned };
-enum class Policy { DirectoryRead, ReadOutput, Diagnostic, RiskCommand, Script, FullInput, Elevation, HistoryRead };
+enum class Policy { DirectoryRead, ReadOutput, Diagnostic, RiskCommand, Script, FullInput, Elevation, HistoryRead, ClearTerminal };
 struct DirectoryBinding {};
 struct SessionBinding {
     SessionId session;

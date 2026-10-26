@@ -75,6 +75,7 @@ class McpAccessInteractionTests final : public QObject {
 private slots:
     void terminalPermissionRequiresExplicitGrantAndCurrentEpoch();
     void readRevocationClearsNewPermissions();
+    void clearTerminalGrantStaysIndependentAndConnectionBound();
     void credentialsAreMethodScopedAndNeverUpgradeGrants();
     void credentialMutationRevokesElevationAcrossClients();
     void unsupportedOrStaleCredentialIdentityIsRejected();
@@ -125,6 +126,50 @@ void McpAccessInteractionTests::readRevocationClearsNewPermissions()
     QVERIFY(!f.access.canUseElevation(client, entry));
     QVERIFY(NovaTerm::Mcp::TestSupport::setGrant(f.access, client, entry, true));
     QVERIFY(!f.access.canControlTerminal(client, entry));
+}
+
+void McpAccessInteractionTests::clearTerminalGrantStaysIndependentAndConnectionBound()
+{
+    using namespace NovaTerm::Mcp;
+    Fixture f;
+    QVERIFY(f.access.setEnabled(true));
+    const auto client = f.access.addClient("clear-client");
+    const auto other = f.access.addClient("other-client");
+    auto entry = f.entry();
+    QVERIFY(!f.access.canClearTerminal(client, entry));
+    QVERIFY(TestSupport::setGrant(f.access, client, entry, true));
+    QVERIFY(TestSupport::setTerminalGrant(f.access, client, entry, true));
+    QVERIFY(!f.access.canClearTerminal(client, entry));
+    const auto view = f.access.grantSnapshot(ClientId{client}, entry);
+    PermissionChange request;
+    request.client = ClientId{client};
+    request.binding = view.binding;
+    request.expectedRevision = view.revision;
+    request.kind = PermissionKind::ClearTerminal;
+    request.selected = true;
+    QVERIFY(!isError(f.access.changePermission(request, entry)));
+    QVERIFY(f.access.canClearTerminal(client, entry));
+    QVERIFY(!f.access.canClearTerminal(other, entry));
+    auto stale = entry;
+    ++stale.generation;
+    QVERIFY(!f.access.canClearTerminal(client, stale));
+    stale = entry;
+    stale.targetFingerprint += QStringLiteral("other");
+    QVERIFY(!f.access.canClearTerminal(client, stale));
+    f.transport.online = false;
+    QVERIFY(!f.access.canClearTerminal(client, entry));
+    f.transport.online = true;
+    QVERIFY(TestSupport::setGrant(f.access, client, entry, false));
+    QVERIFY(!f.access.canClearTerminal(client, entry));
+    QVERIFY(TestSupport::setGrant(f.access, client, entry, true));
+    QVERIFY(!f.access.canClearTerminal(client, entry));
+    const auto refreshed = f.access.grantSnapshot(ClientId{client}, entry);
+    request.expectedRevision = refreshed.revision;
+    QVERIFY(!isError(f.access.changePermission(request, entry)));
+    entry.epoch = QStringLiteral("reconnected");
+    QVERIFY(!f.access.canClearTerminal(client, entry));
+    QVERIFY(TestSupport::setGrant(f.access, client, entry, true));
+    QVERIFY(!f.access.canClearTerminal(client, entry));
 }
 
 void McpAccessInteractionTests::credentialsAreMethodScopedAndNeverUpgradeGrants()

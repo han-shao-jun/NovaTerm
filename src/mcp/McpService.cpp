@@ -14,6 +14,7 @@
 #include "protocol/HistoryToolCodec.h"
 #include "CapabilityAdapter.h"
 #include "LogReadAdapter.h"
+#include "TerminalClearAdapter.h"
 #include "application/CaptureStore.h"
 #include "ObservationService.h"
 #include "application/RequestScheduler.h"
@@ -81,6 +82,7 @@ public:
         QString connection, id, tool;
         ToolRequest request;
         std::optional<HistoryToolRequest> historyRequest;
+        std::optional<ClearRequest> clearRequest;
         QByteArray confirmationDigest;
         QString requestState;
         std::optional<ConfirmationAnswer> answer;
@@ -93,6 +95,10 @@ public:
     PendingRequest* findRequest(const QString& key) const {
         const auto found = requests.find(key);
         return found == requests.end() ? nullptr : found->second.get();
+    }
+    static std::optional<SessionReference> referenceOf(const PendingRequest& pending) {
+        if (pending.clearRequest) return SessionReference{pending.clearRequest->session, pending.clearRequest->epoch};
+        return requestSession(pending.request);
     }
     std::unique_ptr<PendingRequest> takeRequest(const QString& key) {
         const auto found = requests.find(key);
@@ -135,6 +141,7 @@ public:
         terminal = std::make_unique<TerminalInteraction>(&access, &sessions, &observation, capabilityDispatcher, owner);
         terminal->onChanged = [this] { emit q->changed(); };
         instance = newId();
+        clears = std::make_unique<TerminalClearAdapter>(access, sessions, instance, logCursorKey, owner);
         commands = std::make_unique<CommandSessionAdapter>(access, sessions,
             QDir(stateDirectory).filePath("targets"), instance, CommandSessionAdapter::Delivery{
                 [this](const TaskId& task, QJsonObject payload) {
@@ -176,10 +183,11 @@ public:
                     auto* pending = findRequest(key);
                     if (!pending) continue;
                     if (pending->tool != QStringLiteral("novaterm_run_script")
+                        && pending->tool != QStringLiteral("novaterm_clear_terminal")
                         && pending->tool != QStringLiteral("novaterm_run_command")
                         && pending->tool != QStringLiteral("novaterm_execute_command"))
                         continue;
-                    const auto reference = requestSession(pending->request);
+                    const auto reference = referenceOf(*pending);
                     if (!reference)
                         continue;
                     const auto entry = sessions.find(reference->session.str());
@@ -195,7 +203,7 @@ public:
             for (const auto& key : jobsCopy) {
                 auto* pending = findRequest(key);
                 if (!pending) continue;
-                const auto reference = requestSession(pending->request);
+                const auto reference = referenceOf(*pending);
                 if (reference && reference->session.str() == id)
                     cancel(key, error("STALE_SESSION_EPOCH"), true);
             }
@@ -260,16 +268,21 @@ public:
             return;
         }
         const auto* historyCall = std::get_if<BackendHistoryCall>(&event);
+        const auto* clearCall = std::get_if<BackendClearCall>(&event);
         BackendCall call;
         if (historyCall) {
             call.id = historyCall->id;
             if (historyCall->confirmationSupplied) { send(connectionId, id, error("COMMAND_CONFIRMATION_STALE")); return; }
+        } else if (clearCall) {
+            call.id = clearCall->id;
+            if (clearCall->confirmationSupplied) { send(connectionId, id, error("COMMAND_CONFIRMATION_STALE")); return; }
         } else call = std::get<BackendCall>(event);
         if (findRequest(requestKey(connectionId, id))) {
             io.closeConnection(connectionId);
             return;
         }
-        const auto name = historyCall ? HistoryToolCodec::toolName(historyCall->request) : ToolCodec::toolName(call.request);
+        const auto name = clearCall ? QStringLiteral("novaterm_clear_terminal")
+            : historyCall ? HistoryToolCodec::toolName(historyCall->request) : ToolCodec::toolName(call.request);
         ++requestCount;
         auto request = call.request;
         if (scheduler.queuedCount(connectionId) >= Budget::MaxQueuedRequests) {
@@ -283,6 +296,7 @@ public:
         pending->id = id;
         pending->tool = name;
         if (historyCall) pending->historyRequest = historyCall->request;
+        if (clearCall) pending->clearRequest = clearCall->request;
         pending->confirmationDigest = call.confirmationDigest;
         pending->mrtr = call.mrtr;
         pending->formElicitation = call.formElicitation;
@@ -295,6 +309,7 @@ public:
         }
         pending->deadline = clock.elapsed() + (name == "novaterm_run_script" ? ScriptWriteTimeout.count()
             : name == "novaterm_run_command" ? ConfirmationTimeout.count() : 2000);
+        if (clearCall) pending->deadline = clock.elapsed() + 5000;
         if (historyCall && std::holds_alternative<SearchHistoryRequest>(historyCall->request)) pending->deadline = clock.elapsed() + 12000;
         const auto waitMilliseconds = [](const ToolRequest& value, int fallback) {
             return std::visit([fallback](const auto& request) -> int {
@@ -315,7 +330,7 @@ public:
         pending->request = std::move(request);
         pending->created = clock.elapsed();
         Capabilities::ResourceBinding resource{Capabilities::DirectoryBinding{}};
-        if (const auto reference = sessionReference(pending->request)) {
+        if (const auto reference = referenceOf(*pending)) {
             const auto entry = sessions.find(reference->session.str());
             if (entry && entry->epoch == reference->epoch.str())
                 resource = capabilityBinding(access.grantSnapshot(ClientId{connection->client}, *entry).binding);
@@ -370,8 +385,9 @@ public:
     {
         const auto key = requestKey(pending->connection, pending->id);
         terminal->cancel(key);
+        clears->cancel(key);
         if (!*pending->cancelled) {
-            if (const auto reference = requestSession(pending->request)) {
+            if (const auto reference = referenceOf(*pending)) {
                 const auto entry = sessions.find(reference->session.str());
                 const auto client = connections.value(pending->connection).client;
                 if (!entry || !access.canRead(client, *entry)) payload = error("SESSION_NOT_AVAILABLE");
@@ -438,7 +454,7 @@ public:
                 for (const auto& key : copy) {
                     auto* pending = findRequest(key);
                     if (!pending) continue;
-                    const auto reference = requestSession(pending->request);
+                    const auto reference = referenceOf(*pending);
                     if (pending->connection == id && reference && reference->session.str() == session)
                         cancel(key, error("SESSION_NOT_AVAILABLE"), true);
                 }
@@ -470,7 +486,8 @@ public:
     bool admit(PendingRequest* pending)
     {
         if (!pending->invocation) { complete(requestKey(pending->connection, pending->id), error("SESSION_NOT_AVAILABLE")); return false; }
-        auto result = capabilityDispatcher.admit(terminalCapability(pending->request), *pending->invocation);
+        auto result = capabilityDispatcher.admit(pending->clearRequest ? Capabilities::CapabilityId{"terminal.clear"}
+            : terminalCapability(pending->request), *pending->invocation);
         if (const auto* reason = std::get_if<Capabilities::Rejection>(&result)) {
             complete(requestKey(pending->connection, pending->id),
                 *reason == Capabilities::Rejection::DeadlineExceeded ? error("DEADLINE_EXCEEDED")
@@ -504,11 +521,11 @@ public:
             });
             return;
         }
-        if (std::holds_alternative<ListSessionsRequest>(pending->request)) {
+        if (!pending->clearRequest && std::holds_alternative<ListSessionsRequest>(pending->request)) {
             listSessions(pending);
             return;
         }
-        const auto reference = requestSession(pending->request);
+        const auto reference = referenceOf(*pending);
         if (!reference) { complete(key, error("INVALID_ARGUMENT")); return; }
         const auto entry = sessions.find(reference->session.str());
         pending = findRequest(key);
@@ -523,6 +540,14 @@ public:
             complete(key, !pending->requestState.isEmpty()
                 ? error("COMMAND_CONFIRMATION_STALE")
                 : error("STALE_SESSION_EPOCH"));
+            return;
+        }
+        if (pending->clearRequest) {
+            if (!admit(pending)) return;
+            const QPointer<Service> guard(q);
+            clears->call(connection.client, key, *pending->clearRequest, [this, guard, key](QJsonObject payload) {
+                if (guard) complete(key, std::move(payload));
+            });
             return;
         }
         const bool mutatingInteraction = std::holds_alternative<InteractTerminalRequest>(pending->request)
@@ -608,7 +633,8 @@ public:
         const auto typed = std::get<SearchContextRequest>(pending->request);
         const auto captured = observation.captures().find(typed.capture.str());
         if (!captured || captured->scope != CaptureScope::Connection || captured->owner != pending->connection
-            || captured->session != entry.id || captured->epoch != entry.epoch) {
+            || captured->session != entry.id || captured->epoch != entry.epoch
+            || !entry.session || captured->cacheGeneration != entry.session->core()->cacheGeneration()) {
             complete(key, error("CAPTURE_NOT_AVAILABLE")); return;
         }
         if (!workers) {
@@ -637,8 +663,14 @@ public:
                 }));
             }};
         const QPointer<Service> guard(q);
-        ports.search.invoke(typed, *pending->invocation, [this, guard, key](auto value) {
+        ports.search.invoke(typed, *pending->invocation,
+            [this, guard, key, session = entry.id, epoch = entry.epoch, generation = captured->cacheGeneration](auto value) {
             if (!guard) return;
+            const auto current = sessions.find(session);
+            if (!current || !current->session || current->epoch != epoch
+                || current->session->core()->cacheGeneration() != generation) {
+                complete(key, error("CAPTURE_NOT_AVAILABLE")); return;
+            }
             const auto* domain = std::get_if<Result<Capabilities::Terminal::ContextSearchResult>>(&value);
             if (!domain) { complete(key, error("SESSION_NOT_AVAILABLE")); return; }
             if (const auto* failure = errorIfAny(*domain)) { complete(key, ToolCodec::encodeFailure(*failure)); return; }
@@ -683,6 +715,8 @@ public:
             if (const auto* target = std::get_if<Capabilities::SessionBinding>(&binding)) {
                 const auto entry = sessions.find(target->session.value());
                 if (!entry || !access.canRead(principal.value(), *entry)) return std::nullopt;
+                if (definition.policy == Capabilities::Policy::ClearTerminal
+                    && !access.canClearTerminal(principal.value(), *entry)) return std::nullopt;
                 const auto current = capabilityBinding(access.grantSnapshot(ClientId{principal.value()}, *entry).binding);
                 return Capabilities::AuthorizationSnapshot{current, access.version(principal.value())};
             }
@@ -696,6 +730,7 @@ public:
     ObservationService observation{[this] { return qint64(clock.elapsed()); }};
     const QByteArray logCursorKey{randomBytes()};
     std::unique_ptr<TerminalInteraction> terminal;
+    std::unique_ptr<TerminalClearAdapter> clears;
     std::unique_ptr<QThreadPool> workers;
     std::shared_ptr<SearchMailbox> searchMailbox;
     QTimer timer;

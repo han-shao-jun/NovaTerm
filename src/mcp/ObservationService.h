@@ -78,6 +78,7 @@ struct ObservationRead
     QVector<ObservationLine> viewport;
     QVector<ObservationLine> recent;
     qint64 snapshotAgeMs{0};
+    quint64 cacheGeneration{0};
 };
 
 class ObservationService
@@ -91,7 +92,8 @@ public:
 
     /** @brief 合并窗口内复用同一基础摘要。 */
     [[nodiscard]] std::shared_ptr<const Snapshot> snapshot(const QString& session,
-        const QString& epoch, const Loader& load, bool* reused = nullptr);
+        const QString& epoch, const Loader& load, bool* reused = nullptr,
+        quint64 cacheGeneration = 0);
 
     /** @brief 兼容 read_context 的读取/投影/capture 用例。 */
     [[nodiscard]] ObservationRead read(const ObservationReadRequest& request,

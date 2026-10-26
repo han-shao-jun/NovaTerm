@@ -104,6 +104,10 @@ public:
             if (q->onChanged) q->onChanged();
             scheduleFlush();
         });
+        QObject::connect(session->core(), &TerminalCore::cacheInvalidated, q, [this] {
+            // Entry and delivery guards remain authoritative when this queued hint is late.
+            scheduleFlush();
+        });
         QObject::connect(session, &QObject::destroyed, q, [this, session] { watched.remove(session); });
     }
     void scheduleFlush() {
@@ -115,8 +119,10 @@ public:
     }
     std::shared_ptr<const TerminalContextProvider::Snapshot> baseSnapshot(
         const SessionDirectory::Entry& entry) {
-        return observation->snapshot(entry.id, entry.epoch,
-            [&entry] { return entry.session->tryTerminalContext(); });
+        const auto generation = entry.session->core()->cacheGeneration();
+        auto base = observation->snapshot(entry.id, entry.epoch,
+            [&entry] { return entry.session->tryTerminalContext(); }, nullptr, generation);
+        return generation == entry.session->core()->cacheGeneration() ? base : nullptr;
     }
     QJsonObject capabilities(const QString& client, const QString& id,
                              bool humanConfirmation = false) {
@@ -130,6 +136,7 @@ public:
         return {{"capabilities", capabilityNames},
             {"permissions", QJsonObject{
                     {"readOutput", capability.permissions.read},
+                    {"clearTerminal", capability.permissions.clearTerminal},
                     {"terminalInput", capability.terminalInputAvailable},
                     {"useElevation", capability.terminalInputAvailable
                         && capability.permissions.elevation}}},
@@ -163,6 +170,7 @@ public:
         TerminalControlFacts facts;
         facts.session = {SessionId{entry.id}, Epoch{entry.epoch}};
         facts.grant = ClientAccessVersion{access->version(client)};
+        facts.cacheGeneration = entry.session->core()->cacheGeneration();
         facts.user = ctrl->userGeneration(); facts.control = ctrl->controlGeneration();
         facts.prompt = ctrl->promptGeneration(); facts.execution = ExecutionId{ctrl->executionId()};
         facts.owner = ClientId{ctrl->owner()}; facts.commandActive = ctrl->commandActive();
@@ -191,6 +199,7 @@ public:
             return result;
         };
         claims.user = count("u"); claims.control = count("t"); claims.prompt = count("p");
+        claims.cacheGeneration = count("generation");
         claims.sequence = count("n"); claims.execution = ExecutionId{value->value("x").toString()};
         claims.expires = qint64(value->value("expires").toDouble());
         claims.binding.verified &= valid && value->value("expires").isDouble();
@@ -200,6 +209,7 @@ public:
         const auto claims = state.inputClaims(ClientId{client}, controlFacts(client, entry));
         return {{"k", "i"}, {"c", client}, {"s", entry.id}, {"e", entry.epoch},
             {"g", number(claims.binding.grant.value())}, {"u", number(claims.user)},
+            {"generation", number(claims.cacheGeneration)},
             {"t", number(claims.control)}, {"p", number(claims.prompt)},
             {"x", claims.execution.str()}, {"n", number(claims.sequence)}, {"expires", double(claims.expires)}};
     }
@@ -208,15 +218,17 @@ public:
         ObservationCursor cursor;
         if (const auto value = token(encoded, "r")) {
             cursor.binding = binding(value);
-            bool modelValid = false, eventValid = false;
+            bool modelValid = false, eventValid = false, generationValid = false;
             cursor.model = value->value("r").toString().toULongLong(&modelValid);
             cursor.event = value->value("v").toString().toULongLong(&eventValid);
-            cursor.binding.verified &= modelValid && eventValid;
+            cursor.cacheGeneration = value->value("generation").toString().toULongLong(&generationValid);
+            cursor.binding.verified &= modelValid && eventValid && generationValid;
         } else if (const auto legacy = legacyKey.isEmpty() ? std::nullopt : verifyToken(encoded, legacyKey)) {
-            bool modelValid = false, grantValid = false;
+            bool modelValid = false, grantValid = false, generationValid = false;
             cursor.model = legacy->value("revision").toString().toULongLong(&modelValid);
             const auto grant = legacy->value("grant").toString().toULongLong(&grantValid);
-            cursor.binding = {modelValid && grantValid && legacy->value("kind") == "context", ClientId{client},
+            cursor.cacheGeneration = legacy->value("generation").toString().toULongLong(&generationValid);
+            cursor.binding = {modelValid && grantValid && generationValid && legacy->value("kind") == "context", ClientId{client},
                 {SessionId{legacy->value("session").toString()}, Epoch{legacy->value("epoch").toString()}},
                 ClientAccessVersion{grant}};
             cursor.legacy = true; cursor.includeViewport = legacy->value("viewport").toBool();
@@ -246,16 +258,34 @@ public:
         job.client = ClientId{client}; job.request = RequestId{request}; job.typed = typed;
         job.session = *reference; job.grant = ClientAccessVersion{access->version(client)};
         job.interaction = !readRequest;
+        if (readRequest && readRequest->sinceToken && !readRequest->sinceToken->isEmpty()) {
+            const auto restored = state.restoreCursor(readCursor(*readRequest->sinceToken, client, legacyCursorKey),
+                job.client, job.session, job.grant, readRequest->includeViewport.value_or(true),
+                entry->session->core()->cacheGeneration());
+            if (const auto* error = errorIfAny(restored)) { done(ToolCodec::encodeFailure(*error)); return; }
+        } else if (!readRequest) {
+            const auto encoded = std::visit([](const auto& value) -> QString {
+                using T = std::decay_t<decltype(value)>;
+                if constexpr (std::is_same_v<T, InteractTerminalRequest> || std::is_same_v<T, RequestElevationRequest>)
+                    return value.inputToken;
+                else return {};
+            }, typed);
+            if (inputClaims(encoded).cacheGeneration != entry->session->core()->cacheGeneration()) {
+                done(ToolCodec::encodeFailure(Error{ErrorCode::ControlInvalid})); return;
+            }
+        }
         const auto snapshot = baseSnapshot(*entry);
         if (!snapshot) { done(failure("BUSY", "Snapshot is being prepared.", true, 50)); return; }
         job.since = snapshot->state.revision; job.event = ctrl->revision();
+        job.cacheGeneration = snapshot->state.cacheGeneration;
         job.user = ctrl->userGeneration(); job.control = ctrl->controlGeneration();
         if (readRequest) {
             const auto encoded = readRequest->sinceToken.value_or(QString());
             job.initial = encoded.isEmpty();
             if (!job.initial) {
                 const auto restored = state.restoreCursor(readCursor(encoded, client, legacyCursorKey),
-                    job.client, job.session, job.grant, readRequest->includeViewport.value_or(true));
+                    job.client, job.session, job.grant, readRequest->includeViewport.value_or(true),
+                    entry->session->core()->cacheGeneration());
                 if (const auto* error = errorIfAny(restored)) { done(ToolCodec::encodeFailure(*error)); return; }
                 const auto& cursor = std::get<ObservationCursor>(restored);
                 job.since = cursor.model;
@@ -321,9 +351,11 @@ public:
         const auto entry = sessions->find(request.session.str());
         if (!entry || !entry->session || entry->epoch != request.epoch.str()
             || !access->canControlTerminal(client.str(), *entry)) return false;
+        if (inputClaims(request.inputToken).cacheGeneration != entry->session->core()->cacheGeneration())
+            return false;
         auto* controller = entry->session->terminalController();
         return controller->submit(client.str(), request.operation.str(), encode(request.actions, controller->lineEnding()),
-            commandAction(ToolRequest{request}), int(request.actions.size()));
+            commandAction(ToolRequest{request}), int(request.actions.size()), inputClaims(request.inputToken).cacheGeneration);
     }
     void release(const ClientId& client, const InteractTerminalRequest& request) override {
         const auto entry = sessions->find(request.session.str());
@@ -403,6 +435,7 @@ public:
             if (facts.available) {
                 facts.session = {SessionId{entry->id}, Epoch{entry->epoch}};
                 facts.grant = ClientAccessVersion{access->version(job.client.str())};
+                facts.cacheGeneration = entry->session->core()->cacheGeneration();
                 auto* ctrl = entry->session->terminalController();
                 facts.event = ctrl->revision(); facts.user = ctrl->userGeneration();
                 facts.control = ctrl->controlGeneration(); facts.running = entry->state == SessionState::Running;
@@ -429,6 +462,9 @@ public:
 
     QJsonObject project(const Pending& job, const SessionDirectory::Entry& entry,
                         const TerminalContextProvider::Snapshot& snapshot, const QString& wakeReason) {
+        const auto generation = entry.session->core()->cacheGeneration();
+        if (job.cacheGeneration != generation || snapshot.state.cacheGeneration != generation)
+            return failure("CURSOR_STALE", "The terminal cache changed; read a new baseline.");
         auto* ctrl = entry.session->terminalController();
         const bool compact = projectionOf(job.typed).value_or(
             job.interaction ? ProjectionMode::Compact : ProjectionMode::Full)
@@ -447,6 +483,7 @@ public:
         data.insert("cursor", QJsonObject{{"row", snapshot.state.cursor.position.row}, {"column", snapshot.state.cursor.position.col}});
         data.insert("operation", job.interaction ? QJsonValue(ctrl->operation()) : QJsonValue(QJsonValue::Undefined));
         QJsonObject cursor{{"k", "r"}, {"c", job.client.str()}, {"s", entry.id}, {"e", entry.epoch},
+            {"generation", number(generation)},
             {"g", number(job.grant.value())}, {"r", number(snapshot.state.revision)}, {"v", number(ctrl->revision())}};
         data.insert("nextToken", signToken(cursor, key));
         const bool canInput = capabilities(job.client.str(), entry.id).value("availability").toObject().value("inputAvailable").toBool();
@@ -488,6 +525,7 @@ public:
             record.epoch = entry.epoch;
             record.grantVersion = job.grant.value();
             record.revision = number(snapshot.state.revision);
+            record.cacheGeneration = generation;
             record.lines.reserve(lines.size());
             for (const auto& item : lines) {
                 const auto line = item.toObject();
@@ -501,12 +539,12 @@ public:
         }
         data.insert("captureId", captureId);
         return fit(data, lines, compact, maxBytesOf(job.typed), maxLinesOf(job.typed),
-            captureId, job.client.str(), entry, false);
+            captureId, job.client.str(), entry, generation, false);
     }
     QJsonObject fit(QJsonObject data, const QJsonArray& all, bool compact,
                    std::optional<int> maxBytes, std::optional<int> maxLinesOption,
                    const QString& id, const QString& client, const SessionDirectory::Entry& entry,
-                   bool expansion, int offset = 0, int byteOffset = 0) {
+                   quint64 generation, bool expansion, int offset = 0, int byteOffset = 0) {
         int budget = maxBytes.value_or(compact
             ? Budget::CompactPayloadBytes : Budget::ObservationDefaultPayloadBytes);
         const int maxLines = maxLinesOption.value_or(compact
@@ -554,6 +592,7 @@ public:
             if (!all.isEmpty() && data.value("projectionLimited").toBool()) {
                 const int next = compact && !expansion ? 0 : position;
                 data.insert("expandToken", signToken({{"k", "z"}, {"c", client}, {"s", entry.id}, {"e", entry.epoch},
+                    {"generation", number(generation)},
                     {"g", number(access->version(client))}, {"id", id}, {"offset", next},
                     {"byte", expansion ? nextByte : 0}}, key));
             } else data.insert("expandToken", QJsonValue(QJsonValue::Null));
@@ -625,6 +664,8 @@ public:
             if (data.contains("nextToken") && (truncated || data.value("sourceTruncated").toBool()))
                 data.insert("nextToken", QJsonValue(QJsonValue::Null));
         }
+        if (generation != entry.session->core()->cacheGeneration())
+            return failure("CURSOR_STALE", "The terminal cache changed; read a new baseline.");
         return success(data);
     }
     void expand(const QString& client, const SessionDirectory::Entry& entry,
@@ -634,8 +675,17 @@ public:
             ? observation->captures().find(value->value("id").toString()) : std::optional<CaptureRecord>{};
         const SessionReference reference{SessionId{entry.id}, Epoch{entry.epoch}};
         const auto grant = ClientAccessVersion{access->version(client)};
-        if (!value || !captured || !state.matches(binding(value), ClientId{client}, reference, grant)
-            || !state.captureAvailable(*captured, ClientId{client}, reference, grant)) {
+        const auto generation = entry.session->core()->cacheGeneration();
+        bool generationValid = false;
+        const auto tokenGeneration = value ? value->value("generation").toString().toULongLong(&generationValid) : 0;
+        if (!value || !state.matches(binding(value), ClientId{client}, reference, grant)
+            || !generationValid) {
+            done(failure("CAPTURE_EXPIRED", "The bounded capture is no longer available.")); return;
+        }
+        if (tokenGeneration != generation || (captured && captured->cacheGeneration != generation)) {
+            done(failure("CAPTURE_NOT_AVAILABLE", "The terminal cache changed; read a new baseline.")); return;
+        }
+        if (!captured || !state.captureAvailable(*captured, ClientId{client}, reference, grant, generation)) {
             done(failure("CAPTURE_EXPIRED", "The bounded capture is no longer available.")); return;
         }
         QJsonObject data{{"sessionId", entry.id}, {"epoch", entry.epoch},
@@ -653,13 +703,14 @@ public:
         done(fit(data, projected,
             request.projection.value_or(ProjectionMode::Compact) == ProjectionMode::Compact,
             request.maxBytes, request.maxLines, value->value("id").toString(), client, entry,
-            true, value->value("offset").toInt(), value->value("byte").toInt()));
+            generation, true, value->value("offset").toInt(), value->value("byte").toInt()));
     }
     void search(const QString& client, const SessionDirectory::Entry& entry,
                 const SearchContextRequest& request, Completion done, const Capabilities::InvocationContext& context) {
         const auto captured = observation->captures().find(request.capture.str());
         if (!captured || !state.captureAvailable(*captured, ClientId{client},
-            {SessionId{entry.id}, Epoch{entry.epoch}}, ClientAccessVersion{access->version(client)})) {
+            {SessionId{entry.id}, Epoch{entry.epoch}}, ClientAccessVersion{access->version(client)},
+            entry.session->core()->cacheGeneration())) {
             done(failure("CAPTURE_NOT_AVAILABLE", "Capture is not available.")); return;
         }
         const Capabilities::Terminal::SearchCapabilities ports{dispatcher,
@@ -671,7 +722,16 @@ public:
             }};
         auto searchContext = context;
         searchContext.operation = Capabilities::OperationId{context.operation.value() + "/search"};
-        ports.search.invoke(request, searchContext, [done = std::move(done)](auto value) {
+        const QPointer<TerminalInteraction> guard(q);
+        ports.search.invoke(request, searchContext, [this, guard, client, record = *captured, done = std::move(done)](auto value) {
+            if (!guard) return;
+            const auto current = sessions->find(record.session);
+            if (!current || !current->session || !access->canRead(client, *current)
+                || !state.captureAvailable(record, ClientId{client},
+                    {SessionId{current->id}, Epoch{current->epoch}}, ClientAccessVersion{access->version(client)},
+                    current->session->core()->cacheGeneration())) {
+                done(failure("CAPTURE_NOT_AVAILABLE", "Capture is not available.")); return;
+            }
             const auto* domain = std::get_if<Result<Capabilities::Terminal::ContextSearchResult>>(&value);
             if (!domain) { done(ToolCodec::encodeFailure(Error{ErrorCode::SessionNotAvailable})); return; }
             if (const auto* error = errorIfAny(*domain)) { done(ToolCodec::encodeFailure(*error)); return; }

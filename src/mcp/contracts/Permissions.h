@@ -26,6 +26,7 @@ enum class PermissionKind
     ScriptPublishAndInvoke,
     FullTerminalInput,
     ManagedElevation,
+    ClearTerminal,
 };
 
 /** @brief 一个客户端在一个会话上的权限选择。 */
@@ -37,6 +38,7 @@ struct PermissionSelection
     bool script{false};
     bool fullTerminalInput{false};
     bool elevation{false};
+    bool clearTerminal{false}; ///< 仅清除本机终端缓存；完整输入授权不隐含此权限。
 
     friend bool operator==(const PermissionSelection& left, const PermissionSelection& right)
     {
@@ -45,7 +47,8 @@ struct PermissionSelection
             && left.riskControlledCommand == right.riskControlledCommand
             && left.script == right.script
             && left.fullTerminalInput == right.fullTerminalInput
-            && left.elevation == right.elevation;
+            && left.elevation == right.elevation
+            && left.clearTerminal == right.clearTerminal;
     }
     friend bool operator!=(const PermissionSelection& left, const PermissionSelection& right)
     {

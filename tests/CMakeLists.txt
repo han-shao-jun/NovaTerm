@@ -82,6 +82,13 @@ add_subdirectory(resources)
     add_dependencies(check novaterm_capability_entry_tests)
 
     # 契约与解码边界：目录 fixture、参数接受/拒绝集合、强类型 ID 与错误映射。
+    qt_add_executable(novaterm_mcp_clear_operations_tests mcp/ClearOperationsTests.cpp)
+    target_link_libraries(novaterm_mcp_clear_operations_tests PRIVATE novaterm_mcp_application Qt6::Test)
+    set_target_properties(novaterm_mcp_clear_operations_tests PROPERTIES WIN32_EXECUTABLE FALSE)
+    add_test(NAME novaterm_mcp_clear_operations_tests COMMAND novaterm_mcp_clear_operations_tests)
+    set_tests_properties(novaterm_mcp_clear_operations_tests PROPERTIES LABELS "mcp;p8;security" TIMEOUT 30)
+    add_dependencies(check novaterm_mcp_clear_operations_tests)
+
     qt_add_executable(novaterm_mcp_contracts_tests mcp/ContractsTests.cpp)
     target_link_libraries(novaterm_mcp_contracts_tests PRIVATE
         novaterm_mcp_protocol novaterm_capabilities Qt6::Test)

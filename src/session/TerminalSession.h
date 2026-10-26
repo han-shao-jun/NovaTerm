@@ -201,8 +201,13 @@ public:
 
     /// @copydoc resize
     void resizeTerminal(int columns, int rows) { resize(columns, rows); }
+    /** @brief Submit a local cache mutation through the existing Parser queue; no device input. */
+    [[nodiscard]] bool requestTerminalClear(quint64 operation, bool all, quint64 expectedGeneration,
+        std::shared_ptr<std::atomic_bool> cancelled);
 
 signals:
+    void terminalClearCompleted(quint64 operation, quint64 generation, int status, quint64 nextLine);
+    void terminalCacheInvalidated(quint64 generation);
     /** Read-only receive observation; no History storage dependency. Same thread. */
     void receiveObserved(quint64 generation, const QByteArray& bytes);
     void receiveOmitted(quint64 generation, quint64 bytes);

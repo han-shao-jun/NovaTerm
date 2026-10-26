@@ -61,6 +61,7 @@ inline bool setKind(AccessStore& access, const QString& client,
     case PermissionKind::ScriptPublishAndInvoke: value = current->selection.script; break;
     case PermissionKind::FullTerminalInput: value = current->selection.fullTerminalInput; break;
     case PermissionKind::ManagedElevation: value = current->selection.elevation; break;
+    case PermissionKind::ClearTerminal: value = current->selection.clearTerminal; break;
     }
     if (value == selected)
         return true;
@@ -94,8 +95,11 @@ inline bool applySelection(AccessStore& access, const QString& client,
     if (!setKind(access, client, entry, PermissionKind::FullTerminalInput,
                  std::nullopt, desired.fullTerminalInput))
         return false;
-    return setKind(access, client, entry, PermissionKind::ManagedElevation,
-                   std::nullopt, desired.elevation);
+    if (!setKind(access, client, entry, PermissionKind::ManagedElevation,
+                 std::nullopt, desired.elevation))
+        return false;
+    return setKind(access, client, entry, PermissionKind::ClearTerminal,
+                   std::nullopt, desired.clearTerminal);
 }
 
 /** @brief 旧 `setGrant(read, commands, interactive, confirmed, script)` 语义。 */
@@ -120,6 +124,7 @@ inline bool setGrant(AccessStore& access, const QString& client,
                 == entry.targetFingerprint) {
             desired.fullTerminalInput = current->selection.fullTerminalInput;
             desired.elevation = current->selection.elevation;
+            desired.clearTerminal = current->selection.clearTerminal;
         }
     }
     return applySelection(access, client, entry, desired);

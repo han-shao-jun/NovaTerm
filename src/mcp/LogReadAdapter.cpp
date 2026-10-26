@@ -3,8 +3,10 @@
 #include "McpProtocol.h"
 #include "tasks/LogReadUseCase.h"
 #include "session/SessionDirectory.h"
+#include "session/SessionInputArbiter.h"
 #include <QDateTime>
 #include <QJsonArray>
+#include <QTimeZone>
 
 namespace NovaTerm::Mcp {
 namespace {
@@ -17,6 +19,10 @@ public:
             && _access.canRead(client.str(), *entry);
     }
     ClientAccessVersion version(const ClientId& client) const override { return ClientAccessVersion{_access.version(client.str())}; }
+    quint64 userGeneration(const SessionReference& session) const {
+        const auto entry = _sessions.find(session.session.str());
+        return entry && entry->session ? entry->session->inputArbiter()->userInputGeneration() : 0;
+    }
     Result<LogPage> read(const SessionReference& session, const LogRequest& request) const override {
         const auto entry = _sessions.find(session.session.str());
         if (!entry || !entry->session || entry->epoch != session.epoch.str() || !entry->session->core())
@@ -88,10 +94,22 @@ Result<QJsonObject> readLogContext(AccessStore& access, SessionDirectory& sessio
     const auto& page = std::get<LogPage>(result);
     if (page.status == LogStatus::BudgetTooSmall) return Error{ErrorCode::TextBudgetTooSmall};
     if (page.status == LogStatus::InvalidPosition) return Error{ErrorCode::CursorStale};
+    const auto nextGeneration = page.status == LogStatus::Invalidated && request.cursor
+        ? request.cursor->generation : page.generation;
+    return encodeLogPage(page, instance, client, session, grant.value(), key, nextGeneration,
+        std::nullopt, std::nullopt, port.userGeneration(session));
+}
+qint64 clearTicketClock() {
+    return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
+}
+QJsonObject encodeLogPage(const LogPage& page, const QString& instance, const QString& client,
+    const SessionReference& session, quint64 grant, const QByteArray& key, std::optional<quint64> nextGeneration,
+    std::optional<qint64> capturedAtMs, std::optional<qint64> ticketIssued, quint64 userGeneration)
+{
     const auto encode = [&](const LogPosition& value, u64 generation) {
         return signToken({{"kind", "log"}, {"version", 1}, {"client", client},
-            {"session", typed.session.str()}, {"epoch", typed.epoch.str()},
-            {"grant", QString::number(grant.value())}, {"generation", QString::number(generation)},
+            {"session", session.session.str()}, {"epoch", session.epoch.str()},
+            {"grant", QString::number(grant)}, {"generation", QString::number(generation)},
             {"line", QString::number(value.line)}, {"cell", QString::number(value.cell)},
             {"scalar", QString::number(value.scalar)}, {"byte", QString::number(value.byte)}}, key);
     };
@@ -100,14 +118,17 @@ Result<QJsonObject> readLogContext(AccessStore& access, SessionDirectory& sessio
         {"byteOffset", QString::number(part.byteOffset)}, {"text", QString::fromUtf8(part.text)},
         {"lineComplete", part.lineComplete}, {"hardBreak", part.hardBreak}});
     // Invalidated cursors retain their old generation; never launder them into a new baseline.
-    const auto nextGeneration = page.status == LogStatus::Invalidated && request.cursor
-        ? request.cursor->generation : page.generation;
-    return QJsonObject{{"instanceId", instance}, {"sessionId", typed.session.str()}, {"epoch", typed.epoch.str()},
+    const auto clearToken = signToken({{"kind", "clear"}, {"version", 1}, {"client", client},
+        {"session", session.session.str()}, {"epoch", session.epoch.str()}, {"grant", QString::number(grant)},
+        {"user", QString::number(userGeneration)},
+        {"generation", QString::number(page.generation)}, {"issued", QString::number(ticketIssued.value_or(clearTicketClock()))}}, key);
+    return QJsonObject{{"instanceId", instance}, {"sessionId", session.session.str()}, {"epoch", session.epoch.str()},
         {"source", "log"}, {"coverage", "committed_history"}, {"historyMayPrecedeEpoch", true},
-        {"capturedAt", QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs)},
+        {"capturedAt", QDateTime::fromMSecsSinceEpoch(capturedAtMs.value_or(QDateTime::currentMSecsSinceEpoch()), QTimeZone::UTC).toString(Qt::ISODateWithMs)},
         {"cacheGeneration", QString::number(page.generation)}, {"status", statusName(page.status)}, {"fragments", fragments},
         {"nextPosition", position(page.next)}, {"earliestPosition", position(page.earliest)}, {"sampledEndPosition", position(page.sampledEnd)},
-        {"nextToken", encode(page.next, nextGeneration)}, {"earliestToken", encode(page.earliest, page.generation)},
+        {"nextToken", encode(page.next, nextGeneration.value_or(page.generation))}, {"earliestToken", encode(page.earliest, page.generation)},
+        {"clearToken", clearToken},
         {"sampledEndToken", encode(page.sampledEnd, page.generation)}, {"hasMore", page.hasMore}, {"caughtUp", page.caughtUp}};
 }
 } // namespace NovaTerm::Mcp

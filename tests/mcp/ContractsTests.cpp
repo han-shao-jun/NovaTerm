@@ -86,6 +86,33 @@ class ContractsTests : public QObject
 {
     Q_OBJECT
 private slots:
+    void clearToolHasIndependentContract()
+    {
+        auto args = identity();
+        args.insert("operationId", OperationUuid);
+        args.insert("scope", "scrollback");
+        args.insert("expectedGeneration", "1");
+        args.insert("clearToken", "signed-clear-baseline");
+        QVERIFY(ToolCodec::isKnownTool("novaterm_clear_terminal"));
+        QVERIFY(ToolCodec::validate("novaterm_clear_terminal", args).isEmpty());
+        QVERIFY(!isError(ToolCodec::decodeCall("novaterm_clear_terminal", args)));
+        for (const auto& name : QStringList{"operationId", "scope", "expectedGeneration", "clearToken"}) {
+            auto missing = args; missing.remove(name);
+            QVERIFY(!ToolCodec::validate("novaterm_clear_terminal", missing).isEmpty());
+        }
+        for (const auto& generation : QStringList{"-1", "01", "18446744073709551616", ""}) {
+            auto invalid = args; invalid.insert("expectedGeneration", generation);
+            QVERIFY(!ToolCodec::validate("novaterm_clear_terminal", invalid).isEmpty());
+        }
+        auto invalid = args; invalid.insert("scope", "screen");
+        QVERIFY(!ToolCodec::validate("novaterm_clear_terminal", invalid).isEmpty());
+        invalid = args; invalid.insert("path", "C:/private");
+        QVERIFY(!ToolCodec::validate("novaterm_clear_terminal", invalid).isEmpty());
+        static_assert(std::variant_size_v<ToolRequest> == 9);
+        QFile fixture(QStringLiteral(NOVATERM_SOURCE_DIR "/tests/mcp/fixtures/clear-terminal-2026-10-25.json"));
+        QVERIFY(fixture.open(QIODevice::ReadOnly));
+        QCOMPARE(ToolCodec::catalog().last().toObject(), QJsonDocument::fromJson(fixture.readAll()).object());
+    }
     void logReadRequiresExplicitSourceAndStart();
     void confirmationClaimsKeepWireFormatAndRejectTampering();
     void catalogMatchesCompatibilityFixture();
@@ -143,9 +170,18 @@ void ContractsTests::catalogMatchesCompatibilityFixture()
         if (legacy[i].toObject().value("name") != "novaterm_read_context") {
             QCOMPARE(current, legacy[i].toObject()); continue;
         }
-        QFile logFixture(QStringLiteral(NOVATERM_SOURCE_DIR "/tests/mcp/fixtures/read-context-log-2026-10-25.json"));
+        QFile logFixture(QStringLiteral(NOVATERM_SOURCE_DIR "/tests/mcp/fixtures/read-context-clear-2026-10-25.json"));
         QVERIFY(logFixture.open(QIODevice::ReadOnly));
         QCOMPARE(current, QJsonDocument::fromJson(logFixture.readAll()).object());
+        QFile b1Fixture(QStringLiteral(NOVATERM_SOURCE_DIR "/tests/mcp/fixtures/read-context-log-2026-10-25.json"));
+        QVERIFY(b1Fixture.open(QIODevice::ReadOnly));
+        const auto b1 = QJsonDocument::fromJson(b1Fixture.readAll()).object();
+        auto b2Log = current.value("outputSchema").toObject().value("properties").toObject().value("data").toObject().value("anyOf").toArray().last().toObject();
+        auto b2Props = b2Log.value("properties").toObject(); b2Props.remove("clearToken"); b2Log.insert("properties", b2Props);
+        auto b2Required = b2Log.value("required").toArray();
+        for (qsizetype j = 0; j < b2Required.size(); ++j) if (b2Required[j] == "clearToken") { b2Required.removeAt(j); break; }
+        b2Log.insert("required", b2Required);
+        QCOMPARE(b2Log, b1.value("outputSchema").toObject().value("properties").toObject().value("data").toObject().value("anyOf").toArray().last().toObject());
         const auto previous = legacy[i].toObject();
         QCOMPARE(current.value("annotations"), previous.value("annotations"));
         const auto oldInput = previous.value("inputSchema").toObject();

@@ -19,9 +19,13 @@ ObservationService::ObservationService(std::function<qint64()> clock,
 }
 
 std::shared_ptr<const ObservationService::Snapshot> ObservationService::snapshot(
-    const QString& session, const QString& epoch, const Loader& load, bool* reused)
+    const QString& session, const QString& epoch, const Loader& load, bool* reused,
+    quint64 cacheGeneration)
 {
-    return _snapshots.acquire(session, epoch, load, reused);
+    return _snapshots.acquire(session, epoch, [&] {
+        auto base = load ? load() : std::shared_ptr<const Snapshot>{};
+        return base && base->state.cacheGeneration == cacheGeneration ? base : nullptr;
+    }, reused, cacheGeneration);
 }
 
 ObservationRead ObservationService::read(const ObservationReadRequest& request,
@@ -33,7 +37,8 @@ ObservationRead ObservationService::read(const ObservationReadRequest& request,
     result.captureId = request.captureId;
 
     bool reused = false;
-    const auto base = _snapshots.acquire(request.sessionId, request.epoch, [&] {
+    const auto generation = entry.session->core()->cacheGeneration();
+    const auto base = snapshot(request.sessionId, request.epoch, [&] {
         // 每次真正向 Provider 取一份新基础摘要才计数；合并窗内复用不重复计。
         // 与 snapshotPublishCount（Parser 侧发布次数，≤4 Hz）是两个不同口径，
         // 二者比值即「客户端读取需求被合并/发布吸收了多少」。
@@ -47,7 +52,7 @@ ObservationRead ObservationService::read(const ObservationReadRequest& request,
             _publishedStats.insert(entry.id, currentStats);
         }
         return snapshot;
-    }, &reused);
+    }, &reused, generation);
 
     if (reused && request.freshness == FreshnessPolicy::StrictRevision) {
         // 仅旧 try-read 路径需要严格 revision 校验：合并窗内模型已推进就
@@ -65,6 +70,10 @@ ObservationRead ObservationService::read(const ObservationReadRequest& request,
     }
     if (!base) {
         result.status = ObservationRead::Status::BusyShort;
+        return result;
+    }
+    if (entry.session->core()->cacheGeneration() != generation) {
+        result.status = ObservationRead::Status::Busy;
         return result;
     }
 
@@ -114,6 +123,7 @@ ObservationRead ObservationService::read(const ObservationReadRequest& request,
     record.session = request.sessionId;
     record.epoch = request.epoch;
     record.revision = QString::number(base->state.revision);
+    record.cacheGeneration = generation;
     record.sourceTruncated = sourceTruncated;
     record.outputTruncated = outputTruncated;
     record.expires = now + Budget::CaptureLifetime.count();
@@ -123,6 +133,11 @@ ObservationRead ObservationService::read(const ObservationReadRequest& request,
         record.lines.append(CaptureLine{value.text, QStringLiteral("viewport"), 0});
     for (const auto& value : result.recent)
         record.lines.append(CaptureLine{value.text, QStringLiteral("recent_output"), 0});
+    if (entry.session->core()->cacheGeneration() != generation) {
+        result = {};
+        result.status = ObservationRead::Status::Busy;
+        return result;
+    }
     _captures.put(request.captureId, std::move(record));
 
     const auto capturedMs = std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -135,6 +150,7 @@ ObservationRead ObservationService::read(const ObservationReadRequest& request,
     _snapshotAges.push_back(result.snapshotAgeMs);
 
     result.status = ObservationRead::Status::Ok;
+    result.cacheGeneration = generation;
     result.revision = QString::number(base->state.revision);
     result.capturedAt = QDateTime::fromMSecsSinceEpoch(
         capturedMs, QTimeZone::UTC).toString(Qt::ISODateWithMs);
@@ -148,6 +164,11 @@ ObservationRead ObservationService::read(const ObservationReadRequest& request,
     if (_captureDurations.size() == 256)
         _captureDurations.pop_front();
     _captureDurations.push_back(captureTimer.nsecsElapsed());
+    if (generation != entry.session->core()->cacheGeneration()) {
+        _captures.remove(request.captureId);
+        result = {};
+        result.status = ObservationRead::Status::Busy;
+    }
     return result;
 }
 

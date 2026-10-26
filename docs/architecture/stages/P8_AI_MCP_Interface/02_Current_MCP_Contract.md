@@ -1,9 +1,9 @@
 # 当前 MCP 接口契约与兼容基线
 
 兼容基线整理于 2026-10-18，2026-10-23 加入历史工具；2026-10-24 校正目录与状态说明。入口：[总体架构](00_Overall_Architecture.md) / [实施与验收](01_Phases_and_Acceptance.md)。
-本文件记录已有冻结契约，依据 ToolCodec、fixture、Budget、Errors 和 MCP 使用说明；不宣称外部 MCP 规范的最新状态，也不证明所有平台已验收。2026-10-25 B0/B1 已退役未发布 P4 两个诊断工具及专属接线，当前仍为十二工具。清理、日志扩展及本轮验证见 [B0/B1 实施与验收](records/B0_B1_Implementation_2026-10-25.md)。
+本文件记录已有冻结契约，依据 ToolCodec、fixture、Budget、Errors 和 MCP 使用说明；不宣称外部 MCP 规范的最新状态，也不证明所有平台已验收。2026-10-25 B0/B1 已退役未发布 P4 两个诊断工具及专属接线，B0/B1 基线为十二工具，B2 后为十三项（见下节）。清理、日志扩展及本轮验证见 [B0/B1 实施与验收](records/B0_B1_Implementation_2026-10-25.md)。
 
-**B1 日志模式已实施，MCP 清空仍未实施**：缺省 source=observation 的 sinceToken 仍是模型观察游标，recentOutput 仍是摘要；显式 source=log 使用独立位置游标。read_context 的兼容 Schema 扩展见下节及 [04](04_Cursor_Observation_and_Clear.md)，其他十一工具对象保持。
+**B1 日志模式与 B2 清空事务已实施**：缺省 source=observation 的 sinceToken 仍是模型观察游标，recentOutput 仍是摘要；显式 source=log 使用独立位置游标。read_context 的兼容 Schema 扩展见下节及 [04](04_Cursor_Observation_and_Clear.md)，其他十一工具对象保持。
 
 2026-10-25 后续设计：指定文本等待、长任务直接入口、SSH/SFTP 单文件传输及保存目标打开/关闭同样只是 [06](06_Terminal_Workflow_Extensions.md) 的目标设计，未加入本文工具列表，也未在此次修改产品说明或代码。
 
@@ -12,9 +12,31 @@
 历史工具返回原文的 base64、原始 record/byte 多片段、固定高水位、独立 sourceCompleteness 与分页 complete。text 查询为 UTF-8 literal；raw_bytes 的 query 为规范 base64，不接受任意正则。录制与共享分别由本机用户选择；Session 关闭不会撤销显式离线共享，令牌轮换、客户端删除、capture 删除及授权缩范围会拒绝旧游标。EvidenceRef 和 cursor 不能代替授权。
 
 
+## B2：本地清空与实时观察代际（2026-10-25）
+
+B2 在原十二工具之后追加 `novaterm_clear_terminal`，当前十三项；原九工具 typed 联合仍为九项，清空使用协议组合层独立请求。旧十一项工具对象、旧观察输出分支和 B1 日志字段保持；日志分支追加 `clearToken`。新冻结夹具为 `clear-terminal-2026-10-25.json` 和 `read-context-clear-2026-10-25.json`，旧夹具继续用于逐字段兼容检查。
+
+| 清空参数 | 规则 |
+| --- | --- |
+| sessionId / epoch | 显式当前会话；读取权限和独立 ClearTerminal 授权均必需，默认关闭；已有完整输入授权不自动升级 |
+| operationId | 规范 UUID，表示一个清空意图；有效期内仅相同全部参数可重试，冲突返回 INPUT_SEQUENCE_CONFLICT |
+| scope | 必填 scrollback（仅历史）或 all（屏幕及历史） |
+| expectedGeneration | 必填规范非零十进制字符串，来自一次新日志页的 cacheGeneration |
+| clearToken | 必填，不超过 2048 字节；来自 source=log 页，独立签名 kind/version/client/session/epoch/grant/cacheGeneration/userInputGeneration/单调签发时刻，期限十分钟。读取所得票据不代替清空授权 |
+
+应用服务持有有界操作记录：每客户端 32、全局 128；单操作最多六个并发等待者，满则 BUSY。记录至少保留到原票据到期，未完成 Parser 操作不提前丢弃；已完成过期记录按需回收。原票据到期后不能重新受理，即使记录已回收。operationId 不得跨期限复用；服务不承诺永久记住所有 UUID。结果未知、断流或应用重启后不得自动换票据/ID 重发。
+
+清空经 Session 窄接口提交到现有有界 Parser 命令队列，复用提交字节屏障；拒绝入队返回 BUSY。执行前复核取消闸门与预期代际；人工输入在票据签发后先发生则新受理返回 CONTROL_INVALID，已排队的未执行操作在人工接管/撤权/断连/取消时关闭闸门。取消与执行存在先后边界：已开始生效的操作可能仍完成，不能把取消响应当作没有清空。
+
+成功仅在 Parser 完成后返回 data：operationId、scope、status=applied、cacheGeneration，以及 baseline（source=log 的空尾书签页）。baseline 的位置与代际在清空执行点同锁保存，后续新输出不会被当作已读；再次清空会使该基线正常失效。精确重试复用原完成事实、时间戳和基线，不再次提交 Parser 命令。交付前再次核对授权/会话与请求租约；撤权后不能凭操作记录查询旧输出。
+
+本机菜单、控制序列清历史、resize 回填与 MCP 清空共用后端 generation。Core 在释放模型锁前发布其原子投影，Provider 重置摘要/历史水位并拒绝旧发布物；合并快照、连接/客户端 capture、expand/search、旧观察游标和 inputToken 绑定该 generation。旧实时 capture/expand/search 返回 CAPTURE_NOT_AVAILABLE，旧观察游标返回 CURSOR_STALE；日志仍返回 invalidated 并要求显式新基线。输入提交以 Controller 在 GUI 编码回调内最后一次成功代际复核为线性点：清空在此复核前完成时，仍排队的旧观察输入零写入；复核成功后，这次已开始的提交可以与 Parser 清空重叠。清空完成通知及 MCP 响应通过同一 GUI 线程交付，不会插入当前同步提交回调内部；不承诺清空与已受理输入的物理字节发送互斥。已运行命令的完成事实不会被清空删除。
+
+清空不发送 clear/reset/Enter/Ctrl+C、不重连、不停止设备程序、不修改录制或离线资源授权。scope=scrollback 保留活动屏幕，其仍可见内容允许出现在新观察；scope=all 完成后新到达的输出仍可出现。真实设备与性能范围见 [B2 实施与验收](records/B2_Implementation_2026-10-25.md)。
+
 ## B1：read_context 的显式日志契约（2026-10-25）
 
-新 fixture：`tests/mcp/fixtures/read-context-log-2026-10-25.json`。旧 fixture 保留，回归检查旧必填/default/参数约束、原观察输出分支、其他十一工具对象；本节是已实现契约。工具数为十二，未新增空工具。
+新 fixture：`tests/mcp/fixtures/read-context-log-2026-10-25.json`。旧 fixture 保留，回归检查旧必填/default/参数约束、原观察输出分支、其他十一工具对象；本节是已实现契约。B1 工具数为十二；B2 独立追加清空工具，当前十三项。
 
 | 输入 | 精确规则 |
 | --- | --- |
@@ -44,7 +66,7 @@
 | SESSION_NOT_AVAILABLE / STALE_SESSION_EPOCH | 现行共享/生命周期闸门拒绝，旧 token 不能恢复权限 |
 | INVALID_ARGUMENT | 初始/续读参数冲突、非法来源/预算或日志不支持的观察参数 |
 
-本机菜单与远端控制序列引发的历史 clear 共用后端 generation；本轮未开放 MCP 清空操作，也未修复旧摘要/capture 的清空失效（G05 → B2）。重连另由 epoch 拒绝；同 UART 链路重启不凭日志猜测换代。日志不是原始串口字节记录，不保证已被控制序列覆盖的屏幕帧或硬件零丢失。日志不生成 captureId/inputToken，不交给 search_context，当前屏幕/交互照常另读。
+本机菜单与远端控制序列引发的历史 clear 共用后端 generation；B2 已开放独立授权清空操作，并统一旧摘要/capture 的代际失效；具体语义见上节。重连另由 epoch 拒绝；同 UART 链路重启不凭日志猜测换代。日志不是原始串口字节记录，不保证已被控制序列覆盖的屏幕帧或硬件零丢失。日志不生成 captureId/inputToken，不交给 search_context，当前屏幕/交互照常另读。
 
 ## 1. 责任和事实来源
 

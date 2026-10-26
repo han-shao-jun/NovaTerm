@@ -61,6 +61,9 @@ public:
         const QString& clientId, const SessionDirectory::Entry& entry) const;
     [[nodiscard]] bool canControlTerminal(const QString& clientId,
                                           const SessionDirectory::Entry& entry) const;
+    /** @brief 独立清空授权；只对当前就绪连接有效，不由完整输入授权推导。 */
+    [[nodiscard]] bool canClearTerminal(const QString& clientId,
+                                       const SessionDirectory::Entry& entry) const;
     [[nodiscard]] bool canUseElevation(const QString& clientId,
                                        const SessionDirectory::Entry& entry) const;
     /** @brief 新授予提权权限的阻止原因；不以目标/适配器的暂不可用限制授权选择。 */

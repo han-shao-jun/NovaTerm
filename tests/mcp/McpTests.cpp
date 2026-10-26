@@ -5,6 +5,8 @@
 #include "mcp/HistoryCapabilityAdapter.h"
 #include "recording/HistoryService.h"
 #include "mcp/CommandSessionAdapter.h"
+#include "mcp/TerminalClearAdapter.h"
+#include "mcp/LogReadAdapter.h"
 #include "capabilities/McpCapabilityAdapter.h"
 #include "mcp/McpProtocol.h"
 #include "mcp/protocol/ToolCodec.h"
@@ -513,6 +515,13 @@ class McpTests final : public QObject
 {
     Q_OBJECT
 private slots:
+    void clearTerminalIsExplicitIdempotentAndInvalidatesObservation_data();
+    void clearTerminalIsExplicitIdempotentAndInvalidatesObservation();
+    void localCacheMutationsInvalidateRetainedObservations_data();
+    void localCacheMutationsInvalidateRetainedObservations();
+    void expandDistinguishesEvictionFromCacheInvalidation();
+    void clearAdapterTracksSessionObjectReuseAndDestruction();
+    void clearTicketRejectsHumanTakeoverBeforeAdmission();
     void logReadsPageAndBindClientEpochAndMode_data();
     void logReadsPageAndBindClientEpochAndMode();
     void historyOfflineAccessRequiresExplicitGrant();
@@ -565,6 +574,7 @@ private slots:
     void utf8ExpansionIsBounded();
     void settingsDialogSeparatesReadAndScriptPermission();
     void settingsDialogRoundTripsTerminalPermissions();
+    void settingsDialogRoundTripsClearPermission();
     void settingsDialogKeepsPendingGrantsForEveryTerminal_data();
     void settingsDialogKeepsPendingGrantsForEveryTerminal();
     void settingsDialogRejectsStaleConnectionRow_data();
@@ -2667,7 +2677,7 @@ void McpTests::tokenSigningAndAuthentication()
 
 void McpTests::rejectsDangerousAndOversizedArguments()
 {
-    QCOMPARE(ToolCodec::catalog().size(), 12);
+    QCOMPARE(ToolCodec::catalog().size(), 13);
     QVERIFY(!CommandPolicy::find("rm"));
     QVERIFY(!CommandPolicy::find("credential.read"));
     const QJsonObject identity{{"sessionId", newId()}, {"epoch", "epoch"}};
@@ -3191,7 +3201,7 @@ void McpTests::settingsDialogSeparatesReadAndScriptPermission()
     auto* tree = dialog->findChild<ElaTreeWidget*>();
     QVERIFY(tree && tree->topLevelItemCount() == 1);
     // 原六列加完整输入、托管提权、凭据和当前操作四列。
-    QCOMPARE(tree->columnCount(), 10);
+    QCOMPARE(tree->columnCount(), 11);
     const auto copyButtons = dialog->findChildren<QPushButton*>();
     QVERIFY(std::any_of(copyButtons.cbegin(), copyButtons.cend(), [](const QPushButton* button) {
         return button->text() == QStringLiteral("Copy for CC Switch");
@@ -4038,6 +4048,53 @@ void McpTests::settingsDialogRoundTripsTerminalPermissions()
     QCOMPARE(tree->topLevelItem(0)->checkState(7), Qt::Unchecked);
 }
 
+void McpTests::settingsDialogRoundTripsClearPermission()
+{
+    using Model = NovaTerm::Ui::SessionPermissionModel;
+    eApp->init();
+    Fixture f;
+    QVERIFY(f.service.access().setEnabled(true));
+    QWidget owner;
+    QPointer<McpSettingsDialog> dialog = new McpSettingsDialog(&f.service, &owner);
+    auto* tree = dialog->findChild<ElaTreeWidget*>();
+    QVERIFY(tree && tree->topLevelItemCount() == 1);
+    const auto entry = f.service.directory().entries().first();
+    const int clearColumn = Model::index(Model::Column::ClearTerminal);
+    const int readColumn = Model::index(Model::Column::ReadOutput);
+    const int inputColumn = Model::index(Model::Column::TerminalInput);
+    const auto clickClear = [tree] {
+        QStyleOptionViewItem option;
+        option.rect = QRect(0, 0, 180, 30);
+        QMouseEvent release(QEvent::MouseButtonRelease, QPointF(70, 15),
+            QPointF(70, 15), Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+        return tree->itemDelegateForColumn(clearColumn)->editorEvent(&release,
+            tree->model(), option, tree->model()->index(0, clearColumn));
+    };
+    QVERIFY(!f.service.access().canClearTerminal(f.client, entry));
+    QVERIFY(!clickClear());
+    tree->topLevelItem(0)->setCheckState(inputColumn, Qt::Checked);
+    QCoreApplication::processEvents();
+    QVERIFY(!f.service.access().canClearTerminal(f.client, entry));
+    QCOMPARE(tree->topLevelItem(0)->checkState(clearColumn), Qt::Unchecked);
+    QVERIFY(clickClear());
+    QVERIFY(f.service.access().canClearTerminal(f.client, entry));
+    QCoreApplication::processEvents();
+    QCOMPARE(tree->topLevelItem(0)->checkState(clearColumn), Qt::Checked);
+    tree->topLevelItem(0)->setCheckState(inputColumn, Qt::Unchecked);
+    QCoreApplication::processEvents();
+    QVERIFY(f.service.access().canClearTerminal(f.client, entry));
+    QVERIFY(clickClear());
+    QVERIFY(!f.service.access().canClearTerminal(f.client, entry));
+    QCoreApplication::processEvents();
+    QVERIFY(clickClear());
+    QVERIFY(f.service.access().canClearTerminal(f.client, entry));
+    QCoreApplication::processEvents();
+    tree->topLevelItem(0)->setCheckState(readColumn, Qt::Unchecked);
+    QCoreApplication::processEvents();
+    QVERIFY(!f.service.access().canClearTerminal(f.client, entry));
+    QCOMPARE(tree->topLevelItem(0)->checkState(clearColumn), Qt::Unchecked);
+}
+
 void McpTests::settingsDialogRejectsElevationWithoutResettingActiveModel_data()
 {
     QTest::addColumn<bool>("telnet");
@@ -4393,7 +4450,9 @@ void McpTests::settingsDialogKeepsPendingGrantsForEveryTerminal()
     QCOMPARE(tree->topLevelItem(0)->checkState(7), Qt::Checked);
     if (!backendReady) QVERIFY(!tree->topLevelItem(0)->text(3).isEmpty());
     QVERIFY(!tree->topLevelItem(0)->text(7).isEmpty());
-    QCOMPARE(tree->itemWidget(tree->topLevelItem(0), 8)->isEnabled(), backendReady);
+    QCOMPARE(tree->itemWidget(tree->topLevelItem(0),
+        NovaTerm::Ui::SessionPermissionModel::index(
+            NovaTerm::Ui::SessionPermissionModel::Column::Credentials))->isEnabled(), backendReady);
     const auto preview = qEnvironmentVariable("NOVATERM_MCP_GRANT_PREVIEW");
     if (!preview.isEmpty()) {
         const auto previousTheme = eTheme->getThemeMode();
@@ -4862,5 +4921,254 @@ int main(int argc, char** argv)
     }
     McpTests tests;
     return QTest::qExec(&tests, argc, argv);
+}
+void McpTests::clearTerminalIsExplicitIdempotentAndInvalidatesObservation_data()
+{
+    QTest::addColumn<QString>("version"); QTest::addColumn<bool>("serial"); QTest::addColumn<bool>("all");
+    QTest::newRow("2025-ssh-all") << QString(ProtocolVersion) << false << true;
+    QTest::newRow("2025-uart-history") << QString(ProtocolVersion) << true << false;
+    QTest::newRow("2026-ssh-history") << QString("2026-07-28") << false << false;
+    QTest::newRow("2026-uart-all") << QString("2026-07-28") << true << true;
+}
+void McpTests::clearTerminalIsExplicitIdempotentAndInvalidatesObservation()
+{
+    QFETCH(QString, version); QFETCH(bool, serial); QFETCH(bool, all);
+    Fixture f;
+    if (serial) {
+        f.session.close(CloseMode::Abort); QVERIFY(f.session.resetForReuse());
+        f.session.attach(&f.local, TerminalSession::Ownership::Borrowed, TransportKind::Serial);
+        QVERIFY(f.session.start());
+    } else f.makeSsh();
+    QVERIFY(f.enable());
+    f.core.resize(80, 2); QVERIFY(f.core.waitForIdle());
+    QByteArray before;
+    for (int i=0; i<80; ++i) before += "OLD_HISTORY_" + QByteArray::number(i) + "\r\n";
+    QVERIFY(f.core.writeInput(before).fullyAccepted()); QVERIFY(f.core.waitForIdle());
+    Host deniedHost; QVERIFY(deniedHost.start(f.runtime(), f.token(), {}, false, version));
+    auto logArgs = f.identity(); logArgs.insert("source", "log"); logArgs.insert("start", "tail");
+    auto baseline = deniedHost.call("novaterm_read_context", logArgs).value("data").toObject();
+    auto args = f.identity(); args.insert("operationId", QUuid::createUuid().toString(QUuid::WithoutBraces));
+    args.insert("scope", all ? "all" : "scrollback"); args.insert("expectedGeneration", baseline.value("cacheGeneration"));
+    args.insert("clearToken", baseline.value("clearToken"));
+    const auto generation = f.core.cacheGeneration();
+    QVERIFY(!deniedHost.call("novaterm_clear_terminal", args).value("ok").toBool());
+    QCOMPARE(f.core.cacheGeneration(), generation);
+    const auto entry = f.service.directory().entries().first();
+    QVERIFY(NovaTerm::Mcp::TestSupport::setTerminalGrant(f.service.access(), f.client, entry, true));
+    QVERIFY(NovaTerm::Mcp::TestSupport::applyOne(f.service.access(), f.client, entry,
+        PermissionKind::ClearTerminal, std::nullopt, true));
+    Host host; QVERIFY(host.start(f.runtime(), f.token(), {}, false, version));
+    auto legacyArgs = f.identity();
+    const auto legacy = host.call("novaterm_read_context", legacyArgs).value("data").toObject();
+    auto compactArgs = f.identity(); compactArgs.insert("responseMode", "compact");
+    const auto compact = host.call("novaterm_read_context", compactArgs).value("data").toObject();
+    QVERIFY(!compact.value("inputToken").toString().isEmpty());
+    auto smallBudget = f.identity(); smallBudget.insert("responseMode", "full"); smallBudget.insert("maxBytes", 24); smallBudget.insert("maxLines", 1);
+    const auto expanded = host.call("novaterm_read_context", smallBudget).value("data").toObject();
+    QVERIFY(!expanded.value("expandToken").toString().isEmpty());
+    baseline = host.call("novaterm_read_context", logArgs).value("data").toObject();
+    args.insert("expectedGeneration", baseline.value("cacheGeneration")); args.insert("clearToken", baseline.value("clearToken"));
+    const auto cleared = host.call("novaterm_clear_terminal", args);
+    QVERIFY2(cleared.value("ok").toBool(), qPrintable(QString::fromUtf8(QJsonDocument(cleared).toJson())));
+    const auto data = cleared.value("data").toObject();
+    QCOMPARE(data.value("status").toString(), QString("applied"));
+    QVERIFY(data.value("cacheGeneration").toString().toULongLong() > generation);
+    QCOMPARE(f.core.scrollbackLineCount(), 0);
+    QCOMPARE(data.value("baseline").toObject().value("fragments").toArray().size(), 0);
+    for (const auto& old : {legacy, compact}) {
+        auto continuation = f.identity(); continuation.insert("sinceToken", old.value("nextToken"));
+        if (old == compact) continuation.insert("responseMode", "compact");
+        QVERIFY(!host.call("novaterm_read_context", continuation).value("ok").toBool());
+        auto search = f.identity(); search.insert("captureId", old.value("captureId")); search.insert("query", "OLD");
+        QVERIFY(!host.call("novaterm_search_context", search).value("ok").toBool());
+    }
+    auto expand = f.identity(); expand.insert("expandToken", expanded.value("expandToken"));
+    QCOMPARE(host.call("novaterm_read_context", expand).value("error").toObject().value("code").toString(),
+        QString("CAPTURE_NOT_AVAILABLE"));
+    auto input = f.identity(); input.insert("inputToken", compact.value("inputToken"));
+    input.insert("operationId", QUuid::createUuid().toString(QUuid::WithoutBraces));
+    input.insert("actions", QJsonArray{QJsonObject{{"type", "key"}, {"key", "Tab"}}});
+    input.insert("waitMs", 0);
+    QVERIFY(!host.call("novaterm_interact_terminal", input).value("ok").toBool());
+    auto oldLog = f.identity(); oldLog.insert("source", "log"); oldLog.insert("sinceToken", baseline.value("nextToken"));
+    QCOMPARE(host.call("novaterm_read_context", oldLog).value("data").toObject().value("status").toString(), QString("invalidated"));
+    QVERIFY(f.core.writeInput("NEW_AFTER_CLEAR\r\nNEW_AFTER_CLEAR\r\nNEW_AFTER_CLEAR\r\n").fullyAccepted()); QVERIFY(f.core.waitForIdle());
+    const auto afterGeneration = f.core.cacheGeneration(); const auto lines = f.core.scrollbackLineCount(); QVERIFY(lines > 0);
+    Host retry; QVERIFY(retry.start(f.runtime(), f.token(), {}, false, version));
+    QCOMPARE(retry.call("novaterm_clear_terminal", args), cleared);
+    QCOMPARE(f.core.cacheGeneration(), afterGeneration); QCOMPARE(f.core.scrollbackLineCount(), lines);
+    auto conflict = args; conflict.insert("scope", all ? "scrollback" : "all");
+    QCOMPARE(retry.call("novaterm_clear_terminal", conflict).value("error").toObject().value("code").toString(), QString("INPUT_SEQUENCE_CONFLICT"));
+    const auto fresh = retry.call("novaterm_read_context", compactArgs);
+    QVERIFY(fresh.value("ok").toBool());
+    QVERIFY(!QJsonDocument(fresh).toJson().contains("OLD_HISTORY_0"));
+    QVERIFY(NovaTerm::Mcp::TestSupport::applyOne(f.service.access(), f.client, entry,
+        PermissionKind::ClearTerminal, std::nullopt, false));
+    QVERIFY(!retry.call("novaterm_clear_terminal", args).value("ok").toBool());
+    QCOMPARE(f.core.scrollbackLineCount(), lines);
+    QVERIFY(f.local.written.isEmpty());
+}
+void McpTests::localCacheMutationsInvalidateRetainedObservations_data()
+{
+    QTest::addColumn<int>("mutation");
+    QTest::newRow("menu-clear-all") << 0;
+    QTest::newRow("menu-clear-history") << 1;
+    QTest::newRow("device-erase-history") << 2;
+    QTest::newRow("resize-pop-history") << 3;
+}
+void McpTests::localCacheMutationsInvalidateRetainedObservations()
+{
+    QFETCH(int, mutation);
+    Fixture f; QVERIFY(f.enable());
+    f.core.resize(80, 2); QVERIFY(f.core.waitForIdle());
+    QVERIFY(f.core.writeInput("BEFORE_CLEAR\r\nBEFORE_CLEAR\r\nBEFORE_CLEAR\r\nBEFORE_CLEAR\r\n").fullyAccepted());
+    QVERIFY(f.core.waitForIdle());
+    Host host; QVERIFY(host.start(f.runtime(), f.token()));
+    auto legacyArgs = f.identity();
+    auto compactArgs = f.identity(); compactArgs.insert("responseMode", "compact");
+    const auto legacy = host.call("novaterm_read_context", legacyArgs).value("data").toObject();
+    const auto compact = host.call("novaterm_read_context", compactArgs).value("data").toObject();
+    QVERIFY(!legacy.value("nextToken").toString().isEmpty()); QVERIFY(!compact.value("nextToken").toString().isEmpty());
+    auto boundedArgs = f.identity(); boundedArgs.insert("responseMode", "full");
+    boundedArgs.insert("maxBytes", 24); boundedArgs.insert("maxLines", 1);
+    const auto bounded = host.call("novaterm_read_context", boundedArgs).value("data").toObject();
+    QVERIFY(!bounded.value("expandToken").toString().isEmpty());
+    const auto generation = f.core.cacheGeneration();
+    if (mutation == 0) QVERIFY(f.core.clearAll());
+    else if (mutation == 1) QVERIFY(f.core.clearScrollback());
+    else if (mutation == 2) QVERIFY(f.core.writeInput("\x1b[3J").fullyAccepted());
+    else f.core.resize(80, 12);
+    QVERIFY(f.core.waitForIdle()); // no GUI events are needed to publish the generation
+    QVERIFY(f.core.cacheGeneration() != generation);
+    auto expandArgs = f.identity(); expandArgs.insert("expandToken", bounded.value("expandToken"));
+    QCOMPARE(host.call("novaterm_read_context", expandArgs).value("error").toObject().value("code").toString(),
+        QString("CAPTURE_NOT_AVAILABLE"));
+    for (const auto& capture : {legacy, compact}) {
+        auto continuation = f.identity(); continuation.insert("sinceToken", capture.value("nextToken"));
+        if (capture == compact) continuation.insert("responseMode", "compact");
+        const auto response = host.call("novaterm_read_context", continuation);
+        QCOMPARE(response.value("error").toObject().value("code").toString(), QString("CURSOR_STALE"));
+        auto search = f.identity(); search.insert("captureId", capture.value("captureId")); search.insert("query", "BEFORE");
+        QCOMPARE(host.call("novaterm_search_context", search).value("error").toObject().value("code").toString(), QString("CAPTURE_NOT_AVAILABLE"));
+    }
+    const auto fresh = host.call("novaterm_read_context", compactArgs);
+    QVERIFY(fresh.value("ok").toBool());
+    if (mutation == 0) QVERIFY(!QJsonDocument(fresh).toJson().contains("BEFORE_CLEAR"));
+    QVERIFY(f.local.written.isEmpty());
+}
+void McpTests::clearAdapterTracksSessionObjectReuseAndDestruction()
+{
+    Fixture f;
+    f.session.close(CloseMode::Abort);
+    class FlowControlledLocal final : public ITransport {
+    public:
+        bool connectToHost() override { online = true; emit connected(); return true; }
+        void disconnect() override { online = false; emit disconnected(); }
+        void write(const QByteArray&) override {}
+        void resizeTerminal(int, int) override {}
+        bool isConnected() const override { return online; }
+        QString errorString() const override { return {}; }
+        bool setReadPaused(bool) override { return true; }
+        bool online{false};
+    } flow;
+    auto session = std::make_unique<TerminalSession>(&f.core);
+    session->attach(&flow, TerminalSession::Ownership::Borrowed, TransportKind::LocalShell);
+    QVERIFY(session->start()); f.service.directory().add(session.get());
+    QVERIFY(f.service.access().setEnabled(true));
+    const auto authorize = [&] {
+        const auto entry = f.service.directory().find(session->id().toString(QUuid::WithoutBraces));
+        return entry && NovaTerm::Mcp::TestSupport::setGrant(f.service.access(), f.client, *entry, true)
+            && NovaTerm::Mcp::TestSupport::applyOne(f.service.access(), f.client, *entry,
+                PermissionKind::ClearTerminal, std::nullopt, true);
+    };
+    const auto key = randomBytes();
+    TerminalClearAdapter adapter(f.service.access(), f.service.directory(), "test", key, nullptr);
+    const auto request = [&] {
+        const auto entry = f.service.directory().find(session->id().toString(QUuid::WithoutBraces));
+        ReadContextRequest read; read.session = NovaTerm::Mcp::SessionId{entry->id}; read.epoch = Epoch{entry->epoch};
+        read.source = ContextSource::Log; read.start = LogInitialPosition::Tail;
+        const auto baseline = readLogContext(f.service.access(), f.service.directory(), "test", f.client, key, read);
+        if (isError(baseline)) return ClearRequest{};
+        const auto data = std::get<QJsonObject>(baseline);
+        return ClearRequest{read.session, read.epoch, OperationId{newId()}, true,
+            data.value("cacheGeneration").toString().toULongLong(), data.value("clearToken").toString()};
+    };
+    QVERIFY(authorize()); QVERIFY(f.core.waitForIdle());
+    auto first = request(); QVERIFY(!first.operation.isEmpty());
+    std::optional<QJsonObject> result;
+    adapter.call(f.client, "first", first, [&result](auto response) { result = response; });
+    QTRY_VERIFY(result.has_value()); QVERIFY(result->value("ok").toBool());
+    session->close(CloseMode::Abort); QVERIFY(session->resetForReuse());
+    session->attach(&flow, TerminalSession::Ownership::Borrowed, TransportKind::LocalShell);
+    QVERIFY(session->start()); QVERIFY(authorize()); QVERIFY(f.core.waitForIdle());
+    auto second = request(); QVERIFY(!second.operation.isEmpty()); result.reset();
+    const auto beforeEntry = f.service.directory().find(second.session.str()); QVERIFY(beforeEntry);
+    QVERIFY(f.service.access().canClearTerminal(f.client, *beforeEntry));
+    QVERIFY(f.core.writeInput(QByteArray(6 * 1024 * 1024, 'q')).fullyAccepted());
+    adapter.call(f.client, "second", second, [&result](auto response) { result = response; });
+    QVERIFY2(!result.has_value(), result ? qPrintable(QString::fromUtf8(QJsonDocument(*result).toJson())) : "");
+    session->inputArbiter()->submitUserInput("human");
+    QVERIFY(f.core.waitForIdle(30000));
+    QTRY_VERIFY(result.has_value());
+    const auto afterEntry = f.service.directory().find(second.session.str());
+    QVERIFY(afterEntry); QCOMPARE(afterEntry->epoch, second.epoch.str());
+    QVERIFY(f.service.access().canClearTerminal(f.client, *afterEntry));
+    QCOMPARE(result->value("error").toObject().value("code").toString(), QString("CANCELLED"));
+    auto third = request(); QVERIFY(!third.operation.isEmpty()); result.reset();
+    QVERIFY(f.core.writeInput(QByteArray(6 * 1024 * 1024, 'q')).fullyAccepted());
+    adapter.call(f.client, "third", third, [&result](auto response) { result = response; });
+    session.reset();
+    QVERIFY(result.has_value());
+    QCOMPARE(result->value("error").toObject().value("code").toString(), QString("SESSION_NOT_AVAILABLE"));
+    QVERIFY(f.core.waitForIdle(30000));
+}
+void McpTests::clearTicketRejectsHumanTakeoverBeforeAdmission()
+{
+    Fixture f; QVERIFY(f.enable());
+    const auto entry = f.service.directory().entries().first();
+    QVERIFY(NovaTerm::Mcp::TestSupport::applyOne(f.service.access(), f.client, entry,
+        PermissionKind::ClearTerminal, std::nullopt, true));
+    const auto key = randomBytes();
+    TerminalClearAdapter adapter(f.service.access(), f.service.directory(), "test", key, nullptr);
+    QVERIFY(f.core.waitForIdle());
+    ReadContextRequest read; read.session = NovaTerm::Mcp::SessionId{entry.id}; read.epoch = Epoch{entry.epoch};
+    read.source = ContextSource::Log; read.start = LogInitialPosition::Tail;
+    const auto baseline = readLogContext(f.service.access(), f.service.directory(), "test", f.client, key, read);
+    QVERIFY(!isError(baseline)); const auto data = std::get<QJsonObject>(baseline);
+    ClearRequest request{read.session, read.epoch, OperationId{newId()}, true,
+        data.value("cacheGeneration").toString().toULongLong(), data.value("clearToken").toString()};
+    f.session.writeUserInput("human");
+    const auto generation = f.core.cacheGeneration();
+    std::optional<QJsonObject> result;
+    adapter.call(f.client, "clear", request, [&result](auto response) { result = response; });
+    QTRY_VERIFY(result.has_value());
+    QCOMPARE(result->value("error").toObject().value("code").toString(), QString("CONTROL_INVALID"));
+    QCOMPARE(f.core.cacheGeneration(), generation);
+    QCOMPARE(f.local.written, QByteArray("human"));
+}
+void McpTests::expandDistinguishesEvictionFromCacheInvalidation()
+{
+    Fixture f; QVERIFY(f.enable());
+    f.core.resize(80, 2); QVERIFY(f.core.waitForIdle());
+    QVERIFY(f.core.writeInput("one\r\ntwo\r\nthree\r\nfour\r\n").fullyAccepted());
+    QVERIFY(f.core.waitForIdle());
+    Host host; QVERIFY(host.start(f.runtime(), f.token()));
+    auto read = f.identity(); read.insert("responseMode", "full"); read.insert("maxLines", 1);
+    const auto first = host.call("novaterm_read_context", read).value("data").toObject();
+    const auto token = first.value("expandToken").toString(); QVERIFY(!token.isEmpty());
+    // Four later captures evict this bounded projection without changing the
+    // cache generation. Its existing CAPTURE_EXPIRED behavior must stay.
+    for (int i = 0; i < 4; ++i) QVERIFY(host.call("novaterm_read_context", read).value("ok").toBool());
+    auto expand = f.identity(); expand.insert("expandToken", token);
+    QCOMPARE(host.call("novaterm_read_context", expand).value("error").toObject().value("code").toString(),
+        QString("CAPTURE_EXPIRED"));
+    const auto generation = f.core.cacheGeneration();
+    QVERIFY(f.core.clearScrollback()); QVERIFY(f.core.waitForIdle());
+    QVERIFY(f.core.cacheGeneration() != generation);
+    // The signed old generation still identifies invalidation even when the
+    // projection itself has already been evicted.
+    QCOMPARE(host.call("novaterm_read_context", expand).value("error").toObject().value("code").toString(),
+        QString("CAPTURE_NOT_AVAILABLE"));
+    QVERIFY(f.local.written.isEmpty());
 }
 #include "McpTests.moc"

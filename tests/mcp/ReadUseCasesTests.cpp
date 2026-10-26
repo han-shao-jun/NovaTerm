@@ -24,6 +24,7 @@ public:
     QList<ReadSession> rows{session("a"), session("b"), session("c")};
     bool changeDirectoryDuringPage{false};
     bool revokeDuringRead{false};
+    bool clearDuringRead{false};
     mutable int pageCalls{0};
     mutable int readCalls{0};
     mutable ContextQuery lastRead;
@@ -52,7 +53,9 @@ public:
         lastRead = query;
         if (revokeDuringRead) ++grant;
         if (readError) return *readError;
-        return summary;
+        auto result = summary;
+        if (clearDuringRead) ++result.cacheGeneration;
+        return result;
     }
     DiagnosticCatalog commandCatalog(const ClientId&, const SessionReference&) const override
     { return catalog; }
@@ -72,6 +75,25 @@ class ReadUseCasesTests : public QObject
 {
     Q_OBJECT
 private slots:
+    void contextRejectsOldGenerationAndConcurrentClear()
+    {
+        FakeSessions port;
+        auto query = contextQuery(); query.cacheGeneration = 7;
+        port.summary.cacheGeneration = 7;
+        auto first = ReadUseCases{port}.readContext(client, query, std::nullopt);
+        QVERIFY(!isError(first));
+        const auto cursor = std::get<ContextPage>(first).next;
+        QVERIFY(cursor);
+        query.cacheGeneration = 8;
+        const auto stale = ReadUseCases{port}.readContext(client, query, cursor);
+        QVERIFY(isError(stale));
+        QCOMPARE(errorIfAny(stale)->code, ErrorCode::CursorStale);
+        QCOMPARE(port.readCalls, 1);
+        query.cacheGeneration = 7; port.clearDuringRead = true;
+        const auto raced = ReadUseCases{port}.readContext(client, query, std::nullopt);
+        QVERIFY(isError(raced));
+        QCOMPARE(errorIfAny(raced)->code, ErrorCode::CursorStale);
+    }
     void logReadRechecksGrantAndBoundsWithoutMutableState()
     {
         class Port final : public LogReadPort {

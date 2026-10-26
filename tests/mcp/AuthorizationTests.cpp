@@ -115,6 +115,8 @@ private slots:
     void elevationRequiresFullInputAndIdleCredentials();
     void diagnosticsMustBeKnownAndRequireRead();
     void reconnectHidesExecutionButKeepsRead();
+    void clearTerminalRequiresIndependentLiveReadGrant();
+    void clearTerminalRejectsStaleRowsAndResetsWithBinding();
     void disabledOrUnknownClientIsRejected();
     void capabilitiesFollowGrantsAndFacts();
     void terminalInputReasonOrderIsStable();
@@ -149,6 +151,70 @@ void AuthorizationTests::singleChangeAdvancesRowAndClientVersions()
     QVERIFY(risk.selection.read);
     QVERIFY(risk.selection.riskControlledCommand);
     QCOMPARE(ports.version, quint64(5));
+}
+
+void AuthorizationTests::clearTerminalRequiresIndependentLiveReadGrant()
+{
+    FakePorts ports;
+    ports.clients.insert(QStringLiteral("client-2"));
+    AuthorizationService service{ports.ports()};
+    const auto current = facts();
+    QVERIFY(!PermissionSelection{}.clearTerminal);
+    auto changed = PermissionSelection{};
+    changed.clearTerminal = true;
+    QVERIFY(changed != PermissionSelection{});
+    const auto withoutRead = service.change(change(PermissionKind::ClearTerminal, true), current);
+    QVERIFY(isError(withoutRead));
+    QCOMPARE(errorIfAny(withoutRead)->reason, AuthorizationRejection::InvalidSelection);
+    const auto input = apply(service, change(PermissionKind::FullTerminalInput, true), current);
+    QVERIFY(!input.selection.clearTerminal);
+    const auto unavailable = service.change(change(PermissionKind::ClearTerminal, true,
+        input.revision), facts(binding(), false));
+    QVERIFY(isError(unavailable));
+    QCOMPARE(errorIfAny(unavailable)->reason, AuthorizationRejection::SessionNotReady);
+    const auto clear = apply(service, change(PermissionKind::ClearTerminal, true,
+        input.revision), current);
+    QVERIFY(clear.selection.clearTerminal);
+    QVERIFY(!service.snapshot(ClientId{QStringLiteral("client-2")}, current).selection.clearTerminal);
+    const auto inputRevoked = apply(service, change(PermissionKind::FullTerminalInput, false,
+        clear.revision), current);
+    QVERIFY(inputRevoked.selection.clearTerminal);
+    const auto readRevoked = apply(service, change(PermissionKind::ReadOutput, false,
+        inputRevoked.revision), current);
+    QVERIFY(!readRevoked.selection.clearTerminal);
+    const auto readAgain = apply(service, change(PermissionKind::ReadOutput, true,
+        readRevoked.revision), current);
+    QVERIFY(!readAgain.selection.clearTerminal);
+}
+
+void AuthorizationTests::clearTerminalRejectsStaleRowsAndResetsWithBinding()
+{
+    FakePorts ports;
+    AuthorizationService service{ports.ports()};
+    const auto current = facts();
+    const auto read = apply(service, change(PermissionKind::ReadOutput, true), current);
+    const auto clear = apply(service, change(PermissionKind::ClearTerminal, true,
+        read.revision), current);
+    const auto staleRevision = service.change(change(PermissionKind::ClearTerminal, false,
+        read.revision), current);
+    QVERIFY(isError(staleRevision));
+    QCOMPARE(errorIfAny(staleRevision)->reason, AuthorizationRejection::StaleRevision);
+    QVERIFY(errorIfAny(staleRevision)->current.selection.clearTerminal);
+    auto reconnected = current;
+    reconnected.binding.epoch = Epoch{QStringLiteral("epoch-2")};
+    const auto view = service.snapshot(ClientId{QStringLiteral("client-1")}, reconnected);
+    QVERIFY(view.selection.read);
+    QVERIFY(!view.selection.clearTerminal);
+    const auto staleBinding = service.change(change(PermissionKind::ClearTerminal, true,
+        clear.revision), reconnected);
+    QVERIFY(isError(staleBinding));
+    QCOMPARE(errorIfAny(staleBinding)->reason, AuthorizationRejection::StaleBinding);
+    const auto rebound = apply(service, change(PermissionKind::ReadOutput, true,
+        clear.revision, std::nullopt, reconnected.binding), reconnected);
+    QVERIFY(!rebound.selection.clearTerminal);
+    auto replaced = reconnected;
+    replaced.binding.attachment = AttachmentId{QStringLiteral("replacement")};
+    QVERIFY(!service.snapshot(ClientId{QStringLiteral("client-1")}, replaced).selection.clearTerminal);
 }
 
 void AuthorizationTests::staleBindingAndRevisionAreRejected()
