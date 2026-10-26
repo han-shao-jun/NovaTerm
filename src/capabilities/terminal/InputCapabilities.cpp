@@ -20,6 +20,10 @@ InputCapabilities::InputCapabilities(CapabilityDispatcher& dispatcher, Mcp::Obse
             const auto prepared = state.prepareInput(client, call.request, call.claims, facts);
             if (const auto* error = Mcp::errorIfAny(prepared)) { done(Mcp::Result<Mcp::InputAdmission>{*error}); return; }
             const auto admission = std::get<Mcp::InputAdmission>(prepared);
+            if (admission == Mcp::InputAdmission::Replay && !call.allowReplay) {
+                done(Mcp::Result<Mcp::InputAdmission>{Mcp::Error{Mcp::ErrorCode::InputSequenceConflict,
+                    "A new task cannot attach to an existing terminal input operation."}}); return;
+            }
             if (admission != Mcp::InputAdmission::Replay) {
                 if (const auto reason = lease.check()) { done(*reason); return; }
                 if (admission == Mcp::InputAdmission::Release) port.release(client, call.request);
@@ -33,6 +37,7 @@ InputCapabilities::InputCapabilities(CapabilityDispatcher& dispatcher, Mcp::Obse
                     }
                 }
                 state.inputAccepted(client, call.request, port.facts(client, reference));
+                if (admission == Mcp::InputAdmission::Submit && call.submitted) call.submitted();
             }
             done(prepared);
         })

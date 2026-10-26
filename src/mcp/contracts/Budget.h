@@ -21,6 +21,18 @@ inline constexpr int MaxWireCalls = 6;
 inline constexpr int MaxClearRecordsPerClient = 32;
 inline constexpr int MaxClearRecords = 128;
 inline constexpr std::chrono::milliseconds ClearRecordRetention{600000};
+inline constexpr int MaxTerminalTasksPerClient = 32;
+inline constexpr int MaxTerminalTasks = 128;
+inline constexpr std::chrono::milliseconds TerminalTaskRetention{600000};
+inline constexpr std::chrono::milliseconds TerminalTaskDefaultTimeout{600000};
+inline constexpr std::chrono::milliseconds TerminalTaskMaxTimeout{3600000};
+inline constexpr int MaxTextWaitCandidates = 8;
+inline constexpr int MaxTextWaitCandidateBytes = 256;
+inline constexpr int DefaultTextWaitScanBytes = 262144;
+inline constexpr int MaxTextWaitScanBytes = 1048576;
+inline constexpr int MaxTextWaitStatesPerClient = 8;
+inline constexpr int MaxTextWaitStates = 32;
+inline constexpr std::chrono::milliseconds TextWaitStateLifetime{600000};
 
 // --- 观察与 capture -------------------------------------------------------
 inline constexpr std::chrono::milliseconds SnapshotCoalesceInterval{250};

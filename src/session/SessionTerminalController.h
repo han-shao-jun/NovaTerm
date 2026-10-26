@@ -51,9 +51,12 @@ public:
             // an invalidation already visible here rejects the queued input.
             // Once admitted, this GUI submission may overlap a later Parser
             // clear; its GUI completion notification runs after this callback.
+            const bool taskCurrent = !_encodingTaskGuard || (matches(*_encodingTaskGuard)
+                && _operation == _encodingTaskGuard->operation);
+            _encodingTaskGuard.reset();
             const bool cacheCurrent = _encodingCacheGeneration == _core->cacheGeneration();
             if (!cacheCurrent) invalidatePromptEvidence();
-            if (valid && cacheCurrent && !_owner.isEmpty()) {
+            if (valid && cacheCurrent && taskCurrent && !_owner.isEmpty()) {
                 if (!bytes.isEmpty()) {
                     const auto previousEvidence = _promptEvidenceRevision;
                     invalidatePromptEvidence();
@@ -105,6 +108,14 @@ public:
             && !_typedSincePrompt && !_expectedPrompts && !_inputContextUncertain;
     }
     bool integrated() const { return _integrated; }
+    /** @brief 将下一次输入及编码回调绑定到现有任务的控制条件。 */
+    bool guardNextInput(const QString& client, const QString& operation,
+        quint64 user, quint64 control, const QString& execution) {
+        TaskInputGuard guard{client, operation, execution, user, control};
+        if (!matches(guard)) return false;
+        _nextTaskGuard = std::move(guard);
+        return true;
+    }
     bool acquire(const QString& client) {
         if (_owner == client) { touch(client); return true; }
         if (!_owner.isEmpty() || client.isEmpty()) return false;
@@ -121,6 +132,7 @@ public:
         if (!_owner.isEmpty() && (client.isEmpty() || client == _owner)) {
             _arbiter->releaseMcpLease(_lease);
             _owner.clear(); _lease = 0; _idle.stop(); _pending = false;
+            _nextTaskGuard.reset(); _encodingTaskGuard.reset();
             _savedPrompt = 0; _savedPromptUser = 0;
             _savedPromptEvidenceRevision = 0;
             clearCandidateCommand();
@@ -141,11 +153,15 @@ public:
                 std::vector<NovaTerm::TerminalInputAction> actions, bool command,
                 int acceptedActionCount = -1,
                 std::optional<quint64> expectedCacheGeneration = std::nullopt) {
+        auto guard = std::exchange(_nextTaskGuard, std::nullopt);
+        if (guard && guard->operation != operation) guard.reset();
+        if (guard && !matches(*guard)) return false;
         const auto cacheGeneration = expectedCacheGeneration.value_or(_core->cacheGeneration());
         if (cacheGeneration != _core->cacheGeneration()
             || _pending || _owner != client || (command && !readyForCommand())) return false;
         _encodingId = nextId(); _operation = operation; _operationStatus = QStringLiteral("queued");
         _encodingCacheGeneration = cacheGeneration;
+        _encodingTaskGuard = std::move(guard);
         _pendingStartsCommand = command;
         _maySent = false; _pending = true;
         _acceptedActionCount = acceptedActionCount >= 0 ? acceptedActionCount : int(actions.size());
@@ -183,6 +199,13 @@ public:
                 if (action.kind == NovaTerm::TerminalInputAction::Kind::Key) {
                     _inputWasCr = false;
                     if (action.key == NovaTerm::InputKey::Enter) submitLine();
+                    else if (action.modifiers == 4U && action.key == NovaTerm::InputKey::None
+                        && (action.text == "c" || action.text == "C")) {
+                        // Ctrl+C 放弃此前未提交输入。这里只丢弃本地输入跟踪，
+                        // 仍须收到新的可信提示符才能恢复 command 就绪。
+                        _typedSincePrompt = false; _expectedPrompts = 0;
+                        _inputContextUncertain = false; clearCandidateCommand();
+                    }
                     else if (action.modifiers & (4U | 2U)) _inputContextUncertain = true;
                     else if (action.key != NovaTerm::InputKey::None || !action.text.empty())
                         _typedSincePrompt = true;
@@ -238,6 +261,10 @@ public:
             clearCandidateCommand();
             _typedSincePrompt = false;
             _expectedPrompts = 0; _inputContextUncertain = false; _inputWasCr = false;
+            // 可信帧重置同时使原始输入任务与命令失效，
+            // 排队中的旧任务中断不得落入新的 Shell。
+            if (_owner.isEmpty()) { ++_controlGeneration; _controlState = QStringLiteral("shell_reset"); }
+            else release({}, QStringLiteral("shell_reset"));
             if (_commandActive) { _commandState = QStringLiteral("unknown"); _commandActive = false; }
             changed(); break;
         }
@@ -263,6 +290,15 @@ public:
             {"acceptedActionCount", _acceptedActionCount}};
     }
 private:
+    struct TaskInputGuard {
+        QString client, operation, execution;
+        quint64 user{0}, control{0};
+    };
+    bool matches(const TaskInputGuard& guard) const {
+        return _owner == guard.client && userGeneration() == guard.user
+            && _controlGeneration == guard.control && _execution == guard.execution
+            && (guard.execution.isEmpty() || _commandActive);
+    }
     static quint64 nextId() { static std::atomic<quint64> id{quint64(1) << 63}; return ++id; }
     void changed() { ++_revision; if (onChanged) onChanged(); }
     void invalidatePromptEvidence() {
@@ -353,4 +389,5 @@ private:
     QString _controlState{QStringLiteral("idle")};
     std::optional<int> _exit;
     QTimer _idle, _commandRetention;
+    std::optional<TaskInputGuard> _nextTaskGuard, _encodingTaskGuard;
 };

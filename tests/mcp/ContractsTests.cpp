@@ -86,6 +86,54 @@ class ContractsTests : public QObject
 {
     Q_OBJECT
 private slots:
+    void workflowCatalogMatchesFrozenFixture()
+    {
+        QFile fixture(QStringLiteral(NOVATERM_SOURCE_DIR "/tests/mcp/fixtures/workflow-tools-2026-10-27.json"));
+        QVERIFY(fixture.open(QIODevice::ReadOnly));
+        QJsonArray workflow;
+        for (qsizetype i = 13; i < ToolCodec::catalog().size(); ++i) workflow.append(ToolCodec::catalog()[i]);
+        QCOMPARE(workflow.size(), 4);
+        QCOMPARE(workflow, QJsonDocument::fromJson(fixture.readAll()).array());
+    }
+    void workflowToolsAreBoundedAndIndependent()
+    {
+        QCOMPARE(errorCodeFromName("TASK_NOT_AVAILABLE"), std::optional<ErrorCode>{ErrorCode::TaskNotAvailable});
+        auto wait = identity(); wait.insert("source", "log");
+        wait.insert("texts", QJsonArray{"PASS", QString::fromUtf8("完成")});
+        QVERIFY(ToolCodec::isKnownTool("novaterm_wait_text"));
+        QVERIFY(ToolCodec::validate("novaterm_wait_text", wait).isEmpty());
+        QVERIFY(!isError(ToolCodec::decodeCall("novaterm_wait_text", wait)));
+        for (const auto& field : QStringList{"regex", "path", "principal"}) {
+            auto invalid = wait; invalid.insert(field, "x");
+            QVERIFY(!ToolCodec::validate("novaterm_wait_text", invalid).isEmpty());
+        }
+        auto invalid = wait; invalid.insert("waitMs", 30001);
+        QVERIFY(!ToolCodec::validate("novaterm_wait_text", invalid).isEmpty());
+        invalid = wait; invalid.insert("scanBytes", 1048577);
+        QVERIFY(!ToolCodec::validate("novaterm_wait_text", invalid).isEmpty());
+        invalid = wait; invalid.insert("sinceToken", "a"); invalid.insert("resumeToken", "b");
+        QVERIFY(!ToolCodec::validate("novaterm_wait_text", invalid).isEmpty());
+        invalid = wait; invalid.insert("source", "screen");
+        QVERIFY(!ToolCodec::validate("novaterm_wait_text", invalid).isEmpty());
+        invalid.insert("start", "current");
+        QVERIFY(ToolCodec::validate("novaterm_wait_text", invalid).isEmpty());
+        invalid.insert("sinceToken", "a");
+        QVERIFY(!ToolCodec::validate("novaterm_wait_text", invalid).isEmpty());
+        auto start = argumentsFor("novaterm_interact_terminal");
+        QVERIFY(ToolCodec::validate("novaterm_start_task", start).isEmpty());
+        QVERIFY(!isError(ToolCodec::decodeCall("novaterm_start_task", start)));
+        start.insert("timeoutMs", 3600001);
+        QVERIFY(!ToolCodec::validate("novaterm_start_task", start).isEmpty());
+        auto query = identity(); query.insert("operationId", OperationUuid);
+        QVERIFY(ToolCodec::validate("novaterm_query_task", query).isEmpty());
+        query.insert("taskId", "task-1");
+        QVERIFY(!ToolCodec::validate("novaterm_query_task", query).isEmpty());
+        query.remove("operationId");
+        QVERIFY(!isError(ToolCodec::decodeCall("novaterm_query_task", query)));
+        query.insert("operationId", OperationUuid);
+        QVERIFY(!isError(ToolCodec::decodeCall("novaterm_stop_task", query)));
+        static_assert(std::variant_size_v<ToolRequest> == 9);
+    }
     void clearToolHasIndependentContract()
     {
         auto args = identity();
@@ -111,7 +159,7 @@ private slots:
         static_assert(std::variant_size_v<ToolRequest> == 9);
         QFile fixture(QStringLiteral(NOVATERM_SOURCE_DIR "/tests/mcp/fixtures/clear-terminal-2026-10-25.json"));
         QVERIFY(fixture.open(QIODevice::ReadOnly));
-        QCOMPARE(ToolCodec::catalog().last().toObject(), QJsonDocument::fromJson(fixture.readAll()).object());
+        QCOMPARE(ToolCodec::catalog()[12].toObject(), QJsonDocument::fromJson(fixture.readAll()).object());
     }
     void logReadRequiresExplicitSourceAndStart();
     void confirmationClaimsKeepWireFormatAndRejectTampering();
@@ -545,5 +593,18 @@ void ContractsTests::confirmationClaimsKeepWireFormatAndRejectTampering()
     }
 }
 
-QTEST_MAIN(ContractsTests)
+int main(int argc, char** argv)
+{
+    QCoreApplication application(argc, argv);
+    if (application.arguments().size() == 3 && application.arguments()[1] == "--write-workflow-fixture") {
+        QJsonArray workflow;
+        for (qsizetype i = 13; i < ToolCodec::catalog().size(); ++i) workflow.append(ToolCodec::catalog()[i]);
+        QFile file(application.arguments()[2]);
+        if (!file.open(QIODevice::WriteOnly)) return 1;
+        const auto bytes = QJsonDocument(workflow).toJson();
+        return file.write(bytes) == bytes.size() ? 0 : 1;
+    }
+    ContractsTests tests;
+    return QTest::qExec(&tests, argc, argv);
+}
 #include "ContractsTests.moc"

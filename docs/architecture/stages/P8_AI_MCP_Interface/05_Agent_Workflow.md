@@ -1,6 +1,6 @@
 # 外部 Agent 的 BSP 终端调试流程
 
-更新：2026-10-25。面向工具说明和客户端使用指导。B1 日志分页与 B2 独立清空已实施； [06](06_Terminal_Workflow_Extensions.md) 的等待/任务/传输/连接扩展尚未实施；现有工具名称及参数以 [02](02_Current_MCP_Contract.md) 为准，不把本页当成新增 Schema。
+更新：2026-10-27。B1日志、B2清空、B3/B3a文本等待和长任务已实施；B3b传输/保存目标连接未实施。工具名称及精确参数以 [02](02_Current_MCP_Contract.md) 为准；实际成绩见 [B3记录](records/B3_Implementation_2026-10-27.md)。
 
 ## 1. 分工
 
@@ -71,9 +71,9 @@ SSH 断开后先观察 UART；重新列举连接，核对新 epoch 和权限。N
 
 本页流程应统一体现在两代 MCP instructions、工具描述及 [MCP 使用说明](../../../MCP_Usage.md) 中；B0/B1 已将两代产品 instructions 合并为 agentInstructions() 并增加一致性回归；工具未实现时不推荐调用。
 
-## 8. 扩展实现后的推荐流程（目标）
+## 8. B3a推荐流程及B3b后续边界
 
-只有实际 tools/list 和 availability 宣告可用时才执行以下扩展；之前仍使用上文现行工具及已有本地部署脚本。
+当前可用novaterm_wait_text/start_task/query_task/stop_task，按tools/list与availability确认。长任务启动一次保存taskId，响应丢失按原operationId查询；等待旧PASS时必须显式本轮日志基线。原始UART任务没有可靠完成证据时继续观察或报告未知，人工接管/可信reset后不发送旧Ctrl+C。以下文件/连接第1/2项仍是B3b目标，不能当作已提供工具调用，继续使用已有本地部署脚本/人工连接。
 
 1. **无活动连接**：从获准保存目标中选择并打开/复用；等待连接状态，认证/主机密钥留给本机用户，不猜测新地址。
 2. **交付构建产物**：用已授权构建目录的资源引用上传单个文件；核对发布和可用校验结果，再决定是否运行部署命令。MCP 上传不自动烧录。

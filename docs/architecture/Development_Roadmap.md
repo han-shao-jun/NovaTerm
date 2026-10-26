@@ -36,7 +36,7 @@ P9 的协议库与测试独立于 P6/P8，先按 XMODEM → YMODEM → ZMODEM �
 | P5 | 实施完成；Linux Vulkan/OpenGL、Windows D3D11/D3D12 与 30 分钟长稳验收完成（2026-08-02）；macOS Metal、多屏 DPR 与 120/144 Hz 验收待完成 | 多页 Atlas、fallback、instancing | CJK/Emoji/DPI 正确且上传增量化 |
 | P6 | 进行中：Transport 四种完成，会话编排采用「1 View 拥有 1 Session」已在生产；剩少量自包含项 | Session（View-owned）、SSH/Serial/Telnet | 每 View 一会话、完整生命周期 |
 | P7 | 已实现为内置功能（常驻监控 2026-09-06、系统信息窗口 2026-09-09）；性能量化验收待补 | SSH 远端资源监控面板、系统信息窗口 | 复用单连接、快慢通道隔离、不反压 Parser |
-| P8 | 十二工具兼容基线；2026-10-25 B0/B1 日志分页/缺口/代际已实施，未发布诊断与本机 Agent 原型已退役；B2 独立清空/G05 代际失效已接入（当前十三工具），真机仍待验收 | SSH/UART 观察、输入、缓存游标与可选清空；外部 Agent 编排 BSP 闭环 | 准确分页、缺口/代际、人工接管、真实板卡双通道和性能分别验收，见 [实施顺序](stages/P8_AI_MCP_Interface/01_Phases_and_Acceptance.md) |
+| P8 | B0/B1日志与B2清空已实施；2026-10-27 B3基础恢复/B3a文本等待与长任务已加入（当前十七工具），未发布诊断/本机Agent原型保持退役；B3b及真机/性能待验收 | SSH/UART观察、输入、缓存游标、可选清空、有界文本等待及长任务；外部Agent编排BSP闭环 | 源码/替身、真实板卡双通道、客户端和性能分别验收，见 [实施顺序](stages/P8_AI_MCP_Interface/01_Phases_and_Acceptance.md) |
 | P9 | 协议库及串口 Session/手动传输窗口已接入；Linux 纯协议、门面、UI 与真实 QSerialPort/raw PTY 通路测试通过；Windows 取消发布竞争用例有已知失败，macOS 与真实 UART 文件传输验收待补 | 独立协议库、Session 输入分流/输出独占、异步文件门面与手动串口窗口 | 三协议双向测试与互通、单通路接线及有界停止；跨平台/真实 UART 文件验收明确收口 |
 
 **P9：文件传输协议**的范围、步骤和验收见

@@ -54,7 +54,7 @@ http_headers = { Authorization = "Bearer <从 NovaTerm 导出的接入令牌>" }
 `novaterm-mcp` 已删除，不保留 stdio 兼容入口。每个请求都需要 Bearer token，
 `MCP-Session-Id` 或客户端名称不能替代认证。只监听本机回环地址。
 
-## 九个工具
+## 九个兼容终端工具
 
 | 工具 | 用途 |
 | --- | --- |
@@ -97,7 +97,42 @@ status=gap 表示旧位置被淘汰；status=invalidated 表示本机 clear 或 
 
 预算缺省 65536 字节/256 分段，最大 262144/1024；compact 只改缺省为 4096/24。初次 start 与续读 sinceToken 必须二选一；日志模式不要传 expandToken、waitFor、非零 waitMs 或 includeViewport=true。只有读取授权也可建立书签，整个过程没有输入或清空。
 
-当前软尾行、未换行提示、CR 进度条和备用屏仍看缺省 observation。日志只读已稳定的终端缓存，没有原始字节或覆写前屏幕帧；分页完整不证明 UART 硬件零丢失。日志 token 与观察 token/capture/expandToken 不混用，不产生 inputToken；需要操作时另读屏幕。MCP 清空已按下节独立授权开放；文本条件等待、长任务、文件传输和保存目标建连工具尚未开放。
+当前软尾行、未换行提示、CR 进度条和备用屏仍看缺省 observation。日志只读已稳定的终端缓存，没有原始字节或覆写前屏幕帧；分页完整不证明 UART 硬件零丢失。日志 token 与观察 token/capture/expandToken 不混用，不产生 inputToken；需要操作时另读屏幕。MCP 清空按下节独立授权开放；文本等待和长任务见下文，文件传输和保存目标建连工具尚未开放。
+
+## 文本等待与长任务（B3/B3a）
+
+当前共十七个工具：上述九项、三项离线历史、独立清空，再加以下四项。SSH/UART均复用当前可见终端；先列会话核对 availability.terminalTasks，再观察和输入。
+
+| 工具 | 选择方式 |
+| --- | --- |
+| novaterm_wait_text | 仅读取授权；source=log从sinceToken之后扫描，省略则从本次尾书签开始；source=screen必须start=current或next，用于未换行提示/TUI |
+| novaterm_start_task | 完整输入授权、最新inputToken、新operationId、actions；command要求就绪，text/key/line_ending等支持设备CLI；保存taskId |
+| novaterm_query_task | 按taskId或原启动operationId查询，不再输入；可选B1日志sinceToken读取新增输出 |
+| novaterm_stop_task | taskId和独立停止operationId明确请求一次Ctrl+C；原控制/执行必须仍有效，人工已接管时零写入拒绝 |
+
+日志等待示例（只匹配书签后的新文本，旧PASS不触发）：
+
+```json
+{"sessionId":"<id>","epoch":"<epoch>","source":"log","sinceToken":"<B1 log nextToken>","texts":["TEST_PASS","TEST_FAIL"],"match":"any","waitMs":30000}
+```
+
+省略sinceToken意味着从首次成功采样的尾部建立基线；要等待当前已显示的login提示，显式使用source=screen、start=current。start=next先建立屏幕revision基线，不拼接不同屏幕。文本最多8项，每项256 UTF-8字节；any/all和大小写可选，无正则；all不证明顺序，屏幕all须在同一份快照成立。
+
+日志尾部仅指已提交历史；仍在活动屏幕的旧文字随后滚入历史时，也可能被该基线之后的日志等待命中。按测试轮次判断时结合独有标志及实际固件身份，不能只凭通用PASS推断新一轮已经执行。普通交互用过的operationId也不能配合新inputToken改作新任务启动；新意图使用新ID，同一任务的网络重试才复用原ID和原参数。
+
+单次等待最长30秒、默认扫描256KiB/最大1MiB。timeout或scan_budget_exhausted返回resumeToken，重传同一匹配条件继续（不再带sinceToken）；可以调整waitMs/scanBytes。续扫状态固定十分钟，每客户端8/全局32，过期明确拒绝。nextToken是服务端扫描进度；需要完整日志另从startToken分页，不把命中上下文当作已读全文。gap/invalidated须承认缺口并显式选新基线；pending/busy冷页等待不证明没有文本。取消等待不发送任何输入。
+
+长任务启动示例：
+
+```json
+{"sessionId":"<id>","epoch":"<epoch>","inputToken":"<fresh observation>","operationId":"<new UUID>","actions":[{"type":"command","command":"make test"}],"timeoutMs":600000}
+```
+
+启动只做一次；短RPC断流不停止已受理任务。用taskId查询，若启动响应丢失，用原operationId查询受理；网络重试使用相同ID和全部相同参数，不换ID重输。任务每客户端32/全局128、终态保留十分钟；应用重启或关闭MCP不恢复执行索引，记录丢失时报告未知，不能自动重跑。
+
+分别检查status、submissionStatus、completed、evidenceKind、exitCode和terminationConfirmed。UART原始任务静默仍running，执行期限到达unknown，不能捏造exitCode=0；SSH提示符也不证明功能测试成功。停止请求与远端确认终止分别解释；人工接管、可信环境reset、断连或新执行后旧停止请求不再有效。任务输出仍来自终端缓存，清空/淘汰可造成output缺口，但不抹除执行事实。
+
+构建、部署、固件标识和功能判据由外部Agent分别确认；文本命中只证明文本出现。完整字段、预算和验收边界见 [现行契约](architecture/stages/P8_AI_MCP_Interface/02_Current_MCP_Contract.md)。
 
 ## 本地清空（B2）
 

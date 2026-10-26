@@ -11,7 +11,7 @@
 
 ## 阅读顺序
 
-2026-10-25 MCP 对照补齐见 [工作流扩展](stages/P8_AI_MCP_Interface/06_Terminal_Workflow_Extensions.md)：B3a 为条件等待和长任务，B3b 为单文件传输与获准保存目标连接；产品能力尚未实施，不新增通过成绩。
+2026-10-27 MCP更新见 [工作流扩展](stages/P8_AI_MCP_Interface/06_Terminal_Workflow_Extensions.md)：B1日志、B2清空及B3/B3a基础恢复、条件等待和长任务已实施，当前十七工具；B3b单文件传输/保存目标连接未实施。源码、替身与真实设备的验收范围分开，最新结果见 [B3审查修复](stages/P8_AI_MCP_Interface/records/B3_Review_Fixes_2026-10-27.md)。
 
 1. [总体架构](../ARCHITECTURE.md)：系统边界、数据流、线程、所有权和目标架构。
 2. [配置、Profile 与主题](Configuration_Profile_Theme.md)：配置分层、Profile、Session 和主题职责。
@@ -42,7 +42,7 @@
 | P5 Glyph 与 GPU 管线 | 实施完成；Linux Vulkan/OpenGL、Windows D3D11/D3D12 与 30 分钟长稳验收完成（2026-08-02）；macOS Metal、多屏 DPR 与 120/144 Hz 验收待完成 | [P5](stages/P5_Glyph_and_GPU_Pipeline.md) |
 | P6 Session 与 Transport | 进行中：Transport 四种完成，会话编排采用「1 View 拥有 1 Session」已在生产；剩 keyboard-interactive、close 模式、exited→UI、ProfileStore 持久化、contract tests | [P6](stages/P6_Session_and_Transport.md) |
 | P7 系统资源查询 | 已实现为内置功能（常驻监控 2026-09-06、系统信息窗口 2026-09-09）；性能量化验收待补 | [P7](stages/P7_System_Resource_Monitor.md) |
-| P8 AI MCP 接口 | 已有十二工具兼容基线；B0/B1 日志准确分页、缺口/代际及统一说明已实施；未发布 P4/P1 专属原型已退役。外部 Agent 的 SSH/UART BSP 闭环仍待 B2 清空/观察失效与真机验收，见 [缺口表](stages/P8_AI_MCP_Interface/03_Gaps_and_Evidence.md) | [MCP契约](stages/P8_AI_MCP_Interface/02_Current_MCP_Contract.md) |
+| P8 AI MCP 接口 | B0/B1日志、B2清空/代际失效、B3基础恢复及B3a文本等待/长任务已实施，当前十七工具；旧十三对象与九项终端联合保留，P4/P1专属原型保持退役。B3b与真实SSH/UART双通道/客户端/性能仍待验收，见 [缺口表](stages/P8_AI_MCP_Interface/03_Gaps_and_Evidence.md) | [MCP契约](stages/P8_AI_MCP_Interface/02_Current_MCP_Contract.md) |
 | P9 文件传输协议 | 协议库及串口 Session/手动传输窗口已接入；Linux 纯协议、门面、UI 与真实 QSerialPort/raw PTY 通路测试通过；Windows 取消发布竞争用例有已知失败，macOS 与真实 UART 文件传输验收待补 | [P9](stages/P9_File_Transfer_Protocols.md) |
 
 ## 文档权威性

@@ -455,7 +455,8 @@ private:
 
 struct Fixture
 {
-    QTemporaryDir root;
+    // 显式工作区模板，隔离 AppContainer 默认临时路径；私有权限断言保持。
+    QTemporaryDir root{QDir::currentPath() + "/novaterm-mcp-fixture-XXXXXX"};
     TerminalCore core{80, 24};
     LocalFake local;
     std::unique_ptr<SshTransport> ssh;
@@ -515,6 +516,10 @@ class McpTests final : public QObject
 {
     Q_OBJECT
 private slots:
+    void workflowWaitAndTasksUseBothProtocols_data();
+    void workflowWaitAndTasksUseBothProtocols();
+    void workflowWaitCancellationAndMcpReenable_data();
+    void workflowWaitCancellationAndMcpReenable();
     void clearTerminalIsExplicitIdempotentAndInvalidatesObservation_data();
     void clearTerminalIsExplicitIdempotentAndInvalidatesObservation();
     void localCacheMutationsInvalidateRetainedObservations_data();
@@ -2677,7 +2682,7 @@ void McpTests::tokenSigningAndAuthentication()
 
 void McpTests::rejectsDangerousAndOversizedArguments()
 {
-    QCOMPARE(ToolCodec::catalog().size(), 13);
+    QCOMPARE(ToolCodec::catalog().size(), 17);
     QVERIFY(!CommandPolicy::find("rm"));
     QVERIFY(!CommandPolicy::find("credential.read"));
     const QJsonObject identity{{"sessionId", newId()}, {"epoch", "epoch"}};
@@ -3873,6 +3878,8 @@ int interopFixture(QCoreApplication& application, const QString& configurationFi
     Fixture fixture;
     fixture.makeSsh();
     if (!fixture.enable(true)) return 1;
+    if (!NovaTerm::Mcp::TestSupport::setTerminalGrant(fixture.service.access(), fixture.client,
+            fixture.service.directory().entries().first(), true)) return 1;
     fixture.core.writeInput("SDK_READY\r\nbuild ok\r\nERROR sample\r\n");
     if (!fixture.core.waitForIdle()) return 1;
     QTimer timer;
@@ -4929,6 +4936,130 @@ void McpTests::clearTerminalIsExplicitIdempotentAndInvalidatesObservation_data()
     QTest::newRow("2025-uart-history") << QString(ProtocolVersion) << true << false;
     QTest::newRow("2026-ssh-history") << QString("2026-07-28") << false << false;
     QTest::newRow("2026-uart-all") << QString("2026-07-28") << true << true;
+}
+void McpTests::workflowWaitAndTasksUseBothProtocols_data()
+{
+    QTest::addColumn<QString>("version"); QTest::addColumn<int>("kind");
+    for (const auto& version : {QString(ProtocolVersion), QString("2026-07-28")})
+        for (const auto kind : {TransportKind::Ssh, TransportKind::Serial})
+            QTest::newRow(qPrintable(version + (kind == TransportKind::Ssh ? "-ssh" : "-uart")))
+                << version << int(kind);
+}
+void McpTests::workflowWaitCancellationAndMcpReenable_data()
+{
+    QTest::addColumn<QString>("version");
+    QTest::newRow("2025") << QString(ProtocolVersion);
+    QTest::newRow("2026") << QString("2026-07-28");
+}
+void McpTests::workflowWaitCancellationAndMcpReenable()
+{
+    QFETCH(QString, version);
+    Fixture f; QVERIFY(f.enable());
+    auto entry = f.service.directory().entries().first();
+    QVERIFY(NovaTerm::Mcp::TestSupport::setTerminalGrant(f.service.access(), f.client, entry, true));
+    Host host; QVERIFY(host.start(f.runtime(), f.token(), {}, false, version));
+    auto wait = f.identity(); wait.insert("source", "log"); wait.insert("texts", QJsonArray{"NEVER_MATCH"});
+    wait.insert("waitMs", 30000);
+    for (int i = 0; i < 20; ++i) {
+        const auto cancelled = f.service.statistics().value("cancelled").toString().toULongLong();
+        const auto admitted = f.service.statistics().value("requests").toString().toULongLong();
+        const int id = host.begin("novaterm_wait_text", wait);
+        // RPC 已进入后端后取消；下一次同客户端等待不能被不可达续扫记录堵住。
+        QTRY_COMPARE(f.service.statistics().value("requests").toString().toULongLong(), admitted + 1);
+        if (version == "2026-07-28") host.cancelPendingRequests();
+        else host.send({{"jsonrpc", "2.0"}, {"method", "notifications/cancelled"},
+            {"params", QJsonObject{{"requestId", id}}}});
+        QTRY_COMPARE(f.service.statistics().value("cancelled").toString().toULongLong(), cancelled + 1);
+    }
+    wait.insert("waitMs", 0);
+    const auto after = host.call("novaterm_wait_text", wait);
+    QVERIFY2(after.value("ok").toBool(), qPrintable(QString::fromUtf8(QJsonDocument(after).toJson())));
+    QCOMPARE(after.value("data").toObject().value("status").toString(), "timeout");
+    QVERIFY(f.local.written.isEmpty());
+    QVERIFY(f.service.access().setEnabled(false));
+    QVERIFY(f.enable());
+    entry = f.service.directory().entries().first();
+    QVERIFY(NovaTerm::Mcp::TestSupport::setTerminalGrant(f.service.access(), f.client, entry, true));
+    Host enabled; QVERIFY(enabled.start(f.runtime(), f.token(), {}, false, version));
+    auto read = f.identity(); read.insert("responseMode", "compact");
+    auto start = f.identity(); start.insert("operationId", newId());
+    start.insert("inputToken", enabled.call("novaterm_read_context", read).value("data").toObject().value("inputToken"));
+    start.insert("actions", QJsonArray{QJsonObject{{"type", "text"}, {"text", "after-enable"}}});
+    const auto admitted = enabled.call("novaterm_start_task", start);
+    QVERIFY2(admitted.value("ok").toBool(), qPrintable(QString::fromUtf8(QJsonDocument(admitted).toJson())));
+    QTRY_COMPARE(f.local.written, QByteArray("after-enable"));
+}
+void McpTests::workflowWaitAndTasksUseBothProtocols()
+{
+    QFETCH(QString, version); QFETCH(int, kind);
+    Fixture f;
+    f.session.close(CloseMode::Abort); QVERIFY(f.session.resetForReuse());
+    RuntimeConfig config; config.transportKind = static_cast<TransportKind>(kind);
+    config.transport.insert("interactiveLineEnding", "crlf");
+    f.session.attach(&f.local, TerminalSession::Ownership::Borrowed, config);
+    QVERIFY(f.session.start()); QVERIFY(f.enable());
+    const auto entry = f.service.directory().entries().first();
+    QVERIFY(NovaTerm::Mcp::TestSupport::setTerminalGrant(f.service.access(), f.client, entry, true));
+    f.core.resize(80, 2); QVERIFY(f.core.waitForIdle());
+    QVERIFY(f.core.writeInput("PASS_OLD\r\nold\r\nend\r\n").fullyAccepted()); QVERIFY(f.core.waitForIdle());
+    Host host; QVERIFY(host.start(f.runtime(), f.token(), {}, false, version));
+    const auto directory = host.call("novaterm_list_sessions").value("data").toObject().value("sessions").toArray();
+    const auto taskCapabilities = directory.first().toObject().value("availability").toObject().value("terminalTasks").toObject();
+    QVERIFY(taskCapabilities.value("canStart").toBool()); QVERIFY(taskCapabilities.value("canObserve").toBool());
+    auto wait = f.identity(); wait.insert("source", "log"); wait.insert("texts", QJsonArray{"PASS"});
+    const auto old = host.call("novaterm_wait_text", wait);
+    QVERIFY2(old.value("ok").toBool(), qPrintable(QString::fromUtf8(QJsonDocument(old).toJson())));
+    QCOMPARE(old.value("data").toObject().value("status").toString(), "timeout");
+    wait.insert("sinceToken", old.value("data").toObject().value("nextToken"));
+    QVERIFY(f.core.writeInput("PASS_NEW\r\nnext\r\nend\r\n").fullyAccepted()); QVERIFY(f.core.waitForIdle());
+    const auto matched = host.call("novaterm_wait_text", wait);
+    QCOMPARE(matched.value("data").toObject().value("status").toString(), "matched");
+    QVERIFY(!matched.value("data").toObject().value("provesSuccess").toBool());
+    QVERIFY(f.local.written.isEmpty());
+    auto screen = f.identity(); screen.insert("source", "screen"); screen.insert("start", "current");
+    screen.insert("texts", QJsonArray{"login:"});
+    QVERIFY(f.core.writeInput("\rlogin: ").fullyAccepted()); QVERIFY(f.core.waitForIdle());
+    screen.insert("waitMs", 1000);
+    const auto prompt = host.call("novaterm_wait_text", screen);
+    QCOMPARE(prompt.value("data").toObject().value("status").toString(), "matched");
+    QVERIFY(!prompt.value("data").toObject().value("revision").toString().isEmpty());
+    auto observe = f.identity(); observe.insert("responseMode", "compact");
+    const auto context = host.call("novaterm_read_context", observe).value("data").toObject();
+    auto start = f.identity(); start.insert("inputToken", context.value("inputToken"));
+    start.insert("operationId", newId()); start.insert("timeoutMs", 600000);
+    start.insert("actions", QJsonArray{QJsonObject{{"type", "text"}, {"text", "long-job"}},
+        QJsonObject{{"type", "line_ending"}}});
+    const auto admitted = host.call("novaterm_start_task", start);
+    QVERIFY2(admitted.value("ok").toBool(), qPrintable(QString::fromUtf8(QJsonDocument(admitted).toJson())));
+    const auto task = admitted.value("data").toObject().value("taskId").toString(); QVERIFY(!task.isEmpty());
+    QTRY_COMPARE(f.local.written, QByteArray("long-job\r\n"));
+    // 另一个协议连接恢复受理结果，查询和精确启动重试都不能再次输入。
+    Host retry; QVERIFY(retry.start(f.runtime(), f.token(), {}, false, version));
+    auto query = f.identity(); query.insert("operationId", start.value("operationId"));
+    const auto recovered = retry.call("novaterm_query_task", query);
+    QCOMPARE(recovered.value("data").toObject().value("taskId").toString(), task);
+    const auto replay = retry.call("novaterm_start_task", start);
+    QCOMPARE(replay.value("data").toObject().value("taskId").toString(), task);
+    QCOMPARE(f.local.written, QByteArray("long-job\r\n"));
+    auto conflict = start; conflict.insert("timeoutMs", 600001);
+    QCOMPARE(retry.call("novaterm_start_task", conflict).value("error").toObject().value("code").toString(), "INPUT_SEQUENCE_CONFLICT");
+    query.remove("operationId"); query.insert("taskId", task);
+    query.insert("sinceToken", admitted.value("data").toObject().value("baseline").toObject().value("nextToken"));
+    const auto running = retry.call("novaterm_query_task", query).value("data").toObject();
+    QCOMPARE(running.value("status").toString(), "running");
+    QVERIFY(!running.value("completed").toBool()); QVERIFY(running.value("exitCode").isNull());
+    QVERIFY(!running.value("terminationConfirmed").toBool());
+    QVERIFY(running.value("output").toObject().value("source") == "log");
+    // 人工接管后旧任务停止不能抢回人的控制，也不能把新命令当成旧任务。
+    f.session.writeUserInput("human-command\r");
+    const auto bytes = f.local.written;
+    auto stop = f.identity(); stop.insert("taskId", task); stop.insert("operationId", newId());
+    const auto stopped = retry.call("novaterm_stop_task", stop);
+    QCOMPARE(stopped.value("error").toObject().value("code").toString(), "CONTROL_INVALID");
+    QCOMPARE(f.local.written, bytes);
+    QVERIFY(NovaTerm::Mcp::TestSupport::setGrant(f.service.access(), f.client, entry, false));
+    QVERIFY(!retry.call("novaterm_query_task", query).value("ok").toBool());
+    QCOMPARE(f.local.written, bytes);
 }
 void McpTests::clearTerminalIsExplicitIdempotentAndInvalidatesObservation()
 {

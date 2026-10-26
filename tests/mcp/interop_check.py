@@ -10,6 +10,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import uuid
 
 ROOT = Path(__file__).resolve().parents[2]
 _DEPS = str(ROOT / "build/mcp-test-deps")
@@ -33,7 +34,7 @@ async def check(config: dict) -> None:
             initialization = await session.initialize()
             assert initialization.protocolVersion == "2025-11-25"
             catalog = await session.list_tools()
-            assert len(catalog.tools) == 12
+            assert len(catalog.tools) == 17
             schemas = {tool.name: tool.outputSchema for tool in catalog.tools}
             for tool in catalog.tools:
                 Draft202012Validator.check_schema(tool.inputSchema)
@@ -75,8 +76,48 @@ async def check(config: dict) -> None:
             assert await call("novaterm_execute_command", arguments) == executed
             rejected = await call("novaterm_read_context", {**identity, "command": "not allowed"})
             assert not rejected["ok"] and rejected["error"]["code"] == "INVALID_ARGUMENT"
+            await check_workflow(call, identity)
     await check_modern(settings)
-    print("PASS: official MCP SDK 2025 + raw 2026 discover/catalog/read HTTP, 12 schemas, history admission, bounded reads, search, execution and replay")
+    print("PASS: official MCP SDK 2025 + raw 2026 HTTP, 17 schemas, history/terminal contracts and B3a wait/start/query/stop/replay")
+
+
+async def check_workflow(call, identity: dict) -> None:
+    baseline = await call("novaterm_wait_text", {**identity, "source": "log", "texts": ["SDK_READY"]})
+    assert baseline["ok"] and baseline["data"]["status"] == "timeout"
+    assert not baseline["data"]["matched"]
+    screen = await call("novaterm_wait_text", {**identity, "source": "screen", "start": "current",
+        "texts": ["SDK_READY"], "waitMs": 1000})
+    assert screen["ok"] and screen["data"]["status"] == "matched"
+    assert not screen["data"]["provesSuccess"]
+    observed = await call("novaterm_read_context", {**identity, "responseMode": "compact"})
+    ordinary_id = str(uuid.uuid4())
+    ordinary_actions = [{"type": "text", "text": "interop-ordinary"}]
+    ordinary_args = {**identity, "inputToken": observed["data"]["inputToken"],
+        "operationId": ordinary_id, "actions": ordinary_actions, "waitMs": 0}
+    assert (await call("novaterm_interact_terminal", ordinary_args))["ok"]
+    fresh = await call("novaterm_read_context", {**identity, "responseMode": "compact"})
+    rejected = await call("novaterm_start_task", {**identity,
+        "inputToken": fresh["data"]["inputToken"], "operationId": ordinary_id, "actions": ordinary_actions})
+    assert not rejected["ok"] and rejected["error"]["code"] == "INPUT_SEQUENCE_CONFLICT", rejected
+    assert (await call("novaterm_interact_terminal", ordinary_args))["ok"]
+    observed = await call("novaterm_read_context", {**identity, "responseMode": "compact"})
+    operation = str(uuid.uuid4())
+    args = {**identity, "inputToken": observed["data"]["inputToken"], "operationId": operation,
+        "actions": [{"type": "text", "text": "interop-task"}], "timeoutMs": 600000}
+    started = await call("novaterm_start_task", args)
+    assert started["ok"], started
+    task = started["data"]["taskId"]
+    retried = await call("novaterm_start_task", args)
+    assert retried["ok"] and retried["data"]["taskId"] == task
+    queried = await call("novaterm_query_task", {**identity, "operationId": operation,
+        "sinceToken": started["data"]["baseline"]["nextToken"]})
+    assert queried["ok"] and queried["data"]["taskId"] == task
+    assert queried["data"]["exitCode"] is None and not queried["data"]["terminationConfirmed"]
+    stop_args = {**identity, "taskId": task, "operationId": str(uuid.uuid4())}
+    stopped = await call("novaterm_stop_task", stop_args)
+    assert stopped["ok"] and stopped["data"]["stopRequested"], stopped
+    stopped_again = await call("novaterm_stop_task", stop_args)
+    assert stopped_again["ok"] and stopped_again["data"]["taskId"] == task
 
 
 async def check_modern(settings: dict) -> None:
@@ -126,7 +167,8 @@ async def check_modern(settings: dict) -> None:
         assert unsupported["error"]["data"]["requested"] == "2099-01-01"
         listed = await rpc("tools/list", {"_meta": metadata()})
         assert listed["result"]["resultType"] == "complete"
-        assert len(listed["result"]["tools"]) == 12
+        assert len(listed["result"]["tools"]) == 17
+        schemas = {tool["name"]: tool["outputSchema"] for tool in listed["result"]["tools"]}
         sessions = await rpc("tools/call", {"name": "novaterm_list_sessions",
             "arguments": {}, "_meta": metadata()})
         assert sessions["result"]["resultType"] == "complete"
@@ -136,6 +178,13 @@ async def check_modern(settings: dict) -> None:
             "_meta": metadata()})
         assert context["result"]["resultType"] == "complete"
         assert context["result"]["structuredContent"]["ok"]
+        async def call(name: str, arguments: dict) -> dict:
+            result = await rpc("tools/call", {"name": name, "arguments": arguments, "_meta": metadata()})
+            payload = result["result"]["structuredContent"]
+            Draft202012Validator(schemas[name]).validate(payload)
+            assert json.loads(result["result"]["content"][0]["text"]) == payload
+            return payload
+        await check_workflow(call, {key: identity[key] for key in ("sessionId", "epoch")})
     finally:
         await client.aclose()
 

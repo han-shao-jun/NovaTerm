@@ -61,6 +61,9 @@ private slots:
         QVERIFY(a.contains("no per-command risk confirmation"));
         QVERIFY(a.contains("UART idle completion is unverified"));
         QVERIFY(a.contains("source=log")); QVERIFY(a.contains("Never rerun uncertain"));
+        QVERIFY(a.contains("novaterm_wait_text")); QVERIFY(a.contains("novaterm_start_task"));
+        QVERIFY(a.contains("novaterm_query_task")); QVERIFY(a.contains("novaterm_stop_task"));
+        QVERIFY(a.contains("after human takeover"));
     }
     void historyCallsUseTheirOwnProtocolEvent() {
         WireSession wire; ready(wire); QSignalSpy backend(&wire, &WireSession::backendEvent);
@@ -487,7 +490,7 @@ private slots:
         QVERIFY(wire.initialized());
         wire.receiveMessage({{"jsonrpc", "2.0"}, {"id", 2}, {"method", "tools/list"}}, "catalog");
         QCOMPARE(QJsonDocument::fromJson(packets.last().at(1).toByteArray()).object().value("result").toObject()
-            .value("tools").toArray().size(), 13);
+            .value("tools").toArray().size(), 17);
     }
     void asynchronousResultKeepsExchangeRoute()
     {

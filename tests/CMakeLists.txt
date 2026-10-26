@@ -258,6 +258,26 @@ add_subdirectory(resources)
     set_tests_properties(novaterm_mcp_access_interaction_tests PROPERTIES LABELS "mcp;p8;security" TIMEOUT 30)
     add_dependencies(check novaterm_mcp_access_interaction_tests)
 
+    foreach(_workflow_test IN ITEMS text_wait terminal_tasks)
+        if(_workflow_test STREQUAL "text_wait")
+            set(_workflow_source mcp/TextWaitTests.cpp)
+        else()
+            set(_workflow_source mcp/TerminalTaskTests.cpp)
+        endif()
+        qt_add_executable(novaterm_mcp_${_workflow_test}_tests ${_workflow_source} ${_mcp_access_sources})
+        target_include_directories(novaterm_mcp_${_workflow_test}_tests PRIVATE ${PROJECT_SOURCE_DIR}/src)
+        target_link_libraries(novaterm_mcp_${_workflow_test}_tests PRIVATE novaterm_mcp_runtime
+            Qt6::Test Qt6::Gui Qt6::Widgets ssh::ssh OpenSSL::Crypto OpenSSL::SSL ${NOVATERM_SECRET_SERVICE_LIBS})
+        if(WIN32)
+            target_link_libraries(novaterm_mcp_${_workflow_test}_tests PRIVATE ws2_32 crypt32 advapi32)
+        endif()
+        set_target_properties(novaterm_mcp_${_workflow_test}_tests PROPERTIES WIN32_EXECUTABLE FALSE)
+        add_test(NAME novaterm_mcp_${_workflow_test}_tests COMMAND novaterm_mcp_${_workflow_test}_tests)
+        set_tests_properties(novaterm_mcp_${_workflow_test}_tests PROPERTIES LABELS "mcp;p8" TIMEOUT 30
+            ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+        add_dependencies(check novaterm_mcp_${_workflow_test}_tests)
+    endforeach()
+
     qt_add_executable(novaterm_sftp_session_safety_tests
         mcp/SftpSessionSafetyTests.cpp
         ${PROJECT_SOURCE_DIR}/src/session/SftpSession.cpp
@@ -1223,7 +1243,8 @@ endif()
 if(BUILD_TESTING)
     # 三个既有目标直接编译 Session/TerminalView，必须链接新串口门面。
     foreach(_serial_consumer novaterm_session_tests novaterm_mcp_tests
-            novaterm_mcp_access_interaction_tests novaterm_terminal_session_tests)
+            novaterm_mcp_access_interaction_tests novaterm_terminal_session_tests
+            novaterm_mcp_text_wait_tests novaterm_mcp_terminal_tasks_tests)
         if(TARGET ${_serial_consumer})
             target_link_libraries(${_serial_consumer} PRIVATE novaterm_serial_transfer)
             target_sources(${_serial_consumer} PRIVATE

@@ -183,6 +183,10 @@ private slots:
     void cacheClearCanOverlapAnAdmittedTransportWrite();
     void shellIntegrationIsIndependentOfTransport_data();
     void shellIntegrationIsIndependentOfTransport();
+    void integratedCtrlCRecoversReadinessAtNewPrompt_data();
+    void integratedCtrlCRecoversReadinessAtNewPrompt();
+    void terminalRawInputPreservesConfiguredEndingAndKeys_data();
+    void terminalRawInputPreservesConfiguredEndingAndKeys();
     void freeTerminalInputTracksOnlyIntegratedEvidence();
     void recentCommandExpiresWithoutDiscardingActiveCommand();
     void freeInputKeepsTrailingTextOutOfCommandReadiness_data();
@@ -2870,6 +2874,130 @@ void SessionTests::emptyAgentBatchKeepsLatestPromptEvidence()
     QVERIFY(transport.writes.isEmpty());
     QCOMPARE(controller->promptGeneration(), expectedPrompt);
     QCOMPARE(controller->readyForCommand(), expectedPrompt != 0);
+}
+
+void SessionTests::integratedCtrlCRecoversReadinessAtNewPrompt_data()
+{
+    QTest::addColumn<int>("kind");
+    QTest::addColumn<bool>("typedFirst");
+    QTest::newRow("ssh-idle") << int(TransportKind::Ssh) << false;
+    QTest::newRow("ssh-unsubmitted-text") << int(TransportKind::Ssh) << true;
+    QTest::newRow("serial-idle") << int(TransportKind::Serial) << false;
+    QTest::newRow("serial-unsubmitted-text") << int(TransportKind::Serial) << true;
+}
+
+void SessionTests::integratedCtrlCRecoversReadinessAtNewPrompt()
+{
+    QFETCH(int, kind);
+    QFETCH(bool, typedFirst);
+    RuntimeConfig config;
+    config.transportKind = static_cast<TransportKind>(kind);
+    config.transport.insert("interactiveShellKind", "posix");
+    TerminalSession session(config);
+    FakeTransport transport;
+    session.attach(&transport, TerminalSession::Ownership::Borrowed, config);
+    QVERIFY(session.start());
+    QTRY_COMPARE(session.state(), SessionState::Running);
+    auto* controller = session.terminalController();
+    emit transport.readyRead(QByteArrayLiteral("\x1b]633;NT;PROMPT;1;0\a"));
+    QTRY_VERIFY(controller->readyForCommand());
+    QVERIFY(controller->acquire("client"));
+
+    using A = NovaTerm::TerminalInputAction;
+    std::vector<A> actions;
+    if (typedFirst) actions.push_back({A::Kind::Text, "unfinished"});
+    actions.push_back({A::Kind::Key, "c", NovaTerm::InputKey::None, 4});
+    QVERIFY(controller->submit("client", "interrupt-idle-input", actions, false));
+    const QByteArray interrupted = (typedFirst ? QByteArray("unfinished") : QByteArray{}) + '\x03';
+    QTRY_COMPARE(transport.writes, interrupted);
+    QTRY_VERIFY(!controller->pending());
+    QVERIFY(!controller->readyForCommand());
+    QVERIFY(!controller->commandActive());
+
+    // 真实的新集成提示符才恢复就绪；发送中断本身不虚构命令完成。
+    emit transport.readyRead(QByteArrayLiteral("\x1b]633;NT;PROMPT;2;130\a"));
+    QTRY_VERIFY(controller->readyForCommand());
+    QCOMPARE(controller->promptGeneration(), quint64(2));
+    QCOMPARE(controller->observation("client").value("command").toObject()
+        .value("state").toString(), QString("none"));
+    QVERIFY(!controller->commandActive());
+
+    QVERIFY(controller->submit("client", "next-command",
+        {{A::Kind::Text, "pwd"}, {A::Kind::Bytes, "\r"}}, true));
+    QTRY_COMPARE(transport.writes, interrupted + "pwd\r");
+}
+
+void SessionTests::terminalRawInputPreservesConfiguredEndingAndKeys_data()
+{
+    QTest::addColumn<int>("kind");
+    QTest::addColumn<QString>("endingName");
+    QTest::addColumn<QByteArray>("endingBytes");
+    QTest::addColumn<bool>("applicationCursor");
+    for (const auto kind : {TransportKind::Ssh, TransportKind::Serial}) {
+        const auto transport = kind == TransportKind::Ssh ? QStringLiteral("ssh") : QStringLiteral("serial");
+        for (const auto& ending : {QStringLiteral("cr"), QStringLiteral("lf"), QStringLiteral("crlf")}) {
+            const auto bytes = ending == "lf" ? QByteArray("\n")
+                : ending == "crlf" ? QByteArray("\r\n") : QByteArray("\r");
+            for (const bool application : {false, true}) {
+                QTest::newRow(qPrintable(transport + '-' + ending
+                    + (application ? "-application-cursor" : "-normal-cursor")))
+                    << int(kind) << ending << bytes << application;
+            }
+        }
+    }
+}
+
+void SessionTests::terminalRawInputPreservesConfiguredEndingAndKeys()
+{
+    QFETCH(int, kind);
+    QFETCH(QString, endingName);
+    QFETCH(QByteArray, endingBytes);
+    QFETCH(bool, applicationCursor);
+    RuntimeConfig config;
+    config.transportKind = static_cast<TransportKind>(kind);
+    config.transport.insert("interactiveLineEnding", endingName);
+    TerminalSession session(config);
+    FakeTransport transport;
+    session.attach(&transport, TerminalSession::Ownership::Borrowed, config);
+    QVERIFY(session.start());
+    QTRY_COMPARE(session.state(), SessionState::Running);
+    auto* controller = session.terminalController();
+    QVERIFY(!controller->readyForCommand());
+    QCOMPARE(controller->lineEnding(), endingBytes);
+    QVERIFY(transport.writes.isEmpty());
+    if (applicationCursor) {
+        emit transport.readyRead(QByteArrayLiteral("\x1b[?1h"));
+        QVERIFY(session.core()->waitForIdle());
+    }
+    QVERIFY(controller->acquire("client"));
+
+    // 原始输入不要求 Shell 提示符；方向键遵从终端当前游标模式。
+    using A = NovaTerm::TerminalInputAction;
+    const std::vector<A> actions{
+        {A::Kind::Text, "raw"},
+        {A::Kind::Key, "c", NovaTerm::InputKey::None, 4},
+        {A::Kind::Key, {}, NovaTerm::InputKey::Tab},
+        {A::Kind::Key, {}, NovaTerm::InputKey::Up},
+        {A::Kind::Key, {}, NovaTerm::InputKey::Down},
+        {A::Kind::Key, {}, NovaTerm::InputKey::Left},
+        {A::Kind::Key, {}, NovaTerm::InputKey::Right},
+        {A::Kind::Bytes, endingBytes.toStdString()},
+    };
+    QVERIFY(controller->submit("client", "raw-keys", actions, false));
+    const QByteArray arrows = applicationCursor
+        ? QByteArray("\x1bOA\x1bOB\x1bOD\x1bOC")
+        : QByteArray("\x1b[A\x1b[B\x1b[D\x1b[C");
+    const auto expected = QByteArray("raw\x03\t") + arrows + endingBytes;
+    QTRY_COMPARE(transport.writes, expected);
+    QTRY_VERIFY(!controller->pending());
+    QVERIFY(!controller->commandActive());
+    QVERIFY(!controller->readyForCommand());
+    QCOMPARE(controller->operation().value("acceptedActionCount").toInt(), 8);
+
+    // Enter 保留终端键盘语义；只有显式行结束动作使用配置的设备尾符。
+    QVERIFY(controller->submit("client", "enter-key",
+        {{A::Kind::Key, {}, NovaTerm::InputKey::Enter}}, false));
+    QTRY_COMPARE(transport.writes, expected + '\r');
 }
 
 QTEST_MAIN(SessionTests)

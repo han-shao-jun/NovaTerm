@@ -297,6 +297,8 @@ public:
         if (name == "novaterm_request_elevation")
             budget = arguments.value("waitMs").toInt(MaxTerminalWaitMs) + WireDeadlineMargin.count();
         if (name == "novaterm_clear_terminal") budget = 7000;
+        if (name == "novaterm_wait_text") budget = arguments.value("waitMs").toInt() + WireDeadlineMargin.count();
+        if (name == "novaterm_start_task" || name == "novaterm_query_task" || name == "novaterm_stop_task") budget = 7000;
         Call call;
         call.route = _route;
         call.rpcId = id;
@@ -333,6 +335,14 @@ public:
                 continue;
             const auto call = _calls.value(id);
             _calls[id].sent = true;
+            if (const auto* wait = std::get_if<WaitTextRequest>(&call.typed)) {
+                emit q->backendEvent(BackendWaitTextCall{call.wireId, *wait, !call.requestState.isEmpty()});
+                continue;
+            }
+            if (const auto* task = std::get_if<TerminalTaskRequest>(&call.typed)) {
+                emit q->backendEvent(BackendTaskCall{call.wireId, *task, !call.requestState.isEmpty()});
+                continue;
+            }
             if (const auto* clear = std::get_if<ClearRequest>(&call.typed)) {
                 emit q->backendEvent(BackendClearCall{call.wireId, *clear, !call.requestState.isEmpty()});
                 continue;

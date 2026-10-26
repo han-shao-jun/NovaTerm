@@ -88,6 +88,10 @@ public:
                 jobs.insert(peer + '/' + history->id, wire);
             else if (const auto *clear = std::get_if<BackendClearCall>(&event))
                 jobs.insert(peer + '/' + clear->id, wire);
+            else if (const auto *wait = std::get_if<BackendWaitTextCall>(&event))
+                jobs.insert(peer + '/' + wait->id, wire);
+            else if (const auto *task = std::get_if<BackendTaskCall>(&event))
+                jobs.insert(peer + '/' + task->id, wire);
             backend.receive(peer, event);
             if (const auto *cancel = std::get_if<BackendCancel>(&event))
                 jobs.remove(peer + '/' + cancel->id);

@@ -1,0 +1,2946 @@
+[
+    {
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": false,
+            "readOnlyHint": true
+        },
+        "description": "Wait read-only for bounded literal any/all text. source=log scans after sinceToken or a new tail baseline; source=screen requires start=current or next and never joins screen revisions. Resume scan_budget_exhausted/timeout with resumeToken and identical matching conditions. Honor gap/invalidated; old PASS must not satisfy a new round. A match is text evidence, not test success. Cancelling this wait sends no bytes.",
+        "inputSchema": {
+            "additionalProperties": false,
+            "properties": {
+                "caseSensitive": {
+                    "default": true,
+                    "type": "boolean"
+                },
+                "epoch": {
+                    "maxLength": 64,
+                    "type": "string"
+                },
+                "match": {
+                    "default": "any",
+                    "enum": [
+                        "any",
+                        "all"
+                    ],
+                    "type": "string"
+                },
+                "resumeToken": {
+                    "maxLength": 1024,
+                    "type": "string"
+                },
+                "scanBytes": {
+                    "default": 262144,
+                    "maximum": 1048576,
+                    "minimum": 1,
+                    "type": "integer"
+                },
+                "sessionId": {
+                    "maxLength": 36,
+                    "type": "string"
+                },
+                "sinceToken": {
+                    "maxLength": 1024,
+                    "type": "string"
+                },
+                "source": {
+                    "enum": [
+                        "log",
+                        "screen"
+                    ],
+                    "type": "string"
+                },
+                "start": {
+                    "enum": [
+                        "current",
+                        "next"
+                    ],
+                    "type": "string"
+                },
+                "texts": {
+                    "items": {
+                        "maxLength": 256,
+                        "minLength": 1,
+                        "type": "string"
+                    },
+                    "maxItems": 8,
+                    "minItems": 1,
+                    "type": "array",
+                    "uniqueItems": true
+                },
+                "waitMs": {
+                    "default": 0,
+                    "maximum": 30000,
+                    "minimum": 0,
+                    "type": "integer"
+                }
+            },
+            "required": [
+                "sessionId",
+                "epoch",
+                "source",
+                "texts"
+            ],
+            "type": "object"
+        },
+        "name": "novaterm_wait_text",
+        "outputSchema": {
+            "additionalProperties": false,
+            "oneOf": [
+                {
+                    "not": {
+                        "required": [
+                            "error"
+                        ]
+                    },
+                    "properties": {
+                        "ok": {
+                            "const": true
+                        }
+                    },
+                    "required": [
+                        "data"
+                    ]
+                },
+                {
+                    "not": {
+                        "required": [
+                            "data"
+                        ]
+                    },
+                    "properties": {
+                        "ok": {
+                            "const": false
+                        }
+                    },
+                    "required": [
+                        "error"
+                    ]
+                }
+            ],
+            "properties": {
+                "data": {
+                    "additionalProperties": false,
+                    "properties": {
+                        "cacheGeneration": {
+                            "pattern": "^[0-9]+$",
+                            "type": "string"
+                        },
+                        "capturedAt": {
+                            "type": "string"
+                        },
+                        "context": {
+                            "type": "string"
+                        },
+                        "epoch": {
+                            "type": "string"
+                        },
+                        "evidenceKind": {
+                            "enum": [
+                                "literal_text"
+                            ],
+                            "type": "string"
+                        },
+                        "gap": {
+                            "additionalProperties": true,
+                            "type": "object"
+                        },
+                        "instanceId": {
+                            "type": "string"
+                        },
+                        "matched": {
+                            "type": "boolean"
+                        },
+                        "matchedTexts": {
+                            "items": {
+                                "additionalProperties": true,
+                                "type": "object"
+                            },
+                            "type": "array"
+                        },
+                        "nextPosition": {
+                            "additionalProperties": false,
+                            "properties": {
+                                "byteOffset": {
+                                    "pattern": "^[0-9]+$",
+                                    "type": "string"
+                                },
+                                "cellOffset": {
+                                    "pattern": "^[0-9]+$",
+                                    "type": "string"
+                                },
+                                "lineId": {
+                                    "pattern": "^[0-9]+$",
+                                    "type": "string"
+                                },
+                                "scalarOffset": {
+                                    "minimum": 0,
+                                    "type": "integer"
+                                }
+                            },
+                            "required": [
+                                "byteOffset",
+                                "cellOffset",
+                                "lineId",
+                                "scalarOffset"
+                            ],
+                            "type": "object"
+                        },
+                        "nextToken": {
+                            "type": "string"
+                        },
+                        "provesSuccess": {
+                            "const": false
+                        },
+                        "resumeExpiresInMs": {
+                            "minimum": 0,
+                            "type": "integer"
+                        },
+                        "resumeToken": {
+                            "type": "string"
+                        },
+                        "revision": {
+                            "pattern": "^[0-9]+$",
+                            "type": "string"
+                        },
+                        "scanBytes": {
+                            "minimum": 0,
+                            "type": "integer"
+                        },
+                        "sessionId": {
+                            "type": "string"
+                        },
+                        "snapshotTruncated": {
+                            "type": "boolean"
+                        },
+                        "source": {
+                            "enum": [
+                                "log",
+                                "screen"
+                            ],
+                            "type": "string"
+                        },
+                        "sourceStatus": {
+                            "enum": [
+                                "ok",
+                                "pending",
+                                "busy",
+                                "unavailable",
+                                "gap",
+                                "invalidated"
+                            ],
+                            "type": "string"
+                        },
+                        "startToken": {
+                            "type": "string"
+                        },
+                        "status": {
+                            "enum": [
+                                "matched",
+                                "timeout",
+                                "cancelled",
+                                "gap",
+                                "invalidated",
+                                "scan_budget_exhausted"
+                            ],
+                            "type": "string"
+                        }
+                    },
+                    "required": [
+                        "instanceId",
+                        "sessionId",
+                        "epoch",
+                        "source",
+                        "status",
+                        "matched",
+                        "matchedTexts",
+                        "scanBytes",
+                        "cacheGeneration",
+                        "capturedAt",
+                        "context",
+                        "evidenceKind",
+                        "provesSuccess"
+                    ],
+                    "type": "object"
+                },
+                "error": {
+                    "additionalProperties": false,
+                    "properties": {
+                        "code": {
+                            "type": "string"
+                        },
+                        "details": {
+                            "additionalProperties": false,
+                            "properties": {
+                                "commandId": {
+                                    "type": "string"
+                                },
+                                "epoch": {
+                                    "type": "string"
+                                },
+                                "executionId": {
+                                    "type": "string"
+                                },
+                                "executionMayHaveStarted": {
+                                    "type": "boolean"
+                                },
+                                "exitCode": {
+                                    "type": [
+                                        "integer",
+                                        "null"
+                                    ]
+                                },
+                                "finishedAt": {
+                                    "type": [
+                                        "string",
+                                        "null"
+                                    ]
+                                },
+                                "instanceId": {
+                                    "type": "string"
+                                },
+                                "outputTruncated": {
+                                    "type": "boolean"
+                                },
+                                "policyVersion": {
+                                    "type": "string"
+                                },
+                                "sessionId": {
+                                    "type": "string"
+                                },
+                                "startedAt": {
+                                    "type": [
+                                        "string",
+                                        "null"
+                                    ]
+                                },
+                                "status": {
+                                    "enum": [
+                                        "completed",
+                                        "failed",
+                                        "timed_out",
+                                        "cancelled",
+                                        "unknown"
+                                    ],
+                                    "type": "string"
+                                },
+                                "stderr": {
+                                    "type": "string"
+                                },
+                                "stdout": {
+                                    "type": "string"
+                                },
+                                "terminationConfirmed": {
+                                    "type": "boolean"
+                                }
+                            },
+                            "required": [
+                                "commandId",
+                                "epoch",
+                                "executionId",
+                                "executionMayHaveStarted",
+                                "exitCode",
+                                "finishedAt",
+                                "instanceId",
+                                "outputTruncated",
+                                "policyVersion",
+                                "sessionId",
+                                "startedAt",
+                                "status",
+                                "stderr",
+                                "stdout",
+                                "terminationConfirmed"
+                            ],
+                            "type": "object"
+                        },
+                        "message": {
+                            "type": "string"
+                        },
+                        "retryAfterMs": {
+                            "minimum": 0,
+                            "type": "integer"
+                        },
+                        "retryable": {
+                            "type": "boolean"
+                        }
+                    },
+                    "required": [
+                        "code",
+                        "message",
+                        "retryable"
+                    ],
+                    "type": "object"
+                },
+                "ok": {
+                    "type": "boolean"
+                },
+                "schemaVersion": {
+                    "const": 1
+                }
+            },
+            "required": [
+                "schemaVersion",
+                "ok"
+            ],
+            "type": "object"
+        }
+    },
+    {
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "description": "Start once through the selected visible terminal with separate full-input authorization, latest inputToken and operationId. Command requires ready input; raw actions support SSH/UART prompts. Save taskId, query thereafter, and retry only identical arguments. RPC disconnect does not stop or repeat an accepted task. UART silence proves neither success nor an exit code; completion and stop capabilities depend on actual evidence.",
+        "inputSchema": {
+            "additionalProperties": false,
+            "properties": {
+                "actions": {
+                    "items": {
+                        "oneOf": [
+                            {
+                                "additionalProperties": false,
+                                "properties": {
+                                    "text": {
+                                        "maxLength": 16384,
+                                        "type": "string"
+                                    },
+                                    "type": {
+                                        "const": "text",
+                                        "maxLength": 16,
+                                        "type": "string"
+                                    }
+                                },
+                                "required": [
+                                    "text",
+                                    "type"
+                                ],
+                                "type": "object"
+                            },
+                            {
+                                "additionalProperties": false,
+                                "properties": {
+                                    "text": {
+                                        "maxLength": 16384,
+                                        "type": "string"
+                                    },
+                                    "type": {
+                                        "const": "paste",
+                                        "maxLength": 16,
+                                        "type": "string"
+                                    }
+                                },
+                                "required": [
+                                    "text",
+                                    "type"
+                                ],
+                                "type": "object"
+                            },
+                            {
+                                "additionalProperties": false,
+                                "properties": {
+                                    "key": {
+                                        "maxLength": 16,
+                                        "type": "string"
+                                    },
+                                    "modifiers": {
+                                        "items": {
+                                            "enum": [
+                                                "Shift",
+                                                "Alt",
+                                                "Ctrl"
+                                            ],
+                                            "type": "string"
+                                        },
+                                        "maxItems": 3,
+                                        "type": "array",
+                                        "uniqueItems": true
+                                    },
+                                    "type": {
+                                        "const": "key",
+                                        "maxLength": 16,
+                                        "type": "string"
+                                    }
+                                },
+                                "required": [
+                                    "key",
+                                    "type"
+                                ],
+                                "type": "object"
+                            },
+                            {
+                                "additionalProperties": false,
+                                "properties": {
+                                    "type": {
+                                        "const": "line_ending",
+                                        "maxLength": 16,
+                                        "type": "string"
+                                    }
+                                },
+                                "required": [
+                                    "type"
+                                ],
+                                "type": "object"
+                            },
+                            {
+                                "additionalProperties": false,
+                                "properties": {
+                                    "command": {
+                                        "maxLength": 16384,
+                                        "minLength": 1,
+                                        "type": "string"
+                                    },
+                                    "type": {
+                                        "const": "command",
+                                        "maxLength": 16,
+                                        "type": "string"
+                                    }
+                                },
+                                "required": [
+                                    "command",
+                                    "type"
+                                ],
+                                "type": "object"
+                            },
+                            {
+                                "additionalProperties": false,
+                                "properties": {
+                                    "type": {
+                                        "const": "release",
+                                        "maxLength": 16,
+                                        "type": "string"
+                                    }
+                                },
+                                "required": [
+                                    "type"
+                                ],
+                                "type": "object"
+                            }
+                        ]
+                    },
+                    "maxItems": 64,
+                    "minItems": 1,
+                    "type": "array"
+                },
+                "epoch": {
+                    "maxLength": 64,
+                    "type": "string"
+                },
+                "inputToken": {
+                    "maxLength": 4096,
+                    "type": "string"
+                },
+                "operationId": {
+                    "format": "uuid",
+                    "maxLength": 36,
+                    "type": "string"
+                },
+                "sessionId": {
+                    "maxLength": 36,
+                    "type": "string"
+                },
+                "timeoutMs": {
+                    "default": 600000,
+                    "maximum": 3600000,
+                    "minimum": 1,
+                    "type": "integer"
+                }
+            },
+            "required": [
+                "sessionId",
+                "epoch",
+                "inputToken",
+                "operationId",
+                "actions"
+            ],
+            "type": "object"
+        },
+        "name": "novaterm_start_task",
+        "outputSchema": {
+            "additionalProperties": false,
+            "oneOf": [
+                {
+                    "not": {
+                        "required": [
+                            "error"
+                        ]
+                    },
+                    "properties": {
+                        "ok": {
+                            "const": true
+                        }
+                    },
+                    "required": [
+                        "data"
+                    ]
+                },
+                {
+                    "not": {
+                        "required": [
+                            "data"
+                        ]
+                    },
+                    "properties": {
+                        "ok": {
+                            "const": false
+                        }
+                    },
+                    "required": [
+                        "error"
+                    ]
+                }
+            ],
+            "properties": {
+                "data": {
+                    "additionalProperties": false,
+                    "properties": {
+                        "accepted": {
+                            "type": "boolean"
+                        },
+                        "baseline": {
+                            "additionalProperties": false,
+                            "properties": {
+                                "cacheGeneration": {
+                                    "pattern": "^[0-9]+$",
+                                    "type": "string"
+                                },
+                                "capturedAt": {
+                                    "type": "string"
+                                },
+                                "caughtUp": {
+                                    "type": "boolean"
+                                },
+                                "clearToken": {
+                                    "type": "string"
+                                },
+                                "coverage": {
+                                    "enum": [
+                                        "committed_history"
+                                    ],
+                                    "type": "string"
+                                },
+                                "earliestPosition": {
+                                    "additionalProperties": false,
+                                    "properties": {
+                                        "byteOffset": {
+                                            "pattern": "^[0-9]+$",
+                                            "type": "string"
+                                        },
+                                        "cellOffset": {
+                                            "pattern": "^[0-9]+$",
+                                            "type": "string"
+                                        },
+                                        "lineId": {
+                                            "pattern": "^[0-9]+$",
+                                            "type": "string"
+                                        },
+                                        "scalarOffset": {
+                                            "minimum": 0,
+                                            "type": "integer"
+                                        }
+                                    },
+                                    "required": [
+                                        "byteOffset",
+                                        "cellOffset",
+                                        "lineId",
+                                        "scalarOffset"
+                                    ],
+                                    "type": "object"
+                                },
+                                "earliestToken": {
+                                    "type": "string"
+                                },
+                                "epoch": {
+                                    "type": "string"
+                                },
+                                "fragments": {
+                                    "items": {
+                                        "additionalProperties": false,
+                                        "properties": {
+                                            "byteOffset": {
+                                                "pattern": "^[0-9]+$",
+                                                "type": "string"
+                                            },
+                                            "hardBreak": {
+                                                "type": "boolean"
+                                            },
+                                            "lineComplete": {
+                                                "type": "boolean"
+                                            },
+                                            "lineId": {
+                                                "pattern": "^[0-9]+$",
+                                                "type": "string"
+                                            },
+                                            "text": {
+                                                "type": "string"
+                                            }
+                                        },
+                                        "required": [
+                                            "byteOffset",
+                                            "hardBreak",
+                                            "lineComplete",
+                                            "lineId",
+                                            "text"
+                                        ],
+                                        "type": "object"
+                                    },
+                                    "type": "array"
+                                },
+                                "hasMore": {
+                                    "type": "boolean"
+                                },
+                                "historyMayPrecedeEpoch": {
+                                    "type": "boolean"
+                                },
+                                "instanceId": {
+                                    "type": "string"
+                                },
+                                "nextPosition": {
+                                    "additionalProperties": false,
+                                    "properties": {
+                                        "byteOffset": {
+                                            "pattern": "^[0-9]+$",
+                                            "type": "string"
+                                        },
+                                        "cellOffset": {
+                                            "pattern": "^[0-9]+$",
+                                            "type": "string"
+                                        },
+                                        "lineId": {
+                                            "pattern": "^[0-9]+$",
+                                            "type": "string"
+                                        },
+                                        "scalarOffset": {
+                                            "minimum": 0,
+                                            "type": "integer"
+                                        }
+                                    },
+                                    "required": [
+                                        "byteOffset",
+                                        "cellOffset",
+                                        "lineId",
+                                        "scalarOffset"
+                                    ],
+                                    "type": "object"
+                                },
+                                "nextToken": {
+                                    "type": "string"
+                                },
+                                "sampledEndPosition": {
+                                    "additionalProperties": false,
+                                    "properties": {
+                                        "byteOffset": {
+                                            "pattern": "^[0-9]+$",
+                                            "type": "string"
+                                        },
+                                        "cellOffset": {
+                                            "pattern": "^[0-9]+$",
+                                            "type": "string"
+                                        },
+                                        "lineId": {
+                                            "pattern": "^[0-9]+$",
+                                            "type": "string"
+                                        },
+                                        "scalarOffset": {
+                                            "minimum": 0,
+                                            "type": "integer"
+                                        }
+                                    },
+                                    "required": [
+                                        "byteOffset",
+                                        "cellOffset",
+                                        "lineId",
+                                        "scalarOffset"
+                                    ],
+                                    "type": "object"
+                                },
+                                "sampledEndToken": {
+                                    "type": "string"
+                                },
+                                "sessionId": {
+                                    "type": "string"
+                                },
+                                "source": {
+                                    "enum": [
+                                        "log"
+                                    ],
+                                    "type": "string"
+                                },
+                                "status": {
+                                    "enum": [
+                                        "ok",
+                                        "gap",
+                                        "invalidated",
+                                        "pending",
+                                        "busy",
+                                        "unavailable"
+                                    ],
+                                    "type": "string"
+                                }
+                            },
+                            "required": [
+                                "cacheGeneration",
+                                "capturedAt",
+                                "caughtUp",
+                                "clearToken",
+                                "coverage",
+                                "earliestPosition",
+                                "earliestToken",
+                                "epoch",
+                                "fragments",
+                                "hasMore",
+                                "historyMayPrecedeEpoch",
+                                "instanceId",
+                                "nextPosition",
+                                "nextToken",
+                                "sampledEndPosition",
+                                "sampledEndToken",
+                                "sessionId",
+                                "source",
+                                "status"
+                            ],
+                            "type": "object"
+                        },
+                        "completed": {
+                            "type": "boolean"
+                        },
+                        "epoch": {
+                            "type": "string"
+                        },
+                        "evidenceKind": {
+                            "type": "string"
+                        },
+                        "executionId": {
+                            "type": [
+                                "string",
+                                "null"
+                            ]
+                        },
+                        "exitCode": {
+                            "type": [
+                                "integer",
+                                "null"
+                            ]
+                        },
+                        "inputMayHaveBeenSent": {
+                            "type": "boolean"
+                        },
+                        "operationId": {
+                            "type": "string"
+                        },
+                        "output": {
+                            "additionalProperties": false,
+                            "properties": {
+                                "cacheGeneration": {
+                                    "pattern": "^[0-9]+$",
+                                    "type": "string"
+                                },
+                                "capturedAt": {
+                                    "type": "string"
+                                },
+                                "caughtUp": {
+                                    "type": "boolean"
+                                },
+                                "clearToken": {
+                                    "type": "string"
+                                },
+                                "coverage": {
+                                    "enum": [
+                                        "committed_history"
+                                    ],
+                                    "type": "string"
+                                },
+                                "earliestPosition": {
+                                    "additionalProperties": false,
+                                    "properties": {
+                                        "byteOffset": {
+                                            "pattern": "^[0-9]+$",
+                                            "type": "string"
+                                        },
+                                        "cellOffset": {
+                                            "pattern": "^[0-9]+$",
+                                            "type": "string"
+                                        },
+                                        "lineId": {
+                                            "pattern": "^[0-9]+$",
+                                            "type": "string"
+                                        },
+                                        "scalarOffset": {
+                                            "minimum": 0,
+                                            "type": "integer"
+                                        }
+                                    },
+                                    "required": [
+                                        "byteOffset",
+                                        "cellOffset",
+                                        "lineId",
+                                        "scalarOffset"
+                                    ],
+                                    "type": "object"
+                                },
+                                "earliestToken": {
+                                    "type": "string"
+                                },
+                                "epoch": {
+                                    "type": "string"
+                                },
+                                "fragments": {
+                                    "items": {
+                                        "additionalProperties": false,
+                                        "properties": {
+                                            "byteOffset": {
+                                                "pattern": "^[0-9]+$",
+                                                "type": "string"
+                                            },
+                                            "hardBreak": {
+                                                "type": "boolean"
+                                            },
+                                            "lineComplete": {
+                                                "type": "boolean"
+                                            },
+                                            "lineId": {
+                                                "pattern": "^[0-9]+$",
+                                                "type": "string"
+                                            },
+                                            "text": {
+                                                "type": "string"
+                                            }
+                                        },
+                                        "required": [
+                                            "byteOffset",
+                                            "hardBreak",
+                                            "lineComplete",
+                                            "lineId",
+                                            "text"
+                                        ],
+                                        "type": "object"
+                                    },
+                                    "type": "array"
+                                },
+                                "hasMore": {
+                                    "type": "boolean"
+                                },
+                                "historyMayPrecedeEpoch": {
+                                    "type": "boolean"
+                                },
+                                "instanceId": {
+                                    "type": "string"
+                                },
+                                "nextPosition": {
+                                    "additionalProperties": false,
+                                    "properties": {
+                                        "byteOffset": {
+                                            "pattern": "^[0-9]+$",
+                                            "type": "string"
+                                        },
+                                        "cellOffset": {
+                                            "pattern": "^[0-9]+$",
+                                            "type": "string"
+                                        },
+                                        "lineId": {
+                                            "pattern": "^[0-9]+$",
+                                            "type": "string"
+                                        },
+                                        "scalarOffset": {
+                                            "minimum": 0,
+                                            "type": "integer"
+                                        }
+                                    },
+                                    "required": [
+                                        "byteOffset",
+                                        "cellOffset",
+                                        "lineId",
+                                        "scalarOffset"
+                                    ],
+                                    "type": "object"
+                                },
+                                "nextToken": {
+                                    "type": "string"
+                                },
+                                "sampledEndPosition": {
+                                    "additionalProperties": false,
+                                    "properties": {
+                                        "byteOffset": {
+                                            "pattern": "^[0-9]+$",
+                                            "type": "string"
+                                        },
+                                        "cellOffset": {
+                                            "pattern": "^[0-9]+$",
+                                            "type": "string"
+                                        },
+                                        "lineId": {
+                                            "pattern": "^[0-9]+$",
+                                            "type": "string"
+                                        },
+                                        "scalarOffset": {
+                                            "minimum": 0,
+                                            "type": "integer"
+                                        }
+                                    },
+                                    "required": [
+                                        "byteOffset",
+                                        "cellOffset",
+                                        "lineId",
+                                        "scalarOffset"
+                                    ],
+                                    "type": "object"
+                                },
+                                "sampledEndToken": {
+                                    "type": "string"
+                                },
+                                "sessionId": {
+                                    "type": "string"
+                                },
+                                "source": {
+                                    "enum": [
+                                        "log"
+                                    ],
+                                    "type": "string"
+                                },
+                                "status": {
+                                    "enum": [
+                                        "ok",
+                                        "gap",
+                                        "invalidated",
+                                        "pending",
+                                        "busy",
+                                        "unavailable"
+                                    ],
+                                    "type": "string"
+                                }
+                            },
+                            "required": [
+                                "cacheGeneration",
+                                "capturedAt",
+                                "caughtUp",
+                                "clearToken",
+                                "coverage",
+                                "earliestPosition",
+                                "earliestToken",
+                                "epoch",
+                                "fragments",
+                                "hasMore",
+                                "historyMayPrecedeEpoch",
+                                "instanceId",
+                                "nextPosition",
+                                "nextToken",
+                                "sampledEndPosition",
+                                "sampledEndToken",
+                                "sessionId",
+                                "source",
+                                "status"
+                            ],
+                            "type": "object"
+                        },
+                        "outputError": {
+                            "additionalProperties": false,
+                            "properties": {
+                                "code": {
+                                    "type": "string"
+                                },
+                                "details": {
+                                    "additionalProperties": false,
+                                    "properties": {
+                                        "commandId": {
+                                            "type": "string"
+                                        },
+                                        "epoch": {
+                                            "type": "string"
+                                        },
+                                        "executionId": {
+                                            "type": "string"
+                                        },
+                                        "executionMayHaveStarted": {
+                                            "type": "boolean"
+                                        },
+                                        "exitCode": {
+                                            "type": [
+                                                "integer",
+                                                "null"
+                                            ]
+                                        },
+                                        "finishedAt": {
+                                            "type": [
+                                                "string",
+                                                "null"
+                                            ]
+                                        },
+                                        "instanceId": {
+                                            "type": "string"
+                                        },
+                                        "outputTruncated": {
+                                            "type": "boolean"
+                                        },
+                                        "policyVersion": {
+                                            "type": "string"
+                                        },
+                                        "sessionId": {
+                                            "type": "string"
+                                        },
+                                        "startedAt": {
+                                            "type": [
+                                                "string",
+                                                "null"
+                                            ]
+                                        },
+                                        "status": {
+                                            "enum": [
+                                                "completed",
+                                                "failed",
+                                                "timed_out",
+                                                "cancelled",
+                                                "unknown"
+                                            ],
+                                            "type": "string"
+                                        },
+                                        "stderr": {
+                                            "type": "string"
+                                        },
+                                        "stdout": {
+                                            "type": "string"
+                                        },
+                                        "terminationConfirmed": {
+                                            "type": "boolean"
+                                        }
+                                    },
+                                    "required": [
+                                        "commandId",
+                                        "epoch",
+                                        "executionId",
+                                        "executionMayHaveStarted",
+                                        "exitCode",
+                                        "finishedAt",
+                                        "instanceId",
+                                        "outputTruncated",
+                                        "policyVersion",
+                                        "sessionId",
+                                        "startedAt",
+                                        "status",
+                                        "stderr",
+                                        "stdout",
+                                        "terminationConfirmed"
+                                    ],
+                                    "type": "object"
+                                },
+                                "message": {
+                                    "type": "string"
+                                },
+                                "retryAfterMs": {
+                                    "minimum": 0,
+                                    "type": "integer"
+                                },
+                                "retryable": {
+                                    "type": "boolean"
+                                }
+                            },
+                            "required": [
+                                "code",
+                                "message",
+                                "retryable"
+                            ],
+                            "type": "object"
+                        },
+                        "reason": {
+                            "type": "string"
+                        },
+                        "sessionId": {
+                            "type": "string"
+                        },
+                        "status": {
+                            "enum": [
+                                "accepted",
+                                "running",
+                                "stop_requested",
+                                "completed",
+                                "unknown",
+                                "failed"
+                            ],
+                            "type": "string"
+                        },
+                        "stopRequested": {
+                            "type": "boolean"
+                        },
+                        "submissionStatus": {
+                            "type": "string"
+                        },
+                        "suggestedQueryMs": {
+                            "minimum": 0,
+                            "type": "integer"
+                        },
+                        "taskId": {
+                            "type": "string"
+                        },
+                        "terminationConfirmed": {
+                            "type": "boolean"
+                        }
+                    },
+                    "required": [
+                        "taskId",
+                        "operationId",
+                        "sessionId",
+                        "epoch",
+                        "status",
+                        "accepted",
+                        "completed",
+                        "executionId",
+                        "exitCode",
+                        "terminationConfirmed",
+                        "evidenceKind",
+                        "submissionStatus",
+                        "inputMayHaveBeenSent",
+                        "stopRequested",
+                        "reason",
+                        "baseline",
+                        "suggestedQueryMs"
+                    ],
+                    "type": "object"
+                },
+                "error": {
+                    "additionalProperties": false,
+                    "properties": {
+                        "code": {
+                            "type": "string"
+                        },
+                        "details": {
+                            "additionalProperties": false,
+                            "properties": {
+                                "commandId": {
+                                    "type": "string"
+                                },
+                                "epoch": {
+                                    "type": "string"
+                                },
+                                "executionId": {
+                                    "type": "string"
+                                },
+                                "executionMayHaveStarted": {
+                                    "type": "boolean"
+                                },
+                                "exitCode": {
+                                    "type": [
+                                        "integer",
+                                        "null"
+                                    ]
+                                },
+                                "finishedAt": {
+                                    "type": [
+                                        "string",
+                                        "null"
+                                    ]
+                                },
+                                "instanceId": {
+                                    "type": "string"
+                                },
+                                "outputTruncated": {
+                                    "type": "boolean"
+                                },
+                                "policyVersion": {
+                                    "type": "string"
+                                },
+                                "sessionId": {
+                                    "type": "string"
+                                },
+                                "startedAt": {
+                                    "type": [
+                                        "string",
+                                        "null"
+                                    ]
+                                },
+                                "status": {
+                                    "enum": [
+                                        "completed",
+                                        "failed",
+                                        "timed_out",
+                                        "cancelled",
+                                        "unknown"
+                                    ],
+                                    "type": "string"
+                                },
+                                "stderr": {
+                                    "type": "string"
+                                },
+                                "stdout": {
+                                    "type": "string"
+                                },
+                                "terminationConfirmed": {
+                                    "type": "boolean"
+                                }
+                            },
+                            "required": [
+                                "commandId",
+                                "epoch",
+                                "executionId",
+                                "executionMayHaveStarted",
+                                "exitCode",
+                                "finishedAt",
+                                "instanceId",
+                                "outputTruncated",
+                                "policyVersion",
+                                "sessionId",
+                                "startedAt",
+                                "status",
+                                "stderr",
+                                "stdout",
+                                "terminationConfirmed"
+                            ],
+                            "type": "object"
+                        },
+                        "message": {
+                            "type": "string"
+                        },
+                        "retryAfterMs": {
+                            "minimum": 0,
+                            "type": "integer"
+                        },
+                        "retryable": {
+                            "type": "boolean"
+                        }
+                    },
+                    "required": [
+                        "code",
+                        "message",
+                        "retryable"
+                    ],
+                    "type": "object"
+                },
+                "ok": {
+                    "type": "boolean"
+                },
+                "schemaVersion": {
+                    "const": 1
+                }
+            },
+            "required": [
+                "schemaVersion",
+                "ok"
+            ],
+            "type": "object"
+        }
+    },
+    {
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": false,
+            "readOnlyHint": true
+        },
+        "description": "Query a retained task by taskId or recover admission by its original operationId. Never executes or renews control. Output uses the existing log cache; pass sinceToken to continue, and honor gaps or invalidation. State, exitCode, terminationConfirmed and evidenceKind are separate facts; unknown must not be rerun.",
+        "inputSchema": {
+            "additionalProperties": false,
+            "oneOf": [
+                {
+                    "not": {
+                        "required": [
+                            "operationId"
+                        ]
+                    },
+                    "required": [
+                        "taskId"
+                    ]
+                },
+                {
+                    "not": {
+                        "required": [
+                            "taskId"
+                        ]
+                    },
+                    "required": [
+                        "operationId"
+                    ]
+                }
+            ],
+            "properties": {
+                "epoch": {
+                    "maxLength": 64,
+                    "type": "string"
+                },
+                "operationId": {
+                    "format": "uuid",
+                    "maxLength": 36,
+                    "type": "string"
+                },
+                "sessionId": {
+                    "maxLength": 36,
+                    "type": "string"
+                },
+                "sinceToken": {
+                    "maxLength": 1024,
+                    "type": "string"
+                },
+                "taskId": {
+                    "maxLength": 64,
+                    "minLength": 1,
+                    "type": "string"
+                }
+            },
+            "required": [
+                "sessionId",
+                "epoch"
+            ],
+            "type": "object"
+        },
+        "name": "novaterm_query_task",
+        "outputSchema": {
+            "additionalProperties": false,
+            "oneOf": [
+                {
+                    "not": {
+                        "required": [
+                            "error"
+                        ]
+                    },
+                    "properties": {
+                        "ok": {
+                            "const": true
+                        }
+                    },
+                    "required": [
+                        "data"
+                    ]
+                },
+                {
+                    "not": {
+                        "required": [
+                            "data"
+                        ]
+                    },
+                    "properties": {
+                        "ok": {
+                            "const": false
+                        }
+                    },
+                    "required": [
+                        "error"
+                    ]
+                }
+            ],
+            "properties": {
+                "data": {
+                    "additionalProperties": false,
+                    "properties": {
+                        "accepted": {
+                            "type": "boolean"
+                        },
+                        "baseline": {
+                            "additionalProperties": false,
+                            "properties": {
+                                "cacheGeneration": {
+                                    "pattern": "^[0-9]+$",
+                                    "type": "string"
+                                },
+                                "capturedAt": {
+                                    "type": "string"
+                                },
+                                "caughtUp": {
+                                    "type": "boolean"
+                                },
+                                "clearToken": {
+                                    "type": "string"
+                                },
+                                "coverage": {
+                                    "enum": [
+                                        "committed_history"
+                                    ],
+                                    "type": "string"
+                                },
+                                "earliestPosition": {
+                                    "additionalProperties": false,
+                                    "properties": {
+                                        "byteOffset": {
+                                            "pattern": "^[0-9]+$",
+                                            "type": "string"
+                                        },
+                                        "cellOffset": {
+                                            "pattern": "^[0-9]+$",
+                                            "type": "string"
+                                        },
+                                        "lineId": {
+                                            "pattern": "^[0-9]+$",
+                                            "type": "string"
+                                        },
+                                        "scalarOffset": {
+                                            "minimum": 0,
+                                            "type": "integer"
+                                        }
+                                    },
+                                    "required": [
+                                        "byteOffset",
+                                        "cellOffset",
+                                        "lineId",
+                                        "scalarOffset"
+                                    ],
+                                    "type": "object"
+                                },
+                                "earliestToken": {
+                                    "type": "string"
+                                },
+                                "epoch": {
+                                    "type": "string"
+                                },
+                                "fragments": {
+                                    "items": {
+                                        "additionalProperties": false,
+                                        "properties": {
+                                            "byteOffset": {
+                                                "pattern": "^[0-9]+$",
+                                                "type": "string"
+                                            },
+                                            "hardBreak": {
+                                                "type": "boolean"
+                                            },
+                                            "lineComplete": {
+                                                "type": "boolean"
+                                            },
+                                            "lineId": {
+                                                "pattern": "^[0-9]+$",
+                                                "type": "string"
+                                            },
+                                            "text": {
+                                                "type": "string"
+                                            }
+                                        },
+                                        "required": [
+                                            "byteOffset",
+                                            "hardBreak",
+                                            "lineComplete",
+                                            "lineId",
+                                            "text"
+                                        ],
+                                        "type": "object"
+                                    },
+                                    "type": "array"
+                                },
+                                "hasMore": {
+                                    "type": "boolean"
+                                },
+                                "historyMayPrecedeEpoch": {
+                                    "type": "boolean"
+                                },
+                                "instanceId": {
+                                    "type": "string"
+                                },
+                                "nextPosition": {
+                                    "additionalProperties": false,
+                                    "properties": {
+                                        "byteOffset": {
+                                            "pattern": "^[0-9]+$",
+                                            "type": "string"
+                                        },
+                                        "cellOffset": {
+                                            "pattern": "^[0-9]+$",
+                                            "type": "string"
+                                        },
+                                        "lineId": {
+                                            "pattern": "^[0-9]+$",
+                                            "type": "string"
+                                        },
+                                        "scalarOffset": {
+                                            "minimum": 0,
+                                            "type": "integer"
+                                        }
+                                    },
+                                    "required": [
+                                        "byteOffset",
+                                        "cellOffset",
+                                        "lineId",
+                                        "scalarOffset"
+                                    ],
+                                    "type": "object"
+                                },
+                                "nextToken": {
+                                    "type": "string"
+                                },
+                                "sampledEndPosition": {
+                                    "additionalProperties": false,
+                                    "properties": {
+                                        "byteOffset": {
+                                            "pattern": "^[0-9]+$",
+                                            "type": "string"
+                                        },
+                                        "cellOffset": {
+                                            "pattern": "^[0-9]+$",
+                                            "type": "string"
+                                        },
+                                        "lineId": {
+                                            "pattern": "^[0-9]+$",
+                                            "type": "string"
+                                        },
+                                        "scalarOffset": {
+                                            "minimum": 0,
+                                            "type": "integer"
+                                        }
+                                    },
+                                    "required": [
+                                        "byteOffset",
+                                        "cellOffset",
+                                        "lineId",
+                                        "scalarOffset"
+                                    ],
+                                    "type": "object"
+                                },
+                                "sampledEndToken": {
+                                    "type": "string"
+                                },
+                                "sessionId": {
+                                    "type": "string"
+                                },
+                                "source": {
+                                    "enum": [
+                                        "log"
+                                    ],
+                                    "type": "string"
+                                },
+                                "status": {
+                                    "enum": [
+                                        "ok",
+                                        "gap",
+                                        "invalidated",
+                                        "pending",
+                                        "busy",
+                                        "unavailable"
+                                    ],
+                                    "type": "string"
+                                }
+                            },
+                            "required": [
+                                "cacheGeneration",
+                                "capturedAt",
+                                "caughtUp",
+                                "clearToken",
+                                "coverage",
+                                "earliestPosition",
+                                "earliestToken",
+                                "epoch",
+                                "fragments",
+                                "hasMore",
+                                "historyMayPrecedeEpoch",
+                                "instanceId",
+                                "nextPosition",
+                                "nextToken",
+                                "sampledEndPosition",
+                                "sampledEndToken",
+                                "sessionId",
+                                "source",
+                                "status"
+                            ],
+                            "type": "object"
+                        },
+                        "completed": {
+                            "type": "boolean"
+                        },
+                        "epoch": {
+                            "type": "string"
+                        },
+                        "evidenceKind": {
+                            "type": "string"
+                        },
+                        "executionId": {
+                            "type": [
+                                "string",
+                                "null"
+                            ]
+                        },
+                        "exitCode": {
+                            "type": [
+                                "integer",
+                                "null"
+                            ]
+                        },
+                        "inputMayHaveBeenSent": {
+                            "type": "boolean"
+                        },
+                        "operationId": {
+                            "type": "string"
+                        },
+                        "output": {
+                            "additionalProperties": false,
+                            "properties": {
+                                "cacheGeneration": {
+                                    "pattern": "^[0-9]+$",
+                                    "type": "string"
+                                },
+                                "capturedAt": {
+                                    "type": "string"
+                                },
+                                "caughtUp": {
+                                    "type": "boolean"
+                                },
+                                "clearToken": {
+                                    "type": "string"
+                                },
+                                "coverage": {
+                                    "enum": [
+                                        "committed_history"
+                                    ],
+                                    "type": "string"
+                                },
+                                "earliestPosition": {
+                                    "additionalProperties": false,
+                                    "properties": {
+                                        "byteOffset": {
+                                            "pattern": "^[0-9]+$",
+                                            "type": "string"
+                                        },
+                                        "cellOffset": {
+                                            "pattern": "^[0-9]+$",
+                                            "type": "string"
+                                        },
+                                        "lineId": {
+                                            "pattern": "^[0-9]+$",
+                                            "type": "string"
+                                        },
+                                        "scalarOffset": {
+                                            "minimum": 0,
+                                            "type": "integer"
+                                        }
+                                    },
+                                    "required": [
+                                        "byteOffset",
+                                        "cellOffset",
+                                        "lineId",
+                                        "scalarOffset"
+                                    ],
+                                    "type": "object"
+                                },
+                                "earliestToken": {
+                                    "type": "string"
+                                },
+                                "epoch": {
+                                    "type": "string"
+                                },
+                                "fragments": {
+                                    "items": {
+                                        "additionalProperties": false,
+                                        "properties": {
+                                            "byteOffset": {
+                                                "pattern": "^[0-9]+$",
+                                                "type": "string"
+                                            },
+                                            "hardBreak": {
+                                                "type": "boolean"
+                                            },
+                                            "lineComplete": {
+                                                "type": "boolean"
+                                            },
+                                            "lineId": {
+                                                "pattern": "^[0-9]+$",
+                                                "type": "string"
+                                            },
+                                            "text": {
+                                                "type": "string"
+                                            }
+                                        },
+                                        "required": [
+                                            "byteOffset",
+                                            "hardBreak",
+                                            "lineComplete",
+                                            "lineId",
+                                            "text"
+                                        ],
+                                        "type": "object"
+                                    },
+                                    "type": "array"
+                                },
+                                "hasMore": {
+                                    "type": "boolean"
+                                },
+                                "historyMayPrecedeEpoch": {
+                                    "type": "boolean"
+                                },
+                                "instanceId": {
+                                    "type": "string"
+                                },
+                                "nextPosition": {
+                                    "additionalProperties": false,
+                                    "properties": {
+                                        "byteOffset": {
+                                            "pattern": "^[0-9]+$",
+                                            "type": "string"
+                                        },
+                                        "cellOffset": {
+                                            "pattern": "^[0-9]+$",
+                                            "type": "string"
+                                        },
+                                        "lineId": {
+                                            "pattern": "^[0-9]+$",
+                                            "type": "string"
+                                        },
+                                        "scalarOffset": {
+                                            "minimum": 0,
+                                            "type": "integer"
+                                        }
+                                    },
+                                    "required": [
+                                        "byteOffset",
+                                        "cellOffset",
+                                        "lineId",
+                                        "scalarOffset"
+                                    ],
+                                    "type": "object"
+                                },
+                                "nextToken": {
+                                    "type": "string"
+                                },
+                                "sampledEndPosition": {
+                                    "additionalProperties": false,
+                                    "properties": {
+                                        "byteOffset": {
+                                            "pattern": "^[0-9]+$",
+                                            "type": "string"
+                                        },
+                                        "cellOffset": {
+                                            "pattern": "^[0-9]+$",
+                                            "type": "string"
+                                        },
+                                        "lineId": {
+                                            "pattern": "^[0-9]+$",
+                                            "type": "string"
+                                        },
+                                        "scalarOffset": {
+                                            "minimum": 0,
+                                            "type": "integer"
+                                        }
+                                    },
+                                    "required": [
+                                        "byteOffset",
+                                        "cellOffset",
+                                        "lineId",
+                                        "scalarOffset"
+                                    ],
+                                    "type": "object"
+                                },
+                                "sampledEndToken": {
+                                    "type": "string"
+                                },
+                                "sessionId": {
+                                    "type": "string"
+                                },
+                                "source": {
+                                    "enum": [
+                                        "log"
+                                    ],
+                                    "type": "string"
+                                },
+                                "status": {
+                                    "enum": [
+                                        "ok",
+                                        "gap",
+                                        "invalidated",
+                                        "pending",
+                                        "busy",
+                                        "unavailable"
+                                    ],
+                                    "type": "string"
+                                }
+                            },
+                            "required": [
+                                "cacheGeneration",
+                                "capturedAt",
+                                "caughtUp",
+                                "clearToken",
+                                "coverage",
+                                "earliestPosition",
+                                "earliestToken",
+                                "epoch",
+                                "fragments",
+                                "hasMore",
+                                "historyMayPrecedeEpoch",
+                                "instanceId",
+                                "nextPosition",
+                                "nextToken",
+                                "sampledEndPosition",
+                                "sampledEndToken",
+                                "sessionId",
+                                "source",
+                                "status"
+                            ],
+                            "type": "object"
+                        },
+                        "outputError": {
+                            "additionalProperties": false,
+                            "properties": {
+                                "code": {
+                                    "type": "string"
+                                },
+                                "details": {
+                                    "additionalProperties": false,
+                                    "properties": {
+                                        "commandId": {
+                                            "type": "string"
+                                        },
+                                        "epoch": {
+                                            "type": "string"
+                                        },
+                                        "executionId": {
+                                            "type": "string"
+                                        },
+                                        "executionMayHaveStarted": {
+                                            "type": "boolean"
+                                        },
+                                        "exitCode": {
+                                            "type": [
+                                                "integer",
+                                                "null"
+                                            ]
+                                        },
+                                        "finishedAt": {
+                                            "type": [
+                                                "string",
+                                                "null"
+                                            ]
+                                        },
+                                        "instanceId": {
+                                            "type": "string"
+                                        },
+                                        "outputTruncated": {
+                                            "type": "boolean"
+                                        },
+                                        "policyVersion": {
+                                            "type": "string"
+                                        },
+                                        "sessionId": {
+                                            "type": "string"
+                                        },
+                                        "startedAt": {
+                                            "type": [
+                                                "string",
+                                                "null"
+                                            ]
+                                        },
+                                        "status": {
+                                            "enum": [
+                                                "completed",
+                                                "failed",
+                                                "timed_out",
+                                                "cancelled",
+                                                "unknown"
+                                            ],
+                                            "type": "string"
+                                        },
+                                        "stderr": {
+                                            "type": "string"
+                                        },
+                                        "stdout": {
+                                            "type": "string"
+                                        },
+                                        "terminationConfirmed": {
+                                            "type": "boolean"
+                                        }
+                                    },
+                                    "required": [
+                                        "commandId",
+                                        "epoch",
+                                        "executionId",
+                                        "executionMayHaveStarted",
+                                        "exitCode",
+                                        "finishedAt",
+                                        "instanceId",
+                                        "outputTruncated",
+                                        "policyVersion",
+                                        "sessionId",
+                                        "startedAt",
+                                        "status",
+                                        "stderr",
+                                        "stdout",
+                                        "terminationConfirmed"
+                                    ],
+                                    "type": "object"
+                                },
+                                "message": {
+                                    "type": "string"
+                                },
+                                "retryAfterMs": {
+                                    "minimum": 0,
+                                    "type": "integer"
+                                },
+                                "retryable": {
+                                    "type": "boolean"
+                                }
+                            },
+                            "required": [
+                                "code",
+                                "message",
+                                "retryable"
+                            ],
+                            "type": "object"
+                        },
+                        "reason": {
+                            "type": "string"
+                        },
+                        "sessionId": {
+                            "type": "string"
+                        },
+                        "status": {
+                            "enum": [
+                                "accepted",
+                                "running",
+                                "stop_requested",
+                                "completed",
+                                "unknown",
+                                "failed"
+                            ],
+                            "type": "string"
+                        },
+                        "stopRequested": {
+                            "type": "boolean"
+                        },
+                        "submissionStatus": {
+                            "type": "string"
+                        },
+                        "suggestedQueryMs": {
+                            "minimum": 0,
+                            "type": "integer"
+                        },
+                        "taskId": {
+                            "type": "string"
+                        },
+                        "terminationConfirmed": {
+                            "type": "boolean"
+                        }
+                    },
+                    "required": [
+                        "taskId",
+                        "operationId",
+                        "sessionId",
+                        "epoch",
+                        "status",
+                        "accepted",
+                        "completed",
+                        "executionId",
+                        "exitCode",
+                        "terminationConfirmed",
+                        "evidenceKind",
+                        "submissionStatus",
+                        "inputMayHaveBeenSent",
+                        "stopRequested",
+                        "reason",
+                        "baseline",
+                        "suggestedQueryMs"
+                    ],
+                    "type": "object"
+                },
+                "error": {
+                    "additionalProperties": false,
+                    "properties": {
+                        "code": {
+                            "type": "string"
+                        },
+                        "details": {
+                            "additionalProperties": false,
+                            "properties": {
+                                "commandId": {
+                                    "type": "string"
+                                },
+                                "epoch": {
+                                    "type": "string"
+                                },
+                                "executionId": {
+                                    "type": "string"
+                                },
+                                "executionMayHaveStarted": {
+                                    "type": "boolean"
+                                },
+                                "exitCode": {
+                                    "type": [
+                                        "integer",
+                                        "null"
+                                    ]
+                                },
+                                "finishedAt": {
+                                    "type": [
+                                        "string",
+                                        "null"
+                                    ]
+                                },
+                                "instanceId": {
+                                    "type": "string"
+                                },
+                                "outputTruncated": {
+                                    "type": "boolean"
+                                },
+                                "policyVersion": {
+                                    "type": "string"
+                                },
+                                "sessionId": {
+                                    "type": "string"
+                                },
+                                "startedAt": {
+                                    "type": [
+                                        "string",
+                                        "null"
+                                    ]
+                                },
+                                "status": {
+                                    "enum": [
+                                        "completed",
+                                        "failed",
+                                        "timed_out",
+                                        "cancelled",
+                                        "unknown"
+                                    ],
+                                    "type": "string"
+                                },
+                                "stderr": {
+                                    "type": "string"
+                                },
+                                "stdout": {
+                                    "type": "string"
+                                },
+                                "terminationConfirmed": {
+                                    "type": "boolean"
+                                }
+                            },
+                            "required": [
+                                "commandId",
+                                "epoch",
+                                "executionId",
+                                "executionMayHaveStarted",
+                                "exitCode",
+                                "finishedAt",
+                                "instanceId",
+                                "outputTruncated",
+                                "policyVersion",
+                                "sessionId",
+                                "startedAt",
+                                "status",
+                                "stderr",
+                                "stdout",
+                                "terminationConfirmed"
+                            ],
+                            "type": "object"
+                        },
+                        "message": {
+                            "type": "string"
+                        },
+                        "retryAfterMs": {
+                            "minimum": 0,
+                            "type": "integer"
+                        },
+                        "retryable": {
+                            "type": "boolean"
+                        }
+                    },
+                    "required": [
+                        "code",
+                        "message",
+                        "retryable"
+                    ],
+                    "type": "object"
+                },
+                "ok": {
+                    "type": "boolean"
+                },
+                "schemaVersion": {
+                    "const": 1
+                }
+            },
+            "required": [
+                "schemaVersion",
+                "ok"
+            ],
+            "type": "object"
+        }
+    },
+    {
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "description": "Explicitly request Ctrl+C for the original task only while its target, execution and original control generations still match. Retry the same stop operationId. Human takeover or a newer command rejects stale stop without writing. stop_requested does not confirm remote termination; cancelling a read or releasing control is different.",
+        "inputSchema": {
+            "additionalProperties": false,
+            "properties": {
+                "epoch": {
+                    "maxLength": 64,
+                    "type": "string"
+                },
+                "operationId": {
+                    "format": "uuid",
+                    "maxLength": 36,
+                    "type": "string"
+                },
+                "sessionId": {
+                    "maxLength": 36,
+                    "type": "string"
+                },
+                "taskId": {
+                    "maxLength": 64,
+                    "minLength": 1,
+                    "type": "string"
+                }
+            },
+            "required": [
+                "sessionId",
+                "epoch",
+                "taskId",
+                "operationId"
+            ],
+            "type": "object"
+        },
+        "name": "novaterm_stop_task",
+        "outputSchema": {
+            "additionalProperties": false,
+            "oneOf": [
+                {
+                    "not": {
+                        "required": [
+                            "error"
+                        ]
+                    },
+                    "properties": {
+                        "ok": {
+                            "const": true
+                        }
+                    },
+                    "required": [
+                        "data"
+                    ]
+                },
+                {
+                    "not": {
+                        "required": [
+                            "data"
+                        ]
+                    },
+                    "properties": {
+                        "ok": {
+                            "const": false
+                        }
+                    },
+                    "required": [
+                        "error"
+                    ]
+                }
+            ],
+            "properties": {
+                "data": {
+                    "additionalProperties": false,
+                    "properties": {
+                        "accepted": {
+                            "type": "boolean"
+                        },
+                        "baseline": {
+                            "additionalProperties": false,
+                            "properties": {
+                                "cacheGeneration": {
+                                    "pattern": "^[0-9]+$",
+                                    "type": "string"
+                                },
+                                "capturedAt": {
+                                    "type": "string"
+                                },
+                                "caughtUp": {
+                                    "type": "boolean"
+                                },
+                                "clearToken": {
+                                    "type": "string"
+                                },
+                                "coverage": {
+                                    "enum": [
+                                        "committed_history"
+                                    ],
+                                    "type": "string"
+                                },
+                                "earliestPosition": {
+                                    "additionalProperties": false,
+                                    "properties": {
+                                        "byteOffset": {
+                                            "pattern": "^[0-9]+$",
+                                            "type": "string"
+                                        },
+                                        "cellOffset": {
+                                            "pattern": "^[0-9]+$",
+                                            "type": "string"
+                                        },
+                                        "lineId": {
+                                            "pattern": "^[0-9]+$",
+                                            "type": "string"
+                                        },
+                                        "scalarOffset": {
+                                            "minimum": 0,
+                                            "type": "integer"
+                                        }
+                                    },
+                                    "required": [
+                                        "byteOffset",
+                                        "cellOffset",
+                                        "lineId",
+                                        "scalarOffset"
+                                    ],
+                                    "type": "object"
+                                },
+                                "earliestToken": {
+                                    "type": "string"
+                                },
+                                "epoch": {
+                                    "type": "string"
+                                },
+                                "fragments": {
+                                    "items": {
+                                        "additionalProperties": false,
+                                        "properties": {
+                                            "byteOffset": {
+                                                "pattern": "^[0-9]+$",
+                                                "type": "string"
+                                            },
+                                            "hardBreak": {
+                                                "type": "boolean"
+                                            },
+                                            "lineComplete": {
+                                                "type": "boolean"
+                                            },
+                                            "lineId": {
+                                                "pattern": "^[0-9]+$",
+                                                "type": "string"
+                                            },
+                                            "text": {
+                                                "type": "string"
+                                            }
+                                        },
+                                        "required": [
+                                            "byteOffset",
+                                            "hardBreak",
+                                            "lineComplete",
+                                            "lineId",
+                                            "text"
+                                        ],
+                                        "type": "object"
+                                    },
+                                    "type": "array"
+                                },
+                                "hasMore": {
+                                    "type": "boolean"
+                                },
+                                "historyMayPrecedeEpoch": {
+                                    "type": "boolean"
+                                },
+                                "instanceId": {
+                                    "type": "string"
+                                },
+                                "nextPosition": {
+                                    "additionalProperties": false,
+                                    "properties": {
+                                        "byteOffset": {
+                                            "pattern": "^[0-9]+$",
+                                            "type": "string"
+                                        },
+                                        "cellOffset": {
+                                            "pattern": "^[0-9]+$",
+                                            "type": "string"
+                                        },
+                                        "lineId": {
+                                            "pattern": "^[0-9]+$",
+                                            "type": "string"
+                                        },
+                                        "scalarOffset": {
+                                            "minimum": 0,
+                                            "type": "integer"
+                                        }
+                                    },
+                                    "required": [
+                                        "byteOffset",
+                                        "cellOffset",
+                                        "lineId",
+                                        "scalarOffset"
+                                    ],
+                                    "type": "object"
+                                },
+                                "nextToken": {
+                                    "type": "string"
+                                },
+                                "sampledEndPosition": {
+                                    "additionalProperties": false,
+                                    "properties": {
+                                        "byteOffset": {
+                                            "pattern": "^[0-9]+$",
+                                            "type": "string"
+                                        },
+                                        "cellOffset": {
+                                            "pattern": "^[0-9]+$",
+                                            "type": "string"
+                                        },
+                                        "lineId": {
+                                            "pattern": "^[0-9]+$",
+                                            "type": "string"
+                                        },
+                                        "scalarOffset": {
+                                            "minimum": 0,
+                                            "type": "integer"
+                                        }
+                                    },
+                                    "required": [
+                                        "byteOffset",
+                                        "cellOffset",
+                                        "lineId",
+                                        "scalarOffset"
+                                    ],
+                                    "type": "object"
+                                },
+                                "sampledEndToken": {
+                                    "type": "string"
+                                },
+                                "sessionId": {
+                                    "type": "string"
+                                },
+                                "source": {
+                                    "enum": [
+                                        "log"
+                                    ],
+                                    "type": "string"
+                                },
+                                "status": {
+                                    "enum": [
+                                        "ok",
+                                        "gap",
+                                        "invalidated",
+                                        "pending",
+                                        "busy",
+                                        "unavailable"
+                                    ],
+                                    "type": "string"
+                                }
+                            },
+                            "required": [
+                                "cacheGeneration",
+                                "capturedAt",
+                                "caughtUp",
+                                "clearToken",
+                                "coverage",
+                                "earliestPosition",
+                                "earliestToken",
+                                "epoch",
+                                "fragments",
+                                "hasMore",
+                                "historyMayPrecedeEpoch",
+                                "instanceId",
+                                "nextPosition",
+                                "nextToken",
+                                "sampledEndPosition",
+                                "sampledEndToken",
+                                "sessionId",
+                                "source",
+                                "status"
+                            ],
+                            "type": "object"
+                        },
+                        "completed": {
+                            "type": "boolean"
+                        },
+                        "epoch": {
+                            "type": "string"
+                        },
+                        "evidenceKind": {
+                            "type": "string"
+                        },
+                        "executionId": {
+                            "type": [
+                                "string",
+                                "null"
+                            ]
+                        },
+                        "exitCode": {
+                            "type": [
+                                "integer",
+                                "null"
+                            ]
+                        },
+                        "inputMayHaveBeenSent": {
+                            "type": "boolean"
+                        },
+                        "operationId": {
+                            "type": "string"
+                        },
+                        "output": {
+                            "additionalProperties": false,
+                            "properties": {
+                                "cacheGeneration": {
+                                    "pattern": "^[0-9]+$",
+                                    "type": "string"
+                                },
+                                "capturedAt": {
+                                    "type": "string"
+                                },
+                                "caughtUp": {
+                                    "type": "boolean"
+                                },
+                                "clearToken": {
+                                    "type": "string"
+                                },
+                                "coverage": {
+                                    "enum": [
+                                        "committed_history"
+                                    ],
+                                    "type": "string"
+                                },
+                                "earliestPosition": {
+                                    "additionalProperties": false,
+                                    "properties": {
+                                        "byteOffset": {
+                                            "pattern": "^[0-9]+$",
+                                            "type": "string"
+                                        },
+                                        "cellOffset": {
+                                            "pattern": "^[0-9]+$",
+                                            "type": "string"
+                                        },
+                                        "lineId": {
+                                            "pattern": "^[0-9]+$",
+                                            "type": "string"
+                                        },
+                                        "scalarOffset": {
+                                            "minimum": 0,
+                                            "type": "integer"
+                                        }
+                                    },
+                                    "required": [
+                                        "byteOffset",
+                                        "cellOffset",
+                                        "lineId",
+                                        "scalarOffset"
+                                    ],
+                                    "type": "object"
+                                },
+                                "earliestToken": {
+                                    "type": "string"
+                                },
+                                "epoch": {
+                                    "type": "string"
+                                },
+                                "fragments": {
+                                    "items": {
+                                        "additionalProperties": false,
+                                        "properties": {
+                                            "byteOffset": {
+                                                "pattern": "^[0-9]+$",
+                                                "type": "string"
+                                            },
+                                            "hardBreak": {
+                                                "type": "boolean"
+                                            },
+                                            "lineComplete": {
+                                                "type": "boolean"
+                                            },
+                                            "lineId": {
+                                                "pattern": "^[0-9]+$",
+                                                "type": "string"
+                                            },
+                                            "text": {
+                                                "type": "string"
+                                            }
+                                        },
+                                        "required": [
+                                            "byteOffset",
+                                            "hardBreak",
+                                            "lineComplete",
+                                            "lineId",
+                                            "text"
+                                        ],
+                                        "type": "object"
+                                    },
+                                    "type": "array"
+                                },
+                                "hasMore": {
+                                    "type": "boolean"
+                                },
+                                "historyMayPrecedeEpoch": {
+                                    "type": "boolean"
+                                },
+                                "instanceId": {
+                                    "type": "string"
+                                },
+                                "nextPosition": {
+                                    "additionalProperties": false,
+                                    "properties": {
+                                        "byteOffset": {
+                                            "pattern": "^[0-9]+$",
+                                            "type": "string"
+                                        },
+                                        "cellOffset": {
+                                            "pattern": "^[0-9]+$",
+                                            "type": "string"
+                                        },
+                                        "lineId": {
+                                            "pattern": "^[0-9]+$",
+                                            "type": "string"
+                                        },
+                                        "scalarOffset": {
+                                            "minimum": 0,
+                                            "type": "integer"
+                                        }
+                                    },
+                                    "required": [
+                                        "byteOffset",
+                                        "cellOffset",
+                                        "lineId",
+                                        "scalarOffset"
+                                    ],
+                                    "type": "object"
+                                },
+                                "nextToken": {
+                                    "type": "string"
+                                },
+                                "sampledEndPosition": {
+                                    "additionalProperties": false,
+                                    "properties": {
+                                        "byteOffset": {
+                                            "pattern": "^[0-9]+$",
+                                            "type": "string"
+                                        },
+                                        "cellOffset": {
+                                            "pattern": "^[0-9]+$",
+                                            "type": "string"
+                                        },
+                                        "lineId": {
+                                            "pattern": "^[0-9]+$",
+                                            "type": "string"
+                                        },
+                                        "scalarOffset": {
+                                            "minimum": 0,
+                                            "type": "integer"
+                                        }
+                                    },
+                                    "required": [
+                                        "byteOffset",
+                                        "cellOffset",
+                                        "lineId",
+                                        "scalarOffset"
+                                    ],
+                                    "type": "object"
+                                },
+                                "sampledEndToken": {
+                                    "type": "string"
+                                },
+                                "sessionId": {
+                                    "type": "string"
+                                },
+                                "source": {
+                                    "enum": [
+                                        "log"
+                                    ],
+                                    "type": "string"
+                                },
+                                "status": {
+                                    "enum": [
+                                        "ok",
+                                        "gap",
+                                        "invalidated",
+                                        "pending",
+                                        "busy",
+                                        "unavailable"
+                                    ],
+                                    "type": "string"
+                                }
+                            },
+                            "required": [
+                                "cacheGeneration",
+                                "capturedAt",
+                                "caughtUp",
+                                "clearToken",
+                                "coverage",
+                                "earliestPosition",
+                                "earliestToken",
+                                "epoch",
+                                "fragments",
+                                "hasMore",
+                                "historyMayPrecedeEpoch",
+                                "instanceId",
+                                "nextPosition",
+                                "nextToken",
+                                "sampledEndPosition",
+                                "sampledEndToken",
+                                "sessionId",
+                                "source",
+                                "status"
+                            ],
+                            "type": "object"
+                        },
+                        "outputError": {
+                            "additionalProperties": false,
+                            "properties": {
+                                "code": {
+                                    "type": "string"
+                                },
+                                "details": {
+                                    "additionalProperties": false,
+                                    "properties": {
+                                        "commandId": {
+                                            "type": "string"
+                                        },
+                                        "epoch": {
+                                            "type": "string"
+                                        },
+                                        "executionId": {
+                                            "type": "string"
+                                        },
+                                        "executionMayHaveStarted": {
+                                            "type": "boolean"
+                                        },
+                                        "exitCode": {
+                                            "type": [
+                                                "integer",
+                                                "null"
+                                            ]
+                                        },
+                                        "finishedAt": {
+                                            "type": [
+                                                "string",
+                                                "null"
+                                            ]
+                                        },
+                                        "instanceId": {
+                                            "type": "string"
+                                        },
+                                        "outputTruncated": {
+                                            "type": "boolean"
+                                        },
+                                        "policyVersion": {
+                                            "type": "string"
+                                        },
+                                        "sessionId": {
+                                            "type": "string"
+                                        },
+                                        "startedAt": {
+                                            "type": [
+                                                "string",
+                                                "null"
+                                            ]
+                                        },
+                                        "status": {
+                                            "enum": [
+                                                "completed",
+                                                "failed",
+                                                "timed_out",
+                                                "cancelled",
+                                                "unknown"
+                                            ],
+                                            "type": "string"
+                                        },
+                                        "stderr": {
+                                            "type": "string"
+                                        },
+                                        "stdout": {
+                                            "type": "string"
+                                        },
+                                        "terminationConfirmed": {
+                                            "type": "boolean"
+                                        }
+                                    },
+                                    "required": [
+                                        "commandId",
+                                        "epoch",
+                                        "executionId",
+                                        "executionMayHaveStarted",
+                                        "exitCode",
+                                        "finishedAt",
+                                        "instanceId",
+                                        "outputTruncated",
+                                        "policyVersion",
+                                        "sessionId",
+                                        "startedAt",
+                                        "status",
+                                        "stderr",
+                                        "stdout",
+                                        "terminationConfirmed"
+                                    ],
+                                    "type": "object"
+                                },
+                                "message": {
+                                    "type": "string"
+                                },
+                                "retryAfterMs": {
+                                    "minimum": 0,
+                                    "type": "integer"
+                                },
+                                "retryable": {
+                                    "type": "boolean"
+                                }
+                            },
+                            "required": [
+                                "code",
+                                "message",
+                                "retryable"
+                            ],
+                            "type": "object"
+                        },
+                        "reason": {
+                            "type": "string"
+                        },
+                        "sessionId": {
+                            "type": "string"
+                        },
+                        "status": {
+                            "enum": [
+                                "accepted",
+                                "running",
+                                "stop_requested",
+                                "completed",
+                                "unknown",
+                                "failed"
+                            ],
+                            "type": "string"
+                        },
+                        "stopRequested": {
+                            "type": "boolean"
+                        },
+                        "submissionStatus": {
+                            "type": "string"
+                        },
+                        "suggestedQueryMs": {
+                            "minimum": 0,
+                            "type": "integer"
+                        },
+                        "taskId": {
+                            "type": "string"
+                        },
+                        "terminationConfirmed": {
+                            "type": "boolean"
+                        }
+                    },
+                    "required": [
+                        "taskId",
+                        "operationId",
+                        "sessionId",
+                        "epoch",
+                        "status",
+                        "accepted",
+                        "completed",
+                        "executionId",
+                        "exitCode",
+                        "terminationConfirmed",
+                        "evidenceKind",
+                        "submissionStatus",
+                        "inputMayHaveBeenSent",
+                        "stopRequested",
+                        "reason",
+                        "baseline",
+                        "suggestedQueryMs"
+                    ],
+                    "type": "object"
+                },
+                "error": {
+                    "additionalProperties": false,
+                    "properties": {
+                        "code": {
+                            "type": "string"
+                        },
+                        "details": {
+                            "additionalProperties": false,
+                            "properties": {
+                                "commandId": {
+                                    "type": "string"
+                                },
+                                "epoch": {
+                                    "type": "string"
+                                },
+                                "executionId": {
+                                    "type": "string"
+                                },
+                                "executionMayHaveStarted": {
+                                    "type": "boolean"
+                                },
+                                "exitCode": {
+                                    "type": [
+                                        "integer",
+                                        "null"
+                                    ]
+                                },
+                                "finishedAt": {
+                                    "type": [
+                                        "string",
+                                        "null"
+                                    ]
+                                },
+                                "instanceId": {
+                                    "type": "string"
+                                },
+                                "outputTruncated": {
+                                    "type": "boolean"
+                                },
+                                "policyVersion": {
+                                    "type": "string"
+                                },
+                                "sessionId": {
+                                    "type": "string"
+                                },
+                                "startedAt": {
+                                    "type": [
+                                        "string",
+                                        "null"
+                                    ]
+                                },
+                                "status": {
+                                    "enum": [
+                                        "completed",
+                                        "failed",
+                                        "timed_out",
+                                        "cancelled",
+                                        "unknown"
+                                    ],
+                                    "type": "string"
+                                },
+                                "stderr": {
+                                    "type": "string"
+                                },
+                                "stdout": {
+                                    "type": "string"
+                                },
+                                "terminationConfirmed": {
+                                    "type": "boolean"
+                                }
+                            },
+                            "required": [
+                                "commandId",
+                                "epoch",
+                                "executionId",
+                                "executionMayHaveStarted",
+                                "exitCode",
+                                "finishedAt",
+                                "instanceId",
+                                "outputTruncated",
+                                "policyVersion",
+                                "sessionId",
+                                "startedAt",
+                                "status",
+                                "stderr",
+                                "stdout",
+                                "terminationConfirmed"
+                            ],
+                            "type": "object"
+                        },
+                        "message": {
+                            "type": "string"
+                        },
+                        "retryAfterMs": {
+                            "minimum": 0,
+                            "type": "integer"
+                        },
+                        "retryable": {
+                            "type": "boolean"
+                        }
+                    },
+                    "required": [
+                        "code",
+                        "message",
+                        "retryable"
+                    ],
+                    "type": "object"
+                },
+                "ok": {
+                    "type": "boolean"
+                },
+                "schemaVersion": {
+                    "const": 1
+                }
+            },
+            "required": [
+                "schemaVersion",
+                "ok"
+            ],
+            "type": "object"
+        }
+    }
+]

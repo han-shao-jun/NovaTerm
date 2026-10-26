@@ -1,6 +1,6 @@
 # 指定文本等待、长任务、文件传输与目标连接
 
-更新：2026-10-25。**目标设计，尚未实施。** 本文补齐 Netcatty 对照中发现的使用能力差距，不引入内置 Agent、聊天或自动开发平台。现行接口见 [02](02_Current_MCP_Contract.md)，日志位置和清空见 [04](04_Cursor_Observation_and_Clear.md)。
+更新：2026-10-27。**B3a文本等待/长任务已实现；B3b文件传输/保存目标连接尚未实施。** 本文保留需求和边界，不引入内置Agent、聊天或自动开发平台。精确已实现字段/预算以 [02](02_Current_MCP_Contract.md) 为准，实际验证见 [B3记录](records/B3_Implementation_2026-10-27.md)；日志位置和清空见 [04](04_Cursor_Observation_and_Clear.md)。
 
 ## 1. 最小交付范围
 
@@ -113,4 +113,4 @@ CommandRuntime/Session Controller 继续拥有执行事实；新增异步任务�
 | 保存目标 | Profile/Session 创建接线、目标授权 | 重复打开、复用他人会话、串口占用、认证待处理、配置变化、忙碌关闭、旧 epoch |
 | 指引 | WireSession/ToolCodec 元数据 | 两代规则冲突、错误权限保证、推荐未实现工具、本地和远端混淆 |
 
-完整调度见 [01](01_Phases_and_Acceptance.md) 的 B3a/B3b，差距编号见 [03](03_Gaps_and_Evidence.md) G14～G17。实现和专项验收完成前不改变 02 的现行工具列表，不把本轮文档补全算作产品功能完成。
+完整调度见 [01](01_Phases_and_Acceptance.md) 的B3a/B3b，差距编号见 [03](03_Gaps_and_Evidence.md) G14～G17。B3a已按02注册四工具并冻结fixture；源码/替身完成与真实设备验收分开，不能据此关闭B4。B3b不注册工具。

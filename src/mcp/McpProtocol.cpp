@@ -46,7 +46,10 @@ QString agentInstructions()
         "UART idle completion is unverified, not proof of remote termination or test success. "
         "Never rerun uncertain operations with a new operationId. Release or stopped observation does not stop a remote process. "
         "Local cache clear requires its separate grant and a fresh log clearToken; retry only identical operationId and arguments. It does not stop remote programs. "
-        "Only call tools actually listed; text-condition waits, background tasks, MCP file transfer and saved-target connection tools are not available.");
+        "Use novaterm_wait_text for bounded literal waits: log defaults to a new tail baseline, screen requires current or next; resume with its token and honor gaps. Text matches do not prove test success. "
+        "For long work use novaterm_start_task once, then novaterm_query_task by taskId or the original operationId; RPC disconnect does not stop an admitted task. "
+        "novaterm_stop_task requests an interrupt only for the original control/execution; after human takeover observe again, never interrupt the new command. "
+        "Only call tools actually listed; MCP file transfer and saved-target connection tools are not available.");
 }
 QString newId() { return QUuid::createUuid().toString(QUuid::WithoutBraces); }
 

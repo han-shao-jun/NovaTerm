@@ -5,7 +5,52 @@
 
 **B1 日志模式与 B2 清空事务已实施**：缺省 source=observation 的 sinceToken 仍是模型观察游标，recentOutput 仍是摘要；显式 source=log 使用独立位置游标。read_context 的兼容 Schema 扩展见下节及 [04](04_Cursor_Observation_and_Clear.md)，其他十一工具对象保持。
 
-2026-10-25 后续设计：指定文本等待、长任务直接入口、SSH/SFTP 单文件传输及保存目标打开/关闭同样只是 [06](06_Terminal_Workflow_Extensions.md) 的目标设计，未加入本文工具列表，也未在此次修改产品说明或代码。
+2026-10-27 B3/B3a：追加下述四工具，当前共十七项；原十三对象兼容保留，旧九项 ToolRequest 联合不扩张。SSH/SFTP 单文件传输及保存目标打开/关闭仍为 B3b 未实施设计。源码/替身验证不代替真实设备验收。
+
+## B3/B3a：文本等待与长任务（2026-10-27）
+
+冻结目录为 `tests/mcp/fixtures/workflow-tools-2026-10-27.json`。两代协议共用同一工具目录、instructions、应用状态与可信客户端；新请求只在协议组合层分派。
+
+| 工具 | 参数与权限 |
+| --- | --- |
+| novaterm_wait_text | sessionId/epoch、source=log/screen、texts 必填；仅读取授权，不取得输入控制 |
+| novaterm_start_task | sessionId/epoch、inputToken、规范 UUID operationId、actions 必填；独立完整终端输入授权；timeoutMs 默认600000，1..3600000 |
+| novaterm_query_task | sessionId/epoch；taskId 与原启动 operationId 严格二选一；可选日志 sinceToken；仅读取，不续租输入 |
+| novaterm_stop_task | sessionId/epoch、taskId、独立停止 operationId 必填；完整终端输入授权，且原任务控制仍有效 |
+
+### 指定字面文本等待
+
+source 必填；texts 为1..8个互异非空字面串，每个最多256 UTF-8字节。match=any（默认）或all，caseSensitive 默认true；all 表示范围内均出现，不证明顺序。首版不接受任意正则。
+
+日志：传B1 sinceToken指定观察起点；省略时以首次成功读取的当前已提交历史尾部建立基线，不扫描此前已提交历史中的PASS。该边界不是设备输出时间：仍在活动屏幕的旧文字稍后滚入历史时，属于此位置之后可扫描的片段。需要区分测试轮次时，应结合本轮独有标志/固件身份，不将通用PASS当作新轮次已执行的证明。屏幕必须显式start=current或next，拒绝日志sinceToken；current扫描第一份可用屏幕，next将它作为基线后等待另一revision。同一屏幕的all必须在同一份快照成立，不拼接不同版本。
+
+waitMs 为0..30000，默认0；scanBytes 默认262144，上限1048576，下限1。日志每轮最多16384字节/1024分段，最多处理四个等待或8ms后交还事件循环；屏幕按一份快照原子扫描，预算不足不消费半帧。跨日志页/UTF-8标量保留字面串所需尾部，保留真实LF，不把两行拼成一个单词。
+
+结果 status 区分 matched/timeout/cancelled/gap/invalidated/scan_budget_exhausted；matchedTexts 含条件索引/文本、有界上下文和日志命中末端位置或屏幕revision。context 每份最多2048 UTF-8字节；日志 nextToken/nextPosition 为**服务端扫描位置**，startToken 保留原始日志起点。若需全文输出，独立从 startToken 分页读取，不能把已扫描当成已交付全文。screen 返回revision、capturedAt及截断事实，不伪装成日志位置。
+
+timeout、可交付的cancelled、预算耗尽返回一次性 resumeToken；续接需重传相同目标/source/texts/match/caseSensitive/start，waitMs/scanBytes 可以调整，不得同时传sinceToken。匹配尾部、all已有事实及位置在服务端有界保留：每客户端8/全局32个活动及保留状态，初次受理起固定十分钟，不续期、不静默驱逐，满则BUSY。过期/未知/条件冲突返回CURSOR_STALE；RPC断流或取消而无法交付续扫票据时释放状态，不遗留不可达配额。
+
+缓存换代返回invalidated并清除旧代际上下文/命中证据；淘汰返回gap，不自动跳位置。gap提供可得的earliestToken/位置；冷页pending/busy/unavailable通过sourceStatus表达，保留首个未扫描位置，timeout不伪装为空源。入口、每轮和交付前复核授权/epoch/attachment/cacheGeneration，撤权拒绝。停止等待绝不发送设备输入。matched/evidenceKind=literal_text/provesSuccess=false 仅证明文本出现。
+
+### 长任务事实与停止
+
+Start 经现有 TerminalInteraction、Controller、Arbiter 输入。command动作单独且要求就绪；原始text/paste/key/line_ending支持SSH/UART，无额外Enter、Shell探测、隔离exec或第二执行器。执行模式固定shared_terminal，保留当前cwd/env。清空/淘汰不删除任务执行事实，输出仍引用B1缓存，不保存另一份任务全文日志。
+
+taskId绑定客户端/Session/epoch/授权版本。首次受理后短RPC断流或取消只停止交付，继续由原Controller维护输入和完成；查询可凭原operationId恢复受理。保留窗口内同operationId及全部规范参数的精确重试返回同一任务，不重复输入；参数冲突INPUT_SEQUENCE_CONFLICT。旧输入token仍受原期限与代际限制，不能在记录回收后重新提交；应用重启/关闭MCP后不恢复任务，不换ID自动重跑未知操作。
+
+新任务首次创建只关联既有输入用例本次实际受理的Submit事实；普通interact_terminal的旧operationId不能借最新inputToken转为新任务，返回INPUT_SEQUENCE_CONFLICT。已登记任务的精确重试仍先查询原任务记录；普通交互自身的精确重试保持兼容。提交事实独立于后续观察交付是否成功。
+
+索引每客户端32/全局128；活动记录不提前驱逐，终态保留十分钟，满则BUSY。执行期限到达使用原Controller释放/unknown收口，不发Ctrl+C、不声称远端已停。独立任务关联key不使用短RPC key；查询不触摸输入租约，活动任务自身按既有Controller续期边界维持控制，人工输入仍立即优先。
+
+状态 accepted/running/stop_requested/completed/unknown/failed；分别返回accepted/completed、submissionStatus、inputMayHaveBeenSent、executionId、evidenceKind、exitCode、terminationConfirmed、reason、baseline及建议查询间隔。baseline为提交前B1尾书签；query可带sinceToken返回有界output页或outputError，缺口/清空不擦除任务事实。
+
+SSH只有现有集成完成/提示符等实际证据才能标记completed，退出码仅在可取得时存在；提示符不等于功能测试成功。UART原始任务静默继续running，期限到达unknown，exitCode=null、terminationConfirmed=false；旧run_command串口静默兼容字段保持，不投射为新任务的可靠退出证据。list_sessions的availability.terminalTasks分别声明可启动/可观察、证据类型、可停止、是否可验证退出码和不可用原因。
+
+stop只表示对原任务明确请求中断，经过现有输入通路发送一次Ctrl+C；相同停止ID精确重试不重复输入。受理及真正编码后提交前均核对原user/control/execution绑定；人工接管、可信ShellReset/FramingError、完成后新命令、撤权或断连使旧停止零写入拒绝。stop_requested不保证设备响应或进程终止。释放控制、取消等待、请求停止是不同动作。
+
+B3基础恢复保留旧inputToken/replyToExecutionId/operationId保护、CR/LF/CRLF与模式相关按键；集成Shell的Ctrl+C丢弃未提交输入跟踪，须收到新可信提示符才恢复command就绪。普通UART启动文本不自动创建新epoch或证明环境恢复，仍由调用方核对固件/启动标志。
+
+本轮实际命令、失败与最终验证范围见 [B3记录](records/B3_Implementation_2026-10-27.md)；B3b、B4真实设备、跨平台与性能没有据此验收。
 
 2026-10-23 增量：当前目录为原九工具 + `novaterm_list_captures`、`novaterm_read_history`、`novaterm_search_history`，共 **12** 项。原九工具对象保持兼容；新增目录/Schema 冻结在 `tests/mcp/fixtures/history-tool-catalog-2026-10-23.json`。历史工具使用独立 capture 授权，不接受 sessionId、epoch、principal/client 或本机路径参数。实现与平台范围见 [P3 实施记录](records/P3_Implementation_and_Verification.md)。以下原九工具分节仍是其兼容契约。
 
@@ -46,7 +91,7 @@ B2 在原十二工具之后追加 `novaterm_clear_terminal`，当前十三项；
 | includeViewport | log 省略时不返回屏幕；显式 true 拒绝，false 接受。旧 observation 的 Schema default=true 保持，客户端不要向 log 自动填 true |
 | maxBytes/maxLines | log 文本字节/分段数预算，full/缺省 65536/256，compact 缺省 4096/24；范围 1..262144 / 1..1024。LF 计一字节；不是 JSON 信封预算 |
 | responseMode | full/compact 只选择缺省预算，不改变日志来源/保真性；显式预算优先 |
-| expandToken/waitFor/waitMs | log 拒绝 expandToken/waitFor/非零 waitMs；waitMs=0 可接受。B3 条件等待尚未开放 |
+| expandToken/waitFor/waitMs | log读取仍拒绝expandToken/waitFor/非零waitMs；waitMs=0可接受。B3a条件等待通过独立novaterm_wait_text提供 |
 
 返回 source=log、coverage=committed_history、historyMayPrecedeEpoch=true、capturedAt、cacheGeneration。输出 Scrollback 中已稳定的解析后逻辑行；当前仍可继续增长的软尾行和活动屏幕用 observation 读取。重连若遗留非尾部软行，该行也可读，以 hardBreak=false 明确来源边界。不会按内容去重，不合并不同 ID 的相同文本，也不把滚动视口重复拼进日志。
 
@@ -380,6 +425,7 @@ CURSOR_STALE
 CAPTURE_EXPIRED
 CAPTURE_NOT_AVAILABLE
 CONTEXT_NOT_READY
+TASK_NOT_AVAILABLE
 COMMAND_PERMISSION_REQUIRED
 COMMAND_POLICY_CHANGED
 COMMAND_PROFILE_UNAVAILABLE

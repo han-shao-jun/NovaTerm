@@ -236,7 +236,8 @@ public:
         return cursor;
     }
     void call(const QString& client, const QString& request, const ToolRequest& typed,
-              Completion done, const QByteArray& legacyCursorKey, const Capabilities::InvocationContext& context) {
+              Completion done, const QByteArray& legacyCursorKey, const Capabilities::InvocationContext& context,
+              InputReplayPolicy replayPolicy, Submitted submitted) {
         const auto reference = sessionReference(typed);
         if (!reference) { done(failure("SESSION_NOT_AVAILABLE", "Session is not shared.")); return; }
         const auto entry = sessions->find(reference->session.str());
@@ -309,9 +310,12 @@ public:
             }
             const auto& input = std::get<InteractTerminalRequest>(typed);
             Result<InputAdmission> prepared{Error{ErrorCode::SessionNotAvailable}};
-            ports.input.invoke({input, inputClaims(input.inputToken)}, inputContext, [&prepared](auto value) {
+            const QPointer<TerminalInteraction> inputOwner(q);
+            ports.input.invoke({input, inputClaims(input.inputToken), replayPolicy == InputReplayPolicy::Allow,
+                std::move(submitted)}, inputContext, [&prepared](auto value) {
                 if (const auto* result = std::get_if<Result<InputAdmission>>(&value)) prepared = *result;
             });
+            if (!inputOwner) return;
             if (const auto* error = errorIfAny(prepared)) { done(ToolCodec::encodeFailure(*error)); return; }
             if (std::get<InputAdmission>(prepared) == InputAdmission::Replay) job.immediate = ObservationWake::StateChanged;
             else { job.event = ctrl->revision(); job.control = ctrl->controlGeneration(); }
@@ -769,11 +773,21 @@ TerminalInteraction::TerminalInteraction(AccessStore* access, SessionDirectory* 
     : QObject(parent), _impl(std::make_unique<Impl>(this, access, sessions, observation, dispatcher)) {}
 TerminalInteraction::~TerminalInteraction() = default;
 void TerminalInteraction::call(const QString& c, const QString& r,
-    const ToolRequest& request, Completion done, const QByteArray& legacyCursorKey, const Capabilities::InvocationContext& context) {
-    _impl->call(c, r, request, std::move(done), legacyCursorKey, context);
+    const ToolRequest& request, Completion done, const QByteArray& legacyCursorKey, const Capabilities::InvocationContext& context,
+    InputReplayPolicy replayPolicy, Submitted submitted) {
+    _impl->call(c, r, request, std::move(done), legacyCursorKey, context, replayPolicy, std::move(submitted));
 }
 void TerminalInteraction::cancel(const QString& request) { _impl->cancel(request); }
 void TerminalInteraction::revoke(const QString& client, const QString& session) { _impl->revoke(client,session); }
+std::optional<Error> TerminalInteraction::validateNewInput(const QString& client,
+    const SessionReference& reference, const QString& encoded) const {
+    const auto entry = _impl->sessions->find(reference.session.str());
+    if (!entry || !entry->session || !_impl->access->canRead(client, *entry))
+        return Error{ErrorCode::SessionNotAvailable};
+    if (entry->epoch != reference.epoch.str()) return Error{ErrorCode::StaleSessionEpoch};
+    return _impl->state.validateInput(_impl->inputClaims(encoded), ClientId{client},
+        _impl->controlFacts(client, *entry));
+}
 QJsonObject TerminalInteraction::capabilities(const QString& client,
     const QString& session, bool humanConfirmation)
 {

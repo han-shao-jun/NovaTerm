@@ -2,7 +2,13 @@
 #include "capabilities/TypedCapabilityPort.h"
 #include "mcp/application/ObservationState.h"
 namespace NovaTerm::Capabilities::Terminal {
-struct InputSubmission { Mcp::InteractTerminalRequest request; Mcp::InputClaims claims; };
+struct InputSubmission {
+    Mcp::InteractTerminalRequest request;
+    Mcp::InputClaims claims;
+    bool allowReplay{true};
+    /** @brief 仅通知本次新输入已受理，不把交付校验失败等同于没有提交。 */
+    std::function<void()> submitted;
+};
 struct ElevationSubmission { Mcp::RequestElevationRequest request; Mcp::InputClaims claims; };
 class TerminalInputPort
 {

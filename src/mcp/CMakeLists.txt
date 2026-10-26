@@ -7,6 +7,7 @@ qt_add_library(novaterm_mcp_contracts STATIC
     contracts/SessionBinding.h
     contracts/Permissions.h
     contracts/ClearRequest.h
+    contracts/WaitTextRequest.h contracts/TerminalTaskRequest.h
     contracts/ToolRequests.h contracts/TerminalInputValidation.h contracts/TerminalInputValidation.cpp)
 target_include_directories(novaterm_mcp_contracts PUBLIC ${PROJECT_SOURCE_DIR}/src)
 target_link_libraries(novaterm_mcp_contracts PUBLIC Qt6::Core)
@@ -74,6 +75,8 @@ target_link_libraries(novaterm_session_automation PUBLIC
     novaterm_core Qt6::Core Qt6::SerialPort)
 
 qt_add_library(novaterm_mcp_runtime STATIC
+    TerminalTextWait.cpp TerminalTextWait.h tasks/TextWaitMatcher.h
+    TerminalTasks.cpp TerminalTasks.h
     TerminalClearAdapter.cpp TerminalClearAdapter.h
     LogReadAdapter.cpp LogReadAdapter.h tasks/LogReadUseCase.h
     McpAccess.cpp McpAccess.h

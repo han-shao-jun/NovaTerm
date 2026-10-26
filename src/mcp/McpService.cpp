@@ -15,6 +15,8 @@
 #include "CapabilityAdapter.h"
 #include "LogReadAdapter.h"
 #include "TerminalClearAdapter.h"
+#include "TerminalTextWait.h"
+#include "TerminalTasks.h"
 #include "application/CaptureStore.h"
 #include "ObservationService.h"
 #include "application/RequestScheduler.h"
@@ -83,6 +85,8 @@ public:
         ToolRequest request;
         std::optional<HistoryToolRequest> historyRequest;
         std::optional<ClearRequest> clearRequest;
+        std::optional<WaitTextRequest> waitRequest;
+        std::optional<TerminalTaskRequest> taskRequest;
         QByteArray confirmationDigest;
         QString requestState;
         std::optional<ConfirmationAnswer> answer;
@@ -97,6 +101,10 @@ public:
         return found == requests.end() ? nullptr : found->second.get();
     }
     static std::optional<SessionReference> referenceOf(const PendingRequest& pending) {
+        if (pending.waitRequest) return SessionReference{pending.waitRequest->session, pending.waitRequest->epoch};
+        if (pending.taskRequest) return std::visit([](const auto& value) {
+            return SessionReference{value.session, value.epoch};
+        }, *pending.taskRequest);
         if (pending.clearRequest) return SessionReference{pending.clearRequest->session, pending.clearRequest->epoch};
         return requestSession(pending.request);
     }
@@ -142,6 +150,8 @@ public:
         terminal->onChanged = [this] { emit q->changed(); };
         instance = newId();
         clears = std::make_unique<TerminalClearAdapter>(access, sessions, instance, logCursorKey, owner);
+        textWaits = std::make_unique<TerminalTextWait>(access, sessions, observation, instance, logCursorKey, owner);
+        terminalTasks = std::make_unique<TerminalTasks>(access, sessions, *terminal, instance, logCursorKey, owner);
         commands = std::make_unique<CommandSessionAdapter>(access, sessions,
             QDir(stateDirectory).filePath("targets"), instance, CommandSessionAdapter::Delivery{
                 [this](const TaskId& task, QJsonObject payload) {
@@ -217,6 +227,8 @@ public:
         if (!access.enabled()) { stop(); status = "Disabled"; return; }
         if (!started) {
             if (!secureDirectory(instanceDirectory)) { status = "Cannot secure HTTP endpoint directory"; return; }
+            // 关闭入口会收口任务 owner。再次启用建立新索引，不自动恢复旧输入。
+            terminalTasks = std::make_unique<TerminalTasks>(access, sessions, *terminal, instance, logCursorKey, q);
             started = true;
             status = "Starting";
             io.start(listenPort);
@@ -224,6 +236,8 @@ public:
     }
     void stop()
     {
+        if (terminalTasks) terminalTasks->stop();
+        if (textWaits) textWaits->revoke({}, {});
         if (terminal) terminal->revoke({}, {});
         started = listening = false;
         address.clear();
@@ -269,8 +283,16 @@ public:
         }
         const auto* historyCall = std::get_if<BackendHistoryCall>(&event);
         const auto* clearCall = std::get_if<BackendClearCall>(&event);
+        const auto* waitCall = std::get_if<BackendWaitTextCall>(&event);
+        const auto* taskCall = std::get_if<BackendTaskCall>(&event);
         BackendCall call;
-        if (historyCall) {
+        if (waitCall) {
+            call.id = waitCall->id;
+            if (waitCall->confirmationSupplied) { send(connectionId, id, error("COMMAND_CONFIRMATION_STALE")); return; }
+        } else if (taskCall) {
+            call.id = taskCall->id;
+            if (taskCall->confirmationSupplied) { send(connectionId, id, error("COMMAND_CONFIRMATION_STALE")); return; }
+        } else if (historyCall) {
             call.id = historyCall->id;
             if (historyCall->confirmationSupplied) { send(connectionId, id, error("COMMAND_CONFIRMATION_STALE")); return; }
         } else if (clearCall) {
@@ -281,7 +303,9 @@ public:
             io.closeConnection(connectionId);
             return;
         }
-        const auto name = clearCall ? QStringLiteral("novaterm_clear_terminal")
+        const auto name = waitCall ? QStringLiteral("novaterm_wait_text")
+            : taskCall ? ToolCodec::toolName(ToolCall{taskCall->request})
+            : clearCall ? QStringLiteral("novaterm_clear_terminal")
             : historyCall ? HistoryToolCodec::toolName(historyCall->request) : ToolCodec::toolName(call.request);
         ++requestCount;
         auto request = call.request;
@@ -297,6 +321,8 @@ public:
         pending->tool = name;
         if (historyCall) pending->historyRequest = historyCall->request;
         if (clearCall) pending->clearRequest = clearCall->request;
+        if (waitCall) pending->waitRequest = waitCall->request;
+        if (taskCall) pending->taskRequest = taskCall->request;
         pending->confirmationDigest = call.confirmationDigest;
         pending->mrtr = call.mrtr;
         pending->formElicitation = call.formElicitation;
@@ -310,6 +336,8 @@ public:
         pending->deadline = clock.elapsed() + (name == "novaterm_run_script" ? ScriptWriteTimeout.count()
             : name == "novaterm_run_command" ? ConfirmationTimeout.count() : 2000);
         if (clearCall) pending->deadline = clock.elapsed() + 5000;
+        if (taskCall) pending->deadline = clock.elapsed() + 5000;
+        if (waitCall) pending->deadline = clock.elapsed() + waitCall->request.wait.count() + Budget::WireDeadlineMargin.count();
         if (historyCall && std::holds_alternative<SearchHistoryRequest>(historyCall->request)) pending->deadline = clock.elapsed() + 12000;
         const auto waitMilliseconds = [](const ToolRequest& value, int fallback) {
             return std::visit([fallback](const auto& request) -> int {
@@ -386,6 +414,8 @@ public:
         const auto key = requestKey(pending->connection, pending->id);
         terminal->cancel(key);
         clears->cancel(key);
+        textWaits->discard(key);
+        terminalTasks->cancel(key);
         if (!*pending->cancelled) {
             if (const auto reference = referenceOf(*pending)) {
                 const auto entry = sessions.find(reference->session.str());
@@ -442,6 +472,8 @@ public:
     void revoke(const QString& client, const QString& session)
     {
         if (terminal) terminal->revoke(client, session);
+        if (textWaits) textWaits->revoke(client, session);
+        if (terminalTasks) terminalTasks->revoke(client, session);
         const auto ids = connections.keys();
         for (const auto& id : ids) {
             if (!client.isEmpty() && connections.value(id).client != client)
@@ -486,8 +518,13 @@ public:
     bool admit(PendingRequest* pending)
     {
         if (!pending->invocation) { complete(requestKey(pending->connection, pending->id), error("SESSION_NOT_AVAILABLE")); return false; }
-        auto result = capabilityDispatcher.admit(pending->clearRequest ? Capabilities::CapabilityId{"terminal.clear"}
-            : terminalCapability(pending->request), *pending->invocation);
+        auto capability = pending->clearRequest ? Capabilities::CapabilityId{"terminal.clear"}
+            : pending->waitRequest ? Capabilities::CapabilityId{"terminal.text.wait"}
+            : terminalCapability(pending->request);
+        if (pending->taskRequest) capability = Capabilities::CapabilityId{
+            std::holds_alternative<StartTerminalTaskRequest>(*pending->taskRequest) ? "terminal.task.start"
+            : std::holds_alternative<StopTerminalTaskRequest>(*pending->taskRequest) ? "terminal.task.stop" : "terminal.task.query"};
+        auto result = capabilityDispatcher.admit(capability, *pending->invocation);
         if (const auto* reason = std::get_if<Capabilities::Rejection>(&result)) {
             complete(requestKey(pending->connection, pending->id),
                 *reason == Capabilities::Rejection::DeadlineExceeded ? error("DEADLINE_EXCEEDED")
@@ -521,7 +558,8 @@ public:
             });
             return;
         }
-        if (!pending->clearRequest && std::holds_alternative<ListSessionsRequest>(pending->request)) {
+        if (!pending->clearRequest && !pending->waitRequest && !pending->taskRequest
+            && std::holds_alternative<ListSessionsRequest>(pending->request)) {
             listSessions(pending);
             return;
         }
@@ -540,6 +578,20 @@ public:
             complete(key, !pending->requestState.isEmpty()
                 ? error("COMMAND_CONFIRMATION_STALE")
                 : error("STALE_SESSION_EPOCH"));
+            return;
+        }
+        if (pending->waitRequest || pending->taskRequest) {
+            if (!admit(pending)) return;
+            const QPointer<Service> guard(q);
+            auto done = [this, guard, key](QJsonObject payload) { if (guard) complete(key, std::move(payload)); };
+            if (pending->waitRequest) textWaits->call(connection.client, key, *pending->waitRequest, std::move(done));
+            else {
+                if (!std::holds_alternative<QueryTerminalTaskRequest>(*pending->taskRequest)
+                    && commands->quarantined(entry->targetFingerprint)) {
+                    complete(key, error("COMMAND_EXECUTION_QUARANTINED")); return;
+                }
+                terminalTasks->call(connection.client, key, *pending->taskRequest, std::move(done), *pending->invocation);
+            }
             return;
         }
         if (pending->clearRequest) {
@@ -605,7 +657,16 @@ public:
         const auto result = reads.listSessions(connection.client, connection.key,
             pending->formElicitation, request);
         if (isError(result)) { complete(key, ToolCodec::encodeFailure(*errorIfAny(result))); return; }
-        complete(key, success(std::get<QJsonObject>(result)));
+        auto data = std::get<QJsonObject>(result);
+        auto rows = data.value("sessions").toArray();
+        for (qsizetype i = 0; i < rows.size(); ++i) {
+            auto row = rows[i].toObject(); auto availability = row.value("availability").toObject();
+            availability.insert("terminalTasks", terminalTasks->capabilities(connection.client, row.value("sessionId").toString()));
+            availability.insert("textWait", true);
+            row.insert("availability", availability); rows[i] = row;
+        }
+        data.insert("sessions", rows);
+        complete(key, success(data));
     }
 
     void readContext(PendingRequest* pending, const SessionDirectory::Entry& entry)
@@ -731,6 +792,8 @@ public:
     const QByteArray logCursorKey{randomBytes()};
     std::unique_ptr<TerminalInteraction> terminal;
     std::unique_ptr<TerminalClearAdapter> clears;
+    std::unique_ptr<TerminalTextWait> textWaits;
+    std::unique_ptr<TerminalTasks> terminalTasks;
     std::unique_ptr<QThreadPool> workers;
     std::shared_ptr<SearchMailbox> searchMailbox;
     QTimer timer;

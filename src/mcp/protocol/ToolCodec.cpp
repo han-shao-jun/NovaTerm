@@ -342,6 +342,72 @@ const QJsonArray& ToolCodec::catalog()
         {"inputSchema", clearInput},
         {"outputSchema", clearOutput},
         {"annotations", QJsonObject{{"readOnlyHint", false}, {"destructiveHint", true}, {"idempotentHint", true}, {"openWorldHint", false}}}});
+    // B3a 独立协议请求；旧九项终端领域联合及十三项兼容对象保持。
+    auto waitData = schema({{"instanceId", text}, {"sessionId", text}, {"epoch", text},
+        {"source", enumeration({"log", "screen"})},
+        {"status", enumeration({"matched", "timeout", "cancelled", "gap", "invalidated", "scan_budget_exhausted"})},
+        {"matched", boolean}, {"matchedTexts", array(openObject)}, {"scanBytes", unsignedInteger},
+        {"cacheGeneration", decimal}, {"capturedAt", text}, {"context", text},
+        {"evidenceKind", enumeration({"literal_text"})}, {"provesSuccess", QJsonObject{{"const", false}}},
+        {"startToken", text}, {"nextToken", text}, {"nextPosition", logPosition},
+        {"revision", decimal}, {"snapshotTruncated", boolean}, {"gap", openObject},
+        {"sourceStatus", enumeration({"ok", "pending", "busy", "unavailable", "gap", "invalidated"})},
+        {"resumeToken", text}, {"resumeExpiresInMs", unsignedInteger}},
+        {"instanceId", "sessionId", "epoch", "source", "status", "matched", "matchedTexts", "scanBytes",
+            "cacheGeneration", "capturedAt", "context", "evidenceKind", "provesSuccess"});
+    auto taskData = schema({{"taskId", text}, {"operationId", text}, {"sessionId", text}, {"epoch", text},
+        {"status", enumeration({"accepted", "running", "stop_requested", "completed", "unknown", "failed"})},
+        {"accepted", boolean}, {"completed", boolean}, {"executionId", nullableText},
+        {"exitCode", QJsonObject{{"type", QJsonArray{"integer", "null"}}}},
+        {"terminationConfirmed", boolean}, {"evidenceKind", text}, {"submissionStatus", text},
+        {"inputMayHaveBeenSent", boolean}, {"stopRequested", boolean}, {"reason", text},
+        {"baseline", log}, {"suggestedQueryMs", unsignedInteger}, {"output", log}, {"outputError", resultError}},
+        {"taskId", "operationId", "sessionId", "epoch", "status", "accepted", "completed", "executionId",
+            "exitCode", "terminationConfirmed", "evidenceKind", "submissionStatus", "inputMayHaveBeenSent",
+            "stopRequested", "reason", "baseline", "suggestedQueryMs"});
+    const auto workflow = [&](const char* name, const char* description,
+                              QJsonObject input, bool writes, const QJsonObject& data) {
+        auto workflowOutput = output; auto workflowProperties = workflowOutput.value("properties").toObject();
+        workflowProperties.insert("data", data); workflowOutput.insert("properties", workflowProperties);
+        result.append(QJsonObject{{"name", name}, {"description", description},
+            {"inputSchema", input}, {"outputSchema", workflowOutput},
+            {"annotations", QJsonObject{{"readOnlyHint", !writes},
+                {"destructiveHint", writes}, {"idempotentHint", true}, {"openWorldHint", writes}}}});
+    };
+    auto waitText = identity;
+    waitText.insert("source", enumeration({"log", "screen"}));
+    waitText.insert("texts", QJsonObject{{"type", "array"}, {"minItems", 1}, {"maxItems", 8},
+        {"uniqueItems", true}, {"items", QJsonObject{{"type", "string"}, {"minLength", 1}, {"maxLength", 256}}}});
+    waitText.insert("match", QJsonObject{{"type", "string"}, {"enum", QJsonArray{"any", "all"}}, {"default", "any"}});
+    waitText.insert("caseSensitive", QJsonObject{{"type", "boolean"}, {"default", true}});
+    waitText.insert("sinceToken", stringSchema(1024));
+    waitText.insert("resumeToken", stringSchema(1024));
+    waitText.insert("start", enumeration({"current", "next"}));
+    waitText.insert("waitMs", integerSchema(0, 30000, 0));
+    waitText.insert("scanBytes", integerSchema(1, 1048576, 262144));
+    workflow("novaterm_wait_text", "Wait read-only for bounded literal any/all text. source=log scans after sinceToken or a new tail baseline; source=screen requires start=current or next and never joins screen revisions. Resume scan_budget_exhausted/timeout with resumeToken and identical matching conditions. Honor gap/invalidated; old PASS must not satisfy a new round. A match is text evidence, not test success. Cancelling this wait sends no bytes.",
+        schema(waitText, {"sessionId", "epoch", "source", "texts"}), false, waitData);
+    auto startTask = identity;
+    startTask.insert("inputToken", interaction.value("inputToken"));
+    startTask.insert("operationId", interaction.value("operationId"));
+    startTask.insert("actions", interaction.value("actions"));
+    startTask.insert("timeoutMs", integerSchema(1, 3600000, 600000));
+    workflow("novaterm_start_task", "Start once through the selected visible terminal with separate full-input authorization, latest inputToken and operationId. Command requires ready input; raw actions support SSH/UART prompts. Save taskId, query thereafter, and retry only identical arguments. RPC disconnect does not stop or repeat an accepted task. UART silence proves neither success nor an exit code; completion and stop capabilities depend on actual evidence.",
+        schema(startTask, {"sessionId", "epoch", "inputToken", "operationId", "actions"}), true, taskData);
+    auto queryTask = identity;
+    queryTask.insert("taskId", QJsonObject{{"type", "string"}, {"minLength", 1}, {"maxLength", 64}});
+    queryTask.insert("operationId", interaction.value("operationId"));
+    queryTask.insert("sinceToken", stringSchema(1024));
+    auto queryInput = schema(queryTask, requiredIdentity);
+    queryInput.insert("oneOf", QJsonArray{QJsonObject{{"required", QJsonArray{"taskId"}},
+        {"not", QJsonObject{{"required", QJsonArray{"operationId"}}}}},
+        QJsonObject{{"required", QJsonArray{"operationId"}}, {"not", QJsonObject{{"required", QJsonArray{"taskId"}}}}}});
+    workflow("novaterm_query_task", "Query a retained task by taskId or recover admission by its original operationId. Never executes or renews control. Output uses the existing log cache; pass sinceToken to continue, and honor gaps or invalidation. State, exitCode, terminationConfirmed and evidenceKind are separate facts; unknown must not be rerun.", queryInput, false, taskData);
+    auto stopTask = identity;
+    stopTask.insert("taskId", queryTask.value("taskId"));
+    stopTask.insert("operationId", interaction.value("operationId"));
+    workflow("novaterm_stop_task", "Explicitly request Ctrl+C for the original task only while its target, execution and original control generations still match. Retry the same stop operationId. Human takeover or a newer command rejects stale stop without writing. stop_requested does not confirm remote termination; cancelling a read or releasing control is different.",
+        schema(stopTask, {"sessionId", "epoch", "taskId", "operationId"}), true, taskData);
     return result;
     }();
     return catalog;
@@ -410,6 +476,32 @@ QString ToolCodec::validate(const QString& name, const QJsonObject& arguments)
     if (name == "novaterm_interact_terminal") {
         const auto invalid = validateTerminalActions(terminalActions(arguments.value("actions").toArray()));
         if (!invalid.isEmpty()) return invalid;
+    }
+    if (name == "novaterm_wait_text") {
+        if (arguments.contains("sinceToken") && arguments.contains("resumeToken"))
+            return "sinceToken and resumeToken are mutually exclusive.";
+        for (const auto& field : QStringList{"sinceToken", "resumeToken"})
+            if (arguments.contains(field) && arguments.value(field).toString().isEmpty())
+                return "Wait tokens must not be empty.";
+        if (arguments.value("source") == "screen") {
+            if (!arguments.contains("start") || arguments.contains("sinceToken"))
+                return "Screen wait requires start and cannot use log sinceToken.";
+        } else if (arguments.contains("start")) return "Log wait starts at sinceToken or current tail.";
+    }
+    if (name == "novaterm_start_task") {
+        const auto actions = terminalActions(arguments.value("actions").toArray());
+        const auto invalid = validateTerminalActions(actions);
+        if (!invalid.isEmpty()) return invalid;
+        if (std::any_of(actions.begin(), actions.end(), [](const auto& action) {
+            return std::holds_alternative<ReleaseAction>(action);
+        })) return "Task start requires input, not release.";
+        if (arguments.value("inputToken").toString().isEmpty()) return "inputToken must not be empty.";
+    }
+    if (name == "novaterm_query_task") {
+        if (arguments.contains("taskId") == arguments.contains("operationId"))
+            return "Query requires exactly one of taskId or operationId.";
+        if (arguments.contains("sinceToken") && arguments.value("sinceToken").toString().isEmpty())
+            return "sinceToken must not be empty.";
     }
 
     if (name == "novaterm_request_elevation") {
@@ -759,6 +851,39 @@ QJsonArray ToolCodec::encodeActions(const std::vector<TerminalAction>& actions)
 
 Result<ToolCall> ToolCodec::decodeCall(const QString& name, const QJsonObject& arguments)
 {
+    if (name == "novaterm_wait_text" || name == "novaterm_start_task"
+        || name == "novaterm_query_task" || name == "novaterm_stop_task") {
+        const auto invalid = validate(name, arguments);
+        if (!invalid.isEmpty()) return Error{ErrorCode::InvalidArgument, invalid};
+        const auto reference = sessionReference(arguments);
+        if (!reference) return Error{ErrorCode::InvalidArgument};
+        if (name == "novaterm_wait_text") {
+            WaitTextRequest request;
+            request.session = reference->session; request.epoch = reference->epoch;
+            request.source = arguments.value("source") == "screen" ? WaitTextSource::Screen : WaitTextSource::Log;
+            for (const auto& item : arguments.value("texts").toArray()) request.texts.append(item.toString());
+            request.match = arguments.value("match") == "all" ? WaitTextMatch::All : WaitTextMatch::Any;
+            request.caseSensitive = arguments.value("caseSensitive").toBool(true);
+            request.screenStart = arguments.value("start") == "next" ? ScreenWaitStart::Next : ScreenWaitStart::Current;
+            request.wait = std::chrono::milliseconds(arguments.value("waitMs").toInt());
+            request.scanBytes = arguments.value("scanBytes").toInt(Budget::DefaultTextWaitScanBytes);
+            if (arguments.contains("sinceToken")) request.sinceToken = arguments.value("sinceToken").toString();
+            if (arguments.contains("resumeToken")) request.resumeToken = arguments.value("resumeToken").toString();
+            return ToolCall{request};
+        }
+        if (name == "novaterm_start_task") return ToolCall{TerminalTaskRequest{StartTerminalTaskRequest{
+            reference->session, reference->epoch, arguments.value("inputToken").toString(),
+            OperationId{arguments.value("operationId").toString()}, terminalActions(arguments.value("actions").toArray()),
+            std::chrono::milliseconds(arguments.value("timeoutMs").toInt(int(Budget::TerminalTaskDefaultTimeout.count())))}}};
+        if (name == "novaterm_stop_task") return ToolCall{TerminalTaskRequest{StopTerminalTaskRequest{
+            reference->session, reference->epoch, TaskId{arguments.value("taskId").toString()},
+            OperationId{arguments.value("operationId").toString()}}}};
+        QueryTerminalTaskRequest request; request.session = reference->session; request.epoch = reference->epoch;
+        if (arguments.contains("taskId")) request.task = TaskId{arguments.value("taskId").toString()};
+        if (arguments.contains("operationId")) request.operation = OperationId{arguments.value("operationId").toString()};
+        if (arguments.contains("sinceToken")) request.sinceToken = arguments.value("sinceToken").toString();
+        return ToolCall{TerminalTaskRequest{request}};
+    }
     if (name == "novaterm_clear_terminal") {
         const auto invalid = validate(name, arguments);
         if (!invalid.isEmpty()) return Error{ErrorCode::InvalidArgument, invalid};
@@ -778,6 +903,13 @@ Result<ToolCall> ToolCodec::decodeCall(const QString& name, const QJsonObject& a
 }
 QString ToolCodec::toolName(const ToolCall& request)
 {
+    if (std::holds_alternative<WaitTextRequest>(request)) return "novaterm_wait_text";
+    if (const auto* task = std::get_if<TerminalTaskRequest>(&request)) return std::visit([](const auto& value) -> QString {
+        using Type = std::decay_t<decltype(value)>;
+        if constexpr (std::is_same_v<Type, StartTerminalTaskRequest>) return "novaterm_start_task";
+        else if constexpr (std::is_same_v<Type, StopTerminalTaskRequest>) return "novaterm_stop_task";
+        else return "novaterm_query_task";
+    }, *task);
     if (std::holds_alternative<ClearRequest>(request)) return "novaterm_clear_terminal";
     if (const auto* history = std::get_if<HistoryToolRequest>(&request)) return HistoryToolCodec::toolName(*history);
     return toolName(std::get<ToolRequest>(request));

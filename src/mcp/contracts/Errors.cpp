@@ -21,6 +21,7 @@ constexpr std::pair<ErrorCode, const char*> ErrorNames[] = {
     {ErrorCode::CaptureExpired, "CAPTURE_EXPIRED"},
     {ErrorCode::CaptureNotAvailable, "CAPTURE_NOT_AVAILABLE"},
     {ErrorCode::ContextNotReady, "CONTEXT_NOT_READY"},
+    {ErrorCode::TaskNotAvailable, "TASK_NOT_AVAILABLE"},
     {ErrorCode::CommandPermissionRequired, "COMMAND_PERMISSION_REQUIRED"},
     {ErrorCode::CommandPolicyChanged, "COMMAND_POLICY_CHANGED"},
     {ErrorCode::CommandProfileUnavailable, "COMMAND_PROFILE_UNAVAILABLE"},

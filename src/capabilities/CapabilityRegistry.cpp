@@ -67,6 +67,14 @@ CapabilityRegistry CapabilityRegistry::implementedCapabilities()
         ResourceKind::HistoryCapture, Policy::HistoryRead, "novaterm_search_history"});
     registry.add({CapabilityId{"terminal.clear"}, 1, ImplementationStatus::Implemented,
         ResourceKind::Session, Policy::ClearTerminal, "novaterm_clear_terminal"});
+    registry.add({CapabilityId{"terminal.text.wait"}, 1, ImplementationStatus::Implemented,
+        ResourceKind::Session, Policy::ReadOutput, "novaterm_wait_text"});
+    registry.add({CapabilityId{"terminal.task.start"}, 1, ImplementationStatus::Implemented,
+        ResourceKind::Session, Policy::FullInput, "novaterm_start_task"});
+    registry.add({CapabilityId{"terminal.task.query"}, 1, ImplementationStatus::Implemented,
+        ResourceKind::Session, Policy::ReadOutput, "novaterm_query_task"});
+    registry.add({CapabilityId{"terminal.task.stop"}, 1, ImplementationStatus::Implemented,
+        ResourceKind::Session, Policy::FullInput, "novaterm_stop_task"});
     return registry;
 }
 }
