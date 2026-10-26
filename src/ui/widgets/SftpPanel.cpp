@@ -1506,8 +1506,8 @@ void SftpPanel::downloadSelectedEntries()
     if (suggestedDirectory.isEmpty())
         suggestedDirectory = QDir::homePath();
 
-    // 目标路径只选一次：单文件用保存对话框（含覆盖询问），其余情况一律选目录，
-    // 之后每条按各自文件名落到该目录下。逐条弹对话框会让多选下载无法使用。
+    // 目标路径只选一次：单文件用保存对话框，其余情况一律选目录。
+    // 覆盖统一由 queueDownloads 确认，避免系统保存框和应用重复询问。
     QString destination;
     bool destinationIsExactFilePath = false;
     if (selected.size() == 1
@@ -1515,7 +1515,8 @@ void SftpPanel::downloadSelectedEntries()
         && !selected.constFirst()->data(0, SymbolicLinkRole).toBool()) {
         destination = QFileDialog::getSaveFileName(
             this, tr("Download file"),
-            QDir(suggestedDirectory).filePath(selected.constFirst()->text(0)));
+            QDir(suggestedDirectory).filePath(selected.constFirst()->text(0)),
+            QString{}, nullptr, QFileDialog::DontConfirmOverwrite);
         if (destination.isEmpty())
             return;
         destinationIsExactFilePath = true;
@@ -1551,7 +1552,8 @@ void SftpPanel::downloadEntry(QTreeWidgetItem* item)
     } else {
         destination = QFileDialog::getSaveFileName(
             this, tr("Download file"),
-            QDir(suggestedDirectory).filePath(item->text(0)));
+            QDir(suggestedDirectory).filePath(item->text(0)),
+            QString{}, nullptr, QFileDialog::DontConfirmOverwrite);
         if (destination.isEmpty())
             return;
         destinationIsExactFilePath = true;
