@@ -8,6 +8,7 @@
 #include "SessionPage.h"
 #include "ElaComboBox.h"
 #include "ElaPushButton.h"
+#include "ElaScrollArea.h"
 #include "ElaText.h"
 #include "transport/serialport_info.h"
 #include "ui/widgets/MessagePrompts.h"
@@ -27,6 +28,19 @@ namespace {
 
 // QComboBox 默认 UserRole 保存 Shell 类型，额外角色保存 WSL 发行版名称。
 constexpr int WslDistributionRole = Qt::UserRole + 1;
+
+void addScrollableSessionTab(VerticalTabWidget* tabs, QWidget* page,
+                             const QString& label)
+{
+    auto* scroll = new ElaScrollArea(tabs);
+    scroll->setWidgetResizable(true);
+    scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+    scroll->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+    scroll->viewport()->setAutoFillBackground(false);
+    scroll->setWidget(page);
+    page->setAutoFillBackground(false);
+    tabs->addTab(scroll, label);
+}
 
 void setIpv4Validator(QLineEdit* lineEdit)
 {
@@ -72,7 +86,7 @@ SessionPage::SessionPage(QWidget* parent)
     // ── 主容器 ────────────────────────────────────────
     _centralWidget = new QWidget(this);
 
-    // 外层垂直布局：splitLayout + btnLayout
+    // 滚动内容只包含协议选择与表单，按钮栏单独固定在页面底部。
     auto* centralLayout = new QVBoxLayout(_centralWidget); // 垂直布局
     centralLayout->setContentsMargins(0, 0, 0, 0);
     centralLayout->setSpacing(0);
@@ -88,19 +102,19 @@ SessionPage::SessionPage(QWidget* parent)
     initTelnetUi();
 
     // ── 底部按钮行（靠右）──────────────────────────────
-    auto* btnLayout = new QHBoxLayout();
+    auto* buttonBar = new QWidget(this);
+    buttonBar->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
+    auto* btnLayout = new QHBoxLayout(buttonBar);
     btnLayout->setContentsMargins(12, 8, 12, 8);
     btnLayout->setSpacing(8);
     btnLayout->addStretch();
 
-    auto* cancelBtn = new ElaPushButton(tr("Cancel"), _centralWidget);
+    auto* cancelBtn = new ElaPushButton(tr("Cancel"), buttonBar);
     btnLayout->addWidget(cancelBtn);
 
-    auto* confirmBtn = new ElaPushButton(tr("Confirm"), _centralWidget);
+    auto* confirmBtn = new ElaPushButton(tr("Confirm"), buttonBar);
     confirmBtn->setObjectName(QStringLiteral("sessionConfirmButton"));
     btnLayout->addWidget(confirmBtn);
-
-    centralLayout->addLayout(btnLayout);
 
     // ── 信号连接 ──
     connect(cancelBtn, &QPushButton::clicked,
@@ -205,7 +219,8 @@ SessionPage::SessionPage(QWidget* parent)
                                    _shellWorkingDirectory->text().trimmed());
     });
 
-    addCentralWidget(_centralWidget, true, true, 0);
+    addCentralWidget(_centralWidget, true, false, 0);
+    layout()->addWidget(buttonBar);
 }
 
 void SessionPage::selectTransport(TransportKind kind)
@@ -445,7 +460,7 @@ void SessionPage::initShellUi()
 
     grid->setRowStretch(3, 1);      // 尾部留白
 
-    _tabWidget->addTab(page, tr("local shell"));
+    addScrollableSessionTab(_tabWidget, page, tr("local shell"));
 }
 
 void SessionPage::initSshUi()
@@ -548,7 +563,7 @@ void SessionPage::initSshUi()
 
     grid->setRowStretch(10, 1);
 
-    _tabWidget->addTab(page, tr("ssh"));
+    addScrollableSessionTab(_tabWidget, page, tr("ssh"));
 }
 
 
@@ -714,7 +729,7 @@ void SessionPage::initSerialUi()
     grid->addWidget(_serialRemoteEcho, 11, 0, 1, 2);
     grid->setRowStretch(12, 1);
 
-    _tabWidget->addTab(page, tr("serial port"));
+    addScrollableSessionTab(_tabWidget, page, tr("serial port"));
 }
 
 
@@ -779,5 +794,5 @@ void SessionPage::initTelnetUi()
 
     grid->setRowStretch(7, 1);
 
-    _tabWidget->addTab(page, tr("telnet"));
+    addScrollableSessionTab(_tabWidget, page, tr("telnet"));
 }
