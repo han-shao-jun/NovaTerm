@@ -21,8 +21,10 @@ public:
     using Open = std::function<TargetConnectionFacts(const SavedTargetSource&, const Guard&)>;
     using Query = std::function<TargetConnectionFacts(const QString&, const QString&)>;
     using Close = std::function<TargetConnectionResult(const TargetConnectionFacts&, const QString&, const Guard&)>;
+    using Created = std::function<void(const QString&, quint64, const TargetConnectionRequest&,
+        const TargetConnectionFacts&, const NewSessionSharing&)>;
     explicit TargetConnections(SavedTargets& targets) : _targets(targets) {}
-    void setPorts(Open open, Query query, Close close = {});
+    void setPorts(Open open, Query query, Close close = {}, Created created = {});
     TargetConnectionResult call(const QString& client, quint64 identityVersion, const TargetConnectionRequest&,
         Guard invocationValid = {});
 private:
@@ -39,5 +41,6 @@ private:
     Open _open;
     Query _query;
     Close _close;
+    Created _created;
 };
 }

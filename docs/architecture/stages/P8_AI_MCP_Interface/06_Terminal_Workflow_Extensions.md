@@ -77,7 +77,7 @@ CommandRuntime/Session Controller 继续拥有执行事实；新增异步任务�
 
 ## 5. 已保存目标连接管理
 
-第一子批实现 `novaterm_list_targets` 和本机逐客户端目录共享。第二子批已追加 `novaterm_open_target`、`novaterm_query_target`，须另勾选允许打开，按配置版本和operationId受理；查询返回实际会话/epoch与连接状态。availability=saved_configuration本身仍不代表在线。安全关闭已追加，新会话预授权规则仍为后续设计，当前新会话权限默认关闭。
+第一子批实现 `novaterm_list_targets` 和本机逐客户端目录共享。第二子批已追加 `novaterm_open_target`、`novaterm_query_target`，须另勾选允许打开，按配置版本和operationId受理；查询返回实际会话/epoch与连接状态。availability=saved_configuration本身仍不代表在线。安全关闭及新会话预授权已追加，当前新会话权限默认关闭；本机可预先选择读取/完整输入/清空规则，见[预授权记录](records/B3b_New_Session_Sharing_2026-10-27.md)。
 
 只列出本机用户明确共享的保存目标；返回 targetId、显示名、传输类型、获准端点摘要、配置版本和可用状态，不返回密码/私钥。目标目录与活动 Session 目录分开，模型不能通过工具修改 host、port、波特率、认证或 Profile。
 

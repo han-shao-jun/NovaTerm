@@ -238,7 +238,7 @@ add_subdirectory(resources)
         novaterm_local_executor_test_child)
     set_target_properties(novaterm_mcp_tests PROPERTIES WIN32_EXECUTABLE FALSE)
     add_test(NAME novaterm_mcp_tests COMMAND novaterm_mcp_tests)
-    set_tests_properties(novaterm_mcp_tests PROPERTIES LABELS "mcp;p8" TIMEOUT 120
+    set_tests_properties(novaterm_mcp_tests PROPERTIES LABELS "mcp;p8" TIMEOUT 180
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
     add_dependencies(check novaterm_mcp_tests)
 

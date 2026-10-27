@@ -13,6 +13,58 @@ SavedTargetSource source(const QString& id = "11111111-1111-4111-8111-1111111111
 class SavedTargetsTests final : public QObject {
     Q_OBJECT
 private slots:
+    void newSessionRulesAreExplicitVersionedAndIsolated()
+    {
+        SavedTargets targets; QVERIFY(targets.replace({source()}));
+        const auto row = targets.localTargets().first();
+        QVERIFY(targets.newSessionSharing("alice", 1, row.id).revision.isEmpty());
+        QVERIFY(targets.setShared("alice", 1, row.id, row.configVersion, true));
+        QVERIFY(!targets.setNewSessionSharing("alice", 1, row.id, row.configVersion, NewSessionPermission::Input, true));
+        QVERIFY(targets.setOpenAllowed("alice", 1, row.id, row.configVersion, true));
+        QVERIFY(!targets.setNewSessionSharing("alice", 2, row.id, row.configVersion, NewSessionPermission::Input, true));
+        QVERIFY(!targets.setNewSessionSharing("alice", 1, row.id, "stale", NewSessionPermission::Input, true));
+        QVERIFY(targets.setNewSessionSharing("alice", 1, row.id, row.configVersion, NewSessionPermission::Clear, true));
+        auto sharing = targets.newSessionSharing("alice", 1, row.id);
+        QVERIFY(sharing.read); QVERIFY(sharing.clear); QVERIFY(!sharing.input);
+        QVERIFY(targets.newSessionSharing("bob", 1, row.id).revision.isEmpty());
+        const auto revision = sharing.revision;
+        QVERIFY(targets.setNewSessionSharing("alice", 1, row.id, row.configVersion, NewSessionPermission::Read, false));
+        sharing = targets.newSessionSharing("alice", 1, row.id);
+        QVERIFY(!sharing.read); QVERIFY(!sharing.clear); QVERIFY(!sharing.input);
+        QVERIFY(sharing.revision != revision);
+        QVERIFY(targets.setNewSessionSharing("alice", 1, row.id, row.configVersion, NewSessionPermission::Input, true));
+        QVERIFY(targets.newSessionSharing("alice", 1, row.id).read);
+        QVERIFY(targets.setOpenAllowed("alice", 1, row.id, row.configVersion, false));
+        QVERIFY(targets.setOpenAllowed("alice", 1, row.id, row.configVersion, true));
+        QVERIFY(targets.newSessionSharing("alice", 1, row.id).revision.isEmpty());
+        QVERIFY(targets.setNewSessionSharing("alice", 1, row.id, row.configVersion, NewSessionPermission::Input, true));
+        auto changed = source(); changed.configurationKey = QByteArray(32, 'b');
+        QVERIFY(targets.replace({changed}));
+        QVERIFY(targets.newSessionSharing("alice", 1, row.id).revision.isEmpty());
+    }
+    void creationNotificationIsOnceAndNeverForReuseOrRejection()
+    {
+        for (int scenario = 0; scenario < 3; ++scenario) {
+            SavedTargets targets; QVERIFY(targets.replace({source()}));
+            const auto row = targets.localTargets().first();
+            QVERIFY(targets.setShared("alice", 1, row.id, row.configVersion, true));
+            QVERIFY(targets.setOpenAllowed("alice", 1, row.id, row.configVersion, true));
+            QVERIFY(targets.setNewSessionSharing("alice", 1, row.id, row.configVersion, NewSessionPermission::Read, true));
+            TargetConnections connections(targets); int notifications = 0; bool valid = true;
+            connections.setPorts([&](const SavedTargetSource&, const TargetConnections::Guard&) {
+                if (scenario == 2) valid = false;
+                return TargetConnectionFacts{"session", "epoch", "attachment", "running", {}, scenario != 1};
+            }, {}, {}, [&](const QString& client, quint64 identity, const TargetConnectionRequest&,
+                const TargetConnectionFacts&, const NewSessionSharing& sharing) {
+                QCOMPARE(client, QString("alice")); QCOMPARE(identity, quint64(1));
+                QVERIFY(sharing.read); ++notifications;
+            });
+            TargetConnectionRequest request{row.id, row.configVersion, QUuid::createUuid().toString(QUuid::WithoutBraces)};
+            QCOMPARE(connections.call("alice", 1, request, [&valid] { return valid; }).error.has_value(), scenario == 2);
+            static_cast<void>(connections.call("alice", 1, request, [&valid] { return valid; }));
+            QCOMPARE(notifications, scenario == 0 ? 1 : 0);
+        }
+    }
     void closeReservesBeforeQueryAndUsesCurrentEpoch()
     {
         SavedTargets targets; QVERIFY(targets.replace({source()}));

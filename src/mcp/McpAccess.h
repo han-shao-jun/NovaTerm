@@ -54,6 +54,7 @@ public:
     /** @brief 当前绑定下的授权视图；执行类权限在重连后隐藏。 */
     [[nodiscard]] GrantSnapshot grantSnapshot(
         const ClientId& client, const SessionDirectory::Entry& entry) const;
+    [[nodiscard]] bool initializeSessionSharing(const ClientId&, const PermissionSelection&, const SessionDirectory::Entry&);
     [[nodiscard]] bool canRead(const QString& clientId, const SessionDirectory::Entry& entry) const;
     [[nodiscard]] QSet<QString> commands(const QString& clientId, const SessionDirectory::Entry& entry) const;
     /** @brief 当前客户端是否单独获准在该 Session 执行交互命令。 */

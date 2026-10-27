@@ -1,5 +1,7 @@
 # 外部 Agent 的 SSH/UART MCP 终端工具
 
+2026-10-27 B3b第四子批：保存目标支持本机逐客户端的新会话预授权，默认关闭，原创建连接首次就绪后一次绑定读取/完整输入/清空；复用、重试、重连与人工接管不恢复权限。当前二十一工具，单文件传输及B4待后续，见[预授权记录](records/B3b_New_Session_Sharing_2026-10-27.md)。
+
 更新：2026-10-27。**唯一主线：本地外部 Agent 编码、编译和部署，通过 NovaTerm MCP 操作 SSH/UART、观察终端反馈，再继续修复。** NovaTerm 不内置 Agent，不托管模型，不编排开发流程。
 
 2026-10-27 第三子批追加 `novaterm_close_target`，当前二十一工具；边界、独立验证及剩余范围见[安全关闭记录](records/B3b_Target_Close_2026-10-27.md)。
@@ -17,6 +19,7 @@
 | [Agent 使用流程](05_Agent_Workflow.md) | 从目标确认到部署、观察、重试和结果判断 |
 | [等待、任务、传输与连接](06_Terminal_Workflow_Extensions.md) | B3a已实现；B3b已提供目录及独立授权的打开/复用/查询，安全关闭已实现，传输仍为设计 |
 | [实施顺序与验收](01_Phases_and_Acceptance.md) | B0～B4 工作项、测试选择和真机退出条件 |
+| [实机测试清单](07_Real_Device_Test_Checklist.md) | 当前可测SSH/UART/连接权限、双通道及性能逐项步骤；文件传输后续补验，不含已执行成绩 |
 | [验收档案](records/README.md) | 日期、平台、命令、失败和限制；不作为新方案 |
 
 ## 范围
@@ -32,7 +35,7 @@
 - 已有 sinceToken/nextToken 是模型观察游标；recentOutput 有过滤和去重，不能当作完整日志。
 - B1 缓存日志位置、重复行、有界分页及淘汰/代际提示已实施；B2 已接入独立授权清空事务和旧观察/capture 代际失效，见 [B2 记录](records/B2_Implementation_2026-10-25.md)。
 - UART 静默和命令完成/测试成功必须区分；Agent 使用说明需与现有工具行为对齐。
-- B3/B3a 已提供字面文本等待及长任务启动/查询/请求停止；B3b先提供本机显式共享的保存 SSH/UART 目标目录，第二子批追加独立授权的打开/复用与查询，当前共二十一工具。打开创建可见终端，不继承读取/输入/文件权限，见 [连接记录](records/B3b_Target_Connections_2026-10-27.md)。安全关闭已追加；MCP文件传输仍未实施，真实设备仍待B4；B3原验证见 [B3记录](records/B3_Implementation_2026-10-27.md)。
+- B3/B3a 已提供字面文本等待及长任务启动/查询/请求停止；B3b先提供本机显式共享的保存 SSH/UART 目标目录，第二子批追加独立授权的打开/复用与查询，当前共二十一工具。打开创建可见终端，默认不共享；本机显式规则可对原新建连接一次绑定读取/输入/清空，文件权限独立，见 [连接记录](records/B3b_Target_Connections_2026-10-27.md)。安全关闭已追加；MCP文件传输仍未实施，真实设备仍待B4；B3原验证见 [B3记录](records/B3_Implementation_2026-10-27.md)。
 - 真实板卡双通道闭环、重启恢复和高输出完整性尚需本次专项验收。
 - 冻结兼容基线为九个终端工具加三个离线历史工具。未发布 P4 诊断扩展及无生产消费者的 P1 Recipe/本机 Agent 原型已退役；十二工具兼容基线保留，B2 另追加 novaterm_clear_terminal，共十三工具；日志读取另提供限时 clearToken。见 [B0/B1 实施与验收](records/B0_B1_Implementation_2026-10-25.md)。
 

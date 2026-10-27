@@ -19,6 +19,11 @@ struct SavedTargetPage {
     QList<SavedTarget> targets;
     QString nextAfter, revision, error;
 };
+enum class NewSessionPermission { Read, Input, Clear };
+struct NewSessionSharing {
+    bool read{false}, input{false}, clear{false};
+    QString revision;
+};
 // Application-thread metadata directory; does not own connections or inspect credentials.
 class SavedTargets final : public QObject {
     Q_OBJECT
@@ -32,6 +37,9 @@ public:
     bool setOpenAllowed(const QString& client, quint64 identityVersion, const QString& target,
         const QString& expectedConfigVersion, bool selected);
     bool canOpen(const QString& client, quint64 identityVersion, const QString& target) const;
+    bool setNewSessionSharing(const QString& client, quint64 identityVersion, const QString& target,
+        const QString& expectedConfigVersion, NewSessionPermission permission, bool selected);
+    NewSessionSharing newSessionSharing(const QString& client, quint64 identityVersion, const QString& target) const;
     std::optional<SavedTargetSource> openingSource(const QString& client, quint64 identityVersion,
         const QString& target, const QString& expectedConfigVersion) const;
     void revoke(const QString& client);
@@ -41,7 +49,12 @@ signals:
     void changed();
 private:
     struct Entry { SavedTarget value; QByteArray configurationKey; };
-    struct Grant { quint64 identityVersion; QString configVersion; bool openAllowed{false}; };
+    struct Grant {
+        quint64 identityVersion;
+        QString configVersion;
+        bool openAllowed{false};
+        NewSessionSharing sharing;
+    };
     void invalidate();
     QMap<QString, Entry> _targets;
     QMap<QString, QMap<QString, Grant>> _grants;

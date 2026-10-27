@@ -246,20 +246,21 @@ McpSettingsDialog::McpSettingsDialog(NovaTerm::Mcp::Service* service, QWidget* p
         for (int column = 3; column <= 5; ++column) _sessions->setColumnHidden(column, !visible);
     });
     layout->addWidget(legacyPermissions);
-    auto* savedHelp = new ElaText(tr("保存目标：共享目录只披露名称与端点摘要；另勾选允许打开后，该客户端可复用连接或创建可见终端。本次运行有效，修改配置或轮换令牌后需重新授权。打开不会授予终端读取、输入或文件权限。"), this);
+    auto* savedHelp = new ElaText(tr("保存目标：共享目录只披露名称与端点摘要；另勾选允许打开后，可复用连接或创建可见终端。新建会话的读取、完整输入和清空须分别预先选择，默认关闭；仅在原连接首次就绪后绑定，复用和重连不重新授权。本次运行有效，修改配置或轮换令牌后需重新选择；文件、脚本和提权仍另行授权。"), this);
     savedHelp->setWordWrap(true);
     savedHelp->setTextPixelSize(12);
     layout->addWidget(savedHelp);
     _savedTargets = new ElaTreeWidget(this);
     _savedTargets->setObjectName(QStringLiteral("mcpSavedTargets"));
-    _savedTargets->setColumnCount(4);
-    _savedTargets->setHeaderLabels({tr("保存目标"), tr("端点摘要"), tr("共享目录"), tr("允许打开")});
+    _savedTargets->setColumnCount(7);
+    _savedTargets->setHeaderLabels({tr("保存目标"), tr("端点摘要"), tr("共享目录"), tr("允许打开"),
+        tr("新建时读取"), tr("新建时完整输入"), tr("新建时允许清空")});
     _savedTargets->setRootIsDecorated(false);
     _savedTargets->setMaximumHeight(140);
     _savedTargets->header()->setSectionResizeMode(QHeaderView::ResizeToContents);
     layout->addWidget(_savedTargets);
     connect(_savedTargets, &QTreeWidget::itemChanged, this, [this](QTreeWidgetItem* item, int column) {
-        if (_refreshing || !_service || (column != 2 && column != 3)) return;
+        if (_refreshing || !_service || column < 2 || column > 6) return;
         const auto client = item->data(0, Qt::UserRole + 2).toString();
         const auto identityVersion = item->data(0, Qt::UserRole + 3).toULongLong();
         const bool current = client == _clients->currentData().toString()
@@ -268,7 +269,13 @@ McpSettingsDialog::McpSettingsDialog(NovaTerm::Mcp::Service* service, QWidget* p
         const auto version = item->data(0, Qt::UserRole + 1).toString();
         const bool applied = current && (column == 2
             ? _service->savedTargets().setShared(client, identityVersion, id, version, item->checkState(2) == Qt::Checked)
-            : _service->savedTargets().setOpenAllowed(client, identityVersion, id, version, item->checkState(3) == Qt::Checked));
+            : column == 3
+                ? _service->savedTargets().setOpenAllowed(client, identityVersion, id, version, item->checkState(3) == Qt::Checked)
+                : _service->savedTargets().setNewSessionSharing(client, identityVersion, id, version,
+                    column == 4 ? NovaTerm::Mcp::NewSessionPermission::Read
+                        : column == 5 ? NovaTerm::Mcp::NewSessionPermission::Input
+                        : NovaTerm::Mcp::NewSessionPermission::Clear,
+                    item->checkState(column) == Qt::Checked));
         QMetaObject::invokeMethod(this, [this, applied] {
             refresh();
             if (!applied) _status->setText(tr("保存目标或客户端已变化，目录共享未提交；请重新选择。"));
@@ -636,6 +643,10 @@ void McpSettingsDialog::refresh()
                 ? Qt::Checked : Qt::Unchecked);
             item->setCheckState(3, _service->savedTargets().canOpen(clientId, identityVersion, target.id)
                 ? Qt::Checked : Qt::Unchecked);
+            const auto sharing = _service->savedTargets().newSessionSharing(clientId, identityVersion, target.id);
+            item->setCheckState(4, sharing.read ? Qt::Checked : Qt::Unchecked);
+            item->setCheckState(5, sharing.input ? Qt::Checked : Qt::Unchecked);
+            item->setCheckState(6, sharing.clear ? Qt::Checked : Qt::Unchecked);
             if (!identityVersion) item->setFlags(item->flags() & ~Qt::ItemIsEnabled);
         }
     }

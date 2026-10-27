@@ -50,6 +50,8 @@ public:
      */
     [[nodiscard]] Result<GrantSnapshot, AuthorizationError> change(
         const PermissionChange& change, const GrantFacts& facts);
+    /** Local saved-target rule: initialize one ready session only if no authorization row ever exists. */
+    [[nodiscard]] bool initializeSession(const ClientId&, const PermissionSelection&, const GrantFacts&);
 
     /** @brief 当前绑定下的有效视图；执行类权限在重连后隐藏，读取保留。 */
     [[nodiscard]] GrantSnapshot snapshot(const ClientId& client,

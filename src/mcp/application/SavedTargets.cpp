@@ -107,8 +107,37 @@ bool SavedTargets::setOpenAllowed(const QString& client, quint64 version, const 
 {
     if (!isShared(client, version, id) || _targets.value(id).value.configVersion != expected) return false;
     auto& grant = _grants[client][id];
-    if (grant.openAllowed != selected) { grant.openAllowed = selected; emit changed(); }
+    if (grant.openAllowed != selected) {
+        grant.openAllowed = selected;
+        if (!selected) grant.sharing = {};
+        emit changed();
+    }
     return true;
+}
+bool SavedTargets::setNewSessionSharing(const QString& client, quint64 version, const QString& id,
+    const QString& expected, NewSessionPermission permission, bool selected)
+{
+    if (!canOpen(client, version, id) || _targets.value(id).value.configVersion != expected
+        || (permission != NewSessionPermission::Read && permission != NewSessionPermission::Input
+            && permission != NewSessionPermission::Clear)) return false;
+    auto& sharing = _grants[client][id].sharing;
+    if (permission == NewSessionPermission::Read) {
+        sharing.read = selected;
+        if (!selected) { sharing.input = false; sharing.clear = false; }
+    } else if (permission == NewSessionPermission::Input) {
+        sharing.input = selected;
+        if (selected) sharing.read = true;
+    } else {
+        sharing.clear = selected;
+        if (selected) sharing.read = true;
+    }
+    sharing.revision = opaqueVersion();
+    emit changed();
+    return true;
+}
+NewSessionSharing SavedTargets::newSessionSharing(const QString& client, quint64 version, const QString& id) const
+{
+    return canOpen(client, version, id) ? _grants.value(client).value(id).sharing : NewSessionSharing{};
 }
 std::optional<SavedTargetSource> SavedTargets::openingSource(const QString& client, quint64 version,
     const QString& id, const QString& expected) const

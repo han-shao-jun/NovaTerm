@@ -2,6 +2,7 @@
  *  @brief 有界 MCP 请求处理；所有 Session 访问均位于 GUI 线程。
  */
 #include "McpService.h"
+#include "TargetSessionSharing.h"
 #include "CapabilityAdmission.h"
 #include "capabilities/terminal/SearchCapabilities.h"
 #include "capabilities/terminal/LegacyTerminalMapping.h"
@@ -158,6 +159,7 @@ public:
         textWaits = std::make_unique<TerminalTextWait>(access, sessions, observation, instance, logCursorKey, owner);
         terminalTasks = std::make_unique<TerminalTasks>(access, sessions, *terminal, instance, logCursorKey, owner);
         QObject::connect(&savedTargets, &SavedTargets::changed, q, &Service::changed);
+        targetSharing = std::make_unique<TargetSessionSharing>(access, sessions, savedTargets, owner);
         commands = std::make_unique<CommandSessionAdapter>(access, sessions,
             QDir(stateDirectory).filePath("targets"), instance, CommandSessionAdapter::Delivery{
                 [this](const TaskId& task, QJsonObject payload) {
@@ -242,6 +244,7 @@ public:
     }
     void stop()
     {
+        if (targetSharing) targetSharing->clear();
         if (terminalTasks) terminalTasks->stop();
         if (textWaits) textWaits->revoke({}, {});
         if (terminal) terminal->revoke({}, {});
@@ -899,6 +902,7 @@ public:
     SessionDirectory sessions;
     SavedTargets savedTargets;
     TargetConnections targetConnections{savedTargets};
+    std::unique_ptr<TargetSessionSharing> targetSharing;
     std::function<bool(const QString&)> targetCloseSafety;
     HistoryCapabilityAdapter history;
     Capabilities::CapabilityRegistry capabilityRegistry{Capabilities::CapabilityRegistry::implementedCapabilities()};
@@ -977,6 +981,9 @@ void Service::setTargetOpener(TargetConnections::Open open)
         return impl->queryTargetConnection(id, attachment);
     }, [impl](const TargetConnectionFacts& facts, const QString& epoch, const TargetConnections::Guard& allowed) {
         return impl->closeTargetConnection(facts, epoch, allowed);
+    }, [impl](const QString& client, quint64 identity, const TargetConnectionRequest& request,
+        const TargetConnectionFacts& facts, const NewSessionSharing& sharing) {
+        impl->targetSharing->created(client, identity, request, facts, sharing);
     });
 }
 void Service::setTargetCloseSafety(std::function<bool(const QString&)> safety)

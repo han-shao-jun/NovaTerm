@@ -7,6 +7,18 @@
 
 2026-10-27 B3/B3a：追加下述四工具，达到十七项；B3b 第一子批再追加只读保存目标目录，第二子批增加打开/查询，第二子批为二十项，第三子批追加安全关闭后共二十一项。原十七对象兼容保留，目录工具仅更正说明文字；旧九项 ToolRequest 联合不扩张。SSH/SFTP 单文件传输仍未实施，安全关闭见下节。源码/替身验证不代替真实设备验收。
 
+## B3b 第四子批：新会话预授权（2026-10-27）
+
+当前仍为二十一工具，不增加协议参数；`novaterm_open_target` 的 Schema、结果与默认授权保持。本机 MCP 设置逐客户端/保存目标另提供“新建时读取、完整输入、允许清空”三项选择，规则仅当前运行有效，绑定客户端身份与目标配置版本。
+
+- 默认全关。输入或清空的选择同时开启读取；取消读取级联取消两项。撤回允许打开清除规则，重新打开不恢复旧选择。脚本、旧命令、诊断、托管提权和文件权限不由规则授予。
+- 仅首次成功创建的可见 Session 可排入一次性等待；复用会话、相同 operationId 重试和查询均不触发新授权。原连接就绪后，以实际 Session/Transport/连接 generation/epoch/首次指纹绑定初始化授权行，一次原子写入并推进访问版本，不复制别的会话授权。
+- 等待最多120秒、全局最多256项；只保留弱引用。待连接与本机主机密钥确认可等待；失败、关闭、重连、换绑或移出目录取消。首次合法指纹发现可更新绑定，不能据此丢弃原初次连接。
+- 等待期间配置重存、目录/打开撤回、规则修改（包括取消再开启）、身份轮换/移除、全局停用、人工输入或显式连接动作均取消；不会事后把新规则套在旧创建操作上。已有授权行即使被手工撤销，也禁止初始化覆盖。
+- 预授权在原打开调用完成后排队生效，打开成功本身不证明权限已授予。调用方用 `novaterm_list_sessions` 和读取/输入的现有准入确认权限及最新 epoch；不能仅按 created=true 推断权限。已绑定权限之后由现有 Session 授权管理，修改预授权只影响尚未生效和未来创建操作；重连保留读取的既有语义不变，输入和清空仍失效。
+
+实现与本轮替身/协议验证见[预授权记录](records/B3b_New_Session_Sharing_2026-10-27.md)。单文件传输与B4仍待后续。
+
 ## B3b 第三子批：原创建会话安全关闭（2026-10-27）
 
 新增 `novaterm_close_target(targetId,configVersion,operationId,epoch)`，当前二十一工具。前三项均为原打开操作的标识，epoch取最近查询；不接受sessionId替换目标、force、凭据或连接参数。沿用当前目录共享和独立打开权限，不自动授予终端权限。旧二十工具Schema保持；目录和打开工具仅更新关闭说明。
@@ -17,12 +29,12 @@
 - 查询前先占位防止同步重入；本机安全回调后重新检查授权、请求取消/期限、原连接及忙碌状态，再调用既有Session.close。成功表示关闭已受理，返回实际closing/closed，不证明远端任务终止。保留可见终端和缓存，不删除标签。
 - 关闭复用原有32/客户端、256/全局打开记录，不新增无界记录。受理成功保存关闭事实；同epoch精确重试复用首次结果，不再次关闭、不追踪新绑定。query_target继续查询原连接；busy可观察后再请求，权限撤回/身份变化仍拒绝。短RPC断流不会撤销已开始的关闭。
 
-本批记录、真实RED/GREEN和验证范围见[安全关闭记录](records/B3b_Target_Close_2026-10-27.md)。单文件传输、新会话预授权和B4仍待后续。
+本批记录、真实RED/GREEN和验证范围见[安全关闭记录](records/B3b_Target_Close_2026-10-27.md)。新会话预授权见第四子批；单文件传输和B4仍待后续。
 
 ## B3b 第二子批：独立授权的目标打开/查询（2026-10-27）
 
 - `novaterm_open_target` 和 `novaterm_query_target` 均要求 `targetId/configVersion/operationId`，三个字段均为规范非空UUID，无连接参数、凭据或客户端身份参数。query按原open的operationId查询，不创建或重连。精确Schema冻结于 `tests/mcp/fixtures/target-connections-2026-10-27.json`。
-- 本机按客户端先勾共享目录、再独立勾允许打开；绑定当前identityVersion和configVersion，仅本次运行。撤回目录同时撤回打开，重新共享不恢复；普通Session授权变化不升级目标授权。打开不授予新会话读取、输入、清空或文件权限，需在本机另行选择。
+- 本机按客户端先勾共享目录、再独立勾允许打开；绑定当前identityVersion和configVersion，仅本次运行。撤回目录同时撤回打开，重新共享不恢复；普通Session授权变化不升级目标授权。打开默认不授予新会话读取、输入、清空或文件权限；本机可另选第四子批的明确预授权规则。
 - 应用只保留有界索引，UI通过原TerminalView/Session通路创建可见标签。按完整实际配置（包括SSH认证及环境）优先复用connecting/running/reconnecting会话；串口不同配置占用、尚未完成释放或自动重连预留返回port_busy，不关闭人类会话。Failed且实际已断开、无待释放和已安排自动重连的旧串口标签不预留端口。自动重连预留读取Session定时器的实际状态，不从保存间隔推断；本机手动断开停止自动重连，端口释放后不会因旧配置继续报port_busy。
 - 成功data固定包含 `instanceId/targetId/configVersion/operationId/created/reused/sessionId/epoch/state/reason/suggestedQueryMs`。sessionId/epoch可为null；created表示首次受理曾创建，reused表示首次使用已有连接；state为opening、created、connecting、running、reconnecting、failed、closing、closed、invalidated或unavailable。当前查询建议500ms。
 - reason仅返回有限原因，不透传底层认证/错误正文：空值、connection_ui_unavailable、configuration_changed、authentication_required、configuration_invalid、port_busy、session_unavailable、attachment_changed、admission_invalidated、host_key_confirmation_required。主机密钥决策仍由本机UI处理；connecting不承诺已认证或设备在线，failed不合成终端执行结果。
@@ -30,7 +42,7 @@
 - 凭据解锁、标签注册等同步/嵌套事件后重新核验源配置、独立授权、原请求租约/期限/取消；最后启动准入边界是调用Session.start前的守卫成功。此前撤回/取消保证零连接；已开始启动的连接不因短RPC结束自动关闭。失败或取消受理也保留操作事实，查询后不得换ID自动重试。
 - 连接绑定跟踪原传输对象的随机运行期身份。首次获得主机指纹和同对象重连不使操作误失效，查询返回实际新epoch；更换Transport/目标则invalidated，不跟随到新连接。记录不跨应用重启恢复，旧configVersion也不复活，不自动重跑。
 
-实现、审查和本轮验证见[连接记录](records/B3b_Target_Connections_2026-10-27.md)。安全关闭见本页第三子批；文件传输、新会话预授权规则及真实设备验收仍待后续。
+实现、审查和本轮验证见[连接记录](records/B3b_Target_Connections_2026-10-27.md)。安全关闭见本页第三子批；新会话预授权见第四子批；文件传输及真实设备验收仍待后续。
 
 ## B3b 第一子批：保存目标目录（2026-10-27）
 
@@ -203,7 +215,7 @@ Session ID、epoch、attachment、连接generation与目标身份共同约束实
 | 托管提权 | 依赖完整输入和独立选择；当前可信适配器为空，任何请求零取密/零输入 |
 
 授权选择、可信身份、执行就绪是不同事实：五类连接可保存已知权限，后端缺失仍不可执行。取消读取级联执行撤权；取消输入撤销提权；凭据变更撤销提权。旧UI行按绑定/行版本拒绝，不能将旧撤销意图改成新连接授权。
-客户端移除/令牌轮换/总开关关闭会使相关访问与确认失效；重启/新建Session默认不共享，不能继承上次临时输入权限。
+客户端移除/令牌轮换/总开关关闭会使相关访问与确认失效；重启/新建Session默认不共享，不能继承上次临时输入权限；仅本次运行的本机显式保存目标规则可对原新建连接一次绑定。
 
 ### 3.1 线程、所有权与唯一数据通路
 

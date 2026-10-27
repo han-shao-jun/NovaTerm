@@ -78,6 +78,7 @@ target_link_libraries(novaterm_session_automation PUBLIC
     novaterm_core Qt6::Core Qt6::SerialPort)
 
 qt_add_library(novaterm_mcp_runtime STATIC
+    TargetSessionSharing.cpp TargetSessionSharing.h
     TerminalTextWait.cpp TerminalTextWait.h tasks/TextWaitMatcher.h
     TerminalTasks.cpp TerminalTasks.h
     TerminalClearAdapter.cpp TerminalClearAdapter.h

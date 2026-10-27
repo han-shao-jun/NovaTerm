@@ -6,7 +6,7 @@
             "idempotentHint": true,
             "openWorldHint": true
         },
-        "description": "Open an explicitly shared saved SSH/UART configuration only after separate local open permission. Never supply credentials or connection overrides. Reuse matching connecting/running sessions; otherwise create a visible terminal. Does not grant terminal read/input/file permissions. Save operationId and retry only identical arguments; uncertain or failed results must be queried, never replayed with a new ID. Records last this app run, limited to 32 per client and 256 globally. Use novaterm_close_target only for this operation's created session when safely idle.",
+        "description": "Open an explicitly shared saved SSH/UART configuration only after separate local open permission. Never supply credentials or connection overrides. Reuse matching connecting/running sessions; otherwise create a visible terminal. Terminal read/input/clear default off; only explicit local new-session rules can grant them once the original created connection is ready. Reuse, reconnect and retries never restore permissions. File/script/elevation permissions remain separate. Save operationId and retry only identical arguments; uncertain or failed results must be queried, never replayed with a new ID. Records last this app run, limited to 32 per client and 256 globally. Use novaterm_close_target only for this operation's created session when safely idle.",
         "inputSchema": {
             "type": "object",
             "properties": {

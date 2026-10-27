@@ -363,6 +363,17 @@ bool AccessStore::canRead(const QString& clientId, const SessionDirectory::Entry
     return row && row->selection.read;
 }
 
+bool AccessStore::initializeSessionSharing(const ClientId& client, const PermissionSelection& selection,
+    const SessionDirectory::Entry& entry)
+{
+    if (!_authorization.initializeSession(client, selection, factsOf(entry))) return false;
+    emit revoked(client.str(), entry.id);
+    emit changed();
+    if (NovaTerm::publishedContextSnapshotEnabled() && entry.session && entry.session->core())
+        static_cast<void>(entry.session->core()->requestPublishedTerminalState());
+    return true;
+}
+
 QSet<QString> AccessStore::commands(const QString& clientId, const SessionDirectory::Entry& entry) const
 {
     QSet<QString> result;

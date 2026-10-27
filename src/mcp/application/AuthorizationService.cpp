@@ -214,6 +214,19 @@ std::optional<GrantRow> AuthorizationService::row(const ClientId& client,
     return _store.find(client, session);
 }
 
+bool AuthorizationService::initializeSession(const ClientId& client, const PermissionSelection& selection,
+    const GrantFacts& facts)
+{
+    if (!_ports.enabled || !_ports.enabled() || !_ports.knownClient || !_ports.knownClient(client)
+        || facts.binding.session.isEmpty() || !readyForInput(facts)
+        || _store.find(client, facts.binding.session) || !selection.read
+        || !selection.diagnostics.isEmpty() || selection.riskControlledCommand
+        || selection.script || selection.elevation) return false;
+    _store.save(client, facts.binding.session, {facts.binding, selection, GrantRevision{1}});
+    if (_ports.advanceClientVersion) static_cast<void>(_ports.advanceClientVersion(client));
+    return true;
+}
+
 void AuthorizationService::removeSession(const SessionId& session)
 {
     _store.removeSession(session);

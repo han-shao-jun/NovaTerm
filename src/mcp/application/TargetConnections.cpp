@@ -3,9 +3,10 @@
 #include <QScopeGuard>
 
 namespace NovaTerm::Mcp {
-void TargetConnections::setPorts(Open open, Query query, Close close)
+void TargetConnections::setPorts(Open open, Query query, Close close, Created created)
 {
     _open = std::move(open); _query = std::move(query); _close = std::move(close);
+    _created = std::move(created);
 }
 TargetConnectionResult TargetConnections::call(const QString& client, quint64 version,
     const TargetConnectionRequest& request, Guard invocationValid)
@@ -79,11 +80,15 @@ TargetConnectionResult TargetConnections::call(const QString& client, quint64 ve
         {version, request.targetId, request.configVersion, {{}, {}, {}, "opening", {}, false}});
     // Copy the callable: composition or authorization callbacks may re-enter this index.
     const auto open = _open;
+    const auto created = _created;
+    const auto sharing = _targets.newSessionSharing(client, version, request.targetId);
     const auto facts = open ? open(*source, allowed)
         : TargetConnectionFacts{{}, {}, {}, "unavailable", "connection_ui_unavailable", false};
     _records[client][request.operationId].facts = facts;
     if (!allowed())
         return failure(ErrorCode::TargetOpenPermissionRequired);
+    if (created && facts.created && !facts.sessionId.isEmpty())
+        created(client, version, request, facts, sharing);
     return {facts, {}};
 }
 }

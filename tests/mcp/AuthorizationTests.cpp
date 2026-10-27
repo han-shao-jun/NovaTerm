@@ -103,6 +103,7 @@ class AuthorizationTests : public QObject
 {
     Q_OBJECT
 private slots:
+    void newSessionInitializationIsAtomicAndNeverOverwrites();
     void confirmationRejectsChangedFactsAndReplay();
     void confirmationUserGenerationPreservesPresence();
     void taskPhasesAdvanceOnlyForward();
@@ -134,6 +135,39 @@ private slots:
     void requestSchedulerEnforcesBudgetsAndCancellation();
     void commandDedupBlocksUntilSwept();
 };
+
+void AuthorizationTests::newSessionInitializationIsAtomicAndNeverOverwrites()
+{
+    for (int invalid = 0; invalid < 12; ++invalid) {
+        FakePorts backing; AuthorizationService service(backing.ports());
+        auto current = facts(); PermissionSelection selection;
+        selection.read = true; selection.fullTerminalInput = true; selection.clearTerminal = true;
+        if (invalid == 1) selection.read = false;
+        if (invalid == 2) selection.script = true;
+        if (invalid == 3) selection.elevation = true;
+        if (invalid == 4) selection.riskControlledCommand = true;
+        if (invalid == 5) selection.diagnostics.insert(DiagnosticId{"os.uname"});
+        if (invalid == 6) current.sessionRunning = false;
+        if (invalid == 7) current.transportConnected = false;
+        if (invalid == 8) current.generationMatches = false;
+        if (invalid == 9) current.transportMatchesSession = false;
+        if (invalid == 10) backing.enabled = false;
+        if (invalid == 11) backing.clients.clear();
+        QCOMPARE(service.initializeSession(ClientId{"client-1"}, selection, current), invalid == 0);
+        QCOMPARE(service.size(), std::size_t(invalid == 0 ? 1 : 0));
+        QCOMPARE(backing.version, quint64(invalid == 0 ? 4 : 3));
+        if (invalid == 0) {
+            QCOMPARE(service.snapshot(ClientId{"client-1"}, current).selection, selection);
+            const auto revoke = change(PermissionKind::ReadOutput, false, GrantRevision{1});
+            QVERIFY(!isError(service.change(revoke, current)));
+            QVERIFY(!service.initializeSession(ClientId{"client-1"}, selection, current));
+            QVERIFY(!service.snapshot(ClientId{"client-1"}, current).selection.read);
+            current.binding.attachment = AttachmentId{"replacement"};
+            QVERIFY(!service.initializeSession(ClientId{"client-1"}, selection, current));
+            QCOMPARE(backing.version, quint64(5));
+        }
+    }
+}
 
 void AuthorizationTests::clientIdentityGenerationIsIndependentAndNeverReused()
 {

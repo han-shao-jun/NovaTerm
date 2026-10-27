@@ -37,6 +37,8 @@ UART 在重启前保持连接。部署后结合固件版本、构建标识、启
 
 当前可用路径：使用 read_context 返回的 nextToken 继续 sinceToken 观察。projectionLimited 时按 expandToken 补读固定 capture；sourceGap/resetRequired 时承认观察不完整。当前摘要过滤重复内容且有范围上限，不能据此统计完整报错次数。B1 精确日志请显式 source=log，用 start=tail 建立书签或 start=oldest 回读，随后 sinceToken；按 hasMore/caughtUp 和 status 继续。gap/invalidated 后显式选择 earliestToken/sampledEndToken 新基线。只读已滚入历史的完成行，未换行提示仍看 observation。
 
+保存目标可由本机为当前客户端预先选择新建时读取/完整输入/清空，默认全关；只对原创建连接首次就绪后绑定一次，复用会话、重试与重连不重新授权。打开返回created不证明已获权限，仍通过list_sessions与观察准入获取当前绑定。文件、脚本与提权独立；规则和取消条件见[现行契约](02_Current_MCP_Contract.md#b3b-第四子批新会话预授权2026-10-27)。
+
 ## 4. 操作 SSH/UART
 
 - 操作前读取，使用最新 inputToken 和新的 operationId；同一操作的网络重试复用原 ID 和完全相同参数。
