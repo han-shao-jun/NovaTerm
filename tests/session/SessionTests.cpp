@@ -10,6 +10,7 @@
 #include "session/SessionTerminalController.h"
 #include "session/SessionStore.h"
 #include "session/TerminalSession.h"
+#include "ui/pages/SavedConnectionPolicy.h"
 #include "session/SessionInputPump.h"
 #include "service/HistoryRecordingBinding.h"
 #include "recording/HistoryService.h"
@@ -151,6 +152,8 @@ private slots:
     void serialDriverReceiveQueueIsInitializedAgainAfterReopen();
     void transportWarningsStayNonFatalAndRejectOldAttachments();
     void serialAutomaticReconnect();
+    void savedSerialPortReservationUsesPendingReconnect_data();
+    void savedSerialPortReservationUsesPendingReconnect();
     void realSerialSessionUsesExistingPumpForFileTransfer_data();
     void realSerialSessionUsesExistingPumpForFileTransfer();
     void serialLrzszSizeMatrix_data();
@@ -1899,6 +1902,47 @@ void SessionTests::userInputStopsUnsentLongCommandTail()
         finished.first().front());
     QCOMPARE(result.outcome, CommandExecutionOutcome::Cancelled);
     QVERIFY(result.executionMayHaveStarted);
+}
+
+void SessionTests::savedSerialPortReservationUsesPendingReconnect_data()
+{
+    QTest::addColumn<bool>("manual");
+    QTest::addColumn<int>("seconds");
+    QTest::addColumn<bool>("supportsReconnect");
+    QTest::addColumn<bool>("reserved");
+    QTest::newRow("enabled-manual-disconnect") << true << 60 << true << false;
+    QTest::newRow("enabled-remote-disconnect") << false << 60 << true << true;
+    QTest::newRow("disabled-remote-disconnect") << false << 0 << true << false;
+    QTest::newRow("unsupported-remote-disconnect") << false << 60 << false << false;
+}
+
+void SessionTests::savedSerialPortReservationUsesPendingReconnect()
+{
+    QFETCH(bool, manual);
+    QFETCH(int, seconds);
+    QFETCH(bool, supportsReconnect);
+    QFETCH(bool, reserved);
+    RuntimeConfig config;
+    config.transportKind = TransportKind::Serial;
+    config.transport.insert(QStringLiteral("reconnectSeconds"), seconds);
+    FakeTransport transport(supportsReconnect);
+    TerminalSession session(config);
+    session.attach(&transport, TerminalSession::Ownership::Borrowed);
+    QVERIFY(session.start());
+    QTRY_COMPARE(session.state(), SessionState::Running);
+    if (manual) QVERIFY(session.disconnectForReconnect());
+    else transport.simulateRemoteDisconnect();
+    QCOMPARE(session.state(), SessionState::Failed);
+    QVERIFY(!transport.isConnected());
+    QVERIFY(!transport.hasPendingDisconnect());
+    QCOMPARE(session.runtimeConfig().transport.value("reconnectSeconds").toInt(), seconds);
+    QCOMPARE(NovaTerm::serialConnectionReserved(session.state(), transport.isConnected(),
+        transport.hasPendingDisconnect(), session.hasPendingAutomaticReconnect()), reserved);
+    QCOMPARE(session.hasPendingAutomaticReconnect(), reserved);
+    QCOMPARE(transport.connectAttempts, 1);
+    session.close();
+    QCOMPARE(session.state(), SessionState::Closed);
+    QVERIFY(!session.hasPendingAutomaticReconnect());
 }
 
 void SessionTests::serialAutomaticReconnect()

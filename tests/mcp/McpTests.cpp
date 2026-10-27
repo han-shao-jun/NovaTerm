@@ -519,6 +519,10 @@ class McpTests final : public QObject
 {
     Q_OBJECT
 private slots:
+    void targetConnectionsUseBothProtocols_data();
+    void targetConnectionsUseBothProtocols();
+    void targetConnectionQueryFollowsInitialConnectionAndReconnect();
+    void targetConnectionNestedRevocationCannotStart();
     void workflowWaitAndTasksUseBothProtocols_data();
     void workflowWaitAndTasksUseBothProtocols();
     void workflowWaitCancellationAndMcpReenable_data();
@@ -2688,7 +2692,7 @@ void McpTests::tokenSigningAndAuthentication()
 
 void McpTests::rejectsDangerousAndOversizedArguments()
 {
-    QCOMPARE(ToolCodec::catalog().size(), 18);
+    QCOMPARE(ToolCodec::catalog().size(), 20);
     QVERIFY(!CommandPolicy::find("rm"));
     QVERIFY(!CommandPolicy::find("credential.read"));
     const QJsonObject identity{{"sessionId", newId()}, {"epoch", "epoch"}};
@@ -2821,6 +2825,150 @@ void McpTests::httpInitializedSessionReadsWithAuthorization()
     QVERIFY(listed.message.value("result").toObject().value("structuredContent").toObject()
         .value("ok").toBool());
 }
+void McpTests::targetConnectionNestedRevocationCannotStart()
+{
+    Fixture f; QVERIFY(f.enable());
+    auto& targets = f.service.savedTargets();
+    QVERIFY(targets.replace({{newId(), "Board", "ssh", "fixture.invalid:22", QByteArray(32, 'a')}}));
+    const auto row = targets.localTargets().first();
+    const auto version = f.service.access().identityVersion(f.client);
+    QVERIFY(targets.setShared(f.client, version, row.id, row.configVersion, true));
+    QVERIFY(targets.setOpenAllowed(f.client, version, row.id, row.configVersion, true));
+    int starts = 0;
+    f.service.setTargetOpener([&](const SavedTargetSource&, const TargetConnections::Guard& allowed) {
+        QEventLoop nested;
+        QTimer::singleShot(0, &nested, [&] {
+            static_cast<void>(targets.setOpenAllowed(f.client, version, row.id, row.configVersion, false));
+            nested.quit();
+        });
+        nested.exec(); // Simulates the existing local keyring unlock prompt's event loop.
+        if (allowed()) ++starts;
+        return TargetConnectionFacts{{}, {}, {}, "unavailable", "admission_invalidated", false};
+    });
+    Host host; QVERIFY(host.start(f.runtime(), f.token()));
+    const QJsonObject args{{"targetId", row.id}, {"configVersion", row.configVersion}, {"operationId", newId()}};
+    const auto response = host.call("novaterm_open_target", args);
+    QCOMPARE(response.value("error").toObject().value("code").toString(), QString("TARGET_OPEN_PERMISSION_REQUIRED"));
+    QCOMPARE(starts, 0);
+    QVERIFY(targets.setOpenAllowed(f.client, version, row.id, row.configVersion, true));
+    const auto queried = host.call("novaterm_query_target", args);
+    QVERIFY(queried.value("ok").toBool());
+    QCOMPARE(queried.value("data").toObject().value("reason").toString(), QString("admission_invalidated"));
+    QCOMPARE(starts, 0);
+}
+
+void McpTests::targetConnectionQueryFollowsInitialConnectionAndReconnect()
+{
+    class PendingTransport final : public ITransport {
+    public:
+        bool connectToHost() override { return true; }
+        void disconnect() override { online = false; emit disconnected(); }
+        void write(const QByteArray&) override {}
+        void resizeTerminal(int, int) override {}
+        bool isConnected() const override { return online; }
+        QString errorString() const override { return {}; }
+        TransportCapabilities capabilities() const override { return TransportCapability::Reconnect; }
+        bool online{false};
+    };
+    Fixture f; QVERIFY(f.enable());
+    TerminalCore core{80, 24}; PendingTransport transport; TerminalSession session{&core};
+    session.attach(&transport, TerminalSession::Ownership::Borrowed, TransportKind::LocalShell);
+    QVERIFY(session.start()); QCOMPARE(session.state(), SessionState::Connecting);
+    f.service.directory().add(&session);
+    auto& targets = f.service.savedTargets();
+    QVERIFY(targets.replace({{newId(), "Board", "ssh", "fixture.invalid:22", QByteArray(32, 'a')}}));
+    const auto row = targets.localTargets().first();
+    const auto version = f.service.access().identityVersion(f.client);
+    QVERIFY(targets.setShared(f.client, version, row.id, row.configVersion, true));
+    QVERIFY(targets.setOpenAllowed(f.client, version, row.id, row.configVersion, true));
+    int opens = 0;
+    f.service.setTargetOpener([&](const SavedTargetSource&, const TargetConnections::Guard&) {
+        ++opens;
+        const auto entry = f.service.directory().find(session.id().toString(QUuid::WithoutBraces));
+        return TargetConnectionFacts{entry->id, entry->epoch, entry->attachmentId,
+            SessionDirectory::stateName(entry->state), {}, true};
+    });
+    Host host; QVERIFY(host.start(f.runtime(), f.token()));
+    const QJsonObject args{{"targetId", row.id}, {"configVersion", row.configVersion}, {"operationId", newId()}};
+    QCOMPARE(host.call("novaterm_open_target", args).value("data").toObject().value("state").toString(), QString("connecting"));
+    transport.online = true; emit transport.connected();
+    QCOMPARE(session.state(), SessionState::Running);
+    const auto connected = host.call("novaterm_query_target", args).value("data").toObject();
+    QCOMPARE(connected.value("state").toString(), QString("running"));
+    const auto epoch = connected.value("epoch").toString();
+    QVERIFY(session.reconnect()); QCOMPARE(session.state(), SessionState::Reconnecting);
+    transport.online = true; emit transport.connected();
+    const auto reconnected = host.call("novaterm_query_target", args).value("data").toObject();
+    QCOMPARE(reconnected.value("state").toString(), QString("running"));
+    QVERIFY(reconnected.value("epoch").toString() != epoch); QCOMPARE(opens, 1);
+}
+
+void McpTests::targetConnectionsUseBothProtocols_data()
+{
+    QTest::addColumn<QString>("version");
+    QTest::newRow("2025") << QString(ProtocolVersion);
+    QTest::newRow("2026") << QString("2026-07-28");
+}
+void McpTests::targetConnectionsUseBothProtocols()
+{
+    QFETCH(QString, version);
+    Fixture f;
+    QVERIFY(f.enable());
+    f.makeSsh();
+    auto& targets = f.service.savedTargets();
+    SavedTargetSource source{newId(), "Board", "ssh", "fixture.invalid:22", QByteArray(32, 'a')};
+    QVERIFY(targets.replace({source}));
+    const auto row = targets.localTargets().first();
+    const auto identityVersion = f.service.access().identityVersion(f.client);
+    int opens = 0;
+    f.service.setTargetOpener([&](const SavedTargetSource&, const TargetConnections::Guard&) {
+        ++opens;
+        const auto entry = f.service.directory().find(f.session.id().toString(QUuid::WithoutBraces));
+        return TargetConnectionFacts{entry->id, entry->epoch, entry->attachmentId, "running", {}, true};
+    });
+    Host host;
+    QVERIFY(host.start(f.runtime(), f.token(), {}, false, version));
+    QJsonObject arguments{{"targetId", row.id}, {"configVersion", row.configVersion}, {"operationId", newId()}};
+    const auto denied = [&] {
+        return host.call("novaterm_open_target", arguments).value("error").toObject().value("code").toString();
+    };
+    QCOMPARE(denied(), QString("TARGET_OPEN_PERMISSION_REQUIRED"));
+    QVERIFY(targets.setShared(f.client, identityVersion, row.id, row.configVersion, true));
+    QCOMPARE(denied(), QString("TARGET_OPEN_PERMISSION_REQUIRED"));
+    QCOMPARE(opens, 0);
+    McpSettingsDialog dialog(&f.service, nullptr);
+    auto* tree = dialog.findChild<QTreeWidget*>("mcpSavedTargets");
+    QVERIFY(tree); QCOMPARE(tree->columnCount(), 4);
+    QCOMPARE(tree->topLevelItem(0)->checkState(3), Qt::Unchecked);
+    tree->topLevelItem(0)->setCheckState(3, Qt::Checked);
+    QVERIFY(targets.canOpen(f.client, identityVersion, row.id));
+    const auto opened = host.call("novaterm_open_target", arguments);
+    QVERIFY2(opened.value("ok").toBool(), QJsonDocument(opened).toJson().constData());
+    QVERIFY(opened.value("data").toObject().value("created").toBool());
+    const auto sessionId = opened.value("data").toObject().value("sessionId").toString();
+    QVERIFY(!sessionId.isEmpty());
+    QVERIFY(!f.service.access().canRead(f.client, *f.service.directory().find(sessionId)));
+    const auto replay = host.call("novaterm_open_target", arguments);
+    QVERIFY(replay.value("ok").toBool()); QCOMPARE(opens, 1);
+    QCOMPARE(host.call("novaterm_query_target", arguments).value("data").toObject().value("state").toString(), QString("running"));
+    f.ssh->setProperty("novatermHostKeyDecisionPending", true);
+    QCOMPARE(host.call("novaterm_query_target", arguments).value("data").toObject().value("reason").toString(),
+        QString("host_key_confirmation_required"));
+    f.ssh->setProperty("novatermHostKeyDecisionPending", false);
+    QCOMPARE(opens, 1);
+    // Replacing the transport must never let the old operation follow the new connection.
+    f.makeSsh();
+    QCOMPARE(host.call("novaterm_query_target", arguments).value("data").toObject().value("state").toString(), QString("invalidated"));
+    QCOMPARE(opens, 1);
+    QVERIFY(targets.setOpenAllowed(f.client, identityVersion, row.id, row.configVersion, false));
+    QCOMPARE(denied(), QString("TARGET_OPEN_PERMISSION_REQUIRED")); QCOMPARE(opens, 1);
+    QVERIFY(targets.setOpenAllowed(f.client, identityVersion, row.id, row.configVersion, true));
+    QVERIFY(targets.setShared(f.client, identityVersion, row.id, row.configVersion, false));
+    QVERIFY(targets.setShared(f.client, identityVersion, row.id, row.configVersion, true));
+    QVERIFY(!targets.canOpen(f.client, identityVersion, row.id));
+    QCOMPARE(denied(), QString("TARGET_OPEN_PERMISSION_REQUIRED")); QCOMPARE(opens, 1);
+}
+
 void McpTests::httpSavedTargetDirectoryIsIsolatedAndVersioned()
 {
     Fixture f;
@@ -4030,6 +4178,17 @@ int interopFixture(QCoreApplication& application, const QString& configurationFi
     if (!fixture.enable(true)) return 1;
     if (!NovaTerm::Mcp::TestSupport::setTerminalGrant(fixture.service.access(), fixture.client,
             fixture.service.directory().entries().first(), true)) return 1;
+    auto& targets = fixture.service.savedTargets();
+    if (!targets.replace({{newId(), "Interop board", "ssh", "fixture.invalid:22", QByteArray(32, 'a')}})) return 1;
+    const auto target = targets.localTargets().first();
+    const auto identityVersion = fixture.service.access().identityVersion(fixture.client);
+    if (!targets.setShared(fixture.client, identityVersion, target.id, target.configVersion, true)
+        || !targets.setOpenAllowed(fixture.client, identityVersion, target.id, target.configVersion, true)) return 1;
+    fixture.service.setTargetOpener([&](const SavedTargetSource&, const TargetConnections::Guard& allowed) {
+        if (!allowed()) return TargetConnectionFacts{{}, {}, {}, "unavailable", "admission_invalidated", false};
+        const auto entry = fixture.service.directory().entries().first();
+        return TargetConnectionFacts{entry.id, entry.epoch, entry.attachmentId, "running", {}, false};
+    });
     fixture.core.writeInput("SDK_READY\r\nbuild ok\r\nERROR sample\r\n");
     if (!fixture.core.waitForIdle()) return 1;
     QTimer timer;

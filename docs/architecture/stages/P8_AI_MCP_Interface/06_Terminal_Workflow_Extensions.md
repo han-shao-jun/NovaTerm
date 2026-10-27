@@ -1,6 +1,6 @@
 # 指定文本等待、长任务、文件传输与目标连接
 
-更新：2026-10-27。**B3a文本等待/长任务已实现；B3b第一子批已提供保存目标授权只读目录，文件传输及目标打开/查询/关闭仍未实施。** 本文保留需求和边界，不引入内置Agent、聊天或自动开发平台。精确已实现字段/预算以 [02](02_Current_MCP_Contract.md) 为准，实际验证见 [B3记录](records/B3_Implementation_2026-10-27.md)和[B3b目录记录](records/B3b_Target_Directory_2026-10-27.md)；日志位置和清空见 [04](04_Cursor_Observation_and_Clear.md)。
+更新：2026-10-27。**B3a文本等待/长任务已实现；B3b已提供保存目标授权目录及独立授权的打开/复用/查询，关闭和文件传输仍未实施。** 本文保留需求和边界，不引入内置Agent、聊天或自动开发平台。精确已实现字段/预算以 [02](02_Current_MCP_Contract.md) 为准，实际验证见 [B3记录](records/B3_Implementation_2026-10-27.md)和[B3b目录记录](records/B3b_Target_Directory_2026-10-27.md)；日志位置和清空见 [04](04_Cursor_Observation_and_Clear.md)。
 
 ## 1. 最小交付范围
 
@@ -75,7 +75,7 @@ CommandRuntime/Session Controller 继续拥有执行事实；新增异步任务�
 
 ## 5. 已保存目标连接管理
 
-第一子批仅实现 `novaterm_list_targets` 和本机逐客户端目录共享。availability=saved_configuration 不代表在线或可复用；尚未返回活动会话绑定，也没有连接副作用。以下打开/复用/查询/关闭及新会话共享规则仍为后续设计。
+第一子批实现 `novaterm_list_targets` 和本机逐客户端目录共享。第二子批已追加 `novaterm_open_target`、`novaterm_query_target`，须另勾选允许打开，按配置版本和operationId受理；查询返回实际会话/epoch与连接状态。availability=saved_configuration本身仍不代表在线。关闭及新会话预授权规则仍为后续设计，当前新会话权限默认关闭。
 
 只列出本机用户明确共享的保存目标；返回 targetId、显示名、传输类型、获准端点摘要、配置版本和可用状态，不返回密码/私钥。目标目录与活动 Session 目录分开，模型不能通过工具修改 host、port、波特率、认证或 Profile。
 
@@ -115,4 +115,4 @@ CommandRuntime/Session Controller 继续拥有执行事实；新增异步任务�
 | 保存目标 | Profile/Session 创建接线、目标授权 | 重复打开、复用他人会话、串口占用、认证待处理、配置变化、忙碌关闭、旧 epoch |
 | 指引 | WireSession/ToolCodec 元数据 | 两代规则冲突、错误权限保证、推荐未实现工具、本地和远端混淆 |
 
-完整调度见 [01](01_Phases_and_Acceptance.md) 的B3a/B3b，差距编号见 [03](03_Gaps_and_Evidence.md) G14～G17。B3a已按02注册四工具并冻结fixture；源码/替身完成与真实设备验收分开，不能据此关闭B4。B3b第一子批只注册 novaterm_list_targets，不能据此调用尚未实施的打开/关闭或文件工具。
+完整调度见 [01](01_Phases_and_Acceptance.md) 的B3a/B3b，差距编号见 [03](03_Gaps_and_Evidence.md) G14～G17。B3a已按02注册四工具并冻结fixture；源码/替身完成与真实设备验收分开，不能据此关闭B4。B3b已注册目录、打开、查询三工具，不能据此调用尚未实施的关闭或文件工具。

@@ -3,6 +3,7 @@
  */
 #pragma once
 #include "McpAccess.h"
+#include "application/TargetConnections.h"
 #include <QJsonArray>
 #include <memory>
 namespace NovaTerm::Recording { class HistoryService; }
@@ -22,6 +23,7 @@ public:
     [[nodiscard]] AccessStore& access();
     [[nodiscard]] SessionDirectory& directory();
     [[nodiscard]] SavedTargets& savedTargets();
+    void setTargetOpener(TargetConnections::Open);
     [[nodiscard]] HistoryCapabilityAdapter& history();
     [[nodiscard]] std::shared_ptr<Resources::ResourceSharingService> resources() const;
     void setHistorySource(Recording::HistoryService*);

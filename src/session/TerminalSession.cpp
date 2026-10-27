@@ -445,6 +445,11 @@ void TerminalSession::close(CloseMode mode)
     }
 }
 
+bool TerminalSession::hasPendingAutomaticReconnect() const
+{
+    return _reconnectTimer.isActive();
+}
+
 bool TerminalSession::disconnectForReconnect()
 {
     if (!_transport || _state != SessionState::Running

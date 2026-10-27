@@ -246,27 +246,29 @@ McpSettingsDialog::McpSettingsDialog(NovaTerm::Mcp::Service* service, QWidget* p
         for (int column = 3; column <= 5; ++column) _sessions->setColumnHidden(column, !visible);
     });
     layout->addWidget(legacyPermissions);
-    auto* savedHelp = new ElaText(tr("保存目标目录：仅共享勾选项的名称、SSH/UART 端点摘要和配置版本，本次运行有效。修改保存项或轮换令牌后需重新勾选；不会连接设备或授予终端读取、输入、文件权限。"), this);
+    auto* savedHelp = new ElaText(tr("保存目标：共享目录只披露名称与端点摘要；另勾选允许打开后，该客户端可复用连接或创建可见终端。本次运行有效，修改配置或轮换令牌后需重新授权。打开不会授予终端读取、输入或文件权限。"), this);
     savedHelp->setWordWrap(true);
     savedHelp->setTextPixelSize(12);
     layout->addWidget(savedHelp);
     _savedTargets = new ElaTreeWidget(this);
     _savedTargets->setObjectName(QStringLiteral("mcpSavedTargets"));
-    _savedTargets->setColumnCount(3);
-    _savedTargets->setHeaderLabels({tr("保存目标"), tr("端点摘要"), tr("共享目录")});
+    _savedTargets->setColumnCount(4);
+    _savedTargets->setHeaderLabels({tr("保存目标"), tr("端点摘要"), tr("共享目录"), tr("允许打开")});
     _savedTargets->setRootIsDecorated(false);
     _savedTargets->setMaximumHeight(140);
     _savedTargets->header()->setSectionResizeMode(QHeaderView::ResizeToContents);
     layout->addWidget(_savedTargets);
     connect(_savedTargets, &QTreeWidget::itemChanged, this, [this](QTreeWidgetItem* item, int column) {
-        if (_refreshing || !_service || column != 2) return;
+        if (_refreshing || !_service || (column != 2 && column != 3)) return;
         const auto client = item->data(0, Qt::UserRole + 2).toString();
         const auto identityVersion = item->data(0, Qt::UserRole + 3).toULongLong();
         const bool current = client == _clients->currentData().toString()
             && identityVersion == _service->access().identityVersion(client);
-        const bool applied = current && _service->savedTargets().setShared(client, identityVersion,
-            item->data(0, Qt::UserRole).toString(), item->data(0, Qt::UserRole + 1).toString(),
-            item->checkState(2) == Qt::Checked);
+        const auto id = item->data(0, Qt::UserRole).toString();
+        const auto version = item->data(0, Qt::UserRole + 1).toString();
+        const bool applied = current && (column == 2
+            ? _service->savedTargets().setShared(client, identityVersion, id, version, item->checkState(2) == Qt::Checked)
+            : _service->savedTargets().setOpenAllowed(client, identityVersion, id, version, item->checkState(3) == Qt::Checked));
         QMetaObject::invokeMethod(this, [this, applied] {
             refresh();
             if (!applied) _status->setText(tr("保存目标或客户端已变化，目录共享未提交；请重新选择。"));
@@ -625,12 +627,14 @@ void McpSettingsDialog::refresh()
         _savedTargets->clear();
         const auto identityVersion = _service->access().identityVersion(clientId);
         for (const auto& target : _service->savedTargets().localTargets()) {
-            auto* item = new QTreeWidgetItem(_savedTargets, {target.title, target.endpoint, {}});
+            auto* item = new QTreeWidgetItem(_savedTargets, {target.title, target.endpoint, {}, {}});
             item->setData(0, Qt::UserRole, target.id);
             item->setData(0, Qt::UserRole + 1, target.configVersion);
             item->setData(0, Qt::UserRole + 2, clientId);
             item->setData(0, Qt::UserRole + 3, QVariant::fromValue<qulonglong>(identityVersion));
             item->setCheckState(2, _service->savedTargets().isShared(clientId, identityVersion, target.id)
+                ? Qt::Checked : Qt::Unchecked);
+            item->setCheckState(3, _service->savedTargets().canOpen(clientId, identityVersion, target.id)
                 ? Qt::Checked : Qt::Unchecked);
             if (!identityVersion) item->setFlags(item->flags() & ~Qt::ItemIsEnabled);
         }

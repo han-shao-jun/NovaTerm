@@ -24,8 +24,7 @@ NovaTerm 提供进程内 Streamable HTTP MCP 服务，可让支持 MCP 的 AI �
    「完整的 JSON 配置」编辑器，并将唯一标题设为 `novaterm`。不要额外包裹
    `mcpServers` 或 `novaterm`；CC Switch 会用标题作为服务器 ID。
 
-只有已经打开且明确授权的会话可见。MCP 不自动启动 NovaTerm、不新建终端、不
-登录服务器。切换当前标签不会改变工具的目标，调用按 sessionId 和 epoch 定位。
+只有已经打开且明确授予终端权限的会话可见。MCP不自动启动NovaTerm；本机用户另行允许保存目标打开后，可按下文创建可见SSH/UART终端。切换当前标签不会改变工具的目标，调用按 sessionId 和 epoch 定位。
 
 默认接入地址为 `http://127.0.0.1:38973/mcp`，应用重启后保持稳定；应用启动前
 可用环境变量 `NOVATERM_MCP_HTTP_PORT` 覆盖端口。端口占用会明确报错，不自动
@@ -97,13 +96,22 @@ status=gap 表示旧位置被淘汰；status=invalidated 表示本机 clear 或 
 
 预算缺省 65536 字节/256 分段，最大 262144/1024；compact 只改缺省为 4096/24。初次 start 与续读 sinceToken 必须二选一；日志模式不要传 expandToken、waitFor、非零 waitMs 或 includeViewport=true。只有读取授权也可建立书签，整个过程没有输入或清空。
 
-当前软尾行、未换行提示、CR 进度条和备用屏仍看缺省 observation。日志只读已稳定的终端缓存，没有原始字节或覆写前屏幕帧；分页完整不证明 UART 硬件零丢失。日志 token 与观察 token/capture/expandToken 不混用，不产生 inputToken；需要操作时另读屏幕。MCP 清空按下节独立授权开放；文本等待和长任务见下文，文件传输和保存目标建连工具尚未开放。
+当前软尾行、未换行提示、CR 进度条和备用屏仍看缺省 observation。日志只读已稳定的终端缓存，没有原始字节或覆写前屏幕帧；分页完整不证明 UART 硬件零丢失。日志 token 与观察 token/capture/expandToken 不混用，不产生 inputToken；需要操作时另读屏幕。MCP 清空按下节独立授权开放；文本等待和长任务见下文，保存目标打开/查询见下节；文件传输和关闭工具尚未开放。
 
 ## 文本等待与长任务（B3/B3a）
 
-当前共十八个工具：上述九项、三项离线历史、独立清空、以下四项等待/任务，再加只读 `novaterm_list_targets`。SSH/UART交互均复用当前可见终端；先列会话核对 availability.terminalTasks，再观察和输入。
+当前共二十个工具：上述九项、三项离线历史、独立清空、以下四项等待/任务，再加保存目标目录、打开和查询三项。SSH/UART交互均复用当前可见终端；先列会话核对 availability.terminalTasks，再观察和输入。
 
-保存目标目录需要在「AI MCP access」中选择客户端，勾选「保存目标」的「共享目录」列；仅当前应用运行有效。`novaterm_list_targets` 可用 limit（默认25，最多50）及返回的 nextCursor 分页；配置修改、重新保存或共享变化后续页返回 TARGET_DIRECTORY_CHANGED，应重新列举。它仅披露所选 SSH/UART 的名称和端点摘要，saved_configuration 不表示设备在线；不连接设备，不授予终端读取/输入或文件权限。目标打开/关闭和MCP单文件传输仍未提供。
+保存目标目录需要在「AI MCP access」中选择客户端，勾选「保存目标」的「共享目录」列；仅当前应用运行有效。`novaterm_list_targets` 可用 limit（默认25，最多50）及返回的 nextCursor 分页；配置修改、重新保存或共享变化后续页返回 TARGET_DIRECTORY_CHANGED，应重新列举。它仅披露所选 SSH/UART 的名称和端点摘要，saved_configuration 不表示设备在线；不连接设备，不授予终端读取/输入或文件权限。打开还需独立授权，见下文；关闭和MCP单文件传输仍未提供。
+
+需要Agent打开保存目标时，在该客户端下先勾「共享目录」，再单独勾「允许打开」。调用 `novaterm_open_target`，只传目录返回的 `targetId`、`configVersion` 和新的UUID `operationId`；不能修改地址、串口参数、认证或传密码。匹配的连接会复用，否则创建可见标签；串口被其他配置占用时返回 `state=unavailable, reason=port_busy`，不会关闭人的会话来腾端口。本机手动断开已停止自动重连、且端口实际释放后，旧标签不会继续占用预留；真正待重连或待释放的端口仍受保护。
+
+保存原参数，用 `novaterm_query_target` 查询connecting/running/failed等实际状态。首次连接和同目标重连可更新epoch；换绑目标返回invalidated。`reason=host_key_confirmation_required` 时由本机用户处理主机密钥窗口；`authentication_required` 时在本机编辑凭据。不要把connecting、accepted或已建标签当作登录成功。
+
+打开不授予终端读取、输入、清空或文件权限。新标签需本机再勾相应会话权限，Agent随后用list_sessions与观察工具取得有效sessionId/epoch/inputToken。撤回目录共享同时撤回允许打开，重新共享不会恢复打开权。
+
+同一操作只用原operationId和完全相同参数重试，查询不会重连或重开标签。运行期每客户端最多32、全局256条打开操作，满额拒绝新操作但保留已有查询；记录不跨重启恢复。失败/缺记录/未知结果都不应换ID自动重跑。当前没有MCP关闭工具，收尾仍由本机用户操作。
+
 
 目录名称采用保存标签，空标签回退主机名或串口名，不包含 SSH 登录用户名。给同一客户端的活动 Session 修改读取/输入等权限，不会清掉独立的目录共享；令牌轮换、删除客户端和全局停用仍会撤销目录共享。
 

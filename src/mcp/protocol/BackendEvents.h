@@ -44,6 +44,7 @@ struct BackendClearCall { QString id; ClearRequest request; bool confirmationSup
 struct BackendWaitTextCall { QString id; WaitTextRequest request; bool confirmationSupplied{false}; };
 struct BackendTaskCall { QString id; TerminalTaskRequest request; bool confirmationSupplied{false}; };
 struct BackendSavedTargetsCall { QString id; ListSavedTargetsRequest request; bool confirmationSupplied{false}; };
+struct BackendTargetConnectionCall { QString id; TargetConnectionRequest request; bool confirmationSupplied{false}; };
 
 struct BackendElicitationResult
 {
@@ -51,7 +52,7 @@ struct BackendElicitationResult
     ConfirmationAnswer answer{ConfirmationAnswer::Decline};
 };
 
-using BackendEvent = std::variant<BackendCall, BackendHistoryCall, BackendClearCall, BackendWaitTextCall, BackendTaskCall, BackendSavedTargetsCall, BackendCancel, BackendElicitationResult>;
+using BackendEvent = std::variant<BackendCall, BackendHistoryCall, BackendClearCall, BackendWaitTextCall, BackendTaskCall, BackendSavedTargetsCall, BackendTargetConnectionCall, BackendCancel, BackendElicitationResult>;
 
 /** @brief 事件类别；仅用于日志与测试断言，不参与业务分派。 */
 [[nodiscard]] inline QString backendEventKind(const BackendEvent& event)
@@ -60,7 +61,8 @@ using BackendEvent = std::variant<BackendCall, BackendHistoryCall, BackendClearC
         using Type = std::decay_t<decltype(value)>;
         if constexpr (std::is_same_v<Type, BackendCall> || std::is_same_v<Type, BackendHistoryCall>
             || std::is_same_v<Type, BackendClearCall> || std::is_same_v<Type, BackendWaitTextCall>
-            || std::is_same_v<Type, BackendTaskCall> || std::is_same_v<Type, BackendSavedTargetsCall>)
+            || std::is_same_v<Type, BackendTaskCall> || std::is_same_v<Type, BackendSavedTargetsCall>
+            || std::is_same_v<Type, BackendTargetConnectionCall>)
             return QStringLiteral("call");
         else if constexpr (std::is_same_v<Type, BackendCancel>)
             return QStringLiteral("cancel");

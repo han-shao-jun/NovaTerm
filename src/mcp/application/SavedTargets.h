@@ -4,6 +4,7 @@
 #include <QMap>
 #include <QObject>
 #include <QString>
+#include <optional>
 
 namespace NovaTerm::Mcp {
 // Local composition input only. configurationKey never leaves this application boundary.
@@ -28,6 +29,11 @@ public:
     bool setShared(const QString& client, quint64 identityVersion, const QString& target,
         const QString& expectedConfigVersion, bool selected);
     bool isShared(const QString& client, quint64 identityVersion, const QString& target) const;
+    bool setOpenAllowed(const QString& client, quint64 identityVersion, const QString& target,
+        const QString& expectedConfigVersion, bool selected);
+    bool canOpen(const QString& client, quint64 identityVersion, const QString& target) const;
+    std::optional<SavedTargetSource> openingSource(const QString& client, quint64 identityVersion,
+        const QString& target, const QString& expectedConfigVersion) const;
     void revoke(const QString& client);
     SavedTargetPage page(const QString& client, quint64 identityVersion, int limit,
         const QString& after = {}, const QString& expectedRevision = {}) const;
@@ -35,7 +41,7 @@ signals:
     void changed();
 private:
     struct Entry { SavedTarget value; QByteArray configurationKey; };
-    struct Grant { quint64 identityVersion; QString configVersion; };
+    struct Grant { quint64 identityVersion; QString configVersion; bool openAllowed{false}; };
     void invalidate();
     QMap<QString, Entry> _targets;
     QMap<QString, QMap<QString, Grant>> _grants;

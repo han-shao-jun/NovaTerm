@@ -1,5 +1,7 @@
 # 开发调试闭环：现状、缺口与证据
 
+2026-10-27 B3b第二子批：新增独立授权的 `novaterm_open_target` / `novaterm_query_target`，共二十工具；打开/复用使用现有可见终端，配置/客户端身份和operationId绑定，不继承终端权限。关闭、单文件传输与B4仍待后续，见[本批记录](records/B3b_Target_Connections_2026-10-27.md)。
+
 2026-10-27 B3b 第一子批：G17 中「列出明确共享的保存目标」已落地 `novaterm_list_targets`，绑定配置/客户端身份版本且仅当前运行共享，不暴露凭据、不创建连接。打开/复用/查询/关闭与新会话共享规则尚未实施，G16 文件传输及 B4 验收保持待办。精确字段见[当前契约](02_Current_MCP_Contract.md)，范围与命令见[本批记录](records/B3b_Target_Directory_2026-10-27.md)。本页较早静态缺口仍按其日期理解。
 
 2026-10-25 B0/B1 已实施，结果见 [B0/B1 实施与验收](records/B0_B1_Implementation_2026-10-25.md)。原 2026-10-24 静态依据保留；以下 G01/G02/G03/G06/G11/G13 的状态由本页末新增结果更新，真实设备未验收。“存在”指源码/测试用例存在，“缺口”不等于已复现运行故障。实施顺序见 [01](01_Phases_and_Acceptance.md)，游标目标见 [04](04_Cursor_Observation_and_Clear.md)。

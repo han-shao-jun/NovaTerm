@@ -710,6 +710,77 @@ QList<NovaTerm::Mcp::SavedTargetSource> SessionPanel::savedTargetSources() const
     return sources;
 }
 
+std::optional<SessionPanel::SavedConnection> SessionPanel::savedConnection(const QString& targetId,
+    const QByteArray& expectedConfigurationKey, QString& reason) const
+{
+    reason.clear();
+    const auto sources = savedTargetSources();
+    const auto source = std::find_if(sources.cbegin(), sources.cend(), [&targetId](const auto& row) {
+        return row.id == targetId;
+    });
+    if (source == sources.cend() || source->configurationKey != expectedConfigurationKey) {
+        reason = "configuration_changed"; return std::nullopt;
+    }
+    const auto entry = std::find_if(_entries.cbegin(), _entries.cend(), [&targetId](const auto& row) {
+        return row.sessionId.toString(QUuid::WithoutBraces) == targetId;
+    });
+    if (entry == _entries.cend()) { reason = "configuration_changed"; return std::nullopt; }
+    const auto runtime = entry->runtimeSnapshot;
+    const auto values = runtime.transport;
+    if (runtime.transportKind == TransportKind::Serial) {
+        SerialConfig config;
+        config.portName = values.value(QStringLiteral("portName")).toString();
+        config.baudRate = values.value(QStringLiteral("baudRate")).toInt();
+        config.dataBits = static_cast<QSerialPort::DataBits>(
+            values.value(QStringLiteral("dataBits")).toInt());
+        config.parity = static_cast<QSerialPort::Parity>(
+            values.value(QStringLiteral("parity")).toInt());
+        config.stopBits = static_cast<QSerialPort::StopBits>(
+            values.value(QStringLiteral("stopBits")).toInt());
+        config.flowControl = static_cast<QSerialPort::FlowControl>(
+            values.value(QStringLiteral("flowControl")).toInt());
+        config.reconnectSeconds = values.value(QStringLiteral("reconnectSeconds"), 0).toInt();
+        config.lfImpliesCr = values.value(QStringLiteral("lfImpliesCr"), false).toBool();
+        config.interactivePromptPattern = values.value(QStringLiteral("interactivePromptPattern")).toString();
+        config.interactiveLineEnding = values.value(QStringLiteral("interactiveLineEnding"), QStringLiteral("cr")).toString();
+        config.interactiveRemoteEcho = values.value(QStringLiteral("interactiveRemoteEcho"), true).toBool();
+        config.label = values.value(QStringLiteral("label")).toString();
+        if (config.isValid()) return SavedConnection{config};
+        reason = "configuration_invalid"; return std::nullopt;
+    }
+    if (runtime.transportKind == TransportKind::Ssh) {
+        SshConfig config;
+        config.host = values.value(QStringLiteral("host")).toString();
+        config.username = values.value(QStringLiteral("username")).toString();
+        config.port = static_cast<quint16>(
+            values.value(QStringLiteral("port")).toUInt());
+        config.authMethod = values.value(QStringLiteral("authMethod")).toString();
+        config.privateKeyPath = values.value(
+            QStringLiteral("privateKeyPath")).toString();
+        config.terminalType = values.value(QStringLiteral("terminalType")).toString();
+        config.keepAliveSeconds = values.value(
+            QStringLiteral("keepAliveSeconds")).toInt();
+        config.label = values.value(QStringLiteral("label")).toString();
+        config.interactiveShellKind = values.value(QStringLiteral("interactiveShellKind")).toString();
+        if (!runtime.credentialRef.isEmpty()) {
+            const auto secret = _credentials->get(runtime.credentialRef);
+            if (secret) {
+                if (config.authMethod == QStringLiteral("password"))
+                    config.password = QString::fromUtf8(*secret);
+                else
+                    config.keyPassphrase = QString::fromUtf8(*secret);
+            }
+        }
+        if (!config.isValid()) {
+            reason = config.authMethod == QStringLiteral("password") && config.password.isEmpty()
+                ? QStringLiteral("authentication_required") : QStringLiteral("configuration_invalid");
+            return std::nullopt;
+        }
+        return SavedConnection{config};
+    }
+    reason = "configuration_invalid"; return std::nullopt;
+}
+
 void SessionPanel::rebuildTree()
 {
     _tree->clear();
@@ -898,65 +969,26 @@ void SessionPanel::reconnectSession(const SessionId& id)
             values.value(QStringLiteral("workingDirectory")).toString());
         return;
     }
-    if (runtime.transportKind == TransportKind::Serial) {
-        SerialConfig config;
-        config.portName = values.value(QStringLiteral("portName")).toString();
-        config.baudRate = values.value(QStringLiteral("baudRate")).toInt();
-        config.dataBits = static_cast<QSerialPort::DataBits>(
-            values.value(QStringLiteral("dataBits")).toInt());
-        config.parity = static_cast<QSerialPort::Parity>(
-            values.value(QStringLiteral("parity")).toInt());
-        config.stopBits = static_cast<QSerialPort::StopBits>(
-            values.value(QStringLiteral("stopBits")).toInt());
-        config.flowControl = static_cast<QSerialPort::FlowControl>(
-            values.value(QStringLiteral("flowControl")).toInt());
-        config.reconnectSeconds = values.value(QStringLiteral("reconnectSeconds"), 0).toInt();
-        config.lfImpliesCr = values.value(QStringLiteral("lfImpliesCr"), false).toBool();
-        config.interactivePromptPattern = values.value(QStringLiteral("interactivePromptPattern")).toString();
-        config.interactiveLineEnding = values.value(QStringLiteral("interactiveLineEnding"), QStringLiteral("cr")).toString();
-        config.interactiveRemoteEcho = values.value(QStringLiteral("interactiveRemoteEcho"), true).toBool();
-        config.label = values.value(QStringLiteral("label")).toString();
-        if (config.isValid())
-            emit serialReconnectRequested(config);
-        return;
-    }
-    if (runtime.transportKind == TransportKind::Ssh) {
-        SshConfig config;
-        config.host = values.value(QStringLiteral("host")).toString();
-        config.username = values.value(QStringLiteral("username")).toString();
-        config.port = static_cast<quint16>(
-            values.value(QStringLiteral("port")).toUInt());
-        config.authMethod = values.value(QStringLiteral("authMethod")).toString();
-        config.privateKeyPath = values.value(
-            QStringLiteral("privateKeyPath")).toString();
-        config.terminalType = values.value(QStringLiteral("terminalType")).toString();
-        config.keepAliveSeconds = values.value(
-            QStringLiteral("keepAliveSeconds")).toInt();
-        config.label = values.value(QStringLiteral("label")).toString();
-        if (!runtime.credentialRef.isEmpty()) {
-            const auto secret = _credentials->get(runtime.credentialRef);
-            if (secret) {
-                if (config.authMethod == QStringLiteral("password"))
-                    config.password = QString::fromUtf8(*secret);
-                else
-                    config.keyPassphrase = QString::fromUtf8(*secret);
-            }
-        }
-        if (!config.isValid()) {
-            // 凭据缺失与其它配置非法是两回事：密码认证下真正的动作是重新输入
-            // 一次密码，而不是"重建会话"（旧文案对这种情况一直误导用户）。
-            const bool passwordMissing =
-                config.authMethod == QStringLiteral("password")
-                && config.password.isEmpty();
-            emit reconnectUnavailable(
-                passwordMissing
-                    ? tr("The saved password for this session is unavailable. "
-                         "Edit the session and enter the password again.")
-                    : tr("The saved SSH credential is unavailable. Create the "
-                         "session again to refresh it."));
+    if (runtime.transportKind == TransportKind::Serial || runtime.transportKind == TransportKind::Ssh) {
+        const auto sources = savedTargetSources();
+        const auto source = std::find_if(sources.cbegin(), sources.cend(), [&id](const auto& row) {
+            return row.id == id.toString(QUuid::WithoutBraces);
+        });
+        if (source == sources.cend()) return;
+        QString reason;
+        const auto configuration = savedConnection(source->id, source->configurationKey, reason);
+        if (!configuration) {
+            if (runtime.transportKind == TransportKind::Ssh)
+                emit reconnectUnavailable(reason == "authentication_required"
+                    ? tr("The saved password for this session is unavailable. Edit the session and enter the password again.")
+                    : tr("The saved SSH credential is unavailable. Create the session again to refresh it."));
             return;
         }
-        emit sshReconnectRequested(config);
+        std::visit([this](const auto& config) {
+            using Type = std::decay_t<decltype(config)>;
+            if constexpr (std::is_same_v<Type, SerialConfig>) emit serialReconnectRequested(config);
+            else emit sshReconnectRequested(config);
+        }, *configuration);
         return;
     }
     if (runtime.transportKind == TransportKind::Telnet) {

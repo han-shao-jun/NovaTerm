@@ -608,9 +608,11 @@ bool TerminalView::attachTransport(ITransport* transport, bool lfImpliesCr,
             // 此处取 window() 时视图必然健在——它尚未进入任何嵌套循环。
             auto* dialog = new SshHostKeyDialog(info, window());
             dialog->setAttribute(Qt::WA_DeleteOnClose);
+            sshGuard->setProperty("novatermHostKeyDecisionPending", true);
             const bool accepted = dialog->exec() == QDialog::Accepted;
             if (!sshGuard)
                 return;
+            sshGuard->setProperty("novatermHostKeyDecisionPending", false);
             if (accepted)
                 sshGuard->acceptHostKey();
             else

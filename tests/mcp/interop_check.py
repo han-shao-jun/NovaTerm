@@ -34,7 +34,7 @@ async def check(config: dict) -> None:
             initialization = await session.initialize()
             assert initialization.protocolVersion == "2025-11-25"
             catalog = await session.list_tools()
-            assert len(catalog.tools) == 18
+            assert len(catalog.tools) == 20
             schemas = {tool.name: tool.outputSchema for tool in catalog.tools}
             for tool in catalog.tools:
                 Draft202012Validator.check_schema(tool.inputSchema)
@@ -48,7 +48,7 @@ async def check(config: dict) -> None:
                 return payload
 
             assert (await call("novaterm_list_captures", {}))["data"]["captures"] == []
-            assert (await call("novaterm_list_targets", {}))["data"]["targets"] == []
+            await check_target_connections(call)
             capture = "11111111-1111-4111-8111-111111111111"
             assert not (await call("novaterm_read_history", {"captureId": capture}))["ok"]
             assert not (await call("novaterm_search_history", {"captureId": capture, "query": "error"}))["ok"]
@@ -79,7 +79,25 @@ async def check(config: dict) -> None:
             assert not rejected["ok"] and rejected["error"]["code"] == "INVALID_ARGUMENT"
             await check_workflow(call, identity)
     await check_modern(settings)
-    print("PASS: official MCP SDK 2025 + raw 2026 HTTP, 18 schemas, saved-target directory, history/terminal contracts and B3a wait/start/query/stop/replay")
+    print("PASS: official MCP SDK 2025 + raw 2026 HTTP, 20 schemas, saved-target directory/open/query/replay, history/terminal contracts and B3a wait/start/query/stop/replay")
+
+
+async def check_target_connections(call) -> None:
+    listed = await call("novaterm_list_targets", {})
+    assert listed["ok"] and len(listed["data"]["targets"]) == 1
+    target = listed["data"]["targets"][0]
+    arguments = {key: target[key] for key in ("targetId", "configVersion")}
+    arguments["operationId"] = str(uuid.uuid4())
+    missing = await call("novaterm_query_target", arguments)
+    assert not missing["ok"] and missing["error"]["code"] == "TARGET_OPERATION_NOT_AVAILABLE"
+    opened = await call("novaterm_open_target", arguments)
+    assert opened["ok"] and opened["data"]["reused"] and not opened["data"]["created"]
+    assert opened["data"]["state"] == "running"
+    for name in ("novaterm_open_target", "novaterm_query_target"):
+        result = await call(name, arguments)
+        assert result["ok"] and result["data"] == opened["data"]
+    rejected = await call("novaterm_open_target", {**arguments, "configVersion": str(uuid.uuid4())})
+    assert not rejected["ok"] and rejected["error"]["code"] == "TARGET_OPEN_PERMISSION_REQUIRED"
 
 
 async def check_workflow(call, identity: dict) -> None:
@@ -168,7 +186,7 @@ async def check_modern(settings: dict) -> None:
         assert unsupported["error"]["data"]["requested"] == "2099-01-01"
         listed = await rpc("tools/list", {"_meta": metadata()})
         assert listed["result"]["resultType"] == "complete"
-        assert len(listed["result"]["tools"]) == 18
+        assert len(listed["result"]["tools"]) == 20
         schemas = {tool["name"]: tool["outputSchema"] for tool in listed["result"]["tools"]}
         sessions = await rpc("tools/call", {"name": "novaterm_list_sessions",
             "arguments": {}, "_meta": metadata()})
@@ -185,7 +203,7 @@ async def check_modern(settings: dict) -> None:
             Draft202012Validator(schemas[name]).validate(payload)
             assert json.loads(result["result"]["content"][0]["text"]) == payload
             return payload
-        assert (await call("novaterm_list_targets", {}))["data"]["targets"] == []
+        await check_target_connections(call)
         await check_workflow(call, {key: identity[key] for key in ("sessionId", "epoch")})
     finally:
         await client.aclose()

@@ -5,7 +5,7 @@
         "openWorldHint": false,
         "readOnlyHint": true
     },
-    "description": "List only saved SSH/UART target summaries explicitly shared with this client for this app run. No credentials, connections or terminal grants are included. saved_configuration means stored configuration, not online availability. Configuration edits or sharing changes invalidate pagination; restart the listing. Opening and closing saved targets are not yet available.",
+    "description": "List only saved SSH/UART target summaries explicitly shared with this client for this app run. No credentials, connections or terminal grants are included. saved_configuration means stored configuration, not online availability. Configuration edits or sharing changes invalidate pagination; restart the listing. Opening requires separate local permission; closing saved targets is not yet available.",
     "inputSchema": {
         "additionalProperties": false,
         "properties": {

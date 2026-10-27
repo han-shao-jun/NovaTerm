@@ -1,5 +1,22 @@
 # AGENTS.md
 
+
+### 0.2.88 提交前收口（2026-10-27）
+
+用户要求创建本地Git提交，版本由0.2.87递增至0.2.88，包含B3b独立授权的保存目标打开/复用/查询、审查修复及串口实际重连预留修复，当前二十工具。正常Windows Release默认全构建通过；同版本提交前相关CTest22/22（37.61秒）、完整MCP业务158/158（94.701秒）及官方SDK2025/rawHTTP2026二十工具互操作分别通过。未跑无关全套/Core/ConPTY或连接真实设备；不推送、不纳入构建产物/辅助文件，不修改机械风格。命令、原始成绩及剩余关闭/文件传输/B4范围见[连接记录提交收口](docs/architecture/stages/P8_AI_MCP_Interface/records/B3b_Target_Connections_2026-10-27.md)。
+
+
+### B3b 串口预留审查修复（2026-10-27，工作区增量）
+
+保存目标打开现在读取Session实际自动重连定时器状态，不再按保存的reconnectSeconds推断端口预留。手动断开、不支持/禁用重连及关闭后不会继续错误预留；实际待重连、连接中及待释放保护保持。真实Session＋内存Transport回归RED为3pass/3fail，修复后6/6；正常Windows Release默认全构建通过，相关Session/SessionPanel/MCP访问交互CTest3/3（19.47秒）。本轮未重跑完整MCP业务/互操作、无关全套/Core/ConPTY或连接真实设备，不套用此前成绩。契约、工具数及版本保持，未提交/推送或改机械风格。详见[本轮修复记录](docs/architecture/stages/P8_AI_MCP_Interface/records/B3b_Target_Connections_2026-10-27.md)。
+
+
+### B3b 保存目标打开与查询（2026-10-27，工作区增量）
+
+新增 `novaterm_open_target/query_target`，当前二十工具。本机先共享目录再独立允许打开；纯应用索引按客户端身份/配置版本/operationId保留有界受理事实，UI使用现有可见TerminalView创建或复用，新会话不继承终端/文件权限。凭据解锁及同步UI事件后、Session.start准入前复核授权/请求；未启动视图按显式事实回收。查询绑定原Transport对象，首次指纹发现和同对象重连保留，换绑失效；SSH复用核对实际环境和认证。
+
+正常Windows Release默认全构建通过；最终相关CTest22/22（39.76秒），完整MCP业务158/158（97.975秒），官方SDK2025/rawHTTP2026二十工具互操作通过。首轮相关21/22的十八工具总数旧断言已按实际二十项同步，旧对象比较保持；中间真实失败单独保留。范围、真实RED/GREEN及本轮构建/测试成绩见[连接记录](docs/architecture/stages/P8_AI_MCP_Interface/records/B3b_Target_Connections_2026-10-27.md)。关闭、单文件传输、新会话预授权规则及B4仍待后续；不自动提交/推送、连接设备或改变版本/机械风格。
+
 ### 0.2.87 提交前收口（2026-10-27）
 
 用户要求创建本地Git提交，版本由0.2.86递增至0.2.87，包含B3b保存目标只读授权目录及其审查修复；同步README和Development_Roadmap的十八工具状态。正常Windows Release默认全构建通过；同版本相关CTest21/21（20.28秒）、完整MCP业务154/154（95.338秒）及官方SDK2025/rawHTTP2026十八工具互操作分别通过。未跑无关全套/Core/ConPTY，未连接真实设备，不推送，不纳入构建产物或辅助文件，不修改代码风格。命令、日志和保留范围见 [B3b记录提交收口](docs/architecture/stages/P8_AI_MCP_Interface/records/B3b_Target_Directory_2026-10-27.md#0287-提交前收口)。

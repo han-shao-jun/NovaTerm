@@ -50,7 +50,8 @@ QString agentInstructions()
         "For long work use novaterm_start_task once, then novaterm_query_task by taskId or the original operationId; RPC disconnect does not stop an admitted task. "
         "novaterm_stop_task requests an interrupt only for the original control/execution; after human takeover observe again, never interrupt the new command. "
         "novaterm_list_targets lists only saved SSH/UART summaries explicitly shared for this app run; it does not connect or grant terminal access. saved_configuration does not mean online. "
-        "Only call tools actually listed; MCP file transfer and saved-target open/close tools are not available.");
+        "Use novaterm_open_target only with separate local open permission, a listed targetId/configVersion and a new operationId; query with novaterm_query_target and the original arguments. Opening does not grant terminal access. Authentication and host-key decisions stay with the local user. "
+        "Only call tools actually listed; MCP file transfer and saved-target close tools are not available.");
 }
 QString newId() { return QUuid::createUuid().toString(QUuid::WithoutBraces); }
 

@@ -15,6 +15,8 @@
 #include <QByteArray>
 #include <QWidget>
 #include <memory>
+#include <optional>
+#include <variant>
 
 class CredentialStore;
 class ElaIconButton;
@@ -47,6 +49,9 @@ public:
     void recordTelnet(const TelnetConfig& config);
     /** Local metadata only; does not resolve credentials or open any connection. */
     [[nodiscard]] QList<NovaTerm::Mcp::SavedTargetSource> savedTargetSources() const;
+    using SavedConnection = std::variant<SerialConfig, SshConfig>;
+    [[nodiscard]] std::optional<SavedConnection> savedConnection(const QString& targetId,
+        const QByteArray& expectedConfigurationKey, QString& reason) const;
     void updateLocal(const SessionId& id, TerminalView::LocalShellType type,
                      const QString& wslDistribution,
                      const QString& label,

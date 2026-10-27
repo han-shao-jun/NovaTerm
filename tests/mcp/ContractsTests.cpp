@@ -86,6 +86,30 @@ class ContractsTests : public QObject
 {
     Q_OBJECT
 private slots:
+    void savedTargetConnectionToolsRequireExplicitIdentity()
+    {
+        const QJsonObject arguments{{"targetId", SessionUuid}, {"configVersion", OperationUuid},
+            {"operationId", OperationUuid}};
+        for (const auto& name : QStringList{"novaterm_open_target", "novaterm_query_target"}) {
+            QVERIFY2(ToolCodec::isKnownTool(name), qPrintable(name));
+            QVERIFY(ToolCodec::validate(name, arguments).isEmpty());
+            QVERIFY(!isError(ToolCodec::decodeCall(name, arguments)));
+            for (const auto& field : arguments.keys()) {
+                auto missing = arguments; missing.remove(field);
+                QVERIFY(!ToolCodec::validate(name, missing).isEmpty());
+            }
+            for (const auto& field : QStringList{"host", "password", "clientId", "force", "path"}) {
+                auto invalid = arguments; invalid.insert(field, "x");
+                QVERIFY(!ToolCodec::validate(name, invalid).isEmpty());
+            }
+            auto invalid = arguments; invalid.insert("operationId", "not-a-uuid");
+            QVERIFY(isError(ToolCodec::decodeCall(name, invalid)));
+        }
+        QFile fixture(QStringLiteral(NOVATERM_SOURCE_DIR "/tests/mcp/fixtures/target-connections-2026-10-27.json"));
+        QVERIFY(fixture.open(QIODevice::ReadOnly));
+        const QJsonArray connections{ToolCodec::catalog()[18], ToolCodec::catalog()[19]};
+        QCOMPARE(connections, QJsonDocument::fromJson(fixture.readAll()).array());
+    }
     void savedTargetCatalogIsReadOnlyAndBounded()
     {
         QVERIFY(ToolCodec::isKnownTool("novaterm_list_targets"));
@@ -102,7 +126,7 @@ private slots:
             QVERIFY(!ToolCodec::validate("novaterm_list_targets", invalid).isEmpty());
         QFile fixture(QStringLiteral(NOVATERM_SOURCE_DIR "/tests/mcp/fixtures/saved-targets-2026-10-27.json"));
         QVERIFY(fixture.open(QIODevice::ReadOnly));
-        QCOMPARE(ToolCodec::catalog().last().toObject(), QJsonDocument::fromJson(fixture.readAll()).object());
+        QCOMPARE(ToolCodec::catalog()[17].toObject(), QJsonDocument::fromJson(fixture.readAll()).object());
     }
     void workflowCatalogMatchesFrozenFixture()
     {

@@ -6,6 +6,7 @@
  * 标签上下文菜单由 TerminalTabWidget 管理，页面只负责把标签索引解析为终端视图。
  */
 #include "TerminalPage.h"
+#include "SavedConnectionPolicy.h"
 #include "ui/app/Application.h"
 #include "mcp/McpService.h"
 #include "resources/ResourceSharingService.h"
@@ -366,6 +367,75 @@ TerminalView* TerminalPage::addSshTerminalTab(const SshConfig& config)
     return terminalView;
 }
 
+std::pair<TerminalView*, bool> TerminalPage::openSavedConnection(
+    const std::variant<SerialConfig, SshConfig>& configuration, QString& reason, const std::function<bool()>& allowed)
+{
+    reason.clear();
+    if (_shuttingDown) { reason = "connection_ui_unavailable"; return {nullptr, false}; }
+    if (!allowed()) { reason = "admission_invalidated"; return {nullptr, false}; }
+    const auto expected = std::visit([](const auto& config) {
+        using Type = std::decay_t<decltype(config)>;
+        if constexpr (std::is_same_v<Type, SerialConfig>) return serialRuntime(config);
+        else return sshRuntime(config);
+    }, configuration);
+    const auto secret = std::holds_alternative<SshConfig>(configuration)
+        ? sshSecret(std::get<SshConfig>(configuration)) : QByteArray{};
+    bool portBusy = false;
+    for (auto* view : std::as_const(_terminalViews)) {
+        auto* session = view->session();
+        if (!session || session->state() == SessionState::Closed) continue;
+        const auto state = session->state();
+        const auto snapshot = _sessionEditSnapshots.constFind(view);
+        if (snapshot == _sessionEditSnapshots.cend()) continue;
+        const auto* ssh = qobject_cast<SshTransport*>(session->transport());
+        const bool actualSshMatches = expected.transportKind != TransportKind::Ssh
+            || (ssh && NovaTerm::sshConnectionMatches(ssh->sessionConfig(), std::get<SshConfig>(configuration)));
+        const bool same = actualSshMatches && snapshot->runtime.transportKind == expected.transportKind
+            && snapshot->runtime.transport == expected.transport && snapshot->secret == secret
+            && session->runtimeConfig().transportKind == expected.transportKind
+            && session->runtimeConfig().transport == expected.transport;
+        if (same && (state == SessionState::Running || state == SessionState::Connecting
+            || state == SessionState::Reconnecting)) return {view, false};
+        if (expected.transportKind == TransportKind::Serial
+            && snapshot->runtime.transportKind == TransportKind::Serial) {
+            const auto existing = snapshot->runtime.transport.value("portName").toString();
+            const auto requested = expected.transport.value("portName").toString();
+#ifdef Q_OS_WIN
+            const bool samePort = existing.compare(requested, Qt::CaseInsensitive) == 0;
+#else
+            const bool samePort = existing == requested;
+#endif
+            portBusy = portBusy || (samePort && NovaTerm::serialConnectionReserved(state,
+                session->transport() && session->transport()->isConnected(),
+                session->transport() && session->transport()->hasPendingDisconnect(),
+                session->hasPendingAutomaticReconnect()));
+        }
+    }
+    if (portBusy) { reason = "port_busy"; return {nullptr, false}; }
+    const QPointer<TerminalView> view(new TerminalView(_tabWidget, _historyRuntime));
+    const auto started = std::make_shared<bool>(false);
+    registerTerminalView(view);
+    if (allowed() && view) {
+        const auto title = std::visit([](const auto& config) { return config.label; }, configuration);
+        _tabWidget->setCurrentIndex(_tabWidget->addTab(view, title));
+        if (allowed() && view)
+            std::visit([this, &view, &allowed, &started](const auto& config) {
+                static_cast<void>(replaceTerminalTab(view, config, allowed, [started] { *started = true; }));
+            }, configuration);
+    }
+    // A start already admitted by the final guard remains an owned visible session.
+    // close/reset may leave an unstarted view Closed rather than Created.
+    if (!view || !*started) {
+        if (view) {
+            const int index = _tabWidget->indexOf(view);
+            if (index >= 0) _tabWidget->removeTab(index);
+            view->deleteLater();
+        }
+        reason = "admission_invalidated"; return {nullptr, false};
+    }
+    return {view, true};
+}
+
 void TerminalPage::registerTerminalView(TerminalView* terminalView)
 {
     _terminalViews.append(terminalView);
@@ -552,7 +622,8 @@ bool TerminalPage::replaceTerminalTab(TerminalView* terminalView,
 }
 
 bool TerminalPage::replaceTerminalTab(TerminalView* terminalView,
-                                      const SerialConfig& config)
+                                      const SerialConfig& config, const std::function<bool()>& allowed,
+                                      std::function<void()> onStarting)
 {
     const int index = _tabWidget->indexOf(terminalView);
     if (index < 0)
@@ -568,8 +639,8 @@ bool TerminalPage::replaceTerminalTab(TerminalView* terminalView,
         terminalView, SessionEditSnapshot{serialRuntime(config), {}});
 
     const QPointer<TerminalView> terminalGuard(terminalView);
-    restartTerminalWhenClosed(terminalView, [this, terminalGuard, config]() {
-        if (!terminalGuard)
+    restartTerminalWhenClosed(terminalView, [this, terminalGuard, config, allowed, onStarting = std::move(onStarting)]() {
+        if (!terminalGuard || (allowed && !allowed()))
             return;
         auto* transport = new SerialTransport(config, terminalGuard);
         const auto runtime = serialRuntime(config);
@@ -581,7 +652,10 @@ bool TerminalPage::replaceTerminalTab(TerminalView* terminalView,
         connect(transport, &ITransport::connected, this,
                 [this, config]() { emit serialSessionConnected(config); },
                 Qt::SingleShotConnection);
-        static_cast<void>(terminalGuard->session()->start());
+        if (!allowed || allowed()) {
+            if (onStarting) onStarting();
+            static_cast<void>(terminalGuard->session()->start());
+        }
     });
     emitCurrentSessionContext();
     return true;
@@ -623,7 +697,8 @@ bool TerminalPage::replaceTerminalTab(TerminalView* terminalView,
 }
 
 bool TerminalPage::replaceTerminalTab(TerminalView* terminalView,
-                                      const SshConfig& config)
+                                      const SshConfig& config, const std::function<bool()>& allowed,
+                                      std::function<void()> onStarting)
 {
     const int index = _tabWidget->indexOf(terminalView);
     if (index < 0)
@@ -641,8 +716,8 @@ bool TerminalPage::replaceTerminalTab(TerminalView* terminalView,
         SessionEditSnapshot{sshRuntime(config), sshSecret(config)});
 
     const QPointer<TerminalView> terminalGuard(terminalView);
-    restartTerminalWhenClosed(terminalView, [this, terminalGuard, config]() {
-        if (!terminalGuard)
+    restartTerminalWhenClosed(terminalView, [this, terminalGuard, config, allowed, onStarting = std::move(onStarting)]() {
+        if (!terminalGuard || (allowed && !allowed()))
             return;
         auto* transport = new SshTransport(config, terminalGuard);
         const auto runtime = sshRuntime(config);
@@ -658,7 +733,10 @@ bool TerminalPage::replaceTerminalTab(TerminalView* terminalView,
         connect(transport, &ITransport::connected, this,
                 [this, config]() { emit sshSessionConnected(config); },
                 Qt::SingleShotConnection);
-        static_cast<void>(terminalGuard->session()->start());
+        if (!allowed || allowed()) {
+            if (onStarting) onStarting();
+            static_cast<void>(terminalGuard->session()->start());
+        }
     });
     emitCurrentSessionContext();
     return true;

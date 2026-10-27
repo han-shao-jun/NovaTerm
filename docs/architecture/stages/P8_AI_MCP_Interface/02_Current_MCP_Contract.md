@@ -5,7 +5,20 @@
 
 **B1 日志模式与 B2 清空事务已实施**：缺省 source=observation 的 sinceToken 仍是模型观察游标，recentOutput 仍是摘要；显式 source=log 使用独立位置游标。read_context 的兼容 Schema 扩展见下节及 [04](04_Cursor_Observation_and_Clear.md)，其他十一工具对象保持。
 
-2026-10-27 B3/B3a：追加下述四工具，达到十七项；B3b 第一子批再追加只读保存目标目录，当前共十八项。原十七对象兼容保留，旧九项 ToolRequest 联合不扩张。SSH/SFTP 单文件传输及保存目标打开/关闭仍未实施。源码/替身验证不代替真实设备验收。
+2026-10-27 B3/B3a：追加下述四工具，达到十七项；B3b 第一子批再追加只读保存目标目录，第二子批增加打开/查询，当前共二十项。原十七对象兼容保留，目录工具仅更正说明文字；旧九项 ToolRequest 联合不扩张。SSH/SFTP 单文件传输及保存目标关闭仍未实施。源码/替身验证不代替真实设备验收。
+
+## B3b 第二子批：独立授权的目标打开/查询（2026-10-27）
+
+- `novaterm_open_target` 和 `novaterm_query_target` 均要求 `targetId/configVersion/operationId`，三个字段均为规范非空UUID，无连接参数、凭据或客户端身份参数。query按原open的operationId查询，不创建或重连。精确Schema冻结于 `tests/mcp/fixtures/target-connections-2026-10-27.json`。
+- 本机按客户端先勾共享目录、再独立勾允许打开；绑定当前identityVersion和configVersion，仅本次运行。撤回目录同时撤回打开，重新共享不恢复；普通Session授权变化不升级目标授权。打开不授予新会话读取、输入、清空或文件权限，需在本机另行选择。
+- 应用只保留有界索引，UI通过原TerminalView/Session通路创建可见标签。按完整实际配置（包括SSH认证及环境）优先复用connecting/running/reconnecting会话；串口不同配置占用、尚未完成释放或自动重连预留返回port_busy，不关闭人类会话。Failed且实际已断开、无待释放和已安排自动重连的旧串口标签不预留端口。自动重连预留读取Session定时器的实际状态，不从保存间隔推断；本机手动断开停止自动重连，端口释放后不会因旧配置继续报port_busy。
+- 成功data固定包含 `instanceId/targetId/configVersion/operationId/created/reused/sessionId/epoch/state/reason/suggestedQueryMs`。sessionId/epoch可为null；created表示首次受理曾创建，reused表示首次使用已有连接；state为opening、created、connecting、running、reconnecting、failed、closing、closed、invalidated或unavailable。当前查询建议500ms。
+- reason仅返回有限原因，不透传底层认证/错误正文：空值、connection_ui_unavailable、configuration_changed、authentication_required、configuration_invalid、port_busy、session_unavailable、attachment_changed、admission_invalidated、host_key_confirmation_required。主机密钥决策仍由本机UI处理；connecting不承诺已认证或设备在线，failed不合成终端执行结果。
+- 每客户端最多32、全局256条操作记录，本次运行不淘汰。记录在工厂调用前占位，精确重试不再创建；同客户端同operationId异配置/身份返回TARGET_OPERATION_CONFLICT，未受理查询返回TARGET_OPERATION_NOT_AVAILABLE，满额拒绝新操作TARGET_OPERATION_LIMIT，既有查询/重试保留。未共享、未允许打开或旧配置统一拒绝TARGET_OPEN_PERMISSION_REQUIRED，不披露隐藏项。
+- 凭据解锁、标签注册等同步/嵌套事件后重新核验源配置、独立授权、原请求租约/期限/取消；最后启动准入边界是调用Session.start前的守卫成功。此前撤回/取消保证零连接；已开始启动的连接不因短RPC结束自动关闭。失败或取消受理也保留操作事实，查询后不得换ID自动重试。
+- 连接绑定跟踪原传输对象的随机运行期身份。首次获得主机指纹和同对象重连不使操作误失效，查询返回实际新epoch；更换Transport/目标则invalidated，不跟随到新连接。记录不跨应用重启恢复，旧configVersion也不复活，不自动重跑。
+
+实现、审查和本轮验证见[连接记录](records/B3b_Target_Connections_2026-10-27.md)。关闭、文件传输、新会话预授权规则及真实设备验收仍待后续。
 
 ## B3b 第一子批：保存目标目录（2026-10-27）
 
@@ -19,7 +32,7 @@
 - 页按 targetId 排序，仅扫描固定上限目录。签名游标绑定本应用随机密钥、客户端、身份版本、目录修订及已交付位置；伪造、跨客户端或身份版本不符返回 `CURSOR_MISMATCH`，目录/共享变化后返回 `TARGET_DIRECTORY_CHANGED`，应重新列举。未共享项不占返回页数。
 - 两代 MCP 协议共用同一入口、鉴权、调度和2秒请求期限；取消/断流不产生连接或终端输入。应用重启不保留目录授权和旧游标。
 
-完整范围、实际命令与验证见 [本批记录](records/B3b_Target_Directory_2026-10-27.md)。打开/复用/查询/关闭、传输以及对应 B4 验收仍待后续。
+完整范围、实际命令与验证见 [本批记录](records/B3b_Target_Directory_2026-10-27.md)。打开/复用/查询见上一节；关闭、传输以及对应 B4 验收仍待后续。
 
 ## B3/B3a：文本等待与长任务（2026-10-27）
 

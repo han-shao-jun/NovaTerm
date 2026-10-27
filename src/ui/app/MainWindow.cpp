@@ -1224,6 +1224,24 @@ void MainWindow::initWindow()
         };
         connect(_sessionPanel, &SessionPanel::savedTargetsChanged, mcp, publishTargets);
         publishTargets();
+        mcp->setTargetOpener([window = QPointer<MainWindow>(this)](const NovaTerm::Mcp::SavedTargetSource& source,
+            const NovaTerm::Mcp::TargetConnections::Guard& allowed) {
+            using Facts = NovaTerm::Mcp::TargetConnectionFacts;
+            if (!window || !window->_terminalPage || !window->_sessionPanel || !allowed())
+                return Facts{{}, {}, {}, "unavailable", "connection_ui_unavailable", false};
+            QString reason;
+            const auto configuration = window->_sessionPanel->savedConnection(source.id, source.configurationKey, reason);
+            if (!configuration) return Facts{{}, {}, {}, "unavailable", reason, false};
+            if (!window || !allowed()) return Facts{{}, {}, {}, "unavailable", "admission_invalidated", false};
+            const auto [view, created] = window->_terminalPage->openSavedConnection(*configuration, reason, allowed);
+            if (!view || !view->session()) return Facts{{}, {}, {}, "unavailable", reason, false};
+            auto* service = Application::instance().mcpService();
+            const auto entry = service ? service->directory().find(view->session()->id().toString(QUuid::WithoutBraces))
+                : std::optional<SessionDirectory::Entry>{};
+            if (!entry) return Facts{{}, {}, {}, "unavailable", "session_unavailable", created};
+            return Facts{entry->id, entry->epoch, entry->attachmentId,
+                SessionDirectory::stateName(entry->state), {}, created};
+        });
     }
     _sessionPanel->setCursor(Qt::ArrowCursor);
     _sessionDock->setWidget(_sessionPanel);

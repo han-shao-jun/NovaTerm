@@ -98,6 +98,27 @@ void SavedTargets::revoke(const QString& client)
     }
     if (_grants.remove(client)) invalidate();
 }
+bool SavedTargets::canOpen(const QString& client, quint64 version, const QString& id) const
+{
+    return isShared(client, version, id) && _grants.value(client).value(id).openAllowed;
+}
+bool SavedTargets::setOpenAllowed(const QString& client, quint64 version, const QString& id,
+    const QString& expected, bool selected)
+{
+    if (!isShared(client, version, id) || _targets.value(id).value.configVersion != expected) return false;
+    auto& grant = _grants[client][id];
+    if (grant.openAllowed != selected) { grant.openAllowed = selected; emit changed(); }
+    return true;
+}
+std::optional<SavedTargetSource> SavedTargets::openingSource(const QString& client, quint64 version,
+    const QString& id, const QString& expected) const
+{
+    if (!canOpen(client, version, id)) return std::nullopt;
+    const auto entry = _targets.constFind(id);
+    if (entry == _targets.cend() || entry->value.configVersion != expected) return std::nullopt;
+    const auto& value = entry->value;
+    return SavedTargetSource{value.id, value.title, value.transport, value.endpoint, entry->configurationKey};
+}
 SavedTargetPage SavedTargets::page(const QString& client, quint64 version, int limit,
     const QString& after, const QString& expected) const
 {

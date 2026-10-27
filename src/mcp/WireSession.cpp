@@ -335,6 +335,10 @@ public:
                 continue;
             const auto call = _calls.value(id);
             _calls[id].sent = true;
+            if (const auto* target = std::get_if<TargetConnectionRequest>(&call.typed)) {
+                emit q->backendEvent(BackendTargetConnectionCall{call.wireId, *target, !call.requestState.isEmpty()});
+                continue;
+            }
             if (const auto* targets = std::get_if<ListSavedTargetsRequest>(&call.typed)) {
                 emit q->backendEvent(BackendSavedTargetsCall{call.wireId, *targets, !call.requestState.isEmpty()});
                 continue;

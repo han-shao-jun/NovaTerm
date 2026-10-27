@@ -182,6 +182,8 @@ public:
      * @return 传输存在、状态允许且后端声明了 Reconnect 能力时返回 true。
      */
     [[nodiscard]] bool canReconnect() const noexcept;
+    /** @brief 当前是否已安排自动重连；只能在 Session 所在线程查询。 */
+    [[nodiscard]] bool hasPendingAutomaticReconnect() const;
 
     /**
      * @brief 写入用户输入到传输层。

@@ -1,0 +1,546 @@
+[
+    {
+        "annotations": {
+            "readOnlyHint": false,
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true
+        },
+        "description": "Open an explicitly shared saved SSH/UART configuration only after separate local open permission. Never supply credentials or connection overrides. Reuse matching connecting/running sessions; otherwise create a visible terminal. Does not grant terminal read/input/file permissions. Save operationId and retry only identical arguments; uncertain or failed results must be queried, never replayed with a new ID. Records last this app run, limited to 32 per client and 256 globally. Closing is not available.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "targetId": {
+                    "type": "string",
+                    "maxLength": 36
+                },
+                "configVersion": {
+                    "type": "string",
+                    "maxLength": 36
+                },
+                "operationId": {
+                    "type": "string",
+                    "maxLength": 36
+                }
+            },
+            "required": [
+                "targetId",
+                "configVersion",
+                "operationId"
+            ],
+            "additionalProperties": false
+        },
+        "name": "novaterm_open_target",
+        "outputSchema": {
+            "additionalProperties": false,
+            "oneOf": [
+                {
+                    "not": {
+                        "required": [
+                            "error"
+                        ]
+                    },
+                    "properties": {
+                        "ok": {
+                            "const": true
+                        }
+                    },
+                    "required": [
+                        "data"
+                    ]
+                },
+                {
+                    "not": {
+                        "required": [
+                            "data"
+                        ]
+                    },
+                    "properties": {
+                        "ok": {
+                            "const": false
+                        }
+                    },
+                    "required": [
+                        "error"
+                    ]
+                }
+            ],
+            "properties": {
+                "data": {
+                    "type": "object",
+                    "properties": {
+                        "instanceId": {
+                            "type": "string"
+                        },
+                        "targetId": {
+                            "type": "string"
+                        },
+                        "configVersion": {
+                            "type": "string"
+                        },
+                        "operationId": {
+                            "type": "string"
+                        },
+                        "created": {
+                            "type": "boolean"
+                        },
+                        "reused": {
+                            "type": "boolean"
+                        },
+                        "sessionId": {
+                            "type": [
+                                "string",
+                                "null"
+                            ]
+                        },
+                        "epoch": {
+                            "type": [
+                                "string",
+                                "null"
+                            ]
+                        },
+                        "state": {
+                            "type": "string",
+                            "enum": [
+                                "opening",
+                                "created",
+                                "connecting",
+                                "running",
+                                "reconnecting",
+                                "failed",
+                                "closing",
+                                "closed",
+                                "invalidated",
+                                "unavailable"
+                            ]
+                        },
+                        "reason": {
+                            "type": "string",
+                            "enum": [
+                                "",
+                                "connection_ui_unavailable",
+                                "configuration_changed",
+                                "authentication_required",
+                                "configuration_invalid",
+                                "port_busy",
+                                "session_unavailable",
+                                "attachment_changed",
+                                "admission_invalidated",
+                                "host_key_confirmation_required"
+                            ]
+                        },
+                        "suggestedQueryMs": {
+                            "type": "integer",
+                            "minimum": 0
+                        }
+                    },
+                    "required": [
+                        "instanceId",
+                        "targetId",
+                        "configVersion",
+                        "operationId",
+                        "created",
+                        "reused",
+                        "sessionId",
+                        "epoch",
+                        "state",
+                        "reason",
+                        "suggestedQueryMs"
+                    ],
+                    "additionalProperties": false
+                },
+                "error": {
+                    "additionalProperties": false,
+                    "properties": {
+                        "code": {
+                            "type": "string"
+                        },
+                        "details": {
+                            "additionalProperties": false,
+                            "properties": {
+                                "commandId": {
+                                    "type": "string"
+                                },
+                                "epoch": {
+                                    "type": "string"
+                                },
+                                "executionId": {
+                                    "type": "string"
+                                },
+                                "executionMayHaveStarted": {
+                                    "type": "boolean"
+                                },
+                                "exitCode": {
+                                    "type": [
+                                        "integer",
+                                        "null"
+                                    ]
+                                },
+                                "finishedAt": {
+                                    "type": [
+                                        "string",
+                                        "null"
+                                    ]
+                                },
+                                "instanceId": {
+                                    "type": "string"
+                                },
+                                "outputTruncated": {
+                                    "type": "boolean"
+                                },
+                                "policyVersion": {
+                                    "type": "string"
+                                },
+                                "sessionId": {
+                                    "type": "string"
+                                },
+                                "startedAt": {
+                                    "type": [
+                                        "string",
+                                        "null"
+                                    ]
+                                },
+                                "status": {
+                                    "enum": [
+                                        "completed",
+                                        "failed",
+                                        "timed_out",
+                                        "cancelled",
+                                        "unknown"
+                                    ],
+                                    "type": "string"
+                                },
+                                "stderr": {
+                                    "type": "string"
+                                },
+                                "stdout": {
+                                    "type": "string"
+                                },
+                                "terminationConfirmed": {
+                                    "type": "boolean"
+                                }
+                            },
+                            "required": [
+                                "commandId",
+                                "epoch",
+                                "executionId",
+                                "executionMayHaveStarted",
+                                "exitCode",
+                                "finishedAt",
+                                "instanceId",
+                                "outputTruncated",
+                                "policyVersion",
+                                "sessionId",
+                                "startedAt",
+                                "status",
+                                "stderr",
+                                "stdout",
+                                "terminationConfirmed"
+                            ],
+                            "type": "object"
+                        },
+                        "message": {
+                            "type": "string"
+                        },
+                        "retryAfterMs": {
+                            "minimum": 0,
+                            "type": "integer"
+                        },
+                        "retryable": {
+                            "type": "boolean"
+                        }
+                    },
+                    "required": [
+                        "code",
+                        "message",
+                        "retryable"
+                    ],
+                    "type": "object"
+                },
+                "ok": {
+                    "type": "boolean"
+                },
+                "schemaVersion": {
+                    "const": 1
+                }
+            },
+            "required": [
+                "schemaVersion",
+                "ok"
+            ],
+            "type": "object"
+        }
+    },
+    {
+        "annotations": {
+            "readOnlyHint": true,
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": false
+        },
+        "description": "Query the original saved-target open operation by targetId, configVersion and operationId. Requires current sharing and separate open permission. Returns actual connection state and session/epoch without opening, reconnecting, granting terminal permissions or exposing authentication errors. Reconnection may change epoch; target replacement invalidates the binding. Missing records after restart must not be automatically rerun.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "targetId": {
+                    "type": "string",
+                    "maxLength": 36
+                },
+                "configVersion": {
+                    "type": "string",
+                    "maxLength": 36
+                },
+                "operationId": {
+                    "type": "string",
+                    "maxLength": 36
+                }
+            },
+            "required": [
+                "targetId",
+                "configVersion",
+                "operationId"
+            ],
+            "additionalProperties": false
+        },
+        "name": "novaterm_query_target",
+        "outputSchema": {
+            "additionalProperties": false,
+            "oneOf": [
+                {
+                    "not": {
+                        "required": [
+                            "error"
+                        ]
+                    },
+                    "properties": {
+                        "ok": {
+                            "const": true
+                        }
+                    },
+                    "required": [
+                        "data"
+                    ]
+                },
+                {
+                    "not": {
+                        "required": [
+                            "data"
+                        ]
+                    },
+                    "properties": {
+                        "ok": {
+                            "const": false
+                        }
+                    },
+                    "required": [
+                        "error"
+                    ]
+                }
+            ],
+            "properties": {
+                "data": {
+                    "type": "object",
+                    "properties": {
+                        "instanceId": {
+                            "type": "string"
+                        },
+                        "targetId": {
+                            "type": "string"
+                        },
+                        "configVersion": {
+                            "type": "string"
+                        },
+                        "operationId": {
+                            "type": "string"
+                        },
+                        "created": {
+                            "type": "boolean"
+                        },
+                        "reused": {
+                            "type": "boolean"
+                        },
+                        "sessionId": {
+                            "type": [
+                                "string",
+                                "null"
+                            ]
+                        },
+                        "epoch": {
+                            "type": [
+                                "string",
+                                "null"
+                            ]
+                        },
+                        "state": {
+                            "type": "string",
+                            "enum": [
+                                "opening",
+                                "created",
+                                "connecting",
+                                "running",
+                                "reconnecting",
+                                "failed",
+                                "closing",
+                                "closed",
+                                "invalidated",
+                                "unavailable"
+                            ]
+                        },
+                        "reason": {
+                            "type": "string",
+                            "enum": [
+                                "",
+                                "connection_ui_unavailable",
+                                "configuration_changed",
+                                "authentication_required",
+                                "configuration_invalid",
+                                "port_busy",
+                                "session_unavailable",
+                                "attachment_changed",
+                                "admission_invalidated",
+                                "host_key_confirmation_required"
+                            ]
+                        },
+                        "suggestedQueryMs": {
+                            "type": "integer",
+                            "minimum": 0
+                        }
+                    },
+                    "required": [
+                        "instanceId",
+                        "targetId",
+                        "configVersion",
+                        "operationId",
+                        "created",
+                        "reused",
+                        "sessionId",
+                        "epoch",
+                        "state",
+                        "reason",
+                        "suggestedQueryMs"
+                    ],
+                    "additionalProperties": false
+                },
+                "error": {
+                    "additionalProperties": false,
+                    "properties": {
+                        "code": {
+                            "type": "string"
+                        },
+                        "details": {
+                            "additionalProperties": false,
+                            "properties": {
+                                "commandId": {
+                                    "type": "string"
+                                },
+                                "epoch": {
+                                    "type": "string"
+                                },
+                                "executionId": {
+                                    "type": "string"
+                                },
+                                "executionMayHaveStarted": {
+                                    "type": "boolean"
+                                },
+                                "exitCode": {
+                                    "type": [
+                                        "integer",
+                                        "null"
+                                    ]
+                                },
+                                "finishedAt": {
+                                    "type": [
+                                        "string",
+                                        "null"
+                                    ]
+                                },
+                                "instanceId": {
+                                    "type": "string"
+                                },
+                                "outputTruncated": {
+                                    "type": "boolean"
+                                },
+                                "policyVersion": {
+                                    "type": "string"
+                                },
+                                "sessionId": {
+                                    "type": "string"
+                                },
+                                "startedAt": {
+                                    "type": [
+                                        "string",
+                                        "null"
+                                    ]
+                                },
+                                "status": {
+                                    "enum": [
+                                        "completed",
+                                        "failed",
+                                        "timed_out",
+                                        "cancelled",
+                                        "unknown"
+                                    ],
+                                    "type": "string"
+                                },
+                                "stderr": {
+                                    "type": "string"
+                                },
+                                "stdout": {
+                                    "type": "string"
+                                },
+                                "terminationConfirmed": {
+                                    "type": "boolean"
+                                }
+                            },
+                            "required": [
+                                "commandId",
+                                "epoch",
+                                "executionId",
+                                "executionMayHaveStarted",
+                                "exitCode",
+                                "finishedAt",
+                                "instanceId",
+                                "outputTruncated",
+                                "policyVersion",
+                                "sessionId",
+                                "startedAt",
+                                "status",
+                                "stderr",
+                                "stdout",
+                                "terminationConfirmed"
+                            ],
+                            "type": "object"
+                        },
+                        "message": {
+                            "type": "string"
+                        },
+                        "retryAfterMs": {
+                            "minimum": 0,
+                            "type": "integer"
+                        },
+                        "retryable": {
+                            "type": "boolean"
+                        }
+                    },
+                    "required": [
+                        "code",
+                        "message",
+                        "retryable"
+                    ],
+                    "type": "object"
+                },
+                "ok": {
+                    "type": "boolean"
+                },
+                "schemaVersion": {
+                    "const": 1
+                }
+            },
+            "required": [
+                "schemaVersion",
+                "ok"
+            ],
+            "type": "object"
+        }
+    }
+]
