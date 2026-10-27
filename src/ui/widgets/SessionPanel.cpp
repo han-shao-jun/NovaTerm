@@ -20,6 +20,9 @@
 #include "ui/widgets/MessagePrompts.h"
 
 #include <QDir>
+#include <QCryptographicHash>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QDebug>
 #include <QFont>
 #include <QHeaderView>
@@ -613,6 +616,7 @@ void SessionPanel::upsert(RuntimeConfig runtime, const QByteArray& secret)
         _credentials->remove(it->runtimeSnapshot.credentialRef);
     }
 
+    _mcpTargetVersions.insert(it->sessionId.toString(QUuid::WithoutBraces), QUuid::createUuid().toRfc4122());
     it->runtimeSnapshot = std::move(runtime);
     saveHistory();
     rebuildTree();
@@ -640,6 +644,7 @@ void SessionPanel::replace(const SessionId& id, RuntimeConfig runtime,
         _credentials->remove(oldCredentialRef);
     }
 
+    _mcpTargetVersions.insert(it->sessionId.toString(QUuid::WithoutBraces), QUuid::createUuid().toRfc4122());
     it->runtimeSnapshot = std::move(runtime);
     saveHistory();
     rebuildTree();
@@ -678,6 +683,31 @@ void SessionPanel::saveHistory()
     QString error;
     if (!_store->save(_entries, &error))
         qWarning() << "Failed to save session history:" << error;
+    emit savedTargetsChanged(); // Reflect the in-memory UI source, even if persistence failed.
+}
+
+QList<NovaTerm::Mcp::SavedTargetSource> SessionPanel::savedTargetSources() const
+{
+    QList<NovaTerm::Mcp::SavedTargetSource> sources;
+    for (const auto& entry : _entries) {
+        const auto& runtime = entry.runtimeSnapshot;
+        if (runtime.transportKind != TransportKind::Ssh && runtime.transportKind != TransportKind::Serial) continue;
+        const auto& values = runtime.transport;
+        const auto id = entry.sessionId.toString(QUuid::WithoutBraces);
+        const bool ssh = runtime.transportKind == TransportKind::Ssh;
+        const auto endpoint = ssh
+            ? QStringLiteral("%1:%2").arg(values.value("host").toString()).arg(values.value("port", 22).toUInt())
+            : QStringLiteral("%1 @ %2").arg(values.value("portName").toString()).arg(values.value("baudRate").toInt());
+        QString title = values.value("label").toString().trimmed();
+        if (title.isEmpty())
+            title = values.value(ssh ? "host" : "portName").toString();
+        // Includes non-disclosed configuration and an edit nonce, never reads the credential store.
+        const auto configurationBytes = QJsonDocument(QJsonObject::fromVariantMap(values)).toJson(QJsonDocument::Compact)
+            + runtime.credentialRef.toUtf8() + _mcpTargetVersions.value(id);
+        sources.append({id, title, ssh ? QStringLiteral("ssh") : QStringLiteral("serial"), endpoint,
+            QCryptographicHash::hash(configurationBytes, QCryptographicHash::Sha256)});
+    }
+    return sources;
 }
 
 void SessionPanel::rebuildTree()
@@ -832,6 +862,7 @@ void SessionPanel::deleteSessions(const QList<SessionId>& ids)
             continue;
         if (!it->runtimeSnapshot.credentialRef.isEmpty())
             _credentials->remove(it->runtimeSnapshot.credentialRef);
+        _mcpTargetVersions.remove(id.toString(QUuid::WithoutBraces));
         _entries.erase(it);
     }
     saveHistory();

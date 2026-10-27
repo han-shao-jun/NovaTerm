@@ -4,7 +4,8 @@
 #include "mcp/contracts/ClearRequest.h"
 #include "mcp/contracts/WaitTextRequest.h"
 #include "mcp/contracts/TerminalTaskRequest.h"
+#include "mcp/contracts/SavedTargetRequest.h"
 namespace NovaTerm::Mcp {
 // Protocol composition envelope; this type never enters terminal application ports.
-using ToolCall = std::variant<ToolRequest, HistoryToolRequest, ClearRequest, WaitTextRequest, TerminalTaskRequest>;
+using ToolCall = std::variant<ToolRequest, HistoryToolRequest, ClearRequest, WaitTextRequest, TerminalTaskRequest, ListSavedTargetsRequest>;
 }

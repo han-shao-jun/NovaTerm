@@ -45,6 +45,7 @@ private:
     ElaLineEdit* _label{nullptr};
     ElaText* _status{nullptr};
     ElaTreeWidget* _sessions{nullptr};
+    ElaTreeWidget* _savedTargets{nullptr};
     ElaComboBox* _records{nullptr};
     ElaPlainTextEdit* _details{nullptr};
     ElaComboBox* _targets{nullptr};

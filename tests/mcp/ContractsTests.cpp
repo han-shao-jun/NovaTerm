@@ -86,12 +86,30 @@ class ContractsTests : public QObject
 {
     Q_OBJECT
 private slots:
+    void savedTargetCatalogIsReadOnlyAndBounded()
+    {
+        QVERIFY(ToolCodec::isKnownTool("novaterm_list_targets"));
+        QVERIFY(ToolCodec::validate("novaterm_list_targets", {}).isEmpty());
+        QVERIFY(!isError(ToolCodec::decodeCall("novaterm_list_targets", {})));
+        const auto request = std::get<ToolCall>(ToolCodec::decodeCall("novaterm_list_targets", {}));
+        QCOMPARE(std::get<ListSavedTargetsRequest>(request).limit, 25);
+        QCOMPARE(ToolCodec::toolName(request), QString("novaterm_list_targets"));
+        for (const auto& invalid : QList<QJsonObject>{
+                 {{"limit", 0}}, {{"limit", 51}}, {{"limit", 1.5}},
+                 {{"cursor", ""}}, {{"cursor", QString(1025, 'x')}},
+                 {{"host", "example.org"}}, {{"clientId", "another-client"}},
+                 {{"path", "C:/private"}}, {{"open", true}}})
+            QVERIFY(!ToolCodec::validate("novaterm_list_targets", invalid).isEmpty());
+        QFile fixture(QStringLiteral(NOVATERM_SOURCE_DIR "/tests/mcp/fixtures/saved-targets-2026-10-27.json"));
+        QVERIFY(fixture.open(QIODevice::ReadOnly));
+        QCOMPARE(ToolCodec::catalog().last().toObject(), QJsonDocument::fromJson(fixture.readAll()).object());
+    }
     void workflowCatalogMatchesFrozenFixture()
     {
         QFile fixture(QStringLiteral(NOVATERM_SOURCE_DIR "/tests/mcp/fixtures/workflow-tools-2026-10-27.json"));
         QVERIFY(fixture.open(QIODevice::ReadOnly));
         QJsonArray workflow;
-        for (qsizetype i = 13; i < ToolCodec::catalog().size(); ++i) workflow.append(ToolCodec::catalog()[i]);
+        for (qsizetype i = 13; i < 17; ++i) workflow.append(ToolCodec::catalog()[i]);
         QCOMPARE(workflow.size(), 4);
         QCOMPARE(workflow, QJsonDocument::fromJson(fixture.readAll()).array());
     }
@@ -596,9 +614,15 @@ void ContractsTests::confirmationClaimsKeepWireFormatAndRejectTampering()
 int main(int argc, char** argv)
 {
     QCoreApplication application(argc, argv);
+    if (application.arguments().size() == 3 && application.arguments()[1] == "--write-target-fixture") {
+        QFile file(application.arguments()[2]);
+        if (!file.open(QIODevice::WriteOnly)) return 1;
+        const auto bytes = QJsonDocument(ToolCodec::catalog().last().toObject()).toJson();
+        return file.write(bytes) == bytes.size() ? 0 : 1;
+    }
     if (application.arguments().size() == 3 && application.arguments()[1] == "--write-workflow-fixture") {
         QJsonArray workflow;
-        for (qsizetype i = 13; i < ToolCodec::catalog().size(); ++i) workflow.append(ToolCodec::catalog()[i]);
+        for (qsizetype i = 13; i < 17; ++i) workflow.append(ToolCodec::catalog()[i]);
         QFile file(application.arguments()[2]);
         if (!file.open(QIODevice::WriteOnly)) return 1;
         const auto bytes = QJsonDocument(workflow).toJson();

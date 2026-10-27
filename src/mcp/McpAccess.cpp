@@ -108,7 +108,7 @@ void AccessStore::reload()
         const auto oldVersion = old ? old->version.value() : quint64(1);
         const auto version = old && old->digest == digest ? oldVersion : oldVersion + 1;
         next.append(ClientRecord{id, object.value("label").toString().left(80), digest,
-            true, ClientAccessVersion{version}});
+            true, ClientAccessVersion{version}, old && old->digest == digest ? old->identityVersion : quint64(0)});
     }
     QStringList invalidated;
     for (const auto& client : _clients.clients()) {
@@ -122,6 +122,7 @@ void AccessStore::reload()
     if (elevationRevision != _elevationRevision) {
         static_cast<void>(_authorization.revokeAllElevation());
         _clients.advanceAll();
+        _clients.advanceAllIdentities();
         emit revoked({}, {});
     }
     _elevationRevision = elevationRevision;
@@ -141,7 +142,7 @@ void AccessStore::reload()
         if (!_clients.contains(ClientId{id})) _authorization.removeClient(ClientId{id});
         emit revoked(id, {});
     }
-    if (!_enabled) { _authorization.clear(); emit revoked({}, {}); }
+    if (!_enabled) { _authorization.clear(); _clients.advanceAllIdentities(); emit revoked({}, {}); }
     emit changed();
 }
 
@@ -194,6 +195,7 @@ bool AccessStore::setEnabled(bool enabled)
         _enabled = false;
         _authorization.clear();
         _clients.advanceAll();
+        _clients.advanceAllIdentities();
         const bool saved = save();
         emit revoked({}, {});
         emit changed();
@@ -289,6 +291,11 @@ QString AccessStore::authenticate(const QByteArray& token) const
 quint64 AccessStore::version(const QString& clientId) const
 {
     return _clients.version(ClientId{clientId}).value();
+}
+
+quint64 AccessStore::identityVersion(const QString& clientId) const
+{
+    return _clients.identityVersion(ClientId{clientId});
 }
 
 std::optional<GrantRow> AccessStore::grantRow(const QString& clientId,

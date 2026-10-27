@@ -1,6 +1,8 @@
 # 外部 Agent 的 BSP 终端调试流程
 
-更新：2026-10-27。B1日志、B2清空、B3/B3a文本等待和长任务已实施；B3b传输/保存目标连接未实施。工具名称及精确参数以 [02](02_Current_MCP_Contract.md) 为准；实际成绩见 [B3记录](records/B3_Implementation_2026-10-27.md)。
+更新：2026-10-27。B1日志、B2清空、B3/B3a文本等待和长任务已实施；B3b第一子批提供保存目标只读授权目录，传输及目标打开/查询/关闭仍未实施。工具名称及精确参数以 [02](02_Current_MCP_Contract.md) 为准；实际成绩见 [B3记录](records/B3_Implementation_2026-10-27.md)及[目录记录](records/B3b_Target_Directory_2026-10-27.md)。
+
+`novaterm_list_targets` 可了解本机用户本次运行明确共享的 SSH/UART 保存配置。该目录不连接设备、不提供输入 token，saved_configuration 也不证明在线；实际交互仍先使用 list_sessions 选择已经打开且另外获准的 Session。游标失效后重新列举，不把旧配置版本带入后续操作。
 
 ## 1. 分工
 

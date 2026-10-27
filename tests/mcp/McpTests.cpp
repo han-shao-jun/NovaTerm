@@ -2,6 +2,9 @@
  *  @brief MCP 协议、授权、跨客户端摘要及受限命令的离线端到端检查。
  */
 #include "mcp/McpService.h"
+#include "mcp/application/SavedTargets.h"
+#include <QComboBox>
+#include <QTreeWidget>
 #include "mcp/HistoryCapabilityAdapter.h"
 #include "recording/HistoryService.h"
 #include "mcp/CommandSessionAdapter.h"
@@ -561,6 +564,9 @@ private slots:
     void httpRequiresRunningApplication();
     void httpConfigurationUsesApplicationEndpoint();
     void httpInitializedSessionReadsWithAuthorization();
+    void httpSavedTargetDirectoryIsIsolatedAndVersioned();
+    void settingsDialogSharesOnlySelectedSavedTargets();
+    void savedTargetSharingSurvivesSessionPermissionChanges();
     void httpRejectsMissingTokenAndForeignOrigin();
     void httpRequestsFailWhenApplicationStops();
     void httpInitializedSessionStopsWithApplication();
@@ -2682,7 +2688,7 @@ void McpTests::tokenSigningAndAuthentication()
 
 void McpTests::rejectsDangerousAndOversizedArguments()
 {
-    QCOMPARE(ToolCodec::catalog().size(), 17);
+    QCOMPARE(ToolCodec::catalog().size(), 18);
     QVERIFY(!CommandPolicy::find("rm"));
     QVERIFY(!CommandPolicy::find("credential.read"));
     const QJsonObject identity{{"sessionId", newId()}, {"epoch", "epoch"}};
@@ -2815,6 +2821,150 @@ void McpTests::httpInitializedSessionReadsWithAuthorization()
     QVERIFY(listed.message.value("result").toObject().value("structuredContent").toObject()
         .value("ok").toBool());
 }
+void McpTests::httpSavedTargetDirectoryIsIsolatedAndVersioned()
+{
+    Fixture f;
+    QVERIFY(f.enable());
+    QTRY_COMPARE(f.service.status(), QStringLiteral("Listening"));
+    auto& targets = f.service.savedTargets();
+    SavedTargetSource a{newId(), "Board A", "ssh", "fixture.invalid:22", QByteArray(32, 'a')};
+    SavedTargetSource b{newId(), "Board B", "serial", "fake-port @ 115200", QByteArray(32, 'b')};
+    SavedTargetSource hidden{newId(), "Hidden", "ssh", "private.invalid:22", QByteArray(32, 'c')};
+    QVERIFY(targets.replace({a, b, hidden}));
+    const auto initializeClient = [&](const QByteArray& token) {
+        const auto initialized = httpPost(f.service, token, httpInitialize());
+        httpPost(f.service, token, {{"jsonrpc", "2.0"}, {"method", "notifications/initialized"}}, initialized.session);
+        return initialized.session;
+    };
+    const auto session = initializeClient(f.token());
+    const auto list = [&](const QByteArray& token, const QByteArray& wireSession, QJsonObject args) {
+        return httpPost(f.service, token,
+            {{"jsonrpc", "2.0"}, {"id", 44}, {"method", "tools/call"},
+             {"params", QJsonObject{{"name", "novaterm_list_targets"}, {"arguments", args}}}}, wireSession)
+            .message.value("result").toObject().value("structuredContent").toObject();
+    };
+    const auto empty = list(f.token(), session, {});
+    QVERIFY2(empty.value("ok").toBool(), QJsonDocument(empty).toJson(QJsonDocument::Compact).constData());
+    QVERIFY(empty.value("data").toObject().value("targets").toArray().isEmpty());
+    for (const auto& row : targets.localTargets())
+        if (row.id != hidden.id)
+            QVERIFY(targets.setShared(f.client, f.service.access().identityVersion(f.client), row.id, row.configVersion, true));
+    const auto first = list(f.token(), session, {{"limit", 1}});
+    QVERIFY2(first.value("ok").toBool(), QJsonDocument(first).toJson(QJsonDocument::Compact).constData());
+    const auto data = first.value("data").toObject();
+    QCOMPARE(data.value("targets").toArray().size(), 1);
+    const auto cursor = data.value("nextCursor").toString();
+    QVERIFY(!cursor.isEmpty());
+    const auto next = list(f.token(), session, {{"cursor", cursor}});
+    QVERIFY(next.value("ok").toBool());
+    const auto second = next.value("data").toObject().value("targets").toArray();
+    QCOMPARE(second.size(), 1);
+    QVERIFY(second.first().toObject().value("targetId") != data.value("targets").toArray().first().toObject().value("targetId"));
+    const auto bytes = QJsonDocument(list(f.token(), session, {})).toJson();
+    QVERIFY(!bytes.contains("private.invalid"));
+    QVERIFY(!bytes.contains("configurationKey"));
+    QVERIFY(!bytes.contains("credentialRef"));
+    QVERIFY(!bytes.contains("sessionId"));
+    const auto other = f.service.access().addClient("other");
+    const auto otherToken = *f.service.access().exportToken(other);
+    const auto otherSession = initializeClient(otherToken);
+    QCOMPARE(list(otherToken, otherSession, {{"cursor", cursor}}).value("error").toObject().value("code").toString(), QString("CURSOR_MISMATCH"));
+    a.endpoint = "updated.invalid:22";
+    QVERIFY(targets.replace({a, b, hidden}));
+    QCOMPARE(list(f.token(), session, {{"cursor", cursor}}).value("error").toObject().value("code").toString(), QString("TARGET_DIRECTORY_CHANGED"));
+    auto tampered = cursor; tampered[10] = tampered[10] == 'a' ? 'b' : 'a';
+    QCOMPARE(list(f.token(), session, {{"cursor", tampered}}).value("error").toObject().value("code").toString(), QString("CURSOR_MISMATCH"));
+    QCOMPARE(list(f.token(), session, {}).value("data").toObject().value("targets").toArray().size(), 1);
+}
+
+void McpTests::settingsDialogSharesOnlySelectedSavedTargets()
+{
+    Fixture f;
+    auto& targets = f.service.savedTargets();
+    QVERIFY(targets.replace({{newId(), "Saved board", "serial", "fake @ 115200", QByteArray(32, 'a')}}));
+    const auto other = f.service.access().addClient("other");
+    McpSettingsDialog dialog(&f.service, nullptr);
+    auto* tree = dialog.findChild<QTreeWidget*>("mcpSavedTargets");
+    auto* clients = dialog.findChild<QComboBox*>("mcpClientSelector");
+    QVERIFY(tree && clients);
+    clients->setCurrentIndex(clients->findData(f.client));
+    QCOMPARE(tree->topLevelItemCount(), 1);
+    QCOMPARE(tree->topLevelItem(0)->checkState(2), Qt::Unchecked);
+    tree->topLevelItem(0)->setCheckState(2, Qt::Checked);
+    QCOMPARE(targets.page(f.client, f.service.access().identityVersion(f.client), 25).targets.size(), 1);
+    clients->setCurrentIndex(clients->findData(other));
+    QCOMPARE(tree->topLevelItem(0)->checkState(2), Qt::Unchecked);
+    QVERIFY(targets.page(other, f.service.access().identityVersion(other), 25).targets.isEmpty());
+    clients->setCurrentIndex(clients->findData(f.client));
+    QCOMPARE(tree->topLevelItem(0)->checkState(2), Qt::Checked);
+    QVERIFY(f.service.access().rotateToken(f.client));
+    QTRY_VERIFY(tree->topLevelItemCount() == 1 && tree->topLevelItem(0)->checkState(2) == Qt::Unchecked);
+    QVERIFY(targets.page(f.client, f.service.access().identityVersion(f.client), 25).targets.isEmpty());
+}
+
+void McpTests::savedTargetSharingSurvivesSessionPermissionChanges()
+{
+    Fixture f;
+    QVERIFY(f.enable());
+    auto& targets = f.service.savedTargets();
+    QVERIFY(targets.replace({{newId(), "Board A", "serial", "fake-a @ 115200", QByteArray(32, 'a')},
+        {newId(), "Board B", "ssh", "board.invalid:22", QByteArray(32, 'b')}}));
+    McpSettingsDialog dialog(&f.service, nullptr);
+    auto* tree = dialog.findChild<QTreeWidget*>("mcpSavedTargets");
+    QVERIFY(tree);
+    QCOMPARE(tree->topLevelItemCount(), 2);
+    for (int i = 0; i < tree->topLevelItemCount(); ++i)
+        tree->topLevelItem(i)->setCheckState(2, Qt::Checked);
+    Host host;
+    QVERIFY(host.start(f.runtime(), f.token()));
+    const auto first = host.call("novaterm_list_targets", {{"limit", 1}});
+    QVERIFY(first.value("ok").toBool());
+    const auto cursor = first.value("data").toObject().value("nextCursor").toString();
+    QVERIFY(!cursor.isEmpty());
+    const auto accessVersion = f.service.access().version(f.client);
+    const auto entry = f.service.directory().entries().first();
+    for (const auto& change : QList<std::pair<PermissionKind, bool>>{
+             {PermissionKind::ReadOutput, false}, {PermissionKind::ReadOutput, true},
+             {PermissionKind::FullTerminalInput, true}, {PermissionKind::FullTerminalInput, false}}) {
+        QVERIFY(NovaTerm::Mcp::TestSupport::applyOne(f.service.access(), f.client,
+            entry, change.first, std::nullopt, change.second));
+        const auto listed = host.call("novaterm_list_targets");
+        QVERIFY(listed.value("ok").toBool());
+        QCOMPARE(listed.value("data").toObject().value("targets").toArray().size(), 2);
+        const auto next = host.call("novaterm_list_targets", {{"cursor", cursor}});
+        QVERIFY2(next.value("ok").toBool(), QJsonDocument(next).toJson(QJsonDocument::Compact).constData());
+        QCOMPARE(next.value("data").toObject().value("targets").toArray().size(), 1);
+        QCOMPARE(tree->topLevelItem(0)->checkState(2), Qt::Checked);
+        QCOMPARE(tree->topLevelItem(1)->checkState(2), Qt::Checked);
+    }
+    QVERIFY(f.service.access().version(f.client) > accessVersion);
+    const auto previousIdentity = tree->topLevelItem(0)->data(0, Qt::UserRole + 3);
+    QVERIFY(f.service.access().rotateToken(f.client));
+    QTRY_COMPARE(tree->topLevelItem(0)->checkState(2), Qt::Unchecked);
+    Host rotated;
+    QVERIFY(rotated.start(f.runtime(), f.token()));
+    const auto stale = rotated.call("novaterm_list_targets", {{"cursor", cursor}});
+    QCOMPARE(stale.value("error").toObject().value("code").toString(), QString("CURSOR_MISMATCH"));
+    tree->topLevelItem(0)->setData(0, Qt::UserRole + 3, previousIdentity);
+    tree->topLevelItem(0)->setCheckState(2, Qt::Checked);
+    QTRY_COMPARE(tree->topLevelItem(0)->checkState(2), Qt::Unchecked);
+    QVERIFY(rotated.call("novaterm_list_targets").value("data").toObject().value("targets").toArray().isEmpty());
+    tree->topLevelItem(0)->setCheckState(2, Qt::Checked);
+    QCOMPARE(rotated.call("novaterm_list_targets").value("data").toObject().value("targets").toArray().size(), 1);
+    QVERIFY(f.service.access().setEnabled(false));
+    QVERIFY(f.service.access().setEnabled(true));
+    QTRY_COMPARE(tree->topLevelItem(0)->checkState(2), Qt::Unchecked);
+    Host resumed;
+    QVERIFY(resumed.start(f.runtime(), f.token()));
+    QVERIFY(resumed.call("novaterm_list_targets").value("data").toObject().value("targets").toArray().isEmpty());
+    tree->topLevelItem(0)->setCheckState(2, Qt::Checked);
+    QCOMPARE(resumed.call("novaterm_list_targets").value("data").toObject().value("targets").toArray().size(), 1);
+    const auto token = f.token();
+    QVERIFY(f.service.access().removeClient(f.client));
+    QCOMPARE(f.service.access().authenticate(token), QString());
+    QTRY_COMPARE(tree->topLevelItem(0)->checkState(2), Qt::Unchecked);
+}
+
 void McpTests::httpRejectsMissingTokenAndForeignOrigin()
 {
     Fixture f;

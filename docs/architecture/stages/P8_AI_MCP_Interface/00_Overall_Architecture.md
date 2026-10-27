@@ -91,7 +91,7 @@ MCP 慢消费者不能拖住 Parser/Renderer，不能为等待下一页无界固
 
 ## 9. 对照补齐的应用边界
 
-[06](06_Terminal_Workflow_Extensions.md) 规定文本条件等待、长任务、单文件传输和保存目标连接的语义。2026-10-27 B3a等待/任务已实现，精确字段与限制见02，验收范围见 [B3记录](records/B3_Implementation_2026-10-27.md)；B3b传输/连接仍未实施。
+[06](06_Terminal_Workflow_Extensions.md) 规定文本条件等待、长任务、单文件传输和保存目标连接的语义。2026-10-27 B3a等待/任务已实现，精确字段与限制见02，验收范围见 [B3记录](records/B3_Implementation_2026-10-27.md)；B3b第一子批增加保存目标只读授权目录，见[目录记录](records/B3b_Target_Directory_2026-10-27.md)。传输及目标打开/复用/查询/关闭仍未实施。
 
 - 文本等待复用同一日志/屏幕源、授权和等待调度；仅增加有界匹配状态，不建立第二采样源或脚本引擎。
 - 长任务复用 CommandRuntime/Controller 的执行事实，只增加异步调用关联、查询和有界结果保留。SSH/UART 分别声明完成与停止能力。

@@ -1,0 +1,247 @@
+{
+    "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": true
+    },
+    "description": "List only saved SSH/UART target summaries explicitly shared with this client for this app run. No credentials, connections or terminal grants are included. saved_configuration means stored configuration, not online availability. Configuration edits or sharing changes invalidate pagination; restart the listing. Opening and closing saved targets are not yet available.",
+    "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+            "cursor": {
+                "maxLength": 1024,
+                "minLength": 1,
+                "type": "string"
+            },
+            "limit": {
+                "default": 25,
+                "maximum": 50,
+                "minimum": 1,
+                "type": "integer"
+            }
+        },
+        "required": [
+        ],
+        "type": "object"
+    },
+    "name": "novaterm_list_targets",
+    "outputSchema": {
+        "additionalProperties": false,
+        "oneOf": [
+            {
+                "not": {
+                    "required": [
+                        "error"
+                    ]
+                },
+                "properties": {
+                    "ok": {
+                        "const": true
+                    }
+                },
+                "required": [
+                    "data"
+                ]
+            },
+            {
+                "not": {
+                    "required": [
+                        "data"
+                    ]
+                },
+                "properties": {
+                    "ok": {
+                        "const": false
+                    }
+                },
+                "required": [
+                    "error"
+                ]
+            }
+        ],
+        "properties": {
+            "data": {
+                "additionalProperties": false,
+                "properties": {
+                    "instanceId": {
+                        "type": "string"
+                    },
+                    "nextCursor": {
+                        "type": [
+                            "string",
+                            "null"
+                        ]
+                    },
+                    "targets": {
+                        "items": {
+                            "additionalProperties": false,
+                            "properties": {
+                                "availability": {
+                                    "enum": [
+                                        "saved_configuration"
+                                    ],
+                                    "type": "string"
+                                },
+                                "configVersion": {
+                                    "type": "string"
+                                },
+                                "endpoint": {
+                                    "type": "string"
+                                },
+                                "targetId": {
+                                    "type": "string"
+                                },
+                                "title": {
+                                    "type": "string"
+                                },
+                                "transport": {
+                                    "enum": [
+                                        "ssh",
+                                        "serial"
+                                    ],
+                                    "type": "string"
+                                }
+                            },
+                            "required": [
+                                "targetId",
+                                "title",
+                                "transport",
+                                "endpoint",
+                                "configVersion",
+                                "availability"
+                            ],
+                            "type": "object"
+                        },
+                        "type": "array"
+                    }
+                },
+                "required": [
+                    "instanceId",
+                    "targets",
+                    "nextCursor"
+                ],
+                "type": "object"
+            },
+            "error": {
+                "additionalProperties": false,
+                "properties": {
+                    "code": {
+                        "type": "string"
+                    },
+                    "details": {
+                        "additionalProperties": false,
+                        "properties": {
+                            "commandId": {
+                                "type": "string"
+                            },
+                            "epoch": {
+                                "type": "string"
+                            },
+                            "executionId": {
+                                "type": "string"
+                            },
+                            "executionMayHaveStarted": {
+                                "type": "boolean"
+                            },
+                            "exitCode": {
+                                "type": [
+                                    "integer",
+                                    "null"
+                                ]
+                            },
+                            "finishedAt": {
+                                "type": [
+                                    "string",
+                                    "null"
+                                ]
+                            },
+                            "instanceId": {
+                                "type": "string"
+                            },
+                            "outputTruncated": {
+                                "type": "boolean"
+                            },
+                            "policyVersion": {
+                                "type": "string"
+                            },
+                            "sessionId": {
+                                "type": "string"
+                            },
+                            "startedAt": {
+                                "type": [
+                                    "string",
+                                    "null"
+                                ]
+                            },
+                            "status": {
+                                "enum": [
+                                    "completed",
+                                    "failed",
+                                    "timed_out",
+                                    "cancelled",
+                                    "unknown"
+                                ],
+                                "type": "string"
+                            },
+                            "stderr": {
+                                "type": "string"
+                            },
+                            "stdout": {
+                                "type": "string"
+                            },
+                            "terminationConfirmed": {
+                                "type": "boolean"
+                            }
+                        },
+                        "required": [
+                            "commandId",
+                            "epoch",
+                            "executionId",
+                            "executionMayHaveStarted",
+                            "exitCode",
+                            "finishedAt",
+                            "instanceId",
+                            "outputTruncated",
+                            "policyVersion",
+                            "sessionId",
+                            "startedAt",
+                            "status",
+                            "stderr",
+                            "stdout",
+                            "terminationConfirmed"
+                        ],
+                        "type": "object"
+                    },
+                    "message": {
+                        "type": "string"
+                    },
+                    "retryAfterMs": {
+                        "minimum": 0,
+                        "type": "integer"
+                    },
+                    "retryable": {
+                        "type": "boolean"
+                    }
+                },
+                "required": [
+                    "code",
+                    "message",
+                    "retryable"
+                ],
+                "type": "object"
+            },
+            "ok": {
+                "type": "boolean"
+            },
+            "schemaVersion": {
+                "const": 1
+            }
+        },
+        "required": [
+            "schemaVersion",
+            "ok"
+        ],
+        "type": "object"
+    }
+}

@@ -1,5 +1,23 @@
 # AGENTS.md
 
+### 0.2.87 提交前收口（2026-10-27）
+
+用户要求创建本地Git提交，版本由0.2.86递增至0.2.87，包含B3b保存目标只读授权目录及其审查修复；同步README和Development_Roadmap的十八工具状态。正常Windows Release默认全构建通过；同版本相关CTest21/21（20.28秒）、完整MCP业务154/154（95.338秒）及官方SDK2025/rawHTTP2026十八工具互操作分别通过。未跑无关全套/Core/ConPTY，未连接真实设备，不推送，不纳入构建产物或辅助文件，不修改代码风格。命令、日志和保留范围见 [B3b记录提交收口](docs/architecture/stages/P8_AI_MCP_Interface/records/B3b_Target_Directory_2026-10-27.md#0287-提交前收口)。
+
+### B3b 两项行为审查修复（2026-10-27，工作区增量）
+
+目录标题现优先保存label，空标签回退SSH host/UART portName，不再从连接详情带出SSH用户名。独立运行期客户端identityVersion与原access.version分离：普通Session授权变化保留目录共享/分页，RPC准入仍复核原访问版本；令牌轮换、删除重建、全局停用/撤销及外部token替换失效，身份高水位不因clear/replaceAll重置。接入JSON格式和十八工具Schema保持，没有修改代码风格。
+
+两项均有真实RED/GREEN；名称6/6、目录/Session联通3/3、身份注册表及跨实例各3/3。正常Windows Release默认全构建通过；本轮相关CTest21/21（19.08秒）、完整业务154/154（96.394秒）及两代标准协议互操作分别通过。独立只读复核未见高可信新问题。未跑无关全套/Core/ConPTY，未连接设备、未提交/推送。详细命令与本轮独立成绩见 [B3b记录审查修复](docs/architecture/stages/P8_AI_MCP_Interface/records/B3b_Target_Directory_2026-10-27.md#本轮两项审查修复计划)。
+
+### B3b 保存目标授权目录（2026-10-27，工作区增量）
+
+第一子批新增 `novaterm_list_targets`，当前十八工具；旧十七工具对象和九项终端请求联合保持。SessionPanel 提供无秘密保存 SSH/UART 摘要，本机 MCP 设置逐客户端共享，仅当前运行有效，绑定客户端身份与配置版本。目录不创建 Session、不连接设备、不授予终端/文件权限；配置重存、删除重建及撤权/令牌轮换失效，签名分页拒绝跨客户端和跨修订。打开/复用/查询/关闭、文件传输及B4仍待后续。具体范围、真实RED/GREEN与本轮验证见 [B3b目录记录](docs/architecture/stages/P8_AI_MCP_Interface/records/B3b_Target_Directory_2026-10-27.md)。不自动提交/推送或连接设备。
+
+独立审查修复全局撤权空client的共享回收；真实HTTP回归另捕获并修复新事件未登记响应路由。最终正常Windows Release默认全构建通过；相关CTest21/21（22.04秒）与完整业务文件153/153（97.169秒）分别记录，本轮外来属主ACL原断言通过，不套用历史1307。目录7/7，新HTTP/共享UI专项4/4；首轮业务152pass/1fail仍保留，不拼为一次全套。未跑无关全套/Core/ConPTY或连接设备。
+
+两代官方SDK2025/rawHTTP2026完整18项Schema、目录及原等待/任务/重试互操作通过；另有标准库两代HTTP独立检查通过。依赖仅安装在build/mcp-test-deps，应用不增加Python运行依赖。
+
 给 AI 助手的项目上手说明。目标是让新会话在不重复摸索的前提下开始工作。
 **权威信息在 `docs/`，本文件只做导航与记录"读文档看不出来的东西"。**
 

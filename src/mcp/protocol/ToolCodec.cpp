@@ -408,6 +408,15 @@ const QJsonArray& ToolCodec::catalog()
     stopTask.insert("operationId", interaction.value("operationId"));
     workflow("novaterm_stop_task", "Explicitly request Ctrl+C for the original task only while its target, execution and original control generations still match. Retry the same stop operationId. Human takeover or a newer command rejects stale stop without writing. stop_requested does not confirm remote termination; cancelling a read or releasing control is different.",
         schema(stopTask, {"sessionId", "epoch", "taskId", "operationId"}), true, taskData);
+    const auto target = schema({{"targetId", text}, {"title", text},
+        {"transport", enumeration({"ssh", "serial"})}, {"endpoint", text}, {"configVersion", text},
+        {"availability", enumeration({"saved_configuration"})}},
+        {"targetId", "title", "transport", "endpoint", "configVersion", "availability"});
+    workflow("novaterm_list_targets", "List only saved SSH/UART target summaries explicitly shared with this client for this app run. No credentials, connections or terminal grants are included. saved_configuration means stored configuration, not online availability. Configuration edits or sharing changes invalidate pagination; restart the listing. Opening and closing saved targets are not yet available.",
+        schema({{"limit", integerSchema(1, 50, 25)},
+            {"cursor", QJsonObject{{"type", "string"}, {"minLength", 1}, {"maxLength", 1024}}}}, {}),
+        false, schema({{"instanceId", text}, {"targets", array(target)}, {"nextCursor", nullableText}},
+            {"instanceId", "targets", "nextCursor"}));
     return result;
     }();
     return catalog;
@@ -851,6 +860,11 @@ QJsonArray ToolCodec::encodeActions(const std::vector<TerminalAction>& actions)
 
 Result<ToolCall> ToolCodec::decodeCall(const QString& name, const QJsonObject& arguments)
 {
+    if (name == "novaterm_list_targets") {
+        const auto invalid = validate(name, arguments);
+        if (!invalid.isEmpty()) return Error{ErrorCode::InvalidArgument, invalid};
+        return ToolCall{ListSavedTargetsRequest{arguments.value("limit").toInt(25), arguments.value("cursor").toString()}};
+    }
     if (name == "novaterm_wait_text" || name == "novaterm_start_task"
         || name == "novaterm_query_task" || name == "novaterm_stop_task") {
         const auto invalid = validate(name, arguments);
@@ -903,6 +917,7 @@ Result<ToolCall> ToolCodec::decodeCall(const QString& name, const QJsonObject& a
 }
 QString ToolCodec::toolName(const ToolCall& request)
 {
+    if (std::holds_alternative<ListSavedTargetsRequest>(request)) return "novaterm_list_targets";
     if (std::holds_alternative<WaitTextRequest>(request)) return "novaterm_wait_text";
     if (const auto* task = std::get_if<TerminalTaskRequest>(&request)) return std::visit([](const auto& value) -> QString {
         using Type = std::decay_t<decltype(value)>;

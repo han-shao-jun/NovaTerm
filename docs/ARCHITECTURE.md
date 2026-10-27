@@ -1,5 +1,7 @@
 # NovaTerm 统一架构设计
 
+2026-10-27 B3b 第一子批：独立只读保存目标授权目录 `novaterm_list_targets`，当前十八工具。纯应用 SavedTargets 仅持有有界、无秘密的配置描述和显式运行期共享，UI 从现有 SessionPanel 发布摘要；不创建 Session，不连接设备，不继承终端权限。原十七工具对象及九项终端请求联合保持。打开/查询/关闭与文件传输仍待后续，见[目录契约](architecture/stages/P8_AI_MCP_Interface/02_Current_MCP_Contract.md)与[实施记录](architecture/stages/P8_AI_MCP_Interface/records/B3b_Target_Directory_2026-10-27.md)。
+
 2026-10-27 B3/B3a：追加有界字面文本等待和长任务启动/查询/请求停止，当前十七工具。等待复用B1日志位置、ObservationService屏幕与B2代际；任务索引只保留有界关联/事实，Controller/Arbiter仍为输入与执行owner，无第二采集、执行器或任务全文日志。两代协议、工具说明和流程已统一，精确字段见 [当前契约](architecture/stages/P8_AI_MCP_Interface/02_Current_MCP_Contract.md)，实际验证与限制见 [B3记录](architecture/stages/P8_AI_MCP_Interface/records/B3_Implementation_2026-10-27.md)。B3b文件/连接、真实设备与性能仍未验收。
 
 2026-10-25 B0/B1：`read_context source=log` 已复用现有 ChunkedScrollback 提供稳定位置、UTF-8 分页、重复行及淘汰/代际状态；模型观察游标原义保持。Core 只 try-lock，冷页 CacheOnly，不建立第二日志存储。已退役未发布 P4 诊断平台及无生产消费者的 Recipe/EnvironmentTracker/本机 Agent 原型；CommandRuntime/Controller/EvidenceModel 保持现行执行与就绪事实。精确契约、范围及本轮成绩见 [B0/B1 记录](architecture/stages/P8_AI_MCP_Interface/records/B0_B1_Implementation_2026-10-25.md)。B2 已通过现有 Parser 队列与字节屏障接入独立授权清空，应用持有有界幂等记录，Core/Provider/实时 capture 与输入 token 共用缓存代际；当前追加第十三项工具，见 [B2 记录](architecture/stages/P8_AI_MCP_Interface/records/B2_Implementation_2026-10-25.md)。

@@ -12,6 +12,7 @@
 #include "mcp/tasks/ConfirmationRegistry.h"
 #include "mcp/contracts/Permissions.h"
 #include "mcp/contracts/TaskPhases.h"
+#include "mcp/security/ClientRegistry.h"
 
 #include <QJsonArray>
 #include <QJsonObject>
@@ -107,6 +108,7 @@ private slots:
     void taskPhasesAdvanceOnlyForward();
 
     void singleChangeAdvancesRowAndClientVersions();
+    void clientIdentityGenerationIsIndependentAndNeverReused();
     void staleBindingAndRevisionAreRejected();
     void staleBindingRejectsEveryIdentityChange();
     void clientRowsNeverCopyAnotherClientsSelections();
@@ -132,6 +134,38 @@ private slots:
     void requestSchedulerEnforcesBudgetsAndCancellation();
     void commandDedupBlocksUntilSwept();
 };
+
+void AuthorizationTests::clientIdentityGenerationIsIndependentAndNeverReused()
+{
+    ClientRegistry clients;
+    const ClientId id{"client-1"};
+    QCOMPARE(clients.identityVersion(id), quint64(0));
+    clients.insert({id, "client", QByteArray(32, 'a'), false, ClientAccessVersion{1}});
+    const auto original = clients.identityVersion(id);
+    QVERIFY(original > 0);
+    static_cast<void>(clients.advance(id));
+    static_cast<void>(clients.advance(id));
+    QCOMPARE(clients.version(id).value(), quint64(3));
+    QCOMPARE(clients.identityVersion(id), original);
+    clients.replaceAll(clients.clients());
+    QCOMPARE(clients.identityVersion(id), original);
+    QVERIFY(clients.updateDigest(id, QByteArray(32, 'b'), false));
+    const auto rotated = clients.identityVersion(id);
+    QVERIFY(rotated > original);
+    QVERIFY(clients.remove(id));
+    QCOMPARE(clients.identityVersion(id), quint64(0));
+    clients.insert({id, "client", QByteArray(32, 'b'), false, ClientAccessVersion{1}});
+    const auto recreated = clients.identityVersion(id);
+    QVERIFY(recreated > rotated);
+    const auto accessVersion = clients.version(id);
+    clients.advanceAllIdentities();
+    QCOMPARE(clients.version(id), accessVersion);
+    QVERIFY(clients.identityVersion(id) > recreated);
+    const auto stopped = clients.identityVersion(id);
+    clients.clear();
+    clients.insert({id, "client", QByteArray(32, 'b'), false, ClientAccessVersion{1}});
+    QVERIFY(clients.identityVersion(id) > stopped);
+}
 
 void AuthorizationTests::singleChangeAdvancesRowAndClientVersions()
 {

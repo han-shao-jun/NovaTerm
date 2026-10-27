@@ -26,6 +26,7 @@ struct ClientRecord
     QByteArray digest; ///< 随机令牌的 SHA-256 摘要，不是令牌本身。
     bool persistent{false};
     ClientAccessVersion version{1};
+    quint64 identityVersion{0}; ///< 仅运行期，由注册表分配；普通 Session 授权不推进。
 };
 
 class ClientRegistry
@@ -39,6 +40,7 @@ public:
     [[nodiscard]] QByteArray digestFor(const ClientId& id) const;
 
     [[nodiscard]] ClientAccessVersion version(const ClientId& id) const;
+    [[nodiscard]] quint64 identityVersion(const ClientId& id) const;
     /** @brief 推进客户端版本；授权变化后旧令牌/游标必须失效。 */
     [[nodiscard]] ClientAccessVersion advance(const ClientId& id);
 
@@ -49,10 +51,12 @@ public:
     void replaceAll(QList<ClientRecord> records);
     /** @brief 使全部客户端令牌/游标失效（启用状态或提权凭据变化）。 */
     void advanceAll();
+    void advanceAllIdentities();
     void clear();
 
 private:
     QHash<ClientId, ClientRecord> _records;
+    quint64 _identityRevision{0};
 };
 
 } // namespace NovaTerm::Mcp

@@ -42,6 +42,8 @@ public:
     [[nodiscard]] std::optional<QByteArray> exportToken(const QString& id) const;
     [[nodiscard]] QString authenticate(const QByteArray& token) const;
     [[nodiscard]] quint64 version(const QString& clientId) const;
+    /** @brief 客户端身份代际；普通 Session 权限变化不影响独立目录共享。 */
+    [[nodiscard]] quint64 identityVersion(const QString& clientId) const;
     /**
      * @brief 唯一授权修改入口：带连接绑定与预期行版本的单项选择。
      *

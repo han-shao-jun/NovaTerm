@@ -3,6 +3,7 @@
  */
 #include "McpSettingsDialog.h"
 #include "mcp/McpService.h"
+#include "mcp/application/SavedTargets.h"
 #include "mcp/CapabilityAdapter.h"
 #include "ui/models/SettingsController.h"
 #include "session/SessionCommandFacade.h"
@@ -187,6 +188,7 @@ McpSettingsDialog::McpSettingsDialog(NovaTerm::Mcp::Service* service, QWidget* p
     layout->addWidget(_status);
     auto* clients = new QHBoxLayout;
     _clients = new ElaComboBox(this);
+    _clients->setObjectName(QStringLiteral("mcpClientSelector"));
     _clients->setMinimumWidth(180);
     clients->addWidget(_clients, 1);
     _label = new ElaLineEdit(this);
@@ -244,6 +246,32 @@ McpSettingsDialog::McpSettingsDialog(NovaTerm::Mcp::Service* service, QWidget* p
         for (int column = 3; column <= 5; ++column) _sessions->setColumnHidden(column, !visible);
     });
     layout->addWidget(legacyPermissions);
+    auto* savedHelp = new ElaText(tr("保存目标目录：仅共享勾选项的名称、SSH/UART 端点摘要和配置版本，本次运行有效。修改保存项或轮换令牌后需重新勾选；不会连接设备或授予终端读取、输入、文件权限。"), this);
+    savedHelp->setWordWrap(true);
+    savedHelp->setTextPixelSize(12);
+    layout->addWidget(savedHelp);
+    _savedTargets = new ElaTreeWidget(this);
+    _savedTargets->setObjectName(QStringLiteral("mcpSavedTargets"));
+    _savedTargets->setColumnCount(3);
+    _savedTargets->setHeaderLabels({tr("保存目标"), tr("端点摘要"), tr("共享目录")});
+    _savedTargets->setRootIsDecorated(false);
+    _savedTargets->setMaximumHeight(140);
+    _savedTargets->header()->setSectionResizeMode(QHeaderView::ResizeToContents);
+    layout->addWidget(_savedTargets);
+    connect(_savedTargets, &QTreeWidget::itemChanged, this, [this](QTreeWidgetItem* item, int column) {
+        if (_refreshing || !_service || column != 2) return;
+        const auto client = item->data(0, Qt::UserRole + 2).toString();
+        const auto identityVersion = item->data(0, Qt::UserRole + 3).toULongLong();
+        const bool current = client == _clients->currentData().toString()
+            && identityVersion == _service->access().identityVersion(client);
+        const bool applied = current && _service->savedTargets().setShared(client, identityVersion,
+            item->data(0, Qt::UserRole).toString(), item->data(0, Qt::UserRole + 1).toString(),
+            item->checkState(2) == Qt::Checked);
+        QMetaObject::invokeMethod(this, [this, applied] {
+            refresh();
+            if (!applied) _status->setText(tr("保存目标或客户端已变化，目录共享未提交；请重新选择。"));
+        }, Qt::QueuedConnection);
+    });
     _records = new ElaComboBox(this);
     layout->addWidget(_records);
     _details = new ElaPlainTextEdit(this);
@@ -592,6 +620,21 @@ void McpSettingsDialog::refresh()
         _clients->addItem(client.label + (client.persistent ? QString() : tr(" (this run only)")), client.id.str());
     if (_clients->findData(selected) >= 0) _clients->setCurrentIndex(_clients->findData(selected));
     const auto clientId = _clients->currentData().toString();
+    {
+        const QSignalBlocker blocker(_savedTargets);
+        _savedTargets->clear();
+        const auto identityVersion = _service->access().identityVersion(clientId);
+        for (const auto& target : _service->savedTargets().localTargets()) {
+            auto* item = new QTreeWidgetItem(_savedTargets, {target.title, target.endpoint, {}});
+            item->setData(0, Qt::UserRole, target.id);
+            item->setData(0, Qt::UserRole + 1, target.configVersion);
+            item->setData(0, Qt::UserRole + 2, clientId);
+            item->setData(0, Qt::UserRole + 3, QVariant::fromValue<qulonglong>(identityVersion));
+            item->setCheckState(2, _service->savedTargets().isShared(clientId, identityVersion, target.id)
+                ? Qt::Checked : Qt::Unchecked);
+            if (!identityVersion) item->setFlags(item->flags() & ~Qt::ItemIsEnabled);
+        }
+    }
     // 本函数每次都重建整棵树，而根项默认折叠：先按会话 ID 记下当前展开的根项，
     // 重建后原样恢复。否则勾选任意一条授权（itemChanged → changePermission → changed →
     // 排队的 refresh）都会把用户刚展开的层级收起来，每次授权都要重新展开。

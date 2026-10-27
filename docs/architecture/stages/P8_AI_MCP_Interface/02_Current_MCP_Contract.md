@@ -5,7 +5,21 @@
 
 **B1 日志模式与 B2 清空事务已实施**：缺省 source=observation 的 sinceToken 仍是模型观察游标，recentOutput 仍是摘要；显式 source=log 使用独立位置游标。read_context 的兼容 Schema 扩展见下节及 [04](04_Cursor_Observation_and_Clear.md)，其他十一工具对象保持。
 
-2026-10-27 B3/B3a：追加下述四工具，当前共十七项；原十三对象兼容保留，旧九项 ToolRequest 联合不扩张。SSH/SFTP 单文件传输及保存目标打开/关闭仍为 B3b 未实施设计。源码/替身验证不代替真实设备验收。
+2026-10-27 B3/B3a：追加下述四工具，达到十七项；B3b 第一子批再追加只读保存目标目录，当前共十八项。原十七对象兼容保留，旧九项 ToolRequest 联合不扩张。SSH/SFTP 单文件传输及保存目标打开/关闭仍未实施。源码/替身验证不代替真实设备验收。
+
+## B3b 第一子批：保存目标目录（2026-10-27）
+
+`novaterm_list_targets` 只返回本机用户在 MCP 设置中为当前客户端勾选的 SSH/UART 保存项。目录共享本次应用运行有效；不创建连接，不隐含终端读取/输入/清空或文件授权。活动 Session 与保存目标目录分开，不凭端点摘要推断会话绑定。
+
+- 输入仅 `limit`（默认25，1..50）和可选非空 `cursor`（最多1024字节），拒绝 host、path、clientId 等额外字段。
+- 成功 data 为 `instanceId`、`targets`、可空 `nextCursor`。每项目标为 `targetId/title/transport/endpoint/configVersion/availability`，transport 为 ssh/serial；availability 固定 `saved_configuration`，仅说明保存配置存在，不承诺设备在线、认证可用或存在可复用连接。
+- 不返回密码、用户名认证配置、私钥路径、credentialRef 或内部配置摘要。端点摘要仅 SSH host:port 或 UART portName @ baudRate；目标名优先采用本机保存的 label.trimmed()，空标签回退 SSH host 或 UART portName，不使用带 SSH 用户名的连接详情。
+- 本机共享绑定目标配置版本和独立客户端身份代际。普通 Session 读取/输入等授权变更仍推进原访问版本用于 RPC 复核，但不改变目录身份代际，目录共享和分页继续有效。修改/重新保存该目标（包括凭据保存）、删除重建、客户端撤销/令牌轮换及全局停用仍使共享失效；不会把旧勾选带到新配置。身份代际只在当前运行期存在，外部接入配置重载保持未变令牌的身份，变化/删除/全局撤销后不复用旧身份。
+- 目录最多256项目标，共享记录全局最多4096条；名称和端点各最多256 UTF-8字节。无效/重复/超量源更新清空旧目录并撤销旧共享，拒绝保留过期快照。
+- 页按 targetId 排序，仅扫描固定上限目录。签名游标绑定本应用随机密钥、客户端、身份版本、目录修订及已交付位置；伪造、跨客户端或身份版本不符返回 `CURSOR_MISMATCH`，目录/共享变化后返回 `TARGET_DIRECTORY_CHANGED`，应重新列举。未共享项不占返回页数。
+- 两代 MCP 协议共用同一入口、鉴权、调度和2秒请求期限；取消/断流不产生连接或终端输入。应用重启不保留目录授权和旧游标。
+
+完整范围、实际命令与验证见 [本批记录](records/B3b_Target_Directory_2026-10-27.md)。打开/复用/查询/关闭、传输以及对应 B4 验收仍待后续。
 
 ## B3/B3a：文本等待与长任务（2026-10-27）
 

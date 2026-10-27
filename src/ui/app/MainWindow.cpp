@@ -31,6 +31,8 @@
 #include "ui/widgets/SystemMonitorPanel.h"
 #include "ui/widgets/McpSettingsDialog.h"
 #include "ui/app/Application.h"
+#include "mcp/McpService.h"
+#include "mcp/application/SavedTargets.h"
 #include "service/LanguageManager.h"
 #include "service/ConfigManager.h"
 #include <QApplication>
@@ -1215,6 +1217,14 @@ void MainWindow::initWindow()
     _sessionDock->setTitleBarWidget(hiddenSessionTitleBar);
 
     _sessionPanel = new SessionPanel(_sessionDock);
+    if (auto* mcp = Application::instance().mcpService()) {
+        const auto publishTargets = [panel = _sessionPanel, mcp = QPointer<NovaTerm::Mcp::Service>(mcp)] {
+            if (mcp && !mcp->savedTargets().replace(panel->savedTargetSources()))
+                qWarning() << "Saved MCP target directory rejected invalid or excessive metadata";
+        };
+        connect(_sessionPanel, &SessionPanel::savedTargetsChanged, mcp, publishTargets);
+        publishTargets();
+    }
     _sessionPanel->setCursor(Qt::ArrowCursor);
     _sessionDock->setWidget(_sessionPanel);
     addDockWidget(Qt::LeftDockWidgetArea, _sessionDock);

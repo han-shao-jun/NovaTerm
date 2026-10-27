@@ -8,12 +8,14 @@ qt_add_library(novaterm_mcp_contracts STATIC
     contracts/Permissions.h
     contracts/ClearRequest.h
     contracts/WaitTextRequest.h contracts/TerminalTaskRequest.h
+    contracts/SavedTargetRequest.h
     contracts/ToolRequests.h contracts/TerminalInputValidation.h contracts/TerminalInputValidation.cpp)
 target_include_directories(novaterm_mcp_contracts PUBLIC ${PROJECT_SOURCE_DIR}/src)
 target_link_libraries(novaterm_mcp_contracts PUBLIC Qt6::Core)
 
 # 纯应用服务：授权事务与运行期授权存储；不依赖 Session、HTTP 或 Widgets。
 qt_add_library(novaterm_mcp_application STATIC
+    application/SavedTargets.cpp application/SavedTargets.h
     application/GrantStore.cpp application/GrantStore.h
     application/AuthorizationService.cpp application/AuthorizationService.h
     application/CapabilityResolver.cpp application/CapabilityResolver.h

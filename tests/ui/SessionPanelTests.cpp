@@ -46,6 +46,9 @@ private slots:
     void contextMenuOnUnselectedRowMovesCurrent();
     void contextMenuOnGroupRowDoesNothing();
     void serialCommandSettingsRoundTripThroughFormAndHistory();
+    void savedTargetSourcesExposeOnlySummariesAndTrackEdits();
+    void savedTargetTitlesUseLabelsWithoutAuthenticationData_data();
+    void savedTargetTitlesUseLabelsWithoutAuthenticationData();
 
 private:
     // 在树里造出 group -> leaf 的结构，并返回按顺序排列的叶子节点。
@@ -67,6 +70,70 @@ private:
         return leaves;
     }
 };
+
+void SessionPanelTests::savedTargetSourcesExposeOnlySummariesAndTrackEdits()
+{
+    ScopedAppDataIsolation isolation;
+    SessionPanel panel(nullptr, isolation.historyPath());
+    QSignalSpy changed(&panel, &SessionPanel::savedTargetsChanged);
+    SerialConfig serial; serial.portName = "fake-never-opened"; serial.label = "Board";
+    panel.recordSerial(serial);
+    QCOMPARE(changed.size(), 1);
+    const auto first = panel.savedTargetSources();
+    QCOMPARE(first.size(), 1);
+    QCOMPARE(first.first().transport, QString("serial"));
+    QVERIFY(first.first().endpoint.contains("115200"));
+    QCOMPARE(first.first().configurationKey.size(), 32);
+    const auto id = first.first().id;
+    serial.baudRate = 9600;
+    panel.updateSerial(SessionId(id), serial);
+    const auto updated = panel.savedTargetSources().first();
+    QCOMPARE(updated.id, id);
+    QVERIFY(updated.configurationKey != first.first().configurationKey);
+    QVERIFY(updated.endpoint.contains("9600"));
+    panel.recordLocal(TerminalView::LocalShellType::Cmd, {}, "Local");
+    QCOMPARE(panel.savedTargetSources().size(), 1); // local shells are never in this directory
+}
+
+void SessionPanelTests::savedTargetTitlesUseLabelsWithoutAuthenticationData_data()
+{
+    QTest::addColumn<bool>("ssh");
+    QTest::addColumn<QString>("label");
+    QTest::addColumn<QString>("expected");
+    QTest::newRow("ssh-label") << true << QStringLiteral("  生产板  ") << QStringLiteral("生产板");
+    QTest::newRow("ssh-fallback") << true << QStringLiteral("  ") << QStringLiteral("board.invalid");
+    QTest::newRow("serial-label") << false << QStringLiteral("  UART board  ") << QStringLiteral("UART board");
+    QTest::newRow("serial-fallback") << false << QString() << QStringLiteral("fake-never-opened");
+}
+
+void SessionPanelTests::savedTargetTitlesUseLabelsWithoutAuthenticationData()
+{
+    QFETCH(bool, ssh);
+    QFETCH(QString, label);
+    QFETCH(QString, expected);
+    ScopedAppDataIsolation isolation;
+    SessionPanel panel(nullptr, isolation.historyPath());
+    if (ssh) {
+        SshConfig config;
+        config.host = "board.invalid";
+        config.username = "private-auth-user";
+        config.authMethod = "publickey";
+        config.privateKeyPath = "private-key-not-opened";
+        config.label = label;
+        panel.recordSsh(config);
+    } else {
+        SerialConfig config;
+        config.portName = "fake-never-opened";
+        config.label = label;
+        panel.recordSerial(config);
+    }
+    const auto sources = panel.savedTargetSources();
+    QCOMPARE(sources.size(), 1);
+    QCOMPARE(sources.first().title, expected);
+    QVERIFY(!sources.first().title.contains("private-auth-user"));
+    QVERIFY(!sources.first().endpoint.contains("private-auth-user"));
+    QVERIFY(!sources.first().title.contains("private-key-not-opened"));
+}
 
 void SessionPanelTests::serialCommandSettingsRoundTripThroughFormAndHistory()
 {

@@ -101,7 +101,11 @@ status=gap 表示旧位置被淘汰；status=invalidated 表示本机 clear 或 
 
 ## 文本等待与长任务（B3/B3a）
 
-当前共十七个工具：上述九项、三项离线历史、独立清空，再加以下四项。SSH/UART均复用当前可见终端；先列会话核对 availability.terminalTasks，再观察和输入。
+当前共十八个工具：上述九项、三项离线历史、独立清空、以下四项等待/任务，再加只读 `novaterm_list_targets`。SSH/UART交互均复用当前可见终端；先列会话核对 availability.terminalTasks，再观察和输入。
+
+保存目标目录需要在「AI MCP access」中选择客户端，勾选「保存目标」的「共享目录」列；仅当前应用运行有效。`novaterm_list_targets` 可用 limit（默认25，最多50）及返回的 nextCursor 分页；配置修改、重新保存或共享变化后续页返回 TARGET_DIRECTORY_CHANGED，应重新列举。它仅披露所选 SSH/UART 的名称和端点摘要，saved_configuration 不表示设备在线；不连接设备，不授予终端读取/输入或文件权限。目标打开/关闭和MCP单文件传输仍未提供。
+
+目录名称采用保存标签，空标签回退主机名或串口名，不包含 SSH 登录用户名。给同一客户端的活动 Session 修改读取/输入等权限，不会清掉独立的目录共享；令牌轮换、删除客户端和全局停用仍会撤销目录共享。
 
 | 工具 | 选择方式 |
 | --- | --- |

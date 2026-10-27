@@ -10,6 +10,7 @@ namespace NovaTerm::Resources { class ResourceSharingService; }
 
 namespace NovaTerm::Mcp {
 class HistoryCapabilityAdapter;
+class SavedTargets;
 class Service final : public QObject
 {
     Q_OBJECT
@@ -20,6 +21,7 @@ public:
     ~Service() override;
     [[nodiscard]] AccessStore& access();
     [[nodiscard]] SessionDirectory& directory();
+    [[nodiscard]] SavedTargets& savedTargets();
     [[nodiscard]] HistoryCapabilityAdapter& history();
     [[nodiscard]] std::shared_ptr<Resources::ResourceSharingService> resources() const;
     void setHistorySource(Recording::HistoryService*);

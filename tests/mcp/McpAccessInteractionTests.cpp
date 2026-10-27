@@ -84,7 +84,39 @@ private slots:
     void anotherInstanceCredentialReplacementRevokesManagedGrant();
     void staleCredentialBindingCannotWriteToReattachedSession();
     void asyncPersistentCredentialsReloadOtherInstanceMetadata();
+    void clientIdentitySurvivesUnrelatedReloadAndTracksRevocation();
 };
+
+void McpAccessInteractionTests::clientIdentitySurvivesUnrelatedReloadAndTracksRevocation()
+{
+    QTemporaryDir state;
+    auto secrets = std::make_shared<QHash<QString, QByteArray>>();
+    const auto factory = [secrets] { return std::make_unique<RetainedCredentials>(secrets); };
+    NovaTerm::Mcp::AccessStore first(state.path(), factory());
+    QVERIFY(first.setEnabled(true));
+    const auto client = first.addClient("client");
+    QVERIFY(!client.isEmpty());
+    const auto original = first.identityVersion(client);
+    QVERIFY(original > 0);
+    NovaTerm::Mcp::AccessStore other(state.path(), factory());
+    QVERIFY(!other.addClient("unrelated").isEmpty());
+    QTRY_COMPARE(first.clients().size(), 2);
+    QCOMPARE(first.identityVersion(client), original);
+    QVERIFY(other.rotateToken(client));
+    const auto token = *other.exportToken(client);
+    QTRY_COMPARE(first.authenticate(token), client);
+    const auto rotated = first.identityVersion(client);
+    QVERIFY(rotated > original);
+    QVERIFY(other.setEnabled(false));
+    QTRY_VERIFY(!first.enabled());
+    const auto stopped = first.identityVersion(client);
+    QVERIFY(stopped > rotated);
+    QVERIFY(other.setEnabled(true));
+    QTRY_VERIFY(first.enabled());
+    QCOMPARE(first.identityVersion(client), stopped);
+    QVERIFY(other.removeClient(client));
+    QTRY_COMPARE(first.identityVersion(client), quint64(0));
+}
 
 void McpAccessInteractionTests::terminalPermissionRequiresExplicitGrantAndCurrentEpoch()
 {

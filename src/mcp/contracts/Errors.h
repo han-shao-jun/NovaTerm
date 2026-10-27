@@ -37,6 +37,7 @@ enum class ErrorCode {
     CaptureNotAvailable,
     ContextNotReady,
     TaskNotAvailable,
+    TargetDirectoryChanged,
     CommandPermissionRequired,
     CommandPolicyChanged,
     CommandProfileUnavailable,

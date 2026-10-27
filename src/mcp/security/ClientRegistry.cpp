@@ -44,6 +44,12 @@ ClientAccessVersion ClientRegistry::version(const ClientId& id) const
     return _records.value(id).version;
 }
 
+quint64 ClientRegistry::identityVersion(const ClientId& id) const
+{
+    const auto record = _records.constFind(id);
+    return record == _records.cend() ? 0 : record->identityVersion;
+}
+
 ClientAccessVersion ClientRegistry::advance(const ClientId& id)
 {
     auto& record = _records[id];
@@ -55,6 +61,10 @@ void ClientRegistry::insert(ClientRecord record)
 {
     if (record.id.isEmpty())
         return;
+    if (!record.identityVersion)
+        record.identityVersion = ++_identityRevision;
+    else if (record.identityVersion > _identityRevision)
+        _identityRevision = record.identityVersion;
     _records.insert(record.id, std::move(record));
 }
 
@@ -68,6 +78,7 @@ bool ClientRegistry::updateDigest(const ClientId& id, QByteArray digest, bool pe
     record->digest = std::move(digest);
     record->persistent = persistent;
     record->version = nextVersion(record->version);
+    record->identityVersion = ++_identityRevision;
     return true;
 }
 
@@ -82,6 +93,12 @@ void ClientRegistry::advanceAll()
 {
     for (auto record = _records.begin(); record != _records.end(); ++record)
         record->version = nextVersion(record->version);
+}
+
+void ClientRegistry::advanceAllIdentities()
+{
+    for (auto record = _records.begin(); record != _records.end(); ++record)
+        record->identityVersion = ++_identityRevision;
 }
 
 void ClientRegistry::clear() { _records.clear(); }

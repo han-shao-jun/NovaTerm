@@ -17,6 +17,7 @@
 #include "TerminalClearAdapter.h"
 #include "TerminalTextWait.h"
 #include "TerminalTasks.h"
+#include "application/SavedTargets.h"
 #include "application/CaptureStore.h"
 #include "ObservationService.h"
 #include "application/RequestScheduler.h"
@@ -87,6 +88,7 @@ public:
         std::optional<ClearRequest> clearRequest;
         std::optional<WaitTextRequest> waitRequest;
         std::optional<TerminalTaskRequest> taskRequest;
+        std::optional<ListSavedTargetsRequest> targetsRequest;
         QByteArray confirmationDigest;
         QString requestState;
         std::optional<ConfirmationAnswer> answer;
@@ -152,6 +154,7 @@ public:
         clears = std::make_unique<TerminalClearAdapter>(access, sessions, instance, logCursorKey, owner);
         textWaits = std::make_unique<TerminalTextWait>(access, sessions, observation, instance, logCursorKey, owner);
         terminalTasks = std::make_unique<TerminalTasks>(access, sessions, *terminal, instance, logCursorKey, owner);
+        QObject::connect(&savedTargets, &SavedTargets::changed, q, &Service::changed);
         commands = std::make_unique<CommandSessionAdapter>(access, sessions,
             QDir(stateDirectory).filePath("targets"), instance, CommandSessionAdapter::Delivery{
                 [this](const TaskId& task, QJsonObject payload) {
@@ -285,8 +288,12 @@ public:
         const auto* clearCall = std::get_if<BackendClearCall>(&event);
         const auto* waitCall = std::get_if<BackendWaitTextCall>(&event);
         const auto* taskCall = std::get_if<BackendTaskCall>(&event);
+        const auto* targetsCall = std::get_if<BackendSavedTargetsCall>(&event);
         BackendCall call;
-        if (waitCall) {
+        if (targetsCall) {
+            call.id = targetsCall->id;
+            if (targetsCall->confirmationSupplied) { send(connectionId, id, error("COMMAND_CONFIRMATION_STALE")); return; }
+        } else if (waitCall) {
             call.id = waitCall->id;
             if (waitCall->confirmationSupplied) { send(connectionId, id, error("COMMAND_CONFIRMATION_STALE")); return; }
         } else if (taskCall) {
@@ -303,7 +310,8 @@ public:
             io.closeConnection(connectionId);
             return;
         }
-        const auto name = waitCall ? QStringLiteral("novaterm_wait_text")
+        const auto name = targetsCall ? QStringLiteral("novaterm_list_targets")
+            : waitCall ? QStringLiteral("novaterm_wait_text")
             : taskCall ? ToolCodec::toolName(ToolCall{taskCall->request})
             : clearCall ? QStringLiteral("novaterm_clear_terminal")
             : historyCall ? HistoryToolCodec::toolName(historyCall->request) : ToolCodec::toolName(call.request);
@@ -323,6 +331,7 @@ public:
         if (clearCall) pending->clearRequest = clearCall->request;
         if (waitCall) pending->waitRequest = waitCall->request;
         if (taskCall) pending->taskRequest = taskCall->request;
+        if (targetsCall) pending->targetsRequest = targetsCall->request;
         pending->confirmationDigest = call.confirmationDigest;
         pending->mrtr = call.mrtr;
         pending->formElicitation = call.formElicitation;
@@ -471,6 +480,7 @@ public:
     }
     void revoke(const QString& client, const QString& session)
     {
+        if (session.isEmpty()) savedTargets.revoke(client);
         if (terminal) terminal->revoke(client, session);
         if (textWaits) textWaits->revoke(client, session);
         if (terminalTasks) terminalTasks->revoke(client, session);
@@ -524,6 +534,7 @@ public:
         if (pending->taskRequest) capability = Capabilities::CapabilityId{
             std::holds_alternative<StartTerminalTaskRequest>(*pending->taskRequest) ? "terminal.task.start"
             : std::holds_alternative<StopTerminalTaskRequest>(*pending->taskRequest) ? "terminal.task.stop" : "terminal.task.query"};
+        if (pending->targetsRequest) capability = Capabilities::CapabilityId{"target.list"};
         auto result = capabilityDispatcher.admit(capability, *pending->invocation);
         if (const auto* reason = std::get_if<Capabilities::Rejection>(&result)) {
             complete(requestKey(pending->connection, pending->id),
@@ -551,6 +562,11 @@ public:
         }
         const auto connection = connections.value(pending->connection);
         if (!access.enabled()) { complete(key, error("MCP_DISABLED")); return; }
+        if (pending->targetsRequest) {
+            if (!admit(pending)) return;
+            listTargets(pending);
+            return;
+        }
         if (pending->historyRequest) {
             const QPointer<Service> guard(q);
             history.call(*pending->historyRequest, *pending->invocation, pending->cancelled, [this, guard, key](QJsonObject result) {
@@ -645,6 +661,38 @@ public:
         }
         if (std::holds_alternative<ReadContextRequest>(pending->request)) readContext(pending, *entry);
         else search(pending, *entry);
+    }
+
+    void listTargets(PendingRequest* pending)
+    {
+        const auto key = requestKey(pending->connection, pending->id);
+        const auto connection = connections.value(pending->connection);
+        const auto request = *pending->targetsRequest;
+        const auto version = access.identityVersion(connection.client);
+        QString after, revision;
+        if (!request.cursor.isEmpty()) {
+            const auto cursor = verifyToken(request.cursor, logCursorKey);
+            if (!cursor || cursor->value("kind") != "saved_targets"
+                || cursor->value("client") != connection.client
+                || cursor->value("identityVersion") != QString::number(version)
+                || !cursor->value("revision").isString() || cursor->value("revision").toString().isEmpty()
+                || !cursor->value("after").isString() || cursor->value("after").toString().isEmpty()) {
+                complete(key, error("CURSOR_MISMATCH")); return;
+            }
+            after = cursor->value("after").toString(); revision = cursor->value("revision").toString();
+        }
+        const auto page = savedTargets.page(connection.client, version, request.limit, after, revision);
+        if (!page.error.isEmpty()) { complete(key, failure(page.error, page.error)); return; }
+        QJsonArray rows;
+        for (const auto& target : page.targets)
+            rows.append(QJsonObject{{"targetId", target.id}, {"title", target.title},
+                {"transport", target.transport}, {"endpoint", target.endpoint},
+                {"configVersion", target.configVersion}, {"availability", "saved_configuration"}});
+        QJsonValue next(QJsonValue::Null);
+        if (!page.nextAfter.isEmpty()) next = signToken({{"kind", "saved_targets"},
+            {"client", connection.client}, {"identityVersion", QString::number(version)},
+            {"revision", page.revision}, {"after", page.nextAfter}}, logCursorKey);
+        complete(key, success({{"instanceId", instance}, {"targets", rows}, {"nextCursor", next}}));
     }
 
     void listSessions(PendingRequest* pending)
@@ -764,6 +812,7 @@ public:
     QString status{"Disabled"};
     AccessStore access;
     SessionDirectory sessions;
+    SavedTargets savedTargets;
     HistoryCapabilityAdapter history;
     Capabilities::CapabilityRegistry capabilityRegistry{Capabilities::CapabilityRegistry::implementedCapabilities()};
     Capabilities::CapabilityAuthorization capabilityAuthorization{
@@ -816,6 +865,7 @@ Service::Service(QString stateDir, QString runtimeDir, std::unique_ptr<Credentia
 Service::~Service() { stop(); }
 AccessStore& Service::access() { return _impl->access; }
 SessionDirectory& Service::directory() { return _impl->sessions; }
+SavedTargets& Service::savedTargets() { return _impl->savedTargets; }
 HistoryCapabilityAdapter& Service::history() { return _impl->history; }
 std::shared_ptr<Resources::ResourceSharingService> Service::resources() const { return _impl->history.resources(); }
 void Service::setHistorySource(Recording::HistoryService* source) { _impl->history.setSource(source); }

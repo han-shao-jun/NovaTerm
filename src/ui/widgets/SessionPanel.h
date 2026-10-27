@@ -9,6 +9,7 @@
 #pragma once
 
 #include "session/SessionTypes.h"
+#include "mcp/application/SavedTargets.h"
 #include "ui/terminal/TerminalView.h"
 
 #include <QByteArray>
@@ -44,6 +45,8 @@ public:
     void recordSerial(const SerialConfig& config);
     void recordSsh(const SshConfig& config);
     void recordTelnet(const TelnetConfig& config);
+    /** Local metadata only; does not resolve credentials or open any connection. */
+    [[nodiscard]] QList<NovaTerm::Mcp::SavedTargetSource> savedTargetSources() const;
     void updateLocal(const SessionId& id, TerminalView::LocalShellType type,
                      const QString& wslDistribution,
                      const QString& label,
@@ -66,6 +69,7 @@ protected:
 
 signals:
     void newSessionRequested();
+    void savedTargetsChanged();
     void collapsedChanged(bool collapsed);
     void panelWidthChangeRequested(int width);
     void localReconnectRequested(TerminalView::LocalShellType type,
@@ -112,6 +116,7 @@ private:
     bool _collapsed{false};
     int _expandedWidth{260};
     QList<SessionRestoreMetadata> _entries;
+    QHash<QString, QByteArray> _mcpTargetVersions;
     std::unique_ptr<SessionStore> _store;
     std::unique_ptr<CredentialStore> _credentials;
 };
