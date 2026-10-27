@@ -29,6 +29,11 @@ add_subdirectory(historysearch)
 include(mcp/History.cmake)
 add_subdirectory(evidence)
 add_subdirectory(resources)
+    qt_add_executable(novaterm_mcp_file_resources_tests mcp/FileResourcesTests.cpp)
+    target_link_libraries(novaterm_mcp_file_resources_tests PRIVATE novaterm_mcp_application Qt6::Test)
+    set_target_properties(novaterm_mcp_file_resources_tests PROPERTIES WIN32_EXECUTABLE FALSE)
+    add_test(NAME novaterm_mcp_file_resources_tests COMMAND novaterm_mcp_file_resources_tests)
+    set_tests_properties(novaterm_mcp_file_resources_tests PROPERTIES LABELS "mcp;p8;security" TIMEOUT 30)
     qt_add_executable(novaterm_mcp_saved_targets_tests mcp/SavedTargetsTests.cpp)
     target_link_libraries(novaterm_mcp_saved_targets_tests PRIVATE novaterm_mcp_application Qt6::Test)
     set_target_properties(novaterm_mcp_saved_targets_tests PROPERTIES WIN32_EXECUTABLE FALSE)
@@ -66,7 +71,7 @@ add_subdirectory(resources)
         USES_TERMINAL
         COMMENT "Running NovaTerm tests with detailed CTest output"
     )
-    add_dependencies(check novaterm_history_contracts_tests novaterm_history_authorization_tests
+    add_dependencies(check novaterm_mcp_file_resources_tests novaterm_history_contracts_tests novaterm_history_authorization_tests
         novaterm_history_search_tests novaterm_evidence_tests novaterm_mcp_saved_targets_tests)
 
     add_subdirectory(filetransfer)
@@ -167,6 +172,8 @@ add_subdirectory(resources)
 
     qt_add_executable(novaterm_mcp_tests
         mcp/McpTests.cpp
+        ${PROJECT_SOURCE_DIR}/src/ui/widgets/FileResourceSharingDialog.cpp
+        ${PROJECT_SOURCE_DIR}/src/ui/widgets/FileResourceSharingDialog.h
         ${PROJECT_SOURCE_DIR}/src/ui/widgets/McpSettingsDialog.cpp
         ${PROJECT_SOURCE_DIR}/src/ui/widgets/McpSettingsDialog.h
         ${PROJECT_SOURCE_DIR}/src/ui/models/SessionPermissionModel.cpp

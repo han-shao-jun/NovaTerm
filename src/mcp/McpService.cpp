@@ -3,6 +3,7 @@
  */
 #include "McpService.h"
 #include "TargetSessionSharing.h"
+#include "FileResourceAdapter.h"
 #include "CapabilityAdmission.h"
 #include "capabilities/terminal/SearchCapabilities.h"
 #include "capabilities/terminal/LegacyTerminalMapping.h"
@@ -92,6 +93,7 @@ public:
         std::optional<WaitTextRequest> waitRequest;
         std::optional<TerminalTaskRequest> taskRequest;
         std::optional<ListSavedTargetsRequest> targetsRequest;
+        std::optional<ListFileResourcesRequest> fileResourcesRequest;
         std::optional<TargetConnectionRequest> targetConnectionRequest;
         QByteArray confirmationDigest;
         QString requestState;
@@ -160,6 +162,8 @@ public:
         terminalTasks = std::make_unique<TerminalTasks>(access, sessions, *terminal, instance, logCursorKey, owner);
         QObject::connect(&savedTargets, &SavedTargets::changed, q, &Service::changed);
         targetSharing = std::make_unique<TargetSessionSharing>(access, sessions, savedTargets, owner);
+        fileResources = std::make_unique<FileResourceAdapter>(access, sessions, owner);
+        QObject::connect(fileResources.get(), &FileResourceAdapter::changed, q, &Service::changed);
         commands = std::make_unique<CommandSessionAdapter>(access, sessions,
             QDir(stateDirectory).filePath("targets"), instance, CommandSessionAdapter::Delivery{
                 [this](const TaskId& task, QJsonObject payload) {
@@ -245,6 +249,7 @@ public:
     void stop()
     {
         if (targetSharing) targetSharing->clear();
+        if (fileResources) fileResources->resources().revoke();
         if (terminalTasks) terminalTasks->stop();
         if (textWaits) textWaits->revoke({}, {});
         if (terminal) terminal->revoke({}, {});
@@ -295,9 +300,13 @@ public:
         const auto* waitCall = std::get_if<BackendWaitTextCall>(&event);
         const auto* taskCall = std::get_if<BackendTaskCall>(&event);
         const auto* targetsCall = std::get_if<BackendSavedTargetsCall>(&event);
+        const auto* filesCall = std::get_if<BackendFileResourcesCall>(&event);
         const auto* targetConnectionCall = std::get_if<BackendTargetConnectionCall>(&event);
         BackendCall call;
-        if (targetConnectionCall) {
+        if (filesCall) {
+            call.id = filesCall->id;
+            if (filesCall->confirmationSupplied) { send(connectionId, id, error("COMMAND_CONFIRMATION_STALE")); return; }
+        } else if (targetConnectionCall) {
             call.id = targetConnectionCall->id;
             if (targetConnectionCall->confirmationSupplied) { send(connectionId, id, error("COMMAND_CONFIRMATION_STALE")); return; }
         } else if (targetsCall) {
@@ -320,7 +329,8 @@ public:
             io.closeConnection(connectionId);
             return;
         }
-        const auto name = targetConnectionCall ? ToolCodec::toolName(ToolCall{targetConnectionCall->request})
+        const auto name = filesCall ? QStringLiteral("novaterm_list_file_resources")
+            : targetConnectionCall ? ToolCodec::toolName(ToolCall{targetConnectionCall->request})
             : targetsCall ? QStringLiteral("novaterm_list_targets")
             : waitCall ? QStringLiteral("novaterm_wait_text")
             : taskCall ? ToolCodec::toolName(ToolCall{taskCall->request})
@@ -343,6 +353,7 @@ public:
         if (waitCall) pending->waitRequest = waitCall->request;
         if (taskCall) pending->taskRequest = taskCall->request;
         if (targetsCall) pending->targetsRequest = targetsCall->request;
+        if (filesCall) pending->fileResourcesRequest = filesCall->request;
         if (targetConnectionCall) pending->targetConnectionRequest = targetConnectionCall->request;
         pending->confirmationDigest = call.confirmationDigest;
         pending->mrtr = call.mrtr;
@@ -547,6 +558,7 @@ public:
             std::holds_alternative<StartTerminalTaskRequest>(*pending->taskRequest) ? "terminal.task.start"
             : std::holds_alternative<StopTerminalTaskRequest>(*pending->taskRequest) ? "terminal.task.stop" : "terminal.task.query"};
         if (pending->targetsRequest) capability = Capabilities::CapabilityId{"target.list"};
+        if (pending->fileResourcesRequest) capability = Capabilities::CapabilityId{"file.resources.list"};
         if (pending->targetConnectionRequest) capability = Capabilities::CapabilityId{
             pending->targetConnectionRequest->action == TargetConnectionAction::Query ? "target.query"
             : pending->targetConnectionRequest->action == TargetConnectionAction::Close ? "target.close" : "target.open"};
@@ -577,6 +589,29 @@ public:
         }
         const auto connection = connections.value(pending->connection);
         if (!access.enabled()) { complete(key, error("MCP_DISABLED")); return; }
+        if (pending->fileResourcesRequest) {
+            if (!admit(pending)) return;
+            const auto request = *pending->fileResourcesRequest;
+            const auto result = fileResources->list(connection.client, access.identityVersion(connection.client), request);
+            if (isError(result)) { complete(key, ToolCodec::encodeFailure(*errorIfAny(result))); return; }
+            const auto& directory = std::get<FileResourceDirectory>(result);
+            const auto project = [](const FileRoot& root, bool remote) {
+                QJsonObject row{{remote ? "scopeId" : "resourceId", root.id}, {"title", root.title},
+                    {"revision", root.revision}, {"readAllowed", root.access.read}, {"writeAllowed", root.access.write}};
+                if (remote) row.insert("path", root.path);
+                return row;
+            };
+            QJsonArray local, remote;
+            for (const auto& root : directory.local) local.append(project(root, false));
+            for (const auto& scope : directory.remote) {
+                auto row = project(scope.root, true);
+                row.insert("sessionId", scope.binding.session.str()); row.insert("epoch", scope.binding.epoch.str());
+                remote.append(row);
+            }
+            complete(key, success({{"instanceId", instance}, {"availability", "authorization_only"},
+                {"localResources", local}, {"remoteScopes", remote}}));
+            return;
+        }
         if (pending->targetConnectionRequest) {
             if (!admit(pending)) return;
             const auto request = *pending->targetConnectionRequest;
@@ -903,6 +938,7 @@ public:
     SavedTargets savedTargets;
     TargetConnections targetConnections{savedTargets};
     std::unique_ptr<TargetSessionSharing> targetSharing;
+    std::unique_ptr<FileResourceAdapter> fileResources;
     std::function<bool(const QString&)> targetCloseSafety;
     HistoryCapabilityAdapter history;
     Capabilities::CapabilityRegistry capabilityRegistry{Capabilities::CapabilityRegistry::implementedCapabilities()};
@@ -957,6 +993,7 @@ Service::~Service() { stop(); }
 AccessStore& Service::access() { return _impl->access; }
 SessionDirectory& Service::directory() { return _impl->sessions; }
 SavedTargets& Service::savedTargets() { return _impl->savedTargets; }
+FileResourceAdapter& Service::fileResources() { return *_impl->fileResources; }
 void Service::setTargetOpener(TargetConnections::Open open)
 {
     auto* impl = _impl.get();

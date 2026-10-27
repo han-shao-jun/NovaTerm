@@ -1,5 +1,7 @@
 # NovaTerm 架构文档索引
 
+2026-10-27 B3b文件传输第一子批：新增独立本地/远端读写授权与只读 `novaterm_list_file_resources`，当前二十二工具。仅发现已授权元数据，本机路径与文件内容不回传，上传/下载/进度/取消和安全发布仍待后续，见[文件资源记录](stages/P8_AI_MCP_Interface/records/B3b_File_Resources_2026-10-27.md)。
+
 2026-10-27：新增 `novaterm_close_target`，当前二十一工具；仅关闭原操作创建且未人工接管、具有空闲证据的连接，保留终端。单文件传输和B4待后续，见[安全关闭记录](stages/P8_AI_MCP_Interface/records/B3b_Target_Close_2026-10-27.md)。
 
 > 文档集版本：2.1  
@@ -44,7 +46,7 @@
 | P5 Glyph 与 GPU 管线 | 实施完成；Linux Vulkan/OpenGL、Windows D3D11/D3D12 与 30 分钟长稳验收完成（2026-08-02）；macOS Metal、多屏 DPR 与 120/144 Hz 验收待完成 | [P5](stages/P5_Glyph_and_GPU_Pipeline.md) |
 | P6 Session 与 Transport | 进行中：Transport 四种完成，会话编排采用「1 View 拥有 1 Session」已在生产；剩 keyboard-interactive、close 模式、exited→UI、ProfileStore 持久化、contract tests | [P6](stages/P6_Session_and_Transport.md) |
 | P7 系统资源查询 | 已实现为内置功能（常驻监控 2026-09-06、系统信息窗口 2026-09-09）；性能量化验收待补 | [P7](stages/P7_System_Resource_Monitor.md) |
-| P8 AI MCP 接口 | B0/B1、B2、B3/B3a已实施，B3b增加保存目标目录、独立打开/复用/查询、安全关闭及新会话预授权，当前二十一工具；九项终端请求联合保持。单文件传输及真实SSH/UART双通道/客户端/性能仍待实施或验收，见 [缺口表](stages/P8_AI_MCP_Interface/03_Gaps_and_Evidence.md) | [MCP契约](stages/P8_AI_MCP_Interface/02_Current_MCP_Contract.md) |
+| P8 AI MCP 接口 | B0/B1、B2、B3/B3a已实施，B3b增加保存目标目录、独立打开/复用/查询、安全关闭及新会话预授权，当前二十二工具；九项终端请求联合保持。独立文件授权目录已提供；单文件传输及真实SSH/UART双通道/客户端/性能仍待实施或验收，见 [缺口表](stages/P8_AI_MCP_Interface/03_Gaps_and_Evidence.md) | [MCP契约](stages/P8_AI_MCP_Interface/02_Current_MCP_Contract.md) |
 | P9 文件传输协议 | 协议库及串口 Session/手动传输窗口已接入；Linux 纯协议、门面、UI 与真实 QSerialPort/raw PTY 通路测试通过；Windows 取消发布竞争用例有已知失败，macOS 与真实 UART 文件传输验收待补 | [P9](stages/P9_File_Transfer_Protocols.md) |
 
 ## 文档权威性

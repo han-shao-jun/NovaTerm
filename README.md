@@ -1,5 +1,7 @@
 # NovaTerm
 
+2026-10-27 B3b文件传输第一子批：新增独立本地/远端读写授权与只读 `novaterm_list_file_resources`，当前二十二工具。仅发现已授权元数据，本机路径与文件内容不回传，上传/下载/进度/取消和安全发布仍待后续，见[文件资源记录](docs/architecture/stages/P8_AI_MCP_Interface/records/B3b_File_Resources_2026-10-27.md)。
+
 2026-10-27 B3b第四子批：保存目标支持本机逐客户端的新会话预授权，默认关闭，原创建连接首次就绪后一次绑定读取/完整输入/清空；复用、重试、重连与人工接管不恢复权限。当前二十一工具，单文件传输及B4待后续，见[预授权记录](docs/architecture/stages/P8_AI_MCP_Interface/records/B3b_New_Session_Sharing_2026-10-27.md)。
 
 2026-10-27：新增 `novaterm_close_target`，当前二十一工具；仅关闭原操作创建且未人工接管、具有空闲证据的连接，保留终端。单文件传输和B4待后续，见[安全关闭记录](docs/architecture/stages/P8_AI_MCP_Interface/records/B3b_Target_Close_2026-10-27.md)。
@@ -23,7 +25,7 @@ FluentUI 风格。
   已知失败，见 [AGENTS.md](AGENTS.md)。独立协议阶段的记录见
   [P9 文档](docs/architecture/stages/P9_File_Transfer_Protocols.md)
 - **系统监控**：支持远程SSH会话的系统资源监控
-- **AI MCP 接入**：默认关闭的进程内 Streamable HTTP 服务，默认地址为 `http://127.0.0.1:38973/mcp`，通过 Bearer token 认证；提供二十一个工具（含显式共享的保存 SSH/UART 目标目录、独立授权的打开/复用/查询及安全关闭），支持按会话授权观察/操作、精确缓存日志分页、文本等待、长任务、搜索、固定诊断和脚本任务；单文件传输及真实设备验收仍待后续，托管提权目前返回适配器不可用，确认与权限边界见 [使用说明](docs/MCP_Usage.md)
+- **AI MCP 接入**：默认关闭的进程内 Streamable HTTP 服务，默认地址为 `http://127.0.0.1:38973/mcp`，通过 Bearer token 认证；提供二十二个工具（含保存目标连接管理、新会话预授权和独立文件授权目录），支持按会话授权观察/操作、精确缓存日志分页、文本等待、长任务、搜索、固定诊断和脚本任务；单文件传输及真实设备验收仍待后续，托管提权目前返回适配器不可用，确认与权限边界见 [使用说明](docs/MCP_Usage.md)
 - **终端解析**：使用 libvterm 处理 ANSI/VT 控制序列，具体语义由终端测试覆盖
 - **搜索与高亮**：支持终端内容搜索和可配置文本高亮
 

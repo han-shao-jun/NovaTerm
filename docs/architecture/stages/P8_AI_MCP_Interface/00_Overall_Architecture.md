@@ -1,5 +1,7 @@
 # SSH/UART MCP 终端工具总体架构
 
+2026-10-27 B3b文件传输第一子批：新增独立本地/远端读写授权与只读 `novaterm_list_file_resources`，当前二十二工具。仅发现已授权元数据，本机路径与文件内容不回传，上传/下载/进度/取消和安全发布仍待后续，见[文件资源记录](records/B3b_File_Resources_2026-10-27.md)。
+
 2026-10-27 B3b第四子批：保存目标支持本机逐客户端的新会话预授权，默认关闭，原创建连接首次就绪后一次绑定读取/完整输入/清空；复用、重试、重连与人工接管不恢复权限。当前二十一工具，单文件传输及B4待后续，见[预授权记录](records/B3b_New_Session_Sharing_2026-10-27.md)。
 
 2026-10-27 B3b第二子批：新增独立授权的 `novaterm_open_target` / `novaterm_query_target`，共二十工具；打开/复用使用现有可见终端，配置/客户端身份和operationId绑定，不继承终端权限。关闭、单文件传输与B4仍待后续，见[本批记录](records/B3b_Target_Connections_2026-10-27.md)。

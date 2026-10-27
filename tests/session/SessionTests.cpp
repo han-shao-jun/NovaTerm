@@ -43,6 +43,18 @@
 #include <thread>
 #include <vector>
 
+namespace {
+template<class Capture, class Read, class Matches>
+bool sampleCurrentCapture(Capture& capture, Read read, Matches matches)
+{
+    if (capture && matches(*capture)) return true;
+    auto candidate = read();
+    if (!candidate || !matches(*candidate)) return false;
+    capture = std::move(candidate);
+    return true;
+}
+}
+
 class FakeTransport final : public ITransport
 {
     Q_OBJECT
@@ -172,6 +184,8 @@ private slots:
     void reconnectResetsTerminalParser();
     void structuredTransportErrorSetsSessionCategory();
     void agentContextFiltersProgressWrapDuplicatesAndAlternate();
+    void agentContextCaptureKeepsSuccessfulQtryResult_data();
+    void agentContextCaptureKeepsSuccessfulQtryResult();
     void agentContextClearDropsPreviousSummary();
     void agentContextRejectsPreviousGenerationPublishedFallback();
     void inputPumpOffsetsPreservePendingSuffix();
@@ -2098,47 +2112,92 @@ void SessionTests::agentContextJoinsHistorySeamAndBoundsUtf8()
     QVERIFY(cache.floor() > 0);
 }
 
+void SessionTests::agentContextCaptureKeepsSuccessfulQtryResult_data()
+{
+    QTest::addColumn<bool>("bounded");
+    QTest::newRow("provider-snapshot") << false;
+    QTest::newRow("bounded-terminal-state") << true;
+}
+void SessionTests::agentContextCaptureKeepsSuccessfulQtryResult()
+{
+    QFETCH(bool, bounded);
+    const auto exercise = [](auto makeCapture, auto revisionOf) {
+        NovaTerm::u64 expected = 42;
+        using Capture = decltype(makeCapture(expected));
+        Capture capture;
+        int reads = 0;
+        const auto read = [&] { return ++reads == 1 ? makeCapture(expected) : Capture{}; };
+        const auto matches = [&](const auto& value) { return revisionOf(value) == expected; };
+        QTRY_VERIFY_WITH_TIMEOUT(sampleCurrentCapture(capture, read, matches), 50);
+        QCOMPARE(reads, 1); QVERIFY(capture); QCOMPARE(revisionOf(*capture), expected);
+        // A new input revision must not reuse the previous round's successful capture.
+        expected = 43; reads = 0;
+        QTRY_VERIFY_WITH_TIMEOUT(sampleCurrentCapture(capture, read, matches), 50);
+        QCOMPARE(reads, 1); QVERIFY(capture); QCOMPARE(revisionOf(*capture), expected);
+    };
+    if (bounded) exercise([](NovaTerm::u64 revision) {
+        NovaTerm::TerminalState state; state.revision = revision;
+        return std::optional<NovaTerm::TerminalState>{std::move(state)};
+    }, [](const auto& state) { return state.revision; });
+    else exercise([](NovaTerm::u64 revision) {
+        auto value = std::make_shared<TerminalContextProvider::Snapshot>(); value->state.revision = revision;
+        return std::shared_ptr<const TerminalContextProvider::Snapshot>{std::move(value)};
+    }, [](const auto& snapshot) { return snapshot.state.revision; });
+}
+
 void SessionTests::agentContextFiltersProgressWrapDuplicatesAndAlternate()
 {
     TerminalCore core(10, 6);
     QVERIFY(core.waitForIdle());
     TerminalContextProvider provider(&core);
+    std::shared_ptr<const TerminalContextProvider::Snapshot> context;
+    NovaTerm::u64 expectedRevision = core.modelRevision();
     const auto feed = [&](const QByteArray& data) {
-        return core.writeInput(data).fullyAccepted() && core.waitForIdle();
+        context.reset();
+        if (!core.writeInput(data).fullyAccepted() || !core.waitForIdle()) return false;
+        expectedRevision = core.modelRevision();
+        return true;
     };
     const auto contains = [](const auto& lines, const std::string& value) {
         return std::any_of(lines.begin(), lines.end(), [&](const auto& line) { return line.text == value; });
     };
     QVERIFY(feed("1234567890AB\r\n"));
-    auto context = provider.trySnapshot(); QVERIFY(context);
+    // Byte completion does not reserve the model lock. Wait for a current nonblocking capture.
+    const auto captureCurrent = [&] {
+        return sampleCurrentCapture(context, [&provider] { return provider.trySnapshot(); },
+            [expectedRevision](const auto& snapshot) { return snapshot.state.revision == expectedRevision; });
+    };
+    QTRY_VERIFY_WITH_TIMEOUT(captureCurrent(), 1000);
     QVERIFY(contains(context->entries, "1234567890AB"));
     const auto retainedEntries = context->entries.size();
     for (int percent = 1; percent < 100; ++percent) {
         QVERIFY(feed("\r" + QByteArray::number(percent) + "%"));
-        context = provider.trySnapshot(); QVERIFY(context);
+        QTRY_VERIFY_WITH_TIMEOUT(captureCurrent(), 1000);
         QCOMPARE(context->entries.size(), retainedEntries);
     }
     const auto revision = context->state.revision;
     QVERIFY(feed("\r\x1b[2Kdone\r\ndone\r\n|\r\n"));
-    context = provider.trySnapshot(); QVERIFY(context);
+    QTRY_VERIFY_WITH_TIMEOUT(captureCurrent(), 1000);
     QCOMPARE(std::count_if(context->entries.begin(), context->entries.end(), [revision](const auto& line) {
         return line.revision > revision && line.text == "done";
     }), 1);
     QVERIFY(!contains(context->entries, "|"));
     const auto beforeAlternate = context->state.revision;
     QVERIFY(feed("\x1b[?1049h\x1b[Htop 1"));
-    context = provider.trySnapshot(); QVERIFY(context);
+    QTRY_VERIFY_WITH_TIMEOUT(captureCurrent(), 1000);
     QVERIFY(context->state.alternateScreen); QVERIFY(context->entries.empty());
     QVERIFY(context->resetRevision > beforeAlternate);
     for (int frame = 0; frame < 100; ++frame) {
         QVERIFY(feed("\x1b[Htop " + QByteArray::number(frame)));
-        context = provider.trySnapshot(); QVERIFY(context);
+        QTRY_VERIFY_WITH_TIMEOUT(captureCurrent(), 1000);
         QVERIFY(context->entries.empty()); QVERIFY(context->state.viewport.size() <= 6);
     }
     QVERIFY(feed("\x1b[?1049l\x1b]2;agent-title\x07"));
-    context = provider.trySnapshot(); QVERIFY(context);
+    QTRY_VERIFY_WITH_TIMEOUT(captureCurrent(), 1000);
     QVERIFY(!context->state.alternateScreen); QCOMPARE(context->state.title, std::string("agent-title"));
-    const auto bounded = core.tryTerminalState(0, 12, 2); QVERIFY(bounded);
+    auto bounded = core.tryTerminalState(0, 12, 2);
+    QTRY_VERIFY_WITH_TIMEOUT(sampleCurrentCapture(bounded, [&core] { return core.tryTerminalState(0, 12, 2); },
+        [expectedRevision](const auto& state) { return state.revision == expectedRevision; }), 1000);
     std::size_t bytes = bounded->title.size();
     for (const auto& line : bounded->viewport) bytes += line.text.size();
     for (const auto& line : bounded->recentOutput) bytes += line.text.size();

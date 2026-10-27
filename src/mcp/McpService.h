@@ -12,6 +12,7 @@ namespace NovaTerm::Resources { class ResourceSharingService; }
 namespace NovaTerm::Mcp {
 class HistoryCapabilityAdapter;
 class SavedTargets;
+class FileResourceAdapter;
 class Service final : public QObject
 {
     Q_OBJECT
@@ -23,6 +24,7 @@ public:
     [[nodiscard]] AccessStore& access();
     [[nodiscard]] SessionDirectory& directory();
     [[nodiscard]] SavedTargets& savedTargets();
+    [[nodiscard]] FileResourceAdapter& fileResources();
     void setTargetOpener(TargetConnections::Open);
     /** Local composition supplies transfer/UI safety; missing SSH facts refuse close. */
     void setTargetCloseSafety(std::function<bool(const QString& sessionId)>);

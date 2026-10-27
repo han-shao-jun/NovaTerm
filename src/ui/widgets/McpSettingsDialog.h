@@ -19,6 +19,7 @@ class ElaPlainTextEdit;
 class ElaText;
 class ElaTreeWidget;
 class QTreeWidgetItem;
+class FileResourceSharingDialog;
 
 class McpSettingsDialog final : public ElaDialog
 {
@@ -46,6 +47,8 @@ private:
     ElaText* _status{nullptr};
     ElaTreeWidget* _sessions{nullptr};
     ElaTreeWidget* _savedTargets{nullptr};
+    QPointer<FileResourceSharingDialog> _fileResourceDialog;
+    QString _fileResourceClient;
     ElaComboBox* _records{nullptr};
     ElaPlainTextEdit* _details{nullptr};
     ElaComboBox* _targets{nullptr};

@@ -2,8 +2,13 @@
  *  @brief MCP 协议、授权、跨客户端摘要及受限命令的离线端到端检查。
  */
 #include "mcp/McpService.h"
+#include "mcp/FileResourceAdapter.h"
+#include "ui/widgets/FileResourceSharingDialog.h"
 #include "mcp/application/SavedTargets.h"
 #include <QComboBox>
+#include <QLineEdit>
+#include <QLabel>
+#include <QCheckBox>
 #include <QTreeWidget>
 #include "mcp/HistoryCapabilityAdapter.h"
 #include "recording/HistoryService.h"
@@ -523,6 +528,15 @@ class McpTests final : public QObject
 {
     Q_OBJECT
 private slots:
+    void httpFileResourcesAreIndependentAndBound_data();
+    void httpFileResourcesAreIndependentAndBound();
+    void fileResourceSettingsRejectStaleIdentityAndConnection();
+    void fileResourceWindowHasUnambiguousClient_data();
+    void fileResourceWindowHasUnambiguousClient();
+    void fileResourceSelectionSurvivesOnlyUnchangedRules_data();
+    void fileResourceSelectionSurvivesOnlyUnchangedRules();
+    void fileResourcesReleaseDisconnectedRemoteQuota_data();
+    void fileResourcesReleaseDisconnectedRemoteQuota();
     void savedTargetNewSessionPermissions_data();
     void savedTargetNewSessionPermissions();
     void savedTargetPendingSharing_data();
@@ -2702,7 +2716,7 @@ void McpTests::tokenSigningAndAuthentication()
 
 void McpTests::rejectsDangerousAndOversizedArguments()
 {
-    QCOMPARE(ToolCodec::catalog().size(), 21);
+    QCOMPARE(ToolCodec::catalog().size(), 22);
     QVERIFY(!CommandPolicy::find("rm"));
     QVERIFY(!CommandPolicy::find("credential.read"));
     const QJsonObject identity{{"sessionId", newId()}, {"epoch", "epoch"}};
@@ -3005,6 +3019,264 @@ void McpTests::targetConnectionQueryFollowsInitialConnectionAndReconnect()
     const auto reconnected = host.call("novaterm_query_target", args).value("data").toObject();
     QCOMPARE(reconnected.value("state").toString(), QString("running"));
     QVERIFY(reconnected.value("epoch").toString() != epoch); QCOMPARE(opens, 1);
+}
+
+void McpTests::httpFileResourcesAreIndependentAndBound_data()
+{
+    QTest::addColumn<QString>("version");
+    QTest::newRow("2025") << QString(ProtocolVersion);
+    QTest::newRow("2026") << QString("2026-07-28");
+}
+void McpTests::httpFileResourcesAreIndependentAndBound()
+{
+    QFETCH(QString, version);
+    Fixture f; QVERIFY(f.service.access().setEnabled(true)); f.makeSsh();
+    auto entry = f.service.directory().entries().first();
+    const auto identity = f.service.access().identityVersion(f.client);
+    const auto localPath = f.root.filePath("private-local-build");
+    auto& files = f.service.fileResources();
+    const auto local = files.resources().shareLocal(f.client, identity, localPath, "Build", {true, false});
+    QVERIFY(local);
+    auto binding = f.service.access().grantSnapshot(ClientId{f.client}, entry).binding;
+    const auto remote = files.shareRemote(f.client, identity, binding, "/tmp/nvt-artifacts", "Target", {false, true});
+    QVERIFY(remote);
+    QVERIFY(!f.service.access().canRead(f.client, entry));
+    Host host; QVERIFY(host.start(f.runtime(), f.token(), {}, false, version));
+    auto args = f.identity();
+    auto listed = host.call("novaterm_list_file_resources", args);
+    QVERIFY2(listed.value("ok").toBool(), QJsonDocument(listed).toJson().constData());
+    QVERIFY(!QJsonDocument(listed).toJson().contains(localPath.toUtf8()));
+    const auto data = listed.value("data").toObject();
+    QCOMPARE(data.value("availability").toString(), QString("authorization_only"));
+    const auto locals = data.value("localResources").toArray(); QCOMPARE(locals.size(), 1);
+    QCOMPARE(locals.first().toObject().value("resourceId").toString(), local->id);
+    QVERIFY(locals.first().toObject().value("readAllowed").toBool());
+    QVERIFY(!locals.first().toObject().value("writeAllowed").toBool());
+    QVERIFY(!locals.first().toObject().contains("path"));
+    const auto scopes = data.value("remoteScopes").toArray(); QCOMPARE(scopes.size(), 1);
+    QCOMPARE(scopes.first().toObject().value("sessionId").toString(), entry.id);
+    QCOMPARE(scopes.first().toObject().value("epoch").toString(), entry.epoch);
+    QCOMPARE(scopes.first().toObject().value("scopeId").toString(), remote->id);
+    QCOMPARE(scopes.first().toObject().value("path").toString(), QString("/tmp/nvt-artifacts"));
+    QVERIFY(!scopes.first().toObject().value("readAllowed").toBool());
+    QVERIFY(scopes.first().toObject().value("writeAllowed").toBool());
+    QVERIFY(!QFileInfo::exists(localPath)); QCOMPARE(SshTransportTestAccess::queued(*f.ssh), 0);
+    const auto discovered = host.call("novaterm_list_file_resources", {});
+    QVERIFY(discovered.value("ok").toBool());
+    QCOMPARE(discovered.value("data").toObject().value("remoteScopes"), data.value("remoteScopes"));
+    auto stale = args; stale.insert("epoch", "old-epoch");
+    QCOMPARE(host.call("novaterm_list_file_resources", stale).value("error").toObject().value("code").toString(), QString("STALE_SESSION_EPOCH"));
+    const auto other = f.service.access().addClient("other"); QVERIFY(!other.isEmpty());
+    Host outsider; QVERIFY(outsider.start(f.runtime(), f.service.access().exportToken(other).value(), {}, false, version));
+    QCOMPARE(outsider.call("novaterm_list_file_resources", args).value("error").toObject().value("code").toString(), QString("PERMISSION_DENIED"));
+    const auto outsiderListing = outsider.call("novaterm_list_file_resources", {}).value("data").toObject();
+    QVERIFY(outsiderListing.value("localResources").toArray().isEmpty());
+    QVERIFY(outsiderListing.value("remoteScopes").toArray().isEmpty());
+    auto unknown = args; unknown.insert("sessionId", newId());
+    QCOMPARE(host.call("novaterm_list_file_resources", unknown).value("error").toObject().value("code").toString(), QString("PERMISSION_DENIED"));
+    QVERIFY(TestSupport::setGrant(f.service.access(), f.client, entry, true));
+    QVERIFY(host.call("novaterm_list_file_resources", args).value("ok").toBool());
+    const auto snapshot = f.service.access().grantSnapshot(ClientId{f.client}, entry);
+    PermissionChange revoke{snapshot.client, snapshot.binding, snapshot.revision, PermissionKind::ReadOutput, {}, false};
+    QVERIFY(!isError(f.service.access().changePermission(revoke, entry)));
+    QVERIFY(host.call("novaterm_list_file_resources", args).value("ok").toBool());
+    const auto update = files.shareRemote(f.client, identity, binding, "/tmp/nvt-artifacts", "Logs", {true, false});
+    QVERIFY(update); QCOMPARE(update->id, remote->id); QVERIFY(update->revision != remote->revision);
+    QVERIFY(!files.resources().remove(f.client, identity, remote->id, remote->revision));
+    f.service.directory().remove(&f.session); f.service.directory().add(&f.session);
+    QCOMPARE(host.call("novaterm_list_file_resources", args).value("error").toObject().value("code").toString(), QString("PERMISSION_DENIED"));
+    QVERIFY(!files.shareRemote(f.client, identity, binding, "/tmp/nvt-artifacts", "Old UI", {true, true}));
+    entry = f.service.directory().entries().first(); binding = f.service.access().grantSnapshot(ClientId{f.client}, entry).binding;
+    QVERIFY(files.shareRemote(f.client, identity, binding, "/tmp/nvt-artifacts", "Target", {false, true}));
+    args = f.identity(); QVERIFY(host.call("novaterm_list_file_resources", args).value("ok").toBool());
+    f.makeSsh();
+    QCOMPARE(host.call("novaterm_list_file_resources", args).value("error").toObject().value("code").toString(), QString("PERMISSION_DENIED"));
+    QCOMPARE(files.resources().local(f.client, identity).size(), 1);
+    QVERIFY(f.service.access().rotateToken(f.client));
+    QVERIFY(files.resources().local(f.client, identity).isEmpty());
+    QVERIFY(files.resources().local(f.client, f.service.access().identityVersion(f.client)).isEmpty());
+    const auto rotated = f.service.access().identityVersion(f.client);
+    QVERIFY(files.resources().shareLocal(f.client, rotated, localPath, "Build", {true, true}));
+    f.service.stop();
+    QVERIFY(files.resources().local(f.client, rotated).isEmpty());
+    QVERIFY(files.resources().remote(f.client, rotated).isEmpty());
+}
+void McpTests::fileResourceSettingsRejectStaleIdentityAndConnection()
+{
+    Fixture f; QVERIFY(f.service.access().setEnabled(true)); f.makeSsh();
+    McpSettingsDialog settings(&f.service, nullptr);
+    auto* open = settings.findChild<QPushButton*>("mcpFileResourceSharing"); QVERIFY(open); open->click();
+    auto* dialog = settings.findChild<FileResourceSharingDialog*>(); QVERIFY(dialog);
+    auto* kind = dialog->findChild<QComboBox*>("fileResourceKind");
+    auto* session = dialog->findChild<QComboBox*>("fileResourceSession");
+    auto* path = dialog->findChild<QLineEdit*>("fileResourcePath");
+    auto* title = dialog->findChild<QLineEdit*>("fileResourceTitle");
+    auto* read = dialog->findChild<QCheckBox*>("fileResourceRead");
+    auto* write = dialog->findChild<QCheckBox*>("fileResourceWrite");
+    auto* share = dialog->findChild<QPushButton*>("fileResourceShare");
+    QVERIFY(kind && session && path && title && read && write && share);
+    QVERIFY(!read->isChecked()); QVERIFY(!write->isChecked());
+    path->setText(f.root.filePath("build-output")); title->setText("Build"); read->setChecked(true); share->click();
+    const auto identity = f.service.access().identityVersion(f.client);
+    QCOMPARE(f.service.fileResources().resources().local(f.client, identity).size(), 1);
+    kind->setCurrentIndex(1); QVERIFY(!read->isChecked()); QVERIFY(!write->isChecked());
+    QVERIFY(session->count() >= 1); session->setCurrentIndex(0);
+    path->setText("/tmp/nvt"); title->setText("Target"); write->setChecked(true); share->click();
+    auto entry = f.service.directory().entries().first();
+    auto binding = f.service.access().grantSnapshot(ClientId{f.client}, entry).binding;
+    QCOMPARE(f.service.fileResources().resources().remote(f.client, identity, binding).size(), 1);
+    f.makeSsh(); share->click();
+    entry = f.service.directory().entries().first(); binding = f.service.access().grantSnapshot(ClientId{f.client}, entry).binding;
+    QVERIFY(f.service.fileResources().resources().remote(f.client, identity, binding).isEmpty());
+    QCOMPARE(session->currentIndex(), -1);
+    QVERIFY(f.service.access().rotateToken(f.client));
+    kind->setCurrentIndex(0); path->setText(f.root.filePath("old-window")); title->setText("Old UI");
+    read->setChecked(true); share->click();
+    QVERIFY(!share->isEnabled());
+    QVERIFY(f.service.fileResources().resources().local(f.client, f.service.access().identityVersion(f.client)).isEmpty());
+}
+void McpTests::fileResourceWindowHasUnambiguousClient_data()
+{
+    QTest::addColumn<int>("scenario");
+    QTest::newRow("visible-identity-and-modal") << 0;
+    QTest::newRow("parent-client-change") << 1;
+    QTest::newRow("reuse-same-client-window") << 2;
+}
+void McpTests::fileResourceWindowHasUnambiguousClient()
+{
+    QFETCH(int, scenario);
+    Fixture f; QVERIFY(f.service.access().setEnabled(true));
+    const auto other = f.service.access().addClient("beta-visible"); QVERIFY(!other.isEmpty());
+    McpSettingsDialog settings(&f.service, nullptr); settings.show();
+    auto* clients = settings.findChild<QComboBox*>("mcpClientSelector");
+    auto* open = settings.findChild<QPushButton*>("mcpFileResourceSharing");
+    QVERIFY(clients && open); clients->setCurrentIndex(clients->findData(f.client));
+    open->click();
+    QPointer<FileResourceSharingDialog> original = settings.findChild<FileResourceSharingDialog*>(); QVERIFY(original);
+    if (scenario == 0) {
+        auto* identity = original->findChild<QLabel*>("fileResourceClientIdentity"); QVERIFY(identity);
+        QVERIFY(identity->isVisible()); QVERIFY(identity->text().contains(f.client));
+        QVERIFY(identity->text().contains("fixture")); QVERIFY(original->windowTitle().contains("fixture"));
+        QTRY_COMPARE(QApplication::activeModalWidget(), original.data());
+    } else if (scenario == 1) {
+        clients->setCurrentIndex(clients->findData(other));
+        QTRY_VERIFY(!original || !original->isVisible());
+        open->click();
+        FileResourceSharingDialog* replacement = nullptr;
+        for (auto* dialog : settings.findChildren<FileResourceSharingDialog*>())
+            if (dialog->isVisible()) replacement = dialog;
+        QVERIFY(replacement);
+        auto* identity = replacement->findChild<QLabel*>("fileResourceClientIdentity"); QVERIFY(identity);
+        QVERIFY(identity->text().contains(other)); QVERIFY(identity->text().contains("beta-visible"));
+        replacement->findChild<QLineEdit*>("fileResourcePath")->setText(f.root.filePath("beta-build"));
+        replacement->findChild<QLineEdit*>("fileResourceTitle")->setText("Beta build");
+        replacement->findChild<QCheckBox*>("fileResourceRead")->setChecked(true);
+        replacement->findChild<QPushButton*>("fileResourceShare")->click();
+        auto& resources = f.service.fileResources().resources();
+        QCOMPARE(resources.local(other, f.service.access().identityVersion(other)).size(), 1);
+        QVERIFY(resources.local(f.client, f.service.access().identityVersion(f.client)).isEmpty());
+    } else {
+        open->click();
+        int visible = 0;
+        for (auto* dialog : settings.findChildren<FileResourceSharingDialog*>()) if (dialog->isVisible()) ++visible;
+        QCOMPARE(visible, 1);
+    }
+}
+void McpTests::fileResourceSelectionSurvivesOnlyUnchangedRules_data()
+{
+    QTest::addColumn<int>("scenario");
+    QTest::newRow("unrelated-service-change") << 0;
+    QTest::newRow("selected-rule-updated") << 1;
+    QTest::newRow("selected-rule-removed") << 2;
+    QTest::newRow("selected-connection-replaced") << 3;
+}
+void McpTests::fileResourceSelectionSurvivesOnlyUnchangedRules()
+{
+    QFETCH(int, scenario);
+    Fixture f; QVERIFY(f.service.access().setEnabled(true));
+    if (scenario == 3) f.makeSsh();
+    const auto identity = f.service.access().identityVersion(f.client);
+    auto& resources = f.service.fileResources().resources();
+    const auto first = resources.shareLocal(f.client, identity, f.root.filePath("first"), "First", {true, false});
+    const auto second = resources.shareLocal(f.client, identity, f.root.filePath("second"), "Second", {false, true});
+    QVERIFY(first && second);
+    QString selected = first->id;
+    if (scenario == 3) {
+        const auto entry = *f.service.directory().find(f.session.id().toString(QUuid::WithoutBraces));
+        const auto binding = f.service.access().grantSnapshot(ClientId{f.client}, entry).binding;
+        const auto remote = f.service.fileResources().shareRemote(f.client, identity, binding, "/tmp/nvt", "Target", {false, true});
+        QVERIFY(remote); selected = remote->id;
+    }
+    FileResourceSharingDialog dialog(&f.service, f.client);
+    if (scenario == 3) {
+        dialog.findChild<QComboBox*>("fileResourceKind")->setCurrentIndex(1);
+        dialog.findChild<QComboBox*>("fileResourceSession")->setCurrentIndex(0);
+    }
+    auto* roots = dialog.findChild<QTreeWidget*>("fileResourceRoots"); QVERIFY(roots);
+    QTest::qWait(20);
+    for (int i = 0; i < roots->topLevelItemCount(); ++i)
+        if (roots->topLevelItem(i)->data(0, Qt::UserRole).toString() == selected) roots->setCurrentItem(roots->topLevelItem(i));
+    QVERIFY(roots->currentItem());
+    if (scenario == 0) f.service.directory().setDisplayTitle(&f.session, "Unrelated update");
+    if (scenario == 1) QVERIFY(resources.shareLocal(f.client, identity, first->path, "Updated", {false, true}));
+    if (scenario == 2) QVERIFY(resources.remove(f.client, identity, first->id, first->revision));
+    if (scenario == 3) f.makeSsh();
+    QTest::qWait(30);
+    if (scenario == 0) {
+        QVERIFY(roots->currentItem());
+        QCOMPARE(roots->currentItem()->data(0, Qt::UserRole).toString(), first->id);
+        QCOMPARE(roots->currentItem()->data(0, Qt::UserRole + 1).toString(), first->revision);
+    } else QVERIFY(!roots->currentItem());
+    auto* revoke = dialog.findChild<QPushButton*>("fileResourceRevoke"); QVERIFY(revoke); revoke->click();
+    const auto remaining = resources.local(f.client, identity);
+    QCOMPARE(remaining.size(), scenario <= 0 || scenario == 2 ? 1 : 2);
+    QVERIFY(std::any_of(remaining.begin(), remaining.end(), [&second](const auto& root) { return root.id == second->id; }));
+    if (scenario == 1)
+        QVERIFY(std::any_of(remaining.begin(), remaining.end(), [&first](const auto& root) {
+            return root.id == first->id && !root.access.read && root.access.write;
+        }));
+}
+
+void McpTests::fileResourcesReleaseDisconnectedRemoteQuota_data()
+{
+    QTest::addColumn<bool>("manual");
+    QTest::newRow("manual-disconnect") << true;
+    QTest::newRow("transport-disconnect") << false;
+}
+void McpTests::fileResourcesReleaseDisconnectedRemoteQuota()
+{
+    QFETCH(bool, manual);
+    Fixture f; QVERIFY(f.service.access().setEnabled(true)); f.makeSsh();
+    const auto identity = f.service.access().identityVersion(f.client);
+    auto entry = *f.service.directory().find(f.session.id().toString(QUuid::WithoutBraces));
+    const auto original = f.service.access().grantSnapshot(ClientId{f.client}, entry).binding;
+    auto& files = f.service.fileResources();
+    QVERIFY(files.resources().shareLocal(f.client, identity, f.root.filePath("build"), "Build", {true, false}));
+    for (int i = 0; i < 8; ++i)
+        QVERIFY(files.shareRemote(f.client, identity, original, QString("/tmp/nvt-%1").arg(i), "Target", {false, true}));
+    QCOMPARE(files.resources().remote(f.client, identity).size(), 8);
+    QSignalSpy invalidated(&f.service.directory(), &SessionDirectory::invalidated);
+    if (manual) QVERIFY(f.session.disconnectForReconnect());
+    else f.ssh->disconnect();
+    QCOMPARE(f.session.state(), SessionState::Failed);
+    entry = *f.service.directory().find(original.session.str());
+    QCOMPARE(entry.generation, original.generation.value());
+    QCOMPARE(entry.transport.data(), f.ssh.get());
+    QVERIFY(invalidated.isEmpty());
+    QCOMPARE(files.resources().local(f.client, identity).size(), 1);
+    QVERIFY(files.resources().remote(f.client, identity, original).isEmpty());
+    TerminalCore otherCore{80, 24}; LocalFake otherLocal;
+    SshConfig configuration; configuration.host = "other.invalid"; configuration.username = "fixture";
+    SshTransport otherSsh{configuration}; TerminalSession otherSession{&otherCore};
+    otherSession.attach(&otherLocal, TerminalSession::Ownership::Borrowed, TransportKind::LocalShell);
+    QVERIFY(otherSession.start()); SshTransportTestAccess::connected(otherSsh);
+    otherSession.attach(&otherSsh, TerminalSession::Ownership::Borrowed, TransportKind::Ssh);
+    f.service.directory().add(&otherSession);
+    const auto otherEntry = *f.service.directory().find(otherSession.id().toString(QUuid::WithoutBraces));
+    const auto otherBinding = f.service.access().grantSnapshot(ClientId{f.client}, otherEntry).binding;
+    QVERIFY(files.shareRemote(f.client, identity, otherBinding, "/tmp/available", "Other target", {false, true}));
+    QVERIFY(files.resources().remote(f.client, identity, original).isEmpty());
+    QCOMPARE(files.resources().remote(f.client, identity).size(), 1);
 }
 
 void McpTests::savedTargetNewSessionPermissions_data()

@@ -1,5 +1,7 @@
 # NovaTerm 统一架构设计
 
+2026-10-27 B3b文件传输第一子批：新增独立本地/远端读写授权与只读 `novaterm_list_file_resources`，当前二十二工具。仅发现已授权元数据，本机路径与文件内容不回传，上传/下载/进度/取消和安全发布仍待后续，见[文件资源记录](architecture/stages/P8_AI_MCP_Interface/records/B3b_File_Resources_2026-10-27.md)。
+
 2026-10-27 B3b第四子批：保存目标支持本机逐客户端的新会话预授权，默认关闭，原创建连接首次就绪后一次绑定读取/完整输入/清空；复用、重试、重连与人工接管不恢复权限。当前二十一工具，单文件传输及B4待后续，见[预授权记录](architecture/stages/P8_AI_MCP_Interface/records/B3b_New_Session_Sharing_2026-10-27.md)。
 
 2026-10-27 B3b第三子批：追加 `novaterm_close_target`，当前二十一工具。应用索引核对原创建操作，Session/Controller及本机后台SFTP事实联合拒绝人工接管、旧连接与忙碌/未知状态；沿用Session.close并保留可见终端。文件传输和B4待后续，见[安全关闭记录](architecture/stages/P8_AI_MCP_Interface/records/B3b_Target_Close_2026-10-27.md)。

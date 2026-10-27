@@ -339,6 +339,10 @@ public:
                 emit q->backendEvent(BackendTargetConnectionCall{call.wireId, *target, !call.requestState.isEmpty()});
                 continue;
             }
+            if (const auto* files = std::get_if<ListFileResourcesRequest>(&call.typed)) {
+                emit q->backendEvent(BackendFileResourcesCall{call.wireId, *files, !call.requestState.isEmpty()});
+                continue;
+            }
             if (const auto* targets = std::get_if<ListSavedTargetsRequest>(&call.typed)) {
                 emit q->backendEvent(BackendSavedTargetsCall{call.wireId, *targets, !call.requestState.isEmpty()});
                 continue;

@@ -12,6 +12,12 @@
 #include <chrono>
 
 namespace NovaTerm::Mcp::Budget {
+inline constexpr int MaxFileLocalRootsPerClient = 8;
+inline constexpr int MaxFileRemoteRootsPerClient = 8;
+inline constexpr int MaxFileLocalRoots = 128;
+inline constexpr int MaxFileRemoteRoots = 256;
+inline constexpr int MaxFileRootPathBytes = 1024;
+inline constexpr int MaxFileRootTitleBytes = 256;
 
 // --- 接入与请求调度 -------------------------------------------------------
 inline constexpr int MaxClients = 4;

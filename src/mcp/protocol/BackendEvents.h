@@ -13,6 +13,7 @@
 #include "mcp/contracts/WaitTextRequest.h"
 #include "mcp/contracts/TerminalTaskRequest.h"
 #include "mcp/contracts/SavedTargetRequest.h"
+#include "mcp/contracts/FileResourceRequest.h"
 #include <QMetaType>
 #include <QString>
 
@@ -45,6 +46,7 @@ struct BackendWaitTextCall { QString id; WaitTextRequest request; bool confirmat
 struct BackendTaskCall { QString id; TerminalTaskRequest request; bool confirmationSupplied{false}; };
 struct BackendSavedTargetsCall { QString id; ListSavedTargetsRequest request; bool confirmationSupplied{false}; };
 struct BackendTargetConnectionCall { QString id; TargetConnectionRequest request; bool confirmationSupplied{false}; };
+struct BackendFileResourcesCall { QString id; ListFileResourcesRequest request; bool confirmationSupplied{false}; };
 
 struct BackendElicitationResult
 {
@@ -52,7 +54,7 @@ struct BackendElicitationResult
     ConfirmationAnswer answer{ConfirmationAnswer::Decline};
 };
 
-using BackendEvent = std::variant<BackendCall, BackendHistoryCall, BackendClearCall, BackendWaitTextCall, BackendTaskCall, BackendSavedTargetsCall, BackendTargetConnectionCall, BackendCancel, BackendElicitationResult>;
+using BackendEvent = std::variant<BackendCall, BackendHistoryCall, BackendClearCall, BackendWaitTextCall, BackendTaskCall, BackendSavedTargetsCall, BackendTargetConnectionCall, BackendFileResourcesCall, BackendCancel, BackendElicitationResult>;
 
 /** @brief 事件类别；仅用于日志与测试断言，不参与业务分派。 */
 [[nodiscard]] inline QString backendEventKind(const BackendEvent& event)
@@ -62,7 +64,7 @@ using BackendEvent = std::variant<BackendCall, BackendHistoryCall, BackendClearC
         if constexpr (std::is_same_v<Type, BackendCall> || std::is_same_v<Type, BackendHistoryCall>
             || std::is_same_v<Type, BackendClearCall> || std::is_same_v<Type, BackendWaitTextCall>
             || std::is_same_v<Type, BackendTaskCall> || std::is_same_v<Type, BackendSavedTargetsCall>
-            || std::is_same_v<Type, BackendTargetConnectionCall>)
+            || std::is_same_v<Type, BackendTargetConnectionCall> || std::is_same_v<Type, BackendFileResourcesCall>)
             return QStringLiteral("call");
         else if constexpr (std::is_same_v<Type, BackendCancel>)
             return QStringLiteral("cancel");

@@ -61,6 +61,8 @@ CommandRuntime/Session Controller 继续拥有执行事实；新增异步任务�
 
 ## 4. SSH/SFTP 单文件传输
 
+2026-10-27 第一子批先提供独立文件授权与只读 `novaterm_list_file_resources`，当前二十二工具；精确字段与预算见[02](02_Current_MCP_Contract.md#b3b-文件传输第一子批独立文件授权目录2026-10-27)，实现及验证见[记录](records/B3b_File_Resources_2026-10-27.md)。它不执行文件I/O，不代替以下上传/下载、路径安全和发布事务。
+
 复用已有 SSH/SFTP 与文件发布边界；远端凭据留在本机通路中。文件内容不写入终端，也不放进大段 MCP JSON。UART 首版仍只做观察/交互，已有 X/Y/ZMODEM UI 不等于 MCP 传输已经开放。
 
 输入明确 Session/epoch、方向、本地授权资源引用及相对路径、远端路径、覆盖策略和 operationId。读取终端不授予文件权限；本地读/写、远端读/写分别授权。用户可以预先选择构建输出/下载目录，Agent 不因此得到任意本机路径访问能力。

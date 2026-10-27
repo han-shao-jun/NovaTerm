@@ -1,0 +1,287 @@
+[
+    {
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": false,
+            "readOnlyHint": true
+        },
+        "description": "Discover only file-resource authorization metadata explicitly shared with this client. Optional sessionId/epoch must be supplied together to filter the selected current SSH connection. Local roots use opaque resourceId and never reveal local absolute paths or file contents. Remote scopes reveal only explicitly shared paths and sessionId/epoch. Local and remote read/write are separately authorized, independent of terminal permissions; reconnect and identity changes invalidate remote grants. availability=authorization_only: upload/download/query/cancel are not implemented. No file or network I/O is performed and listed paths have not been verified for safe file access.",
+        "inputSchema": {
+            "additionalProperties": false,
+            "properties": {
+                "epoch": {
+                    "maxLength": 64,
+                    "type": "string"
+                },
+                "sessionId": {
+                    "maxLength": 36,
+                    "type": "string"
+                }
+            },
+            "required": [],
+            "type": "object"
+        },
+        "name": "novaterm_list_file_resources",
+        "outputSchema": {
+            "additionalProperties": false,
+            "oneOf": [
+                {
+                    "not": {
+                        "required": [
+                            "error"
+                        ]
+                    },
+                    "properties": {
+                        "ok": {
+                            "const": true
+                        }
+                    },
+                    "required": [
+                        "data"
+                    ]
+                },
+                {
+                    "not": {
+                        "required": [
+                            "data"
+                        ]
+                    },
+                    "properties": {
+                        "ok": {
+                            "const": false
+                        }
+                    },
+                    "required": [
+                        "error"
+                    ]
+                }
+            ],
+            "properties": {
+                "data": {
+                    "additionalProperties": false,
+                    "properties": {
+                        "availability": {
+                            "const": "authorization_only"
+                        },
+                        "instanceId": {
+                            "maxLength": 64,
+                            "type": "string"
+                        },
+                        "localResources": {
+                            "items": {
+                                "additionalProperties": false,
+                                "properties": {
+                                    "readAllowed": {
+                                        "type": "boolean"
+                                    },
+                                    "resourceId": {
+                                        "maxLength": 64,
+                                        "type": "string"
+                                    },
+                                    "revision": {
+                                        "maxLength": 64,
+                                        "type": "string"
+                                    },
+                                    "title": {
+                                        "maxLength": 256,
+                                        "type": "string"
+                                    },
+                                    "writeAllowed": {
+                                        "type": "boolean"
+                                    }
+                                },
+                                "required": [
+                                    "resourceId",
+                                    "title",
+                                    "revision",
+                                    "readAllowed",
+                                    "writeAllowed"
+                                ],
+                                "type": "object"
+                            },
+                            "maxItems": 8,
+                            "type": "array"
+                        },
+                        "remoteScopes": {
+                            "items": {
+                                "additionalProperties": false,
+                                "properties": {
+                                    "epoch": {
+                                        "maxLength": 128,
+                                        "type": "string"
+                                    },
+                                    "path": {
+                                        "maxLength": 1024,
+                                        "type": "string"
+                                    },
+                                    "readAllowed": {
+                                        "type": "boolean"
+                                    },
+                                    "revision": {
+                                        "maxLength": 64,
+                                        "type": "string"
+                                    },
+                                    "scopeId": {
+                                        "maxLength": 64,
+                                        "type": "string"
+                                    },
+                                    "sessionId": {
+                                        "maxLength": 64,
+                                        "type": "string"
+                                    },
+                                    "title": {
+                                        "maxLength": 256,
+                                        "type": "string"
+                                    },
+                                    "writeAllowed": {
+                                        "type": "boolean"
+                                    }
+                                },
+                                "required": [
+                                    "scopeId",
+                                    "title",
+                                    "revision",
+                                    "readAllowed",
+                                    "writeAllowed",
+                                    "path",
+                                    "sessionId",
+                                    "epoch"
+                                ],
+                                "type": "object"
+                            },
+                            "maxItems": 8,
+                            "type": "array"
+                        }
+                    },
+                    "required": [
+                        "instanceId",
+                        "availability",
+                        "localResources",
+                        "remoteScopes"
+                    ],
+                    "type": "object"
+                },
+                "error": {
+                    "additionalProperties": false,
+                    "properties": {
+                        "code": {
+                            "type": "string"
+                        },
+                        "details": {
+                            "additionalProperties": false,
+                            "properties": {
+                                "commandId": {
+                                    "type": "string"
+                                },
+                                "epoch": {
+                                    "type": "string"
+                                },
+                                "executionId": {
+                                    "type": "string"
+                                },
+                                "executionMayHaveStarted": {
+                                    "type": "boolean"
+                                },
+                                "exitCode": {
+                                    "type": [
+                                        "integer",
+                                        "null"
+                                    ]
+                                },
+                                "finishedAt": {
+                                    "type": [
+                                        "string",
+                                        "null"
+                                    ]
+                                },
+                                "instanceId": {
+                                    "type": "string"
+                                },
+                                "outputTruncated": {
+                                    "type": "boolean"
+                                },
+                                "policyVersion": {
+                                    "type": "string"
+                                },
+                                "sessionId": {
+                                    "type": "string"
+                                },
+                                "startedAt": {
+                                    "type": [
+                                        "string",
+                                        "null"
+                                    ]
+                                },
+                                "status": {
+                                    "enum": [
+                                        "completed",
+                                        "failed",
+                                        "timed_out",
+                                        "cancelled",
+                                        "unknown"
+                                    ],
+                                    "type": "string"
+                                },
+                                "stderr": {
+                                    "type": "string"
+                                },
+                                "stdout": {
+                                    "type": "string"
+                                },
+                                "terminationConfirmed": {
+                                    "type": "boolean"
+                                }
+                            },
+                            "required": [
+                                "commandId",
+                                "epoch",
+                                "executionId",
+                                "executionMayHaveStarted",
+                                "exitCode",
+                                "finishedAt",
+                                "instanceId",
+                                "outputTruncated",
+                                "policyVersion",
+                                "sessionId",
+                                "startedAt",
+                                "status",
+                                "stderr",
+                                "stdout",
+                                "terminationConfirmed"
+                            ],
+                            "type": "object"
+                        },
+                        "message": {
+                            "type": "string"
+                        },
+                        "retryAfterMs": {
+                            "minimum": 0,
+                            "type": "integer"
+                        },
+                        "retryable": {
+                            "type": "boolean"
+                        }
+                    },
+                    "required": [
+                        "code",
+                        "message",
+                        "retryable"
+                    ],
+                    "type": "object"
+                },
+                "ok": {
+                    "type": "boolean"
+                },
+                "schemaVersion": {
+                    "const": 1
+                }
+            },
+            "required": [
+                "schemaVersion",
+                "ok"
+            ],
+            "type": "object"
+        }
+    }
+]

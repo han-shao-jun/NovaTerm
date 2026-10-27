@@ -437,6 +437,20 @@ const QJsonArray& ToolCodec::catalog()
     closeInput.insert("required", QJsonArray{"targetId", "configVersion", "operationId", "epoch"});
     workflow("novaterm_close_target", "Close only the session created by this client's original open operation, with current sharing/open permission and its original epoch. Never closes reused sessions. Human input or manual connection actions, changed attachment/epoch, active execution or transfer, and unknown readiness refuse closing. No force option. Success accepts graceful session closure and preserves the visible terminal; closing is not proof of remote task termination. Query progress; identical close retries do not close again or follow a new binding.",
         closeInput, true, connectionData);
+    const QJsonObject fileRoot{{"resourceId", stringSchema(64)}, {"title", stringSchema(256)},
+        {"revision", stringSchema(64)}, {"readAllowed", QJsonObject{{"type", "boolean"}}},
+        {"writeAllowed", QJsonObject{{"type", "boolean"}}}};
+    auto remoteRoot = fileRoot; remoteRoot.remove("resourceId");
+    remoteRoot.insert("scopeId", stringSchema(64)); remoteRoot.insert("path", stringSchema(1024));
+    remoteRoot.insert("sessionId", stringSchema(64)); remoteRoot.insert("epoch", stringSchema(128));
+    workflow("novaterm_list_file_resources", "Discover only file-resource authorization metadata explicitly shared with this client. Optional sessionId/epoch must be supplied together to filter the selected current SSH connection. Local roots use opaque resourceId and never reveal local absolute paths or file contents. Remote scopes reveal only explicitly shared paths and sessionId/epoch. Local and remote read/write are separately authorized, independent of terminal permissions; reconnect and identity changes invalidate remote grants. availability=authorization_only: upload/download/query/cancel are not implemented. No file or network I/O is performed and listed paths have not been verified for safe file access.",
+        schema(identity, {}), false, schema({{"instanceId", stringSchema(64)},
+            {"availability", QJsonObject{{"const", "authorization_only"}}},
+            {"localResources", QJsonObject{{"type", "array"}, {"maxItems", 8}, {"items", schema(fileRoot,
+                {"resourceId", "title", "revision", "readAllowed", "writeAllowed"})}}},
+            {"remoteScopes", QJsonObject{{"type", "array"}, {"maxItems", 8}, {"items", schema(remoteRoot,
+                {"scopeId", "title", "revision", "readAllowed", "writeAllowed", "path", "sessionId", "epoch"})}}}},
+            {"instanceId", "availability", "localResources", "remoteScopes"}));
     return result;
     }();
     return catalog;
@@ -459,6 +473,8 @@ QString ToolCodec::validate(const QString& name, const QJsonObject& arguments)
     }
     if (input.isEmpty())
         return QStringLiteral("Unknown tool.");
+    if (name == "novaterm_list_file_resources" && arguments.contains("sessionId") != arguments.contains("epoch"))
+        return QStringLiteral("sessionId and epoch must be supplied together.");
     for (const auto& key : input.value("required").toArray()) {
         if (!arguments.contains(key.toString()))
             return QStringLiteral("Missing required argument: %1").arg(key.toString());
@@ -880,6 +896,14 @@ QJsonArray ToolCodec::encodeActions(const std::vector<TerminalAction>& actions)
 
 Result<ToolCall> ToolCodec::decodeCall(const QString& name, const QJsonObject& arguments)
 {
+    if (name == "novaterm_list_file_resources") {
+        const auto invalid = validate(name, arguments);
+        if (!invalid.isEmpty()) return Error{ErrorCode::InvalidArgument, invalid};
+        if (arguments.isEmpty()) return ToolCall{ListFileResourcesRequest{}};
+        const auto reference = sessionReference(arguments);
+        if (!reference) return Error{ErrorCode::InvalidArgument};
+        return ToolCall{ListFileResourcesRequest{*reference}};
+    }
     if (name == "novaterm_open_target" || name == "novaterm_query_target" || name == "novaterm_close_target") {
         const auto invalid = validate(name, arguments);
         if (!invalid.isEmpty()) return Error{ErrorCode::InvalidArgument, invalid};
@@ -946,6 +970,7 @@ Result<ToolCall> ToolCodec::decodeCall(const QString& name, const QJsonObject& a
 }
 QString ToolCodec::toolName(const ToolCall& request)
 {
+    if (std::holds_alternative<ListFileResourcesRequest>(request)) return "novaterm_list_file_resources";
     if (const auto* target = std::get_if<TargetConnectionRequest>(&request))
         return target->action == TargetConnectionAction::Query ? "novaterm_query_target"
             : target->action == TargetConnectionAction::Close ? "novaterm_close_target" : "novaterm_open_target";

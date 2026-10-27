@@ -490,7 +490,7 @@ private slots:
         QVERIFY(wire.initialized());
         wire.receiveMessage({{"jsonrpc", "2.0"}, {"id", 2}, {"method", "tools/list"}}, "catalog");
         QCOMPARE(QJsonDocument::fromJson(packets.last().at(1).toByteArray()).object().value("result").toObject()
-            .value("tools").toArray().size(), 21);
+            .value("tools").toArray().size(), 22);
     }
     void asynchronousResultKeepsExchangeRoute()
     {

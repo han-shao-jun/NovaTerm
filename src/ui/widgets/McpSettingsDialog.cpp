@@ -2,6 +2,7 @@
  *  @brief 用户可导出令牌或解除目标暂停；这些操作不暴露给 MCP。
  */
 #include "McpSettingsDialog.h"
+#include "FileResourceSharingDialog.h"
 #include "mcp/McpService.h"
 #include "mcp/application/SavedTargets.h"
 #include "mcp/CapabilityAdapter.h"
@@ -259,6 +260,21 @@ McpSettingsDialog::McpSettingsDialog(NovaTerm::Mcp::Service* service, QWidget* p
     _savedTargets->setMaximumHeight(140);
     _savedTargets->header()->setSectionResizeMode(QHeaderView::ResizeToContents);
     layout->addWidget(_savedTargets);
+    auto* fileResources = new ElaPushButton(tr("文件资源授权…"), this);
+    fileResources->setObjectName("mcpFileResourceSharing"); layout->addWidget(fileResources);
+    connect(fileResources, &QPushButton::clicked, this, [this] {
+        if (!_service) return;
+        const auto client = _clients->currentData().toString();
+        if (!_service->access().enabled() || !_service->access().identityVersion(client)) return;
+        if (_fileResourceDialog && _fileResourceClient != client) _fileResourceDialog->close();
+        if (!_fileResourceDialog || !_fileResourceDialog->isVisible()) {
+            _fileResourceDialog = new FileResourceSharingDialog(_service, client, this);
+            _fileResourceClient = client;
+        }
+        _fileResourceDialog->show();
+        _fileResourceDialog->raise();
+        _fileResourceDialog->activateWindow();
+    });
     connect(_savedTargets, &QTreeWidget::itemChanged, this, [this](QTreeWidgetItem* item, int column) {
         if (_refreshing || !_service || column < 2 || column > 6) return;
         const auto client = item->data(0, Qt::UserRole + 2).toString();
@@ -299,7 +315,15 @@ McpSettingsDialog::McpSettingsDialog(NovaTerm::Mcp::Service* service, QWidget* p
     connect(_enabled, &QCheckBox::toggled, this, [this](bool enabled) {
         if (!_refreshing && _controller && !_controller->setEnabled(enabled)) { refresh(); reportFailure(); }
     });
-    connect(_clients, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this] { if (!_refreshing) refresh(); });
+    connect(_clients, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this] {
+        if (_refreshing) return;
+        if (_fileResourceDialog) {
+            _fileResourceDialog->close();
+            _fileResourceDialog.clear();
+            _fileResourceClient.clear();
+        }
+        refresh();
+    });
     connect(add, &QPushButton::clicked, this, [this] {
         if (!_service) return;
         const auto id = _controller->addClient(_label->text());

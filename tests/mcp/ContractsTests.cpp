@@ -86,6 +86,34 @@ class ContractsTests : public QObject
 {
     Q_OBJECT
 private slots:
+    void fileResourcesDiscoverAuthorizedScopesAndRejectLocalPaths()
+    {
+        const QString name = "novaterm_list_file_resources";
+        QVERIFY(ToolCodec::isKnownTool(name));
+        QVERIFY(ToolCodec::validate(name, {}).isEmpty());
+        QVERIFY(!isError(ToolCodec::decodeCall(name, {})));
+        QVERIFY(ToolCodec::validate(name, identity()).isEmpty());
+        const auto decoded = ToolCodec::decodeCall(name, identity());
+        QVERIFY(!isError(decoded));
+        QCOMPARE(ToolCodec::toolName(std::get<ToolCall>(decoded)), name);
+        for (const auto& field : QStringList{"sessionId", "epoch"}) {
+            auto invalid = identity(); invalid.remove(field);
+            QVERIFY(!ToolCodec::validate(name, invalid).isEmpty());
+        }
+        for (const auto& field : QStringList{"host", "localPath", "remotePath", "clientId", "readAllowed", "writeAllowed"}) {
+            auto invalid = identity(); invalid.insert(field, "injected");
+            QVERIFY(!ToolCodec::validate(name, invalid).isEmpty());
+        }
+        const auto tools = ToolCodec::catalog();
+        QCOMPARE(tools.size(), 22);
+        const auto tool = tools.last().toObject();
+        QCOMPARE(tool.value("name").toString(), name);
+        QVERIFY(tool.value("annotations").toObject().value("readOnlyHint").toBool());
+        QVERIFY(!tool.value("annotations").toObject().value("destructiveHint").toBool());
+        QFile fixture(QStringLiteral(NOVATERM_SOURCE_DIR "/tests/mcp/fixtures/file-resources-2026-10-27.json"));
+        QVERIFY(fixture.open(QIODevice::ReadOnly));
+        QCOMPARE(QJsonArray{tool}, QJsonDocument::fromJson(fixture.readAll()).array());
+    }
     void closeSavedTargetRequiresOriginalOperationAndEpoch()
     {
         const QString name = "novaterm_close_target";
@@ -110,7 +138,7 @@ private slots:
         QCOMPARE(std::get<TargetConnectionRequest>(decoded).action, TargetConnectionAction::Close);
         QFile fixture(QStringLiteral(NOVATERM_SOURCE_DIR "/tests/mcp/fixtures/target-close-2026-10-27.json"));
         QVERIFY(fixture.open(QIODevice::ReadOnly));
-        QCOMPARE(ToolCodec::catalog().last().toObject(), QJsonDocument::fromJson(fixture.readAll()).object());
+        QCOMPARE(ToolCodec::catalog().at(20).toObject(), QJsonDocument::fromJson(fixture.readAll()).object());
     }
     void savedTargetConnectionToolsRequireExplicitIdentity()
     {
@@ -667,7 +695,7 @@ int main(int argc, char** argv)
     if (application.arguments().size() == 3 && application.arguments()[1] == "--write-target-fixture") {
         QFile file(application.arguments()[2]);
         if (!file.open(QIODevice::WriteOnly)) return 1;
-        const auto bytes = QJsonDocument(ToolCodec::catalog().last().toObject()).toJson();
+        const auto bytes = QJsonDocument(ToolCodec::catalog().at(20).toObject()).toJson();
         return file.write(bytes) == bytes.size() ? 0 : 1;
     }
     if (application.arguments().size() == 3 && application.arguments()[1] == "--write-workflow-fixture") {

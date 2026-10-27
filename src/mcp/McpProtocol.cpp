@@ -52,7 +52,9 @@ QString agentInstructions()
         "novaterm_list_targets lists only saved SSH/UART summaries explicitly shared for this app run; it does not connect or grant terminal access. saved_configuration does not mean online. "
         "Use novaterm_open_target only with separate local open permission, a listed targetId/configVersion and a new operationId; query with novaterm_query_target and the original arguments. Terminal access defaults off. Only explicit local new-session rules may grant read/input/clear once the original created connection is ready; reused sessions and reconnects are never automatically granted. File/script/elevation permissions remain separate. Authentication and host-key decisions stay with the local user. "
         "Use novaterm_close_target only with the original created open operation and latest epoch; reused, human-controlled, busy or unknown sessions refuse close. "
-        "Closing preserves the terminal and is not proof of remote termination. Only call tools actually listed; MCP file transfer is not available.");
+        "Closing preserves the terminal and is not proof of remote termination. "
+        "novaterm_list_file_resources discovers only explicitly shared local resource references and current remote SSH scopes; local paths and file bytes are not returned. Optional sessionId/epoch filter together. File read/write permissions are separate from terminal access. availability=authorization_only does not prove a path is safe or a file is available. "
+        "Only call tools actually listed; MCP file upload/download/query/cancel is not available.");
 }
 QString newId() { return QUuid::createUuid().toString(QUuid::WithoutBraces); }
 
