@@ -18,6 +18,16 @@ inline constexpr int MaxFileLocalRoots = 128;
 inline constexpr int MaxFileRemoteRoots = 256;
 inline constexpr int MaxFileRootPathBytes = 1024;
 inline constexpr int MaxFileRootTitleBytes = 256;
+inline constexpr quint64 MaxLocalTransferFileBytes = 64 * 1024 * 1024;
+inline constexpr qsizetype LocalTransferChunkBytes = 64 * 1024;
+inline constexpr int MaxLocalTransferPathParts = 32;
+inline constexpr int MaxFileTransfersPerClient = 16;
+inline constexpr int MaxFileTransfers = 64;
+inline constexpr int MaxActiveFileTransfers = 2;
+inline constexpr std::chrono::milliseconds FileTransferRetention{600000};
+inline constexpr std::chrono::milliseconds FileUploadTimeout{120000};
+inline constexpr std::chrono::milliseconds FileUploadStallTimeout{15000};
+inline constexpr std::chrono::milliseconds FileUploadPublicationTimeout{2000};
 
 // --- 接入与请求调度 -------------------------------------------------------
 inline constexpr int MaxClients = 4;

@@ -530,6 +530,10 @@ class McpTests final : public QObject
 private slots:
     void httpFileResourcesAreIndependentAndBound_data();
     void httpFileResourcesAreIndependentAndBound();
+    void httpFileUploadChecksIndependentAuthority_data();
+    void httpFileUploadChecksIndependentAuthority();
+    void httpFileUploadIsIndependentOfTerminalAndClosePolicy_data();
+    void httpFileUploadIsIndependentOfTerminalAndClosePolicy();
     void fileResourceSettingsRejectStaleIdentityAndConnection();
     void fileResourceWindowHasUnambiguousClient_data();
     void fileResourceWindowHasUnambiguousClient();
@@ -2716,7 +2720,7 @@ void McpTests::tokenSigningAndAuthentication()
 
 void McpTests::rejectsDangerousAndOversizedArguments()
 {
-    QCOMPARE(ToolCodec::catalog().size(), 22);
+    QCOMPARE(ToolCodec::catalog().size(), 25);
     QVERIFY(!CommandPolicy::find("rm"));
     QVERIFY(!CommandPolicy::find("credential.read"));
     const QJsonObject identity{{"sessionId", newId()}, {"epoch", "epoch"}};
@@ -3027,6 +3031,50 @@ void McpTests::httpFileResourcesAreIndependentAndBound_data()
     QTest::newRow("2025") << QString(ProtocolVersion);
     QTest::newRow("2026") << QString("2026-07-28");
 }
+void McpTests::httpFileUploadChecksIndependentAuthority_data()
+{
+    QTest::addColumn<QString>("version");
+    QTest::newRow("2025") << QString(ProtocolVersion);
+    QTest::newRow("2026") << QString("2026-07-28");
+}
+void McpTests::httpFileUploadChecksIndependentAuthority()
+{
+    QFETCH(QString, version);
+    Fixture f; QVERIFY(f.service.access().setEnabled(true)); f.makeSsh();
+    const auto entry = f.service.directory().entries().first();
+    const auto identity = f.service.access().identityVersion(f.client);
+    const auto binding = f.service.access().grantSnapshot(ClientId{f.client}, entry).binding;
+    auto& resources = f.service.fileResources();
+    const auto path = f.root.filePath("build-output");
+    auto local = resources.resources().shareLocal(f.client, identity, path, "Build", {false, true});
+    auto remote = resources.shareRemote(f.client, identity, binding, "/tmp/nvt-builds", "Target", {false, true});
+    QVERIFY(local); QVERIFY(remote);
+    Host host; QVERIFY(host.start(f.runtime(), f.token(), {}, false, version));
+    auto arguments = f.identity();
+    arguments.insert("resourceId", local->id); arguments.insert("resourceRevision", local->revision);
+    arguments.insert("relativePath", "module.ko"); arguments.insert("scopeId", remote->id);
+    arguments.insert("scopeRevision", remote->revision); arguments.insert("remoteName", "module-build-123.ko");
+    arguments.insert("operationId", newId());
+    const auto denied = host.call("novaterm_upload_file", arguments);
+    QCOMPARE(denied.value("error").toObject().value("code").toString(), QString("PERMISSION_DENIED"));
+    QVERIFY(!QJsonDocument(denied).toJson().contains(path.toUtf8()));
+    local = resources.resources().shareLocal(f.client, identity, path, "Build", {true, false}); QVERIFY(local);
+    arguments.insert("resourceRevision", local->revision);
+    remote = resources.shareRemote(f.client, identity, binding, "/tmp/nvt-builds", "Target", {true, false}); QVERIFY(remote);
+    arguments.insert("scopeRevision", remote->revision);
+    QCOMPARE(host.call("novaterm_upload_file", arguments).value("error").toObject().value("code").toString(), QString("PERMISSION_DENIED"));
+    remote = resources.shareRemote(f.client, identity, binding, "/tmp/nvt-builds", "Target", {false, true}); QVERIFY(remote);
+    arguments.insert("scopeRevision", remote->revision);
+    // No existing SFTP backend is installed in this fixture: refuse
+    // before touching the nonexistent file or opening fixture.invalid.
+    QCOMPARE(host.call("novaterm_upload_file", arguments).value("error").toObject().value("code").toString(), QString("FILE_TRANSFER_BUSY"));
+    QVERIFY(!f.service.access().canRead(f.client, entry));
+    QVERIFY(!QFileInfo::exists(path)); QCOMPARE(SshTransportTestAccess::queued(*f.ssh), 0);
+    for (const auto* tool : {"novaterm_query_transfer", "novaterm_cancel_transfer"})
+        QCOMPARE(host.call(tool, {{"transferId", newId()}}).value("error").toObject().value("code").toString(), QString("PERMISSION_DENIED"));
+    QVERIFY(resources.resources().remove(f.client, identity, remote->id, remote->revision));
+    QCOMPARE(host.call("novaterm_upload_file", arguments).value("error").toObject().value("code").toString(), QString("PERMISSION_DENIED"));
+}
 void McpTests::httpFileResourcesAreIndependentAndBound()
 {
     QFETCH(QString, version);
@@ -3100,6 +3148,57 @@ void McpTests::httpFileResourcesAreIndependentAndBound()
     f.service.stop();
     QVERIFY(files.resources().local(f.client, rotated).isEmpty());
     QVERIFY(files.resources().remote(f.client, rotated).isEmpty());
+}
+
+void McpTests::httpFileUploadIsIndependentOfTerminalAndClosePolicy_data()
+{
+    QTest::addColumn<QString>("version");
+    QTest::newRow("2025") << QString(ProtocolVersion);
+    QTest::newRow("2026") << QString("2026-07-28");
+}
+void McpTests::httpFileUploadIsIndependentOfTerminalAndClosePolicy()
+{
+    QFETCH(QString, version);
+    Fixture f; QVERIFY(f.service.access().setEnabled(true)); f.makeSsh();
+    const auto entry = f.service.directory().entries().first();
+    const auto identity = f.service.access().identityVersion(f.client);
+    auto& files = f.service.fileResources();
+    const auto local = files.resources().shareLocal(f.client, identity, f.root.filePath("build"), "Build", {true, false});
+    const auto binding = f.service.access().grantSnapshot(ClientId{f.client}, entry).binding;
+    const auto remote = files.shareRemote(f.client, identity, binding, "/tmp/nvt-builds", "Target", {false, true});
+    QVERIFY(local); QVERIFY(remote);
+    int closeChecks = 0, uploads = 0;
+    f.service.setTargetCloseSafety([&closeChecks](const QString&) { ++closeChecks; return false; });
+    std::optional<SftpFileUploadRequest> started;
+    std::optional<FileTransfers::Delivery> delivery;
+    f.service.setFileUploadStarter([&](TerminalSession&, const SftpFileUploadRequest& request, FileTransfers::Delivery done) {
+        ++uploads; started = request; delivery = std::move(done); return true;
+    });
+    Host host; QVERIFY(host.start(f.runtime(), f.token(), {}, false, version));
+    auto arguments = f.identity();
+    arguments.insert("resourceId", local->id); arguments.insert("resourceRevision", local->revision);
+    arguments.insert("relativePath", "module.ko"); arguments.insert("scopeId", remote->id);
+    arguments.insert("scopeRevision", remote->revision); arguments.insert("remoteName", "module-build-123.ko");
+    arguments.insert("operationId", newId());
+    const auto response = host.call("novaterm_upload_file", arguments);
+    QVERIFY2(response.value("ok").toBool(), QJsonDocument(response).toJson().constData());
+    const auto transfer = response.value("data").toObject().value("transferId").toString();
+    QVERIFY(!transfer.isEmpty()); QCOMPARE(uploads, 1); QCOMPARE(closeChecks, 0);
+    QVERIFY(!f.service.access().canRead(f.client, entry));
+    QVERIFY(started && delivery);
+    delivery->progress(3, 7);
+    const auto progress = host.call("novaterm_query_transfer", {{"transferId", transfer}}).value("data").toObject();
+    QCOMPARE(progress.value("transferredBytes").toInt(), 3); QCOMPARE(uploads, 1);
+    QVERIFY(!progress.value("published").toBool());
+    QVERIFY(host.call("novaterm_cancel_transfer", {{"transferId", transfer}}).value("ok").toBool());
+    QCOMPARE(started->control->state.load(), SftpFileUploadControl::State::Cancelled);
+    SftpFileUploadResult result; result.requestId = started->requestId;
+    result.transferredBytes = 3; result.totalBytes = 7; result.temporary = "removed";
+    result.errorCode = "TRANSFER_CANCELLED"; delivery->finished(result);
+    const auto cancelled = host.call("novaterm_query_transfer", {{"transferId", transfer}}).value("data").toObject();
+    QCOMPARE(cancelled.value("state").toString(), QString("cancelled"));
+    QCOMPARE(cancelled.value("publication").toString(), QString("not_started"));
+    QCOMPARE(uploads, 1); QCOMPARE(closeChecks, 0); QCOMPARE(SshTransportTestAccess::queued(*f.ssh), 0);
 }
 void McpTests::fileResourceSettingsRejectStaleIdentityAndConnection()
 {

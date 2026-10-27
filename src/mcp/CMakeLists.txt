@@ -10,6 +10,7 @@ qt_add_library(novaterm_mcp_contracts STATIC
     contracts/WaitTextRequest.h contracts/TerminalTaskRequest.h
     contracts/SavedTargetRequest.h
     contracts/FileResourceRequest.h
+    contracts/FileTransferRequest.h
     contracts/ToolRequests.h contracts/TerminalInputValidation.h contracts/TerminalInputValidation.cpp)
 target_include_directories(novaterm_mcp_contracts PUBLIC ${PROJECT_SOURCE_DIR}/src)
 target_link_libraries(novaterm_mcp_contracts PUBLIC Qt6::Core)
@@ -37,6 +38,11 @@ qt_add_library(novaterm_mcp_application STATIC
     security/ClientRegistry.cpp security/ClientRegistry.h)
 target_include_directories(novaterm_mcp_application PUBLIC ${PROJECT_SOURCE_DIR}/src)
 target_link_libraries(novaterm_mcp_application PUBLIC novaterm_mcp_contracts Qt6::Core)
+
+# Worker-only local file boundary; no filesystem I/O in the authorization service.
+qt_add_library(novaterm_mcp_file_io STATIC files/LocalFileAccess.cpp files/LocalFileAccess.h)
+target_include_directories(novaterm_mcp_file_io PUBLIC ${PROJECT_SOURCE_DIR}/src)
+target_link_libraries(novaterm_mcp_file_io PUBLIC Qt6::Core)
 
 # MCP wire 协议库不依赖终端或 UI，由进程内 HTTP 服务复用。
 qt_add_library(novaterm_mcp_protocol STATIC McpProtocol.cpp McpProtocol.h
@@ -80,6 +86,7 @@ target_link_libraries(novaterm_session_automation PUBLIC
     novaterm_core Qt6::Core Qt6::SerialPort)
 
 qt_add_library(novaterm_mcp_runtime STATIC
+    FileTransfers.cpp FileTransfers.h
     FileResourceAdapter.cpp FileResourceAdapter.h
     TargetSessionSharing.cpp TargetSessionSharing.h
     TerminalTextWait.cpp TerminalTextWait.h tasks/TextWaitMatcher.h
@@ -97,6 +104,7 @@ qt_add_library(novaterm_mcp_runtime STATIC
     TerminalInteraction.cpp TerminalInteraction.h
 )
 target_link_libraries(novaterm_mcp_runtime PUBLIC
+    novaterm_mcp_file_io
     novaterm_mcp_application novaterm_session_automation
     novaterm_core Qt6::SerialPort novaterm_terminal_capabilities
     PRIVATE novaterm_mcp_http novaterm_mcp_protocol novaterm_capabilities)

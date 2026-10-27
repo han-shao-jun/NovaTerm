@@ -86,6 +86,73 @@ class ContractsTests : public QObject
 {
     Q_OBJECT
 private slots:
+    void fileUploadToolsRejectUnsafePathsAndDecodeTypedRequests()
+    {
+        const QString upload = "novaterm_upload_file";
+        const QJsonObject arguments{{"sessionId", SessionUuid}, {"epoch", "epoch-1"},
+            {"resourceId", SessionUuid}, {"resourceRevision", OperationUuid},
+            {"relativePath", "images/firmware.bin"}, {"scopeId", OperationUuid},
+            {"scopeRevision", SessionUuid}, {"remoteName", "firmware.bin"},
+            {"operationId", OperationUuid}};
+        QVERIFY(ToolCodec::isKnownTool(upload));
+        QVERIFY(ToolCodec::validate(upload, arguments).isEmpty());
+        const auto decoded = ToolCodec::decodeCall(upload, arguments);
+        QVERIFY(!isError(decoded));
+        const auto call = std::get<ToolCall>(decoded);
+        QCOMPARE(ToolCodec::toolName(call), upload);
+        const auto request = std::get<StartFileUploadRequest>(std::get<FileTransferRequest>(call));
+        QCOMPARE(request.relativePath, QString("images/firmware.bin"));
+        QCOMPARE(request.operationId, OperationUuid);
+        for (const auto& field : arguments.keys()) {
+            auto invalid = arguments; invalid.remove(field);
+            QVERIFY2(!ToolCodec::validate(upload, invalid).isEmpty(), qPrintable(field));
+        }
+        for (const auto& field : QStringList{"localPath", "remotePath", "clientId", "overwrite", "host", "password"}) {
+            auto invalid = arguments; invalid.insert(field, "injected");
+            QVERIFY(!ToolCodec::validate(upload, invalid).isEmpty());
+        }
+        for (const auto& field : QStringList{"resourceId", "resourceRevision", "scopeId", "scopeRevision", "operationId"}) {
+            auto invalid = arguments; invalid.insert(field, "not-a-uuid");
+            QVERIFY2(isError(ToolCodec::decodeCall(upload, invalid)), qPrintable(field));
+        }
+        for (const auto& path : QStringList{"", "/absolute", "../escape", "safe/../escape", "./file", "a//b",
+                "a\\b", "C:/drive", "name:stream", "a/", "a\nb", QString("a") + QChar(0x85), QString(1025, 'a'), QString(400, QChar(0x4e2d))}) {
+            auto invalid = arguments; invalid.insert("relativePath", path);
+            QVERIFY2(!ToolCodec::validate(upload, invalid).isEmpty(), qPrintable(path));
+        }
+        for (const auto& name : QStringList{"", ".", "..", "a/b", "a\\b", "name:stream", "a\rb", QString("a") + QChar(0x85)}) {
+            auto invalid = arguments; invalid.insert("remoteName", name);
+            QVERIFY2(!ToolCodec::validate(upload, invalid).isEmpty(), qPrintable(name));
+        }
+        for (const auto& name : QStringList{"novaterm_query_transfer", "novaterm_cancel_transfer"}) {
+            QVERIFY(ToolCodec::isKnownTool(name));
+            QVERIFY(ToolCodec::validate(name, {{"transferId", OperationUuid}}).isEmpty());
+            QVERIFY(isError(ToolCodec::decodeCall(name, {{"transferId", "invalid"}})));
+            QVERIFY(!ToolCodec::validate(name, {{"transferId", OperationUuid}, {"clientId", "other"}}).isEmpty());
+            QCOMPARE(ToolCodec::toolName(std::get<ToolCall>(ToolCodec::decodeCall(name, {{"transferId", OperationUuid}}))), name);
+        }
+    }
+    void fileTransferResultSchemaIsClosedAndComplete()
+    {
+        const auto tools = ToolCodec::catalog();
+        QCOMPARE(tools.size(), 25);
+        QFile fixture(QStringLiteral(NOVATERM_SOURCE_DIR "/tests/mcp/fixtures/file-transfer-tools-2026-10-28.json"));
+        QVERIFY(fixture.open(QIODevice::ReadOnly));
+        const QJsonArray appended{tools.at(22), tools.at(23), tools.at(24)};
+        QCOMPARE(appended, QJsonDocument::fromJson(fixture.readAll()).array());
+        const QStringList names{"novaterm_upload_file", "novaterm_query_transfer", "novaterm_cancel_transfer"};
+        const QStringList required{"instanceId", "transferId", "sessionId", "epoch", "operationId", "state",
+            "transferredBytes", "totalBytes", "published", "publication", "temporary", "errorCode", "contentVerified"};
+        for (int i = 0; i < names.size(); ++i) {
+            const auto tool = tools.at(22 + i).toObject();
+            QCOMPARE(tool.value("name").toString(), names[i]);
+            const auto data = tool.value("outputSchema").toObject().value("properties").toObject().value("data").toObject();
+            QVERIFY(!data.value("additionalProperties").toBool(true));
+            QCOMPARE(data.value("properties").toObject().size(), required.size());
+            for (const auto& field : required) QVERIFY(data.value("required").toArray().contains(field));
+            QCOMPARE(data.value("properties").toObject().value("contentVerified").toObject().value("const"), QJsonValue(false));
+        }
+    }
     void fileResourcesDiscoverAuthorizedScopesAndRejectLocalPaths()
     {
         const QString name = "novaterm_list_file_resources";
@@ -105,14 +172,28 @@ private slots:
             QVERIFY(!ToolCodec::validate(name, invalid).isEmpty());
         }
         const auto tools = ToolCodec::catalog();
-        QCOMPARE(tools.size(), 22);
-        const auto tool = tools.last().toObject();
+        QCOMPARE(tools.size(), 25);
+        const auto tool = tools.at(21).toObject();
         QCOMPARE(tool.value("name").toString(), name);
         QVERIFY(tool.value("annotations").toObject().value("readOnlyHint").toBool());
         QVERIFY(!tool.value("annotations").toObject().value("destructiveHint").toBool());
         QFile fixture(QStringLiteral(NOVATERM_SOURCE_DIR "/tests/mcp/fixtures/file-resources-2026-10-27.json"));
         QVERIFY(fixture.open(QIODevice::ReadOnly));
-        QCOMPARE(QJsonArray{tool}, QJsonDocument::fromJson(fixture.readAll()).array());
+        auto expected = QJsonDocument::fromJson(fixture.readAll()).array().first().toObject();
+        auto description = expected.value("description").toString();
+        description.replace("availability=authorization_only: upload/download/query/cancel are not implemented.",
+            "availability=authorization_only describes this metadata tool; use separately listed file-transfer tools for content operations.");
+        expected.insert("description", description);
+        QCOMPARE(tool, expected);
+    }
+    void uploadGuidanceDoesNotRetainObsoleteUnavailability()
+    {
+        const auto instructions = agentInstructions();
+        QVERIFY(instructions.contains("query_transfer"));
+        QVERIFY(!instructions.contains("MCP file upload/download/query/cancel is not available"));
+        const auto description = ToolCodec::catalog().at(21).toObject().value("description").toString();
+        QVERIFY(description.contains("use separately listed file-transfer tools"));
+        QVERIFY(!description.contains("upload/download/query/cancel are not implemented"));
     }
     void closeSavedTargetRequiresOriginalOperationAndEpoch()
     {
@@ -692,6 +773,14 @@ void ContractsTests::confirmationClaimsKeepWireFormatAndRejectTampering()
 int main(int argc, char** argv)
 {
     QCoreApplication application(argc, argv);
+    if (application.arguments().size() == 3 && application.arguments()[1] == "--write-file-transfer-fixture") {
+        const auto tools = ToolCodec::catalog();
+        const QJsonArray appended{tools.at(22), tools.at(23), tools.at(24)};
+        QFile file(application.arguments()[2]);
+        if (!file.open(QIODevice::WriteOnly)) return 1;
+        const auto bytes = QJsonDocument(appended).toJson();
+        return file.write(bytes) == bytes.size() ? 0 : 1;
+    }
     if (application.arguments().size() == 3 && application.arguments()[1] == "--write-target-fixture") {
         QFile file(application.arguments()[2]);
         if (!file.open(QIODevice::WriteOnly)) return 1;

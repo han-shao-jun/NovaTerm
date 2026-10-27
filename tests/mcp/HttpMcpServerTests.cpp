@@ -7,6 +7,7 @@
 #include <QJsonObject>
 #include <QSignalSpy>
 #include <QTcpSocket>
+#include <QNetworkProxy>
 #include <QTest>
 #include <QUrl>
 #include <QElapsedTimer>
@@ -53,6 +54,7 @@ class HttpMcpServerTests : public QObject
 {
     Q_OBJECT
 private slots:
+    void initTestCase() { QNetworkProxy::setApplicationProxy(QNetworkProxy::NoProxy); }
     void ssePreservesEncodedJsonAndBoundsMultilineFraming();
     void fragmentedUtf8PostReturnsJson();
     void rejectsMalformedHttp_data();

@@ -43,6 +43,9 @@ QString agentInstructions()
         "Keep repeated lines; honor gap, pending and invalidated, and use screen observation for active prompts. "
         "Full terminal input requires a separate broad grant and has no per-command risk confirmation. "
         "run_command and run_script retain their own authorization and confirmation rules. "
+        "Use upload_file only for separately authorized local-read and remote-write resources on the current SSH binding. "
+        "Choose a new build-specific remote name, query_transfer until publication is known, and cancel_transfer when needed. "
+        "Upload does not execute files; use separately authorized terminal commands afterwards. Downloads, overwrite and UART/ZMODEM upload are not implemented. "
         "UART idle completion is unverified, not proof of remote termination or test success. "
         "Never rerun uncertain operations with a new operationId. Release or stopped observation does not stop a remote process. "
         "Local cache clear requires its separate grant and a fresh log clearToken; retry only identical operationId and arguments. It does not stop remote programs. "
@@ -54,7 +57,7 @@ QString agentInstructions()
         "Use novaterm_close_target only with the original created open operation and latest epoch; reused, human-controlled, busy or unknown sessions refuse close. "
         "Closing preserves the terminal and is not proof of remote termination. "
         "novaterm_list_file_resources discovers only explicitly shared local resource references and current remote SSH scopes; local paths and file bytes are not returned. Optional sessionId/epoch filter together. File read/write permissions are separate from terminal access. availability=authorization_only does not prove a path is safe or a file is available. "
-        "Only call tools actually listed; MCP file upload/download/query/cancel is not available.");
+        "Only call tools actually listed; file-resource metadata alone does not grant transfer or execution permissions.");
 }
 QString newId() { return QUuid::createUuid().toString(QUuid::WithoutBraces); }
 

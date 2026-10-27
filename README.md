@@ -1,5 +1,7 @@
 # NovaTerm
 
+2026-10-28 工作区MCP新增受限SFTP单文件上传、查询及取消，共二十五工具，直接复用终端已有SFTP会话；默认不覆盖，上传后由外部Agent使用独立获准终端命令执行并读日志。下载、覆盖、UART/ZMODEM上传及真机验收待后续，见[上传记录](docs/architecture/stages/P8_AI_MCP_Interface/records/B3b_Sftp_Upload_2026-10-27.md)。
+
 2026-10-27 B3b文件传输第一子批：新增独立本地/远端读写授权与只读 `novaterm_list_file_resources`，当前二十二工具。仅发现已授权元数据，本机路径与文件内容不回传，上传/下载/进度/取消和安全发布仍待后续，见[文件资源记录](docs/architecture/stages/P8_AI_MCP_Interface/records/B3b_File_Resources_2026-10-27.md)。
 
 2026-10-27 B3b第四子批：保存目标支持本机逐客户端的新会话预授权，默认关闭，原创建连接首次就绪后一次绑定读取/完整输入/清空；复用、重试、重连与人工接管不恢复权限。当前二十一工具，单文件传输及B4待后续，见[预授权记录](docs/architecture/stages/P8_AI_MCP_Interface/records/B3b_New_Session_Sharing_2026-10-27.md)。

@@ -8,6 +8,7 @@
 #include <QQueue>
 #include <QStringList>
 #include <QWidget>
+#include "session/SftpFileUpload.h"
 
 class ElaIconButton;
 class ElaLineEdit;
@@ -37,6 +38,9 @@ public:
     void setSessionContext(const QString& sessionLabel,
                            SshTransport* transport);
     [[nodiscard]] bool hasPendingOperations() const;
+    [[nodiscard]] bool hasPendingUserOperations() const;
+    [[nodiscard]] SftpSession* fileTransferSession(SshTransport* expected) const;
+    bool uploadAuthorizedFile(const SftpFileUploadRequest&);
 public slots:
     /** 仅消费所属 SSH Shell 的目录结果，包含后台标签的在途请求。 */
     void synchronizePathFromTerminal(SshTransport* source, const QString& path);
@@ -159,6 +163,9 @@ private:
     ElaText* _fileTreeHint{nullptr};
     SftpSession* _sftpSession{nullptr};
     QPointer<SshTransport> _sshTransport;
+    quint64 _authorizedUploadId{0};
+    quint64 _connectionGeneration{0};
+    QString _hostKeyFingerprint;
     QQueue<UploadRequest> _pendingUploads;
     QQueue<DeleteRequest> _pendingDeletes;
     QQueue<DownloadRequest> _pendingDownloads;

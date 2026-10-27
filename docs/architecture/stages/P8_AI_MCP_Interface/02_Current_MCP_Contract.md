@@ -1,5 +1,29 @@
 # 当前 MCP 接口契约与兼容基线
 
+## 2026-10-28：受限 SFTP 单文件上传（工作区增量）
+
+三个工具职责独立：上传只上传，查询只读事实，取消只请求停止指定transferId；上传不调用打开、执行、读取日志或关闭工具，不要求其权限，也不依赖关闭策略或普通终端命令忙碌状态。仅复用连接/授权/队列等底层资源。关闭工具仍独立保护活动传输，不能在上传中误断开连接。
+
+当前二十五工具：兼容原二十二工具Schema/权限，末尾追加 `novaterm_upload_file`、`novaterm_query_transfer`、`novaterm_cancel_transfer`。版本0.2.91保持；原九项终端请求联合和历史fixture保持。实际本轮验证见[上传记录](records/B3b_Sftp_Upload_2026-10-27.md)。
+
+| 工具 | 必填参数 | 行为 |
+| --- | --- | --- |
+| novaterm_upload_file | sessionId、epoch、resourceId、resourceRevision、relativePath、scopeId、scopeRevision、remoteName、operationId | 本地读授权资源下的普通文件，上传到当前SSH绑定的远端写授权目录下单个新文件名；不覆盖、不执行 |
+| novaterm_query_transfer | transferId | 查询本人当前身份的原传输事实，不再次上传 |
+| novaterm_cancel_transfer | transferId | 请求取消原传输；已开始发布返回最终成功或未知事实，不能删除已发布目标 |
+
+ID/revision/operationId为非空规范UUID；拒绝未知参数、本机绝对路径/客户端身份/凭据注入、相对路径上级跳转/空段/控制字符/反斜线/ADS，以及远端名称中的路径分隔。相对路径与名称最多1024 UTF-8字节，后端远端名称另受文件系统单组件限制；本地授权根和相对路径各最多32段。本地文件I/O当前仅Windows支持，其他平台明确拒绝。授权目录工具保持 `authorization_only`，它本身仍不执行I/O；只有上传入口进入现有终端面板SftpSession。
+
+MCP不另建连接/执行器。终端SFTP面板必须已就绪且无手工作业；上传期间复用原队列并禁用面板竞争操作，观察不受阻。SFTP连接核对终端原主机指纹、known_hosts路径与连接代际，文件授权另绑定客户端身份、Session/attachment/epoch/generation/目标指纹及资源revision。撤权、换绑、断流和期限在发布前取消；普通终端权限变化不推导文件权限。
+
+预算：最大64 MiB、64 KiB固定分块、每客户端/Session一个活动上传，全局两个；受理记录每客户端16/全局64，终态保留10分钟，运行中不淘汰。总120秒、无进展15秒、发布准入等待2秒；libssh同步调用之间检查，底层恶意逐字节包或本机阻塞I/O不保证硬退出上界。精确重试在记录保留期内只返回原transferId/事实，同operationId不同参数拒绝。终态过期后不保证幂等记录仍可查询，未知结果不得自动换ID重放。
+
+data固定包含instanceId、transferId、sessionId、epoch、operationId、state、transferredBytes、totalBytes（开始读取前可为空）、published、publication、temporary、errorCode（无错误为空）、contentVerified=false。state为accepted/connecting/uploading/cancel_requested/completed/cancelled/failed/unknown；publication为not_started/published/unknown，temporary为none/removed/retained/unknown。字节已传不等于已发布，发布不等于hash校验或程序测试成功。
+
+首批要求 `hardlink@openssh.com`：0600/EXCL随机临时文件→同目录原子不替换创建目标→清理本次临时链接。能力不足拒绝，不使用覆盖式posix-rename。远端逐段检查规范路径、链接、权限及祖先属主（只接受远端管理员或授权根属主）；SFTPv3无法对恶意同账号路径改写提供本地句柄级保证，故该账号/管理员须可信。检查变化时不冒险清理；失去发布确认或通用歧义错误保守返回unknown。上传工具不执行chmod、sh、insmod、烧录或重启，后续命令须走现有独立授权终端工具。
+
+下载、覆盖及UART/ZMODEM单文件上传为后续；ZMODEM从已有SerialFileTransferController/输入泵/协议owner接入，不能调用虚构工具。
+
 兼容基线整理于 2026-10-18，2026-10-23 加入历史工具；2026-10-24 校正目录与状态说明。入口：[总体架构](00_Overall_Architecture.md) / [实施与验收](01_Phases_and_Acceptance.md)。
 本文件记录已有冻结契约，依据 ToolCodec、fixture、Budget、Errors 和 MCP 使用说明；不宣称外部 MCP 规范的最新状态，也不证明所有平台已验收。2026-10-25 B0/B1 已退役未发布 P4 两个诊断工具及专属接线，B0/B1 基线为十二工具，B2 后为十三项（见下节）。清理、日志扩展及本轮验证见 [B0/B1 实施与验收](records/B0_B1_Implementation_2026-10-25.md)。
 
@@ -8,6 +32,8 @@
 2026-10-27 B3/B3a：追加下述四工具，达到十七项；B3b 第一子批再追加只读保存目标目录，第二子批增加打开/查询，第二子批为二十项，第三子批追加安全关闭后共二十一项。原十七对象兼容保留，目录工具仅更正说明文字；旧九项 ToolRequest 联合不扩张。SSH/SFTP 单文件传输仍未实施，安全关闭见下节。源码/替身验证不代替真实设备验收。
 
 ## B3b 文件传输第一子批：独立文件授权目录（2026-10-27）
+
+2026-10-27 后续工作区增加 Windows 本地句柄I/O库（[记录](records/B3b_Local_File_IO_2026-10-27.md)），初批独立验证，当前上传已复用Reader；目录工具本身仍保持以下Schema、权限及`authorization_only`，元数据发现本身不执行传输。
 
 新增只读 `novaterm_list_file_resources`，当前二十二工具；原二十一工具对象、九项终端请求联合与权限语义保持。本批只查询本机用户明确共享的授权元数据，不读取文件内容，不创建SFTP或终端连接，不提供上传/下载/进度/取消工具。
 

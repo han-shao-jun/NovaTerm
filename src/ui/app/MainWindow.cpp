@@ -27,6 +27,7 @@
 #include "ui/widgets/MessagePrompts.h"
 #include "ui/widgets/SessionPanel.h"
 #include "ui/widgets/SftpPanel.h"
+#include "session/SftpSession.h"
 #include "ui/widgets/SshPanelStack.h"
 #include "ui/widgets/SystemMonitorPanel.h"
 #include "ui/widgets/McpSettingsDialog.h"
@@ -1251,6 +1252,38 @@ void MainWindow::initWindow()
             auto* ssh = qobject_cast<SshTransport*>(entry->transport.data());
             const auto* panel = ssh ? window->_sftpPanels->panelFor(ssh) : nullptr;
             return !panel || !panel->hasPendingOperations();
+        });
+        mcp->setFileUploadStarter([window = QPointer<MainWindow>(this), owner = QPointer<NovaTerm::Mcp::Service>(mcp)]
+            (TerminalSession& session, const SftpFileUploadRequest& request, NovaTerm::Mcp::FileTransfers::Delivery delivery) {
+            if (!window || !owner || !window->_sftpPanels) return false;
+            auto* ssh = qobject_cast<SshTransport*>(session.transport());
+            auto* panel = ssh ? window->_sftpPanels->panelFor(ssh) : nullptr;
+            auto* backend = panel ? panel->fileTransferSession(ssh) : nullptr;
+            if (!backend) return false;
+            const auto connections = std::make_shared<QList<QMetaObject::Connection>>();
+            connections->append(QObject::connect(backend, &SftpSession::authorizedFileProgress, owner,
+                [id = request.requestId, progress = delivery.progress](quint64 current, quint64 bytes, quint64 total) {
+                    if (id == current) progress(bytes, total);
+                }));
+            connections->append(QObject::connect(backend, &SftpSession::authorizedFilePublicationReady, owner,
+                [id = request.requestId, ready = delivery.publicationReady](quint64 current) { if (id == current) ready(); }));
+            connections->append(QObject::connect(backend, &SftpSession::authorizedFileFinished, owner,
+                [id = request.requestId, done = delivery.finished, connections](const SftpFileUploadResult& result) {
+                    if (id != result.requestId) return;
+                    for (const auto& connection : *connections) QObject::disconnect(connection);
+                    done(result);
+                }));
+            connections->append(QObject::connect(backend, &QObject::destroyed, owner,
+                [id = request.requestId, control = request.control, done = delivery.finished, connections] {
+                    SftpFileUploadResult result; result.requestId = id;
+                    result.publication = control->state.load() == SftpFileUploadControl::State::Publishing ? "unknown" : "not_started";
+                    result.temporary = "unknown"; result.errorCode = "SESSION_NOT_AVAILABLE";
+                    for (const auto& connection : *connections) QObject::disconnect(connection);
+                    done(result);
+                }));
+            if (panel->uploadAuthorizedFile(request)) return true;
+            for (const auto& connection : *connections) QObject::disconnect(connection);
+            return false;
         });
     }
     _sessionPanel->setCursor(Qt::ArrowCursor);

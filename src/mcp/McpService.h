@@ -4,6 +4,7 @@
 #pragma once
 #include "McpAccess.h"
 #include "application/TargetConnections.h"
+#include "FileTransfers.h"
 #include <QJsonArray>
 #include <memory>
 namespace NovaTerm::Recording { class HistoryService; }
@@ -25,6 +26,7 @@ public:
     [[nodiscard]] SessionDirectory& directory();
     [[nodiscard]] SavedTargets& savedTargets();
     [[nodiscard]] FileResourceAdapter& fileResources();
+    void setFileUploadStarter(FileTransfers::Start);
     void setTargetOpener(TargetConnections::Open);
     /** Local composition supplies transfer/UI safety; missing SSH facts refuse close. */
     void setTargetCloseSafety(std::function<bool(const QString& sessionId)>);

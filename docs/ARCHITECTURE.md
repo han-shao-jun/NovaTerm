@@ -1,5 +1,9 @@
 # NovaTerm 统一架构设计
 
+2026-10-28 工作区受限SFTP单文件上传/查询/取消已接入，当前二十五工具；MCP薄索引复用终端SftpPanel原SftpSession/worker，不另建连接/执行器。文件读写在原worker，本地Reader已成为生产消费者；Core不依赖MCP文件I/O。默认不覆盖、不自动执行。限制、实际验证及UART/ZMODEM下一起点见[上传记录](architecture/stages/P8_AI_MCP_Interface/records/B3b_Sftp_Upload_2026-10-27.md)。
+
+2026-10-27 文件传输第二子批新增独立Qt Core `novaterm_mcp_file_io`：Windows worker使用相对目录句柄读普通文件、写独占临时文件及原子不覆盖发布；其他平台明确拒绝。尚未接MCP/Session/SFTP，不扩大授权，不新增工具，见[本地I/O记录](architecture/stages/P8_AI_MCP_Interface/records/B3b_Local_File_IO_2026-10-27.md)。
+
 2026-10-27 B3b文件传输第一子批：新增独立本地/远端读写授权与只读 `novaterm_list_file_resources`，当前二十二工具。仅发现已授权元数据，本机路径与文件内容不回传，上传/下载/进度/取消和安全发布仍待后续，见[文件资源记录](architecture/stages/P8_AI_MCP_Interface/records/B3b_File_Resources_2026-10-27.md)。
 
 2026-10-27 B3b第四子批：保存目标支持本机逐客户端的新会话预授权，默认关闭，原创建连接首次就绪后一次绑定读取/完整输入/清空；复用、重试、重连与人工接管不恢复权限。当前二十一工具，单文件传输及B4待后续，见[预授权记录](architecture/stages/P8_AI_MCP_Interface/records/B3b_New_Session_Sharing_2026-10-27.md)。

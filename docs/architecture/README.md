@@ -1,5 +1,9 @@
 # NovaTerm 架构文档索引
 
+2026-10-28 工作区受限SFTP上传/查询/取消已接入，当前二十五工具；复用终端原SFTP后端，本地句柄Reader已有生产调用，见[上传记录](stages/P8_AI_MCP_Interface/records/B3b_Sftp_Upload_2026-10-27.md)。
+
+2026-10-27 文件传输第二子批新增Windows本地句柄I/O库，供后续传输worker使用；未接MCP/SFTP、不新增工具，见[记录](stages/P8_AI_MCP_Interface/records/B3b_Local_File_IO_2026-10-27.md)。
+
 2026-10-27 B3b文件传输第一子批：新增独立本地/远端读写授权与只读 `novaterm_list_file_resources`，当前二十二工具。仅发现已授权元数据，本机路径与文件内容不回传，上传/下载/进度/取消和安全发布仍待后续，见[文件资源记录](stages/P8_AI_MCP_Interface/records/B3b_File_Resources_2026-10-27.md)。
 
 2026-10-27：新增 `novaterm_close_target`，当前二十一工具；仅关闭原操作创建且未人工接管、具有空闲证据的连接，保留终端。单文件传输和B4待后续，见[安全关闭记录](stages/P8_AI_MCP_Interface/records/B3b_Target_Close_2026-10-27.md)。

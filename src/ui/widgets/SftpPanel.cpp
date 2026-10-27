@@ -578,6 +578,13 @@ SftpPanel::SftpPanel(QWidget* parent)
         _hasError = false;
         requestDirectory(homePath);
     });
+    connect(_sftpSession, &SftpSession::authorizedFileFinished, this,
+        [this](const SftpFileUploadResult& result) {
+            if (_authorizedUploadId != result.requestId) return;
+            _authorizedUploadId = 0;
+            stopTransferProgress();
+            refreshAvailability();
+        });
     connect(_sftpSession, &SftpSession::directoryListed, this,
             [this](const QString& path, QVector<SftpFileInfo> entries) {
         _fileTree->clear();
@@ -790,7 +797,7 @@ SftpPanel::SftpPanel(QWidget* parent)
 
 void SftpPanel::dragEnterEvent(QDragEnterEvent* event)
 {
-    if (!_backendConnected || _busy
+    if (!_backendConnected || _busy || _authorizedUploadId
         || localEntriesFromMimeData(event->mimeData()).isEmpty()) {
         event->ignore();
         return;
@@ -804,7 +811,7 @@ void SftpPanel::dragEnterEvent(QDragEnterEvent* event)
 
 void SftpPanel::dragMoveEvent(QDragMoveEvent* event)
 {
-    if (_dropActive && _backendConnected && !_busy) {
+    if (_dropActive && _backendConnected && !_busy && !_authorizedUploadId) {
         event->setDropAction(Qt::CopyAction);
         event->accept();
         return;
@@ -822,7 +829,7 @@ void SftpPanel::dropEvent(QDropEvent* event)
 {
     const QStringList localEntries = localEntriesFromMimeData(event->mimeData());
     setDropActive(false);
-    if (!_backendConnected || _busy || localEntries.isEmpty()) {
+    if (!_backendConnected || _busy || _authorizedUploadId || localEntries.isEmpty()) {
         event->ignore();
         return;
     }
@@ -874,15 +881,37 @@ bool SftpPanel::eventFilter(QObject* watched, QEvent* event)
 
 bool SftpPanel::hasPendingOperations() const
 {
-    return _sshTransport && (!_backendConnected || _busy || _uploadBatchActive
+    return _sshTransport && (!_backendConnected || _busy || _authorizedUploadId || _uploadBatchActive
         || _deleteBatchActive || _downloadBatchActive || !_pendingUploads.isEmpty()
         || _sftpSession->hasPendingOperations());
+}
+bool SftpPanel::hasPendingUserOperations() const
+{
+    return _sshTransport && (!_backendConnected || _busy || _uploadBatchActive
+        || _deleteBatchActive || _downloadBatchActive || !_pendingUploads.isEmpty()
+        || (!_authorizedUploadId && _sftpSession->hasPendingOperations()));
+}
+SftpSession* SftpPanel::fileTransferSession(SshTransport* expected) const
+{
+    return expected && expected == _sshTransport && _backendConnected && _sftpSession->isConnected()
+        && !_hostKeyFingerprint.isEmpty() && expected->connectionGeneration() == _connectionGeneration
+        && expected->serverHostKeyFingerprint() == _hostKeyFingerprint
+        && !hasPendingUserOperations() && !_authorizedUploadId ? _sftpSession : nullptr;
+}
+bool SftpPanel::uploadAuthorizedFile(const SftpFileUploadRequest& request)
+{
+    if (!fileTransferSession(_sshTransport) || !request.requestId) return false;
+    _authorizedUploadId = request.requestId;
+    if (!_sftpSession->uploadAuthorizedFile(request)) { _authorizedUploadId = 0; return false; }
+    refreshAvailability();
+    return true;
 }
 
 void SftpPanel::setSessionContext(const QString& sessionLabel,
                                   SshTransport* transport)
 {
-    if (transport && _sshTransport == transport) {
+    if (transport && _sshTransport == transport && transport->connectionGeneration() == _connectionGeneration
+        && transport->serverHostKeyFingerprint() == _hostKeyFingerprint) {
         _sessionName = sessionLabel;
         refreshAvailability();
         return;
@@ -893,7 +922,10 @@ void SftpPanel::setSessionContext(const QString& sessionLabel,
     setDropActive(false);
     stopTransferProgress();
     _sftpSession->disconnectFromHost();
+    _authorizedUploadId = 0;
     _sshTransport = transport;
+    _connectionGeneration = transport ? transport->connectionGeneration() : 0;
+    _hostKeyFingerprint = transport ? transport->serverHostKeyFingerprint() : QString{};
     _sessionName = sessionLabel;
     _backendConnected = false;
     _busy = false;
@@ -928,7 +960,7 @@ void SftpPanel::setSessionContext(const QString& sessionLabel,
         setFileTreeHint(tr("Connecting to SFTP…"));
         _availabilityLabel->setText(tr("Connecting to SFTP…"));
         refreshAvailability();
-        _sftpSession->connectToHost(_sshTransport->sessionConfig());
+        _sftpSession->connectToHost(_sshTransport->sessionConfig(), _hostKeyFingerprint, _sshTransport->knownHostsPath());
         return;
     }
 
@@ -979,7 +1011,7 @@ void SftpPanel::retranslateUi()
 
 void SftpPanel::refreshAvailability()
 {
-    const bool enabled = _sshTransport && _backendConnected && !_busy;
+    const bool enabled = _sshTransport && _backendConnected && !_busy && !_authorizedUploadId;
     _parentDirectoryButton->setEnabled(enabled);
     _refreshButton->setEnabled(enabled);
     _pastePathButton->setEnabled(enabled);
@@ -1039,7 +1071,7 @@ void SftpPanel::setDropActive(bool active)
 
 void SftpPanel::requestDirectory(const QString& path)
 {
-    if (!_backendConnected || path.trimmed().isEmpty())
+    if (!_backendConnected || _authorizedUploadId || path.trimmed().isEmpty())
         return;
     setBusy(true, tr("Loading remote directory…"));
     _sftpSession->listDirectory(path.trimmed());
@@ -1065,7 +1097,7 @@ void SftpPanel::updateSelectionActions()
         }
     }
     const bool downloadable =
-        _sshTransport && _backendConnected && !_busy && hasDownloadable;
+        _sshTransport && _backendConnected && !_busy && !_authorizedUploadId && hasDownloadable;
     _downloadButton->setEnabled(downloadable);
 }
 
@@ -1152,7 +1184,7 @@ void SftpPanel::sortFileTree(Qt::SortOrder order)
 
 void SftpPanel::uploadFile()
 {
-    if (!_backendConnected || _busy)
+    if (!_backendConnected || _busy || _authorizedUploadId)
         return;
 
     SftpContextMenu menu(this);
@@ -1187,7 +1219,7 @@ bool SftpPanel::remotePathExists(const QString& path) const
 
 void SftpPanel::queueUploads(const QStringList& localPaths)
 {
-    if (!_backendConnected || _busy || localPaths.isEmpty())
+    if (!_backendConnected || _busy || _authorizedUploadId || localPaths.isEmpty())
         return;
 
     QQueue<UploadRequest> requests;
@@ -1327,7 +1359,7 @@ void SftpPanel::resetDeleteBatch()
 
 void SftpPanel::deleteSelectedEntries()
 {
-    if (!_backendConnected || _busy || _deleteBatchActive)
+    if (!_backendConnected || _busy || _authorizedUploadId || _deleteBatchActive)
         return;
 
     const QList<QTreeWidgetItem*> selected = _fileTree->selectedItems();
@@ -1487,7 +1519,7 @@ void SftpPanel::resetDownloadBatch()
 }
 void SftpPanel::downloadSelectedEntries()
 {
-    if (!_backendConnected || _busy)
+    if (!_backendConnected || _busy || _authorizedUploadId)
         return;
     const QList<QTreeWidgetItem*> selected = _fileTree->selectedItems();
     if (selected.isEmpty())
@@ -1539,7 +1571,7 @@ void SftpPanel::downloadSelectedEntries()
 void SftpPanel::downloadEntry(QTreeWidgetItem* item)
 {
     if (!item || item->data(0, SymbolicLinkRole).toBool()
-        || !_backendConnected || _busy) {
+        || !_backendConnected || _busy || _authorizedUploadId) {
         return;
     }
 
@@ -1572,7 +1604,7 @@ void SftpPanel::queueDownloads(const QList<QTreeWidgetItem*>& items,
                                const QString& destination,
                                bool destinationIsExactFilePath)
 {
-    if (!_backendConnected || _busy || items.isEmpty())
+    if (!_backendConnected || _busy || _authorizedUploadId || items.isEmpty())
         return;
 
     QQueue<DownloadRequest> requests;
@@ -1694,7 +1726,7 @@ void SftpPanel::finishDownloadBatch()
 
 void SftpPanel::showFileContextMenu(const QPoint& position)
 {
-    if (!_backendConnected || _busy)
+    if (!_backendConnected || _busy || _authorizedUploadId)
         return;
 
     QTreeWidgetItem* item = _fileTree->itemAt(position);

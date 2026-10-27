@@ -1,5 +1,9 @@
 # NovaTerm 分阶段开发路线图
 
+2026-10-28 工作区MCP受限SFTP上传/查询/取消已接入，共二十五工具，复用终端原SftpSession，不另开连接；下载、覆盖、UART/ZMODEM上传和B4真机验收为后续。实际证据及限制见[上传记录](stages/P8_AI_MCP_Interface/records/B3b_Sftp_Upload_2026-10-27.md)。
+
+2026-10-27 文件传输第二子批新增Windows worker本地句柄读写基础设施，支持有界普通文件读取、临时文件写入和不覆盖发布，见[记录](stages/P8_AI_MCP_Interface/records/B3b_Local_File_IO_2026-10-27.md)。尚未接MCP/SFTP，二十二工具与B3b数据传输/B4未完成状态保持。
+
 2026-10-27 B3b文件传输第一子批：新增独立本地/远端读写授权与只读 `novaterm_list_file_resources`，当前二十二工具。仅发现已授权元数据，本机路径与文件内容不回传，上传/下载/进度/取消和安全发布仍待后续，见[文件资源记录](stages/P8_AI_MCP_Interface/records/B3b_File_Resources_2026-10-27.md)。
 
 2026-10-27 B3b第四子批：保存目标支持本机逐客户端的新会话预授权，默认关闭，原创建连接首次就绪后一次绑定读取/完整输入/清空；复用、重试、重连与人工接管不恢复权限。当前二十一工具，单文件传输及B4待后续，见[预授权记录](stages/P8_AI_MCP_Interface/records/B3b_New_Session_Sharing_2026-10-27.md)。
@@ -42,7 +46,7 @@ P9 的协议库与测试独立于 P6/P8，先按 XMODEM → YMODEM → ZMODEM �
 | P5 | 实施完成；Linux Vulkan/OpenGL、Windows D3D11/D3D12 与 30 分钟长稳验收完成（2026-08-02）；macOS Metal、多屏 DPR 与 120/144 Hz 验收待完成 | 多页 Atlas、fallback、instancing | CJK/Emoji/DPI 正确且上传增量化 |
 | P6 | 进行中：Transport 四种完成，会话编排采用「1 View 拥有 1 Session」已在生产；剩少量自包含项 | Session（View-owned）、SSH/Serial/Telnet | 每 View 一会话、完整生命周期 |
 | P7 | 已实现为内置功能（常驻监控 2026-09-06、系统信息窗口 2026-09-09）；性能量化验收待补 | SSH 远端资源监控面板、系统信息窗口 | 复用单连接、快慢通道隔离、不反压 Parser |
-| P8 | B0/B1、B2、B3/B3a已实施；2026-10-27 B3b提供显式共享的保存SSH/UART目标目录及独立授权的打开/复用/查询和安全关闭（当前二十二工具），未发布诊断/本机Agent原型保持退役；新会话预授权已实现；独立文件授权目录已提供；单文件传输及真机/性能仍待后续 | SSH/UART观察、输入、缓存游标、可选清空、有界文本等待、长任务及独立保存目标目录；外部Agent编排BSP闭环 | 源码/替身、真实板卡双通道、客户端和性能分别验收，见 [实施顺序](stages/P8_AI_MCP_Interface/01_Phases_and_Acceptance.md) |
+| P8 | B0/B1、B2、B3/B3a及B3b保存目标打开/查询/关闭、新会话预授权、独立文件授权已实施；工作区追加受限SFTP上传/查询/取消，当前二十五工具；下载、覆盖、UART/ZMODEM与真机/性能待后续 | 外部Agent本地编码/编译，独立MCP工具完成获准连接、上传、执行和观察；NovaTerm不编排工程或判断成功 | 源码/替身、真实板卡双通道、客户端和性能分别验收，见[实施顺序](stages/P8_AI_MCP_Interface/01_Phases_and_Acceptance.md) |
 | P9 | 协议库及串口 Session/手动传输窗口已接入；Linux 纯协议、门面、UI 与真实 QSerialPort/raw PTY 通路测试通过；Windows 取消发布竞争用例有已知失败，macOS 与真实 UART 文件传输验收待补 | 独立协议库、Session 输入分流/输出独占、异步文件门面与手动串口窗口 | 三协议双向测试与互通、单通路接线及有界停止；跨平台/真实 UART 文件验收明确收口 |
 
 **P9：文件传输协议**的范围、步骤和验收见

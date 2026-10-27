@@ -39,6 +39,11 @@ public:
         QMutexLocker lock(&session._control->queueMutex);
         session._control->commands.clear();
     }
+    static void available(SftpSession& session) { session._control->connected = true; }
+    static qsizetype queued(SftpSession& session) {
+        QMutexLocker lock(&session._control->queueMutex);
+        return session._control->commands.size();
+    }
     static void active(SftpSession& session, bool active)
     {
         QMutexLocker lock(&session._control->queueMutex);
@@ -58,6 +63,10 @@ public:
     {
         transport._connected = true;
     }
+    static void verified(SshTransport& transport) {
+        connected(transport); transport._serverHostKeyFingerprint = QString(64, 'a');
+    }
+    static void advance(SshTransport& transport) { ++transport._connectionGeneration; }
     static bool monitoring(SshTransport& transport) { return transport._monitorEnabled; }
     static quint64 generation(SshTransport& transport) { return transport._monitorGeneration; }
     static quint64 pendingSample(SshTransport& transport) { return transport._monitorRequestId; }
@@ -110,6 +119,41 @@ private:
         QVERIFY(QMetaObject::invokeMethod(timer, "timeout", Qt::DirectConnection));
     }
 private slots:
+    void authorizedUploadReusesPanelQueueAndBlocksCompetingUiRequests()
+    {
+        SshTransport transport(SshConfig{});
+        SshTransportTestAccess::verified(transport);
+        SftpPanel panel;
+        panel.setSessionContext("Board", &transport);
+        auto* backend = panel.findChild<SftpSession*>(); QVERIFY(backend);
+        SftpSessionSafetyTestAccess::connected(*backend, "/board");
+        SftpSessionSafetyTestAccess::available(*backend);
+        SftpSessionSafetyTestAccess::drainQueue(*backend);
+        emit backend->directoryListed("/board", {});
+        QCOMPARE(panel.fileTransferSession(&transport), backend);
+        SftpFileUploadRequest request;
+        request.requestId = 42; request.localRoot = "C:/build"; request.localRelativePath = "module.ko";
+        request.remoteRoot = "/board"; request.remoteName = "module-build.ko";
+        request.control = std::make_shared<SftpFileUploadControl>();
+        QVERIFY(panel.uploadAuthorizedFile(request));
+        QCOMPARE(SftpSessionSafetyTestAccess::queued(*backend), 1);
+        QVERIFY(panel.hasPendingOperations());
+        QVERIFY(!panel.hasPendingUserOperations());
+        QVERIFY(!panel.findChild<ElaLineEdit*>()->isEnabled());
+        QVERIFY(!panel.uploadAuthorizedFile(request));
+        panel.synchronizePathFromTerminal(&transport, "/competing");
+        QCOMPARE(SftpSessionSafetyTestAccess::queued(*backend), 1);
+        SftpFileUploadResult result; result.requestId = 41;
+        emit backend->authorizedFileFinished(result);
+        QVERIFY(!panel.findChild<ElaLineEdit*>()->isEnabled());
+        result.requestId = 42;
+        SftpSessionSafetyTestAccess::drainQueue(*backend);
+        emit backend->authorizedFileFinished(result);
+        QVERIFY(panel.findChild<ElaLineEdit*>()->isEnabled());
+        QCOMPARE(panel.fileTransferSession(&transport), backend);
+        SshTransportTestAccess::advance(transport);
+        QVERIFY(!panel.fileTransferSession(&transport));
+    }
     void closeSafetySeesBackgroundPanelOperations()
     {
         SshTransport a(SshConfig{}), b(SshConfig{});

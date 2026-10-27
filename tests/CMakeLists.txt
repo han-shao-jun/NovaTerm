@@ -29,6 +29,11 @@ add_subdirectory(historysearch)
 include(mcp/History.cmake)
 add_subdirectory(evidence)
 add_subdirectory(resources)
+    qt_add_executable(novaterm_mcp_local_file_io_tests mcp/LocalFileAccessTests.cpp)
+    target_link_libraries(novaterm_mcp_local_file_io_tests PRIVATE novaterm_mcp_file_io Qt6::Test)
+    set_target_properties(novaterm_mcp_local_file_io_tests PROPERTIES WIN32_EXECUTABLE FALSE)
+    add_test(NAME novaterm_mcp_local_file_io_tests COMMAND novaterm_mcp_local_file_io_tests)
+    set_tests_properties(novaterm_mcp_local_file_io_tests PROPERTIES LABELS "mcp;p8;security" TIMEOUT 30)
     qt_add_executable(novaterm_mcp_file_resources_tests mcp/FileResourcesTests.cpp)
     target_link_libraries(novaterm_mcp_file_resources_tests PRIVATE novaterm_mcp_application Qt6::Test)
     set_target_properties(novaterm_mcp_file_resources_tests PROPERTIES WIN32_EXECUTABLE FALSE)
@@ -71,7 +76,7 @@ add_subdirectory(resources)
         USES_TERMINAL
         COMMENT "Running NovaTerm tests with detailed CTest output"
     )
-    add_dependencies(check novaterm_mcp_file_resources_tests novaterm_history_contracts_tests novaterm_history_authorization_tests
+    add_dependencies(check novaterm_mcp_local_file_io_tests novaterm_mcp_file_resources_tests novaterm_history_contracts_tests novaterm_history_authorization_tests
         novaterm_history_search_tests novaterm_evidence_tests novaterm_mcp_saved_targets_tests)
 
     add_subdirectory(filetransfer)
@@ -270,9 +275,11 @@ add_subdirectory(resources)
     set_tests_properties(novaterm_mcp_access_interaction_tests PROPERTIES LABELS "mcp;p8;security" TIMEOUT 30)
     add_dependencies(check novaterm_mcp_access_interaction_tests)
 
-    foreach(_workflow_test IN ITEMS text_wait terminal_tasks)
+    foreach(_workflow_test IN ITEMS text_wait terminal_tasks file_transfers)
         if(_workflow_test STREQUAL "text_wait")
             set(_workflow_source mcp/TextWaitTests.cpp)
+        elseif(_workflow_test STREQUAL "file_transfers")
+            set(_workflow_source mcp/FileTransfersTests.cpp)
         else()
             set(_workflow_source mcp/TerminalTaskTests.cpp)
         endif()
@@ -1256,7 +1263,7 @@ if(BUILD_TESTING)
     # 三个既有目标直接编译 Session/TerminalView，必须链接新串口门面。
     foreach(_serial_consumer novaterm_session_tests novaterm_mcp_tests
             novaterm_mcp_access_interaction_tests novaterm_terminal_session_tests
-            novaterm_mcp_text_wait_tests novaterm_mcp_terminal_tasks_tests)
+            novaterm_mcp_text_wait_tests novaterm_mcp_terminal_tasks_tests novaterm_mcp_file_transfers_tests)
         if(TARGET ${_serial_consumer})
             target_link_libraries(${_serial_consumer} PRIVATE novaterm_serial_transfer)
             target_sources(${_serial_consumer} PRIVATE
@@ -1288,4 +1295,13 @@ if(BUILD_TESTING)
     set_tests_properties(novaterm_serial_file_transfer_ui_tests PROPERTIES
         LABELS "ui;serial;filetransfer;p9" TIMEOUT 30 ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
     add_dependencies(check novaterm_serial_file_transfer_tests novaterm_serial_file_transfer_ui_tests)
+    # Link the worker's I/O dependency only into targets that compile it;
+    # TerminalCore must not depend on MCP or filesystem transfer adapters.
+    get_property(_sftp_test_targets DIRECTORY PROPERTY BUILDSYSTEM_TARGETS)
+    foreach(_sftp_test_target IN LISTS _sftp_test_targets)
+        get_target_property(_sftp_test_sources ${_sftp_test_target} SOURCES)
+        if(_sftp_test_sources MATCHES "src/session/SftpSession.cpp")
+            target_link_libraries(${_sftp_test_target} PRIVATE novaterm_mcp_file_io)
+        endif()
+    endforeach()
 endif()

@@ -5,6 +5,7 @@
 #pragma once
 
 #include "session/SessionTypes.h"
+#include "session/SftpFileUpload.h"
 
 #include <QMutex>
 #include <QObject>
@@ -64,6 +65,7 @@ public:
                                    const QString& remotePath);
     /** @brief 取消指定的内存上传，活动写入会在下一个分块边界停止。 */
     void cancelUpload(quint64 requestId);
+    [[nodiscard]] bool uploadAuthorizedFile(const SftpFileUploadRequest& request);
     void uploadDirectory(const QString& localPath, const QString& remotePath);
     void downloadFile(const QString& remotePath, const QString& localPath);
     void downloadDirectory(const QString& remotePath, const QString& localPath);
@@ -89,6 +91,9 @@ signals:
                            const QString& remotePath);
     void uploadBytesFinished(quint64 requestId, const QString& remotePath,
                              bool success, const QString& errorCode);
+    void authorizedFileProgress(quint64 requestId, quint64 transferred, quint64 total);
+    void authorizedFilePublicationReady(quint64 requestId);
+    void authorizedFileFinished(const SftpFileUploadResult& result);
     void errorOccurred(const QString& message);
 
 private:
@@ -97,6 +102,7 @@ private:
         List,
         Upload,
         UploadBytes,
+        UploadAuthorizedFile,
         UploadDirectory,
         Download,
         DownloadDirectory,
@@ -116,6 +122,7 @@ private:
         quint32 permissions{0};
         quint64 requestId{0};
         QByteArray content{};
+        SftpFileUploadRequest fileUpload{};
     };
 
     /** 全部工作线程状态独立于 QObject，允许有界等待后安全放弃阻塞线程。 */
@@ -132,6 +139,7 @@ private:
         QSet<quint64> cancelledUploadRequests;
         qsizetype queuedUploadBytes{0};
         quint64 activeUploadRequestId{0};
+        std::shared_ptr<SftpFileUploadControl> activeFileUpload;
         // 锁只保护入队通知时的 receiver 生命周期；绝不跨阻塞 I/O 持锁。
         QMutex notificationMutex;
         SftpSession* receiver{nullptr};
@@ -163,9 +171,23 @@ private:
         const QString& remotePath, const QByteArray& content,
         const std::function<bool()>& cancelled, QString& error);
 
+    [[nodiscard]] static bool authorizedUploadOwners(const QVector<quint32>& owners);
+    static void finalizeAuthorizedUpload(
+        const std::shared_ptr<SftpFileUploadControl>& control,
+        const std::function<void()>& ready,
+        const std::function<bool()>& guard,
+        const std::function<int()>& publish,
+        const std::function<QString()>& cleanup, SftpFileUploadResult& result);
+    static SftpFileUploadResult uploadAuthorizedFileWorker(
+        sftp_session_struct* sftp, ssh_session_struct* session,
+        const SftpFileUploadRequest& request,
+        const std::function<bool()>& stopped,
+        const std::function<void(quint64, quint64)>& progress,
+        const std::function<void()>& ready);
+
     static constexpr int ConnectTimeoutSeconds = 10;
     // 停止请求后等待 worker 退出的上界。取 15s 与 SshTransport::TeardownWaitMs
-    // 一致：ConnectTimeoutSeconds 只约束连接/认证阶段，数据阶段是无限阻塞。
+    // 一致：libssh 单次等待有超时，但不约束整个同步 SFTP 操作。
     static constexpr int TeardownWaitMs = 15000;
     // 析构路径更有耐心，等满阻塞调用串行的最坏场景。
     static constexpr int TeardownDestructorWaitMs = 60000;

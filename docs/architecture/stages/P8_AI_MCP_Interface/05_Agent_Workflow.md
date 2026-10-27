@@ -1,6 +1,6 @@
 # 外部 Agent 的 BSP 终端调试流程
 
-更新：2026-10-27。B1日志、B2清空、B3/B3a文本等待和长任务已实施；B3b第一子批提供保存目标只读授权目录，第二子批已提供独立授权的打开/复用/查询，安全关闭已追加，传输仍未实施。工具名称及精确参数以 [02](02_Current_MCP_Contract.md) 为准；实际成绩见 [B3记录](records/B3_Implementation_2026-10-27.md)及[目录记录](records/B3b_Target_Directory_2026-10-27.md)。
+更新：2026-10-28。B1日志、B2清空、B3/B3a等待/长任务，以及B3b保存目标打开/查询/安全关闭、新会话预授权已实施。当前工作区二十五工具，追加复用终端SFTP的受限单文件上传/查询/取消；下载、覆盖、UART/ZMODEM上传及真机验收待后续。精确参数见[02](02_Current_MCP_Contract.md)，本轮成绩与限制见[上传记录](records/B3b_Sftp_Upload_2026-10-27.md)。
 
 2026-10-27 第三子批追加 `novaterm_close_target`，当前二十一工具；边界、独立验证及剩余范围见[安全关闭记录](records/B3b_Target_Close_2026-10-27.md)。
 
@@ -65,7 +65,7 @@ UART 在重启前保持连接。部署后结合固件版本、构建标识、启
 
 ## 6. 重启、断连和失败
 
-SSH 断开后先观察 UART；重新列举连接，核对新 epoch 和权限。NovaTerm 现有 MCP 没有新建/重连会话工具，不编造调用；由用户或已配置的连接机制恢复，恢复前报告阻塞。
+SSH 断开后先观察获准UART；用 `novaterm_query_target` 查询原保存目标操作及现有自动重连状态，重新列举连接并核对新epoch/权限。没有适用会话时可通过独立获准的 `novaterm_open_target` 打开/复用保存目标，创建可见终端；它不允许指定任意地址/凭据，也不隐含终端或文件权限。复用、重试和重连不会恢复已撤回权限。
 
 同一 UART 链路上的重启不一定改变 Session，需读取启动标志。编译期间历史被淘汰、串口丢帧或 capture 到期时，记录缺口，不能恢复的内容不要补造。
 
@@ -77,12 +77,12 @@ SSH 断开后先观察 UART；重新列举连接，核对新 epoch 和权限。N
 
 本页流程应统一体现在两代 MCP instructions、工具描述及 [MCP 使用说明](../../../MCP_Usage.md) 中；B0/B1 已将两代产品 instructions 合并为 agentInstructions() 并增加一致性回归；工具未实现时不推荐调用。
 
-## 8. B3a推荐流程及B3b后续边界
+## 8. B3a与受限SFTP上传流程
 
-当前可用novaterm_wait_text/start_task/query_task/stop_task，按tools/list与availability确认。长任务启动一次保存taskId，响应丢失按原operationId查询；等待旧PASS时必须显式本轮日志基线。原始UART任务没有可靠完成证据时继续观察或报告未知，人工接管/可信reset后不发送旧Ctrl+C。以下第1项可使用已实现的打开/查询；文件传输仍是B3b目标，继续使用已有本地部署脚本；安全关闭仅在归属和空闲证据均满足时受理。
+当前可用novaterm_wait_text/start_task/query_task/stop_task及upload_file/query_transfer/cancel_transfer。长任务保存taskId；上传保存transferId与原operationId，不因响应丢失改ID重放。等待旧PASS时必须显式本轮日志基线；UART无可靠完成证据时继续观察或报告未知，人工接管/可信reset后不发送旧Ctrl+C。安全关闭仍须归属与空闲证据；下载、覆盖和UART/ZMODEM上传待后续。
 
 1. **无活动连接**：从获准保存目标中选择并打开/复用；等待连接状态，认证/主机密钥留给本机用户，不猜测新地址。
-2. **交付构建产物**：用已授权构建目录的资源引用上传单个文件；核对发布和可用校验结果，再决定是否运行部署命令。MCP 上传不自动烧录。
+2. **交付构建产物或脚本**：先确认终端SFTP面板就绪，以novaterm_list_file_resources取得本人本地读资源与原SSH远端写scope及revision；调用novaterm_upload_file指定相对文件和带构建标识的新名称。用novaterm_query_transfer查询，需取消时调用novaterm_cancel_transfer。只有published=true才证明已发布，contentVerified=false不证明内容hash；未知结果保留原ID。随后由Agent用现有获准终端工具执行sh/insmod等并读取日志，上传本身不执行或烧录。
 3. **开始观察**：分别保存 SSH/UART 日志基线。等待新输出里的目标标志时使用“基线之后”规则；查看已出现的 login 提示时显式选择当前屏幕。
 4. **执行长任务**：启动一次并保存 taskId；之后只查询，不因 RPC 超时重复输入。输出沿日志位置续读，UART 没有可信退出证据时继续观察或报告未知。
 5. **请求停止**：绑定原任务和仍有效的控制条件；人工已经接管时不发送旧 Ctrl+C。停止等待与停止任务是不同操作。

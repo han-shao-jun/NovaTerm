@@ -61,6 +61,19 @@ public:
         session.stopWorker(0);
     }
 
+    static bool uploadOwners(const QVector<quint32>& owners)
+    {
+        return SftpSession::authorizedUploadOwners(owners);
+    }
+
+    static void finalizeFile(const std::shared_ptr<SftpFileUploadControl>& control,
+        const std::function<void()>& ready, const std::function<bool()>& guard,
+        const std::function<int()>& publish, const std::function<QString()>& cleanup,
+        SftpFileUploadResult& result)
+    {
+        SftpSession::finalizeAuthorizedUpload(control, ready, guard, publish, cleanup, result);
+    }
+
     static bool finalize(const std::function<bool()>& cancelled,
                          const std::function<bool()>& close,
                          const std::function<bool()>& chmod,
@@ -174,6 +187,88 @@ private slots:
         QCOMPARE(operations.contains(QStringLiteral("discard")), !published);
         QCOMPARE(operations.constFirst(), QStringLiteral("close"));
         QCOMPARE(error, published ? QString{} : QStringLiteral("SCRIPT_UPLOAD_CANCELLED"));
+    }
+
+    void authorizedUploadAncestorOwners_data()
+    {
+        QTest::addColumn<QVector<quint32>>("owners");
+        QTest::addColumn<bool>("allowed");
+        QTest::newRow("admin-and-scope-owner") << QVector<quint32>{0, 0, 1000, 1000} << true;
+        QTest::newRow("admin-root") << QVector<quint32>{0} << true;
+        QTest::newRow("scope-only") << QVector<quint32>{1000} << true;
+        QTest::newRow("foreign-ancestor") << QVector<quint32>{0, 1001, 1000} << false;
+        QTest::newRow("ancestor-owner-changed") << QVector<quint32>{1001, 1000, 1000} << false;
+        QTest::newRow("scope-owner-changed") << QVector<quint32>{0, 1000, 1001} << false;
+        QTest::newRow("foreign-before-admin-root") << QVector<quint32>{0, 1001, 0} << false;
+        QTest::newRow("missing-owner") << QVector<quint32>{} << false;
+    }
+
+    void authorizedUploadAncestorOwners()
+    {
+        QFETCH(QVector<quint32>, owners);
+        QFETCH(bool, allowed);
+        QCOMPARE(SftpSessionSafetyTestAccess::uploadOwners(owners), allowed);
+    }
+
+    void fileUploadAdmissionRequiresConnectedIdleWorker()
+    {
+        SftpSession session;
+        auto worker = SftpSessionSafetyTestAccess::control(session);
+        SftpFileUploadRequest request{9, QStringLiteral("C:/root"),
+            QStringLiteral("data.bin"), QStringLiteral("/home/test"),
+            QStringLiteral("data.bin"), std::make_shared<SftpFileUploadControl>()};
+        QVERIFY(!session.uploadAuthorizedFile(request));
+        worker->running = true;
+        worker->connected = true;
+        worker->commandActive = true;
+        QVERIFY(!session.uploadAuthorizedFile(request));
+        worker->commandActive = false;
+        QVERIFY(session.uploadAuthorizedFile(request));
+        QVERIFY(session.hasPendingOperations());
+        QVERIFY(!session.uploadAuthorizedFile(request));
+    }
+
+    void authorizedPublicationPreservesActualOutcome_data()
+    {
+        QTest::addColumn<int>("outcome");
+        QTest::addColumn<QString>("publication");
+        QTest::newRow("success") << 0 << QStringLiteral("published");
+        QTest::newRow("server-refusal") << 1 << QStringLiteral("not_started");
+        QTest::newRow("lost-ack") << 2 << QStringLiteral("unknown");
+    }
+
+    void authorizedPublicationPreservesActualOutcome()
+    {
+        QFETCH(int, outcome);
+        QFETCH(QString, publication);
+        auto control = std::make_shared<SftpFileUploadControl>();
+        SftpFileUploadResult result;
+        int links = 0;
+        bool cancelRejected = false;
+        SftpSessionSafetyTestAccess::finalizeFile(control,
+            [&] { control->approve(true); }, [] { return true; },
+            [&] { ++links; cancelRejected = !control->cancel(); return outcome; },
+            [] { return QStringLiteral("retained"); }, result);
+        QCOMPARE(links, 1);
+        QVERIFY(cancelRejected);
+        QCOMPARE(result.publication, publication);
+        QCOMPARE(result.published, outcome == 0);
+        QCOMPARE(result.temporary, QStringLiteral("retained"));
+    }
+
+    void authorizationRevocationWinsBeforePublication()
+    {
+        auto control = std::make_shared<SftpFileUploadControl>();
+        SftpFileUploadResult result;
+        int links = 0;
+        SftpSessionSafetyTestAccess::finalizeFile(control,
+            [&] { control->cancel(); control->approve(true); },
+            [] { return true; }, [&] { ++links; return 0; },
+            [] { return QStringLiteral("removed"); }, result);
+        QCOMPARE(links, 0);
+        QCOMPARE(result.publication, QStringLiteral("not_started"));
+        QCOMPARE(result.temporary, QStringLiteral("removed"));
+        QCOMPARE(result.errorCode, QStringLiteral("TRANSFER_CANCELLED"));
     }
 
     void failedRenameRetainsUnknownPublicationOutcome()

@@ -5,11 +5,14 @@
 #include "SftpSession.h"
 
 #include "core/ThreadNaming.h"
+#include "mcp/files/LocalFileAccess.h"
+#include "mcp/contracts/Budget.h"
 
 #include <libssh/libssh.h>
 #include <libssh/sftp.h>
 
 #include <QDir>
+#include <QElapsedTimer>
 #include <QDirIterator>
 #include <QFile>
 #include <QFileInfo>
@@ -702,6 +705,7 @@ void SftpSession::stopWorker(int waitMs)
     ++_control->generation; // 使已排队的旧会话 GUI 回调失效。
     _control->running.store(false, std::memory_order_release);
     _control->connected.store(false, std::memory_order_release);
+    QVector<SftpFileUploadResult> cancelledFiles;
     {
         QMutexLocker lock(&_control->queueMutex);
         qsizetype queuedUploadBytes = 0;
@@ -712,18 +716,29 @@ void SftpSession::stopWorker(int waitMs)
         _control->queuedUploadBytes -= queuedUploadBytes;
         if (_control->activeUploadRequestId != 0)
             _control->cancelledUploadRequests.insert(_control->activeUploadRequestId);
+        if (_control->activeFileUpload)
+            _control->activeFileUpload->cancel();
+        for (const auto& command : std::as_const(_control->commands)) {
+            if (command.type == CommandType::UploadAuthorizedFile) {
+                command.fileUpload.control->cancel();
+                SftpFileUploadResult result;
+                result.requestId = command.fileUpload.requestId;
+                result.errorCode = QStringLiteral("TRANSFER_CANCELLED");
+                cancelledFiles.append(result);
+            }
+        }
         _control->commands.clear();
         _control->queueReady.wakeAll();
     }
 
+    for (const auto& result : cancelledFiles)
+        emit authorizedFileFinished(result);
+
     if (_thread) {
-        // 阻塞式 libssh 的数据阶段**不受** SSH_OPTIONS_TIMEOUT 约束：它只作用于
-        // ssh_connect。sftp_read/sftp_write 内部的通道轮询走
-        // ssh_handle_packets(..., SSH_TIMEOUT_INFINITE)，所以一个「停滞但未关闭」
-        // 的对端（WiFi 掉线无 RST、远端不再读取）能让 worker 无限期停在里面 ——
-        // 而它在那些调用内部看不到停止请求。因此这里**必须**有上界，否则关标签
-        // /关 SFTP dock 会把 GUI 线程冻住。SshTransport 用同样的办法
-        // （disconnectInternal 的 TeardownWaitMs）。
+        // Vendored libssh 0.12.2 uses SSH_TIMEOUT_DEFAULT for channel data and
+        // window waits. A synchronous operation can nevertheless span multiple
+        // waits (for example a trickled packet), and cannot observe cancellation
+        // inside those calls. Keep GUI teardown bounded independently.
         if (_thread->wait(waitMs)) {
             delete _thread;
             _thread = nullptr;
@@ -1033,11 +1048,14 @@ void SftpSession::workerMain(std::shared_ptr<WorkerControl> control,
             control->commandActive = true;
             if (command.type == CommandType::UploadBytes)
                 control->activeUploadRequestId = command.requestId;
+            if (command.type == CommandType::UploadAuthorizedFile)
+                control->activeFileUpload = command.fileUpload.control;
         }
 
         const auto commandFinished = qScopeGuard([control] {
             QMutexLocker lock(&control->queueMutex);
             control->commandActive = false;
+            control->activeFileUpload.reset();
         });
 
         if (command.type == CommandType::List) {
@@ -1226,6 +1244,30 @@ void SftpSession::workerMain(std::shared_ptr<WorkerControl> control,
                         emit receiver.operationFinished(
                             QStringLiteral("upload"), path);
                     });
+            }
+            continue;
+        }
+
+        if (command.type == CommandType::UploadAuthorizedFile) {
+            const auto requestId = command.fileUpload.requestId;
+            const auto result = uploadAuthorizedFileWorker(sftp.get(), session.get(),
+                command.fileUpload, [control] { return !control->running.load(std::memory_order_acquire); },
+                [control, generation, requestId](quint64 transferred, quint64 total) {
+                    postNotification(control, generation,
+                        [requestId, transferred, total](SftpSession& receiver) {
+                            emit receiver.authorizedFileProgress(requestId, transferred, total);
+                        });
+                }, [control, generation, requestId] {
+                    postNotification(control, generation, [requestId](SftpSession& receiver) {
+                        emit receiver.authorizedFilePublicationReady(requestId);
+                    });
+                });
+            // Results retain original publication facts even after disconnect.
+            QMutexLocker lock(&control->notificationMutex);
+            if (auto* receiver = control->receiver) {
+                QMetaObject::invokeMethod(receiver, [receiver, result] {
+                    emit receiver->authorizedFileFinished(result);
+                }, Qt::QueuedConnection);
             }
             continue;
         }
@@ -1573,4 +1615,281 @@ void SftpSession::workerMain(std::shared_ptr<WorkerControl> control,
     // SFTP channel 必须先于底层 SSH session 关闭。
     sftp.reset();
     ssh_disconnect(session.get());
+}
+
+bool SftpSession::authorizedUploadOwners(const QVector<quint32>& owners)
+{
+    if (owners.isEmpty()) return false;
+    const quint32 scopeOwner = owners.constLast();
+    for (const auto owner : owners) {
+        if (owner != 0 && owner != scopeOwner) return false;
+    }
+    return true;
+}
+
+void SftpSession::finalizeAuthorizedUpload(
+    const std::shared_ptr<SftpFileUploadControl>& control,
+    const std::function<void()>& ready,
+    const std::function<bool()>& guard,
+    const std::function<int()>& publish,
+    const std::function<QString()>& cleanup, SftpFileUploadResult& result)
+{
+    using State = SftpFileUploadControl::State;
+    auto expected = State::Active;
+    if (!control || !control->state.compare_exchange_strong(
+            expected, State::AwaitingPublication, std::memory_order_acq_rel)) {
+        result.errorCode = QStringLiteral("TRANSFER_CANCELLED");
+        result.temporary = cleanup();
+        return;
+    }
+    ready();
+    QElapsedTimer decision;
+    decision.start();
+    while (control->state.load(std::memory_order_acquire) == State::AwaitingPublication
+           && decision.elapsed() < NovaTerm::Mcp::Budget::FileUploadPublicationTimeout.count())
+        QThread::msleep(5);
+    if (!guard()) {
+        control->cancel();
+        result.errorCode = QStringLiteral("TRANSFER_PATH_CHANGED");
+    }
+    expected = State::Approved;
+    if (!control->state.compare_exchange_strong(expected, State::Publishing,
+                                               std::memory_order_acq_rel)) {
+        control->cancel();
+        if (result.errorCode.isEmpty())
+            result.errorCode = QStringLiteral("TRANSFER_CANCELLED");
+        result.temporary = cleanup();
+        return;
+    }
+    const int outcome = publish(); // 0: acknowledged, 1: refusal, 2: unknown.
+    if (outcome == 0) {
+        result.published = true;
+        result.publication = QStringLiteral("published");
+    } else if (outcome == 1) {
+        result.errorCode = QStringLiteral("TRANSFER_PUBLICATION_REFUSED");
+    } else {
+        result.publication = QStringLiteral("unknown");
+        result.errorCode = QStringLiteral("TRANSFER_PUBLICATION_UNKNOWN");
+    }
+    result.temporary = cleanup();
+}
+
+bool SftpSession::uploadAuthorizedFile(const SftpFileUploadRequest& request)
+{
+    if (!request.requestId || !request.control || request.localRoot.isEmpty()
+        || request.localRelativePath.isEmpty() || request.remoteRoot.isEmpty()
+        || request.remoteName.isEmpty() || request.remoteName == QStringLiteral(".")
+        || request.remoteName == QStringLiteral("..")
+        || request.remoteName.contains(QLatin1Char('/'))
+        || request.remoteName.contains(QLatin1Char('\\'))
+        || request.remoteName.contains(QChar::Null)
+        || request.remoteRoot.contains(QChar::Null)
+        || !request.remoteRoot.startsWith(QLatin1Char('/'))
+        || request.remoteRoot != QDir::cleanPath(request.remoteRoot)
+        || request.remoteRoot.size() > 4096 || request.remoteName.size() > 255
+        || request.control->state.load() != SftpFileUploadControl::State::Active)
+        return false;
+    QMutexLocker lock(&_control->queueMutex);
+    if (!_control->running.load(std::memory_order_acquire)
+        || !_control->connected.load(std::memory_order_acquire)
+        || _control->commandActive || !_control->commands.isEmpty())
+        return false;
+    Command command;
+    command.type = CommandType::UploadAuthorizedFile;
+    command.fileUpload = request;
+    _control->commands.enqueue(std::move(command));
+    _control->queueReady.wakeOne();
+    return true;
+}
+
+SftpFileUploadResult SftpSession::uploadAuthorizedFileWorker(
+    sftp_session sftp, ssh_session session, const SftpFileUploadRequest& request,
+    const std::function<bool()>& stopped,
+    const std::function<void(quint64, quint64)>& progress,
+    const std::function<void()>& ready)
+{
+    using namespace NovaTerm::Mcp::Files;
+    namespace Budget = NovaTerm::Mcp::Budget;
+    using State = SftpFileUploadControl::State;
+    SftpFileUploadResult result;
+    result.requestId = request.requestId;
+    QElapsedTimer elapsed;
+    elapsed.start();
+    qint64 lastProgress = 0;
+    // Vendored libssh 0.12.2 honors this for channel reads and window waits.
+    // Total/no-progress budgets are checked between synchronous calls; a peer
+    // trickling a partial SFTP packet can extend one call past these budgets.
+    long dataTimeout = long(std::chrono::duration_cast<std::chrono::seconds>(Budget::FileUploadStallTimeout).count());
+    ssh_options_set(session, SSH_OPTIONS_TIMEOUT, &dataTimeout);
+    const auto restoreTimeout = qScopeGuard([session] {
+        long timeout = ConnectTimeoutSeconds;
+        ssh_options_set(session, SSH_OPTIONS_TIMEOUT, &timeout);
+    });
+    const auto cancelled = [&] {
+        if (stopped() || !request.control
+            || request.control->state.load(std::memory_order_acquire) == State::Cancelled) {
+            result.errorCode = QStringLiteral("TRANSFER_CANCELLED");
+            return true;
+        }
+        if (elapsed.elapsed() >= Budget::FileUploadTimeout.count()
+            || elapsed.elapsed() - lastProgress >= Budget::FileUploadStallTimeout.count()) {
+            result.errorCode = QStringLiteral("TRANSFER_TIMEOUT");
+            request.control->cancel();
+            return true;
+        }
+        return false;
+    };
+    if (cancelled()) return result;
+    // A hard link creates the target atomically and never replaces an entry.
+    // sftp_rename selects the overwriting posix-rename extension on OpenSSH.
+    if (!sftp_extension_supported(sftp, "hardlink@openssh.com", "1")) {
+        result.errorCode = QStringLiteral("TRANSFER_NO_REPLACE_UNSUPPORTED");
+        return result;
+    }
+    struct DirectoryIdentity { quint32 uid, gid, permissions; };
+    QVector<DirectoryIdentity> original;
+    const auto rootGuard = [&](bool establish) {
+        const QByteArray encodedRoot = request.remoteRoot.toUtf8();
+        char* canonical = sftp_canonicalize_path(sftp, encodedRoot.constData());
+        if (!canonical) return false;
+        const bool exact = QString::fromUtf8(canonical) == request.remoteRoot;
+        ssh_string_free_char(canonical);
+        if (!exact) return false;
+        QStringList components{QStringLiteral("/")};
+        QString path;
+        for (const auto& component : request.remoteRoot.split(QLatin1Char('/'), Qt::SkipEmptyParts)) {
+            path += QLatin1Char('/') + component;
+            components.append(path);
+        }
+        QVector<quint32> owners;
+        for (qsizetype index = 0; index < components.size(); ++index) {
+            if (elapsed.elapsed() >= Budget::FileUploadTimeout.count()) return false;
+            SftpAttributesPtr attributes{sftp_lstat(sftp,
+                components.at(index).toUtf8().constData()), &sftp_attributes_free};
+            const auto required = SSH_FILEXFER_ATTR_UIDGID | SSH_FILEXFER_ATTR_PERMISSIONS;
+            if (!attributes || attributes->type != SSH_FILEXFER_TYPE_DIRECTORY
+                || (attributes->flags & required) != required)
+                return false;
+            const bool writable = (attributes->permissions & 0022) != 0;
+            const bool root = index == components.size() - 1;
+            if (writable && (root || !(attributes->permissions & 01000)))
+                return false;
+            owners.append(attributes->uid);
+            const DirectoryIdentity identity{attributes->uid, attributes->gid,
+                                                attributes->permissions};
+            if (establish) original.append(identity);
+            else if (index >= original.size() || original.at(index).uid != identity.uid
+                || original.at(index).gid != identity.gid
+                || original.at(index).permissions != identity.permissions)
+                return false;
+        }
+        return authorizedUploadOwners(owners)
+            && (establish || original.size() == components.size());
+    };
+    if (!rootGuard(true) || cancelled()) {
+        if (result.errorCode.isEmpty()) result.errorCode = QStringLiteral("TRANSFER_UNSAFE_REMOTE_ROOT");
+        return result;
+    }
+    auto opened = LocalFileReader::open(request.localRoot, request.localRelativePath);
+    if (std::holds_alternative<FileIoError>(opened)) {
+        result.errorCode = QStringLiteral("TRANSFER_LOCAL_FILE_UNAVAILABLE");
+        return result;
+    }
+    auto local = std::move(std::get<std::unique_ptr<LocalFileReader>>(opened));
+    result.totalBytes = local->size();
+    if (result.totalBytes > Budget::MaxLocalTransferFileBytes) {
+        result.errorCode = QStringLiteral("TRANSFER_SIZE_LIMIT");
+        return result;
+    }
+    if (cancelled() || !rootGuard(false)) {
+        if (result.errorCode.isEmpty()) result.errorCode = QStringLiteral("TRANSFER_PATH_CHANGED");
+        return result;
+    }
+    const QByteArray target = remotePathJoin(request.remoteRoot, request.remoteName).toUtf8();
+    const QByteArray temporary = remotePathJoin(request.remoteRoot,
+        QStringLiteral(".novaterm-upload-") + QUuid::createUuid().toString(QUuid::WithoutBraces)).toUtf8();
+    SftpFilePtr remote{sftp_open(sftp, temporary.constData(), O_WRONLY | O_CREAT | O_EXCL, 0600), &sftp_close};
+    if (!remote) {
+        // The server could have created it before an open acknowledgement was lost.
+        result.temporary = QStringLiteral("unknown");
+        result.errorCode = QStringLiteral("TRANSFER_REMOTE_OPEN_FAILED");
+        return result;
+    }
+    result.temporary = QStringLiteral("retained");
+    SftpAttributesPtr initial{sftp_fstat(remote.get()), &sftp_attributes_free};
+    const auto tempGuard = [&] {
+        if (!initial || initial->type != SSH_FILEXFER_TYPE_REGULAR
+            || (initial->permissions & 0777) != 0600 || !rootGuard(false)) return false;
+        SftpAttributesPtr current{sftp_lstat(sftp, temporary.constData()), &sftp_attributes_free};
+        const auto required = SSH_FILEXFER_ATTR_UIDGID | SSH_FILEXFER_ATTR_PERMISSIONS | SSH_FILEXFER_ATTR_SIZE;
+        return current && (current->flags & required) == required
+            && current->type == SSH_FILEXFER_TYPE_REGULAR
+            && current->uid == initial->uid && current->gid == initial->gid
+            && current->permissions == initial->permissions
+            && current->size == result.transferredBytes;
+    };
+    const auto cleanup = [&] {
+        if (remote && sftp_close(remote.release()) != SSH_OK)
+            return QStringLiteral("unknown");
+        if (!tempGuard()) return QStringLiteral("retained");
+        if (sftp_unlink(sftp, temporary.constData()) == SSH_OK)
+            return QStringLiteral("removed");
+        return QStringLiteral("unknown");
+    };
+    const auto fail = [&](const QString& error) {
+        if (result.errorCode.isEmpty()) result.errorCode = error;
+        result.temporary = cleanup();
+        return result;
+    };
+    const auto requiredTemporary = SSH_FILEXFER_ATTR_UIDGID
+        | SSH_FILEXFER_ATTR_PERMISSIONS | SSH_FILEXFER_ATTR_SIZE;
+    if (!initial || (initial->flags & requiredTemporary) != requiredTemporary
+        || initial->type != SSH_FILEXFER_TYPE_REGULAR
+        || (initial->permissions & 0777) != 0600 || initial->size != 0)
+        return fail(QStringLiteral("TRANSFER_UNSAFE_TEMPORARY"));
+    progress(0, result.totalBytes);
+    while (result.transferredBytes < result.totalBytes) {
+        if (cancelled()) return fail(result.errorCode);
+        if (!rootGuard(false)) return fail(QStringLiteral("TRANSFER_PATH_CHANGED"));
+        auto read = local->read(Budget::LocalTransferChunkBytes);
+        if (std::holds_alternative<FileIoError>(read))
+            return fail(QStringLiteral("TRANSFER_LOCAL_READ_FAILED"));
+        const QByteArray& bytes = std::get<QByteArray>(read);
+        if (bytes.isEmpty() || quint64(bytes.size()) > result.totalBytes - result.transferredBytes)
+            return fail(QStringLiteral("TRANSFER_LOCAL_SIZE_CHANGED"));
+        qsizetype offset = 0;
+        while (offset < bytes.size()) {
+            if (cancelled()) return fail(result.errorCode);
+            const auto written = sftp_write(remote.get(), bytes.constData() + offset,
+                                             size_t(bytes.size() - offset));
+            if (written <= 0) return fail(QStringLiteral("TRANSFER_REMOTE_WRITE_FAILED"));
+            offset += qsizetype(written);
+            result.transferredBytes += quint64(written);
+            lastProgress = elapsed.elapsed();
+            progress(result.transferredBytes, result.totalBytes);
+        }
+    }
+    // Read once past the initial size to reject growth on the pinned handle.
+    auto eof = local->read(1);
+    if (std::holds_alternative<FileIoError>(eof) || !std::get<QByteArray>(eof).isEmpty())
+        return fail(QStringLiteral("TRANSFER_LOCAL_SIZE_CHANGED"));
+    if (sftp_close(remote.release()) != SSH_OK)
+        return fail(QStringLiteral("TRANSFER_REMOTE_CLOSE_FAILED"));
+    if (cancelled()) return fail(result.errorCode);
+    finalizeAuthorizedUpload(request.control, ready,
+        [&] { return !cancelled() && tempGuard() && !cancelled(); },
+        [&] {
+            // Status values not produced by packet/transport errors are definite
+            // refusals. Ambiguous generic failures remain unknown conservatively.
+            sftp->errnum = -1;
+            if (sftp_hardlink(sftp, temporary.constData(), target.constData()) == SSH_OK)
+                return 0;
+            const int status = sftp_get_error(sftp);
+            const bool refusal = status == SSH_FX_NO_SUCH_FILE
+                || status == SSH_FX_PERMISSION_DENIED || status == SSH_FX_OP_UNSUPPORTED
+                || status == SSH_FX_FILE_ALREADY_EXISTS || status == SSH_FX_WRITE_PROTECT
+                || status == SSH_FX_NO_SUCH_PATH;
+            return refusal ? 1 : 2;
+        }, cleanup, result);
+    return result;
 }

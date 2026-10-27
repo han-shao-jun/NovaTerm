@@ -1,6 +1,6 @@
 # 指定文本等待、长任务、文件传输与目标连接
 
-更新：2026-10-27。**B3a文本等待/长任务已实现；B3b已提供保存目标授权目录及独立授权的打开/复用/查询，安全关闭已追加，文件传输仍未实施。** 本文保留需求和边界，不引入内置Agent、聊天或自动开发平台。精确已实现字段/预算以 [02](02_Current_MCP_Contract.md) 为准，实际验证见 [B3记录](records/B3_Implementation_2026-10-27.md)和[B3b目录记录](records/B3b_Target_Directory_2026-10-27.md)；日志位置和清空见 [04](04_Cursor_Observation_and_Clear.md)。
+更新：2026-10-28。**B3a等待/长任务及B3b保存目标连接、预授权、独立文件授权和受限SFTP上传/查询/取消已接入；当前二十五工具。** 各工具单一职责；上传不自动连接、执行或读日志。下载、覆盖和UART/ZMODEM为明确后续，不引入Agent/脚本/诊断平台。精确字段与限制见[02](02_Current_MCP_Contract.md)，本轮实际证据见[上传记录](records/B3b_Sftp_Upload_2026-10-27.md)。
 
 2026-10-27 第三子批追加 `novaterm_close_target`，当前二十一工具；边界、独立验证及剩余范围见[安全关闭记录](records/B3b_Target_Close_2026-10-27.md)。
 
@@ -60,6 +60,10 @@ CommandRuntime/Session Controller 继续拥有执行事实；新增异步任务�
 新异步启动被应用受理后，短 RPC 断流不删除任务或重复提交；不改写旧同步工具的取消语义。调用方可通过原 operationId 查询受理结果。首版不跨应用重启恢复执行，失去记录时报告不可用/未知，不自动重跑。活动任务、保留结果、日志引用与并发均有硬预算。
 
 ## 4. SSH/SFTP 单文件传输
+
+2026-10-28 本轮已按[受限上传记录](records/B3b_Sftp_Upload_2026-10-27.md)接入SFTP单文件上传、查询及取消，不覆盖；当前二十五工具。直接复用终端面板SftpSession/队列/工作线程，没有新增连接或执行器。下载和显式覆盖不作前置。随后实施UART/ZMODEM单文件上传，复用SerialFileTransferController、既有输入泵和ZMODEM协议owner，单独冻结UART绑定与接收边界。
+
+2026-10-27 第二子批完成 Windows worker 本地句柄I/O边界：相对目录句柄打开、64 MiB文件/64 KiB分块上限、独占临时文件及原子不覆盖发布，见[记录](records/B3b_Local_File_IO_2026-10-27.md)。尚未接协议或SFTP，不提供覆盖；其他平台明确拒绝，不能把这批基础设施视为本节传输已完成。
 
 2026-10-27 第一子批先提供独立文件授权与只读 `novaterm_list_file_resources`，当前二十二工具；精确字段与预算见[02](02_Current_MCP_Contract.md#b3b-文件传输第一子批独立文件授权目录2026-10-27)，实现及验证见[记录](records/B3b_File_Resources_2026-10-27.md)。它不执行文件I/O，不代替以下上传/下载、路径安全和发布事务。
 
