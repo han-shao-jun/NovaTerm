@@ -29,6 +29,7 @@ public:
                          quint64 sessionGeneration);
 
     [[nodiscard]] bool isAvailable() const;
+    [[nodiscard]] bool hasActiveRequests() const noexcept { return !_activeRequests.isEmpty(); }
     [[nodiscard]] CommandExecutorCapabilities capabilities() const;
     [[nodiscard]] CommandPlatformProfile profile() const;
     [[nodiscard]] QString targetFingerprint() const;

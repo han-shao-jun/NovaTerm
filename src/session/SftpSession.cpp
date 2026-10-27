@@ -689,6 +689,14 @@ void SftpSession::disconnectFromHost(bool shuttingDown)
     stopWorker(shuttingDown ? TeardownDestructorWaitMs : TeardownWaitMs);
 }
 
+bool SftpSession::hasPendingOperations() const
+{
+    const auto control = _control;
+    if (!control->queueMutex.tryLock()) return true;
+    const auto unlock = qScopeGuard([control] { control->queueMutex.unlock(); });
+    return control->commandActive || !control->commands.isEmpty();
+}
+
 void SftpSession::stopWorker(int waitMs)
 {
     ++_control->generation; // 使已排队的旧会话 GUI 回调失效。
@@ -1022,9 +1030,15 @@ void SftpSession::workerMain(std::shared_ptr<WorkerControl> control,
                 break;
             }
             command = control->commands.dequeue();
+            control->commandActive = true;
             if (command.type == CommandType::UploadBytes)
                 control->activeUploadRequestId = command.requestId;
         }
+
+        const auto commandFinished = qScopeGuard([control] {
+            QMutexLocker lock(&control->queueMutex);
+            control->commandActive = false;
+        });
 
         if (command.type == CommandType::List) {
             const QByteArray requested = command.source.toUtf8();

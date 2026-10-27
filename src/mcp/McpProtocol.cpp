@@ -51,7 +51,8 @@ QString agentInstructions()
         "novaterm_stop_task requests an interrupt only for the original control/execution; after human takeover observe again, never interrupt the new command. "
         "novaterm_list_targets lists only saved SSH/UART summaries explicitly shared for this app run; it does not connect or grant terminal access. saved_configuration does not mean online. "
         "Use novaterm_open_target only with separate local open permission, a listed targetId/configVersion and a new operationId; query with novaterm_query_target and the original arguments. Opening does not grant terminal access. Authentication and host-key decisions stay with the local user. "
-        "Only call tools actually listed; MCP file transfer and saved-target close tools are not available.");
+        "Use novaterm_close_target only with the original created open operation and latest epoch; reused, human-controlled, busy or unknown sessions refuse close. "
+        "Closing preserves the terminal and is not proof of remote termination. Only call tools actually listed; MCP file transfer is not available.");
 }
 QString newId() { return QUuid::createUuid().toString(QUuid::WithoutBraces); }
 

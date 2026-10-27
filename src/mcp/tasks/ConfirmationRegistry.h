@@ -43,6 +43,7 @@ public:
     void consumeActive(const QString& connection, const QString& nonce, qint64 expiry);
     [[nodiscard]] bool isActive(const QString& connection, const QString& nonce) const;
     [[nodiscard]] bool hasActiveForConnection(const QString& connection) const;
+    [[nodiscard]] bool hasActiveForSession(const SessionId& session, qint64 now) const;
     [[nodiscard]] bool isConsumed(const QString& nonce) const;
     /** @brief 断开连接：返回并清理该连接的活动 nonce。 */
     [[nodiscard]] QString takeConnection(const QString& connection);

@@ -86,6 +86,32 @@ class ContractsTests : public QObject
 {
     Q_OBJECT
 private slots:
+    void closeSavedTargetRequiresOriginalOperationAndEpoch()
+    {
+        const QString name = "novaterm_close_target";
+        QVERIFY(ToolCodec::isKnownTool(name));
+        QVERIFY(agentInstructions().contains(name));
+        const QJsonObject arguments{{"targetId", SessionUuid}, {"configVersion", OperationUuid},
+            {"operationId", OperationUuid}, {"epoch", "epoch-1"}};
+        QVERIFY(ToolCodec::validate(name, arguments).isEmpty());
+        QVERIFY(!isError(ToolCodec::decodeCall(name, arguments)));
+        for (const auto& field : arguments.keys()) {
+            auto invalid = arguments; invalid.remove(field);
+            QVERIFY(!ToolCodec::validate(name, invalid).isEmpty());
+        }
+        for (const auto& field : QStringList{"force", "host", "password", "sessionId", "path"}) {
+            auto invalid = arguments; invalid.insert(field, "x");
+            QVERIFY(!ToolCodec::validate(name, invalid).isEmpty());
+        }
+        auto invalid = arguments; invalid.insert("epoch", "");
+        QVERIFY(!ToolCodec::validate(name, invalid).isEmpty());
+        const auto decoded = std::get<ToolCall>(ToolCodec::decodeCall(name, arguments));
+        QCOMPARE(ToolCodec::toolName(decoded), name);
+        QCOMPARE(std::get<TargetConnectionRequest>(decoded).action, TargetConnectionAction::Close);
+        QFile fixture(QStringLiteral(NOVATERM_SOURCE_DIR "/tests/mcp/fixtures/target-close-2026-10-27.json"));
+        QVERIFY(fixture.open(QIODevice::ReadOnly));
+        QCOMPARE(ToolCodec::catalog().last().toObject(), QJsonDocument::fromJson(fixture.readAll()).object());
+    }
     void savedTargetConnectionToolsRequireExplicitIdentity()
     {
         const QJsonObject arguments{{"targetId", SessionUuid}, {"configVersion", OperationUuid},

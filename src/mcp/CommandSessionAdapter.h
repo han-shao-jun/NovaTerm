@@ -44,6 +44,7 @@ public:
     void stop();
     void sweep();
     bool idle() const;
+    bool busy(const QString& session) const;
     bool quarantined(const QString& target) const;
     QJsonArray executionRecords() const;
     QJsonObject protectedTargets() const;

@@ -460,6 +460,7 @@ bool TerminalSession::disconnectForReconnect()
     // disconnected 信号会停止输入泵并把状态推进到 Failed；保留 Transport，
     // 使按钮或 Enter 能继续走既有 reconnect() 路径。
     _manualDisconnect = true;
+    ++_manualConnectionGeneration;
     _reconnectTimer.stop();
     _acceptsUserInput = false;
     _transport->disconnect();
@@ -471,6 +472,8 @@ bool TerminalSession::reconnect()
     _manualDisconnect = false;
     if (!canReconnect())
         return false;
+
+    ++_manualConnectionGeneration;
 
     if (_transport->isConnected())
         _transport->disconnect();

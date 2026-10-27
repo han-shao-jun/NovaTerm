@@ -184,6 +184,8 @@ public:
     [[nodiscard]] bool canReconnect() const noexcept;
     /** @brief 当前是否已安排自动重连；只能在 Session 所在线程查询。 */
     [[nodiscard]] bool hasPendingAutomaticReconnect() const;
+    /** @brief 本机显式断开/重连的单调事实；自动重连不增加。 */
+    [[nodiscard]] quint64 manualConnectionGeneration() const noexcept { return _manualConnectionGeneration; }
 
     /**
      * @brief 写入用户输入到传输层。
@@ -278,6 +280,7 @@ private:
     std::unique_ptr<SessionTerminalController> _terminalController;
     QChronoTimer _reconnectTimer; ///< 单次自动重连定时器，支持完整整秒范围
     bool _manualDisconnect{false};
+    quint64 _manualConnectionGeneration{0};
     std::unique_ptr<SerialFileTransferController> _fileTransfer;
     quint64 _fileTransferLeaseId{0}; ///< 主动断开后暂停自动重连
     std::unique_ptr<TerminalContextProvider> _contextProvider;

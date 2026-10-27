@@ -1,6 +1,8 @@
 # 外部 Agent 的 BSP 终端调试流程
 
-更新：2026-10-27。B1日志、B2清空、B3/B3a文本等待和长任务已实施；B3b第一子批提供保存目标只读授权目录，第二子批已提供独立授权的打开/复用/查询，关闭及传输仍未实施。工具名称及精确参数以 [02](02_Current_MCP_Contract.md) 为准；实际成绩见 [B3记录](records/B3_Implementation_2026-10-27.md)及[目录记录](records/B3b_Target_Directory_2026-10-27.md)。
+更新：2026-10-27。B1日志、B2清空、B3/B3a文本等待和长任务已实施；B3b第一子批提供保存目标只读授权目录，第二子批已提供独立授权的打开/复用/查询，安全关闭已追加，传输仍未实施。工具名称及精确参数以 [02](02_Current_MCP_Contract.md) 为准；实际成绩见 [B3记录](records/B3_Implementation_2026-10-27.md)及[目录记录](records/B3b_Target_Directory_2026-10-27.md)。
+
+2026-10-27 第三子批追加 `novaterm_close_target`，当前二十一工具；边界、独立验证及剩余范围见[安全关闭记录](records/B3b_Target_Close_2026-10-27.md)。
 
 `novaterm_list_targets` 可了解本机用户本次运行明确共享的 SSH/UART 保存配置。该目录不连接设备、不提供输入 token，saved_configuration 也不证明在线；需要连接时可在独立打开授权下调用 novaterm_open_target，再按原参数调用 novaterm_query_target；实际交互仍需 list_sessions 选择另外获准的 Session。游标失效后重新列举，不把旧配置版本带入后续操作。
 
@@ -75,13 +77,13 @@ SSH 断开后先观察 UART；重新列举连接，核对新 epoch 和权限。N
 
 ## 8. B3a推荐流程及B3b后续边界
 
-当前可用novaterm_wait_text/start_task/query_task/stop_task，按tools/list与availability确认。长任务启动一次保存taskId，响应丢失按原operationId查询；等待旧PASS时必须显式本轮日志基线。原始UART任务没有可靠完成证据时继续观察或报告未知，人工接管/可信reset后不发送旧Ctrl+C。以下第1项可使用已实现的打开/查询；文件传输和自动安全关闭仍是B3b目标，继续使用已有本地部署脚本和人工收尾。
+当前可用novaterm_wait_text/start_task/query_task/stop_task，按tools/list与availability确认。长任务启动一次保存taskId，响应丢失按原operationId查询；等待旧PASS时必须显式本轮日志基线。原始UART任务没有可靠完成证据时继续观察或报告未知，人工接管/可信reset后不发送旧Ctrl+C。以下第1项可使用已实现的打开/查询；文件传输仍是B3b目标，继续使用已有本地部署脚本；安全关闭仅在归属和空闲证据均满足时受理。
 
 1. **无活动连接**：从获准保存目标中选择并打开/复用；等待连接状态，认证/主机密钥留给本机用户，不猜测新地址。
 2. **交付构建产物**：用已授权构建目录的资源引用上传单个文件；核对发布和可用校验结果，再决定是否运行部署命令。MCP 上传不自动烧录。
 3. **开始观察**：分别保存 SSH/UART 日志基线。等待新输出里的目标标志时使用“基线之后”规则；查看已出现的 login 提示时显式选择当前屏幕。
 4. **执行长任务**：启动一次并保存 taskId；之后只查询，不因 RPC 超时重复输入。输出沿日志位置续读，UART 没有可信退出证据时继续观察或报告未知。
 5. **请求停止**：绑定原任务和仍有效的控制条件；人工已经接管时不发送旧 Ctrl+C。停止等待与停止任务是不同操作。
-6. **收尾**：报告构建、交付、固件标识和功能测试分别是否通过。当前关闭仍由本机用户操作；后续关闭工具只允许本次创建且可安全关闭的会话，复用的人类会话保留，busy/unknown 不强关。
+6. **收尾**：报告构建、交付、固件标识和功能测试分别是否通过。novaterm_close_target只允许原operationId本次创建且可安全关闭的会话，传入查询得到的当前epoch；它保留已关闭终端供人工查看，复用的人类会话保留，busy/unknown 不强关。
 
 不需要逐条扫描整个终端、频繁空轮询或先清空再读取；文本匹配只是证据，最终测试判据仍由用户任务决定。

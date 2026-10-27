@@ -43,6 +43,7 @@
 #include <QEventLoop>
 #include <QJsonArray>
 #include <QJsonDocument>
+#include <QKeyEvent>
 #include <QLockFile>
 #include <QProcess>
 #include <QNetworkAccessManager>
@@ -123,7 +124,10 @@ public:
     void resizeTerminal(int, int) override {}
     bool isConnected() const override { return online; }
     QString errorString() const override { return {}; }
-    bool online{false};
+    TransportCapabilities capabilities() const override {
+        return reconnectable ? TransportCapabilities{TransportCapability::Reconnect} : TransportCapabilities{};
+    }
+    bool online{false}, reconnectable{false};
     QByteArray written;
 };
 
@@ -523,6 +527,8 @@ private slots:
     void targetConnectionsUseBothProtocols();
     void targetConnectionQueryFollowsInitialConnectionAndReconnect();
     void targetConnectionNestedRevocationCannotStart();
+    void targetCloseUsesOriginalOwnershipAndCurrentSafety_data();
+    void targetCloseUsesOriginalOwnershipAndCurrentSafety();
     void workflowWaitAndTasksUseBothProtocols_data();
     void workflowWaitAndTasksUseBothProtocols();
     void workflowWaitCancellationAndMcpReenable_data();
@@ -2692,7 +2698,7 @@ void McpTests::tokenSigningAndAuthentication()
 
 void McpTests::rejectsDangerousAndOversizedArguments()
 {
-    QCOMPARE(ToolCodec::catalog().size(), 20);
+    QCOMPARE(ToolCodec::catalog().size(), 21);
     QVERIFY(!CommandPolicy::find("rm"));
     QVERIFY(!CommandPolicy::find("credential.read"));
     const QJsonObject identity{{"sessionId", newId()}, {"epoch", "epoch"}};
@@ -2825,6 +2831,100 @@ void McpTests::httpInitializedSessionReadsWithAuthorization()
     QVERIFY(listed.message.value("result").toObject().value("structuredContent").toObject()
         .value("ok").toBool());
 }
+void McpTests::targetCloseUsesOriginalOwnershipAndCurrentSafety_data()
+{
+    QTest::addColumn<QString>("version"); QTest::addColumn<int>("scenario");
+    for (const auto& version : QStringList{ProtocolVersion, "2026-07-28"})
+        for (int scenario = 0; scenario < 18; ++scenario)
+            QTest::newRow(qPrintable(version + "-" + QString::number(scenario))) << version << scenario;
+}
+void McpTests::targetCloseUsesOriginalOwnershipAndCurrentSafety()
+{
+    QFETCH(QString, version); QFETCH(int, scenario);
+    Fixture f; QVERIFY(f.enable());
+    auto& targets = f.service.savedTargets();
+    QVERIFY(targets.replace({{newId(), "Board", "serial", "fixture", QByteArray(32, 'a')}}));
+    const auto row = targets.localTargets().first();
+    const auto identity = f.service.access().identityVersion(f.client);
+    QVERIFY(targets.setShared(f.client, identity, row.id, row.configVersion, true));
+    QVERIFY(targets.setOpenAllowed(f.client, identity, row.id, row.configVersion, true));
+    int opens = 0;
+    f.service.setTargetOpener([&](const SavedTargetSource&, const TargetConnections::Guard&) {
+        ++opens;
+        const auto entry = f.service.directory().find(f.session.id().toString(QUuid::WithoutBraces));
+        return TargetConnectionFacts{entry->id, entry->epoch, entry->attachmentId, "running", {}, scenario != 1};
+    });
+    Host host; QVERIFY(host.start(f.runtime(), f.token(), {}, false, version));
+    const QJsonObject args{{"targetId", row.id}, {"configVersion", row.configVersion}, {"operationId", newId()}};
+    const auto opened = host.call("novaterm_open_target", args);
+    QVERIFY(opened.value("ok").toBool());
+    auto closeArgs = args;
+    closeArgs.insert("epoch", opened.value("data").toObject().value("epoch"));
+    auto* controller = f.session.terminalController();
+    InteractiveCommandProfile profile;
+    profile.shellIntegration = true;
+    profile.allowUnverifiedPrompt = scenario == 14;
+    f.session.commandCoordinator()->configure(profile);
+    if (scenario != 3) f.session.commandCoordinator()->notePromptReady(7, 0);
+    if (scenario == 2) f.session.writeUserInput("human");
+    if (scenario == 4) QVERIFY(f.session.inputArbiter()->acquireMcpLease(73, f.session.statistics().generation));
+    if (scenario == 5) QVERIFY(f.session.inputArbiter()->acquireTransferLease(73, f.session.statistics().generation,
+        [](QByteArrayView bytes) { return bytes.size(); }));
+    if (scenario == 6) closeArgs.insert("epoch", "old-epoch");
+    if (scenario == 7) QVERIFY(targets.setOpenAllowed(f.client, identity, row.id, row.configVersion, false));
+    if (scenario == 0) QVERIFY(controller->readyForCommand());
+    if (scenario == 8) f.makeSsh();
+    if (scenario >= 9 && scenario <= 11) f.service.setTargetCloseSafety([&](const QString&) {
+        if (scenario == 10) static_cast<void>(targets.setOpenAllowed(f.client, identity, row.id, row.configVersion, false));
+        if (scenario == 11) f.session.writeUserInput("human during safety");
+        return scenario != 9;
+    });
+    if (scenario == 12 || scenario == 13) {
+        f.local.reconnectable = true;
+        if (scenario == 12) QVERIFY(f.session.disconnectForReconnect());
+        else {
+            QVERIFY(f.session.reconnect());
+            closeArgs.insert("epoch", host.call("novaterm_query_target", args).value("data").toObject().value("epoch"));
+        }
+    }
+    bool queuedBeforeDelivery = false;
+    if (scenario >= 15) f.service.setTargetCloseSafety([&](const QString&) {
+        if (scenario == 15) f.core.pasteText("human paste");
+        else if (scenario == 16) {
+            QKeyEvent key(QEvent::KeyPress, Qt::Key_Return, Qt::NoModifier);
+            f.core.processKeyPress(&key);
+        } else f.core.processTextInput("human IME");
+        queuedBeforeDelivery = f.session.inputArbiter()->userInputGeneration() == 0;
+        return true;
+    });
+    const auto stateBeforeClose = f.session.state();
+    const auto result = host.call("novaterm_close_target", closeArgs);
+    const QStringList errors{"", "TARGET_CLOSE_NOT_ALLOWED", "TARGET_CLOSE_NOT_ALLOWED", "TARGET_CLOSE_BUSY",
+        "TARGET_CLOSE_BUSY", "TARGET_CLOSE_BUSY", "STALE_SESSION_EPOCH", "TARGET_OPEN_PERMISSION_REQUIRED",
+        "TARGET_CLOSE_NOT_ALLOWED", "TARGET_CLOSE_BUSY", "TARGET_OPEN_PERMISSION_REQUIRED", "TARGET_CLOSE_NOT_ALLOWED",
+        "TARGET_CLOSE_NOT_ALLOWED", "TARGET_CLOSE_NOT_ALLOWED", "TARGET_CLOSE_BUSY",
+        "TARGET_CLOSE_NOT_ALLOWED", "TARGET_CLOSE_NOT_ALLOWED", "TARGET_CLOSE_NOT_ALLOWED"};
+    if (scenario == 0) {
+        QVERIFY2(result.value("ok").toBool(), QJsonDocument(result).toJson().constData());
+        QCOMPARE(f.session.state(), SessionState::Closed);
+        const auto replay = host.call("novaterm_close_target", closeArgs);
+        QVERIFY(replay.value("ok").toBool());
+        QCOMPARE(replay.value("data"), result.value("data"));
+        QCOMPARE(host.call("novaterm_query_target", args).value("data").toObject().value("state").toString(), QString("closed"));
+        // A successful close retry must never follow a reset/rebound visible Session.
+        QVERIFY(f.session.resetForReuse());
+        f.session.attach(&f.local, TerminalSession::Ownership::Borrowed, TransportKind::LocalShell);
+        QVERIFY(f.session.start());
+        QVERIFY(host.call("novaterm_close_target", closeArgs).value("ok").toBool());
+        QCOMPARE(f.session.state(), SessionState::Running);
+    } else {
+        QCOMPARE(result.value("error").toObject().value("code").toString(), errors[scenario]);
+        QCOMPARE(f.session.state(), stateBeforeClose);
+    }
+    if (scenario >= 15) QVERIFY(queuedBeforeDelivery);
+    QCOMPARE(opens, 1);
+}
+
 void McpTests::targetConnectionNestedRevocationCannotStart()
 {
     Fixture f; QVERIFY(f.enable());

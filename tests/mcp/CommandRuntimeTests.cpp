@@ -114,6 +114,70 @@ class CommandRuntimeTests : public QObject
 {
     Q_OBJECT
 private slots:
+    void detachedConfirmationKeepsSessionBusyUntilSettled_data()
+    {
+        QTest::addColumn<bool>("script"); QTest::addColumn<int>("settlement");
+        for (bool script : {false, true})
+            for (int settlement = 0; settlement < 5; ++settlement)
+                QTest::newRow(qPrintable(QString::number(script) + "-" + QString::number(settlement)))
+                    << script << settlement;
+    }
+    void detachedConfirmationKeepsSessionBusyUntilSettled()
+    {
+        QFETCH(bool, script); QFETCH(int, settlement);
+        Fixture f;
+        auto call = script ? f.script() : f.command();
+        if (!script) call.request = RunCommandRequest{SessionId{"session"}, Epoch{"epoch"}, "rm -rf /tmp/test"};
+        call.formElicitation = true; call.detachedConfirmation = true;
+        f.runtime.start(call);
+        QVERIFY(f.prompt); QVERIFY(f.prompt->detached);
+        QCOMPARE(f.sessions.submissions, 0); QCOMPARE(f.sessions.publications, 0);
+        QVERIFY(f.targets.markers.isEmpty());
+        QVERIFY(!f.runtime.busy(SessionId{"other"}));
+        QVERIFY(f.runtime.busy(SessionId{"session"}));
+        if (settlement == 0) {
+            f.now = f.prompt->transaction.expires;
+            // Expiry is effective immediately, even before the periodic sweep.
+        } else if (settlement == 1) f.runtime.revoke("client", "session");
+        else if (settlement == 2) f.runtime.disconnect("peer");
+        else {
+            call.task = TaskId{"answer"}; call.confirmationSupplied = true;
+            call.confirmation = f.prompt->transaction; call.answer = ConfirmationAnswer::Decline;
+            if (settlement == 4) call.answer = ConfirmationAnswer::Cancel;
+            f.runtime.start(call);
+        }
+        QVERIFY(!f.runtime.busy(SessionId{"session"}));
+        QCOMPARE(f.sessions.submissions, 0); QCOMPARE(f.sessions.publications, 0);
+    }
+    void closeBusyFactsCoverConfirmationUploadAndExecution()
+    {
+        Fixture f;
+        QVERIFY(!f.runtime.busy(SessionId{"session"}));
+        QVERIFY(!f.runtime.busy(SessionId{"other"}));
+        f.runtime.start(f.script());
+        QVERIFY(f.prompt);
+        QVERIFY(f.runtime.busy(SessionId{"session"}));
+        QVERIFY(!f.runtime.busy(SessionId{"other"}));
+        f.runtime.confirm(TaskId{"task"}, ConfirmationAnswer::Accept);
+        QCOMPARE(f.sessions.publications, 1);
+        QVERIFY(f.runtime.busy(SessionId{"session"}));
+        f.runtime.cancel(TaskId{"task"});
+        QVERIFY(f.runtime.busy(SessionId{"session"}));
+        ScriptPublicationResult publication;
+        publication.requestId = f.sessions.published; publication.success = false;
+        publication.error = ErrorCode::Cancelled;
+        f.runtime.publicationFinished(publication);
+        QVERIFY(!f.runtime.busy(SessionId{"session"}));
+        Fixture command; command.runtime.start(command.command());
+        QCOMPARE(command.sessions.submissions, 1);
+        QVERIFY(command.runtime.busy(SessionId{"session"}));
+        CommandExecutionResult result;
+        result.requestId = command.sessions.submitted;
+        result.executionMayHaveStarted = result.terminationConfirmed = true;
+        result.outcome = CommandExecutionOutcome::Completed;
+        command.runtime.executionFinished(result);
+        QVERIFY(!command.runtime.busy(SessionId{"session"}));
+    }
     void typedExecutionPortsShareRuntimeAndRejectRevocation()
     {
         namespace C = NovaTerm::Capabilities;

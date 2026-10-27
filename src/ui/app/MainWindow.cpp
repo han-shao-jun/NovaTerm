@@ -1242,6 +1242,16 @@ void MainWindow::initWindow()
             return Facts{entry->id, entry->epoch, entry->attachmentId,
                 SessionDirectory::stateName(entry->state), {}, created};
         });
+        mcp->setTargetCloseSafety([window = QPointer<MainWindow>(this)](const QString& id) {
+            if (!window || !window->_sftpPanels || QApplication::activeModalWidget() || QApplication::activePopupWidget())
+                return false;
+            auto* service = Application::instance().mcpService();
+            const auto entry = service ? service->directory().find(id) : std::optional<SessionDirectory::Entry>{};
+            if (!entry || !entry->session) return false;
+            auto* ssh = qobject_cast<SshTransport*>(entry->transport.data());
+            const auto* panel = ssh ? window->_sftpPanels->panelFor(ssh) : nullptr;
+            return !panel || !panel->hasPendingOperations();
+        });
     }
     _sessionPanel->setCursor(Qt::ArrowCursor);
     _sessionDock->setWidget(_sessionPanel);

@@ -81,6 +81,8 @@ CapabilityRegistry CapabilityRegistry::implementedCapabilities()
         ResourceKind::Directory, Policy::DirectoryRead, "novaterm_open_target"});
     registry.add({CapabilityId{"target.query"}, 1, ImplementationStatus::Implemented,
         ResourceKind::Directory, Policy::DirectoryRead, "novaterm_query_target"});
+    registry.add({CapabilityId{"target.close"}, 1, ImplementationStatus::Implemented,
+        ResourceKind::Directory, Policy::DirectoryRead, "novaterm_close_target"});
     return registry;
 }
 }

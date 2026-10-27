@@ -75,6 +75,8 @@ public:
                      const QString& newRemotePath);
 
     [[nodiscard]] bool isConnected() const noexcept;
+    /** @brief 非阻塞读取真实队列/在途命令；取锁失败保守视为忙碌。 */
+    [[nodiscard]] bool hasPendingOperations() const;
 
 signals:
     void connected(const QString& homePath);
@@ -126,6 +128,7 @@ private:
         QMutex queueMutex;
         QWaitCondition queueReady;
         QQueue<Command> commands;
+        bool commandActive{false}; // queueMutex protects dequeue-to-completion, including blocking I/O.
         QSet<quint64> cancelledUploadRequests;
         qsizetype queuedUploadBytes{0};
         quint64 activeUploadRequestId{0};

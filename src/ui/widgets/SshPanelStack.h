@@ -31,6 +31,7 @@ public:
     {
         return static_cast<PanelType*>(currentWidget());
     }
+    [[nodiscard]] PanelType* panelFor(SshTransport* transport) const { return _panels.value(transport); }
 
     void setSessionContext(const QString& label, SshTransport* transport)
     {

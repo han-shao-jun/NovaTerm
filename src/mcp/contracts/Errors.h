@@ -42,6 +42,8 @@ enum class ErrorCode {
     TargetOperationNotAvailable,
     TargetOperationConflict,
     TargetOperationLimit,
+    TargetCloseNotAllowed,
+    TargetCloseBusy,
     CommandPermissionRequired,
     CommandPolicyChanged,
     CommandProfileUnavailable,

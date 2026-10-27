@@ -34,6 +34,21 @@ public:
     {
         return session._control->running;
     }
+    static void drainQueue(SftpSession& session)
+    {
+        QMutexLocker lock(&session._control->queueMutex);
+        session._control->commands.clear();
+    }
+    static void active(SftpSession& session, bool active)
+    {
+        QMutexLocker lock(&session._control->queueMutex);
+        session._control->commandActive = active;
+    }
+    static bool busyWhileLocked(SftpSession& session)
+    {
+        QMutexLocker lock(&session._control->queueMutex);
+        return session.hasPendingOperations();
+    }
 };
 
 class SshTransportTestAccess
@@ -95,6 +110,37 @@ private:
         QVERIFY(QMetaObject::invokeMethod(timer, "timeout", Qt::DirectConnection));
     }
 private slots:
+    void closeSafetySeesBackgroundPanelOperations()
+    {
+        SshTransport a(SshConfig{}), b(SshConfig{});
+        SshTransportTestAccess::connected(a); SshTransportTestAccess::connected(b);
+        SshPanelStack<SftpPanel> stack;
+        QVERIFY(!stack.panelFor(&a));
+        stack.setSessionContext("A", &a);
+        auto* panel = stack.panelFor(&a); QVERIFY(panel);
+        QVERIFY(panel->hasPendingOperations());
+        auto* backend = panel->findChild<SftpSession*>();
+        SftpSessionSafetyTestAccess::connected(*backend, "/a");
+        SftpSessionSafetyTestAccess::drainQueue(*backend);
+        emit backend->directoryListed("/a", {});
+        QVERIFY(!panel->hasPendingOperations());
+        panel->synchronizePathFromTerminal(&a, "/next");
+        QVERIFY(panel->hasPendingOperations());
+        stack.setSessionContext("B", &b);
+        QCOMPARE(stack.panelFor(&a), panel);
+        QVERIFY(panel->hasPendingOperations());
+        // A delayed list completion clears the UI flag, but not the queued worker operation.
+        emit backend->directoryListed("/a", {});
+        QVERIFY(panel->hasPendingOperations());
+        SftpSessionSafetyTestAccess::drainQueue(*backend);
+        emit backend->directoryListed("/next", {});
+        QVERIFY(!panel->hasPendingOperations());
+        SftpSessionSafetyTestAccess::active(*backend, true);
+        QVERIFY(panel->hasPendingOperations());
+        SftpSessionSafetyTestAccess::active(*backend, false);
+        QVERIFY(!panel->hasPendingOperations());
+        QVERIFY(SftpSessionSafetyTestAccess::busyWhileLocked(*backend));
+    }
     void backgroundDirectoryQueryFinishesOnItsOriginPanel_data()
     {
         QTest::addColumn<bool>("success");

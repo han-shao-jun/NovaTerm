@@ -1,5 +1,7 @@
 # NovaTerm 架构文档索引
 
+2026-10-27：新增 `novaterm_close_target`，当前二十一工具；仅关闭原操作创建且未人工接管、具有空闲证据的连接，保留终端。单文件传输和B4待后续，见[安全关闭记录](stages/P8_AI_MCP_Interface/records/B3b_Target_Close_2026-10-27.md)。
+
 > 文档集版本：2.1  
 > 整理日期：2026-09-02（本表状态以各阶段文档自身的状态行为准，已同步）  
 > 适用项目版本：NovaTerm 0.1.x 及后续重构阶段
@@ -11,7 +13,7 @@
 
 ## 阅读顺序
 
-2026-10-27 MCP更新见 [工作流扩展](stages/P8_AI_MCP_Interface/06_Terminal_Workflow_Extensions.md)：B1日志、B2清空及B3/B3a基础恢复、条件等待和长任务已实施，B3b第一子批增加显式共享的保存目标只读目录，当前十八工具；目标打开/查询/关闭和单文件传输仍未实施。源码、替身与真实设备的验收范围分开，本批见 [目录记录](stages/P8_AI_MCP_Interface/records/B3b_Target_Directory_2026-10-27.md)。
+2026-10-27 MCP更新见 [工作流扩展](stages/P8_AI_MCP_Interface/06_Terminal_Workflow_Extensions.md)：B1日志、B2清空及B3/B3a基础恢复、条件等待和长任务已实施，B3b已提供显式共享的保存目标目录、独立打开/复用/查询及安全关闭，当前二十一工具；单文件传输仍未实施。源码、替身与真实设备的验收范围分开，本批见 [目录记录](stages/P8_AI_MCP_Interface/records/B3b_Target_Directory_2026-10-27.md)。
 
 1. [总体架构](../ARCHITECTURE.md)：系统边界、数据流、线程、所有权和目标架构。
 2. [配置、Profile 与主题](Configuration_Profile_Theme.md)：配置分层、Profile、Session 和主题职责。
@@ -42,7 +44,7 @@
 | P5 Glyph 与 GPU 管线 | 实施完成；Linux Vulkan/OpenGL、Windows D3D11/D3D12 与 30 分钟长稳验收完成（2026-08-02）；macOS Metal、多屏 DPR 与 120/144 Hz 验收待完成 | [P5](stages/P5_Glyph_and_GPU_Pipeline.md) |
 | P6 Session 与 Transport | 进行中：Transport 四种完成，会话编排采用「1 View 拥有 1 Session」已在生产；剩 keyboard-interactive、close 模式、exited→UI、ProfileStore 持久化、contract tests | [P6](stages/P6_Session_and_Transport.md) |
 | P7 系统资源查询 | 已实现为内置功能（常驻监控 2026-09-06、系统信息窗口 2026-09-09）；性能量化验收待补 | [P7](stages/P7_System_Resource_Monitor.md) |
-| P8 AI MCP 接口 | B0/B1、B2、B3/B3a已实施，B3b增加保存目标目录及独立授权的打开/复用/查询，当前二十工具；旧十七对象与九项终端联合保持。目标关闭、单文件传输及真实SSH/UART双通道/客户端/性能仍待实施或验收，见 [缺口表](stages/P8_AI_MCP_Interface/03_Gaps_and_Evidence.md) | [MCP契约](stages/P8_AI_MCP_Interface/02_Current_MCP_Contract.md) |
+| P8 AI MCP 接口 | B0/B1、B2、B3/B3a已实施，B3b增加保存目标目录及独立授权的打开/复用/查询，当前二十一工具；旧十七对象与九项终端联合保持。目标关闭、单文件传输及真实SSH/UART双通道/客户端/性能仍待实施或验收，见 [缺口表](stages/P8_AI_MCP_Interface/03_Gaps_and_Evidence.md) | [MCP契约](stages/P8_AI_MCP_Interface/02_Current_MCP_Contract.md) |
 | P9 文件传输协议 | 协议库及串口 Session/手动传输窗口已接入；Linux 纯协议、门面、UI 与真实 QSerialPort/raw PTY 通路测试通过；Windows 取消发布竞争用例有已知失败，macOS 与真实 UART 文件传输验收待补 | [P9](stages/P9_File_Transfer_Protocols.md) |
 
 ## 文档权威性

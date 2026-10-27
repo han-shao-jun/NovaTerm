@@ -36,6 +36,7 @@ public:
     /** 绑定当前已连接 SSH 终端；其他终端传入 nullptr 并保持禁用占位界面。 */
     void setSessionContext(const QString& sessionLabel,
                            SshTransport* transport);
+    [[nodiscard]] bool hasPendingOperations() const;
 public slots:
     /** 仅消费所属 SSH Shell 的目录结果，包含后台标签的在途请求。 */
     void synchronizePathFromTerminal(SshTransport* source, const QString& path);

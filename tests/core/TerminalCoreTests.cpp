@@ -19,6 +19,8 @@ class TerminalCoreTests final : public QObject
     Q_OBJECT
 
 private slots:
+    void localInputAdmissionPrecedesOutputAndSurvivesReset();
+    void rejectedAndNonLocalCommandsDoNotCountAsLocalInput();
     void logReadKeepsActiveScreenAndAlternateScreenSeparate();
     void logReadPassesAbandonedSoftHistoryAfterConnectionReset();
     void compressedHistorySupportsColdViewportSearchAndResize();
@@ -2541,6 +2543,46 @@ void TerminalCoreTests::agentBatchEncodingUsesTerminalModesWithoutUserOutput()
     QVERIFY(core.encodeAgentInput(84, actions));
     QTRY_COMPARE(encoded.size(), 3);
     QCOMPARE(encoded.last().at(1).toByteArray(), QByteArray(16384, 'a') + '\x03');
+}
+
+void TerminalCoreTests::localInputAdmissionPrecedesOutputAndSurvivesReset()
+{
+    TerminalCore core(80, 24);
+    QSignalSpy output(&core, &TerminalCore::routedOutputData);
+    QCOMPARE(core.localInputGeneration(), quint64(0));
+    core.pasteText("human");
+    const auto pasted = core.localInputGeneration();
+    QVERIFY(pasted > 0);
+    QCOMPARE(output.size(), 0);
+    QKeyEvent key(QEvent::KeyPress, Qt::Key_Return, Qt::NoModifier);
+    core.processKeyPress(&key);
+    QVERIFY(core.localInputGeneration() > pasted);
+    const auto keyed = core.localInputGeneration();
+    core.processTextInput("IME");
+    QVERIFY(core.localInputGeneration() > keyed);
+    const auto accepted = core.localInputGeneration();
+    QVERIFY(core.waitForIdle(5000));
+    QCOMPARE(output.size(), 0);
+    QVERIFY(core.resetForConnection());
+    QVERIFY(core.waitForIdle(5000));
+    QCOMPARE(core.localInputGeneration(), accepted);
+}
+
+void TerminalCoreTests::rejectedAndNonLocalCommandsDoNotCountAsLocalInput()
+{
+    TerminalCore core(80, 24);
+    core.pasteText({});
+    core.processKeyPress(nullptr);
+    core.processTextInput({});
+    // Larger than the existing bounded Parser command byte budget: never accepted.
+    core.pasteText(QString(4 * 1024 * 1024, 'x'));
+    QCOMPARE(core.localInputGeneration(), quint64(0));
+    core.resize(100, 25); core.focusIn(); core.focusOut();
+    QVERIFY(core.writeInput("\x1b[5n").fullyAccepted());
+    using A = NovaTerm::TerminalInputAction;
+    QVERIFY(core.encodeAgentInput(85, {{A::Kind::Text, "agent"}}));
+    QVERIFY(core.waitForIdle(5000));
+    QCOMPARE(core.localInputGeneration(), quint64(0));
 }
 
 QTEST_GUILESS_MAIN(TerminalCoreTests)

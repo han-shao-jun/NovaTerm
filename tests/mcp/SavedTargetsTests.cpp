@@ -13,6 +13,96 @@ SavedTargetSource source(const QString& id = "11111111-1111-4111-8111-1111111111
 class SavedTargetsTests final : public QObject {
     Q_OBJECT
 private slots:
+    void closeReservesBeforeQueryAndUsesCurrentEpoch()
+    {
+        SavedTargets targets; QVERIFY(targets.replace({source()}));
+        const auto row = targets.localTargets().first();
+        QVERIFY(targets.setShared("alice", 1, row.id, row.configVersion, true));
+        QVERIFY(targets.setOpenAllowed("alice", 1, row.id, row.configVersion, true));
+        TargetConnections connections(targets);
+        TargetConnectionRequest request{row.id, row.configVersion, QUuid::createUuid().toString(QUuid::WithoutBraces)};
+        int closes = 0; bool nestedBusy = false;
+        connections.setPorts([](const SavedTargetSource&, const TargetConnections::Guard&) {
+            return TargetConnectionFacts{"session", "initial", "attachment", "connecting", {}, true, 1};
+        }, [&](const QString&, const QString&) {
+            nestedBusy = connections.call("alice", 1, request).error == ErrorCode::TargetCloseBusy;
+            return TargetConnectionFacts{"session", "discovered", "attachment", "running", {}, false, 1};
+        }, [&](const TargetConnectionFacts& original, const QString& epoch, const TargetConnections::Guard&) {
+            ++closes;
+            auto facts = original; facts.epoch = epoch; facts.state = "closed";
+            return TargetConnectionResult{facts, {}};
+        });
+        QVERIFY(!connections.call("alice", 1, request).error);
+        request.action = TargetConnectionAction::Close; request.epoch = "discovered";
+        QVERIFY(!connections.call("alice", 1, request).error);
+        QVERIFY(nestedBusy); QCOMPARE(closes, 1);
+        QVERIFY(!connections.call("alice", 1, request).error); QCOMPARE(closes, 1);
+    }
+    void closeRechecksRevocationAndCancellationAfterQuery()
+    {
+        for (bool revoke : {false, true}) {
+            SavedTargets targets; QVERIFY(targets.replace({source()}));
+            const auto row = targets.localTargets().first();
+            QVERIFY(targets.setShared("alice", 1, row.id, row.configVersion, true));
+            QVERIFY(targets.setOpenAllowed("alice", 1, row.id, row.configVersion, true));
+            TargetConnections connections(targets); bool valid = true; int closes = 0;
+            const TargetConnectionFacts facts{"session", "epoch", "attachment", "running", {}, true};
+            connections.setPorts([facts](const SavedTargetSource&, const TargetConnections::Guard&) { return facts; },
+                [&](const QString&, const QString&) {
+                    if (revoke) targets.revoke("alice"); else valid = false;
+                    return facts;
+                }, [&](const TargetConnectionFacts&, const QString&, const TargetConnections::Guard&) {
+                    ++closes; return TargetConnectionResult{facts, {}};
+                });
+            TargetConnectionRequest request{row.id, row.configVersion, QUuid::createUuid().toString(QUuid::WithoutBraces)};
+            QVERIFY(!connections.call("alice", 1, request).error);
+            request.action = TargetConnectionAction::Close; request.epoch = "epoch";
+            QVERIFY(connections.call("alice", 1, request, [&valid] { return valid; }).error);
+            QCOMPARE(closes, 0);
+        }
+    }
+    void closeOnlyOriginalCreatedOperationAndRetryOnce()
+    {
+        SavedTargets targets; QVERIFY(targets.replace({source()}));
+        const auto row = targets.localTargets().first();
+        for (const auto& client : QStringList{"alice", "bob"}) {
+            QVERIFY(targets.setShared(client, 1, row.id, row.configVersion, true));
+            QVERIFY(targets.setOpenAllowed(client, 1, row.id, row.configVersion, true));
+        }
+        TargetConnections connections(targets);
+        TargetConnectionRequest request{row.id, row.configVersion, QUuid::createUuid().toString(QUuid::WithoutBraces)};
+        int opens = 0, closes = 0; bool created = false, busy = true;
+        connections.setPorts([&](const SavedTargetSource&, const TargetConnections::Guard&) {
+            ++opens; return TargetConnectionFacts{"session", "epoch-1", "attachment", "running", {}, created};
+        }, {}, [&](const TargetConnectionFacts& facts, const QString&, const TargetConnections::Guard& allowed) {
+            ++closes;
+            if (busy) return TargetConnectionResult{{}, ErrorCode::TargetCloseBusy};
+            const auto nested = connections.call("alice", 1, request);
+            if (nested.error != ErrorCode::TargetCloseBusy || !allowed()) ++closes;
+            auto closed = facts; closed.state = "closed";
+            return TargetConnectionResult{closed, {}};
+        });
+        QVERIFY(!connections.call("alice", 1, request).error);
+        request.action = TargetConnectionAction::Close; request.epoch = "epoch-1";
+        QCOMPARE(connections.call("alice", 1, request).error, std::optional{ErrorCode::TargetCloseNotAllowed});
+        QCOMPARE(closes, 0);
+        request.operationId = QUuid::createUuid().toString(QUuid::WithoutBraces);
+        request.action = TargetConnectionAction::Open; created = true;
+        QVERIFY(!connections.call("alice", 1, request).error);
+        request.action = TargetConnectionAction::Close;
+        QCOMPARE(connections.call("bob", 1, request).error, std::optional{ErrorCode::TargetOperationNotAvailable});
+        auto stale = request; stale.epoch = "epoch-0";
+        QCOMPARE(connections.call("alice", 1, stale).error, std::optional{ErrorCode::StaleSessionEpoch});
+        QCOMPARE(closes, 0);
+        QCOMPARE(connections.call("alice", 1, request).error, std::optional{ErrorCode::TargetCloseBusy});
+        busy = false;
+        QCOMPARE(connections.call("alice", 1, request).facts.state, QString("closed"));
+        QCOMPARE(closes, 2);
+        QCOMPARE(connections.call("alice", 1, request).facts.state, QString("closed"));
+        QCOMPARE(closes, 2); QCOMPARE(opens, 2);
+        QVERIFY(targets.setOpenAllowed("alice", 1, row.id, row.configVersion, false));
+        QCOMPARE(connections.call("alice", 1, request).error, std::optional{ErrorCode::TargetOpenPermissionRequired});
+    }
     void globalOperationLimitKeepsExistingRecordsQueryable()
     {
         SavedTargets targets; QVERIFY(targets.replace({source()}));
@@ -35,7 +125,7 @@ private slots:
             }
         }
         QCOMPARE(opens, 256);
-        first.query = true; QVERIFY(!connections.call("0", 1, first).error); QCOMPARE(opens, 256);
+        first.action = TargetConnectionAction::Query; QVERIFY(!connections.call("0", 1, first).error); QCOMPARE(opens, 256);
     }
     void nestedCallbacksRecheckPermissionAndInvocationBeforeConnecting()
     {
@@ -80,7 +170,7 @@ private slots:
         const auto replay = connections.call("alice", 1, request);
         QVERIFY(!replay.error); QVERIFY(replay.facts.created); QCOMPARE(replay.facts.epoch, QString("epoch-2"));
         QCOMPARE(opens, 1);
-        request.query = true;
+        request.action = TargetConnectionAction::Query;
         QVERIFY(!connections.call("alice", 1, request).error);
         QCOMPARE(opens, 1); QCOMPARE(queries, 2);
         request.operationId = QUuid::createUuid().toString(QUuid::WithoutBraces);
@@ -109,7 +199,7 @@ private slots:
         QCOMPARE(connections.call("alice", 1, request).facts.reason, QString("authentication_required"));
         QCOMPARE(connections.call("alice", 1, request).facts.reason, QString("authentication_required"));
         QCOMPARE(opens, 1);
-        request.query = true;
+        request.action = TargetConnectionAction::Query;
         QCOMPARE(connections.call("bob", 1, request).error, std::optional{ErrorCode::TargetOperationNotAvailable});
         QVERIFY(connections.call("alice", 2, request).error);
         request.configVersion = "changed";
@@ -121,7 +211,7 @@ private slots:
         QVERIFY(targets.setShared("alice", 1, current.id, current.configVersion, true));
         QVERIFY(targets.setOpenAllowed("alice", 1, current.id, current.configVersion, true));
         request.configVersion = current.configVersion;
-        request.query = false;
+        request.action = TargetConnectionAction::Open;
         QCOMPARE(connections.call("alice", 1, request).error, std::optional{ErrorCode::TargetOperationConflict});
         QCOMPARE(opens, 1);
     }

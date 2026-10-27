@@ -1,5 +1,24 @@
 # AGENTS.md
 
+### 0.2.89 提交前收口（2026-10-27）
+
+用户要求创建本地Git提交，版本0.2.88→0.2.89，包含B3b原创建会话安全关闭、后台SFTP真实忙碌复核及人工输入入队/MRTR待确认两项审查修复，当前二十一工具。正常Windows Release默认全部目标构建通过；同版本提交前相关CTest **24/24（68.82秒，含受影响Core完整目标）**、完整MCP业务 **194/194（105.314秒）**、官方SDK2025/rawHTTP2026二十一工具互操作分别通过，不拼为一次全套。未跑无关全套/ConPTY、未连接真实设备；不推送，不纳入build产物/日志或本机辅助文件，不改机械风格。范围、命令、原始成绩及单文件传输/新会话预授权/B4保留范围见[安全关闭提交收口](docs/architecture/stages/P8_AI_MCP_Interface/records/B3b_Target_Close_2026-10-27.md#0289-提交前收口)。
+
+
+### B3b 安全关闭两项审查修复（2026-10-27，工作区增量）
+
+用户要求修复qt-cpp-review确认的两项行为问题。Core成功接受本机键/文本/粘贴/鼠标命令时发布独立atomic单调代际，关闭不再等Parser输出回GUI才识别人工接管；拒绝入队不计数，Agent/focus/resize/协议输出不新增计数，连接reset不清除，不改变原Arbiter输入抢占/写入语义。MRTR等待外部确认时即使原operation已交付回收，CommandRuntime.busy仍按Session查询活动、未消费、未到期scope；到期未sweep、撤权、断流及拒绝/取消消费均正确释放。
+
+人工输入真实RED **2pass/6fail**→两代关闭专项 **38/38**，MRTR确认真实RED **2pass/10fail**→ **12/12**；Core边界专项4/4。独立只读复核未见高可信新问题。正常Windows Release默认全构建通过；固定源码相关CTest **24/24（68.79秒，含本轮受影响Core完整目标）**、完整MCP业务 **194/194（104.137秒）**、官方SDK2025/rawHTTP2026二十一工具互操作分别通过，不拼为一次全套或套用前轮成绩。版本0.2.88、工具Schema保持；不改机械风格、未提交/推送、未连接设备、未跑无关全套/ConPTY。命令与原始日志见[安全关闭审查修复](docs/architecture/stages/P8_AI_MCP_Interface/records/B3b_Target_Close_2026-10-27.md#两项行为审查修复2026-10-27)。
+
+
+### B3b 保存目标安全关闭（2026-10-27，工作区增量）
+
+新增 `novaterm_close_target`，当前二十一工具。只关闭本客户端原operationId创建、仍为原Transport/连接代际的会话；复用、人工作用（终端输入或显式断开/重连）、旧epoch、执行/确认/上传/串口传输忙碌、未知目标保护及无可信提示符均拒绝。本机联合后台SFTP真实队列/在途命令，tryLock失败保守busy；旧目录回调不能单独清空安全判定。经既有Session.close，保留可见终端和缓存，关闭精确重试不跟随换绑新连接。
+
+本轮新契约、两代HTTP、SFTP旧回调及非可信Profile均有真实RED；独立只读复核后的正常Windows Release默认全部目标构建通过。最终相关CTest **23/23（57.83秒）**、完整MCP业务 **188/188（103.754秒）**、官方SDK2025/rawHTTP2026二十一工具互操作分别通过，原断言保持，不拼为一次全套。版本0.2.88保持；未提交/推送、未连接真实设备、未跑无关全套/Core/ConPTY。单文件传输、新会话预授权及B4仍待后续，详见[安全关闭记录](docs/architecture/stages/P8_AI_MCP_Interface/records/B3b_Target_Close_2026-10-27.md)。
+
+
 
 ### 0.2.88 提交前收口（2026-10-27）
 

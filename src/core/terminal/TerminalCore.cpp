@@ -367,7 +367,11 @@ public:
             reportOverload(QStringLiteral("parser command queue is full"));
             return false;
         }
+        const bool localInput = command.type == CommandType::KeyboardCharacter
+            || command.type == CommandType::KeyboardKey || command.type == CommandType::Paste
+            || command.type == CommandType::MouseButton || command.type == CommandType::MouseMove;
         commands.push_back(std::move(command));
+        if (localInput) localInputGeneration.fetch_add(1, std::memory_order_release);
         pendingCommandBytes += commandBytes;
         submittedCommands.fetch_add(1, std::memory_order_release);
         locker.unlock();
@@ -946,6 +950,7 @@ public:
     std::atomic<uint64_t> completedBytes{0};
     std::atomic<uint64_t> submittedCommands{0};
     std::atomic<uint64_t> completedCommands{0};
+    std::atomic<quint64> localInputGeneration{0};
     std::atomic<bool> accepting{true};
     std::atomic<bool> stopping{false};
     std::atomic<quint64> cacheGeneration{1};
@@ -1031,6 +1036,11 @@ bool TerminalCore::encodeAgentInput(quint64 operation, std::vector<NovaTerm::Ter
     command.operation = operation;
     command.actions = std::move(actions);
     return _runtime->enqueueCommand(std::move(command));
+}
+
+quint64 TerminalCore::localInputGeneration() const noexcept
+{
+    return _runtime->localInputGeneration.load(std::memory_order_acquire);
 }
 
 void TerminalCore::processKeyPress(QKeyEvent* event)

@@ -27,6 +27,8 @@ constexpr std::pair<ErrorCode, const char*> ErrorNames[] = {
     {ErrorCode::TargetOperationNotAvailable, "TARGET_OPERATION_NOT_AVAILABLE"},
     {ErrorCode::TargetOperationConflict, "TARGET_OPERATION_CONFLICT"},
     {ErrorCode::TargetOperationLimit, "TARGET_OPERATION_LIMIT"},
+    {ErrorCode::TargetCloseNotAllowed, "TARGET_CLOSE_NOT_ALLOWED"},
+    {ErrorCode::TargetCloseBusy, "TARGET_CLOSE_BUSY"},
     {ErrorCode::CommandPermissionRequired, "COMMAND_PERMISSION_REQUIRED"},
     {ErrorCode::CommandPolicyChanged, "COMMAND_POLICY_CHANGED"},
     {ErrorCode::CommandProfileUnavailable, "COMMAND_PROFILE_UNAVAILABLE"},

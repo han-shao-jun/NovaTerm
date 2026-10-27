@@ -69,6 +69,8 @@ public:
 
     // ── 输入事件（异步排队到工作线程）──
     void processKeyPress(QKeyEvent* event);
+    /** Accepted local keyboard/paste/mouse commands, before Parser/GUI delivery; never reset. */
+    [[nodiscard]] quint64 localInputGeneration() const noexcept;
     /** Bounded, ordered Parser encoding. Output is returned, never sent as user input. */
     bool encodeAgentInput(quint64 operation, std::vector<NovaTerm::TerminalInputAction> actions);
     void processTextInput(const QString& text,

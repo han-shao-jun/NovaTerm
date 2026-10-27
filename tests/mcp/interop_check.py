@@ -34,7 +34,7 @@ async def check(config: dict) -> None:
             initialization = await session.initialize()
             assert initialization.protocolVersion == "2025-11-25"
             catalog = await session.list_tools()
-            assert len(catalog.tools) == 20
+            assert len(catalog.tools) == 21
             schemas = {tool.name: tool.outputSchema for tool in catalog.tools}
             for tool in catalog.tools:
                 Draft202012Validator.check_schema(tool.inputSchema)
@@ -79,7 +79,7 @@ async def check(config: dict) -> None:
             assert not rejected["ok"] and rejected["error"]["code"] == "INVALID_ARGUMENT"
             await check_workflow(call, identity)
     await check_modern(settings)
-    print("PASS: official MCP SDK 2025 + raw 2026 HTTP, 20 schemas, saved-target directory/open/query/replay, history/terminal contracts and B3a wait/start/query/stop/replay")
+    print("PASS: official MCP SDK 2025 + raw 2026 HTTP, 21 schemas, saved-target directory/open/query/replay/close-refusal, history/terminal contracts and B3a wait/start/query/stop/replay")
 
 
 async def check_target_connections(call) -> None:
@@ -98,6 +98,10 @@ async def check_target_connections(call) -> None:
         assert result["ok"] and result["data"] == opened["data"]
     rejected = await call("novaterm_open_target", {**arguments, "configVersion": str(uuid.uuid4())})
     assert not rejected["ok"] and rejected["error"]["code"] == "TARGET_OPEN_PERMISSION_REQUIRED"
+    refused_close = await call("novaterm_close_target", {**arguments, "epoch": opened["data"]["epoch"]})
+    assert not refused_close["ok"] and refused_close["error"]["code"] == "TARGET_CLOSE_NOT_ALLOWED"
+    still_open = await call("novaterm_query_target", arguments)
+    assert still_open["ok"] and still_open["data"] == opened["data"]
 
 
 async def check_workflow(call, identity: dict) -> None:
@@ -186,7 +190,7 @@ async def check_modern(settings: dict) -> None:
         assert unsupported["error"]["data"]["requested"] == "2099-01-01"
         listed = await rpc("tools/list", {"_meta": metadata()})
         assert listed["result"]["resultType"] == "complete"
-        assert len(listed["result"]["tools"]) == 20
+        assert len(listed["result"]["tools"]) == 21
         schemas = {tool["name"]: tool["outputSchema"] for tool in listed["result"]["tools"]}
         sessions = await rpc("tools/call", {"name": "novaterm_list_sessions",
             "arguments": {}, "_meta": metadata()})

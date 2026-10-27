@@ -1,10 +1,11 @@
 #include "TargetConnections.h"
 #include <QUuid>
+#include <QScopeGuard>
 
 namespace NovaTerm::Mcp {
-void TargetConnections::setPorts(Open open, Query query)
+void TargetConnections::setPorts(Open open, Query query, Close close)
 {
-    _open = std::move(open); _query = std::move(query);
+    _open = std::move(open); _query = std::move(query); _close = std::move(close);
 }
 TargetConnectionResult TargetConnections::call(const QString& client, quint64 version,
     const TargetConnectionRequest& request, Guard invocationValid)
@@ -14,6 +15,8 @@ TargetConnectionResult TargetConnections::call(const QString& client, quint64 ve
         return !QUuid(value).isNull() && QUuid(value).toString(QUuid::WithoutBraces) == value;
     };
     if (!uuid(request.targetId) || !uuid(request.operationId) || !uuid(request.configVersion))
+        return failure(ErrorCode::InvalidArgument);
+    if (request.action == TargetConnectionAction::Close && (request.epoch.isEmpty() || request.epoch.size() > 128))
         return failure(ErrorCode::InvalidArgument);
     const auto source = _targets.openingSource(client, version, request.targetId, request.configVersion);
     if (!source) return failure(ErrorCode::TargetOpenPermissionRequired);
@@ -29,6 +32,33 @@ TargetConnectionResult TargetConnections::call(const QString& client, quint64 ve
             const auto record = *previous;
             if (record.identityVersion != version || record.targetId != request.targetId
                 || record.configVersion != request.configVersion) return failure(ErrorCode::TargetOperationConflict);
+            if (request.action == TargetConnectionAction::Close) {
+                if (!record.facts.created || record.facts.sessionId.isEmpty())
+                    return failure(ErrorCode::TargetCloseNotAllowed);
+                if (record.closeAccepted) return request.epoch == record.closeEpoch
+                    ? TargetConnectionResult{record.closeFacts, {}} : failure(ErrorCode::StaleSessionEpoch);
+                if (record.closeInFlight) return failure(ErrorCode::TargetCloseBusy);
+                _records[client][request.operationId].closeInFlight = true;
+                const auto reset = qScopeGuard([this, client, operation = request.operationId] {
+                    _records[client][operation].closeInFlight = false;
+                });
+                const auto query = _query;
+                const auto current = query ? query(record.facts.sessionId, record.facts.attachmentId) : record.facts;
+                if (current.state == "invalidated") return failure(ErrorCode::TargetCloseNotAllowed);
+                if (request.epoch != current.epoch) return failure(ErrorCode::StaleSessionEpoch);
+                if (!allowed()) return failure(ErrorCode::TargetOpenPermissionRequired);
+                const auto close = _close;
+                if (!close) return failure(ErrorCode::TargetCloseNotAllowed);
+                const auto result = close(record.facts, request.epoch, allowed);
+                auto& stored = _records[client][request.operationId];
+                if (!result.error && (result.facts.state == "closing" || result.facts.state == "closed")) {
+                    stored.closeAccepted = true; stored.closeFacts = result.facts;
+                    stored.closeFacts.created = true;
+                    stored.closeEpoch = request.epoch;
+                }
+                if (!allowed()) return failure(ErrorCode::TargetOpenPermissionRequired);
+                return result;
+            }
             auto facts = record.facts;
             const auto query = _query;
             if (!facts.sessionId.isEmpty() && query) {
@@ -40,7 +70,7 @@ TargetConnectionResult TargetConnections::call(const QString& client, quint64 ve
             return {facts, {}};
         }
     }
-    if (request.query) return failure(ErrorCode::TargetOperationNotAvailable);
+    if (request.action != TargetConnectionAction::Open) return failure(ErrorCode::TargetOperationNotAvailable);
     qsizetype count = 0;
     for (const auto& records : std::as_const(_records)) count += records.size();
     if (count >= 256 || (clientRecords != _records.cend() && clientRecords->size() >= 32))

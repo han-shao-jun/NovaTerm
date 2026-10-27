@@ -24,6 +24,8 @@ public:
     [[nodiscard]] SessionDirectory& directory();
     [[nodiscard]] SavedTargets& savedTargets();
     void setTargetOpener(TargetConnections::Open);
+    /** Local composition supplies transfer/UI safety; missing SSH facts refuse close. */
+    void setTargetCloseSafety(std::function<bool(const QString& sessionId)>);
     [[nodiscard]] HistoryCapabilityAdapter& history();
     [[nodiscard]] std::shared_ptr<Resources::ResourceSharingService> resources() const;
     void setHistorySource(Recording::HistoryService*);

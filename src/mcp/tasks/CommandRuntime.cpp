@@ -650,6 +650,19 @@ void CommandRuntime::sweep()
 bool CommandRuntime::idle() const
 { return _impl->operations.empty() && _impl->uploads.empty() && _impl->executions.empty() && _impl->dedup.empty() && _impl->confirmations.empty(); }
 bool CommandRuntime::quarantined(const QString& target) const { return _impl->quarantined(target); }
+bool CommandRuntime::busy(const SessionId& session) const
+{
+    if (_impl->confirmations.hasActiveForSession(session, _impl->now())) return true;
+    for (const auto& operation : _impl->operations) {
+        const auto reference = sessionReference(operation->call.request);
+        if (reference && reference->session == session) return true;
+    }
+    for (const auto& upload : _impl->uploads)
+        if (upload.facts.reference.session == session) return true;
+    for (const auto& execution : _impl->executions)
+        if (!execution.record.complete && execution.record.session.session == session) return true;
+    return false;
+}
 QList<CommandRecord> CommandRuntime::executionRecords() const
 { QList<CommandRecord> records; for (const auto& execution : _impl->executions) records.append(execution.record); return records; }
 QList<TargetProtection> CommandRuntime::protectedTargets() const { return _impl->targets.protections(); }

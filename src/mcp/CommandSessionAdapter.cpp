@@ -391,6 +391,7 @@ void CommandSessionAdapter::stop() { _impl->calls.clear(); _impl->capabilities->
 void CommandSessionAdapter::sweep() { _impl->runtime->sweep(); }
 bool CommandSessionAdapter::idle() const { return _impl->runtime->idle(); }
 bool CommandSessionAdapter::quarantined(const QString& target) const { return _impl->runtime->quarantined(target); }
+bool CommandSessionAdapter::busy(const QString& session) const { return _impl->runtime->busy(SessionId{session}); }
 QJsonObject CommandSessionAdapter::protectedTargets() const { return _impl->guard.markers(); }
 bool CommandSessionAdapter::acknowledgeTarget(const QString& target, const QString& expected) { return _impl->runtime->acknowledgeTarget(target, expected); }
 QJsonArray CommandSessionAdapter::executionRecords() const

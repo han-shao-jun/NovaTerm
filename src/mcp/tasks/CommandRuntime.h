@@ -155,6 +155,7 @@ public:
     void stop();
     void sweep();
     [[nodiscard]] bool idle() const;
+    [[nodiscard]] bool busy(const SessionId&) const;
     [[nodiscard]] bool quarantined(const QString& target) const;
     [[nodiscard]] QList<CommandRecord> executionRecords() const;
     [[nodiscard]] QList<TargetProtection> protectedTargets() const;

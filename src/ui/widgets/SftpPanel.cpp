@@ -872,6 +872,13 @@ bool SftpPanel::eventFilter(QObject* watched, QEvent* event)
     return QWidget::eventFilter(watched, event);
 }
 
+bool SftpPanel::hasPendingOperations() const
+{
+    return _sshTransport && (!_backendConnected || _busy || _uploadBatchActive
+        || _deleteBatchActive || _downloadBatchActive || !_pendingUploads.isEmpty()
+        || _sftpSession->hasPendingOperations());
+}
+
 void SftpPanel::setSessionContext(const QString& sessionLabel,
                                   SshTransport* transport)
 {

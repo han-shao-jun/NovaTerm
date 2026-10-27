@@ -26,6 +26,8 @@
 #include "protocol/BackendEvents.h"
 #include "CommandPolicy.h"
 #include "HttpMcpEndpoint.h"
+#include "session/SessionTerminalController.h"
+#include "session/SessionCommandFacade.h"
 #include "core/ThreadNaming.h"
 #include <QCoreApplication>
 #include <QDateTime>
@@ -543,7 +545,8 @@ public:
             : std::holds_alternative<StopTerminalTaskRequest>(*pending->taskRequest) ? "terminal.task.stop" : "terminal.task.query"};
         if (pending->targetsRequest) capability = Capabilities::CapabilityId{"target.list"};
         if (pending->targetConnectionRequest) capability = Capabilities::CapabilityId{
-            pending->targetConnectionRequest->query ? "target.query" : "target.open"};
+            pending->targetConnectionRequest->action == TargetConnectionAction::Query ? "target.query"
+            : pending->targetConnectionRequest->action == TargetConnectionAction::Close ? "target.close" : "target.open"};
         auto result = capabilityDispatcher.admit(capability, *pending->invocation);
         if (const auto* reason = std::get_if<Capabilities::Rejection>(&result)) {
             complete(requestKey(pending->connection, pending->id),
@@ -704,6 +707,47 @@ public:
         return {entry->id, entry->epoch, attachment, SessionDirectory::stateName(entry->state), reason, false};
     }
 
+    TargetConnectionResult closeTargetConnection(const TargetConnectionFacts& original,
+        const QString& epoch, const TargetConnections::Guard& allowed)
+    {
+        QPointer<TerminalSession> session;
+        const auto safety = [this, &original, &epoch, &session]() -> std::optional<ErrorCode> {
+            const auto entry = sessions.find(original.sessionId);
+            if (!entry || !entry->session || !entry->transport
+                || entry->transport->property("novatermSavedConnectionId").toString() != original.attachmentId)
+                return ErrorCode::TargetCloseNotAllowed;
+            session = entry->session;
+            if (entry->epoch != epoch) return ErrorCode::StaleSessionEpoch;
+            if (entry->generation != original.connectionGeneration || session->manualConnectionGeneration()
+                || session->inputArbiter()->userInputGeneration() || session->core()->localInputGeneration())
+                return ErrorCode::TargetCloseNotAllowed;
+            auto* controller = session->terminalController();
+            if (entry->state != SessionState::Running || !entry->transport->isConnected()
+                || entry->transport->hasPendingDisconnect()
+                || entry->transport->property("novatermHostKeyDecisionPending").toBool()
+                || !session->commandCoordinator()->hasTrustedProfile()
+                || controller->pending() || controller->commandActive() || !controller->readyForCommand()
+                || session->inputArbiter()->hasMcpLease() || session->inputArbiter()->hasTransferLease()
+                || session->commandFacade()->hasActiveRequests() || commands->busy(entry->id)
+                || commands->quarantined(entry->targetFingerprint)) return ErrorCode::TargetCloseBusy;
+            return {};
+        };
+        if (!allowed()) return {{}, ErrorCode::TargetOpenPermissionRequired};
+        if (const auto error = safety()) return {{}, error};
+        // The local UI owns SFTP panels, including inactive tabs. Unknown SSH facts refuse close.
+        const auto localSafety = targetCloseSafety;
+        if ((localSafety && !localSafety(original.sessionId))
+            || (!localSafety && session->runtimeConfig().transportKind == TransportKind::Ssh))
+            return {{}, ErrorCode::TargetCloseBusy};
+        if (!allowed()) return {{}, ErrorCode::TargetOpenPermissionRequired};
+        if (const auto error = safety()) return {{}, error};
+        if (!allowed() || !session) return {{}, ErrorCode::TargetOpenPermissionRequired};
+        session->close(CloseMode::Graceful);
+        auto facts = queryTargetConnection(original.sessionId, original.attachmentId);
+        facts.created = true;
+        return {facts, {}};
+    }
+
     void listTargets(PendingRequest* pending)
     {
         const auto key = requestKey(pending->connection, pending->id);
@@ -855,6 +899,7 @@ public:
     SessionDirectory sessions;
     SavedTargets savedTargets;
     TargetConnections targetConnections{savedTargets};
+    std::function<bool(const QString&)> targetCloseSafety;
     HistoryCapabilityAdapter history;
     Capabilities::CapabilityRegistry capabilityRegistry{Capabilities::CapabilityRegistry::implementedCapabilities()};
     Capabilities::CapabilityAuthorization capabilityAuthorization{
@@ -925,11 +970,18 @@ void Service::setTargetOpener(TargetConnections::Open open)
         }
         auto current = impl->queryTargetConnection(entry->id, id);
         current.created = facts.created;
+        current.connectionGeneration = entry->generation;
         return current;
     };
     _impl->targetConnections.setPorts(std::move(factory), [impl](const QString& id, const QString& attachment) {
         return impl->queryTargetConnection(id, attachment);
+    }, [impl](const TargetConnectionFacts& facts, const QString& epoch, const TargetConnections::Guard& allowed) {
+        return impl->closeTargetConnection(facts, epoch, allowed);
     });
+}
+void Service::setTargetCloseSafety(std::function<bool(const QString&)> safety)
+{
+    _impl->targetCloseSafety = std::move(safety);
 }
 HistoryCapabilityAdapter& Service::history() { return _impl->history; }
 std::shared_ptr<Resources::ResourceSharingService> Service::resources() const { return _impl->history.resources(); }

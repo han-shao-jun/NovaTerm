@@ -76,6 +76,14 @@ bool ConfirmationRegistry::hasActiveForConnection(const QString& connection) con
     return _active.contains(connection);
 }
 
+bool ConfirmationRegistry::hasActiveForSession(const SessionId& session, qint64 now) const
+{
+    for (auto it = _scopes.cbegin(); it != _scopes.cend(); ++it)
+        if (it->session == session.str() && it->expires > now
+            && isActive(it->connection, it.key()) && !isConsumed(it.key())) return true;
+    return false;
+}
+
 bool ConfirmationRegistry::isConsumed(const QString& nonce) const
 {
     return _consumed.contains(nonce);
