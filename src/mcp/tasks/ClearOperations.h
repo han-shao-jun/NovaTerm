@@ -13,7 +13,7 @@ namespace NovaTerm::Mcp {
 // Separate domain request: the frozen nine terminal application requests stay unchanged.
 struct ClearCompletion {
     quint64 generation{0};
-    std::optional<LogPage> baseline;
+    std::optional<LogPage> baseline{};
     qint64 capturedAtMs{0}, ticketIssued{0};
     quint64 userGeneration{0};
 };

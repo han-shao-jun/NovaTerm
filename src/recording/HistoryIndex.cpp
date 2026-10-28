@@ -47,7 +47,9 @@ bool HistoryIndex::add(const HistoryRecord& r, int chunk, qint64 offset, const Q
     q.prepare("INSERT OR REPLACE INTO records VALUES (?,?,?,?,?,?,?)");
     q.addBindValue(QVariant::fromValue(r.recordId)); q.addBindValue(QVariant::fromValue(r.lastRecordId));
     q.addBindValue(chunk); q.addBindValue(offset); q.addBindValue(r.wallTimestampMs); q.addBindValue(hash); q.addBindValue(int(r.kind));
-    if (q.exec()) return true; p.error = q.lastError().text(); return false;
+    if (q.exec()) return true;
+    p.error = q.lastError().text();
+    return false;
 }
 bool HistoryIndex::commit() {
     auto& p = *_impl;

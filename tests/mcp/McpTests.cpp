@@ -796,7 +796,8 @@ void McpTests::historyAdapterBindsTheInjectedSourceGeneration()
         [principal = f.client](const QString& id) -> quint64 { return id == principal ? 7 : 0; },
         NovaTerm::Resources::GrantPersistence{{}, [](const auto&) { return true; }});
     resources->setHistorySource({[capture](auto id) -> std::optional<NovaTerm::Recording::HistoryResource> {
-        if (id != capture) return {}; NovaTerm::Recording::HistoryResource resource;
+        if (id != capture) return {};
+        NovaTerm::Recording::HistoryResource resource;
         resource.capture.id = capture; resource.generation = 3; return resource;
     }, {}});
     QVERIFY(resources->share(f.client, capture, 1, 0, false).isEmpty());

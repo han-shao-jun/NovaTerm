@@ -47,12 +47,12 @@ struct EvidenceRequest {
     QVector<RawFragment> fragments;
     qint64 ttlMs = 60000;
     bool persist = false;
-    DiagnosticProvenance diagnostic;
+    DiagnosticProvenance diagnostic{};
 };
 struct EvidenceResult {
     Error error = Error::None;
-    EvidenceRef reference;
-    QByteArray bytes;
+    EvidenceRef reference{};
+    QByteArray bytes{};
     bool verifiable = false;
 };
 using EvidenceCallback = std::function<void(EvidenceResult)>;

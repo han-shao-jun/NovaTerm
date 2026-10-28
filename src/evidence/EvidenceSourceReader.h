@@ -4,9 +4,9 @@
 namespace NovaTerm::Evidence {
 struct SourceReadResult {
     Error error = Error::None;
-    QByteArray bytes;
+    QByteArray bytes{};
     quint64 generation = 0;
-    QString sourceCompleteness;
+    QString sourceCompleteness{};
     quint64 projectionVersion = 0;
 };
 // Adapter owns source lifetime and validates the resource generation/existence on every read.

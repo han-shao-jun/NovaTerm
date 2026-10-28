@@ -6,6 +6,6 @@ enum class TargetConnectionAction { Open, Query, Close };
 struct TargetConnectionRequest {
     QString targetId, configVersion, operationId;
     TargetConnectionAction action{TargetConnectionAction::Open};
-    QString epoch;
+    QString epoch{};
 };
 }

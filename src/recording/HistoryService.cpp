@@ -30,7 +30,7 @@ quint64 directoryBytes(const QString& path, const IoProbe& probe = {}) {
 }
 struct HistoryService::Worker {
     enum class Kind { Start, Remove, Retain, Configure, Read };
-    struct Job { Kind kind; quint64 request{0}; RecordingIntent intent; HistoryCaptureId id; bool keep{false}; RetentionSettings settings; HistoryRange range; };
+    struct Job { Kind kind; quint64 request{0}; RecordingIntent intent{}; HistoryCaptureId id{}; bool keep{false}; RetentionSettings settings{}; HistoryRange range{}; };
     struct Completion { quint64 request; Job job; RecordingResult result; ReadResult read; std::shared_ptr<HistoryRecorder> recorder; };
     struct Active { std::unique_ptr<HistoryChunkStore> store; std::shared_ptr<HistoryRecorder> recorder; };
     const QString root;
@@ -266,22 +266,26 @@ void HistoryService::boundary(QUuid session, quint64 generation, const QString& 
 bool HistoryService::remove(HistoryCaptureId id, Done callback) {
     if (_callbacks.size() + _readCallbacks.size() >= 64) return false;
     Worker::Job job{Worker::Kind::Remove}; job.id = id; job.request = ++_request;
-    if (!_worker->enqueue(job)) return false; _callbacks.emplace(job.request, std::move(callback)); return true;
+    if (!_worker->enqueue(job)) return false;
+    _callbacks.emplace(job.request, std::move(callback)); return true;
 }
 bool HistoryService::retain(HistoryCaptureId id, bool keep, Done callback) {
     if (_callbacks.size() + _readCallbacks.size() >= 64) return false;
     Worker::Job job{Worker::Kind::Retain}; job.id = id; job.keep = keep; job.request = ++_request;
-    if (!_worker->enqueue(job)) return false; _callbacks.emplace(job.request, std::move(callback)); return true;
+    if (!_worker->enqueue(job)) return false;
+    _callbacks.emplace(job.request, std::move(callback)); return true;
 }
 bool HistoryService::configure(RetentionSettings settings, Done callback) {
     if (!settings.valid() || _callbacks.size() + _readCallbacks.size() >= 64) return false;
     Worker::Job job{Worker::Kind::Configure}; job.settings = settings; job.request = ++_request;
-    if (!_worker->enqueue(job)) return false; _callbacks.emplace(job.request, std::move(callback)); return true;
+    if (!_worker->enqueue(job)) return false;
+    _callbacks.emplace(job.request, std::move(callback)); return true;
 }
 bool HistoryService::readCommitted(HistoryCaptureId id, HistoryRange range, ReadDone callback) {
     if (!callback || _callbacks.size() + _readCallbacks.size() >= 64) return false;
     Worker::Job job{Worker::Kind::Read}; job.id = id; job.range = range; job.request = ++_request;
-    if (!_worker->enqueue(job)) return false; _readCallbacks.emplace(job.request, std::move(callback)); return true;
+    if (!_worker->enqueue(job)) return false;
+    _readCallbacks.emplace(job.request, std::move(callback)); return true;
 }
 void HistoryService::poll() {
     std::deque<Worker::Completion> completions; bool dirty;

@@ -24,7 +24,7 @@ struct SharedCapture {
 };
 struct CaptureListPage { std::vector<SharedCapture> captures; QString nextAfter, digest, error; };
 struct EvidenceSearchPage { Recording::HistorySearchPage page; Evidence::EvidenceRef evidence; };
-struct ImportResult { QString error, resourceId, contentHash; quint64 byteCount{0}; };
+struct ImportResult { QString error, resourceId{}, contentHash{}; quint64 byteCount{0}; };
 
 // Application-thread owner of explicit sharing transactions and query/evidence publication.
 // Recording source lifetime is independent of imported resources and their evidence.

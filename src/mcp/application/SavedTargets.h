@@ -53,7 +53,7 @@ private:
         quint64 identityVersion;
         QString configVersion;
         bool openAllowed{false};
-        NewSessionSharing sharing;
+        NewSessionSharing sharing{};
     };
     void invalidate();
     QMap<QString, Entry> _targets;

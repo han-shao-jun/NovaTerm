@@ -1,5 +1,9 @@
 # AGENTS.md
 
+### 0.2.99 Linux Release all 构建修复（2026-10-29）
+
+按用户要求修复现有 `build/Release` 的 `all` 构建并创建本地提交，版本0.2.98→0.2.99。拆开GCC判为误导性缩进的同行语句，为报错聚合成员明确缺省初始化，Windows专用文件测试辅助函数纳入原平台保护；保留 `-Werror`，不扩展Linux安全本地文件后端。版本更新后 `cmake --build build/Release --target all -j 6` 成功；提交前相关CTest9/9（6.98秒）：history recorder/store/service/recording_ui、evidence、resource_sharing、MCP saved_targets/clear_operations/local_file_io。未跑无关全套、完整MCP业务或真实设备测试，不推送、不纳入构建产物及日志。构建与测试日志分别在 `/tmp/novaterm-0299-all-build.log`、`/tmp/novaterm-0299-commit-tests.log`，仅为本机临时证据。
+
 ### 0.2.98 SFTP终端目录同步修复（2026-10-28）
 
 按用户要求修复后本地提交，版本0.2.97→0.2.98。OSC标题跨分片收齐后才发布，64 KiB上限整条拒绝超长标题；Core按顺序交付同批完整标题，避免目录探针被shell提示符标题覆盖，恢复原标题前检查当前标题。真实RED两项失败后修复通过，补齐无提示符标题更新分支；独立只读行为复核未见高可信新问题。实现阶段Core与SFTP面板CTest通过；首次offscreen相关CTest为2/3，终端完整QTest复核21pass/2fail均为不支持QRhi的画面断言，Windows原生后端完整23/23（71.806秒），各轮分别保留。版本递增后只重建Release主程序，不冒充完整新版本重测；未连接服务器、不推送、不纳入构建日志。详见[目录同步修复记录](docs/architecture/Sftp_Terminal_Directory_Fix_2026-10-28.md)。

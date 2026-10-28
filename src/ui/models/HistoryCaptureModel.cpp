@@ -50,12 +50,14 @@ QVariant HistoryCaptureModel::data(const QModelIndex& index, int role) const {
     }
 }
 std::optional<CaptureDescriptor> HistoryCaptureModel::capture(int row) const {
-    if (row < 0 || row >= int(_rows.size())) return {}; return _rows[size_t(row)];
+    if (row < 0 || row >= int(_rows.size())) return {};
+    return _rows[size_t(row)];
 }
 HistoryService::Done HistoryCaptureModel::completion() {
     _busy = true; emit statusChanged(tr("Working…")); QPointer<HistoryCaptureModel> guard(this);
     return [guard](RecordingResult result) {
-        if (!guard) return; guard->_busy = false;
+        if (!guard) return;
+        guard->_busy = false;
         guard->refresh(); if (guard) emit guard->statusChanged(result.success ? tr("Saved") : result.error);
     };
 }

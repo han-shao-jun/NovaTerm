@@ -33,8 +33,8 @@ private:
         QString targetId, configVersion;
         TargetConnectionFacts facts;
         bool closeInFlight{false}, closeAccepted{false};
-        TargetConnectionFacts closeFacts;
-        QString closeEpoch;
+        TargetConnectionFacts closeFacts{};
+        QString closeEpoch{};
     };
     SavedTargets& _targets;
     QMap<QString, QMap<QString, Record>> _records;

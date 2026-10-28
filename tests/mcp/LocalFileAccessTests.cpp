@@ -20,6 +20,7 @@ using namespace NovaTerm::Mcp;
 using namespace NovaTerm::Mcp::Files;
 
 namespace {
+#ifdef Q_OS_WIN
 bool put(const QString& path, const QByteArray& bytes)
 {
     QFile file(path);
@@ -35,7 +36,6 @@ QByteArray contents(const QString& path)
     }
     return file.readAll();
 }
-#ifdef Q_OS_WIN
 const wchar_t* wide(const QString& path) { return reinterpret_cast<const wchar_t*>(path.utf16()); }
 bool junction(const QString& path, const QString& target)
 {

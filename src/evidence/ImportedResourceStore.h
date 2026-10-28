@@ -9,8 +9,8 @@ namespace NovaTerm::Evidence {
 struct TrustedLocalSelection { QString localPath; };
 struct ImportedResource {
     Error error = Error::None;
-    ResourceBinding binding;
-    QByteArray contentHash;
+    ResourceBinding binding{};
+    QByteArray contentHash{};
     quint64 byteCount = 0;
 };
 class ImportedResourceStore final {

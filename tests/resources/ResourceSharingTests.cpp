@@ -67,7 +67,8 @@ private slots:
             const C::ResourceBinding& binding, const C::Definition&) -> std::optional<C::AuthorizationSnapshot> {
             const auto* history = std::get_if<C::HistoryCaptureBinding>(&binding); if (!history) return {};
             const auto grant = resources.authorize(resources.context(principal.value()), {QUuid(history->id.value())}, history->generation);
-            if (!grant) return {}; return C::AuthorizationSnapshot{binding, grant->accessVersion};
+            if (!grant) return {};
+            return C::AuthorizationSnapshot{binding, grant->accessVersion};
         });
         C::CapabilityDispatcher dispatcher(registry, authorization); Resources::HistoryCapabilities ports(dispatcher, resources);
         C::McpCapabilityAdapter external(authorization, C::PrincipalId{"external"});
