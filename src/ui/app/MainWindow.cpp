@@ -1206,6 +1206,9 @@ void MainWindow::initWindow()
     setCustomWidget(ElaAppBarType::LeftArea, customWidget, this, "processHitTest");
 
     _terminalPage = new TerminalPage(this, _historyRuntime);
+    // 菜单先于终端页创建，接收者就绪后再连接历史录制入口。
+    connect(_actHistoryRecording, &QAction::triggered,
+            _terminalPage, &TerminalPage::showHistoryRecording);
 
     // 1 号区域：会话面板固定在左侧。标题已由面板内部绘制，因此隐藏
     // QDockWidget 标题栏，并禁止用户将它拖离快捷连接区域。
@@ -1687,7 +1690,6 @@ void MainWindow::buildMainMenu()
     _actMcp = _mainMenu->addElaIconAction(ElaIconType::Terminal, tr("AI MCP access"));
     connect(_actMcp, &QAction::triggered, this, &MainWindow::showMcpSettingsDialog);
     _actHistoryRecording = _mainMenu->addElaIconAction(ElaIconType::Terminal, tr("History recording"));
-    connect(_actHistoryRecording, &QAction::triggered, _terminalPage, &TerminalPage::showHistoryRecording);
 
     // ── 关于：模态对话框（行为不变）──
     _actAbout = _mainMenu->addElaIconAction(ElaIconType::CircleInfo, tr("About"));

@@ -1,5 +1,9 @@
 # AGENTS.md
 
+### 0.2.100 历史录制菜单启动空连接修复（2026-10-29）
+
+主菜单早于TerminalPage创建，历史录制入口原先连接空接收者，启动报 `QObject::connect(QAction, Unknown): invalid nullptr parameter` 且点击无响应。连接移至终端页创建之后；按用户要求本地提交，版本0.2.99→0.2.100。隔离配置、offscreen下复用实际主窗口对象的临时行为回归，修复前菜单存在但首次/再次打开均失败、空连接1次；修复后首次打开/隐藏再打开复用同一面板通过、空连接0次（offscreen不支持raise的两条提示保留）。0.2.99实现阶段Release all及历史录制UI CTest1/1（3.55秒）通过；版本递增后独立复验Release all成功、同项CTest1/1（3.77秒）、实际菜单首次/再次打开通过且空连接0次。未跑无关全套、未连接设备，不推送、不纳入构建产物和日志；实现阶段本机临时证据 `/tmp/novaterm-menu-{red,green,build,ui-tests}.log`，提交前证据 `/tmp/novaterm-02100-{all-build,ui-tests,menu-smoke}.log`。
+
 ### 0.2.99 Linux Release all 构建修复（2026-10-29）
 
 按用户要求修复现有 `build/Release` 的 `all` 构建并创建本地提交，版本0.2.98→0.2.99。拆开GCC判为误导性缩进的同行语句，为报错聚合成员明确缺省初始化，Windows专用文件测试辅助函数纳入原平台保护；保留 `-Werror`，不扩展Linux安全本地文件后端。版本更新后 `cmake --build build/Release --target all -j 6` 成功；提交前相关CTest9/9（6.98秒）：history recorder/store/service/recording_ui、evidence、resource_sharing、MCP saved_targets/clear_operations/local_file_io。未跑无关全套、完整MCP业务或真实设备测试，不推送、不纳入构建产物及日志。构建与测试日志分别在 `/tmp/novaterm-0299-all-build.log`、`/tmp/novaterm-0299-commit-tests.log`，仅为本机临时证据。
