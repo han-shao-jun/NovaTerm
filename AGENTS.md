@@ -1,5 +1,14 @@
 # AGENTS.md
 
+### 0.2.97 显式覆盖与Windows MCP软件收口（2026-10-28）
+
+按用户要求逐阶段行为审查/修复验证/本地提交，本轮0.2.96→0.2.97，30工具不变。upload/download可选overwrite默认false；独立write权限保持、参数纳入精确重试。初始明确缺失仍no-replace，已有安全目标快照/最终复核后原子replace；Windows原parent/native rename、SFTP明确posix-rename1，无删后rename。公开非CAS最终窗口与可信目录写入者前提，本地pinPath不检查ACL/owner；新目标使用新temp属性，不复制旧ACL/执行位。取消只清本次临时文件，已发布结果保留，丢确认unknown不推成功。无新增生产源文件/执行器。
+
+真实RED：本地24pass/13fail、SFTP70pass/20fail、索引23pass/4fail、契约2pass/2fail、HTTP2pass/4fail。首轮GREEN本地36pass/1fail为delete-pending夹具持有DELETE句柄导致QFile内容复核共享冲突；修正夹具RAII关闭顺序、保留原保护断言后37/37，产品未改；其他GREEN90/90、27/27、34/34、6/6。六领域只读复核未见高可信新问题。正常Release默认全部目标构建通过；最终相关CTest28/28（66.27秒）、完整MCP267/267（141.237秒）、30工具官方SDK2025/rawHTTP2026分别通过，不拼作全套。未跑无关Core/ConPTY、真实设备、其他平台或消毒器，不推送。
+
+当前Windows B0～B3b软件开发已收口，可按SF/DF/UF/OF清单由用户实机测试；B4/P8最终验收未完成。平台范围异步询问未回复后按当前Windows环境交付，Linux/macOS安全本地文件后端明确尚未实现（不是仅待测试），托管提权adapter按03仍不可用且非首个闭环前置。范围/原始日志及命令见[覆盖收口](docs/architecture/stages/P8_AI_MCP_Interface/records/B3b_File_Overwrite_2026-10-28.md)，整体账本见[Windows软件交付边界](docs/architecture/stages/P8_AI_MCP_Interface/08_Software_Closeout.md)。
+
+
 ### 0.2.96 SFTP单文件下载收口（2026-10-28）
 
 按用户持续授权完成下载阶段实现/qt-cpp-review行为审查/修复/验证后本地提交，版本0.2.95→0.2.96。新增download_file，当前30工具；复用FileTransfers、原SftpPanel/SftpSession队列/worker与安全LocalFileWriter，不新增生产源文件。独立local.write+remote.read、原binding/revision、跨方向重试冲突；默认不覆盖，published/publication/temporary对下载均指本地，contentVerified=false。旧上传工具保持，query/cancel仅增加downloading。Windows本地后端限制和SFTPv3可信目录owner/admin边界如实保留。

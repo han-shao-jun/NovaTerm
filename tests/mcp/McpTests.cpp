@@ -566,6 +566,8 @@ private slots:
     void httpFileUploadChecksIndependentAuthority();
     void httpFileDownloadUsesSharedTransferLifecycle_data();
     void httpFileDownloadUsesSharedTransferLifecycle();
+    void httpFileOverwriteRequiresExplicitIntent_data();
+    void httpFileOverwriteRequiresExplicitIntent();
     void httpFileUploadIsIndependentOfTerminalAndClosePolicy_data();
     void httpFileUploadIsIndependentOfTerminalAndClosePolicy();
     void fileResourceSettingsRejectStaleIdentityAndConnection();
@@ -3257,6 +3259,58 @@ void McpTests::serialFileSettingsRequireExplicitCurrentGrant()
     QVERIFY(!share->isEnabled());
     QVERIFY(adapter.targets().list(f.client, f.service.access().identityVersion(f.client)).isEmpty());
     QCOMPARE(f.serial->pendingWriteBytes(), qint64(0));
+}
+void McpTests::httpFileOverwriteRequiresExplicitIntent_data()
+{
+    QTest::addColumn<QString>("version"); QTest::addColumn<bool>("download");
+    QTest::newRow("2025-upload") << QString(ProtocolVersion) << false;
+    QTest::newRow("2025-download") << QString(ProtocolVersion) << true;
+    QTest::newRow("2026-upload") << QString("2026-07-28") << false;
+    QTest::newRow("2026-download") << QString("2026-07-28") << true;
+}
+void McpTests::httpFileOverwriteRequiresExplicitIntent()
+{
+    QFETCH(QString, version); QFETCH(bool, download);
+    Fixture f; QVERIFY(f.service.access().setEnabled(true)); f.makeSsh();
+    const auto entry = f.service.directory().entries().first();
+    const auto identity = f.service.access().identityVersion(f.client);
+    const auto binding = f.service.access().grantSnapshot(ClientId{f.client}, entry).binding;
+    auto& files = f.service.fileResources();
+    const auto local = files.resources().shareLocal(f.client, identity, f.root.filePath("files"), "Files", {true, true});
+    const auto remote = files.shareRemote(f.client, identity, binding, "/board/files", "Files", {true, true});
+    QVERIFY(local); QVERIFY(remote); QVERIFY(!f.service.access().canRead(f.client, entry));
+    QList<SftpFileUploadRequest> requests;
+    QList<FileTransfers::Delivery> deliveries;
+    f.service.setFileUploadStarter([&](TerminalSession&, const SftpFileUploadRequest& request, FileTransfers::Delivery delivery) {
+        requests.append(request); deliveries.append(std::move(delivery)); return true;
+    });
+    auto args = f.identity();
+    args.insert("resourceId", local->id); args.insert("resourceRevision", local->revision);
+    args.insert("relativePath", "result.bin"); args.insert("scopeId", remote->id);
+    args.insert("scopeRevision", remote->revision); args.insert("remoteName", "result.bin"); args.insert("operationId", newId());
+    const auto tool = download ? "novaterm_download_file" : "novaterm_upload_file";
+    Host host; QVERIFY(host.start(f.runtime(), f.token(), {}, false, version));
+    const auto first = host.call(tool, args); QVERIFY(first.value("ok").toBool());
+    QCOMPARE(requests.size(), 1); QVERIFY(!requests.first().overwrite);
+    args.insert("overwrite", false);
+    QCOMPARE(host.call(tool, args).value("data"), first.value("data")); QCOMPARE(requests.size(), 1);
+    args.insert("overwrite", true);
+    QCOMPARE(host.call(tool, args).value("error").toObject().value("code").toString(), QString("TARGET_OPERATION_CONFLICT"));
+    SftpFileUploadResult stopped; stopped.requestId = requests.first().requestId;
+    stopped.errorCode = "TRANSFER_CANCELLED"; requests.first().control->cancel(); deliveries.first().finished(stopped);
+    args.insert("operationId", newId());
+    const auto second = host.call(tool, args); QVERIFY(second.value("ok").toBool());
+    QCOMPARE(requests.size(), 2); QVERIFY(requests.last().overwrite);
+    const auto id = second.value("data").toObject().value("transferId").toString(); QVERIFY(!id.isEmpty());
+    QCOMPARE(host.call(tool, args).value("data").toObject().value("transferId").toString(), id);
+    QCOMPARE(requests.size(), 2);
+    requests.last().control->state = SftpFileUploadControl::State::Publishing;
+    SftpFileUploadResult published; published.requestId = requests.last().requestId; published.totalBytes = 7;
+    published.transferredBytes = 7; published.published = true; published.publication = "published"; published.temporary = "removed";
+    deliveries.last().finished(published);
+    const auto cancelled = host.call("novaterm_cancel_transfer", {{"transferId", id}}).value("data").toObject();
+    QVERIFY(cancelled.value("published").toBool()); QCOMPARE(cancelled.value("state").toString(), QString("completed"));
+    QCOMPARE(SshTransportTestAccess::queued(*f.ssh), 0);
 }
 void McpTests::httpFileDownloadUsesSharedTransferLifecycle_data()
 {

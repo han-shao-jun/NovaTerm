@@ -82,10 +82,14 @@ public:
     static void finalizeFile(const std::shared_ptr<SftpFileUploadControl>& control,
         const std::function<void()>& ready, const std::function<bool()>& guard,
         const std::function<int()>& publish, const std::function<QString()>& cleanup,
-        SftpFileUploadResult& result)
+        SftpFileUploadResult& result, bool consumesTemporary = false)
     {
-        SftpSession::finalizeAuthorizedUpload(control, ready, guard, publish, cleanup, result);
+        SftpSession::finalizeAuthorizedUpload(control, ready, guard, publish, cleanup, result, consumesTemporary);
     }
+
+    static int publication(bool overwrite, const sftp_attributes_struct* target, int status,
+        bool hardlink, bool rename, QString& error)
+    { return int(SftpSession::authorizedUploadPublication(overwrite, target, status, 1000, hardlink, rename, error)); }
 
     static bool downloadSource(const sftp_attributes_struct* attributes, quint32 owner,
         const sftp_attributes_struct* original = nullptr)
@@ -113,6 +117,73 @@ class SftpSessionSafetyTests final : public QObject
     Q_OBJECT
 
 private slots:
+    void authorizedOverwritePublicationPolicy_data()
+    {
+        QTest::addColumn<bool>("overwrite"); QTest::addColumn<QString>("target");
+        QTest::addColumn<int>("status"); QTest::addColumn<bool>("hardlink");
+        QTest::addColumn<bool>("rename"); QTest::addColumn<int>("method");
+        QTest::addColumn<QString>("error");
+        QTest::newRow("default-no-probe") << false << QStringLiteral("absent") << -1 << true << false << 1 << QString{};
+        QTest::newRow("default-needs-hardlink") << false << QStringLiteral("absent") << -1 << false << true << 0 << QStringLiteral("TRANSFER_NO_REPLACE_UNSUPPORTED");
+        QTest::newRow("overwrite-existing") << true << QStringLiteral("regular") << SSH_FX_OK << false << true << 2 << QString{};
+        QTest::newRow("overwrite-needs-rename") << true << QStringLiteral("regular") << SSH_FX_OK << true << false << 0 << QStringLiteral("TRANSFER_REPLACE_UNSUPPORTED");
+        QTest::newRow("overwrite-absent-keeps-no-replace") << true << QStringLiteral("absent") << SSH_FX_NO_SUCH_FILE << true << true << 1 << QString{};
+        QTest::newRow("absent-needs-hardlink") << true << QStringLiteral("absent") << SSH_FX_NO_SUCH_FILE << false << true << 0 << QStringLiteral("TRANSFER_NO_REPLACE_UNSUPPORTED");
+        for (const auto status : {-1, int(SSH_FX_FAILURE), int(SSH_FX_PERMISSION_DENIED), int(SSH_FX_CONNECTION_LOST), int(SSH_FX_NO_SUCH_PATH)})
+            QTest::newRow(qPrintable(QStringLiteral("lookup-error-%1").arg(status)))
+                << true << QStringLiteral("absent") << status << true << true << 0 << QStringLiteral("TRANSFER_REMOTE_TARGET_UNAVAILABLE");
+        for (const auto* kind : {"symlink", "directory", "device", "foreign", "writable", "missing-size", "missing-time", "missing-owner", "missing-mode"})
+            QTest::newRow(kind) << true << QString::fromLatin1(kind) << SSH_FX_OK << true << true << 0 << QStringLiteral("TRANSFER_UNSAFE_REMOTE_TARGET");
+        QTest::newRow("admin-target") << true << QStringLiteral("admin") << SSH_FX_OK << true << true << 2 << QString{};
+    }
+
+    void authorizedOverwritePublicationPolicy()
+    {
+        QFETCH(bool, overwrite); QFETCH(QString, target); QFETCH(int, status);
+        QFETCH(bool, hardlink); QFETCH(bool, rename); QFETCH(int, method); QFETCH(QString, error);
+        sftp_attributes_struct attributes{};
+        attributes.type = SSH_FILEXFER_TYPE_REGULAR;
+        attributes.flags = SSH_FILEXFER_ATTR_UIDGID | SSH_FILEXFER_ATTR_SIZE
+            | SSH_FILEXFER_ATTR_PERMISSIONS | SSH_FILEXFER_ATTR_ACMODTIME;
+        attributes.uid = 1000; attributes.gid = 1000; attributes.permissions = 0100644;
+        attributes.size = 7; attributes.mtime = 17;
+        if (target == "symlink") attributes.type = SSH_FILEXFER_TYPE_SYMLINK;
+        if (target == "directory") attributes.type = SSH_FILEXFER_TYPE_DIRECTORY;
+        if (target == "device") attributes.type = SSH_FILEXFER_TYPE_SPECIAL;
+        if (target == "foreign") attributes.uid = 1001;
+        if (target == "admin") attributes.uid = 0;
+        if (target == "writable") attributes.permissions |= 0020;
+        if (target == "missing-size") attributes.flags &= ~SSH_FILEXFER_ATTR_SIZE;
+        if (target == "missing-time") attributes.flags &= ~SSH_FILEXFER_ATTR_ACMODTIME;
+        if (target == "missing-owner") attributes.flags &= ~SSH_FILEXFER_ATTR_UIDGID;
+        if (target == "missing-mode") attributes.flags &= ~SSH_FILEXFER_ATTR_PERMISSIONS;
+        QString actualError;
+        QCOMPARE(SftpSessionSafetyTestAccess::publication(overwrite, target == "absent" ? nullptr : &attributes,
+            status, hardlink, rename, actualError), method);
+        QCOMPARE(actualError, error);
+    }
+
+    void authorizedRenameConsumesTemporaryOnlyWhenAcknowledged_data()
+    {
+        QTest::addColumn<int>("outcome"); QTest::addColumn<QString>("publication");
+        QTest::newRow("acknowledged") << 0 << QStringLiteral("published");
+        QTest::newRow("refused") << 1 << QStringLiteral("not_started");
+        QTest::newRow("lost-ack") << 2 << QStringLiteral("unknown");
+    }
+
+    void authorizedRenameConsumesTemporaryOnlyWhenAcknowledged()
+    {
+        QFETCH(int, outcome); QFETCH(QString, publication);
+        auto control = std::make_shared<SftpFileUploadControl>();
+        SftpFileUploadResult result; int cleanups = 0;
+        SftpSessionSafetyTestAccess::finalizeFile(control, [&] { control->approve(true); },
+            [] { return true; }, [&] { return outcome; },
+            [&] { ++cleanups; return QStringLiteral("retained"); }, result, true);
+        QCOMPARE(result.published, outcome == 0); QCOMPARE(result.publication, publication);
+        QCOMPARE(result.temporary, outcome == 0 ? QStringLiteral("removed") : QStringLiteral("retained"));
+        QCOMPARE(cleanups, outcome == 0 ? 0 : 1);
+    }
+
     void authorizedDownloadQueueSharesWorkerAndCancellation()
     {
         SftpSession session;
@@ -121,9 +192,12 @@ private slots:
         SftpFileUploadRequest request{301, QStringLiteral("C:/root"), QStringLiteral("local.bin"),
             QStringLiteral("/home/test"), QStringLiteral("remote.bin"), std::make_shared<SftpFileUploadControl>()};
         QCOMPARE(request.direction, SftpFileTransferDirection::Upload);
+        QVERIFY(!request.overwrite);
+        request.overwrite = true;
         request.direction = SftpFileTransferDirection::Download;
         QVERIFY(session.uploadAuthorizedFile(request));
         QCOMPARE(worker->commands.head().fileUpload.direction, SftpFileTransferDirection::Download);
+        QVERIFY(worker->commands.head().fileUpload.overwrite);
         QVERIFY(session.hasPendingOperations());
         auto upload = request; upload.direction = SftpFileTransferDirection::Upload;
         QVERIFY(!session.uploadAuthorizedFile(upload));
@@ -193,6 +267,9 @@ private slots:
         QTest::addColumn<QString>("mode"); QTest::addColumn<QString>("expectedError");
         for (const auto* mode : {"complete", "partial", "empty"})
             QTest::newRow(mode) << QString::fromLatin1(mode) << QString{};
+        QTest::newRow("overwrite-existing") << QStringLiteral("overwrite-existing") << QString{};
+        QTest::newRow("overwrite-revoke") << QStringLiteral("overwrite-revoke") << QStringLiteral("TRANSFER_CANCELLED");
+        QTest::newRow("overwrite-race") << QStringLiteral("overwrite-race") << QStringLiteral("TRANSFER_LOCAL_TARGET_EXISTS");
         QTest::newRow("early-eof") << QStringLiteral("early-eof") << QStringLiteral("TRANSFER_REMOTE_SIZE_CHANGED");
         QTest::newRow("growth") << QStringLiteral("growth") << QStringLiteral("TRANSFER_REMOTE_SIZE_CHANGED");
         QTest::newRow("read-error") << QStringLiteral("read-error") << QStringLiteral("TRANSFER_REMOTE_READ_FAILED");
@@ -230,7 +307,8 @@ private slots:
             QFile other(target);
             fixtureOk = other.open(QIODevice::WriteOnly) && other.write("keep") == 4;
         };
-        if (mode == "target-exists") createCompetitor();
+        request.overwrite = mode.startsWith(QStringLiteral("overwrite-"));
+        if (mode == "target-exists" || mode == "overwrite-existing" || mode == "overwrite-revoke") createCompetitor();
         if (mode == "pre-cancel") request.control->cancel();
         bool safe = mode != "initial-guard", closedBeforeReady = false;
         int reads = 0, closes = 0, publications = 0;
@@ -251,8 +329,8 @@ private slots:
             [&](quint64 transferred, quint64) { reported = transferred; },
             [&] {
                 ++publications; closedBeforeReady = closes == 1;
-                if (mode == "target-race") createCompetitor();
-                if (mode == "revoke-ready") request.control->cancel();
+                if (mode == "target-race" || mode == "overwrite-race") createCompetitor();
+                if (mode == "revoke-ready" || mode == "overwrite-revoke") request.control->cancel();
                 if (mode == "guard-ready") safe = false;
                 request.control->approve(true);
             });
@@ -269,7 +347,7 @@ private slots:
             QFile file(target); QVERIFY(file.open(QIODevice::ReadOnly)); QCOMPARE(file.readAll(), payload);
         } else {
             QCOMPARE(result.publication, QStringLiteral("not_started"));
-            if (mode == "target-exists" || mode == "target-race") {
+            if (mode == "target-exists" || mode == "target-race" || mode == "overwrite-revoke" || mode == "overwrite-race") {
                 QFile file(target); QVERIFY(file.open(QIODevice::ReadOnly)); QCOMPARE(file.readAll(), QByteArray("keep"));
             } else QVERIFY(!QFile::exists(target));
             if (mode == "target-exists" || mode == "size-limit" || mode == "pre-cancel" || mode == "initial-guard") QCOMPARE(reads, 0);

@@ -2,11 +2,11 @@
 
 更新：2026-10-28。主线是本地外部Agent编码、编译和部署，通过NovaTerm MCP操作SSH/UART、观察终端反馈，再继续修复。NovaTerm提供明确授权的工具，不内置Agent、不托管模型、不编排开发流程。
 
-当前源码三十工具：终端观察/输入、离线历史、日志与清空、文本等待/长任务、保存目标连接与预授权、独立文件目录、受限SFTP上传/下载，以及UART授权目录与发送/查询/取消。新增SFTP下载本阶段软件回归已完成，B4仍待用户验收，复用原SFTP后端与查询/取消，见[下载记录](records/B3b_Sftp_Download_2026-10-28.md)。UART此前软件验证与边界见[发送记录](records/B3b_Uart_Send_2026-10-28.md)，B4仍未验收。
+当前三十工具覆盖终端观察/输入、历史与日志、清空/等待/任务、保存目标连接/预授权、独立文件目录、SFTP上传/下载与UART发送。Windows基础软件已有分阶段证据，SFTP上传/下载显式覆盖本阶段Windows软件回归已完成，B4仍待用户验收，见[覆盖记录](records/B3b_File_Overwrite_2026-10-28.md)。本轮按Windows交付，Linux/macOS安全文件后端仍未实现；B4由用户验收，P8未整体完成。
 
 UART发送复用原Controller、worker、唯一输入泵和协议owner，需要独立本地读取与UART发送授权。调用方独立准备接收端并显式release已有MCP输入lease；工具不自动rz、不抢占人工传输。protocolCompleted与fileConfirmed分别表示协议结束与单文件确认，ZSKIP不是送达；remotePublication始终unknown、contentVerified始终false。按真实大小/波特率计算总期限，超预算在首个协议字节前拒绝。
 
-SFTP下载需要独立本地write+远端read授权，默认不覆盖；published/publication/temporary仅指本地目标与本次临时文件，contentVerified=false。软件剩余显式覆盖和平台收尾见[软件收口账本](08_Software_Closeout.md)；B4真实设备、客户端和性能由用户执行。历史子批与逐轮成绩见[验收档案](records/README.md)，不拼接为本阶段成绩。
+SFTP上传需要local.read+remote.write，下载需要local.write+remote.read；overwrite可选、默认false，true只授权可信目录中的目标路径替换，不承诺CAS，本地pinPath也未检查目录ACL/owner。下载的发布与临时文件事实仍指本地，contentVerified=false。托管提权保持unavailable且不作为闭环前置。软件范围见[收口账本](08_Software_Closeout.md)，历史证据见[验收档案](records/README.md)。
 
 ## 阅读顺序
 

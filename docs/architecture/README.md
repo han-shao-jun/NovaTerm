@@ -1,8 +1,8 @@
 # NovaTerm 架构文档索引
 
-2026-10-28 MCP现行入口为三十工具，新增SFTP单文件下载，独立local.write+remote.read授权，复用原SftpSession队列/worker、查询/取消与安全本地Writer；本下载阶段软件回归已完成，B4仍待用户验收。UART发送仍需独立本地read+UART授权、外部接收准备与lease显式release。显式覆盖和平台收尾按[软件收口账本](stages/P8_AI_MCP_Interface/08_Software_Closeout.md)推进，B4由用户实测。
+2026-10-28 MCP现行入口保持三十工具，SFTP上传/下载提供可选overwrite、默认false，本覆盖阶段Windows软件验证已完成。Windows软件交付与B4实机验收分开；Linux/macOS安全文件后端仍未实现，托管提权继续unavailable且非本轮闭环前置。范围见[软件收口账本](stages/P8_AI_MCP_Interface/08_Software_Closeout.md)。
 
-本阶段见[下载记录](stages/P8_AI_MCP_Interface/records/B3b_Sftp_Download_2026-10-28.md)，既往实现和分轮成绩见[验收档案](stages/P8_AI_MCP_Interface/records/README.md)。
+本阶段见[覆盖记录](stages/P8_AI_MCP_Interface/records/B3b_File_Overwrite_2026-10-28.md)，既往实现和分轮成绩见[验收档案](stages/P8_AI_MCP_Interface/records/README.md)。
 
 > 文档集版本：2.1  
 > 整理日期：2026-09-02（本表状态以各阶段文档自身的状态行为准，已同步）  
@@ -46,7 +46,7 @@ MCP工具行为见[工作流扩展](stages/P8_AI_MCP_Interface/06_Terminal_Workf
 | P5 Glyph 与 GPU 管线 | 实施完成；Linux Vulkan/OpenGL、Windows D3D11/D3D12 与 30 分钟长稳验收完成（2026-08-02）；macOS Metal、多屏 DPR 与 120/144 Hz 验收待完成 | [P5](stages/P5_Glyph_and_GPU_Pipeline.md) |
 | P6 Session 与 Transport | 进行中：Transport 四种完成，会话编排采用「1 View 拥有 1 Session」已在生产；剩 keyboard-interactive、close 模式、exited→UI、ProfileStore 持久化、contract tests | [P6](stages/P6_Session_and_Transport.md) |
 | P7 系统资源查询 | 已实现为内置功能（常驻监控 2026-09-06、系统信息窗口 2026-09-09）；性能量化验收待补 | [P7](stages/P7_System_Resource_Monitor.md) |
-| P8 AI MCP 接口 | 当前源码三十工具；终端、保存目标、独立授权、SFTP上传和UART发送已提供，SFTP下载本阶段软件回归已完成，B4仍待用户验收。显式覆盖、平台收尾及B4用户实测待后续，见[缺口表](stages/P8_AI_MCP_Interface/03_Gaps_and_Evidence.md) | [MCP契约](stages/P8_AI_MCP_Interface/02_Current_MCP_Contract.md) |
+| P8 AI MCP 接口 | Windows B0～B3b基础能力已提供，SFTP显式覆盖已完成Windows软件验证，三十工具保持；Linux/macOS安全文件后端仍未实现，B4未验收，P8未整体完成，见[缺口表](stages/P8_AI_MCP_Interface/03_Gaps_and_Evidence.md) | [MCP契约](stages/P8_AI_MCP_Interface/02_Current_MCP_Contract.md) |
 | P9 文件传输协议 | 协议库及串口 Session/手动传输窗口已接入；Linux 纯协议、门面、UI 与真实 QSerialPort/raw PTY 通路测试通过；Windows 取消发布竞争用例有已知失败，macOS 与真实 UART 文件传输验收待补 | [P9](stages/P9_File_Transfer_Protocols.md) |
 
 ## 文档权威性

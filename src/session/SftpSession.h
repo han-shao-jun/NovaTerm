@@ -177,12 +177,17 @@ private:
         const std::function<bool()>& cancelled, QString& error);
 
     [[nodiscard]] static bool authorizedUploadOwners(const QVector<quint32>& owners);
+    enum class AuthorizedPublication { Rejected, CreateNew, ReplaceExisting };
+    [[nodiscard]] static AuthorizedPublication authorizedUploadPublication(
+        bool overwrite, const sftp_attributes_struct* target, int lookupStatus,
+        quint32 scopeOwner, bool hardlinkSupported, bool renameSupported, QString& error);
     static void finalizeAuthorizedUpload(
         const std::shared_ptr<SftpFileUploadControl>& control,
         const std::function<void()>& ready,
         const std::function<bool()>& guard,
         const std::function<int()>& publish,
-        const std::function<QString()>& cleanup, SftpFileUploadResult& result);
+        const std::function<QString()>& cleanup, SftpFileUploadResult& result,
+        bool consumesTemporary = false);
     static SftpFileUploadResult uploadAuthorizedFileWorker(
         sftp_session_struct* sftp, ssh_session_struct* session,
         const SftpFileUploadRequest& request,

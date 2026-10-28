@@ -112,13 +112,13 @@ async def check_file_transfers(call) -> None:
         "sessionId": "11111111-1111-4111-8111-111111111111", "epoch": "unshared",
         "resourceId": str(uuid.uuid4()), "resourceRevision": str(uuid.uuid4()),
         "relativePath": "result.bin", "scopeId": str(uuid.uuid4()),
-        "scopeRevision": str(uuid.uuid4()), "remoteName": "result.bin", "operationId": str(uuid.uuid4())})
+        "scopeRevision": str(uuid.uuid4()), "remoteName": "result.bin", "operationId": str(uuid.uuid4()), "overwrite": True})
     assert not denied_download["ok"] and denied_download["error"]["code"] == "PERMISSION_DENIED"
     denied = await call("novaterm_upload_file", {
         "sessionId": "11111111-1111-4111-8111-111111111111", "epoch": "unshared",
         "resourceId": str(uuid.uuid4()), "resourceRevision": str(uuid.uuid4()),
         "relativePath": "firmware.bin", "scopeId": str(uuid.uuid4()),
-        "scopeRevision": str(uuid.uuid4()), "remoteName": "firmware.bin", "operationId": str(uuid.uuid4())})
+        "scopeRevision": str(uuid.uuid4()), "remoteName": "firmware.bin", "operationId": str(uuid.uuid4()), "overwrite": True})
     assert not denied["ok"] and denied["error"]["code"] == "PERMISSION_DENIED"
     for name in ("novaterm_query_transfer", "novaterm_cancel_transfer"):
         denied = await call(name, {"transferId": str(uuid.uuid4())})

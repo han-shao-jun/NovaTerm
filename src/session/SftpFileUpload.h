@@ -29,6 +29,7 @@ struct SftpFileUploadRequest {
     QString localRoot, localRelativePath, remoteRoot, remoteName;
     std::shared_ptr<SftpFileUploadControl> control;
     SftpFileTransferDirection direction{SftpFileTransferDirection::Upload};
+    bool overwrite{false};
 };
 struct SftpFileUploadResult {
     quint64 requestId{0}, transferredBytes{0};

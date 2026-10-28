@@ -1,6 +1,6 @@
 # NovaTerm AI MCP 使用说明
 
-2026-10-28：当前源码为三十工具，新增独立授权的SFTP单文件下载，复用现有query_transfer/cancel_transfer；原SFTP上传与UART发送入口保持。本下载阶段软件回归已完成，B4仍待用户验收，字段以[现行契约](architecture/stages/P8_AI_MCP_Interface/02_Current_MCP_Contract.md)与运行版本tools/list为准，进度见[下载记录](architecture/stages/P8_AI_MCP_Interface/records/B3b_Sftp_Download_2026-10-28.md)。显式覆盖和平台收尾仍待后续，B4由用户实测；历史成绩见[验收档案](architecture/stages/P8_AI_MCP_Interface/records/README.md)。
+2026-10-28：当前三十工具，SFTP上传/下载提供可选overwrite（默认false），复用原查询/取消；本覆盖阶段Windows软件验证已完成，见[覆盖记录](architecture/stages/P8_AI_MCP_Interface/records/B3b_File_Overwrite_2026-10-28.md)。本轮按Windows交付，Linux/macOS安全文件后端尚未实现并明确拒绝相关文件I/O；B4由用户实测，P8未整体完成。托管提权继续unavailable，不是当前闭环前置。实际参数见[现行契约](architecture/stages/P8_AI_MCP_Interface/02_Current_MCP_Contract.md)，历史成绩见[验收档案](architecture/stages/P8_AI_MCP_Interface/records/README.md)。
 
 NovaTerm 提供进程内 Streamable HTTP MCP 服务，可让支持 MCP 的 AI 客户端读取指定终端输出、
 搜索已读取的内容、运行授权诊断，以及通过当前交互终端执行受控命令和脚本任务。默认关闭。
@@ -106,7 +106,7 @@ status=gap 表示旧位置被淘汰；status=invalidated 表示本机 clear 或 
 
 授权窗口显示客户端名称和稳定ID，打开期间锁定父窗口交互，同一客户端重复打开会复用窗口；程序侧切换客户端会关闭旧窗口。无关刷新保留所选目录，规则更新、撤回或连接换绑后须重新选择，避免旧撤回意图作用于新规则。
 
-目录工具返回 `availability=authorization_only`，列表为空表示没有可见授权，不证明目录或文件存在。SFTP上传使用 `novaterm_upload_file`，下载使用 `novaterm_download_file`，共同通过 `novaterm_query_transfer/cancel_transfer`查询和取消，须原终端SFTP面板就绪。上传要求服务端hardlink扩展；下载通过安全本地Writer发布，不要求远端hardlink扩展。当前Windows安全本地I/O最多64 MiB、默认不覆盖、不自动执行；显式覆盖待后续，不能把目录词法校验当作文件访问安全验证。
+目录工具返回 `availability=authorization_only`，列表只证明共享许可，不证明路径安全或文件存在。SFTP上传用 `novaterm_upload_file`，下载用 `novaterm_download_file`，共用 `novaterm_query_transfer/cancel_transfer`，须原终端SFTP面板就绪。上传创建新目标要求hardlink扩展版本1，显式覆盖已有目标要求posix-rename扩展版本1；下载由安全本地Writer发布，不要求远端hardlink。两项overwrite默认false，显式true按下节边界执行。
 
 UART在同一窗口选择“串口 ZMODEM 发送”，选当前连接、填写共享名称并勾“允许ZMODEM发送”。`novaterm_list_serial_file_targets` 无参数发现本人授权，返回targetId/revision和sessionId/epoch；不要求终端读取权限，不隐含本地文件读权限。重连、配置或身份改变须重新授权。授权目录只证明共享许可，不证明接收端已准备或输入lease空闲；发送步骤见下节，上传不会自动输入rz、释放lease或抢占人工传输。
 
@@ -160,7 +160,7 @@ UART在同一窗口选择“串口 ZMODEM 发送”，选当前连接、填写�
 
 在本机“文件资源授权…”分别勾选目标本地目录的写入权限和当前SSH远端目录的读取权限。通过 `novaterm_list_file_resources`取得本人resourceId/revision、scopeId/revision与sessionId/epoch；上传权限和终端权限不能替代下载所需的两项授权。原终端SFTP面板须已就绪，工具不会新建连接或抢占人工文件作业。
 
-调用 `novaterm_download_file`，使用以下九个参数；relativePath是本地目标相对路径，remoteName是远端授权目录下的单个源文件名，最多255 UTF-8字节。目标父目录须存在，默认不覆盖既有文件。
+调用 `novaterm_download_file`，使用以下九个必填参数和可选overwrite；relativePath是本地目标相对路径，remoteName是远端授权目录下的单个源文件名，最多255 UTF-8字节。目标父目录须存在，默认不覆盖既有文件。
 
 ```json
 {"sessionId":"<id>","epoch":"<epoch>","resourceId":"<local resource UUID>","resourceRevision":"<local revision UUID>","relativePath":"logs/device.log","scopeId":"<remote scope UUID>","scopeRevision":"<remote revision UUID>","remoteName":"device.log","operationId":"<new UUID>"}
@@ -168,7 +168,17 @@ UART在同一窗口选择“串口 ZMODEM 发送”，选当前连接、填写�
 
 用原transferId调用 `novaterm_query_transfer`，读取downloading进度；需要停止时调用 `novaterm_cancel_transfer`并查询终态。相同operationId仅能以同方向和全部相同参数重试；改成上传或换目标会冲突。取消不删除远端源，不删除已发布的本地文件。对下载，published/publication指本地目标，temporary指本次本地临时文件；contentVerified始终false，内容hash须另行实际校验，下载不自动运行文件或读取日志。
 
-当前安全本地Writer仅Windows支持，最多64 MiB、64 KiB分块、总120秒、15秒无进展和2秒发布准入等待；同步库调用或本机I/O阻塞不承诺硬退出。提前EOF、源增长、读错或观察到的属性变化不会发布部分文件。远端目录属主和管理员必须可信，SFTPv3路径检查不保证抵抗同账号恶意换路径。本下载阶段软件回归已完成，B4仍待用户验收，见[下载记录](architecture/stages/P8_AI_MCP_Interface/records/B3b_Sftp_Download_2026-10-28.md)；显式覆盖与其他平台安全后端仍待后续。
+当前安全本地Writer仅Windows实现，Linux/macOS后端尚未实现并明确拒绝；最多64 MiB、64 KiB分块、总120秒、15秒无进展和2秒发布准入等待保持。同步库或本机I/O阻塞不承诺硬退出。提前EOF、源增长、读错或观察到的属性变化不能发布部分文件；SFTPv3仍要求目录属主/管理员可信，不保证抵抗同账号恶意换路径。下载历史证据见[下载记录](architecture/stages/P8_AI_MCP_Interface/records/B3b_Sftp_Download_2026-10-28.md)，当前覆盖边界见下节。
+
+## SFTP显式覆盖
+
+`novaterm_upload_file`和`novaterm_download_file`接受可选 `"overwrite": true`；省略或false都保持默认不覆盖。同operationId改变该值会冲突，其他独立读写权限不变。
+
+true明确授权可信目录中的目标路径替换，不是按文件身份执行的条件替换。程序先记录原目标、发布前再次检查，发现替换、删除、类型或属性变化会拒绝，但最后检查与rename之间仍有竞争窗口。只在其他写入者可信的目录使用；本地目录句柄固定并没有检查ACL/owner，不能以此认定写入者已经过安全审查。
+
+即使true，初始明确不存在的目标也继续走不覆盖发布，后来的竞争创建会拒绝；查询失败、拒绝访问或共享冲突不当作不存在。已有目标须是安全普通文件；本地readonly、外部句柄阻止替换时会失败，工具不清目标只读属性、不强关句柄、不先删再改名。远端已有目标要求posix-rename扩展版本1，新目标仍要求hardlink版本1；不支持时明确拒绝。
+
+替换使用新临时文件的属性，不自动复制旧ACL、属性或执行位，远端新文件仍0600。发布前取消/撤权只清理本次临时文件，发布后的新目标保留。远端失去发布响应返回unknown，临时文件消失不证明目标已经替换；保留原ID查询，不自动换ID重试。下载发布事实仍只指本地，contentVerified=false。当前覆盖阶段Windows软件验证已完成，见[覆盖记录](architecture/stages/P8_AI_MCP_Interface/records/B3b_File_Overwrite_2026-10-28.md)。
 
 ## UART/ZMODEM单文件发送
 

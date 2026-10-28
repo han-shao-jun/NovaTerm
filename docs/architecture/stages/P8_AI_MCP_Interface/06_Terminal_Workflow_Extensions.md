@@ -1,8 +1,8 @@
 # 指定文本等待、长任务、文件传输与目标连接
 
-更新：2026-10-28。当前源码三十工具，B3a等待/任务、B3b保存目标/预授权、文件目录、SFTP上传及UART发送已提供；SFTP单文件下载本阶段软件回归已完成，B4仍待用户验收。工具各司其职，UART接收准备、输入lease显式release、执行与读日志由调用方独立完成。软件剩余显式覆盖和平台收尾，B4由用户实测。
+更新：2026-10-28。当前三十工具；Windows基础观察/操作、连接、SFTP上传/下载和UART发送已提供，SFTP显式覆盖本阶段Windows软件回归已完成，B4仍待用户验收。upload_file/download_file增加可选overwrite、默认false；调用方仍独立准备UART接收端并显式release输入lease。Linux/macOS安全文件后端未实现，B4由用户实测，P8未整体完成。
 
-现行字段见[02](02_Current_MCP_Contract.md)，阶段进度见[下载记录](records/B3b_Sftp_Download_2026-10-28.md)，历史子批见[验收档案](records/README.md)。
+现行字段见[02](02_Current_MCP_Contract.md)，阶段进度见[覆盖记录](records/B3b_File_Overwrite_2026-10-28.md)，历史子批见[验收档案](records/README.md)。
 
 ## 1. 最小交付范围
 
@@ -11,11 +11,11 @@
 | 缓存不易回查 | 屏幕、当前尾部书签、保留起点和精确位置续读 | 复用终端缓存，不新建日志数据库 |
 | 等待指定结果需反复往返 | 有界字面文本等待，明确日志或屏幕来源 | 不迁入脚本引擎或开放任意正则 |
 | 长任务缺少直接入口 | 异步启动、查询、请求停止 | 复用已有执行 owner，不复制命令执行器 |
-| 二进制部署文件交付 | 独立授权的SFTP上传/下载与UART/ZMODEM发送、查询和取消；显式覆盖后续 | 不自动准备接收端、烧录、重启或执行文件 |
+| 二进制部署文件交付 | 独立授权的SFTP上传/下载与UART/ZMODEM发送、查询和取消；显式覆盖已完成Windows软件验证 | 不自动准备接收端、烧录、重启或执行文件 |
 | 已保存目标需要人工打开 | 列出获准目标、打开/复用、查询连接、关闭本次创建会话 | 不允许模型创建凭据、扫描主机或改连接参数 |
 | 使用说明冲突 | 两代握手、工具描述与使用文档的统一规则 | 未实现能力不得出现在可调用工具指引中 |
 
-日志/等待/长任务与文件/连接保持独立能力。下文描述职责和边界；可调用工具名、精确参数与预算以02和源码为准，后续显式覆盖不作为已实现入口。
+日志/等待/长任务与文件/连接保持独立能力。下文描述职责和边界；可调用工具名、精确参数与预算以02和源码为准，显式覆盖已完成Windows软件验证，不能据源码入口宣称B4已验收。
 
 ## 2. 指定文本等待
 
@@ -65,19 +65,29 @@ CommandRuntime/Session Controller 继续拥有执行事实；新增异步任务�
 
 ### SFTP上传
 
-`novaterm_upload_file/query_transfer/cancel_transfer`复用终端面板原SftpSession、队列与worker，需要本地read+SSH远端write授权。当前仅普通文件、不覆盖；安全源在worker内使用固定句柄，远端使用随机临时文件与hardlink扩展原子创建新目标。取消只清理本次拥有的临时文件，保留已开始发布的成功/未知事实。具体路径安全、SFTPv3限制与预算见[契约](02_Current_MCP_Contract.md)和[上传记录](records/B3b_Sftp_Upload_2026-10-27.md)。
+`novaterm_upload_file/query_transfer/cancel_transfer`复用终端面板原SftpSession、队列与worker，需要本地read+SSH远端write授权。当前仅普通文件、默认不覆盖；安全源在worker内使用固定句柄，远端使用随机临时文件与hardlink扩展原子创建新目标。取消只清理本次拥有的临时文件，保留已开始发布的成功/未知事实。具体路径安全、SFTPv3限制与预算见[契约](02_Current_MCP_Contract.md)和[上传记录](records/B3b_Sftp_Upload_2026-10-27.md)。
 
 ### SFTP下载
 
-新增 `novaterm_download_file`，复用原 `novaterm_query_transfer/cancel_transfer`；FileTransfers统一记录方向和幂等事实，同一SftpPanel/SftpSession队列及worker执行，不增加连接、线程或生产文件。上传工具Schema保持，共同查询/取消仅增加downloading及下载适用说明，历史fixture不改写。
+`novaterm_download_file`复用原 `novaterm_query_transfer/cancel_transfer`，FileTransfers统一记录方向和幂等事实，同一SftpPanel/SftpSession队列/worker执行，无新连接或线程。下载子批只新增downloading；本覆盖阶段仅为upload/download两输入追加可选boolean overwrite及说明，其他Schema和旧fixture保持。
 
-九参数与上传同形，但relativePath是本地目标相对路径，remoteName是远端单个源文件名（最多255 UTF-8字节）。须独立local.write+remote.read授权，身份、两边revision和原Session完整binding持续复核；同operationId跨方向冲突，精确重试/查询不续期或重传。终端权限不推导文件权限。
+九个必填参数与上传同形，另有可选overwrite、默认false；relativePath是本地目标相对路径，remoteName是远端单个源文件名（最多255 UTF-8字节）。须独立local.write+remote.read授权，身份、两边revision和原Session完整binding持续复核；同operationId跨方向冲突，精确重试/查询不续期或重传。终端权限不推导文件权限。
 
 原worker检查远端根/叶，打开一次源句柄并按观察大小读取，补EOF探测和读取前后属性复核；分段短读可累计，提前EOF、增长、读错或不安全属性不能发布部分文件。SFTPv3仍要求授权目录属主/管理员可信，不宣称抵抗同账号恶意换路径。
 
-安全LocalFileWriter负责本地专属临时文件、分块append与不覆盖发布，仅Windows后端已提供。64 MiB/64 KiB、总120秒、15秒无进展、2秒发布准入等待沿用SFTP预算，取消/发布通过原控制状态协调；同步库或本机阻塞不保证硬退出。published/publication/temporary对下载只描述本地目标和本次临时文件，取消不删除远端或已发布本地目标；contentVerified=false。
+安全LocalFileWriter负责本地专属临时文件、分块append与按意图发布，默认不覆盖；仅Windows后端已实现，Linux/macOS后端仍未实现。64 MiB/64 KiB、总120秒、15秒无进展、2秒发布准入等待沿用SFTP预算，取消/发布通过原控制状态协调；同步库或本机阻塞不保证硬退出。published/publication/temporary对下载只描述本地目标和本次临时文件，取消不删除远端或已发布本地目标；contentVerified=false。
 
-本下载阶段软件回归已完成，B4仍待用户验收，见[下载记录](records/B3b_Sftp_Download_2026-10-28.md)。显式覆盖和平台收尾仍是后续软件工作，必须分别冻结授权和发布边界。
+下载阶段软件验证与限制见[下载记录](records/B3b_Sftp_Download_2026-10-28.md)，不作为本覆盖阶段重测成绩。
+
+### 显式覆盖与Windows范围
+
+SFTP上传/下载overwrite省略和false等价，true才允许替换原已存在的安全普通目标，同operationId改覆盖值冲突；独立write授权不变。授权的是可信目录中的目标路径替换，不承诺expected-fileId/CAS。初始目标快照与发布前复核能拒绝观察到的目标变化，但最终检查与rename之间仍有竞争窗口。
+
+本地pinPath不执行目录ACL/owner检查，不能声称已强制保证写入者可信。Windows固定原parent，检查fileId/size/mtime/属性后关闭目标检查句柄，再使用原NtSetInformationFile替换；不清目标readonly、不强关外部句柄，不先删再rename。SFTP已有目标仅在posix-rename@openssh.com版本1可用时替换，原目标快照核对type/uid/gid/mode/size/mtime；初始明确不存在仍用hardlink版本1，不允许把后来的竞争创建变成覆盖。
+
+查询失败、拒绝访问或网络错误不等同不存在。新目标沿用临时文件属性，远端仍0600，不自动复制原ACL/执行位。撤权先赢则不发布，发布开始后保留真实成功/unknown结果；取消只清本次temp、不删除目标。成功rename消费temp，远端临时路径消失不证明发布成功，lost ack保持unknown。
+
+本覆盖阶段Windows软件验证已完成，见[覆盖记录](records/B3b_File_Overwrite_2026-10-28.md)。本轮按Windows软件交付；Linux/macOS安全文件后端仍未实现，是后续开发，B4由用户实测。托管提权保留unavailable，不作为本轮闭环前置，P8不能在B4前标整体完成。
 
 ### UART/ZMODEM发送
 
@@ -137,4 +147,4 @@ UART发送阶段软件回归已完成，B4实机仍待用户验收，该阶段�
 | 保存目标 | Profile/Session 创建接线、目标授权 | 重复打开、复用他人会话、串口占用、认证待处理、配置变化、忙碌关闭、旧 epoch |
 | 指引 | WireSession/ToolCodec 元数据 | 两代规则冲突、错误权限保证、推荐未实现工具、本地和远端混淆 |
 
-完整调度见[01](01_Phases_and_Acceptance.md)的B3a/B3b，差距编号见[03](03_Gaps_and_Evidence.md) G14～G17。当前源码三十工具，SFTP下载本阶段验证/复核进行中；显式覆盖和平台收尾继续按08推进，B4由用户实测。
+完整调度见[01](01_Phases_and_Acceptance.md)的B3a/B3b，差距见[03](03_Gaps_and_Evidence.md) G14～G17。当前三十工具，Windows显式覆盖和软件收尾本阶段Windows软件回归已完成，B4仍待用户验收；Linux/macOS安全文件后端仍未实现，B4由用户实测，P8未整体完成。

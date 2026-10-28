@@ -2,6 +2,7 @@
 #include "mcp/contracts/Budget.h"
 #include <QDir>
 #include <QFile>
+#include <QScopeGuard>
 #include <QTemporaryDir>
 #include <QtTest>
 #include <limits>
@@ -359,6 +360,203 @@ private slots:
         writer->cancel();
         QCOMPARE(contents(target), QByteArray("competitor"));
         QCOMPARE(QDir(directory.path()).entryList(QDir::Files | QDir::Hidden).size(), 1);
+#endif
+    }
+    void explicitlyOverwritesExistingFileAndCancellationPreservesPublishedResult()
+    {
+#ifdef Q_OS_WIN
+        QTemporaryDir directory;
+        QVERIFY(directory.isValid());
+        const auto target = directory.filePath("result");
+        QVERIFY(put(target, "original"));
+        QCOMPARE(std::get<FileIoError>(LocalFileWriter::create(directory.path(), "result", 3, false)), FileIoError::AlreadyExists);
+        auto result = LocalFileWriter::create(directory.path(), "result", 3, true);
+        QVERIFY(std::holds_alternative<std::unique_ptr<LocalFileWriter>>(result));
+        auto& writer = std::get<std::unique_ptr<LocalFileWriter>>(result);
+        QVERIFY(std::holds_alternative<std::monostate>(writer->append("new")));
+        QCOMPARE(contents(target), QByteArray("original"));
+        QVERIFY(std::holds_alternative<std::monostate>(writer->publish()));
+        QCOMPARE(contents(target), QByteArray("new"));
+        QVERIFY(writer->cancel());
+        writer.reset();
+        QCOMPARE(contents(target), QByteArray("new"));
+        QCOMPARE(QDir(directory.path()).entryList(QDir::Files | QDir::Hidden).size(), 1);
+#endif
+    }
+    void cancellingOrFailingOverwritePreservesOriginal_data()
+    {
+        QTest::addColumn<bool>("failPublication");
+        QTest::newRow("cancel") << false;
+        QTest::newRow("incomplete-publication") << true;
+    }
+    void cancellingOrFailingOverwritePreservesOriginal()
+    {
+#ifdef Q_OS_WIN
+        QFETCH(bool, failPublication);
+        QTemporaryDir directory;
+        QVERIFY(directory.isValid());
+        const auto target = directory.filePath("result");
+        QVERIFY(put(target, "original"));
+        auto result = LocalFileWriter::create(directory.path(), "result", 3, true);
+        QVERIFY(std::holds_alternative<std::unique_ptr<LocalFileWriter>>(result));
+        auto& writer = std::get<std::unique_ptr<LocalFileWriter>>(result);
+        QVERIFY(std::holds_alternative<std::monostate>(writer->append("n")));
+        if (failPublication)
+            QCOMPARE(std::get<FileIoError>(writer->publish()), FileIoError::SizeMismatch);
+        QVERIFY(writer->cancel());
+        QCOMPARE(contents(target), QByteArray("original"));
+        QCOMPARE(QDir(directory.path()).entryList(QDir::Files | QDir::Hidden).size(), 1);
+#endif
+    }
+    void overwriteOfInitiallyAbsentFileStillRefusesRacingCreation()
+    {
+#ifdef Q_OS_WIN
+        QTemporaryDir directory;
+        QVERIFY(directory.isValid());
+        const auto target = directory.filePath("result");
+        auto result = LocalFileWriter::create(directory.path(), "result", 3, true);
+        QVERIFY(std::holds_alternative<std::unique_ptr<LocalFileWriter>>(result));
+        auto& writer = std::get<std::unique_ptr<LocalFileWriter>>(result);
+        QVERIFY(std::holds_alternative<std::monostate>(writer->append("new")));
+        QVERIFY(put(target, "competitor"));
+        QCOMPARE(std::get<FileIoError>(writer->publish()), FileIoError::AlreadyExists);
+        QVERIFY(writer->cancel());
+        QCOMPARE(contents(target), QByteArray("competitor"));
+        QCOMPARE(QDir(directory.path()).entryList(QDir::Files | QDir::Hidden).size(), 1);
+#endif
+    }
+    void overwriteRejectsTargetChangesBeforePublication_data()
+    {
+        QTest::addColumn<QString>("change");
+        for (const auto& change : QStringList{"identity", "size", "mtime", "attributes", "deleted", "directory", "hardlink", "junction"})
+            QTest::newRow(qPrintable(change)) << change;
+    }
+    void overwriteRejectsTargetChangesBeforePublication()
+    {
+#ifdef Q_OS_WIN
+        QFETCH(QString, change);
+        QTemporaryDir directory;
+        QVERIFY(directory.isValid());
+        const auto target = directory.filePath("result");
+        QVERIFY(put(target, "original"));
+        auto result = LocalFileWriter::create(directory.path(), "result", 3, true);
+        QVERIFY(std::holds_alternative<std::unique_ptr<LocalFileWriter>>(result));
+        auto& writer = std::get<std::unique_ptr<LocalFileWriter>>(result);
+        QVERIFY(std::holds_alternative<std::monostate>(writer->append("new")));
+        auto cleanup = qScopeGuard([&] {
+            if (change == "junction") RemoveDirectoryW(wide(target));
+            else if (change == "attributes") SetFileAttributesW(wide(target), FILE_ATTRIBUTE_NORMAL);
+        });
+        if (change == "identity") {
+            QVERIFY(QFile::rename(target, target + ".old"));
+            QVERIFY(put(target, "original"));
+        } else if (change == "size") {
+            QVERIFY(put(target, "competitor-content"));
+        } else if (change == "mtime") {
+            const HANDLE handle = CreateFileW(wide(target), FILE_WRITE_ATTRIBUTES,
+                FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING, 0, nullptr);
+            QVERIFY(handle != INVALID_HANDLE_VALUE);
+            auto close = qScopeGuard([&] { CloseHandle(handle); });
+            FILETIME time{};
+            QVERIFY(GetFileTime(handle, nullptr, nullptr, &time));
+            time.dwHighDateTime += 1;
+            QVERIFY(SetFileTime(handle, nullptr, nullptr, &time));
+        } else if (change == "attributes") {
+            QVERIFY(SetFileAttributesW(wide(target), FILE_ATTRIBUTE_READONLY));
+        } else if (change == "hardlink") {
+            QVERIFY(CreateHardLinkW(wide(target + ".alias"), wide(target), nullptr));
+        } else {
+            QVERIFY(QFile::remove(target));
+            if (change == "directory") QVERIFY(QDir().mkdir(target));
+            if (change == "junction") {
+                QVERIFY(QDir(directory.path()).mkdir("outside"));
+                QVERIFY(put(directory.filePath("outside/secret"), "secret"));
+                QVERIFY(junction(target, directory.filePath("outside")));
+            }
+        }
+        QVERIFY(std::holds_alternative<FileIoError>(writer->publish()));
+        QCOMPARE(std::get<FileIoError>(writer->publish()), FileIoError::InvalidState);
+        QVERIFY(writer->cancel());
+        QVERIFY(QDir(directory.path()).entryList({".novaterm-transfer-*"}, QDir::Files | QDir::Hidden).isEmpty());
+        if (change == "deleted") QVERIFY(!QFile::exists(target));
+        else if (change == "directory") QVERIFY(QFileInfo(target).isDir());
+        else if (change == "junction") QCOMPARE(contents(directory.filePath("outside/secret")), QByteArray("secret"));
+        else QCOMPARE(contents(target), change == "size" ? QByteArray("competitor-content") : QByteArray("original"));
+#endif
+    }
+    void overwriteRefusesUnsafeInitialTarget_data()
+    {
+        QTest::addColumn<QString>("kind");
+        for (const auto& kind : QStringList{"directory", "hardlink", "junction", "readonly"})
+            QTest::newRow(qPrintable(kind)) << kind;
+    }
+    void overwriteRefusesUnsafeInitialTarget()
+    {
+#ifdef Q_OS_WIN
+        QFETCH(QString, kind);
+        QTemporaryDir directory;
+        QVERIFY(directory.isValid());
+        const auto target = directory.filePath("result");
+        auto cleanup = qScopeGuard([&] {
+            if (kind == "junction") RemoveDirectoryW(wide(target));
+            if (kind == "readonly") SetFileAttributesW(wide(target), FILE_ATTRIBUTE_NORMAL);
+        });
+        if (kind == "directory") QVERIFY(QDir().mkdir(target));
+        else if (kind == "junction") {
+            QVERIFY(QDir(directory.path()).mkdir("outside"));
+            QVERIFY(junction(target, directory.filePath("outside")));
+        } else {
+            QVERIFY(put(target, "original"));
+            if (kind == "hardlink") QVERIFY(CreateHardLinkW(wide(target + ".alias"), wide(target), nullptr));
+            if (kind == "readonly") QVERIFY(SetFileAttributesW(wide(target), FILE_ATTRIBUTE_READONLY));
+        }
+        auto result = LocalFileWriter::create(directory.path(), "result", 3, true);
+        QVERIFY(std::holds_alternative<FileIoError>(result));
+        if (kind == "hardlink" || kind == "readonly") QCOMPARE(contents(target), QByteArray("original"));
+        QVERIFY(QDir(directory.path()).entryList({".novaterm-transfer-*"}, QDir::Files | QDir::Hidden).isEmpty());
+#endif
+    }
+    void overwriteCannotReplaceTargetHeldOpenByAnotherReader()
+    {
+#ifdef Q_OS_WIN
+        QTemporaryDir directory;
+        QVERIFY(directory.isValid());
+        const auto target = directory.filePath("result");
+        QVERIFY(put(target, "original"));
+        auto result = LocalFileWriter::create(directory.path(), "result", 3, true);
+        QVERIFY(std::holds_alternative<std::unique_ptr<LocalFileWriter>>(result));
+        auto& writer = std::get<std::unique_ptr<LocalFileWriter>>(result);
+        QVERIFY(std::holds_alternative<std::monostate>(writer->append("new")));
+        const HANDLE reader = CreateFileW(wide(target), GENERIC_READ, FILE_SHARE_READ,
+            nullptr, OPEN_EXISTING, 0, nullptr);
+        QVERIFY(reader != INVALID_HANDLE_VALUE);
+        auto close = qScopeGuard([&] { CloseHandle(reader); });
+        QVERIFY(std::holds_alternative<FileIoError>(writer->publish()));
+        QVERIFY(writer->cancel());
+        QCOMPARE(contents(target), QByteArray("original"));
+#endif
+    }
+    void overwriteDoesNotTreatDeletePendingAsMissing()
+    {
+#ifdef Q_OS_WIN
+        QTemporaryDir directory;
+        QVERIFY(directory.isValid());
+        const auto target = directory.filePath("result");
+        QVERIFY(put(target, "original"));
+        {
+            const HANDLE handle = CreateFileW(wide(target), DELETE,
+                FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING, 0, nullptr);
+            QVERIFY(handle != INVALID_HANDLE_VALUE);
+            auto close = qScopeGuard([&] { CloseHandle(handle); });
+            FILE_DISPOSITION_INFO disposition{TRUE};
+            QVERIFY(SetFileInformationByHandle(handle, FileDispositionInfo, &disposition, sizeof(disposition)));
+            auto result = LocalFileWriter::create(directory.path(), "result", 3, true);
+            disposition.DeleteFile = FALSE;
+            QVERIFY(SetFileInformationByHandle(handle, FileDispositionInfo, &disposition, sizeof(disposition)));
+            QVERIFY(std::holds_alternative<FileIoError>(result));
+        }
+        QCOMPARE(contents(target), QByteArray("original"));
+        QVERIFY(QDir(directory.path()).entryList({".novaterm-transfer-*"}, QDir::Files | QDir::Hidden).isEmpty());
 #endif
     }
     void cancelsOnlyOwnedTemporaryAndMoveAssignmentReleasesOldOwnership()

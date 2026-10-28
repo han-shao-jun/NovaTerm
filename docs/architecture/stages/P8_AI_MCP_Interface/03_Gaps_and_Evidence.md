@@ -1,8 +1,8 @@
 # 开发调试闭环：现状、缺口与证据
 
-更新：2026-10-28。当前源码三十工具。G17保存目标连接/预授权已提供；G16已有独立文件授权、SFTP上传和UART发送，新增SFTP单文件下载本阶段软件回归已完成，B4仍待用户验收。下载沿用FileTransfers、原SftpPanel/SftpSession队列/worker与安全本地Writer，无新连接或执行器，见[下载记录](records/B3b_Sftp_Download_2026-10-28.md)。
+更新：2026-10-28。当前三十工具；Windows B0～B3b基础能力包括SFTP上传/下载及UART发送，SFTP显式覆盖本阶段Windows软件回归已完成，B4仍待用户验收，见[覆盖记录](records/B3b_File_Overwrite_2026-10-28.md)。保持原FileTransfers/SftpSession/worker与本地安全后端，不新增owner。
 
-G16剩余软件项是显式覆盖与平台收尾；G12/B4真实板卡、客户端、跨平台和性能仍待用户验收。下载需要独立local.write+remote.read，发布与临时文件事实只指本地，大小/元数据检查不证明内容hash。UART接收准备与输入lease显式release由调用方负责，ZSKIP/文件确认/协议结束/远端发布分别判断。
+G16本轮Windows显式覆盖与软件收尾已完成Windows软件验证；Linux/macOS安全文件后端仍未实现，属于后续开发，不只是待运行测试。G12/B4真实板卡、客户端和性能由用户验收，P8未整体完成。覆盖只授权可信目录的目标路径替换，非CAS；本地pinPath没有ACL/owner检查。托管提权继续unavailable，非当前闭环前置。
 
 以下带日期的静态盘点及阶段更新用于追溯，现行能力以[02](02_Current_MCP_Contract.md)与源码为准。历史结果见[验收档案](records/README.md)，后续任务见[软件收口账本](08_Software_Closeout.md)；“存在”只表示源码/用例存在，不表示本阶段测试已通过。
 
@@ -62,7 +62,7 @@ G11 对照补充：Netcatty schemas/toolInputs.cjs 有发现会话、短/长任�
 ## 5. 不作为首个闭环前置的能力
 
 - 本地编码、编译、工程管理、部署/烧录编排由外部 Agent 和现有工具负责，不在 NovaTerm 新建平台。
-- SSH/SFTP 单文件传输按 B3b 补齐，已有部署脚本不因此废弃；串口文件传输、递归文件管理和自动烧录不作为这次扩展目标。
+- SSH/SFTP上传/下载与UART/ZMODEM单文件发送已纳入B3b，已有部署脚本保持独立。MCP串口文件接收、递归文件管理、新增协议及自动烧录不属于当前软件闭环范围。
 - 不要求新增持久录制、全文索引、诊断 Pack、自动分析器、证据报告平台。
 - 无可信适配器的托管提权继续 unavailable，不以自动提权作为 SSH/UART 观察前置。
 - MCP 不保证毫秒级 U-Boot 抢键或远程电源/JTAG 控制；短倒计时需先实测，无法满足时明确由用户或已有独立工具处理。

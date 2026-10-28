@@ -2,13 +2,14 @@
 
 本目录只保存已发生的实现、审查、测试、失败和限制，不保存被放弃的实施方案。旧 mcp/P 编号和“当前”均按记录日期理解，不代表当前工作区已通过，不要求继续旧平台路线。
 
-当前源码为三十工具，SFTP单文件下载本阶段正在验证；显式覆盖和平台收尾见[软件收口账本](../08_Software_Closeout.md)，B4由用户实测。下表按记录当时范围解释，不把旧子批“待后续”当作当前能力结论，也不将历史成绩算作本阶段通过。
+当前三十工具保持，Windows SFTP显式覆盖与软件收尾本阶段Windows软件验证已完成；Linux/macOS安全文件后端仍未实现，B4由用户验收，P8未整体完成。软件范围见[收口账本](../08_Software_Closeout.md)；下表按记录当时范围解释，不将历史成绩拼成本阶段通过。
 
 当前入口：[总体架构](../00_Overall_Architecture.md)、[缺口](../03_Gaps_and_Evidence.md)、[实施与验收](../01_Phases_and_Acceptance.md)。
 
 | 记录 | 保留原因 |
 | --- | --- |
-| [SFTP单文件下载](B3b_Sftp_Download_2026-10-28.md) | 独立local.write+remote.read、原SFTP队列/worker与查询/取消复用、安全Writer本地不覆盖发布；本阶段正在验证 |
+| [SFTP显式覆盖](B3b_File_Overwrite_2026-10-28.md) | overwrite默认false、可信目录路径替换与非CAS边界、初始缺失不升级覆盖、属性/取消/未知结果；本阶段Windows软件验证已完成 |
+| [SFTP单文件下载](B3b_Sftp_Download_2026-10-28.md) | 独立local.write+remote.read、原SFTP队列/worker与查询/取消复用、安全Writer本地默认不覆盖发布；保留0.2.96独立阶段验证和限制 |
 | [UART/ZMODEM单文件发送](B3b_Uart_Send_2026-10-28.md) | 独立本地read+UART授权、原Controller/worker复用、原ID取消、有限期限及协议/文件确认事实；保留该阶段独立验证与限制 |
 | [UART独立授权目录](B3b_Uart_Authorization_2026-10-28.md) | 本机显式发送授权及当前连接只读发现，旧代际/配置/身份回收；保留当时仅授权目录的边界和验证 |
 | [UART安全文件源前置](B3b_Uart_File_Source_2026-10-28.md) | 同句柄随机读、现有串口worker源工厂与ZMODEM替身通路；保留当时尚无公开UART工具的前置验证 |

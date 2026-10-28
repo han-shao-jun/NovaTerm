@@ -37,8 +37,10 @@ private:
 
 class LocalFileWriter final {
 public:
+    // overwrite 只替换初始存在且发布前身份/属性仍一致的普通文件。
+    // 最后复核与替换不是 CAS；目录其他写入者须可信，当前不验证目录 ACL。
     static FileIoResult<std::unique_ptr<LocalFileWriter>> create(
-        const QString& trustedRoot, const QString& relativePath, quint64 expectedBytes);
+        const QString& trustedRoot, const QString& relativePath, quint64 expectedBytes, bool overwrite = false);
     ~LocalFileWriter();
     LocalFileWriter(const LocalFileWriter&) = delete;
     LocalFileWriter& operator=(const LocalFileWriter&) = delete;

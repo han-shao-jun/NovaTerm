@@ -1,6 +1,6 @@
 # NovaTerm
 
-2026-10-28：当前源码提供三十个MCP工具，新增 `novaterm_download_file`，以独立本地写入+远端读取授权下载单个普通文件，复用原SFTP队列/worker、查询/取消与安全本地Writer，默认不覆盖。本下载阶段软件回归已完成，B4仍待用户验收，见[下载记录](docs/architecture/stages/P8_AI_MCP_Interface/records/B3b_Sftp_Download_2026-10-28.md)。UART发送保留独立授权、外部接收准备与输入lease显式release；软件剩余显式覆盖和平台收尾，B4由用户实测。
+2026-10-28：当前三十个MCP工具；SFTP上传/下载新增可选 `overwrite`，默认false，true明确允许在可信目录中替换目标路径，不承诺文件身份条件替换。复用原SFTP后端与查询/取消，本覆盖阶段Windows软件验证已完成，见[覆盖记录](docs/architecture/stages/P8_AI_MCP_Interface/records/B3b_File_Overwrite_2026-10-28.md)。本轮按Windows交付；Linux/macOS安全文件后端仍未实现，B4实机由用户验收，P8未整体完成。UART独立授权、外部接收准备及lease显式release保持。
 
 历史实现与逐轮验证见[验收档案](docs/architecture/stages/P8_AI_MCP_Interface/records/README.md)，不以历史成绩代替当前版本验收。
 
@@ -21,7 +21,7 @@ FluentUI 风格。
   已知失败，见 [AGENTS.md](AGENTS.md)。独立协议阶段的记录见
   [P9 文档](docs/architecture/stages/P9_File_Transfer_Protocols.md)
 - **系统监控**：支持远程SSH会话的系统资源监控
-- **AI MCP 接入**：默认关闭的进程内Streamable HTTP服务，默认地址为 `http://127.0.0.1:38973/mcp`，通过Bearer token认证；提供三十个工具，支持终端观察/输入、准确日志分页、文本等待、长任务、保存目标连接管理、受限SFTP上传/下载及独立授权的UART/ZMODEM单文件发送。下载本阶段软件回归已完成，B4仍待用户验收，显式覆盖、平台收尾和B4实机验收待后续；托管提权目前返回适配器不可用，权限边界见[使用说明](docs/MCP_Usage.md)
+- **AI MCP 接入**：默认关闭的进程内Streamable HTTP服务，默认地址为 `http://127.0.0.1:38973/mcp`，通过Bearer token认证；提供三十个工具，支持终端观察/输入、准确日志分页、文本等待、长任务、保存目标连接、SFTP上传/下载及UART/ZMODEM单文件发送。SFTP默认不覆盖，可显式选择可信目录中的路径替换；本覆盖阶段Windows软件验证已完成。本轮Windows软件交付与B4实机验收分开，Linux/macOS安全文件后端仍未实现；托管提权保留unavailable且不作为当前闭环前置，详见[使用说明](docs/MCP_Usage.md)
 - **终端解析**：使用 libvterm 处理 ANSI/VT 控制序列，具体语义由终端测试覆盖
 - **搜索与高亮**：支持终端内容搜索和可配置文本高亮
 

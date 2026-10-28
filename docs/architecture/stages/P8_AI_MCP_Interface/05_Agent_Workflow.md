@@ -1,19 +1,17 @@
 # 外部 Agent 的 BSP 终端调试流程
 
-更新：2026-10-28。B1日志、B2清空、B3/B3a等待/长任务，以及B3b保存目标打开/查询/安全关闭、新会话预授权已实施。当前工作区二十五工具，追加复用终端SFTP的受限单文件上传/查询/取消；下载、覆盖、UART/ZMODEM上传及真机验收待后续。精确参数见[02](02_Current_MCP_Contract.md)，本轮成绩与限制见[上传记录](records/B3b_Sftp_Upload_2026-10-27.md)。
-
-2026-10-27 第三子批追加 `novaterm_close_target`，当前二十一工具；边界、独立验证及剩余范围见[安全关闭记录](records/B3b_Target_Close_2026-10-27.md)。
+更新：2026-10-28。当前三十工具，Windows B0～B3b软件范围已完成：终端观察/交互、日志与清空、等待/长任务、保存目标连接与预授权、SFTP上传/下载及显式覆盖、独立UART/ZMODEM发送。实际接口见[02](02_Current_MCP_Contract.md)，分阶段验证与平台范围见[软件收口账本](08_Software_Closeout.md)。Linux/macOS安全本地文件后端仍未实现；B4设备、真实客户端和性能由用户验收，不以软件结果替代。托管提权保持unavailable，非当前闭环前置。
 
 `novaterm_list_targets` 可了解本机用户本次运行明确共享的 SSH/UART 保存配置。该目录不连接设备、不提供输入 token，saved_configuration 也不证明在线；需要连接时可在独立打开授权下调用 novaterm_open_target，再按原参数调用 novaterm_query_target；实际交互仍需 list_sessions 选择另外获准的 Session。游标失效后重新列举，不把旧配置版本带入后续操作。
 
 ## 1. 分工
 
-外部 Agent 在本地工程中修改代码、调用编译工具、分析失败并执行用户指定的部署/烧录脚本。NovaTerm 保持 SSH/UART 连接，通过 MCP 提供会话发现、终端观察与输入。诊断推理和开发流程由外部 Agent 决定，不在 NovaTerm 内启动模型或 Agent 会话。
+外部 Agent 在本地工程中修改代码、调用编译工具、分析失败并执行用户指定的部署/烧录脚本。NovaTerm 保持 SSH/UART 连接，通过 MCP 提供会话发现、终端观察与输入，以及独立授权的单文件交付。诊断推理和开发流程由外部 Agent 决定，不在 NovaTerm 内启动模型或 Agent 会话。
 
 ```mermaid
 flowchart LR
     A[外部 Agent 修改代码] --> B[本地编译]
-    B --> C[现有工具部署或烧录]
+    B --> C[独立授权文件交付或用户部署脚本]
     C --> D[MCP 操作 SSH / UART]
     D --> E[读取缓存与屏幕]
     E --> F[结合测试结果判断]
@@ -77,15 +75,16 @@ SSH 断开后先观察获准UART；用 `novaterm_query_target` 查询原保存�
 
 本页流程应统一体现在两代 MCP instructions、工具描述及 [MCP 使用说明](../../../MCP_Usage.md) 中；B0/B1 已将两代产品 instructions 合并为 agentInstructions() 并增加一致性回归；工具未实现时不推荐调用。
 
-## 8. B3a与受限SFTP上传流程
+## 8. B3a与文件交付流程
 
-当前可用novaterm_wait_text/start_task/query_task/stop_task及upload_file/query_transfer/cancel_transfer。长任务保存taskId；上传保存transferId与原operationId，不因响应丢失改ID重放。等待旧PASS时必须显式本轮日志基线；UART无可靠完成证据时继续观察或报告未知，人工接管/可信reset后不发送旧Ctrl+C。安全关闭仍须归属与空闲证据；下载、覆盖和UART/ZMODEM上传待后续。
+长任务保存taskId，文件任务保存transferId与原operationId；不因响应丢失改ID重放。按目标选择SSH/SFTP或UART交付，交付后的执行与观察是独立获准操作。等待本轮结果必须保留日志基线；UART静默不能合成成功退出，人工接管/可信reset后不发送旧Ctrl+C。
 
-1. **无活动连接**：从获准保存目标中选择并打开/复用；等待连接状态，认证/主机密钥留给本机用户，不猜测新地址。
-2. **交付构建产物或脚本**：先确认终端SFTP面板就绪，以novaterm_list_file_resources取得本人本地读资源与原SSH远端写scope及revision；调用novaterm_upload_file指定相对文件和带构建标识的新名称。用novaterm_query_transfer查询，需取消时调用novaterm_cancel_transfer。只有published=true才证明已发布，contentVerified=false不证明内容hash；未知结果保留原ID。随后由Agent用现有获准终端工具执行sh/insmod等并读取日志，上传本身不执行或烧录。
-3. **开始观察**：分别保存 SSH/UART 日志基线。等待新输出里的目标标志时使用“基线之后”规则；查看已出现的 login 提示时显式选择当前屏幕。
-4. **执行长任务**：启动一次并保存 taskId；之后只查询，不因 RPC 超时重复输入。输出沿日志位置续读，UART 没有可信退出证据时继续观察或报告未知。
-5. **请求停止**：绑定原任务和仍有效的控制条件；人工已经接管时不发送旧 Ctrl+C。停止等待与停止任务是不同操作。
-6. **收尾**：报告构建、交付、固件标识和功能测试分别是否通过。novaterm_close_target只允许原operationId本次创建且可安全关闭的会话，传入查询得到的当前epoch；它保留已关闭终端供人工查看，复用的人类会话保留，busy/unknown 不强关。
+1. **无活动连接**：从获准保存目标中打开/复用，查询连接状态；认证/主机密钥交给本机用户，不猜测新地址。
+2. **SFTP上传**：确认原终端SFTP面板就绪，list_file_resources取得本地read与原SSH远端write资源及revision；upload_file指定相对源路径和远端单文件名，优先使用带构建标识的新名称。以query_transfer/cancel_transfer管理原操作，published=true才表示远端发布，contentVerified=false。
+3. **SFTP下载**：另授远端read与本地write，download_file指定scope内的remoteName和本地relativePath；仍用query_transfer/cancel_transfer。下载的publication/temporary指本地目标与本次临时文件，下载不执行文件。安全本地文件后端当前仅Windows实现。
+4. **显式覆盖**：默认不覆盖。只有确实意图替换该授权路径且目录其他写入者可信时才传overwrite=true；同operationId改变覆盖意图冲突。初始缺失仍拒绝竞争创建，目标最终复核不提供CAS保证。新文件使用临时文件属性，不自动继承旧ACL/执行位；发布未知时保留原ID，不自动换ID覆盖重试。
+5. **UART发送**：先独立准备接收端，并显式release已有MCP输入lease；需同时获得本地read和当前UART target发送授权。upload_serial_file复用原ZMODEM控制器，用query_serial_transfer/cancel_serial_transfer管理原操作，不自动rz、抢占或开端口。ZSKIP为skipped；protocolCompleted与fileConfirmed分别核对，remotePublication仍unknown、contentVerified=false，远端目录和覆盖策略由接收端决定。
+6. **开始观察与长任务**：分别保存SSH/UART日志基线；新输出用基线之后，已有login提示显式选择当前屏幕。启动长任务一次并保存taskId，之后只查询，输出沿原日志位置续读；UART无可信退出证据时继续观察或报告未知。
+7. **请求停止与收尾**：只作用原任务及有效控制条件，人工接管后不发旧Ctrl+C；取消等待不停止程序。分别报告构建、交付、固件标识和功能测试。close_target仅关闭原operationId创建且可安全关闭的会话，保留终端供人工查看，复用或busy/unknown会话不强关。
 
-不需要逐条扫描整个终端、频繁空轮询或先清空再读取；文本匹配只是证据，最终测试判据仍由用户任务决定。
+不需要逐条扫描整个终端、频繁空轮询或先清空再读取；文本匹配只是证据，最终测试判据仍由用户任务决定。实机执行及记录使用[检查清单](07_Real_Device_Test_Checklist.md)，未执行项目不得填通过。

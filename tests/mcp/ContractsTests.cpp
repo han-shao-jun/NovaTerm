@@ -25,6 +25,22 @@ namespace {
 const QString SessionUuid = QStringLiteral("11111111-1111-4111-8111-111111111111");
 const QString OperationUuid = QStringLiteral("22222222-2222-4222-8222-222222222222");
 
+QJsonObject withExplicitOverwrite(QJsonObject tool)
+{
+    auto input = tool.value("inputSchema").toObject();
+    auto properties = input.value("properties").toObject();
+    properties.insert("overwrite", QJsonObject{{"type", "boolean"}, {"default", false}});
+    input.insert("properties", properties); tool.insert("inputSchema", input);
+    auto description = tool.value("description").toString();
+    const QString semantics = "Overwrite defaults to false; overwrite=true explicitly permits replacing this target path after rechecks, not conditional replacement of an immutable file identity. Trust other writers of the authorized directory. Replacement uses the temporary file's attributes.";
+    description.replace("No credentials, absolute local paths, overwrite or automatic invocation.",
+        "No credentials, absolute local paths or automatic invocation. " + semantics);
+    description.replace("Never overwrites an existing local target, opens a new connection or executes a file.",
+        "Does not open a new connection or execute a file. " + semantics);
+    tool.insert("description", description);
+    return tool;
+}
+
 QJsonObject identity()
 {
     return {{QStringLiteral("sessionId"), SessionUuid},
@@ -86,6 +102,42 @@ class ContractsTests : public QObject
 {
     Q_OBJECT
 private slots:
+    void fileOverwriteIsAnOptionalBoolean_data()
+    {
+        QTest::addColumn<QString>("name");
+        QTest::newRow("upload") << QString("novaterm_upload_file");
+        QTest::newRow("download") << QString("novaterm_download_file");
+    }
+    void fileOverwriteIsAnOptionalBoolean()
+    {
+        QFETCH(QString, name);
+        QJsonObject args{{"sessionId", SessionUuid}, {"epoch", "epoch-1"}, {"resourceId", SessionUuid},
+            {"resourceRevision", OperationUuid}, {"relativePath", "result.bin"}, {"scopeId", OperationUuid},
+            {"scopeRevision", SessionUuid}, {"remoteName", "result.bin"}, {"operationId", OperationUuid}};
+        QVERIFY(ToolCodec::validate(name, args).isEmpty());
+        args.insert("overwrite", true); QVERIFY(ToolCodec::validate(name, args).isEmpty());
+        const auto decoded = ToolCodec::decodeCall(name, args); QVERIFY(!isError(decoded));
+        const auto& transfer = std::get<FileTransferRequest>(std::get<ToolCall>(decoded));
+        QVERIFY(name == "novaterm_upload_file" ? std::get<StartFileUploadRequest>(transfer).overwrite
+            : std::get<StartFileDownloadRequest>(transfer).overwrite);
+        args.insert("overwrite", false); QVERIFY(ToolCodec::validate(name, args).isEmpty());
+        args.remove("overwrite");
+        const auto defaultCall = ToolCodec::decodeCall(name, args); QVERIFY(!isError(defaultCall));
+        const auto& defaults = std::get<FileTransferRequest>(std::get<ToolCall>(defaultCall));
+        QVERIFY(name == "novaterm_upload_file" ? !std::get<StartFileUploadRequest>(defaults).overwrite
+            : !std::get<StartFileDownloadRequest>(defaults).overwrite);
+        for (const auto& value : QJsonArray{"true", 1, QJsonValue::Null, QJsonObject{}}) {
+            args.insert("overwrite", value); QVERIFY(!ToolCodec::validate(name, args).isEmpty());
+        }
+        QFile fixture(QStringLiteral(NOVATERM_SOURCE_DIR "/tests/mcp/fixtures/file-overwrite-tools-2026-10-28.json"));
+        QVERIFY(fixture.open(QIODevice::ReadOnly));
+        const auto expected = QJsonDocument::fromJson(fixture.readAll()).array(); QCOMPARE(expected.size(), 2);
+        const auto tool = ToolCodec::catalog().at(name == "novaterm_upload_file" ? 22 : 29).toObject();
+        QCOMPARE(tool, expected.at(name == "novaterm_upload_file" ? 0 : 1).toObject());
+        QVERIFY(!tool.value("inputSchema").toObject().value("required").toArray().contains("overwrite"));
+        QVERIFY(agentInstructions().contains("overwrite=true"));
+        QVERIFY(agentInstructions().contains("not a conditional compare-and-swap"));
+    }
     void downloadUsesSharedTransferContract()
     {
         const QString name = "novaterm_download_file";
@@ -111,7 +163,10 @@ private slots:
         const auto catalog = ToolCodec::catalog(); QCOMPARE(catalog.size(), 30);
         QFile fixture(QStringLiteral(NOVATERM_SOURCE_DIR "/tests/mcp/fixtures/file-download-tool-2026-10-28.json"));
         QVERIFY(fixture.open(QIODevice::ReadOnly));
-        QCOMPARE(catalog.at(29).toObject(), QJsonDocument::fromJson(fixture.readAll()).object());
+        const auto expectedDownload = QJsonDocument::fromJson(fixture.readAll()).object();
+        QVERIFY(!expectedDownload.value("inputSchema").toObject().value("properties").toObject().contains("overwrite"));
+        QVERIFY(expectedDownload.value("description").toString().contains("Never overwrites an existing local target, opens a new connection or executes a file."));
+        QCOMPARE(catalog.at(29).toObject(), withExplicitOverwrite(expectedDownload));
         for (const auto index : {23, 24, 29}) {
             const auto state = catalog.at(index).toObject().value("outputSchema").toObject()
                 .value("properties").toObject().value("data").toObject().value("properties").toObject().value("state").toObject();
@@ -124,7 +179,7 @@ private slots:
         QVERIFY(instructions.contains("novaterm_download_file"));
         QVERIFY(instructions.contains("local write"));
         QVERIFY(instructions.contains("remote read"));
-        QVERIFY(instructions.contains("never overwrites"));
+        QVERIFY(instructions.contains("defaults to refusing an existing local target"));
     }
     void serialUploadToolsKeepConfirmationAndPublicationSeparate()
     {
@@ -282,6 +337,9 @@ private slots:
         const QJsonArray appended{tools.at(22), tools.at(23), tools.at(24)};
         auto expected = QJsonDocument::fromJson(fixture.readAll()).array();
         QCOMPARE(expected.size(), 3);
+        QVERIFY(!expected.at(0).toObject().value("inputSchema").toObject().value("properties").toObject().contains("overwrite"));
+        QVERIFY(expected.at(0).toObject().value("description").toString().contains("No credentials, absolute local paths, overwrite or automatic invocation."));
+        expected[0] = withExplicitOverwrite(expected.at(0).toObject());
         // Query/cancel now expose download progress; preserve every other old field.
         for (const int index : {1, 2}) {
             auto tool = expected.at(index).toObject();
@@ -930,6 +988,14 @@ void ContractsTests::confirmationClaimsKeepWireFormatAndRejectTampering()
 int main(int argc, char** argv)
 {
     QCoreApplication application(argc, argv);
+    if (application.arguments().size() == 3 && application.arguments()[1] == "--write-file-overwrite-fixture") {
+        const auto tools = ToolCodec::catalog();
+        if (tools.size() != 30) return 1;
+        QFile file(application.arguments()[2]);
+        if (!file.open(QIODevice::WriteOnly)) return 1;
+        const auto bytes = QJsonDocument(QJsonArray{tools.at(22), tools.at(29)}).toJson();
+        return file.write(bytes) == bytes.size() ? 0 : 1;
+    }
     if (application.arguments().size() == 3 && application.arguments()[1] == "--write-file-download-fixture") {
         const auto tools = ToolCodec::catalog();
         if (tools.size() != 30) return 1;

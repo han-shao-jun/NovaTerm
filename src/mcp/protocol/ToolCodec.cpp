@@ -465,9 +465,10 @@ const QJsonArray& ToolCodec::catalog()
         {"errorCode", nullableText}, {"contentVerified", QJsonObject{{"const", false}}}});
     const auto fileTransferInput = schema({{"sessionId", transferUuid}, {"epoch", QJsonObject{{"type", "string"}, {"minLength", 1}, {"maxLength", 64}}},
             {"resourceId", transferUuid}, {"resourceRevision", transferUuid}, {"relativePath", transferPath},
-            {"scopeId", transferUuid}, {"scopeRevision", transferUuid}, {"remoteName", transferPath}, {"operationId", transferUuid}},
+            {"scopeId", transferUuid}, {"scopeRevision", transferUuid}, {"remoteName", transferPath}, {"operationId", transferUuid},
+            {"overwrite", QJsonObject{{"type", "boolean"}, {"default", false}}}},
             {"sessionId", "epoch", "resourceId", "resourceRevision", "relativePath", "scopeId", "scopeRevision", "remoteName", "operationId"});
-    workflow("novaterm_upload_file", "Upload one regular file from an explicitly authorized local resource into an independently authorized remote SSH scope through the existing SFTP connection. Requires matching resource/scope revisions and session epoch; supply a relative source path and a single remote filename. No credentials, absolute local paths, overwrite or automatic invocation. Retain transferId and operationId; identical retries never start a second upload. Query uncertain outcomes. Completion reports publication facts without claiming content verification.",
+    workflow("novaterm_upload_file", "Upload one regular file from an explicitly authorized local resource into an independently authorized remote SSH scope through the existing SFTP connection. Requires matching resource/scope revisions and session epoch; supply a relative source path and a single remote filename. No credentials, absolute local paths or automatic invocation. Overwrite defaults to false; overwrite=true explicitly permits replacing this target path after rechecks, not conditional replacement of an immutable file identity. Trust other writers of the authorized directory. Replacement uses the temporary file's attributes. Retain transferId and operationId; identical retries never start a second upload. Query uncertain outcomes. Completion reports publication facts without claiming content verification.",
         fileTransferInput, true, transferData);
     auto sharedTransferData = transferData;
     auto sharedProperties = sharedTransferData.value("properties").toObject();
@@ -510,7 +511,7 @@ const QJsonArray& ToolCodec::catalog()
     auto downloadProperties = downloadInput.value("properties").toObject();
     downloadProperties.insert("remoteName", stringSchema(255));
     downloadInput.insert("properties", downloadProperties);
-    workflow("novaterm_download_file", "Download one remote regular file through the existing SSH SFTP connection with independent remote-read and local-write grants. Supply current scope/resource revisions and epoch, a single remoteName and a relative local destination path. Never overwrites an existing local target, opens a new connection or executes a file. Reuse query_transfer/cancel_transfer and retain operationId; retries must keep the same direction and arguments. published/publication and temporary describe the local destination and owned local temporary file. Size and metadata checks do not verify content hashes. Current native local writer is Windows-only; maximum 64 MiB, 64 KiB chunks, 120 seconds overall and 15 seconds without progress between synchronous calls. Remote path checks trust the authorized directory owner and administrator; SFTPv3 cannot prove isolation from same-account malicious path replacement.",
+    workflow("novaterm_download_file", "Download one remote regular file through the existing SSH SFTP connection with independent remote-read and local-write grants. Supply current scope/resource revisions and epoch, a single remoteName and a relative local destination path. Does not open a new connection or execute a file. Overwrite defaults to false; overwrite=true explicitly permits replacing this target path after rechecks, not conditional replacement of an immutable file identity. Trust other writers of the authorized directory. Replacement uses the temporary file's attributes. Reuse query_transfer/cancel_transfer and retain operationId; retries must keep the same direction and arguments. published/publication and temporary describe the local destination and owned local temporary file. Size and metadata checks do not verify content hashes. Current native local writer is Windows-only; maximum 64 MiB, 64 KiB chunks, 120 seconds overall and 15 seconds without progress between synchronous calls. Remote path checks trust the authorized directory owner and administrator; SFTPv3 cannot prove isolation from same-account malicious path replacement.",
         downloadInput, true, sharedTransferData);
     return result;
     }();
@@ -1008,12 +1009,13 @@ Result<ToolCall> ToolCodec::decodeCall(const QString& name, const QJsonObject& a
             return ToolCall{FileTransferRequest{StartFileDownloadRequest{*reference,
                 arguments.value("resourceId").toString(), arguments.value("resourceRevision").toString(),
                 arguments.value("relativePath").toString(), arguments.value("scopeId").toString(),
-                arguments.value("scopeRevision").toString(), arguments.value("remoteName").toString(), arguments.value("operationId").toString()}}};
+                arguments.value("scopeRevision").toString(), arguments.value("remoteName").toString(), arguments.value("operationId").toString(),
+                arguments.value("overwrite").toBool(false)}}};
         return ToolCall{FileTransferRequest{StartFileUploadRequest{*reference,
             arguments.value("resourceId").toString(), arguments.value("resourceRevision").toString(),
             arguments.value("relativePath").toString(), arguments.value("scopeId").toString(),
             arguments.value("scopeRevision").toString(), arguments.value("remoteName").toString(),
-            arguments.value("operationId").toString()}}};
+            arguments.value("operationId").toString(), arguments.value("overwrite").toBool(false)}}};
     }
     if (name == "novaterm_list_file_resources") {
         const auto invalid = validate(name, arguments);

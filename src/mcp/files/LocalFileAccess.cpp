@@ -86,8 +86,10 @@ std::optional<Path> preparePath(const QString& root, const QString& relative)
 QString native(const QString& path) { return QStringLiteral("\\\\?\\") + QDir::toNativeSeparators(path); }
 const wchar_t* wide(const QString& value) { return reinterpret_cast<const wchar_t*>(value.utf16()); }
 FileIoResult<Handle> openRelative(HANDLE parent, const QString& name, ACCESS_MASK access,
-    ULONG sharing, ULONG disposition, ULONG options, ULONG attributes = FILE_ATTRIBUTE_NORMAL)
+    ULONG sharing, ULONG disposition, ULONG options, ULONG attributes = FILE_ATTRIBUTE_NORMAL,
+    NTSTATUS* nativeStatus = nullptr)
 {
+    if (nativeStatus) *nativeStatus = 0;
     const auto create = reinterpret_cast<decltype(&NtCreateFile)>(
         GetProcAddress(GetModuleHandleW(L"ntdll.dll"), "NtCreateFile"));
     if (!create) return FileIoError::UnsupportedPlatform;
@@ -104,6 +106,7 @@ FileIoResult<Handle> openRelative(HANDLE parent, const QString& name, ACCESS_MAS
     HANDLE file = nullptr;
     const auto status = create(&file, access | FILE_READ_ATTRIBUTES | SYNCHRONIZE, &object, &io, nullptr, attributes,
         sharing, disposition, options | FILE_OPEN_REPARSE_POINT | FILE_SYNCHRONOUS_IO_NONALERT, nullptr, 0);
+    if (nativeStatus) *nativeStatus = status;
     if (status < 0) return quint32(status) == 0xc0000035
         ? FileIoError::AlreadyExists : FileIoError::NotAvailable;
     return Handle(file);
@@ -174,6 +177,7 @@ struct LocalFileWriter::Impl {
 #ifdef Q_OS_WIN
     PinnedPath path;
     Handle file;
+    std::optional<BY_HANDLE_FILE_INFORMATION> originalTarget;
     bool discard() noexcept
     {
         if (file.valid() && !published) {
@@ -270,7 +274,7 @@ FileIoResult<QByteArray> LocalFileReader::readAt(quint64 offset, qsizetype count
 }
 quint64 LocalFileReader::size() const noexcept { return _impl ? _impl->bytes : 0; }
 FileIoResult<std::unique_ptr<LocalFileWriter>> LocalFileWriter::create(
-    const QString& root, const QString& relative, quint64 expectedBytes)
+    const QString& root, const QString& relative, quint64 expectedBytes, bool overwrite)
 {
 #ifdef Q_OS_WIN
     if (expectedBytes > Budget::MaxLocalTransferFileBytes) return FileIoError::SizeLimit;
@@ -281,11 +285,22 @@ FileIoResult<std::unique_ptr<LocalFileWriter>> LocalFileWriter::create(
     auto impl = std::make_unique<Impl>();
     impl->path = std::move(std::get<PinnedPath>(pins));
     impl->expected = expectedBytes;
-    // This probe is only an early refusal. The native rename below arbitrates
-    // existence atomically, even if another writer wins after this check.
+    // 只有明确缺失才允许创建新目标；其他查询失败不得当作不存在。
+    NTSTATUS targetStatus = 0;
     auto existing = openRelative(impl->path.directories.back().get(), impl->path.leaf,
-        FILE_READ_ATTRIBUTES, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, FILE_OPEN, 0);
-    if (std::holds_alternative<Handle>(existing)) return FileIoError::AlreadyExists;
+        FILE_READ_ATTRIBUTES, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+        FILE_OPEN, 0, FILE_ATTRIBUTE_NORMAL, &targetStatus);
+    if (auto* handle = std::get_if<Handle>(&existing)) {
+        if (!overwrite) return FileIoError::AlreadyExists;
+        BY_HANDLE_FILE_INFORMATION original{};
+        if (!GetFileInformationByHandle(handle->get(), &original)) return FileIoError::IoFailure;
+        if (!regular(handle->get(), original)
+            || (original.dwFileAttributes & FILE_ATTRIBUTE_READONLY)) return FileIoError::UnsafeFile;
+        impl->originalTarget = original;
+        *handle = Handle{};
+    } else if (quint32(targetStatus) != 0xc0000034) { // STATUS_OBJECT_NAME_NOT_FOUND
+        return std::get<FileIoError>(existing);
+    }
     const auto temporary = QStringLiteral(".novaterm-transfer-")
         + QUuid::createUuid().toString(QUuid::WithoutBraces) + QStringLiteral(".tmp");
     auto opened = openRelative(impl->path.directories.back().get(), temporary,
@@ -297,7 +312,7 @@ FileIoResult<std::unique_ptr<LocalFileWriter>> LocalFileWriter::create(
     if (!regular(impl->file.get(), info)) return FileIoError::UnsafeFile;
     return std::unique_ptr<LocalFileWriter>(new LocalFileWriter(std::move(impl)));
 #else
-    Q_UNUSED(root); Q_UNUSED(relative); Q_UNUSED(expectedBytes);
+    Q_UNUSED(root); Q_UNUSED(relative); Q_UNUSED(expectedBytes); Q_UNUSED(overwrite);
     return FileIoError::UnsupportedPlatform;
 #endif
 }
@@ -333,13 +348,31 @@ FileIoResult<std::monostate> LocalFileWriter::publish()
     if (!regular(_impl->file.get(), info)) return FileIoError::UnsafeFile;
     if (fileSize(info) != _impl->expected) return FileIoError::SizeMismatch;
     if (!FlushFileBuffers(_impl->file.get())) return FileIoError::IoFailure;
+    if (_impl->originalTarget) {
+        auto existing = openRelative(_impl->path.directories.back().get(), _impl->path.leaf,
+            FILE_READ_ATTRIBUTES, FILE_SHARE_READ, FILE_OPEN, 0);
+        if (const auto* error = std::get_if<FileIoError>(&existing)) return *error;
+        const auto& handle = std::get<Handle>(existing);
+        BY_HANDLE_FILE_INFORMATION current{};
+        if (!GetFileInformationByHandle(handle.get(), &current)) return FileIoError::IoFailure;
+        const auto& original = *_impl->originalTarget;
+        if (!regular(handle.get(), current)
+            || current.dwVolumeSerialNumber != original.dwVolumeSerialNumber
+            || current.nFileIndexHigh != original.nFileIndexHigh
+            || current.nFileIndexLow != original.nFileIndexLow
+            || fileSize(current) != fileSize(original)
+            || CompareFileTime(&current.ftLastWriteTime, &original.ftLastWriteTime) != 0
+            || current.dwFileAttributes != original.dwFileAttributes) return FileIoError::UnsafeFile;
+        // 经典 rename 前必须关闭目标检查句柄。此后仍有竞争窗口，不承诺 CAS；
+        // 调用方只能对其他写入者可信的目录启用覆盖，pinPath 不检查目录 ACL。
+    }
     const auto target = _impl->path.leaf;
     const auto nameBytes = target.size() * sizeof(wchar_t);
     const auto size = offsetof(FILE_RENAME_INFO, FileName) + nameBytes + sizeof(wchar_t);
     // quint64 storage supplies the native struct's alignment as well as ownership.
     std::vector<quint64> storage((size + sizeof(quint64) - 1) / sizeof(quint64));
     auto* rename = reinterpret_cast<FILE_RENAME_INFO*>(storage.data());
-    rename->ReplaceIfExists = FALSE;
+    rename->ReplaceIfExists = _impl->originalTarget ? TRUE : FALSE;
     rename->RootDirectory = _impl->path.directories.back().get();
     rename->FileNameLength = DWORD(nameBytes);
     memcpy(rename->FileName, target.utf16(), size_t(nameBytes));

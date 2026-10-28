@@ -1702,12 +1702,39 @@ bool SftpSession::authorizedUploadOwners(const QVector<quint32>& owners)
     return trustedRemoteOwners(owners);
 }
 
+SftpSession::AuthorizedPublication SftpSession::authorizedUploadPublication(
+    bool overwrite, const sftp_attributes_struct* target, int lookupStatus,
+    quint32 scopeOwner, bool hardlinkSupported, bool renameSupported, QString& error)
+{
+    if (overwrite && target) {
+        if (!authorizedDownloadSource(target, scopeOwner)) {
+            error = QStringLiteral("TRANSFER_UNSAFE_REMOTE_TARGET");
+            return AuthorizedPublication::Rejected;
+        }
+        if (!renameSupported) {
+            error = QStringLiteral("TRANSFER_REPLACE_UNSUPPORTED");
+            return AuthorizedPublication::Rejected;
+        }
+        return AuthorizedPublication::ReplaceExisting;
+    }
+    if (overwrite && lookupStatus != SSH_FX_NO_SUCH_FILE) {
+        error = QStringLiteral("TRANSFER_REMOTE_TARGET_UNAVAILABLE");
+        return AuthorizedPublication::Rejected;
+    }
+    if (!hardlinkSupported) {
+        error = QStringLiteral("TRANSFER_NO_REPLACE_UNSUPPORTED");
+        return AuthorizedPublication::Rejected;
+    }
+    return AuthorizedPublication::CreateNew;
+}
+
 void SftpSession::finalizeAuthorizedUpload(
     const std::shared_ptr<SftpFileUploadControl>& control,
     const std::function<void()>& ready,
     const std::function<bool()>& guard,
     const std::function<int()>& publish,
-    const std::function<QString()>& cleanup, SftpFileUploadResult& result)
+    const std::function<QString()>& cleanup, SftpFileUploadResult& result,
+    bool consumesTemporary)
 {
     using State = SftpFileUploadControl::State;
     auto expected = State::Active;
@@ -1746,7 +1773,10 @@ void SftpSession::finalizeAuthorizedUpload(
         result.publication = QStringLiteral("unknown");
         result.errorCode = QStringLiteral("TRANSFER_PUBLICATION_UNKNOWN");
     }
-    result.temporary = cleanup();
+    // An acknowledged rename consumes the owned temporary name. Do not inspect
+    // or unlink that name afterwards: another entry may already occupy it.
+    result.temporary = outcome == 0 && consumesTemporary
+        ? QStringLiteral("removed") : cleanup();
 }
 
 bool SftpSession::uploadAuthorizedFile(const SftpFileUploadRequest& request)
@@ -1817,9 +1847,9 @@ SftpFileUploadResult SftpSession::uploadAuthorizedFileWorker(
         return false;
     };
     if (cancelled()) return result;
-    // A hard link creates the target atomically and never replaces an entry.
-    // sftp_rename selects the overwriting posix-rename extension on OpenSSH.
-    if (!sftp_extension_supported(sftp, "hardlink@openssh.com", "1")) {
+    // Keep the default no-replace path independent of target lookup.
+    const bool hardlinkSupported = sftp_extension_supported(sftp, "hardlink@openssh.com", "1");
+    if (!request.overwrite && !hardlinkSupported) {
         result.errorCode = QStringLiteral("TRANSFER_NO_REPLACE_UNSUPPORTED");
         return result;
     }
@@ -1834,6 +1864,27 @@ SftpFileUploadResult SftpSession::uploadAuthorizedFileWorker(
         if (result.errorCode.isEmpty()) result.errorCode = QStringLiteral("TRANSFER_UNSAFE_REMOTE_ROOT");
         return result;
     }
+    const QByteArray target = remotePathJoin(request.remoteRoot, request.remoteName).toUtf8();
+    SftpAttributesPtr originalTarget{nullptr, &sftp_attributes_free};
+    int lookupStatus = -1;
+    if (request.overwrite) {
+        // libssh may leave an earlier status intact after a transport failure.
+        sftp->errnum = -1;
+        originalTarget.reset(sftp_lstat(sftp, target.constData()));
+        lookupStatus = sftp_get_error(sftp);
+        if (cancelled()) return result;
+    }
+    const auto publication = authorizedUploadPublication(request.overwrite, originalTarget.get(),
+        lookupStatus, original.constLast().uid, hardlinkSupported,
+        request.overwrite && sftp_extension_supported(sftp, "posix-rename@openssh.com", "1"),
+        result.errorCode);
+    if (publication == AuthorizedPublication::Rejected) return result;
+    const bool replaceExisting = publication == AuthorizedPublication::ReplaceExisting;
+    const auto targetGuard = [&] {
+        if (!replaceExisting) return true; // Hardlink will reject a competing create.
+        SftpAttributesPtr current{sftp_lstat(sftp, target.constData()), &sftp_attributes_free};
+        return authorizedDownloadSource(current.get(), original.constLast().uid, originalTarget.get());
+    };
     auto opened = LocalFileReader::open(request.localRoot, request.localRelativePath);
     if (std::holds_alternative<FileIoError>(opened)) {
         result.errorCode = QStringLiteral("TRANSFER_LOCAL_FILE_UNAVAILABLE");
@@ -1850,7 +1901,6 @@ SftpFileUploadResult SftpSession::uploadAuthorizedFileWorker(
         if (result.errorCode.isEmpty()) result.errorCode = QStringLiteral("TRANSFER_PATH_CHANGED");
         return result;
     }
-    const QByteArray target = remotePathJoin(request.remoteRoot, request.remoteName).toUtf8();
     const QByteArray temporary = remotePathJoin(request.remoteRoot,
         QStringLiteral(".novaterm-upload-") + QUuid::createUuid().toString(QUuid::WithoutBraces)).toUtf8();
     SftpFilePtr remote{sftp_open(sftp, temporary.constData(), O_WRONLY | O_CREAT | O_EXCL, 0600), &sftp_close};
@@ -1876,7 +1926,11 @@ SftpFileUploadResult SftpSession::uploadAuthorizedFileWorker(
     const auto cleanup = [&] {
         if (remote && sftp_close(remote.release()) != SSH_OK)
             return QStringLiteral("unknown");
-        if (!tempGuard()) return QStringLiteral("retained");
+        if (!tempGuard()) {
+            // A lost rename acknowledgement can leave this path absent. That
+            // cannot establish either publication or temporary retention.
+            return replaceExisting ? QStringLiteral("unknown") : QStringLiteral("retained");
+        }
         if (sftp_unlink(sftp, temporary.constData()) == SSH_OK)
             return QStringLiteral("removed");
         return QStringLiteral("unknown");
@@ -1922,12 +1976,18 @@ SftpFileUploadResult SftpSession::uploadAuthorizedFileWorker(
         return fail(QStringLiteral("TRANSFER_REMOTE_CLOSE_FAILED"));
     if (cancelled()) return fail(result.errorCode);
     finalizeAuthorizedUpload(request.control, ready,
-        [&] { return !cancelled() && tempGuard() && !cancelled(); },
+        [&] { return !cancelled() && tempGuard() && targetGuard() && !cancelled(); },
         [&] {
             // Status values not produced by packet/transport errors are definite
             // refusals. Ambiguous generic failures remain unknown conservatively.
             sftp->errnum = -1;
-            if (sftp_hardlink(sftp, temporary.constData(), target.constData()) == SSH_OK)
+            // The selected mode is frozen at admission. No unlink/fallback and
+            // no late upgrade from absent to replacement. SFTPv3 attributes are
+            // not inode identity/CAS; the trusted directory writer boundary applies.
+            const int code = replaceExisting
+                ? sftp_rename(sftp, temporary.constData(), target.constData())
+                : sftp_hardlink(sftp, temporary.constData(), target.constData());
+            if (code == SSH_OK)
                 return 0;
             const int status = sftp_get_error(sftp);
             const bool refusal = status == SSH_FX_NO_SUCH_FILE
@@ -1935,7 +1995,7 @@ SftpFileUploadResult SftpSession::uploadAuthorizedFileWorker(
                 || status == SSH_FX_FILE_ALREADY_EXISTS || status == SSH_FX_WRITE_PROTECT
                 || status == SSH_FX_NO_SUCH_PATH;
             return refusal ? 1 : 2;
-        }, cleanup, result);
+        }, cleanup, result, replaceExisting);
     return result;
 }
 
@@ -2000,7 +2060,8 @@ SftpFileUploadResult SftpSession::copyAuthorizedDownload(
         return valid;
     };
     if (!allowed()) { result.errorCode = blockedCode; return result; }
-    auto opened = LocalFileWriter::create(request.localRoot, request.localRelativePath, totalBytes);
+    auto opened = LocalFileWriter::create(request.localRoot, request.localRelativePath, totalBytes,
+        request.overwrite);
     if (const auto* error = std::get_if<FileIoError>(&opened)) {
         result.errorCode = *error == FileIoError::AlreadyExists
             ? QStringLiteral("TRANSFER_LOCAL_TARGET_EXISTS") : QStringLiteral("TRANSFER_LOCAL_FILE_UNAVAILABLE");

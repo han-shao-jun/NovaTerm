@@ -10,7 +10,8 @@ bool sameUpload(const StartFileUploadRequest& a, const StartFileUploadRequest& b
     return a.reference.session == b.reference.session && a.reference.epoch == b.reference.epoch
         && a.resourceId == b.resourceId && a.resourceRevision == b.resourceRevision
         && a.relativePath == b.relativePath && a.scopeId == b.scopeId
-        && a.scopeRevision == b.scopeRevision && a.remoteName == b.remoteName && a.operationId == b.operationId;
+        && a.scopeRevision == b.scopeRevision && a.remoteName == b.remoteName && a.operationId == b.operationId
+        && a.overwrite == b.overwrite;
 }
 }
 struct FileTransfers::Record {
@@ -99,7 +100,7 @@ Result<QJsonObject> FileTransfers::call(const QString& client, quint64 identity,
     if (const auto* upload = std::get_if<StartFileUploadRequest>(&request)) fields = *upload;
     else if (const auto* download = std::get_if<StartFileDownloadRequest>(&request)) {
         fields = StartFileUploadRequest{download->reference, download->resourceId, download->resourceRevision,
-            download->relativePath, download->scopeId, download->scopeRevision, download->remoteName, download->operationId};
+            download->relativePath, download->scopeId, download->scopeRevision, download->remoteName, download->operationId, download->overwrite};
         direction = SftpFileTransferDirection::Download;
     }
     if (fields) {
@@ -131,7 +132,7 @@ Result<QJsonObject> FileTransfers::call(const QString& client, quint64 identity,
         record->request = *upload; record->binding = authority.remote.binding; record->session = authority.session;
         record->startedAt = _clock.elapsed();
         record->upload = {++_nextRequest, authority.local.path, upload->relativePath,
-            authority.remote.root.path, upload->remoteName, std::make_shared<SftpFileUploadControl>(), direction};
+            authority.remote.root.path, upload->remoteName, std::make_shared<SftpFileUploadControl>(), direction, upload->overwrite};
         _records.insert(record->id, record);
         const QPointer<FileTransfers> guard(this);
         Delivery delivery{

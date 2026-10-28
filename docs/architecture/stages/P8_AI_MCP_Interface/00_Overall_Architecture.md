@@ -1,10 +1,10 @@
 # SSH/UART MCP 终端工具总体架构
 
-更新：2026-10-28。当前源码三十工具；新增SFTP单文件下载，复用既有FileTransfers、SftpPanel/SftpSession队列和worker、安全本地Writer。本下载阶段软件回归已完成，B4仍待用户验收，现行字段见[契约](02_Current_MCP_Contract.md)，进度见[下载记录](records/B3b_Sftp_Download_2026-10-28.md)；UART原授权与Controller/worker边界保持。
+更新：2026-10-28。当前三十工具；Windows B0～B3b基础能力已提供，SFTP上传/下载可选overwrite默认false，本覆盖阶段Windows软件验证已完成。沿用FileTransfers、原SftpSession队列/worker、LocalFileWriter和查询/取消；精确边界见[契约](02_Current_MCP_Contract.md)，进度见[覆盖记录](records/B3b_File_Overwrite_2026-10-28.md)。
 
 UART发送复用原Session、SerialFileTransferController、TransferFileWorker、唯一输入泵与ZMODEM协议owner。MCP只管理独立授权和有界事实，安全源在原worker内打开、随机读取并销毁；不新增连接或执行器。调用方独立准备接收端并显式release已有MCP输入lease，上传不自动rz、不抢占人工传输。
 
-SFTP下载需要独立local.write+remote.read授权；默认不覆盖，published/publication/temporary指本地目标和本次临时文件，contentVerified=false。软件后续为显式覆盖与平台收尾，B4由用户测试。历史子批及逐轮证据见[验收档案](records/README.md)，源码现状与待验场景见[缺口](03_Gaps_and_Evidence.md)。
+SFTP下载需要local.write+remote.read、上传需要local.read+remote.write；overwrite不扩大权限。覆盖授权可信目录中的目标路径替换，快照与最终复核不形成CAS，本地pinPath不执行ACL/owner检查。下载的published/publication/temporary仍指本地，contentVerified=false。本轮按Windows软件交付；Linux/macOS安全文件后端仍未实现，B4由用户验收，P8未整体完成。
 
 ## 1. 产品目标与责任
 
@@ -98,7 +98,7 @@ MCP 慢消费者不能拖住 Parser/Renderer，不能为等待下一页无界固
 
 ## 9. 对照补齐的应用边界
 
-[06](06_Terminal_Workflow_Extensions.md) 规定文本条件等待、长任务、单文件传输和保存目标连接的语义。2026-10-27 B3a等待/任务已实现，精确字段与限制见02，验收范围见 [B3记录](records/B3_Implementation_2026-10-27.md)；B3b第一子批增加保存目标只读授权目录，见[目录记录](records/B3b_Target_Directory_2026-10-27.md)。目标打开/复用/查询已由第二子批实现，见[连接记录](records/B3b_Target_Connections_2026-10-27.md)；安全关闭已追加，传输仍未实施。
+[06](06_Terminal_Workflow_Extensions.md)规定等待、长任务、文件传输和保存目标连接的分工。Windows基础源码已包含上述能力；SFTP上传/下载及UART发送已有各自阶段证据，SFTP显式覆盖本阶段Windows软件回归已完成，B4仍待用户验收。当前行为以02和源码为准，历史子批见[验收档案](records/README.md)，不能用旧“传输未实施”摘要判断当前状态。
 
 - 文本等待复用同一日志/屏幕源、授权和等待调度；仅增加有界匹配状态，不建立第二采样源或脚本引擎。
 - 长任务复用 CommandRuntime/Controller 的执行事实，只增加异步调用关联、查询和有界结果保留。SSH/UART 分别声明完成与停止能力。
@@ -110,4 +110,4 @@ MCP 慢消费者不能拖住 Parser/Renderer，不能为等待下一页无界固
 
 ## 10. 文档权威
 
-本页定义当前架构方向；02记录已实现契约；03给出静态差距及分轮更新；04日志/清空和06等待/任务、目录/打开/查询已实施，06文件仍为目标，安全关闭已追加；05是Agent使用流程；01规定实施和验收。records只保留实施/测试/故障证据，不携带继续实施旧平台方案的授权。全项目原则仍以 [统一架构](../../../ARCHITECTURE.md) 为准。
+本页定义架构方向；02记录当前接口，03保留历史差距与当前更新，04解释日志/清空，06解释已接入的等待/任务、连接和文件交付，05说明Agent流程，01规定软件及B4验收。records保存分轮证据；覆盖已完成Windows软件验证，Linux/macOS安全文件后端未实现，B4未完成。全项目原则以[统一架构](../../../ARCHITECTURE.md)为准。

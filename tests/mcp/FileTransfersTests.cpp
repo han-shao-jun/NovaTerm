@@ -116,6 +116,38 @@ StartFileUploadRequest uploadRequest(const StartFileDownloadRequest& request)
 class FileTransfersTests : public QObject {
     Q_OBJECT
 private slots:
+    void overwriteIntentIsPartOfRetryIdentity_data()
+    {
+        QTest::addColumn<bool>("download");
+        QTest::newRow("upload") << false;
+        QTest::newRow("download") << true;
+    }
+    void overwriteIntentIsPartOfRetryIdentity()
+    {
+        QFETCH(bool, download);
+        Fixture f; QVERIFY(f.ready); auto request = f.downloadGrant(true);
+        const auto call = [&](bool overwrite) {
+            request.overwrite = overwrite;
+            if (download) return f.call(request);
+            auto upload = uploadRequest(request); upload.overwrite = overwrite;
+            return f.call(upload);
+        };
+        const auto accepted = call(false); QVERIFY(!isError(accepted));
+        QCOMPARE(transferId(call(false)), transferId(accepted)); QCOMPARE(f.requests.size(), 1);
+        const auto conflict = call(true); QVERIFY(isError(conflict));
+        QCOMPARE(std::get<Error>(conflict).code, ErrorCode::TargetOperationConflict);
+        QCOMPARE(f.requests.size(), 1);
+    }
+    void explicitOverwriteReachesOriginalWorker_data() { overwriteIntentIsPartOfRetryIdentity_data(); }
+    void explicitOverwriteReachesOriginalWorker()
+    {
+        QFETCH(bool, download);
+        Fixture f; QVERIFY(f.ready); auto request = f.downloadGrant(true); request.overwrite = true;
+        auto upload = uploadRequest(request); upload.overwrite = true;
+        const auto result = download ? f.call(request) : f.call(upload); QVERIFY(!isError(result));
+        QCOMPARE(f.requests.size(), 1); QVERIFY(f.requests.first().overwrite);
+        QCOMPARE(f.requests.first().direction, download ? SftpFileTransferDirection::Download : SftpFileTransferDirection::Upload);
+    }
     void downloadUsesIndependentWriteReadAndPreservesLocalPublication()
     {
         Fixture f; QVERIFY(f.ready); const auto request = f.downloadGrant();
