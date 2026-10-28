@@ -12,6 +12,12 @@ target_link_libraries(novaterm-local-diag PRIVATE Qt6::Core)
 
 if(APPLE)
     install(TARGETS novaterm-local-diag RUNTIME DESTINATION "NovaTerm.app/Contents/MacOS")
+elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    # SessionDirectory 从主程序同目录定位 helper，并共享应用私有 Qt 运行库。
+    set_target_properties(novaterm-local-diag PROPERTIES
+        INSTALL_RPATH "\$ORIGIN/../lib"
+    )
+    install(TARGETS novaterm-local-diag RUNTIME DESTINATION "${_novaterm_linux_bindir}")
 else()
     install(TARGETS novaterm-local-diag RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
 endif()

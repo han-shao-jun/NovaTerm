@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(NovaTerm VERSION 0.2.100 LANGUAGES CXX C)
+project(NovaTerm VERSION 0.2.101 LANGUAGES CXX C)
 
 # ═══════════════════════════════════════════════════════════════════
 #  1. 通用平台编译参数
@@ -365,17 +365,17 @@ list(FILTER SOURCES EXCLUDE REGEX "[/\\\\]SessionDirectory\\.(cpp|h)$")
 list(FILTER SOURCES EXCLUDE REGEX
     "[/\\\\](CommandPlatformProfile|ISessionCommandExecutor|LocalSessionCommandExecutor|SessionCommandFacade|SshSessionCommandExecutor)\\.(cpp|h)$"
 )
-add_subdirectory(tools/novaterm-local-diag)
-add_subdirectory(src/capabilities)
-add_subdirectory(src/resources)
-add_subdirectory(src/mcp)
-# Linux 主程序与私有运行库的安装目录。
+# Linux 主程序、诊断 helper 与私有运行库的安装目录，先于工具子目录定义。
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     set(_novaterm_linux_runtime_root "${CMAKE_INSTALL_LIBDIR}/novaterm")
     set(_novaterm_linux_bindir "${_novaterm_linux_runtime_root}/bin")
     set(_novaterm_linux_libdir "${_novaterm_linux_runtime_root}/lib")
     set(_novaterm_linux_pluginsdir "${_novaterm_linux_runtime_root}/plugins")
 endif()
+add_subdirectory(tools/novaterm-local-diag)
+add_subdirectory(src/capabilities)
+add_subdirectory(src/resources)
+add_subdirectory(src/mcp)
 if(WIN32)
     list(FILTER SOURCES EXCLUDE REGEX "[/\\\\]src[/\\\\]platform[/\\\\]linux[/\\\\]")
     list(APPEND SOURCES resources/novaterm.rc)
@@ -434,6 +434,11 @@ target_link_libraries(NovaTerm PRIVATE
         ssh::ssh
         OpenSSL::Crypto
         OpenSSL::SSL
+)
+
+# 历史索引只使用 SQLite；其他 SQL 驱动会给部署包引入无关的数据库客户端依赖。
+qt_import_plugins(NovaTerm
+    INCLUDE_BY_TYPE sqldrivers Qt6::QSQLiteDriverPlugin
 )
 
 # 静态 OpenSSL 在 Windows 上的平台依赖库
