@@ -1,6 +1,7 @@
 #pragma once
 #include "ElaDialog.h"
 #include "mcp/contracts/SessionBinding.h"
+#include "mcp/application/SerialFileTargets.h"
 #include <QMap>
 #include <QPointer>
 namespace NovaTerm::Mcp { class Service; }
@@ -23,6 +24,7 @@ private:
     QString _client;
     quint64 _identity{0};
     QMap<QString, NovaTerm::Mcp::SessionBinding> _bindings;
+    QMap<QString, NovaTerm::Mcp::SerialFileBinding> _serialBindings;
     ElaComboBox* _kind;
     ElaComboBox* _session;
     ElaLineEdit* _path;

@@ -15,7 +15,7 @@ private slots:
         QVERIFY(fixture.open(QIODevice::ReadOnly));
         const auto expected = QJsonDocument::fromJson(fixture.readAll()).array();
         QJsonArray actual; const auto all = ToolCodec::catalog();
-        QCOMPARE(all.size(), 25);
+        QCOMPARE(all.size(), 26);
         for (qsizetype i = 9; i < 12; ++i) actual.append(all[i]);
         QCOMPARE(actual, expected);
     }
@@ -24,7 +24,7 @@ private slots:
         QVERIFY(fixture.open(QIODevice::ReadOnly));
         const auto legacy = QJsonDocument::fromJson(fixture.readAll()).array();
         const auto current = ToolCodec::catalog();
-        QCOMPARE(current.size(), legacy.size() + 16);
+        QCOMPARE(current.size(), legacy.size() + 17);
         for (qsizetype i = 0; i < legacy.size(); ++i) {
             if (legacy[i].toObject().value("name") == "novaterm_read_context") {
                 QFile logFixture(QStringLiteral(NOVATERM_SOURCE_DIR "/tests/mcp/fixtures/read-context-clear-2026-10-25.json"));

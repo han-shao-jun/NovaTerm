@@ -1,5 +1,7 @@
 # NovaTerm 统一架构设计
 
+2026-10-28 UART独立授权目录：纯Qt Core SerialFileTargets持有有界身份/连接绑定许可，SerialFileTargetAdapter复核现有Session/SerialTransport实际I/O代际与配置；本机明确共享，MCP只读发现。无新串口owner、端口连接或文件发送；当前二十六工具，UART执行入口仍待后续，见[记录](architecture/stages/P8_AI_MCP_Interface/records/B3b_Uart_Authorization_2026-10-28.md)。
+
 2026-10-28 UART安全文件源前置已补齐：LocalFileReader在原固定句柄上有界readAt，SerialTransferRequest可携带仅由现有TransferFileWorker打开/拥有的单源工厂，Controller与纯ZMODEM仍使用原输入泵/lease。串口生产库不依赖MCP；安全Reader适配在独立集成夹具连接两个既有模块。当前二十五工具，尚未提供UART MCP授权或上传入口，见[记录](architecture/stages/P8_AI_MCP_Interface/records/B3b_Uart_File_Source_2026-10-28.md)。
 
 2026-10-28 工作区受限SFTP单文件上传/查询/取消已接入，当前二十五工具；MCP薄索引复用终端SftpPanel原SftpSession/worker，不另建连接/执行器。文件读写在原worker，本地Reader已成为生产消费者；Core不依赖MCP文件I/O。默认不覆盖、不自动执行。限制、实际验证及UART/ZMODEM下一起点见[上传记录](architecture/stages/P8_AI_MCP_Interface/records/B3b_Sftp_Upload_2026-10-27.md)。

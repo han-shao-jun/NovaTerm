@@ -46,6 +46,16 @@ class WireSessionTests final : public QObject
 {
     Q_OBJECT
 private slots:
+    void serialFileTargetsUseIndependentBackendCall() {
+        WireSession wire; ready(wire); QSignalSpy backend(&wire, &WireSession::backendEvent);
+        wire.receiveMessage({{"jsonrpc", "2.0"}, {"id", 2}, {"method", "tools/call"},
+            {"params", QJsonObject{{"name", "novaterm_list_serial_file_targets"}, {"arguments", QJsonObject{}}}}}, "serial-targets");
+        QCOMPARE(backend.size(), 1);
+        const auto event = backend.first().at(0).value<BackendEvent>();
+        QCOMPARE(backendEventKind(event), QString("call"));
+        QVERIFY(std::holds_alternative<BackendSerialFileTargetsCall>(event));
+        QVERIFY(!std::holds_alternative<BackendCall>(event));
+    }
     void bothHandshakesUseTheSameAgentInstructions() {
         WireSession legacy; QSignalSpy legacyPackets(&legacy, &WireSession::packet);
         legacy.receiveMessage(initialize(), "init");
@@ -490,7 +500,7 @@ private slots:
         QVERIFY(wire.initialized());
         wire.receiveMessage({{"jsonrpc", "2.0"}, {"id", 2}, {"method", "tools/list"}}, "catalog");
         QCOMPARE(QJsonDocument::fromJson(packets.last().at(1).toByteArray()).object().value("result").toObject()
-            .value("tools").toArray().size(), 25);
+            .value("tools").toArray().size(), 26);
     }
     void asynchronousResultKeepsExchangeRoute()
     {

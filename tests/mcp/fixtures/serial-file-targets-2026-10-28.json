@@ -1,0 +1,233 @@
+{
+    "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": true
+    },
+    "description": "Discover only current UART ZMODEM send targets explicitly authorized for this client in the local app. This read-only directory is independent of terminal access and SSH file scopes. Returns opaque targetId/revision and shared title/sessionId/epoch; never port names, serial configuration or local paths. availability=authorization_only does not mean the receiver is ready or the input lease is free. UART file sending is not yet available through MCP. Does not open ports, send files, run rz or acquire input ownership.",
+    "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+        },
+        "required": [
+        ],
+        "type": "object"
+    },
+    "name": "novaterm_list_serial_file_targets",
+    "outputSchema": {
+        "additionalProperties": false,
+        "oneOf": [
+            {
+                "not": {
+                    "required": [
+                        "error"
+                    ]
+                },
+                "properties": {
+                    "ok": {
+                        "const": true
+                    }
+                },
+                "required": [
+                    "data"
+                ]
+            },
+            {
+                "not": {
+                    "required": [
+                        "data"
+                    ]
+                },
+                "properties": {
+                    "ok": {
+                        "const": false
+                    }
+                },
+                "required": [
+                    "error"
+                ]
+            }
+        ],
+        "properties": {
+            "data": {
+                "additionalProperties": false,
+                "properties": {
+                    "availability": {
+                        "const": "authorization_only"
+                    },
+                    "instanceId": {
+                        "maxLength": 64,
+                        "type": "string"
+                    },
+                    "targets": {
+                        "items": {
+                            "additionalProperties": false,
+                            "properties": {
+                                "epoch": {
+                                    "maxLength": 128,
+                                    "type": "string"
+                                },
+                                "protocol": {
+                                    "const": "zmodem"
+                                },
+                                "revision": {
+                                    "maxLength": 64,
+                                    "type": "string"
+                                },
+                                "sessionId": {
+                                    "maxLength": 64,
+                                    "type": "string"
+                                },
+                                "targetId": {
+                                    "maxLength": 64,
+                                    "type": "string"
+                                },
+                                "title": {
+                                    "maxLength": 256,
+                                    "type": "string"
+                                }
+                            },
+                            "required": [
+                                "targetId",
+                                "title",
+                                "revision",
+                                "sessionId",
+                                "epoch",
+                                "protocol"
+                            ],
+                            "type": "object"
+                        },
+                        "maxItems": 8,
+                        "type": "array"
+                    }
+                },
+                "required": [
+                    "instanceId",
+                    "availability",
+                    "targets"
+                ],
+                "type": "object"
+            },
+            "error": {
+                "additionalProperties": false,
+                "properties": {
+                    "code": {
+                        "type": "string"
+                    },
+                    "details": {
+                        "additionalProperties": false,
+                        "properties": {
+                            "commandId": {
+                                "type": "string"
+                            },
+                            "epoch": {
+                                "type": "string"
+                            },
+                            "executionId": {
+                                "type": "string"
+                            },
+                            "executionMayHaveStarted": {
+                                "type": "boolean"
+                            },
+                            "exitCode": {
+                                "type": [
+                                    "integer",
+                                    "null"
+                                ]
+                            },
+                            "finishedAt": {
+                                "type": [
+                                    "string",
+                                    "null"
+                                ]
+                            },
+                            "instanceId": {
+                                "type": "string"
+                            },
+                            "outputTruncated": {
+                                "type": "boolean"
+                            },
+                            "policyVersion": {
+                                "type": "string"
+                            },
+                            "sessionId": {
+                                "type": "string"
+                            },
+                            "startedAt": {
+                                "type": [
+                                    "string",
+                                    "null"
+                                ]
+                            },
+                            "status": {
+                                "enum": [
+                                    "completed",
+                                    "failed",
+                                    "timed_out",
+                                    "cancelled",
+                                    "unknown"
+                                ],
+                                "type": "string"
+                            },
+                            "stderr": {
+                                "type": "string"
+                            },
+                            "stdout": {
+                                "type": "string"
+                            },
+                            "terminationConfirmed": {
+                                "type": "boolean"
+                            }
+                        },
+                        "required": [
+                            "commandId",
+                            "epoch",
+                            "executionId",
+                            "executionMayHaveStarted",
+                            "exitCode",
+                            "finishedAt",
+                            "instanceId",
+                            "outputTruncated",
+                            "policyVersion",
+                            "sessionId",
+                            "startedAt",
+                            "status",
+                            "stderr",
+                            "stdout",
+                            "terminationConfirmed"
+                        ],
+                        "type": "object"
+                    },
+                    "message": {
+                        "type": "string"
+                    },
+                    "retryAfterMs": {
+                        "minimum": 0,
+                        "type": "integer"
+                    },
+                    "retryable": {
+                        "type": "boolean"
+                    }
+                },
+                "required": [
+                    "code",
+                    "message",
+                    "retryable"
+                ],
+                "type": "object"
+            },
+            "ok": {
+                "type": "boolean"
+            },
+            "schemaVersion": {
+                "const": 1
+            }
+        },
+        "required": [
+            "schemaVersion",
+            "ok"
+        ],
+        "type": "object"
+    }
+}

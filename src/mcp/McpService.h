@@ -14,6 +14,7 @@ namespace NovaTerm::Mcp {
 class HistoryCapabilityAdapter;
 class SavedTargets;
 class FileResourceAdapter;
+class SerialFileTargetAdapter;
 class Service final : public QObject
 {
     Q_OBJECT
@@ -26,6 +27,7 @@ public:
     [[nodiscard]] SessionDirectory& directory();
     [[nodiscard]] SavedTargets& savedTargets();
     [[nodiscard]] FileResourceAdapter& fileResources();
+    [[nodiscard]] SerialFileTargetAdapter& serialFileTargets();
     void setFileUploadStarter(FileTransfers::Start);
     void setTargetOpener(TargetConnections::Open);
     /** Local composition supplies transfer/UI safety; missing SSH facts refuse close. */

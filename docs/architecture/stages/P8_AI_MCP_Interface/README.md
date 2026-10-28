@@ -1,5 +1,7 @@
 # 外部 Agent 的 SSH/UART MCP 终端工具
 
+2026-10-28 UART独立发送授权与只读发现已接入，新增 `novaterm_list_serial_file_targets`，当前二十六工具；绑定当前串口实际I/O代际及配置，权限与终端/SSH目录独立。UART发送执行入口仍待后续，见[本轮记录](records/B3b_Uart_Authorization_2026-10-28.md)。
+
 2026-10-28 UART安全文件源前置子批：安全Reader补固定句柄readAt，现有TransferFileWorker可在线程内独占打开/读取/销毁单源，真实ZMODEM替身通路已补，见[本轮记录](records/B3b_Uart_File_Source_2026-10-28.md)。当前二十五工具；下一子批仍为独立UART发送授权与MCP接线，不能据此前置调用尚不存在的串口上传工具。
 
 2026-10-28：工作区已接通受限SFTP单文件上传、查询和取消，当前二十五工具，直接复用终端面板已有SftpSession。范围、实际验证和限制见[上传记录](records/B3b_Sftp_Upload_2026-10-27.md)。下载/覆盖留待后续；UART/ZMODEM单文件上传为明确下一工作项，复用现有串口协议与Session owner。尚未执行真机验收。

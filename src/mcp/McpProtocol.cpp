@@ -57,6 +57,7 @@ QString agentInstructions()
         "Use novaterm_close_target only with the original created open operation and latest epoch; reused, human-controlled, busy or unknown sessions refuse close. "
         "Closing preserves the terminal and is not proof of remote termination. "
         "novaterm_list_file_resources discovers only explicitly shared local resource references and current remote SSH scopes; local paths and file bytes are not returned. Optional sessionId/epoch filter together. File read/write permissions are separate from terminal access. availability=authorization_only does not prove a path is safe or a file is available. "
+        "novaterm_list_serial_file_targets discovers separately authorized UART ZMODEM send targets, without terminal read permission or exposing ports/configuration. authorization_only is not receiver readiness or input-lease availability; UART sending remains unavailable through MCP. "
         "Only call tools actually listed; file-resource metadata alone does not grant transfer or execution permissions.");
 }
 QString newId() { return QUuid::createUuid().toString(QUuid::WithoutBraces); }

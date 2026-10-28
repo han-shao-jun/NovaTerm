@@ -1,5 +1,13 @@
 # 当前 MCP 接口契约与兼容基线
 
+## 2026-10-28：UART 独立发送授权目录
+
+新增 `novaterm_list_serial_file_targets`，当前二十六工具，旧二十五工具对象/Schema保持。无参数只读返回本人显式共享的当前UART发送授权：`data={instanceId,availability:"authorization_only",targets:[{targetId,title,revision,sessionId,epoch,protocol:"zmodem"}]}`，每客户端最多8项、全局32项，名称为用户明确共享的文本；不自动返回端口名、串口配置、本机路径或凭据。
+
+本机文件资源授权窗口另选“串口 ZMODEM 发送”并明确允许发送。绑定独立客户端identityVersion、Session/attachment/epoch/generation、真实串口I/O代际及端口/波特率/数据位/校验/停止位/流控摘要；仅当前运行有效。需现有Running的8数据位串口及实际I/O就绪，授权/发现不打开端口或写入字节。普通终端授权变化不撤销此许可；断连/换绑/代际/配置变化、身份轮换、全局停用和服务停止回收，旧窗口不能转授新连接，同绑定更新轮换revision，旧revision不能撤回新规则。
+
+该目录不表示输入lease空闲、接收端准备完成或UART MCP发送已经开放。UART发送/查询/取消执行入口仍待后续；SFTP上传继续按独立本地读+SSH远端写授权，不使用本目录。实现、真实回归与限制见[UART授权记录](records/B3b_Uart_Authorization_2026-10-28.md)。
+
 ## 2026-10-28：受限 SFTP 单文件上传（工作区增量）
 
 UART安全文件源前置已补同句柄随机读取和现有串口worker单源接口，源码/替身证据见[记录](records/B3b_Uart_File_Source_2026-10-28.md)。它不新增MCP工具或权限，当前仍二十五工具。公开UART上传、独立发送授权和接收结果语义仍待下一子批。

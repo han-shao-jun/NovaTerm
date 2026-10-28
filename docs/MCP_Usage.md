@@ -1,5 +1,7 @@
 # NovaTerm AI MCP 使用说明
 
+2026-10-28：当前二十六工具，支持受限SFTP上传/查询/取消，并新增UART独立发送授权目录。UART文件发送入口仍待后续；实际字段以[现行契约](architecture/stages/P8_AI_MCP_Interface/02_Current_MCP_Contract.md)为准。
+
 2026-10-27：新增 `novaterm_close_target`，当前二十一工具；仅关闭原操作创建且未人工接管、具有空闲证据的连接，保留终端。单文件传输和B4待后续，见[安全关闭记录](architecture/stages/P8_AI_MCP_Interface/records/B3b_Target_Close_2026-10-27.md)。
 
 历史MCP测试、审查与缺口详见[实施与验收记录](architecture/stages/P8_AI_MCP_Interface/records/03_Implementation_and_Verification.md)；引用成绩须按日期与平台区分。
@@ -98,19 +100,21 @@ status=gap 表示旧位置被淘汰；status=invalidated 表示本机 clear 或 
 
 预算缺省 65536 字节/256 分段，最大 262144/1024；compact 只改缺省为 4096/24。初次 start 与续读 sinceToken 必须二选一；日志模式不要传 expandToken、waitFor、非零 waitMs 或 includeViewport=true。只有读取授权也可建立书签，整个过程没有输入或清空。
 
-当前软尾行、未换行提示、CR 进度条和备用屏仍看缺省 observation。日志只读已稳定的终端缓存，没有原始字节或覆写前屏幕帧；分页完整不证明 UART 硬件零丢失。日志 token 与观察 token/capture/expandToken 不混用，不产生 inputToken；需要操作时另读屏幕。MCP 清空按下节独立授权开放；文本等待和长任务见下文，保存目标打开/查询/安全关闭见下节；文件传输工具尚未开放。
+当前软尾行、未换行提示、CR 进度条和备用屏仍看缺省 observation。日志只读已稳定的终端缓存，没有原始字节或覆写前屏幕帧；分页完整不证明 UART 硬件零丢失。日志 token 与观察 token/capture/expandToken 不混用，不产生 inputToken；需要操作时另读屏幕。MCP 清空按下节独立授权开放；文本等待和长任务见下文，保存目标打开/查询/安全关闭见下节；文件传输当前提供受限SFTP上传。
 
 ## 文本等待与长任务（B3/B3a）
 
-当前共二十二个工具：上述九项、三项离线历史、独立清空、以下四项等待/任务、保存目标目录/打开/查询/安全关闭四项，再加独立文件授权目录。SSH/UART交互均复用当前可见终端；先列会话核对 availability.terminalTasks，再观察和输入。
+当前共二十六个工具：上述九项、三项离线历史、独立清空、以下四项等待/任务、保存目标目录/打开/查询/安全关闭四项、独立文件授权目录、SFTP上传/查询/取消三项及UART发送授权目录。SSH/UART交互均复用当前可见终端；先列会话核对 availability.terminalTasks，再观察和输入。
 
 文件权限在本机MCP设置的「文件资源授权…」中逐客户端选择：本地目录与当前SSH远端目录各自明确读/写，默认不选，终端授权不会自动授予文件权限。调用 `novaterm_list_file_resources` 无参数可发现本人已共享的本地resourceId、远端scopeId及其sessionId/epoch；也可用成对sessionId/epoch筛选。返回不含本机路径或文件字节，名称文字及远端路径由本机用户主动共享。身份变化或重连后需复核，陈旧授权窗口不能给新连接授权。
 
 授权窗口显示客户端名称和稳定ID，打开期间锁定父窗口交互，同一客户端重复打开会复用窗口；程序侧切换客户端会关闭旧窗口。无关刷新保留所选目录，规则更新、撤回或连接换绑后须重新选择，避免旧撤回意图作用于新规则。
 
-该工具目前仅返回 `availability=authorization_only`，列表为空表示没有可见授权，不证明目录或文件存在。上传、下载、查询进度和取消仍待后续；不要凭授权目录发起虚构工具调用，也不要把目录路径的词法校验当作文件访问安全验证。
+目录工具返回 `availability=authorization_only`，列表为空表示没有可见授权，不证明目录或文件存在。SFTP上传另用 `novaterm_upload_file`，进度与取消分别用 `novaterm_query_transfer/cancel_transfer`；需现有终端SFTP面板就绪、服务端支持hardlink扩展，当前Windows本机普通文件最多64 MiB、不覆盖、不自动执行。下载及覆盖仍待后续，不能把目录词法校验当作文件访问安全验证。
 
-保存目标目录需要在「AI MCP access」中选择客户端，勾选「保存目标」的「共享目录」列；仅当前应用运行有效。`novaterm_list_targets` 可用 limit（默认25，最多50）及返回的 nextCursor 分页；配置修改、重新保存或共享变化后续页返回 TARGET_DIRECTORY_CHANGED，应重新列举。它仅披露所选 SSH/UART 的名称和端点摘要，saved_configuration 不表示设备在线；不连接设备，不授予终端读取/输入或文件权限。打开还需独立授权，见下文；安全关闭见下文；MCP单文件传输仍未提供。
+UART在同一窗口选择“串口 ZMODEM 发送”，选当前连接、填写共享名称并勾“允许ZMODEM发送”。`novaterm_list_serial_file_targets` 无参数发现本人授权，返回targetId/revision和sessionId/epoch；不要求终端读取权限，不隐含本地文件读权限。重连、配置或身份改变须重新授权。当前只开放授权目录，不能通过MCP发送UART文件，也不自动输入rz或释放/抢占输入lease。
+
+保存目标目录需要在「AI MCP access」中选择客户端，勾选「保存目标」的「共享目录」列；仅当前应用运行有效。`novaterm_list_targets` 可用 limit（默认25，最多50）及返回的 nextCursor 分页；配置修改、重新保存或共享变化后续页返回 TARGET_DIRECTORY_CHANGED，应重新列举。它仅披露所选 SSH/UART 的名称和端点摘要，saved_configuration 不表示设备在线；不连接设备，不授予终端读取/输入或文件权限。打开还需独立授权，见下文；安全关闭见下文；SFTP单文件上传使用独立文件授权。
 
 需要Agent打开保存目标时，在该客户端下先勾「共享目录」，再单独勾「允许打开」。调用 `novaterm_open_target`，只传目录返回的 `targetId`、`configVersion` 和新的UUID `operationId`；不能修改地址、串口参数、认证或传密码。匹配的连接会复用，否则创建可见标签；串口被其他配置占用时返回 `state=unavailable, reason=port_busy`，不会关闭人的会话来腾端口。本机手动断开已停止自动重连、且端口实际释放后，旧标签不会继续占用预留；真正待重连或待释放的端口仍受保护。
 

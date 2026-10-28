@@ -4,6 +4,7 @@
 #include "McpService.h"
 #include "TargetSessionSharing.h"
 #include "FileResourceAdapter.h"
+#include "SerialFileTargetAdapter.h"
 #include "FileTransfers.h"
 #include "CapabilityAdmission.h"
 #include "capabilities/terminal/SearchCapabilities.h"
@@ -95,6 +96,7 @@ public:
         std::optional<TerminalTaskRequest> taskRequest;
         std::optional<ListSavedTargetsRequest> targetsRequest;
         std::optional<ListFileResourcesRequest> fileResourcesRequest;
+        std::optional<ListSerialFileTargetsRequest> serialFileTargetsRequest;
         std::optional<FileTransferRequest> fileTransferRequest;
         std::optional<TargetConnectionRequest> targetConnectionRequest;
         QByteArray confirmationDigest;
@@ -113,7 +115,7 @@ public:
     static std::optional<SessionReference> referenceOf(const PendingRequest& pending) {
         // File permissions are independent from terminal reading. The transfer
         // adapter checks its own current complete binding and four-way grants.
-        if (pending.fileTransferRequest) return std::nullopt;
+        if (pending.fileTransferRequest || pending.serialFileTargetsRequest) return std::nullopt;
         if (pending.waitRequest) return SessionReference{pending.waitRequest->session, pending.waitRequest->epoch};
         if (pending.taskRequest) return std::visit([](const auto& value) {
             return SessionReference{value.session, value.epoch};
@@ -169,6 +171,8 @@ public:
         targetSharing = std::make_unique<TargetSessionSharing>(access, sessions, savedTargets, owner);
         fileResources = std::make_unique<FileResourceAdapter>(access, sessions, owner);
         QObject::connect(fileResources.get(), &FileResourceAdapter::changed, q, &Service::changed);
+        serialFileTargets = std::make_unique<SerialFileTargetAdapter>(access, sessions, owner);
+        QObject::connect(serialFileTargets.get(), &SerialFileTargetAdapter::changed, q, &Service::changed);
         fileTransfers = std::make_unique<FileTransfers>(access, sessions, *fileResources, instance, owner);
         commands = std::make_unique<CommandSessionAdapter>(access, sessions,
             QDir(stateDirectory).filePath("targets"), instance, CommandSessionAdapter::Delivery{
@@ -256,6 +260,7 @@ public:
     {
         if (targetSharing) targetSharing->clear();
         if (fileResources) fileResources->resources().revoke();
+        if (serialFileTargets) serialFileTargets->targets().revoke();
         if (terminalTasks) terminalTasks->stop();
         if (textWaits) textWaits->revoke({}, {});
         if (terminal) terminal->revoke({}, {});
@@ -308,10 +313,14 @@ public:
         const auto* taskCall = std::get_if<BackendTaskCall>(&event);
         const auto* targetsCall = std::get_if<BackendSavedTargetsCall>(&event);
         const auto* filesCall = std::get_if<BackendFileResourcesCall>(&event);
+        const auto* serialTargetsCall = std::get_if<BackendSerialFileTargetsCall>(&event);
         const auto* transferCall = std::get_if<BackendFileTransferCall>(&event);
         const auto* targetConnectionCall = std::get_if<BackendTargetConnectionCall>(&event);
         BackendCall call;
-        if (transferCall) {
+        if (serialTargetsCall) {
+            call.id = serialTargetsCall->id;
+            if (serialTargetsCall->confirmationSupplied) { send(connectionId, id, error("COMMAND_CONFIRMATION_STALE")); return; }
+        } else if (transferCall) {
             call.id = transferCall->id;
             if (transferCall->confirmationSupplied) { send(connectionId, id, error("COMMAND_CONFIRMATION_STALE")); return; }
         } else if (filesCall) {
@@ -340,7 +349,8 @@ public:
             io.closeConnection(connectionId);
             return;
         }
-        const auto name = transferCall ? ToolCodec::toolName(ToolCall{transferCall->request})
+        const auto name = serialTargetsCall ? QStringLiteral("novaterm_list_serial_file_targets")
+            : transferCall ? ToolCodec::toolName(ToolCall{transferCall->request})
             : filesCall ? QStringLiteral("novaterm_list_file_resources")
             : targetConnectionCall ? ToolCodec::toolName(ToolCall{targetConnectionCall->request})
             : targetsCall ? QStringLiteral("novaterm_list_targets")
@@ -366,6 +376,7 @@ public:
         if (taskCall) pending->taskRequest = taskCall->request;
         if (targetsCall) pending->targetsRequest = targetsCall->request;
         if (filesCall) pending->fileResourcesRequest = filesCall->request;
+        if (serialTargetsCall) pending->serialFileTargetsRequest = serialTargetsCall->request;
         if (transferCall) pending->fileTransferRequest = transferCall->request;
         if (targetConnectionCall) pending->targetConnectionRequest = targetConnectionCall->request;
         pending->confirmationDigest = call.confirmationDigest;
@@ -573,6 +584,7 @@ public:
             : std::holds_alternative<StopTerminalTaskRequest>(*pending->taskRequest) ? "terminal.task.stop" : "terminal.task.query"};
         if (pending->targetsRequest) capability = Capabilities::CapabilityId{"target.list"};
         if (pending->fileResourcesRequest) capability = Capabilities::CapabilityId{"file.resources.list"};
+        if (pending->serialFileTargetsRequest) capability = Capabilities::CapabilityId{"serial.file.targets.list"};
         if (pending->fileTransferRequest) capability = Capabilities::CapabilityId{
             std::holds_alternative<StartFileUploadRequest>(*pending->fileTransferRequest) ? "file.upload"
             : std::holds_alternative<QueryFileTransferRequest>(*pending->fileTransferRequest) ? "file.transfer.query" : "file.transfer.cancel"};
@@ -606,6 +618,20 @@ public:
         }
         const auto connection = connections.value(pending->connection);
         if (!access.enabled()) { complete(key, error("MCP_DISABLED")); return; }
+        if (pending->serialFileTargetsRequest) {
+            if (!admit(pending)) return;
+            const auto result = serialFileTargets->list(connection.client, access.identityVersion(connection.client));
+            if (isError(result)) { complete(key, ToolCodec::encodeFailure(*errorIfAny(result))); return; }
+            QJsonArray targets;
+            for (const auto& target : std::get<QList<SerialFileTarget>>(result)) {
+                targets.append(QJsonObject{{"targetId", target.id}, {"title", target.title},
+                    {"revision", target.revision}, {"sessionId", target.binding.connection.session.str()},
+                    {"epoch", target.binding.connection.epoch.str()}, {"protocol", "zmodem"}});
+            }
+            complete(key, success({{"instanceId", instance}, {"availability", "authorization_only"},
+                {"targets", targets}}));
+            return;
+        }
         if (pending->fileTransferRequest) {
             if (!admit(pending)) return;
             const auto result = fileTransfers->call(connection.client, access.identityVersion(connection.client),
@@ -964,6 +990,7 @@ public:
     TargetConnections targetConnections{savedTargets};
     std::unique_ptr<TargetSessionSharing> targetSharing;
     std::unique_ptr<FileResourceAdapter> fileResources;
+    std::unique_ptr<SerialFileTargetAdapter> serialFileTargets;
     std::unique_ptr<FileTransfers> fileTransfers;
     std::function<bool(const QString&)> targetCloseSafety;
     HistoryCapabilityAdapter history;
@@ -1020,6 +1047,7 @@ AccessStore& Service::access() { return _impl->access; }
 SessionDirectory& Service::directory() { return _impl->sessions; }
 SavedTargets& Service::savedTargets() { return _impl->savedTargets; }
 FileResourceAdapter& Service::fileResources() { return *_impl->fileResources; }
+SerialFileTargetAdapter& Service::serialFileTargets() { return *_impl->serialFileTargets; }
 void Service::setFileUploadStarter(FileTransfers::Start start) { _impl->fileTransfers->setStarter(std::move(start)); }
 void Service::setTargetOpener(TargetConnections::Open open)
 {

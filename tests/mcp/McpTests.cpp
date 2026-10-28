@@ -3,6 +3,8 @@
  */
 #include "mcp/McpService.h"
 #include "mcp/FileResourceAdapter.h"
+#include "mcp/SerialFileTargetAdapter.h"
+#include "transport/SerialTransport.h"
 #include "ui/widgets/FileResourceSharingDialog.h"
 #include "mcp/application/SavedTargets.h"
 #include <QComboBox>
@@ -85,6 +87,19 @@
 #endif
 
 using namespace NovaTerm::Mcp;
+class SerialTransportIoTestAccess {
+public:
+    static void connected(SerialTransport& transport)
+    {
+        const auto generation = transport._state->requestOpen();
+        transport._state->opened(generation);
+        transport._connected = true;
+    }
+    static void changeConfig(SerialTransport& transport) { transport._config.baudRate = 9600; }
+    static void closePending(SerialTransport& transport) { transport._state->requestClose(); }
+    static void ioClosed(SerialTransport& transport) { transport._state->closed(transport._state->snapshot().generation); }
+    static void sevenDataBits(SerialTransport& transport) { transport._config.dataBits = QSerialPort::Data7; }
+};
 class SshTransportTestAccess
 {
 public:
@@ -472,6 +487,7 @@ struct Fixture
     TerminalCore core{80, 24};
     LocalFake local;
     std::unique_ptr<SshTransport> ssh;
+    std::unique_ptr<SerialTransport> serial;
     TerminalSession session{&core};
     Service service{root.path() + "/state", root.path() + "/instances", std::make_unique<MemoryCredentialStore>()};
     QString client;
@@ -490,6 +506,15 @@ struct Fixture
         ssh = std::make_unique<SshTransport>(config);
         SshTransportTestAccess::connected(*ssh);
         session.attach(ssh.get(), TerminalSession::Ownership::Borrowed, TransportKind::Ssh);
+        static_cast<void>(service.directory().entries());
+    }
+    void makeSerial()
+    {
+        SerialConfig config; config.portName = "COM-fixture-private";
+        auto replacement = std::make_unique<SerialTransport>(config);
+        SerialTransportIoTestAccess::connected(*replacement);
+        session.attach(replacement.get(), TerminalSession::Ownership::Borrowed, TransportKind::Serial);
+        serial = std::move(replacement);
         static_cast<void>(service.directory().entries());
     }
     DelayedScriptProvider* makeScriptUpload()
@@ -528,6 +553,11 @@ class McpTests final : public QObject
 {
     Q_OBJECT
 private slots:
+    void httpSerialFileTargetsAreIndependentAndBound_data();
+    void httpSerialFileTargetsAreIndependentAndBound();
+    void serialFileTargetsRejectChangedConnection_data();
+    void serialFileTargetsRejectChangedConnection();
+    void serialFileSettingsRequireExplicitCurrentGrant();
     void httpFileResourcesAreIndependentAndBound_data();
     void httpFileResourcesAreIndependentAndBound();
     void httpFileUploadChecksIndependentAuthority_data();
@@ -2720,7 +2750,7 @@ void McpTests::tokenSigningAndAuthentication()
 
 void McpTests::rejectsDangerousAndOversizedArguments()
 {
-    QCOMPARE(ToolCodec::catalog().size(), 25);
+    QCOMPARE(ToolCodec::catalog().size(), 26);
     QVERIFY(!CommandPolicy::find("rm"));
     QVERIFY(!CommandPolicy::find("credential.read"));
     const QJsonObject identity{{"sessionId", newId()}, {"epoch", "epoch"}};
@@ -3030,6 +3060,123 @@ void McpTests::httpFileResourcesAreIndependentAndBound_data()
     QTest::addColumn<QString>("version");
     QTest::newRow("2025") << QString(ProtocolVersion);
     QTest::newRow("2026") << QString("2026-07-28");
+}
+void McpTests::httpSerialFileTargetsAreIndependentAndBound_data()
+{
+    QTest::addColumn<QString>("version");
+    QTest::newRow("2025") << QString(ProtocolVersion);
+    QTest::newRow("2026") << QString("2026-07-28");
+}
+void McpTests::httpSerialFileTargetsAreIndependentAndBound()
+{
+    QFETCH(QString, version);
+    Fixture f; QVERIFY(f.service.access().setEnabled(true)); f.makeSerial();
+    auto& adapter = f.service.serialFileTargets();
+    const auto entry = f.service.directory().entries().first();
+    const auto identity = f.service.access().identityVersion(f.client);
+    const auto binding = adapter.liveBinding(entry.id); QVERIFY(binding);
+    QVERIFY(!f.service.access().canRead(f.client, entry));
+    Host host; QVERIFY(host.start(f.runtime(), f.token(), {}, false, version));
+    const auto empty = host.call("novaterm_list_serial_file_targets", {});
+    QVERIFY(empty.value("ok").toBool()); QVERIFY(empty.value("data").toObject().value("targets").toArray().isEmpty());
+    const auto grant = adapter.share(f.client, identity, *binding, "Board UART"); QVERIFY(grant);
+    const auto listing = host.call("novaterm_list_serial_file_targets", {}).value("data").toObject();
+    QCOMPARE(listing.value("availability").toString(), QString("authorization_only"));
+    const auto rows = listing.value("targets").toArray(); QCOMPARE(rows.size(), 1);
+    const auto row = rows.first().toObject(); QCOMPARE(row.value("targetId").toString(), grant->id);
+    QCOMPARE(row.value("revision").toString(), grant->revision);
+    QCOMPARE(row.value("sessionId").toString(), entry.id); QCOMPARE(row.value("epoch").toString(), entry.epoch);
+    QCOMPARE(row.value("protocol").toString(), QString("zmodem"));
+    QVERIFY(!QJsonDocument(listing).toJson().contains("COM-fixture-private"));
+    QVERIFY(!QJsonDocument(listing).toJson().contains(binding->configDigest.toUtf8()));
+    QCOMPARE(f.serial->pendingWriteBytes(), qint64(0));
+    const auto other = f.service.access().addClient("outsider"); QVERIFY(!other.isEmpty());
+    Host outsider; QVERIFY(outsider.start(f.runtime(), f.service.access().exportToken(other).value(), {}, false, version));
+    QVERIFY(outsider.call("novaterm_list_serial_file_targets", {}).value("data").toObject().value("targets").toArray().isEmpty());
+    QVERIFY(TestSupport::setGrant(f.service.access(), f.client, entry, true));
+    const auto snapshot = f.service.access().grantSnapshot(ClientId{f.client}, entry);
+    PermissionChange revoke{snapshot.client, snapshot.binding, snapshot.revision, PermissionKind::ReadOutput, {}, false};
+    QVERIFY(!isError(f.service.access().changePermission(revoke, entry)));
+    QCOMPARE(host.call("novaterm_list_serial_file_targets", {}).value("data").toObject().value("targets").toArray().size(), 1);
+    QVERIFY(f.service.fileResources().resources().remote(f.client, identity).isEmpty());
+    SerialTransportIoTestAccess::connected(*f.serial); // Actual I/O epoch changes before a GUI notice.
+    QVERIFY(host.call("novaterm_list_serial_file_targets", {}).value("data").toObject().value("targets").toArray().isEmpty());
+    QVERIFY(!adapter.share(f.client, identity, *binding, "Old window"));
+    const auto nextBinding = adapter.liveBinding(entry.id); QVERIFY(nextBinding);
+    const auto next = adapter.share(f.client, identity, *nextBinding, "New UART"); QVERIFY(next); QVERIFY(next->id != grant->id);
+    QVERIFY(f.service.access().rotateToken(f.client));
+    QVERIFY(adapter.targets().list(f.client, identity).isEmpty());
+    const auto rotated = f.service.access().identityVersion(f.client);
+    QVERIFY(adapter.targets().list(f.client, rotated).isEmpty());
+    QVERIFY(adapter.share(f.client, rotated, *nextBinding, "Rotated UART"));
+    f.service.stop(); QVERIFY(adapter.targets().list(f.client, rotated).isEmpty());
+    QCOMPARE(f.serial->pendingWriteBytes(), qint64(0));
+}
+void McpTests::serialFileTargetsRejectChangedConnection_data()
+{
+    QTest::addColumn<int>("change");
+    for (int change = 0; change < 6; ++change)
+        QTest::newRow(qPrintable(QString::number(change))) << change;
+}
+void McpTests::serialFileTargetsRejectChangedConnection()
+{
+    QFETCH(int, change);
+    Fixture f; QVERIFY(f.service.access().setEnabled(true)); f.makeSerial();
+    auto& adapter = f.service.serialFileTargets();
+    const auto id = f.session.id().toString(QUuid::WithoutBraces);
+    const auto identity = f.service.access().identityVersion(f.client);
+    const auto original = adapter.liveBinding(id); QVERIFY(original);
+    const auto grant = adapter.share(f.client, identity, *original, "Board UART"); QVERIFY(grant);
+    if (change == 0) SerialTransportIoTestAccess::connected(*f.serial);
+    if (change == 1) SerialTransportIoTestAccess::changeConfig(*f.serial);
+    if (change == 2) SerialTransportIoTestAccess::closePending(*f.serial);
+    if (change == 3) SerialTransportIoTestAccess::ioClosed(*f.serial);
+    if (change == 4) f.makeSerial();
+    if (change == 5) { f.service.directory().remove(&f.session); f.service.directory().add(&f.session); }
+    const auto listed = adapter.list(f.client, identity); QVERIFY(!isError(listed));
+    QVERIFY(std::get<QList<SerialFileTarget>>(listed).isEmpty());
+    QVERIFY(adapter.targets().list(f.client, identity).isEmpty());
+    QVERIFY(!adapter.share(f.client, identity, *original, "Stale UI"));
+    if (const auto current = adapter.liveBinding(id)) {
+        const auto replacement = adapter.share(f.client, identity, *current, "Current UART"); QVERIFY(replacement);
+        QVERIFY(replacement->id != grant->id);
+    }
+    SerialTransportIoTestAccess::sevenDataBits(*f.serial);
+    QVERIFY(!adapter.liveBinding(id));
+}
+void McpTests::serialFileSettingsRequireExplicitCurrentGrant()
+{
+    Fixture f; QVERIFY(f.service.access().setEnabled(true)); f.makeSerial();
+    auto& adapter = f.service.serialFileTargets();
+    const auto identity = f.service.access().identityVersion(f.client);
+    FileResourceSharingDialog dialog(&f.service, f.client);
+    auto* kind = dialog.findChild<QComboBox*>("fileResourceKind"); QVERIFY(kind); QCOMPARE(kind->count(), 3);
+    kind->setCurrentIndex(2);
+    auto* sessions = dialog.findChild<QComboBox*>("fileResourceSession"); QVERIFY(sessions);
+    QCOMPARE(sessions->count(), 1); sessions->setCurrentIndex(0);
+    auto* path = dialog.findChild<QLineEdit*>("fileResourcePath"); QVERIFY(!path->isEnabled());
+    auto* read = dialog.findChild<QCheckBox*>("fileResourceRead"); QVERIFY(!read->isEnabled());
+    auto* send = dialog.findChild<QCheckBox*>("fileResourceWrite"); QVERIFY(!send->isChecked());
+    auto* share = dialog.findChild<QPushButton*>("fileResourceShare");
+    dialog.findChild<QLineEdit*>("fileResourceTitle")->setText("Board UART");
+    share->click(); QVERIFY(adapter.targets().list(f.client, identity).isEmpty());
+    send->setChecked(true); share->click();
+    QCOMPARE(adapter.targets().list(f.client, identity).size(), 1);
+    QVERIFY(!f.service.access().canRead(f.client, f.service.directory().entries().first()));
+    auto* roots = dialog.findChild<QTreeWidget*>("fileResourceRoots"); QCOMPARE(roots->topLevelItemCount(), 1);
+    roots->setCurrentItem(roots->topLevelItem(0));
+    f.service.directory().setDisplayTitle(&f.session, "New label"); QTest::qWait(30);
+    QVERIFY(roots->currentItem());
+    dialog.findChild<QPushButton*>("fileResourceRevoke")->click(); QVERIFY(adapter.targets().list(f.client, identity).isEmpty());
+    share->click(); QCOMPARE(adapter.targets().list(f.client, identity).size(), 1);
+    SerialTransportIoTestAccess::connected(*f.serial);
+    share->click(); QVERIFY(adapter.targets().list(f.client, identity).isEmpty());
+    QCOMPARE(sessions->currentIndex(), -1);
+    sessions->setCurrentIndex(0); share->click(); QCOMPARE(adapter.targets().list(f.client, identity).size(), 1);
+    QVERIFY(f.service.access().rotateToken(f.client)); QTest::qWait(30);
+    QVERIFY(!share->isEnabled());
+    QVERIFY(adapter.targets().list(f.client, f.service.access().identityVersion(f.client)).isEmpty());
+    QCOMPARE(f.serial->pendingWriteBytes(), qint64(0));
 }
 void McpTests::httpFileUploadChecksIndependentAuthority_data()
 {

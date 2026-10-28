@@ -1,5 +1,6 @@
 #include "FileResourceSharingDialog.h"
 #include "mcp/FileResourceAdapter.h"
+#include "mcp/SerialFileTargetAdapter.h"
 #include "mcp/McpService.h"
 #include "transport/SshTransport.h"
 #include "ElaCheckBox.h"
@@ -32,10 +33,10 @@ FileResourceSharingDialog::FileResourceSharingDialog(Service* service, QString c
     _clientIdentity->setTextInteractionFlags(Qt::TextSelectableByMouse); layout->addWidget(_clientIdentity);
     auto* help = new ElaText(tr("为当前客户端明确选择本地目录和远端目录的读写权限，仅本次运行有效。"
         "本地读取用于上传源，本地写入用于下载目录；远端读取用于下载源，远端写入用于上传目标。"
-        "这些选择与终端权限独立。当前仅提供授权目录查询，上传和下载仍待后续；路径尚未验证为可安全访问。"), this);
+        "这些选择与终端权限独立。当前支持受限SFTP上传；串口仅保存ZMODEM发送授权，MCP发送入口仍待后续。授权本身不证明接收端就绪或路径可安全访问。"), this);
     help->setWordWrap(true); layout->addWidget(help);
     _kind = new ElaComboBox(this); _kind->setObjectName("fileResourceKind");
-    _kind->addItems({tr("本地目录"), tr("远端 SSH 目录")}); layout->addWidget(_kind);
+    _kind->addItems({tr("本地目录"), tr("远端 SSH 目录"), tr("串口 ZMODEM 发送")}); layout->addWidget(_kind);
     _session = new ElaComboBox(this); _session->setObjectName("fileResourceSession"); layout->addWidget(_session);
     auto* pathRow = new QHBoxLayout;
     _path = new ElaLineEdit(this); _path->setObjectName("fileResourcePath"); _path->setMaxLength(1024);
@@ -69,7 +70,9 @@ FileResourceSharingDialog::FileResourceSharingDialog(Service* service, QString c
         if (!row) { _status->setText(tr("请先选择仍有效的目录授权。")); return; }
         const auto id = row->data(0, Qt::UserRole).toString();
         const auto revision = row->data(0, Qt::UserRole + 1).toString();
-        const bool removed = _service->fileResources().resources().remove(_client, _identity, id, revision);
+        const bool removed = row->data(0, Qt::UserRole + 2).toBool()
+            ? _service->serialFileTargets().targets().remove(_client, _identity, id, revision)
+            : _service->fileResources().resources().remove(_client, _identity, id, revision);
         _status->setText(removed ? tr("已撤回目录授权。") : tr("目录授权已变化，请重新选择。")); refresh();
     });
     if (_service) connect(_service, &Service::changed, this, [this] { refresh(); }, Qt::QueuedConnection);
@@ -91,20 +94,33 @@ void FileResourceSharingDialog::refresh()
     _clientIdentity->setText(tr("授权客户端：%1\n客户端 ID：%2").arg(clientLabel, _client));
     const bool current = currentIdentity();
     const bool remote = _kind->currentIndex() == 1;
-    _share->setEnabled(current); _browse->setEnabled(current && !remote); _session->setEnabled(current && remote);
+    const bool serial = _kind->currentIndex() == 2;
+    _share->setEnabled(current); _browse->setEnabled(current && !remote && !serial);
+    _session->setEnabled(current && (remote || serial));
+    _path->setEnabled(current && !serial); _read->setEnabled(current && !serial);
+    _write->setEnabled(current); _write->setText(serial ? tr("允许ZMODEM发送") : tr("允许写入"));
+    _share->setText(serial ? tr("共享或更新所选串口") : tr("共享或更新所填目录"));
     if (!current) {
-        _roots->clear(); _session->clear(); _bindings.clear();
+        _roots->clear(); _session->clear(); _bindings.clear(); _serialBindings.clear();
         _status->setText(tr("客户端身份或接入状态已变化，请关闭后重新打开授权窗口。")); return;
     }
     const auto selected = _session->currentData().toString();
     const auto oldBinding = _bindings.value(selected);
+    const auto oldSerialBinding = _serialBindings.value(selected);
     const auto* currentRoot = _roots->currentItem();
     const auto selectedRoot = currentRoot ? currentRoot->data(0, Qt::UserRole).toString() : QString{};
     const auto selectedRevision = currentRoot ? currentRoot->data(0, Qt::UserRole + 1).toString() : QString{};
     {
         const QSignalBlocker blocker(_session);
-        _session->clear(); _bindings.clear();
+        _session->clear(); _bindings.clear(); _serialBindings.clear();
         for (const auto& entry : _service->directory().entries()) {
+            if (serial) {
+                const auto binding = _service->serialFileTargets().liveBinding(entry.id);
+                if (!binding) continue;
+                _serialBindings.insert(entry.id, *binding);
+                _session->addItem(entry.title + " — " + entry.id.left(8), entry.id);
+                continue;
+            }
             const auto* ssh = qobject_cast<SshTransport*>(entry.transport.data());
             if (entry.state != SessionState::Running || !ssh || !ssh->isConnected() || entry.targetFingerprint.isEmpty()) continue;
             const SessionBinding binding{NovaTerm::Mcp::SessionId{entry.id}, AttachmentId{entry.attachmentId}, Epoch{entry.epoch},
@@ -112,7 +128,9 @@ void FileResourceSharingDialog::refresh()
             _bindings.insert(entry.id, binding);
             _session->addItem(entry.title + " — " + entry.id.left(8), entry.id);
         }
-        const bool same = _bindings.contains(selected) && FileResources::sameBinding(oldBinding, _bindings.value(selected));
+        const bool same = serial
+            ? _serialBindings.contains(selected) && SerialFileTargets::sameBinding(oldSerialBinding, _serialBindings.value(selected))
+            : _bindings.contains(selected) && FileResources::sameBinding(oldBinding, _bindings.value(selected));
         _session->setCurrentIndex(same ? _session->findData(selected) : -1);
     }
     _roots->clear();
@@ -127,10 +145,28 @@ void FileResourceSharingDialog::refresh()
     append(_service->fileResources().resources().local(_client, _identity), tr("本地"));
     const auto id = _session->currentData().toString();
     if (_bindings.contains(id)) append(_service->fileResources().resources().remote(_client, _identity, _bindings.value(id)), tr("当前SSH"));
+    if (serial && _serialBindings.contains(id)) {
+        const auto listed = _service->serialFileTargets().list(_client, _identity);
+        if (!isError(listed)) for (const auto& target : std::get<QList<SerialFileTarget>>(listed)) {
+            if (!SerialFileTargets::sameBinding(target.binding, _serialBindings.value(id))) continue;
+            auto* row = new QTreeWidgetItem(_roots, {tr("当前串口"), tr("ZMODEM"), target.title, tr("不适用"), tr("允许发送")});
+            row->setData(0, Qt::UserRole, target.id); row->setData(0, Qt::UserRole + 1, target.revision);
+            row->setData(0, Qt::UserRole + 2, true);
+            if (target.id == selectedRoot && target.revision == selectedRevision) _roots->setCurrentItem(row);
+        }
+    }
 }
 void FileResourceSharingDialog::share()
 {
     if (!currentIdentity()) { refresh(); return; }
+    if (_kind->currentIndex() == 2) {
+        const auto id = _session->currentData().toString();
+        const bool saved = _write->isChecked() && _serialBindings.contains(id)
+            && _service->serialFileTargets().share(_client, _identity, _serialBindings.value(id), _title->text().trimmed()).has_value();
+        _status->setText(saved ? tr("已保存当前串口的发送授权；MCP串口发送入口尚未开放。")
+            : tr("未提交：请选择当前串口、填写共享名称并明确允许ZMODEM发送。"));
+        refresh(); return;
+    }
     const auto path = _path->text(); const auto title = _title->text().trimmed();
     const FileRootAccess access{_read->isChecked(), _write->isChecked()};
     std::optional<FileRoot> result;

@@ -6,6 +6,7 @@
 
 | 记录 | 保留原因 |
 | --- | --- |
+| [UART独立授权目录](B3b_Uart_Authorization_2026-10-28.md) | 本机显式发送授权及当前连接只读发现，旧代际/配置/身份回收；实际UART发送入口仍待后续 |
 | [UART安全文件源前置](B3b_Uart_File_Source_2026-10-28.md) | 同句柄随机读、现有串口worker源工厂与ZMODEM替身通路；独立UART权限/公开工具仍待后续 |
 | [B3b SFTP行为审查修复](B3b_Sftp_Review_Fixes_2026-10-28.md) | 自然退出回收未执行上传及后端销毁后保留已知进度，逐轮RED/GREEN与本轮验证 |
 | [B3b SFTP单文件上传](B3b_Sftp_Upload_2026-10-27.md) | 2026-10-27～28工作区上传/查询/取消、复用终端SFTP、实际验证和ZMODEM下一起点 |

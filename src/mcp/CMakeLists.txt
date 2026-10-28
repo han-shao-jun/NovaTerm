@@ -11,12 +11,14 @@ qt_add_library(novaterm_mcp_contracts STATIC
     contracts/SavedTargetRequest.h
     contracts/FileResourceRequest.h
     contracts/FileTransferRequest.h
+    contracts/SerialFileTargetRequest.h
     contracts/ToolRequests.h contracts/TerminalInputValidation.h contracts/TerminalInputValidation.cpp)
 target_include_directories(novaterm_mcp_contracts PUBLIC ${PROJECT_SOURCE_DIR}/src)
 target_link_libraries(novaterm_mcp_contracts PUBLIC Qt6::Core)
 
 # 纯应用服务：授权事务与运行期授权存储；不依赖 Session、HTTP 或 Widgets。
 qt_add_library(novaterm_mcp_application STATIC
+    application/SerialFileTargets.cpp application/SerialFileTargets.h
     application/FileResources.cpp application/FileResources.h
     application/SavedTargets.cpp application/SavedTargets.h
     application/TargetConnections.cpp application/TargetConnections.h
@@ -86,6 +88,7 @@ target_link_libraries(novaterm_session_automation PUBLIC
     novaterm_core Qt6::Core Qt6::SerialPort)
 
 qt_add_library(novaterm_mcp_runtime STATIC
+    SerialFileTargetAdapter.cpp SerialFileTargetAdapter.h
     FileTransfers.cpp FileTransfers.h
     FileResourceAdapter.cpp FileResourceAdapter.h
     TargetSessionSharing.cpp TargetSessionSharing.h

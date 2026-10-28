@@ -23,6 +23,11 @@ set(NOVATERM_P5_RENDERER_SOURCES
 )
 
 if(BUILD_TESTING)
+    qt_add_executable(novaterm_mcp_serial_file_targets_tests mcp/SerialFileTargetsTests.cpp)
+    target_link_libraries(novaterm_mcp_serial_file_targets_tests PRIVATE novaterm_mcp_application Qt6::Test)
+    set_target_properties(novaterm_mcp_serial_file_targets_tests PROPERTIES WIN32_EXECUTABLE FALSE)
+    add_test(NAME novaterm_mcp_serial_file_targets_tests COMMAND novaterm_mcp_serial_file_targets_tests)
+    set_tests_properties(novaterm_mcp_serial_file_targets_tests PROPERTIES LABELS "mcp;p8;security" TIMEOUT 30)
 add_subdirectory(history)
 add_subdirectory(recording)
 add_subdirectory(historysearch)
@@ -81,7 +86,7 @@ add_subdirectory(resources)
         USES_TERMINAL
         COMMENT "Running NovaTerm tests with detailed CTest output"
     )
-    add_dependencies(check novaterm_mcp_serial_file_source_tests novaterm_mcp_local_file_io_tests novaterm_mcp_file_resources_tests novaterm_history_contracts_tests novaterm_history_authorization_tests
+    add_dependencies(check novaterm_mcp_serial_file_targets_tests novaterm_mcp_serial_file_source_tests novaterm_mcp_local_file_io_tests novaterm_mcp_file_resources_tests novaterm_history_contracts_tests novaterm_history_authorization_tests
         novaterm_history_search_tests novaterm_evidence_tests novaterm_mcp_saved_targets_tests)
 
     add_subdirectory(filetransfer)

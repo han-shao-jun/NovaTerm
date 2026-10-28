@@ -1,5 +1,15 @@
 # AGENTS.md
 
+### 0.2.94 授权目录提交收口（2026-10-28）
+
+用户要求创建Git提交并持续开发，版本0.2.93→0.2.94，纳入UART独立发送授权目录及二十六工具接线。实现源码沿用上一轮相关CTest28/28、业务259/259及两代互操作原始成绩；版本更新后Release默认全部目标构建通过，协议相关CTest4/4（10.81秒）和两代26工具互操作通过，不重写为完整新版本重测。qt-cpp-review六领域只读复核未见高可信新问题，不改机械风格。未连接设备、不推送，构建日志不纳入；见[授权目录提交收口](docs/architecture/stages/P8_AI_MCP_Interface/records/B3b_Uart_Authorization_2026-10-28.md#0294-提交收口)。用户后续要求每阶段审查/修复后本地提交，持续到MCP软件开发收口，真机测试由用户执行。
+
+### B3b UART独立发送授权目录（2026-10-28，工作区增量）
+
+先按用户要求提交f9bbff6（0.2.93），随后继续实现独立UART发送授权与只读novaterm_list_serial_file_targets，当前二十六工具。纯应用store每客户端8/全局32，绑定独立身份、Session/attachment/epoch/generation、真实串口I/O代际及构造配置摘要；无指纹UART不冒充SSH。仅本机明确共享，旧UI/代际/配置拒绝并回收，普通终端授权保持独立。目录不连接端口、不写字节、不释放lease、不发送rz；UART执行入口待后续。旧25工具fixture保持。
+
+真实RED为store2pass/10fail、契约2pass/1fail、适配/UI2pass/9fail；GREEN为12/12、完整契约28/28、Wire3/3及HTTP/UI联合19/19。独立只读复核未见高可信新问题。正常Windows Release默认全部目标构建通过；本轮相关CTest28/28（60.09秒）、完整MCP业务259/259（130.383秒）及两代26工具互操作分别通过，不拼全套。当前增量未再次提交/推送，版本0.2.93；未改机械风格、未连接设备、未重跑无改动完整串口/纯协议/Core/ConPTY或无关全套。源码/命令/限制见[UART授权记录](docs/architecture/stages/P8_AI_MCP_Interface/records/B3b_Uart_Authorization_2026-10-28.md)。
+
 ### 0.2.93 本地提交收口（2026-10-28）
 
 用户要求创建Git提交并继续MCP，版本0.2.92→0.2.93，纳入SFTP两项行为修复及UART安全文件源前置，保持二十五工具。实现源码沿用前轮完整验证：相关CTest28/28、纯协议6/6、完整串口181/181、MCP业务250/250；这些是0.2.92原轮次，不改写为0.2.93重测。版本更新后正常Windows Release默认全部目标构建通过，协议相关CTest4/4（11.50秒）及两代25工具互操作通过。不重复无关测试，不推送，不纳入build产物或日志，不改机械风格。命令/日志见[安全源提交收口](docs/architecture/stages/P8_AI_MCP_Interface/records/B3b_Uart_File_Source_2026-10-28.md#0293-提交收口)。

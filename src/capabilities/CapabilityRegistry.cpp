@@ -77,6 +77,8 @@ CapabilityRegistry CapabilityRegistry::implementedCapabilities()
         ResourceKind::Session, Policy::FullInput, "novaterm_stop_task"});
     registry.add({CapabilityId{"file.resources.list"}, 1, ImplementationStatus::Implemented,
         ResourceKind::Directory, Policy::DirectoryRead, "novaterm_list_file_resources"});
+    registry.add({CapabilityId{"serial.file.targets.list"}, 1, ImplementationStatus::Implemented,
+        ResourceKind::Directory, Policy::DirectoryRead, "novaterm_list_serial_file_targets"});
     registry.add({CapabilityId{"file.upload"}, 1, ImplementationStatus::Implemented,
         ResourceKind::Directory, Policy::DirectoryRead, "novaterm_upload_file"});
     registry.add({CapabilityId{"file.transfer.query"}, 1, ImplementationStatus::Implemented,

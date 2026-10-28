@@ -86,6 +86,45 @@ class ContractsTests : public QObject
 {
     Q_OBJECT
 private slots:
+    void serialFileTargetsDiscoverOnlyAuthorizationMetadata()
+    {
+        const QString name = "novaterm_list_serial_file_targets";
+        QVERIFY(ToolCodec::isKnownTool(name));
+        const auto definition = NovaTerm::Capabilities::CapabilityRegistry::implementedCapabilities().findByMcpTool(name);
+        QVERIFY(definition);
+        QCOMPARE(definition->id.value(), QString("serial.file.targets.list"));
+        QCOMPARE(definition->policy, NovaTerm::Capabilities::Policy::DirectoryRead);
+        QCOMPARE(definition->resource, NovaTerm::Capabilities::ResourceKind::Directory);
+        QVERIFY(ToolCodec::validate(name, {}).isEmpty());
+        const auto decoded = ToolCodec::decodeCall(name, {});
+        QVERIFY(!isError(decoded));
+        QVERIFY(std::holds_alternative<ListSerialFileTargetsRequest>(std::get<ToolCall>(decoded)));
+        QCOMPARE(ToolCodec::toolName(std::get<ToolCall>(decoded)), name);
+        for (const auto& field : QStringList{"sessionId", "epoch", "clientId", "targetId", "portName",
+                "localPath", "protocol", "sendAllowed"})
+            QVERIFY2(!ToolCodec::validate(name, {{field, "injected"}}).isEmpty(), qPrintable(field));
+        const auto tools = ToolCodec::catalog();
+        QCOMPARE(tools.size(), 26);
+        const auto tool = tools.at(25).toObject();
+        QCOMPARE(tool.value("name").toString(), name);
+        QVERIFY(tool.value("annotations").toObject().value("readOnlyHint").toBool());
+        QVERIFY(!tool.value("annotations").toObject().value("destructiveHint").toBool());
+        const auto data = tool.value("outputSchema").toObject().value("properties").toObject().value("data").toObject();
+        QVERIFY(!data.value("additionalProperties").toBool(true));
+        QCOMPARE(data.value("properties").toObject().size(), 3);
+        QCOMPARE(data.value("properties").toObject().value("availability").toObject().value("const"), QJsonValue("authorization_only"));
+        const auto targets = data.value("properties").toObject().value("targets").toObject();
+        QCOMPARE(targets.value("maxItems").toInt(), 8);
+        const auto row = targets.value("items").toObject();
+        QVERIFY(!row.value("additionalProperties").toBool(true));
+        const QStringList fields{"targetId", "title", "revision", "sessionId", "epoch", "protocol"};
+        QCOMPARE(row.value("properties").toObject().size(), fields.size());
+        for (const auto& field : fields) QVERIFY(row.value("required").toArray().contains(field));
+        QCOMPARE(row.value("properties").toObject().value("protocol").toObject().value("const"), QJsonValue("zmodem"));
+        QFile fixture(QStringLiteral(NOVATERM_SOURCE_DIR "/tests/mcp/fixtures/serial-file-targets-2026-10-28.json"));
+        QVERIFY(fixture.open(QIODevice::ReadOnly));
+        QCOMPARE(tool, QJsonDocument::fromJson(fixture.readAll()).object());
+    }
     void fileUploadToolsRejectUnsafePathsAndDecodeTypedRequests()
     {
         const QString upload = "novaterm_upload_file";
@@ -135,7 +174,7 @@ private slots:
     void fileTransferResultSchemaIsClosedAndComplete()
     {
         const auto tools = ToolCodec::catalog();
-        QCOMPARE(tools.size(), 25);
+        QCOMPARE(tools.size(), 26);
         QFile fixture(QStringLiteral(NOVATERM_SOURCE_DIR "/tests/mcp/fixtures/file-transfer-tools-2026-10-28.json"));
         QVERIFY(fixture.open(QIODevice::ReadOnly));
         const QJsonArray appended{tools.at(22), tools.at(23), tools.at(24)};
@@ -172,7 +211,7 @@ private slots:
             QVERIFY(!ToolCodec::validate(name, invalid).isEmpty());
         }
         const auto tools = ToolCodec::catalog();
-        QCOMPARE(tools.size(), 25);
+        QCOMPARE(tools.size(), 26);
         const auto tool = tools.at(21).toObject();
         QCOMPARE(tool.value("name").toString(), name);
         QVERIFY(tool.value("annotations").toObject().value("readOnlyHint").toBool());
@@ -773,6 +812,14 @@ void ContractsTests::confirmationClaimsKeepWireFormatAndRejectTampering()
 int main(int argc, char** argv)
 {
     QCoreApplication application(argc, argv);
+    if (application.arguments().size() == 3 && application.arguments()[1] == "--write-serial-file-targets-fixture") {
+        const auto tools = ToolCodec::catalog();
+        if (tools.size() != 26) return 1;
+        QFile file(application.arguments()[2]);
+        if (!file.open(QIODevice::WriteOnly)) return 1;
+        const auto bytes = QJsonDocument(tools.at(25).toObject()).toJson();
+        return file.write(bytes) == bytes.size() ? 0 : 1;
+    }
     if (application.arguments().size() == 3 && application.arguments()[1] == "--write-file-transfer-fixture") {
         const auto tools = ToolCodec::catalog();
         const QJsonArray appended{tools.at(22), tools.at(23), tools.at(24)};

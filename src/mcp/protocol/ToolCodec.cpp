@@ -474,6 +474,15 @@ const QJsonArray& ToolCodec::catalog()
         transferInput, false, transferData);
     workflow("novaterm_cancel_transfer", "Request cancellation only for this client's original transferId. Cancellation is asynchronous and never guarantees rollback after publication began. Query until a terminal state and inspect publication/temporary facts. Does not affect unrelated SFTP work or close the session.",
         transferInput, true, transferData);
+    const auto serialTarget = schema({{"targetId", stringSchema(64)}, {"title", stringSchema(256)},
+        {"revision", stringSchema(64)}, {"sessionId", stringSchema(64)}, {"epoch", stringSchema(128)},
+        {"protocol", QJsonObject{{"const", "zmodem"}}}},
+        {"targetId", "title", "revision", "sessionId", "epoch", "protocol"});
+    workflow("novaterm_list_serial_file_targets", "Discover only current UART ZMODEM send targets explicitly authorized for this client in the local app. This read-only directory is independent of terminal access and SSH file scopes. Returns opaque targetId/revision and shared title/sessionId/epoch; never port names, serial configuration or local paths. availability=authorization_only does not mean the receiver is ready or the input lease is free. UART file sending is not yet available through MCP. Does not open ports, send files, run rz or acquire input ownership.",
+        schema({}, {}), false, schema({{"instanceId", stringSchema(64)},
+            {"availability", QJsonObject{{"const", "authorization_only"}}},
+            {"targets", QJsonObject{{"type", "array"}, {"maxItems", 8}, {"items", serialTarget}}}},
+            {"instanceId", "availability", "targets"}));
     return result;
     }();
     return catalog;
@@ -937,6 +946,11 @@ QJsonArray ToolCodec::encodeActions(const std::vector<TerminalAction>& actions)
 
 Result<ToolCall> ToolCodec::decodeCall(const QString& name, const QJsonObject& arguments)
 {
+    if (name == "novaterm_list_serial_file_targets") {
+        const auto invalid = validate(name, arguments);
+        if (!invalid.isEmpty()) return Error{ErrorCode::InvalidArgument, invalid};
+        return ToolCall{ListSerialFileTargetsRequest{}};
+    }
     if (name == "novaterm_upload_file" || name == "novaterm_query_transfer" || name == "novaterm_cancel_transfer") {
         const auto invalid = validate(name, arguments);
         if (!invalid.isEmpty()) return Error{ErrorCode::InvalidArgument, invalid};
@@ -1026,6 +1040,7 @@ Result<ToolCall> ToolCodec::decodeCall(const QString& name, const QJsonObject& a
 }
 QString ToolCodec::toolName(const ToolCall& request)
 {
+    if (std::holds_alternative<ListSerialFileTargetsRequest>(request)) return "novaterm_list_serial_file_targets";
     if (const auto* transfer = std::get_if<FileTransferRequest>(&request)) return std::visit([](const auto& value) -> QString {
         using Type = std::decay_t<decltype(value)>;
         if constexpr (std::is_same_v<Type, StartFileUploadRequest>) return "novaterm_upload_file";

@@ -46,7 +46,7 @@ P9 的协议库与测试独立于 P6/P8，先按 XMODEM → YMODEM → ZMODEM �
 | P5 | 实施完成；Linux Vulkan/OpenGL、Windows D3D11/D3D12 与 30 分钟长稳验收完成（2026-08-02）；macOS Metal、多屏 DPR 与 120/144 Hz 验收待完成 | 多页 Atlas、fallback、instancing | CJK/Emoji/DPI 正确且上传增量化 |
 | P6 | 进行中：Transport 四种完成，会话编排采用「1 View 拥有 1 Session」已在生产；剩少量自包含项 | Session（View-owned）、SSH/Serial/Telnet | 每 View 一会话、完整生命周期 |
 | P7 | 已实现为内置功能（常驻监控 2026-09-06、系统信息窗口 2026-09-09）；性能量化验收待补 | SSH 远端资源监控面板、系统信息窗口 | 复用单连接、快慢通道隔离、不反压 Parser |
-| P8 | B0/B1、B2、B3/B3a及B3b保存目标打开/查询/关闭、新会话预授权、独立文件授权已实施；工作区追加受限SFTP上传/查询/取消，当前二十五工具；UART安全文件源前置已提供；下载、覆盖、UART独立授权/MCP入口与真机/性能待后续 | 外部Agent本地编码/编译，独立MCP工具完成获准连接、上传、执行和观察；NovaTerm不编排工程或判断成功 | 源码/替身、真实板卡双通道、客户端和性能分别验收，见[实施顺序](stages/P8_AI_MCP_Interface/01_Phases_and_Acceptance.md) |
+| P8 | B0/B1、B2、B3/B3a及B3b保存目标打开/查询/关闭、新会话预授权、独立文件授权已实施；工作区追加受限SFTP上传/查询/取消，当前二十六工具；UART安全文件源与独立发送授权目录已提供；下载、覆盖、UART发送入口与真机/性能待后续 | 外部Agent本地编码/编译，独立MCP工具完成获准连接、上传、执行和观察；NovaTerm不编排工程或判断成功 | 源码/替身、真实板卡双通道、客户端和性能分别验收，见[实施顺序](stages/P8_AI_MCP_Interface/01_Phases_and_Acceptance.md) |
 | P9 | 协议库及串口 Session/手动传输窗口已接入；Linux 纯协议、门面、UI 与真实 QSerialPort/raw PTY 通路测试通过；Windows 取消发布竞争用例有已知失败，macOS 与真实 UART 文件传输验收待补 | 独立协议库、Session 输入分流/输出独占、异步文件门面与手动串口窗口 | 三协议双向测试与互通、单通路接线及有界停止；跨平台/真实 UART 文件验收明确收口 |
 
 **P9：文件传输协议**的范围、步骤和验收见

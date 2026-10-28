@@ -61,6 +61,8 @@ CommandRuntime/Session Controller 继续拥有执行事实；新增异步任务�
 
 ## 4. SSH/SFTP 单文件传输
 
+2026-10-28 UART独立发送授权与只读 `novaterm_list_serial_file_targets` 已提供，当前二十六工具；本机显式共享当前8数据位串口，绑定实际I/O代际和配置，目录不表示接收准备或lease空闲。旧25工具保持，UART实际发送/查询/取消仍按前述安全源和现有Controller继续接线，见[授权记录](records/B3b_Uart_Authorization_2026-10-28.md)。
+
 2026-10-28 UART安全文件源前置已补，见[本轮记录](records/B3b_Uart_File_Source_2026-10-28.md)。安全Reader支持原句柄readAt，现有串口worker可独占打开单源并响应ZMODEM随机重读；旧手动路径保持，尚未开放UART MCP工具。后续应独立授权当前串口发送，接收准备与输入lease显式release由调用方负责。ZSKIP可结束协议但未完成文件，不能仅凭finished(true)报告送达，更不能推断远端路径发布或hash验证。
 
 2026-10-28 本轮已按[受限上传记录](records/B3b_Sftp_Upload_2026-10-27.md)接入SFTP单文件上传、查询及取消，不覆盖；当前二十五工具。直接复用终端面板SftpSession/队列/工作线程，没有新增连接或执行器。下载和显式覆盖不作前置。随后实施UART/ZMODEM单文件上传，复用SerialFileTransferController、既有输入泵和ZMODEM协议owner，单独冻结UART绑定与接收边界。
