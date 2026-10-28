@@ -25,6 +25,7 @@ namespace {
 // OSC 52 解码缓冲上限：512 KiB 文本（约 50 万字符），超出部分被 libvterm
 // 截断。缓冲与 Impl 同寿命、复用不重复分配。
 constexpr size_t kSelectionBufferBytes = 512 * 1024;
+constexpr size_t kMaxTitleBytes = 64 * 1024;
 
 // tmux DCS passthrough 的魔法前缀与扫描上界。
 constexpr char kTmuxMagic[] = "\x1bPtmux;";
@@ -374,9 +375,18 @@ public:
             break;
         }
         case VTERM_PROP_TITLE:
-            if (value->string.str) {
-                // libvterm 的标题已是 UTF-8，直接按字节构造 std::string。
-                self.title.assign(value->string.str, value->string.len);
+            if (value->string.initial) {
+                self.pendingTitle.clear();
+                self.titleOverflow = false;
+            }
+            // libvterm 可在任意字节处分片（包括 UTF-8 字符中间）。只有
+            // 收齐 BEL/ST 后才发布标题，超长序列整条丢弃而非发布截断路径。
+            if (value->string.len > kMaxTitleBytes - self.pendingTitle.size())
+                self.titleOverflow = true;
+            if (!self.titleOverflow && value->string.str)
+                self.pendingTitle.append(value->string.str, value->string.len);
+            if (value->string.final && !self.titleOverflow) {
+                self.title = self.pendingTitle;
                 if (self.observer.titleChanged)
                     self.observer.titleChanged(self.title);
             }
@@ -662,6 +672,8 @@ public:
     Observer observer;
     CursorState cursorState;
     std::string title;
+    std::string pendingTitle;
+    bool titleOverflow{false};
     bool alternateScreen{false};
     bool lfImpliesCr{false};
     MouseTrackingMode mouseMode{MouseTrackingMode::None};

@@ -1,5 +1,9 @@
 # AGENTS.md
 
+### 0.2.98 SFTP终端目录同步修复（2026-10-28）
+
+按用户要求修复后本地提交，版本0.2.97→0.2.98。OSC标题跨分片收齐后才发布，64 KiB上限整条拒绝超长标题；Core按顺序交付同批完整标题，避免目录探针被shell提示符标题覆盖，恢复原标题前检查当前标题。真实RED两项失败后修复通过，补齐无提示符标题更新分支；独立只读行为复核未见高可信新问题。实现阶段Core与SFTP面板CTest通过；首次offscreen相关CTest为2/3，终端完整QTest复核21pass/2fail均为不支持QRhi的画面断言，Windows原生后端完整23/23（71.806秒），各轮分别保留。版本递增后只重建Release主程序，不冒充完整新版本重测；未连接服务器、不推送、不纳入构建日志。详见[目录同步修复记录](docs/architecture/Sftp_Terminal_Directory_Fix_2026-10-28.md)。
+
 ### 0.2.97 显式覆盖与Windows MCP软件收口（2026-10-28）
 
 按用户要求逐阶段行为审查/修复验证/本地提交，本轮0.2.96→0.2.97，30工具不变。upload/download可选overwrite默认false；独立write权限保持、参数纳入精确重试。初始明确缺失仍no-replace，已有安全目标快照/最终复核后原子replace；Windows原parent/native rename、SFTP明确posix-rename1，无删后rename。公开非CAS最终窗口与可信目录写入者前提，本地pinPath不检查ACL/owner；新目标使用新temp属性，不复制旧ACL/执行位。取消只清本次临时文件，已发布结果保留，丢确认unknown不推成功。无新增生产源文件/执行器。

@@ -557,7 +557,9 @@ public:
             // 阶段 7 建门面后这一步收进门面。
             currentTitle = QString::fromUtf8(value.data(),
                                              qsizetype(value.size()));
-            titleChanged = true;
+            // 标题也承载一次性探针响应，不能只保留本批最后一次变化。
+            // 每批至多解析 64 KiB；完整标题在 adapter 侧另有长度上限。
+            pendingTitles.push_back(currentTitle);
         };
         observer.bell = [this]() {
             bellPending = true;
@@ -840,7 +842,8 @@ public:
         QVector<NovaTerm::DirtyRegion> damageValue;
         damageValue.swap(pendingDamage);
         const bool cursorValue = std::exchange(cursorChanged, false);
-        const bool titleValue = std::exchange(titleChanged, false);
+        QVector<QString> titles;
+        titles.swap(pendingTitles);
         const bool bellValue = std::exchange(bellPending, false);
         const bool scrollbackValue = std::exchange(scrollbackChanged, false);
         const int screenScrollRows = std::exchange(pendingScreenScrollRows, 0);
@@ -852,22 +855,16 @@ public:
         invalidations.swap(pendingInvalidations);
         const u64 revisionValue = std::exchange(pendingRevision, 0);
 
-        if (damageValue.isEmpty() && !cursorValue && !titleValue && !bellValue
+        if (damageValue.isEmpty() && !cursorValue && titles.isEmpty() && !bellValue
             && !scrollbackValue && screenScrollRows == 0 && output.isEmpty()
             && clears.isEmpty() && invalidations.isEmpty()) {
             return;
         }
 
-        QString titleCopy;
-        if (titleValue) {
-            std::lock_guard<std::mutex> locker(modelMutex);
-            titleCopy = currentTitle;
-        }
-
         QMetaObject::invokeMethod(
             owner,
             [target = owner, damageValue = std::move(damageValue),
-             revisionValue, cursorValue, titleValue, titleCopy, bellValue,
+             revisionValue, cursorValue, titles = std::move(titles), bellValue,
              scrollbackValue, screenScrollRows, output = std::move(output),
              clears = std::move(clears), invalidations = std::move(invalidations)]() {
                 for (const auto generation : invalidations)
@@ -888,8 +885,8 @@ public:
                     emit target->damage(region, revisionValue);
                 if (cursorValue)
                     emit target->cursorMoved();
-                if (titleValue)
-                    emit target->titleChanged(titleCopy);
+                for (const auto& title : titles)
+                    emit target->titleChanged(title);
                 if (bellValue)
                     emit target->bell();
                 if (scrollbackValue)
@@ -904,7 +901,7 @@ public:
         // 因此一次 revision 描述一次稳定的模型发布，并对应于该发布期间
         // 发出的所有 damage 区域。
         if (pendingDamage.isEmpty() && !cursorChanged && !scrollbackChanged
-            && !titleChanged)
+            && pendingTitles.isEmpty())
             return;
         pendingRevision = ++modelRevision;
         if (isize(rowRevisions.size()) != screen.rows()) {
@@ -976,7 +973,7 @@ public:
     bool agentEncodingValid{true};
     QByteArray encodedAgent;
     bool cursorChanged{false};
-    bool titleChanged{false};
+    QVector<QString> pendingTitles;
     bool bellPending{false};
     bool scrollbackChanged{false};
     int pendingScreenScrollRows{0};

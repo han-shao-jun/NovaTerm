@@ -251,7 +251,9 @@ TerminalView::TerminalView(TerminalSession* session, QWidget* parent, std::share
             [this](const QString& title) {
         if (title.startsWith(QStringLiteral("NOVATERM_CWD_"))) {
             // 内部路径探针借用 OSC 2 传递结果；解析后立即恢复用户原有标题。
-            _core->writeInput(terminalTitleSequence(_lastTerminalTitle));
+            // 同批中的 shell 提示符可能已发布新标题，不能用旧标题盖回去。
+            if (_core->title() == title)
+                _core->writeInput(terminalTitleSequence(_lastTerminalTitle));
             if (!_workingDirectoryRequestPending
                 || (!_workingDirectoryMarker.isEmpty()
                     && !title.startsWith(_workingDirectoryMarker))) {

@@ -68,6 +68,8 @@ class TerminalSessionSmokeTests : public QObject
     Q_OBJECT
 
 private slots:
+    void workingDirectoryProbeSurvivesPromptTitle_data();
+    void workingDirectoryProbeSurvivesPromptTitle();
     void historyPolicyAppliesToEveryTransportAndExternalCore();
     void transportWarningsRemainVisibleInConnectedSerialSessions();
     void automaticReconnectRebuildsWaitingPromptAfterParserReset();
@@ -86,6 +88,54 @@ private slots:
     void externalSessionOutlivesView();
     void ownedDependenciesAreDestroyedBeforeCore();
 };
+
+void TerminalSessionSmokeTests::workingDirectoryProbeSurvivesPromptTitle_data()
+{
+    QTest::addColumn<bool>("fragmented");
+    QTest::addColumn<bool>("promptTitle");
+    QTest::newRow("probe-and-prompt-in-one-read") << false << true;
+    QTest::newRow("fragmented-probe") << true << true;
+    QTest::newRow("restore-original-title") << false << false;
+    QTest::newRow("fragmented-probe-without-prompt-title") << true << false;
+}
+
+void TerminalSessionSmokeTests::workingDirectoryProbeSurvivesPromptTitle()
+{
+    QFETCH(bool, fragmented);
+    QFETCH(bool, promptTitle);
+    RuntimeConfig runtime;
+    runtime.transportKind = TransportKind::Ssh;
+    TerminalSession session(runtime);
+    TerminalView view(&session);
+    auto* core = session.core();
+    QSignalSpy reported(&view, &TerminalView::workingDirectoryReported);
+    QSignalSpy failed(&view, &TerminalView::workingDirectoryRequestFailed);
+    QVERIFY(core->writeInput("\x1b]2;original title\x07").fullyAccepted());
+    QVERIFY(core->waitForIdle());
+    QCoreApplication::processEvents();
+    view.requestWorkingDirectory();
+    QByteArray response("\x1b]2;NOVATERM_CWD_1:/home/liurui/ax8860_new/boot/atf\x07");
+    if (fragmented) {
+        QVERIFY(core->writeInput(response.left(30)).fullyAccepted());
+        QVERIFY(core->waitForIdle());
+        QCoreApplication::processEvents();
+        QCOMPARE(reported.size(), 0);
+        QCOMPARE(failed.size(), 0);
+        response.remove(0, 30);
+    }
+    // Bash commonly updates its title immediately before displaying PS1.
+    if (promptTitle)
+        response += "\x1b]0;liurui@dev: ~/ax8860_new/boot/atf\x07";
+    response += "user@dev:~$ ";
+    QVERIFY(core->writeInput(response).fullyAccepted());
+    QVERIFY(core->waitForIdle());
+    QTRY_COMPARE_WITH_TIMEOUT(reported.size(), 1, 1500);
+    QCOMPARE(reported.front().front().toString(), QString("/home/liurui/ax8860_new/boot/atf"));
+    QCOMPARE(failed.size(), 0);
+    QVERIFY(core->waitForIdle());
+    QTRY_COMPARE(core->title(), promptTitle
+        ? QString("liurui@dev: ~/ax8860_new/boot/atf") : QString("original title"));
+}
 
 void TerminalSessionSmokeTests::automaticReconnectRebuildsWaitingPromptAfterParserReset()
 {
