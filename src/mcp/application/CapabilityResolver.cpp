@@ -62,23 +62,9 @@ CapabilitySnapshot CapabilityResolver::resolve(const GrantSnapshot& grant,
         && facts.diagnosticsExecutorAvailable && facts.targetFingerprintPresent;
 
     snapshot.capabilities = {QStringLiteral("read_context"),
-        QStringLiteral("search_context"), QStringLiteral("list_commands")};
+        QStringLiteral("search_context")};
     if (snapshot.terminalInputAvailable)
         snapshot.capabilities.append(QStringLiteral("terminal_interaction"));
-    if (context.humanConfirmation)
-        snapshot.capabilities.append(QStringLiteral("human_confirmation"));
-    const bool diagnosticGranted = std::any_of(
-        grant.selection.diagnostics.cbegin(), grant.selection.diagnostics.cend(),
-        [&facts](const DiagnosticId& id) { return facts.supportedDiagnostics.contains(id); });
-    if (facts.diagnosticsExecutorAvailable && diagnosticGranted)
-        snapshot.capabilities.append(QStringLiteral("execute_command"));
-    if (facts.interactiveReachable && grant.selection.riskControlledCommand)
-        snapshot.capabilities.append(QStringLiteral("run_command"));
-    if (facts.interactiveReachable && !facts.unverifiedPrompt
-        && !facts.idleCompletion
-        && grant.selection.script && facts.scriptProviderAvailable)
-        snapshot.capabilities.append(QStringLiteral("run_script"));
-
     snapshot.elevationAvailable = false;
     snapshot.elevationDisabledReason =
         elevationExecutionUnavailableReason(facts.elevationTargetVerified);

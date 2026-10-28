@@ -24,11 +24,5 @@ ReadCapabilities::ReadCapabilities(CapabilityDispatcher& dispatcher, const Mcp::
             done(Mcp::ReadUseCases{port}.readContext(Mcp::ClientId{lease.context().principal.value()},
                 std::move(request.query), request.cursor));
         })
-    , diagnostics(dispatcher, CapabilityId{"terminal.diagnostic.list"},
-        [&port](DiagnosticListQuery request, InvocationLease lease, auto done) {
-            if (!matches(lease, request.session.reference)) { done(Rejection::ResourceMismatch); return; }
-            done(Mcp::ReadUseCases{port}.listCommands(Mcp::ClientId{lease.context().principal.value()},
-                request.session, request.now));
-        })
 {}
 }

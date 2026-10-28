@@ -6,16 +6,12 @@
 #include "mcp/contracts/Permissions.h"
 #include "ui/models/SessionPermissionModel.h"
 #include <QPointer>
-#include <QJsonObject>
-#include <QHash>
 #include <memory>
 #include <optional>
 namespace NovaTerm::Mcp { class Service; }
 namespace NovaTerm::Ui { class SettingsController; }
 class ElaCheckBox;
 class ElaComboBox;
-class ElaLineEdit;
-class ElaPlainTextEdit;
 class ElaText;
 class ElaTreeWidget;
 class QTreeWidgetItem;
@@ -29,7 +25,7 @@ public:
     ~McpSettingsDialog() override;
 private:
     void refresh();
-    void showRecord();
+    void manageClients();
     void reportFailure();
     void editElevationCredentials(const QString& sessionId);
     /** @brief 提交一项授权并回写服务端级联结果；失败时由调用方排队刷新。 */
@@ -43,18 +39,11 @@ private:
     std::unique_ptr<NovaTerm::Ui::SettingsController> _controller;
     ElaCheckBox* _enabled{nullptr};
     ElaComboBox* _clients{nullptr};
-    ElaLineEdit* _label{nullptr};
     ElaText* _status{nullptr};
     ElaTreeWidget* _sessions{nullptr};
     ElaTreeWidget* _savedTargets{nullptr};
     QPointer<FileResourceSharingDialog> _fileResourceDialog;
     QString _fileResourceClient;
-    ElaComboBox* _records{nullptr};
-    ElaPlainTextEdit* _details{nullptr};
-    ElaComboBox* _targets{nullptr};
-    ElaCheckBox* _confirmedStopped{nullptr};
-    QString _confirmedFingerprint;
-    QString _confirmedExecutionId;
-    QHash<QString, QJsonObject> _recordData;
+    QPointer<ElaDialog> _clientManager;
     bool _refreshing{false};
 };

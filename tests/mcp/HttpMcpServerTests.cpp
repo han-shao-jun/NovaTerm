@@ -66,8 +66,6 @@ private slots:
     void responseCreditAndHeaderInjectionAreRejected();
     void socketLimitAndStopWithoutGuiRoundtrip();
     void fullSizeBodyAndRepeatedSmallChunks();
-    void maximumScriptContentFitsRequest_data();
-    void maximumScriptContentFitsRequest();
     void requestFloodWhileGuiBlockedIsBounded();
     void blockedClientOutputEventuallyRejects();
     void rapidStartStopDoesNotNeedGuiEvents();
@@ -395,47 +393,6 @@ void HttpMcpServerTests::fullSizeBodyAndRepeatedSmallChunks()
     }
 }
 
-void HttpMcpServerTests::maximumScriptContentFitsRequest_data()
-{
-    QTest::addColumn<QString>("content");
-    QTest::newRow("ascii") << QString(2 * 1024 * 1024, QLatin1Char('x'));
-    QTest::newRow("six-byte-json-escape") << QString(2 * 1024 * 1024, QChar(1));
-    QTest::newRow("utf8") << QString(1024 * 1024, QChar(0x00e9));
-}
-
-void HttpMcpServerTests::maximumScriptContentFitsRequest()
-{
-    QFETCH(QString, content);
-    using namespace NovaTerm::Mcp;
-    QCOMPARE(content.toUtf8().size(), MaxScriptBytes);
-    const QJsonObject arguments{{"sessionId", "11111111-1111-1111-1111-111111111111"},
-        {"epoch", "epoch"}, {"scriptContent", content}, {"targetPath", "/tmp/script.sh"},
-        {"workingDirectory", "/tmp"}, {"invocation", "sh /tmp/script.sh"}};
-    QVERIFY(ToolCodec::validate("novaterm_run_script", arguments).isEmpty());
-    const QByteArray body = QJsonDocument(QJsonObject{{"jsonrpc", "2.0"}, {"id", 1},
-        {"method", "tools/call"}, {"params", QJsonObject{{"name", "novaterm_run_script"},
-        {"arguments", arguments}}}}).toJson(QJsonDocument::Compact);
-    QVERIFY(body.size() > MaxFrameBytes);
-    HttpMcpServer server;
-    const int port = listen(server);
-    QVERIFY(port > 0);
-    QSignalSpy requests(&server, &HttpMcpServer::request);
-    QTcpSocket socket;
-    socket.connectToHost("127.0.0.1", quint16(port));
-    QVERIFY(socket.waitForConnected());
-    socket.write(getRequest(port, "POST", "Content-Length: "
-        + QByteArray::number(body.size()) + "\r\n") + body);
-    socket.flush();
-    QTRY_VERIFY_WITH_TIMEOUT(requests.size() == 1
-        || socket.state() == QAbstractSocket::UnconnectedState, 5000);
-    QCOMPARE(requests.size(), 1);
-    QCOMPARE(requests.first().at(1).toJsonObject().value("message").toObject()
-        .value("params").toObject().value("arguments").toObject()
-        .value("scriptContent").toString(), content);
-    QVERIFY(server.respond(requests.first().at(0).toString(), 202));
-    QVERIFY(collect(socket).startsWith("HTTP/1.1 202 "));
-    QTRY_COMPARE(server.statistics().value("inputBytes").toInt(), 0);
-}
 
 void HttpMcpServerTests::requestFloodWhileGuiBlockedIsBounded()
 {

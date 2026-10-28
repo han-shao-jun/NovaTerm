@@ -48,10 +48,6 @@ CapabilityRegistry CapabilityRegistry::terminalCapabilities()
     add("session.list", "novaterm_list_sessions", Policy::DirectoryRead, ResourceKind::Directory);
     add("terminal.context.read", "novaterm_read_context", Policy::ReadOutput);
     add("terminal.context.search", "novaterm_search_context", Policy::ReadOutput);
-    add("terminal.diagnostic.list", "novaterm_list_commands", Policy::ReadOutput);
-    add("terminal.diagnostic.execute", "novaterm_execute_command", Policy::Diagnostic);
-    add("terminal.command.run", "novaterm_run_command", Policy::RiskCommand);
-    add("terminal.script.run", "novaterm_run_script", Policy::Script);
     add("terminal.interact", "novaterm_interact_terminal", Policy::FullInput);
     add("terminal.elevation.request", "novaterm_request_elevation", Policy::Elevation);
     return registry;

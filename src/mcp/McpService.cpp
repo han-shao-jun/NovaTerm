@@ -27,9 +27,7 @@
 #include "ObservationService.h"
 #include "application/RequestScheduler.h"
 #include "tasks/ReadUseCases.h"
-#include "CommandSessionAdapter.h"
 #include "protocol/BackendEvents.h"
-#include "CommandPolicy.h"
 #include "HttpMcpEndpoint.h"
 #include "session/SessionTerminalController.h"
 #include "session/SessionCommandFacade.h"
@@ -101,7 +99,6 @@ public:
         std::optional<FileTransferRequest> fileTransferRequest;
         std::optional<SerialFileTransferRequest> serialFileTransferRequest;
         std::optional<TargetConnectionRequest> targetConnectionRequest;
-        QByteArray confirmationDigest;
         QString requestState;
         std::optional<ConfirmationAnswer> answer;
         bool mrtr{false}, formElicitation{false};
@@ -177,19 +174,6 @@ public:
         QObject::connect(serialFileTargets.get(), &SerialFileTargetAdapter::changed, q, &Service::changed);
         fileTransfers = std::make_unique<FileTransfers>(access, sessions, *fileResources, instance, owner);
         serialFileTransfers = std::make_unique<SerialFileTransfers>(access, sessions, *fileResources, *serialFileTargets, instance, owner);
-        commands = std::make_unique<CommandSessionAdapter>(access, sessions,
-            QDir(stateDirectory).filePath("targets"), instance, CommandSessionAdapter::Delivery{
-                [this](const TaskId& task, QJsonObject payload) {
-                    complete(task.str(), std::move(payload));
-                },
-                [this](const TaskId& task, std::chrono::milliseconds remaining) {
-                    if (auto* pending = findRequest(task.str())) {
-                        pending->deadline = clock.elapsed() + remaining.count();
-                        if (pending->lease) pending->lease->setDeadline(Capabilities::Clock::now() + remaining);
-                    }
-                },
-                [this](const QString& peer, const QJsonObject& message) { return io.send(peer, message); },
-                [this] { emit q->changed(); }}, capabilityDispatcher);
         listenPort = port;
         timer.setInterval(100);
         QObject::connect(&timer, &QTimer::timeout, q, [this] { expireJobs(); });
@@ -217,10 +201,7 @@ public:
                 for (const auto& key : pendingKeys) {
                     auto* pending = findRequest(key);
                     if (!pending) continue;
-                    if (pending->tool != QStringLiteral("novaterm_run_script")
-                        && pending->tool != QStringLiteral("novaterm_clear_terminal")
-                        && pending->tool != QStringLiteral("novaterm_run_command")
-                        && pending->tool != QStringLiteral("novaterm_execute_command"))
+                    if (pending->tool != QStringLiteral("novaterm_clear_terminal"))
                         continue;
                     const auto reference = referenceOf(*pending);
                     if (!reference)
@@ -273,7 +254,6 @@ public:
         const auto connectionIds = connections.keys();
         for (const auto& id : connectionIds)
             disconnect(id);
-        commands->stop();
         fileTransfers->stop();
         io.stop();
         QFile::remove(manifestPath());
@@ -303,7 +283,7 @@ public:
         const auto id = std::visit([](const auto& value) { return value.id; }, event);
         if (id.isEmpty() || id.size() > 64) { io.closeConnection(connectionId); return; }
         if (const auto* result = std::get_if<BackendElicitationResult>(&event)) {
-            commands->confirm(connectionId, id, result->answer);
+            Q_UNUSED(result);
             return;
         }
         if (std::get_if<BackendCancel>(&event)) {
@@ -389,7 +369,6 @@ public:
         if (transferCall) pending->fileTransferRequest = transferCall->request;
         if (serialTransferCall) pending->serialFileTransferRequest = serialTransferCall->request;
         if (targetConnectionCall) pending->targetConnectionRequest = targetConnectionCall->request;
-        pending->confirmationDigest = call.confirmationDigest;
         pending->mrtr = call.mrtr;
         pending->formElicitation = call.formElicitation;
         pending->requestState = call.requestState;
@@ -399,8 +378,7 @@ public:
             send(connectionId, id, error("COMMAND_CONFIRMATION_STALE"));
             return;
         }
-        pending->deadline = clock.elapsed() + (name == "novaterm_run_script" ? ScriptWriteTimeout.count()
-            : name == "novaterm_run_command" ? ConfirmationTimeout.count() : 2000);
+        pending->deadline = clock.elapsed() + 2000;
         if (clearCall) pending->deadline = clock.elapsed() + 5000;
         if (taskCall) pending->deadline = clock.elapsed() + 5000;
         if (waitCall) pending->deadline = clock.elapsed() + waitCall->request.wait.count() + Budget::WireDeadlineMargin.count();
@@ -498,7 +476,7 @@ public:
         if (reply && !payload.isEmpty() && connections.contains(pending->connection))
             send(pending->connection, pending->id, std::move(payload));
         if (requests.empty()) {
-            if (observation.captures().size() == 0 && commands->idle()) timer.stop();
+            if (observation.captures().size() == 0) timer.stop();
             else { timer.setInterval(1000); timer.start(); }
         }
         schedule();
@@ -517,14 +495,12 @@ public:
             capabilityDispatcher.cancel(owned->invocation->principal, owned->invocation->operation);
         scheduler.cancel(owned->connection, owned->id);
         ++cancelledCount;
-        commands->cancel(TaskId{key});
         finishRequest(std::move(owned), std::move(payload), reply);
     }
     void disconnect(const QString& connection)
     {
         serialFileTransfers->disconnect(connection);
         fileTransfers->disconnect(connection);
-        commands->disconnect(connection);
         const auto copy = requestKeys();
         for (const auto& key : copy) {
             auto* pending = findRequest(key);
@@ -562,26 +538,23 @@ public:
                 observation.captures().removeConnectionSession(id, session);
             }
         }
-        commands->revoke(client, session);
     }
     void expireJobs()
     {
         for (const auto& key : requestKeys()) {
             auto* pending = findRequest(key);
             if (!pending || pending->deadline > clock.elapsed()) continue;
-            commands->expire(TaskId{key});
             if ((pending = findRequest(key))) cancel(key, error("DEADLINE_EXCEEDED"), true);
         }
         cleanup();
         if (requests.empty()) {
-            if (observation.captures().size() == 0 && commands->idle()) timer.stop();
+            if (observation.captures().size() == 0) timer.stop();
             else timer.setInterval(1000);
         }
     }
     void cleanup()
     {
         observation.captures().sweep(clock.elapsed());
-        commands->sweep();
     }
 
     bool admit(PendingRequest* pending)
@@ -625,9 +598,7 @@ public:
         pending = findRequest(key);
         if (!pending) return;
         if (pending->deadline <= clock.elapsed()) { complete(key, error("DEADLINE_EXCEEDED")); return; }
-        if ((!pending->requestState.isEmpty() || pending->answer.has_value())
-            && pending->tool != "novaterm_run_command"
-            && pending->tool != "novaterm_run_script") {
+        if (!pending->requestState.isEmpty() || pending->answer.has_value()) {
             complete(key, error("COMMAND_CONFIRMATION_STALE"));
             return;
         }
@@ -745,10 +716,6 @@ public:
             auto done = [this, guard, key](QJsonObject payload) { if (guard) complete(key, std::move(payload)); };
             if (pending->waitRequest) textWaits->call(connection.client, key, *pending->waitRequest, std::move(done));
             else {
-                if (!std::holds_alternative<QueryTerminalTaskRequest>(*pending->taskRequest)
-                    && commands->quarantined(entry->targetFingerprint)) {
-                    complete(key, error("COMMAND_EXECUTION_QUARANTINED")); return;
-                }
                 terminalTasks->call(connection.client, key, *pending->taskRequest, std::move(done), *pending->invocation);
             }
             return;
@@ -774,9 +741,6 @@ public:
         }
         if (usesObservation) {
             if (!admit(pending)) return;
-            if (mutatingInteraction && commands->quarantined(entry->targetFingerprint)) {
-                complete(key, error("COMMAND_EXECUTION_QUARANTINED")); return;
-            }
             const QPointer<Service> guard(q);
             const auto request = pending->request;
             terminal->call(connection.client, key, request,
@@ -784,16 +748,6 @@ public:
                     if (guard)
                         complete(key, std::move(value));
                 }, connection.key, *pending->invocation);
-            return;
-        }
-        if (std::holds_alternative<ListCommandsRequest>(pending->request)) { listCommands(pending, *entry); return; }
-        if (std::holds_alternative<ExecuteCommandRequest>(pending->request)
-            || std::holds_alternative<RunCommandRequest>(pending->request)
-            || std::holds_alternative<RunScriptRequest>(pending->request)) {
-            commands->start(CommandCall{TaskId{requestKey(pending->connection, pending->id)},
-                pending->connection, pending->id, ClientId{connection.client}, connection.key,
-                pending->request, pending->confirmationDigest,
-                pending->requestState, pending->answer, pending->mrtr, pending->formElicitation}, *entry, *pending->invocation);
             return;
         }
         if (entry->state == SessionState::Closing || entry->state == SessionState::Closed) {
@@ -840,8 +794,7 @@ public:
                 || !session->commandCoordinator()->hasTrustedProfile()
                 || controller->pending() || controller->commandActive() || !controller->readyForCommand()
                 || session->inputArbiter()->hasMcpLease() || session->inputArbiter()->hasTransferLease()
-                || session->commandFacade()->hasActiveRequests() || commands->busy(entry->id) || fileTransfers->busy(entry->id) || serialFileTransfers->busy(entry->id)
-                || commands->quarantined(entry->targetFingerprint)) return ErrorCode::TargetCloseBusy;
+                || session->commandFacade()->hasActiveRequests() || fileTransfers->busy(entry->id) || serialFileTransfers->busy(entry->id)) return ErrorCode::TargetCloseBusy;
             return {};
         };
         if (!allowed()) return {{}, ErrorCode::TargetOpenPermissionRequired};
@@ -989,18 +942,6 @@ public:
         });
     }
 
-    void listCommands(PendingRequest* pending, const SessionDirectory::Entry& entry)
-    {
-        const auto key = requestKey(pending->connection, pending->id);
-        const auto connection = connections.value(pending->connection);
-        const ReadUseCaseAdapter reads{{&access, &sessions, &observation, instance},
-            capabilityDispatcher, *pending->invocation};
-        const auto result = reads.listCommands(entry, connection.client, connection.key,
-            clock.elapsed());
-        if (isError(result)) { complete(key, ToolCodec::encodeFailure(*errorIfAny(result))); return; }
-        complete(key, success(std::get<QJsonObject>(result)));
-    }
-
     Service* q;
     QString stateDirectory;
     QString instanceDirectory;
@@ -1057,7 +998,6 @@ public:
     QHash<QString, Connection> connections;
     RequestScheduler scheduler;
     std::map<QString, std::unique_ptr<PendingRequest>> requests;
-    std::unique_ptr<CommandSessionAdapter> commands;
     quint64 requestCount{0}, rejectedCount{0}, completedCount{0}, cancelledCount{0};
     qsizetype peakRequests{0};
     qint64 maximumRequestMs{0};
@@ -1130,7 +1070,6 @@ QJsonObject Service::ccSwitchConfiguration(const QString& clientId) const
     return configuration.value(QStringLiteral("mcpServers")).toObject()
         .value(QStringLiteral("novaterm")).toObject();
 }
-QJsonArray Service::executionRecords() const { return _impl->commands->executionRecords(); }
 QJsonObject Service::statistics() const
 {
     const auto& captureDurations = _impl->observation.captureDurations();
@@ -1155,9 +1094,5 @@ QJsonObject Service::statistics() const
         {"http", _impl->io.statistics()},
         {"captureP95Ms", p95}, {"maximumRequestMs", _impl->maximumRequestMs}};
 }
-QJsonObject Service::protectedTargets() const { return _impl->commands->protectedTargets(); }
-bool Service::acknowledgeTarget(const QString& fingerprint)
-{ return _impl->commands->acknowledgeTarget(fingerprint); }
-bool Service::acknowledgeTarget(const QString& fingerprint, const QString& executionId)
-{ return !executionId.isEmpty() && _impl->commands->acknowledgeTarget(fingerprint, executionId); }
+
 }

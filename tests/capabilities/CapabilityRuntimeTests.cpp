@@ -147,7 +147,7 @@ private slots:
     void catalogHasStableIds()
     {
         const auto registry = CapabilityRegistry::terminalCapabilities();
-        QCOMPARE(registry.definitions().size(), size_t(9));
+        QCOMPARE(registry.definitions().size(), size_t(5));
         const auto read = registry.find(CapabilityId{"terminal.context.read"});
         QVERIFY(read);
         QCOMPARE(read->mcpTool, QString("novaterm_read_context"));
@@ -164,7 +164,7 @@ private slots:
         definition.id = CapabilityId{"log.analyze"};
         definition.status = ImplementationStatus::Planned;
         QVERIFY(!registry.add(definition));
-        QCOMPARE(registry.definitions().size(), size_t(9));
+        QCOMPARE(registry.definitions().size(), size_t(5));
     }
 };
 QTEST_GUILESS_MAIN(CapabilityRuntimeTests)

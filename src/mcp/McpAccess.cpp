@@ -2,10 +2,10 @@
  *  @brief 仅保存随机接入令牌的摘要，原令牌由平台凭据库保管。
  */
 #include "McpAccess.h"
+#include <QJsonArray>
 #include "McpProtocol.h"
 #include "core/ThreadNaming.h"
 #include "mcp/application/CapabilityResolver.h"
-#include "CommandPolicy.h"
 #include "session/SessionCommandFacade.h"
 #include "session/TerminalContextProvider.h"
 #include "session/LocalSessionCommandExecutor.h"
@@ -48,7 +48,11 @@ AccessStore::AccessStore(QString directory, std::unique_ptr<CredentialStore> cre
           [this](const ClientId& id) { return _clients.contains(id); },
           [this](const ClientId& id) { return _clients.version(id); },
           [this](const ClientId& id) { return _clients.advance(id); },
-          [](const DiagnosticId& id) { return CommandPolicy::find(id.str()).has_value(); },
+          // 只兼容旧授权快照的已知ID；已退役工具不再消费这些选择，也不升级为输入授权。
+          [](const DiagnosticId& id) {
+              return id.str() == "system.identity" || id.str() == "system.uptime"
+                  || id.str() == "memory.summary" || id.str() == "filesystem.usage";
+          },
           [this] { return _credentialOperationPending; }}),
       _elevationFactory(std::move(elevationFactory))
 {

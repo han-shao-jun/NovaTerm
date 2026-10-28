@@ -6,7 +6,6 @@
 #include <QElapsedTimer>
 #include <QHash>
 #include <QJsonDocument>
-#include <QCryptographicHash>
 #include <QTimer>
 #include <cmath>
 #include <utility>
@@ -66,7 +65,6 @@ public:
         QJsonValue rpcId;
         QString wireId, tool;
         ToolCall typed;
-        QByteArray confirmationDigest;
         qint64 deadline{0};
         QString requestState;
         QJsonObject inputResponses;
@@ -274,16 +272,7 @@ public:
             output(rpcResult(id, toolResult(failure("BUSY", "Request queue is full.", true, 250))));
             return;
         }
-        // 2025 在同一次请求内等待确认；执行及脚本写入的独立预算不可被等待消耗。
-        // 2026 input_required 已结束本次请求，继续执行由新的 HTTP 请求承接。
-        qint64 budget = name == "novaterm_execute_command" ? 7000 : 2000;
-        if (name == "novaterm_run_command" || name == "novaterm_run_script") {
-            budget = arguments.value("timeoutMs").toInt(5000) + WireDeadlineMargin.count();
-            if (!_requestMrtr)
-                budget += ConfirmationTimeout.count();
-            if (name == "novaterm_run_script")
-                budget += ScriptWriteTimeout.count();
-        }
+        qint64 budget = 2000;
         if (name == "novaterm_read_context"
             && (arguments.value("responseMode") == "compact" || arguments.contains("waitMs")))
             budget = arguments.value("waitMs").toInt() + WireDeadlineMargin.count();
@@ -305,11 +294,6 @@ public:
         call.wireId = _prefix + QString::number(++_nextId);
         call.tool = name;
         call.typed = std::get<ToolCall>(std::move(decoded));
-        const auto* terminalRequest = std::get_if<ToolRequest>(&call.typed);
-        if (terminalRequest && std::holds_alternative<RunScriptRequest>(*terminalRequest)) {
-            call.confirmationDigest = QCryptographicHash::hash(
-                QJsonDocument(arguments).toJson(QJsonDocument::Compact), QCryptographicHash::Sha256);
-        }
         call.mrtr = _requestMrtr;
         call.formElicitation = _requestFormElicitation;
         call.deadline = now() + budget + (_available ? 0 : 3000);
@@ -376,7 +360,7 @@ public:
                     !call.requestState.isEmpty()});
                 continue;
             }
-            emit q->backendEvent(BackendCall{call.wireId, std::get<ToolRequest>(call.typed), call.confirmationDigest,
+            emit q->backendEvent(BackendCall{call.wireId, std::get<ToolRequest>(call.typed),
                 call.mrtr, call.formElicitation,
                 call.mrtr && !call.requestState.isEmpty() ? call.requestState : QString(),
                 call.mrtr && !call.requestState.isEmpty()

@@ -25,7 +25,6 @@ public:
         M::ContextSummary summary; summary.viewport = {"hello"}; summary.revision = 2;
         return summary;
     }
-    M::DiagnosticCatalog commandCatalog(const M::ClientId&, const M::SessionReference&) const override { return {}; }
 };
 }
 class EntryParityTests : public QObject

@@ -462,21 +462,6 @@ Built with:
 <context>
     <name>McpSettingsDialog</name>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="625"/>
-        <source>仅对已确认的 Linux/POSIX 目标使用固定诊断；授权不代表目标支持这些命令。</source>
-        <translation>Use fixed diagnostics only for a confirmed Linux/POSIX target. Permission does not prove that the target supports these commands.</translation>
-    </message>
-    <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="627"/>
-        <source>后端不可用</source>
-        <translation>Backend unavailable</translation>
-    </message>
-    <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="629"/>
-        <source>可以保存诊断授权，但当前没有可用的目标 Profile 或执行后端；不会自动向终端发送诊断命令。</source>
-        <translation>You can save diagnostic permissions, but no target profile or execution backend is available. No diagnostic command will be sent automatically.</translation>
-    </message>
-    <message>
         <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="658"/>
         <source>可以保存提权授权，但目标身份尚未验证，不能绑定凭据或实际提权。</source>
         <translation>You can save elevation permission, but the target identity is unverified. Credentials cannot be bound and elevation cannot run.</translation>
@@ -527,11 +512,6 @@ Built with:
         <translation>Unverified</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="170"/>
-        <source>允许执行命令授予当前连接的完整终端输入权限，不再逐条确认。旧命令接口的诊断、脚本和交互权限保持独立。托管提权必须另外授权；保存密码不会启用提权，可信认证适配器尚不可用。</source>
-        <translation>Allow commands grants full terminal input access for this connection without confirming each command. Legacy diagnostic, script and interactive permissions remain separate. Managed elevation requires separate permission; saving a password does not enable it. Trusted authentication adapters are not yet available.</translation>
-    </message>
-    <message>
         <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="195"/>
         <source>接管选中会话</source>
         <translation>Take over selected session</translation>
@@ -555,11 +535,6 @@ Built with:
         <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="206"/>
         <source>当前操作</source>
         <translation>Current operation</translation>
-    </message>
-    <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="228"/>
-        <source>显示旧命令接口详细权限</source>
-        <translation>Show legacy command permissions</translation>
     </message>
     <message>
         <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="413"/>
@@ -727,41 +702,6 @@ Built with:
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="205"/>
-        <source>Fixed diagnostics</source>
-        <translation>Fixed diagnostics</translation>
-    </message>
-    <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="164"/>
-        <source>Share only the sessions you select. Terminal output may contain sensitive information. Fixed diagnostics stay separate from interactive terminal input. Shared sessions can run ordinary commands; potentially destructive commands and every script require confirmation in the MCP client. Script contents are written to the selected host path and are never sent to the terminal UI. Risk checks are best-effort, not a sandbox.</source>
-        <translation>Share only the sessions you select. Terminal output may contain sensitive information. Fixed diagnostics stay separate from interactive terminal input. Shared sessions can run ordinary commands; potentially destructive commands and every script require confirmation in the MCP client. Script contents are written to the selected host path and are never sent to the terminal UI. Risk checks are best-effort, not a sandbox.</translation>
-    </message>
-    <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="205"/>
-        <source>Script tasks</source>
-        <translation>Script tasks</translation>
-    </message>
-    <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="205"/>
-        <source>Interactive commands</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="239"/>
-        <source>Command results appear here. A disconnected or timed-out command may still be running remotely.</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="243"/>
-        <source>I have checked that the remote command has stopped</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="244"/>
-        <source>Release selected target</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
         <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="269"/>
         <source>Configuration copied. It contains an access token; keep it private.</source>
         <translation type="unfinished"></translation>
@@ -812,74 +752,28 @@ Built with:
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="624"/>
-        <source>Fixed diagnostics run in an isolated local helper and do not write to the current shell.</source>
-        <translation type="unfinished"></translation>
+        <source>管理客户端…</source>
+        <translation>Manage clients…</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="633"/>
-        <source>Allows LocalShell/SSH script tasks. Each script still requires MCP-client confirmation; its body is written to the requested host path and is not shown in the terminal UI.</source>
-        <translation>Allows LocalShell/SSH script tasks. Each script still requires MCP-client confirmation; its body is written to the requested host path and is not shown in the terminal UI.</translation>
+        <source>管理客户端</source>
+        <translation>Manage clients</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="636"/>
-        <source>Allows the MCP client to type commands into this session&apos;s current terminal. Ordinary low-risk commands run without confirmation; anything potentially destructive or unclassifiable still requires confirmation in the MCP client. Off by default: sharing read output does not imply permission to type.</source>
-        <translation type="unfinished"></translation>
+        <source>只共享所选会话。允许执行命令后，AI可在当前连接输入文本、按键和命令；终端输出可能包含敏感信息。</source>
+        <translation>Share only selected sessions. Allowing commands grants terminal text, keys and command input on the current connection. Terminal output may contain sensitive information.</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="685"/>
-        <source>System identity</source>
-        <translation type="unfinished"></translation>
+        <source>保存目标须单独共享并允许打开。新建连接的读取、输入和清空按勾选授权；复用或重连不自动授权。文件资源另行授权。</source>
+        <translation>Share saved targets and allow opening separately. New connections receive only the selected read, input and clear permissions; reuse and reconnect do not grant access automatically. File resources require separate authorization.</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="686"/>
-        <source>Uptime and load</source>
-        <translation type="unfinished"></translation>
+        <source>每个客户端使用独立令牌和授权。移除客户端或更换令牌后，原接入配置失效。</source>
+        <translation>Each client has a separate token and permissions. Removing a client or rotating its token invalidates its previous connection configuration.</translation>
     </message>
     <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="687"/>
-        <source>Memory summary</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="688"/>
-        <source>Filesystem capacity</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="713"/>
-        <source>Protected target %1 — execution %2</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="740"/>
-        <source>Command is running.</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="744"/>
-        <source>Status: %1
-Exit code: %2
-Termination confirmed: %3
-
-%4
-%5</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="746"/>
-        <source>Unknown</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="747"/>
-        <source>Yes</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="747"/>
-        <source>No</source>
-        <translation type="unfinished"></translation>
+        <source>令牌已更换，请重新复制接入配置。</source>
+        <translation>Token rotated. Copy the new connection configuration.</translation>
     </message>
 </context>
 <context>

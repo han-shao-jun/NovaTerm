@@ -24,6 +24,9 @@ sys.path.insert(0, _DEPS)
 from mcp import ClientSession
 from mcp.client.streamable_http import streamablehttp_client
 import httpx
+from mcp.shared.exceptions import McpError
+
+RETIRED_TOOLS = ("novaterm_list_commands", "novaterm_execute_command", "novaterm_run_command", "novaterm_run_script")
 from jsonschema import Draft202012Validator
 
 
@@ -34,7 +37,8 @@ async def check(config: dict) -> None:
             initialization = await session.initialize()
             assert initialization.protocolVersion == "2025-11-25"
             catalog = await session.list_tools()
-            assert len(catalog.tools) == 30
+            assert len(catalog.tools) == 26
+            assert not set(RETIRED_TOOLS) & {tool.name for tool in catalog.tools}
             schemas = {tool.name: tool.outputSchema for tool in catalog.tools}
             for tool in catalog.tools:
                 Draft202012Validator.check_schema(tool.inputSchema)
@@ -71,19 +75,18 @@ async def check(config: dict) -> None:
                     await other.initialize()
                     independent = await other.call_tool("novaterm_read_context", identity)
                     assert independent.structuredContent["data"]["recentOutput"] == snapshot["recentOutput"]
-            commands = (await call("novaterm_list_commands", identity))["data"]
-            assert commands["executionEnabled"] and len(commands["commands"]) == 4
-            command = commands["commands"][0]
-            arguments = {**identity, "commandId": command["commandId"],
-                "policyVersion": commands["policyVersion"], "commandTicket": command["commandTicket"], "arguments": {}}
-            executed = await call("novaterm_execute_command", arguments)
-            assert executed["ok"] and executed["data"]["terminationConfirmed"]
-            assert await call("novaterm_execute_command", arguments) == executed
+            for retired in RETIRED_TOOLS:
+                try:
+                    await session.call_tool(retired, identity)
+                except McpError as exc:
+                    assert exc.error.code == -32602
+                else:
+                    raise AssertionError(f"Retired tool accepted: {retired}")
             rejected = await call("novaterm_read_context", {**identity, "command": "not allowed"})
             assert not rejected["ok"] and rejected["error"]["code"] == "INVALID_ARGUMENT"
             await check_workflow(call, identity)
     await check_modern(settings)
-    print("PASS: official MCP SDK 2025 + raw 2026 HTTP, 30 schemas, UART authorization discovery, restricted SFTP upload/download permission refusal, file-resource metadata discovery, saved-target directory/open/query/replay/close-refusal, history/terminal contracts and B3a wait/start/query/stop/replay")
+    print("PASS: official MCP SDK 2025 + raw 2026 HTTP, 26 schemas, UART authorization discovery, restricted SFTP upload/download permission refusal, file-resource metadata discovery, saved-target directory/open/query/replay/close-refusal, history/terminal contracts and B3a wait/start/query/stop/replay")
 
 
 async def check_serial_file_targets(call) -> None:
@@ -245,8 +248,12 @@ async def check_modern(settings: dict) -> None:
         assert unsupported["error"]["data"]["requested"] == "2099-01-01"
         listed = await rpc("tools/list", {"_meta": metadata()})
         assert listed["result"]["resultType"] == "complete"
-        assert len(listed["result"]["tools"]) == 30
+        assert len(listed["result"]["tools"]) == 26
         schemas = {tool["name"]: tool["outputSchema"] for tool in listed["result"]["tools"]}
+        assert not set(RETIRED_TOOLS) & set(schemas)
+        for retired in RETIRED_TOOLS:
+            rejected = await rpc("tools/call", {"name": retired, "arguments": {}, "_meta": metadata()})
+            assert rejected["error"]["code"] == -32602
         sessions = await rpc("tools/call", {"name": "novaterm_list_sessions",
             "arguments": {}, "_meta": metadata()})
         assert sessions["result"]["resultType"] == "complete"

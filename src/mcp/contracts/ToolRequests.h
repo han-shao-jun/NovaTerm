@@ -23,35 +23,7 @@
 
 namespace NovaTerm::Mcp {
 
-enum class ConfirmationTool { Command, Script };
-enum class ConfirmationDecision { Confirm, Unknown };
 enum class ConfirmationAnswer { Accept, Decline, Cancel };
-
-/** @brief 两代人类确认共同绑定的业务事实；用户输入代际仅在该执行路径要求时提供。 */
-struct ConfirmationBinding
-{
-    PeerId connection;
-    ClientId client;
-    SessionId session;
-    Epoch epoch;
-    QString targetFingerprint;
-    QString policyVersion;
-    QString profileVersion;
-    ClientAccessVersion grantVersion;
-    PromptRevision promptGeneration;
-    std::optional<InputRevision> userInputGeneration;
-    QByteArray payloadHash;
-    ConfirmationTool tool{ConfirmationTool::Command};
-    ConfirmationDecision decision{ConfirmationDecision::Confirm};
-};
-
-/** @brief 单调期限与一次性随机 nonce；不持有任务或 Session。 */
-struct ConfirmationTransaction
-{
-    ConfirmationBinding binding;
-    QString nonce;
-    qint64 expires{0};
-};
 
 /** @brief 读取投影模式；缺省语义由具体工具决定。 */
 enum class ProjectionMode
@@ -169,42 +141,6 @@ struct SearchContextRequest
     int maxMatches{20};
 };
 
-struct ListCommandsRequest
-{
-    SessionId session;
-    Epoch epoch;
-};
-
-struct ExecuteCommandRequest
-{
-    SessionId session;
-    Epoch epoch;
-    DiagnosticId command;
-    QString policyVersion;
-    QString commandTicket;
-    /** @brief 固定诊断当前不接受自定义参数；非空会被 Schema 拒绝。 */
-    bool hasDiagnosticArguments{false};
-};
-
-struct RunCommandRequest
-{
-    SessionId session;
-    Epoch epoch;
-    QString command;
-    std::chrono::milliseconds timeout{5000};
-};
-
-struct RunScriptRequest
-{
-    SessionId session;
-    Epoch epoch;
-    QString scriptContent;
-    QString targetPath;
-    QString workingDirectory;
-    QString invocation;
-    std::chrono::milliseconds timeout{5000};
-};
-
 struct InteractTerminalRequest
 {
     SessionId session;
@@ -234,10 +170,9 @@ struct RequestElevationRequest
     std::optional<ProjectionMode> projection;
 };
 
-/** @brief 原九工具的终端领域兼容联合；新领域不得加入。 */
+/** @brief 现行终端领域请求联合；新领域不得加入。 */
 using ToolRequest = std::variant<ListSessionsRequest, ReadContextRequest,
-    SearchContextRequest, ListCommandsRequest, ExecuteCommandRequest,
-    RunCommandRequest, RunScriptRequest, InteractTerminalRequest,
+    SearchContextRequest, InteractTerminalRequest,
     RequestElevationRequest>;
 
 /** @brief 从 typed 请求提取会话身份；list_sessions 返回空。 */

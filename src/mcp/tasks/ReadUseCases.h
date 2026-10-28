@@ -86,42 +86,6 @@ struct ContextPage
     std::optional<ContextCursor> next;
 };
 
-struct ReadDiagnostic
-{
-    DiagnosticId id;
-    QString title;
-    QString preview;
-};
-
-struct DiagnosticCatalog
-{
-    QString policyVersion;
-    QString profileVersion;
-    bool profileAvailable{false};
-    bool executorAvailable{false};
-    bool targetVerified{false};
-    QSet<DiagnosticId> allowed;
-    QList<ReadDiagnostic> commands;
-};
-
-struct CommandList
-{
-    SessionReference session;
-    QString policyVersion;
-    QString profileVersion;
-    ClientAccessVersion accessVersion;
-    qint64 expires{0};
-    std::optional<ErrorCode> disabledReason;
-    QList<ReadDiagnostic> commands;
-};
-
-/**
- * @brief 读取所需的真实 Session/授权边界，所有调用均在所属线程同步完成。
- *
- * pageAfter 仅返回当前客户端可读的条目，按 SessionId 排序且不超过 limit。
- * readContext 必须重新核对 session/epoch，再读取并保存 capture；端口可返回
- * Busy、SessionNotAvailable 等类型化错误，不要求应用层了解采样实现。
- */
 class ReadSessionPort
 {
 public:
@@ -131,8 +95,6 @@ public:
     [[nodiscard]] virtual QList<ReadSession> pageAfter(const ClientId& client,
         const SessionId& after, int limit, bool humanConfirmation) const = 0;
     [[nodiscard]] virtual Result<ContextSummary> readContext(const ContextQuery& query) const = 0;
-    [[nodiscard]] virtual DiagnosticCatalog commandCatalog(const ClientId& client,
-        const SessionReference& session) const = 0;
 };
 
 class ReadUseCases
@@ -144,8 +106,6 @@ public:
         const std::optional<DirectoryCursor>& cursor, bool humanConfirmation) const;
     [[nodiscard]] Result<ContextPage> readContext(const ClientId& client,
         ContextQuery query, const std::optional<ContextCursor>& cursor) const;
-    [[nodiscard]] Result<CommandList> listCommands(const ClientId& client,
-        const ReadSession& session, qint64 now) const;
 
 private:
     const ReadSessionPort& _sessions;

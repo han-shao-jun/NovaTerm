@@ -10,6 +10,7 @@
 #include "mcp/McpProtocol.h"
 
 #include <QFile>
+#include "CatalogFixtureSupport.h"
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -20,6 +21,7 @@
 #include <tuple>
 
 using namespace NovaTerm::Mcp;
+using namespace NovaTerm::Mcp::TestSupport;
 
 namespace {
 const QString SessionUuid = QStringLiteral("11111111-1111-4111-8111-111111111111");
@@ -87,10 +89,6 @@ const QStringList& toolNames()
         QStringLiteral("novaterm_list_sessions"),
         QStringLiteral("novaterm_read_context"),
         QStringLiteral("novaterm_search_context"),
-        QStringLiteral("novaterm_list_commands"),
-        QStringLiteral("novaterm_execute_command"),
-        QStringLiteral("novaterm_run_command"),
-        QStringLiteral("novaterm_run_script"),
         QStringLiteral("novaterm_interact_terminal"),
         QStringLiteral("novaterm_request_elevation"),
     };
@@ -102,6 +100,22 @@ class ContractsTests : public QObject
 {
     Q_OBJECT
 private slots:
+    void retiredCommandToolsAreRejected_data()
+    {
+        QTest::addColumn<QString>("name");
+        for (const auto* name : {"novaterm_list_commands", "novaterm_execute_command",
+                 "novaterm_run_command", "novaterm_run_script"})
+            QTest::newRow(name) << QString::fromLatin1(name);
+    }
+    void retiredCommandToolsAreRejected()
+    {
+        QFETCH(QString, name);
+        QVERIFY(!ToolCodec::isKnownTool(name));
+        QVERIFY(!ToolCodec::validate(name, argumentsFor(name)).isEmpty());
+        QVERIFY(isError(ToolCodec::decodeCall(name, argumentsFor(name))));
+        const auto registry = NovaTerm::Capabilities::CapabilityRegistry::implementedCapabilities();
+        QVERIFY(!registry.findByMcpTool(name));
+    }
     void fileOverwriteIsAnOptionalBoolean_data()
     {
         QTest::addColumn<QString>("name");
@@ -132,7 +146,7 @@ private slots:
         QFile fixture(QStringLiteral(NOVATERM_SOURCE_DIR "/tests/mcp/fixtures/file-overwrite-tools-2026-10-28.json"));
         QVERIFY(fixture.open(QIODevice::ReadOnly));
         const auto expected = QJsonDocument::fromJson(fixture.readAll()).array(); QCOMPARE(expected.size(), 2);
-        const auto tool = ToolCodec::catalog().at(name == "novaterm_upload_file" ? 22 : 29).toObject();
+        const auto tool = ToolCodec::catalog().at(name == "novaterm_upload_file" ? 18 : 25).toObject();
         QCOMPARE(tool, expected.at(name == "novaterm_upload_file" ? 0 : 1).toObject());
         QVERIFY(!tool.value("inputSchema").toObject().value("required").toArray().contains("overwrite"));
         QVERIFY(agentInstructions().contains("overwrite=true"));
@@ -160,14 +174,14 @@ private slots:
         for (const auto& path : QStringList{".", "..", "a/b", "a\\b", "name:stream", "a\nb", QString(256, 'a')}) {
             auto invalid = arguments; invalid.insert("remoteName", path); QVERIFY(!ToolCodec::validate(name, invalid).isEmpty());
         }
-        const auto catalog = ToolCodec::catalog(); QCOMPARE(catalog.size(), 30);
+        const auto catalog = ToolCodec::catalog(); QCOMPARE(catalog.size(), 26);
         QFile fixture(QStringLiteral(NOVATERM_SOURCE_DIR "/tests/mcp/fixtures/file-download-tool-2026-10-28.json"));
         QVERIFY(fixture.open(QIODevice::ReadOnly));
         const auto expectedDownload = QJsonDocument::fromJson(fixture.readAll()).object();
         QVERIFY(!expectedDownload.value("inputSchema").toObject().value("properties").toObject().contains("overwrite"));
         QVERIFY(expectedDownload.value("description").toString().contains("Never overwrites an existing local target, opens a new connection or executes a file."));
-        QCOMPARE(catalog.at(29).toObject(), withExplicitOverwrite(expectedDownload));
-        for (const auto index : {23, 24, 29}) {
+        QCOMPARE(catalog.at(25).toObject(), withExplicitOverwrite(expectedDownload));
+        for (const auto index : {19, 20, 25}) {
             const auto state = catalog.at(index).toObject().value("outputSchema").toObject()
                 .value("properties").toObject().value("data").toObject().value("properties").toObject().value("state").toObject();
             QVERIFY(state.value("enum").toArray().contains("downloading"));
@@ -207,7 +221,7 @@ private slots:
         for (const auto& name : QStringList{".", "..", "a/b", "a\\b", "name:stream", "a\nb", QString(256, 'a'), QString(86, QChar(0x4e00))}) {
             auto invalid = arguments; invalid.insert("remoteName", name); QVERIFY(!ToolCodec::validate(upload, invalid).isEmpty());
         }
-        const auto tools = ToolCodec::catalog(); QCOMPARE(tools.size(), 30);
+        const auto tools = ToolCodec::catalog(); QCOMPARE(tools.size(), 26);
         QFile fixture(QStringLiteral(NOVATERM_SOURCE_DIR "/tests/mcp/fixtures/serial-transfer-tools-2026-10-28.json"));
         QVERIFY(fixture.open(QIODevice::ReadOnly));
         const auto expected = QJsonDocument::fromJson(fixture.readAll()).array();
@@ -215,9 +229,9 @@ private slots:
         const QStringList fields{"instanceId", "transferId", "sessionId", "epoch", "operationId", "protocol", "state",
             "confirmedBytes", "totalBytes", "completedFiles", "protocolCompleted", "fileConfirmed", "remotePublication",
             "contentVerified", "timeoutMs", "errorCode"};
-        for (int i = 26; i < 29; ++i) {
+        for (int i = 22; i < 25; ++i) {
             const auto tool = tools.at(i).toObject();
-            QCOMPARE(tool, expected.at(i - 26).toObject());
+            QCOMPARE(tool, expected.at(i - 22).toObject());
             const auto data = tool.value("outputSchema").toObject().value("properties").toObject().value("data").toObject();
             QCOMPARE(data.value("properties").toObject().size(), fields.size());
             for (const auto& field : fields) QVERIFY(data.value("required").toArray().contains(field));
@@ -225,7 +239,7 @@ private slots:
             QCOMPARE(data.value("properties").toObject().value("remotePublication").toObject().value("const"), QJsonValue("unknown"));
             QCOMPARE(data.value("properties").toObject().value("contentVerified").toObject().value("const"), QJsonValue(false));
             const auto decodedName = ToolCodec::toolName(std::get<ToolCall>(ToolCodec::decodeCall(tool.value("name").toString(),
-                i == 26 ? arguments : QJsonObject{{"transferId", OperationUuid}})));
+                i == 22 ? arguments : QJsonObject{{"transferId", OperationUuid}})));
             QCOMPARE(decodedName, tool.value("name").toString());
         }
     }
@@ -255,8 +269,8 @@ private slots:
                 "localPath", "protocol", "sendAllowed"})
             QVERIFY2(!ToolCodec::validate(name, {{field, "injected"}}).isEmpty(), qPrintable(field));
         const auto tools = ToolCodec::catalog();
-        QCOMPARE(tools.size(), 30);
-        const auto tool = tools.at(25).toObject();
+        QCOMPARE(tools.size(), 26);
+        const auto tool = tools.at(21).toObject();
         QCOMPARE(tool.value("name").toString(), name);
         QVERIFY(tool.value("annotations").toObject().value("readOnlyHint").toBool());
         QVERIFY(!tool.value("annotations").toObject().value("destructiveHint").toBool());
@@ -331,10 +345,10 @@ private slots:
     void fileTransferResultSchemaIsClosedAndComplete()
     {
         const auto tools = ToolCodec::catalog();
-        QCOMPARE(tools.size(), 30);
+        QCOMPARE(tools.size(), 26);
         QFile fixture(QStringLiteral(NOVATERM_SOURCE_DIR "/tests/mcp/fixtures/file-transfer-tools-2026-10-28.json"));
         QVERIFY(fixture.open(QIODevice::ReadOnly));
-        const QJsonArray appended{tools.at(22), tools.at(23), tools.at(24)};
+        const QJsonArray appended{tools.at(18), tools.at(19), tools.at(20)};
         auto expected = QJsonDocument::fromJson(fixture.readAll()).array();
         QCOMPARE(expected.size(), 3);
         QVERIFY(!expected.at(0).toObject().value("inputSchema").toObject().value("properties").toObject().contains("overwrite"));
@@ -359,7 +373,7 @@ private slots:
         const QStringList required{"instanceId", "transferId", "sessionId", "epoch", "operationId", "state",
             "transferredBytes", "totalBytes", "published", "publication", "temporary", "errorCode", "contentVerified"};
         for (int i = 0; i < names.size(); ++i) {
-            const auto tool = tools.at(22 + i).toObject();
+            const auto tool = tools.at(18 + i).toObject();
             QCOMPARE(tool.value("name").toString(), names[i]);
             const auto data = tool.value("outputSchema").toObject().value("properties").toObject().value("data").toObject();
             QVERIFY(!data.value("additionalProperties").toBool(true));
@@ -387,8 +401,8 @@ private slots:
             QVERIFY(!ToolCodec::validate(name, invalid).isEmpty());
         }
         const auto tools = ToolCodec::catalog();
-        QCOMPARE(tools.size(), 30);
-        const auto tool = tools.at(21).toObject();
+        QCOMPARE(tools.size(), 26);
+        const auto tool = tools.at(17).toObject();
         QCOMPARE(tool.value("name").toString(), name);
         QVERIFY(tool.value("annotations").toObject().value("readOnlyHint").toBool());
         QVERIFY(!tool.value("annotations").toObject().value("destructiveHint").toBool());
@@ -406,7 +420,7 @@ private slots:
         const auto instructions = agentInstructions();
         QVERIFY(instructions.contains("query_transfer"));
         QVERIFY(!instructions.contains("MCP file upload/download/query/cancel is not available"));
-        const auto description = ToolCodec::catalog().at(21).toObject().value("description").toString();
+        const auto description = ToolCodec::catalog().at(17).toObject().value("description").toString();
         QVERIFY(description.contains("use separately listed file-transfer tools"));
         QVERIFY(!description.contains("upload/download/query/cancel are not implemented"));
     }
@@ -434,7 +448,7 @@ private slots:
         QCOMPARE(std::get<TargetConnectionRequest>(decoded).action, TargetConnectionAction::Close);
         QFile fixture(QStringLiteral(NOVATERM_SOURCE_DIR "/tests/mcp/fixtures/target-close-2026-10-27.json"));
         QVERIFY(fixture.open(QIODevice::ReadOnly));
-        QCOMPARE(ToolCodec::catalog().at(20).toObject(), QJsonDocument::fromJson(fixture.readAll()).object());
+        QCOMPARE(ToolCodec::catalog().at(16).toObject(), QJsonDocument::fromJson(fixture.readAll()).object());
     }
     void savedTargetConnectionToolsRequireExplicitIdentity()
     {
@@ -457,7 +471,7 @@ private slots:
         }
         QFile fixture(QStringLiteral(NOVATERM_SOURCE_DIR "/tests/mcp/fixtures/target-connections-2026-10-27.json"));
         QVERIFY(fixture.open(QIODevice::ReadOnly));
-        const QJsonArray connections{ToolCodec::catalog()[18], ToolCodec::catalog()[19]};
+        const QJsonArray connections{ToolCodec::catalog()[14], ToolCodec::catalog()[15]};
         QCOMPARE(connections, QJsonDocument::fromJson(fixture.readAll()).array());
     }
     void savedTargetCatalogIsReadOnlyAndBounded()
@@ -476,14 +490,14 @@ private slots:
             QVERIFY(!ToolCodec::validate("novaterm_list_targets", invalid).isEmpty());
         QFile fixture(QStringLiteral(NOVATERM_SOURCE_DIR "/tests/mcp/fixtures/saved-targets-2026-10-27.json"));
         QVERIFY(fixture.open(QIODevice::ReadOnly));
-        QCOMPARE(ToolCodec::catalog()[17].toObject(), QJsonDocument::fromJson(fixture.readAll()).object());
+        QCOMPARE(ToolCodec::catalog()[13].toObject(), QJsonDocument::fromJson(fixture.readAll()).object());
     }
     void workflowCatalogMatchesFrozenFixture()
     {
         QFile fixture(QStringLiteral(NOVATERM_SOURCE_DIR "/tests/mcp/fixtures/workflow-tools-2026-10-27.json"));
         QVERIFY(fixture.open(QIODevice::ReadOnly));
         QJsonArray workflow;
-        for (qsizetype i = 13; i < 17; ++i) workflow.append(ToolCodec::catalog()[i]);
+        for (qsizetype i = 9; i < 13; ++i) workflow.append(ToolCodec::catalog()[i]);
         QCOMPARE(workflow.size(), 4);
         QCOMPARE(workflow, QJsonDocument::fromJson(fixture.readAll()).array());
     }
@@ -524,7 +538,7 @@ private slots:
         QVERIFY(!isError(ToolCodec::decodeCall("novaterm_query_task", query)));
         query.insert("operationId", OperationUuid);
         QVERIFY(!isError(ToolCodec::decodeCall("novaterm_stop_task", query)));
-        static_assert(std::variant_size_v<ToolRequest> == 9);
+        static_assert(std::variant_size_v<ToolRequest> == 5);
     }
     void clearToolHasIndependentContract()
     {
@@ -548,15 +562,14 @@ private slots:
         QVERIFY(!ToolCodec::validate("novaterm_clear_terminal", invalid).isEmpty());
         invalid = args; invalid.insert("path", "C:/private");
         QVERIFY(!ToolCodec::validate("novaterm_clear_terminal", invalid).isEmpty());
-        static_assert(std::variant_size_v<ToolRequest> == 9);
+        static_assert(std::variant_size_v<ToolRequest> == 5);
         QFile fixture(QStringLiteral(NOVATERM_SOURCE_DIR "/tests/mcp/fixtures/clear-terminal-2026-10-25.json"));
         QVERIFY(fixture.open(QIODevice::ReadOnly));
-        QCOMPARE(ToolCodec::catalog()[12].toObject(), QJsonDocument::fromJson(fixture.readAll()).object());
+        QCOMPARE(ToolCodec::catalog()[8].toObject(), QJsonDocument::fromJson(fixture.readAll()).object());
     }
     void logReadRequiresExplicitSourceAndStart();
-    void confirmationClaimsKeepWireFormatAndRejectTampering();
     void catalogMatchesCompatibilityFixture();
-    void catalogExposesNineToolsInOrder();
+    void catalogExposesCurrentToolsInOrder();
     void everyToolDecodesToItsOwnRequest();
     void rejectedArgumentsKeepCompatibleMessages();
     void optionalArgumentsPreservePresence();
@@ -606,9 +619,12 @@ void ContractsTests::catalogMatchesCompatibilityFixture()
     const auto legacy = document.array();
     QVERIFY(ToolCodec::catalog().size() >= legacy.size());
     for (qsizetype i = 0; i < legacy.size(); ++i) {
-        const auto current = ToolCodec::catalog()[i].toObject();
-        if (legacy[i].toObject().value("name") != "novaterm_read_context") {
-            QCOMPARE(current, legacy[i].toObject()); continue;
+        const auto previousTool = legacy[i].toObject();
+        const auto name = previousTool.value("name").toString();
+        if (retiredTool(name)) continue;
+        const auto current = toolByName(name);
+        if (name != "novaterm_read_context") {
+            QCOMPARE(current, retainedSchema(previousTool).toObject()); continue;
         }
         QFile logFixture(QStringLiteral(NOVATERM_SOURCE_DIR "/tests/mcp/fixtures/read-context-clear-2026-10-25.json"));
         QVERIFY(logFixture.open(QIODevice::ReadOnly));
@@ -635,7 +651,7 @@ void ContractsTests::catalogMatchesCompatibilityFixture()
     }
 }
 
-void ContractsTests::catalogExposesNineToolsInOrder()
+void ContractsTests::catalogExposesCurrentToolsInOrder()
 {
     const auto registry = NovaTerm::Capabilities::CapabilityRegistry::implementedCapabilities();
     QCOMPARE(registry.definitions().size(), size_t(ToolCodec::catalog().size()));
@@ -763,16 +779,6 @@ void ContractsTests::remainingRequestDefaultsAreStable()
     QVERIFY(searched.caseSensitive);
     QCOMPARE(searched.maxMatches, 20);
 
-    for (const auto& tool : {QStringLiteral("novaterm_run_command"), QStringLiteral("novaterm_run_script")}) {
-        const auto result = ToolCodec::decode(tool, argumentsFor(tool));
-        QVERIFY(!isError(result));
-        QCOMPARE(std::visit([](const auto& request) -> qint64 {
-            using Type = std::decay_t<decltype(request)>;
-            if constexpr (std::is_same_v<Type, RunCommandRequest> || std::is_same_v<Type, RunScriptRequest>)
-                return request.timeout.count();
-            else return -1;
-        }, std::get<ToolRequest>(result)), 5000);
-    }
     const auto input = ToolCodec::decode(QStringLiteral("novaterm_interact_terminal"),
         argumentsFor(QStringLiteral("novaterm_interact_terminal")));
     QVERIFY(!isError(input));
@@ -818,7 +824,6 @@ void ContractsTests::utf8LimitsCountEncodedBytes()
 {
     const QString scalar = QString::fromUtf8("😀");
     for (const auto& [tool, field, scalars] : {
-             std::tuple{QStringLiteral("novaterm_run_command"), QStringLiteral("command"), 4096},
              std::tuple{QStringLiteral("novaterm_search_context"), QStringLiteral("query"), 256}}) {
         auto args = argumentsFor(tool);
         const auto boundary = scalar.repeated(scalars);
@@ -923,96 +928,20 @@ void ContractsTests::projectionSizerMatchesWireEncoding()
     QVERIFY(expected > 4096);
 }
 
-void ContractsTests::confirmationClaimsKeepWireFormatAndRejectTampering()
-{
-    ConfirmationBinding binding;
-    binding.connection = PeerId{QStringLiteral("peer")};
-    binding.client = ClientId{QStringLiteral("client")};
-    binding.session = SessionId{SessionUuid};
-    binding.epoch = Epoch{QStringLiteral("epoch")};
-    binding.targetFingerprint = QStringLiteral("target");
-    binding.policyVersion = QStringLiteral("policy");
-    binding.profileVersion = QStringLiteral("profile");
-    binding.grantVersion = ClientAccessVersion{7};
-    binding.promptGeneration = PromptRevision{8};
-    binding.payloadHash = QByteArray(32, 'h');
-    const QByteArray key{"secret"};
-    for (auto tool : {ConfirmationTool::Command, ConfirmationTool::Script}) {
-        for (auto user : {std::optional<InputRevision>{}, std::optional<InputRevision>{InputRevision{0}}}) {
-            binding.tool = tool;
-            binding.userInputGeneration = user;
-            const ConfirmationTransaction transaction{binding, QStringLiteral("nonce"), 1000};
-            const auto claims = ToolCodec::encodeConfirmation(transaction);
-            QCOMPARE(claims.value("kind").toString(), QStringLiteral("interactive-confirmation"));
-            QCOMPARE(claims.contains("tool"), tool == ConfirmationTool::Script);
-            QCOMPARE(claims.contains("payloadHash"), tool == ConfirmationTool::Script);
-            QCOMPARE(claims.contains("commandHash"), tool == ConfirmationTool::Command);
-            QCOMPARE(claims.contains("decision"), tool == ConfirmationTool::Command);
-            QCOMPARE(claims.contains("userInputGeneration"), user.has_value());
-            QCOMPARE(claims.value("grantVersion").toString(), QStringLiteral("7"));
-            const auto token = ToolCodec::signConfirmation(transaction, key);
-            QCOMPARE(token, signToken(claims, key));
-            const auto verified = ToolCodec::verifyConfirmation(token, key);
-            QVERIFY(verified);
-            QCOMPARE(ToolCodec::encodeConfirmation(*verified), claims);
-            QVERIFY(!ToolCodec::verifyConfirmation(token, QByteArray{"other"}));
-            auto tampered = token;
-            tampered[0] = tampered[0] == QLatin1Char('a') ? QLatin1Char('b') : QLatin1Char('a');
-            QVERIFY(!ToolCodec::verifyConfirmation(tampered, key));
 
-            for (const auto* field : {"client", "connection", "session", "epoch", "target",
-                     "policyVersion", "profileVersion", "grantVersion", "promptGeneration",
-                     "nonce", "expires"}) {
-                auto missing = claims;
-                missing.remove(QLatin1String(field));
-                QVERIFY(!ToolCodec::decodeConfirmation(missing));
-            }
-            for (const auto& invalid : {QJsonValue{-1}, QJsonValue{1.5}, QJsonValue{"1000"}}) {
-                auto malformed = claims;
-                malformed.insert("expires", invalid);
-                QVERIFY(!ToolCodec::decodeConfirmation(malformed));
-            }
-            auto malformed = claims;
-            malformed.insert("grantVersion", QStringLiteral("-1"));
-            QVERIFY(!ToolCodec::decodeConfirmation(malformed));
-            malformed = claims;
-            malformed.insert("userInputGeneration", QJsonValue::Null);
-            QVERIFY(!ToolCodec::decodeConfirmation(malformed));
-            malformed = claims;
-            malformed.insert(tool == ConfirmationTool::Script ? "payloadHash" : "commandHash", "invalid");
-            QVERIFY(!ToolCodec::decodeConfirmation(malformed));
-        }
-    }
-}
 
 int main(int argc, char** argv)
 {
     QCoreApplication application(argc, argv);
     if (application.arguments().size() == 3 && application.arguments()[1] == "--write-file-overwrite-fixture") {
         const auto tools = ToolCodec::catalog();
-        if (tools.size() != 30) return 1;
+        if (tools.size() != 26) return 1;
         QFile file(application.arguments()[2]);
         if (!file.open(QIODevice::WriteOnly)) return 1;
-        const auto bytes = QJsonDocument(QJsonArray{tools.at(22), tools.at(29)}).toJson();
+        const auto bytes = QJsonDocument(QJsonArray{tools.at(18), tools.at(25)}).toJson();
         return file.write(bytes) == bytes.size() ? 0 : 1;
     }
     if (application.arguments().size() == 3 && application.arguments()[1] == "--write-file-download-fixture") {
-        const auto tools = ToolCodec::catalog();
-        if (tools.size() != 30) return 1;
-        QFile file(application.arguments()[2]);
-        if (!file.open(QIODevice::WriteOnly)) return 1;
-        const auto bytes = QJsonDocument(tools.at(29).toObject()).toJson();
-        return file.write(bytes) == bytes.size() ? 0 : 1;
-    }
-    if (application.arguments().size() == 3 && application.arguments()[1] == "--write-serial-transfer-fixture") {
-        const auto tools = ToolCodec::catalog();
-        if (tools.size() != 29) return 1;
-        QFile file(application.arguments()[2]);
-        if (!file.open(QIODevice::WriteOnly)) return 1;
-        const auto bytes = QJsonDocument(QJsonArray{tools.at(26), tools.at(27), tools.at(28)}).toJson();
-        return file.write(bytes) == bytes.size() ? 0 : 1;
-    }
-    if (application.arguments().size() == 3 && application.arguments()[1] == "--write-serial-file-targets-fixture") {
         const auto tools = ToolCodec::catalog();
         if (tools.size() != 26) return 1;
         QFile file(application.arguments()[2]);
@@ -1020,9 +949,25 @@ int main(int argc, char** argv)
         const auto bytes = QJsonDocument(tools.at(25).toObject()).toJson();
         return file.write(bytes) == bytes.size() ? 0 : 1;
     }
+    if (application.arguments().size() == 3 && application.arguments()[1] == "--write-serial-transfer-fixture") {
+        const auto tools = ToolCodec::catalog();
+        if (tools.size() != 26) return 1;
+        QFile file(application.arguments()[2]);
+        if (!file.open(QIODevice::WriteOnly)) return 1;
+        const auto bytes = QJsonDocument(QJsonArray{tools.at(22), tools.at(23), tools.at(24)}).toJson();
+        return file.write(bytes) == bytes.size() ? 0 : 1;
+    }
+    if (application.arguments().size() == 3 && application.arguments()[1] == "--write-serial-file-targets-fixture") {
+        const auto tools = ToolCodec::catalog();
+        if (tools.size() != 26) return 1;
+        QFile file(application.arguments()[2]);
+        if (!file.open(QIODevice::WriteOnly)) return 1;
+        const auto bytes = QJsonDocument(tools.at(21).toObject()).toJson();
+        return file.write(bytes) == bytes.size() ? 0 : 1;
+    }
     if (application.arguments().size() == 3 && application.arguments()[1] == "--write-file-transfer-fixture") {
         const auto tools = ToolCodec::catalog();
-        const QJsonArray appended{tools.at(22), tools.at(23), tools.at(24)};
+        const QJsonArray appended{tools.at(18), tools.at(19), tools.at(20)};
         QFile file(application.arguments()[2]);
         if (!file.open(QIODevice::WriteOnly)) return 1;
         const auto bytes = QJsonDocument(appended).toJson();
@@ -1031,12 +976,12 @@ int main(int argc, char** argv)
     if (application.arguments().size() == 3 && application.arguments()[1] == "--write-target-fixture") {
         QFile file(application.arguments()[2]);
         if (!file.open(QIODevice::WriteOnly)) return 1;
-        const auto bytes = QJsonDocument(ToolCodec::catalog().at(20).toObject()).toJson();
+        const auto bytes = QJsonDocument(ToolCodec::catalog().at(16).toObject()).toJson();
         return file.write(bytes) == bytes.size() ? 0 : 1;
     }
     if (application.arguments().size() == 3 && application.arguments()[1] == "--write-workflow-fixture") {
         QJsonArray workflow;
-        for (qsizetype i = 13; i < 17; ++i) workflow.append(ToolCodec::catalog()[i]);
+        for (qsizetype i = 9; i < 13; ++i) workflow.append(ToolCodec::catalog()[i]);
         QFile file(application.arguments()[2]);
         if (!file.open(QIODevice::WriteOnly)) return 1;
         const auto bytes = QJsonDocument(workflow).toJson();

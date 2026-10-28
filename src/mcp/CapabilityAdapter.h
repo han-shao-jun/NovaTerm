@@ -45,8 +45,6 @@ public:
     [[nodiscard]] Result<QJsonObject> readContext(const SessionDirectory::Entry& entry,
         const QString& owner, const QString& client, const QByteArray& key,
         const ReadContextRequest& request) const;
-    [[nodiscard]] Result<QJsonObject> listCommands(const SessionDirectory::Entry& entry,
-        const QString& client, const QByteArray& key, qint64 now) const;
 
 private:
     [[nodiscard]] quint64 directoryRevision() const override;
@@ -54,8 +52,6 @@ private:
     [[nodiscard]] QList<ReadSession> pageAfter(const ClientId& client, const SessionId& after,
         int limit, bool humanConfirmation) const override;
     [[nodiscard]] Result<ContextSummary> readContext(const ContextQuery& query) const override;
-    [[nodiscard]] DiagnosticCatalog commandCatalog(const ClientId& client,
-        const SessionReference& session) const override;
     Ports _ports;
     Capabilities::CapabilityDispatcher& _dispatcher;
     const Capabilities::InvocationContext& _context;

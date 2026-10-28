@@ -1,6 +1,6 @@
 # 当前 MCP 接口契约与兼容基线
 
-更新：2026-10-28。当前三十工具保持；Windows SFTP显式覆盖与软件收尾本阶段Windows软件回归已完成，B4仍待用户验收，B4未验收，P8未整体完成。Linux/macOS安全本地Reader/Writer后端尚未实现，相关调用明确拒绝；托管提权保留unavailable，非本轮闭环前置。当前范围见[软件账本](08_Software_Closeout.md)，历史成绩见[验收档案](records/README.md)。
+更新：2026-10-29。当前二十六工具；旧诊断、命令和脚本四工具已退役，当前说明优先于下方历史阶段记录。Windows SFTP显式覆盖与软件收尾本阶段Windows软件回归已完成，B4仍待用户验收，B4未验收，P8未整体完成。Linux/macOS安全本地Reader/Writer后端尚未实现，相关调用明确拒绝；托管提权保留unavailable，非本轮闭环前置。当前范围见[软件账本](08_Software_Closeout.md)，历史成绩见[验收档案](records/README.md)。
 
 ## 2026-10-28：SFTP显式覆盖
 
@@ -306,9 +306,9 @@ B2 在原十二工具之后追加 `novaterm_clear_terminal`，当前十三项；
 - 启动应用前用NOVATERM_MCP_HTTP_PORT覆盖端口；占用明确报错，不自动换实例或端口。
 - 每个请求校验Bearer、Host/Origin；MCP-Session-Id/clientInfo.name不能代替身份。客户端必须使用该实例导出的配置。
 - 不自动启动NovaTerm、新建终端、登录服务器或复活已删除的novaterm-mcp/LocalMcpServer。
-- 2025-11-25：initialize/initialized建立协议会话，后续带MCP-Session-Id；SSE承载elicitation/create、POST回确认；普通TCP断开不等于业务取消，DELETE结束会话。
-- 2026-07-28：server/discover、按请求_meta/协议能力，MRTR通过input_required/requestState/inputResponses；不创建2025式协议会话，请求流断开取消对应业务。
-- 2026确认的MAC仍绑定受限Bearer授权上下文，不把HTTP连接当永久授权；两代wire适配调用同一业务用例。
+- 2025-11-25：initialize/initialized建立协议会话，后续带MCP-Session-Id；SSE承载响应；普通TCP断开不等于业务取消，DELETE结束会话。
+- 2026-07-28：server/discover、按请求_meta/协议能力；不创建2025式协议会话，请求流断开取消对应业务。
+- 两代wire适配调用同一业务用例；已退役工具不能通过旧确认状态恢复调用。
 - 保留string/number RPC ID类型；取消/重放/重复ID及已完成竞态由wire/endpoint测试约束，不把通信超时解释成远端已停止。
 
 导出形状（令牌是占位符）：
@@ -329,9 +329,6 @@ Session ID、epoch、attachment、连接generation与目标身份共同约束实
 | 权限 | 现行语义 |
 | --- | --- |
 | 读取输出 | 允许read/search，但不授予任何输入/执行 |
-| 固定诊断 | 已知模板逐项选择，只有后端/条件就绪才发票据 |
-| 交互命令 | run_command独立授权，低风险可直接执行，其余按风险确认/拒绝 |
-| 脚本 | 独立授权，每次人类确认；不要求另开交互命令权限 |
 | 完整终端输入 | interact_terminal的text/key/paste等，默认关闭，明确授予后不逐条风险确认 |
 | 托管提权 | 依赖完整输入和独立选择；当前可信适配器为空，任何请求零取密/零输入 |
 
@@ -537,33 +534,21 @@ actions支持text、paste、key、line_ending、command、release六分支。key
 maxBytes连下一个UTF-8字符都容不下返回TEXT_BUDGET_TOO_SMALL，不应补读死循环。full/compact可沿新版观察cursor继续；补读与实时增量是不同坐标域。控制空闲续期60秒，展开不续期，用户输入立即抢占。
 独立录制/离线共享不使用这里的短期 capture 假冒长期证据，继续遵守其既有资源授权和保留规则；本项目不规划 Agent output artifact 或聊天历史模块。
 
-## 7. 固定诊断、普通命令与脚本
+## 7. 旧诊断、命令与脚本接口退役
 
-当前固定诊断仅覆盖获信任Linux/POSIX SSH独立exec，以及Windows/Linux LocalShell固定helper；macOS LocalShell/Serial/Telnet/Custom没有这四项固定诊断后端，不因能保存授权就下发命令。
+`novaterm_list_commands`、`novaterm_execute_command`、`novaterm_run_command`、
+`novaterm_run_script`不再注册、列出、解码或执行，直接调用得到JSON-RPC
+`-32602 / Unknown tool.`。终端领域请求由九项缩为五项，完整工具目录由30缩为26。
+保留工具的参数和资源授权不变；list_sessions不再报告上述能力或human_confirmation。
+旧授权选择不自动转换为完整输入。需要操作设备时使用已单独授权的终端交互/任务；
+文件传输和随后执行仍分别授权，旧脚本发布与风险扫描/人工确认执行通路不再提供。
 
-| 模板 | SSH固定文本 | 本地helper意图 |
-| --- | --- | --- |
-| system.identity | uname -srm | 系统/内核/架构 |
-| system.uptime | uptime | 启动时长 |
-| memory.summary | free -k | 物理内存/可用量 |
-| filesystem.usage | df -Pk | 卷容量/可用量 |
+## 8. 取消、控制权与未知结果
 
-本地helper是应用同目录novaterm-local-diag，不调用自由shell或PATH替代程序。固定诊断不继承/改变交互shell的cwd/env/history。
-run_command操作当前交互终端，cd会改变后续目录；Shell复合语法/解释器/写文件/未知命令不能仅按首个argv判断低风险。Allow/Confirm/Deny/Unknown中Unknown按Confirm；已知凭据读取/关安全/提权/格式化等尽力检测永久拒绝，不是shell沙箱证明。
-
-可信Profile时复核提示符；现有无提示符SSH/POSIX run_command使用完成标记，但无法证明最初写入位置为空闲shell，可能落入TUI/密码提示/未提交输入。此限制不得被P1未来共享Recipe的更严格就绪要求抹掉；不发额外Enter/Ctrl-C/Esc探测。新版command快捷动作仍要求就绪。
-
-run_script：显式scriptContent/targetPath/workingDirectory/invocation→风险/人类确认→Local文件API或同端点/账号/known_hosts/指纹的SSH SFTP精确写入→再次验证→当前终端调用。父目录须存在，已存在可按确认覆盖；不创建专用目录、不自动删脚本。
-确认前不落盘；正文不输入终端；调用命令与输出可见；发布成功但未调用必须记录事实；发布Unknown不自动重传或运行。Serial/Telnet/无文件后端Custom返回SCRIPT_PROVIDER_UNAVAILABLE，不降级为逐字输入正文。
-
-## 8. 人类确认、取消与未知结果保护
-
-2025 form和2026 MRTR共享一次性业务确认，绑定principal/instance/session/epoch、目标/连接、策略/Profile版本、请求SHA-256、路径/cwd/invocation、用户/提示符代际和单调期限。
-确认后、出队、文件发布后、每次提交与结果交付前复核；修改/重连/撤权/过期/重放均拒绝。模型不能传confirmed=true替代确认，也没有普通二次调用的确认后门。
-未声明并实现人类elicitation时，Confirm/Unknown命令和所有脚本返回CLIENT_CONFIRMATION_UNAVAILABLE。确认仅准许提交，不证明命令安全或客户端人类UI具备密码学点击证明。
-
-取消等待/HTTP断开/关闭通道不等于远端终止。TargetReservation先持久保护再提交；证实未开始/已终止才释放，未知结果保留quarantine，跨重连/重启不清除。
-本机人工核对解除绑定当前目标+执行ID，不能解禁危险操作；仍在途上传不能提前解除。旧票据到期/授权失效后只能本机核对记录，不能新取票据自动补跑。
+取消观察、HTTP断开、释放输入控制权不能证明远端进程停止。现行终端控制器仍保留
+原连接与输入代际检查、人工接管、原operationId精确重试和长任务生命周期。
+旧命令执行器及其持久目标保护/人工解锁已删除，接入窗口不再包含执行记录、
+命令结果或“确认停止/解除暂停”区域。客户端管理进入独立次级窗口；身份与令牌不合并。
 
 ## 9. 输出封装与错误处理
 
@@ -577,7 +562,6 @@ MCP structuredContent与content.text来自同一份有界业务对象；最终�
 | 目标/游标 | SESSION_NOT_AVAILABLE、STALE_SESSION_EPOCH、CURSOR_STALE、CAPTURE_EXPIRED/NOT_AVAILABLE；重新确认身份，不重发旧写操作 |
 | 输入 | CONTROL_INVALID、INPUT_TOKEN_EXPIRED、INPUT_ALREADY_SUBMITTED、INPUT_OUT_OF_ORDER、INPUT_SEQUENCE_CONFLICT、CONTEXT_NOT_READY；重新观察，不能换ID盲重试 |
 | 命令/确认 | COMMAND_PERMISSION_REQUIRED、COMMAND_CONFIRMATION_*、COMMAND_TICKET_*、COMMAND_OUTCOME_UNKNOWN、COMMAND_EXECUTION_QUARANTINED；按授权/证据处理 |
-| 脚本 | SCRIPT_WRITE_FAILED、SCRIPT_PUBLISHED_NOT_INVOKED、SCRIPT_PUBLICATION_OUTCOME_UNKNOWN；分别保留未写/已发布/可能发布事实 |
 | 凭据/提权 | TARGET_IDENTITY_UNVERIFIED、ELEVATION_ADAPTER_UNAVAILABLE、CREDENTIAL_UPDATE_IN_PROGRESS；不取密/不自动提权 |
 
 当前typed Errors.cpp映射的完整名称清单（不把历史APP_NOT_RUNNING/INSTANCE_SELECTION_REQUIRED等恢复为当前入口要求）：
@@ -654,7 +638,6 @@ SESSION_COMMAND_NOT_READY
 | capture | 连接4、客户端4/客户端scope全局32、TTL60000ms |
 | full/compact | full默认65536字节/256行、硬限262144/1024；compact4096/24、最终8192字节 |
 | 输入 | 1～64动作，总文本16384字节、编码65536；控制闲置续期60000ms |
-| 命令/确认/发布 | 固定诊断5000ms；run_command/script参数1～30000ms；确认60000ms，发布120000ms |
 | 输出/脚本/记录 | 命令输出65536字节；脚本原文2097152字节；待发布8；每客户端执行记录32/总128 |
 | wire | 响应帧2MiB、待写队列4MiB；请求6×2MiB脚本+256KiB信封；wire余量5000ms |
 | HTTP | Header16KiB、socket buffer16KiB、socket16、request32；单输出4MiB、全局8MiB；输入4×(请求上限+16KiB)+128KiB |

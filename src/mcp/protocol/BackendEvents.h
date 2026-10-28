@@ -27,7 +27,6 @@ struct BackendCall
 {
     QString id;
     ToolRequest request;
-    QByteArray confirmationDigest;
     bool mrtr{false};
     bool formElicitation{false};
     QString requestState;

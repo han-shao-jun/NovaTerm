@@ -9,8 +9,6 @@ std::optional<NovaTerm::Mcp::PermissionKind> SessionPermissionModel::permissionF
     using NovaTerm::Mcp::PermissionKind;
     switch (column) {
     case index(Column::ReadOutput): return PermissionKind::ReadOutput;
-    case index(Column::Script): return PermissionKind::ScriptPublishAndInvoke;
-    case index(Column::Interactive): return PermissionKind::RiskControlledTerminalCommand;
     case index(Column::TerminalInput): return PermissionKind::FullTerminalInput;
     case index(Column::Elevation): return PermissionKind::ManagedElevation;
     case index(Column::ClearTerminal): return PermissionKind::ClearTerminal;
@@ -20,8 +18,7 @@ std::optional<NovaTerm::Mcp::PermissionKind> SessionPermissionModel::permissionF
 
 bool SessionPermissionModel::isPermissionColumn(int column)
 {
-    return column == index(Column::ReadOutput) || column == index(Column::Diagnostics)
-        || column == index(Column::Script) || column == index(Column::Interactive)
+    return column == index(Column::ReadOutput)
         || column == index(Column::TerminalInput) || column == index(Column::Elevation)
         || column == index(Column::ClearTerminal);
 }

@@ -30,7 +30,6 @@ public:
     mutable ContextQuery lastRead;
     std::optional<Error> readError;
     ContextSummary summary;
-    DiagnosticCatalog catalog;
 
     quint64 directoryRevision() const override { return revision; }
     ClientAccessVersion accessVersion(const ClientId&) const override
@@ -57,8 +56,6 @@ public:
         if (clearDuringRead) ++result.cacheGeneration;
         return result;
     }
-    DiagnosticCatalog commandCatalog(const ClientId&, const SessionReference&) const override
-    { return catalog; }
 };
 
 ContextQuery contextQuery()
@@ -241,33 +238,7 @@ private slots:
         QCOMPARE(errorIfAny(result)->code, ErrorCode::SessionNotAvailable);
     }
 
-    void commandCatalogFiltersPermissionsAndBindsTickets()
-    {
-        FakeSessions port;
-        port.catalog.policyVersion = QStringLiteral("policy-v1");
-        port.catalog.profileVersion = QStringLiteral("profile-v2");
-        port.catalog.profileAvailable = port.catalog.executorAvailable = port.catalog.targetVerified = true;
-        const DiagnosticId allowed{QStringLiteral("os.uname")};
-        port.catalog.allowed.insert(allowed);
-        port.catalog.commands = {{allowed, QStringLiteral("System"), QStringLiteral("uname")},
-            {DiagnosticId{QStringLiteral("memory")}, QStringLiteral("Memory"), QStringLiteral("free")}};
-        auto result = ReadUseCases{port}.listCommands(client, session("a"), 1000);
-        QVERIFY(!isError(result));
-        const auto& list = std::get<CommandList>(result);
-        QVERIFY(!list.disabledReason);
-        QCOMPARE(list.commands.size(), 1);
-        QCOMPARE(list.commands[0].id.str(), allowed.str());
-        QCOMPARE(list.accessVersion.value(), port.grant);
-        QCOMPARE(list.expires, qint64(1000 + Budget::ConfirmationTimeout.count()));
-        QCOMPARE(list.policyVersion, port.catalog.policyVersion);
-        QCOMPARE(list.profileVersion, port.catalog.profileVersion);
-        port.catalog.allowed.clear();
-        result = ReadUseCases{port}.listCommands(client, session("a"), 1000);
-        QVERIFY(!isError(result));
-        QCOMPARE(std::get<CommandList>(result).disabledReason,
-            std::optional<ErrorCode>{ErrorCode::CommandPermissionRequired});
-        QVERIFY(std::get<CommandList>(result).commands.isEmpty());
-    }
+
 };
 
 QTEST_GUILESS_MAIN(ReadUseCasesTests)

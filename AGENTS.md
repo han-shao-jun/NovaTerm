@@ -1,5 +1,11 @@
 # AGENTS.md
 
+### 0.2.102 MCP旧接口退役与接入界面精简（2026-10-29）
+
+按用户确认范围删除旧list_commands/execute_command/run_command/run_script四工具，30→26，终端DTO9→5，删除独占执行/确认/保护/风险实现及对应旧UI。会话表11→8列，客户端增删与轮换令牌进入次级管理窗口；新终端交互、文件/保存目标和历史录制保留，旧选择不升级为输入权限。Release all成功；最终相关CTest24/24（37.34秒，明确不含Linux安全文件后端未实现导致失败/超时的串口文件发送目标），批次内完整MCP225pass/0fail/3Windows-only skip；两代26工具互操作及旧四工具拒绝通过。截图发现管理说明字号过大后仅修正字号，all及专项10/10复验通过，不冒充24目标重跑。最终DEB/ZIP与解包helper/SQLite/隔离启动通过。保留CPack修复（c91a56c，0.2.101），实施阶段版本0.2.100，按用户要求提交时递增至0.2.102，未连接设备；共用Session设施及内部快照兼容字段保留，无旧MCP执行入口。范围、分轮失败和自审限制见[清理记录](docs/architecture/MCP_Cleanup_2026-10-29.md)。
+
+0.2.102提交前独立复验：Release all成功，MCP与录制标签相关CTest28/28（37.66秒，仍排除已知Linux串口文件后端缺口目标），批次内完整MCP225pass/0fail/3Windows-only skip（37.626秒）；两代26工具互操作及DEB/ZIP、两包解压helper/SQLite/隔离启动通过。不将前轮成绩改写为本轮；产物与本机依赖不纳入，用户已明确要求本地提交并推送。
+
 ### 0.2.101 Linux CPack修复提交（2026-10-29）
 
 0.2.100默认DEB因部署无关SQL驱动而缺mysql/pq/odbc库失败；主程序通过Qt插件类型筛选仅部署SQLite，保留shlibdeps。包内诊断helper另有公共bin位置错误和误载系统Qt问题，改为与私有主程序同目录并使用相对RPATH。Release all、默认CPack DEB+ZIP均成功；历史相关CTest3/3（11.97秒），两包独立解压后的helper、随包SQLite读写和隔离配置X11短暂启动通过。上述为0.2.100实施阶段原始成绩；按用户要求提交时递增至0.2.101，未将含MCP清理的工作区构建冒充该CPack单独提交的隔离重测。未测其他平台/发行版/设备，产物和临时日志不纳入。详见[Linux打包修复记录](docs/architecture/Linux_CPack_Fix_2026-10-29.md)。

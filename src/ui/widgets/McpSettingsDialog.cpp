@@ -1,5 +1,5 @@
 /** @file McpSettingsDialog.cpp
- *  @brief 用户可导出令牌或解除目标暂停；这些操作不暴露给 MCP。
+ *  @brief 本机MCP接入、独立会话授权与客户端管理。
  */
 #include "McpSettingsDialog.h"
 #include "FileResourceSharingDialog.h"
@@ -12,7 +12,6 @@
 #include "ElaCheckBox.h"
 #include "ElaComboBox.h"
 #include "ElaLineEdit.h"
-#include "ElaPlainTextEdit.h"
 #include "ElaPushButton.h"
 #include "ElaText.h"
 #include "ElaTreeWidget.h"
@@ -163,26 +162,16 @@ McpSettingsDialog::McpSettingsDialog(NovaTerm::Mcp::Service* service, QWidget* p
     setAttribute(Qt::WA_DeleteOnClose);
     setWindowTitle(tr("AI MCP access"));
     setWindowButtonFlags(ElaAppBarType::CloseButtonHint);
-    resize(1180, 800);
+    resize(1050, 680);
     auto* layout = new QVBoxLayout(this);
     layout->setContentsMargins(16, 8, 16, 16);
     layout->setSpacing(10);
     _enabled = new ElaCheckBox(tr("Enable local MCP access"), this);
     layout->addWidget(_enabled);
-    auto* explanation = new ElaText(tr("Share only the sessions you select. Terminal output may contain sensitive information. "
-        "Fixed diagnostics stay separate from interactive terminal input. Shared sessions can run ordinary commands; potentially destructive commands and every script require confirmation in the MCP client. "
-        "Script contents are written to the selected host path and are never sent to the terminal UI. Risk checks are best-effort, not a sandbox."), this);
+    auto* explanation = new ElaText(tr("只共享所选会话。允许执行命令后，AI可在当前连接输入文本、按键和命令；终端输出可能包含敏感信息。"), this);
     explanation->setWordWrap(true);
     explanation->setTextPixelSize(12);
     layout->addWidget(explanation);
-    auto* interactionHelp = new ElaText(tr("允许执行命令授予当前连接的完整终端输入权限，不再逐条确认。旧命令接口的诊断、脚本和交互权限保持独立。托管提权必须另外授权；保存密码不会启用提权，可信认证适配器尚不可用。"), this);
-    interactionHelp->setWordWrap(true);
-    interactionHelp->setTextPixelSize(12);
-    layout->addWidget(interactionHelp);
-    auto* clearHelp = new ElaText(tr("允许清空终端须单独授权，默认关闭。清空影响本机屏幕或滚动历史，不向设备发送字节、不停止远端程序，也不删除独立历史录制。重连后需重新授权。"), this);
-    clearHelp->setWordWrap(true);
-    clearHelp->setTextPixelSize(12);
-    layout->addWidget(clearHelp);
     _status = new ElaText(this);
     _status->setWordWrap(true);
     _status->setTextPixelSize(12);
@@ -192,30 +181,23 @@ McpSettingsDialog::McpSettingsDialog(NovaTerm::Mcp::Service* service, QWidget* p
     _clients->setObjectName(QStringLiteral("mcpClientSelector"));
     _clients->setMinimumWidth(180);
     clients->addWidget(_clients, 1);
-    _label = new ElaLineEdit(this);
-    _label->setPlaceholderText(tr("New client label"));
-    _label->setMaxLength(80);
-    clients->addWidget(_label, 1);
-    auto* add = new ElaPushButton(tr("Add client"), this);
-    auto* remove = new ElaPushButton(tr("Remove client"), this);
-    clients->addWidget(add);
-    clients->addWidget(remove);
+    auto* manage = new ElaPushButton(tr("管理客户端…"), this);
+    manage->setObjectName("mcpManageClients");
+    clients->addWidget(manage);
+    connect(manage, &QPushButton::clicked, this, &McpSettingsDialog::manageClients);
     layout->addLayout(clients);
     auto* actions = new QHBoxLayout;
     auto* copy = new ElaPushButton(tr("Copy MCP configuration"), this);
     auto* copyForCcSwitch = new ElaPushButton(tr("Copy for CC Switch"), this);
-    auto* rotate = new ElaPushButton(tr("Rotate access token"), this);
     auto* takeOver = new ElaPushButton(tr("接管选中会话"), this);
     actions->addWidget(copy);
     actions->addWidget(copyForCcSwitch);
-    actions->addWidget(rotate);
     actions->addWidget(takeOver);
     actions->addStretch();
     layout->addLayout(actions);
     _sessions = new ElaTreeWidget(this);
     _sessions->setColumnCount(NovaTerm::Ui::SessionPermissionModel::ColumnCount);
     _sessions->setHeaderLabels({tr("Session"), tr("State"), tr("Read output"),
-        tr("Fixed diagnostics"), tr("Script tasks"), tr("Interactive commands"),
         tr("允许执行命令"), tr("允许托管提权"), tr("允许清空终端"), tr("提权凭据"), tr("当前操作")});
     // 授权列整格均可点击，避免仅命中小尺寸复选框时才能切换状态。
     auto* permissionDelegate = new PermissionCellDelegate(_sessions);
@@ -223,7 +205,7 @@ McpSettingsDialog::McpSettingsDialog(NovaTerm::Mcp::Service* service, QWidget* p
         if (NovaTerm::Ui::SessionPermissionModel::isPermissionColumn(column))
             _sessions->setItemDelegateForColumn(column, permissionDelegate);
     }
-    _sessions->setRootIsDecorated(true);
+    _sessions->setRootIsDecorated(false);
     _sessions->setItemHeight(30);
     connect(eTheme, &ElaTheme::themeModeChanged, _sessions,
         [this] { _sessions->viewport()->update(); });
@@ -241,13 +223,7 @@ McpSettingsDialog::McpSettingsDialog(NovaTerm::Mcp::Service* service, QWidget* p
     sessionHeader->setSectionResizeMode(NovaTerm::Ui::SessionPermissionModel::index(
         NovaTerm::Ui::SessionPermissionModel::Column::Operation), QHeaderView::Stretch);
     layout->addWidget(_sessions, 2);
-    auto* legacyPermissions = new ElaCheckBox(tr("显示旧命令接口详细权限"), this);
-    legacyPermissions->setChecked(true);
-    connect(legacyPermissions, &QCheckBox::toggled, this, [this](bool visible) {
-        for (int column = 3; column <= 5; ++column) _sessions->setColumnHidden(column, !visible);
-    });
-    layout->addWidget(legacyPermissions);
-    auto* savedHelp = new ElaText(tr("保存目标：共享目录只披露名称与端点摘要；另勾选允许打开后，可复用连接或创建可见终端。新建会话的读取、完整输入和清空须分别预先选择，默认关闭；仅在原连接首次就绪后绑定，复用和重连不重新授权。本次运行有效，修改配置或轮换令牌后需重新选择；文件、脚本和提权仍另行授权。"), this);
+    auto* savedHelp = new ElaText(tr("保存目标须单独共享并允许打开。新建连接的读取、输入和清空按勾选授权；复用或重连不自动授权。文件资源另行授权。"), this);
     savedHelp->setWordWrap(true);
     savedHelp->setTextPixelSize(12);
     layout->addWidget(savedHelp);
@@ -297,21 +273,6 @@ McpSettingsDialog::McpSettingsDialog(NovaTerm::Mcp::Service* service, QWidget* p
             if (!applied) _status->setText(tr("保存目标或客户端已变化，目录共享未提交；请重新选择。"));
         }, Qt::QueuedConnection);
     });
-    _records = new ElaComboBox(this);
-    layout->addWidget(_records);
-    _details = new ElaPlainTextEdit(this);
-    _details->setReadOnly(true);
-    _details->setMaximumBlockCount(1024);
-    _details->setPlaceholderText(tr("Command results appear here. A disconnected or timed-out command may still be running remotely."));
-    layout->addWidget(_details, 1);
-    _targets = new ElaComboBox(this);
-    layout->addWidget(_targets);
-    _confirmedStopped = new ElaCheckBox(tr("I have checked that the remote command has stopped"), this);
-    auto* acknowledge = new ElaPushButton(tr("Release selected target"), this);
-    auto* release = new QHBoxLayout;
-    release->addWidget(_confirmedStopped, 1);
-    release->addWidget(acknowledge);
-    layout->addLayout(release);
     connect(_enabled, &QCheckBox::toggled, this, [this](bool enabled) {
         if (!_refreshing && _controller && !_controller->setEnabled(enabled)) { refresh(); reportFailure(); }
     });
@@ -323,17 +284,6 @@ McpSettingsDialog::McpSettingsDialog(NovaTerm::Mcp::Service* service, QWidget* p
             _fileResourceClient.clear();
         }
         refresh();
-    });
-    connect(add, &QPushButton::clicked, this, [this] {
-        if (!_service) return;
-        const auto id = _controller->addClient(_label->text());
-        if (id.isEmpty()) { reportFailure(); return; }
-        _label->clear();
-        refresh();
-        _clients->setCurrentIndex(_clients->findData(id));
-    });
-    connect(remove, &QPushButton::clicked, this, [this] {
-        if (_controller && !_controller->removeClient(_clients->currentData().toString())) reportFailure();
     });
     connect(copy, &QPushButton::clicked, this, [this] {
         if (!_service) return;
@@ -348,9 +298,6 @@ McpSettingsDialog::McpSettingsDialog(NovaTerm::Mcp::Service* service, QWidget* p
         if (configuration.isEmpty()) { reportFailure(); return; }
         QApplication::clipboard()->setText(QString::fromUtf8(QJsonDocument(configuration).toJson()));
         _status->setText(tr("CC Switch configuration copied. It contains an access token; keep it private."));
-    });
-    connect(rotate, &QPushButton::clicked, this, [this] {
-        if (_controller && !_controller->rotateToken(_clients->currentData().toString())) reportFailure();
     });
     connect(takeOver, &QPushButton::clicked, this, [this] {
         if (!_service || !_sessions->currentItem()) return;
@@ -368,7 +315,6 @@ McpSettingsDialog::McpSettingsDialog(NovaTerm::Mcp::Service* service, QWidget* p
         }
         using Model = NovaTerm::Ui::SessionPermissionModel;
         const int readColumn = Model::index(Model::Column::ReadOutput);
-        const int diagnosticsColumn = Model::index(Model::Column::Diagnostics);
         const int terminalColumn = Model::index(Model::Column::TerminalInput);
         const int elevationColumn = Model::index(Model::Column::Elevation);
         auto* root = item->parent() ? item->parent() : item;
@@ -398,35 +344,12 @@ McpSettingsDialog::McpSettingsDialog(NovaTerm::Mcp::Service* service, QWidget* p
         if (column == readColumn) {
             if (!read) {
                 const QSignalBlocker blocker(_sessions);
-                for (int current = diagnosticsColumn; current < Model::ColumnCount; ++current)
+                for (int current = terminalColumn; current < Model::ColumnCount; ++current)
                     if (Model::isPermissionColumn(current))
                         root->setCheckState(current, Qt::Unchecked);
-                for (int i = 0; i < root->childCount(); ++i)
-                    root->child(i)->setCheckState(diagnosticsColumn, Qt::Unchecked);
             }
             applied = applyPermission(root, *row,
                 NovaTerm::Mcp::PermissionKind::ReadOutput, std::nullopt, read);
-        } else if (column == diagnosticsColumn) {
-            const bool selected = item->checkState(diagnosticsColumn) == Qt::Checked;
-            if (!item->parent()) {
-                // 根项一次操作整组诊断：仍按单项事务逐条提交，每条都使用最新行版本。
-                for (int i = 0; i < root->childCount() && applied; ++i) {
-                    const auto* current = _model->find(id);
-                    if (!current) {
-                        applied = false;
-                        break;
-                    }
-                    const auto diagnostic = NovaTerm::Mcp::DiagnosticId{
-                        root->child(i)->data(0, Qt::UserRole).toString()};
-                    applied = applyPermission(root, *current,
-                        NovaTerm::Mcp::PermissionKind::Diagnostic, diagnostic, selected);
-                }
-            } else {
-                applied = applyPermission(root, *row,
-                    NovaTerm::Mcp::PermissionKind::Diagnostic,
-                    NovaTerm::Mcp::DiagnosticId{item->data(0, Qt::UserRole).toString()},
-                    selected);
-            }
         } else {
             const auto kind = NovaTerm::Ui::SessionPermissionModel::permissionForColumn(column);
             applied = kind && applyPermission(root, *row, *kind, std::nullopt,
@@ -442,31 +365,103 @@ McpSettingsDialog::McpSettingsDialog(NovaTerm::Mcp::Service* service, QWidget* p
         }
     });
 
-    connect(_records, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this] { if (!_refreshing) showRecord(); });
-    connect(_targets, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this] {
-        if (!_refreshing) _confirmedStopped->setChecked(false);
-    });
-    connect(_confirmedStopped, &QCheckBox::toggled, this, [this](bool checked) {
-        _confirmedFingerprint = checked ? _targets->currentData().toString() : QString{};
-        _confirmedExecutionId = checked
-            ? _targets->currentData(Qt::UserRole + 1).toString() : QString{};
-    });
-    connect(acknowledge, &QPushButton::clicked, this, [this] {
-        if (!_confirmedStopped->isChecked() || !_service) return;
-        const bool released = !_confirmedFingerprint.isEmpty()
-            && !_confirmedExecutionId.isEmpty()
-            && _confirmedFingerprint == _targets->currentData().toString()
-            && _confirmedExecutionId == _targets->currentData(Qt::UserRole + 1).toString()
-            && _service->acknowledgeTarget(_confirmedFingerprint, _confirmedExecutionId);
-        _confirmedStopped->setChecked(false);
-        if (!released) reportFailure();
-    });
     if (_service) connect(_service, &NovaTerm::Mcp::Service::changed,
         this, &McpSettingsDialog::refresh, Qt::QueuedConnection);
     refresh();
 }
 
 McpSettingsDialog::~McpSettingsDialog() = default;
+
+void McpSettingsDialog::manageClients()
+{
+    if (!_service) return;
+    if (_clientManager) {
+        _clientManager->show();
+        _clientManager->raise();
+        _clientManager->activateWindow();
+        return;
+    }
+    auto* dialog = new ElaDialog(this);
+    _clientManager = dialog;
+    dialog->setObjectName("mcpClientManager");
+    dialog->setAttribute(Qt::WA_DeleteOnClose);
+    dialog->setWindowModality(Qt::WindowModal);
+    dialog->setWindowTitle(tr("管理客户端"));
+    dialog->setWindowButtonFlags(ElaAppBarType::CloseButtonHint);
+    dialog->resize(520, 250);
+    auto* layout = new QVBoxLayout(dialog);
+    layout->setContentsMargins(20, 20, 20, 20);
+    auto* explanation = new ElaText(tr("每个客户端使用独立令牌和授权。移除客户端或更换令牌后，原接入配置失效。"), dialog);
+    explanation->setTextPixelSize(12);
+    explanation->setWordWrap(true);
+    layout->addWidget(explanation);
+    auto* clients = new ElaComboBox(dialog);
+    clients->setObjectName("mcpManagedClients");
+    layout->addWidget(clients);
+    auto* label = new ElaLineEdit(dialog);
+    label->setObjectName("mcpNewClientLabel");
+    label->setPlaceholderText(tr("New client label"));
+    label->setMaxLength(80);
+    layout->addWidget(label);
+    auto* actions = new QHBoxLayout;
+    auto* add = new ElaPushButton(tr("Add client"), dialog);
+    add->setObjectName("mcpAddClient");
+    auto* remove = new ElaPushButton(tr("Remove client"), dialog);
+    remove->setObjectName("mcpRemoveClient");
+    auto* rotate = new ElaPushButton(tr("Rotate access token"), dialog);
+    rotate->setObjectName("mcpRotateClientToken");
+    actions->addWidget(add);
+    actions->addWidget(remove);
+    actions->addWidget(rotate);
+    layout->addLayout(actions);
+    const auto update = [this, clients, remove, rotate] {
+        const auto selected = clients->currentData().toString();
+        const QSignalBlocker blocker(clients);
+        clients->clear();
+        if (_controller) {
+            for (const auto& client : _controller->clients())
+                clients->addItem(client.label, client.id.str());
+        }
+        const auto current = clients->findData(selected.isEmpty()
+            ? _clients->currentData().toString() : selected);
+        if (current >= 0) clients->setCurrentIndex(current);
+        remove->setEnabled(clients->currentIndex() >= 0);
+        rotate->setEnabled(clients->currentIndex() >= 0);
+    };
+    update();
+    connect(_service, &NovaTerm::Mcp::Service::changed, dialog, update, Qt::QueuedConnection);
+    connect(clients, QOverload<int>::of(&QComboBox::currentIndexChanged), dialog,
+        [clients, remove, rotate](int index) {
+            const bool available = index >= 0 && !clients->currentData().toString().isEmpty();
+            remove->setEnabled(available);
+            rotate->setEnabled(available);
+        });
+    connect(add, &QPushButton::clicked, dialog, [this, label, clients, update] {
+        const auto id = _controller->addClient(label->text());
+        if (id.isEmpty()) { reportFailure(); return; }
+        label->clear();
+        refresh();
+        _clients->setCurrentIndex(_clients->findData(id));
+        update();
+        clients->setCurrentIndex(clients->findData(id));
+    });
+    connect(remove, &QPushButton::clicked, dialog, [this, clients, update] {
+        if (!_controller->removeClient(clients->currentData().toString())) {
+            reportFailure(); return;
+        }
+        if (_fileResourceDialog) _fileResourceDialog->close();
+        refresh();
+        update();
+    });
+    connect(rotate, &QPushButton::clicked, dialog, [this, clients] {
+        if (!_controller->rotateToken(clients->currentData().toString())) {
+            reportFailure(); return;
+        }
+        if (_fileResourceDialog) _fileResourceDialog->close();
+        _status->setText(tr("令牌已更换，请重新复制接入配置。"));
+    });
+    dialog->open();
+}
 
 void McpSettingsDialog::editElevationCredentials(const QString& sessionId)
 {
@@ -575,9 +570,6 @@ bool McpSettingsDialog::applyPermission(QTreeWidgetItem* root,
     const auto& updated = outcome.row;
     using Model = NovaTerm::Ui::SessionPermissionModel;
     const int readColumn = Model::index(Model::Column::ReadOutput);
-    const int diagnosticsColumn = Model::index(Model::Column::Diagnostics);
-    const int scriptColumn = Model::index(Model::Column::Script);
-    const int interactiveColumn = Model::index(Model::Column::Interactive);
     const int terminalColumn = Model::index(Model::Column::TerminalInput);
     const int elevationColumn = Model::index(Model::Column::Elevation);
     const int clearColumn = Model::index(Model::Column::ClearTerminal);
@@ -586,23 +578,6 @@ bool McpSettingsDialog::applyPermission(QTreeWidgetItem* root,
     // 服务端级联结果回写控件；整个过程屏蔽信号，避免在 itemChanged 栈内递归。
     const QSignalBlocker blocker(_sessions);
     root->setCheckState(readColumn, updated.selection.read ? Qt::Checked : Qt::Unchecked);
-    int granted = 0;
-    for (int i = 0; i < root->childCount(); ++i) {
-        const NovaTerm::Mcp::DiagnosticId id{
-            root->child(i)->data(0, Qt::UserRole).toString()};
-        const bool on = updated.selection.diagnostics.contains(id);
-        root->child(i)->setCheckState(diagnosticsColumn, on ? Qt::Checked : Qt::Unchecked);
-        if (on)
-            ++granted;
-    }
-    if (root->childCount() > 0) {
-        root->setCheckState(diagnosticsColumn, granted == 0 ? Qt::Unchecked
-            : granted == root->childCount() ? Qt::Checked : Qt::PartiallyChecked);
-    }
-    root->setCheckState(scriptColumn,
-        updated.selection.script ? Qt::Checked : Qt::Unchecked);
-    root->setCheckState(interactiveColumn,
-        updated.selection.riskControlledCommand ? Qt::Checked : Qt::Unchecked);
     root->setCheckState(terminalColumn,
         updated.selection.fullTerminalInput ? Qt::Checked : Qt::Unchecked);
     root->setCheckState(elevationColumn,
@@ -693,9 +668,6 @@ void McpSettingsDialog::refresh()
     _model->rebuild(_controller->rows(clientId), expandedSessions);
     using Model = NovaTerm::Ui::SessionPermissionModel;
     const int readColumn = Model::index(Model::Column::ReadOutput);
-    const int diagnosticsColumn = Model::index(Model::Column::Diagnostics);
-    const int scriptColumn = Model::index(Model::Column::Script);
-    const int interactiveColumn = Model::index(Model::Column::Interactive);
     const int terminalColumn = Model::index(Model::Column::TerminalInput);
     const int elevationColumn = Model::index(Model::Column::Elevation);
     const int clearColumn = Model::index(Model::Column::ClearTerminal);
@@ -716,25 +688,6 @@ void McpSettingsDialog::refresh()
             item->setExpanded(true);
         item->setCheckState(readColumn,
             row.selection.read ? Qt::Checked : Qt::Unchecked);
-        int granted = 0;
-        for (const auto& diagnostic : row.diagnostics)
-            if (diagnostic.granted) ++granted;
-        item->setCheckState(diagnosticsColumn, granted == 0 ? Qt::Unchecked
-            : granted == row.diagnostics.size() ? Qt::Checked : Qt::PartiallyChecked);
-        const auto diagnosticHelp = row.localShell
-            ? tr("Fixed diagnostics run in an isolated local helper and do not write to the current shell.")
-            : tr("仅对已确认的 Linux/POSIX 目标使用固定诊断；授权不代表目标支持这些命令。");
-        if (!row.capability.diagnosticsReady)
-            item->setText(diagnosticsColumn, tr("后端不可用"));
-        item->setToolTip(diagnosticsColumn, row.capability.diagnosticsReady ? diagnosticHelp
-            : tr("可以保存诊断授权，但当前没有可用的目标 Profile 或执行后端；不会自动向终端发送诊断命令。")
-                + '\n' + diagnosticHelp);
-        item->setCheckState(scriptColumn,
-            row.selection.script ? Qt::Checked : Qt::Unchecked);
-        item->setToolTip(scriptColumn, tr("Allows LocalShell/SSH script tasks. Each script still requires MCP-client confirmation; its body is written to the requested host path and is not shown in the terminal UI."));
-        item->setCheckState(interactiveColumn,
-            row.selection.riskControlledCommand ? Qt::Checked : Qt::Unchecked);
-        item->setToolTip(interactiveColumn, tr("Allows the MCP client to type commands into this session's current terminal. Ordinary low-risk commands run without confirmation; anything potentially destructive or unclassifiable still requires confirmation in the MCP client. Off by default: sharing read output does not imply permission to type."));
         item->setCheckState(terminalColumn,
             row.selection.fullTerminalInput ? Qt::Checked : Qt::Unchecked);
         item->setToolTip(terminalColumn, tr("允许当前客户端在本次连接输入文本、按键并执行命令。重连、撤权或目标变化后需要重新授权。"));
@@ -785,46 +738,8 @@ void McpSettingsDialog::refresh()
         if (row.controlState == "preempted") operation = tr("用户接管");
         if (!row.commandState.isEmpty()) operation += " / " + row.commandState;
         item->setText(operationColumn, operation);
-        for (const auto& diagnostic : row.diagnostics) {
-            QString title = diagnostic.title;
-            if (diagnostic.id == "system.identity") title = tr("System identity");
-            else if (diagnostic.id == "system.uptime") title = tr("Uptime and load");
-            else if (diagnostic.id == "memory.summary") title = tr("Memory summary");
-            else if (diagnostic.id == "filesystem.usage") title = tr("Filesystem capacity");
-            auto* child = new QTreeWidgetItem(item, {title});
-            child->setData(0, Qt::UserRole, diagnostic.id);
-            child->setToolTip(0, diagnostic.preview);
-            child->setCheckState(diagnosticsColumn,
-                diagnostic.granted ? Qt::Checked : Qt::Unchecked);
-        }
     }
     _sessions->setEnabled(!clientId.isEmpty() && _controller->enabled());
-    const auto previousRecord = _records->currentData().toString();
-    _records->clear();
-    _recordData.clear();
-    for (const auto& value : _service->executionRecords()) {
-        const auto record = value.toObject();
-        const auto id = record.value("executionId").toString();
-        _records->addItem(record.value("commandId").toString() + " / " + id.left(8), id);
-        _recordData.insert(id, record);
-    }
-    if (_records->findData(previousRecord) >= 0) _records->setCurrentIndex(_records->findData(previousRecord));
-    const auto previousTarget = _targets->currentData().toString();
-    const QSignalBlocker targetsBlocker(_targets);
-    _targets->clear();
-    const auto targets = _service->protectedTargets();
-    for (auto it = targets.begin(); it != targets.end(); ++it) {
-        const auto executionId = it.value().toObject().value("executionId").toString();
-        _targets->addItem(tr("Protected target %1 — execution %2")
-            .arg(it.key().left(12), executionId.left(8)), it.key());
-        _targets->setItemData(_targets->count() - 1, executionId, Qt::UserRole + 1);
-    }
-    const auto previousTargetIndex = _targets->findData(previousTarget);
-    if (previousTargetIndex >= 0) _targets->setCurrentIndex(previousTargetIndex);
-    if (_confirmedFingerprint != _targets->currentData().toString()
-        || _confirmedExecutionId != _targets->currentData(Qt::UserRole + 1).toString()) {
-        _confirmedStopped->setChecked(false);
-    }
     if (!currentSession.isEmpty()) {
         for (int i = 0; i < _sessions->topLevelItemCount(); ++i) {
             if (_sessions->topLevelItem(i)->data(0, Qt::UserRole).toString()
@@ -836,19 +751,4 @@ void McpSettingsDialog::refresh()
     }
     _sessions->verticalScrollBar()->setValue(scrollPosition);
     _refreshing = false;
-    showRecord();
-}
-void McpSettingsDialog::showRecord()
-{
-    const auto record = _recordData.value(_records->currentData().toString());
-    if (record.isEmpty()) { _details->clear(); return; }
-    if (!record.value("complete").toBool()) { _details->setPlainText(tr("Command is running.")); return; }
-    const auto payload = record.value("result").toObject();
-    const auto details = payload.value("ok").toBool() ? payload.value("data").toObject()
-        : payload.value("error").toObject().value("details").toObject();
-    _details->setPlainText(tr("Status: %1\nExit code: %2\nTermination confirmed: %3\n\n%4\n%5")
-        .arg(details.value("status").toString(), details.value("exitCode").isNull()
-            ? tr("Unknown") : QString::number(details.value("exitCode").toInt()),
-            details.value("terminationConfirmed").toBool() ? tr("Yes") : tr("No"),
-            details.value("stdout").toString(), details.value("stderr").toString()));
 }

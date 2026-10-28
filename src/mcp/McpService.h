@@ -41,12 +41,8 @@ public:
     [[nodiscard]] QString status() const;
     [[nodiscard]] QJsonObject clientConfiguration(const QString& clientId) const;
     [[nodiscard]] QJsonObject ccSwitchConfiguration(const QString& clientId) const;
-    [[nodiscard]] QJsonArray executionRecords() const;
     /** @brief 不含正文、搜索词、目标和凭据的本机诊断计数。 */
     [[nodiscard]] QJsonObject statistics() const;
-    [[nodiscard]] QJsonObject protectedTargets() const;
-    bool acknowledgeTarget(const QString& fingerprint);
-    bool acknowledgeTarget(const QString& fingerprint, const QString& expectedExecutionId);
     void stop();
 signals:
     void changed();

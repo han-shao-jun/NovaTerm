@@ -22,7 +22,7 @@ class ToolCodec
 public:
     ToolCodec() = delete;
 
-    /** @brief 原九工具对象保持兼容，末尾追加独立授权的三个历史工具。 */
+    /** @brief 现行工具目录；已退役的旧命令工具不再公布。 */
     [[nodiscard]] static const QJsonArray& catalog();
 
     [[nodiscard]] static bool isKnownTool(const QString& name);
@@ -34,7 +34,7 @@ public:
     [[nodiscard]] static QString validate(const QString& name, const QJsonObject& arguments);
 
     /**
-     * @brief 旧九工具的终端领域解码；完整协议调用使用 decodeCall。
+     * @brief 现行终端领域解码；完整协议调用使用 decodeCall。
      *
      * 返回 `Error{InvalidArgument}` 时 `message` 与 `validate()` 的文本一致，
      * 保证外部错误报文不变。
@@ -55,14 +55,8 @@ public:
         const std::vector<TerminalAction>& actions);
 
     /** @brief 确认声明的唯一 JSON/MAC 边界，保持已有 requestState 格式。 */
-    [[nodiscard]] static QJsonObject encodeConfirmation(const ConfirmationTransaction& transaction);
     [[nodiscard]] static ConfirmationAnswer confirmationAnswer(const QString& action, bool confirmed);
     [[nodiscard]] static std::optional<ConfirmationAnswer> confirmationAnswer(const QJsonObject& responses);
-    [[nodiscard]] static std::optional<ConfirmationTransaction> decodeConfirmation(const QJsonObject& claims);
-    [[nodiscard]] static QString signConfirmation(const ConfirmationTransaction& transaction,
-        const QByteArray& key);
-    [[nodiscard]] static std::optional<ConfirmationTransaction> verifyConfirmation(
-        const QString& token, const QByteArray& key);
 };
 
 } // namespace NovaTerm::Mcp

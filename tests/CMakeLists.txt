@@ -152,13 +152,6 @@ add_subdirectory(resources)
     set_tests_properties(novaterm_mcp_observation_state_tests PROPERTIES LABELS "mcp;p8" TIMEOUT 30)
     add_dependencies(check novaterm_mcp_observation_state_tests)
 
-    qt_add_executable(novaterm_mcp_command_runtime_tests mcp/CommandRuntimeTests.cpp)
-    target_link_libraries(novaterm_mcp_command_runtime_tests PRIVATE novaterm_mcp_application novaterm_terminal_capabilities Qt6::Test)
-    set_target_properties(novaterm_mcp_command_runtime_tests PROPERTIES WIN32_EXECUTABLE FALSE)
-    add_test(NAME novaterm_mcp_command_runtime_tests COMMAND novaterm_mcp_command_runtime_tests)
-    set_tests_properties(novaterm_mcp_command_runtime_tests PROPERTIES LABELS "mcp;p8" TIMEOUT 30)
-    add_dependencies(check novaterm_mcp_command_runtime_tests)
-
     qt_add_executable(novaterm_mcp_wire_tests mcp/WireSessionTests.cpp)
     target_link_libraries(novaterm_mcp_wire_tests PRIVATE novaterm_mcp_protocol Qt6::Test)
     set_target_properties(novaterm_mcp_wire_tests PROPERTIES WIN32_EXECUTABLE FALSE)
@@ -322,7 +315,6 @@ add_subdirectory(resources)
 
     qt_add_executable(novaterm_command_safety_tests
         mcp/CommandSafetyTests.cpp
-        ${PROJECT_SOURCE_DIR}/src/mcp/CommandRiskPolicy.cpp
         ${PROJECT_SOURCE_DIR}/src/session/ISessionScriptProvider.h
         ${PROJECT_SOURCE_DIR}/src/session/LocalSessionScriptProvider.cpp
         ${PROJECT_SOURCE_DIR}/src/session/LocalSessionScriptProvider.h

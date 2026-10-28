@@ -1,22 +1,24 @@
 #include "mcp/protocol/ToolCodec.h"
+#include "CatalogFixtureSupport.h"
 #include <QFile>
 #include <QJsonDocument>
 #include <QTest>
 using namespace NovaTerm::Mcp;
+using namespace NovaTerm::Mcp::TestSupport;
 class HistoryContractsTests final : public QObject {
     Q_OBJECT
 private slots:
     void terminalRequestSetStaysFrozen() {
-        static_assert(std::variant_size_v<ToolRequest> == 9, "New domains must not expand terminal application requests");
-        QCOMPARE(std::variant_size_v<ToolRequest>, size_t(9));
+        static_assert(std::variant_size_v<ToolRequest> == 5, "New domains must not expand terminal application requests");
+        QCOMPARE(std::variant_size_v<ToolRequest>, size_t(5));
     }
     void newCatalogMatchesFrozenFixture() {
         QFile fixture(QStringLiteral(NOVATERM_SOURCE_DIR "/tests/mcp/fixtures/history-tool-catalog-2026-10-23.json"));
         QVERIFY(fixture.open(QIODevice::ReadOnly));
         const auto expected = QJsonDocument::fromJson(fixture.readAll()).array();
         QJsonArray actual; const auto all = ToolCodec::catalog();
-        QCOMPARE(all.size(), 30);
-        for (qsizetype i = 9; i < 12; ++i) actual.append(all[i]);
+        QCOMPARE(all.size(), 26);
+        for (qsizetype i = 5; i < 8; ++i) actual.append(all[i]);
         QCOMPARE(actual, expected);
     }
     void legacyCatalogObjectsUnchanged() {
@@ -24,13 +26,15 @@ private slots:
         QVERIFY(fixture.open(QIODevice::ReadOnly));
         const auto legacy = QJsonDocument::fromJson(fixture.readAll()).array();
         const auto current = ToolCodec::catalog();
-        QCOMPARE(current.size(), legacy.size() + 21);
+        QCOMPARE(current.size(), legacy.size() + 17);
         for (qsizetype i = 0; i < legacy.size(); ++i) {
+            const auto name = legacy[i].toObject().value("name").toString();
+            if (retiredTool(name)) continue;
             if (legacy[i].toObject().value("name") == "novaterm_read_context") {
                 QFile logFixture(QStringLiteral(NOVATERM_SOURCE_DIR "/tests/mcp/fixtures/read-context-clear-2026-10-25.json"));
                 QVERIFY(logFixture.open(QIODevice::ReadOnly));
-                QCOMPARE(current[i].toObject(), QJsonDocument::fromJson(logFixture.readAll()).object());
-            } else QCOMPARE(current[i], legacy[i]);
+                QCOMPARE(toolByName(name), QJsonDocument::fromJson(logFixture.readAll()).object());
+            } else QCOMPARE(toolByName(name), retainedSchema(legacy[i]).toObject());
         }
     }
     void historyToolsDecodeWithoutSessionIdentity() {

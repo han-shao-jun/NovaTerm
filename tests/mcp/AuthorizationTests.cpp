@@ -7,11 +7,8 @@
 #include "mcp/application/CaptureSearch.h"
 #include "mcp/application/CaptureStore.h"
 #include "mcp/application/SnapshotStore.h"
-#include "mcp/application/CommandDedup.h"
 #include "mcp/application/RequestScheduler.h"
-#include "mcp/tasks/ConfirmationRegistry.h"
 #include "mcp/contracts/Permissions.h"
-#include "mcp/contracts/TaskPhases.h"
 #include "mcp/security/ClientRegistry.h"
 
 #include <QJsonArray>
@@ -104,9 +101,6 @@ class AuthorizationTests : public QObject
     Q_OBJECT
 private slots:
     void newSessionInitializationIsAtomicAndNeverOverwrites();
-    void confirmationRejectsChangedFactsAndReplay();
-    void confirmationUserGenerationPreservesPresence();
-    void taskPhasesAdvanceOnlyForward();
 
     void singleChangeAdvancesRowAndClientVersions();
     void clientIdentityGenerationIsIndependentAndNeverReused();
@@ -131,9 +125,7 @@ private slots:
     void snapshotStoreReloadsOnEpochChange();
     void captureSearchScopesAndLimits();
     void captureSearchFindsPatternPastChunkBoundary();
-    void confirmationsKeepNonceAndPendingState();
     void requestSchedulerEnforcesBudgetsAndCancellation();
-    void commandDedupBlocksUntilSwept();
 };
 
 void AuthorizationTests::newSessionInitializationIsAtomicAndNeverOverwrites()
@@ -520,28 +512,32 @@ void AuthorizationTests::capabilitiesFollowGrantsAndFacts()
     context.client = ClientId{QStringLiteral("client-1")};
     auto snapshot = CapabilityResolver::resolve(read, capabilityFacts, context);
     QCOMPARE(snapshot.capabilities,
-        QStringList({"read_context", "search_context", "list_commands"}));
+        QStringList({"read_context", "search_context"}));
 
     const auto withDiagnostic = apply(service,
         change(PermissionKind::Diagnostic, true, GrantRevision{1},
             DiagnosticId{QStringLiteral("os.uname")}), current);
     snapshot = CapabilityResolver::resolve(withDiagnostic, capabilityFacts, context);
-    QVERIFY(snapshot.capabilities.contains(QStringLiteral("execute_command")));
+    QVERIFY(!snapshot.capabilities.contains(QStringLiteral("execute_command")));
+    QVERIFY(!snapshot.terminalInputAvailable);
 
     const auto risk = apply(service,
         change(PermissionKind::RiskControlledTerminalCommand, true, GrantRevision{2}), current);
     snapshot = CapabilityResolver::resolve(risk, capabilityFacts, context);
-    QVERIFY(snapshot.capabilities.contains(QStringLiteral("run_command")));
+    QVERIFY(!snapshot.capabilities.contains(QStringLiteral("run_command")));
+    QVERIFY(!snapshot.terminalInputAvailable);
 
     const auto script = apply(service,
         change(PermissionKind::ScriptPublishAndInvoke, true, GrantRevision{3}), current);
     snapshot = CapabilityResolver::resolve(script, capabilityFacts, context);
-    QVERIFY(snapshot.capabilities.contains(QStringLiteral("run_script")));
+    QVERIFY(!snapshot.capabilities.contains(QStringLiteral("run_script")));
+    QVERIFY(!snapshot.terminalInputAvailable);
 
     capabilityFacts.unverifiedPrompt = true;
     snapshot = CapabilityResolver::resolve(script, capabilityFacts, context);
     QVERIFY(!snapshot.capabilities.contains(QStringLiteral("run_script")));
-    QVERIFY(snapshot.capabilities.contains(QStringLiteral("run_command")));
+    QVERIFY(!snapshot.capabilities.contains(QStringLiteral("run_command")));
+    QVERIFY(!snapshot.terminalInputAvailable);
 }
 
 void AuthorizationTests::terminalInputReasonOrderIsStable()
@@ -820,55 +816,6 @@ void AuthorizationTests::captureSearchFindsPatternPastChunkBoundary()
     QCOMPARE(found.matches[0].endByte, 9006);
 }
 
-void AuthorizationTests::confirmationsKeepNonceAndPendingState()
-{
-    ConfirmationRegistry registry;
-    QVERIFY(registry.empty());
-
-    registry.registerActive(QStringLiteral("conn-1"), QStringLiteral("client-1"),
-        QStringLiteral("s1"), QStringLiteral("nonce-1"), 1000);
-    QVERIFY(registry.isActive(QStringLiteral("conn-1"), QStringLiteral("nonce-1")));
-    QVERIFY(registry.hasActiveForConnection(QStringLiteral("conn-1")));
-    QVERIFY(!registry.isConsumed(QStringLiteral("nonce-1")));
-    QVERIFY(!registry.empty());
-
-    registry.consumeActive(QStringLiteral("conn-1"), QStringLiteral("nonce-1"), 1000);
-    QVERIFY(!registry.isActive(QStringLiteral("conn-1"), QStringLiteral("nonce-1")));
-    QVERIFY(registry.isConsumed(QStringLiteral("nonce-1")));
-
-    registry.registerActive(QStringLiteral("conn-2"), QStringLiteral("client-2"),
-        QStringLiteral("s2"), QStringLiteral("nonce-2"), 1000);
-    QCOMPARE(registry.takeConnection(QStringLiteral("conn-2")), QStringLiteral("nonce-2"));
-    QVERIFY(!registry.hasActiveForConnection(QStringLiteral("conn-2")));
-
-    registry.registerActive(QStringLiteral("conn-3"), QStringLiteral("client-3"),
-        QStringLiteral("s3"), QStringLiteral("nonce-3"), 1000);
-    registry.registerActive(QStringLiteral("conn-4"), QStringLiteral("client-3"),
-        QStringLiteral("s4"), QStringLiteral("nonce-4"), 1000);
-    registry.removeScope(QStringLiteral("client-3"), QStringLiteral("s3"));
-    QVERIFY(!registry.isActive(QStringLiteral("conn-3"), QStringLiteral("nonce-3")));
-    QVERIFY(registry.isActive(QStringLiteral("conn-4"), QStringLiteral("nonce-4")));
-
-    PendingConfirmationRecord pending;
-    pending.jobKey = QStringLiteral("conn-1/7");
-    pending.transaction.binding.connection = PeerId{QStringLiteral("conn-1")};
-    pending.transaction.expires = 500;
-    registry.insertPending(pending.jobKey, pending);
-    QVERIFY(registry.hasPendingForConnection(QStringLiteral("conn-1")));
-    QVERIFY(!registry.hasPendingForConnection(QStringLiteral("conn-4")));
-
-    const auto live = registry.sweep(400);
-    QVERIFY(live.empty());
-    QVERIFY(registry.pendingCount() == 1);
-    const auto expired = registry.sweep(600);
-    QCOMPARE(expired.size(), std::size_t(1));
-    QCOMPARE(expired[0].jobKey, QStringLiteral("conn-1/7"));
-    QVERIFY(registry.pendingCount() == 0);
-    QVERIFY(!registry.empty());
-    // nonce-1 的 consumed 记录与 nonce-4 的 scope 均在到期后清理。
-    static_cast<void>(registry.sweep(1000));
-    QVERIFY(registry.empty());
-}
 
 void AuthorizationTests::requestSchedulerEnforcesBudgetsAndCancellation()
 {
@@ -921,100 +868,6 @@ void AuthorizationTests::requestSchedulerEnforcesBudgetsAndCancellation()
     QCOMPARE(scheduler.activeCount(QStringLiteral("peer-1")), 0);
 }
 
-void AuthorizationTests::commandDedupBlocksUntilSwept()
-{
-    CommandDedup dedup{std::chrono::milliseconds(5000)};
-    QVERIFY(dedup.empty());
-    QVERIFY(!dedup.blocked(QStringLiteral("target-a")));
-    dedup.remember(QStringLiteral("target-a"), 1000);
-    QVERIFY(dedup.blocked(QStringLiteral("target-a")));
-    dedup.sweep(5999);
-    QVERIFY(dedup.blocked(QStringLiteral("target-a")));
-    dedup.sweep(6000);
-    QVERIFY(!dedup.blocked(QStringLiteral("target-a")));
-    QVERIFY(dedup.empty());
-}
-
-
-void AuthorizationTests::taskPhasesAdvanceOnlyForward()
-{
-    using NovaTerm::Mcp::TaskPhase;
-    QVERIFY(NovaTerm::Mcp::taskPhaseCanAdvance(TaskPhase::Preparing, TaskPhase::Reserved));
-    QVERIFY(NovaTerm::Mcp::taskPhaseCanAdvance(TaskPhase::Reserved, TaskPhase::Submitted));
-    QVERIFY(NovaTerm::Mcp::taskPhaseCanAdvance(TaskPhase::Submitted, TaskPhase::Observing));
-    QVERIFY(NovaTerm::Mcp::taskPhaseCanAdvance(TaskPhase::Observing, TaskPhase::Final));
-    QVERIFY(NovaTerm::Mcp::taskPhaseCanAdvance(TaskPhase::Submitted, TaskPhase::Final));
-    QVERIFY(!NovaTerm::Mcp::taskPhaseCanAdvance(TaskPhase::Observing, TaskPhase::Submitted));
-    QVERIFY(!NovaTerm::Mcp::taskPhaseCanAdvance(TaskPhase::Final, TaskPhase::Final));
-}
-
-void AuthorizationTests::confirmationRejectsChangedFactsAndReplay()
-{
-    ConfirmationBinding current;
-    current.connection = PeerId{QStringLiteral("peer")};
-    current.client = ClientId{QStringLiteral("client")};
-    current.session = SessionId{QStringLiteral("session")};
-    current.epoch = Epoch{QStringLiteral("epoch")};
-    current.targetFingerprint = QStringLiteral("target");
-    current.policyVersion = QStringLiteral("policy");
-    current.profileVersion = QStringLiteral("profile");
-    current.grantVersion = ClientAccessVersion{7};
-    current.promptGeneration = PromptRevision{8};
-    current.userInputGeneration = InputRevision{9};
-    current.payloadHash = QByteArray(32, 'h');
-    const ConfirmationTransaction transaction{current, QStringLiteral("nonce"), 1000};
-    QVERIFY(ConfirmationRegistry::validate(transaction, current, 999));
-    QVERIFY(!ConfirmationRegistry::validate(transaction, current, 1000));
-    const std::vector<std::function<void(ConfirmationBinding&)>> changeFact{
-        [](auto& value) { value.connection = PeerId{QStringLiteral("other")}; },
-        [](auto& value) { value.client = ClientId{QStringLiteral("other")}; },
-        [](auto& value) { value.session = SessionId{QStringLiteral("other")}; },
-        [](auto& value) { value.epoch = Epoch{QStringLiteral("other")}; },
-        [](auto& value) { value.targetFingerprint += QLatin1Char('x'); },
-        [](auto& value) { value.policyVersion += QLatin1Char('x'); },
-        [](auto& value) { value.profileVersion += QLatin1Char('x'); },
-        [](auto& value) { value.grantVersion = ClientAccessVersion{10}; },
-        [](auto& value) { value.promptGeneration = PromptRevision{10}; },
-        [](auto& value) { value.userInputGeneration = InputRevision{10}; },
-        [](auto& value) { value.payloadHash[0] = 'x'; },
-        [](auto& value) { value.tool = ConfirmationTool::Script; },
-        [](auto& value) { value.decision = ConfirmationDecision::Unknown; },
-    };
-    ConfirmationRegistry registry;
-    registry.registerActive(transaction);
-    for (const auto& change : changeFact) {
-        auto stale = current;
-        change(stale);
-        QVERIFY(!ConfirmationRegistry::validate(transaction, stale, 999));
-        QVERIFY(!registry.consume(transaction, stale, 999));
-    }
-    auto alteredDeadline = transaction;
-    alteredDeadline.expires += 1000;
-    QVERIFY(!registry.consume(alteredDeadline, current, 999));
-    QVERIFY(!registry.consume(transaction, current, 1000));
-    QVERIFY(registry.consume(transaction, current, 999));
-    QVERIFY(!registry.consume(transaction, current, 999));
-    registry.registerActive(transaction);
-    QVERIFY(!registry.consume(transaction, current, 999));
-    static_cast<void>(registry.sweep(1000));
-    QVERIFY(!registry.consume(transaction, current, 1001));
-}
-
-void AuthorizationTests::confirmationUserGenerationPreservesPresence()
-{
-    for (auto tool : {ConfirmationTool::Command, ConfirmationTool::Script}) {
-        ConfirmationBinding current;
-        current.tool = tool;
-        ConfirmationTransaction transaction{current, QStringLiteral("nonce"), 1000};
-        QVERIFY(ConfirmationRegistry::validate(transaction, current, 1));
-        current.userInputGeneration = InputRevision{0};
-        QVERIFY(!ConfirmationRegistry::validate(transaction, current, 1));
-        transaction.binding.userInputGeneration = InputRevision{0};
-        QVERIFY(ConfirmationRegistry::validate(transaction, current, 1));
-        current.userInputGeneration = InputRevision{1};
-        QVERIFY(!ConfirmationRegistry::validate(transaction, current, 1));
-    }
-}
 
 QTEST_MAIN(AuthorizationTests)
 #include "AuthorizationTests.moc"

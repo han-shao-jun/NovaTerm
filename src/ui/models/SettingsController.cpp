@@ -1,7 +1,6 @@
 /** @file SettingsController.cpp @brief 界面快照装配与单项授权提交实现。 */
 #include "SettingsController.h"
 #include "mcp/CapabilityAdapter.h"
-#include "mcp/CommandPolicy.h"
 #include "mcp/McpAccess.h"
 #include "mcp/McpService.h"
 #include "session/SessionCommandFacade.h"
@@ -50,7 +49,6 @@ QVector<SessionPermissionRow> SettingsController::rows(const QString& clientId) 
     if (!_service)
         return result;
     auto& access = _service->access();
-    const auto catalog = CommandPolicy::catalog();
     for (const auto& entry : _service->directory().entries()) {
         SessionPermissionRow row;
         row.client = ClientId{clientId};
@@ -72,17 +70,6 @@ QVector<SessionPermissionRow> SettingsController::rows(const QString& clientId) 
                 .value("state").toString();
             row.commandState = current.value("command").toObject()
                 .value("state").toString();
-        }
-        row.diagnostics.reserve(catalog.size());
-        const bool isolatedLocal = entry.kind == TransportKind::LocalShell
-            && entry.session
-            && entry.session->commandFacade()->capabilities().mode
-                == CommandExecutionMode::Isolated;
-        for (const auto& command : catalog) {
-            row.diagnostics.append(DiagnosticRow{command.id, command.title,
-                isolatedLocal ? QStringLiteral("novaterm-local-diag ") + command.id
-                              : QString::fromUtf8(command.command),
-                grant.selection.diagnostics.contains(DiagnosticId{command.id})});
         }
         row.elevationSelectable = row.capability.elevationGrantSelectable;
         row.clearTerminalSelectable = clearTerminalSelectable(entry, row.selection);
@@ -139,9 +126,6 @@ SettingsController::Outcome SettingsController::submit(const SessionPermissionRo
     outcome.row.clearTerminalSelectable = clearTerminalSelectable(*entry, grant.selection);
     outcome.row.capability = sessionCapabilities(
         *entry, row.client.str(), _service->access(), false);
-    for (auto& diagnosticRow : outcome.row.diagnostics)
-        diagnosticRow.granted = grant.selection.diagnostics.contains(
-            DiagnosticId{diagnosticRow.id});
     return outcome;
 }
 

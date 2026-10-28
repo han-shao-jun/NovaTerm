@@ -37,15 +37,6 @@ struct SessionRowKey
     }
 };
 
-/** @brief 固定诊断子行。 */
-struct DiagnosticRow
-{
-    QString id;
-    QString title;
-    QString preview; ///< 终端/本地 helper 预览，供提示文字使用。
-    bool granted{false};
-};
-
 /** @brief 一行的只读快照。 */
 struct SessionPermissionRow
 {
@@ -57,7 +48,6 @@ struct SessionPermissionRow
     NovaTerm::Mcp::GrantRevision revision;
     NovaTerm::Mcp::SessionBinding binding;
     NovaTerm::Mcp::CapabilitySnapshot capability;
-    QVector<DiagnosticRow> diagnostics;
     bool localShell{false};
     QString terminalOwner;       ///< 当前终端控制者 client id；空表示空闲。
     QString controlState;        ///< idle/controlled/preempted 等控制状态。
@@ -78,9 +68,6 @@ public:
         Session = 0,
         State,
         ReadOutput,
-        Diagnostics,
-        Script,
-        Interactive,
         TerminalInput,
         Elevation,
         ClearTerminal,
@@ -92,10 +79,10 @@ public:
     static constexpr int ColumnCount = int(Column::Count);
 
     static constexpr int index(Column column) { return int(column); }
-    /** @brief 该列对应的独立权限；诊断列与文本列返回空。 */
+    /** @brief 该列对应的独立权限；文本列返回空。 */
     [[nodiscard]] static std::optional<NovaTerm::Mcp::PermissionKind> permissionForColumn(
         int column);
-    /** @brief 是否为可勾选的业务权限列（读取/诊断/脚本/交互/完整输入/提权/清空）。 */
+    /** @brief 是否为可勾选的业务权限列（读取/完整输入/提权/清空）。 */
     [[nodiscard]] static bool isPermissionColumn(int column);
 
     /** @brief 用新快照替换整表；按 sessionId 保留展开状态。 */

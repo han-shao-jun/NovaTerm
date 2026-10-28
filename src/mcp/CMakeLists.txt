@@ -26,17 +26,12 @@ qt_add_library(novaterm_mcp_application STATIC
     application/AuthorizationService.cpp application/AuthorizationService.h
     application/CapabilityResolver.cpp application/CapabilityResolver.h
     application/RequestScheduler.cpp application/RequestScheduler.h
-    application/CommandDedup.cpp application/CommandDedup.h
     application/CaptureSearch.cpp application/CaptureSearch.h
     application/CaptureStore.cpp application/CaptureStore.h
     application/SnapshotStore.h
     application/ObservationState.cpp application/ObservationState.h
-    tasks/CommandRuntime.cpp tasks/CommandRuntime.h
-    tasks/TargetReservation.cpp tasks/TargetReservation.h
     tasks/ClearOperations.h
-    CommandRiskPolicy.cpp CommandRiskPolicy.h
     tasks/ReadUseCases.cpp tasks/ReadUseCases.h
-    tasks/ConfirmationRegistry.cpp tasks/ConfirmationRegistry.h
     security/ClientRegistry.cpp security/ClientRegistry.h)
 target_include_directories(novaterm_mcp_application PUBLIC ${PROJECT_SOURCE_DIR}/src)
 target_link_libraries(novaterm_mcp_application PUBLIC novaterm_mcp_contracts Qt6::Core)
@@ -98,11 +93,9 @@ qt_add_library(novaterm_mcp_runtime STATIC
     TerminalClearAdapter.cpp TerminalClearAdapter.h
     LogReadAdapter.cpp LogReadAdapter.h tasks/LogReadUseCase.h
     McpAccess.cpp McpAccess.h
-    CommandPolicy.cpp CommandPolicy.h
     McpService.cpp McpService.h
     HistoryCapabilityAdapter.cpp HistoryCapabilityAdapter.h
     ResourceComposition.cpp ResourceComposition.h
-    CommandSessionAdapter.cpp CommandSessionAdapter.h
     CapabilityAdapter.cpp CapabilityAdapter.h
     ObservationService.cpp ObservationService.h
     TerminalInteraction.cpp TerminalInteraction.h

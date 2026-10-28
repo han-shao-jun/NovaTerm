@@ -3,7 +3,6 @@
 #include "McpAccess.h"
 #include "McpProtocol.h"
 #include "ObservationService.h"
-#include "CommandPolicy.h"
 
 #include "session/ISessionScriptProvider.h"
 #include "session/SessionCommandCoordinator.h"
@@ -221,32 +220,6 @@ Result<ContextSummary> ReadUseCaseAdapter::readContext(const ContextQuery& query
     return summary;
 }
 
-DiagnosticCatalog ReadUseCaseAdapter::commandCatalog(const ClientId& client,
-    const SessionReference& session) const
-{
-    const auto entry = _ports.sessions->find(session.session.str());
-    DiagnosticCatalog catalog;
-    if (!entry || entry->epoch != session.epoch.str())
-        return catalog;
-    auto* facade = entry->session ? entry->session->commandFacade() : nullptr;
-    const auto profile = facade ? facade->profile() : CommandPlatformProfile{};
-    catalog.policyVersion = CommandPolicy::version(profile);
-    catalog.profileVersion = profile.version();
-    catalog.profileAvailable = profile.isAvailable();
-    catalog.executorAvailable = facade && facade->isAvailable();
-    catalog.targetVerified = !entry->targetFingerprint.isEmpty();
-    for (const auto& id : _ports.access->commands(client.str(), *entry))
-        catalog.allowed.insert(DiagnosticId{id});
-    for (const auto& command : CommandPolicy::catalog(profile)) {
-        const auto preview = entry->kind == TransportKind::LocalShell && facade
-            && facade->capabilities().mode == CommandExecutionMode::Isolated
-            ? QStringLiteral("novaterm-local-diag ") + command.id
-            : QString::fromUtf8(command.command);
-        catalog.commands.append({DiagnosticId{command.id}, command.title, preview});
-    }
-    return catalog;
-}
-
 Result<QJsonObject> ReadUseCaseAdapter::listSessions(const QString& client,
     const QByteArray& key, bool formElicitation, const ListSessionsRequest& request) const
 {
@@ -329,32 +302,5 @@ Result<QJsonObject> ReadUseCaseAdapter::readContext(const SessionDirectory::Entr
         {"suppressedDuplicates", QString::number(observed.suppressedDuplicates)}, {"nextToken", next}};
 }
 
-Result<QJsonObject> ReadUseCaseAdapter::listCommands(const SessionDirectory::Entry& entry,
-    const QString& client, const QByteArray& key, qint64 now) const
-{
-    Q_UNUSED(client);
-    const Capabilities::Terminal::ReadCapabilities ports{_dispatcher, *this};
-    const auto result = invokeRead(ports.diagnostics,
-        Capabilities::Terminal::DiagnosticListQuery{readSession(entry), now}, _context);
-    if (const auto* error = errorIfAny(result)) return *error;
-    const auto& list = std::get<CommandList>(result);
-    QJsonArray catalog;
-    for (const auto& command : list.commands) {
-        const auto ticket = signToken({{"kind", "command"}, {"execution", newId()},
-            {"session", list.session.session.str()}, {"epoch", list.session.epoch.str()},
-            {"command", command.id.str()}, {"policy", list.policyVersion}, {"profile", list.profileVersion},
-            {"grant", QString::number(list.accessVersion.value())}, {"expires", list.expires}}, key);
-        catalog.append(QJsonObject{{"commandId", command.id.str()}, {"title", command.title},
-            {"preview", command.preview},
-            {"argumentSchema", QJsonObject{{"type", "object"}, {"additionalProperties", false}}},
-            {"timeoutMs", int(Budget::CommandTimeout.count())}, {"maxOutputBytes", Budget::CommandOutputBytes},
-            {"commandTicket", ticket}});
-    }
-    const QJsonValue reason = list.disabledReason
-        ? QJsonValue(QString::fromLatin1(errorCodeName(*list.disabledReason))) : QJsonValue(QJsonValue::Null);
-    return QJsonObject{{"instanceId", _ports.instance}, {"sessionId", entry.id}, {"epoch", entry.epoch},
-        {"policyVersion", list.policyVersion}, {"executionEnabled", !list.disabledReason},
-        {"disabledReason", reason}, {"commands", catalog}};
-}
 
 } // namespace NovaTerm::Mcp

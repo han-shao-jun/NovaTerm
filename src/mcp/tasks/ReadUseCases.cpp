@@ -61,28 +61,5 @@ Result<ContextPage> ReadUseCases::readContext(const ClientId& client,
     return page;
 }
 
-Result<CommandList> ReadUseCases::listCommands(const ClientId& client,
-    const ReadSession& session, qint64 now) const
-{
-    const auto catalog = _sessions.commandCatalog(client, session.reference);
-    CommandList result;
-    result.session = session.reference;
-    result.policyVersion = catalog.policyVersion;
-    result.profileVersion = catalog.profileVersion;
-    result.accessVersion = _sessions.accessVersion(client);
-    result.expires = now + Budget::ConfirmationTimeout.count();
-    if (!session.running) result.disabledReason = ErrorCode::SessionNotReady;
-    else if (!catalog.profileAvailable) result.disabledReason = ErrorCode::CommandProfileUnavailable;
-    else if (!catalog.executorAvailable) result.disabledReason = ErrorCode::CommandUnavailable;
-    else if (catalog.allowed.isEmpty()) result.disabledReason = ErrorCode::CommandPermissionRequired;
-    else if (!catalog.targetVerified) result.disabledReason = ErrorCode::CommandUnavailable;
-    if (!result.disabledReason) {
-        for (const auto& command : catalog.commands) {
-            if (catalog.allowed.contains(command.id))
-                result.commands.append(command);
-        }
-    }
-    return result;
-}
 
 } // namespace NovaTerm::Mcp

@@ -12,7 +12,6 @@ qt_add_library(novaterm_terminal_capabilities STATIC terminal/ReadCapabilities.c
 target_include_directories(novaterm_terminal_capabilities PUBLIC ${PROJECT_SOURCE_DIR}/src)
 target_link_libraries(novaterm_terminal_capabilities PUBLIC novaterm_capabilities novaterm_mcp_application Qt6::Core)
 
-target_sources(novaterm_terminal_capabilities PRIVATE terminal/CommandCapabilities.h terminal/CommandCapabilities.cpp)
 target_sources(novaterm_terminal_capabilities PRIVATE terminal/InputCapabilities.h terminal/InputCapabilities.cpp)
 
 target_sources(novaterm_terminal_capabilities PRIVATE terminal/ObservationCapabilities.h terminal/ObservationCapabilities.cpp)
