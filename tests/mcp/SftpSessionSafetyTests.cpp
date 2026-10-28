@@ -61,6 +61,11 @@ public:
         session.stopWorker(0);
     }
 
+    static void finishWorker(const std::shared_ptr<Control>& control)
+    {
+        SftpSession::finishWorker(control, control->generation);
+    }
+
     static bool uploadOwners(const QVector<quint32>& owners)
     {
         return SftpSession::authorizedUploadOwners(owners);
@@ -187,6 +192,42 @@ private slots:
         QCOMPARE(operations.contains(QStringLiteral("discard")), !published);
         QCOMPARE(operations.constFirst(), QStringLiteral("close"));
         QCOMPARE(error, published ? QString{} : QStringLiteral("SCRIPT_UPLOAD_CANCELLED"));
+    }
+
+    void workerExitSettlesAcceptedFileUpload_data()
+    {
+        QTest::addColumn<bool>("stopBeforeDelivery");
+        QTest::newRow("natural-exit") << false;
+        QTest::newRow("natural-exit-then-explicit-stop") << true;
+    }
+
+    void workerExitSettlesAcceptedFileUpload()
+    {
+        QFETCH(bool, stopBeforeDelivery);
+        SftpSession session;
+        auto worker = SftpSessionSafetyTestAccess::control(session);
+        worker->running = true; worker->connected = true;
+        const SftpFileUploadRequest request{91, QStringLiteral("C:/root"),
+            QStringLiteral("data.bin"), QStringLiteral("/home/test"),
+            QStringLiteral("data.bin"), std::make_shared<SftpFileUploadControl>()};
+        QSignalSpy finished(&session, &SftpSession::authorizedFileFinished);
+        QVERIFY(session.uploadAuthorizedFile(request));
+        // The previous command has finished, but the next iteration detects a
+        // disconnected SSH channel before dequeuing this accepted command.
+        SftpSessionSafetyTestAccess::finishWorker(worker);
+        if (stopBeforeDelivery) session.disconnectFromHost();
+        QTRY_COMPARE_WITH_TIMEOUT(finished.size(), 1, 200);
+        const auto result = qvariant_cast<SftpFileUploadResult>(finished.first().first());
+        QCOMPARE(result.requestId, quint64(91));
+        QVERIFY(!result.published); QCOMPARE(result.publication, QStringLiteral("not_started"));
+        QCOMPARE(result.temporary, QStringLiteral("none"));
+        QVERIFY(!result.errorCode.isEmpty());
+        QCOMPARE(request.control->state.load(), SftpFileUploadControl::State::Cancelled);
+        QVERIFY(!session.hasPendingOperations());
+        QVERIFY(!session.uploadAuthorizedFile(request));
+        session.disconnectFromHost();
+        QCoreApplication::sendPostedEvents();
+        QCOMPARE(finished.size(), 1);
     }
 
     void authorizedUploadAncestorOwners_data()

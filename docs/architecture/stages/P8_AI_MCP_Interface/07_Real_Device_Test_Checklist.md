@@ -131,6 +131,7 @@ T06 的后台SFTP忙碌场景使用已获准的人工文件面板传输即可，
 | 未执行 | U02 | list_file_resources取得当前ID/revision及sessionId/epoch；upload_file上传小脚本或构建产物，remoteName使用RUN_ID新名称；持续query_transfer。 | transferredBytes/totalBytes与实际大小对应，published=true才算发布；本机路径不回传。由用户允许的独立终端命令校验/执行并读本轮日志，上传不自动运行文件。 |
 | 未执行 | U03 | 用完全相同operationId/参数重试；另用新操作尝试同名目标；对大文件发布前cancel_transfer。 | 精确重试同transferId且不重传；同名原文件内容不变；取消返回自身临时文件清理事实，发布后取消不删除目标。 |
 | 未执行 | U04 | 发布前撤回本地/远端授权或断开SSH；另制造发布响应丢失并查询原transferId。 | 旧连接/旧revision不继续发布；无法确定时publication=unknown，不自动新ID重传；临时路径身份不明时保留并明确报告。 |
+| 未执行 | U05 | 在独立SFTP连接故障与新上传受理相邻时查询原transferId；另在已有进度后关闭会话，再查询保留事实。 | 未执行的已受理上传交付终态并释放额度，不永久停在cancel_requested；已知总量不被销毁兜底改成0，未知与空文件0字节分别表示；发布成功/未知事实保持。 |
 
 | 状态 | ID | 后续测试 | 通过标准与证据 |
 | --- | --- | --- | --- |

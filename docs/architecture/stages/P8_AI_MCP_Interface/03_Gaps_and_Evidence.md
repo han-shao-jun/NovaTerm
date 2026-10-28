@@ -1,5 +1,7 @@
 # 开发调试闭环：现状、缺口与证据
 
+2026-10-28 UART上传的安全文件源缺口已补前置：LocalFileReader同句柄readAt与TransferFileWorker单源工厂，替身核对随机重读、线程/取消和ZSKIP事实。UART独立授权、公开工具、接收完成证据和真实板卡仍未完成，见[记录](records/B3b_Uart_File_Source_2026-10-28.md)。
+
 2026-10-28 G16已补受限SFTP单文件上传、查询及取消的源码通路，复用终端SftpSession；当前二十五工具，实际证据和限制见[上传记录](records/B3b_Sftp_Upload_2026-10-27.md)。下载、覆盖、UART/ZMODEM单文件上传和真机验收仍是明确缺口，不能据此关闭整个G16/B4。
 
 2026-10-27 B3b文件传输第一子批：新增独立本地/远端读写授权与只读 `novaterm_list_file_resources`，当前二十二工具。仅发现已授权元数据，本机路径与文件内容不回传，上传/下载/进度/取消和安全发布仍待后续，见[文件资源记录](records/B3b_File_Resources_2026-10-27.md)。

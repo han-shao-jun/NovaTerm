@@ -6,6 +6,8 @@
 
 | 记录 | 保留原因 |
 | --- | --- |
+| [UART安全文件源前置](B3b_Uart_File_Source_2026-10-28.md) | 同句柄随机读、现有串口worker源工厂与ZMODEM替身通路；独立UART权限/公开工具仍待后续 |
+| [B3b SFTP行为审查修复](B3b_Sftp_Review_Fixes_2026-10-28.md) | 自然退出回收未执行上传及后端销毁后保留已知进度，逐轮RED/GREEN与本轮验证 |
 | [B3b SFTP单文件上传](B3b_Sftp_Upload_2026-10-27.md) | 2026-10-27～28工作区上传/查询/取消、复用终端SFTP、实际验证和ZMODEM下一起点 |
 | [B3b 本地句柄I/O](B3b_Local_File_IO_2026-10-27.md) | 第二文件子批Windows worker安全读写、临时文件发布及取消；未接MCP/SFTP，二十二工具保持 |
 | [B3b 文件资源授权目录](B3b_File_Resources_2026-10-27.md) | 文件传输第一子批独立本地/远端读写授权及只读元数据发现；文件内容传输仍待后续 |

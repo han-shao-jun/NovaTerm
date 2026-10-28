@@ -480,7 +480,13 @@ bool SerialFileTransferController::start(const SerialTransferRequest& request)
         || (request.protocol == SerialTransferProtocol::Ymodem && d.channel.softwareFlowControl)) {
         d.error = QCoreApplication::translate("SerialFileTransferController", "File transfers require 8 data bits; X/YMODEM cannot use software flow control"); return false;
     }
-    if (request.direction == FT::Direction::Send
+    if (request.source && (request.protocol != SerialTransferProtocol::Zmodem
+        || request.direction != FT::Direction::Send || !request.files.isEmpty()
+        || !request.destination.isEmpty() || request.expectedSize || !request.source->open
+        || !validSerialTransferSourceName(request.source->name))) {
+        d.error = QCoreApplication::translate("SerialFileTransferController", "Invalid source adapter request"); return false;
+    }
+    if (request.direction == FT::Direction::Send && !request.source
         && (request.files.isEmpty() || request.files.size() > int(FT::MaxFiles) || (xmodem && request.files.size() != 1))) {
         d.error = QCoreApplication::translate("SerialFileTransferController", "Invalid source file count"); return false;
     }

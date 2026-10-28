@@ -1,5 +1,7 @@
 # 外部 Agent 的 SSH/UART MCP 终端工具
 
+2026-10-28 UART安全文件源前置子批：安全Reader补固定句柄readAt，现有TransferFileWorker可在线程内独占打开/读取/销毁单源，真实ZMODEM替身通路已补，见[本轮记录](records/B3b_Uart_File_Source_2026-10-28.md)。当前二十五工具；下一子批仍为独立UART发送授权与MCP接线，不能据此前置调用尚不存在的串口上传工具。
+
 2026-10-28：工作区已接通受限SFTP单文件上传、查询和取消，当前二十五工具，直接复用终端面板已有SftpSession。范围、实际验证和限制见[上传记录](records/B3b_Sftp_Upload_2026-10-27.md)。下载/覆盖留待后续；UART/ZMODEM单文件上传为明确下一工作项，复用现有串口协议与Session owner。尚未执行真机验收。
 
 2026-10-27 文件传输第二子批：新增 Windows worker 本地句柄读写后端，支持有界普通文件读取、临时文件写入、不覆盖发布及取消清理，见[本地I/O记录](records/B3b_Local_File_IO_2026-10-27.md)。尚未接入 MCP/SFTP；当前仍为二十二工具，不能上传/下载，其他平台后端和B4待后续。

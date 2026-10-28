@@ -45,6 +45,11 @@ std::filesystem::path nativePath(const QString& path)
 #endif
 }
 }
+bool validSerialTransferSourceName(const QString& name)
+{
+    const auto encoded = name.toUtf8();
+    return QString::fromUtf8(encoded) == name && safeName(encoded.toStdString());
+}
 TransferFileWorker::TransferFileWorker(quint64 epoch, SerialTransferRequest request, LinkOperation linkOperation, LinkOperation moveOperation)
     : _epoch(epoch), _request(std::move(request)), _linkOperation(std::move(linkOperation)),
       _moveOperation(std::move(moveOperation))
@@ -67,12 +72,33 @@ void TransferFileWorker::run()
     NovaTerm::setCurrentThreadName(FileThreadName);
     if (_stopped.load()) return;
     std::vector<std::unique_ptr<QFile>> sources;
+    std::unique_ptr<SerialTransferSource> source;
+    quint64 sourceSize = 0;
     std::unique_ptr<QTemporaryFile> temporary;
     QString destinationDirectory, explicitName, target;
     TransferFileResult prepared; prepared.epoch = _epoch; prepared.preparation = true;
     prepared.request.direction = _request.direction;
     prepared.request.expectedSize = _request.expectedSize;
-    if (_request.direction == FT::Direction::Send) {
+    if (_request.source) {
+        const auto& spec = *_request.source;
+        if (_request.protocol != SerialTransferProtocol::Zmodem
+            || _request.direction != FT::Direction::Send || !_request.files.isEmpty()
+            || !_request.destination.isEmpty() || _request.expectedSize || !spec.open
+            || !validSerialTransferSourceName(spec.name)) {
+            prepared.error = QCoreApplication::translate("SerialFileTransferController", "Invalid source adapter request");
+        } else {
+            source = spec.open(prepared.error);
+            if (_stopped.load()) return;
+            if (!source && prepared.error.isEmpty())
+                prepared.error = QCoreApplication::translate("SerialFileTransferController", "Cannot open source file");
+            if (source && prepared.error.isEmpty()) {
+                sourceSize = source->size();
+                if (sourceSize > FT::MaxFileSize)
+                    prepared.error = QCoreApplication::translate("SerialFileTransferController", "Source file exceeds the protocol limit");
+                else prepared.request.files.push_back({spec.name.toUtf8().toStdString(), sourceSize});
+            }
+        }
+    } else if (_request.direction == FT::Direction::Send) {
         for (const auto& path : _request.files) {
             if (_stopped.load()) return;
             const QFileInfo info(path);
@@ -127,6 +153,21 @@ void TransferFileWorker::run()
             break;
         }
         case FT::ActionKind::ReadAt: {
+            if (source) {
+                if (action.fileIndex != 0 || action.count == 0 || action.count > FT::MaxInputBytes
+                    || action.offset > sourceSize || action.count > sourceSize - action.offset) {
+                    fail(QCoreApplication::translate("SerialFileTransferController", "Invalid source file index or range")); break;
+                }
+                QByteArray bytes;
+                QString error;
+                const bool read = source->readAt(action.offset, qsizetype(action.count), bytes, error);
+                if (!read || bytes.size() != qsizetype(action.count)) {
+                    fail(error.isEmpty() ? QCoreApplication::translate("SerialFileTransferController", "Source file was truncated or changed") : error); break;
+                }
+                result.result.bytes.assign(reinterpret_cast<const quint8*>(bytes.constData()),
+                    reinterpret_cast<const quint8*>(bytes.constData()) + bytes.size());
+                break;
+            }
             if (action.fileIndex >= sources.size() || action.offset > FT::MaxFileSize) {
                 fail(QCoreApplication::translate("SerialFileTransferController", "Invalid source file index or offset")); break;
             }

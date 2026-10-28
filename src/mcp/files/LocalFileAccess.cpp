@@ -236,13 +236,33 @@ FileIoResult<QByteArray> LocalFileReader::read(qsizetype maxBytes)
     if (maxBytes <= 0 || maxBytes > Budget::LocalTransferChunkBytes) return FileIoError::SizeLimit;
 #ifdef Q_OS_WIN
     const auto count = qMin(quint64(maxBytes), _impl->bytes - _impl->consumed);
-    QByteArray bytes(qsizetype(count), Qt::Uninitialized);
-    DWORD received = 0;
-    if (count && (!ReadFile(_impl->file.get(), bytes.data(), DWORD(count), &received, nullptr) || received != count)) {
+    if (!count) return QByteArray{};
+    auto bytes = readAt(_impl->consumed, qsizetype(count));
+    if (std::holds_alternative<QByteArray>(bytes)) _impl->consumed += count;
+    return bytes;
+#else
+    return FileIoError::UnsupportedPlatform;
+#endif
+}
+FileIoResult<QByteArray> LocalFileReader::readAt(quint64 offset, qsizetype count)
+{
+    if (!_impl || _impl->failed) return FileIoError::InvalidState;
+    if (count <= 0 || count > Budget::LocalTransferChunkBytes
+        || offset > _impl->bytes || quint64(count) > _impl->bytes - offset) return FileIoError::SizeLimit;
+#ifdef Q_OS_WIN
+    LARGE_INTEGER position{};
+    position.QuadPart = LONGLONG(offset);
+    if (!SetFilePointerEx(_impl->file.get(), position, nullptr, FILE_BEGIN)) {
         _impl->failed = true;
         return FileIoError::IoFailure;
     }
-    _impl->consumed += count;
+    QByteArray bytes(count, Qt::Uninitialized);
+    DWORD received = 0;
+    if (!ReadFile(_impl->file.get(), bytes.data(), DWORD(count), &received, nullptr)
+        || received != quint64(count)) {
+        _impl->failed = true;
+        return FileIoError::IoFailure;
+    }
     return bytes;
 #else
     return FileIoError::UnsupportedPlatform;

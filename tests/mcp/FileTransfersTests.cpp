@@ -182,6 +182,40 @@ private slots:
             QCOMPARE(completed.value("temporary").toString(), QString("removed"));
         }
     }
+    void unknownCompletionPreservesObservedTotal_data()
+    {
+        QTest::addColumn<int>("observed");
+        QTest::newRow("before-first-progress") << 0;
+        QTest::newRow("empty-file-known") << 1;
+        QTest::newRow("in-progress") << 2;
+        QTest::newRow("publication-in-flight") << 3;
+    }
+    void unknownCompletionPreservesObservedTotal()
+    {
+        QFETCH(int, observed);
+        Fixture f; QVERIFY(f.ready);
+        const auto accepted = f.call(f.grant()); QVERIFY(!isError(accepted));
+        const auto transfer = transferId(accepted);
+        if (observed == 1) f.deliveries.first().progress(0, 0);
+        if (observed >= 2) f.deliveries.first().progress(65536, 131072);
+        if (observed == 3) f.requests.first().control->state.store(SftpFileUploadControl::State::Publishing);
+        else f.requests.first().control->cancel();
+        // The backend-destruction fallback has no final worker byte counters.
+        SftpFileUploadResult result;
+        result.requestId = f.requests.first().requestId;
+        result.publication = observed == 3 ? "unknown" : "not_started";
+        result.temporary = "unknown"; result.errorCode = "SESSION_NOT_AVAILABLE";
+        f.deliveries.first().finished(result);
+        const auto completed = value(f.query(transfer));
+        if (observed == 0) QVERIFY(completed.value("totalBytes").isNull());
+        else QCOMPARE(completed.value("totalBytes").toDouble(), observed == 1 ? 0.0 : 131072.0);
+        QCOMPARE(completed.value("transferredBytes").toDouble(), observed < 2 ? 0.0 : 65536.0);
+        QCOMPARE(completed.value("publication").toString(), observed == 3 ? QString("unknown") : QString("not_started"));
+        QVERIFY(!completed.value("published").toBool());
+        QVERIFY(!f.transfers.busy(f.entry().id));
+        f.finish(true); // A late duplicate must not rewrite the settled fact.
+        QCOMPARE(value(f.query(transfer)), completed);
+    }
     void rejectsOtherClientsStaleEpochAndWrongPermissionDirection()
     {
         Fixture f; QVERIFY(f.ready); auto request = f.grant();

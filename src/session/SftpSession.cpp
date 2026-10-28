@@ -935,12 +935,39 @@ void SftpSession::postError(const std::shared_ptr<WorkerControl>& control,
 void SftpSession::finishWorker(const std::shared_ptr<WorkerControl>& control,
                               quint64 generation)
 {
-    control->connected.store(false, std::memory_order_release);
-    control->running.store(false, std::memory_order_release);
+    QVector<SftpFileUploadResult> unfinishedFiles;
+    {
+        // Serialize natural exit with admission. Requests accepted before this
+        // point must either have run or receive a terminal result from here.
+        QMutexLocker lock(&control->queueMutex);
+        control->connected.store(false, std::memory_order_release);
+        control->running.store(false, std::memory_order_release);
+        for (auto it = control->commands.begin(); it != control->commands.end();) {
+            if (it->type != CommandType::UploadAuthorizedFile) { ++it; continue; }
+            it->fileUpload.control->cancel();
+            SftpFileUploadResult result;
+            result.requestId = it->fileUpload.requestId;
+            result.errorCode = QStringLiteral("SESSION_NOT_AVAILABLE");
+            unfinishedFiles.append(result);
+            it = control->commands.erase(it);
+        }
+    }
+    for (const auto& result : unfinishedFiles) postFileUploadResult(control, result);
     postNotification(control, generation,
         [](SftpSession& receiver) {
             emit receiver.disconnected();
         });
+}
+
+void SftpSession::postFileUploadResult(const std::shared_ptr<WorkerControl>& control,
+                                      const SftpFileUploadResult& result)
+{
+    QMutexLocker lock(&control->notificationMutex);
+    if (auto* receiver = control->receiver) {
+        QMetaObject::invokeMethod(receiver, [receiver, result] {
+            emit receiver->authorizedFileFinished(result);
+        }, Qt::QueuedConnection);
+    }
 }
 
 void SftpSession::workerMain(std::shared_ptr<WorkerControl> control,
@@ -1263,12 +1290,7 @@ void SftpSession::workerMain(std::shared_ptr<WorkerControl> control,
                     });
                 });
             // Results retain original publication facts even after disconnect.
-            QMutexLocker lock(&control->notificationMutex);
-            if (auto* receiver = control->receiver) {
-                QMetaObject::invokeMethod(receiver, [receiver, result] {
-                    emit receiver->authorizedFileFinished(result);
-                }, Qt::QueuedConnection);
-            }
+            postFileUploadResult(control, result);
             continue;
         }
 
@@ -1796,8 +1818,9 @@ SftpFileUploadResult SftpSession::uploadAuthorizedFileWorker(
         return result;
     }
     auto local = std::move(std::get<std::unique_ptr<LocalFileReader>>(opened));
-    result.totalBytes = local->size();
-    if (result.totalBytes > Budget::MaxLocalTransferFileBytes) {
+    const auto totalBytes = local->size();
+    result.totalBytes = totalBytes;
+    if (totalBytes > Budget::MaxLocalTransferFileBytes) {
         result.errorCode = QStringLiteral("TRANSFER_SIZE_LIMIT");
         return result;
     }
@@ -1847,15 +1870,15 @@ SftpFileUploadResult SftpSession::uploadAuthorizedFileWorker(
         || initial->type != SSH_FILEXFER_TYPE_REGULAR
         || (initial->permissions & 0777) != 0600 || initial->size != 0)
         return fail(QStringLiteral("TRANSFER_UNSAFE_TEMPORARY"));
-    progress(0, result.totalBytes);
-    while (result.transferredBytes < result.totalBytes) {
+    progress(0, totalBytes);
+    while (result.transferredBytes < totalBytes) {
         if (cancelled()) return fail(result.errorCode);
         if (!rootGuard(false)) return fail(QStringLiteral("TRANSFER_PATH_CHANGED"));
         auto read = local->read(Budget::LocalTransferChunkBytes);
         if (std::holds_alternative<FileIoError>(read))
             return fail(QStringLiteral("TRANSFER_LOCAL_READ_FAILED"));
         const QByteArray& bytes = std::get<QByteArray>(read);
-        if (bytes.isEmpty() || quint64(bytes.size()) > result.totalBytes - result.transferredBytes)
+        if (bytes.isEmpty() || quint64(bytes.size()) > totalBytes - result.transferredBytes)
             return fail(QStringLiteral("TRANSFER_LOCAL_SIZE_CHANGED"));
         qsizetype offset = 0;
         while (offset < bytes.size()) {
@@ -1866,7 +1889,7 @@ SftpFileUploadResult SftpSession::uploadAuthorizedFileWorker(
             offset += qsizetype(written);
             result.transferredBytes += quint64(written);
             lastProgress = elapsed.elapsed();
-            progress(result.transferredBytes, result.totalBytes);
+            progress(result.transferredBytes, totalBytes);
         }
     }
     // Read once past the initial size to reject growth on the pinned handle.

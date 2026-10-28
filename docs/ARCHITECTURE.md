@@ -1,5 +1,7 @@
 # NovaTerm 统一架构设计
 
+2026-10-28 UART安全文件源前置已补齐：LocalFileReader在原固定句柄上有界readAt，SerialTransferRequest可携带仅由现有TransferFileWorker打开/拥有的单源工厂，Controller与纯ZMODEM仍使用原输入泵/lease。串口生产库不依赖MCP；安全Reader适配在独立集成夹具连接两个既有模块。当前二十五工具，尚未提供UART MCP授权或上传入口，见[记录](architecture/stages/P8_AI_MCP_Interface/records/B3b_Uart_File_Source_2026-10-28.md)。
+
 2026-10-28 工作区受限SFTP单文件上传/查询/取消已接入，当前二十五工具；MCP薄索引复用终端SftpPanel原SftpSession/worker，不另建连接/执行器。文件读写在原worker，本地Reader已成为生产消费者；Core不依赖MCP文件I/O。默认不覆盖、不自动执行。限制、实际验证及UART/ZMODEM下一起点见[上传记录](architecture/stages/P8_AI_MCP_Interface/records/B3b_Sftp_Upload_2026-10-27.md)。
 
 2026-10-27 文件传输第二子批新增独立Qt Core `novaterm_mcp_file_io`：Windows worker使用相对目录句柄读普通文件、写独占临时文件及原子不覆盖发布；其他平台明确拒绝。尚未接MCP/Session/SFTP，不扩大授权，不新增工具，见[本地I/O记录](architecture/stages/P8_AI_MCP_Interface/records/B3b_Local_File_IO_2026-10-27.md)。

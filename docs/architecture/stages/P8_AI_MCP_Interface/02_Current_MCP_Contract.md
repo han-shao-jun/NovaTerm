@@ -2,6 +2,8 @@
 
 ## 2026-10-28：受限 SFTP 单文件上传（工作区增量）
 
+UART安全文件源前置已补同句柄随机读取和现有串口worker单源接口，源码/替身证据见[记录](records/B3b_Uart_File_Source_2026-10-28.md)。它不新增MCP工具或权限，当前仍二十五工具。公开UART上传、独立发送授权和接收结果语义仍待下一子批。
+
 三个工具职责独立：上传只上传，查询只读事实，取消只请求停止指定transferId；上传不调用打开、执行、读取日志或关闭工具，不要求其权限，也不依赖关闭策略或普通终端命令忙碌状态。仅复用连接/授权/队列等底层资源。关闭工具仍独立保护活动传输，不能在上传中误断开连接。
 
 当前二十五工具：兼容原二十二工具Schema/权限，末尾追加 `novaterm_upload_file`、`novaterm_query_transfer`、`novaterm_cancel_transfer`。版本0.2.91保持；原九项终端请求联合和历史fixture保持。实际本轮验证见[上传记录](records/B3b_Sftp_Upload_2026-10-27.md)。
@@ -19,6 +21,8 @@ MCP不另建连接/执行器。终端SFTP面板必须已就绪且无手工作业
 预算：最大64 MiB、64 KiB固定分块、每客户端/Session一个活动上传，全局两个；受理记录每客户端16/全局64，终态保留10分钟，运行中不淘汰。总120秒、无进展15秒、发布准入等待2秒；libssh同步调用之间检查，底层恶意逐字节包或本机阻塞I/O不保证硬退出上界。精确重试在记录保留期内只返回原transferId/事实，同operationId不同参数拒绝。终态过期后不保证幂等记录仍可查询，未知结果不得自动换ID重放。
 
 data固定包含instanceId、transferId、sessionId、epoch、operationId、state、transferredBytes、totalBytes（开始读取前可为空）、published、publication、temporary、errorCode（无错误为空）、contentVerified=false。state为accepted/connecting/uploading/cancel_requested/completed/cancelled/failed/unknown；publication为not_started/published/unknown，temporary为none/removed/retained/unknown。字节已传不等于已发布，发布不等于hash校验或程序测试成功。
+
+独立SFTP worker自然退出时，与上传准入在同一队列锁下关闭，并结算已受理、尚未执行的上传；完成事实不因显式断开后的连接代际过滤而丢失。后端销毁兜底没有新的文件总量观察，保留此前已知总量；从未观察到则为空，已知空文件仍为0。已开始发布的成功/未知事实不被队列回收或迟到结果改写。修复和分轮证据见[上传行为审查修复](records/B3b_Sftp_Review_Fixes_2026-10-28.md)。
 
 首批要求 `hardlink@openssh.com`：0600/EXCL随机临时文件→同目录原子不替换创建目标→清理本次临时链接。能力不足拒绝，不使用覆盖式posix-rename。远端逐段检查规范路径、链接、权限及祖先属主（只接受远端管理员或授权根属主）；SFTPv3无法对恶意同账号路径改写提供本地句柄级保证，故该账号/管理员须可信。检查变化时不冒险清理；失去发布确认或通用歧义错误保守返回unknown。上传工具不执行chmod、sh、insmod、烧录或重启，后续命令须走现有独立授权终端工具。
 

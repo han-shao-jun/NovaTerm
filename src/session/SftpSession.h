@@ -155,6 +155,9 @@ private:
                                  std::function<void(SftpSession&)> callback);
     static void finishWorker(const std::shared_ptr<WorkerControl>& control,
                              quint64 generation);
+    // Terminal facts survive connection generation changes; QObject context still guards lifetime.
+    static void postFileUploadResult(const std::shared_ptr<WorkerControl>& control,
+                                     const SftpFileUploadResult& result);
     static void postError(const std::shared_ptr<WorkerControl>& control,
                           quint64 generation, const QString& message);
     [[nodiscard]] static bool isUploadCancelled(

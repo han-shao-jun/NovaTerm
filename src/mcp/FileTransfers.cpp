@@ -136,7 +136,8 @@ Result<QJsonObject> FileTransfers::call(const QString& client, quint64 identity,
                 if (!guard || !record->active || result.requestId != record->upload.requestId) return;
                 record->active = false; record->finishedAt = _clock.elapsed();
                 record->transferred = qMax(record->transferred, result.transferredBytes);
-                record->total = result.totalBytes; record->published = result.published;
+                if (result.totalBytes) record->total = result.totalBytes;
+                record->published = result.published;
                 record->publication = result.publication; record->temporary = result.temporary;
                 record->error = result.errorCode;
                 record->state = result.published ? "completed" : result.publication == "unknown" ? "unknown"

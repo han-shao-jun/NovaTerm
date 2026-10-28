@@ -61,6 +61,8 @@ CommandRuntime/Session Controller 继续拥有执行事实；新增异步任务�
 
 ## 4. SSH/SFTP 单文件传输
 
+2026-10-28 UART安全文件源前置已补，见[本轮记录](records/B3b_Uart_File_Source_2026-10-28.md)。安全Reader支持原句柄readAt，现有串口worker可独占打开单源并响应ZMODEM随机重读；旧手动路径保持，尚未开放UART MCP工具。后续应独立授权当前串口发送，接收准备与输入lease显式release由调用方负责。ZSKIP可结束协议但未完成文件，不能仅凭finished(true)报告送达，更不能推断远端路径发布或hash验证。
+
 2026-10-28 本轮已按[受限上传记录](records/B3b_Sftp_Upload_2026-10-27.md)接入SFTP单文件上传、查询及取消，不覆盖；当前二十五工具。直接复用终端面板SftpSession/队列/工作线程，没有新增连接或执行器。下载和显式覆盖不作前置。随后实施UART/ZMODEM单文件上传，复用SerialFileTransferController、既有输入泵和ZMODEM协议owner，单独冻结UART绑定与接收边界。
 
 2026-10-27 第二子批完成 Windows worker 本地句柄I/O边界：相对目录句柄打开、64 MiB文件/64 KiB分块上限、独占临时文件及原子不覆盖发布，见[记录](records/B3b_Local_File_IO_2026-10-27.md)。尚未接协议或SFTP，不提供覆盖；其他平台明确拒绝，不能把这批基础设施视为本节传输已完成。

@@ -26,6 +26,8 @@ public:
     LocalFileReader(LocalFileReader&&) noexcept;
     LocalFileReader& operator=(LocalFileReader&&) noexcept;
     FileIoResult<QByteArray> read(qsizetype maxBytes);
+    // 固定句柄精确读取 1～65536 字节，不推进顺序 read 的逻辑游标。
+    FileIoResult<QByteArray> readAt(quint64 offset, qsizetype count);
     quint64 size() const noexcept;
 private:
     struct Impl;

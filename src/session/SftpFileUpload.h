@@ -3,6 +3,7 @@
 #include <QString>
 #include <atomic>
 #include <memory>
+#include <optional>
 
 struct SftpFileUploadControl {
     enum class State { Active, AwaitingPublication, Approved, Cancelled, Publishing };
@@ -28,7 +29,8 @@ struct SftpFileUploadRequest {
     std::shared_ptr<SftpFileUploadControl> control;
 };
 struct SftpFileUploadResult {
-    quint64 requestId{0}, transferredBytes{0}, totalBytes{0};
+    quint64 requestId{0}, transferredBytes{0};
+    std::optional<quint64> totalBytes; // No worker size observation in a queued/destruction fallback.
     bool published{false};
     QString publication{QStringLiteral("not_started")}, temporary{QStringLiteral("none")}, errorCode;
 };

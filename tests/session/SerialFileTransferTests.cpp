@@ -11,15 +11,288 @@
 #include <QEventLoop>
 #include <QPointer>
 #include <QThread>
+#include <QSemaphore>
+#include <atomic>
+#include <mutex>
 #include <fstream>
 #include "session/transfer/TransferFileWorker.h"
 #include "filetransfer/XmodemEngine.h"
 #include "filetransfer/YmodemEngine.h"
 #include "filetransfer/ZmodemEngine.h"
 namespace FT = NovaTerm::FileTransfer;
+namespace {
+struct SourceTrace {
+    QByteArray contents;
+    std::optional<quint64> reportedSize;
+    QThread* guiThread{QThread::currentThread()};
+    std::atomic<QThread*> fileThread{nullptr};
+    std::atomic_int opened{0}, reads{0}, closed{0};
+    std::atomic_bool wrongThread{false};
+    bool failOpen{false}, failRead{false}, shortRead{false};
+    bool blockOpen{false}, blockRead{false};
+    QSemaphore entered, resume;
+    std::mutex mutex;
+    std::vector<std::pair<quint64, qsizetype>> ranges;
+};
+class MemorySerialSource final : public SerialTransferSource {
+public:
+    explicit MemorySerialSource(std::shared_ptr<SourceTrace> trace) : _trace(std::move(trace)) {}
+    ~MemorySerialSource() override {
+        checkThread();
+        ++_trace->closed;
+    }
+    quint64 size() const noexcept override {
+        return _trace->reportedSize.value_or(quint64(_trace->contents.size()));
+    }
+    bool readAt(quint64 offset, qsizetype count, QByteArray& bytes, QString& error) override {
+        checkThread();
+        ++_trace->reads;
+        {
+            std::lock_guard<std::mutex> lock(_trace->mutex);
+            _trace->ranges.emplace_back(offset, count);
+        }
+        if (_trace->blockRead) { _trace->entered.release(); _trace->resume.acquire(); }
+        if (_trace->failRead) { error = QStringLiteral("controlled read failure"); return false; }
+        if (count <= 0 || offset > quint64(_trace->contents.size())
+            || quint64(count) > quint64(_trace->contents.size()) - offset) {
+            error = QStringLiteral("invalid source range"); return false;
+        }
+        bytes = _trace->contents.mid(qsizetype(offset), count - (_trace->shortRead ? 1 : 0));
+        return true;
+    }
+private:
+    void checkThread() const {
+        if (QThread::currentThread() != _trace->fileThread.load()
+            || QThread::currentThread() == _trace->guiThread) _trace->wrongThread = true;
+    }
+    std::shared_ptr<SourceTrace> _trace;
+};
+SerialTransferRequest sourceRequest(const std::shared_ptr<SourceTrace>& trace)
+{
+    SerialTransferRequest request;
+    request.source = SerialTransferSourceSpec{QStringLiteral("固件.bin"),
+        [trace](QString& error) -> std::unique_ptr<SerialTransferSource> {
+            trace->fileThread = QThread::currentThread();
+            if (QThread::currentThread() == trace->guiThread) trace->wrongThread = true;
+            ++trace->opened;
+            if (trace->blockOpen) { trace->entered.release(); trace->resume.acquire(); }
+            if (trace->failOpen) { error = QStringLiteral("controlled open failure"); return {}; }
+            return std::make_unique<MemorySerialSource>(trace);
+        }};
+    return request;
+}
+/** @brief 测试提前返回也释放受控文件动作，避免遗留阻塞线程。 */
+struct SourceGateRelease {
+    std::shared_ptr<SourceTrace> trace;
+    ~SourceGateRelease() { trace->resume.release(); }
+};
+struct SourceChannel {
+    QByteArray output;
+    bool reserved{false}, idle{true};
+    int activations{0}, releases{0};
+    SerialFileTransferController::Channel channel() {
+        SerialFileTransferController::Channel result;
+        result.connected = [] { return true; };
+        result.reserve = [this](quint64) { if (reserved) return false; reserved = true; return true; };
+        result.release = [this] { reserved = false; ++releases; };
+        result.activate = [this] { ++activations; };
+        result.coreIdle = [this] { return idle; };
+        result.pendingWriteBytes = [] { return 0; };
+        result.clearWrites = [] { return true; };
+        result.write = [this](QByteArrayView bytes) { output.append(bytes); return bytes.size(); };
+        return result;
+    }
+};
+void sourcePeerHeader(SerialFileTransferController& controller, FT::ZFrame frame, quint32 position = 0)
+{
+    const auto bytes = FT::ZmodemCodec::header(frame, position, FT::ZHeaderFormat::Hex);
+    controller.acceptBytes(QByteArray(reinterpret_cast<const char*>(bytes.data()), qsizetype(bytes.size())));
+}
+std::optional<QByteArray> sourcePayload(const QByteArray& wire)
+{
+    FT::ZmodemCodec codec;
+    for (const auto byte : wire) {
+        if (const auto event = codec.feed(quint8(byte))) {
+            if (event->kind == FT::ZEventKind::Header && event->frame == FT::ZFrame::Data)
+                codec.expectData(event->crc32, 8192);
+            else if (event->kind == FT::ZEventKind::Data)
+                return QByteArray(reinterpret_cast<const char*>(event->bytes.data()), qsizetype(event->bytes.size()));
+        }
+    }
+    return {};
+}
+}
 class SerialFileTransferTests : public QObject {
     Q_OBJECT
 private slots:
+    void sourceSpecRejectsAmbiguousRequests_data() {
+        QTest::addColumn<int>("kind"); QTest::addColumn<QString>("name");
+        for (const auto& name : QStringList{"", ".", "..", "../firmware", "dir/file", "dir\\file",
+                "CON.bin", "file:stream", "file.", "file ", "file\n", QString(256, 'a')})
+            QTest::newRow(qPrintable("name-" + name)) << 0 << name;
+        for (int kind = 1; kind <= 6; ++kind)
+            QTest::newRow(qPrintable(QStringLiteral("mixed-%1").arg(kind))) << kind << QStringLiteral("source.bin");
+    }
+    void sourceSpecRejectsAmbiguousRequests() {
+        QFETCH(int, kind); QFETCH(QString, name);
+        auto trace = std::make_shared<SourceTrace>();
+        auto request = sourceRequest(trace); request.source->name = name;
+        if (kind == 1) request.files = {QStringLiteral("manual.bin")};
+        if (kind == 2) request.destination = QStringLiteral("destination");
+        if (kind == 3) request.expectedSize = 0;
+        if (kind == 4) request.protocol = SerialTransferProtocol::Ymodem;
+        if (kind == 5) { request.direction = FT::Direction::Receive; request.destination = QStringLiteral("destination"); }
+        if (kind == 6) request.source->open = {};
+        SourceChannel channel; SerialFileTransferController controller(channel.channel());
+        QVERIFY(!controller.start(request));
+        QVERIFY(!controller.isActive()); QVERIFY(!channel.reserved);
+        QCOMPARE(trace->opened.load(), 0); QCOMPARE(channel.activations, 0); QVERIFY(channel.output.isEmpty());
+    }
+    void sourceUsesWorkerAndRereadsRequestedOffsets() {
+        auto trace = std::make_shared<SourceTrace>();
+        trace->contents.resize(2048);
+        for (qsizetype i = 0; i < trace->contents.size(); ++i) trace->contents[i] = char(i % 251);
+        SourceChannel channel; SerialFileTransferController controller(channel.channel());
+        QSignalSpy done(&controller, &SerialFileTransferController::finished);
+        QVERIFY(controller.start(sourceRequest(trace)));
+        QTRY_VERIFY(!controller.progress().preparing); channel.output.clear();
+        sourcePeerHeader(controller, FT::ZFrame::ReceiveInit, 0x21002000U); channel.output.clear();
+        sourcePeerHeader(controller, FT::ZFrame::ResumePosition);
+        QTRY_VERIFY(sourcePayload(channel.output).has_value());
+        QCOMPARE(*sourcePayload(channel.output), trace->contents.first(1024)); channel.output.clear();
+        sourcePeerHeader(controller, FT::ZFrame::ResumePosition, 512);
+        QTRY_VERIFY(sourcePayload(channel.output).has_value());
+        QCOMPARE(*sourcePayload(channel.output), trace->contents.mid(512, 1024)); channel.output.clear();
+        sourcePeerHeader(controller, FT::ZFrame::Ack, 1536);
+        QTRY_VERIFY(sourcePayload(channel.output).has_value());
+        QCOMPARE(*sourcePayload(channel.output), trace->contents.mid(1536, 512)); channel.output.clear();
+        sourcePeerHeader(controller, FT::ZFrame::Ack, 2048); channel.output.clear();
+        sourcePeerHeader(controller, FT::ZFrame::ReceiveInit, 0x21002000U);
+        QTRY_VERIFY(!channel.output.isEmpty()); channel.output.clear();
+        sourcePeerHeader(controller, FT::ZFrame::Finish);
+        QTRY_COMPARE(done.size(), 1); QVERIFY(done.at(0).at(0).toBool());
+        QCOMPARE(channel.output, QByteArray("OO"));
+        QCOMPARE(controller.progress().completedFiles, quint64(1));
+        QCOMPARE(controller.progress().transferredBytes, quint64(2048));
+        QVERIFY(controller.progress().totalBytes.has_value()); QCOMPARE(*controller.progress().totalBytes, quint64(2048));
+        QTRY_COMPARE(trace->closed.load(), 1);
+        QCOMPARE(trace->opened.load(), 1); QCOMPARE(trace->reads.load(), 3); QVERIFY(!trace->wrongThread.load());
+        QVERIFY(!channel.reserved); QCOMPARE(channel.releases, 1);
+        const std::vector<std::pair<quint64, qsizetype>> expected{{0, 1024}, {512, 1024}, {1536, 512}};
+        std::lock_guard<std::mutex> lock(trace->mutex); QVERIFY(trace->ranges == expected);
+    }
+    void sourceEmptyFileCompletesWithoutRead() {
+        auto trace = std::make_shared<SourceTrace>();
+        SourceChannel channel; SerialFileTransferController controller(channel.channel());
+        QSignalSpy done(&controller, &SerialFileTransferController::finished);
+        QVERIFY(controller.start(sourceRequest(trace)));
+        QTRY_VERIFY(!controller.progress().preparing); channel.output.clear();
+        sourcePeerHeader(controller, FT::ZFrame::ReceiveInit, 0x21002000U); channel.output.clear();
+        sourcePeerHeader(controller, FT::ZFrame::ResumePosition); channel.output.clear();
+        sourcePeerHeader(controller, FT::ZFrame::ReceiveInit, 0x21002000U);
+        QTRY_VERIFY(!channel.output.isEmpty()); channel.output.clear();
+        sourcePeerHeader(controller, FT::ZFrame::Finish);
+        QTRY_COMPARE(done.size(), 1); QVERIFY(done.at(0).at(0).toBool());
+        QCOMPARE(controller.progress().completedFiles, quint64(1));
+        QVERIFY(controller.progress().totalBytes.has_value()); QCOMPARE(*controller.progress().totalBytes, quint64(0));
+        QTRY_COMPARE(trace->closed.load(), 1); QCOMPARE(trace->reads.load(), 0); QVERIFY(!trace->wrongThread.load());
+    }
+    void sourcePreparationFailureWritesNothing_data() {
+        QTest::addColumn<bool>("oversize");
+        QTest::newRow("open-failure") << false; QTest::newRow("size-limit") << true;
+    }
+    void sourcePreparationFailureWritesNothing() {
+        QFETCH(bool, oversize);
+        auto trace = std::make_shared<SourceTrace>();
+        trace->failOpen = !oversize;
+        if (oversize) trace->reportedSize = FT::MaxFileSize + 1;
+        SourceChannel channel; SerialFileTransferController controller(channel.channel());
+        QSignalSpy done(&controller, &SerialFileTransferController::finished);
+        QVERIFY(controller.start(sourceRequest(trace)));
+        QTRY_COMPARE(done.size(), 1); QVERIFY(!done.at(0).at(0).toBool());
+        QCOMPARE(channel.activations, 0); QVERIFY(channel.output.isEmpty()); QVERIFY(!channel.reserved);
+        QCOMPARE(trace->opened.load(), 1); QCOMPARE(trace->reads.load(), 0);
+        if (oversize) QTRY_COMPARE(trace->closed.load(), 1);
+        QVERIFY(!trace->wrongThread.load());
+    }
+    void sourceReadFailureCannotBecomePayload_data() {
+        QTest::addColumn<bool>("shortRead");
+        QTest::newRow("failure") << false; QTest::newRow("short-read") << true;
+    }
+    void sourceReadFailureCannotBecomePayload() {
+        QFETCH(bool, shortRead);
+        auto trace = std::make_shared<SourceTrace>(); trace->contents = QByteArray(1024, 'x');
+        trace->failRead = !shortRead; trace->shortRead = shortRead;
+        SourceChannel channel; SerialFileTransferController controller(channel.channel());
+        QSignalSpy done(&controller, &SerialFileTransferController::finished);
+        QSignalSpy disconnected(&controller, &SerialFileTransferController::disconnectRequired);
+        QVERIFY(controller.start(sourceRequest(trace)));
+        QTRY_VERIFY(!controller.progress().preparing); channel.output.clear();
+        sourcePeerHeader(controller, FT::ZFrame::ReceiveInit, 0x21002000U); channel.output.clear();
+        sourcePeerHeader(controller, FT::ZFrame::ResumePosition);
+        QTRY_COMPARE(done.size(), 1); QVERIFY(!done.at(0).at(0).toBool());
+        QCOMPARE(channel.output, QByteArray(5, char(0x18))); QCOMPARE(disconnected.size(), 1);
+        QCOMPARE(controller.progress().completedFiles, quint64(0)); QVERIFY(!channel.reserved);
+        QTRY_COMPARE(trace->closed.load(), 1); QCOMPARE(trace->reads.load(), 1); QVERIFY(!trace->wrongThread.load());
+    }
+    void sourceLateOpenCannotAffectAnotherTransfer_data() {
+        QTest::addColumn<int>("stopKind");
+        QTest::newRow("cancel") << 0; QTest::newRow("abort") << 1; QTest::newRow("destroy") << 2;
+    }
+    void sourceLateOpenCannotAffectAnotherTransfer() {
+        QFETCH(int, stopKind);
+        auto oldSource = std::make_shared<SourceTrace>(); oldSource->contents = "old"; oldSource->blockOpen = true;
+        SourceGateRelease oldRelease{oldSource};
+        SourceChannel channel;
+        auto controller = std::make_unique<SerialFileTransferController>(channel.channel());
+        QSignalSpy done(controller.get(), &SerialFileTransferController::finished);
+        QVERIFY(controller->start(sourceRequest(oldSource)));
+        QTRY_COMPARE(oldSource->entered.available(), 1);
+        if (stopKind == 0) { controller->cancel(); QTRY_COMPARE(done.size(), 1); }
+        else if (stopKind == 1) { controller->abort("connection changed"); QCOMPARE(done.size(), 1); }
+        else { controller.reset(); QCOMPARE(done.size(), 0); }
+        QVERIFY(!channel.reserved); channel.output.clear();
+        if (!controller) controller = std::make_unique<SerialFileTransferController>(channel.channel());
+        auto nextSource = std::make_shared<SourceTrace>(); nextSource->contents = "new"; nextSource->blockOpen = true;
+        SourceGateRelease nextRelease{nextSource};
+        QSignalSpy nextDone(controller.get(), &SerialFileTransferController::finished);
+        QVERIFY(controller->start(sourceRequest(nextSource)));
+        QTRY_COMPARE(nextSource->entered.available(), 1);
+        const auto generation = controller->progress().transferId;
+        const int activations = channel.activations;
+        oldSource->resume.release(); QTRY_COMPARE(oldSource->closed.load(), 1);
+        QCoreApplication::processEvents();
+        QVERIFY(controller->isActive()); QVERIFY(controller->progress().preparing);
+        QCOMPARE(controller->progress().transferId, generation);
+        QVERIFY(!controller->progress().totalBytes.has_value());
+        QCOMPARE(channel.activations, activations); QVERIFY(channel.output.isEmpty()); QCOMPARE(nextDone.size(), 0);
+        controller->abort("test finished"); QCOMPARE(nextDone.size(), 1);
+        nextSource->resume.release(); QTRY_COMPARE(nextSource->closed.load(), 1);
+        QVERIFY(!oldSource->wrongThread.load()); QVERIFY(!nextSource->wrongThread.load());
+        QVERIFY(!channel.reserved);
+    }
+    void sourceLateReadAfterAbortDoesNotWriteToNewTransfer() {
+        auto oldSource = std::make_shared<SourceTrace>(); oldSource->contents = QByteArray(1024, 'x'); oldSource->blockRead = true;
+        SourceGateRelease oldRelease{oldSource};
+        SourceChannel channel; SerialFileTransferController controller(channel.channel());
+        QSignalSpy done(&controller, &SerialFileTransferController::finished);
+        QVERIFY(controller.start(sourceRequest(oldSource)));
+        QTRY_VERIFY(!controller.progress().preparing); channel.output.clear();
+        sourcePeerHeader(controller, FT::ZFrame::ReceiveInit, 0x21002000U); channel.output.clear();
+        sourcePeerHeader(controller, FT::ZFrame::ResumePosition);
+        QTRY_COMPARE(oldSource->entered.available(), 1);
+        controller.abort("connection changed"); QCOMPARE(done.size(), 1); QVERIFY(channel.output.isEmpty());
+        auto nextSource = std::make_shared<SourceTrace>(); nextSource->contents = "new"; nextSource->blockOpen = true;
+        SourceGateRelease nextRelease{nextSource};
+        QVERIFY(controller.start(sourceRequest(nextSource)));
+        QTRY_COMPARE(nextSource->entered.available(), 1);
+        oldSource->resume.release(); QTRY_COMPARE(oldSource->closed.load(), 1);
+        QCoreApplication::processEvents();
+        QVERIFY(controller.isActive()); QVERIFY(controller.progress().preparing);
+        QVERIFY(channel.output.isEmpty()); QCOMPARE(done.size(), 1);
+        QCOMPARE(oldSource->reads.load(), 1); QVERIFY(!oldSource->wrongThread.load());
+        controller.abort("test finished"); nextSource->resume.release(); QTRY_COMPARE(nextSource->closed.load(), 1);
+    }
     void drainedCancelKeepsConnectionWhenLateInputReachesDeadline() {
         QTemporaryDir directory;
         QVERIFY(directory.isValid());

@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(NovaTerm VERSION 0.2.92 LANGUAGES CXX C)
+project(NovaTerm VERSION 0.2.93 LANGUAGES CXX C)
 
 # ═══════════════════════════════════════════════════════════════════
 #  1. 通用平台编译参数
@@ -336,6 +336,7 @@ add_subdirectory(src/filetransfer)
 
 # Qt 门面只负责串口通道与异步文件宿主，纯协议库继续可独立使用。
 qt_add_library(novaterm_serial_transfer STATIC
+    src/session/transfer/SerialTransferSource.h
     src/session/transfer/SerialTransferTypes.h
     src/session/transfer/SerialFileTransferController.h
     src/session/transfer/SerialFileTransferController.cpp

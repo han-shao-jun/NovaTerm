@@ -1,5 +1,7 @@
 # SSH/UART MCP 终端工具总体架构
 
+2026-10-28 UART安全源前置：MCP本地Reader提供同句柄readAt；串口worker只依赖session/transfer定义的只读源接口，在线程内创建并持有源，Controller/输入泵/ZMODEM owner保持。两个库通过独立集成夹具验证，不让串口生产库依赖MCP。独立UART授权及公开工具仍待接入，见[记录](records/B3b_Uart_File_Source_2026-10-28.md)。
+
 2026-10-28 当前工作区已接入受限SFTP单文件上传/查询/取消，共二十五工具；复用终端面板已有SftpSession和工作线程，不另开连接。Agent随后自行调用获准终端命令执行并观察；下载、覆盖、UART/ZMODEM单文件上传及B4真机验收保留，见[上传记录](records/B3b_Sftp_Upload_2026-10-27.md)。
 
 2026-10-27 B3b文件传输第一子批：新增独立本地/远端读写授权与只读 `novaterm_list_file_resources`，当前二十二工具。仅发现已授权元数据，本机路径与文件内容不回传，上传/下载/进度/取消和安全发布仍待后续，见[文件资源记录](records/B3b_File_Resources_2026-10-27.md)。

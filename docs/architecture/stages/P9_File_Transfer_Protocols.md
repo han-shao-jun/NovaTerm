@@ -1,5 +1,9 @@
 # P9：XMODEM / YMODEM / ZMODEM 文件传输协议
 
+2026-10-28：现有串口worker新增可选ZMODEM单源工厂，源只在worker内打开/读取/销毁；原手动QFile路径和纯协议保持。与MCP安全Reader的固定句柄随机读已补独立替身集成，仍无UART MCP授权/工具或本轮真机成绩，见[安全源记录](P8_AI_MCP_Interface/records/B3b_Uart_File_Source_2026-10-28.md)。
+
+本轮Windows完整串口目标181/181通过（92.128秒），其中历史取消发布竞争用例的原断言通过；六项纯协议6/6。下方2026-10-07状态和旧失败是当时记录，不作为本轮结论。
+
 **状态：协议库及串口 Session/手动传输窗口已接入；Linux 纯协议、门面、UI 与真实 QSerialPort/raw PTY 通路测试通过；Windows 取消发布竞争用例有已知失败，macOS 与真实 UART 文件传输验收待补（2026-10-07 收尾复核）**
 
 > **范围说明**：本阶段先独立实现 XMODEM、YMODEM、ZMODEM 的双向文件传输。

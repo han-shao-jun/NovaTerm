@@ -4,6 +4,7 @@
 #include <QFile>
 #include <QTemporaryDir>
 #include <QtTest>
+#include <limits>
 #include <type_traits>
 #ifdef Q_OS_WIN
 #ifndef NOMINMAX
@@ -93,6 +94,113 @@ private slots:
         QCOMPARE(std::get<QByteArray>(reader->read(64)), QByteArray{});
 #endif
     }
+    void rereadsBinaryRangesAtForwardAndBackwardOffsets()
+    {
+#ifdef Q_OS_WIN
+        QTemporaryDir directory;
+        QVERIFY(directory.isValid());
+        QVERIFY(put(directory.filePath("source"), QByteArray("abc\0def\r\nxyz", 12)));
+        auto opened = LocalFileReader::open(directory.path(), "source");
+        QVERIFY(std::holds_alternative<std::unique_ptr<LocalFileReader>>(opened));
+        auto& reader = std::get<std::unique_ptr<LocalFileReader>>(opened);
+        for (const auto offset : {quint64(9), quint64(0), quint64(4), quint64(0), quint64(9)}) {
+            auto result = reader->readAt(offset, 3);
+            QVERIFY(std::holds_alternative<QByteArray>(result));
+            const auto expected = offset == 9 ? QByteArray("xyz")
+                : offset == 4 ? QByteArray("def") : QByteArray("abc");
+            QCOMPARE(std::get<QByteArray>(result), expected);
+        }
+        auto binary = reader->readAt(2, 7);
+        QVERIFY(std::holds_alternative<QByteArray>(binary));
+        QCOMPARE(std::get<QByteArray>(binary), QByteArray("c\0def\r\n", 7));
+#endif
+    }
+    void randomReadsPreserveSequentialCursor()
+    {
+#ifdef Q_OS_WIN
+        QTemporaryDir directory;
+        QVERIFY(directory.isValid());
+        QVERIFY(put(directory.filePath("source"), "abcdefghijkl"));
+        auto opened = LocalFileReader::open(directory.path(), "source");
+        QVERIFY(std::holds_alternative<std::unique_ptr<LocalFileReader>>(opened));
+        auto& reader = std::get<std::unique_ptr<LocalFileReader>>(opened);
+        QCOMPARE(std::get<QByteArray>(reader->read(3)), QByteArray("abc"));
+        auto forward = reader->readAt(8, 2);
+        QVERIFY(std::holds_alternative<QByteArray>(forward));
+        QCOMPARE(std::get<QByteArray>(forward), QByteArray("ij"));
+        auto middle = reader->read(3);
+        QVERIFY(std::holds_alternative<QByteArray>(middle));
+        QCOMPARE(std::get<QByteArray>(middle), QByteArray("def"));
+        auto backward = reader->readAt(1, 2);
+        QVERIFY(std::holds_alternative<QByteArray>(backward));
+        QCOMPARE(std::get<QByteArray>(backward), QByteArray("bc"));
+        auto tail = reader->read(64);
+        QVERIFY(std::holds_alternative<QByteArray>(tail));
+        QCOMPARE(std::get<QByteArray>(tail), QByteArray("ghijkl"));
+        auto afterEnd = reader->readAt(0, 3);
+        QVERIFY(std::holds_alternative<QByteArray>(afterEnd));
+        QCOMPARE(std::get<QByteArray>(afterEnd), QByteArray("abc"));
+        QCOMPARE(std::get<QByteArray>(reader->read(1)), QByteArray{});
+#endif
+    }
+    void rejectsRandomReadRangesAndInvalidCounts()
+    {
+#ifdef Q_OS_WIN
+        QTemporaryDir directory;
+        QVERIFY(directory.isValid());
+        QVERIFY(put(directory.filePath("source"), "abcd"));
+        auto opened = LocalFileReader::open(directory.path(), "source");
+        QVERIFY(std::holds_alternative<std::unique_ptr<LocalFileReader>>(opened));
+        auto& reader = std::get<std::unique_ptr<LocalFileReader>>(opened);
+        struct Range { quint64 offset; qsizetype count; };
+        const Range invalid[]{{0, -1}, {0, 0}, {0, 65537}, {0, std::numeric_limits<qsizetype>::max()},
+            {3, 2}, {4, 1}, {5, 1}, {std::numeric_limits<quint64>::max(), 1},
+            {std::numeric_limits<quint64>::max() - 1, 4}};
+        for (const auto& range : invalid) {
+            auto result = reader->readAt(range.offset, range.count);
+            QVERIFY(std::holds_alternative<FileIoError>(result));
+            QCOMPARE(std::get<FileIoError>(result), FileIoError::SizeLimit);
+        }
+        auto lastByte = reader->readAt(3, 1);
+        QVERIFY(std::holds_alternative<QByteArray>(lastByte));
+        QCOMPARE(std::get<QByteArray>(lastByte), QByteArray("d"));
+        auto wholeFile = reader->readAt(0, 4);
+        QVERIFY(std::holds_alternative<QByteArray>(wholeFile));
+        QCOMPARE(std::get<QByteArray>(wholeFile), QByteArray("abcd"));
+        QCOMPARE(std::get<QByteArray>(reader->read(1)), QByteArray("a"));
+#endif
+    }
+    void randomReadsHonorChunkAndFileBudgets()
+    {
+#ifdef Q_OS_WIN
+        QTemporaryDir directory;
+        QVERIFY(directory.isValid());
+        QVERIFY(put(directory.filePath("source"), QByteArray(65536, 'x') + 'z'));
+        auto opened = LocalFileReader::open(directory.path(), "source");
+        QVERIFY(std::holds_alternative<std::unique_ptr<LocalFileReader>>(opened));
+        auto& reader = std::get<std::unique_ptr<LocalFileReader>>(opened);
+        auto first = reader->readAt(0, 65536);
+        QVERIFY(std::holds_alternative<QByteArray>(first));
+        QCOMPARE(std::get<QByteArray>(first), QByteArray(65536, 'x'));
+        auto last = reader->readAt(1, 65536);
+        QVERIFY(std::holds_alternative<QByteArray>(last));
+        QCOMPARE(std::get<QByteArray>(last), QByteArray(65535, 'x') + 'z');
+        QCOMPARE(std::get<FileIoError>(reader->readAt(0, 65537)), FileIoError::SizeLimit);
+        QFile large(directory.filePath("large"));
+        QVERIFY(large.open(QIODevice::WriteOnly));
+        QVERIFY(large.resize(64 * 1024 * 1024));
+        QVERIFY(large.seek(64 * 1024 * 1024 - 1));
+        QCOMPARE(large.write("Z", 1), qint64(1));
+        large.close();
+        auto largeOpened = LocalFileReader::open(directory.path(), "large");
+        QVERIFY(std::holds_alternative<std::unique_ptr<LocalFileReader>>(largeOpened));
+        auto& largeReader = std::get<std::unique_ptr<LocalFileReader>>(largeOpened);
+        auto finalByte = largeReader->readAt(64 * 1024 * 1024 - 1, 1);
+        QVERIFY(std::holds_alternative<QByteArray>(finalByte));
+        QCOMPARE(std::get<QByteArray>(finalByte), QByteArray("Z"));
+        QCOMPARE(std::get<FileIoError>(largeReader->readAt(64 * 1024 * 1024 - 1, 2)), FileIoError::SizeLimit);
+#endif
+    }
     void rejectsAmbiguousAndEscapingPaths()
     {
 #ifdef Q_OS_WIN
@@ -151,7 +259,15 @@ private slots:
         QVERIFY(!QDir().rename(root + "/nested", root + "/replaced"));
         QVERIFY(!QFile::rename(path, path + ".old"));
         QVERIFY(!put(path, "changed"));
+        auto suffix = reader->readAt(4, 4);
+        QVERIFY(std::holds_alternative<QByteArray>(suffix));
+        QCOMPARE(std::get<QByteArray>(suffix), QByteArray("inal"));
         QCOMPARE(std::get<QByteArray>(reader->read(64)), QByteArray("original"));
+        auto repeated = reader->readAt(0, 8);
+        QVERIFY(std::holds_alternative<QByteArray>(repeated));
+        QCOMPARE(std::get<QByteArray>(repeated), QByteArray("original"));
+        QVERIFY(!QFile::remove(path));
+        QVERIFY(!put(path, "changed"));
         reader.reset();
         QVERIFY(QFile::rename(path, path + ".old"));
         bool renamed = false;
@@ -328,6 +444,8 @@ private slots:
         QVERIFY(std::holds_alternative<std::unique_ptr<LocalFileReader>>(readResult));
         QCOMPARE(std::get<std::unique_ptr<LocalFileReader>>(readResult)->size(), quint64(0));
         QCOMPARE(std::get<QByteArray>(std::get<std::unique_ptr<LocalFileReader>>(readResult)->read(1)), QByteArray{});
+        QCOMPARE(std::get<FileIoError>(std::get<std::unique_ptr<LocalFileReader>>(readResult)->readAt(0, 1)), FileIoError::SizeLimit);
+        QCOMPARE(std::get<FileIoError>(std::get<std::unique_ptr<LocalFileReader>>(readResult)->readAt(0, 0)), FileIoError::SizeLimit);
 #endif
     }
     void preservesExactPublicationNameAtEveryBufferAlignment()

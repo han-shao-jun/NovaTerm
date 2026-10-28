@@ -1,5 +1,19 @@
 # AGENTS.md
 
+### 0.2.93 本地提交收口（2026-10-28）
+
+用户要求创建Git提交并继续MCP，版本0.2.92→0.2.93，纳入SFTP两项行为修复及UART安全文件源前置，保持二十五工具。实现源码沿用前轮完整验证：相关CTest28/28、纯协议6/6、完整串口181/181、MCP业务250/250；这些是0.2.92原轮次，不改写为0.2.93重测。版本更新后正常Windows Release默认全部目标构建通过，协议相关CTest4/4（11.50秒）及两代25工具互操作通过。不重复无关测试，不推送，不纳入build产物或日志，不改机械风格。命令/日志见[安全源提交收口](docs/architecture/stages/P8_AI_MCP_Interface/records/B3b_Uart_File_Source_2026-10-28.md#0293-提交收口)。
+
+### B3b UART安全文件源前置（2026-10-28，工作区增量）
+
+按MCP设计继续推进明确的UART/ZMODEM下一项，先完成必要安全文件源子批：LocalFileReader新增原固定句柄有界readAt且不改变顺序游标；现有SerialFileTransferController/TransferFileWorker接受仅ZMODEM发送的单源工厂，worker内打开一次、独占读取/销毁，拒绝字段混用、非法名/大小/范围/短读，取消及旧epoch回调仍隔离。生产串口库不依赖MCP，独立集成夹具连接真实安全Reader与原ZMODEM；默认手动QFile通路保持。当前二十五工具、版本0.2.92，UART独立发送授权及公开入口仍待下一子批，ZSKIP不等于文件送达，接收准备需显式release原MCP输入lease，不自动rz/抢占。
+
+三组真实RED分别13pass/6fail、20pass/10fail、2pass/5fail，GREEN为19/19、30/30、7/7。独立只读复核未见高可信新问题；正常Windows Release默认全部目标构建通过。本轮相关CTest28/28（59.50秒）、纯协议6/6（4.67秒）、完整串口181/181（92.128秒，原取消发布竞争断言通过）、完整MCP业务250/250（128.732秒）及两代25工具互操作分别通过，不拼为一次全套或覆盖历史失败。保留前轮SFTP审查修复，未提交/推送、未改机械风格、未连接真实设备、未跑无关全套/Core/ConPTY。接口、计划、原始日志及后续边界见[UART安全源记录](docs/architecture/stages/P8_AI_MCP_Interface/records/B3b_Uart_File_Source_2026-10-28.md)。
+
+### B3b SFTP上传两项行为审查修复（2026-10-28，工作区增量）
+
+按用户要求修复两项P2、不查机械风格：独立SFTP worker自然退出在queueMutex内与上传准入串行关闭，结算尚未执行的已受理上传，完成事实跨连接generation保留且受QObject生命周期保护，显式stop不重复交付；活动发布仍保留原结果。SftpFileUploadResult用optional总量区分未知与空文件0字节，backend销毁兜底保留已知进度，迟到结果不改写终态。真实RED分别3pass/1fail及3pass/3fail，修复后完整SFTP安全26/26、传输索引10/10。独立只读复核未见高可信新问题。正常Windows Release默认全部目标构建通过；本轮相关CTest26/26（60.20秒）、完整MCP业务250/250（132.165秒，原ACL断言通过）及官方SDK2025/rawHTTP2026二十五工具互操作分别通过，不拼为全套或改写历史1307成绩。版本0.2.92和Schema保持；未提交/推送、未连接设备、未跑无关全套/Core/ConPTY。原始日志、命令及实机未执行范围见[上传行为修复记录](docs/architecture/stages/P8_AI_MCP_Interface/records/B3b_Sftp_Review_Fixes_2026-10-28.md)。
+
 ### 0.2.92 本地提交收口（2026-10-28）
 
 用户明确要求直接创建Git提交，版本0.2.91→0.2.92，纳入受限SFTP上传/查询/取消、本地句柄I/O及单一职责收口。按用户要求不再重复跑测试；此前0.2.91的26/26相关CTest、业务249pass/1fail（既有Windows1307夹具）与25工具互操作保持原轮次，不冒充0.2.92重测。构建产物/日志/本机辅助文件不纳入；未连接设备，不改机械风格。范围和历史真实验证见[提交收口](docs/architecture/stages/P8_AI_MCP_Interface/records/B3b_Sftp_Upload_2026-10-27.md#0292-提交前收口2026-10-28)。
