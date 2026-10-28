@@ -46,16 +46,19 @@ public:
      * @note 内部限制待写队列不超过 1 MiB，超限会报错。
      */
     void write(const QByteArray& data) override;
-    /** @brief 有界部分写：返回接受前缀、0 队列满、-1 连接/I/O 错误。 */
-    [[nodiscard]] qint64 tryWriteBounded(QByteArrayView data, qint64 limit = 16 * 1024);
-    /** @brief 出件箱与底层待写总量；清写未确认时另含屏障哨兵。 */
-    [[nodiscard]] qint64 pendingWriteBytes() const;
+    /** @brief 有界部分写：返回接受前缀、0 队列满、-1 连接/I/O 错误。
+     * 非零expectedGeneration在I/O队列锁内复核，旧代际拒绝写入。
+     */
+    [[nodiscard]] qint64 tryWriteBounded(QByteArrayView data, qint64 limit = 16 * 1024, quint64 expectedGeneration = 0);
+    /** @brief 出件箱与底层待写总量；清写未确认时另含屏障哨兵，非零旧代际返回-1。 */
+    [[nodiscard]] qint64 pendingWriteBytes(quint64 expectedGeneration = 0) const;
     /**
      * @brief 请求丢弃未提交的输出；返回请求是否接受，不阻塞等待 I/O。
      * @note 已提交底层的有限前缀不可撤回；pendingWriteBytes() 在清写
      *       屏障确认前不返回零，新写入只能在此屏障之后提交。
+     *       非零expectedGeneration在I/O队列锁内复核，旧代际不清新队列。
      */
-    [[nodiscard]] bool clearPendingOutput();
+    [[nodiscard]] bool clearPendingOutput(quint64 expectedGeneration = 0);
 
     /**
      * @brief 调整终端尺寸（串口无此能力，空实现）。

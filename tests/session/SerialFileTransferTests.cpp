@@ -125,6 +125,105 @@ std::optional<QByteArray> sourcePayload(const QByteArray& wire)
 class SerialFileTransferTests : public QObject {
     Q_OBJECT
 private slots:
+    void synchronousStartDeletionDoesNotOpenSource() {
+        SourceChannel channel;
+        QPointer<SerialFileTransferController> controller = new SerialFileTransferController(channel.channel());
+        auto trace = std::make_shared<SourceTrace>();
+        connect(controller, &SerialFileTransferController::activeChanged, this, [&](bool active) {
+            if (active) delete controller.data();
+        });
+        auto* original = controller.data();
+        QVERIFY(original->start(sourceRequest(trace)));
+        QVERIFY(controller.isNull());
+        QTest::qWait(30);
+        QCOMPARE(trace->opened.load(), 0);
+        QVERIFY(!channel.reserved);
+    }
+    void acceptedIdentityPrecedesSynchronousNotification() {
+        SourceChannel channel;
+        SerialFileTransferController controller(channel.channel());
+        auto trace = std::make_shared<SourceTrace>();
+        quint64 id = 0, notifiedId = 0;
+        connect(&controller, &SerialFileTransferController::activeChanged, &controller, [&](bool active) {
+            if (active) notifiedId = id;
+        });
+        QVERIFY(controller.start(sourceRequest(trace), &id));
+        QCOMPARE(notifiedId, controller.progress().transferId);
+        QVERIFY(id != 0);
+        controller.abort(QStringLiteral("done"));
+    }
+    void staleIdentityCannotCancelOrAbortLaterTask() {
+        SourceChannel channel;
+        SerialFileTransferController controller(channel.channel());
+        auto trace = std::make_shared<SourceTrace>();
+        QVERIFY(controller.start(sourceRequest(trace)));
+        const auto oldId = controller.progress().transferId;
+        controller.abort(QStringLiteral("old"));
+        QVERIFY(controller.start(sourceRequest(trace)));
+        QVERIFY(!controller.cancel(oldId));
+        QVERIFY(!controller.abort(oldId, QStringLiteral("stale")));
+        QVERIFY(controller.isActive());
+        controller.abort(QStringLiteral("done"));
+    }
+    void finishRejectsSynchronousRestartAndPreservesResult() {
+        SourceChannel channel;
+        SerialFileTransferController controller(channel.channel());
+        auto trace = std::make_shared<SourceTrace>();
+        const auto request = sourceRequest(trace);
+        QSignalSpy result(&controller, &SerialFileTransferController::resultReady);
+        bool restarted = false;
+        connect(&controller, &SerialFileTransferController::activeChanged, &controller, [&](bool active) {
+            if (!active) restarted = controller.start(request);
+        });
+        QVERIFY(controller.start(request));
+        const auto id = controller.progress().transferId;
+        controller.abort(QStringLiteral("original"));
+        const bool wasActive = controller.isActive();
+        disconnect(&controller, nullptr, &controller, nullptr);
+        controller.abort(QStringLiteral("cleanup"));
+        QVERIFY(!restarted); QVERIFY(!wasActive);
+        QCOMPARE(result.size(), 1);
+        const auto completed = qvariant_cast<SerialTransferResult>(result.front().front());
+        QCOMPARE(completed.transferId, id); QCOMPARE(completed.progress.transferId, id);
+        QVERIFY(!completed.protocolCompleted); QVERIFY(!completed.progress.active);
+        QCOMPARE(completed.progress.status, QStringLiteral("original"));
+    }
+    void synchronousStartAbortDoesNotOpenSource() {
+        SourceChannel channel;
+        SerialFileTransferController controller(channel.channel());
+        auto trace = std::make_shared<SourceTrace>();
+        connect(&controller, &SerialFileTransferController::activeChanged, &controller, [&](bool active) {
+            if (active) controller.abort(QStringLiteral("revoked"));
+        });
+        QVERIFY(controller.start(sourceRequest(trace)));
+        QTest::qWait(50);
+        QCOMPARE(trace->opened.load(), 0);
+        QVERIFY(!controller.isActive());
+    }
+    void admissionBeforePreparationRejectsSourceAccess() {
+        SourceChannel channel;
+        SerialFileTransferController controller(channel.channel());
+        auto trace = std::make_shared<SourceTrace>();
+        auto request = sourceRequest(trace); request.admission = [] { return false; };
+        quint64 id = 99;
+        QVERIFY(!controller.start(request, &id));
+        QCOMPARE(id, quint64(0)); QCOMPARE(trace->opened.load(), 0);
+        QVERIFY(channel.output.isEmpty()); QVERIFY(!channel.reserved);
+    }
+    void admissionRevokedDuringPreparationPreventsProtocolOutput() {
+        SourceChannel channel; channel.idle = false;
+        SerialFileTransferController controller(channel.channel());
+        auto trace = std::make_shared<SourceTrace>();
+        bool allowed = true;
+        auto request = sourceRequest(trace); request.admission = [&] { return allowed; };
+        QVERIFY(controller.start(request));
+        QTRY_VERIFY(controller.progress().totalBytes.has_value());
+        allowed = false; channel.idle = true;
+        controller.notifyWritable();
+        QTest::qWait(30);
+        QCOMPARE(channel.activations, 0); QVERIFY(channel.output.isEmpty());
+        QVERIFY(!controller.isActive());
+    }
     void sourceSpecRejectsAmbiguousRequests_data() {
         QTest::addColumn<int>("kind"); QTest::addColumn<QString>("name");
         for (const auto& name : QStringList{"", ".", "..", "../firmware", "dir/file", "dir\\file",

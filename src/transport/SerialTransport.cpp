@@ -496,9 +496,9 @@ void SerialTransport::deliverNotices()
     }
 }
 
-qint64 SerialTransport::tryWriteBounded(QByteArrayView data, qint64 limit)
+qint64 SerialTransport::tryWriteBounded(QByteArrayView data, qint64 limit, quint64 expectedGeneration)
 {
-    const auto accepted = _impl->state->queueWrite(data, limit);
+    const auto accepted = _impl->state->queueWrite(data, limit, expectedGeneration);
     if (accepted > 0) wakeIo();
     return accepted;
 }
@@ -534,16 +534,17 @@ bool SerialTransport::setReadPaused(bool paused)
     return true;
 }
 
-qint64 SerialTransport::pendingWriteBytes() const
+qint64 SerialTransport::pendingWriteBytes(quint64 expectedGeneration) const
 {
     const auto state = _state->snapshot();
-    if (_connected && !state.connected) return -1;
+    if ((expectedGeneration && (expectedGeneration != state.generation || !state.connected))
+        || (_connected && !state.connected)) return -1;
     return state.queuedWriteBytes + state.inFlightWriteBytes
         + (state.clearPending ? 1 : 0);
 }
-bool SerialTransport::clearPendingOutput()
+bool SerialTransport::clearPendingOutput(quint64 expectedGeneration)
 {
-    if (!_impl->state->requestClear()) return false;
+    if (!_impl->state->requestClear(expectedGeneration)) return false;
     wakeIo();
     return true;
 }

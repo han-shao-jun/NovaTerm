@@ -1,20 +1,10 @@
 # SSH/UART MCP 终端工具总体架构
 
-2026-10-28 UART独立发送授权目录已接入：本机共享绑定当前串口，纯应用store持有有界许可，适配器只读取Session/串口I/O事实，新MCP工具只返回授权元数据，不连接端口或发送文件。当前二十六工具，UART执行接线仍待后续，见[记录](records/B3b_Uart_Authorization_2026-10-28.md)。
+更新：2026-10-28。当前源码二十九工具；B0/B1、B2、B3/B3a、保存目标连接/预授权、独立文件资源和受限SFTP上传已接入。UART/ZMODEM单文件上传/查询/取消本阶段软件回归已完成，B4实机仍待用户验收，新增工具与权限边界见[现行契约](02_Current_MCP_Contract.md)，进度见[UART发送记录](records/B3b_Uart_Send_2026-10-28.md)。
 
-2026-10-28 UART安全源前置：MCP本地Reader提供同句柄readAt；串口worker只依赖session/transfer定义的只读源接口，在线程内创建并持有源，Controller/输入泵/ZMODEM owner保持。两个库通过独立集成夹具验证，不让串口生产库依赖MCP。独立UART授权及公开工具仍待接入，见[记录](records/B3b_Uart_File_Source_2026-10-28.md)。
+UART发送复用原Session、SerialFileTransferController、TransferFileWorker、唯一输入泵与ZMODEM协议owner。MCP只管理独立授权和有界事实，安全源在原worker内打开、随机读取并销毁；不新增连接或执行器。调用方独立准备接收端并显式release已有MCP输入lease，上传不自动rz、不抢占人工传输。
 
-2026-10-28 当前工作区已接入受限SFTP单文件上传/查询/取消，共二十五工具；复用终端面板已有SftpSession和工作线程，不另开连接。Agent随后自行调用获准终端命令执行并观察；下载、覆盖、UART/ZMODEM单文件上传及B4真机验收保留，见[上传记录](records/B3b_Sftp_Upload_2026-10-27.md)。
-
-2026-10-27 B3b文件传输第一子批：新增独立本地/远端读写授权与只读 `novaterm_list_file_resources`，当前二十二工具。仅发现已授权元数据，本机路径与文件内容不回传，上传/下载/进度/取消和安全发布仍待后续，见[文件资源记录](records/B3b_File_Resources_2026-10-27.md)。
-
-2026-10-27 B3b第四子批：保存目标支持本机逐客户端的新会话预授权，默认关闭，原创建连接首次就绪后一次绑定读取/完整输入/清空；复用、重试、重连与人工接管不恢复权限。当前二十一工具，单文件传输及B4待后续，见[预授权记录](records/B3b_New_Session_Sharing_2026-10-27.md)。
-
-2026-10-27 B3b第二子批：新增独立授权的 `novaterm_open_target` / `novaterm_query_target`，共二十工具；打开/复用使用现有可见终端，配置/客户端身份和operationId绑定，不继承终端权限。关闭、单文件传输与B4仍待后续，见[本批记录](records/B3b_Target_Connections_2026-10-27.md)。
-
-2026-10-27 第三子批追加 `novaterm_close_target`，当前二十一工具；边界、独立验证及剩余范围见[安全关闭记录](records/B3b_Target_Close_2026-10-27.md)。
-
-更新：2026-10-25。面向嵌入式 BSP 开发的外部 Agent 调试闭环。B0/B1 已实施，见 [B0/B1 实施与验收](records/B0_B1_Implementation_2026-10-25.md)；本文重写旧诊断/Agent 平台方案；源码现状与目标差距见 [03](03_Gaps_and_Evidence.md)。
+软件后续为SFTP下载、显式覆盖与平台收尾，B4由用户测试。历史子批及逐轮证据见[验收档案](records/README.md)，源码现状与待验场景见[缺口](03_Gaps_and_Evidence.md)。
 
 ## 1. 产品目标与责任
 
@@ -48,6 +38,7 @@ B2 已将独立授权清空接入现有 Core/UI 同源的 Parser 队列，完成
 | --- | --- | --- |
 | WireSession / HTTP endpoint / ToolCodec | 协议生命周期、可信身份、Schema、类型化解码和结果编码 | 判断 BSP 测试成功、持有终端可变状态 |
 | 应用读取/观察状态 | 授权、预算、等待、调用方进度和取消；复用 ReadUseCases/ObservationState | 自建全量日志数据库或直接写 Transport |
+| FileTransfers / SerialFileTransfers | 独立文件授权、原操作幂等和有界事实；复用SftpSession或串口Controller/worker | 新建传输owner、自动准备接收端或宣称远端hash/落盘已验证 |
 | CommandRuntime / 命令适配 | 已有命令与脚本任务、确认、发布、取消和未知结果 | 编排本地工程或模型回合 |
 | AuthorizationService / 能力准入 | grant、版本、级联撤权、可用性与拒绝原因 | 根据模型参数创建可信身份 |
 | Session / Controller / Arbiter / Evidence | 连接、环境和控制代际、人工优先、输入提交、完成事实 | 解析 MCP JSON 或根据输出猜测全部权限 |
@@ -83,9 +74,11 @@ MCP 输出一旦交付，NovaTerm 无法控制外部 Agent 后续发给哪个模
 
 submitted 仅证明本机提交。等待到期不是命令完成，命令完成也不是板上测试通过。UART 静默收尾是兼容降级；结果的证据类型、退出码及限制必须一起解读，不能只看 terminationConfirmed。
 
+UART文件结果独立保留protocolCompleted与fileConfirmed；ZSKIP可结束协议但未确认文件，最终握手失败也不抹除已有确认。remotePublication始终unknown、contentVerified始终false，取消不证明远端回滚。文件大小和波特率形成有限总期限，超出硬预算在首个协议字节前拒绝。
+
 长任务以连续有界观察延续，不占一个无限等待 RPC。停止读取不发送 Ctrl+C；显式取消执行、释放控制和终止设备进程是不同动作。未知结果必须保留，不能自动重发烧录/重启。
 
-SSH 断连和 UART 持续输出分别观察。当前 MCP 可操作已授权会话，B3b已提供已获准保存目标的显式打开/复用与连接查询，不开放任意地址建连或自动循环重连。SSH/SFTP 单文件交付也纳入 B3b，但烧录、JTAG、电源控制仍由明确范围的外部工具承担；U-Boot 短倒计时抢键必须实测后才可承诺。
+SSH 断连和 UART 持续输出分别观察。当前 MCP 可操作已授权会话，B3b已提供已获准保存目标的显式打开/复用与连接查询，不开放任意地址建连或自动循环重连。SSH/SFTP 与UART/ZMODEM单文件交付纳入 B3b，但烧录、JTAG、电源控制仍由明确范围的外部工具承担；U-Boot 短倒计时抢键必须实测后才可承诺。
 
 ## 7. 兼容与已有模块
 

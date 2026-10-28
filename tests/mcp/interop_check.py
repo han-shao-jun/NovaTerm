@@ -34,7 +34,7 @@ async def check(config: dict) -> None:
             initialization = await session.initialize()
             assert initialization.protocolVersion == "2025-11-25"
             catalog = await session.list_tools()
-            assert len(catalog.tools) == 26
+            assert len(catalog.tools) == 29
             schemas = {tool.name: tool.outputSchema for tool in catalog.tools}
             for tool in catalog.tools:
                 Draft202012Validator.check_schema(tool.inputSchema)
@@ -51,6 +51,7 @@ async def check(config: dict) -> None:
             await check_file_resources(call)
             await check_serial_file_targets(call)
             await check_file_transfers(call)
+            await check_serial_file_transfers(call)
             await check_target_connections(call)
             capture = "11111111-1111-4111-8111-111111111111"
             assert not (await call("novaterm_read_history", {"captureId": capture}))["ok"]
@@ -82,7 +83,7 @@ async def check(config: dict) -> None:
             assert not rejected["ok"] and rejected["error"]["code"] == "INVALID_ARGUMENT"
             await check_workflow(call, identity)
     await check_modern(settings)
-    print("PASS: official MCP SDK 2025 + raw 2026 HTTP, 26 schemas, UART authorization discovery, restricted-upload permission refusal, file-resource metadata discovery, saved-target directory/open/query/replay/close-refusal, history/terminal contracts and B3a wait/start/query/stop/replay")
+    print("PASS: official MCP SDK 2025 + raw 2026 HTTP, 29 schemas, UART authorization discovery, restricted-upload permission refusal, file-resource metadata discovery, saved-target directory/open/query/replay/close-refusal, history/terminal contracts and B3a wait/start/query/stop/replay")
 
 
 async def check_serial_file_targets(call) -> None:
@@ -116,6 +117,18 @@ async def check_file_transfers(call) -> None:
     for name in ("novaterm_query_transfer", "novaterm_cancel_transfer"):
         denied = await call(name, {"transferId": str(uuid.uuid4())})
         assert not denied["ok"] and denied["error"]["code"] in ("PERMISSION_DENIED", "TASK_NOT_AVAILABLE")
+
+
+async def check_serial_file_transfers(call) -> None:
+    denied = await call("novaterm_upload_serial_file", {
+        "sessionId": "11111111-1111-4111-8111-111111111111", "epoch": "unshared",
+        "resourceId": str(uuid.uuid4()), "resourceRevision": str(uuid.uuid4()),
+        "relativePath": "firmware.bin", "targetId": str(uuid.uuid4()),
+        "targetRevision": str(uuid.uuid4()), "remoteName": "firmware.bin", "operationId": str(uuid.uuid4())})
+    assert not denied["ok"] and denied["error"]["code"] == "PERMISSION_DENIED"
+    for name in ("novaterm_query_serial_transfer", "novaterm_cancel_serial_transfer"):
+        denied = await call(name, {"transferId": str(uuid.uuid4())})
+        assert not denied["ok"] and denied["error"]["code"] == "PERMISSION_DENIED"
 
 
 async def check_target_connections(call) -> None:
@@ -226,7 +239,7 @@ async def check_modern(settings: dict) -> None:
         assert unsupported["error"]["data"]["requested"] == "2099-01-01"
         listed = await rpc("tools/list", {"_meta": metadata()})
         assert listed["result"]["resultType"] == "complete"
-        assert len(listed["result"]["tools"]) == 26
+        assert len(listed["result"]["tools"]) == 29
         schemas = {tool["name"]: tool["outputSchema"] for tool in listed["result"]["tools"]}
         sessions = await rpc("tools/call", {"name": "novaterm_list_sessions",
             "arguments": {}, "_meta": metadata()})
@@ -246,6 +259,7 @@ async def check_modern(settings: dict) -> None:
         await check_file_resources(call)
         await check_serial_file_targets(call)
         await check_file_transfers(call)
+        await check_serial_file_transfers(call)
         await check_target_connections(call)
         await check_workflow(call, {key: identity[key] for key in ("sessionId", "epoch")})
     finally:

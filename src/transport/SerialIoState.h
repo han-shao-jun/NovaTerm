@@ -160,10 +160,11 @@ public:
         _receiveNotified = false;
         return allowReschedule && armReceive();
     }
-    qint64 queueWrite(QByteArrayView bytes, qint64 limit = MaxWriteBytes)
+    qint64 queueWrite(QByteArrayView bytes, qint64 limit = MaxWriteBytes, quint64 expectedGeneration = 0)
     {
         const std::lock_guard<std::mutex> lock(_mutex);
-        if (!_state.connected || !_state.desiredOpen || _state.stopping) return -1;
+        if ((expectedGeneration && expectedGeneration != _state.generation)
+            || !_state.connected || !_state.desiredOpen || _state.stopping) return -1;
         const auto available = std::min(_writeLimit, std::max<qint64>(0, limit))
             - _state.queuedWriteBytes - _state.inFlightWriteBytes;
         const auto count = std::min<qint64>(bytes.size(), std::max<qint64>(0, available));
@@ -208,10 +209,11 @@ public:
         _notices.written += completed;
         return completed;
     }
-    bool requestClear()
+    bool requestClear(quint64 expectedGeneration = 0)
     {
         const std::lock_guard<std::mutex> lock(_mutex);
-        if (!_state.connected || _state.stopping) return false;
+        if ((expectedGeneration && expectedGeneration != _state.generation)
+            || !_state.connected || _state.stopping) return false;
         ++_state.writeEpoch;
         _writes.clear();
         _state.queuedWriteBytes = 0;

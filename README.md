@@ -1,18 +1,8 @@
 # NovaTerm
 
-2026-10-28：新增UART独立发送授权与只读 `novaterm_list_serial_file_targets`，当前二十六工具；UART发送执行入口仍待后续，见[授权目录记录](docs/architecture/stages/P8_AI_MCP_Interface/records/B3b_Uart_Authorization_2026-10-28.md)。
+2026-10-28：当前源码提供二十九个MCP工具，追加 UART/ZMODEM 单文件上传、查询与取消，复用已有串口 Controller/worker。发送需要独立本地读取与UART发送授权；接收端准备和输入lease的显式release由调用方负责。受限SFTP上传已提供，SFTP下载、显式覆盖和平台收尾为后续软件工作，B4实机验收由用户执行。本阶段软件回归已完成，B4实机仍待用户验收，范围与证据见[UART发送记录](docs/architecture/stages/P8_AI_MCP_Interface/records/B3b_Uart_Send_2026-10-28.md)。
 
-2026-10-28 UART上传前置：安全本地Reader新增同句柄随机读取，现有串口worker可独占打开/读取/销毁单文件源，已补真实ZMODEM替身通路。当前仍二十五工具，UART独立发送授权和MCP入口待下一子批，见[安全文件源记录](docs/architecture/stages/P8_AI_MCP_Interface/records/B3b_Uart_File_Source_2026-10-28.md)。
-
-2026-10-28 工作区MCP新增受限SFTP单文件上传、查询及取消，共二十五工具，直接复用终端已有SFTP会话；默认不覆盖，上传后由外部Agent使用独立获准终端命令执行并读日志。下载、覆盖、UART/ZMODEM上传及真机验收待后续，见[上传记录](docs/architecture/stages/P8_AI_MCP_Interface/records/B3b_Sftp_Upload_2026-10-27.md)。
-
-2026-10-27 B3b文件传输第一子批：新增独立本地/远端读写授权与只读 `novaterm_list_file_resources`，当前二十二工具。仅发现已授权元数据，本机路径与文件内容不回传，上传/下载/进度/取消和安全发布仍待后续，见[文件资源记录](docs/architecture/stages/P8_AI_MCP_Interface/records/B3b_File_Resources_2026-10-27.md)。
-
-2026-10-27 B3b第四子批：保存目标支持本机逐客户端的新会话预授权，默认关闭，原创建连接首次就绪后一次绑定读取/完整输入/清空；复用、重试、重连与人工接管不恢复权限。当前二十一工具，单文件传输及B4待后续，见[预授权记录](docs/architecture/stages/P8_AI_MCP_Interface/records/B3b_New_Session_Sharing_2026-10-27.md)。
-
-2026-10-27：新增 `novaterm_close_target`，当前二十一工具；仅关闭原操作创建且未人工接管、具有空闲证据的连接，保留终端。单文件传输和B4待后续，见[安全关闭记录](docs/architecture/stages/P8_AI_MCP_Interface/records/B3b_Target_Close_2026-10-27.md)。
-
-历史MCP测试、审查与缺口详见[实施与验收记录](docs/architecture/stages/P8_AI_MCP_Interface/records/03_Implementation_and_Verification.md)；引用成绩须按日期与平台区分。
+历史实现与逐轮验证见[验收档案](docs/architecture/stages/P8_AI_MCP_Interface/records/README.md)，不以历史成绩代替当前版本验收。
 
 NovaTerm（原名 WindTermQt）是一款基于 Qt 6 的跨平台终端模拟器和 SSH 客户端。
 终端解析使用 libvterm，渲染使用 Qt QRhi，界面使用 ElaWidgetTools，采用
@@ -31,7 +21,7 @@ FluentUI 风格。
   已知失败，见 [AGENTS.md](AGENTS.md)。独立协议阶段的记录见
   [P9 文档](docs/architecture/stages/P9_File_Transfer_Protocols.md)
 - **系统监控**：支持远程SSH会话的系统资源监控
-- **AI MCP 接入**：默认关闭的进程内 Streamable HTTP 服务，默认地址为 `http://127.0.0.1:38973/mcp`，通过 Bearer token 认证；提供二十六个工具，支持终端观察/输入、准确日志分页、文本等待、长任务、保存目标连接管理、受限SFTP上传及独立文件/UART发送授权目录；UART发送、下载/覆盖和真实设备验收仍待后续，托管提权目前返回适配器不可用，确认与权限边界见 [使用说明](docs/MCP_Usage.md)
+- **AI MCP 接入**：默认关闭的进程内 Streamable HTTP 服务，默认地址为 `http://127.0.0.1:38973/mcp`，通过 Bearer token 认证；提供二十九个工具，支持终端观察/输入、准确日志分页、文本等待、长任务、保存目标连接管理、受限SFTP上传及独立授权的UART/ZMODEM单文件发送；UART发送本阶段软件回归已完成，B4实机仍待用户验收，SFTP下载/显式覆盖、平台收尾和B4实机验收仍待后续，托管提权目前返回适配器不可用，确认与权限边界见 [使用说明](docs/MCP_Usage.md)
 - **终端解析**：使用 libvterm 处理 ANSI/VT 控制序列，具体语义由终端测试覆盖
 - **搜索与高亮**：支持终端内容搜索和可配置文本高亮
 

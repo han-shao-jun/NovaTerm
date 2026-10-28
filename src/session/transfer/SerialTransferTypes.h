@@ -14,6 +14,7 @@ struct SerialTransferRequest {
     QStringList files; ///< 上传源路径；X 单文件，Y/Z 可多文件。
     QString destination; ///< 接收 X 的完整目标路径，Y/Z 的接收目录。
     std::optional<quint64> expectedSize; ///< 仅 X 接收的已知长度，不猜测填充。
+    std::function<bool()> admission; ///< GUI admission callback.
     std::optional<SerialTransferSourceSpec> source; ///< ZMODEM 单源发送，不与路径字段混用。
 };
 struct SerialTransferProgress {
@@ -29,3 +30,11 @@ struct SerialTransferProgress {
     quint64 elapsedMs{0};
 };
 Q_DECLARE_METATYPE(SerialTransferProgress)
+
+struct SerialTransferResult {
+    quint64 transferId{0};
+    bool protocolCompleted{false};
+    SerialTransferProgress progress;
+    NovaTerm::FileTransfer::Error error{NovaTerm::FileTransfer::Error::None};
+};
+Q_DECLARE_METATYPE(SerialTransferResult)

@@ -1,20 +1,44 @@
 # 当前 MCP 接口契约与兼容基线
 
+更新：2026-10-28。当前源码共二十九工具，UART单文件发送阶段软件回归已完成，B4实机仍待用户验收；本页描述已接入的接口与边界，验证范围以阶段记录为准，不代表B4实机验收完成。历史Schema/原始成绩按[验收档案](records/README.md)追溯，软件剩余范围见[收口账本](08_Software_Closeout.md)。
+
+## 2026-10-28：UART/ZMODEM 单文件上传、查询与取消
+
+在原二十六工具基础上追加以下三项；旧工具Schema及权限保持，UART目录仅更正“发送尚未开放”的过时说明。实现复用原Session、SerialFileTransferController、TransferFileWorker和ZMODEM协议owner，MCP薄索引只管理授权、幂等和有限事实，见[本阶段记录](records/B3b_Uart_Send_2026-10-28.md)。
+
+| 工具 | 必填参数 | 行为 |
+| --- | --- | --- |
+| `novaterm_upload_serial_file` | sessionId、epoch、resourceId、resourceRevision、relativePath、targetId、targetRevision、remoteName、operationId | 从独立本地读取授权资源发送单个普通文件到当前独立授权的UART连接；接收准备另行完成 |
+| `novaterm_query_serial_transfer` | transferId | 只查本人当前身份的原传输事实，不重发、不重连、不执行命令 |
+| `novaterm_cancel_serial_transfer` | transferId | 请求停止原Controller操作；不指向后来的人工传输或新连接，不承诺远端删除/回滚 |
+
+ID/revision/operationId为非空规范UUID；relativePath遵循现有本地资源相对路径安全限制，remoteName为最多255 UTF-8字节的单个协议文件名，不接受远端目录、串口参数或命令。终端读取/输入与SSH scope不推导UART发送权。准入同时复核本地read资源revision、UART target revision、客户端身份和原Session/attachment/epoch/连接generation/实际串口I/O代际及配置；原连接失效不跟随换绑。
+
+调用方必须独立准备接收端，并显式release已有MCP输入lease。上传不自动发送rz、不自动释放lease、不抢占人工传输，也不自动打开端口、执行文件或读取日志。remoteName只提供协议文件名，远端目录、覆盖策略和落盘行为由接收端决定。
+
+当前安全本地源仅Windows可用，最多64 MiB、64 KiB分块，固定句柄随机读取支持ZMODEM重传。每客户端/Session一个活动传输、全局两个；每客户端16/全局64条记录，终态保留十分钟，活动不淘汰。相同身份、operationId及完整参数精确重试返回原transferId和事实，改变参数拒绝；记录不跨应用重启恢复。
+
+总期限从首次受理计时，知道真实文件大小后按 `max(120000, 60000 + ceil(size * 32000 / baud))` 毫秒计算，硬预算3600000毫秒。超过预算在首个协议字节前拒绝；准备仍受原5秒期限约束，响应/无进展及取消排空沿用协议owner的有限期限。重试不续期；本机同步I/O或驱动阻塞不承诺硬退出时间。
+
+data包含instanceId、transferId、sessionId、epoch、operationId、protocol=zmodem、state、confirmedBytes、totalBytes（未知为空，已知空文件为0）、completedFiles（0或1）、protocolCompleted、fileConfirmed、remotePublication=unknown、contentVerified=false、timeoutMs（尚未知或超预算时为空）和errorCode（无错误为空）。state为accepted/sending/cancel_requested/completed/skipped/cancelled/failed/unknown。
+
+`protocolCompleted`仅表示协议会话完整结束；`fileConfirmed`仅当completedFiles=1。completed要求两者均为true，ZSKIP可使协议结束但文件未确认，状态为skipped；空文件也必须按文件计数确认。最后握手失败不抹除已有fileConfirmed/confirmedBytes。远端目录发布、覆盖、持久落盘和内容hash不由协议确认代替，因此remotePublication始终unknown、contentVerified始终false。取消后继续查询终态，不把cancel_requested当作已经回滚。
+
 ## 2026-10-28：UART 独立发送授权目录
 
-新增 `novaterm_list_serial_file_targets`，当前二十六工具，旧二十五工具对象/Schema保持。无参数只读返回本人显式共享的当前UART发送授权：`data={instanceId,availability:"authorization_only",targets:[{targetId,title,revision,sessionId,epoch,protocol:"zmodem"}]}`，每客户端最多8项、全局32项，名称为用户明确共享的文本；不自动返回端口名、串口配置、本机路径或凭据。
+`novaterm_list_serial_file_targets` 无参数只读返回本人显式共享的当前UART发送授权：`data={instanceId,availability:"authorization_only",targets:[{targetId,title,revision,sessionId,epoch,protocol:"zmodem"}]}`，每客户端最多8项、全局32项，名称为用户明确共享的文本；不自动返回端口名、串口配置、本机路径或凭据。
 
 本机文件资源授权窗口另选“串口 ZMODEM 发送”并明确允许发送。绑定独立客户端identityVersion、Session/attachment/epoch/generation、真实串口I/O代际及端口/波特率/数据位/校验/停止位/流控摘要；仅当前运行有效。需现有Running的8数据位串口及实际I/O就绪，授权/发现不打开端口或写入字节。普通终端授权变化不撤销此许可；断连/换绑/代际/配置变化、身份轮换、全局停用和服务停止回收，旧窗口不能转授新连接，同绑定更新轮换revision，旧revision不能撤回新规则。
 
-该目录不表示输入lease空闲、接收端准备完成或UART MCP发送已经开放。UART发送/查询/取消执行入口仍待后续；SFTP上传继续按独立本地读+SSH远端写授权，不使用本目录。实现、真实回归与限制见[UART授权记录](records/B3b_Uart_Authorization_2026-10-28.md)。
+该目录不表示输入lease空闲或接收端已准备；实际发送需调用上节独立UART工具并复核当前revision。SFTP上传按独立本地读+SSH远端写授权，不使用本目录。授权子批的实现、回归与限制见[UART授权记录](records/B3b_Uart_Authorization_2026-10-28.md)。
 
 ## 2026-10-28：受限 SFTP 单文件上传（工作区增量）
 
-UART安全文件源前置已补同句柄随机读取和现有串口worker单源接口，源码/替身证据见[记录](records/B3b_Uart_File_Source_2026-10-28.md)。它不新增MCP工具或权限，当前仍二十五工具。公开UART上传、独立发送授权和接收结果语义仍待下一子批。
+安全文件源的固定句柄随机读取与串口worker生命周期见[前置记录](records/B3b_Uart_File_Source_2026-10-28.md)，当前UART工具复用该源边界。
 
 三个工具职责独立：上传只上传，查询只读事实，取消只请求停止指定transferId；上传不调用打开、执行、读取日志或关闭工具，不要求其权限，也不依赖关闭策略或普通终端命令忙碌状态。仅复用连接/授权/队列等底层资源。关闭工具仍独立保护活动传输，不能在上传中误断开连接。
 
-当前二十五工具：兼容原二十二工具Schema/权限，末尾追加 `novaterm_upload_file`、`novaterm_query_transfer`、`novaterm_cancel_transfer`。版本0.2.91保持；原九项终端请求联合和历史fixture保持。实际本轮验证见[上传记录](records/B3b_Sftp_Upload_2026-10-27.md)。
+SFTP三工具为 `novaterm_upload_file`、`novaterm_query_transfer`、`novaterm_cancel_transfer`；原九项终端请求联合和历史fixture保持。该子批原始验证见[上传记录](records/B3b_Sftp_Upload_2026-10-27.md)，不作为本阶段重测结果。
 
 | 工具 | 必填参数 | 行为 |
 | --- | --- | --- |
@@ -34,35 +58,35 @@ data固定包含instanceId、transferId、sessionId、epoch、operationId、stat
 
 首批要求 `hardlink@openssh.com`：0600/EXCL随机临时文件→同目录原子不替换创建目标→清理本次临时链接。能力不足拒绝，不使用覆盖式posix-rename。远端逐段检查规范路径、链接、权限及祖先属主（只接受远端管理员或授权根属主）；SFTPv3无法对恶意同账号路径改写提供本地句柄级保证，故该账号/管理员须可信。检查变化时不冒险清理；失去发布确认或通用歧义错误保守返回unknown。上传工具不执行chmod、sh、insmod、烧录或重启，后续命令须走现有独立授权终端工具。
 
-下载、覆盖及UART/ZMODEM单文件上传为后续；ZMODEM从已有SerialFileTransferController/输入泵/协议owner接入，不能调用虚构工具。
+SFTP下载和显式覆盖为后续软件工作；UART/ZMODEM三工具按本页首节独立授权和结果语义调用。平台收尾与B4用户实测分别记录。
 
 兼容基线整理于 2026-10-18，2026-10-23 加入历史工具；2026-10-24 校正目录与状态说明。入口：[总体架构](00_Overall_Architecture.md) / [实施与验收](01_Phases_and_Acceptance.md)。
 本文件记录已有冻结契约，依据 ToolCodec、fixture、Budget、Errors 和 MCP 使用说明；不宣称外部 MCP 规范的最新状态，也不证明所有平台已验收。2026-10-25 B0/B1 已退役未发布 P4 两个诊断工具及专属接线，B0/B1 基线为十二工具，B2 后为十三项（见下节）。清理、日志扩展及本轮验证见 [B0/B1 实施与验收](records/B0_B1_Implementation_2026-10-25.md)。
 
 **B1 日志模式与 B2 清空事务已实施**：缺省 source=observation 的 sinceToken 仍是模型观察游标，recentOutput 仍是摘要；显式 source=log 使用独立位置游标。read_context 的兼容 Schema 扩展见下节及 [04](04_Cursor_Observation_and_Clear.md)，其他十一工具对象保持。
 
-2026-10-27 B3/B3a：追加下述四工具，达到十七项；B3b 第一子批再追加只读保存目标目录，第二子批增加打开/查询，第二子批为二十项，第三子批追加安全关闭后共二十一项。原十七对象兼容保留，目录工具仅更正说明文字；旧九项 ToolRequest 联合不扩张。SSH/SFTP 单文件传输仍未实施，安全关闭见下节。源码/替身验证不代替真实设备验收。
+B3/B3a等待/任务、B3b保存目标目录/打开/查询/安全关闭及文件扩展的现行契约分别列于下文。旧九项ToolRequest联合保持，历史子批工具数量与验证仅在对应records中解释；源码/替身验证不代替真实设备验收。
 
 ## B3b 文件传输第一子批：独立文件授权目录（2026-10-27）
 
 2026-10-27 后续工作区增加 Windows 本地句柄I/O库（[记录](records/B3b_Local_File_IO_2026-10-27.md)），初批独立验证，当前上传已复用Reader；目录工具本身仍保持以下Schema、权限及`authorization_only`，元数据发现本身不执行传输。
 
-新增只读 `novaterm_list_file_resources`，当前二十二工具；原二十一工具对象、九项终端请求联合与权限语义保持。本批只查询本机用户明确共享的授权元数据，不读取文件内容，不创建SFTP或终端连接，不提供上传/下载/进度/取消工具。
+`novaterm_list_file_resources`只查询本机用户明确共享的授权元数据，不读取文件内容、不创建SFTP或终端连接；传输使用独立工具，目录查询不授予额外权限。
 
 - 参数可为空，用于发现本客户端已获准的资源与SSH绑定；也可传 `sessionId` / `epoch` 成对筛选。拒绝任意本机路径、远端路径、host、clientId或读写授权参数，模型不能通过目录工具创建或扩大授权。
-- 本机“文件资源授权”窗口逐客户端选择本地目录与当前已连接、主机身份已确认的SSH远端目录，并分别勾选读/写。终端读取、完整输入、清空、脚本、目标打开及预授权不推导文件权限。后续上传需要本地读+远端写，下载需要远端读+本地写。
+- 本机“文件资源授权”窗口逐客户端选择本地目录与当前已连接、主机身份已确认的SSH远端目录，并分别勾选读/写。终端读取、完整输入、清空、脚本、目标打开及预授权不推导文件权限。SFTP上传需要本地读+远端写，后续下载需要远端读+本地写；UART发送需要本地读+独立UART发送许可。
 - 成功data含 `instanceId`、固定 `availability=authorization_only`、`localResources` 与 `remoteScopes`。本地条目仅 `resourceId/title/revision/readAllowed/writeAllowed`，省略本机路径；名称为用户主动共享文字。远端条目含 `scopeId/title/revision/path/sessionId/epoch/readAllowed/writeAllowed`，只披露已明确共享且仍为当前连接的路径与绑定标识。
 - 无参返回本人已共享项，可以为空；不列未授权终端。筛选未知、未共享或不就绪目标统一返回 `PERMISSION_DENIED`；确有当前远端授权但epoch错误返回 `STALE_SESSION_EPOCH`。目录只读不要求额外开放终端读取。
 - 本地授权绑定客户端独立身份版本；远端另绑定完整Session/attachment/epoch/连接generation/目标指纹。普通终端授权变动不清除文件授权。目录移除、远端连接换代/换绑即回收远端scope；身份轮换/删除/全局停用或服务停止回收相应资源。本次运行有效，不写接入JSON，不跨重启恢复。
 - 同一当前身份、绑定和规范路径更新原ID并轮换revision；撤回后重共享生成新ID，旧revision不能撤回新规则。陈旧本机窗口按身份和完整连接快照拒绝，连接变化后需重新选择。
 - 授权窗口明确显示客户端名称和稳定ID，采用父窗口模态；同一客户端复用已打开窗口，程序侧切换客户端会关闭旧窗口。目录刷新仅恢复同一ID与revision的选择；更新、移除或换绑后须重新选择再撤回。
-- 本地8项/客户端、128项全局；远端8项/客户端（跨Session共用）、256项全局。列表最多8+8项，无分页。路径最多1024 UTF-8字节，名称最多256字节；拒绝控制字符、上级跳转、UNC/Windows设备前缀、相对路径及远端根目录。词法准入不证明真实文件系统安全；实际链接、重解析点、替换、普通文件与范围将在后续传输打开/发布边界复核。
+- 本地8项/客户端、128项全局；远端8项/客户端（跨Session共用）、256项全局。列表最多8+8项，无分页。路径最多1024 UTF-8字节，名称最多256字节；拒绝控制字符、上级跳转、UNC/Windows设备前缀、相对路径及远端根目录。词法准入不证明真实文件系统安全；实际链接、重解析点、替换、普通文件与范围在传输打开/发布边界复核。
 
 设计、分轮验证及保留范围见[文件资源记录](records/B3b_File_Resources_2026-10-27.md)。文件传输仍未开放，不把权限目录当作可用文件或传输成功的证明。
 
 ## B3b 第四子批：新会话预授权（2026-10-27）
 
-当前仍为二十一工具，不增加协议参数；`novaterm_open_target` 的 Schema、结果与默认授权保持。本机 MCP 设置逐客户端/保存目标另提供“新建时读取、完整输入、允许清空”三项选择，规则仅当前运行有效，绑定客户端身份与目标配置版本。
+预授权规则不增加协议参数；`novaterm_open_target` 的 Schema、结果与默认授权保持。本机 MCP 设置逐客户端/保存目标另提供“新建时读取、完整输入、允许清空”三项选择，规则仅当前运行有效，绑定客户端身份与目标配置版本。
 
 - 默认全关。输入或清空的选择同时开启读取；取消读取级联取消两项。撤回允许打开清除规则，重新打开不恢复旧选择。脚本、旧命令、诊断、托管提权和文件权限不由规则授予。
 - 仅首次成功创建的可见 Session 可排入一次性等待；复用会话、相同 operationId 重试和查询均不触发新授权。原连接就绪后，以实际 Session/Transport/连接 generation/epoch/首次指纹绑定初始化授权行，一次原子写入并推进访问版本，不复制别的会话授权。
@@ -74,7 +98,7 @@ data固定包含instanceId、transferId、sessionId、epoch、operationId、stat
 
 ## B3b 第三子批：原创建会话安全关闭（2026-10-27）
 
-新增 `novaterm_close_target(targetId,configVersion,operationId,epoch)`，当前二十一工具。前三项均为原打开操作的标识，epoch取最近查询；不接受sessionId替换目标、force、凭据或连接参数。沿用当前目录共享和独立打开权限，不自动授予终端权限。旧二十工具Schema保持；目录和打开工具仅更新关闭说明。
+`novaterm_close_target(targetId,configVersion,operationId,epoch)`只关闭原创建会话。前三项均为原打开操作的标识，epoch取最近查询；不接受sessionId替换目标、force、凭据或连接参数。沿用当前目录共享和独立打开权限，不自动授予终端权限。旧二十工具Schema保持；目录和打开工具仅更新关闭说明。
 
 - 只关闭本客户端、同身份/配置版本下原操作明确创建的Session；复用会话返回 `TARGET_CLOSE_NOT_ALLOWED`，不存在的操作返回 `TARGET_OPERATION_NOT_AVAILABLE`。
 - 核对原Transport运行期身份及原连接generation，拒绝换绑或重连后的连接。首次连接的指纹发现可能更新epoch，但不改变原Transport/连接generation；此时可用最新查询epoch。过期epoch返回 `STALE_SESSION_EPOCH`，人工终端输入或本机显式断开/重连后返回 `TARGET_CLOSE_NOT_ALLOWED`。本机按键/文本/粘贴成功进入Core命令队列即视为接管，不等待Parser编码或GUI输出交付；清空/连接reset不重置该事实。
@@ -602,4 +626,4 @@ HTTP input公式对应当前实现49.1875MiB，不将原档案旧IPC握手/执�
 - 旧P8中的五工具/七工具、stdio/IPC、多实例discovery、execute_command旧idempotentHint=true、旧Grant整组写入和双提示符模型均为历史，不作为新实现要求。
 - 原v0.6只有run_command/script，后续完整输入/提权加入后是九工具；工具存在不证明提权或所有后端可用。
 - 历史“最终结构验收”仅是当时迁移结论；后续结构和行为验证按 [当前实施顺序](01_Phases_and_Acceptance.md) 执行，不再沿用旧 P0/P1 计划。
-- 本次只做文档重构；没有重新运行功能/性能/平台测试，历史成绩在 [验收档案](records/README.md) 按日期保存。
+- 各轮构建、功能、性能与平台成绩在[验收档案](records/README.md)按日期保存；本页接口更新不产生测试通过结论。

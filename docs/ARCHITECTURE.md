@@ -1,35 +1,12 @@
 # NovaTerm 统一架构设计
 
-2026-10-28 UART独立授权目录：纯Qt Core SerialFileTargets持有有界身份/连接绑定许可，SerialFileTargetAdapter复核现有Session/SerialTransport实际I/O代际与配置；本机明确共享，MCP只读发现。无新串口owner、端口连接或文件发送；当前二十六工具，UART执行入口仍待后续，见[记录](architecture/stages/P8_AI_MCP_Interface/records/B3b_Uart_Authorization_2026-10-28.md)。
+2026-10-28 MCP现行源码为二十九工具，UART/ZMODEM发送阶段软件回归已完成，B4实机仍待用户验收。`SerialFileTransfers`只在GUI线程持有有界的授权、幂等索引与结果事实；原Session持有的`SerialFileTransferController`继续管理协议操作，原`TransferFileWorker`独占打开、随机读取与销毁固定句柄文件源。接收字节仍经唯一输入泵，出站仍经原lease/协议owner；SerialIoState在原队列锁内复核捕获的I/O代际，旧payload、取消CAN和清队列不能作用于新连接。
 
-2026-10-28 UART安全文件源前置已补齐：LocalFileReader在原固定句柄上有界readAt，SerialTransferRequest可携带仅由现有TransferFileWorker打开/拥有的单源工厂，Controller与纯ZMODEM仍使用原输入泵/lease。串口生产库不依赖MCP；安全Reader适配在独立集成夹具连接两个既有模块。当前二十五工具，尚未提供UART MCP授权或上传入口，见[记录](architecture/stages/P8_AI_MCP_Interface/records/B3b_Uart_File_Source_2026-10-28.md)。
+UART发送同时复核独立本地read资源和UART target授权，终端或SSH scope不推导该权限。调用方独立准备接收端并显式release已有MCP输入lease；工具不自动rz、不抢占。SFTP上传复用原SftpSession/worker，Core与串口生产库不依赖MCP文件I/O。软件剩余SFTP下载、显式覆盖与平台收尾，B4由用户实测。
 
-2026-10-28 工作区受限SFTP单文件上传/查询/取消已接入，当前二十五工具；MCP薄索引复用终端SftpPanel原SftpSession/worker，不另建连接/执行器。文件读写在原worker，本地Reader已成为生产消费者；Core不依赖MCP文件I/O。默认不覆盖、不自动执行。限制、实际验证及UART/ZMODEM下一起点见[上传记录](architecture/stages/P8_AI_MCP_Interface/records/B3b_Sftp_Upload_2026-10-27.md)。
+当前字段与边界见[现行契约](architecture/stages/P8_AI_MCP_Interface/02_Current_MCP_Contract.md)，阶段证据见[UART发送记录](architecture/stages/P8_AI_MCP_Interface/records/B3b_Uart_Send_2026-10-28.md)。既往终端、连接、文件授权和SFTP子批统一见[验收档案](architecture/stages/P8_AI_MCP_Interface/records/README.md)，不从历史工具数量或成绩推断当前版本验收。
 
-2026-10-27 文件传输第二子批新增独立Qt Core `novaterm_mcp_file_io`：Windows worker使用相对目录句柄读普通文件、写独占临时文件及原子不覆盖发布；其他平台明确拒绝。尚未接MCP/Session/SFTP，不扩大授权，不新增工具，见[本地I/O记录](architecture/stages/P8_AI_MCP_Interface/records/B3b_Local_File_IO_2026-10-27.md)。
-
-2026-10-27 B3b文件传输第一子批：新增独立本地/远端读写授权与只读 `novaterm_list_file_resources`，当前二十二工具。仅发现已授权元数据，本机路径与文件内容不回传，上传/下载/进度/取消和安全发布仍待后续，见[文件资源记录](architecture/stages/P8_AI_MCP_Interface/records/B3b_File_Resources_2026-10-27.md)。
-
-2026-10-27 B3b第四子批：保存目标支持本机逐客户端的新会话预授权，默认关闭，原创建连接首次就绪后一次绑定读取/完整输入/清空；复用、重试、重连与人工接管不恢复权限。当前二十一工具，单文件传输及B4待后续，见[预授权记录](architecture/stages/P8_AI_MCP_Interface/records/B3b_New_Session_Sharing_2026-10-27.md)。
-
-2026-10-27 B3b第三子批：追加 `novaterm_close_target`，当前二十一工具。应用索引核对原创建操作，Session/Controller及本机后台SFTP事实联合拒绝人工接管、旧连接与忙碌/未知状态；沿用Session.close并保留可见终端。文件传输和B4待后续，见[安全关闭记录](architecture/stages/P8_AI_MCP_Interface/records/B3b_Target_Close_2026-10-27.md)。
-
-2026-10-27 B3b第二子批：追加独立授权的 `novaterm_open_target/query_target`，当前二十工具。纯Qt Core索引有界保留运行期operationId受理事实，UI通过现有可见TerminalView创建/复用；凭据解锁后及Session.start准入前复核配置/授权/请求。查询跟踪原Transport对象，返回实际epoch，不继承终端/文件权限；关闭、文件传输和B4仍待后续。契约与本轮证据见[连接记录](architecture/stages/P8_AI_MCP_Interface/records/B3b_Target_Connections_2026-10-27.md)。
-
-2026-10-27 B3b 第一子批：独立只读保存目标授权目录 `novaterm_list_targets`，当前十八工具。纯应用 SavedTargets 仅持有有界、无秘密的配置描述和显式运行期共享，UI 从现有 SessionPanel 发布摘要；不创建 Session，不连接设备，不继承终端权限。原十七工具对象及九项终端请求联合保持。打开/查询/关闭与文件传输仍待后续，见[目录契约](architecture/stages/P8_AI_MCP_Interface/02_Current_MCP_Contract.md)与[实施记录](architecture/stages/P8_AI_MCP_Interface/records/B3b_Target_Directory_2026-10-27.md)。
-
-2026-10-27 B3/B3a：追加有界字面文本等待和长任务启动/查询/请求停止，当前十七工具。等待复用B1日志位置、ObservationService屏幕与B2代际；任务索引只保留有界关联/事实，Controller/Arbiter仍为输入与执行owner，无第二采集、执行器或任务全文日志。两代协议、工具说明和流程已统一，精确字段见 [当前契约](architecture/stages/P8_AI_MCP_Interface/02_Current_MCP_Contract.md)，实际验证与限制见 [B3记录](architecture/stages/P8_AI_MCP_Interface/records/B3_Implementation_2026-10-27.md)。B3b文件/连接、真实设备与性能仍未验收。
-
-2026-10-25 B0/B1：`read_context source=log` 已复用现有 ChunkedScrollback 提供稳定位置、UTF-8 分页、重复行及淘汰/代际状态；模型观察游标原义保持。Core 只 try-lock，冷页 CacheOnly，不建立第二日志存储。已退役未发布 P4 诊断平台及无生产消费者的 Recipe/EnvironmentTracker/本机 Agent 原型；CommandRuntime/Controller/EvidenceModel 保持现行执行与就绪事实。精确契约、范围及本轮成绩见 [B0/B1 记录](architecture/stages/P8_AI_MCP_Interface/records/B0_B1_Implementation_2026-10-25.md)。B2 已通过现有 Parser 队列与字节屏障接入独立授权清空，应用持有有界幂等记录，Core/Provider/实时 capture 与输入 token 共用缓存代际；当前追加第十三项工具，见 [B2 记录](architecture/stages/P8_AI_MCP_Interface/records/B2_Implementation_2026-10-25.md)。
-
-2026-10-25 MCP 目标设计补充：[等待、长任务、文件传输与保存目标连接](architecture/stages/P8_AI_MCP_Interface/06_Terminal_Workflow_Extensions.md) 纳入外部 Agent 的 BSP 闭环，复用既有终端、执行、SSH/SFTP 和 View-owned Session 边界。仅为规划，不代表新工具已实现，不改变当前数据通路或所有权。
-
-历史MCP测试、审查与缺口详见[实施与验收记录](architecture/stages/P8_AI_MCP_Interface/records/03_Implementation_and_Verification.md)；引用成绩须按日期与平台区分。
-
-外部 Agent 的 SSH/UART MCP 终端工具总体架构、缓存游标与 BSP 闭环验收见 [MCP 文档集](architecture/stages/P8_AI_MCP_Interface/README.md)。本页全项目原则仍适用；专项计划中的未来能力不代表当前已实现。
-
-2026-10-24 资源共享边界：Application 显式持有独立 Qt Core 共享服务，管理历史授权事务和查询/证据发布；MCP 仅适配协议与可信身份，原终端请求固定九工具。读取取消在流 owner 提交前回收，录制来源替换不撤销独立导入文件。实际构建/验证与未验收范围见 [本轮记录](architecture/stages/P8_AI_MCP_Interface/records/P3_Architecture_Fixes_2026-10-24.md)。
-
+资源共享继续由Application独立持有授权/查询/证据服务，MCP负责协议与可信身份；独立导入文件不随MCP关闭删除，见[资源边界记录](architecture/stages/P8_AI_MCP_Interface/records/P3_Architecture_Fixes_2026-10-24.md)。
 
 NovaTerm 的统一架构文档集中在本文件；文档索引、配置与主题、渲染架构、路线图及阶段实施说明仍位于 [architecture/README.md](architecture/README.md)。
 

@@ -86,6 +86,62 @@ class ContractsTests : public QObject
 {
     Q_OBJECT
 private slots:
+    void serialUploadToolsKeepConfirmationAndPublicationSeparate()
+    {
+        const QString upload = "novaterm_upload_serial_file";
+        const QJsonObject arguments{{"sessionId", SessionUuid}, {"epoch", "epoch-1"},
+            {"resourceId", SessionUuid}, {"resourceRevision", OperationUuid}, {"relativePath", "images/firmware.bin"},
+            {"targetId", OperationUuid}, {"targetRevision", SessionUuid}, {"remoteName", "firmware.bin"}, {"operationId", OperationUuid}};
+        QVERIFY(ToolCodec::isKnownTool(upload));
+        QVERIFY(ToolCodec::validate(upload, arguments).isEmpty());
+        const auto decoded = ToolCodec::decodeCall(upload, arguments); QVERIFY(!isError(decoded));
+        const auto& request = std::get<StartSerialFileUploadRequest>(std::get<SerialFileTransferRequest>(std::get<ToolCall>(decoded)));
+        QCOMPARE(request.remoteName, QString("firmware.bin")); QCOMPARE(request.targetId, OperationUuid);
+        for (const auto& field : arguments.keys()) {
+            auto missing = arguments; missing.remove(field); QVERIFY(!ToolCodec::validate(upload, missing).isEmpty());
+        }
+        for (const auto& field : QStringList{"scopeId", "clientId", "portName", "baudRate", "command", "overwrite", "localPath", "remotePath"}) {
+            auto invalid = arguments; invalid.insert(field, "injected"); QVERIFY(!ToolCodec::validate(upload, invalid).isEmpty());
+        }
+        for (const auto& field : QStringList{"targetId", "targetRevision", "resourceId", "resourceRevision", "operationId"}) {
+            auto invalid = arguments; invalid.insert(field, "not-a-uuid"); QVERIFY(isError(ToolCodec::decodeCall(upload, invalid)));
+        }
+        for (const auto& path : QStringList{"../outside", "/absolute", "a//b", "a\\b", "C:/source", "name:stream", QString(1025, 'a')}) {
+            auto invalid = arguments; invalid.insert("relativePath", path); QVERIFY(!ToolCodec::validate(upload, invalid).isEmpty());
+        }
+        for (const auto& name : QStringList{".", "..", "a/b", "a\\b", "name:stream", "a\nb", QString(256, 'a'), QString(86, QChar(0x4e00))}) {
+            auto invalid = arguments; invalid.insert("remoteName", name); QVERIFY(!ToolCodec::validate(upload, invalid).isEmpty());
+        }
+        const auto tools = ToolCodec::catalog(); QCOMPARE(tools.size(), 29);
+        QFile fixture(QStringLiteral(NOVATERM_SOURCE_DIR "/tests/mcp/fixtures/serial-transfer-tools-2026-10-28.json"));
+        QVERIFY(fixture.open(QIODevice::ReadOnly));
+        const auto expected = QJsonDocument::fromJson(fixture.readAll()).array();
+        QCOMPARE(expected.size(), 3);
+        const QStringList fields{"instanceId", "transferId", "sessionId", "epoch", "operationId", "protocol", "state",
+            "confirmedBytes", "totalBytes", "completedFiles", "protocolCompleted", "fileConfirmed", "remotePublication",
+            "contentVerified", "timeoutMs", "errorCode"};
+        for (int i = 26; i < 29; ++i) {
+            const auto tool = tools.at(i).toObject();
+            QCOMPARE(tool, expected.at(i - 26).toObject());
+            const auto data = tool.value("outputSchema").toObject().value("properties").toObject().value("data").toObject();
+            QCOMPARE(data.value("properties").toObject().size(), fields.size());
+            for (const auto& field : fields) QVERIFY(data.value("required").toArray().contains(field));
+            QVERIFY(!data.value("additionalProperties").toBool(true));
+            QCOMPARE(data.value("properties").toObject().value("remotePublication").toObject().value("const"), QJsonValue("unknown"));
+            QCOMPARE(data.value("properties").toObject().value("contentVerified").toObject().value("const"), QJsonValue(false));
+            const auto decodedName = ToolCodec::toolName(std::get<ToolCall>(ToolCodec::decodeCall(tool.value("name").toString(),
+                i == 26 ? arguments : QJsonObject{{"transferId", OperationUuid}})));
+            QCOMPARE(decodedName, tool.value("name").toString());
+        }
+    }
+    void serialUploadGuidanceRequiresExternalReceiverPreparation()
+    {
+        const auto instructions = agentInstructions();
+        QVERIFY(instructions.contains("novaterm_upload_serial_file"));
+        QVERIFY(instructions.contains("ZSKIP"));
+        QVERIFY(instructions.contains("release"));
+        QVERIFY(!instructions.contains("UART sending remains unavailable"));
+    }
     void serialFileTargetsDiscoverOnlyAuthorizationMetadata()
     {
         const QString name = "novaterm_list_serial_file_targets";
@@ -104,7 +160,7 @@ private slots:
                 "localPath", "protocol", "sendAllowed"})
             QVERIFY2(!ToolCodec::validate(name, {{field, "injected"}}).isEmpty(), qPrintable(field));
         const auto tools = ToolCodec::catalog();
-        QCOMPARE(tools.size(), 26);
+        QCOMPARE(tools.size(), 29);
         const auto tool = tools.at(25).toObject();
         QCOMPARE(tool.value("name").toString(), name);
         QVERIFY(tool.value("annotations").toObject().value("readOnlyHint").toBool());
@@ -123,7 +179,13 @@ private slots:
         QCOMPARE(row.value("properties").toObject().value("protocol").toObject().value("const"), QJsonValue("zmodem"));
         QFile fixture(QStringLiteral(NOVATERM_SOURCE_DIR "/tests/mcp/fixtures/serial-file-targets-2026-10-28.json"));
         QVERIFY(fixture.open(QIODevice::ReadOnly));
-        QCOMPARE(tool, QJsonDocument::fromJson(fixture.readAll()).object());
+        auto expected = QJsonDocument::fromJson(fixture.readAll()).object();
+        auto description = expected.value("description").toString();
+        QVERIFY(description.contains("UART file sending is not yet available through MCP."));
+        description.replace("UART file sending is not yet available through MCP.",
+            "Use separately listed UART file-transfer tools for sending; this directory itself only discovers authorization.");
+        expected.insert("description", description);
+        QCOMPARE(tool, expected);
     }
     void fileUploadToolsRejectUnsafePathsAndDecodeTypedRequests()
     {
@@ -174,7 +236,7 @@ private slots:
     void fileTransferResultSchemaIsClosedAndComplete()
     {
         const auto tools = ToolCodec::catalog();
-        QCOMPARE(tools.size(), 26);
+        QCOMPARE(tools.size(), 29);
         QFile fixture(QStringLiteral(NOVATERM_SOURCE_DIR "/tests/mcp/fixtures/file-transfer-tools-2026-10-28.json"));
         QVERIFY(fixture.open(QIODevice::ReadOnly));
         const QJsonArray appended{tools.at(22), tools.at(23), tools.at(24)};
@@ -211,7 +273,7 @@ private slots:
             QVERIFY(!ToolCodec::validate(name, invalid).isEmpty());
         }
         const auto tools = ToolCodec::catalog();
-        QCOMPARE(tools.size(), 26);
+        QCOMPARE(tools.size(), 29);
         const auto tool = tools.at(21).toObject();
         QCOMPARE(tool.value("name").toString(), name);
         QVERIFY(tool.value("annotations").toObject().value("readOnlyHint").toBool());
@@ -812,6 +874,14 @@ void ContractsTests::confirmationClaimsKeepWireFormatAndRejectTampering()
 int main(int argc, char** argv)
 {
     QCoreApplication application(argc, argv);
+    if (application.arguments().size() == 3 && application.arguments()[1] == "--write-serial-transfer-fixture") {
+        const auto tools = ToolCodec::catalog();
+        if (tools.size() != 29) return 1;
+        QFile file(application.arguments()[2]);
+        if (!file.open(QIODevice::WriteOnly)) return 1;
+        const auto bytes = QJsonDocument(QJsonArray{tools.at(26), tools.at(27), tools.at(28)}).toJson();
+        return file.write(bytes) == bytes.size() ? 0 : 1;
+    }
     if (application.arguments().size() == 3 && application.arguments()[1] == "--write-serial-file-targets-fixture") {
         const auto tools = ToolCodec::catalog();
         if (tools.size() != 26) return 1;

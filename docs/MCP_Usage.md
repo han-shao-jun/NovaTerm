@@ -1,10 +1,6 @@
 # NovaTerm AI MCP 使用说明
 
-2026-10-28：当前二十六工具，支持受限SFTP上传/查询/取消，并新增UART独立发送授权目录。UART文件发送入口仍待后续；实际字段以[现行契约](architecture/stages/P8_AI_MCP_Interface/02_Current_MCP_Contract.md)为准。
-
-2026-10-27：新增 `novaterm_close_target`，当前二十一工具；仅关闭原操作创建且未人工接管、具有空闲证据的连接，保留终端。单文件传输和B4待后续，见[安全关闭记录](architecture/stages/P8_AI_MCP_Interface/records/B3b_Target_Close_2026-10-27.md)。
-
-历史MCP测试、审查与缺口详见[实施与验收记录](architecture/stages/P8_AI_MCP_Interface/records/03_Implementation_and_Verification.md)；引用成绩须按日期与平台区分。
+2026-10-28：当前源码为二十九工具，包括受限SFTP上传/查询/取消、UART独立发送授权目录及UART上传/查询/取消。本阶段软件回归已完成，B4实机仍待用户验收，实际字段以[现行契约](architecture/stages/P8_AI_MCP_Interface/02_Current_MCP_Contract.md)和运行版本的tools/list为准；本轮进度见[UART发送记录](architecture/stages/P8_AI_MCP_Interface/records/B3b_Uart_Send_2026-10-28.md)，历史成绩见[验收档案](architecture/stages/P8_AI_MCP_Interface/records/README.md)。SFTP下载、显式覆盖和平台收尾仍待后续，B4设备测试由用户执行。
 
 NovaTerm 提供进程内 Streamable HTTP MCP 服务，可让支持 MCP 的 AI 客户端读取指定终端输出、
 搜索已读取的内容、运行授权诊断，以及通过当前交互终端执行受控命令和脚本任务。默认关闭。
@@ -100,11 +96,11 @@ status=gap 表示旧位置被淘汰；status=invalidated 表示本机 clear 或 
 
 预算缺省 65536 字节/256 分段，最大 262144/1024；compact 只改缺省为 4096/24。初次 start 与续读 sinceToken 必须二选一；日志模式不要传 expandToken、waitFor、非零 waitMs 或 includeViewport=true。只有读取授权也可建立书签，整个过程没有输入或清空。
 
-当前软尾行、未换行提示、CR 进度条和备用屏仍看缺省 observation。日志只读已稳定的终端缓存，没有原始字节或覆写前屏幕帧；分页完整不证明 UART 硬件零丢失。日志 token 与观察 token/capture/expandToken 不混用，不产生 inputToken；需要操作时另读屏幕。MCP 清空按下节独立授权开放；文本等待和长任务见下文，保存目标打开/查询/安全关闭见下节；文件传输当前提供受限SFTP上传。
+当前软尾行、未换行提示、CR 进度条和备用屏仍看缺省 observation。日志只读已稳定的终端缓存，没有原始字节或覆写前屏幕帧；分页完整不证明 UART 硬件零丢失。日志 token 与观察 token/capture/expandToken 不混用，不产生 inputToken；需要操作时另读屏幕。MCP 清空按下节独立授权开放；文本等待和长任务见下文，保存目标打开/查询/安全关闭见下节；文件传输当前提供受限SFTP上传和独立授权的UART/ZMODEM单文件发送。
 
 ## 文本等待与长任务（B3/B3a）
 
-当前共二十六个工具：上述九项、三项离线历史、独立清空、以下四项等待/任务、保存目标目录/打开/查询/安全关闭四项、独立文件授权目录、SFTP上传/查询/取消三项及UART发送授权目录。SSH/UART交互均复用当前可见终端；先列会话核对 availability.terminalTasks，再观察和输入。
+当前共二十九个工具：上述九项、三项离线历史、独立清空、以下四项等待/任务、保存目标目录/打开/查询/安全关闭四项、独立文件授权目录、SFTP上传/查询/取消三项、UART发送授权目录及UART上传/查询/取消三项。SSH/UART交互均复用当前可见终端；先列会话核对 availability.terminalTasks，再观察和输入。
 
 文件权限在本机MCP设置的「文件资源授权…」中逐客户端选择：本地目录与当前SSH远端目录各自明确读/写，默认不选，终端授权不会自动授予文件权限。调用 `novaterm_list_file_resources` 无参数可发现本人已共享的本地resourceId、远端scopeId及其sessionId/epoch；也可用成对sessionId/epoch筛选。返回不含本机路径或文件字节，名称文字及远端路径由本机用户主动共享。身份变化或重连后需复核，陈旧授权窗口不能给新连接授权。
 
@@ -112,7 +108,7 @@ status=gap 表示旧位置被淘汰；status=invalidated 表示本机 clear 或 
 
 目录工具返回 `availability=authorization_only`，列表为空表示没有可见授权，不证明目录或文件存在。SFTP上传另用 `novaterm_upload_file`，进度与取消分别用 `novaterm_query_transfer/cancel_transfer`；需现有终端SFTP面板就绪、服务端支持hardlink扩展，当前Windows本机普通文件最多64 MiB、不覆盖、不自动执行。下载及覆盖仍待后续，不能把目录词法校验当作文件访问安全验证。
 
-UART在同一窗口选择“串口 ZMODEM 发送”，选当前连接、填写共享名称并勾“允许ZMODEM发送”。`novaterm_list_serial_file_targets` 无参数发现本人授权，返回targetId/revision和sessionId/epoch；不要求终端读取权限，不隐含本地文件读权限。重连、配置或身份改变须重新授权。当前只开放授权目录，不能通过MCP发送UART文件，也不自动输入rz或释放/抢占输入lease。
+UART在同一窗口选择“串口 ZMODEM 发送”，选当前连接、填写共享名称并勾“允许ZMODEM发送”。`novaterm_list_serial_file_targets` 无参数发现本人授权，返回targetId/revision和sessionId/epoch；不要求终端读取权限，不隐含本地文件读权限。重连、配置或身份改变须重新授权。授权目录只证明共享许可，不证明接收端已准备或输入lease空闲；发送步骤见下节，上传不会自动输入rz、释放lease或抢占人工传输。
 
 保存目标目录需要在「AI MCP access」中选择客户端，勾选「保存目标」的「共享目录」列；仅当前应用运行有效。`novaterm_list_targets` 可用 limit（默认25，最多50）及返回的 nextCursor 分页；配置修改、重新保存或共享变化后续页返回 TARGET_DIRECTORY_CHANGED，应重新列举。它仅披露所选 SSH/UART 的名称和端点摘要，saved_configuration 不表示设备在线；不连接设备，不授予终端读取/输入或文件权限。打开还需独立授权，见下文；安全关闭见下文；SFTP单文件上传使用独立文件授权。
 
@@ -159,6 +155,22 @@ UART在同一窗口选择“串口 ZMODEM 发送”，选当前连接、填写�
 分别检查status、submissionStatus、completed、evidenceKind、exitCode和terminationConfirmed。UART原始任务静默仍running，执行期限到达unknown，不能捏造exitCode=0；SSH提示符也不证明功能测试成功。停止请求与远端确认终止分别解释；人工接管、可信环境reset、断连或新执行后旧停止请求不再有效。任务输出仍来自终端缓存，清空/淘汰可造成output缺口，但不抹除执行事实。
 
 构建、部署、固件标识和功能判据由外部Agent分别确认；文本命中只证明文本出现。完整字段、预算和验收边界见 [现行契约](architecture/stages/P8_AI_MCP_Interface/02_Current_MCP_Contract.md)。
+
+## UART/ZMODEM单文件发送
+
+先由本机用户分别共享本地目录读取与当前串口的ZMODEM发送权限。通过 `novaterm_list_file_resources` 取得本地resourceId/revision，通过 `novaterm_list_serial_file_targets` 取得targetId/revision和sessionId/epoch；终端读取、输入或SSH目录权限不能替代这两项授权。
+
+1. 用独立、获准的方式准备设备接收端。若通过终端输入启动接收程序，随后通过 `novaterm_interact_terminal` 的 `release` 动作显式释放MCP输入lease。
+2. 调用 `novaterm_upload_serial_file`，提交上述标识、relativePath、单个remoteName及新operationId。该工具不自动发送rz、不自动release、不抢占人工传输；接收目录、覆盖策略由设备接收端决定。
+3. 用返回的原transferId调用 `novaterm_query_serial_transfer`。需要取消时使用 `novaterm_cancel_serial_transfer`，并继续查询至终态；取消不承诺删除或回滚远端文件。
+
+```json
+{"sessionId":"<id>","epoch":"<epoch>","resourceId":"<local resource UUID>","resourceRevision":"<local revision UUID>","relativePath":"build/firmware.bin","targetId":"<UART target UUID>","targetRevision":"<UART revision UUID>","remoteName":"firmware.bin","operationId":"<new UUID>"}
+```
+
+精确重试使用原operationId及全部相同参数，只返回原记录；查询不重发、不重连。当前Windows安全本地源最多64 MiB、64 KiB分块；按真实大小和波特率计算有限总期限，超过1小时硬预算在首个协议字节前拒绝，改operationId不能绕过预算。其他平台的安全本地源尚待收尾。
+
+分别检查protocolCompleted与fileConfirmed：completed要求协议结束且completedFiles=1；ZSKIP返回skipped，不能当作文件送达。空文件也要文件级确认，最终握手失败会保留此前的确认事实。remotePublication始终unknown、contentVerified始终false，远端目录/持久落盘/hash仍需独立核对；发送工具不会自动执行上传文件或读取日志。本阶段验证进度见[UART发送记录](architecture/stages/P8_AI_MCP_Interface/records/B3b_Uart_Send_2026-10-28.md)。
 
 ## 本地清空（B2）
 

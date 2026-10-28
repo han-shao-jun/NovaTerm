@@ -31,6 +31,10 @@ inline constexpr std::chrono::milliseconds FileTransferRetention{600000};
 inline constexpr std::chrono::milliseconds FileUploadTimeout{120000};
 inline constexpr std::chrono::milliseconds FileUploadStallTimeout{15000};
 inline constexpr std::chrono::milliseconds FileUploadPublicationTimeout{2000};
+inline constexpr std::chrono::milliseconds SerialFileUploadMinTimeout{120000};
+inline constexpr std::chrono::milliseconds SerialFileUploadBaseTimeout{60000};
+inline constexpr std::chrono::milliseconds SerialFileUploadMaxTimeout{3600000};
+inline constexpr quint64 SerialFileUploadBitsPerByte = 32;
 
 // --- 接入与请求调度 -------------------------------------------------------
 inline constexpr int MaxClients = 4;

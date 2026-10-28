@@ -669,6 +669,7 @@ void TerminalSession::clearAttachment(bool requestDisconnect)
     _scriptProvider.reset();
     _fileTransfer.reset();
     _fileTransferLeaseId = 0;
+    _fileTransferSessionGeneration = _fileTransferIoGeneration = 0;
     _transport = nullptr;
     if (!current)
         return;
@@ -696,36 +697,52 @@ SerialFileTransferController* TerminalSession::serialFileTransfer()
     const QPointer<SerialTransport> serial = qobject_cast<SerialTransport*>(_transport.data());
     if (!serial) return nullptr;
     if (_fileTransfer) return _fileTransfer.get();
+    const auto originalConnection = [this, serial] {
+        return serial && _transport == serial && _fileTransferLeaseId
+            && _statistics.generation == _fileTransferSessionGeneration
+            && serial->ioStatistics().generation == _fileTransferIoGeneration;
+    };
     SerialFileTransferController::Channel channel;
-    channel.connected = [this, serial] {
+    channel.connected = [this, serial, originalConnection] {
         return serial && _transport == serial && _state == SessionState::Running
-            && serial->isConnected();
+            && serial->isConnected() && (!_fileTransferLeaseId || originalConnection());
     };
     channel.reserve = [this, serial](quint64 transferId) {
         if (!canTransferFiles() || _transport != serial) return false;
-        const auto writer = [serial](QByteArrayView bytes) -> qint64 {
-            return serial ? serial->tryWriteBounded(bytes) : -1;
+        const auto sessionGeneration = _statistics.generation;
+        const auto ioGeneration = serial->ioStatistics().generation;
+        const auto writer = [this, serial, sessionGeneration, ioGeneration](QByteArrayView bytes) -> qint64 {
+            return serial && _transport == serial && _statistics.generation == sessionGeneration
+                ? serial->tryWriteBounded(bytes, 16 * 1024, ioGeneration) : -1;
         };
-        if (!_inputArbiter->acquireTransferLease(transferId, _statistics.generation, writer))
+        if (!_inputArbiter->acquireTransferLease(transferId, sessionGeneration, writer))
             return false;
+        _fileTransferSessionGeneration = sessionGeneration;
+        _fileTransferIoGeneration = ioGeneration;
         _fileTransferLeaseId = transferId;
         return true;
     };
-    channel.activate = [this] {
-        if (!_inputArbiter->activateTransferLease(_fileTransferLeaseId) && _fileTransfer)
+    channel.activate = [this, originalConnection] {
+        if ((!originalConnection() || !_inputArbiter->activateTransferLease(_fileTransferLeaseId)) && _fileTransfer)
             _fileTransfer->abort(tr("Serial connection changed."));
     };
     channel.release = [this] {
         _inputArbiter->releaseTransferLease(_fileTransferLeaseId);
         _fileTransferLeaseId = 0;
+        _fileTransferSessionGeneration = _fileTransferIoGeneration = 0;
     };
-    channel.write = [this](QByteArrayView bytes) -> qint64 {
+    channel.write = [this, originalConnection](QByteArrayView bytes) -> qint64 {
+        if (!originalConnection()) return -1;
         const auto accepted = _inputArbiter->submitTransferInput(_fileTransferLeaseId, bytes);
         if (accepted > 0) _statistics.bytesSent += static_cast<quint64>(accepted);
         return accepted;
     };
-    channel.pendingWriteBytes = [serial] { return serial ? serial->pendingWriteBytes() : -1; };
-    channel.clearWrites = [serial] { return serial && serial->clearPendingOutput(); };
+    channel.pendingWriteBytes = [this, serial, originalConnection] {
+        return originalConnection() ? serial->pendingWriteBytes(_fileTransferIoGeneration) : -1;
+    };
+    channel.clearWrites = [this, serial, originalConnection] {
+        return originalConnection() && serial->clearPendingOutput(_fileTransferIoGeneration);
+    };
     channel.coreIdle = [this] {
         return _core && _inputPump && _inputPump->statistics().pendingBytes == 0
             && _core->waitForIdle(0);
@@ -745,15 +762,16 @@ SerialFileTransferController* TerminalSession::serialFileTransfer()
             [this](const QByteArray& bytes) {
         if (_inputPump) _inputPump->forwardFramerRemainder(bytes);
     });
-    connect(controller, &SerialFileTransferController::disconnectRequired, this, [this] {
-        if (_state == SessionState::Running && _transport && _transport->isConnected())
+    connect(controller, &SerialFileTransferController::disconnectRequired, this, [this, originalConnection] {
+        if (originalConnection() && _state == SessionState::Running && _transport->isConnected())
             static_cast<void>(disconnectForReconnect());
     });
     connect(serial, &ITransport::bytesWritten, controller,
             [controller](qint64) { controller->notifyWritable(); });
     connect(serial, &ITransport::errorOccurred, controller,
-            [this, controller, serial](const QString& message) {
+            [this, controller, serial, originalConnection](const QString& message) {
         if (!controller->isActive()) return;
+        if (!originalConnection()) { controller->abort(message); return; }
         // 已开始的协议 I/O 错误必须先停读/断开，不能把残留数据交回 VT。
         if (_state == SessionState::Running && _transport == serial && serial
             && serial->isConnected())

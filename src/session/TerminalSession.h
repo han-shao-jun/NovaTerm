@@ -282,6 +282,8 @@ private:
     bool _manualDisconnect{false};
     quint64 _manualConnectionGeneration{0};
     std::unique_ptr<SerialFileTransferController> _fileTransfer;
+    quint64 _fileTransferSessionGeneration{0};
+    quint64 _fileTransferIoGeneration{0};
     quint64 _fileTransferLeaseId{0}; ///< 主动断开后暂停自动重连
     std::unique_ptr<TerminalContextProvider> _contextProvider;
     std::unique_ptr<SessionCommandFacade> _commandFacade;

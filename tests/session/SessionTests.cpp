@@ -153,6 +153,10 @@ private slots:
     void recordingBindingFollowsSessionIdentityReuse();
     void serialIoPausedDeliveryKeepsBoundedBytes();
     void serialIoReconnectRejectsOldGeneration();
+    void serialIoOriginalGenerationRejectsWriteAndClear();
+    void serialTransportOriginalGenerationRejectsWriteAndClear();
+    void serialTransferOldIoGenerationCannotAffectNewConnection_data();
+    void serialTransferOldIoGenerationCannotAffectNewConnection();
     void serialIoClearPreservesBarrierBeforeNewWrites();
     void serialIoNotificationsAreCoalesced();
     void serialIoStopRejectsFurtherWork();
@@ -345,6 +349,83 @@ void SessionTests::serialIoReconnectRejectsOldGeneration()
     QCOMPARE(state.completeWrite(first, oldWrite.epoch, 6), qint64(0));
     QVERIFY(state.receive(second, QByteArrayLiteral("new")));
     QCOMPARE(state.takeReceived(), QByteArrayLiteral("new"));
+}
+
+void SessionTests::serialIoOriginalGenerationRejectsWriteAndClear()
+{
+    NovaTerm::SerialIoState state;
+    const auto oldGeneration = state.requestOpen();
+    QVERIFY(state.opened(oldGeneration));
+    const auto generation = state.requestOpen();
+    QVERIFY(state.opened(generation));
+    QCOMPARE(state.queueWrite(QByteArrayLiteral("new"), 16, generation), qint64(3));
+    const auto before = state.snapshot();
+    QCOMPARE(state.queueWrite(QByteArrayLiteral("payload"), 16, oldGeneration), qint64(-1));
+    QCOMPARE(state.queueWrite(QByteArrayLiteral("CAN"), 16, oldGeneration), qint64(-1));
+    QVERIFY(!state.requestClear(oldGeneration));
+    QCOMPARE(state.snapshot().writeEpoch, before.writeEpoch);
+    QCOMPARE(state.takeWrite(generation, 16).bytes, QByteArrayLiteral("new"));
+}
+
+void SessionTests::serialTransportOriginalGenerationRejectsWriteAndClear()
+{
+    SerialConfig config; config.portName = QStringLiteral("memory-only-not-opened");
+    SerialTransport transport(config);
+    SerialTransportIoTestAccess::openMemory(transport);
+    const auto oldGeneration = transport.ioStatistics().generation;
+    SerialTransportIoTestAccess::openMemory(transport);
+    const auto generation = transport.ioStatistics().generation;
+    QCOMPARE(transport.tryWriteBounded(QByteArrayLiteral("new"), 16, generation), qint64(3));
+    const auto epoch = transport.ioStatistics().writeEpoch;
+    QCOMPARE(transport.pendingWriteBytes(oldGeneration), qint64(-1));
+    QCOMPARE(transport.tryWriteBounded(QByteArrayLiteral("CAN"), 16, oldGeneration), qint64(-1));
+    QVERIFY(!transport.clearPendingOutput(oldGeneration));
+    QCOMPARE(transport.ioStatistics().writeEpoch, epoch);
+    QCOMPARE(transport.pendingWriteBytes(generation), qint64(3));
+}
+
+void SessionTests::serialTransferOldIoGenerationCannotAffectNewConnection_data()
+{
+    QTest::addColumn<int>("action");
+    QTest::newRow("cancel") << 0;
+    QTest::newRow("drive") << 1;
+    QTest::newRow("disconnect-required") << 2;
+}
+
+void SessionTests::serialTransferOldIoGenerationCannotAffectNewConnection()
+{
+    QFETCH(int, action);
+    TerminalCore core(80, 24);
+    FakeTransport initial;
+    SerialConfig config; config.portName = QStringLiteral("memory-only-not-opened");
+    SerialTransport serial(config);
+    TerminalSession session(&core);
+    session.attach(&initial, TerminalSession::Ownership::Borrowed);
+    QVERIFY(session.start());
+    QTRY_COMPARE(session.state(), SessionState::Running);
+    SerialTransportIoTestAccess::openMemory(serial);
+    session.attach(&serial, TerminalSession::Ownership::Borrowed, TransportKind::Serial);
+    QVERIFY(session.canTransferFiles());
+    QTemporaryDir directory; QVERIFY(directory.isValid());
+    auto* controller = session.serialFileTransfer(); QVERIFY(controller);
+    SerialTransferRequest request;
+    request.protocol = SerialTransferProtocol::XmodemCrc;
+    request.direction = NovaTerm::FileTransfer::Direction::Receive;
+    request.destination = directory.filePath(QStringLiteral("receive.bin"));
+    QVERIFY(controller->start(request));
+    QTRY_VERIFY(!controller->progress().preparing);
+    SerialTransportIoTestAccess::openMemory(serial);
+    const auto generation = serial.ioStatistics().generation;
+    QCOMPARE(serial.tryWriteBounded(QByteArrayLiteral("new")), qint64(3));
+    const auto epoch = serial.ioStatistics().writeEpoch;
+    if (action == 0) controller->cancel();
+    else if (action == 1) controller->notifyWritable();
+    else emit controller->disconnectRequired();
+    QVERIFY(serial.isConnected());
+    QCOMPARE(serial.ioStatistics().generation, generation);
+    QCOMPARE(serial.ioStatistics().writeEpoch, epoch);
+    QCOMPARE(serial.pendingWriteBytes(), qint64(3));
+    controller->abort(QStringLiteral("cleanup"));
 }
 
 void SessionTests::serialIoClearPreservesBarrierBeforeNewWrites()

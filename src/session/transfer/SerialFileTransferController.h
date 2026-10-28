@@ -31,8 +31,10 @@ public:
     };
     explicit SerialFileTransferController(Channel channel, QObject* parent = nullptr);
     ~SerialFileTransferController() override;
-    /** @brief 提交异步传输，false 时可读取 errorString；活动任务不可重入开始。 */
-    [[nodiscard]] bool start(const SerialTransferRequest& request);
+    /** @brief 提交异步传输，false 时可读取 errorString；活动任务不可重入开始。
+     * acceptedId 拒绝时为0，受理时在同步通知前写入原操作ID。
+     */
+    [[nodiscard]] bool start(const SerialTransferRequest& request, quint64* acceptedId = nullptr);
     [[nodiscard]] bool isActive() const;
     [[nodiscard]] QString errorString() const;
     [[nodiscard]] SerialTransferProgress progress() const;
@@ -42,14 +44,20 @@ public:
     void notifyWritable();
     /** @brief 用户取消；停止后续文件动作，在合法包边界发送 CAN，保持串口连接。 */
     void cancel();
+    /** @brief 仅取消仍活动的原操作；过期ID返回false，不影响后来的传输。 */
+    [[nodiscard]] bool cancel(quint64 expectedId);
     /** @brief 断连、重绑、关闭时无网络写入的立即失效路径。 */
     void abort(const QString& reason);
+    /** @brief 仅使原操作失效，不发送取消字节，不影响后来的传输。 */
+    [[nodiscard]] bool abort(quint64 expectedId, const QString& reason);
 signals:
     void activeChanged(bool active);
     void progressChanged(const SerialTransferProgress& progress);
     void readPauseChanged(bool paused);
     void visibleRemainder(const QByteArray& bytes);
     void finished(bool success, const QString& message);
+    /** @brief 原操作不可变完成快照；通知期间拒绝重启，文件确认不等于远端发布。 */
+    void resultReady(const SerialTransferResult& result);
     void disconnectRequired();
 private:
     class Impl;

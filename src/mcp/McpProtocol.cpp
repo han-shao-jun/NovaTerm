@@ -45,7 +45,7 @@ QString agentInstructions()
         "run_command and run_script retain their own authorization and confirmation rules. "
         "Use upload_file only for separately authorized local-read and remote-write resources on the current SSH binding. "
         "Choose a new build-specific remote name, query_transfer until publication is known, and cancel_transfer when needed. "
-        "Upload does not execute files; use separately authorized terminal commands afterwards. Downloads, overwrite and UART/ZMODEM upload are not implemented. "
+        "Upload does not execute files; use separately authorized terminal commands afterwards. Downloads and explicit overwrite are not implemented. "
         "UART idle completion is unverified, not proof of remote termination or test success. "
         "Never rerun uncertain operations with a new operationId. Release or stopped observation does not stop a remote process. "
         "Local cache clear requires its separate grant and a fresh log clearToken; retry only identical operationId and arguments. It does not stop remote programs. "
@@ -57,7 +57,8 @@ QString agentInstructions()
         "Use novaterm_close_target only with the original created open operation and latest epoch; reused, human-controlled, busy or unknown sessions refuse close. "
         "Closing preserves the terminal and is not proof of remote termination. "
         "novaterm_list_file_resources discovers only explicitly shared local resource references and current remote SSH scopes; local paths and file bytes are not returned. Optional sessionId/epoch filter together. File read/write permissions are separate from terminal access. availability=authorization_only does not prove a path is safe or a file is available. "
-        "novaterm_list_serial_file_targets discovers separately authorized UART ZMODEM send targets, without terminal read permission or exposing ports/configuration. authorization_only is not receiver readiness or input-lease availability; UART sending remains unavailable through MCP. "
+        "novaterm_list_serial_file_targets discovers separately authorized UART ZMODEM send targets, without terminal read permission or exposing ports/configuration. authorization_only is not receiver readiness or input-lease availability. "
+        "novaterm_upload_serial_file sends one authorized local file through the existing UART ZMODEM owner; prepare the receiver separately and explicitly release any MCP input lease first. Never automatically send rz or preempt a manual transfer. Use novaterm_query_serial_transfer/cancel_serial_transfer with the original transferId. ZSKIP is not delivery: protocolCompleted and fileConfirmed are independent, remotePublication stays unknown, and contentVerified is false. "
         "Only call tools actually listed; file-resource metadata alone does not grant transfer or execution permissions.");
 }
 QString newId() { return QUuid::createUuid().toString(QUuid::WithoutBraces); }

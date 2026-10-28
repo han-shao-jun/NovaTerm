@@ -33,7 +33,7 @@ FileResourceSharingDialog::FileResourceSharingDialog(Service* service, QString c
     _clientIdentity->setTextInteractionFlags(Qt::TextSelectableByMouse); layout->addWidget(_clientIdentity);
     auto* help = new ElaText(tr("为当前客户端明确选择本地目录和远端目录的读写权限，仅本次运行有效。"
         "本地读取用于上传源，本地写入用于下载目录；远端读取用于下载源，远端写入用于上传目标。"
-        "这些选择与终端权限独立。当前支持受限SFTP上传；串口仅保存ZMODEM发送授权，MCP发送入口仍待后续。授权本身不证明接收端就绪或路径可安全访问。"), this);
+        "这些选择与终端权限独立。SFTP上传和串口ZMODEM发送使用各自的工具；串口发送前须准备设备接收并结束其他输入操作。授权本身不证明接收端就绪或路径可安全访问。"), this);
     help->setWordWrap(true); layout->addWidget(help);
     _kind = new ElaComboBox(this); _kind->setObjectName("fileResourceKind");
     _kind->addItems({tr("本地目录"), tr("远端 SSH 目录"), tr("串口 ZMODEM 发送")}); layout->addWidget(_kind);
@@ -163,7 +163,7 @@ void FileResourceSharingDialog::share()
         const auto id = _session->currentData().toString();
         const bool saved = _write->isChecked() && _serialBindings.contains(id)
             && _service->serialFileTargets().share(_client, _identity, _serialBindings.value(id), _title->text().trimmed()).has_value();
-        _status->setText(saved ? tr("已保存当前串口的发送授权；MCP串口发送入口尚未开放。")
+        _status->setText(saved ? tr("已保存当前串口的发送授权；发送文件还需要本地读取授权。")
             : tr("未提交：请选择当前串口、填写共享名称并明确允许ZMODEM发送。"));
         refresh(); return;
     }

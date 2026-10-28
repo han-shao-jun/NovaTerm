@@ -285,11 +285,13 @@ add_subdirectory(resources)
     set_tests_properties(novaterm_mcp_access_interaction_tests PROPERTIES LABELS "mcp;p8;security" TIMEOUT 30)
     add_dependencies(check novaterm_mcp_access_interaction_tests)
 
-    foreach(_workflow_test IN ITEMS text_wait terminal_tasks file_transfers)
+    foreach(_workflow_test IN ITEMS text_wait terminal_tasks file_transfers serial_file_transfers)
         if(_workflow_test STREQUAL "text_wait")
             set(_workflow_source mcp/TextWaitTests.cpp)
         elseif(_workflow_test STREQUAL "file_transfers")
             set(_workflow_source mcp/FileTransfersTests.cpp)
+        elseif(_workflow_test STREQUAL "serial_file_transfers")
+            set(_workflow_source mcp/SerialFileTransfersTests.cpp)
         else()
             set(_workflow_source mcp/TerminalTaskTests.cpp)
         endif()
@@ -1273,7 +1275,7 @@ if(BUILD_TESTING)
     # 三个既有目标直接编译 Session/TerminalView，必须链接新串口门面。
     foreach(_serial_consumer novaterm_session_tests novaterm_mcp_tests
             novaterm_mcp_access_interaction_tests novaterm_terminal_session_tests
-            novaterm_mcp_text_wait_tests novaterm_mcp_terminal_tasks_tests novaterm_mcp_file_transfers_tests)
+            novaterm_mcp_text_wait_tests novaterm_mcp_terminal_tasks_tests novaterm_mcp_file_transfers_tests novaterm_mcp_serial_file_transfers_tests)
         if(TARGET ${_serial_consumer})
             target_link_libraries(${_serial_consumer} PRIVATE novaterm_serial_transfer)
             target_sources(${_serial_consumer} PRIVATE

@@ -5,6 +5,7 @@
 #include "TargetSessionSharing.h"
 #include "FileResourceAdapter.h"
 #include "SerialFileTargetAdapter.h"
+#include "SerialFileTransfers.h"
 #include "FileTransfers.h"
 #include "CapabilityAdmission.h"
 #include "capabilities/terminal/SearchCapabilities.h"
@@ -98,6 +99,7 @@ public:
         std::optional<ListFileResourcesRequest> fileResourcesRequest;
         std::optional<ListSerialFileTargetsRequest> serialFileTargetsRequest;
         std::optional<FileTransferRequest> fileTransferRequest;
+        std::optional<SerialFileTransferRequest> serialFileTransferRequest;
         std::optional<TargetConnectionRequest> targetConnectionRequest;
         QByteArray confirmationDigest;
         QString requestState;
@@ -115,7 +117,7 @@ public:
     static std::optional<SessionReference> referenceOf(const PendingRequest& pending) {
         // File permissions are independent from terminal reading. The transfer
         // adapter checks its own current complete binding and four-way grants.
-        if (pending.fileTransferRequest || pending.serialFileTargetsRequest) return std::nullopt;
+        if (pending.fileTransferRequest || pending.serialFileTargetsRequest || pending.serialFileTransferRequest) return std::nullopt;
         if (pending.waitRequest) return SessionReference{pending.waitRequest->session, pending.waitRequest->epoch};
         if (pending.taskRequest) return std::visit([](const auto& value) {
             return SessionReference{value.session, value.epoch};
@@ -174,6 +176,7 @@ public:
         serialFileTargets = std::make_unique<SerialFileTargetAdapter>(access, sessions, owner);
         QObject::connect(serialFileTargets.get(), &SerialFileTargetAdapter::changed, q, &Service::changed);
         fileTransfers = std::make_unique<FileTransfers>(access, sessions, *fileResources, instance, owner);
+        serialFileTransfers = std::make_unique<SerialFileTransfers>(access, sessions, *fileResources, *serialFileTargets, instance, owner);
         commands = std::make_unique<CommandSessionAdapter>(access, sessions,
             QDir(stateDirectory).filePath("targets"), instance, CommandSessionAdapter::Delivery{
                 [this](const TaskId& task, QJsonObject payload) {
@@ -258,6 +261,7 @@ public:
     }
     void stop()
     {
+        if (serialFileTransfers) serialFileTransfers->stop();
         if (targetSharing) targetSharing->clear();
         if (fileResources) fileResources->resources().revoke();
         if (serialFileTargets) serialFileTargets->targets().revoke();
@@ -315,9 +319,13 @@ public:
         const auto* filesCall = std::get_if<BackendFileResourcesCall>(&event);
         const auto* serialTargetsCall = std::get_if<BackendSerialFileTargetsCall>(&event);
         const auto* transferCall = std::get_if<BackendFileTransferCall>(&event);
+        const auto* serialTransferCall = std::get_if<BackendSerialFileTransferCall>(&event);
         const auto* targetConnectionCall = std::get_if<BackendTargetConnectionCall>(&event);
         BackendCall call;
-        if (serialTargetsCall) {
+        if (serialTransferCall) {
+            call.id = serialTransferCall->id;
+            if (serialTransferCall->confirmationSupplied) { send(connectionId, id, error("COMMAND_CONFIRMATION_STALE")); return; }
+        } else if (serialTargetsCall) {
             call.id = serialTargetsCall->id;
             if (serialTargetsCall->confirmationSupplied) { send(connectionId, id, error("COMMAND_CONFIRMATION_STALE")); return; }
         } else if (transferCall) {
@@ -349,7 +357,8 @@ public:
             io.closeConnection(connectionId);
             return;
         }
-        const auto name = serialTargetsCall ? QStringLiteral("novaterm_list_serial_file_targets")
+        const auto name = serialTransferCall ? ToolCodec::toolName(ToolCall{serialTransferCall->request})
+            : serialTargetsCall ? QStringLiteral("novaterm_list_serial_file_targets")
             : transferCall ? ToolCodec::toolName(ToolCall{transferCall->request})
             : filesCall ? QStringLiteral("novaterm_list_file_resources")
             : targetConnectionCall ? ToolCodec::toolName(ToolCall{targetConnectionCall->request})
@@ -378,6 +387,7 @@ public:
         if (filesCall) pending->fileResourcesRequest = filesCall->request;
         if (serialTargetsCall) pending->serialFileTargetsRequest = serialTargetsCall->request;
         if (transferCall) pending->fileTransferRequest = transferCall->request;
+        if (serialTransferCall) pending->serialFileTransferRequest = serialTransferCall->request;
         if (targetConnectionCall) pending->targetConnectionRequest = targetConnectionCall->request;
         pending->confirmationDigest = call.confirmationDigest;
         pending->mrtr = call.mrtr;
@@ -512,6 +522,7 @@ public:
     }
     void disconnect(const QString& connection)
     {
+        serialFileTransfers->disconnect(connection);
         fileTransfers->disconnect(connection);
         commands->disconnect(connection);
         const auto copy = requestKeys();
@@ -585,6 +596,9 @@ public:
         if (pending->targetsRequest) capability = Capabilities::CapabilityId{"target.list"};
         if (pending->fileResourcesRequest) capability = Capabilities::CapabilityId{"file.resources.list"};
         if (pending->serialFileTargetsRequest) capability = Capabilities::CapabilityId{"serial.file.targets.list"};
+        if (pending->serialFileTransferRequest) capability = Capabilities::CapabilityId{
+            std::holds_alternative<StartSerialFileUploadRequest>(*pending->serialFileTransferRequest) ? "serial.file.upload"
+            : std::holds_alternative<QuerySerialFileTransferRequest>(*pending->serialFileTransferRequest) ? "serial.file.query" : "serial.file.cancel"};
         if (pending->fileTransferRequest) capability = Capabilities::CapabilityId{
             std::holds_alternative<StartFileUploadRequest>(*pending->fileTransferRequest) ? "file.upload"
             : std::holds_alternative<QueryFileTransferRequest>(*pending->fileTransferRequest) ? "file.transfer.query" : "file.transfer.cancel"};
@@ -618,6 +632,14 @@ public:
         }
         const auto connection = connections.value(pending->connection);
         if (!access.enabled()) { complete(key, error("MCP_DISABLED")); return; }
+        if (pending->serialFileTransferRequest) {
+            if (!admit(pending)) return;
+            const auto result = serialFileTransfers->call(connection.client, access.identityVersion(connection.client),
+                pending->connection, *pending->serialFileTransferRequest);
+            if (const auto* failure = std::get_if<Error>(&result)) complete(key, ToolCodec::encodeFailure(*failure));
+            else complete(key, success(std::get<QJsonObject>(result)));
+            return;
+        }
         if (pending->serialFileTargetsRequest) {
             if (!admit(pending)) return;
             const auto result = serialFileTargets->list(connection.client, access.identityVersion(connection.client));
@@ -817,7 +839,7 @@ public:
                 || !session->commandCoordinator()->hasTrustedProfile()
                 || controller->pending() || controller->commandActive() || !controller->readyForCommand()
                 || session->inputArbiter()->hasMcpLease() || session->inputArbiter()->hasTransferLease()
-                || session->commandFacade()->hasActiveRequests() || commands->busy(entry->id) || fileTransfers->busy(entry->id)
+                || session->commandFacade()->hasActiveRequests() || commands->busy(entry->id) || fileTransfers->busy(entry->id) || serialFileTransfers->busy(entry->id)
                 || commands->quarantined(entry->targetFingerprint)) return ErrorCode::TargetCloseBusy;
             return {};
         };
@@ -992,6 +1014,7 @@ public:
     std::unique_ptr<FileResourceAdapter> fileResources;
     std::unique_ptr<SerialFileTargetAdapter> serialFileTargets;
     std::unique_ptr<FileTransfers> fileTransfers;
+    std::unique_ptr<SerialFileTransfers> serialFileTransfers;
     std::function<bool(const QString&)> targetCloseSafety;
     HistoryCapabilityAdapter history;
     Capabilities::CapabilityRegistry capabilityRegistry{Capabilities::CapabilityRegistry::implementedCapabilities()};

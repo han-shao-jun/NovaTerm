@@ -555,6 +555,8 @@ class McpTests final : public QObject
 private slots:
     void httpSerialFileTargetsAreIndependentAndBound_data();
     void httpSerialFileTargetsAreIndependentAndBound();
+    void httpSerialFileUploadRoutesIndependentAuthority_data();
+    void httpSerialFileUploadRoutesIndependentAuthority();
     void serialFileTargetsRejectChangedConnection_data();
     void serialFileTargetsRejectChangedConnection();
     void serialFileSettingsRequireExplicitCurrentGrant();
@@ -2750,7 +2752,7 @@ void McpTests::tokenSigningAndAuthentication()
 
 void McpTests::rejectsDangerousAndOversizedArguments()
 {
-    QCOMPARE(ToolCodec::catalog().size(), 26);
+    QCOMPARE(ToolCodec::catalog().size(), 29);
     QVERIFY(!CommandPolicy::find("rm"));
     QVERIFY(!CommandPolicy::find("credential.read"));
     const QJsonObject identity{{"sessionId", newId()}, {"epoch", "epoch"}};
@@ -3110,6 +3112,82 @@ void McpTests::httpSerialFileTargetsAreIndependentAndBound()
     QVERIFY(adapter.targets().list(f.client, rotated).isEmpty());
     QVERIFY(adapter.share(f.client, rotated, *nextBinding, "Rotated UART"));
     f.service.stop(); QVERIFY(adapter.targets().list(f.client, rotated).isEmpty());
+    QCOMPARE(f.serial->pendingWriteBytes(), qint64(0));
+}
+void McpTests::httpSerialFileUploadRoutesIndependentAuthority_data()
+{
+    QTest::addColumn<QString>("version");
+    QTest::newRow("2025") << QString(ProtocolVersion);
+    QTest::newRow("2026") << QString("2026-07-28");
+}
+void McpTests::httpSerialFileUploadRoutesIndependentAuthority()
+{
+    QFETCH(QString, version);
+    Fixture f; QVERIFY(f.service.access().setEnabled(true)); f.makeSerial();
+    const auto entry = f.service.directory().entries().first();
+    const auto identity = f.service.access().identityVersion(f.client);
+    auto& targets = f.service.serialFileTargets();
+    const auto binding = targets.liveBinding(entry.id); QVERIFY(binding);
+    const auto target = targets.share(f.client, identity, *binding, "Board UART"); QVERIFY(target);
+    auto& resources = f.service.fileResources().resources();
+    const auto writeOnly = resources.shareLocal(f.client, identity, f.root.path(), "Build", {false, true});
+    QVERIFY(writeOnly);
+    QVERIFY(!f.service.access().canRead(f.client, entry));
+    QJsonObject arguments{{"sessionId", entry.id}, {"epoch", entry.epoch},
+        {"resourceId", writeOnly->id}, {"resourceRevision", writeOnly->revision},
+        {"relativePath", "missing-artifact.bin"}, {"targetId", target->id}, {"targetRevision", target->revision},
+        {"remoteName", "firmware.bin"}, {"operationId", newId()}};
+    Host host; QVERIFY(host.start(f.runtime(), f.token(), {}, false, version));
+    QCOMPARE(host.call("novaterm_upload_serial_file", arguments).value("error").toObject().value("code").toString(),
+        QString("PERMISSION_DENIED"));
+    const auto local = resources.shareLocal(f.client, identity, f.root.path(), "Build", {true, false});
+    QVERIFY(local); arguments.insert("resourceId", local->id); arguments.insert("resourceRevision", local->revision);
+    auto stale = arguments; stale.insert("targetRevision", newId());
+    QCOMPARE(host.call("novaterm_upload_serial_file", stale).value("error").toObject().value("code").toString(),
+        QString("PERMISSION_DENIED"));
+    const auto accepted = host.call("novaterm_upload_serial_file", arguments);
+    QVERIFY2(accepted.value("ok").toBool(), QJsonDocument(accepted).toJson().constData());
+    const auto transfer = accepted.value("data").toObject().value("transferId").toString(); QVERIFY(!transfer.isEmpty());
+    const QJsonObject query{{"transferId", transfer}};
+    // Exercise the real Service/Session/controller/worker route. A missing source
+    // settles asynchronously before any protocol output or physical UART access.
+    QJsonObject finished;
+    QTRY_VERIFY_WITH_TIMEOUT(([&] {
+        const auto response = host.call("novaterm_query_serial_transfer", query);
+        if (!response.value("ok").toBool()) return false;
+        finished = response.value("data").toObject();
+        return finished.value("state").toString() == "failed";
+    })(), 5000);
+    QCOMPARE(finished.value("errorCode").toString(), QString("FILE_IO_ERROR"));
+    QCOMPARE(finished.value("sessionId").toString(), entry.id);
+    QCOMPARE(finished.value("epoch").toString(), entry.epoch);
+    QCOMPARE(finished.value("operationId"), arguments.value("operationId"));
+    QCOMPARE(finished.value("protocol").toString(), QString("zmodem"));
+    QVERIFY(!finished.value("fileConfirmed").toBool()); QVERIFY(!finished.value("protocolCompleted").toBool());
+    QCOMPARE(finished.value("completedFiles").toInt(-1), 0);
+    QCOMPARE(finished.value("confirmedBytes").toInt(-1), 0);
+    QVERIFY(finished.value("totalBytes").isNull());
+    QCOMPARE(finished.value("remotePublication").toString(), QString("unknown"));
+    QVERIFY(!finished.value("contentVerified").toBool(true));
+    QVERIFY(!QJsonDocument(finished).toJson().contains(f.root.path().toUtf8()));
+    QCOMPARE(host.call("novaterm_upload_serial_file", arguments).value("data").toObject(), finished);
+    auto conflict = arguments; conflict.insert("remoteName", "different.bin");
+    QCOMPARE(host.call("novaterm_upload_serial_file", conflict).value("error").toObject().value("code").toString(),
+        QString("TARGET_OPERATION_CONFLICT"));
+    const auto other = f.service.access().addClient("outsider"); QVERIFY(!other.isEmpty());
+    Host outsider; QVERIFY(outsider.start(f.runtime(), f.service.access().exportToken(other).value(), {}, false, version));
+    QCOMPARE(outsider.call("novaterm_upload_serial_file", arguments).value("error").toObject().value("code").toString(),
+        QString("PERMISSION_DENIED"));
+    for (const auto* tool : {"novaterm_query_serial_transfer", "novaterm_cancel_serial_transfer"})
+        QCOMPARE(outsider.call(tool, query).value("error").toObject().value("code").toString(), QString("PERMISSION_DENIED"));
+    const auto cancelled = host.call("novaterm_cancel_serial_transfer", query);
+    QVERIFY(cancelled.value("ok").toBool()); QCOMPARE(cancelled.value("data").toObject(), finished);
+    QVERIFY(targets.targets().remove(f.client, identity, target->id, target->revision));
+    arguments.insert("operationId", newId());
+    QCOMPARE(host.call("novaterm_upload_serial_file", arguments).value("error").toObject().value("code").toString(),
+        QString("PERMISSION_DENIED"));
+    QCOMPARE(host.call("novaterm_query_serial_transfer", query).value("data").toObject(), finished);
+    QVERIFY(!f.service.access().canRead(f.client, entry));
     QCOMPARE(f.serial->pendingWriteBytes(), qint64(0));
 }
 void McpTests::serialFileTargetsRejectChangedConnection_data()

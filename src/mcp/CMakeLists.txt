@@ -88,6 +88,7 @@ target_link_libraries(novaterm_session_automation PUBLIC
     novaterm_core Qt6::Core Qt6::SerialPort)
 
 qt_add_library(novaterm_mcp_runtime STATIC
+    SerialFileTransfers.cpp SerialFileTransfers.h
     SerialFileTargetAdapter.cpp SerialFileTargetAdapter.h
     FileTransfers.cpp FileTransfers.h
     FileResourceAdapter.cpp FileResourceAdapter.h

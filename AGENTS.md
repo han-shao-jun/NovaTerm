@@ -1,5 +1,12 @@
 # AGENTS.md
 
+### 0.2.95 UART/ZMODEM发送收口（2026-10-28）
+
+用户授权持续“实现→qt-cpp-review行为审查→修复验证→本地提交”，机械风格不查，最终真机由用户测。新增upload_serial_file/query_serial_transfer/cancel_serial_transfer，当前29工具；复用原Session/Controller/worker，无新端口或执行器。独立local read+UART授权，外部准备接收并显式release输入lease；原Controller ID和I/O代际保护取消/清写，protocolCompleted/fileConfirmed/ZSKIP分别表达，远端发布unknown、hash未验证。审查预算拒绝timeoutMs超Schema上限真实RED2pass/1fail后修复为null，独立复核通过。
+
+正常Release默认全部目标构建通过。受影响Controller完整188/188（104.568秒）；相关CTest首轮28/29（65.09秒），唯一为历史工具总数旧断言，保留原对象比较并修正后定向1/1（0.10秒）；完整MCP业务261/261（139.176秒）；官方SDK2025/rawHTTP2026二十九工具通过。上述批次分别记录，不拼成一次全套。构建后仅接口语义注释/测试计数/文档更正，计数目标已重建复验。未跑无关全套/Core/ConPTY，未连接设备、其他平台或消毒器；不推送、不纳入build产物。SFTP下载、显式覆盖与平台软件收尾继续推进，B4用户验收。详细RED/GREEN、崩溃复现及命令见[UART发送记录](docs/architecture/stages/P8_AI_MCP_Interface/records/B3b_Uart_Send_2026-10-28.md)。
+
+
 ### 0.2.94 授权目录提交收口（2026-10-28）
 
 用户要求创建Git提交并持续开发，版本0.2.93→0.2.94，纳入UART独立发送授权目录及二十六工具接线。实现源码沿用上一轮相关CTest28/28、业务259/259及两代互操作原始成绩；版本更新后Release默认全部目标构建通过，协议相关CTest4/4（10.81秒）和两代26工具互操作通过，不重写为完整新版本重测。qt-cpp-review六领域只读复核未见高可信新问题，不改机械风格。未连接设备、不推送，构建日志不纳入；见[授权目录提交收口](docs/architecture/stages/P8_AI_MCP_Interface/records/B3b_Uart_Authorization_2026-10-28.md#0294-提交收口)。用户后续要求每阶段审查/修复后本地提交，持续到MCP软件开发收口，真机测试由用户执行。
