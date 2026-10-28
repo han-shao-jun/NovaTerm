@@ -23,10 +23,12 @@ struct SftpFileUploadControl {
         state.compare_exchange_strong(expected, allowed ? State::Approved : State::Cancelled, std::memory_order_acq_rel);
     }
 };
+enum class SftpFileTransferDirection { Upload, Download };
 struct SftpFileUploadRequest {
     quint64 requestId{0};
     QString localRoot, localRelativePath, remoteRoot, remoteName;
     std::shared_ptr<SftpFileUploadControl> control;
+    SftpFileTransferDirection direction{SftpFileTransferDirection::Upload};
 };
 struct SftpFileUploadResult {
     quint64 requestId{0}, transferredBytes{0};

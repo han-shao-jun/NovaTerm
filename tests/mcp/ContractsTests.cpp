@@ -86,6 +86,46 @@ class ContractsTests : public QObject
 {
     Q_OBJECT
 private slots:
+    void downloadUsesSharedTransferContract()
+    {
+        const QString name = "novaterm_download_file";
+        const QJsonObject arguments{{"sessionId", SessionUuid}, {"epoch", "epoch-1"},
+            {"resourceId", SessionUuid}, {"resourceRevision", OperationUuid}, {"relativePath", "downloads/result.bin"},
+            {"scopeId", OperationUuid}, {"scopeRevision", SessionUuid}, {"remoteName", "result.bin"}, {"operationId", OperationUuid}};
+        QVERIFY(ToolCodec::isKnownTool(name));
+        QVERIFY(ToolCodec::validate(name, arguments).isEmpty());
+        const auto decoded = ToolCodec::decodeCall(name, arguments); QVERIFY(!isError(decoded));
+        QCOMPARE(ToolCodec::toolName(std::get<ToolCall>(decoded)), name);
+        for (const auto& field : arguments.keys()) {
+            auto invalid = arguments; invalid.remove(field); QVERIFY(!ToolCodec::validate(name, invalid).isEmpty());
+        }
+        for (const auto& field : QStringList{"overwrite", "localPath", "remotePath", "clientId", "host", "password"}) {
+            auto invalid = arguments; invalid.insert(field, "injected"); QVERIFY(!ToolCodec::validate(name, invalid).isEmpty());
+        }
+        for (const auto& path : QStringList{"../outside", "/absolute", "a//b", "a\\b", "C:/target", "name:stream", QString(1025, 'a')}) {
+            auto invalid = arguments; invalid.insert("relativePath", path); QVERIFY(!ToolCodec::validate(name, invalid).isEmpty());
+        }
+        for (const auto& path : QStringList{".", "..", "a/b", "a\\b", "name:stream", "a\nb", QString(256, 'a')}) {
+            auto invalid = arguments; invalid.insert("remoteName", path); QVERIFY(!ToolCodec::validate(name, invalid).isEmpty());
+        }
+        const auto catalog = ToolCodec::catalog(); QCOMPARE(catalog.size(), 30);
+        QFile fixture(QStringLiteral(NOVATERM_SOURCE_DIR "/tests/mcp/fixtures/file-download-tool-2026-10-28.json"));
+        QVERIFY(fixture.open(QIODevice::ReadOnly));
+        QCOMPARE(catalog.at(29).toObject(), QJsonDocument::fromJson(fixture.readAll()).object());
+        for (const auto index : {23, 24, 29}) {
+            const auto state = catalog.at(index).toObject().value("outputSchema").toObject()
+                .value("properties").toObject().value("data").toObject().value("properties").toObject().value("state").toObject();
+            QVERIFY(state.value("enum").toArray().contains("downloading"));
+        }
+    }
+    void downloadGuidanceKeepsIndependentPermissions()
+    {
+        const auto instructions = agentInstructions();
+        QVERIFY(instructions.contains("novaterm_download_file"));
+        QVERIFY(instructions.contains("local write"));
+        QVERIFY(instructions.contains("remote read"));
+        QVERIFY(instructions.contains("never overwrites"));
+    }
     void serialUploadToolsKeepConfirmationAndPublicationSeparate()
     {
         const QString upload = "novaterm_upload_serial_file";
@@ -112,7 +152,7 @@ private slots:
         for (const auto& name : QStringList{".", "..", "a/b", "a\\b", "name:stream", "a\nb", QString(256, 'a'), QString(86, QChar(0x4e00))}) {
             auto invalid = arguments; invalid.insert("remoteName", name); QVERIFY(!ToolCodec::validate(upload, invalid).isEmpty());
         }
-        const auto tools = ToolCodec::catalog(); QCOMPARE(tools.size(), 29);
+        const auto tools = ToolCodec::catalog(); QCOMPARE(tools.size(), 30);
         QFile fixture(QStringLiteral(NOVATERM_SOURCE_DIR "/tests/mcp/fixtures/serial-transfer-tools-2026-10-28.json"));
         QVERIFY(fixture.open(QIODevice::ReadOnly));
         const auto expected = QJsonDocument::fromJson(fixture.readAll()).array();
@@ -160,7 +200,7 @@ private slots:
                 "localPath", "protocol", "sendAllowed"})
             QVERIFY2(!ToolCodec::validate(name, {{field, "injected"}}).isEmpty(), qPrintable(field));
         const auto tools = ToolCodec::catalog();
-        QCOMPARE(tools.size(), 29);
+        QCOMPARE(tools.size(), 30);
         const auto tool = tools.at(25).toObject();
         QCOMPARE(tool.value("name").toString(), name);
         QVERIFY(tool.value("annotations").toObject().value("readOnlyHint").toBool());
@@ -236,11 +276,27 @@ private slots:
     void fileTransferResultSchemaIsClosedAndComplete()
     {
         const auto tools = ToolCodec::catalog();
-        QCOMPARE(tools.size(), 29);
+        QCOMPARE(tools.size(), 30);
         QFile fixture(QStringLiteral(NOVATERM_SOURCE_DIR "/tests/mcp/fixtures/file-transfer-tools-2026-10-28.json"));
         QVERIFY(fixture.open(QIODevice::ReadOnly));
         const QJsonArray appended{tools.at(22), tools.at(23), tools.at(24)};
-        QCOMPARE(appended, QJsonDocument::fromJson(fixture.readAll()).array());
+        auto expected = QJsonDocument::fromJson(fixture.readAll()).array();
+        QCOMPARE(expected.size(), 3);
+        // Query/cancel now expose download progress; preserve every other old field.
+        for (const int index : {1, 2}) {
+            auto tool = expected.at(index).toObject();
+            auto output = tool.value("outputSchema").toObject();
+            auto envelope = output.value("properties").toObject();
+            auto data = envelope.value("data").toObject();
+            auto fields = data.value("properties").toObject();
+            auto state = fields.value("state").toObject();
+            auto values = state.value("enum").toArray();
+            QVERIFY(!values.contains("downloading"));
+            values.insert(3, "downloading"); state.insert("enum", values); fields.insert("state", state);
+            data.insert("properties", fields); envelope.insert("data", data);
+            output.insert("properties", envelope); tool.insert("outputSchema", output); expected[index] = tool;
+        }
+        QCOMPARE(appended, expected);
         const QStringList names{"novaterm_upload_file", "novaterm_query_transfer", "novaterm_cancel_transfer"};
         const QStringList required{"instanceId", "transferId", "sessionId", "epoch", "operationId", "state",
             "transferredBytes", "totalBytes", "published", "publication", "temporary", "errorCode", "contentVerified"};
@@ -273,7 +329,7 @@ private slots:
             QVERIFY(!ToolCodec::validate(name, invalid).isEmpty());
         }
         const auto tools = ToolCodec::catalog();
-        QCOMPARE(tools.size(), 29);
+        QCOMPARE(tools.size(), 30);
         const auto tool = tools.at(21).toObject();
         QCOMPARE(tool.value("name").toString(), name);
         QVERIFY(tool.value("annotations").toObject().value("readOnlyHint").toBool());
@@ -874,6 +930,14 @@ void ContractsTests::confirmationClaimsKeepWireFormatAndRejectTampering()
 int main(int argc, char** argv)
 {
     QCoreApplication application(argc, argv);
+    if (application.arguments().size() == 3 && application.arguments()[1] == "--write-file-download-fixture") {
+        const auto tools = ToolCodec::catalog();
+        if (tools.size() != 30) return 1;
+        QFile file(application.arguments()[2]);
+        if (!file.open(QIODevice::WriteOnly)) return 1;
+        const auto bytes = QJsonDocument(tools.at(29).toObject()).toJson();
+        return file.write(bytes) == bytes.size() ? 0 : 1;
+    }
     if (application.arguments().size() == 3 && application.arguments()[1] == "--write-serial-transfer-fixture") {
         const auto tools = ToolCodec::catalog();
         if (tools.size() != 29) return 1;

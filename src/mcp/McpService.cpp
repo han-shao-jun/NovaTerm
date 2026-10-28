@@ -601,6 +601,7 @@ public:
             : std::holds_alternative<QuerySerialFileTransferRequest>(*pending->serialFileTransferRequest) ? "serial.file.query" : "serial.file.cancel"};
         if (pending->fileTransferRequest) capability = Capabilities::CapabilityId{
             std::holds_alternative<StartFileUploadRequest>(*pending->fileTransferRequest) ? "file.upload"
+            : std::holds_alternative<StartFileDownloadRequest>(*pending->fileTransferRequest) ? "file.transfer.download"
             : std::holds_alternative<QueryFileTransferRequest>(*pending->fileTransferRequest) ? "file.transfer.query" : "file.transfer.cancel"};
         if (pending->targetConnectionRequest) capability = Capabilities::CapabilityId{
             pending->targetConnectionRequest->action == TargetConnectionAction::Query ? "target.query"

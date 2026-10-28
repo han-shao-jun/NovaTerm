@@ -44,6 +44,10 @@ public:
         QMutexLocker lock(&session._control->queueMutex);
         return session._control->commands.size();
     }
+    static SftpFileTransferDirection queuedDirection(SftpSession& session) {
+        QMutexLocker lock(&session._control->queueMutex);
+        return session._control->commands.head().fileUpload.direction;
+    }
     static void active(SftpSession& session, bool active)
     {
         QMutexLocker lock(&session._control->queueMutex);
@@ -119,8 +123,15 @@ private:
         QVERIFY(QMetaObject::invokeMethod(timer, "timeout", Qt::DirectConnection));
     }
 private slots:
+    void authorizedUploadReusesPanelQueueAndBlocksCompetingUiRequests_data()
+    {
+        QTest::addColumn<bool>("download");
+        QTest::newRow("upload") << false;
+        QTest::newRow("download") << true;
+    }
     void authorizedUploadReusesPanelQueueAndBlocksCompetingUiRequests()
     {
+        QFETCH(bool, download);
         SshTransport transport(SshConfig{});
         SshTransportTestAccess::verified(transport);
         SftpPanel panel;
@@ -135,8 +146,10 @@ private slots:
         request.requestId = 42; request.localRoot = "C:/build"; request.localRelativePath = "module.ko";
         request.remoteRoot = "/board"; request.remoteName = "module-build.ko";
         request.control = std::make_shared<SftpFileUploadControl>();
+        request.direction = download ? SftpFileTransferDirection::Download : SftpFileTransferDirection::Upload;
         QVERIFY(panel.uploadAuthorizedFile(request));
         QCOMPARE(SftpSessionSafetyTestAccess::queued(*backend), 1);
+        QCOMPARE(SftpSessionSafetyTestAccess::queuedDirection(*backend), request.direction);
         QVERIFY(panel.hasPendingOperations());
         QVERIFY(!panel.hasPendingUserOperations());
         QVERIFY(!panel.findChild<ElaLineEdit*>()->isEnabled());

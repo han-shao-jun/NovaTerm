@@ -33,7 +33,7 @@ FileResourceSharingDialog::FileResourceSharingDialog(Service* service, QString c
     _clientIdentity->setTextInteractionFlags(Qt::TextSelectableByMouse); layout->addWidget(_clientIdentity);
     auto* help = new ElaText(tr("为当前客户端明确选择本地目录和远端目录的读写权限，仅本次运行有效。"
         "本地读取用于上传源，本地写入用于下载目录；远端读取用于下载源，远端写入用于上传目标。"
-        "这些选择与终端权限独立。SFTP上传和串口ZMODEM发送使用各自的工具；串口发送前须准备设备接收并结束其他输入操作。授权本身不证明接收端就绪或路径可安全访问。"), this);
+        "这些选择与终端权限独立。SFTP上传需要本地读取和远端写入，下载需要远端读取和本地写入；串口ZMODEM发送前须准备设备接收并结束其他输入操作。授权本身不证明接收端就绪或路径可安全访问。"), this);
     help->setWordWrap(true); layout->addWidget(help);
     _kind = new ElaComboBox(this); _kind->setObjectName("fileResourceKind");
     _kind->addItems({tr("本地目录"), tr("远端 SSH 目录"), tr("串口 ZMODEM 发送")}); layout->addWidget(_kind);

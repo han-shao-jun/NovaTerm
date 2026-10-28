@@ -1,5 +1,12 @@
 # AGENTS.md
 
+### 0.2.96 SFTP单文件下载收口（2026-10-28）
+
+按用户持续授权完成下载阶段实现/qt-cpp-review行为审查/修复/验证后本地提交，版本0.2.95→0.2.96。新增download_file，当前30工具；复用FileTransfers、原SftpPanel/SftpSession队列/worker与安全LocalFileWriter，不新增生产源文件。独立local.write+remote.read、原binding/revision、跨方向重试冲突；默认不覆盖，published/publication/temporary对下载均指本地，contentVerified=false。旧上传工具保持，query/cancel仅增加downloading。Windows本地后端限制和SFTPv3可信目录owner/admin边界如实保留。
+
+真实RED：执行安全31pass/32fail→63/63，索引13pass/10fail→23/23，两代HTTP2pass/2fail→4/4，契约2pass/2fail→32/32。审查修复rootGuard抽取阻止上传取消cleanup的静态回归；无远端lstat/unlink动态复现，不冒充真实RED。正常Release默认全部目标构建通过；最终相关CTest28/28（65.22秒）、完整MCP263/263（137.502秒）、30工具官方SDK2025/rawHTTP2026分别通过。未跑无关全套/Core/ConPTY或真实设备、其他平台/消毒器；不推送。显式覆盖/平台软件收尾继续，DF01～DF07实机项由用户执行。范围与原始日志见[下载记录](docs/architecture/stages/P8_AI_MCP_Interface/records/B3b_Sftp_Download_2026-10-28.md)。
+
+
 ### 0.2.95 UART/ZMODEM发送收口（2026-10-28）
 
 用户授权持续“实现→qt-cpp-review行为审查→修复验证→本地提交”，机械风格不查，最终真机由用户测。新增upload_serial_file/query_serial_transfer/cancel_serial_transfer，当前29工具；复用原Session/Controller/worker，无新端口或执行器。独立local read+UART授权，外部准备接收并显式release输入lease；原Controller ID和I/O代际保护取消/清写，protocolCompleted/fileConfirmed/ZSKIP分别表达，远端发布unknown、hash未验证。审查预算拒绝timeoutMs超Schema上限真实RED2pass/1fail后修复为null，独立复核通过。

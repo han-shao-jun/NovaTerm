@@ -21,6 +21,7 @@
 class QThread;
 struct sftp_session_struct;
 struct ssh_session_struct;
+struct sftp_attributes_struct;
 
 /** 远端目录中的一个条目。 */
 struct SftpFileInfo
@@ -65,6 +66,7 @@ public:
                                    const QString& remotePath);
     /** @brief 取消指定的内存上传，活动写入会在下一个分块边界停止。 */
     void cancelUpload(quint64 requestId);
+    /** @brief 兼容入口名：按 request.direction 将受授权上传或下载排入原工作线程。 */
     [[nodiscard]] bool uploadAuthorizedFile(const SftpFileUploadRequest& request);
     void uploadDirectory(const QString& localPath, const QString& remotePath);
     void downloadFile(const QString& remotePath, const QString& localPath);
@@ -182,6 +184,23 @@ private:
         const std::function<int()>& publish,
         const std::function<QString()>& cleanup, SftpFileUploadResult& result);
     static SftpFileUploadResult uploadAuthorizedFileWorker(
+        sftp_session_struct* sftp, ssh_session_struct* session,
+        const SftpFileUploadRequest& request,
+        const std::function<bool()>& stopped,
+        const std::function<void(quint64, quint64)>& progress,
+        const std::function<void()>& ready);
+
+    [[nodiscard]] static bool authorizedDownloadSource(
+        const sftp_attributes_struct* attributes, quint32 scopeOwner,
+        const sftp_attributes_struct* original = nullptr);
+    static SftpFileUploadResult copyAuthorizedDownload(
+        const SftpFileUploadRequest& request, quint64 totalBytes,
+        const std::function<qint64(char*, qsizetype)>& read,
+        const std::function<bool()>& close,
+        const std::function<bool()>& guard, const std::function<bool()>& stopped,
+        const std::function<void(quint64, quint64)>& progress,
+        const std::function<void()>& ready);
+    static SftpFileUploadResult downloadAuthorizedFileWorker(
         sftp_session_struct* sftp, ssh_session_struct* session,
         const SftpFileUploadRequest& request,
         const std::function<bool()>& stopped,

@@ -79,6 +79,19 @@ struct Fixture {
     }
     Result<QJsonObject> query(const QString& transfer, const QString& owner = {})
     { return call(QueryFileTransferRequest{transfer}, owner); }
+    StartFileDownloadRequest downloadGrant(bool bothDirections = false)
+    {
+        const auto current = entry();
+        const auto localRoot = resources.resources().shareLocal(client, identity(), root.filePath("build"), "Downloads", {bothDirections, true});
+        const auto binding = access.grantSnapshot(ClientId{client}, current).binding;
+        const auto remote = resources.shareRemote(client, identity(), binding, "/tmp/nvt-artifacts", "Source", {true, bothDirections});
+        StartFileDownloadRequest request;
+        request.reference = {NovaTerm::Mcp::SessionId{current.id}, Epoch{current.epoch}};
+        if (localRoot) { request.resourceId = localRoot->id; request.resourceRevision = localRoot->revision; }
+        if (remote) { request.scopeId = remote->id; request.scopeRevision = remote->revision; }
+        request.relativePath = "downloads/result.bin"; request.remoteName = "capture.bin"; request.operationId = uuid();
+        return request;
+    }
     void finish(bool published)
     {
         SftpFileUploadResult result;
@@ -94,10 +107,172 @@ struct Fixture {
 QJsonObject value(const Result<QJsonObject>& result)
 { return std::holds_alternative<QJsonObject>(result) ? std::get<QJsonObject>(result) : QJsonObject{}; }
 QString transferId(const Result<QJsonObject>& result) { return value(result).value("transferId").toString(); }
+StartFileUploadRequest uploadRequest(const StartFileDownloadRequest& request)
+{
+    return {request.reference, request.resourceId, request.resourceRevision, request.relativePath,
+        request.scopeId, request.scopeRevision, request.remoteName, request.operationId};
+}
 }
 class FileTransfersTests : public QObject {
     Q_OBJECT
 private slots:
+    void downloadUsesIndependentWriteReadAndPreservesLocalPublication()
+    {
+        Fixture f; QVERIFY(f.ready); const auto request = f.downloadGrant();
+        QVERIFY(!request.resourceId.isEmpty()); QVERIFY(!request.scopeId.isEmpty());
+        QVERIFY(!f.access.canRead(f.client, f.entry()));
+        const auto accepted = f.call(request); QVERIFY(!isError(accepted));
+        const auto transfer = transferId(accepted); QVERIFY(!transfer.isEmpty());
+        QCOMPARE(f.requests.size(), 1); QCOMPARE(f.requests.first().direction, SftpFileTransferDirection::Download);
+        QCOMPARE(f.requests.first().localRoot, f.root.filePath("build"));
+        QCOMPARE(f.requests.first().localRelativePath, QString("downloads/result.bin"));
+        QCOMPARE(f.requests.first().remoteRoot, QString("/tmp/nvt-artifacts"));
+        QCOMPARE(f.requests.first().remoteName, QString("capture.bin"));
+        QVERIFY(value(accepted).value("totalBytes").isNull());
+        f.deliveries.first().progress(3, 7);
+        QCOMPARE(value(f.query(transfer)).value("state").toString(), QString("downloading"));
+        f.requests.first().control->state.store(SftpFileUploadControl::State::AwaitingPublication);
+        f.deliveries.first().publicationReady();
+        QCOMPARE(f.requests.first().control->state.load(), SftpFileUploadControl::State::Approved);
+        f.requests.first().control->state.store(SftpFileUploadControl::State::Publishing);
+        f.finish(true);
+        const auto completed = value(f.query(transfer));
+        QCOMPARE(completed.value("state").toString(), QString("completed"));
+        QVERIFY(completed.value("published").toBool());
+        QCOMPARE(completed.value("publication").toString(), QString("published"));
+        QCOMPARE(completed.value("temporary").toString(), QString("removed"));
+        QCOMPARE(completed.value("transferredBytes").toInt(), 7);
+        QVERIFY(!completed.value("contentVerified").toBool(true));
+        QVERIFY(!f.transfers.busy(f.entry().id));
+        QCOMPARE(value(f.call(request)), completed);
+        QCOMPARE(value(f.call(CancelFileTransferRequest{transfer})), completed);
+    }
+    void downloadPermissionDirectionsAreNotInterchangeable_data()
+    {
+        QTest::addColumn<bool>("localWrite"); QTest::addColumn<bool>("remoteRead");
+        QTest::newRow("write-read") << true << true;
+        QTest::newRow("read-read") << false << true;
+        QTest::newRow("write-write") << true << false;
+        QTest::newRow("upload-permissions-only") << false << false;
+    }
+    void downloadPermissionDirectionsAreNotInterchangeable()
+    {
+        QFETCH(bool, localWrite); QFETCH(bool, remoteRead);
+        Fixture f; QVERIFY(f.ready); auto request = f.downloadGrant();
+        const auto localRoot = f.resources.resources().shareLocal(f.client, f.identity(), f.root.filePath("build"), "Local", {!localWrite, localWrite});
+        const auto binding = f.access.grantSnapshot(ClientId{f.client}, f.entry()).binding;
+        const auto remote = f.resources.shareRemote(f.client, f.identity(), binding, "/tmp/nvt-artifacts", "Remote", {remoteRead, !remoteRead});
+        QVERIFY(localRoot); QVERIFY(remote);
+        request.resourceRevision = localRoot->revision; request.scopeRevision = remote->revision;
+        const auto result = f.call(request);
+        QCOMPARE(isError(result), !(localWrite && remoteRead));
+        QCOMPARE(f.requests.size(), localWrite && remoteRead ? 1 : 0);
+    }
+    void downloadRetriesIncludeDirectionAndEveryArgument()
+    {
+        Fixture f; QVERIFY(f.ready); const auto request = f.downloadGrant(true);
+        const auto accepted = f.call(request); QVERIFY(!isError(accepted));
+        const auto transfer = transferId(accepted);
+        QCOMPARE(transferId(f.call(request, {}, "other-connection")), transfer);
+        for (int field = 0; field < 8; ++field) {
+            auto changed = request;
+            if (field == 0) changed.reference.session = NovaTerm::Mcp::SessionId{uuid()};
+            if (field == 1) changed.reference.epoch = Epoch{uuid()};
+            if (field == 2) changed.resourceId = uuid();
+            if (field == 3) changed.resourceRevision = uuid();
+            if (field == 4) changed.scopeId = uuid();
+            if (field == 5) changed.scopeRevision = uuid();
+            if (field == 6) changed.relativePath = "other.bin";
+            if (field == 7) changed.remoteName = "other.bin";
+            const auto denied = f.call(changed); QVERIFY(isError(denied));
+            QCOMPARE(std::get<Error>(denied).code, ErrorCode::TargetOperationConflict);
+        }
+        const auto upload = f.call(uploadRequest(request)); QVERIFY(isError(upload));
+        QCOMPARE(std::get<Error>(upload).code, ErrorCode::TargetOperationConflict);
+        f.finish(true);
+        const auto uploadAfter = f.call(uploadRequest(request)); QVERIFY(isError(uploadAfter));
+        QCOMPARE(std::get<Error>(uploadAfter).code, ErrorCode::TargetOperationConflict);
+        QCOMPARE(f.requests.size(), 1);
+    }
+    void downloadRevocationBeforePublication_data()
+    {
+        QTest::addColumn<int>("change");
+        QTest::newRow("local-write-revoked") << 0;
+        QTest::newRow("remote-read-revoked") << 1;
+        QTest::newRow("connection-replaced") << 2;
+        QTest::newRow("rpc-disconnected") << 3;
+    }
+    void downloadRevocationBeforePublication()
+    {
+        QFETCH(int, change); Fixture f; QVERIFY(f.ready); const auto request = f.downloadGrant();
+        const auto accepted = f.call(request); QVERIFY(!isError(accepted));
+        const auto transfer = transferId(accepted);
+        f.deliveries.first().progress(7, 7);
+        f.requests.first().control->state.store(SftpFileUploadControl::State::AwaitingPublication);
+        if (change == 0) QVERIFY(f.resources.resources().remove(f.client, f.identity(), request.resourceId, request.resourceRevision));
+        if (change == 1) QVERIFY(f.resources.resources().remove(f.client, f.identity(), request.scopeId, request.scopeRevision));
+        if (change == 2) f.session.attach(&f.local, TerminalSession::Ownership::Borrowed, TransportKind::LocalShell);
+        if (change == 3) f.transfers.disconnect("connection");
+        f.deliveries.first().publicationReady();
+        QCOMPARE(f.requests.first().control->state.load(), SftpFileUploadControl::State::Cancelled);
+        f.finish(false);
+        const auto cancelled = value(f.query(transfer));
+        QCOMPARE(cancelled.value("state").toString(), QString("cancelled"));
+        QVERIFY(!cancelled.value("published").toBool());
+        QCOMPARE(cancelled.value("transferredBytes").toInt(), 7);
+    }
+    void uploadAndDownloadShareBusyBudgetAndRequestIds()
+    {
+        Fixture f; QVERIFY(f.ready); auto download = f.downloadGrant(true);
+        const auto first = f.call(download); QVERIFY(!isError(first));
+        auto upload = uploadRequest(download); upload.operationId = uuid();
+        const auto busyUpload = f.call(upload); QVERIFY(isError(busyUpload));
+        QCOMPARE(std::get<Error>(busyUpload).code, ErrorCode::FileTransferBusy);
+        f.finish(true);
+        const auto second = f.call(upload); QVERIFY(!isError(second));
+        QCOMPARE(f.requests.size(), 2);
+        QVERIFY(f.requests.at(1).requestId > f.requests.first().requestId);
+        QCOMPARE(f.requests.at(1).direction, SftpFileTransferDirection::Upload);
+        download.operationId = uuid();
+        const auto busyDownload = f.call(download); QVERIFY(isError(busyDownload));
+        QCOMPARE(std::get<Error>(busyDownload).code, ErrorCode::FileTransferBusy);
+        QVERIFY(!isError(f.call(CancelFileTransferRequest{transferId(first)})));
+        QCOMPARE(f.requests.at(1).control->state.load(), SftpFileUploadControl::State::Active);
+        f.deliveries.at(1).progress(3, 7);
+        QCOMPARE(value(f.query(transferId(second))).value("state").toString(), QString("uploading"));
+        const auto crossDirection = StartFileDownloadRequest{upload.reference, upload.resourceId, upload.resourceRevision,
+            upload.relativePath, upload.scopeId, upload.scopeRevision, upload.remoteName, upload.operationId};
+        const auto conflict = f.call(crossDirection); QVERIFY(isError(conflict));
+        QCOMPARE(std::get<Error>(conflict).code, ErrorCode::TargetOperationConflict);
+    }
+    void downloadsAndUploadsShareRetainedQuota()
+    {
+        Fixture f; QVERIFY(f.ready); auto request = f.downloadGrant(true);
+        for (int i = 0; i < 16; ++i) {
+            request.operationId = uuid();
+            const auto started = i % 2 == 0 ? f.call(request) : f.call(uploadRequest(request));
+            QVERIFY(!isError(started));
+            SftpFileUploadResult result; result.requestId = f.requests.last().requestId;
+            result.published = true; result.publication = "published"; result.temporary = "removed";
+            f.deliveries.last().finished(result);
+        }
+        request.operationId = uuid();
+        const auto rejected = f.call(request); QVERIFY(isError(rejected));
+        QCOMPARE(std::get<Error>(rejected).code, ErrorCode::Busy); QCOMPARE(f.requests.size(), 16);
+    }
+    void downloadForeignClientCannotQueryOrCancel()
+    {
+        Fixture f; QVERIFY(f.ready); const auto request = f.downloadGrant();
+        const auto started = f.call(request); QVERIFY(!isError(started));
+        const auto transfer = transferId(started);
+        const auto other = f.access.addClient("other"); QVERIFY(!other.isEmpty());
+        QVERIFY(isError(f.call(request, other)));
+        QVERIFY(isError(f.query(transfer, other)));
+        QVERIFY(isError(f.call(CancelFileTransferRequest{transfer}, other)));
+        QCOMPARE(f.requests.first().control->state.load(), SftpFileUploadControl::State::Active);
+        QVERIFY(!isError(f.call(CancelFileTransferRequest{transfer})));
+        QCOMPARE(f.requests.first().control->state.load(), SftpFileUploadControl::State::Cancelled);
+    }
     void uploadsWithoutTerminalPermissionAndPreservesPublishedFact()
     {
         Fixture f; QVERIFY(f.ready); const auto request = f.grant();

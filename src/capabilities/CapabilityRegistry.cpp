@@ -87,6 +87,8 @@ CapabilityRegistry CapabilityRegistry::implementedCapabilities()
         ResourceKind::Directory, Policy::DirectoryRead, "novaterm_cancel_serial_transfer"});
     registry.add({CapabilityId{"file.upload"}, 1, ImplementationStatus::Implemented,
         ResourceKind::Directory, Policy::DirectoryRead, "novaterm_upload_file"});
+    registry.add({CapabilityId{"file.transfer.download"}, 1, ImplementationStatus::Implemented,
+        ResourceKind::Directory, Policy::DirectoryRead, "novaterm_download_file"});
     registry.add({CapabilityId{"file.transfer.query"}, 1, ImplementationStatus::Implemented,
         ResourceKind::Directory, Policy::DirectoryRead, "novaterm_query_transfer"});
     registry.add({CapabilityId{"file.transfer.cancel"}, 1, ImplementationStatus::Implemented,

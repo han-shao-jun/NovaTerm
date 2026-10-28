@@ -1,0 +1,325 @@
+{
+    "annotations": {
+        "destructiveHint": true,
+        "idempotentHint": true,
+        "openWorldHint": true,
+        "readOnlyHint": false
+    },
+    "description": "Download one remote regular file through the existing SSH SFTP connection with independent remote-read and local-write grants. Supply current scope/resource revisions and epoch, a single remoteName and a relative local destination path. Never overwrites an existing local target, opens a new connection or executes a file. Reuse query_transfer/cancel_transfer and retain operationId; retries must keep the same direction and arguments. published/publication and temporary describe the local destination and owned local temporary file. Size and metadata checks do not verify content hashes. Current native local writer is Windows-only; maximum 64 MiB, 64 KiB chunks, 120 seconds overall and 15 seconds without progress between synchronous calls. Remote path checks trust the authorized directory owner and administrator; SFTPv3 cannot prove isolation from same-account malicious path replacement.",
+    "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+            "epoch": {
+                "maxLength": 64,
+                "minLength": 1,
+                "type": "string"
+            },
+            "operationId": {
+                "format": "uuid",
+                "maxLength": 36,
+                "minLength": 36,
+                "type": "string"
+            },
+            "relativePath": {
+                "maxLength": 1024,
+                "minLength": 1,
+                "type": "string"
+            },
+            "remoteName": {
+                "maxLength": 255,
+                "type": "string"
+            },
+            "resourceId": {
+                "format": "uuid",
+                "maxLength": 36,
+                "minLength": 36,
+                "type": "string"
+            },
+            "resourceRevision": {
+                "format": "uuid",
+                "maxLength": 36,
+                "minLength": 36,
+                "type": "string"
+            },
+            "scopeId": {
+                "format": "uuid",
+                "maxLength": 36,
+                "minLength": 36,
+                "type": "string"
+            },
+            "scopeRevision": {
+                "format": "uuid",
+                "maxLength": 36,
+                "minLength": 36,
+                "type": "string"
+            },
+            "sessionId": {
+                "format": "uuid",
+                "maxLength": 36,
+                "minLength": 36,
+                "type": "string"
+            }
+        },
+        "required": [
+            "sessionId",
+            "epoch",
+            "resourceId",
+            "resourceRevision",
+            "relativePath",
+            "scopeId",
+            "scopeRevision",
+            "remoteName",
+            "operationId"
+        ],
+        "type": "object"
+    },
+    "name": "novaterm_download_file",
+    "outputSchema": {
+        "additionalProperties": false,
+        "oneOf": [
+            {
+                "not": {
+                    "required": [
+                        "error"
+                    ]
+                },
+                "properties": {
+                    "ok": {
+                        "const": true
+                    }
+                },
+                "required": [
+                    "data"
+                ]
+            },
+            {
+                "not": {
+                    "required": [
+                        "data"
+                    ]
+                },
+                "properties": {
+                    "ok": {
+                        "const": false
+                    }
+                },
+                "required": [
+                    "error"
+                ]
+            }
+        ],
+        "properties": {
+            "data": {
+                "additionalProperties": false,
+                "properties": {
+                    "contentVerified": {
+                        "const": false
+                    },
+                    "epoch": {
+                        "type": "string"
+                    },
+                    "errorCode": {
+                        "type": [
+                            "string",
+                            "null"
+                        ]
+                    },
+                    "instanceId": {
+                        "type": "string"
+                    },
+                    "operationId": {
+                        "type": "string"
+                    },
+                    "publication": {
+                        "enum": [
+                            "not_started",
+                            "published",
+                            "unknown"
+                        ],
+                        "type": "string"
+                    },
+                    "published": {
+                        "type": "boolean"
+                    },
+                    "sessionId": {
+                        "type": "string"
+                    },
+                    "state": {
+                        "enum": [
+                            "accepted",
+                            "connecting",
+                            "uploading",
+                            "downloading",
+                            "cancel_requested",
+                            "completed",
+                            "cancelled",
+                            "failed",
+                            "unknown"
+                        ],
+                        "type": "string"
+                    },
+                    "temporary": {
+                        "enum": [
+                            "none",
+                            "removed",
+                            "retained",
+                            "unknown"
+                        ],
+                        "type": "string"
+                    },
+                    "totalBytes": {
+                        "maximum": 9007199254740991,
+                        "minimum": 0,
+                        "type": [
+                            "integer",
+                            "null"
+                        ]
+                    },
+                    "transferId": {
+                        "type": "string"
+                    },
+                    "transferredBytes": {
+                        "maximum": 9007199254740991,
+                        "minimum": 0,
+                        "type": "integer"
+                    }
+                },
+                "required": [
+                    "contentVerified",
+                    "epoch",
+                    "errorCode",
+                    "instanceId",
+                    "operationId",
+                    "publication",
+                    "published",
+                    "sessionId",
+                    "state",
+                    "temporary",
+                    "totalBytes",
+                    "transferId",
+                    "transferredBytes"
+                ],
+                "type": "object"
+            },
+            "error": {
+                "additionalProperties": false,
+                "properties": {
+                    "code": {
+                        "type": "string"
+                    },
+                    "details": {
+                        "additionalProperties": false,
+                        "properties": {
+                            "commandId": {
+                                "type": "string"
+                            },
+                            "epoch": {
+                                "type": "string"
+                            },
+                            "executionId": {
+                                "type": "string"
+                            },
+                            "executionMayHaveStarted": {
+                                "type": "boolean"
+                            },
+                            "exitCode": {
+                                "type": [
+                                    "integer",
+                                    "null"
+                                ]
+                            },
+                            "finishedAt": {
+                                "type": [
+                                    "string",
+                                    "null"
+                                ]
+                            },
+                            "instanceId": {
+                                "type": "string"
+                            },
+                            "outputTruncated": {
+                                "type": "boolean"
+                            },
+                            "policyVersion": {
+                                "type": "string"
+                            },
+                            "sessionId": {
+                                "type": "string"
+                            },
+                            "startedAt": {
+                                "type": [
+                                    "string",
+                                    "null"
+                                ]
+                            },
+                            "status": {
+                                "enum": [
+                                    "completed",
+                                    "failed",
+                                    "timed_out",
+                                    "cancelled",
+                                    "unknown"
+                                ],
+                                "type": "string"
+                            },
+                            "stderr": {
+                                "type": "string"
+                            },
+                            "stdout": {
+                                "type": "string"
+                            },
+                            "terminationConfirmed": {
+                                "type": "boolean"
+                            }
+                        },
+                        "required": [
+                            "commandId",
+                            "epoch",
+                            "executionId",
+                            "executionMayHaveStarted",
+                            "exitCode",
+                            "finishedAt",
+                            "instanceId",
+                            "outputTruncated",
+                            "policyVersion",
+                            "sessionId",
+                            "startedAt",
+                            "status",
+                            "stderr",
+                            "stdout",
+                            "terminationConfirmed"
+                        ],
+                        "type": "object"
+                    },
+                    "message": {
+                        "type": "string"
+                    },
+                    "retryAfterMs": {
+                        "minimum": 0,
+                        "type": "integer"
+                    },
+                    "retryable": {
+                        "type": "boolean"
+                    }
+                },
+                "required": [
+                    "code",
+                    "message",
+                    "retryable"
+                ],
+                "type": "object"
+            },
+            "ok": {
+                "type": "boolean"
+            },
+            "schemaVersion": {
+                "const": 1
+            }
+        },
+        "required": [
+            "schemaVersion",
+            "ok"
+        ],
+        "type": "object"
+    }
+}

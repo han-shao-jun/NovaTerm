@@ -1,5 +1,13 @@
 /** @file SftpSessionSafetyTests.cpp @brief SFTP 工作线程生命周期及取消发布回归。 */
 #include "session/SftpSession.h"
+#include "mcp/files/LocalFileAccess.h"
+#include "mcp/contracts/Budget.h"
+#include <libssh/sftp.h>
+#include <QTemporaryDir>
+#include <QFile>
+#include <QDir>
+#include <algorithm>
+#include <cstring>
 
 #include <QCoreApplication>
 #include <QMutexLocker>
@@ -79,6 +87,16 @@ public:
         SftpSession::finalizeAuthorizedUpload(control, ready, guard, publish, cleanup, result);
     }
 
+    static bool downloadSource(const sftp_attributes_struct* attributes, quint32 owner,
+        const sftp_attributes_struct* original = nullptr)
+    { return SftpSession::authorizedDownloadSource(attributes, owner, original); }
+
+    static SftpFileUploadResult download(const SftpFileUploadRequest& request, quint64 total,
+        const std::function<qint64(char*, qsizetype)>& read, const std::function<bool()>& close,
+        const std::function<bool()>& guard, const std::function<bool()>& stopped,
+        const std::function<void(quint64, quint64)>& progress, const std::function<void()>& ready)
+    { return SftpSession::copyAuthorizedDownload(request, total, read, close, guard, stopped, progress, ready); }
+
     static bool finalize(const std::function<bool()>& cancelled,
                          const std::function<bool()>& close,
                          const std::function<bool()>& chmod,
@@ -95,6 +113,172 @@ class SftpSessionSafetyTests final : public QObject
     Q_OBJECT
 
 private slots:
+    void authorizedDownloadQueueSharesWorkerAndCancellation()
+    {
+        SftpSession session;
+        auto worker = SftpSessionSafetyTestAccess::control(session);
+        worker->running = true; worker->connected = true;
+        SftpFileUploadRequest request{301, QStringLiteral("C:/root"), QStringLiteral("local.bin"),
+            QStringLiteral("/home/test"), QStringLiteral("remote.bin"), std::make_shared<SftpFileUploadControl>()};
+        QCOMPARE(request.direction, SftpFileTransferDirection::Upload);
+        request.direction = SftpFileTransferDirection::Download;
+        QVERIFY(session.uploadAuthorizedFile(request));
+        QCOMPARE(worker->commands.head().fileUpload.direction, SftpFileTransferDirection::Download);
+        QVERIFY(session.hasPendingOperations());
+        auto upload = request; upload.direction = SftpFileTransferDirection::Upload;
+        QVERIFY(!session.uploadAuthorizedFile(upload));
+        QSignalSpy finished(&session, &SftpSession::authorizedFileFinished);
+        SftpSessionSafetyTestAccess::finishWorker(worker);
+        QTRY_COMPARE(finished.size(), 1);
+        const auto result = qvariant_cast<SftpFileUploadResult>(finished.first().first());
+        QCOMPARE(result.requestId, quint64(301)); QVERIFY(!result.published);
+        QCOMPARE(request.control->state.load(), SftpFileUploadControl::State::Cancelled);
+        QVERIFY(!session.hasPendingOperations());
+    }
+
+    void authorizedTransferRejectsInvalidDirection()
+    {
+        SftpSession session;
+        auto worker = SftpSessionSafetyTestAccess::control(session);
+        worker->running = true; worker->connected = true;
+        SftpFileUploadRequest request{302, QStringLiteral("C:/root"), QStringLiteral("local.bin"),
+            QStringLiteral("/home/test"), QStringLiteral("remote.bin"), std::make_shared<SftpFileUploadControl>()};
+        request.direction = static_cast<SftpFileTransferDirection>(99);
+        QVERIFY(!session.uploadAuthorizedFile(request));
+        QVERIFY(!session.hasPendingOperations());
+    }
+
+    void authorizedDownloadSourceMetadata_data()
+    {
+        QTest::addColumn<QString>("change"); QTest::addColumn<bool>("allowed");
+        for (const auto* change : {"unchanged", "atime", "admin"}) QTest::newRow(change) << QString::fromLatin1(change) << true;
+        for (const auto* change : {"null", "symlink", "directory", "device", "foreign", "writable",
+            "missing-size", "missing-owner", "missing-permissions", "missing-time", "changed-owner", "changed-group",
+            "changed-mode", "changed-size", "changed-mtime"})
+            QTest::newRow(change) << QString::fromLatin1(change) << false;
+    }
+
+    void authorizedDownloadSourceMetadata()
+    {
+        QFETCH(QString, change); QFETCH(bool, allowed);
+        sftp_attributes_struct original{};
+        original.type = SSH_FILEXFER_TYPE_REGULAR;
+        original.flags = SSH_FILEXFER_ATTR_UIDGID | SSH_FILEXFER_ATTR_SIZE
+            | SSH_FILEXFER_ATTR_PERMISSIONS | SSH_FILEXFER_ATTR_ACMODTIME;
+        original.uid = 1000; original.gid = 1000; original.permissions = 0100644;
+        original.size = 7; original.mtime = 17; original.atime = 11;
+        if (change == "admin") original.uid = 0;
+        auto current = original;
+        if (change == "symlink") current.type = SSH_FILEXFER_TYPE_SYMLINK;
+        if (change == "directory") current.type = SSH_FILEXFER_TYPE_DIRECTORY;
+        if (change == "device") current.type = SSH_FILEXFER_TYPE_SPECIAL;
+        if (change == "foreign") current.uid = 1001;
+        if (change == "writable") current.permissions |= 0020;
+        if (change == "missing-size") current.flags &= ~SSH_FILEXFER_ATTR_SIZE;
+        if (change == "missing-owner") current.flags &= ~SSH_FILEXFER_ATTR_UIDGID;
+        if (change == "missing-permissions") current.flags &= ~SSH_FILEXFER_ATTR_PERMISSIONS;
+        if (change == "missing-time") current.flags &= ~SSH_FILEXFER_ATTR_ACMODTIME;
+        if (change == "changed-owner") current.uid = 0;
+        if (change == "changed-group") ++current.gid;
+        if (change == "changed-mode") current.permissions = 0100600;
+        if (change == "changed-size") ++current.size;
+        if (change == "changed-mtime") ++current.mtime;
+        if (change == "atime") ++current.atime;
+        QCOMPARE(SftpSessionSafetyTestAccess::downloadSource(change == "null" ? nullptr : &current,
+            1000, &original), allowed);
+    }
+
+    void authorizedDownloadCopiesIntoSafeWriter_data()
+    {
+        QTest::addColumn<QString>("mode"); QTest::addColumn<QString>("expectedError");
+        for (const auto* mode : {"complete", "partial", "empty"})
+            QTest::newRow(mode) << QString::fromLatin1(mode) << QString{};
+        QTest::newRow("early-eof") << QStringLiteral("early-eof") << QStringLiteral("TRANSFER_REMOTE_SIZE_CHANGED");
+        QTest::newRow("growth") << QStringLiteral("growth") << QStringLiteral("TRANSFER_REMOTE_SIZE_CHANGED");
+        QTest::newRow("read-error") << QStringLiteral("read-error") << QStringLiteral("TRANSFER_REMOTE_READ_FAILED");
+        QTest::newRow("over-return") << QStringLiteral("over-return") << QStringLiteral("TRANSFER_REMOTE_READ_FAILED");
+        QTest::newRow("cancel-read") << QStringLiteral("cancel-read") << QStringLiteral("TRANSFER_CANCELLED");
+        QTest::newRow("guard-read") << QStringLiteral("guard-read") << QStringLiteral("TRANSFER_PATH_CHANGED");
+        QTest::newRow("close-error") << QStringLiteral("close-error") << QStringLiteral("TRANSFER_REMOTE_CLOSE_FAILED");
+        QTest::newRow("target-exists") << QStringLiteral("target-exists") << QStringLiteral("TRANSFER_LOCAL_TARGET_EXISTS");
+        QTest::newRow("target-race") << QStringLiteral("target-race") << QStringLiteral("TRANSFER_LOCAL_TARGET_EXISTS");
+        QTest::newRow("revoke-ready") << QStringLiteral("revoke-ready") << QStringLiteral("TRANSFER_CANCELLED");
+        QTest::newRow("guard-ready") << QStringLiteral("guard-ready") << QStringLiteral("TRANSFER_PATH_CHANGED");
+        QTest::newRow("size-limit") << QStringLiteral("size-limit") << QStringLiteral("TRANSFER_SIZE_LIMIT");
+        QTest::newRow("pre-cancel") << QStringLiteral("pre-cancel") << QStringLiteral("TRANSFER_CANCELLED");
+        QTest::newRow("initial-guard") << QStringLiteral("initial-guard") << QStringLiteral("TRANSFER_PATH_CHANGED");
+    }
+
+    void authorizedDownloadCopiesIntoSafeWriter()
+    {
+#ifndef Q_OS_WIN
+        QSKIP("The existing LocalFileWriter native backend is Windows-only.");
+#else
+        QFETCH(QString, mode); QFETCH(QString, expectedError);
+        QTemporaryDir directory; QVERIFY(directory.isValid());
+        SftpFileUploadRequest request{303, directory.path(), QStringLiteral("result.bin"),
+            QStringLiteral("/home/test"), QStringLiteral("remote.bin"), std::make_shared<SftpFileUploadControl>(),
+            SftpFileTransferDirection::Download};
+        const auto target = directory.filePath(request.localRelativePath);
+        QByteArray payload = mode == "empty" ? QByteArray{} : QByteArray(70003, 'x');
+        quint64 total = quint64(payload.size());
+        if (mode == "early-eof") ++total;
+        if (mode == "growth") --total;
+        if (mode == "size-limit") total = NovaTerm::Mcp::Budget::MaxLocalTransferFileBytes + 1;
+        bool fixtureOk = true;
+        const auto createCompetitor = [&] {
+            QFile other(target);
+            fixtureOk = other.open(QIODevice::WriteOnly) && other.write("keep") == 4;
+        };
+        if (mode == "target-exists") createCompetitor();
+        if (mode == "pre-cancel") request.control->cancel();
+        bool safe = mode != "initial-guard", closedBeforeReady = false;
+        int reads = 0, closes = 0, publications = 0;
+        qsizetype offset = 0, maxOffered = 0;
+        quint64 reported = 0;
+        const auto result = SftpSessionSafetyTestAccess::download(request, total,
+            [&](char* bytes, qsizetype count) -> qint64 {
+                ++reads; maxOffered = std::max(maxOffered, count);
+                if (mode == "read-error") return -1;
+                if (mode == "over-return") return count + 1;
+                if (mode == "cancel-read") request.control->cancel();
+                if (mode == "guard-read") safe = false;
+                const auto amount = std::min({count, payload.size() - offset, qsizetype(mode == "partial" ? 2048 : 65536)});
+                if (amount > 0) std::memcpy(bytes, payload.constData() + offset, size_t(amount));
+                offset += amount; return amount;
+            }, [&] { ++closes; return mode != "close-error"; },
+            [&] { return safe; }, [] { return false; },
+            [&](quint64 transferred, quint64) { reported = transferred; },
+            [&] {
+                ++publications; closedBeforeReady = closes == 1;
+                if (mode == "target-race") createCompetitor();
+                if (mode == "revoke-ready") request.control->cancel();
+                if (mode == "guard-ready") safe = false;
+                request.control->approve(true);
+            });
+        QVERIFY(fixtureOk); QCOMPARE(result.requestId, quint64(303));
+        QCOMPARE(result.errorCode, expectedError); QCOMPARE(closes, 1);
+        QVERIFY(maxOffered <= 65536);
+        QCOMPARE(result.published, expectedError.isEmpty());
+        if (expectedError.isEmpty()) {
+            QCOMPARE(result.publication, QStringLiteral("published"));
+            QCOMPARE(result.totalBytes, std::optional<quint64>(total));
+            QCOMPARE(result.transferredBytes, total); QCOMPARE(reported, total);
+            QCOMPARE(publications, 1); QVERIFY(closedBeforeReady);
+            QVERIFY(!request.control->cancel());
+            QFile file(target); QVERIFY(file.open(QIODevice::ReadOnly)); QCOMPARE(file.readAll(), payload);
+        } else {
+            QCOMPARE(result.publication, QStringLiteral("not_started"));
+            if (mode == "target-exists" || mode == "target-race") {
+                QFile file(target); QVERIFY(file.open(QIODevice::ReadOnly)); QCOMPARE(file.readAll(), QByteArray("keep"));
+            } else QVERIFY(!QFile::exists(target));
+            if (mode == "target-exists" || mode == "size-limit" || mode == "pre-cancel" || mode == "initial-guard") QCOMPARE(reads, 0);
+            if (mode == "cancel-read" || mode == "guard-read") QCOMPARE(result.transferredBytes, quint64(0));
+        }
+        QCOMPARE(QDir(directory.path()).entryList({QStringLiteral(".novaterm-transfer-*")}, QDir::Files | QDir::Hidden).size(), 0);
+#endif
+    }
+
     void queuedNotificationsExpireWithReceiver()
     {
         int delivered = 0;

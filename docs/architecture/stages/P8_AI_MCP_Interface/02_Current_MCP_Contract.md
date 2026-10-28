@@ -1,10 +1,31 @@
 # 当前 MCP 接口契约与兼容基线
 
-更新：2026-10-28。当前源码共二十九工具，UART单文件发送阶段软件回归已完成，B4实机仍待用户验收；本页描述已接入的接口与边界，验证范围以阶段记录为准，不代表B4实机验收完成。历史Schema/原始成绩按[验收档案](records/README.md)追溯，软件剩余范围见[收口账本](08_Software_Closeout.md)。
+更新：2026-10-28。当前源码共三十工具，SFTP单文件下载阶段软件回归已完成，B4仍待用户验收；本页描述已接入接口与边界，不代表本阶段验证或B4实机验收完成。历史Schema/原始成绩按[验收档案](records/README.md)追溯，剩余显式覆盖与平台软件收尾见[收口账本](08_Software_Closeout.md)。
+
+## 2026-10-28：SFTP单文件下载
+
+新增 `novaterm_download_file`，总三十工具。原 `novaterm_upload_file` 的对象/Schema保持；共同的 `novaterm_query_transfer`、`novaterm_cancel_transfer`仅扩展state=downloading和下载适用说明，旧fixture保持，变化由本阶段fixture单列。下载不新增查询/取消工具、连接、worker或执行器，见[本阶段记录](records/B3b_Sftp_Download_2026-10-28.md)。
+
+| 必填参数 | 下载含义 |
+| --- | --- |
+| sessionId、epoch | 原已连接SSH会话及当前代际 |
+| resourceId、resourceRevision、relativePath | 独立本地write授权资源及revision；relativePath是授权根下本地目标相对路径 |
+| scopeId、scopeRevision、remoteName | 独立远端read授权目录及revision；remoteName是最多255 UTF-8字节的单个远端源文件名 |
+| operationId | 本客户端操作UUID；必须与方向和全部参数一起精确重试 |
+
+共九个参数，ID/revision/operationId为非空规范UUID；拒绝未知字段、绝对本机路径、上级跳转、空段、反斜线/ADS及远端名称中的路径分隔。relativePath沿用最多1024 UTF-8字节的安全相对路径约束，本地父目录须已存在。无参数可切换覆盖、远端目录、连接配置或执行命令。
+
+下载必须同时具有local.write和remote.read，上传的local.read+remote.write不能替代；终端读取、输入、脚本或目标打开权限也不推导文件权限。受理、源读取和发布前持续复核客户端identity、两边revision及原Session完整绑定，撤权/换绑不跟随新连接。上传与下载共享FileTransfers的记录、活动预算与原SFTP面板忙碌保护；同operationId跨方向或改变任何参数均冲突，精确重试/查询不重传也不续期。
+
+原SftpSession worker检查远端授权根和单个普通源文件，打开一次源句柄，按观察大小分块读取；分段短读可累计，提前EOF、读错、超出声明大小的增长、属性缺失或观察到的源变化不得本地发布。源句柄和路径属性在读取前后复核，拒绝链接/设备、不可信属主及组或其他用户可写项。SFTPv3没有本地openat/NOFOLLOW/inode等价保证，授权目录属主与管理员须可信；这些检查不证明能抵抗同账号恶意换路径。
+
+LocalFileWriter在原worker中创建专属临时文件并分块append，完成后经过原发布授权确认与不覆盖发布。当前安全本地Writer仅Windows支持，其他平台明确拒绝。最大64 MiB、64 KiB分块、总120秒、15秒无进展及2秒发布准入等待；每客户端/Session一个活动、全局两个，记录每客户端16/全局64、终态保留十分钟。期限在同步调用之间检查，本机I/O或libssh阻塞不承诺硬退出上界。
+
+响应沿用SFTP字段；共同查询/取消的state可为accepted/connecting/uploading/downloading/cancel_requested/completed/cancelled/failed/unknown。对下载，published/publication描述本地目标，temporary描述本次本地临时文件；取消不删除远端源或已发布本地目标，已开始发布按实际成功/未知事实收口。已知空文件totalBytes=0，未知为空；大小与元数据校验不等于内容hash，contentVerified始终false。下载不执行文件、不读取终端日志，也不要求远端hardlink扩展；显式覆盖仍为后续能力。
 
 ## 2026-10-28：UART/ZMODEM 单文件上传、查询与取消
 
-在原二十六工具基础上追加以下三项；旧工具Schema及权限保持，UART目录仅更正“发送尚未开放”的过时说明。实现复用原Session、SerialFileTransferController、TransferFileWorker和ZMODEM协议owner，MCP薄索引只管理授权、幂等和有限事实，见[本阶段记录](records/B3b_Uart_Send_2026-10-28.md)。
+在原二十六工具基础上追加以下三项；旧工具Schema及权限保持，UART目录仅更正“发送尚未开放”的过时说明。实现复用原Session、SerialFileTransferController、TransferFileWorker和ZMODEM协议owner，MCP薄索引只管理授权、幂等和有限事实，见[UART发送记录](records/B3b_Uart_Send_2026-10-28.md)。
 
 | 工具 | 必填参数 | 行为 |
 | --- | --- | --- |
@@ -58,7 +79,7 @@ data固定包含instanceId、transferId、sessionId、epoch、operationId、stat
 
 首批要求 `hardlink@openssh.com`：0600/EXCL随机临时文件→同目录原子不替换创建目标→清理本次临时链接。能力不足拒绝，不使用覆盖式posix-rename。远端逐段检查规范路径、链接、权限及祖先属主（只接受远端管理员或授权根属主）；SFTPv3无法对恶意同账号路径改写提供本地句柄级保证，故该账号/管理员须可信。检查变化时不冒险清理；失去发布确认或通用歧义错误保守返回unknown。上传工具不执行chmod、sh、insmod、烧录或重启，后续命令须走现有独立授权终端工具。
 
-SFTP下载和显式覆盖为后续软件工作；UART/ZMODEM三工具按本页首节独立授权和结果语义调用。平台收尾与B4用户实测分别记录。
+SFTP下载按本页下载节独立授权和本地发布语义调用；显式覆盖仍待后续。UART/ZMODEM三工具保持各自独立授权和结果边界，平台收尾与B4用户实测分别记录。
 
 兼容基线整理于 2026-10-18，2026-10-23 加入历史工具；2026-10-24 校正目录与状态说明。入口：[总体架构](00_Overall_Architecture.md) / [实施与验收](01_Phases_and_Acceptance.md)。
 本文件记录已有冻结契约，依据 ToolCodec、fixture、Budget、Errors 和 MCP 使用说明；不宣称外部 MCP 规范的最新状态，也不证明所有平台已验收。2026-10-25 B0/B1 已退役未发布 P4 两个诊断工具及专属接线，B0/B1 基线为十二工具，B2 后为十三项（见下节）。清理、日志扩展及本轮验证见 [B0/B1 实施与验收](records/B0_B1_Implementation_2026-10-25.md)。
@@ -74,7 +95,7 @@ B3/B3a等待/任务、B3b保存目标目录/打开/查询/安全关闭及文件�
 `novaterm_list_file_resources`只查询本机用户明确共享的授权元数据，不读取文件内容、不创建SFTP或终端连接；传输使用独立工具，目录查询不授予额外权限。
 
 - 参数可为空，用于发现本客户端已获准的资源与SSH绑定；也可传 `sessionId` / `epoch` 成对筛选。拒绝任意本机路径、远端路径、host、clientId或读写授权参数，模型不能通过目录工具创建或扩大授权。
-- 本机“文件资源授权”窗口逐客户端选择本地目录与当前已连接、主机身份已确认的SSH远端目录，并分别勾选读/写。终端读取、完整输入、清空、脚本、目标打开及预授权不推导文件权限。SFTP上传需要本地读+远端写，后续下载需要远端读+本地写；UART发送需要本地读+独立UART发送许可。
+- 本机“文件资源授权”窗口逐客户端选择本地目录与当前已连接、主机身份已确认的SSH远端目录，并分别勾选读/写。终端读取、完整输入、清空、脚本、目标打开及预授权不推导文件权限。SFTP上传需要本地读+远端写，下载需要远端读+本地写；UART发送需要本地读+独立UART发送许可。
 - 成功data含 `instanceId`、固定 `availability=authorization_only`、`localResources` 与 `remoteScopes`。本地条目仅 `resourceId/title/revision/readAllowed/writeAllowed`，省略本机路径；名称为用户主动共享文字。远端条目含 `scopeId/title/revision/path/sessionId/epoch/readAllowed/writeAllowed`，只披露已明确共享且仍为当前连接的路径与绑定标识。
 - 无参返回本人已共享项，可以为空；不列未授权终端。筛选未知、未共享或不就绪目标统一返回 `PERMISSION_DENIED`；确有当前远端授权但epoch错误返回 `STALE_SESSION_EPOCH`。目录只读不要求额外开放终端读取。
 - 本地授权绑定客户端独立身份版本；远端另绑定完整Session/attachment/epoch/连接generation/目标指纹。普通终端授权变动不清除文件授权。目录移除、远端连接换代/换绑即回收远端scope；身份轮换/删除/全局停用或服务停止回收相应资源。本次运行有效，不写接入JSON，不跨重启恢复。

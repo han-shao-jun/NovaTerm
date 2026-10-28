@@ -1,10 +1,10 @@
 # NovaTerm 统一架构设计
 
-2026-10-28 MCP现行源码为二十九工具，UART/ZMODEM发送阶段软件回归已完成，B4实机仍待用户验收。`SerialFileTransfers`只在GUI线程持有有界的授权、幂等索引与结果事实；原Session持有的`SerialFileTransferController`继续管理协议操作，原`TransferFileWorker`独占打开、随机读取与销毁固定句柄文件源。接收字节仍经唯一输入泵，出站仍经原lease/协议owner；SerialIoState在原队列锁内复核捕获的I/O代际，旧payload、取消CAN和清队列不能作用于新连接。
+2026-10-28 MCP现行源码为三十工具，SFTP下载阶段软件回归已完成，B4仍待用户验收。`FileTransfers`统一持有上传/下载的有界授权、幂等与结果事实；两方向复用终端SftpPanel原SftpSession队列/worker，下载在原worker读取远端固定源句柄并交给安全LocalFileWriter分块写入及本地不覆盖发布，不增加连接、线程或执行器。`SerialFileTransfers`只在GUI线程持有有界的授权、幂等索引与结果事实；原Session持有的`SerialFileTransferController`继续管理协议操作，原`TransferFileWorker`独占打开、随机读取与销毁固定句柄文件源。接收字节仍经唯一输入泵，出站仍经原lease/协议owner；SerialIoState在原队列锁内复核捕获的I/O代际，旧payload、取消CAN和清队列不能作用于新连接。
 
-UART发送同时复核独立本地read资源和UART target授权，终端或SSH scope不推导该权限。调用方独立准备接收端并显式release已有MCP输入lease；工具不自动rz、不抢占。SFTP上传复用原SftpSession/worker，Core与串口生产库不依赖MCP文件I/O。软件剩余SFTP下载、显式覆盖与平台收尾，B4由用户实测。
+UART发送同时复核独立本地read资源和UART target授权，调用方独立准备接收端并显式release已有MCP输入lease，不自动rz、不抢占。SFTP上传需要local.read+remote.write，下载需要local.write+remote.read；终端权限不推导文件权限，下载的published/publication/temporary仅指本地目标与本次临时文件，contentVerified保持false。Core与串口生产库不依赖MCP文件I/O。软件剩余显式覆盖与平台收尾，B4由用户实测。
 
-当前字段与边界见[现行契约](architecture/stages/P8_AI_MCP_Interface/02_Current_MCP_Contract.md)，阶段证据见[UART发送记录](architecture/stages/P8_AI_MCP_Interface/records/B3b_Uart_Send_2026-10-28.md)。既往终端、连接、文件授权和SFTP子批统一见[验收档案](architecture/stages/P8_AI_MCP_Interface/records/README.md)，不从历史工具数量或成绩推断当前版本验收。
+当前字段与边界见[现行契约](architecture/stages/P8_AI_MCP_Interface/02_Current_MCP_Contract.md)，本阶段进度见[下载记录](architecture/stages/P8_AI_MCP_Interface/records/B3b_Sftp_Download_2026-10-28.md)，UART既有边界与历史验证见[发送记录](architecture/stages/P8_AI_MCP_Interface/records/B3b_Uart_Send_2026-10-28.md)。既往终端、连接、文件授权和SFTP子批统一见[验收档案](architecture/stages/P8_AI_MCP_Interface/records/README.md)，不从历史工具数量或成绩推断当前版本验收。
 
 资源共享继续由Application独立持有授权/查询/证据服务，MCP负责协议与可信身份；独立导入文件不随MCP关闭删除，见[资源边界记录](architecture/stages/P8_AI_MCP_Interface/records/P3_Architecture_Fixes_2026-10-24.md)。
 

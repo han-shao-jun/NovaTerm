@@ -1,6 +1,6 @@
 # NovaTerm 分阶段开发路线图
 
-2026-10-28 MCP现状：当前源码二十九工具，已接入终端观察/交互、等待/任务、保存目标连接与预授权、独立文件目录、受限SFTP上传以及独立授权的UART/ZMODEM单文件上传/查询/取消。UART发送阶段软件回归已完成，B4实机仍待用户验收；后续软件工作为SFTP下载、显式覆盖与平台收尾，B4真实设备、客户端和性能由用户验收。范围见[软件收口账本](stages/P8_AI_MCP_Interface/08_Software_Closeout.md)，本轮进度见[UART发送记录](stages/P8_AI_MCP_Interface/records/B3b_Uart_Send_2026-10-28.md)。
+2026-10-28 MCP现状：当前源码三十工具，终端观察/交互、等待/任务、保存目标连接与预授权、独立文件目录、SFTP上传与UART发送已提供；新增SFTP单文件下载，本阶段软件回归已完成，B4仍待用户验收。下载复用原SFTP队列/worker及查询/取消，独立local.write+remote.read授权，默认不覆盖。剩余显式覆盖、平台收尾见[软件收口账本](stages/P8_AI_MCP_Interface/08_Software_Closeout.md)，本轮进度见[下载记录](stages/P8_AI_MCP_Interface/records/B3b_Sftp_Download_2026-10-28.md)，B4由用户实测。
 
 历史实现与各轮成绩见[验收档案](stages/P8_AI_MCP_Interface/records/README.md)，不拼接为当前版本通过结论。
 
@@ -40,7 +40,7 @@ P9 的协议库与测试独立于 P6/P8，先按 XMODEM → YMODEM → ZMODEM �
 | P5 | 实施完成；Linux Vulkan/OpenGL、Windows D3D11/D3D12 与 30 分钟长稳验收完成（2026-08-02）；macOS Metal、多屏 DPR 与 120/144 Hz 验收待完成 | 多页 Atlas、fallback、instancing | CJK/Emoji/DPI 正确且上传增量化 |
 | P6 | 进行中：Transport 四种完成，会话编排采用「1 View 拥有 1 Session」已在生产；剩少量自包含项 | Session（View-owned）、SSH/Serial/Telnet | 每 View 一会话、完整生命周期 |
 | P7 | 已实现为内置功能（常驻监控 2026-09-06、系统信息窗口 2026-09-09）；性能量化验收待补 | SSH 远端资源监控面板、系统信息窗口 | 复用单连接、快慢通道隔离、不反压 Parser |
-| P8 | 当前源码二十九工具；B0/B1、B2、B3/B3a、保存目标连接/预授权、独立文件授权和SFTP上传已提供；UART/ZMODEM上传/查询/取消正在验证。SFTP下载、显式覆盖、平台收尾及B4用户验收待后续 | 外部Agent本地编码/编译，独立MCP工具完成获准连接、上传、执行和观察；NovaTerm不编排工程或判断成功 | 源码/替身、真实板卡双通道、客户端和性能分别验收，见[实施顺序](stages/P8_AI_MCP_Interface/01_Phases_and_Acceptance.md) |
+| P8 | 当前源码三十工具；终端、保存目标、独立授权、SFTP上传和UART发送已提供，SFTP下载本阶段软件回归已完成，B4仍待用户验收。显式覆盖、平台收尾及B4用户验收待后续 | 外部Agent本地编码/编译，独立MCP工具完成获准连接、文件交付、执行和观察；NovaTerm不编排工程或判断成功 | 源码/替身、真实板卡双通道、客户端和性能分别验收，见[实施顺序](stages/P8_AI_MCP_Interface/01_Phases_and_Acceptance.md) |
 | P9 | 协议库及串口 Session/手动传输窗口已接入；Linux 纯协议、门面、UI 与真实 QSerialPort/raw PTY 通路测试通过；Windows 取消发布竞争用例有已知失败，macOS 与真实 UART 文件传输验收待补 | 独立协议库、Session 输入分流/输出独占、异步文件门面与手动串口窗口 | 三协议双向测试与互通、单通路接线及有界停止；跨平台/真实 UART 文件验收明确收口 |
 
 **P9：文件传输协议**的范围、步骤和验收见

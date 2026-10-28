@@ -1,10 +1,10 @@
 # SSH/UART MCP 终端工具总体架构
 
-更新：2026-10-28。当前源码二十九工具；B0/B1、B2、B3/B3a、保存目标连接/预授权、独立文件资源和受限SFTP上传已接入。UART/ZMODEM单文件上传/查询/取消本阶段软件回归已完成，B4实机仍待用户验收，新增工具与权限边界见[现行契约](02_Current_MCP_Contract.md)，进度见[UART发送记录](records/B3b_Uart_Send_2026-10-28.md)。
+更新：2026-10-28。当前源码三十工具；新增SFTP单文件下载，复用既有FileTransfers、SftpPanel/SftpSession队列和worker、安全本地Writer。本下载阶段软件回归已完成，B4仍待用户验收，现行字段见[契约](02_Current_MCP_Contract.md)，进度见[下载记录](records/B3b_Sftp_Download_2026-10-28.md)；UART原授权与Controller/worker边界保持。
 
 UART发送复用原Session、SerialFileTransferController、TransferFileWorker、唯一输入泵与ZMODEM协议owner。MCP只管理独立授权和有界事实，安全源在原worker内打开、随机读取并销毁；不新增连接或执行器。调用方独立准备接收端并显式release已有MCP输入lease，上传不自动rz、不抢占人工传输。
 
-软件后续为SFTP下载、显式覆盖与平台收尾，B4由用户测试。历史子批及逐轮证据见[验收档案](records/README.md)，源码现状与待验场景见[缺口](03_Gaps_and_Evidence.md)。
+SFTP下载需要独立local.write+remote.read授权；默认不覆盖，published/publication/temporary指本地目标和本次临时文件，contentVerified=false。软件后续为显式覆盖与平台收尾，B4由用户测试。历史子批及逐轮证据见[验收档案](records/README.md)，源码现状与待验场景见[缺口](03_Gaps_and_Evidence.md)。
 
 ## 1. 产品目标与责任
 

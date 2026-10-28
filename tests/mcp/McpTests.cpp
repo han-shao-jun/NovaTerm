@@ -564,6 +564,8 @@ private slots:
     void httpFileResourcesAreIndependentAndBound();
     void httpFileUploadChecksIndependentAuthority_data();
     void httpFileUploadChecksIndependentAuthority();
+    void httpFileDownloadUsesSharedTransferLifecycle_data();
+    void httpFileDownloadUsesSharedTransferLifecycle();
     void httpFileUploadIsIndependentOfTerminalAndClosePolicy_data();
     void httpFileUploadIsIndependentOfTerminalAndClosePolicy();
     void fileResourceSettingsRejectStaleIdentityAndConnection();
@@ -2752,7 +2754,7 @@ void McpTests::tokenSigningAndAuthentication()
 
 void McpTests::rejectsDangerousAndOversizedArguments()
 {
-    QCOMPARE(ToolCodec::catalog().size(), 29);
+    QCOMPARE(ToolCodec::catalog().size(), 30);
     QVERIFY(!CommandPolicy::find("rm"));
     QVERIFY(!CommandPolicy::find("credential.read"));
     const QJsonObject identity{{"sessionId", newId()}, {"epoch", "epoch"}};
@@ -3255,6 +3257,63 @@ void McpTests::serialFileSettingsRequireExplicitCurrentGrant()
     QVERIFY(!share->isEnabled());
     QVERIFY(adapter.targets().list(f.client, f.service.access().identityVersion(f.client)).isEmpty());
     QCOMPARE(f.serial->pendingWriteBytes(), qint64(0));
+}
+void McpTests::httpFileDownloadUsesSharedTransferLifecycle_data()
+{
+    QTest::addColumn<QString>("version");
+    QTest::newRow("2025") << QString(ProtocolVersion);
+    QTest::newRow("2026") << QString("2026-07-28");
+}
+void McpTests::httpFileDownloadUsesSharedTransferLifecycle()
+{
+    QFETCH(QString, version);
+    Fixture f; QVERIFY(f.service.access().setEnabled(true)); f.makeSsh();
+    const auto entry = f.service.directory().entries().first();
+    const auto identity = f.service.access().identityVersion(f.client);
+    const auto binding = f.service.access().grantSnapshot(ClientId{f.client}, entry).binding;
+    auto& files = f.service.fileResources();
+    const auto local = files.resources().shareLocal(f.client, identity, f.root.filePath("downloads"), "Downloads", {false, true});
+    const auto remote = files.shareRemote(f.client, identity, binding, "/board/results", "Results", {true, false});
+    QVERIFY(local); QVERIFY(remote); QVERIFY(!f.service.access().canRead(f.client, entry));
+    int starts = 0;
+    std::optional<SftpFileUploadRequest> request;
+    std::optional<FileTransfers::Delivery> delivery;
+    f.service.setFileUploadStarter([&](TerminalSession&, const SftpFileUploadRequest& started, FileTransfers::Delivery done) {
+        ++starts; request = started; delivery = std::move(done); return true;
+    });
+    auto arguments = f.identity();
+    arguments.insert("resourceId", local->id); arguments.insert("resourceRevision", local->revision);
+    arguments.insert("relativePath", "result.bin"); arguments.insert("scopeId", remote->id);
+    arguments.insert("scopeRevision", remote->revision); arguments.insert("remoteName", "result.bin");
+    arguments.insert("operationId", newId());
+    Host host; QVERIFY(host.start(f.runtime(), f.token(), {}, false, version));
+    const auto accepted = host.call("novaterm_download_file", arguments);
+    QVERIFY2(accepted.value("ok").toBool(), QJsonDocument(accepted).toJson().constData());
+    QCOMPARE(starts, 1); QVERIFY(request); QVERIFY(delivery);
+    QCOMPARE(request->direction, SftpFileTransferDirection::Download);
+    const auto id = accepted.value("data").toObject().value("transferId").toString(); QVERIFY(!id.isEmpty());
+    const QJsonObject query{{"transferId", id}};
+    delivery->progress(3, 7);
+    QCOMPARE(host.call("novaterm_query_transfer", query).value("data").toObject().value("state").toString(), QString("downloading"));
+    QCOMPARE(host.call("novaterm_download_file", arguments).value("data").toObject().value("transferId").toString(), id);
+    QCOMPARE(starts, 1);
+    QCOMPARE(host.call("novaterm_upload_file", arguments).value("error").toObject().value("code").toString(), QString("TARGET_OPERATION_CONFLICT"));
+    const auto other = f.service.access().addClient("outsider"); QVERIFY(!other.isEmpty());
+    Host outsider; QVERIFY(outsider.start(f.runtime(), f.service.access().exportToken(other).value(), {}, false, version));
+    for (const auto* tool : {"novaterm_query_transfer", "novaterm_cancel_transfer"})
+        QCOMPARE(outsider.call(tool, query).value("error").toObject().value("code").toString(), QString("PERMISSION_DENIED"));
+    QVERIFY(files.resources().remove(f.client, identity, remote->id, remote->revision));
+    request->control->state = SftpFileUploadControl::State::AwaitingPublication;
+    delivery->publicationReady();
+    QCOMPARE(request->control->state.load(), SftpFileUploadControl::State::Cancelled);
+    SftpFileUploadResult result;
+    result.requestId = request->requestId; result.transferredBytes = 3; result.totalBytes = 7;
+    result.temporary = "removed"; result.errorCode = "TRANSFER_CANCELLED";
+    delivery->finished(result);
+    const auto cancelled = host.call("novaterm_cancel_transfer", query).value("data").toObject();
+    QCOMPARE(cancelled.value("state").toString(), QString("cancelled"));
+    QVERIFY(!cancelled.value("published").toBool()); QCOMPARE(cancelled.value("transferredBytes").toInt(), 3);
+    QCOMPARE(starts, 1); QCOMPARE(SshTransportTestAccess::queued(*f.ssh), 0);
 }
 void McpTests::httpFileUploadChecksIndependentAuthority_data()
 {

@@ -1,8 +1,8 @@
 # 指定文本等待、长任务、文件传输与目标连接
 
-更新：2026-10-28。当前源码二十九工具，B3a等待/长任务、B3b保存目标/预授权、独立文件目录与SFTP上传已提供；UART/ZMODEM上传/查询/取消本阶段软件回归已完成，B4实机仍待用户验收。工具各司其职，接收准备、输入lease显式release、执行与读日志由调用方独立完成。软件剩余SFTP下载、显式覆盖和平台收尾，B4由用户实测。
+更新：2026-10-28。当前源码三十工具，B3a等待/任务、B3b保存目标/预授权、文件目录、SFTP上传及UART发送已提供；SFTP单文件下载本阶段软件回归已完成，B4仍待用户验收。工具各司其职，UART接收准备、输入lease显式release、执行与读日志由调用方独立完成。软件剩余显式覆盖和平台收尾，B4由用户实测。
 
-现行字段见[02](02_Current_MCP_Contract.md)，阶段进度见[UART发送记录](records/B3b_Uart_Send_2026-10-28.md)，历史子批见[验收档案](records/README.md)。
+现行字段见[02](02_Current_MCP_Contract.md)，阶段进度见[下载记录](records/B3b_Sftp_Download_2026-10-28.md)，历史子批见[验收档案](records/README.md)。
 
 ## 1. 最小交付范围
 
@@ -11,11 +11,11 @@
 | 缓存不易回查 | 屏幕、当前尾部书签、保留起点和精确位置续读 | 复用终端缓存，不新建日志数据库 |
 | 等待指定结果需反复往返 | 有界字面文本等待，明确日志或屏幕来源 | 不迁入脚本引擎或开放任意正则 |
 | 长任务缺少直接入口 | 异步启动、查询、请求停止 | 复用已有执行 owner，不复制命令执行器 |
-| 二进制部署文件交付 | 独立授权的SFTP上传与UART/ZMODEM发送、查询和取消；下载/显式覆盖后续 | 不自动准备接收端、烧录、重启或执行文件 |
+| 二进制部署文件交付 | 独立授权的SFTP上传/下载与UART/ZMODEM发送、查询和取消；显式覆盖后续 | 不自动准备接收端、烧录、重启或执行文件 |
 | 已保存目标需要人工打开 | 列出获准目标、打开/复用、查询连接、关闭本次创建会话 | 不允许模型创建凭据、扫描主机或改连接参数 |
 | 使用说明冲突 | 两代握手、工具描述与使用文档的统一规则 | 未实现能力不得出现在可调用工具指引中 |
 
-日志/等待/长任务与文件/连接保持独立能力。下文描述职责和边界；可调用工具名、精确参数与预算以02和源码为准，后续下载/覆盖不作为已实现入口。
+日志/等待/长任务与文件/连接保持独立能力。下文描述职责和边界；可调用工具名、精确参数与预算以02和源码为准，后续显式覆盖不作为已实现入口。
 
 ## 2. 指定文本等待
 
@@ -67,7 +67,17 @@ CommandRuntime/Session Controller 继续拥有执行事实；新增异步任务�
 
 `novaterm_upload_file/query_transfer/cancel_transfer`复用终端面板原SftpSession、队列与worker，需要本地read+SSH远端write授权。当前仅普通文件、不覆盖；安全源在worker内使用固定句柄，远端使用随机临时文件与hardlink扩展原子创建新目标。取消只清理本次拥有的临时文件，保留已开始发布的成功/未知事实。具体路径安全、SFTPv3限制与预算见[契约](02_Current_MCP_Contract.md)和[上传记录](records/B3b_Sftp_Upload_2026-10-27.md)。
 
-SFTP下载与显式覆盖为后续软件工作，仍须独立授权与明确发布策略，不能将已有Writer基础设施视为下载入口已完成。
+### SFTP下载
+
+新增 `novaterm_download_file`，复用原 `novaterm_query_transfer/cancel_transfer`；FileTransfers统一记录方向和幂等事实，同一SftpPanel/SftpSession队列及worker执行，不增加连接、线程或生产文件。上传工具Schema保持，共同查询/取消仅增加downloading及下载适用说明，历史fixture不改写。
+
+九参数与上传同形，但relativePath是本地目标相对路径，remoteName是远端单个源文件名（最多255 UTF-8字节）。须独立local.write+remote.read授权，身份、两边revision和原Session完整binding持续复核；同operationId跨方向冲突，精确重试/查询不续期或重传。终端权限不推导文件权限。
+
+原worker检查远端根/叶，打开一次源句柄并按观察大小读取，补EOF探测和读取前后属性复核；分段短读可累计，提前EOF、增长、读错或不安全属性不能发布部分文件。SFTPv3仍要求授权目录属主/管理员可信，不宣称抵抗同账号恶意换路径。
+
+安全LocalFileWriter负责本地专属临时文件、分块append与不覆盖发布，仅Windows后端已提供。64 MiB/64 KiB、总120秒、15秒无进展、2秒发布准入等待沿用SFTP预算，取消/发布通过原控制状态协调；同步库或本机阻塞不保证硬退出。published/publication/temporary对下载只描述本地目标和本次临时文件，取消不删除远端或已发布本地目标；contentVerified=false。
+
+本下载阶段软件回归已完成，B4仍待用户验收，见[下载记录](records/B3b_Sftp_Download_2026-10-28.md)。显式覆盖和平台收尾仍是后续软件工作，必须分别冻结授权和发布边界。
 
 ### UART/ZMODEM发送
 
@@ -79,7 +89,7 @@ Windows安全源最多64 MiB、64 KiB分块；总期限从首次受理计时，�
 
 protocolCompleted表示协议会话完整结束；fileConfirmed仅当completedFiles=1，空文件也要文件级确认。ZSKIP可完成协议但未确认文件，状态为skipped；最后握手失败时保留已经取得的fileConfirmed/confirmedBytes。remotePublication固定unknown、contentVerified固定false，发送字节和协议确认不证明远端目录发布、持久落盘或hash正确，取消也不证明远端回滚。
 
-本阶段软件回归已完成，B4实机仍待用户验收，进度与限制见[UART发送记录](records/B3b_Uart_Send_2026-10-28.md)；[安全源](records/B3b_Uart_File_Source_2026-10-28.md)和[授权目录](records/B3b_Uart_Authorization_2026-10-28.md)保留各自历史证据。B4实机由用户独立验收，软件替身结果不替代真实UART。
+UART发送阶段软件回归已完成，B4实机仍待用户验收，该阶段证据与限制见[UART发送记录](records/B3b_Uart_Send_2026-10-28.md)；[安全源](records/B3b_Uart_File_Source_2026-10-28.md)和[授权目录](records/B3b_Uart_Authorization_2026-10-28.md)保留各自历史证据。B4实机由用户独立验收，软件替身结果不替代真实UART。
 
 两种文件交付都不阻塞终端观察或在GUI执行文件I/O，不自动执行chmod、insmod、烧录或重启。只有独立实际验证内容hash才能认定内容一致，后续动作须使用各自已获准入口。
 
@@ -122,9 +132,9 @@ protocolCompleted表示协议会话完整结束；fileConfirmed仅当completedFi
 | --- | --- | --- |
 | 文本等待 | 读取/ObservationState、已有屏幕与日志端口 | 旧 PASS、跨页/UTF-8、未换行提示、扫描续接、清空/淘汰/撤权、取消零输入 |
 | 长任务 | CommandRuntime/Controller、薄任务索引 | 重复启动、人工接管后停止、断流与重启、UART 无证据、未知结果、记录过期 |
-| SFTP上传 | 原SftpSession/worker、文件发布事务 | 路径逃逸/替换、不覆盖竞争、磁盘满、断连、未知发布、撤权、临时文件归属 |
+| SFTP上传/下载 | 原FileTransfers/SftpSession队列与worker、安全本地Reader/Writer | 双向独立授权、跨方向operationId冲突、提前EOF/增长、链接/属性变化、本地发布竞争、取消撤权、临时文件归属 |
 | UART发送 | 原Controller/worker、输入泵/ZMODEM owner | 独立权限、lease忙碌、旧代际零写入、原ID取消、首字节前超预算拒绝、ZSKIP/空文件/确认后握手失败 |
 | 保存目标 | Profile/Session 创建接线、目标授权 | 重复打开、复用他人会话、串口占用、认证待处理、配置变化、忙碌关闭、旧 epoch |
 | 指引 | WireSession/ToolCodec 元数据 | 两代规则冲突、错误权限保证、推荐未实现工具、本地和远端混淆 |
 
-完整调度见[01](01_Phases_and_Acceptance.md)的B3a/B3b，差距编号见[03](03_Gaps_and_Evidence.md) G14～G17。当前源码二十九工具，UART发送本阶段验证/复核进行中；SFTP下载、显式覆盖和平台收尾继续按08推进，B4由用户实测。
+完整调度见[01](01_Phases_and_Acceptance.md)的B3a/B3b，差距编号见[03](03_Gaps_and_Evidence.md) G14～G17。当前源码三十工具，SFTP下载本阶段验证/复核进行中；显式覆盖和平台收尾继续按08推进，B4由用户实测。
