@@ -1,6 +1,28 @@
 # 当前 MCP 接口契约与兼容基线
 
-更新：2026-10-29。当前二十六工具；旧诊断、命令和脚本四工具已退役，当前说明优先于下方历史阶段记录。Windows SFTP显式覆盖与软件收尾本阶段Windows软件回归已完成，B4仍待用户验收，B4未验收，P8未整体完成。Linux/macOS安全本地Reader/Writer后端尚未实现，相关调用明确拒绝；托管提权保留unavailable，非本轮闭环前置。当前范围见[软件账本](08_Software_Closeout.md)，历史成绩见[验收档案](records/README.md)。
+更新：2026-10-29。当前二十二工具，统一接入与默认会话授权规则如下。本轮构建与测试结果另行记录，以下历史阶段成绩不作为本轮验证。Linux/macOS 安全本地 Reader/Writer 尚未实现；托管提权可信适配器仍不可用，B4 实机验收待用户执行。
+
+## 当前接入与工具目录
+
+- 唯一接入令牌由首次显式启用自动建立，所有 AI 连接使用同一授权主体。没有客户端选择、增删或多令牌管理。只读状态不创建接入、不解锁凭据库。
+- 接入文件采用单 access 记录；旧多客户端令牌不继续认证，旧授权不合并。重置令牌或停用会使旧身份、旧请求和资源绑定失效。
+- `novaterm_list_sessions` 只列当前已连接且获准读取的会话。MCP 不打开、查询或关闭保存连接；本机手动保存会话界面继续保留。
+- 每个新就绪连接默认授予读取、完整输入、托管提权和清空四项权限。同一绑定内手动撤权不会被状态刷新恢复，重连建立新绑定后重新应用默认选择；旧窗口仍按身份、连接代际和行版本拒绝。
+- 托管提权的默认勾选只代表授权，可信目标、认证适配器及实际就绪检查保持。当前适配器不可用，不能因默认授权而读取或发送密码。
+- 文件目录、UART 发送、历史录制和导入文件仍独立授权；共享后供所有持有统一令牌的 AI 使用。文件窗口和历史导入在令牌重置/停用/身份变化后拒绝旧操作。录制源数据不依附 MCP 授权生命周期。
+
+| 类别 | 当前工具 |
+| --- | --- |
+| 终端目录与观察（3） | `novaterm_list_sessions`、`novaterm_read_context`、`novaterm_search_context` |
+| 终端操作（3） | `novaterm_interact_terminal`、`novaterm_request_elevation`、`novaterm_clear_terminal` |
+| 等待与长任务（4） | `novaterm_wait_text`、`novaterm_start_task`、`novaterm_query_task`、`novaterm_stop_task` |
+| 历史（3） | `novaterm_list_captures`、`novaterm_read_history`、`novaterm_search_history` |
+| 文件目录与 SFTP（5） | `novaterm_list_file_resources`、`novaterm_upload_file`、`novaterm_download_file`、`novaterm_query_transfer`、`novaterm_cancel_transfer` |
+| UART 文件发送（4） | `novaterm_list_serial_file_targets`、`novaterm_upload_serial_file`、`novaterm_query_serial_transfer`、`novaterm_cancel_serial_transfer` |
+
+`novaterm_list_targets/open_target/query_target/close_target` 四工具与保存目标预授权已移除，直接调用拒绝为未知工具；UART 文件发送的 targetId 属于独立发送授权，不受此删除影响。旧诊断/命令/脚本四工具也保持退役。历史设计和验证见 [records](records/README.md)，不作为当前入口列表。
+
+以下保留现行文件、等待、观察等细节；其中“客户端”预算均指统一内部授权主体，不再有用户可选择的多套 AI 权限。
 
 ## 2026-10-28：SFTP显式覆盖
 
@@ -38,7 +60,7 @@ SFTP初始已有安全普通目标时要求 `posix-rename@openssh.com`版本1，
 
 九个必填参数及可选overwrite（默认false）；ID/revision/operationId为非空规范UUID；拒绝未知字段、绝对本机路径、上级跳转、空段、反斜线/ADS及远端名称中的路径分隔。relativePath沿用最多1024 UTF-8字节的安全相对路径约束，本地父目录须已存在。只有overwrite可显式选择本页覆盖语义，不接受远端目录、连接配置或执行命令参数。
 
-下载必须同时具有local.write和remote.read，上传的local.read+remote.write不能替代；终端读取、输入、脚本或目标打开权限也不推导文件权限。受理、源读取和发布前持续复核客户端identity、两边revision及原Session完整绑定，撤权/换绑不跟随新连接。上传与下载共享FileTransfers的记录、活动预算与原SFTP面板忙碌保护；同operationId跨方向或改变任何参数均冲突，精确重试/查询不重传也不续期。
+下载必须同时具有local.write和remote.read，上传的local.read+remote.write不能替代；终端读取、输入权限也不推导文件权限。受理、源读取和发布前持续复核客户端identity、两边revision及原Session完整绑定，撤权/换绑不跟随新连接。上传与下载共享FileTransfers的记录、活动预算与原SFTP面板忙碌保护；同operationId跨方向或改变任何参数均冲突，精确重试/查询不重传也不续期。
 
 原SftpSession worker检查远端授权根和单个普通源文件，打开一次源句柄，按观察大小分块读取；分段短读可累计，提前EOF、读错、超出声明大小的增长、属性缺失或观察到的源变化不得本地发布。源句柄和路径属性在读取前后复核，拒绝链接/设备、不可信属主及组或其他用户可写项。SFTPv3没有本地openat/NOFOLLOW/inode等价保证，授权目录属主与管理员须可信；这些检查不证明能抵抗同账号恶意换路径。
 
@@ -48,7 +70,7 @@ LocalFileWriter在原worker中创建专属临时文件并分块append，完成�
 
 ## 2026-10-28：UART/ZMODEM 单文件上传、查询与取消
 
-在原二十六工具基础上追加以下三项；旧工具Schema及权限保持，UART目录仅更正“发送尚未开放”的过时说明。实现复用原Session、SerialFileTransferController、TransferFileWorker和ZMODEM协议owner，MCP薄索引只管理授权、幂等和有限事实，见[UART发送记录](records/B3b_Uart_Send_2026-10-28.md)。
+UART 文件发送使用以下三项工具，目录发现仍由独立 UART 授权工具提供。实现复用原Session、SerialFileTransferController、TransferFileWorker和ZMODEM协议owner，MCP薄索引只管理授权、幂等和有限事实，见[UART发送记录](records/B3b_Uart_Send_2026-10-28.md)。
 
 | 工具 | 必填参数 | 行为 |
 | --- | --- | --- |
@@ -109,7 +131,7 @@ SFTP下载与显式覆盖按本页对应章节调用；UART/ZMODEM三工具保�
 
 **B1 日志模式与 B2 清空事务已实施**：缺省 source=observation 的 sinceToken 仍是模型观察游标，recentOutput 仍是摘要；显式 source=log 使用独立位置游标。read_context 的兼容 Schema 扩展见下节及 [04](04_Cursor_Observation_and_Clear.md)，其他十一工具对象保持。
 
-B3/B3a等待/任务、B3b保存目标目录/打开/查询/安全关闭及文件扩展的现行契约分别列于下文。旧九项ToolRequest联合保持，历史子批工具数量与验证仅在对应records中解释；源码/替身验证不代替真实设备验收。
+B3/B3a等待/任务及文件扩展的现行契约分别列于下文。终端ToolRequest联合为五项，历史子批工具数量与验证仅在对应records中解释；源码/替身验证不代替真实设备验收。
 
 ## B3b 文件传输第一子批：独立文件授权目录（2026-10-27）
 
@@ -118,66 +140,15 @@ B3/B3a等待/任务、B3b保存目标目录/打开/查询/安全关闭及文件�
 `novaterm_list_file_resources`只查询本机用户明确共享的授权元数据，不读取文件内容、不创建SFTP或终端连接；传输使用独立工具，目录查询不授予额外权限。
 
 - 参数可为空，用于发现本客户端已获准的资源与SSH绑定；也可传 `sessionId` / `epoch` 成对筛选。拒绝任意本机路径、远端路径、host、clientId或读写授权参数，模型不能通过目录工具创建或扩大授权。
-- 本机“文件资源授权”窗口逐客户端选择本地目录与当前已连接、主机身份已确认的SSH远端目录，并分别勾选读/写。终端读取、完整输入、清空、脚本、目标打开及预授权不推导文件权限。SFTP上传需要本地读+远端写，下载需要远端读+本地写；UART发送需要本地读+独立UART发送许可。
+- 本机“文件资源授权”窗口为所有 AI 共同选择本地目录与当前已连接、主机身份已确认的SSH远端目录，并分别勾选读/写。终端读取、完整输入、清空不推导文件权限。SFTP上传需要本地读+远端写，下载需要远端读+本地写；UART发送需要本地读+独立UART发送许可。
 - 成功data含 `instanceId`、固定 `availability=authorization_only`、`localResources` 与 `remoteScopes`。本地条目仅 `resourceId/title/revision/readAllowed/writeAllowed`，省略本机路径；名称为用户主动共享文字。远端条目含 `scopeId/title/revision/path/sessionId/epoch/readAllowed/writeAllowed`，只披露已明确共享且仍为当前连接的路径与绑定标识。
 - 无参返回本人已共享项，可以为空；不列未授权终端。筛选未知、未共享或不就绪目标统一返回 `PERMISSION_DENIED`；确有当前远端授权但epoch错误返回 `STALE_SESSION_EPOCH`。目录只读不要求额外开放终端读取。
-- 本地授权绑定客户端独立身份版本；远端另绑定完整Session/attachment/epoch/连接generation/目标指纹。普通终端授权变动不清除文件授权。目录移除、远端连接换代/换绑即回收远端scope；身份轮换/删除/全局停用或服务停止回收相应资源。本次运行有效，不写接入JSON，不跨重启恢复。
+- 本地授权绑定客户端独立身份版本；远端另绑定完整Session/attachment/epoch/连接generation/目标指纹。普通终端授权变动不清除文件授权。目录移除、远端连接换代/换绑即回收远端scope；身份轮换/全局停用或服务停止回收相应资源。本次运行有效，不写接入JSON，不跨重启恢复。
 - 同一当前身份、绑定和规范路径更新原ID并轮换revision；撤回后重共享生成新ID，旧revision不能撤回新规则。陈旧本机窗口按身份和完整连接快照拒绝，连接变化后需重新选择。
-- 授权窗口明确显示客户端名称和稳定ID，采用父窗口模态；同一客户端复用已打开窗口，程序侧切换客户端会关闭旧窗口。目录刷新仅恢复同一ID与revision的选择；更新、移除或换绑后须重新选择再撤回。
+- 授权窗口绑定打开时的统一主体与身份代际，采用父窗口模态；令牌重置、停用或身份变化后拒绝提交，需重新打开。目录刷新仅恢复同一ID与revision的选择；更新、移除或换绑后须重新选择再撤回。
 - 本地8项/客户端、128项全局；远端8项/客户端（跨Session共用）、256项全局。列表最多8+8项，无分页。路径最多1024 UTF-8字节，名称最多256字节；拒绝控制字符、上级跳转、UNC/Windows设备前缀、相对路径及远端根目录。词法准入不证明真实文件系统安全；实际链接、重解析点、替换、普通文件与范围在传输打开/发布边界复核。
 
 设计、分轮验证及保留范围见[文件资源记录](records/B3b_File_Resources_2026-10-27.md)。文件传输仍未开放，不把权限目录当作可用文件或传输成功的证明。
-
-## B3b 第四子批：新会话预授权（2026-10-27）
-
-预授权规则不增加协议参数；`novaterm_open_target` 的 Schema、结果与默认授权保持。本机 MCP 设置逐客户端/保存目标另提供“新建时读取、完整输入、允许清空”三项选择，规则仅当前运行有效，绑定客户端身份与目标配置版本。
-
-- 默认全关。输入或清空的选择同时开启读取；取消读取级联取消两项。撤回允许打开清除规则，重新打开不恢复旧选择。脚本、旧命令、诊断、托管提权和文件权限不由规则授予。
-- 仅首次成功创建的可见 Session 可排入一次性等待；复用会话、相同 operationId 重试和查询均不触发新授权。原连接就绪后，以实际 Session/Transport/连接 generation/epoch/首次指纹绑定初始化授权行，一次原子写入并推进访问版本，不复制别的会话授权。
-- 等待最多120秒、全局最多256项；只保留弱引用。待连接与本机主机密钥确认可等待；失败、关闭、重连、换绑或移出目录取消。首次合法指纹发现可更新绑定，不能据此丢弃原初次连接。
-- 等待期间配置重存、目录/打开撤回、规则修改（包括取消再开启）、身份轮换/移除、全局停用、人工输入或显式连接动作均取消；不会事后把新规则套在旧创建操作上。已有授权行即使被手工撤销，也禁止初始化覆盖。
-- 预授权在原打开调用完成后排队生效，打开成功本身不证明权限已授予。调用方用 `novaterm_list_sessions` 和读取/输入的现有准入确认权限及最新 epoch；不能仅按 created=true 推断权限。已绑定权限之后由现有 Session 授权管理，修改预授权只影响尚未生效和未来创建操作；重连保留读取的既有语义不变，输入和清空仍失效。
-
-实现与本轮替身/协议验证见[预授权记录](records/B3b_New_Session_Sharing_2026-10-27.md)。该预授权子批当时未包含传输；现行文件能力见本页上传/下载/覆盖/UART章节，B4仍未验收。
-
-## B3b 第三子批：原创建会话安全关闭（2026-10-27）
-
-`novaterm_close_target(targetId,configVersion,operationId,epoch)`只关闭原创建会话。前三项均为原打开操作的标识，epoch取最近查询；不接受sessionId替换目标、force、凭据或连接参数。沿用当前目录共享和独立打开权限，不自动授予终端权限。旧二十工具Schema保持；目录和打开工具仅更新关闭说明。
-
-- 只关闭本客户端、同身份/配置版本下原操作明确创建的Session；复用会话返回 `TARGET_CLOSE_NOT_ALLOWED`，不存在的操作返回 `TARGET_OPERATION_NOT_AVAILABLE`。
-- 核对原Transport运行期身份及原连接generation，拒绝换绑或重连后的连接。首次连接的指纹发现可能更新epoch，但不改变原Transport/连接generation；此时可用最新查询epoch。过期epoch返回 `STALE_SESSION_EPOCH`，人工终端输入或本机显式断开/重连后返回 `TARGET_CLOSE_NOT_ALLOWED`。本机按键/文本/粘贴成功进入Core命令队列即视为接管，不等待Parser编码或GUI输出交付；清空/连接reset不重置该事实。
-- 运行中仅在现有Controller有可靠就绪证据且无待编码输入/活动命令、MCP/串口传输租约、受限执行/确认/脚本上传或未知目标保护时受理。2026 MRTR已返回input_required但尚未消费的活动确认同样占忙碌状态，到期无需等待定时清扫才失效；消费/撤权/断流后不以历史nonce阻塞关闭。SSH还核对对应后台SFTP面板；缺少本机事实、文件操作/连接待处理、模态/弹出交互均返回 `TARGET_CLOSE_BUSY`。无提示符UART、连接中/认证待处理、未知执行状态不强关。
-- 查询前先占位防止同步重入；本机安全回调后重新检查授权、请求取消/期限、原连接及忙碌状态，再调用既有Session.close。成功表示关闭已受理，返回实际closing/closed，不证明远端任务终止。保留可见终端和缓存，不删除标签。
-- 关闭复用原有32/客户端、256/全局打开记录，不新增无界记录。受理成功保存关闭事实；同epoch精确重试复用首次结果，不再次关闭、不追踪新绑定。query_target继续查询原连接；busy可观察后再请求，权限撤回/身份变化仍拒绝。短RPC断流不会撤销已开始的关闭。
-
-本批记录、真实RED/GREEN和验证范围见[安全关闭记录](records/B3b_Target_Close_2026-10-27.md)。新会话预授权见第四子批；现行文件能力见本页对应章节，不能沿用该历史子批的“传输待后续”状态，B4仍未验收。
-
-## B3b 第二子批：独立授权的目标打开/查询（2026-10-27）
-
-- `novaterm_open_target` 和 `novaterm_query_target` 均要求 `targetId/configVersion/operationId`，三个字段均为规范非空UUID，无连接参数、凭据或客户端身份参数。query按原open的operationId查询，不创建或重连。精确Schema冻结于 `tests/mcp/fixtures/target-connections-2026-10-27.json`。
-- 本机按客户端先勾共享目录、再独立勾允许打开；绑定当前identityVersion和configVersion，仅本次运行。撤回目录同时撤回打开，重新共享不恢复；普通Session授权变化不升级目标授权。打开默认不授予新会话读取、输入、清空或文件权限；本机可另选第四子批的明确预授权规则。
-- 应用只保留有界索引，UI通过原TerminalView/Session通路创建可见标签。按完整实际配置（包括SSH认证及环境）优先复用connecting/running/reconnecting会话；串口不同配置占用、尚未完成释放或自动重连预留返回port_busy，不关闭人类会话。Failed且实际已断开、无待释放和已安排自动重连的旧串口标签不预留端口。自动重连预留读取Session定时器的实际状态，不从保存间隔推断；本机手动断开停止自动重连，端口释放后不会因旧配置继续报port_busy。
-- 成功data固定包含 `instanceId/targetId/configVersion/operationId/created/reused/sessionId/epoch/state/reason/suggestedQueryMs`。sessionId/epoch可为null；created表示首次受理曾创建，reused表示首次使用已有连接；state为opening、created、connecting、running、reconnecting、failed、closing、closed、invalidated或unavailable。当前查询建议500ms。
-- reason仅返回有限原因，不透传底层认证/错误正文：空值、connection_ui_unavailable、configuration_changed、authentication_required、configuration_invalid、port_busy、session_unavailable、attachment_changed、admission_invalidated、host_key_confirmation_required。主机密钥决策仍由本机UI处理；connecting不承诺已认证或设备在线，failed不合成终端执行结果。
-- 每客户端最多32、全局256条操作记录，本次运行不淘汰。记录在工厂调用前占位，精确重试不再创建；同客户端同operationId异配置/身份返回TARGET_OPERATION_CONFLICT，未受理查询返回TARGET_OPERATION_NOT_AVAILABLE，满额拒绝新操作TARGET_OPERATION_LIMIT，既有查询/重试保留。未共享、未允许打开或旧配置统一拒绝TARGET_OPEN_PERMISSION_REQUIRED，不披露隐藏项。
-- 凭据解锁、标签注册等同步/嵌套事件后重新核验源配置、独立授权、原请求租约/期限/取消；最后启动准入边界是调用Session.start前的守卫成功。此前撤回/取消保证零连接；已开始启动的连接不因短RPC结束自动关闭。失败或取消受理也保留操作事实，查询后不得换ID自动重试。
-- 连接绑定跟踪原传输对象的随机运行期身份。首次获得主机指纹和同对象重连不使操作误失效，查询返回实际新epoch；更换Transport/目标则invalidated，不跟随到新连接。记录不跨应用重启恢复，旧configVersion也不复活，不自动重跑。
-
-实现、审查和本轮验证见[连接记录](records/B3b_Target_Connections_2026-10-27.md)。安全关闭见本页第三子批，新会话预授权见第四子批；现行文件传输见本页对应章节，真实设备验收仍待B4。
-
-## B3b 第一子批：保存目标目录（2026-10-27）
-
-`novaterm_list_targets` 只返回本机用户在 MCP 设置中为当前客户端勾选的 SSH/UART 保存项。目录共享本次应用运行有效；不创建连接，不隐含终端读取/输入/清空或文件授权。活动 Session 与保存目标目录分开，不凭端点摘要推断会话绑定。
-
-- 输入仅 `limit`（默认25，1..50）和可选非空 `cursor`（最多1024字节），拒绝 host、path、clientId 等额外字段。
-- 成功 data 为 `instanceId`、`targets`、可空 `nextCursor`。每项目标为 `targetId/title/transport/endpoint/configVersion/availability`，transport 为 ssh/serial；availability 固定 `saved_configuration`，仅说明保存配置存在，不承诺设备在线、认证可用或存在可复用连接。
-- 不返回密码、用户名认证配置、私钥路径、credentialRef 或内部配置摘要。端点摘要仅 SSH host:port 或 UART portName @ baudRate；目标名优先采用本机保存的 label.trimmed()，空标签回退 SSH host 或 UART portName，不使用带 SSH 用户名的连接详情。
-- 本机共享绑定目标配置版本和独立客户端身份代际。普通 Session 读取/输入等授权变更仍推进原访问版本用于 RPC 复核，但不改变目录身份代际，目录共享和分页继续有效。修改/重新保存该目标（包括凭据保存）、删除重建、客户端撤销/令牌轮换及全局停用仍使共享失效；不会把旧勾选带到新配置。身份代际只在当前运行期存在，外部接入配置重载保持未变令牌的身份，变化/删除/全局撤销后不复用旧身份。
-- 目录最多256项目标，共享记录全局最多4096条；名称和端点各最多256 UTF-8字节。无效/重复/超量源更新清空旧目录并撤销旧共享，拒绝保留过期快照。
-- 页按 targetId 排序，仅扫描固定上限目录。签名游标绑定本应用随机密钥、客户端、身份版本、目录修订及已交付位置；伪造、跨客户端或身份版本不符返回 `CURSOR_MISMATCH`，目录/共享变化后返回 `TARGET_DIRECTORY_CHANGED`，应重新列举。未共享项不占返回页数。
-- 两代 MCP 协议共用同一入口、鉴权、调度和2秒请求期限；取消/断流不产生连接或终端输入。应用重启不保留目录授权和旧游标。
-
-完整范围、实际命令与验证见 [本批记录](records/B3b_Target_Directory_2026-10-27.md)。打开/复用/查询见上一节；安全关闭见本页第三子批；该目录子批当时不包含传输，现行传输能力见本页对应章节，B4仍未验收。
 
 ## B3/B3a：文本等待与长任务（2026-10-27）
 
@@ -224,18 +195,18 @@ B3基础恢复保留旧inputToken/replyToExecutionId/operationId保护、CR/LF/C
 
 本轮实际命令、失败与最终验证范围见 [B3记录](records/B3_Implementation_2026-10-27.md)；B3b、B4真实设备、跨平台与性能没有据此验收。
 
-2026-10-23 增量：当前目录为原九工具 + `novaterm_list_captures`、`novaterm_read_history`、`novaterm_search_history`，共 **12** 项。原九工具对象保持兼容；新增目录/Schema 冻结在 `tests/mcp/fixtures/history-tool-catalog-2026-10-23.json`。历史工具使用独立 capture 授权，不接受 sessionId、epoch、principal/client 或本机路径参数。实现与平台范围见 [P3 实施记录](records/P3_Implementation_and_Verification.md)。以下原九工具分节仍是其兼容契约。
+历史工具为 `novaterm_list_captures`、`novaterm_read_history`、`novaterm_search_history`。其历史目录/Schema 基线保存在 `tests/mcp/fixtures/history-tool-catalog-2026-10-23.json`。历史工具使用独立 capture 授权，不接受 sessionId、epoch、principal/client 或本机路径参数。实现与平台范围见 [P3 实施记录](records/P3_Implementation_and_Verification.md)。以下原九工具分节仍是其兼容契约。
 
 历史工具返回原文的 base64、原始 record/byte 多片段、固定高水位、独立 sourceCompleteness 与分页 complete。text 查询为 UTF-8 literal；raw_bytes 的 query 为规范 base64，不接受任意正则。录制与共享分别由本机用户选择；Session 关闭不会撤销显式离线共享，令牌轮换、客户端删除、capture 删除及授权缩范围会拒绝旧游标。EvidenceRef 和 cursor 不能代替授权。
 
 
 ## B2：本地清空与实时观察代际（2026-10-25）
 
-B2 在原十二工具之后追加 `novaterm_clear_terminal`，当前十三项；原九工具 typed 联合仍为九项，清空使用协议组合层独立请求。旧十一项工具对象、旧观察输出分支和 B1 日志字段保持；日志分支追加 `clearToken`。新冻结夹具为 `clear-terminal-2026-10-25.json` 和 `read-context-clear-2026-10-25.json`，旧夹具继续用于逐字段兼容检查。
+`novaterm_clear_terminal` 使用协议组合层独立请求，日志分支提供 `clearToken`。历史冻结夹具为 `clear-terminal-2026-10-25.json` 和 `read-context-clear-2026-10-25.json`，旧夹具继续用于逐字段兼容检查。
 
 | 清空参数 | 规则 |
 | --- | --- |
-| sessionId / epoch | 显式当前会话；读取权限和独立 ClearTerminal 授权均必需，默认关闭；已有完整输入授权不自动升级 |
+| sessionId / epoch | 显式当前已连接会话；读取权限和独立 ClearTerminal 授权均必需，新就绪连接默认开启，可分别撤销 |
 | operationId | 规范 UUID，表示一个清空意图；有效期内仅相同全部参数可重试，冲突返回 INPUT_SEQUENCE_CONFLICT |
 | scope | 必填 scrollback（仅历史）或 all（屏幕及历史） |
 | expectedGeneration | 必填规范非零十进制字符串，来自一次新日志页的 cacheGeneration |
@@ -323,26 +294,26 @@ Codex配置使用url与http_headers.Authorization。旧command/args/env/--instan
 
 ## 3. 会话、授权和能力
 
-Session ID、epoch、attachment、连接generation与目标身份共同约束实际操作；切标签/改显示标题不改目标。目录仅列明确共享的已有Session，View仍拥有Session，SessionDirectory为非owning视图。
+Session ID、epoch、attachment、连接generation与目标身份共同约束实际操作；切标签/改显示标题不改目标。目录仅列当前已连接且获准读取的Session，View仍拥有Session，SessionDirectory为非owning视图。
 观察revision不是持久日志ID；用户回滚视口不等于活动屏幕；终端摘要会过滤/去重并有截断，不是完整日志或像素截图。
 
 | 权限 | 现行语义 |
 | --- | --- |
 | 读取输出 | 允许read/search，但不授予任何输入/执行 |
-| 完整终端输入 | interact_terminal的text/key/paste等，默认关闭，明确授予后不逐条风险确认 |
-| 托管提权 | 依赖完整输入和独立选择；当前可信适配器为空，任何请求零取密/零输入 |
+| 完整终端输入 | interact_terminal的text/key/paste等，新就绪连接默认开启，不逐条风险确认 |
+| 托管提权 | 依赖完整输入，新就绪连接默认开启；当前可信适配器为空，任何请求零取密/零输入 |
 
 授权选择、可信身份、执行就绪是不同事实：五类连接可保存已知权限，后端缺失仍不可执行。取消读取级联执行撤权；取消输入撤销提权；凭据变更撤销提权。旧UI行按绑定/行版本拒绝，不能将旧撤销意图改成新连接授权。
-客户端移除/令牌轮换/总开关关闭会使相关访问与确认失效；重启/新建Session默认不共享，不能继承上次临时输入权限；仅本次运行的本机显式保存目标规则可对原新建连接一次绑定。
+令牌重置或总开关关闭使旧身份绑定与访问失效。每个新就绪连接默认开启四项会话权限；同连接内手动撤权保留，状态刷新不自动恢复。文件与历史许可不从终端默认选择推导。
 
 ### 3.1 线程、所有权与唯一数据通路
 
 View拥有Session，目录只保存弱引用；HTTP I/O不解引用Session。应用/授权/任务与Session操作在其所属线程串行，搜索worker只读有界不可变内容，不复用UI SearchEngine的可变搜索实例。
 出站：User/MCP→SessionInputArbiter→ITransport::write。入站：ITransport::readyRead→SessionInputPump→Framer剥离内部标记→TerminalCore→Renderer/回滚/上下文；同一入站流的有界事务片段供Coordinator形成完成证据。
 Parser仍为单写；MCP不直接调用TerminalView输入、Core paste或具体Transport，不建立绕过终端模型的第二份日志。可信提示符证据只有Session EvidenceModel一个写入真源，静默/候选与用户输入代际不能由不同消费者独立复活。
-Serial/Telnet的Profile显式描述提示符正则、CR/LF/CRLF和回显，不自动探测。Serial提示符为空时 run_command 降级为空闲收尾：命令与行结束符直发，设备静默（默认3秒）判完成，结果标注完成未验证、无退出码且不证明终止；该证据弱于提示符/结束标记，配置正则可获得验证完成；interact_terminal 的 command 动作仍要求提示符就绪。提示符匹配只证明对应输入/完成状态，不证明目标支持POSIX或可信凭据接收者。当前候选静默窗150ms，缺可靠行编辑上下文保持未知。
+Serial/Telnet 的 Profile 显式描述提示符正则、CR/LF/CRLF 和回显，不自动探测。interact_terminal 的 command 动作要求提示符就绪，证据不足时可使用独立允许的 text/key/paste。提示符匹配不证明目标支持 POSIX 或能可信接收凭据；可靠行编辑上下文不足时保持未知。
 
-## 4. 九工具输入字段与 annotations
+## 4. 五个基础终端工具输入字段与 annotations
 
 以下字段表从兼容 fixture 自动整理，保留必填、枚举、数值/长度范围和Schema default；它不是另一份可独立修改的Schema。完整嵌套 input/output Schema 及 accepted/rejected 行为以ToolCodec与契约测试为准。
 
@@ -350,7 +321,7 @@ Serial/Telnet的Profile显式描述提示符正则、CR/LF/CRLF和回显，不�
 
 ### novaterm_list_sessions
 
-List explicitly shared existing NovaTerm sessions. Never selects an implicit active tab.
+List currently connected NovaTerm sessions readable by the shared access identity. Never selects an implicit active tab.
 
 | 字段 | 类型 | 必填 | Schema约束 |
 | --- | --- | --- | --- |
@@ -387,53 +358,6 @@ Search only a captured returned context. No full-history or regex search; non-ov
 | query | string | 是 | minLength=1；maxLength=1024 |
 | scope | string | 否 | enum=both/viewport/recent_output；default="both" |
 | sessionId | string | 是 | maxLength=36 |
-
-### novaterm_list_commands
-
-List separately authorized fixed diagnostic templates and short-lived execution tickets. Executes nothing.
-
-| 字段 | 类型 | 必填 | Schema约束 |
-| --- | --- | --- | --- |
-| epoch | string | 是 | maxLength=64 |
-| sessionId | string | 是 | maxLength=36 |
-
-### novaterm_execute_command
-
-Execute one separately authorized fixed diagnostic template in the selected session. No stdin or custom arguments. Never automatically rerun an uncertain execution.
-
-| 字段 | 类型 | 必填 | Schema约束 |
-| --- | --- | --- | --- |
-| arguments | object | 是 | 未知字段拒绝 |
-| commandId | string | 是 | maxLength=64 |
-| commandTicket | string | 是 | maxLength=1024 |
-| epoch | string | 是 | maxLength=64 |
-| policyVersion | string | 是 | maxLength=64 |
-| sessionId | string | 是 | maxLength=36 |
-
-### novaterm_run_command
-
-Run a bounded command in an explicitly shared interactive terminal. Requires separate authorization; risky or unknown commands require a human confirmation capability.
-
-| 字段 | 类型 | 必填 | Schema约束 |
-| --- | --- | --- | --- |
-| command | string | 是 | minLength=1；maxLength=16384 |
-| epoch | string | 是 | maxLength=64 |
-| sessionId | string | 是 | maxLength=36 |
-| timeoutMs | integer | 否 | default=5000；minimum=1；maximum=30000 |
-
-### novaterm_run_script
-
-After MCP client human confirmation, write a bounded script to the explicitly selected LocalShell/SSH host path, then invoke it through the selected interactive terminal. The script body is never sent to the terminal.
-
-| 字段 | 类型 | 必填 | Schema约束 |
-| --- | --- | --- | --- |
-| epoch | string | 是 | maxLength=64 |
-| invocation | string | 是 | minLength=1；maxLength=16384 |
-| scriptContent | string | 是 | minLength=1；maxLength=2097152 |
-| sessionId | string | 是 | maxLength=36 |
-| targetPath | string | 是 | minLength=1；maxLength=4096 |
-| timeoutMs | integer | 否 | default=5000；minimum=1；maximum=30000 |
-| workingDirectory | string | 是 | minLength=1；maxLength=4096 |
 
 ### novaterm_interact_terminal
 
@@ -476,14 +400,10 @@ Request separately authorized managed sudo/su using local credentials and a veri
 | novaterm_list_sessions | true | false | true | false |
 | novaterm_read_context | true | false | true | false |
 | novaterm_search_context | true | false | true | false |
-| novaterm_list_commands | true | false | true | false |
-| novaterm_execute_command | false | false | false | true |
-| novaterm_run_command | false | true | false | true |
-| novaterm_run_script | false | true | false | true |
 | novaterm_interact_terminal | false | true | false | true |
 | novaterm_request_elevation | false | true | false | true |
 
-当前fixture对execute_command的idempotentHint是false；旧设计的true仅作为历史保留。相同票据的去重保证仍成立，不能把annotation作为授权或盲目重试依据。readOnlyHint也不授权跨会话读取。
+annotation 不能作为授权或盲目重试依据；readOnlyHint 也不授权跨会话读取。
 
 actions支持text、paste、key、line_ending、command、release六分支。key可选Shift/Alt/Ctrl（最多3个且唯一）；各动作对象拒绝未知字段，完整字段/组合规则看fixture与ToolCodec。动作文本总量和最终编码量还受服务端预算约束。
 
@@ -548,7 +468,7 @@ maxBytes连下一个UTF-8字符都容不下返回TEXT_BUDGET_TOO_SMALL，不应�
 取消观察、HTTP断开、释放输入控制权不能证明远端进程停止。现行终端控制器仍保留
 原连接与输入代际检查、人工接管、原operationId精确重试和长任务生命周期。
 旧命令执行器及其持久目标保护/人工解锁已删除，接入窗口不再包含执行记录、
-命令结果或“确认停止/解除暂停”区域。客户端管理进入独立次级窗口；身份与令牌不合并。
+命令结果或“确认停止/解除暂停”区域。所有 AI 共用统一令牌和授权，客户端管理与保存目标入口均已移除。
 
 ## 9. 输出封装与错误处理
 

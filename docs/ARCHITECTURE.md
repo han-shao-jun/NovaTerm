@@ -1,5 +1,7 @@
 # NovaTerm 统一架构设计
 
+2026-10-29 工作区 MCP 接入调整：所有 AI 使用单一令牌及统一授权主体；旧多客户端状态升级为 version=2，旧令牌失效。默认开启当前及新就绪连接的读取、输入、提权选择与清空，同连接人工撤销保留；MCP 不再暴露或打开保存的连接配置，目录仅含实际已连接会话。内部身份/连接代际与文件、历史独立授权保持。范围及验证见 [统一接入记录](architecture/MCP_Shared_Access_2026-10-29.md)。
+
 2026-10-28 MCP现行源码为三十工具，SFTP上传/下载显式覆盖阶段Windows软件回归已完成，B4仍待用户验收，本轮按Windows交付，B4仍未验收。`FileTransfers`统一持有上传/下载的有界授权、幂等与结果事实；两方向复用终端SftpPanel原SftpSession队列/worker，下载在原worker读取远端固定源句柄并交给安全LocalFileWriter分块写入及按显式意图发布；默认不覆盖，true只授权可信目录中的目标路径替换，不承诺CAS，不增加连接、线程或执行器。`SerialFileTransfers`只在GUI线程持有有界的授权、幂等索引与结果事实；原Session持有的`SerialFileTransferController`继续管理协议操作，原`TransferFileWorker`独占打开、随机读取与销毁固定句柄文件源。接收字节仍经唯一输入泵，出站仍经原lease/协议owner；SerialIoState在原队列锁内复核捕获的I/O代际，旧payload、取消CAN和清队列不能作用于新连接。
 
 UART发送同时复核独立本地read资源和UART target授权，调用方独立准备接收端并显式release已有MCP输入lease，不自动rz、不抢占。SFTP上传需要local.read+remote.write，下载需要local.write+remote.read；终端权限不推导文件权限，下载的published/publication/temporary仅指本地目标与本次临时文件，contentVerified保持false。Core与串口生产库不依赖MCP文件I/O。本地pinPath不检查目录ACL/owner，可信写入者是调用方前提；目标快照/最终复核与rename之间仍有竞争窗口。Windows关闭目标检查句柄后以原parent执行NtSetInformationFile替换，不删除目标再rename、不清目标readonly、不复制旧ACL/执行位。Linux/macOS安全文件后端尚未实现，B4由用户实测；托管提权保留unavailable，不作为本轮闭环前置。

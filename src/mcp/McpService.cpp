@@ -2,7 +2,6 @@
  *  @brief 有界 MCP 请求处理；所有 Session 访问均位于 GUI 线程。
  */
 #include "McpService.h"
-#include "TargetSessionSharing.h"
 #include "FileResourceAdapter.h"
 #include "SerialFileTargetAdapter.h"
 #include "SerialFileTransfers.h"
@@ -22,7 +21,6 @@
 #include "TerminalClearAdapter.h"
 #include "TerminalTextWait.h"
 #include "TerminalTasks.h"
-#include "application/SavedTargets.h"
 #include "application/CaptureStore.h"
 #include "ObservationService.h"
 #include "application/RequestScheduler.h"
@@ -93,12 +91,10 @@ public:
         std::optional<ClearRequest> clearRequest;
         std::optional<WaitTextRequest> waitRequest;
         std::optional<TerminalTaskRequest> taskRequest;
-        std::optional<ListSavedTargetsRequest> targetsRequest;
         std::optional<ListFileResourcesRequest> fileResourcesRequest;
         std::optional<ListSerialFileTargetsRequest> serialFileTargetsRequest;
         std::optional<FileTransferRequest> fileTransferRequest;
         std::optional<SerialFileTransferRequest> serialFileTransferRequest;
-        std::optional<TargetConnectionRequest> targetConnectionRequest;
         QString requestState;
         std::optional<ConfirmationAnswer> answer;
         bool mrtr{false}, formElicitation{false};
@@ -166,8 +162,6 @@ public:
         clears = std::make_unique<TerminalClearAdapter>(access, sessions, instance, logCursorKey, owner);
         textWaits = std::make_unique<TerminalTextWait>(access, sessions, observation, instance, logCursorKey, owner);
         terminalTasks = std::make_unique<TerminalTasks>(access, sessions, *terminal, instance, logCursorKey, owner);
-        QObject::connect(&savedTargets, &SavedTargets::changed, q, &Service::changed);
-        targetSharing = std::make_unique<TargetSessionSharing>(access, sessions, savedTargets, owner);
         fileResources = std::make_unique<FileResourceAdapter>(access, sessions, owner);
         QObject::connect(fileResources.get(), &FileResourceAdapter::changed, q, &Service::changed);
         serialFileTargets = std::make_unique<SerialFileTargetAdapter>(access, sessions, owner);
@@ -191,10 +185,15 @@ public:
             if (!ok) { listening = false; address.clear(); io.stop(); }
             emit q->changed();
         });
-        QObject::connect(&access, &AccessStore::changed, q, [this] { updateEnabled(); emit q->changed(); });
+        QObject::connect(&access, &AccessStore::changed, q, [this] {
+            initializeSessionDefaults();
+            updateEnabled();
+            emit q->changed();
+        });
         QObject::connect(&access, &AccessStore::revoked, q,
             [this](const QString& client, const QString& session) { revoke(client, session); });
         QObject::connect(&sessions, &SessionDirectory::changed, q, [this] {
+            initializeSessionDefaults();
             if (!checkingSessionState) {
                 QScopedValueRollback<bool> checking(checkingSessionState, true);
                 const auto pendingKeys = requestKeys();
@@ -224,7 +223,16 @@ public:
                     cancel(key, error("STALE_SESSION_EPOCH"), true);
             }
         });
+        initializeSessionDefaults();
         updateEnabled();
+    }
+
+    void initializeSessionDefaults()
+    {
+        if (initializingDefaults || !access.enabled()) return;
+        const QScopedValueRollback<bool> initializing(initializingDefaults, true);
+        for (const auto& entry : sessions.entries())
+            static_cast<void>(access.initializeSessionDefaults(entry));
     }
 
     QString manifestPath() const { return QDir(instanceDirectory).filePath(instance + ".json"); }
@@ -243,7 +251,6 @@ public:
     void stop()
     {
         if (serialFileTransfers) serialFileTransfers->stop();
-        if (targetSharing) targetSharing->clear();
         if (fileResources) fileResources->resources().revoke();
         if (serialFileTargets) serialFileTargets->targets().revoke();
         if (terminalTasks) terminalTasks->stop();
@@ -295,12 +302,10 @@ public:
         const auto* clearCall = std::get_if<BackendClearCall>(&event);
         const auto* waitCall = std::get_if<BackendWaitTextCall>(&event);
         const auto* taskCall = std::get_if<BackendTaskCall>(&event);
-        const auto* targetsCall = std::get_if<BackendSavedTargetsCall>(&event);
         const auto* filesCall = std::get_if<BackendFileResourcesCall>(&event);
         const auto* serialTargetsCall = std::get_if<BackendSerialFileTargetsCall>(&event);
         const auto* transferCall = std::get_if<BackendFileTransferCall>(&event);
         const auto* serialTransferCall = std::get_if<BackendSerialFileTransferCall>(&event);
-        const auto* targetConnectionCall = std::get_if<BackendTargetConnectionCall>(&event);
         BackendCall call;
         if (serialTransferCall) {
             call.id = serialTransferCall->id;
@@ -314,12 +319,6 @@ public:
         } else if (filesCall) {
             call.id = filesCall->id;
             if (filesCall->confirmationSupplied) { send(connectionId, id, error("COMMAND_CONFIRMATION_STALE")); return; }
-        } else if (targetConnectionCall) {
-            call.id = targetConnectionCall->id;
-            if (targetConnectionCall->confirmationSupplied) { send(connectionId, id, error("COMMAND_CONFIRMATION_STALE")); return; }
-        } else if (targetsCall) {
-            call.id = targetsCall->id;
-            if (targetsCall->confirmationSupplied) { send(connectionId, id, error("COMMAND_CONFIRMATION_STALE")); return; }
         } else if (waitCall) {
             call.id = waitCall->id;
             if (waitCall->confirmationSupplied) { send(connectionId, id, error("COMMAND_CONFIRMATION_STALE")); return; }
@@ -341,8 +340,6 @@ public:
             : serialTargetsCall ? QStringLiteral("novaterm_list_serial_file_targets")
             : transferCall ? ToolCodec::toolName(ToolCall{transferCall->request})
             : filesCall ? QStringLiteral("novaterm_list_file_resources")
-            : targetConnectionCall ? ToolCodec::toolName(ToolCall{targetConnectionCall->request})
-            : targetsCall ? QStringLiteral("novaterm_list_targets")
             : waitCall ? QStringLiteral("novaterm_wait_text")
             : taskCall ? ToolCodec::toolName(ToolCall{taskCall->request})
             : clearCall ? QStringLiteral("novaterm_clear_terminal")
@@ -363,12 +360,10 @@ public:
         if (clearCall) pending->clearRequest = clearCall->request;
         if (waitCall) pending->waitRequest = waitCall->request;
         if (taskCall) pending->taskRequest = taskCall->request;
-        if (targetsCall) pending->targetsRequest = targetsCall->request;
         if (filesCall) pending->fileResourcesRequest = filesCall->request;
         if (serialTargetsCall) pending->serialFileTargetsRequest = serialTargetsCall->request;
         if (transferCall) pending->fileTransferRequest = transferCall->request;
         if (serialTransferCall) pending->serialFileTransferRequest = serialTransferCall->request;
-        if (targetConnectionCall) pending->targetConnectionRequest = targetConnectionCall->request;
         pending->mrtr = call.mrtr;
         pending->formElicitation = call.formElicitation;
         pending->requestState = call.requestState;
@@ -515,7 +510,6 @@ public:
     }
     void revoke(const QString& client, const QString& session)
     {
-        if (session.isEmpty()) savedTargets.revoke(client);
         if (terminal) terminal->revoke(client, session);
         if (textWaits) textWaits->revoke(client, session);
         if (terminalTasks) terminalTasks->revoke(client, session);
@@ -566,7 +560,6 @@ public:
         if (pending->taskRequest) capability = Capabilities::CapabilityId{
             std::holds_alternative<StartTerminalTaskRequest>(*pending->taskRequest) ? "terminal.task.start"
             : std::holds_alternative<StopTerminalTaskRequest>(*pending->taskRequest) ? "terminal.task.stop" : "terminal.task.query"};
-        if (pending->targetsRequest) capability = Capabilities::CapabilityId{"target.list"};
         if (pending->fileResourcesRequest) capability = Capabilities::CapabilityId{"file.resources.list"};
         if (pending->serialFileTargetsRequest) capability = Capabilities::CapabilityId{"serial.file.targets.list"};
         if (pending->serialFileTransferRequest) capability = Capabilities::CapabilityId{
@@ -576,9 +569,6 @@ public:
             std::holds_alternative<StartFileUploadRequest>(*pending->fileTransferRequest) ? "file.upload"
             : std::holds_alternative<StartFileDownloadRequest>(*pending->fileTransferRequest) ? "file.transfer.download"
             : std::holds_alternative<QueryFileTransferRequest>(*pending->fileTransferRequest) ? "file.transfer.query" : "file.transfer.cancel"};
-        if (pending->targetConnectionRequest) capability = Capabilities::CapabilityId{
-            pending->targetConnectionRequest->action == TargetConnectionAction::Query ? "target.query"
-            : pending->targetConnectionRequest->action == TargetConnectionAction::Close ? "target.close" : "target.open"};
         auto result = capabilityDispatcher.admit(capability, *pending->invocation);
         if (const auto* reason = std::get_if<Capabilities::Rejection>(&result)) {
             complete(requestKey(pending->connection, pending->id),
@@ -657,30 +647,6 @@ public:
                 {"localResources", local}, {"remoteScopes", remote}}));
             return;
         }
-        if (pending->targetConnectionRequest) {
-            if (!admit(pending)) return;
-            const auto request = *pending->targetConnectionRequest;
-            const auto validation = pending->lease->validation();
-            const auto cancelled = pending->cancelled;
-            const auto result = targetConnections.call(connection.client, access.identityVersion(connection.client), request,
-                [validation, cancelled] { return !*cancelled && !validation().has_value(); });
-            if (result.error) { complete(key, ToolCodec::encodeFailure(Error{*result.error})); return; }
-            const auto& facts = result.facts;
-            const auto nullable = [](const QString& value) -> QJsonValue {
-                return value.isEmpty() ? QJsonValue(QJsonValue::Null) : QJsonValue(value);
-            };
-            complete(key, success({{"instanceId", instance}, {"targetId", request.targetId},
-                {"configVersion", request.configVersion}, {"operationId", request.operationId},
-                {"created", facts.created}, {"reused", !facts.created && !facts.sessionId.isEmpty()},
-                {"sessionId", nullable(facts.sessionId)}, {"epoch", nullable(facts.epoch)},
-                {"state", facts.state}, {"reason", facts.reason}, {"suggestedQueryMs", 500}}));
-            return;
-        }
-        if (pending->targetsRequest) {
-            if (!admit(pending)) return;
-            listTargets(pending);
-            return;
-        }
         if (pending->historyRequest) {
             const QPointer<Service> guard(q);
             history.call(*pending->historyRequest, *pending->invocation, pending->cancelled, [this, guard, key](QJsonObject result) {
@@ -698,7 +664,7 @@ public:
         const auto entry = sessions.find(reference->session.str());
         pending = findRequest(key);
         if (!pending) return;
-        if (!entry || !access.canRead(connection.client, *entry)) {
+        if (!entry || !connectedSession(*entry) || !access.canRead(connection.client, *entry)) {
             complete(key, !pending->requestState.isEmpty()
                 ? error("COMMAND_CONFIRMATION_STALE")
                 : error("SESSION_NOT_AVAILABLE"));
@@ -758,91 +724,6 @@ public:
         }
         if (std::holds_alternative<ReadContextRequest>(pending->request)) readContext(pending, *entry);
         else search(pending, *entry);
-    }
-
-    TargetConnectionFacts queryTargetConnection(const QString& id, const QString& attachment)
-    {
-        const auto entry = sessions.find(id);
-        if (!entry || !entry->session) return {id, {}, attachment, "closed", "session_unavailable", false};
-        if (entry->state == SessionState::Closed)
-            return {id, entry->epoch, attachment, "closed", {}, false};
-        if (!entry->transport || entry->transport->property("novatermSavedConnectionId").toString() != attachment)
-            return {id, {}, attachment, "invalidated", "attachment_changed", false};
-        const auto reason = entry->transport->property("novatermHostKeyDecisionPending").toBool()
-            ? QStringLiteral("host_key_confirmation_required") : QString{};
-        return {entry->id, entry->epoch, attachment, SessionDirectory::stateName(entry->state), reason, false};
-    }
-
-    TargetConnectionResult closeTargetConnection(const TargetConnectionFacts& original,
-        const QString& epoch, const TargetConnections::Guard& allowed)
-    {
-        QPointer<TerminalSession> session;
-        const auto safety = [this, &original, &epoch, &session]() -> std::optional<ErrorCode> {
-            const auto entry = sessions.find(original.sessionId);
-            if (!entry || !entry->session || !entry->transport
-                || entry->transport->property("novatermSavedConnectionId").toString() != original.attachmentId)
-                return ErrorCode::TargetCloseNotAllowed;
-            session = entry->session;
-            if (entry->epoch != epoch) return ErrorCode::StaleSessionEpoch;
-            if (entry->generation != original.connectionGeneration || session->manualConnectionGeneration()
-                || session->inputArbiter()->userInputGeneration() || session->core()->localInputGeneration())
-                return ErrorCode::TargetCloseNotAllowed;
-            auto* controller = session->terminalController();
-            if (entry->state != SessionState::Running || !entry->transport->isConnected()
-                || entry->transport->hasPendingDisconnect()
-                || entry->transport->property("novatermHostKeyDecisionPending").toBool()
-                || !session->commandCoordinator()->hasTrustedProfile()
-                || controller->pending() || controller->commandActive() || !controller->readyForCommand()
-                || session->inputArbiter()->hasMcpLease() || session->inputArbiter()->hasTransferLease()
-                || session->commandFacade()->hasActiveRequests() || fileTransfers->busy(entry->id) || serialFileTransfers->busy(entry->id)) return ErrorCode::TargetCloseBusy;
-            return {};
-        };
-        if (!allowed()) return {{}, ErrorCode::TargetOpenPermissionRequired};
-        if (const auto error = safety()) return {{}, error};
-        // The local UI owns SFTP panels, including inactive tabs. Unknown SSH facts refuse close.
-        const auto localSafety = targetCloseSafety;
-        if ((localSafety && !localSafety(original.sessionId))
-            || (!localSafety && session->runtimeConfig().transportKind == TransportKind::Ssh))
-            return {{}, ErrorCode::TargetCloseBusy};
-        if (!allowed()) return {{}, ErrorCode::TargetOpenPermissionRequired};
-        if (const auto error = safety()) return {{}, error};
-        if (!allowed() || !session) return {{}, ErrorCode::TargetOpenPermissionRequired};
-        session->close(CloseMode::Graceful);
-        auto facts = queryTargetConnection(original.sessionId, original.attachmentId);
-        facts.created = true;
-        return {facts, {}};
-    }
-
-    void listTargets(PendingRequest* pending)
-    {
-        const auto key = requestKey(pending->connection, pending->id);
-        const auto connection = connections.value(pending->connection);
-        const auto request = *pending->targetsRequest;
-        const auto version = access.identityVersion(connection.client);
-        QString after, revision;
-        if (!request.cursor.isEmpty()) {
-            const auto cursor = verifyToken(request.cursor, logCursorKey);
-            if (!cursor || cursor->value("kind") != "saved_targets"
-                || cursor->value("client") != connection.client
-                || cursor->value("identityVersion") != QString::number(version)
-                || !cursor->value("revision").isString() || cursor->value("revision").toString().isEmpty()
-                || !cursor->value("after").isString() || cursor->value("after").toString().isEmpty()) {
-                complete(key, error("CURSOR_MISMATCH")); return;
-            }
-            after = cursor->value("after").toString(); revision = cursor->value("revision").toString();
-        }
-        const auto page = savedTargets.page(connection.client, version, request.limit, after, revision);
-        if (!page.error.isEmpty()) { complete(key, failure(page.error, page.error)); return; }
-        QJsonArray rows;
-        for (const auto& target : page.targets)
-            rows.append(QJsonObject{{"targetId", target.id}, {"title", target.title},
-                {"transport", target.transport}, {"endpoint", target.endpoint},
-                {"configVersion", target.configVersion}, {"availability", "saved_configuration"}});
-        QJsonValue next(QJsonValue::Null);
-        if (!page.nextAfter.isEmpty()) next = signToken({{"kind", "saved_targets"},
-            {"client", connection.client}, {"identityVersion", QString::number(version)},
-            {"revision", page.revision}, {"after", page.nextAfter}}, logCursorKey);
-        complete(key, success({{"instanceId", instance}, {"targets", rows}, {"nextCursor", next}}));
     }
 
     void listSessions(PendingRequest* pending)
@@ -950,14 +831,10 @@ public:
     QString status{"Disabled"};
     AccessStore access;
     SessionDirectory sessions;
-    SavedTargets savedTargets;
-    TargetConnections targetConnections{savedTargets};
-    std::unique_ptr<TargetSessionSharing> targetSharing;
     std::unique_ptr<FileResourceAdapter> fileResources;
     std::unique_ptr<SerialFileTargetAdapter> serialFileTargets;
     std::unique_ptr<FileTransfers> fileTransfers;
     std::unique_ptr<SerialFileTransfers> serialFileTransfers;
-    std::function<bool(const QString&)> targetCloseSafety;
     HistoryCapabilityAdapter history;
     Capabilities::CapabilityRegistry capabilityRegistry{Capabilities::CapabilityRegistry::implementedCapabilities()};
     Capabilities::CapabilityAuthorization capabilityAuthorization{
@@ -995,6 +872,7 @@ public:
     bool listening{false};
     bool scheduled{false};
     bool checkingSessionState{false};
+    bool initializingDefaults{false};
     QHash<QString, Connection> connections;
     RequestScheduler scheduler;
     std::map<QString, std::unique_ptr<PendingRequest>> requests;
@@ -1009,43 +887,9 @@ Service::Service(QString stateDir, QString runtimeDir, std::unique_ptr<Credentia
 Service::~Service() { stop(); }
 AccessStore& Service::access() { return _impl->access; }
 SessionDirectory& Service::directory() { return _impl->sessions; }
-SavedTargets& Service::savedTargets() { return _impl->savedTargets; }
 FileResourceAdapter& Service::fileResources() { return *_impl->fileResources; }
 SerialFileTargetAdapter& Service::serialFileTargets() { return *_impl->serialFileTargets; }
 void Service::setFileUploadStarter(FileTransfers::Start start) { _impl->fileTransfers->setStarter(std::move(start)); }
-void Service::setTargetOpener(TargetConnections::Open open)
-{
-    auto* impl = _impl.get();
-    TargetConnections::Open factory;
-    if (open) factory = [impl, open = std::move(open)](const SavedTargetSource& source, const TargetConnections::Guard& allowed) {
-        auto facts = open(source, allowed);
-        if (facts.sessionId.isEmpty()) return facts;
-        const auto entry = impl->sessions.find(facts.sessionId);
-        if (!entry || !entry->session || !entry->transport)
-            return TargetConnectionFacts{facts.sessionId, {}, {}, "unavailable", "session_unavailable", facts.created};
-        // Transport object identity survives initial host-key discovery and same-target reconnects.
-        auto id = entry->transport->property("novatermSavedConnectionId").toString();
-        if (id.isEmpty()) {
-            id = newId(); entry->transport->setProperty("novatermSavedConnectionId", id);
-        }
-        auto current = impl->queryTargetConnection(entry->id, id);
-        current.created = facts.created;
-        current.connectionGeneration = entry->generation;
-        return current;
-    };
-    _impl->targetConnections.setPorts(std::move(factory), [impl](const QString& id, const QString& attachment) {
-        return impl->queryTargetConnection(id, attachment);
-    }, [impl](const TargetConnectionFacts& facts, const QString& epoch, const TargetConnections::Guard& allowed) {
-        return impl->closeTargetConnection(facts, epoch, allowed);
-    }, [impl](const QString& client, quint64 identity, const TargetConnectionRequest& request,
-        const TargetConnectionFacts& facts, const NewSessionSharing& sharing) {
-        impl->targetSharing->created(client, identity, request, facts, sharing);
-    });
-}
-void Service::setTargetCloseSafety(std::function<bool(const QString&)> safety)
-{
-    _impl->targetCloseSafety = std::move(safety);
-}
 HistoryCapabilityAdapter& Service::history() { return _impl->history; }
 std::shared_ptr<Resources::ResourceSharingService> Service::resources() const { return _impl->history.resources(); }
 void Service::setHistorySource(Recording::HistoryService* source) { _impl->history.setSource(source); }
@@ -1054,9 +898,9 @@ QString Service::endpoint() const { return _impl->address; }
 QString Service::httpEndpoint() const { return _impl->listening ? _impl->address : QString{}; }
 QString Service::status() const { return _impl->status; }
 void Service::stop() { _impl->stop(); }
-QJsonObject Service::clientConfiguration(const QString& clientId) const
+QJsonObject Service::clientConfiguration() const
 {
-    const auto token = _impl->access.exportToken(clientId);
+    const auto token = _impl->access.exportToken();
     if (!token) return {};
     if (httpEndpoint().isEmpty()) return {};
     return {{"mcpServers", QJsonObject{{"novaterm", QJsonObject{
@@ -1064,9 +908,9 @@ QJsonObject Service::clientConfiguration(const QString& clientId) const
         {"headers", QJsonObject{{"Authorization", "Bearer " + QString::fromLatin1(*token)}}}
     }}}}};
 }
-QJsonObject Service::ccSwitchConfiguration(const QString& clientId) const
+QJsonObject Service::ccSwitchConfiguration() const
 {
-    const auto configuration = clientConfiguration(clientId);
+    const auto configuration = clientConfiguration();
     return configuration.value(QStringLiteral("mcpServers")).toObject()
         .value(QStringLiteral("novaterm")).toObject();
 }

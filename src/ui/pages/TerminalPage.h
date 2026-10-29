@@ -14,7 +14,6 @@
 #include <QPointer>
 #include <QWidget>
 #include <functional>
-#include <variant>
 
 class SshTransport;
 class TerminalTabWidget;
@@ -53,8 +52,6 @@ public:
     TerminalView* addSerialTerminalTab(const SerialConfig& config);
     TerminalView* addSshTerminalTab(const SshConfig& config);
     TerminalView* addTelnetTerminalTab(const TelnetConfig& config);
-    std::pair<TerminalView*, bool> openSavedConnection(const std::variant<SerialConfig, SshConfig>&,
-        QString& reason, const std::function<bool()>& allowed);
 
     /** 用新参数重建指定运行标签；确认编辑后由 MainWindow 调用。 */
     bool replaceTerminalTab(TerminalView* terminalView,
@@ -63,11 +60,9 @@ public:
                             const QString& label,
                             const QString& workingDirectory);
     bool replaceTerminalTab(TerminalView* terminalView,
-                            const SerialConfig& config, const std::function<bool()>& allowed = {},
-                            std::function<void()> onStarting = {});
+                            const SerialConfig& config);
     bool replaceTerminalTab(TerminalView* terminalView,
-                            const SshConfig& config, const std::function<bool()>& allowed = {},
-                            std::function<void()> onStarting = {});
+                            const SshConfig& config);
     bool replaceTerminalTab(TerminalView* terminalView,
                             const TelnetConfig& config);
 

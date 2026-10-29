@@ -139,25 +139,9 @@ bool SettingsController::setEnabled(bool enabled)
     return _service && _service->access().setEnabled(enabled);
 }
 
-QList<NovaTerm::Mcp::ClientRecord> SettingsController::clients() const
+bool SettingsController::rotateToken()
 {
-    return _service ? _service->access().clients()
-                    : QList<NovaTerm::Mcp::ClientRecord>{};
-}
-
-QString SettingsController::addClient(const QString& label)
-{
-    return _service ? _service->access().addClient(label) : QString{};
-}
-
-bool SettingsController::removeClient(const QString& id)
-{
-    return _service && _service->access().removeClient(id);
-}
-
-bool SettingsController::rotateToken(const QString& id)
-{
-    return _service && _service->access().rotateToken(id);
+    return _service && _service->access().rotateToken();
 }
 
 SettingsController::SaveFailure SettingsController::lastSaveFailure() const
@@ -180,9 +164,9 @@ void SettingsController::clearSaveFailure()
         _service->access().clearSaveFailure();
 }
 
-bool SettingsController::elevationCredentialsPersistent() const
+std::optional<bool> SettingsController::elevationCredentialsPersistent() const
 {
-    return _service && _service->access().elevationCredentialsPersistent();
+    return _service ? _service->access().elevationCredentialsPersistent() : std::nullopt;
 }
 
 bool SettingsController::hasElevationCredential(const SessionDirectory::Entry& entry,

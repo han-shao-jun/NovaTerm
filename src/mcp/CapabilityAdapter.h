@@ -20,6 +20,9 @@ namespace NovaTerm::Mcp {
 class AccessStore;
 class ObservationService;
 
+/** @brief 同时复核目录状态、实际传输与连接代际，排除已断开但目录尚未更新的会话。 */
+[[nodiscard]] bool connectedSession(const SessionDirectory::Entry& entry);
+
 [[nodiscard]] CapabilityFacts capabilityFacts(const SessionDirectory::Entry& entry,
                                               const AccessStore& access);
 

@@ -11,7 +11,6 @@
  */
 #include "ui/widgets/SessionPanel.h"
 #include "ui/pages/SessionPage.h"
-#include "ui/pages/SavedConnectionPolicy.h"
 
 #include "ElaTreeWidget.h"
 #include "ElaLineEdit.h"
@@ -43,31 +42,11 @@ class SessionPanelTests final : public QObject
     Q_OBJECT
 
 private slots:
-    void savedConnectionReuseChecksActualConfigurationAndPortReservation()
-    {
-        SshConfig original; original.host = "fixture.invalid"; original.username = "fixture";
-        original.password = "secret";
-        QVERIFY(NovaTerm::sshConnectionMatches(original, original));
-        auto changed = original; changed.environment.insert("MODE", "other");
-        QVERIFY(!NovaTerm::sshConnectionMatches(original, changed));
-        changed = original; changed.password = "changed";
-        QVERIFY(!NovaTerm::sshConnectionMatches(original, changed));
-        changed = original; changed.interactiveShellKind = "posix";
-        QVERIFY(!NovaTerm::sshConnectionMatches(original, changed));
-        QVERIFY(!NovaTerm::serialConnectionReserved(SessionState::Failed, false, false, false));
-        QVERIFY(NovaTerm::serialConnectionReserved(SessionState::Failed, false, false, true));
-        QVERIFY(NovaTerm::serialConnectionReserved(SessionState::Failed, false, true, false));
-        QVERIFY(NovaTerm::serialConnectionReserved(SessionState::Connecting, false, false, false));
-        QVERIFY(NovaTerm::serialConnectionReserved(SessionState::Running, true, false, false));
-    }
     void contextMenuOnSelectedRowKeepsMultiSelection();
     void contextMenuOnUnselectedRowMovesCurrent();
     void contextMenuOnGroupRowDoesNothing();
     void serialCommandSettingsRoundTripThroughFormAndHistory();
-    void savedTargetSourcesExposeOnlySummariesAndTrackEdits();
-    void savedConnectionsResolveOnlyCurrentConfiguration();
-    void savedTargetTitlesUseLabelsWithoutAuthenticationData_data();
-    void savedTargetTitlesUseLabelsWithoutAuthenticationData();
+    void manualSshReconnectRestoresSavedConfiguration();
 
 private:
     // 在树里造出 group -> leaf 的结构，并返回按顺序排列的叶子节点。
@@ -90,102 +69,30 @@ private:
     }
 };
 
-void SessionPanelTests::savedConnectionsResolveOnlyCurrentConfiguration()
+void SessionPanelTests::manualSshReconnectRestoresSavedConfiguration()
 {
     ScopedAppDataIsolation isolation;
-    SessionPanel panel(nullptr, isolation.historyPath());
-    SerialConfig serial; serial.portName = "fake-never-opened"; serial.baudRate = 9600;
-    serial.interactivePromptPattern = "board>"; serial.interactiveRemoteEcho = false;
-    panel.recordSerial(serial);
-    const auto source = panel.savedTargetSources().first();
-    QString reason;
-    const auto resolved = panel.savedConnection(source.id, source.configurationKey, reason);
-    QVERIFY(resolved); QVERIFY(reason.isEmpty());
-    const auto configuration = std::get<SerialConfig>(*resolved);
-    QCOMPARE(configuration.portName, serial.portName); QCOMPARE(configuration.baudRate, serial.baudRate);
-    QCOMPARE(configuration.interactivePromptPattern, serial.interactivePromptPattern);
-    QCOMPARE(configuration.interactiveRemoteEcho, serial.interactiveRemoteEcho);
-    serial.baudRate = 115200;
-    panel.updateSerial(SessionId(source.id), serial);
-    QVERIFY(!panel.savedConnection(source.id, source.configurationKey, reason));
-    QCOMPARE(reason, QString("configuration_changed"));
-    const auto current = panel.savedTargetSources().first();
-    QVERIFY(panel.savedConnection(current.id, current.configurationKey, reason));
-    SshConfig ssh; ssh.host = "fixture.invalid"; ssh.username = "private-user";
-    ssh.authMethod = "publickey"; ssh.privateKeyPath = "private-never-read";
-    panel.recordSsh(ssh);
-    const auto sources = panel.savedTargetSources();
-    for (const auto& row : sources) {
-        if (row.transport != "ssh") continue;
-        const auto connection = panel.savedConnection(row.id, row.configurationKey, reason);
-        QVERIFY(connection);
-        QCOMPARE(std::get<SshConfig>(*connection).host, ssh.host);
-        QCOMPARE(std::get<SshConfig>(*connection).privateKeyPath, ssh.privateKeyPath);
+    SshConfig saved;
+    saved.host = "fixture.invalid"; saved.username = "manual-user";
+    saved.port = 2222; saved.authMethod = "publickey";
+    saved.privateKeyPath = "fixture-key-never-opened"; saved.label = "Manual SSH";
+    saved.interactiveShellKind = "posix";
+    {
+        SessionPanel panel(nullptr, isolation.historyPath());
+        panel.recordSsh(saved);
     }
-}
-
-void SessionPanelTests::savedTargetSourcesExposeOnlySummariesAndTrackEdits()
-{
-    ScopedAppDataIsolation isolation;
-    SessionPanel panel(nullptr, isolation.historyPath());
-    QSignalSpy changed(&panel, &SessionPanel::savedTargetsChanged);
-    SerialConfig serial; serial.portName = "fake-never-opened"; serial.label = "Board";
-    panel.recordSerial(serial);
-    QCOMPARE(changed.size(), 1);
-    const auto first = panel.savedTargetSources();
-    QCOMPARE(first.size(), 1);
-    QCOMPARE(first.first().transport, QString("serial"));
-    QVERIFY(first.first().endpoint.contains("115200"));
-    QCOMPARE(first.first().configurationKey.size(), 32);
-    const auto id = first.first().id;
-    serial.baudRate = 9600;
-    panel.updateSerial(SessionId(id), serial);
-    const auto updated = panel.savedTargetSources().first();
-    QCOMPARE(updated.id, id);
-    QVERIFY(updated.configurationKey != first.first().configurationKey);
-    QVERIFY(updated.endpoint.contains("9600"));
-    panel.recordLocal(TerminalView::LocalShellType::Cmd, {}, "Local");
-    QCOMPARE(panel.savedTargetSources().size(), 1); // local shells are never in this directory
-}
-
-void SessionPanelTests::savedTargetTitlesUseLabelsWithoutAuthenticationData_data()
-{
-    QTest::addColumn<bool>("ssh");
-    QTest::addColumn<QString>("label");
-    QTest::addColumn<QString>("expected");
-    QTest::newRow("ssh-label") << true << QStringLiteral("  生产板  ") << QStringLiteral("生产板");
-    QTest::newRow("ssh-fallback") << true << QStringLiteral("  ") << QStringLiteral("board.invalid");
-    QTest::newRow("serial-label") << false << QStringLiteral("  UART board  ") << QStringLiteral("UART board");
-    QTest::newRow("serial-fallback") << false << QString() << QStringLiteral("fake-never-opened");
-}
-
-void SessionPanelTests::savedTargetTitlesUseLabelsWithoutAuthenticationData()
-{
-    QFETCH(bool, ssh);
-    QFETCH(QString, label);
-    QFETCH(QString, expected);
-    ScopedAppDataIsolation isolation;
-    SessionPanel panel(nullptr, isolation.historyPath());
-    if (ssh) {
-        SshConfig config;
-        config.host = "board.invalid";
-        config.username = "private-auth-user";
-        config.authMethod = "publickey";
-        config.privateKeyPath = "private-key-not-opened";
-        config.label = label;
-        panel.recordSsh(config);
-    } else {
-        SerialConfig config;
-        config.portName = "fake-never-opened";
-        config.label = label;
-        panel.recordSerial(config);
-    }
-    const auto sources = panel.savedTargetSources();
-    QCOMPARE(sources.size(), 1);
-    QCOMPARE(sources.first().title, expected);
-    QVERIFY(!sources.first().title.contains("private-auth-user"));
-    QVERIFY(!sources.first().endpoint.contains("private-auth-user"));
-    QVERIFY(!sources.first().title.contains("private-key-not-opened"));
+    SessionPanel restored(nullptr, isolation.historyPath());
+    auto* tree = restored.findChild<ElaTreeWidget*>();
+    QVERIFY(tree && tree->topLevelItemCount() == 1);
+    auto* leaf = tree->topLevelItem(0)->child(0); QVERIFY(leaf);
+    QSignalSpy reconnected(&restored, &SessionPanel::sshReconnectRequested);
+    tree->itemDoubleClicked(leaf, 0);
+    QCOMPARE(reconnected.size(), 1);
+    const auto actual = reconnected.first().first().value<SshConfig>();
+    QCOMPARE(actual.host, saved.host); QCOMPARE(actual.username, saved.username);
+    QCOMPARE(actual.port, saved.port); QCOMPARE(actual.authMethod, saved.authMethod);
+    QCOMPARE(actual.privateKeyPath, saved.privateKeyPath); QCOMPARE(actual.label, saved.label);
+    QCOMPARE(actual.interactiveShellKind, saved.interactiveShellKind);
 }
 
 void SessionPanelTests::serialCommandSettingsRoundTripThroughFormAndHistory()

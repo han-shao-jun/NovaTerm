@@ -232,6 +232,26 @@ void AuthorizationService::removeSession(const SessionId& session)
     _store.removeSession(session);
 }
 
+bool AuthorizationService::initializeDefaults(const ClientId& client, const GrantFacts& facts)
+{
+    if (!_ports.enabled || !_ports.enabled() || !_ports.knownClient || !_ports.knownClient(client)
+        || facts.binding.session.isEmpty() || !readyForInput(facts)
+        || (_ports.credentialUpdatePending && _ports.credentialUpdatePending())) return false;
+    const auto previous = _store.find(client, facts.binding.session);
+    // 同一连接的授权行包含人工撤销；刷新不能将其恢复成默认值。
+    if (previous && sameBinding(previous->binding, facts.binding)) return false;
+    PermissionSelection selection;
+    selection.read = true;
+    selection.fullTerminalInput = true;
+    selection.elevation = true;
+    selection.clearTerminal = true;
+    _store.save(client, facts.binding.session,
+        {facts.binding, selection, GrantRevision{previous ? previous->revision.value() + 1 : 1}});
+    // 新连接仅改变自身的绑定/行修订；不能使其他会话的任务和等待失效。
+    // 旧连接请求仍由绑定变化及会话级撤权回收，显式撤权/令牌重置仍推进全局版本。
+    return true;
+}
+
 void AuthorizationService::removeClient(const ClientId& client)
 {
     _store.removeClient(client);

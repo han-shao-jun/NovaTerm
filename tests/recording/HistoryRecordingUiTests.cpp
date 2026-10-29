@@ -12,6 +12,10 @@
 #include <QFontDatabase>
 #include <QLineEdit>
 #include <ElaCheckBox.h>
+#include <QComboBox>
+#include <QLabel>
+#include <QFileDialog>
+#include <QTimer>
 
 using namespace NovaTerm::Recording;
 template<class T> T* control(QWidget& panel, const char* role) {
@@ -21,6 +25,70 @@ template<class T> T* control(QWidget& panel, const char* role) {
 class HistoryRecordingUiTests : public QObject {
     Q_OBJECT
 private slots:
+    void sharingUsesOneAccessForAllAi() {
+        QTemporaryDir dir; HistoryService service(dir.path()); HistoryRecordingPanel panel(&service);
+        QVERIFY2(panel.findChildren<QComboBox*>().isEmpty(), "History sharing must not ask users to select an AI client");
+        bool sharedAccessExplained = false;
+        for (auto* label : panel.findChildren<QLabel*>())
+            sharedAccessExplained |= label->text().contains("all AI", Qt::CaseInsensitive);
+        QVERIFY2(sharedAccessExplained, "History sharing must explain that permission applies to all AI connections");
+    }
+    void identityChangeDuringFileSelectionRejectsImport_data() {
+        QTest::addColumn<QString>("replacementId");
+        QTest::addColumn<quint64>("replacementIdentity");
+        QTest::newRow("token-reset") << QString("old-access") << quint64(2);
+        QTest::newRow("identity-replaced") << QString("new-access") << quint64(1);
+        QTest::newRow("disabled") << QString{} << quint64(0);
+    }
+    void identityChangeDuringFileSelectionRejectsImport() {
+        QFETCH(QString, replacementId); QFETCH(quint64, replacementIdentity);
+        QTemporaryDir dir; HistoryService service(dir.path()); HistoryRecordingPanel panel(&service);
+        const auto path = dir.filePath("shared.log");
+        QFile file(path); QVERIFY(file.open(QIODevice::WriteOnly)); file.write("history"); file.close();
+        int imported = 0;
+        HistorySharingActions initial; initial.principalId = "old-access"; initial.identityVersion = 1;
+        initial.importFile = [&](QString, QString, std::function<void(QString)>) { ++imported; };
+        panel.setSharingActions(std::move(initial));
+        ElaPushButton* importButton = nullptr;
+        for (auto* button : panel.findChildren<ElaPushButton*>())
+            if (button->text() == "Share local log file…") importButton = button;
+        QVERIFY(importButton); QVERIFY(importButton->isEnabled());
+        QTimer::singleShot(0, &panel, [&] {
+            HistorySharingActions replacement; replacement.principalId = replacementId; replacement.identityVersion = replacementIdentity;
+            replacement.importFile = [&](QString, QString, std::function<void(QString)>) { ++imported; };
+            panel.setSharingActions(std::move(replacement));
+            auto* picker = panel.findChild<QFileDialog*>();
+            QVERIFY(picker); picker->selectFile(path);
+            QVERIFY(QMetaObject::invokeMethod(picker, "accept", Qt::DirectConnection));
+        });
+        importButton->click();
+        QCOMPARE(imported, 0);
+    }
+    void staleSharingDoesNotChangeLocalRecording() {
+        QTemporaryDir dir; HistoryService service(dir.path()); QTRY_VERIFY(service.ready());
+        const RecordingIntent intent{QUuid::createUuid(), 1}; bool done = false;
+        QVERIFY(service.start(intent, [&](auto r) { QVERIFY(r.success); done = true; })); QTRY_VERIFY(done);
+        service.stop(intent); QTRY_VERIFY(!service.captures().front().active);
+        HistoryRecordingPanel panel(&service);
+        bool current = true; int grants = 0, revocations = 0, clears = 0;
+        HistorySharingActions actions; actions.principalId = "shared-access"; actions.identityVersion = 1;
+        actions.isCurrent = [&] { return current; };
+        actions.share = [&](QString, HistoryCaptureId, quint64, quint64, bool) { ++grants; return QString{}; };
+        actions.revoke = [&](QString, HistoryCaptureId) { ++revocations; return QString{}; };
+        actions.clearImports = [&](QString) { ++clears; };
+        panel.setSharingActions(actions);
+        auto* table = control<QTableView>(panel, "historyCaptures"); QVERIFY(table); table->selectRow(0);
+        auto* share = control<ElaPushButton>(panel, "historyShare"); QVERIFY(share && share->isEnabled());
+        const auto capture = service.captures().front().id;
+        current = false; // Event delivery may lag the access store's new identity.
+        share->click(); control<ElaPushButton>(panel, "historyUnshare")->click();
+        control<ElaPushButton>(panel, "historyClearImports")->click();
+        QCOMPARE(grants, 0); QCOMPARE(revocations, 0); QCOMPARE(clears, 0);
+        panel.setSharingActions(std::move(actions)); QVERIFY(!share->isEnabled());
+        QVERIFY(!control<ElaPushButton>(panel, "historyClearImports")->isEnabled());
+        QCOMPARE(service.captures().size(), size_t(1)); QCOMPARE(service.captures().front().id, capture);
+        QVERIFY(control<ElaPushButton>(panel, "historyDelete")->isEnabled());
+    }
     void offlineSharingFormRejectsInvalidRanges() {
         QTemporaryDir dir; HistoryService service(dir.path()); QTRY_VERIFY(service.ready());
         const RecordingIntent intent{QUuid::createUuid(), 1}; bool done = false;
@@ -28,9 +96,9 @@ private slots:
         service.stop(intent); QTRY_VERIFY(!service.captures().front().active);
         HistoryRecordingPanel panel(&service);
         int granted = 0; HistoryCaptureId chosen; quint64 first = 0, last = 9; bool persistent = false;
-        HistorySharingActions actions; actions.clients = {{"client-id", "Client"}};
+        HistorySharingActions actions; actions.principalId = "shared-access"; actions.identityVersion = 1;
         actions.share = [&](QString client, HistoryCaptureId id, quint64 a, quint64 b, bool keep) {
-            if (client == "client-id") { ++granted; chosen = id; first = a; last = b; persistent = keep; } return QString{};
+            if (client == "shared-access") { ++granted; chosen = id; first = a; last = b; persistent = keep; } return QString{};
         };
         panel.setSharingActions(std::move(actions));
         auto* table = control<QTableView>(panel, "historyCaptures"); QVERIFY(table); table->selectRow(0);
@@ -92,6 +160,7 @@ private slots:
         QCOMPARE(spins[0]->value(), 16); QCOMPARE(spins[1]->value(), 8); QCOMPARE(spins[2]->value(), 3);
     }
     void initTestCase() {
+        QApplication::setAttribute(Qt::AA_DontUseNativeDialogs);
         eApp->init();
 #ifdef Q_OS_WIN
         // offscreen has no Windows font engine discovery; load a real system font.

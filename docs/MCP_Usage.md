@@ -1,11 +1,11 @@
 # NovaTerm AI MCP 使用说明
 
-2026-10-29：当前二十六工具，旧固定诊断/命令/脚本工具已退役；SFTP上传/下载提供可选overwrite（默认false），复用原查询/取消；本覆盖阶段Windows软件验证已完成，见[覆盖记录](architecture/stages/P8_AI_MCP_Interface/records/B3b_File_Overwrite_2026-10-28.md)。本轮按Windows交付，Linux/macOS安全文件后端尚未实现并明确拒绝相关文件I/O；B4由用户实测，P8未整体完成。托管提权继续unavailable，不是当前闭环前置。实际参数见[现行契约](architecture/stages/P8_AI_MCP_Interface/02_Current_MCP_Contract.md)，历史成绩见[验收档案](architecture/stages/P8_AI_MCP_Interface/records/README.md)。
+2026-10-29：当前二十二工具。所有 AI 共用一套接入令牌和授权；首次启用自动建立统一接入。会话目录只列当前已连接且获准读取的会话；每个新就绪连接默认启用读取、完整输入、托管提权和清空四项权限。同一连接内手动撤权不会被刷新恢复。保存目标目录/打开/查询/关闭四工具和对应界面已移除，手动保存会话入口保留。当前改动的验证结果以本轮记录为准，不沿用历史测试成绩。Linux/macOS 安全文件后端仍未实现；托管提权适配器仍不可用。参数见[现行契约](architecture/stages/P8_AI_MCP_Interface/02_Current_MCP_Contract.md)，历史成绩见[验收档案](architecture/stages/P8_AI_MCP_Interface/records/README.md)。
 
 NovaTerm 提供进程内 Streamable HTTP MCP 服务，可让支持 MCP 的 AI 客户端读取指定终端输出、
-搜索已读取的内容，并在单独授权后操作当前交互终端。默认关闭。
+搜索已读取的内容，并按统一授权操作当前交互终端。MCP 总开关默认关闭。
 
-历史录制与读取另行授权：在主菜单 **历史录制** 中手动开始/停止录制，选择录制条目和已登记的 MCP 客户端，填写 record 范围后点击 **Share selected**。终端的「读取输出」权限不会授权完整历史。范围终点为 `0` 表示每次请求时的已提交高水位，活动录制后续提交的数据也在此选择范围内；指定有限 record ID 可固定共享范围。默认共享到退出，勾选 **Keep permission after restart** 才保存离线权限；关闭终端不会撤销，撤回请用 **Revoke history permission**。
+历史录制与读取另行授权：在主菜单 **历史录制** 中手动开始/停止录制，选择录制条目，填写 record 范围后点击 **Share selected**。所选历史和导入文件向所有持有统一令牌的 AI 共享；终端的「读取输出」权限不会授权完整历史。范围终点为 `0` 表示每次请求时的已提交高水位，活动录制后续提交的数据也在此选择范围内；指定有限 record ID 可固定共享范围。默认共享到退出，勾选 **Keep permission after restart** 才保存离线权限；关闭终端不会撤销，撤回请用 **Revoke history permission**。
 
 历史工具为 `novaterm_list_captures`（仅列获准录制）、`novaterm_read_history`（base64 原文字节分页）、`novaterm_search_history`（UTF-8 文本或原文字节 literal 搜索）。按返回的 nextCursor 续页，不把 `complete=false` 或 unknown_tail 当成无缺失/无故障。搜索证据默认仅保留期限内存，退出后不可恢复；历史工具不会自动启用录制、恢复设备连接或执行命令。本机 **Share local log file…** 只共享明确选择的文件资源，最多 16 MiB，权限到退出，可用 **Revoke imported files** 撤回；本轮不规划离线分析器。
 
@@ -14,22 +14,20 @@ NovaTerm 提供进程内 Streamable HTTP MCP 服务，可让支持 MCP 的 AI �
 1. 编译并运行 NovaTerm，Qt SDK 需要包含匹配版本的 **HttpServer** 组件。
    MCP 服务由主程序持有，不需要独立 MCP 桥接进程。
 2. 在主菜单打开 **AI MCP 接入**，勾选 **启用本机 MCP 接入**。
-3. 点击 **管理客户端…**，输入名称并 **添加客户端**；已有客户端直接在主界面选择。移除客户端与更换令牌也在管理窗口中。
-4. 在会话列表勾选需要共享的 **读取输出**。新建会话和应用重启后的会话默认不共享。
-   如需让 Agent 连续操作当前终端，再明确勾选 **允许执行命令**。它授予文本、按键、
-   粘贴和命令输入权限，之后不逐条确认；原有交互命令授权不会自动升级为此权限。
+3. 首次启用自动创建统一令牌，不再添加或选择客户端。所有 AI 使用同一份配置；**重置接入令牌** 后需为所有 AI 更新配置。旧多客户端配置不会自动合并或继续认证。
+4. MCP 会话目录只显示已连接会话。每个新就绪连接默认勾选 **读取输出**、**允许执行命令**、**允许托管提权** 和 **允许清空终端**；可逐项取消。同一连接内刷新不会恢复手动撤销，重连形成新绑定后重新应用默认选择。完整输入允许文本、按键、粘贴和命令，不逐条确认；托管提权仍受可信目标及适配器能力限制。
 5. 点击 **复制 MCP 配置**，粘贴到所使用的 MCP 客户端配置中。配置含接入令牌，
    不要公开、提交到仓库或发送给其他人。
 6. 使用 CC Switch 时点击 **复制 CC Switch 配置**，把单个 server 对象粘贴到
    「完整的 JSON 配置」编辑器，并将唯一标题设为 `novaterm`。不要额外包裹
    `mcpServers` 或 `novaterm`；CC Switch 会用标题作为服务器 ID。
 
-只有已经打开且明确授予终端权限的会话可见。MCP不自动启动NovaTerm；本机用户另行允许保存目标打开后，可按下文创建可见SSH/UART终端。切换当前标签不会改变工具的目标，调用按 sessionId 和 epoch 定位。
+只有当前已连接且获准读取的会话可见。MCP不自动启动NovaTerm或打开保存连接；请先使用手动会话入口建立连接。切换当前标签不会改变工具的目标，调用按 sessionId 和 epoch 定位。
 
 默认接入地址为 `http://127.0.0.1:38973/mcp`，应用重启后保持稳定；应用启动前
 可用环境变量 `NOVATERM_MCP_HTTP_PORT` 覆盖端口。端口占用会明确报错，不自动
 换端口。需要多个应用实例时为各实例显式选择不同端口，使用各自导出的 URL 和令牌。
-应用必须运行且已启用 MCP，客户端不会自动启动主程序。重启后仍需重新选择共享会话。
+应用必须运行且已启用 MCP，客户端不会自动启动主程序。应用重启后的新就绪连接同样应用默认会话权限；文件与历史共享仍独立。
 
 导出的单个 HTTP server 对象形状如下，令牌仅为占位值：
 
@@ -57,7 +55,7 @@ http_headers = { Authorization = "Bearer <从 NovaTerm 导出的接入令牌>" }
 
 | 工具 | 用途 |
 | --- | --- |
-| `novaterm_list_sessions` | 列出该客户端获准访问的会话及身份 |
+| `novaterm_list_sessions` | 列出当前已连接且统一接入获准读取的会话及身份 |
 | `novaterm_read_context` | 缺省读取屏幕/摘要；source=log 按精确位置读取保留的终端历史 |
 | `novaterm_search_context` | 搜索一次已返回的 capture，不搜索整个历史或执行正则 |
 | `novaterm_interact_terminal` | 按观察返回的输入令牌操作当前终端，并等待下一次有用反馈 |
@@ -92,34 +90,21 @@ status=gap 表示旧位置被淘汰；status=invalidated 表示本机 clear 或 
 
 预算缺省 65536 字节/256 分段，最大 262144/1024；compact 只改缺省为 4096/24。初次 start 与续读 sinceToken 必须二选一；日志模式不要传 expandToken、waitFor、非零 waitMs 或 includeViewport=true。只有读取授权也可建立书签，整个过程没有输入或清空。
 
-当前软尾行、未换行提示、CR 进度条和备用屏仍看缺省 observation。日志只读已稳定的终端缓存，没有原始字节或覆写前屏幕帧；分页完整不证明 UART 硬件零丢失。日志 token 与观察 token/capture/expandToken 不混用，不产生 inputToken；需要操作时另读屏幕。MCP 清空按下节独立授权开放；文本等待和长任务见下文，保存目标打开/查询/安全关闭见下节；文件传输当前提供受限SFTP上传/下载和独立授权的UART/ZMODEM单文件发送。
+当前软尾行、未换行提示、CR 进度条和备用屏仍看缺省 observation。日志只读已稳定的终端缓存，没有原始字节或覆写前屏幕帧；分页完整不证明 UART 硬件零丢失。日志 token 与观察 token/capture/expandToken 不混用，不产生 inputToken；需要操作时另读屏幕。MCP 清空按下节独立授权开放；文本等待和长任务见下文；文件传输当前提供受限SFTP上传/下载和独立授权的UART/ZMODEM单文件发送。
 
 ## 文本等待与长任务（B3/B3a）
 
-当前共二十六个工具：上述五项、三项离线历史、独立清空、以下四项等待/任务、保存目标目录/打开/查询/安全关闭四项、独立文件授权目录、SFTP上传/下载/查询/取消四项、UART发送授权目录及UART上传/查询/取消三项。SSH/UART交互均复用当前可见终端；先列会话核对 availability.terminalTasks，再观察和输入。
+当前共二十二个工具：上述五项、三项离线历史、独立清空、以下四项等待/任务、独立文件授权目录、SFTP上传/下载/查询/取消四项、UART发送授权目录及UART上传/查询/取消三项。SSH/UART交互均复用当前可见终端；先列会话核对 availability.terminalTasks，再观察和输入。
 
-文件权限在本机MCP设置的「文件资源授权…」中逐客户端选择：本地目录与当前SSH远端目录各自明确读/写，默认不选，终端授权不会自动授予文件权限。调用 `novaterm_list_file_resources` 无参数可发现本人已共享的本地resourceId、远端scopeId及其sessionId/epoch；也可用成对sessionId/epoch筛选。返回不含本机路径或文件字节，名称文字及远端路径由本机用户主动共享。身份变化或重连后需复核，陈旧授权窗口不能给新连接授权。
+文件权限在本机MCP设置的「文件资源授权…」中为所有 AI 共同选择：本地目录与当前SSH远端目录各自明确读/写，默认不选，终端授权不会自动授予文件权限。调用 `novaterm_list_file_resources` 无参数可发现统一接入已共享的本地resourceId、远端scopeId及其sessionId/epoch；也可用成对sessionId/epoch筛选。返回不含本机路径或文件字节，名称文字及远端路径由本机用户主动共享。身份变化或重连后需复核，陈旧授权窗口不能给新连接授权。
 
-授权窗口显示客户端名称和稳定ID，打开期间锁定父窗口交互，同一客户端重复打开会复用窗口；程序侧切换客户端会关闭旧窗口。无关刷新保留所选目录，规则更新、撤回或连接换绑后须重新选择，避免旧撤回意图作用于新规则。
+授权窗口绑定打开时的统一接入身份，采用父窗口模态；令牌重置、停用或身份变化后旧窗口拒绝提交，需关闭后重新打开。无关刷新保留同一 ID 与 revision 的选择，规则更新、撤回或连接换绑后须重新选择。历史导入的文件选择期间身份变化也会拒绝旧操作。
 
 目录工具返回 `availability=authorization_only`，列表只证明共享许可，不证明路径安全或文件存在。SFTP上传用 `novaterm_upload_file`，下载用 `novaterm_download_file`，共用 `novaterm_query_transfer/cancel_transfer`，须原终端SFTP面板就绪。上传创建新目标要求hardlink扩展版本1，显式覆盖已有目标要求posix-rename扩展版本1；下载由安全本地Writer发布，不要求远端hardlink。两项overwrite默认false，显式true按下节边界执行。
 
-UART在同一窗口选择“串口 ZMODEM 发送”，选当前连接、填写共享名称并勾“允许ZMODEM发送”。`novaterm_list_serial_file_targets` 无参数发现本人授权，返回targetId/revision和sessionId/epoch；不要求终端读取权限，不隐含本地文件读权限。重连、配置或身份改变须重新授权。授权目录只证明共享许可，不证明接收端已准备或输入lease空闲；发送步骤见下节，上传不会自动输入rz、释放lease或抢占人工传输。
+UART在同一窗口选择“串口 ZMODEM 发送”，选当前连接、填写共享名称并勾“允许ZMODEM发送”。`novaterm_list_serial_file_targets` 无参数发现统一授权，返回targetId/revision和sessionId/epoch；不要求终端读取权限，不隐含本地文件读权限。重连、配置或身份改变须重新授权。授权目录只证明共享许可，不证明接收端已准备或输入lease空闲；发送步骤见下节，上传不会自动输入rz、释放lease或抢占人工传输。
 
-保存目标目录需要在「AI MCP access」中选择客户端，勾选「保存目标」的「共享目录」列；仅当前应用运行有效。`novaterm_list_targets` 可用 limit（默认25，最多50）及返回的 nextCursor 分页；配置修改、重新保存或共享变化后续页返回 TARGET_DIRECTORY_CHANGED，应重新列举。它仅披露所选 SSH/UART 的名称和端点摘要，saved_configuration 不表示设备在线；不连接设备，不授予终端读取/输入或文件权限。打开还需独立授权，见下文；安全关闭见下文；SFTP单文件上传使用独立文件授权。
-
-需要Agent打开保存目标时，在该客户端下先勾「共享目录」，再单独勾「允许打开」。调用 `novaterm_open_target`，只传目录返回的 `targetId`、`configVersion` 和新的UUID `operationId`；不能修改地址、串口参数、认证或传密码。匹配的连接会复用，否则创建可见标签；串口被其他配置占用时返回 `state=unavailable, reason=port_busy`，不会关闭人的会话来腾端口。本机手动断开已停止自动重连、且端口实际释放后，旧标签不会继续占用预留；真正待重连或待释放的端口仍受保护。
-
-保存原参数，用 `novaterm_query_target` 查询connecting/running/failed等实际状态。首次连接和同目标重连可更新epoch；换绑目标返回invalidated。`reason=host_key_confirmation_required` 时由本机用户处理主机密钥窗口；`authentication_required` 时在本机编辑凭据。不要把connecting、accepted或已建标签当作登录成功。
-
-打开默认不授予终端读取、输入、清空或文件权限。可在该保存目标行预先勾选「新建时读取」「新建时完整输入」「新建时允许清空」，输入或清空会同时选择读取，取消读取会级联取消两项。规则只对本客户端新建的原连接首次就绪时生效一次；复用会话不授权，重试/查询/重连不恢复权限。托管提权和文件权限仍另行授权。
-
-预授权等待最多120秒；期间配置修改、规则修改或撤回再开启、身份轮换、人工终端输入、显式断开/重连、失败/换绑/移出目录均取消。已有会话权限行（包括手动撤销）不会被覆盖。打开成功不等于已完成授权，Agent应随后用list_sessions与观察工具取得有效sessionId/epoch/inputToken；未选择规则或等待取消时，仍由本机为该会话授权。已生效的权限随后通过会话权限管理，修改预授权只影响未来或尚未生效的创建操作。撤回目录共享同时撤回允许打开与预授权，重新共享不会恢复旧选择。
-
-同一操作只用原operationId和完全相同参数重试，查询不会重连或重开标签。运行期每客户端最多32、全局256条打开操作，满额拒绝新操作但保留已有查询；记录不跨重启恢复。失败/缺记录/未知结果都不应换ID自动重跑。收尾可调用 `novaterm_close_target`，传原targetId/configVersion/operationId及最近查询epoch。仅原操作创建、未被人工终端输入或本机手动连接动作接管、仍为原连接且有可靠空闲证据时关闭。复用的人类会话拒绝；忙碌或未知提示符的UART返回TARGET_CLOSE_BUSY，不强关。成功返回closing/closed，保留可见终端和缓存；关闭精确重试使用相同epoch，不再次关闭。初次连接指纹发现可使用最新epoch；重新连接后的连接不由旧打开操作关闭。文件操作/执行/认证待处理时等待或由本机用户收尾。
-
-
-目录名称采用保存标签，空标签回退主机名或串口名，不包含 SSH 登录用户名。给同一客户端的活动 Session 修改读取/输入等权限，不会清掉独立的目录共享；令牌轮换、删除客户端和全局停用仍会撤销目录共享。
+保存目标四工具 `novaterm_list_targets/open_target/query_target/close_target` 已移除。应用左侧的手动保存会话、编辑和双击重连继续保留。UART 文件发送的 `targetId` 是独立发送授权标识，不是已移除的保存连接目录。
 
 | 工具 | 选择方式 |
 | --- | --- |
@@ -138,7 +123,7 @@ UART在同一窗口选择“串口 ZMODEM 发送”，选当前连接、填写�
 
 日志尾部仅指已提交历史；仍在活动屏幕的旧文字随后滚入历史时，也可能被该基线之后的日志等待命中。按测试轮次判断时结合独有标志及实际固件身份，不能只凭通用PASS推断新一轮已经执行。普通交互用过的operationId也不能配合新inputToken改作新任务启动；新意图使用新ID，同一任务的网络重试才复用原ID和原参数。
 
-单次等待最长30秒、默认扫描256KiB/最大1MiB。timeout或scan_budget_exhausted返回resumeToken，重传同一匹配条件继续（不再带sinceToken）；可以调整waitMs/scanBytes。续扫状态固定十分钟，每客户端8/全局32，过期明确拒绝。nextToken是服务端扫描进度；需要完整日志另从startToken分页，不把命中上下文当作已读全文。gap/invalidated须承认缺口并显式选新基线；pending/busy冷页等待不证明没有文本。取消等待不发送任何输入。
+单次等待最长30秒、默认扫描256KiB/最大1MiB。timeout或scan_budget_exhausted返回resumeToken，重传同一匹配条件继续（不再带sinceToken）；可以调整waitMs/scanBytes。续扫状态固定十分钟，统一接入8/全局32，过期明确拒绝。nextToken是服务端扫描进度；需要完整日志另从startToken分页，不把命中上下文当作已读全文。gap/invalidated须承认缺口并显式选新基线；pending/busy冷页等待不证明没有文本。取消等待不发送任何输入。
 
 长任务启动示例：
 
@@ -146,7 +131,7 @@ UART在同一窗口选择“串口 ZMODEM 发送”，选当前连接、填写�
 {"sessionId":"<id>","epoch":"<epoch>","inputToken":"<fresh observation>","operationId":"<new UUID>","actions":[{"type":"command","command":"make test"}],"timeoutMs":600000}
 ```
 
-启动只做一次；短RPC断流不停止已受理任务。用taskId查询，若启动响应丢失，用原operationId查询受理；网络重试使用相同ID和全部相同参数，不换ID重输。任务每客户端32/全局128、终态保留十分钟；应用重启或关闭MCP不恢复执行索引，记录丢失时报告未知，不能自动重跑。
+启动只做一次；短RPC断流不停止已受理任务。用taskId查询，若启动响应丢失，用原operationId查询受理；网络重试使用相同ID和全部相同参数，不换ID重输。任务统一接入32/全局128、终态保留十分钟；应用重启或关闭MCP不恢复执行索引，记录丢失时报告未知，不能自动重跑。
 
 分别检查status、submissionStatus、completed、evidenceKind、exitCode和terminationConfirmed。UART原始任务静默仍running，执行期限到达unknown，不能捏造exitCode=0；SSH提示符也不证明功能测试成功。停止请求与远端确认终止分别解释；人工接管、可信环境reset、断连或新执行后旧停止请求不再有效。任务输出仍来自终端缓存，清空/淘汰可造成output缺口，但不抹除执行事实。
 
@@ -194,7 +179,7 @@ true明确授权可信目录中的目标路径替换，不是按文件身份执�
 
 ## 本地清空（B2）
 
-默认不允许 MCP 清空。在本机 MCP 设置中为指定客户端/会话单独勾选清空权限后，先读取一次日志页，再显式调用 `novaterm_clear_terminal`：
+新就绪连接默认允许 MCP 清空；在本机 MCP 设置中可取消该会话的清空权限。权限有效时，先读取一次日志页，再显式调用 `novaterm_clear_terminal`：
 
 ```json
 {"sessionId":"<session id>","epoch":"<current epoch>","operationId":"<new UUID>","scope":"scrollback","expectedGeneration":"<log cacheGeneration>","clearToken":"<log clearToken>"}
@@ -257,7 +242,7 @@ scope=all 同时清屏与历史；scrollback 仅清历史。成功表示 Parser 
 compact 默认 4 KiB/24 行文本，含两份兼容 payload 的最终编码工具结果不超过
 8 KiB。省略的内容可用 `read_context(expandToken=...)` 从同一保留 capture 分页补读，
 不能同时传 sinceToken 或等待。补读不续租控制权、不更新实时游标；capture 最多
-保留 60 秒，每客户端最多四个、全局最多 32 个，按最旧优先淘汰。`TEXT_BUDGET_TOO_SMALL` 表示 maxBytes 连下一个
+保留 60 秒，统一接入最多四个、全局最多 32 个，按最旧优先淘汰。`TEXT_BUDGET_TOO_SMALL` 表示 maxBytes 连下一个
 UTF-8 字符都放不下，应增大预算。full 可用于更大的有界投影；旧读取游标切入新版
 前仍校验原连接身份，新版观察游标可在 compact/full 间继续使用。
 full 默认提供有界屏幕，显式 `includeViewport=true` 也可在 revision 未变化时取屏。
@@ -271,27 +256,26 @@ full 因字节或行数预算截断时设置 `resetRequired=true`、`nextToken=n
 `INPUT_OUT_OF_ORDER`，过期令牌返回 `INPUT_TOKEN_EXPIRED`；上下文/控制代际变化仍
 返回 `CONTROL_INVALID`。这些都是零新增输入的拒绝，不能据此换 ID 自动重试。
 
-会话的“提权凭据”可分别保存/替换/删除 sudo 与 su 密码；显示系统凭据库或仅本次
-运行，保存后不回填，修改会撤销托管提权授权。当前 `elevationMethods` 为空，
+会话的“提权凭据”可分别保存/替换/删除 sudo 与 su 密码；存储方式尚未知时明确显示
+“尚未确认”，实际后端确认后显示系统凭据库或仅本次运行。保存后不回填，修改会撤销
+托管提权授权。当前 `elevationMethods` 为空，
 `request_elevation` 返回 `ELEVATION_ADAPTER_UNAVAILABLE`。未完成可信本地/SSH
 认证适配器验收前，不会依据 Password 提示符代填密码。
 
 ## 现行授权与旧接口退役
 
-主界面只保留读取输出、完整终端输入、托管提权、独立清空及当前操作。
-客户端选择、配置复制、会话接管、保存目标和文件授权保持独立。
+主界面保留统一接入开关、配置复制、令牌重置、已连接会话权限、接管和独立文件授权，不再有客户端管理或保存目标表格。
 
-- **读取输出**：允许读取/搜索会话，不授予任何输入或文件权限。
-- **允许执行命令**：允许当前客户端输入文本、按键、粘贴和命令；默认关闭，
-  授权后不逐条风险确认。重连、撤权或目标变化后需要重新授权。
-- **允许托管提权**：依赖完整输入且须另行选择；当前可信认证适配器不可用，
-  保存凭据不会自动授权，也不代表能够执行提权。
-- **允许清空终端**：独立授权，只影响本机显示/回滚，不停止设备程序、不删除历史录制。
+- **读取输出**：允许读取/搜索当前会话，不推导文件或完整历史权限。
+- **允许执行命令**：允许所有持有统一令牌的 AI 输入文本、按键、粘贴和命令，不逐条确认。
+- **允许托管提权**：依赖完整输入；当前可信认证适配器不可用，勾选不代表能够执行提权。
+- **允许清空终端**：只影响本机显示/回滚，不停止设备程序、不删除独立历史录制。
+
+四项在每个新就绪连接默认开启。同一连接内的手动撤权持续有效；取消读取级联撤销输入、提权及清空，取消输入撤销提权。文件、UART 发送和历史共享仍需另行选择。
 
 `novaterm_list_commands`、`novaterm_execute_command`、`novaterm_run_command`、
 `novaterm_run_script` 已从工具目录、解码及执行接线中删除，直接调用返回未知工具。
-客户端应刷新工具目录；旧接口不会转发到权限更宽的新终端输入。旧授权选择也不会
-自动升级为完整输入授权。原来的固定诊断/脚本/交互授权列、旧执行结果面板、
+客户端应刷新工具目录；旧接口不会转发到权限更宽的新终端输入。旧多客户端授权不会合并；新统一接入按上述连接默认规则建立权限。原来的固定诊断/脚本/交互授权列、旧执行结果面板、
 “确认远端停止”和“解除暂停”入口已移除。
 
 诊断或命令通过 `novaterm_read_context` 观察，再以 `novaterm_interact_terminal`
@@ -302,7 +286,7 @@ full 因字节或行数预算截断时设置 `resetRequired=true`、`nextToken=n
 
 输入受理、任务停止请求、HTTP断开或释放终端控制，都不能单独证明远端进程结束。
 不确定结果按原operationId查询/精确重试，不用新ID重复提交。人工接管后不得停止新命令。
-撤销读取会级联撤销输入、提权及清空；移除客户端、令牌轮换和关闭总开关撤销相应访问。
+撤销读取会级联撤销输入、提权及清空；令牌重置和关闭总开关撤销相应访问。
 已发给设备的输入不能撤回，必要时由用户在终端或设备侧确认实际状态。
 
 ## 构建与验证
@@ -315,15 +299,7 @@ full 因字节或行数预算截断时设置 `resetRequired=true`、`nextToken=n
 编辑串口会话，在「MCP 命令提示符（正则）」填写设备空闲提示符的匹配规则，
 如实际提示符为 `device> `，填写 `^device> $`；配置规则时设备输出匹配提示符
 且经过静默窗口后，才形成“验证完成”的证据。按设备要求选择 CR、LF 或 CRLF，
-并设置设备是否回显输入。规则留空时降级为空闲收尾：命令直接发出，设备静默
-（默认 3 秒）判完成，但结果按“完成未验证”上报、没有退出码且不证明命令已
-终止（设备静默也可能仍在运行）。保存后随该会话重新连接生效。在「AI MCP
-接入」对所需客户端单独勾选该会话的「交互命令」。仅共享读取输出不会授予
-执行权限。
-
-这里的提示符开关用于旧 run_command 和新版 command 快捷动作的就绪证据：
-填写规则时两者都要求提示符就绪；串口规则留空时只有 run_command 走空闲收尾，
-新版 command 快捷动作仍要求提示符就绪（不可用时改用观察与 text/key 输入）。
+并设置设备是否回显输入。配置随该会话重新连接生效。当前 `interact_terminal` 的 command 快捷动作要求提示符就绪；规则留空或证据不足时使用观察与 text/key 输入。旧 `run_command` 已移除，不再提供其空闲收尾入口。
 规则留空不禁用已独立授权的新版 text/key/paste。混合回车/尾部文字或多行输入时，
 服务端保守跟踪未提交尾部和待返回提示符，不会把首个提示符当成整批已完成；
 无法确认行编辑上下文时继续使用观察与自由输入，不盲目追加 command。

@@ -20,9 +20,6 @@
 #include "ui/widgets/MessagePrompts.h"
 
 #include <QDir>
-#include <QCryptographicHash>
-#include <QJsonDocument>
-#include <QJsonObject>
 #include <QDebug>
 #include <QFont>
 #include <QHeaderView>
@@ -301,6 +298,7 @@ RuntimeConfig sshRuntime(const SshConfig& config)
         {QStringLiteral("authMethod"), config.authMethod},
         {QStringLiteral("privateKeyPath"), config.privateKeyPath},
         {QStringLiteral("terminalType"), config.terminalType},
+        {QStringLiteral("interactiveShellKind"), config.interactiveShellKind},
         {QStringLiteral("keepAliveSeconds"), config.keepAliveSeconds},
         {QStringLiteral("label"), config.label}};
     runtime.title = sessionName(runtime);
@@ -616,7 +614,6 @@ void SessionPanel::upsert(RuntimeConfig runtime, const QByteArray& secret)
         _credentials->remove(it->runtimeSnapshot.credentialRef);
     }
 
-    _mcpTargetVersions.insert(it->sessionId.toString(QUuid::WithoutBraces), QUuid::createUuid().toRfc4122());
     it->runtimeSnapshot = std::move(runtime);
     saveHistory();
     rebuildTree();
@@ -644,7 +641,6 @@ void SessionPanel::replace(const SessionId& id, RuntimeConfig runtime,
         _credentials->remove(oldCredentialRef);
     }
 
-    _mcpTargetVersions.insert(it->sessionId.toString(QUuid::WithoutBraces), QUuid::createUuid().toRfc4122());
     it->runtimeSnapshot = std::move(runtime);
     saveHistory();
     rebuildTree();
@@ -683,49 +679,12 @@ void SessionPanel::saveHistory()
     QString error;
     if (!_store->save(_entries, &error))
         qWarning() << "Failed to save session history:" << error;
-    emit savedTargetsChanged(); // Reflect the in-memory UI source, even if persistence failed.
 }
 
-QList<NovaTerm::Mcp::SavedTargetSource> SessionPanel::savedTargetSources() const
-{
-    QList<NovaTerm::Mcp::SavedTargetSource> sources;
-    for (const auto& entry : _entries) {
-        const auto& runtime = entry.runtimeSnapshot;
-        if (runtime.transportKind != TransportKind::Ssh && runtime.transportKind != TransportKind::Serial) continue;
-        const auto& values = runtime.transport;
-        const auto id = entry.sessionId.toString(QUuid::WithoutBraces);
-        const bool ssh = runtime.transportKind == TransportKind::Ssh;
-        const auto endpoint = ssh
-            ? QStringLiteral("%1:%2").arg(values.value("host").toString()).arg(values.value("port", 22).toUInt())
-            : QStringLiteral("%1 @ %2").arg(values.value("portName").toString()).arg(values.value("baudRate").toInt());
-        QString title = values.value("label").toString().trimmed();
-        if (title.isEmpty())
-            title = values.value(ssh ? "host" : "portName").toString();
-        // Includes non-disclosed configuration and an edit nonce, never reads the credential store.
-        const auto configurationBytes = QJsonDocument(QJsonObject::fromVariantMap(values)).toJson(QJsonDocument::Compact)
-            + runtime.credentialRef.toUtf8() + _mcpTargetVersions.value(id);
-        sources.append({id, title, ssh ? QStringLiteral("ssh") : QStringLiteral("serial"), endpoint,
-            QCryptographicHash::hash(configurationBytes, QCryptographicHash::Sha256)});
-    }
-    return sources;
-}
-
-std::optional<SessionPanel::SavedConnection> SessionPanel::savedConnection(const QString& targetId,
-    const QByteArray& expectedConfigurationKey, QString& reason) const
+std::optional<SessionPanel::SavedConnection> SessionPanel::restoredConnection(const RuntimeConfig& runtime,
+    QString& reason) const
 {
     reason.clear();
-    const auto sources = savedTargetSources();
-    const auto source = std::find_if(sources.cbegin(), sources.cend(), [&targetId](const auto& row) {
-        return row.id == targetId;
-    });
-    if (source == sources.cend() || source->configurationKey != expectedConfigurationKey) {
-        reason = "configuration_changed"; return std::nullopt;
-    }
-    const auto entry = std::find_if(_entries.cbegin(), _entries.cend(), [&targetId](const auto& row) {
-        return row.sessionId.toString(QUuid::WithoutBraces) == targetId;
-    });
-    if (entry == _entries.cend()) { reason = "configuration_changed"; return std::nullopt; }
-    const auto runtime = entry->runtimeSnapshot;
     const auto values = runtime.transport;
     if (runtime.transportKind == TransportKind::Serial) {
         SerialConfig config;
@@ -933,7 +892,6 @@ void SessionPanel::deleteSessions(const QList<SessionId>& ids)
             continue;
         if (!it->runtimeSnapshot.credentialRef.isEmpty())
             _credentials->remove(it->runtimeSnapshot.credentialRef);
-        _mcpTargetVersions.remove(id.toString(QUuid::WithoutBraces));
         _entries.erase(it);
     }
     saveHistory();
@@ -970,13 +928,8 @@ void SessionPanel::reconnectSession(const SessionId& id)
         return;
     }
     if (runtime.transportKind == TransportKind::Serial || runtime.transportKind == TransportKind::Ssh) {
-        const auto sources = savedTargetSources();
-        const auto source = std::find_if(sources.cbegin(), sources.cend(), [&id](const auto& row) {
-            return row.id == id.toString(QUuid::WithoutBraces);
-        });
-        if (source == sources.cend()) return;
         QString reason;
-        const auto configuration = savedConnection(source->id, source->configurationKey, reason);
+        const auto configuration = restoredConnection(runtime, reason);
         if (!configuration) {
             if (runtime.transportKind == TransportKind::Ssh)
                 emit reconnectUnavailable(reason == "authentication_required"

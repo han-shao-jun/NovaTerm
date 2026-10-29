@@ -10,11 +10,12 @@ class QTableView;
 class QLabel;
 class ElaPushButton;
 class ElaSpinBox;
-class ElaComboBox;
 class ElaCheckBox;
 class QLineEdit;
 struct HistorySharingActions {
-    std::vector<std::pair<QString, QString>> clients; // Stable ID and display label.
+    QString principalId;
+    quint64 identityVersion{0};
+    std::function<bool()> isCurrent;
     std::function<QString(QString, NovaTerm::Recording::HistoryCaptureId, quint64, quint64, bool)> share;
     std::function<QString(QString, NovaTerm::Recording::HistoryCaptureId)> revoke;
     std::function<QString(QString, NovaTerm::Recording::HistoryCaptureId)> status;
@@ -42,7 +43,6 @@ private:
     ElaSpinBox* _days;
     ElaPushButton* _apply;
     QWidget* _sharingPanel;
-    ElaComboBox* _shareClient;
     QLineEdit* _shareFirst;
     QLineEdit* _shareLast;
     ElaCheckBox* _sharePersistent;
@@ -57,6 +57,7 @@ private:
     bool _settingsEdited{false};
     std::function<NovaTerm::Recording::RecordingIntent()> _resolveTarget;
     int selectedRow() const;
+    bool sharingCurrent() const;
     void updateActions();
     void syncSettings();
 };

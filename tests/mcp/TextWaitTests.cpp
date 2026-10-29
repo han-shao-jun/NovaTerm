@@ -65,7 +65,7 @@ struct Fixture {
         if (!session.start()) qFatal("test session failed");
         directory.add(&session);
         if (!access.setEnabled(true)) qFatal("test access store unavailable");
-        client = access.addClient("text-wait");
+        client = access.ensureAccess();
         if (!TestSupport::setGrant(access, client, entry(), true)) qFatal("test read grant failed");
         if (!core.waitForIdle()) qFatal("parser failed to idle");
     }
@@ -222,7 +222,7 @@ private slots:
         QTRY_VERIFY(resumed); QCOMPARE(data(*resumed).value("status").toString(), "invalidated");
         QVERIFY(f.transport.written.isEmpty());
     }
-    void continuationBoundToConditionAndClient() {
+    void continuationBoundToConditionAndRejectsForgedPrincipal() {
         Fixture f; auto request = f.request();
         std::optional<QJsonObject> first;
         f.waiter.call(f.client, "first", request, [&first](auto value) { first = value; });
@@ -230,11 +230,12 @@ private slots:
         std::optional<QJsonObject> mismatch;
         f.waiter.call(f.client, "mismatch", request, [&mismatch](auto value) { mismatch = value; });
         QVERIFY(mismatch); QCOMPARE(mismatch->value("error").toObject().value("code").toString(), "CURSOR_STALE");
-        request.texts = {"PASS"}; const auto other = f.access.addClient("other");
-        QVERIFY(TestSupport::setGrant(f.access, other, f.entry(), true));
+        request.texts = {"PASS"}; const auto other = newId();
+        QCOMPARE(f.access.identityVersion(other), quint64(0));
+        QVERIFY(!TestSupport::setGrant(f.access, other, f.entry(), true));
         std::optional<QJsonObject> wrongClient;
         f.waiter.call(other, "other", request, [&wrongClient](auto value) { wrongClient = value; });
-        QVERIFY(wrongClient); QCOMPARE(wrongClient->value("error").toObject().value("code").toString(), "CURSOR_STALE");
+        QVERIFY(wrongClient); QCOMPARE(wrongClient->value("error").toObject().value("code").toString(), "SESSION_NOT_AVAILABLE");
     }
     void retainedStateCapacityNeverSilentlyResets() {
         Fixture f;
@@ -396,18 +397,14 @@ private slots:
         QSet<int> visited;
         int slowReads = 0;
         Fixture f;
-        for (int clientIndex = 0; clientIndex < 4; ++clientIndex) {
-            const auto client = f.access.addClient(QStringLiteral("fairness-%1").arg(clientIndex));
-            QVERIFY(TestSupport::setGrant(f.access, client, f.entry(), true));
-            for (int slot = 0; slot < 2; ++slot) {
-                const int index = clientIndex * 2 + slot;
-                auto request = f.request();
-                request.wait = std::chrono::milliseconds{slot == 0 ? 1000 : 30000};
-                request.scanBytes = 100 + index;
-                f.waiter.call(client, QString::number(index), request,
-                    [&results, index](auto value) { results[index] = value; });
-                QVERIFY(!results[index]);
-            }
+        // All eight connections use the same principal and share its bounded wait budget.
+        for (int index = 0; index < 8; ++index) {
+            auto request = f.request();
+            request.wait = std::chrono::milliseconds{index % 2 == 0 ? 1000 : 30000};
+            request.scanBytes = 100 + index;
+            f.waiter.call(f.client, QString::number(index), request,
+                [&results, index](auto value) { results[index] = value; });
+            QVERIFY(!results[index]);
         }
         // 初次同步调用已建立全部基线。睡眠仅构造超过 8ms 的慢日志依赖，
         // 不处理事件或等待竞争；单调时钟固定，八条等待在观察轮转时保持稳定。

@@ -1,16 +1,14 @@
 /** @file McpSettingsDialog.cpp
- *  @brief 本机MCP接入、独立会话授权与客户端管理。
+ *  @brief 本机MCP接入、统一接入与独立会话授权。
  */
 #include "McpSettingsDialog.h"
 #include "FileResourceSharingDialog.h"
 #include "mcp/McpService.h"
-#include "mcp/application/SavedTargets.h"
 #include "mcp/CapabilityAdapter.h"
 #include "ui/models/SettingsController.h"
 #include "session/SessionCommandFacade.h"
 #include "session/SessionTerminalController.h"
 #include "ElaCheckBox.h"
-#include "ElaComboBox.h"
 #include "ElaLineEdit.h"
 #include "ElaPushButton.h"
 #include "ElaText.h"
@@ -19,7 +17,6 @@
 #include <QScrollBar>
 #include <QApplication>
 #include <QClipboard>
-#include <QFontMetrics>
 #include <QHeaderView>
 #include <QJsonDocument>
 #include <QMetaObject>
@@ -168,7 +165,7 @@ McpSettingsDialog::McpSettingsDialog(NovaTerm::Mcp::Service* service, QWidget* p
     layout->setSpacing(10);
     _enabled = new ElaCheckBox(tr("Enable local MCP access"), this);
     layout->addWidget(_enabled);
-    auto* explanation = new ElaText(tr("只共享所选会话。允许执行命令后，AI可在当前连接输入文本、按键和命令；终端输出可能包含敏感信息。"), this);
+    auto* explanation = new ElaText(tr("所有 AI 共用此接入令牌及授权。会话的读取、输入、托管提权和清空权限默认开启，可取消勾选；终端输出可能包含敏感信息。"), this);
     explanation->setWordWrap(true);
     explanation->setTextPixelSize(12);
     layout->addWidget(explanation);
@@ -176,22 +173,15 @@ McpSettingsDialog::McpSettingsDialog(NovaTerm::Mcp::Service* service, QWidget* p
     _status->setWordWrap(true);
     _status->setTextPixelSize(12);
     layout->addWidget(_status);
-    auto* clients = new QHBoxLayout;
-    _clients = new ElaComboBox(this);
-    _clients->setObjectName(QStringLiteral("mcpClientSelector"));
-    _clients->setMinimumWidth(180);
-    clients->addWidget(_clients, 1);
-    auto* manage = new ElaPushButton(tr("管理客户端…"), this);
-    manage->setObjectName("mcpManageClients");
-    clients->addWidget(manage);
-    connect(manage, &QPushButton::clicked, this, &McpSettingsDialog::manageClients);
-    layout->addLayout(clients);
     auto* actions = new QHBoxLayout;
     auto* copy = new ElaPushButton(tr("Copy MCP configuration"), this);
     auto* copyForCcSwitch = new ElaPushButton(tr("Copy for CC Switch"), this);
+    auto* rotate = new ElaPushButton(tr("Reset access token"), this);
+    rotate->setObjectName("mcpRotateAccessToken");
     auto* takeOver = new ElaPushButton(tr("接管选中会话"), this);
     actions->addWidget(copy);
     actions->addWidget(copyForCcSwitch);
+    actions->addWidget(rotate);
     actions->addWidget(takeOver);
     actions->addStretch();
     layout->addLayout(actions);
@@ -211,90 +201,46 @@ McpSettingsDialog::McpSettingsDialog(NovaTerm::Mcp::Service* service, QWidget* p
         [this] { _sessions->viewport()->update(); });
     auto* sessionHeader = _sessions->header();
     sessionHeader->setStretchLastSection(false);
-    sessionHeader->setSectionResizeMode(0, QHeaderView::Interactive);
-    // 首列仅预留常见主机名和两级树缩进，避免大窗口把空白都分给会话名。
-    sessionHeader->resizeSection(0,
-        _sessions->fontMetrics().horizontalAdvance(QStringLiteral("192.168.100.100"))
-            + 2 * _sessions->indentation() + _sessions->getItemLeftPadding() + 24);
+    sessionHeader->setSectionResizeMode(0, QHeaderView::Stretch);
     for (int column = 1;
          column < NovaTerm::Ui::SessionPermissionModel::index(
              NovaTerm::Ui::SessionPermissionModel::Column::Operation); ++column)
         sessionHeader->setSectionResizeMode(column, QHeaderView::ResizeToContents);
     sessionHeader->setSectionResizeMode(NovaTerm::Ui::SessionPermissionModel::index(
-        NovaTerm::Ui::SessionPermissionModel::Column::Operation), QHeaderView::Stretch);
+        NovaTerm::Ui::SessionPermissionModel::Column::Operation), QHeaderView::ResizeToContents);
     layout->addWidget(_sessions, 2);
-    auto* savedHelp = new ElaText(tr("保存目标须单独共享并允许打开。新建连接的读取、输入和清空按勾选授权；复用或重连不自动授权。文件资源另行授权。"), this);
-    savedHelp->setWordWrap(true);
-    savedHelp->setTextPixelSize(12);
-    layout->addWidget(savedHelp);
-    _savedTargets = new ElaTreeWidget(this);
-    _savedTargets->setObjectName(QStringLiteral("mcpSavedTargets"));
-    _savedTargets->setColumnCount(7);
-    _savedTargets->setHeaderLabels({tr("保存目标"), tr("端点摘要"), tr("共享目录"), tr("允许打开"),
-        tr("新建时读取"), tr("新建时完整输入"), tr("新建时允许清空")});
-    _savedTargets->setRootIsDecorated(false);
-    _savedTargets->setMaximumHeight(140);
-    _savedTargets->header()->setSectionResizeMode(QHeaderView::ResizeToContents);
-    layout->addWidget(_savedTargets);
     auto* fileResources = new ElaPushButton(tr("文件资源授权…"), this);
     fileResources->setObjectName("mcpFileResourceSharing"); layout->addWidget(fileResources);
     connect(fileResources, &QPushButton::clicked, this, [this] {
         if (!_service) return;
-        const auto client = _clients->currentData().toString();
+        const auto client = _service->access().accessId();
         if (!_service->access().enabled() || !_service->access().identityVersion(client)) return;
-        if (_fileResourceDialog && _fileResourceClient != client) _fileResourceDialog->close();
         if (!_fileResourceDialog || !_fileResourceDialog->isVisible()) {
             _fileResourceDialog = new FileResourceSharingDialog(_service, client, this);
-            _fileResourceClient = client;
         }
         _fileResourceDialog->show();
         _fileResourceDialog->raise();
         _fileResourceDialog->activateWindow();
     });
-    connect(_savedTargets, &QTreeWidget::itemChanged, this, [this](QTreeWidgetItem* item, int column) {
-        if (_refreshing || !_service || column < 2 || column > 6) return;
-        const auto client = item->data(0, Qt::UserRole + 2).toString();
-        const auto identityVersion = item->data(0, Qt::UserRole + 3).toULongLong();
-        const bool current = client == _clients->currentData().toString()
-            && identityVersion == _service->access().identityVersion(client);
-        const auto id = item->data(0, Qt::UserRole).toString();
-        const auto version = item->data(0, Qt::UserRole + 1).toString();
-        const bool applied = current && (column == 2
-            ? _service->savedTargets().setShared(client, identityVersion, id, version, item->checkState(2) == Qt::Checked)
-            : column == 3
-                ? _service->savedTargets().setOpenAllowed(client, identityVersion, id, version, item->checkState(3) == Qt::Checked)
-                : _service->savedTargets().setNewSessionSharing(client, identityVersion, id, version,
-                    column == 4 ? NovaTerm::Mcp::NewSessionPermission::Read
-                        : column == 5 ? NovaTerm::Mcp::NewSessionPermission::Input
-                        : NovaTerm::Mcp::NewSessionPermission::Clear,
-                    item->checkState(column) == Qt::Checked));
-        QMetaObject::invokeMethod(this, [this, applied] {
-            refresh();
-            if (!applied) _status->setText(tr("保存目标或客户端已变化，目录共享未提交；请重新选择。"));
-        }, Qt::QueuedConnection);
-    });
     connect(_enabled, &QCheckBox::toggled, this, [this](bool enabled) {
         if (!_refreshing && _controller && !_controller->setEnabled(enabled)) { refresh(); reportFailure(); }
     });
-    connect(_clients, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this] {
-        if (_refreshing) return;
-        if (_fileResourceDialog) {
-            _fileResourceDialog->close();
-            _fileResourceDialog.clear();
-            _fileResourceClient.clear();
-        }
+    connect(rotate, &QPushButton::clicked, this, [this] {
+        if (!_controller || !_controller->rotateToken()) { reportFailure(); return; }
+        if (_fileResourceDialog) _fileResourceDialog->close();
         refresh();
+        _status->setText(tr("Access token reset. Copy the updated configuration for all AI connections."));
     });
     connect(copy, &QPushButton::clicked, this, [this] {
         if (!_service) return;
-        const auto configuration = _service->clientConfiguration(_clients->currentData().toString());
+        const auto configuration = _service->clientConfiguration();
         if (configuration.isEmpty()) { reportFailure(); return; }
         QApplication::clipboard()->setText(QString::fromUtf8(QJsonDocument(configuration).toJson()));
         _status->setText(tr("Configuration copied. It contains an access token; keep it private."));
     });
     connect(copyForCcSwitch, &QPushButton::clicked, this, [this] {
         if (!_service) return;
-        const auto configuration = _service->ccSwitchConfiguration(_clients->currentData().toString());
+        const auto configuration = _service->ccSwitchConfiguration();
         if (configuration.isEmpty()) { reportFailure(); return; }
         QApplication::clipboard()->setText(QString::fromUtf8(QJsonDocument(configuration).toJson()));
         _status->setText(tr("CC Switch configuration copied. It contains an access token; keep it private."));
@@ -320,8 +266,9 @@ McpSettingsDialog::McpSettingsDialog(NovaTerm::Mcp::Service* service, QWidget* p
         auto* root = item->parent() ? item->parent() : item;
         const auto id = root->data(0, Qt::UserRole).toString();
         const auto* row = _model->find(id);
-        if (!row || row->client.str() != _clients->currentData().toString()) {
-            // 刷新排队期间可能已重连或换客户端。旧行的“撤权”不能把其他仍勾选
+        if (!row || row->client.str() != _service->access().accessId()
+            || _accessIdentity != _service->access().identityVersion(row->client.str())) {
+            // 刷新排队期间可能已重连或重置接入令牌。旧行的“撤权”不能把其他仍勾选
             // 的权限写到新连接；也不能在 Qt setData 发射栈里删除旧行。
             QMetaObject::invokeMethod(this, [this] { refresh(); }, Qt::QueuedConnection);
             return;
@@ -372,97 +319,6 @@ McpSettingsDialog::McpSettingsDialog(NovaTerm::Mcp::Service* service, QWidget* p
 
 McpSettingsDialog::~McpSettingsDialog() = default;
 
-void McpSettingsDialog::manageClients()
-{
-    if (!_service) return;
-    if (_clientManager) {
-        _clientManager->show();
-        _clientManager->raise();
-        _clientManager->activateWindow();
-        return;
-    }
-    auto* dialog = new ElaDialog(this);
-    _clientManager = dialog;
-    dialog->setObjectName("mcpClientManager");
-    dialog->setAttribute(Qt::WA_DeleteOnClose);
-    dialog->setWindowModality(Qt::WindowModal);
-    dialog->setWindowTitle(tr("管理客户端"));
-    dialog->setWindowButtonFlags(ElaAppBarType::CloseButtonHint);
-    dialog->resize(520, 250);
-    auto* layout = new QVBoxLayout(dialog);
-    layout->setContentsMargins(20, 20, 20, 20);
-    auto* explanation = new ElaText(tr("每个客户端使用独立令牌和授权。移除客户端或更换令牌后，原接入配置失效。"), dialog);
-    explanation->setTextPixelSize(12);
-    explanation->setWordWrap(true);
-    layout->addWidget(explanation);
-    auto* clients = new ElaComboBox(dialog);
-    clients->setObjectName("mcpManagedClients");
-    layout->addWidget(clients);
-    auto* label = new ElaLineEdit(dialog);
-    label->setObjectName("mcpNewClientLabel");
-    label->setPlaceholderText(tr("New client label"));
-    label->setMaxLength(80);
-    layout->addWidget(label);
-    auto* actions = new QHBoxLayout;
-    auto* add = new ElaPushButton(tr("Add client"), dialog);
-    add->setObjectName("mcpAddClient");
-    auto* remove = new ElaPushButton(tr("Remove client"), dialog);
-    remove->setObjectName("mcpRemoveClient");
-    auto* rotate = new ElaPushButton(tr("Rotate access token"), dialog);
-    rotate->setObjectName("mcpRotateClientToken");
-    actions->addWidget(add);
-    actions->addWidget(remove);
-    actions->addWidget(rotate);
-    layout->addLayout(actions);
-    const auto update = [this, clients, remove, rotate] {
-        const auto selected = clients->currentData().toString();
-        const QSignalBlocker blocker(clients);
-        clients->clear();
-        if (_controller) {
-            for (const auto& client : _controller->clients())
-                clients->addItem(client.label, client.id.str());
-        }
-        const auto current = clients->findData(selected.isEmpty()
-            ? _clients->currentData().toString() : selected);
-        if (current >= 0) clients->setCurrentIndex(current);
-        remove->setEnabled(clients->currentIndex() >= 0);
-        rotate->setEnabled(clients->currentIndex() >= 0);
-    };
-    update();
-    connect(_service, &NovaTerm::Mcp::Service::changed, dialog, update, Qt::QueuedConnection);
-    connect(clients, QOverload<int>::of(&QComboBox::currentIndexChanged), dialog,
-        [clients, remove, rotate](int index) {
-            const bool available = index >= 0 && !clients->currentData().toString().isEmpty();
-            remove->setEnabled(available);
-            rotate->setEnabled(available);
-        });
-    connect(add, &QPushButton::clicked, dialog, [this, label, clients, update] {
-        const auto id = _controller->addClient(label->text());
-        if (id.isEmpty()) { reportFailure(); return; }
-        label->clear();
-        refresh();
-        _clients->setCurrentIndex(_clients->findData(id));
-        update();
-        clients->setCurrentIndex(clients->findData(id));
-    });
-    connect(remove, &QPushButton::clicked, dialog, [this, clients, update] {
-        if (!_controller->removeClient(clients->currentData().toString())) {
-            reportFailure(); return;
-        }
-        if (_fileResourceDialog) _fileResourceDialog->close();
-        refresh();
-        update();
-    });
-    connect(rotate, &QPushButton::clicked, dialog, [this, clients] {
-        if (!_controller->rotateToken(clients->currentData().toString())) {
-            reportFailure(); return;
-        }
-        if (_fileResourceDialog) _fileResourceDialog->close();
-        _status->setText(tr("令牌已更换，请重新复制接入配置。"));
-    });
-    dialog->open();
-}
-
 void McpSettingsDialog::editElevationCredentials(const QString& sessionId)
 {
     if (!_service) return;
@@ -488,9 +344,12 @@ void McpSettingsDialog::editElevationCredentials(const QString& sessionId)
     auto* explanation = new ElaText(tr("sudo 认证密码和 su root 密码分别保存，不使用 SSH 登录密码。保存后不回填。只有明确授权且可信适配器可用时才能托管认证；当前适配器不可用。撤销授权不会退出已经获得的 root Shell。"), dialog);
     explanation->setWordWrap(true);
     layout->addWidget(explanation);
-    auto* status = new ElaText(_controller->elevationCredentialsPersistent()
-        ? tr("存储：系统凭据库。密码仅在本机设置，不对 MCP 客户端开放。")
+    const auto storagePersistent = _controller->elevationCredentialsPersistent();
+    auto* status = new ElaText(!storagePersistent.has_value()
+        ? tr("存储：尚未确认。保存密码后显示实际存储方式。密码仅在本机设置，不对 MCP 客户端开放。")
+        : *storagePersistent ? tr("存储：系统凭据库。密码仅在本机设置，不对 MCP 客户端开放。")
         : tr("存储：仅本次运行。密码仅在本机设置，不对 MCP 客户端开放。"), dialog);
+    status->setObjectName(QStringLiteral("mcpElevationCredentialStorageStatus"));
     status->setWordWrap(true);
     layout->addWidget(status);
     for (const auto& method : {QStringLiteral("sudo"), QStringLiteral("su")}) {
@@ -540,9 +399,11 @@ void McpSettingsDialog::editElevationCredentials(const QString& sessionId)
                 }
                 save->setEnabled(true);
                 remove->setEnabled(controller->hasElevationCredential(*active, method));
+                const auto persistent = controller->elevationCredentialsPersistent();
                 status->setText(ok
-                    ? (controller->elevationCredentialsPersistent()
-                        ? QObject::tr("已更新系统凭据库。托管提权授权已撤销，请按需重新授权。")
+                    ? (!persistent.has_value()
+                        ? QObject::tr("已更新，存储方式尚未确认。托管提权授权已撤销，请按需重新授权。")
+                        : *persistent ? QObject::tr("已更新系统凭据库。托管提权授权已撤销，请按需重新授权。")
                         : QObject::tr("已更新，仅本次运行保存。托管提权授权已撤销，请按需重新授权。"))
                     : QObject::tr("凭据操作失败；请检查会话身份、密码是否为空及凭据库权限。"));
             };
@@ -607,13 +468,13 @@ void McpSettingsDialog::reportFailure()
         _status->setText(tr("Cannot update MCP access settings: the MCP state directory is not private to this user. Fix its permissions and owner, then try again."));
         return;
     }
-    _status->setText(tr("Operation failed. Check the selected client, storage permissions, and active commands."));
+    _status->setText(tr("Operation failed. Check access settings, storage permissions, and active commands."));
 }
 void McpSettingsDialog::refresh()
 {
     if (_refreshing || !_service) return;
     _refreshing = true;
-    const QSignalBlocker clientsBlocker(_clients), sessionsBlocker(_sessions), enabledBlocker(_enabled);
+    const QSignalBlocker sessionsBlocker(_sessions), enabledBlocker(_enabled);
     _enabled->setChecked(_controller->enabled());
     QString state = _service->status();
     if (state == "Disabled") state = tr("Disabled");
@@ -622,33 +483,8 @@ void McpSettingsDialog::refresh()
     QString statusText = tr("Status: %1; instance: %2").arg(state, _service->instanceId());
     if (!_service->httpEndpoint().isEmpty()) statusText += '\n' + _service->httpEndpoint();
     _status->setText(statusText);
-    const auto selected = _clients->currentData().toString();
-    _clients->clear();
-    for (const auto& client : _controller->clients())
-        _clients->addItem(client.label + (client.persistent ? QString() : tr(" (this run only)")), client.id.str());
-    if (_clients->findData(selected) >= 0) _clients->setCurrentIndex(_clients->findData(selected));
-    const auto clientId = _clients->currentData().toString();
-    {
-        const QSignalBlocker blocker(_savedTargets);
-        _savedTargets->clear();
-        const auto identityVersion = _service->access().identityVersion(clientId);
-        for (const auto& target : _service->savedTargets().localTargets()) {
-            auto* item = new QTreeWidgetItem(_savedTargets, {target.title, target.endpoint, {}, {}});
-            item->setData(0, Qt::UserRole, target.id);
-            item->setData(0, Qt::UserRole + 1, target.configVersion);
-            item->setData(0, Qt::UserRole + 2, clientId);
-            item->setData(0, Qt::UserRole + 3, QVariant::fromValue<qulonglong>(identityVersion));
-            item->setCheckState(2, _service->savedTargets().isShared(clientId, identityVersion, target.id)
-                ? Qt::Checked : Qt::Unchecked);
-            item->setCheckState(3, _service->savedTargets().canOpen(clientId, identityVersion, target.id)
-                ? Qt::Checked : Qt::Unchecked);
-            const auto sharing = _service->savedTargets().newSessionSharing(clientId, identityVersion, target.id);
-            item->setCheckState(4, sharing.read ? Qt::Checked : Qt::Unchecked);
-            item->setCheckState(5, sharing.input ? Qt::Checked : Qt::Unchecked);
-            item->setCheckState(6, sharing.clear ? Qt::Checked : Qt::Unchecked);
-            if (!identityVersion) item->setFlags(item->flags() & ~Qt::ItemIsEnabled);
-        }
-    }
+    const auto clientId = _service->access().accessId();
+    _accessIdentity = _service->access().identityVersion(clientId);
     // 本函数每次都重建整棵树，而根项默认折叠：先按会话 ID 记下当前展开的根项，
     // 重建后原样恢复。否则勾选任意一条授权（itemChanged → changePermission → changed →
     // 排队的 refresh）都会把用户刚展开的层级收起来，每次授权都要重新展开。
@@ -690,11 +526,11 @@ void McpSettingsDialog::refresh()
             row.selection.read ? Qt::Checked : Qt::Unchecked);
         item->setCheckState(terminalColumn,
             row.selection.fullTerminalInput ? Qt::Checked : Qt::Unchecked);
-        item->setToolTip(terminalColumn, tr("允许当前客户端在本次连接输入文本、按键并执行命令。重连、撤权或目标变化后需要重新授权。"));
+        item->setToolTip(terminalColumn, tr("允许所有使用此令牌的 AI 在本次连接输入文本、按键并执行命令。新建或重连后的连接默认允许，可在此取消授权。"));
         item->setCheckState(clearColumn,
             row.selection.clearTerminal ? Qt::Checked : Qt::Unchecked);
         item->setData(clearColumn, Qt::UserRole, row.clearTerminalSelectable);
-        item->setToolTip(clearColumn, tr("须先共享读取且会话已连接。独立允许清空本机屏幕或滚动历史，影响人的本机显示；不向设备发送字节、不停止远端程序，也不删除独立历史录制。重连后需重新授权。"));
+        item->setToolTip(clearColumn, tr("须先共享读取且会话已连接。独立允许清空本机屏幕或滚动历史，影响人的本机显示；不向设备发送字节、不停止远端程序，也不删除独立历史录制。新建或重连后的连接默认允许，可在此取消授权。"));
         item->setCheckState(elevationColumn,
             row.selection.elevation ? Qt::Checked : Qt::Unchecked);
         // 已有授权始终允许撤销；不满足条件时仅禁止新勾选，不能锁住整行。
@@ -725,16 +561,14 @@ void McpSettingsDialog::refresh()
         auto* credentials = new ElaPushButton(row.sudoSaved && row.suSaved ? tr("sudo / su")
             : row.sudoSaved ? tr("sudo") : row.suSaved ? tr("su") : tr("未配置"), _sessions);
         credentials->setEnabled(elevationUnavailable != "TARGET_IDENTITY_UNVERIFIED");
-        credentials->setToolTip(row.credentialsPersistent
-            ? tr("密码保存在系统凭据库；保存不代表授权使用，也不启用认证适配器。")
+        credentials->setToolTip(!row.credentialsPersistent.has_value()
+            ? tr("密码存储方式尚未确认；保存后显示实际存储方式。保存不代表授权使用，也不启用认证适配器。")
+            : *row.credentialsPersistent ? tr("密码保存在系统凭据库；保存不代表授权使用，也不启用认证适配器。")
             : tr("密码仅本次运行保留；保存不代表授权使用，也不启用认证适配器。"));
         connect(credentials, &QPushButton::clicked, this,
             [this, id = row.key.sessionId] { editElevationCredentials(id); });
         _sessions->setItemWidget(item, credentialsColumn, credentials);
         QString operation = row.terminalOwner.isEmpty() ? tr("空闲") : tr("Agent 操作");
-        for (const auto& client : _controller->clients())
-            if (client.id.str() == row.terminalOwner)
-                operation += " / " + client.label;
         if (row.controlState == "preempted") operation = tr("用户接管");
         if (!row.commandState.isEmpty()) operation += " / " + row.commandState;
         item->setText(operationColumn, operation);

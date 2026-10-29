@@ -10,7 +10,6 @@
 #include "session/SessionTerminalController.h"
 #include "session/SessionStore.h"
 #include "session/TerminalSession.h"
-#include "ui/pages/SavedConnectionPolicy.h"
 #include "session/SessionInputPump.h"
 #include "service/HistoryRecordingBinding.h"
 #include "recording/HistoryService.h"
@@ -168,8 +167,8 @@ private slots:
     void serialDriverReceiveQueueIsInitializedAgainAfterReopen();
     void transportWarningsStayNonFatalAndRejectOldAttachments();
     void serialAutomaticReconnect();
-    void savedSerialPortReservationUsesPendingReconnect_data();
-    void savedSerialPortReservationUsesPendingReconnect();
+    void serialPendingReconnectReflectsActualState_data();
+    void serialPendingReconnectReflectsActualState();
     void realSerialSessionUsesExistingPumpForFileTransfer_data();
     void realSerialSessionUsesExistingPumpForFileTransfer();
     void serialLrzszSizeMatrix_data();
@@ -1999,7 +1998,7 @@ void SessionTests::userInputStopsUnsentLongCommandTail()
     QVERIFY(result.executionMayHaveStarted);
 }
 
-void SessionTests::savedSerialPortReservationUsesPendingReconnect_data()
+void SessionTests::serialPendingReconnectReflectsActualState_data()
 {
     QTest::addColumn<bool>("manual");
     QTest::addColumn<int>("seconds");
@@ -2011,7 +2010,7 @@ void SessionTests::savedSerialPortReservationUsesPendingReconnect_data()
     QTest::newRow("unsupported-remote-disconnect") << false << 60 << false << false;
 }
 
-void SessionTests::savedSerialPortReservationUsesPendingReconnect()
+void SessionTests::serialPendingReconnectReflectsActualState()
 {
     QFETCH(bool, manual);
     QFETCH(int, seconds);
@@ -2031,8 +2030,6 @@ void SessionTests::savedSerialPortReservationUsesPendingReconnect()
     QVERIFY(!transport.isConnected());
     QVERIFY(!transport.hasPendingDisconnect());
     QCOMPARE(session.runtimeConfig().transport.value("reconnectSeconds").toInt(), seconds);
-    QCOMPARE(NovaTerm::serialConnectionReserved(session.state(), transport.isConnected(),
-        transport.hasPendingDisconnect(), session.hasPendingAutomaticReconnect()), reserved);
     QCOMPARE(session.hasPendingAutomaticReconnect(), reserved);
     QCOMPARE(transport.connectAttempts, 1);
     session.close();

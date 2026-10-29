@@ -35,6 +35,5 @@ private:
     ElaPushButton* _share;
     ElaTreeWidget* _roots;
     ElaText* _status;
-    ElaText* _clientIdentity;
     bool _refreshing{false};
 };

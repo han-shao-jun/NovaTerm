@@ -28,10 +28,7 @@ FileResourceSharingDialog::FileResourceSharingDialog(Service* service, QString c
     resize(960, 600);
     auto* layout = new QVBoxLayout(this);
     layout->setContentsMargins(16, 8, 16, 16);
-    _clientIdentity = new ElaText(this); _clientIdentity->setObjectName("fileResourceClientIdentity");
-    _clientIdentity->setTextFormat(Qt::PlainText); _clientIdentity->setWordWrap(true);
-    _clientIdentity->setTextInteractionFlags(Qt::TextSelectableByMouse); layout->addWidget(_clientIdentity);
-    auto* help = new ElaText(tr("为当前客户端明确选择本地目录和远端目录的读写权限，仅本次运行有效。"
+    auto* help = new ElaText(tr("为所有 AI 共同选择本地目录和远端目录的读写权限，仅本次运行有效。"
         "本地读取用于上传源，本地写入用于下载目录；远端读取用于下载源，远端写入用于上传目标。"
         "这些选择与终端权限独立。SFTP上传需要本地读取和远端写入，下载需要远端读取和本地写入；串口ZMODEM发送前须准备设备接收并结束其他输入操作。授权本身不证明接收端就绪或路径可安全访问。"), this);
     help->setWordWrap(true); layout->addWidget(help);
@@ -43,7 +40,7 @@ FileResourceSharingDialog::FileResourceSharingDialog(Service* service, QString c
     _path->setPlaceholderText(tr("明确选择的目录绝对路径")); pathRow->addWidget(_path, 1);
     _browse = new ElaPushButton(tr("选择本地目录"), this); pathRow->addWidget(_browse); layout->addLayout(pathRow);
     _title = new ElaLineEdit(this); _title->setObjectName("fileResourceTitle"); _title->setMaxLength(256);
-    _title->setPlaceholderText(tr("共享名称（会披露给该客户端）")); layout->addWidget(_title);
+    _title->setPlaceholderText(tr("共享名称（会披露给所有 AI）")); layout->addWidget(_title);
     auto* actions = new QHBoxLayout;
     _read = new ElaCheckBox(tr("允许读取"), this); _read->setObjectName("fileResourceRead"); actions->addWidget(_read);
     _write = new ElaCheckBox(tr("允许写入"), this); _write->setObjectName("fileResourceWrite"); actions->addWidget(_write);
@@ -81,17 +78,13 @@ FileResourceSharingDialog::FileResourceSharingDialog(Service* service, QString c
 bool FileResourceSharingDialog::currentIdentity() const
 {
     return _service && _service->access().enabled() && _identity
+        && _service->access().accessId() == _client
         && _service->access().identityVersion(_client) == _identity;
 }
 void FileResourceSharingDialog::refresh()
 {
     if (_refreshing) return;
     const QScopedValueRollback<bool> refreshing(_refreshing, true);
-    QString clientLabel = _client;
-    if (_service) for (const auto& client : _service->access().clients())
-        if (client.id.str() == _client) { clientLabel = client.label; break; }
-    setWindowTitle(tr("文件资源授权 — %1").arg(clientLabel));
-    _clientIdentity->setText(tr("授权客户端：%1\n客户端 ID：%2").arg(clientLabel, _client));
     const bool current = currentIdentity();
     const bool remote = _kind->currentIndex() == 1;
     const bool serial = _kind->currentIndex() == 2;
@@ -102,7 +95,7 @@ void FileResourceSharingDialog::refresh()
     _share->setText(serial ? tr("共享或更新所选串口") : tr("共享或更新所填目录"));
     if (!current) {
         _roots->clear(); _session->clear(); _bindings.clear(); _serialBindings.clear();
-        _status->setText(tr("客户端身份或接入状态已变化，请关闭后重新打开授权窗口。")); return;
+        _status->setText(tr("接入身份或状态已变化，请关闭后重新打开授权窗口。")); return;
     }
     const auto selected = _session->currentData().toString();
     const auto oldBinding = _bindings.value(selected);

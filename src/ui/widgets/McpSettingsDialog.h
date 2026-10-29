@@ -11,7 +11,6 @@
 namespace NovaTerm::Mcp { class Service; }
 namespace NovaTerm::Ui { class SettingsController; }
 class ElaCheckBox;
-class ElaComboBox;
 class ElaText;
 class ElaTreeWidget;
 class QTreeWidgetItem;
@@ -25,7 +24,6 @@ public:
     ~McpSettingsDialog() override;
 private:
     void refresh();
-    void manageClients();
     void reportFailure();
     void editElevationCredentials(const QString& sessionId);
     /** @brief 提交一项授权并回写服务端级联结果；失败时由调用方排队刷新。 */
@@ -38,12 +36,9 @@ private:
     std::unique_ptr<NovaTerm::Ui::SessionPermissionModel> _model;
     std::unique_ptr<NovaTerm::Ui::SettingsController> _controller;
     ElaCheckBox* _enabled{nullptr};
-    ElaComboBox* _clients{nullptr};
     ElaText* _status{nullptr};
     ElaTreeWidget* _sessions{nullptr};
-    ElaTreeWidget* _savedTargets{nullptr};
     QPointer<FileResourceSharingDialog> _fileResourceDialog;
-    QString _fileResourceClient;
-    QPointer<ElaDialog> _clientManager;
+    quint64 _accessIdentity{0};
     bool _refreshing{false};
 };

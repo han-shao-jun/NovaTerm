@@ -92,8 +92,6 @@ public:
                 jobs.insert(peer + '/' + wait->id, wire);
             else if (const auto *task = std::get_if<BackendTaskCall>(&event))
                 jobs.insert(peer + '/' + task->id, wire);
-            else if (const auto *target = std::get_if<BackendTargetConnectionCall>(&event))
-                jobs.insert(peer + '/' + target->id, wire);
             else if (const auto *transfer = std::get_if<BackendFileTransferCall>(&event))
                 jobs.insert(peer + '/' + transfer->id, wire);
             else if (const auto *files = std::get_if<BackendFileResourcesCall>(&event))
@@ -102,8 +100,6 @@ public:
                 jobs.insert(peer + '/' + serialTargets->id, wire);
             else if (const auto *serialTransfer = std::get_if<BackendSerialFileTransferCall>(&event))
                 jobs.insert(peer + '/' + serialTransfer->id, wire);
-            else if (const auto *targets = std::get_if<BackendSavedTargetsCall>(&event))
-                jobs.insert(peer + '/' + targets->id, wire);
             backend.receive(peer, event);
             if (const auto *cancel = std::get_if<BackendCancel>(&event))
                 jobs.remove(peer + '/' + cancel->id);

@@ -53,7 +53,7 @@ struct Fixture {
         SshTransportTestAccess::connected(*ssh);
         session.attach(ssh.get(), TerminalSession::Ownership::Borrowed, TransportKind::Ssh);
         directory.add(&session);
-        client = access.addClient("fixture");
+        client = access.ensureAccess();
         ready = root.isValid() && !client.isEmpty() && access.setEnabled(true);
     }
     SessionDirectory::Entry entry() { return directory.entries().first(); }
@@ -292,12 +292,13 @@ private slots:
         const auto rejected = f.call(request); QVERIFY(isError(rejected));
         QCOMPARE(std::get<Error>(rejected).code, ErrorCode::Busy); QCOMPARE(f.requests.size(), 16);
     }
-    void downloadForeignClientCannotQueryOrCancel()
+    void downloadForgedPrincipalCannotQueryOrCancel()
     {
         Fixture f; QVERIFY(f.ready); const auto request = f.downloadGrant();
         const auto started = f.call(request); QVERIFY(!isError(started));
         const auto transfer = transferId(started);
-        const auto other = f.access.addClient("other"); QVERIFY(!other.isEmpty());
+        const auto other = uuid();
+        QCOMPARE(f.access.identityVersion(other), quint64(0));
         QVERIFY(isError(f.call(request, other)));
         QVERIFY(isError(f.query(transfer, other)));
         QVERIFY(isError(f.call(CancelFileTransferRequest{transfer}, other)));
@@ -423,14 +424,15 @@ private slots:
         f.finish(true); // A late duplicate must not rewrite the settled fact.
         QCOMPARE(value(f.query(transfer)), completed);
     }
-    void rejectsOtherClientsStaleEpochAndWrongPermissionDirection()
+    void rejectsForgedPrincipalStaleEpochAndWrongPermissionDirection()
     {
         Fixture f; QVERIFY(f.ready); auto request = f.grant();
         auto stale = request; stale.reference.epoch = Epoch{"old"};
         QVERIFY(isError(f.call(stale)));
         stale = request; stale.resourceRevision = uuid(); QVERIFY(isError(f.call(stale)));
         stale = request; stale.scopeRevision = uuid(); QVERIFY(isError(f.call(stale)));
-        const auto other = f.access.addClient("other"); QVERIFY(!other.isEmpty());
+        const auto other = uuid();
+        QCOMPARE(f.access.identityVersion(other), quint64(0));
         QVERIFY(isError(f.call(request, other)));
         const auto changed = f.resources.resources().shareLocal(f.client, f.identity(), f.root.filePath("build"), "Write only", {false, true});
         QVERIFY(changed); request.resourceRevision = changed->revision;

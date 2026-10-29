@@ -373,35 +373,6 @@ const QJsonArray& ToolCodec::catalog()
     stopTask.insert("operationId", interaction.value("operationId"));
     workflow("novaterm_stop_task", "Explicitly request Ctrl+C for the original task only while its target, execution and original control generations still match. Retry the same stop operationId. Human takeover or a newer command rejects stale stop without writing. stop_requested does not confirm remote termination; cancelling a read or releasing control is different.",
         schema(stopTask, {"sessionId", "epoch", "taskId", "operationId"}), true, taskData);
-    const auto target = schema({{"targetId", text}, {"title", text},
-        {"transport", enumeration({"ssh", "serial"})}, {"endpoint", text}, {"configVersion", text},
-        {"availability", enumeration({"saved_configuration"})}},
-        {"targetId", "title", "transport", "endpoint", "configVersion", "availability"});
-    workflow("novaterm_list_targets", "List only saved SSH/UART target summaries explicitly shared with this client for this app run. No credentials, connections or terminal grants are included. saved_configuration means stored configuration, not online availability. Configuration edits or sharing changes invalidate pagination; restart the listing. Opening requires separate local permission; safe closing is limited to the original operation's created session.",
-        schema({{"limit", integerSchema(1, 50, 25)},
-            {"cursor", QJsonObject{{"type", "string"}, {"minLength", 1}, {"maxLength", 1024}}}}, {}),
-        false, schema({{"instanceId", text}, {"targets", array(target)}, {"nextCursor", nullableText}},
-            {"instanceId", "targets", "nextCursor"}));
-    const auto connectionInput = schema({{"targetId", stringSchema(36)}, {"configVersion", stringSchema(36)},
-        {"operationId", stringSchema(36)}}, {"targetId", "configVersion", "operationId"});
-    const auto connectionData = schema({{"instanceId", text}, {"targetId", text}, {"configVersion", text},
-        {"operationId", text}, {"created", boolean}, {"reused", boolean},
-        {"sessionId", nullableText}, {"epoch", nullableText},
-        {"state", enumeration({"opening", "created", "connecting", "running", "reconnecting", "failed", "closing", "closed", "invalidated", "unavailable"})},
-        {"reason", enumeration({"", "connection_ui_unavailable", "configuration_changed", "authentication_required", "configuration_invalid", "port_busy", "session_unavailable", "attachment_changed", "admission_invalidated", "host_key_confirmation_required"})},
-        {"suggestedQueryMs", unsignedInteger}},
-        {"instanceId", "targetId", "configVersion", "operationId", "created", "reused", "sessionId", "epoch", "state", "reason", "suggestedQueryMs"});
-    workflow("novaterm_open_target", "Open an explicitly shared saved SSH/UART configuration only after separate local open permission. Never supply credentials or connection overrides. Reuse matching connecting/running sessions; otherwise create a visible terminal. Terminal read/input/clear default off; only explicit local new-session rules can grant them once the original created connection is ready. Reuse, reconnect and retries never restore permissions. File/script/elevation permissions remain separate. Save operationId and retry only identical arguments; uncertain or failed results must be queried, never replayed with a new ID. Records last this app run, limited to 32 per client and 256 globally. Use novaterm_close_target only for this operation's created session when safely idle.",
-        connectionInput, true, connectionData);
-    workflow("novaterm_query_target", "Query the original saved-target open operation by targetId, configVersion and operationId. Requires current sharing and separate open permission. Returns actual connection state and session/epoch without opening, reconnecting, granting terminal permissions or exposing authentication errors. Reconnection may change epoch; target replacement invalidates the binding. Missing records after restart must not be automatically rerun.",
-        connectionInput, false, connectionData);
-    auto closeInput = connectionInput;
-    auto closeProperties = closeInput.value("properties").toObject();
-    closeProperties.insert("epoch", QJsonObject{{"type", "string"}, {"minLength", 1}, {"maxLength", 128}});
-    closeInput.insert("properties", closeProperties);
-    closeInput.insert("required", QJsonArray{"targetId", "configVersion", "operationId", "epoch"});
-    workflow("novaterm_close_target", "Close only the session created by this client's original open operation, with current sharing/open permission and its original epoch. Never closes reused sessions. Human input or manual connection actions, changed attachment/epoch, active execution or transfer, and unknown readiness refuse closing. No force option. Success accepts graceful session closure and preserves the visible terminal; closing is not proof of remote task termination. Query progress; identical close retries do not close again or follow a new binding.",
-        closeInput, true, connectionData);
     const QJsonObject fileRoot{{"resourceId", stringSchema(64)}, {"title", stringSchema(256)},
         {"revision", stringSchema(64)}, {"readAllowed", QJsonObject{{"type", "boolean"}}},
         {"writeAllowed", QJsonObject{{"type", "boolean"}}}};
@@ -515,7 +486,7 @@ QString ToolCodec::validate(const QString& name, const QJsonObject& arguments)
         bool valid = validSchemaValue(value, rule);
         if (rule.value("type") == "string") {
             const auto text = value.toString();
-            if (it.key() == "sessionId" || it.key() == "operationId" || it.key() == "targetId" || it.key() == "configVersion")
+            if (it.key() == "sessionId" || it.key() == "operationId" || it.key() == "targetId")
                 valid = valid && !QUuid(text).isNull() && QUuid(text).toString(QUuid::WithoutBraces) == text;
             if (it.key() == "query")
                 valid = valid && !text.contains('\n') && !text.contains('\r');
@@ -948,20 +919,6 @@ Result<ToolCall> ToolCodec::decodeCall(const QString& name, const QJsonObject& a
         if (!reference) return Error{ErrorCode::InvalidArgument};
         return ToolCall{ListFileResourcesRequest{*reference}};
     }
-    if (name == "novaterm_open_target" || name == "novaterm_query_target" || name == "novaterm_close_target") {
-        const auto invalid = validate(name, arguments);
-        if (!invalid.isEmpty()) return Error{ErrorCode::InvalidArgument, invalid};
-        return ToolCall{TargetConnectionRequest{arguments.value("targetId").toString(),
-            arguments.value("configVersion").toString(), arguments.value("operationId").toString(),
-            name == "novaterm_query_target" ? TargetConnectionAction::Query
-                : name == "novaterm_close_target" ? TargetConnectionAction::Close : TargetConnectionAction::Open,
-            arguments.value("epoch").toString()}};
-    }
-    if (name == "novaterm_list_targets") {
-        const auto invalid = validate(name, arguments);
-        if (!invalid.isEmpty()) return Error{ErrorCode::InvalidArgument, invalid};
-        return ToolCall{ListSavedTargetsRequest{arguments.value("limit").toInt(25), arguments.value("cursor").toString()}};
-    }
     if (name == "novaterm_wait_text" || name == "novaterm_start_task"
         || name == "novaterm_query_task" || name == "novaterm_stop_task") {
         const auto invalid = validate(name, arguments);
@@ -1029,10 +986,7 @@ QString ToolCodec::toolName(const ToolCall& request)
         else return "novaterm_cancel_transfer";
     }, *transfer);
     if (std::holds_alternative<ListFileResourcesRequest>(request)) return "novaterm_list_file_resources";
-    if (const auto* target = std::get_if<TargetConnectionRequest>(&request))
-        return target->action == TargetConnectionAction::Query ? "novaterm_query_target"
-            : target->action == TargetConnectionAction::Close ? "novaterm_close_target" : "novaterm_open_target";
-    if (std::holds_alternative<ListSavedTargetsRequest>(request)) return "novaterm_list_targets";
+
     if (std::holds_alternative<WaitTextRequest>(request)) return "novaterm_wait_text";
     if (const auto* task = std::get_if<TerminalTaskRequest>(&request)) return std::visit([](const auto& value) -> QString {
         using Type = std::decay_t<decltype(value)>;

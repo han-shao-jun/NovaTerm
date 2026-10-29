@@ -319,10 +319,6 @@ public:
                 continue;
             const auto call = _calls.value(id);
             _calls[id].sent = true;
-            if (const auto* target = std::get_if<TargetConnectionRequest>(&call.typed)) {
-                emit q->backendEvent(BackendTargetConnectionCall{call.wireId, *target, !call.requestState.isEmpty()});
-                continue;
-            }
             if (const auto* transfer = std::get_if<FileTransferRequest>(&call.typed)) {
                 emit q->backendEvent(BackendFileTransferCall{call.wireId, *transfer, !call.requestState.isEmpty()});
                 continue;
@@ -337,10 +333,6 @@ public:
             }
             if (const auto* targets = std::get_if<ListSerialFileTargetsRequest>(&call.typed)) {
                 emit q->backendEvent(BackendSerialFileTargetsCall{call.wireId, *targets, !call.requestState.isEmpty()});
-                continue;
-            }
-            if (const auto* targets = std::get_if<ListSavedTargetsRequest>(&call.typed)) {
-                emit q->backendEvent(BackendSavedTargetsCall{call.wireId, *targets, !call.requestState.isEmpty()});
                 continue;
             }
             if (const auto* wait = std::get_if<WaitTextRequest>(&call.typed)) {

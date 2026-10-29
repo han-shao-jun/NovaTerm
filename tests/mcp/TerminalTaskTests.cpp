@@ -50,7 +50,7 @@ struct Fixture {
         static_cast<void>(session.start()); directory.add(&session);
         if (!root.isValid()) qFatal("Task test directory is unavailable: %s", qPrintable(root.errorString()));
         if (!access.setEnabled(true)) qFatal("Task test AccessStore fixture is unavailable.");
-        client = access.addClient("tasks");
+        client = access.ensureAccess();
         if (client.isEmpty() || !TestSupport::setGrant(access, client, entry(), true)
             || !TestSupport::setTerminalGrant(access, client, entry(), true))
             qFatal("Task test terminal grants are unavailable.");
@@ -201,13 +201,14 @@ private slots:
         QCOMPARE(extra.value("error").toObject().value("code").toString(), QString("BUSY"));
         QTest::qWait(20); QCOMPARE(f.transport.written, before);
     }
-    void revokedAndDifferentClientsCannotQueryOldFacts() {
+    void revokedAndForgedPrincipalsCannotQueryOldFacts() {
         Fixture f; const auto started = f.call(f.start()); QVERIFY(started.value("ok").toBool());
         const auto id = started.value("data").toObject().value("taskId").toString();
         QTRY_COMPARE(f.transport.written, QByteArray("work\r"));
-        const auto original = f.client; f.client = f.access.addClient("other");
-        QVERIFY(TestSupport::setGrant(f.access, f.client, f.entry(), true));
-        QCOMPARE(f.call(f.query(id)).value("error").toObject().value("code").toString(), QString("TASK_NOT_AVAILABLE"));
+        const auto original = f.client; f.client = newId();
+        QCOMPARE(f.access.identityVersion(f.client), quint64(0));
+        QVERIFY(!TestSupport::setGrant(f.access, f.client, f.entry(), true));
+        QCOMPARE(f.call(f.query(id)).value("error").toObject().value("code").toString(), QString("SESSION_NOT_AVAILABLE"));
         f.client = original; QVERIFY(TestSupport::setGrant(f.access, original, f.entry(), false));
         QVERIFY(!f.call(f.query(id)).value("ok").toBool());
         QCOMPARE(f.transport.written, QByteArray("work\r"));

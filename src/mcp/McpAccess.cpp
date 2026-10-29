@@ -16,6 +16,7 @@
 #include <QDir>
 #include <QFileInfo>
 #include <QLockFile>
+#include <QScopedValueRollback>
 #include <QSysInfo>
 #include <mutex>
 
@@ -33,7 +34,11 @@ struct CredentialSecret {
 };
 }
 
-QString AccessStore::reference(const QString& id) { return QStringLiteral("mcp-client-") + id; }
+QString AccessStore::reference(const QString& id, const QByteArray& digest)
+{
+    // Each rotation writes a new key. A failed CAS never overwrites another instance's token.
+    return QStringLiteral("mcp-access-") + id + '-' + QString::fromLatin1(digest.toHex());
+}
 CredentialStore* AccessStore::credentials() const
 {
     // 仅创建/导出/轮换客户端令牌的用户操作触碰密钥库，协议认证只核对摘要。
@@ -82,37 +87,36 @@ void AccessStore::reload()
 {
     const auto stored = readJson(QDir(_directory).filePath("access.json"));
     if (!stored) {
+        _storeRevision = 0;
         if (_enabled || _clients.size() > 0) {
             _enabled = false;
             _clients.clear();
             _authorization.clear();
-            _storeRevision = 0;
             emit revoked({}, {});
             emit changed();
         }
         return;
     }
     const auto revision = stored->value("revision").toString().toULongLong();
-    if (revision != 0 && revision == _storeRevision) return;
+    if (revision != 0 && revision == _storeRevision && stored->value("version").toInt() == 2) return;
     QList<ClientRecord> next;
-    // 易失接入仅属于本进程，不写入共享文件，也不被其他实例的保存清除。
-    for (const auto& client : _clients.clients())
-        if (!client.persistent) next.append(client);
-    for (const auto& value : stored->value("clients").toArray()) {
-        if (next.size() >= 16)
-            break;
-        const auto object = value.toObject();
+    const bool sharedFormat = stored->value("version").toInt() == 2;
+    const auto object = stored->value("access").toObject();
+    if (sharedFormat && !object.isEmpty()) {
         const auto id = ClientId{object.value("id").toString()};
         const auto digest = QByteArray::fromHex(object.value("digest").toString().toLatin1());
-        // 内存后端的旧令牌重启后无效，不复活其接入配置。
-        if (id.isEmpty() || QUuid(id.str()).isNull() || digest.size() != 32
-            || !object.value("persistent").toBool())
-            continue;
-        const auto old = _clients.find(id);
-        const auto oldVersion = old ? old->version.value() : quint64(1);
-        const auto version = old && old->digest == digest ? oldVersion : oldVersion + 1;
-        next.append(ClientRecord{id, object.value("label").toString().left(80), digest,
-            true, ClientAccessVersion{version}, old && old->digest == digest ? old->identityVersion : quint64(0)});
+        if (!id.isEmpty() && !QUuid(id.str()).isNull() && digest.size() == 32
+            && object.value("persistent").toBool()) {
+            const auto old = _clients.find(id);
+            const bool unchanged = old && old->digest == digest;
+            const auto version = old ? old->version.value() + (unchanged ? 0 : 1) : quint64(1);
+            next.append(ClientRecord{id, {}, digest, true, ClientAccessVersion{version},
+                unchanged ? old->identityVersion : quint64(0)});
+        }
+    } else if (sharedFormat && object.isEmpty()) {
+        // A memory-only token belongs to this process; it never resurrects after restart.
+        for (const auto& client : _clients.clients())
+            if (!client.persistent) { next.append(client); break; }
     }
     QStringList invalidated;
     for (const auto& client : _clients.clients()) {
@@ -131,7 +135,7 @@ void AccessStore::reload()
     }
     _elevationRevision = elevationRevision;
     // 只加载引用名，绝不为状态/协议刷新解锁密钥环或读取密码。
-    if (_elevationPersistent.value_or(!_credentials || _credentials->isPersistent())) {
+    if (_elevationPersistent.value_or(true)) {
         _elevationReferences.clear();
         for (const auto& value : stored->value("elevationReferences").toArray()) {
             const auto ref = value.toString();
@@ -139,9 +143,12 @@ void AccessStore::reload()
             if (ref.startsWith("mcp-elevation-") && ref.size() == 78)
                 _elevationReferences.insert(ref);
         }
+        // 磁盘引用只为持久凭据写入；没有引用时仍不能推断后端是否仅内存。
+        if (!_elevationPersistent.has_value() && !_elevationReferences.isEmpty())
+            _elevationPersistent = true;
     }
     _storeRevision = revision;
-    _enabled = stored->value("enabled").toBool();
+    _enabled = sharedFormat && _clients.size() == 1 && stored->value("enabled").toBool();
     for (const auto& id : invalidated) {
         if (!_clients.contains(ClientId{id})) _authorization.removeClient(ClientId{id});
         emit revoked(id, {});
@@ -172,17 +179,18 @@ bool AccessStore::save()
         _lastSaveFailure = SaveFailure::Revision;
         return false;
     }
-    QJsonArray clients;
+    QJsonObject access;
     for (const auto& client : _clients.clients()) {
         if (!client.persistent) continue;
-        clients.append(QJsonObject{{"id", client.id.str()}, {"label", client.label},
-            {"digest", QString::fromLatin1(client.digest.toHex())}, {"persistent", client.persistent}});
+        access = {{"id", client.id.str()},
+            {"digest", QString::fromLatin1(client.digest.toHex())}, {"persistent", true}};
+        break;
     }
     QJsonArray elevationReferences;
-    if (_elevationPersistent.value_or(!_credentials || _credentials->isPersistent()))
+    if (_elevationPersistent.value_or(true))
         for (const auto& ref : _elevationReferences) elevationReferences.append(ref);
-    const bool ok = writePrivateJson(path, {{"version", 1}, {"revision", QString::number(_storeRevision + 1)},
-        {"enabled", _enabled}, {"clients", clients}, {"elevationReferences", elevationReferences},
+    const bool ok = writePrivateJson(path, {{"version", 2}, {"revision", QString::number(_storeRevision + 1)},
+        {"enabled", _enabled}, {"access", access}, {"elevationReferences", elevationReferences},
         {"elevationRevision", QString::number(_elevationRevision)}});
     if (!ok) _lastSaveFailure = SaveFailure::Write;
     if (ok) {
@@ -194,8 +202,10 @@ bool AccessStore::save()
 
 bool AccessStore::setEnabled(bool enabled)
 {
+    if (enabled && _tokenMutationPending) return false;
     if (!enabled) {
         // 停用先在内存生效；磁盘写入失败也不能让用户无法撤销正在使用的权限。
+        if (_tokenMutationPending) _tokenMutationCancelled = true;
         _enabled = false;
         _authorization.clear();
         _clients.advanceAll();
@@ -205,6 +215,7 @@ bool AccessStore::setEnabled(bool enabled)
         emit changed();
         return saved;
     }
+    if (accessId().isEmpty()) return !createAccess(true).isEmpty();
     const bool previous = _enabled;
     _enabled = enabled;
     if (!save()) { _enabled = previous; return false; }
@@ -214,69 +225,96 @@ bool AccessStore::setEnabled(bool enabled)
     return true;
 }
 
-QList<AccessStore::Client> AccessStore::clients() const { return _clients.clients(); }
-
-QString AccessStore::addClient(const QString& label)
+QString AccessStore::accessId() const
 {
-    if (_clients.size() >= 8 || label.trimmed().isEmpty() || !credentials())
-        return {};
+    const auto records = _clients.clients();
+    return records.isEmpty() ? QString{} : records.first().id.str();
+}
+
+QString AccessStore::ensureAccess()
+{
+    if (_tokenMutationPending) return {};
+    const auto id = accessId();
+    return id.isEmpty() ? createAccess(_enabled) : id;
+}
+
+QString AccessStore::createAccess(bool enabled)
+{
+    if (_tokenMutationPending || _clients.size() != 0) return {};
+    const QScopedValueRollback<bool> pending(_tokenMutationPending, true);
+    const QScopedValueRollback<bool> cancelled(_tokenMutationCancelled, false);
+    const auto revision = _storeRevision;
+    const auto stillCurrent = [this, revision] {
+        return !_tokenMutationCancelled && _storeRevision == revision && _clients.size() == 0;
+    };
+    if (!credentials() || !stillCurrent()) return {};
     const QString id = newId();
     const auto token = randomBytes().toHex();
-    if (!_credentials->put(reference(id), token))
-        return {};
-    _clients.insert(ClientRecord{ClientId{id}, label.trimmed().left(80),
-        QCryptographicHash::hash(token, QCryptographicHash::Sha256),
-        _credentials->isPersistent(), ClientAccessVersion{1}});
+    const auto digest = QCryptographicHash::hash(token, QCryptographicHash::Sha256);
+    const auto ref = reference(id, digest);
+    if (!_credentials->put(ref, token)) return {};
+    const auto persistent = _credentials->isPersistent();
+    // System keyrings may process GUI events: another instance or local disable can win.
+    if (!stillCurrent()) { _credentials->remove(ref); return {}; }
+    const bool previous = _enabled;
+    _clients.insert(ClientRecord{ClientId{id}, {}, digest,
+        persistent, ClientAccessVersion{1}});
+    _enabled = enabled;
     if (!save()) {
+        _enabled = previous;
         _clients.remove(ClientId{id});
-        _credentials->remove(reference(id));
+        _credentials->remove(ref);
         return {};
     }
     emit changed();
     return id;
 }
 
-bool AccessStore::removeClient(const QString& id)
+bool AccessStore::rotateToken()
 {
+    if (_tokenMutationPending) return false;
+    const auto id = accessId();
     const auto old = _clients.find(ClientId{id});
-    if (!old || !credentials())
-        return false;
-    _clients.remove(ClientId{id});
-    if (!save()) { _clients.insert(*old); return false; }
-    _authorization.removeClient(ClientId{id});
-    _credentials->remove(reference(id));
-    emit revoked(id, {});
-    emit changed();
-    return true;
-}
-
-bool AccessStore::rotateToken(const QString& id)
-{
-    const auto old = _clients.find(ClientId{id});
-    if (!old || !credentials())
-        return false;
-    const auto oldToken = _credentials->get(reference(id));
+    if (!old) return false;
+    const QScopedValueRollback<bool> pending(_tokenMutationPending, true);
+    const QScopedValueRollback<bool> cancelled(_tokenMutationCancelled, false);
+    const auto revision = _storeRevision;
+    const auto stillCurrent = [this, revision, &old] {
+        const auto current = _clients.find(old->id);
+        return !_tokenMutationCancelled && revision == _storeRevision && current
+            && current->digest == old->digest && current->version == old->version
+            && current->identityVersion == old->identityVersion;
+    };
+    if (!credentials() || !stillCurrent()) return false;
     const auto token = randomBytes().toHex();
-    if (!_credentials->put(reference(id), token))
-        return false;
-    _clients.updateDigest(ClientId{id},
-        QCryptographicHash::hash(token, QCryptographicHash::Sha256),
-        _credentials->isPersistent());
+    const auto digest = QCryptographicHash::hash(token, QCryptographicHash::Sha256);
+    const auto ref = reference(id, digest);
+    if (!_credentials->put(ref, token)) return false;
+    const auto persistent = _credentials->isPersistent();
+    if (!stillCurrent()) { _credentials->remove(ref); return false; }
+    _clients.updateDigest(ClientId{id}, digest, persistent);
     if (!save()) {
         _clients.insert(*old);
-        if (oldToken) _credentials->put(reference(id), *oldToken);
+        _credentials->remove(ref);
         return false;
     }
+    _credentials->remove(reference(id, old->digest));
     emit revoked(id, {});
     emit changed();
     return true;
 }
 
-std::optional<QByteArray> AccessStore::exportToken(const QString& id) const
+std::optional<QByteArray> AccessStore::exportToken() const
 {
-    if (!_clients.contains(ClientId{id}) || !credentials())
+    const auto client = _clients.find(ClientId{accessId()});
+    if (!client || !credentials()) return std::nullopt;
+    const auto token = _credentials->get(reference(client->id.str(), client->digest));
+    const auto current = _clients.find(ClientId{accessId()});
+    if (!current || current->id != client->id || current->digest != client->digest
+        || !token || !constantTimeEqual(
+            QCryptographicHash::hash(*token, QCryptographicHash::Sha256), client->digest))
         return std::nullopt;
-    return _credentials->get(reference(id));
+    return token;
 }
 
 QString AccessStore::authenticate(const QByteArray& token) const
@@ -372,6 +410,25 @@ bool AccessStore::initializeSessionSharing(const ClientId& client, const Permiss
 {
     if (!_authorization.initializeSession(client, selection, factsOf(entry))) return false;
     emit revoked(client.str(), entry.id);
+    emit changed();
+    if (NovaTerm::publishedContextSnapshotEnabled() && entry.session && entry.session->core())
+        static_cast<void>(entry.session->core()->requestPublishedTerminalState());
+    return true;
+}
+
+quint64 AccessStore::tokenEpoch() const
+{
+    const auto client = _clients.find(ClientId{accessId()});
+    if (!client) return 0;
+    const auto epoch = client->digest.toHex().left(16).toULongLong(nullptr, 16);
+    return epoch ? epoch : quint64(1);
+}
+
+bool AccessStore::initializeSessionDefaults(const SessionDirectory::Entry& entry)
+{
+    const auto id = accessId();
+    if (!_authorization.initializeDefaults(ClientId{id}, factsOf(entry))) return false;
+    emit revoked(id, entry.id);
     emit changed();
     if (NovaTerm::publishedContextSnapshotEnabled() && entry.session && entry.session->core())
         static_cast<void>(entry.session->core()->requestPublishedTerminalState());
@@ -505,9 +562,9 @@ bool AccessStore::hasElevationCredential(const SessionDirectory::Entry& entry,
     return !ref.isEmpty() && _elevationReferences.contains(ref);
 }
 
-bool AccessStore::elevationCredentialsPersistent() const
+std::optional<bool> AccessStore::elevationCredentialsPersistent() const
 {
-    return _elevationPersistent.value_or(_credentials && _credentials->isPersistent());
+    return _elevationPersistent;
 }
 
 void AccessStore::revokeElevation(const QString& targetFingerprint)
@@ -528,6 +585,7 @@ bool AccessStore::setElevationCredential(const SessionDirectory::Entry& entry,
         || !credentials()) return false;
     // This local configuration operation is the only write path; no MCP request calls it.
     if (!_credentials->put(ref, secret)) return false;
+    _elevationPersistent = _credentials->isPersistent();
     _elevationReferences.insert(ref);
     revokeElevation(entry.targetFingerprint);
     ++_elevationRevision;

@@ -33,7 +33,6 @@
 #include "ui/widgets/McpSettingsDialog.h"
 #include "ui/app/Application.h"
 #include "mcp/McpService.h"
-#include "mcp/application/SavedTargets.h"
 #include "service/LanguageManager.h"
 #include "service/ConfigManager.h"
 #include <QApplication>
@@ -1222,40 +1221,6 @@ void MainWindow::initWindow()
 
     _sessionPanel = new SessionPanel(_sessionDock);
     if (auto* mcp = Application::instance().mcpService()) {
-        const auto publishTargets = [panel = _sessionPanel, mcp = QPointer<NovaTerm::Mcp::Service>(mcp)] {
-            if (mcp && !mcp->savedTargets().replace(panel->savedTargetSources()))
-                qWarning() << "Saved MCP target directory rejected invalid or excessive metadata";
-        };
-        connect(_sessionPanel, &SessionPanel::savedTargetsChanged, mcp, publishTargets);
-        publishTargets();
-        mcp->setTargetOpener([window = QPointer<MainWindow>(this)](const NovaTerm::Mcp::SavedTargetSource& source,
-            const NovaTerm::Mcp::TargetConnections::Guard& allowed) {
-            using Facts = NovaTerm::Mcp::TargetConnectionFacts;
-            if (!window || !window->_terminalPage || !window->_sessionPanel || !allowed())
-                return Facts{{}, {}, {}, "unavailable", "connection_ui_unavailable", false};
-            QString reason;
-            const auto configuration = window->_sessionPanel->savedConnection(source.id, source.configurationKey, reason);
-            if (!configuration) return Facts{{}, {}, {}, "unavailable", reason, false};
-            if (!window || !allowed()) return Facts{{}, {}, {}, "unavailable", "admission_invalidated", false};
-            const auto [view, created] = window->_terminalPage->openSavedConnection(*configuration, reason, allowed);
-            if (!view || !view->session()) return Facts{{}, {}, {}, "unavailable", reason, false};
-            auto* service = Application::instance().mcpService();
-            const auto entry = service ? service->directory().find(view->session()->id().toString(QUuid::WithoutBraces))
-                : std::optional<SessionDirectory::Entry>{};
-            if (!entry) return Facts{{}, {}, {}, "unavailable", "session_unavailable", created};
-            return Facts{entry->id, entry->epoch, entry->attachmentId,
-                SessionDirectory::stateName(entry->state), {}, created};
-        });
-        mcp->setTargetCloseSafety([window = QPointer<MainWindow>(this)](const QString& id) {
-            if (!window || !window->_sftpPanels || QApplication::activeModalWidget() || QApplication::activePopupWidget())
-                return false;
-            auto* service = Application::instance().mcpService();
-            const auto entry = service ? service->directory().find(id) : std::optional<SessionDirectory::Entry>{};
-            if (!entry || !entry->session) return false;
-            auto* ssh = qobject_cast<SshTransport*>(entry->transport.data());
-            const auto* panel = ssh ? window->_sftpPanels->panelFor(ssh) : nullptr;
-            return !panel || !panel->hasPendingOperations();
-        });
         mcp->setFileUploadStarter([window = QPointer<MainWindow>(this), owner = QPointer<NovaTerm::Mcp::Service>(mcp)]
             (TerminalSession& session, const SftpFileUploadRequest& request, NovaTerm::Mcp::FileTransfers::Delivery delivery) {
             if (!window || !owner || !window->_sftpPanels) return false;

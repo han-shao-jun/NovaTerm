@@ -8,7 +8,6 @@ qt_add_library(novaterm_mcp_contracts STATIC
     contracts/Permissions.h
     contracts/ClearRequest.h
     contracts/WaitTextRequest.h contracts/TerminalTaskRequest.h
-    contracts/SavedTargetRequest.h
     contracts/FileResourceRequest.h
     contracts/FileTransferRequest.h
     contracts/SerialFileTargetRequest.h
@@ -20,8 +19,6 @@ target_link_libraries(novaterm_mcp_contracts PUBLIC Qt6::Core)
 qt_add_library(novaterm_mcp_application STATIC
     application/SerialFileTargets.cpp application/SerialFileTargets.h
     application/FileResources.cpp application/FileResources.h
-    application/SavedTargets.cpp application/SavedTargets.h
-    application/TargetConnections.cpp application/TargetConnections.h
     application/GrantStore.cpp application/GrantStore.h
     application/AuthorizationService.cpp application/AuthorizationService.h
     application/CapabilityResolver.cpp application/CapabilityResolver.h
@@ -87,7 +84,6 @@ qt_add_library(novaterm_mcp_runtime STATIC
     SerialFileTargetAdapter.cpp SerialFileTargetAdapter.h
     FileTransfers.cpp FileTransfers.h
     FileResourceAdapter.cpp FileResourceAdapter.h
-    TargetSessionSharing.cpp TargetSessionSharing.h
     TerminalTextWait.cpp TerminalTextWait.h tasks/TextWaitMatcher.h
     TerminalTasks.cpp TerminalTasks.h
     TerminalClearAdapter.cpp TerminalClearAdapter.h

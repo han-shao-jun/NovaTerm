@@ -3,7 +3,6 @@
  */
 #pragma once
 #include "McpAccess.h"
-#include "application/TargetConnections.h"
 #include "FileTransfers.h"
 #include <QJsonArray>
 #include <memory>
@@ -12,7 +11,6 @@ namespace NovaTerm::Resources { class ResourceSharingService; }
 
 namespace NovaTerm::Mcp {
 class HistoryCapabilityAdapter;
-class SavedTargets;
 class FileResourceAdapter;
 class SerialFileTargetAdapter;
 class Service final : public QObject
@@ -25,13 +23,9 @@ public:
     ~Service() override;
     [[nodiscard]] AccessStore& access();
     [[nodiscard]] SessionDirectory& directory();
-    [[nodiscard]] SavedTargets& savedTargets();
     [[nodiscard]] FileResourceAdapter& fileResources();
     [[nodiscard]] SerialFileTargetAdapter& serialFileTargets();
     void setFileUploadStarter(FileTransfers::Start);
-    void setTargetOpener(TargetConnections::Open);
-    /** Local composition supplies transfer/UI safety; missing SSH facts refuse close. */
-    void setTargetCloseSafety(std::function<bool(const QString& sessionId)>);
     [[nodiscard]] HistoryCapabilityAdapter& history();
     [[nodiscard]] std::shared_ptr<Resources::ResourceSharingService> resources() const;
     void setHistorySource(Recording::HistoryService*);
@@ -39,8 +33,8 @@ public:
     [[nodiscard]] QString endpoint() const;
     [[nodiscard]] QString httpEndpoint() const;
     [[nodiscard]] QString status() const;
-    [[nodiscard]] QJsonObject clientConfiguration(const QString& clientId) const;
-    [[nodiscard]] QJsonObject ccSwitchConfiguration(const QString& clientId) const;
+    [[nodiscard]] QJsonObject clientConfiguration() const;
+    [[nodiscard]] QJsonObject ccSwitchConfiguration() const;
     /** @brief 不含正文、搜索词、目标和凭据的本机诊断计数。 */
     [[nodiscard]] QJsonObject statistics() const;
     void stop();

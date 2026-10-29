@@ -1,6 +1,6 @@
 # NovaTerm
 
-2026-10-29：当前二十六个MCP工具，旧诊断/命令/脚本四工具已退役，客户端管理移入次级窗口；SFTP上传/下载新增可选 `overwrite`，默认false，true明确允许在可信目录中替换目标路径，不承诺文件身份条件替换。复用原SFTP后端与查询/取消，本覆盖阶段Windows软件验证已完成，见[覆盖记录](docs/architecture/stages/P8_AI_MCP_Interface/records/B3b_File_Overwrite_2026-10-28.md)。本轮按Windows交付；Linux/macOS安全文件后端仍未实现，B4实机由用户验收，P8未整体完成。UART独立授权、外部接收准备及lease显式release保持。
+2026-10-29：当前二十二个 MCP 工具，所有 AI 共用统一令牌和授权；每个新就绪连接默认开启四项会话权限，同连接内手动撤权保留。MCP 仅列已连接会话，保存目标目录/打开/查询/关闭四工具及客户端管理已移除，手动保存会话入口保留。文件和历史授权仍独立。本轮验证另行记录，历史成绩不作为当前改动的重测结果。Linux/macOS 安全文件后端尚未实现，托管提权适配器仍不可用，B4 实机验收由用户执行。
 
 历史实现与逐轮验证见[验收档案](docs/architecture/stages/P8_AI_MCP_Interface/records/README.md)，不以历史成绩代替当前版本验收。
 
@@ -21,7 +21,7 @@ FluentUI 风格。
   已知失败，见 [AGENTS.md](AGENTS.md)。独立协议阶段的记录见
   [P9 文档](docs/architecture/stages/P9_File_Transfer_Protocols.md)
 - **系统监控**：支持远程SSH会话的系统资源监控
-- **AI MCP 接入**：默认关闭的进程内Streamable HTTP服务，默认地址为 `http://127.0.0.1:38973/mcp`，通过Bearer token认证；提供二十六个工具，支持终端观察/输入、准确日志分页、文本等待、长任务、保存目标连接、SFTP上传/下载及UART/ZMODEM单文件发送。SFTP默认不覆盖，可显式选择可信目录中的路径替换；本覆盖阶段Windows软件验证已完成。本轮Windows软件交付与B4实机验收分开，Linux/macOS安全文件后端仍未实现；托管提权保留unavailable且不作为当前闭环前置，详见[使用说明](docs/MCP_Usage.md)
+- **AI MCP 接入**：默认关闭的进程内 Streamable HTTP 服务，默认地址 `http://127.0.0.1:38973/mcp`。所有 AI 使用同一 Bearer token 和权限；提供二十二工具，支持已连接终端观察/输入、日志分页、文本等待、长任务、独立历史查询、SFTP 上传/下载及 UART/ZMODEM 单文件发送。每个新就绪连接的读取、输入、托管提权、清空权限默认开启，可手动撤销；文件与历史仍单独共享。SFTP 默认不覆盖，可显式选择可信目录中的路径替换。平台与能力限制见[使用说明](docs/MCP_Usage.md)。
 - **终端解析**：使用 libvterm 处理 ANSI/VT 控制序列，具体语义由终端测试覆盖
 - **搜索与高亮**：支持终端内容搜索和可配置文本高亮
 
@@ -52,7 +52,7 @@ LZ4 v1.10.0 完整上游源码位于 `third_party/lz4-1.10.0/`，无需下载；
   默认启用测试时还需要 Test
 - 历史录制使用同一 Qt SDK 的 QSQLITE 驱动，运行/部署须包含 `sqldrivers/qsqlite` 插件。
   主菜单「历史录制」由本机用户手动启停，默认关闭；录制不自动授权共享。
-  历史条目可独立选择客户端与 record 范围进行离线共享；三个历史 MCP 工具及权限说明见 [MCP 使用说明](docs/MCP_Usage.md)。
+  历史条目可独立选择 record 范围，向所有使用统一令牌的 AI 进行离线共享；三个历史 MCP 工具及权限说明见 [MCP 使用说明](docs/MCP_Usage.md)。
 - 对于Windows：需要Windows 10 1809或更高版本，以及 MSVC 2022
 - Linux/macOS 需要系统 OpenSSL 开发库；Windows 使用下方脚本预编译
   vendored OpenSSL
@@ -174,7 +174,7 @@ Parser 单写，Renderer / Search 读取快照，跨线程队列有界。
 - `src/capabilities/`：共享能力目录、可信准入和类型化终端应用端口；外部 Agent 经 MCP 操作 SSH/UART，不内置 Agent 或诊断平台
 - `src/mcp/`：进程内 Qt HTTP Server、MCP wire 协议与授权；不再构建或启动独立 stdio 桥接
 
-启用 MCP 并导出客户端配置后，HTTP 客户端使用 `type: "http"`、`url` 和
+启用 MCP 并导出统一配置后，HTTP 客户端使用 `type: "http"`、`url` 和
 `headers.Authorization: "Bearer <令牌>"`。Codex 配置使用 `url` 与
 `http_headers.Authorization`。旧配置中的 `command`、`args`、`env` 需要迁移；
 原 `novaterm-mcp` 可执行入口已删除。应用重启后默认 URL 保持稳定，可在启动应用前

@@ -548,6 +548,11 @@ Built with:
     </message>
     <message>
         <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="422"/>
+        <source>存储：尚未确认。保存密码后显示实际存储方式。密码仅在本机设置，不对 MCP 客户端开放。</source>
+        <translation>Storage: not yet confirmed. The actual storage method is shown after saving a password. Passwords are configured locally and are not exposed to MCP clients.</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="351"/>
         <source>存储：系统凭据库。密码仅在本机设置，不对 MCP 客户端开放。</source>
         <translation>Storage: system credential store. Passwords are configured locally and are not exposed to MCP clients.</translation>
     </message>
@@ -623,6 +628,11 @@ Built with:
     </message>
     <message>
         <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="671"/>
+        <source>密码存储方式尚未确认；保存后显示实际存储方式。保存不代表授权使用，也不启用认证适配器。</source>
+        <translation>Password storage is not yet confirmed; the actual storage method is shown after saving. Saving does not grant permission to use passwords or enable an authentication adapter.</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="566"/>
         <source>密码保存在系统凭据库；保存不代表授权使用，也不启用认证适配器。</source>
         <translation>Passwords are stored in the system credential store. Saving does not grant permission to use them or enable an authentication adapter.</translation>
     </message>
@@ -775,6 +785,42 @@ Built with:
         <source>令牌已更换，请重新复制接入配置。</source>
         <translation>Token rotated. Copy the new connection configuration.</translation>
     </message>
+    <message>
+        <source>所有 AI 共用此接入令牌及授权。允许执行命令后，AI可在当前连接输入文本、按键和命令；终端输出可能包含敏感信息。</source>
+        <translation>All AI connections share this token and permissions. When command input is allowed, AI can send text, keys, and commands on the current connection. Terminal output may contain sensitive information.</translation>
+    </message>
+    <message>
+        <source>Reset access token</source>
+        <translation>Reset access token</translation>
+    </message>
+    <message>
+        <source>允许清空终端</source>
+        <translation>Allow clearing the terminal</translation>
+    </message>
+    <message>
+        <source>文件资源授权…</source>
+        <translation>File resource permissions…</translation>
+    </message>
+    <message>
+        <source>Access token reset. Copy the updated configuration for all AI connections.</source>
+        <translation>Access token reset. Copy the updated configuration for all AI connections.</translation>
+    </message>
+    <message>
+        <source>Operation failed. Check access settings, storage permissions, and active commands.</source>
+        <translation>Operation failed. Check access settings, storage permissions, and active commands.</translation>
+    </message>
+    <message>
+        <source>允许所有使用此令牌的 AI 在本次连接输入文本、按键并执行命令。新建或重连后的连接默认允许，可在此取消授权。</source>
+        <translation>Allow all AI connections using this token to send text, keys, and commands on this connection. Enabled by default for new or reconnected sessions; uncheck here to revoke.</translation>
+    </message>
+    <message>
+        <source>所有 AI 共用此接入令牌及授权。会话的读取、输入、托管提权和清空权限默认开启，可取消勾选；终端输出可能包含敏感信息。</source>
+        <translation>All AI connections share this token and permissions. Session read, input, managed elevation, and clear permissions are enabled by default and can be unchecked. Terminal output may contain sensitive information.</translation>
+    </message>
+    <message>
+        <source>须先共享读取且会话已连接。独立允许清空本机屏幕或滚动历史，影响人的本机显示；不向设备发送字节、不停止远端程序，也不删除独立历史录制。新建或重连后的连接默认允许，可在此取消授权。</source>
+        <translation>Requires read permission and a connected session. Allows clearing the local screen or scrollback, affecting the local display. Sends no bytes to the device, stops no remote program, and deletes no independent recording. Enabled by default for new or reconnected sessions; uncheck here to revoke.</translation>
+    </message>
 </context>
 <context>
     <name>Prompts</name>
@@ -798,6 +844,11 @@ Built with:
     </message>
     <message>
         <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="475"/>
+        <source>已更新，存储方式尚未确认。托管提权授权已撤销，请按需重新授权。</source>
+        <translation>Updated; storage is not yet confirmed. Managed elevation permission was revoked; reauthorize if needed.</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/widgets/McpSettingsDialog.cpp" line="406"/>
         <source>已更新系统凭据库。托管提权授权已撤销，请按需重新授权。</source>
         <translation>System credential store updated. Managed elevation permission was revoked; reauthorize if needed.</translation>
     </message>
@@ -3799,5 +3850,216 @@ Built with:
 %1</source><translation>Delete this recording and its derived files?
 %1</translation></message>
     <message><source>Current terminal: %1</source><translation>Current terminal: %1</translation></message>
+    <message>
+        <source>History and imported files are shared with all AI connections using the common MCP token, independently of terminal permissions. Closing a terminal does not revoke this permission. An end record of 0 includes future committed records.</source>
+        <translation>History and imported files are shared with all AI connections using the common MCP token, independently of terminal permissions. Closing a terminal does not revoke this permission. An end record of 0 includes future committed records.</translation>
+    </message>
+    <message>
+        <source>From record</source>
+        <translation>From record</translation>
+    </message>
+    <message>
+        <source>Through record (0: high water)</source>
+        <translation>Through record (0: high water)</translation>
+    </message>
+    <message>
+        <source>Keep permission after restart</source>
+        <translation>Keep permission after restart</translation>
+    </message>
+    <message>
+        <source>Share selected</source>
+        <translation>Share selected</translation>
+    </message>
+    <message>
+        <source>Revoke history permission</source>
+        <translation>Revoke history permission</translation>
+    </message>
+    <message>
+        <source>Share local log file…</source>
+        <translation>Share local log file…</translation>
+    </message>
+    <message>
+        <source>Revoke imported files</source>
+        <translation>Revoke imported files</translation>
+    </message>
+    <message>
+        <source>Explicitly share a local log (up to 16 MiB)</source>
+        <translation>Explicitly share a local log (up to 16 MiB)</translation>
+    </message>
+    <message>
+        <source>MCP access changed. Select the file again to share it.</source>
+        <translation>MCP access changed. Select the file again to share it.</translation>
+    </message>
+    <message>
+        <source>Imported files are no longer shared with AI connections.</source>
+        <translation>Imported files are no longer shared with AI connections.</translation>
+    </message>
+    <message>
+        <source>Enter a valid inclusive record range (first record is at least 1).</source>
+        <translation>Enter a valid inclusive record range (first record is at least 1).</translation>
+    </message>
+    <message>
+        <source>Select a recording to share with all AI connections.</source>
+        <translation>Select a recording to share with all AI connections.</translation>
+    </message>
+    <message>
+        <source>Enable MCP access before sharing history or imported files.</source>
+        <translation>Enable MCP access before sharing history or imported files.</translation>
+    </message>
+    <message>
+        <source>MCP access changed or the resource service is unavailable.</source>
+        <translation>MCP access changed or the resource service is unavailable.</translation>
+    </message>
+    <message>
+        <source>Shared file %1 (%2 bytes, SHA-256 %3). Permission expires on exit; offline analyzers are not yet available.</source>
+        <translation>Shared file %1 (%2 bytes, SHA-256 %3). Permission expires on exit; offline analyzers are not yet available.</translation>
+    </message>
+</context>
+<context>
+    <name>FileResourceSharingDialog</name>
+    <message>
+        <source>文件资源授权</source>
+        <translation>File resource permissions</translation>
+    </message>
+    <message>
+        <source>为所有 AI 共同选择本地目录和远端目录的读写权限，仅本次运行有效。本地读取用于上传源，本地写入用于下载目录；远端读取用于下载源，远端写入用于上传目标。这些选择与终端权限独立。SFTP上传需要本地读取和远端写入，下载需要远端读取和本地写入；串口ZMODEM发送前须准备设备接收并结束其他输入操作。授权本身不证明接收端就绪或路径可安全访问。</source>
+        <translation>Choose local and remote directory read/write permissions shared by all AI connections for this run only. Local read permits upload sources; local write permits download destinations. Remote read permits download sources; remote write permits upload destinations. These permissions are independent of terminal access. SFTP upload requires local read and remote write; download requires remote read and local write. Before serial ZMODEM sending, prepare the receiver and finish other input operations. Authorization alone does not establish receiver readiness or safe path access.</translation>
+    </message>
+    <message>
+        <source>本地目录</source>
+        <translation>Local directory</translation>
+    </message>
+    <message>
+        <source>远端 SSH 目录</source>
+        <translation>Remote SSH directory</translation>
+    </message>
+    <message>
+        <source>串口 ZMODEM 发送</source>
+        <translation>Serial ZMODEM sending</translation>
+    </message>
+    <message>
+        <source>明确选择的目录绝对路径</source>
+        <translation>Absolute path of the explicitly selected directory</translation>
+    </message>
+    <message>
+        <source>选择本地目录</source>
+        <translation>Choose local directory</translation>
+    </message>
+    <message>
+        <source>共享名称（会披露给所有 AI）</source>
+        <translation>Shared name (visible to all AI connections)</translation>
+    </message>
+    <message>
+        <source>允许读取</source>
+        <translation>Allow reading</translation>
+    </message>
+    <message>
+        <source>允许写入</source>
+        <translation>Allow writing</translation>
+    </message>
+    <message>
+        <source>共享或更新所填目录</source>
+        <translation>Share or update this directory</translation>
+    </message>
+    <message>
+        <source>撤回选中目录</source>
+        <translation>Revoke selected directory</translation>
+    </message>
+    <message>
+        <source>范围</source>
+        <translation>Scope</translation>
+    </message>
+    <message>
+        <source>本机可见路径</source>
+        <translation>Locally visible path</translation>
+    </message>
+    <message>
+        <source>共享名称</source>
+        <translation>Shared name</translation>
+    </message>
+    <message>
+        <source>读取</source>
+        <translation>Read</translation>
+    </message>
+    <message>
+        <source>写入</source>
+        <translation>Write</translation>
+    </message>
+    <message>
+        <source>选择要共享的本地目录</source>
+        <translation>Choose a local directory to share</translation>
+    </message>
+    <message>
+        <source>请先选择仍有效的目录授权。</source>
+        <translation>Select a directory permission that is still valid.</translation>
+    </message>
+    <message>
+        <source>已撤回目录授权。</source>
+        <translation>Directory permission revoked.</translation>
+    </message>
+    <message>
+        <source>目录授权已变化，请重新选择。</source>
+        <translation>Directory permission changed. Select it again.</translation>
+    </message>
+    <message>
+        <source>允许ZMODEM发送</source>
+        <translation>Allow ZMODEM sending</translation>
+    </message>
+    <message>
+        <source>共享或更新所选串口</source>
+        <translation>Share or update selected serial port</translation>
+    </message>
+    <message>
+        <source>接入身份或状态已变化，请关闭后重新打开授权窗口。</source>
+        <translation>The access identity or state changed. Close and reopen this permissions window.</translation>
+    </message>
+    <message>
+        <source>允许</source>
+        <translation>Allowed</translation>
+    </message>
+    <message>
+        <source>关闭</source>
+        <translation>Off</translation>
+    </message>
+    <message>
+        <source>本地</source>
+        <translation>Local</translation>
+    </message>
+    <message>
+        <source>当前SSH</source>
+        <translation>Current SSH</translation>
+    </message>
+    <message>
+        <source>当前串口</source>
+        <translation>Current serial port</translation>
+    </message>
+    <message>
+        <source>ZMODEM</source>
+        <translation>ZMODEM</translation>
+    </message>
+    <message>
+        <source>不适用</source>
+        <translation>Not applicable</translation>
+    </message>
+    <message>
+        <source>允许发送</source>
+        <translation>Sending allowed</translation>
+    </message>
+    <message>
+        <source>已保存当前串口的发送授权；发送文件还需要本地读取授权。</source>
+        <translation>Sending permission saved for the current serial port. Sending files also requires local read permission.</translation>
+    </message>
+    <message>
+        <source>未提交：请选择当前串口、填写共享名称并明确允许ZMODEM发送。</source>
+        <translation>Not saved: select the current serial port, enter a shared name, and explicitly allow ZMODEM sending.</translation>
+    </message>
+    <message>
+        <source>已保存本次运行的目录授权；尚未传输文件。</source>
+        <translation>Directory permissions saved for this run. No files have been transferred.</translation>
+    </message>
+    <message>
+        <source>未提交：请核对当前SSH连接、绝对目录、共享名称、至少一项读写选择及授权数量。</source>
+        <translation>Not saved: check the current SSH connection, absolute directory, shared name, at least one read/write selection, and permission limits.</translation>
+    </message>
 </context>
 </TS>

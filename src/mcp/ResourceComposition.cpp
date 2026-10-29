@@ -44,9 +44,8 @@ struct GrantFile {
 std::shared_ptr<Resources::ResourceSharingService> makeResourceSharingService(AccessStore& access, const QString& state) {
     const QPointer<AccessStore> authority(&access);
     auto identity = [authority](const QString& principal) -> quint64 {
-        if (authority) for (const auto& client : authority->clients()) if (client.id.str() == principal) {
-            const auto epoch = client.digest.toHex().left(16).toULongLong(nullptr, 16); return epoch ? epoch : 1;
-        }
+        if (authority && authority->accessId() == principal)
+            return authority->tokenEpoch();
         return 0;
     };
     const auto file = std::make_shared<GrantFile>(state);

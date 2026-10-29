@@ -70,13 +70,10 @@ public:
     // 本机接入配置入口；界面不再直接持有可变 AccessStore。
     [[nodiscard]] bool enabled() const;
     bool setEnabled(bool enabled);
-    [[nodiscard]] QList<NovaTerm::Mcp::ClientRecord> clients() const;
-    [[nodiscard]] QString addClient(const QString& label);
-    bool removeClient(const QString& id);
-    bool rotateToken(const QString& id);
+    bool rotateToken();
     [[nodiscard]] SaveFailure lastSaveFailure() const;
     void clearSaveFailure();
-    [[nodiscard]] bool elevationCredentialsPersistent() const;
+    [[nodiscard]] std::optional<bool> elevationCredentialsPersistent() const;
     [[nodiscard]] bool hasElevationCredential(const SessionDirectory::Entry& entry,
                                               const QString& method) const;
     bool configureElevationCredentialAsync(const SessionDirectory::Entry& entry,

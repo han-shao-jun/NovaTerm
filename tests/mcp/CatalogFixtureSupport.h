@@ -7,7 +7,8 @@
 namespace NovaTerm::Mcp::TestSupport {
 inline bool retiredTool(const QString& name)
 {
-    return QStringList{"novaterm_list_commands", "novaterm_execute_command", "novaterm_run_command", "novaterm_run_script"}.contains(name);
+    return QStringList{"novaterm_list_commands", "novaterm_execute_command", "novaterm_run_command", "novaterm_run_script",
+        "novaterm_list_targets", "novaterm_open_target", "novaterm_query_target", "novaterm_close_target"}.contains(name);
 }
 inline QJsonObject toolByName(const QString& name)
 {

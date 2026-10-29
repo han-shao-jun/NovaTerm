@@ -1,8 +1,10 @@
 # 外部 Agent 的 SSH/UART MCP 终端工具
 
+当前工作区进一步改为统一 MCP 接入与授权，移除保存目标四工具，仅暴露已经连接的会话，新就绪连接四项权限默认开启；具体迁移、验证轮次和边界见[统一接入记录](../../MCP_Shared_Access_2026-10-29.md)。
+
 更新：2026-10-28。主线是本地外部Agent编码、编译和部署，通过NovaTerm MCP操作SSH/UART、观察终端反馈，再继续修复。NovaTerm提供明确授权的工具，不内置Agent、不托管模型、不编排开发流程。
 
-当前二十六工具覆盖终端观察/输入、历史与日志、清空/等待/任务、保存目标连接/预授权、独立文件目录、SFTP上传/下载与UART发送。Windows基础软件已有分阶段证据，SFTP上传/下载显式覆盖本阶段Windows软件回归已完成，B4仍待用户验收，见[覆盖记录](records/B3b_File_Overwrite_2026-10-28.md)。本轮按Windows交付，Linux/macOS安全文件后端仍未实现；B4由用户验收，P8未整体完成。
+当前二十二工具覆盖终端观察/输入、历史与日志、清空/等待/任务、保存目标连接/预授权、独立文件目录、SFTP上传/下载与UART发送。Windows基础软件已有分阶段证据，SFTP上传/下载显式覆盖本阶段Windows软件回归已完成，B4仍待用户验收，见[覆盖记录](records/B3b_File_Overwrite_2026-10-28.md)。本轮按Windows交付，Linux/macOS安全文件后端仍未实现；B4由用户验收，P8未整体完成。
 
 UART发送复用原Controller、worker、唯一输入泵和协议owner，需要独立本地读取与UART发送授权。调用方独立准备接收端并显式release已有MCP输入lease；工具不自动rz、不抢占人工传输。protocolCompleted与fileConfirmed分别表示协议结束与单文件确认，ZSKIP不是送达；remotePublication始终unknown、contentVerified始终false。按真实大小/波特率计算总期限，超预算在首个协议字节前拒绝。
 

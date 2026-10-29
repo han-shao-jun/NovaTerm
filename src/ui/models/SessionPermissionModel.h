@@ -56,7 +56,7 @@ struct SessionPermissionRow
     bool clearTerminalSelectable{false};
     bool sudoSaved{false};
     bool suSaved{false};
-    bool credentialsPersistent{false};
+    std::optional<bool> credentialsPersistent;
 };
 
 class SessionPermissionModel

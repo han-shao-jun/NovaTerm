@@ -9,7 +9,6 @@
 #pragma once
 
 #include "session/SessionTypes.h"
-#include "mcp/application/SavedTargets.h"
 #include "ui/terminal/TerminalView.h"
 
 #include <QByteArray>
@@ -47,11 +46,6 @@ public:
     void recordSerial(const SerialConfig& config);
     void recordSsh(const SshConfig& config);
     void recordTelnet(const TelnetConfig& config);
-    /** Local metadata only; does not resolve credentials or open any connection. */
-    [[nodiscard]] QList<NovaTerm::Mcp::SavedTargetSource> savedTargetSources() const;
-    using SavedConnection = std::variant<SerialConfig, SshConfig>;
-    [[nodiscard]] std::optional<SavedConnection> savedConnection(const QString& targetId,
-        const QByteArray& expectedConfigurationKey, QString& reason) const;
     void updateLocal(const SessionId& id, TerminalView::LocalShellType type,
                      const QString& wslDistribution,
                      const QString& label,
@@ -74,7 +68,6 @@ protected:
 
 signals:
     void newSessionRequested();
-    void savedTargetsChanged();
     void collapsedChanged(bool collapsed);
     void panelWidthChangeRequested(int width);
     void localReconnectRequested(TerminalView::LocalShellType type,
@@ -105,6 +98,8 @@ private:
     void deleteItem(const SessionId& id);
     void deleteSessions(const QList<SessionId>& ids); ///< 一次确认删除历史快照
     [[nodiscard]] QList<SessionId> selectedSessionIds() const; ///< 按面板顺序选中项
+    using SavedConnection = std::variant<SerialConfig, SshConfig>;
+    [[nodiscard]] std::optional<SavedConnection> restoredConnection(const RuntimeConfig&, QString& reason) const;
     void reconnectSession(const SessionId& id); ///< 按稳定 ID 重连，允许树被重建
     void reconnectItem(QTreeWidgetItem* item);
     void upsert(RuntimeConfig runtime, const QByteArray& secret = {});
@@ -121,7 +116,6 @@ private:
     bool _collapsed{false};
     int _expandedWidth{260};
     QList<SessionRestoreMetadata> _entries;
-    QHash<QString, QByteArray> _mcpTargetVersions;
     std::unique_ptr<SessionStore> _store;
     std::unique_ptr<CredentialStore> _credentials;
 };

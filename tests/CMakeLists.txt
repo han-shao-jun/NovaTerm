@@ -49,11 +49,6 @@ add_subdirectory(resources)
     set_target_properties(novaterm_mcp_file_resources_tests PROPERTIES WIN32_EXECUTABLE FALSE)
     add_test(NAME novaterm_mcp_file_resources_tests COMMAND novaterm_mcp_file_resources_tests)
     set_tests_properties(novaterm_mcp_file_resources_tests PROPERTIES LABELS "mcp;p8;security" TIMEOUT 30)
-    qt_add_executable(novaterm_mcp_saved_targets_tests mcp/SavedTargetsTests.cpp)
-    target_link_libraries(novaterm_mcp_saved_targets_tests PRIVATE novaterm_mcp_application Qt6::Test)
-    set_target_properties(novaterm_mcp_saved_targets_tests PROPERTIES WIN32_EXECUTABLE FALSE)
-    add_test(NAME novaterm_mcp_saved_targets_tests COMMAND novaterm_mcp_saved_targets_tests)
-    set_tests_properties(novaterm_mcp_saved_targets_tests PROPERTIES LABELS "mcp;p8;security" TIMEOUT 30)
     # 测试以 QT_QPA_PLATFORM=offscreen 运行，而 windeployqt 只部署 qwindows，
     # 这里把 offscreen 平台插件复制到 bin/platforms，避免"no Qt platform plugin"。
     if(WIN32 AND TARGET Qt${QT_VERSION_MAJOR}::QOffscreenIntegrationPlugin)
@@ -87,7 +82,7 @@ add_subdirectory(resources)
         COMMENT "Running NovaTerm tests with detailed CTest output"
     )
     add_dependencies(check novaterm_mcp_serial_file_targets_tests novaterm_mcp_serial_file_source_tests novaterm_mcp_local_file_io_tests novaterm_mcp_file_resources_tests novaterm_history_contracts_tests novaterm_history_authorization_tests
-        novaterm_history_search_tests novaterm_evidence_tests novaterm_mcp_saved_targets_tests)
+        novaterm_history_search_tests novaterm_evidence_tests)
 
     add_subdirectory(filetransfer)
 

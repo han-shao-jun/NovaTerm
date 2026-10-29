@@ -1,6 +1,8 @@
 # NovaTerm 分阶段开发路线图
 
-2026-10-29 MCP现状：二十六工具；旧命令通路已退役，Windows B0～B3b基础能力已提供，SFTP上传/下载显式覆盖本阶段Windows软件回归已完成，B4仍待用户验收；overwrite默认false，true授权可信目录中的目标路径替换，复用原owner及查询/取消。本轮按Windows软件交付，Linux/macOS安全文件后端仍未实现；B4设备、客户端与性能由用户验收，P8未整体完成。进度见[覆盖记录](stages/P8_AI_MCP_Interface/records/B3b_File_Overwrite_2026-10-28.md)与[软件账本](stages/P8_AI_MCP_Interface/08_Software_Closeout.md)。
+当前工作区进一步改为统一 MCP 接入与授权，移除保存目标四工具，仅暴露已经连接的会话，新就绪连接四项权限默认开启；具体迁移、验证轮次和边界见[统一接入记录](MCP_Shared_Access_2026-10-29.md)。
+
+2026-10-29 MCP现状：二十二工具；旧命令通路已退役，Windows B0～B3b基础能力已提供，SFTP上传/下载显式覆盖本阶段Windows软件回归已完成，B4仍待用户验收；overwrite默认false，true授权可信目录中的目标路径替换，复用原owner及查询/取消。本轮按Windows软件交付，Linux/macOS安全文件后端仍未实现；B4设备、客户端与性能由用户验收，P8未整体完成。进度见[覆盖记录](stages/P8_AI_MCP_Interface/records/B3b_File_Overwrite_2026-10-28.md)与[软件账本](stages/P8_AI_MCP_Interface/08_Software_Closeout.md)。
 
 历史实现与各轮成绩见[验收档案](stages/P8_AI_MCP_Interface/records/README.md)，不拼接为当前版本通过结论。
 

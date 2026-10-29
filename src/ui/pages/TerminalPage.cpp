@@ -6,7 +6,6 @@
  * 标签上下文菜单由 TerminalTabWidget 管理，页面只负责把标签索引解析为终端视图。
  */
 #include "TerminalPage.h"
-#include "SavedConnectionPolicy.h"
 #include "ui/app/Application.h"
 #include "mcp/McpService.h"
 #include "resources/ResourceSharingService.h"
@@ -367,75 +366,6 @@ TerminalView* TerminalPage::addSshTerminalTab(const SshConfig& config)
     return terminalView;
 }
 
-std::pair<TerminalView*, bool> TerminalPage::openSavedConnection(
-    const std::variant<SerialConfig, SshConfig>& configuration, QString& reason, const std::function<bool()>& allowed)
-{
-    reason.clear();
-    if (_shuttingDown) { reason = "connection_ui_unavailable"; return {nullptr, false}; }
-    if (!allowed()) { reason = "admission_invalidated"; return {nullptr, false}; }
-    const auto expected = std::visit([](const auto& config) {
-        using Type = std::decay_t<decltype(config)>;
-        if constexpr (std::is_same_v<Type, SerialConfig>) return serialRuntime(config);
-        else return sshRuntime(config);
-    }, configuration);
-    const auto secret = std::holds_alternative<SshConfig>(configuration)
-        ? sshSecret(std::get<SshConfig>(configuration)) : QByteArray{};
-    bool portBusy = false;
-    for (auto* view : std::as_const(_terminalViews)) {
-        auto* session = view->session();
-        if (!session || session->state() == SessionState::Closed) continue;
-        const auto state = session->state();
-        const auto snapshot = _sessionEditSnapshots.constFind(view);
-        if (snapshot == _sessionEditSnapshots.cend()) continue;
-        const auto* ssh = qobject_cast<SshTransport*>(session->transport());
-        const bool actualSshMatches = expected.transportKind != TransportKind::Ssh
-            || (ssh && NovaTerm::sshConnectionMatches(ssh->sessionConfig(), std::get<SshConfig>(configuration)));
-        const bool same = actualSshMatches && snapshot->runtime.transportKind == expected.transportKind
-            && snapshot->runtime.transport == expected.transport && snapshot->secret == secret
-            && session->runtimeConfig().transportKind == expected.transportKind
-            && session->runtimeConfig().transport == expected.transport;
-        if (same && (state == SessionState::Running || state == SessionState::Connecting
-            || state == SessionState::Reconnecting)) return {view, false};
-        if (expected.transportKind == TransportKind::Serial
-            && snapshot->runtime.transportKind == TransportKind::Serial) {
-            const auto existing = snapshot->runtime.transport.value("portName").toString();
-            const auto requested = expected.transport.value("portName").toString();
-#ifdef Q_OS_WIN
-            const bool samePort = existing.compare(requested, Qt::CaseInsensitive) == 0;
-#else
-            const bool samePort = existing == requested;
-#endif
-            portBusy = portBusy || (samePort && NovaTerm::serialConnectionReserved(state,
-                session->transport() && session->transport()->isConnected(),
-                session->transport() && session->transport()->hasPendingDisconnect(),
-                session->hasPendingAutomaticReconnect()));
-        }
-    }
-    if (portBusy) { reason = "port_busy"; return {nullptr, false}; }
-    const QPointer<TerminalView> view(new TerminalView(_tabWidget, _historyRuntime));
-    const auto started = std::make_shared<bool>(false);
-    registerTerminalView(view);
-    if (allowed() && view) {
-        const auto title = std::visit([](const auto& config) { return config.label; }, configuration);
-        _tabWidget->setCurrentIndex(_tabWidget->addTab(view, title));
-        if (allowed() && view)
-            std::visit([this, &view, &allowed, &started](const auto& config) {
-                static_cast<void>(replaceTerminalTab(view, config, allowed, [started] { *started = true; }));
-            }, configuration);
-    }
-    // A start already admitted by the final guard remains an owned visible session.
-    // close/reset may leave an unstarted view Closed rather than Created.
-    if (!view || !*started) {
-        if (view) {
-            const int index = _tabWidget->indexOf(view);
-            if (index >= 0) _tabWidget->removeTab(index);
-            view->deleteLater();
-        }
-        reason = "admission_invalidated"; return {nullptr, false};
-    }
-    return {view, true};
-}
-
 void TerminalPage::registerTerminalView(TerminalView* terminalView)
 {
     _terminalViews.append(terminalView);
@@ -482,6 +412,43 @@ void TerminalPage::registerTerminalView(TerminalView* terminalView)
     });
 }
 
+namespace {
+void refreshHistorySharing(HistoryRecordingPanel* panel)
+{
+    auto* mcp = Application::instance().mcpService();
+    if (!mcp) { panel->setSharingActions({}); return; }
+    HistorySharingActions sharing;
+    const QPointer<NovaTerm::Mcp::AccessStore> access(&mcp->access());
+    sharing.principalId = access->accessId();
+    sharing.identityVersion = access->identityVersion(sharing.principalId);
+    const auto current = [access, principal = sharing.principalId, identity = sharing.identityVersion] {
+        return access && access->enabled() && !principal.isEmpty() && identity
+            && access->accessId() == principal && access->identityVersion(principal) == identity;
+    };
+    sharing.isCurrent = current;
+    const QPointer<NovaTerm::Resources::ResourceSharingService> guard(Application::instance().resourceSharing().get());
+    const auto unavailable = [] { return QCoreApplication::translate("HistoryRecordingPanel", "MCP access changed or the resource service is unavailable."); };
+    sharing.share = [guard, current, unavailable](QString principal, NovaTerm::Recording::HistoryCaptureId capture, quint64 first, quint64 last, bool persistent) {
+        return guard && current() ? guard->share(principal, capture, first, last, persistent) : unavailable();
+    };
+    sharing.revoke = [guard, current, unavailable](QString principal, NovaTerm::Recording::HistoryCaptureId capture) {
+        return guard && current() ? guard->revoke(principal, capture) : unavailable();
+    };
+    sharing.status = [guard, current](QString principal, NovaTerm::Recording::HistoryCaptureId capture) {
+        return guard && current() ? guard->sharingStatus(principal, capture) : QString{};
+    };
+    sharing.importFile = [guard, current, unavailable](QString principal, QString path, std::function<void(QString)> finished) {
+        if (!guard || !current()) { finished(unavailable()); return; }
+        guard->importFile(principal, path, [finished = std::move(finished)](const auto& result) {
+            finished(result.error.isEmpty() ? QCoreApplication::translate("HistoryRecordingPanel", "Shared file %1 (%2 bytes, SHA-256 %3). Permission expires on exit; offline analyzers are not yet available.")
+                .arg(result.resourceId).arg(result.byteCount).arg(result.contentHash) : result.error);
+        });
+    };
+    sharing.clearImports = [guard, current](QString principal) { if (guard && current()) guard->clearImportedFiles(principal); };
+    panel->setSharingActions(std::move(sharing));
+}
+}
+
 void TerminalPage::showHistoryRecording()
 {
     auto* recording = Application::instance().historyRecording();
@@ -489,6 +456,8 @@ void TerminalPage::showHistoryRecording()
     auto* panel = findChild<HistoryRecordingPanel*>(QString{}, Qt::FindDirectChildrenOnly);
     if (!panel) {
         panel = new HistoryRecordingPanel(recording, this);
+        if (auto* mcp = Application::instance().mcpService())
+            connect(&mcp->access(), &NovaTerm::Mcp::AccessStore::changed, panel, [panel] { refreshHistorySharing(panel); });
         panel->setTargetResolver([this] {
             const auto* view = currentTerminal(); const auto* session = view ? view->session() : nullptr;
             if (!session || session->state() != SessionState::Running) return NovaTerm::Recording::RecordingIntent{};
@@ -503,29 +472,7 @@ void TerminalPage::showHistoryRecording()
     const auto* view = currentTerminal(); const auto* session = view ? view->session() : nullptr;
     panel->setRecordingTarget(session ? NovaTerm::Recording::RecordingIntent{session->id(), session->statistics().generation} : NovaTerm::Recording::RecordingIntent{},
         session && session->state() == SessionState::Running, session ? session->runtimeConfig().title : QString{});
-    if (auto* mcp = Application::instance().mcpService()) {
-        HistorySharingActions sharing;
-        for (const auto& client : mcp->access().clients()) sharing.clients.push_back({client.id.str(), client.label});
-        const QPointer<NovaTerm::Resources::ResourceSharingService> guard(Application::instance().resourceSharing().get());
-        sharing.share = [guard](QString client, NovaTerm::Recording::HistoryCaptureId capture, quint64 first, quint64 last, bool persistent) {
-            return guard ? guard->share(client, capture, first, last, persistent) : QStringLiteral("Resource service unavailable");
-        };
-        sharing.revoke = [guard](QString client, NovaTerm::Recording::HistoryCaptureId capture) {
-            return guard ? guard->revoke(client, capture) : QStringLiteral("Resource service unavailable");
-        };
-        sharing.status = [guard](QString client, NovaTerm::Recording::HistoryCaptureId capture) {
-            return guard ? guard->sharingStatus(client, capture) : QString{};
-        };
-        sharing.importFile = [guard](QString client, QString path, std::function<void(QString)> finished) {
-            if (!guard) { finished(QStringLiteral("MCP service unavailable")); return; }
-            guard->importFile(client, path, [finished = std::move(finished)](const auto& result) {
-                finished(result.error.isEmpty() ? QStringLiteral("Shared file %1 (%2 bytes, SHA-256 %3). Permission expires on exit; offline analyzers are not yet available.")
-                    .arg(result.resourceId).arg(result.byteCount).arg(result.contentHash) : result.error);
-            });
-        };
-        sharing.clearImports = [guard](QString client) { if (guard) guard->clearImportedFiles(client); };
-        panel->setSharingActions(std::move(sharing));
-    }
+    refreshHistorySharing(panel);
     panel->show(); panel->raise(); panel->activateWindow();
 }
 
@@ -622,8 +569,7 @@ bool TerminalPage::replaceTerminalTab(TerminalView* terminalView,
 }
 
 bool TerminalPage::replaceTerminalTab(TerminalView* terminalView,
-                                      const SerialConfig& config, const std::function<bool()>& allowed,
-                                      std::function<void()> onStarting)
+                                      const SerialConfig& config)
 {
     const int index = _tabWidget->indexOf(terminalView);
     if (index < 0)
@@ -639,8 +585,8 @@ bool TerminalPage::replaceTerminalTab(TerminalView* terminalView,
         terminalView, SessionEditSnapshot{serialRuntime(config), {}});
 
     const QPointer<TerminalView> terminalGuard(terminalView);
-    restartTerminalWhenClosed(terminalView, [this, terminalGuard, config, allowed, onStarting = std::move(onStarting)]() {
-        if (!terminalGuard || (allowed && !allowed()))
+    restartTerminalWhenClosed(terminalView, [this, terminalGuard, config]() {
+        if (!terminalGuard)
             return;
         auto* transport = new SerialTransport(config, terminalGuard);
         const auto runtime = serialRuntime(config);
@@ -652,10 +598,7 @@ bool TerminalPage::replaceTerminalTab(TerminalView* terminalView,
         connect(transport, &ITransport::connected, this,
                 [this, config]() { emit serialSessionConnected(config); },
                 Qt::SingleShotConnection);
-        if (!allowed || allowed()) {
-            if (onStarting) onStarting();
-            static_cast<void>(terminalGuard->session()->start());
-        }
+        static_cast<void>(terminalGuard->session()->start());
     });
     emitCurrentSessionContext();
     return true;
@@ -697,8 +640,7 @@ bool TerminalPage::replaceTerminalTab(TerminalView* terminalView,
 }
 
 bool TerminalPage::replaceTerminalTab(TerminalView* terminalView,
-                                      const SshConfig& config, const std::function<bool()>& allowed,
-                                      std::function<void()> onStarting)
+                                      const SshConfig& config)
 {
     const int index = _tabWidget->indexOf(terminalView);
     if (index < 0)
@@ -716,8 +658,8 @@ bool TerminalPage::replaceTerminalTab(TerminalView* terminalView,
         SessionEditSnapshot{sshRuntime(config), sshSecret(config)});
 
     const QPointer<TerminalView> terminalGuard(terminalView);
-    restartTerminalWhenClosed(terminalView, [this, terminalGuard, config, allowed, onStarting = std::move(onStarting)]() {
-        if (!terminalGuard || (allowed && !allowed()))
+    restartTerminalWhenClosed(terminalView, [this, terminalGuard, config]() {
+        if (!terminalGuard)
             return;
         auto* transport = new SshTransport(config, terminalGuard);
         const auto runtime = sshRuntime(config);
@@ -733,10 +675,7 @@ bool TerminalPage::replaceTerminalTab(TerminalView* terminalView,
         connect(transport, &ITransport::connected, this,
                 [this, config]() { emit sshSessionConnected(config); },
                 Qt::SingleShotConnection);
-        if (!allowed || allowed()) {
-            if (onStarting) onStarting();
-            static_cast<void>(terminalGuard->session()->start());
-        }
+        static_cast<void>(terminalGuard->session()->start());
     });
     emitCurrentSessionContext();
     return true;

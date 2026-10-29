@@ -39,6 +39,31 @@ class WireSessionTests final : public QObject
 {
     Q_OBJECT
 private slots:
+    void retiredSavedTargetsNeverReachBackend_data() {
+        QTest::addColumn<QString>("name");
+        QTest::addColumn<bool>("modern");
+        for (const auto* name : {"novaterm_list_targets", "novaterm_open_target", "novaterm_query_target", "novaterm_close_target"}) {
+            QTest::newRow(qPrintable(QString::fromLatin1(name) + "-2025")) << QString::fromLatin1(name) << false;
+            QTest::newRow(qPrintable(QString::fromLatin1(name) + "-2026")) << QString::fromLatin1(name) << true;
+        }
+    }
+    void retiredSavedTargetsNeverReachBackend() {
+        QFETCH(QString, name);
+        QFETCH(bool, modern);
+        WireSession wire;
+        if (!modern) ready(wire);
+        else wire.setBackendAvailable(true);
+        QSignalSpy backend(&wire, &WireSession::backendEvent);
+        QSignalSpy packets(&wire, &WireSession::packet);
+        QJsonObject params{{"name", name}, {"arguments", QJsonObject{}}};
+        if (modern) params.insert("_meta", QJsonObject{{"io.modelcontextprotocol/protocolVersion", "2026-07-28"}});
+        wire.receiveMessage({{"jsonrpc", "2.0"}, {"id", 7}, {"method", "tools/call"}, {"params", params}}, "retired");
+        QCOMPARE(packets.size(), 1);
+        const auto reply = QJsonDocument::fromJson(packets.first().at(1).toByteArray()).object();
+        QCOMPARE(reply.value("error").toObject().value("code").toInt(), -32602);
+        QVERIFY(backend.isEmpty());
+        QVERIFY(!wire.hasPendingCalls());
+    }
     void serialTransferUsesIndependentBackendCall() {
         WireSession wire; ready(wire); QSignalSpy backend(&wire, &WireSession::backendEvent);
         wire.receiveMessage({{"jsonrpc", "2.0"}, {"id", 2}, {"method", "tools/call"},
@@ -412,7 +437,7 @@ private slots:
         QVERIFY(wire.initialized());
         wire.receiveMessage({{"jsonrpc", "2.0"}, {"id", 2}, {"method", "tools/list"}}, "catalog");
         QCOMPARE(QJsonDocument::fromJson(packets.last().at(1).toByteArray()).object().value("result").toObject()
-            .value("tools").toArray().size(), 26);
+            .value("tools").toArray().size(), 22);
     }
     void asynchronousResultKeepsExchangeRoute()
     {

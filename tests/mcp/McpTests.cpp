@@ -6,7 +6,6 @@
 #include "mcp/SerialFileTargetAdapter.h"
 #include "transport/SerialTransport.h"
 #include "ui/widgets/FileResourceSharingDialog.h"
-#include "mcp/application/SavedTargets.h"
 #include <QComboBox>
 #include <QLineEdit>
 #include <QLabel>
@@ -489,12 +488,12 @@ struct Fixture
     TerminalSession session{&core};
     Service service{root.path() + "/state", root.path() + "/instances", std::make_unique<MemoryCredentialStore>()};
     QString client;
-    Fixture()
+    explicit Fixture(bool createAccess = true)
     {
         session.attach(&local, TerminalSession::Ownership::Borrowed, TransportKind::LocalShell);
         static_cast<void>(session.start());
         service.directory().add(&session);
-        client = service.access().addClient("fixture");
+        if (createAccess) client = service.access().ensureAccess();
     }
     void makeSsh()
     {
@@ -505,6 +504,10 @@ struct Fixture
         SshTransportTestAccess::connected(*ssh);
         session.attach(ssh.get(), TerminalSession::Ownership::Borrowed, TransportKind::Ssh);
         static_cast<void>(service.directory().entries());
+        // This fixture intentionally models explicit local revocation after rebinding.
+        if (service.access().enabled())
+            static_cast<void>(NovaTerm::Mcp::TestSupport::setGrant(service.access(), client,
+                service.directory().entries().first(), false));
     }
     void makeSerial()
     {
@@ -514,6 +517,10 @@ struct Fixture
         session.attach(replacement.get(), TerminalSession::Ownership::Borrowed, TransportKind::Serial);
         serial = std::move(replacement);
         static_cast<void>(service.directory().entries());
+        // This fixture intentionally models explicit local revocation after rebinding.
+        if (service.access().enabled())
+            static_cast<void>(NovaTerm::Mcp::TestSupport::setGrant(service.access(), client,
+                service.directory().entries().first(), false));
     }
     DelayedScriptProvider* makeScriptUpload()
     {
@@ -539,11 +546,17 @@ struct Fixture
     {
         QSet<QString> commands;
         if (execute) commands = {"system.identity", "system.uptime", "memory.summary", "filesystem.usage"};
-        return !client.isEmpty() && service.access().setEnabled(true)
+        return !client.isEmpty() && enableWithoutSessionPermissions()
             && NovaTerm::Mcp::TestSupport::setGrant(service.access(), client, service.directory().entries().first(),
                 true, commands, interactive);
     }
-    QByteArray token() { return service.access().exportToken(client).value_or(QByteArray{}); }
+    bool enableWithoutSessionPermissions()
+    {
+        return service.access().setEnabled(true)
+            && NovaTerm::Mcp::TestSupport::setGrant(service.access(), client,
+                service.directory().entries().first(), false);
+    }
+    QByteArray token() { return service.access().exportToken().value_or(QByteArray{}); }
     QString runtime() { return root.path() + "/instances"; }
 };
 
@@ -566,7 +579,8 @@ private slots:
         host._protocolVersion = protocol;
         QVERIFY(host.start(f.runtime(), f.token()));
         for (const auto* name : {"novaterm_list_commands", "novaterm_execute_command",
-                 "novaterm_run_command", "novaterm_run_script"}) {
+                 "novaterm_run_command", "novaterm_run_script", "novaterm_list_targets",
+                 "novaterm_open_target", "novaterm_query_target", "novaterm_close_target"}) {
             auto arguments = f.identity();
             arguments.insert("command", "echo obsolete");
             arguments.insert("scriptContent", "echo obsolete");
@@ -582,7 +596,7 @@ private slots:
         for (const auto* name : {"list_commands", "execute_command", "run_command", "run_script", "human_confirmation"})
             QVERIFY(!capabilities.contains(QString::fromLatin1(name)));
     }
-    void settingsDialogUsesSecondaryClientManagement()
+    void settingsDialogUsesSharedAccess()
     {
         eApp->init();
         Fixture f;
@@ -592,64 +606,263 @@ private slots:
         QVERIFY(sessions);
         QCOMPARE(sessions->columnCount(), 8);
         QCOMPARE(sessions->topLevelItem(0)->childCount(), 0);
-        auto* manage = dialog.findChild<QPushButton*>("mcpManageClients");
-        QVERIFY(manage);
+        QVERIFY(!dialog.findChild<QComboBox*>("mcpClientSelector"));
+        QVERIFY(!dialog.findChild<QPushButton*>("mcpManageClients"));
+        QVERIFY(!dialog.findChild<QPushButton*>("mcpAddClient"));
+        QVERIFY(!dialog.findChild<QPushButton*>("mcpRemoveClient"));
+        QVERIFY(dialog.findChild<QPushButton*>("mcpRotateAccessToken"));
         QVERIFY(!dialog.findChild<QPlainTextEdit*>());
-        manage->click();
-        auto* manager = dialog.findChild<QDialog*>("mcpClientManager");
-        QVERIFY(manager);
-        auto* label = manager->findChild<QLineEdit*>("mcpNewClientLabel");
-        auto* add = manager->findChild<QPushButton*>("mcpAddClient");
-        auto* remove = manager->findChild<QPushButton*>("mcpRemoveClient");
-        auto* selected = dialog.findChild<QComboBox*>("mcpClientSelector");
-        QVERIFY(label && add && remove && selected);
-        label->setText("secondary-client");
-        add->click();
-        QTRY_VERIFY(selected->currentText().startsWith("secondary-client"));
-        const auto created = selected->currentData().toString();
-        QVERIFY(!created.isEmpty());
-        QVERIFY(!f.service.access().canRead(created, f.service.directory().entries().first()));
-        QTRY_COMPARE(manager->findChild<QComboBox*>("mcpManagedClients")->currentData().toString(), created);
-        remove->click();
-        QTRY_COMPARE(selected->count(), 1);
-        QCOMPARE(selected->currentData().toString(), f.client);
-        QVERIFY(!f.service.access().identityVersion(created));
-        manager->close();
+        QVERIFY(!dialog.findChild<QTreeWidget*>("mcpSavedTargets"));
     }
-    void settingsDialogCreatesFirstClientAndRotatesIdentity()
+    void settingsDialogAutomaticallyCreatesAccess()
+    {
+        eApp->init();
+        Fixture f(false);
+        McpSettingsDialog dialog(&f.service, nullptr);
+        QVERIFY(f.service.access().accessId().isEmpty());
+        auto* enabled = dialog.findChild<QCheckBox*>();
+        QVERIFY(enabled);
+        enabled->setChecked(true);
+        QVERIFY(f.service.access().enabled());
+        const auto client = f.service.access().accessId();
+        QVERIFY(!client.isEmpty());
+        const auto token = f.service.access().exportToken();
+        QVERIFY(token);
+        const auto identity = f.service.access().identityVersion(client);
+        auto* rotate = dialog.findChild<QPushButton*>("mcpRotateAccessToken");
+        QVERIFY(rotate);
+        rotate->click();
+        QTRY_VERIFY(f.service.access().identityVersion(client) != identity);
+        QVERIFY(f.service.access().authenticate(*token).isEmpty());
+        const auto replacement = f.service.access().exportToken();
+        QVERIFY(replacement);
+        QCOMPARE(f.service.access().authenticate(*replacement), client);
+    }
+    void settingsDialogShowsUnknownCredentialStorageBeforeSaving()
     {
         eApp->init();
         Fixture f;
-        QVERIFY(f.service.access().removeClient(f.client));
-        QVERIFY(f.service.access().setEnabled(true));
-        McpSettingsDialog dialog(&f.service, nullptr);
-        auto* selected = dialog.findChild<QComboBox*>("mcpClientSelector");
-        QVERIFY(selected);
-        QCOMPARE(selected->count(), 0);
-        dialog.findChild<QPushButton*>("mcpManageClients")->click();
-        auto* manager = dialog.findChild<QDialog*>("mcpClientManager");
-        QVERIFY(manager);
-        QVERIFY(!manager->findChild<QPushButton*>("mcpRemoveClient")->isEnabled());
-        manager->findChild<QLineEdit*>("mcpNewClientLabel")->setText("first-client");
-        manager->findChild<QPushButton*>("mcpAddClient")->click();
-        QTRY_COMPARE(selected->count(), 1);
-        const auto client = selected->currentData().toString();
-        const auto token = f.service.access().exportToken(client);
-        QVERIFY(token);
-        const auto identity = f.service.access().identityVersion(client);
+        QVERIFY(f.enable());
+        QWidget owner;
+        McpSettingsDialog dialog(&f.service, &owner);
+        auto* tree = dialog.findChild<ElaTreeWidget*>();
+        QVERIFY(tree && tree->topLevelItemCount() == 1);
+        auto* credentials = qobject_cast<QPushButton*>(tree->itemWidget(tree->topLevelItem(0), 6));
+        QVERIFY(credentials && credentials->isEnabled());
+        credentials->click();
+        auto* status = dialog.findChild<QLabel*>("mcpElevationCredentialStorageStatus");
+        QVERIFY(status);
+        QVERIFY2(status->text().contains(QStringLiteral("尚未确认")), qPrintable(status->text()));
+        QVERIFY(!status->text().contains(QStringLiteral("仅本次运行")));
+    }
+    void sharedTokenConnectionsObserveSamePermissions()
+    {
+        Fixture f;
+        QVERIFY(f.enable());
+        QTRY_COMPARE(f.service.status(), QStringLiteral("Listening"));
+        Host first, second;
+        QVERIFY(first.start(f.runtime(), f.token()));
+        QVERIFY(second.start(f.runtime(), f.token()));
+        const auto sessions = [](Host& host) {
+            return host.call("novaterm_list_sessions").value("data").toObject().value("sessions").toArray();
+        };
+        QCOMPARE(sessions(first).size(), 1);
+        QCOMPARE(sessions(second).size(), 1);
         const auto entry = f.service.directory().entries().first();
-        QVERIFY(NovaTerm::Mcp::TestSupport::setGrant(f.service.access(), client, entry, true));
-        QVERIFY(NovaTerm::Mcp::TestSupport::setTerminalGrant(f.service.access(), client, entry, true));
-        const auto selection = f.service.access().grantSnapshot(ClientId{client}, entry).selection;
-        QTRY_COMPARE(manager->findChild<QComboBox*>("mcpManagedClients")->currentData().toString(), client);
-        manager->findChild<QPushButton*>("mcpRotateClientToken")->click();
-        QTRY_VERIFY(f.service.access().identityVersion(client) != identity);
-        QVERIFY(f.service.access().authenticate(*token).isEmpty());
-        QCOMPARE(f.service.access().grantSnapshot(ClientId{client}, entry).selection, selection);
-        const auto replacement = f.service.access().exportToken(client);
-        QVERIFY(replacement);
-        QCOMPARE(f.service.access().authenticate(*replacement), client);
-        manager->close();
+        QVERIFY(NovaTerm::Mcp::TestSupport::setGrant(f.service.access(), f.client, entry, false));
+        QVERIFY(sessions(first).isEmpty());
+        QVERIFY(sessions(second).isEmpty());
+        QVERIFY(NovaTerm::Mcp::TestSupport::setGrant(f.service.access(), f.client, entry, true));
+        QCOMPARE(sessions(first).size(), 1);
+        QCOMPARE(sessions(second).size(), 1);
+    }
+    void listSessionsOnlyExposesConnectedSessions_data()
+    {
+        QTest::addColumn<QString>("tool");
+        QTest::newRow("discovery") << QString("novaterm_list_sessions");
+        QTest::newRow("retained-session-read") << QString("novaterm_read_context");
+    }
+    void listSessionsOnlyExposesConnectedSessions()
+    {
+        QFETCH(QString, tool);
+        Fixture f;
+        QVERIFY(f.enable());
+        Host host;
+        QVERIFY(host.start(f.runtime(), f.token()));
+        const auto listed = host.call("novaterm_list_sessions");
+        QVERIFY(listed.value("ok").toBool());
+        QCOMPARE(listed.value("data").toObject().value("sessions").toArray().size(), 1);
+        const auto entry = f.service.directory().entries().first();
+        QCOMPARE(entry.state, SessionState::Running);
+        QVERIFY(f.service.access().canRead(f.client, entry));
+        // No disconnected signal: the directory still caches Running while real I/O is down.
+        f.local.online = false;
+        QCOMPARE(f.session.state(), SessionState::Running);
+        QCOMPARE(f.service.directory().entries().first().state, SessionState::Running);
+        const auto disconnected = host.call(tool,
+            tool == "novaterm_read_context" ? f.identity() : QJsonObject{});
+        if (tool == "novaterm_read_context") {
+            QCOMPARE(disconnected.value("error").toObject().value("code").toString(),
+                QString("SESSION_NOT_AVAILABLE"));
+        } else {
+            QVERIFY(disconnected.value("ok").toBool());
+            QVERIFY(disconnected.value("data").toObject().value("sessions").toArray().isEmpty());
+        }
+        f.local.online = true;
+        QVERIFY(host.call(tool, tool == "novaterm_read_context" ? f.identity() : QJsonObject{})
+            .value("ok").toBool());
+        const auto restored = host.call("novaterm_list_sessions");
+        QVERIFY(restored.value("ok").toBool());
+        QCOMPARE(restored.value("data").toObject().value("sessions").toArray().size(), 1);
+        QCOMPARE(restored.value("data").toObject().value("sessions").toArray().first().toObject()
+            .value("sessionId").toString(), entry.id);
+        QVERIFY(f.local.written.isEmpty());
+    }
+    void otherSessionDefaultsPreserveActiveWork_data()
+    {
+        QTest::addColumn<QString>("version");
+        QTest::addColumn<QString>("work");
+        QTest::addColumn<bool>("reconnect");
+        for (const auto& version : {QString(ProtocolVersion), QString("2026-07-28")})
+            for (const auto& work : {QString("task"), QString("resume"), QString("active-wait")})
+                for (const bool reconnect : {false, true})
+                    QTest::newRow(qPrintable(version + '-' + work + (reconnect ? "-reconnect" : "-connect")))
+                        << version << work << reconnect;
+    }
+    void otherSessionDefaultsPreserveActiveWork()
+    {
+        QFETCH(QString, version); QFETCH(QString, work); QFETCH(bool, reconnect);
+        Fixture f;
+        f.session.close(CloseMode::Abort);
+        QVERIFY(f.session.resetForReuse());
+        RuntimeConfig runtime; runtime.transportKind = TransportKind::Serial;
+        runtime.transport.insert("interactiveLineEnding", "crlf");
+        f.session.attach(&f.local, TerminalSession::Ownership::Borrowed, runtime);
+        QVERIFY(f.session.start());
+        TerminalCore otherCore{80, 24}; LocalFake otherTransport; TerminalSession other{&otherCore};
+        if (reconnect) {
+            other.attach(&otherTransport, TerminalSession::Ownership::Borrowed, TransportKind::LocalShell);
+            QVERIFY(other.start());
+            f.service.directory().add(&other);
+        }
+        QVERIFY(f.service.access().setEnabled(true));
+        const auto target = f.service.directory().find(f.session.id().toString(QUuid::WithoutBraces));
+        QVERIFY(target);
+        const QJsonObject identity{{"sessionId", target->id}, {"epoch", target->epoch}};
+        f.core.resize(80, 2); QVERIFY(f.core.waitForIdle());
+        Host host, waiter;
+        QVERIFY(host.start(f.runtime(), f.token(), {}, false, version));
+        auto wait = identity;
+        wait.insert("source", "log"); wait.insert("texts", QJsonArray{"AFTER_OTHER_CONNECTION"});
+        wait.insert("waitMs", 0);
+        QJsonObject start;
+        QString task;
+        if (work == "task") {
+            auto read = identity; read.insert("responseMode", "compact");
+            const auto observed = host.call("novaterm_read_context", read);
+            QVERIFY(observed.value("ok").toBool());
+            start = identity;
+            start.insert("inputToken", observed.value("data").toObject().value("inputToken"));
+            start.insert("operationId", newId()); start.insert("timeoutMs", 600000);
+            start.insert("actions", QJsonArray{QJsonObject{{"type", "text"}, {"text", "long-job"}},
+                QJsonObject{{"type", "line_ending"}}});
+            const auto accepted = host.call("novaterm_start_task", start);
+            QVERIFY2(accepted.value("ok").toBool(), qPrintable(QString::fromUtf8(QJsonDocument(accepted).toJson())));
+            task = accepted.value("data").toObject().value("taskId").toString();
+            QVERIFY(!task.isEmpty());
+            QTRY_COMPARE(f.local.written, QByteArray("long-job\r\n"));
+        } else if (work == "resume") {
+            const auto first = host.call("novaterm_wait_text", wait);
+            QVERIFY(first.value("ok").toBool());
+            const auto resume = first.value("data").toObject().value("resumeToken").toString();
+            QVERIFY(!resume.isEmpty()); wait.insert("resumeToken", resume);
+        } else {
+            QVERIFY(waiter.start(f.runtime(), f.token(), {}, false, version));
+            wait.insert("waitMs", 30000);
+            const auto before = f.service.statistics().value("requests").toString().toULongLong();
+            waiter.begin("novaterm_wait_text", wait);
+            QTRY_COMPARE(f.service.statistics().value("requests").toString().toULongLong(), before + 1);
+        }
+        const auto original = f.service.directory().find(f.session.id().toString(QUuid::WithoutBraces));
+        QVERIFY(original);
+        const auto originalGrant = f.service.access().grantSnapshot(ClientId{f.client}, *original);
+        if (reconnect) {
+            other.close(CloseMode::Abort); QVERIFY(other.resetForReuse());
+        }
+        other.attach(&otherTransport, TerminalSession::Ownership::Borrowed, TransportKind::LocalShell);
+        QVERIFY(other.start());
+        if (!reconnect) f.service.directory().add(&other);
+        const auto added = f.service.directory().find(other.id().toString(QUuid::WithoutBraces));
+        QVERIFY(added);
+        QVERIFY(f.service.access().canControlTerminal(f.client, *added));
+        const auto unchanged = f.service.access().grantSnapshot(ClientId{f.client}, *original);
+        QCOMPARE(unchanged.revision, originalGrant.revision);
+        QCOMPARE(unchanged.selection, originalGrant.selection);
+        if (work == "task") {
+            auto query = identity; query.insert("taskId", task);
+            const auto current = host.call("novaterm_query_task", query);
+            QVERIFY2(current.value("ok").toBool(), qPrintable(QString::fromUtf8(QJsonDocument(current).toJson())));
+            QCOMPARE(current.value("data").toObject().value("taskId").toString(), task);
+            const auto replay = host.call("novaterm_start_task", start);
+            QVERIFY(replay.value("ok").toBool());
+            QCOMPARE(replay.value("data").toObject().value("taskId").toString(), task);
+            QCOMPARE(f.local.written, QByteArray("long-job\r\n"));
+            auto stop = identity; stop.insert("taskId", task); stop.insert("operationId", newId());
+            const auto stopped = host.call("novaterm_stop_task", stop);
+            QVERIFY2(stopped.value("ok").toBool(), qPrintable(QString::fromUtf8(QJsonDocument(stopped).toJson())));
+            QTRY_VERIFY(f.local.written.endsWith(QByteArray(1, char(3))));
+            QVERIFY(TestSupport::setGrant(f.service.access(), f.client, *original, false));
+            QVERIFY(!host.call("novaterm_query_task", query).value("ok").toBool());
+        } else {
+            QVERIFY(f.core.writeInput("AFTER_OTHER_CONNECTION\r\nnext\r\nlast\r\n").fullyAccepted());
+            QVERIFY(f.core.waitForIdle());
+            const auto matched = work == "resume" ? host.call("novaterm_wait_text", wait)
+                : waiter.next().value("result").toObject().value("structuredContent").toObject();
+            QVERIFY2(matched.value("ok").toBool(), qPrintable(QString::fromUtf8(QJsonDocument(matched).toJson())));
+            QCOMPARE(matched.value("data").toObject().value("status").toString(), QString("matched"));
+            QVERIFY(f.local.written.isEmpty());
+            QVERIFY(TestSupport::setGrant(f.service.access(), f.client, *original, false));
+            wait.insert("waitMs", 0);
+            QVERIFY(!host.call("novaterm_wait_text", wait).value("ok").toBool());
+        }
+    }
+    void sharedAccessDefaultsAllSessionPermissionsAndKeepsManualChanges()
+    {
+        Fixture f;
+        QVERIFY(f.service.access().setEnabled(true));
+        const auto entry = f.service.directory().entries().first();
+        QVERIFY(f.service.access().canRead(f.client, entry));
+        QVERIFY(f.service.access().canControlTerminal(f.client, entry));
+        QVERIFY(f.service.access().canUseElevation(f.client, entry));
+        QVERIFY(f.service.access().canClearTerminal(f.client, entry));
+        QVERIFY(TestSupport::setGrant(f.service.access(), f.client, entry, false));
+        static_cast<void>(f.service.directory().entries());
+        QCoreApplication::processEvents();
+        QVERIFY(!f.service.access().canRead(f.client, entry));
+        QVERIFY(!f.service.access().canControlTerminal(f.client, entry));
+        TerminalCore core{80, 24}; LocalFake local; TerminalSession second{&core};
+        second.attach(&local, TerminalSession::Ownership::Borrowed, TransportKind::LocalShell);
+        QVERIFY(second.start());
+        f.service.directory().add(&second);
+        const auto added = f.service.directory().find(second.id().toString(QUuid::WithoutBraces));
+        QVERIFY(added);
+        QVERIFY(f.service.access().canRead(f.client, *added));
+        QVERIFY(f.service.access().canControlTerminal(f.client, *added));
+        QVERIFY(f.service.access().canUseElevation(f.client, *added));
+        QVERIFY(f.service.access().canClearTerminal(f.client, *added));
+        QVERIFY(!f.service.access().canRead(f.client, entry));
+        // Bypass fixture rebind helpers: production defaults must cover a genuine new connection.
+        f.session.close(CloseMode::Abort);
+        QVERIFY(f.session.resetForReuse());
+        f.session.attach(&f.local, TerminalSession::Ownership::Borrowed, TransportKind::LocalShell);
+        QVERIFY(f.session.start());
+        const auto reconnected = f.service.directory().find(f.session.id().toString(QUuid::WithoutBraces));
+        QVERIFY(reconnected);
+        QVERIFY(reconnected->epoch != entry.epoch);
+        QVERIFY(f.service.access().canRead(f.client, *reconnected));
+        QVERIFY(f.service.access().canControlTerminal(f.client, *reconnected));
+        QVERIFY(f.service.access().canUseElevation(f.client, *reconnected));
+        QVERIFY(f.service.access().canClearTerminal(f.client, *reconnected));
     }
     void httpSerialFileTargetsAreIndependentAndBound_data();
     void httpSerialFileTargetsAreIndependentAndBound();
@@ -666,25 +879,15 @@ private slots:
     void httpFileDownloadUsesSharedTransferLifecycle();
     void httpFileOverwriteRequiresExplicitIntent_data();
     void httpFileOverwriteRequiresExplicitIntent();
-    void httpFileUploadIsIndependentOfTerminalAndClosePolicy_data();
-    void httpFileUploadIsIndependentOfTerminalAndClosePolicy();
+    void httpFileUploadIsIndependentOfTerminalPermissions_data();
+    void httpFileUploadIsIndependentOfTerminalPermissions();
     void fileResourceSettingsRejectStaleIdentityAndConnection();
-    void fileResourceWindowHasUnambiguousClient_data();
-    void fileResourceWindowHasUnambiguousClient();
+    void fileResourceWindowUsesSharedAccess_data();
+    void fileResourceWindowUsesSharedAccess();
     void fileResourceSelectionSurvivesOnlyUnchangedRules_data();
     void fileResourceSelectionSurvivesOnlyUnchangedRules();
     void fileResourcesReleaseDisconnectedRemoteQuota_data();
     void fileResourcesReleaseDisconnectedRemoteQuota();
-    void savedTargetNewSessionPermissions_data();
-    void savedTargetNewSessionPermissions();
-    void savedTargetPendingSharing_data();
-    void savedTargetPendingSharing();
-    void targetConnectionsUseBothProtocols_data();
-    void targetConnectionsUseBothProtocols();
-    void targetConnectionQueryFollowsInitialConnectionAndReconnect();
-    void targetConnectionNestedRevocationCannotStart();
-    void targetCloseUsesOriginalOwnershipAndCurrentSafety_data();
-    void targetCloseUsesOriginalOwnershipAndCurrentSafety();
     void workflowWaitAndTasksUseBothProtocols_data();
     void workflowWaitAndTasksUseBothProtocols();
     void workflowWaitCancellationAndMcpReenable_data();
@@ -701,7 +904,7 @@ private slots:
     void historyOfflineAccessRequiresExplicitGrant();
     void historyOnlyExplicitPersistentGrantsSurviveAdapterRestart();
     void expiredCapturesDoNotExhaustHistoryGrantCapacity();
-    void revokedPendingImportsCannotPublishButOtherClientsCan();
+    void revokedPendingImportsCannotPublishAcrossSharedConnections();
     void localImportsDoNotRequireRecordingSource();
     void historyAdapterBindsTheInjectedSourceGeneration();
     void terminalInteractionSupportsEveryTransport_data();
@@ -729,9 +932,6 @@ private slots:
     void httpRequiresRunningApplication();
     void httpConfigurationUsesApplicationEndpoint();
     void httpInitializedSessionReadsWithAuthorization();
-    void httpSavedTargetDirectoryIsIsolatedAndVersioned();
-    void settingsDialogSharesOnlySelectedSavedTargets();
-    void savedTargetSharingSurvivesSessionPermissionChanges();
     void httpRejectsMissingTokenAndForeignOrigin();
     void httpRequestsFailWhenApplicationStops();
     void httpInitializedSessionStopsWithApplication();
@@ -747,7 +947,7 @@ private slots:
     void settingsDialogKeepsPendingGrantsForEveryTerminal();
     void settingsDialogRejectsStaleConnectionRow_data();
     void settingsDialogRejectsStaleConnectionRow();
-    void settingsDialogRejectsRowFromPreviousClient();
+    void settingsDialogRejectsRowFromPreviousIdentity();
     void settingsDialogRejectsElevationWithoutResettingActiveModel_data();
     void settingsDialogRejectsElevationWithoutResettingActiveModel();
     void settingsDialogElevationCheckboxRequiresSupportedContext_data();
@@ -831,11 +1031,14 @@ void McpTests::logReadsPageAndBindClientEpochAndMode()
     QVERIFY(!host.call("novaterm_read_context", wrongMode).value("ok").toBool());
     auto wrongEpoch = args; wrongEpoch.insert("epoch", "different-epoch");
     QCOMPARE(host.call("novaterm_read_context", wrongEpoch).value("error").toObject().value("code").toString(), QString("STALE_SESSION_EPOCH"));
-    const auto other = f.service.access().addClient("other");
     const auto entry = f.service.directory().entries().first();
-    QVERIFY(NovaTerm::Mcp::TestSupport::setGrant(f.service.access(), other, entry, true, {}));
-    Host second; QVERIFY(second.start(f.runtime(), *f.service.access().exportToken(other), {}, false, version));
-    QCOMPARE(second.call("novaterm_read_context", args).value("error").toObject().value("code").toString(), QString("CURSOR_STALE"));
+    Host second; QVERIFY(second.start(f.runtime(), *f.service.access().exportToken(), {}, false, version));
+    QVERIFY(second.call("novaterm_read_context", args).value("ok").toBool());
+    auto forgedCursor = args;
+    auto encoded = args.value("sinceToken").toString();
+    QVERIFY(!encoded.isEmpty()); encoded[0] = encoded[0] == 'a' ? 'b' : 'a';
+    forgedCursor.insert("sinceToken", encoded);
+    QCOMPARE(second.call("novaterm_read_context", forgedCursor).value("error").toObject().value("code").toString(), QString("CURSOR_STALE"));
     f.core.clearScrollback(); QVERIFY(f.core.waitForIdle());
     const auto invalid = host.call("novaterm_read_context", args).value("data").toObject();
     QCOMPARE(invalid.value("status").toString(), QString("invalidated"));
@@ -878,13 +1081,13 @@ void McpTests::localImportsDoNotRequireRecordingSource()
     QVERIFY(!imported->resourceId.isEmpty());
 }
 
-void McpTests::revokedPendingImportsCannotPublishButOtherClientsCan()
+void McpTests::revokedPendingImportsCannotPublishAcrossSharedConnections()
 {
     Fixture f; NovaTerm::Recording::HistoryService recording(f.root.path() + "/import-revocation");
     QTRY_VERIFY(recording.ready()); f.service.setHistorySource(&recording);
     QFile file(f.root.path() + "/explicit.log"); QVERIFY(file.open(QIODevice::WriteOnly));
     QCOMPARE(file.write("explicit shared contents"), qint64(24)); file.close();
-    const auto other = f.service.access().addClient("other-import-owner"); QVERIFY(!other.isEmpty());
+    const auto other = f.client;
     std::optional<HistoryCapabilityAdapter::ImportResult> revoked, unaffected, reshared;
     auto& adapter = f.service.history();
     adapter.importFile(f.client, file.fileName(), [&](auto result) { revoked = std::move(result); });
@@ -893,7 +1096,7 @@ void McpTests::revokedPendingImportsCannotPublishButOtherClientsCan()
     adapter.clearImportedFiles(f.client);
     QTRY_VERIFY(revoked.has_value() && unaffected.has_value());
     QVERIFY(!revoked->error.isEmpty()); QVERIFY(revoked->resourceId.isEmpty());
-    QVERIFY2(unaffected->error.isEmpty(), qPrintable(unaffected->error)); QVERIFY(!unaffected->resourceId.isEmpty());
+    QVERIFY(!unaffected->error.isEmpty()); QVERIFY(unaffected->resourceId.isEmpty());
     adapter.importFile(f.client, file.fileName(), [&](auto result) { reshared = std::move(result); });
     QTRY_VERIFY(reshared.has_value()); QVERIFY2(reshared->error.isEmpty(), qPrintable(reshared->error));
     QVERIFY(!reshared->resourceId.isEmpty());
@@ -910,19 +1113,22 @@ void McpTests::historyOnlyExplicitPersistentGrantsSurviveAdapterRestart()
     QCOMPARE(recording.submit(f.session.id(), 1, "public"), SubmitResult::Accepted);
     QCOMPARE(recording.submit(f.session.id(), 1, "secret"), SubmitResult::Accepted);
     recording.stop({f.session.id(), 1}); QTRY_VERIFY(!recording.captures().front().active);
-    const auto other = f.service.access().addClient("temporary-history"); QVERIFY(!other.isEmpty());
+    HistoryCaptureId temporary; started = false;
+    QVERIFY(recording.start({f.session.id(), 1}, [&](auto r) { temporary = r.captureId; started = r.success; }));
+    QTRY_VERIFY(started);
+    recording.stop({f.session.id(), 1}); QTRY_VERIFY(!recording.captures().front().active);
     const auto state = f.root.path() + "/separate-history-grants";
     {
         HistoryCapabilityAdapter first(f.service.access(), state); first.setSource(&recording);
         QVERIFY(first.share(f.client, capture, 1, 1, true).isEmpty());
-        QVERIFY(first.share(other, capture, 1, 0, false).isEmpty());
+        QVERIFY(first.share(f.client, temporary, 1, 0, false).isEmpty());
     }
     HistoryCapabilityAdapter restored(f.service.access(), state); restored.setSource(&recording);
     QVERIFY(restored.sharingStatus(f.client, capture).contains("persistent"));
-    QCOMPARE(restored.sharingStatus(other, capture), QString("Not shared"));
+    QCOMPARE(restored.sharingStatus(f.client, temporary), QString("Not shared"));
     auto identity = restored.binding(HistoryToolRequest{ReadHistoryRequest{HistoryResourceId{capture.text()}, {}, 1}});
     QVERIFY(restored.accessVersion(f.client, identity) != 0);
-    QVERIFY(f.service.access().rotateToken(f.client));
+    QVERIFY(f.service.access().rotateToken());
     QCOMPARE(restored.accessVersion(f.client, identity), quint64(0));
 }
 
@@ -1157,7 +1363,7 @@ void McpTests::readGrantPrewarmsPublishedSnapshotOnlyOnce()
     });
     qputenv("NOVATERM_MCP_PUBLISHED_SNAPSHOT", "1");
     Fixture fixture;
-    QVERIFY(fixture.service.access().setEnabled(true));
+    QVERIFY(fixture.enableWithoutSessionPermissions());
     const auto entry = fixture.service.directory().entries().first();
     QCOMPARE(entry.state, SessionState::Running);
     const auto before = fixture.core.publishedContextStatistics().requestCount;
@@ -1437,7 +1643,7 @@ void McpTests::instanceSelectionAndDisconnectStayExplicit()
     Host ambiguous;
     QVERIFY(!ambiguous.start(f.runtime(), f.token()));
     QCOMPARE(ambiguous.selectionError, QStringLiteral("INSTANCE_SELECTION_REQUIRED"));
-    const auto configuration = f.service.clientConfiguration(f.client)
+    const auto configuration = f.service.clientConfiguration()
         .value("mcpServers").toObject().value("novaterm").toObject();
     QCOMPARE(configuration.value("url").toString(), f.service.httpEndpoint());
     Host selected;
@@ -1460,7 +1666,7 @@ void McpTests::ccSwitchConfigurationIsSingleServerObject()
     Fixture f;
     QVERIFY(f.enable());
     QTRY_COMPARE(f.service.status(), QStringLiteral("Listening"));
-    const auto configuration = f.service.ccSwitchConfiguration(f.client);
+    const auto configuration = f.service.ccSwitchConfiguration();
     QCOMPARE(configuration.value(QStringLiteral("type")).toString(), QStringLiteral("http"));
     QCOMPARE(configuration.value(QStringLiteral("url")).toString(), f.service.httpEndpoint());
     QVERIFY(!configuration.contains(QStringLiteral("command")));
@@ -1470,7 +1676,7 @@ void McpTests::ccSwitchConfigurationIsSingleServerObject()
         QStringLiteral("Bearer ") + QString::fromLatin1(f.token()));
     QVERIFY(!configuration.contains(QStringLiteral("novaterm")));
     QVERIFY(!configuration.contains(QStringLiteral("mcpServers")));
-    QVERIFY(f.service.clientConfiguration(f.client).value(QStringLiteral("mcpServers"))
+    QVERIFY(f.service.clientConfiguration().value(QStringLiteral("mcpServers"))
         .toObject().contains(QStringLiteral("novaterm")));
 }
 
@@ -1514,7 +1720,7 @@ void McpTests::tokenSigningAndAuthentication()
 
 void McpTests::rejectsDangerousAndOversizedArguments()
 {
-    QCOMPARE(ToolCodec::catalog().size(), 26);
+    QCOMPARE(ToolCodec::catalog().size(), 22);
     const QJsonObject identity{{"sessionId", newId()}, {"epoch", "epoch"}};
     auto arguments = identity;
     arguments.insert("command", "rm -rf /");
@@ -1616,7 +1822,7 @@ void McpTests::httpConfigurationUsesApplicationEndpoint()
     QVERIFY(f.enable());
     QTRY_COMPARE(f.service.status(), QStringLiteral("Listening"));
     QVERIFY(!f.service.httpEndpoint().isEmpty());
-    const auto config = f.service.ccSwitchConfiguration(f.client);
+    const auto config = f.service.ccSwitchConfiguration();
     QCOMPARE(config.value("type").toString(), QStringLiteral("http"));
     QCOMPARE(config.value("url").toString(), f.service.httpEndpoint());
     QVERIFY(!config.contains("command"));
@@ -1645,178 +1851,6 @@ void McpTests::httpInitializedSessionReadsWithAuthorization()
     QVERIFY(listed.message.value("result").toObject().value("structuredContent").toObject()
         .value("ok").toBool());
 }
-void McpTests::targetCloseUsesOriginalOwnershipAndCurrentSafety_data()
-{
-    QTest::addColumn<QString>("version"); QTest::addColumn<int>("scenario");
-    for (const auto& version : QStringList{ProtocolVersion, "2026-07-28"})
-        for (int scenario = 0; scenario < 18; ++scenario)
-            QTest::newRow(qPrintable(version + "-" + QString::number(scenario))) << version << scenario;
-}
-void McpTests::targetCloseUsesOriginalOwnershipAndCurrentSafety()
-{
-    QFETCH(QString, version); QFETCH(int, scenario);
-    Fixture f; QVERIFY(f.enable());
-    auto& targets = f.service.savedTargets();
-    QVERIFY(targets.replace({{newId(), "Board", "serial", "fixture", QByteArray(32, 'a')}}));
-    const auto row = targets.localTargets().first();
-    const auto identity = f.service.access().identityVersion(f.client);
-    QVERIFY(targets.setShared(f.client, identity, row.id, row.configVersion, true));
-    QVERIFY(targets.setOpenAllowed(f.client, identity, row.id, row.configVersion, true));
-    int opens = 0;
-    f.service.setTargetOpener([&](const SavedTargetSource&, const TargetConnections::Guard&) {
-        ++opens;
-        const auto entry = f.service.directory().find(f.session.id().toString(QUuid::WithoutBraces));
-        return TargetConnectionFacts{entry->id, entry->epoch, entry->attachmentId, "running", {}, scenario != 1};
-    });
-    Host host; QVERIFY(host.start(f.runtime(), f.token(), {}, false, version));
-    const QJsonObject args{{"targetId", row.id}, {"configVersion", row.configVersion}, {"operationId", newId()}};
-    const auto opened = host.call("novaterm_open_target", args);
-    QVERIFY(opened.value("ok").toBool());
-    auto closeArgs = args;
-    closeArgs.insert("epoch", opened.value("data").toObject().value("epoch"));
-    auto* controller = f.session.terminalController();
-    InteractiveCommandProfile profile;
-    profile.shellIntegration = true;
-    profile.allowUnverifiedPrompt = scenario == 14;
-    f.session.commandCoordinator()->configure(profile);
-    if (scenario != 3) f.session.commandCoordinator()->notePromptReady(7, 0);
-    if (scenario == 2) f.session.writeUserInput("human");
-    if (scenario == 4) QVERIFY(f.session.inputArbiter()->acquireMcpLease(73, f.session.statistics().generation));
-    if (scenario == 5) QVERIFY(f.session.inputArbiter()->acquireTransferLease(73, f.session.statistics().generation,
-        [](QByteArrayView bytes) { return bytes.size(); }));
-    if (scenario == 6) closeArgs.insert("epoch", "old-epoch");
-    if (scenario == 7) QVERIFY(targets.setOpenAllowed(f.client, identity, row.id, row.configVersion, false));
-    if (scenario == 0) QVERIFY(controller->readyForCommand());
-    if (scenario == 8) f.makeSsh();
-    if (scenario >= 9 && scenario <= 11) f.service.setTargetCloseSafety([&](const QString&) {
-        if (scenario == 10) static_cast<void>(targets.setOpenAllowed(f.client, identity, row.id, row.configVersion, false));
-        if (scenario == 11) f.session.writeUserInput("human during safety");
-        return scenario != 9;
-    });
-    if (scenario == 12 || scenario == 13) {
-        f.local.reconnectable = true;
-        if (scenario == 12) QVERIFY(f.session.disconnectForReconnect());
-        else {
-            QVERIFY(f.session.reconnect());
-            closeArgs.insert("epoch", host.call("novaterm_query_target", args).value("data").toObject().value("epoch"));
-        }
-    }
-    bool queuedBeforeDelivery = false;
-    if (scenario >= 15) f.service.setTargetCloseSafety([&](const QString&) {
-        if (scenario == 15) f.core.pasteText("human paste");
-        else if (scenario == 16) {
-            QKeyEvent key(QEvent::KeyPress, Qt::Key_Return, Qt::NoModifier);
-            f.core.processKeyPress(&key);
-        } else f.core.processTextInput("human IME");
-        queuedBeforeDelivery = f.session.inputArbiter()->userInputGeneration() == 0;
-        return true;
-    });
-    const auto stateBeforeClose = f.session.state();
-    const auto result = host.call("novaterm_close_target", closeArgs);
-    const QStringList errors{"", "TARGET_CLOSE_NOT_ALLOWED", "TARGET_CLOSE_NOT_ALLOWED", "TARGET_CLOSE_BUSY",
-        "TARGET_CLOSE_BUSY", "TARGET_CLOSE_BUSY", "STALE_SESSION_EPOCH", "TARGET_OPEN_PERMISSION_REQUIRED",
-        "TARGET_CLOSE_NOT_ALLOWED", "TARGET_CLOSE_BUSY", "TARGET_OPEN_PERMISSION_REQUIRED", "TARGET_CLOSE_NOT_ALLOWED",
-        "TARGET_CLOSE_NOT_ALLOWED", "TARGET_CLOSE_NOT_ALLOWED", "TARGET_CLOSE_BUSY",
-        "TARGET_CLOSE_NOT_ALLOWED", "TARGET_CLOSE_NOT_ALLOWED", "TARGET_CLOSE_NOT_ALLOWED"};
-    if (scenario == 0) {
-        QVERIFY2(result.value("ok").toBool(), QJsonDocument(result).toJson().constData());
-        QCOMPARE(f.session.state(), SessionState::Closed);
-        const auto replay = host.call("novaterm_close_target", closeArgs);
-        QVERIFY(replay.value("ok").toBool());
-        QCOMPARE(replay.value("data"), result.value("data"));
-        QCOMPARE(host.call("novaterm_query_target", args).value("data").toObject().value("state").toString(), QString("closed"));
-        // A successful close retry must never follow a reset/rebound visible Session.
-        QVERIFY(f.session.resetForReuse());
-        f.session.attach(&f.local, TerminalSession::Ownership::Borrowed, TransportKind::LocalShell);
-        QVERIFY(f.session.start());
-        QVERIFY(host.call("novaterm_close_target", closeArgs).value("ok").toBool());
-        QCOMPARE(f.session.state(), SessionState::Running);
-    } else {
-        QCOMPARE(result.value("error").toObject().value("code").toString(), errors[scenario]);
-        QCOMPARE(f.session.state(), stateBeforeClose);
-    }
-    if (scenario >= 15) QVERIFY(queuedBeforeDelivery);
-    QCOMPARE(opens, 1);
-}
-
-void McpTests::targetConnectionNestedRevocationCannotStart()
-{
-    Fixture f; QVERIFY(f.enable());
-    auto& targets = f.service.savedTargets();
-    QVERIFY(targets.replace({{newId(), "Board", "ssh", "fixture.invalid:22", QByteArray(32, 'a')}}));
-    const auto row = targets.localTargets().first();
-    const auto version = f.service.access().identityVersion(f.client);
-    QVERIFY(targets.setShared(f.client, version, row.id, row.configVersion, true));
-    QVERIFY(targets.setOpenAllowed(f.client, version, row.id, row.configVersion, true));
-    int starts = 0;
-    f.service.setTargetOpener([&](const SavedTargetSource&, const TargetConnections::Guard& allowed) {
-        QEventLoop nested;
-        QTimer::singleShot(0, &nested, [&] {
-            static_cast<void>(targets.setOpenAllowed(f.client, version, row.id, row.configVersion, false));
-            nested.quit();
-        });
-        nested.exec(); // Simulates the existing local keyring unlock prompt's event loop.
-        if (allowed()) ++starts;
-        return TargetConnectionFacts{{}, {}, {}, "unavailable", "admission_invalidated", false};
-    });
-    Host host; QVERIFY(host.start(f.runtime(), f.token()));
-    const QJsonObject args{{"targetId", row.id}, {"configVersion", row.configVersion}, {"operationId", newId()}};
-    const auto response = host.call("novaterm_open_target", args);
-    QCOMPARE(response.value("error").toObject().value("code").toString(), QString("TARGET_OPEN_PERMISSION_REQUIRED"));
-    QCOMPARE(starts, 0);
-    QVERIFY(targets.setOpenAllowed(f.client, version, row.id, row.configVersion, true));
-    const auto queried = host.call("novaterm_query_target", args);
-    QVERIFY(queried.value("ok").toBool());
-    QCOMPARE(queried.value("data").toObject().value("reason").toString(), QString("admission_invalidated"));
-    QCOMPARE(starts, 0);
-}
-
-void McpTests::targetConnectionQueryFollowsInitialConnectionAndReconnect()
-{
-    class PendingTransport final : public ITransport {
-    public:
-        bool connectToHost() override { return true; }
-        void disconnect() override { online = false; emit disconnected(); }
-        void write(const QByteArray&) override {}
-        void resizeTerminal(int, int) override {}
-        bool isConnected() const override { return online; }
-        QString errorString() const override { return {}; }
-        TransportCapabilities capabilities() const override { return TransportCapability::Reconnect; }
-        bool online{false};
-    };
-    Fixture f; QVERIFY(f.enable());
-    TerminalCore core{80, 24}; PendingTransport transport; TerminalSession session{&core};
-    session.attach(&transport, TerminalSession::Ownership::Borrowed, TransportKind::LocalShell);
-    QVERIFY(session.start()); QCOMPARE(session.state(), SessionState::Connecting);
-    f.service.directory().add(&session);
-    auto& targets = f.service.savedTargets();
-    QVERIFY(targets.replace({{newId(), "Board", "ssh", "fixture.invalid:22", QByteArray(32, 'a')}}));
-    const auto row = targets.localTargets().first();
-    const auto version = f.service.access().identityVersion(f.client);
-    QVERIFY(targets.setShared(f.client, version, row.id, row.configVersion, true));
-    QVERIFY(targets.setOpenAllowed(f.client, version, row.id, row.configVersion, true));
-    int opens = 0;
-    f.service.setTargetOpener([&](const SavedTargetSource&, const TargetConnections::Guard&) {
-        ++opens;
-        const auto entry = f.service.directory().find(session.id().toString(QUuid::WithoutBraces));
-        return TargetConnectionFacts{entry->id, entry->epoch, entry->attachmentId,
-            SessionDirectory::stateName(entry->state), {}, true};
-    });
-    Host host; QVERIFY(host.start(f.runtime(), f.token()));
-    const QJsonObject args{{"targetId", row.id}, {"configVersion", row.configVersion}, {"operationId", newId()}};
-    QCOMPARE(host.call("novaterm_open_target", args).value("data").toObject().value("state").toString(), QString("connecting"));
-    transport.online = true; emit transport.connected();
-    QCOMPARE(session.state(), SessionState::Running);
-    const auto connected = host.call("novaterm_query_target", args).value("data").toObject();
-    QCOMPARE(connected.value("state").toString(), QString("running"));
-    const auto epoch = connected.value("epoch").toString();
-    QVERIFY(session.reconnect()); QCOMPARE(session.state(), SessionState::Reconnecting);
-    transport.online = true; emit transport.connected();
-    const auto reconnected = host.call("novaterm_query_target", args).value("data").toObject();
-    QCOMPARE(reconnected.value("state").toString(), QString("running"));
-    QVERIFY(reconnected.value("epoch").toString() != epoch); QCOMPARE(opens, 1);
-}
-
 void McpTests::httpFileResourcesAreIndependentAndBound_data()
 {
     QTest::addColumn<QString>("version");
@@ -1832,7 +1866,7 @@ void McpTests::httpSerialFileTargetsAreIndependentAndBound_data()
 void McpTests::httpSerialFileTargetsAreIndependentAndBound()
 {
     QFETCH(QString, version);
-    Fixture f; QVERIFY(f.service.access().setEnabled(true)); f.makeSerial();
+    Fixture f; QVERIFY(f.enableWithoutSessionPermissions()); f.makeSerial();
     auto& adapter = f.service.serialFileTargets();
     const auto entry = f.service.directory().entries().first();
     const auto identity = f.service.access().identityVersion(f.client);
@@ -1852,9 +1886,9 @@ void McpTests::httpSerialFileTargetsAreIndependentAndBound()
     QVERIFY(!QJsonDocument(listing).toJson().contains("COM-fixture-private"));
     QVERIFY(!QJsonDocument(listing).toJson().contains(binding->configDigest.toUtf8()));
     QCOMPARE(f.serial->pendingWriteBytes(), qint64(0));
-    const auto other = f.service.access().addClient("outsider"); QVERIFY(!other.isEmpty());
-    Host outsider; QVERIFY(outsider.start(f.runtime(), f.service.access().exportToken(other).value(), {}, false, version));
-    QVERIFY(outsider.call("novaterm_list_serial_file_targets", {}).value("data").toObject().value("targets").toArray().isEmpty());
+    Host outsider; QVERIFY(outsider.start(f.runtime(), f.service.access().exportToken().value(), {}, false, version));
+    QCOMPARE(outsider.call("novaterm_list_serial_file_targets", {}).value("data").toObject().value("targets").toArray().size(), 1);
+    QVERIFY(isError(adapter.list(newId(), identity)));
     QVERIFY(TestSupport::setGrant(f.service.access(), f.client, entry, true));
     const auto snapshot = f.service.access().grantSnapshot(ClientId{f.client}, entry);
     PermissionChange revoke{snapshot.client, snapshot.binding, snapshot.revision, PermissionKind::ReadOutput, {}, false};
@@ -1866,7 +1900,7 @@ void McpTests::httpSerialFileTargetsAreIndependentAndBound()
     QVERIFY(!adapter.share(f.client, identity, *binding, "Old window"));
     const auto nextBinding = adapter.liveBinding(entry.id); QVERIFY(nextBinding);
     const auto next = adapter.share(f.client, identity, *nextBinding, "New UART"); QVERIFY(next); QVERIFY(next->id != grant->id);
-    QVERIFY(f.service.access().rotateToken(f.client));
+    QVERIFY(f.service.access().rotateToken());
     QVERIFY(adapter.targets().list(f.client, identity).isEmpty());
     const auto rotated = f.service.access().identityVersion(f.client);
     QVERIFY(adapter.targets().list(f.client, rotated).isEmpty());
@@ -1883,7 +1917,7 @@ void McpTests::httpSerialFileUploadRoutesIndependentAuthority_data()
 void McpTests::httpSerialFileUploadRoutesIndependentAuthority()
 {
     QFETCH(QString, version);
-    Fixture f; QVERIFY(f.service.access().setEnabled(true)); f.makeSerial();
+    Fixture f; QVERIFY(f.enableWithoutSessionPermissions()); f.makeSerial();
     const auto entry = f.service.directory().entries().first();
     const auto identity = f.service.access().identityVersion(f.client);
     auto& targets = f.service.serialFileTargets();
@@ -1934,12 +1968,12 @@ void McpTests::httpSerialFileUploadRoutesIndependentAuthority()
     auto conflict = arguments; conflict.insert("remoteName", "different.bin");
     QCOMPARE(host.call("novaterm_upload_serial_file", conflict).value("error").toObject().value("code").toString(),
         QString("TARGET_OPERATION_CONFLICT"));
-    const auto other = f.service.access().addClient("outsider"); QVERIFY(!other.isEmpty());
-    Host outsider; QVERIFY(outsider.start(f.runtime(), f.service.access().exportToken(other).value(), {}, false, version));
-    QCOMPARE(outsider.call("novaterm_upload_serial_file", arguments).value("error").toObject().value("code").toString(),
-        QString("PERMISSION_DENIED"));
+    Host outsider; QVERIFY(outsider.start(f.runtime(), f.service.access().exportToken().value(), {}, false, version));
+    QCOMPARE(outsider.call("novaterm_upload_serial_file", arguments).value("data").toObject(), finished);
     for (const auto* tool : {"novaterm_query_serial_transfer", "novaterm_cancel_serial_transfer"})
-        QCOMPARE(outsider.call(tool, query).value("error").toObject().value("code").toString(), QString("PERMISSION_DENIED"));
+        QCOMPARE(outsider.call(tool, query).value("data").toObject(), finished);
+    Host unauthorized; QVERIFY(!unauthorized.start(f.runtime(), QByteArray(64, 'z'), {}, false, version));
+    QCOMPARE(unauthorized.lastHttpStatus, 401);
     const auto cancelled = host.call("novaterm_cancel_serial_transfer", query);
     QVERIFY(cancelled.value("ok").toBool()); QCOMPARE(cancelled.value("data").toObject(), finished);
     QVERIFY(targets.targets().remove(f.client, identity, target->id, target->revision));
@@ -1959,7 +1993,7 @@ void McpTests::serialFileTargetsRejectChangedConnection_data()
 void McpTests::serialFileTargetsRejectChangedConnection()
 {
     QFETCH(int, change);
-    Fixture f; QVERIFY(f.service.access().setEnabled(true)); f.makeSerial();
+    Fixture f; QVERIFY(f.enableWithoutSessionPermissions()); f.makeSerial();
     auto& adapter = f.service.serialFileTargets();
     const auto id = f.session.id().toString(QUuid::WithoutBraces);
     const auto identity = f.service.access().identityVersion(f.client);
@@ -1984,7 +2018,7 @@ void McpTests::serialFileTargetsRejectChangedConnection()
 }
 void McpTests::serialFileSettingsRequireExplicitCurrentGrant()
 {
-    Fixture f; QVERIFY(f.service.access().setEnabled(true)); f.makeSerial();
+    Fixture f; QVERIFY(f.enableWithoutSessionPermissions()); f.makeSerial();
     auto& adapter = f.service.serialFileTargets();
     const auto identity = f.service.access().identityVersion(f.client);
     FileResourceSharingDialog dialog(&f.service, f.client);
@@ -2011,7 +2045,7 @@ void McpTests::serialFileSettingsRequireExplicitCurrentGrant()
     share->click(); QVERIFY(adapter.targets().list(f.client, identity).isEmpty());
     QCOMPARE(sessions->currentIndex(), -1);
     sessions->setCurrentIndex(0); share->click(); QCOMPARE(adapter.targets().list(f.client, identity).size(), 1);
-    QVERIFY(f.service.access().rotateToken(f.client)); QTest::qWait(30);
+    QVERIFY(f.service.access().rotateToken()); QTest::qWait(30);
     QVERIFY(!share->isEnabled());
     QVERIFY(adapter.targets().list(f.client, f.service.access().identityVersion(f.client)).isEmpty());
     QCOMPARE(f.serial->pendingWriteBytes(), qint64(0));
@@ -2027,7 +2061,7 @@ void McpTests::httpFileOverwriteRequiresExplicitIntent_data()
 void McpTests::httpFileOverwriteRequiresExplicitIntent()
 {
     QFETCH(QString, version); QFETCH(bool, download);
-    Fixture f; QVERIFY(f.service.access().setEnabled(true)); f.makeSsh();
+    Fixture f; QVERIFY(f.enableWithoutSessionPermissions()); f.makeSsh();
     const auto entry = f.service.directory().entries().first();
     const auto identity = f.service.access().identityVersion(f.client);
     const auto binding = f.service.access().grantSnapshot(ClientId{f.client}, entry).binding;
@@ -2077,7 +2111,7 @@ void McpTests::httpFileDownloadUsesSharedTransferLifecycle_data()
 void McpTests::httpFileDownloadUsesSharedTransferLifecycle()
 {
     QFETCH(QString, version);
-    Fixture f; QVERIFY(f.service.access().setEnabled(true)); f.makeSsh();
+    Fixture f; QVERIFY(f.enableWithoutSessionPermissions()); f.makeSsh();
     const auto entry = f.service.directory().entries().first();
     const auto identity = f.service.access().identityVersion(f.client);
     const auto binding = f.service.access().grantSnapshot(ClientId{f.client}, entry).binding;
@@ -2108,10 +2142,10 @@ void McpTests::httpFileDownloadUsesSharedTransferLifecycle()
     QCOMPARE(host.call("novaterm_download_file", arguments).value("data").toObject().value("transferId").toString(), id);
     QCOMPARE(starts, 1);
     QCOMPARE(host.call("novaterm_upload_file", arguments).value("error").toObject().value("code").toString(), QString("TARGET_OPERATION_CONFLICT"));
-    const auto other = f.service.access().addClient("outsider"); QVERIFY(!other.isEmpty());
-    Host outsider; QVERIFY(outsider.start(f.runtime(), f.service.access().exportToken(other).value(), {}, false, version));
-    for (const auto* tool : {"novaterm_query_transfer", "novaterm_cancel_transfer"})
-        QCOMPARE(outsider.call(tool, query).value("error").toObject().value("code").toString(), QString("PERMISSION_DENIED"));
+    Host outsider; QVERIFY(outsider.start(f.runtime(), f.service.access().exportToken().value(), {}, false, version));
+    QCOMPARE(outsider.call("novaterm_query_transfer", query).value("data").toObject().value("state").toString(), QString("downloading"));
+    Host unauthorized; QVERIFY(!unauthorized.start(f.runtime(), QByteArray(64, 'z'), {}, false, version));
+    QCOMPARE(unauthorized.lastHttpStatus, 401);
     QVERIFY(files.resources().remove(f.client, identity, remote->id, remote->revision));
     request->control->state = SftpFileUploadControl::State::AwaitingPublication;
     delivery->publicationReady();
@@ -2134,7 +2168,7 @@ void McpTests::httpFileUploadChecksIndependentAuthority_data()
 void McpTests::httpFileUploadChecksIndependentAuthority()
 {
     QFETCH(QString, version);
-    Fixture f; QVERIFY(f.service.access().setEnabled(true)); f.makeSsh();
+    Fixture f; QVERIFY(f.enableWithoutSessionPermissions()); f.makeSsh();
     const auto entry = f.service.directory().entries().first();
     const auto identity = f.service.access().identityVersion(f.client);
     const auto binding = f.service.access().grantSnapshot(ClientId{f.client}, entry).binding;
@@ -2172,7 +2206,7 @@ void McpTests::httpFileUploadChecksIndependentAuthority()
 void McpTests::httpFileResourcesAreIndependentAndBound()
 {
     QFETCH(QString, version);
-    Fixture f; QVERIFY(f.service.access().setEnabled(true)); f.makeSsh();
+    Fixture f; QVERIFY(f.enableWithoutSessionPermissions()); f.makeSsh();
     auto entry = f.service.directory().entries().first();
     const auto identity = f.service.access().identityVersion(f.client);
     const auto localPath = f.root.filePath("private-local-build");
@@ -2208,12 +2242,12 @@ void McpTests::httpFileResourcesAreIndependentAndBound()
     QCOMPARE(discovered.value("data").toObject().value("remoteScopes"), data.value("remoteScopes"));
     auto stale = args; stale.insert("epoch", "old-epoch");
     QCOMPARE(host.call("novaterm_list_file_resources", stale).value("error").toObject().value("code").toString(), QString("STALE_SESSION_EPOCH"));
-    const auto other = f.service.access().addClient("other"); QVERIFY(!other.isEmpty());
-    Host outsider; QVERIFY(outsider.start(f.runtime(), f.service.access().exportToken(other).value(), {}, false, version));
-    QCOMPARE(outsider.call("novaterm_list_file_resources", args).value("error").toObject().value("code").toString(), QString("PERMISSION_DENIED"));
+    Host outsider; QVERIFY(outsider.start(f.runtime(), f.service.access().exportToken().value(), {}, false, version));
+    QVERIFY(outsider.call("novaterm_list_file_resources", args).value("ok").toBool());
     const auto outsiderListing = outsider.call("novaterm_list_file_resources", {}).value("data").toObject();
-    QVERIFY(outsiderListing.value("localResources").toArray().isEmpty());
-    QVERIFY(outsiderListing.value("remoteScopes").toArray().isEmpty());
+    QCOMPARE(outsiderListing.value("localResources"), data.value("localResources"));
+    QCOMPARE(outsiderListing.value("remoteScopes"), data.value("remoteScopes"));
+    QVERIFY(isError(files.list(newId(), identity, ListFileResourcesRequest{})));
     auto unknown = args; unknown.insert("sessionId", newId());
     QCOMPARE(host.call("novaterm_list_file_resources", unknown).value("error").toObject().value("code").toString(), QString("PERMISSION_DENIED"));
     QVERIFY(TestSupport::setGrant(f.service.access(), f.client, entry, true));
@@ -2234,7 +2268,7 @@ void McpTests::httpFileResourcesAreIndependentAndBound()
     f.makeSsh();
     QCOMPARE(host.call("novaterm_list_file_resources", args).value("error").toObject().value("code").toString(), QString("PERMISSION_DENIED"));
     QCOMPARE(files.resources().local(f.client, identity).size(), 1);
-    QVERIFY(f.service.access().rotateToken(f.client));
+    QVERIFY(f.service.access().rotateToken());
     QVERIFY(files.resources().local(f.client, identity).isEmpty());
     QVERIFY(files.resources().local(f.client, f.service.access().identityVersion(f.client)).isEmpty());
     const auto rotated = f.service.access().identityVersion(f.client);
@@ -2244,16 +2278,16 @@ void McpTests::httpFileResourcesAreIndependentAndBound()
     QVERIFY(files.resources().remote(f.client, rotated).isEmpty());
 }
 
-void McpTests::httpFileUploadIsIndependentOfTerminalAndClosePolicy_data()
+void McpTests::httpFileUploadIsIndependentOfTerminalPermissions_data()
 {
     QTest::addColumn<QString>("version");
     QTest::newRow("2025") << QString(ProtocolVersion);
     QTest::newRow("2026") << QString("2026-07-28");
 }
-void McpTests::httpFileUploadIsIndependentOfTerminalAndClosePolicy()
+void McpTests::httpFileUploadIsIndependentOfTerminalPermissions()
 {
     QFETCH(QString, version);
-    Fixture f; QVERIFY(f.service.access().setEnabled(true)); f.makeSsh();
+    Fixture f; QVERIFY(f.enableWithoutSessionPermissions()); f.makeSsh();
     const auto entry = f.service.directory().entries().first();
     const auto identity = f.service.access().identityVersion(f.client);
     auto& files = f.service.fileResources();
@@ -2261,8 +2295,7 @@ void McpTests::httpFileUploadIsIndependentOfTerminalAndClosePolicy()
     const auto binding = f.service.access().grantSnapshot(ClientId{f.client}, entry).binding;
     const auto remote = files.shareRemote(f.client, identity, binding, "/tmp/nvt-builds", "Target", {false, true});
     QVERIFY(local); QVERIFY(remote);
-    int closeChecks = 0, uploads = 0;
-    f.service.setTargetCloseSafety([&closeChecks](const QString&) { ++closeChecks; return false; });
+    int uploads = 0;
     std::optional<SftpFileUploadRequest> started;
     std::optional<FileTransfers::Delivery> delivery;
     f.service.setFileUploadStarter([&](TerminalSession&, const SftpFileUploadRequest& request, FileTransfers::Delivery done) {
@@ -2277,7 +2310,7 @@ void McpTests::httpFileUploadIsIndependentOfTerminalAndClosePolicy()
     const auto response = host.call("novaterm_upload_file", arguments);
     QVERIFY2(response.value("ok").toBool(), QJsonDocument(response).toJson().constData());
     const auto transfer = response.value("data").toObject().value("transferId").toString();
-    QVERIFY(!transfer.isEmpty()); QCOMPARE(uploads, 1); QCOMPARE(closeChecks, 0);
+    QVERIFY(!transfer.isEmpty()); QCOMPARE(uploads, 1);
     QVERIFY(!f.service.access().canRead(f.client, entry));
     QVERIFY(started && delivery);
     delivery->progress(3, 7);
@@ -2292,11 +2325,11 @@ void McpTests::httpFileUploadIsIndependentOfTerminalAndClosePolicy()
     const auto cancelled = host.call("novaterm_query_transfer", {{"transferId", transfer}}).value("data").toObject();
     QCOMPARE(cancelled.value("state").toString(), QString("cancelled"));
     QCOMPARE(cancelled.value("publication").toString(), QString("not_started"));
-    QCOMPARE(uploads, 1); QCOMPARE(closeChecks, 0); QCOMPARE(SshTransportTestAccess::queued(*f.ssh), 0);
+    QCOMPARE(uploads, 1); QCOMPARE(SshTransportTestAccess::queued(*f.ssh), 0);
 }
 void McpTests::fileResourceSettingsRejectStaleIdentityAndConnection()
 {
-    Fixture f; QVERIFY(f.service.access().setEnabled(true)); f.makeSsh();
+    Fixture f; QVERIFY(f.enableWithoutSessionPermissions()); f.makeSsh();
     McpSettingsDialog settings(&f.service, nullptr);
     auto* open = settings.findChild<QPushButton*>("mcpFileResourceSharing"); QVERIFY(open); open->click();
     auto* dialog = settings.findChild<FileResourceSharingDialog*>(); QVERIFY(dialog);
@@ -2322,52 +2355,55 @@ void McpTests::fileResourceSettingsRejectStaleIdentityAndConnection()
     entry = f.service.directory().entries().first(); binding = f.service.access().grantSnapshot(ClientId{f.client}, entry).binding;
     QVERIFY(f.service.fileResources().resources().remote(f.client, identity, binding).isEmpty());
     QCOMPARE(session->currentIndex(), -1);
-    QVERIFY(f.service.access().rotateToken(f.client));
+    QVERIFY(f.service.access().rotateToken());
     kind->setCurrentIndex(0); path->setText(f.root.filePath("old-window")); title->setText("Old UI");
     read->setChecked(true); share->click();
     QVERIFY(!share->isEnabled());
     QVERIFY(f.service.fileResources().resources().local(f.client, f.service.access().identityVersion(f.client)).isEmpty());
 }
-void McpTests::fileResourceWindowHasUnambiguousClient_data()
+void McpTests::fileResourceWindowUsesSharedAccess_data()
 {
     QTest::addColumn<int>("scenario");
-    QTest::newRow("visible-identity-and-modal") << 0;
-    QTest::newRow("parent-client-change") << 1;
-    QTest::newRow("reuse-same-client-window") << 2;
+    QTest::newRow("shared-access-and-modal") << 0;
+    QTest::newRow("token-reset") << 1;
+    QTest::newRow("reuse-shared-access-window") << 2;
 }
-void McpTests::fileResourceWindowHasUnambiguousClient()
+void McpTests::fileResourceWindowUsesSharedAccess()
 {
     QFETCH(int, scenario);
-    Fixture f; QVERIFY(f.service.access().setEnabled(true));
-    const auto other = f.service.access().addClient("beta-visible"); QVERIFY(!other.isEmpty());
+    Fixture f; QVERIFY(f.enableWithoutSessionPermissions());
     McpSettingsDialog settings(&f.service, nullptr); settings.show();
-    auto* clients = settings.findChild<QComboBox*>("mcpClientSelector");
     auto* open = settings.findChild<QPushButton*>("mcpFileResourceSharing");
-    QVERIFY(clients && open); clients->setCurrentIndex(clients->findData(f.client));
+    QVERIFY(open);
     open->click();
     QPointer<FileResourceSharingDialog> original = settings.findChild<FileResourceSharingDialog*>(); QVERIFY(original);
     if (scenario == 0) {
-        auto* identity = original->findChild<QLabel*>("fileResourceClientIdentity"); QVERIFY(identity);
-        QVERIFY(identity->isVisible()); QVERIFY(identity->text().contains(f.client));
-        QVERIFY(identity->text().contains("fixture")); QVERIFY(original->windowTitle().contains("fixture"));
+        QVERIFY(!original->findChild<QLabel*>("fileResourceClientIdentity"));
+        QVERIFY(!original->windowTitle().contains(f.client));
         QTRY_COMPARE(QApplication::activeModalWidget(), original.data());
     } else if (scenario == 1) {
-        clients->setCurrentIndex(clients->findData(other));
-        QTRY_VERIFY(!original || !original->isVisible());
+        QVERIFY(f.service.access().rotateToken());
+        auto* share = original->findChild<QPushButton*>("fileResourceShare");
+        QVERIFY(share);
+        QTRY_VERIFY(!share->isEnabled());
+        original->findChild<QLineEdit*>("fileResourcePath")->setText(f.root.filePath("old-window"));
+        original->findChild<QLineEdit*>("fileResourceTitle")->setText("Old identity");
+        original->findChild<QCheckBox*>("fileResourceRead")->setChecked(true);
+        share->click();
+        QVERIFY(f.service.fileResources().resources().local(f.client,
+            f.service.access().identityVersion(f.client)).isEmpty());
+        original->close();
         open->click();
         FileResourceSharingDialog* replacement = nullptr;
         for (auto* dialog : settings.findChildren<FileResourceSharingDialog*>())
             if (dialog->isVisible()) replacement = dialog;
         QVERIFY(replacement);
-        auto* identity = replacement->findChild<QLabel*>("fileResourceClientIdentity"); QVERIFY(identity);
-        QVERIFY(identity->text().contains(other)); QVERIFY(identity->text().contains("beta-visible"));
-        replacement->findChild<QLineEdit*>("fileResourcePath")->setText(f.root.filePath("beta-build"));
-        replacement->findChild<QLineEdit*>("fileResourceTitle")->setText("Beta build");
+        replacement->findChild<QLineEdit*>("fileResourcePath")->setText(f.root.filePath("shared-build"));
+        replacement->findChild<QLineEdit*>("fileResourceTitle")->setText("Shared build");
         replacement->findChild<QCheckBox*>("fileResourceRead")->setChecked(true);
         replacement->findChild<QPushButton*>("fileResourceShare")->click();
-        auto& resources = f.service.fileResources().resources();
-        QCOMPARE(resources.local(other, f.service.access().identityVersion(other)).size(), 1);
-        QVERIFY(resources.local(f.client, f.service.access().identityVersion(f.client)).isEmpty());
+        QCOMPARE(f.service.fileResources().resources().local(f.client,
+            f.service.access().identityVersion(f.client)).size(), 1);
     } else {
         open->click();
         int visible = 0;
@@ -2386,7 +2422,7 @@ void McpTests::fileResourceSelectionSurvivesOnlyUnchangedRules_data()
 void McpTests::fileResourceSelectionSurvivesOnlyUnchangedRules()
 {
     QFETCH(int, scenario);
-    Fixture f; QVERIFY(f.service.access().setEnabled(true));
+    Fixture f; QVERIFY(f.enableWithoutSessionPermissions());
     if (scenario == 3) f.makeSsh();
     const auto identity = f.service.access().identityVersion(f.client);
     auto& resources = f.service.fileResources().resources();
@@ -2439,7 +2475,7 @@ void McpTests::fileResourcesReleaseDisconnectedRemoteQuota_data()
 void McpTests::fileResourcesReleaseDisconnectedRemoteQuota()
 {
     QFETCH(bool, manual);
-    Fixture f; QVERIFY(f.service.access().setEnabled(true)); f.makeSsh();
+    Fixture f; QVERIFY(f.enableWithoutSessionPermissions()); f.makeSsh();
     const auto identity = f.service.access().identityVersion(f.client);
     auto entry = *f.service.directory().find(f.session.id().toString(QUuid::WithoutBraces));
     const auto original = f.service.access().grantSnapshot(ClientId{f.client}, entry).binding;
@@ -2470,380 +2506,6 @@ void McpTests::fileResourcesReleaseDisconnectedRemoteQuota()
     QVERIFY(files.shareRemote(f.client, identity, otherBinding, "/tmp/available", "Other target", {false, true}));
     QVERIFY(files.resources().remote(f.client, identity, original).isEmpty());
     QCOMPARE(files.resources().remote(f.client, identity).size(), 1);
-}
-
-void McpTests::savedTargetNewSessionPermissions_data()
-{
-    QTest::addColumn<QString>("version");
-    QTest::addColumn<int>("selection");
-    QTest::addColumn<bool>("created");
-    for (const auto& version : QStringList{ProtocolVersion, "2026-07-28"}) {
-        for (int selection = 0; selection < 4; ++selection)
-            QTest::newRow(qPrintable(version + '-' + QString::number(selection))) << version << selection << true;
-        QTest::newRow(qPrintable(version + "-reused")) << version << 3 << false;
-    }
-}
-
-void McpTests::savedTargetPendingSharing_data()
-{
-    QTest::addColumn<QString>("version"); QTest::addColumn<int>("scenario");
-    const QStringList names{"ready", "rule-change", "open-revoke", "config-change", "token-rotate",
-        "human-input", "reconnect", "replace-transport", "manual-grant", "remove-readd", "first-fingerprint",
-        "host-key-pending", "failed", "global-disable", "human-disconnect"};
-    for (const auto& version : QStringList{ProtocolVersion, "2026-07-28"})
-        for (int scenario = 0; scenario < names.size(); ++scenario)
-            QTest::newRow(qPrintable(version + '-' + names[scenario])) << version << scenario;
-}
-
-void McpTests::savedTargetPendingSharing()
-{
-    QFETCH(QString, version); QFETCH(int, scenario);
-    class PendingTransport final : public ITransport {
-    public:
-        bool connectToHost() override { return true; }
-        void disconnect() override { online = false; emit disconnected(); }
-        void write(const QByteArray&) override {}
-        void resizeTerminal(int, int) override {}
-        bool isConnected() const override { return online; }
-        QString errorString() const override { return {}; }
-        TransportCapabilities capabilities() const override { return TransportCapability::Reconnect; }
-        bool online{false};
-    };
-    Fixture f; QVERIFY(f.service.access().setEnabled(true));
-    TerminalCore core{80, 24}; PendingTransport transport, replacement; TerminalSession session{&core};
-    session.attach(&transport, TerminalSession::Ownership::Borrowed, TransportKind::LocalShell);
-    QVERIFY(session.start());
-    f.service.directory().add(&session);
-    const auto sessionId = session.id().toString(QUuid::WithoutBraces);
-    auto& targets = f.service.savedTargets();
-    SavedTargetSource source{newId(), "Board", "ssh", "fixture.invalid:22", QByteArray(32, 'a')};
-    QVERIFY(targets.replace({source})); const auto row = targets.localTargets().first();
-    const auto identity = f.service.access().identityVersion(f.client);
-    QVERIFY(targets.setShared(f.client, identity, row.id, row.configVersion, true));
-    QVERIFY(targets.setOpenAllowed(f.client, identity, row.id, row.configVersion, true));
-    QVERIFY(targets.setNewSessionSharing(f.client, identity, row.id, row.configVersion, NewSessionPermission::Input, true));
-    QVERIFY(targets.setNewSessionSharing(f.client, identity, row.id, row.configVersion, NewSessionPermission::Clear, true));
-    f.service.setTargetOpener([&](const SavedTargetSource&, const TargetConnections::Guard&) {
-        const auto entry = f.service.directory().find(sessionId);
-        return TargetConnectionFacts{entry->id, entry->epoch, entry->attachmentId, "connecting", {}, true};
-    });
-    Host host; QVERIFY(host.start(f.runtime(), f.token(), {}, false, version));
-    const QJsonObject args{{"targetId", row.id}, {"configVersion", row.configVersion}, {"operationId", newId()}};
-    QVERIFY(host.call("novaterm_open_target", args).value("ok").toBool());
-    QVERIFY(!f.service.access().canRead(f.client, *f.service.directory().find(sessionId)));
-    if (scenario == 1) {
-        QVERIFY(targets.setNewSessionSharing(f.client, identity, row.id, row.configVersion, NewSessionPermission::Read, false));
-        QVERIFY(targets.setNewSessionSharing(f.client, identity, row.id, row.configVersion, NewSessionPermission::Input, true));
-    } else if (scenario == 2) {
-        QVERIFY(targets.setOpenAllowed(f.client, identity, row.id, row.configVersion, false));
-        QVERIFY(targets.setOpenAllowed(f.client, identity, row.id, row.configVersion, true));
-        QVERIFY(targets.setNewSessionSharing(f.client, identity, row.id, row.configVersion, NewSessionPermission::Input, true));
-    } else if (scenario == 3) {
-        source.configurationKey = QByteArray(32, 'b'); QVERIFY(targets.replace({source}));
-    } else if (scenario == 4) {
-        QVERIFY(f.service.access().rotateToken(f.client));
-    } else if (scenario == 5) {
-        core.pasteText("human"); QVERIFY(core.localInputGeneration() > 0);
-    } else if (scenario == 6) {
-        transport.online = true; emit transport.connected();
-        QVERIFY(session.reconnect());
-    } else if (scenario == 7) {
-        session.close(CloseMode::Abort); QVERIFY(session.resetForReuse());
-        session.attach(&replacement, TerminalSession::Ownership::Borrowed, TransportKind::LocalShell);
-        QVERIFY(session.start()); replacement.online = true; emit replacement.connected();
-    } else if (scenario == 8) {
-        const auto entry = *f.service.directory().find(sessionId);
-        const auto snapshot = f.service.access().grantSnapshot(ClientId{f.client}, entry);
-        PermissionChange revoke{snapshot.client, snapshot.binding, snapshot.revision, PermissionKind::ReadOutput, {}, false};
-        QVERIFY(!isError(f.service.access().changePermission(revoke, entry)));
-    } else if (scenario == 9) {
-        f.service.directory().remove(&session); f.service.directory().add(&session);
-    } else if (scenario == 10) {
-        session.commandFacade()->installExecutor(std::make_unique<TestCommandExecutor>(), session.statistics().generation);
-    } else if (scenario == 11) {
-        transport.setProperty("novatermHostKeyDecisionPending", true);
-    } else if (scenario == 12) {
-        emit transport.errorOccurred("fixture failure"); QTest::qWait(20);
-    } else if (scenario == 13) {
-        QVERIFY(f.service.access().setEnabled(false));
-    } else if (scenario == 14) {
-        transport.online = true; emit transport.connected();
-        QVERIFY(session.disconnectForReconnect());
-    }
-    if (scenario != 7 && scenario != 12 && scenario != 14) {
-        transport.online = true; emit transport.connected();
-    }
-    QTest::qWait(150);
-    auto entry = *f.service.directory().find(session.id().toString(QUuid::WithoutBraces));
-    const bool expected = scenario == 0 || scenario == 10;
-    QCOMPARE(f.service.access().canRead(f.client, entry), expected);
-    QCOMPARE(f.service.access().canControlTerminal(f.client, entry), expected);
-    QCOMPARE(f.service.access().canClearTerminal(f.client, entry), expected);
-    if (scenario == 11) {
-        transport.setProperty("novatermHostKeyDecisionPending", false);
-        QTRY_VERIFY(f.service.access().canControlTerminal(f.client, *f.service.directory().find(sessionId)));
-    }
-    if (expected) {
-        QVERIFY(session.reconnect()); transport.online = true; emit transport.connected(); QTest::qWait(30);
-        entry = *f.service.directory().find(sessionId);
-        QVERIFY(!f.service.access().canControlTerminal(f.client, entry));
-        QVERIFY(!f.service.access().canClearTerminal(f.client, entry));
-    }
-}
-
-void McpTests::savedTargetNewSessionPermissions()
-{
-    QFETCH(QString, version); QFETCH(int, selection); QFETCH(bool, created);
-    Fixture f;
-    QVERIFY(f.service.access().setEnabled(true));
-    auto& targets = f.service.savedTargets();
-    QVERIFY(targets.replace({{newId(), "Board", "serial", "fixture-port", QByteArray(32, 'a')}}));
-    const auto row = targets.localTargets().first();
-    const auto identity = f.service.access().identityVersion(f.client);
-    QVERIFY(targets.setShared(f.client, identity, row.id, row.configVersion, true));
-    QVERIFY(targets.setOpenAllowed(f.client, identity, row.id, row.configVersion, true));
-    McpSettingsDialog dialog(&f.service, nullptr);
-    auto* tree = dialog.findChild<QTreeWidget*>("mcpSavedTargets");
-    QVERIFY(tree);
-    if (selection >= 1) tree->topLevelItem(0)->setCheckState(4, Qt::Checked);
-    if (selection >= 2) tree->topLevelItem(0)->setCheckState(5, Qt::Checked);
-    if (selection >= 3) tree->topLevelItem(0)->setCheckState(6, Qt::Checked);
-    int opens = 0;
-    f.service.setTargetOpener([&](const SavedTargetSource&, const TargetConnections::Guard&) {
-        ++opens;
-        const auto entry = f.service.directory().find(f.session.id().toString(QUuid::WithoutBraces));
-        return TargetConnectionFacts{entry->id, entry->epoch, entry->attachmentId, "running", {}, created};
-    });
-    Host host; QVERIFY(host.start(f.runtime(), f.token(), {}, false, version));
-    const QJsonObject args{{"targetId", row.id}, {"configVersion", row.configVersion}, {"operationId", newId()}};
-    QVERIFY(host.call("novaterm_open_target", args).value("ok").toBool());
-    QTest::qWait(30);
-    auto entry = *f.service.directory().find(f.session.id().toString(QUuid::WithoutBraces));
-    QCOMPARE(f.service.access().canRead(f.client, entry), created && selection >= 1);
-    QCOMPARE(f.service.access().canControlTerminal(f.client, entry), created && selection >= 2);
-    QCOMPARE(f.service.access().canClearTerminal(f.client, entry), created && selection >= 3);
-    QVERIFY(!f.service.access().canRunCommand(f.client, entry));
-    QVERIFY(!f.service.access().canRunScriptTask(f.client, entry));
-    QVERIFY(!f.service.access().canUseElevation(f.client, entry));
-    if (created && selection >= 1) {
-        const auto snapshot = f.service.access().grantSnapshot(ClientId{f.client}, entry);
-        PermissionChange revoke{snapshot.client, snapshot.binding, snapshot.revision, PermissionKind::ReadOutput, {}, false};
-        QVERIFY(!isError(f.service.access().changePermission(revoke, entry)));
-    }
-    QVERIFY(host.call("novaterm_open_target", args).value("ok").toBool());
-    QTest::qWait(30);
-    QVERIFY(!f.service.access().canRead(f.client, entry));
-    QCOMPARE(opens, 1);
-}
-
-void McpTests::targetConnectionsUseBothProtocols_data()
-{
-    QTest::addColumn<QString>("version");
-    QTest::newRow("2025") << QString(ProtocolVersion);
-    QTest::newRow("2026") << QString("2026-07-28");
-}
-void McpTests::targetConnectionsUseBothProtocols()
-{
-    QFETCH(QString, version);
-    Fixture f;
-    QVERIFY(f.enable());
-    f.makeSsh();
-    auto& targets = f.service.savedTargets();
-    SavedTargetSource source{newId(), "Board", "ssh", "fixture.invalid:22", QByteArray(32, 'a')};
-    QVERIFY(targets.replace({source}));
-    const auto row = targets.localTargets().first();
-    const auto identityVersion = f.service.access().identityVersion(f.client);
-    int opens = 0;
-    f.service.setTargetOpener([&](const SavedTargetSource&, const TargetConnections::Guard&) {
-        ++opens;
-        const auto entry = f.service.directory().find(f.session.id().toString(QUuid::WithoutBraces));
-        return TargetConnectionFacts{entry->id, entry->epoch, entry->attachmentId, "running", {}, true};
-    });
-    Host host;
-    QVERIFY(host.start(f.runtime(), f.token(), {}, false, version));
-    QJsonObject arguments{{"targetId", row.id}, {"configVersion", row.configVersion}, {"operationId", newId()}};
-    const auto denied = [&] {
-        return host.call("novaterm_open_target", arguments).value("error").toObject().value("code").toString();
-    };
-    QCOMPARE(denied(), QString("TARGET_OPEN_PERMISSION_REQUIRED"));
-    QVERIFY(targets.setShared(f.client, identityVersion, row.id, row.configVersion, true));
-    QCOMPARE(denied(), QString("TARGET_OPEN_PERMISSION_REQUIRED"));
-    QCOMPARE(opens, 0);
-    McpSettingsDialog dialog(&f.service, nullptr);
-    auto* tree = dialog.findChild<QTreeWidget*>("mcpSavedTargets");
-    QVERIFY(tree); QCOMPARE(tree->columnCount(), 7);
-    QCOMPARE(tree->topLevelItem(0)->checkState(3), Qt::Unchecked);
-    tree->topLevelItem(0)->setCheckState(3, Qt::Checked);
-    QVERIFY(targets.canOpen(f.client, identityVersion, row.id));
-    const auto opened = host.call("novaterm_open_target", arguments);
-    QVERIFY2(opened.value("ok").toBool(), QJsonDocument(opened).toJson().constData());
-    QVERIFY(opened.value("data").toObject().value("created").toBool());
-    const auto sessionId = opened.value("data").toObject().value("sessionId").toString();
-    QVERIFY(!sessionId.isEmpty());
-    QVERIFY(!f.service.access().canRead(f.client, *f.service.directory().find(sessionId)));
-    const auto replay = host.call("novaterm_open_target", arguments);
-    QVERIFY(replay.value("ok").toBool()); QCOMPARE(opens, 1);
-    QCOMPARE(host.call("novaterm_query_target", arguments).value("data").toObject().value("state").toString(), QString("running"));
-    f.ssh->setProperty("novatermHostKeyDecisionPending", true);
-    QCOMPARE(host.call("novaterm_query_target", arguments).value("data").toObject().value("reason").toString(),
-        QString("host_key_confirmation_required"));
-    f.ssh->setProperty("novatermHostKeyDecisionPending", false);
-    QCOMPARE(opens, 1);
-    // Replacing the transport must never let the old operation follow the new connection.
-    f.makeSsh();
-    QCOMPARE(host.call("novaterm_query_target", arguments).value("data").toObject().value("state").toString(), QString("invalidated"));
-    QCOMPARE(opens, 1);
-    QVERIFY(targets.setOpenAllowed(f.client, identityVersion, row.id, row.configVersion, false));
-    QCOMPARE(denied(), QString("TARGET_OPEN_PERMISSION_REQUIRED")); QCOMPARE(opens, 1);
-    QVERIFY(targets.setOpenAllowed(f.client, identityVersion, row.id, row.configVersion, true));
-    QVERIFY(targets.setShared(f.client, identityVersion, row.id, row.configVersion, false));
-    QVERIFY(targets.setShared(f.client, identityVersion, row.id, row.configVersion, true));
-    QVERIFY(!targets.canOpen(f.client, identityVersion, row.id));
-    QCOMPARE(denied(), QString("TARGET_OPEN_PERMISSION_REQUIRED")); QCOMPARE(opens, 1);
-}
-
-void McpTests::httpSavedTargetDirectoryIsIsolatedAndVersioned()
-{
-    Fixture f;
-    QVERIFY(f.enable());
-    QTRY_COMPARE(f.service.status(), QStringLiteral("Listening"));
-    auto& targets = f.service.savedTargets();
-    SavedTargetSource a{newId(), "Board A", "ssh", "fixture.invalid:22", QByteArray(32, 'a')};
-    SavedTargetSource b{newId(), "Board B", "serial", "fake-port @ 115200", QByteArray(32, 'b')};
-    SavedTargetSource hidden{newId(), "Hidden", "ssh", "private.invalid:22", QByteArray(32, 'c')};
-    QVERIFY(targets.replace({a, b, hidden}));
-    const auto initializeClient = [&](const QByteArray& token) {
-        const auto initialized = httpPost(f.service, token, httpInitialize());
-        httpPost(f.service, token, {{"jsonrpc", "2.0"}, {"method", "notifications/initialized"}}, initialized.session);
-        return initialized.session;
-    };
-    const auto session = initializeClient(f.token());
-    const auto list = [&](const QByteArray& token, const QByteArray& wireSession, QJsonObject args) {
-        return httpPost(f.service, token,
-            {{"jsonrpc", "2.0"}, {"id", 44}, {"method", "tools/call"},
-             {"params", QJsonObject{{"name", "novaterm_list_targets"}, {"arguments", args}}}}, wireSession)
-            .message.value("result").toObject().value("structuredContent").toObject();
-    };
-    const auto empty = list(f.token(), session, {});
-    QVERIFY2(empty.value("ok").toBool(), QJsonDocument(empty).toJson(QJsonDocument::Compact).constData());
-    QVERIFY(empty.value("data").toObject().value("targets").toArray().isEmpty());
-    for (const auto& row : targets.localTargets())
-        if (row.id != hidden.id)
-            QVERIFY(targets.setShared(f.client, f.service.access().identityVersion(f.client), row.id, row.configVersion, true));
-    const auto first = list(f.token(), session, {{"limit", 1}});
-    QVERIFY2(first.value("ok").toBool(), QJsonDocument(first).toJson(QJsonDocument::Compact).constData());
-    const auto data = first.value("data").toObject();
-    QCOMPARE(data.value("targets").toArray().size(), 1);
-    const auto cursor = data.value("nextCursor").toString();
-    QVERIFY(!cursor.isEmpty());
-    const auto next = list(f.token(), session, {{"cursor", cursor}});
-    QVERIFY(next.value("ok").toBool());
-    const auto second = next.value("data").toObject().value("targets").toArray();
-    QCOMPARE(second.size(), 1);
-    QVERIFY(second.first().toObject().value("targetId") != data.value("targets").toArray().first().toObject().value("targetId"));
-    const auto bytes = QJsonDocument(list(f.token(), session, {})).toJson();
-    QVERIFY(!bytes.contains("private.invalid"));
-    QVERIFY(!bytes.contains("configurationKey"));
-    QVERIFY(!bytes.contains("credentialRef"));
-    QVERIFY(!bytes.contains("sessionId"));
-    const auto other = f.service.access().addClient("other");
-    const auto otherToken = *f.service.access().exportToken(other);
-    const auto otherSession = initializeClient(otherToken);
-    QCOMPARE(list(otherToken, otherSession, {{"cursor", cursor}}).value("error").toObject().value("code").toString(), QString("CURSOR_MISMATCH"));
-    a.endpoint = "updated.invalid:22";
-    QVERIFY(targets.replace({a, b, hidden}));
-    QCOMPARE(list(f.token(), session, {{"cursor", cursor}}).value("error").toObject().value("code").toString(), QString("TARGET_DIRECTORY_CHANGED"));
-    auto tampered = cursor; tampered[10] = tampered[10] == 'a' ? 'b' : 'a';
-    QCOMPARE(list(f.token(), session, {{"cursor", tampered}}).value("error").toObject().value("code").toString(), QString("CURSOR_MISMATCH"));
-    QCOMPARE(list(f.token(), session, {}).value("data").toObject().value("targets").toArray().size(), 1);
-}
-
-void McpTests::settingsDialogSharesOnlySelectedSavedTargets()
-{
-    Fixture f;
-    auto& targets = f.service.savedTargets();
-    QVERIFY(targets.replace({{newId(), "Saved board", "serial", "fake @ 115200", QByteArray(32, 'a')}}));
-    const auto other = f.service.access().addClient("other");
-    McpSettingsDialog dialog(&f.service, nullptr);
-    auto* tree = dialog.findChild<QTreeWidget*>("mcpSavedTargets");
-    auto* clients = dialog.findChild<QComboBox*>("mcpClientSelector");
-    QVERIFY(tree && clients);
-    clients->setCurrentIndex(clients->findData(f.client));
-    QCOMPARE(tree->topLevelItemCount(), 1);
-    QCOMPARE(tree->topLevelItem(0)->checkState(2), Qt::Unchecked);
-    tree->topLevelItem(0)->setCheckState(2, Qt::Checked);
-    QCOMPARE(targets.page(f.client, f.service.access().identityVersion(f.client), 25).targets.size(), 1);
-    clients->setCurrentIndex(clients->findData(other));
-    QCOMPARE(tree->topLevelItem(0)->checkState(2), Qt::Unchecked);
-    QVERIFY(targets.page(other, f.service.access().identityVersion(other), 25).targets.isEmpty());
-    clients->setCurrentIndex(clients->findData(f.client));
-    QCOMPARE(tree->topLevelItem(0)->checkState(2), Qt::Checked);
-    QVERIFY(f.service.access().rotateToken(f.client));
-    QTRY_VERIFY(tree->topLevelItemCount() == 1 && tree->topLevelItem(0)->checkState(2) == Qt::Unchecked);
-    QVERIFY(targets.page(f.client, f.service.access().identityVersion(f.client), 25).targets.isEmpty());
-}
-
-void McpTests::savedTargetSharingSurvivesSessionPermissionChanges()
-{
-    Fixture f;
-    QVERIFY(f.enable());
-    auto& targets = f.service.savedTargets();
-    QVERIFY(targets.replace({{newId(), "Board A", "serial", "fake-a @ 115200", QByteArray(32, 'a')},
-        {newId(), "Board B", "ssh", "board.invalid:22", QByteArray(32, 'b')}}));
-    McpSettingsDialog dialog(&f.service, nullptr);
-    auto* tree = dialog.findChild<QTreeWidget*>("mcpSavedTargets");
-    QVERIFY(tree);
-    QCOMPARE(tree->topLevelItemCount(), 2);
-    for (int i = 0; i < tree->topLevelItemCount(); ++i)
-        tree->topLevelItem(i)->setCheckState(2, Qt::Checked);
-    Host host;
-    QVERIFY(host.start(f.runtime(), f.token()));
-    const auto first = host.call("novaterm_list_targets", {{"limit", 1}});
-    QVERIFY(first.value("ok").toBool());
-    const auto cursor = first.value("data").toObject().value("nextCursor").toString();
-    QVERIFY(!cursor.isEmpty());
-    const auto accessVersion = f.service.access().version(f.client);
-    const auto entry = f.service.directory().entries().first();
-    for (const auto& change : QList<std::pair<PermissionKind, bool>>{
-             {PermissionKind::ReadOutput, false}, {PermissionKind::ReadOutput, true},
-             {PermissionKind::FullTerminalInput, true}, {PermissionKind::FullTerminalInput, false}}) {
-        QVERIFY(NovaTerm::Mcp::TestSupport::applyOne(f.service.access(), f.client,
-            entry, change.first, std::nullopt, change.second));
-        const auto listed = host.call("novaterm_list_targets");
-        QVERIFY(listed.value("ok").toBool());
-        QCOMPARE(listed.value("data").toObject().value("targets").toArray().size(), 2);
-        const auto next = host.call("novaterm_list_targets", {{"cursor", cursor}});
-        QVERIFY2(next.value("ok").toBool(), QJsonDocument(next).toJson(QJsonDocument::Compact).constData());
-        QCOMPARE(next.value("data").toObject().value("targets").toArray().size(), 1);
-        QCOMPARE(tree->topLevelItem(0)->checkState(2), Qt::Checked);
-        QCOMPARE(tree->topLevelItem(1)->checkState(2), Qt::Checked);
-    }
-    QVERIFY(f.service.access().version(f.client) > accessVersion);
-    const auto previousIdentity = tree->topLevelItem(0)->data(0, Qt::UserRole + 3);
-    QVERIFY(f.service.access().rotateToken(f.client));
-    QTRY_COMPARE(tree->topLevelItem(0)->checkState(2), Qt::Unchecked);
-    Host rotated;
-    QVERIFY(rotated.start(f.runtime(), f.token()));
-    const auto stale = rotated.call("novaterm_list_targets", {{"cursor", cursor}});
-    QCOMPARE(stale.value("error").toObject().value("code").toString(), QString("CURSOR_MISMATCH"));
-    tree->topLevelItem(0)->setData(0, Qt::UserRole + 3, previousIdentity);
-    tree->topLevelItem(0)->setCheckState(2, Qt::Checked);
-    QTRY_COMPARE(tree->topLevelItem(0)->checkState(2), Qt::Unchecked);
-    QVERIFY(rotated.call("novaterm_list_targets").value("data").toObject().value("targets").toArray().isEmpty());
-    tree->topLevelItem(0)->setCheckState(2, Qt::Checked);
-    QCOMPARE(rotated.call("novaterm_list_targets").value("data").toObject().value("targets").toArray().size(), 1);
-    QVERIFY(f.service.access().setEnabled(false));
-    QVERIFY(f.service.access().setEnabled(true));
-    QTRY_COMPARE(tree->topLevelItem(0)->checkState(2), Qt::Unchecked);
-    Host resumed;
-    QVERIFY(resumed.start(f.runtime(), f.token()));
-    QVERIFY(resumed.call("novaterm_list_targets").value("data").toObject().value("targets").toArray().isEmpty());
-    tree->topLevelItem(0)->setCheckState(2, Qt::Checked);
-    QCOMPARE(resumed.call("novaterm_list_targets").value("data").toObject().value("targets").toArray().size(), 1);
-    const auto token = f.token();
-    QVERIFY(f.service.access().removeClient(f.client));
-    QCOMPARE(f.service.access().authenticate(token), QString());
-    QTRY_COMPARE(tree->topLevelItem(0)->checkState(2), Qt::Unchecked);
 }
 
 void McpTests::httpRejectsMissingTokenAndForeignOrigin()
@@ -3305,14 +2967,14 @@ int sshLoopbackCheck(quint16 port)
             Service service(root.filePath("state"), root.filePath("instances"),
                             std::make_unique<MemoryCredentialStore>());
             service.directory().add(&session);
-            const auto client = service.access().addClient(QStringLiteral("loopback"));
+            const auto client = service.access().ensureAccess();
             const bool enabled = !client.isEmpty() && service.access().setEnabled(true)
                 && waitFor([&] { return service.status() == QStringLiteral("Listening"); }, 1000);
             const auto entry = service.directory().entries().first();
             if (enabled && NovaTerm::Mcp::TestSupport::setGrant(service.access(), client, entry, true, {}, true)) {
                 Host host;
                 if (host.start(root.filePath("instances"),
-                    service.access().exportToken(client).value_or(QByteArray{}))) {
+                    service.access().exportToken().value_or(QByteArray{}))) {
                     const auto response = host.call("novaterm_run_command",
                         QJsonObject{{"sessionId", entry.id}, {"epoch", entry.epoch},
                             {"command", QStringLiteral("pwd")}, {"timeoutMs", 2000}});
@@ -3349,17 +3011,6 @@ int interopFixture(QCoreApplication& application, const QString& configurationFi
     if (!fixture.enable(true)) return 1;
     if (!NovaTerm::Mcp::TestSupport::setTerminalGrant(fixture.service.access(), fixture.client,
             fixture.service.directory().entries().first(), true)) return 1;
-    auto& targets = fixture.service.savedTargets();
-    if (!targets.replace({{newId(), "Interop board", "ssh", "fixture.invalid:22", QByteArray(32, 'a')}})) return 1;
-    const auto target = targets.localTargets().first();
-    const auto identityVersion = fixture.service.access().identityVersion(fixture.client);
-    if (!targets.setShared(fixture.client, identityVersion, target.id, target.configVersion, true)
-        || !targets.setOpenAllowed(fixture.client, identityVersion, target.id, target.configVersion, true)) return 1;
-    fixture.service.setTargetOpener([&](const SavedTargetSource&, const TargetConnections::Guard& allowed) {
-        if (!allowed()) return TargetConnectionFacts{{}, {}, {}, "unavailable", "admission_invalidated", false};
-        const auto entry = fixture.service.directory().entries().first();
-        return TargetConnectionFacts{entry.id, entry.epoch, entry.attachmentId, "running", {}, false};
-    });
     fixture.core.writeInput("SDK_READY\r\nbuild ok\r\nERROR sample\r\n");
     if (!fixture.core.waitForIdle()) return 1;
     QTimer timer;
@@ -3367,7 +3018,7 @@ int interopFixture(QCoreApplication& application, const QString& configurationFi
     bool exported = false;
     QObject::connect(&timer, &QTimer::timeout, &application, [&] {
         if (!exported && fixture.service.status() == "Listening") {
-            exported = writePrivateJson(configurationFile, fixture.service.clientConfiguration(fixture.client));
+            exported = writePrivateJson(configurationFile, fixture.service.clientConfiguration());
             if (!exported) application.exit(1);
         }
         if (!holdCommands && SshTransportTestAccess::queued(*fixture.ssh) > 0) SshTransportTestAccess::finish(*fixture.ssh, true);
@@ -3480,7 +3131,7 @@ int performanceFixture(QCoreApplication& application, const QString& file, bool 
     control.setInterval(20);
     QObject::connect(&control, &QTimer::timeout, &application, [&] {
         if (!ready && (!enabled || fixture.service.status() == "Listening")) {
-            ready = writePrivateJson(file, enabled ? fixture.service.clientConfiguration(fixture.client) : QJsonObject{});
+            ready = writePrivateJson(file, enabled ? fixture.service.clientConfiguration() : QJsonObject{});
             if (!ready) application.exit(1);
         }
         if (!started && ready && QFile::exists(file + ".start")) {
@@ -3501,7 +3152,7 @@ void McpTests::settingsDialogRoundTripsTerminalPermissions()
 {
     eApp->init();
     Fixture f;
-    QVERIFY(f.service.access().setEnabled(true));
+    QVERIFY(f.enableWithoutSessionPermissions());
     QWidget owner;
     QPointer<McpSettingsDialog> dialog = new McpSettingsDialog(&f.service, &owner);
     auto* tree = dialog->findChild<ElaTreeWidget*>();
@@ -3540,7 +3191,7 @@ void McpTests::settingsDialogRoundTripsClearPermission()
     using Model = NovaTerm::Ui::SessionPermissionModel;
     eApp->init();
     Fixture f;
-    QVERIFY(f.service.access().setEnabled(true));
+    QVERIFY(f.enableWithoutSessionPermissions());
     QWidget owner;
     QPointer<McpSettingsDialog> dialog = new McpSettingsDialog(&f.service, &owner);
     auto* tree = dialog->findChild<ElaTreeWidget*>();
@@ -3932,45 +3583,27 @@ void McpTests::settingsDialogKeepsPendingGrantsForEveryTerminal()
     QVERIFY(f.service.access().commands(f.client, entry).isEmpty());
 }
 
-void McpTests::settingsDialogRejectsRowFromPreviousClient()
+void McpTests::settingsDialogRejectsRowFromPreviousIdentity()
 {
     eApp->init();
     Fixture fixture;
     QVERIFY(fixture.enable());
     const auto entry = fixture.service.directory().entries().first();
-    const auto otherClient = fixture.service.access().addClient(QStringLiteral("other"));
-    QVERIFY(!otherClient.isEmpty());
     QWidget owner;
     McpSettingsDialog dialog(&fixture.service, &owner);
     auto* tree = dialog.findChild<ElaTreeWidget*>();
     QVERIFY(tree && tree->topLevelItemCount() == 1);
-    ElaComboBox* clients = nullptr;
-    for (auto* combo : dialog.findChildren<ElaComboBox*>()) {
-        if (combo->findData(fixture.client) >= 0 && combo->findData(otherClient) >= 0) {
-            clients = combo;
-            break;
-        }
-    }
-    QVERIFY(clients);
-    clients->setCurrentIndex(clients->findData(fixture.client));
     auto* oldRow = tree->topLevelItem(0);
     QCOMPARE(oldRow->checkState(2), Qt::Checked);
-    const auto firstVersion = fixture.service.access().version(fixture.client);
-    const auto otherVersion = fixture.service.access().version(otherClient);
     const QPersistentModelIndex retained(tree->indexFromItem(oldRow, 2));
-    {
-        // 模拟客户端已切换、旧行的排队刷新尚未执行的窗口。
-        const QSignalBlocker blocker(clients);
-        clients->setCurrentIndex(clients->findData(otherClient));
-    }
+    QVERIFY(fixture.service.access().rotateToken());
+    const auto version = fixture.service.access().version(fixture.client);
     oldRow->setCheckState(2, Qt::Unchecked);
     QVERIFY(retained.isValid());
-    QCOMPARE(fixture.service.access().version(fixture.client), firstVersion);
-    QCOMPARE(fixture.service.access().version(otherClient), otherVersion);
+    QCOMPARE(fixture.service.access().version(fixture.client), version);
     QVERIFY(fixture.service.access().canRead(fixture.client, entry));
-    QVERIFY(!fixture.service.access().canRead(otherClient, entry));
     QTRY_VERIFY(!retained.isValid());
-    QCOMPARE(tree->topLevelItem(0)->checkState(2), Qt::Unchecked);
+    QCOMPARE(tree->topLevelItem(0)->checkState(2), Qt::Checked);
     QVERIFY(fixture.local.written.isEmpty());
 }
 
@@ -4005,15 +3638,27 @@ void McpTests::settingsDialogRejectsStaleConnectionRow()
     const auto current = f.service.directory().entries().first();
     QCOMPARE(current.id, original.id);
     QVERIFY(current.epoch != original.epoch);
+    QVERIFY(f.service.access().canControlTerminal(f.client, current));
+    // New bindings default to full access. Explicitly revoke this replacement's
+    // grants without processing the queued refresh of the old connection's row.
+    QVERIFY(NovaTerm::Mcp::TestSupport::setGrant(f.service.access(), f.client, current, false));
+    const auto revoked = f.service.access().grantSnapshot(ClientId{f.client}, current);
+    const auto accessVersion = f.service.access().version(f.client);
     QVERIFY(!f.service.access().canControlTerminal(f.client, current));
-    // Queued refresh has not run: a revoke on the previous connection must never
-    // copy its still-checked input permission onto the replacement connection.
+    // A revoke on the previous connection must never copy its still-checked
+    // input permission onto the replacement connection.
     oldRow->setCheckState(4, Qt::Unchecked);
     QVERIFY(retained.isValid()); // No deletion while itemChanged/setData is active.
+    const auto after = f.service.access().grantSnapshot(ClientId{f.client}, current);
+    QCOMPARE(after.revision, revoked.revision);
+    QCOMPARE(after.selection, revoked.selection);
+    QCOMPARE(f.service.access().version(f.client), accessVersion);
     QVERIFY(!f.service.access().canControlTerminal(f.client, current));
     QVERIFY(!f.service.access().canUseElevation(f.client, current));
     QVERIFY(!f.service.access().canRead(f.client, current));
     QTRY_VERIFY(!retained.isValid());
+    QCOMPARE(f.service.access().grantSnapshot(ClientId{f.client}, current).revision, revoked.revision);
+    QVERIFY(!f.service.access().canRead(f.client, current));
     QVERIFY(replacement.written.isEmpty());
 }
 
@@ -4639,7 +4284,7 @@ void McpTests::clearAdapterTracksSessionObjectReuseAndDestruction()
     auto session = std::make_unique<TerminalSession>(&f.core);
     session->attach(&flow, TerminalSession::Ownership::Borrowed, TransportKind::LocalShell);
     QVERIFY(session->start()); f.service.directory().add(session.get());
-    QVERIFY(f.service.access().setEnabled(true));
+    QVERIFY(f.enableWithoutSessionPermissions());
     const auto authorize = [&] {
         const auto entry = f.service.directory().find(session->id().toString(QUuid::WithoutBraces));
         return entry && NovaTerm::Mcp::TestSupport::setGrant(f.service.access(), f.client, *entry, true)

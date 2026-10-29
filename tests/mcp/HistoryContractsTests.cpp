@@ -17,8 +17,9 @@ private slots:
         QVERIFY(fixture.open(QIODevice::ReadOnly));
         const auto expected = QJsonDocument::fromJson(fixture.readAll()).array();
         QJsonArray actual; const auto all = ToolCodec::catalog();
-        QCOMPARE(all.size(), 26);
-        for (qsizetype i = 5; i < 8; ++i) actual.append(all[i]);
+        QCOMPARE(all.size(), 22);
+        for (const auto& frozen : expected)
+            actual.append(toolByName(frozen.toObject().value("name").toString()));
         QCOMPARE(actual, expected);
     }
     void legacyCatalogObjectsUnchanged() {
@@ -26,7 +27,7 @@ private slots:
         QVERIFY(fixture.open(QIODevice::ReadOnly));
         const auto legacy = QJsonDocument::fromJson(fixture.readAll()).array();
         const auto current = ToolCodec::catalog();
-        QCOMPARE(current.size(), legacy.size() + 17);
+        QCOMPARE(current.size(), 22);
         for (qsizetype i = 0; i < legacy.size(); ++i) {
             const auto name = legacy[i].toObject().value("name").toString();
             if (retiredTool(name)) continue;

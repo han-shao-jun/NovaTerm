@@ -27,19 +27,20 @@ public:
         Revision,    ///< 文件已被并发改写，需重载后重试
         Write,       ///< 写盘本身失败
     };
-    /** @brief 兼容旧调用点的名称；实现已迁到 `ClientRegistry`。 */
-    using Client = ClientRecord;
     explicit AccessStore(QString directory, std::unique_ptr<CredentialStore> credentials,
                          QObject* parent = nullptr,
                          std::function<std::unique_ptr<CredentialStore>()> elevationFactory = {});
     ~AccessStore() override;
     [[nodiscard]] bool enabled() const { return _enabled; }
     bool setEnabled(bool enabled);
-    [[nodiscard]] QList<Client> clients() const;
-    [[nodiscard]] QString addClient(const QString& label);
-    bool removeClient(const QString& id);
-    bool rotateToken(const QString& id);
-    [[nodiscard]] std::optional<QByteArray> exportToken(const QString& id) const;
+    /** @brief 唯一共享接入主体；读取不会创建令牌或访问凭据库。 */
+    [[nodiscard]] QString accessId() const;
+    /** @brief 跨进程稳定的令牌代际；仅从摘要派生，不访问凭据库。 */
+    [[nodiscard]] quint64 tokenEpoch() const;
+    /** @brief 显式本机操作；首次创建共享接入，后续调用返回同一主体。 */
+    [[nodiscard]] QString ensureAccess();
+    bool rotateToken();
+    [[nodiscard]] std::optional<QByteArray> exportToken() const;
     [[nodiscard]] QString authenticate(const QByteArray& token) const;
     [[nodiscard]] quint64 version(const QString& clientId) const;
     /** @brief 客户端身份代际；普通 Session 权限变化不影响独立目录共享。 */
@@ -55,6 +56,7 @@ public:
     [[nodiscard]] GrantSnapshot grantSnapshot(
         const ClientId& client, const SessionDirectory::Entry& entry) const;
     [[nodiscard]] bool initializeSessionSharing(const ClientId&, const PermissionSelection&, const SessionDirectory::Entry&);
+    [[nodiscard]] bool initializeSessionDefaults(const SessionDirectory::Entry&);
     [[nodiscard]] bool canRead(const QString& clientId, const SessionDirectory::Entry& entry) const;
     [[nodiscard]] QSet<QString> commands(const QString& clientId, const SessionDirectory::Entry& entry) const;
     /** @brief 当前客户端是否单独获准在该 Session 执行交互命令。 */
@@ -84,7 +86,8 @@ public:
     bool removeElevationCredential(const SessionDirectory::Entry& entry, const QString& method);
     [[nodiscard]] bool hasElevationCredential(const SessionDirectory::Entry& entry,
                                               const QString& method) const;
-    [[nodiscard]] bool elevationCredentialsPersistent() const;
+    /** @brief 已知的提权凭据存储方式；未访问凭据库且无持久引用时未知，不探测后端。 */
+    [[nodiscard]] std::optional<bool> elevationCredentialsPersistent() const;
     /** @brief 本机 UI 的有界异步存储入口；工作线程拥有独立的系统凭据连接。 */
     bool configureElevationCredentialAsync(const SessionDirectory::Entry& entry,
         const QString& method, QByteArray secret, bool remove,
@@ -98,7 +101,8 @@ private:
     bool save();
     void reload();
     [[nodiscard]] CredentialStore* credentials() const;
-    [[nodiscard]] static QString reference(const QString& id);
+    [[nodiscard]] QString createAccess(bool enabled);
+    [[nodiscard]] static QString reference(const QString& id, const QByteArray& digest);
     [[nodiscard]] QString elevationReference(const SessionDirectory::Entry& entry,
                                               const QString& method) const;
     void revokeElevation(const QString& targetFingerprint);
@@ -118,6 +122,8 @@ private:
     std::shared_ptr<std::unique_ptr<CredentialStore>> _elevationStorage;
     std::optional<bool> _elevationPersistent;
     bool _credentialOperationPending{false};
+    bool _tokenMutationPending{false};
+    bool _tokenMutationCancelled{false};
     bool _enabled{false};
     quint64 _storeRevision{0};
     quint64 _elevationRevision{0};

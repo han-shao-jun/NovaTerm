@@ -64,7 +64,7 @@ struct Fixture {
         SerialTransportIoTestAccess::connected(*serial);
         session.attach(serial.get(), TerminalSession::Ownership::Borrowed, TransportKind::Serial);
         directory.add(&session);
-        client = access.addClient("fixture");
+        client = access.ensureAccess();
         SerialFileTransferController::Channel channel;
         channel.connected = [] { return true; };
         channel.reserve = [this](quint64) { reserved = reserveAllowed; return reserved; };
@@ -187,7 +187,8 @@ private slots:
             const auto result = f.call(changed); QVERIFY(isError(result));
             QCOMPARE(std::get<Error>(result).code, ErrorCode::TargetOperationConflict);
         }
-        const auto other = f.access.addClient("other"); QVERIFY(!other.isEmpty());
+        const auto other = uuid();
+        QCOMPARE(f.access.identityVersion(other), quint64(0));
         QVERIFY(isError(f.call(QuerySerialFileTransferRequest{id}, other)));
         QVERIFY(isError(f.call(CancelSerialFileTransferRequest{id}, other)));
         QVERIFY(f.controller->isActive()); QCOMPARE(f.starts, 1);

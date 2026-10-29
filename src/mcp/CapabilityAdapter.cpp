@@ -14,6 +14,14 @@
 
 namespace NovaTerm::Mcp {
 
+bool connectedSession(const SessionDirectory::Entry& entry)
+{
+    return entry.state == SessionState::Running && entry.session && entry.transport
+        && entry.session->state() == SessionState::Running && entry.transport->isConnected()
+        && entry.session->transport() == entry.transport
+        && entry.session->statistics().generation == entry.generation;
+}
+
 CapabilityFacts capabilityFacts(const SessionDirectory::Entry& entry,
                                 const AccessStore& access)
 {
@@ -83,7 +91,7 @@ ReadSession readSession(const SessionDirectory::Entry& entry)
     row.transport = SessionDirectory::transportName(entry.kind);
     row.displayName = boundedText(entry.title, 256, &row.displayNameTruncated);
     row.running = entry.state == SessionState::Running;
-    row.visible = entry.state != SessionState::Closing && entry.state != SessionState::Closed;
+    row.visible = connectedSession(entry);
     return row;
 }
 
@@ -162,8 +170,7 @@ QList<ReadSession> ReadUseCaseAdapter::pageAfter(const ClientId& client,
 {
     const auto entries = _ports.sessions->pageAfter(after.str(), limit,
         [this, &client](const SessionDirectory::Entry& entry) {
-            return _ports.access->canRead(client.str(), entry)
-                && entry.state != SessionState::Closing && entry.state != SessionState::Closed;
+            return connectedSession(entry) && _ports.access->canRead(client.str(), entry);
         });
     QList<ReadSession> rows;
     for (const auto& entry : entries) {
