@@ -22,6 +22,8 @@ HistoryRecordingPanel::HistoryRecordingPanel(HistoryService* service, QWidget* p
     : ElaDialog(parent), _model(new HistoryCaptureModel(service, this)) {
     setWindowTitle(tr("History recording")); setModal(false); setIsStayTop(false); setIsDefaultClosed(false);
     setWindowButtonFlags(ElaAppBarType::CloseButtonHint); resize(1000, 640); setMinimumSize(760, 500);
+    // 面板由终端页复用；关闭只隐藏窗口，不停止录制或销毁界面状态。
+    connect(this, &ElaDialog::closeButtonClicked, this, &QDialog::reject);
     auto* layout = new QVBoxLayout(this); layout->setContentsMargins(24, 16, 24, 16);
     auto* note = new QLabel(tr("Recording starts only when you choose Start. Sharing history requires separate permission. "
         "Remote output may contain passwords or other secrets; automatic masking is unavailable. File transfers are omitted and marked as gaps."), this);

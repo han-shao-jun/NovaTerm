@@ -2,6 +2,8 @@
 #include "ui/models/HistoryCaptureModel.h"
 #include "recording/HistoryService.h"
 #include <ElaApplication.h>
+#include <ElaAppBar.h>
+#include <ElaIconButton.h>
 #include <ElaPushButton.h>
 #include <ElaSpinBox.h>
 #include "recording/HistoryChunkStore.h"
@@ -16,6 +18,7 @@
 #include <QLabel>
 #include <QFileDialog>
 #include <QTimer>
+#include <QPointer>
 
 using namespace NovaTerm::Recording;
 template<class T> T* control(QWidget& panel, const char* role) {
@@ -25,6 +28,43 @@ template<class T> T* control(QWidget& panel, const char* role) {
 class HistoryRecordingUiTests : public QObject {
     Q_OBJECT
 private slots:
+    void titleBarCloseHidesReusableWindowAndKeepsRecording() {
+        QTemporaryDir dir; HistoryService service(dir.path());
+        QWidget owner; HistoryRecordingPanel panel(&service, &owner);
+        const RecordingIntent intent{QUuid::createUuid(), 1};
+        panel.setRecordingTarget(intent, true, "Close regression");
+        auto* start = control<ElaPushButton>(panel, "historyStart");
+        QTRY_VERIFY(start->isEnabled()); start->click();
+        QTRY_COMPARE(service.captures().size(), size_t(1));
+        const auto capture = service.captures().front().id;
+        QVERIFY(service.captures().front().active);
+        auto* table = control<QTableView>(panel, "historyCaptures");
+        QTRY_COMPARE(table->model()->rowCount(), 1); table->selectRow(0);
+        const auto spins = panel.findChildren<ElaSpinBox*>();
+        QCOMPARE(spins.size(), 3); spins[0]->setValue(24);
+        panel.show(); QTRY_VERIFY(panel.isVisible());
+        auto* appBar = panel.findChild<ElaAppBar*>(); QVERIFY(appBar);
+        QList<ElaIconButton*> visibleButtons;
+        for (auto* button : appBar->findChildren<ElaIconButton*>())
+            if (button->isVisibleTo(&panel)) visibleButtons.append(button);
+        QCOMPARE(visibleButtons.size(), 1);
+        QPointer<HistoryRecordingPanel> guard(&panel);
+        QSignalSpy rejected(&panel, &QDialog::rejected);
+        QTest::mouseClick(visibleButtons.front(), Qt::LeftButton);
+        QTRY_VERIFY_WITH_TIMEOUT(panel.isHidden(), 1000);
+        QVERIFY(guard); QCOMPARE(rejected.size(), 1);
+        QCOMPARE(service.submit(intent.sessionId, intent.connectionGeneration, "after-close"), SubmitResult::Accepted);
+        QTRY_VERIFY(service.captures().front().highWaterRecordId > 0);
+        QCOMPARE(service.captures().front().id, capture);
+        QVERIFY(service.captures().front().active);
+        panel.show(); QTRY_VERIFY(panel.isVisible());
+        QCOMPARE(owner.findChildren<HistoryRecordingPanel*>().size(), 1);
+        QCOMPARE(spins[0]->value(), 24);
+        QCOMPARE(table->currentIndex().row(), 0);
+        QTest::mouseClick(visibleButtons.front(), Qt::LeftButton);
+        QTRY_VERIFY_WITH_TIMEOUT(panel.isHidden(), 1000);
+        QCOMPARE(rejected.size(), 2);
+    }
     void sharingUsesOneAccessForAllAi() {
         QTemporaryDir dir; HistoryService service(dir.path()); HistoryRecordingPanel panel(&service);
         QVERIFY2(panel.findChildren<QComboBox*>().isEmpty(), "History sharing must not ask users to select an AI client");
