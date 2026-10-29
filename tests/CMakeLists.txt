@@ -177,6 +177,8 @@ add_subdirectory(resources)
         mcp/McpTests.cpp
         ${PROJECT_SOURCE_DIR}/src/ui/widgets/FileResourceSharingDialog.cpp
         ${PROJECT_SOURCE_DIR}/src/ui/widgets/FileResourceSharingDialog.h
+        ${PROJECT_SOURCE_DIR}/src/ui/widgets/RemoteDirectoryDialog.cpp
+        ${PROJECT_SOURCE_DIR}/src/ui/widgets/RemoteDirectoryDialog.h
         ${PROJECT_SOURCE_DIR}/src/ui/widgets/McpSettingsDialog.cpp
         ${PROJECT_SOURCE_DIR}/src/ui/widgets/McpSettingsDialog.h
         ${PROJECT_SOURCE_DIR}/src/ui/models/SessionPermissionModel.cpp
@@ -296,6 +298,17 @@ add_subdirectory(resources)
             ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
         add_dependencies(check novaterm_mcp_${_workflow_test}_tests)
     endforeach()
+
+    qt_add_executable(novaterm_remote_directory_dialog_tests
+        ui/RemoteDirectoryDialogTests.cpp
+        ${PROJECT_SOURCE_DIR}/src/ui/widgets/RemoteDirectoryDialog.cpp
+        ${PROJECT_SOURCE_DIR}/src/ui/widgets/RemoteDirectoryDialog.h)
+    target_include_directories(novaterm_remote_directory_dialog_tests PRIVATE ${PROJECT_SOURCE_DIR}/src)
+    target_link_libraries(novaterm_remote_directory_dialog_tests PRIVATE ElaWidgetTools Qt6::Test Qt6::Widgets)
+    set_target_properties(novaterm_remote_directory_dialog_tests PROPERTIES WIN32_EXECUTABLE FALSE)
+    add_test(NAME novaterm_remote_directory_dialog_tests COMMAND novaterm_remote_directory_dialog_tests)
+    set_tests_properties(novaterm_remote_directory_dialog_tests PROPERTIES LABELS "ui;mcp;p8" TIMEOUT 30 ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+    add_dependencies(check novaterm_remote_directory_dialog_tests)
 
     qt_add_executable(novaterm_sftp_session_safety_tests
         mcp/SftpSessionSafetyTests.cpp

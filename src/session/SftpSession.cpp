@@ -28,6 +28,7 @@
 #include <memory>
 #include <functional>
 #include <utility>
+#include <limits>
 
 #include <fcntl.h>
 
@@ -762,6 +763,7 @@ void SftpSession::stopWorker(int waitMs)
     _control->running.store(false, std::memory_order_release);
     _control->connected.store(false, std::memory_order_release);
     QVector<SftpFileUploadResult> cancelledFiles;
+    QList<quint64> cancelledDirectories;
     {
         QMutexLocker lock(&_control->queueMutex);
         qsizetype queuedUploadBytes = 0;
@@ -784,11 +786,16 @@ void SftpSession::stopWorker(int waitMs)
             }
         }
         _control->commands.clear();
+        cancelledDirectories = _control->directoryRequests.values();
+        _control->directoryRequests.clear();
+        _control->cancelledDirectoryRequests.clear();
         _control->queueReady.wakeAll();
     }
 
     for (const auto& result : cancelledFiles)
         emit authorizedFileFinished(result);
+    for (const auto request : cancelledDirectories)
+        emit directoryRequestFinished(request, {{}, {}, tr("SFTP disconnected."), false});
 
     if (_thread) {
         // Vendored libssh 0.12.2 uses SSH_TIMEOUT_DEFAULT for channel data and
@@ -827,6 +834,11 @@ bool SftpSession::isConnected() const noexcept
     return _control->connected.load(std::memory_order_acquire);
 }
 
+bool SftpSession::canStartConnection() const noexcept
+{
+    return !_workerAbandoned && (!_thread || _thread->isFinished());
+}
+
 void SftpSession::enqueue(Command command)
 {
     if (!_control->running.load(std::memory_order_acquire))
@@ -842,6 +854,41 @@ void SftpSession::enqueue(Command command)
 void SftpSession::listDirectory(const QString& remotePath)
 {
     enqueue({CommandType::List, remotePath, {}});
+}
+
+quint64 SftpSession::requestDirectory(const QString& path)
+{
+    const auto bytes = path.toUtf8();
+    if (bytes.isEmpty() || bytes.size() > 4096 || QString::fromUtf8(bytes) != path
+        || (path != "." && !path.startsWith('/'))) return 0;
+    for (const auto ch : path) if (ch.unicode() < 32 || ch.unicode() == 127) return 0;
+    QMutexLocker lock(&_control->queueMutex);
+    if (!_control->running || !_control->connected || _workerAbandoned
+        || _control->commands.size() >= MaxQueuedCommands
+        || _control->directoryRequests.size() >= 16
+        || _nextDirectoryRequestId == (std::numeric_limits<quint64>::max)()) return 0;
+    Command command{CommandType::List, path, {}};
+    command.requestId = ++_nextDirectoryRequestId;
+    _control->directoryRequests.insert(command.requestId);
+    _control->commands.enqueue(command);
+    _control->queueReady.wakeOne();
+    return command.requestId;
+}
+
+void SftpSession::cancelDirectoryRequest(quint64 request)
+{
+    QMutexLocker lock(&_control->queueMutex);
+    for (qsizetype i = 0; i < _control->commands.size(); ++i) {
+        if (_control->commands.at(i).type == CommandType::List
+            && _control->commands.at(i).requestId == request) {
+            _control->commands.removeAt(i);
+            _control->directoryRequests.remove(request);
+            _control->cancelledDirectoryRequests.remove(request);
+            return;
+        }
+    }
+    if (_control->directoryRequests.contains(request))
+        _control->cancelledDirectoryRequests.insert(request);
 }
 
 void SftpSession::uploadFile(const QString& localPath,
@@ -988,16 +1035,29 @@ void SftpSession::postError(const std::shared_ptr<WorkerControl>& control,
         });
 }
 
+void SftpSession::postDirectoryResult(const std::shared_ptr<WorkerControl>& control,
+    quint64 generation, quint64 request, SftpDirectoryResult result)
+{
+    postNotification(control, generation,
+        [request, result = std::move(result)](SftpSession& receiver) {
+            emit receiver.directoryRequestFinished(request, result);
+        });
+}
+
 void SftpSession::finishWorker(const std::shared_ptr<WorkerControl>& control,
                               quint64 generation)
 {
     QVector<SftpFileUploadResult> unfinishedFiles;
+    QList<quint64> unfinishedDirectories;
     {
         // Serialize natural exit with admission. Requests accepted before this
         // point must either have run or receive a terminal result from here.
         QMutexLocker lock(&control->queueMutex);
         control->connected.store(false, std::memory_order_release);
         control->running.store(false, std::memory_order_release);
+        unfinishedDirectories = control->directoryRequests.values();
+        control->directoryRequests.clear();
+        control->cancelledDirectoryRequests.clear();
         for (auto it = control->commands.begin(); it != control->commands.end();) {
             if (it->type != CommandType::UploadAuthorizedFile) { ++it; continue; }
             it->fileUpload.control->cancel();
@@ -1009,6 +1069,8 @@ void SftpSession::finishWorker(const std::shared_ptr<WorkerControl>& control,
         }
     }
     for (const auto& result : unfinishedFiles) postFileUploadResult(control, result);
+    for (const auto request : unfinishedDirectories)
+        postDirectoryResult(control, generation, request, {{}, {}, tr("SFTP disconnected."), false});
     postNotification(control, generation,
         [](SftpSession& receiver) {
             emit receiver.disconnected();
@@ -1135,18 +1197,33 @@ void SftpSession::workerMain(std::shared_ptr<WorkerControl> control,
                 control->activeFileUpload = command.fileUpload.control;
         }
 
-        const auto commandFinished = qScopeGuard([control] {
+        const auto commandFinished = qScopeGuard([control, directoryRequest = command.type == CommandType::List ? command.requestId : 0] {
             QMutexLocker lock(&control->queueMutex);
             control->commandActive = false;
             control->activeFileUpload.reset();
+            control->directoryRequests.remove(directoryRequest);
+            control->cancelledDirectoryRequests.remove(directoryRequest);
         });
 
         if (command.type == CommandType::List) {
+            const bool browser = command.requestId != 0;
+            const auto cancelled = [&] {
+                QMutexLocker lock(&control->queueMutex);
+                return !control->running || control->generation != generation
+                    || control->cancelledDirectoryRequests.contains(command.requestId);
+            };
+            const auto reportError = [&](const QString& error) {
+                if (browser) postDirectoryResult(control, generation, command.requestId, {command.source, {}, error, false});
+                else postError(control, generation, error);
+            };
+            if (browser && cancelled()) {
+                reportError(tr("Directory browsing was cancelled.")); continue;
+            }
             const QByteArray requested = command.source.toUtf8();
             char* canonical =
                 sftp_canonicalize_path(sftp.get(), requested.constData());
             if (!canonical) {
-                postError(control, generation, sftpError(sftp.get(), session.get(),
+                reportError(sftpError(sftp.get(), session.get(),
                     tr("Cannot resolve the remote directory")));
                 continue;
             }
@@ -1157,18 +1234,29 @@ void SftpSession::workerMain(std::shared_ptr<WorkerControl> control,
                 sftp_opendir(sftp.get(), encodedPath.constData()),
                 &sftp_closedir};
             if (!directory) {
-                postError(control, generation, sftpError(sftp.get(), session.get(),
+                reportError(sftpError(sftp.get(), session.get(),
                     tr("Cannot open remote directory %1").arg(directoryPath)));
                 continue;
             }
 
             QVector<SftpFileInfo> entries;
+            bool truncated = false;
+            bool interrupted = false;
+            qsizetype scanned = 0;
+            QElapsedTimer browseClock; browseClock.start();
             for (;;) {
+                if (browser && (cancelled() || browseClock.elapsed() >= 10000)) {
+                    interrupted = true; break;
+                }
+                if (browser && (entries.size() >= 1024 || scanned >= 8192)) {
+                    truncated = true; break;
+                }
                 SftpAttributesPtr attributes{
                     sftp_readdir(sftp.get(), directory.get()),
                     &sftp_attributes_free};
                 if (!attributes)
                     break;
+                ++scanned;
                 const QString name = QString::fromUtf8(
                     attributes->name ? attributes->name : "");
                 if (name == QStringLiteral(".")
@@ -1213,15 +1301,24 @@ void SftpSession::workerMain(std::shared_ptr<WorkerControl> control,
                         info.brokenSymbolicLink = true;
                     }
                 }
-                entries.push_back(std::move(info));
+                if (!browser || info.directory || info.linkTargetDirectory)
+                    entries.push_back(std::move(info));
             }
-            if (!sftp_dir_eof(directory.get())) {
-                postError(control, generation, sftpError(sftp.get(), session.get(),
+            if (interrupted) {
+                reportError(tr("Directory browsing was cancelled or timed out.")); continue;
+            }
+            if (!truncated && !sftp_dir_eof(directory.get())) {
+                reportError(sftpError(sftp.get(), session.get(),
                     tr("Failed while reading remote directory %1")
                         .arg(directoryPath)));
                 continue;
             }
 
+            if (browser) {
+                postDirectoryResult(control, generation, command.requestId,
+                    {directoryPath, std::move(entries), {}, truncated});
+                continue;
+            }
             postNotification(control, generation,
                 [directoryPath, entries = std::move(entries)](SftpSession& receiver) {
                     emit receiver.directoryListed(directoryPath, entries);

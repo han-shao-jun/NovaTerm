@@ -15,7 +15,9 @@ template<typename T> using FileIoResult = std::variant<T, FileIoError>;
 
 // Synchronous worker-only boundary. The caller owns authorization and rechecks
 // the original resource revision/identity before opening and before publishing.
-// Non-Windows platforms fail closed until their native backend is implemented.
+// Reader supports Windows and Linux (pinned descriptors, no symlink traversal).
+// Linux detects source metadata changes; flock is advisory, so directory writers
+// must be trusted. Writer remains Windows-only and otherwise fails closed.
 class LocalFileReader final {
 public:
     static FileIoResult<std::unique_ptr<LocalFileReader>> open(

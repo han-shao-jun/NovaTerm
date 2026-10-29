@@ -2,7 +2,7 @@
 
 当前工作区进一步改为统一 MCP 接入与授权，移除保存目标四工具，仅暴露已经连接的会话，新就绪连接四项权限默认开启；具体迁移、验证轮次和边界见[统一接入记录](MCP_Shared_Access_2026-10-29.md)。
 
-2026-10-29 MCP现行入口为二十二工具，旧诊断/命令/脚本四工具已退役，SFTP上传/下载提供可选overwrite、默认false，本覆盖阶段Windows软件验证已完成。Windows软件交付与B4实机验收分开；Linux/macOS安全文件后端仍未实现，托管提权继续unavailable且非本轮闭环前置。范围见[软件收口账本](stages/P8_AI_MCP_Interface/08_Software_Closeout.md)。
+2026-10-29 MCP现行入口为二十二工具，旧诊断/命令/脚本四工具已退役，SFTP上传/下载提供可选overwrite、默认false，本覆盖阶段Windows软件验证已完成。Windows软件交付与B4实机验收分开；Linux安全读取源后端已实现；Linux安全写入及macOS文件后端仍未实现，托管提权继续unavailable且非本轮闭环前置。范围见[软件收口账本](stages/P8_AI_MCP_Interface/08_Software_Closeout.md)。
 
 本阶段见[覆盖记录](stages/P8_AI_MCP_Interface/records/B3b_File_Overwrite_2026-10-28.md)，既往实现和分轮成绩见[验收档案](stages/P8_AI_MCP_Interface/records/README.md)。
 
@@ -48,7 +48,7 @@ MCP工具行为见[工作流扩展](stages/P8_AI_MCP_Interface/06_Terminal_Workf
 | P5 Glyph 与 GPU 管线 | 实施完成；Linux Vulkan/OpenGL、Windows D3D11/D3D12 与 30 分钟长稳验收完成（2026-08-02）；macOS Metal、多屏 DPR 与 120/144 Hz 验收待完成 | [P5](stages/P5_Glyph_and_GPU_Pipeline.md) |
 | P6 Session 与 Transport | 进行中：Transport 四种完成，会话编排采用「1 View 拥有 1 Session」已在生产；剩 keyboard-interactive、close 模式、exited→UI、ProfileStore 持久化、contract tests | [P6](stages/P6_Session_and_Transport.md) |
 | P7 系统资源查询 | 已实现为内置功能（常驻监控 2026-09-06、系统信息窗口 2026-09-09）；性能量化验收待补 | [P7](stages/P7_System_Resource_Monitor.md) |
-| P8 AI MCP 接口 | Windows B0～B3b基础能力已提供，SFTP显式覆盖已完成Windows软件验证，二十六工具；旧命令通路已退役；Linux/macOS安全文件后端仍未实现，B4未验收，P8未整体完成，见[缺口表](stages/P8_AI_MCP_Interface/03_Gaps_and_Evidence.md) | [MCP契约](stages/P8_AI_MCP_Interface/02_Current_MCP_Contract.md) |
+| P8 AI MCP 接口 | Windows B0～B3b基础能力已提供，SFTP显式覆盖已完成Windows软件验证，二十二工具；旧命令及保存目标通路已退役；Linux安全读取源后端已实现；Linux安全写入及macOS文件后端仍未实现，B4未验收，P8未整体完成，见[缺口表](stages/P8_AI_MCP_Interface/03_Gaps_and_Evidence.md) | [MCP契约](stages/P8_AI_MCP_Interface/02_Current_MCP_Contract.md) |
 | P9 文件传输协议 | 协议库及串口 Session/手动传输窗口已接入；Linux 纯协议、门面、UI 与真实 QSerialPort/raw PTY 通路测试通过；Windows 取消发布竞争用例有已知失败，macOS 与真实 UART 文件传输验收待补 | [P9](stages/P9_File_Transfer_Protocols.md) |
 
 ## 文档权威性

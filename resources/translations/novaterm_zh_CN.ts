@@ -2740,6 +2740,18 @@ Built with:
         <source>Remote operation failed for %1</source>
         <translation>%1 的远程操作失败</translation>
     </message>
+    <message>
+        <source>Directory browsing was cancelled.</source>
+        <translation>目录浏览已取消。</translation>
+    </message>
+    <message>
+        <source>Directory browsing was cancelled or timed out.</source>
+        <translation>目录浏览已取消或超时。</translation>
+    </message>
+    <message>
+        <source>SFTP disconnected.</source>
+        <translation>SFTP连接已断开。</translation>
+    </message>
 </context>
 <context>
     <name>SshHostKeyDialog</name>
@@ -3933,8 +3945,8 @@ Built with:
         <translation>文件资源授权</translation>
     </message>
     <message>
-        <source>为所有 AI 共同选择本地目录和远端目录的读写权限，仅本次运行有效。本地读取用于上传源，本地写入用于下载目录；远端读取用于下载源，远端写入用于上传目标。这些选择与终端权限独立。SFTP上传需要本地读取和远端写入，下载需要远端读取和本地写入；串口ZMODEM发送前须准备设备接收并结束其他输入操作。授权本身不证明接收端就绪或路径可安全访问。</source>
-        <translation>为所有 AI 共同选择本地目录和远端目录的读写权限，仅本次运行有效。本地读取用于上传源，本地写入用于下载目录；远端读取用于下载源，远端写入用于上传目标。这些选择与终端权限独立。SFTP上传需要本地读取和远端写入，下载需要远端读取和本地写入；串口ZMODEM发送前须准备设备接收并结束其他输入操作。授权本身不证明接收端就绪或路径可安全访问。</translation>
+        <source>为所有 AI 共同选择本地目录和远端目录的读写权限，仅本次运行有效。本地读取用于上传源，本地写入用于下载目录；远端读取用于下载源，远端写入用于上传目标。这些选择与终端权限独立。SFTP上传需要本地读取和远端写入，下载需要远端读取和本地写入；串口ZMODEM发送须先共享本地读取目录，再选择串口并允许发送，设备须准备接收并结束其他输入操作。授权本身不证明接收端就绪或路径可安全访问。</source>
+        <translation>为所有 AI 共同选择本地目录和远端目录的读写权限，仅本次运行有效。本地读取用于上传源，本地写入用于下载目录；远端读取用于下载源，远端写入用于上传目标。这些选择与终端权限独立。SFTP上传需要本地读取和远端写入，下载需要远端读取和本地写入；串口ZMODEM发送须先共享本地读取目录，再选择串口并允许发送，设备须准备接收并结束其他输入操作。授权本身不证明接收端就绪或路径可安全访问。</translation>
     </message>
     <message>
         <source>本地目录</source>
@@ -4071,6 +4083,132 @@ Built with:
     <message>
         <source>未提交：请核对当前SSH连接、绝对目录、共享名称、至少一项读写选择及授权数量。</source>
         <translation>未提交：请核对当前SSH连接、绝对目录、共享名称、至少一项读写选择及授权数量。</translation>
+    </message>
+    <message>
+        <source>选择远端目录</source>
+        <translation>选择远端目录</translation>
+    </message>
+    <message>
+        <source>远端目录绝对路径（可浏览选择）</source>
+        <translation>远端目录绝对路径（可浏览选择）</translation>
+    </message>
+    <message>
+        <source>本地目录绝对路径</source>
+        <translation>本地目录绝对路径</translation>
+    </message>
+    <message>
+        <source>SSH连接已关闭，请重新选择。</source>
+        <translation>SSH连接已关闭，请重新选择。</translation>
+    </message>
+    <message>
+        <source>串口发送授权已保存，本地读取目录已共享。发送前请确认设备已准备接收。</source>
+        <translation>串口发送授权已保存，本地读取目录已共享。发送前请确认设备已准备接收。</translation>
+    </message>
+    <message>
+        <source>串口发送授权已保存；请切换到本地目录，选择并共享读取源目录。</source>
+        <translation>串口发送授权已保存；请切换到本地目录，选择并共享读取源目录。</translation>
+    </message>
+    <message>
+        <source>所选路径超过共享长度上限，请选择较短的目录。</source>
+        <translation>所选路径超过共享长度上限，请选择较短的目录。</translation>
+    </message>
+</context>
+<context>
+    <name>RemoteDirectoryDialog</name>
+    <message>
+        <source>选择远端目录</source>
+        <translation>选择远端目录</translation>
+    </message>
+    <message>
+        <source>双击进入目录，或输入绝对路径后转到。这里只选择路径，不会自动共享。</source>
+        <translation>双击进入目录，或输入绝对路径后转到。这里只选择路径，不会自动共享。</translation>
+    </message>
+    <message>
+        <source>上级</source>
+        <translation>上级</translation>
+    </message>
+    <message>
+        <source>主目录</source>
+        <translation>主目录</translation>
+    </message>
+    <message>
+        <source>转到</source>
+        <translation>转到</translation>
+    </message>
+    <message>
+        <source>目录</source>
+        <translation>目录</translation>
+    </message>
+    <message>
+        <source>选择当前目录</source>
+        <translation>选择当前目录</translation>
+    </message>
+    <message>
+        <source>取消</source>
+        <translation>取消</translation>
+    </message>
+    <message>
+        <source>连接或授权已变化，请重新打开目录选择。</source>
+        <translation>连接或授权已变化，请重新打开目录选择。</translation>
+    </message>
+    <message>
+        <source>正在读取远端目录…</source>
+        <translation>正在读取远端目录…</translation>
+    </message>
+    <message>
+        <source>服务器返回了无效目录路径。</source>
+        <translation>服务器返回了无效目录路径。</translation>
+    </message>
+    <message>
+        <source>目录条目过多，仅显示部分目录；可输入完整路径访问。</source>
+        <translation>目录条目过多，仅显示部分目录；可输入完整路径访问。</translation>
+    </message>
+    <message>
+        <source>根目录不能整体共享，请进入子目录。</source>
+        <translation>根目录不能整体共享，请进入子目录。</translation>
+    </message>
+    <message>
+        <source>当前路径超过共享长度上限，可继续浏览但不能选择。</source>
+        <translation>当前路径超过共享长度上限，可继续浏览但不能选择。</translation>
+    </message>
+</context>
+<context>
+    <name>NovaTerm::Mcp::FileResourceAdapter</name>
+    <message>
+        <source>SSH连接或MCP身份已变化，请重新选择。</source>
+        <translation>SSH连接或MCP身份已变化，请重新选择。</translation>
+    </message>
+    <message>
+        <source>SFTP目录浏览不可用或请求过多，请稍后重试。</source>
+        <translation>SFTP目录浏览不可用或请求过多，请稍后重试。</translation>
+    </message>
+    <message>
+        <source>SSH会话已关闭。</source>
+        <translation>SSH会话已关闭。</translation>
+    </message>
+    <message>
+        <source>当前SSH的SFTP连接未就绪，请稍后重试。</source>
+        <translation>当前SSH的SFTP连接未就绪，请稍后重试。</translation>
+    </message>
+    <message>
+        <source>SFTP连接已销毁。</source>
+        <translation>SFTP连接已销毁。</translation>
+    </message>
+    <message>
+        <source>SFTP连接已断开。</source>
+        <translation>SFTP连接已断开。</translation>
+    </message>
+    <message>
+        <source>目录路径无效或SFTP队列繁忙，请稍后重试。</source>
+        <translation>目录路径无效或SFTP队列繁忙，请稍后重试。</translation>
+    </message>
+    <message>
+        <source>读取远端目录超时，请重试。</source>
+        <translation>读取远端目录超时，请重试。</translation>
+    </message>
+    <message>
+        <source>目录浏览服务已关闭。</source>
+        <translation>目录浏览服务已关闭。</translation>
     </message>
 </context>
 </TS>

@@ -14,6 +14,7 @@
 #include <QTest>
 #include <QTimer>
 #include <QElapsedTimer>
+#include <QRegularExpression>
 #include <QLabel>
 #include <memory>
 
@@ -123,6 +124,35 @@ private:
         QVERIFY(QMetaObject::invokeMethod(timer, "timeout", Qt::DirectConnection));
     }
 private slots:
+    void backgroundDirectoryBrowsingReusesOwnerWithoutSwitchingPanel() {
+        SshTransport a(SshConfig{}), b(SshConfig{});
+        SshTransportTestAccess::verified(a); SshTransportTestAccess::verified(b);
+        SshPanelStack<SftpPanel> stack;
+        stack.setSessionContext("A", &a);
+        auto* panelA = stack.currentPanel();
+        auto* backendA = panelA->findChild<SftpSession*>(); QVERIFY(backendA);
+        SftpSessionSafetyTestAccess::connected(*backendA, "/home/a");
+        SftpSessionSafetyTestAccess::available(*backendA);
+        emit backendA->directoryListed("/current/a", {});
+        auto* panelB = stack.ensurePanelFor("B", &b); QVERIFY(panelB);
+        QCOMPARE(stack.currentPanel(), panelA);
+        auto* backendB = panelB->findChild<SftpSession*>(); QVERIFY(backendB);
+        SftpSessionSafetyTestAccess::connected(*backendB, "/home/b");
+        SftpSessionSafetyTestAccess::available(*backendB);
+        SftpSessionSafetyTestAccess::drainQueue(*backendB);
+        emit backendB->directoryListed("/home/b", {});
+        QCOMPARE(panelB->directoryBrowsingSession(&b), backendB);
+        const auto request = backendB->requestDirectory("/chosen"); QVERIFY(request);
+        emit backendB->directoryRequestFinished(request, {"/chosen", {}, {}, false});
+        QCOMPARE(panelB->findChild<ElaLineEdit*>()->text(), QString("/home/b"));
+        QCOMPARE(panelA->findChild<ElaLineEdit*>()->text(), QString("/current/a"));
+        emit b.disconnected(); SshTransportTestAccess::advance(b);
+        QCOMPARE(stack.ensurePanelFor("B reconnected", &b), panelB);
+        SftpSessionSafetyTestAccess::connected(*backendB, "/new/b");
+        SftpSessionSafetyTestAccess::available(*backendB);
+        QCOMPARE(panelB->directoryBrowsingSession(&b), backendB);
+        QCOMPARE(stack.currentPanel(), panelA);
+    }
     void authorizedUploadReusesPanelQueueAndBlocksCompetingUiRequests_data()
     {
         QTest::addColumn<bool>("download");
@@ -308,6 +338,7 @@ private slots:
 
     void initialDisplayUsesProgressiveValuesWithoutCollectingText()
     {
+        QTest::failOnWarning(QRegularExpression("QObject: shared QObject was deleted directly.*"));
         SshTransport a(SshConfig{});
         SshTransportTestAccess::connected(a);
         SystemMonitorPanel panel;
@@ -327,6 +358,7 @@ private slots:
 
     void filesystemRefreshRetainsTenSecondCadence()
     {
+        QTest::failOnWarning(QRegularExpression("QObject: shared QObject was deleted directly.*"));
         SshTransport a(SshConfig{});
         SshTransportTestAccess::connected(a);
         SystemMonitorPanel panel;

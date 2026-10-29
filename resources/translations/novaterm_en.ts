@@ -2729,6 +2729,18 @@ Built with:
         <source>Remote operation failed for %1</source>
         <translation type="unfinished"></translation>
     </message>
+    <message>
+        <source>Directory browsing was cancelled.</source>
+        <translation>Directory browsing was cancelled.</translation>
+    </message>
+    <message>
+        <source>Directory browsing was cancelled or timed out.</source>
+        <translation>Directory browsing was cancelled or timed out.</translation>
+    </message>
+    <message>
+        <source>SFTP disconnected.</source>
+        <translation>SFTP disconnected.</translation>
+    </message>
 </context>
 <context>
     <name>SshHostKeyDialog</name>
@@ -3922,8 +3934,8 @@ Built with:
         <translation>File resource permissions</translation>
     </message>
     <message>
-        <source>为所有 AI 共同选择本地目录和远端目录的读写权限，仅本次运行有效。本地读取用于上传源，本地写入用于下载目录；远端读取用于下载源，远端写入用于上传目标。这些选择与终端权限独立。SFTP上传需要本地读取和远端写入，下载需要远端读取和本地写入；串口ZMODEM发送前须准备设备接收并结束其他输入操作。授权本身不证明接收端就绪或路径可安全访问。</source>
-        <translation>Choose local and remote directory read/write permissions shared by all AI connections for this run only. Local read permits upload sources; local write permits download destinations. Remote read permits download sources; remote write permits upload destinations. These permissions are independent of terminal access. SFTP upload requires local read and remote write; download requires remote read and local write. Before serial ZMODEM sending, prepare the receiver and finish other input operations. Authorization alone does not establish receiver readiness or safe path access.</translation>
+        <source>为所有 AI 共同选择本地目录和远端目录的读写权限，仅本次运行有效。本地读取用于上传源，本地写入用于下载目录；远端读取用于下载源，远端写入用于上传目标。这些选择与终端权限独立。SFTP上传需要本地读取和远端写入，下载需要远端读取和本地写入；串口ZMODEM发送须先共享本地读取目录，再选择串口并允许发送，设备须准备接收并结束其他输入操作。授权本身不证明接收端就绪或路径可安全访问。</source>
+        <translation>Choose local and remote directory read/write permissions shared by all AI connections for this run. Local read is the upload source; local write is the download destination. Remote read is the download source; remote write is the upload destination. These permissions are independent of terminal access. For UART ZMODEM, first share a local read directory, then select a serial target and allow sending. Prepare the receiver and end other input operations. Authorization does not prove receiver readiness or safe path access.</translation>
     </message>
     <message>
         <source>本地目录</source>
@@ -4060,6 +4072,132 @@ Built with:
     <message>
         <source>未提交：请核对当前SSH连接、绝对目录、共享名称、至少一项读写选择及授权数量。</source>
         <translation>Not saved: check the current SSH connection, absolute directory, shared name, at least one read/write selection, and permission limits.</translation>
+    </message>
+    <message>
+        <source>选择远端目录</source>
+        <translation>Choose remote directory</translation>
+    </message>
+    <message>
+        <source>远端目录绝对路径（可浏览选择）</source>
+        <translation>Absolute remote directory path (browse to select)</translation>
+    </message>
+    <message>
+        <source>本地目录绝对路径</source>
+        <translation>Absolute local directory path</translation>
+    </message>
+    <message>
+        <source>SSH连接已关闭，请重新选择。</source>
+        <translation>The SSH connection is closed. Select again.</translation>
+    </message>
+    <message>
+        <source>串口发送授权已保存，本地读取目录已共享。发送前请确认设备已准备接收。</source>
+        <translation>Serial sending is authorized and a local read directory is shared. Ensure the receiver is ready before sending.</translation>
+    </message>
+    <message>
+        <source>串口发送授权已保存；请切换到本地目录，选择并共享读取源目录。</source>
+        <translation>Serial sending is authorized. Switch to Local directory to select and share a readable source directory.</translation>
+    </message>
+    <message>
+        <source>所选路径超过共享长度上限，请选择较短的目录。</source>
+        <translation>The selected path exceeds the sharing length limit. Choose a shorter directory path.</translation>
+    </message>
+</context>
+<context>
+    <name>RemoteDirectoryDialog</name>
+    <message>
+        <source>选择远端目录</source>
+        <translation>Choose remote directory</translation>
+    </message>
+    <message>
+        <source>双击进入目录，或输入绝对路径后转到。这里只选择路径，不会自动共享。</source>
+        <translation>Double-click to enter a directory, or enter an absolute path and choose Go. Selecting a path does not share it.</translation>
+    </message>
+    <message>
+        <source>上级</source>
+        <translation>Parent</translation>
+    </message>
+    <message>
+        <source>主目录</source>
+        <translation>Home</translation>
+    </message>
+    <message>
+        <source>转到</source>
+        <translation>Go</translation>
+    </message>
+    <message>
+        <source>目录</source>
+        <translation>Directories</translation>
+    </message>
+    <message>
+        <source>选择当前目录</source>
+        <translation>Select this directory</translation>
+    </message>
+    <message>
+        <source>取消</source>
+        <translation>Cancel</translation>
+    </message>
+    <message>
+        <source>连接或授权已变化，请重新打开目录选择。</source>
+        <translation>Connection or access changed. Reopen the directory picker.</translation>
+    </message>
+    <message>
+        <source>正在读取远端目录…</source>
+        <translation>Loading remote directories…</translation>
+    </message>
+    <message>
+        <source>服务器返回了无效目录路径。</source>
+        <translation>The server returned an invalid directory path.</translation>
+    </message>
+    <message>
+        <source>目录条目过多，仅显示部分目录；可输入完整路径访问。</source>
+        <translation>Only part of this large directory is shown. Enter a full path to browse it.</translation>
+    </message>
+    <message>
+        <source>根目录不能整体共享，请进入子目录。</source>
+        <translation>The entire root directory cannot be shared. Enter a subdirectory.</translation>
+    </message>
+    <message>
+        <source>当前路径超过共享长度上限，可继续浏览但不能选择。</source>
+        <translation>This path exceeds the sharing length limit. You may browse it, but cannot select it for sharing.</translation>
+    </message>
+</context>
+<context>
+    <name>NovaTerm::Mcp::FileResourceAdapter</name>
+    <message>
+        <source>SSH连接或MCP身份已变化，请重新选择。</source>
+        <translation>SSH connection or MCP identity changed. Select again.</translation>
+    </message>
+    <message>
+        <source>SFTP目录浏览不可用或请求过多，请稍后重试。</source>
+        <translation>SFTP browsing is unavailable or too many requests are pending. Retry later.</translation>
+    </message>
+    <message>
+        <source>SSH会话已关闭。</source>
+        <translation>The SSH session is closed.</translation>
+    </message>
+    <message>
+        <source>当前SSH的SFTP连接未就绪，请稍后重试。</source>
+        <translation>The SFTP connection for this SSH session is not ready. Retry later.</translation>
+    </message>
+    <message>
+        <source>SFTP连接已销毁。</source>
+        <translation>The SFTP connection was destroyed.</translation>
+    </message>
+    <message>
+        <source>SFTP连接已断开。</source>
+        <translation>The SFTP connection was disconnected.</translation>
+    </message>
+    <message>
+        <source>目录路径无效或SFTP队列繁忙，请稍后重试。</source>
+        <translation>The directory path is invalid or the SFTP queue is busy. Retry later.</translation>
+    </message>
+    <message>
+        <source>读取远端目录超时，请重试。</source>
+        <translation>Reading the remote directory timed out. Retry.</translation>
+    </message>
+    <message>
+        <source>目录浏览服务已关闭。</source>
+        <translation>The directory browsing service was closed.</translation>
     </message>
 </context>
 </TS>

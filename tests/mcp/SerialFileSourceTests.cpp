@@ -64,8 +64,8 @@ private slots:
     }
     void safeReaderFeedsRealZmodem()
     {
-#ifndef Q_OS_WIN
-        QSKIP("Native safe local Reader is currently Windows-only.");
+#if !defined(Q_OS_WIN) && !defined(Q_OS_LINUX)
+        QSKIP("Native safe local Reader supports Windows and Linux.");
 #else
         QFETCH(int, mode);
         QTemporaryDir directory; QVERIFY(directory.isValid());
@@ -93,7 +93,9 @@ private slots:
         QVERIFY(controller.start(request));
         QTRY_COMPARE(trace->opened.load(), 1);
         QTRY_VERIFY(activated);
+#ifdef Q_OS_WIN
         QVERIFY(!QFile::rename(path, path + ".moved"));
+#endif
         FT::ZmodemEngine peer;
         FT::TransferRequest incoming; incoming.direction = FT::Direction::Receive;
         QVERIFY(peer.start(incoming, 0));
@@ -163,8 +165,8 @@ private slots:
     }
     void abortDuringSafeOpenDiscardsLateSource()
     {
-#ifndef Q_OS_WIN
-        QSKIP("Native safe local Reader is currently Windows-only.");
+#if !defined(Q_OS_WIN) && !defined(Q_OS_LINUX)
+        QSKIP("Native safe local Reader supports Windows and Linux.");
 #else
         QTemporaryDir directory; QVERIFY(directory.isValid());
         const auto path = directory.filePath("source.bin");

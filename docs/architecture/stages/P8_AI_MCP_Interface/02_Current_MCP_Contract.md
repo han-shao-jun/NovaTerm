@@ -1,6 +1,6 @@
 # 当前 MCP 接口契约与兼容基线
 
-更新：2026-10-29。当前二十二工具，统一接入与默认会话授权规则如下。本轮构建与测试结果另行记录，以下历史阶段成绩不作为本轮验证。Linux/macOS 安全本地 Reader/Writer 尚未实现；托管提权可信适配器仍不可用，B4 实机验收待用户执行。
+更新：2026-10-30。当前二十二工具，统一接入与默认会话授权规则如下。本轮构建与测试结果另行记录，以下历史阶段成绩不作为本轮验证。Linux安全本地Reader已实现；Linux Writer及macOS Reader/Writer尚未实现；托管提权可信适配器仍不可用，B4 实机验收待用户执行。
 
 ## 当前接入与工具目录
 
@@ -124,7 +124,7 @@ data固定包含instanceId、transferId、sessionId、epoch、operationId、stat
 
 上传默认不覆盖，0600/EXCL随机临时文件经 `hardlink@openssh.com`版本1在同目录原子创建新目标，再清理本次临时链接；能力不足拒绝。overwrite=true且初始已有安全目标时改用版本1的posix-rename扩展，初始不存在仍用hardlink，详情见覆盖节。远端逐段检查规范路径、链接、权限及祖先属主，仅接受授权根属主/管理员；SFTPv3不能提供同账号恶意换路径的强隔离。发布响应不明保守unknown，不根据临时路径消失推断成功。上传不执行chmod、sh、insmod、烧录或重启。
 
-SFTP下载与显式覆盖按本页对应章节调用；UART/ZMODEM三工具保持独立授权和协议/文件确认边界。Windows软件覆盖验证与B4用户实测分开，Linux/macOS安全文件后端仍未实现。
+SFTP下载与显式覆盖按本页对应章节调用；UART/ZMODEM三工具保持独立授权和协议/文件确认边界。Windows软件覆盖验证与B4用户实测分开，Linux安全读取源后端已实现；Linux安全写入及macOS文件后端仍未实现。
 
 兼容基线整理于 2026-10-18，2026-10-23 加入历史工具；2026-10-24 校正目录与状态说明。入口：[总体架构](00_Overall_Architecture.md) / [实施与验收](01_Phases_and_Acceptance.md)。
 本文件记录已有冻结契约，依据 ToolCodec、fixture、Budget、Errors 和 MCP 使用说明；不宣称外部 MCP 规范的最新状态，也不证明所有平台已验收。2026-10-25 B0/B1 已退役未发布 P4 两个诊断工具及专属接线，B0/B1 基线为十二工具，B2 后为十三项（见下节）。清理、日志扩展及本轮验证见 [B0/B1 实施与验收](records/B0_B1_Implementation_2026-10-25.md)。

@@ -1,6 +1,7 @@
 #include "FileResourceAdapter.h"
 #include "transport/SshTransport.h"
 #include <QScopedValueRollback>
+#include <QTimer>
 
 namespace NovaTerm::Mcp {
 FileResourceAdapter::FileResourceAdapter(AccessStore& access, SessionDirectory& sessions, QObject* parent)
@@ -64,5 +65,87 @@ Result<FileResourceDirectory> FileResourceAdapter::list(const QString& client, q
     }
     if (request.reference && remote.isEmpty()) return Error{ErrorCode::PermissionDenied};
     return FileResourceDirectory{_resources.local(client, identity), remote};
+}
+
+bool FileResourceAdapter::matchesRemoteBinding(QString client, quint64 identity, SessionBinding expected)
+{
+    if (!_access.enabled() || !identity || _access.accessId() != client || _access.identityVersion(client) != identity) return false;
+    const auto binding = liveBinding(expected.session.str());
+    return binding && FileResources::sameBinding(expected, *binding) && _access.enabled()
+        && _access.accessId() == client && _access.identityVersion(client) == identity && identity;
+}
+
+void FileResourceAdapter::listRemoteDirectory(QString client, quint64 identity,
+    SessionBinding expected, QString path, QObject* context, DirectoryCompletion completion)
+{
+    if (!context || !completion) return;
+    const auto failure = [](const QString& message) { return SftpDirectoryResult{{}, {}, message, false}; };
+    if (!matchesRemoteBinding(client, identity, expected)) {
+        completion(failure(tr("SSH连接或MCP身份已变化，请重新选择。"))); return;
+    }
+    if (!_directorySession || _pendingDirectoryLists >= 8) {
+        completion(failure(tr("SFTP目录浏览不可用或请求过多，请稍后重试。"))); return;
+    }
+    const auto entry = _sessions.find(expected.session.str());
+    if (!entry || !entry->session) { completion(failure(tr("SSH会话已关闭。"))); return; }
+    const QPointer<SftpSession> backend = _directorySession(*entry->session);
+    if (!backend || !matchesRemoteBinding(client, identity, expected)) {
+        completion(failure(tr("当前SSH的SFTP连接未就绪，请稍后重试。"))); return;
+    }
+    auto* job = new QObject(this);
+    ++_pendingDirectoryLists;
+    struct State { bool completed{false}; quint64 request{0}; QMetaObject::Connection teardown; };
+    const auto state = std::make_shared<State>();
+    const auto deliver = std::make_shared<DirectoryCompletion>(std::move(completion));
+    const QPointer<QObject> recipient(context);
+    const QPointer<FileResourceAdapter> self(this);
+    const auto current = [self, client, identity, expected] {
+        return self && self->matchesRemoteBinding(client, identity, expected);
+    };
+    const auto finish = [this, job, recipient, backend, state, deliver](SftpDirectoryResult result) {
+        if (state->completed) return;
+        state->completed = true;
+        QObject::disconnect(state->teardown);
+        if (backend && state->request) backend->cancelDirectoryRequest(state->request);
+        --_pendingDirectoryLists;
+        job->deleteLater();
+        if (recipient) (*deliver)(std::move(result));
+    };
+    // Teardown delivery is queued: the Service/AccessStore may be midway through
+    // destruction when QObject::destroyed fires. Recipient guards see the fully
+    // destroyed owner before any UI callback revalidates its binding.
+    state->teardown = connect(this, &QObject::destroyed, context, [state, deliver, recipient, failure] {
+        if (state->completed) return;
+        state->completed = true;
+        if (recipient) (*deliver)(failure(tr("目录浏览服务已关闭。")));
+    }, Qt::QueuedConnection);
+    connect(context, &QObject::destroyed, job, [finish, failure] { finish(failure(QStringLiteral("CANCELLED"))); });
+    connect(job, &QObject::destroyed, backend, [backend, state] {
+        if (backend && state->request) backend->cancelDirectoryRequest(state->request);
+    });
+    connect(backend, &SftpSession::directoryRequestFinished, job,
+        [state, current, finish, failure](quint64 request, const SftpDirectoryResult& result) {
+            if (state->completed || request != state->request || !request) return;
+            finish(current() ? result : failure(tr("SSH连接或MCP身份已变化，请重新选择。")));
+        });
+    connect(backend, &QObject::destroyed, job, [finish, failure] { finish(failure(tr("SFTP连接已销毁。"))); });
+    connect(backend, &SftpSession::disconnected, job, [finish, failure] { finish(failure(tr("SFTP连接已断开。"))); });
+    connect(backend, &SftpSession::errorOccurred, job, [state, finish, failure](const QString& error) {
+        if (!state->request) finish(failure(error));
+    });
+    const auto revalidate = [current, finish, failure] {
+        if (!current()) finish(failure(tr("SSH连接或MCP身份已变化，请重新选择。")));
+    };
+    connect(&_access, &AccessStore::changed, job, revalidate);
+    connect(&_sessions, &SessionDirectory::changed, job, revalidate);
+    const auto start = [state, backend, current, path, finish, failure] {
+        if (state->completed || state->request) return;
+        if (!current() || !backend) { finish(failure(tr("SSH连接或MCP身份已变化，请重新选择。"))); return; }
+        state->request = backend->requestDirectory(path);
+        if (!state->request) finish(failure(tr("目录路径无效或SFTP队列繁忙，请稍后重试。")));
+    };
+    connect(backend, &SftpSession::connected, job, [start](const QString&) { start(); });
+    QTimer::singleShot(15000, job, [finish, failure] { finish(failure(tr("读取远端目录超时，请重试。"))); });
+    if (backend->isConnected()) start();
 }
 }

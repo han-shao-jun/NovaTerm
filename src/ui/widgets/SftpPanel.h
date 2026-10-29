@@ -40,6 +40,8 @@ public:
     [[nodiscard]] bool hasPendingOperations() const;
     [[nodiscard]] bool hasPendingUserOperations() const;
     [[nodiscard]] SftpSession* fileTransferSession(SshTransport* expected) const;
+    /** 用户显式浏览目录时取得同一后端；不改变面板当前目录。 */
+    [[nodiscard]] SftpSession* directoryBrowsingSession(SshTransport* expected);
     bool uploadAuthorizedFile(const SftpFileUploadRequest&);
 public slots:
     /** 仅消费所属 SSH Shell 的目录结果，包含后台标签的在途请求。 */

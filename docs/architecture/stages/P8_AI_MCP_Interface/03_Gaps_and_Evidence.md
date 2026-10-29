@@ -2,7 +2,7 @@
 
 更新：2026-10-28。当前三十工具；Windows B0～B3b基础能力包括SFTP上传/下载及UART发送，SFTP显式覆盖本阶段Windows软件回归已完成，B4仍待用户验收，见[覆盖记录](records/B3b_File_Overwrite_2026-10-28.md)。保持原FileTransfers/SftpSession/worker与本地安全后端，不新增owner。
 
-G16本轮Windows显式覆盖与软件收尾已完成Windows软件验证；Linux/macOS安全文件后端仍未实现，属于后续开发，不只是待运行测试。G12/B4真实板卡、客户端和性能由用户验收，P8未整体完成。覆盖只授权可信目录的目标路径替换，非CAS；本地pinPath没有ACL/owner检查。托管提权继续unavailable，非当前闭环前置。
+G16本轮Windows显式覆盖与软件收尾已完成Windows软件验证；Linux安全读取源后端已实现；Linux安全写入及macOS文件后端仍未实现，属于后续开发，不只是待运行测试。G12/B4真实板卡、客户端和性能由用户验收，P8未整体完成。覆盖只授权可信目录的目标路径替换，非CAS；本地pinPath没有ACL/owner检查。托管提权继续unavailable，非当前闭环前置。
 
 以下带日期的静态盘点及阶段更新用于追溯，现行能力以[02](02_Current_MCP_Contract.md)与源码为准。历史结果见[验收档案](records/README.md)，后续任务见[软件收口账本](08_Software_Closeout.md)；“存在”只表示源码/用例存在，不表示本阶段测试已通过。
 

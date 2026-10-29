@@ -8,6 +8,13 @@
 #include <optional>
 #include <utility>
 #include <vector>
+#ifdef Q_OS_LINUX
+#include <fcntl.h>
+#include <sys/stat.h>
+#include <sys/file.h>
+#include <unistd.h>
+#include <cerrno>
+#endif
 #ifdef Q_OS_WIN
 #ifndef NOMINMAX
 #define NOMINMAX
@@ -163,11 +170,98 @@ bool regular(HANDLE handle, const BY_HANDLE_FILE_INFORMATION& info)
         && !(info.dwFileAttributes & (FILE_ATTRIBUTE_DIRECTORY | FILE_ATTRIBUTE_REPARSE_POINT));
 }
 #endif
+#ifdef Q_OS_LINUX
+class PosixFd final {
+public:
+    explicit PosixFd(int fd = -1) noexcept : _fd(fd) {}
+    ~PosixFd() { if (_fd >= 0) ::close(_fd); }
+    PosixFd(const PosixFd&) = delete;
+    PosixFd& operator=(const PosixFd&) = delete;
+    PosixFd(PosixFd&& other) noexcept : _fd(std::exchange(other._fd, -1)) {}
+    PosixFd& operator=(PosixFd&& other) noexcept {
+        if (this != &other) { if (_fd >= 0) ::close(_fd); _fd = std::exchange(other._fd, -1); }
+        return *this;
+    }
+    int get() const noexcept { return _fd; }
+    bool valid() const noexcept { return _fd >= 0; }
+private:
+    int _fd;
+};
+bool posixText(const QString& text)
+{
+    if (text.isEmpty() || text.toUtf8().size() > Budget::MaxFileRootPathBytes
+        || QString::fromUtf8(text.toUtf8()) != text || text.contains('\\')) return false;
+    for (const auto ch : text) if (ch.unicode() < 32 || ch.unicode() == 127) return false;
+    return true;
+}
+bool posixRegular(const struct stat& info)
+{
+    return S_ISREG(info.st_mode) && info.st_nlink == 1 && info.st_size >= 0;
+}
+bool sameSource(const struct stat& a, const struct stat& b)
+{
+    return posixRegular(b) && a.st_dev == b.st_dev && a.st_ino == b.st_ino && a.st_mode == b.st_mode
+        && a.st_size == b.st_size && a.st_nlink == b.st_nlink
+        && a.st_mtim.tv_sec == b.st_mtim.tv_sec && a.st_mtim.tv_nsec == b.st_mtim.tv_nsec
+        && a.st_ctim.tv_sec == b.st_ctim.tv_sec && a.st_ctim.tv_nsec == b.st_ctim.tv_nsec;
+}
+FileIoError posixOpenError()
+{
+    return errno == ELOOP || errno == ENOTDIR ? FileIoError::UnsafeFile : FileIoError::NotAvailable;
+}
+struct PosixPinnedFile {
+    std::vector<PosixFd> directories;
+    PosixFd file;
+    struct stat snapshot{};
+};
+FileIoResult<PosixPinnedFile> openPosixSource(const QString& root, const QString& relative)
+{
+    if (!posixText(root) || root == "/" || !root.startsWith('/') || root.startsWith("//")
+        || QDir::cleanPath(root) != root || !posixText(relative) || relative.startsWith('/')
+        || relative.contains(':') || QDir::cleanPath(relative) != relative) return FileIoError::InvalidPath;
+    auto rootParts = root.mid(1).split('/');
+    auto fileParts = relative.split('/');
+    if (rootParts.size() > Budget::MaxLocalTransferPathParts || fileParts.size() > Budget::MaxLocalTransferPathParts)
+        return FileIoError::InvalidPath;
+    for (const auto& part : rootParts + fileParts)
+        if (part.isEmpty() || part == "." || part == "..") return FileIoError::InvalidPath;
+    const auto leaf = fileParts.takeLast().toUtf8();
+    const auto parents = rootParts + fileParts;
+    PosixPinnedFile pinned;
+    pinned.directories.emplace_back(::open("/", O_PATH | O_DIRECTORY | O_CLOEXEC));
+    if (!pinned.directories.back().valid()) return posixOpenError();
+    for (const auto& part : parents) {
+        const auto bytes = part.toUtf8();
+        PosixFd directory(::openat(pinned.directories.back().get(), bytes.constData(), O_PATH | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC));
+        if (!directory.valid()) return posixOpenError();
+        pinned.directories.push_back(std::move(directory));
+    }
+    // O_PATH inspects and pins the leaf before opening it for I/O: a device/FIFO
+    // is rejected without ever opening that object in read mode.
+    PosixFd identity(::openat(pinned.directories.back().get(), leaf.constData(), O_PATH | O_NOFOLLOW | O_CLOEXEC));
+    if (!identity.valid()) return posixOpenError();
+    if (::fstat(identity.get(), &pinned.snapshot) != 0) return FileIoError::IoFailure;
+    if (!posixRegular(pinned.snapshot)) return FileIoError::UnsafeFile;
+    if (quint64(pinned.snapshot.st_size) > Budget::MaxLocalTransferFileBytes) return FileIoError::SizeLimit;
+    // /proc/self/fd references this still-owned descriptor, never a mutable
+    // pathname supplied by the caller. Recheck identity after the reopen.
+    const auto descriptorPath = QByteArray("/proc/self/fd/") + QByteArray::number(identity.get());
+    pinned.file = PosixFd(::open(descriptorPath.constData(), O_RDONLY | O_CLOEXEC | O_NONBLOCK));
+    if (!pinned.file.valid()) return posixOpenError();
+    struct stat opened{};
+    if (::fstat(pinned.file.get(), &opened) != 0) return FileIoError::IoFailure;
+    if (!sameSource(pinned.snapshot, opened)) return FileIoError::UnsafeFile;
+    if (::flock(pinned.file.get(), LOCK_SH | LOCK_NB) != 0) return FileIoError::NotAvailable;
+    return pinned;
+}
+#endif
 }
 struct LocalFileReader::Impl {
 #ifdef Q_OS_WIN
     PinnedPath path;
     Handle file;
+#elif defined(Q_OS_LINUX)
+    PosixPinnedFile source;
 #endif
     quint64 bytes{0};
     quint64 consumed{0};
@@ -229,6 +323,13 @@ FileIoResult<std::unique_ptr<LocalFileReader>> LocalFileReader::open(const QStri
     impl->bytes = fileSize(info);
     if (impl->bytes > Budget::MaxLocalTransferFileBytes) return FileIoError::SizeLimit;
     return std::unique_ptr<LocalFileReader>(new LocalFileReader(std::move(impl)));
+#elif defined(Q_OS_LINUX)
+    auto source = openPosixSource(root, relative);
+    if (const auto* error = std::get_if<FileIoError>(&source)) return *error;
+    auto impl = std::make_unique<Impl>();
+    impl->source = std::move(std::get<PosixPinnedFile>(source));
+    impl->bytes = quint64(impl->source.snapshot.st_size);
+    return std::unique_ptr<LocalFileReader>(new LocalFileReader(std::move(impl)));
 #else
     Q_UNUSED(root); Q_UNUSED(relative);
     return FileIoError::UnsupportedPlatform;
@@ -238,7 +339,7 @@ FileIoResult<QByteArray> LocalFileReader::read(qsizetype maxBytes)
 {
     if (!_impl || _impl->failed) return FileIoError::InvalidState;
     if (maxBytes <= 0 || maxBytes > Budget::LocalTransferChunkBytes) return FileIoError::SizeLimit;
-#ifdef Q_OS_WIN
+#if defined(Q_OS_WIN) || defined(Q_OS_LINUX)
     const auto count = qMin(quint64(maxBytes), _impl->bytes - _impl->consumed);
     if (!count) return QByteArray{};
     auto bytes = readAt(_impl->consumed, qsizetype(count));
@@ -266,6 +367,25 @@ FileIoResult<QByteArray> LocalFileReader::readAt(quint64 offset, qsizetype count
         || received != quint64(count)) {
         _impl->failed = true;
         return FileIoError::IoFailure;
+    }
+    return bytes;
+#elif defined(Q_OS_LINUX)
+    struct stat before{};
+    if (::fstat(_impl->source.file.get(), &before) != 0 || !sameSource(_impl->source.snapshot, before)) {
+        _impl->failed = true; return FileIoError::UnsafeFile;
+    }
+    QByteArray bytes(count, Qt::Uninitialized);
+    qsizetype received = 0;
+    while (received < count) {
+        const auto n = ::pread(_impl->source.file.get(), bytes.data() + received,
+            size_t(count - received), off_t(offset + quint64(received)));
+        if (n < 0 && errno == EINTR) continue;
+        if (n <= 0) { _impl->failed = true; return FileIoError::IoFailure; }
+        received += qsizetype(n);
+    }
+    struct stat after{};
+    if (::fstat(_impl->source.file.get(), &after) != 0 || !sameSource(_impl->source.snapshot, after)) {
+        _impl->failed = true; return FileIoError::UnsafeFile;
     }
     return bytes;
 #else

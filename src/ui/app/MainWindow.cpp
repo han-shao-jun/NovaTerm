@@ -7,6 +7,7 @@
  * 刷新菜单文本 —— 与子面板/页面一致，不依赖顶层窗口的 LanguageChange 事件。
  */
 #include "MainWindow.h"
+#include "mcp/FileResourceAdapter.h"
 #include <utility>
 #include "ElaCheckBox.h"
 #include "ElaDialog.h"
@@ -1221,6 +1222,15 @@ void MainWindow::initWindow()
 
     _sessionPanel = new SessionPanel(_sessionDock);
     if (auto* mcp = Application::instance().mcpService()) {
+        mcp->fileResources().setDirectorySessionProvider([window = QPointer<MainWindow>(this), owner = QPointer<NovaTerm::Mcp::Service>(mcp)](TerminalSession& session) -> SftpSession* {
+            if (!window || !owner || !window->_sftpPanels) return nullptr;
+            auto* ssh = qobject_cast<SshTransport*>(session.transport());
+            if (!ssh) return nullptr;
+            const auto entry = owner->directory().find(session.id().toString(QUuid::WithoutBraces));
+            if (!entry || entry->transport != ssh) return nullptr;
+            auto* panel = window->_sftpPanels->ensurePanelFor(entry->title, ssh);
+            return panel ? panel->directoryBrowsingSession(ssh) : nullptr;
+        });
         mcp->setFileUploadStarter([window = QPointer<MainWindow>(this), owner = QPointer<NovaTerm::Mcp::Service>(mcp)]
             (TerminalSession& session, const SftpFileUploadRequest& request, NovaTerm::Mcp::FileTransfers::Delivery delivery) {
             if (!window || !owner || !window->_sftpPanels) return false;

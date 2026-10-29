@@ -5,6 +5,7 @@
 #pragma once
 
 #include "session/SessionTypes.h"
+#include "SftpDirectoryListing.h"
 #include "session/SftpFileUpload.h"
 
 #include <QMutex>
@@ -22,22 +23,6 @@ class QThread;
 struct sftp_session_struct;
 struct ssh_session_struct;
 struct sftp_attributes_struct;
-
-/** 远端目录中的一个条目。 */
-struct SftpFileInfo
-{
-    QString name;
-    QString path;
-    QString linkTarget;
-    quint64 size{0};
-    qint64 modifiedSeconds{0};
-    quint32 permissions{0};
-    bool directory{false};
-    bool symbolicLink{false};
-    bool hardLink{false};
-    bool linkTargetDirectory{false};
-    bool brokenSymbolicLink{false};
-};
 
 /**
  * SFTP 会话使用独立 SSH 连接，避免文件传输阻塞终端 shell channel。
@@ -60,6 +45,9 @@ public:
     void disconnectFromHost(bool shuttingDown = false);
 
     void listDirectory(const QString& remotePath);
+    /** 独立只读浏览请求；0表示未受理，结果不广播给原文件面板。 */
+    [[nodiscard]] quint64 requestDirectory(const QString& remotePath);
+    void cancelDirectoryRequest(quint64 requestId);
     void uploadFile(const QString& localPath, const QString& remotePath);
     /** @brief 将有界内存内容上传到远端文件；成功入队返回 true。 */
     [[nodiscard]] bool uploadBytes(quint64 requestId, QByteArray content,
@@ -79,6 +67,8 @@ public:
                      const QString& newRemotePath);
 
     [[nodiscard]] bool isConnected() const noexcept;
+    /** 仅GUI线程查询；不等待旧线程，可安全发起显式重试。 */
+    [[nodiscard]] bool canStartConnection() const noexcept;
     /** @brief 非阻塞读取真实队列/在途命令；取锁失败保守视为忙碌。 */
     [[nodiscard]] bool hasPendingOperations() const;
 
@@ -87,6 +77,7 @@ signals:
     void disconnected();
     void directoryListed(const QString& path,
                          const QVector<SftpFileInfo>& entries);
+    void directoryRequestFinished(quint64 requestId, const SftpDirectoryResult& result);
     void transferProgress(const QString& remotePath,
                           quint64 transferred, quint64 total);
     void operationFinished(const QString& operation,
@@ -139,6 +130,8 @@ private:
         QQueue<Command> commands;
         bool commandActive{false}; // queueMutex protects dequeue-to-completion, including blocking I/O.
         QSet<quint64> cancelledUploadRequests;
+        QSet<quint64> directoryRequests;
+        QSet<quint64> cancelledDirectoryRequests;
         qsizetype queuedUploadBytes{0};
         quint64 activeUploadRequestId{0};
         std::shared_ptr<SftpFileUploadControl> activeFileUpload;
@@ -162,6 +155,8 @@ private:
                                      const SftpFileUploadResult& result);
     static void postError(const std::shared_ptr<WorkerControl>& control,
                           quint64 generation, const QString& message);
+    static void postDirectoryResult(const std::shared_ptr<WorkerControl>&,
+        quint64 generation, quint64 requestId, SftpDirectoryResult);
     [[nodiscard]] static bool isUploadCancelled(
         const std::shared_ptr<WorkerControl>& control, quint64 requestId);
     // 每次阻塞收尾后重查取消；成功发布后保持真实提交结果。
@@ -226,4 +221,5 @@ private:
     // true 表示上一任 worker 超过上界仍未退出、已被放弃（自毁），它可能仍在
     // 运行；此时禁止再启动新会话。仅 GUI 线程读写。
     bool _workerAbandoned{false};
+    quint64 _nextDirectoryRequestId{0};
 };

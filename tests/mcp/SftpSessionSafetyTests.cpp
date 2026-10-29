@@ -34,6 +34,11 @@ public:
     {
         SftpSession::postError(control, control->generation, QStringLiteral("test"));
     }
+    static void directoryResult(const std::shared_ptr<Control>& control, quint64 generation,
+        quint64 request, SftpDirectoryResult result)
+    {
+        SftpSession::postDirectoryResult(control, generation, request, std::move(result));
+    }
 
     static QThread* pauseWorker(SftpSession& session, QSemaphore& entered,
                                 QSemaphore& resume, std::atomic<bool>& finished,
@@ -117,6 +122,50 @@ class SftpSessionSafetyTests final : public QObject
     Q_OBJECT
 
 private slots:
+    void acceptedDirectoryRequestSettlesOnNaturalWorkerExit() {
+        SftpSession session;
+        auto worker = SftpSessionSafetyTestAccess::control(session);
+        worker->running = true; worker->connected = true;
+        const auto request = session.requestDirectory("/tmp"); QVERIFY(request);
+        QSignalSpy received(&session, &SftpSession::directoryRequestFinished);
+        SftpSessionSafetyTestAccess::finishWorker(worker);
+        QTRY_COMPARE(received.size(), 1);
+        QCOMPARE(received.first().first().toULongLong(), request);
+        QVERIFY(!qvariant_cast<SftpDirectoryResult>(received.first().at(1)).error.isEmpty());
+        QVERIFY(worker->directoryRequests.isEmpty());
+        QCOMPARE(session.requestDirectory("/tmp"), quint64(0));
+        SftpSessionSafetyTestAccess::finishWorker(worker);
+        QCoreApplication::processEvents(); QCOMPARE(received.size(), 1);
+    }
+    void directoryRequestsAreBoundedCorrelatedAndIsolated()
+    {
+        SftpSession session;
+        QCOMPARE(session.requestDirectory("/tmp"), quint64(0));
+        auto worker = SftpSessionSafetyTestAccess::control(session);
+        worker->running = true; worker->connected = true;
+        QCOMPARE(session.requestDirectory("relative"), quint64(0));
+        QCOMPARE(session.requestDirectory(QString(5000, 'x')), quint64(0));
+        QCOMPARE(session.requestDirectory(QString("/tmp\nother")), quint64(0));
+        const auto first = session.requestDirectory("/tmp");
+        const auto second = session.requestDirectory(".");
+        QVERIFY(first && second && first != second);
+        QSignalSpy received(&session, &SftpSession::directoryRequestFinished);
+        QSignalSpy legacy(&session, &SftpSession::directoryListed);
+        SftpDirectoryResult result; result.path = "/tmp";
+        SftpSessionSafetyTestAccess::directoryResult(worker, worker->generation, first, result);
+        QTRY_COMPARE(received.size(), 1);
+        QCOMPARE(received.first().first().toULongLong(), first);
+        QCOMPARE(qvariant_cast<SftpDirectoryResult>(received.first().at(1)).path, QString("/tmp"));
+        QCOMPARE(legacy.size(), 0);
+        const auto generation = worker->generation.load();
+        ++worker->generation;
+        SftpSessionSafetyTestAccess::directoryResult(worker, generation, second, result);
+        QCoreApplication::processEvents(); QCOMPARE(received.size(), 1);
+        session.cancelDirectoryRequest(second);
+        for (int i = 0; i < 20; ++i) static_cast<void>(session.requestDirectory("/tmp"));
+        QVERIFY(worker->directoryRequests.size() <= 16);
+        worker->running = false; worker->connected = false;
+    }
     void authorizedOverwritePublicationPolicy_data()
     {
         QTest::addColumn<bool>("overwrite"); QTest::addColumn<QString>("target");

@@ -6,6 +6,7 @@
 #include "mcp/SerialFileTargetAdapter.h"
 #include "transport/SerialTransport.h"
 #include "ui/widgets/FileResourceSharingDialog.h"
+#include "ui/widgets/RemoteDirectoryDialog.h"
 #include <QComboBox>
 #include <QLineEdit>
 #include <QLabel>
@@ -63,6 +64,8 @@
 #include <QSignalBlocker>
 #include <QScopeGuard>
 #include <QFile>
+#include <QFileDialog>
+#include <QMutexLocker>
 #include <QDir>
 #include <QTextStream>
 #include <QTimer>
@@ -84,6 +87,23 @@
 #endif
 
 using namespace NovaTerm::Mcp;
+class SftpSessionSafetyTestAccess {
+public:
+    static void ready(SftpSession& session) {
+        session._control->running = true; session._control->connected = true;
+    }
+    static quint64 pending(SftpSession& session) {
+        QMutexLocker lock(&session._control->queueMutex);
+        return session._control->commands.isEmpty() ? 0 : session._control->commands.front().requestId;
+    }
+    static int count(SftpSession& session) {
+        QMutexLocker lock(&session._control->queueMutex); return session._control->commands.size();
+    }
+    static void complete(SftpSession& session, quint64 request, const QString& path) {
+        session.cancelDirectoryRequest(request);
+        SftpSession::postDirectoryResult(session._control, session._control->generation, request, {path, {}, {}, false});
+    }
+};
 class SerialTransportIoTestAccess {
 public:
     static void connected(SerialTransport& transport)
@@ -564,6 +584,185 @@ class McpTests final : public QObject
 {
     Q_OBJECT
 private slots:
+    void remoteDirectorySelectionIsBoundToOriginalContext_data() {
+        QTest::addColumn<int>("change");
+        QTest::newRow("selected-path-not-auto-granted") << 0;
+        QTest::newRow("token-reset") << 1;
+        QTest::newRow("ssh-replaced") << 2;
+        QTest::newRow("owner-destroyed") << 3;
+        QTest::newRow("unrelated-refresh") << 4;
+        QTest::newRow("long-verified-path-is-not-truncated") << 5;
+    }
+    void remoteDirectorySelectionIsBoundToOriginalContext() {
+        QFETCH(int, change); eApp->init(); Fixture f;
+        QVERIFY(f.enableWithoutSessionPermissions()); f.makeSsh();
+        SftpSession backend; SftpSessionSafetyTestAccess::ready(backend);
+        f.service.fileResources().setDirectorySessionProvider([&](TerminalSession&) { return &backend; });
+        auto owner = std::make_unique<QWidget>();
+        QPointer<FileResourceSharingDialog> dialog = new FileResourceSharingDialog(&f.service, f.client, owner.get());
+        dialog->findChild<QComboBox*>("fileResourceKind")->setCurrentIndex(1);
+        dialog->findChild<QComboBox*>("fileResourceSession")->setCurrentIndex(0);
+        QPushButton* browse = nullptr;
+        for (auto* button : dialog->findChildren<QPushButton*>())
+            if (button->text() == FileResourceSharingDialog::tr("选择远端目录")) browse = button;
+        QVERIFY(browse && browse->isEnabled()); browse->click();
+        QPointer<RemoteDirectoryDialog> picker = dialog->findChild<RemoteDirectoryDialog*>(); QVERIFY(picker);
+        QTRY_VERIFY(SftpSessionSafetyTestAccess::pending(backend));
+        const auto request = SftpSessionSafetyTestAccess::pending(backend);
+        const auto original = f.service.directory().entries().first();
+        const auto identity = f.service.access().identityVersion(f.client);
+        if (change == 1) QVERIFY(f.service.access().rotateToken());
+        if (change == 2) f.makeSsh();
+        if (change == 3) owner.reset();
+        if (change == 4) f.service.directory().setDisplayTitle(&f.session, "new display name");
+        const auto chosenPath = change == 5 ? QString("/") + (QString(149, 'd') + "/").repeated(8) + "leaf" : QString("/remote/build");
+        SftpSessionSafetyTestAccess::complete(backend, request, chosenPath);
+        QCoreApplication::processEvents();
+        if (change == 1 || change == 2 || change == 3) {
+            QVERIFY(!picker || !picker->isVisible());
+            if (dialog) QVERIFY(dialog->findChild<QLineEdit*>("fileResourcePath")->text().isEmpty());
+            QVERIFY(f.service.fileResources().resources().remote(f.client, identity).isEmpty());
+            return;
+        }
+        auto* select = picker->findChild<QPushButton*>("remoteDirectorySelect");
+        if (change == 5) {
+            QVERIFY(!select->isEnabled());
+            QCOMPARE(picker->findChild<QLineEdit*>("remoteDirectoryPath")->text(), chosenPath);
+            QVERIFY(dialog->findChild<QLineEdit*>("fileResourcePath")->text().isEmpty());
+            return;
+        }
+        QTRY_VERIFY(select->isEnabled()); select->click();
+        QCOMPARE(dialog->findChild<QLineEdit*>("fileResourcePath")->text(), chosenPath);
+        QVERIFY(f.service.fileResources().resources().remote(f.client, identity).isEmpty());
+        dialog->findChild<QLineEdit*>("fileResourceTitle")->setText("Selected build");
+        dialog->findChild<QCheckBox*>("fileResourceRead")->setChecked(true);
+        dialog->findChild<QPushButton*>("fileResourceShare")->click();
+        const auto roots = f.service.fileResources().resources().remote(f.client, identity);
+        QCOMPARE(roots.size(), 1); QCOMPARE(roots.first().binding.session.str(), original.id);
+        QCOMPARE(roots.first().root.path, chosenPath);
+    }
+    void remoteDirectoryQueueBudgetIsReclaimedOnCancel() {
+        Fixture f; QVERIFY(f.enableWithoutSessionPermissions()); f.makeSsh();
+        SftpSession backend; SftpSessionSafetyTestAccess::ready(backend);
+        auto& resources = f.service.fileResources();
+        resources.setDirectorySessionProvider([&](TerminalSession&) { return &backend; });
+        const auto entry = f.service.directory().entries().first();
+        const auto binding = f.service.access().grantSnapshot(ClientId{f.client}, entry).binding;
+        const auto identity = f.service.access().identityVersion(f.client);
+        QList<QObject*> contexts; int replies = 0;
+        for (int i = 0; i < 9; ++i) {
+            auto* context = new QObject(&f.service); contexts.append(context);
+            resources.listRemoteDirectory(f.client, identity, binding, "/remote", context,
+                [&](auto result) { ++replies; QVERIFY(!result.error.isEmpty()); });
+        }
+        QCOMPARE(replies, 1); QCOMPARE(SftpSessionSafetyTestAccess::count(backend), 8);
+        for (auto* context : contexts) delete context;
+        QCOMPARE(SftpSessionSafetyTestAccess::count(backend), 0);
+        QObject current;
+        resources.listRemoteDirectory(f.client, identity, binding, "/remote", &current,
+            [&](auto result) { ++replies; QCOMPARE(result.path, QString("/remote")); QVERIFY(result.error.isEmpty()); });
+        QCOMPARE(SftpSessionSafetyTestAccess::count(backend), 1);
+        SftpSessionSafetyTestAccess::complete(backend, SftpSessionSafetyTestAccess::pending(backend), "/remote");
+        QTRY_COMPARE(replies, 2);
+    }
+    void remoteDirectoryAdapterDestructionSettlesLiveRecipient() {
+        Fixture f; QVERIFY(f.enableWithoutSessionPermissions()); f.makeSsh();
+        SftpSession backend; SftpSessionSafetyTestAccess::ready(backend);
+        auto adapter = std::make_unique<FileResourceAdapter>(f.service.access(), f.service.directory(), nullptr);
+        adapter->setDirectorySessionProvider([&](TerminalSession&) { return &backend; });
+        const auto entry = f.service.directory().entries().first();
+        const auto binding = f.service.access().grantSnapshot(ClientId{f.client}, entry).binding;
+        QObject recipient; int replies = 0;
+        adapter->listRemoteDirectory(f.client, f.service.access().identityVersion(f.client), binding, "/remote", &recipient,
+            [&](auto result) { ++replies; QVERIFY(!result.error.isEmpty()); });
+        QCOMPARE(SftpSessionSafetyTestAccess::count(backend), 1);
+        adapter.reset();
+        QCOMPARE(SftpSessionSafetyTestAccess::count(backend), 0);
+        QTRY_COMPARE_WITH_TIMEOUT(replies, 1, 1000);
+    }
+    void remoteDirectoryTimeoutCancelsQueuedWorkAndIgnoresLateSuccess() {
+        Fixture f; QVERIFY(f.enableWithoutSessionPermissions()); f.makeSsh();
+        SftpSession backend; SftpSessionSafetyTestAccess::ready(backend);
+        auto& adapter = f.service.fileResources();
+        adapter.setDirectorySessionProvider([&](TerminalSession&) { return &backend; });
+        const auto entry = f.service.directory().entries().first();
+        const auto binding = f.service.access().grantSnapshot(ClientId{f.client}, entry).binding;
+        QObject recipient; int replies = 0;
+        adapter.listRemoteDirectory(f.client, f.service.access().identityVersion(f.client), binding, "/remote", &recipient,
+            [&](auto result) { ++replies; QVERIFY(!result.error.isEmpty()); });
+        const auto request = SftpSessionSafetyTestAccess::pending(backend); QVERIFY(request);
+        QTRY_COMPARE_WITH_TIMEOUT(replies, 1, 20000);
+        QCOMPARE(SftpSessionSafetyTestAccess::count(backend), 0);
+        SftpSessionSafetyTestAccess::complete(backend, request, "/late-success");
+        QCoreApplication::processEvents(); QCOMPARE(replies, 1);
+    }
+    void fileResourcePickerRevalidatesContext_data()
+    {
+        QTest::addColumn<int>("change");
+        QTest::newRow("unchanged") << 0;
+        QTest::newRow("switch-to-ssh") << 1;
+        QTest::newRow("switch-to-serial") << 2;
+        QTest::newRow("switch-away-and-back") << 3;
+        QTest::newRow("token-reset") << 4;
+        QTest::newRow("unrelated-refresh") << 5;
+        QTest::newRow("cancel") << 6;
+#ifdef Q_OS_LINUX
+        QTest::newRow("overlong-local-result") << 7;
+#endif
+    }
+    void fileResourcePickerRevalidatesContext()
+    {
+        QFETCH(int, change);
+        eApp->init();
+        Fixture f; QVERIFY(f.enableWithoutSessionPermissions());
+        const auto directory = f.root.filePath(change == 7 ? (QString(149, 'd') + "/").repeated(8) + "leaf" : QString("picked-directory"));
+        QVERIFY(QDir().mkpath(directory));
+        FileResourceSharingDialog dialog(&f.service, f.client);
+        auto* kind = dialog.findChild<QComboBox*>("fileResourceKind");
+        auto* path = dialog.findChild<QLineEdit*>("fileResourcePath");
+        QVERIFY(kind && path);
+        QPushButton* browse = nullptr;
+        for (auto* button : dialog.findChildren<QPushButton*>())
+            if (button->text() == FileResourceSharingDialog::tr("选择本地目录")) browse = button;
+        QVERIFY(browse && browse->isEnabled());
+        const bool previous = QApplication::testAttribute(Qt::AA_DontUseNativeDialogs);
+        QApplication::setAttribute(Qt::AA_DontUseNativeDialogs);
+        const auto restore = qScopeGuard([previous] { QApplication::setAttribute(Qt::AA_DontUseNativeDialogs, previous); });
+        QTimer::singleShot(0, &dialog, [&] {
+            auto* picker = dialog.findChild<QFileDialog*>(); QVERIFY(picker);
+            picker->selectFile(directory);
+            if (change == 1 || change == 3) kind->setCurrentIndex(1);
+            if (change == 2) kind->setCurrentIndex(2);
+            if (change == 3) kind->setCurrentIndex(0);
+            if (change == 4) QVERIFY(f.service.access().rotateToken());
+            if (change == 5) emit f.service.changed();
+            QVERIFY(QMetaObject::invokeMethod(picker, change == 6 ? "reject" : "accept", Qt::DirectConnection));
+        });
+        browse->click();
+        QCOMPARE(path->text(), change == 0 || change == 5 ? directory : QString{});
+        QVERIFY(f.service.fileResources().resources().local(f.client,
+            f.service.access().identityVersion(f.client)).isEmpty());
+    }
+    void fileResourcePickerSurvivesOwnerDestruction()
+    {
+        QTemporaryDir root; QVERIFY(root.isValid());
+        QProcess child;
+        child.setWorkingDirectory(root.path());
+        auto environment = QProcessEnvironment::systemEnvironment();
+#ifdef Q_OS_LINUX
+        environment.insert("MALLOC_PERTURB_", "165");
+        environment.insert("GLIBC_TUNABLES", "glibc.malloc.tcache_count=0");
+#endif
+        child.setProcessEnvironment(environment);
+        child.start(QCoreApplication::applicationFilePath(), {"--file-picker-owner-check"});
+        QVERIFY(child.waitForStarted(3000));
+        const bool finished = child.waitForFinished(10000);
+        if (!finished) { child.kill(); child.waitForFinished(3000); }
+        const auto diagnostics = child.readAllStandardError();
+        QVERIFY2(finished, diagnostics.constData());
+        QVERIFY2(child.exitStatus() == QProcess::NormalExit, diagnostics.constData());
+        QCOMPARE(child.exitCode(), 0);
+    }
     void retiredCommandToolsRefuseBothHttpProtocols_data()
     {
         QTest::addColumn<QString>("protocol");
@@ -2028,6 +2227,7 @@ void McpTests::serialFileSettingsRequireExplicitCurrentGrant()
     QCOMPARE(sessions->count(), 1); sessions->setCurrentIndex(0);
     auto* path = dialog.findChild<QLineEdit*>("fileResourcePath"); QVERIFY(!path->isEnabled());
     auto* read = dialog.findChild<QCheckBox*>("fileResourceRead"); QVERIFY(!read->isEnabled());
+    QVERIFY(path->isHidden()); QVERIFY(read->isHidden());
     auto* send = dialog.findChild<QCheckBox*>("fileResourceWrite"); QVERIFY(!send->isChecked());
     auto* share = dialog.findChild<QPushButton*>("fileResourceShare");
     dialog.findChild<QLineEdit*>("fileResourceTitle")->setText("Board UART");
@@ -3982,6 +4182,84 @@ void McpTests::managedElevationRejectsWithoutAdapter()
     QVERIFY(f.local.written.isEmpty());
 }
 
+int directoryLoopbackCheck(quint16 port)
+{
+    QTemporaryDir root;
+    SshConfig config; config.host = "127.0.0.1"; config.port = port;
+    config.username = "fixture"; config.password = "fixture-only";
+    SshTransport transport(config);
+    SshTransportTestAccess::knownHosts(transport, root.filePath("known_hosts"));
+    QObject::connect(&transport, &SshTransport::hostKeyRequired, &transport, [&transport] { transport.acceptHostKey(); });
+    if (!transport.connectToHost() || !waitFor([&] { return transport.isConnected(); }, 10000)) return 1;
+    SftpSession backend;
+    QSignalSpy connected(&backend, &SftpSession::connected);
+    QSignalSpy received(&backend, &SftpSession::directoryRequestFinished);
+    QSignalSpy legacy(&backend, &SftpSession::directoryListed);
+    QSignalSpy errors(&backend, &SftpSession::errorOccurred);
+    backend.connectToHost(config, transport.serverHostKeyFingerprint(), root.filePath("known_hosts"));
+    if (!waitFor([&] { return !connected.isEmpty() || !errors.isEmpty(); }, 10000) || connected.isEmpty()) {
+        std::fprintf(stderr, "SFTP connect failed: %s\n", errors.isEmpty() ? "timeout" : qPrintable(errors.first().first().toString())); return 2;
+    }
+    const auto list = [&](const QString& path) -> std::optional<SftpDirectoryResult> {
+        const auto request = backend.requestDirectory(path);
+        if (!request || !waitFor([&] {
+            for (const auto& row : received) if (row.first().toULongLong() == request) return true;
+            return false;
+        }, 6000)) return std::nullopt;
+        for (const auto& row : received)
+            if (row.first().toULongLong() == request) return qvariant_cast<SftpDirectoryResult>(row.at(1));
+        return std::nullopt;
+    };
+    const auto first = list("/browser");
+    if (!first || !first->error.isEmpty() || first->path != "/browser") return 3;
+    QStringList names;
+    for (const auto& entry : first->entries) {
+        if (!entry.directory && !entry.linkTargetDirectory) return 4;
+        names.append(entry.name);
+    }
+    if (!names.contains("a") || !names.contains("b") || !names.contains(QStringLiteral("带 空格"))
+        || names.contains("ordinary-file") || first->truncated || !legacy.isEmpty()) return 5;
+    const auto canonical = list("/browser/a/..");
+    if (!canonical || canonical->path != "/browser" || !canonical->error.isEmpty()) return 6;
+    if (names.contains("link-a")) {
+        const auto linked = list("/browser/link-a");
+        if (!linked || linked->path != "/browser/a" || !linked->error.isEmpty()) return 6;
+    }
+    const auto large = list("/browser/big");
+    if (!large || !large->truncated || large->entries.size() != 1024 || !large->error.isEmpty()) return 7;
+    const auto missing = list("/does-not-exist");
+    if (!missing || missing->error.isEmpty() || !errors.isEmpty()) return 8;
+    const auto count = received.size(); backend.listDirectory("/browser");
+    if (!waitFor([&] { return legacy.size() == 1; }, 6000) || received.size() != count) return 9;
+    std::printf("SFTP directories, UTF-8, canonical paths, 1024-entry bound, errors and legacy isolation: PASS\n");
+    backend.disconnectFromHost(); transport.disconnect();
+    return 0;
+}
+
+int filePickerOwnerCheck(QApplication& application)
+{
+    QApplication::setAttribute(Qt::AA_DontUseNativeDialogs);
+    application.setQuitOnLastWindowClosed(false);
+    eApp->init();
+    Fixture f;
+    if (!f.enableWithoutSessionPermissions()) return 1;
+    auto owner = std::make_unique<QWidget>();
+    QPointer<FileResourceSharingDialog> dialog = new FileResourceSharingDialog(&f.service, f.client, owner.get());
+    QPushButton* browse = nullptr;
+    for (auto* button : dialog->findChildren<QPushButton*>())
+        if (button->text() == FileResourceSharingDialog::tr("选择本地目录")) browse = button;
+    if (!browse) return 2;
+    bool destroyed = false;
+    QTimer::singleShot(0, &application, [&] {
+        if (!dialog->findChild<QFileDialog*>()) { application.exit(3); return; }
+        owner.reset();
+        destroyed = dialog.isNull();
+    });
+    QTimer::singleShot(5000, &application, [&application] { application.exit(4); });
+    browse->click();
+    return destroyed && dialog.isNull() ? 0 : 5;
+}
+
 int main(int argc, char** argv)
 {
     if (qEnvironmentVariableIsEmpty("QT_QPA_PLATFORM")) qputenv("QT_QPA_PLATFORM", "offscreen");
@@ -3994,6 +4272,12 @@ int main(int argc, char** argv)
     QFontDatabase::addApplicationFont(fontRoot + "msyh.ttc");
 #endif
     const auto arguments = application.arguments();
+    if (arguments.size() == 3 && arguments[1] == "--directory-loopback-check") {
+        bool ok = false; const auto port = arguments[2].toUShort(&ok);
+        return ok && port ? directoryLoopbackCheck(port) : 1;
+    }
+    if (arguments.size() == 2 && arguments[1] == "--file-picker-owner-check")
+        return filePickerOwnerCheck(application);
     if (arguments.size() == 3 && arguments[1] == "--interop-fixture")
         return interopFixture(application, arguments[2]);
     if (arguments.size() == 3 && arguments[1] == "--shutdown-fixture")

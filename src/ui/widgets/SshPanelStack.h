@@ -33,9 +33,11 @@ public:
     }
     [[nodiscard]] PanelType* panelFor(SshTransport* transport) const { return _panels.value(transport); }
 
-    void setSessionContext(const QString& label, SshTransport* transport)
+    /** 为后台连接准备原有面板所有者，不切换当前可见面板。 */
+    PanelType* ensurePanelFor(const QString& label, SshTransport* transport)
     {
-        PanelType* panel = _placeholder;
+        if (!transport) return nullptr;
+        PanelType* panel = nullptr;
         if (transport) {
             panel = _panels.value(transport);
             if (!panel) {
@@ -53,6 +55,13 @@ public:
             }
         }
         panel->setSessionContext(label, transport);
+        return panel;
+    }
+
+    void setSessionContext(const QString& label, SshTransport* transport)
+    {
+        PanelType* panel = transport ? ensurePanelFor(label, transport) : _placeholder;
+        if (!transport) panel->setSessionContext(label, nullptr);
         setCurrentWidget(panel);
         setWindowTitle(panel->windowTitle());
     }

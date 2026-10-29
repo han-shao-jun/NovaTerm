@@ -7,6 +7,10 @@
 #include <QtTest>
 #include <limits>
 #include <type_traits>
+#ifdef Q_OS_LINUX
+#include <unistd.h>
+#include <sys/stat.h>
+#endif
 #ifdef Q_OS_WIN
 #ifndef NOMINMAX
 #define NOMINMAX
@@ -20,12 +24,14 @@ using namespace NovaTerm::Mcp;
 using namespace NovaTerm::Mcp::Files;
 
 namespace {
-#ifdef Q_OS_WIN
+#if defined(Q_OS_WIN) || defined(Q_OS_LINUX)
 bool put(const QString& path, const QByteArray& bytes)
 {
     QFile file(path);
     return file.open(QIODevice::WriteOnly) && file.write(bytes) == bytes.size();
 }
+#endif
+#ifdef Q_OS_WIN
 QByteArray contents(const QString& path)
 {
     QFile file(path);
@@ -72,9 +78,74 @@ bool junction(const QString& path, const QString& target)
 class LocalFileAccessTests : public QObject {
     Q_OBJECT
 private slots:
+#ifdef Q_OS_LINUX
+    void linuxReaderUsesPinnedBoundedSource() {
+        QTemporaryDir root; QVERIFY(root.isValid());
+        QVERIFY(QDir(root.path()).mkdir("nested"));
+        const auto path = root.filePath("nested/source");
+        QFile file(path); QVERIFY(file.open(QIODevice::WriteOnly));
+        const QByteArray original("abc\0def\r\nxyz", 12);
+        QCOMPARE(file.write(original), original.size()); file.close();
+        auto opened = LocalFileReader::open(root.path(), "nested/source");
+        QVERIFY(std::holds_alternative<std::unique_ptr<LocalFileReader>>(opened));
+        auto reader = std::move(std::get<std::unique_ptr<LocalFileReader>>(opened));
+        QCOMPARE(reader->size(), quint64(12));
+        QCOMPARE(std::get<QByteArray>(reader->readAt(4, 3)), original.mid(4, 3));
+        QCOMPARE(std::get<QByteArray>(reader->read(4)), original.left(4));
+        QCOMPARE(std::get<QByteArray>(reader->read(65536)), original.mid(4));
+        QCOMPARE(std::get<QByteArray>(reader->read(1)), QByteArray{});
+        QCOMPARE(std::get<FileIoError>(reader->readAt(12, 1)), FileIoError::SizeLimit);
+        QVERIFY(QFile::rename(path, root.filePath("renamed")));
+        QFile replacement(path); QVERIFY(replacement.open(QIODevice::WriteOnly));
+        QCOMPARE(replacement.write("replacement!"), qint64(12)); replacement.close();
+        const auto pinned = reader->readAt(0, 12);
+        if (const auto* bytes = std::get_if<QByteArray>(&pinned)) QCOMPARE(*bytes, original);
+    }
+    void linuxReaderRejectsUnsafeObjects_data() {
+        QTest::addColumn<QString>("kind");
+        for (const auto* kind : {"symlink", "parent-symlink", "root-symlink", "hardlink", "fifo", "directory", "oversize"})
+            QTest::newRow(kind) << QString::fromLatin1(kind);
+    }
+    void linuxReaderRejectsUnsafeObjects() {
+        QFETCH(QString, kind); QTemporaryDir root;
+        QVERIFY(QDir(root.path()).mkdir("inside"));
+        QVERIFY(QDir(root.path()).mkdir("outside"));
+        auto selected = root.filePath("inside"); QString relative = "source";
+        QFile file(root.filePath("outside/data")); QVERIFY(file.open(QIODevice::WriteOnly));
+        QCOMPARE(file.write("outside"), qint64(7)); file.close();
+        if (kind == "symlink") QVERIFY(QFile::link(file.fileName(), selected + "/source"));
+        else if (kind == "parent-symlink") {
+            QVERIFY(QFile::link(root.filePath("outside"), selected + "/link")); relative = "link/data";
+        } else if (kind == "root-symlink") {
+            QVERIFY(QFile::link(root.filePath("outside"), root.filePath("linked-root")));
+            selected = root.filePath("linked-root"); relative = "data";
+        } else if (kind == "hardlink") {
+            QCOMPARE(::link(QFile::encodeName(file.fileName()).constData(), QFile::encodeName(selected + "/source").constData()), 0);
+        } else if (kind == "fifo") QCOMPARE(::mkfifo(QFile::encodeName(selected + "/source").constData(), 0600), 0);
+        else if (kind == "directory") QVERIFY(QDir().mkdir(selected + "/source"));
+        else { QFile large(selected + "/source"); QVERIFY(large.open(QIODevice::WriteOnly)); QVERIFY(large.resize(Budget::MaxLocalTransferFileBytes + 1)); }
+        const auto opened = LocalFileReader::open(selected, relative);
+        QVERIFY(std::holds_alternative<FileIoError>(opened));
+        QCOMPARE(std::get<FileIoError>(opened), kind == "oversize" ? FileIoError::SizeLimit : FileIoError::UnsafeFile);
+    }
+    void linuxReaderRefusesMutationAndInvalidPaths() {
+        QTemporaryDir root;
+        const auto path = root.filePath("source");
+        QFile source(path); QVERIFY(source.open(QIODevice::WriteOnly)); source.write("original"); source.close();
+        auto opened = LocalFileReader::open(root.path(), "source");
+        QVERIFY(std::holds_alternative<std::unique_ptr<LocalFileReader>>(opened));
+        auto reader = std::move(std::get<std::unique_ptr<LocalFileReader>>(opened));
+        QVERIFY(source.open(QIODevice::WriteOnly)); source.write("changed-size"); source.close();
+        QVERIFY(std::holds_alternative<FileIoError>(reader->readAt(0, 2)));
+        QCOMPARE(std::get<FileIoError>(reader->readAt(0, 2)), FileIoError::InvalidState);
+        for (const auto& relative : QStringList{"../source", "/source", "a//b", "a/./b", "a\\b", "a:b", QString(5000, 'x')})
+            QCOMPARE(std::get<FileIoError>(LocalFileReader::open(root.path(), relative)), FileIoError::InvalidPath);
+        QCOMPARE(std::get<FileIoError>(LocalFileReader::open("/", "source")), FileIoError::InvalidPath);
+    }
+#endif
     void readsBinaryFileWithBoundedChunks()
     {
-#ifndef Q_OS_WIN
+#if !defined(Q_OS_WIN) && !defined(Q_OS_LINUX)
         auto result = LocalFileReader::open("/tmp/unused", "file");
         QCOMPARE(std::get<FileIoError>(result), FileIoError::UnsupportedPlatform);
 #else

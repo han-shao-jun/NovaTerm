@@ -35,10 +35,38 @@ class SftpRoot(paramiko.SFTPServerInterface):
         normalized = posixpath.normpath("/" + path.lstrip("/"))
         if normalized == "/.." or normalized.startswith("/../"):
             raise OSError("path escapes loopback SFTP root")
-        return (self.root / normalized.lstrip("/")).resolve()
+        resolved = (self.root / normalized.lstrip("/")).resolve()
+        if not resolved.is_relative_to(self.root):
+            raise OSError("path escapes loopback SFTP root")
+        return resolved
 
     def canonicalize(self, path):
-        return posixpath.normpath("/" + path.lstrip("/"))
+        try:
+            relative = self._local(path).relative_to(self.root).as_posix()
+            return "/" if relative == "." else "/" + relative
+        except OSError:
+            return paramiko.SFTP_PERMISSION_DENIED
+
+    def list_folder(self, path):
+        try:
+            result = []
+            for entry in self._local(path).iterdir():
+                attributes = paramiko.SFTPAttributes.from_stat(entry.lstat())
+                attributes.filename = entry.name
+                result.append(attributes)
+            return result
+        except OSError:
+            return paramiko.SFTP_PERMISSION_DENIED
+
+    def readlink(self, path):
+        try:
+            normalized = posixpath.normpath("/" + path.lstrip("/"))
+            link = self.root / normalized.lstrip("/")
+            if not link.parent.resolve().is_relative_to(self.root):
+                return paramiko.SFTP_PERMISSION_DENIED
+            return os.readlink(link)
+        except OSError:
+            return paramiko.SFTP_FAILURE
 
     def stat(self, path):
         try:
@@ -152,9 +180,18 @@ class Server(paramiko.ServerInterface):
 
 def main():
     executable = Path(sys.argv[1] if len(sys.argv) > 1 else ROOT / "build/Release/bin/novaterm_mcp_tests.exe")
+    directory_check = len(sys.argv) > 2 and sys.argv[2] == "--directories"
     fixture_root = tempfile.TemporaryDirectory(prefix="novaterm-sftp-loopback-")
     sftp_root = Path(fixture_root.name)
     (sftp_root / "scripts").mkdir()
+    if directory_check:
+        for directory in ("browser/a", "browser/b", "browser/带 空格", "browser/big"):
+            (sftp_root / directory).mkdir(parents=True, exist_ok=True)
+        (sftp_root / "browser/ordinary-file").write_text("not a directory", encoding="utf-8")
+        for index in range(1030):
+            (sftp_root / f"browser/big/d{index:04}").mkdir()
+        if os.name != "nt":
+            (sftp_root / "browser/link-a").symlink_to("a", target_is_directory=True)
     listener = socket.socket()
     listener.bind(("127.0.0.1", 0))
     listener.listen(1)
@@ -194,7 +231,7 @@ def main():
     try:
         try:
             result = subprocess.run(
-                [str(executable), "--ssh-loopback-check", str(listener.getsockname()[1])],
+                [str(executable), "--directory-loopback-check" if directory_check else "--ssh-loopback-check", str(listener.getsockname()[1])],
                 timeout=30, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                 creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
         except subprocess.TimeoutExpired as timeout:
@@ -209,6 +246,9 @@ def main():
             print(f"SSH fixture process exit: {result.returncode:#x}", file=sys.stderr)
         if result.returncode:
             raise SystemExit(result.returncode)
+        if directory_check:
+            print("loopback SFTP directory browse: PASS")
+            return
         script = sftp_root / "scripts" / "novaterm-loopback.sh"
         expected = b"#!/bin/sh\nprintf loopback-only\n"
         if not script.exists() or script.read_bytes() != expected:

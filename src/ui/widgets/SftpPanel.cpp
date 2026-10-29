@@ -898,6 +898,19 @@ SftpSession* SftpPanel::fileTransferSession(SshTransport* expected) const
         && expected->serverHostKeyFingerprint() == _hostKeyFingerprint
         && !hasPendingUserOperations() && !_authorizedUploadId ? _sftpSession : nullptr;
 }
+SftpSession* SftpPanel::directoryBrowsingSession(SshTransport* expected)
+{
+    if (!expected || expected != _sshTransport || !expected->isConnected()
+        || _hostKeyFingerprint.isEmpty() || expected->connectionGeneration() != _connectionGeneration
+        || expected->serverHostKeyFingerprint() != _hostKeyFingerprint) return nullptr;
+    if (!_sftpSession->isConnected() && _sftpSession->canStartConnection()) {
+        _hasError = false;
+        _availabilityLabel->setText(tr("Connecting to SFTP…"));
+        _sftpSession->connectToHost(expected->sessionConfig(), _hostKeyFingerprint, expected->knownHostsPath());
+    }
+    return _sftpSession;
+}
+
 bool SftpPanel::uploadAuthorizedFile(const SftpFileUploadRequest& request)
 {
     if (!fileTransferSession(_sshTransport) || !request.requestId) return false;

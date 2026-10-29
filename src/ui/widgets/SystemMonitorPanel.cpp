@@ -394,8 +394,15 @@ SystemMonitorPanel::SystemMonitorPanel(QWidget* parent)
 
 SystemMonitorPanel::~SystemMonitorPanel()
 {
-    if (_systemInformationDialog)
-        _systemInformationDialog->close();
+    if (_systemInformationDialog) {
+        auto* dialog = _systemInformationDialog.data();
+        // QWidget deletes child windows after this class's members are gone.
+        // A late destroyed callback must not access an already-destructed QPointer.
+        dialog->removeEventFilter(this);
+        disconnect(dialog, nullptr, this, nullptr);
+        _systemInformationDialog = nullptr;
+        dialog->close();
+    }
     if (!_sshTransport)
         return;
     _sshTransport->stopResourceMonitoring();

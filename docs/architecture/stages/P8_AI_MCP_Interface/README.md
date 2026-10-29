@@ -4,7 +4,7 @@
 
 更新：2026-10-28。主线是本地外部Agent编码、编译和部署，通过NovaTerm MCP操作SSH/UART、观察终端反馈，再继续修复。NovaTerm提供明确授权的工具，不内置Agent、不托管模型、不编排开发流程。
 
-当前二十二工具覆盖终端观察/输入、历史与日志、清空/等待/任务、保存目标连接/预授权、独立文件目录、SFTP上传/下载与UART发送。Windows基础软件已有分阶段证据，SFTP上传/下载显式覆盖本阶段Windows软件回归已完成，B4仍待用户验收，见[覆盖记录](records/B3b_File_Overwrite_2026-10-28.md)。本轮按Windows交付，Linux/macOS安全文件后端仍未实现；B4由用户验收，P8未整体完成。
+当前二十二工具覆盖终端观察/输入、历史与日志、清空/等待/任务、独立文件目录、SFTP上传/下载与UART发送。Windows基础软件已有分阶段证据，SFTP上传/下载显式覆盖本阶段Windows软件回归已完成，B4仍待用户验收，见[覆盖记录](records/B3b_File_Overwrite_2026-10-28.md)。Windows软件历史成绩保留，本轮Linux安全读取源后端已实现；Linux安全写入及macOS文件后端仍未实现；B4由用户验收，P8未整体完成。
 
 UART发送复用原Controller、worker、唯一输入泵和协议owner，需要独立本地读取与UART发送授权。调用方独立准备接收端并显式release已有MCP输入lease；工具不自动rz、不抢占人工传输。protocolCompleted与fileConfirmed分别表示协议结束与单文件确认，ZSKIP不是送达；remotePublication始终unknown、contentVerified始终false。按真实大小/波特率计算总期限，超预算在首个协议字节前拒绝。
 
@@ -15,7 +15,7 @@ SFTP上传需要local.read+remote.write，下载需要local.write+remote.read；
 | 文档 | 职责 |
 | --- | --- |
 | [总体架构](00_Overall_Architecture.md) | 目标、分工、唯一数据通路、所有权和兼容边界 |
-| [现行契约](02_Current_MCP_Contract.md) | 当前二十六工具、独立权限、精确字段与有限预算 |
+| [现行契约](02_Current_MCP_Contract.md) | 当前二十二工具、独立权限、精确字段与有限预算 |
 | [闭环缺口与证据](03_Gaps_and_Evidence.md) | 当前软件缺口与待验场景；历史静态盘点按日期追溯 |
 | [游标与清空](04_Cursor_Observation_and_Clear.md) | 日志位置/分页/失效与清空事务语义 |
 | [Agent使用流程](05_Agent_Workflow.md) | 从目标确认到部署、观察、重试和结果判断 |
