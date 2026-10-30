@@ -14,7 +14,7 @@ enum class FileIoError {
 template<typename T> using FileIoResult = std::variant<T, FileIoError>;
 
 // Synchronous worker-only boundary. The caller owns authorization and rechecks
-// the original resource revision/identity before opening and before publishing.
+// the original identity/connection before opening and before publishing.
 // Reader supports Windows and Linux (pinned descriptors, no symlink traversal).
 // Linux detects source metadata changes; flock is advisory, so directory writers
 // must be trusted. Writer remains Windows-only and otherwise fails closed.

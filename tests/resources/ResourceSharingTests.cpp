@@ -15,9 +15,11 @@ R::HistoryReadPort source(R::HistoryCaptureId id, QByteArray bytes = "error\n") 
     }, [id, bytes](R::HistoryCaptureId, R::HistoryRange, auto done) {
         R::HistoryRecord record; record.captureId = id; record.recordId = record.lastRecordId = 1; record.payload = bytes;
         R::ReadResult result; result.records.push_back(record); done(std::move(result)); return true;
+    }, [id] {
+        R::HistoryResource resource; resource.capture.id = id; resource.capture.highWaterRecordId = 1;
+        return std::vector<R::HistoryResource>{resource};
     }};
 }
-Resources::GrantPersistence memoryGrants() { return {{}, [](const auto&) { return true; }}; }
 Resources::EvidenceSearchPage search(Resources::ResourceSharingService& resources, R::HistorySearchRequest query) {
     std::optional<Resources::EvidenceSearchPage> result;
     resources.searchAsync(std::move(query), {"local", 7}, [&](auto value) { result = std::move(value); });
@@ -29,10 +31,74 @@ Resources::EvidenceSearchPage search(Resources::ResourceSharingService& resource
 class ResourceSharingTests final : public QObject {
     Q_OBJECT
 private slots:
+    void existingRecordingReadableAndSearchableWithoutSharing() {
+        quint64 epoch = 7;
+        Resources::ResourceSharingService resources([&](const QString& id) { return id == "local" ? epoch : 0; });
+        const R::HistoryCaptureId capture{QUuid::createUuid()}; resources.setHistorySource(source(capture));
+        const auto listed = resources.list({"local", 7}, {});
+        QVERIFY(listed.error.isEmpty()); QCOMPARE(listed.captures.size(), size_t(1));
+        QCOMPARE(listed.captures.front().id, capture);
+        std::optional<R::HistoryReadPage> read;
+        R::HistoryReadRequest request; request.captureId = capture;
+        resources.readAsync(request, {"local", 7}, [&](auto page) { read = std::move(page); });
+        QTRY_VERIFY(read); QVERIFY2(read->error.isEmpty(), qPrintable(read->error));
+        QCOMPARE(read->byteCount, qsizetype(6));
+        R::HistorySearchRequest query; query.captureId = capture; query.query = "error";
+        const auto found = search(resources, query);
+        QVERIFY2(found.page.error.isEmpty(), qPrintable(found.page.error));
+        QCOMPARE(found.page.hits.size(), size_t(1)); QVERIFY(!found.evidence.evidenceId.isEmpty());
+        epoch = 0;
+        QVERIFY(!resources.authorize({"local", 7}, capture));
+        read.reset(); resources.readAsync(request, {"local", 7}, [&](auto page) { read = std::move(page); });
+        QTRY_VERIFY(read); QCOMPARE(read->error, QString("PERMISSION_DENIED")); QVERIFY(read->records.empty());
+        epoch = 8;
+        QVERIFY(!resources.authorize({"local", 7}, capture));
+        QVERIFY(resources.authorize({"local", 8}, capture));
+        QVERIFY(!resources.authorize({"local", 8}, {QUuid::createUuid()}));
+    }
+    void catalogPagingTracksResourceGenerationAndRemoval() {
+        Resources::ResourceSharingService resources([](const QString&) { return quint64(7); });
+        const R::HistoryCaptureId first{QUuid("11111111-1111-4111-8111-111111111111")};
+        const R::HistoryCaptureId second{QUuid("22222222-2222-4222-8222-222222222222")};
+        std::vector<R::HistoryResource> catalog(2);
+        catalog[0].capture.id = second; catalog[1].capture.id = first;
+        R::HistoryReadPort port;
+        port.catalog = [&] { return catalog; };
+        port.describe = [&](auto id) -> std::optional<R::HistoryResource> {
+            for (const auto& resource : catalog) if (resource.capture.id == id) return resource;
+            return {};
+        };
+        resources.setHistorySource(port);
+        Resources::CaptureListQuery query; query.limit = 1;
+        const auto page = resources.list({"local", 7}, query);
+        QCOMPARE(page.captures.size(), size_t(1)); QCOMPARE(page.captures.front().id, first);
+        query.after = page.nextAfter; query.digest = page.digest;
+        const auto next = resources.list({"local", 7}, query);
+        QCOMPARE(next.captures.size(), size_t(1)); QCOMPARE(next.captures.front().id, second);
+        QVERIFY(next.nextAfter.isEmpty());
+        ++catalog[0].generation;
+        QCOMPARE(resources.list({"local", 7}, query).error, QString("CURSOR_STALE"));
+        QVERIFY(!resources.authorize({"local", 7}, second, 1));
+        QVERIFY(resources.authorize({"local", 7}, second, 2));
+        catalog.clear();
+        QVERIFY(resources.list({"local", 7}, {}).captures.empty());
+        QVERIFY(!resources.authorize({"local", 7}, first));
+    }
+    void identityChangeDuringReadWithholdsAlreadyReadBytes() {
+        quint64 epoch = 7;
+        Resources::ResourceSharingService resources([&](const QString&) { return epoch; });
+        const R::HistoryCaptureId capture{QUuid::createUuid()}; resources.setHistorySource(source(capture));
+        std::optional<R::HistoryReadPage> result;
+        R::HistoryReadRequest request; request.captureId = capture;
+        resources.readAsync(request, {"local", 7}, [&](auto page) { result = std::move(page); });
+        ++epoch; // The storage callback is queued; the original identity is already retired.
+        QTRY_VERIFY(result); QCOMPARE(result->error, QString("PERMISSION_DENIED"));
+        QVERIFY(result->records.empty()); QCOMPARE(result->byteCount, qsizetype(0));
+    }
     void cancelledCachedSearchDoesNotReplayEvidence() {
-        Resources::ResourceSharingService resources([](const QString&) { return quint64(7); }, memoryGrants());
+        Resources::ResourceSharingService resources([](const QString&) { return quint64(7); });
         const R::HistoryCaptureId capture{QUuid::createUuid()}; resources.setHistorySource(source(capture, "ab ab ab ab"));
-        QVERIFY(resources.share("local", capture, 1, 0, false).isEmpty());
+
         R::HistorySearchRequest query; query.captureId = capture; query.query = "ab"; query.mode = R::HistorySearchMode::RawBytes; query.maxMatches = 1;
         query.cursor = search(resources, query).page.nextCursor; QVERIFY(!query.cursor.isEmpty());
         const auto page = search(resources, query); QVERIFY(page.page.error.isEmpty()); QCOMPARE(page.page.hits.size(), size_t(1));
@@ -41,14 +107,14 @@ private slots:
         QVERIFY(cancelled.page.hits.empty()); QVERIFY(cancelled.evidence.evidenceId.isEmpty());
     }
     void admissionLostDuringEvidenceReadReleasesSearchLease() {
-        Resources::ResourceSharingService resources([](const QString&) { return quint64(7); }, memoryGrants());
+        Resources::ResourceSharingService resources([](const QString&) { return quint64(7); });
         const R::HistoryCaptureId capture{QUuid::createUuid()}; auto port = source(capture, "ab ab ab ab");
         const auto original = port.readCommitted; int calls = 0; bool admitted = true;
         port.readCommitted = [&](auto id, auto range, auto done) {
             if (++calls == 2) admitted = false; // Search read succeeds; evidence read invalidates admission.
             return original(id, range, std::move(done));
         };
-        resources.setHistorySource(port); QVERIFY(resources.share("local", capture, 1, 0, false).isEmpty());
+        resources.setHistorySource(port);
         for (int i = 0; i < 4; ++i) {
             calls = 0; admitted = true;
             R::HistorySearchRequest query; query.captureId = capture; query.query = "ab"; query.mode = R::HistorySearchMode::RawBytes;
@@ -58,10 +124,10 @@ private slots:
         }
     }
     void twoTrustedEntriesShareOneApplicationAndDisableIndependently() {
-        Resources::ResourceSharingService resources([](const QString& id) -> quint64 { return id == "external" || id == "local" ? 7 : 0; }, memoryGrants());
+        Resources::ResourceSharingService resources([](const QString& id) -> quint64 { return id == "external" || id == "local" ? 7 : 0; });
         const R::HistoryCaptureId capture{QUuid::createUuid()}; resources.setHistorySource(source(capture));
-        QVERIFY(resources.share("external", capture, 1, 0, false).isEmpty());
-        QVERIFY(resources.share("local", capture, 1, 0, false).isEmpty());
+
+
         auto registry = C::CapabilityRegistry::implementedCapabilities();
         C::CapabilityAuthorization authorization([&](const C::PrincipalId& principal, C::EntryKind,
             const C::ResourceBinding& binding, const C::Definition&) -> std::optional<C::AuthorizationSnapshot> {
@@ -106,7 +172,7 @@ private slots:
         QVERIFY(std::get<R::HistoryReadPage>(*afterClose).error.isEmpty());
     }
     void importedEvidenceSurvivesRecordingSourceRemoval() {
-        Resources::ResourceSharingService resources([](const QString& id) -> quint64 { return id == "local" ? 7 : 0; }, memoryGrants());
+        Resources::ResourceSharingService resources([](const QString& id) -> quint64 { return id == "local" ? 7 : 0; });
         QTemporaryDir root; QVERIFY(root.isValid()); QFile file(root.filePath("explicit.log")); QVERIFY(file.open(QIODevice::WriteOnly));
         QCOMPARE(file.write("offline contents"), qint64(16)); file.close();
         std::optional<Resources::ImportResult> imported;
@@ -125,27 +191,25 @@ private slots:
         QTRY_VERIFY(resolved); QVERIFY(resolved->error != E::Error::None); QVERIFY(resolved->bytes.isEmpty());
     }
     void evidenceUsesTheSourceGeneration() {
-        Resources::ResourceSharingService resources([](const QString&) { return quint64(7); }, memoryGrants());
+        Resources::ResourceSharingService resources([](const QString&) { return quint64(7); });
         const R::HistoryCaptureId capture{QUuid::createUuid()}; auto port = source(capture);
         const auto describe = port.describe;
         port.describe = [describe](R::HistoryCaptureId id) { auto resource = describe(id); if (resource) resource->generation = 3; return resource; };
-        resources.setHistorySource(port); QVERIFY(resources.share("local", capture, 1, 0, false).isEmpty());
-        QVERIFY(resources.sharingStatus("local", capture).startsWith("Shared records"));
+        resources.setHistorySource(port);
         R::HistorySearchRequest query; query.captureId = capture; query.query = "error";
         const auto page = search(resources, query); QVERIFY2(page.page.error.isEmpty(), qPrintable(page.page.error));
         QCOMPARE(page.page.hits.size(), size_t(1)); QCOMPARE(page.evidence.source.generation, quint64(3));
     }
-    void persistenceRestoresOnlyTheCurrentPrincipalEpoch() {
-        std::vector<R::ResourceGrant> saved; quint64 epoch = 7;
-        Resources::GrantPersistence persistence{[&] { return saved; }, [&](const auto& grants) { saved = grants; return true; }};
+    void recordingAccessSurvivesServiceRestartWithCurrentIdentityOnly() {
+        quint64 epoch = 7;
         const R::HistoryCaptureId capture{QUuid::createUuid()};
-        { Resources::ResourceSharingService resources([&](const QString&) { return epoch; }, persistence);
-          resources.setHistorySource(source(capture)); QVERIFY(resources.share("owner", capture, 1, 0, true).isEmpty()); }
-        QCOMPARE(saved.size(), size_t(1));
-        { Resources::ResourceSharingService restored([&](const QString&) { return epoch; }, persistence);
-          restored.setHistorySource(source(capture)); QVERIFY(restored.authorize({"owner", 7}, capture)); }
-        ++epoch; Resources::ResourceSharingService rotated([&](const QString&) { return epoch; }, persistence);
-        rotated.setHistorySource(source(capture)); QVERIFY(!rotated.authorize({"owner", epoch}, capture));
+        { Resources::ResourceSharingService resources([&](const QString&) { return epoch; });
+          resources.setHistorySource(source(capture)); QVERIFY(resources.authorize({"owner", 7}, capture)); }
+        ++epoch;
+        Resources::ResourceSharingService restored([&](const QString&) { return epoch; });
+        restored.setHistorySource(source(capture));
+        QVERIFY(!restored.authorize({"owner", 7}, capture));
+        QVERIFY(restored.authorize({"owner", epoch}, capture));
     }
 };
 QTEST_GUILESS_MAIN(ResourceSharingTests)

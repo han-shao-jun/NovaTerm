@@ -1,23 +1,23 @@
 # NovaTerm AI MCP 使用说明
 
-2026-10-30：当前二十二工具。所有 AI 共用一套接入令牌和授权；首次启用自动建立统一接入。会话目录只列当前已连接且获准读取的会话；每个新就绪连接默认启用读取、完整输入、托管提权和清空四项权限。同一连接内手动撤权不会被刷新恢复。保存目标目录/打开/查询/关闭四工具和对应界面已移除，手动保存会话入口保留。当前改动的验证结果以本轮记录为准，不沿用历史测试成绩。Linux安全读取源已实现，Linux安全写入及macOS文件后端仍未实现；托管提权适配器仍不可用。参数见[现行契约](architecture/stages/P8_AI_MCP_Interface/02_Current_MCP_Contract.md)，历史成绩见[验收档案](architecture/stages/P8_AI_MCP_Interface/records/README.md)。
+2026-10-30：当前二十工具。所有 AI 共用一套接入令牌和授权；首次启用自动建立统一接入。会话目录只列当前已连接且获准读取的会话；每个新就绪连接默认启用读取、完整输入、托管提权和清空四项权限。同一连接内手动撤权不会被刷新恢复。保存目标目录/打开/查询/关闭四工具和对应界面已移除，手动保存会话入口保留。当前改动的验证结果以本轮记录为准，不沿用历史测试成绩。Linux安全读取源已实现，Linux安全写入及macOS文件后端仍未实现；托管提权适配器仍不可用。参数见[现行契约](architecture/stages/P8_AI_MCP_Interface/02_Current_MCP_Contract.md)，历史成绩见[验收档案](architecture/stages/P8_AI_MCP_Interface/records/README.md)。
 
 NovaTerm 提供进程内 Streamable HTTP MCP 服务，可让支持 MCP 的 AI 客户端读取指定终端输出、
 搜索已读取的内容，并按统一授权操作当前交互终端。MCP 总开关默认关闭。
 
-历史录制与读取另行授权：在主菜单 **历史录制** 中手动开始/停止录制，选择录制条目，填写 record 范围后点击 **Share selected**。所选历史和导入文件向所有持有统一令牌的 AI 共享；终端的「读取输出」权限不会授权完整历史。范围终点为 `0` 表示每次请求时的已提交高水位，活动录制后续提交的数据也在此选择范围内；指定有限 record ID 可固定共享范围。默认共享到退出，勾选 **Keep permission after restart** 才保存离线权限；关闭终端不会撤销，撤回请用 **Revoke history permission**。
+历史录制仍在主菜单 **历史录制** 中手动开始/停止。启用统一 MCP 后，已有录制可直接列出、读取、搜索，无须选择录制条目再逐条授权；关闭终端不删除历史。历史工具不自动启动录制或恢复设备连接。独立日志导入用于创建本次运行的分析资源，最多 16 MiB；可清除已导入资源。
 
-历史工具为 `novaterm_list_captures`（仅列获准录制）、`novaterm_read_history`（base64 原文字节分页）、`novaterm_search_history`（UTF-8 文本或原文字节 literal 搜索）。按返回的 nextCursor 续页，不把 `complete=false` 或 unknown_tail 当成无缺失/无故障。搜索证据默认仅保留期限内存，退出后不可恢复；历史工具不会自动启用录制、恢复设备连接或执行命令。本机 **Share local log file…** 只共享明确选择的文件资源，最多 16 MiB，权限到退出，可用 **Revoke imported files** 撤回；本轮不规划离线分析器。
+## 直接路径传输与一次确认
 
-## 文件资源选择与当前平台能力（2026-10-30）
+不再有独立的文件授权窗口、共享目录选择或串口发送目标授权。提示词给出文件路径和已连接目标即可，例如“把 `D:\build\firmware.bin` 上传到开发板 `/home/root/firmware.bin`”。本地路径属于 **运行 NovaTerm 的机器**。
 
-在文件资源授权中选择本地目录时打开本机目录选择器；选择远端SSH目录并选中实际已连接会话后，按钮改为**选择远端目录**。浏览器支持主目录、上级、输入路径转到、双击/回车进入目录和选择当前目录；只列目录，选择路径不会自动授权，仍须明确填写名称和读写权限并提交共享。目录较大时显式提示截断，可直接输入完整路径。关闭、切换类型/连接或重置接入身份会丢弃本次旧结果。
+首次调用上传工具返回 `state=confirmation_required`，包含源路径、目标会话/路径、覆盖选项及 `confirmationToken`。外部 Agent 把这些信息展示给用户，**只询问一次是否上传**。用户接受后，Agent 自动以相同参数和 operationId，附 `confirmationToken`、`confirmed=true` 续调；拒绝用 `confirmed=false`，不会发送文件。NovaTerm 不再弹第二个确认窗口。
 
-浏览路径最多4096个UTF-8字节，共享目录保持既有1024字节上限。较长目录仍可浏览，但不能选为共享根；本地选择器返回过长路径会明确拒绝，不截断路径后授权。文件系统根目录不能整体共享。
+相同源路径、目标端点/位置、协议及覆盖选项会在本机记忆，后续新操作直接执行，无须再次询问。记忆按路径，不是按文件内容 hash；同一路径重新构建后的文件沿用确认。路径/目标/覆盖变化重新确认。设置页的 **清除上传确认记忆** 会清除记忆和待确认请求；令牌更换后的新主体不继承旧令牌记忆。确认凭据有效 5 分钟，只能用于原身份、原连接和原参数，待确认最多64项，记忆最多512项。
 
-串口ZMODEM模式只授权发送目标，因此隐藏无关目录框和读取选项。先在本地目录模式共享源目录的读取权限，再选择串口、允许发送；不要把目录授权当作接收端准备就绪。MCP终端输入lease仍须显式release，不自动发送rz或抢占人工传输。
+SFTP 自动通过原会话的后台 owner 准备就绪，不必先打开文件面板；人工文件作业在进行时等待原后端空闲。串口发送自动衔接本 AI 的输入控制，接收端仍需先准备好。不会自动运行上传文件。
 
-Linux读取源现使用固定描述符、逐级禁止符号链接、单硬链接普通文件校验和分块pread；同一源只在worker中打开一次。flock为协作锁，不能提供Windows的强制禁止写入/重命名，目录其他写入者须可信；观察到大小/身份/属性变化会拒绝继续读取，不能承诺任意并发写入下的原子内容快照。Linux下载写入后端与macOS后端仍未实现，本轮不宣称完整跨平台文件交付。实现及验证见[本轮记录](architecture/File_Resource_Browser_Fixes_2026-10-30.md)。
+Windows/Linux支持安全本地读取，Linux Writer和macOS后端仍未实现。保持64 MiB文件、64 KiB分块、固定句柄与类型检查；Linux flock为协作锁，源目录其他写入者须可信。
 
 ## 开始使用
 
@@ -37,7 +37,7 @@ Linux读取源现使用固定描述符、逐级禁止符号链接、单硬链接
 默认接入地址为 `http://127.0.0.1:38973/mcp`，应用重启后保持稳定；应用启动前
 可用环境变量 `NOVATERM_MCP_HTTP_PORT` 覆盖端口。端口占用会明确报错，不自动
 换端口。需要多个应用实例时为各实例显式选择不同端口，使用各自导出的 URL 和令牌。
-应用必须运行且已启用 MCP，客户端不会自动启动主程序。应用重启后的新就绪连接同样应用默认会话权限；文件与历史共享仍独立。
+应用必须运行且已启用 MCP，客户端不会自动启动主程序。应用重启后的新就绪连接同样应用默认会话权限；历史自动可读；已记忆的上传路径按原确认组合复用。
 
 导出的单个 HTTP server 对象形状如下，令牌仅为占位值：
 
@@ -104,17 +104,9 @@ status=gap 表示旧位置被淘汰；status=invalidated 表示本机 clear 或 
 
 ## 文本等待与长任务（B3/B3a）
 
-当前共二十二个工具：上述五项、三项离线历史、独立清空、以下四项等待/任务、独立文件授权目录、SFTP上传/下载/查询/取消四项、UART发送授权目录及UART上传/查询/取消三项。SSH/UART交互均复用当前可见终端；先列会话核对 availability.terminalTasks，再观察和输入。
+当前共二十个工具：五个基础终端工具、三项历史、清空、四项等待/任务、SFTP上传/下载/查询/取消四项，以及UART上传/查询/取消三项。AI从已连接会话目录取得sessionId/epoch，用户不用手工填写内部ID。
 
-文件权限在本机MCP设置的「文件资源授权…」中为所有 AI 共同选择：本地目录与当前SSH远端目录各自明确读/写，默认不选，终端授权不会自动授予文件权限。调用 `novaterm_list_file_resources` 无参数可发现统一接入已共享的本地resourceId、远端scopeId及其sessionId/epoch；也可用成对sessionId/epoch筛选。返回不含本机路径或文件字节，名称文字及远端路径由本机用户主动共享。身份变化或重连后需复核，陈旧授权窗口不能给新连接授权。
-
-授权窗口绑定打开时的统一接入身份，采用父窗口模态；令牌重置、停用或身份变化后旧窗口拒绝提交，需关闭后重新打开。无关刷新保留同一 ID 与 revision 的选择，规则更新、撤回或连接换绑后须重新选择。历史导入的文件选择期间身份变化也会拒绝旧操作。
-
-目录工具返回 `availability=authorization_only`，列表只证明共享许可，不证明路径安全或文件存在。SFTP上传用 `novaterm_upload_file`，下载用 `novaterm_download_file`，共用 `novaterm_query_transfer/cancel_transfer`，须原终端SFTP面板就绪。上传创建新目标要求hardlink扩展版本1，显式覆盖已有目标要求posix-rename扩展版本1；下载由安全本地Writer发布，不要求远端hardlink。两项overwrite默认false，显式true按下节边界执行。
-
-UART在同一窗口选择“串口 ZMODEM 发送”，选当前连接、填写共享名称并勾“允许ZMODEM发送”。`novaterm_list_serial_file_targets` 无参数发现统一授权，返回targetId/revision和sessionId/epoch；不要求终端读取权限，不隐含本地文件读权限。重连、配置或身份改变须重新授权。授权目录只证明共享许可，不证明接收端已准备或输入lease空闲；发送步骤见下节，上传不会自动输入rz、释放lease或抢占人工传输。
-
-保存目标四工具 `novaterm_list_targets/open_target/query_target/close_target` 已移除。应用左侧的手动保存会话、编辑和双击重连继续保留。UART 文件发送的 `targetId` 是独立发送授权标识，不是已移除的保存连接目录。
+`novaterm_list_file_resources`、`novaterm_list_serial_file_targets` 已退役，旧 resourceId/scopeId/targetId 与 revision 参数明确拒绝。保存目标和旧命令/脚本工具仍退役。
 
 | 工具 | 选择方式 |
 | --- | --- |
@@ -147,19 +139,23 @@ UART在同一窗口选择“串口 ZMODEM 发送”，选当前连接、填写�
 
 构建、部署、固件标识和功能判据由外部Agent分别确认；文本命中只证明文本出现。完整字段、预算和验收边界见 [现行契约](architecture/stages/P8_AI_MCP_Interface/02_Current_MCP_Contract.md)。
 
-## SFTP单文件下载
+## SFTP 上传与下载
 
-在本机“文件资源授权…”分别勾选目标本地目录的写入权限和当前SSH远端目录的读取权限。通过 `novaterm_list_file_resources`取得本人resourceId/revision、scopeId/revision与sessionId/epoch；上传权限和终端权限不能替代下载所需的两项授权。原终端SFTP面板须已就绪，工具不会新建连接或抢占人工文件作业。
-
-调用 `novaterm_download_file`，使用以下九个必填参数和可选overwrite；relativePath是本地目标相对路径，remoteName是远端授权目录下的单个源文件名，最多255 UTF-8字节。目标父目录须存在，默认不覆盖既有文件。
+`novaterm_upload_file` 和 `novaterm_download_file` 接受 sessionId、epoch、localPath、remotePath、operationId；overwrite可选，默认false。路径必须是完整文件路径，父目录须存在。上传确认流程见上节，下载按明确工具调用直接执行。
 
 ```json
-{"sessionId":"<id>","epoch":"<epoch>","resourceId":"<local resource UUID>","resourceRevision":"<local revision UUID>","relativePath":"logs/device.log","scopeId":"<remote scope UUID>","scopeRevision":"<remote revision UUID>","remoteName":"device.log","operationId":"<new UUID>"}
+{"sessionId":"<id>","epoch":"<epoch>","localPath":"D:/build/firmware.bin","remotePath":"/home/root/firmware.bin","operationId":"<new UUID>"}
 ```
 
-用原transferId调用 `novaterm_query_transfer`，读取downloading进度；需要停止时调用 `novaterm_cancel_transfer`并查询终态。相同operationId仅能以同方向和全部相同参数重试；改成上传或换目标会冲突。取消不删除远端源，不删除已发布的本地文件。对下载，published/publication指本地目标，temporary指本次本地临时文件；contentVerified始终false，内容hash须另行实际校验，下载不自动运行文件或读取日志。
+上传返回待确认后，接受时在原参数中增加：
 
-当前安全本地Writer仅Windows实现，Linux/macOS后端尚未实现并明确拒绝；最多64 MiB、64 KiB分块、总120秒、15秒无进展和2秒发布准入等待保持。同步库或本机I/O阻塞不承诺硬退出。提前EOF、源增长、读错或观察到的属性变化不能发布部分文件；SFTPv3仍要求目录属主/管理员可信，不保证抵抗同账号恶意换路径。下载历史证据见[下载记录](architecture/stages/P8_AI_MCP_Interface/records/B3b_Sftp_Download_2026-10-28.md)，当前覆盖边界见下节。
+```json
+{"confirmationToken":"<returned token>","confirmed":true}
+```
+
+用 transferId 调用 `novaterm_query_transfer` 查询，`novaterm_cancel_transfer` 取消。相同operationId只能精确重试，改变方向/路径/覆盖意图会冲突；确认重试不会重复发送。未知发布结果保留原ID查询，不自动换ID重传。取消不删除已发布文件，下载不删除远端源；contentVerified仍为false。
+
+安全本地Writer目前仅Windows实现；上传和下载复用原SFTP队列/worker。新建远端目标要求hardlink扩展1，覆盖已有目标要求posix-rename扩展1。仍需可信目录属主/管理员，SFTPv3不能抵抗同账号恶意换路径。同步库调用不保证硬截止时间。
 
 ## SFTP显式覆盖
 
@@ -173,19 +169,16 @@ true明确授权可信目录中的目标路径替换，不是按文件身份执�
 
 ## UART/ZMODEM单文件发送
 
-先由本机用户分别共享本地目录读取与当前串口的ZMODEM发送权限。通过 `novaterm_list_file_resources` 取得本地resourceId/revision，通过 `novaterm_list_serial_file_targets` 取得targetId/revision和sessionId/epoch；终端读取、输入或SSH目录权限不能替代这两项授权。
-
-1. 用独立、获准的方式准备设备接收端。若通过终端输入启动接收程序，随后通过 `novaterm_interact_terminal` 的 `release` 动作显式释放MCP输入lease。
-2. 调用 `novaterm_upload_serial_file`，提交上述标识、relativePath、单个remoteName及新operationId。该工具不自动发送rz、不自动release、不抢占人工传输；接收目录、覆盖策略由设备接收端决定。
-3. 用返回的原transferId调用 `novaterm_query_serial_transfer`。需要取消时使用 `novaterm_cancel_serial_transfer`，并继续查询至终态；取消不承诺删除或回滚远端文件。
+1. 选择已连接串口，准备设备接收端（例如适当设备上的rz）。
+2. 调用 `novaterm_upload_serial_file`，提供sessionId/epoch、localPath、operationId，remoteName可选，省略取源文件名。首次上传与SSH同样只询问用户一次，Agent自动带确认凭据续调；记忆命中直接发送。
+3. 本主体输入控制自动释放以交接原ZMODEM控制器，无须额外release调用。尚未提交完的输入、其他主体控制和现有文件传输仍报告忙碌，不抢占。
+4. 通过 `novaterm_query_serial_transfer/cancel_serial_transfer` 使用原transferId查询或取消。
 
 ```json
-{"sessionId":"<id>","epoch":"<epoch>","resourceId":"<local resource UUID>","resourceRevision":"<local revision UUID>","relativePath":"build/firmware.bin","targetId":"<UART target UUID>","targetRevision":"<UART revision UUID>","remoteName":"firmware.bin","operationId":"<new UUID>"}
+{"sessionId":"<serial id>","epoch":"<epoch>","localPath":"D:/build/firmware.bin","operationId":"<new UUID>"}
 ```
 
-精确重试使用原operationId及全部相同参数，只返回原记录；查询不重发、不重连。当前Windows安全本地源最多64 MiB、64 KiB分块；按真实大小和波特率计算有限总期限，超过1小时硬预算在首个协议字节前拒绝，改operationId不能绕过预算。其他平台的安全本地源尚待收尾。
-
-分别检查protocolCompleted与fileConfirmed：completed要求协议结束且completedFiles=1；ZSKIP返回skipped，不能当作文件送达。空文件也要文件级确认，最终握手失败会保留此前的确认事实。remotePublication始终unknown、contentVerified始终false，远端目录/持久落盘/hash仍需独立核对；发送工具不会自动执行上传文件或读取日志。UART阶段证据与限制见[发送记录](architecture/stages/P8_AI_MCP_Interface/records/B3b_Uart_Send_2026-10-28.md)。
+接收目录及覆盖行为由设备接收端决定。不会自动rz或执行文件。completed需要protocolCompleted且fileConfirmed；ZSKIP表示skipped，不是已送达。remotePublication仍unknown、contentVerified仍false，hash/落盘须另行核实。
 
 ## 本地清空（B2）
 
@@ -274,14 +267,14 @@ full 因字节或行数预算截断时设置 `resetRequired=true`、`nextToken=n
 
 ## 现行授权与旧接口退役
 
-主界面保留统一接入开关、配置复制、令牌重置、已连接会话权限、接管和独立文件授权，不再有客户端管理或保存目标表格。
+主界面保留统一接入开关、配置复制、令牌重置、已连接会话权限、接管和清除上传确认记忆，不再有客户端管理或保存目标表格。
 
-- **读取输出**：允许读取/搜索当前会话，不推导文件或完整历史权限。
+- **读取输出**：允许读取/搜索当前会话，；已有录制由统一MCP接入直接读取。
 - **允许执行命令**：允许所有持有统一令牌的 AI 输入文本、按键、粘贴和命令，不逐条确认。
 - **允许托管提权**：依赖完整输入；当前可信认证适配器不可用，勾选不代表能够执行提权。
 - **允许清空终端**：只影响本机显示/回滚，不停止设备程序、不删除独立历史录制。
 
-四项在每个新就绪连接默认开启。同一连接内的手动撤权持续有效；取消读取级联撤销输入、提权及清空，取消输入撤销提权。文件、UART 发送和历史共享仍需另行选择。
+四项在每个新就绪连接默认开启。同一连接内的手动撤权持续有效；取消读取级联撤销输入、提权及清空，取消输入撤销提权。文件与UART直接指定路径，首次上传按工具返回提示确认一次；历史无需逐条共享。
 
 `novaterm_list_commands`、`novaterm_execute_command`、`novaterm_run_command`、
 `novaterm_run_script` 已从工具目录、解码及执行接线中删除，直接调用返回未知工具。
@@ -290,7 +283,7 @@ full 因字节或行数预算截断时设置 `resetRequired=true`、`nextToken=n
 
 诊断或命令通过 `novaterm_read_context` 观察，再以 `novaterm_interact_terminal`
 操作已授权终端；长任务使用 `novaterm_start_task/query_task/stop_task`。
-文件先通过独立授权的传输工具发布，再由已授权终端显式执行，不恢复旧脚本发布入口。
+文件先通过直接路径传输工具发布，再由已授权终端显式执行，不恢复旧脚本发布入口。
 
 ## 结果不确定与撤销
 

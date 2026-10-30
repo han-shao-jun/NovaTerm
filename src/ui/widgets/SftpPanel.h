@@ -8,6 +8,7 @@
 #include <QQueue>
 #include <QStringList>
 #include <QWidget>
+#include <functional>
 #include "session/SftpFileUpload.h"
 
 class ElaIconButton;
@@ -42,6 +43,9 @@ public:
     [[nodiscard]] SftpSession* fileTransferSession(SshTransport* expected) const;
     /** 用户显式浏览目录时取得同一后端；不改变面板当前目录。 */
     [[nodiscard]] SftpSession* directoryBrowsingSession(SshTransport* expected);
+    /** Prepare the original backend without changing the visible panel. Readiness is separate. */
+    [[nodiscard]] SftpSession* prepareFileTransferSession(SshTransport* expected);
+    QMetaObject::Connection onFileTransferConnectionFailure(QObject* context, std::function<void()> failure);
     bool uploadAuthorizedFile(const SftpFileUploadRequest&);
 public slots:
     /** 仅消费所属 SSH Shell 的目录结果，包含后台标签的在途请求。 */

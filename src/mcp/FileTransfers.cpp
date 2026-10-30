@@ -1,5 +1,6 @@
 #include "FileTransfers.h"
 #include "contracts/Budget.h"
+#include "contracts/FileTransferPaths.h"
 #include <QScopedValueRollback>
 #include <QUuid>
 
@@ -8,9 +9,7 @@ namespace {
 bool sameUpload(const StartFileUploadRequest& a, const StartFileUploadRequest& b)
 {
     return a.reference.session == b.reference.session && a.reference.epoch == b.reference.epoch
-        && a.resourceId == b.resourceId && a.resourceRevision == b.resourceRevision
-        && a.relativePath == b.relativePath && a.scopeId == b.scopeId
-        && a.scopeRevision == b.scopeRevision && a.remoteName == b.remoteName && a.operationId == b.operationId
+        && a.localPath == b.localPath && a.remotePath == b.remotePath && a.operationId == b.operationId
         && a.overwrite == b.overwrite;
 }
 }
@@ -44,43 +43,30 @@ FileTransfers::~FileTransfers() { stop(); }
 Result<FileTransfers::Authority> FileTransfers::authorize(const QString& client, quint64 identity,
     const StartFileUploadRequest& request, SftpFileTransferDirection direction)
 {
-    const bool download = direction == SftpFileTransferDirection::Download;
-    const auto listing = _resources.list(client, identity, ListFileResourcesRequest{request.reference});
-    if (const auto* error = std::get_if<Error>(&listing)) return *error;
-    const auto& directory = std::get<FileResourceDirectory>(listing);
-    std::optional<FileRoot> local;
-    std::optional<RemoteFileRoot> remote;
-    for (const auto& candidate : directory.local)
-        if (candidate.id == request.resourceId && candidate.revision == request.resourceRevision
-            && (download ? candidate.access.write : candidate.access.read)) local = candidate;
-    for (const auto& candidate : directory.remote)
-        if (candidate.root.id == request.scopeId && candidate.root.revision == request.scopeRevision
-            && (download ? candidate.root.access.read : candidate.root.access.write)) remote = candidate;
-    if (!local || !remote) return Error{ErrorCode::PermissionDenied};
+    Q_UNUSED(direction)
+    if (!_access.enabled() || !identity || _access.identityVersion(client) != identity)
+        return Error{ErrorCode::PermissionDenied};
+    const auto local = splitTransferPath(request.localPath, false);
+    const auto remote = splitTransferPath(request.remotePath, true);
+    if (!local || !remote) return Error{ErrorCode::InvalidArgument};
+    const auto binding = _resources.liveBinding(request.reference.session.str());
+    if (!binding || binding->epoch != request.reference.epoch) return Error{ErrorCode::PermissionDenied};
     const auto entry = _sessions.find(request.reference.session.str());
-    if (!entry || !entry->session || entry->epoch != request.reference.epoch.str()) return Error{ErrorCode::PermissionDenied};
-    const SessionBinding binding{SessionId{entry->id}, AttachmentId{entry->attachmentId}, Epoch{entry->epoch},
+    if (!entry || !entry->session || entry->epoch != request.reference.epoch.str()
+        || !_access.enabled() || _access.identityVersion(client) != identity)
+        return Error{ErrorCode::PermissionDenied};
+    const SessionBinding current{SessionId{entry->id}, AttachmentId{entry->attachmentId}, Epoch{entry->epoch},
         Generation{entry->generation}, entry->targetFingerprint};
-    if (!FileResources::sameBinding(binding, remote->binding)) return Error{ErrorCode::PermissionDenied};
-    // find() may synchronously invalidate grants. Re-read the pure directory
-    // after that callback boundary before returning any authority to a worker.
-    bool localCurrent = false, remoteCurrent = false;
-    for (const auto& candidate : _resources.resources().local(client, identity))
-        if (candidate.id == local->id && candidate.revision == local->revision
-            && (download ? candidate.access.write : candidate.access.read)) localCurrent = true;
-    for (const auto& candidate : _resources.resources().remote(client, identity, binding))
-        if (candidate.id == remote->root.id && candidate.revision == remote->root.revision
-            && (download ? candidate.access.read : candidate.access.write)) remoteCurrent = true;
-    if (!localCurrent || !remoteCurrent) return Error{ErrorCode::PermissionDenied};
-    return Authority{*local, *remote, entry->session};
+    if (!FileResources::sameBinding(current, *binding)) return Error{ErrorCode::PermissionDenied};
+    return Authority{*local, *remote, *binding, entry->session};
 }
 bool FileTransfers::valid(const std::shared_ptr<Record>& record)
 {
     const auto authority = authorize(record->client, record->identity, record->request, record->upload.direction);
     const auto* current = std::get_if<Authority>(&authority);
     return current && current->session == record->session
-        && FileResources::sameBinding(current->remote.binding, record->binding)
-        && current->local.path == record->upload.localRoot && current->remote.root.path == record->upload.remoteRoot;
+        && FileResources::sameBinding(current->binding, record->binding)
+        && current->local.root == record->upload.localRoot && current->remote.root == record->upload.remoteRoot;
 }
 QJsonObject FileTransfers::project(const Record& record) const
 {
@@ -89,6 +75,35 @@ QJsonObject FileTransfers::project(const Record& record) const
         {"transferredBytes", double(record.transferred)}, {"totalBytes", record.total ? QJsonValue(double(*record.total)) : QJsonValue(QJsonValue::Null)},
         {"published", record.published}, {"publication", record.publication}, {"temporary", record.temporary},
         {"errorCode", record.error.isEmpty() ? QJsonValue(QJsonValue::Null) : QJsonValue(record.error)}, {"contentVerified", false}};
+}
+std::optional<Result<QJsonObject>> FileTransfers::replay(const QString& client, quint64 identity,
+    const FileTransferRequest& request) const
+{
+    std::optional<StartFileUploadRequest> fields;
+    auto direction = SftpFileTransferDirection::Upload;
+    if (const auto* upload = std::get_if<StartFileUploadRequest>(&request)) fields = *upload;
+    else if (const auto* download = std::get_if<StartFileDownloadRequest>(&request)) {
+        fields = StartFileUploadRequest{download->reference, download->localPath, download->remotePath,
+            download->operationId, download->overwrite, {}, {}};
+        direction = SftpFileTransferDirection::Download;
+    }
+    if (!fields) return std::nullopt;
+    if (!_access.enabled() || !identity || _access.identityVersion(client) != identity)
+        return Result<QJsonObject>{Error{ErrorCode::PermissionDenied}};
+    const auto normalize = [](StartFileUploadRequest value) {
+        if (const auto local = splitTransferPath(value.localPath, false)) value.localPath = local->absolute;
+        if (const auto remote = splitTransferPath(value.remotePath, true)) value.remotePath = remote->absolute;
+        return value;
+    };
+    const auto normalized = normalize(*fields);
+    for (const auto& record : _records) {
+        if (record->client != client || record->identity != identity || record->request.operationId != fields->operationId) continue;
+        if (!record->active && _clock.elapsed() - record->finishedAt >= Budget::FileTransferRetention.count()) continue;
+        if (record->upload.direction != direction || !sameUpload(normalize(record->request), normalized))
+            return Result<QJsonObject>{Error{ErrorCode::TargetOperationConflict}};
+        return Result<QJsonObject>{project(*record)};
+    }
+    return std::nullopt;
 }
 Result<QJsonObject> FileTransfers::call(const QString& client, quint64 identity, const QString& connection,
     const FileTransferRequest& request)
@@ -99,11 +114,11 @@ Result<QJsonObject> FileTransfers::call(const QString& client, quint64 identity,
     auto direction = SftpFileTransferDirection::Upload;
     if (const auto* upload = std::get_if<StartFileUploadRequest>(&request)) fields = *upload;
     else if (const auto* download = std::get_if<StartFileDownloadRequest>(&request)) {
-        fields = StartFileUploadRequest{download->reference, download->resourceId, download->resourceRevision,
-            download->relativePath, download->scopeId, download->scopeRevision, download->remoteName, download->operationId, download->overwrite};
+        fields = StartFileUploadRequest{download->reference, download->localPath, download->remotePath, download->operationId, download->overwrite, {}, {}};
         direction = SftpFileTransferDirection::Download;
     }
     if (fields) {
+        if (const auto previous = replay(client, identity, request)) return *previous;
         const auto* upload = &*fields;
         int count = 0, active = 0;
         const auto records = _records.values();
@@ -111,11 +126,7 @@ Result<QJsonObject> FileTransfers::call(const QString& client, quint64 identity,
             if (record->active) ++active;
             if (record->client != client || record->identity != identity) continue;
             ++count;
-            if (record->request.operationId == upload->operationId) {
-                if (record->upload.direction != direction || !sameUpload(record->request, *upload))
-                    return Error{ErrorCode::TargetOperationConflict};
-                return project(*record);
-            }
+
         }
         const auto resolved = authorize(client, identity, *upload, direction);
         if (const auto* error = std::get_if<Error>(&resolved)) return *error;
@@ -129,10 +140,10 @@ Result<QJsonObject> FileTransfers::call(const QString& client, quint64 identity,
         auto record = std::make_shared<Record>();
         record->id = QUuid::createUuid().toString(QUuid::WithoutBraces);
         record->client = client; record->identity = identity; record->connection = connection;
-        record->request = *upload; record->binding = authority.remote.binding; record->session = authority.session;
+        record->request = *upload; record->binding = authority.binding; record->session = authority.session;
         record->startedAt = _clock.elapsed();
-        record->upload = {++_nextRequest, authority.local.path, upload->relativePath,
-            authority.remote.root.path, upload->remoteName, std::make_shared<SftpFileUploadControl>(), direction, upload->overwrite};
+        record->upload = {++_nextRequest, authority.local.root, authority.local.name,
+            authority.remote.root, authority.remote.name, std::make_shared<SftpFileUploadControl>(), direction, upload->overwrite};
         _records.insert(record->id, record);
         const QPointer<FileTransfers> guard(this);
         Delivery delivery{

@@ -11,6 +11,7 @@
 #include "capabilities/terminal/LegacyTerminalMapping.h"
 #include "capabilities/CapabilityRegistry.h"
 #include "mcp/contracts/Budget.h"
+#include "mcp/contracts/FileTransferPaths.h"
 #include "mcp/McpProtocol.h"
 
 #include <QJsonArray>
@@ -373,20 +374,6 @@ const QJsonArray& ToolCodec::catalog()
     stopTask.insert("operationId", interaction.value("operationId"));
     workflow("novaterm_stop_task", "Explicitly request Ctrl+C for the original task only while its target, execution and original control generations still match. Retry the same stop operationId. Human takeover or a newer command rejects stale stop without writing. stop_requested does not confirm remote termination; cancelling a read or releasing control is different.",
         schema(stopTask, {"sessionId", "epoch", "taskId", "operationId"}), true, taskData);
-    const QJsonObject fileRoot{{"resourceId", stringSchema(64)}, {"title", stringSchema(256)},
-        {"revision", stringSchema(64)}, {"readAllowed", QJsonObject{{"type", "boolean"}}},
-        {"writeAllowed", QJsonObject{{"type", "boolean"}}}};
-    auto remoteRoot = fileRoot; remoteRoot.remove("resourceId");
-    remoteRoot.insert("scopeId", stringSchema(64)); remoteRoot.insert("path", stringSchema(1024));
-    remoteRoot.insert("sessionId", stringSchema(64)); remoteRoot.insert("epoch", stringSchema(128));
-    workflow("novaterm_list_file_resources", "Discover only file-resource authorization metadata explicitly shared with this client. Optional sessionId/epoch must be supplied together to filter the selected current SSH connection. Local roots use opaque resourceId and never reveal local absolute paths or file contents. Remote scopes reveal only explicitly shared paths and sessionId/epoch. Local and remote read/write are separately authorized, independent of terminal permissions; reconnect and identity changes invalidate remote grants. availability=authorization_only describes this metadata tool; use separately listed file-transfer tools for content operations. No file or network I/O is performed and listed paths have not been verified for safe file access.",
-        schema(identity, {}), false, schema({{"instanceId", stringSchema(64)},
-            {"availability", QJsonObject{{"const", "authorization_only"}}},
-            {"localResources", QJsonObject{{"type", "array"}, {"maxItems", 8}, {"items", schema(fileRoot,
-                {"resourceId", "title", "revision", "readAllowed", "writeAllowed"})}}},
-            {"remoteScopes", QJsonObject{{"type", "array"}, {"maxItems", 8}, {"items", schema(remoteRoot,
-                {"scopeId", "title", "revision", "readAllowed", "writeAllowed", "path", "sessionId", "epoch"})}}}},
-            {"instanceId", "availability", "localResources", "remoteScopes"}));
     const QJsonObject transferUuid{{"type", "string"}, {"format", "uuid"}, {"minLength", 36}, {"maxLength", 36}};
     const QJsonObject transferPath{{"type", "string"}, {"minLength", 1}, {"maxLength", 1024}};
     const auto transferBytes = QJsonObject{{"type", "integer"}, {"minimum", 0}, {"maximum", 9007199254740991.0}};
@@ -399,13 +386,23 @@ const QJsonArray& ToolCodec::catalog()
         {"publication", enumeration({"not_started", "published", "unknown"})},
         {"temporary", enumeration({"none", "removed", "retained", "unknown"})},
         {"errorCode", nullableText}, {"contentVerified", QJsonObject{{"const", false}}}});
-    const auto fileTransferInput = schema({{"sessionId", transferUuid}, {"epoch", QJsonObject{{"type", "string"}, {"minLength", 1}, {"maxLength", 64}}},
-            {"resourceId", transferUuid}, {"resourceRevision", transferUuid}, {"relativePath", transferPath},
-            {"scopeId", transferUuid}, {"scopeRevision", transferUuid}, {"remoteName", transferPath}, {"operationId", transferUuid},
-            {"overwrite", QJsonObject{{"type", "boolean"}, {"default", false}}}},
-            {"sessionId", "epoch", "resourceId", "resourceRevision", "relativePath", "scopeId", "scopeRevision", "remoteName", "operationId"});
-    workflow("novaterm_upload_file", "Upload one regular file from an explicitly authorized local resource into an independently authorized remote SSH scope through the existing SFTP connection. Requires matching resource/scope revisions and session epoch; supply a relative source path and a single remote filename. No credentials, absolute local paths or automatic invocation. Overwrite defaults to false; overwrite=true explicitly permits replacing this target path after rechecks, not conditional replacement of an immutable file identity. Trust other writers of the authorized directory. Replacement uses the temporary file's attributes. Retain transferId and operationId; identical retries never start a second upload. Query uncertain outcomes. Completion reports publication facts without claiming content verification.",
-        fileTransferInput, true, transferData);
+    const auto confirmationData = object({{"instanceId", text}, {"state", enumeration({"confirmation_required", "declined"})},
+        {"sessionId", text}, {"epoch", text}, {"operationId", text}, {"protocol", text},
+        {"localPath", text}, {"remotePath", text}, {"target", text}, {"overwrite", boolean},
+        {"confirmationToken", text}, {"expiresInMs", transferBytes}, {"message", text}});
+    const auto withConfirmation = [&](const QJsonObject& data) {
+        return QJsonObject{{"oneOf", QJsonArray{data, confirmationData}}};
+    };
+    const auto fileTransferInput = schema({{"sessionId", transferUuid}, {"epoch", stringSchema(64)},
+        {"localPath", transferPath}, {"remotePath", transferPath}, {"operationId", transferUuid},
+        {"overwrite", QJsonObject{{"type", "boolean"}, {"default", false}}}},
+        {"sessionId", "epoch", "localPath", "remotePath", "operationId"});
+    auto uploadInput = fileTransferInput;
+    auto uploadProperties = uploadInput.value("properties").toObject();
+    uploadProperties.insert("confirmationToken", stringSchema(64)); uploadProperties.insert("confirmed", boolean);
+    uploadInput.insert("properties", uploadProperties);
+    workflow("novaterm_upload_file", "Upload one local regular file by absolute localPath to absolute remotePath on a connected SSH session. No directory sharing or resource IDs are needed. On confirmation_required, show the exact source, target and overwrite choice to the user ONCE; repeat this tool with unchanged arguments/operationId, confirmationToken and confirmed=true only after acceptance (false declines). Never auto-confirm. Remembered source path/target/overwrite combinations upload immediately; do not ask again. Identical retries never upload twice. SFTP is prepared through the existing session owner. overwrite defaults to false. Query uncertain outcomes; completion reports publication facts, not content verification.",
+        uploadInput, true, withConfirmation(transferData));
     auto sharedTransferData = transferData;
     auto sharedProperties = sharedTransferData.value("properties").toObject();
     sharedProperties.insert("state", enumeration({"accepted", "connecting", "uploading", "downloading", "cancel_requested", "completed", "cancelled", "failed", "unknown"}));
@@ -415,19 +412,10 @@ const QJsonArray& ToolCodec::catalog()
         transferInput, false, sharedTransferData);
     workflow("novaterm_cancel_transfer", "Request cancellation only for this client's original transferId. Cancellation is asynchronous and never guarantees rollback after publication began. Query until a terminal state and inspect publication/temporary facts. Does not affect unrelated SFTP work or close the session.",
         transferInput, true, sharedTransferData);
-    const auto serialTarget = schema({{"targetId", stringSchema(64)}, {"title", stringSchema(256)},
-        {"revision", stringSchema(64)}, {"sessionId", stringSchema(64)}, {"epoch", stringSchema(128)},
-        {"protocol", QJsonObject{{"const", "zmodem"}}}},
-        {"targetId", "title", "revision", "sessionId", "epoch", "protocol"});
-    workflow("novaterm_list_serial_file_targets", "Discover only current UART ZMODEM send targets explicitly authorized for this client in the local app. This read-only directory is independent of terminal access and SSH file scopes. Returns opaque targetId/revision and shared title/sessionId/epoch; never port names, serial configuration or local paths. availability=authorization_only does not mean the receiver is ready or the input lease is free. Use separately listed UART file-transfer tools for sending; this directory itself only discovers authorization. Does not open ports, send files, run rz or acquire input ownership.",
-        schema({}, {}), false, schema({{"instanceId", stringSchema(64)},
-            {"availability", QJsonObject{{"const", "authorization_only"}}},
-            {"targets", QJsonObject{{"type", "array"}, {"maxItems", 8}, {"items", serialTarget}}}},
-            {"instanceId", "availability", "targets"}));
     auto serialUploadInput = schema({{"sessionId", transferUuid}, {"epoch", stringSchema(64)},
-        {"resourceId", transferUuid}, {"resourceRevision", transferUuid}, {"relativePath", transferPath},
-        {"targetId", transferUuid}, {"targetRevision", transferUuid}, {"remoteName", stringSchema(255)}, {"operationId", transferUuid}},
-        {"sessionId", "epoch", "resourceId", "resourceRevision", "relativePath", "targetId", "targetRevision", "remoteName", "operationId"});
+        {"localPath", transferPath}, {"remoteName", stringSchema(255)}, {"operationId", transferUuid},
+        {"confirmationToken", stringSchema(64)}, {"confirmed", boolean}},
+        {"sessionId", "epoch", "localPath", "operationId"});
     const auto serialData = object({{"instanceId", text}, {"transferId", text}, {"sessionId", text}, {"epoch", text},
         {"operationId", text}, {"protocol", QJsonObject{{"const", "zmodem"}}},
         {"state", enumeration({"accepted", "sending", "cancel_requested", "completed", "skipped", "cancelled", "failed", "unknown"})},
@@ -437,18 +425,14 @@ const QJsonArray& ToolCodec::catalog()
         {"remotePublication", QJsonObject{{"const", "unknown"}}}, {"contentVerified", QJsonObject{{"const", false}}},
         {"timeoutMs", QJsonObject{{"type", QJsonArray{"integer", "null"}}, {"minimum", 0}, {"maximum", 3600000}}},
         {"errorCode", nullableText}});
-    workflow("novaterm_upload_serial_file", "Send one explicitly authorized local regular file to an independently authorized current UART target using its existing ZMODEM controller. Requires current resource/target revisions and epoch. Prepare the receiver separately and explicitly release any MCP input lease before sending; never auto-runs rz, opens a port or preempts another transfer. remoteName is a single protocol filename; destination directory and overwrite behavior belong to the receiver. Identical operationId/arguments retry the original record. A skipped file (ZSKIP) is not delivered. Protocol completion, file confirmation, remote publication and content verification are separate facts. Current native safe local source is Windows-only, at most 64 MiB. The finite deadline depends on actual size and baud rate; impossible budgets fail before protocol output.",
-        serialUploadInput, true, serialData);
+    workflow("novaterm_upload_serial_file", "Send one local regular file by absolute localPath on a connected UART using the existing ZMODEM controller. No directory or target grants are needed. remoteName defaults to the source filename. On confirmation_required, ask the user ONCE about the displayed source/target, then repeat unchanged arguments/operationId with confirmationToken and confirmed=true (false declines). Never auto-confirm; remembered combinations need no further question. Prepare the receiver separately; this tool releases this AI's input control automatically, never runs rz or preempts another transfer. The receiver controls destination directory and overwrite. ZSKIP is not delivery. Reader supports Windows and Linux, at most 64 MiB.",
+        serialUploadInput, true, withConfirmation(serialData));
     workflow("novaterm_query_serial_transfer", "Query only this client's retained original UART transferId without resending, reconnecting, cancelling or sending terminal commands. completed requires protocolCompleted and fileConfirmed; skipped means the receiver did not accept the file. remotePublication remains unknown and contentVerified remains false even after protocol confirmation.",
         transferInput, false, serialData);
     workflow("novaterm_cancel_serial_transfer", "Request cancellation of only this client's original UART transferId. Never targets a later manual transfer or a rebound connection. Query until terminal; cancellation may require bounded CAN/drain cleanup and cannot roll back or delete a remote file. Preserve fileConfirmed facts even if the final handshake fails.",
         transferInput, true, serialData);
-    auto downloadInput = fileTransferInput;
-    auto downloadProperties = downloadInput.value("properties").toObject();
-    downloadProperties.insert("remoteName", stringSchema(255));
-    downloadInput.insert("properties", downloadProperties);
-    workflow("novaterm_download_file", "Download one remote regular file through the existing SSH SFTP connection with independent remote-read and local-write grants. Supply current scope/resource revisions and epoch, a single remoteName and a relative local destination path. Does not open a new connection or execute a file. Overwrite defaults to false; overwrite=true explicitly permits replacing this target path after rechecks, not conditional replacement of an immutable file identity. Trust other writers of the authorized directory. Replacement uses the temporary file's attributes. Reuse query_transfer/cancel_transfer and retain operationId; retries must keep the same direction and arguments. published/publication and temporary describe the local destination and owned local temporary file. Size and metadata checks do not verify content hashes. Current native local writer is Windows-only; maximum 64 MiB, 64 KiB chunks, 120 seconds overall and 15 seconds without progress between synchronous calls. Remote path checks trust the authorized directory owner and administrator; SFTPv3 cannot prove isolation from same-account malicious path replacement.",
-        downloadInput, true, sharedTransferData);
+    workflow("novaterm_download_file", "Download one regular remote file by absolute remotePath to absolute localPath on the NovaTerm host. No directory sharing or resource IDs are needed. Existing SFTP owner is prepared automatically. overwrite defaults to false; true intentionally replaces the target with a temporary file after checks, not a conditional compare-and-swap. Retain operationId for retries. published/publication/temporary describe the local destination. Current local Writer supports Windows only; maximum 64 MiB, 64 KiB chunks and existing transfer time limits remain.",
+        fileTransferInput, true, sharedTransferData);
     return result;
     }();
     return catalog;
@@ -499,21 +483,22 @@ QString ToolCodec::validate(const QString& name, const QJsonObject& arguments)
     }
     if (name == "novaterm_upload_file" || name == "novaterm_download_file" || name == "novaterm_query_transfer" || name == "novaterm_cancel_transfer"
         || name == "novaterm_upload_serial_file" || name == "novaterm_query_serial_transfer" || name == "novaterm_cancel_serial_transfer") {
-        for (const auto& key : {"resourceId", "resourceRevision", "scopeId", "scopeRevision", "targetId", "targetRevision", "transferId"}) {
-            if (!arguments.contains(key)) continue;
-            const auto value = arguments.value(key).toString();
-            if (QUuid(value).isNull() || QUuid(value).toString(QUuid::WithoutBraces) != value)
-                return QStringLiteral("Invalid argument: %1").arg(QLatin1String(key));
+        if (arguments.contains("transferId")) {
+            const auto id = arguments.value("transferId").toString();
+            if (QUuid(id).isNull() || QUuid(id).toString(QUuid::WithoutBraces) != id) return "Invalid argument: transferId";
         }
         if (name == "novaterm_upload_file" || name == "novaterm_download_file" || name == "novaterm_upload_serial_file") {
-            const auto safeComponent = [](const QString& value) {
-                return !value.isEmpty() && value != "." && value != ".."
-                    && !value.contains('/') && !value.contains('\\') && !value.contains(':')
-                    && std::none_of(value.begin(), value.end(), [](QChar c) { return c.category() == QChar::Other_Control; });
-            };
-            if (!safeComponent(arguments.value("remoteName").toString())) return "Invalid argument: remoteName";
-            const auto components = arguments.value("relativePath").toString().split('/');
-            if (!std::all_of(components.begin(), components.end(), safeComponent)) return "Invalid argument: relativePath";
+            if (!splitTransferPath(arguments.value("localPath").toString(), false)) return "Invalid argument: localPath";
+            if (name != "novaterm_upload_serial_file" && !splitTransferPath(arguments.value("remotePath").toString(), true))
+                return "Invalid argument: remotePath";
+            if (arguments.contains("remoteName")) {
+                const auto remote = splitTransferPath("/" + arguments.value("remoteName").toString(), true);
+                if (!remote || remote->root != "/") return "Invalid argument: remoteName";
+            }
+            if (arguments.contains("confirmationToken") != arguments.contains("confirmed"))
+                return "confirmationToken and confirmed must be supplied together.";
+            if (arguments.contains("confirmationToken") && arguments.value("confirmationToken").toString().isEmpty())
+                return "Invalid argument: confirmationToken";
         }
     }
     if (name == "novaterm_read_context") {
@@ -880,10 +865,11 @@ Result<ToolCall> ToolCodec::decodeCall(const QString& name, const QJsonObject& a
             return ToolCall{SerialFileTransferRequest{CancelSerialFileTransferRequest{arguments.value("transferId").toString()}}};
         const auto reference = sessionReference(arguments);
         if (!reference) return Error{ErrorCode::InvalidArgument};
+        const auto local = *splitTransferPath(arguments.value("localPath").toString(), false);
         return ToolCall{SerialFileTransferRequest{StartSerialFileUploadRequest{*reference,
-            arguments.value("resourceId").toString(), arguments.value("resourceRevision").toString(), arguments.value("relativePath").toString(),
-            arguments.value("targetId").toString(), arguments.value("targetRevision").toString(), arguments.value("remoteName").toString(),
-            arguments.value("operationId").toString()}}};
+            local.absolute, arguments.contains("remoteName") ? arguments.value("remoteName").toString() : local.name,
+            arguments.value("operationId").toString(), arguments.value("confirmationToken").toString(),
+            arguments.contains("confirmed") ? std::optional<bool>(arguments.value("confirmed").toBool()) : std::nullopt}}};
     }
     if (name == "novaterm_list_serial_file_targets") {
         const auto invalid = validate(name, arguments);
@@ -899,17 +885,15 @@ Result<ToolCall> ToolCodec::decodeCall(const QString& name, const QJsonObject& a
             return ToolCall{FileTransferRequest{CancelFileTransferRequest{arguments.value("transferId").toString()}}};
         const auto reference = sessionReference(arguments);
         if (!reference) return Error{ErrorCode::InvalidArgument};
+        const auto local = *splitTransferPath(arguments.value("localPath").toString(), false);
+        const auto remote = *splitTransferPath(arguments.value("remotePath").toString(), true);
         if (name == "novaterm_download_file")
-            return ToolCall{FileTransferRequest{StartFileDownloadRequest{*reference,
-                arguments.value("resourceId").toString(), arguments.value("resourceRevision").toString(),
-                arguments.value("relativePath").toString(), arguments.value("scopeId").toString(),
-                arguments.value("scopeRevision").toString(), arguments.value("remoteName").toString(), arguments.value("operationId").toString(),
-                arguments.value("overwrite").toBool(false)}}};
-        return ToolCall{FileTransferRequest{StartFileUploadRequest{*reference,
-            arguments.value("resourceId").toString(), arguments.value("resourceRevision").toString(),
-            arguments.value("relativePath").toString(), arguments.value("scopeId").toString(),
-            arguments.value("scopeRevision").toString(), arguments.value("remoteName").toString(),
-            arguments.value("operationId").toString(), arguments.value("overwrite").toBool(false)}}};
+            return ToolCall{FileTransferRequest{StartFileDownloadRequest{*reference, local.absolute, remote.absolute,
+                arguments.value("operationId").toString(), arguments.value("overwrite").toBool(false)}}};
+        return ToolCall{FileTransferRequest{StartFileUploadRequest{*reference, local.absolute, remote.absolute,
+            arguments.value("operationId").toString(), arguments.value("overwrite").toBool(false),
+            arguments.value("confirmationToken").toString(),
+            arguments.contains("confirmed") ? std::optional<bool>(arguments.value("confirmed").toBool()) : std::nullopt}}};
     }
     if (name == "novaterm_list_file_resources") {
         const auto invalid = validate(name, arguments);

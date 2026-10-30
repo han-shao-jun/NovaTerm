@@ -2,6 +2,7 @@
 #include "contracts/Budget.h"
 #include "files/LocalFileAccess.h"
 #include "transport/SerialTransport.h"
+#include "session/SessionTerminalController.h"
 #include <QScopedValueRollback>
 #include <QUuid>
 #include <atomic>
@@ -38,9 +39,7 @@ private:
 bool sameUpload(const StartSerialFileUploadRequest& a, const StartSerialFileUploadRequest& b)
 {
     return a.reference.session == b.reference.session && a.reference.epoch == b.reference.epoch
-        && a.resourceId == b.resourceId && a.resourceRevision == b.resourceRevision
-        && a.relativePath == b.relativePath && a.targetId == b.targetId
-        && a.targetRevision == b.targetRevision && a.remoteName == b.remoteName && a.operationId == b.operationId;
+        && a.localPath == b.localPath && a.remoteName == b.remoteName && a.operationId == b.operationId;
 }
 QString errorCode(NovaTerm::FileTransfer::Error error)
 {
@@ -78,7 +77,7 @@ struct SerialFileTransfers::Record {
 };
 SerialFileTransfers::SerialFileTransfers(AccessStore& access, SessionDirectory& sessions, FileResourceAdapter& resources,
     SerialFileTargetAdapter& targets, QString instance, QObject* parent, ControllerResolver resolver, Now clock)
-    : QObject(parent), _access(access), _sessions(sessions), _resources(resources), _targets(targets),
+    : QObject(parent), _access(access), _sessions(sessions), _targets(targets),
       _instance(std::move(instance)), _resolve(std::move(resolver)), _now(std::move(clock))
 {
     if (!_resolve) _resolve = [](TerminalSession& session) { return session.serialFileTransfer(); };
@@ -86,7 +85,7 @@ SerialFileTransfers::SerialFileTransfers(AccessStore& access, SessionDirectory& 
     _timer.setInterval(100);
     connect(&_timer, &QTimer::timeout, this, [this] { check(); });
     connect(&_access, &AccessStore::changed, this, [this] { check(); });
-    connect(&_resources, &FileResourceAdapter::changed, this, [this] { check(); });
+    Q_UNUSED(resources);
     connect(&_targets, &SerialFileTargetAdapter::changed, this, [this] { check(); });
     connect(&_sessions, &SessionDirectory::changed, this, [this] { check(); });
     connect(&_sessions, &SessionDirectory::invalidated, this, [this] { check(); });
@@ -102,8 +101,8 @@ Result<SerialFileTransfers::Authority> SerialFileTransfers::authorize(const QStr
     const StartSerialFileUploadRequest& request)
 {
     if (!_access.enabled() || !identity || _access.identityVersion(client) != identity) return Error{ErrorCode::PermissionDenied};
-    const auto listed = _targets.list(client, identity);
-    if (const auto* error = std::get_if<Error>(&listed)) return *error;
+    const auto local = splitTransferPath(request.localPath, false);
+    if (!local) return Error{ErrorCode::InvalidArgument};
     const auto entry = _sessions.find(request.reference.session.str());
     if (!entry || !entry->session || entry->epoch != request.reference.epoch.str()) return Error{ErrorCode::PermissionDenied};
     const auto binding = _targets.liveBinding(entry->id);
@@ -113,15 +112,7 @@ Result<SerialFileTransfers::Authority> SerialFileTransfers::authorize(const QStr
     const auto* serial = qobject_cast<SerialTransport*>(entry->transport.data());
     if (!serial || !entry->session || entry->session->transport() != serial || serial->config().baudRate <= 0)
         return Error{ErrorCode::PermissionDenied};
-    // All directory callbacks have returned; only pure grants are read below.
-    std::optional<FileRoot> local;
-    for (const auto& candidate : _resources.resources().local(client, identity))
-        if (candidate.id == request.resourceId && candidate.revision == request.resourceRevision && candidate.access.read) local = candidate;
-    bool allowed = false;
-    for (const auto& candidate : _targets.targets().list(client, identity))
-        if (candidate.id == request.targetId && candidate.revision == request.targetRevision
-            && SerialFileTargets::sameBinding(candidate.binding, *binding)) allowed = true;
-    if (!local || !allowed || !_access.enabled() || _access.identityVersion(client) != identity)
+    if (!_access.enabled() || _access.identityVersion(client) != identity)
         return Error{ErrorCode::PermissionDenied};
     return Authority{*local, *binding, entry->session, serial->config().baudRate};
 }
@@ -129,7 +120,7 @@ bool SerialFileTransfers::valid(const std::shared_ptr<Record>& record)
 {
     const auto resolved = authorize(record->client, record->identity, record->request);
     const auto* authority = std::get_if<Authority>(&resolved);
-    return authority && authority->session == record->session && authority->local.path == record->localRoot
+    return authority && authority->session == record->session && authority->local.root == record->localRoot
         && SerialFileTargets::sameBinding(authority->binding, record->binding);
 }
 bool SerialFileTransfers::currentBinding(const std::shared_ptr<Record>& record)
@@ -208,17 +199,43 @@ QJsonObject SerialFileTransfers::project(const Record& record) const
         {"timeoutMs", record.timeout ? QJsonValue(double(*record.timeout)) : QJsonValue(QJsonValue::Null)},
         {"errorCode", record.error.isEmpty() ? QJsonValue(QJsonValue::Null) : QJsonValue(record.error)}};
 }
+std::optional<Result<QJsonObject>> SerialFileTransfers::replay(const QString& client, quint64 identity,
+    const SerialFileTransferRequest& request) const
+{
+    const auto* upload = std::get_if<StartSerialFileUploadRequest>(&request);
+    if (!upload) return std::nullopt;
+    if (!_access.enabled() || !identity || _access.identityVersion(client) != identity)
+        return Result<QJsonObject>{Error{ErrorCode::PermissionDenied}};
+    auto normalized = *upload;
+    if (const auto path = splitTransferPath(normalized.localPath, false)) {
+        normalized.localPath = path->absolute;
+        if (normalized.remoteName.isEmpty()) normalized.remoteName = path->name;
+    }
+    for (const auto& record : _records) {
+        if (record->client != client || record->identity != identity || record->request.operationId != upload->operationId) continue;
+        if (!record->active && now() - record->finishedAt >= Budget::FileTransferRetention.count()) continue;
+        if (!sameUpload(record->request, normalized)) return Result<QJsonObject>{Error{ErrorCode::TargetOperationConflict}};
+        return Result<QJsonObject>{project(*record)};
+    }
+    return std::nullopt;
+}
 Result<QJsonObject> SerialFileTransfers::call(const QString& client, quint64 identity, const QString& connection,
     const SerialFileTransferRequest& request)
 {
     check();
     if (!_access.enabled() || !identity || _access.identityVersion(client) != identity) return Error{ErrorCode::PermissionDenied};
-    if (const auto* upload = std::get_if<StartSerialFileUploadRequest>(&request)) {
-        for (const auto& record : _records)
-            if (record->client == client && record->identity == identity && record->request.operationId == upload->operationId) {
-                if (!sameUpload(record->request, *upload)) return Error{ErrorCode::TargetOperationConflict};
-                return project(*record);
-            }
+    if (const auto* requested = std::get_if<StartSerialFileUploadRequest>(&request)) {
+        if (const auto previous = replay(client, identity, request)) return *previous;
+        auto normalized = *requested;
+        const auto path = splitTransferPath(normalized.localPath, false);
+        if (!path) return Error{ErrorCode::InvalidArgument};
+        normalized.localPath = path->absolute;
+        if (normalized.remoteName.isEmpty()) normalized.remoteName = path->name;
+        const auto name = normalized.remoteName.toUtf8();
+        if (QString::fromUtf8(name) != normalized.remoteName
+            || !NovaTerm::FileTransfer::validFileNameUtf8(std::string_view(name.constData(), size_t(name.size()))))
+            return Error{ErrorCode::InvalidArgument};
+        const auto* upload = &normalized;
         const auto resolved = authorize(client, identity, *upload);
         if (const auto* error = std::get_if<Error>(&resolved)) return *error;
         const auto authority = std::get<Authority>(resolved);
@@ -234,11 +251,30 @@ Result<QJsonObject> SerialFileTransfers::call(const QString& client, quint64 ide
         }
         if (count >= Budget::MaxFileTransfersPerClient || _records.size() >= Budget::MaxFileTransfers) return Error{ErrorCode::Busy};
         if (active >= Budget::MaxActiveFileTransfers || !controller) return Error{ErrorCode::FileTransferBusy};
+        // Hand off only this caller's terminal control. A submitted receiver command may
+        // still be active; release retains its unknown outcome without writing Ctrl+C.
+        const QPointer<SerialFileTransfers> handoffGuard(this);
+        const QPointer<SessionTerminalController> terminal = authority.session ? authority.session->terminalController() : nullptr;
+        if (!terminal || controller->isActive() || authority.session->inputArbiter()->hasTransferLease()
+            || terminal->pending() || (!terminal->owner().isEmpty() && terminal->owner() != client))
+            return Error{ErrorCode::FileTransferBusy};
+        if (terminal->owner() == client) terminal->release(client);
+        if (!handoffGuard) return Error{ErrorCode::PermissionDenied};
+        // release emits synchronous application callbacks: recheck the original connection
+        // and owner before handing any work to the protocol controller.
+        const auto rechecked = authorize(client, identity, *upload);
+        const auto* current = std::get_if<Authority>(&rechecked);
+        if (!current || current->session != authority.session
+            || !SerialFileTargets::sameBinding(current->binding, authority.binding))
+            return Error{ErrorCode::PermissionDenied};
+        if (!terminal || !controller || controller->isActive() || terminal->pending()
+            || !terminal->owner().isEmpty() || current->session->inputArbiter()->hasTransferLease())
+            return Error{ErrorCode::FileTransferBusy};
         auto record = std::make_shared<Record>();
         record->id = QUuid::createUuid().toString(QUuid::WithoutBraces);
         record->client = client; record->identity = identity; record->connection = connection;
         record->request = *upload; record->binding = authority.binding; record->session = authority.session;
-        record->localRoot = authority.local.path; record->baudRate = authority.baudRate;
+        record->localRoot = authority.local.root; record->baudRate = authority.baudRate;
         record->controller = controller; record->startedAt = now();
         _records.insert(record->id, record);
         record->callbacks.append(connect(controller, &SerialFileTransferController::progressChanged, this,
@@ -252,7 +288,7 @@ Result<QJsonObject> SerialFileTransfers::call(const QString& client, quint64 ide
         ::SerialTransferRequest transfer;
         transfer.admission = [this, guard, record] { return guard && admit(record); };
         transfer.source = SerialTransferSourceSpec{upload->remoteName,
-            [root = authority.local.path, relative = upload->relativePath, state = record->source]
+            [root = authority.local.root, relative = authority.local.name, state = record->source]
             (QString& error) -> std::unique_ptr<SerialTransferSource> {
                 if (state->stopped.load()) { error = "Source cancelled"; return {}; }
                 auto opened = Files::LocalFileReader::open(root, relative);

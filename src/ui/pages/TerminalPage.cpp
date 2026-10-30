@@ -428,19 +428,10 @@ void refreshHistorySharing(HistoryRecordingPanel* panel)
     sharing.isCurrent = current;
     const QPointer<NovaTerm::Resources::ResourceSharingService> guard(Application::instance().resourceSharing().get());
     const auto unavailable = [] { return QCoreApplication::translate("HistoryRecordingPanel", "MCP access changed or the resource service is unavailable."); };
-    sharing.share = [guard, current, unavailable](QString principal, NovaTerm::Recording::HistoryCaptureId capture, quint64 first, quint64 last, bool persistent) {
-        return guard && current() ? guard->share(principal, capture, first, last, persistent) : unavailable();
-    };
-    sharing.revoke = [guard, current, unavailable](QString principal, NovaTerm::Recording::HistoryCaptureId capture) {
-        return guard && current() ? guard->revoke(principal, capture) : unavailable();
-    };
-    sharing.status = [guard, current](QString principal, NovaTerm::Recording::HistoryCaptureId capture) {
-        return guard && current() ? guard->sharingStatus(principal, capture) : QString{};
-    };
     sharing.importFile = [guard, current, unavailable](QString principal, QString path, std::function<void(QString)> finished) {
         if (!guard || !current()) { finished(unavailable()); return; }
         guard->importFile(principal, path, [finished = std::move(finished)](const auto& result) {
-            finished(result.error.isEmpty() ? QCoreApplication::translate("HistoryRecordingPanel", "Shared file %1 (%2 bytes, SHA-256 %3). Permission expires on exit; offline analyzers are not yet available.")
+            finished(result.error.isEmpty() ? QCoreApplication::translate("HistoryRecordingPanel", "Imported file %1 (%2 bytes, SHA-256 %3). Available this run; offline analyzers are not yet available.")
                 .arg(result.resourceId).arg(result.byteCount).arg(result.contentHash) : result.error);
         });
     };

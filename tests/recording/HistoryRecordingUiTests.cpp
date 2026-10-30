@@ -28,6 +28,20 @@ template<class T> T* control(QWidget& panel, const char* role) {
 class HistoryRecordingUiTests : public QObject {
     Q_OBJECT
 private slots:
+    void historyAccessNeedsNoPerCaptureControlsAndDoesNotStartRecording() {
+        QTemporaryDir dir; HistoryService service(dir.path()); HistoryRecordingPanel panel(&service);
+        HistorySharingActions actions; actions.principalId = "shared-access"; actions.identityVersion = 1;
+        actions.importFile = [](QString, QString, std::function<void(QString)>) {};
+        panel.setSharingActions(std::move(actions));
+        QTRY_VERIFY(service.ready());
+        QVERIFY(service.captures().empty());
+        QVERIFY(!control<ElaPushButton>(panel, "historyShare"));
+        QVERIFY(!control<ElaPushButton>(panel, "historyUnshare"));
+        QVERIFY(!control<QLineEdit>(panel, "historyShareFirst"));
+        QVERIFY(!control<QLineEdit>(panel, "historyShareLast"));
+        QVERIFY(!control<ElaCheckBox>(panel, "historySharePersistent"));
+        QVERIFY(control<ElaPushButton>(panel, "historyImportFile")->isEnabled());
+    }
     void titleBarCloseHidesReusableWindowAndKeepsRecording() {
         QTemporaryDir dir; HistoryService service(dir.path());
         QWidget owner; HistoryRecordingPanel panel(&service, &owner);
@@ -91,7 +105,7 @@ private slots:
         panel.setSharingActions(std::move(initial));
         ElaPushButton* importButton = nullptr;
         for (auto* button : panel.findChildren<ElaPushButton*>())
-            if (button->text() == "Share local log file…") importButton = button;
+            if (button->text() == "Import local log file…") importButton = button;
         QVERIFY(importButton); QVERIFY(importButton->isEnabled());
         QTimer::singleShot(0, &panel, [&] {
             HistorySharingActions replacement; replacement.principalId = replacementId; replacement.identityVersion = replacementIdentity;
@@ -110,47 +124,32 @@ private slots:
         QVERIFY(service.start(intent, [&](auto r) { QVERIFY(r.success); done = true; })); QTRY_VERIFY(done);
         service.stop(intent); QTRY_VERIFY(!service.captures().front().active);
         HistoryRecordingPanel panel(&service);
-        bool current = true; int grants = 0, revocations = 0, clears = 0;
+        bool current = true; int clears = 0;
         HistorySharingActions actions; actions.principalId = "shared-access"; actions.identityVersion = 1;
         actions.isCurrent = [&] { return current; };
-        actions.share = [&](QString, HistoryCaptureId, quint64, quint64, bool) { ++grants; return QString{}; };
-        actions.revoke = [&](QString, HistoryCaptureId) { ++revocations; return QString{}; };
         actions.clearImports = [&](QString) { ++clears; };
         panel.setSharingActions(actions);
         auto* table = control<QTableView>(panel, "historyCaptures"); QVERIFY(table); table->selectRow(0);
-        auto* share = control<ElaPushButton>(panel, "historyShare"); QVERIFY(share && share->isEnabled());
         const auto capture = service.captures().front().id;
         current = false; // Event delivery may lag the access store's new identity.
-        share->click(); control<ElaPushButton>(panel, "historyUnshare")->click();
         control<ElaPushButton>(panel, "historyClearImports")->click();
-        QCOMPARE(grants, 0); QCOMPARE(revocations, 0); QCOMPARE(clears, 0);
-        panel.setSharingActions(std::move(actions)); QVERIFY(!share->isEnabled());
+        QCOMPARE(clears, 0);
+        panel.setSharingActions(std::move(actions));
         QVERIFY(!control<ElaPushButton>(panel, "historyClearImports")->isEnabled());
         QCOMPARE(service.captures().size(), size_t(1)); QCOMPARE(service.captures().front().id, capture);
         QVERIFY(control<ElaPushButton>(panel, "historyDelete")->isEnabled());
     }
-    void offlineSharingFormRejectsInvalidRanges() {
+    void offlineRecordingsRemainManagedWithoutSharingForm() {
         QTemporaryDir dir; HistoryService service(dir.path()); QTRY_VERIFY(service.ready());
         const RecordingIntent intent{QUuid::createUuid(), 1}; bool done = false;
         QVERIFY(service.start(intent, [&](auto r) { QVERIFY(r.success); done = true; })); QTRY_VERIFY(done);
         service.stop(intent); QTRY_VERIFY(!service.captures().front().active);
         HistoryRecordingPanel panel(&service);
-        int granted = 0; HistoryCaptureId chosen; quint64 first = 0, last = 9; bool persistent = false;
-        HistorySharingActions actions; actions.principalId = "shared-access"; actions.identityVersion = 1;
-        actions.share = [&](QString client, HistoryCaptureId id, quint64 a, quint64 b, bool keep) {
-            if (client == "shared-access") { ++granted; chosen = id; first = a; last = b; persistent = keep; } return QString{};
-        };
-        panel.setSharingActions(std::move(actions));
         auto* table = control<QTableView>(panel, "historyCaptures"); QVERIFY(table); table->selectRow(0);
-        auto* from = control<QLineEdit>(panel, "historyShareFirst");
-        auto* to = control<QLineEdit>(panel, "historyShareLast");
-        auto* share = control<ElaPushButton>(panel, "historyShare");
-        auto* keep = control<ElaCheckBox>(panel, "historySharePersistent");
-        QVERIFY(from && to && share && keep); QVERIFY(share->isEnabled());
-        from->setText("2"); to->setText("1"); share->click(); QCOMPARE(granted, 0);
-        from->setText("1"); to->setText("0"); keep->setChecked(true); share->click();
-        QCOMPARE(granted, 1); QCOMPARE(chosen, service.captures().front().id);
-        QCOMPARE(first, quint64(1)); QCOMPARE(last, quint64(0)); QVERIFY(persistent);
+        QVERIFY(control<ElaPushButton>(panel, "historyDelete")->isEnabled());
+        QVERIFY(!control<ElaPushButton>(panel, "historyShare"));
+        QVERIFY(!control<QLineEdit>(panel, "historyShareFirst"));
+        QVERIFY(!control<ElaCheckBox>(panel, "historySharePersistent"));
         const auto preview = qEnvironmentVariable("NOVATERM_HISTORY_SHARING_UI_PREVIEW");
         if (!preview.isEmpty()) { panel.resize(1000, 820); panel.show(); QTest::qWait(100); QVERIFY(panel.grab().save(preview)); }
     }

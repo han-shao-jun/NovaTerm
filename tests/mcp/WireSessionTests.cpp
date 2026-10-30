@@ -76,15 +76,13 @@ private slots:
         QVERIFY(std::holds_alternative<QuerySerialFileTransferRequest>(transfer->request));
         QVERIFY(!std::holds_alternative<BackendCall>(event));
     }
-    void serialFileTargetsUseIndependentBackendCall() {
+    void retiredFileAuthorizationDirectoryNeverReachesBackend() {
         WireSession wire; ready(wire); QSignalSpy backend(&wire, &WireSession::backendEvent);
+        QSignalSpy packets(&wire, &WireSession::packet);
         wire.receiveMessage({{"jsonrpc", "2.0"}, {"id", 2}, {"method", "tools/call"},
             {"params", QJsonObject{{"name", "novaterm_list_serial_file_targets"}, {"arguments", QJsonObject{}}}}}, "serial-targets");
-        QCOMPARE(backend.size(), 1);
-        const auto event = backend.first().at(0).value<BackendEvent>();
-        QCOMPARE(backendEventKind(event), QString("call"));
-        QVERIFY(std::holds_alternative<BackendSerialFileTargetsCall>(event));
-        QVERIFY(!std::holds_alternative<BackendCall>(event));
+        QVERIFY(backend.isEmpty()); QCOMPARE(packets.size(), 1);
+        QCOMPARE(QJsonDocument::fromJson(packets.first().at(1).toByteArray()).object().value("error").toObject().value("code").toInt(), -32602);
     }
     void bothHandshakesUseTheSameAgentInstructions() {
         WireSession legacy; QSignalSpy legacyPackets(&legacy, &WireSession::packet);
@@ -98,7 +96,7 @@ private slots:
         const auto b = QJsonDocument::fromJson(modernPackets.last()[1].toByteArray()).object()
             .value("result").toObject().value("instructions").toString();
         QCOMPARE(a, agentInstructions()); QCOMPARE(b, a);
-        QVERIFY(a.contains("no per-command risk confirmation"));
+        QVERIFY(a.contains("no per-command confirmation"));
         QVERIFY(a.contains("UART idle completion is unverified"));
         QVERIFY(a.contains("source=log")); QVERIFY(a.contains("Never rerun uncertain"));
         QVERIFY(a.contains("novaterm_wait_text")); QVERIFY(a.contains("novaterm_start_task"));
@@ -437,7 +435,7 @@ private slots:
         QVERIFY(wire.initialized());
         wire.receiveMessage({{"jsonrpc", "2.0"}, {"id", 2}, {"method", "tools/list"}}, "catalog");
         QCOMPARE(QJsonDocument::fromJson(packets.last().at(1).toByteArray()).object().value("result").toObject()
-            .value("tools").toArray().size(), 22);
+            .value("tools").toArray().size(), 20);
     }
     void asynchronousResultKeepsExchangeRoute()
     {

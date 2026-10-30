@@ -11,7 +11,7 @@ namespace NovaTerm::Recording { class HistoryService; }
 namespace NovaTerm::Capabilities { class CapabilityDispatcher; }
 namespace NovaTerm::Mcp {
 class AccessStore;
-// Integration boundary only: authenticated identity, explicit local grants and JSON.
+// Integration boundary only: authenticated identity and JSON.
 // History owns read/search state; Evidence owns source-independent references.
 class HistoryCapabilityAdapter final : public QObject {
 public:
@@ -26,10 +26,6 @@ public:
     HistoryCapabilityAdapter(HistoryCapabilityAdapter&&) = delete;
     HistoryCapabilityAdapter& operator=(HistoryCapabilityAdapter&&) = delete;
     void setSource(Recording::HistoryService*);
-    QString share(const QString& client, Recording::HistoryCaptureId, quint64 firstRecord,
-                  quint64 lastRecord, bool persistent);
-    QString revoke(const QString& client, Recording::HistoryCaptureId);
-    QString sharingStatus(const QString& client, Recording::HistoryCaptureId) const;
     void importFile(QString client, QString selectedPath, std::function<void(ImportResult)>);
     void clearImportedFiles(const QString& client);
     Capabilities::ResourceBinding binding(const HistoryToolRequest&) const;

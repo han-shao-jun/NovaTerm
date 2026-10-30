@@ -1,6 +1,7 @@
 #pragma once
 #include "FileResourceAdapter.h"
 #include "contracts/FileTransferRequest.h"
+#include "contracts/FileTransferPaths.h"
 #include "session/SftpFileUpload.h"
 #include <QElapsedTimer>
 #include <QJsonObject>
@@ -24,13 +25,16 @@ public:
     FileTransfers& operator=(const FileTransfers&) = delete;
     Result<QJsonObject> call(const QString& client, quint64 identity, const QString& connection,
         const FileTransferRequest&);
+    // Pure retained-operation lookup; confirmation metadata does not change transfer identity.
+    std::optional<Result<QJsonObject>> replay(const QString& client, quint64 identity,
+        const FileTransferRequest&) const;
     bool busy(const QString& session) const;
     void disconnect(const QString& connection);
     void stop();
     void setStarter(Start start) { _start = std::move(start); }
 private:
     struct Record;
-    struct Authority { FileRoot local; RemoteFileRoot remote; QPointer<TerminalSession> session; };
+    struct Authority { TransferPath local, remote; SessionBinding binding; QPointer<TerminalSession> session; };
     Result<Authority> authorize(const QString&, quint64, const StartFileUploadRequest&, SftpFileTransferDirection);
     bool valid(const std::shared_ptr<Record>&);
     void cancel(const std::shared_ptr<Record>&);

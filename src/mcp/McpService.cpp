@@ -6,6 +6,9 @@
 #include "SerialFileTargetAdapter.h"
 #include "SerialFileTransfers.h"
 #include "FileTransfers.h"
+#include "UploadConfirmations.h"
+#include "transport/SshTransport.h"
+#include "transport/SerialTransport.h"
 #include "CapabilityAdmission.h"
 #include "capabilities/terminal/SearchCapabilities.h"
 #include "capabilities/terminal/LegacyTerminalMapping.h"
@@ -168,6 +171,7 @@ public:
         QObject::connect(serialFileTargets.get(), &SerialFileTargetAdapter::changed, q, &Service::changed);
         fileTransfers = std::make_unique<FileTransfers>(access, sessions, *fileResources, instance, owner);
         serialFileTransfers = std::make_unique<SerialFileTransfers>(access, sessions, *fileResources, *serialFileTargets, instance, owner);
+        uploadConfirmations = std::make_unique<UploadConfirmations>(stateDirectory);
         listenPort = port;
         timer.setInterval(100);
         QObject::connect(&timer, &QTimer::timeout, q, [this] { expireJobs(); });
@@ -250,6 +254,7 @@ public:
     }
     void stop()
     {
+        if (uploadConfirmations) uploadConfirmations->invalidate();
         if (serialFileTransfers) serialFileTransfers->stop();
         if (fileResources) fileResources->resources().revoke();
         if (serialFileTargets) serialFileTargets->targets().revoke();
@@ -494,6 +499,7 @@ public:
     }
     void disconnect(const QString& connection)
     {
+        if (uploadConfirmations) uploadConfirmations->disconnect(connection);
         serialFileTransfers->disconnect(connection);
         fileTransfers->disconnect(connection);
         const auto copy = requestKeys();
@@ -581,6 +587,59 @@ public:
         return true;
     }
 
+    std::optional<UploadConfirmations::Intent> uploadIntent(const QString& client, const QString& connection,
+        const SessionReference& reference, const QString& local, const QString& remote,
+        const QString& operation, bool serial, bool overwrite)
+    {
+        UploadConfirmations::Intent intent;
+        intent.client = client; intent.identity = QString::number(access.identityVersion(client));
+        intent.memoryIdentity = QString::number(access.tokenEpoch());
+        intent.connection = connection; intent.sessionId = reference.session.str(); intent.epoch = reference.epoch.str();
+        intent.localPath = local; intent.remotePath = remote; intent.operationId = operation;
+        intent.protocol = serial ? "zmodem" : "sftp"; intent.overwrite = overwrite;
+        SessionBinding binding;
+        if (serial) {
+            const auto live = serialFileTargets->liveBinding(reference.session.str());
+            if (!live || live->connection.epoch != reference.epoch) return std::nullopt;
+            binding = live->connection;
+            intent.binding = live->configDigest + '/' + QString::number(live->ioGeneration);
+            intent.targetKey = "serial/" + live->configDigest;
+        } else {
+            const auto live = fileResources->liveBinding(reference.session.str());
+            if (!live || live->epoch != reference.epoch) return std::nullopt;
+            binding = *live;
+        }
+        const auto entry = sessions.find(reference.session.str());
+        if (!entry || entry->epoch != reference.epoch.str()) return std::nullopt;
+        if (serial) {
+            const auto* transport = qobject_cast<SerialTransport*>(entry->transport.data());
+            if (!transport) return std::nullopt;
+            intent.target = transport->config().portName + " (ZMODEM)";
+        } else {
+            const auto* transport = qobject_cast<SshTransport*>(entry->transport.data());
+            if (!transport) return std::nullopt;
+            const auto& config = transport->sessionConfig();
+            intent.target = config.username + '@' + config.host + ':' + QString::number(config.port);
+            const QJsonArray target{config.host, int(config.port), config.username, transport->serverHostKeyFingerprint()};
+            intent.targetKey = QString::fromUtf8(QJsonDocument(target).toJson(QJsonDocument::Compact));
+        }
+        intent.binding += '/' + binding.attachment.str() + '/' + QString::number(binding.generation.value())
+            + '/' + binding.targetFingerprint.value_or(QString{});
+        if (!access.enabled() || access.identityVersion(client) != intent.identity.toULongLong()) return std::nullopt;
+        return intent;
+    }
+    bool confirmUpload(const QString& key, const std::optional<UploadConfirmations::Intent>& intent,
+        const QString& token, std::optional<bool> confirmed)
+    {
+        if (!intent) { complete(key, error("SESSION_NOT_AVAILABLE")); return false; }
+        const auto decision = uploadConfirmations->check(*intent, token, confirmed);
+        if (decision.allowed) return true;
+        auto reply = decision.reply;
+        if (reply.value("ok").toBool()) {
+            auto data = reply.value("data").toObject(); data.insert("instanceId", instance); reply.insert("data", data);
+        }
+        complete(key, std::move(reply)); return false;
+    }
     void execute(PendingRequest* pending)
     {
         const auto key = requestKey(pending->connection, pending->id);
@@ -596,6 +655,18 @@ public:
         if (!access.enabled()) { complete(key, error("MCP_DISABLED")); return; }
         if (pending->serialFileTransferRequest) {
             if (!admit(pending)) return;
+            if (const auto prior = serialFileTransfers->replay(connection.client, access.identityVersion(connection.client), *pending->serialFileTransferRequest)) {
+                if (const auto* failed = std::get_if<Error>(&*prior)) complete(key, ToolCodec::encodeFailure(*failed));
+                else complete(key, success(std::get<QJsonObject>(*prior)));
+                return;
+            }
+            if (const auto* upload = std::get_if<StartSerialFileUploadRequest>(&*pending->serialFileTransferRequest)) {
+                const auto saved = *upload;
+                const auto intent = uploadIntent(connection.client, pending->connection, saved.reference,
+                    saved.localPath, saved.remoteName, saved.operationId, true, false);
+                if (!findRequest(key) || !confirmUpload(key, intent, saved.confirmationToken, saved.confirmed)) return;
+                pending = findRequest(key); if (!pending) return;
+            }
             const auto result = serialFileTransfers->call(connection.client, access.identityVersion(connection.client),
                 pending->connection, *pending->serialFileTransferRequest);
             if (const auto* failure = std::get_if<Error>(&result)) complete(key, ToolCodec::encodeFailure(*failure));
@@ -618,6 +689,18 @@ public:
         }
         if (pending->fileTransferRequest) {
             if (!admit(pending)) return;
+            if (const auto prior = fileTransfers->replay(connection.client, access.identityVersion(connection.client), *pending->fileTransferRequest)) {
+                if (const auto* failed = std::get_if<Error>(&*prior)) complete(key, ToolCodec::encodeFailure(*failed));
+                else complete(key, success(std::get<QJsonObject>(*prior)));
+                return;
+            }
+            if (const auto* upload = std::get_if<StartFileUploadRequest>(&*pending->fileTransferRequest)) {
+                const auto saved = *upload;
+                const auto intent = uploadIntent(connection.client, pending->connection, saved.reference,
+                    saved.localPath, saved.remotePath, saved.operationId, false, saved.overwrite);
+                if (!findRequest(key) || !confirmUpload(key, intent, saved.confirmationToken, saved.confirmed)) return;
+                pending = findRequest(key); if (!pending) return;
+            }
             const auto result = fileTransfers->call(connection.client, access.identityVersion(connection.client),
                 pending->connection, *pending->fileTransferRequest);
             if (const auto* failure = std::get_if<Error>(&result)) complete(key, ToolCodec::encodeFailure(*failure));
@@ -835,6 +918,7 @@ public:
     std::unique_ptr<SerialFileTargetAdapter> serialFileTargets;
     std::unique_ptr<FileTransfers> fileTransfers;
     std::unique_ptr<SerialFileTransfers> serialFileTransfers;
+    std::unique_ptr<UploadConfirmations> uploadConfirmations;
     HistoryCapabilityAdapter history;
     Capabilities::CapabilityRegistry capabilityRegistry{Capabilities::CapabilityRegistry::implementedCapabilities()};
     Capabilities::CapabilityAuthorization capabilityAuthorization{
@@ -890,6 +974,7 @@ SessionDirectory& Service::directory() { return _impl->sessions; }
 FileResourceAdapter& Service::fileResources() { return *_impl->fileResources; }
 SerialFileTargetAdapter& Service::serialFileTargets() { return *_impl->serialFileTargets; }
 void Service::setFileUploadStarter(FileTransfers::Start start) { _impl->fileTransfers->setStarter(std::move(start)); }
+bool Service::clearUploadMemory() { return _impl->uploadConfirmations->clear(); }
 HistoryCapabilityAdapter& Service::history() { return _impl->history; }
 std::shared_ptr<Resources::ResourceSharingService> Service::resources() const { return _impl->history.resources(); }
 void Service::setHistorySource(Recording::HistoryService* source) { _impl->history.setSource(source); }

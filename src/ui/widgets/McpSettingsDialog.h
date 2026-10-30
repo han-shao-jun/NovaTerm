@@ -14,7 +14,6 @@ class ElaCheckBox;
 class ElaText;
 class ElaTreeWidget;
 class QTreeWidgetItem;
-class FileResourceSharingDialog;
 
 class McpSettingsDialog final : public ElaDialog
 {
@@ -38,7 +37,6 @@ private:
     ElaCheckBox* _enabled{nullptr};
     ElaText* _status{nullptr};
     ElaTreeWidget* _sessions{nullptr};
-    QPointer<FileResourceSharingDialog> _fileResourceDialog;
     quint64 _accessIdentity{0};
     bool _refreshing{false};
 };

@@ -2,7 +2,6 @@
  *  @brief 本机MCP接入、统一接入与独立会话授权。
  */
 #include "McpSettingsDialog.h"
-#include "FileResourceSharingDialog.h"
 #include "mcp/McpService.h"
 #include "mcp/CapabilityAdapter.h"
 #include "ui/models/SettingsController.h"
@@ -209,25 +208,17 @@ McpSettingsDialog::McpSettingsDialog(NovaTerm::Mcp::Service* service, QWidget* p
     sessionHeader->setSectionResizeMode(NovaTerm::Ui::SessionPermissionModel::index(
         NovaTerm::Ui::SessionPermissionModel::Column::Operation), QHeaderView::ResizeToContents);
     layout->addWidget(_sessions, 2);
-    auto* fileResources = new ElaPushButton(tr("文件资源授权…"), this);
-    fileResources->setObjectName("mcpFileResourceSharing"); layout->addWidget(fileResources);
-    connect(fileResources, &QPushButton::clicked, this, [this] {
-        if (!_service) return;
-        const auto client = _service->access().accessId();
-        if (!_service->access().enabled() || !_service->access().identityVersion(client)) return;
-        if (!_fileResourceDialog || !_fileResourceDialog->isVisible()) {
-            _fileResourceDialog = new FileResourceSharingDialog(_service, client, this);
-        }
-        _fileResourceDialog->show();
-        _fileResourceDialog->raise();
-        _fileResourceDialog->activateWindow();
+    auto* forgetUploads = new ElaPushButton(tr("清除上传确认记忆"), this);
+    forgetUploads->setObjectName("mcpClearUploadMemory"); layout->addWidget(forgetUploads);
+    connect(forgetUploads, &QPushButton::clicked, this, [this] {
+        if (!_service || !_service->clearUploadMemory()) { reportFailure(); return; }
+        _status->setText(tr("已清除上传确认记忆，下次上传时会在 AI 对话中确认一次。"));
     });
     connect(_enabled, &QCheckBox::toggled, this, [this](bool enabled) {
         if (!_refreshing && _controller && !_controller->setEnabled(enabled)) { refresh(); reportFailure(); }
     });
     connect(rotate, &QPushButton::clicked, this, [this] {
         if (!_controller || !_controller->rotateToken()) { reportFailure(); return; }
-        if (_fileResourceDialog) _fileResourceDialog->close();
         refresh();
         _status->setText(tr("Access token reset. Copy the updated configuration for all AI connections."));
     });

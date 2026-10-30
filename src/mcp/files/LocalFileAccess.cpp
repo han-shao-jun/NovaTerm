@@ -78,10 +78,10 @@ std::optional<Path> preparePath(const QString& root, const QString& relative)
     if (!validText(root) || root.startsWith("\\\\") || root.startsWith("//")
         || !validText(relative) || relative.contains('\\')) return std::nullopt;
     const auto normalized = QDir::fromNativeSeparators(root);
-    if (normalized.size() <= 3 || normalized[1] != ':' || normalized[2] != '/'
+    if (normalized.size() < 3 || normalized[1] != ':' || normalized[2] != '/'
         || !((normalized[0] >= 'a' && normalized[0] <= 'z')
             || (normalized[0] >= 'A' && normalized[0] <= 'Z'))) return std::nullopt;
-    const auto rootParts = normalized.mid(3).split('/');
+    const auto rootParts = normalized.size() == 3 ? QStringList{} : normalized.mid(3).split('/');
     auto fileParts = relative.split('/');
     if (rootParts.size() > Budget::MaxLocalTransferPathParts
         || fileParts.size() > Budget::MaxLocalTransferPathParts) return std::nullopt;
@@ -216,10 +216,10 @@ struct PosixPinnedFile {
 };
 FileIoResult<PosixPinnedFile> openPosixSource(const QString& root, const QString& relative)
 {
-    if (!posixText(root) || root == "/" || !root.startsWith('/') || root.startsWith("//")
+    if (!posixText(root) || !root.startsWith('/') || root.startsWith("//")
         || QDir::cleanPath(root) != root || !posixText(relative) || relative.startsWith('/')
         || relative.contains(':') || QDir::cleanPath(relative) != relative) return FileIoError::InvalidPath;
-    auto rootParts = root.mid(1).split('/');
+    auto rootParts = root == "/" ? QStringList{} : root.mid(1).split('/');
     auto fileParts = relative.split('/');
     if (rootParts.size() > Budget::MaxLocalTransferPathParts || fileParts.size() > Budget::MaxLocalTransferPathParts)
         return FileIoError::InvalidPath;

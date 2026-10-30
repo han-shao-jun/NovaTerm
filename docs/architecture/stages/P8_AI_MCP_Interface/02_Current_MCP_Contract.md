@@ -1,6 +1,6 @@
 # 当前 MCP 接口契约与兼容基线
 
-更新：2026-10-30。当前二十二工具，统一接入与默认会话授权规则如下。本轮构建与测试结果另行记录，以下历史阶段成绩不作为本轮验证。Linux安全本地Reader已实现；Linux Writer及macOS Reader/Writer尚未实现；托管提权可信适配器仍不可用，B4 实机验收待用户执行。
+更新：2026-10-30。当前二十工具，统一接入与默认会话授权规则如下。本轮构建与测试结果另行记录，以下历史阶段成绩不作为本轮验证。Linux安全本地Reader已实现；Linux Writer及macOS Reader/Writer尚未实现；托管提权可信适配器仍不可用，B4 实机验收待用户执行。
 
 ## 当前接入与工具目录
 
@@ -9,7 +9,7 @@
 - `novaterm_list_sessions` 只列当前已连接且获准读取的会话。MCP 不打开、查询或关闭保存连接；本机手动保存会话界面继续保留。
 - 每个新就绪连接默认授予读取、完整输入、托管提权和清空四项权限。同一绑定内手动撤权不会被状态刷新恢复，重连建立新绑定后重新应用默认选择；旧窗口仍按身份、连接代际和行版本拒绝。
 - 托管提权的默认勾选只代表授权，可信目标、认证适配器及实际就绪检查保持。当前适配器不可用，不能因默认授权而读取或发送密码。
-- 文件目录、UART 发送、历史录制和导入文件仍独立授权；共享后供所有持有统一令牌的 AI 使用。文件窗口和历史导入在令牌重置/停用/身份变化后拒绝旧操作。录制源数据不依附 MCP 授权生命周期。
+- 目录/UART目标预授权及独立文件授权窗口已移除。上传下载直接指定路径，首次上传通过工具响应要求Agent询问用户一次，再携带一次性凭据确认；同路径/目标/覆盖组合持久记忆。已有录制在MCP启用后即可读取，无逐条范围授权；录制仍手动启动。
 
 | 类别 | 当前工具 |
 | --- | --- |
@@ -17,12 +17,24 @@
 | 终端操作（3） | `novaterm_interact_terminal`、`novaterm_request_elevation`、`novaterm_clear_terminal` |
 | 等待与长任务（4） | `novaterm_wait_text`、`novaterm_start_task`、`novaterm_query_task`、`novaterm_stop_task` |
 | 历史（3） | `novaterm_list_captures`、`novaterm_read_history`、`novaterm_search_history` |
-| 文件目录与 SFTP（5） | `novaterm_list_file_resources`、`novaterm_upload_file`、`novaterm_download_file`、`novaterm_query_transfer`、`novaterm_cancel_transfer` |
-| UART 文件发送（4） | `novaterm_list_serial_file_targets`、`novaterm_upload_serial_file`、`novaterm_query_serial_transfer`、`novaterm_cancel_serial_transfer` |
+| SFTP（4） | `novaterm_upload_file`、`novaterm_download_file`、`novaterm_query_transfer`、`novaterm_cancel_transfer` |
+| UART 文件发送（3） | `novaterm_upload_serial_file`、`novaterm_query_serial_transfer`、`novaterm_cancel_serial_transfer` |
 
-`novaterm_list_targets/open_target/query_target/close_target` 四工具与保存目标预授权已移除，直接调用拒绝为未知工具；UART 文件发送的 targetId 属于独立发送授权，不受此删除影响。旧诊断/命令/脚本四工具也保持退役。历史设计和验证见 [records](records/README.md)，不作为当前入口列表。
+`novaterm_list_targets/open_target/query_target/close_target` 四工具与保存目标预授权已移除，直接调用拒绝为未知工具。`novaterm_list_file_resources`与`novaterm_list_serial_file_targets`也已退役。旧诊断/命令/脚本四工具也保持退役。历史设计和验证见 [records](records/README.md)，不作为当前入口列表。
 
 以下保留现行文件、等待、观察等细节；其中“客户端”预算均指统一内部授权主体，不再有用户可选择的多套 AI 权限。
+
+## 2026-10-30：直接路径与上传确认记忆（现行）
+
+- SSH upload/download必填sessionId、epoch、localPath、remotePath、operationId，可选overwrite=false。UART upload必填sessionId、epoch、localPath、operationId，remoteName默认源名。
+- 上传可选confirmationToken和confirmed必须成对提供；首次未记忆操作返回confirmation_required，不启动文件传输。Agent只询问用户一次，再用原参数/op和token+confirmed=true继续，false为declined。无本机确认弹窗。
+- 返回待确认对象含instanceId/state/sessionId/epoch/operationId/protocol/localPath/remotePath/target/overwrite/confirmationToken/expiresInMs/message。上传输出data为原传输事实或此对象的oneOf；查询/取消保持原事实结构。
+- 本机最多512个源路径/目标端点与路径/协议/覆盖组合记忆，不是文件内容hash；记忆绑定令牌，跨重启保留。待确认最多64个，5分钟有效，绑定原运行期身份与连接。清除记忆有显式按钮。相同operation的已受理事实优先于确认检查，不重复发送。
+- 旧resourceId/resourceRevision/relativePath/scopeId/scopeRevision/targetId/targetRevision参数明确拒绝。文件路径为NovaTerm主机绝对路径，最大1024 UTF-8字节；basename最多255字节。
+- 历史列表输出删除firstRecordId/lastRecordId/persistentGrant授权字段，保留高水位/完整性事实；原身份/资源generation/游标预算保持。
+- 实现和本轮验证见[直接传输记录](../../Direct_File_Transfers_2026-10-30.md)，使用示例见[使用说明](../../../MCP_Usage.md)。
+
+以下2026-10-27/28文件授权参数、工具数和窗口选择描述为历史记录；本节现行接口优先。
 
 ## 2026-10-28：SFTP显式覆盖
 

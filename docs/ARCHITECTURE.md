@@ -1,5 +1,7 @@
 # NovaTerm 统一架构设计
 
+2026-10-30 工作区精简：当前20工具，目录/串口目标预授权与独立文件授权窗口退役；文件直接指定路径，上传首次由工具返回确认要求，外部Agent向用户询问一次并自动携确认凭据续调，本机按源路径/目标/覆盖意图记忆。历史统一接入后可直接读搜，无逐条授权。仍复用原Session文件owner和固定句柄I/O；旧连接/身份与幂等/取消事实保持。下文旧文件授权描述属历史设计，以[现行契约](architecture/stages/P8_AI_MCP_Interface/02_Current_MCP_Contract.md)为准。
+
 2026-10-29 工作区 MCP 接入调整：所有 AI 使用单一令牌及统一授权主体；旧多客户端状态升级为 version=2，旧令牌失效。默认开启当前及新就绪连接的读取、输入、提权选择与清空，同连接人工撤销保留；MCP 不再暴露或打开保存的连接配置，目录仅含实际已连接会话。内部身份/连接代际与文件、历史独立授权保持。范围及验证见 [统一接入记录](architecture/MCP_Shared_Access_2026-10-29.md)。
 
 2026-10-28 MCP现行源码为三十工具，SFTP上传/下载显式覆盖阶段Windows软件回归已完成，B4仍待用户验收，本轮按Windows交付，B4仍未验收。`FileTransfers`统一持有上传/下载的有界授权、幂等与结果事实；两方向复用终端SftpPanel原SftpSession队列/worker，下载在原worker读取远端固定源句柄并交给安全LocalFileWriter分块写入及按显式意图发布；默认不覆盖，true只授权可信目录中的目标路径替换，不承诺CAS，不增加连接、线程或执行器。`SerialFileTransfers`只在GUI线程持有有界的授权、幂等索引与结果事实；原Session持有的`SerialFileTransferController`继续管理协议操作，原`TransferFileWorker`独占打开、随机读取与销毁固定句柄文件源。接收字节仍经唯一输入泵，出站仍经原lease/协议owner；SerialIoState在原队列锁内复核捕获的I/O代际，旧payload、取消CAN和清队列不能作用于新连接。

@@ -25,6 +25,7 @@ struct HistoryReadPort {
     // application thread; false means no operation was queued.
     std::function<std::optional<HistoryResource>(HistoryCaptureId)> describe;
     std::function<bool(HistoryCaptureId, HistoryRange, std::function<void(ReadResult)>)> readCommitted;
+    std::function<std::vector<HistoryResource>()> catalog{};
 };
 struct HistoryRawRange {
     quint64 recordId{0};

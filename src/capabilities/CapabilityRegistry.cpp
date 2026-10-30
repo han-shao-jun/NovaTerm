@@ -71,10 +71,6 @@ CapabilityRegistry CapabilityRegistry::implementedCapabilities()
         ResourceKind::Session, Policy::ReadOutput, "novaterm_query_task"});
     registry.add({CapabilityId{"terminal.task.stop"}, 1, ImplementationStatus::Implemented,
         ResourceKind::Session, Policy::FullInput, "novaterm_stop_task"});
-    registry.add({CapabilityId{"file.resources.list"}, 1, ImplementationStatus::Implemented,
-        ResourceKind::Directory, Policy::DirectoryRead, "novaterm_list_file_resources"});
-    registry.add({CapabilityId{"serial.file.targets.list"}, 1, ImplementationStatus::Implemented,
-        ResourceKind::Directory, Policy::DirectoryRead, "novaterm_list_serial_file_targets"});
     registry.add({CapabilityId{"serial.file.upload"}, 1, ImplementationStatus::Implemented,
         ResourceKind::Directory, Policy::DirectoryRead, "novaterm_upload_serial_file"});
     registry.add({CapabilityId{"serial.file.query"}, 1, ImplementationStatus::Implemented,

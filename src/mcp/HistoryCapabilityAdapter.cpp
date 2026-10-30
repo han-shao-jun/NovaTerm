@@ -56,11 +56,6 @@ std::shared_ptr<Resources::ResourceSharingService> HistoryCapabilityAdapter::res
 void HistoryCapabilityAdapter::setSource(R::HistoryService* source) {
     _impl->resources->setHistorySource(R::recordingReadPort(source));
 }
-QString HistoryCapabilityAdapter::share(const QString& client, R::HistoryCaptureId id, quint64 first, quint64 last, bool persistent) {
-    return _impl->resources->share(client, id, first, last, persistent);
-}
-QString HistoryCapabilityAdapter::revoke(const QString& client, R::HistoryCaptureId id) { return _impl->resources->revoke(client, id); }
-QString HistoryCapabilityAdapter::sharingStatus(const QString& client, R::HistoryCaptureId id) const { return _impl->resources->sharingStatus(client, id); }
 void HistoryCapabilityAdapter::importFile(QString client, QString path, std::function<void(ImportResult)> done) {
     _impl->resources->importFile(std::move(client), std::move(path), std::move(done));
 }
@@ -119,8 +114,8 @@ void HistoryCapabilityAdapter::call(const HistoryToolRequest& request, const Cap
             if (!page.error.isEmpty()) { done(failure(page.error, page.error)); return; }
             QJsonArray rows;
             for (const auto& row : page.captures) rows.append(QJsonObject{{"captureId", row.id.text()}, {"createdAtMs", QString::number(row.createdMs)},
-                {"active", row.active}, {"highWaterRecordId", QString::number(row.highWater)}, {"firstRecordId", QString::number(row.first)},
-                {"lastRecordId", QString::number(row.last)}, {"sourceCompleteness", completeness(row.integrity)}, {"persistentGrant", row.persistent}});
+                {"active", row.active}, {"highWaterRecordId", QString::number(row.highWater)},
+                {"sourceCompleteness", completeness(row.integrity)}});
             QString cursor;
             if (!page.nextAfter.isEmpty()) cursor = signToken({{"principal", context.principalId}, {"epoch", QString::number(context.tokenEpoch)},
                 {"digest", page.digest}, {"after", page.nextAfter}, {"expires", double(self->_impl->clock.elapsed() + 60000)}}, self->_impl->cursorKey);

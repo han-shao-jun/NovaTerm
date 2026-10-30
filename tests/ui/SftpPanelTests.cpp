@@ -41,6 +41,7 @@ public:
         session._control->commands.clear();
     }
     static void available(SftpSession& session) { session._control->connected = true; }
+    static void unavailable(SftpSession& session) { session._control->connected = false; }
     static qsizetype queued(SftpSession& session) {
         QMutexLocker lock(&session._control->queueMutex);
         return session._control->commands.size();
@@ -124,6 +125,53 @@ private:
         QVERIFY(QMetaObject::invokeMethod(timer, "timeout", Qt::DirectConnection));
     }
 private slots:
+    void directoryErrorDoesNotFailPreparedTransferConnection()
+    {
+        SshTransport transport(SshConfig{}); SshTransportTestAccess::verified(transport);
+        SftpPanel panel; panel.setSessionContext("Board", &transport);
+        auto* backend = panel.findChild<SftpSession*>(); QVERIFY(backend);
+        SftpSessionSafetyTestAccess::connected(*backend, "/home/unlistable");
+        SftpSessionSafetyTestAccess::available(*backend);
+        int failed = 0; QObject recipient;
+        panel.onFileTransferConnectionFailure(&recipient, [&] { ++failed; });
+        SftpSessionSafetyTestAccess::drainQueue(*backend);
+        emit backend->errorOccurred("Cannot list home directory");
+        QCOMPARE(failed, 0);
+        QCOMPARE(panel.fileTransferSession(&transport), backend);
+        SftpSessionSafetyTestAccess::unavailable(*backend);
+        emit backend->errorOccurred("Connection failed");
+        QCOMPARE(failed, 1);
+    }
+    void directTransferPreparationReusesHiddenOwnerAndWaitsForIdle()
+    {
+        SshTransport transport(SshConfig{});
+        SshTransportTestAccess::verified(transport);
+        SshPanelStack<SftpPanel> stack;
+        auto* visible = stack.currentPanel();
+        QVERIFY(!stack.panelFor(&transport));
+        auto* panel = stack.ensurePanelFor("Background", &transport);
+        QCOMPARE(stack.currentPanel(), visible);
+        auto* backend = panel->findChild<SftpSession*>(); QVERIFY(backend);
+        // Invalid fixture configuration fails synchronously before a worker exists.
+        QVERIFY(!panel->prepareFileTransferSession(&transport));
+        QVERIFY(!panel->fileTransferSession(&transport));
+        SftpSessionSafetyTestAccess::connected(*backend, "/home/test");
+        SftpSessionSafetyTestAccess::available(*backend);
+        QVERIFY(!panel->fileTransferSession(&transport));
+        SftpSessionSafetyTestAccess::drainQueue(*backend);
+        emit backend->directoryListed("/home/test", {});
+        QCOMPARE(panel->fileTransferSession(&transport), backend);
+        SftpSessionSafetyTestAccess::active(*backend, true);
+        QCOMPARE(panel->prepareFileTransferSession(&transport), backend);
+        QVERIFY(!panel->fileTransferSession(&transport));
+        SftpSessionSafetyTestAccess::active(*backend, false);
+        QCOMPARE(panel->fileTransferSession(&transport), backend);
+        QCOMPARE(stack.currentPanel(), visible);
+        QCOMPARE(panel->findChild<ElaLineEdit*>()->text(), QString("/home/test"));
+        SshTransportTestAccess::advance(transport);
+        QVERIFY(!panel->prepareFileTransferSession(&transport));
+        QVERIFY(!panel->fileTransferSession(&transport));
+    }
     void backgroundDirectoryBrowsingReusesOwnerWithoutSwitchingPanel() {
         SshTransport a(SshConfig{}), b(SshConfig{});
         SshTransportTestAccess::verified(a); SshTransportTestAccess::verified(b);

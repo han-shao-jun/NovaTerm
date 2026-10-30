@@ -26,6 +26,7 @@ public:
     [[nodiscard]] FileResourceAdapter& fileResources();
     [[nodiscard]] SerialFileTargetAdapter& serialFileTargets();
     void setFileUploadStarter(FileTransfers::Start);
+    bool clearUploadMemory();
     [[nodiscard]] HistoryCapabilityAdapter& history();
     [[nodiscard]] std::shared_ptr<Resources::ResourceSharingService> resources() const;
     void setHistorySource(Recording::HistoryService*);

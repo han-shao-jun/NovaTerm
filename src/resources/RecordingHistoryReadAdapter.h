@@ -11,6 +11,10 @@ inline HistoryReadPort recordingReadPort(HistoryService* service) {
         return std::nullopt;
     }, [source](HistoryCaptureId id, HistoryRange range, auto done) {
         return source && source->readCommitted(id, range, std::move(done));
+    }, [source] {
+        std::vector<HistoryResource> resources;
+        if (source) for (const auto& capture : source->captures()) resources.push_back({capture, 1});
+        return resources;
     }};
 }
 }

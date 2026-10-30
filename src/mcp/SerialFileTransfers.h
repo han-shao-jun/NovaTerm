@@ -2,6 +2,7 @@
 #include "FileResourceAdapter.h"
 #include "SerialFileTargetAdapter.h"
 #include "contracts/FileTransferRequest.h"
+#include "contracts/FileTransferPaths.h"
 #include "session/transfer/SerialFileTransferController.h"
 #include <QElapsedTimer>
 #include <QTimer>
@@ -21,12 +22,15 @@ public:
     SerialFileTransfers& operator=(const SerialFileTransfers&) = delete;
     Result<QJsonObject> call(const QString& client, quint64 identity, const QString& connection,
         const SerialFileTransferRequest&);
+    // Pure retained-operation lookup; confirmation metadata does not change transfer identity.
+    std::optional<Result<QJsonObject>> replay(const QString& client, quint64 identity,
+        const SerialFileTransferRequest&) const;
     bool busy(const QString& session) const;
     void disconnect(const QString& connection);
     void stop();
 private:
     struct Record;
-    struct Authority { FileRoot local; SerialFileBinding binding; QPointer<TerminalSession> session; int baudRate; };
+    struct Authority { TransferPath local; SerialFileBinding binding; QPointer<TerminalSession> session; int baudRate; };
     Result<Authority> authorize(const QString&, quint64, const StartSerialFileUploadRequest&);
     bool valid(const std::shared_ptr<Record>&);
     bool currentBinding(const std::shared_ptr<Record>&);
@@ -40,7 +44,6 @@ private:
     qint64 now() const;
     AccessStore& _access;
     SessionDirectory& _sessions;
-    FileResourceAdapter& _resources;
     SerialFileTargetAdapter& _targets;
     QString _instance;
     ControllerResolver _resolve;

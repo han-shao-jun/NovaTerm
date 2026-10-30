@@ -3,8 +3,6 @@
 #include <ElaPushButton.h>
 #include <ElaSpinBox.h>
 #include <ElaTableView.h>
-#include <ElaCheckBox.h>
-#include <ElaLineEdit.h>
 #include <QFormLayout>
 #include <QHeaderView>
 #include <QLabel>
@@ -13,7 +11,6 @@
 #include <QItemSelectionModel>
 #include <QSignalBlocker>
 #include <QLineEdit>
-#include <QRegularExpressionValidator>
 #include <QFileDialog>
 #include <QPointer>
 
@@ -25,7 +22,7 @@ HistoryRecordingPanel::HistoryRecordingPanel(HistoryService* service, QWidget* p
     // 面板由终端页复用；关闭只隐藏窗口，不停止录制或销毁界面状态。
     connect(this, &ElaDialog::closeButtonClicked, this, &QDialog::reject);
     auto* layout = new QVBoxLayout(this); layout->setContentsMargins(24, 16, 24, 16);
-    auto* note = new QLabel(tr("Recording starts only when you choose Start. Sharing history requires separate permission. "
+    auto* note = new QLabel(tr("Recording starts only when you choose Start. Enabling MCP access makes existing recordings readable and searchable by all AI connections. "
         "Remote output may contain passwords or other secrets; automatic masking is unavailable. File transfers are omitted and marked as gaps."), this);
     note->setWordWrap(true); layout->addWidget(note);
     _targetLabel = new QLabel(this); layout->addWidget(_targetLabel);
@@ -54,35 +51,24 @@ HistoryRecordingPanel::HistoryRecordingPanel(HistoryService* service, QWidget* p
     _status = new QLabel(this); _status->setWordWrap(true); layout->addWidget(_status);
     _sharingPanel = new QWidget(this);
     auto* sharing = new QVBoxLayout(_sharingPanel); sharing->setContentsMargins(0, 8, 0, 0);
-    auto* sharingNote = new QLabel(tr("History and imported files are shared with all AI connections using the common MCP token, independently of terminal permissions. Closing a terminal does not revoke this permission. An end record of 0 includes future committed records."), _sharingPanel);
+    auto* sharingNote = new QLabel(tr("Existing recordings are available to all AI connections while MCP access is enabled, including after closing a terminal. Import a local log to create an independent resource for this run."), _sharingPanel);
     sharingNote->setWordWrap(true); sharing->addWidget(sharingNote);
-    auto* shareRange = new QHBoxLayout;
-    _shareFirst = new ElaLineEdit(_sharingPanel); _shareFirst->setText("1"); _shareFirst->setProperty("historyCaptureRole", "historyShareFirst");
-    _shareLast = new ElaLineEdit(_sharingPanel); _shareLast->setText("0"); _shareLast->setProperty("historyCaptureRole", "historyShareLast");
-    for (auto* field : {_shareFirst, _shareLast}) { field->setMaximumWidth(120); field->setValidator(new QRegularExpressionValidator(QRegularExpression("[0-9]{1,20}"), field)); }
-    shareRange->addWidget(new QLabel(tr("From record"), _sharingPanel)); shareRange->addWidget(_shareFirst);
-    shareRange->addWidget(new QLabel(tr("Through record (0: high water)"), _sharingPanel)); shareRange->addWidget(_shareLast); sharing->addLayout(shareRange);
-    auto* shareActions = new QHBoxLayout;
-    _sharePersistent = new ElaCheckBox(tr("Keep permission after restart"), _sharingPanel); _sharePersistent->setProperty("historyCaptureRole", "historySharePersistent");
-    _share = new ElaPushButton(tr("Share selected"), _sharingPanel); _share->setProperty("historyCaptureRole", "historyShare");
-    _unshare = new ElaPushButton(tr("Revoke history permission"), _sharingPanel); _unshare->setProperty("historyCaptureRole", "historyUnshare");
-    shareActions->addWidget(_sharePersistent, 1); shareActions->addWidget(_share); shareActions->addWidget(_unshare); sharing->addLayout(shareActions);
     _shareStatus = new QLabel(_sharingPanel); _shareStatus->setWordWrap(true); sharing->addWidget(_shareStatus);
     auto* imports = new QHBoxLayout;
-    _importFile = new ElaPushButton(tr("Share local log file…"), _sharingPanel);
+    _importFile = new ElaPushButton(tr("Import local log file…"), _sharingPanel);
     _importFile->setProperty("historyCaptureRole", "historyImportFile");
-    _clearImports = new ElaPushButton(tr("Revoke imported files"), _sharingPanel);
+    _clearImports = new ElaPushButton(tr("Clear imported files"), _sharingPanel);
     _clearImports->setProperty("historyCaptureRole", "historyClearImports");
     imports->addWidget(_importFile); imports->addWidget(_clearImports); imports->addStretch(); sharing->addLayout(imports);
     connect(_importFile, &ElaPushButton::clicked, this, [this] {
         if (!_sharing.importFile || !sharingCurrent()) return;
         const auto sharing = _sharing;
         const QPointer<HistoryRecordingPanel> self(this);
-        const auto selected = QFileDialog::getOpenFileName(this, tr("Explicitly share a local log (up to 16 MiB)"));
+        const auto selected = QFileDialog::getOpenFileName(this, tr("Import a local log (up to 16 MiB)"));
         if (!self || selected.isEmpty()) return;
         if (!sharingCurrent() || _sharing.principalId != sharing.principalId || _sharing.identityVersion != sharing.identityVersion
             || (sharing.isCurrent && !sharing.isCurrent())) {
-            updateActions(); _shareStatus->setText(tr("MCP access changed. Select the file again to share it.")); return;
+            updateActions(); _shareStatus->setText(tr("MCP access changed. Select the file again to import it.")); return;
         }
         sharing.importFile(sharing.principalId, selected, [self, principal = sharing.principalId, identity = sharing.identityVersion](QString message) {
             if (self && self->sharingCurrent() && self->_sharing.principalId == principal && self->_sharing.identityVersion == identity)
@@ -90,22 +76,9 @@ HistoryRecordingPanel::HistoryRecordingPanel(HistoryService* service, QWidget* p
         });
     });
     connect(_clearImports, &ElaPushButton::clicked, this, [this] {
-        if (_sharing.clearImports && sharingCurrent()) { _sharing.clearImports(_sharing.principalId); _shareStatus->setText(tr("Imported files are no longer shared with AI connections.")); }
+        if (_sharing.clearImports && sharingCurrent()) { _sharing.clearImports(_sharing.principalId); _shareStatus->setText(tr("Imported resources have been cleared.")); }
     });
     layout->addWidget(_sharingPanel); _sharingPanel->hide();
-    connect(_share, &ElaPushButton::clicked, this, [this] {
-        const auto selected = _model->capture(selectedRow()); if (!selected || !_sharing.share || !sharingCurrent()) return;
-        bool validFirst = false, validLast = false;
-        const auto first = _shareFirst->text().toULongLong(&validFirst), last = _shareLast->text().toULongLong(&validLast);
-        if (!validFirst || !validLast || first == 0 || (last && last < first)) { _shareStatus->setText(tr("Enter a valid inclusive record range (first record is at least 1).")); return; }
-        const auto error = _sharing.share(_sharing.principalId, selected->id, first, last, _sharePersistent->isChecked());
-        updateActions(); if (!error.isEmpty()) _shareStatus->setText(error);
-    });
-    connect(_unshare, &ElaPushButton::clicked, this, [this] {
-        const auto selected = _model->capture(selectedRow()); if (!selected || !_sharing.revoke || !sharingCurrent()) return;
-        const auto error = _sharing.revoke(_sharing.principalId, selected->id);
-        updateActions(); if (!error.isEmpty()) _shareStatus->setText(error);
-    });
     connect(_model, &HistoryCaptureModel::statusChanged, this, [this](const QString& message) { _status->setText(message); syncSettings(); });
     connect(_model, &QAbstractItemModel::modelReset, this, &HistoryRecordingPanel::updateActions);
     connect(_model, &QAbstractItemModel::dataChanged, this, [this] { updateActions(); });
@@ -144,7 +117,7 @@ HistoryRecordingPanel::HistoryRecordingPanel(HistoryService* service, QWidget* p
 int HistoryRecordingPanel::selectedRow() const { return _table->currentIndex().row(); }
 void HistoryRecordingPanel::setSharingActions(HistorySharingActions actions) {
     _sharing = std::move(actions);
-    _sharingPanel->setVisible(bool(_sharing.share)); updateActions();
+    _sharingPanel->setVisible(bool(_sharing.importFile)); updateActions();
 }
 bool HistoryRecordingPanel::sharingCurrent() const {
     return !_sharing.principalId.isEmpty() && _sharing.identityVersion && (!_sharing.isCurrent || _sharing.isCurrent());
@@ -161,12 +134,10 @@ void HistoryRecordingPanel::updateActions() {
     _stop->setEnabled(selected && selected->active); _remove->setEnabled(selected && !selected->active && !_model->busy());
     _keep->setEnabled(bool(selected) && !_model->busy());
     const bool current = sharingCurrent();
-    const bool canShare = selected && current && !_model->busy();
-    _share->setEnabled(canShare && bool(_sharing.share)); _unshare->setEnabled(canShare && bool(_sharing.revoke));
     _importFile->setEnabled(current && bool(_sharing.importFile));
     _clearImports->setEnabled(current && bool(_sharing.clearImports));
-    if (canShare && _sharing.status) _shareStatus->setText(_sharing.status(_sharing.principalId, selected->id));
-    else _shareStatus->setText(current ? tr("Select a recording to share with all AI connections.") : tr("Enable MCP access before sharing history or imported files."));
+    _shareStatus->setText(current ? tr("Existing recordings are readable and searchable by AI connections. Recording starts only when you choose Start.")
+        : tr("Enable MCP access to read existing recordings or import files."));
 }
 void HistoryRecordingPanel::syncSettings() {
     const bool ready = _model->settingsReady();

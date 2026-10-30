@@ -23,6 +23,7 @@ void HistoryAuthorizationStore::revokePrincipal(const QString& principal) {
     ++_version;
 }
 std::optional<ResourceGrant> HistoryAuthorizationStore::authorize(const ResourceContext& context, HistoryCaptureId id, quint64 generation) const {
+    if (_resolver) return _resolver(context, id, generation);
     QMutexLocker lock(&_mutex); const auto i = _grants.find({context.principalId, id.text()});
     if (i == _grants.end() || i->second.tokenEpoch != context.tokenEpoch
         || i->second.resourceGeneration != generation) return {};

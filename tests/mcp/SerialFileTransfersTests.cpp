@@ -2,6 +2,7 @@
 #include "core/terminal/TerminalCore.h"
 #include "transport/SerialTransport.h"
 #include "session/SessionInputArbiter.h"
+#include "session/SessionTerminalController.h"
 #include "filetransfer/ZmodemEngine.h"
 #include <QDir>
 #include <QFile>
@@ -47,6 +48,7 @@ struct Fixture {
     FileResourceAdapter resources{access, directory, nullptr};
     SerialFileTargetAdapter targets{access, directory, nullptr};
     QByteArray outgoing, allWrites, peerInput, received;
+    QString offeredName;
     bool reserved{false}, reserveAllowed{true};
     int starts{0};
     qint64 clock{0};
@@ -82,20 +84,15 @@ struct Fixture {
     ~Fixture() { transfers.stop(); controller.reset(); }
     SessionDirectory::Entry entry() { return directory.entries().first(); }
     quint64 identity() const { return access.identityVersion(client); }
-    StartSerialFileUploadRequest grant(const QByteArray& contents = "payload")
+    StartSerialFileUploadRequest source(const QByteArray& contents = "payload")
     {
         QFile file(root.filePath("source.bin"));
         if (!file.open(QIODevice::WriteOnly) || file.write(contents) != contents.size()) return {};
         file.close();
         const auto current = entry();
-        const auto source = resources.resources().shareLocal(client, identity(), root.path(), "Build", {true, false});
-        const auto binding = targets.liveBinding(current.id);
-        const auto target = binding ? targets.share(client, identity(), *binding, "Board") : std::nullopt;
         StartSerialFileUploadRequest request;
         request.reference = {NovaTerm::Mcp::SessionId{current.id}, Epoch{current.epoch}};
-        if (source) { request.resourceId = source->id; request.resourceRevision = source->revision; }
-        if (target) { request.targetId = target->id; request.targetRevision = target->revision; }
-        request.relativePath = "source.bin"; request.remoteName = "firmware.bin"; request.operationId = uuid();
+        request.localPath = file.fileName(); request.remoteName = "firmware.bin"; request.operationId = uuid();
         return request;
     }
     Result<QJsonObject> call(const NovaTerm::Mcp::SerialFileTransferRequest& request, const QString& owner = {})
@@ -110,7 +107,10 @@ struct Fixture {
         for (int i = 0; i < 10000; ++i) {
             if (auto action = peer.takeAction()) {
                 FT::OperationResult result;
-                if (action->kind == FT::ActionKind::OfferFile) result.accepted = !skip;
+                if (action->kind == FT::ActionKind::OfferFile) {
+                    offeredName = QString::fromStdString(action->file.name);
+                    result.accepted = !skip;
+                }
                 if (action->kind == FT::ActionKind::WriteAt) {
                     const auto end = qsizetype(action->offset + action->bytes.size());
                     if (received.size() < end) received.resize(end);
@@ -147,7 +147,9 @@ private slots:
         QFETCH(int, mode);
         Fixture f; QVERIFY(f.ready);
         QByteArray contents(mode == 1 ? 0 : 16387, 'x');
-        const auto request = f.grant(contents); QVERIFY(!request.targetId.isEmpty());
+        const auto request = f.source(contents); QVERIFY(!request.localPath.isEmpty());
+        QVERIFY(f.resources.resources().local(f.client, f.identity()).isEmpty());
+        QVERIFY(f.targets.targets().list(f.client, f.identity()).isEmpty());
         QVERIFY(!f.access.canRead(f.client, f.entry()));
         const auto accepted = f.call(request); QVERIFY(!isError(accepted));
         const auto id = value(accepted).value("transferId").toString(); QVERIFY(!id.isEmpty());
@@ -169,21 +171,45 @@ private slots:
         QVERIFY(!f.transfers.busy(f.entry().id)); QVERIFY(!f.allWrites.contains("rz\r"));
         QCOMPARE(value(f.call(request)), final); QCOMPARE(f.starts, 1);
     }
+    void replayIsReadOnlyAndNormalizesDefaultName()
+    {
+        Fixture f; QVERIFY(f.ready); auto request = f.source(); request.remoteName.clear();
+        const SerialFileTransfers& index = f.transfers;
+        QVERIFY(!index.replay(f.client, f.identity(), request)); QCOMPARE(f.starts, 0);
+        const auto accepted = f.call(request); QVERIFY(!isError(accepted));
+        request.remoteName = "source.bin"; request.confirmationToken = "expired-confirmation"; request.confirmed = false;
+#ifdef Q_OS_WIN
+        request.localPath = QDir::toNativeSeparators(request.localPath);
+        request.localPath[0] = request.localPath[0].toLower();
+#endif
+        auto replayed = index.replay(f.client, f.identity(), request); QVERIFY(replayed);
+        QCOMPARE(value(*replayed), value(accepted)); QCOMPARE(f.starts, 1);
+        QVERIFY(!index.replay(f.client, f.identity(), QuerySerialFileTransferRequest{value(accepted).value("transferId").toString()}));
+        auto changed = request; changed.remoteName = "other.bin";
+        const auto conflict = index.replay(f.client, f.identity(), changed); QVERIFY(conflict); QVERIFY(isError(*conflict));
+        QCOMPARE(std::get<Error>(*conflict).code, ErrorCode::TargetOperationConflict);
+        SerialTransportIoTestAccess::config(*f.serial);
+        replayed = index.replay(f.client, f.identity(), request); QVERIFY(replayed);
+        QCOMPARE(value(*replayed), value(accepted)); QVERIFY(f.controller->isActive()); // No admission/cancellation side effect.
+        f.controller->abort("fixture terminal fact");
+        replayed = index.replay(f.client, f.identity(), request); QVERIFY(replayed);
+        QCOMPARE(value(*replayed).value("state").toString(), QString("failed")); QCOMPARE(f.starts, 1);
+        const auto oldIdentity = f.identity(); QVERIFY(f.access.rotateToken());
+        const auto denied = index.replay(f.client, oldIdentity, request); QVERIFY(denied); QVERIFY(isError(*denied));
+        QCOMPARE(std::get<Error>(*denied).code, ErrorCode::PermissionDenied);
+    }
     void retriesAndForeignClientsCannotRetarget()
     {
-        Fixture f; QVERIFY(f.ready); const auto request = f.grant();
+        Fixture f; QVERIFY(f.ready); const auto request = f.source();
         const auto accepted = f.call(request); QVERIFY(!isError(accepted));
         const auto id = value(accepted).value("transferId").toString();
         QCOMPARE(value(f.call(request)).value("transferId").toString(), id);
-        for (int field = 0; field < 7; ++field) {
+        for (int field = 0; field < 4; ++field) {
             auto changed = request;
-            if (field == 0) changed.resourceRevision = uuid();
-            if (field == 1) changed.targetRevision = uuid();
-            if (field == 2) changed.relativePath = "other.bin";
-            if (field == 3) changed.remoteName = "other.bin";
-            if (field == 4) changed.reference.epoch = Epoch{"old"};
-            if (field == 5) changed.resourceId = uuid();
-            if (field == 6) changed.targetId = uuid();
+            if (field == 0) changed.localPath = f.root.filePath("other.bin");
+            if (field == 1) changed.remoteName = "other.bin";
+            if (field == 2) changed.reference.epoch = Epoch{"old"};
+            if (field == 3) changed.reference.session = NovaTerm::Mcp::SessionId{uuid()};
             const auto result = f.call(changed); QVERIFY(isError(result));
             QCOMPARE(std::get<Error>(result).code, ErrorCode::TargetOperationConflict);
         }
@@ -193,29 +219,26 @@ private slots:
         QVERIFY(isError(f.call(CancelSerialFileTransferRequest{id}, other)));
         QVERIFY(f.controller->isActive()); QCOMPARE(f.starts, 1);
     }
-    void grantsAndBindingChangesFailClosed_data()
+    void identityAndBindingChangesFailClosed_data()
     {
         QTest::addColumn<int>("mode");
-        for (int i = 0; i < 7; ++i) QTest::newRow(qPrintable(QString::number(i))) << i;
+        for (int i = 0; i < 5; ++i) QTest::newRow(qPrintable(QString::number(i))) << i;
     }
-    void grantsAndBindingChangesFailClosed()
+    void identityAndBindingChangesFailClosed()
     {
-        QFETCH(int, mode); Fixture f; QVERIFY(f.ready); auto request = f.grant();
-        if (mode == 0) request.resourceRevision = uuid();
-        if (mode == 1) request.targetRevision = uuid();
+        QFETCH(int, mode); Fixture f; QVERIFY(f.ready); auto request = f.source();
+        const auto identity = f.identity();
+        if (mode == 0) QVERIFY(f.access.setEnabled(false));
+        if (mode == 1) QVERIFY(f.access.rotateToken());
         if (mode == 2) request.reference.epoch = Epoch{"old"};
-        if (mode == 3) SerialTransportIoTestAccess::connected(*f.serial);
-        if (mode == 4) SerialTransportIoTestAccess::config(*f.serial);
-        if (mode == 5) SerialTransportIoTestAccess::closePending(*f.serial);
-        if (mode == 6) {
-            const auto grant = f.resources.resources().shareLocal(f.client, f.identity(), f.root.path(), "Write", {false, true});
-            QVERIFY(grant); request.resourceRevision = grant->revision;
-        }
-        QVERIFY(isError(f.call(request))); QCOMPARE(f.starts, 0); QVERIFY(f.allWrites.isEmpty());
+        if (mode == 3) request.reference.session = NovaTerm::Mcp::SessionId{uuid()};
+        if (mode == 4) SerialTransportIoTestAccess::closePending(*f.serial);
+        QVERIFY(isError(f.transfers.call(f.client, identity, "connection", request)));
+        QCOMPARE(f.starts, 0); QVERIFY(f.allWrites.isEmpty());
     }
     void oldRecordCancelCannotStopLaterManualTransfer()
     {
-        Fixture f; QVERIFY(f.ready); const auto accepted = f.call(f.grant()); QVERIFY(!isError(accepted));
+        Fixture f; QVERIFY(f.ready); const auto accepted = f.call(f.source()); QVERIFY(!isError(accepted));
         const auto id = value(accepted).value("transferId").toString();
         f.controller->abort("fixture abort");
         const auto before = f.query(id); QVERIFY(!f.transfers.busy(f.entry().id));
@@ -232,7 +255,7 @@ private slots:
     }
     void everyTargetBindingComponentMustMatch()
     {
-        QFETCH(int, field); Fixture f; QVERIFY(f.ready); auto request = f.grant();
+        QFETCH(int, field); Fixture f; QVERIFY(f.ready);
         const auto live = f.targets.liveBinding(f.entry().id); QVERIFY(live);
         auto binding = *live;
         if (field == 0) binding.connection.session = NovaTerm::Mcp::SessionId{uuid()};
@@ -242,13 +265,12 @@ private slots:
         if (field == 4) binding.connection.targetFingerprint = "foreign";
         if (field == 5) ++binding.ioGeneration;
         if (field == 6) binding.configDigest = "foreign";
-        const auto target = f.targets.targets().share(f.client, f.identity(), binding, "Stale"); QVERIFY(target);
-        request.targetId = target->id; request.targetRevision = target->revision;
-        QVERIFY(isError(f.call(request))); QCOMPARE(f.starts, 0); QVERIFY(f.allWrites.isEmpty());
+        QVERIFY(!SerialFileTargets::sameBinding(binding, *live));
+        QCOMPARE(f.starts, 0); QVERIFY(f.allWrites.isEmpty());
     }
     void deadlineDoesNotMoveOnReplay()
     {
-        Fixture f; QVERIFY(f.ready); const auto request = f.grant();
+        Fixture f; QVERIFY(f.ready); const auto request = f.source();
         const auto accepted = f.call(request); QVERIFY(!isError(accepted));
         const auto id = value(accepted).value("transferId").toString();
         QTRY_VERIFY(!f.query(id).value("totalBytes").isNull());
@@ -262,7 +284,7 @@ private slots:
     }
     void slowBudgetRejectsBeforeAnyProtocolBytes()
     {
-        Fixture f(110); QVERIFY(f.ready); const auto request = f.grant(QByteArray(32768, 'x'));
+        Fixture f(110); QVERIFY(f.ready); const auto request = f.source(QByteArray(32768, 'x'));
         const auto accepted = f.call(request);
         QVERIFY(!isError(accepted)); const auto id = value(accepted).value("transferId").toString();
         QTRY_VERIFY(!f.transfers.busy(f.entry().id));
@@ -275,7 +297,7 @@ private slots:
     }
     void controllerDestructionPreservesKnownSize()
     {
-        Fixture f; QVERIFY(f.ready); const auto accepted = f.call(f.grant()); QVERIFY(!isError(accepted));
+        Fixture f; QVERIFY(f.ready); const auto accepted = f.call(f.source()); QVERIFY(!isError(accepted));
         const auto id = value(accepted).value("transferId").toString();
         QTRY_COMPARE(f.query(id).value("totalBytes").toInt(-1), 7);
         f.controller.reset();
@@ -292,7 +314,7 @@ private slots:
     void confirmedFileSurvivesFailedFinalHandshake()
     {
         QFETCH(bool, destroy); Fixture f; QVERIFY(f.ready);
-        const auto accepted = f.call(f.grant()); QVERIFY(!isError(accepted));
+        const auto accepted = f.call(f.source()); QVERIFY(!isError(accepted));
         const auto id = value(accepted).value("transferId").toString();
         FT::ZmodemEngine peer; FT::TransferRequest receive; receive.direction = FT::Direction::Receive;
         QVERIFY(peer.start(receive, 0));
@@ -310,29 +332,30 @@ private slots:
         QCOMPARE(final.value("totalBytes").toInt(), 7);
         QCOMPARE(final.value("remotePublication").toString(), QString("unknown"));
     }
-    void activeGrantAndOriginalBindingAreRechecked_data()
+    void activeIdentityAndOriginalBindingAreRechecked_data()
     {
         QTest::addColumn<int>("mode");
-        QTest::newRow("source-revoked") << 0;
-        QTest::newRow("target-revoked") << 1;
+        QTest::newRow("access-disabled") << 0;
+        QTest::newRow("identity-rotated") << 1;
         QTest::newRow("io-replaced") << 2;
         QTest::newRow("config-changed") << 3;
         QTest::newRow("connection-lost") << 4;
     }
-    void activeGrantAndOriginalBindingAreRechecked()
+    void activeIdentityAndOriginalBindingAreRechecked()
     {
-        QFETCH(int, mode); Fixture f; QVERIFY(f.ready); const auto request = f.grant();
+        QFETCH(int, mode); Fixture f; QVERIFY(f.ready); const auto request = f.source();
         const auto accepted = f.call(request); QVERIFY(!isError(accepted));
         const auto id = value(accepted).value("transferId").toString();
         QTRY_VERIFY(!f.allWrites.isEmpty());
         const auto before = f.allWrites;
-        if (mode == 0) f.resources.resources().revoke(f.client);
-        if (mode == 1) f.targets.targets().revoke(f.client);
+        if (mode == 0) QVERIFY(f.access.setEnabled(false));
+        if (mode == 1) QVERIFY(f.access.rotateToken());
         if (mode == 2) SerialTransportIoTestAccess::connected(*f.serial);
         if (mode == 3) SerialTransportIoTestAccess::config(*f.serial);
         if (mode == 4) SerialTransportIoTestAccess::closePending(*f.serial);
         const auto state = f.query(id).value("state").toString();
         QVERIFY(state != "sending" && state != "accepted");
+        if (mode < 2) QTRY_VERIFY(!f.controller->isActive());
         if (mode >= 2) {
             QVERIFY(!f.controller->isActive());
             QCOMPARE(f.allWrites, before); // Old binding may not send even cancellation bytes.
@@ -340,7 +363,7 @@ private slots:
     }
     void retainedRecordsExpireWithoutExtendingOnQuery()
     {
-        Fixture f; QVERIFY(f.ready); auto request = f.grant();
+        Fixture f; QVERIFY(f.ready); auto request = f.source();
         QString first;
         for (int i = 0; i < 16; ++i) {
             request.operationId = uuid();
@@ -356,14 +379,89 @@ private slots:
     void busyOwnerIsNotPreempted()
     {
         Fixture f; QVERIFY(f.ready); f.reserveAllowed = false;
-        const auto accepted = f.call(f.grant()); QVERIFY(!isError(accepted));
+        const auto accepted = f.call(f.source()); QVERIFY(!isError(accepted));
         const auto id = value(accepted).value("transferId").toString();
         QCOMPARE(f.query(id).value("state").toString(), QString("failed"));
         QVERIFY(f.allWrites.isEmpty()); QVERIFY(!f.reserved);
     }
+    void defaultNameAndUnicodeSourceWithoutGrants()
+    {
+        Fixture f; QVERIFY(f.ready); auto request = f.source("unicode path contents");
+        const auto path = f.root.filePath(QString::fromUtf8("固件 build.bin"));
+        QVERIFY(QFile::rename(request.localPath, path));
+        request.localPath = path; request.remoteName.clear();
+        const auto accepted = f.call(request); QVERIFY(!isError(accepted));
+        FT::ZmodemEngine peer; FT::TransferRequest receive; receive.direction = FT::Direction::Receive;
+        QVERIFY(peer.start(receive, 0));
+        QTRY_VERIFY_WITH_TIMEOUT(f.bridge(peer), 10000);
+        QCOMPARE(f.offeredName, QString::fromUtf8("固件 build.bin"));
+        QCOMPARE(f.received, QByteArray("unicode path contents"));
+        QCOMPARE(f.query(value(accepted).value("transferId").toString()).value("state").toString(), QString("completed"));
+    }
+    void ownControlIsReleasedAndForeignControlIsPreserved_data()
+    {
+        QTest::addColumn<bool>("foreign");
+        QTest::newRow("own") << false;
+        QTest::newRow("foreign") << true;
+    }
+    void ownControlIsReleasedAndForeignControlIsPreserved()
+    {
+        QFETCH(bool, foreign); Fixture f; QVERIFY(f.ready); const auto request = f.source();
+        auto* terminal = f.session.terminalController(); QVERIFY(terminal);
+        const auto owner = foreign ? QString("another-owner") : f.client;
+        QVERIFY(terminal->acquire(owner));
+        const auto accepted = f.call(request);
+        if (foreign) {
+            QVERIFY(isError(accepted));
+            QCOMPARE(std::get<Error>(accepted).code, ErrorCode::FileTransferBusy);
+            QCOMPARE(terminal->owner(), owner); QVERIFY(f.allWrites.isEmpty());
+        } else {
+            QVERIFY(!isError(accepted)); QVERIFY(terminal->owner().isEmpty());
+            QVERIFY(!f.session.inputArbiter()->hasMcpLease());
+            FT::ZmodemEngine peer; FT::TransferRequest receive; receive.direction = FT::Direction::Receive;
+            QVERIFY(peer.start(receive, 0)); QTRY_VERIFY_WITH_TIMEOUT(f.bridge(peer), 10000);
+            QCOMPARE(f.received, QByteArray("payload"));
+        }
+    }
+    void releaseCallbackChangingBindingCannotStartTransfer()
+    {
+        Fixture f; QVERIFY(f.ready); const auto request = f.source();
+        auto* terminal = f.session.terminalController(); QVERIFY(terminal->acquire(f.client));
+        connect(&f.session, &TerminalSession::terminalControlChanged, &f.session, [&f, terminal] {
+            if (terminal->owner().isEmpty()) SerialTransportIoTestAccess::config(*f.serial);
+        });
+        const auto accepted = f.call(request);
+        QVERIFY(isError(accepted)); QVERIFY(!f.controller->isActive()); QVERIFY(f.allWrites.isEmpty());
+    }
+    void pendingInputCannotBeReleasedForTransfer()
+    {
+        Fixture f; QVERIFY(f.ready); const auto request = f.source();
+        auto* terminal = f.session.terminalController(); QVERIFY(terminal->acquire(f.client));
+        NovaTerm::TerminalInputAction input; input.kind = NovaTerm::TerminalInputAction::Kind::Text; input.text = "rz\r";
+        QVERIFY(terminal->submit(f.client, uuid(), {input}, false)); QVERIFY(terminal->pending());
+        const auto accepted = f.call(request); QVERIFY(isError(accepted));
+        QCOMPARE(std::get<Error>(accepted).code, ErrorCode::FileTransferBusy);
+        QCOMPARE(terminal->owner(), f.client); QVERIFY(f.allWrites.isEmpty());
+    }
+    void activeReceiverCommandCanHandOffToTransfer()
+    {
+        Fixture f; QVERIFY(f.ready); const auto request = f.source();
+        auto* terminal = f.session.terminalController(); QVERIFY(terminal->acquire(f.client));
+        InteractiveStreamEvent prompt; prompt.kind = InteractiveStreamEventKind::PromptReady; prompt.promptGeneration = 1;
+        terminal->handleEvent(prompt); QVERIFY(terminal->readyForCommand());
+        NovaTerm::TerminalInputAction input; input.kind = NovaTerm::TerminalInputAction::Kind::Text; input.text = "rz\r";
+        QVERIFY(terminal->submit(f.client, uuid(), {input}, true));
+        QTRY_VERIFY(!terminal->pending()); QVERIFY(terminal->commandActive());
+        const auto accepted = f.call(request); QVERIFY(!isError(accepted));
+        QVERIFY(terminal->owner().isEmpty()); QVERIFY(!terminal->commandActive());
+        QCOMPARE(terminal->observation(f.client).value("command").toObject().value("state").toString(), QString("unknown"));
+        FT::ZmodemEngine peer; FT::TransferRequest receive; receive.direction = FT::Direction::Receive;
+        QVERIFY(peer.start(receive, 0)); QTRY_VERIFY_WITH_TIMEOUT(f.bridge(peer), 10000);
+        QCOMPARE(f.received, QByteArray("payload"));
+    }
     void defaultSessionOwnerKeepsExistingMcpLease()
     {
-        Fixture f; QVERIFY(f.ready); const auto request = f.grant();
+        Fixture f; QVERIFY(f.ready); const auto request = f.source();
         auto* arbiter = f.session.inputArbiter(); QVERIFY(arbiter);
         QVERIFY(arbiter->acquireMcpLease(73, f.session.statistics().generation));
         SerialFileTransfers transfers(f.access, f.directory, f.resources, f.targets, "production-owner");

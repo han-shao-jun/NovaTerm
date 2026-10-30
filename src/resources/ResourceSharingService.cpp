@@ -83,9 +83,10 @@ private:
 }
 struct ResourceSharingService::Impl {
     IdentityLookup identity;
-    GrantPersistence persistence;
     R::HistoryReadPort source, port;
-    R::HistoryAuthorizationStore authorization;
+    R::HistoryAuthorizationStore authorization{[this](const R::ResourceContext& context, R::HistoryCaptureId id, quint64 generation) {
+        return authorize(context, id, generation);
+    }};
     std::unique_ptr<R::HistoryReadService> reads;
     std::unique_ptr<R::HistorySearchService> searches;
     std::unique_ptr<E::EvidenceStore> evidence;
@@ -101,21 +102,19 @@ struct ResourceSharingService::Impl {
         return !context.principalId.isEmpty() && context.tokenEpoch && this->context(context.principalId).tokenEpoch == context.tokenEpoch;
     }
     std::optional<R::HistoryResource> describe(R::HistoryCaptureId id) const { return source.describe ? source.describe(id) : std::nullopt; }
-    bool save(const std::vector<R::ResourceGrant>& grants) const {
-        if (!persistence.save) return false;
-        std::vector<R::ResourceGrant> persisted;
-        for (const auto& grant : grants) if (grant.persistent && valid({grant.principalId, grant.tokenEpoch})) persisted.push_back(grant);
-        return persistence.save(persisted);
+    std::optional<R::ResourceGrant> authorize(const R::ResourceContext& context, R::HistoryCaptureId id, quint64 generation) const {
+        if (!valid(context) || !id.valid() || !generation) return {};
+        const auto resource = describe(id);
+        if (!resource || resource->generation != generation) return {};
+        R::ResourceGrant grant;
+        grant.principalId = context.principalId; grant.tokenEpoch = context.tokenEpoch;
+        grant.captureId = id; grant.resourceGeneration = generation; grant.accessVersion = context.tokenEpoch;
+        return grant;
     }
 };
-ResourceSharingService::ResourceSharingService(IdentityLookup identity, GrantPersistence persistence, QObject* parent)
+ResourceSharingService::ResourceSharingService(IdentityLookup identity, QObject* parent)
     : QObject(parent), _impl(std::make_unique<Impl>()) {
-    auto& p = *_impl; p.identity = std::move(identity); p.persistence = std::move(persistence); p.clock.start();
-    if (p.persistence.load) {
-        const auto grants = p.persistence.load();
-        if (grants.size() <= 128) for (const auto& grant : grants)
-            if (p.valid({grant.principalId, grant.tokenEpoch})) p.authorization.setGrant(grant);
-    }
+    auto& p = *_impl; p.identity = std::move(identity); p.clock.start();
     const QPointer<ResourceSharingService> self(this);
     p.port.describe = [self](R::HistoryCaptureId id) -> std::optional<R::HistoryResource> { return self ? self->describe(id) : std::nullopt; };
     p.port.readCommitted = [self](R::HistoryCaptureId id, R::HistoryRange range, auto done) {
@@ -157,24 +156,27 @@ void ResourceSharingService::setHistorySource(R::HistoryReadPort source) {
 }
 R::ResourceContext ResourceSharingService::context(const QString& principal) const { return _impl->context(principal); }
 std::optional<R::ResourceGrant> ResourceSharingService::authorize(const R::ResourceContext& context, R::HistoryCaptureId id, quint64 generation) const {
-    return _impl->valid(context) ? _impl->authorization.authorize(context, id, generation) : std::nullopt;
+    return _impl->authorize(context, id, generation);
 }
 std::optional<R::HistoryResource> ResourceSharingService::describe(R::HistoryCaptureId id) const { return _impl->describe(id); }
 CaptureListPage ResourceSharingService::list(const R::ResourceContext& context, const CaptureListQuery& request) const {
     CaptureListPage page;
     if (!_impl->valid(context)) { page.error = "PERMISSION_DENIED"; return page; }
-    const auto grants = _impl->authorization.grants(context); QString signature;
-    for (const auto& grant : grants) signature += grant.captureId.text() + ':' + QString::number(grant.accessVersion) + ';';
+    if (request.limit < 1 || request.limit > 200) { page.error = "INVALID_ARGUMENT"; return page; }
+    auto resources = _impl->source.catalog ? _impl->source.catalog() : std::vector<R::HistoryResource>{};
+    std::sort(resources.begin(), resources.end(), [](const auto& left, const auto& right) {
+        return left.capture.id.text() < right.capture.id.text();
+    });
+    QString signature;
+    for (const auto& resource : resources)
+        signature += resource.capture.id.text() + ':' + QString::number(resource.generation) + ';';
     page.digest = QString::fromLatin1(QCryptographicHash::hash(signature.toUtf8(), QCryptographicHash::Sha256).toHex());
     if (!request.digest.isEmpty() && request.digest != page.digest) { page.error = "CURSOR_STALE"; return page; }
-    if (request.limit < 1 || request.limit > 200) { page.error = "INVALID_ARGUMENT"; return page; }
-    for (const auto& grant : grants) {
-        if (grant.captureId.text() <= request.after) continue;
-        const auto resource = describe(grant.captureId); if (!resource) continue;
+    for (const auto& resource : resources) {
+        const auto& capture = resource.capture;
+        if (capture.id.text() <= request.after || !authorize(context, capture.id, resource.generation)) continue;
         if (page.captures.size() >= size_t(request.limit)) { page.nextAfter = page.captures.back().id.text(); break; }
-        const auto& capture = resource->capture;
-        page.captures.push_back({capture.id, capture.createdMs, capture.highWaterRecordId, grant.firstRecordId,
-            grant.lastRecordId, capture.integrity, capture.active, grant.persistent});
+        page.captures.push_back({capture.id, capture.createdMs, capture.highWaterRecordId, capture.integrity, capture.active});
     }
     return page;
 }
@@ -261,7 +263,7 @@ void ResourceSharingService::searchAsync(R::HistorySearchRequest request, R::Res
 }
 void ResourceSharingService::importFile(QString client, QString path, std::function<void(ImportResult)> callback) {
     const auto ctx = _impl->context(client);
-    if (!_impl->imports || !ctx.tokenEpoch) { callback({"Select a registered client before sharing a file."}); return; }
+    if (!_impl->imports || !ctx.tokenEpoch) { callback({"Enable access before importing a file."}); return; }
     auto& pending = _impl->pendingImports[client];
     if (!pending) pending = std::make_shared<Impl::ImportBatch>();
     const auto batch = pending; ++batch->pending;
@@ -274,10 +276,10 @@ void ResourceSharingService::importFile(QString client, QString path, std::funct
             self->_impl->pendingImports.erase(current);
         if (batch->revoked) {
             if (self->_impl->imports) self->_impl->imports->remove(result.binding.resourceId);
-            callback({"File sharing was revoked while importing."}); return;
+            callback({"Imported files were cleared while importing."}); return;
         }
         if (self->_impl->context(ctx.principalId).tokenEpoch != ctx.tokenEpoch) {
-            self->_impl->imports->remove(result.binding.resourceId); callback({"Client identity changed while sharing the file."}); return;
+            self->_impl->imports->remove(result.binding.resourceId); callback({"Access identity changed while importing the file."}); return;
         }
         if (result.error != E::Error::None) { callback({E::errorCode(result.error)}); return; }
         self->_impl->importedOwners[result.binding.resourceId] = ctx;
@@ -294,36 +296,4 @@ void ResourceSharingService::clearImportedFiles(const QString& client) {
         else ++it;
     }
 }
-QString ResourceSharingService::share(const QString& client, R::HistoryCaptureId id, quint64 first, quint64 last, bool persistent) {
-    auto& p = *_impl;
-    const auto resource = p.describe(id); const auto ctx = p.context(client);
-    if (!p.persistence.save) return "History grants are locked by another process or their private directory is unavailable.";
-    if (!resource || !ctx.tokenEpoch || !first || (last && last < first)) return "Invalid capture, client or record range.";
-    R::ResourceGrant grant; grant.principalId = client; grant.tokenEpoch = ctx.tokenEpoch; grant.captureId = id;
-    grant.resourceGeneration = resource->generation; grant.firstRecordId = first; grant.lastRecordId = last; grant.persistent = persistent;
-    std::vector<R::ResourceGrant> proposed, retired;
-    for (const auto& existing : p.authorization.allGrants()) {
-        const auto current = p.describe(existing.captureId);
-        if (!current || current->generation != existing.resourceGeneration
-            || p.context(existing.principalId).tokenEpoch != existing.tokenEpoch) retired.push_back(existing);
-        else if (existing.principalId != client || existing.captureId != id) proposed.push_back(existing);
-    }
-    if (proposed.size() >= 128) return "History grant limit reached.";
-    proposed.push_back(grant);
-    if (!p.save(proposed)) return "Could not save history permissions; the grant was not changed.";
-    for (const auto& expired : retired) p.authorization.revoke(expired.principalId, expired.captureId);
-    p.authorization.setGrant(grant); p.pages.clear(); return {};
-}
-QString ResourceSharingService::revoke(const QString& client, R::HistoryCaptureId id) {
-    auto& p = *_impl; auto proposed = p.authorization.allGrants();
-    proposed.erase(std::remove_if(proposed.begin(), proposed.end(), [&client, id](const auto& value) { return value.principalId == client && value.captureId == id; }), proposed.end());
-    if (!p.save(proposed)) return "Could not save the revocation; history permission is still granted.";
-    p.authorization.revoke(client, id); p.pages.clear(); return {};
-}
-QString ResourceSharingService::sharingStatus(const QString& client, R::HistoryCaptureId id) const {
-    const auto& p = *_impl; const auto resource = describe(id);
-    const auto grant = resource ? authorize(p.context(client), id, resource->generation) : std::nullopt;
-    return grant ? QString("Shared records %1–%2 (%3)").arg(grant->firstRecordId).arg(grant->lastRecordId ? QString::number(grant->lastRecordId) : "committed high water").arg(grant->persistent ? "persistent" : "until exit") : QString("Not shared");
-}
-
 }

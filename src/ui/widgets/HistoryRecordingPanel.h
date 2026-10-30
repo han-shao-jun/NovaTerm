@@ -10,15 +10,11 @@ class QTableView;
 class QLabel;
 class ElaPushButton;
 class ElaSpinBox;
-class ElaCheckBox;
 class QLineEdit;
 struct HistorySharingActions {
     QString principalId;
     quint64 identityVersion{0};
     std::function<bool()> isCurrent;
-    std::function<QString(QString, NovaTerm::Recording::HistoryCaptureId, quint64, quint64, bool)> share;
-    std::function<QString(QString, NovaTerm::Recording::HistoryCaptureId)> revoke;
-    std::function<QString(QString, NovaTerm::Recording::HistoryCaptureId)> status;
     std::function<void(QString, QString, std::function<void(QString)>)> importFile;
     std::function<void(QString)> clearImports;
 };
@@ -43,11 +39,6 @@ private:
     ElaSpinBox* _days;
     ElaPushButton* _apply;
     QWidget* _sharingPanel;
-    QLineEdit* _shareFirst;
-    QLineEdit* _shareLast;
-    ElaCheckBox* _sharePersistent;
-    ElaPushButton* _share;
-    ElaPushButton* _unshare;
     QLabel* _shareStatus;
     ElaPushButton* _importFile;
     ElaPushButton* _clearImports;

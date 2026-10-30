@@ -22,12 +22,12 @@ public:
     using DirectoryCompletion = std::function<void(SftpDirectoryResult)>;
     void setDirectorySessionProvider(DirectorySession provider) { _directorySession = std::move(provider); }
     bool matchesRemoteBinding(QString client, quint64 identity, SessionBinding expected);
+    std::optional<SessionBinding> liveBinding(const QString& session);
     void listRemoteDirectory(QString client, quint64 identity, SessionBinding expected,
         QString path, QObject* context, DirectoryCompletion);
 signals:
     void changed();
 private:
-    std::optional<SessionBinding> liveBinding(const QString& session);
     void pruneDisconnected();
     AccessStore& _access;
     SessionDirectory& _sessions;

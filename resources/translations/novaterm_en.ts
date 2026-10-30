@@ -821,6 +821,14 @@ Built with:
         <source>须先共享读取且会话已连接。独立允许清空本机屏幕或滚动历史，影响人的本机显示；不向设备发送字节、不停止远端程序，也不删除独立历史录制。新建或重连后的连接默认允许，可在此取消授权。</source>
         <translation>Requires read permission and a connected session. Allows clearing the local screen or scrollback, affecting the local display. Sends no bytes to the device, stops no remote program, and deletes no independent recording. Enabled by default for new or reconnected sessions; uncheck here to revoke.</translation>
     </message>
+    <message>
+        <source>清除上传确认记忆</source>
+        <translation>Clear upload confirmation memory</translation>
+    </message>
+    <message>
+        <source>已清除上传确认记忆，下次上传时会在 AI 对话中确认一次。</source>
+        <translation>Upload confirmation memory cleared. The AI will ask once before the next upload.</translation>
+    </message>
 </context>
 <context>
     <name>Prompts</name>
@@ -3925,6 +3933,30 @@ Built with:
     <message>
         <source>Shared file %1 (%2 bytes, SHA-256 %3). Permission expires on exit; offline analyzers are not yet available.</source>
         <translation>Shared file %1 (%2 bytes, SHA-256 %3). Permission expires on exit; offline analyzers are not yet available.</translation>
+    </message>
+    <message>
+        <source>Recording starts only when you choose Start. Enabling MCP access makes existing recordings readable and searchable by all AI connections. Remote output may contain passwords or other secrets; automatic masking is unavailable. File transfers are omitted and marked as gaps.</source>
+        <translation>Recording starts only when you choose Start. Enabling MCP access makes existing recordings readable and searchable by all AI connections. Remote output may contain passwords or other secrets; automatic masking is unavailable. File transfers are omitted and marked as gaps.</translation>
+    </message>
+    <message>
+        <source>Existing recordings are available to all AI connections while MCP access is enabled, including after closing a terminal. Import a local log to create an independent resource for this run.</source>
+        <translation>Existing recordings are available to all AI connections while MCP access is enabled, including after closing a terminal. Import a local log to create an independent resource for this run.</translation>
+    </message>
+    <message>
+        <source>Import local log file…</source>
+        <translation>Import local log file…</translation>
+    </message>
+    <message>
+        <source>Clear imported files</source>
+        <translation>Clear imported files</translation>
+    </message>
+    <message>
+        <source>Imported resources have been cleared.</source>
+        <translation>Imported resources have been cleared.</translation>
+    </message>
+    <message>
+        <source>Imported file %1 (%2 bytes, SHA-256 %3). Available this run; offline analyzers are not yet available.</source>
+        <translation>Imported file %1 (%2 bytes, SHA-256 %3). Available this run; offline analyzers are not yet available.</translation>
     </message>
 </context>
 <context>

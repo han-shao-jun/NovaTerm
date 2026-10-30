@@ -831,6 +831,14 @@ Built with:
         <source>须先共享读取且会话已连接。独立允许清空本机屏幕或滚动历史，影响人的本机显示；不向设备发送字节、不停止远端程序，也不删除独立历史录制。新建或重连后的连接默认允许，可在此取消授权。</source>
         <translation>须先共享读取且会话已连接。独立允许清空本机屏幕或滚动历史，影响人的本机显示；不向设备发送字节、不停止远端程序，也不删除独立历史录制。新建或重连后的连接默认允许，可在此取消授权。</translation>
     </message>
+    <message>
+        <source>清除上传确认记忆</source>
+        <translation>清除上传确认记忆</translation>
+    </message>
+    <message>
+        <source>已清除上传确认记忆，下次上传时会在 AI 对话中确认一次。</source>
+        <translation>已清除上传确认记忆，下次上传时会在 AI 对话中确认一次。</translation>
+    </message>
 </context>
 <context>
     <name>Prompts</name>
@@ -3936,6 +3944,30 @@ Built with:
     <message>
         <source>Shared file %1 (%2 bytes, SHA-256 %3). Permission expires on exit; offline analyzers are not yet available.</source>
         <translation>已共享文件 %1（%2 字节，SHA-256 %3）。权限在退出时失效；离线分析器暂不可用。</translation>
+    </message>
+    <message>
+        <source>Recording starts only when you choose Start. Enabling MCP access makes existing recordings readable and searchable by all AI connections. Remote output may contain passwords or other secrets; automatic masking is unavailable. File transfers are omitted and marked as gaps.</source>
+        <translation>仅在点击开始后录制。启用 MCP 后，所有 AI 连接均可读取和搜索已有录制。远端输出可能包含密码等信息，目前不自动遮蔽；文件传输不录制并标记为缺口。</translation>
+    </message>
+    <message>
+        <source>Existing recordings are available to all AI connections while MCP access is enabled, including after closing a terminal. Import a local log to create an independent resource for this run.</source>
+        <translation>启用 MCP 后，所有 AI 均可访问已有录制，关闭终端后仍可使用。导入本地日志可创建本次运行的独立资源。</translation>
+    </message>
+    <message>
+        <source>Import local log file…</source>
+        <translation>导入本地日志文件…</translation>
+    </message>
+    <message>
+        <source>Clear imported files</source>
+        <translation>清除已导入文件</translation>
+    </message>
+    <message>
+        <source>Imported resources have been cleared.</source>
+        <translation>已清除导入资源。</translation>
+    </message>
+    <message>
+        <source>Imported file %1 (%2 bytes, SHA-256 %3). Available this run; offline analyzers are not yet available.</source>
+        <translation>已导入文件 %1（%2 字节，SHA-256 %3），本次运行有效；离线分析器尚不可用。</translation>
     </message>
 </context>
 <context>

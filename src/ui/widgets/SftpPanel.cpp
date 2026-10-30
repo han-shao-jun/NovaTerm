@@ -911,6 +911,12 @@ SftpSession* SftpPanel::directoryBrowsingSession(SshTransport* expected)
     return _sftpSession;
 }
 
+SftpSession* SftpPanel::prepareFileTransferSession(SshTransport* expected)
+{
+    auto* backend = directoryBrowsingSession(expected);
+    return backend && !_backendConnected && _hasError ? nullptr : backend;
+}
+
 bool SftpPanel::uploadAuthorizedFile(const SftpFileUploadRequest& request)
 {
     if (!fileTransferSession(_sshTransport) || !request.requestId) return false;
@@ -918,6 +924,16 @@ bool SftpPanel::uploadAuthorizedFile(const SftpFileUploadRequest& request)
     if (!_sftpSession->uploadAuthorizedFile(request)) { _authorizedUploadId = 0; return false; }
     refreshAvailability();
     return true;
+}
+
+QMetaObject::Connection SftpPanel::onFileTransferConnectionFailure(QObject* context, std::function<void()> failure)
+{
+    return connect(_sftpSession, &SftpSession::errorOccurred, context,
+        [backend = QPointer<SftpSession>(_sftpSession), failure = std::move(failure)](const QString&) {
+            // Directory/manual-operation failures do not close the connection.
+            // A queued transfer can still use its explicitly supplied path.
+            if (!backend || !backend->isConnected()) failure();
+        });
 }
 
 void SftpPanel::setSessionContext(const QString& sessionLabel,

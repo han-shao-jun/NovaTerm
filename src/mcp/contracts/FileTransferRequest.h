@@ -1,15 +1,18 @@
 #pragma once
 #include "SessionBinding.h"
+#include <optional>
 #include <variant>
 namespace NovaTerm::Mcp {
 struct StartFileUploadRequest {
     SessionReference reference;
-    QString resourceId, resourceRevision, relativePath, scopeId, scopeRevision, remoteName, operationId;
+    QString localPath, remotePath, operationId;
     bool overwrite{false};
+    QString confirmationToken{};
+    std::optional<bool> confirmed{};
 };
 struct StartFileDownloadRequest {
     SessionReference reference;
-    QString resourceId, resourceRevision, relativePath, scopeId, scopeRevision, remoteName, operationId;
+    QString localPath, remotePath, operationId;
     bool overwrite{false};
 };
 struct QueryFileTransferRequest { QString transferId; };
@@ -17,7 +20,9 @@ struct CancelFileTransferRequest { QString transferId; };
 using FileTransferRequest = std::variant<StartFileUploadRequest, QueryFileTransferRequest, CancelFileTransferRequest, StartFileDownloadRequest>;
 struct StartSerialFileUploadRequest {
     SessionReference reference;
-    QString resourceId, resourceRevision, relativePath, targetId, targetRevision, remoteName, operationId;
+    QString localPath, remoteName, operationId;
+    QString confirmationToken{};
+    std::optional<bool> confirmed{};
 };
 struct QuerySerialFileTransferRequest { QString transferId; };
 struct CancelSerialFileTransferRequest { QString transferId; };

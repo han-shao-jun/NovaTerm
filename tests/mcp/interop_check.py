@@ -27,7 +27,8 @@ import httpx
 from mcp.shared.exceptions import McpError
 
 RETIRED_TOOLS = ("novaterm_list_commands", "novaterm_execute_command", "novaterm_run_command", "novaterm_run_script",
-    "novaterm_list_targets", "novaterm_open_target", "novaterm_query_target", "novaterm_close_target")
+    "novaterm_list_targets", "novaterm_open_target", "novaterm_query_target", "novaterm_close_target",
+    "novaterm_list_file_resources", "novaterm_list_serial_file_targets")
 from jsonschema import Draft202012Validator
 
 
@@ -38,7 +39,7 @@ async def check(config: dict) -> None:
             initialization = await session.initialize()
             assert initialization.protocolVersion == "2025-11-25"
             catalog = await session.list_tools()
-            assert len(catalog.tools) == 22
+            assert len(catalog.tools) == 20
             assert not set(RETIRED_TOOLS) & {tool.name for tool in catalog.tools}
             schemas = {tool.name: tool.outputSchema for tool in catalog.tools}
             for tool in catalog.tools:
@@ -53,8 +54,6 @@ async def check(config: dict) -> None:
                 return payload
 
             assert (await call("novaterm_list_captures", {}))["data"]["captures"] == []
-            await check_file_resources(call)
-            await check_serial_file_targets(call)
             await check_file_transfers(call)
             await check_serial_file_transfers(call)
             capture = "11111111-1111-4111-8111-111111111111"
@@ -86,55 +85,49 @@ async def check(config: dict) -> None:
             assert not rejected["ok"] and rejected["error"]["code"] == "INVALID_ARGUMENT"
             await check_workflow(call, identity)
     await check_modern(settings)
-    print("PASS: official MCP SDK 2025 + raw 2026 HTTP, 22 schemas, UART authorization discovery, restricted SFTP upload/download permission refusal, file-resource metadata discovery, retired saved-target tool rejection, history/terminal contracts and B3a wait/start/query/stop/replay")
+    print("PASS: official MCP SDK 2025 + raw 2026 HTTP, 20 schemas, direct-path SFTP/UART stale-session refusal, paired confirmation parameters, retired grant-directory and saved-target tool rejection, history/terminal contracts and B3a wait/start/query/stop/replay")
 
 
-async def check_serial_file_targets(call) -> None:
-    payload = await call("novaterm_list_serial_file_targets", {})
-    assert payload["ok"]
-    assert set(payload["data"]) == {"instanceId", "availability", "targets"}
-    assert payload["data"]["availability"] == "authorization_only"
-    assert payload["data"]["targets"] == []
-    denied = await call("novaterm_list_serial_file_targets", {"portName": "injected"})
-    assert not denied["ok"] and denied["error"]["code"] == "INVALID_ARGUMENT"
+def direct_transfer_arguments(serial: bool = False) -> dict:
+    # No device or filesystem access: this deliberately nonexistent session must
+    # fail before confirmation and before any source open or receiver action.
+    arguments = {"sessionId": "11111111-1111-4111-8111-111111111111", "epoch": "stale",
+        "localPath": "C:/build/firmware.bin" if os.name == "nt" else "/tmp/build/firmware.bin",
+        "operationId": str(uuid.uuid4())}
+    if not serial:
+        arguments.update(remotePath="/tmp/firmware.bin", overwrite=True)
+    return arguments
 
 
-async def check_file_resources(call) -> None:
-    payload = await call("novaterm_list_file_resources", {})
-    assert payload["ok"]
-    assert payload["data"]["availability"] == "authorization_only"
-    assert payload["data"]["localResources"] == []
-    assert payload["data"]["remoteScopes"] == []
-    denied = await call("novaterm_list_file_resources", {
-        "sessionId": "11111111-1111-4111-8111-111111111111", "epoch": "unshared"})
-    assert not denied["ok"] and denied["error"]["code"] == "PERMISSION_DENIED"
+async def check_upload_confirmation_arguments(call, name: str, arguments: dict) -> None:
+    for extra in ({"confirmed": True}, {"confirmationToken": "opaque"},
+                  {"confirmationToken": "", "confirmed": True},
+                  {"confirmationToken": "opaque", "confirmed": "true"}):
+        denied = await call(name, {**arguments, **extra})
+        assert not denied["ok"] and denied["error"]["code"] == "INVALID_ARGUMENT", denied
+    for legacy in ("resourceId", "resourceRevision", "relativePath", "scopeId", "scopeRevision", "targetId", "targetRevision"):
+        denied = await call(name, {**arguments, legacy: "legacy"})
+        assert not denied["ok"] and denied["error"]["code"] == "INVALID_ARGUMENT", denied
 
 
 async def check_file_transfers(call) -> None:
-    denied_download = await call("novaterm_download_file", {
-        "sessionId": "11111111-1111-4111-8111-111111111111", "epoch": "unshared",
-        "resourceId": str(uuid.uuid4()), "resourceRevision": str(uuid.uuid4()),
-        "relativePath": "result.bin", "scopeId": str(uuid.uuid4()),
-        "scopeRevision": str(uuid.uuid4()), "remoteName": "result.bin", "operationId": str(uuid.uuid4()), "overwrite": True})
-    assert not denied_download["ok"] and denied_download["error"]["code"] == "PERMISSION_DENIED"
-    denied = await call("novaterm_upload_file", {
-        "sessionId": "11111111-1111-4111-8111-111111111111", "epoch": "unshared",
-        "resourceId": str(uuid.uuid4()), "resourceRevision": str(uuid.uuid4()),
-        "relativePath": "firmware.bin", "scopeId": str(uuid.uuid4()),
-        "scopeRevision": str(uuid.uuid4()), "remoteName": "firmware.bin", "operationId": str(uuid.uuid4()), "overwrite": True})
-    assert not denied["ok"] and denied["error"]["code"] == "PERMISSION_DENIED"
+    arguments = direct_transfer_arguments()
+    denied_download = await call("novaterm_download_file", arguments)
+    assert not denied_download["ok"] and denied_download["error"]["code"] == "PERMISSION_DENIED", denied_download
+    denied = await call("novaterm_upload_file", arguments)
+    assert not denied["ok"] and denied["error"]["code"] == "SESSION_NOT_AVAILABLE", denied
+    await check_upload_confirmation_arguments(call, "novaterm_upload_file", arguments)
     for name in ("novaterm_query_transfer", "novaterm_cancel_transfer"):
         denied = await call(name, {"transferId": str(uuid.uuid4())})
         assert not denied["ok"] and denied["error"]["code"] in ("PERMISSION_DENIED", "TASK_NOT_AVAILABLE")
 
 
 async def check_serial_file_transfers(call) -> None:
-    denied = await call("novaterm_upload_serial_file", {
-        "sessionId": "11111111-1111-4111-8111-111111111111", "epoch": "unshared",
-        "resourceId": str(uuid.uuid4()), "resourceRevision": str(uuid.uuid4()),
-        "relativePath": "firmware.bin", "targetId": str(uuid.uuid4()),
-        "targetRevision": str(uuid.uuid4()), "remoteName": "firmware.bin", "operationId": str(uuid.uuid4())})
-    assert not denied["ok"] and denied["error"]["code"] == "PERMISSION_DENIED"
+    arguments = direct_transfer_arguments(serial=True)
+    # remoteName is deliberately omitted to exercise the source-name default.
+    denied = await call("novaterm_upload_serial_file", arguments)
+    assert not denied["ok"] and denied["error"]["code"] == "SESSION_NOT_AVAILABLE", denied
+    await check_upload_confirmation_arguments(call, "novaterm_upload_serial_file", arguments)
     for name in ("novaterm_query_serial_transfer", "novaterm_cancel_serial_transfer"):
         denied = await call(name, {"transferId": str(uuid.uuid4())})
         assert not denied["ok"] and denied["error"]["code"] == "PERMISSION_DENIED"
@@ -226,7 +219,7 @@ async def check_modern(settings: dict) -> None:
         assert unsupported["error"]["data"]["requested"] == "2099-01-01"
         listed = await rpc("tools/list", {"_meta": metadata()})
         assert listed["result"]["resultType"] == "complete"
-        assert len(listed["result"]["tools"]) == 22
+        assert len(listed["result"]["tools"]) == 20
         schemas = {tool["name"]: tool["outputSchema"] for tool in listed["result"]["tools"]}
         assert not set(RETIRED_TOOLS) & set(schemas)
         for retired in RETIRED_TOOLS:
@@ -247,8 +240,6 @@ async def check_modern(settings: dict) -> None:
             Draft202012Validator(schemas[name]).validate(payload)
             assert json.loads(result["result"]["content"][0]["text"]) == payload
             return payload
-        await check_file_resources(call)
-        await check_serial_file_targets(call)
         await check_file_transfers(call)
         await check_serial_file_transfers(call)
         await check_workflow(call, {key: identity[key] for key in ("sessionId", "epoch")})

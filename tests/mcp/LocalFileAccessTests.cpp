@@ -78,6 +78,34 @@ bool junction(const QString& path, const QString& target)
 class LocalFileAccessTests : public QObject {
     Q_OBJECT
 private slots:
+    void volumeRootStillPinsEveryParent()
+    {
+#if defined(Q_OS_WIN) || defined(Q_OS_LINUX)
+        QTemporaryDir directory(QDir::currentPath() + "/novaterm-volume-root-XXXXXX");
+        QVERIFY(directory.isValid());
+        const auto source = directory.filePath("source.bin");
+        QVERIFY(put(source, "abc"));
+#ifdef Q_OS_WIN
+        const auto volume = source.left(3);
+#else
+        const auto volume = QStringLiteral("/");
+#endif
+        const auto relative = QDir(volume).relativeFilePath(source);
+        auto opened = LocalFileReader::open(volume, relative);
+        QVERIFY(std::holds_alternative<std::unique_ptr<LocalFileReader>>(opened));
+        QCOMPARE(std::get<QByteArray>(std::get<std::unique_ptr<LocalFileReader>>(opened)->read(3)), QByteArray("abc"));
+#ifdef Q_OS_WIN
+        auto created = LocalFileWriter::create(volume, QDir(volume).relativeFilePath(directory.filePath("target.bin")), 3);
+        QVERIFY(std::holds_alternative<std::unique_ptr<LocalFileWriter>>(created));
+        auto& writer = std::get<std::unique_ptr<LocalFileWriter>>(created);
+        QVERIFY(std::holds_alternative<std::monostate>(writer->append("abc")));
+        QVERIFY(std::holds_alternative<std::monostate>(writer->publish()));
+        QCOMPARE(contents(directory.filePath("target.bin")), QByteArray("abc"));
+#endif
+#else
+        QSKIP("No safe local reader on this platform");
+#endif
+    }
 #ifdef Q_OS_LINUX
     void linuxReaderUsesPinnedBoundedSource() {
         QTemporaryDir root; QVERIFY(root.isValid());
@@ -286,7 +314,7 @@ private slots:
             QVERIFY2(std::holds_alternative<FileIoError>(result), qPrintable(path));
             QCOMPARE(std::get<FileIoError>(result), FileIoError::InvalidPath);
         }
-        for (const auto& root : QStringList{"relative", "C:/", "//server/share", "\\\\?\\C:\\folder",
+        for (const auto& root : QStringList{"relative", "//server/share", "\\\\?\\C:\\folder",
                 directory.path() + "/..", directory.path() + "/."}) {
             auto result = LocalFileReader::open(root, "file");
             QVERIFY(std::holds_alternative<FileIoError>(result));
