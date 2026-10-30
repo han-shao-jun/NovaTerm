@@ -574,6 +574,8 @@ Session 状态建议统一为 `Created → Connecting → Running → Paused/Rec
 
 专项文档位于 docs/architecture/stages/P8_AI_MCP_Interface/；根目录只保留当前架构、契约、缺口、游标设计、使用流程和实施顺序，records/ 仅保存测试与故障证据。旧 mcp/P0～P8 方案已删除，不再作为实施路线。
 
+2026-10-30 按用户要求清理过程性设计与实施计划目录，共15份Markdown文件；它们不参与构建或运行。现行架构、接口契约和分轮验证记录继续保留，原计划可从Git历史查阅。
+
 ```text
 src/
 ├── history/            # C++17 codec/共享预算缓存/后台服务；无 Qt

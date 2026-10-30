@@ -467,7 +467,7 @@ Windows 主程序构建、MCP 四项 4/4（45.91 秒）、SDK 互操作及退出
 
 测试网络截止时间、传输错误检查及 reply 收尾已加强；QFile 的 QVERIFY
 本已检查结果，回环 HTTP 不因 SSL 静态提示改 HTTPS。详细 RED/GREEN、计划及
-日志入口见 `docs/superpowers/plans/2026-10-14-http-mcp-review-fixes.md`。
+日志入口可从 0.2.68 对应的 Git 历史计划查阅。
 本轮未重跑非 MCP 全套、跨平台或整机 GPU 压力；改动随 0.2.68 提交。
 
 ### 2026-10-15：Linux MCP 专项与实际客户端只读用例
@@ -753,9 +753,8 @@ Windows/macOS、真实 UART 交互、桌面客户端全流程和整机 GPU 帧�
 
 ### 2026-10-17：终端观察/操作闭环续作
 
-接手基线为 `f067c91`（暂存 MCP 修改），对应设计与实施计划分别在
-`docs/superpowers/specs/2026-10-16-mcp-terminal-interaction-design.md`、
-`docs/superpowers/plans/2026-10-16-mcp-terminal-loop.md`。本轮沿用当前工作区，
+接手基线为 `f067c91`（暂存 MCP 修改），对应的 2026-10-16 终端交互设计与
+终端闭环实施计划可从 Git 历史查阅。本轮沿用当前工作区，
 不创建分支、不自动提交；上次提交的测试 RED 过程没有执行账本，不能追认。
 
 #### 已进入源码的接口与边界
