@@ -32,6 +32,7 @@ typedef struct
   unsigned int protected_cell : 1;
   unsigned int dwl            : 1; /* on a DECDWL or DECDHL line */
   unsigned int dhl            : 2; /* on a DECDHL line (1=top 2=bottom) */
+  unsigned int wrap_padding   : 1;
 } ScreenPen;
 
 /* Internal representation of a screen cell */
@@ -178,6 +179,16 @@ static void damagescreen(VTermScreen *screen)
   damagerect(screen, rect);
 }
 
+static int setwrappadding(VTermPos pos, void *user)
+{
+  VTermScreen *screen = user;
+  ScreenCell *cell = getcell(screen, pos.row, pos.col);
+  /* Preserve actual characters and printed spaces already in this cell. */
+  if(cell && cell->chars[0] == 0)
+    cell->pen.wrap_padding = 1;
+  return 1;
+}
+
 static int putglyph(VTermGlyphInfo *info, VTermPos pos, void *user)
 {
   VTermScreen *screen = user;
@@ -194,8 +205,10 @@ static int putglyph(VTermGlyphInfo *info, VTermPos pos, void *user)
   if(i < VTERM_MAX_CHARS_PER_CELL)
     cell->chars[i] = 0;
 
-  for(int col = 1; col < info->width; col++)
+  for(int col = 1; col < info->width; col++) {
     getcell(screen, pos.row, pos.col + col)->chars[0] = (uint32_t)-1;
+    getcell(screen, pos.row, pos.col + col)->pen.wrap_padding = 0;
+  }
 
   VTermRect rect = {
     .start_row = pos.row,
@@ -987,6 +1000,7 @@ static VTermStateCallbacks state_cbs = {
   .resize      = &resize,
   .setlineinfo = &setlineinfo,
   .sb_clear    = &sb_clear,
+  .setwrappadding = &setwrappadding,
 };
 
 static VTermScreen *screen_new(VTerm *vt)
@@ -1136,6 +1150,7 @@ int vterm_screen_get_cell(const VTermScreen *screen, VTermPos pos, VTermScreenCe
   cell->attrs.font      = intcell->pen.font;
   cell->attrs.small_font     = intcell->pen.small_font;
   cell->attrs.baseline  = intcell->pen.baseline;
+  cell->attrs.wrap_padding = intcell->pen.wrap_padding;
 
   cell->attrs.dwl = intcell->pen.dwl;
   cell->attrs.dhl = intcell->pen.dhl;
@@ -1191,6 +1206,7 @@ int vterm_screen_get_cells(const VTermScreen *screen, int row,
     cell->attrs.font      = intcell->pen.font;
     cell->attrs.small_font = intcell->pen.small_font;
     cell->attrs.baseline  = intcell->pen.baseline;
+    cell->attrs.wrap_padding = intcell->pen.wrap_padding;
 
     cell->attrs.dwl = intcell->pen.dwl;
     cell->attrs.dhl = intcell->pen.dhl;

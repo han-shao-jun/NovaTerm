@@ -437,6 +437,8 @@ typedef struct {
   int (*resize)(int rows, int cols, VTermStateFields *fields, void *user);
   int (*setlineinfo)(int row, const VTermLineInfo *newinfo, const VTermLineInfo *oldinfo, void *user);
   int (*sb_clear)(void *user);
+  /* NovaTerm: mark an unused cell skipped by an early wide-glyph wrap. */
+  int (*setwrappadding)(VTermPos pos, void *user);
 } VTermStateCallbacks;
 
 typedef struct {
@@ -510,6 +512,7 @@ typedef struct {
     unsigned int dhl       : 2; /* On a DECDHL line (1=top 2=bottom) */
     unsigned int small_font : 1;
     unsigned int baseline  : 2;
+    unsigned int wrap_padding : 1; /* NovaTerm: not part of logical text */
 } VTermScreenCellAttrs;
 
 enum {

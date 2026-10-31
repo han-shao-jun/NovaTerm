@@ -386,6 +386,10 @@ static int on_text(const char bytes[], size_t len, void *user)
 #endif
 
     if(state->at_phantom || state->pos.col + width > THISROWWIDTH(state)) {
+      if(!state->at_phantom && width == 2 &&
+          state->pos.col == THISROWWIDTH(state) - 1 &&
+          state->callbacks && state->callbacks->setwrappadding)
+        (*state->callbacks->setwrappadding)(state->pos, state->cbdata);
       linefeed(state);
       state->pos.col = 0;
       state->at_phantom = 0;
