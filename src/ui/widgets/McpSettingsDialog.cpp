@@ -334,6 +334,7 @@ void McpSettingsDialog::editElevationCredentials(const QString& sessionId)
     layout->setContentsMargins(16, 8, 16, 16);
     auto* explanation = new ElaText(tr("sudo 认证密码和 su root 密码分别保存，不使用 SSH 登录密码。保存后不回填。只有明确授权且可信适配器可用时才能托管认证；当前适配器不可用。撤销授权不会退出已经获得的 root Shell。"), dialog);
     explanation->setWordWrap(true);
+    explanation->setTextPixelSize(12);
     layout->addWidget(explanation);
     const auto storagePersistent = _controller->elevationCredentialsPersistent();
     auto* status = new ElaText(!storagePersistent.has_value()
@@ -342,9 +343,11 @@ void McpSettingsDialog::editElevationCredentials(const QString& sessionId)
         : tr("存储：仅本次运行。密码仅在本机设置，不对 MCP 客户端开放。"), dialog);
     status->setObjectName(QStringLiteral("mcpElevationCredentialStorageStatus"));
     status->setWordWrap(true);
+    status->setTextPixelSize(12);
     layout->addWidget(status);
     for (const auto& method : {QStringLiteral("sudo"), QStringLiteral("su")}) {
         auto* title = new ElaText(method == "sudo" ? tr("sudo 认证密码") : tr("su root 密码"), dialog);
+        title->setTextPixelSize(13);
         layout->addWidget(title);
         auto* row = new QHBoxLayout;
         auto* password = new ElaLineEdit(dialog);
