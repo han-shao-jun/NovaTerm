@@ -613,8 +613,8 @@ public:
     {
         auto& self = *static_cast<Impl*>(user);
         int storedColumns = columns;
-        // 仅硬换行行可裁剪行尾默认空 Cell。软换行行的尾部空格是有效内容
-        // —— 下一行的文本紧接其后，裁掉会让按新列宽重排后的内容整体左移。
+        // Soft-wrap blanks can be real cursor gaps (including after resize).
+        // Only hard-break rows may discard unmarked default trailing blanks.
         if (softWrapped == 0) {
             while (storedColumns > 0
                    && isDefaultBlankCell(cells[storedColumns - 1])) {
@@ -624,8 +624,15 @@ public:
 
         std::vector<Cell>& converted =
             self.scrollback.beginPushLine(columns, storedColumns);
-        for (int column = 0; column < storedColumns; ++column)
-            populateCell(cells[column], converted[column]);
+        int copiedColumns = 0;
+        for (int column = 0; column < storedColumns; ++column) {
+            // libvterm marks the cell skipped by an early wide-glyph wrap.
+            // Reflow can move that padding away from the physical row end.
+            if (cells[column].attrs.wrap_padding && cells[column].chars[0] == 0)
+                continue;
+            populateCell(cells[column], converted[copiedColumns++]);
+        }
+        converted.resize(std::size_t(copiedColumns));
         self.scrollback.commitPushLine(self.nextScrollbackContinuation,
                                        softWrapped == 0);
         self.nextScrollbackContinuation = softWrapped != 0;

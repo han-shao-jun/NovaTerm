@@ -63,6 +63,11 @@ private slots:
     void clearAllReportsFullQueueAndAllowsRetry();
     void softWrappedRowsBecomeOneLogicalHistoryLine();
     void softWrapKeepsTrailingSpaces();
+    void wideWrapLogPreservesText_data();
+    void wideWrapLogPreservesText();
+    void softWrapPreservesCursorGapAfterResize();
+    void wideWrapPaddingSurvivesEditsAndResize_data();
+    void wideWrapPaddingSurvivesEditsAndResize();
     void rowContinuationTracksAutoWrap();
     void popLineReturnsNewestRowWithoutLoss();
     void popLineTreatsEmptyHistoryLineAsBlankRow();
@@ -1096,6 +1101,106 @@ void TerminalCoreTests::softWrapKeepsTrailingSpaces()
     }
     QCOMPARE(text, QStringLiteral("ab  cdef"));
     QVERIFY(!line->hardBreak);
+}
+
+void TerminalCoreTests::wideWrapLogPreservesText_data()
+{
+    QTest::addColumn<int>("columns");
+    QTest::addColumn<int>("pageBytes");
+    QTest::addColumn<QString>("text");
+    for (const int columns : {195, 196, 197}) {
+        for (const int pageBytes : {4, 512, 65536}) {
+            const QByteArray name = QByteArray::number(columns) + '-'
+                + QByteArray::number(pageBytes);
+            QTest::newRow(name.constData()) << columns << pageBytes
+                << (QStringLiteral("LONG-") + QString(300, QChar(0x754c))
+                    + QStringLiteral(" END"));
+        }
+    }
+    QTest::newRow("explicit-space-at-wrap") << 6 << 4
+        << QString::fromUtf8("abcde \xe7\x95\x8c\xe7\x95\x8c END");
+    QTest::newRow("space-before-padding") << 6 << 4
+        << QString::fromUtf8("abcd \xe7\x95\x8c\xe7\x95\x8c END");
+}
+
+void TerminalCoreTests::wideWrapLogPreservesText()
+{
+    QFETCH(int, columns);
+    QFETCH(int, pageBytes);
+    QFETCH(QString, text);
+    TerminalCore core(columns, 3);
+    const QByteArray expected = text.toUtf8() + '\n';
+    QVERIFY(core.writeInput(text.toUtf8() + "\r\n\r\n\r\n").fullyAccepted());
+    QVERIFY(core.waitForIdle());
+
+    NovaTerm::LogRequest request;
+    request.maxBytes = std::size_t(pageBytes);
+    QByteArray actual;
+    bool complete = false;
+    for (int pageIndex = 0; pageIndex < expected.size() + 1 && !complete; ++pageIndex) {
+        const auto page = core.tryReadLog(request);
+        QVERIFY(page);
+        QCOMPARE(page->status, NovaTerm::LogStatus::Ok);
+        QVERIFY(!page->fragments.empty());
+        for (const auto& fragment : page->fragments) {
+            if (fragment.line != page->earliest.line)
+                break;
+            QCOMPARE(fragment.byteOffset, NovaTerm::u64(actual.size()));
+            actual += QByteArray::fromStdString(fragment.text);
+            complete = fragment.lineComplete;
+        }
+        request.cursor = NovaTerm::LogCursor{page->generation, page->next};
+    }
+    QVERIFY(complete);
+    QCOMPARE(actual, expected);
+}
+
+void TerminalCoreTests::softWrapPreservesCursorGapAfterResize()
+{
+    TerminalCore core(4, 3);
+    QVERIFY(core.writeInput("ab\x1b[4Gdefgh").fullyAccepted());
+    QVERIFY(core.waitForIdle());
+    core.resize(3, 3);
+    QVERIFY(core.waitForIdle());
+    QVERIFY(core.writeInput("\x1b[3;1H\n\n\n").fullyAccepted());
+    QVERIFY(core.waitForIdle());
+    const auto page = core.tryReadLog({});
+    QVERIFY(page);
+    QVERIFY(!page->fragments.empty());
+    QCOMPARE(page->fragments.front().text, std::string("ab defgh\n"));
+}
+
+void TerminalCoreTests::wideWrapPaddingSurvivesEditsAndResize_data()
+{
+    QTest::addColumn<QByteArray>("edit");
+    QTest::addColumn<int>("columns");
+    QTest::addColumn<QByteArray>("expected");
+    const QByteArray wide = QString(QChar(0x754c)).toUtf8();
+    QTest::newRow("narrower") << QByteArray() << 4 << ("abcde" + wide + "X\n");
+    QTest::newRow("wider") << QByteArray() << 8 << ("abcde" + wide + "X\n");
+    QTest::newRow("overwrite-padding") << QByteArray("\x1b[1;6H!") << 6
+        << ("abcde!" + wide + "X\n");
+    QTest::newRow("overwrite-with-wide") << (QByteArray("\x1b[1;5H") + wide) << 6
+        << ("abcd" + wide + wide + "X\n");
+}
+
+void TerminalCoreTests::wideWrapPaddingSurvivesEditsAndResize()
+{
+    QFETCH(QByteArray, edit);
+    QFETCH(int, columns);
+    QFETCH(QByteArray, expected);
+    TerminalCore core(6, 4);
+    const QByteArray text = QByteArray("abcde") + QString(QChar(0x754c)).toUtf8() + 'X';
+    QVERIFY(core.writeInput(text + edit).fullyAccepted());
+    QVERIFY(core.waitForIdle());
+    core.resize(columns, 4);
+    QVERIFY(core.waitForIdle());
+    QVERIFY(core.writeInput("\x1b[4;1H\n\n\n\n").fullyAccepted());
+    QVERIFY(core.waitForIdle());
+    const auto page = core.tryReadLog({});
+    QVERIFY(page);
+    QVERIFY(!page->fragments.empty());
+    QCOMPARE(QByteArray::fromStdString(page->fragments.front().text), expected);
 }
 
 // 活动屏幕的每行软换行标志从 libvterm 的 VTermLineInfo::continuation 同步。
