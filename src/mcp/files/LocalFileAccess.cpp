@@ -8,12 +8,19 @@
 #include <optional>
 #include <utility>
 #include <vector>
+#include <algorithm>
 #ifdef Q_OS_LINUX
+#include <QCryptographicHash>
 #include <fcntl.h>
 #include <sys/stat.h>
 #include <sys/file.h>
+#include <sys/syscall.h>
+#include <sys/vfs.h>
+#include <linux/fs.h>
+#include <linux/magic.h>
 #include <unistd.h>
 #include <cerrno>
+#include <cstdio>
 #endif
 #ifdef Q_OS_WIN
 #ifndef NOMINMAX
@@ -254,6 +261,93 @@ FileIoResult<PosixPinnedFile> openPosixSource(const QString& root, const QString
     if (::flock(pinned.file.get(), LOCK_SH | LOCK_NB) != 0) return FileIoError::NotAvailable;
     return pinned;
 }
+
+bool sameIdentity(const struct stat& a, const struct stat& b)
+{
+    return a.st_dev == b.st_dev && a.st_ino == b.st_ino;
+}
+
+struct PosixPinnedDestination {
+    std::vector<PosixFd> directories;
+    std::vector<QByteArray> components;
+    QByteArray leaf;
+
+    bool unchanged() const noexcept
+    {
+        for (std::size_t i = 0; i < components.size(); ++i) {
+            struct stat pinned{}, named{};
+            if (::fstat(directories[i + 1].get(), &pinned) != 0
+                || ::fstatat(directories[i].get(), components[i].constData(),
+                    &named, AT_SYMLINK_NOFOLLOW) != 0
+                || !S_ISDIR(named.st_mode) || !sameIdentity(pinned, named)) return false;
+        }
+        return true;
+    }
+};
+
+FileIoResult<PosixPinnedDestination> pinPosixDestination(const QString& root, const QString& relative)
+{
+    if (!posixText(root) || !root.startsWith('/') || root.startsWith("//")
+        || QDir::cleanPath(root) != root || !posixText(relative) || relative.startsWith('/')
+        || relative.contains(':') || QDir::cleanPath(relative) != relative) return FileIoError::InvalidPath;
+    const auto rootParts = root == "/" ? QStringList{} : root.mid(1).split('/');
+    auto fileParts = relative.split('/');
+    if (rootParts.size() > Budget::MaxLocalTransferPathParts
+        || fileParts.size() > Budget::MaxLocalTransferPathParts) return FileIoError::InvalidPath;
+    for (const auto& part : rootParts + fileParts)
+        if (part.isEmpty() || part == "." || part == ".." || part.toUtf8().size() > 255)
+            return FileIoError::InvalidPath;
+    PosixPinnedDestination path;
+    path.leaf = fileParts.takeLast().toUtf8();
+    path.directories.emplace_back(::open("/", O_PATH | O_DIRECTORY | O_CLOEXEC));
+    if (!path.directories.back().valid()) return posixOpenError();
+    for (const auto& part : rootParts + fileParts) {
+        const auto bytes = part.toUtf8();
+        PosixFd directory(::openat(path.directories.back().get(), bytes.constData(),
+            O_PATH | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC));
+        if (!directory.valid()) return posixOpenError();
+        path.components.push_back(bytes);
+        path.directories.push_back(std::move(directory));
+    }
+    // Remote filesystems can report an error after a server-side rename. The
+    // bool publication contract cannot represent that uncertainty, so fail closed.
+    struct statfs filesystem{};
+    if (::fstatfs(path.directories.back().get(), &filesystem) != 0) return FileIoError::IoFailure;
+    switch (filesystem.f_type) {
+    case EXT4_SUPER_MAGIC:
+    case XFS_SUPER_MAGIC:
+    case BTRFS_SUPER_MAGIC:
+    case TMPFS_MAGIC:
+    case OVERLAYFS_SUPER_MAGIC:
+        break;
+    default:
+        return FileIoError::UnsupportedPlatform;
+    }
+    if (!path.unchanged()) return FileIoError::UnsafeFile;
+    return path;
+}
+
+bool sameDestination(const struct stat& a, const struct stat& b)
+{
+    return sameSource(a, b) && a.st_uid == b.st_uid && a.st_gid == b.st_gid;
+}
+
+FileIoResult<QByteArray> posixDigest(int file, quint64 bytes)
+{
+    if (bytes > Budget::MaxLocalTransferFileBytes) return FileIoError::SizeLimit;
+    QCryptographicHash hash(QCryptographicHash::Sha256);
+    QByteArray buffer(Budget::LocalTransferChunkBytes, Qt::Uninitialized);
+    quint64 checked = 0;
+    while (checked < bytes) {
+        const auto count = std::min(quint64(buffer.size()), bytes - checked);
+        const auto read = ::pread(file, buffer.data(), std::size_t(count), off_t(checked));
+        if (read < 0 && errno == EINTR) continue;
+        if (read <= 0) return FileIoError::IoFailure;
+        hash.addData(QByteArrayView(buffer.constData(), qsizetype(read)));
+        checked += quint64(read);
+    }
+    return hash.result();
+}
 #endif
 }
 struct LocalFileReader::Impl {
@@ -287,6 +381,52 @@ struct LocalFileWriter::Impl {
             if (!SetFileInformationByHandle(file.get(), FileDispositionInfo, &disposition, sizeof(disposition))) return false;
             file = Handle{};
         }
+        return true;
+    }
+    ~Impl() { discard(); }
+#elif defined(Q_OS_LINUX)
+    PosixPinnedDestination path;
+    PosixFd file;
+    PosixFd targetIdentity;
+    QByteArray temporary;
+    struct stat temporarySnapshot{};
+    std::optional<struct stat> originalTarget;
+    QByteArray originalTargetHash;
+    QCryptographicHash receivedHash{QCryptographicHash::Sha256};
+
+    bool targetUnchanged() const noexcept
+    {
+        if (!originalTarget) return true;
+        struct stat pinned{}, named{};
+        return ::fstat(targetIdentity.get(), &pinned) == 0
+            && sameDestination(*originalTarget, pinned)
+            && ::fstatat(path.directories.back().get(), path.leaf.constData(),
+                &named, AT_SYMLINK_NOFOLLOW) == 0 && sameDestination(*originalTarget, named);
+    }
+
+    bool temporaryUnchanged() const noexcept
+    {
+        struct stat current{}, named{};
+        return file.valid() && ::fstat(file.get(), &current) == 0
+            && sameDestination(temporarySnapshot, current)
+            && ::fstatat(path.directories.back().get(), temporary.constData(),
+                &named, AT_SYMLINK_NOFOLLOW) == 0 && sameDestination(current, named);
+    }
+    bool discard() noexcept
+    {
+        if (!file.valid() || published) return true;
+        struct stat owned{}, named{};
+        if (::fstat(file.get(), &owned) != 0) return false;
+        const int parent = path.directories.back().get();
+        if (::fstatat(parent, temporary.constData(), &named, AT_SYMLINK_NOFOLLOW) != 0) {
+            // A renamed temporary is not an absent/unlinked file. Keep reporting
+            // cleanup failure rather than guessing its new name or deleting it.
+            if (errno != ENOENT || owned.st_nlink != 0) return false;
+        } else {
+            if (!sameIdentity(owned, named) || !S_ISREG(named.st_mode)) return false;
+            if (::unlinkat(parent, temporary.constData(), 0) != 0) return false;
+        }
+        file = PosixFd{};
         return true;
     }
     ~Impl() { discard(); }
@@ -431,6 +571,48 @@ FileIoResult<std::unique_ptr<LocalFileWriter>> LocalFileWriter::create(
     if (!GetFileInformationByHandle(impl->file.get(), &info)) return FileIoError::IoFailure;
     if (!regular(impl->file.get(), info)) return FileIoError::UnsafeFile;
     return std::unique_ptr<LocalFileWriter>(new LocalFileWriter(std::move(impl)));
+#elif defined(Q_OS_LINUX)
+    if (expectedBytes > Budget::MaxLocalTransferFileBytes) return FileIoError::SizeLimit;
+    auto pinned = pinPosixDestination(root, relative);
+    if (const auto* error = std::get_if<FileIoError>(&pinned)) return *error;
+    auto impl = std::make_unique<Impl>();
+    impl->path = std::move(std::get<PosixPinnedDestination>(pinned));
+    impl->expected = expectedBytes;
+    const int parent = impl->path.directories.back().get();
+    impl->targetIdentity = PosixFd(::openat(parent, impl->path.leaf.constData(), O_PATH | O_NOFOLLOW | O_CLOEXEC));
+    if (impl->targetIdentity.valid()) {
+        if (!overwrite) return FileIoError::AlreadyExists;
+        struct stat original{};
+        if (::fstat(impl->targetIdentity.get(), &original) != 0) return FileIoError::IoFailure;
+        if (!posixRegular(original) || !(original.st_mode & 0222)) return FileIoError::UnsafeFile;
+        if (quint64(original.st_size) > Budget::MaxLocalTransferFileBytes) return FileIoError::SizeLimit;
+        const auto descriptorPath = QByteArray("/proc/self/fd/") + QByteArray::number(impl->targetIdentity.get());
+        PosixFd readable(::open(descriptorPath.constData(), O_RDONLY | O_CLOEXEC | O_NONBLOCK));
+        if (!readable.valid()) return posixOpenError();
+        struct stat reopened{};
+        if (::fstat(readable.get(), &reopened) != 0) return FileIoError::IoFailure;
+        if (!sameDestination(original, reopened)) return FileIoError::UnsafeFile;
+        if (::flock(readable.get(), LOCK_SH | LOCK_NB) != 0) return FileIoError::NotAvailable;
+        impl->targetIdentity = std::move(readable);
+        impl->originalTarget = original;
+        const auto digest = posixDigest(impl->targetIdentity.get(), quint64(original.st_size));
+        if (const auto* error = std::get_if<FileIoError>(&digest)) return *error;
+        impl->originalTargetHash = std::get<QByteArray>(digest);
+        if (!impl->targetUnchanged()) return FileIoError::UnsafeFile;
+    } else if (errno != ENOENT) {
+        return posixOpenError();
+    }
+    impl->temporary = QByteArray(".novaterm-transfer-")
+        + QUuid::createUuid().toString(QUuid::WithoutBraces).toLatin1() + ".tmp";
+    impl->file = PosixFd(::openat(parent, impl->temporary.constData(),
+        O_RDWR | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0600));
+    if (!impl->file.valid()) return posixOpenError();
+    if (::fstat(impl->file.get(), &impl->temporarySnapshot) != 0) return FileIoError::IoFailure;
+    if (!posixRegular(impl->temporarySnapshot) || impl->temporarySnapshot.st_size != 0
+        || (impl->temporarySnapshot.st_mode & 0777) != 0600) return FileIoError::UnsafeFile;
+    if (::flock(impl->file.get(), LOCK_EX | LOCK_NB) != 0) return FileIoError::NotAvailable;
+    if (!impl->path.unchanged() || !impl->temporaryUnchanged()) return FileIoError::UnsafeFile;
+    return std::unique_ptr<LocalFileWriter>(new LocalFileWriter(std::move(impl)));
 #else
     Q_UNUSED(root); Q_UNUSED(relative); Q_UNUSED(expectedBytes); Q_UNUSED(overwrite);
     return FileIoError::UnsupportedPlatform;
@@ -452,6 +634,34 @@ FileIoResult<std::monostate> LocalFileWriter::append(const QByteArray& bytes)
         return FileIoError::IoFailure;
     }
     _impl->written += written;
+    return std::monostate{};
+#elif defined(Q_OS_LINUX)
+    if (!_impl->path.unchanged() || !_impl->temporaryUnchanged()) {
+        _impl->failed = true;
+        return FileIoError::UnsafeFile;
+    }
+    qsizetype offset = 0;
+    while (offset < bytes.size()) {
+        const auto written = ::write(_impl->file.get(), bytes.constData() + offset,
+            std::size_t(bytes.size() - offset));
+        if (written < 0 && errno == EINTR) continue;
+        if (written <= 0) { _impl->failed = true; return FileIoError::IoFailure; }
+        offset += qsizetype(written);
+    }
+    struct stat current{};
+    if (::fstat(_impl->file.get(), &current) != 0) {
+        _impl->failed = true; return FileIoError::IoFailure;
+    }
+    const auto& original = _impl->temporarySnapshot;
+    if (!posixRegular(current) || !sameIdentity(original, current)
+        || current.st_mode != original.st_mode || current.st_uid != original.st_uid
+        || current.st_gid != original.st_gid
+        || quint64(current.st_size) != _impl->written + quint64(bytes.size())) {
+        _impl->failed = true; return FileIoError::UnsafeFile;
+    }
+    _impl->written += quint64(bytes.size());
+    _impl->temporarySnapshot = current;
+    _impl->receivedHash.addData(bytes);
     return std::monostate{};
 #else
     return FileIoError::UnsupportedPlatform;
@@ -512,13 +722,51 @@ FileIoResult<std::monostate> LocalFileWriter::publish()
     _impl->file = Handle{};
     _impl->path.directories.clear();
     return std::monostate{};
+#elif defined(Q_OS_LINUX)
+    if (!_impl->path.unchanged() || !_impl->temporaryUnchanged()) return FileIoError::UnsafeFile;
+    if (quint64(_impl->temporarySnapshot.st_size) != _impl->expected) return FileIoError::SizeMismatch;
+    int flushed;
+    do { flushed = ::fsync(_impl->file.get()); } while (flushed < 0 && errno == EINTR);
+    if (flushed != 0) return FileIoError::IoFailure;
+    // Coarse filesystem timestamps can hide a same-size write. Verify the
+    // staged bytes against the stream accepted by append(), with bounded memory.
+    const auto stagedHash = posixDigest(_impl->file.get(), _impl->expected);
+    if (const auto* error = std::get_if<FileIoError>(&stagedHash)) return *error;
+    if (std::get<QByteArray>(stagedHash) != _impl->receivedHash.result()) return FileIoError::UnsafeFile;
+    const int parent = _impl->path.directories.back().get();
+    if (_impl->originalTarget) {
+        if (!_impl->targetUnchanged()) return FileIoError::UnsafeFile;
+        const auto digest = posixDigest(_impl->targetIdentity.get(), quint64(_impl->originalTarget->st_size));
+        if (const auto* error = std::get_if<FileIoError>(&digest)) return *error;
+        if (std::get<QByteArray>(digest) != _impl->originalTargetHash) return FileIoError::UnsafeFile;
+    }
+    if (!_impl->path.unchanged() || !_impl->temporaryUnchanged() || !_impl->targetUnchanged())
+        return FileIoError::UnsafeFile;
+    // The parent remains pinned; the last metadata check and rename are not CAS.
+    // An initially absent target ALWAYS uses NOREPLACE, even with overwrite=true.
+#ifdef SYS_renameat2
+    const auto renamed = ::syscall(SYS_renameat2, parent, _impl->temporary.constData(),
+        parent, _impl->path.leaf.constData(), _impl->originalTarget ? 0U : unsigned(RENAME_NOREPLACE));
+    if (renamed != 0) {
+        if (errno == EEXIST) return FileIoError::AlreadyExists;
+        if (errno == ENOSYS || errno == EOPNOTSUPP || errno == EINVAL) return FileIoError::UnsupportedPlatform;
+        return FileIoError::IoFailure;
+    }
+#else
+    return FileIoError::UnsupportedPlatform;
+#endif
+    _impl->published = true;
+    _impl->file = PosixFd{};
+    _impl->targetIdentity = PosixFd{};
+    _impl->path.directories.clear();
+    return std::monostate{};
 #else
     return FileIoError::UnsupportedPlatform;
 #endif
 }
 bool LocalFileWriter::cancel() noexcept
 {
-#ifdef Q_OS_WIN
+#if defined(Q_OS_WIN) || defined(Q_OS_LINUX)
     if (_impl && !_impl->discard()) { _impl->failed = true; return false; }
 #endif
     _impl.reset();

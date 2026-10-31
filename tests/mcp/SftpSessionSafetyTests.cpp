@@ -337,8 +337,8 @@ private slots:
 
     void authorizedDownloadCopiesIntoSafeWriter()
     {
-#ifndef Q_OS_WIN
-        QSKIP("The existing LocalFileWriter native backend is Windows-only.");
+#if !defined(Q_OS_WIN) && !defined(Q_OS_LINUX)
+        QSKIP("No native LocalFileWriter on this platform.");
 #else
         QFETCH(QString, mode); QFETCH(QString, expectedError);
         QTemporaryDir directory; QVERIFY(directory.isValid());

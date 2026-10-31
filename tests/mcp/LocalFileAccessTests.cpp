@@ -10,6 +10,7 @@
 #ifdef Q_OS_LINUX
 #include <unistd.h>
 #include <sys/stat.h>
+#include <fcntl.h>
 #endif
 #ifdef Q_OS_WIN
 #ifndef NOMINMAX
@@ -30,8 +31,6 @@ bool put(const QString& path, const QByteArray& bytes)
     QFile file(path);
     return file.open(QIODevice::WriteOnly) && file.write(bytes) == bytes.size();
 }
-#endif
-#ifdef Q_OS_WIN
 QByteArray contents(const QString& path)
 {
     QFile file(path);
@@ -42,6 +41,8 @@ QByteArray contents(const QString& path)
     }
     return file.readAll();
 }
+#endif
+#ifdef Q_OS_WIN
 const wchar_t* wide(const QString& path) { return reinterpret_cast<const wchar_t*>(path.utf16()); }
 bool junction(const QString& path, const QString& target)
 {
@@ -94,7 +95,7 @@ private slots:
         auto opened = LocalFileReader::open(volume, relative);
         QVERIFY(std::holds_alternative<std::unique_ptr<LocalFileReader>>(opened));
         QCOMPARE(std::get<QByteArray>(std::get<std::unique_ptr<LocalFileReader>>(opened)->read(3)), QByteArray("abc"));
-#ifdef Q_OS_WIN
+#if defined(Q_OS_WIN) || defined(Q_OS_LINUX)
         auto created = LocalFileWriter::create(volume, QDir(volume).relativeFilePath(directory.filePath("target.bin")), 3);
         QVERIFY(std::holds_alternative<std::unique_ptr<LocalFileWriter>>(created));
         auto& writer = std::get<std::unique_ptr<LocalFileWriter>>(created);
@@ -107,6 +108,187 @@ private slots:
 #endif
     }
 #ifdef Q_OS_LINUX
+    void linuxWriterRejectsUnsafeTargets_data()
+    {
+        QTest::addColumn<QString>("kind");
+        for (const auto& kind : QStringList{"directory", "symlink", "hardlink", "fifo", "readonly"})
+            QTest::newRow(qPrintable(kind)) << kind;
+    }
+    void linuxWriterRejectsUnsafeTargets()
+    {
+        QFETCH(QString, kind);
+        QTemporaryDir root; QVERIFY(root.isValid());
+        const auto target = root.filePath("target");
+        QVERIFY(put(root.filePath("original"), "keep"));
+        if (kind == "directory") QVERIFY(QDir().mkdir(target));
+        else if (kind == "symlink") QCOMPARE(::symlink("original", QFile::encodeName(target).constData()), 0);
+        else if (kind == "hardlink") QCOMPARE(::link(QFile::encodeName(root.filePath("original")).constData(), QFile::encodeName(target).constData()), 0);
+        else if (kind == "fifo") QCOMPARE(::mkfifo(QFile::encodeName(target).constData(), 0600), 0);
+        else { QVERIFY(put(target, "keep")); QCOMPARE(::chmod(QFile::encodeName(target).constData(), 0400), 0); }
+        const auto result = LocalFileWriter::create(root.path(), "target", 3, true);
+        QVERIFY(std::holds_alternative<FileIoError>(result));
+        QCOMPARE(std::get<FileIoError>(result), FileIoError::UnsafeFile);
+        QCOMPARE(contents(root.filePath("original")), QByteArray("keep"));
+        QVERIFY(QDir(root.path()).entryList({".novaterm-transfer-*"}, QDir::Files | QDir::Hidden).isEmpty());
+    }
+    void linuxWriterRejectsChangedTarget_data()
+    {
+        QTest::addColumn<QString>("change");
+        for (const auto& change : QStringList{"identity", "size", "same-size", "mtime", "mode", "deleted", "symlink", "hardlink"})
+            QTest::newRow(qPrintable(change)) << change;
+    }
+    void linuxWriterRejectsChangedTarget()
+    {
+        QFETCH(QString, change);
+        QTemporaryDir root; QVERIFY(root.isValid());
+        const auto target = root.filePath("target");
+        QVERIFY(put(target, "old"));
+        auto result = LocalFileWriter::create(root.path(), "target", 3, true);
+        QVERIFY(std::holds_alternative<std::unique_ptr<LocalFileWriter>>(result));
+        auto& writer = std::get<std::unique_ptr<LocalFileWriter>>(result);
+        QVERIFY(std::holds_alternative<std::monostate>(writer->append("new")));
+        if (change == "identity") { QVERIFY(QFile::rename(target, target + ".old")); QVERIFY(put(target, "old")); }
+        else if (change == "size") QVERIFY(put(target, "larger"));
+        else if (change == "same-size") QVERIFY(put(target, "BAD"));
+        else if (change == "mtime") {
+            const timespec times[2]{{123456, 0}, {123456, 0}};
+            QCOMPARE(::utimensat(AT_FDCWD, QFile::encodeName(target).constData(), times, 0), 0);
+        } else if (change == "mode") QCOMPARE(::chmod(QFile::encodeName(target).constData(), 0640), 0);
+        else if (change == "hardlink") QCOMPARE(::link(QFile::encodeName(target).constData(), QFile::encodeName(target + ".alias").constData()), 0);
+        else { QVERIFY(QFile::remove(target)); if (change == "symlink") QCOMPARE(::symlink("missing", QFile::encodeName(target).constData()), 0); }
+        QVERIFY(std::holds_alternative<FileIoError>(writer->publish()));
+        QVERIFY(writer->cancel());
+        if (change == "deleted" || change == "symlink") QVERIFY(!QFile::exists(target));
+        else QCOMPARE(contents(target), change == "size" ? QByteArray("larger")
+            : change == "same-size" ? QByteArray("BAD") : QByteArray("old"));
+    }
+    void linuxWriterRejectsReplacedAncestors_data()
+    {
+        QTest::addColumn<bool>("replaceRoot");
+        QTest::newRow("root") << true;
+        QTest::newRow("parent") << false;
+    }
+    void linuxWriterRejectsReplacedAncestors()
+    {
+        QFETCH(bool, replaceRoot);
+        QTemporaryDir fixture; QVERIFY(fixture.isValid());
+        QVERIFY(QDir(fixture.path()).mkpath("root/nested"));
+        const auto root = fixture.filePath("root");
+        auto result = LocalFileWriter::create(root, "nested/target", 3);
+        QVERIFY(std::holds_alternative<std::unique_ptr<LocalFileWriter>>(result));
+        auto& writer = std::get<std::unique_ptr<LocalFileWriter>>(result);
+        QVERIFY(std::holds_alternative<std::monostate>(writer->append("new")));
+        const auto replaced = replaceRoot ? root : root + "/nested";
+        QVERIFY(QDir().rename(replaced, replaced + "-old"));
+        QVERIFY(QDir().mkpath(root + "/nested"));
+        QVERIFY(put(root + "/nested/target", "keep"));
+        QCOMPARE(std::get<FileIoError>(writer->publish()), FileIoError::UnsafeFile);
+        QVERIFY(writer->cancel());
+        QCOMPARE(contents(root + "/nested/target"), QByteArray("keep"));
+        const auto oldParent = replaceRoot ? root + "-old/nested" : replaced + "-old";
+        QVERIFY(QDir(oldParent).entryList(QDir::Files | QDir::Hidden).isEmpty());
+    }
+    void linuxWriterRejectsLinkedParentsAndInvalidPaths()
+    {
+        QTemporaryDir root; QVERIFY(root.isValid());
+        QVERIFY(QDir(root.path()).mkdir("real"));
+        QCOMPARE(::symlink("real", QFile::encodeName(root.filePath("link")).constData()), 0);
+        QCOMPARE(std::get<FileIoError>(LocalFileWriter::create(root.path(), "link/file", 1)), FileIoError::UnsafeFile);
+        QCOMPARE(std::get<FileIoError>(LocalFileWriter::create(root.filePath("link"), "file", 1)), FileIoError::UnsafeFile);
+        for (const auto& path : QStringList{"../escape", "/absolute", "a//b", "a/./b", "a:stream", "a\\b", QString(256, 'x')})
+            QCOMPARE(std::get<FileIoError>(LocalFileWriter::create(root.path(), path, 1)), FileIoError::InvalidPath);
+        QVERIFY(QDir(root.filePath("real")).entryList(QDir::Files | QDir::Hidden).isEmpty());
+    }
+    void linuxWriterBoundsAndEmptyFile()
+    {
+        QTemporaryDir root; QVERIFY(root.isValid());
+        QCOMPARE(std::get<FileIoError>(LocalFileWriter::create(root.path(), "large", 67108865)), FileIoError::SizeLimit);
+        for (int mode = 0; mode < 3; ++mode) {
+            auto result = LocalFileWriter::create(root.path(), "target", mode == 2 ? 65537 : 3);
+            QVERIFY(std::holds_alternative<std::unique_ptr<LocalFileWriter>>(result));
+            auto& writer = std::get<std::unique_ptr<LocalFileWriter>>(result);
+            if (mode == 0) {
+                QVERIFY(std::holds_alternative<std::monostate>(writer->append("a")));
+                QCOMPARE(std::get<FileIoError>(writer->publish()), FileIoError::SizeMismatch);
+            } else QCOMPARE(std::get<FileIoError>(writer->append(QByteArray(mode == 1 ? 4 : 65537, 'x'))), FileIoError::SizeLimit);
+            QCOMPARE(std::get<FileIoError>(writer->publish()), FileIoError::InvalidState);
+        }
+        QVERIFY(QDir(root.path()).entryList(QDir::Files | QDir::Hidden).isEmpty());
+        auto result = LocalFileWriter::create(root.path(), "empty", 0);
+        QVERIFY(std::holds_alternative<std::unique_ptr<LocalFileWriter>>(result));
+        auto& writer = std::get<std::unique_ptr<LocalFileWriter>>(result);
+        QVERIFY(std::holds_alternative<std::monostate>(writer->publish()));
+        struct stat info{}; QCOMPARE(::stat(QFile::encodeName(root.filePath("empty")).constData(), &info), 0);
+        QCOMPARE(info.st_size, off_t(0)); QCOMPARE(info.st_mode & 0777, mode_t(0600));
+        QVERIFY(writer->cancel()); QVERIFY(QFile::exists(root.filePath("empty")));
+    }
+    void linuxWriterNeverCleansReplacedTemporary()
+    {
+        QTemporaryDir root; QVERIFY(root.isValid());
+        auto result = LocalFileWriter::create(root.path(), "target", 3);
+        QVERIFY(std::holds_alternative<std::unique_ptr<LocalFileWriter>>(result));
+        auto& writer = std::get<std::unique_ptr<LocalFileWriter>>(result);
+        QVERIFY(std::holds_alternative<std::monostate>(writer->append("new")));
+        const auto names = QDir(root.path()).entryList({".novaterm-transfer-*"}, QDir::Files | QDir::Hidden);
+        QCOMPARE(names.size(), 1);
+        const auto temporary = root.filePath(names.first());
+        QVERIFY(QFile::rename(temporary, temporary + ".owned"));
+        QVERIFY(put(temporary, "foreign"));
+        QCOMPARE(std::get<FileIoError>(writer->publish()), FileIoError::UnsafeFile);
+        QVERIFY(!writer->cancel()); QCOMPARE(contents(temporary), QByteArray("foreign"));
+        QVERIFY(QFile::remove(temporary)); QVERIFY(QFile::rename(temporary + ".owned", temporary));
+        QVERIFY(writer->cancel()); QVERIFY(!QFile::exists(temporary));
+        QVERIFY(!QFile::exists(root.filePath("target")));
+    }
+    void linuxWriterBoundsOriginalTargetHashAndPreservesNewPermissions()
+    {
+        QTemporaryDir root; QVERIFY(root.isValid());
+        const auto target = root.filePath("target");
+        QFile file(target); QVERIFY(file.open(QIODevice::WriteOnly));
+        QVERIFY(file.resize(Budget::MaxLocalTransferFileBytes + 1)); file.close();
+        QCOMPARE(std::get<FileIoError>(LocalFileWriter::create(root.path(), "target", 1, true)), FileIoError::SizeLimit);
+        QVERIFY(put(target, "old"));
+        QCOMPARE(::chmod(QFile::encodeName(target).constData(), 0700), 0);
+        auto result = LocalFileWriter::create(root.path(), "target", 1, true);
+        QVERIFY(std::holds_alternative<std::unique_ptr<LocalFileWriter>>(result));
+        auto& writer = std::get<std::unique_ptr<LocalFileWriter>>(result);
+        QVERIFY(std::holds_alternative<std::monostate>(writer->append("x")));
+        QVERIFY(std::holds_alternative<std::monostate>(writer->publish()));
+        struct stat info{}; QCOMPARE(::stat(QFile::encodeName(target).constData(), &info), 0);
+        QCOMPARE(info.st_mode & 0777, mode_t(0600));
+        QCOMPARE(contents(target), QByteArray("x"));
+    }
+    void linuxWriterAcceptsMaximumFileWithoutUnboundedBuffers()
+    {
+        QTemporaryDir root; QVERIFY(root.isValid());
+        auto result = LocalFileWriter::create(root.path(), "target", Budget::MaxLocalTransferFileBytes);
+        QVERIFY(std::holds_alternative<std::unique_ptr<LocalFileWriter>>(result));
+        auto& writer = std::get<std::unique_ptr<LocalFileWriter>>(result);
+        const QByteArray chunk(Budget::LocalTransferChunkBytes, 'x');
+        for (quint64 offset = 0; offset < Budget::MaxLocalTransferFileBytes; offset += quint64(chunk.size()))
+            QVERIFY(std::holds_alternative<std::monostate>(writer->append(chunk)));
+        QVERIFY(std::holds_alternative<std::monostate>(writer->publish()));
+        auto source = LocalFileReader::open(root.path(), "target");
+        QVERIFY(std::holds_alternative<std::unique_ptr<LocalFileReader>>(source));
+        auto& reader = std::get<std::unique_ptr<LocalFileReader>>(source);
+        QCOMPARE(reader->size(), Budget::MaxLocalTransferFileBytes);
+        QCOMPARE(std::get<QByteArray>(reader->readAt(Budget::MaxLocalTransferFileBytes - 1, 1)), QByteArray("x"));
+    }
+    void linuxWriterRejectsTamperedTemporary()
+    {
+        QTemporaryDir root; QVERIFY(root.isValid());
+        auto result = LocalFileWriter::create(root.path(), "target", 3);
+        QVERIFY(std::holds_alternative<std::unique_ptr<LocalFileWriter>>(result));
+        auto& writer = std::get<std::unique_ptr<LocalFileWriter>>(result);
+        QVERIFY(std::holds_alternative<std::monostate>(writer->append("new")));
+        const auto names = QDir(root.path()).entryList({".novaterm-transfer-*"}, QDir::Files | QDir::Hidden);
+        QCOMPARE(names.size(), 1);
+        QVERIFY(put(root.filePath(names.first()), "bad"));
+        const auto published = writer->publish();
+        QVERIFY(std::holds_alternative<FileIoError>(published));
+        QCOMPARE(std::get<FileIoError>(published), FileIoError::UnsafeFile);
+        QVERIFY(writer->cancel()); QVERIFY(!QFile::exists(root.filePath("target")));
+    }
     void linuxReaderUsesPinnedBoundedSource() {
         QTemporaryDir root; QVERIFY(root.isValid());
         QVERIFY(QDir(root.path()).mkdir("nested"));
@@ -168,7 +350,11 @@ private slots:
         QCOMPARE(std::get<FileIoError>(reader->readAt(0, 2)), FileIoError::InvalidState);
         for (const auto& relative : QStringList{"../source", "/source", "a//b", "a/./b", "a\\b", "a:b", QString(5000, 'x')})
             QCOMPARE(std::get<FileIoError>(LocalFileReader::open(root.path(), relative)), FileIoError::InvalidPath);
-        QCOMPARE(std::get<FileIoError>(LocalFileReader::open("/", "source")), FileIoError::InvalidPath);
+        QCOMPARE(std::get<FileIoError>(LocalFileReader::open("//", "source")), FileIoError::InvalidPath);
+        auto fromVolume = LocalFileReader::open("/", QDir("/").relativeFilePath(path));
+        QVERIFY(std::holds_alternative<std::unique_ptr<LocalFileReader>>(fromVolume));
+        QCOMPARE(std::get<QByteArray>(std::get<std::unique_ptr<LocalFileReader>>(fromVolume)->read(64)),
+            QByteArray("changed-size"));
     }
 #endif
     void readsBinaryFileWithBoundedChunks()
@@ -415,7 +601,7 @@ private slots:
     }
     void stagesBinaryDownloadThenPublishesExactlyOnce()
     {
-#ifdef Q_OS_WIN
+#if defined(Q_OS_WIN) || defined(Q_OS_LINUX)
         QTemporaryDir directory;
         QVERIFY(directory.isValid());
         QVERIFY(QDir(directory.path()).mkdir("nested"));
@@ -442,7 +628,7 @@ private slots:
     }
     void refusesExistingAndRacingTargetsWithoutOverwriting()
     {
-#ifdef Q_OS_WIN
+#if defined(Q_OS_WIN) || defined(Q_OS_LINUX)
         QTemporaryDir directory;
         QVERIFY(directory.isValid());
         const auto target = directory.filePath("result");
@@ -463,7 +649,7 @@ private slots:
     }
     void explicitlyOverwritesExistingFileAndCancellationPreservesPublishedResult()
     {
-#ifdef Q_OS_WIN
+#if defined(Q_OS_WIN) || defined(Q_OS_LINUX)
         QTemporaryDir directory;
         QVERIFY(directory.isValid());
         const auto target = directory.filePath("result");
@@ -490,7 +676,7 @@ private slots:
     }
     void cancellingOrFailingOverwritePreservesOriginal()
     {
-#ifdef Q_OS_WIN
+#if defined(Q_OS_WIN) || defined(Q_OS_LINUX)
         QFETCH(bool, failPublication);
         QTemporaryDir directory;
         QVERIFY(directory.isValid());
@@ -509,7 +695,7 @@ private slots:
     }
     void overwriteOfInitiallyAbsentFileStillRefusesRacingCreation()
     {
-#ifdef Q_OS_WIN
+#if defined(Q_OS_WIN) || defined(Q_OS_LINUX)
         QTemporaryDir directory;
         QVERIFY(directory.isValid());
         const auto target = directory.filePath("result");
@@ -660,7 +846,7 @@ private slots:
     }
     void cancelsOnlyOwnedTemporaryAndMoveAssignmentReleasesOldOwnership()
     {
-#ifdef Q_OS_WIN
+#if defined(Q_OS_WIN) || defined(Q_OS_LINUX)
         QTemporaryDir directory;
         QVERIFY(directory.isValid());
         QVERIFY(put(directory.filePath(".novaterm-transfer-unrelated.tmp"), "unrelated"));
@@ -747,7 +933,7 @@ private slots:
     }
     void preservesExactPublicationNameAtEveryBufferAlignment()
     {
-#ifdef Q_OS_WIN
+#if defined(Q_OS_WIN) || defined(Q_OS_LINUX)
         QTemporaryDir directory;
         QVERIFY(directory.isValid());
         for (int length = 1; length <= 20; ++length) {
