@@ -12,7 +12,7 @@ cmake --build build/Release --target novaterm_history_recording_benchmark
 ```
 
 需要桌面环境；不启动 NovaTerm、不连接设备。合成录制基准不代表历史搜索、MCP 工具或真实设备验收。
-实现与验收范围见 [P2 实施记录](../../../../docs/architecture/stages/P8_AI_MCP_Interface/records/P2_Implementation_and_Verification.md)，
+实现与验收范围见 [P2 实施记录](https://gitee.com/han-shao-jun/NovaTerm/blob/411ec15c36aa5ac56fddb204761fae830f785947/docs/architecture/stages/P8_AI_MCP_Interface/records/P2_Implementation_and_Verification.md)，
 历史样本说明见 [MCP 历史归档](../../archive/mcp-history/)。
 
 源码与测试已按职责拆分，见 [目录重构记录](../../../../docs/architecture/History_Module_Layout_2026-10-25.md)。本基准沿用原目录与目标名，历史样本路径保持。

@@ -1,6 +1,24 @@
 # 当前 MCP 接口契约与兼容基线
 
-更新：2026-10-30。当前二十工具，统一接入与默认会话授权规则如下。本轮构建与测试结果另行记录，以下历史阶段成绩不作为本轮验证。Linux安全本地Reader已实现；Linux Writer及macOS Reader/Writer尚未实现；托管提权可信适配器仍不可用，B4 实机验收待用户执行。
+更新：2026-10-30。当前二十工具，统一接入与默认会话授权规则如下。本轮构建与测试结果另行记录，以下历史阶段成绩不作为本轮验证。Windows/Linux安全本地Reader/Writer已实现；macOS Reader/Writer尚未实现；托管提权可信适配器仍不可用，B4 实机验收待用户执行。
+
+
+## 2026-10-31：Linux 安全本地 Writer
+
+复用原LocalFileWriter与SFTP下载worker，不新增协议工具。Linux逐级openat无链接目录，
+临时名O_EXCL创建并固定句柄；追加有界循环处理短写/EINTR，失败后禁止发布。
+fsync后以64 KiB缓冲校验暂存摘要；覆盖原目标同样检查身份、模式、链接数、大小、
+mtime/ctime、uid/gid与初始摘要，防止同大小同时间戳改写被忽略。
+默认及初始缺失目标通过renameat2(RENAME_NOREPLACE)发布；初始已有且明确覆盖才替换。
+不复制旧权限，临时文件0600；覆盖原目标要求可读且≤64 MiB。已发布结果不因取消删除，
+临时名身份不明时清理返回失败保留事实。Linux目录句柄不禁止其他进程重命名，采用
+发布前名称/身份链复核；最后检查和rename/unlink非CAS，不验证目录ACL/owner，其他写入者须可信。
+支持ext2/3/4、XFS、Btrfs、tmpfs、overlayfs，其他类型及原子能力缺失均拒绝；
+远端文件系统可能在服务端成功后报告错误，现有同步发布接口不将其冒充确定失败。
+发布成功不是断电持久性保证，本地摘要也不是源hash外部验证，contentVerified仍false。
+系统调用语义参考[open(2)](https://man7.org/linux/man-pages/man2/open.2.html)、
+[rename(2)](https://man7.org/linux/man-pages/man2/rename.2.html)；本轮证据见
+[Linux Writer软件验证](B4_Test_Report.html#linux-writer)。macOS和B4真实设备验收保持未完成。
 
 ## 当前接入与工具目录
 
@@ -76,7 +94,7 @@ SFTP初始已有安全普通目标时要求 `posix-rename@openssh.com`版本1，
 
 原SftpSession worker检查远端授权根和单个普通源文件，打开一次源句柄，按观察大小分块读取；分段短读可累计，提前EOF、读错、超出声明大小的增长、属性缺失或观察到的源变化不得本地发布。源句柄和路径属性在读取前后复核，拒绝链接/设备、不可信属主及组或其他用户可写项。SFTPv3没有本地openat/NOFOLLOW/inode等价保证，授权目录属主与管理员须可信；这些检查不证明能抵抗同账号恶意换路径。
 
-LocalFileWriter在原worker中创建专属临时文件并分块append，完成后经过原发布授权确认；默认不覆盖，overwrite=true按本页覆盖节发布。当前安全本地Writer仅Windows实现，Linux/macOS后端尚未实现并明确拒绝。最大64 MiB、64 KiB分块、总120秒、15秒无进展及2秒发布准入等待；每客户端/Session一个活动、全局两个，记录每客户端16/全局64、终态保留十分钟。期限在同步调用之间检查，本机I/O或libssh阻塞不承诺硬退出上界。
+LocalFileWriter在原worker中创建专属临时文件并分块append，完成后经过原发布授权确认；默认不覆盖，overwrite=true按本页覆盖节发布。当前安全本地Writer支持Windows/Linux，macOS后端未实现并明确拒绝。Linux仅接受受支持本地文件系统及renameat2；固定目录身份、临时文件0600、发布前fsync和暂存摘要复核。显式覆盖还固定原目标可读句柄并核对有界摘要，原目标最大64 MiB；最终检查到rename/unlink非CAS，依赖可信写入者，不承诺断电持久性。最大64 MiB、64 KiB分块、总120秒、15秒无进展及2秒发布准入等待；每客户端/Session一个活动、全局两个，记录每客户端16/全局64、终态保留十分钟。期限在同步调用之间检查，本机I/O或libssh阻塞不承诺硬退出上界。
 
 响应沿用SFTP字段；共同查询/取消的state可为accepted/connecting/uploading/downloading/cancel_requested/completed/cancelled/failed/unknown。对下载，published/publication描述本地目标，temporary描述本次本地临时文件；取消不删除远端源或已发布本地目标，已开始发布按实际成功/未知事实收口。已知空文件totalBytes=0，未知为空；大小与元数据校验不等于内容hash，contentVerified始终false。下载不执行文件、不读取终端日志，也不要求远端hardlink扩展；本地显式覆盖按本页首节执行。
 
@@ -94,7 +112,7 @@ ID/revision/operationId为非空规范UUID；relativePath遵循现有本地资�
 
 调用方必须独立准备接收端，并显式release已有MCP输入lease。上传不自动发送rz、不自动释放lease、不抢占人工传输，也不自动打开端口、执行文件或读取日志。remoteName只提供协议文件名，远端目录、覆盖策略和落盘行为由接收端决定。
 
-当前安全本地源仅Windows可用，最多64 MiB、64 KiB分块，固定句柄随机读取支持ZMODEM重传。每客户端/Session一个活动传输、全局两个；每客户端16/全局64条记录，终态保留十分钟，活动不淘汰。相同身份、operationId及完整参数精确重试返回原transferId和事实，改变参数拒绝；记录不跨应用重启恢复。
+当前安全本地源在Windows/Linux可用，最多64 MiB、64 KiB分块，固定句柄随机读取支持ZMODEM重传。每客户端/Session一个活动传输、全局两个；每客户端16/全局64条记录，终态保留十分钟，活动不淘汰。相同身份、operationId及完整参数精确重试返回原transferId和事实，改变参数拒绝；记录不跨应用重启恢复。
 
 总期限从首次受理计时，知道真实文件大小后按 `max(120000, 60000 + ceil(size * 32000 / baud))` 毫秒计算，硬预算3600000毫秒。超过预算在首个协议字节前拒绝；准备仍受原5秒期限约束，响应/无进展及取消排空沿用协议owner的有限期限。重试不续期；本机同步I/O或驱动阻塞不承诺硬退出时间。
 
@@ -124,7 +142,7 @@ SFTP三工具为 `novaterm_upload_file`、`novaterm_query_transfer`、`novaterm_
 | novaterm_query_transfer | transferId | 查询本人当前身份的原传输事实，不再次上传 |
 | novaterm_cancel_transfer | transferId | 请求取消原传输；已开始发布返回最终成功或未知事实，不能删除已发布目标 |
 
-ID/revision/operationId为非空规范UUID；拒绝未知参数、本机绝对路径/客户端身份/凭据注入、相对路径上级跳转/空段/控制字符/反斜线/ADS，以及远端名称中的路径分隔。相对路径与名称最多1024 UTF-8字节，后端远端名称另受文件系统单组件限制；本地授权根和相对路径各最多32段。本地文件I/O当前仅Windows支持，其他平台明确拒绝。授权目录工具保持 `authorization_only`，它本身仍不执行I/O；只有上传入口进入现有终端面板SftpSession。
+ID/revision/operationId为非空规范UUID；拒绝未知参数、本机绝对路径/客户端身份/凭据注入、相对路径上级跳转/空段/控制字符/反斜线/ADS，以及远端名称中的路径分隔。相对路径与名称最多1024 UTF-8字节，后端远端名称另受文件系统单组件限制；本地授权根和相对路径各最多32段。本地文件I/O当前Windows/Linux支持，macOS明确拒绝；Linux限制见本页当前补注。授权目录工具保持 `authorization_only`，它本身仍不执行I/O；只有上传入口进入现有终端面板SftpSession。
 
 MCP不另建连接/执行器。终端SFTP面板必须已就绪且无手工作业；上传期间复用原队列并禁用面板竞争操作，观察不受阻。SFTP连接核对终端原主机指纹、known_hosts路径与连接代际，文件授权另绑定客户端身份、Session/attachment/epoch/generation/目标指纹及资源revision。撤权、换绑、断流和期限在发布前取消；普通终端权限变化不推导文件权限。
 
@@ -195,6 +213,21 @@ taskId绑定客户端/Session/epoch/授权版本。首次受理后短RPC断流�
 
 新任务首次创建只关联既有输入用例本次实际受理的Submit事实；普通interact_terminal的旧operationId不能借最新inputToken转为新任务，返回INPUT_SEQUENCE_CONFLICT。已登记任务的精确重试仍先查询原任务记录；普通交互自身的精确重试保持兼容。提交事实独立于后续观察交付是否成功。
 
+2026-10-31 S15修复：共享ObservationState另存已受理输入ID，覆盖普通交互和任务入口；
+只有当前最近操作仍按原规则精确Replay，更早ID相同/不同参数均返回INPUT_SEQUENCE_CONFLICT，
+不返回当前别的操作事实。历史键为client/session/epoch/grant/cacheGeneration/operation，
+不含control/user/prompt，因此release、租约换代或后续输入不会解除旧ID保护；
+cache/epoch/grant新绑定及撤权沿已有失效规则，不将旧token升级为新条件。
+首次受理起固定600000ms，每client/session最多4096条、全局16384条；满额拒绝新输入，
+不驱逐未过期ID。当前控制拥有者可用额外1条/作用域、全局32条余量释放控制。
+
+ID及额度在端口副作用之前预留，未受理时仅撤本次预留；submit=true后即保留，即使后续
+RPC交付失败也不回滚。待受理预留不被TTL误清理，序号避免外层迟到回调覆盖内层新事实。
+同步回调销毁边界用QPointer/存活检查，预留回滚只持有弱引用，不触碰已析构状态。
+原task记录和精确查询通路不变；有界窗口之外不能承诺记住所有UUID，客户端禁止盲重放。
+修复与定向实机复验见[HTML记录](B4_Test_Report.html#s15-fix-detail)。
+
+
 索引每客户端32/全局128；活动记录不提前驱逐，终态保留十分钟，满则BUSY。执行期限到达使用原Controller释放/unknown收口，不发Ctrl+C、不声称远端已停。独立任务关联key不使用短RPC key；查询不触摸输入租约，活动任务自身按既有Controller续期边界维持控制，人工输入仍立即优先。
 
 状态 accepted/running/stop_requested/completed/unknown/failed；分别返回accepted/completed、submissionStatus、inputMayHaveBeenSent、executionId、evidenceKind、exitCode、terminationConfirmed、reason、baseline及建议查询间隔。baseline为提交前B1尾书签；query可带sinceToken返回有界output页或outputError，缺口/清空不擦除任务事实。
@@ -207,7 +240,7 @@ B3基础恢复保留旧inputToken/replyToExecutionId/operationId保护、CR/LF/C
 
 本轮实际命令、失败与最终验证范围见 [B3记录](records/B3_Implementation_2026-10-27.md)；B3b、B4真实设备、跨平台与性能没有据此验收。
 
-历史工具为 `novaterm_list_captures`、`novaterm_read_history`、`novaterm_search_history`。其历史目录/Schema 基线保存在 `tests/mcp/fixtures/history-tool-catalog-2026-10-23.json`。历史工具使用独立 capture 授权，不接受 sessionId、epoch、principal/client 或本机路径参数。实现与平台范围见 [P3 实施记录](records/P3_Implementation_and_Verification.md)。以下原九工具分节仍是其兼容契约。
+历史工具为 `novaterm_list_captures`、`novaterm_read_history`、`novaterm_search_history`。其历史目录/Schema 基线保存在 `tests/mcp/fixtures/history-tool-catalog-2026-10-23.json`。历史工具使用独立 capture 授权，不接受 sessionId、epoch、principal/client 或本机路径参数。实现与平台范围见 [P3 实施记录](https://gitee.com/han-shao-jun/NovaTerm/blob/411ec15c36aa5ac56fddb204761fae830f785947/docs/architecture/stages/P8_AI_MCP_Interface/records/P3_Implementation_and_Verification.md)。以下原九工具分节仍是其兼容契约。
 
 历史工具返回原文的 base64、原始 record/byte 多片段、固定高水位、独立 sourceCompleteness 与分页 complete。text 查询为 UTF-8 literal；raw_bytes 的 query 为规范 base64，不接受任意正则。录制与共享分别由本机用户选择；Session 关闭不会撤销显式离线共享，令牌轮换、客户端删除、capture 删除及授权缩范围会拒绝旧游标。EvidenceRef 和 cursor 不能代替授权。
 

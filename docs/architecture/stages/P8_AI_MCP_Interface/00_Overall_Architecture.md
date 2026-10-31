@@ -84,7 +84,7 @@ SSH 断连和 UART 持续输出分别观察。当前 MCP 可操作已授权会�
 
 冻结基线为九个终端工具与三个离线历史工具，精确说明见 [02](02_Current_MCP_Contract.md)。B1 保留已发布十二工具与既有权限；read_context 的显式 source=log 扩展以独立 fixture 冻结，旧观察参数/输出分支保持。未发布 P4 及仅供其消费的原型退役，不改变旧 sinceToken。
 
-已有 recording/history-search/evidence 作为独立功能保留：录制开启不自动共享，离线 grant 不继承 Session grant，分页完整不证明源完整，Evidence 不代替授权。共享服务及来源适配不因 MCP 关闭就删除独立导入资源。实际结构与验证见 [资源边界记录](records/P3_Architecture_Fixes_2026-10-24.md)。
+已有 recording/history-search/evidence 作为独立功能保留：录制开启不自动共享，离线 grant 不继承 Session grant，分页完整不证明源完整，Evidence 不代替授权。共享服务及来源适配不因 MCP 关闭就删除独立导入资源。实际结构与验证见 [资源边界记录](https://gitee.com/han-shao-jun/NovaTerm/blob/411ec15c36aa5ac56fddb204761fae830f785947/docs/architecture/stages/P8_AI_MCP_Interface/records/P3_Architecture_Fixes_2026-10-24.md)。
 
 这些模块不再是在线终端闭环的前置。历史阶段的实现计划已删除，但不以此回滚已工作的功能。按用户追加授权，未验收 P4 诊断平台及无生产消费者的 P1 Recipe/EnvironmentTracker/本机 Agent 原型已完整退役。执行继续由 CommandRuntime/Session 控制器持有；旧固定诊断与离线历史保留。清单及证据见 [B0/B1 实施与验收](records/B0_B1_Implementation_2026-10-25.md)。
 

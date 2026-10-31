@@ -279,7 +279,7 @@ Linux Debug 全部构建及 27/27 CTest 通过，耗时 178.00 秒；验证范�
 不替代 Windows/macOS 验收。
 mcp/P1 增量后 Linux 当前注册 36 项、MCP 标签 16 项，其中新增四项有 `capabilities` 标签。
 能力运行期改动可先跑 `ctest --test-dir build -L capabilities --output-on-failure`；跨 MCP 接线跑 `-L mcp`。
-Debug/Release 构建与专项、历史全套范围见 [P1 实施记录](docs/architecture/stages/P8_AI_MCP_Interface/records/P1_Implementation_and_Verification.md)。
+Debug/Release 构建与专项、历史全套范围见 [P1 实施记录](https://gitee.com/han-shao-jun/NovaTerm/blob/411ec15c36aa5ac56fddb204761fae830f785947/docs/architecture/stages/P8_AI_MCP_Interface/records/P1_Implementation_and_Verification.md)。
 `novaterm_conpty_tests`、`novaterm_terminal_session_tests` 仅 Windows，
 `novaterm_pty_tests` 仅 Linux。
 

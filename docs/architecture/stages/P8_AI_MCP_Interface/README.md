@@ -21,9 +21,15 @@ SFTP上传需要local.read+remote.write，下载需要local.write+remote.read；
 | [Agent使用流程](05_Agent_Workflow.md) | 从目标确认到部署、观察、重试和结果判断 |
 | [等待、任务、传输与连接](06_Terminal_Workflow_Extensions.md) | 各工具分工，SFTP/UART交付与独立接收准备边界 |
 | [实施顺序与验收](01_Phases_and_Acceptance.md) | B0～B4工作项、测试选择和退出条件 |
-| [实机测试清单](07_Real_Device_Test_Checklist.md) | 当前SSH/UART交互、SFTP上传/下载、UART发送、连接权限及性能步骤；均未执行 |
+| [B4 测试工作台](B4_Test_Report.html) | 清单与结果统一主记录：87条有效用例、准备与收口检查、20工具映射、历史证据；支持组合筛选、步骤展开、双向跳转和打印，B4未完成 |
 | [软件收口账本](08_Software_Closeout.md) | 当前阶段、剩余软件任务与B4用户验收分工 |
 | [验收档案](records/README.md) | 日期、平台、命令、失败和限制；不作为新方案 |
+
+测试工作台单文件离线可用，清单及结果已合并，旧两份Markdown不再维护。维护数据位于HTML的 `b4-data` JSON块（`schemaVersion: 1`）；页面布局由 `scripts/export_b4_report.py` 重绘，需Python-Markdown。普通阅读直接打开HTML，无需运行脚本。
+
+更新记录时，先运行 `python3 scripts/export_b4_report.py --export-data /tmp/b4-data.json` 导出临时数据，编辑后运行 `python3 scripts/export_b4_report.py --data /tmp/b4-data.json` 写回HTML。无参数运行只从HTML现有数据重新生成页面，不依赖已删除文档，也不另存一份持久结果文件。
+
+数据字段：`checklist.cases` 保存编号、标题、所属节、操作和判据；`checklist.sections/tools` 保存准备说明和工具映射；`results.cases` 保存状态、已测范围、事实、缺口和记录引用；`results.runs/evidence/issues/references` 保存轮次、证据、问题及跳转；`overview` 保存当前摘要。详细轮次追加到 `results.historyMarkdown`，`results.migrationSnapshotMarkdown` 仅为迁入时的历史快照，不改写为新成绩。
 
 ## 范围与边界
 

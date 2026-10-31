@@ -357,7 +357,7 @@ shouldSample = _presentationActive
 SFTP 与资源面板的按 transport 保留策略不变。SFTP 目录查询结果改为携带发起时的 SSH 来源，
 后台标签成功/超时也可结束对应面板 busy，不影响其他面板查询；资源采样通道与调度未改。
 回归覆盖真实 SftpPanel 状态和替身结果源，真实 SSH/TerminalPage 映射端到端仍待人工验收。
-详见 [本轮修复记录](P8_AI_MCP_Interface/records/P3_Review_Fixes_2026-10-23.md)。
+详见 [本轮修复记录](https://gitee.com/han-shao-jun/NovaTerm/blob/411ec15c36aa5ac56fddb204761fae830f785947/docs/architecture/stages/P8_AI_MCP_Interface/records/P3_Review_Fixes_2026-10-23.md)。
 
 ## 相关文档
 

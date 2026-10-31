@@ -1,5 +1,40 @@
 # AGENTS.md
 
+### 0.2.108～0.2.113 B4修复与台账提交收口（2026-10-31）
+
+用户要求创建提交并推送Gitee。按主题拆分，libvterm独立0.2.108（edc27bb）、宽字符日志0.2.109（598b558）、Linux安全Writer0.2.110（998302d）、S15判重与销毁保护0.2.111（b53d5e3）、凭据字号0.2.112（c7f48cc）、文档台账0.2.113。删除的历史记录引用迁往Git基线411ec15，87条用例与20工具映射保持。
+
+0.2.108含全部修复的工作区主程序及相关目标构建通过，相关CTest10/10（11.77秒）、MCP定向18/18（1.892秒）；不冒充各提交独立检出验证。最终0.2.113主程序及MCP业务/契约目标再次构建通过，契约CTest1/1（0.02秒）、两代SSH/UART判重和HTTP下载定向8/8（0.701秒）。用户确认ttyUSB0为原ttyUSB1板卡后的UARTRE3仍生成10字节结束文件，工具unknown/terminationConfirmed=false正确；此为此前0.2.107实例实机证据，本次提交阶段未重启或再连设备。构建产物、日志及临时凭据目录不纳入，B4仍未整体验收。见[提交验证](docs/architecture/stages/P8_AI_MCP_Interface/B4_Test_Report.html#commit-02113-detail)与[UART续测](docs/architecture/stages/P8_AI_MCP_Interface/B4_Test_Report.html#uart-stop-retest-03-detail)。
+
+
+### S15操作ID判重与回调销毁修复/失败项复测（2026-10-31，工作区增量）
+
+用户要求review测试fail并修复。按qt-cpp-review三代理六领域只读复核后，确认普通输入只保存最后Replay导致旧ID被后续输入覆盖；另确认同步onChanged销毁owner后继续访问的UAF。共享ObservationState增加固定10分钟历史，每client/session4096、全局16384，输入前预留/受理提交/失败回滚、不驱逐未过期ID；当前owner另留release额度1/作用域及32全局。control/user变化不抹历史，cache/epoch/grant沿原失效规则；最近Replay/原任务查询保持，旧ID不冒报当前其他操作事实。QPointer与端口存活检查、弱引用回滚修复销毁链，serial阻止迟到外层覆盖较新事实。
+
+真实RED8数据行全部失败（QTest2pass/8fail）；软件相关CTest3/3（1.94秒）、两代SSH/UART定向6/6通过，协议夹具首轮缺输入授权2pass/4fail原样保留。去保护独立ASan对照触发heap-use-after-free，保护后任务29/29通过。用户将范围收窄为“只复测失败项”后仅执行S15定向14/14及销毁ASan定向3/3；此前已结束的完整MCP160pass/3Windows-only skip（41.737秒）单独记，不算本轮定向。用户已重启到匹配新构建的PID93005/实例b8351a9a；原S15实机核对7/7、反向任务→普通输入2/2，额外副作用文件不存在、新ID正常执行且原任务重试仅一次。UART Ctrl+C无控制TTY时不能保证终止，工具unknown事实正确，未改板卡环境。见[HTML修复与复测](docs/architecture/stages/P8_AI_MCP_Interface/B4_Test_Report.html#s15-fix-detail)。未提交/推送，版本0.2.107，B4仍未整体验收。
+
+### 串口ZMODEM与真实开发场景测试（2026-10-31）
+
+按用户要求组合工具贴近真实流程，所有case/结果统一记录HTML。SERIAL1在ttyUSB1显式运行命令并启动/tmp下lrz接收，1MiB上传protocolCompleted/fileConfirmed=true、completedFiles=1、confirmedBytes=1048576，同串口sha256sum/wc与本机源一致；remotePublication/contentVerified仍按原unknown/false另记。CMD1涵盖三通道输入重试/回复/按键、报告下载/日志续扫、长任务/停止/期限/释放，23个事实核对22通过1失败：S15普通交互已用operationId被后续start_task复用并实际执行（UNEXPECTED-CROSS及exit0证据保留），尚未修复。UART停止后脚本仍执行，工具未确认终止；只读TTY诊断TTY_NR=0/TPGID=-1与no job control一致，环境边界待处理。S05/S08/S09因取消入口/人工接管/断流配合条件缺失仍未执行，不以超时模拟取消。B4-01已在新实例实际MCP回放242行/4472字节精确通过，其他Unicode/平台矩阵仍部分覆盖。
+
+DEV1实际上传校验脚本→预期退出2→本地修正→记忆命中覆盖上传→退出0→下载日志核对，9/9工作流核验；同会话BUSY先等待原下载完成再原ID续调，上传精确重试同transferId且inode/size不变，参数冲突TARGET_OPERATION_CONFLICT，stat缺失改ls -li，核对器初始错误码8/1及修正9/9分开保留。HTML已增加失败筛选与case→缺陷→复现→证据跳转，87条仍按完整判据记账，B4未通过。见[组合场景](docs/architecture/stages/P8_AI_MCP_Interface/B4_Test_Report.html#run-command-01)及[待修S15](docs/architecture/stages/P8_AI_MCP_Interface/B4_Test_Report.html#issue-cross-api-operation)。本轮未构建/改产品代码/提交/推送，测试文件和脱敏响应保留，各终端回到提示符且控制释放或到期。
+
+### SSH随机文件上传/下载实机闭环（2026-10-31）
+
+用户指定板卡/tmp，确认首次上传路径后执行RUN-20261031-FILE-01：本机生成1MiB随机二进制，上传至root@192.168.1.200的/tmp/novaterm-file-check-rq2h8a6c/random.bin，再下载到本机新文件。两方向completed/published=true、字节数均1,048,576，本机源/板卡/下载副本SHA-256一致且本机逐字节相等，5个核验点通过。已通过/proc/exe与构建文件inode确认PID76128运行当前构建，实例7e240d65-561f-4292-b9b3-9883ea36fd7d；输入控制释放，文件与脱敏证据保留。不推广为空文件/覆盖/取消/故障/UART或完整B4通过，contentVerified原响应仍false，独立校验另记。见[HTML实机结果](docs/architecture/stages/P8_AI_MCP_Interface/B4_Test_Report.html#run-file-01)。未构建/提交/推送。
+
+### Linux安全Writer与HTML独立测试记录（2026-10-31，工作区增量）
+
+按用户要求补Linux LocalFileWriter：逐级无链接固定目录、UUID/0600独占临时文件、有界写入/同步/摘要复核、默认renameat2不覆盖及已有目标显式覆盖；取消只清已确认归属的临时文件，未知归属返回失败，发布后保留目标。Linux覆盖原目标需可读且≤64MiB，同长度同时间戳修改也以固定句柄摘要复核；只支持声明的本地文件系统，非CAS最终窗口及可信目录写入者前提保留，macOS未实现。原RED本地37pass/28fail（含旧Reader根目录夹具）、SFTP下载5pass/17fail；临时篡改首轮失败与原目标同大小变更审查RED2pass/1fail均保留。最终Release主程序与相关目标构建、相关CTest3/3（2.87秒）、两代HTTP下载4/4（0.243秒）、独立ASan/UBSan本地I/O68/68（1.012秒）通过，独立复审无新增高可信问题。未连接设备/重启用户实例/跑无关全套或其他平台，不提交/推送、版本0.2.107。
+
+用户明确要求子代理合并清单全部测试项后删除两份Markdown。现[B4 HTML](docs/architecture/stages/P8_AI_MCP_Interface/B4_Test_Report.html#linux-writer)内嵌b4-data为唯一记录源，87条操作/判据/结果、20工具映射及完整历史保留，入口引用已迁移；维护用scripts/export_b4_report.py --export-data/--data，不再依赖已删除的07清单及B4结果Markdown。工具目录说明同步Windows/Linux Writer后，主程序与协议/MCP目标重建，契约CTest1/1及两代下载专项再次4/4通过，分轮记录不拼全套。当前Linux相关项是软件验证而非真实SFTP验收，B4仍未通过。
+
+### B4-01 宽字符日志填充修复（2026-10-31，工作区增量）
+
+实机样本发现宽字符提前软换行的空单元被当空格写入历史。libvterm新增内部wrap_padding标记及回调，VTAdapter只移除明确标记的空单元；不按chars[0]==0猜测，保留显式空格和光标跳格。原RED为3pass/10fail；初版裁行尾零格被独立审查复现resize后丢有效空白，新增回归2pass/1fail后改显式标记。最终Release主程序及相关目标构建通过，Core/terminal_ops/scrollback CTest3/3（8.04秒），各自QTest118/58/31通过；MCP日志/展开/采样专项8/8（0.752秒）。独立Core回放原4464字节样本，512/65536预算精确一致，复审无高可信新缺陷。未重启用户实例，不冒充更新后的实机MCP复验；B4仍未验收，版本不变、不提交/推送。分轮证据见[统一结果总账](docs/architecture/stages/P8_AI_MCP_Interface/B4_Test_Report.html#fix-detail)。
+
+提权凭据窗口截图增补：说明/状态显式12px、sudo/su标题13px，修正ElaText默认28px；Release主程序与MCP目标重建、提权设置专项9/9（0.605秒），offscreen提示保留。用户实例未重启，高DPI截图未复验；结果追加于同一B4总账。
+
 ### 0.2.107 过程文档清理提交（2026-10-30）
 
 按用户要求删除15份过程设计/实施计划并提交推送Gitee；正式架构、现行契约与分轮验证记录保留，旧计划从Git历史追溯。修正外部引用及目录映射，版本0.2.106→0.2.107。本轮仅文档清理与版本递增，目录删除、引用检索及git diff --check核对通过，不重新构建或运行业务测试；不纳入本机构建脚本、产物和日志。
@@ -133,7 +168,7 @@
 
 ### 0.2.90 提交前收口与实机清单（2026-10-27）
 
-用户要求本地提交新会话预授权并继续MCP，按每提交PATCH递增约定将0.2.89→0.2.90；当前二十一工具。正常Windows Release默认全部目标构建通过，同版本相关CTest22/22（43.28秒）、完整MCP业务234/234（125.336秒）及官方SDK2025/rawHTTP2026二十一工具互操作分别通过，不拼为一次全套。显式qt-cpp-review的六领域只读复核未见高可信新问题，17文件确定性提示均在旧行。另按用户要求新增[独立实机测试清单](docs/architecture/stages/P8_AI_MCP_Interface/07_Real_Device_Test_Checklist.md)，尚未执行设备测试。命令/日志及下一文件传输起点见[预授权记录提交收口](docs/architecture/stages/P8_AI_MCP_Interface/records/B3b_New_Session_Sharing_2026-10-27.md#0290-提交前收口)。不推送，不纳入build产物/日志/本机辅助文件，不改机械风格，未跑无关全套/Core/ConPTY或连接设备。
+用户要求本地提交新会话预授权并继续MCP，按每提交PATCH递增约定将0.2.89→0.2.90；当前二十一工具。正常Windows Release默认全部目标构建通过，同版本相关CTest22/22（43.28秒）、完整MCP业务234/234（125.336秒）及官方SDK2025/rawHTTP2026二十一工具互操作分别通过，不拼为一次全套。显式qt-cpp-review的六领域只读复核未见高可信新问题，17文件确定性提示均在旧行。另按用户要求新增[独立实机测试清单](docs/architecture/stages/P8_AI_MCP_Interface/B4_Test_Report.html#checklist)，尚未执行设备测试。命令/日志及下一文件传输起点见[预授权记录提交收口](docs/architecture/stages/P8_AI_MCP_Interface/records/B3b_New_Session_Sharing_2026-10-27.md#0290-提交前收口)。不推送，不纳入build产物/日志/本机辅助文件，不改机械风格，未跑无关全套/Core/ConPTY或连接设备。
 
 ### B3b 新会话预授权（2026-10-27，工作区增量）
 
@@ -412,7 +447,7 @@ Session 环境事实由 `src/session/EnvironmentTracker.*` 唯一维护。旧九
 `detect_leaks=0`，不含泄漏检测。本机 HTTP/PTY 用例需允许回环/PTY，沙箱内 HTTP 启动失败不能作回归结论。
 Windows/macOS、真实 UART 与 P4/P6 产品集成未验收。下文 32/12、29/9 等数字是此前基线。
 详细依赖、状态 owner、审查修复及复测命令见
-[实施记录](docs/architecture/stages/P8_AI_MCP_Interface/records/P1_Implementation_and_Verification.md)。
+[实施记录](https://gitee.com/han-shao-jun/NovaTerm/blob/411ec15c36aa5ac56fddb204761fae830f785947/docs/architecture/stages/P8_AI_MCP_Interface/records/P1_Implementation_and_Verification.md)。
 
 0.2.72 提交前审查增量（2026-10-20）：命令取消不会触发 Runtime 的正常 completion，
 能力层必须单独回收租约；执行 timeout 与交付 deadline 保留 wire margin；环境标记 overlap 须跨任意多个 chunk。
@@ -1438,9 +1473,12 @@ updateContentHeight()`）。附带的两个小坑：定时重建内容时旧控�
 （offscreen，断言"内容高度 == max(视口, heightForWidth)"与"滚到底内容底边贴
 视口底"）。
 
-**软换行行的行尾空格不能裁**：`onScrollbackPush()` 里裁剪行尾空 Cell 只对
-**硬换行**行安全。软换行行填满了整行才换行，其尾部空格是有效内容 —— 下一行
-文本紧接其后，裁掉会让按新列宽重排后的内容整体左移。判据是 `softWrapped == 0`。
+**软换行有效空白不能按空Cell猜测删除**：显式空格、光标跳格以及resize移到
+行尾的空单元均须保留。宽字符放不进行尾时可提前软换行，libvterm只对实际跳过的
+空格位标记`wrap_padding`；该标记随Cell移动，写入/擦除时清除，VTAdapter入历史
+时过滤标记格（resize后可能位于行中）。硬换行仍按原规则裁默认尾空白。
+回归`wideWrapLogPreservesText`、`softWrapPreservesCursorGapAfterResize`及
+`wideWrapPaddingSurvivesEditsAndResize`锁定内容、真空白、覆盖和resize语义。
 
 **`sb_popline` 取的是最新历史行，不是最旧**：libvterm 在屏幕**变高**时用它
 反向取回紧邻屏幕顶部的那一行。NovaTerm 存的是变长逻辑行，一条可能横跨
@@ -2220,7 +2258,7 @@ Debug/Release 完整构建通过；Debug 全套 **37/37**（185.52 秒），Rele
 `-L 'mcp|history|core'` **20/20**（38.59 秒），历史后端独立无 Qt Release **1/1**。
 本轮没有运行 Release 全套、消毒器、其他平台、真实 UART 或输入法人工验收；
 历史压缩默认关闭，性能门槛状态保持原记录。具体命令与日志见
-[P1 实施记录](docs/architecture/stages/P8_AI_MCP_Interface/records/P1_Implementation_and_Verification.md)。
+[P1 实施记录](https://gitee.com/han-shao-jun/NovaTerm/blob/411ec15c36aa5ac56fddb204761fae830f785947/docs/architecture/stages/P8_AI_MCP_Interface/records/P1_Implementation_and_Verification.md)。
 
 ### Linux LZ4 性能复测（2026-10-20）
 
@@ -2345,7 +2383,7 @@ Release 默认目标构建/重链接成功，沙箱外相关 CTest **21/21**（9
 历史读取/搜索 **32/32**、SFTP 面板 **19/19**。新增断言先 RED 后 GREEN，
 独立复核未发现阻断项；SFTP 回归使用替身结果源，未直接覆盖真实 TerminalPage
 请求映射/SSH。未运行无关全套、ConPTY、真实设备、其他平台和消毒器；未自动提交。
-详细选择、日志和保留范围见 [修复记录](docs/architecture/stages/P8_AI_MCP_Interface/records/P3_Review_Fixes_2026-10-23.md)。
+详细选择、日志和保留范围见 [修复记录](https://gitee.com/han-shao-jun/NovaTerm/blob/411ec15c36aa5ac56fddb204761fae830f785947/docs/architecture/stages/P8_AI_MCP_Interface/records/P3_Review_Fixes_2026-10-23.md)。
 
 ### MCP / P3 应用边界收敛（2026-10-24，工作区增量）
 
@@ -2370,7 +2408,7 @@ ConPTY 文件完整复跑 **10/12**，仍仅两条句柄断言，线程/子进�
 资源/协议独立复核完成，修复搜索缓存与证据后半段的准入复核后未见明确阻断项。
 I-001 GUI 停机等待延迟仍待测；其他平台、真实设备、消毒器及生产 P4/P6 未验收。
 未自动提交/推送，用户 `.dide/` 保留。所有命令、各轮失败与最终成绩见
-[架构修复记录](docs/architecture/stages/P8_AI_MCP_Interface/records/P3_Architecture_Fixes_2026-10-24.md)。
+[架构修复记录](https://gitee.com/han-shao-jun/NovaTerm/blob/411ec15c36aa5ac56fddb204761fae830f785947/docs/architecture/stages/P8_AI_MCP_Interface/records/P3_Architecture_Fixes_2026-10-24.md)。
 
 ### 0.2.82 提交收口（2026-10-24）
 

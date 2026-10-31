@@ -63,7 +63,7 @@ build/Release/bin/novaterm_mcp_tests.exe -o build/b3b-sftp-upload-final-mcp.txt,
 python tests/mcp/interop_check.py
 ```
 
-Qt bin/plugins使用6.8.3，QT_QPA_PLATFORM=offscreen，TEMP/TMP为工作区 `build/b3b-local-file-io-temp`，互操作NO_PROXY=*；SDK依赖沿用build/mcp-test-deps，不增加应用Python依赖。保留原build日志，不提交/推送。简短设备步骤见[U01～U04](../07_Real_Device_Test_Checklist.md#9-sftp上传当前可测其余文件能力后续)，所有真机项仍未执行。
+Qt bin/plugins使用6.8.3，QT_QPA_PLATFORM=offscreen，TEMP/TMP为工作区 `build/b3b-local-file-io-temp`，互操作NO_PROXY=*；SDK依赖沿用build/mcp-test-deps，不增加应用Python依赖。保留原build日志，不提交/推送。简短设备步骤见[U01～U04](../B4_Test_Report.html#case-SF01)，所有真机项仍未执行。
 
 ### 当前限制与下一起点
 

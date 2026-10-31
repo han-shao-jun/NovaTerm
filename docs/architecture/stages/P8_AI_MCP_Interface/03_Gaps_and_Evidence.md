@@ -1,8 +1,8 @@
 # 开发调试闭环：现状、缺口与证据
 
-更新：2026-10-28。当前三十工具；Windows B0～B3b基础能力包括SFTP上传/下载及UART发送，SFTP显式覆盖本阶段Windows软件回归已完成，B4仍待用户验收，见[覆盖记录](records/B3b_File_Overwrite_2026-10-28.md)。保持原FileTransfers/SftpSession/worker与本地安全后端，不新增owner。
+更新：2026-10-31。当前二十工具；Windows B0～B3b基础能力包括SFTP上传/下载及UART发送，SFTP显式覆盖本阶段Windows软件回归已完成，B4仍待用户验收，见[覆盖记录](records/B3b_File_Overwrite_2026-10-28.md)。保持原FileTransfers/SftpSession/worker与本地安全后端，不新增owner。
 
-G16本轮Windows显式覆盖与软件收尾已完成Windows软件验证；Linux安全读取源后端已实现；Linux安全写入及macOS文件后端仍未实现，属于后续开发，不只是待运行测试。G12/B4真实板卡、客户端和性能由用户验收，P8未整体完成。覆盖只授权可信目录的目标路径替换，非CAS；本地pinPath没有ACL/owner检查。托管提权继续unavailable，非当前闭环前置。
+G16本轮Windows显式覆盖与软件收尾已完成Windows软件验证；Linux安全读取源后端已实现；Linux安全Writer于2026-10-31实现并通过软件回归，实际设备下载仍待验收；macOS文件后端未实现，属于开发缺口。G12/B4真实板卡、客户端和性能由用户验收，P8未整体完成。覆盖只授权可信目录的目标路径替换，非CAS；本地pinPath没有ACL/owner检查。托管提权继续unavailable，非当前闭环前置。
 
 以下带日期的静态盘点及阶段更新用于追溯，现行能力以[02](02_Current_MCP_Contract.md)与源码为准。历史结果见[验收档案](records/README.md)，后续任务见[软件收口账本](08_Software_Closeout.md)；“存在”只表示源码/用例存在，不表示本阶段测试已通过。
 
@@ -42,7 +42,7 @@ G01～G03 是旧“有界摘要”目标与新“可靠读取终端缓存”目�
 | G10 长任务与取消 | 单次 wait 最大 30 秒，已有持续等待、取消、unknown/目标保护和人工接管机制 | 长时观察采用多次有界等待；验证停止等待不会误发 Ctrl+C，取消命令不保证远端停止，不换 operationId 盲重放 |
 | G11 Agent 使用说明冲突 | [WireSession](../../../../src/mcp/WireSession.cpp) 两代握手 instructions 仍分别包含“非严格只读模板均需确认”和“仅单独授权固定诊断可执行”，与已有完整输入/普通命令路径不完全一致；工具说明已有观察建议 | 统一两代握手、工具描述和用户说明，覆盖日志书签、屏幕、缺口、清空和 UART 静默；用契约测试防止指令互相矛盾 |
 | G12 真机与性能证据不足 | 既有用例包含 SSH/Serial 替身和输入/授权回归，但不等于完整硬件闭环。串口压力历史记录显示驱动 RX 队列设置会影响丢帧 | 单独完成真实 SSH、UART 启动、双通道重启、缓存淘汰及高输出验收；区分设备/驱动丢字节、终端缓存淘汰和 MCP 投影截断 |
-| G13 工作区与发布基线不一致 | [P4 暂停记录](records/P4_Implementation_and_Verification.md) 记载未完成回归及串口完成标记失败；源码有两项诊断扩展，旧冻结契约为九终端工具加三历史工具 | 后续实施前固定基线并明确保留/隔离策略。此次文档删除不等于扩展已经从构建移除或已经发布 |
+| G13 工作区与发布基线不一致 | [P4 暂停记录](https://gitee.com/han-shao-jun/NovaTerm/blob/411ec15c36aa5ac56fddb204761fae830f785947/docs/architecture/stages/P8_AI_MCP_Interface/records/P4_Implementation_and_Verification.md) 记载未完成回归及串口完成标记失败；源码有两项诊断扩展，旧冻结契约为九终端工具加三历史工具 | 后续实施前固定基线并明确保留/隔离策略。此次文档删除不等于扩展已经从构建移除或已经发布 |
 
 ## 4. Netcatty 对照补充（2026-10-25）
 

@@ -17,7 +17,7 @@
 
 ## 阅读顺序
 
-MCP工具行为见[工作流扩展](stages/P8_AI_MCP_Interface/06_Terminal_Workflow_Extensions.md)与[现行契约](stages/P8_AI_MCP_Interface/02_Current_MCP_Contract.md)；源码、替身与真实设备分开验收，设备步骤见[独立清单](stages/P8_AI_MCP_Interface/07_Real_Device_Test_Checklist.md)。
+MCP工具行为见[工作流扩展](stages/P8_AI_MCP_Interface/06_Terminal_Workflow_Extensions.md)与[现行契约](stages/P8_AI_MCP_Interface/02_Current_MCP_Contract.md)；源码、替身与真实设备分开验收，设备步骤见[独立清单](stages/P8_AI_MCP_Interface/B4_Test_Report.html#checklist)。
 
 1. [总体架构](../ARCHITECTURE.md)：系统边界、数据流、线程、所有权和目标架构。
 2. [配置、Profile 与主题](Configuration_Profile_Theme.md)：配置分层、Profile、Session 和主题职责。

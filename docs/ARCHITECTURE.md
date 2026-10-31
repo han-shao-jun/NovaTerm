@@ -10,7 +10,7 @@ UART发送同时复核独立本地read资源和UART target授权，调用方独�
 
 当前字段与边界见[现行契约](architecture/stages/P8_AI_MCP_Interface/02_Current_MCP_Contract.md)，本阶段进度见[覆盖记录](architecture/stages/P8_AI_MCP_Interface/records/B3b_File_Overwrite_2026-10-28.md)，下载历史证据见[下载记录](architecture/stages/P8_AI_MCP_Interface/records/B3b_Sftp_Download_2026-10-28.md)，UART既有边界与历史验证见[发送记录](architecture/stages/P8_AI_MCP_Interface/records/B3b_Uart_Send_2026-10-28.md)。既往终端、连接、文件授权和SFTP子批统一见[验收档案](architecture/stages/P8_AI_MCP_Interface/records/README.md)，不从历史工具数量或成绩推断当前版本验收。
 
-资源共享继续由Application独立持有授权/查询/证据服务，MCP负责协议与可信身份；独立导入文件不随MCP关闭删除，见[资源边界记录](architecture/stages/P8_AI_MCP_Interface/records/P3_Architecture_Fixes_2026-10-24.md)。
+资源共享继续由Application独立持有授权/查询/证据服务，MCP负责协议与可信身份；独立导入文件不随MCP关闭删除，见[资源边界记录](https://gitee.com/han-shao-jun/NovaTerm/blob/411ec15c36aa5ac56fddb204761fae830f785947/docs/architecture/stages/P8_AI_MCP_Interface/records/P3_Architecture_Fixes_2026-10-24.md)。
 
 NovaTerm 的统一架构文档集中在本文件；文档索引、配置与主题、渲染架构、路线图及阶段实施说明仍位于 [architecture/README.md](architecture/README.md)。
 
@@ -347,8 +347,16 @@ SSH/LocalShell 脚本正文由 Session 级 ScriptProvider 写入明确目标路�
 到期不等于命令结束，完成状态只消费既有 Shell/设备事件。等待最多 30 秒，
 不阻塞 GUI；完整性能验收与设计差距见 MCP实施与验收记录。
 
+2026-10-31 输入判重补注：上述工具数量/权限为历史基线，现行20工具和统一授权以
+P8当前契约为准。共享`ObservationState`除最近Replay外，保留固定10分钟的已受理ID，
+按client/session/epoch/grant/cacheGeneration隔离；control释放或后续输入不会遗忘旧ID。
+每作用域4096、全局16384条，满时拒绝新受理，不驱逐未过期记录；当前owner另留释放余量。
+`InputCapabilities`在副作用前预留，成功受理提交、失败回滚；弱引用回滚及QPointer存活检查
+覆盖同步回调销毁，serial阻止迟到外层覆盖较新事实。仍复用原Controller/Arbiter/Transport，
+不新增执行器。原失败及定向实机复验见[HTML记录](architecture/stages/P8_AI_MCP_Interface/B4_Test_Report.html#s15-fix-detail)。
+
 本机 sudo/su 凭据分开保存；UI 的异步凭据入口由专用工作线程拥有独立系统连接。
-历史 P3 增量：录制接收流、只读原文/搜索、来源无关 Evidence 分别由 `novaterm_history_recording`、`novaterm_history_search`、`novaterm_evidence` 拥有。搜索只依赖异步记录端口和 Qt Core；Evidence 只见来源读取与授权端口，不链接 History/Session/诊断实现。MCP 集成层创建可信身份、装配 P1 准入及来源适配；UI 仅发本机共享/撤回意图。capture grant 不继承 Session grant，读取和搜索固定提交高水位，证据默认期限内存；完整性与页扫描 complete 分开。具体资源上限、原九工具兼容和未验收范围见 [P3 实施记录](architecture/stages/P8_AI_MCP_Interface/records/P3_Implementation_and_Verification.md)。
+历史 P3 增量：录制接收流、只读原文/搜索、来源无关 Evidence 分别由 `novaterm_history_recording`、`novaterm_history_search`、`novaterm_evidence` 拥有。搜索只依赖异步记录端口和 Qt Core；Evidence 只见来源读取与授权端口，不链接 History/Session/诊断实现。MCP 集成层创建可信身份、装配 P1 准入及来源适配；UI 仅发本机共享/撤回意图。capture grant 不继承 Session grant，读取和搜索固定提交高水位，证据默认期限内存；完整性与页扫描 complete 分开。具体资源上限、原九工具兼容和未验收范围见 [P3 实施记录](https://gitee.com/han-shao-jun/NovaTerm/blob/411ec15c36aa5ac56fddb204761fae830f785947/docs/architecture/stages/P8_AI_MCP_Interface/records/P3_Implementation_and_Verification.md)。
 MCP 协议状态读取只查询引用元数据，不取密。当前可信认证适配器为空，托管提权
 在取密或输入前返回 `ELEVATION_ADAPTER_UNAVAILABLE`；保存密码不开放代填能力。
 
@@ -392,6 +400,11 @@ Renderer 读取稳定 Snapshot，把 DirtyRegion 转为 row-local、按 8-cell b
 - 仅当**列数**变化时发起一次异步全量 reflow（`ReflowEngine`，worker 线程、256 行分批、代际取消）。行数变化不影响折行，不触发重排。
 - scrollback 增长或淘汰走增量维护：头部丢弃已淘汰行的显示行，尾条逻辑行重折（`appendContinuation` 会原地追加、`sb_popline` 会原地截断），其后新行逐条追加。代价 O(新增内容)。
 - 因此滚动条量程始终是真实显示行数，而不是折行前偏小的逻辑行数。
+
+2026-10-31 B4-01：宽字符提前软换行留下的填充格由libvterm内部明确标记，
+随Cell移动/resize保留、写入/擦除清除；VTAdapter写入逻辑历史时过滤标记格。
+显式空格和光标跳格不按空Cell推断删除，历史布局收到的是不含人工填充的逻辑内容。
+布局调度策略不变，未重新运行GPU长稳性能验收。
 
 2026-09-10 增量：`HistoryLayout` 使用逻辑 head，头部淘汰只移动索引；累计
 至少 4096 个且达到存储一半时才 compact。`uploadCommands()` 直接构造实例，
@@ -1485,4 +1498,4 @@ UI 只发本机意图，默认关闭，不自动共享或增加 MCP 历史工具
 
 manifest 与逐记录校验共同限定已提交前缀；正常 seal 与已知 gap 分开，异常/未封口保持 unknown_tail，
 不把未知丢失数量填零。Windows 已跑专项及影响范围回归，跨平台、断电与真实终端性能门槛未关闭。
-具体契约、默认容量依据和结果见 [P2 实施与验证](architecture/stages/P8_AI_MCP_Interface/records/P2_Implementation_and_Verification.md)。
+具体契约、默认容量依据和结果见 [P2 实施与验证](https://gitee.com/han-shao-jun/NovaTerm/blob/411ec15c36aa5ac56fddb204761fae830f785947/docs/architecture/stages/P8_AI_MCP_Interface/records/P2_Implementation_and_Verification.md)。

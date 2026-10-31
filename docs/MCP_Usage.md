@@ -1,6 +1,6 @@
 # NovaTerm AI MCP 使用说明
 
-2026-10-30：当前二十工具。所有 AI 共用一套接入令牌和授权；首次启用自动建立统一接入。会话目录只列当前已连接且获准读取的会话；每个新就绪连接默认启用读取、完整输入、托管提权和清空四项权限。同一连接内手动撤权不会被刷新恢复。保存目标目录/打开/查询/关闭四工具和对应界面已移除，手动保存会话入口保留。当前改动的验证结果以本轮记录为准，不沿用历史测试成绩。Linux安全读取源已实现，Linux安全写入及macOS文件后端仍未实现；托管提权适配器仍不可用。参数见[现行契约](architecture/stages/P8_AI_MCP_Interface/02_Current_MCP_Contract.md)，历史成绩见[验收档案](architecture/stages/P8_AI_MCP_Interface/records/README.md)。
+2026-10-30：当前二十工具。所有 AI 共用一套接入令牌和授权；首次启用自动建立统一接入。会话目录只列当前已连接且获准读取的会话；每个新就绪连接默认启用读取、完整输入、托管提权和清空四项权限。同一连接内手动撤权不会被刷新恢复。保存目标目录/打开/查询/关闭四工具和对应界面已移除，手动保存会话入口保留。当前改动的验证结果以本轮记录为准，不沿用历史测试成绩。Windows/Linux安全本地读写均已实现，macOS文件后端仍未实现；托管提权适配器仍不可用。参数见[现行契约](architecture/stages/P8_AI_MCP_Interface/02_Current_MCP_Contract.md)，历史成绩见[验收档案](architecture/stages/P8_AI_MCP_Interface/records/README.md)。
 
 NovaTerm 提供进程内 Streamable HTTP MCP 服务，可让支持 MCP 的 AI 客户端读取指定终端输出、
 搜索已读取的内容，并按统一授权操作当前交互终端。MCP 总开关默认关闭。
@@ -17,7 +17,7 @@ NovaTerm 提供进程内 Streamable HTTP MCP 服务，可让支持 MCP 的 AI �
 
 SFTP 自动通过原会话的后台 owner 准备就绪，不必先打开文件面板；人工文件作业在进行时等待原后端空闲。串口发送自动衔接本 AI 的输入控制，接收端仍需先准备好。不会自动运行上传文件。
 
-Windows/Linux支持安全本地读取，Linux Writer和macOS后端仍未实现。保持64 MiB文件、64 KiB分块、固定句柄与类型检查；Linux flock为协作锁，源目录其他写入者须可信。
+Windows/Linux支持安全本地读取和写入，macOS后端仍未实现。保持64 MiB文件、64 KiB分块、固定句柄与类型检查；Linux flock为协作锁，目录其他写入者须可信。Linux下载写入要求支持的本地文件系统和原子renameat2。
 
 ## 开始使用
 
@@ -155,7 +155,19 @@ status=gap 表示旧位置被淘汰；status=invalidated 表示本机 clear 或 
 
 用 transferId 调用 `novaterm_query_transfer` 查询，`novaterm_cancel_transfer` 取消。相同operationId只能精确重试，改变方向/路径/覆盖意图会冲突；确认重试不会重复发送。未知发布结果保留原ID查询，不自动换ID重传。取消不删除已发布文件，下载不删除远端源；contentVerified仍为false。
 
-安全本地Writer目前仅Windows实现；上传和下载复用原SFTP队列/worker。新建远端目标要求hardlink扩展1，覆盖已有目标要求posix-rename扩展1。仍需可信目录属主/管理员，SFTPv3不能抵抗同账号恶意换路径。同步库调用不保证硬截止时间。
+安全本地Writer支持Windows/Linux；上传和下载复用原SFTP队列/worker。新建远端目标要求hardlink扩展1，覆盖已有目标要求posix-rename扩展1。仍需可信目录属主/管理员，SFTPv3不能抵抗同账号恶意换路径。同步库调用不保证硬截止时间。
+
+### Linux 本地下载边界
+
+支持ext2/3/4、XFS、Btrfs、tmpfs和overlayfs类型；仍须底层支持原子renameat2。
+其他文件系统（含NFS/CIFS/FUSE）明确拒绝，不降级成先删目标再重命名。
+按路径逐级固定无符号链接目录，发布前复核目录身份；临时文件0600，写完fsync，
+再流式回读摘要验证。覆盖初始已有文件时还固定并复核原文件的内容摘要；原目标必须
+可读、普通单硬链、有写权限位且不超过64 MiB，读取可能更新atime。新文件不继承原执行位。
+初始缺失即使overwrite=true仍使用原子不覆盖发布。取消只清本次已确认归属的临时文件，
+归属不明明确报告清理未成功；已发布文件不删除。目录复核与rename/unlink不是CAS，
+目录写入者须可信。成功仅表示发布，不承诺断电持久性；本地暂存摘要不把远端
+contentVerified改成true。真实设备/文件系统组合验收见[HTML结果](architecture/stages/P8_AI_MCP_Interface/B4_Test_Report.html#linux-writer)。
 
 ## SFTP显式覆盖
 
@@ -252,8 +264,16 @@ full 默认提供有界屏幕，显式 `includeViewport=true` 也可在 revision
 full 因字节或行数预算截断时设置 `resetRequired=true`、`nextToken=null`，需要扩大
 预算重新读取；compact 的预算省略仍通过 expandToken 补读，不因此强制 reset。
 
-相同已接纳 `operationId` 与动作的精确重试不会再次输入；内容变化、失效代际
-或过期上下文会拒绝。`submitted` 只证明交给了本机 Transport，不能证明远端
+最近一次已接纳输入的 `operationId` 与动作精确重试不会再次输入。已有任务仍优先按原
+taskId/operationId查询或精确重试。更早的已受理输入ID在保留窗口内一律拒绝复用，即使
+取得了新inputToken、参数相同或已经release再取得控制，也不会重新执行；返回
+`INPUT_SEQUENCE_CONFLICT`，不会把当前另一个操作的事实冒充旧结果。
+
+输入ID历史按统一主体/会话/epoch/授权版本/cacheGeneration隔离，首次受理起保留10分钟，
+重试不续期；每主体/会话4096条、全局16384条，满时BUSY并在输入前拒绝，不逐出未到期记录。
+满额时当前拥有控制的一方仍有额外释放槽（每作用域1、全局32）；无控制的重复空release不占用
+这份余量。撤权与换代沿既有失效规则，应用重启不恢复记录。超出保留范围或结果未知时仍需
+核对原操作事实，不能自动换ID重发。内容变化、失效代际或过期上下文会拒绝。`submitted` 只证明交给了本机 Transport，不能证明远端
 收到；回复丢失或结果未知时不要换一个 operationId 自动重发。
 有效控制上下文中的旧输入序号返回 `INPUT_ALREADY_SUBMITTED`，超前序号返回
 `INPUT_OUT_OF_ORDER`，过期令牌返回 `INPUT_TOKEN_EXPIRED`；上下文/控制代际变化仍

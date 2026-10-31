@@ -79,7 +79,7 @@
 
 ### B3b：文件传输和保存目标连接
 
-当前三十工具，SFTP上传/下载、UART发送已有各自阶段软件证据；显式覆盖本阶段Windows软件回归已完成，B4仍待用户验收，见[覆盖记录](records/B3b_File_Overwrite_2026-10-28.md)。本轮Windows软件与B4用户验收分开，Linux/macOS安全文件后端仍未实现。
+当前二十工具（0.2.103 起退役保存目标/文件资源/串口发送授权目录），SFTP上传/下载、UART发送已有各自阶段软件证据；显式覆盖本阶段Windows软件回归已完成，B4仍待用户验收，见[覆盖记录](records/B3b_File_Overwrite_2026-10-28.md)。本轮Windows软件与B4用户验收分开，Linux Reader/Writer已实现，macOS文件后端未实现；各轮本机/UART只读与交互补测见[实机测试结果总账](B4_Test_Report.html#cases)，宽字符日志代码已修复并通过Core原样本回放，用户实例复测待重启。
 
 依赖 B0 及现有 SSH/SFTP/Profile/Session 创建边界；不阻塞 B1/B3a 首批交付。对应 G16/G17。
 
@@ -88,7 +88,8 @@
 - [x] 受限SFTP单文件上传、查询/取消；使用本地读授权资源与原SSH绑定的远端写授权，默认不覆盖，不执行上传文件。
 - [x] SFTP下载完成0.2.96阶段软件验证：独立local.write+remote.read，复用原队列/worker和查询/取消，安全Writer默认不覆盖发布；原始成绩与限制见[下载记录](records/B3b_Sftp_Download_2026-10-28.md)。
 - [x] 本轮Windows显式覆盖与软件收尾：两输入可选overwrite、默认false，目标快照/最终复核、初始不存在不升级覆盖、非CAS信任前提与取消/未知结果；Windows软件验证已完成。
-- [ ] Linux/macOS安全本地Reader/Writer后端仍未实现，作为后续开发，不记成仅待验收。
+- [x] Linux安全本地Reader/Writer已实现并有软件回归；Writer原始RED/GREEN与边界见[统一HTML](B4_Test_Report.html#linux-writer)。
+- [ ] macOS安全本地Reader/Writer仍未实现；Linux真实设备下载/文件系统组合仍待验收。
 - [x] UART/ZMODEM单文件上传/查询/取消已完成该阶段软件验证，历史证据见[UART发送记录](records/B3b_Uart_Send_2026-10-28.md)：复用原Controller/worker/输入泵，独立本地read+UART授权，外部接收准备与lease显式release，原ID取消，文件/协议事实和按大小/波特率的有限期限。
 - [x] UART独立发送授权与只读发现：绑定当前真实I/O代际/配置，终端和SSH目录权限不推导，旧窗口/撤权/重连回收，见[授权记录](records/B3b_Uart_Authorization_2026-10-28.md)；发现不表示接收就绪。
 - [x] UART安全文件源前置：固定句柄随机读、worker内单源工厂及真实ZMODEM替身集成，见[前置记录](records/B3b_Uart_File_Source_2026-10-28.md)；当前发送工具复用此边界。
@@ -103,7 +104,7 @@
 
 ## 6. B4：真实 BSP 闭环与性能
 
-逐项执行与证据填写见[独立实机测试清单](07_Real_Device_Test_Checklist.md)。清单包含SFTP上传/下载与UART发送当前可测项，以及显式覆盖检查；初始未执行，不产生验收通过结论。
+逐项执行与证据填写见[独立实机测试清单](B4_Test_Report.html#checklist)。清单包含SFTP上传/下载与UART发送当前可测项，以及显式覆盖检查；初始未执行，不产生验收通过结论。
 
 对应 G09、G12 及已交付的 G14～G17。需要用户明确目标设备与允许的部署/重启操作后执行，不自动连接历史服务器或占用串口。先验证基础日志/交互批次，再分别补验扩展，未测扩展不能计入完成。
 
