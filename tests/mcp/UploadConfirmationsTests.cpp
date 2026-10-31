@@ -1,6 +1,8 @@
 #include "mcp/UploadConfirmations.h"
 #include <QTemporaryDir>
 #include <QTest>
+#include <QDir>
+#include <QLockFile>
 
 using namespace NovaTerm::Mcp;
 class UploadConfirmationsTests final : public QObject {
@@ -10,6 +12,30 @@ class UploadConfirmationsTests final : public QObject {
             "session", "epoch", "operation", "C:/build/firmware.bin", "/opt/firmware.bin", "sftp", false};
     }
 private slots:
+    void lockContentionCanRetryTheSameConfirmation() {
+        QTemporaryDir root; QVERIFY(root.isValid());
+        UploadConfirmations confirmations(root.path()); const auto request = intent();
+        const auto token = confirmations.check(request).reply.value("data").toObject().value("confirmationToken").toString();
+        QVERIFY(!token.isEmpty());
+        QLockFile lock(root.filePath("upload-memory.json.lock")); QVERIFY(lock.tryLock(0));
+        const auto blocked = confirmations.check(request, token, true);
+        QVERIFY(!blocked.allowed);
+        const auto error = blocked.reply.value("error").toObject();
+        QCOMPARE(error.value("code").toString(), QString("UPLOAD_MEMORY_BUSY"));
+        QVERIFY(error.value("retryable").toBool());
+        QVERIFY(error.value("retryAfterMs").toInt() > 0);
+        lock.unlock();
+        QVERIFY(confirmations.check(request, token, true).allowed);
+    }
+    void brokenLockPathIsStorageFailure() {
+        QTemporaryDir root; QVERIFY(root.isValid());
+        QVERIFY(QDir(root.path()).mkdir("upload-memory.json.lock"));
+        UploadConfirmations confirmations(root.path());
+        const auto result = confirmations.check(intent()); QVERIFY(!result.allowed);
+        const auto error = result.reply.value("error").toObject();
+        QCOMPARE(error.value("code").toString(), QString("UPLOAD_MEMORY_UNAVAILABLE"));
+        QVERIFY(!error.value("retryable").toBool());
+    }
     void expiredTokenCannotUploadAndPendingBudgetIsReclaimed() {
         QTemporaryDir root; qint64 now = 0;
         UploadConfirmations confirmations(root.path(), [&] { return now; });
@@ -20,7 +46,12 @@ private slots:
             QCOMPARE(confirmations.check(request).reply.value("data").toObject().value("state").toString(), QString("confirmation_required"));
         }
         request.operationId = "overflow";
-        QCOMPARE(confirmations.check(request).reply.value("error").toObject().value("code").toString(), QString("BUSY"));
+        const auto exhausted = confirmations.check(request).reply.value("error").toObject();
+        QCOMPARE(exhausted.value("code").toString(), QString("BUSY"));
+        QVERIFY(exhausted.value("retryable").toBool());
+        QCOMPARE(exhausted.value("retryAfterMs").toInt(), 300000);
+        now = 120000;
+        QCOMPARE(confirmations.check(request).reply.value("error").toObject().value("retryAfterMs").toInt(), 180000);
         now = 300000;
         request = intent(); QVERIFY(!confirmations.check(request, token, true).allowed);
         const auto fresh = confirmations.check(request).reply.value("data").toObject();

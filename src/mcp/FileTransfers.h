@@ -18,8 +18,9 @@ public:
         std::function<void(const SftpFileUploadResult&)> finished;
     };
     using Start = std::function<bool(TerminalSession&, const SftpFileUploadRequest&, Delivery)>;
+    using Now = std::function<qint64()>;
     FileTransfers(AccessStore&, SessionDirectory&, FileResourceAdapter&, QString instance,
-        QObject* parent = nullptr, Start = {});
+        QObject* parent = nullptr, Start = {}, Now = {});
     ~FileTransfers() override;
     FileTransfers(const FileTransfers&) = delete;
     FileTransfers& operator=(const FileTransfers&) = delete;
@@ -37,9 +38,10 @@ private:
     struct Authority { TransferPath local, remote; SessionBinding binding; QPointer<TerminalSession> session; };
     Result<Authority> authorize(const QString&, quint64, const StartFileUploadRequest&, SftpFileTransferDirection);
     bool valid(const std::shared_ptr<Record>&);
-    void cancel(const std::shared_ptr<Record>&);
+    void cancel(const std::shared_ptr<Record>&, const QString& failure = {});
     void check();
     QJsonObject project(const Record&) const;
+    qint64 now() const;
     AccessStore& _access;
     SessionDirectory& _sessions;
     FileResourceAdapter& _resources;
@@ -47,6 +49,7 @@ private:
     Start _start;
     QMap<QString, std::shared_ptr<Record>> _records;
     QElapsedTimer _clock;
+    Now _now;
     QTimer _timer;
     quint64 _nextRequest{0};
     bool _checking{false};

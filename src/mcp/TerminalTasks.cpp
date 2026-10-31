@@ -140,7 +140,8 @@ public:
         }
         if (clock.elapsed() >= row->deadline) {
             // 未知结果和释放控制仍由 Session 收口，不发送 Ctrl+C。
-            ctrl->release(row->client, "expired"); end(row, "unknown", "deadline"); return;
+            end(row, "unknown", "deadline");
+            ctrl->release(row->client, "expired"); return;
         }
         if (row->stopRequested) row->status = QStringLiteral("stop_requested");
         else row->status = row->submission == "queued" ? QStringLiteral("accepted") : QStringLiteral("running");
@@ -161,7 +162,9 @@ public:
     }
     QJsonObject result(const Row& row) {
         if (!permitted(*row)) return failure("SESSION_NOT_AVAILABLE", "Task authorization or connection changed.");
+        const QPointer<TerminalTasks> guard(q);
         refresh(row);
+        if (!guard) return failure("APP_UNAVAILABLE", "Task owner was destroyed; do not replay the task.");
         if (!row->accepted && !row->failure.isEmpty()) return row->failure;
         return success(data(row));
     }
@@ -182,8 +185,10 @@ public:
         }
         for (auto& done : deliveries) {
             const QPointer<TerminalTasks> guard(q);
-            done(!permitted(*row) ? failure("SESSION_NOT_AVAILABLE", "Task authorization changed.")
-                : error.isEmpty() ? result(row) : error);
+            const auto response = !permitted(*row) ? failure("SESSION_NOT_AVAILABLE", "Task authorization changed.")
+                : error.isEmpty() ? result(row) : error;
+            if (!guard) return;
+            done(response);
             if (!guard) return;
         }
     }
@@ -194,8 +199,12 @@ public:
         return {};
     }
     void sweep(bool renew = false) {
+        const QPointer<TerminalTasks> guard(q);
         const auto snapshot = records;
-        for (const auto& row : snapshot) refresh(row, renew);
+        for (const auto& row : snapshot) {
+            refresh(row, renew);
+            if (!guard) return;
+        }
         const auto now = clock.elapsed();
         records.erase(std::remove_if(records.begin(), records.end(), [now](const Row& row) {
             return row->ended && now - *row->ended >= Budget::TerminalTaskRetention.count();
@@ -252,15 +261,18 @@ public:
                         ? failure("CONTROL_INVALID", "Input was not accepted for this task.") : response;
                     end(row, "failed", "input_not_accepted");
                 }
-                refresh(row); deliver(row);
+                refresh(row);
+                if (guard) deliver(row);
             }, {}, context, InputReplayPolicy::Reject, [this, guard, row] {
                 if (guard) bind(row);
             });
         if (!guard) return;
-        if (row->accepted) { refresh(row); deliver(row); }
+        if (row->accepted) { refresh(row); if (guard) deliver(row); }
     }
     void query(const Row& row, const QueryTerminalTaskRequest& request, Completion done) {
+        const QPointer<TerminalTasks> guard(q);
         auto response = result(row);
+        if (!guard) return;
         if (response.value("ok").toBool() && request.sinceToken) {
             ReadContextRequest read; read.session = request.session; read.epoch = request.epoch;
             read.source = ContextSource::Log; read.sinceToken = request.sinceToken;
@@ -274,7 +286,9 @@ public:
     }
     void stopTask(const QString& key, const Row& row, const StopTerminalTaskRequest& request,
         Completion done, const Capabilities::InvocationContext& context) {
+        const QPointer<TerminalTasks> guard(q);
         refresh(row);
+        if (!guard) return;
         if (request.operation.isEmpty()) { done(failure("INVALID_ARGUMENT", "operationId is required.")); return; }
         if (!row->stopOperation.isEmpty()) {
             if (row->stopOperation != request.operation.str()) {
@@ -299,11 +313,11 @@ public:
         row->stopKey = "terminal-task/" + row->id + "/stop";
         ReadContextRequest read; read.session = SessionId{row->session}; read.epoch = Epoch{row->epoch};
         read.projection = ProjectionMode::Compact;
-        const QPointer<TerminalTasks> guard(q);
         interaction.call(row->client, row->stopKey + "/token", ToolRequest{read},
             [this, guard, row, context](QJsonObject observed) {
                 if (!guard) return;
                 refresh(row);
+                if (!guard) return;
                 const auto target = entry(*row);
                 const auto token = observed.value("data").toObject().value("inputToken").toString();
                 auto reject = [this, &row](QJsonObject error) {
@@ -329,7 +343,7 @@ public:
                         row->stopPreparing = false;
                         const auto latest = entry(*row);
                         if (latest && latest->session->terminalController()->operation().value("id").toString() == row->stopOperation) {
-                            row->stopRequested = true; refresh(row); deliver(row, true);
+                            row->stopRequested = true; refresh(row); if (guard) deliver(row, true);
                         } else {
                             row->stopOperation.clear();
                             deliver(row, true, response.value("ok").toBool()
@@ -340,7 +354,9 @@ public:
     }
     void call(const QString& client, const QString& key, const TerminalTaskRequest& request,
         Completion done, const Capabilities::InvocationContext& context) {
+        const QPointer<TerminalTasks> guard(q);
         sweep();
+        if (!guard) return;
         const auto reference = std::visit([](const auto& value) { return SessionReference{value.session, value.epoch}; }, request);
         const auto current = sessions.find(reference.session.str());
         if (stopped || !current || !current->session || !access.canRead(client, *current)) {
@@ -368,18 +384,25 @@ public:
         else stopTask(key, row, std::get<StopTerminalTaskRequest>(request), std::move(done), context);
     }
     void revoke(const QString& client, const QString& session) {
+        const QPointer<TerminalTasks> guard(q);
         const auto snapshot = records;
         for (const auto& row : snapshot) if ((client.isEmpty() || row->client == client)
             && (session.isEmpty() || row->session == session)) {
             const auto current = entry(*row); row->revoked = true;
             if (current && matches(*row, current->session->terminalController()))
                 current->session->terminalController()->release(row->client, "revoked");
-            end(row, "unknown", "revoked"); deliver(row); deliver(row, true);
+            if (!guard) return;
+            end(row, "unknown", "revoked"); deliver(row);
+            if (!guard) return;
+            deliver(row, true);
+            if (!guard) return;
         }
     }
     void stop() {
         if (stopped) return;
+        const QPointer<TerminalTasks> guard(q);
         stopped = true; timer.stop(); revoke({}, {});
+        if (!guard) return;
         for (const auto& row : records) {
             interaction.cancel(row->startKey); interaction.cancel(row->stopKey);
             interaction.cancel(row->stopKey + "/token");
@@ -400,7 +423,9 @@ void TerminalTasks::cancel(const QString& key) { _impl->waiters.remove(key); }
 void TerminalTasks::revoke(const QString& client, const QString& session) { _impl->revoke(client, session); }
 void TerminalTasks::stop() { _impl->stop(); }
 QJsonObject TerminalTasks::capabilities(const QString& client, const QString& session) {
+    const QPointer<TerminalTasks> guard(this);
     _impl->sweep();
+    if (!guard) return {};
     const auto entry = _impl->sessions.find(session);
     if (!entry || !entry->session || !_impl->access.canRead(client, *entry)) return {};
     auto* ctrl = entry->session->terminalController();

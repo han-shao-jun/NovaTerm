@@ -2151,7 +2151,8 @@ void McpTests::httpFileDownloadUsesSharedTransferLifecycle()
     result.temporary = "removed"; result.errorCode = "TRANSFER_CANCELLED";
     delivery->finished(result);
     const auto cancelled = host.call("novaterm_cancel_transfer", query).value("data").toObject();
-    QCOMPARE(cancelled.value("state").toString(), QString("cancelled"));
+    QCOMPARE(cancelled.value("state").toString(), QString("failed"));
+    QCOMPARE(cancelled.value("errorCode").toString(), QString("PERMISSION_DENIED"));
     QVERIFY(!cancelled.value("published").toBool()); QCOMPARE(cancelled.value("transferredBytes").toInt(), 3);
     QCOMPARE(starts, 1); QCOMPARE(SshTransportTestAccess::queued(*f.ssh), 0);
 }

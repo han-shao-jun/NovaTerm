@@ -1,5 +1,6 @@
 /** @file CapabilityAdapter.cpp @brief Session 事实到能力模型的唯一转换实现。 */
 #include "CapabilityAdapter.h"
+#include "CapabilityAdmission.h"
 #include "McpAccess.h"
 #include "McpProtocol.h"
 #include "ObservationService.h"
@@ -148,8 +149,7 @@ Result<Value> invokeRead(const Capabilities::TypedCapabilityPort<Query, Result<V
     Result<Value> result{Error{ErrorCode::SessionNotAvailable}};
     port.invoke(std::move(query), context, [&result](Capabilities::Result<Result<Value>> value) {
         if (const auto* accepted = std::get_if<Result<Value>>(&value)) result = *accepted;
-        else if (std::get<Capabilities::Rejection>(value) == Capabilities::Rejection::DeadlineExceeded)
-            result = Error{ErrorCode::DeadlineExceeded};
+        else result = capabilityError(std::get<Capabilities::Rejection>(value));
     });
     return result;
 }

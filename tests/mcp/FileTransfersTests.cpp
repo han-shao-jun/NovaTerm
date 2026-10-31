@@ -38,10 +38,11 @@ struct Fixture {
     FileResourceAdapter resources{access, directory, nullptr};
     QList<SftpFileUploadRequest> requests;
     QList<FileTransfers::Delivery> deliveries;
+    qint64 now{0};
     FileTransfers transfers{access, directory, resources, "fixture-instance", nullptr,
         [this](TerminalSession&, const SftpFileUploadRequest& request, FileTransfers::Delivery delivery) {
             requests.append(request); deliveries.append(std::move(delivery)); return true;
-        }};
+        }, [this] { return now; }};
     QString client;
     bool ready{false};
     Fixture()
@@ -108,6 +109,44 @@ StartFileUploadRequest uploadRequest(const StartFileDownloadRequest& request)
 class FileTransfersTests : public QObject {
     Q_OBJECT
 private slots:
+    void indexDeadlinePreservesTimeoutThroughWorkerCancellation() {
+        Fixture f; QVERIFY(f.ready); const auto request = f.grant();
+        const auto accepted = f.call(request); QVERIFY(!isError(accepted));
+        f.now = 120000;
+        const auto waiting = value(f.query(transferId(accepted)));
+        QCOMPARE(waiting.value("state").toString(), QString("cancel_requested"));
+        f.finish(false);
+        const auto failed = value(f.query(transferId(accepted)));
+        QCOMPARE(failed.value("state").toString(), QString("failed"));
+        QCOMPARE(failed.value("errorCode").toString(), QString("TRANSFER_TIMEOUT"));
+        QCOMPARE(value(f.call(request)), failed); QCOMPARE(f.requests.size(), 1);
+    }
+    void internalAbortPreservesFailureInsteadOfReportingUserCancellation_data()
+    {
+        QTest::addColumn<QString>("errorCode");
+        QTest::addColumn<QString>("publication");
+        QTest::addColumn<QString>("expectedState");
+        QTest::newRow("timeout") << QString("TRANSFER_TIMEOUT") << QString("not_started") << QString("failed");
+        QTest::newRow("path-changed") << QString("TRANSFER_PATH_CHANGED") << QString("not_started") << QString("failed");
+        QTest::newRow("cancelled") << QString("TRANSFER_CANCELLED") << QString("not_started") << QString("cancelled");
+        QTest::newRow("unknown") << QString("TRANSFER_TIMEOUT") << QString("unknown") << QString("unknown");
+        QTest::newRow("published") << QString("TRANSFER_TIMEOUT") << QString("published") << QString("completed");
+    }
+    void internalAbortPreservesFailureInsteadOfReportingUserCancellation()
+    {
+        QFETCH(QString, errorCode); QFETCH(QString, publication); QFETCH(QString, expectedState);
+        Fixture f; QVERIFY(f.ready); const auto accepted = f.call(f.grant()); QVERIFY(!isError(accepted));
+        f.requests.first().control->cancel();
+        SftpFileUploadResult result;
+        result.requestId = f.requests.first().requestId; result.errorCode = errorCode;
+        result.publication = publication; result.published = publication == "published";
+        result.temporary = "removed"; result.totalBytes = 7;
+        f.deliveries.first().finished(result);
+        const auto actual = value(f.query(transferId(accepted)));
+        QCOMPARE(actual.value("state").toString(), expectedState);
+        QCOMPARE(actual.value("errorCode").toString(), errorCode);
+        QCOMPARE(actual.value("publication").toString(), publication);
+    }
     void directRootPathsAndUnicodeReachOriginalWorker()
     {
         Fixture f; QVERIFY(f.ready); auto request = f.grant();
@@ -281,7 +320,8 @@ private slots:
             return;
         }
         const auto cancelled = value(f.query(transfer));
-        QCOMPARE(cancelled.value("state").toString(), QString("cancelled"));
+        QCOMPARE(cancelled.value("state").toString(), change == 3 ? QString("cancelled") : QString("failed"));
+        QCOMPARE(cancelled.value("errorCode").toString(), change == 3 ? QString("CANCELLED") : QString("PERMISSION_DENIED"));
         QVERIFY(!cancelled.value("published").toBool());
         QCOMPARE(cancelled.value("transferredBytes").toInt(), 7);
     }

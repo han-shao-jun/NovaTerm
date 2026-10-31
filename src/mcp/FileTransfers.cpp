@@ -23,13 +23,14 @@ struct FileTransfers::Record {
     quint64 transferred{0};
     std::optional<quint64> total;
     QString state{"accepted"}, publication{"not_started"}, temporary{"none"}, error;
+    QString abortError;
     qint64 startedAt{0}, finishedAt{0};
     bool active{true}, published{false};
 };
 FileTransfers::FileTransfers(AccessStore& access, SessionDirectory& sessions, FileResourceAdapter& resources,
-    QString instance, QObject* parent, Start start)
+    QString instance, QObject* parent, Start start, Now now)
     : QObject(parent), _access(access), _sessions(sessions), _resources(resources),
-      _instance(std::move(instance)), _start(std::move(start))
+      _instance(std::move(instance)), _start(std::move(start)), _now(std::move(now))
 {
     _clock.start();
     _timer.setInterval(100);
@@ -40,6 +41,7 @@ FileTransfers::FileTransfers(AccessStore& access, SessionDirectory& sessions, Fi
     connect(&_sessions, &SessionDirectory::invalidated, this, [this](const QString&) { check(); });
 }
 FileTransfers::~FileTransfers() { stop(); }
+qint64 FileTransfers::now() const { return _now ? _now() : _clock.elapsed(); }
 Result<FileTransfers::Authority> FileTransfers::authorize(const QString& client, quint64 identity,
     const StartFileUploadRequest& request, SftpFileTransferDirection direction)
 {
@@ -98,7 +100,7 @@ std::optional<Result<QJsonObject>> FileTransfers::replay(const QString& client, 
     const auto normalized = normalize(*fields);
     for (const auto& record : _records) {
         if (record->client != client || record->identity != identity || record->request.operationId != fields->operationId) continue;
-        if (!record->active && _clock.elapsed() - record->finishedAt >= Budget::FileTransferRetention.count()) continue;
+        if (!record->active && now() - record->finishedAt >= Budget::FileTransferRetention.count()) continue;
         if (record->upload.direction != direction || !sameUpload(normalize(record->request), normalized))
             return Result<QJsonObject>{Error{ErrorCode::TargetOperationConflict}};
         return Result<QJsonObject>{project(*record)};
@@ -141,7 +143,7 @@ Result<QJsonObject> FileTransfers::call(const QString& client, quint64 identity,
         record->id = QUuid::createUuid().toString(QUuid::WithoutBraces);
         record->client = client; record->identity = identity; record->connection = connection;
         record->request = *upload; record->binding = authority.binding; record->session = authority.session;
-        record->startedAt = _clock.elapsed();
+        record->startedAt = now();
         record->upload = {++_nextRequest, authority.local.root, authority.local.name,
             authority.remote.root, authority.remote.name, std::make_shared<SftpFileUploadControl>(), direction, upload->overwrite};
         _records.insert(record->id, record);
@@ -158,23 +160,30 @@ Result<QJsonObject> FileTransfers::call(const QString& client, quint64 identity,
                 if (!guard || !record->active) { record->upload.control->approve(false); return; }
                 const bool allowed = valid(record);
                 record->upload.control->approve(allowed);
-                if (!allowed) cancel(record);
+                if (!allowed) cancel(record, "PERMISSION_DENIED");
             },
             [this, guard, record](const SftpFileUploadResult& result) {
                 if (!guard || !record->active || result.requestId != record->upload.requestId) return;
-                record->active = false; record->finishedAt = _clock.elapsed();
+                record->active = false; record->finishedAt = now();
                 record->transferred = qMax(record->transferred, result.transferredBytes);
                 if (result.totalBytes) record->total = result.totalBytes;
                 record->published = result.published;
                 record->publication = result.publication; record->temporary = result.temporary;
                 record->error = result.errorCode;
+                // The worker also uses its cancellation flag to unwind failures.
+                // Preserve the cause; that flag alone does not mean user cancellation.
+                if (!record->abortError.isEmpty() && (record->error.isEmpty()
+                    || record->error == "TRANSFER_CANCELLED" || record->error == "CANCELLED"))
+                    record->error = record->abortError;
+                const bool cancelled = record->error == "TRANSFER_CANCELLED" || record->error == "CANCELLED"
+                    || (record->error.isEmpty() && record->upload.control->state.load() == SftpFileUploadControl::State::Cancelled);
                 record->state = result.published ? "completed" : result.publication == "unknown" ? "unknown"
-                    : record->upload.control->state.load() == SftpFileUploadControl::State::Cancelled ? "cancelled" : "failed";
+                    : cancelled ? "cancelled" : "failed";
             }};
         // Recheck current file authority immediately before the SFTP queue handoff.
         if (!valid(record) || !record->session || !_start || !_start(*record->session, record->upload, std::move(delivery))) {
             if (record->active) {
-                record->active = false; record->finishedAt = _clock.elapsed();
+                record->active = false; record->finishedAt = now();
                 record->state = "failed"; record->error = "FILE_TRANSFER_BUSY";
                 record->upload.control->cancel();
             }
@@ -194,9 +203,10 @@ bool FileTransfers::busy(const QString& session) const
     for (const auto& record : _records) if (record->active && record->request.reference.session.str() == session) return true;
     return false;
 }
-void FileTransfers::cancel(const std::shared_ptr<Record>& record)
+void FileTransfers::cancel(const std::shared_ptr<Record>& record, const QString& failure)
 {
     if (!record->active) return;
+    if (record->state != "cancel_requested") record->abortError = failure;
     record->upload.control->cancel();
     record->state = "cancel_requested";
 }
@@ -204,12 +214,13 @@ void FileTransfers::check()
 {
     if (_checking) return;
     const QScopedValueRollback<bool> checking(_checking, true);
-    const auto now = _clock.elapsed();
+    const auto currentTime = now();
     const auto records = _records.values();
     for (const auto& record : records) {
         if (record->active) {
-            if (now - record->startedAt >= Budget::FileUploadTimeout.count() || !valid(record)) cancel(record);
-        } else if (now - record->finishedAt >= Budget::FileTransferRetention.count()) _records.remove(record->id);
+            if (currentTime - record->startedAt >= Budget::FileUploadTimeout.count()) cancel(record, "TRANSFER_TIMEOUT");
+            else if (!valid(record)) cancel(record, "PERMISSION_DENIED");
+        } else if (currentTime - record->finishedAt >= Budget::FileTransferRetention.count()) _records.remove(record->id);
     }
     if (_records.isEmpty()) _timer.stop();
 }

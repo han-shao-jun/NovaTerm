@@ -49,7 +49,13 @@ UploadConfirmations::Decision UploadConfirmations::check(const Intent& intent,
     // observed. Only hashes are persisted; pending tokens stay in this process.
     if (!secureDirectory(QFileInfo(_file).absolutePath())) return rejected("UPLOAD_MEMORY_UNAVAILABLE");
     QLockFile lock(_file + ".lock");
-    if (!lock.tryLock(0)) return rejected("UPLOAD_MEMORY_BUSY");
+    if (!lock.tryLock(0)) {
+        const QFileInfo lockPath(_file + ".lock");
+        const bool obstructed = lockPath.isSymLink() || (lockPath.exists() && !lockPath.isFile());
+        if (lock.error() == QLockFile::LockFailedError && !obstructed)
+            return {false, failure("UPLOAD_MEMORY_BUSY", "Upload confirmation memory is locked; retry the same request.", true, 250)};
+        return rejected("UPLOAD_MEMORY_UNAVAILABLE");
+    }
     QJsonArray remembered;
     const auto stored = readJson(_file, 65536);
     QString generation;
@@ -78,7 +84,12 @@ UploadConfirmations::Decision UploadConfirmations::check(const Intent& intent,
     if (found == _pending.end() && !confirmed && remembered.contains(memory)) return {true, {}};
     if (found != _pending.end() && !confirmed && !found->answer && remembered.contains(memory)) return {true, {}};
     if (found == _pending.end()) {
-        if (_pending.size() >= 64) return rejected("BUSY");
+        if (_pending.size() >= 64) {
+            qint64 earliest = now + Lifetime;
+            for (const auto& pending : _pending) earliest = qMin(earliest, pending.expires);
+            return {false, failure("BUSY", "Upload confirmation budget is full; retry after a pending confirmation expires.",
+                true, int(qMax(qint64{1}, earliest - now)))};
+        }
         found = _pending.insert(key, Pending{intent, sig, memory, QString::fromLatin1(randomBytes().toHex()), generation, now + Lifetime, {}});
     }
     if (confirmed) {

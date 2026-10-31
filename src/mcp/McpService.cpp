@@ -382,7 +382,8 @@ public:
         if (clearCall) pending->deadline = clock.elapsed() + 5000;
         if (taskCall) pending->deadline = clock.elapsed() + 5000;
         if (waitCall) pending->deadline = clock.elapsed() + waitCall->request.wait.count() + Budget::WireDeadlineMargin.count();
-        if (historyCall && std::holds_alternative<SearchHistoryRequest>(historyCall->request)) pending->deadline = clock.elapsed() + 12000;
+        if (historyCall && std::holds_alternative<SearchHistoryRequest>(historyCall->request))
+            pending->deadline = clock.elapsed() + Budget::HistorySearchTimeout.count();
         const auto waitMilliseconds = [](const ToolRequest& value, int fallback) {
             return std::visit([fallback](const auto& request) -> int {
                 using Type = std::decay_t<decltype(request)>;
@@ -578,9 +579,7 @@ public:
         auto result = capabilityDispatcher.admit(capability, *pending->invocation);
         if (const auto* reason = std::get_if<Capabilities::Rejection>(&result)) {
             complete(requestKey(pending->connection, pending->id),
-                *reason == Capabilities::Rejection::DeadlineExceeded ? error("DEADLINE_EXCEEDED")
-                : *reason == Capabilities::Rejection::Busy ? error("BUSY", true, 250)
-                : error("SESSION_NOT_AVAILABLE"));
+                ToolCodec::encodeFailure(capabilityError(*reason)));
             return false;
         }
         pending->lease = std::move(std::get<Capabilities::InvocationLease>(result));

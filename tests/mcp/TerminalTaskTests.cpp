@@ -13,6 +13,7 @@
 #include <QElapsedTimer>
 #include <QJsonDocument>
 #include <QDir>
+#include <vector>
 
 using namespace NovaTerm::Mcp;
 namespace C = NovaTerm::Capabilities;
@@ -63,13 +64,13 @@ struct Fixture {
         return auth.context(auth.trust(C::PrincipalId{client}, C::EntryKind::Mcp), binding,
             access.version(client), C::OperationId{request}, C::Clock::now() + std::chrono::seconds(10));
     }
-    QJsonObject observe() {
+    QJsonObject observe(TerminalInteraction* owner = nullptr) {
         QJsonObject result; const auto e = entry();
         ReadContextRequest request; request.session = NovaTerm::Mcp::SessionId{e.id}; request.epoch = Epoch{e.epoch};
         QElapsedTimer clock; clock.start();
         do {
             result = {};
-            interaction.call(client, newId(), ToolRequest{request}, [&result](auto r) { result = r; }, {}, context(newId()));
+            (owner ? *owner : interaction).call(client, newId(), ToolRequest{request}, [&result](auto r) { result = r; }, {}, context(newId()));
             while (result.isEmpty() && clock.elapsed() < 3000) QTest::qWait(1);
             if (result.value("error").toObject().value("code") != "BUSY") break;
             QTest::qWait(1);
@@ -106,6 +107,110 @@ struct Fixture {
 class TerminalTaskTests final : public QObject {
     Q_OBJECT
 private slots:
+    void capabilityRejectionKeepsItsCause_data() {
+        QTest::addColumn<bool>("input"); QTest::addColumn<bool>("cancelled");
+        for (bool input : {false, true}) for (bool cancelled : {false, true})
+            QTest::newRow(qPrintable(QString("%1-%2").arg(input ? "input" : "read", cancelled ? "cancelled" : "deadline"))) << input << cancelled;
+    }
+    void capabilityRejectionKeepsItsCause() {
+        QFETCH(bool, input); QFETCH(bool, cancelled);
+        Fixture f; const auto start = f.start();
+        ReadContextRequest read; read.session = start.session; read.epoch = start.epoch;
+        ToolRequest request{read};
+        if (input) request = InteractTerminalRequest{start.session, start.epoch, start.inputToken,
+            start.operation, start.actions, std::chrono::milliseconds(0), {}, {}, {}, false};
+        const auto key = newId(); auto context = f.context(key);
+        if (cancelled) f.dispatcher.stop(); else context.deadline = C::Clock::now() - std::chrono::milliseconds(1);
+        QJsonObject response;
+        f.interaction.call(f.client, key, request, [&](auto value) { response = std::move(value); }, {}, context);
+        QTRY_VERIFY(!response.isEmpty());
+        QCOMPARE(response.value("error").toObject().value("code").toString(),
+            cancelled ? QString("CANCELLED") : QString("DEADLINE_EXCEEDED"));
+        QVERIFY(f.transport.written.isEmpty());
+    }
+    void observationOwnerMayBeDestroyedByCompletion_data() {
+        QTest::addColumn<bool>("replace");
+        QTest::newRow("deadline") << false; QTest::newRow("replacement") << true;
+    }
+    void busyCapabilityAdmissionRemainsRetryable() {
+        Fixture f; static_cast<void>(f.observe());
+        std::vector<C::InvocationLease> held;
+        for (size_t i = 0; i < C::CapabilityDispatcher::MaxOperations; ++i) {
+            auto admitted = f.dispatcher.admit(C::CapabilityId{"terminal.context.read"}, f.context(newId()));
+            QVERIFY(std::holds_alternative<C::InvocationLease>(admitted));
+            held.push_back(std::move(std::get<C::InvocationLease>(admitted)));
+        }
+        const auto e = f.entry(); ReadContextRequest read;
+        read.session = NovaTerm::Mcp::SessionId{e.id}; read.epoch = Epoch{e.epoch};
+        QJsonObject response;
+        f.interaction.call(f.client, newId(), ToolRequest{read}, [&](auto value) { response = std::move(value); }, {}, f.context(newId()));
+        const auto error = response.value("error").toObject();
+        QCOMPARE(error.value("code").toString(), QString("BUSY"));
+        QVERIFY(error.value("retryable").toBool()); QVERIFY(error.value("retryAfterMs").toInt() > 0);
+    }
+    void observationOwnerMayBeDestroyedByCompletion() {
+        QFETCH(bool, replace); Fixture f;
+        auto owner = std::make_unique<TerminalInteraction>(&f.access, &f.directory, &f.observations, f.dispatcher, nullptr);
+        const auto observed = f.observe(owner.get()); const auto entry = f.entry();
+        ReadContextRequest read; read.session = NovaTerm::Mcp::SessionId{entry.id}; read.epoch = Epoch{entry.epoch};
+        read.sinceToken = observed.value("nextToken").toString(); read.wait = std::chrono::milliseconds(replace ? 1000 : 20);
+        int delivered = 0; bool succeeded = false;
+        owner->call(f.client, newId(), ToolRequest{read}, [&](auto result) {
+            ++delivered; succeeded = result.value("ok").toBool(); owner.reset();
+        }, {}, f.context(newId()));
+        QVERIFY(owner);
+        if (replace) owner->call(f.client, newId(), ToolRequest{read}, [](auto) {}, {}, f.context(newId()));
+        QTRY_VERIFY(!owner); QCOMPARE(delivered, 1); QVERIFY(succeeded);
+    }
+    void observationOwnerMayBeDestroyedByRevocation() {
+        Fixture f;
+        auto owner = std::make_unique<TerminalInteraction>(&f.access, &f.directory, &f.observations, f.dispatcher, nullptr);
+        const auto observed = f.observe(owner.get()); const auto entry = f.entry();
+        InteractTerminalRequest input{NovaTerm::Mcp::SessionId{entry.id}, Epoch{entry.epoch},
+            observed.value("inputToken").toString(), OperationId{newId()}, {TextAction{"held"}},
+            std::chrono::milliseconds(0), {}, {}, {}, false};
+        QJsonObject response;
+        owner->call(f.client, newId(), ToolRequest{input}, [&](auto value) { response = std::move(value); }, {}, f.context(newId()));
+        QTRY_VERIFY(response.value("ok").toBool());
+        owner->onChanged = [&] { owner.reset(); };
+        owner->revoke(f.client, entry.id);
+        QVERIFY(!owner);
+    }
+    void taskOwnerMayBeDestroyedByRevocation() {
+        Fixture f;
+        auto owner = std::make_unique<TerminalTasks>(f.access, f.directory, f.interaction, "fixture", QByteArray(32, 'k'));
+        const auto request = f.start(); const auto key = newId(); QJsonObject response;
+        owner->call(f.client, key, TerminalTaskRequest{request}, [&](auto value) { response = std::move(value); }, f.context(key));
+        QTRY_VERIFY(response.value("ok").toBool());
+        f.interaction.onChanged = [&] { owner.reset(); };
+        owner->revoke(f.client, f.entry().id);
+        f.interaction.onChanged = {};
+        QVERIFY(!owner);
+    }
+    void taskOwnerMayBeDestroyedWhileExpiring_data() {
+        QTest::addColumn<bool>("capabilities");
+        QTest::newRow("query") << false; QTest::newRow("capabilities") << true;
+    }
+    void taskOwnerMayBeDestroyedWhileExpiring() {
+        QFETCH(bool, capabilities); Fixture f;
+        auto owner = std::make_unique<TerminalTasks>(f.access, f.directory, f.interaction, "fixture", QByteArray(32, 'k'));
+        auto request = f.start(); request.timeout = std::chrono::milliseconds(50);
+        const auto key = newId(); QJsonObject response;
+        owner->call(f.client, key, TerminalTaskRequest{request}, [&](auto value) { response = std::move(value); }, f.context(key));
+        QElapsedTimer wait; wait.start();
+        while (response.isEmpty() && wait.elapsed() < 3000) QTest::qWait(1);
+        QVERIFY(response.value("ok").toBool());
+        QCOMPARE(f.session.terminalController()->owner(), f.client);
+        f.interaction.onChanged = [&] { owner.reset(); };
+        QTest::qWait(60);
+        if (owner) {
+            if (capabilities) static_cast<void>(owner->capabilities(f.client, f.entry().id));
+            else owner->call(f.client, newId(), TerminalTaskRequest{f.query(response.value("data").toObject().value("taskId").toString())},
+                [](auto) {}, f.context(newId()));
+        }
+        f.interaction.onChanged = {};
+        QVERIFY(!owner); QVERIFY(f.session.terminalController()->owner().isEmpty());
+    }
     void reentrantInputCannotTakeReservedIdentity() {
         Fixture f; const auto start = f.start("first");
         InteractTerminalRequest input{start.session, start.epoch, start.inputToken,

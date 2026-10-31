@@ -1,4 +1,5 @@
 #include "TerminalInteraction.h"
+#include "CapabilityAdmission.h"
 #include "capabilities/terminal/InputCapabilities.h"
 #include "capabilities/terminal/ObservationCapabilities.h"
 #include "capabilities/terminal/SearchCapabilities.h"
@@ -308,7 +309,7 @@ public:
                     [&response](auto value) {
                         if (const auto* result = std::get_if<Result<std::monostate>>(&value)) {
                             if (const auto* error = errorIfAny(*result)) response = ToolCodec::encodeFailure(*error);
-                        } else response = ToolCodec::encodeFailure(Error{ErrorCode::SessionNotAvailable});
+                        } else response = ToolCodec::encodeFailure(capabilityError(std::get<Capabilities::Rejection>(value)));
                     });
                 done(std::move(response)); return;
             }
@@ -318,6 +319,7 @@ public:
             ports.input.invoke({input, inputClaims(input.inputToken), replayPolicy == InputReplayPolicy::Allow,
                 std::move(submitted)}, inputContext, [&prepared](auto value) {
                 if (const auto* result = std::get_if<Result<InputAdmission>>(&value)) prepared = *result;
+                else prepared = capabilityError(std::get<Capabilities::Rejection>(value));
             });
             if (!inputOwner) return;
             if (const auto* error = errorIfAny(prepared)) { done(ToolCodec::encodeFailure(*error)); return; }
@@ -332,13 +334,14 @@ public:
         port.invoke(job, waitContext, [this, guard, done = std::move(done)](auto result) {
             if (!guard) return;
             const auto* completed = std::get_if<ObservationCompletion>(&result);
-            if (!completed) { done(ToolCodec::encodeFailure(Error{ErrorCode::SessionNotAvailable})); return; }
+            if (!completed) { done(ToolCodec::encodeFailure(capabilityError(std::get<Capabilities::Rejection>(result)))); return; }
             if (completed->error) { done(ToolCodec::encodeFailure(*completed->error)); return; }
             const auto current = sessions->find(completed->wait.session.session.str());
             const auto base = current && current->session ? baseSnapshot(*current) : nullptr;
             if (!current || !base) done(failure("SESSION_NOT_AVAILABLE", "The observation connection changed."));
             else done(project(completed->wait, *current, *base, wakeName(completed->wake)));
         });
+        if (!guard) return;
         ctrl->touch(client);
         updatePolling(); scheduleFlush();
     }
@@ -434,6 +437,7 @@ public:
     void deliver(const ObservationCompletion& completed) { observationPorts.complete(completed); }
     void flush() {
         if (flushing) return;
+        const QPointer<TerminalInteraction> guard(q);
         flushing = true;
         for (const auto& job : state.waiters()) {
             const auto entry = sessions->find(job.session.session.str());
@@ -462,6 +466,7 @@ public:
                 if (!completed->error && entry && entry->session)
                     entry->session->terminalController()->touch(job.client.str());
                 deliver(*completed);
+                if (!guard) return;
             }
         }
         flushing = false;
@@ -741,7 +746,7 @@ public:
                 done(failure("CAPTURE_NOT_AVAILABLE", "Capture is not available.")); return;
             }
             const auto* domain = std::get_if<Result<Capabilities::Terminal::ContextSearchResult>>(&value);
-            if (!domain) { done(ToolCodec::encodeFailure(Error{ErrorCode::SessionNotAvailable})); return; }
+            if (!domain) { done(ToolCodec::encodeFailure(capabilityError(std::get<Capabilities::Rejection>(value)))); return; }
             if (const auto* error = errorIfAny(*domain)) { done(ToolCodec::encodeFailure(*error)); return; }
             const auto& result = std::get<Capabilities::Terminal::ContextSearchResult>(*domain);
             QJsonArray matches;
@@ -756,18 +761,23 @@ public:
         updatePolling();
     }
     void revoke(const QString& client, const QString& session) {
+        const QPointer<TerminalInteraction> guard(q);
         // Remove application state before releasing Session control or invoking a callback.
         const auto revoked = state.revoke(ClientId{client}, SessionId{session});
         for (const auto& entry : sessions->entries()) if ((session.isEmpty() || session == entry.id) && entry.session) {
             auto* ctrl = entry.session->terminalController();
             if (client.isEmpty() || ctrl->owner() == client) ctrl->release(client, "revoked");
+            if (!guard) return;
         }
         if (client.isEmpty() && session.isEmpty()) observation->captures().clear();
         else if (session.isEmpty()) observation->captures().removeClient(client);
         else if (client.isEmpty()) observation->captures().removeSession(session);
         else observation->captures().removeClientSession(client, session);
         if (!session.isEmpty()) observation->removeSession(session);
-        for (const auto& completed : revoked) deliver(completed);
+        for (const auto& completed : revoked) {
+            deliver(completed);
+            if (!guard) return;
+        }
         updatePolling();
     }
 };

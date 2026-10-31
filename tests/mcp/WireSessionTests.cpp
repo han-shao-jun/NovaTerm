@@ -39,6 +39,47 @@ class WireSessionTests final : public QObject
 {
     Q_OBJECT
 private slots:
+    void historySearchKeepsBackendBudgetAndStillTimesOut_data() {
+        QTest::addColumn<bool>("modern"); QTest::addColumn<bool>("reply");
+        QTest::newRow("2025-reply") << false << true;
+        QTest::newRow("2026-reply") << true << true;
+        QTest::newRow("2025-timeout") << false << false;
+        QTest::newRow("2026-timeout") << true << false;
+    }
+    void historySearchKeepsBackendBudgetAndStillTimesOut() {
+        QFETCH(bool, modern); QFETCH(bool, reply);
+        qint64 elapsed = 0; WireSession wire({}, nullptr, [&] { return elapsed; });
+        if (modern) wire.setBackendAvailable(true); else ready(wire);
+        QSignalSpy backend(&wire, &WireSession::backendEvent), packets(&wire, &WireSession::packet);
+        QJsonObject params{{"name", "novaterm_search_history"}, {"arguments", QJsonObject{
+            {"captureId", "11111111-1111-4111-8111-111111111111"}, {"query", "needle"}}}};
+        if (modern) params.insert("_meta", QJsonObject{{"io.modelcontextprotocol/protocolVersion", "2026-07-28"},
+            {"io.modelcontextprotocol/clientCapabilities", QJsonObject{}}});
+        wire.receiveMessage({{"jsonrpc", "2.0"}, {"id", 2}, {"method", "tools/call"}, {"params", params}}, "search");
+        QCOMPARE(backend.size(), 1);
+        elapsed = 2001; QTest::qWait(150);
+        QVERIFY(wire.hasPendingCalls()); QVERIFY(packets.isEmpty()); QCOMPARE(backend.size(), 1);
+        if (reply) {
+            elapsed = 11999;
+            wire.receiveBackend({{"op", "result"}, {"id", backendId(backend, 0)},
+                {"payload", success({{"complete", false}, {"nextCursor", "continue"}})}});
+            QCOMPARE(packets.size(), 1);
+            const auto result = QJsonDocument::fromJson(packets.first().at(1).toByteArray()).object()
+                .value("result").toObject().value("structuredContent").toObject();
+            QVERIFY(result.value("ok").toBool());
+            QCOMPARE(result.value("data").toObject().value("nextCursor").toString(), QString("continue"));
+            QCOMPARE(backend.size(), 1);
+        } else {
+            elapsed = 17001;
+            QTRY_VERIFY_WITH_TIMEOUT(!wire.hasPendingCalls(), 1000);
+            QCOMPARE(backendOp(backend, backend.size() - 1), QString("cancel"));
+            QCOMPARE(packets.size(), 1);
+            const auto result = QJsonDocument::fromJson(packets.first().at(1).toByteArray()).object()
+                .value("result").toObject().value("structuredContent").toObject();
+            QCOMPARE(result.value("error").toObject().value("code").toString(), QString("DEADLINE_EXCEEDED"));
+        }
+        QVERIFY(!wire.hasPendingCalls());
+    }
     void retiredSavedTargetsNeverReachBackend_data() {
         QTest::addColumn<QString>("name");
         QTest::addColumn<bool>("modern");

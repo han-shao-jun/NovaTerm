@@ -273,6 +273,8 @@ public:
             return;
         }
         qint64 budget = 2000;
+        if (name == "novaterm_search_history")
+            budget = Budget::HistorySearchTimeout.count() + WireDeadlineMargin.count();
         if (name == "novaterm_read_context"
             && (arguments.value("responseMode") == "compact" || arguments.contains("waitMs")))
             budget = arguments.value("waitMs").toInt() + WireDeadlineMargin.count();

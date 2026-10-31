@@ -1,4 +1,6 @@
 #include "HistoryCapabilityAdapter.h"
+#include "CapabilityAdmission.h"
+#include "protocol/ToolCodec.h"
 #include "McpAccess.h"
 #include "McpProtocol.h"
 #include "recording/HistoryService.h"
@@ -89,9 +91,7 @@ std::optional<Capabilities::AuthorizationSnapshot> HistoryCapabilityAdapter::sna
 }
 namespace {
 QJsonObject rejected(Capabilities::Rejection rejection) {
-    if (rejection == Capabilities::Rejection::Busy) return failure("BUSY", "BUSY", true, 250);
-    if (rejection == Capabilities::Rejection::DeadlineExceeded) return failure("DEADLINE_EXCEEDED", "DEADLINE_EXCEEDED");
-    return failure("SESSION_NOT_AVAILABLE", "SESSION_NOT_AVAILABLE");
+    return ToolCodec::encodeFailure(capabilityError(rejection));
 }
 }
 void HistoryCapabilityAdapter::call(const HistoryToolRequest& request, const Capabilities::InvocationContext& invocation,
