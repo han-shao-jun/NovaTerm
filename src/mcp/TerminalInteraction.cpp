@@ -101,7 +101,10 @@ public:
             scheduleFlush();
         });
         QObject::connect(session, &TerminalSession::terminalControlChanged, q, [this] {
-            if (q->onChanged) q->onChanged();
+            const QPointer<TerminalInteraction> owner(q);
+            const auto changed = q->onChanged;
+            if (changed) changed();
+            if (!owner) return;
             scheduleFlush();
         });
         QObject::connect(session->core(), &TerminalCore::cacheInvalidated, q, [this] {
@@ -295,7 +298,8 @@ public:
         } else {
             const auto facts = controlFacts(client, *entry, true);
             if (facts.unavailable) { done(ToolCodec::encodeFailure(Error{*facts.unavailable})); return; }
-            const Capabilities::Terminal::InputCapabilities ports{dispatcher, state, *this};
+            const Capabilities::Terminal::InputCapabilities ports{dispatcher, state, *this,
+                [owner = QPointer<TerminalInteraction>(q)] { return !owner.isNull(); }};
             auto inputContext = context;
             inputContext.operation = Capabilities::OperationId{context.operation.value() + "/input"};
             if (const auto* elevation = std::get_if<RequestElevationRequest>(&typed)) {

@@ -89,6 +89,14 @@ struct Fixture {
         while (result.isEmpty() && clock.elapsed() < 3000) QTest::qWait(1);
         return result;
     }
+    QJsonObject interact(const InteractTerminalRequest& request) {
+        QJsonObject result; const auto key = newId();
+        interaction.call(client, key, ToolRequest{request},
+            [&result](auto value) { result = std::move(value); }, {}, context(key));
+        QElapsedTimer clock; clock.start();
+        while (result.isEmpty() && clock.elapsed() < 3000) QTest::qWait(1);
+        return result;
+    }
     QueryTerminalTaskRequest query(const QString& task) {
         const auto e = entry();
         return {NovaTerm::Mcp::SessionId{e.id}, Epoch{e.epoch}, TaskId{task}, {}, {}};
@@ -98,6 +106,97 @@ struct Fixture {
 class TerminalTaskTests final : public QObject {
     Q_OBJECT
 private slots:
+    void reentrantInputCannotTakeReservedIdentity() {
+        Fixture f; const auto start = f.start("first");
+        InteractTerminalRequest input{start.session, start.epoch, start.inputToken,
+            start.operation, start.actions, std::chrono::milliseconds(0), {}, {}, {}, false};
+        QJsonObject nested; bool invoked = false;
+        f.interaction.onChanged = [&] {
+            if (invoked || f.session.terminalController()->owner().isEmpty()) return;
+            invoked = true;
+            auto reentrant = input; reentrant.inputToken = f.observe().value("inputToken").toString();
+            nested = f.interact(reentrant);
+        };
+        const auto result = f.interact(input);
+        f.interaction.onChanged = {};
+        QVERIFY(invoked); QVERIFY(result.value("ok").toBool());
+        QCOMPARE(nested.value("error").toObject().value("code").toString(), QString("INPUT_BUSY"));
+        QTRY_COMPARE(f.transport.written, QByteArray("first\r"));
+    }
+    void inputOwnerMayBeDestroyedDuringAcquisition() {
+        Fixture f;
+        auto owner = std::make_unique<TerminalInteraction>(&f.access, &f.directory,
+            &f.observations, f.dispatcher, nullptr);
+        const auto entry = f.entry();
+        ReadContextRequest read; read.session = NovaTerm::Mcp::SessionId{entry.id}; read.epoch = Epoch{entry.epoch};
+        QJsonObject observed;
+        QElapsedTimer timer; timer.start();
+        do {
+            owner->call(f.client, newId(), ToolRequest{read}, [&](auto r) { observed = std::move(r); }, {}, f.context(newId()));
+            if (observed.value("ok").toBool()) break;
+            QTest::qWait(1);
+        } while (timer.elapsed() < 3000);
+        QVERIFY(observed.value("ok").toBool());
+        bool destroyed = false;
+        owner->onChanged = [&] { destroyed = true; owner.reset(); };
+        InteractTerminalRequest input{read.session, read.epoch,
+            observed.value("data").toObject().value("inputToken").toString(), OperationId{newId()},
+            {TextAction{"must-not-send"}}, std::chrono::milliseconds(0), {}, {}, {}, false};
+        owner->call(f.client, newId(), ToolRequest{input}, [](auto) {}, {}, f.context(newId()));
+        QVERIFY(destroyed); QVERIFY(!owner);
+        QTest::qWait(20); QVERIFY(f.transport.written.isEmpty());
+    }
+    void olderInputIdCannotBeResubmitted_data() {
+        QTest::addColumn<bool>("firstAsTask");
+        QTest::addColumn<bool>("asTask");
+        QTest::addColumn<bool>("changed");
+        QTest::addColumn<bool>("released");
+        for (bool asTask : {false, true})
+            for (bool changed : {false, true})
+                for (bool released : {false, true}) {
+                    const auto name = QString("%1-%2-%3").arg(asTask ? "task" : "input",
+                        changed ? "changed" : "same", released ? "release" : "same-control");
+                    QTest::newRow(qPrintable(name)) << false << asTask << changed << released;
+                }
+        for (bool changed : {false, true})
+            for (bool released : {false, true}) {
+                const auto name = QString("task-to-input-%1-%2").arg(changed ? "changed" : "same",
+                    released ? "release" : "same-control");
+                QTest::newRow(qPrintable(name)) << true << false << changed << released;
+            }
+    }
+    void olderInputIdCannotBeResubmitted() {
+        QFETCH(bool, firstAsTask); QFETCH(bool, asTask); QFETCH(bool, changed); QFETCH(bool, released);
+        Fixture f; const auto start = f.start("first");
+        InteractTerminalRequest first{start.session, start.epoch, start.inputToken,
+            start.operation, start.actions, std::chrono::milliseconds(0), {}, {}, {}, false};
+        QVERIFY((firstAsTask ? f.call(start) : f.interact(first)).value("ok").toBool());
+        QTRY_COMPARE(f.transport.written, QByteArray("first\r"));
+        auto second = first; second.operation = OperationId{newId()};
+        second.inputToken = f.observe().value("inputToken").toString();
+        second.actions = {TextAction{"second"}, LineEndingAction{}};
+        QVERIFY(f.interact(second).value("ok").toBool());
+        QTRY_COMPARE(f.transport.written, QByteArray("first\rsecond\r"));
+        QVERIFY(f.interact(second).value("ok").toBool());
+        if (released) {
+            auto release = second; release.operation = OperationId{newId()};
+            release.inputToken = f.observe().value("inputToken").toString();
+            release.actions = {ReleaseAction{}};
+            QVERIFY(f.interact(release).value("ok").toBool());
+        }
+        auto old = first; old.inputToken = f.observe().value("inputToken").toString();
+        if (changed) old.actions = {TextAction{"UNEXPECTED"}, LineEndingAction{}};
+        const auto result = asTask ? f.call(StartTerminalTaskRequest{old.session, old.epoch,
+            old.inputToken, old.operation, old.actions, std::chrono::milliseconds(60000)}) : f.interact(old);
+        QVERIFY2(!result.value("ok").toBool(), QJsonDocument(result).toJson(QJsonDocument::Compact).constData());
+        QCOMPARE(result.value("error").toObject().value("code").toString(), QString("INPUT_SEQUENCE_CONFLICT"));
+        QTest::qWait(20); QCOMPARE(f.transport.written, QByteArray("first\rsecond\r"));
+        auto next = second; next.operation = OperationId{newId()};
+        next.inputToken = f.observe().value("inputToken").toString();
+        next.actions = {TextAction{"third"}, LineEndingAction{}};
+        QVERIFY(f.interact(next).value("ok").toBool());
+        QTRY_COMPARE(f.transport.written, QByteArray("first\rsecond\rthird\r"));
+    }
     void exactRetryNeverInputsTwiceAndOperationLookupSurvivesRpcCancel() {
         Fixture f; auto request = f.start(); QVERIFY(!request.inputToken.isEmpty());
         const auto first = f.call(request); QVERIFY2(first.value("ok").toBool(), qPrintable(QString::fromUtf8(QJsonDocument(first).toJson())));

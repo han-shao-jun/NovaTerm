@@ -86,9 +86,12 @@ private slots:
             M::TerminalControlFacts current;
             int submissions{0};
             std::function<void()> acquired;
+            std::function<void()> submitted;
             M::TerminalControlFacts facts(const M::ClientId&, const M::SessionReference&) override { return current; }
             bool acquire(const M::ClientId&, const M::SessionReference&) override { if (acquired) acquired(); return true; }
-            bool submit(const M::ClientId&, const M::InteractTerminalRequest&) override { ++submissions; return true; }
+            bool submit(const M::ClientId&, const M::InteractTerminalRequest&) override {
+                ++submissions; if (submitted) submitted(); return true;
+            }
             void release(const M::ClientId&, const M::InteractTerminalRequest&) override {}
             bool canElevate(const M::ClientId&, const M::SessionReference&) override { return false; }
         } source;
@@ -131,6 +134,36 @@ private slots:
         second.invoke(ports.input, call, binding, 1, C::OperationId{"revoke-on-acquire"}, C::Clock::now() + std::chrono::seconds(5),
             [](auto result) { QVERIFY(std::holds_alternative<C::Rejection>(result)); });
         QCOMPARE(source.submissions, 1);
+        // Failed acquisition authorization must roll back the reserved ID.
+        allowed = true; source.acquired = {};
+        second.invoke(ports.input, call, binding, 1, C::OperationId{"retry-unaccepted"},
+            C::Clock::now() + std::chrono::seconds(5), [](auto result) {
+                QCOMPARE(std::get<M::InputAdmission>(std::get<M::Result<M::InputAdmission>>(result)), M::InputAdmission::Submit);
+            });
+        QCOMPARE(source.submissions, 2);
+        call.claims = state.inputClaims(M::ClientId{"client"}, source.current);
+        call.request.operation = M::OperationId{"accepted-undelivered"};
+        const auto undelivered = call;
+        source.submitted = [&allowed] { allowed = false; };
+        second.invoke(ports.input, call, binding, 1, C::OperationId{"revoke-on-submit"},
+            C::Clock::now() + std::chrono::seconds(5), [](auto result) {
+                QVERIFY(std::holds_alternative<C::Rejection>(result));
+            });
+        QCOMPARE(source.submissions, 3);
+        allowed = true; source.submitted = {};
+        call.claims = state.inputClaims(M::ClientId{"client"}, source.current);
+        call.request.operation = M::OperationId{"later-input"};
+        second.invoke(ports.input, call, binding, 1, C::OperationId{"later"},
+            C::Clock::now() + std::chrono::seconds(5), [](auto result) {
+                QCOMPARE(std::get<M::InputAdmission>(std::get<M::Result<M::InputAdmission>>(result)), M::InputAdmission::Submit);
+            });
+        auto retryUndelivered = undelivered;
+        retryUndelivered.claims = state.inputClaims(M::ClientId{"client"}, source.current);
+        second.invoke(ports.input, retryUndelivered, binding, 1, C::OperationId{"retry-undelivered"},
+            C::Clock::now() + std::chrono::seconds(5), [](auto result) {
+                QCOMPARE(M::errorIfAny(std::get<M::Result<M::InputAdmission>>(result))->code, M::ErrorCode::InputSequenceConflict);
+            });
+        QCOMPARE(source.submissions, 4);
     }
     void readOnlyEntryParityAndIndependentSwitches()
     {

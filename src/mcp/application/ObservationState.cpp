@@ -8,6 +8,7 @@
 
 #include <algorithm>
 #include <type_traits>
+#include <limits>
 
 namespace NovaTerm::Mcp {
 namespace {
@@ -69,7 +70,57 @@ std::pair<qint64, WaitCondition> waitPolicy(const ObservationWait& wait)
 }
 } // namespace
 
-ObservationState::ObservationState(Clock clock) : _clock(std::move(clock)) {}
+struct ObservationState::InputHistory
+{
+    struct Key {
+        Scope scope;
+        Epoch epoch;
+        ClientAccessVersion grant;
+        quint64 cache{0};
+        OperationId operation;
+        friend bool operator==(const Key& a, const Key& b) {
+            return a.scope == b.scope && a.epoch == b.epoch && a.grant == b.grant
+                && a.cache == b.cache && a.operation == b.operation;
+        }
+        friend size_t qHash(const Key& value, size_t seed = 0) noexcept {
+            return qHashMulti(seed, value.scope, value.epoch, value.grant.value(), value.cache, value.operation);
+        }
+    };
+    struct Entry { quint64 serial{0}; qint64 expires{0}; bool accepted{false}; };
+    QHash<Key, Entry> records;
+    QHash<Scope, qsizetype> counts;
+    quint64 nextSerial{0};
+    qint64 nextExpiry{std::numeric_limits<qint64>::max()};
+
+    static Key key(const ClientId& client, const InteractTerminalRequest& request,
+        const TerminalControlFacts& facts) {
+        return {{client, request.session}, facts.session.epoch, facts.grant,
+            facts.cacheGeneration, request.operation};
+    }
+    QHash<Key, Entry>::iterator erase(QHash<Key, Entry>::iterator it) {
+        const auto scope = it.key().scope;
+        auto count = counts.find(scope);
+        if (count != counts.end() && --count.value() == 0) counts.erase(count);
+        return records.erase(it);
+    }
+    void prune(qint64 now) {
+        if (now < nextExpiry) return;
+        nextExpiry = std::numeric_limits<qint64>::max();
+        for (auto it = records.begin(); it != records.end();) {
+            if (it->accepted && it->expires <= now) it = erase(it);
+            else { if (it->accepted) nextExpiry = std::min(nextExpiry, it->expires); ++it; }
+        }
+    }
+    bool room(const Scope& scope, bool releaseOwned) const {
+        // One emergency release per controlled scope remains possible when full.
+        return counts.value(scope) < Budget::MaxTerminalInputRecordsPerScope + (releaseOwned ? 1 : 0)
+            && records.size() < Budget::MaxTerminalInputRecords
+                + (releaseOwned ? Budget::MaxObservedControlSessions : 0);
+    }
+};
+
+ObservationState::ObservationState(Clock clock)
+    : _clock(std::move(clock)), _inputs(std::make_shared<InputHistory>()) {}
 
 bool ObservationState::matches(const ObservationBinding& binding, const ClientId& client,
     const SessionReference& session, ClientAccessVersion grant) const
@@ -132,6 +183,10 @@ Result<InputAdmission> ObservationState::prepareInput(const ClientId& client,
     if (facts.unavailable) return Error{*facts.unavailable};
     if (claims.cacheGeneration != facts.cacheGeneration)
         return Error{ErrorCode::ControlInvalid};
+    _inputs->prune(_clock());
+    const auto known = _inputs->records.constFind(InputHistory::key(client, request, facts));
+    if (known != _inputs->records.cend() && !known->accepted)
+        return Error{ErrorCode::InputBusy, {}, RetryHint{true, std::chrono::milliseconds(50)}};
     const auto replay = _replays.constFind({client, facts.session.session});
     if (replay != _replays.cend() && replay->operation == request.operation
         && replay->epoch == facts.session.epoch && replay->grant == facts.grant
@@ -141,6 +196,9 @@ Result<InputAdmission> ObservationState::prepareInput(const ClientId& client,
             return Error{ErrorCode::InputSequenceConflict};
         return InputAdmission::Replay;
     }
+    if (known != _inputs->records.cend())
+        return Error{ErrorCode::InputSequenceConflict,
+            "operationId already identifies an earlier accepted input; use a new ID for a new intent."};
     if (const auto error = validateInput(claims, client, facts)) return *error;
     const bool release = !request.actions.empty() && std::holds_alternative<ReleaseAction>(request.actions.front());
     const bool command = !request.actions.empty() && std::holds_alternative<CommandAction>(request.actions.front());
@@ -151,6 +209,8 @@ Result<InputAdmission> ObservationState::prepareInput(const ClientId& client,
         return Error{ErrorCode::ContextNotReady};
     if (facts.pending)
         return Error{ErrorCode::InputBusy, {}, RetryHint{true, std::chrono::milliseconds(50)}};
+    if (!_inputs->room({client, request.session}, release && facts.owner == client))
+        return Error{ErrorCode::Busy, "Recent input identity budget is full; no input was submitted."};
     if (release) return InputAdmission::Release;
     if (facts.controlledSessions >= Budget::MaxObservedControlSessions && facts.owner.isEmpty())
         return Error{ErrorCode::Busy};
@@ -159,10 +219,50 @@ Result<InputAdmission> ObservationState::prepareInput(const ClientId& client,
     return InputAdmission::Submit;
 }
 
+Result<ObservationState::InputReservation> ObservationState::reserveInput(const ClientId& client,
+    const InteractTerminalRequest& request, const TerminalControlFacts& facts)
+{
+    _inputs->prune(_clock());
+    const auto key = InputHistory::key(client, request, facts);
+    if (_inputs->records.contains(key)) return Error{ErrorCode::InputBusy};
+    const bool releasing = !request.actions.empty()
+        && std::holds_alternative<ReleaseAction>(request.actions.front()) && facts.owner == client;
+    if (!_inputs->room(key.scope, releasing)) return Error{ErrorCode::Busy};
+    const auto serial = ++_inputs->nextSerial;
+    _inputs->records.insert(key, {serial, 0, false});
+    ++_inputs->counts[key.scope];
+    const std::weak_ptr<InputHistory> history = _inputs;
+    return InputReservation{[history, key, serial, clock = _clock](bool accepted) {
+        const auto owned = history.lock();
+        if (!owned) return false;
+        auto it = owned->records.find(key);
+        if (it == owned->records.end() || it->serial != serial) return false;
+        if (it->accepted) return true; // Replay/duplicate completion never extends retention.
+        if (!accepted) { owned->erase(it); return false; }
+        it->accepted = true;
+        it->expires = clock() + Budget::TerminalInputRecordRetention.count();
+        owned->nextExpiry = std::min(owned->nextExpiry, it->expires);
+        return true;
+    }};
+}
+
 void ObservationState::inputAccepted(const ClientId& client, const InteractTerminalRequest& request,
     const TerminalControlFacts& facts)
 {
+    const auto key = InputHistory::key(client, request, facts);
+    auto accepted = _inputs->records.constFind(key);
+    // Direct application-state users also report an already accepted operation.
+    if (accepted == _inputs->records.cend()) {
+        auto reserved = reserveInput(client, request, facts);
+        if (isError(reserved)) return;
+        std::get<InputReservation>(reserved)(true);
+        accepted = _inputs->records.constFind(key);
+    }
+    if (accepted == _inputs->records.cend() || !accepted->accepted) return;
     auto& replay = _replays[{client, facts.session.session}];
+    // A synchronous controller callback may have admitted a newer operation.
+    if (replay.serial >= accepted->serial) return;
+    replay.serial = accepted->serial;
     if (replay.generation != facts.control || replay.cacheGeneration != facts.cacheGeneration
         || replay.epoch != facts.session.epoch || replay.grant != facts.grant)
         replay.next = 0;
@@ -301,6 +401,11 @@ QList<ObservationCompletion> ObservationState::revoke(const ClientId& client, co
     }
     for (auto it = _replays.begin(); it != _replays.end();) {
         if (selected(it.key().client, it.key().session)) it = _replays.erase(it); else ++it;
+    }
+    for (auto it = _inputs->records.begin(); it != _inputs->records.end();) {
+        if (selected(it.key().scope.client, it.key().scope.session)) {
+            it = _inputs->erase(it);
+        } else ++it;
     }
     for (auto it = _hints.begin(); it != _hints.end();) {
         if (selected(it.key().client, it.key().session)) it = _hints.erase(it); else ++it;

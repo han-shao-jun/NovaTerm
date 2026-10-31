@@ -23,7 +23,8 @@ public:
 class InputCapabilities
 {
 public:
-    InputCapabilities(CapabilityDispatcher&, Mcp::ObservationState&, TerminalInputPort&);
+    InputCapabilities(CapabilityDispatcher&, Mcp::ObservationState&, TerminalInputPort&,
+        std::function<bool()> ownerAlive = {});
     TypedCapabilityPort<InputSubmission, Mcp::Result<Mcp::InputAdmission>> input;
     TypedCapabilityPort<ElevationSubmission, Mcp::Result<std::monostate>> elevation;
 };

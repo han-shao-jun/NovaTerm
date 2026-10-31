@@ -11,6 +11,7 @@
 #include <QSet>
 
 #include <functional>
+#include <memory>
 
 namespace NovaTerm::Mcp {
 
@@ -116,7 +117,12 @@ class ObservationState
 {
 public:
     using Clock = std::function<qint64()>;
+    // true commits accepted input; false rolls back only this pending reservation.
+    // The closure is safe even if its ObservationState owner has been destroyed.
+    using InputReservation = std::function<bool(bool)>;
     explicit ObservationState(Clock clock);
+    ObservationState(const ObservationState&) = delete;
+    ObservationState& operator=(const ObservationState&) = delete;
 
     [[nodiscard]] bool matches(const ObservationBinding& binding, const ClientId& client,
         const SessionReference& session, ClientAccessVersion grant) const;
@@ -129,6 +135,8 @@ public:
     [[nodiscard]] Result<InputAdmission> prepareInput(const ClientId& client,
         const InteractTerminalRequest& request, const InputClaims& claims,
         const TerminalControlFacts& facts) const;
+    [[nodiscard]] Result<InputReservation> reserveInput(const ClientId& client,
+        const InteractTerminalRequest& request, const TerminalControlFacts& facts);
     void inputAccepted(const ClientId& client, const InteractTerminalRequest& request,
         const TerminalControlFacts& facts);
 
@@ -164,6 +172,7 @@ private:
         ClientAccessVersion grant;
         OperationId operation;
         QByteArray identity;
+        quint64 serial{0};
     };
     struct Waiting
     {
@@ -177,6 +186,8 @@ private:
     Clock _clock;
     QList<Waiting> _waiting;
     QHash<Scope, Replay> _replays;
+    struct InputHistory;
+    std::shared_ptr<InputHistory> _inputs;
     QHash<Scope, QSet<QByteArray>> _hints;
     QHash<SessionId, Activity> _activity;
 };

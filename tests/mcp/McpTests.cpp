@@ -960,6 +960,8 @@ private slots:
     void fileResourcesReleaseDisconnectedRemoteQuota();
     void workflowWaitAndTasksUseBothProtocols_data();
     void workflowWaitAndTasksUseBothProtocols();
+    void historicalInputIdsCannotCrossToolBoundaries_data();
+    void historicalInputIdsCannotCrossToolBoundaries();
     void workflowWaitCancellationAndMcpReenable_data();
     void workflowWaitCancellationAndMcpReenable();
     void clearTerminalIsExplicitIdempotentAndInvalidatesObservation_data();
@@ -3921,6 +3923,63 @@ void McpTests::workflowWaitAndTasksUseBothProtocols_data()
         for (const auto kind : {TransportKind::Ssh, TransportKind::Serial})
             QTest::newRow(qPrintable(version + (kind == TransportKind::Ssh ? "-ssh" : "-uart")))
                 << version << int(kind);
+}
+
+void McpTests::historicalInputIdsCannotCrossToolBoundaries_data()
+{
+    workflowWaitAndTasksUseBothProtocols_data();
+}
+
+void McpTests::historicalInputIdsCannotCrossToolBoundaries()
+{
+    QFETCH(QString, version); QFETCH(int, kind);
+    Fixture f;
+    f.session.close(CloseMode::Abort); QVERIFY(f.session.resetForReuse());
+    RuntimeConfig config; config.transportKind = static_cast<TransportKind>(kind);
+    config.transport.insert("interactiveLineEnding", "crlf");
+    f.session.attach(&f.local, TerminalSession::Ownership::Borrowed, config);
+    QVERIFY(f.session.start()); QVERIFY(f.enable());
+    QVERIFY(NovaTerm::Mcp::TestSupport::setTerminalGrant(f.service.access(), f.client,
+        f.service.directory().entries().first(), true));
+    Host host; QVERIFY(host.start(f.runtime(), f.token(), {}, false, version));
+    const auto token = [&] {
+        auto read = f.identity(); read.insert("responseMode", "full");
+        return host.call("novaterm_read_context", read).value("data").toObject().value("inputToken").toString();
+    };
+    auto first = f.identity(); first.insert("inputToken", token());
+    QVERIFY(!first.value("inputToken").toString().isEmpty());
+    first.insert("operationId", newId()); first.insert("waitMs", 0);
+    first.insert("actions", QJsonArray{QJsonObject{{"type", "text"}, {"text", "first"}},
+        QJsonObject{{"type", "line_ending"}}});
+    QVERIFY(host.call("novaterm_interact_terminal", first).value("ok").toBool());
+    QTRY_COMPARE(f.local.written, QByteArray("first\r\n"));
+    auto second = first; second.insert("inputToken", token()); second.insert("operationId", newId());
+    second.insert("actions", QJsonArray{QJsonObject{{"type", "text"}, {"text", "second"}},
+        QJsonObject{{"type", "line_ending"}}});
+    QVERIFY(host.call("novaterm_interact_terminal", second).value("ok").toBool());
+    QTRY_COMPARE(f.local.written, QByteArray("first\r\nsecond\r\n"));
+    QVERIFY(host.call("novaterm_interact_terminal", second).value("ok").toBool());
+    auto task = f.identity(); task.insert("inputToken", token());
+    task.insert("operationId", first.value("operationId")); task.insert("timeoutMs", 60000);
+    task.insert("actions", QJsonArray{QJsonObject{{"type", "text"}, {"text", "UNEXPECTED"}}});
+    QCOMPARE(host.call("novaterm_start_task", task).value("error").toObject().value("code").toString(),
+        QString("INPUT_SEQUENCE_CONFLICT"));
+    auto release = second; release.insert("inputToken", token()); release.insert("operationId", newId());
+    release.insert("actions", QJsonArray{QJsonObject{{"type", "release"}}});
+    QVERIFY(host.call("novaterm_interact_terminal", release).value("ok").toBool());
+    first.insert("inputToken", token());
+    QCOMPARE(host.call("novaterm_interact_terminal", first).value("error").toObject().value("code").toString(),
+        QString("INPUT_SEQUENCE_CONFLICT"));
+    QCOMPARE(f.local.written, QByteArray("first\r\nsecond\r\n"));
+    task.insert("operationId", newId()); task.insert("inputToken", token());
+    task.insert("actions", QJsonArray{QJsonObject{{"type", "text"}, {"text", "third"}}});
+    const auto started = host.call("novaterm_start_task", task); QVERIFY(started.value("ok").toBool());
+    const auto taskId = started.value("data").toObject().value("taskId").toString();
+    QVERIFY(!taskId.isEmpty());
+    QCOMPARE(host.call("novaterm_start_task", task).value("data").toObject().value("taskId").toString(), taskId);
+    QTRY_COMPARE(f.local.written, QByteArray("first\r\nsecond\r\nthird"));
+    auto query = f.identity(); query.insert("operationId", task.value("operationId"));
+    QCOMPARE(host.call("novaterm_query_task", query).value("data").toObject().value("taskId").toString(), taskId);
 }
 void McpTests::workflowWaitCancellationAndMcpReenable_data()
 {

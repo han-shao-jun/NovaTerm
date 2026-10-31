@@ -12,6 +12,10 @@ private slots:
     void cursorAndCaptureBinding();
     void cacheGenerationInvalidatesInputReplayCursorCaptureAndWait();
     void cacheGenerationBypassesSnapshotCoalescing();
+    void historyHasFixedExpiryAndKeepsBindingIsolation();
+    void reservationsRollbackAndRespectCapacity();
+    void globalHistoryCannotEvictLiveIdentities();
+    void lateAcceptanceCannotReplaceNewerOperationFacts();
 };
 void ObservationStateTests::inputReplayAndGenerations()
 {
@@ -36,6 +40,127 @@ void ObservationStateTests::inputReplayAndGenerations()
     QCOMPARE(state.validateInput(claims, client, facts)->code, ErrorCode::ControlInvalid);
     now = claims.expires;
     QCOMPARE(state.validateInput(claims, client, facts)->code, ErrorCode::InputTokenExpired);
+}
+
+void ObservationStateTests::historyHasFixedExpiryAndKeepsBindingIsolation()
+{
+    qint64 now = 0; ObservationState state{[&] { return now; }};
+    const ClientId client{"c"};
+    TerminalControlFacts facts; facts.session = {SessionId{"s"}, Epoch{"e"}};
+    InteractTerminalRequest a; a.session = facts.session.session; a.epoch = facts.session.epoch;
+    a.operation = OperationId{"a"}; a.actions = {TextAction{"one"}};
+    state.inputAccepted(client, a, facts);
+    now = 10;
+    auto b = a; b.operation = OperationId{"b"}; b.actions = {TextAction{"two"}};
+    state.inputAccepted(client, b, facts);
+    now = Budget::TerminalInputRecordRetention.count() - 1;
+    QCOMPARE(errorIfAny(state.prepareInput(client, a, state.inputClaims(client, facts), facts))->code,
+        ErrorCode::InputSequenceConflict);
+    QCOMPARE(std::get<InputAdmission>(state.prepareInput(client, b, state.inputClaims(client, facts), facts)),
+        InputAdmission::Replay);
+    ++facts.control; // Releasing control is not permission to repeat a previous write.
+    QCOMPARE(errorIfAny(state.prepareInput(client, b, state.inputClaims(client, facts), facts))->code,
+        ErrorCode::InputSequenceConflict);
+    auto c = a; c.operation = OperationId{"c"}; state.inputAccepted(client, c, facts);
+    now = Budget::TerminalInputRecordRetention.count();
+    QCOMPARE(std::get<InputAdmission>(state.prepareInput(client, a, state.inputClaims(client, facts), facts)),
+        InputAdmission::Submit);
+    now += 10; // Replaying b did not extend its first acceptance time.
+    QCOMPARE(std::get<InputAdmission>(state.prepareInput(client, b, state.inputClaims(client, facts), facts)),
+        InputAdmission::Submit);
+    auto rebound = facts; ++rebound.cacheGeneration;
+    QCOMPARE(std::get<InputAdmission>(state.prepareInput(client, c, state.inputClaims(client, rebound), rebound)),
+        InputAdmission::Submit);
+    rebound = facts; rebound.grant = ClientAccessVersion{99};
+    QCOMPARE(std::get<InputAdmission>(state.prepareInput(client, c, state.inputClaims(client, rebound), rebound)),
+        InputAdmission::Submit);
+    const ClientId other{"other"};
+    QCOMPARE(std::get<InputAdmission>(state.prepareInput(other, c, state.inputClaims(other, facts), facts)),
+        InputAdmission::Submit);
+    rebound = facts; rebound.session.epoch = Epoch{"new-epoch"};
+    auto newBinding = c; newBinding.epoch = rebound.session.epoch;
+    QCOMPARE(std::get<InputAdmission>(state.prepareInput(client, newBinding, state.inputClaims(client, rebound), rebound)), InputAdmission::Submit);
+    rebound = facts; rebound.session.session = SessionId{"other-session"}; newBinding = c; newBinding.session = rebound.session.session;
+    QCOMPARE(std::get<InputAdmission>(state.prepareInput(client, newBinding, state.inputClaims(client, rebound), rebound)), InputAdmission::Submit);
+}
+
+void ObservationStateTests::lateAcceptanceCannotReplaceNewerOperationFacts()
+{
+    ObservationState state{[] { return qint64(100); }};
+    const ClientId client{"c"}; TerminalControlFacts facts;
+    facts.session = {SessionId{"s"}, Epoch{"e"}}; facts.owner = client;
+    InteractTerminalRequest first; first.session = facts.session.session; first.epoch = facts.session.epoch;
+    first.operation = OperationId{"first"}; first.actions = {TextAction{"x"}};
+    auto outer = state.reserveInput(client, first, facts); QVERIFY(!isError(outer));
+    auto release = first; release.operation = OperationId{"release"}; release.actions = {ReleaseAction{}};
+    auto inner = state.reserveInput(client, release, facts); QVERIFY(!isError(inner));
+    QVERIFY(std::get<ObservationState::InputReservation>(inner)(true));
+    ++facts.control; facts.owner = ClientId{}; state.inputAccepted(client, release, facts);
+    QVERIFY(std::get<ObservationState::InputReservation>(outer)(true));
+    state.inputAccepted(client, first, facts);
+    QCOMPARE(std::get<InputAdmission>(state.prepareInput(client, release, state.inputClaims(client, facts), facts)), InputAdmission::Replay);
+    QCOMPARE(errorIfAny(state.prepareInput(client, first, state.inputClaims(client, facts), facts))->code, ErrorCode::InputSequenceConflict);
+}
+
+void ObservationStateTests::reservationsRollbackAndRespectCapacity()
+{
+    qint64 now = 0; ObservationState state{[&] { return now; }};
+    const ClientId client{"c"}; TerminalControlFacts facts;
+    facts.session = {SessionId{"s"}, Epoch{"e"}}; facts.owner = client;
+    InteractTerminalRequest input; input.session = facts.session.session; input.epoch = facts.session.epoch;
+    input.operation = OperationId{"pending"}; input.actions = {TextAction{"x"}};
+    auto pending = state.reserveInput(client, input, facts); QVERIFY(!isError(pending));
+    QCOMPARE(errorIfAny(state.prepareInput(client, input, state.inputClaims(client, facts), facts))->code,
+        ErrorCode::InputBusy);
+    std::get<ObservationState::InputReservation>(pending)(false);
+    QCOMPARE(std::get<InputAdmission>(state.prepareInput(client, input, state.inputClaims(client, facts), facts)), InputAdmission::Submit);
+    for (int i = 0; i < Budget::MaxTerminalInputRecordsPerScope; ++i) {
+        input.operation = OperationId{QString::number(i)};
+        auto ticket = state.reserveInput(client, input, facts); QVERIFY(!isError(ticket));
+        QVERIFY(std::get<ObservationState::InputReservation>(ticket)(true));
+        state.inputAccepted(client, input, facts);
+    }
+    QCOMPARE(std::get<InputAdmission>(state.prepareInput(client, input, state.inputClaims(client, facts), facts)), InputAdmission::Replay);
+    auto extra = input; extra.operation = OperationId{"extra"};
+    QCOMPARE(errorIfAny(state.prepareInput(client, extra, state.inputClaims(client, facts), facts))->code, ErrorCode::Busy);
+    input.operation = OperationId{"0"};
+    QCOMPARE(errorIfAny(state.prepareInput(client, input, state.inputClaims(client, facts), facts))->code, ErrorCode::InputSequenceConflict);
+    auto release = extra; release.actions = {ReleaseAction{}};
+    QCOMPARE(std::get<InputAdmission>(state.prepareInput(client, release, state.inputClaims(client, facts), facts)), InputAdmission::Release);
+    auto reserved = state.reserveInput(client, release, facts); QVERIFY(!isError(reserved));
+    QVERIFY(std::get<ObservationState::InputReservation>(reserved)(true));
+    ++facts.control; facts.owner = ClientId{}; state.inputAccepted(client, release, facts);
+    auto noOpRelease = release; noOpRelease.operation = OperationId{"another-release"};
+    QCOMPARE(errorIfAny(state.prepareInput(client, noOpRelease, state.inputClaims(client, facts), facts))->code, ErrorCode::Busy);
+    now = Budget::TerminalInputRecordRetention.count();
+    extra.operation = OperationId{"after-expiry"};
+    QCOMPARE(std::get<InputAdmission>(state.prepareInput(client, extra, state.inputClaims(client, facts), facts)), InputAdmission::Submit);
+    ObservationState::InputReservation surviving;
+    {
+        auto owned = std::make_unique<ObservationState>([&] { return now; });
+        auto token = owned->reserveInput(client, extra, facts); QVERIFY(!isError(token));
+        surviving = std::get<ObservationState::InputReservation>(token);
+    }
+    QVERIFY(!surviving(false));
+}
+
+void ObservationStateTests::globalHistoryCannotEvictLiveIdentities()
+{
+    ObservationState state{[] { return qint64(0); }};
+    const ClientId client{"c"}; TerminalControlFacts facts;
+    InteractTerminalRequest input; input.actions = {TextAction{"x"}};
+    for (int i = 0; i < Budget::MaxTerminalInputRecords; ++i) {
+        facts.session = {SessionId{QString::number(i / Budget::MaxTerminalInputRecordsPerScope)}, Epoch{"e"}};
+        input.session = facts.session.session; input.epoch = facts.session.epoch;
+        input.operation = OperationId{QString::number(i)};
+        auto ticket = state.reserveInput(client, input, facts); QVERIFY(!isError(ticket));
+        QVERIFY(std::get<ObservationState::InputReservation>(ticket)(true));
+        state.inputAccepted(client, input, facts);
+    }
+    facts.session = {SessionId{"new-scope"}, Epoch{"e"}}; input.session = facts.session.session;
+    QCOMPARE(errorIfAny(state.prepareInput(client, input, state.inputClaims(client, facts), facts))->code, ErrorCode::Busy);
+    facts.session = {SessionId{"0"}, Epoch{"e"}}; input.session = facts.session.session; input.operation = OperationId{"0"};
+    QCOMPARE(errorIfAny(state.prepareInput(client, input, state.inputClaims(client, facts), facts))->code, ErrorCode::InputSequenceConflict);
 }
 void ObservationStateTests::waitReplacementAndBudget()
 {
