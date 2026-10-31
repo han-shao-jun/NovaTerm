@@ -12,6 +12,9 @@
 #include "protocol/ProtocolProjectionSizer.h"
 #include "protocol/ToolCodec.h"
 #include "session/SessionTerminalController.h"
+#include "session/SessionInputPump.h"
+#include "session/ShellIntegration.h"
+#include "transport/SerialTransport.h"
 #include <QElapsedTimer>
 #include <QJsonArray>
 #include <QDateTime>
@@ -39,7 +42,8 @@ std::optional<ProjectionMode> projectionOf(const ToolRequest& request)
             || std::is_same_v<Type, InteractTerminalRequest>
             || std::is_same_v<Type, RequestElevationRequest>)
             return value.projection;
-        return std::nullopt;
+        else
+            return std::nullopt;
     }, request);
 }
 
@@ -491,6 +495,38 @@ public:
         data.insert("capturedAt", QDateTime::fromMSecsSinceEpoch(ms, QTimeZone::UTC).toString(Qt::ISODateWithMs));
         const auto size = entry.session->core()->screenSize();
         data.insert("screenSize", QJsonObject{{"columns", size.first}, {"rows", size.second}});
+        const auto ending = ctrl->lineEnding();
+        const auto profile = ShellIntegration::profileFor(entry.session->runtimeConfig());
+        QJsonObject configuration{{"lineEnding", ending == "\r\n" ? "crlf" : ending == "\n" ? "lf" : "cr"},
+            {"remoteEcho", profile ? QJsonValue(profile->remoteEcho) : QJsonValue(QJsonValue::Null)},
+            {"promptConfigured", profile ? QJsonValue((profile->shellIntegration && !profile->allowUnverifiedPrompt)
+                                                       || !profile->promptPattern.isEmpty())
+                                         : QJsonValue(QJsonValue::Null)},
+            {"serial", QJsonValue(QJsonValue::Null)}};
+        const auto* serial = qobject_cast<const SerialTransport*>(entry.transport.data());
+        QJsonValue serialIo(QJsonValue::Null);
+        if (serial) {
+            const auto& config = serial->config();
+            const auto parity = config.parity == QSerialPort::NoParity ? "none" : config.parity == QSerialPort::EvenParity ? "even"
+                : config.parity == QSerialPort::OddParity ? "odd" : config.parity == QSerialPort::SpaceParity ? "space" : "mark";
+            const auto flow = config.flowControl == QSerialPort::NoFlowControl ? "none"
+                : config.flowControl == QSerialPort::HardwareControl ? "hardware" : "software";
+            const double stops = config.stopBits == QSerialPort::OneStop ? 1.0 : config.stopBits == QSerialPort::TwoStop ? 2.0 : 1.5;
+            configuration.insert("serial", QJsonObject{{"baudRate", config.baudRate}, {"dataBits", int(config.dataBits)},
+                {"parity", parity}, {"stopBits", stops}, {"flowControl", flow}});
+            const auto io = serial->ioStatistics();
+            serialIo = QJsonObject{{"generation", number(io.generation)}, {"connected", io.connected},
+                {"receivePendingBytes", double(io.receiveBytes)}, {"sendPendingBytes", double(io.queuedWriteBytes + io.inFlightWriteBytes)},
+                {"deliveryPaused", io.deliveryPaused}, {"receiveFullEvents", number(io.generationReceiveFullCount)},
+                {"discardedReceiveBytes", number(io.generationDiscardedReceiveBytes)}};
+        }
+        const auto* pump = entry.session->inputPump();
+        const auto pumpStatus = pump ? QJsonValue(QJsonObject{{"pendingBytes", double(pump->statistics().pendingBytes)},
+            {"readPaused", pump->readPaused()}, {"overloaded", pump->overloaded()}}) : QJsonValue(QJsonValue::Null);
+        data.insert("terminalConfiguration", configuration);
+        data.insert("ioStatus", QJsonObject{{"sessionGeneration", number(entry.session->statistics().generation)},
+            {"sampledAt", QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs)},
+            {"pump", pumpStatus}, {"serial", serialIo}});
         data.insert("wakeReason", wakeReason); data.insert("outputChanged", changed); data.insert("screenChanged", changed);
         data.insert("alternateScreen", snapshot.state.alternateScreen);
         data.insert("cursor", QJsonObject{{"row", snapshot.state.cursor.position.row}, {"column", snapshot.state.cursor.position.col}});

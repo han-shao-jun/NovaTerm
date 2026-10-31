@@ -135,6 +135,29 @@ struct Fixture {
 class SerialFileTransfersTests final : public QObject {
     Q_OBJECT
 private slots:
+    void sourcePreparationReportsSpecificFailures_data()
+    {
+        QTest::addColumn<bool>("oversized");
+        QTest::addColumn<QString>("expected");
+        QTest::newRow("missing") << false << QStringLiteral("TRANSFER_LOCAL_NOT_FOUND");
+        QTest::newRow("oversized") << true << QStringLiteral("TRANSFER_SIZE_LIMIT");
+    }
+    void sourcePreparationReportsSpecificFailures()
+    {
+        QFETCH(bool, oversized); QFETCH(QString, expected);
+        Fixture f; QVERIFY(f.ready); auto request = f.source();
+        if (oversized) {
+            QFile file(request.localPath); QVERIFY(file.open(QIODevice::ReadWrite));
+            QVERIFY(file.resize(64 * 1024 * 1024 + 1)); file.close();
+        } else QVERIFY(QFile::remove(request.localPath));
+        const auto accepted = f.call(request); QVERIFY(!isError(accepted));
+        const auto id = value(accepted).value("transferId").toString();
+        QTRY_VERIFY_WITH_TIMEOUT(!f.transfers.busy(f.entry().id), 10000);
+        const auto result = f.query(id);
+        QCOMPARE(result.value("state").toString(), QStringLiteral("failed"));
+        QCOMPARE(result.value("errorCode").toString(), expected);
+        QVERIFY(f.allWrites.isEmpty());
+    }
     void realProtocolFacts_data()
     {
         QTest::addColumn<int>("mode");

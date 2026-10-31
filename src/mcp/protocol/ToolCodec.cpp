@@ -209,6 +209,29 @@ const QJsonArray& ToolCodec::catalog()
     sessionItem.insert("properties", sessionProperties);
     dataSchemas.insert("novaterm_list_sessions", object({{"instanceId", text}, {"applicationVersion", text},
         {"nextCursor", nullableText}, {"sessions", array(sessionItem)}}));
+    const auto commandState = object({{"state", enumeration({"none", "submitted", "running", "finished", "unknown"})},
+        {"executionId", text}, {"terminationConfirmed", boolean},
+        {"exitCode", QJsonObject{{"type", QJsonArray{"integer", "null"}}}},
+        {"result", enumeration({"success", "failure", "unknown"})},
+        {"evidence", enumeration({"none", "shell_integration", "device_prompt"})},
+        {"outputAttribution", enumeration({"shared_terminal"})}});
+    const auto controlState = object({{"state", enumeration({"idle", "controlled", "released", "expired",
+        "preempted", "revoked", "shell_reset"})}, {"ownedByThisClient", boolean}});
+    const auto inputReadiness = object({{"canSubmitCommand", boolean}, {"canInteract", boolean},
+        {"confidence", enumeration({"verified", "observed", "unknown"})},
+        {"context", enumeration({"alternate_screen", "shell", "unknown"})}});
+    const auto nullableBoolean = QJsonObject{{"type", QJsonArray{"boolean", "null"}}};
+    const auto serialConfiguration = object({{"baudRate", unsignedInteger}, {"dataBits", unsignedInteger},
+        {"parity", enumeration({"none", "even", "odd", "space", "mark"})},
+        {"stopBits", QJsonObject{{"type", "number"}, {"enum", QJsonArray{1, 1.5, 2}}}},
+        {"flowControl", enumeration({"none", "hardware", "software"})}});
+    const auto serialStatus = object({{"generation", decimal}, {"connected", boolean},
+        {"receivePendingBytes", unsignedInteger}, {"sendPendingBytes", unsignedInteger},
+        {"deliveryPaused", boolean}, {"receiveFullEvents", decimal}, {"discardedReceiveBytes", decimal}});
+    const auto pumpStatus = object({{"pendingBytes", unsignedInteger}, {"readPaused", boolean}, {"overloaded", boolean}});
+    const auto nullable = [](const QJsonObject& value) {
+        return QJsonObject{{"anyOf", QJsonArray{value, QJsonObject{{"type", "null"}}}}};
+    };
     // Both legacy captures and compact observations are valid. Compact may omit unchanged
     // viewport/output, so legacy-only fields must not be advertised as always required.
     QJsonObject observationProperties{{"instanceId", text}, {"sessionId", text}, {"epoch", text},
@@ -219,8 +242,14 @@ const QJsonArray& ToolCodec::catalog()
         {"sourceTruncated", boolean}, {"outputTruncated", boolean}, {"resetRequired", boolean},
         {"suppressedDuplicates", decimal}, {"nextToken", nullableText}, {"inputToken", nullableText},
         {"observationId", text}, {"modelRevision", decimal}, {"eventRevision", decimal}, {"sessionState", state},
-        {"outputChanged", boolean}, {"screenChanged", boolean}, {"command", openObject},
-        {"inputReadiness", openObject}, {"control", openObject}, {"lastOperation", openObject},
+        {"outputChanged", boolean}, {"screenChanged", boolean}, {"command", commandState},
+        {"screenSize", object({{"columns", unsignedInteger}, {"rows", unsignedInteger}})},
+        {"viewportPartial", boolean}, {"inputReadiness", inputReadiness},
+        {"control", controlState}, {"lastCommand", commandState}, {"lastOperation", openObject},
+        {"terminalConfiguration", object({{"lineEnding", enumeration({"cr", "lf", "crlf"})},
+            {"remoteEcho", nullableBoolean}, {"promptConfigured", nullableBoolean}, {"serial", nullable(serialConfiguration)}})},
+        {"ioStatus", object({{"sessionGeneration", decimal}, {"sampledAt", text},
+            {"pump", nullable(pumpStatus)}, {"serial", nullable(serialStatus)}})},
         {"elevation", openObject}, {"wakeReason", enumeration({"initial", "command_finished", "attention_candidate",
             "diagnostic_candidate", "control_changed", "output_changed", "state_changed", "quiet", "deadline"})},
         {"projectionLimited", boolean}, {"sourceGap", boolean},
@@ -321,16 +350,24 @@ const QJsonArray& ToolCodec::catalog()
         {"resumeToken", text}, {"resumeExpiresInMs", unsignedInteger}},
         {"instanceId", "sessionId", "epoch", "source", "status", "matched", "matchedTexts", "scanBytes",
             "cacheGeneration", "capturedAt", "context", "evidenceKind", "provesSuccess"});
+    const auto submission = object({{"operationId", text},
+        {"status", enumeration({"queued", "submitted", "interrupted", "failed", "unknown"})},
+        {"inputMayHaveBeenSent", boolean}});
+    const auto stopSubmission = object({{"operationId", text},
+        {"status", enumeration({"queued", "submitted", "interrupted", "failed", "unknown"})},
+        {"inputMayHaveBeenSent", boolean}, {"reason", text}});
     auto taskData = schema({{"taskId", text}, {"operationId", text}, {"sessionId", text}, {"epoch", text},
         {"status", enumeration({"accepted", "running", "stop_requested", "completed", "unknown", "failed"})},
         {"accepted", boolean}, {"completed", boolean}, {"executionId", nullableText},
         {"exitCode", QJsonObject{{"type", QJsonArray{"integer", "null"}}}},
         {"terminationConfirmed", boolean}, {"evidenceKind", text}, {"submissionStatus", text},
         {"inputMayHaveBeenSent", boolean}, {"stopRequested", boolean}, {"reason", text},
+        {"taskSubmission", submission},
+        {"stopSubmission", QJsonObject{{"anyOf", QJsonArray{stopSubmission, QJsonObject{{"type", "null"}}}}}},
         {"baseline", log}, {"suggestedQueryMs", unsignedInteger}, {"output", log}, {"outputError", resultError}},
         {"taskId", "operationId", "sessionId", "epoch", "status", "accepted", "completed", "executionId",
             "exitCode", "terminationConfirmed", "evidenceKind", "submissionStatus", "inputMayHaveBeenSent",
-            "stopRequested", "reason", "baseline", "suggestedQueryMs"});
+            "stopRequested", "reason", "baseline", "suggestedQueryMs", "taskSubmission", "stopSubmission"});
     const auto workflow = [&](const char* name, const char* description,
                               QJsonObject input, bool writes, const QJsonObject& data) {
         auto workflowOutput = output; auto workflowProperties = workflowOutput.value("properties").toObject();

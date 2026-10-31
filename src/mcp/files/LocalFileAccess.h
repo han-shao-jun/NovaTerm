@@ -9,8 +9,25 @@ namespace NovaTerm::Mcp::Files {
 
 enum class FileIoError {
     InvalidPath, NotAvailable, UnsafeFile, SizeLimit, IoFailure,
-    AlreadyExists, SizeMismatch, InvalidState, UnsupportedPlatform
+    AlreadyExists, SizeMismatch, InvalidState, UnsupportedPlatform, NotFound, AccessDenied
 };
+inline QString localFileTransferErrorCode(FileIoError error)
+{
+    switch (error) {
+    case FileIoError::InvalidPath: return QStringLiteral("TRANSFER_LOCAL_INVALID_PATH");
+    case FileIoError::NotAvailable: return QStringLiteral("TRANSFER_LOCAL_FILE_UNAVAILABLE");
+    case FileIoError::NotFound: return QStringLiteral("TRANSFER_LOCAL_NOT_FOUND");
+    case FileIoError::AccessDenied: return QStringLiteral("TRANSFER_LOCAL_ACCESS_DENIED");
+    case FileIoError::UnsafeFile: return QStringLiteral("TRANSFER_LOCAL_PATH_UNSAFE");
+    case FileIoError::SizeLimit: return QStringLiteral("TRANSFER_SIZE_LIMIT");
+    case FileIoError::IoFailure: return QStringLiteral("TRANSFER_LOCAL_IO_FAILED");
+    case FileIoError::AlreadyExists: return QStringLiteral("TRANSFER_LOCAL_TARGET_EXISTS");
+    case FileIoError::SizeMismatch: return QStringLiteral("TRANSFER_LOCAL_SIZE_CHANGED");
+    case FileIoError::InvalidState: return QStringLiteral("TRANSFER_LOCAL_INVALID_STATE");
+    case FileIoError::UnsupportedPlatform: return QStringLiteral("TRANSFER_LOCAL_UNSUPPORTED");
+    }
+    return QStringLiteral("TRANSFER_LOCAL_IO_FAILED");
+}
 template<typename T> using FileIoResult = std::variant<T, FileIoError>;
 
 // Synchronous worker-only boundary. The caller owns authorization and rechecks

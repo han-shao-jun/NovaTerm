@@ -53,6 +53,8 @@ public:
         QString status{QStringLiteral("accepted")}, reason;
         QString submission{QStringLiteral("queued")};
         bool maySent{false};
+        QString taskSubmission{QStringLiteral("queued")}, stopSubmission, stopReceiptId, stopFailure;
+        bool taskMaySent{false}, stopMaySent{false};
         QJsonObject command, baseline, failure;
         QString startKey, stopKey;
     };
@@ -111,7 +113,7 @@ public:
         row->accepted = true; row->control = ctrl->controlGeneration(); row->execution = ctrl->executionId();
     }
     void refresh(const Row& row, bool renew = false) {
-        if (!row->accepted || terminal(row->status)) return;
+        if (!row->accepted) return;
         const auto current = entry(*row);
         if (!current || !permitted(*row)) { end(row, "unknown", "invalidated"); return; }
         auto* ctrl = current->session->terminalController();
@@ -119,9 +121,26 @@ public:
         const auto operation = ctrl->operation();
         const bool same = matches(*row, ctrl);
         if (same) {
-            row->submission = operation.value("status").toString();
-            row->maySent |= operation.value("inputMayHaveBeenSent").toBool();
+            const auto currentSubmission = operation.value("status").toString();
+            if (!terminal(row->status)) {
+                row->submission = currentSubmission;
+                row->maySent |= operation.value("inputMayHaveBeenSent").toBool();
+            }
         }
+        // The controller retains the original operation ID after human takeover.
+        // Its final submission facts still belong to that ID even though ownership
+        // and the control generation no longer match the task.
+        const auto operationId = operation.value("id").toString();
+        if (operationId == row->operation) {
+            row->taskSubmission = operation.value("status").toString();
+            row->taskMaySent |= operation.value("inputMayHaveBeenSent").toBool();
+        } else if (!row->stopOperation.isEmpty() && operationId == row->stopOperation) {
+            row->stopSubmission = operation.value("status").toString();
+            row->stopMaySent |= operation.value("inputMayHaveBeenSent").toBool();
+            if (row->stopSubmission == "failed" || row->stopSubmission == "interrupted")
+                row->stopFailure = QStringLiteral("input_not_submitted");
+        }
+        if (terminal(row->status)) return;
         // 原始输入只能按现有 Controller 证据关联执行，不能猜测执行已开始。
         if (same && row->execution.isEmpty()) row->execution = ctrl->executionId();
         const auto command = observation.value("command").toObject();
@@ -149,6 +168,10 @@ public:
     }
     QJsonObject data(const Row& row) const {
         const bool completed = row->status == "completed";
+        const QJsonObject taskSubmission{{"operationId", row->operation}, {"status", row->taskSubmission},
+            {"inputMayHaveBeenSent", row->taskMaySent}};
+        const QJsonObject stopSubmission{{"operationId", row->stopReceiptId}, {"status", row->stopSubmission},
+            {"inputMayHaveBeenSent", row->stopMaySent}, {"reason", row->stopFailure}};
         return {{"taskId", row->id}, {"operationId", row->operation},
             {"sessionId", row->session}, {"epoch", row->epoch}, {"status", row->status},
             {"accepted", row->accepted}, {"completed", completed},
@@ -157,6 +180,8 @@ public:
             {"terminationConfirmed", completed && row->command.value("terminationConfirmed").toBool()},
             {"evidenceKind", row->command.value("evidence").toString("none")},
             {"submissionStatus", row->submission}, {"inputMayHaveBeenSent", row->maySent},
+            {"taskSubmission", taskSubmission},
+            {"stopSubmission", row->stopReceiptId.isEmpty() ? QJsonValue(QJsonValue::Null) : QJsonValue(stopSubmission)},
             {"stopRequested", row->stopRequested}, {"reason", row->reason},
             {"baseline", row->baseline}, {"suggestedQueryMs", terminal(row->status) ? 0 : 250}};
     }
@@ -310,6 +335,8 @@ public:
         }
         if (!wait(key, row, std::move(done), true)) return;
         row->stopOperation = request.operation.str(); row->stopPreparing = true;
+        row->stopReceiptId = row->stopOperation; row->stopSubmission = "queued";
+        row->stopMaySent = false; row->stopFailure.clear();
         row->stopKey = "terminal-task/" + row->id + "/stop";
         ReadContextRequest read; read.session = SessionId{row->session}; read.epoch = Epoch{row->epoch};
         read.projection = ProjectionMode::Compact;
@@ -321,6 +348,8 @@ public:
                 const auto target = entry(*row);
                 const auto token = observed.value("data").toObject().value("inputToken").toString();
                 auto reject = [this, &row](QJsonObject error) {
+                    row->stopSubmission = "failed";
+                    row->stopFailure = error.value("error").toObject().value("code").toString("CONTROL_INVALID");
                     row->stopPreparing = false; row->stopOperation.clear(); deliver(row, true, error);
                 };
                 if (!permitted(*row) || !target || !access.canControlTerminal(row->client, *target)
@@ -345,6 +374,8 @@ public:
                         if (latest && latest->session->terminalController()->operation().value("id").toString() == row->stopOperation) {
                             row->stopRequested = true; refresh(row); if (guard) deliver(row, true);
                         } else {
+                            row->stopSubmission = "failed";
+                            row->stopFailure = response.value("error").toObject().value("code").toString("CONTROL_INVALID");
                             row->stopOperation.clear();
                             deliver(row, true, response.value("ok").toBool()
                                 ? failure("CONTROL_INVALID", "Stop input was not accepted.") : response);

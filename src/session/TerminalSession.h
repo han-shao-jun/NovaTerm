@@ -87,6 +87,7 @@ public:
     }
     /** @brief 传输层指针（未附加时为 nullptr）。 */
     [[nodiscard]] ITransport* transport() const { return _transport.data(); }
+    [[nodiscard]] const SessionInputPump* inputPump() const noexcept { return _inputPump; }
     /** @brief Session 级受限命令门面；具体 Executor 由编排层安装。 */
     [[nodiscard]] SessionCommandFacade* commandFacade() const noexcept
     {

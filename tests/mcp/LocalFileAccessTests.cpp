@@ -79,6 +79,18 @@ bool junction(const QString& path, const QString& target)
 class LocalFileAccessTests : public QObject {
     Q_OBJECT
 private slots:
+    void transferErrorCodesPreserveLocalFailure()
+    {
+        QCOMPARE(localFileTransferErrorCode(FileIoError::SizeLimit), QStringLiteral("TRANSFER_SIZE_LIMIT"));
+        QCOMPARE(localFileTransferErrorCode(FileIoError::InvalidPath), QStringLiteral("TRANSFER_LOCAL_INVALID_PATH"));
+        QCOMPARE(localFileTransferErrorCode(FileIoError::NotAvailable), QStringLiteral("TRANSFER_LOCAL_FILE_UNAVAILABLE"));
+        QCOMPARE(localFileTransferErrorCode(FileIoError::NotFound), QStringLiteral("TRANSFER_LOCAL_NOT_FOUND"));
+        QCOMPARE(localFileTransferErrorCode(FileIoError::AccessDenied), QStringLiteral("TRANSFER_LOCAL_ACCESS_DENIED"));
+        QCOMPARE(localFileTransferErrorCode(FileIoError::UnsafeFile), QStringLiteral("TRANSFER_LOCAL_PATH_UNSAFE"));
+        QCOMPARE(localFileTransferErrorCode(FileIoError::UnsupportedPlatform), QStringLiteral("TRANSFER_LOCAL_UNSUPPORTED"));
+        QCOMPARE(localFileTransferErrorCode(FileIoError::AlreadyExists), QStringLiteral("TRANSFER_LOCAL_TARGET_EXISTS"));
+        QCOMPARE(localFileTransferErrorCode(FileIoError::IoFailure), QStringLiteral("TRANSFER_LOCAL_IO_FAILED"));
+    }
     void volumeRootStillPinsEveryParent()
     {
 #if defined(Q_OS_WIN) || defined(Q_OS_LINUX)
@@ -526,7 +538,7 @@ private slots:
         QVERIFY(large.resize(64 * 1024 * 1024 + 1));
         large.close();
         QCOMPARE(std::get<FileIoError>(LocalFileReader::open(directory.path(), "large")), FileIoError::SizeLimit);
-        QCOMPARE(std::get<FileIoError>(LocalFileReader::open(directory.path(), "missing")), FileIoError::NotAvailable);
+        QCOMPARE(std::get<FileIoError>(LocalFileReader::open(directory.path(), "missing")), FileIoError::NotFound);
 #endif
     }
     void pinsEveryAncestorAndSourceAgainstReplacement()

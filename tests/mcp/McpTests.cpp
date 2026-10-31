@@ -987,6 +987,7 @@ private slots:
     void terminalInputReportsSequenceAndReleaseAdmission();
     void terminalInteractionRequiresNewGrantAndDeduplicates();
     void compactAttentionWaitCoalescesScrollAndExpires();
+    void observationReportsConfigurationAndIoAvailability();
     void managedElevationRejectsWithoutAdapter();
     void terminalCommandCompletionAndReadinessAreSeparateFromOutput();
     void compactCaptureExpansionDoesNotMoveLiveCursor();
@@ -1981,7 +1982,7 @@ void McpTests::httpSerialFileUploadRoutesIndependentAuthority()
         finished = response.value("data").toObject();
         return finished.value("state").toString() == "failed";
     })(), 5000);
-    QCOMPARE(finished.value("errorCode").toString(), QString("FILE_IO_ERROR"));
+    QCOMPARE(finished.value("errorCode").toString(), QString("TRANSFER_LOCAL_NOT_FOUND"));
     QCOMPARE(finished.value("sessionId").toString(), entry.id);
     QCOMPARE(finished.value("epoch").toString(), entry.epoch);
     QCOMPARE(finished.value("operationId"), arguments.value("operationId"));
@@ -2565,7 +2566,7 @@ void McpTests::accessStoreReportsDistinctSaveFailureReasons()
     QVERIFY(root.isValid());
     const auto state = root.path() + "/state";
     QVERIFY(QDir().mkpath(state));
-    AccessStore store(state, {});
+    AccessStore store(state, std::make_unique<MemoryCredentialStore>());
     QVERIFY(store.setEnabled(true));
     QVERIFY(store.lastSaveFailure() == AccessStore::SaveFailure::None);
     // 另一个实例持有同一把共享文件锁。
@@ -2600,7 +2601,7 @@ void McpTests::stateDirectoryOwnedByTokenDefaultOwnerIsSecurable()
     const auto directory = root.filePath("state");
     QVERIFY(QDir().mkpath(directory));
     QVERIFY(secureDirectory(directory));
-    AccessStore store(directory, {});
+    AccessStore store(directory, std::make_unique<MemoryCredentialStore>());
     QVERIFY(store.setEnabled(true));
     QVERIFY(store.enabled());
     QVERIFY(QFile::exists(QDir(directory).filePath("access.json")));
@@ -3560,6 +3561,38 @@ void McpTests::compactAttentionWaitCoalescesScrollAndExpires()
     const auto data = result.value("structuredContent").toObject().value("data").toObject();
     QCOMPARE(data.value("wakeReason").toString(), QString("deadline"));
     QVERIFY(data.value("command").toObject().value("state") != "finished");
+}
+
+void McpTests::observationReportsConfigurationAndIoAvailability()
+{
+    Fixture f; QVERIFY(f.enable()); Host host; QVERIFY(host.start(f.runtime(), f.token()));
+    auto args = f.identity(); args.insert("responseMode", "compact");
+    const auto response = host.call("novaterm_read_context", args);
+    QVERIFY(response.value("ok").toBool());
+    const auto data = response.value("data").toObject();
+    const auto config = data.value("terminalConfiguration").toObject();
+    QCOMPARE(config.value("lineEnding").toString(), QStringLiteral("cr"));
+    QVERIFY(config.contains("remoteEcho")); QVERIFY(config.contains("promptConfigured"));
+    const auto io = data.value("ioStatus").toObject();
+    QCOMPARE(io.value("sessionGeneration").toString(), QString::number(f.session.statistics().generation));
+    QVERIFY(!io.value("sampledAt").toString().isEmpty());
+    QVERIFY(io.value("serial").isNull());
+
+    Fixture serialFixture; serialFixture.makeSerial(); QVERIFY(serialFixture.enable());
+    Host serialHost; QVERIFY(serialHost.start(serialFixture.runtime(), serialFixture.token()));
+    auto serialArgs = serialFixture.identity(); serialArgs.insert("responseMode", "compact");
+    const auto serialResponse = serialHost.call("novaterm_read_context", serialArgs);
+    QVERIFY(serialResponse.value("ok").toBool());
+    const auto serialData = serialResponse.value("data").toObject();
+    const auto serialConfig = serialData.value("terminalConfiguration").toObject().value("serial").toObject();
+    QCOMPARE(serialConfig.value("baudRate").toInt(), 115200);
+    QCOMPARE(serialConfig.value("dataBits").toInt(), 8);
+    QCOMPARE(serialConfig.value("parity").toString(), QStringLiteral("none"));
+    const auto serialStatus = serialData.value("ioStatus").toObject().value("serial").toObject();
+    QCOMPARE(serialStatus.value("generation").toString(), QString::number(serialFixture.serial->ioStatistics().generation));
+    QVERIFY(serialStatus.contains("receivePendingBytes")); QVERIFY(serialStatus.contains("sendPendingBytes"));
+    QVERIFY(serialStatus.contains("discardedReceiveBytes"));
+    QVERIFY(QJsonDocument(serialResponse).toJson(QJsonDocument::Compact).size() <= 8192);
 }
 
 void McpTests::terminalCommandCompletionAndReadinessAreSeparateFromOutput()

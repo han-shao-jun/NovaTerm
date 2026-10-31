@@ -29,10 +29,129 @@
 #include <functional>
 #include <utility>
 #include <limits>
+#include <chrono>
+#include <condition_variable>
+#include <mutex>
+#include <system_error>
+#include <thread>
+#ifdef Q_OS_WIN
+#include <windows.h>
+#else
+#include <sys/socket.h>
+#include <unistd.h>
+#endif
 
 #include <fcntl.h>
 
 namespace {
+
+// A transfer owns a dedicated SFTP connection. Interrupting its socket wakes
+// libssh even when a peer trickles an incomplete packet indefinitely. Only the
+// worker closes the socket; the watcher is joined before that can happen.
+class TransferIoWatch final {
+public:
+    enum class Reason { None, Cancelled, Timeout };
+    TransferIoWatch(ssh_session session, std::shared_ptr<SftpFileUploadControl> control,
+                    const std::function<bool()>& stopped)
+        : _fd(duplicate(ssh_get_fd(session))), _control(std::move(control)), _stopped(stopped),
+          _started(std::chrono::steady_clock::now()) {
+        if (!valid()) return;
+        try { _thread = std::thread([this] { watch(); }); }
+        catch (const std::system_error&) { closeDuplicate(); }
+    }
+    ~TransferIoWatch() { finish(); }
+    bool valid() const {
+#ifdef Q_OS_WIN
+        return _fd != INVALID_SOCKET;
+#else
+        return _fd >= 0;
+#endif
+    }
+    void progress(quint64 bytes) {
+        if (bytes > _lastBytes) {
+            _lastBytes = bytes;
+            _lastProgress.store(elapsed(), std::memory_order_release);
+        }
+    }
+    Reason finish() {
+        {
+            std::lock_guard<std::mutex> lock(_mutex);
+            _finished = true;
+        }
+        _wake.notify_one();
+        if (_thread.joinable()) _thread.join();
+        closeDuplicate();
+        return _reason;
+    }
+private:
+    void closeDuplicate() {
+        if (valid()) {
+#ifdef Q_OS_WIN
+            closesocket(_fd); _fd = INVALID_SOCKET;
+#else
+            ::close(_fd); _fd = -1;
+#endif
+        }
+    }
+    static socket_t duplicate(socket_t original) {
+#ifdef Q_OS_WIN
+        if (original == INVALID_SOCKET) return INVALID_SOCKET;
+        WSAPROTOCOL_INFOW info{};
+        if (WSADuplicateSocketW(original, GetCurrentProcessId(), &info) != 0) return INVALID_SOCKET;
+        return WSASocketW(FROM_PROTOCOL_INFO, FROM_PROTOCOL_INFO, FROM_PROTOCOL_INFO, &info, 0,
+                          WSA_FLAG_OVERLAPPED | WSA_FLAG_NO_HANDLE_INHERIT);
+#else
+        return original < 0 ? -1 : fcntl(original, F_DUPFD_CLOEXEC, 0);
+#endif
+    }
+    qint64 elapsed() const {
+        return std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now() - _started).count();
+    }
+    void watch() {
+        std::unique_lock<std::mutex> lock(_mutex);
+        while (!_finished) {
+            _wake.wait_for(lock, std::chrono::milliseconds(25), [this] { return _finished; });
+            if (_finished) break;
+            const auto age = elapsed();
+            const bool expired = age >= NovaTerm::Mcp::Budget::FileUploadTimeout.count()
+                || age - _lastProgress.load(std::memory_order_acquire)
+                    >= NovaTerm::Mcp::Budget::FileUploadStallTimeout.count();
+            const bool cancelled = _stopped() || !_control
+                || _control->state.load(std::memory_order_acquire) == SftpFileUploadControl::State::Cancelled;
+            if (!expired && !cancelled) continue;
+            _reason = expired ? Reason::Timeout : Reason::Cancelled;
+            if (_control) _control->ioInterrupted.store(true, std::memory_order_release);
+#ifdef Q_OS_WIN
+            ::shutdown(_fd, SD_BOTH);
+#else
+            ::shutdown(_fd, SHUT_RDWR);
+#endif
+            break;
+        }
+    }
+    socket_t _fd;
+    std::shared_ptr<SftpFileUploadControl> _control;
+    std::function<bool()> _stopped;
+    std::chrono::steady_clock::time_point _started;
+    std::atomic<qint64> _lastProgress{0};
+    quint64 _lastBytes{0}; // worker thread only
+    std::mutex _mutex;
+    std::condition_variable _wake;
+    bool _finished{false};
+    Reason _reason{Reason::None}; // read after thread joins
+    std::thread _thread;
+};
+
+SftpFileUploadResult interruptedResult(SftpFileUploadResult result, TransferIoWatch::Reason reason)
+{
+    // An acknowledged or ambiguous publication remains authoritative.
+    if (reason != TransferIoWatch::Reason::None && !result.published
+        && result.publication != QStringLiteral("unknown"))
+        result.errorCode = reason == TransferIoWatch::Reason::Timeout
+            ? QStringLiteral("TRANSFER_TIMEOUT") : QStringLiteral("TRANSFER_CANCELLED");
+    return result;
+}
 
 // SFTP 工作线程名：objectName 与 OS 级线程名共用同一字符串（理由同
 // SshTransport）。
@@ -1048,6 +1167,7 @@ void SftpSession::finishWorker(const std::shared_ptr<WorkerControl>& control,
                               quint64 generation)
 {
     QVector<SftpFileUploadResult> unfinishedFiles;
+    QVector<QPair<quint64, QString>> unfinishedUploads;
     QList<quint64> unfinishedDirectories;
     {
         // Serialize natural exit with admission. Requests accepted before this
@@ -1059,6 +1179,12 @@ void SftpSession::finishWorker(const std::shared_ptr<WorkerControl>& control,
         control->directoryRequests.clear();
         control->cancelledDirectoryRequests.clear();
         for (auto it = control->commands.begin(); it != control->commands.end();) {
+            if (it->type == CommandType::UploadBytes) {
+                unfinishedUploads.append({it->requestId, it->target});
+                control->queuedUploadBytes -= it->content.size();
+                it = control->commands.erase(it);
+                continue;
+            }
             if (it->type != CommandType::UploadAuthorizedFile) { ++it; continue; }
             it->fileUpload.control->cancel();
             SftpFileUploadResult result;
@@ -1069,6 +1195,10 @@ void SftpSession::finishWorker(const std::shared_ptr<WorkerControl>& control,
         }
     }
     for (const auto& result : unfinishedFiles) postFileUploadResult(control, result);
+    for (const auto& upload : unfinishedUploads)
+        postNotification(control, generation, [upload](SftpSession& receiver) {
+            emit receiver.uploadBytesFinished(upload.first, upload.second, false, QStringLiteral("SESSION_NOT_AVAILABLE"));
+        });
     for (const auto request : unfinishedDirectories)
         postDirectoryResult(control, generation, request, {{}, {}, tr("SFTP disconnected."), false});
     postNotification(control, generation,
@@ -1446,6 +1576,10 @@ void SftpSession::workerMain(std::shared_ptr<WorkerControl> control,
                 });
             // Results retain original publication facts even after disconnect.
             postFileUploadResult(control, result);
+            if (command.fileUpload.control->ioInterrupted.load(std::memory_order_acquire)) {
+                postError(control, generation, tr("SFTP connection interrupted during transfer; reconnect to continue."));
+                break;
+            }
             continue;
         }
 
@@ -1912,6 +2046,27 @@ SftpFileUploadResult SftpSession::uploadAuthorizedFileWorker(
     const std::function<void(quint64, quint64)>& progress,
     const std::function<void()>& ready)
 {
+    TransferIoWatch watch(session, request.control, stopped);
+    if (!watch.valid()) {
+        SftpFileUploadResult result; result.requestId = request.requestId;
+        result.errorCode = QStringLiteral("TRANSFER_SFTP_WATCH_UNAVAILABLE"); return result;
+    }
+    auto result = uploadAuthorizedFileWorkerImpl(sftp, session, request, stopped,
+        [&](quint64 bytes, quint64 total) { watch.progress(bytes); progress(bytes, total); }, ready);
+    const auto reason = watch.finish();
+    // Once the remote connection is interrupted its temporary path cannot be
+    // independently inspected; a previous observation cannot prove retention.
+    if (reason != TransferIoWatch::Reason::None && result.temporary == QStringLiteral("retained"))
+        result.temporary = QStringLiteral("unknown");
+    return interruptedResult(std::move(result), reason);
+}
+
+SftpFileUploadResult SftpSession::uploadAuthorizedFileWorkerImpl(
+    sftp_session sftp, ssh_session session, const SftpFileUploadRequest& request,
+    const std::function<bool()>& stopped,
+    const std::function<void(quint64, quint64)>& progress,
+    const std::function<void()>& ready)
+{
     using namespace NovaTerm::Mcp::Files;
     namespace Budget = NovaTerm::Mcp::Budget;
     using State = SftpFileUploadControl::State;
@@ -1983,8 +2138,8 @@ SftpFileUploadResult SftpSession::uploadAuthorizedFileWorker(
         return authorizedDownloadSource(current.get(), original.constLast().uid, originalTarget.get());
     };
     auto opened = LocalFileReader::open(request.localRoot, request.localRelativePath);
-    if (std::holds_alternative<FileIoError>(opened)) {
-        result.errorCode = QStringLiteral("TRANSFER_LOCAL_FILE_UNAVAILABLE");
+    if (const auto* error = std::get_if<FileIoError>(&opened)) {
+        result.errorCode = localFileTransferErrorCode(*error);
         return result;
     }
     auto local = std::move(std::get<std::unique_ptr<LocalFileReader>>(opened));
@@ -2048,8 +2203,8 @@ SftpFileUploadResult SftpSession::uploadAuthorizedFileWorker(
         if (cancelled()) return fail(result.errorCode);
         if (!rootGuard(false)) return fail(QStringLiteral("TRANSFER_PATH_CHANGED"));
         auto read = local->read(Budget::LocalTransferChunkBytes);
-        if (std::holds_alternative<FileIoError>(read))
-            return fail(QStringLiteral("TRANSFER_LOCAL_READ_FAILED"));
+        if (const auto* error = std::get_if<FileIoError>(&read))
+            return fail(localFileTransferErrorCode(*error));
         const QByteArray& bytes = std::get<QByteArray>(read);
         if (bytes.isEmpty() || quint64(bytes.size()) > totalBytes - result.transferredBytes)
             return fail(QStringLiteral("TRANSFER_LOCAL_SIZE_CHANGED"));
@@ -2067,7 +2222,9 @@ SftpFileUploadResult SftpSession::uploadAuthorizedFileWorker(
     }
     // Read once past the initial size to reject growth on the pinned handle.
     auto eof = local->read(1);
-    if (std::holds_alternative<FileIoError>(eof) || !std::get<QByteArray>(eof).isEmpty())
+    if (const auto* error = std::get_if<FileIoError>(&eof))
+        return fail(localFileTransferErrorCode(*error));
+    if (!std::get<QByteArray>(eof).isEmpty())
         return fail(QStringLiteral("TRANSFER_LOCAL_SIZE_CHANGED"));
     if (sftp_close(remote.release()) != SSH_OK)
         return fail(QStringLiteral("TRANSFER_REMOTE_CLOSE_FAILED"));
@@ -2160,8 +2317,7 @@ SftpFileUploadResult SftpSession::copyAuthorizedDownload(
     auto opened = LocalFileWriter::create(request.localRoot, request.localRelativePath, totalBytes,
         request.overwrite);
     if (const auto* error = std::get_if<FileIoError>(&opened)) {
-        result.errorCode = *error == FileIoError::AlreadyExists
-            ? QStringLiteral("TRANSFER_LOCAL_TARGET_EXISTS") : QStringLiteral("TRANSFER_LOCAL_FILE_UNAVAILABLE");
+        result.errorCode = localFileTransferErrorCode(*error);
         return result;
     }
     auto local = std::move(std::get<std::unique_ptr<LocalFileWriter>>(opened));
@@ -2188,8 +2344,9 @@ SftpFileUploadResult SftpSession::copyAuthorizedDownload(
         if (received < 0 || received > count) return fail(QStringLiteral("TRANSFER_REMOTE_READ_FAILED"));
         if (!received) return fail(QStringLiteral("TRANSFER_REMOTE_SIZE_CHANGED"));
         bytes.resize(qsizetype(received));
-        if (std::holds_alternative<FileIoError>(local->append(bytes)))
-            return fail(QStringLiteral("TRANSFER_LOCAL_WRITE_FAILED"));
+        auto appended = local->append(bytes);
+        if (const auto* error = std::get_if<FileIoError>(&appended))
+            return fail(localFileTransferErrorCode(*error));
         result.transferredBytes += quint64(received);
         lastProgress = elapsed.elapsed();
         if (cancelled()) return fail(blockedCode);
@@ -2208,8 +2365,7 @@ SftpFileUploadResult SftpSession::copyAuthorizedDownload(
         [&] {
             auto published = local->publish();
             if (const auto* error = std::get_if<FileIoError>(&published)) {
-                publicationError = *error == FileIoError::AlreadyExists
-                    ? QStringLiteral("TRANSFER_LOCAL_TARGET_EXISTS") : QStringLiteral("TRANSFER_LOCAL_PUBLISH_FAILED");
+                publicationError = localFileTransferErrorCode(*error);
                 return 1;
             }
             return 0;
@@ -2222,6 +2378,22 @@ SftpFileUploadResult SftpSession::copyAuthorizedDownload(
 }
 
 SftpFileUploadResult SftpSession::downloadAuthorizedFileWorker(
+    sftp_session sftp, ssh_session session, const SftpFileUploadRequest& request,
+    const std::function<bool()>& stopped,
+    const std::function<void(quint64, quint64)>& progress,
+    const std::function<void()>& ready)
+{
+    TransferIoWatch watch(session, request.control, stopped);
+    if (!watch.valid()) {
+        SftpFileUploadResult result; result.requestId = request.requestId;
+        result.errorCode = QStringLiteral("TRANSFER_SFTP_WATCH_UNAVAILABLE"); return result;
+    }
+    auto result = downloadAuthorizedFileWorkerImpl(sftp, session, request, stopped,
+        [&](quint64 bytes, quint64 total) { watch.progress(bytes); progress(bytes, total); }, ready);
+    return interruptedResult(std::move(result), watch.finish());
+}
+
+SftpFileUploadResult SftpSession::downloadAuthorizedFileWorkerImpl(
     sftp_session sftp, ssh_session session, const SftpFileUploadRequest& request,
     const std::function<bool()>& stopped,
     const std::function<void(quint64, quint64)>& progress,

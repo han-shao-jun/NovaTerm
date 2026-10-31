@@ -151,6 +151,7 @@ private slots:
     void recordingLifecycleFollowsConnectionGeneration();
     void recordingBindingFollowsSessionIdentityReuse();
     void serialIoPausedDeliveryKeepsBoundedBytes();
+    void serialIoGenerationStatisticsDoNotMixConnections();
     void serialIoReconnectRejectsOldGeneration();
     void serialIoOriginalGenerationRejectsWriteAndClear();
     void serialTransportOriginalGenerationRejectsWriteAndClear();
@@ -329,6 +330,25 @@ void SessionTests::serialIoPausedDeliveryKeepsBoundedBytes()
     QCOMPARE(statistics.receivedBytes, quint64(8));
     QCOMPARE(statistics.deliveredBytes, quint64(8));
     QCOMPARE(statistics.receiveHighWater, quint64(8));
+}
+
+void SessionTests::serialIoGenerationStatisticsDoNotMixConnections()
+{
+    NovaTerm::SerialIoState state(4, 16);
+    const auto first = state.requestOpen(); QVERIFY(state.opened(first));
+    QVERIFY(state.receive(first, QByteArrayLiteral("abcd")));
+    QCOMPARE(state.snapshot().generationReceiveFullCount, quint64(1));
+    const auto second = state.requestOpen(); QVERIFY(state.opened(second));
+    auto next = state.snapshot();
+    QCOMPARE(next.generationReceiveFullCount, quint64(0));
+    QCOMPARE(next.generationDiscardedReceiveBytes, quint64(0));
+    QVERIFY(!state.receive(first, QByteArrayLiteral("stale")));
+    QCOMPARE(state.snapshot().generationDiscardedReceiveBytes, quint64(0));
+    QVERIFY(state.receive(second, QByteArrayLiteral("xyz")));
+    QVERIFY(state.closed(second));
+    QCOMPARE(state.snapshot().generationDiscardedReceiveBytes, quint64(3));
+    QVERIFY(!state.receive(second, QByteArrayLiteral("late")));
+    QCOMPARE(state.snapshot().generationDiscardedReceiveBytes, quint64(7));
 }
 
 void SessionTests::serialIoReconnectRejectsOldGeneration()

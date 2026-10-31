@@ -121,8 +121,13 @@ FileIoResult<Handle> openRelative(HANDLE parent, const QString& name, ACCESS_MAS
     const auto status = create(&file, access | FILE_READ_ATTRIBUTES | SYNCHRONIZE, &object, &io, nullptr, attributes,
         sharing, disposition, options | FILE_OPEN_REPARSE_POINT | FILE_SYNCHRONOUS_IO_NONALERT, nullptr, 0);
     if (nativeStatus) *nativeStatus = status;
-    if (status < 0) return quint32(status) == 0xc0000035
-        ? FileIoError::AlreadyExists : FileIoError::NotAvailable;
+    if (status < 0) {
+        const auto code = quint32(status);
+        if (code == 0xc0000035) return FileIoError::AlreadyExists;
+        if (code == 0xc0000034 || code == 0xc000003a) return FileIoError::NotFound;
+        if (code == 0xc0000022) return FileIoError::AccessDenied;
+        return FileIoError::NotAvailable;
+    }
     return Handle(file);
 }
 struct PinnedPath {
@@ -214,7 +219,10 @@ bool sameSource(const struct stat& a, const struct stat& b)
 }
 FileIoError posixOpenError()
 {
-    return errno == ELOOP || errno == ENOTDIR ? FileIoError::UnsafeFile : FileIoError::NotAvailable;
+    if (errno == ELOOP || errno == ENOTDIR) return FileIoError::UnsafeFile;
+    if (errno == ENOENT) return FileIoError::NotFound;
+    if (errno == EACCES || errno == EPERM) return FileIoError::AccessDenied;
+    return FileIoError::NotAvailable;
 }
 struct PosixPinnedFile {
     std::vector<PosixFd> directories;

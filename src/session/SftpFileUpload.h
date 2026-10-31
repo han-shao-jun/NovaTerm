@@ -8,6 +8,8 @@
 struct SftpFileUploadControl {
     enum class State { Active, AwaitingPublication, Approved, Cancelled, Publishing };
     std::atomic<State> state{State::Active};
+    // Set only if the dedicated SFTP socket was interrupted; its worker must exit.
+    std::atomic_bool ioInterrupted{false};
     bool cancel() noexcept
     {
         auto current = state.load(std::memory_order_acquire);

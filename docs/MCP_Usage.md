@@ -102,6 +102,8 @@ status=gap 表示旧位置被淘汰；status=invalidated 表示本机 clear 或 
 
 当前软尾行、未换行提示、CR 进度条和备用屏仍看缺省 observation。日志只读已稳定的终端缓存，没有原始字节或覆写前屏幕帧；分页完整不证明 UART 硬件零丢失。日志 token 与观察 token/capture/expandToken 不混用，不产生 inputToken；需要操作时另读屏幕。MCP 清空按下节独立授权开放；文本等待和长任务见下文；文件传输当前提供受限SFTP上传/下载和独立授权的UART/ZMODEM单文件发送。
 
+观察中的 `terminalConfiguration` 给出实际行结束符、远端回显配置、提示符配置状态和可用的串口参数；未知配置为 null。`ioStatus` 含采样时间和会话连接代际，分别报告输入泵待处理字节、暂停/过载状态，以及串口 I/O 代际、接收和发送队列、暂停、队列满次数和已知丢弃字节。串口累计项从该串口 I/O 代际开始计数，不含驱动或硬件中未知的丢失；非串口的 `serial` 为 null。输入泵和串口队列属于不同层，不应直接相加推断设备总缓冲。
+
 ## 文本等待与长任务（B3/B3a）
 
 当前共二十个工具：五个基础终端工具、三项历史、清空、四项等待/任务、SFTP上传/下载/查询/取消四项，以及UART上传/查询/取消三项。AI从已连接会话目录取得sessionId/epoch，用户不用手工填写内部ID。
@@ -137,6 +139,12 @@ status=gap 表示旧位置被淘汰；status=invalidated 表示本机 clear 或 
 
 分别检查status、submissionStatus、completed、evidenceKind、exitCode和terminationConfirmed。UART原始任务静默仍running，执行期限到达unknown，不能捏造exitCode=0；SSH提示符也不证明功能测试成功。停止请求与远端确认终止分别解释；人工接管、可信环境reset、断连或新执行后旧停止请求不再有效。任务输出仍来自终端缓存，清空/淘汰可造成output缺口，但不抹除执行事实。
 
+`taskSubmission` 保存原任务的 operationId、提交状态及 `inputMayHaveBeenSent`；
+`stopSubmission` 在未尝试停止时为 null，之后提供停止 operationId、各自的提交状态、
+可能发送标记及失败原因。`queued` 不代表 Ctrl+C 已发送，`submitted` 也不代表远端进程已终止；
+是否确认终止仍单独看 `terminationConfirmed`。原 `submissionStatus` 和
+`inputMayHaveBeenSent` 保留原有兼容语义，可能随最近一次停止输入更新，不能代替两份回执。
+
 构建、部署、固件标识和功能判据由外部Agent分别确认；文本命中只证明文本出现。完整字段、预算和验收边界见 [现行契约](architecture/stages/P8_AI_MCP_Interface/02_Current_MCP_Contract.md)。
 
 ## SFTP 上传与下载
@@ -160,7 +168,17 @@ status=gap 表示旧位置被淘汰；status=invalidated 表示本机 clear 或 
 可按 `retryAfterMs` 等待后续调原请求；`UPLOAD_MEMORY_UNAVAILABLE` 表示本机存储不可用，
 需要先处理存储问题，不能靠重复发送文件解决。
 
-安全本地Writer支持Windows/Linux；上传和下载复用原SFTP队列/worker。新建远端目标要求hardlink扩展1，覆盖已有目标要求posix-rename扩展1。仍需可信目录属主/管理员，SFTPv3不能抵抗同账号恶意换路径。同步库调用不保证硬截止时间。
+本地文件失败的 `errorCode` 区分 `TRANSFER_SIZE_LIMIT`（超过64 MiB）、
+`TRANSFER_LOCAL_INVALID_PATH`、`TRANSFER_LOCAL_NOT_FOUND`、`TRANSFER_LOCAL_ACCESS_DENIED`、
+`TRANSFER_LOCAL_PATH_UNSAFE`、`TRANSFER_LOCAL_TARGET_EXISTS`、`TRANSFER_LOCAL_UNSUPPORTED`、
+`TRANSFER_LOCAL_IO_FAILED` 和 `TRANSFER_LOCAL_FILE_UNAVAILABLE`。大小、无效路径、目标已存在和
+不支持的文件系统需要调整请求或环境；权限、安全检查和I/O失败应先排查原因。不可用可能是暂时的
+句柄或锁竞争，也可能是无法进一步分类的系统错误。确认问题已处理后创建新操作；原operationId的
+精确重试只返回原操作事实，不会重新传输。错误码不覆盖已发布或发布结果未知的事实。
+`TRANSFER_SFTP_WATCH_UNAVAILABLE` 表示无法建立传输网络中断所需的句柄；该次传输未启动，
+可在本机资源恢复后使用新 operationId 重试。
+
+安全本地Writer支持Windows/Linux；上传和下载复用原SFTP队列/worker。新建远端目标要求hardlink扩展1，覆盖已有目标要求posix-rename扩展1。仍需可信目录属主/管理员，SFTPv3不能抵抗同账号恶意换路径。取消或期限到达时，阻塞的网络I/O通过中断该传输专用SFTP连接收口；原终端SSH连接独立。被中断的SFTP连接需要重新建立，带请求ID的排队操作收到连接不可用结果，其他面板操作通过错误和断连通知获知连接失效；发布确认丢失仍为unknown。操作系统本地文件I/O若自身阻塞，不能保证同样的硬退出时间。
 
 ### Linux 本地下载边界
 

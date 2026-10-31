@@ -24,6 +24,35 @@ using namespace NovaTerm::Mcp;
 using namespace NovaTerm::Mcp::TestSupport;
 
 namespace {
+QJsonValue legacyObservationSchema(const QJsonValue& value)
+{
+    if (value.isArray()) {
+        QJsonArray out;
+        for (const auto& item : value.toArray()) out.append(legacyObservationSchema(item));
+        return out;
+    }
+    if (!value.isObject()) return value;
+    auto object = value.toObject();
+    for (auto it = object.begin(); it != object.end(); ++it)
+        it.value() = legacyObservationSchema(it.value());
+    auto properties = object.value("properties").toObject();
+    if (properties.contains("inputReadiness") && properties.contains("command") && properties.contains("control")) {
+        properties.remove("screenSize"); properties.remove("viewportPartial"); properties.remove("lastCommand");
+        properties.remove("terminalConfiguration"); properties.remove("ioStatus");
+        const QJsonObject open{{"type", "object"}, {"additionalProperties", true}};
+        properties.insert("inputReadiness", open); properties.insert("command", open); properties.insert("control", open);
+        object.insert("properties", properties);
+    }
+    if (properties.contains("submissionStatus") && properties.contains("stopRequested")) {
+        properties.remove("taskSubmission"); properties.remove("stopSubmission");
+        object.insert("properties", properties);
+        QJsonArray required;
+        for (const auto& name : object.value("required").toArray())
+            if (name != "taskSubmission" && name != "stopSubmission") required.append(name);
+        object.insert("required", required);
+    }
+    return object;
+}
 const QString SessionUuid = QStringLiteral("11111111-1111-4111-8111-111111111111");
 const QString OperationUuid = QStringLiteral("22222222-2222-4222-8222-222222222222");
 
@@ -342,7 +371,7 @@ private slots:
         for (const auto* name : {"novaterm_wait_text", "novaterm_start_task", "novaterm_query_task", "novaterm_stop_task"})
             workflow.append(toolByName(QString::fromLatin1(name)));
         QCOMPARE(workflow.size(), 4);
-        QCOMPARE(workflow, QJsonDocument::fromJson(fixture.readAll()).array());
+        QCOMPARE(legacyObservationSchema(workflow), QJsonValue(QJsonDocument::fromJson(fixture.readAll()).array()));
     }
     void workflowToolsAreBoundedAndIndependent()
     {
@@ -424,7 +453,19 @@ private slots:
     void errorCodeMappingRoundTrips();
     void strongIdentifiersRejectLooseText();
     void projectionSizerMatchesWireEncoding();
+    void observationSchemaDescribesState();
 };
+
+void ContractsTests::observationSchemaDescribesState()
+{
+    const auto data = toolByName("novaterm_read_context").value("outputSchema").toObject()
+        .value("properties").toObject().value("data").toObject();
+    const auto properties = data.value("anyOf").toArray().first().toObject().value("properties").toObject();
+    QCOMPARE(properties.value("screenSize").toObject().value("type").toString(), QStringLiteral("object"));
+    QCOMPARE(properties.value("viewportPartial").toObject().value("type").toString(), QStringLiteral("boolean"));
+    for (const auto& name : {"control", "command", "inputReadiness"})
+        QVERIFY2(!properties.value(name).toObject().value("properties").toObject().isEmpty(), name);
+}
 
 void ContractsTests::logReadRequiresExplicitSourceAndStart()
 {
@@ -467,11 +508,11 @@ void ContractsTests::catalogMatchesCompatibilityFixture()
         if (retiredTool(name)) continue;
         const auto current = toolByName(name);
         if (name != "novaterm_read_context") {
-            QCOMPARE(current, retainedSchema(previousTool).toObject()); continue;
+            QCOMPARE(legacyObservationSchema(current), retainedSchema(previousTool)); continue;
         }
         QFile logFixture(QStringLiteral(NOVATERM_SOURCE_DIR "/tests/mcp/fixtures/read-context-clear-2026-10-25.json"));
         QVERIFY(logFixture.open(QIODevice::ReadOnly));
-        QCOMPARE(current, QJsonDocument::fromJson(logFixture.readAll()).object());
+        QCOMPARE(legacyObservationSchema(current), QJsonValue(QJsonDocument::fromJson(logFixture.readAll()).object()));
         QFile b1Fixture(QStringLiteral(NOVATERM_SOURCE_DIR "/tests/mcp/fixtures/read-context-log-2026-10-25.json"));
         QVERIFY(b1Fixture.open(QIODevice::ReadOnly));
         const auto b1 = QJsonDocument::fromJson(b1Fixture.readAll()).object();
@@ -489,8 +530,8 @@ void ContractsTests::catalogMatchesCompatibilityFixture()
         const auto props = oldInput.value("properties").toObject();
         for (auto it = props.begin(); it != props.end(); ++it)
             QCOMPARE(newInput.value("properties").toObject().value(it.key()), it.value());
-        QCOMPARE(current.value("outputSchema").toObject().value("properties").toObject().value("data")
-            .toObject().value("anyOf").toArray().first(), previous.value("outputSchema").toObject().value("properties").toObject().value("data"));
+        QCOMPARE(legacyObservationSchema(current.value("outputSchema").toObject().value("properties").toObject().value("data")
+            .toObject().value("anyOf").toArray().first()), previous.value("outputSchema").toObject().value("properties").toObject().value("data"));
     }
 }
 

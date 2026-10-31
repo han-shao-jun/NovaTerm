@@ -14,6 +14,7 @@ constexpr quint64 UnknownSize = std::numeric_limits<quint64>::max();
 struct SourceState {
     std::atomic_bool stopped{false};
     std::atomic<quint64> total{UnknownSize};
+    std::atomic_int fileError{-1};
 };
 class ReaderSource final : public SerialTransferSource {
 public:
@@ -26,6 +27,8 @@ public:
             error = "Source read refused"; return false;
         }
         auto result = _reader->readAt(offset, count);
+        if (const auto* errorCode = std::get_if<Files::FileIoError>(&result))
+            _state->fileError = int(*errorCode);
         if (_state->stopped.load() || std::holds_alternative<Files::FileIoError>(result)) {
             error = "Source read refused"; return false;
         }
@@ -183,7 +186,10 @@ void SerialFileTransfers::finish(const std::shared_ptr<Record>& record, const Se
     if (result.protocolCompleted) {
         settle(record, record->completedFiles == 1 ? "completed" : "skipped", {});
     } else {
-        const auto error = record->error.isEmpty() ? errorCode(result.error) : record->error;
+        const auto sourceError = record->source->fileError.load();
+        const auto error = !record->error.isEmpty() ? record->error
+            : sourceError >= 0 ? Files::localFileTransferErrorCode(static_cast<Files::FileIoError>(sourceError))
+            : errorCode(result.error);
         const auto state = record->cancelling && error != "TIMEOUT" && error != "RESOURCE_LIMIT" ? "cancelled" : "failed";
         settle(record, state, error.isEmpty() ? QString("FILE_TRANSFER_FAILED") : error);
     }
@@ -292,7 +298,9 @@ Result<QJsonObject> SerialFileTransfers::call(const QString& client, quint64 ide
             (QString& error) -> std::unique_ptr<SerialTransferSource> {
                 if (state->stopped.load()) { error = "Source cancelled"; return {}; }
                 auto opened = Files::LocalFileReader::open(root, relative);
-                if (std::holds_alternative<Files::FileIoError>(opened)) { error = "Source open refused"; return {}; }
+                if (const auto* failure = std::get_if<Files::FileIoError>(&opened)) {
+                    state->fileError = int(*failure); error = "Source open refused"; return {};
+                }
                 auto reader = std::move(std::get<std::unique_ptr<Files::LocalFileReader>>(opened));
                 state->total = reader->size();
                 if (state->stopped.load() || reader->size() > Budget::MaxLocalTransferFileBytes) {

@@ -23,6 +23,7 @@ struct SerialIoSnapshot
     qint64 receiveBytes{0}, queuedWriteBytes{0}, inFlightWriteBytes{0};
     quint64 receivedBytes{0}, deliveredBytes{0}, completedWriteBytes{0};
     quint64 receiveHighWater{0}, discardedReceiveBytes{0}, receiveFullCount{0};
+    quint64 generationDiscardedReceiveBytes{0}, generationReceiveFullCount{0};
     quint32 driverRxRequested{262144}, driverRxBefore{0}, driverRxActual{0};
     quint32 driverSetupError{0}, driverQueryError{0};
     bool driverRequestAccepted{false}, driverCapacityQueried{false};
@@ -117,6 +118,7 @@ public:
         const std::lock_guard<std::mutex> lock(_mutex);
         if (!current(generation) || !_state.connected) {
             _state.discardedReceiveBytes += quint64(bytes.size());
+            if (current(generation)) _state.generationDiscardedReceiveBytes += quint64(bytes.size());
             return false;
         }
         if (bytes.size() > _receiveLimit - _state.receiveBytes) return false;
@@ -124,7 +126,10 @@ public:
         _state.receiveBytes += bytes.size();
         _state.receivedBytes += quint64(bytes.size());
         _state.receiveHighWater = std::max(_state.receiveHighWater, quint64(_state.receiveBytes));
-        if (_state.receiveBytes == _receiveLimit) ++_state.receiveFullCount;
+        if (_state.receiveBytes == _receiveLimit) {
+            ++_state.receiveFullCount;
+            ++_state.generationReceiveFullCount;
+        }
         appendSegments(_received, bytes);
         return true;
     }
@@ -327,6 +332,7 @@ private:
     void clearBuffers()
     {
         _state.discardedReceiveBytes += quint64(_state.receiveBytes);
+        _state.generationDiscardedReceiveBytes += quint64(_state.receiveBytes);
         _received.clear();
         _writes.clear();
         _state.receiveBytes = _state.queuedWriteBytes = _state.inFlightWriteBytes = 0;
@@ -337,6 +343,8 @@ private:
         ++_state.generation;
         ++_state.writeEpoch;
         clearBuffers();
+        _state.generationDiscardedReceiveBytes = 0;
+        _state.generationReceiveFullCount = 0;
         _state.connected = false;
         _state.driverRxBefore = _state.driverRxActual = 0;
         _notices = {};

@@ -17,8 +17,15 @@
 #include <QSignalSpy>
 #include <QTest>
 #include <QThread>
+#include <QUuid>
 
 #include <atomic>
+#include <thread>
+#include <chrono>
+#ifdef Q_OS_WIN
+#include <windows.h>
+#include <sddl.h>
+#endif
 
 class SftpSessionSafetyTestAccess
 {
@@ -106,6 +113,13 @@ public:
         const std::function<void(quint64, quint64)>& progress, const std::function<void()>& ready)
     { return SftpSession::copyAuthorizedDownload(request, total, read, close, guard, stopped, progress, ready); }
 
+    static SftpFileUploadResult upload(sftp_session sftp, ssh_session ssh, const SftpFileUploadRequest& request)
+    { return SftpSession::uploadAuthorizedFileWorker(sftp, ssh, request, [] { return false; },
+        [](quint64, quint64) {}, [control = request.control] { control->approve(true); }); }
+    static SftpFileUploadResult downloadWorker(sftp_session sftp, ssh_session ssh, const SftpFileUploadRequest& request)
+    { return SftpSession::downloadAuthorizedFileWorker(sftp, ssh, request, [] { return false; },
+        [](quint64, quint64) {}, [] {}); }
+
     static bool finalize(const std::function<bool()>& cancelled,
                          const std::function<bool()>& close,
                          const std::function<bool()>& chmod,
@@ -122,6 +136,20 @@ class SftpSessionSafetyTests final : public QObject
     Q_OBJECT
 
 private slots:
+    void workerExitSettlesQueuedScriptUpload()
+    {
+        SftpSession session;
+        auto worker = SftpSessionSafetyTestAccess::control(session);
+        worker->running = true; worker->connected = true;
+        QSignalSpy results(&session, &SftpSession::uploadBytesFinished);
+        QVERIFY(session.uploadBytes(778, QByteArray("queued"), QStringLiteral("/tmp/script")));
+        SftpSessionSafetyTestAccess::finishWorker(worker);
+        QTRY_COMPARE_WITH_TIMEOUT(results.size(), 1, 500);
+        QCOMPARE(results.first().at(0).toULongLong(), quint64(778));
+        QVERIFY(!results.first().at(2).toBool());
+        QCOMPARE(results.first().at(3).toString(), QStringLiteral("SESSION_NOT_AVAILABLE"));
+        QCOMPARE(worker->queuedUploadBytes, qsizetype(0));
+    }
     void acceptedDirectoryRequestSettlesOnNaturalWorkerExit() {
         SftpSession session;
         auto worker = SftpSessionSafetyTestAccess::control(session);
@@ -279,6 +307,62 @@ private slots:
             "missing-size", "missing-owner", "missing-permissions", "missing-time", "changed-owner", "changed-group",
             "changed-mode", "changed-size", "changed-mtime"})
             QTest::newRow(change) << QString::fromLatin1(change) << false;
+    }
+
+    void authorizedDownloadReportsAccessDenied()
+    {
+#ifdef Q_OS_WIN
+        QTemporaryDir directory; QVERIFY(directory.isValid());
+        QVERIFY(QDir(directory.path()).mkdir(QStringLiteral("denied")));
+        const auto target = directory.filePath(QStringLiteral("denied"));
+        const auto native = QDir::toNativeSeparators(target).toStdWString();
+        DWORD length = 0;
+        GetFileSecurityW(native.c_str(), DACL_SECURITY_INFORMATION, nullptr, 0, &length);
+        QVERIFY(length > 0);
+        QByteArray original(qsizetype(length), Qt::Uninitialized);
+        QVERIFY(GetFileSecurityW(native.c_str(), DACL_SECURITY_INFORMATION, original.data(), length, &length));
+        PSECURITY_DESCRIPTOR denied = nullptr;
+        QVERIFY(ConvertStringSecurityDescriptorToSecurityDescriptorW(L"D:P(D;;0x1;;;WD)(A;;FA;;;OW)",
+            SDDL_REVISION_1, &denied, nullptr));
+        const auto freeDescriptor = qScopeGuard([&] { LocalFree(denied); });
+        QVERIFY(SetFileSecurityW(native.c_str(), DACL_SECURITY_INFORMATION | PROTECTED_DACL_SECURITY_INFORMATION, denied));
+        const auto restore = qScopeGuard([&] {
+            SetFileSecurityW(native.c_str(), DACL_SECURITY_INFORMATION, original.data());
+        });
+        SftpFileUploadRequest request{304, directory.path(), QStringLiteral("denied/protected.bin"),
+            QStringLiteral("/home/test"), QStringLiteral("remote.bin"), std::make_shared<SftpFileUploadControl>(),
+            SftpFileTransferDirection::Download};
+        int reads = 0;
+        const auto result = SftpSessionSafetyTestAccess::download(request, 4,
+            [&](char*, qsizetype) -> qint64 { ++reads; return 0; }, [] { return true; },
+            [] { return true; }, [] { return false; }, [](quint64, quint64) {}, [] {});
+        QCOMPARE(result.errorCode, QStringLiteral("TRANSFER_LOCAL_ACCESS_DENIED"));
+        QCOMPARE(reads, 0);
+        QVERIFY(!result.published);
+#else
+        QSKIP("Windows ACL fixture.");
+#endif
+    }
+
+    void authorizedDownloadRejectsUnsupportedFilesystem()
+    {
+#ifdef Q_OS_LINUX
+        const auto root = qEnvironmentVariable("NOVATERM_TEST_UNSUPPORTED_FILESYSTEM_ROOT");
+        if (root.isEmpty()) QSKIP("Set NOVATERM_TEST_UNSUPPORTED_FILESYSTEM_ROOT to a writable unsupported filesystem.");
+        SftpFileUploadRequest request{306, root, QUuid::createUuid().toString(QUuid::WithoutBraces),
+            QStringLiteral("/"), QStringLiteral("remote.bin"), std::make_shared<SftpFileUploadControl>(),
+            SftpFileTransferDirection::Download};
+        int reads = 0;
+        const auto result = SftpSessionSafetyTestAccess::download(request, 4,
+            [&](char*, qsizetype) -> qint64 { ++reads; return 0; }, [] { return true; },
+            [] { return true; }, [] { return false; }, [](quint64, quint64) {}, [] {});
+        QCOMPARE(result.errorCode, QStringLiteral("TRANSFER_LOCAL_UNSUPPORTED"));
+        QCOMPARE(reads, 0);
+        QVERIFY(!result.published);
+        QCOMPARE(result.publication, QStringLiteral("not_started"));
+#else
+        QSKIP("Linux unsupported-filesystem fixture.");
+#endif
     }
 
     void authorizedDownloadSourceMetadata()
@@ -635,5 +719,82 @@ private slots:
     }
 };
 
-QTEST_GUILESS_MAIN(SftpSessionSafetyTests)
+int main(int argc, char** argv)
+{
+    QCoreApplication app(argc, argv);
+    if (app.arguments().size() == 3 && (app.arguments()[1] == "--oversize-sftp-loopback"
+        || app.arguments()[1] == "--cancel-sftp-loopback" || app.arguments()[1] == "--timeout-sftp-loopback"
+        || app.arguments()[1] == "--cancel-download-sftp-loopback" || app.arguments()[1] == "--publication-timeout-loopback"
+        || app.arguments()[1] == "--total-download-loopback")) {
+        const bool totalDeadline = app.arguments()[1] == "--total-download-loopback";
+        const bool download = totalDeadline || app.arguments()[1] == "--cancel-download-sftp-loopback";
+        const bool cancellation = (download && !totalDeadline) || app.arguments()[1] == "--cancel-sftp-loopback";
+        const bool publishing = app.arguments()[1] == "--publication-timeout-loopback";
+        const bool timeoutTest = publishing || app.arguments()[1] == "--timeout-sftp-loopback";
+        bool parsed = false;
+        const int port = app.arguments()[2].toInt(&parsed);
+        if (!parsed || port <= 0 || port > 65535) return 2;
+        if (ssh_init() != SSH_OK) return 2;
+        const auto finalizeSsh = qScopeGuard([] { ssh_finalize(); });
+        ssh_session ssh = ssh_new();
+        if (!ssh) return 2;
+        const auto freeSsh = qScopeGuard([&] { ssh_disconnect(ssh); ssh_free(ssh); });
+        long timeout = 5;
+        ssh_options_set(ssh, SSH_OPTIONS_HOST, "127.0.0.1");
+        ssh_options_set(ssh, SSH_OPTIONS_PORT, &port);
+        ssh_options_set(ssh, SSH_OPTIONS_USER, "fixture");
+        ssh_options_set(ssh, SSH_OPTIONS_TIMEOUT, &timeout);
+        if (ssh_connect(ssh) != SSH_OK || ssh_userauth_password(ssh, nullptr, "fixture-only") != SSH_AUTH_SUCCESS) {
+            std::fprintf(stderr, "SSH fixture connection failed: %s\n", ssh_get_error(ssh)); return 3;
+        }
+        sftp_session sftp = sftp_new(ssh);
+        if (!sftp) return 3;
+        const auto freeSftp = qScopeGuard([&] { sftp_free(sftp); });
+        if (sftp_init(sftp) != SSH_OK) {
+            std::fprintf(stderr, "SFTP fixture init failed: %s\n", ssh_get_error(ssh)); return 3;
+        }
+        QTemporaryDir directory; if (!directory.isValid()) return 4;
+        if (!download) {
+            QFile file(directory.filePath("oversize.bin"));
+            if (!file.open(QIODevice::WriteOnly) || !file.resize(cancellation || timeoutTest ? 4 : 64 * 1024 * 1024 + 1)) return 4;
+        }
+        SftpFileUploadRequest request{305, directory.path(), QStringLiteral("oversize.bin"),
+            QStringLiteral("/"), QStringLiteral("remote.bin"), std::make_shared<SftpFileUploadControl>(),
+            download ? SftpFileTransferDirection::Download : SftpFileTransferDirection::Upload};
+        std::thread cancelThread;
+        if (cancellation) cancelThread = std::thread([control = request.control] {
+            std::this_thread::sleep_for(std::chrono::milliseconds(250)); control->cancel();
+        });
+        QElapsedTimer elapsed; elapsed.start();
+        const auto result = download ? SftpSessionSafetyTestAccess::downloadWorker(sftp, ssh, request)
+                                     : SftpSessionSafetyTestAccess::upload(sftp, ssh, request);
+        const auto duration = elapsed.elapsed();
+        if (cancelThread.joinable()) cancelThread.join();
+        std::printf("upload error=%s published=%d publication=%s temporary=%s bytes=%llu\n",
+            qPrintable(result.errorCode), int(result.published), qPrintable(result.publication),
+            qPrintable(result.temporary), static_cast<unsigned long long>(result.transferredBytes));
+        if (cancellation) {
+            std::printf("cancel elapsed=%lld ms\n", static_cast<long long>(duration));
+            return result.errorCode == QStringLiteral("TRANSFER_CANCELLED") && !result.published
+                && duration < 1800 ? 0 : 6;
+        }
+        if (totalDeadline) {
+            std::printf("total deadline elapsed=%lld ms\n", static_cast<long long>(duration));
+            return result.errorCode == QStringLiteral("TRANSFER_TIMEOUT") && !result.published
+                && result.transferredBytes > 0 && duration >= 118000 && duration < 123000 ? 0 : 8;
+        }
+        if (timeoutTest) {
+            std::printf("timeout elapsed=%lld ms\n", static_cast<long long>(duration));
+            if (publishing) return result.publication == QStringLiteral("unknown")
+                && result.temporary == QStringLiteral("unknown") && !result.published
+                && duration >= 14000 && duration < 18000 ? 0 : 7;
+            return result.errorCode == QStringLiteral("TRANSFER_TIMEOUT") && !result.published
+                && duration >= 14000 && duration < 18000 ? 0 : 7;
+        }
+        return result.errorCode == QStringLiteral("TRANSFER_SIZE_LIMIT") && !result.published
+            && result.transferredBytes == 0 ? 0 : 5;
+    }
+    SftpSessionSafetyTests tests;
+    return QTest::qExec(&tests, argc, argv);
+}
 #include "SftpSessionSafetyTests.moc"

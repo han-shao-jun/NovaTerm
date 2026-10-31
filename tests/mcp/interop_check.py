@@ -66,6 +66,15 @@ async def check(config: dict) -> None:
             short = await call("novaterm_read_context", {**identity, "maxBytes": 1})
             assert short["data"]["outputTruncated"] and short["data"]["nextToken"] is None
             snapshot = (await call("novaterm_read_context", identity))["data"]
+            compact = (await call("novaterm_read_context", {**identity, "responseMode": "compact"}))["data"]
+            assert compact["screenSize"]["columns"] > 0 and compact["screenSize"]["rows"] > 0
+            assert isinstance(compact["viewportPartial"], bool)
+            assert compact["terminalConfiguration"]["lineEnding"] in ("cr", "lf", "crlf")
+            assert compact["ioStatus"]["sessionGeneration"].isdigit()
+            assert compact["ioStatus"]["sampledAt"]
+            unchanged = (await call("novaterm_read_context", {**identity, "responseMode": "compact",
+                "sinceToken": compact["nextToken"]}))["data"]
+            assert not unchanged["outputChanged"] and not unchanged["screenChanged"]
             result = await call("novaterm_search_context", {**identity,
                 "captureId": snapshot["captureId"], "query": "ERROR"})
             assert result["data"]["matches"]

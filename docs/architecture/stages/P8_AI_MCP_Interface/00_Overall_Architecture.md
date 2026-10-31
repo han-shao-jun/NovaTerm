@@ -1,10 +1,8 @@
 # SSH/UART MCP 终端工具总体架构
 
-更新：2026-10-28。当前三十工具；Windows B0～B3b基础能力已提供，SFTP上传/下载可选overwrite默认false，本覆盖阶段Windows软件验证已完成。沿用FileTransfers、原SftpSession队列/worker、LocalFileWriter和查询/取消；精确边界见[契约](02_Current_MCP_Contract.md)，进度见[覆盖记录](records/B3b_File_Overwrite_2026-10-28.md)。
+更新：2026-10-31。当前二十工具，所有AI共用统一令牌及授权，仅操作已连接会话。SFTP上传/下载使用完整路径，上传首次确认并可记忆，overwrite默认false；Windows/Linux安全本地读写已实现，macOS后端未实现。精确行为见[契约](02_Current_MCP_Contract.md)，历史验证见[覆盖记录](records/B3b_File_Overwrite_2026-10-28.md)。
 
-UART发送复用原Session、SerialFileTransferController、TransferFileWorker、唯一输入泵与ZMODEM协议owner。MCP只管理独立授权和有界事实，安全源在原worker内打开、随机读取并销毁；不新增连接或执行器。调用方独立准备接收端并显式release已有MCP输入lease，上传不自动rz、不抢占人工传输。
-
-SFTP下载需要local.write+remote.read、上传需要local.read+remote.write；overwrite不扩大权限。覆盖授权可信目录中的目标路径替换，快照与最终复核不形成CAS，本地pinPath不执行ACL/owner检查。下载的published/publication/temporary仍指本地，contentVerified=false。本轮按Windows软件交付；Linux/macOS安全文件后端仍未实现，B4由用户验收，P8未整体完成。
+UART发送复用原Session、Controller、worker和唯一输入泵。调用方准备接收端，同主体空闲输入控制可自动衔接；不自动运行rz或抢占人工传输。SFTP覆盖要求可信目录，最终复核不形成CAS，本地pinPath不检查目录ACL/owner。下载的published/publication/temporary指本地，contentVerified=false；B4尚未完成。
 
 ## 1. 产品目标与责任
 
@@ -78,13 +76,13 @@ UART文件结果独立保留protocolCompleted与fileConfirmed；ZSKIP可结束�
 
 长任务以连续有界观察延续，不占一个无限等待 RPC。停止读取不发送 Ctrl+C；显式取消执行、释放控制和终止设备进程是不同动作。未知结果必须保留，不能自动重发烧录/重启。
 
-SSH 断连和 UART 持续输出分别观察。当前 MCP 可操作已授权会话，B3b已提供已获准保存目标的显式打开/复用与连接查询，不开放任意地址建连或自动循环重连。SSH/SFTP 与UART/ZMODEM单文件交付纳入 B3b，但烧录、JTAG、电源控制仍由明确范围的外部工具承担；U-Boot 短倒计时抢键必须实测后才可承诺。
+SSH 断连和 UART 持续输出分别观察。当前MCP只操作已连接且获准的会话；保存目标工具已退役，用户在本机管理连接。SSH/SFTP 与UART/ZMODEM单文件交付纳入 B3b，但烧录、JTAG、电源控制仍由明确范围的外部工具承担；U-Boot 短倒计时抢键必须实测后才可承诺。
 
 ## 7. 兼容与已有模块
 
 冻结基线为九个终端工具与三个离线历史工具，精确说明见 [02](02_Current_MCP_Contract.md)。B1 保留已发布十二工具与既有权限；read_context 的显式 source=log 扩展以独立 fixture 冻结，旧观察参数/输出分支保持。未发布 P4 及仅供其消费的原型退役，不改变旧 sinceToken。
 
-已有 recording/history-search/evidence 作为独立功能保留：录制开启不自动共享，离线 grant 不继承 Session grant，分页完整不证明源完整，Evidence 不代替授权。共享服务及来源适配不因 MCP 关闭就删除独立导入资源。实际结构与验证见 [资源边界记录](https://gitee.com/han-shao-jun/NovaTerm/blob/411ec15c36aa5ac56fddb204761fae830f785947/docs/architecture/stages/P8_AI_MCP_Interface/records/P3_Architecture_Fixes_2026-10-24.md)。
+已有 recording/history-search/evidence 作为独立功能保留：录制仍手动开启，MCP启用后已有录制可直接读取和搜索，分页完整不证明源完整，Evidence 不代替授权。共享服务及来源适配不因 MCP 关闭就删除独立导入资源。实际结构与验证见 [资源边界记录](https://gitee.com/han-shao-jun/NovaTerm/blob/411ec15c36aa5ac56fddb204761fae830f785947/docs/architecture/stages/P8_AI_MCP_Interface/records/P3_Architecture_Fixes_2026-10-24.md)。
 
 这些模块不再是在线终端闭环的前置。历史阶段的实现计划已删除，但不以此回滚已工作的功能。按用户追加授权，未验收 P4 诊断平台及无生产消费者的 P1 Recipe/EnvironmentTracker/本机 Agent 原型已完整退役。执行继续由 CommandRuntime/Session 控制器持有；旧固定诊断与离线历史保留。清单及证据见 [B0/B1 实施与验收](records/B0_B1_Implementation_2026-10-25.md)。
 
@@ -98,16 +96,16 @@ MCP 慢消费者不能拖住 Parser/Renderer，不能为等待下一页无界固
 
 ## 9. 对照补齐的应用边界
 
-[06](06_Terminal_Workflow_Extensions.md)规定等待、长任务、文件传输和保存目标连接的分工。Windows基础源码已包含上述能力；SFTP上传/下载及UART发送已有各自阶段证据，SFTP显式覆盖本阶段Windows软件回归已完成，B4仍待用户验收。当前行为以02和源码为准，历史子批见[验收档案](records/README.md)，不能用旧“传输未实施”摘要判断当前状态。
+[06](06_Terminal_Workflow_Extensions.md)规定等待、长任务、文件传输和已连接会话的分工。Windows基础源码已包含上述能力；SFTP上传/下载及UART发送已有各自阶段证据，SFTP显式覆盖本阶段Windows软件回归已完成，B4仍待用户验收。当前行为以02和源码为准，历史子批见[验收档案](records/README.md)，不能用旧“传输未实施”摘要判断当前状态。
 
 - 文本等待复用同一日志/屏幕源、授权和等待调度；仅增加有界匹配状态，不建立第二采样源或脚本引擎。
 - 长任务复用 CommandRuntime/Controller 的执行事实，只增加异步调用关联、查询和有界结果保留。SSH/UART 分别声明完成与停止能力。
-- 文件传输复用 SSH/SFTP 和发布边界；独立本地资源与远端路径授权。传输任务不能反压终端 Parser，也不能将文件发布等同于烧录完成。
-- 保存目标连接通过已有 Profile/Session 创建接线和本机组合根实现，保留 View-owned Session；显式目标授权不等于输入授权。
+- 文件传输复用 SSH/SFTP 和发布边界；直接使用本地和远端路径，首次上传经过确认。传输任务不能反压终端 Parser，也不能将文件发布等同于烧录完成。
+- 会话由用户在本机创建和管理，保留 View-owned Session；MCP不再提供保存目标操作。
 - 新的任务/传输/连接 ID 各自绑定客户端、目标、版本和幂等操作，不能以中心万能任务对象聚合所有可变状态。
 
 精确公开字段、有限预算和错误码在相应 B0 子契约冻结；工具仅在实际实现、测试和权限配置到位后注册。现有十二工具契约不能因新设计被默默放宽或改变默认值。
 
 ## 10. 文档权威
 
-本页定义架构方向；02记录当前接口，03保留历史差距与当前更新，04解释日志/清空，06解释已接入的等待/任务、连接和文件交付，05说明Agent流程，01规定软件及B4验收。records保存分轮证据；覆盖已完成Windows软件验证，Linux/macOS安全文件后端未实现，B4未完成。全项目原则以[统一架构](../../../ARCHITECTURE.md)为准。
+本页定义架构方向；02记录当前接口，03保留历史差距与当前更新，04解释日志/清空，06解释已接入的等待/任务、连接和文件交付，05说明Agent流程，01规定软件及B4验收。records保存分轮证据；Windows覆盖已有软件验证，Linux读写后端已实现、macOS后端未实现，B4未完成。全项目原则以[统一架构](../../../ARCHITECTURE.md)为准。

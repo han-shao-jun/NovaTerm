@@ -359,17 +359,38 @@ private slots:
         QTest::qWait(20); QCOMPARE(f.transport.written, QByteArray("work\r"));
     }
     void repeatedStopInputsOneCtrlCWithoutClaimingTermination() {
-        Fixture f; const auto first = f.call(f.start()); QVERIFY(first.value("ok").toBool());
+        Fixture f; const auto start = f.start(); const auto first = f.call(start); QVERIFY(first.value("ok").toBool());
         QTRY_COMPARE(f.transport.written, QByteArray("work\r"));
+        const auto before = f.call(f.query(first.value("data").toObject().value("taskId").toString())).value("data").toObject();
+        QCOMPARE(before.value("taskSubmission").toObject().value("operationId").toString(), start.operation.str());
+        QCOMPARE(before.value("taskSubmission").toObject().value("status").toString(), QString("submitted"));
+        QVERIFY(before.value("stopSubmission").isNull());
         const auto e = f.entry();
         StopTerminalTaskRequest stop{NovaTerm::Mcp::SessionId{e.id}, Epoch{e.epoch},
             TaskId{first.value("data").toObject().value("taskId").toString()}, OperationId{newId()}};
+        QJsonObject queued;
+        const auto connection = QObject::connect(&f.session, &TerminalSession::terminalControlChanged, &f.tasks,
+            [&] {
+                const auto* ctrl = f.session.terminalController();
+                if (queued.isEmpty() && ctrl->pending() && ctrl->operation().value("id").toString() == stop.operation.str())
+                    queued = f.call(f.query(stop.task.str())).value("data").toObject();
+            });
         const auto result = f.call(stop); QVERIFY2(result.value("ok").toBool(), qPrintable(QString::fromUtf8(QJsonDocument(result).toJson())));
+        QObject::disconnect(connection);
+        QCOMPARE(queued.value("taskSubmission").toObject().value("status").toString(), QString("submitted"));
+        QCOMPARE(queued.value("stopSubmission").toObject().value("status").toString(), QString("queued"));
+        QVERIFY(!queued.value("stopSubmission").toObject().value("inputMayHaveBeenSent").toBool());
         QTRY_COMPARE(f.transport.written, QByteArray("work\r\x03"));
         QVERIFY(f.call(stop).value("ok").toBool());
         QTest::qWait(20); QCOMPARE(f.transport.written, QByteArray("work\r\x03"));
         const auto data = result.value("data").toObject();
         QVERIFY(data.value("stopRequested").toBool()); QVERIFY(!data.value("terminationConfirmed").toBool());
+        const auto current = f.call(f.query(stop.task.str())).value("data").toObject();
+        QCOMPARE(current.value("taskSubmission").toObject().value("operationId").toString(), start.operation.str());
+        QCOMPARE(current.value("taskSubmission").toObject().value("status").toString(), QString("submitted"));
+        QCOMPARE(current.value("stopSubmission").toObject().value("operationId").toString(), stop.operation.str());
+        QCOMPARE(current.value("stopSubmission").toObject().value("status").toString(), QString("submitted"));
+        QVERIFY(current.value("stopSubmission").toObject().value("inputMayHaveBeenSent").toBool());
     }
     void commandCompletionBetweenStopSubmissionAndEncodingPreventsCtrlC() {
         Fixture f; auto* ctrl = f.session.terminalController();
@@ -393,6 +414,36 @@ private slots:
         const auto data = f.call(f.query(stop.task.str())).value("data").toObject();
         QCOMPARE(data.value("status").toString(), QString("completed"));
         QCOMPARE(data.value("exitCode").toInt(-1), 0); QVERIFY(data.value("terminationConfirmed").toBool());
+        QCOMPARE(data.value("taskSubmission").toObject().value("status").toString(), QString("submitted"));
+        const auto stopReceipt = data.value("stopSubmission").toObject();
+        QCOMPARE(stopReceipt.value("operationId").toString(), stop.operation.str());
+        QVERIFY(stopReceipt.value("status") == "failed" || stopReceipt.value("status") == "interrupted");
+        QVERIFY(!stopReceipt.value("inputMayHaveBeenSent").toBool());
+        QVERIFY(!stopReceipt.value("reason").toString().isEmpty());
+    }
+    void humanTakeoverWhileStopQueuedKeepsStopReceipt() {
+        Fixture f; const auto start = f.start(); const auto first = f.call(start);
+        QVERIFY(first.value("ok").toBool()); QTRY_COMPARE(f.transport.written, QByteArray("work\r"));
+        const auto e = f.entry();
+        StopTerminalTaskRequest stop{NovaTerm::Mcp::SessionId{e.id}, Epoch{e.epoch},
+            TaskId{first.value("data").toObject().value("taskId").toString()}, OperationId{newId()}};
+        bool injected = false;
+        const auto connection = QObject::connect(&f.session, &TerminalSession::terminalControlChanged, &f.tasks,
+            [&] {
+                auto* ctrl = f.session.terminalController();
+                if (!injected && ctrl->pending() && ctrl->operation().value("id").toString() == stop.operation.str()) {
+                    injected = true; f.session.writeUserInput("human\r");
+                }
+            });
+        static_cast<void>(f.call(stop)); QObject::disconnect(connection); QVERIFY(injected);
+        QTest::qWait(50);
+        const auto data = f.call(f.query(stop.task.str())).value("data").toObject();
+        const auto receipt = data.value("stopSubmission").toObject();
+        QCOMPARE(receipt.value("operationId").toString(), stop.operation.str());
+        QVERIFY(receipt.value("status") == "interrupted" || receipt.value("status") == "failed");
+        QVERIFY(!receipt.value("inputMayHaveBeenSent").toBool());
+        QVERIFY(!receipt.value("reason").toString().isEmpty());
+        QVERIFY(!f.transport.written.contains('\x03'));
     }
     void taskBudgetRejectsBeforeAnyExtraInput() {
         Fixture f;

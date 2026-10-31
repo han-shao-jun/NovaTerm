@@ -189,6 +189,10 @@ private:
         const std::function<bool()>& stopped,
         const std::function<void(quint64, quint64)>& progress,
         const std::function<void()>& ready);
+    static SftpFileUploadResult uploadAuthorizedFileWorkerImpl(
+        sftp_session_struct* sftp, ssh_session_struct* session,
+        const SftpFileUploadRequest& request, const std::function<bool()>& stopped,
+        const std::function<void(quint64, quint64)>& progress, const std::function<void()>& ready);
 
     [[nodiscard]] static bool authorizedDownloadSource(
         const sftp_attributes_struct* attributes, quint32 scopeOwner,
@@ -206,6 +210,10 @@ private:
         const std::function<bool()>& stopped,
         const std::function<void(quint64, quint64)>& progress,
         const std::function<void()>& ready);
+    static SftpFileUploadResult downloadAuthorizedFileWorkerImpl(
+        sftp_session_struct* sftp, ssh_session_struct* session,
+        const SftpFileUploadRequest& request, const std::function<bool()>& stopped,
+        const std::function<void(quint64, quint64)>& progress, const std::function<void()>& ready);
 
     static constexpr int ConnectTimeoutSeconds = 10;
     // 停止请求后等待 worker 退出的上界。取 15s 与 SshTransport::TeardownWaitMs

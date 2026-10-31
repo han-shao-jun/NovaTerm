@@ -96,6 +96,8 @@ SFTP初始已有安全普通目标时要求 `posix-rename@openssh.com`版本1，
 
 发布仍经原GUI授权确认与Publishing原子状态；撤权先赢则不发布，发布已经开始后的成功/未知事实保留。取消只处置本次临时文件，不删除目标；成功rename消费临时文件后temporary=removed。远端响应丢失/不明确时publication=unknown，临时路径消失不能反推成功，也不能据此自动换operationId重传。下载的published/publication/temporary仍指本地，contentVerified始终false。
 
+> 以下至 B3/B3a 之前为2026-10-27～28的历史契约记录：其中授权目录、旧参数和显式release要求均已退役。现行调用以前面的“当前接入与工具目录”和“直接路径与上传确认记忆”为准。
+
 ## 2026-10-28：SFTP单文件下载
 
 0.2.96下载子批新增 `novaterm_download_file`并达到三十工具；当时保持原upload对象，共同query/cancel仅增加downloading及适用说明。当前两项开始工具的overwrite增量以本页覆盖节为准，其他Schema保持。下载继续复用原查询/取消、SFTP连接和worker，历史证据见[下载记录](records/B3b_Sftp_Download_2026-10-28.md)。

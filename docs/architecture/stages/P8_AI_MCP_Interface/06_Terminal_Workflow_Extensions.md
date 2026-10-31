@@ -1,6 +1,6 @@
 # 指定文本等待、长任务、文件传输与目标连接
 
-更新：2026-10-28。当前三十工具；Windows基础观察/操作、连接、SFTP上传/下载和UART发送已提供，SFTP显式覆盖本阶段Windows软件回归已完成，B4仍待用户验收。upload_file/download_file增加可选overwrite、默认false；调用方仍独立准备UART接收端并显式release输入lease。Linux/macOS安全文件后端未实现，B4由用户实测，P8未整体完成。
+更新：2026-10-31。当前二十工具；统一令牌和授权，MCP仅列出已连接会话。文件使用直接路径，首次上传确认并可记忆；下载直接执行。Windows和Linux安全本地文件读取与写入后端已实现，macOS后端未实现。UART接收端由调用方准备，同主体空闲输入控制可自动衔接。B4尚未整体完成。
 
 现行字段见[02](02_Current_MCP_Contract.md)，阶段进度见[覆盖记录](records/B3b_File_Overwrite_2026-10-28.md)，历史子批见[验收档案](records/README.md)。
 
@@ -11,8 +11,8 @@
 | 缓存不易回查 | 屏幕、当前尾部书签、保留起点和精确位置续读 | 复用终端缓存，不新建日志数据库 |
 | 等待指定结果需反复往返 | 有界字面文本等待，明确日志或屏幕来源 | 不迁入脚本引擎或开放任意正则 |
 | 长任务缺少直接入口 | 异步启动、查询、请求停止 | 复用已有执行 owner，不复制命令执行器 |
-| 二进制部署文件交付 | 独立授权的SFTP上传/下载与UART/ZMODEM发送、查询和取消；显式覆盖已完成Windows软件验证 | 不自动准备接收端、烧录、重启或执行文件 |
-| 已保存目标需要人工打开 | 列出获准目标、打开/复用、查询连接、关闭本次创建会话 | 不允许模型创建凭据、扫描主机或改连接参数 |
+| 二进制部署文件交付 | 直接路径的SFTP上传/下载与UART/ZMODEM发送、查询和取消；显式覆盖已完成Windows软件验证 | 不自动准备接收端、烧录、重启或执行文件 |
+| 连接会话 | 用户在本机建立连接，Agent列出并使用已连接会话 | 不提供保存目标管理工具 |
 | 使用说明冲突 | 两代握手、工具描述与使用文档的统一规则 | 未实现能力不得出现在可调用工具指引中 |
 
 日志/等待/长任务与文件/连接保持独立能力。下文描述职责和边界；可调用工具名、精确参数与预算以02和源码为准，显式覆盖已完成Windows软件验证，不能据源码入口宣称B4已验收。
@@ -61,21 +61,21 @@ CommandRuntime/Session Controller 继续拥有执行事实；新增异步任务�
 
 ## 4. SFTP与UART/ZMODEM单文件交付
 
-本地目录读/写、SSH远端目录读/写与UART发送各自授权，终端权限不推导文件权限。`novaterm_list_file_resources`和`novaterm_list_serial_file_targets`只发现本人授权元数据，不连接设备、不执行文件I/O，availability=authorization_only不代表接收准备或输入lease可用。客户端身份、资源revision和完整原连接绑定在受理及后续动作前复核。
+使用统一MCP接入和已连接会话；SSH上传/下载传入完整localPath和remotePath，UART上传传入localPath和可选remoteName。首次上传先取得确认并由用户确认一次，相同组合可记忆。旧文件授权目录和相关resourceId、scopeId、targetId参数已退役。
 
 ### SFTP上传
 
-`novaterm_upload_file/query_transfer/cancel_transfer`复用终端面板原SftpSession、队列与worker，需要本地read+SSH远端write授权。当前仅普通文件、默认不覆盖；安全源在worker内使用固定句柄，远端使用随机临时文件与hardlink扩展原子创建新目标。取消只清理本次拥有的临时文件，保留已开始发布的成功/未知事实。具体路径安全、SFTPv3限制与预算见[契约](02_Current_MCP_Contract.md)和[上传记录](records/B3b_Sftp_Upload_2026-10-27.md)。
+`novaterm_upload_file/query_transfer/cancel_transfer`复用终端面板原SftpSession、队列与worker，使用直接路径与上传确认。当前仅普通文件、默认不覆盖；安全源在worker内使用固定句柄，远端使用随机临时文件与hardlink扩展原子创建新目标。取消只清理本次拥有的临时文件，保留已开始发布的成功/未知事实。具体路径安全、SFTPv3限制与预算见[契约](02_Current_MCP_Contract.md)和[上传记录](records/B3b_Sftp_Upload_2026-10-27.md)。
 
 ### SFTP下载
 
 `novaterm_download_file`复用原 `novaterm_query_transfer/cancel_transfer`，FileTransfers统一记录方向和幂等事实，同一SftpPanel/SftpSession队列/worker执行，无新连接或线程。下载子批只新增downloading；本覆盖阶段仅为upload/download两输入追加可选boolean overwrite及说明，其他Schema和旧fixture保持。
 
-九个必填参数与上传同形，另有可选overwrite、默认false；relativePath是本地目标相对路径，remoteName是远端单个源文件名（最多255 UTF-8字节）。须独立local.write+remote.read授权，身份、两边revision和原Session完整binding持续复核；同operationId跨方向冲突，精确重试/查询不续期或重传。终端权限不推导文件权限。
+必填sessionId、epoch、localPath、remotePath和operationId；overwrite可选且默认false。身份和原会话绑定持续复核；同operationId跨方向冲突，精确重试/查询不续期或重传。
 
 原worker检查远端根/叶，打开一次源句柄并按观察大小读取，补EOF探测和读取前后属性复核；分段短读可累计，提前EOF、增长、读错或不安全属性不能发布部分文件。SFTPv3仍要求授权目录属主/管理员可信，不宣称抵抗同账号恶意换路径。
 
-安全LocalFileWriter负责本地专属临时文件、分块append与按意图发布，默认不覆盖；仅Windows后端已实现，Linux/macOS后端仍未实现。64 MiB/64 KiB、总120秒、15秒无进展、2秒发布准入等待沿用SFTP预算，取消/发布通过原控制状态协调；同步库或本机阻塞不保证硬退出。published/publication/temporary对下载只描述本地目标和本次临时文件，取消不删除远端或已发布本地目标；contentVerified=false。
+安全LocalFileWriter负责本地专属临时文件、分块append与按意图发布，默认不覆盖；Windows和Linux后端已实现，macOS后端未实现。64 MiB/64 KiB、总120秒、15秒无进展、2秒发布准入等待沿用SFTP预算，阻塞网络I/O在取消或期限到达时通过中断独立SFTP连接收口；原终端连接独立，本地文件系统调用若自身阻塞仍无硬退出保证。published/publication/temporary对下载只描述本地目标和本次临时文件，取消不删除远端或已发布本地目标；contentVerified=false。
 
 下载阶段软件验证与限制见[下载记录](records/B3b_Sftp_Download_2026-10-28.md)，不作为本覆盖阶段重测成绩。
 
@@ -87,13 +87,13 @@ SFTP上传/下载overwrite省略和false等价，true才允许替换原已存在
 
 查询失败、拒绝访问或网络错误不等同不存在。新目标沿用临时文件属性，远端仍0600，不自动复制原ACL/执行位。撤权先赢则不发布，发布开始后保留真实成功/unknown结果；取消只清本次temp、不删除目标。成功rename消费temp，远端临时路径消失不证明发布成功，lost ack保持unknown。
 
-本覆盖阶段Windows软件验证已完成，见[覆盖记录](records/B3b_File_Overwrite_2026-10-28.md)。本轮按Windows软件交付；Linux/macOS安全文件后端仍未实现，是后续开发，B4由用户实测。托管提权保留unavailable，不作为本轮闭环前置，P8不能在B4前标整体完成。
+本覆盖阶段Windows软件验证已完成，见[覆盖记录](records/B3b_File_Overwrite_2026-10-28.md)。Linux安全本地读写后端已实现，macOS后端未实现，B4由用户实测。托管提权保留unavailable，不作为本轮闭环前置，P8不能在B4前标整体完成。
 
 ### UART/ZMODEM发送
 
 `novaterm_upload_serial_file/query_serial_transfer/cancel_serial_transfer`复用原SerialFileTransferController、TransferFileWorker、唯一输入泵和ZMODEM协议owner。MCP只维护有限授权/幂等/事实索引；原worker独占打开、随机读取与销毁安全文件源，不缓存整文件、不重新按路径打开，不新建串口连接或执行器。
 
-发送同时需要本地read资源与当前8数据位串口的独立发送许可，提供resourceId/resourceRevision、targetId/targetRevision和sessionId/epoch。调用方独立准备接收端并显式release已有MCP输入lease；上传不自动发送rz、不自动释放lease、不抢占人工传输。remoteName是单个协议文件名，远端目录和覆盖行为由接收端决定，上传工具不代为选择。
+发送提供sessionId、epoch、localPath和operationId，remoteName可选；首次上传需确认。调用方独立准备接收端；同主体空闲输入控制可自动衔接，未提交输入或其他主体控制时返回忙碌。上传不自动发送rz、不抢占人工传输。remoteName是单个协议文件名，远端目录和覆盖行为由接收端决定，上传工具不代为选择。
 
 Windows安全源最多64 MiB、64 KiB分块；总期限从首次受理计时，按真实size和baud计算 `max(120000,60000+ceil(size*32000/baud))` 毫秒，硬预算3600000毫秒。超预算在首个协议字节前拒绝。准备、响应/无进展、取消排空各自有有限期限；精确重试返回原transferId且不延长期限，取消只对原Controller操作生效，不转向重连或后来人工任务。
 
@@ -103,38 +103,21 @@ UART发送阶段软件回归已完成，B4实机仍待用户验收，该阶段�
 
 两种文件交付都不阻塞终端观察或在GUI执行文件I/O，不自动执行chmod、insmod、烧录或重启。只有独立实际验证内容hash才能认定内容一致，后续动作须使用各自已获准入口。
 
-## 5. 已保存目标连接管理
+## 5. 已连接会话
 
-第一子批实现 `novaterm_list_targets` 和本机逐客户端目录共享。第二子批已追加 `novaterm_open_target`、`novaterm_query_target`，须另勾选允许打开，按配置版本和operationId受理；查询返回实际会话/epoch与连接状态。availability=saved_configuration本身仍不代表在线。安全关闭及新会话预授权已追加，当前新会话权限默认关闭；本机可预先选择读取/完整输入/清空规则，见[预授权记录](records/B3b_New_Session_Sharing_2026-10-27.md)。
-
-只列出本机用户明确共享的保存目标；返回 targetId、显示名、传输类型、获准端点摘要、配置版本和可用状态，不返回密码/私钥。目标目录与活动 Session 目录分开，模型不能通过工具修改 host、port、波特率、认证或 Profile。
-
-| 操作 | 约束 |
-| --- | --- |
-| 列出目标 | 只列获准项，标明当前可复用会话；端点信息按共享范围披露 |
-| 打开/复用 | targetId、配置版本、operationId；优先复用匹配的 connected/connecting 会话，返回 created/reused 与连接状态 |
-| 查询连接 | 返回实际 sessionId/epoch、connecting/running/failed、需要用户处理的认证或主机密钥步骤 |
-| 关闭 | 默认只允许关闭本客户端本次明确创建、未被人工接管且无活动任务的会话；不得清理复用的人类会话 |
-
-打开权限不自动授予读取/输入。用户可预先给保存目标配置明确的共享规则，新会话依该规则重新核验并绑定 grant；不能复制旧连接/其他客户端的临时授权。
-
-保持现有“1 TerminalView 拥有 1 TerminalSession”。应用用例通过目标/连接工厂窄端口请求，已有组合根创建可见会话；不让 HTTP 线程构造 UI，不新建后台 SessionManager。
-
-相同 operationId 精确重试不得新开标签；配置变化、串口占用、认证待处理和应用重启分别返回。不得通过关闭人类串口会话来腾端口。断线后优先查询既有重连状态；不自动循环创建连接或猜测新地址。
-
-认证和 SSH 主机密钥决策仍在本机 UI，Agent 不填写秘密。关闭时重新核对 owner、控制代际、执行和传输状态；busy/unknown 明确拒绝。强制关闭不作为默认清理操作，未来如开放需另一次明确授权。
+保存目标目录、打开、查询和关闭工具已退役。用户在本机手动建立连接，Agent通过 `novaterm_list_sessions` 发现已连接会话并使用其 sessionId/epoch；认证及主机密钥决策仍由本机用户处理。新就绪连接默认开启读取、输入、托管提权选择和清空权限，同连接内人工撤权不会被刷新恢复。历史实现见[预授权记录](records/B3b_New_Session_Sharing_2026-10-27.md)，不作为当前操作流程。
 
 ## 6. 统一 Agent 使用指引
 
 两代握手 instructions、工具描述和用户说明维护同一行为规则，并由契约测试检查语义一致：
 
 1. 本地编辑/编译用 Agent 本地工具，目标板操作用显式 NovaTerm Session，不能混淆两个 Shell。
-2. 先列目标/会话并观察，再输入；无会话时仅打开已获准保存目标。
+2. 先列已连接会话并观察，再输入；无会话时请用户在本机连接。
 3. 短交互用输入/命令，长任务用异步入口；工具未实现时不推荐虚构调用。
 4. 日志游标、当前屏幕、固定 capture 补读各有用途；缺口不证明没有错误。
 5. 文本匹配和 UART 静默都不自动证明成功；实际固件标识与功能判据另行核对。
-6. 清空、传输、打开和执行分别授权；未知结果不换 ID 自动重放，不换工具绕过拒绝。
-7. UART发送前独立准备接收端并显式release输入lease；ZSKIP、文件确认、协议结束及远端发布/hash分别判断。
+6. 清空、传输和执行分别判断权限与确认；未知结果不换 ID 自动重放，不换工具绕过拒绝。
+7. UART发送前独立准备接收端；同主体空闲输入控制可自动衔接；ZSKIP、文件确认、协议结束及远端发布/hash分别判断。
 
 ## 7. 验收映射
 
@@ -142,9 +125,9 @@ UART发送阶段软件回归已完成，B4实机仍待用户验收，该阶段�
 | --- | --- | --- |
 | 文本等待 | 读取/ObservationState、已有屏幕与日志端口 | 旧 PASS、跨页/UTF-8、未换行提示、扫描续接、清空/淘汰/撤权、取消零输入 |
 | 长任务 | CommandRuntime/Controller、薄任务索引 | 重复启动、人工接管后停止、断流与重启、UART 无证据、未知结果、记录过期 |
-| SFTP上传/下载 | 原FileTransfers/SftpSession队列与worker、安全本地Reader/Writer | 双向独立授权、跨方向operationId冲突、提前EOF/增长、链接/属性变化、本地发布竞争、取消撤权、临时文件归属 |
+| SFTP上传/下载 | 原FileTransfers/SftpSession队列与worker、安全本地Reader/Writer | 上传确认、跨方向operationId冲突、提前EOF/增长、链接/属性变化、本地发布竞争、取消撤权、临时文件归属 |
 | UART发送 | 原Controller/worker、输入泵/ZMODEM owner | 独立权限、lease忙碌、旧代际零写入、原ID取消、首字节前超预算拒绝、ZSKIP/空文件/确认后握手失败 |
 | 保存目标 | Profile/Session 创建接线、目标授权 | 重复打开、复用他人会话、串口占用、认证待处理、配置变化、忙碌关闭、旧 epoch |
 | 指引 | WireSession/ToolCodec 元数据 | 两代规则冲突、错误权限保证、推荐未实现工具、本地和远端混淆 |
 
-完整调度见[01](01_Phases_and_Acceptance.md)的B3a/B3b，差距见[03](03_Gaps_and_Evidence.md) G14～G17。当前三十工具，Windows显式覆盖和软件收尾本阶段Windows软件回归已完成，B4仍待用户验收；Linux/macOS安全文件后端仍未实现，B4由用户实测，P8未整体完成。
+完整调度见[01](01_Phases_and_Acceptance.md)的B3a/B3b，差距见[03](03_Gaps_and_Evidence.md) G14～G17。当前二十工具；Windows与Linux安全文件读写后端已实现，macOS后端未实现。B4尚未整体验收，历史软件验证不代表新一轮实机验收。

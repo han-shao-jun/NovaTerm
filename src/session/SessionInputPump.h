@@ -67,6 +67,11 @@ public:
      * @return 统计结构（pendingBytes 反映实时待处理量）。
      */
     [[nodiscard]] Statistics statistics() const;
+    [[nodiscard]] bool readPaused() const noexcept {
+        return !_running || _overloaded || _fileTransferPaused
+            || (!_fileTransferMode && (_corePaused || !_pending.isEmpty()));
+    }
+    [[nodiscard]] bool overloaded() const noexcept { return _overloaded; }
     /** @brief 将 Framer 取消事务时保留的普通字节送入原输入通路。 */
     void forwardFramerRemainder(const QByteArray& bytes);
     /** @brief 在现有 readyRead 入口安装协议分流；true 表示整块已被消费。 */

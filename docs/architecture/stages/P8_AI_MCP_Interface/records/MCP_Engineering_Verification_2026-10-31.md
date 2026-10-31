@@ -667,3 +667,45 @@ extra-green.txt、final-build.log、final-ctest.log、mcp-retest.log、first-fin
 本机临时日志：`/tmp/novaterm-02114-commit-build.log`、`/tmp/novaterm-02114-commit-ctest.log`、
 `/tmp/novaterm-02114-commit-lasttest.log`、`/tmp/novaterm-02115-commit-main-build.log`、
 `/tmp/novaterm-02115-commit-doc-check.log`。
+
+### 2026-10-31 第一批 F01～F03 工作区验证
+
+本轮保留文件准备和本地I/O错误分类，UART源准备记录具体错误；观察Schema增加屏幕尺寸、部分视口和控制/输入就绪/命令字段；更新当前路径、接入和历史流程说明。文件传输已发布和未知结果沿原状态收口。历史台账未更改。
+
+Windows Debug默认目标构建成功。沙箱内本地文件/ SFTP测试由于安全句柄访问失败：本地10通过29失败，SFTP 75通过17失败；沙箱外相关CTest 3/3通过（8.72秒）。串口源缺失及大于64 MiB专项两行通过且未写协议字节。契约测试44通过；官方SDK 2025及原始HTTP 2026互操作通过，包含compact首读和未变化续读Schema验证。完整MCP首轮161通过2失败，均为两代HTTP旧FILE_IO_ERROR断言；更新为缺失文件具体错误后定向两行通过，完整复跑163通过0失败（106729ms）。
+
+尚未在真实SFTP服务端单独验证大文件上传错误、不可访问与不支持文件系统分支，也未在Linux/macOS运行本轮验证；本机代码夹具不作为B4工具实测。未连接设备、提交或推送。
+
+### 2026-10-31 F01 续测与 F04/F05 工作区增量
+
+F01：Windows 使用真实目录 ACL 拒绝访问，SFTP 下载工作路径返回 TRANSFER_LOCAL_ACCESS_DENIED，未读取或发布。首版只拒绝文件属性读取，Windows仍允许该查询，返回 TARGET_EXISTS；改为拒绝父目录遍历后通过。SFTP回环服务实际调用上传worker，64 MiB+1源返回 TRANSFER_SIZE_LIMIT、publication=not_started、未打开远端文件；首版夹具因丢弃通道引用造成初始化断连，保留失败后修正，连续两次通过。Linux WSL v9fs 使用便携Qt编译原 LocalFileWriter，返回 TRANSFER_LOCAL_UNSUPPORTED；该项仅是本地后端和错误映射验证，不冒充Linux SFTP下载全链路或真实设备测试。
+
+F05：任务与停止输入分别保存 operationId、状态和可能发送标记；停止回执另记录原因，未尝试时为null；旧 submissionStatus/inputMayHaveBeenSent 保持原兼容语义。排队、已发送、原任务回执保持、停止精确重试和任务完成竞争定向通过；任务/契约/SFTP安全CTest 3/3（3.30秒），官方SDK及原始HTTP互操作通过。主程序默认目标构建成功。
+
+F04：回环SFTP服务延迟lstat 4秒，250毫秒时请求取消；worker在4001毫秒才返回 TRANSFER_CANCELLED，未发布。该回归仍为失败前测试，未实现阻塞调用的可靠中断，未验证慢半包、阻塞写、截止时间或发布不确定性；不能宣布F04完成。终端会话与其他操作隔离亦未完成验证。
+
+本轮未连接实际设备，未提交或推送；工具台账未写入软件夹具结果。
+
+### 2026-10-31 F01 续测及 F04/F05 回归补充
+
+F01：Windows真实ACL拒绝的SFTP下载工作路径返回 TRANSFER_LOCAL_ACCESS_DENIED，读取数0、未发布。回环SFTP实际上传worker对64 MiB+1源返回 TRANSFER_SIZE_LIMIT，远端open数0；夹具首次通道引用丢失造成初始化失败，修正后连续通过。WSL Linux在v9fs上用便携Qt编译原SftpSession.cpp与LocalFileAccess.cpp，执行copyAuthorizedDownload返回 TRANSFER_LOCAL_UNSUPPORTED、reads=0、published=false、publication=not_started；这不是实际设备测试。新增Linux环境变量 NOVATERM_TEST_UNSUPPORTED_FILESYSTEM_ROOT 驱动的可重复安全测试。
+
+F04：独立SFTP连接的网络阻塞由独立监测线程中断；复制socket句柄以避免原句柄关闭后复用导致误伤，监测线程退出后才关闭副本。取消或超时中断后结束该SFTP worker，排队的带ID脚本上传和文件/目录请求明确结算，连接需重建；独立终端连接不共享该socket。无法建立监测资源时传输未启动并返回 TRANSFER_SFTP_WATCH_UNAVAILABLE。本地文件系统自身阻塞不保证硬截止。
+
+回环RED：服务端lstat阻塞4秒，250ms取消仍耗时4001ms。GREEN：慢半包取消272ms（另一独立SSH连接继续可用）、上传阻塞写取消293ms、下载阻塞读取消278ms；发布请求已送达而确认丢失时15008ms返回publication=unknown、temporary=unknown。慢半包无进展期限15006ms；下载每13秒有进展时，总期限120009ms收口，589824字节、未发布、临时文件已移除。以上为独立轮次；120秒成绩在监测线程创建异常兜底小改之前，后续定向四场景另跑。排队脚本上传原RED无结果、GREEN明确 SESSION_NOT_AVAILABLE。
+
+F05：排队、提交、精确重试及任务完成竞争已覆盖；新增人工接管恰逢停止输入排队的RED（回执错误停留queued），修复后定向通过。最终Windows Debug默认目标构建通过，相关CTest 5/5（12.75秒）；完整MCP 163通过0失败（108771ms，监测线程异常兜底前一轮），最终SDK 2025与原始HTTP 2026互操作通过。没有真实设备、Linux完整应用或macOS验证，未提交/推送；本记录不写入MCP工具实测台账。
+
+### 2026-10-31 第三批 F06 工作区增量
+
+F06：观察结果新增 terminalConfiguration 与 ioStatus，分别反映行结束符、远端回显/提示符配置状态、串口帧参数及会话/串口I/O代际、采样时间、输入泵和串口队列状态。未知配置与不适用串口数据为null。串口新增每I/O代际的队列满事件和已知丢弃计数；原累计计数保留，重连时当前代计数归零，迟到的旧代数据不计入新代。
+
+Windows Debug默认全部目标构建成功，会话/任务/契约CTest 3/3（28.18秒），其中串口代际专项RED为编译缺失新计数字段、GREEN为3通过；MCP观察状态专项RED为缺少字段、GREEN为3通过，含非串口和串口快照及compact大小。完整MCP 164通过0失败0跳过（107119ms），官方SDK 2025和原始HTTP 2026 Schema互操作通过。未连接真实设备，未测试Linux/macOS或重跑无关全套；以上为软件验证，不写入工具实测台账。
+
+F07尚未实现：现有日志读取游标只有当前位置，逐页扫描必须另固定首次sampledEnd并处理跨UTF-8分片命中、命中上限停在片中、淘汰与代际失效、重试及续页一致性。当前 search_context 仍仅搜索capture；不能把F06或既有日志读取测试冒充F07通过。
+
+### 2026-10-31 0.2.116 提交前验证
+
+按用户要求收口本轮 MCP 文件错误分类、观察 Schema 与配置/I/O 状态、SFTP 网络阻塞取消和任务停止回执，以及现行文档。版本从0.2.115递增至0.2.116；F07保留日志搜索缺口，F04本地文件系统调用自身阻塞仍无硬退出保证。两份含本机 Visual Studio 路径的构建脚本保留工作区，不纳入提交。
+
+版本更新后 Windows Debug 默认全部目标构建成功；提交前相关 CTest 7/7（143.65秒），包括 MCP、契约、本地文件、SFTP安全、串口文件传输、终端任务和会话。官方SDK 2025/原始HTTP 2026互操作通过；SFTP慢半包取消292ms，另一个独立SSH连接保持可用。仅为软件与回环夹具验证；本轮未连接设备、未测macOS或Linux完整应用，不改工具实测台账。
