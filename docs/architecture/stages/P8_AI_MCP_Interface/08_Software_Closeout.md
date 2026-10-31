@@ -1,6 +1,6 @@
 # MCP 软件开发收口
 
-> 2026-10-31平台补注：Linux Reader/Writer已实现并通过软件回归；macOS后端仍未实现，Linux真实SFTP下载另验。下面保留Windows收口当时的成绩和范围；最新证据见[HTML测试工作台](B4_Test_Report.html#linux-writer)。
+> 2026-10-31平台补注：Linux Reader/Writer已实现并通过软件回归；macOS后端仍未实现，Linux真实SFTP下载另验。下面保留Windows收口当时的成绩和范围；最新证据见[工程验证记录](records/MCP_Engineering_Verification_2026-10-31.md#linux-writer-detail)。
 
 2026-10-29现行范围调整：用户批准退役旧诊断/命令/脚本四工具，当前26工具。下列30工具及Windows成绩是当轮历史证据，不是本次清理的验收结果；当前变化见[清理记录](../../MCP_Cleanup_2026-10-29.md)。
 

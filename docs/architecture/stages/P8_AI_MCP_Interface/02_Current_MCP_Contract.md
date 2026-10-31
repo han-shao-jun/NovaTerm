@@ -18,7 +18,26 @@ mtime/ctime、uid/gid与初始摘要，防止同大小同时间戳改写被忽�
 发布成功不是断电持久性保证，本地摘要也不是源hash外部验证，contentVerified仍false。
 系统调用语义参考[open(2)](https://man7.org/linux/man-pages/man2/open.2.html)、
 [rename(2)](https://man7.org/linux/man-pages/man2/rename.2.html)；本轮证据见
-[Linux Writer软件验证](B4_Test_Report.html#linux-writer)。macOS和B4真实设备验收保持未完成。
+[Linux Writer软件验证](records/MCP_Engineering_Verification_2026-10-31.md#linux-writer-detail)。macOS和B4真实设备验收保持未完成。
+
+## 2026-10-31：错误传播与异步收口
+
+- 能力端口拒绝统一保留 `DEADLINE_EXCEEDED`、`CANCELLED` 与 `BUSY`；能力额度繁忙提供
+  `retryable=true/retryAfterMs=250`。权限、身份、资源绑定类拒绝继续隐藏为
+  `SESSION_NOT_AVAILABLE`，不由错误响应泄露未授权资源。取消或期限错误不证明远端操作未执行。
+- `search_history` 的业务预算为12秒，wire另留5秒交付余量，避免在原默认2秒时提前取消
+  正常搜索分页；真实超时仍取消后端等待并返回 `DEADLINE_EXCEEDED`。
+- SFTP worker的内部取消位只用于停止工作，不等于用户取消。明确超时/路径变化保留
+  `failed` 与原错误码，外层总期限保留 `TRANSFER_TIMEOUT`，授权失效保留 `PERMISSION_DENIED`；
+  明确取消仍为 `cancelled`。`published=true` 与 `publication=unknown` 的事实优先，
+  不因随后取消改写成未发布。查询和原操作精确重试保持同一记录。
+- 上传确认记忆的真实锁竞争返回 `UPLOAD_MEMORY_BUSY`、可重试及250ms退避；
+  存储错误、锁路径被目录或符号链接占用返回不可重试的 `UPLOAD_MEMORY_UNAVAILABLE`。
+  待确认额度满时 `BUSY` 给出最早保留项到期的等待时间；恢复后继续原参数与原operationId。
+- 观察完成/替换/撤权及任务期限/撤权收口允许回调同步销毁owner；调用链在这些边界检查存活，
+  期限先记录未知事实再释放输入控制，不继续访问已释放对象。
+
+分轮RED/GREEN及验证范围见[错误处理审查记录](records/MCP_Engineering_Verification_2026-10-31.md#mcp-error-handling-review)。
 
 ## 当前接入与工具目录
 

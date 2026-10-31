@@ -8,7 +8,8 @@
 
 | 记录 | 保留原因 |
 | --- | --- |
-| [B4 实机测试结果总账](../B4_Test_Report.html#cases) | 按87条用例组织当前结论，关联轮次/修复/证据锚点；原始失败保留；宽字符日志与S15实机复测通过，Linux文件传输已有单样本闭环；ttyUSB0停止仍未达期望，B4未完成 |
+| [MCP工程验证记录 2026年10月31日](MCP_Engineering_Verification_2026-10-31.md) | 代码审查、构建、单元/集成回归、ASan及提交验证；不计入B4工具使用测试成绩 |
+| [B4 实机测试结果总账](../B4_Test_Report.html#cases) | 仅按87条用例的实际MCP工具调用组织结论，关联操作/响应/副作用/复测证据；原始失败保留；宽字符日志与S15实机复测通过，Linux文件传输已有单样本闭环；ttyUSB0停止仍未达期望，B4未完成 |
 | [SFTP显式覆盖](B3b_File_Overwrite_2026-10-28.md) | overwrite默认false、可信目录路径替换与非CAS边界、初始缺失不升级覆盖、属性/取消/未知结果；本阶段Windows软件验证已完成 |
 | [SFTP单文件下载](B3b_Sftp_Download_2026-10-28.md) | 独立local.write+remote.read、原SFTP队列/worker与查询/取消复用、安全Writer本地默认不覆盖发布；保留0.2.96独立阶段验证和限制 |
 | [UART/ZMODEM单文件发送](B3b_Uart_Send_2026-10-28.md) | 独立本地read+UART授权、原Controller/worker复用、原ID取消、有限期限及协议/文件确认事实；保留该阶段独立验证与限制 |

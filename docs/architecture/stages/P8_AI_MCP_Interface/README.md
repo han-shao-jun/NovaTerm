@@ -40,3 +40,5 @@ SFTP上传需要local.read+remote.write，下载需要local.write+remote.read；
 sinceToken/nextToken的观察分支与日志位置游标各自使用；recentOutput是有过滤与去重的摘要。UART静默、命令完成、文件确认和板上测试成功分别判断。保存目标创建可见终端，默认不共享；只有本机显式预授权规则可对原新建连接一次绑定读取/输入/清空，文件权限始终独立。
 
 兼容基线为九个终端工具与三个离线历史工具，各次扩展在02与fixture中冻结；旧mcp/P0～P8平台方案及未发布P4/无消费者原型已经退役，历史名称只作追溯。全项目约束以[统一架构](../../../ARCHITECTURE.md)为准，精确行为以02和源码为准；文档更新不产生测试通过结论。
+
+B4台账仅收录模拟实际用户或Agent使用MCP工具的测试；代码级夹具、单元/集成测试、审查、构建和消毒器结果另见[工程验证记录](records/MCP_Engineering_Verification_2026-10-31.md)。

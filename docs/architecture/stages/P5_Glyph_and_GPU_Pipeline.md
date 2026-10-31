@@ -978,5 +978,5 @@ Windows Release 构建通过，`novaterm_renderer_tests`、
 B4-01中宽字符提前换行留下的未打印空单元曾混入逻辑历史。libvterm现显式标记
 wrap_padding，移动/resize携带该位，写入/擦除清除；VTAdapter入历史时仅跳过标记格，
 不裁显式空格或光标跳格。相关Core/terminal_ops/scrollback回归和原始样本回放通过，
-详见[P8统一结果](P8_AI_MCP_Interface/B4_Test_Report.html#fix-detail)。
+详见[P8统一结果](P8_AI_MCP_Interface/records/MCP_Engineering_Verification_2026-10-31.md#fix-detail)。
 布局调度与GPU策略不变，本节不更新既有性能实测值，也不宣称已跑GPU长稳。

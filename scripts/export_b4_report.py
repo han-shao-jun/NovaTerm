@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
-"""Re-render the self-contained B4 HTML record. Requires Python-Markdown.
+"""Re-render the self-contained B4 MCP tool-use record. Requires Python-Markdown.
 
 The HTML's b4-data JSON block is the sole maintained record. Export a temporary
 JSON with --export-data PATH; edit it and re-render with --data PATH. Running
 without options rebuilds the layout from the data already embedded in the HTML.
+Record actual client/Agent MCP tool scenarios here, not code-level fixtures,
+unit/integration tests, reviews, builds, sanitizers or commit verification.
 """
 from pathlib import Path
 from collections import Counter
@@ -194,8 +196,9 @@ def build(data):
     archive_source=archive_source.replace("<details>",'<details markdown="1">')
     archive_source=archive_source.replace('id="b4-01-code-fix"','id="fix-detail"').replace('id="font-fix"','id="font-detail"')
     archive=markdown.markdown(archive_source,extensions=["extra"])
-    archive += '<details><summary>迁入 HTML 时的摘要与判据审查记录（历史快照）</summary>' + markdown.markdown(
-        data["results"]["migrationSnapshotMarkdown"], extensions=["extra"]) + '</details>'
+    if data["results"].get("migrationSnapshotMarkdown"):
+        archive += '<details><summary>工具测试历史摘要</summary>' + markdown.markdown(
+            data["results"]["migrationSnapshotMarkdown"], extensions=["extra"]) + '</details>'
     # Fix relative links from records/ to this file's directory.
     archive=archive.replace('href="../B4_Test_Report.html','href="B4_Test_Report.html')
     archive=re.sub(r'href="#result-([A-Z]+\d+)"', r'href="#case-\1"', archive)
@@ -298,16 +301,16 @@ JS=r"""
 })();
 """
 TEMPLATE=r"""<!doctype html>
-<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>NovaTerm · B4 测试工作台</title><style>__CSS__</style></head>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>NovaTerm · B4 MCP工具测试台账</title><style>__CSS__</style></head>
 <body><a class="skip" href="#cases">跳到用例</a>
 <header class="topbar"><div class="top-inner"><a class="brand" href="#overview"><span class="brand-icon">&gt;_</span>NovaTerm <small>测试工作台</small></a>
-<nav aria-label="主要导航"><a href="#cases">用例记录</a><a href="#checklist">测试清单</a><a href="#runs">执行轮次</a><a href="#issues">问题修复</a><a href="#evidence">证据归档</a></nav><button class="print-btn" id="print">打印报告</button></div></header>
+<nav aria-label="主要导航"><a href="#cases">用例记录</a><a href="#checklist">测试清单</a><a href="#runs">执行轮次</a><a href="#issues">异常与复测</a><a href="#evidence">证据归档</a></nav><button class="print-btn" id="print">打印报告</button></div></header>
 <main id="overview">
-<section class="hero"><div><p class="eyebrow">B4 / AI MCP INTERFACE</p><h1>每条用例，都能追到结果。</h1>
+<section class="hero"><div><p class="eyebrow">B4 / AI MCP INTERFACE</p><h1>MCP工具测试台账</h1>
 <p><span class="overall">__OVERALL__</span>__VERSION__ · 更新于 __UPDATED__</p>
-<p>__SUMMARY__</p></div><aside class="priority">__PRIORITY__</aside></section>
+<p>__SUMMARY__</p><p>仅收录模拟实际用户或Agent调用MCP工具的测试。代码级验证另见<a href="records/MCP_Engineering_Verification_2026-10-31.md">工程验证记录</a>。</p></div><aside class="priority">__PRIORITY__</aside></section>
 <div class="stats" aria-label="按当前状态筛选">__STATS__</div>
-<p class="count-note">以上按 87 条有效用例的完整判据归类，不是子检查累计通过率；10 个退役编号另存历史记录。</p>
+<p class="count-note">以上按 87 条用例的MCP工具测试证据归类，不是子检查累计通过率；10 个退役编号另存历史记录。</p>
 <section class="checklist-section" id="checklist"><div class="section-head"><div><h2>测试清单</h2><p>先核对环境与范围，按顺序进入用例；每条操作、判据和当前结果在同一处。</p></div><a class="text-link" href="#cases">查看全部 87 条 ↗</a></div>__CHECKLIST__</section>
 <section id="cases"><div class="section-head"><div><h2><span class="number">01</span>用例与当前结果</h2><p>先筛选，再展开；每条记录都保留已测范围与剩余判据。</p></div><a class="text-link" href="#runs">按执行轮次查看 ↗</a></div>
 <div class="case-panel"><div class="filters">
@@ -319,11 +322,11 @@ TEMPLATE=r"""<!doctype html>
 <noscript><p>浏览器未启用脚本，仍可逐项展开阅读；组合筛选需要启用 JavaScript。</p></noscript>
 __CASES__<div id="empty" hidden><strong>没有匹配的用例</strong><p>试试减少关键词或放宽筛选条件。</p><button class="reset" id="empty-reset">重置筛选</button></div></div></section>
 <section class="below" id="runs"><div class="section-head"><div><h2><span class="number">02</span>执行轮次</h2><p>每轮独立记账，保留失败当时的事实。</p></div></div><div class="run-grid">__RUNS__</div></section>
-<section class="below" id="issues"><div class="section-head"><div><h2><span class="number">03</span>问题与修复</h2><p>把“发现问题”“代码修好”和“实机通过”分开看。</p></div></div>
+<section class="below" id="issues"><div class="section-head"><div><h2><span class="number">03</span>工具异常与复测</h2><p>仅依据实际工具调用、响应和副作用核验结果。</p></div></div>
 <div class="fix-grid">__ISSUES__</div></section>
 <section class="below" id="evidence"><div class="section-head"><div><h2><span class="number">04</span>证据位置</h2><p>本机临时文件，清理或迁移后可能不可用；结论与边界保留在记录中。</p></div></div><div class="evidence-grid">__EVIDENCE__</div></section>
-<section class="below" id="archives"><div class="section-head"><div><h2><span class="number">05</span>详细记录与历史原文</h2><p>需要核对原始参数和过程时再展开；过时判据只用于追溯。</p></div></div><div class="archive-box">__ARCHIVES__</div></section>
-<footer><span>本地离线查看 · 本页统一维护清单、结果与历史证据</span><a href="#overview">回到顶部 ↑</a></footer>
+<section class="below" id="archives"><div class="section-head"><div><h2><span class="number">05</span>工具调用详细记录</h2><p>保留各轮调用参数、响应、实际副作用与核验；历史失败不被复测覆盖。</p></div></div><div class="archive-box">__ARCHIVES__</div></section>
+<footer><span>本地离线查看 · 仅维护MCP工具测试清单、结果与调用证据</span><a href="#overview">回到顶部 ↑</a></footer>
 </main><script>__JS__</script><script type="application/json" id="b4-data">__DATA__</script></body></html>
 """
 if __name__=="__main__":

@@ -155,6 +155,11 @@ status=gap 表示旧位置被淘汰；status=invalidated 表示本机 clear 或 
 
 用 transferId 调用 `novaterm_query_transfer` 查询，`novaterm_cancel_transfer` 取消。相同operationId只能精确重试，改变方向/路径/覆盖意图会冲突；确认重试不会重复发送。未知发布结果保留原ID查询，不自动换ID重传。取消不删除已发布文件，下载不删除远端源；contentVerified仍为false。
 
+传输超时或路径失效会返回 `state=failed` 和具体 `errorCode`，不会仅因底层停止工作就记为
+`cancelled`。已经发布或发布结果未知的事实仍优先保留。上传确认遇到 `UPLOAD_MEMORY_BUSY`
+可按 `retryAfterMs` 等待后续调原请求；`UPLOAD_MEMORY_UNAVAILABLE` 表示本机存储不可用，
+需要先处理存储问题，不能靠重复发送文件解决。
+
 安全本地Writer支持Windows/Linux；上传和下载复用原SFTP队列/worker。新建远端目标要求hardlink扩展1，覆盖已有目标要求posix-rename扩展1。仍需可信目录属主/管理员，SFTPv3不能抵抗同账号恶意换路径。同步库调用不保证硬截止时间。
 
 ### Linux 本地下载边界

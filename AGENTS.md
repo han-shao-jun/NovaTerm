@@ -1,10 +1,31 @@
 # AGENTS.md
 
+### 0.2.114错误处理与0.2.115台账范围提交收口（2026-10-31）
+
+按用户要求创建提交并推送Gitee，错误处理修复为0.2.114（6595170），工具台账范围整理为0.2.115。0.2.114相关25个目标重建、同轮CTest25/25（64.72秒），其中完整MCP 160 passed, 0 failed, 3 skipped, 0 blacklisted, 39818ms。最终0.2.115主程序构建成功，文档/版本收口未再跑业务或消毒器，不冒充新版本实机验收。
+
+台账只保留11轮实际MCP工具测试，87用例/20工具映射、49部分验证/38未执行；工程验证单独保存。确定性再生成、锚点/引用和diff检查通过，未把本轮构建/单测/提交记录写回工具台账。未重启用户实例或操作板卡，不纳入临时凭据、产物和日志，UART环境问题与B4未整体验收保持。见[工程验证收口](docs/architecture/stages/P8_AI_MCP_Interface/records/MCP_Engineering_Verification_2026-10-31.md#commit-02115-detail)。
+
+
+### MCP工具测试台账范围（用户明确要求，2026-10-31）
+
+`B4_Test_Report.html`只收录模拟实际用户/Agent使用MCP工具的测试记录：调用参数、响应、实际副作用、独立核验、失败/中断及复测结果。代码级单元/集成测试即使通过HTTP调用MCP，只要使用测试夹具、模拟后端或内部对象注入，也不得作为该台账的执行记录或通过证据。代码审查、实现、构建、ASan/UBSan、提交验证另存[工程验证记录](docs/architecture/stages/P8_AI_MCP_Interface/records/MCP_Engineering_Verification_2026-10-31.md)。
+
+混合轮次必须拆分。原工具调用记录与失败保留；仅有软件回归证据的用例在工具台账记为未执行。本次保留87条计划、20工具映射和11轮工具测试，10条仅软件证据的部分验证项改为未执行；未重新测试、未改产品代码、未提交/推送。
+
+
+### MCP错误处理审查修复（2026-10-31，0.2.113工作区增量）
+
+用户要求review MCP错误处理并修复。98文件lint后三代理六领域只读审查确认6类问题：观察/任务同步销毁链UAF、能力拒绝丢原因、SFTP失败误记取消及外层期限丢原因、上传确认锁分类/重试错误、历史搜索wire早于业务期限。统一能力拒绝转换，保留安全类隐藏；SFTP保存内部停止原因且published/unknown优先；锁竞争可重试而路径阻塞为不可用；搜索业务12秒+wire5秒余量。QPointer贯穿外层调用链，任务期限先记录unknown再释放。
+
+真实RED与四进程ASan UAF均保留；首轮扩大2/4、后续专项3/3分列。最终主程序与相关目标构建成功，相关CTest首轮24/25（64.56秒），唯一MCP目标两条旧HTTP断连断言按明确failed/PERMISSION_DENIED修正后单独复测1/1（39.04秒），QTest 160 passed, 0 failed, 3 skipped, 0 blacklisted, 39018ms。ASan定向9/9（591ms），stderr空，其他依赖仍Release；三代理复审无新增高可信问题。未连接设备/重启用户实例/改板卡/跑无关全套或其他平台，未提交/推送、版本不变。见[工程验证错误处理审查](docs/architecture/stages/P8_AI_MCP_Interface/records/MCP_Engineering_Verification_2026-10-31.md#mcp-error-handling-review)；原UART失败和B4未整体验收保持。
+
+
 ### 0.2.108～0.2.113 B4修复与台账提交收口（2026-10-31）
 
 用户要求创建提交并推送Gitee。按主题拆分，libvterm独立0.2.108（edc27bb）、宽字符日志0.2.109（598b558）、Linux安全Writer0.2.110（998302d）、S15判重与销毁保护0.2.111（b53d5e3）、凭据字号0.2.112（c7f48cc）、文档台账0.2.113。删除的历史记录引用迁往Git基线411ec15，87条用例与20工具映射保持。
 
-0.2.108含全部修复的工作区主程序及相关目标构建通过，相关CTest10/10（11.77秒）、MCP定向18/18（1.892秒）；不冒充各提交独立检出验证。最终0.2.113主程序及MCP业务/契约目标再次构建通过，契约CTest1/1（0.02秒）、两代SSH/UART判重和HTTP下载定向8/8（0.701秒）。用户确认ttyUSB0为原ttyUSB1板卡后的UARTRE3仍生成10字节结束文件，工具unknown/terminationConfirmed=false正确；此为此前0.2.107实例实机证据，本次提交阶段未重启或再连设备。构建产物、日志及临时凭据目录不纳入，B4仍未整体验收。见[提交验证](docs/architecture/stages/P8_AI_MCP_Interface/B4_Test_Report.html#commit-02113-detail)与[UART续测](docs/architecture/stages/P8_AI_MCP_Interface/B4_Test_Report.html#uart-stop-retest-03-detail)。
+0.2.108含全部修复的工作区主程序及相关目标构建通过，相关CTest10/10（11.77秒）、MCP定向18/18（1.892秒）；不冒充各提交独立检出验证。最终0.2.113主程序及MCP业务/契约目标再次构建通过，契约CTest1/1（0.02秒）、两代SSH/UART判重和HTTP下载定向8/8（0.701秒）。用户确认ttyUSB0为原ttyUSB1板卡后的UARTRE3仍生成10字节结束文件，工具unknown/terminationConfirmed=false正确；此为此前0.2.107实例实机证据，本次提交阶段未重启或再连设备。构建产物、日志及临时凭据目录不纳入，B4仍未整体验收。见[提交验证](docs/architecture/stages/P8_AI_MCP_Interface/records/MCP_Engineering_Verification_2026-10-31.md#commit-02113-detail)与[UART续测](docs/architecture/stages/P8_AI_MCP_Interface/B4_Test_Report.html#uart-stop-retest-03-detail)。
 
 
 ### S15操作ID判重与回调销毁修复/失败项复测（2026-10-31，工作区增量）
@@ -27,11 +48,11 @@ DEV1实际上传校验脚本→预期退出2→本地修正→记忆命中覆盖
 
 按用户要求补Linux LocalFileWriter：逐级无链接固定目录、UUID/0600独占临时文件、有界写入/同步/摘要复核、默认renameat2不覆盖及已有目标显式覆盖；取消只清已确认归属的临时文件，未知归属返回失败，发布后保留目标。Linux覆盖原目标需可读且≤64MiB，同长度同时间戳修改也以固定句柄摘要复核；只支持声明的本地文件系统，非CAS最终窗口及可信目录写入者前提保留，macOS未实现。原RED本地37pass/28fail（含旧Reader根目录夹具）、SFTP下载5pass/17fail；临时篡改首轮失败与原目标同大小变更审查RED2pass/1fail均保留。最终Release主程序与相关目标构建、相关CTest3/3（2.87秒）、两代HTTP下载4/4（0.243秒）、独立ASan/UBSan本地I/O68/68（1.012秒）通过，独立复审无新增高可信问题。未连接设备/重启用户实例/跑无关全套或其他平台，不提交/推送、版本0.2.107。
 
-用户明确要求子代理合并清单全部测试项后删除两份Markdown。现[B4 HTML](docs/architecture/stages/P8_AI_MCP_Interface/B4_Test_Report.html#linux-writer)内嵌b4-data为唯一记录源，87条操作/判据/结果、20工具映射及完整历史保留，入口引用已迁移；维护用scripts/export_b4_report.py --export-data/--data，不再依赖已删除的07清单及B4结果Markdown。工具目录说明同步Windows/Linux Writer后，主程序与协议/MCP目标重建，契约CTest1/1及两代下载专项再次4/4通过，分轮记录不拼全套。当前Linux相关项是软件验证而非真实SFTP验收，B4仍未通过。
+用户明确要求子代理合并清单全部测试项后删除两份Markdown。现[B4 HTML](docs/architecture/stages/P8_AI_MCP_Interface/B4_Test_Report.html#cases)内嵌b4-data为工具测试唯一记录源，87条操作/判据/结果、20工具映射及完整历史保留，入口引用已迁移；维护用scripts/export_b4_report.py --export-data/--data，不再依赖已删除的07清单及B4结果Markdown。工具目录说明同步Windows/Linux Writer后，主程序与协议/MCP目标重建，契约CTest1/1及两代下载专项再次4/4通过，分轮记录不拼全套。当前Linux相关项是软件验证而非真实SFTP验收，B4仍未通过。
 
 ### B4-01 宽字符日志填充修复（2026-10-31，工作区增量）
 
-实机样本发现宽字符提前软换行的空单元被当空格写入历史。libvterm新增内部wrap_padding标记及回调，VTAdapter只移除明确标记的空单元；不按chars[0]==0猜测，保留显式空格和光标跳格。原RED为3pass/10fail；初版裁行尾零格被独立审查复现resize后丢有效空白，新增回归2pass/1fail后改显式标记。最终Release主程序及相关目标构建通过，Core/terminal_ops/scrollback CTest3/3（8.04秒），各自QTest118/58/31通过；MCP日志/展开/采样专项8/8（0.752秒）。独立Core回放原4464字节样本，512/65536预算精确一致，复审无高可信新缺陷。未重启用户实例，不冒充更新后的实机MCP复验；B4仍未验收，版本不变、不提交/推送。分轮证据见[统一结果总账](docs/architecture/stages/P8_AI_MCP_Interface/B4_Test_Report.html#fix-detail)。
+实机样本发现宽字符提前软换行的空单元被当空格写入历史。libvterm新增内部wrap_padding标记及回调，VTAdapter只移除明确标记的空单元；不按chars[0]==0猜测，保留显式空格和光标跳格。原RED为3pass/10fail；初版裁行尾零格被独立审查复现resize后丢有效空白，新增回归2pass/1fail后改显式标记。最终Release主程序及相关目标构建通过，Core/terminal_ops/scrollback CTest3/3（8.04秒），各自QTest118/58/31通过；MCP日志/展开/采样专项8/8（0.752秒）。独立Core回放原4464字节样本，512/65536预算精确一致，复审无高可信新缺陷。未重启用户实例，不冒充更新后的实机MCP复验；B4仍未验收，版本不变、不提交/推送。分轮证据见[统一结果总账](docs/architecture/stages/P8_AI_MCP_Interface/records/MCP_Engineering_Verification_2026-10-31.md#fix-detail)。
 
 提权凭据窗口截图增补：说明/状态显式12px、sudo/su标题13px，修正ElaText默认28px；Release主程序与MCP目标重建、提权设置专项9/9（0.605秒），offscreen提示保留。用户实例未重启，高DPI截图未复验；结果追加于同一B4总账。
 

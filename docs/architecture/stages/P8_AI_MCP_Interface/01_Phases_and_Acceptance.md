@@ -88,7 +88,7 @@
 - [x] 受限SFTP单文件上传、查询/取消；使用本地读授权资源与原SSH绑定的远端写授权，默认不覆盖，不执行上传文件。
 - [x] SFTP下载完成0.2.96阶段软件验证：独立local.write+remote.read，复用原队列/worker和查询/取消，安全Writer默认不覆盖发布；原始成绩与限制见[下载记录](records/B3b_Sftp_Download_2026-10-28.md)。
 - [x] 本轮Windows显式覆盖与软件收尾：两输入可选overwrite、默认false，目标快照/最终复核、初始不存在不升级覆盖、非CAS信任前提与取消/未知结果；Windows软件验证已完成。
-- [x] Linux安全本地Reader/Writer已实现并有软件回归；Writer原始RED/GREEN与边界见[统一HTML](B4_Test_Report.html#linux-writer)。
+- [x] Linux安全本地Reader/Writer已实现并有软件回归；Writer原始RED/GREEN与边界见[工程验证记录](records/MCP_Engineering_Verification_2026-10-31.md#linux-writer-detail)。
 - [ ] macOS安全本地Reader/Writer仍未实现；Linux真实设备下载/文件系统组合仍待验收。
 - [x] UART/ZMODEM单文件上传/查询/取消已完成该阶段软件验证，历史证据见[UART发送记录](records/B3b_Uart_Send_2026-10-28.md)：复用原Controller/worker/输入泵，独立本地read+UART授权，外部接收准备与lease显式release，原ID取消，文件/协议事实和按大小/波特率的有限期限。
 - [x] UART独立发送授权与只读发现：绑定当前真实I/O代际/配置，终端和SSH目录权限不推导，旧窗口/撤权/重连回收，见[授权记录](records/B3b_Uart_Authorization_2026-10-28.md)；发现不表示接收就绪。
