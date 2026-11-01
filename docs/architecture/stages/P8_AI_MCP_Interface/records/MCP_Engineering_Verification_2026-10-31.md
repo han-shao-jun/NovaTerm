@@ -725,3 +725,12 @@ ctest --test-dir build/Release --output-on-failure -R '^novaterm_mcp_(contracts_
 ```
 
 主程序和相关目标构建成功；最终CTest6/6，40.42秒：契约0.01秒、wire2.33秒、endpoint2.58秒、MCP业务26.82秒、文件传输1.08秒、串口传输7.60秒。清理前中间轮次3/3与本轮分列，不冒充本轮完整业务数量。无实机、其他平台或消毒器验证；未重启用户实例。临时日志位于/tmp/novaterm-02117-final-build.log和/tmp/novaterm-02117-tests.log，不纳入Git。
+
+
+## 0.2.118 退役确认链路与无用依赖清理（2026-11-01）
+
+用户要求彻底删除退役死代码、保持整洁，并明确保留当前工具与规划。生产引用核查确认旧elicitation/input_required只有Wire消费分支、没有当前业务生成者；BackendElicitationResult在Service中原本直接忽略。移除ElicitationBroker、旧输出分支、专属返回事件与HTTP旧完成分支，保留迟到旧回复忽略、requestState拒绝及当前UploadConfirmations。删除串口传输无用FileResourceAdapter参数、FileTransfers::authorize无用direction参数和连接适配器无用AccessStore参数；实际上传/下载方向、权限和连接校验不变。
+
+新回归先真实RED（2pass/1fail，旧确认仍产生客户端提示），单步删除输出分支后3/3；最后扩展为2025/2026两代均验证旧elicitation/input_required不再输出、迟到回复不产生业务事件、正常结果结束。替换专属旧Broker测试，当前传输与协议回归保留。请求状态拒绝解析仍有现行消费者，不把它当作死代码删除。
+
+0.2.117→0.2.118。主程序及MCP业务、contracts、wire、endpoint、file_transfers、serial_file_transfers目标构建成功。中间轮次6/6（41.46秒）与最终参数清理后的6/6（40.56秒）分列。最终CTest：contracts0.01秒、wire2.59秒、endpoint2.59秒、MCP业务26.76秒、file_transfers1.04秒、serial_file_transfers7.56秒。命令与前节同范围，日志/tmp/novaterm-02118-final-build.log、/tmp/novaterm-02118-final-tests.log仅为本机临时证据。git diff --check通过；无实机、其他平台或消毒器验证，未重启用户实例，不改B4工具台账。

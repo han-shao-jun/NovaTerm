@@ -45,15 +45,14 @@ struct Fixture {
     TerminalSession session{&core};
     AccessStore access{root.filePath("state"), std::make_unique<MemoryCredentialStore>()};
     SessionDirectory directory;
-    FileResourceAdapter resources{access, directory, nullptr};
-    SerialFileTargetAdapter targets{access, directory, nullptr};
+    SerialFileTargetAdapter targets{directory, nullptr};
     QByteArray outgoing, allWrites, peerInput, received;
     QString offeredName;
     bool reserved{false}, reserveAllowed{true};
     int starts{0};
     qint64 clock{0};
     std::unique_ptr<SerialFileTransferController> controller;
-    SerialFileTransfers transfers{access, directory, resources, targets, "instance", nullptr,
+    SerialFileTransfers transfers{access, directory, targets, "instance", nullptr,
         [this](TerminalSession&) { ++starts; return controller.get(); }, [this] { return clock; }};
     QString client;
     bool ready{false};
@@ -485,7 +484,7 @@ private slots:
         Fixture f; QVERIFY(f.ready); const auto request = f.source();
         auto* arbiter = f.session.inputArbiter(); QVERIFY(arbiter);
         QVERIFY(arbiter->acquireMcpLease(73, f.session.statistics().generation));
-        SerialFileTransfers transfers(f.access, f.directory, f.resources, f.targets, "production-owner");
+        SerialFileTransfers transfers(f.access, f.directory, f.targets, "production-owner");
         const auto accepted = transfers.call(f.client, f.identity(), "connection", request);
         QVERIFY(!isError(accepted));
         QCOMPARE(value(accepted).value("state").toString(), QString("failed"));

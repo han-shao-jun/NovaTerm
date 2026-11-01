@@ -36,7 +36,7 @@ public:
 private:
     struct Record;
     struct Authority { TransferPath local, remote; SessionBinding binding; QPointer<TerminalSession> session; };
-    Result<Authority> authorize(const QString&, quint64, const StartFileUploadRequest&, SftpFileTransferDirection);
+    Result<Authority> authorize(const QString&, quint64, const StartFileUploadRequest&);
     bool valid(const std::shared_ptr<Record>&);
     void cancel(const std::shared_ptr<Record>&, const QString& failure = {});
     void check();

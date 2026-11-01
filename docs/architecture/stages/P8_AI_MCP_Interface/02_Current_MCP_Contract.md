@@ -39,6 +39,10 @@ mtime/ctime、uid/gid与初始摘要，防止同大小同时间戳改写被忽�
 
 分轮RED/GREEN及验证范围见[错误处理审查记录](records/MCP_Engineering_Verification_2026-10-31.md#mcp-error-handling-review)。
 
+## 退役确认链路清理（0.2.118）
+
+旧命令/脚本的反向elicitation与input_required输出链路已删除。当前上传确认仍使用工具结果中的confirmation_required及confirmationToken/confirmed；不会启动旧Broker。迟到的旧确认回复不触发业务调用，旧requestState仍按现有规则拒绝。现行工具目录、规划功能和两代协议路由保持。
+
 ## 当前接入与工具目录
 
 - 唯一接入令牌由首次显式启用自动建立，所有 AI 连接使用同一授权主体。没有客户端选择、增删或多令牌管理。只读状态不创建接入、不解锁凭据库。

@@ -4,7 +4,7 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 namespace NovaTerm::Mcp {
-SerialFileTargetAdapter::SerialFileTargetAdapter(AccessStore&, SessionDirectory& sessions, QObject* parent)
+SerialFileTargetAdapter::SerialFileTargetAdapter(SessionDirectory& sessions, QObject* parent)
     : QObject(parent), _sessions(sessions) {}
 std::optional<SerialFileBinding> SerialFileTargetAdapter::liveBinding(const QString& id)
 {

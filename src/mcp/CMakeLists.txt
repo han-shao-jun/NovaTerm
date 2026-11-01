@@ -41,7 +41,7 @@ qt_add_library(novaterm_mcp_protocol STATIC McpProtocol.cpp McpProtocol.h
     protocol/HistoryToolRequest.h protocol/ToolCall.h
     protocol/BackendEvents.h
     protocol/ProtocolProjectionSizer.cpp protocol/ProtocolProjectionSizer.h
-    WireSession.cpp WireSession.h ElicitationBroker.cpp ElicitationBroker.h)
+    WireSession.cpp WireSession.h)
 target_include_directories(novaterm_mcp_protocol PUBLIC ${PROJECT_SOURCE_DIR}/src)
 target_link_libraries(novaterm_mcp_protocol PUBLIC novaterm_mcp_contracts Qt6::Core Qt6::Network
     PRIVATE novaterm_capabilities)

@@ -1,6 +1,5 @@
 /** @file WireSession.cpp @brief 与传输无关的 MCP 初始化、确认及请求关联。 */
 #include "WireSession.h"
-#include "ElicitationBroker.h"
 #include "McpProtocol.h"
 #include "protocol/ToolCodec.h"
 #include <QElapsedTimer>
@@ -112,7 +111,6 @@ public:
         if (!_calls.contains(id))
             return;
         const auto call = _calls.take(id);
-        _elicitationBroker.forget(call.wireId);
         auto response = rpcResult(call.rpcId, toolResult(result));
         output(response, call.mrtr, true, call.route);
         if (_calls.isEmpty())
@@ -130,14 +128,7 @@ public:
             output(validationError);
             return;
         }
-        if (elicitationResponse) {
-            const auto resolution = _elicitationBroker.handleResponse(message);
-            if (!resolution)
-                return;
-            emit q->backendEvent(BackendElicitationResult{resolution->wireId,
-                ToolCodec::confirmationAnswer(resolution->action, resolution->confirmed)});
-            return;
-        }
+        if (elicitationResponse) return; // Ignore late responses to retired confirmations.
         const auto params = message.value("params").toObject();
         const bool initializeRequest = method == "initialize";
         const auto requestMeta = params.value("_meta").toObject();
@@ -166,7 +157,6 @@ public:
                 const auto identifier = key(params.value("requestId"));
                 if (_calls.contains(identifier)) {
                     const auto call = _calls.take(identifier);
-                    _elicitationBroker.forget(call.wireId);
                     if (call.sent)
                         emit q->backendEvent(BackendCancel{call.wireId});
                     emit q->completed(call.route);
@@ -352,85 +342,17 @@ public:
     }
     void backend(const QJsonObject &message)
     {
-        const auto *packet = &message;
-        if (_available && packet->value("op") == "input_required") {
-            const auto wire = packet->value("id").toString();
-            QString identifier;
-            for (auto it = _calls.cbegin(); it != _calls.cend(); ++it)
-                if (it->wireId == wire) {
-                    identifier = it.key();
-                    break;
-                }
-            if (identifier.isEmpty() || !_calls.value(identifier).mrtr)
-                return;
-            const QJsonObject schema{
-                {"type", "object"},
-                {"properties", QJsonObject{{"confirmed", QJsonObject{{"type", "boolean"}}}}},
-                {"required", QJsonArray{"confirmed"}},
-                {"additionalProperties", false}};
-            const QJsonObject request{{"method", "elicitation/create"},
-                                      {"params",
-                                       QJsonObject{{"mode", "form"},
-                                                   {"message", packet->value("message")},
-                                                   {"requestedSchema", schema}}}};
-            output(rpcResult(_calls.value(identifier).rpcId,
-                             {{"resultType", "input_required"},
-                              {"inputRequests", QJsonObject{{"confirm", request}}},
-                              {"requestState", packet->value("requestState")}}),
-                   true,
-                   true,
-                   _calls.value(identifier).route);
-            _calls.remove(identifier);
-            if (_calls.isEmpty())
-                _timeouts.stop();
-        } else if (_available && packet->value("op") == "result") {
-            const auto wire = packet->value("id").toString();
-            QString identifier;
-            for (auto it = _calls.cbegin(); it != _calls.cend(); ++it)
-                if (it->wireId == wire) {
-                    identifier = it.key();
-                    break;
-                }
-            if (!identifier.isEmpty())
-                finish(identifier, packet->value("payload").toObject());
-        } else if (_available && packet->value("op") == "elicitation") {
-            const auto wire = packet->value("id").toString();
-            QString identifier;
-            for (auto it = _calls.cbegin(); it != _calls.cend(); ++it)
-                if (it->wireId == wire) {
-                    identifier = it.key();
-                    break;
-                }
-            if (identifier.isEmpty())
-                return;
-            if (_calls.value(identifier).mrtr) {
-                emit q->backendEvent(BackendCancel{wire});
-                finish(identifier,
-                       failure("CLIENT_CONFIRMATION_UNAVAILABLE",
-                               "Client confirmation is unavailable."));
-                return;
-            }
-            if (!_calls.value(identifier).formElicitation) {
-                emit q->backendEvent(BackendCancel{wire});
-                finish(identifier,
-                       failure(QStringLiteral("CLIENT_CONFIRMATION_UNAVAILABLE"),
-                               QStringLiteral("CLIENT_CONFIRMATION_UNAVAILABLE")));
-                return;
-            }
-            const auto request =
-                _elicitationBroker.requestConfirmation(wire, packet->value("message").toString());
-            if (!request) {
-                emit q->backendEvent(BackendCancel{wire});
-                finish(identifier, failure("BUSY", "A confirmation is already pending."));
-                return;
-            }
-            output(*request, false, false, _calls.value(identifier).route);
+        if (!_available || message.value("op") != "result") return;
+        const auto wire = message.value("id").toString();
+        QString identifier;
+        for (auto it = _calls.cbegin(); it != _calls.cend(); ++it) {
+            if (it->wireId == wire) { identifier = it.key(); break; }
         }
+        if (!identifier.isEmpty()) finish(identifier, message.value("payload").toObject());
     }
     WireSession *q;
     QString _prefix, _route;
     QHash<QString, Call> _calls;
-    ElicitationBroker _elicitationBroker;
     QElapsedTimer _clock;
     std::function<qint64()> _monotonicClock;
     QTimer _timeouts;
@@ -500,7 +422,6 @@ void WireSession::cancelAll()
     const auto calls = std::exchange(_impl->_calls, {});
     _impl->_timeouts.stop();
     for (const auto &call : calls) {
-        _impl->_elicitationBroker.forget(call.wireId);
         if (call.sent)
             emit backendEvent(BackendCancel{call.wireId});
         emit completed(call.route);

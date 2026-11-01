@@ -45,13 +45,7 @@ struct BackendTaskCall { QString id; TerminalTaskRequest request; bool confirmat
 struct BackendFileTransferCall { QString id; FileTransferRequest request; bool confirmationSupplied{false}; };
 struct BackendSerialFileTransferCall { QString id; SerialFileTransferRequest request; bool confirmationSupplied{false}; };
 
-struct BackendElicitationResult
-{
-    QString id;
-    ConfirmationAnswer answer{ConfirmationAnswer::Decline};
-};
-
-using BackendEvent = std::variant<BackendCall, BackendHistoryCall, BackendClearCall, BackendWaitTextCall, BackendTaskCall, BackendFileTransferCall, BackendSerialFileTransferCall, BackendCancel, BackendElicitationResult>;
+using BackendEvent = std::variant<BackendCall, BackendHistoryCall, BackendClearCall, BackendWaitTextCall, BackendTaskCall, BackendFileTransferCall, BackendSerialFileTransferCall, BackendCancel>;
 
 /** @brief 事件类别；仅用于日志与测试断言，不参与业务分派。 */
 [[nodiscard]] inline QString backendEventKind(const BackendEvent& event)
@@ -64,10 +58,8 @@ using BackendEvent = std::variant<BackendCall, BackendHistoryCall, BackendClearC
             || std::is_same_v<Type, BackendFileTransferCall>
             || std::is_same_v<Type, BackendSerialFileTransferCall>)
             return QStringLiteral("call");
-        else if constexpr (std::is_same_v<Type, BackendCancel>)
-            return QStringLiteral("cancel");
         else
-            return QStringLiteral("elicitation_result");
+            return QStringLiteral("cancel");
     }, event);
 }
 

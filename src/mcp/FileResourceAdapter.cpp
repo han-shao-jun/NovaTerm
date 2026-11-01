@@ -1,7 +1,7 @@
 #include "FileResourceAdapter.h"
 #include "transport/SshTransport.h"
 namespace NovaTerm::Mcp {
-FileResourceAdapter::FileResourceAdapter(AccessStore&, SessionDirectory& sessions, QObject* parent)
+FileResourceAdapter::FileResourceAdapter(SessionDirectory& sessions, QObject* parent)
     : QObject(parent), _sessions(sessions) {}
 std::optional<SessionBinding> FileResourceAdapter::liveBinding(const QString& id)
 {

@@ -42,9 +42,8 @@ FileTransfers::FileTransfers(AccessStore& access, SessionDirectory& sessions, Fi
 FileTransfers::~FileTransfers() { stop(); }
 qint64 FileTransfers::now() const { return _now ? _now() : _clock.elapsed(); }
 Result<FileTransfers::Authority> FileTransfers::authorize(const QString& client, quint64 identity,
-    const StartFileUploadRequest& request, SftpFileTransferDirection direction)
+    const StartFileUploadRequest& request)
 {
-    Q_UNUSED(direction)
     if (!_access.enabled() || !identity || _access.identityVersion(client) != identity)
         return Error{ErrorCode::PermissionDenied};
     const auto local = splitTransferPath(request.localPath, false);
@@ -63,7 +62,7 @@ Result<FileTransfers::Authority> FileTransfers::authorize(const QString& client,
 }
 bool FileTransfers::valid(const std::shared_ptr<Record>& record)
 {
-    const auto authority = authorize(record->client, record->identity, record->request, record->upload.direction);
+    const auto authority = authorize(record->client, record->identity, record->request);
     const auto* current = std::get_if<Authority>(&authority);
     return current && current->session == record->session
         && sameTransferBinding(current->binding, record->binding)
@@ -129,7 +128,7 @@ Result<QJsonObject> FileTransfers::call(const QString& client, quint64 identity,
             ++count;
 
         }
-        const auto resolved = authorize(client, identity, *upload, direction);
+        const auto resolved = authorize(client, identity, *upload);
         if (const auto* error = std::get_if<Error>(&resolved)) return *error;
         const auto authority = std::get<Authority>(resolved);
         if (count >= Budget::MaxFileTransfersPerClient || _records.size() >= Budget::MaxFileTransfers)

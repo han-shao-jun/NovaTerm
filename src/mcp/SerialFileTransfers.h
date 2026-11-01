@@ -1,5 +1,4 @@
 #pragma once
-#include "FileResourceAdapter.h"
 #include "SerialFileTargetAdapter.h"
 #include "contracts/FileTransferRequest.h"
 #include "contracts/FileTransferPaths.h"
@@ -15,7 +14,7 @@ class SerialFileTransfers final : public QObject {
 public:
     using ControllerResolver = std::function<SerialFileTransferController*(TerminalSession&)>;
     using Now = std::function<qint64()>;
-    SerialFileTransfers(AccessStore&, SessionDirectory&, FileResourceAdapter&, SerialFileTargetAdapter&,
+    SerialFileTransfers(AccessStore&, SessionDirectory&, SerialFileTargetAdapter&,
         QString instance, QObject* parent = nullptr, ControllerResolver = {}, Now = {});
     ~SerialFileTransfers() override;
     SerialFileTransfers(const SerialFileTransfers&) = delete;

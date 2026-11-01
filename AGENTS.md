@@ -1,5 +1,10 @@
 # AGENTS.md
 
+### 0.2.118 退役确认与无用依赖清理（2026-11-01）
+
+删除无当前生产者的旧elicitation/input_required生成链路、ElicitationBroker和无用返回事件；删除传输与连接适配器的旧授权参数。保留当前20工具、UploadConfirmations、旧状态拒绝及规划功能。真实RED2pass/1fail后定向GREEN，最终0.2.118主程序与相关目标构建成功、CTest6/6（40.56秒）；不改B4台账、不连接设备/重启实例、不推送。详见工程验证记录。
+
+
 ### 0.2.117 退役MCP死代码清理（2026-11-01）
 
 按用户要求仅清理已退役工具专属代码，保留当前工具与规划功能。移除旧文件/UART授权目录存储、请求/分派、旧窗口浏览及专属测试；现行连接校验原样保留，独立绑定比较增加回归。版本0.2.117主程序及相关目标构建通过，相关CTest6/6（40.42秒）；不改B4工具台账、不连接设备或重启实例、不推送。详见[工程验证记录](docs/architecture/stages/P8_AI_MCP_Interface/records/MCP_Engineering_Verification_2026-10-31.md)。

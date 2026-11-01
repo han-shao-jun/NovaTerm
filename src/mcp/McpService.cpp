@@ -163,10 +163,10 @@ public:
         clears = std::make_unique<TerminalClearAdapter>(access, sessions, instance, logCursorKey, owner);
         textWaits = std::make_unique<TerminalTextWait>(access, sessions, observation, instance, logCursorKey, owner);
         terminalTasks = std::make_unique<TerminalTasks>(access, sessions, *terminal, instance, logCursorKey, owner);
-        fileResources = std::make_unique<FileResourceAdapter>(access, sessions, owner);
-        serialFileTargets = std::make_unique<SerialFileTargetAdapter>(access, sessions, owner);
+        fileResources = std::make_unique<FileResourceAdapter>(sessions, owner);
+        serialFileTargets = std::make_unique<SerialFileTargetAdapter>(sessions, owner);
         fileTransfers = std::make_unique<FileTransfers>(access, sessions, *fileResources, instance, owner);
-        serialFileTransfers = std::make_unique<SerialFileTransfers>(access, sessions, *fileResources, *serialFileTargets, instance, owner);
+        serialFileTransfers = std::make_unique<SerialFileTransfers>(access, sessions, *serialFileTargets, instance, owner);
         uploadConfirmations = std::make_unique<UploadConfirmations>(stateDirectory);
         listenPort = port;
         timer.setInterval(100);
@@ -288,10 +288,6 @@ public:
         if (connection == connections.end()) { io.closeConnection(connectionId); return; }
         const auto id = std::visit([](const auto& value) { return value.id; }, event);
         if (id.isEmpty() || id.size() > 64) { io.closeConnection(connectionId); return; }
-        if (const auto* result = std::get_if<BackendElicitationResult>(&event)) {
-            Q_UNUSED(result);
-            return;
-        }
         if (std::get_if<BackendCancel>(&event)) {
             const auto pending = findRequest(requestKey(connectionId, id));
             if (pending) cancel(requestKey(connectionId, id), {}, false);

@@ -416,7 +416,7 @@ bool HttpMcpEndpoint::send(const QString &peer, const QJsonObject &message)
     const auto wire = _impl->jobs.value(key);
     if (!wire)
         return false;
-    if (message.value("op") == "result" || message.value("op") == "input_required")
+    if (message.value("op") == "result")
         _impl->jobs.remove(key);
     wire->receiveBackend(message);
     return true;

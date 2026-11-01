@@ -5,7 +5,7 @@ namespace NovaTerm::Mcp {
 // Resolves existing SSH connection facts without creating a connection.
 class FileResourceAdapter final : public QObject {
 public:
-    FileResourceAdapter(AccessStore&, SessionDirectory&, QObject* parent);
+    FileResourceAdapter(SessionDirectory&, QObject* parent);
     std::optional<SessionBinding> liveBinding(const QString& session);
 private:
     SessionDirectory& _sessions;

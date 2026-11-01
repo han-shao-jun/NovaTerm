@@ -35,7 +35,7 @@ struct Fixture {
     TerminalSession session{&core};
     AccessStore access{root.filePath("state"), std::make_unique<MemoryCredentialStore>()};
     SessionDirectory directory;
-    FileResourceAdapter resources{access, directory, nullptr};
+    FileResourceAdapter resources{directory, nullptr};
     QList<SftpFileUploadRequest> requests;
     QList<FileTransfers::Delivery> deliveries;
     qint64 now{0};

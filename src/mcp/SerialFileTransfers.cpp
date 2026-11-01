@@ -78,7 +78,7 @@ struct SerialFileTransfers::Record {
     int baudRate{0};
     bool active{true}, protocolCompleted{false}, cancelling{false}, stopping{false};
 };
-SerialFileTransfers::SerialFileTransfers(AccessStore& access, SessionDirectory& sessions, FileResourceAdapter& resources,
+SerialFileTransfers::SerialFileTransfers(AccessStore& access, SessionDirectory& sessions,
     SerialFileTargetAdapter& targets, QString instance, QObject* parent, ControllerResolver resolver, Now clock)
     : QObject(parent), _access(access), _sessions(sessions), _targets(targets),
       _instance(std::move(instance)), _resolve(std::move(resolver)), _now(std::move(clock))
@@ -88,7 +88,6 @@ SerialFileTransfers::SerialFileTransfers(AccessStore& access, SessionDirectory& 
     _timer.setInterval(100);
     connect(&_timer, &QTimer::timeout, this, [this] { check(); });
     connect(&_access, &AccessStore::changed, this, [this] { check(); });
-    Q_UNUSED(resources);
     connect(&_sessions, &SessionDirectory::changed, this, [this] { check(); });
     connect(&_sessions, &SessionDirectory::invalidated, this, [this] { check(); });
 }

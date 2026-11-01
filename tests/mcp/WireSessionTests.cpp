@@ -163,27 +163,13 @@ private slots:
         QCOMPARE(backend.size(), 1); const auto event = backend.first().at(0).value<BackendEvent>();
         const auto* history = std::get_if<BackendHistoryCall>(&event); QVERIFY(history); QVERIFY(!history->confirmationSupplied);
     }
-    void elicitationResponsesResolveOnce_data()
-    {
-        QTest::addColumn<QJsonObject>("response");
-        QTest::addColumn<QString>("action");
-        QTest::addColumn<bool>("confirmed");
-        QTest::newRow("accept") << QJsonObject{{"result", QJsonObject{{"action", "accept"},
-            {"content", QJsonObject{{"confirmed", true}}}}}} << QString("accept") << true;
-        QTest::newRow("decline") << QJsonObject{{"result", QJsonObject{{"action", "decline"}}}}
-            << QString("decline") << false;
-        QTest::newRow("cancel") << QJsonObject{{"result", QJsonObject{{"action", "cancel"}}}}
-            << QString("cancel") << false;
-        QTest::newRow("client-error") << QJsonObject{{"error", QJsonObject{{"code", -32603}, {"message", "closed"}}}}
-            << QString("cancel") << false;
-        QTest::newRow("accept-without-confirmation") << QJsonObject{{"result", QJsonObject{{"action", "accept"}}}}
-            << QString("decline") << false;
+    void retiredConfirmationOutputCannotPromptClient_data() {
+        QTest::addColumn<bool>("modern");
+        QTest::newRow("2025") << false;
+        QTest::newRow("2026") << true;
     }
-    void elicitationResponsesResolveOnce()
-    {
-        QFETCH(QJsonObject, response);
-        QFETCH(QString, action);
-        QFETCH(bool, confirmed);
+    void retiredConfirmationOutputCannotPromptClient() {
+        QFETCH(bool, modern);
         WireSession wire;
         auto init = initialize();
         auto params = init.value("params").toObject();
@@ -194,31 +180,26 @@ private slots:
         wire.setBackendAvailable(true);
         QSignalSpy backend(&wire, &WireSession::backendEvent);
         QSignalSpy packets(&wire, &WireSession::packet);
-        wire.receiveMessage(call(2), "original");
+        auto request = call(2);
+        if (modern) {
+            auto arguments = request.value("params").toObject();
+            arguments.insert("_meta", QJsonObject{{"io.modelcontextprotocol/protocolVersion", "2026-07-28"},
+                {"io.modelcontextprotocol/clientCapabilities", QJsonObject{}}});
+            request.insert("params", arguments);
+        }
+        wire.receiveMessage(request, "original");
         QCOMPARE(backend.size(), 1);
         const auto id = backendId(backend, 0);
-        wire.receiveBackend({{"op", "elicitation"}, {"id", id}, {"message", "Confirm execution"}});
-        QCOMPARE(packets.size(), 1);
-        const auto prompt = QJsonDocument::fromJson(packets.takeFirst().at(1).toByteArray()).object();
-        QCOMPARE(prompt.value("method").toString(), QStringLiteral("elicitation/create"));
-        response.insert("jsonrpc", "2.0");
-        response.insert("id", prompt.value("id"));
-        wire.receiveMessage(response);
-        QCOMPARE(backend.size(), 2);
-        const auto event = backend.last().at(0).value<BackendEvent>();
-        const auto* resolution = std::get_if<BackendElicitationResult>(&event);
-        QVERIFY(resolution);
-        QCOMPARE(resolution->id, id);
-        QCOMPARE(resolution->answer, action == "cancel" ? ConfirmationAnswer::Cancel
-            : confirmed ? ConfirmationAnswer::Accept : ConfirmationAnswer::Decline);
-        wire.receiveMessage(response);
-        QCOMPARE(backend.size(), 2);
+        wire.receiveBackend({{"op", "elicitation"}, {"id", id}, {"message", "Retired confirmation"}});
         QVERIFY(packets.isEmpty());
+        wire.receiveBackend({{"op", "input_required"}, {"id", id}, {"requestState", "retired-state"}});
+        QVERIFY(packets.isEmpty());
+        wire.receiveMessage({{"jsonrpc", "2.0"}, {"id", "nt-elicit-retired"},
+            {"result", QJsonObject{{"action", "accept"}, {"content", QJsonObject{{"confirmed", true}}}}}});
+        QCOMPARE(backend.size(), 1);
         wire.receiveBackend({{"op", "result"}, {"id", id}, {"payload", success({})}});
         QCOMPARE(packets.size(), 1);
         QVERIFY(!wire.hasPendingCalls());
-        wire.receiveBackend({{"op", "result"}, {"id", id}, {"payload", success({})}});
-        QCOMPARE(packets.size(), 1);
     }
     void duplicateActiveRpcIdKeepsOriginalCall()
     {
