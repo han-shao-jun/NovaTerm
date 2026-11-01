@@ -99,3 +99,24 @@ P5 的多页 Atlas、LRU、局部上传、CJK fallback、组合字符、Emoji、
 约定：`RenderCommandRow` 的 `backgrounds`/`contents` 必须按 `cellColumn` 升序
 （`mergeRowCommandsIncremental()` 与 `assembleSpanInstances()` 都依赖这一点）；
 `contentUploadBytes` 统计的是基础内容区域（背景 + 内容两层）。
+
+
+## 渲染审查与局部优化（2026-11-01，0.2.119）
+
+本轮按qt-cpp-review扫描renderer与ui/terminal的31个源码文件，产生102条机械诊断；三位只读审查代理分别覆盖性能/API、所有权/线程、快照契约/错误处理。机械风格不作为优化目标。
+
+已实施：
+
+- RowBlockDamageTracker在原span容器内排序并压缩合并，保留调用方移入的容量，避免每个脏行新建merged容器。新增裁剪、相邻/重叠、空区间和共享输入不被修改的回归。
+- 重建与上传脏区改为有边界检查的常量引用，省去QVector::value产生的临时共享副本与引用计数；不宣称这些临时副本本身引起深拷贝。
+- 高亮预过滤在未解析尾部出现分支时保守回退，扩展正则语法禁用字面预过滤；补上原“真实命中”测试漏掉的断言。默认规则的过滤行为保留。
+- GPU缓冲规划先做宽整数与预算检查，成功前不提交布局；返回nullopt区分失败与无需重分配。失败帧不上传/绘制旧buffer，保留下一次完整重建意图，不主动空转重试。Null后端测试覆盖小缓冲→预算拒绝→恢复。
+
+验证：新增预算/高亮回归真实RED为2pass/2fail；首次GREEN构建因调用处仍声明bool而失败，改为auto后主程序及两个渲染目标构建通过。最终相关CTest2/2（5.34秒：renderer5.05秒、renderer_p5 0.28秒）。QRhi Null验证预算流程，offscreen环境的QRhiWidget不支持提示保留；未作真实GPU截图、实机帧率或其他平台验收。span循环另以ASan/UBSan执行5×500000次无报告，Qt依赖仍为普通构建，不能扩大为完整渲染消毒器验收。两位代理复审span/高亮与GPU预算修复，无新增高可信问题。
+
+局部CPU基准：1行240列、30个identity block，每轮500000次修改一个block并传入[16,24)损伤、移动复用同一span容器，5轮checksum均949999。Release -O3、同机Qt6.8.3：修改前40535/39049/39242/41530/39374微秒，修改后37180/30464/30603/30135/30334微秒；中位39374→30464微秒，降低22.6%。该数字仅代表损伤合并循环，不代表终端整体吞吐或GPU帧率。临时基准源和日志在/tmp/novaterm-span-*，渲染测试在/tmp/novaterm-render-tests.log，不入Git。
+
+审查中另发现的待验证项（尚未实施）：冷历史复制完成回调在clipboard或historyReadMessage同步销毁Renderer后可能访问已销毁对象；DPR切换只按font generation取消任务，旧比例任务可能滞留；Cell italic未传到实际ensureGlyph字体选择。上述为静态调用链证据，需分别建立针对性回归后处理，不以本轮测试声称已修复。
+
+
+0.2.119独立提交验证：临时移开后续libvterm优化，主程序和两个渲染目标重建成功，CTest2/2（5.44秒）。版本由0.2.118递增，未将后续解析器收益计入本提交。

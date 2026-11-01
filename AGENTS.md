@@ -1,5 +1,10 @@
 # AGENTS.md
 
+### 0.2.119 渲染优化提交（2026-11-01）
+
+按用户逐模块提交并推送要求收口：span原地合并及引用访问、高亮预过滤正确性、GPU预算失败三态与恢复。局部span基准中位降低22.6%，不是整机帧率。临时移开后续libvterm优化后，0.2.119主程序与相关目标构建成功，渲染CTest2/2（5.44秒）；规划与其他静态发现保留。见[渲染记录](docs/architecture/Rendering_Architecture.md)。
+
+
 ### 0.2.118 退役确认与无用依赖清理（2026-11-01）
 
 删除无当前生产者的旧elicitation/input_required生成链路、ElicitationBroker和无用返回事件；删除传输与连接适配器的旧授权参数。保留当前20工具、UploadConfirmations、旧状态拒绝及规划功能。真实RED2pass/1fail后定向GREEN，最终0.2.118主程序与相关目标构建成功、CTest6/6（40.56秒）；不改B4台账、不连接设备/重启实例、不推送。详见工程验证记录。

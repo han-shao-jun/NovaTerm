@@ -17,6 +17,7 @@
 #include <QApplication>
 #include <QKeyEvent>
 #include <QTest>
+#include <rhi/qrhi.h>
 #include <QtMath>
 #include <algorithm>
 
@@ -24,11 +25,56 @@ namespace {
 QTimer* cursorBlinkTimer(TerminalRenderer& renderer);
 }
 
+class TerminalRendererTestAccess {
+public:
+    static void attach(TerminalRenderer& renderer, QRhi* rhi) {
+        renderer._rhi = rhi;
+        renderer._bufferBudget = NovaTerm::BufferBudget(16384, 1024);
+    }
+    static std::optional<bool> ensure(TerminalRenderer& renderer, int rows, int columns) {
+        renderer._commandBuffer.resize(rows, columns);
+        return renderer.ensureVertexBuffer(rows, columns);
+    }
+    static int stride(const TerminalRenderer& renderer) { return renderer._backgroundRowStrideVertices; }
+    static QRhiBuffer* buffer(const TerminalRenderer& renderer) { return renderer._vertexBuffer.get(); }
+};
+
 class RendererP3Tests : public QObject
 {
     Q_OBJECT
 
 private slots:
+    void bufferBudgetRejectionPreservesLayoutAndRecovers() {
+        QRhiNullInitParams params;
+        std::unique_ptr<QRhi> rhi(QRhi::create(QRhi::Null, &params));
+        QVERIFY(rhi);
+        TerminalCore core(10, 2);
+        TerminalRenderer renderer(&core);
+        TerminalRendererTestAccess::attach(renderer, rhi.get());
+        QVERIFY(TerminalRendererTestAccess::ensure(renderer, 2, 10).has_value());
+        auto* buffer = TerminalRendererTestAccess::buffer(renderer);
+        QVERIFY(buffer);
+        const int stride = TerminalRendererTestAccess::stride(renderer);
+        QVERIFY(!TerminalRendererTestAccess::ensure(renderer, 20, 40).has_value());
+        QCOMPARE(TerminalRendererTestAccess::stride(renderer), stride);
+        QCOMPARE(TerminalRendererTestAccess::buffer(renderer), buffer);
+        QVERIFY(TerminalRendererTestAccess::ensure(renderer, 2, 12).has_value());
+    }
+    void highlightExtendedSyntaxDoesNotRequireComments() {
+        const auto options = QRegularExpression::ExtendedPatternSyntaxOption;
+        const QString pattern("ERROR # comment");
+        QVERIFY(QRegularExpression(pattern, options).match("ERROR").hasMatch());
+        QVERIFY(TerminalRenderer::highlightRequiredLiterals(pattern, options).isEmpty());
+    }
+    void highlightAlternationCannotBeFilteredOut() {
+        for (const QString& pattern : {QString("(?:ERROR)|WARN"), QString("[E]|WARN")}) {
+            QVERIFY(QRegularExpression(pattern).match("WARN").hasMatch());
+            const auto literals = TerminalRenderer::highlightRequiredLiterals(pattern);
+            bool possible = literals.isEmpty();
+            for (const auto& literal : literals) possible |= QString("WARN").contains(literal);
+            QVERIFY(possible);
+        }
+    }
     void colorSchemesParseWindowsTerminalFormat();
     void colorSchemesResolveReferencesAndOverrides();
     void colorSchemesRenameAndDeleteReferences();
@@ -1106,8 +1152,7 @@ void RendererP3Tests::highlightPrefilterNeverExcludesAMatch()
                 }
             }
             if (pattern.match(text).hasMatch()) {
-                // 前置过滤命中与否都无所谓，但真实命中必须被记录，说明
-                // 语料确实覆盖了正例。
+                QVERIFY2(maybe, qPrintable(pattern.pattern() + " / " + text));
                 continue;
             }
             if (!maybe) {

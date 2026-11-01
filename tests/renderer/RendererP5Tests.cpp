@@ -22,6 +22,19 @@ class RendererP5Tests final : public QObject
 {
     Q_OBJECT
 private slots:
+    void rowDamageMergesClippedSharedSpans() {
+        NovaTerm::RowBlockDamageTracker tracker;
+        tracker.reset(1, 40);
+        const std::vector<NovaTerm::u64> hashes(5, 1);
+        tracker.reconcileRow(0, hashes, 40, {});
+        const QVector<NovaTerm::DirtyColumnSpan> input{{30,80}, {-4,4}, {3,8}, {10,10}, {20,30}};
+        const auto merged = tracker.reconcileRow(0, hashes, 40, input);
+        QCOMPARE(merged.size(), 2);
+        QCOMPARE(merged[0].startColumn, 0); QCOMPARE(merged[0].endColumn, 8);
+        QCOMPARE(merged[1].startColumn, 20); QCOMPARE(merged[1].endColumn, 40);
+        QCOMPARE(input[0].endColumn, 80); QCOMPARE(input[1].startColumn, -4);
+    }
+
     void glyphKeyDistinguishesContractFields();
     void fallbackKeepsGridContract();
     void fontAndGlyphGenerationsAreMonotonic();

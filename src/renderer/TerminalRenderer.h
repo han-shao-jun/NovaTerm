@@ -344,9 +344,10 @@ public:
      * @return 必需字面量；无法证明时为空。
      */
     [[nodiscard]] static QVector<QString> highlightRequiredLiterals(
-        const QString& pattern);
+        const QString& pattern, QRegularExpression::PatternOptions options = {});
 
 private:
+    friend class TerminalRendererTestAccess;
     /** @brief 统一处理隐藏、最小化与恢复时的调度和缓存失效。 */
     void setPaintingEnabled(bool enabled);
     void prepareHistoryViewport();
@@ -480,7 +481,7 @@ private:
      */
     bool dropInvalidSelection();
     void scheduleReflow();
-    bool ensureVertexBuffer(int rows, int columns);
+    std::optional<bool> ensureVertexBuffer(int rows, int columns);
     void resetWidgetRowMapping(int rows);
     void updatePlacementBuffer(QRhiResourceUpdateBatch* updates,
                                const QSize& pixelSize);

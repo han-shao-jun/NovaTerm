@@ -141,17 +141,17 @@ private:
                      const DirtyColumnSpan& right) {
                       return left.startColumn < right.startColumn;
                   });
-        QVector<DirtyColumnSpan> merged;
-        for (const auto& span : spans) {
-            if (merged.isEmpty()
-                || span.startColumn > merged.back().endColumn) {
-                merged.push_back(span);
-            } else {
-                merged.back().endColumn = std::max(
-                    merged.back().endColumn, span.endColumn);
-            }
+        // Compact in the caller's moved buffer so its capacity survives frames.
+        qsizetype count = 0;
+        for (qsizetype index = 0; index < spans.size(); ++index) {
+            const auto span = spans.at(index);
+            if (count == 0 || span.startColumn > spans.at(count - 1).endColumn)
+                spans[count++] = span;
+            else
+                spans[count - 1].endColumn = std::max(spans.at(count - 1).endColumn, span.endColumn);
         }
-        return merged;
+        spans.resize(count);
+        return spans;
     }
 
     int _columns{0};                        ///< reset() 时的列数

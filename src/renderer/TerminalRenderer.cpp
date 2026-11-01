@@ -440,7 +440,7 @@ void TerminalRenderer::setHighlightRules(
         filter.caseInsensitive =
             rule.pattern.patternOptions()
             & QRegularExpression::CaseInsensitiveOption;
-        filter.literals = highlightRequiredLiterals(rule.pattern.pattern());
+        filter.literals = highlightRequiredLiterals(rule.pattern.pattern(), rule.pattern.patternOptions());
         _highlightNeedsFoldedText =
             _highlightNeedsFoldedText || filter.caseInsensitive;
         _highlightPrefilters.push_back(std::move(filter));
@@ -1261,14 +1261,18 @@ void TerminalRenderer::render(QRhiCommandBuffer* cb)
         quint64(commandTimer.nsecsElapsed());
     _renderStatistics.commandsGenerated += commandsGenerated;
 
-    const bool bufferReallocated = ensureVertexBuffer(rows, columns);
-    if (!_vertexBuffer)
+    const auto bufferReallocated = ensureVertexBuffer(rows, columns);
+    if (!bufferReallocated || !_vertexBuffer) {
+        const QMutexLocker lock(&_pendingFrameMutex);
+        _fullFramePending = true;
+        _overlayPending = true;
         return;
+    }
 
     QRhiResourceUpdateBatch* resourceUpdates = _rhi->nextResourceUpdateBatch();
     uploadCommands(resourceUpdates, pixelSize, dirtyRows, dirtySpans,
-                   bufferReallocated || fullFramePending,
-                   overlayPending || fullFramePending || bufferReallocated);
+                   *bufferReallocated || fullFramePending,
+                   overlayPending || fullFramePending || *bufferReallocated);
     updatePlacementBuffer(resourceUpdates, pixelSize);
     uploadAtlasChanges(resourceUpdates);
 
@@ -2550,13 +2554,15 @@ bool TerminalRenderer::rebuildCommandRows(
     for (int row = 0; row < int(dirtyRows.size()); ++row) {
         if (!dirtyRows[row])
             continue;
-        rebuildCommandRow(row, screen, dirtySpans.value(row));
+        const QVector<NovaTerm::DirtyColumnSpan> emptySpans;
+        const auto& spans = row < dirtySpans.size() ? dirtySpans.at(row) : emptySpans;
+        rebuildCommandRow(row, screen, spans);
         const auto& commands = _commandBuffer.row(row);
         commandsGenerated += quint64(commands.backgrounds.size()
                                      + commands.contents.size());
         ++_renderStatistics.rowsRebuilt;
         _renderStatistics.dirtyBlocksRebuilt += quint64(
-            std::max<qsizetype>(1, dirtySpans.value(row).size()));
+            std::max<qsizetype>(1, spans.size()));
     }
     return _atlasGeneration != generationBefore;
 }
@@ -2827,8 +2833,9 @@ void TerminalRenderer::appendCommandVertices(
     appendQuad(command.rect, command.uvRect, command.color, pixelSize);
 }
 
-bool TerminalRenderer::ensureVertexBuffer(int rows, int columns)
+std::optional<bool> TerminalRenderer::ensureVertexBuffer(int rows, int columns)
 {
+    if (rows <= 0 || rows > std::numeric_limits<int>::max() - 2 || columns <= 0 || columns > std::numeric_limits<int>::max() / 4) return std::nullopt;
     int backgroundStride = columns;
     int contentStride = columns * 4;
     for (int row = 0; row < _commandBuffer.rows(); ++row) {
@@ -2844,13 +2851,21 @@ bool TerminalRenderer::ensureVertexBuffer(int rows, int columns)
     backgroundStride = std::max(backgroundStride,
                                 _backgroundRowStrideVertices);
     contentStride = std::max(contentStride, _contentRowStrideVertices);
-    const int overlayBase = rows * (backgroundStride + contentStride);
+    const quint64 overlayBase64 = quint64(rows) * (quint64(backgroundStride) + quint64(contentStride));
     const int overlayCapacity = std::max(
         std::max(rows + 2,
                  int(_commandBuffer.overlays().size())),
         _overlayCapacityVertices);
-    const int requiredBytes =
-        (overlayBase + overlayCapacity) * int(sizeof(GpuInstance));
+    if (overlayBase64 + quint64(overlayCapacity) > quint64(std::numeric_limits<int>::max()) / sizeof(GpuInstance)) return std::nullopt;
+    const quint64 requiredBytes64 = (overlayBase64 + quint64(overlayCapacity)) * sizeof(GpuInstance);
+    if (requiredBytes64 > quint64(std::numeric_limits<int>::max())) return std::nullopt;
+    const int overlayBase = int(overlayBase64);
+    const int requiredBytes = int(requiredBytes64);
+    const auto capacity = _bufferBudget.capacityFor(requiredBytes64);
+    if (!capacity) {
+        qWarning() << "TerminalRenderer: instance buffer budget exceeded" << requiredBytes;
+        return std::nullopt;
+    }
     const bool layoutChanged =
         _backgroundRowStrideVertices != backgroundStride
         || _contentRowStrideVertices != contentStride
@@ -2869,12 +2884,6 @@ bool TerminalRenderer::ensureVertexBuffer(int rows, int columns)
         return layoutChanged;
     }
 
-    const auto capacity = _bufferBudget.capacityFor(quint64(requiredBytes));
-    if (!capacity) {
-        qWarning() << "TerminalRenderer: instance buffer budget exceeded"
-                   << requiredBytes << "bytes required";
-        return false;
-    }
     _vertexBuffer.reset();
     _vertexBufferSize = int(*capacity);
     _vertexBuffer.reset(_rhi->newBuffer(QRhiBuffer::Dynamic,
@@ -2885,7 +2894,7 @@ bool TerminalRenderer::ensureVertexBuffer(int rows, int columns)
         _vertexBuffer.reset();
         _vertexBufferSize = 0;
         _instanceShadow.clear();
-        return true;
+        return std::nullopt;
     }
     _instanceShadow.fill('\xFF', _vertexBufferSize);
     ++_renderStatistics.vertexBufferReallocations;
@@ -2912,8 +2921,9 @@ QColor TerminalRenderer::highlightColor(
 }
 
 QVector<QString> TerminalRenderer::highlightRequiredLiterals(
-    const QString& pattern)
+    const QString& pattern, QRegularExpression::PatternOptions options)
 {
+    if (options.testFlag(QRegularExpression::ExtendedPatternSyntaxOption)) return {};
     // 目标：找出"任何命中都必定包含"的字面量集合，用于在跑 PCRE2 之前廉价
     // 排除一行。只有一条硬约束：**绝不能排除任何一次真实命中**。因此每种
     // 被接受的形态都必须证明其元素是强制的（后面不跟 `?` / `*` 这类可选
@@ -2995,7 +3005,7 @@ QVector<QString> TerminalRenderer::highlightRequiredLiterals(
                     }
                     literals.push_back(QString(member));
                 }
-                return isMandatory(close + 1) ? literals
+                return isMandatory(close + 1) && !pattern.mid(close + 1).contains(QLatin1Char('|')) ? literals
                                                : QVector<QString>{};
             }
             // 其余只接受"整段就是字面量"的形态：后面还跟着别的东西就放弃。
@@ -3039,7 +3049,8 @@ QVector<QString> TerminalRenderer::highlightRequiredLiterals(
                         return {};
                     literals.push_back(literal);
                 }
-                return isMandatory(end) ? literals : QVector<QString>{};
+                return isMandatory(end) && !pattern.mid(end).contains(QLatin1Char('|'))
+                    ? literals : QVector<QString>{};
             }
         }
         // 其它分组 / 无 (? 标记的分组：无法证明，放弃。
@@ -3233,7 +3244,7 @@ void TerminalRenderer::uploadCommands(
         // 取该行脏区间的引用，避免拷贝那个向量（Qt::QList 逐元素拷贝）。
         // 脏行却没有任何脏列区间（只有行级命令）时退回整行宽。
         const QVector<NovaTerm::DirtyColumnSpan>& rowDirtySpans =
-            uploadAllRows ? _fullRowSpanScratch : dirtySpans.value(row);
+            uploadAllRows || row >= dirtySpans.size() ? _fullRowSpanScratch : dirtySpans.at(row);
         const QVector<NovaTerm::DirtyColumnSpan>& spans =
             rowDirtySpans.isEmpty() ? _fullRowSpanScratch : rowDirtySpans;
         for (const auto& rawSpan : std::as_const(spans)) {
