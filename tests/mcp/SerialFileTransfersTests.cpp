@@ -171,8 +171,6 @@ private slots:
         Fixture f; QVERIFY(f.ready);
         QByteArray contents(mode == 1 ? 0 : 16387, 'x');
         const auto request = f.source(contents); QVERIFY(!request.localPath.isEmpty());
-        QVERIFY(f.resources.resources().local(f.client, f.identity()).isEmpty());
-        QVERIFY(f.targets.targets().list(f.client, f.identity()).isEmpty());
         QVERIFY(!f.access.canRead(f.client, f.entry()));
         const auto accepted = f.call(request); QVERIFY(!isError(accepted));
         const auto id = value(accepted).value("transferId").toString(); QVERIFY(!id.isEmpty());
@@ -288,7 +286,7 @@ private slots:
         if (field == 4) binding.connection.targetFingerprint = "foreign";
         if (field == 5) ++binding.ioGeneration;
         if (field == 6) binding.configDigest = "foreign";
-        QVERIFY(!SerialFileTargets::sameBinding(binding, *live));
+        QVERIFY(!sameTransferBinding(binding, *live));
         QCOMPARE(f.starts, 0); QVERIFY(f.allWrites.isEmpty());
     }
     void deadlineDoesNotMoveOnReplay()

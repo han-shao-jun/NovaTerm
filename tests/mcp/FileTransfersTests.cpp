@@ -217,8 +217,6 @@ private slots:
     void downloadNeedsNoDirectoryGrantsAndPreservesLocalPublication()
     {
         Fixture f; QVERIFY(f.ready); const auto request = f.downloadGrant();
-        QVERIFY(f.resources.resources().local(f.client, f.identity()).isEmpty());
-        QVERIFY(f.resources.resources().remoteSessions().isEmpty());
         QVERIFY(!f.access.canRead(f.client, f.entry()));
         const auto accepted = f.call(request); QVERIFY(!isError(accepted));
         const auto transfer = transferId(accepted); QVERIFY(!transfer.isEmpty());
@@ -245,26 +243,6 @@ private slots:
         QVERIFY(!f.transfers.busy(f.entry().id));
         QCOMPARE(value(f.call(request)), completed);
         QCOMPARE(value(f.call(CancelFileTransferRequest{transfer})), completed);
-    }
-    void obsoleteDirectoryGrantsDoNotGateDownloads_data()
-    {
-        QTest::addColumn<bool>("localWrite"); QTest::addColumn<bool>("remoteRead");
-        QTest::newRow("write-read") << true << true;
-        QTest::newRow("read-read") << false << true;
-        QTest::newRow("write-write") << true << false;
-        QTest::newRow("upload-permissions-only") << false << false;
-    }
-    void obsoleteDirectoryGrantsDoNotGateDownloads()
-    {
-        QFETCH(bool, localWrite); QFETCH(bool, remoteRead);
-        Fixture f; QVERIFY(f.ready); auto request = f.downloadGrant();
-        const auto localRoot = f.resources.resources().shareLocal(f.client, f.identity(), f.root.filePath("build"), "Local", {!localWrite, localWrite});
-        const auto binding = f.access.grantSnapshot(ClientId{f.client}, f.entry()).binding;
-        const auto remote = f.resources.shareRemote(f.client, f.identity(), binding, "/tmp/nvt-artifacts", "Remote", {remoteRead, !remoteRead});
-        QVERIFY(localRoot); QVERIFY(remote);
-        const auto result = f.call(request);
-        QVERIFY(!isError(result));
-        QCOMPARE(f.requests.size(), 1);
     }
     void downloadRetriesIncludeDirectionAndEveryArgument()
     {
@@ -380,8 +358,6 @@ private slots:
     void uploadsWithoutTerminalPermissionAndPreservesPublishedFact()
     {
         Fixture f; QVERIFY(f.ready); const auto request = f.grant();
-        QVERIFY(f.resources.resources().local(f.client, f.identity()).isEmpty());
-        QVERIFY(f.resources.resources().remoteSessions().isEmpty());
         QVERIFY(!f.access.canRead(f.client, f.entry()));
         const auto accepted = f.call(request); QVERIFY(!isError(accepted));
         const auto transfer = transferId(accepted); QVERIFY(!transfer.isEmpty());

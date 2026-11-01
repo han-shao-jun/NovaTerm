@@ -45,10 +45,7 @@ public:
                     if (call.sent)
                         emit q->backendEvent(BackendCancel{call.wireId});
                     finish(id,
-                           failure(call.sent && (call.tool == "novaterm_execute_command" ||
-                                                 call.tool == "novaterm_run_command" ||
-                                                 call.tool == "novaterm_run_script" ||
-                                                 call.tool == "novaterm_interact_terminal" ||
+                           failure(call.sent && (call.tool == "novaterm_interact_terminal" ||
                                                  call.tool == "novaterm_request_elevation")
                                        ? "COMMAND_OUTCOME_UNKNOWN"
                                        : "DEADLINE_EXCEEDED",
@@ -325,16 +322,8 @@ public:
                 emit q->backendEvent(BackendFileTransferCall{call.wireId, *transfer, !call.requestState.isEmpty()});
                 continue;
             }
-            if (const auto* files = std::get_if<ListFileResourcesRequest>(&call.typed)) {
-                emit q->backendEvent(BackendFileResourcesCall{call.wireId, *files, !call.requestState.isEmpty()});
-                continue;
-            }
             if (const auto* serialTransfer = std::get_if<SerialFileTransferRequest>(&call.typed)) {
                 emit q->backendEvent(BackendSerialFileTransferCall{call.wireId, *serialTransfer, !call.requestState.isEmpty()});
-                continue;
-            }
-            if (const auto* targets = std::get_if<ListSerialFileTargetsRequest>(&call.typed)) {
-                emit q->backendEvent(BackendSerialFileTargetsCall{call.wireId, *targets, !call.requestState.isEmpty()});
                 continue;
             }
             if (const auto* wait = std::get_if<WaitTextRequest>(&call.typed)) {
@@ -499,10 +488,7 @@ void WireSession::instanceUnavailable()
         if (call.sent)
             emit backendEvent(BackendCancel{call.wireId});
         _impl->finish(id,
-                      failure(call.sent && (call.tool == "novaterm_execute_command" ||
-                                            call.tool == "novaterm_run_command" ||
-                                            call.tool == "novaterm_run_script" ||
-                                            call.tool == "novaterm_interact_terminal" ||
+                      failure(call.sent && (call.tool == "novaterm_interact_terminal" ||
                                             call.tool == "novaterm_request_elevation")
                                   ? "COMMAND_OUTCOME_UNKNOWN"
                                   : "APP_UNAVAILABLE",

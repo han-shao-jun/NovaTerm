@@ -12,15 +12,7 @@
 #include <chrono>
 
 namespace NovaTerm::Mcp::Budget {
-inline constexpr int MaxSerialFileTargetsPerClient = 8;
-inline constexpr int MaxSerialFileTargets = 32;
-inline constexpr int MaxSerialFileTargetTitleBytes = 256;
-inline constexpr int MaxFileLocalRootsPerClient = 8;
-inline constexpr int MaxFileRemoteRootsPerClient = 8;
-inline constexpr int MaxFileLocalRoots = 128;
-inline constexpr int MaxFileRemoteRoots = 256;
 inline constexpr int MaxFileRootPathBytes = 1024;
-inline constexpr int MaxFileRootTitleBytes = 256;
 inline constexpr quint64 MaxLocalTransferFileBytes = 64 * 1024 * 1024;
 inline constexpr qsizetype LocalTransferChunkBytes = 64 * 1024;
 inline constexpr int MaxLocalTransferPathParts = 32;

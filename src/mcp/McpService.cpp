@@ -94,8 +94,6 @@ public:
         std::optional<ClearRequest> clearRequest;
         std::optional<WaitTextRequest> waitRequest;
         std::optional<TerminalTaskRequest> taskRequest;
-        std::optional<ListFileResourcesRequest> fileResourcesRequest;
-        std::optional<ListSerialFileTargetsRequest> serialFileTargetsRequest;
         std::optional<FileTransferRequest> fileTransferRequest;
         std::optional<SerialFileTransferRequest> serialFileTransferRequest;
         QString requestState;
@@ -113,7 +111,7 @@ public:
     static std::optional<SessionReference> referenceOf(const PendingRequest& pending) {
         // File permissions are independent from terminal reading. The transfer
         // adapter checks its own current complete binding and four-way grants.
-        if (pending.fileTransferRequest || pending.serialFileTargetsRequest || pending.serialFileTransferRequest) return std::nullopt;
+        if (pending.fileTransferRequest || pending.serialFileTransferRequest) return std::nullopt;
         if (pending.waitRequest) return SessionReference{pending.waitRequest->session, pending.waitRequest->epoch};
         if (pending.taskRequest) return std::visit([](const auto& value) {
             return SessionReference{value.session, value.epoch};
@@ -166,9 +164,7 @@ public:
         textWaits = std::make_unique<TerminalTextWait>(access, sessions, observation, instance, logCursorKey, owner);
         terminalTasks = std::make_unique<TerminalTasks>(access, sessions, *terminal, instance, logCursorKey, owner);
         fileResources = std::make_unique<FileResourceAdapter>(access, sessions, owner);
-        QObject::connect(fileResources.get(), &FileResourceAdapter::changed, q, &Service::changed);
         serialFileTargets = std::make_unique<SerialFileTargetAdapter>(access, sessions, owner);
-        QObject::connect(serialFileTargets.get(), &SerialFileTargetAdapter::changed, q, &Service::changed);
         fileTransfers = std::make_unique<FileTransfers>(access, sessions, *fileResources, instance, owner);
         serialFileTransfers = std::make_unique<SerialFileTransfers>(access, sessions, *fileResources, *serialFileTargets, instance, owner);
         uploadConfirmations = std::make_unique<UploadConfirmations>(stateDirectory);
@@ -256,8 +252,6 @@ public:
     {
         if (uploadConfirmations) uploadConfirmations->invalidate();
         if (serialFileTransfers) serialFileTransfers->stop();
-        if (fileResources) fileResources->resources().revoke();
-        if (serialFileTargets) serialFileTargets->targets().revoke();
         if (terminalTasks) terminalTasks->stop();
         if (textWaits) textWaits->revoke({}, {});
         if (terminal) terminal->revoke({}, {});
@@ -307,23 +301,15 @@ public:
         const auto* clearCall = std::get_if<BackendClearCall>(&event);
         const auto* waitCall = std::get_if<BackendWaitTextCall>(&event);
         const auto* taskCall = std::get_if<BackendTaskCall>(&event);
-        const auto* filesCall = std::get_if<BackendFileResourcesCall>(&event);
-        const auto* serialTargetsCall = std::get_if<BackendSerialFileTargetsCall>(&event);
         const auto* transferCall = std::get_if<BackendFileTransferCall>(&event);
         const auto* serialTransferCall = std::get_if<BackendSerialFileTransferCall>(&event);
         BackendCall call;
         if (serialTransferCall) {
             call.id = serialTransferCall->id;
             if (serialTransferCall->confirmationSupplied) { send(connectionId, id, error("COMMAND_CONFIRMATION_STALE")); return; }
-        } else if (serialTargetsCall) {
-            call.id = serialTargetsCall->id;
-            if (serialTargetsCall->confirmationSupplied) { send(connectionId, id, error("COMMAND_CONFIRMATION_STALE")); return; }
         } else if (transferCall) {
             call.id = transferCall->id;
             if (transferCall->confirmationSupplied) { send(connectionId, id, error("COMMAND_CONFIRMATION_STALE")); return; }
-        } else if (filesCall) {
-            call.id = filesCall->id;
-            if (filesCall->confirmationSupplied) { send(connectionId, id, error("COMMAND_CONFIRMATION_STALE")); return; }
         } else if (waitCall) {
             call.id = waitCall->id;
             if (waitCall->confirmationSupplied) { send(connectionId, id, error("COMMAND_CONFIRMATION_STALE")); return; }
@@ -342,9 +328,7 @@ public:
             return;
         }
         const auto name = serialTransferCall ? ToolCodec::toolName(ToolCall{serialTransferCall->request})
-            : serialTargetsCall ? QStringLiteral("novaterm_list_serial_file_targets")
             : transferCall ? ToolCodec::toolName(ToolCall{transferCall->request})
-            : filesCall ? QStringLiteral("novaterm_list_file_resources")
             : waitCall ? QStringLiteral("novaterm_wait_text")
             : taskCall ? ToolCodec::toolName(ToolCall{taskCall->request})
             : clearCall ? QStringLiteral("novaterm_clear_terminal")
@@ -365,8 +349,6 @@ public:
         if (clearCall) pending->clearRequest = clearCall->request;
         if (waitCall) pending->waitRequest = waitCall->request;
         if (taskCall) pending->taskRequest = taskCall->request;
-        if (filesCall) pending->fileResourcesRequest = filesCall->request;
-        if (serialTargetsCall) pending->serialFileTargetsRequest = serialTargetsCall->request;
         if (transferCall) pending->fileTransferRequest = transferCall->request;
         if (serialTransferCall) pending->serialFileTransferRequest = serialTransferCall->request;
         pending->mrtr = call.mrtr;
@@ -567,8 +549,6 @@ public:
         if (pending->taskRequest) capability = Capabilities::CapabilityId{
             std::holds_alternative<StartTerminalTaskRequest>(*pending->taskRequest) ? "terminal.task.start"
             : std::holds_alternative<StopTerminalTaskRequest>(*pending->taskRequest) ? "terminal.task.stop" : "terminal.task.query"};
-        if (pending->fileResourcesRequest) capability = Capabilities::CapabilityId{"file.resources.list"};
-        if (pending->serialFileTargetsRequest) capability = Capabilities::CapabilityId{"serial.file.targets.list"};
         if (pending->serialFileTransferRequest) capability = Capabilities::CapabilityId{
             std::holds_alternative<StartSerialFileUploadRequest>(*pending->serialFileTransferRequest) ? "serial.file.upload"
             : std::holds_alternative<QuerySerialFileTransferRequest>(*pending->serialFileTransferRequest) ? "serial.file.query" : "serial.file.cancel"};
@@ -672,20 +652,6 @@ public:
             else complete(key, success(std::get<QJsonObject>(result)));
             return;
         }
-        if (pending->serialFileTargetsRequest) {
-            if (!admit(pending)) return;
-            const auto result = serialFileTargets->list(connection.client, access.identityVersion(connection.client));
-            if (isError(result)) { complete(key, ToolCodec::encodeFailure(*errorIfAny(result))); return; }
-            QJsonArray targets;
-            for (const auto& target : std::get<QList<SerialFileTarget>>(result)) {
-                targets.append(QJsonObject{{"targetId", target.id}, {"title", target.title},
-                    {"revision", target.revision}, {"sessionId", target.binding.connection.session.str()},
-                    {"epoch", target.binding.connection.epoch.str()}, {"protocol", "zmodem"}});
-            }
-            complete(key, success({{"instanceId", instance}, {"availability", "authorization_only"},
-                {"targets", targets}}));
-            return;
-        }
         if (pending->fileTransferRequest) {
             if (!admit(pending)) return;
             if (const auto prior = fileTransfers->replay(connection.client, access.identityVersion(connection.client), *pending->fileTransferRequest)) {
@@ -704,29 +670,6 @@ public:
                 pending->connection, *pending->fileTransferRequest);
             if (const auto* failure = std::get_if<Error>(&result)) complete(key, ToolCodec::encodeFailure(*failure));
             else complete(key, success(std::get<QJsonObject>(result)));
-            return;
-        }
-        if (pending->fileResourcesRequest) {
-            if (!admit(pending)) return;
-            const auto request = *pending->fileResourcesRequest;
-            const auto result = fileResources->list(connection.client, access.identityVersion(connection.client), request);
-            if (isError(result)) { complete(key, ToolCodec::encodeFailure(*errorIfAny(result))); return; }
-            const auto& directory = std::get<FileResourceDirectory>(result);
-            const auto project = [](const FileRoot& root, bool remote) {
-                QJsonObject row{{remote ? "scopeId" : "resourceId", root.id}, {"title", root.title},
-                    {"revision", root.revision}, {"readAllowed", root.access.read}, {"writeAllowed", root.access.write}};
-                if (remote) row.insert("path", root.path);
-                return row;
-            };
-            QJsonArray local, remote;
-            for (const auto& root : directory.local) local.append(project(root, false));
-            for (const auto& scope : directory.remote) {
-                auto row = project(scope.root, true);
-                row.insert("sessionId", scope.binding.session.str()); row.insert("epoch", scope.binding.epoch.str());
-                remote.append(row);
-            }
-            complete(key, success({{"instanceId", instance}, {"availability", "authorization_only"},
-                {"localResources", local}, {"remoteScopes", remote}}));
             return;
         }
         if (pending->historyRequest) {

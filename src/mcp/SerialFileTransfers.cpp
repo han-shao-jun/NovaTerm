@@ -89,7 +89,6 @@ SerialFileTransfers::SerialFileTransfers(AccessStore& access, SessionDirectory& 
     connect(&_timer, &QTimer::timeout, this, [this] { check(); });
     connect(&_access, &AccessStore::changed, this, [this] { check(); });
     Q_UNUSED(resources);
-    connect(&_targets, &SerialFileTargetAdapter::changed, this, [this] { check(); });
     connect(&_sessions, &SessionDirectory::changed, this, [this] { check(); });
     connect(&_sessions, &SessionDirectory::invalidated, this, [this] { check(); });
 }
@@ -124,12 +123,12 @@ bool SerialFileTransfers::valid(const std::shared_ptr<Record>& record)
     const auto resolved = authorize(record->client, record->identity, record->request);
     const auto* authority = std::get_if<Authority>(&resolved);
     return authority && authority->session == record->session && authority->local.root == record->localRoot
-        && SerialFileTargets::sameBinding(authority->binding, record->binding);
+        && sameTransferBinding(authority->binding, record->binding);
 }
 bool SerialFileTransfers::currentBinding(const std::shared_ptr<Record>& record)
 {
     const auto binding = _targets.liveBinding(record->request.reference.session.str());
-    return record->session && binding && SerialFileTargets::sameBinding(*binding, record->binding);
+    return record->session && binding && sameTransferBinding(*binding, record->binding);
 }
 bool SerialFileTransfers::admit(const std::shared_ptr<Record>& record)
 {
@@ -271,7 +270,7 @@ Result<QJsonObject> SerialFileTransfers::call(const QString& client, quint64 ide
         const auto rechecked = authorize(client, identity, *upload);
         const auto* current = std::get_if<Authority>(&rechecked);
         if (!current || current->session != authority.session
-            || !SerialFileTargets::sameBinding(current->binding, authority.binding))
+            || !sameTransferBinding(current->binding, authority.binding))
             return Error{ErrorCode::PermissionDenied};
         if (!terminal || !controller || controller->isActive() || terminal->pending()
             || !terminal->owner().isEmpty() || current->session->inputArbiter()->hasTransferLease())

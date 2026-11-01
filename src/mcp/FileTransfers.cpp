@@ -35,7 +35,6 @@ FileTransfers::FileTransfers(AccessStore& access, SessionDirectory& sessions, Fi
     _clock.start();
     _timer.setInterval(100);
     connect(&_timer, &QTimer::timeout, this, [this] { check(); });
-    connect(&_resources, &FileResourceAdapter::changed, this, [this] { check(); });
     connect(&_access, &AccessStore::changed, this, [this] { check(); });
     connect(&_sessions, &SessionDirectory::changed, this, [this] { check(); });
     connect(&_sessions, &SessionDirectory::invalidated, this, [this](const QString&) { check(); });
@@ -59,7 +58,7 @@ Result<FileTransfers::Authority> FileTransfers::authorize(const QString& client,
         return Error{ErrorCode::PermissionDenied};
     const SessionBinding current{SessionId{entry->id}, AttachmentId{entry->attachmentId}, Epoch{entry->epoch},
         Generation{entry->generation}, entry->targetFingerprint};
-    if (!FileResources::sameBinding(current, *binding)) return Error{ErrorCode::PermissionDenied};
+    if (!sameTransferBinding(current, *binding)) return Error{ErrorCode::PermissionDenied};
     return Authority{*local, *remote, *binding, entry->session};
 }
 bool FileTransfers::valid(const std::shared_ptr<Record>& record)
@@ -67,7 +66,7 @@ bool FileTransfers::valid(const std::shared_ptr<Record>& record)
     const auto authority = authorize(record->client, record->identity, record->request, record->upload.direction);
     const auto* current = std::get_if<Authority>(&authority);
     return current && current->session == record->session
-        && FileResources::sameBinding(current->binding, record->binding)
+        && sameTransferBinding(current->binding, record->binding)
         && current->local.root == record->upload.localRoot && current->remote.root == record->upload.remoteRoot;
 }
 QJsonObject FileTransfers::project(const Record& record) const

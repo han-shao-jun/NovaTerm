@@ -709,3 +709,19 @@ F07尚未实现：现有日志读取游标只有当前位置，逐页扫描必�
 按用户要求收口本轮 MCP 文件错误分类、观察 Schema 与配置/I/O 状态、SFTP 网络阻塞取消和任务停止回执，以及现行文档。版本从0.2.115递增至0.2.116；F07保留日志搜索缺口，F04本地文件系统调用自身阻塞仍无硬退出保证。两份含本机 Visual Studio 路径的构建脚本保留工作区，不纳入提交。
 
 版本更新后 Windows Debug 默认全部目标构建成功；提交前相关 CTest 7/7（143.65秒），包括 MCP、契约、本地文件、SFTP安全、串口文件传输、终端任务和会话。官方SDK 2025/原始HTTP 2026互操作通过；SFTP慢半包取消292ms，另一个独立SSH连接保持可用。仅为软件与回环夹具验证；本轮未连接设备、未测macOS或Linux完整应用，不改工具实测台账。
+
+
+## 0.2.117 退役 MCP 死代码清理（2026-11-01）
+
+范围仅为已退役工具的专属实现。移除文件资源/UART目标目录的请求、协议事件、分派、授权存储、旧窗口目录浏览及专属预算与测试；删除旧命令工具不可达的超时分支。当前工具目录和规划功能保留；当前契约移除旧授权设计，同时保留现行直接路径、传输事实和预算说明。历史验证记录不改写，B4工具台账不增加软件测试记录。
+
+SSH/UART的liveBinding函数与HEAD逐字比较一致，现行AccessStore和SessionDirectory变化监听保持。绑定字段比较迁至独立TransferBinding值类型，新增七项身份变化比较测试，六种串口变化回归改为直接检验现行绑定。仅删除专属旧存储/旧授权窗口测试，保留退役入口HTTP拒绝和现行传输回归。
+
+版本0.2.116→0.2.117。最终构建命令：
+
+```sh
+cmake --build build/Release --target NovaTerm novaterm_mcp_tests novaterm_mcp_contracts_tests novaterm_mcp_file_transfers_tests novaterm_mcp_serial_file_transfers_tests novaterm_mcp_wire_tests novaterm_mcp_endpoint_tests -j 6
+ctest --test-dir build/Release --output-on-failure -R '^novaterm_mcp_(contracts_tests|wire_tests|endpoint_tests|file_transfers_tests|serial_file_transfers_tests|tests)$'
+```
+
+主程序和相关目标构建成功；最终CTest6/6，40.42秒：契约0.01秒、wire2.33秒、endpoint2.58秒、MCP业务26.82秒、文件传输1.08秒、串口传输7.60秒。清理前中间轮次3/3与本轮分列，不冒充本轮完整业务数量。无实机、其他平台或消毒器验证；未重启用户实例。临时日志位于/tmp/novaterm-02117-final-build.log和/tmp/novaterm-02117-tests.log，不纳入Git。

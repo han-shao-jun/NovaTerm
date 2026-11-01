@@ -5,6 +5,7 @@
 #include "mcp/contracts/Errors.h"
 #include "capabilities/CapabilityRegistry.h"
 #include "mcp/contracts/Identifiers.h"
+#include "mcp/contracts/TransferBinding.h"
 #include "mcp/protocol/ToolCodec.h"
 #include "mcp/protocol/ProtocolProjectionSizer.h"
 #include "mcp/McpProtocol.h"
@@ -124,6 +125,26 @@ class ContractsTests : public QObject
 {
     Q_OBJECT
 private slots:
+    void transferBindingRejectsEveryIdentityChange()
+    {
+        const SerialFileBinding original{{SessionId{"s"}, AttachmentId{"a"}, Epoch{"e"},
+            Generation{1}, QString("fingerprint")}, 1, "config"};
+        QVERIFY(sameTransferBinding(original, original));
+        for (int field = 0; field < 7; ++field) {
+            auto changed = original;
+            switch (field) {
+            case 0: changed.connection.session = SessionId{"other"}; break;
+            case 1: changed.connection.attachment = AttachmentId{"other"}; break;
+            case 2: changed.connection.epoch = Epoch{"other"}; break;
+            case 3: changed.connection.generation = Generation{2}; break;
+            case 4: changed.connection.targetFingerprint.reset(); break;
+            case 5: ++changed.ioGeneration; break;
+            case 6: changed.configDigest = "other"; break;
+            }
+            QVERIFY(!sameTransferBinding(original, changed));
+            if (field < 5) QVERIFY(!sameTransferBinding(original.connection, changed.connection));
+        }
+    }
     void directFilePathsDoNotRequireSharedDirectories_data()
     {
         QTest::addColumn<QString>("name");

@@ -94,10 +94,6 @@ public:
                 jobs.insert(peer + '/' + task->id, wire);
             else if (const auto *transfer = std::get_if<BackendFileTransferCall>(&event))
                 jobs.insert(peer + '/' + transfer->id, wire);
-            else if (const auto *files = std::get_if<BackendFileResourcesCall>(&event))
-                jobs.insert(peer + '/' + files->id, wire);
-            else if (const auto *serialTargets = std::get_if<BackendSerialFileTargetsCall>(&event))
-                jobs.insert(peer + '/' + serialTargets->id, wire);
             else if (const auto *serialTransfer = std::get_if<BackendSerialFileTransferCall>(&event))
                 jobs.insert(peer + '/' + serialTransfer->id, wire);
             backend.receive(peer, event);

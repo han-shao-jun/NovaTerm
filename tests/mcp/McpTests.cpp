@@ -85,23 +85,6 @@
 #endif
 
 using namespace NovaTerm::Mcp;
-class SftpSessionSafetyTestAccess {
-public:
-    static void ready(SftpSession& session) {
-        session._control->running = true; session._control->connected = true;
-    }
-    static quint64 pending(SftpSession& session) {
-        QMutexLocker lock(&session._control->queueMutex);
-        return session._control->commands.isEmpty() ? 0 : session._control->commands.front().requestId;
-    }
-    static int count(SftpSession& session) {
-        QMutexLocker lock(&session._control->queueMutex); return session._control->commands.size();
-    }
-    static void complete(SftpSession& session, quint64 request, const QString& path) {
-        session.cancelDirectoryRequest(request);
-        SftpSession::postDirectoryResult(session._control, session._control->generation, request, {path, {}, {}, false});
-    }
-};
 class SerialTransportIoTestAccess {
 public:
     static void connected(SerialTransport& transport)
@@ -582,61 +565,6 @@ class McpTests final : public QObject
 {
     Q_OBJECT
 private slots:
-    void remoteDirectoryQueueBudgetIsReclaimedOnCancel() {
-        Fixture f; QVERIFY(f.enableWithoutSessionPermissions()); f.makeSsh();
-        SftpSession backend; SftpSessionSafetyTestAccess::ready(backend);
-        auto& resources = f.service.fileResources();
-        resources.setDirectorySessionProvider([&](TerminalSession&) { return &backend; });
-        const auto entry = f.service.directory().entries().first();
-        const auto binding = f.service.access().grantSnapshot(ClientId{f.client}, entry).binding;
-        const auto identity = f.service.access().identityVersion(f.client);
-        QList<QObject*> contexts; int replies = 0;
-        for (int i = 0; i < 9; ++i) {
-            auto* context = new QObject(&f.service); contexts.append(context);
-            resources.listRemoteDirectory(f.client, identity, binding, "/remote", context,
-                [&](auto result) { ++replies; QVERIFY(!result.error.isEmpty()); });
-        }
-        QCOMPARE(replies, 1); QCOMPARE(SftpSessionSafetyTestAccess::count(backend), 8);
-        for (auto* context : contexts) delete context;
-        QCOMPARE(SftpSessionSafetyTestAccess::count(backend), 0);
-        QObject current;
-        resources.listRemoteDirectory(f.client, identity, binding, "/remote", &current,
-            [&](auto result) { ++replies; QCOMPARE(result.path, QString("/remote")); QVERIFY(result.error.isEmpty()); });
-        QCOMPARE(SftpSessionSafetyTestAccess::count(backend), 1);
-        SftpSessionSafetyTestAccess::complete(backend, SftpSessionSafetyTestAccess::pending(backend), "/remote");
-        QTRY_COMPARE(replies, 2);
-    }
-    void remoteDirectoryAdapterDestructionSettlesLiveRecipient() {
-        Fixture f; QVERIFY(f.enableWithoutSessionPermissions()); f.makeSsh();
-        SftpSession backend; SftpSessionSafetyTestAccess::ready(backend);
-        auto adapter = std::make_unique<FileResourceAdapter>(f.service.access(), f.service.directory(), nullptr);
-        adapter->setDirectorySessionProvider([&](TerminalSession&) { return &backend; });
-        const auto entry = f.service.directory().entries().first();
-        const auto binding = f.service.access().grantSnapshot(ClientId{f.client}, entry).binding;
-        QObject recipient; int replies = 0;
-        adapter->listRemoteDirectory(f.client, f.service.access().identityVersion(f.client), binding, "/remote", &recipient,
-            [&](auto result) { ++replies; QVERIFY(!result.error.isEmpty()); });
-        QCOMPARE(SftpSessionSafetyTestAccess::count(backend), 1);
-        adapter.reset();
-        QCOMPARE(SftpSessionSafetyTestAccess::count(backend), 0);
-        QTRY_COMPARE_WITH_TIMEOUT(replies, 1, 1000);
-    }
-    void remoteDirectoryTimeoutCancelsQueuedWorkAndIgnoresLateSuccess() {
-        Fixture f; QVERIFY(f.enableWithoutSessionPermissions()); f.makeSsh();
-        SftpSession backend; SftpSessionSafetyTestAccess::ready(backend);
-        auto& adapter = f.service.fileResources();
-        adapter.setDirectorySessionProvider([&](TerminalSession&) { return &backend; });
-        const auto entry = f.service.directory().entries().first();
-        const auto binding = f.service.access().grantSnapshot(ClientId{f.client}, entry).binding;
-        QObject recipient; int replies = 0;
-        adapter.listRemoteDirectory(f.client, f.service.access().identityVersion(f.client), binding, "/remote", &recipient,
-            [&](auto result) { ++replies; QVERIFY(!result.error.isEmpty()); });
-        const auto request = SftpSessionSafetyTestAccess::pending(backend); QVERIFY(request);
-        QTRY_COMPARE_WITH_TIMEOUT(replies, 1, 20000);
-        QCOMPARE(SftpSessionSafetyTestAccess::count(backend), 0);
-        SftpSessionSafetyTestAccess::complete(backend, request, "/late-success");
-        QCoreApplication::processEvents(); QCOMPARE(replies, 1);
-    }
     void retiredCommandToolsRefuseBothHttpProtocols_data()
     {
         QTest::addColumn<QString>("protocol");
@@ -956,8 +884,6 @@ private slots:
     void httpFileUploadIsIndependentOfTerminalPermissions();
     void fileResourceWindowUsesSharedAccess_data();
     void fileResourceWindowUsesSharedAccess();
-    void fileResourcesReleaseDisconnectedRemoteQuota_data();
-    void fileResourcesReleaseDisconnectedRemoteQuota();
     void workflowWaitAndTasksUseBothProtocols_data();
     void workflowWaitAndTasksUseBothProtocols();
     void historicalInputIdsCannotCrossToolBoundaries_data();
@@ -1944,8 +1870,6 @@ void McpTests::httpSerialFileTargetsAreIndependentAndBound()
     Host host; QVERIFY(host.start(f.runtime(), f.token(), {}, false, version));
     QVERIFY(!host.call("novaterm_list_serial_file_targets", {}).value("ok").toBool());
     QCOMPARE(f.serial->pendingWriteBytes(), qint64(0));
-    QVERIFY(f.service.serialFileTargets().targets().list(f.client,
-        f.service.access().identityVersion(f.client)).isEmpty());
 }
 
 void McpTests::httpSerialFileUploadRoutesIndependentAuthority_data()
@@ -2026,23 +1950,15 @@ void McpTests::serialFileTargetsRejectChangedConnection()
     Fixture f; QVERIFY(f.enableWithoutSessionPermissions()); f.makeSerial();
     auto& adapter = f.service.serialFileTargets();
     const auto id = f.session.id().toString(QUuid::WithoutBraces);
-    const auto identity = f.service.access().identityVersion(f.client);
     const auto original = adapter.liveBinding(id); QVERIFY(original);
-    const auto grant = adapter.share(f.client, identity, *original, "Board UART"); QVERIFY(grant);
     if (change == 0) SerialTransportIoTestAccess::connected(*f.serial);
     if (change == 1) SerialTransportIoTestAccess::changeConfig(*f.serial);
     if (change == 2) SerialTransportIoTestAccess::closePending(*f.serial);
     if (change == 3) SerialTransportIoTestAccess::ioClosed(*f.serial);
     if (change == 4) f.makeSerial();
     if (change == 5) { f.service.directory().remove(&f.session); f.service.directory().add(&f.session); }
-    const auto listed = adapter.list(f.client, identity); QVERIFY(!isError(listed));
-    QVERIFY(std::get<QList<SerialFileTarget>>(listed).isEmpty());
-    QVERIFY(adapter.targets().list(f.client, identity).isEmpty());
-    QVERIFY(!adapter.share(f.client, identity, *original, "Stale UI"));
-    if (const auto current = adapter.liveBinding(id)) {
-        const auto replacement = adapter.share(f.client, identity, *current, "Current UART"); QVERIFY(replacement);
-        QVERIFY(replacement->id != grant->id);
-    }
+    const auto current = adapter.liveBinding(id);
+    QVERIFY(!current || !sameTransferBinding(*original, *current));
     SerialTransportIoTestAccess::sevenDataBits(*f.serial);
     QVERIFY(!adapter.liveBinding(id));
 }
@@ -2240,8 +2156,6 @@ void McpTests::httpFileResourcesAreIndependentAndBound()
     Host host; QVERIFY(host.start(f.runtime(), f.token(), {}, false, version));
     QVERIFY(!host.call("novaterm_list_file_resources", {}).value("ok").toBool());
     QCOMPARE(SshTransportTestAccess::queued(*f.ssh), 0);
-    QVERIFY(f.service.fileResources().resources().local(f.client,
-        f.service.access().identityVersion(f.client)).isEmpty());
 }
 
 void McpTests::httpFileUploadIsIndependentOfTerminalPermissions_data()
@@ -2308,48 +2222,6 @@ void McpTests::fileResourceWindowUsesSharedAccess()
     if (scenario == 2) { settings.hide(); settings.show(); }
     QCoreApplication::processEvents();
     QVERIFY(!settings.findChild<QPushButton*>("mcpFileResourceSharing"));
-}
-
-void McpTests::fileResourcesReleaseDisconnectedRemoteQuota_data()
-{
-    QTest::addColumn<bool>("manual");
-    QTest::newRow("manual-disconnect") << true;
-    QTest::newRow("transport-disconnect") << false;
-}
-void McpTests::fileResourcesReleaseDisconnectedRemoteQuota()
-{
-    QFETCH(bool, manual);
-    Fixture f; QVERIFY(f.enableWithoutSessionPermissions()); f.makeSsh();
-    const auto identity = f.service.access().identityVersion(f.client);
-    auto entry = *f.service.directory().find(f.session.id().toString(QUuid::WithoutBraces));
-    const auto original = f.service.access().grantSnapshot(ClientId{f.client}, entry).binding;
-    auto& files = f.service.fileResources();
-    QVERIFY(files.resources().shareLocal(f.client, identity, f.root.filePath("build"), "Build", {true, false}));
-    for (int i = 0; i < 8; ++i)
-        QVERIFY(files.shareRemote(f.client, identity, original, QString("/tmp/nvt-%1").arg(i), "Target", {false, true}));
-    QCOMPARE(files.resources().remote(f.client, identity).size(), 8);
-    QSignalSpy invalidated(&f.service.directory(), &SessionDirectory::invalidated);
-    if (manual) QVERIFY(f.session.disconnectForReconnect());
-    else f.ssh->disconnect();
-    QCOMPARE(f.session.state(), SessionState::Failed);
-    entry = *f.service.directory().find(original.session.str());
-    QCOMPARE(entry.generation, original.generation.value());
-    QCOMPARE(entry.transport.data(), f.ssh.get());
-    QVERIFY(invalidated.isEmpty());
-    QCOMPARE(files.resources().local(f.client, identity).size(), 1);
-    QVERIFY(files.resources().remote(f.client, identity, original).isEmpty());
-    TerminalCore otherCore{80, 24}; LocalFake otherLocal;
-    SshConfig configuration; configuration.host = "other.invalid"; configuration.username = "fixture";
-    SshTransport otherSsh{configuration}; TerminalSession otherSession{&otherCore};
-    otherSession.attach(&otherLocal, TerminalSession::Ownership::Borrowed, TransportKind::LocalShell);
-    QVERIFY(otherSession.start()); SshTransportTestAccess::connected(otherSsh);
-    otherSession.attach(&otherSsh, TerminalSession::Ownership::Borrowed, TransportKind::Ssh);
-    f.service.directory().add(&otherSession);
-    const auto otherEntry = *f.service.directory().find(otherSession.id().toString(QUuid::WithoutBraces));
-    const auto otherBinding = f.service.access().grantSnapshot(ClientId{f.client}, otherEntry).binding;
-    QVERIFY(files.shareRemote(f.client, identity, otherBinding, "/tmp/available", "Other target", {false, true}));
-    QVERIFY(files.resources().remote(f.client, identity, original).isEmpty());
-    QCOMPARE(files.resources().remote(f.client, identity).size(), 1);
 }
 
 void McpTests::httpRejectsMissingTokenAndForeignOrigin()

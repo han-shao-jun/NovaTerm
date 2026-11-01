@@ -1280,7 +1280,7 @@ void MainWindow::initWindow()
                     fail("SESSION_NOT_AVAILABLE"); return;
                 }
                 const auto current = owner->fileResources().liveBinding(expected.session.str());
-                if (!current || !NovaTerm::Mcp::FileResources::sameBinding(*current, expected)) {
+                if (!current || !NovaTerm::Mcp::sameTransferBinding(*current, expected)) {
                     fail("SESSION_NOT_AVAILABLE"); return;
                 }
                 if (!panel->fileTransferSession(transport)) return;

@@ -492,8 +492,6 @@ QString ToolCodec::validate(const QString& name, const QJsonObject& arguments)
     }
     if (input.isEmpty())
         return QStringLiteral("Unknown tool.");
-    if (name == "novaterm_list_file_resources" && arguments.contains("sessionId") != arguments.contains("epoch"))
-        return QStringLiteral("sessionId and epoch must be supplied together.");
     for (const auto& key : input.value("required").toArray()) {
         if (!arguments.contains(key.toString()))
             return QStringLiteral("Missing required argument: %1").arg(key.toString());
@@ -908,11 +906,6 @@ Result<ToolCall> ToolCodec::decodeCall(const QString& name, const QJsonObject& a
             arguments.value("operationId").toString(), arguments.value("confirmationToken").toString(),
             arguments.contains("confirmed") ? std::optional<bool>(arguments.value("confirmed").toBool()) : std::nullopt}}};
     }
-    if (name == "novaterm_list_serial_file_targets") {
-        const auto invalid = validate(name, arguments);
-        if (!invalid.isEmpty()) return Error{ErrorCode::InvalidArgument, invalid};
-        return ToolCall{ListSerialFileTargetsRequest{}};
-    }
     if (name == "novaterm_upload_file" || name == "novaterm_download_file" || name == "novaterm_query_transfer" || name == "novaterm_cancel_transfer") {
         const auto invalid = validate(name, arguments);
         if (!invalid.isEmpty()) return Error{ErrorCode::InvalidArgument, invalid};
@@ -931,14 +924,6 @@ Result<ToolCall> ToolCodec::decodeCall(const QString& name, const QJsonObject& a
             arguments.value("operationId").toString(), arguments.value("overwrite").toBool(false),
             arguments.value("confirmationToken").toString(),
             arguments.contains("confirmed") ? std::optional<bool>(arguments.value("confirmed").toBool()) : std::nullopt}}};
-    }
-    if (name == "novaterm_list_file_resources") {
-        const auto invalid = validate(name, arguments);
-        if (!invalid.isEmpty()) return Error{ErrorCode::InvalidArgument, invalid};
-        if (arguments.isEmpty()) return ToolCall{ListFileResourcesRequest{}};
-        const auto reference = sessionReference(arguments);
-        if (!reference) return Error{ErrorCode::InvalidArgument};
-        return ToolCall{ListFileResourcesRequest{*reference}};
     }
     if (name == "novaterm_wait_text" || name == "novaterm_start_task"
         || name == "novaterm_query_task" || name == "novaterm_stop_task") {
@@ -998,7 +983,6 @@ QString ToolCodec::toolName(const ToolCall& request)
         else if constexpr (std::is_same_v<Type, QuerySerialFileTransferRequest>) return "novaterm_query_serial_transfer";
         else return "novaterm_cancel_serial_transfer";
     }, *transfer);
-    if (std::holds_alternative<ListSerialFileTargetsRequest>(request)) return "novaterm_list_serial_file_targets";
     if (const auto* transfer = std::get_if<FileTransferRequest>(&request)) return std::visit([](const auto& value) -> QString {
         using Type = std::decay_t<decltype(value)>;
         if constexpr (std::is_same_v<Type, StartFileUploadRequest>) return "novaterm_upload_file";
@@ -1006,7 +990,6 @@ QString ToolCodec::toolName(const ToolCall& request)
         else if constexpr (std::is_same_v<Type, QueryFileTransferRequest>) return "novaterm_query_transfer";
         else return "novaterm_cancel_transfer";
     }, *transfer);
-    if (std::holds_alternative<ListFileResourcesRequest>(request)) return "novaterm_list_file_resources";
 
     if (std::holds_alternative<WaitTextRequest>(request)) return "novaterm_wait_text";
     if (const auto* task = std::get_if<TerminalTaskRequest>(&request)) return std::visit([](const auto& value) -> QString {

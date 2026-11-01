@@ -36,7 +36,7 @@ B2 已将独立授权清空接入现有 Core/UI 同源的 Parser 队列，完成
 | --- | --- | --- |
 | WireSession / HTTP endpoint / ToolCodec | 协议生命周期、可信身份、Schema、类型化解码和结果编码 | 判断 BSP 测试成功、持有终端可变状态 |
 | 应用读取/观察状态 | 授权、预算、等待、调用方进度和取消；复用 ReadUseCases/ObservationState | 自建全量日志数据库或直接写 Transport |
-| FileTransfers / SerialFileTransfers | 独立文件授权、原操作幂等和有界事实；复用SftpSession或串口Controller/worker | 新建传输owner、自动准备接收端或宣称远端hash/落盘已验证 |
+| FileTransfers / SerialFileTransfers | 直接路径、上传确认、原操作幂等和有界事实；复用SftpSession或串口Controller/worker | 新建传输owner、自动准备接收端或宣称远端hash/落盘已验证 |
 | CommandRuntime / 命令适配 | 已有命令与脚本任务、确认、发布、取消和未知结果 | 编排本地工程或模型回合 |
 | AuthorizationService / 能力准入 | grant、版本、级联撤权、可用性与拒绝原因 | 根据模型参数创建可信身份 |
 | Session / Controller / Arbiter / Evidence | 连接、环境和控制代际、人工优先、输入提交、完成事实 | 解析 MCP JSON 或根据输出猜测全部权限 |
@@ -80,7 +80,7 @@ SSH 断连和 UART 持续输出分别观察。当前MCP只操作已连接且获�
 
 ## 7. 兼容与已有模块
 
-冻结基线为九个终端工具与三个离线历史工具，精确说明见 [02](02_Current_MCP_Contract.md)。B1 保留已发布十二工具与既有权限；read_context 的显式 source=log 扩展以独立 fixture 冻结，旧观察参数/输出分支保持。未发布 P4 及仅供其消费的原型退役，不改变旧 sinceToken。
+当前工具目录和权限见 [02](02_Current_MCP_Contract.md)。read_context 的显式 source=log 使用独立日志游标，不改变观察 sinceToken。
 
 已有 recording/history-search/evidence 作为独立功能保留：录制仍手动开启，MCP启用后已有录制可直接读取和搜索，分页完整不证明源完整，Evidence 不代替授权。共享服务及来源适配不因 MCP 关闭就删除独立导入资源。实际结构与验证见 [资源边界记录](https://gitee.com/han-shao-jun/NovaTerm/blob/411ec15c36aa5ac56fddb204761fae830f785947/docs/architecture/stages/P8_AI_MCP_Interface/records/P3_Architecture_Fixes_2026-10-24.md)。
 
@@ -104,7 +104,7 @@ MCP 慢消费者不能拖住 Parser/Renderer，不能为等待下一页无界固
 - 会话由用户在本机创建和管理，保留 View-owned Session；MCP不再提供保存目标操作。
 - 新的任务/传输/连接 ID 各自绑定客户端、目标、版本和幂等操作，不能以中心万能任务对象聚合所有可变状态。
 
-精确公开字段、有限预算和错误码在相应 B0 子契约冻结；工具仅在实际实现、测试和权限配置到位后注册。现有十二工具契约不能因新设计被默默放宽或改变默认值。
+精确公开字段、有限预算和错误码见[当前契约](02_Current_MCP_Contract.md)；工具仅在实际实现、测试和权限配置到位后注册。
 
 ## 10. 文档权威
 

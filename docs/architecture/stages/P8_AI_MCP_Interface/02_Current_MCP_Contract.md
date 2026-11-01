@@ -96,110 +96,20 @@ SFTP初始已有安全普通目标时要求 `posix-rename@openssh.com`版本1，
 
 发布仍经原GUI授权确认与Publishing原子状态；撤权先赢则不发布，发布已经开始后的成功/未知事实保留。取消只处置本次临时文件，不删除目标；成功rename消费临时文件后temporary=removed。远端响应丢失/不明确时publication=unknown，临时路径消失不能反推成功，也不能据此自动换operationId重传。下载的published/publication/temporary仍指本地，contentVerified始终false。
 
-> 以下至 B3/B3a 之前为2026-10-27～28的历史契约记录：其中授权目录、旧参数和显式release要求均已退役。现行调用以前面的“当前接入与工具目录”和“直接路径与上传确认记忆”为准。
 
-## 2026-10-28：SFTP单文件下载
+现行文件传输行为和限制见[终端工作流扩展](06_Terminal_Workflow_Extensions.md)；历史文件授权设计见[阶段记录](records/README.md)。
 
-0.2.96下载子批新增 `novaterm_download_file`并达到三十工具；当时保持原upload对象，共同query/cancel仅增加downloading及适用说明。当前两项开始工具的overwrite增量以本页覆盖节为准，其他Schema保持。下载继续复用原查询/取消、SFTP连接和worker，历史证据见[下载记录](records/B3b_Sftp_Download_2026-10-28.md)。
+## 现行文件传输事实与预算
 
-| 必填参数 | 下载含义 |
-| --- | --- |
-| sessionId、epoch | 原已连接SSH会话及当前代际 |
-| resourceId、resourceRevision、relativePath | 独立本地write授权资源及revision；relativePath是授权根下本地目标相对路径 |
-| scopeId、scopeRevision、remoteName | 独立远端read授权目录及revision；remoteName是最多255 UTF-8字节的单个远端源文件名 |
-| operationId | 本客户端操作UUID；必须与方向和全部参数一起精确重试 |
+SSH上传/下载使用本机绝对localPath和远端绝对remotePath，UART上传使用localPath及可选remoteName。会话、身份、连接代际与上传确认规则见前文。查询/取消只作用于原transferId，精确重试不重传、不续期；变更方向或操作参数拒绝。远端接收端准备仍由调用方负责。
 
-九个必填参数及可选overwrite（默认false）；ID/revision/operationId为非空规范UUID；拒绝未知字段、绝对本机路径、上级跳转、空段、反斜线/ADS及远端名称中的路径分隔。relativePath沿用最多1024 UTF-8字节的安全相对路径约束，本地父目录须已存在。只有overwrite可显式选择本页覆盖语义，不接受远端目录、连接配置或执行命令参数。
+SFTP复用原SftpSession队列和worker，保留原面板竞争保护。源文件固定句柄分块读取并在读取前后复核；短读累计，提前EOF、增长、读错或不安全属性不能发布部分文件。最大64 MiB、64 KiB分块，总120秒、15秒无进展、2秒发布准入等待；每客户端/Session一个活动传输，全局两个，记录每客户端16/全局64，终态保留十分钟。同步I/O或libssh阻塞不承诺硬退出时间。
 
-下载必须同时具有local.write和remote.read，上传的local.read+remote.write不能替代；终端读取、输入权限也不推导文件权限。受理、源读取和发布前持续复核客户端identity、两边revision及原Session完整绑定，撤权/换绑不跟随新连接。上传与下载共享FileTransfers的记录、活动预算与原SFTP面板忙碌保护；同operationId跨方向或改变任何参数均冲突，精确重试/查询不重传也不续期。
+SFTP结果保留transferredBytes、totalBytes、published、publication、temporary、errorCode和contentVerified=false。state可为accepted/connecting/uploading/downloading/cancel_requested/completed/cancelled/failed/unknown。对下载，发布与临时文件事实指本机目标；取消不删除远端源或已发布目标。已开始发布的成功/未知事实不被迟到取消改写；已知空文件大小为0，未知为空。
 
-原SftpSession worker检查远端授权根和单个普通源文件，打开一次源句柄，按观察大小分块读取；分段短读可累计，提前EOF、读错、超出声明大小的增长、属性缺失或观察到的源变化不得本地发布。源句柄和路径属性在读取前后复核，拒绝链接/设备、不可信属主及组或其他用户可写项。SFTPv3没有本地openat/NOFOLLOW/inode等价保证，授权目录属主与管理员须可信；这些检查不证明能抵抗同账号恶意换路径。
+UART复用原SerialFileTransferController和worker，持续复核Session/attachment/epoch/generation、实际串口I/O代际和配置摘要。最大64 MiB、64 KiB分块，支持固定句柄随机读取重传；每客户端/Session一个活动传输、全局两个，记录每客户端16/全局64，终态保留十分钟。总期限按max(120000, 60000 + ceil(size * 32000 / baud))毫秒计算，上限3600000毫秒，超预算在首个协议字节前拒绝；准备期限5秒。重试不续期。
 
-LocalFileWriter在原worker中创建专属临时文件并分块append，完成后经过原发布授权确认；默认不覆盖，overwrite=true按本页覆盖节发布。当前安全本地Writer支持Windows/Linux，macOS后端未实现并明确拒绝。Linux仅接受受支持本地文件系统及renameat2；固定目录身份、临时文件0600、发布前fsync和暂存摘要复核。显式覆盖还固定原目标可读句柄并核对有界摘要，原目标最大64 MiB；最终检查到rename/unlink非CAS，依赖可信写入者，不承诺断电持久性。最大64 MiB、64 KiB分块、总120秒、15秒无进展及2秒发布准入等待；每客户端/Session一个活动、全局两个，记录每客户端16/全局64、终态保留十分钟。期限在同步调用之间检查，本机I/O或libssh阻塞不承诺硬退出上界。
-
-响应沿用SFTP字段；共同查询/取消的state可为accepted/connecting/uploading/downloading/cancel_requested/completed/cancelled/failed/unknown。对下载，published/publication描述本地目标，temporary描述本次本地临时文件；取消不删除远端源或已发布本地目标，已开始发布按实际成功/未知事实收口。已知空文件totalBytes=0，未知为空；大小与元数据校验不等于内容hash，contentVerified始终false。下载不执行文件、不读取终端日志，也不要求远端hardlink扩展；本地显式覆盖按本页首节执行。
-
-## 2026-10-28：UART/ZMODEM 单文件上传、查询与取消
-
-UART 文件发送使用以下三项工具，目录发现仍由独立 UART 授权工具提供。实现复用原Session、SerialFileTransferController、TransferFileWorker和ZMODEM协议owner，MCP薄索引只管理授权、幂等和有限事实，见[UART发送记录](records/B3b_Uart_Send_2026-10-28.md)。
-
-| 工具 | 必填参数 | 行为 |
-| --- | --- | --- |
-| `novaterm_upload_serial_file` | sessionId、epoch、resourceId、resourceRevision、relativePath、targetId、targetRevision、remoteName、operationId | 从独立本地读取授权资源发送单个普通文件到当前独立授权的UART连接；接收准备另行完成 |
-| `novaterm_query_serial_transfer` | transferId | 只查本人当前身份的原传输事实，不重发、不重连、不执行命令 |
-| `novaterm_cancel_serial_transfer` | transferId | 请求停止原Controller操作；不指向后来的人工传输或新连接，不承诺远端删除/回滚 |
-
-ID/revision/operationId为非空规范UUID；relativePath遵循现有本地资源相对路径安全限制，remoteName为最多255 UTF-8字节的单个协议文件名，不接受远端目录、串口参数或命令。终端读取/输入与SSH scope不推导UART发送权。准入同时复核本地read资源revision、UART target revision、客户端身份和原Session/attachment/epoch/连接generation/实际串口I/O代际及配置；原连接失效不跟随换绑。
-
-调用方必须独立准备接收端，并显式release已有MCP输入lease。上传不自动发送rz、不自动释放lease、不抢占人工传输，也不自动打开端口、执行文件或读取日志。remoteName只提供协议文件名，远端目录、覆盖策略和落盘行为由接收端决定。
-
-当前安全本地源在Windows/Linux可用，最多64 MiB、64 KiB分块，固定句柄随机读取支持ZMODEM重传。每客户端/Session一个活动传输、全局两个；每客户端16/全局64条记录，终态保留十分钟，活动不淘汰。相同身份、operationId及完整参数精确重试返回原transferId和事实，改变参数拒绝；记录不跨应用重启恢复。
-
-总期限从首次受理计时，知道真实文件大小后按 `max(120000, 60000 + ceil(size * 32000 / baud))` 毫秒计算，硬预算3600000毫秒。超过预算在首个协议字节前拒绝；准备仍受原5秒期限约束，响应/无进展及取消排空沿用协议owner的有限期限。重试不续期；本机同步I/O或驱动阻塞不承诺硬退出时间。
-
-data包含instanceId、transferId、sessionId、epoch、operationId、protocol=zmodem、state、confirmedBytes、totalBytes（未知为空，已知空文件为0）、completedFiles（0或1）、protocolCompleted、fileConfirmed、remotePublication=unknown、contentVerified=false、timeoutMs（尚未知或超预算时为空）和errorCode（无错误为空）。state为accepted/sending/cancel_requested/completed/skipped/cancelled/failed/unknown。
-
-`protocolCompleted`仅表示协议会话完整结束；`fileConfirmed`仅当completedFiles=1。completed要求两者均为true，ZSKIP可使协议结束但文件未确认，状态为skipped；空文件也必须按文件计数确认。最后握手失败不抹除已有fileConfirmed/confirmedBytes。远端目录发布、覆盖、持久落盘和内容hash不由协议确认代替，因此remotePublication始终unknown、contentVerified始终false。取消后继续查询终态，不把cancel_requested当作已经回滚。
-
-## 2026-10-28：UART 独立发送授权目录
-
-`novaterm_list_serial_file_targets` 无参数只读返回本人显式共享的当前UART发送授权：`data={instanceId,availability:"authorization_only",targets:[{targetId,title,revision,sessionId,epoch,protocol:"zmodem"}]}`，每客户端最多8项、全局32项，名称为用户明确共享的文本；不自动返回端口名、串口配置、本机路径或凭据。
-
-本机文件资源授权窗口另选“串口 ZMODEM 发送”并明确允许发送。绑定独立客户端identityVersion、Session/attachment/epoch/generation、真实串口I/O代际及端口/波特率/数据位/校验/停止位/流控摘要；仅当前运行有效。需现有Running的8数据位串口及实际I/O就绪，授权/发现不打开端口或写入字节。普通终端授权变化不撤销此许可；断连/换绑/代际/配置变化、身份轮换、全局停用和服务停止回收，旧窗口不能转授新连接，同绑定更新轮换revision，旧revision不能撤回新规则。
-
-该目录不表示输入lease空闲或接收端已准备；实际发送需调用上节独立UART工具并复核当前revision。SFTP上传按独立本地读+SSH远端写授权，不使用本目录。授权子批的实现、回归与限制见[UART授权记录](records/B3b_Uart_Authorization_2026-10-28.md)。
-
-## 2026-10-28：受限 SFTP 单文件上传（工作区增量）
-
-安全文件源的固定句柄随机读取与串口worker生命周期见[前置记录](records/B3b_Uart_File_Source_2026-10-28.md)，当前UART工具复用该源边界。
-
-三个工具职责独立：上传只上传，查询只读事实，取消只请求停止指定transferId；上传不调用打开、执行、读取日志或关闭工具，不要求其权限，也不依赖关闭策略或普通终端命令忙碌状态。仅复用连接/授权/队列等底层资源。关闭工具仍独立保护活动传输，不能在上传中误断开连接。
-
-SFTP三工具为 `novaterm_upload_file`、`novaterm_query_transfer`、`novaterm_cancel_transfer`；原九项终端请求联合和历史fixture保持。该子批原始验证见[上传记录](records/B3b_Sftp_Upload_2026-10-27.md)，不作为本阶段重测结果。
-
-| 工具 | 必填参数 | 行为 |
-| --- | --- | --- |
-| novaterm_upload_file | sessionId、epoch、resourceId、resourceRevision、relativePath、scopeId、scopeRevision、remoteName、operationId | 本地读授权资源下的普通文件，上传到当前SSH绑定的远端写授权目录下单个文件名；默认不覆盖，true按覆盖节替换，不执行 |
-| novaterm_query_transfer | transferId | 查询本人当前身份的原传输事实，不再次上传 |
-| novaterm_cancel_transfer | transferId | 请求取消原传输；已开始发布返回最终成功或未知事实，不能删除已发布目标 |
-
-ID/revision/operationId为非空规范UUID；拒绝未知参数、本机绝对路径/客户端身份/凭据注入、相对路径上级跳转/空段/控制字符/反斜线/ADS，以及远端名称中的路径分隔。相对路径与名称最多1024 UTF-8字节，后端远端名称另受文件系统单组件限制；本地授权根和相对路径各最多32段。本地文件I/O当前Windows/Linux支持，macOS明确拒绝；Linux限制见本页当前补注。授权目录工具保持 `authorization_only`，它本身仍不执行I/O；只有上传入口进入现有终端面板SftpSession。
-
-MCP不另建连接/执行器。终端SFTP面板必须已就绪且无手工作业；上传期间复用原队列并禁用面板竞争操作，观察不受阻。SFTP连接核对终端原主机指纹、known_hosts路径与连接代际，文件授权另绑定客户端身份、Session/attachment/epoch/generation/目标指纹及资源revision。撤权、换绑、断流和期限在发布前取消；普通终端权限变化不推导文件权限。
-
-预算：最大64 MiB、64 KiB固定分块、每客户端/Session一个活动上传，全局两个；受理记录每客户端16/全局64，终态保留10分钟，运行中不淘汰。总120秒、无进展15秒、发布准入等待2秒；libssh同步调用之间检查，底层恶意逐字节包或本机阻塞I/O不保证硬退出上界。精确重试在记录保留期内只返回原transferId/事实，同operationId不同参数拒绝。终态过期后不保证幂等记录仍可查询，未知结果不得自动换ID重放。
-
-data固定包含instanceId、transferId、sessionId、epoch、operationId、state、transferredBytes、totalBytes（开始读取前可为空）、published、publication、temporary、errorCode（无错误为空）、contentVerified=false。state为accepted/connecting/uploading/cancel_requested/completed/cancelled/failed/unknown；publication为not_started/published/unknown，temporary为none/removed/retained/unknown。字节已传不等于已发布，发布不等于hash校验或程序测试成功。
-
-独立SFTP worker自然退出时，与上传准入在同一队列锁下关闭，并结算已受理、尚未执行的上传；完成事实不因显式断开后的连接代际过滤而丢失。后端销毁兜底没有新的文件总量观察，保留此前已知总量；从未观察到则为空，已知空文件仍为0。已开始发布的成功/未知事实不被队列回收或迟到结果改写。修复和分轮证据见[上传行为审查修复](records/B3b_Sftp_Review_Fixes_2026-10-28.md)。
-
-上传默认不覆盖，0600/EXCL随机临时文件经 `hardlink@openssh.com`版本1在同目录原子创建新目标，再清理本次临时链接；能力不足拒绝。overwrite=true且初始已有安全目标时改用版本1的posix-rename扩展，初始不存在仍用hardlink，详情见覆盖节。远端逐段检查规范路径、链接、权限及祖先属主，仅接受授权根属主/管理员；SFTPv3不能提供同账号恶意换路径的强隔离。发布响应不明保守unknown，不根据临时路径消失推断成功。上传不执行chmod、sh、insmod、烧录或重启。
-
-SFTP下载与显式覆盖按本页对应章节调用；UART/ZMODEM三工具保持独立授权和协议/文件确认边界。Windows软件覆盖验证与B4用户实测分开，Linux安全读取源后端已实现；Linux安全写入及macOS文件后端仍未实现。
-
-兼容基线整理于 2026-10-18，2026-10-23 加入历史工具；2026-10-24 校正目录与状态说明。入口：[总体架构](00_Overall_Architecture.md) / [实施与验收](01_Phases_and_Acceptance.md)。
-本文件记录已有冻结契约，依据 ToolCodec、fixture、Budget、Errors 和 MCP 使用说明；不宣称外部 MCP 规范的最新状态，也不证明所有平台已验收。2026-10-25 B0/B1 已退役未发布 P4 两个诊断工具及专属接线，B0/B1 基线为十二工具，B2 后为十三项（见下节）。清理、日志扩展及本轮验证见 [B0/B1 实施与验收](records/B0_B1_Implementation_2026-10-25.md)。
-
-**B1 日志模式与 B2 清空事务已实施**：缺省 source=observation 的 sinceToken 仍是模型观察游标，recentOutput 仍是摘要；显式 source=log 使用独立位置游标。read_context 的兼容 Schema 扩展见下节及 [04](04_Cursor_Observation_and_Clear.md)，其他十一工具对象保持。
-
-B3/B3a等待/任务及文件扩展的现行契约分别列于下文。终端ToolRequest联合为五项，历史子批工具数量与验证仅在对应records中解释；源码/替身验证不代替真实设备验收。
-
-## B3b 文件传输第一子批：独立文件授权目录（2026-10-27）
-
-2026-10-27 后续工作区增加 Windows 本地句柄I/O库（[记录](records/B3b_Local_File_IO_2026-10-27.md)），初批独立验证，当前上传已复用Reader；目录工具本身仍保持以下Schema、权限及`authorization_only`，元数据发现本身不执行传输。
-
-`novaterm_list_file_resources`只查询本机用户明确共享的授权元数据，不读取文件内容、不创建SFTP或终端连接；传输使用独立工具，目录查询不授予额外权限。
-
-- 参数可为空，用于发现本客户端已获准的资源与SSH绑定；也可传 `sessionId` / `epoch` 成对筛选。拒绝任意本机路径、远端路径、host、clientId或读写授权参数，模型不能通过目录工具创建或扩大授权。
-- 本机“文件资源授权”窗口为所有 AI 共同选择本地目录与当前已连接、主机身份已确认的SSH远端目录，并分别勾选读/写。终端读取、完整输入、清空不推导文件权限。SFTP上传需要本地读+远端写，下载需要远端读+本地写；UART发送需要本地读+独立UART发送许可。
-- 成功data含 `instanceId`、固定 `availability=authorization_only`、`localResources` 与 `remoteScopes`。本地条目仅 `resourceId/title/revision/readAllowed/writeAllowed`，省略本机路径；名称为用户主动共享文字。远端条目含 `scopeId/title/revision/path/sessionId/epoch/readAllowed/writeAllowed`，只披露已明确共享且仍为当前连接的路径与绑定标识。
-- 无参返回本人已共享项，可以为空；不列未授权终端。筛选未知、未共享或不就绪目标统一返回 `PERMISSION_DENIED`；确有当前远端授权但epoch错误返回 `STALE_SESSION_EPOCH`。目录只读不要求额外开放终端读取。
-- 本地授权绑定客户端独立身份版本；远端另绑定完整Session/attachment/epoch/连接generation/目标指纹。普通终端授权变动不清除文件授权。目录移除、远端连接换代/换绑即回收远端scope；身份轮换/全局停用或服务停止回收相应资源。本次运行有效，不写接入JSON，不跨重启恢复。
-- 同一当前身份、绑定和规范路径更新原ID并轮换revision；撤回后重共享生成新ID，旧revision不能撤回新规则。陈旧本机窗口按身份和完整连接快照拒绝，连接变化后需重新选择。
-- 授权窗口绑定打开时的统一主体与身份代际，采用父窗口模态；令牌重置、停用或身份变化后拒绝提交，需重新打开。目录刷新仅恢复同一ID与revision的选择；更新、移除或换绑后须重新选择再撤回。
-- 本地8项/客户端、128项全局；远端8项/客户端（跨Session共用）、256项全局。列表最多8+8项，无分页。路径最多1024 UTF-8字节，名称最多256字节；拒绝控制字符、上级跳转、UNC/Windows设备前缀、相对路径及远端根目录。词法准入不证明真实文件系统安全；实际链接、重解析点、替换、普通文件与范围在传输打开/发布边界复核。
-
-设计、分轮验证及保留范围见[文件资源记录](records/B3b_File_Resources_2026-10-27.md)。文件传输仍未开放，不把权限目录当作可用文件或传输成功的证明。
+UART结果中的protocolCompleted只表示协议完整结束，fileConfirmed表示completedFiles=1；completed要求两者均为true。ZSKIP为skipped，最后握手失败保留已有文件确认和字节事实。remotePublication始终unknown、contentVerified始终false，取消不承诺删除或回滚远端文件。state可为accepted/sending/cancel_requested/completed/skipped/cancelled/failed/unknown。
 
 ## B3/B3a：文本等待与长任务（2026-10-27）
 
@@ -253,7 +163,7 @@ RPC交付失败也不回滚。待受理预留不被TTL误清理，序号避免�
 
 状态 accepted/running/stop_requested/completed/unknown/failed；分别返回accepted/completed、submissionStatus、inputMayHaveBeenSent、executionId、evidenceKind、exitCode、terminationConfirmed、reason、baseline及建议查询间隔。baseline为提交前B1尾书签；query可带sinceToken返回有界output页或outputError，缺口/清空不擦除任务事实。
 
-SSH只有现有集成完成/提示符等实际证据才能标记completed，退出码仅在可取得时存在；提示符不等于功能测试成功。UART原始任务静默继续running，期限到达unknown，exitCode=null、terminationConfirmed=false；旧run_command串口静默兼容字段保持，不投射为新任务的可靠退出证据。list_sessions的availability.terminalTasks分别声明可启动/可观察、证据类型、可停止、是否可验证退出码和不可用原因。
+SSH只有现有集成完成/提示符等实际证据才能标记completed，退出码仅在可取得时存在；提示符不等于功能测试成功。UART原始任务静默继续running，期限到达unknown，exitCode=null、terminationConfirmed=false。list_sessions的availability.terminalTasks分别声明可启动/可观察、证据类型、可停止、是否可验证退出码和不可用原因。
 
 stop只表示对原任务明确请求中断，经过现有输入通路发送一次Ctrl+C；相同停止ID精确重试不重复输入。受理及真正编码后提交前均核对原user/control/execution绑定；人工接管、可信ShellReset/FramingError、完成后新命令、撤权或断连使旧停止零写入拒绝。stop_requested不保证设备响应或进程终止。释放控制、取消等待、请求停止是不同动作。
 
