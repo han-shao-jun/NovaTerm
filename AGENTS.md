@@ -1,5 +1,10 @@
 # AGENTS.md
 
+### 0.2.122 录制摘要加速提交（2026-11-01）
+
+perf定位大记录SHA-256热点，复用已有OpenSSL Crypto，≥4KiB走EVP SHA-256，元数据与失败回退Qt，磁盘摘要格式不变。三轮64MiB合成录制进程CPU中位3.298547→2.208638秒（-33.04%），全部零丢失；固定输入节拍不宣称吞吐提升。0.2.122主程序与相关CTest6/6（11.46秒）、存储局部ASan/UBSan定向3/3通过。初始测试读取预算不足失败分列保留。见[录制记录](src/recording/README.md)。
+
+
 ### 0.2.121 普通文本搜索优化提交（2026-11-01）
 
 perf驱动的ASCII普通文本直接查找，保留Unicode/整词/正则与映射、取消、分批原语义。五轮A/B搜索阶段中位24.76→18.60ms，最终三轮中位18.24ms，均10万命中；不冒充GUI端到端收益。0.2.121主程序构建及相关CTest4/4（17.96秒）通过，SearchEngine局部ASan/UBSan定向5/5。独立代理额度不可用，不声称独立复审。详见[P4记录](docs/architecture/stages/P4_Chunked_Scrollback_and_Search.md)。

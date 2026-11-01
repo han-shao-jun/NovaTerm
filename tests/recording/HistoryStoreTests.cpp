@@ -5,6 +5,9 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QProcess>
+#include <QCryptographicHash>
+#include <QDataStream>
+#include <QFile>
 #include <QSqlDatabase>
 #include <QSqlQuery>
 #include <QSqlError>
@@ -27,6 +30,27 @@ class HistoryStoreTests : public QObject {
         HistoryRecord r; r.recordId = id; r.payload = std::move(bytes); return r;
     }
 private slots:
+    void storedFrameDigestsMatchQtSha256() {
+        QTemporaryDir dir; const auto d = descriptor();
+        HistoryChunkStore store(dir.path(), d); QVERIFY(store.open());
+        std::vector<HistoryRecord> records;
+        for (const int size : {0, 1, 4095, 4096, 65536})
+            records.push_back(payload(records.size() + 1, QByteArray(size, char(size % 251))));
+        QVERIFY(store.append(records)); QVERIFY(store.commit()); QVERIFY(store.seal("stop"));
+        QFile file(store.directory() + "/chunks/00000001.bin"); QVERIFY(file.open(QIODevice::ReadOnly));
+        for (size_t i=0;i<records.size();++i) {
+            const auto header = file.read(12); QCOMPARE(header.left(8), QByteArray("NTHREC01"));
+            quint32 size = 0; QDataStream stream(header.mid(8)); stream >> size;
+            const auto body = file.read(size); QCOMPARE(body.size(), qsizetype(size));
+            QCOMPARE(file.read(32), QCryptographicHash::hash(body, QCryptographicHash::Sha256));
+        }
+        QVERIFY(file.atEnd());
+        HistoryRange range; range.maxBytes = 128 * 1024;
+        const auto result = store.readCommitted(range);
+        QCOMPARE(result.integrity, Integrity::Lossless);
+        QCOMPARE(result.records.size(), records.size());
+        for (size_t i=0;i<records.size();++i) QCOMPARE(result.records[i].payload, records[i].payload);
+    }
     void transientWindowsIndexReaderDoesNotPreventRecovery() {
 #ifdef Q_OS_WIN
         QTemporaryDir dir; const auto d = descriptor();

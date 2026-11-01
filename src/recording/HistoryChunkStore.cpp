@@ -8,11 +8,25 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <algorithm>
+#include <array>
+#include <openssl/evp.h>
 
 namespace NovaTerm::Recording {
 namespace {
 constexpr qsizetype MaxFrame = 128 * 1024;
-QByteArray hash(const QByteArray& data) { return QCryptographicHash::hash(data, QCryptographicHash::Sha256); }
+QByteArray hash(const QByteArray& data) {
+    constexpr qsizetype AcceleratedHashMinimumBytes = 4096;
+    if (data.size() >= AcceleratedHashMinimumBytes) {
+        std::array<unsigned char, EVP_MAX_MD_SIZE> digest{};
+        unsigned int length = 0;
+        if (EVP_Digest(data.constData(), size_t(data.size()), digest.data(), &length,
+                       EVP_sha256(), nullptr) == 1 && length == 32)
+            return QByteArray(reinterpret_cast<const char*>(digest.data()), qsizetype(length));
+    }
+    // Preserve the existing SHA-256 implementation for small metadata and if
+    // the platform crypto provider cannot service this request.
+    return QCryptographicHash::hash(data, QCryptographicHash::Sha256);
+}
 QString chunkName(int n) { return QStringLiteral("%1.bin").arg(n, 8, 10, QLatin1Char('0')); }
 QByteArray encode(const HistoryRecord& r) {
     QByteArray b; QDataStream s(&b, QIODevice::WriteOnly); s.setVersion(QDataStream::Qt_6_8);
