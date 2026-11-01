@@ -1,6 +1,31 @@
 /** @file Checksum.cpp @brief CRC16/XMODEM 与反射 CRC32 的实现。 */
 #include "Checksum.h"
+#include <array>
 namespace NovaTerm::FileTransfer {
+namespace {
+constexpr auto makeCrc16Table() {
+    std::array<std::uint16_t, 256> table{};
+    for (unsigned index = 0; index < table.size(); ++index) {
+        auto value = std::uint16_t(index << 8U);
+        for (unsigned bit = 0; bit < 8; ++bit)
+            value = std::uint16_t((unsigned(value) << 1U) ^ ((value & 0x8000U) ? 0x1021U : 0U));
+        table[index] = value;
+    }
+    return table;
+}
+constexpr auto makeCrc32Table() {
+    std::array<std::uint32_t, 256> table{};
+    for (unsigned index = 0; index < table.size(); ++index) {
+        std::uint32_t value = index;
+        for (unsigned bit = 0; bit < 8; ++bit)
+            value = (value >> 1U) ^ ((value & 1U) ? 0xedb88320U : 0U);
+        table[index] = value;
+    }
+    return table;
+}
+constexpr auto Crc16Table = makeCrc16Table();
+constexpr auto Crc32Table = makeCrc32Table();
+}
 std::uint8_t checksum8(ByteView data) noexcept
 {
     std::uint8_t sum = 0;
@@ -11,11 +36,7 @@ std::uint8_t checksum8(ByteView data) noexcept
 }
 std::uint16_t crc16Update(std::uint16_t crc, std::uint8_t byte) noexcept
 {
-    crc ^= static_cast<std::uint16_t>(static_cast<unsigned>(byte) << 8U);
-    for (unsigned bit = 0; bit < 8; ++bit)
-        crc = static_cast<std::uint16_t>((static_cast<unsigned>(crc) << 1U)
-              ^ ((crc & 0x8000U) ? 0x1021U : 0U));
-    return crc;
+    return std::uint16_t((unsigned(crc) << 8U) ^ Crc16Table[(unsigned(crc) >> 8U) ^ byte]);
 }
 std::uint16_t crc16(ByteView data) noexcept
 {
@@ -27,10 +48,7 @@ std::uint16_t crc16(ByteView data) noexcept
 }
 std::uint32_t crc32Update(std::uint32_t crc, std::uint8_t byte) noexcept
 {
-    crc ^= byte;
-    for (unsigned bit = 0; bit < 8; ++bit)
-        crc = (crc >> 1U) ^ ((crc & 1U) ? 0xedb88320U : 0U);
-    return crc;
+    return (crc >> 8U) ^ Crc32Table[(crc ^ byte) & 0xffU];
 }
 std::uint32_t crc32(ByteView data) noexcept
 {
