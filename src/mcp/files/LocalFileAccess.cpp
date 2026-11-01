@@ -10,7 +10,9 @@
 #include <vector>
 #include <algorithm>
 #ifdef Q_OS_LINUX
-#include <QCryptographicHash>
+#include <QByteArrayView>
+#include <array>
+#include <openssl/evp.h>
 #include <fcntl.h>
 #include <sys/stat.h>
 #include <sys/file.h>
@@ -340,10 +342,35 @@ bool sameDestination(const struct stat& a, const struct stat& b)
     return sameSource(a, b) && a.st_uid == b.st_uid && a.st_gid == b.st_gid;
 }
 
+class PosixSha256 final {
+public:
+    PosixSha256() : _context(EVP_MD_CTX_new(), &EVP_MD_CTX_free) {
+        _valid = _context && EVP_DigestInit_ex(_context.get(), EVP_sha256(), nullptr) == 1;
+    }
+    bool valid() const { return _valid; }
+    bool addData(QByteArrayView bytes) {
+        _valid = _valid && EVP_DigestUpdate(_context.get(), bytes.data(), size_t(bytes.size())) == 1;
+        return _valid;
+    }
+    FileIoResult<QByteArray> result() {
+        if (!_valid) return FileIoError::IoFailure;
+        _valid = false;
+        std::array<unsigned char, EVP_MAX_MD_SIZE> digest{};
+        unsigned int length = 0;
+        if (EVP_DigestFinal_ex(_context.get(), digest.data(), &length) != 1 || length != 32)
+            return FileIoError::IoFailure;
+        return QByteArray(reinterpret_cast<const char*>(digest.data()), qsizetype(length));
+    }
+private:
+    std::unique_ptr<EVP_MD_CTX, decltype(&EVP_MD_CTX_free)> _context;
+    bool _valid{false};
+};
+
 FileIoResult<QByteArray> posixDigest(int file, quint64 bytes)
 {
     if (bytes > Budget::MaxLocalTransferFileBytes) return FileIoError::SizeLimit;
-    QCryptographicHash hash(QCryptographicHash::Sha256);
+    PosixSha256 hash;
+    if (!hash.valid()) return FileIoError::IoFailure;
     QByteArray buffer(Budget::LocalTransferChunkBytes, Qt::Uninitialized);
     quint64 checked = 0;
     while (checked < bytes) {
@@ -351,7 +378,7 @@ FileIoResult<QByteArray> posixDigest(int file, quint64 bytes)
         const auto read = ::pread(file, buffer.data(), std::size_t(count), off_t(checked));
         if (read < 0 && errno == EINTR) continue;
         if (read <= 0) return FileIoError::IoFailure;
-        hash.addData(QByteArrayView(buffer.constData(), qsizetype(read)));
+        if (!hash.addData(QByteArrayView(buffer.constData(), qsizetype(read)))) return FileIoError::IoFailure;
         checked += quint64(read);
     }
     return hash.result();
@@ -400,7 +427,7 @@ struct LocalFileWriter::Impl {
     struct stat temporarySnapshot{};
     std::optional<struct stat> originalTarget;
     QByteArray originalTargetHash;
-    QCryptographicHash receivedHash{QCryptographicHash::Sha256};
+    PosixSha256 receivedHash;
 
     bool targetUnchanged() const noexcept
     {
@@ -584,6 +611,7 @@ FileIoResult<std::unique_ptr<LocalFileWriter>> LocalFileWriter::create(
     auto pinned = pinPosixDestination(root, relative);
     if (const auto* error = std::get_if<FileIoError>(&pinned)) return *error;
     auto impl = std::make_unique<Impl>();
+    if (!impl->receivedHash.valid()) return FileIoError::IoFailure;
     impl->path = std::move(std::get<PosixPinnedDestination>(pinned));
     impl->expected = expectedBytes;
     const int parent = impl->path.directories.back().get();
@@ -669,7 +697,7 @@ FileIoResult<std::monostate> LocalFileWriter::append(const QByteArray& bytes)
     }
     _impl->written += quint64(bytes.size());
     _impl->temporarySnapshot = current;
-    _impl->receivedHash.addData(bytes);
+    if (!_impl->receivedHash.addData(bytes)) { _impl->failed = true; return FileIoError::IoFailure; }
     return std::monostate{};
 #else
     return FileIoError::UnsupportedPlatform;
@@ -740,7 +768,9 @@ FileIoResult<std::monostate> LocalFileWriter::publish()
     // staged bytes against the stream accepted by append(), with bounded memory.
     const auto stagedHash = posixDigest(_impl->file.get(), _impl->expected);
     if (const auto* error = std::get_if<FileIoError>(&stagedHash)) return *error;
-    if (std::get<QByteArray>(stagedHash) != _impl->receivedHash.result()) return FileIoError::UnsafeFile;
+    const auto receivedHash = _impl->receivedHash.result();
+    if (const auto* error = std::get_if<FileIoError>(&receivedHash)) return *error;
+    if (std::get<QByteArray>(stagedHash) != std::get<QByteArray>(receivedHash)) return FileIoError::UnsafeFile;
     const int parent = _impl->path.directories.back().get();
     if (_impl->originalTarget) {
         if (!_impl->targetUnchanged()) return FileIoError::UnsafeFile;

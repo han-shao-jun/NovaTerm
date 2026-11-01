@@ -79,6 +79,22 @@ bool junction(const QString& path, const QString& target)
 class LocalFileAccessTests : public QObject {
     Q_OBJECT
 private slots:
+    void writerDigestPreservesUnevenAndEmptyChunks() {
+#if defined(Q_OS_WIN) || defined(Q_OS_LINUX)
+        QTemporaryDir dir;
+        const QList<QByteArray> chunks{QByteArray{}, QByteArray("x"), QByteArray(65536, 'y'), QByteArray("tail")};
+        QByteArray expected; for (const auto& chunk : chunks) expected += chunk;
+        auto opened = LocalFileWriter::create(dir.path(), "chunks.bin", quint64(expected.size()));
+        QVERIFY(std::holds_alternative<std::unique_ptr<LocalFileWriter>>(opened));
+        auto writer = std::move(std::get<std::unique_ptr<LocalFileWriter>>(opened));
+        for (const auto& chunk : chunks) QVERIFY(std::holds_alternative<std::monostate>(writer->append(chunk)));
+        QVERIFY(std::holds_alternative<std::monostate>(writer->publish()));
+        QCOMPARE(contents(dir.filePath("chunks.bin")), expected);
+#else
+        QSKIP("Local writer backend unavailable");
+#endif
+    }
+
     void transferErrorCodesPreserveLocalFailure()
     {
         QCOMPARE(localFileTransferErrorCode(FileIoError::SizeLimit), QStringLiteral("TRANSFER_SIZE_LIMIT"));

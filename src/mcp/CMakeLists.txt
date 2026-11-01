@@ -33,6 +33,9 @@ target_link_libraries(novaterm_mcp_application PUBLIC novaterm_mcp_contracts Qt6
 qt_add_library(novaterm_mcp_file_io STATIC files/LocalFileAccess.cpp files/LocalFileAccess.h)
 target_include_directories(novaterm_mcp_file_io PUBLIC ${PROJECT_SOURCE_DIR}/src)
 target_link_libraries(novaterm_mcp_file_io PUBLIC Qt6::Core)
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    target_link_libraries(novaterm_mcp_file_io PRIVATE OpenSSL::Crypto)
+endif()
 
 # MCP wire 协议库不依赖终端或 UI，由进程内 HTTP 服务复用。
 qt_add_library(novaterm_mcp_protocol STATIC McpProtocol.cpp McpProtocol.h

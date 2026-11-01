@@ -734,3 +734,14 @@ ctest --test-dir build/Release --output-on-failure -R '^novaterm_mcp_(contracts_
 新回归先真实RED（2pass/1fail，旧确认仍产生客户端提示），单步删除输出分支后3/3；最后扩展为2025/2026两代均验证旧elicitation/input_required不再输出、迟到回复不产生业务事件、正常结果结束。替换专属旧Broker测试，当前传输与协议回归保留。请求状态拒绝解析仍有现行消费者，不把它当作死代码删除。
 
 0.2.117→0.2.118。主程序及MCP业务、contracts、wire、endpoint、file_transfers、serial_file_transfers目标构建成功。中间轮次6/6（41.46秒）与最终参数清理后的6/6（40.56秒）分列。最终CTest：contracts0.01秒、wire2.59秒、endpoint2.59秒、MCP业务26.76秒、file_transfers1.04秒、serial_file_transfers7.56秒。命令与前节同范围，日志/tmp/novaterm-02118-final-build.log、/tmp/novaterm-02118-final-tests.log仅为本机临时证据。git diff --check通过；无实机、其他平台或消毒器验证，未重启用户实例，不改B4工具台账。
+
+
+## 0.2.124 Linux安全本地Writer摘要加速（2026-11-01）
+
+用户要求逐模块高收益调优、提交推送。perf采样64MiB新建+覆盖发布，用户态CPU几乎全部落在QCryptographicHash流式SHA-256。改为Linux内部RAII管理EVP_MD_CTX，使用项目既有OpenSSL SHA-256；初始化/更新/完成均检查返回值，失败为IoFailure并禁止发布。原固定描述符、逐级无链接路径、元数据和同长度摘要复核、fsync、renameat2/覆盖与取消清理全部保留。Windows/macOS分支未改；该库仅在Linux私有链接OpenSSL::Crypto。
+
+三轮交替完整流程A/B（taskset -c 0-15，每次新临时目录、64MiB、64KiB块，最终逐字节验证）：新建旧541363/543059/543761微秒，新99035/100771/100646微秒；中位543059→100646（-81.47%）。覆盖旧1052519/1051069/1052806微秒，新152828/151415/148570微秒；中位1052519→151415（-85.61%）。包括完整安全检查和发布，不是仅哈希微基准；仍不代表SSH网络吞吐或真实MCP工具实机验收。
+
+新增空append/单字节/最大块/尾块的流式摘要发布回归。0.2.124主程序构建及local_file_io/MCP业务/file_transfers/sftp_session_safety CTest4/4（28.76秒）通过。完整LocalFileAccess实现单独ASan/UBSan插桩、其他依赖Release，全部本地I/O70/70（370ms），无报告；不冒充全工程消毒器。现有篡改、覆盖竞争、空文件、取消和精确文件名测试保留。
+
+临时证据/tmp/novaterm-fileio-ab-*.log、/tmp/novaterm-fileio-profile.data、/tmp/novaterm-fileio-sanitized.log、/tmp/novaterm-02124-{build,tests}.log不纳入Git。不重启用户实例、不连接设备，不把本轮软件记录写入B4工具台账。

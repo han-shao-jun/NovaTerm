@@ -1,5 +1,10 @@
 # AGENTS.md
 
+### 0.2.124 Linux安全Writer摘要加速提交（2026-11-01）
+
+perf定位本地发布SHA-256热点，复用OpenSSL流式摘要及RAII，失败明确IoFailure、保留全部路径/身份/暂存/目标复核及发布取消规则。三轮64MiB完整新建/覆盖中位降低81.47%/85.61%，逐字节核验一致；不外推SSH网络吞吐。0.2.124主程序构建及相关CTest4/4（28.76秒）通过，LocalFileAccess局部ASan/UBSan70/70（370ms）。Windows/macOS未改未测，不改B4台账。详见MCP工程验证记录。
+
+
 ### 0.2.123 文件传输校验优化提交（2026-11-01）
 
 perf定位ZMODEM编解码CRC32/16占56.5%/64.4%，改constexpr查表且保留原多项式与协议字节。三轮64MiB内存往返中位耗时降低36.84%/41.90%，不宣称串口物理速度提升。0.2.123主程序构建及相关CTest9/9（106.89秒）、完整独立协议ASan/UBSan6/6（26.38秒）通过；CRC16全部状态转移穷举、CRC32差分通过。见[P9记录](docs/architecture/stages/P9_File_Transfer_Protocols.md)。
