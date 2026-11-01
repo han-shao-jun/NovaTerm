@@ -474,3 +474,14 @@ Parser 单写、不可变快照、预算与实际完整视口/字形完成的绑
 charge 比 512 KiB/4 MiB 再降约 12%。完整原始数据、范围及 CPU 调度差异见
 [调参报告](../../../tests/benchmarks/archive/lz4/history-gui-tuning-linux-2026-10-21/README.md)。
 原平台/长稳/后端吞吐缺口不据此关闭，压缩仍默认 false，性能发布验收未全面完成。
+
+
+## 0.2.121 普通文本搜索性能优化（2026-11-01）
+
+按用户逐模块采样、优化、提交并推送要求实施。Linux perf对10万行×80列历史基准采样，搜索线程中QRegularExpression匹配/迭代/共享对象释放占显著比例；尾部深拷贝属于跨线程安全机制，未因其采样占比高而删除。基于effective-cpp减少不必要对象工作的原则，只让ASCII query+ASCII可搜索行、非整词、非正则请求使用QString直接查找，大小写敏感选项原样传递。Unicode、整词、正则仍走原PCRE路径；非重叠推进、UTF16到Cell映射、结果上限、分批和取消保持。
+
+五轮交替未插桩A/B，taskset -c 0-15，100000行、80列、512MiB预算、query=mnop、最多100000命中。搜索阶段耗时（ms）：旧24.67/24.57/24.76/24.92/25.08，新18.60/18.62/18.73/18.33/17.21，中位24.76→18.60（降低24.88%）。最终收窄ASCII路径后的0.2.121三轮18.61/18.24/17.95ms，中位18.24ms，命中数均100000，基准自身追加/快照/内存/异步搜索判据通过。不是端到端GUI延迟或压缩冷历史搜索成绩；perf带栈采样只用来找热点，不用其受干扰的墙钟时间计算收益。
+
+差分回归用原escaped-regex为参考，覆盖ASCII大小写、正则元字符字面量、Unicode/emoji/组合字符、特殊大小写、整词、非重叠、分批和结果上限。修改前后专项均3/3。0.2.121主程序及相关目标构建成功，Core/scrollback/renderer/history_search CTest4/4（17.96秒）；仅SearchEngine编译ASan/UBSan、其余库Release，定向5/5（5.003秒），不冒充全工程消毒器。独立代理本轮额度不可用，完成的是本地自审和实际差分验证。
+
+复现命令：`taskset -c 0-15 build/Release/bin/novaterm_scrollback_benchmark --lines 100000 --columns 80 --max-bytes 536870912`。临时证据位于/tmp/novaterm-search-ab-*.log、/tmp/novaterm-search-final-*.log、/tmp/novaterm-02121-{build,tests}.log及/tmp/novaterm-search-sanitized.log；不纳入Git。未连接真实设备或修改运行实例，其他模块未混入本提交。

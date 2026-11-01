@@ -1,6 +1,7 @@
 #include "core/scrollback/ChunkedScrollback.h"
 #include "core/scrollback/LineLayout.h"
 #include "core/search/SearchEngine.h"
+#include <QRegularExpression>
 
 #include <QSignalSpy>
 #include <QElapsedTimer>
@@ -20,6 +21,7 @@ private slots:
     void snapshotUsesStableLineIds();
     void layoutKeepsWideCellsTogether();
     void reflowPublishesCurrentGeneration();
+    void literalSearchMatchesEscapedRegex();
     void searchPublishesCellRanges();
     void searchKeepsCellRangesAcrossDifferentLines();
     void searchCancellationSupersedesGeneration();
@@ -520,6 +522,44 @@ void ScrollbackTests::reflowPublishesCurrentGeneration()
     const auto batch = spy.last().at(0).value<NovaTerm::ReflowBatch>();
     QCOMPARE(batch.generation, quint64(1));
     QCOMPARE(batch.physicalRows, qsizetype(40));
+}
+
+void ScrollbackTests::literalSearchMatchesEscapedRegex()
+{
+    NovaTerm::ChunkedScrollback history(100, 1024 * 1024, 4);
+    for (const auto& text : QStringList{"aaaa aa", "ERROR error eRrOr", "a.b [x] \t token", "", "中文😀é", "K Kelvin k K", "Σσς İi Iı", "word_word word-word"})
+        history.append(textLine(text));
+    const auto snapshot = history.snapshot();
+    NovaTerm::SearchEngine engine;
+    NovaTerm::u64 generation = 0;
+    for (const auto& query : QStringList{"aa", "error", ".", "[x]", "token", "😀", "́", "k", "σ", "i", "word", "missing"}) {
+        for (bool sensitive : {false,true}) {
+            for (bool whole : {false,true}) {
+                std::vector<NovaTerm::SearchMatch> results[2];
+                for (int mode=0; mode<2; ++mode) {
+                    QSignalSpy batches(&engine, &NovaTerm::SearchEngine::resultsReady);
+                    NovaTerm::SearchRequest request;
+                    request.query = (mode ? QRegularExpression::escape(query) : query).toStdString();
+                    request.regularExpression = mode != 0; request.caseSensitive = sensitive;
+                    request.wholeWord = whole; request.generation = ++generation;
+                    request.resultBatchSize = 1; request.maximumResults = 3;
+                    engine.search(snapshot, request);
+                    QTRY_VERIFY_WITH_TIMEOUT(!batches.isEmpty() && batches.last()[0].value<NovaTerm::SearchBatch>().completed, 3000);
+                    for (const auto& args : batches) {
+                        const auto batch = args[0].value<NovaTerm::SearchBatch>();
+                        QVERIFY(batch.error.empty()); QVERIFY(!batch.cancelled);
+                        results[mode].insert(results[mode].end(), batch.matches.begin(), batch.matches.end());
+                    }
+                }
+                QCOMPARE(results[0].size(), results[1].size());
+                for (size_t i=0;i<results[0].size();++i) {
+                    QCOMPARE(results[0][i].lineId,results[1][i].lineId);
+                    QCOMPARE(results[0][i].startCell,results[1][i].startCell);
+                    QCOMPARE(results[0][i].endCell,results[1][i].endCell);
+                }
+            }
+        }
+    }
 }
 
 void ScrollbackTests::searchPublishesCellRanges()

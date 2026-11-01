@@ -39,6 +39,7 @@ constexpr isize MaximumSearchLineCharacters = 4 * 1024 * 1024;
 struct SearchableLine
 {
     QString text;
+    bool ascii{true};
     std::vector<isize> utf16ToCell;
 };
 
@@ -51,6 +52,7 @@ bool makeSearchable(const LogicalLine& line, SearchableLine& result,
 {
     // QString::clear() 会释放容量；resize(0) 保留已分配的缓冲。
     result.text.resize(0);
+    result.ascii = true;
     result.utf16ToCell.clear();
     // size() 是无符号 size_t，与 isize 常量/变量比较需显式转换
     // （AGENTS.md「容易写错的地方」记载的模式）。
@@ -76,6 +78,7 @@ bool makeSearchable(const LogicalLine& line, SearchableLine& result,
             // 加一次 free。默认 1000 行 × 200 列即约 20 万次分配/次搜索，
             // 而 text 上的 reserve 对这些临时对象毫无帮助。
             // 码点 > 0xFFFF 需代理对，占两个 UTF-16 单元。
+            result.ascii = result.ascii && codepoint < 0x80;
             const qsizetype units = codepoint > 0xFFFF ? 2 : 1;
             if (result.text.size() + units > MaximumSearchLineCharacters)
                 return false;
@@ -238,6 +241,9 @@ public:
         // query 现为 UTF-8 std::string；阶段 5 抽离匹配器前，这里仍用
         // QRegularExpression，在边界做一次 UTF-8→QString 转换。
         const QString query = QString::fromStdString(work.request.query);
+        const bool plainText = !work.request.regularExpression && !work.request.wholeWord;
+        const bool asciiQuery = std::all_of(query.cbegin(), query.cend(),
+            [](QChar unit) { return unit.unicode() < 0x80; });
         // 非正则模式：对 query 整体做正则转义，使特殊字符按字面匹配。
         QString expression = work.request.regularExpression
             ? query
@@ -319,24 +325,36 @@ public:
                 }
                 continue;
             }
-            QRegularExpressionMatchIterator matches = regex.globalMatch(line.text);
-            while (matches.hasNext() && resultCount < maximumResults) {
-                if (cancelled(work.request.generation)) {
-                    batch.cancelled = true;
-                    publish(std::move(batch));
-                    return;
-                }
-                const QRegularExpressionMatch match = matches.next();
-                if (!match.hasMatch())
-                    continue;
-                batch.matches.push_back(toMatch(
-                    logical->id, line, match.capturedStart(),
-                    match.capturedLength()));
+            const auto appendMatch = [&](isize start, isize length) {
+                batch.matches.push_back(toMatch(logical->id, line, start, length));
                 ++resultCount;
-                // 命中累积到 batchSize 即发布一批并清空，避免内存堆积。
                 if (isize(batch.matches.size()) >= batchSize) {
                     batch.scannedLines = row - startRow + 1;
                     publishMatches(batch);
+                }
+            };
+            // Exact literals need no regex match objects. Keep Unicode case folding
+            // and word-boundary semantics on the existing PCRE path.
+            if (plainText && asciiQuery && line.ascii) {
+                qsizetype from = 0;
+                while (resultCount < maximumResults) {
+                    if (cancelled(work.request.generation)) {
+                        batch.cancelled = true; publish(std::move(batch)); return;
+                    }
+                    const auto found = line.text.indexOf(query, from, work.request.caseSensitive
+                        ? Qt::CaseSensitive : Qt::CaseInsensitive);
+                    if (found < 0) break;
+                    appendMatch(found, query.size());
+                    from = found + query.size(); // Same non-overlapping matches as globalMatch.
+                }
+            } else {
+                auto matches = regex.globalMatch(line.text);
+                while (matches.hasNext() && resultCount < maximumResults) {
+                    if (cancelled(work.request.generation)) {
+                        batch.cancelled = true; publish(std::move(batch)); return;
+                    }
+                    const auto match = matches.next();
+                    if (match.hasMatch()) appendMatch(match.capturedStart(), match.capturedLength());
                 }
             }
             if (resultCount >= maximumResults)

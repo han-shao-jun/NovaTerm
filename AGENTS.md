@@ -1,5 +1,10 @@
 # AGENTS.md
 
+### 0.2.121 普通文本搜索优化提交（2026-11-01）
+
+perf驱动的ASCII普通文本直接查找，保留Unicode/整词/正则与映射、取消、分批原语义。五轮A/B搜索阶段中位24.76→18.60ms，最终三轮中位18.24ms，均10万命中；不冒充GUI端到端收益。0.2.121主程序构建及相关CTest4/4（17.96秒）通过，SearchEngine局部ASan/UBSan定向5/5。独立代理额度不可用，不声称独立复审。详见[P4记录](docs/architecture/stages/P4_Chunked_Scrollback_and_Search.md)。
+
+
 ### 0.2.120 libvterm滚动导出优化提交（2026-11-01）
 
 按逐模块提交推送要求收口。perf定位单格历史导出热点，现有批量接口每行只解析一次ring offset；三轮64MiB同机基准中位24.24→30.53MiB/s（+25.95%）。0.2.120主程序构建、相关CTest5/5（13.22秒）通过；独立libvterm ASan/UBSan和预填历史OpenGL验收沿用本轮分列记录。源码与测试按libvterm主题独立提交，未纳入后续搜索改动。见[性能记录](docs/architecture/Rendering_Architecture.md)。
