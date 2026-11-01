@@ -228,9 +228,7 @@ static int putglyph(VTermGlyphInfo *info, VTermPos pos, void *user)
 
 static void sb_pushline_from_row(VTermScreen *screen, int row)
 {
-  VTermPos pos = { .row = row };
-  for(pos.col = 0; pos.col < screen->cols; pos.col++)
-    vterm_screen_get_cell(screen, pos, screen->sb_buffer + pos.col);
+  vterm_screen_get_cells(screen, row, 0, screen->cols, screen->sb_buffer);
 
   const VTermLineInfo *lineinfo = vterm_state_get_lineinfo(screen->state, row);
   if(screen->callbacks->sb_pushline_ex)
@@ -1179,11 +1177,11 @@ int vterm_screen_get_cells(const VTermScreen *screen, int row,
   if(start_col < 0 || end_col > screen->cols || start_col >= end_col)
     return 0;
 
+  ScreenCell *rowcells = getcell(screen, row, 0);
+  if(!rowcells)
+    return 0;
   for(int col = start_col; col < end_col; col++) {
-    ScreenCell *intcell = getcell(screen, row, col);
-    if(!intcell)
-      return 0;
-
+    ScreenCell *intcell = rowcells + col;
     VTermScreenCell *cell = &cells[col - start_col];
 
     int i;

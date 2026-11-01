@@ -7,6 +7,7 @@
 #include <QElapsedTimer>
 #include <QSignalSpy>
 #include <QtTest>
+#include <vterm.h>
 
 #include <memory>
 #include <atomic>
@@ -19,6 +20,42 @@ class TerminalCoreTests final : public QObject
     Q_OBJECT
 
 private slots:
+    void bulkCellExportMatchesSingleAfterScrollAndResize() {
+        const auto destroy = [](VTerm* value) { vterm_free(value); };
+        std::unique_ptr<VTerm, decltype(destroy)> term(vterm_new(4, 12), destroy);
+        QVERIFY(term);
+        vterm_set_utf8(term.get(), 1);
+        auto* screen = vterm_obtain_screen(term.get());
+        vterm_screen_enable_altscreen(screen, 1);
+        vterm_screen_reset(screen, 1);
+        const auto compare = [&] {
+            int rows = 0, columns = 0; vterm_get_size(term.get(), &rows, &columns);
+            for (int row = 0; row < rows; ++row) {
+                std::vector<VTermScreenCell> batch(std::size_t(columns), VTermScreenCell{});
+                QCOMPARE(vterm_screen_get_cells(screen, row, 0, columns, batch.data()), columns);
+                for (int column = 0; column < columns; ++column) {
+                    VTermScreenCell single{};
+                    QVERIFY(vterm_screen_get_cell(screen, VTermPos{row,column}, &single));
+                    const auto& item = batch[std::size_t(column)];
+                    for (int i=0; i<VTERM_MAX_CHARS_PER_CELL; ++i) QCOMPARE(item.chars[i], single.chars[i]);
+                    QCOMPARE(item.width, single.width);
+                    QVERIFY(std::memcmp(&item.attrs, &single.attrs, sizeof(single.attrs)) == 0);
+                    QVERIFY(vterm_color_is_equal(&item.fg, &single.fg));
+                    QVERIFY(vterm_color_is_equal(&item.bg, &single.bg));
+                }
+            }
+        };
+        for (int round = 0; round < 20; ++round) {
+            const QByteArray input = QString::fromUtf8("\x1b[1;3;4;7;38;2;12;34;56m界é\x1b[0m\r\n").toUtf8();
+            QCOMPARE(vterm_input_write(term.get(), input.constData(), size_t(input.size())), size_t(input.size()));
+            vterm_screen_flush_damage(screen); compare();
+        }
+        vterm_set_size(term.get(), 3, 8); compare();
+        vterm_set_size(term.get(), 5, 16); compare();
+        const QByteArray alternate("\x1b[?1049hALT\r\n\x1b[?5h");
+        vterm_input_write(term.get(), alternate.constData(), size_t(alternate.size()));
+        vterm_screen_flush_damage(screen); compare();
+    }
     void localInputAdmissionPrecedesOutputAndSurvivesReset();
     void rejectedAndNonLocalCommandsDoNotCountAsLocalInput();
     void logReadKeepsActiveScreenAndAlternateScreenSeparate();

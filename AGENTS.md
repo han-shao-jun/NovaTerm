@@ -1,5 +1,10 @@
 # AGENTS.md
 
+### 0.2.120 libvterm滚动导出优化提交（2026-11-01）
+
+按逐模块提交推送要求收口。perf定位单格历史导出热点，现有批量接口每行只解析一次ring offset；三轮64MiB同机基准中位24.24→30.53MiB/s（+25.95%）。0.2.120主程序构建、相关CTest5/5（13.22秒）通过；独立libvterm ASan/UBSan和预填历史OpenGL验收沿用本轮分列记录。源码与测试按libvterm主题独立提交，未纳入后续搜索改动。见[性能记录](docs/architecture/Rendering_Architecture.md)。
+
+
 ### 0.2.119 渲染优化提交（2026-11-01）
 
 按用户逐模块提交并推送要求收口：span原地合并及引用访问、高亮预过滤正确性、GPU预算失败三态与恢复。局部span基准中位降低22.6%，不是整机帧率。临时移开后续libvterm优化后，0.2.119主程序与相关目标构建成功，渲染CTest2/2（5.44秒）；规划与其他静态发现保留。见[渲染记录](docs/architecture/Rendering_Architecture.md)。

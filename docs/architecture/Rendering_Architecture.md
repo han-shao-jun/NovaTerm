@@ -120,3 +120,41 @@ P5 的多页 Atlas、LRU、局部上传、CJK fallback、组合字符、Emoji、
 
 
 0.2.119独立提交验证：临时移开后续libvterm优化，主程序和两个渲染目标重建成功，CTest2/2（5.44秒）。版本由0.2.118递增，未将后续解析器收益计入本提交。
+
+## perf驱动的高收益调优收口（2026-11-01，0.2.120）
+
+用户进一步要求使用本机性能工具且只优化高收益模块。本轮以已有渲染修改为工作区基线，使用Linux perf 6.8.12、Intel i7-14700K、Qt6.8.3 Release、X11/OpenGL。perf_event_paranoid=-1。没有改系统调度、电源、显示设置，未操作用户运行实例或设备。仅保留新发现的滚动历史导出优化，不继续扩张零散小热点。
+
+首轮perf采样：真实P5 OpenGL基准约60FPS，应用热点分散且含驱动成本；64MiB核心解析负载的P核样本中vterm_screen_get_cell self约32.06%，scrollrect累计约63.47%，因此选择后者。将sb_pushline_from_row逐格调用改为现有vterm_screen_get_cells整行导出，并把批量函数的getcell(row,0)移到循环外；每物理行只解析一次ring offset，属性/颜色/宽字转换不变，resize旧视图路径不动。
+
+三轮交替A/B均为64MiB输入、100000历史行、taskset -c 0-15，未插桩。优化前二进制先保存到/tmp，编译完成后串行运行，不在采样期间构建：
+
+|轮次|修改前 MiB/s|修改后 MiB/s|
+|---|---:|---:|
+|1|24.27|30.48|
+|2|24.24|30.80|
+|3|23.66|30.53|
+|中位数|24.24|30.53|
+
+吞吐中位数提高25.95%；这些是本机固定合成解析负载的结果，不代表SSH/UART链路速率或整体GPU帧率提升。两版基准均通过自身Parser correctness barrier及P2吞吐门槛。
+
+相同CPU集合、499Hz、cycles:u、DWARF栈复采无丢样：旧逐格导出self37.82%，新批量导出self24.43%，事件周期估计15415100061→12095994852。占比变化不是单独的时间收益证明，吞吐结论以上表未插桩A/B为准。
+
+```sh
+perf record -F 199 --call-graph dwarf,8192 -o /tmp/novaterm-render-profile.data -- build/Release/bin/novaterm_renderer_p5_gpu_benchmark --duration-ms 10000
+# 上行运行时设置 NOVATERM_RHI_API=opengl QT_QPA_PLATFORM=xcb
+# 分别对保存的before/after二进制执行，交替三轮：
+taskset -c 0-15 /tmp/novaterm-core-before --bytes 67108864 --lines 100000
+taskset -c 0-15 /tmp/novaterm-core-after --bytes 67108864 --lines 100000
+# 两版分别采样，文件名按before/after区分：
+taskset -c 0-15 perf record -e cycles:u -F 499 --call-graph dwarf,8192 -o /tmp/novaterm-core-after-final.data -- /tmp/novaterm-core-after --bytes 67108864 --lines 100000
+perf report --stdio --no-children -g none -i /tmp/novaterm-core-after-final.data
+```
+
+验证：新增整行批量/逐格导出等价测试覆盖环形滚动、CJK、组合字符、SGR/颜色、resize、备用屏和全局反色。主程序及相关目标构建通过；Core/terminal_ops/scrollback/renderer/renderer_p5 CTest5/5（13.32秒）。完整libvterm另以ASan/UBSan编译，独立10000次输入/resize/逐格比对夹具经过17298次scrollback回调无报告。只读独立复审未见新增高可信问题；不把完整行等价性扩张到任意切片（原批量接口的宽字末列切片边界未在本轮改变）。
+
+真实GPU验收保留失败与成功：首次未预填历史的采样轮次及固定DPI重试均报steady-scroll requested history reflow，优化前后均出现。检查确认空历史首次建布局会scheduleReflow，与该基准的零稳态重排断言冲突。使用已有--prefill-lines 1000参数预热（不放宽断言、不改产品逻辑）后OpenGL 5秒验收通过，约60.15FPS，published/rendered revision均306，glyph队列归零、converged=true。它是图形正确性/稳态验收，不作GPU前后性能比较。
+
+证据保存在/tmp/novaterm-core-ab-*.log、/tmp/novaterm-core-*-final.data、/tmp/novaterm-profile-final-{build,tests}.log、/tmp/novaterm-vterm-sanitize.log和/tmp/novaterm-render-gpu-warm.log；为本机临时证据，不纳入Git。上一节未修复的其他审查项保持原状态，本轮按用户高收益约束未扩大到这些功能路径。
+
+0.2.120提交前验证：基于已推送的0.2.119恢复本节libvterm优化，主程序及相关目标构建成功，Core/terminal_ops/scrollback/renderer/renderer_p5 CTest5/5（13.22秒）。本提交只纳入本节解析器优化、等价测试和记录，未混入后续搜索修改。
