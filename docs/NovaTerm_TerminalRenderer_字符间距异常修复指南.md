@@ -59,16 +59,16 @@ NovaTerm 主界面使用 FluentUI/ElaWidgetTools 风格字体，通常是：
 
 ------------------------------------------------------------------------
 
-## 2.2 Glyph Atlas 使用 boundingRect 导致宽度偏差
+## 2.2 将墨迹宽度用作网格步进导致偏差
 
-当前逻辑：
+历史问题示例：
 
 ``` cpp
 const QRectF inkRect =
     glyphMetrics.boundingRect(text);
 ```
 
-`boundingRect()` 返回的是字符视觉包围盒。
+`boundingRect()` 返回的是字符视觉包围盒。错误在于把它当作网格步进；字形位图仍需要墨迹边界以防裁剪，当前规则见3.3节。
 
 例如：
 
@@ -159,97 +159,33 @@ _cellWidth =
 
 ------------------------------------------------------------------------
 
-## 3.3 修改 Glyph Atlas 尺寸计算
+## 3.3 字形位图尺寸与网格步进分开计算（0.2.128）
 
-不要使用：
+单元格宽度仍由主字体的 `horizontalAdvance('M')` 决定；回退字体不反向改变列步进。字形位图需要包含 `tightBoundingRect(text)` 的真实墨迹，包括斜体的负 bearing、右侧伸出和组合字符重音。
 
-``` cpp
-boundingRect()
+位图边界取网格范围、advance及墨迹范围的并集，在物理像素网格上向外取整。不要将墨迹宽度直接用作单元格宽度，也不要仅按advance裁剪位图。非有限几何及超过256KiB的位图在整数转换/分配前拒绝。
+
+## 3.4 统一基线并保留字形边界
+
+行基线来自终端主字体的ascent，作为 `GlyphKey.cellBaseline1024` 随不可变栅格化任务传入，并参与缓存键比较和哈希。各字体在同一行使用同一个目标基线。
+
+设位图在单元格坐标内的原点为 `origin`，绘制位置为：
+
+```cpp
+painter.drawText(QPointF(-origin.x(), cellBaseline - origin.y()), text);
 ```
 
-替换：
+GPU四边形使用包含该origin的logicalRect。两者满足：`logicalRect.top() + bitmap.baseline == cellBaseline`。不能给每个回退字体各用自己的ascent，也不能再减去整个ascent而把字形移到上一行。允许墨迹超出单元格的局部原点；字体天然的字面上下边缘不必完全等高。
 
-``` cpp
-const qreal advance =
-    glyphMetrics.horizontalAdvance(text);
+普通、粗体、斜体和粗斜体通过Cell属性进入字体选择与缓存；实际实现见[GlyphRasterizer](../src/renderer/glyph/GlyphRasterizer.cpp)。没有按字体名称或平台硬编码补偿值。
 
-const QRectF inkRect(
-    0,
-    -glyphMetrics.ascent(),
-    advance,
-    glyphMetrics.height()
-);
-```
+# 4. DPI规则与验证边界
 
-这样：
+位图尺寸与原点在物理像素边界取整，再用同一scale还原为logicalRect；atlas页仍遵守其物理尺寸及内存预算，不再额外乘一次DPR。点字号绘制时，QImage的逻辑字体DPI与QFontMetricsF::fontDpi一致，避免平台默认图像DPI和字体度量DPI不同。网格度量仍只在字体/布局变化时计算，不在GUI每个字符上重复测量。
 
-    Cell Width
-          =
-    Glyph Advance
+0.2.128使用系统FixedFont/GeneralFont测试两类字体、点/像素字号、回退字体高/低两方向、普通/粗体/斜体、组合符和已给定Emoji cluster的墨迹边界。实际字体DPI72/96/120/144/192与位图DPR1/1.25/1.5/1.75/2/3分别验证。矩阵测试不代表对应物理显示器实测；复杂Emoji的跨Cell聚类与系统字体覆盖也不由这次基线修复保证。
 
-保证终端栅格一致。
-
-------------------------------------------------------------------------
-
-## 3.4 修正 Glyph 绘制基线
-
-原代码：
-
-``` cpp
-painter.drawText(
-    QPointF(
-        -logicalRect.left(),
-        baseline - logicalRect.top()
-    ),
-    text
-);
-```
-
-建议：
-
-``` cpp
-painter.drawText(
-    QPointF(
-        -logicalRect.left(),
-        glyphMetrics.ascent()
-    ),
-    text
-);
-```
-
-避免 glyph 在 atlas 中产生额外偏移。
-
-------------------------------------------------------------------------
-
-# 4. DPI 适配建议
-
-NovaTerm 使用 QRhi + Glyph Atlas，需要考虑高 DPI。
-
-建议：
-
-Atlas：
-
-    logical size
-            |
-            x devicePixelRatio
-            |
-    physical texture
-
-例如：
-
-125% DPI：
-
-    2048 x 1.25
-
-150% DPI：
-
-    2048 x 1.5
-
-避免：
-
--   字符模糊
--   边缘锯齿
--   缩放失真
+Linux OpenGL/Vulkan及当前约1.823倍DPR截图已验证。Windows D3D与macOS Metal、真实跨屏移动尚未实机验证；实现使用通用Qt字体度量与QRhi坐标，不包含本机字体特例。
 
 ------------------------------------------------------------------------
 

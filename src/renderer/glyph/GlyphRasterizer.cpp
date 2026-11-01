@@ -14,6 +14,8 @@
 #include <QPainter>
 
 #include <algorithm>
+#include <cmath>
+#include <limits>
 
 namespace NovaTerm {
 
@@ -34,29 +36,55 @@ GlyphBitmap GlyphRasterizer::rasterize(const GlyphKey& key, const QFont& font,
     rasterFont.setItalic(key.italic);
     const QFontMetricsF metrics(rasterFont);
     const qreal advance = metrics.horizontalAdvance(key.cluster);
-    // 逻辑尺寸至少覆盖一个 cell（宽字符占 2 cell），避免位图被裁剪。
-    const QSizeF logicalExtent(
-        std::max(advance, cellWidth * result.cellSpan),
-        std::max(cellHeight, metrics.height()));
-    result.advance = advance;
-    result.bearingX = metrics.leftBearing(key.cluster.front());
-    result.bearingY = metrics.ascent();
-    result.baseline = metrics.ascent();
-    const QSize pixels(std::max(1, qCeil(logicalExtent.width() * scale)),
-                       std::max(1, qCeil(logicalExtent.height() * scale)));
-    // 每个位图上限 256 KiB；异步结果队列 32 个，避免异常字体/DPR 放大内存。
-    if (qint64(pixels.width()) * pixels.height() > MaxBitmapBytes / 4) {
+    const QRectF ink = metrics.tightBoundingRect(key.cluster);
+    const qreal cellBaseline = key.cellBaseline1024 > 0
+        ? key.cellBaseline1024 / 1024.0 : metrics.ascent();
+    const qreal fontDpi = metrics.fontDpi();
+    if (!std::isfinite(cellWidth) || !std::isfinite(cellHeight)
+        || !std::isfinite(advance) || !std::isfinite(cellBaseline)
+        || !std::isfinite(ink.left()) || !std::isfinite(ink.right())
+        || !std::isfinite(ink.top()) || !std::isfinite(ink.bottom())
+        || !std::isfinite(fontDpi) || fontDpi <= 0
+        || fontDpi / 0.0254 > std::numeric_limits<int>::max()) {
+        result.diagnostic = QStringLiteral("invalid glyph geometry");
+        return result;
+    }
+    // Include negative bearings, accents and fallback ink. Round the image
+    // origin outwards on the physical pixel grid, then draw every font at the
+    // same cell baseline. The terminal's cell advance/line height stay fixed.
+    const qreal left = std::floor(std::min<qreal>(0, ink.left()) * scale);
+    const qreal top = std::floor(std::min<qreal>(0, cellBaseline + ink.top()) * scale);
+    const qreal right = std::ceil(std::max({advance, cellWidth * result.cellSpan, ink.right()}) * scale);
+    const qreal bottom = std::ceil(std::max({cellHeight, cellBaseline + metrics.descent(),
+                                           cellBaseline + ink.bottom()}) * scale);
+    if (!std::isfinite(left) || !std::isfinite(top) || !std::isfinite(right) || !std::isfinite(bottom)) {
+        result.diagnostic = QStringLiteral("invalid glyph geometry");
+        return result;
+    }
+    const qreal width = std::max<qreal>(1, right - left);
+    const qreal height = std::max<qreal>(1, bottom - top);
+    // Check before narrowing to QSize's int dimensions.
+    constexpr qreal MaxPixels = MaxBitmapBytes / 4;
+    if (!std::isfinite(width) || !std::isfinite(height)
+        || width > MaxPixels || height > MaxPixels || width * height > MaxPixels) {
         result.diagnostic = QStringLiteral("glyph bitmap exceeds 256 KiB");
         return result;
     }
-    // 位图本身已含 baseline 偏移（drawText 在 metrics.ascent() 处绘制），
-    // 因此 GPU quad 必须从 cell 本地原点起算。若再叠加 -ascent 会让每个
-    // 字形整体上移一行，而光标/选区叠加层仍在 cell 网格上，两者错位。
-    // 物理像素派生 logicalRect，保证分数 DPR 采样与 atlas 上传严格对齐。
-    result.logicalRect = QRectF(0, 0,
-                                pixels.width() / scale,
-                                pixels.height() / scale);
+    const QSize pixels{int(width), int(height)};
+    result.advance = advance;
+    result.bearingX = ink.left();
+    result.bearingY = metrics.ascent();
+    result.logicalRect = QRectF(left / scale, top / scale, width / scale, height / scale);
+    result.baseline = cellBaseline - result.logicalRect.top();
     QImage image(pixels, QImage::Format_RGBA8888);
+    if (image.isNull()) {
+        result.diagnostic = QStringLiteral("glyph image allocation failed");
+        return result;
+    }
+    // Point-sized fonts must use the same logical DPI for metrics and painting.
+    const int dotsPerMeter = qRound(fontDpi / 0.0254);
+    image.setDotsPerMeterX(dotsPerMeter);
+    image.setDotsPerMeterY(dotsPerMeter);
     image.fill(Qt::transparent);
     image.setDevicePixelRatio(scale);
     QPainter painter(&image);
@@ -65,7 +93,7 @@ GlyphBitmap GlyphRasterizer::rasterize(const GlyphKey& key, const QFont& font,
     // 用白色绘制：灰度字形在着色阶段再以前景色 tinting，彩色字形（emoji）
     // 由调用方单独处理。
     painter.setPen(Qt::white);
-    painter.drawText(QPointF(0, metrics.ascent()), key.cluster);
+    painter.drawText(QPointF(-result.logicalRect.left(), result.baseline), key.cluster);
     painter.end();
     result.image = std::move(image);
     return result;

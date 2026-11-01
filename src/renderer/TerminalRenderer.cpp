@@ -2036,6 +2036,7 @@ void TerminalRenderer::recalculateCellSize()
     _cellWidth  = _fm->horizontalAdvance(QLatin1Char('M'));
     if (_cellWidth < 4) _cellWidth = 8;  // 安全下限
     _cellHeight = _fm->height();
+    _cellBaseline1024 = qRound(_fm->ascent() * 1024.0);
     if (_cellHeight < 4) _cellHeight = 16;
     updatePreeditOverlay();
 }
@@ -2240,7 +2241,7 @@ void TerminalRenderer::ensurePipeline()
 }
 
 NovaTerm::GlyphLocation TerminalRenderer::ensureGlyph(
-    const QString& text, bool bold, int cellSpan)
+    const QString& text, bool bold, int cellSpan, bool italic)
 {
     // 彩色 emoji 全部位于 BMP 之外（U+1F000 以上），在 UTF-16 中必然表现为
     // 代理对；逐 QChar 扫描即可判定，避免旧实现每 Cell 一次 text.toUcs4()
@@ -2259,10 +2260,11 @@ NovaTerm::GlyphLocation TerminalRenderer::ensureGlyph(
     }
     // 一次字体选择同时得到 GlyphKey 与 FontSelection：命中缓存直接返回，
     // miss 时复用同一个 selection 入队栅格化，不再重复 select()。
-    const auto keyAndSelection = _fontManager.makeKeyAndSelection(
-        text, bold, false, cellSpan, devicePixelRatioF(),
+    auto keyAndSelection = _fontManager.makeKeyAndSelection(
+        text, bold, italic, cellSpan, devicePixelRatioF(),
         emoji ? NovaTerm::GlyphRenderMode::Color
               : NovaTerm::GlyphRenderMode::Grayscale);
+    keyAndSelection.key.cellBaseline1024 = _cellBaseline1024;
     if (auto found = _glyphCache.find(keyAndSelection.key, _frameNumber))
         return *found;
     if (_buildingGlyphRow >= 0)
@@ -2502,7 +2504,7 @@ void TerminalRenderer::appendCellCommands(
                                                NovaTerm::MaxCharsPerCell);
         if (!text.isEmpty()) {
             const auto glyph =
-                ensureGlyph(text, cell.attributes.bold, cellSpan);
+                ensureGlyph(text, cell.attributes.bold, cellSpan, cell.attributes.italic);
             const qreal atlasWidth =
                 _glyphCache.atlas().config().pageSize.width();
             const qreal atlasHeight =

@@ -414,7 +414,7 @@ private:
     void appendQuad(const QRectF& rect, const QRectF& uvRect,
                     const QColor& color, const QSize& pixelSize);
     NovaTerm::GlyphLocation ensureGlyph(const QString& text, bool bold,
-                                        int cellSpan);
+                                        int cellSpan, bool italic = false);
     void resetGlyphAtlas();
 
 
@@ -529,6 +529,7 @@ private:
     // typically 9.6 px wide, not 10 px).
     qreal _cellWidth{0.0};
     qreal _cellHeight{0.0};
+    int _cellBaseline1024{0};
 
     // 滚动
     int _scrollLine{0};   // 当前滚动到 scrollback 中的行偏移（0=底部最新）

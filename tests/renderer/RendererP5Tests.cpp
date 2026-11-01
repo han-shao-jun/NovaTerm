@@ -13,6 +13,9 @@
 #include "session/SerialHighlightRules.h"
 
 #include <QTest>
+#include <QFontMetricsF>
+#include <QFontDatabase>
+#include <QPainter>
 
 #include <limits>
 #include <atomic>
@@ -22,6 +25,88 @@ class RendererP5Tests final : public QObject
 {
     Q_OBJECT
 private slots:
+    void rasterizerRejectsNonFiniteAndOversizedGeometry() {
+        QFont font = QFontDatabase::systemFont(QFontDatabase::FixedFont); font.setPixelSize(16);
+        NovaTerm::GlyphKey key; key.cluster = "M";
+        auto invalid = NovaTerm::GlyphRasterizer().rasterize(key, font, std::numeric_limits<qreal>::infinity(), 20);
+        QVERIFY(invalid.image.isNull()); QVERIFY(!invalid.diagnostic.isEmpty());
+        key.cellSpan = std::numeric_limits<int>::max(); key.scale1024 = std::numeric_limits<int>::max();
+        invalid = NovaTerm::GlyphRasterizer().rasterize(key, font, 10, 20);
+        QVERIFY(invalid.image.isNull()); QVERIFY(!invalid.diagnostic.isEmpty());
+    }
+
+    void glyphInkFitsAcrossStylesAndDpi_data() {
+        QTest::addColumn<QString>("text"); QTest::addColumn<int>("scale");
+        QTest::addColumn<bool>("points"); QTest::addColumn<bool>("fixed");
+        const QStringList texts{"j", "f", QString::fromUtf8("Á"), QString::fromUtf8("中"), QString::fromUtf8("👩‍💻")};
+        const QStringList labels{"latin-j", "latin-f", "combining", "cjk", "emoji"};
+        for (int i=0; i<texts.size(); ++i)
+            for (int scale : {1024, 1280, 1536, 1792, 2048, 3072})
+                for (bool points : {false, true})
+                    for (bool fixed : {false, true})
+                        QTest::newRow(qPrintable(labels.at(i) + QString::number(scale) + (points ? "pt" : "px") + (fixed ? "fixed" : "general")))
+                            << texts.at(i) << scale << points << fixed;
+    }
+    void glyphInkFitsAcrossStylesAndDpi() {
+        QFETCH(QString, text); QFETCH(int, scale); QFETCH(bool, points); QFETCH(bool, fixed);
+        QFont font = QFontDatabase::systemFont(fixed ? QFontDatabase::FixedFont : QFontDatabase::GeneralFont);
+        if (points) font.setPointSizeF(17.5); else font.setPixelSize(23);
+        font.setBold(true); font.setItalic(true);
+        NovaTerm::GlyphKey key; key.cluster = text; key.scale1024 = scale;
+        key.weight = 700; key.italic = true; key.cellBaseline1024 = 15 * 1024;
+        const QFontMetricsF metrics(font);
+        const auto ink = metrics.tightBoundingRect(text).translated(0, key.cellBaseline1024 / 1024.0);
+        const auto bitmap = NovaTerm::GlyphRasterizer().rasterize(key, font, 10, 20);
+        QVERIFY(!bitmap.image.isNull());
+        const auto bounds = bitmap.logicalRect.adjusted(-0.001, -0.001, 0.001, 0.001);
+        QVERIFY2(bounds.contains(ink), qPrintable(text));
+        QVERIFY(qAbs(bitmap.image.logicalDpiY() - metrics.fontDpi()) <= 1.0);
+        QVERIFY(qAbs(bitmap.logicalRect.top() + bitmap.baseline - 15.0) < 0.001);
+        // Compare against an oversized independently painted canvas: visible
+        // ink must not disappear at the bitmap boundary.
+        const qreal dpr = scale / 1024.0;
+        QImage reference(768, 768, QImage::Format_RGBA8888);
+        reference.setDevicePixelRatio(dpr);
+        reference.setDotsPerMeterX(qRound(metrics.fontDpi() / 0.0254));
+        reference.setDotsPerMeterY(qRound(metrics.fontDpi() / 0.0254));
+        reference.fill(Qt::transparent);
+        const QPointF origin(256 / dpr, 256 / dpr);
+        { QPainter painter(&reference); painter.setRenderHint(QPainter::TextAntialiasing);
+          painter.setFont(font); painter.setPen(Qt::white);
+          // Keep the same local text coordinates: bitmap-font hinting can depend
+          // on them even when two global positions differ by whole pixels.
+          painter.translate(origin + bitmap.logicalRect.topLeft());
+          painter.drawText(QPointF(-bitmap.logicalRect.left(), bitmap.baseline), text); }
+        QImage actual(reference.size(), reference.format()); actual.setDevicePixelRatio(dpr); actual.fill(Qt::transparent);
+        { QPainter painter(&actual); painter.setCompositionMode(QPainter::CompositionMode_Source);
+          painter.drawImage(origin + bitmap.logicalRect.topLeft(), bitmap.image); }
+        for (int y=0; y<reference.height(); ++y)
+            for (int x=0; x<reference.width(); ++x)
+                if (qAlpha(reference.pixel(x,y)) > 32)
+                    QVERIFY2(qAlpha(actual.pixel(x,y)) > 0, qPrintable(text + " clipped painted ink"));
+    }
+
+    void rasterizedFallbackAlignsToCellBaseline_data() {
+        QTest::addColumn<int>("scale"); QTest::addColumn<int>("weight"); QTest::addColumn<bool>("tallFallback");
+        for (int scale : {1024, 1280, 1536, 2048})
+            for (int weight : {400, 700})
+                for (bool tall : {false, true})
+                    QTest::newRow(qPrintable(QString::number(scale) + "-" + QString::number(weight) + (tall ? "tall" : "short"))) << scale << weight << tall;
+    }
+    void rasterizedFallbackAlignsToCellBaseline() {
+        QFETCH(int, scale); QFETCH(int, weight); QFETCH(bool, tallFallback);
+        QFont primary = QFontDatabase::systemFont(QFontDatabase::FixedFont); primary.setPixelSize(tallFallback ? 16 : 26);
+        QFont fallback = QFontDatabase::systemFont(QFontDatabase::GeneralFont); fallback.setPixelSize(tallFallback ? 26 : 16);
+        const QFontMetricsF primaryMetrics(primary);
+        const qreal target = primaryMetrics.ascent();
+        NovaTerm::GlyphKey key; key.cluster = QString::fromUtf8("中文");
+        key.fontGeneration = 1; key.cellSpan = 2; key.scale1024 = scale; key.weight = weight;
+        key.cellBaseline1024 = qRound(target * 1024.0);
+        const auto bitmap = NovaTerm::GlyphRasterizer().rasterize(key, fallback, primaryMetrics.horizontalAdvance(QLatin1Char('M')), primaryMetrics.height());
+        QVERIFY(!bitmap.image.isNull());
+        QVERIFY(qAbs(bitmap.logicalRect.top() + bitmap.baseline - key.cellBaseline1024 / 1024.0) < 0.001);
+    }
+
     void rowDamageMergesClippedSharedSpans() {
         NovaTerm::RowBlockDamageTracker tracker;
         tracker.reset(1, 40);
@@ -171,7 +256,8 @@ void RendererP5Tests::glyphKeyDistinguishesContractFields()
     changed = base;
     changed.format = NovaTerm::GlyphPixelFormat::Rgba8;
     keys.insert(changed, 6);
-    QCOMPARE(keys.size(), 6);
+    changed = base; changed.cellBaseline1024 = 15360; keys.insert(changed, 7);
+    QCOMPARE(keys.size(), 7);
 }
 
 void RendererP5Tests::fallbackKeepsGridContract()

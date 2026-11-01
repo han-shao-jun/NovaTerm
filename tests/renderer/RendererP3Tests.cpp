@@ -27,6 +27,14 @@ QTimer* cursorBlinkTimer(TerminalRenderer& renderer);
 
 class TerminalRendererTestAccess {
 public:
+    static void requestCell(TerminalRenderer& renderer, uint32_t scalar, int span, bool bold, bool italic) {
+        NovaTerm::Cell cell; cell.chars[0] = scalar; cell.width = uint8_t(span);
+        cell.attributes.bold = bold; cell.attributes.italic = italic;
+        QVector<NovaTerm::RenderCommand> backgrounds, contents;
+        renderer.appendCellCommands(0, 0, cell, nullptr, backgrounds, contents);
+    }
+    static std::deque<NovaTerm::GlyphBitmap> takeGlyphs(TerminalRenderer& renderer) { return renderer._glyphRasterQueue.takeResults(); }
+    static qreal baseline(const TerminalRenderer& renderer) { return renderer._fm->ascent(); }
     static void attach(TerminalRenderer& renderer, QRhi* rhi) {
         renderer._rhi = rhi;
         renderer._bufferBudget = NovaTerm::BufferBudget(16384, 1024);
@@ -44,6 +52,28 @@ class RendererP3Tests : public QObject
     Q_OBJECT
 
 private slots:
+    void mixedGlyphRequestsCarryOneBaseline() {
+        TerminalCore core(80, 24); TerminalRenderer renderer(&core);
+        TerminalRendererTestAccess::requestCell(renderer, 'A', 1, false, false);
+        TerminalRendererTestAccess::requestCell(renderer, 0x4e2d, 2, true, false);
+        TerminalRendererTestAccess::requestCell(renderer, 'j', 1, false, true);
+        TerminalRendererTestAccess::requestCell(renderer, 0x6587, 2, true, true);
+        std::vector<NovaTerm::GlyphBitmap> bitmaps;
+        QTRY_VERIFY_WITH_TIMEOUT(([&] {
+            auto ready = TerminalRendererTestAccess::takeGlyphs(renderer);
+            for (auto& bitmap : ready) bitmaps.push_back(std::move(bitmap));
+            return bitmaps.size() == 4;
+        })(), 5000);
+        for (const auto& bitmap : bitmaps) {
+            QVERIFY(!bitmap.image.isNull());
+            const bool italic = bitmap.key.cluster == "j" || bitmap.key.cluster == QString::fromUtf8("文");
+            QCOMPARE(bitmap.key.italic, italic);
+            const bool bold = bitmap.key.cluster == QString::fromUtf8("中") || bitmap.key.cluster == QString::fromUtf8("文");
+            QCOMPARE(bitmap.key.weight, bold ? 700 : 400);
+            QCOMPARE(bitmap.key.cellBaseline1024, qRound(TerminalRendererTestAccess::baseline(renderer) * 1024.0));
+            QVERIFY(qAbs(bitmap.logicalRect.top() + bitmap.baseline - bitmap.key.cellBaseline1024 / 1024.0) < 0.001);
+        }
+    }
     void bufferBudgetRejectionPreservesLayoutAndRecovers() {
         QRhiNullInitParams params;
         std::unique_ptr<QRhi> rhi(QRhi::create(QRhi::Null, &params));

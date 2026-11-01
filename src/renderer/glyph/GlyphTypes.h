@@ -41,6 +41,7 @@ struct GlyphKey
     bool syntheticItalic{false};
     GlyphRenderMode renderMode{GlyphRenderMode::Grayscale};
     GlyphPixelFormat format{GlyphPixelFormat::Alpha8};
+    int cellBaseline1024{0};      // 0 keeps the raster font baseline; otherwise terminal-cell baseline.
 
     friend bool operator==(const GlyphKey& a, const GlyphKey& b)
     {
@@ -57,7 +58,8 @@ struct GlyphKey
             && a.syntheticBold == b.syntheticBold
             && a.syntheticItalic == b.syntheticItalic
             && a.renderMode == b.renderMode
-            && a.format == b.format;
+            && a.format == b.format
+            && a.cellBaseline1024 == b.cellBaseline1024;
     }
 };
 
@@ -67,7 +69,7 @@ inline size_t qHash(const GlyphKey& key, size_t seed = 0) noexcept
                       key.pixelSize, key.scale1024, key.weight, key.cellSpan,
                       key.fallbackIndex, key.featuresIdentity, key.italic,
                       key.syntheticBold, key.syntheticItalic,
-                      quint8(key.renderMode), quint8(key.format));
+                      quint8(key.renderMode), quint8(key.format), key.cellBaseline1024);
     return seed;
 }
 

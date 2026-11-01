@@ -158,3 +158,16 @@ perf report --stdio --no-children -g none -i /tmp/novaterm-core-after-final.data
 证据保存在/tmp/novaterm-core-ab-*.log、/tmp/novaterm-core-*-final.data、/tmp/novaterm-profile-final-{build,tests}.log、/tmp/novaterm-vterm-sanitize.log和/tmp/novaterm-render-gpu-warm.log；为本机临时证据，不纳入Git。上一节未修复的其他审查项保持原状态，本轮按用户高收益约束未扩大到这些功能路径。
 
 0.2.120提交前验证：基于已推送的0.2.119恢复本节libvterm优化，主程序及相关目标构建成功，Core/terminal_ops/scrollback/renderer/renderer_p5 CTest5/5（13.22秒）。本提交只纳入本节解析器优化、等价测试和记录，未混入后续搜索修改。
+
+
+## 0.2.128 通用混排字体基线与墨迹边界修复（2026-11-02）
+
+用户截图中的中英文错位来自回退字体按自身ascent绘制、GPU统一按顶部放置。主字体基线现在以1/1024逻辑单位缓存并进入GlyphKey，异步任务按该基线绘制。位图以tightBoundingRect、网格和advance的并集确定边界，允许负bearing/重音伸出，物理边界向外取整；图像字体DPI与度量DPI一致。现有Cell italic同时透传到FontManager，粗斜体不再被固定false抹掉。网格列宽/行高、atlas预算及256KiB单字形上限保留，非有限/超大几何在整数转换前拒绝。度量在字形miss的worker处理，主基线只在字体变化时更新。
+
+不是本机固定偏移：测试使用系统FixedFont/GeneralFont，涵盖回退字体高/低两方向、普通/粗体、实际Cell斜体、点/像素字号、组合字符及已给定Emoji cluster。独立大画布比较可见墨迹不丢失；使用相同局部绘制坐标保持bitmap字体hinting相位一致。原像素参考初版8个Emoji失败经alpha边界分析为整体1像素偏移而非裁剪，修正参考坐标后仍保留严格墨迹断言。
+
+原始RED分别保留：基线2pass/4fail、实际Renderer请求2pass/1fail；扩展墨迹4pass/58fail、斜体透传2pass/1fail。最终0.2.128主程序及渲染目标构建成功，CTest2/2（5.79秒），QTest分别74/74和167/167。五组实际字体DPI72/96/120/144/192分别140/140；位图DPR1/1.25/1.5/1.75/2/3。初轮仅设置QT_FONT_DPI时120以上被Qt归一化为96，未当作五组实际覆盖；最终仅测试进程关闭自动换算并由探针确认实际DPI后完成矩阵。生产缩放设置未改变。
+
+GlyphRasterizer局部ASan/UBSan/float-cast-overflow插桩，其他库Release，最终P5 167/167（636ms），无报告。Linux OpenGL与Vulkan的预填历史GPU场景均acceptance=pass；最终OpenGL实测截图含混排、粗/斜体和组合字符。约1.823倍DPR下原始主/回退字体ascent差4.17逻辑像素，仅是复现数据，不进入补偿常量。最初native/aligned截图使用独立夹具切换基线，最终图为完整修复代码；未操作用户正在运行的会话。
+
+Windows/macOS原生后端与真实跨屏移动未实机验证，不冒充多平台验收；Emoji测试不表示Core已支持所有跨Cell grapheme聚类。临时日志/tmp/novaterm-font-*.log、/tmp/novaterm-glyph-final-sanitized.log、截图/tmp/novaterm-font-final.png不纳入Git。通用规则同步至[字体修复指南](../NovaTerm_TerminalRenderer_字符间距异常修复指南.md)。

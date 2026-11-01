@@ -1,5 +1,10 @@
 # AGENTS.md
 
+### 0.2.128 通用字体混排修复（2026-11-02）
+
+主字体公共基线进入字形缓存键；位图覆盖真实墨迹/负bearing/重音，点字号图像DPI与字体度量一致，Cell斜体正确透传。不硬编码本机字体或偏移。原RED与参考Emoji坐标差异分列保留。0.2.128主程序构建、渲染CTest2/2（5.79秒，QTest74/167均全过）、五组实际字体DPI各140/140、栅格化局部ASan/UBSan/float-cast-overflow167/167通过。Linux OpenGL/Vulkan及分数DPR截图通过；Windows/macOS和真实跨屏未实机验证，未重启用户实例。详见[渲染记录](docs/architecture/Rendering_Architecture.md)。
+
+
 ### 0.2.127 人工接管观察续读修复（2026-11-01）
 
 接管先于续读时旧观察游标缺user/control基线，attention/completion误等到deadline；签名token新增控制基线并恢复到等待状态，旧格式保守交付当前状态。日志位置续读不受普通人工输入影响，旧inputToken拒绝与清空失效保持。真实RED8pass/4fail→GREEN12/12；0.2.127主程序及相关CTest8/8（34.45秒）；扩展三等待模式、两协议、有/无租约、前/中接管及清空专项28/28（2.405秒）。未连接设备/重启用户实例、不改B4台账，见MCP工程验证记录。
