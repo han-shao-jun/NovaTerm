@@ -10,9 +10,10 @@
 namespace NovaTerm {
 namespace {
 constexpr u64 CellBytes = 38;
+static_assert(CellBytes == MaxCharsPerCell * 4 + 14, "history cell format size must match fields");
 constexpr u32 AttributeMask = (1u << 14) - 1;
-void put(std::vector<char>& bytes, u64 value, unsigned count) {
-    for (unsigned n = 0; n < count; ++n) bytes.push_back(char((value >> (n * 8)) & 255));
+void put(char*& bytes, u64 value, unsigned count) {
+    for (unsigned n = 0; n < count; ++n) *bytes++ = char((value >> (n * 8)) & 255);
 }
 u64 get(const std::vector<char>& bytes, std::size_t& offset, unsigned count) {
     u64 value = 0;
@@ -33,10 +34,10 @@ void restore(CellAttributes& a, u32 b) {
     a.smallFont = (b & 512) != 0; a.baseline = (b & 1024) != 0;
     a.protectedCell = (b & 2048) != 0; a.dim = (b & 4096) != 0; a.conceal = (b & 8192) != 0;
 }
-void writeColor(std::vector<char>& bytes, const TerminalColor& color) {
+void writeColor(char*& bytes, const TerminalColor& color) {
     if (color.type > ColorType::Rgb) throw std::runtime_error("invalid color type");
-    put(bytes, u8(color.type), 1); put(bytes, color.index, 1); put(bytes, color.red, 1);
-    put(bytes, color.green, 1); put(bytes, color.blue, 1);
+    put(bytes, u64(u8(color.type)) | (u64(color.index) << 8) | (u64(color.red) << 16)
+        | (u64(color.green) << 24) | (u64(color.blue) << 32), 5);
 }
 TerminalColor readColor(const std::vector<char>& bytes, std::size_t& offset) {
     TerminalColor c;
@@ -97,14 +98,17 @@ HistoryEncodeResult ScrollbackBlockCodec::encode(const std::vector<LogicalLine>&
         }
         b.decodedBytes = decodedCharge(b.index);
         validate(b, limits);
-        std::vector<char> bytes; bytes.reserve(std::size_t(b.serializedBytes));
+        // The validated index fixes the exact byte count; write each field once
+        // without a vector capacity check for every serialized byte.
+        std::vector<char> bytes(static_cast<std::size_t>(b.serializedBytes));
+        char* cursor = bytes.data();
         for (const auto& line : lines) for (const auto& cell : line.cells) {
-            for (auto cp : cell.chars) put(bytes, cp, 4);
+            for (auto cp : cell.chars) put(cursor, cp, 4);
             if (cell.width > 2 || cell.attributes.underlineStyle > UnderlineStyle::Curly)
                 throw std::runtime_error("invalid cell fields");
-            put(bytes, cell.width, 1); put(bytes, attributes(cell.attributes), 2);
-            put(bytes, u8(cell.attributes.underlineStyle), 1);
-            writeColor(bytes, cell.foreground); writeColor(bytes, cell.background);
+            put(cursor, cell.width, 1); put(cursor, attributes(cell.attributes), 2);
+            put(cursor, u8(cell.attributes.underlineStyle), 1);
+            writeColor(cursor, cell.foreground); writeColor(cursor, cell.background);
         }
         if (bytes.empty()) { b.encoding = HistoryEncoding::Raw; return result; }
         const int bound = LZ4_compressBound(int(bytes.size()));

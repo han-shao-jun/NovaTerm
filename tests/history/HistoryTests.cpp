@@ -30,6 +30,13 @@ void codecTests() {
     c = {}; c.chars[0] = ' '; source[2].cells.assign(200, c);
     auto encoded = ScrollbackBlockCodec::encode(source);
     require(bool(encoded), encoded.error.c_str());
+    HistoryCodecLimits exact;
+    exact.lines = source.size(); exact.serializedBytes = std::size_t(encoded.block.serializedBytes);
+    exact.decodedBytes = std::size_t(encoded.block.decodedBytes);
+    const auto bounded = ScrollbackBlockCodec::encode(source, exact);
+    require(bool(bounded) && bounded.block.payload == encoded.block.payload, "exact encode bounds changed format");
+    --exact.serializedBytes;
+    require(!ScrollbackBlockCodec::encode(source, exact), "encode allocation bound ignored");
     auto decoded = ScrollbackBlockCodec::decode(encoded.block);
     require(bool(decoded), decoded.error.c_str());
     require(decoded.lines.size() == 3 && decoded.lines[1].cells.empty(), "empty row lost");
