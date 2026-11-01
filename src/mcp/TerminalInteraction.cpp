@@ -231,6 +231,12 @@ public:
             cursor.event = value->value("v").toString().toULongLong(&eventValid);
             cursor.cacheGeneration = value->value("generation").toString().toULongLong(&generationValid);
             cursor.binding.verified &= modelValid && eventValid && generationValid;
+            if (value->contains("u") || value->contains("t")) {
+                bool userValid = false, controlValid = false;
+                cursor.user = value->value("u").toString().toULongLong(&userValid);
+                cursor.control = value->value("t").toString().toULongLong(&controlValid);
+                cursor.binding.verified &= userValid && controlValid;
+            }
         } else if (const auto legacy = legacyKey.isEmpty() ? std::nullopt : verifyToken(encoded, legacyKey)) {
             bool modelValid = false, grantValid = false, generationValid = false;
             cursor.model = legacy->value("revision").toString().toULongLong(&modelValid);
@@ -299,6 +305,14 @@ public:
                 const auto& cursor = std::get<ObservationCursor>(restored);
                 job.since = cursor.model;
                 if (!cursor.legacy) job.event = cursor.event;
+                if (cursor.user && cursor.control) {
+                    job.user = *cursor.user;
+                    job.control = *cursor.control;
+                } else if (cursor.legacy || cursor.event != ctrl->revision()) {
+                    // Older cursors cannot identify which control fact changed.
+                    // Return current state once rather than hiding a possible takeover.
+                    job.immediate = ObservationWake::StateChanged;
+                }
             }
         } else {
             const auto facts = controlFacts(client, *entry, true);
@@ -533,7 +547,8 @@ public:
         data.insert("operation", job.interaction ? QJsonValue(ctrl->operation()) : QJsonValue(QJsonValue::Undefined));
         QJsonObject cursor{{"k", "r"}, {"c", job.client.str()}, {"s", entry.id}, {"e", entry.epoch},
             {"generation", number(generation)},
-            {"g", number(job.grant.value())}, {"r", number(snapshot.state.revision)}, {"v", number(ctrl->revision())}};
+            {"g", number(job.grant.value())}, {"r", number(snapshot.state.revision)}, {"v", number(ctrl->revision())},
+            {"u", number(ctrl->userGeneration())}, {"t", number(ctrl->controlGeneration())}};
         data.insert("nextToken", signToken(cursor, key));
         const bool canInput = capabilities(job.client.str(), entry.id).value("availability").toObject().value("inputAvailable").toBool();
         if (canInput) data.insert("inputToken", signToken(inputState(job.client.str(), entry), key));

@@ -929,6 +929,10 @@ private slots:
     void elevationAvailabilityUsesIdentityNotConnectionType();
     void terminalInputReportsSequenceAndReleaseAdmission();
     void terminalInteractionRequiresNewGrantAndDeduplicates();
+    void humanTakeoverObservationResume_data();
+    void humanTakeoverObservationResume();
+    void humanInputKeepsLogCursorUntilClear_data();
+    void humanInputKeepsLogCursorUntilClear();
     void compactAttentionWaitCoalescesScrollAndExpires();
     void observationReportsConfigurationAndIoAvailability();
     void managedElevationRejectsWithoutAdapter();
@@ -3447,6 +3451,86 @@ void McpTests::terminalInputReportsSequenceAndReleaseAdmission()
     QCOMPARE(operation.value("acceptedActionCount").toInt(-1), 1);
     QVERIFY(!operation.value("inputMayHaveBeenSent").toBool());
     QCOMPARE(f.local.written, QByteArray("aa"));
+}
+
+void McpTests::humanTakeoverObservationResume_data()
+{
+    QTest::addColumn<QString>("version"); QTest::addColumn<QString>("waitFor"); QTest::addColumn<bool>("during"); QTest::addColumn<bool>("owned");
+    for (const auto& version : {QString(ProtocolVersion), QString("2026-07-28")})
+        for (const auto& mode : {QString("attention"), QString("completion"), QString("change")})
+            for (bool during : {false, true})
+                for (bool owned : {false, true})
+                    QTest::newRow(qPrintable(version + mode + (during ? "during" : "before") + (owned ? "owned" : "reading")))
+                        << version << mode << during << owned;
+}
+void McpTests::humanTakeoverObservationResume()
+{
+    QFETCH(QString, version); QFETCH(QString, waitFor); QFETCH(bool, during); QFETCH(bool, owned);
+    Fixture f; QVERIFY(f.enable());
+    QVERIFY(NovaTerm::Mcp::TestSupport::setTerminalGrant(f.service.access(), f.client, f.service.directory().entries().first(), true));
+    Host host; QVERIFY(host.start(f.runtime(), f.token(), {}, false, version));
+    auto read = f.identity(); read.insert("responseMode", "compact");
+    const auto initial = host.call("novaterm_read_context", read).value("data").toObject();
+    auto input = f.identity(); input.insert("inputToken", initial.value("inputToken"));
+    input.insert("operationId", newId()); input.insert("waitMs", 0);
+    input.insert("actions", QJsonArray{QJsonObject{{"type", "text"}, {"text", "agent"}}});
+    if (owned) {
+        QVERIFY(host.call("novaterm_interact_terminal", input).value("ok").toBool());
+        QTRY_COMPARE(f.local.written, QByteArray("agent"));
+    }
+    const auto expectedBytes = owned ? QByteArray("agenthuman") : QByteArray("human");
+    const auto baseline = host.call("novaterm_read_context", read).value("data").toObject();
+    QVERIFY(!baseline.value("nextToken").toString().isEmpty());
+    const auto takeover = [&f] { f.session.inputArbiter()->submitUserInput("human"); };
+    if (during) QTimer::singleShot(30, &f.session, takeover); else takeover();
+    read.insert("sinceToken", baseline.value("nextToken")); read.insert("waitMs", 400); read.insert("waitFor", waitFor);
+    const auto response = host.call("novaterm_read_context", read);
+    QVERIFY2(response.value("ok").toBool(), QJsonDocument(response).toJson().constData());
+    const auto data = response.value("data").toObject();
+    QCOMPARE(data.value("wakeReason").toString(), QString("control_changed"));
+    QVERIFY(f.session.terminalController()->owner().isEmpty());
+    QCOMPARE(f.local.written, expectedBytes);
+    input.insert("inputToken", baseline.value("inputToken")); input.insert("operationId", newId());
+    QCOMPARE(host.call("novaterm_interact_terminal", input).value("error").toObject().value("code").toString(), QString("CONTROL_INVALID"));
+    QCOMPARE(f.local.written, expectedBytes);
+    read.insert("sinceToken", data.value("nextToken")); read.insert("waitMs", 0);
+    const auto next = host.call("novaterm_read_context", read);
+    QVERIFY(next.value("ok").toBool());
+    QCOMPARE(next.value("data").toObject().value("wakeReason").toString(), QString("deadline"));
+}
+void McpTests::humanInputKeepsLogCursorUntilClear_data()
+{
+    QTest::addColumn<QString>("version");
+    QTest::newRow("2025") << QString(ProtocolVersion);
+    QTest::newRow("2026") << QString("2026-07-28");
+}
+void McpTests::humanInputKeepsLogCursorUntilClear()
+{
+    QFETCH(QString, version); Fixture f; QVERIFY(f.enable());
+    Host host; QVERIFY(host.start(f.runtime(), f.token(), {}, false, version));
+    auto observation = f.identity(); observation.insert("responseMode", "compact");
+    const auto observationToken = host.call("novaterm_read_context", observation).value("data").toObject().value("nextToken");
+    auto read = f.identity(); read.insert("source", "log"); read.insert("start", "tail");
+    const auto baseline = host.call("novaterm_read_context", read).value("data").toObject();
+    QVERIFY(!baseline.value("nextToken").toString().isEmpty());
+    f.session.inputArbiter()->submitUserInput("human-command\r");
+    emit f.local.readyRead(QByteArray("manual-output\r\n").repeated(40));
+    QVERIFY(f.core.waitForIdle());
+    read.remove("start"); read.insert("sinceToken", baseline.value("nextToken"));
+    const auto continued = host.call("novaterm_read_context", read);
+    QVERIFY(continued.value("ok").toBool());
+    QCOMPARE(continued.value("data").toObject().value("status").toString(), QString("ok"));
+    QVERIFY(QJsonDocument(continued).toJson().contains("manual-output"));
+    QVERIFY(f.core.clearAll()); QVERIFY(f.core.waitForIdle());
+    observation.insert("sinceToken", observationToken);
+    QCOMPARE(host.call("novaterm_read_context", observation).value("error").toObject().value("code").toString(), QString("CURSOR_STALE"));
+    read.insert("sinceToken", continued.value("data").toObject().value("nextToken"));
+    const auto cleared = host.call("novaterm_read_context", read);
+    QVERIFY(cleared.value("ok").toBool());
+    QCOMPARE(cleared.value("data").toObject().value("status").toString(), QString("invalidated"));
+    QVERIFY(cleared.value("data").toObject().value("fragments").toArray().isEmpty());
+    read.insert("sinceToken", cleared.value("data").toObject().value("earliestToken"));
+    QCOMPARE(host.call("novaterm_read_context", read).value("data").toObject().value("status").toString(), QString("ok"));
 }
 
 void McpTests::compactAttentionWaitCoalescesScrollAndExpires()

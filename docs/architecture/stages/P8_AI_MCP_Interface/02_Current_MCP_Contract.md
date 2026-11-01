@@ -413,6 +413,7 @@ actions支持text、paste、key、line_ending、command、release六分支。key
 - command默认attention最多30秒；text/key等默认change最多1秒。仍在运行用nextToken作为sinceToken，waitFor=attention/waitMs=30000；completion只等完成或必要控制事件。
 - 控制/命令状态独立于250ms基础屏幕采样；capturedAt可能相同而控制状态已变，不能伪装新采样时间。
 - 用户键盘/粘贴/接管优先，旧inputToken失效；活动命令追加输入带replyToExecutionId，不能让迟到答复落入新提示符。
+- 观察nextToken保存人工输入和控制代际。携带接管前游标续读时，无论接管发生在调用前还是等待中，attention/completion/change均返回control_changed；只读不重新取得输入权，新返回游标消化本次变化。缺少控制基线的旧格式在无法区分已发生变化时保守返回state_changed。普通人工输入不使日志位置失效；清空、撤权和连接换代仍按原失效规则处理。
 - 相同operationId+相同动作精确重试不重复输入；内容变化/旧序号/代际失效零输入拒绝。submitted仅证明交给本机Transport，不证明远端收到。
 - free text/key只有可关联集成事件才生成命令记录；lastCommand独立保留最近终态最多10分钟，不清除另一条活动命令。
 - acceptedActionCount统计协议动作，command内部提交键不另计，release计1但不发送字节。

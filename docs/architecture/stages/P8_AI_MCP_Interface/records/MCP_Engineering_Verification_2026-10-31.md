@@ -745,3 +745,14 @@ ctest --test-dir build/Release --output-on-failure -R '^novaterm_mcp_(contracts_
 新增空append/单字节/最大块/尾块的流式摘要发布回归。0.2.124主程序构建及local_file_io/MCP业务/file_transfers/sftp_session_safety CTest4/4（28.76秒）通过。完整LocalFileAccess实现单独ASan/UBSan插桩、其他依赖Release，全部本地I/O70/70（370ms），无报告；不冒充全工程消毒器。现有篡改、覆盖竞争、空文件、取消和精确文件名测试保留。
 
 临时证据/tmp/novaterm-fileio-ab-*.log、/tmp/novaterm-fileio-profile.data、/tmp/novaterm-fileio-sanitized.log、/tmp/novaterm-02124-{build,tests}.log不纳入Git。不重启用户实例、不连接设备，不把本轮软件记录写入B4工具台账。
+
+
+## 0.2.127 人工接管后的观察游标续读修复（2026-11-01）
+
+用户询问人工接管后Agent续读是否异常并要求修复。确认时序缺陷：旧观察token仅含model/event/cache代际，续读将user/control基线重置为当前值；若接管先于请求到达，attention/completion无法识别控制变化，直到deadline才返回。等待已经开始后接管的路径原本正常。日志游标续读人工输出及清空失效原本正常，未因此改动日志位置语义。
+
+真实RED：两代协议attention/completion、接管前/等待中组合及日志清空专项8pass/4fail，4fail均为接管先于续读返回deadline而非control_changed。签名观察token增加可选user/control基线并恢复到ObservationWait；读取仍按会话/授权/缓存代际验证，不因人工代际变化拒绝读取。不含基线的旧格式对无法区分的变化保守交付state_changed。旧inputToken依然ControlInvalid，读取不取得输入租约，不重发旧操作。
+
+初次GREEN12/12（954ms）。版本0.2.126→0.2.127后主程序及相关目标构建成功；contracts/read_use_cases/observation_state/wire/MCP业务/access_interaction/clear_operations/terminal_tasks相关CTest8/8（34.45秒）。随后仅扩展测试，生产代码未变：三种等待模式×两代协议×接管前/等待中×原先有/无输入租约，加日志续读和清空后观察/日志失效，共28/28（2.405秒，含init/cleanup）。新的游标不重复报告同一次变化，陈旧输入零额外写入；清空后观察CURSOR_STALE、日志invalidated保持。
+
+没有实物连接或重启用户实例，不把软件HTTP夹具记录写入B4工具台账；未运行新一轮消毒器。临时日志/tmp/novaterm-takeover-{red,green,expanded}.log、/tmp/novaterm-02127-{build,tests}.log，不纳入Git。

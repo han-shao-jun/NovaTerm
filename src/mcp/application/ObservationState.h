@@ -32,6 +32,9 @@ struct ObservationCursor
     bool legacy{false};
     bool includeViewport{true};
     quint64 cacheGeneration{0};
+    // Optional for cursors issued before control baselines were included.
+    std::optional<quint64> user{};
+    std::optional<quint64> control{};
 };
 
 struct TerminalControlFacts
