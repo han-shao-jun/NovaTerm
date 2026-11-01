@@ -190,8 +190,13 @@ def main():
     for _ in range(3):
         for enabled in (False, True):
             result = run(executable, enabled)
-            results.append(result)
             print(json.dumps(result, ensure_ascii=True), flush=True)
+            invalid_errors = {code: count for code, count in result.get("readErrors", {}).items()
+                              if code != "BUSY" and count}
+            if (not result.get("sessionReady", False) or invalid_errors
+                    or (enabled and result.get("successfulReads", 0) == 0)):
+                raise RuntimeError(f"Invalid performance sample: sessionReady={result.get('sessionReady')}, errors={invalid_errors}, successfulReads={result.get('successfulReads')}")
+            results.append(result)
     off = [r for r in results if not r["mcpEnabled"]]
     on = [r for r in results if r["mcpEnabled"]]
     baseline = statistics.median(r["throughputMiBps"] for r in off)

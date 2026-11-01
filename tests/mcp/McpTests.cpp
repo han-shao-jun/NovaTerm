@@ -142,10 +142,16 @@ public:
     void resizeTerminal(int, int) override {}
     bool isConnected() const override { return online; }
     QString errorString() const override { return {}; }
-    TransportCapabilities capabilities() const override {
-        return reconnectable ? TransportCapabilities{TransportCapability::Reconnect} : TransportCapabilities{};
+    bool setReadPaused(bool paused) override {
+        if (!pauseSupported) return false;
+        readPaused = paused; return true;
     }
-    bool online{false}, reconnectable{false};
+    TransportCapabilities capabilities() const override {
+        auto result = reconnectable ? TransportCapabilities{TransportCapability::Reconnect} : TransportCapabilities{};
+        if (pauseSupported) result |= TransportCapability::PauseReads;
+        return result;
+    }
+    bool online{false}, reconnectable{false}, pauseSupported{false}, readPaused{false};
     QByteArray written;
 };
 
@@ -489,8 +495,9 @@ struct Fixture
     TerminalSession session{&core};
     Service service{root.path() + "/state", root.path() + "/instances", std::make_unique<MemoryCredentialStore>()};
     QString client;
-    explicit Fixture(bool createAccess = true)
+    explicit Fixture(bool createAccess = true, bool pauseSupported = false)
     {
+        local.pauseSupported = pauseSupported;
         session.attach(&local, TerminalSession::Ownership::Borrowed, TransportKind::LocalShell);
         static_cast<void>(session.start());
         service.directory().add(&session);
@@ -565,6 +572,16 @@ class McpTests final : public QObject
 {
     Q_OBJECT
 private slots:
+    void performanceTransportHandlesCoreBackpressure() {
+        Fixture f(true, true);
+        QVERIFY(f.local.capabilities().testFlag(TransportCapability::PauseReads));
+        emit f.core.inputBackpressureChanged(true);
+        QVERIFY(f.local.readPaused);
+        QCOMPARE(f.session.state(), SessionState::Running);
+        emit f.core.inputBackpressureChanged(false);
+        QVERIFY(!f.local.readPaused);
+        QCOMPARE(f.session.state(), SessionState::Running);
+    }
     void retiredCommandToolsRefuseBothHttpProtocols_data()
     {
         QTest::addColumn<QString>("protocol");
@@ -2747,7 +2764,7 @@ int interopFixture(QCoreApplication& application, const QString& configurationFi
 
 int performanceFixture(QCoreApplication& application, const QString& file, bool enabled)
 {
-    Fixture fixture;
+    Fixture fixture(true, true);
     fixture.core.setScrollbackLimit(1000000);
     if (!fixture.core.waitForIdle()) return 1;
     if (enabled && !fixture.enable()) return 1;
@@ -2801,7 +2818,10 @@ int performanceFixture(QCoreApplication& application, const QString& file, bool 
     feed.setTimerType(Qt::PreciseTimer);
     feed.setInterval(1);
     bool ready = false, started = false, finished = false;
+    quint64 feedTicks = 0; qint64 submittedAllNs = -1;
     QObject::connect(&feed, &QTimer::timeout, &application, [&] {
+        ++feedTicks;
+        if (fixture.local.readPaused && offset < input.size()) return;
         // 一次最多四块，避免 Windows 定时器粒度成为输入速率上限；满队列立即让出 GUI。
         for (int batch = 0; batch < 4 && offset < input.size(); ++batch) {
             const auto length = std::min(qsizetype(65536), input.size() - offset);
@@ -2809,6 +2829,7 @@ int performanceFixture(QCoreApplication& application, const QString& file, bool 
             offset += accepted;
             if (accepted == 0) break;
         }
+        if (offset == input.size() && submittedAllNs < 0) submittedAllNs = elapsed.nsecsElapsed();
         if (offset == input.size() && fixture.core.waitForIdle(0)) {
             feed.stop();
             finished = true;
@@ -2818,6 +2839,14 @@ int performanceFixture(QCoreApplication& application, const QString& file, bool 
             result.insert("bytes", double(offset));
             result.insert("throughputMiBps", double(offset) / (1024.0 * 1024.0) / seconds);
             result.insert("mcpEnabled", enabled);
+            result.insert("sessionReady", fixture.session.state() == SessionState::Running);
+            if (fixture.session.state() != SessionState::Running) {
+                QTextStream(stderr) << "performance fixture lost its test session\n";
+                application.exit(5); return;
+            }
+            result.insert("feedTicks", double(feedTicks));
+            result.insert("feedIntervalMs", feed.interval());
+            result.insert("submittedAllNs", double(submittedAllNs));
             // 取整轮结束时的快照（与 P3/P5 基准同口径，不对分位数做差）：
             // P50/P95/P99 是渲染器最近 2048 帧的滚动窗口，不是整轮分布。
             const auto frames = renderer.renderStatistics();
@@ -2856,7 +2885,15 @@ int performanceFixture(QCoreApplication& application, const QString& file, bool 
             feed.start();
         }
         if (QFile::exists(file + ".stop")) application.quit();
-        if (started && !finished && elapsed.elapsed() > 30000) application.exit(2);
+        if (started && !finished && elapsed.elapsed() > 30000) {
+            const auto queue = fixture.core.queueStatistics();
+            QTextStream(stderr) << "performance fixture timeout: submitted=" << offset
+                << "/" << input.size() << ", queued=" << queue.queuedBytes
+                << ", enqueued=" << queue.totalEnqueued << ", dequeued=" << queue.totalDequeued
+                << ", ticks=" << feedTicks << ", interval=" << feed.interval()
+                << ", idle=" << fixture.core.waitForIdle(0) << "\n";
+            application.exit(2);
+        }
     });
     control.start();
     QTimer::singleShot(60000, &application, &QCoreApplication::quit);
