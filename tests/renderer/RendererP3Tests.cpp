@@ -2100,7 +2100,20 @@ void RendererP3Tests::inputMethodCommitProducesUtf8()
 
 void RendererP3Tests::colorSchemesParseWindowsTerminalFormat()
 {
-    QCOMPARE(TerminalSchemeStore::builtins().size(), 12);
+    QCOMPARE(TerminalSchemeStore::builtins().size(), 24);
+    const auto netcatty = TerminalSchemeStore::find({}, QStringLiteral("Netcatty: GitHub Dark"));
+    QVERIFY(netcatty);
+    QCOMPARE(netcatty->background, QColor("#0d1117"));
+    QCOMPARE(netcatty->palette[5], QColor("#bc8cff"));
+    QCOMPARE(netcatty->selectionColor, QColor(0x26, 0x4f, 0x78, 64));
+    QJsonObject existing{{QStringLiteral("schemes"), QJsonArray{TerminalSchemeStore::toJson(*netcatty)}}};
+    auto savedSchemes = existing.value(QStringLiteral("schemes")).toArray();
+    auto savedScheme = savedSchemes.at(0).toObject();
+    savedScheme[QStringLiteral("background")] = QStringLiteral("#123456");
+    savedSchemes[0] = savedScheme;
+    existing[QStringLiteral("schemes")] = savedSchemes;
+    TerminalSchemeStore::materialize(existing);
+    QCOMPARE(TerminalSchemeStore::find(existing, netcatty->name)->background, QColor("#123456"));
     for (const auto& scheme : TerminalSchemeStore::builtins()) {
         const auto json = TerminalSchemeStore::toJson(scheme);
         QString error;
@@ -2131,7 +2144,7 @@ void RendererP3Tests::colorSchemesParseWindowsTerminalFormat()
     QVERIFY(!TerminalSchemeStore::save(config, invalid));
     QVERIFY(config.isEmpty());
     TerminalSchemeStore::materialize(config);
-    QCOMPARE(config.value(QStringLiteral("schemes")).toArray().size(), 12);
+    QCOMPARE(config.value(QStringLiteral("schemes")).toArray().size(), 24);
     const auto initialized = config;
     TerminalSchemeStore::materialize(config);
     QCOMPARE(config, initialized);

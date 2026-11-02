@@ -42,10 +42,17 @@ DEB/ZIP 均含 3 个输入法插件与 2 个平台主题插件，提取后的五
 这里的深浅只描述终端渲染区域，与 NovaTerm 的程序主题独立：程序浅色时仍可
 使用深色终端，改变 `ui.theme` 不会改变终端配色。
 
-内置 12 套方案，深色 9 套（Campbell、Campbell Powershell、Vintage、
+原有 12 套方案，深色 9 套（Campbell、Campbell Powershell、Vintage、
 One Half Dark、Tango Dark、Dracula、Tokyo Night、Solarized Dark、Dark Pastels），
 浅色 3 套（One Half Light、Tango Light、Black on White）。分类由背景的感知亮度
 确定；将自定义背景改为浅色时，编辑器会把方案移到浅色分类。
+
+另有 12 套常用终端预置取自 [Netcatty](https://github.com/binaricat/Netcatty)
+的 `infrastructure/config/terminalThemes`（版本 `8043178d54599b97bcfe8143f8df5c722d99b7f6`，
+GPL-3.0-or-later）。移植了前景、背景、光标、选区及 16 色；选区 RGB 按本项目
+规则以 25% 不透明度叠加。名称加 `Netcatty:` 前缀，避免与原有方案冲突。
+新增 Catppuccin、Gruvbox、Nord、GitHub 的深浅版本以及 Monokai、
+One Dark Pro、VS Code 和 Ubuntu；它们不改变程序主题。
 
 - `TerminalSchemeStore`（`src/service/`）加载内置方案并按名称合并用户方案，
   负责校验、引用解析、重命名、删除和旧格式迁移；不创建 Session/Renderer。
