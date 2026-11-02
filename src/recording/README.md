@@ -2,6 +2,8 @@
 
 构建目标 `novaterm_history_recording`，负责 HistoryRecorder、块文件存储、SQLite 索引、保留/配额及异步 HistoryService。依赖 Qt Core、私有 Qt Sql、OpenSSL Crypto 和线程库，不依赖 MCP 或 LZ4 Scrollback。
 
+Windows 静态 OpenSSL Crypto 的证书和网络依赖由录制库向链接使用者传递（crypt32、ws2_32），避免录制测试及其他使用者出现未解析符号。
+
 `HistoryTypes.h` 是记录、范围、完整性和捕获描述的值类型契约；离线读取可以引用这些类型而不链接具体录制后端。既有 `NovaTerm::Recording` 类型名、磁盘格式、配置键和构建目标保持。
 
 本目录不负责授权、搜索、终端屏幕或 Agent 编排。录制源与离线 HistoryReadPort 的具体接线位于 [`../resources/RecordingHistoryReadAdapter.h`](../resources/RecordingHistoryReadAdapter.h)，由应用/MCP 组合根使用。
