@@ -602,12 +602,16 @@ bool downloadRegularFile(sftp_session sftp, ssh_session session,
 
 bool removeRemoteDirectoryRecursively(
     sftp_session sftp, ssh_session session, const QString& rootPath,
-    const std::atomic<bool>& running, QString& error)
+    const std::atomic<bool>& running, QString& error,
+    const std::function<void(quint64, quint64, bool)>& progress)
 {
     QQueue<QString> pendingDirectories;
     QVector<QString> directories{rootPath};
     QVector<QString> entriesToUnlink;
     pendingDirectories.enqueue(rootPath);
+    QElapsedTimer progressClock;
+    progressClock.start();
+    progress(0, 0, false);
 
     // 先完整枚举再开始删除，尽量在权限或读取失败时避免留下半删目录。
     while (!pendingDirectories.isEmpty()
@@ -625,6 +629,7 @@ bool removeRemoteDirectoryRecursively(
         }
 
         for (;;) {
+            if (!running.load(std::memory_order_acquire)) return false;
             SftpAttributesPtr attributes{
                 sftp_readdir(sftp, directory.get()),
                 &sftp_attributes_free};
@@ -649,6 +654,10 @@ bool removeRemoteDirectoryRecursively(
                 // 软链接只删除链接自身，绝不跟随到目录外的目标。
                 entriesToUnlink.push_back(entryPath);
             }
+            if (progressClock.elapsed() >= 200) {
+                progress(static_cast<quint64>(entriesToUnlink.size() + directories.size()), 0, false);
+                progressClock.restart();
+            }
         }
         if (!sftp_dir_eof(directory.get())) {
             error = sftpError(sftp, session,
@@ -660,7 +669,12 @@ bool removeRemoteDirectoryRecursively(
     if (!running.load(std::memory_order_acquire))
         return false;
 
+    quint64 completed = 0;
+    const quint64 total = static_cast<quint64>(entriesToUnlink.size() + directories.size());
+    progress(0, total, true);
+    progressClock.restart();
     for (const QString& entryPath : entriesToUnlink) {
+        if (!running.load(std::memory_order_acquire)) return false;
         const QByteArray encodedEntry = entryPath.toUtf8();
         if (sftp_unlink(sftp, encodedEntry.constData()) != SSH_OK) {
             error = sftpError(sftp, session,
@@ -668,9 +682,15 @@ bool removeRemoteDirectoryRecursively(
                     .arg(entryPath));
             return false;
         }
+        ++completed;
+        if (progressClock.elapsed() >= 200) {
+            progress(completed, total, true);
+            progressClock.restart();
+        }
     }
     // 子目录必须从最深层向根目录逆序删除。
     for (qsizetype index = directories.size(); index > 0; --index) {
+        if (!running.load(std::memory_order_acquire)) return false;
         const QString& directoryPath = directories.at(index - 1);
         const QByteArray encodedDirectory = directoryPath.toUtf8();
         if (sftp_rmdir(sftp, encodedDirectory.constData()) != SSH_OK) {
@@ -679,7 +699,13 @@ bool removeRemoteDirectoryRecursively(
                     .arg(directoryPath));
             return false;
         }
+        ++completed;
+        if (progressClock.elapsed() >= 200) {
+            progress(completed, total, true);
+            progressClock.restart();
+        }
     }
+    progress(completed, total, true);
     return true;
 }
 
@@ -932,11 +958,19 @@ void SftpSession::stopWorker(int waitMs)
             qWarning("SftpSession: worker did not stop within %d ms; "
                      "deferring thread teardown", waitMs);
             _thread->disconnect();
+            _workerAbandoned = true;
+            const quint64 abandonedGeneration = ++_abandonedGeneration;
+            QObject::connect(_thread, &QThread::finished, this,
+                             [this, abandonedGeneration] {
+                if (_abandonedGeneration == abandonedGeneration)
+                    _workerAbandoned = false;
+            });
             QObject::connect(_thread, &QThread::finished,
                              _thread, &QObject::deleteLater);
-            if (_thread->isFinished())
+            if (_thread->isFinished()) {
+                _workerAbandoned = false;
                 _thread->deleteLater();
-            _workerAbandoned = true;
+            }
             _thread = nullptr;
         }
     }
@@ -960,14 +994,20 @@ bool SftpSession::canStartConnection() const noexcept
 
 void SftpSession::enqueue(Command command)
 {
-    if (!_control->running.load(std::memory_order_acquire))
-        return;
-    QMutexLocker lock(&_control->queueMutex);
-    if (!_control->running.load(std::memory_order_acquire)
-        || _control->commands.size() >= MaxQueuedCommands)
-        return;
-    _control->commands.enqueue(std::move(command));
-    _control->queueReady.wakeOne();
+    bool accepted = false;
+    {
+        QMutexLocker lock(&_control->queueMutex);
+        if (_control->running.load(std::memory_order_acquire)
+            && _control->connected.load(std::memory_order_acquire)
+            && _control->commands.size() < MaxQueuedCommands) {
+            _control->commands.enqueue(std::move(command));
+            _control->queueReady.wakeOne();
+            accepted = true;
+        }
+    }
+    if (!accepted)
+        postError(_control, _control->generation.load(std::memory_order_acquire),
+                  tr("SFTP is disconnected or busy; please try again."));
 }
 
 void SftpSession::listDirectory(const QString& remotePath)
@@ -1305,19 +1345,35 @@ void SftpSession::workerMain(std::shared_ptr<WorkerControl> control,
             emit receiver.connected(homePath);
         });
 
+    QElapsedTimer keepaliveTimer;
+    keepaliveTimer.start();
+    const qint64 keepaliveMs = config.keepAliveSeconds > 0
+        ? qint64(config.keepAliveSeconds) * 1000 : 0;
     while (control->running.load(std::memory_order_acquire)
-           && ssh_is_connected(session.get())) {
+           && ssh_is_connected(session.get())
+           && !ssh_channel_is_closed(sftp->channel)
+           && !ssh_channel_is_eof(sftp->channel)) {
         Command command;
         {
             QMutexLocker lock(&control->queueMutex);
-            while (control->commands.isEmpty()
-                   && control->running.load(std::memory_order_acquire)
-                   && ssh_is_connected(session.get())) {
+            if (control->commands.isEmpty()
+                && control->running.load(std::memory_order_acquire)) {
                 control->queueReady.wait(&control->queueMutex, 200);
             }
             if (!control->running.load(std::memory_order_acquire)
-                || !ssh_is_connected(session.get())) {
+                || !ssh_is_connected(session.get())
+                || ssh_channel_is_closed(sftp->channel)
+                || ssh_channel_is_eof(sftp->channel)) {
                 break;
+            }
+            if (control->commands.isEmpty()) {
+                lock.unlock();
+                if (keepaliveMs > 0 && keepaliveTimer.elapsed() >= keepaliveMs) {
+                    if (ssh_send_ignore(session.get(), "") != SSH_OK)
+                        break;
+                    keepaliveTimer.restart();
+                }
+                continue;
             }
             command = control->commands.dequeue();
             control->commandActive = true;
@@ -1855,7 +1911,13 @@ void SftpSession::workerMain(std::shared_ptr<WorkerControl> control,
             QString error;
             if (!removeRemoteDirectoryRecursively(
                     sftp.get(), session.get(), command.source,
-                    control->running, error)) {
+                    control->running, error,
+                    [control, generation, path = command.source](quint64 done, quint64 total, bool removing) {
+                        postNotification(control, generation,
+                            [path, done, total, removing](SftpSession& receiver) {
+                                emit receiver.directoryRemovalProgress(path, done, total, removing);
+                            });
+                    })) {
                 if (control->running.load(std::memory_order_acquire))
                     postError(control, generation, error);
                 continue;

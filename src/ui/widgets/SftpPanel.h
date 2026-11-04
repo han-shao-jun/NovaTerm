@@ -153,8 +153,10 @@ private:
     void resetDownloadBatch();
     [[nodiscard]] QString remotePathForName(const QString& name) const;
     [[nodiscard]] bool remotePathExists(const QString& path) const;
+    [[nodiscard]] bool isViewCurrent(quint64 revision) const;
 
     ElaText* _availabilityLabel{nullptr};
+    ElaText* _deleteStatusLabel{nullptr};
     ElaProgressBar* _transferProgressBar{nullptr};
     QTimer* _transferProgressDelay{nullptr};
     ElaLineEdit* _pathEdit{nullptr};
@@ -171,6 +173,7 @@ private:
     QPointer<SshTransport> _sshTransport;
     quint64 _authorizedUploadId{0};
     quint64 _connectionGeneration{0};
+    quint64 _viewRevision{0};
     QString _hostKeyFingerprint;
     QQueue<UploadRequest> _pendingUploads;
     QQueue<DeleteRequest> _pendingDeletes;
@@ -200,6 +203,8 @@ private:
     int _downloadSkipped{0};
     quint64 _activeTransferSize{0};
     bool _backendConnected{false};
+    bool _directoryCurrent{false};
+    bool _restorePathOnConnect{false};
     bool _busy{false};
     bool _hasError{false};
     bool _uploadBatchActive{false};

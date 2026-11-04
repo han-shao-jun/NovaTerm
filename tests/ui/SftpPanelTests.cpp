@@ -9,6 +9,7 @@
 #include "ElaIconButton.h"
 #include "ElaLineEdit.h"
 #include "ElaProgressBar.h"
+#include "ElaText.h"
 #include <QApplication>
 #include <QSignalSpy>
 #include <QTest>
@@ -16,6 +17,8 @@
 #include <QElapsedTimer>
 #include <QRegularExpression>
 #include <QLabel>
+#include <QDialog>
+#include <QTreeWidget>
 #include <memory>
 
 // Only the network worker is replaced. Panels, queues, parsing and timers are real.
@@ -25,6 +28,7 @@ public:
     static void connected(SftpSession& session, const QString& home)
     {
         session._control->running = true;
+        session._control->connected = true;
         emit session.connected(home);
     }
     static quint64 generation(SftpSession& session)
@@ -125,6 +129,212 @@ private:
         QVERIFY(QMetaObject::invokeMethod(timer, "timeout", Qt::DirectConnection));
     }
 private slots:
+    void failedDirectoryReloadDisablesStaleFileOperationsUntilRefresh()
+    {
+        SshTransport transport(SshConfig{}); SshTransportTestAccess::verified(transport);
+        SftpPanel panel; panel.setSessionContext("Board", &transport);
+        auto* backend = panel.findChild<SftpSession*>(); QVERIFY(backend);
+        SftpSessionSafetyTestAccess::connected(*backend, "/confirmed");
+        SftpSessionSafetyTestAccess::drainQueue(*backend);
+        SftpFileInfo oldFile; oldFile.name = "old.txt"; oldFile.path = "/confirmed/old.txt";
+        emit backend->directoryListed("/confirmed", {oldFile});
+        auto* tree = panel.findChild<QTreeWidget*>(); QVERIFY(tree);
+        ElaIconButton *refresh = nullptr, *upload = nullptr;
+        for (auto* button : panel.findChildren<ElaIconButton*>()) {
+            if (button->accessibleName() == "Refresh") refresh = button;
+            if (button->accessibleName() == "Upload") upload = button;
+        }
+        auto* path = panel.findChild<ElaLineEdit*>();
+        QVERIFY(refresh && upload && path);
+        QVERIFY(tree->isEnabled()); QVERIFY(upload->isEnabled());
+        SftpSessionSafetyTestAccess::unavailable(*backend);
+        emit backend->disconnected();
+        SftpSessionSafetyTestAccess::connected(*backend, "/confirmed");
+        SftpSessionSafetyTestAccess::drainQueue(*backend);
+        emit backend->errorOccurred("Cannot open remote directory");
+        QVERIFY(!tree->isEnabled());
+        QVERIFY(!upload->isEnabled());
+        QVERIFY(refresh->isEnabled());
+        QVERIFY(path->isEnabled());
+        refresh->click();
+        QCOMPARE(SftpSessionSafetyTestAccess::queued(*backend), qsizetype(1));
+        SftpSessionSafetyTestAccess::drainQueue(*backend);
+        SftpFileInfo newFile; newFile.name = "new.txt"; newFile.path = "/confirmed/new.txt";
+        emit backend->directoryListed("/confirmed", {newFile});
+        QVERIFY(tree->isEnabled()); QVERIFY(upload->isEnabled());
+        QCOMPARE(tree->topLevelItemCount(), 1);
+        QCOMPARE(tree->topLevelItem(0)->text(0), QStringLiteral("new.txt"));
+        refresh->click();
+        SftpSessionSafetyTestAccess::drainQueue(*backend);
+        emit backend->errorOccurred("Cannot read remote directory");
+        QVERIFY(!tree->isEnabled()); QVERIFY(!upload->isEnabled());
+        QVERIFY(refresh->isEnabled()); QVERIFY(path->isEnabled());
+    }
+    void deletingDirectoryLocksPanelUntilRefreshCompletes()
+    {
+        SshTransport transport(SshConfig{}); SshTransportTestAccess::verified(transport);
+        SftpPanel panel; panel.setSessionContext("Board", &transport);
+        auto* backend = panel.findChild<SftpSession*>(); QVERIFY(backend);
+        const auto sessions = panel.findChildren<SftpSession*>();
+        if (sessions.size() > 1) SftpSessionSafetyTestAccess::connected(*sessions.at(1), "/");
+        SftpSessionSafetyTestAccess::connected(*backend, "/confirmed");
+        SftpSessionSafetyTestAccess::drainQueue(*backend);
+        SftpFileInfo folder; folder.name = "large"; folder.path = "/confirmed/large"; folder.directory = true;
+        emit backend->directoryListed("/confirmed", {folder});
+        auto* tree = panel.findChild<QTreeWidget*>(); QVERIFY(tree);
+        tree->topLevelItem(0)->setSelected(true);
+        bool dialogSeen = false;
+        QTimer::singleShot(0, &panel, [&] {
+            auto* dialog = qobject_cast<QDialog*>(QApplication::activeModalWidget());
+            if (dialog) { dialogSeen = true; dialog->accept(); }
+        });
+        QTest::keyClick(tree, Qt::Key_Delete);
+        QVERIFY(dialogSeen);
+        ElaIconButton* refresh = nullptr;
+        for (auto* button : panel.findChildren<ElaIconButton*>())
+            if (button->accessibleName() == QStringLiteral("Refresh")) refresh = button;
+        QVERIFY(refresh);
+        QVERIFY(!refresh->isEnabled());
+        QVERIFY(!tree->isEnabled());
+        QCOMPARE(SftpSessionSafetyTestAccess::queued(*backend), qsizetype(1));
+        int ticks = 0;
+        QTimer::singleShot(0, &panel, [&] { ++ticks; });
+        QTRY_COMPARE(ticks, 1);
+        emit backend->directoryRemovalProgress("/confirmed/large", 350, 1000, true);
+        bool progressVisible = false;
+        for (auto* label : panel.findChildren<ElaText*>())
+            if (label->text().contains("350") && label->text().contains("1000")) progressVisible = true;
+        QVERIFY(progressVisible);
+        refresh->click();
+        QCOMPARE(SftpSessionSafetyTestAccess::queued(*backend), qsizetype(1));
+        SftpSessionSafetyTestAccess::drainQueue(*backend);
+        emit backend->operationFinished("remove", "/confirmed/large");
+        QCOMPARE(SftpSessionSafetyTestAccess::queued(*backend), qsizetype(1));
+        QVERIFY(!refresh->isEnabled());
+        emit backend->directoryListed("/confirmed", {});
+        QVERIFY(refresh->isEnabled());
+        QVERIFY(tree->isEnabled());
+    }
+    void deletingDirectoryReleasesPanelAfterFailureOrDisconnect_data()
+    {
+        QTest::addColumn<bool>("disconnect");
+        QTest::newRow("operation-failed") << false;
+        QTest::newRow("connection-closed") << true;
+    }
+    void deletingDirectoryReleasesPanelAfterFailureOrDisconnect()
+    {
+        QFETCH(bool, disconnect);
+        SshTransport transport(SshConfig{}); SshTransportTestAccess::verified(transport);
+        SftpPanel panel; panel.setSessionContext("Board", &transport);
+        auto* backend = panel.findChild<SftpSession*>(); QVERIFY(backend);
+        SftpSessionSafetyTestAccess::connected(*backend, "/confirmed");
+        SftpSessionSafetyTestAccess::drainQueue(*backend);
+        SftpFileInfo folder; folder.name = "large"; folder.path = "/confirmed/large"; folder.directory = true;
+        emit backend->directoryListed("/confirmed", {folder});
+        auto* tree = panel.findChild<QTreeWidget*>(); QVERIFY(tree);
+        tree->topLevelItem(0)->setSelected(true);
+        QTimer::singleShot(0, &panel, [] {
+            if (auto* dialog = qobject_cast<QDialog*>(QApplication::activeModalWidget())) dialog->accept();
+        });
+        QTest::keyClick(tree, Qt::Key_Delete);
+        QVERIFY(!tree->isEnabled());
+        SftpSessionSafetyTestAccess::drainQueue(*backend);
+        if (disconnect) {
+            SftpSessionSafetyTestAccess::unavailable(*backend);
+            emit backend->disconnected();
+        } else {
+            emit backend->errorOccurred("permission denied");
+            QVERIFY(!tree->isEnabled());
+            QCOMPARE(SftpSessionSafetyTestAccess::queued(*backend), qsizetype(1));
+            emit backend->directoryListed("/confirmed", {});
+            QVERIFY(tree->isEnabled());
+        }
+        bool hasResult = false;
+        for (auto* label : panel.findChildren<ElaText*>())
+            if (label->text().contains(disconnect ? "interrupted" : "failed", Qt::CaseInsensitive)) hasResult = true;
+        QVERIFY(hasResult);
+        ElaIconButton* refresh = nullptr;
+        for (auto* button : panel.findChildren<ElaIconButton*>())
+            if (button->accessibleName() == QStringLiteral("Refresh")) refresh = button;
+        QVERIFY(refresh && refresh->isEnabled());
+    }
+    void deleteConfirmationDoesNotUseItemsAfterDirectoryRefresh()
+    {
+        SshTransport transport(SshConfig{}); SshTransportTestAccess::verified(transport);
+        SftpPanel panel; panel.setSessionContext("Board", &transport);
+        auto* backend = panel.findChild<SftpSession*>(); QVERIFY(backend);
+        SftpSessionSafetyTestAccess::connected(*backend, "/confirmed");
+        SftpSessionSafetyTestAccess::drainQueue(*backend);
+        SftpFileInfo file; file.name = "old.txt"; file.path = "/confirmed/old.txt";
+        emit backend->directoryListed("/confirmed", {file});
+        auto* tree = panel.findChild<QTreeWidget*>(); QVERIFY(tree);
+        QVERIFY(tree->topLevelItemCount() == 1);
+        tree->topLevelItem(0)->setSelected(true);
+        bool dialogSeen = false;
+        QTimer::singleShot(0, &panel, [&] {
+            auto* dialog = qobject_cast<QDialog*>(QApplication::activeModalWidget());
+            if (!dialog) return;
+            dialogSeen = true;
+            emit backend->directoryListed("/confirmed", {});
+            dialog->accept();
+        });
+        QTest::keyClick(tree, Qt::Key_Delete);
+        QVERIFY(dialogSeen);
+        QCOMPARE(SftpSessionSafetyTestAccess::queued(*backend), qsizetype(0));
+    }
+    void rejectedDirectoryRequestDoesNotLeavePanelBusy()
+    {
+        SshTransport transport(SshConfig{}); SshTransportTestAccess::verified(transport);
+        SftpPanel panel; panel.setSessionContext("Board", &transport);
+        auto* backend = panel.findChild<SftpSession*>(); QVERIFY(backend);
+        SftpSessionSafetyTestAccess::connected(*backend, "/confirmed");
+        SftpSessionSafetyTestAccess::drainQueue(*backend);
+        emit backend->directoryListed("/confirmed", {});
+        SftpSessionSafetyTestAccess::unavailable(*backend);
+        auto* path = panel.findChild<ElaLineEdit*>(); QVERIFY(path);
+        path->setText("/new");
+        QMetaObject::invokeMethod(path, "returnPressed", Qt::DirectConnection);
+        QTRY_VERIFY(path->isEnabled());
+        QCOMPARE(path->text(), QStringLiteral("/confirmed"));
+    }
+    void failedDirectoryLookupRestoresConfirmedPath()
+    {
+        SshTransport transport(SshConfig{}); SshTransportTestAccess::verified(transport);
+        SftpPanel panel; panel.setSessionContext("Board", &transport);
+        auto* backend = panel.findChild<SftpSession*>(); QVERIFY(backend);
+        SftpSessionSafetyTestAccess::connected(*backend, "/confirmed");
+        SftpSessionSafetyTestAccess::available(*backend);
+        SftpSessionSafetyTestAccess::drainQueue(*backend);
+        emit backend->directoryListed("/confirmed", {});
+        auto* path = panel.findChild<ElaLineEdit*>(); QVERIFY(path);
+        path->setText("/missing");
+        QMetaObject::invokeMethod(path, "returnPressed", Qt::DirectConnection);
+        emit backend->errorOccurred("Cannot resolve directory");
+        QCOMPARE(path->text(), QStringLiteral("/confirmed"));
+    }
+    void disconnectedSftpCanBeRetriedWithoutReconnectingTerminal()
+    {
+        SshTransport transport(SshConfig{});
+        SshTransportTestAccess::verified(transport);
+        SftpPanel panel;
+        panel.setSessionContext("Board", &transport);
+        auto* backend = panel.findChild<SftpSession*>(); QVERIFY(backend);
+        SftpSessionSafetyTestAccess::connected(*backend, "/home/test");
+        SftpSessionSafetyTestAccess::available(*backend);
+        SftpSessionSafetyTestAccess::drainQueue(*backend);
+        emit backend->directoryListed("/home/test", {});
+        SftpSessionSafetyTestAccess::unavailable(*backend);
+        emit backend->disconnected();
+        ElaIconButton* refresh = nullptr;
+        for (auto* button : panel.findChildren<ElaIconButton*>()) {
+            if (button->accessibleName() == QStringLiteral("Refresh")) refresh = button;
+        }
+        QVERIFY(refresh);
+        QVERIFY(refresh->isEnabled());
+        QSignalSpy errors(backend, &SftpSession::errorOccurred);
+        refresh->click();
+        QCOMPARE(errors.size(), 1); // Invalid fixture config proves a new connection was attempted.
+    }
     void directoryErrorDoesNotFailPreparedTransferConnection()
     {
         SshTransport transport(SshConfig{}); SshTransportTestAccess::verified(transport);

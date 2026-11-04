@@ -82,6 +82,9 @@ signals:
                           quint64 transferred, quint64 total);
     void operationFinished(const QString& operation,
                            const QString& remotePath);
+    /** 递归删除扫描阶段 total 为 0、completed 为已发现条目数；删除阶段报告已删除数与总数。 */
+    void directoryRemovalProgress(const QString& remotePath, quint64 completed,
+                                  quint64 total, bool removing);
     void uploadBytesFinished(quint64 requestId, const QString& remotePath,
                              bool success, const QString& errorCode);
     void authorizedFileProgress(quint64 requestId, quint64 transferred, quint64 total);
@@ -229,5 +232,6 @@ private:
     // true 表示上一任 worker 超过上界仍未退出、已被放弃（自毁），它可能仍在
     // 运行；此时禁止再启动新会话。仅 GUI 线程读写。
     bool _workerAbandoned{false};
+    quint64 _abandonedGeneration{0};
     quint64 _nextDirectoryRequestId{0};
 };

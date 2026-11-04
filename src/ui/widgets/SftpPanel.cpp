@@ -433,6 +433,12 @@ SftpPanel::SftpPanel(QWidget* parent)
     _availabilityLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
     rootLayout->addWidget(_availabilityLabel);
 
+    _deleteStatusLabel = new ElaText(this);
+    _deleteStatusLabel->setTextStyle(ElaTextType::Body);
+    _deleteStatusLabel->setWordWrap(true);
+    _deleteStatusLabel->hide();
+    rootLayout->addWidget(_deleteStatusLabel);
+
     // 进度条延迟显示：快速上传在 400ms 内完成时始终保持隐藏，避免界面闪烁。
     _transferProgressBar = new ElaProgressBar(this);
     _transferProgressBar->setRange(0, TransferProgressScale);
@@ -523,6 +529,21 @@ SftpPanel::SftpPanel(QWidget* parent)
         requestDirectory(parentRemotePath(_currentPath));
     });
     connect(_refreshButton, &QAbstractButton::clicked, this, [this]() {
+        if (!_backendConnected) {
+            if (!_sshTransport || !_sshTransport->isConnected()
+                || _sshTransport->connectionGeneration() != _connectionGeneration
+                || _sshTransport->serverHostKeyFingerprint() != _hostKeyFingerprint
+                || _hostKeyFingerprint.isEmpty()) return;
+            if (!_sftpSession->canStartConnection()) {
+                _availabilityLabel->setText(tr("The previous SFTP session is still shutting down; please try again shortly."));
+                return;
+            }
+            _restorePathOnConnect = true;
+            _hasError = false;
+            _availabilityLabel->setText(tr("Connecting to SFTP…"));
+            _sftpSession->connectToHost(_sshTransport->sessionConfig(), _hostKeyFingerprint, _sshTransport->knownHostsPath());
+            return;
+        }
         requestDirectory(_currentPath);
     });
     connect(_pastePathButton, &QAbstractButton::clicked, this, [this]() {
@@ -575,8 +596,11 @@ SftpPanel::SftpPanel(QWidget* parent)
     connect(_sftpSession, &SftpSession::connected, this,
             [this](const QString& homePath) {
         _backendConnected = true;
+        _directoryCurrent = false;
         _hasError = false;
-        requestDirectory(homePath);
+        const QString path = _restorePathOnConnect ? _currentPath : homePath;
+        _restorePathOnConnect = false;
+        requestDirectory(path);
     });
     connect(_sftpSession, &SftpSession::authorizedFileFinished, this,
         [this](const SftpFileUploadResult& result) {
@@ -587,6 +611,8 @@ SftpPanel::SftpPanel(QWidget* parent)
         });
     connect(_sftpSession, &SftpSession::directoryListed, this,
             [this](const QString& path, QVector<SftpFileInfo> entries) {
+        ++_viewRevision;
+        _directoryCurrent = true;
         _fileTree->clear();
         setFileTreeHint(entries.isEmpty() ? tr("This folder is empty") : QString{});
         for (const SftpFileInfo& entry : entries) {
@@ -657,6 +683,14 @@ SftpPanel::SftpPanel(QWidget* parent)
             _lastUploadError.clear();
             _lastUploadErrorDetail.clear();
         }
+    });
+    connect(_sftpSession, &SftpSession::directoryRemovalProgress, this,
+            [this](const QString& path, quint64 done, quint64 total, bool removing) {
+        if (!_deleteBatchActive || _activeDeleteName.isEmpty()) return;
+        Q_UNUSED(path);
+        _deleteStatusLabel->setText(removing
+            ? tr("Deleting %1: %2 / %3 entries").arg(_activeDeleteName).arg(done).arg(total)
+            : tr("Scanning %1: %2 entries").arg(_activeDeleteName).arg(done));
     });
     connect(_sftpSession, &SftpSession::transferProgress, this,
             [this](const QString&, quint64 transferred, quint64 total) {
@@ -731,6 +765,7 @@ SftpPanel::SftpPanel(QWidget* parent)
     connect(_sftpSession, &SftpSession::errorOccurred, this,
             [this](const QString& message) {
         _hasError = true;
+        _pathEdit->setText(_currentPath);
         if (_uploadBatchActive && !_activeUploadRemotePath.isEmpty()) {
             stopTransferProgress();
             ++_uploadFailed;
@@ -750,10 +785,10 @@ SftpPanel::SftpPanel(QWidget* parent)
         // 删除失败按活动条目归属并继续下一条，单条失败不中断整批。
         if (_deleteBatchActive && !_activeDeleteName.isEmpty()) {
             ++_deleteFailed;
-            _availabilityLabel->setText(tr("Delete failed: %1 — %2")
-                .arg(_activeDeleteName, compactUploadError(message)));
-            _availabilityLabel->setToolTip(message.simplified());
+            _deleteStatusLabel->setText(tr("Delete failed: %1").arg(message));
+            _deleteStatusLabel->setToolTip(message);
             _activeDeleteName.clear();
+            if (!_sftpSession->isConnected()) _pendingDeletes.clear();
             startNextDelete();
             return;
         }
@@ -768,9 +803,17 @@ SftpPanel::SftpPanel(QWidget* parent)
             startNextDownload();
             return;
         }
+        if (_backendConnected && !_directoryCurrent)
+            setFileTreeHint(tr("Directory listing unavailable. Refresh or choose another path."));
         setBusy(false, tr("Error: %1").arg(message));
     });
     connect(_sftpSession, &SftpSession::disconnected, this, [this]() {
+        ++_viewRevision;
+        _directoryCurrent = false;
+        if (_deleteBatchActive) {
+            _deleteStatusLabel->setText(tr("Delete interrupted; remote contents may be partially removed."));
+            _deleteStatusLabel->show();
+        }
         _backendConnected = false;
         _busy = false;
         _pendingUploads.clear();
@@ -797,7 +840,7 @@ SftpPanel::SftpPanel(QWidget* parent)
 
 void SftpPanel::dragEnterEvent(QDragEnterEvent* event)
 {
-    if (!_backendConnected || _busy || _authorizedUploadId
+    if (!_backendConnected || !_directoryCurrent || _busy || _authorizedUploadId || _deleteBatchActive
         || localEntriesFromMimeData(event->mimeData()).isEmpty()) {
         event->ignore();
         return;
@@ -811,7 +854,7 @@ void SftpPanel::dragEnterEvent(QDragEnterEvent* event)
 
 void SftpPanel::dragMoveEvent(QDragMoveEvent* event)
 {
-    if (_dropActive && _backendConnected && !_busy && !_authorizedUploadId) {
+    if (_dropActive && _backendConnected && _directoryCurrent && !_busy && !_authorizedUploadId && !_deleteBatchActive) {
         event->setDropAction(Qt::CopyAction);
         event->accept();
         return;
@@ -829,7 +872,7 @@ void SftpPanel::dropEvent(QDropEvent* event)
 {
     const QStringList localEntries = localEntriesFromMimeData(event->mimeData());
     setDropActive(false);
-    if (!_backendConnected || _busy || _authorizedUploadId || localEntries.isEmpty()) {
+    if (!_backendConnected || !_directoryCurrent || _busy || _authorizedUploadId || _deleteBatchActive || localEntries.isEmpty()) {
         event->ignore();
         return;
     }
@@ -948,6 +991,7 @@ void SftpPanel::setSessionContext(const QString& sessionLabel,
 
     if (_sshTransport)
         disconnect(_sshTransport, nullptr, this, nullptr);
+    ++_viewRevision;
     setDropActive(false);
     stopTransferProgress();
     _sftpSession->disconnectFromHost();
@@ -957,6 +1001,8 @@ void SftpPanel::setSessionContext(const QString& sessionLabel,
     _hostKeyFingerprint = transport ? transport->serverHostKeyFingerprint() : QString{};
     _sessionName = sessionLabel;
     _backendConnected = false;
+    _directoryCurrent = false;
+    _restorePathOnConnect = false;
     _busy = false;
     _hasError = false;
     _pendingUploads.clear();
@@ -973,6 +1019,7 @@ void SftpPanel::setSessionContext(const QString& sessionLabel,
     _uploadSkipped = 0;
     _uploadBatchActive = false;
     resetDeleteBatch();
+    _deleteStatusLabel->hide();
     resetDownloadBatch();
     _currentPath = QStringLiteral("/");
     _pathEdit->setText(_currentPath);
@@ -1040,15 +1087,15 @@ void SftpPanel::retranslateUi()
 
 void SftpPanel::refreshAvailability()
 {
-    const bool enabled = _sshTransport && _backendConnected && !_busy && !_authorizedUploadId;
+    const bool enabled = _sshTransport && _backendConnected && !_busy && !_authorizedUploadId && !_deleteBatchActive;
     _parentDirectoryButton->setEnabled(enabled);
-    _refreshButton->setEnabled(enabled);
+    _refreshButton->setEnabled(enabled || (_sshTransport && !_backendConnected && !_deleteBatchActive));
     _pastePathButton->setEnabled(enabled);
     _synchronizePathButton->setEnabled(enabled);
     _synchronizeFromTerminalPathButton->setEnabled(enabled);
-    _uploadButton->setEnabled(enabled);
+    _uploadButton->setEnabled(enabled && _directoryCurrent);
     _pathEdit->setEnabled(enabled);
-    _fileTree->setEnabled(enabled);
+    _fileTree->setEnabled(enabled && _directoryCurrent);
     // 通过 QWidget 的标题属性向外发布会话文案，由主窗口合并到停靠标题。
     setWindowTitle(_sessionName.isEmpty()
         ? tr("No active SSH session")
@@ -1102,6 +1149,7 @@ void SftpPanel::requestDirectory(const QString& path)
 {
     if (!_backendConnected || _authorizedUploadId || path.trimmed().isEmpty())
         return;
+    _directoryCurrent = false;
     setBusy(true, tr("Loading remote directory…"));
     _sftpSession->listDirectory(path.trimmed());
 }
@@ -1126,7 +1174,7 @@ void SftpPanel::updateSelectionActions()
         }
     }
     const bool downloadable =
-        _sshTransport && _backendConnected && !_busy && !_authorizedUploadId && hasDownloadable;
+        _sshTransport && _backendConnected && _directoryCurrent && !_busy && !_authorizedUploadId && !_deleteBatchActive && hasDownloadable;
     _downloadButton->setEnabled(downloadable);
 }
 
@@ -1213,24 +1261,25 @@ void SftpPanel::sortFileTree(Qt::SortOrder order)
 
 void SftpPanel::uploadFile()
 {
-    if (!_backendConnected || _busy || _authorizedUploadId)
+    if (!_backendConnected || !_directoryCurrent || _busy || _authorizedUploadId || _deleteBatchActive)
         return;
 
+    const quint64 revision = _viewRevision;
     SftpContextMenu menu(this);
     QAction* filesAction = menu.addAction(tr("Upload files"));
     QAction* directoryAction = menu.addAction(tr("Upload folder"));
     QAction* selectedAction = menu.exec(_uploadButton->mapToGlobal(
         QPoint(0, _uploadButton->height())));
-    if (!selectedAction)
+    if (!selectedAction || !isViewCurrent(revision))
         return;
 
     if (selectedAction == filesAction) {
-        queueUploads(QFileDialog::getOpenFileNames(
-            this, tr("Upload files")));
+        const auto paths = QFileDialog::getOpenFileNames(this, tr("Upload files"));
+        if (isViewCurrent(revision)) queueUploads(paths);
     } else if (selectedAction == directoryAction) {
         const QString directory = QFileDialog::getExistingDirectory(
             this, tr("Upload folder"));
-        if (!directory.isEmpty())
+        if (!directory.isEmpty() && isViewCurrent(revision))
             queueUploads({directory});
     }
 }
@@ -1246,11 +1295,20 @@ bool SftpPanel::remotePathExists(const QString& path) const
     return false;
 }
 
+bool SftpPanel::isViewCurrent(quint64 revision) const
+{
+    return revision == _viewRevision && _sshTransport && _sshTransport->isConnected()
+        && _sshTransport->connectionGeneration() == _connectionGeneration
+        && _sshTransport->serverHostKeyFingerprint() == _hostKeyFingerprint
+        && _backendConnected && _directoryCurrent && !_busy && !_authorizedUploadId && !_deleteBatchActive;
+}
+
 void SftpPanel::queueUploads(const QStringList& localPaths)
 {
-    if (!_backendConnected || _busy || _authorizedUploadId || localPaths.isEmpty())
+    if (!_backendConnected || !_directoryCurrent || _busy || _authorizedUploadId || _deleteBatchActive || localPaths.isEmpty())
         return;
 
+    const quint64 revision = _viewRevision;
     QQueue<UploadRequest> requests;
     QSet<QString> remotePaths;
     int overwriteCount = 0;
@@ -1291,6 +1349,7 @@ void SftpPanel::queueUploads(const QStringList& localPaths)
         return;
     }
 
+    if (!isViewCurrent(revision)) return;
     _pendingUploads = std::move(requests);
     _uploadTotal = _pendingUploads.size();
     _uploadCompleted = 0;
@@ -1388,9 +1447,10 @@ void SftpPanel::resetDeleteBatch()
 
 void SftpPanel::deleteSelectedEntries()
 {
-    if (!_backendConnected || _busy || _authorizedUploadId || _deleteBatchActive)
+    if (!_backendConnected || !_directoryCurrent || _busy || _authorizedUploadId || _deleteBatchActive)
         return;
 
+    const quint64 revision = _viewRevision;
     const QList<QTreeWidgetItem*> selected = _fileTree->selectedItems();
     if (selected.isEmpty())
         return;
@@ -1416,6 +1476,7 @@ void SftpPanel::deleteSelectedEntries()
         return;
     }
 
+    if (!isViewCurrent(revision)) return;
     for (const QTreeWidgetItem* item : selected) {
         if (!item)
             continue;
@@ -1430,7 +1491,9 @@ void SftpPanel::deleteSelectedEntries()
     _deleteCompleted = 0;
     _deleteFailed = 0;
     _deleteBatchActive = true;
-    _availabilityLabel->setToolTip({});
+    _deleteStatusLabel->setToolTip({});
+    _deleteStatusLabel->setText(tr("Preparing to delete selected items…"));
+    _deleteStatusLabel->show();
     setBusy(true);
     startNextDelete();
 }
@@ -1439,12 +1502,13 @@ void SftpPanel::startNextDelete()
 {
     if (!_deleteBatchActive)
         return;
-    if (!_backendConnected) {
+    if (!_backendConnected || !_sftpSession->isConnected()) {
         _pendingDeletes.clear();
         _activeDeleteName.clear();
         _deleteBatchActive = false;
-        setBusy(false,
-                tr("Delete stopped because the SFTP connection closed."));
+        _backendConnected = false;
+        _deleteStatusLabel->setText(tr("Delete interrupted; remote contents may be partially removed."));
+        setBusy(false);
         return;
     }
     if (_pendingDeletes.isEmpty()) {
@@ -1455,7 +1519,7 @@ void SftpPanel::startNextDelete()
     const DeleteRequest request = _pendingDeletes.dequeue();
     _activeDeleteName = request.name;
     const int current = _deleteCompleted + _deleteFailed + 1;
-    setBusy(true, _deleteTotal > 1
+    _deleteStatusLabel->setText(_deleteTotal > 1
         ? tr("Deleting: %1 (%2/%3)")
             .arg(request.name).arg(current).arg(_deleteTotal)
         : tr("Deleting: %1").arg(request.name));
@@ -1468,22 +1532,21 @@ void SftpPanel::finishDeleteBatch()
     _activeDeleteName.clear();
 
     if (_deleteFailed == 0) {
-        _statusAfterNextDirectoryList = tr("Deleted %1 items")
-            .arg(_deleteCompleted);
+        _deleteStatusLabel->setText(tr("Deleted %1 items")
+            .arg(_deleteCompleted));
         // 全成功：清掉可能残留的上一次失败详情。
-        _availabilityLabel->setToolTip({});
+        _deleteStatusLabel->setToolTip({});
     } else {
-        _statusAfterNextDirectoryList =
-            tr("Deleted %1, failed %2").arg(_deleteCompleted)
-                .arg(_deleteFailed);
+        _deleteStatusLabel->setText(tr("Deleted %1, failed %2").arg(_deleteCompleted)
+                .arg(_deleteFailed));
         // 失败详情已在 errorOccurred 里写进 tooltip，保留给用户展开查看。
     }
 
     // 与上传批次同理：整批只刷新一次目录。
-    if (_backendConnected)
+    if (_backendConnected && _sftpSession->isConnected())
         requestDirectory(_currentPath);
     else
-        setBusy(false, _statusAfterNextDirectoryList);
+        setBusy(false);
 }
 
 void SftpPanel::startTransferProgress(quint64 totalBytes)
@@ -1548,8 +1611,9 @@ void SftpPanel::resetDownloadBatch()
 }
 void SftpPanel::downloadSelectedEntries()
 {
-    if (!_backendConnected || _busy || _authorizedUploadId)
+    if (!_backendConnected || !_directoryCurrent || _busy || _authorizedUploadId || _deleteBatchActive)
         return;
+    const quint64 revision = _viewRevision;
     const QList<QTreeWidgetItem*> selected = _fileTree->selectedItems();
     if (selected.isEmpty())
         return;
@@ -1594,16 +1658,17 @@ void SftpPanel::downloadSelectedEntries()
         if (destination.isEmpty())
             return;
     }
-    queueDownloads(selected, destination, destinationIsExactFilePath);
+    if (isViewCurrent(revision)) queueDownloads(selected, destination, destinationIsExactFilePath);
 }
 
 void SftpPanel::downloadEntry(QTreeWidgetItem* item)
 {
     if (!item || item->data(0, SymbolicLinkRole).toBool()
-        || !_backendConnected || _busy || _authorizedUploadId) {
+        || !_backendConnected || !_directoryCurrent || _busy || _authorizedUploadId || _deleteBatchActive) {
         return;
     }
 
+    const quint64 revision = _viewRevision;
     QString suggestedDirectory =
         QStandardPaths::writableLocation(QStandardPaths::DownloadLocation);
     if (suggestedDirectory.isEmpty())
@@ -1626,16 +1691,17 @@ void SftpPanel::downloadEntry(QTreeWidgetItem* item)
             return;
         destinationIsExactFilePath = true;
     }
-    queueDownloads({item}, destination, destinationIsExactFilePath);
+    if (isViewCurrent(revision)) queueDownloads({item}, destination, destinationIsExactFilePath);
 }
 
 void SftpPanel::queueDownloads(const QList<QTreeWidgetItem*>& items,
                                const QString& destination,
                                bool destinationIsExactFilePath)
 {
-    if (!_backendConnected || _busy || _authorizedUploadId || items.isEmpty())
+    if (!_backendConnected || !_directoryCurrent || _busy || _authorizedUploadId || _deleteBatchActive || items.isEmpty())
         return;
 
+    const quint64 revision = _viewRevision;
     QQueue<DownloadRequest> requests;
     int skippedCount = 0;
     // destinationIsExactFilePath 为真时，destination 就是用户在保存对话框里
@@ -1687,6 +1753,7 @@ void SftpPanel::queueDownloads(const QList<QTreeWidgetItem*>& items,
         return;
     }
 
+    if (!isViewCurrent(revision)) return;
     _pendingDownloads = std::move(requests);
     _downloadDestination = destination;
     _downloadTotal = _pendingDownloads.size();
@@ -1755,9 +1822,10 @@ void SftpPanel::finishDownloadBatch()
 
 void SftpPanel::showFileContextMenu(const QPoint& position)
 {
-    if (!_backendConnected || _busy || _authorizedUploadId)
+    if (!_backendConnected || !_directoryCurrent || _busy || _authorizedUploadId || _deleteBatchActive)
         return;
 
+    const quint64 revision = _viewRevision;
     QTreeWidgetItem* item = _fileTree->itemAt(position);
     // setCurrentItem 在 ExtendedSelection 下等价于 ClearAndSelect：无修饰键的
     // 右键会清掉已有的多选。因此仅当右键点中未选中的条目时才切换选区，
@@ -1801,7 +1869,7 @@ void SftpPanel::showFileContextMenu(const QPoint& position)
     removeAction->setEnabled(hasSelection);
 
     QAction* selectedAction = menu.exec(_fileTree->viewport()->mapToGlobal(position));
-    if (!selectedAction)
+    if (!selectedAction || !isViewCurrent(revision))
         return;
     if (selectedAction == downloadAction) {
         downloadSelectedEntries();
@@ -1810,7 +1878,7 @@ void SftpPanel::showFileContextMenu(const QPoint& position)
     if (selectedAction == createDirectoryAction) {
         const auto name = requestRemoteName(
             this, tr("New folder"), tr("Folder name:"));
-        if (name && isValidRemoteName(*name)) {
+        if (name && isViewCurrent(revision) && isValidRemoteName(*name)) {
             setBusy(true, tr("Creating folder…"));
             _sftpSession->createDirectory(remotePathForName(*name));
         }
@@ -1819,7 +1887,7 @@ void SftpPanel::showFileContextMenu(const QPoint& position)
     if (selectedAction == createFileAction) {
         const auto name = requestRemoteName(
             this, tr("New file"), tr("File name:"));
-        if (name && isValidRemoteName(*name)) {
+        if (name && isViewCurrent(revision) && isValidRemoteName(*name)) {
             setBusy(true, tr("Creating file…"));
             _sftpSession->createFile(remotePathForName(*name));
         }
@@ -1859,7 +1927,7 @@ void SftpPanel::showFileContextMenu(const QPoint& position)
     if (selectedAction == renameAction) {
         const auto name = requestRemoteName(
             this, tr("Rename"), tr("New name:"), singleItem->text(0));
-        if (name && isValidRemoteName(*name)
+        if (name && isViewCurrent(revision) && isValidRemoteName(*name)
             && *name != singleItem->text(0)) {
             setBusy(true, tr("Renaming…"));
             _sftpSession->renameEntry(oldPath, remotePathForName(*name));
@@ -1871,7 +1939,7 @@ void SftpPanel::showFileContextMenu(const QPoint& position)
             singleItem->data(0, PermissionsRole).toUInt() & 07777u;
         SftpPermissionsDialog dialog(
             singleItem->text(0), currentPermissions, this);
-        if (dialog.exec() != QDialog::Accepted)
+        if (dialog.exec() != QDialog::Accepted || !isViewCurrent(revision))
             return;
         setBusy(true, tr("Changing permissions…"));
         _sftpSession->changePermissions(oldPath, dialog.permissions());

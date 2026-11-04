@@ -2440,6 +2440,30 @@ Built with:
         <translation>删除中：%1</translation>
     </message>
     <message>
+        <source>Preparing to delete selected items…</source>
+        <translation>正在准备删除选中的条目…</translation>
+    </message>
+    <message>
+        <source>Directory listing unavailable. Refresh or choose another path.</source>
+        <translation>目录列表不可用，请刷新或选择其他路径。</translation>
+    </message>
+    <message>
+        <source>Scanning %1: %2 entries</source>
+        <translation>正在扫描 %1：%2 个条目</translation>
+    </message>
+    <message>
+        <source>Deleting %1: %2 / %3 entries</source>
+        <translation>正在删除 %1：%2 / %3 个条目</translation>
+    </message>
+    <message>
+        <source>Delete failed: %1</source>
+        <translation>删除失败：%1</translation>
+    </message>
+    <message>
+        <source>Delete interrupted; remote contents may be partially removed.</source>
+        <translation>删除已中断，远程内容可能已部分删除。</translation>
+    </message>
+    <message>
         <location filename="../../src/ui/widgets/SftpPanel.cpp" line="1402"/>
         <source>Deleted %1 items</source>
         <translation>已删除 %1 个条目</translation>

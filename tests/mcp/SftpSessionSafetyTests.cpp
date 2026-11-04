@@ -10,6 +10,7 @@
 #include <cstring>
 
 #include <QCoreApplication>
+#include <QElapsedTimer>
 #include <QMutexLocker>
 #include <QPointer>
 #include <QScopeGuard>
@@ -136,6 +137,21 @@ class SftpSessionSafetyTests final : public QObject
     Q_OBJECT
 
 private slots:
+    void abandonedWorkerAllowsRetryAfterItFinishes()
+    {
+        SftpSession session;
+        QSemaphore entered, resume;
+        std::atomic<bool> finished{false}, cancelled{false};
+        QPointer<QThread> worker = SftpSessionSafetyTestAccess::pauseWorker(
+            session, entered, resume, finished, cancelled);
+        const auto release = qScopeGuard([&] { resume.release(); if (worker) worker->wait(5000); });
+        QVERIFY(entered.tryAcquire(1, 5000));
+        SftpSessionSafetyTestAccess::abandon(session);
+        QVERIFY(!session.canStartConnection());
+        resume.release();
+        QTRY_VERIFY(finished.load());
+        QTRY_VERIFY(session.canStartConnection());
+    }
     void workerExitSettlesQueuedScriptUpload()
     {
         SftpSession session;
@@ -722,6 +738,49 @@ private slots:
 int main(int argc, char** argv)
 {
     QCoreApplication app(argc, argv);
+    if (app.arguments().size() == 4 && (app.arguments()[1] == "--delete-tree-loopback"
+        || app.arguments()[1] == "--delete-tree-cancel-loopback")) {
+        const bool cancel = app.arguments()[1] == "--delete-tree-cancel-loopback";
+        bool valid = false;
+        const int port = app.arguments()[2].toInt(&valid);
+        if (!valid || port <= 0 || port > 65535) return 2;
+        SshConfig config;
+        config.host = "127.0.0.1"; config.port = static_cast<quint16>(port);
+        config.username = "fixture"; config.password = "fixture-only";
+        SftpSession deleting;
+        int connections = 0, errors = 0, progress = 0;
+        QString lastError;
+        bool listed = false, finished = false, listedBeforeFinish = false;
+        QObject::connect(&deleting, &SftpSession::connected, &app, [&](const QString&) { ++connections; });
+        QObject::connect(&deleting, &SftpSession::errorOccurred, &app, [&](const QString& e) { ++errors; lastError = e; });
+        QObject::connect(&deleting, &SftpSession::directoryListed, &app, [&](const QString&, const QVector<SftpFileInfo>&) {
+            listed = true; listedBeforeFinish = !finished;
+        });
+        QObject::connect(&deleting, &SftpSession::directoryRemovalProgress, &app, [&](const QString&, quint64, quint64, bool) { ++progress; });
+        QObject::connect(&deleting, &SftpSession::operationFinished, &app, [&](const QString& op, const QString&) { if (op == "remove") finished = true; });
+        deleting.connectToHost(config, {}, app.arguments()[3]);
+        QElapsedTimer clock; clock.start();
+        while (connections < 1 && !errors && clock.elapsed() < 10000) QTest::qWait(10);
+        if (connections != 1 || errors) return 3;
+        deleting.removeEntry("/large", true);
+        while (!progress && !errors && clock.elapsed() < 12000) QTest::qWait(10);
+        if (!progress || errors) return 4;
+        deleting.listDirectory("/");
+        if (cancel) {
+            QTest::qWait(400);
+            QElapsedTimer stopClock; stopClock.start();
+            deleting.disconnectFromHost();
+            const qint64 stopMs = stopClock.elapsed();
+            while (!deleting.canStartConnection() && clock.elapsed() < 18000) QTest::qWait(10);
+            std::printf("cancel_return_ms=%lld worker_stopped=%d finished=%d\n",
+                        static_cast<long long>(stopMs), deleting.canStartConnection(), finished);
+            return stopMs < 2000 && deleting.canStartConnection() && !finished ? 0 : 6;
+        }
+        while ((!listed || !finished) && !errors && clock.elapsed() < 20000) QTest::qWait(10);
+        std::printf("connections=%d progress=%d listed=%d listed_before_finish=%d finished=%d errors=%d detail=%s\n",
+                    connections, progress, listed, listedBeforeFinish, finished, errors, qPrintable(lastError));
+        return listed && !listedBeforeFinish && finished && progress > 1 && !errors ? 0 : 5;
+    }
     if (app.arguments().size() == 3 && (app.arguments()[1] == "--oversize-sftp-loopback"
         || app.arguments()[1] == "--cancel-sftp-loopback" || app.arguments()[1] == "--timeout-sftp-loopback"
         || app.arguments()[1] == "--cancel-download-sftp-loopback" || app.arguments()[1] == "--publication-timeout-loopback"
