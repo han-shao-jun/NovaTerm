@@ -74,6 +74,9 @@ inline constexpr int ObservationDefaultLines = 256;
 inline constexpr int MaxTerminalActions = 64;
 inline constexpr qsizetype MaxTerminalActionTextBytes = 16 * 1024;
 inline constexpr int MaxTerminalWaitMs = 30000;
+// Input admission may be delayed by the client or an approval prompt; this is
+// independent of the maximum duration of a single observation wait.
+inline constexpr std::chrono::milliseconds TerminalInputTokenLifetime{120000};
 inline constexpr qsizetype MaxEncodedActionBytes = 64 * 1024;
 inline constexpr std::chrono::milliseconds CancelCompletionGrace{250};
 

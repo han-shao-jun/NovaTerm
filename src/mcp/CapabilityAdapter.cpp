@@ -11,6 +11,9 @@
 #include "session/SessionInputArbiter.h"
 #include "session/SessionTerminalController.h"
 
+#include "transport/SshTransport.h"
+#include "transport/SerialTransport.h"
+#include <QHostAddress>
 #include <QJsonArray>
 
 namespace NovaTerm::Mcp {
@@ -91,6 +94,22 @@ ReadSession readSession(const SessionDirectory::Entry& entry)
     row.state = SessionDirectory::stateName(entry.state);
     row.transport = SessionDirectory::transportName(entry.kind);
     row.displayName = boundedText(entry.title, 256, &row.displayNameTruncated);
+    if (entry.kind == TransportKind::Ssh) {
+        const auto* ssh = qobject_cast<SshTransport*>(entry.transport.data());
+        // Never pass a nickname or a DNS name off as a concrete IP address.
+        const QHostAddress address(ssh ? ssh->sessionConfig().host.trimmed() : QString{});
+        row.targetLabel = address.isNull() ? QStringLiteral("ssh · IP unavailable")
+            : QStringLiteral("ssh · ") + address.toString();
+    } else if (entry.kind == TransportKind::Serial) {
+        const auto* serial = qobject_cast<SerialTransport*>(entry.transport.data());
+        row.targetLabel = serial ? boundedText(serial->config().portName.trimmed(), 256)
+                                 : QStringLiteral("serial · port unavailable");
+    } else if (entry.kind == TransportKind::LocalShell) {
+        row.targetLabel = QStringLiteral("local");
+    } else {
+        row.targetLabel = row.transport + QStringLiteral(" · endpoint unavailable");
+    }
+
     row.running = entry.state == SessionState::Running;
     row.visible = connectedSession(entry);
     return row;
@@ -250,6 +269,7 @@ Result<QJsonObject> ReadUseCaseAdapter::listSessions(const QString& client,
         encoded.insert("state", row.state);
         encoded.insert("transport", row.transport);
         encoded.insert("displayName", row.displayName);
+        encoded.insert("targetLabel", row.targetLabel);
         encoded.insert("displayNameTruncated", row.displayNameTruncated);
         rows.append(encoded);
     }

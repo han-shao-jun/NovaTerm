@@ -1,3 +1,4 @@
+#include "PresentationTestSupport.h"
 #include "mcp/protocol/ToolCodec.h"
 #include "CatalogFixtureSupport.h"
 #include <QFile>
@@ -53,7 +54,12 @@ private slots:
     void legacyCatalogObjectsUnchanged() {
         QFile fixture(QStringLiteral(NOVATERM_SOURCE_DIR "/tests/mcp/fixtures/tool-catalog-2026-10-18.json"));
         QVERIFY(fixture.open(QIODevice::ReadOnly));
-        const auto legacy = QJsonDocument::fromJson(fixture.readAll()).array();
+        QJsonParseError parseError{};
+        const auto legacyDocument = QJsonDocument::fromJson(fixture.readAll(), &parseError);
+        QVERIFY2(parseError.error == QJsonParseError::NoError, qPrintable(parseError.errorString()));
+        QVERIFY(legacyDocument.isArray());
+        const auto legacy = legacyDocument.array();
+        QVERIFY(!legacy.isEmpty());
         const auto current = ToolCodec::catalog();
         QCOMPARE(current.size(), 20);
         for (qsizetype i = 0; i < legacy.size(); ++i) {
@@ -62,8 +68,12 @@ private slots:
             if (legacy[i].toObject().value("name") == "novaterm_read_context") {
                 QFile logFixture(QStringLiteral(NOVATERM_SOURCE_DIR "/tests/mcp/fixtures/read-context-clear-2026-10-25.json"));
                 QVERIFY(logFixture.open(QIODevice::ReadOnly));
-                QCOMPARE(toolByName(name), QJsonDocument::fromJson(logFixture.readAll()).object());
-            } else QCOMPARE(toolByName(name), retainedSchema(legacy[i]).toObject());
+                QJsonParseError logParseError{};
+                const auto logDocument = QJsonDocument::fromJson(logFixture.readAll(), &logParseError);
+                QVERIFY2(logParseError.error == QJsonParseError::NoError, qPrintable(logParseError.errorString()));
+                QVERIFY(logDocument.isObject());
+                QCOMPARE(legacyObservationSchema(toolByName(name)), QJsonValue(logDocument.object()));
+            } else QCOMPARE(legacyObservationSchema(toolByName(name)), retainedSchema(withDirectInputContract(legacy[i])));
         }
     }
     void historyToolsDecodeWithoutSessionIdentity() {
@@ -74,7 +84,7 @@ private slots:
             {"novaterm_search_history", {{"captureId", capture}, {"query", "error"}}}};
         for (const auto& item : cases) {
             QVERIFY(ToolCodec::isKnownTool(item.first));
-            const auto decoded = ToolCodec::decodeCall(item.first, item.second);
+            const auto decoded = decodeBusinessCall(item.first, item.second);
             QVERIFY2(!isError(decoded), qPrintable(item.first));
             const auto& request = std::get<ToolCall>(decoded);
             QCOMPARE(ToolCodec::toolName(request), item.first);
@@ -90,8 +100,8 @@ private slots:
             {"novaterm_search_history", {{"captureId", capture}, {"query", "***"}, {"mode", "raw_bytes"}}},
             {"novaterm_search_history", {{"captureId", capture}, {"query", ""}}},
             {"novaterm_search_history", {{"captureId", capture}, {"query", "error"}, {"mode", "regex"}}}};
-        for (const auto& item : cases) QVERIFY(isError(ToolCodec::decodeCall(item.first, item.second)));
-        QVERIFY(!isError(ToolCodec::decodeCall("novaterm_search_history", {{"captureId", capture}, {"query", "AP8="}, {"mode", "raw_bytes"}})));
+        for (const auto& item : cases) QVERIFY(isError(decodeBusinessCall(item.first, item.second)));
+        QVERIFY(!isError(decodeBusinessCall("novaterm_search_history", {{"captureId", capture}, {"query", "AP8="}, {"mode", "raw_bytes"}})));
     }
 };
 QTEST_GUILESS_MAIN(HistoryContractsTests)

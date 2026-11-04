@@ -1,3 +1,4 @@
+#include "PresentationTestSupport.h"
 /**
  * @file ContractsTests.cpp
  * @brief MCP 契约与解码边界：目录兼容、参数接受/拒绝、强类型 ID、错误编码。
@@ -25,35 +26,6 @@ using namespace NovaTerm::Mcp;
 using namespace NovaTerm::Mcp::TestSupport;
 
 namespace {
-QJsonValue legacyObservationSchema(const QJsonValue& value)
-{
-    if (value.isArray()) {
-        QJsonArray out;
-        for (const auto& item : value.toArray()) out.append(legacyObservationSchema(item));
-        return out;
-    }
-    if (!value.isObject()) return value;
-    auto object = value.toObject();
-    for (auto it = object.begin(); it != object.end(); ++it)
-        it.value() = legacyObservationSchema(it.value());
-    auto properties = object.value("properties").toObject();
-    if (properties.contains("inputReadiness") && properties.contains("command") && properties.contains("control")) {
-        properties.remove("screenSize"); properties.remove("viewportPartial"); properties.remove("lastCommand");
-        properties.remove("terminalConfiguration"); properties.remove("ioStatus");
-        const QJsonObject open{{"type", "object"}, {"additionalProperties", true}};
-        properties.insert("inputReadiness", open); properties.insert("command", open); properties.insert("control", open);
-        object.insert("properties", properties);
-    }
-    if (properties.contains("submissionStatus") && properties.contains("stopRequested")) {
-        properties.remove("taskSubmission"); properties.remove("stopSubmission");
-        object.insert("properties", properties);
-        QJsonArray required;
-        for (const auto& name : object.value("required").toArray())
-            if (name != "taskSubmission" && name != "stopSubmission") required.append(name);
-        object.insert("required", required);
-    }
-    return object;
-}
 const QString SessionUuid = QStringLiteral("11111111-1111-4111-8111-111111111111");
 const QString OperationUuid = QStringLiteral("22222222-2222-4222-8222-222222222222");
 
@@ -125,6 +97,146 @@ class ContractsTests : public QObject
 {
     Q_OBJECT
 private slots:
+    void chinesePresentationIsRequiredAndOccupiesFirstThreeRows()
+    {
+        const QStringList fields{"1_操作", "2_目标", "3_内容"};
+        for (const auto& value : ToolCodec::catalog()) {
+            const auto tool = value.toObject();
+            const auto input = tool.value("inputSchema").toObject();
+            const auto properties = input.value("properties").toObject();
+            QCOMPARE(properties.keys().first(3), fields);
+            const auto required = input.value("required").toArray();
+            for (const auto& field : fields) {
+                QCOMPARE(std::count(required.begin(), required.end(), QJsonValue(field)), 1);
+                QCOMPARE(properties.value(field).toObject().value("type").toString(), QString("string"));
+            }
+            QCOMPARE(properties.value("1_操作").toObject().value("const"), tool.value("title"));
+        }
+    }
+    void missingOrMisleadingPresentationIsRejected()
+    {
+        for (const auto* name : {"novaterm_list_sessions", "novaterm_list_captures"}) {
+            QVERIFY(!ToolCodec::validate(name, {}).isEmpty());
+            QString title;
+            for (const auto& value : ToolCodec::catalog())
+                if (value.toObject().value("name") == name) title = value.toObject().value("title").toString();
+            QJsonObject args{{"1_操作", title}, {"2_目标", "NovaTerm"}, {"3_内容", "查看列表"}};
+            QVERIFY(ToolCodec::validate(name, args).isEmpty());
+            for (const auto* field : {"1_操作", "2_目标", "3_内容"}) {
+                auto missing = args; missing.remove(field);
+                QVERIFY(!ToolCodec::validate(name, missing).isEmpty());
+            }
+            args.insert("1_操作", "不同操作");
+            QVERIFY(!ToolCodec::validate(name, args).isEmpty());
+        }
+    }
+    void directInputDoesNotRequireAnObservationToken()
+    {
+        for (const auto* name : {"novaterm_interact_terminal", "novaterm_start_task", "novaterm_request_elevation"}) {
+            auto args = argumentsFor(name == QString("novaterm_start_task") ? QString("novaterm_interact_terminal") : QString(name));
+            args.remove("inputToken");
+            QVERIFY2(!isError(decodeBusinessCall(name, args)), name);
+            args.insert("inputToken", "");
+            QVERIFY2(isError(decodeBusinessCall(name, args)), name);
+            args.insert("inputToken", "existing-signed-token");
+            QVERIFY2(!isError(decodeBusinessCall(name, args)), name);
+        }
+    }
+    void approvalPresentationCatalog()
+    {
+        const auto catalog = ToolCodec::catalog();
+        QCOMPARE(catalog.size(), 20);
+        for (const auto& value : catalog) {
+            const auto tool = value.toObject();
+            QVERIFY2(!tool.value("title").toString().isEmpty(), qPrintable(tool.value("name").toString()));
+            const auto input = tool.value("inputSchema").toObject();
+            const auto properties = input.value("properties").toObject();
+            const auto required = input.value("required").toArray();
+            for (const auto* field : {"1_操作", "3_内容", "2_目标"}) {
+                QCOMPARE(properties.value(field).toObject().value("type").toString(), QString("string"));
+                QVERIFY(required.contains(field));
+                QVERIFY(!properties.value(field).toObject().value("description").toString().isEmpty());
+            }
+            QCOMPARE(properties.keys().first(), QString("1_操作"));
+        }
+    }
+    void approvalPresentationIsRequiredAndNotExecutionData()
+    {
+        auto args = argumentsFor("novaterm_interact_terminal");
+        const QString command = QString("printf 'hello\\n'; uptime; echo ") + QString(1024, 'x');
+        args.insert("actions", QJsonArray{QJsonObject{{"type", "command"}, {"command", command}}});
+        QVERIFY(!isError(decodeBusinessRequest("novaterm_interact_terminal", args)));
+        args.insert("1_操作", QString::fromUtf8("操作目标终端"));
+        args.insert("3_内容", QString::fromUtf8("等待终端响应"));
+        args.insert("2_目标", QString::fromUtf8("ssh · 192.168.1.200"));
+        auto decoded = decodeBusinessRequest("novaterm_interact_terminal", args);
+        QVERIFY(!isError(decoded));
+        const auto request = std::get<InteractTerminalRequest>(std::get<ToolRequest>(decoded));
+        QCOMPARE(ToolCodec::encodeActions(request.actions), args.value("actions").toArray());
+        QCOMPARE(request.inputToken, QString("input"));
+        QVERIFY(request.operation == OperationId{OperationUuid});
+        args.insert("3_内容", "Different display wording");
+        decoded = decodeBusinessRequest("novaterm_interact_terminal", args);
+        QVERIFY(!isError(decoded));
+        QCOMPARE(ToolCodec::encodeActions(std::get<InteractTerminalRequest>(std::get<ToolRequest>(decoded)).actions),
+            ToolCodec::encodeActions(request.actions));
+    }
+    void allToolsAcceptPresentationWithoutChangingRequiredArguments()
+    {
+        for (const auto& value : ToolCodec::catalog()) {
+            const auto name = value.toObject().value("name").toString();
+            auto args = argumentsFor(name);
+            if (name == "novaterm_list_captures") args = {};
+            else if (name == "novaterm_read_history" || name == "novaterm_search_history") {
+                args = {{"captureId", SessionUuid}};
+                if (name == "novaterm_search_history") args.insert("query", "error");
+            } else if (name == "novaterm_clear_terminal") {
+                args.insert("operationId", OperationUuid); args.insert("scope", "all");
+                args.insert("expectedGeneration", "1"); args.insert("clearToken", "clear");
+            } else if (name == "novaterm_wait_text") {
+                args.insert("source", "log"); args.insert("texts", QJsonArray{"PASS"});
+            } else if (name == "novaterm_start_task") {
+                args.insert("operationId", OperationUuid); args.insert("inputToken", "input");
+                args.insert("actions", QJsonArray{QJsonObject{{"type", "command"}, {"command", "uptime"}}});
+            } else if (name == "novaterm_query_task" || name == "novaterm_stop_task") {
+                args.insert("taskId", "task-1");
+                if (name == "novaterm_stop_task") args.insert("operationId", OperationUuid);
+            } else if (name == "novaterm_upload_file" || name == "novaterm_download_file" || name == "novaterm_upload_serial_file") {
+                args.insert("operationId", OperationUuid); args.insert("localPath", LocalFilePath);
+                if (name != "novaterm_upload_serial_file") args.insert("remotePath", "/tmp/firmware.bin");
+            } else if (name.contains("transfer")) args = {{"transferId", OperationUuid}};
+            QVERIFY2(!isError(decodeBusinessCall(name, args)), qPrintable(name));
+            args.insert("1_操作", value.toObject().value("title")); args.insert("3_内容", "Essential content");
+            args.insert("2_目标", "Known target");
+            const auto result = decodeBusinessCall(name, args);
+            QVERIFY2(!isError(result), qPrintable(name));
+            QCOMPARE(ToolCodec::toolName(std::get<ToolCall>(result)), name);
+            const auto required = value.toObject().value("inputSchema").toObject().value("required").toArray();
+            if (!required.isEmpty()) {
+                args.remove(required.first().toString());
+                QVERIFY2(isError(ToolCodec::decodeCall(name, args)), qPrintable(name));
+            }
+        }
+    }
+    void approvalPresentationValidation()
+    {
+        for (const auto* tool : {"novaterm_list_sessions", "novaterm_list_captures"}) {
+            QVERIFY(validateBusinessArguments(tool, {}).isEmpty());
+            for (const auto* field : {"3_内容", "2_目标"}) {
+                QVERIFY(validateBusinessArguments(tool, {{field, QString(60, QChar(0x4e2d))}}).isEmpty());
+                const auto emoji = QString::fromUtf8("😀");
+                QVERIFY(validateBusinessArguments(tool, {{field, emoji.repeated(60)}}).isEmpty());
+                QVERIFY(!validateBusinessArguments(tool, {{field, emoji.repeated(61)}}).isEmpty());
+                const QList<QJsonValue> invalid{QString(), QString("   "), QString(61, 'x'),
+                    QString("a\nb"), QString("a\tb"), QString(QChar(0x1b)), QString(QChar(0x202e)),
+                    QString(QChar(0xd800)), QJsonValue(42), QJsonValue(QJsonObject{})};
+                for (const auto& value : invalid)
+                    QVERIFY2(!validateBusinessArguments(tool, {{field, value}}).isEmpty(), field);
+            }
+            QVERIFY(!validateBusinessArguments(tool, {{"unknownDisplay", "text"}}).isEmpty());
+            QVERIFY(!isError(decodeBusinessCall(tool, {{"3_内容", "Current"}, {"2_目标", "Known target"}})));
+        }
+    }
     void transferBindingRejectsEveryIdentityChange()
     {
         const SerialFileBinding original{{SessionId{"s"}, AttachmentId{"a"}, Epoch{"e"},
@@ -162,8 +274,8 @@ private slots:
         args.insert("localPath", "/home/test/build/firmware.bin");
 #endif
         if (name != "novaterm_upload_serial_file") args.insert("remotePath", "/home/test/firmware.bin");
-        const auto decoded = ToolCodec::decodeCall(name, args);
-        QVERIFY2(!isError(decoded), qPrintable(ToolCodec::validate(name, args)));
+        const auto decoded = decodeBusinessCall(name, args);
+        QVERIFY2(!isError(decoded), qPrintable(validateBusinessArguments(name, args)));
     }
     void retiredCommandToolsAreRejected_data()
     {
@@ -178,8 +290,8 @@ private slots:
     {
         QFETCH(QString, name);
         QVERIFY(!ToolCodec::isKnownTool(name));
-        QVERIFY(!ToolCodec::validate(name, argumentsFor(name)).isEmpty());
-        QVERIFY(isError(ToolCodec::decodeCall(name, argumentsFor(name))));
+        QVERIFY(!validateBusinessArguments(name, argumentsFor(name)).isEmpty());
+        QVERIFY(isError(decodeBusinessCall(name, argumentsFor(name))));
         const auto registry = NovaTerm::Capabilities::CapabilityRegistry::implementedCapabilities();
         QVERIFY(!registry.findByMcpTool(name));
     }
@@ -194,20 +306,20 @@ private slots:
         QFETCH(QString, name);
         QJsonObject args{{"sessionId", SessionUuid}, {"epoch", "epoch-1"}, {"localPath", LocalFilePath},
             {"remotePath", "/tmp/result.bin"}, {"operationId", OperationUuid}};
-        QVERIFY(ToolCodec::validate(name, args).isEmpty());
-        args.insert("overwrite", true); QVERIFY(ToolCodec::validate(name, args).isEmpty());
-        const auto decoded = ToolCodec::decodeCall(name, args); QVERIFY(!isError(decoded));
+        QVERIFY(validateBusinessArguments(name, args).isEmpty());
+        args.insert("overwrite", true); QVERIFY(validateBusinessArguments(name, args).isEmpty());
+        const auto decoded = decodeBusinessCall(name, args); QVERIFY(!isError(decoded));
         const auto& transfer = std::get<FileTransferRequest>(std::get<ToolCall>(decoded));
         QVERIFY(name == "novaterm_upload_file" ? std::get<StartFileUploadRequest>(transfer).overwrite
             : std::get<StartFileDownloadRequest>(transfer).overwrite);
-        args.insert("overwrite", false); QVERIFY(ToolCodec::validate(name, args).isEmpty());
+        args.insert("overwrite", false); QVERIFY(validateBusinessArguments(name, args).isEmpty());
         args.remove("overwrite");
-        const auto defaultCall = ToolCodec::decodeCall(name, args); QVERIFY(!isError(defaultCall));
+        const auto defaultCall = decodeBusinessCall(name, args); QVERIFY(!isError(defaultCall));
         const auto& defaults = std::get<FileTransferRequest>(std::get<ToolCall>(defaultCall));
         QVERIFY(name == "novaterm_upload_file" ? !std::get<StartFileUploadRequest>(defaults).overwrite
             : !std::get<StartFileDownloadRequest>(defaults).overwrite);
         for (const auto& value : QJsonArray{"true", 1, QJsonValue::Null, QJsonObject{}}) {
-            args.insert("overwrite", value); QVERIFY(!ToolCodec::validate(name, args).isEmpty());
+            args.insert("overwrite", value); QVERIFY(!validateBusinessArguments(name, args).isEmpty());
         }
         QFile fixture(QStringLiteral(NOVATERM_SOURCE_DIR "/tests/mcp/fixtures/file-overwrite-tools-2026-10-28.json"));
         QVERIFY(fixture.open(QIODevice::ReadOnly));
@@ -229,40 +341,40 @@ private slots:
         QJsonObject args{{"sessionId", SessionUuid}, {"epoch", "epoch-1"}, {"localPath", LocalFilePath}, {"operationId", OperationUuid}};
         const bool serial = name == "novaterm_upload_serial_file";
         if (!serial) args.insert("remotePath", "/tmp/firmware.bin");
-        const auto decoded = ToolCodec::decodeCall(name, args); QVERIFY(!isError(decoded));
+        const auto decoded = decodeBusinessCall(name, args); QVERIFY(!isError(decoded));
         QCOMPARE(ToolCodec::toolName(std::get<ToolCall>(decoded)), name);
         for (const auto& field : args.keys()) {
             auto missing = args; missing.remove(field);
-            QVERIFY2(isError(ToolCodec::decodeCall(name, missing)), qPrintable(field));
+            QVERIFY2(isError(decodeBusinessCall(name, missing)), qPrintable(field));
         }
         for (const auto& field : QStringList{"resourceId", "resourceRevision", "relativePath", "scopeId", "scopeRevision",
                 "targetId", "targetRevision", "clientId", "host", "portName", "password"}) {
             auto invalid = args; invalid.insert(field, "injected");
-            QVERIFY2(isError(ToolCodec::decodeCall(name, invalid)), qPrintable(field));
+            QVERIFY2(isError(decodeBusinessCall(name, invalid)), qPrintable(field));
         }
         for (const auto& field : QStringList{"sessionId", "operationId"}) {
             auto invalid = args; invalid.insert(field, "not-a-uuid");
-            QVERIFY(isError(ToolCodec::decodeCall(name, invalid)));
+            QVERIFY(isError(decodeBusinessCall(name, invalid)));
         }
         for (const auto& path : QStringList{"", "relative.bin", "../escape", "./file", "//server/share/file",
                 LocalFilePath + "/../other", LocalFilePath + "/", LocalFilePath + ":stream",
                 LocalFilePath + "\n", LocalFilePath + QChar(0x85), LocalFilePath + QString(256, 'a')}) {
             auto invalid = args; invalid.insert("localPath", path);
-            QVERIFY2(isError(ToolCodec::decodeCall(name, invalid)), qPrintable(path));
+            QVERIFY2(isError(decodeBusinessCall(name, invalid)), qPrintable(path));
         }
         if (!serial) {
             for (const auto& path : QStringList{"", "relative.bin", "/", "/a/../b", "/a//b", "/a/", "/name:stream", "/a\\b", "/a\nb"}) {
                 auto invalid = args; invalid.insert("remotePath", path);
-                QVERIFY2(isError(ToolCodec::decodeCall(name, invalid)), qPrintable(path));
+                QVERIFY2(isError(decodeBusinessCall(name, invalid)), qPrintable(path));
             }
             args.insert("remotePath", "/firmware.bin");
-            QVERIFY(!isError(ToolCodec::decodeCall(name, args)));
+            QVERIFY(!isError(decodeBusinessCall(name, args)));
         } else {
             const auto& request = std::get<StartSerialFileUploadRequest>(std::get<SerialFileTransferRequest>(std::get<ToolCall>(decoded)));
             QCOMPARE(request.localPath, LocalFilePath); QCOMPARE(request.remoteName, QString("firmware.bin"));
             for (const auto& remoteName : QStringList{"", ".", "..", "a/b", "a\\b", "name:stream", "a\nb", QString(256, 'a'), QString(86, QChar(0x4e00))}) {
                 auto invalid = args; invalid.insert("remoteName", remoteName);
-                QVERIFY2(isError(ToolCodec::decodeCall(name, invalid)), qPrintable(remoteName));
+                QVERIFY2(isError(decodeBusinessCall(name, invalid)), qPrintable(remoteName));
             }
         }
 #ifdef Q_OS_WIN
@@ -270,7 +382,7 @@ private slots:
 #else
         args.insert("localPath", "/firmware.bin");
 #endif
-        QVERIFY(!isError(ToolCodec::decodeCall(name, args)));
+        QVERIFY(!isError(decodeBusinessCall(name, args)));
     }
     void uploadsRequirePairedConfirmationParameters_data()
     {
@@ -283,13 +395,13 @@ private slots:
         QFETCH(QString, name);
         QJsonObject args{{"sessionId", SessionUuid}, {"epoch", "epoch-1"}, {"localPath", LocalFilePath}, {"operationId", OperationUuid}};
         if (name == "novaterm_upload_file") args.insert("remotePath", "/tmp/firmware.bin");
-        QVERIFY(!isError(ToolCodec::decodeCall(name, args)));
-        auto invalid = args; invalid.insert("confirmed", true); QVERIFY(isError(ToolCodec::decodeCall(name, invalid)));
-        invalid = args; invalid.insert("confirmationToken", "opaque"); QVERIFY(isError(ToolCodec::decodeCall(name, invalid)));
+        QVERIFY(!isError(decodeBusinessCall(name, args)));
+        auto invalid = args; invalid.insert("confirmed", true); QVERIFY(isError(decodeBusinessCall(name, invalid)));
+        invalid = args; invalid.insert("confirmationToken", "opaque"); QVERIFY(isError(decodeBusinessCall(name, invalid)));
         args.insert("confirmationToken", "opaque");
         for (const bool accept : {false, true}) {
             args.insert("confirmed", accept);
-            const auto decoded = ToolCodec::decodeCall(name, args); QVERIFY(!isError(decoded));
+            const auto decoded = decodeBusinessCall(name, args); QVERIFY(!isError(decoded));
             if (name == "novaterm_upload_file") {
                 const auto& upload = std::get<StartFileUploadRequest>(std::get<FileTransferRequest>(std::get<ToolCall>(decoded)));
                 QCOMPARE(upload.confirmationToken, QString("opaque")); QVERIFY(upload.confirmed); QCOMPARE(*upload.confirmed, accept);
@@ -299,10 +411,10 @@ private slots:
             }
         }
         for (const auto& bad : QJsonArray{QJsonValue::Null, "true", 1, QJsonObject{}}) {
-            invalid = args; invalid.insert("confirmed", bad); QVERIFY(isError(ToolCodec::decodeCall(name, invalid)));
+            invalid = args; invalid.insert("confirmed", bad); QVERIFY(isError(decodeBusinessCall(name, invalid)));
         }
         for (const auto& bad : QJsonArray{"", QString(65, 'a'), QJsonValue::Null, true}) {
-            invalid = args; invalid.insert("confirmationToken", bad); QVERIFY(isError(ToolCodec::decodeCall(name, invalid)));
+            invalid = args; invalid.insert("confirmationToken", bad); QVERIFY(isError(decodeBusinessCall(name, invalid)));
         }
         const auto data = toolByName(name).value("outputSchema").toObject().value("properties").toObject().value("data").toObject();
         QCOMPARE(data.value("oneOf").toArray().size(), 2);
@@ -366,9 +478,9 @@ private slots:
             values.insert(3, "downloading"); state.insert("enum", values); fields.insert("state", state);
             data.insert("properties", fields); envelope.insert("data", data); output.insert("properties", envelope);
             old.insert("outputSchema", output); QCOMPARE(tool, old);
-            QVERIFY(ToolCodec::validate(name, {{"transferId", OperationUuid}}).isEmpty());
-            QVERIFY(isError(ToolCodec::decodeCall(name, {{"transferId", "invalid"}})));
-            QVERIFY(!ToolCodec::validate(name, {{"transferId", OperationUuid}, {"clientId", "other"}}).isEmpty());
+            QVERIFY(validateBusinessArguments(name, {{"transferId", OperationUuid}}).isEmpty());
+            QVERIFY(isError(decodeBusinessCall(name, {{"transferId", "invalid"}})));
+            QVERIFY(!validateBusinessArguments(name, {{"transferId", OperationUuid}, {"clientId", "other"}}).isEmpty());
         }
     }
     void directUploadGuidanceExplainsConfirmationAndControlHandoff()
@@ -392,7 +504,11 @@ private slots:
         for (const auto* name : {"novaterm_wait_text", "novaterm_start_task", "novaterm_query_task", "novaterm_stop_task"})
             workflow.append(toolByName(QString::fromLatin1(name)));
         QCOMPARE(workflow.size(), 4);
-        QCOMPARE(legacyObservationSchema(workflow), QJsonValue(QJsonDocument::fromJson(fixture.readAll()).array()));
+        QJsonParseError parseError{};
+        const auto document = QJsonDocument::fromJson(fixture.readAll(), &parseError);
+        QVERIFY2(parseError.error == QJsonParseError::NoError, qPrintable(parseError.errorString()));
+        QVERIFY(document.isArray());
+        QCOMPARE(legacyObservationSchema(workflow), withDirectInputContract(document.array()));
     }
     void workflowToolsAreBoundedAndIndependent()
     {
@@ -400,37 +516,37 @@ private slots:
         auto wait = identity(); wait.insert("source", "log");
         wait.insert("texts", QJsonArray{"PASS", QString::fromUtf8("完成")});
         QVERIFY(ToolCodec::isKnownTool("novaterm_wait_text"));
-        QVERIFY(ToolCodec::validate("novaterm_wait_text", wait).isEmpty());
-        QVERIFY(!isError(ToolCodec::decodeCall("novaterm_wait_text", wait)));
+        QVERIFY(validateBusinessArguments("novaterm_wait_text", wait).isEmpty());
+        QVERIFY(!isError(decodeBusinessCall("novaterm_wait_text", wait)));
         for (const auto& field : QStringList{"regex", "path", "principal"}) {
             auto invalid = wait; invalid.insert(field, "x");
-            QVERIFY(!ToolCodec::validate("novaterm_wait_text", invalid).isEmpty());
+            QVERIFY(!validateBusinessArguments("novaterm_wait_text", invalid).isEmpty());
         }
         auto invalid = wait; invalid.insert("waitMs", 30001);
-        QVERIFY(!ToolCodec::validate("novaterm_wait_text", invalid).isEmpty());
+        QVERIFY(!validateBusinessArguments("novaterm_wait_text", invalid).isEmpty());
         invalid = wait; invalid.insert("scanBytes", 1048577);
-        QVERIFY(!ToolCodec::validate("novaterm_wait_text", invalid).isEmpty());
+        QVERIFY(!validateBusinessArguments("novaterm_wait_text", invalid).isEmpty());
         invalid = wait; invalid.insert("sinceToken", "a"); invalid.insert("resumeToken", "b");
-        QVERIFY(!ToolCodec::validate("novaterm_wait_text", invalid).isEmpty());
+        QVERIFY(!validateBusinessArguments("novaterm_wait_text", invalid).isEmpty());
         invalid = wait; invalid.insert("source", "screen");
-        QVERIFY(!ToolCodec::validate("novaterm_wait_text", invalid).isEmpty());
+        QVERIFY(!validateBusinessArguments("novaterm_wait_text", invalid).isEmpty());
         invalid.insert("start", "current");
-        QVERIFY(ToolCodec::validate("novaterm_wait_text", invalid).isEmpty());
+        QVERIFY(validateBusinessArguments("novaterm_wait_text", invalid).isEmpty());
         invalid.insert("sinceToken", "a");
-        QVERIFY(!ToolCodec::validate("novaterm_wait_text", invalid).isEmpty());
+        QVERIFY(!validateBusinessArguments("novaterm_wait_text", invalid).isEmpty());
         auto start = argumentsFor("novaterm_interact_terminal");
-        QVERIFY(ToolCodec::validate("novaterm_start_task", start).isEmpty());
-        QVERIFY(!isError(ToolCodec::decodeCall("novaterm_start_task", start)));
+        QVERIFY(validateBusinessArguments("novaterm_start_task", start).isEmpty());
+        QVERIFY(!isError(decodeBusinessCall("novaterm_start_task", start)));
         start.insert("timeoutMs", 3600001);
-        QVERIFY(!ToolCodec::validate("novaterm_start_task", start).isEmpty());
+        QVERIFY(!validateBusinessArguments("novaterm_start_task", start).isEmpty());
         auto query = identity(); query.insert("operationId", OperationUuid);
-        QVERIFY(ToolCodec::validate("novaterm_query_task", query).isEmpty());
+        QVERIFY(validateBusinessArguments("novaterm_query_task", query).isEmpty());
         query.insert("taskId", "task-1");
-        QVERIFY(!ToolCodec::validate("novaterm_query_task", query).isEmpty());
+        QVERIFY(!validateBusinessArguments("novaterm_query_task", query).isEmpty());
         query.remove("operationId");
-        QVERIFY(!isError(ToolCodec::decodeCall("novaterm_query_task", query)));
+        QVERIFY(!isError(decodeBusinessCall("novaterm_query_task", query)));
         query.insert("operationId", OperationUuid);
-        QVERIFY(!isError(ToolCodec::decodeCall("novaterm_stop_task", query)));
+        QVERIFY(!isError(decodeBusinessCall("novaterm_stop_task", query)));
         static_assert(std::variant_size_v<ToolRequest> == 5);
     }
     void clearToolHasIndependentContract()
@@ -441,24 +557,28 @@ private slots:
         args.insert("expectedGeneration", "1");
         args.insert("clearToken", "signed-clear-baseline");
         QVERIFY(ToolCodec::isKnownTool("novaterm_clear_terminal"));
-        QVERIFY(ToolCodec::validate("novaterm_clear_terminal", args).isEmpty());
-        QVERIFY(!isError(ToolCodec::decodeCall("novaterm_clear_terminal", args)));
+        QVERIFY(validateBusinessArguments("novaterm_clear_terminal", args).isEmpty());
+        QVERIFY(!isError(decodeBusinessCall("novaterm_clear_terminal", args)));
         for (const auto& name : QStringList{"operationId", "scope", "expectedGeneration", "clearToken"}) {
             auto missing = args; missing.remove(name);
-            QVERIFY(!ToolCodec::validate("novaterm_clear_terminal", missing).isEmpty());
+            QVERIFY(!validateBusinessArguments("novaterm_clear_terminal", missing).isEmpty());
         }
         for (const auto& generation : QStringList{"-1", "01", "18446744073709551616", ""}) {
             auto invalid = args; invalid.insert("expectedGeneration", generation);
-            QVERIFY(!ToolCodec::validate("novaterm_clear_terminal", invalid).isEmpty());
+            QVERIFY(!validateBusinessArguments("novaterm_clear_terminal", invalid).isEmpty());
         }
         auto invalid = args; invalid.insert("scope", "screen");
-        QVERIFY(!ToolCodec::validate("novaterm_clear_terminal", invalid).isEmpty());
+        QVERIFY(!validateBusinessArguments("novaterm_clear_terminal", invalid).isEmpty());
         invalid = args; invalid.insert("path", "C:/private");
-        QVERIFY(!ToolCodec::validate("novaterm_clear_terminal", invalid).isEmpty());
+        QVERIFY(!validateBusinessArguments("novaterm_clear_terminal", invalid).isEmpty());
         static_assert(std::variant_size_v<ToolRequest> == 5);
         QFile fixture(QStringLiteral(NOVATERM_SOURCE_DIR "/tests/mcp/fixtures/clear-terminal-2026-10-25.json"));
         QVERIFY(fixture.open(QIODevice::ReadOnly));
-        QCOMPARE(ToolCodec::catalog()[8].toObject(), QJsonDocument::fromJson(fixture.readAll()).object());
+        QJsonParseError parseError{};
+        const auto document = QJsonDocument::fromJson(fixture.readAll(), &parseError);
+        QVERIFY2(parseError.error == QJsonParseError::NoError, qPrintable(parseError.errorString()));
+        QVERIFY(document.isObject());
+        QCOMPARE(toolByName("novaterm_clear_terminal"), document.object());
     }
     void logReadRequiresExplicitSourceAndStart();
     void catalogMatchesCompatibilityFixture();
@@ -493,22 +613,22 @@ void ContractsTests::logReadRequiresExplicitSourceAndStart()
     auto args = identity();
     args.insert("source", "log");
     args.insert("start", "oldest");
-    QVERIFY2(ToolCodec::validate("novaterm_read_context", args).isEmpty(), "B1 log selection must be accepted");
+    QVERIFY2(validateBusinessArguments("novaterm_read_context", args).isEmpty(), "B1 log selection must be accepted");
     args.remove("start");
-    QVERIFY(!ToolCodec::validate("novaterm_read_context", args).isEmpty());
+    QVERIFY(!validateBusinessArguments("novaterm_read_context", args).isEmpty());
     args.insert("sinceToken", "signed-log-position");
-    QVERIFY(ToolCodec::validate("novaterm_read_context", args).isEmpty());
+    QVERIFY(validateBusinessArguments("novaterm_read_context", args).isEmpty());
     args.insert("start", "tail");
-    QVERIFY(!ToolCodec::validate("novaterm_read_context", args).isEmpty());
+    QVERIFY(!validateBusinessArguments("novaterm_read_context", args).isEmpty());
     args.remove("start");
     for (const auto& field : QStringList{"expandToken", "waitFor", "includeViewport", "waitMs"}) {
         auto invalid = args;
         invalid.insert(field, field == "includeViewport" ? QJsonValue(true)
             : field == "waitMs" ? QJsonValue(1) : QJsonValue("x"));
-        QVERIFY(!ToolCodec::validate("novaterm_read_context", invalid).isEmpty());
+        QVERIFY(!validateBusinessArguments("novaterm_read_context", invalid).isEmpty());
     }
     args = identity(); args.insert("start", "tail");
-    QVERIFY(!ToolCodec::validate("novaterm_read_context", args).isEmpty());
+    QVERIFY(!validateBusinessArguments("novaterm_read_context", args).isEmpty());
 }
 
 void ContractsTests::catalogMatchesCompatibilityFixture()
@@ -524,7 +644,7 @@ void ContractsTests::catalogMatchesCompatibilityFixture()
     const auto legacy = document.array();
     QVERIFY(ToolCodec::catalog().size() >= legacy.size());
     for (qsizetype i = 0; i < legacy.size(); ++i) {
-        const auto previousTool = legacy[i].toObject();
+        const auto previousTool = withDirectInputContract(legacy[i]).toObject();
         const auto name = previousTool.value("name").toString();
         if (retiredTool(name)) continue;
         const auto current = toolByName(name);
@@ -579,9 +699,9 @@ void ContractsTests::everyToolDecodesToItsOwnRequest()
 {
     for (const auto& name : toolNames()) {
         const auto arguments = argumentsFor(name);
-        QVERIFY2(ToolCodec::validate(name, arguments).isEmpty(),
-            qPrintable(ToolCodec::validate(name, arguments)));
-        const auto decoded = ToolCodec::decode(name, arguments);
+        QVERIFY2(validateBusinessArguments(name, arguments).isEmpty(),
+            qPrintable(validateBusinessArguments(name, arguments)));
+        const auto decoded = decodeBusinessRequest(name, arguments);
         QVERIFY2(!isError(decoded), qPrintable(name));
         const auto& request = std::get<ToolRequest>(decoded);
         QCOMPARE(ToolCodec::toolName(request), name);
@@ -594,15 +714,15 @@ void ContractsTests::everyToolDecodesToItsOwnRequest()
 void ContractsTests::rejectedArgumentsKeepCompatibleMessages()
 {
     const auto sessionArguments = identity();
-    QCOMPARE(ToolCodec::validate(QStringLiteral("novaterm_missing_tool"), {}),
+    QCOMPARE(validateBusinessArguments(QStringLiteral("novaterm_missing_tool"), {}),
         QStringLiteral("Unknown tool."));
 
     auto missing = sessionArguments;
     missing.remove(QStringLiteral("epoch"));
-    QCOMPARE(ToolCodec::validate(QStringLiteral("novaterm_read_context"), missing),
+    QCOMPARE(validateBusinessArguments(QStringLiteral("novaterm_read_context"), missing),
         QStringLiteral("Missing required argument: epoch"));
     const auto missingDecoded =
-        ToolCodec::decode(QStringLiteral("novaterm_read_context"), missing);
+        decodeBusinessRequest(QStringLiteral("novaterm_read_context"), missing);
     QVERIFY(isError(missingDecoded));
     QCOMPARE(errorIfAny(missingDecoded)->code, ErrorCode::InvalidArgument);
     QCOMPARE(errorIfAny(missingDecoded)->message,
@@ -610,18 +730,18 @@ void ContractsTests::rejectedArgumentsKeepCompatibleMessages()
 
     auto unknown = sessionArguments;
     unknown.insert(QStringLiteral("extra"), true);
-    QCOMPARE(ToolCodec::validate(QStringLiteral("novaterm_read_context"), unknown),
+    QCOMPARE(validateBusinessArguments(QStringLiteral("novaterm_read_context"), unknown),
         QStringLiteral("Unknown argument: extra"));
 
     auto search = argumentsFor(QStringLiteral("novaterm_search_context"));
     search.insert(QStringLiteral("query"), QStringLiteral("line\nbreak"));
-    QCOMPARE(ToolCodec::validate(QStringLiteral("novaterm_search_context"), search),
+    QCOMPARE(validateBusinessArguments(QStringLiteral("novaterm_search_context"), search),
         QStringLiteral("Invalid argument: query"));
 
     auto expand = sessionArguments;
     expand.insert(QStringLiteral("expandToken"), QStringLiteral("token"));
     expand.insert(QStringLiteral("sinceToken"), QStringLiteral("cursor"));
-    QCOMPARE(ToolCodec::validate(QStringLiteral("novaterm_read_context"), expand),
+    QCOMPARE(validateBusinessArguments(QStringLiteral("novaterm_read_context"), expand),
         QStringLiteral("expandToken and sinceToken are mutually exclusive."));
 
     auto mixed = argumentsFor(QStringLiteral("novaterm_interact_terminal"));
@@ -630,19 +750,19 @@ void ContractsTests::rejectedArgumentsKeepCompatibleMessages()
             {QStringLiteral("command"), QStringLiteral("uptime")}},
         QJsonObject{{QStringLiteral("type"), QStringLiteral("text")},
             {QStringLiteral("text"), QStringLiteral("x")}}});
-    QCOMPARE(ToolCodec::validate(QStringLiteral("novaterm_interact_terminal"), mixed),
+    QCOMPARE(validateBusinessArguments(QStringLiteral("novaterm_interact_terminal"), mixed),
         QStringLiteral("command and release must be the only action."));
 
     auto elevation = argumentsFor(QStringLiteral("novaterm_request_elevation"));
     elevation.insert(QStringLiteral("command"), QStringLiteral("id"));
-    QCOMPARE(ToolCodec::validate(QStringLiteral("novaterm_request_elevation"), elevation),
+    QCOMPARE(validateBusinessArguments(QStringLiteral("novaterm_request_elevation"), elevation),
         QStringLiteral("command is required only in command mode."));
 }
 
 void ContractsTests::optionalArgumentsPreservePresence()
 {
     const auto name = QStringLiteral("novaterm_read_context");
-    const auto minimal = ToolCodec::decode(name, identity());
+    const auto minimal = decodeBusinessRequest(name, identity());
     QVERIFY(!isError(minimal));
     const auto& plain = std::get<ReadContextRequest>(std::get<ToolRequest>(minimal));
     QVERIFY(!plain.projection.has_value());
@@ -658,7 +778,7 @@ void ContractsTests::optionalArgumentsPreservePresence()
     arguments.insert(QStringLiteral("waitFor"), QStringLiteral("change"));
     arguments.insert(QStringLiteral("includeViewport"), false);
     arguments.insert(QStringLiteral("maxBytes"), 4096);
-    const auto decoded = ToolCodec::decode(name, arguments);
+    const auto decoded = decodeBusinessRequest(name, arguments);
     QVERIFY(!isError(decoded));
     const auto& request = std::get<ReadContextRequest>(std::get<ToolRequest>(decoded));
     QCOMPARE(request.projection.value_or(ProjectionMode::Full), ProjectionMode::Compact);
@@ -670,13 +790,13 @@ void ContractsTests::optionalArgumentsPreservePresence()
 
 void ContractsTests::remainingRequestDefaultsAreStable()
 {
-    const auto list = ToolCodec::decode(QStringLiteral("novaterm_list_sessions"), {});
+    const auto list = decodeBusinessRequest(QStringLiteral("novaterm_list_sessions"), {});
     QVERIFY(!isError(list));
     const auto& listed = std::get<ListSessionsRequest>(std::get<ToolRequest>(list));
     QCOMPARE(listed.limit, 50);
     QVERIFY(!listed.cursor);
 
-    const auto search = ToolCodec::decode(QStringLiteral("novaterm_search_context"),
+    const auto search = decodeBusinessRequest(QStringLiteral("novaterm_search_context"),
         argumentsFor(QStringLiteral("novaterm_search_context")));
     QVERIFY(!isError(search));
     const auto& searched = std::get<SearchContextRequest>(std::get<ToolRequest>(search));
@@ -684,13 +804,13 @@ void ContractsTests::remainingRequestDefaultsAreStable()
     QVERIFY(searched.caseSensitive);
     QCOMPARE(searched.maxMatches, 20);
 
-    const auto input = ToolCodec::decode(QStringLiteral("novaterm_interact_terminal"),
+    const auto input = decodeBusinessRequest(QStringLiteral("novaterm_interact_terminal"),
         argumentsFor(QStringLiteral("novaterm_interact_terminal")));
     QVERIFY(!isError(input));
     const auto& interacted = std::get<InteractTerminalRequest>(std::get<ToolRequest>(input));
     QVERIFY(!interacted.wait && !interacted.waitFor && !interacted.projection);
     QVERIFY(!interacted.replyToExecution && !interacted.requireVerifiedReady);
-    const auto elevation = ToolCodec::decode(QStringLiteral("novaterm_request_elevation"),
+    const auto elevation = decodeBusinessRequest(QStringLiteral("novaterm_request_elevation"),
         argumentsFor(QStringLiteral("novaterm_request_elevation")));
     QVERIFY(!isError(elevation));
     const auto& elevated = std::get<RequestElevationRequest>(std::get<ToolRequest>(elevation));
@@ -702,7 +822,7 @@ void ContractsTests::everyToolRejectsUnknownFieldsAndInvalidEnums()
     for (const auto& tool : toolNames()) {
         auto args = argumentsFor(tool);
         args.insert(QStringLiteral("extra"), true);
-        const auto result = ToolCodec::decode(tool, args);
+        const auto result = decodeBusinessRequest(tool, args);
         QVERIFY2(isError(result), qPrintable(tool));
         QCOMPARE(errorIfAny(result)->code, ErrorCode::InvalidArgument);
         QCOMPARE(errorIfAny(result)->message, QStringLiteral("Unknown argument: extra"));
@@ -718,7 +838,7 @@ void ContractsTests::everyToolRejectsUnknownFieldsAndInvalidEnums()
         for (const auto& field : names) {
             auto args = argumentsFor(tool);
             args.insert(field, QStringLiteral("unsupported"));
-            const auto result = ToolCodec::decode(tool, args);
+            const auto result = decodeBusinessRequest(tool, args);
             QVERIFY2(isError(result), qPrintable(tool + QLatin1Char('/') + field));
             QCOMPARE(errorIfAny(result)->message, QStringLiteral("Invalid argument: ") + field);
         }
@@ -734,9 +854,9 @@ void ContractsTests::utf8LimitsCountEncodedBytes()
         const auto boundary = scalar.repeated(scalars);
         QCOMPARE(boundary.toUtf8().size(), scalars * 4);
         args.insert(field, boundary);
-        QVERIFY(!isError(ToolCodec::decode(tool, args)));
+        QVERIFY(!isError(decodeBusinessRequest(tool, args)));
         args.insert(field, boundary + QLatin1Char('x'));
-        const auto oversized = ToolCodec::decode(tool, args);
+        const auto oversized = decodeBusinessRequest(tool, args);
         QVERIFY(isError(oversized));
         QCOMPARE(errorIfAny(oversized)->message, QStringLiteral("Invalid argument: ") + field);
     }
@@ -752,7 +872,7 @@ void ContractsTests::actionsDecodeWithoutFieldOverlap()
         QJsonObject{{QStringLiteral("type"), QStringLiteral("text")},
             {QStringLiteral("text"), QStringLiteral("ls")}},
         QJsonObject{{QStringLiteral("type"), QStringLiteral("line_ending")}}});
-    const auto decoded = ToolCodec::decode(QStringLiteral("novaterm_interact_terminal"), arguments);
+    const auto decoded = decodeBusinessRequest(QStringLiteral("novaterm_interact_terminal"), arguments);
     QVERIFY(!isError(decoded));
     const auto& request = std::get<InteractTerminalRequest>(std::get<ToolRequest>(decoded));
     QCOMPARE(request.actions.size(), std::size_t(3));

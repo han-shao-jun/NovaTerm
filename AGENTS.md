@@ -1,5 +1,44 @@
 # AGENTS.md
 
+### 0.2.132 MCP准入与中文提示提交收口（2026-11-05）
+
+按用户要求提交推送Gitee。先快进同步远端f5092c7（0.2.131 SFTP修复），原未提交文件哈希核验保持；版本递增0.2.132。纳入直接准入、必填中文提示、目标标签、诊断/回归及审查整改；补Agent提示词与真实HDMI1104台账，B4仍未整体验收。Release all成功；同步后完整CTest初轮51/52（224.93秒），唯一新判重测试因初始快照未就绪返回BUSY，补观察准备后单项30/30、任务目标复测1/1（2.74秒），不改写成同轮52/52。HTML再生成/锚点/脱敏模式/diff检查通过；未重启实例或重跑设备，不纳入产物日志。详见MCP工程验证0.2.132节。
+
+
+### Qt审查规范与测试诊断整改（2026-11-04）
+
+按用户要求修复6处optional初始化/JSON检查建议，并补同一历史fixture入口及wire包数量检查；3处chrono::duration::count为正确API，保留。只改5个C++文件，主程序构建成功，相关CTest4/4（2.45秒），整改文件改动行lint清零、diff检查通过。未改协议/权限/执行策略、未操作设备/重启/提交推送，不将此前真实观察不一致声称已修复。见MCP工程验证记录同日整改节。
+
+
+### Codex确认信息必填中文化（2026-11-04，工作区增量）
+
+用户选择只改NovaTerm。全20工具将可选_action/_detail/_target替换为必填1_操作/2_目标/3_内容，数字前缀固定Codex前三项，操作名const校验，缺项/非法值在业务后端前拒绝。目标/内容仍为调用方摘要，不是可信授权；英文外框不变，旧会话需刷新目录，可能先弹旧框再被拒绝。新契约RED2pass2fail→GREEN4/4；本地协议初轮2/3及完整初轮5/6为漏字段旧夹具，修正后MCP复测1/1（33.19秒），其他五目标沿首轮记录；官方SDK2025/原始2026互操作复测通过。主程序构建、语法及diff检查通过，单代理复核无新增高可信问题。未重启实例/执行截图命令/连设备/改Codex配置或B4/提交推送，新版原生弹窗尚未实机验收。见[工程记录](docs/architecture/stages/P8_AI_MCP_Interface/records/Required_Approval_Presentation_2026-11-04.md)。
+
+
+### Netcatty式直接终端准入（2026-11-04，工作区增量）
+
+用户明确要求开始实施。interact/start_task/elevation默认省略inputToken，客户端审批前不再持有短期输入凭据；显式旧令牌仍严格校验，空值拒绝。服务收到请求时捕获同一内部guard并保持到最终准入，排队接管/撤权/清空/换代与operationId判重继续生效；任务hash保留原始请求。新路径不绑定审批前观察，不宣称与旧观察保护等价，UART证据边界保持。单代理复审修复公共入口借用参数跨同步释放回调失效风险，真实RED及夹具失败分列。主程序构建成功，相关CTest6/6（38.44秒），收尾专项7/7（140ms）；原/tmp日志恢复后不可读，持久化LastTest与新收尾日志核验。未重启用户实例/连设备/改Codex策略或B4/提交推送；需运行新构建并刷新客户端目录。见[工程记录](docs/architecture/stages/P8_AI_MCP_Interface/records/Direct_Input_Admission_2026-11-04.md)。
+
+
+### 会话授权流程实机复验（2026-11-04，同轮追加）
+
+用户允许仅本次会话授权复验，未新增产品代码/改永久Codex配置/重启NovaTerm。首次release授权等待256.791s过期原样保留；重新观察同ID续调成功。原ttyUSB0重新确认video80后只启动一次1800帧采集，rc0文本与UART任务unknown/deadline分列；采集后新令牌立即输入成功，主动等待40.002s后输入成功，精确同ID重试及延后观察标记仍一次，最终control=released。客户端仍有1～32s前置等待，不保证逐次审批全部消失或任意长等待均成功；前轮40s对照失败不改写。见[定位记录后续](docs/architecture/stages/P8_AI_MCP_Interface/records/Input_Token_Diagnosis_2026-11-04.md#后续用户允许本次会话授权后的复验)。
+
+
+### 输入令牌过期定位（2026-11-04，工作区增量）
+
+历史8次与本轮实机复现确认主要延迟在Codex获准MCP调用之前：本轮152.484/324.912/305.193秒总耗时，对应实际获准调用约4～5ms；不能再细分全部是人工审批还是客户端队列。保留用户120s候选缓解，不继续扩期；新增签名issued和过期签发/到期/准入时间诊断，安全绑定与operationId判重保持。真实video80/NV12/1800帧只启动一次，结束标记rc0但UART任务unknown/deadline保持；40s对照又遇305s客户端等待而失败，不记通过。新增诊断RED9pass1fail，最终主程序构建与相关CTest5/5（34.43s）；沙箱授权夹具失败、环境探针与外部验证分列。未重启用户实例/改审批策略/提交推送，见[定位记录](docs/architecture/stages/P8_AI_MCP_Interface/records/Input_Token_Diagnosis_2026-11-04.md)。
+
+
+### MCP提示目标改为IP/串口号（2026-11-03，同轮追加）
+
+按用户要求增加会话targetLabel，SSH显示ssh · 具体IP（IPv4/IPv6），串口显示实际端口号，提示不再引用昵称；原displayName/UI标签保留。域名无现成对端IP时明确不可用，不猜IP。修正审查发现Telnet/Custom误标local及串口trim差异，真实RED分轮保留。最终主程序及相关目标构建成功，CTest4/4（2.44秒）、MCP专项14/14（702ms），未连设备/重启实例/实际Codex弹窗验收/改B4/提交推送，详见同一工程记录。
+
+### Codex MCP 可读请求提示（2026-11-03，工作区增量）
+
+20工具增加可读标题及可选_action/_detail/_target，Codex0.166按名称排序前三行，每值60字素；读取优先实际会话名称/类型，命令与路径仅预览省略，SSH覆盖/串口接收端决定分开。预览由调用方生成，不是可信授权摘要，不进入执行DTO/判重/确认。真实RED2pass/3fail；首次扩大1/3、第二轮2/3失败与HEAD旧快照基线分列，最终主程序及相关目标构建成功，CTest3/3（2.41秒）。单代理复审修正串口覆盖提示。未重启实例/连设备/改Codex或B4/提交推送，真实Codex弹窗尚未验收。见[工程记录](docs/architecture/stages/P8_AI_MCP_Interface/records/MCP_Engineering_Verification_2026-10-31.md#approval-preview-20261103)。
+
+
 ### 0.2.128 通用字体混排修复（2026-11-02）
 
 主字体公共基线进入字形缓存键；位图覆盖真实墨迹/负bearing/重音，点字号图像DPI与字体度量一致，Cell斜体正确透传。不硬编码本机字体或偏移。原RED与参考Emoji坐标差异分列保留。0.2.128主程序构建、渲染CTest2/2（5.79秒，QTest74/167均全过）、五组实际字体DPI各140/140、栅格化局部ASan/UBSan/float-cast-overflow167/167通过。Linux OpenGL/Vulkan及分数DPR截图通过；Windows/macOS和真实跨屏未实机验证，未重启用户实例。详见[渲染记录](docs/architecture/Rendering_Architecture.md)。

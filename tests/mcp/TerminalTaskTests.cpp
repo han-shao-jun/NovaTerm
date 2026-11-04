@@ -44,9 +44,12 @@ struct Fixture {
     }};
     C::CapabilityDispatcher dispatcher{registry, auth};
     ObservationService observations{[] { return clearTicketClock(); }};
-    TerminalInteraction interaction{&access, &directory, &observations, dispatcher, nullptr};
+    qint64 inputNow{100};
+    TerminalInteraction interaction;
     TerminalTasks tasks{access, directory, interaction, "fixture", QByteArray(32, 'k')};
-    Fixture() {
+    explicit Fixture(bool fakeInputClock = false)
+        : interaction(&access, &directory, &observations, dispatcher, nullptr,
+            fakeInputClock ? TerminalInteraction::Clock{[this] { return inputNow; }} : TerminalInteraction::Clock{}) {
         session.attach(&transport, TerminalSession::Ownership::Borrowed, TransportKind::Serial);
         static_cast<void>(session.start()); directory.add(&session);
         if (!root.isValid()) qFatal("Task test directory is unavailable: %s", qPrintable(root.errorString()));
@@ -107,6 +110,125 @@ struct Fixture {
 class TerminalTaskTests final : public QObject {
     Q_OBJECT
 private slots:
+    void taskEntrySnapshotsArgumentsBeforeSynchronousRelease() {
+        Fixture f;
+        auto start = f.start(); start.timeout = std::chrono::milliseconds(20);
+        const auto accepted = f.call(start); QVERIFY(accepted.value("ok").toBool());
+        QTRY_COMPARE(f.transport.written, QByteArray("work\r"));
+        const auto task = accepted.value("data").toObject().value("taskId").toString();
+        TerminalTaskRequest request = f.query(task);
+        bool changed = false;
+        f.interaction.onChanged = [&] {
+            if (changed) return;
+            changed = true;
+            request = f.query("unrelated-task");
+        };
+        QTest::qSleep(30); // Avoid timer delivery: call() itself must sweep the overdue task.
+        const auto response = f.call(request);
+        f.interaction.onChanged = {};
+        QVERIFY(changed);
+        QVERIFY2(response.value("ok").toBool(), qPrintable(QJsonDocument(response).toJson()));
+        QCOMPARE(response.value("data").toObject().value("taskId").toString(), task);
+        QCOMPARE(response.value("data").toObject().value("status").toString(), QString("unknown"));
+        QCOMPARE(f.transport.written, QByteArray("work\r"));
+    }
+    void directReceiptGuardRejectsTaskTakeover() {
+        Fixture f(true); auto start = f.start(); start.inputToken.clear();
+        const auto captured = f.interaction.captureInputGuard(f.client, {start.session, start.epoch});
+        QVERIFY(!isError(captured));
+        f.session.writeUserInput("human\r"); const auto before = f.transport.written;
+        QJsonObject response;
+        const auto key = newId();
+        f.tasks.call(f.client, key, TerminalTaskRequest{start}, [&](auto result) { response = result; },
+            f.context(key), std::get<QString>(captured));
+        QTRY_VERIFY(!response.isEmpty());
+        QCOMPARE(response.value("error").toObject().value("code").toString(), QString("CONTROL_INVALID"));
+        QCOMPARE(f.transport.written, before);
+    }
+    void directInputAfterLongClientDelayPreservesReplayAndLegacyExpiry() {
+        Fixture f(true); const auto e = f.entry();
+        const auto oldToken = f.observe().value("inputToken").toString();
+        f.inputNow += 600000; // Approval delay precedes receipt; no client token in the new request.
+        InteractTerminalRequest input{NovaTerm::Mcp::SessionId{e.id}, Epoch{e.epoch}, {}, OperationId{newId()},
+            {TextAction{"direct"}, LineEndingAction{}}, std::chrono::milliseconds(0), {}, {}, {}, false};
+        auto legacy = input; legacy.inputToken = oldToken;
+        QCOMPARE(f.interact(legacy).value("error").toObject().value("code").toString(), QString("INPUT_TOKEN_EXPIRED"));
+        QVERIFY(f.transport.written.isEmpty());
+        QVERIFY(f.interact(input).value("ok").toBool());
+        QTRY_COMPARE(f.transport.written, QByteArray("direct\r"));
+        f.inputNow += 300000;
+        QVERIFY(f.interact(input).value("ok").toBool());
+        QCOMPARE(f.transport.written, QByteArray("direct\r"));
+        input.actions = {TextAction{"changed"}};
+        QCOMPARE(f.interact(input).value("error").toObject().value("code").toString(), QString("INPUT_SEQUENCE_CONFLICT"));
+        QCOMPARE(f.transport.written, QByteArray("direct\r"));
+    }
+    void directInputAndTaskCannotReuseOperationForAnotherWrite() {
+        Fixture f(true);
+        // This test covers operation identity, not the asynchronous initial snapshot publication.
+        static_cast<void>(f.observe());
+        const auto e = f.entry(); const auto operation = OperationId{newId()};
+        InteractTerminalRequest input{NovaTerm::Mcp::SessionId{e.id}, Epoch{e.epoch}, {}, operation,
+            {TextAction{"first"}, LineEndingAction{}}, std::chrono::milliseconds(0), {}, {}, {}, false};
+        const auto firstInput = f.interact(input);
+        QVERIFY2(firstInput.value("ok").toBool(), qPrintable(QJsonDocument(firstInput).toJson()));
+        QTRY_COMPARE(f.transport.written, QByteArray("first\r"));
+        StartTerminalTaskRequest task{input.session, input.epoch, {}, operation, input.actions, std::chrono::milliseconds(60000)};
+        QCOMPARE(f.call(task).value("error").toObject().value("code").toString(), QString("INPUT_SEQUENCE_CONFLICT"));
+        QCOMPARE(f.transport.written, QByteArray("first\r"));
+        task.operation = OperationId{newId()}; task.actions = {TextAction{"second"}, LineEndingAction{}};
+        QVERIFY(f.call(task).value("ok").toBool());
+        QTRY_COMPARE(f.transport.written, QByteArray("first\rsecond\r"));
+        input.operation = task.operation; input.actions = {TextAction{"unexpected"}};
+        QCOMPARE(f.interact(input).value("error").toObject().value("code").toString(), QString("INPUT_SEQUENCE_CONFLICT"));
+        QCOMPARE(f.transport.written, QByteArray("first\rsecond\r"));
+    }
+    void directTaskStartKeepsStableIdentity() {
+        Fixture f(true); auto start = f.start(); start.inputToken.clear();
+        f.inputNow += 600000;
+        const auto result = f.call(start); QVERIFY(result.value("ok").toBool());
+        const auto id = result.value("data").toObject().value("taskId").toString(); QVERIFY(!id.isEmpty());
+        QTRY_COMPARE(f.transport.written, QByteArray("work\r"));
+        f.inputNow += 300000;
+        const auto repeated = f.call(start); QVERIFY(repeated.value("ok").toBool());
+        QCOMPARE(repeated.value("data").toObject().value("taskId").toString(), id);
+        QCOMPARE(f.transport.written, QByteArray("work\r"));
+        start.actions = {TextAction{"changed"}};
+        QCOMPARE(f.call(start).value("error").toObject().value("code").toString(), QString("INPUT_SEQUENCE_CONFLICT"));
+        QCOMPARE(f.transport.written, QByteArray("work\r"));
+    }
+    void longTaskQueryDoesNotRefreshInputAndFreshObservationAllowsOneNewInput() {
+        Fixture f(true);
+        auto start = f.start(); start.timeout = std::chrono::milliseconds(20);
+        const auto accepted = f.call(start); QVERIFY(accepted.value("ok").toBool());
+        QTRY_COMPARE(f.transport.written, QByteArray("work\r"));
+        const auto task = accepted.value("data").toObject().value("taskId").toString();
+        const auto beforeQuery = f.observe();
+        const auto oldToken = beforeQuery.value("inputToken").toString();
+        f.inputNow += Budget::TerminalInputTokenLifetime.count();
+        QTest::qWait(60); // Task has its own bounded real-time lifecycle.
+        const auto queried = f.call(f.query(task)); QVERIFY(queried.value("ok").toBool());
+        QCOMPARE(queried.value("data").toObject().value("status").toString(), QString("unknown"));
+        QVERIFY(!queried.value("data").toObject().value("terminationConfirmed").toBool());
+        const auto e = f.entry();
+        const SessionReference reference{NovaTerm::Mcp::SessionId{e.id}, Epoch{e.epoch}};
+        const auto expired = f.interaction.validateNewInput(f.client, reference, oldToken);
+        QVERIFY(expired); QCOMPARE(expired->code, ErrorCode::InputTokenExpired);
+        QVERIFY(expired->message.contains("issuedMs=100"));
+        QVERIFY(expired->message.contains("admissionMs=120100"));
+        const auto fresh = f.observe().value("inputToken").toString();
+        QVERIFY(!f.interaction.validateNewInput(f.client, reference, fresh));
+        InteractTerminalRequest input{reference.session, reference.epoch, fresh, OperationId{newId()},
+            {TextAction{"harmless"}, LineEndingAction{}}, std::chrono::milliseconds(0), {}, {}, {}, false};
+        QVERIFY(f.interact(input).value("ok").toBool());
+        QTRY_COMPARE(f.transport.written, QByteArray("work\rharmless\r"));
+        f.inputNow += Budget::TerminalInputTokenLifetime.count();
+        QVERIFY(f.interact(input).value("ok").toBool()); // Exact retry returns fact even after token expiry.
+        QCOMPARE(f.transport.written, QByteArray("work\rharmless\r"));
+        input.actions = {TextAction{"different"}};
+        QCOMPARE(f.interact(input).value("error").toObject().value("code").toString(), QString("INPUT_SEQUENCE_CONFLICT"));
+        QCOMPARE(f.transport.written, QByteArray("work\rharmless\r"));
+    }
     void capabilityRejectionKeepsItsCause_data() {
         QTest::addColumn<bool>("input"); QTest::addColumn<bool>("cancelled");
         for (bool input : {false, true}) for (bool cancelled : {false, true})

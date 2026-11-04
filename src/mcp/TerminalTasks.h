@@ -18,8 +18,9 @@ public:
     TerminalTasks(AccessStore&, SessionDirectory&, TerminalInteraction&,
         QString instance, QByteArray logKey, QObject* parent = nullptr);
     ~TerminalTasks() override;
-    void call(const QString& client, const QString& requestKey,
-        const TerminalTaskRequest&, Completion, const Capabilities::InvocationContext&);
+    // Own entry arguments before sweep()/release callbacks can destroy a caller's pending request.
+    void call(QString client, QString requestKey,
+        TerminalTaskRequest, Completion, Capabilities::InvocationContext, QString receiptInputToken = {});
     void cancel(const QString& requestKey);
     void revoke(const QString& client, const QString& session);
     void stop();

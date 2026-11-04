@@ -64,6 +64,7 @@ struct InputClaims
     ExecutionId execution;
     quint64 sequence{0};
     qint64 expires{0};
+    std::optional<qint64> issued{std::nullopt}; ///< Diagnostic monotonic timestamp; absent in legacy tokens.
     quint64 cacheGeneration{0};
 };
 

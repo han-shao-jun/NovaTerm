@@ -154,7 +154,8 @@ InputClaims ObservationState::inputClaims(const ClientId& client, const Terminal
         && replay->cacheGeneration == facts.cacheGeneration
         && replay->epoch == facts.session.epoch && replay->grant == facts.grant)
         claims.sequence = replay->next;
-    claims.expires = _clock() + Budget::MaxTerminalWaitMs;
+    claims.issued = _clock();
+    claims.expires = *claims.issued + Budget::TerminalInputTokenLifetime.count();
     return claims;
 }
 
@@ -164,7 +165,14 @@ std::optional<Error> ObservationState::validateInput(const InputClaims& claims,
     if (!matches(claims.binding, client, facts.session, facts.grant)
         || claims.cacheGeneration != facts.cacheGeneration)
         return Error{ErrorCode::ControlInvalid};
-    if (claims.expires <= _clock()) return Error{ErrorCode::InputTokenExpired};
+    const auto admittedAt = _clock();
+    if (claims.expires <= admittedAt)
+        return Error{ErrorCode::InputTokenExpired,
+            QStringLiteral("Input token expired before admission: issuedMs=%1, expiresMs=%2, admissionMs=%3 "
+                           "(server monotonic clock). No input was submitted. Observe again before new input; "
+                           "never replay an unknown operation with a new operationId.")
+                .arg(claims.issued ? QString::number(*claims.issued) : QStringLiteral("unavailable"))
+                .arg(claims.expires).arg(admittedAt)};
     const auto expected = inputClaims(client, facts);
     if (claims.user != expected.user || claims.control != expected.control
         || claims.prompt != expected.prompt || claims.execution != expected.execution)

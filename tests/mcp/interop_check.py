@@ -42,11 +42,20 @@ async def check(config: dict) -> None:
             assert len(catalog.tools) == 20
             assert not set(RETIRED_TOOLS) & {tool.name for tool in catalog.tools}
             schemas = {tool.name: tool.outputSchema for tool in catalog.tools}
+            presentation_titles = {tool.name: tool.title for tool in catalog.tools}
             for tool in catalog.tools:
                 Draft202012Validator.check_schema(tool.inputSchema)
                 Draft202012Validator.check_schema(tool.outputSchema)
+                fields = ["1_操作", "2_目标", "3_内容"]
+                assert set(fields) <= set(tool.inputSchema["required"])
+                assert sorted(tool.inputSchema["properties"])[:3] == fields
+                assert tool.inputSchema["properties"]["1_操作"]["const"] == tool.title
+            missing_display = await session.call_tool("novaterm_list_sessions", {})
+            assert missing_display.structuredContent["error"]["code"] == "INVALID_ARGUMENT"
+
 
             async def call(name: str, args: dict) -> dict:
+                args = {"1_操作": presentation_titles[name], "2_目标": "测试终端", "3_内容": "互操作测试", **args}
                 result = await session.call_tool(name, args)
                 payload = result.structuredContent
                 Draft202012Validator(schemas[name]).validate(payload)
@@ -81,7 +90,9 @@ async def check(config: dict) -> None:
             async with streamablehttp_client(settings["url"], headers=settings["headers"]) as (other_read, other_write, _):
                 async with ClientSession(other_read, other_write) as other:
                     await other.initialize()
-                    independent = await other.call_tool("novaterm_read_context", identity)
+                    independent = await other.call_tool("novaterm_read_context", {
+                        "1_操作": presentation_titles["novaterm_read_context"],
+                        "2_目标": "测试终端", "3_内容": "独立客户端读取", **identity})
                     assert independent.structuredContent["data"]["recentOutput"] == snapshot["recentOutput"]
             for retired in RETIRED_TOOLS:
                 try:
@@ -94,7 +105,7 @@ async def check(config: dict) -> None:
             assert not rejected["ok"] and rejected["error"]["code"] == "INVALID_ARGUMENT"
             await check_workflow(call, identity)
     await check_modern(settings)
-    print("PASS: official MCP SDK 2025 + raw 2026 HTTP, 20 schemas, direct-path SFTP/UART stale-session refusal, paired confirmation parameters, retired grant-directory and saved-target tool rejection, history/terminal contracts and B3a wait/start/query/stop/replay")
+    print("PASS: official MCP SDK 2025 + raw 2026 HTTP, 20 schemas with required ordered Chinese approval fields, missing-display rejection, direct-path SFTP/UART stale-session refusal, paired confirmation parameters, retired grant-directory and saved-target tool rejection, history/terminal contracts and B3a wait/start/query/stop/replay")
 
 
 def direct_transfer_arguments(serial: bool = False) -> dict:
@@ -183,11 +194,15 @@ async def check_workflow(call, identity: dict) -> None:
 
 async def check_modern(settings: dict) -> None:
     request_id = 0
+    presentation_titles = {}
     client = httpx.AsyncClient(timeout=8)
 
     async def rpc(method: str, params: dict) -> dict:
         nonlocal request_id
         request_id += 1
+        if method == "tools/call" and params.get("name") in presentation_titles:
+            params = {**params, "arguments": {"1_操作": presentation_titles[params["name"]],
+                "2_目标": "测试终端", "3_内容": "互操作测试", **params.get("arguments", {})}}
         request = {"jsonrpc": "2.0", "id": request_id,
                    "method": method, "params": params}
         headers = {**settings["headers"], "Accept": "application/json, text/event-stream",
@@ -230,6 +245,7 @@ async def check_modern(settings: dict) -> None:
         assert listed["result"]["resultType"] == "complete"
         assert len(listed["result"]["tools"]) == 20
         schemas = {tool["name"]: tool["outputSchema"] for tool in listed["result"]["tools"]}
+        presentation_titles = {tool["name"]: tool["title"] for tool in listed["result"]["tools"]}
         assert not set(RETIRED_TOOLS) & set(schemas)
         for retired in RETIRED_TOOLS:
             rejected = await rpc("tools/call", {"name": retired, "arguments": {}, "_meta": metadata()})

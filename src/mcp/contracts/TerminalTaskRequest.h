@@ -7,7 +7,7 @@ namespace NovaTerm::Mcp {
 struct StartTerminalTaskRequest {
     SessionId session;
     Epoch epoch;
-    QString inputToken;
+    QString inputToken; ///< Empty only for tokenless direct admission; supplied legacy tokens remain strict.
     OperationId operation;
     std::vector<TerminalAction> actions;
     std::chrono::milliseconds timeout{Budget::TerminalTaskDefaultTimeout};

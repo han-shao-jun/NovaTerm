@@ -756,3 +756,76 @@ ctest --test-dir build/Release --output-on-failure -R '^novaterm_mcp_(contracts_
 初次GREEN12/12（954ms）。版本0.2.126→0.2.127后主程序及相关目标构建成功；contracts/read_use_cases/observation_state/wire/MCP业务/access_interaction/clear_operations/terminal_tasks相关CTest8/8（34.45秒）。随后仅扩展测试，生产代码未变：三种等待模式×两代协议×接管前/等待中×原先有/无输入租约，加日志续读和清空后观察/日志失效，共28/28（2.405秒，含init/cleanup）。新的游标不重复报告同一次变化，陈旧输入零额外写入；清空后观察CURSOR_STALE、日志invalidated保持。
 
 没有实物连接或重启用户实例，不把软件HTTP夹具记录写入B4工具台账；未运行新一轮消毒器。临时日志/tmp/novaterm-takeover-{red,green,expanded}.log、/tmp/novaterm-02127-{build,tests}.log，不纳入Git。
+
+<a id="approval-preview-20261103"></a>
+## Codex MCP 可读审批预览（2026-11-03，工作区增量）
+
+用户要求工具请求显示命令、文件名/路径等重点，长内容省略，全部工具补齐；补充读取终端时优先明确目标。本机 `codex --version` 为 0.166.0。核对同版本官方源码：普通 MCP 参数按名称排序；TUI 仅取前三行，每值最多 60 字素；自定义模板来自编译进 Codex 的连接器目录，NovaTerm 不能直接覆盖英文外框、按钮或参数标签。
+
+- [审批参数排序与固定确认句](https://github.com/openai/codex/blob/rust-v0.166.0/codex-rs/core/src/mcp_tool_call.rs)
+- [TUI 三行/60 字素限制](https://github.com/openai/codex/blob/rust-v0.166.0/codex-rs/tui/src/bottom_pane/mcp_server_elicitation.rs)
+- [连接器模板限制](https://github.com/openai/codex/blob/rust-v0.166.0/codex-rs/core/src/mcp_tool_approval_templates.rs)
+
+实现为全部 20 工具增加可读 title/annotations.title 和可选 `_action`、`_detail`、`_target`，每项非空单行、最多 60 Unicode 码点（比字素限额保守），拒绝控制/格式字符与不完整代理对。各工具 schema 与共用 instructions 要求 Agent 以用户语言填写并保留原始参数；读取优先已知 displayName/transport，未知目标回退实际 ID。长命令仅预览截断，路径保留开头/文件名；多动作说明数量和提交/中断。SSH 覆盖明确选择，串口明确接收端决定。
+
+展示字段在协议边界校验后不进入 typed DTO、执行/授权、幂等摘要或确认凭据。旧客户端可省略；全部业务必填项、未知字段拒绝、原上传确认和默认授权保持。此为调用方生成的预览，**不保证与执行参数一致，不是服务端可信授权摘要**；未填写或未刷新目录仍可能显示原参数。若要求固定中文原生审批布局或不可伪造的展示与执行绑定，需要修改 Codex 客户端；本轮没有修改 Codex、审批配置或自动允许规则。
+
+验证分轮：
+
+1. 新增契约回归真实 RED：2 passed / 3 failed / 4ms，缺 title、预览参数拒绝、中文限额用例失败。之前首次测试编译误用 StrongId.value 及一次可执行路径错误属于测试搭建问题，未作为 RED 证据；日志保留于 `/tmp/novaterm-presentation-red-build.log` 和 `/tmp/novaterm-presentation-red.log`（前者后续成功编译覆盖，编译失败文本保留在会话工具输出）。
+2. 首轮扩大 CTest 1/3（2.51s）：新测试通过，clear 原始目录比较需排除新增展示字段；History 旧 read_context 输出快照差异。临时恢复 HEAD 三个生产源码独立重建 History 目标，原样复现 legacyCatalogObjectsUnchanged 失败，随后恢复工作区源码并重建。历史测试改为复用既有 ContractsTests 的 legacyObservationSchema 投影，不放宽业务输入或新展示测试；旧 fixture 未修改。基线日志 `/tmp/novaterm-presentation-history-baseline{,-build}.log`。
+3. 单只读代理审查确认串口无 overwrite 参数，初版提示要求“覆盖/不覆盖”不准确，已修为接收端决定，并将通用覆盖选择限定 SSH。补全 20 工具带/不带预览的解码、原必填参数拒绝、中文/非 BMP 长度和非法字符，以及两代 wire 读取原 sessionId/epoch 的定向验证。
+4. 第二轮 CTest 2/3（2.39s），唯一失败为新增 2026 wire 夹具漏 clientCapabilities，按既有协议规则补空对象，无产品逻辑变动；原日志 `/tmp/novaterm-presentation-tests-final.log`。
+5. 最终 `cmake --build build/Release --target NovaTerm novaterm_mcp_contracts_tests novaterm_history_contracts_tests novaterm_mcp_wire_tests -j 6` 成功；相关 CTest **3/3，2.41s**。History QTest 7/7；另轮完整 Contracts 49/49（22ms）。日志 `/tmp/novaterm-presentation-build-final.log`、`/tmp/novaterm-presentation-tests-green.log`、`/tmp/novaterm-presentation-contracts-green.txt`。`git diff --check` 通过。
+
+未连接设备、未重启用户实例、未修改 Codex 安装、未做真实 Codex 审批弹窗/模型填写率验收，未跑无关全套、其他平台或消毒器。未提交/推送、版本保持；B4 工具测试台账不改。使用新构建并让 Codex 重新获取工具目录/instructions 后才能实际验收显示效果。前三行规则为已核对的 0.166.0 行为，不外推所有客户端或版本。
+
+### 同轮追加：使用 SSH IP / 串口号替代昵称
+
+用户明确要求目标不显示“开发板”等昵称，SSH 必须是具体 IP，串口显示端口号。新增 `list_sessions.sessions[].targetLabel` 可选输出属性，并由 ReadUseCaseAdapter 从实际传输配置生成：SSH 的 IP 字面量经 QHostAddress 规范化，串口取 trimmed portName；提示字段及 instructions 统一引用 targetLabel。原 displayName、会话身份、授权和 UI 标签保持；重命名不会改变 targetLabel。IPv4/IPv6 支持，域名没有现成的已连接对端 IP 快照，本轮不侵入 SSH worker、不额外 DNS 查询、不把域名冒充 IP，明确显示 `ssh · IP unavailable`。LocalShell 为 local，Telnet/Custom 保留真实类型并说明地址不可用。
+
+新增实际协议夹具回归：首次沙箱内5行均在启用回环服务处失败，不算功能RED；获准在沙箱外运行后真实RED **2 passed / 5 failed**，均缺targetLabel。单代理复核指出Telnet/Custom初版兜底误标local；补串口空白/Telnet/Custom回归后真实RED **8 passed / 3 failed**，修复为按真实类型区分并按传输实际行为trimmed。
+
+最终 `NovaTerm`、MCP业务/契约/历史契约/wire/read-use-cases目标构建成功；相关 CTest **4/4，2.44s**。沙箱外MCP专项 **14/14，702ms**（IPv4/IPv6/域名不造IP/Linux与Windows串口/空白/其他传输共9行、断连过滤2行、原UI标签回归及init/cleanup），offscreen propagateSizeHints 提示保留。证据 `/tmp/novaterm-target-label-{red,red-unsandboxed,review-red,green}.log`、`/tmp/novaterm-target-label-build-final.log`、`/tmp/novaterm-target-label-ctest.log`。`git diff --check` 通过；仍未进行实际Codex弹窗、真实设备或其他平台验收，未重启用户实例、提交/推送或修改B4。
+
+### 同轮追加：截图仍显示旧参数的目录缓存诊断
+
+用户反馈 start_task 确认框仍为 actions/epoch/inputToken。只读查询当前 NovaTerm 会话，截图 epoch 与在线串口会话一致，返回已含 targetLabel=ttyUSB0。进一步通过配置中的既有本机 MCP 地址/鉴权只读调用 server/discover 和 tools/list（不输出令牌）：新 instructions 含 _action；20/20 工具含 _action/_detail/_target；start_task 标题为“启动终端任务”，仍为兼容旧客户端的可选预览字段。相对地，本 Codex 会话实际暴露的工具声明和 instructions 均为旧版，没有这些字段。证据指向当前 Codex 会话缓存旧目录，不是当前服务端缺少更新。建议重启 Codex 客户端以重新连接并拉取目录；无需再次重启 NovaTerm。尚未验证用户重新连接后的原生弹窗。
+
+诊断脚本 `/tmp/novaterm-check-presentation-catalog.py` 只读配置、在内存使用授权头且只输出目录摘要；首次沙箱禁止 socket，经允许沙箱外执行后首次因遗漏2026协议HTTP头返回400，补齐MCP-Protocol-Version/MCP-Method后两次只读发现调用成功。未执行任务、输入终端、传输文件或重启实例；未修改产品代码，不重新构建，不动其他并行的观察令牌改动或B4台账。
+
+## 2026-11-04 INPUT_TOKEN_EXPIRED 定位入口
+
+历史及真实串口复现的客户端获准前延迟、候选120s缓解边界、新签发/准入诊断、排队/任务/接管/幂等测试和分轮失败，详见 [输入令牌定位记录](Input_Token_Diagnosis_2026-11-04.md) 及其脱敏时间数据。相关CTest5/5（34.43s）、补充2/2（2.30s）分列；40s实机对照因额外305s客户端等待仍过期，不记通过。未重启用户实例或修改Codex审批策略。
+
+
+## 2026-11-04 直接终端准入改造
+
+按用户要求采用Netcatty式直接调用，省略inputToken时在服务收到请求后建立并保持内部guard，显式旧令牌仍严格校验。实现、语义变化、真实RED和夹具失败、相关CTest6/6及收尾7/7见[工程记录](Direct_Input_Admission_2026-11-04.md)。未自动重启用户实例，旧实例实机记录不冒充新协议验收，未修改B4。
+
+
+## 2026-11-04 Codex确认信息必填中文化
+
+用户选择只改NovaTerm，三个显示字段改为必填中文名并固定排序；实际参数与业务保护不变。原始RED、夹具迁移失败、相关目标分轮通过和官方两代协议互操作见[工程记录](Required_Approval_Presentation_2026-11-04.md)。旧客户端需刷新目录；目标/内容仍属调用方摘要，新版原生弹窗尚未实机验收。
+
+
+## 2026-11-04 Qt审查规范与测试诊断整改
+
+按用户“修复发现的问题”要求，处理只读审查9条lint命中中的6处有效规范/诊断建议：InputClaims::issued和状态测试error显式初始化std::nullopt；工作流/清空fixture、历史日志fixture与wire响应先检查QJsonParseError及对象/数组类型，再比较内容。同一历史契约的入口fixture补解析与非空数组断言；wire响应补包数量和嵌套对象检查，避免无包时直接last()。另外3条命中实际是std::chrono::duration::count()，保留正确API，不替换为size()。
+
+本轮只改5个C++文件，与审查时源码hash对照确认其余20个范围文件未变。未改变协议、执行、权限或超时策略；此前的真实工具观察不一致不属于本次规范整改，不能声称已修复。
+
+主程序与相关目标构建成功；history_contracts、mcp_contracts、observation_state、wire同轮CTest **4/4，2.45秒**。对整改文件复跑指定qt-cpp-review linter，改动行上的6条命中已清除；旧文件其他未改行提示未扩展整改。git diff --check通过。日志 `/tmp/novaterm-review-fixes-build.log`、`/tmp/novaterm-review-fixes-tests.log`、`/tmp/novaterm-review-fixes-lint.log`。未运行设备测试、重启实例、提交或推送；不把代码级检查写入B4工具台账。
+
+
+## 0.2.132 提交验证（2026-11-05）
+
+用户要求创建提交并推送Gitee。提交前fetch发现远端新增 `f5092c7`（0.2.131，SFTP断线恢复与删除等待），与本轮未提交文件无交集；执行fast-forward，逐文件SHA-256核对原未提交内容完全保留。按当前AGENTS.md的0.2.x规则将PATCH递增至0.2.132；未采用旧commit_check.md中的0.1/提交计数规则，也未改其辅助文件。
+
+收口范围：客户端审批后的直接终端准入与receipt guard、任务身份/回调参数快照；必填中文显示字段与目标IP/串口标签；旧令牌诊断及兼容；相关回归和审查整改。同步统一架构、现行契约、使用说明与可复制Agent提示词。此前HDMI实际调用的脱敏证据纳入B4新轮HDMI1104，仍87项/20工具、49部分验证/38未执行，实际工具轮次11→12；不纳入本轮构建/单测作为工具验收证据。初次观察不一致待定位、确认框未出现和UART unknown边界保留。
+
+0.2.132 `cmake --build build/Release --target all -j 6`成功。因同步远端代码，按仓库规则运行Linux全套CTest：**51/52，224.93秒**。唯一失败为新增 `directInputAndTaskCannotReuseOperationForAnotherWrite` 的第一次输入；补输出响应后第2次诊断运行复现 `BUSY / Snapshot is being prepared / retryable=true`。该用例聚焦判重，却未等待初始异步快照发布。调整夹具先observe，不改产品拒绝逻辑，再构建主程序/任务目标成功；单项独立30/30次通过，完整 `novaterm_mcp_terminal_tasks_tests` 单独 **1/1，2.74秒**。不改写为一次52/52，也不把旧软件验证冒充本次版本实机验收。
+
+HTML确定性再生成、87项/20工具/12轮计数、唯一锚点及引用检查、JSON解析与git diff检查通过。预提交文件模式扫描未发现完整签名token、Bearer值或私钥。明确文件清单纳入39个源码/测试/文档文件；build、依赖、本机日志和临时凭据不纳入。
+
+本机日志目录 `/tmp/novaterm-commit-02132/`：`build-all.log`、`ctest-all.log`、`task-diagnostic-1.log`、`task-fix-build.log`、`task-stable-*.log`、`ctest-task-retest.log`。本轮未重启用户实例或重跑实际设备，没有新增Windows/macOS或消毒器证据。原六领域只读审查及分轮修复记录保持。

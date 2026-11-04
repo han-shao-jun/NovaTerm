@@ -32,6 +32,7 @@
 #include "transport/SshTransport.h"
 #include "ui/widgets/McpSettingsDialog.h"
 #include "TestGrantSupport.h"
+#include "PresentationTestSupport.h"
 #include "ElaApplication.h"
 #include "ElaCheckBox.h"
 #include "ElaComboBox.h"
@@ -384,6 +385,7 @@ public:
     void setHumanForm(bool supported) { _humanForm = supported; }
     void send(QJsonObject message)
     {
+        message = TestSupport::presentedRpc(std::move(message));
         if (_protocolVersion == QStringLiteral("2026-07-28")
             && message.contains("method")) {
             auto params = message.value("params").toObject();
@@ -503,10 +505,10 @@ struct Fixture
         service.directory().add(&session);
         if (createAccess) client = service.access().ensureAccess();
     }
-    void makeSsh()
+    void makeSsh(const QString& host = "fixture.invalid")
     {
         SshConfig config;
-        config.host = "fixture.invalid";
+        config.host = host;
         config.username = "fixture";
         ssh = std::make_unique<SshTransport>(config);
         SshTransportTestAccess::connected(*ssh);
@@ -517,9 +519,9 @@ struct Fixture
             static_cast<void>(NovaTerm::Mcp::TestSupport::setGrant(service.access(), client,
                 service.directory().entries().first(), false));
     }
-    void makeSerial()
+    void makeSerial(const QString& port = "COM-fixture-private")
     {
-        SerialConfig config; config.portName = "COM-fixture-private";
+        SerialConfig config; config.portName = port;
         auto replacement = std::make_unique<SerialTransport>(config);
         SerialTransportIoTestAccess::connected(*replacement);
         session.attach(replacement.get(), TerminalSession::Ownership::Borrowed, TransportKind::Serial);
@@ -572,6 +574,53 @@ class McpTests final : public QObject
 {
     Q_OBJECT
 private slots:
+    void directInputQueueGuardsAndReplay_data() {
+        QTest::addColumn<QString>("version"); QTest::addColumn<int>("change");
+        for (const auto& version : {QString(ProtocolVersion), QString("2026-07-28")})
+            for (int change = 0; change < 5; ++change)
+                QTest::newRow(qPrintable(version + "-" + QString::number(change))) << version << change;
+    }
+    void directInputQueueGuardsAndReplay() {
+        QFETCH(QString, version); QFETCH(int, change);
+        Fixture f; QVERIFY(f.enable(false, true));
+        QVERIFY(TestSupport::setTerminalGrant(f.service.access(), f.client, f.service.directory().entries().first(), true));
+        QVERIFY(f.service.access().canControlTerminal(f.client, f.service.directory().entries().first()));
+        Host host; QVERIFY(host.start(f.runtime(), f.token(), {}, false, version));
+        const auto count = f.service.statistics().value("requests").toString().toULongLong();
+        auto wait = f.identity(); wait.insert("source", "log");
+        wait.insert("texts", QJsonArray{"never-match"}); wait.insert("waitMs", 600);
+        host.begin("novaterm_wait_text", wait); host.begin("novaterm_wait_text", wait);
+        auto input = f.identity(); input.insert("operationId", newId());
+        input.insert("actions", QJsonArray{QJsonObject{{"type", "text"}, {"text", "once"}}, QJsonObject{{"type", "line_ending"}}});
+        input.insert("waitMs", 0);
+        const int requestId = host.begin("novaterm_interact_terminal", input);
+        int replayId = 0;
+        if (!change) replayId = host.begin("novaterm_interact_terminal", input);
+        const int total = change ? 3 : 4;
+        QTRY_COMPARE(f.service.statistics().value("requests").toString().toULongLong(), count + quint64(total));
+        QVERIFY(f.local.written.isEmpty()); // Both inputs are queued, not yet admitted.
+        if (change == 1) f.session.writeUserInput("human\r");
+        else if (change == 2) { QVERIFY(f.core.clearAll()); QVERIFY(f.core.waitForIdle()); }
+        else if (change == 3) QVERIFY(TestSupport::setGrant(f.service.access(), f.client, f.service.directory().entries().first(), false));
+        else if (change == 4) { f.session.close(CloseMode::Abort); QVERIFY(f.session.resetForReuse()); }
+        QJsonObject result, repeated;
+        for (int i = 0; i < total; ++i) {
+            const auto message = host.next(3000); QVERIFY(!message.isEmpty());
+            if (message.value("id").toInt() == requestId) result = message.value("result").toObject().value("structuredContent").toObject();
+            if (message.value("id").toInt() == replayId) repeated = message.value("result").toObject().value("structuredContent").toObject();
+        }
+        QVERIFY(!result.isEmpty());
+        if (!change) {
+            QVERIFY2(result.value("ok").toBool(), qPrintable(QJsonDocument(result).toJson()));
+            QVERIFY2(repeated.value("ok").toBool(), qPrintable(QJsonDocument(repeated).toJson()));
+            QTRY_COMPARE(f.local.written, QByteArray("once\r"));
+        } else {
+            QVERIFY(!result.value("ok").toBool());
+            const auto code = result.value("error").toObject().value("code").toString();
+            QVERIFY2((QStringList{"CONTROL_INVALID", "SESSION_NOT_AVAILABLE", "STALE_SESSION_EPOCH", "TERMINAL_PERMISSION_REQUIRED", "PERMISSION_DENIED"}.contains(code)), qPrintable(code));
+            QTest::qWait(20); QCOMPARE(f.local.written, change == 1 ? QByteArray("human\r") : QByteArray{});
+        }
+    }
     void performanceTransportHandlesCoreBackpressure() {
         Fixture f(true, true);
         QVERIFY(f.local.capabilities().testFlag(TransportCapability::PauseReads));
@@ -694,6 +743,46 @@ private slots:
         QVERIFY(NovaTerm::Mcp::TestSupport::setGrant(f.service.access(), f.client, entry, true));
         QCOMPARE(sessions(first).size(), 1);
         QCOMPARE(sessions(second).size(), 1);
+    }
+    void sessionApprovalTargetUsesConnectionAddress_data()
+    {
+        QTest::addColumn<QString>("transport"); QTest::addColumn<QString>("address");
+        QTest::addColumn<QString>("expected");
+        QTest::newRow("ssh-ipv4") << QString("ssh") << QString("192.168.1.200") << QString("ssh · 192.168.1.200");
+        QTest::newRow("ssh-ipv6") << QString("ssh") << QString("2001:db8::20") << QString("ssh · 2001:db8::20");
+        QTest::newRow("hostname-no-invented-ip") << QString("ssh") << QString("fixture.invalid") << QString("ssh · IP unavailable");
+        QTest::newRow("serial-linux") << QString("serial") << QString("/dev/ttyUSB0") << QString("/dev/ttyUSB0");
+        QTest::newRow("serial-windows") << QString("serial") << QString("COM3") << QString("COM3");
+        QTest::newRow("ssh-trimmed") << QString("ssh") << QString(" 192.168.1.201 ") << QString("ssh · 192.168.1.201");
+        QTest::newRow("serial-trimmed") << QString("serial") << QString(" COM4 ") << QString("COM4");
+        QTest::newRow("telnet-not-local") << QString("telnet") << QString() << QString("telnet · endpoint unavailable");
+        QTest::newRow("custom-not-local") << QString("custom") << QString() << QString("custom · endpoint unavailable");
+
+    }
+    void sessionApprovalTargetUsesConnectionAddress()
+    {
+        QFETCH(QString, transport); QFETCH(QString, address); QFETCH(QString, expected);
+        Fixture f;
+        if (transport == "ssh") f.makeSsh(address);
+        else if (transport == "serial") f.makeSerial(address);
+        else {
+            f.session.close(CloseMode::Abort); QVERIFY(f.session.resetForReuse());
+            f.session.attach(&f.local, TerminalSession::Ownership::Borrowed,
+                transport == "telnet" ? TransportKind::Telnet : TransportKind::Custom);
+            QVERIFY(f.session.start());
+        }
+        f.service.directory().setDisplayTitle(&f.session, "nickname-not-endpoint");
+        QVERIFY(f.enable());
+        Host host; QVERIFY(host.start(f.runtime(), f.token()));
+        const auto listed = host.call("novaterm_list_sessions");
+        QVERIFY(listed.value("ok").toBool());
+        const auto rows = listed.value("data").toObject().value("sessions").toArray();
+        QCOMPARE(rows.size(), 1);
+        QCOMPARE(rows.first().toObject().value("targetLabel").toString(), expected);
+        QCOMPARE(rows.first().toObject().value("displayName").toString(), QString("nickname-not-endpoint"));
+        f.service.directory().setDisplayTitle(&f.session, "renamed-again");
+        const auto renamed = host.call("novaterm_list_sessions");
+        QCOMPARE(renamed.value("data").toObject().value("sessions").toArray().first().toObject().value("targetLabel").toString(), expected);
     }
     void listSessionsOnlyExposesConnectedSessions_data()
     {
@@ -1745,13 +1834,13 @@ void McpTests::rejectsDangerousAndOversizedArguments()
     const QJsonObject identity{{"sessionId", newId()}, {"epoch", "epoch"}};
     auto arguments = identity;
     arguments.insert("command", "rm -rf /");
-    QVERIFY(!ToolCodec::validate("novaterm_read_context", arguments).isEmpty());
+    QVERIFY(!TestSupport::validateBusinessArguments("novaterm_read_context", arguments).isEmpty());
     arguments = identity;
     arguments.insert("maxBytes", MaxTextBytes + 1);
-    QVERIFY(!ToolCodec::validate("novaterm_read_context", arguments).isEmpty());
+    QVERIFY(!TestSupport::validateBusinessArguments("novaterm_read_context", arguments).isEmpty());
     arguments = identity;
     arguments.insert("maxLines", 0.5);
-    QVERIFY(!ToolCodec::validate("novaterm_read_context", arguments).isEmpty());
+    QVERIFY(!TestSupport::validateBusinessArguments("novaterm_read_context", arguments).isEmpty());
     qsizetype remaining = 5;
     bool truncated = false;
     const auto result = outputText(QStringLiteral("中文测试").toUtf8(), remaining, truncated);
@@ -1866,7 +1955,7 @@ void McpTests::httpInitializedSessionReadsWithAuthorization()
     QCOMPARE(notification.status, 202);
     const auto listed = httpPost(f.service, f.token(),
         {{"jsonrpc", "2.0"}, {"id", 2}, {"method", "tools/call"},
-         {"params", QJsonObject{{"name", "novaterm_list_sessions"}, {"arguments", QJsonObject{}}}}},
+         {"params", QJsonObject{{"name", "novaterm_list_sessions"}, {"arguments", TestSupport::withToolPresentation("novaterm_list_sessions", {})}}}},
         initialized.session);
     QCOMPARE(listed.status, 200);
     QVERIFY(listed.message.value("result").toObject().value("structuredContent").toObject()

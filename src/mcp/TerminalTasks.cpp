@@ -237,7 +237,8 @@ public:
         if (records.isEmpty()) timer.stop();
     }
     void start(const QString& client, const QString& key, const StartTerminalTaskRequest& request,
-        Completion done, const Capabilities::InvocationContext& context, const SessionDirectory::Entry& current) {
+        Completion done, const Capabilities::InvocationContext& context, const SessionDirectory::Entry& current,
+        const QString& receiptInputToken) {
         const auto hash = identity(request);
         if (const auto existing = byOperation(client, current.id, request.operation.str())) {
             if (existing->hash != hash || existing->operation != request.operation.str() || existing->epoch != current.epoch) {
@@ -249,13 +250,22 @@ public:
         }
         if (!access.canControlTerminal(client, current)) { done(failure("TERMINAL_PERMISSION_REQUIRED", "Terminal input permission is required.")); return; }
         const auto invalid = validateTerminalActions(request.actions);
-        if (!invalid.isEmpty() || request.operation.isEmpty() || request.inputToken.isEmpty()
+        if (!invalid.isEmpty() || request.operation.isEmpty()
             || std::holds_alternative<ReleaseAction>(request.actions.front())
             || request.timeout.count() < 1 || request.timeout > Budget::TerminalTaskMaxTimeout) {
             done(failure("INVALID_ARGUMENT", invalid.isEmpty() ? "Invalid task input or timeout." : invalid)); return;
         }
+        QString executionToken = request.inputToken;
+        if (executionToken.isEmpty()) {
+            executionToken = receiptInputToken;
+            if (executionToken.isEmpty()) {
+                const auto captured = interaction.captureInputGuard(client, {request.session, request.epoch});
+                if (const auto* error = errorIfAny(captured)) { done(ToolCodec::encodeFailure(*error)); return; }
+                executionToken = std::get<QString>(captured);
+            }
+        }
         if (const auto error = interaction.validateNewInput(client,
-            {request.session, request.epoch}, request.inputToken)) {
+            {request.session, request.epoch}, executionToken)) {
             done(ToolCodec::encodeFailure(*error)); return;
         }
         const auto count = std::count_if(records.cbegin(), records.cend(),
@@ -275,7 +285,7 @@ public:
         row->baseline = std::get<QJsonObject>(page); row->startKey = "terminal-task/" + row->id + "/start";
         records.append(row); timer.start();
         if (!wait(key, row, std::move(done))) { records.removeOne(row); return; }
-        InteractTerminalRequest input{request.session, request.epoch, request.inputToken,
+        InteractTerminalRequest input{request.session, request.epoch, executionToken,
             request.operation, request.actions, std::chrono::milliseconds(0), {}, ProjectionMode::Compact, {}, false};
         const QPointer<TerminalTasks> guard(q);
         interaction.call(client, row->startKey, ToolRequest{input},
@@ -384,7 +394,7 @@ public:
             }, {}, context);
     }
     void call(const QString& client, const QString& key, const TerminalTaskRequest& request,
-        Completion done, const Capabilities::InvocationContext& context) {
+        Completion done, const Capabilities::InvocationContext& context, const QString& receiptInputToken) {
         const QPointer<TerminalTasks> guard(q);
         sweep();
         if (!guard) return;
@@ -395,7 +405,7 @@ public:
         }
         if (current->epoch != reference.epoch.str()) { done(failure("STALE_SESSION_EPOCH", "Refresh the session identity.")); return; }
         if (const auto* startRequest = std::get_if<StartTerminalTaskRequest>(&request)) {
-            start(client, key, *startRequest, std::move(done), context, *current); return;
+            start(client, key, *startRequest, std::move(done), context, *current, receiptInputToken); return;
         }
         QString id, operation;
         if (const auto* queryRequest = std::get_if<QueryTerminalTaskRequest>(&request)) {
@@ -446,9 +456,9 @@ TerminalTasks::TerminalTasks(AccessStore& access, SessionDirectory& sessions, Te
     QString instance, QByteArray key, QObject* parent) : QObject(parent),
     _impl(std::make_unique<Impl>(this, access, sessions, interaction, std::move(instance), std::move(key))) {}
 TerminalTasks::~TerminalTasks() { _impl->stop(); }
-void TerminalTasks::call(const QString& client, const QString& key, const TerminalTaskRequest& request,
-    Completion done, const Capabilities::InvocationContext& context) {
-    _impl->call(client, key, request, std::move(done), context);
+void TerminalTasks::call(QString client, QString key, TerminalTaskRequest request,
+    Completion done, Capabilities::InvocationContext context, QString receiptInputToken) {
+    _impl->call(client, key, request, std::move(done), context, receiptInputToken);
 }
 void TerminalTasks::cancel(const QString& key) { _impl->waiters.remove(key); }
 void TerminalTasks::revoke(const QString& client, const QString& session) { _impl->revoke(client, session); }

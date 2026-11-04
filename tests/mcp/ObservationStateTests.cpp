@@ -1,11 +1,16 @@
 #include "mcp/application/ObservationState.h"
 #include "mcp/application/SnapshotStore.h"
+#include "mcp/application/RequestScheduler.h"
 #include <QTest>
 using namespace NovaTerm::Mcp;
 class ObservationStateTests final : public QObject {
     Q_OBJECT
 private slots:
     void inputReplayAndGenerations();
+    void queuedAdmissionChecksCurrentClockAndBinding_data();
+    void queuedAdmissionChecksCurrentClockAndBinding();
+    void expiredAdmissionReportsTimingWithoutResubmission();
+    void inputTokenAllowsDelayedAdmissionButStillExpires();
     void waitReplacementAndBudget();
     void deadlineAndControlWake();
     void outputQuietWindow();
@@ -17,6 +22,105 @@ private slots:
     void globalHistoryCannotEvictLiveIdentities();
     void lateAcceptanceCannotReplaceNewerOperationFacts();
 };
+void ObservationStateTests::queuedAdmissionChecksCurrentClockAndBinding_data()
+{
+    QTest::addColumn<int>("change"); QTest::addColumn<int>("delay");
+    QTest::newRow("queue-45s") << 0 << 45000;
+    QTest::newRow("queue-exact-expiry") << 0 << 120000;
+    QTest::newRow("human-takeover") << 1 << 45000;
+    QTest::newRow("control-generation") << 2 << 45000;
+    QTest::newRow("permission-revoked") << 3 << 45000;
+    QTest::newRow("session-epoch") << 4 << 45000;
+    QTest::newRow("cache-cleared") << 5 << 45000;
+}
+void ObservationStateTests::queuedAdmissionChecksCurrentClockAndBinding()
+{
+    QFETCH(int, change); QFETCH(int, delay);
+    qint64 now = 100; ObservationState state{[&] { return now; }};
+    TerminalControlFacts facts; facts.session = {SessionId{"s"}, Epoch{"e"}};
+    const ClientId client{"c"}; const auto claims = state.inputClaims(client, facts);
+    InteractTerminalRequest request; request.session = facts.session.session;
+    request.epoch = facts.session.epoch; request.operation = OperationId{"queued"};
+    request.actions = {TextAction{"one"}};
+    RequestScheduler scheduler{{1, 4}};
+    QCOMPARE(scheduler.enqueue("peer", "long-read", [] {}), RequestScheduler::Admission::Accepted);
+    auto active = scheduler.takeReady(); QCOMPARE(active.size(), size_t(1)); active.front().run();
+    int writes = 0; std::optional<ErrorCode> error{std::nullopt};
+    QCOMPARE(scheduler.enqueue("peer", "input", [&] {
+        const auto result = state.prepareInput(client, request, claims, facts);
+        if (const auto* failure = errorIfAny(result)) error = failure->code;
+        else { ++writes; state.inputAccepted(client, request, facts); }
+    }), RequestScheduler::Admission::Accepted);
+    QVERIFY(scheduler.takeReady().empty()); now += delay;
+    switch (change) {
+    case 1: ++facts.user; break;
+    case 2: ++facts.control; break;
+    case 3: facts.unavailable = ErrorCode::PermissionDenied; break;
+    case 4: facts.session.epoch = Epoch{"reconnected"}; break;
+    case 5: ++facts.cacheGeneration; break;
+    default: break;
+    }
+    scheduler.complete("peer", "long-read");
+    auto ready = scheduler.takeReady(); QCOMPARE(ready.size(), size_t(1)); ready.front().run();
+    if (!change && delay < 120000) {
+        QCOMPARE(writes, 1); QVERIFY(!error);
+        now = claims.expires + 1;
+        QCOMPARE(std::get<InputAdmission>(state.prepareInput(client, request, claims, facts)), InputAdmission::Replay);
+        request.actions = {TextAction{"changed"}};
+        QCOMPARE(errorIfAny(state.prepareInput(client, request, claims, facts))->code, ErrorCode::InputSequenceConflict);
+    } else {
+        QCOMPARE(writes, 0); QVERIFY(error);
+        QCOMPARE(*error, change == 3 ? ErrorCode::PermissionDenied : change ? ErrorCode::ControlInvalid : ErrorCode::InputTokenExpired);
+    }
+}
+void ObservationStateTests::expiredAdmissionReportsTimingWithoutResubmission()
+{
+    qint64 now = 500; ObservationState state{[&] { return now; }};
+    TerminalControlFacts facts; facts.session = {SessionId{"s"}, Epoch{"e"}};
+    const ClientId client{"c"}; const auto claims = state.inputClaims(client, facts);
+    now = claims.expires + 1234;
+    const auto error = state.validateInput(claims, client, facts);
+    QVERIFY(error); QCOMPARE(error->code, ErrorCode::InputTokenExpired);
+    QVERIFY(error->message.contains("issuedMs=500"));
+    QVERIFY(error->message.contains("expiresMs=120500"));
+    QVERIFY(error->message.contains("admissionMs=121734"));
+    QVERIFY(error->message.contains("No input was submitted"));
+    auto legacy = claims; legacy.issued.reset();
+    const auto legacyError = state.validateInput(legacy, client, facts);
+    QVERIFY(legacyError); QCOMPARE(legacyError->code, ErrorCode::InputTokenExpired);
+    QVERIFY(legacyError->message.contains("issuedMs=unavailable"));
+    now = claims.expires - 1;
+    QVERIFY(!state.validateInput(legacy, client, facts));
+}
+void ObservationStateTests::inputTokenAllowsDelayedAdmissionButStillExpires()
+{
+    qint64 now = 100;
+    ObservationState state{[&] { return now; }};
+    const ClientId client{"client"};
+    TerminalControlFacts facts;
+    facts.session = {SessionId{"session"}, Epoch{"epoch"}};
+    facts.grant = ClientAccessVersion{2};
+    const auto claims = state.inputClaims(client, facts);
+    now += 45000;
+    QVERIFY(!state.validateInput(claims, client, facts));
+    auto changed = facts;
+    ++changed.user;
+    QCOMPARE(state.validateInput(claims, client, changed)->code, ErrorCode::ControlInvalid);
+    changed = facts;
+    ++changed.control;
+    QCOMPARE(state.validateInput(claims, client, changed)->code, ErrorCode::ControlInvalid);
+    changed = facts;
+    ++changed.cacheGeneration;
+    QCOMPARE(state.validateInput(claims, client, changed)->code, ErrorCode::ControlInvalid);
+    changed = facts;
+    changed.grant = ClientAccessVersion{3};
+    QCOMPARE(state.validateInput(claims, client, changed)->code, ErrorCode::ControlInvalid);
+    QCOMPARE(claims.expires - qint64{100}, qint64{120000});
+    now = claims.expires - 1;
+    QVERIFY(!state.validateInput(claims, client, facts));
+    now = claims.expires;
+    QCOMPARE(state.validateInput(claims, client, facts)->code, ErrorCode::InputTokenExpired);
+}
 void ObservationStateTests::inputReplayAndGenerations()
 {
     qint64 now = 100;

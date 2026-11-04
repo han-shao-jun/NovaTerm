@@ -73,9 +73,9 @@ class TerminalInteraction::Impl final : public Capabilities::Terminal::TerminalI
 public:
     using Pending = ObservationWait;
     Impl(TerminalInteraction* owner, AccessStore* store, SessionDirectory* directory,
-         ObservationService* observationService, Capabilities::CapabilityDispatcher& dispatcher)
+         ObservationService* observationService, Capabilities::CapabilityDispatcher& dispatcher, Clock stateClock)
         : q(owner), access(store), sessions(directory), observation(observationService),
-          key(randomBytes()), state([this] { return clock.elapsed(); }), dispatcher(dispatcher), observationPorts(dispatcher, state) {
+          key(randomBytes()), state(stateClock ? std::move(stateClock) : Clock{[this] { return clock.elapsed(); }}), dispatcher(dispatcher), observationPorts(dispatcher, state) {
         clock.start(); poll.setInterval(250);
         wake.setSingleShot(true);
         QObject::connect(&wake, &QTimer::timeout, q, [this] { flush(); });
@@ -209,6 +209,12 @@ public:
         claims.user = count("u"); claims.control = count("t"); claims.prompt = count("p");
         claims.cacheGeneration = count("generation");
         claims.sequence = count("n"); claims.execution = ExecutionId{value->value("x").toString()};
+        if (value->contains("issued")) {
+            bool issuedValid = false;
+            const auto issued = value->value("issued").toString().toLongLong(&issuedValid);
+            valid &= issuedValid && issued >= 0;
+            if (issuedValid) claims.issued = issued;
+        }
         claims.expires = qint64(value->value("expires").toDouble());
         claims.binding.verified &= valid && value->value("expires").isDouble();
         return claims;
@@ -219,7 +225,8 @@ public:
             {"g", number(claims.binding.grant.value())}, {"u", number(claims.user)},
             {"generation", number(claims.cacheGeneration)},
             {"t", number(claims.control)}, {"p", number(claims.prompt)},
-            {"x", claims.execution.str()}, {"n", number(claims.sequence)}, {"expires", double(claims.expires)}};
+            {"x", claims.execution.str()}, {"n", number(claims.sequence)},
+            {"issued", QString::number(*claims.issued)}, {"expires", double(claims.expires)}};
     }
     ObservationCursor readCursor(const QString& encoded, const QString& client,
                                  const QByteArray& legacyKey) const {
@@ -249,14 +256,25 @@ public:
         }
         return cursor;
     }
-    void call(const QString& client, const QString& request, const ToolRequest& typed,
+    void call(const QString& client, const QString& request, const ToolRequest& incoming,
               Completion done, const QByteArray& legacyCursorKey, const Capabilities::InvocationContext& context,
-              InputReplayPolicy replayPolicy, Submitted submitted) {
+              InputReplayPolicy replayPolicy, Submitted submitted, const QString& receiptInputToken) {
+        ToolRequest typed = incoming;
         const auto reference = sessionReference(typed);
         if (!reference) { done(failure("SESSION_NOT_AVAILABLE", "Session is not shared.")); return; }
         const auto entry = sessions->find(reference->session.str());
         if (!entry || !entry->session || !access->canRead(client, *entry)) { done(failure("SESSION_NOT_AVAILABLE", "Session is not shared.")); return; }
         if (entry->epoch != reference->epoch.str()) { done(failure("STALE_SESSION_EPOCH", "Refresh the session identity.")); return; }
+        // Bind a direct request only after receipt, preserving the same receipt
+        // guard across server queueing and final admission. Never refresh a supplied token.
+        std::visit([&](auto& value) {
+            using T = std::decay_t<decltype(value)>;
+            if constexpr (std::is_same_v<T, InteractTerminalRequest> || std::is_same_v<T, RequestElevationRequest>) {
+                if (value.inputToken.isEmpty())
+                    value.inputToken = receiptInputToken.isEmpty()
+                        ? signToken(inputState(client, *entry), key) : receiptInputToken;
+            }
+        }, typed);
         watch(entry->session);
         auto* ctrl = entry->session->terminalController();
         if (const auto* searchRequest = std::get_if<SearchContextRequest>(&typed)) {
@@ -834,16 +852,23 @@ public:
 };
 
 TerminalInteraction::TerminalInteraction(AccessStore* access, SessionDirectory* sessions,
-    ObservationService* observation, Capabilities::CapabilityDispatcher& dispatcher, QObject* parent)
-    : QObject(parent), _impl(std::make_unique<Impl>(this, access, sessions, observation, dispatcher)) {}
+    ObservationService* observation, Capabilities::CapabilityDispatcher& dispatcher, QObject* parent, Clock clock)
+    : QObject(parent), _impl(std::make_unique<Impl>(this, access, sessions, observation, dispatcher, std::move(clock))) {}
 TerminalInteraction::~TerminalInteraction() = default;
-void TerminalInteraction::call(const QString& c, const QString& r,
-    const ToolRequest& request, Completion done, const QByteArray& legacyCursorKey, const Capabilities::InvocationContext& context,
-    InputReplayPolicy replayPolicy, Submitted submitted) {
-    _impl->call(c, r, request, std::move(done), legacyCursorKey, context, replayPolicy, std::move(submitted));
+void TerminalInteraction::call(QString c, QString r,
+    ToolRequest request, Completion done, QByteArray legacyCursorKey, Capabilities::InvocationContext context,
+    InputReplayPolicy replayPolicy, Submitted submitted, QString receiptInputToken) {
+    _impl->call(c, r, request, std::move(done), legacyCursorKey, context, replayPolicy, std::move(submitted), receiptInputToken);
 }
 void TerminalInteraction::cancel(const QString& request) { _impl->cancel(request); }
 void TerminalInteraction::revoke(const QString& client, const QString& session) { _impl->revoke(client,session); }
+Result<QString> TerminalInteraction::captureInputGuard(const QString& client, const SessionReference& reference) const {
+    const auto entry = _impl->sessions->find(reference.session.str());
+    if (!entry || !entry->session || !_impl->access->canRead(client, *entry))
+        return Error{ErrorCode::SessionNotAvailable};
+    if (entry->epoch != reference.epoch.str()) return Error{ErrorCode::StaleSessionEpoch};
+    return signToken(_impl->inputState(client, *entry), _impl->key);
+}
 std::optional<Error> TerminalInteraction::validateNewInput(const QString& client,
     const SessionReference& reference, const QString& encoded) const {
     const auto entry = _impl->sessions->find(reference.session.str());

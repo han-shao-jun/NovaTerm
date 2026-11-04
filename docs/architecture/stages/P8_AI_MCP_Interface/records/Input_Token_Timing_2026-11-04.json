@@ -1,0 +1,456 @@
+{
+  "historical": [
+    {
+      "operationId": "f881b00f-07e6-4b71-90d2-fd9eb8a2ba06",
+      "start": 1793715364406,
+      "end": 1793715471627,
+      "rpcDurationMs": 1.282,
+      "tokenExpiresMonotonicMs": 1389908,
+      "sourceRead": {
+        "readStart": 1793715364392,
+        "readEnd": 1793715364397,
+        "tool": "novaterm_read_context"
+      },
+      "totalMs": 107221,
+      "beforeRpcMs": 107219.718
+    },
+    {
+      "operationId": "9dd628af-b5a4-4914-9f25-23d12cbd0201",
+      "start": 1793716775551,
+      "end": 1793716874147,
+      "rpcDurationMs": 5.994,
+      "tokenExpiresMonotonicMs": 2801593,
+      "sourceRead": {
+        "readStart": 1793716775522,
+        "readEnd": 1793716775536,
+        "tool": "novaterm_read_context"
+      },
+      "totalMs": 98596,
+      "beforeRpcMs": 98590.006
+    },
+    {
+      "operationId": "4612a726-8828-4205-9a6b-136b37791701",
+      "start": 1793716980228,
+      "end": 1793717318427,
+      "rpcDurationMs": 4.743,
+      "tokenExpiresMonotonicMs": 3005661,
+      "sourceRead": {
+        "readStart": 1793716980206,
+        "readEnd": 1793716980212,
+        "tool": "novaterm_read_context"
+      },
+      "totalMs": 338199,
+      "beforeRpcMs": 338194.257
+    },
+    {
+      "operationId": "4612a726-8828-4205-9a6b-136b37791702",
+      "start": 1793717349026,
+      "end": 1793717419799,
+      "rpcDurationMs": 5.08,
+      "tokenExpiresMonotonicMs": 3374457,
+      "sourceRead": {
+        "readStart": 1793717349001,
+        "readEnd": 1793717349009,
+        "tool": "novaterm_read_context"
+      },
+      "totalMs": 70773,
+      "beforeRpcMs": 70767.92
+    },
+    {
+      "operationId": "f3f05c63-ef76-43f1-9f73-bd989597a701",
+      "start": 1793717673895,
+      "end": 1793717779468,
+      "rpcDurationMs": 2.169,
+      "tokenExpiresMonotonicMs": 3698700,
+      "sourceRead": {
+        "readStart": 1793717673889,
+        "readEnd": 1793717673891,
+        "tool": "novaterm_read_context"
+      },
+      "totalMs": 105573,
+      "beforeRpcMs": 105570.831
+    },
+    {
+      "operationId": "8c1a401a-91ca-42b2-8839-75c1a66bcb01",
+      "start": 1793717986056,
+      "end": 1793718076323,
+      "rpcDurationMs": 4.953,
+      "tokenExpiresMonotonicMs": 4011281,
+      "sourceRead": {
+        "readStart": 1793717986034,
+        "readEnd": 1793717986040,
+        "tool": "novaterm_read_context"
+      },
+      "totalMs": 90267,
+      "beforeRpcMs": 90262.047
+    },
+    {
+      "operationId": "8c1a401a-91ca-42b2-8839-75c1a66bcb03",
+      "start": 1793718136230,
+      "end": 1793718404629,
+      "rpcDurationMs": 4.924,
+      "tokenExpiresMonotonicMs": 4161466,
+      "sourceRead": {
+        "readStart": 1793718136221,
+        "readEnd": 1793718136225,
+        "tool": "novaterm_read_context"
+      },
+      "totalMs": 268399,
+      "beforeRpcMs": 268394.076
+    },
+    {
+      "operationId": "25766cea-3bc7-4d63-a4b7-8c6d50962b03",
+      "start": 1793718810052,
+      "end": 1793718951793,
+      "rpcDurationMs": 4.918,
+      "tokenExpiresMonotonicMs": 191413,
+      "sourceRead": {
+        "readStart": 1793718810036,
+        "readEnd": 1793718810042,
+        "tool": "novaterm_read_context"
+      },
+      "totalMs": 141741,
+      "beforeRpcMs": 141736.082
+    }
+  ],
+  "live": [
+    {
+      "operationId": "40aaf953-c146-4c46-a2c7-9f5d08134901",
+      "tool": "novaterm_interact_terminal",
+      "read": {
+        "start": 1793721448668,
+        "end": 1793721448675
+      },
+      "start": 1793721448693,
+      "end": 1793721450072,
+      "approvedCallMs": 5.576,
+      "expiresMs": 888819,
+      "issuedMs": null,
+      "ok": true,
+      "error": null,
+      "status": null,
+      "taskId": null,
+      "preApprovedCallMs": 1373.424
+    },
+    {
+      "operationId": "7be76142-0dcb-4e86-9fc0-090835a69002",
+      "tool": "novaterm_interact_terminal",
+      "read": {
+        "start": 1793721841540,
+        "end": 1793721841544
+      },
+      "start": 1793721841561,
+      "end": 1793721994045,
+      "approvedCallMs": 4.318,
+      "expiresMs": 1281688,
+      "issuedMs": null,
+      "ok": false,
+      "error": {
+        "code": "INPUT_TOKEN_EXPIRED",
+        "message": "INPUT_TOKEN_EXPIRED",
+        "retryable": false
+      },
+      "status": null,
+      "taskId": null,
+      "preApprovedCallMs": 152479.682
+    },
+    {
+      "operationId": "7be76142-0dcb-4e86-9fc0-090835a69002",
+      "tool": "novaterm_interact_terminal",
+      "read": {
+        "start": 1793722278041,
+        "end": 1793722278049
+      },
+      "start": 1793722278064,
+      "end": 1793722279544,
+      "approvedCallMs": 5.319,
+      "expiresMs": 1718192,
+      "issuedMs": null,
+      "ok": true,
+      "error": null,
+      "status": null,
+      "taskId": null,
+      "preApprovedCallMs": 1474.681
+    },
+    {
+      "operationId": "2ab89984-0e34-4852-a02a-581642953003",
+      "tool": "novaterm_start_task",
+      "read": {
+        "start": 1793722312187,
+        "end": 1793722312195
+      },
+      "start": 1793722312215,
+      "end": 1793722366321,
+      "approvedCallMs": 6.05,
+      "expiresMs": 1752339,
+      "issuedMs": null,
+      "ok": true,
+      "error": null,
+      "status": "accepted",
+      "taskId": "e4fdcc39-704d-4974-9886-c367fbb02893",
+      "preApprovedCallMs": 54099.95
+    },
+    {
+      "operationId": "030d7d74-4c5c-4d60-bc6c-126a5441b004",
+      "tool": "novaterm_interact_terminal",
+      "read": {
+        "start": 1793722516662,
+        "end": 1793722516669
+      },
+      "start": 1793722516680,
+      "end": 1793722841592,
+      "approvedCallMs": 4.582,
+      "expiresMs": 1956813,
+      "issuedMs": null,
+      "ok": false,
+      "error": {
+        "code": "INPUT_TOKEN_EXPIRED",
+        "message": "INPUT_TOKEN_EXPIRED",
+        "retryable": false
+      },
+      "status": null,
+      "taskId": null,
+      "preApprovedCallMs": 324907.418
+    },
+    {
+      "operationId": "d8d246c7-d090-4372-a10d-d6c932633005",
+      "tool": "novaterm_interact_terminal",
+      "read": {
+        "start": 1793722877149,
+        "end": 1793722877153
+      },
+      "start": 1793722916395,
+      "end": 1793723221588,
+      "approvedCallMs": 4.859,
+      "expiresMs": 2316785,
+      "issuedMs": null,
+      "ok": false,
+      "error": {
+        "code": "INPUT_TOKEN_EXPIRED",
+        "message": "INPUT_TOKEN_EXPIRED",
+        "retryable": false
+      },
+      "status": null,
+      "taskId": null,
+      "preApprovedCallMs": 305188.141
+    }
+  ],
+  "notes": [
+    "All wall timestamps are Unix milliseconds from Codex item_completed events.",
+    "approvedCallMs/rpcDurationMs measures handle_approved_mcp_tool_call, not the earlier approval/queue stage.",
+    "Monotonic expiry values cannot be compared to Unix timestamps. Old live tokens do not contain issuance timestamps.",
+    "No credentials, full input tokens or command payloads are stored here."
+  ],
+  "session_authorization_retest": [
+    {
+      "operationId": "56ef8d44-63de-4d5e-9327-f46c4a113001",
+      "tool": "novaterm_interact_terminal",
+      "read": {
+        "start": 1793724003348,
+        "end": 1793724003356
+      },
+      "start": 1793724003372,
+      "end": 1793724260163,
+      "approvedCallMs": 4.401,
+      "expiresMs": 3443234,
+      "issuedMs": null,
+      "ok": false,
+      "error": {
+        "code": "INPUT_TOKEN_EXPIRED",
+        "message": "INPUT_TOKEN_EXPIRED",
+        "retryable": false
+      },
+      "status": null,
+      "operation": null,
+      "taskId": null,
+      "preApprovedCallMs": 256786.599
+    },
+    {
+      "operationId": "56ef8d44-63de-4d5e-9327-f46c4a113001",
+      "tool": "novaterm_interact_terminal",
+      "read": {
+        "start": 1793724275119,
+        "end": 1793724275126
+      },
+      "start": 1793724275144,
+      "end": 1793724282958,
+      "approvedCallMs": 6.531,
+      "expiresMs": 3714582,
+      "issuedMs": null,
+      "ok": true,
+      "error": null,
+      "status": null,
+      "operation": {
+        "acceptedActionCount": 1,
+        "id": "56ef8d44-63de-4d5e-9327-f46c4a113001",
+        "inputMayHaveBeenSent": false,
+        "status": "submitted"
+      },
+      "taskId": null,
+      "preApprovedCallMs": 7807.469
+    },
+    {
+      "operationId": "56ef8d44-63de-4d5e-9327-f46c4a113002",
+      "tool": "novaterm_interact_terminal",
+      "read": {
+        "start": 1793724304244,
+        "end": 1793724304252
+      },
+      "start": 1793724304269,
+      "end": 1793724308114,
+      "approvedCallMs": 6.121,
+      "expiresMs": 3744193,
+      "issuedMs": null,
+      "ok": true,
+      "error": null,
+      "status": null,
+      "operation": {
+        "acceptedActionCount": 2,
+        "id": "56ef8d44-63de-4d5e-9327-f46c4a113002",
+        "inputMayHaveBeenSent": true,
+        "status": "submitted"
+      },
+      "taskId": null,
+      "preApprovedCallMs": 3838.879
+    },
+    {
+      "operationId": "56ef8d44-63de-4d5e-9327-f46c4a113003",
+      "tool": "novaterm_start_task",
+      "read": {
+        "start": 1793724362506,
+        "end": 1793724362513
+      },
+      "start": 1793724362521,
+      "end": 1793724381539,
+      "approvedCallMs": 5.509,
+      "expiresMs": 3802002,
+      "issuedMs": null,
+      "ok": true,
+      "error": null,
+      "status": "accepted",
+      "operation": null,
+      "taskId": "4a7bfdb7-a188-4b14-a3e6-6ed0edc47f6b",
+      "preApprovedCallMs": 19012.491
+    },
+    {
+      "operationId": "56ef8d44-63de-4d5e-9327-f46c4a113004",
+      "tool": "novaterm_interact_terminal",
+      "read": {
+        "start": 1793724460099,
+        "end": 1793724460106
+      },
+      "start": 1793724460122,
+      "end": 1793724466645,
+      "approvedCallMs": 6.791,
+      "expiresMs": 3900329,
+      "issuedMs": null,
+      "ok": true,
+      "error": null,
+      "status": null,
+      "operation": {
+        "acceptedActionCount": 2,
+        "id": "56ef8d44-63de-4d5e-9327-f46c4a113004",
+        "inputMayHaveBeenSent": true,
+        "status": "submitted"
+      },
+      "taskId": null,
+      "preApprovedCallMs": 6516.209
+    },
+    {
+      "operationId": "56ef8d44-63de-4d5e-9327-f46c4a113005",
+      "tool": "novaterm_interact_terminal",
+      "read": {
+        "start": 1793724497806,
+        "end": 1793724497814
+      },
+      "start": 1793724497834,
+      "end": 1793724498863,
+      "approvedCallMs": 5.397,
+      "expiresMs": 3938036,
+      "issuedMs": null,
+      "ok": true,
+      "error": null,
+      "status": null,
+      "operation": {
+        "acceptedActionCount": 1,
+        "id": "56ef8d44-63de-4d5e-9327-f46c4a113005",
+        "inputMayHaveBeenSent": false,
+        "status": "submitted"
+      },
+      "taskId": null,
+      "preApprovedCallMs": 1023.603
+    },
+    {
+      "operationId": "56ef8d44-63de-4d5e-9327-f46c4a113006",
+      "tool": "novaterm_interact_terminal",
+      "read": {
+        "start": 1793724498886,
+        "end": 1793724498889
+      },
+      "start": 1793724538899,
+      "end": 1793724539061,
+      "approvedCallMs": 6.108,
+      "expiresMs": 3939114,
+      "issuedMs": null,
+      "ok": true,
+      "error": null,
+      "status": null,
+      "operation": {
+        "acceptedActionCount": 2,
+        "id": "56ef8d44-63de-4d5e-9327-f46c4a113006",
+        "inputMayHaveBeenSent": false,
+        "status": "queued"
+      },
+      "taskId": null,
+      "preApprovedCallMs": 155.892
+    },
+    {
+      "operationId": "56ef8d44-63de-4d5e-9327-f46c4a113006",
+      "tool": "novaterm_interact_terminal",
+      "read": {
+        "start": 1793724498886,
+        "end": 1793724498889
+      },
+      "start": 1793724566191,
+      "end": 1793724598706,
+      "approvedCallMs": 4.722,
+      "expiresMs": 3939114,
+      "issuedMs": null,
+      "ok": true,
+      "error": null,
+      "status": null,
+      "operation": {
+        "acceptedActionCount": 2,
+        "id": "56ef8d44-63de-4d5e-9327-f46c4a113006",
+        "inputMayHaveBeenSent": true,
+        "status": "submitted"
+      },
+      "taskId": null,
+      "preApprovedCallMs": 32510.278
+    },
+    {
+      "operationId": "56ef8d44-63de-4d5e-9327-f46c4a113007",
+      "tool": "novaterm_interact_terminal",
+      "read": {
+        "start": 1793724598733,
+        "end": 1793724598736
+      },
+      "start": 1793724598747,
+      "end": 1793724599694,
+      "approvedCallMs": 7.786,
+      "expiresMs": 4038960,
+      "issuedMs": null,
+      "ok": true,
+      "error": null,
+      "status": null,
+      "operation": {
+        "acceptedActionCount": 1,
+        "id": "56ef8d44-63de-4d5e-9327-f46c4a113007",
+        "inputMayHaveBeenSent": false,
+        "status": "submitted"
+      },
+      "taskId": null,
+      "preApprovedCallMs": 939.214
+    }
+  ]
+}

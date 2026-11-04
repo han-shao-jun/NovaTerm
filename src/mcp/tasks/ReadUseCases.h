@@ -35,6 +35,7 @@ struct ReadSession
     QString state;
     QString transport;
     QString displayName;
+    QString targetLabel; ///< Connection address for approval text; independent of the tab title.
     bool displayNameTruncated{false};
     bool running{false};
     bool visible{true};

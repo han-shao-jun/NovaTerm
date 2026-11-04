@@ -2,6 +2,7 @@
  *  @brief HTTP 协议头、客户端隔离及两版断流语义的真实 TCP 回归。
  */
 #include "mcp/HttpMcpEndpoint.h"
+#include "PresentationTestSupport.h"
 #include "mcp/protocol/BackendEvents.h"
 #include "mcp/McpProtocol.h"
 #include <QJsonArray>
@@ -41,6 +42,7 @@ struct Harness {
     QNetworkReply* post(QJsonObject message, QByteArray session = {}, bool modern = false,
                         QByteArray token = "one", QByteArray methodOverride = {})
     {
+        message = TestSupport::presentedRpc(std::move(message));
         QNetworkRequest request{url};
         request.setTransferTimeout(std::chrono::seconds(5));
         request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");

@@ -1,3 +1,4 @@
+#include "ToolPresentation.h"
 #include "HistoryToolCodec.h"
 #include <QUuid>
 #include <cmath>
@@ -61,6 +62,8 @@ QJsonArray HistoryToolCodec::catalog() {
         {{"captureId", text(36, true)}, {"cursor", text(1024)}, {"query", text(5464, true)},
             {"mode", QJsonObject{{"type", "string"}, {"enum", QJsonArray{"text", "raw_bytes"}}, {"default", "text"}}},
             {"maxMatches", number(128, 128)}}, {"captureId", "query"});
+    for (qsizetype i = 0; i < result.size(); ++i)
+        result[i] = Presentation::decorate(result[i].toObject());
     return result;
 }
 bool HistoryToolCodec::known(const QString& name) {
@@ -70,10 +73,18 @@ QString HistoryToolCodec::validate(const QString& name, const QJsonObject& args)
     QJsonObject input;
     for (const auto& tool : catalog()) if (tool.toObject().value("name") == name) input = tool.toObject().value("inputSchema").toObject();
     if (input.isEmpty()) return "Unknown tool.";
+    if (const auto missing = Presentation::missingFieldsMessage(args); !missing.isEmpty()) return missing;
     for (const auto& field : input.value("required").toArray()) if (!args.contains(field.toString())) return "Missing required argument: " + field.toString();
     const auto properties = input.value("properties").toObject();
     for (auto it = args.begin(); it != args.end(); ++it) {
         if (!properties.contains(it.key())) return "Unknown argument: " + it.key().left(64);
+        if (Presentation::isField(it.key())) {
+            const auto presentationRule = properties.value(it.key()).toObject();
+            if (!Presentation::validValue(it.value())
+                || (presentationRule.contains("const") && it.value() != presentationRule.value("const")))
+                return "Invalid argument: " + it.key();
+            continue; // Display text never enters typed requests or replay fingerprints.
+        }
         const auto rule = properties.value(it.key()).toObject();
         bool valid = true;
         if (rule.value("type") == "string") {

@@ -96,6 +96,7 @@ public:
         std::optional<TerminalTaskRequest> taskRequest;
         std::optional<FileTransferRequest> fileTransferRequest;
         std::optional<SerialFileTransferRequest> serialFileTransferRequest;
+        QString receiptInputToken; // Internal guard captured after client approval, before server queueing.
         QString requestState;
         std::optional<ConfirmationAnswer> answer;
         bool mrtr{false}, formElicitation{false};
@@ -391,6 +392,27 @@ public:
         pending->invocation = connection->capabilities->context(std::move(resource),
             version, Capabilities::OperationId{newId()},
             Capabilities::Clock::now() + std::chrono::milliseconds(pending->deadline - clock.elapsed()));
+        const bool directInput = pending->taskRequest
+            ? std::visit([](const auto& value) {
+                using T = std::decay_t<decltype(value)>;
+                if constexpr (std::is_same_v<T, StartTerminalTaskRequest>) return value.inputToken.isEmpty();
+                else return false;
+            }, *pending->taskRequest)
+            : std::visit([](const auto& value) {
+                using T = std::decay_t<decltype(value)>;
+                if constexpr (std::is_same_v<T, InteractTerminalRequest> || std::is_same_v<T, RequestElevationRequest>)
+                    return value.inputToken.isEmpty();
+                else return false;
+            }, pending->request);
+        if (directInput) {
+            const auto reference = referenceOf(*pending);
+            if (!reference) { send(connectionId, id, error("SESSION_NOT_AVAILABLE")); return; }
+            const auto captured = terminal->captureInputGuard(connection->client, *reference);
+            if (const auto* failure = errorIfAny(captured)) {
+                send(connectionId, id, ToolCodec::encodeFailure(*failure)); return;
+            }
+            pending->receiptInputToken = std::get<QString>(captured);
+        }
         requests.emplace(requestKey(connectionId, id), std::move(requestOwner));
         peakRequests = (std::max)(peakRequests, qsizetype(requests.size()));
         if (scheduler.enqueue(connectionId, id, [this, key=requestKey(connectionId, id)] { if (auto* pending = findRequest(key)) execute(pending); })
@@ -703,7 +725,7 @@ public:
             auto done = [this, guard, key](QJsonObject payload) { if (guard) complete(key, std::move(payload)); };
             if (pending->waitRequest) textWaits->call(connection.client, key, *pending->waitRequest, std::move(done));
             else {
-                terminalTasks->call(connection.client, key, *pending->taskRequest, std::move(done), *pending->invocation);
+                terminalTasks->call(connection.client, key, *pending->taskRequest, std::move(done), *pending->invocation, pending->receiptInputToken);
             }
             return;
         }
@@ -734,7 +756,7 @@ public:
                 [this, guard, key](QJsonObject value) {
                     if (guard)
                         complete(key, std::move(value));
-                }, connection.key, *pending->invocation);
+                }, connection.key, *pending->invocation, InputReplayPolicy::Allow, {}, pending->receiptInputToken);
             return;
         }
         if (entry->state == SessionState::Closing || entry->state == SessionState::Closed) {

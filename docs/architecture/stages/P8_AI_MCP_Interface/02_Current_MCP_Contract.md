@@ -122,7 +122,7 @@ UART结果中的protocolCompleted只表示协议完整结束，fileConfirmed表�
 | 工具 | 参数与权限 |
 | --- | --- |
 | novaterm_wait_text | sessionId/epoch、source=log/screen、texts 必填；仅读取授权，不取得输入控制 |
-| novaterm_start_task | sessionId/epoch、inputToken、规范 UUID operationId、actions 必填；独立完整终端输入授权；timeoutMs 默认600000，1..3600000 |
+| novaterm_start_task | sessionId/epoch、规范 UUID operationId、actions 必填；inputToken 可选（省略为直接准入，显式提供严格校验）；独立完整终端输入授权；timeoutMs 默认600000，1..3600000 |
 | novaterm_query_task | sessionId/epoch；taskId 与原启动 operationId 严格二选一；可选日志 sinceToken；仅读取，不续租输入 |
 | novaterm_stop_task | sessionId/epoch、taskId、独立停止 operationId 必填；完整终端输入授权，且原任务控制仍有效 |
 
@@ -341,13 +341,13 @@ Search only a captured returned context. No full-history or regex search; non-ov
 
 ### novaterm_interact_terminal
 
-Observe first, then use the returned inputToken to operate the explicitly authorized terminal. Reuse operationId only for an identical retry. Command waits for attention by default; keys/text/paste wait for change. Submission does not prove command completion.
+Observe the target for context, then omit inputToken for direct admission after client approval. A supplied legacy inputToken is strictly validated; it is never automatically refreshed. Reuse operationId only for an identical retry. Command waits for attention by default; keys/text/paste wait for change. Submission does not prove command completion.
 
 | 字段 | 类型 | 必填 | Schema约束 |
 | --- | --- | --- | --- |
 | actions | array | 是 | minItems=1；maxItems=64 |
 | epoch | string | 是 | maxLength=64 |
-| inputToken | string | 是 | maxLength=4096 |
+| inputToken | string | 否 | minLength=1,maxLength=4096；省略直接准入，显式值严格校验 |
 | operationId | string | 是 | maxLength=36 |
 | replyToExecutionId | string | 否 | maxLength=64 |
 | requireVerifiedReady | boolean | 否 | — |
@@ -358,13 +358,13 @@ Observe first, then use the returned inputToken to operate the explicitly author
 
 ### novaterm_request_elevation
 
-Request separately authorized managed sudo/su using local credentials and a verified authentication adapter. Observe first and pass inputToken; never provide a password. Unavailable adapters fail without sending credentials.
+Request separately authorized managed sudo/su using local credentials and a verified authentication adapter. Observe first for context; omit inputToken for direct admission, or supply a valid legacy token for observation-bound admission. Never provide a password. Unavailable adapters fail without sending credentials.
 
 | 字段 | 类型 | 必填 | Schema约束 |
 | --- | --- | --- | --- |
 | command | string | 否 | minLength=1；maxLength=16384 |
 | epoch | string | 是 | maxLength=64 |
-| inputToken | string | 是 | maxLength=4096 |
+| inputToken | string | 否 | minLength=1,maxLength=4096；省略直接准入，显式值严格校验 |
 | method | string | 是 | enum=sudo/su |
 | mode | string | 是 | enum=command/shell |
 | operationId | string | 是 | maxLength=36 |
@@ -389,7 +389,7 @@ actions支持text、paste、key、line_ending、command、release六分支。key
 
 ## 5. 观察、输入与完成证据
 
-推荐闭环：list_sessions→核对permissions/availability→read_context(responseMode=compact)→用返回inputToken和新operationId提交interact_terminal→检查反馈/命令证据→按nextToken增量观察。
+推荐闭环：list_sessions→核对permissions/availability→read_context(responseMode=compact)→省略inputToken、用新operationId提交interact_terminal→检查反馈/命令证据→按nextToken增量观察。
 
 ~~~json
 {
@@ -402,7 +402,6 @@ actions支持text、paste、key、line_ending、command、release六分支。key
 {
   "sessionId": "<同一ID>",
   "epoch": "<同一epoch>",
-  "inputToken": "<观察返回>",
   "operationId": "<新UUID>",
   "actions": [{"type": "command", "command": "pwd"}]
 }
@@ -411,8 +410,10 @@ actions支持text、paste、key、line_ending、command、release六分支。key
 - 缺省read_context走full；交互工具缺省compact。Schema default与“缺省字段的实际路由”分开，optional不得被解码丢失。
 - command快捷动作要求就绪。text/key/paste/line_ending按屏幕交互，不因Serial/Custom无Shell而禁用；release必须独立，只释放输入权。
 - command默认attention最多30秒；text/key等默认change最多1秒。仍在运行用nextToken作为sinceToken，waitFor=attention/waitMs=30000；completion只等完成或必要控制事件。
+- 已知耗时命令优先一次启动任务并按 taskId 查询；查询只读且不续租，服务端在原控制上下文中管理租约。客户端等待超时不等于任务停止；服务端任务期限到达时状态为 unknown，不自动中断远端进程。
 - 控制/命令状态独立于250ms基础屏幕采样；capturedAt可能相同而控制状态已变，不能伪装新采样时间。
 - 用户键盘/粘贴/接管优先，旧inputToken失效；活动命令追加输入带replyToExecutionId，不能让迟到答复落入新提示符。
+- 显式旧令牌路径的 inputToken 自生成起最多有效两分钟，独立于单次等待的30秒上限；接管、撤权、缓存清空、会话换代仍可提前使其失效。普通输出变化不保证令牌失效，输入前仍须观察最新屏幕。
 - 观察nextToken保存人工输入和控制代际。携带接管前游标续读时，无论接管发生在调用前还是等待中，attention/completion/change均返回control_changed；只读不重新取得输入权，新返回游标消化本次变化。缺少控制基线的旧格式在无法区分已发生变化时保守返回state_changed。普通人工输入不使日志位置失效；清空、撤权和连接换代仍按原失效规则处理。
 - 相同operationId+相同动作精确重试不重复输入；内容变化/旧序号/代际失效零输入拒绝。submitted仅证明交给本机Transport，不证明远端收到。
 - free text/key只有可关联集成事件才生成命令记录；lastCommand独立保留最近终态最多10分钟，不清除另一条活动命令。
@@ -555,3 +556,17 @@ HTTP input公式对应当前实现49.1875MiB，不将原档案旧IPC握手/执�
 - 原v0.6只有run_command/script，后续完整输入/提权加入后是九工具；工具存在不证明提权或所有后端可用。
 - 历史“最终结构验收”仅是当时迁移结论；后续结构和行为验证按 [当前实施顺序](01_Phases_and_Acceptance.md) 执行，不再沿用旧 P0/P1 计划。
 - 各轮构建、功能、性能与平台成绩在[验收档案](records/README.md)按日期保存；本页接口更新不产生测试通过结论。
+
+
+### 必填审批显示字段（2026-11-04）
+
+全部20工具输入统一要求 `1_操作`、`2_目标`、`3_内容`；本文其他参数表列业务字段，调用时仍须提供这三项。
+每项是非空单行字符串、最多60 Unicode码点；拒绝控制/格式字符及不完整代理对。`1_操作`另有const约束，等于工具title。
+数字前缀保证当前Codex按参数名排序的前三项是操作、目标和内容。旧可选 `_action/_detail/_target` 不再接受。
+缺项在业务准入之前拒绝，并提示重新加载工具目录；旧客户端首次原始参数审批仍由Codex掌控，不能由服务端阻止。
+目标/内容仍属调用方摘要，不是已验证的授权声明，不进入执行DTO或幂等指纹。session列表保留targetLabel供填写实际IP/串口号。
+详见[MCP使用说明](../../../MCP_Usage.md#codex-工具确认提示必填中文字段)及[工程记录](records/Required_Approval_Presentation_2026-11-04.md)。
+
+### 默认直接输入准入（2026-11-04）
+
+interact/start_task/elevation 省略 inputToken 时，服务在收到请求后捕获内部保护凭据并原样传至最终准入；它不参与任务身份hash，不暴露新wire参数。业务精确重试优先返回已有事实；新输入仍校验接收后的人工/控制/缓存/序号/权限/会话条件。显式旧令牌路径保持严格，不用失效令牌自动切换模式。新的语义不承诺绑定到客户端审批前的观察；调用方仍应观察当前终端。详见[工程记录](records/Direct_Input_Admission_2026-11-04.md)。

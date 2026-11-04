@@ -66,7 +66,7 @@ def run_case(fixture_exe, environment, directory_root, name, pending=False, cras
             if post(settings, {'jsonrpc': '2.0', 'method': 'notifications/initialized'}, session)[0] != 202:
                 raise RuntimeError('HTTP initialized notification failed')
             _, _, response = post(settings, {'jsonrpc': '2.0', 'id': 2, 'method': 'tools/call',
-                'params': {'name': 'novaterm_list_sessions', 'arguments': {}}}, session)
+                'params': {'name': 'novaterm_list_sessions', 'arguments': {'1_操作': '查看已连接终端', '2_目标': 'NovaTerm', '3_内容': '生命周期测试'}}}, session)
             sessions = response['result']['structuredContent']['data']['sessions']
             if pending:
                 identity = {key: sessions[0][key] for key in ('sessionId', 'epoch')}

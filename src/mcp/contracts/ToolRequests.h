@@ -145,7 +145,7 @@ struct InteractTerminalRequest
 {
     SessionId session;
     Epoch epoch;
-    QString inputToken;
+    QString inputToken; ///< Empty only for tokenless direct admission; supplied legacy tokens remain strict.
     OperationId operation;
     std::vector<TerminalAction> actions;
     std::optional<std::chrono::milliseconds> wait;
@@ -160,7 +160,7 @@ struct RequestElevationRequest
 {
     SessionId session;
     Epoch epoch;
-    QString inputToken;
+    QString inputToken; ///< Empty only for tokenless direct admission; supplied legacy tokens remain strict.
     OperationId operation;
     ElevationMethod method{ElevationMethod::Sudo};
     ElevationMode mode{ElevationMode::Shell};

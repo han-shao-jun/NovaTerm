@@ -1,0 +1,2318 @@
+{
+  "schemaVersion": 1,
+  "run": "HDMI1104",
+  "date": "2026-11-04",
+  "transport": "Native Codex MCP tools after reconnect",
+  "target": {
+    "sessionId": "d900ef40-1d72-4c60-9147-f8000162c94f",
+    "epoch": "19063fa1-ea8e-4240-b233-d422a7d65fe8"
+  },
+  "sessions": [
+    {
+      "tool": "list_sessions",
+      "at": 1793804178438,
+      "response": {
+        "data": {
+          "applicationVersion": "0.2.130",
+          "instanceId": "8c939437-d528-4325-9ff7-cebc3607c400",
+          "nextCursor": null,
+          "sessions": [
+            {
+              "availability": {
+                "controlState": "idle",
+                "disabledReason": "",
+                "elevationAvailable": false,
+                "elevationDisabledReason": "TARGET_IDENTITY_UNVERIFIED",
+                "inputAvailable": true,
+                "ownedByThisClient": false,
+                "terminalTasks": {
+                  "canObserve": true,
+                  "canStart": true,
+                  "canVerifyExitCode": false,
+                  "completionEvidence": "observed_prompt_or_unknown",
+                  "disabledReason": "",
+                  "executionMode": "shared_terminal",
+                  "silenceIsSuccess": false,
+                  "stopAvailable": true,
+                  "stopRequiresOriginalControl": true,
+                  "transport": "serial"
+                },
+                "textWait": true
+              },
+              "capabilities": [
+                "read_context",
+                "search_context",
+                "terminal_interaction"
+              ],
+              "displayName": "ttyUSB0",
+              "displayNameTruncated": false,
+              "elevationMethods": [],
+              "epoch": "19063fa1-ea8e-4240-b233-d422a7d65fe8",
+              "permissions": {
+                "clearTerminal": true,
+                "readOutput": true,
+                "terminalInput": true,
+                "useElevation": true
+              },
+              "sessionId": "d900ef40-1d72-4c60-9147-f8000162c94f",
+              "shellIntegration": {
+                "available": false
+              },
+              "state": "running",
+              "targetLabel": "ttyUSB0",
+              "transport": "serial"
+            }
+          ]
+        },
+        "ok": true,
+        "schemaVersion": 1
+      }
+    }
+  ],
+  "probe": {
+    "arguments": {
+      "sessionId": "d900ef40-1d72-4c60-9147-f8000162c94f",
+      "epoch": "19063fa1-ea8e-4240-b233-d422a7d65fe8",
+      "1_操作": "操作目标终端",
+      "2_目标": "ttyUSB0",
+      "3_内容": "cat读取型号及HDMI节点；检查采集工具和进程，回车提交",
+      "operationId": "48c120b3-f7eb-41df-9c02-a5be06440101",
+      "actions": [
+        {
+          "type": "text",
+          "text": "printf '\\nNT_HDMI_UI_PROBE_BEGIN\\n'; tr '\\0' '\\n' < /proc/device-tree/model; for f in /sys/class/video4linux/video*/name; do n=$(cat \"$f\"); case \"$n\" in *hdmi*|*HDMI*) p=${f%/name}; printf 'HDMI_NODE=/dev/%s NAME=%s\\n' \"${p##*/}\" \"$n\";; esac; done; command -v v4l2-ctl; command -v timeout; ps -eo pid,comm,args | grep '[v]4l2-ctl'; printf 'NT_HDMI_UI_PROBE_END\\n'"
+        },
+        {
+          "type": "line_ending"
+        }
+      ],
+      "waitMs": 0,
+      "responseMode": "compact"
+    },
+    "result": {
+      "data": {
+        "alternateScreen": false,
+        "captureId": "337828fe-1c1b-4626-9928-7093162cacd9",
+        "capturedAt": "2026-11-04T14:53:27.202Z",
+        "command": {
+          "evidence": "none",
+          "executionId": "",
+          "exitCode": null,
+          "outputAttribution": "shared_terminal",
+          "result": "unknown",
+          "state": "none",
+          "terminationConfirmed": false
+        },
+        "control": {
+          "ownedByThisClient": true,
+          "state": "controlled"
+        },
+        "cursor": {
+          "column": 12,
+          "row": 55
+        },
+        "epoch": "19063fa1-ea8e-4240-b233-d422a7d65fe8",
+        "eventRevision": "47",
+        "inputReadiness": {
+          "canInteract": true,
+          "canSubmitCommand": false,
+          "confidence": "unknown",
+          "context": "unknown"
+        },
+        "ioStatus": {
+          "pump": {
+            "overloaded": false,
+            "pendingBytes": 0,
+            "readPaused": false
+          },
+          "sampledAt": "2026-11-04T14:56:55.196Z",
+          "serial": {
+            "connected": true,
+            "deliveryPaused": false,
+            "discardedReceiveBytes": "0",
+            "generation": "1",
+            "receiveFullEvents": "0",
+            "receivePendingBytes": 0,
+            "sendPendingBytes": 364
+          },
+          "sessionGeneration": "1"
+        },
+        "lastOperation": {
+          "acceptedActionCount": 2,
+          "id": "48c120b3-f7eb-41df-9c02-a5be06440101",
+          "inputMayHaveBeenSent": true,
+          "status": "submitted"
+        },
+        "modelRevision": "233",
+        "observationId": "00f8e698-97f7-4090-b6b7-acb0f48e900e",
+        "omittedLines": 0,
+        "operation": {
+          "acceptedActionCount": 2,
+          "id": "48c120b3-f7eb-41df-9c02-a5be06440101",
+          "inputMayHaveBeenSent": true,
+          "status": "submitted"
+        },
+        "outputChanged": false,
+        "outputTruncated": false,
+        "projectionLimited": false,
+        "recentOutput": [],
+        "resetRequired": false,
+        "screenChanged": false,
+        "screenSize": {
+          "columns": 211,
+          "rows": 56
+        },
+        "sessionId": "d900ef40-1d72-4c60-9147-f8000162c94f",
+        "sessionState": "running",
+        "sourceGap": false,
+        "sourceTruncated": false,
+        "terminalConfiguration": {
+          "lineEnding": "cr",
+          "promptConfigured": false,
+          "remoteEcho": true,
+          "serial": {
+            "baudRate": 1500000,
+            "dataBits": 8,
+            "flowControl": "none",
+            "parity": "none",
+            "stopBits": 1
+          }
+        },
+        "viewport": [],
+        "viewportPartial": true,
+        "wakeReason": "deadline"
+      },
+      "ok": true,
+      "schemaVersion": 1
+    },
+    "timing": {
+      "start": 1793804209532,
+      "end": 1793804215203
+    },
+    "observation": {
+      "data": {
+        "alternateScreen": false,
+        "captureId": "1c727ad2-2027-4472-b38c-70d32bf0474c",
+        "capturedAt": "2026-11-04T14:57:07.579Z",
+        "command": {
+          "evidence": "none",
+          "executionId": "",
+          "exitCode": null,
+          "outputAttribution": "shared_terminal",
+          "result": "unknown",
+          "state": "none",
+          "terminationConfirmed": false
+        },
+        "control": {
+          "ownedByThisClient": true,
+          "state": "controlled"
+        },
+        "cursor": {
+          "column": 12,
+          "row": 51
+        },
+        "epoch": "19063fa1-ea8e-4240-b233-d422a7d65fe8",
+        "eventRevision": "47",
+        "inputReadiness": {
+          "canInteract": true,
+          "canSubmitCommand": false,
+          "confidence": "unknown",
+          "context": "unknown"
+        },
+        "ioStatus": {
+          "pump": {
+            "overloaded": false,
+            "pendingBytes": 0,
+            "readPaused": false
+          },
+          "sampledAt": "2026-11-04T14:57:28.696Z",
+          "serial": {
+            "connected": true,
+            "deliveryPaused": false,
+            "discardedReceiveBytes": "0",
+            "generation": "1",
+            "receiveFullEvents": "0",
+            "receivePendingBytes": 0,
+            "sendPendingBytes": 0
+          },
+          "sessionGeneration": "1"
+        },
+        "lastOperation": {
+          "acceptedActionCount": 2,
+          "id": "48c120b3-f7eb-41df-9c02-a5be06440101",
+          "inputMayHaveBeenSent": true,
+          "status": "submitted"
+        },
+        "modelRevision": "248",
+        "observationId": "82f735bd-b855-4969-91cc-aa6c878387cd",
+        "omittedLines": 0,
+        "outputChanged": false,
+        "outputTruncated": false,
+        "projectionLimited": false,
+        "recentOutput": [],
+        "resetRequired": false,
+        "screenChanged": false,
+        "screenSize": {
+          "columns": 211,
+          "rows": 56
+        },
+        "sessionId": "d900ef40-1d72-4c60-9147-f8000162c94f",
+        "sessionState": "running",
+        "sourceGap": false,
+        "sourceTruncated": false,
+        "terminalConfiguration": {
+          "lineEnding": "cr",
+          "promptConfigured": false,
+          "remoteEcho": true,
+          "serial": {
+            "baudRate": 1500000,
+            "dataBits": 8,
+            "flowControl": "none",
+            "parity": "none",
+            "stopBits": 1
+          }
+        },
+        "viewport": [
+          {
+            "row": 0,
+            "text": "[   17.977400] rkisp1-vir0: rkisp_enum_frameintervals Not active sensor"
+          },
+          {
+            "row": 1,
+            "text": "[   17.977404] rkisp1-vir0: rkisp_enum_frameintervals Not active sensor"
+          },
+          {
+            "row": 2,
+            "text": "[   17.977625] rkisp1-vir0: rkisp_enum_frameintervals Not active sensor"
+          },
+          {
+            "row": 3,
+            "text": "[   17.977633] rkisp1-vir0: rkisp_enum_frameintervals Not active sensor"
+          },
+          {
+            "row": 4,
+            "text": "[   17.977638] rkisp1-vir0: rkisp_enum_frameintervals Not active sensor"
+          },
+          {
+            "row": 5,
+            "text": "[   17.977643] rkisp1-vir0: rkisp_enum_frameintervals Not active sensor"
+          },
+          {
+            "row": 6,
+            "text": "[   17.977648] rkisp1-vir0: rkisp_enum_frameintervals Not active sensor"
+          },
+          {
+            "row": 7,
+            "text": "[   17.977653] rkisp1-vir0: rkisp_enum_frameintervals Not active sensor"
+          },
+          {
+            "row": 8,
+            "text": "[   17.977657] rkisp1-vir0: rkisp_enum_frameintervals Not active sensor"
+          },
+          {
+            "row": 9,
+            "text": "[   17.977662] rkisp1-vir0: rkisp_enum_frameintervals Not active sensor"
+          },
+          {
+            "row": 10,
+            "text": "[   17.977667] rkisp1-vir0: rkisp_enum_frameintervals Not active sensor"
+          },
+          {
+            "row": 11,
+            "text": "[   17.977672] rkisp1-vir0: rkisp_enum_frameintervals Not active sensor"
+          },
+          {
+            "row": 12,
+            "text": "[   17.978973] rkisp1-vir1: rkisp_enum_frameintervals Not active sensor"
+          },
+          {
+            "row": 13,
+            "text": "[   17.978983] rkisp1-vir1: rkisp_enum_frameintervals Not active sensor"
+          },
+          {
+            "row": 14,
+            "text": "[   17.978988] rkisp1-vir1: rkisp_enum_frameintervals Not active sensor"
+          },
+          {
+            "row": 15,
+            "text": "[   17.978993] rkisp1-vir1: rkisp_enum_frameintervals Not active sensor"
+          },
+          {
+            "row": 16,
+            "text": "[   17.978998] rkisp1-vir1: rkisp_enum_frameintervals Not active sensor"
+          },
+          {
+            "row": 17,
+            "text": "[   17.979003] rkisp1-vir1: rkisp_enum_frameintervals Not active sensor"
+          },
+          {
+            "row": 18,
+            "text": "[   17.979008] rkisp1-vir1: rkisp_enum_frameintervals Not active sensor"
+          },
+          {
+            "row": 19,
+            "text": "[   17.979121] rkisp1-vir1: rkisp_enum_frameintervals Not active sensor"
+          },
+          {
+            "row": 20,
+            "text": "[   17.979128] rkisp1-vir1: rkisp_enum_frameintervals Not active sensor"
+          },
+          {
+            "row": 21,
+            "text": "[   17.979136] rkisp1-vir1: rkisp_enum_frameintervals Not active sensor"
+          },
+          {
+            "row": 22,
+            "text": "[   17.979141] rkisp1-vir1: rkisp_enum_frameintervals Not active sensor"
+          },
+          {
+            "row": 23,
+            "text": "[   17.979146] rkisp1-vir1: rkisp_enum_frameintervals Not active sensor"
+          },
+          {
+            "row": 24,
+            "text": "[   17.979153] rkisp1-vir1: rkisp_enum_frameintervals Not active sensor"
+          },
+          {
+            "row": 25,
+            "text": "[   17.979158] rkisp1-vir1: rkisp_enum_frameintervals Not active sensor"
+          },
+          {
+            "row": 26,
+            "text": "[   17.979162] rkisp1-vir1: rkisp_enum_frameintervals Not active sensor"
+          },
+          {
+            "row": 27,
+            "text": "[   17.979167] rkisp1-vir1: rkisp_enum_frameintervals Not active sensor"
+          },
+          {
+            "row": 28,
+            "text": "[   17.979172] rkisp1-vir1: rkisp_enum_frameintervals Not active sensor"
+          },
+          {
+            "row": 29,
+            "text": ""
+          },
+          {
+            "row": 30,
+            "text": "ema login: root"
+          },
+          {
+            "row": 31,
+            "text": "Password:"
+          },
+          {
+            "row": 32,
+            "text": ""
+          },
+          {
+            "row": 33,
+            "text": "Login incorrect"
+          },
+          {
+            "row": 34,
+            "text": "ema login: root"
+          },
+          {
+            "row": 35,
+            "text": "Password:"
+          },
+          {
+            "row": 36,
+            "text": " _____ __  __    _"
+          },
+          {
+            "row": 37,
+            "text": "| ____|  \\/  |  / \\"
+          },
+          {
+            "row": 38,
+            "text": "|  _| | |\\/| | / _ \\"
+          },
+          {
+            "row": 39,
+            "text": "| |___| |  | |/ ___ \\"
+          },
+          {
+            "row": 40,
+            "text": "|_____|_|  |_/_/   \\_\\"
+          },
+          {
+            "row": 41,
+            "text": ""
+          },
+          {
+            "row": 42,
+            "text": "Welcome to Ubuntu 20.04.6 LTS (GNU/Linux 5.10.110 aarch64)"
+          },
+          {
+            "row": 43,
+            "text": ""
+          },
+          {
+            "row": 44,
+            "text": " * Documentation:  https://help.ubuntu.com"
+          },
+          {
+            "row": 45,
+            "text": " * Management:     https://landscape.canonical.com"
+          },
+          {
+            "row": 46,
+            "text": " * Support:        https://ubuntu.com/pro"
+          },
+          {
+            "row": 47,
+            "text": ""
+          },
+          {
+            "row": 48,
+            "text": "System information as of Wed Nov  4 22:48:42 CST 2026"
+          },
+          {
+            "row": 49,
+            "text": ""
+          },
+          {
+            "row": 50,
+            "text": "System load:   0.79 0.22 0.07   Up time:       0 min"
+          },
+          {
+            "row": 51,
+            "text": "Memory usage"
+          },
+          {
+            "row": 52,
+            "text": ""
+          },
+          {
+            "row": 53,
+            "text": ""
+          },
+          {
+            "row": 54,
+            "text": ""
+          },
+          {
+            "row": 55,
+            "text": ""
+          }
+        ],
+        "viewportPartial": false,
+        "wakeReason": "initial"
+      },
+      "ok": true,
+      "schemaVersion": 1
+    },
+    "note": "User reported seeing probe output and shell prompt in NovaTerm; MCP viewport/history did not retain probe marker. Cause not established."
+  },
+  "format": {
+    "arguments": {
+      "sessionId": "d900ef40-1d72-4c60-9147-f8000162c94f",
+      "epoch": "19063fa1-ea8e-4240-b233-d422a7d65fe8",
+      "1_操作": "操作目标终端",
+      "2_目标": "ttyUSB0",
+      "3_内容": "cat核对video80名称，再读取HDMI时序与格式；回车提交",
+      "operationId": "48c120b3-f7eb-41df-9c02-a5be06440102",
+      "actions": [
+        {
+          "type": "text",
+          "text": "printf '\\nNT_HDMI_UI_FORMAT_BEGIN\\n'; cat /proc/device-tree/model; echo; n=$(cat /sys/class/video4linux/video80/name); echo \"$n\"; case \"$n\" in *hdmi*|*HDMI*) v4l2-ctl -d /dev/video80 --query-dv-timings --get-fmt-video;; *) echo NOT_HDMI_NODE;; esac; command -v timeout; ps -eo pid,comm,args | grep '[v]4l2-ctl'; printf 'NT_HDMI_UI_FORMAT_END\\n'"
+        },
+        {
+          "type": "line_ending"
+        }
+      ],
+      "waitMs": 1000,
+      "responseMode": "full"
+    },
+    "result": {
+      "data": {
+        "alternateScreen": false,
+        "captureId": "228ce534-11c7-41dd-969c-1cef30ace440",
+        "capturedAt": "2026-11-04T15:00:42.847Z",
+        "command": {
+          "evidence": "none",
+          "executionId": "",
+          "exitCode": null,
+          "outputAttribution": "shared_terminal",
+          "result": "unknown",
+          "state": "none",
+          "terminationConfirmed": false
+        },
+        "control": {
+          "ownedByThisClient": true,
+          "state": "controlled"
+        },
+        "cursor": {
+          "column": 12,
+          "row": 54
+        },
+        "epoch": "19063fa1-ea8e-4240-b233-d422a7d65fe8",
+        "eventRevision": "54",
+        "inputReadiness": {
+          "canInteract": true,
+          "canSubmitCommand": false,
+          "confidence": "unknown",
+          "context": "unknown"
+        },
+        "ioStatus": {
+          "pump": {
+            "overloaded": false,
+            "pendingBytes": 0,
+            "readPaused": false
+          },
+          "sampledAt": "2026-11-04T15:01:58.959Z",
+          "serial": {
+            "connected": true,
+            "deliveryPaused": false,
+            "discardedReceiveBytes": "0",
+            "generation": "1",
+            "receiveFullEvents": "0",
+            "receivePendingBytes": 0,
+            "sendPendingBytes": 345
+          },
+          "sessionGeneration": "1"
+        },
+        "lastOperation": {
+          "acceptedActionCount": 2,
+          "id": "48c120b3-f7eb-41df-9c02-a5be06440102",
+          "inputMayHaveBeenSent": true,
+          "status": "submitted"
+        },
+        "modelRevision": "251",
+        "observationId": "2e1faf7a-ad6f-4881-b662-2cccb7df02f2",
+        "omittedLines": 0,
+        "operation": {
+          "acceptedActionCount": 2,
+          "id": "48c120b3-f7eb-41df-9c02-a5be06440102",
+          "inputMayHaveBeenSent": true,
+          "status": "submitted"
+        },
+        "outputChanged": false,
+        "outputTruncated": false,
+        "projectionLimited": false,
+        "recentOutput": [],
+        "resetRequired": false,
+        "screenChanged": false,
+        "screenSize": {
+          "columns": 211,
+          "rows": 56
+        },
+        "sessionId": "d900ef40-1d72-4c60-9147-f8000162c94f",
+        "sessionState": "running",
+        "sourceGap": false,
+        "sourceTruncated": false,
+        "terminalConfiguration": {
+          "lineEnding": "cr",
+          "promptConfigured": false,
+          "remoteEcho": true,
+          "serial": {
+            "baudRate": 1500000,
+            "dataBits": 8,
+            "flowControl": "none",
+            "parity": "none",
+            "stopBits": 1
+          }
+        },
+        "viewport": [
+          {
+            "row": 0,
+            "text": "[   17.977400] rkisp1-vir0: rkisp_enum_frameintervals Not active sensor"
+          },
+          {
+            "row": 1,
+            "text": "[   17.977404] rkisp1-vir0: rkisp_enum_frameintervals Not active sensor"
+          },
+          {
+            "row": 2,
+            "text": "[   17.977625] rkisp1-vir0: rkisp_enum_frameintervals Not active sensor"
+          },
+          {
+            "row": 3,
+            "text": "[   17.977633] rkisp1-vir0: rkisp_enum_frameintervals Not active sensor"
+          },
+          {
+            "row": 4,
+            "text": "[   17.977638] rkisp1-vir0: rkisp_enum_frameintervals Not active sensor"
+          },
+          {
+            "row": 5,
+            "text": "[   17.977643] rkisp1-vir0: rkisp_enum_frameintervals Not active sensor"
+          },
+          {
+            "row": 6,
+            "text": "[   17.977648] rkisp1-vir0: rkisp_enum_frameintervals Not active sensor"
+          },
+          {
+            "row": 7,
+            "text": "[   17.977653] rkisp1-vir0: rkisp_enum_frameintervals Not active sensor"
+          },
+          {
+            "row": 8,
+            "text": "[   17.977657] rkisp1-vir0: rkisp_enum_frameintervals Not active sensor"
+          },
+          {
+            "row": 9,
+            "text": "[   17.977662] rkisp1-vir0: rkisp_enum_frameintervals Not active sensor"
+          },
+          {
+            "row": 10,
+            "text": "[   17.977667] rkisp1-vir0: rkisp_enum_frameintervals Not active sensor"
+          },
+          {
+            "row": 11,
+            "text": "[   17.977672] rkisp1-vir0: rkisp_enum_frameintervals Not active sensor"
+          },
+          {
+            "row": 12,
+            "text": "[   17.978973] rkisp1-vir1: rkisp_enum_frameintervals Not active sensor"
+          },
+          {
+            "row": 13,
+            "text": "[   17.978983] rkisp1-vir1: rkisp_enum_frameintervals Not active sensor"
+          },
+          {
+            "row": 14,
+            "text": "[   17.978988] rkisp1-vir1: rkisp_enum_frameintervals Not active sensor"
+          },
+          {
+            "row": 15,
+            "text": "[   17.978993] rkisp1-vir1: rkisp_enum_frameintervals Not active sensor"
+          },
+          {
+            "row": 16,
+            "text": "[   17.978998] rkisp1-vir1: rkisp_enum_frameintervals Not active sensor"
+          },
+          {
+            "row": 17,
+            "text": "[   17.979003] rkisp1-vir1: rkisp_enum_frameintervals Not active sensor"
+          },
+          {
+            "row": 18,
+            "text": "[   17.979008] rkisp1-vir1: rkisp_enum_frameintervals Not active sensor"
+          },
+          {
+            "row": 19,
+            "text": "[   17.979121] rkisp1-vir1: rkisp_enum_frameintervals Not active sensor"
+          },
+          {
+            "row": 20,
+            "text": "[   17.979128] rkisp1-vir1: rkisp_enum_frameintervals Not active sensor"
+          },
+          {
+            "row": 21,
+            "text": "[   17.979136] rkisp1-vir1: rkisp_enum_frameintervals Not active sensor"
+          },
+          {
+            "row": 22,
+            "text": "[   17.979141] rkisp1-vir1: rkisp_enum_frameintervals Not active sensor"
+          },
+          {
+            "row": 23,
+            "text": "[   17.979146] rkisp1-vir1: rkisp_enum_frameintervals Not active sensor"
+          },
+          {
+            "row": 24,
+            "text": "[   17.979153] rkisp1-vir1: rkisp_enum_frameintervals Not active sensor"
+          },
+          {
+            "row": 25,
+            "text": "[   17.979158] rkisp1-vir1: rkisp_enum_frameintervals Not active sensor"
+          },
+          {
+            "row": 26,
+            "text": "[   17.979162] rkisp1-vir1: rkisp_enum_frameintervals Not active sensor"
+          },
+          {
+            "row": 27,
+            "text": "[   17.979167] rkisp1-vir1: rkisp_enum_frameintervals Not active sensor"
+          },
+          {
+            "row": 28,
+            "text": "[   17.979172] rkisp1-vir1: rkisp_enum_frameintervals Not active sensor"
+          },
+          {
+            "row": 29,
+            "text": ""
+          },
+          {
+            "row": 30,
+            "text": "ema login: root"
+          },
+          {
+            "row": 31,
+            "text": "Password:"
+          },
+          {
+            "row": 32,
+            "text": ""
+          },
+          {
+            "row": 33,
+            "text": "Login incorrect"
+          },
+          {
+            "row": 34,
+            "text": "ema login: root"
+          },
+          {
+            "row": 35,
+            "text": "Password:"
+          },
+          {
+            "row": 36,
+            "text": " _____ __  __    _"
+          },
+          {
+            "row": 37,
+            "text": "| ____|  \\/  |  / \\"
+          },
+          {
+            "row": 38,
+            "text": "|  _| | |\\/| | / _ \\"
+          },
+          {
+            "row": 39,
+            "text": "| |___| |  | |/ ___ \\"
+          },
+          {
+            "row": 40,
+            "text": "|_____|_|  |_/_/   \\_\\"
+          },
+          {
+            "row": 41,
+            "text": ""
+          },
+          {
+            "row": 42,
+            "text": "Welcome to Ubuntu 20.04.6 LTS (GNU/Linux 5.10.110 aarch64)"
+          },
+          {
+            "row": 43,
+            "text": ""
+          },
+          {
+            "row": 44,
+            "text": " * Documentation:  https://help.ubuntu.com"
+          },
+          {
+            "row": 45,
+            "text": " * Management:     https://landscape.canonical.com"
+          },
+          {
+            "row": 46,
+            "text": " * Support:        https://ubuntu.com/pro"
+          },
+          {
+            "row": 47,
+            "text": ""
+          },
+          {
+            "row": 48,
+            "text": "System information as of Wed Nov  4 22:48:42 CST 2026"
+          },
+          {
+            "row": 49,
+            "text": ""
+          },
+          {
+            "row": 50,
+            "text": "System load:   0.79 0.22 0.07   Up time:       0 min"
+          },
+          {
+            "row": 51,
+            "text": "Memory usage"
+          },
+          {
+            "row": 52,
+            "text": "root@ema:~#"
+          },
+          {
+            "row": 53,
+            "text": "root@ema:~#"
+          },
+          {
+            "row": 54,
+            "text": "root@ema:~#"
+          },
+          {
+            "row": 55,
+            "text": ""
+          }
+        ],
+        "viewportPartial": false,
+        "wakeReason": "output_changed"
+      },
+      "ok": true,
+      "schemaVersion": 1
+    },
+    "timing": {
+      "start": 1793804512348,
+      "end": 1793804518969
+    },
+    "observation": {
+      "data": {
+        "alternateScreen": false,
+        "captureId": "6e587455-beef-419d-a2b3-aa66a307d1d1",
+        "capturedAt": "2026-11-04T15:02:09.804Z",
+        "command": {
+          "evidence": "none",
+          "executionId": "",
+          "exitCode": null,
+          "outputAttribution": "shared_terminal",
+          "result": "unknown",
+          "state": "none",
+          "terminationConfirmed": false
+        },
+        "control": {
+          "ownedByThisClient": true,
+          "state": "controlled"
+        },
+        "cursor": {
+          "column": 12,
+          "row": 55
+        },
+        "epoch": "19063fa1-ea8e-4240-b233-d422a7d65fe8",
+        "eventRevision": "54",
+        "inputReadiness": {
+          "canInteract": true,
+          "canSubmitCommand": false,
+          "confidence": "unknown",
+          "context": "unknown"
+        },
+        "ioStatus": {
+          "pump": {
+            "overloaded": false,
+            "pendingBytes": 0,
+            "readPaused": false
+          },
+          "sampledAt": "2026-11-04T15:02:09.804Z",
+          "serial": {
+            "connected": true,
+            "deliveryPaused": false,
+            "discardedReceiveBytes": "0",
+            "generation": "1",
+            "receiveFullEvents": "0",
+            "receivePendingBytes": 0,
+            "sendPendingBytes": 0
+          },
+          "sessionGeneration": "1"
+        },
+        "lastOperation": {
+          "acceptedActionCount": 2,
+          "id": "48c120b3-f7eb-41df-9c02-a5be06440102",
+          "inputMayHaveBeenSent": true,
+          "status": "submitted"
+        },
+        "modelRevision": "264",
+        "observationId": "66d8bd90-cb86-4ac0-a4a5-bb0208f0d5e3",
+        "omittedLines": 0,
+        "outputChanged": false,
+        "outputTruncated": false,
+        "projectionLimited": false,
+        "recentOutput": [],
+        "resetRequired": false,
+        "screenChanged": false,
+        "screenSize": {
+          "columns": 211,
+          "rows": 56
+        },
+        "sessionId": "d900ef40-1d72-4c60-9147-f8000162c94f",
+        "sessionState": "running",
+        "sourceGap": false,
+        "sourceTruncated": false,
+        "terminalConfiguration": {
+          "lineEnding": "cr",
+          "promptConfigured": false,
+          "remoteEcho": true,
+          "serial": {
+            "baudRate": 1500000,
+            "dataBits": 8,
+            "flowControl": "none",
+            "parity": "none",
+            "stopBits": 1
+          }
+        },
+        "viewport": [
+          {
+            "row": 0,
+            "text": "Password:"
+          },
+          {
+            "row": 1,
+            "text": " _____ __  __    _"
+          },
+          {
+            "row": 2,
+            "text": "| ____|  \\/  |  / \\"
+          },
+          {
+            "row": 3,
+            "text": "|  _| | |\\/| | / _ \\"
+          },
+          {
+            "row": 4,
+            "text": "| |___| |  | |/ ___ \\"
+          },
+          {
+            "row": 5,
+            "text": "|_____|_|  |_/_/   \\_\\"
+          },
+          {
+            "row": 6,
+            "text": ""
+          },
+          {
+            "row": 7,
+            "text": "Welcome to Ubuntu 20.04.6 LTS (GNU/Linux 5.10.110 aarch64)"
+          },
+          {
+            "row": 8,
+            "text": ""
+          },
+          {
+            "row": 9,
+            "text": " * Documentation:  https://help.ubuntu.com"
+          },
+          {
+            "row": 10,
+            "text": " * Management:     https://landscape.canonical.com"
+          },
+          {
+            "row": 11,
+            "text": " * Support:        https://ubuntu.com/pro"
+          },
+          {
+            "row": 12,
+            "text": ""
+          },
+          {
+            "row": 13,
+            "text": "System information as of Wed Nov  4 22:48:42 CST 2026"
+          },
+          {
+            "row": 14,
+            "text": ""
+          },
+          {
+            "row": 15,
+            "text": "System load:   0.79 0.22 0.07   Up time:       0 min"
+          },
+          {
+            "row": 16,
+            "text": "Memory usage"
+          },
+          {
+            "row": 17,
+            "text": "root@ema:~#"
+          },
+          {
+            "row": 18,
+            "text": "root@ema:~#"
+          },
+          {
+            "row": 19,
+            "text": "root@ema:~# printf '\\nNT_HDMI_UI_FORMAT_BEGIN\\n'; cat /proc/device-tree/model; echo; n=$(cat /sys/class/video4linux/video80/name); echo \"$n\"; case \"$n\" in *hdmi*|*HDMI*) v4l2-ctl -d /dev/video80 --query-dv-timings --get-fmt-video;; *) echo NOT_HDMI_NODE;; esac; command -v timeout; ps -eo pid,comm,args | grep '[v]4l2-ctl'; printf 'NT_HDMI_UI_FORMAT_END\\n'"
+          },
+          {
+            "row": 20,
+            "text": ""
+          },
+          {
+            "row": 21,
+            "text": "NT_HDMI_UI_FORMAT_BEGIN"
+          },
+          {
+            "row": 22,
+            "text": "Rockchip RK3588 EVM3588 B1 Board"
+          },
+          {
+            "row": 23,
+            "text": "stream_hdmirx"
+          },
+          {
+            "row": 24,
+            "text": "        Active width: 3840"
+          },
+          {
+            "row": 25,
+            "text": "        Active height: 2160"
+          },
+          {
+            "row": 26,
+            "text": "        Total width: 4400"
+          },
+          {
+            "row": 27,
+            "text": "        Total height: 2250"
+          },
+          {
+            "row": 28,
+            "text": "        Frame format: progressive"
+          },
+          {
+            "row": 29,
+            "text": "        Polarities: -vsync -hsync"
+          },
+          {
+            "row": 30,
+            "text": "        Pixelclock: 296688000 Hz (29.97 frames per second)"
+          },
+          {
+            "row": 31,
+            "text": "        Horizontal frontporch: 168"
+          },
+          {
+            "row": 32,
+            "text": "        Horizontal sync: 96"
+          },
+          {
+            "row": 33,
+            "text": "        Horizontal backporch: 296"
+          },
+          {
+            "row": 34,
+            "text": "        Vertical frontporch: 8"
+          },
+          {
+            "row": 35,
+            "text": "        Vertical sync: 10"
+          },
+          {
+            "row": 36,
+            "text": "        Vertical backporch: 72"
+          },
+          {
+            "row": 37,
+            "text": "        Standards:"
+          },
+          {
+            "row": 38,
+            "text": "        Flags:"
+          },
+          {
+            "row": 39,
+            "text": "Format Video Capture Multiplanar:"
+          },
+          {
+            "row": 40,
+            "text": "        Width/Height      : 3840/2160"
+          },
+          {
+            "row": 41,
+            "text": "        Pixel Format      : 'NV12' (Y/CbCr 4:2:0)"
+          },
+          {
+            "row": 42,
+            "text": "        Field             : None"
+          },
+          {
+            "row": 43,
+            "text": "        Number of planes  : 1"
+          },
+          {
+            "row": 44,
+            "text": "        Flags             : premultiplied-alpha, 0x000000fe"
+          },
+          {
+            "row": 45,
+            "text": "        Colorspace        : Unknown (0x1003b964)"
+          },
+          {
+            "row": 46,
+            "text": "        Transfer Function : Unknown (0x000000b8)"
+          },
+          {
+            "row": 47,
+            "text": "        YCbCr/HSV Encoding: Unknown (0x000000ff)"
+          },
+          {
+            "row": 48,
+            "text": "        Quantization      : Default"
+          },
+          {
+            "row": 49,
+            "text": "        Plane 0           :"
+          },
+          {
+            "row": 50,
+            "text": "           Bytes per Line : 3840"
+          },
+          {
+            "row": 51,
+            "text": "           Size Image     : 12441600"
+          },
+          {
+            "row": 52,
+            "text": "/usr/bin/timeout"
+          },
+          {
+            "row": 53,
+            "text": "NT_HDMI_UI_FORMAT_END"
+          },
+          {
+            "row": 54,
+            "text": "root@ema:~#"
+          }
+        ],
+        "viewportPartial": false,
+        "wakeReason": "initial"
+      },
+      "ok": true,
+      "schemaVersion": 1
+    }
+  },
+  "capture": {
+    "arguments": {
+      "sessionId": "d900ef40-1d72-4c60-9147-f8000162c94f",
+      "epoch": "19063fa1-ea8e-4240-b233-d422a7d65fe8",
+      "1_操作": "启动终端任务",
+      "2_目标": "ttyUSB0",
+      "3_内容": "/dev/video80采集1800帧至/dev/null，限45秒；回车提交",
+      "operationId": "48c120b3-f7eb-41df-9c02-a5be06440103",
+      "actions": [
+        {
+          "type": "text",
+          "text": "printf '\\nNT_HDMI_UI_CAPTURE_BEGIN\\n'; date '+NT_HDMI_UI_START=%s.%N'; timeout -s TERM -k 3 45 v4l2-ctl -d /dev/video80 --stream-mmap=4 --stream-count=1800 --stream-to=/dev/null; nt_rc=$?; date '+NT_HDMI_UI_END=%s.%N'; printf '\\nNT_HDMI_UI_CAPTURE_END rc=%s\\n' \"$nt_rc\""
+        },
+        {
+          "type": "line_ending"
+        }
+      ],
+      "timeoutMs": 55000
+    },
+    "result": {
+      "data": {
+        "accepted": true,
+        "baseline": {
+          "cacheGeneration": "1",
+          "capturedAt": "2026-11-04T15:03:28.837Z",
+          "caughtUp": true,
+          "coverage": "committed_history",
+          "earliestPosition": {
+            "byteOffset": "0",
+            "cellOffset": "0",
+            "lineId": "1",
+            "scalarOffset": 0
+          },
+          "epoch": "19063fa1-ea8e-4240-b233-d422a7d65fe8",
+          "fragments": [],
+          "hasMore": false,
+          "historyMayPrecedeEpoch": true,
+          "instanceId": "8c939437-d528-4325-9ff7-cebc3607c400",
+          "nextPosition": {
+            "byteOffset": "0",
+            "cellOffset": "0",
+            "lineId": "669",
+            "scalarOffset": 0
+          },
+          "sampledEndPosition": {
+            "byteOffset": "0",
+            "cellOffset": "0",
+            "lineId": "669",
+            "scalarOffset": 0
+          },
+          "sessionId": "d900ef40-1d72-4c60-9147-f8000162c94f",
+          "source": "log",
+          "status": "ok"
+        },
+        "completed": false,
+        "epoch": "19063fa1-ea8e-4240-b233-d422a7d65fe8",
+        "evidenceKind": "none",
+        "executionId": null,
+        "exitCode": null,
+        "inputMayHaveBeenSent": false,
+        "operationId": "48c120b3-f7eb-41df-9c02-a5be06440103",
+        "reason": "",
+        "sessionId": "d900ef40-1d72-4c60-9147-f8000162c94f",
+        "status": "accepted",
+        "stopRequested": false,
+        "stopSubmission": null,
+        "submissionStatus": "queued",
+        "suggestedQueryMs": 250,
+        "taskId": "c9ea2708-ffc1-45a8-9cf5-f64a27dcff3b",
+        "taskSubmission": {
+          "inputMayHaveBeenSent": false,
+          "operationId": "48c120b3-f7eb-41df-9c02-a5be06440103",
+          "status": "queued"
+        },
+        "terminationConfirmed": false
+      },
+      "ok": true,
+      "schemaVersion": 1
+    },
+    "timing": {
+      "start": 1793804604314,
+      "end": 1793804608847
+    },
+    "taskQueries": [
+      {
+        "at": 1793804677226,
+        "ok": true,
+        "status": "unknown",
+        "reason": "deadline",
+        "submitted": "submitted",
+        "terminationConfirmed": false
+      }
+    ],
+    "lastQuery": {
+      "data": {
+        "accepted": true,
+        "baseline": {
+          "cacheGeneration": "1",
+          "capturedAt": "2026-11-04T15:03:28.837Z",
+          "caughtUp": true,
+          "coverage": "committed_history",
+          "earliestPosition": {
+            "byteOffset": "0",
+            "cellOffset": "0",
+            "lineId": "1",
+            "scalarOffset": 0
+          },
+          "epoch": "19063fa1-ea8e-4240-b233-d422a7d65fe8",
+          "fragments": [],
+          "hasMore": false,
+          "historyMayPrecedeEpoch": true,
+          "instanceId": "8c939437-d528-4325-9ff7-cebc3607c400",
+          "nextPosition": {
+            "byteOffset": "0",
+            "cellOffset": "0",
+            "lineId": "669",
+            "scalarOffset": 0
+          },
+          "sampledEndPosition": {
+            "byteOffset": "0",
+            "cellOffset": "0",
+            "lineId": "669",
+            "scalarOffset": 0
+          },
+          "sessionId": "d900ef40-1d72-4c60-9147-f8000162c94f",
+          "source": "log",
+          "status": "ok"
+        },
+        "completed": false,
+        "epoch": "19063fa1-ea8e-4240-b233-d422a7d65fe8",
+        "evidenceKind": "none",
+        "executionId": null,
+        "exitCode": null,
+        "inputMayHaveBeenSent": true,
+        "operationId": "48c120b3-f7eb-41df-9c02-a5be06440103",
+        "reason": "deadline",
+        "sessionId": "d900ef40-1d72-4c60-9147-f8000162c94f",
+        "status": "unknown",
+        "stopRequested": false,
+        "stopSubmission": null,
+        "submissionStatus": "submitted",
+        "suggestedQueryMs": 0,
+        "taskId": "c9ea2708-ffc1-45a8-9cf5-f64a27dcff3b",
+        "taskSubmission": {
+          "inputMayHaveBeenSent": true,
+          "operationId": "48c120b3-f7eb-41df-9c02-a5be06440103",
+          "status": "submitted"
+        },
+        "terminationConfirmed": false
+      },
+      "ok": true,
+      "schemaVersion": 1
+    },
+    "screen": {
+      "data": {
+        "alternateScreen": false,
+        "captureId": "f18bafae-ae66-48e4-a80d-fed9c504e92c",
+        "capturedAt": "2026-11-04T15:04:37.227Z",
+        "command": {
+          "evidence": "none",
+          "executionId": "",
+          "exitCode": null,
+          "outputAttribution": "shared_terminal",
+          "result": "unknown",
+          "state": "none",
+          "terminationConfirmed": false
+        },
+        "control": {
+          "ownedByThisClient": false,
+          "state": "expired"
+        },
+        "cursor": {
+          "column": 12,
+          "row": 55
+        },
+        "epoch": "19063fa1-ea8e-4240-b233-d422a7d65fe8",
+        "eventRevision": "59",
+        "inputReadiness": {
+          "canInteract": true,
+          "canSubmitCommand": false,
+          "confidence": "unknown",
+          "context": "unknown"
+        },
+        "ioStatus": {
+          "pump": {
+            "overloaded": false,
+            "pendingBytes": 0,
+            "readPaused": false
+          },
+          "sampledAt": "2026-11-04T15:04:37.228Z",
+          "serial": {
+            "connected": true,
+            "deliveryPaused": false,
+            "discardedReceiveBytes": "0",
+            "generation": "1",
+            "receiveFullEvents": "0",
+            "receivePendingBytes": 0,
+            "sendPendingBytes": 0
+          },
+          "sessionGeneration": "1"
+        },
+        "modelRevision": "2078",
+        "observationId": "6bbb1939-f148-4362-9d61-38c69e5e07f8",
+        "omittedLines": 0,
+        "outputChanged": false,
+        "outputTruncated": false,
+        "projectionLimited": false,
+        "recentOutput": [],
+        "resetRequired": false,
+        "screenChanged": false,
+        "screenSize": {
+          "columns": 211,
+          "rows": 56
+        },
+        "sessionId": "d900ef40-1d72-4c60-9147-f8000162c94f",
+        "sessionState": "running",
+        "sourceGap": false,
+        "sourceTruncated": false,
+        "terminalConfiguration": {
+          "lineEnding": "cr",
+          "promptConfigured": false,
+          "remoteEcho": true,
+          "serial": {
+            "baudRate": 1500000,
+            "dataBits": 8,
+            "flowControl": "none",
+            "parity": "none",
+            "stopBits": 1
+          }
+        },
+        "viewport": [
+          {
+            "row": 0,
+            "text": "        Flags:"
+          },
+          {
+            "row": 1,
+            "text": "Format Video Capture Multiplanar:"
+          },
+          {
+            "row": 2,
+            "text": "        Width/Height      : 3840/2160"
+          },
+          {
+            "row": 3,
+            "text": "        Pixel Format      : 'NV12' (Y/CbCr 4:2:0)"
+          },
+          {
+            "row": 4,
+            "text": "        Field             : None"
+          },
+          {
+            "row": 5,
+            "text": "        Number of planes  : 1"
+          },
+          {
+            "row": 6,
+            "text": "        Flags             : premultiplied-alpha, 0x000000fe"
+          },
+          {
+            "row": 7,
+            "text": "        Colorspace        : Unknown (0x1003b964)"
+          },
+          {
+            "row": 8,
+            "text": "        Transfer Function : Unknown (0x000000b8)"
+          },
+          {
+            "row": 9,
+            "text": "        YCbCr/HSV Encoding: Unknown (0x000000ff)"
+          },
+          {
+            "row": 10,
+            "text": "        Quantization      : Default"
+          },
+          {
+            "row": 11,
+            "text": "        Plane 0           :"
+          },
+          {
+            "row": 12,
+            "text": "           Bytes per Line : 3840"
+          },
+          {
+            "row": 13,
+            "text": "           Size Image     : 12441600"
+          },
+          {
+            "row": 14,
+            "text": "/usr/bin/timeout"
+          },
+          {
+            "row": 15,
+            "text": "NT_HDMI_UI_FORMAT_END"
+          },
+          {
+            "row": 16,
+            "text": "root@ema:~# printf '\\nNT_HDMI_UI_CAPTURE_BEGIN\\n'; date '+NT_HDMI_UI_START=%s.%N'; timeout -s TERM -k 3 45 v4l2-ctl -d /dev/video80 --stream-mmap=4 --stream-count=1800 --stream-to=/dev/null; nt_rc=$?; date '+NT_HDMI_UI_END=%s.%N'; printf '\\nNT_HDMI_UI_CAPTURE_END rc=%s\\n' \"$nt_rc\""
+          },
+          {
+            "row": 17,
+            "text": ""
+          },
+          {
+            "row": 18,
+            "text": "NT_HDMI_UI_CAPTURE_BEGIN"
+          },
+          {
+            "row": 19,
+            "text": "NT_HDMI_UI_START=1793804606.584099871"
+          },
+          {
+            "row": 20,
+            "text": "<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< 59.94 fps"
+          },
+          {
+            "row": 21,
+            "text": "<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< 59.94 fps"
+          },
+          {
+            "row": 22,
+            "text": "<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< 59.94 fps"
+          },
+          {
+            "row": 23,
+            "text": "<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< 59.94 fps"
+          },
+          {
+            "row": 24,
+            "text": "<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< 59.94 fps"
+          },
+          {
+            "row": 25,
+            "text": "<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< 59.94 fps"
+          },
+          {
+            "row": 26,
+            "text": "<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< 59.94 fps"
+          },
+          {
+            "row": 27,
+            "text": "<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< 59.94 fps"
+          },
+          {
+            "row": 28,
+            "text": "<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< 59.94 fps"
+          },
+          {
+            "row": 29,
+            "text": "<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< 59.94 fps"
+          },
+          {
+            "row": 30,
+            "text": "<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< 59.94 fps"
+          },
+          {
+            "row": 31,
+            "text": "<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< 59.94 fps"
+          },
+          {
+            "row": 32,
+            "text": "<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< 59.94 fps"
+          },
+          {
+            "row": 33,
+            "text": "<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< 59.94 fps"
+          },
+          {
+            "row": 34,
+            "text": "<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< 59.94 fps"
+          },
+          {
+            "row": 35,
+            "text": "<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< 59.94 fps"
+          },
+          {
+            "row": 36,
+            "text": "<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< 59.94 fps"
+          },
+          {
+            "row": 37,
+            "text": "<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< 59.94 fps"
+          },
+          {
+            "row": 38,
+            "text": "<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< 59.94 fps"
+          },
+          {
+            "row": 39,
+            "text": "<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< 59.94 fps"
+          },
+          {
+            "row": 40,
+            "text": "<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< 59.94 fps"
+          },
+          {
+            "row": 41,
+            "text": "<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< 59.94 fps"
+          },
+          {
+            "row": 42,
+            "text": "<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< 59.94 fps"
+          },
+          {
+            "row": 43,
+            "text": "<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< 59.94 fps"
+          },
+          {
+            "row": 44,
+            "text": "<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< 59.94 fps"
+          },
+          {
+            "row": 45,
+            "text": "<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< 59.94 fps"
+          },
+          {
+            "row": 46,
+            "text": "<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< 59.94 fps"
+          },
+          {
+            "row": 47,
+            "text": "<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< 59.94 fps"
+          },
+          {
+            "row": 48,
+            "text": "<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< 59.94 fps"
+          },
+          {
+            "row": 49,
+            "text": "<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< 59.94 fps"
+          },
+          {
+            "row": 50,
+            "text": ""
+          },
+          {
+            "row": 51,
+            "text": "NT_HDMI_UI_END=1793804636.743061859"
+          },
+          {
+            "row": 52,
+            "text": ""
+          },
+          {
+            "row": 53,
+            "text": "NT_HDMI_UI_CAPTURE_END rc=0"
+          },
+          {
+            "row": 54,
+            "text": "root@ema:~#"
+          }
+        ],
+        "viewportPartial": false,
+        "wakeReason": "initial"
+      },
+      "ok": true,
+      "schemaVersion": 1
+    }
+  },
+  "postInput": {
+    "arguments": {
+      "sessionId": "d900ef40-1d72-4c60-9147-f8000162c94f",
+      "epoch": "19063fa1-ea8e-4240-b233-d422a7d65fe8",
+      "1_操作": "操作目标终端",
+      "2_目标": "ttyUSB0",
+      "3_内容": "printf打印NT_HDMI_UI_POST_OK；回车提交",
+      "operationId": "48c120b3-f7eb-41df-9c02-a5be06440104",
+      "actions": [
+        {
+          "type": "text",
+          "text": "printf '\\nNT_HDMI_UI_POST_OK\\n'"
+        },
+        {
+          "type": "line_ending"
+        }
+      ],
+      "waitMs": 0,
+      "responseMode": "compact"
+    },
+    "result": {
+      "data": {
+        "alternateScreen": false,
+        "captureId": "77a7bd0c-7e95-42fb-8e56-dccda63a6649",
+        "capturedAt": "2026-11-04T15:04:37.227Z",
+        "command": {
+          "evidence": "none",
+          "executionId": "",
+          "exitCode": null,
+          "outputAttribution": "shared_terminal",
+          "result": "unknown",
+          "state": "none",
+          "terminationConfirmed": false
+        },
+        "control": {
+          "ownedByThisClient": true,
+          "state": "controlled"
+        },
+        "cursor": {
+          "column": 12,
+          "row": 55
+        },
+        "epoch": "19063fa1-ea8e-4240-b233-d422a7d65fe8",
+        "eventRevision": "62",
+        "inputReadiness": {
+          "canInteract": true,
+          "canSubmitCommand": false,
+          "confidence": "unknown",
+          "context": "unknown"
+        },
+        "ioStatus": {
+          "pump": {
+            "overloaded": false,
+            "pendingBytes": 0,
+            "readPaused": false
+          },
+          "sampledAt": "2026-11-04T15:05:38.169Z",
+          "serial": {
+            "connected": true,
+            "deliveryPaused": false,
+            "discardedReceiveBytes": "0",
+            "generation": "1",
+            "receiveFullEvents": "0",
+            "receivePendingBytes": 0,
+            "sendPendingBytes": 0
+          },
+          "sessionGeneration": "1"
+        },
+        "lastOperation": {
+          "acceptedActionCount": 2,
+          "id": "48c120b3-f7eb-41df-9c02-a5be06440104",
+          "inputMayHaveBeenSent": true,
+          "status": "submitted"
+        },
+        "modelRevision": "2078",
+        "observationId": "fc1997e4-af73-4554-850b-6a6979b750b1",
+        "omittedLines": 0,
+        "operation": {
+          "acceptedActionCount": 2,
+          "id": "48c120b3-f7eb-41df-9c02-a5be06440104",
+          "inputMayHaveBeenSent": true,
+          "status": "submitted"
+        },
+        "outputChanged": false,
+        "outputTruncated": false,
+        "projectionLimited": false,
+        "recentOutput": [],
+        "resetRequired": false,
+        "screenChanged": false,
+        "screenSize": {
+          "columns": 211,
+          "rows": 56
+        },
+        "sessionId": "d900ef40-1d72-4c60-9147-f8000162c94f",
+        "sessionState": "running",
+        "sourceGap": false,
+        "sourceTruncated": false,
+        "terminalConfiguration": {
+          "lineEnding": "cr",
+          "promptConfigured": false,
+          "remoteEcho": true,
+          "serial": {
+            "baudRate": 1500000,
+            "dataBits": 8,
+            "flowControl": "none",
+            "parity": "none",
+            "stopBits": 1
+          }
+        },
+        "viewport": [],
+        "viewportPartial": true,
+        "wakeReason": "output_changed"
+      },
+      "ok": true,
+      "schemaVersion": 1
+    },
+    "timing": {
+      "readStart": 1793804735198,
+      "readEnd": 1793804735219,
+      "start": 1793804735219,
+      "end": 1793804738173
+    },
+    "observation": {
+      "data": {
+        "alternateScreen": false,
+        "captureId": "01739840-a679-40ee-83db-6a2fbb497a17",
+        "capturedAt": "2026-11-04T15:06:19.598Z",
+        "command": {
+          "evidence": "none",
+          "executionId": "",
+          "exitCode": null,
+          "outputAttribution": "shared_terminal",
+          "result": "unknown",
+          "state": "none",
+          "terminationConfirmed": false
+        },
+        "control": {
+          "ownedByThisClient": true,
+          "state": "controlled"
+        },
+        "cursor": {
+          "column": 12,
+          "row": 55
+        },
+        "epoch": "19063fa1-ea8e-4240-b233-d422a7d65fe8",
+        "eventRevision": "62",
+        "inputReadiness": {
+          "canInteract": true,
+          "canSubmitCommand": false,
+          "confidence": "unknown",
+          "context": "unknown"
+        },
+        "ioStatus": {
+          "pump": {
+            "overloaded": false,
+            "pendingBytes": 0,
+            "readPaused": false
+          },
+          "sampledAt": "2026-11-04T15:06:19.599Z",
+          "serial": {
+            "connected": true,
+            "deliveryPaused": false,
+            "discardedReceiveBytes": "0",
+            "generation": "1",
+            "receiveFullEvents": "0",
+            "receivePendingBytes": 0,
+            "sendPendingBytes": 0
+          },
+          "sessionGeneration": "1"
+        },
+        "lastOperation": {
+          "acceptedActionCount": 2,
+          "id": "48c120b3-f7eb-41df-9c02-a5be06440104",
+          "inputMayHaveBeenSent": true,
+          "status": "submitted"
+        },
+        "modelRevision": "2081",
+        "observationId": "4a6e6527-f05a-4499-8b7e-f4197b8a4448",
+        "omittedLines": 0,
+        "outputChanged": false,
+        "outputTruncated": false,
+        "projectionLimited": false,
+        "recentOutput": [],
+        "resetRequired": false,
+        "screenChanged": false,
+        "screenSize": {
+          "columns": 211,
+          "rows": 56
+        },
+        "sessionId": "d900ef40-1d72-4c60-9147-f8000162c94f",
+        "sessionState": "running",
+        "sourceGap": false,
+        "sourceTruncated": false,
+        "terminalConfiguration": {
+          "lineEnding": "cr",
+          "promptConfigured": false,
+          "remoteEcho": true,
+          "serial": {
+            "baudRate": 1500000,
+            "dataBits": 8,
+            "flowControl": "none",
+            "parity": "none",
+            "stopBits": 1
+          }
+        },
+        "viewport": [
+          {
+            "row": 0,
+            "text": "        Pixel Format      : 'NV12' (Y/CbCr 4:2:0)"
+          },
+          {
+            "row": 1,
+            "text": "        Field             : None"
+          },
+          {
+            "row": 2,
+            "text": "        Number of planes  : 1"
+          },
+          {
+            "row": 3,
+            "text": "        Flags             : premultiplied-alpha, 0x000000fe"
+          },
+          {
+            "row": 4,
+            "text": "        Colorspace        : Unknown (0x1003b964)"
+          },
+          {
+            "row": 5,
+            "text": "        Transfer Function : Unknown (0x000000b8)"
+          },
+          {
+            "row": 6,
+            "text": "        YCbCr/HSV Encoding: Unknown (0x000000ff)"
+          },
+          {
+            "row": 7,
+            "text": "        Quantization      : Default"
+          },
+          {
+            "row": 8,
+            "text": "        Plane 0           :"
+          },
+          {
+            "row": 9,
+            "text": "           Bytes per Line : 3840"
+          },
+          {
+            "row": 10,
+            "text": "           Size Image     : 12441600"
+          },
+          {
+            "row": 11,
+            "text": "/usr/bin/timeout"
+          },
+          {
+            "row": 12,
+            "text": "NT_HDMI_UI_FORMAT_END"
+          },
+          {
+            "row": 13,
+            "text": "root@ema:~# printf '\\nNT_HDMI_UI_CAPTURE_BEGIN\\n'; date '+NT_HDMI_UI_START=%s.%N'; timeout -s TERM -k 3 45 v4l2-ctl -d /dev/video80 --stream-mmap=4 --stream-count=1800 --stream-to=/dev/null; nt_rc=$?; date '+NT_HDMI_UI_END=%s.%N'; printf '\\nNT_HDMI_UI_CAPTURE_END rc=%s\\n' \"$nt_rc\""
+          },
+          {
+            "row": 14,
+            "text": ""
+          },
+          {
+            "row": 15,
+            "text": "NT_HDMI_UI_CAPTURE_BEGIN"
+          },
+          {
+            "row": 16,
+            "text": "NT_HDMI_UI_START=1793804606.584099871"
+          },
+          {
+            "row": 17,
+            "text": "<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< 59.94 fps"
+          },
+          {
+            "row": 18,
+            "text": "<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< 59.94 fps"
+          },
+          {
+            "row": 19,
+            "text": "<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< 59.94 fps"
+          },
+          {
+            "row": 20,
+            "text": "<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< 59.94 fps"
+          },
+          {
+            "row": 21,
+            "text": "<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< 59.94 fps"
+          },
+          {
+            "row": 22,
+            "text": "<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< 59.94 fps"
+          },
+          {
+            "row": 23,
+            "text": "<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< 59.94 fps"
+          },
+          {
+            "row": 24,
+            "text": "<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< 59.94 fps"
+          },
+          {
+            "row": 25,
+            "text": "<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< 59.94 fps"
+          },
+          {
+            "row": 26,
+            "text": "<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< 59.94 fps"
+          },
+          {
+            "row": 27,
+            "text": "<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< 59.94 fps"
+          },
+          {
+            "row": 28,
+            "text": "<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< 59.94 fps"
+          },
+          {
+            "row": 29,
+            "text": "<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< 59.94 fps"
+          },
+          {
+            "row": 30,
+            "text": "<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< 59.94 fps"
+          },
+          {
+            "row": 31,
+            "text": "<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< 59.94 fps"
+          },
+          {
+            "row": 32,
+            "text": "<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< 59.94 fps"
+          },
+          {
+            "row": 33,
+            "text": "<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< 59.94 fps"
+          },
+          {
+            "row": 34,
+            "text": "<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< 59.94 fps"
+          },
+          {
+            "row": 35,
+            "text": "<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< 59.94 fps"
+          },
+          {
+            "row": 36,
+            "text": "<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< 59.94 fps"
+          },
+          {
+            "row": 37,
+            "text": "<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< 59.94 fps"
+          },
+          {
+            "row": 38,
+            "text": "<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< 59.94 fps"
+          },
+          {
+            "row": 39,
+            "text": "<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< 59.94 fps"
+          },
+          {
+            "row": 40,
+            "text": "<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< 59.94 fps"
+          },
+          {
+            "row": 41,
+            "text": "<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< 59.94 fps"
+          },
+          {
+            "row": 42,
+            "text": "<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< 59.94 fps"
+          },
+          {
+            "row": 43,
+            "text": "<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< 59.94 fps"
+          },
+          {
+            "row": 44,
+            "text": "<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< 59.94 fps"
+          },
+          {
+            "row": 45,
+            "text": "<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< 59.94 fps"
+          },
+          {
+            "row": 46,
+            "text": "<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< 59.94 fps"
+          },
+          {
+            "row": 47,
+            "text": ""
+          },
+          {
+            "row": 48,
+            "text": "NT_HDMI_UI_END=1793804636.743061859"
+          },
+          {
+            "row": 49,
+            "text": ""
+          },
+          {
+            "row": 50,
+            "text": "NT_HDMI_UI_CAPTURE_END rc=0"
+          },
+          {
+            "row": 51,
+            "text": "root@ema:~# printf '\\nNT_HDMI_UI_POST_OK\\n'"
+          },
+          {
+            "row": 52,
+            "text": ""
+          },
+          {
+            "row": 53,
+            "text": "NT_HDMI_UI_POST_OK"
+          },
+          {
+            "row": 54,
+            "text": "root@ema:~#"
+          }
+        ],
+        "viewportPartial": false,
+        "wakeReason": "initial"
+      },
+      "ok": true,
+      "schemaVersion": 1
+    }
+  },
+  "release": {
+    "arguments": {
+      "sessionId": "d900ef40-1d72-4c60-9147-f8000162c94f",
+      "epoch": "19063fa1-ea8e-4240-b233-d422a7d65fe8",
+      "1_操作": "操作目标终端",
+      "2_目标": "ttyUSB0",
+      "3_内容": "测试结束，释放AI控制；不向设备发送字节",
+      "operationId": "48c120b3-f7eb-41df-9c02-a5be06440105",
+      "actions": [
+        {
+          "type": "release"
+        }
+      ],
+      "waitMs": 0,
+      "responseMode": "compact"
+    },
+    "result": {
+      "data": {
+        "alternateScreen": false,
+        "captureId": "2eaec298-816b-4173-8bd6-9662749ca8f0",
+        "capturedAt": "2026-11-04T15:06:19.598Z",
+        "command": {
+          "evidence": "none",
+          "executionId": "",
+          "exitCode": null,
+          "outputAttribution": "shared_terminal",
+          "result": "unknown",
+          "state": "none",
+          "terminationConfirmed": false
+        },
+        "control": {
+          "ownedByThisClient": false,
+          "state": "released"
+        },
+        "cursor": {
+          "column": 12,
+          "row": 55
+        },
+        "epoch": "19063fa1-ea8e-4240-b233-d422a7d65fe8",
+        "eventRevision": "64",
+        "inputReadiness": {
+          "canInteract": true,
+          "canSubmitCommand": false,
+          "confidence": "unknown",
+          "context": "unknown"
+        },
+        "ioStatus": {
+          "pump": {
+            "overloaded": false,
+            "pendingBytes": 0,
+            "readPaused": false
+          },
+          "sampledAt": "2026-11-04T15:06:22.201Z",
+          "serial": {
+            "connected": true,
+            "deliveryPaused": false,
+            "discardedReceiveBytes": "0",
+            "generation": "1",
+            "receiveFullEvents": "0",
+            "receivePendingBytes": 0,
+            "sendPendingBytes": 0
+          },
+          "sessionGeneration": "1"
+        },
+        "modelRevision": "2081",
+        "observationId": "128092b0-6009-4580-96fa-a40c4d18e427",
+        "omittedLines": 0,
+        "operation": {
+          "acceptedActionCount": 1,
+          "id": "48c120b3-f7eb-41df-9c02-a5be06440105",
+          "inputMayHaveBeenSent": false,
+          "status": "submitted"
+        },
+        "outputChanged": false,
+        "outputTruncated": false,
+        "projectionLimited": false,
+        "recentOutput": [],
+        "resetRequired": false,
+        "screenChanged": false,
+        "screenSize": {
+          "columns": 211,
+          "rows": 56
+        },
+        "sessionId": "d900ef40-1d72-4c60-9147-f8000162c94f",
+        "sessionState": "running",
+        "sourceGap": false,
+        "sourceTruncated": false,
+        "terminalConfiguration": {
+          "lineEnding": "cr",
+          "promptConfigured": false,
+          "remoteEcho": true,
+          "serial": {
+            "baudRate": 1500000,
+            "dataBits": 8,
+            "flowControl": "none",
+            "parity": "none",
+            "stopBits": 1
+          }
+        },
+        "viewport": [],
+        "viewportPartial": true,
+        "wakeReason": "deadline"
+      },
+      "ok": true,
+      "schemaVersion": 1
+    }
+  },
+  "confirmationProbe": {
+    "arguments": {
+      "sessionId": "d900ef40-1d72-4c60-9147-f8000162c94f",
+      "epoch": "19063fa1-ea8e-4240-b233-d422a7d65fe8",
+      "1_操作": "操作目标终端",
+      "2_目标": "ttyUSB0",
+      "3_内容": "确认框验证：仅释放AI控制，不发送终端命令",
+      "operationId": "48c120b3-f7eb-41df-9c02-a5be06440106",
+      "actions": [
+        {
+          "type": "release"
+        }
+      ],
+      "waitMs": 0,
+      "responseMode": "compact"
+    },
+    "result": {
+      "data": {
+        "alternateScreen": false,
+        "captureId": "027f3959-1be8-41d2-a7cf-f2896816cf30",
+        "capturedAt": "2026-11-04T15:06:19.598Z",
+        "command": {
+          "evidence": "none",
+          "executionId": "",
+          "exitCode": null,
+          "outputAttribution": "shared_terminal",
+          "result": "unknown",
+          "state": "none",
+          "terminationConfirmed": false
+        },
+        "control": {
+          "ownedByThisClient": false,
+          "state": "released"
+        },
+        "cursor": {
+          "column": 12,
+          "row": 55
+        },
+        "epoch": "19063fa1-ea8e-4240-b233-d422a7d65fe8",
+        "eventRevision": "65",
+        "inputReadiness": {
+          "canInteract": true,
+          "canSubmitCommand": false,
+          "confidence": "unknown",
+          "context": "unknown"
+        },
+        "ioStatus": {
+          "pump": {
+            "overloaded": false,
+            "pendingBytes": 0,
+            "readPaused": false
+          },
+          "sampledAt": "2026-11-04T15:11:55.727Z",
+          "serial": {
+            "connected": true,
+            "deliveryPaused": false,
+            "discardedReceiveBytes": "0",
+            "generation": "1",
+            "receiveFullEvents": "0",
+            "receivePendingBytes": 0,
+            "sendPendingBytes": 0
+          },
+          "sessionGeneration": "1"
+        },
+        "modelRevision": "2081",
+        "observationId": "c6235040-e89b-4ba5-ba06-bbaa2d77896b",
+        "omittedLines": 0,
+        "operation": {
+          "acceptedActionCount": 1,
+          "id": "48c120b3-f7eb-41df-9c02-a5be06440106",
+          "inputMayHaveBeenSent": false,
+          "status": "submitted"
+        },
+        "outputChanged": false,
+        "outputTruncated": false,
+        "projectionLimited": false,
+        "recentOutput": [],
+        "resetRequired": false,
+        "screenChanged": false,
+        "screenSize": {
+          "columns": 211,
+          "rows": 56
+        },
+        "sessionId": "d900ef40-1d72-4c60-9147-f8000162c94f",
+        "sessionState": "running",
+        "sourceGap": false,
+        "sourceTruncated": false,
+        "terminalConfiguration": {
+          "lineEnding": "cr",
+          "promptConfigured": false,
+          "remoteEcho": true,
+          "serial": {
+            "baudRate": 1500000,
+            "dataBits": 8,
+            "flowControl": "none",
+            "parity": "none",
+            "stopBits": 1
+          }
+        },
+        "viewport": [],
+        "viewportPartial": true,
+        "wakeReason": "deadline"
+      },
+      "ok": true,
+      "schemaVersion": 1
+    },
+    "timing": {
+      "started": 1793805112411,
+      "returned": 1793805115730
+    },
+    "userObservedDialog": false,
+    "configuration": "No persistent per-tool approval overrides were found; session/runtime decision not established."
+  },
+  "directAdmissionChecks": [
+    {
+      "operationId": "48c120b3-f7eb-41df-9c02-a5be06440101",
+      "legacyInputCredentialSupplied": false,
+      "displayFields": true
+    },
+    {
+      "operationId": "48c120b3-f7eb-41df-9c02-a5be06440102",
+      "legacyInputCredentialSupplied": false,
+      "displayFields": true
+    },
+    {
+      "operationId": "48c120b3-f7eb-41df-9c02-a5be06440103",
+      "legacyInputCredentialSupplied": false,
+      "displayFields": true
+    },
+    {
+      "operationId": "48c120b3-f7eb-41df-9c02-a5be06440104",
+      "legacyInputCredentialSupplied": false,
+      "displayFields": true
+    },
+    {
+      "operationId": "48c120b3-f7eb-41df-9c02-a5be06440105",
+      "legacyInputCredentialSupplied": false,
+      "displayFields": true
+    },
+    {
+      "operationId": "48c120b3-f7eb-41df-9c02-a5be06440106",
+      "legacyInputCredentialSupplied": false,
+      "displayFields": true
+    }
+  ],
+  "limits": [
+    "No native 4K60 independent-frame verification",
+    "Progress markers and rc are observed terminal text; UART task remains unknown/deadline",
+    "No running-state query was recorded before the task deadline",
+    "Initial probe observation mismatch remains unexplained",
+    "No product-code/build/test-fixture evidence is used as tool-test evidence"
+  ]
+}
