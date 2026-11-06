@@ -1329,6 +1329,8 @@ void SftpSession::workerMain(std::shared_ptr<WorkerControl> control,
     if (!sftp || sftp_init(sftp.get()) != SSH_OK) {
         postError(control, generation, sessionError(session.get(),
             tr("Failed to initialize SFTP")));
+        // ssh_disconnect frees its channels; release SFTP while its channel is valid.
+        sftp.reset();
         ssh_disconnect(session.get());
         return;
     }

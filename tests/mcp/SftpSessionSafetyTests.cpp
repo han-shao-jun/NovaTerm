@@ -738,6 +738,23 @@ private slots:
 int main(int argc, char** argv)
 {
     QCoreApplication app(argc, argv);
+    if (app.arguments().size() == 4 && app.arguments()[1] == "--failed-sftp-init-loopback") {
+        bool valid = false;
+        const int port = app.arguments()[2].toInt(&valid);
+        if (!valid || port <= 0 || port > 65535) return 2;
+        SshConfig config;
+        config.host = "127.0.0.1"; config.port = static_cast<quint16>(port);
+        config.username = "fixture"; config.password = "fixture-only";
+        SftpSession session;
+        int connections = 0, errors = 0;
+        QObject::connect(&session, &SftpSession::connected, &app, [&](const QString&) { ++connections; });
+        QObject::connect(&session, &SftpSession::errorOccurred, &app, [&](const QString&) { ++errors; });
+        session.connectToHost(config, {}, app.arguments()[3]);
+        QElapsedTimer clock; clock.start();
+        while ((!errors || !session.canStartConnection()) && clock.elapsed() < 10000) QTest::qWait(10);
+        std::printf("connections=%d errors=%d worker_stopped=%d\n", connections, errors, session.canStartConnection());
+        return connections == 0 && errors == 1 && session.canStartConnection() ? 0 : 3;
+    }
     if (app.arguments().size() == 4 && (app.arguments()[1] == "--delete-tree-loopback"
         || app.arguments()[1] == "--delete-tree-cancel-loopback")) {
         const bool cancel = app.arguments()[1] == "--delete-tree-cancel-loopback";
