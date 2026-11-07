@@ -434,15 +434,12 @@ void TerminalRenderer::setHighlightRules(
     // O(字面量数) 的 contains 试探，跳过不可能命中的规则。
     _highlightPrefilters.clear();
     _highlightPrefilters.reserve(_highlightRules.size());
-    _highlightNeedsFoldedText = false;
     for (const NovaTerm::TerminalHighlightRule& rule : _highlightRules) {
         HighlightPrefilter filter;
         filter.caseInsensitive =
             rule.pattern.patternOptions()
             & QRegularExpression::CaseInsensitiveOption;
         filter.literals = highlightRequiredLiterals(rule.pattern.pattern(), rule.pattern.patternOptions());
-        _highlightNeedsFoldedText =
-            _highlightNeedsFoldedText || filter.caseInsensitive;
         _highlightPrefilters.push_back(std::move(filter));
     }
     requestFullFrame();
@@ -2484,9 +2481,7 @@ void TerminalRenderer::appendCellCommands(
     const int cellSpan = std::max(1, static_cast<int>(cell.width));
     const qreal paintWidth = _cellWidth * cellSpan;
     QColor foreground = terminalColorToQColor(cell.foreground, true);
-    if (defaultForegroundOverride
-        && cell.foreground.type == NovaTerm::ColorType::Default
-        && !cell.attributes.reverse) {
+    if (defaultForegroundOverride && !cell.attributes.reverse) {
         foreground = *defaultForegroundOverride;
     }
     QColor background = terminalColorToQColor(cell.background, false);
@@ -2576,15 +2571,8 @@ void TerminalRenderer::rebuildCommandRow(
 {
     NovaTerm::RenderCommandRow& target =
         _commandBuffer.mutableRow(widgetRow);
-    // 语义高亮色被烘焙进该行"默认色" Cell 的命令里。旧实现只要配置了规则就
-    // 无条件 replaceAll，理由是"进出行的 token 会改变整行默认色 Cell 的颜色"
-    // —— 但那只在**高亮角色本身发生变化**时成立。角色不变时未脏列沿用的旧
-    // 命令仍带着同一个角色色，逐列增量重建是安全的；而绝大多数串口日志行不
-    // 命中任何规则，角色恒为 NoHighlightRole，于是 1 列损坏过去也要重折
-    // 200 列。改成按角色变化判定。
-    const int role = rowHighlightRole(widgetRow, screen);
-    const bool roleChanged = role != target.highlightRole;
-    const bool replaceAll = roleChanged || dirtySpans.isEmpty()
+    const QVector<int> roles = rowHighlightRoles(widgetRow, screen);
+    const bool replaceAll = roles != target.highlightRoles || dirtySpans.isEmpty()
         || (dirtySpans.size() == 1 && dirtySpans.front().startColumn <= 0
             && dirtySpans.front().endColumn >= screen.columns);
     _glyphPendingRows.resize(std::size_t(screen.rows), false);
@@ -2610,11 +2598,6 @@ void TerminalRenderer::rebuildCommandRow(
     if (target.contents.capacity() < contentCapacity)
         target.contents.reserve(contentCapacity);
 
-    const std::optional<QColor> rowColor =
-        role == NovaTerm::NoHighlightRole
-        ? std::nullopt
-        : std::optional<QColor>(
-              highlightColor(NovaTerm::TerminalHighlightRole(role)));
     // 未脏列沿用上一帧命令、脏列重新生成，一次线性扫描完成（不需要排序）。
     NovaTerm::mergeRowCommandsIncremental(
         _oldBackgrounds, _oldContents, screen.columns, dirtySpans, replaceAll,
@@ -2623,13 +2606,16 @@ void TerminalRenderer::rebuildCommandRow(
             const NovaTerm::Cell* cell = screen.cellAt(widgetRow, column);
             if (!cell || cell->isWideContinuation())
                 return;
+            const int role = roles.value(column, NovaTerm::NoHighlightRole);
+            const QColor color = role == NovaTerm::NoHighlightRole ? QColor()
+                : highlightColor(NovaTerm::TerminalHighlightRole(role));
             appendCellCommands(column * _cellWidth, 0.0, *cell,
-                               rowColor ? &*rowColor : nullptr,
+                               color.isValid() ? &color : nullptr,
                                backgrounds, contents);
         },
         target.backgrounds, target.contents);
 
-    target.highlightRole = role;
+    target.highlightRoles = roles;
     _buildingGlyphRow = -1;
     _commandBuffer.finishRow(widgetRow, _atlasGeneration);
     if (widgetRow >= 0 && widgetRow < _rowContentIdentities.size())
@@ -2910,14 +2896,14 @@ QColor TerminalRenderer::highlightColor(
     NovaTerm::TerminalHighlightRole role) const
 {
     switch (role) {
-    case NovaTerm::TerminalHighlightRole::Error:
-        return _scheme.palette[9];
-    case NovaTerm::TerminalHighlightRole::Warning:
-        return _scheme.palette[11];
-    case NovaTerm::TerminalHighlightRole::Success:
-        return _scheme.palette[10];
-    case NovaTerm::TerminalHighlightRole::Prompt:
-        return _scheme.palette[14];
+    case NovaTerm::TerminalHighlightRole::Error: return QColor("#F87171");
+    case NovaTerm::TerminalHighlightRole::Warning: return QColor("#FBBF24");
+    case NovaTerm::TerminalHighlightRole::Success: return QColor("#34D399");
+    case NovaTerm::TerminalHighlightRole::Info: return QColor("#3B82F6");
+    case NovaTerm::TerminalHighlightRole::Debug: return QColor("#A78BFA");
+    case NovaTerm::TerminalHighlightRole::Network: return QColor("#EC4899");
+    case NovaTerm::TerminalHighlightRole::Path: return QColor("#A78BFA");
+    case NovaTerm::TerminalHighlightRole::Prompt: return _scheme.foreground;
     }
     return _scheme.foreground;
 }
@@ -3061,67 +3047,48 @@ QVector<QString> TerminalRenderer::highlightRequiredLiterals(
     return literals;
 }
 
-int TerminalRenderer::rowHighlightRole(
-    int widgetRow,
-    const NovaTerm::RendererSnapshot& screen)
+QVector<int> TerminalRenderer::rowHighlightRoles(
+    int widgetRow, const NovaTerm::RendererSnapshot& screen)
 {
     if (_highlightRules.isEmpty())
-        return NovaTerm::NoHighlightRole;
-
-    // 行文本写入复用缓冲：旧实现为每个 Cell 调 cellCharsToString() 生成一
-    // 个临时 QString（Qt::QList 没有小缓冲优化），200 列 × 50 行的全帧就是
-    // 约 1 万次堆分配。逐字符追加与旧实现的 UTF-16 序列完全一致。
-    _rowTextScratch.clear();
-    if (_rowTextScratch.capacity() < screen.columns)
-        _rowTextScratch.reserve(screen.columns);
+        return {};
+    QVector<int> roles(screen.columns, NovaTerm::NoHighlightRole);
+    QString text;
+    QVector<int> offsets;
+    offsets.reserve(screen.columns + 1);
     for (int column = 0; column < screen.columns; ++column) {
-        const NovaTerm::Cell* cell = screen.cellAt(widgetRow, column);
+        offsets.append(int(text.size()));
+        const auto* cell = screen.cellAt(widgetRow, column);
         if (!cell || cell->isWideContinuation())
             continue;
-        if (cell->chars[0] == 0)
-            _rowTextScratch.append(QLatin1Char(' '));
+        if (!cell->chars[0])
+            text.append(QLatin1Char(' '));
         else
-            appendCellChars(_rowTextScratch, cell->chars.data(),
-                            NovaTerm::MaxCharsPerCell);
+            appendCellChars(text, cell->chars.data(), NovaTerm::MaxCharsPerCell);
     }
-    const QStringView text(_rowTextScratch);
-    // 只有存在大小写不敏感规则时才需要小写副本；有则整行折叠一次（无堆
-    // 分配），而不是让每次 contains 都走逐字符 toLower。
-    if (_highlightNeedsFoldedText) {
-        _rowTextFoldedScratch.resize(_rowTextScratch.size());
-        const QChar* source = _rowTextScratch.constData();
-        QChar* destination = _rowTextFoldedScratch.data();
-        for (qsizetype index = 0; index < _rowTextScratch.size(); ++index)
-            destination[index] = source[index].toLower();
-    }
-    const QStringView folded(_rowTextFoldedScratch);
-
-    for (qsizetype index = 0; index < _highlightRules.size(); ++index) {
-        const NovaTerm::TerminalHighlightRule& rule = _highlightRules[index];
-        if (!rule.pattern.isValid())
-            continue;
-        // 前置过滤：字面量一个都不在行里，该正则绝无可能命中，直接跳过。
-        const HighlightPrefilter& filter = _highlightPrefilters[index];
-        if (!filter.literals.isEmpty()) {
-            const QStringView haystack =
-                filter.caseInsensitive ? folded : text;
-            bool maybe = false;
-            for (const QString& literal : filter.literals) {
-                if (haystack.contains(literal,
-                                      filter.caseInsensitive
-                                      ? Qt::CaseInsensitive
-                                      : Qt::CaseSensitive)) {
-                    maybe = true;
-                    break;
-                }
+    offsets.append(int(text.size()));
+    QVector<NovaTerm::TerminalHighlightRule> candidates;
+    candidates.reserve(_highlightRules.size());
+    for (qsizetype i = 0; i < _highlightRules.size(); ++i) {
+        const auto& filter = _highlightPrefilters[i];
+        bool possible = filter.literals.isEmpty();
+        for (const auto& literal : filter.literals) {
+            if (text.contains(literal, filter.caseInsensitive ? Qt::CaseInsensitive : Qt::CaseSensitive)) {
+                possible = true;
+                break;
             }
-            if (!maybe)
-                continue;
         }
-        if (rule.pattern.matchView(text).hasMatch())
-            return int(rule.role);
+        if (possible)
+            candidates.append(_highlightRules[i]);
     }
-    return NovaTerm::NoHighlightRole;
+    const auto spans = NovaTerm::terminalHighlightSpans(candidates, text);
+    for (const auto& span : spans) {
+        for (int column = 0; column < screen.columns; ++column) {
+            if (offsets[column] < span.end && offsets[column + 1] > span.start)
+                roles[column] = int(span.role);
+        }
+    }
+    return roles;
 }
 
 void TerminalRenderer::resetWidgetRowMapping(int rows)

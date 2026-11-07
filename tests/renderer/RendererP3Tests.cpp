@@ -2,6 +2,7 @@
 #include "renderer/RenderScheduler.h"
 #include "renderer/TerminalRenderer.h"
 #include "core/terminal/TerminalCore.h"
+#include "core/terminal/ScreenBuffer.h"
 #include "service/TerminalSchemeStore.h"
 #include "../benchmarks/history/lz4/HistoryGuiScrollBenchmarkSupport.h"
 
@@ -45,6 +46,9 @@ public:
     }
     static int stride(const TerminalRenderer& renderer) { return renderer._backgroundRowStrideVertices; }
     static QRhiBuffer* buffer(const TerminalRenderer& renderer) { return renderer._vertexBuffer.get(); }
+    static QVector<int> highlight(TerminalRenderer& renderer, const NovaTerm::RendererSnapshot& snapshot) {
+        return renderer.rowHighlightRoles(0, snapshot);
+    }
 };
 
 class RendererP3Tests : public QObject
@@ -52,6 +56,24 @@ class RendererP3Tests : public QObject
     Q_OBJECT
 
 private slots:
+    void highlightMapsTextToWideCells() {
+        TerminalCore core(12, 1);
+        TerminalRenderer renderer(&core);
+        renderer.setHighlightRules({{QRegularExpression(QStringLiteral("ERROR")), NovaTerm::TerminalHighlightRole::Error}});
+        auto cells = std::make_shared<std::vector<NovaTerm::Cell>>(12);
+        (*cells)[0].chars[0] = 0x4e2d; (*cells)[0].width = 2;
+        (*cells)[1].width = 0;
+        const QByteArray text(" ERROR");
+        for (int i = 0; i < text.size(); ++i) (*cells)[i + 2].chars[0] = text.at(i);
+        NovaTerm::RendererSnapshot snapshot; snapshot.columns = 12; snapshot.rows = 1;
+        snapshot.visibleRows.push_back(cells);
+        const auto roles = TerminalRendererTestAccess::highlight(renderer, snapshot);
+        QCOMPARE(roles[0], NovaTerm::NoHighlightRole);
+        QCOMPARE(roles[2], NovaTerm::NoHighlightRole);
+        for (int col = 3; col < 8; ++col)
+            QCOMPARE(roles[col], int(NovaTerm::TerminalHighlightRole::Error));
+        QCOMPARE(roles[8], NovaTerm::NoHighlightRole);
+    }
     void mixedGlyphRequestsCarryOneBaseline() {
         TerminalCore core(80, 24); TerminalRenderer renderer(&core);
         TerminalRendererTestAccess::requestCell(renderer, 'A', 1, false, false);
@@ -1197,29 +1219,22 @@ void RendererP3Tests::highlightPrefilterNeverExcludesAMatch()
     QVERIFY(totalSamples > 0);
 }
 
-// 高亮角色变化才要求整行重建：角色未变时逐列增量重建是安全的，旧命令仍
-// 带着同一个角色色。RenderCommandRow::highlightRole 是这条契约的载体。
+// 每列角色必须随行旋转，空行不能复用旧高亮。
 void RendererP3Tests::commandRowTracksHighlightRoleAcrossRebuild()
 {
     NovaTerm::RenderCommandBuffer buffer;
     buffer.resize(3, 80);
-    QCOMPARE(buffer.row(0).highlightRole, NovaTerm::NoHighlightRole);
+    QVERIFY(buffer.row(0).highlightRoles.isEmpty());
     for (int row = 0; row < 3; ++row) {
-        buffer.mutableRow(row).highlightRole = row; // Error/Warning/Success
+        buffer.mutableRow(row).highlightRoles = {row, NovaTerm::NoHighlightRole};
         buffer.finishRow(row, 1);
     }
-    QCOMPARE(buffer.row(2).highlightRole, 2);
-
-    // 行整体上移：角色跟着行走，否则新位置会拿旧角色的"增量可复用"判据去
-    // 复用不属于它的旧命令。
     buffer.rotateRowsUp(1);
-    QCOMPARE(buffer.row(0).highlightRole, 1);
-    QCOMPARE(buffer.row(1).highlightRole, 2);
-    // 新进入底部的行被清空，角色必须一并复位。
-    QCOMPARE(buffer.row(2).highlightRole, NovaTerm::NoHighlightRole);
-
+    QCOMPARE(buffer.row(0).highlightRoles, (QVector<int>{1, NovaTerm::NoHighlightRole}));
+    QCOMPARE(buffer.row(1).highlightRoles, (QVector<int>{2, NovaTerm::NoHighlightRole}));
+    QVERIFY(buffer.row(2).highlightRoles.isEmpty());
     buffer.resize(4, 80);
-    QCOMPARE(buffer.row(0).highlightRole, NovaTerm::NoHighlightRole);
+    QVERIFY(buffer.row(0).highlightRoles.isEmpty());
 }
 
 void RendererP3Tests::scrollbackAtLiveBottomDoesNotRequestFullFrame()
@@ -2100,7 +2115,9 @@ void RendererP3Tests::inputMethodCommitProducesUtf8()
 
 void RendererP3Tests::colorSchemesParseWindowsTerminalFormat()
 {
-    QCOMPARE(TerminalSchemeStore::builtins().size(), 24);
+    QCOMPARE(TerminalSchemeStore::builtins().size(), 26);
+    QCOMPARE(TerminalSchemeStore::find({}, QStringLiteral("Netcatty Midnight"))->background, QColor("#141822"));
+    QCOMPARE(TerminalSchemeStore::find({}, QStringLiteral("Netcatty Snow"))->background, QColor("#f1f4f8"));
     const auto netcatty = TerminalSchemeStore::find({}, QStringLiteral("Netcatty: GitHub Dark"));
     QVERIFY(netcatty);
     QCOMPARE(netcatty->background, QColor("#0d1117"));
@@ -2144,7 +2161,7 @@ void RendererP3Tests::colorSchemesParseWindowsTerminalFormat()
     QVERIFY(!TerminalSchemeStore::save(config, invalid));
     QVERIFY(config.isEmpty());
     TerminalSchemeStore::materialize(config);
-    QCOMPARE(config.value(QStringLiteral("schemes")).toArray().size(), 24);
+    QCOMPARE(config.value(QStringLiteral("schemes")).toArray().size(), 26);
     const auto initialized = config;
     TerminalSchemeStore::materialize(config);
     QCOMPARE(config, initialized);

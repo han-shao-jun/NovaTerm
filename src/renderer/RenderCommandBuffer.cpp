@@ -29,7 +29,7 @@ void RenderCommandBuffer::resize(int rows, int columns)
         row.contents.clear();
         row.revision = ++_revision;
         row.atlasGeneration = 0;
-        row.highlightRole = NoHighlightRole;
+        row.highlightRoles.clear();
     }
     _overlays.clear();
     ++_revision;
@@ -49,7 +49,7 @@ RenderCommandRow& RenderCommandBuffer::mutableRow(int index)
         _scratchRow.contents.clear();
         // 角色也必须复位：重建方拿它与上一帧比较来决定是否整行替换，
         // 留着旧值会得到一个基于无关行的判据。
-        _scratchRow.highlightRole = NoHighlightRole;
+        _scratchRow.highlightRoles.clear();
         return _scratchRow;
     }
     return _rowCommands[index];
@@ -89,7 +89,7 @@ void RenderCommandBuffer::rotateRowsUp(int count)
         empty.contents.clear();
         empty.revision = ++_revision;
         empty.atlasGeneration = 0;
-        empty.highlightRole = NoHighlightRole;
+        empty.highlightRoles.clear();
     }
 }
 

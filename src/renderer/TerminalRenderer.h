@@ -424,15 +424,12 @@ private:
     QColor highlightColor(NovaTerm::TerminalHighlightRole role) const;
 
     /**
-     * @brief 计算一行的语义高亮角色。
+     * @brief 计算每列的关键词高亮角色。
      * @param widgetRow 可见行号。
      * @param screen    本帧快照。
-     * @return `TerminalHighlightRole` 的整数值；NovaTerm::NoHighlightRole
-     *         表示本行未命中任何规则。
-     * @note 行文本写入复用的成员缓冲（旧实现为每个 Cell 构造一个 QString），
-     *       并先用字面量前置过滤掉不可能命中的规则再跑 PCRE2。
+     * @return 每列角色；未命中为 NoHighlightRole，无规则时返回空数组。
      */
-    int rowHighlightRole(int widgetRow,
+    QVector<int> rowHighlightRoles(int widgetRow,
                          const NovaTerm::RendererSnapshot& screen);
 
     // ── Unicode 转 UTF-8 ──────────────────────────────────────
@@ -511,10 +508,7 @@ private:
     };
     QVector<HighlightPrefilter> _highlightPrefilters;
     /// 行文本复用缓冲（逐 Cell 追加）与它的小写副本（仅大小写不敏感规则用）。
-    QString _rowTextScratch;
-    QString _rowTextFoldedScratch;
     /// 是否存在需要小写副本的规则，避免为纯大小写敏感规则集做无用功。
-    bool _highlightNeedsFoldedText{false};
 
     QFont _font;
     QFontMetricsF* _fm{nullptr};

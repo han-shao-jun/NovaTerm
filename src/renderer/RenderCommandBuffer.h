@@ -50,13 +50,6 @@ struct DirtyColumnSpan
     int endColumn{0};
 };
 
-/**
- * @brief 语义高亮的"未命中"哨兵。
- *
- * 高亮角色被烘焙进该行默认色 Cell 的命令里，因此增量重建时必须知道上一帧
- * 用的是哪个角色（见 TerminalRenderer::rebuildCommandRow）。用整数值而非
- * std::optional，使本头文件不必包含 TerminalHighlighting.h。
- */
 inline constexpr int NoHighlightRole = -1;
 
 // 单行的渲染命令集合。backgrounds 在 contents 之前绘制。
@@ -66,14 +59,8 @@ struct RenderCommandRow
     QVector<RenderCommand> contents;
     quint64 revision{0};            // 行模型版本
     quint64 atlasGeneration{0};     // 行字形所基于的 atlas 代际
-    /**
-     * @brief 本行命令所烘焙的语义高亮角色。
-     *
-     * 取 `TerminalHighlightRole` 的整数值，NoHighlightRole 表示未命中任何
-     * 规则。角色未变时，未脏列沿用的旧命令仍带着同一个角色色，可以安全
-     * 复用；角色一变就必须整行重建。
-     */
-    int highlightRole{NoHighlightRole};
+    // 每列高亮角色随行命令一起旋转、清除和比较。
+    QVector<int> highlightRoles;
 };
 
 // 渲染命令缓冲。GUI 线程独占，无需加锁。

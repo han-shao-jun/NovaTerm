@@ -54,6 +54,10 @@ GPL-3.0-or-later）。移植了前景、背景、光标、选区及 16 色；选
 新增 Catppuccin、Gruvbox、Nord、GitHub 的深浅版本以及 Monokai、
 One Dark Pro、VS Code 和 Ubuntu；它们不改变程序主题。
 
+0.2.134 另增加 Netcatty Midnight 和 Netcatty Snow 两套预设，对应其默认深浅色
+界面终端配色。原有选择和自定义颜色不被覆盖，需在终端配色设置中选择；选区仍按
+NovaTerm 的半透明叠加规则处理。默认内置方案共 26 套。
+
 - `TerminalSchemeStore`（`src/service/`）加载内置方案并按名称合并用户方案，
   负责校验、引用解析、重命名、删除和旧格式迁移；不创建 Session/Renderer。
   预置值来自 `resources/terminal-color-schemes.json`，通过 Qt 资源随程序分发。
@@ -84,7 +88,7 @@ One Dark Pro、VS Code 和 Ubuntu；它们不改变程序主题。
 
 `appearance` 是终端自己的分类选择，不是跟随程序/系统主题。`colorScheme` 也兼容
 单个方案名字符串；设置页保存时会记录两个分类各自的方案名，方便来回切换。
-`schemes` 保存全部预置方案与自定义方案的完整颜色值，首次启动会写入 12 套。
+`schemes` 保存全部预置方案与自定义方案的完整颜色值，首次启动会写入 26 套。
 旧版本只保存覆盖项的数组会自动补齐，已有自定义颜色不变。
 方案格式采用 Windows Terminal 的字段名：
 `name`、`foreground`、`background`、`cursorColor`、`selectionBackground`，

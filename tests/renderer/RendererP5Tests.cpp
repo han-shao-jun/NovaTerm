@@ -214,6 +214,12 @@ void RendererP5Tests::asyncRasterBurstAndCancellation()
 void RendererP5Tests::semanticHighlightRulesRespectPriorityAndCase()
 {
     const auto rules = NovaTerm::serialLogHighlightRules();
+    for (const auto& rule : rules)
+        QVERIFY2(rule.pattern.isValid(), qPrintable(rule.pattern.errorString()));
+
+    QVERIFY(!NovaTerm::matchTerminalHighlight(rules, QStringLiteral("panic")));
+    QCOMPARE(NovaTerm::matchTerminalHighlight(rules, QStringLiteral("completed")),
+             std::optional(NovaTerm::TerminalHighlightRole::Success));
 
     QCOMPARE(NovaTerm::matchTerminalHighlight(
                  rules, QStringLiteral("FAILED, retry OK")),
@@ -221,15 +227,26 @@ void RendererP5Tests::semanticHighlightRulesRespectPriorityAndCase()
     QCOMPARE(NovaTerm::matchTerminalHighlight(
                  rules, QStringLiteral("Warning: voltage low")),
              std::optional(NovaTerm::TerminalHighlightRole::Warning));
-    QCOMPARE(NovaTerm::matchTerminalHighlight(
-                 rules, QStringLiteral("SUCCESSFUL_HANDOFF")),
-             std::optional(NovaTerm::TerminalHighlightRole::Success));
-    QCOMPARE(NovaTerm::matchTerminalHighlight(
-                 rules, QStringLiteral("Zynq> ")),
-             std::optional(NovaTerm::TerminalHighlightRole::Prompt));
+    QVERIFY(!NovaTerm::matchTerminalHighlight(rules, QStringLiteral("SUCCESSFUL_HANDOFF")));
+    QVERIFY(!NovaTerm::matchTerminalHighlight(rules, QStringLiteral("Zynq> ")));
     QVERIFY(!NovaTerm::matchTerminalHighlight(
                 rules, QStringLiteral("ordinary serial output"))
                  .has_value());
+    const QString line = QStringLiteral("设备 FAILED, retry OK 192.168.1.1 /tmp/log");
+    const auto spans = NovaTerm::terminalHighlightSpans(rules, line);
+    QCOMPARE(spans.size(), 4);
+    QCOMPARE(line.mid(spans[0].start, spans[0].end - spans[0].start), QStringLiteral("FAILED"));
+    QCOMPARE(spans[0].role, NovaTerm::TerminalHighlightRole::Error);
+    QCOMPARE(line.mid(spans[1].start, spans[1].end - spans[1].start), QStringLiteral("OK"));
+    QCOMPARE(spans[1].role, NovaTerm::TerminalHighlightRole::Success);
+    QCOMPARE(spans[2].role, NovaTerm::TerminalHighlightRole::Network);
+    QCOMPARE(spans[3].role, NovaTerm::TerminalHighlightRole::Path);
+    const QString addresses = QStringLiteral("https://example.com/a, ::1 aa:bb:cc:dd:ee:ff");
+    const auto addressSpans = NovaTerm::terminalHighlightSpans(rules, addresses);
+    QCOMPARE(addressSpans.size(), 3);
+    QCOMPARE(addresses.mid(addressSpans[0].start, addressSpans[0].end - addressSpans[0].start), QStringLiteral("https://example.com/a"));
+    QCOMPARE(addresses.mid(addressSpans[1].start, addressSpans[1].end - addressSpans[1].start), QStringLiteral("::1"));
+    QCOMPARE(addresses.mid(addressSpans[2].start, addressSpans[2].end - addressSpans[2].start), QStringLiteral("aa:bb:cc:dd:ee:ff"));
 }
 
 void RendererP5Tests::glyphKeyDistinguishesContractFields()
