@@ -282,8 +282,14 @@ static int on_text(const char bytes[], size_t len, void *user)
   int npoints = 0;
   size_t eaten = 0;
 
+  /* The default GL encoding and the high-byte UTF-8 encoding must share
+   * decoder state: a multibyte character can begin after ASCII in one input
+   * fragment and finish in the next. Preserve explicitly designated GL sets. */
   VTermEncodingInstance *encoding =
     state->gsingle_set     ? &state->encoding[state->gsingle_set] :
+    (state->vt->mode.utf8 &&
+     (!(bytes[eaten] & 0x80) && state->encoding[state->gl_set].enc == state->encoding_utf8.enc))
+                           ? &state->encoding_utf8 :
     !(bytes[eaten] & 0x80) ? &state->encoding[state->gl_set] :
     state->vt->mode.utf8   ? &state->encoding_utf8 :
                              &state->encoding[state->gr_set];

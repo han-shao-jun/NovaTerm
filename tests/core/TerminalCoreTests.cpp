@@ -9,6 +9,7 @@
 #include <QtTest>
 #include <vterm.h>
 
+#include <algorithm>
 #include <memory>
 #include <atomic>
 #include <cstring>
@@ -20,6 +21,34 @@ class TerminalCoreTests final : public QObject
     Q_OBJECT
 
 private slots:
+    void utf8SplitAfterAsciiPreservesDecoderState() {
+        const QByteArray input = QStringLiteral("1. 检查插件更新\r\n2. 安装插件\r\n3. 卸载插件\r\n").toUtf8();
+        const auto render = [&input](int chunkSize) {
+            const auto destroy = [](VTerm* term) { vterm_free(term); };
+            std::unique_ptr<VTerm, decltype(destroy)> term(vterm_new(5, 80), destroy);
+            vterm_set_utf8(term.get(), 1);
+            auto* screen = vterm_obtain_screen(term.get());
+            vterm_screen_reset(screen, 1);
+            for (qsizetype offset = 0; offset < input.size(); offset += chunkSize) {
+                const auto count = qMin<qsizetype>(chunkSize, input.size() - offset);
+                vterm_input_write(term.get(), input.constData() + offset, size_t(count));
+            }
+            std::vector<uint32_t> result;
+            for (int row = 0; row < 3; ++row) {
+                for (int col = 0; col < 80; ++col) {
+                    VTermScreenCell cell{};
+                    vterm_screen_get_cell(screen, VTermPos{row, col}, &cell);
+                    result.push_back(cell.chars[0]);
+                }
+            }
+            return result;
+        };
+        const auto expected = render(input.size());
+        QVERIFY(std::find(expected.begin(), expected.end(), uint32_t(0x68c0)) != expected.end()); // 检
+        QVERIFY(std::find(expected.begin(), expected.end(), uint32_t(0xfffd)) == expected.end());
+        for (int chunkSize = 1; chunkSize <= 32; ++chunkSize)
+            QVERIFY2(render(chunkSize) == expected, qPrintable(QStringLiteral("chunk size %1").arg(chunkSize)));
+    }
     void bulkCellExportMatchesSingleAfterScrollAndResize() {
         const auto destroy = [](VTerm* value) { vterm_free(value); };
         std::unique_ptr<VTerm, decltype(destroy)> term(vterm_new(4, 12), destroy);
