@@ -851,6 +851,13 @@ MainWindow::~MainWindow()
 {
     // 正常关闭会在 closeEvent 中保存；这里作为应用直接销毁窗口时的兜底。
     saveWindowLayout();
+    // QWidget 析构先销毁布局，再删除包含 SSH transport 的中央页面。
+    // transport 的 destroyed 会更新面板标题；必须在主窗口仍完整时
+    // 解除标题转发，避免子对象清理时回调已经析构的 MainWindow。
+    disconnect(_sftpPanels, &QWidget::windowTitleChanged,
+               this, &MainWindow::updateSftpDockTitle);
+    disconnect(_systemMonitorPanels, &QWidget::windowTitleChanged,
+               this, &MainWindow::updateSystemMonitorDockTitle);
 }
 
 void MainWindow::saveWindowLayout()

@@ -2,6 +2,7 @@
 #include "mcp/contracts/Budget.h"
 #include <QDir>
 #include <QFile>
+#include <QDateTime>
 #include <QScopeGuard>
 #include <QTemporaryDir>
 #include <QtTest>
@@ -79,6 +80,38 @@ bool junction(const QString& path, const QString& target)
 class LocalFileAccessTests : public QObject {
     Q_OBJECT
 private slots:
+    void readerRevalidatesSourceAtEof_data()
+    {
+        QTest::addColumn<QByteArray>("initial");
+        QTest::addColumn<QByteArray>("changed");
+        QTest::newRow("append-after-last-chunk") << QByteArray("original") << QByteArray("original-tail");
+        QTest::newRow("empty-source-grows") << QByteArray{} << QByteArray("new");
+        QTest::newRow("same-size-rewrite") << QByteArray("original") << QByteArray("modified");
+    }
+    void readerRevalidatesSourceAtEof()
+    {
+#ifdef Q_OS_LINUX
+        QFETCH(QByteArray, initial); QFETCH(QByteArray, changed);
+        QTemporaryDir directory; QVERIFY(directory.isValid());
+        const auto path = directory.filePath("source.bin");
+        QVERIFY(put(path, initial));
+        auto opened = LocalFileReader::open(directory.path(), "source.bin");
+        QVERIFY(std::holds_alternative<std::unique_ptr<LocalFileReader>>(opened));
+        auto reader = std::move(std::get<std::unique_ptr<LocalFileReader>>(opened));
+        QCOMPARE(std::get<QByteArray>(reader->read(65536)), initial);
+        QVERIFY(put(path, changed));
+        if (initial.size() == changed.size()) {
+            // 同一时钟刻度内写入可能保持相同时间戳；显式制造可观察的元数据变化。
+            QFile source(path); QVERIFY(source.open(QIODevice::ReadWrite));
+            QVERIFY(source.setFileTime(QDateTime::currentDateTimeUtc().addSecs(2), QFileDevice::FileModificationTime));
+        }
+        const auto eof = reader->read(1);
+        QVERIFY(std::holds_alternative<FileIoError>(eof));
+        QCOMPARE(std::get<FileIoError>(eof), FileIoError::UnsafeFile);
+#else
+        QSKIP("Linux permits concurrent writes to the pinned source");
+#endif
+    }
     void writerDigestPreservesUnevenAndEmptyChunks() {
 #if defined(Q_OS_WIN) || defined(Q_OS_LINUX)
         QTemporaryDir dir;

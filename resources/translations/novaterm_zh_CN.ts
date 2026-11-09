@@ -2039,6 +2039,14 @@ Built with:
 <context>
     <name>SftpPanel</name>
     <message>
+        <source>Directory listing contains an unsafe file name.</source>
+        <translation>远端目录包含不安全的文件名，已停止加载。</translation>
+    </message>
+    <message>
+        <source>Error: unsafe remote file name.</source>
+        <translation>错误：远端文件名不安全。</translation>
+    </message>
+    <message>
         <location filename="../../src/ui/widgets/SftpPanel.cpp" line="121"/>
         <location filename="../../src/ui/widgets/SftpPanel.cpp" line="1713"/>
         <source>Permissions</source>
@@ -2592,6 +2600,10 @@ Built with:
 </context>
 <context>
     <name>SftpSession</name>
+    <message>
+        <source>Directory scan limit exceeded; choose a smaller directory.</source>
+        <translation>目录扫描超出限制，请选择更小的子目录。</translation>
+    </message>
     <message>
         <location filename="../../src/session/SftpSession.cpp" line="124"/>
         <source>Failed to load the SSH private key</source>

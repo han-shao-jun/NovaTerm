@@ -19,6 +19,11 @@
 #include <QLabel>
 #include <QDialog>
 #include <QTreeWidget>
+#include <QDragEnterEvent>
+#include <QDropEvent>
+#include <QMimeData>
+#include <QTemporaryDir>
+#include <QFile>
 #include <memory>
 
 // Only the network worker is replaced. Panels, queues, parsing and timers are real.
@@ -129,6 +134,74 @@ private:
         QVERIFY(QMetaObject::invokeMethod(timer, "timeout", Qt::DirectConnection));
     }
 private slots:
+    void unsafeRemoteListingCannotBecomeDownloadSelection_data()
+    {
+        QTest::addColumn<QString>("name");
+        QTest::newRow("parent-path") << QStringLiteral("../outside/file");
+        QTest::newRow("absolute-path") << QStringLiteral("/tmp/outside");
+        QTest::newRow("nested-path") << QStringLiteral("dir/file");
+        QTest::newRow("windows-path") << QStringLiteral("..\\outside");
+        QTest::newRow("empty") << QString{};
+        QTest::newRow("dot") << QStringLiteral(".");
+        QTest::newRow("parent") << QStringLiteral("..");
+        QTest::newRow("control") << QStringLiteral("file\nname");
+#ifdef Q_OS_WIN
+        QTest::newRow("drive-relative") << QStringLiteral("C:outside");
+        QTest::newRow("device-name") << QStringLiteral("NUL.txt");
+        QTest::newRow("trailing-dot") << QStringLiteral("file.");
+#endif
+    }
+    void unsafeRemoteListingCannotBecomeDownloadSelection()
+    {
+        QFETCH(QString, name);
+        SshTransport transport(SshConfig{}); SshTransportTestAccess::verified(transport);
+        SftpPanel panel; panel.setSessionContext("Board", &transport);
+        auto* backend = panel.findChild<SftpSession*>(); QVERIFY(backend);
+        SftpSessionSafetyTestAccess::connected(*backend, "/confirmed");
+        SftpSessionSafetyTestAccess::drainQueue(*backend);
+        SftpFileInfo entry; entry.name = name; entry.path = "/confirmed/" + name;
+        emit backend->directoryListed("/confirmed", {entry});
+        auto* tree = panel.findChild<QTreeWidget*>(); QVERIFY(tree);
+        QCOMPARE(tree->topLevelItemCount(), 0);
+        QVERIFY(!tree->isEnabled());
+        QCOMPARE(SftpSessionSafetyTestAccess::queued(*backend), qsizetype(0));
+    }
+    void uploadDisconnectPreservesOriginalErrorWithoutQueueingRefresh()
+    {
+        SshTransport transport(SshConfig{}); SshTransportTestAccess::verified(transport);
+        SftpPanel panel; panel.setSessionContext("Board", &transport);
+        auto* backend = panel.findChild<SftpSession*>(); QVERIFY(backend);
+        SftpSessionSafetyTestAccess::connected(*backend, "/confirmed");
+        SftpSessionSafetyTestAccess::drainQueue(*backend);
+        emit backend->directoryListed("/confirmed", {});
+        QTemporaryDir directory; QVERIFY(directory.isValid());
+        QFile source(directory.filePath("package.deb"));
+        QVERIFY(source.open(QIODevice::WriteOnly));
+        QCOMPARE(source.write("fixture"), qint64(7));
+        source.close();
+        QMimeData mime; mime.setUrls({QUrl::fromLocalFile(source.fileName())});
+        QDragEnterEvent enter(QPoint(10, 10), Qt::CopyAction, &mime,
+                             Qt::LeftButton, Qt::NoModifier);
+        QApplication::sendEvent(&panel, &enter); QVERIFY(enter.isAccepted());
+        QDropEvent drop(QPointF(10, 10), Qt::CopyAction, &mime,
+                        Qt::LeftButton, Qt::NoModifier);
+        QApplication::sendEvent(&panel, &drop); QVERIFY(drop.isAccepted());
+        QCOMPARE(SftpSessionSafetyTestAccess::queued(*backend), qsizetype(1));
+        SftpSessionSafetyTestAccess::drainQueue(*backend);
+        // 工作线程已清理状态，但 GUI 尚未收到排在错误之后的 disconnected。
+        SftpSessionSafetyTestAccess::unavailable(*backend);
+        QSignalSpy errors(backend, &SftpSession::errorOccurred);
+        emit backend->errorOccurred("Failed to upload: Received EOF while reading sftp packet size");
+        QCoreApplication::sendPostedEvents();
+        QCOMPARE(errors.size(), 1);
+        emit backend->disconnected();
+        bool originalErrorVisible = false;
+        for (auto* label : panel.findChildren<ElaText*>()) {
+            if (label->text().contains("Upload failed")
+                && label->text().contains("package.deb")) originalErrorVisible = true;
+        }
+        QVERIFY(originalErrorVisible);
+    }
     void failedDirectoryReloadDisablesStaleFileOperationsUntilRefresh()
     {
         SshTransport transport(SshConfig{}); SshTransportTestAccess::verified(transport);

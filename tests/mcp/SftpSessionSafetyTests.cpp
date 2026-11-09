@@ -738,6 +738,98 @@ private slots:
 int main(int argc, char** argv)
 {
     QCoreApplication app(argc, argv);
+    if (app.arguments().size() == 6 && app.arguments()[1] == "--review-loopback") {
+        const QString scenario = app.arguments()[2];
+        bool valid = false;
+        const int port = app.arguments()[3].toInt(&valid);
+        if (!valid || port <= 0 || port > 65535) return 2;
+        const QString localRoot = app.arguments()[5];
+        SshConfig config;
+        config.host = "127.0.0.1"; config.port = static_cast<quint16>(port);
+        config.username = "fixture"; config.password = "fixture-only";
+        SftpSession session;
+        int connections = 0, errors = 0, listed = 0, finished = 0;
+        QString lastError;
+        QObject::connect(&session, &SftpSession::connected, &app, [&](const QString&) { ++connections; });
+        QObject::connect(&session, &SftpSession::errorOccurred, &app,
+            [&](const QString& error) { ++errors; lastError = error; });
+        QObject::connect(&session, &SftpSession::directoryListed, &app,
+            [&](const QString&, const QVector<SftpFileInfo>&) { ++listed; });
+        QObject::connect(&session, &SftpSession::operationFinished, &app,
+            [&](const QString&, const QString&) { ++finished; });
+        QObject::connect(&session, &SftpSession::uploadBytesFinished, &app,
+            [&](quint64, const QString&, bool ok, const QString& error) {
+                if (ok) ++finished;
+                else { ++errors; lastError = error; }
+            });
+        session.connectToHost(config, {}, app.arguments()[4]);
+        QElapsedTimer clock; clock.start();
+        while (!connections && !errors && clock.elapsed() < 10000) QTest::qWait(10);
+        if (connections != 1 || errors) return 3;
+        if (scenario.startsWith("list-")) session.listDirectory("/");
+        else if (scenario.startsWith("tree-")) session.downloadDirectory("/", localRoot + "/download");
+        else if (scenario.startsWith("directory-")) session.uploadDirectory(localRoot + "/source", "/upload");
+        else if (scenario.startsWith("script-")) {
+            if (!session.uploadBytes(99, "fixture", "/upload")) return 4;
+        }
+        else session.uploadFile(localRoot + "/source/file.bin", "/upload.bin");
+        if (scenario.endsWith("cancel")) {
+            while (!QFile::exists(localRoot + "/started") && clock.elapsed() < 5000) QTest::qWait(10);
+            if (!QFile::exists(localRoot + "/started")) return 4;
+            const auto control = SftpSessionSafetyTestAccess::control(session);
+            control->running = false;
+            control->queueReady.wakeAll();
+            QElapsedTimer stop; stop.start();
+            while (!session.canStartConnection() && stop.elapsed() < 1000) QTest::qWait(10);
+            const bool stopped = session.canStartConnection();
+            std::printf("%s stopped=%d stop_ms=%lld\n", qPrintable(scenario), stopped,
+                        static_cast<long long>(stop.elapsed()));
+            return stopped ? 0 : 5;
+        }
+        const int deadline = scenario.endsWith("deadline") ? 45000 : 15000;
+        while (!listed && !finished && !errors && clock.elapsed() < deadline) QTest::qWait(10);
+        std::printf("%s listed=%d finished=%d errors=%d detail=%s\n",
+                    qPrintable(scenario), listed, finished, errors, qPrintable(lastError));
+        if (scenario == "tree-depth-boundary") return finished == 1 && !errors ? 0 : 6;
+        const QString expected = scenario.endsWith("unsafe") ? "Unsafe"
+            : scenario.endsWith("limit") || scenario.endsWith("depth") || scenario.endsWith("deadline") ? "limit"
+            : "PRIMARY_DENIED";
+        return errors == 1 && !listed && !finished && lastError.contains(expected, Qt::CaseInsensitive) ? 0 : 6;
+    }
+    if (app.arguments().size() == 6 && app.arguments()[1] == "--upload-packet-loopback") {
+        bool valid = false;
+        const int port = app.arguments()[2].toInt(&valid);
+        if (!valid || port <= 0 || port > 65535) return 2;
+        SshConfig config;
+        config.host = "127.0.0.1"; config.port = static_cast<quint16>(port);
+        config.username = "fixture"; config.password = "fixture-only";
+        SftpSession session;
+        int connections = 0, errors = 0;
+        bool finished = false, listed = false;
+        QString lastError;
+        QObject::connect(&session, &SftpSession::connected, &app,
+            [&](const QString&) { ++connections; });
+        QObject::connect(&session, &SftpSession::errorOccurred, &app,
+            [&](const QString& error) { ++errors; lastError = error; });
+        QObject::connect(&session, &SftpSession::operationFinished, &app,
+            [&](const QString& operation, const QString&) {
+                if (operation == "upload") {
+                    finished = true;
+                    session.listDirectory(QFileInfo(app.arguments()[5]).absolutePath());
+                }
+            });
+        QObject::connect(&session, &SftpSession::directoryListed, &app,
+            [&](const QString&, const QVector<SftpFileInfo>&) { listed = true; });
+        session.connectToHost(config, {}, app.arguments()[3]);
+        QElapsedTimer clock; clock.start();
+        while (!connections && !errors && clock.elapsed() < 10000) QTest::qWait(10);
+        if (connections != 1 || errors) return 3;
+        session.uploadFile(app.arguments()[4], app.arguments()[5]);
+        while (!listed && !errors && clock.elapsed() < 15000) QTest::qWait(10);
+        std::printf("connections=%d uploaded=%d refreshed=%d errors=%d detail=%s\n",
+                    connections, finished, listed, errors, qPrintable(lastError));
+        return finished && listed && !errors ? 0 : 4;
+    }
     if (app.arguments().size() == 4 && app.arguments()[1] == "--failed-sftp-init-loopback") {
         bool valid = false;
         const int port = app.arguments()[2].toInt(&valid);

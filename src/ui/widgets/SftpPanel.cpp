@@ -612,8 +612,17 @@ SftpPanel::SftpPanel(QWidget* parent)
     connect(_sftpSession, &SftpSession::directoryListed, this,
             [this](const QString& path, QVector<SftpFileInfo> entries) {
         ++_viewRevision;
-        _directoryCurrent = true;
         _fileTree->clear();
+        for (const auto& entry : entries) {
+            if (!isSafeSftpEntryName(entry.name)) {
+                _directoryCurrent = false;
+                _hasError = true;
+                setFileTreeHint(tr("Directory listing contains an unsafe file name."));
+                setBusy(false, tr("Error: unsafe remote file name."));
+                return;
+            }
+        }
+        _directoryCurrent = true;
         setFileTreeHint(entries.isEmpty() ? tr("This folder is empty") : QString{});
         for (const SftpFileInfo& entry : entries) {
             const QString size = entry.directory
@@ -1368,11 +1377,12 @@ void SftpPanel::startNextUpload()
 {
     if (!_uploadBatchActive)
         return;
-    if (!_backendConnected) {
+    if (!_backendConnected || !_sftpSession->isConnected()) {
+        // worker 的断线状态先于 GUI 通知可见；保留当前失败详情，
+        // 未发送的条目记为跳过，避免再次入队的错误覆盖原始原因。
+        _uploadSkipped += _pendingUploads.size();
         _pendingUploads.clear();
-        _activeUploadRemotePath.clear();
-        _uploadBatchActive = false;
-        setBusy(false, tr("Upload stopped because the SFTP connection closed."));
+        finishUploadBatch();
         return;
     }
     if (_pendingUploads.isEmpty()) {
@@ -1429,7 +1439,7 @@ void SftpPanel::finishUploadBatch()
     }
 
     // 整批完成后只刷新一次目录，避免多文件上传时重复枚举远端目录。
-    if (_backendConnected)
+    if (_backendConnected && _sftpSession->isConnected())
         requestDirectory(_currentPath);
     else
         setBusy(false, _statusAfterNextDirectoryList);
@@ -1721,10 +1731,16 @@ void SftpPanel::queueDownloads(const QList<QTreeWidgetItem*>& items,
             continue;
         }
         const QString name = item->text(0);
+        const auto childPath = sftpDownloadChildPath(destinationDirectory, name);
+        if (!childPath) {
+            _hasError = true;
+            setBusy(false, tr("Error: unsafe remote file name."));
+            return;
+        }
         const QString localPath = (destinationIsExactFilePath
                                    && requests.isEmpty())
             ? destination
-            : QDir(destinationDirectory).filePath(name);
+            : *childPath;
         requests.enqueue(
             {item->data(0, RemotePathRole).toString(), name, localPath,
              item->data(0, SizeRole).toULongLong(),

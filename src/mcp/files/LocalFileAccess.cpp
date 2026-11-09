@@ -389,6 +389,7 @@ struct LocalFileReader::Impl {
 #ifdef Q_OS_WIN
     PinnedPath path;
     Handle file;
+    BY_HANDLE_FILE_INFORMATION snapshot{};
 #elif defined(Q_OS_LINUX)
     PosixPinnedFile source;
 #endif
@@ -496,6 +497,7 @@ FileIoResult<std::unique_ptr<LocalFileReader>> LocalFileReader::open(const QStri
     if (!GetFileInformationByHandle(impl->file.get(), &info)) return FileIoError::IoFailure;
     if (!regular(impl->file.get(), info)) return FileIoError::UnsafeFile;
     impl->bytes = fileSize(info);
+    impl->snapshot = info;
     if (impl->bytes > Budget::MaxLocalTransferFileBytes) return FileIoError::SizeLimit;
     return std::unique_ptr<LocalFileReader>(new LocalFileReader(std::move(impl)));
 #elif defined(Q_OS_LINUX)
@@ -516,7 +518,11 @@ FileIoResult<QByteArray> LocalFileReader::read(qsizetype maxBytes)
     if (maxBytes <= 0 || maxBytes > Budget::LocalTransferChunkBytes) return FileIoError::SizeLimit;
 #if defined(Q_OS_WIN) || defined(Q_OS_LINUX)
     const auto count = qMin(quint64(maxBytes), _impl->bytes - _impl->consumed);
-    if (!count) return QByteArray{};
+    if (!count) {
+        const auto checked = verifyUnchanged();
+        if (const auto* error = std::get_if<FileIoError>(&checked)) return *error;
+        return QByteArray{};
+    }
     auto bytes = readAt(_impl->consumed, qsizetype(count));
     if (std::holds_alternative<QByteArray>(bytes)) _impl->consumed += count;
     return bytes;
@@ -566,6 +572,35 @@ FileIoResult<QByteArray> LocalFileReader::readAt(quint64 offset, qsizetype count
 #else
     return FileIoError::UnsupportedPlatform;
 #endif
+}
+FileIoResult<std::monostate> LocalFileReader::verifyUnchanged()
+{
+    if (!_impl || _impl->failed) return FileIoError::InvalidState;
+#ifdef Q_OS_WIN
+    BY_HANDLE_FILE_INFORMATION current{};
+    const auto& original = _impl->snapshot;
+    if (!GetFileInformationByHandle(_impl->file.get(), &current)
+        || !regular(_impl->file.get(), current)
+        || current.dwVolumeSerialNumber != original.dwVolumeSerialNumber
+        || current.nFileIndexHigh != original.nFileIndexHigh
+        || current.nFileIndexLow != original.nFileIndexLow
+        || fileSize(current) != _impl->bytes
+        || CompareFileTime(&current.ftLastWriteTime, &original.ftLastWriteTime) != 0
+        || current.dwFileAttributes != original.dwFileAttributes) {
+        _impl->failed = true;
+        return FileIoError::UnsafeFile;
+    }
+#elif defined(Q_OS_LINUX)
+    struct stat current{};
+    if (::fstat(_impl->source.file.get(), &current) != 0
+        || !sameSource(_impl->source.snapshot, current)) {
+        _impl->failed = true;
+        return FileIoError::UnsafeFile;
+    }
+#else
+    return FileIoError::UnsupportedPlatform;
+#endif
+    return std::monostate{};
 }
 quint64 LocalFileReader::size() const noexcept { return _impl ? _impl->bytes : 0; }
 FileIoResult<std::unique_ptr<LocalFileWriter>> LocalFileWriter::create(

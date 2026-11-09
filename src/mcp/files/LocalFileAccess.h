@@ -50,6 +50,8 @@ public:
     FileIoResult<QByteArray> read(qsizetype maxBytes);
     // 固定句柄精确读取 1～65536 字节，不推进顺序 read 的逻辑游标。
     FileIoResult<QByteArray> readAt(quint64 offset, qsizetype count);
+    /** @brief 复核固定源句柄的大小和元数据；EOF 及发布前也必须调用。 */
+    FileIoResult<std::monostate> verifyUnchanged();
     quint64 size() const noexcept;
 private:
     struct Impl;

@@ -159,6 +159,39 @@ constexpr char SftpWorkerThreadName[] = "nvterm-sftp";
 constexpr qsizetype TransferChunkBytes = 256 * 1024;
 constexpr quint64 ProgressIntervalBytes = 1 * 1024 * 1024;
 
+/** @brief 目录扫描的整次预算，包含被跳过的条目，防止无限 READDIR 流。 */
+class DirectoryScanBudget final
+{
+public:
+    DirectoryScanBudget() { _clock.start(); }
+    bool expired() const { return _clock.elapsed() >= 30000; }
+    bool take(const QString& path, int depth = 0)
+    {
+        constexpr qsizetype MaximumEntries = 16384;
+        constexpr qsizetype MaximumPathBytes = 4096;
+        constexpr int MaximumDepth = 64;
+        const auto bytes = path.toUtf8().size();
+        return !expired() && ++_entries <= MaximumEntries
+            && bytes <= MaximumPathBytes && depth <= MaximumDepth && addBytes(bytes);
+    }
+    bool addBytes(qsizetype bytes)
+    {
+        constexpr qsizetype MaximumStoredBytes = 8 * 1024 * 1024;
+        if (bytes > MaximumStoredBytes - _bytes) return false;
+        _bytes += bytes;
+        return true;
+    }
+private:
+    QElapsedTimer _clock;
+    qsizetype _entries{0};
+    qsizetype _bytes{0};
+};
+
+QString directoryScanLimitError()
+{
+    return SftpSession::tr("Directory scan limit exceeded; choose a smaller directory.");
+}
+
 using SshSessionPtr =
     std::unique_ptr<ssh_session_struct, decltype(&ssh_free)>;
 using SftpSessionPtr =
@@ -425,10 +458,10 @@ bool uploadRegularFile(sftp_session sftp, ssh_session session,
                 remoteFile.get(), chunkBuffer.constData() + offset,
                 static_cast<size_t>(chunk - offset));
             if (written <= 0) {
-                sftp_close(remoteFile.release());
-                sftp_unlink(sftp, encodedPath.constData());
                 error = sftpError(sftp, session,
                     SftpSession::tr("Failed to upload %1").arg(remotePath));
+                sftp_close(remoteFile.release());
+                sftp_unlink(sftp, encodedPath.constData());
                 return false;
             }
             offset += static_cast<qsizetype>(written);
@@ -446,19 +479,19 @@ bool uploadRegularFile(sftp_session sftp, ssh_session session,
         return false;
     }
     if (sftp_close(remoteFile.release()) != SSH_OK) {
-        sftp_unlink(sftp, encodedPath.constData());
         error = sftpError(sftp, session,
             SftpSession::tr("Failed to finalize remote file %1")
                 .arg(remotePath));
+        sftp_unlink(sftp, encodedPath.constData());
         return false;
     }
     const QByteArray encodedTarget = remotePath.toUtf8();
     if (sftp_rename(sftp, encodedPath.constData(), encodedTarget.constData())
         != SSH_OK) {
-        sftp_unlink(sftp, encodedPath.constData());
         error = sftpError(sftp, session,
             SftpSession::tr("Failed to replace remote file %1")
                 .arg(remotePath));
+        sftp_unlink(sftp, encodedPath.constData());
         return false;
     }
     return true;
@@ -479,6 +512,7 @@ bool collectRemoteDirectory(sftp_session sftp, ssh_session session,
                             const std::atomic<bool>& running,
                             QString& error)
 {
+    DirectoryScanBudget budget;
     QQueue<QPair<QString, QString>> pendingDirectories;
     pendingDirectories.enqueue({rootRemotePath, {}});
     while (!pendingDirectories.isEmpty()
@@ -497,17 +531,25 @@ bool collectRemoteDirectory(sftp_session sftp, ssh_session session,
         }
 
         for (;;) {
+            if (!running.load(std::memory_order_acquire)) return false;
+            if (budget.expired()) { error = directoryScanLimitError(); return false; }
             SftpAttributesPtr attributes{
                 sftp_readdir(sftp, directory.get()),
                 &sftp_attributes_free};
+            if (!running.load(std::memory_order_acquire)) return false;
+            if (budget.expired()) { error = directoryScanLimitError(); return false; }
             if (!attributes)
                 break;
-            const QString name = QString::fromUtf8(
-                attributes->name ? attributes->name : "");
-            if (name == QStringLiteral(".") || name == QStringLiteral(".."))
+            const QByteArray rawName = attributes->name ? attributes->name : "";
+            const QString name = QString::fromUtf8(rawName);
+            const bool dot = name == QStringLiteral(".") || name == QStringLiteral("..");
+            const int depth = relativeDirectory.isEmpty() ? 1 : int(relativeDirectory.count(QLatin1Char('/'))) + 2;
+            if (!budget.take(dot ? remoteDirectory : remotePathJoin(remoteDirectory, name), dot ? 0 : depth)) {
+                error = directoryScanLimitError(); return false;
+            }
+            if (dot)
                 continue;
-            if (name.isEmpty() || name.contains(QLatin1Char('/'))
-                || name.contains(QLatin1Char('\\'))) {
+            if (!isSafeSftpEntryName(name) || name.toUtf8() != rawName) {
                 error = SftpSession::tr("Unsafe remote entry name in %1")
                             .arg(remoteDirectory);
                 return false;
@@ -517,6 +559,9 @@ bool collectRemoteDirectory(sftp_session sftp, ssh_session session,
             const QString relativePath = relativeDirectory.isEmpty()
                 ? name
                 : relativeDirectory + QLatin1Char('/') + name;
+            if (!budget.addBytes(relativePath.toUtf8().size())) {
+                error = directoryScanLimitError(); return false;
+            }
             // 不跟随软链接，避免递归环和下载到目标目录之外。
             if (attributes->type == SSH_FILEXFER_TYPE_SYMLINK)
                 continue;
@@ -540,6 +585,7 @@ bool collectRemoteDirectory(sftp_session sftp, ssh_session session,
             return false;
         }
     }
+    if (budget.expired()) { error = directoryScanLimitError(); return false; }
     return running.load(std::memory_order_acquire);
 }
 
@@ -605,6 +651,7 @@ bool removeRemoteDirectoryRecursively(
     const std::atomic<bool>& running, QString& error,
     const std::function<void(quint64, quint64, bool)>& progress)
 {
+    DirectoryScanBudget budget;
     QQueue<QString> pendingDirectories;
     QVector<QString> directories{rootPath};
     QVector<QString> entriesToUnlink;
@@ -630,23 +677,31 @@ bool removeRemoteDirectoryRecursively(
 
         for (;;) {
             if (!running.load(std::memory_order_acquire)) return false;
+            if (budget.expired()) { error = directoryScanLimitError(); return false; }
             SftpAttributesPtr attributes{
                 sftp_readdir(sftp, directory.get()),
                 &sftp_attributes_free};
+            if (!running.load(std::memory_order_acquire)) return false;
+            if (budget.expired()) { error = directoryScanLimitError(); return false; }
             if (!attributes)
                 break;
-            const QString name = QString::fromUtf8(
-                attributes->name ? attributes->name : "");
-            if (name == QStringLiteral(".") || name == QStringLiteral(".."))
+            const QByteArray rawName = attributes->name ? attributes->name : "";
+            const QString name = QString::fromUtf8(rawName);
+            const bool dot = name == QStringLiteral(".") || name == QStringLiteral("..");
+            const auto entryPath = remotePathJoin(directoryPath, name);
+            const int depth = entryPath.split(QLatin1Char('/'), Qt::SkipEmptyParts).size()
+                - rootPath.split(QLatin1Char('/'), Qt::SkipEmptyParts).size();
+            if (!budget.take(dot ? directoryPath : entryPath, dot ? 0 : depth)) {
+                error = directoryScanLimitError(); return false;
+            }
+            if (dot)
                 continue;
-            if (name.isEmpty() || name.contains(QLatin1Char('/'))
-                || name.contains(QLatin1Char('\\'))) {
+            if (!isSafeSftpEntryName(name) || name.toUtf8() != rawName) {
                 error = SftpSession::tr("Unsafe remote entry name in %1")
                             .arg(directoryPath);
                 return false;
             }
 
-            const QString entryPath = remotePathJoin(directoryPath, name);
             if (attributes->type == SSH_FILEXFER_TYPE_DIRECTORY) {
                 directories.push_back(entryPath);
                 pendingDirectories.enqueue(entryPath);
@@ -668,6 +723,8 @@ bool removeRemoteDirectoryRecursively(
     }
     if (!running.load(std::memory_order_acquire))
         return false;
+
+    if (budget.expired()) { error = directoryScanLimitError(); return false; }
 
     quint64 completed = 0;
     const quint64 total = static_cast<quint64>(entriesToUnlink.size() + directories.size());
@@ -763,10 +820,10 @@ bool SftpSession::uploadScriptBytes(
                 content.constData() + offset + chunkOffset,
                 static_cast<size_t>(chunkSize - chunkOffset));
             if (written <= 0) {
-                sftp_close(remoteFile.release());
-                sftp_unlink(sftp, encodedPath.constData());
                 error = sftpError(sftp, session,
                     QStringLiteral("SCRIPT_WRITE_FAILED: %1").arg(remotePath));
+                sftp_close(remoteFile.release());
+                sftp_unlink(sftp, encodedPath.constData());
                 return false;
             }
             chunkOffset += written;
@@ -1404,7 +1461,7 @@ void SftpSession::workerMain(std::shared_ptr<WorkerControl> control,
                 if (browser) postDirectoryResult(control, generation, command.requestId, {command.source, {}, error, false});
                 else postError(control, generation, error);
             };
-            if (browser && cancelled()) {
+            if (cancelled()) {
                 reportError(tr("Directory browsing was cancelled.")); continue;
             }
             const QByteArray requested = command.source.toUtf8();
@@ -1432,24 +1489,36 @@ void SftpSession::workerMain(std::shared_ptr<WorkerControl> control,
             bool interrupted = false;
             qsizetype scanned = 0;
             QElapsedTimer browseClock; browseClock.start();
+            DirectoryScanBudget budget;
+            QString scanError;
             for (;;) {
-                if (browser && (cancelled() || browseClock.elapsed() >= 10000)) {
+                if (cancelled() || (browser && browseClock.elapsed() >= 10000)) {
                     interrupted = true; break;
                 }
+                if (budget.expired()) { scanError = directoryScanLimitError(); break; }
                 if (browser && (entries.size() >= 1024 || scanned >= 8192)) {
                     truncated = true; break;
                 }
                 SftpAttributesPtr attributes{
                     sftp_readdir(sftp.get(), directory.get()),
                     &sftp_attributes_free};
+                if (cancelled()) { interrupted = true; break; }
+                if (budget.expired()) { scanError = directoryScanLimitError(); break; }
                 if (!attributes)
                     break;
                 ++scanned;
-                const QString name = QString::fromUtf8(
-                    attributes->name ? attributes->name : "");
+                const QByteArray rawName = attributes->name ? attributes->name : "";
+                const QString name = QString::fromUtf8(rawName);
+                if (!budget.take(remotePathJoin(directoryPath, name))) {
+                    scanError = directoryScanLimitError(); break;
+                }
                 if (name == QStringLiteral(".")
                     || name == QStringLiteral("..")) {
                     continue;
+                }
+                if (!isSafeSftpEntryName(name) || name.toUtf8() != rawName) {
+                    scanError = tr("Unsafe remote entry name in %1").arg(directoryPath);
+                    break;
                 }
 
                 SftpFileInfo info;
@@ -1489,9 +1558,13 @@ void SftpSession::workerMain(std::shared_ptr<WorkerControl> control,
                         info.brokenSymbolicLink = true;
                     }
                 }
+                if (!budget.addBytes(info.name.toUtf8().size() + info.linkTarget.toUtf8().size())) {
+                    scanError = directoryScanLimitError(); break;
+                }
                 if (!browser || info.directory || info.linkTargetDirectory)
                     entries.push_back(std::move(info));
             }
+            if (!scanError.isEmpty()) { reportError(scanError); continue; }
             if (interrupted) {
                 reportError(tr("Directory browsing was cancelled or timed out.")); continue;
             }
@@ -1758,10 +1831,10 @@ void SftpSession::workerMain(std::shared_ptr<WorkerControl> control,
             }
             if (sftp_rename(sftp.get(), temporaryPath.constData(),
                             remotePath.constData()) != SSH_OK) {
+                const auto error = sftpError(sftp.get(), session.get(),
+                    tr("Failed to replace remote file %1").arg(command.target));
                 discardTemporary();
-                postError(control, generation, sftpError(sftp.get(), session.get(),
-                    tr("Failed to replace remote file %1")
-                        .arg(command.target)));
+                postError(control, generation, error);
                 continue;
             }
             {
@@ -1803,8 +1876,13 @@ void SftpSession::workerMain(std::shared_ptr<WorkerControl> control,
                     || !control->running.load(std::memory_order_acquire)) {
                     break;
                 }
-                const QString localPath = QDir::cleanPath(
-                    localRoot.absoluteFilePath(entry.relativePath));
+                const auto checkedPath = sftpDownloadChildPath(localRoot.absolutePath(), entry.relativePath);
+                if (!checkedPath) {
+                    error = tr("Unsafe remote entry name in %1").arg(command.source);
+                    succeeded = false;
+                    break;
+                }
+                const QString localPath = *checkedPath;
                 if (entry.directory) {
                     if (!QDir().mkpath(localPath)) {
                         error = tr("Cannot create local directory %1")
@@ -2284,7 +2362,7 @@ SftpFileUploadResult SftpSession::uploadAuthorizedFileWorkerImpl(
             progress(result.transferredBytes, totalBytes);
         }
     }
-    // Read once past the initial size to reject growth on the pinned handle.
+    // EOF 也复核固定源句柄，不能仅按初始长度返回空数据。
     auto eof = local->read(1);
     if (const auto* error = std::get_if<FileIoError>(&eof))
         return fail(localFileTransferErrorCode(*error));
@@ -2294,7 +2372,10 @@ SftpFileUploadResult SftpSession::uploadAuthorizedFileWorkerImpl(
         return fail(QStringLiteral("TRANSFER_REMOTE_CLOSE_FAILED"));
     if (cancelled()) return fail(result.errorCode);
     finalizeAuthorizedUpload(request.control, ready,
-        [&] { return !cancelled() && tempGuard() && targetGuard() && !cancelled(); },
+        [&] {
+            if (cancelled() || !tempGuard() || !targetGuard() || cancelled()) return false;
+            return std::holds_alternative<std::monostate>(local->verifyUnchanged());
+        },
         [&] {
             // Status values not produced by packet/transport errors are definite
             // refusals. Ambiguous generic failures remain unknown conservatively.

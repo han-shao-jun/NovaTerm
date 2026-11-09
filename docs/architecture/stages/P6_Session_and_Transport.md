@@ -661,6 +661,211 @@ Session/Credential 分层持久化；restore 与 reconnect 语义分离；所有
 
 回归覆盖 `novaterm_pty_tests::defaultWorkingDirectoryIsHome` 以及已有的自定义目录子进程测试。
 
+<a id="sftp-upload-packet-20261109"></a>
+
+## SFTP 上传大包与错误覆盖排查（2026-11-09）
+
+用户在向 `root@192.168.10.1` 上传 one-kvm 安装包时遇到
+`SFTP is disconnected or busy; please try again.`，截图同时保留之前的删除摘要。
+只读终端观察发现曾生成 0 字节 `.novaterm-upload-*` 文件；板端诊断显示
+OpenSSH 8.2p1、根目录剩余约 43 GB。`sshd -V` 在该版本不支持，但错误输出
+包含版本信息；journalctl 只见登录记录，未提供该次 SFTP 拒绝原因。
+运行版本为 0.2.134，PID 3880 的可执行文件与已安装文件 SHA-256 相同，
+与工作区旧构建不同，未把源码构建冒充运行二进制。
+
+**观察 → 假设 → 验证：** 临时文件已创建但无数据，重点检查首个 WRITE。
+vendored libssh 的 `sftp_limits_use_default()` 曾把未协商的读写数据上限均
+改为 256 KiB。OpenSSH 8.2 的整包上限为 256 KiB，且没有 limits 扩展；
+WRITE 还有类型、请求 ID、handle、偏移和数据长度字段，不能把整包上限直接
+用作数据长度。依据是 [OpenSSH 8.2 常量](https://github.com/openssh/openssh-portable/blob/V_8_2_P1/sftp-common.h)
+及 [服务端处理](https://github.com/openssh/openssh-portable/blob/V_8_2_P1/sftp-server.c)。
+
+新增 `tests/mcp/sftp_upload_packet_loopback.py`，通过 Paramiko SSH 通道转发到
+真实本机 `/usr/lib/openssh/sftp-server -e -P limits`，核验 VERSION 不含 limits，
+再使用生产 `SftpSession::uploadFile()` 上传 1 MiB + 137 字节并刷新目录。
+修复前抓到 WRITE 长度 **262169**，服务端报 `bad message`，上传收到 EOF，
+最终文件不存在且临时文件大小为 0。此为本机真实 OpenSSH 协议复现，
+不是用户原始上传的数据包抓取，也不是 one-kvm 安装包实机复验。
+
+另一个独立 UI 回归确认：worker 已将连接状态置为 false，但 GUI 尚未处理
+`disconnected`；上传错误处理仍按旧 `_backendConnected` 发起刷新，队列拒绝
+后发布第二条通用错误，覆盖上传失败原因。定向测试修复前为 2 pass / 1 fail，
+实际错误数 2、预期 1。
+
+修正范围：
+
+- 未协商写入恢复上游 32 KiB；读取仍为 256 KiB，服务端 limits 协商路径保持。
+  选择保守写入值兼容未声明能力的服务端，不为旧 OpenSSH 特判成 255 KiB。
+- 上传批次继续/收尾同时核对后端真实连接；断线时跳过尚未发送条目，保留原始
+  失败摘要，不向已断开的队列自动提交下一上传或目录刷新。
+- 不自动重试失败上传或清除用户遗留文件，不更改安装包或板端 SSH 配置。
+
+验证分轮记录：
+
+- 初次回环在沙箱因 socket 权限被拒绝；首次宿主机测试有测试脚本
+  `SubsystemHandler.server` 接口错误，修为 `get_server()` 后再取得上述真实 RED。
+  两次环境/夹具失败均不作为生产缺陷证据。
+- 修正后同一真实 OpenSSH 回环：uploaded=1、refreshed=1、errors=0，WRITE 最大
+  32793 字节，源与目标逐字节一致，临时文件残留为空，服务端 stderr 为空。
+- Release 主程序及两个 SFTP 测试目标构建成功；相关 CTest **2/2，15.53 秒**，
+  UI QTest **34/34**，包括保留原始错误的新回归。未跑无关全套或其他平台。
+- 日志保存在 `build/Release/tests/sftp-upload-20261109/`（不纳入 Git）；
+  独立协议脚本未注册到默认 CTest，需要 Paramiko、本机 OpenSSH 和回环网络。
+  复现命令：`python3 tests/mcp/sftp_upload_packet_loopback.py build/Release/bin/novaterm_sftp_session_safety_tests`。
+
+板端另外提交了禁写模式 `sftp-server -R` 的协议诊断，随后 MCP 连接中断、
+实例与 session/epoch 均改变；未取得结果、未重发，因此不计为板端复现通过。
+本轮未安装/重启用户应用、未重新上传实际安装包、未提交/推送，版本仍为
+0.2.134。工作区修复构建与当前用户运行实例的状态分开记录，B4 台账不变。
+
+<a id="mainwindow-shutdown-core-20261109"></a>
+
+## 主窗口退出期间 SSH 面板回调崩溃（2026-11-09）
+
+用户随后提供 `/home/super/core`。文件时间为 2026-11-09 23:02:15，
+大小 541052928 字节，来自已安装的 `/usr/lib/novaterm/bin/novaterm`。
+从 core 自身保存的 ELF 映射页提取到 Build ID
+`f298cda40151bee186bc859195b9d9012850ed85`，与安装程序一致；安装程序
+SHA-256 为 `3847a10b9ca85d989c8a84d38bcadb3e610855b204528ec8653e49af04e7314f`。
+这次二进制身份已核验，不能与此前初始化失败的 `sftp_free` core 混同。
+
+主线程 SIGSEGV 的关键栈，从外到内为：
+
+```text
+Application::shutdown → MainWindow::~MainWindow
+→ QWidget 析构 / 中央页面与 TerminalView、TerminalSession 清理
+→ SshTransport::~SshTransport → QObject::destroyed
+→ SshPanelStack<SftpPanel>::ensurePanelFor 的销毁回调
+→ SftpPanel::refreshAvailability → windowTitleChanged
+→ MainWindow::updateSftpDockTitle
+→ DraggableDockWidget::updateTitleBarControls
+→ QMainWindow::dockWidgetArea → Qt Widgets 内部崩溃
+```
+
+反汇编确认 `DraggableDockWidget` 返回地址紧跟 `dockWidgetArea()` 调用；
+崩溃指令访问 `0x50(%rsi)`，其中 rsi=0x1e0。主窗口进入基类销毁后布局已拆除，
+但中央页面下的 transport 随后才析构，标题转发还在调用 MainWindow 派生类槽。
+此时 `_dockHost` 的 QPointer 尚非空，单纯非空检查不能证明主窗口布局有效。
+这条栈解释的是退出崩溃，与上一节上传包超限是两个独立缺陷。
+
+新增 `tests/ui/MainWindowShutdownProbe.cpp` 和独立运行器
+`tests/ui/main_window_shutdown_probe.py`。运行器复用当前 Ninja 构建的生产对象，
+替换入口并链接真实 MainWindow，使用临时配置和 offscreen 平台，不建立网络连接。
+用中央页面拥有的 SshTransport 触发真实面板销毁链；先验证正常移除单个会话
+会清掉对应面板和旧标题，再重新绑定并销毁主窗口。
+
+验证分轮：
+
+- 初版测试误直接访问 ElaWindow 的私有 `centralWidget()`，编译失败；改用
+  QMainWindow 公共接口后才执行真实测试，编译失败不计为产品 RED。
+- 修复前 SFTP、资源监控两个独立进程均退出 **-11**，最后输出为开始销毁主窗口。
+- 在 `~MainWindow()` 保存布局后解除两个面板栈的 `windowTitleChanged` 转发，
+  避免随后子对象析构再调用已退出生命周期的 MainWindow 槽。
+- Release 主程序重建成功。同一专项两种面板均退出 **0**，确认 transport
+  已析构、主窗口完成销毁。沙箱轮配置提交失败和无 Secret Service 警告分列保留；
+  宿主机隔离复核 **2/2，stderr 为空**，正常单会话移除检查同样通过。
+- 命令：`python3 tests/ui/main_window_shutdown_probe.py build/Release`，
+  需要已构建的 Linux Ninja Release；此专项未注册默认 CTest。
+  这轮未重复跑此前 2/2 SFTP CTest，不把两个轮次合并为一轮。
+
+脱敏栈、构建及分轮输出保存在 `build/Release/tests/mainwindow-shutdown-20261109/`
+（不纳入 Git）；原 core 大小和修改时间复核保持。未安装或重启用户实例，
+未连接板卡、未提交/推送，版本仍为 0.2.134；前一节上传修复与用户无关文件保持。
+
+<a id="sftp-review-fixes-20261110"></a>
+
+## SFTP 审查四项确认缺陷修复（2026-11-10）
+
+用户要求修复上一轮 qt-cpp-review 确认的四项缺陷。保留此前上传大包与主窗口
+退出修复，不处理纯机械风格提示。未操作无关 `HDMI_RX_Test_Process.md`；
+本轮开始时该文件未跟踪，收尾时已不在工作区，未尝试恢复或推断外部操作。
+
+### 改动及行为
+
+1. **名称/路径边界**：`SftpDirectoryListing.h` 提供共享文件名验证和下载子路径
+   词法检查。协议 List、递归扫描、UI 入表及下载队列都拒绝路径分隔符、点目录、
+   空名称和控制字符；wire 额外拒绝 UTF-8 解码无法往返的名称。Windows 额外拒绝
+   设备名、驱动器/ADS 分隔符及尾点/尾空格等非法名称。发现异常时整次列表失败，
+   不显示可下载的部分结果；本地路径检查只保证词法边界，不等于本地软链接隔离。
+   Windows 对含本机非法 Unix 名称的目录采取整目录拒绝策略。
+2. **固定源句柄最终复核**：`LocalFileReader::read()` 在 EOF 时也调用
+   `verifyUnchanged()`；MCP 上传发布 guard 在远端复核后再次检查源文件。
+   Linux 比较固定 fd 的身份、模式、链接数、大小、mtime/ctime，Windows 比较
+   固定句柄快照。它不是内容摘要，也不能消除最后一次复核到发布之间的竞态；
+   源文件其他写入者可信的边界保持。
+3. **错误快照**：目录上传 WRITE/CLOSE/RENAME、脚本 WRITE 及普通上传 RENAME
+   失败时先保存原始 SSH/SFTP 错误，再清理。即使 close/unlink 又改变 libssh
+   错误状态，也不替换主因。清理仍是尽力而为，不承诺断线后临时文件已删除。
+4. **扫描预算及停止**：普通浏览、递归下载及删除扫描的 READDIR 前后均检查停止。
+   新预算为每次扫描最多16384条、累计路径字节8 MiB、单路径4096字节、递归深度64、
+   30秒；超限明确失败，不开始基于不完整扫描的下载或删除。独立 browser 请求
+   原有更小的条目预算及 truncated 语义保持。点目录条目也消耗数量/字节预算，
+   但不增加真实递归深度；EOF 返回后及递归扫描成功收尾前也检查预算。
+   预算检查不承诺在单次 libssh 阻塞 I/O 中立即中断；持续成功响应之间已有取消点。
+
+### 真实失败及复测
+
+| 轮次 | 结果与解释 |
+|---|---|
+| UI 原始 RED | 8种异常名称全部进入树列表，QTest 2 pass / 8 fail |
+| Reader 原始 RED | 末块后增长、空文件增长、同长度改写均未拒绝，2 pass / 3 fail |
+| 协议原始 RED | 本机 Paramiko SSH/SFTP 夹具11项全部失败：越界名称/超量列表被接受、递归超量后继续打开文件、停止标志未结束枚举、错误显示CLEANUP_FAILED而非PRIMARY_DENIED |
+| 夹具修正 | 初次构建目标名错误、C++忽略nodiscard返回值、沙箱socket拒绝分别保留；CLOSE夹具改为真正返回拒绝，深度夹具设有限终点，两项复测仍RED，不把夹具错误算生产失败 |
+| 第一轮 GREEN | UI10/10；协议11/11。Reader增长两项通过，同长度改写因同一时钟刻度元数据未变化仍失败；明确设置不同mtime后纳入后续相关CTest，不冒充内容哈希能力 |
+| 第一轮相关 CTest | 4/4，18.44秒；此时两个新预算边界尚未修复 |
+| 修复复核 RED | 深度恰好64且含点目录误拒绝；最后READDIR约31秒返回EOF被当成功；两项0/2 |
+| 最终相关 CTest | `novaterm_mcp_local_file_io_tests`、`novaterm_mcp_serial_file_source_tests`、`novaterm_sftp_session_safety_tests`、`novaterm_sftp_panel_tests`：4/4，18.41秒 |
+| 最终协议回归 | `sftp_review_loopback.py` 13/13；异常/超限明确失败，两种持续READDIR停止各约20ms，深度边界成功，延迟EOF拒绝，原始错误均保留 |
+| 正常传输/删除 | 真实本机OpenSSH上传1 MiB+137字节、刷新目录、逐字节比较及临时文件检查通过；600文件递归删除和排队浏览通过，取消返回2ms、保留474文件及sentinel |
+
+最终主程序及相关测试目标构建成功。新增三条错误/提示补齐中英文 TS，最后
+Release 构建和 XML 解析检查通过；翻译后不重复业务测试，未拼接成全套成绩。
+
+命令入口：
+
+```bash
+ctest --test-dir build/Release -R '^(novaterm_sftp_(session_safety|panel)_tests|novaterm_mcp_(local_file_io|serial_file_source)_tests)$' --output-on-failure
+python3 tests/mcp/sftp_review_loopback.py build/Release/bin/novaterm_sftp_session_safety_tests
+python3 tests/mcp/sftp_upload_packet_loopback.py build/Release/bin/novaterm_sftp_session_safety_tests
+python3 tests/mcp/sftp_delete_loopback.py build/Release/bin/novaterm_sftp_session_safety_tests
+```
+
+协议脚本需 Paramiko 和本机回环，OpenSSH正常上传另需 `/usr/lib/openssh/sftp-server`；
+使用临时目录，不连接设备，未注册默认 CTest。分轮日志保存于
+`build/Release/tests/sftp-review-fixes-20261110/`，不纳入 Git。
+
+三个原审查代理分别只读复核错误/验证、扫描预算及生命周期；扫描代理提出的
+两处边界已补复现并整改，定向再次复核无新增高可信问题。`stopWorker` 同步销毁
+重入、权限模态父对象销毁两个候选仍未发现实际生产触发，不据此添加防御代码。
+本轮未安装、重启用户应用、连接板卡、执行one-kvm实机上传或提交推送；
+Windows/macOS未实测，版本0.2.134保持，B4工具台账不变。
+
+### 打包安装追加（2026-11-10）
+
+用户随后要求打包安装。确认 Release 主程序目标无需再编译后，执行：
+
+```bash
+cpack --config build/Release/CPackConfig.cmake -G 'DEB;ZIP' -B build/packages/20261110-sftp-fixes
+pkexec /usr/bin/dpkg -i /home/super/Documents/qt_app/NovaTerm/build/packages/20261110-sftp-fixes/novaterm-0.2.134-linux-x64.deb
+```
+
+DEB/ZIP生成成功，版本仍0.2.134、架构amd64，同版本重装；此前旧包保留。
+ZIP完整性检查通过，DEB与ZIP主程序逐字节一致，包内helper、SQLite、XCB、
+输入法和平台主题插件齐全。首次ZIP载荷核对脚本误按DEB的`usr/`前缀定位，
+返回StopIteration；按实际ZIP根目录结构定位后核对通过，不是包损坏。
+
+- DEB SHA-256：`60170e5e6967beb5e53c2c362e056f5954c866d1f16fae63336753e6f03b2dfa`
+- ZIP SHA-256：`05ab37e6ab057c17ecbeb13e7f9e2fcc71c4aa5fef5464181577914b9313cc65`
+- 安装后状态：`novaterm 0.2.134 install ok installed`，`dpkg --verify novaterm`无输出。
+- 安装程序与DEB载荷SHA-256均为
+  `bead0b735e18c12299bb28e22879ef69f23cbc1545e11370563031b604a3f122`。
+  构建/载荷Build ID同为`e85ec4593db9386252ab7e8de92828dfc13385ce`；构建文件哈希
+  与安装载荷不同，已核对部署时RUNPATH从构建目录改为`$ORIGIN/../lib`，不宣称
+  构建文件与安装文件逐字节相同。
+
+宿主机安装后核对无运行中的NovaTerm进程，未启动应用；下次启动加载新载荷。
+本阶段未重跑业务或板卡测试、未提交推送；前述测试仍属于各自修复验证轮次。
+
 ## P8.6 Session 级交互命令与脚本写入边界（2026-09-25）
 
 当前实现将 `SessionInputArbiter`、`InteractiveStreamFramer`、
