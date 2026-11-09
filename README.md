@@ -1,473 +1,156 @@
 # NovaTerm
 
-2026-10-30：当前二十个 MCP 工具，所有 AI 共用统一令牌和授权；每个新就绪连接默认开启四项会话权限，同连接内手动撤权保留。MCP 仅列已连接会话，保存目标目录/打开/查询/关闭四工具及客户端管理已移除，手动保存会话入口保留。文件直接指定路径，首次上传只确认一次并记忆；历史免逐条授权，独立文件授权窗口已移除。本轮验证另行记录，历史成绩不作为当前改动的重测结果。Windows和Linux安全读取及写入后端已实现；macOS文件后端尚未实现，托管提权适配器仍不可用，B4 实机验收由用户执行。
-
-历史实现与逐轮验证见[验收档案](docs/architecture/stages/P8_AI_MCP_Interface/records/README.md)，不以历史成绩代替当前版本验收。
-
-NovaTerm（原名 WindTermQt）是一款基于 Qt 6 的跨平台终端模拟器和 SSH 客户端。
-终端解析使用 libvterm，渲染使用 Qt QRhi，界面使用 ElaWidgetTools，采用
-FluentUI 风格。
+NovaTerm 是基于 Qt 6 的跨平台终端模拟器和 SSH 客户端，适用于日常终端操作、
+远程服务器管理和嵌入式设备调试。界面采用 ElaWidgetTools 的 FluentUI 风格，
+终端解析使用 libvterm，渲染使用 Qt QRhi。
 
 ## 主要特性
 
-- **跨平台支持**：面向 Windows、Linux 和 macOS；各平台的验证范围和待验收项见阶段文档
-- **多协议支持**：支持本地Shell、SSH（libssh）、Telnet（libtelnet，含 RFC 1143 选项协商）和串口连接
-- **现代界面设计**：采用FluentUI设计语言，提供深色/浅色主题切换
-- **GPU加速渲染**：基于Qt QRhi实现高效GPU渲染，支持Vulkan、OpenGL、D3D等多种图形API
-- **SFTP文件传输**：内置SFTP客户端，支持文件上传下载和目录操作
-- **XMODEM / YMODEM / ZMODEM 文件传输**：纯 C++17 协议库已实现双向传输，
-  并已接入串口 Session 与手动发送／接收窗口；Linux 独立协议测试及 lrzsz
-  互通已验证。真实 UART 与跨平台验收仍待补齐，Windows 串口文件传输测试有
-  已知失败，见 [AGENTS.md](AGENTS.md)。独立协议阶段的记录见
-  [P9 文档](docs/architecture/stages/P9_File_Transfer_Protocols.md)
-- **系统监控**：支持远程SSH会话的系统资源监控
-- **AI MCP 接入**：默认关闭的进程内 Streamable HTTP 服务，默认地址 `http://127.0.0.1:38973/mcp`。所有 AI 使用同一 Bearer token 和权限；提供二十工具，支持已连接终端观察/输入、日志分页、文本等待、长任务、独立历史查询、SFTP 上传/下载及 UART/ZMODEM 单文件发送。每个新就绪连接的读取、输入、托管提权、清空权限默认开启，可手动撤销；文件直接指定路径，首次上传一次确认并记忆；历史免逐条共享。SFTP 默认不覆盖，可显式选择可信目录中的路径替换。平台与能力限制见[使用说明](docs/MCP_Usage.md)。
-- **终端解析**：使用 libvterm 处理 ANSI/VT 控制序列，具体语义由终端测试覆盖
-- **搜索与高亮**：支持终端内容搜索和可配置文本高亮
+- **多协议连接**：本地 Shell、SSH、Telnet 和串口，支持多标签会话。
+- **终端显示**：ANSI/VT 解析、Unicode 文本、历史回看、内容搜索与高亮。
+- **GPU 渲染**：使用 QRhi，支持 OpenGL、Vulkan、D3D 等图形后端。
+- **外观设置**：深浅色界面、独立终端配色方案、字体与文本高亮配置。
+- **SFTP 文件管理**：上传、下载、目录浏览、创建、重命名、权限修改与删除。
+- **串口文件传输**：支持 XMODEM、YMODEM、ZMODEM 发送和接收，提供进度与取消操作。
+- **远程系统监控**：查看 SSH 主机的系统资源信息。
+- **历史与录制**：可选 LZ4 内存历史压缩，以及手动启停的持久录制和离线查询。
+- **AI MCP 接入**：外部 Agent 可观察和操作已连接终端、查询历史、等待文本、跟踪任务及传输文件。
 
-终端历史提供可选的无损 LZ4 压缩，统一适用于本地 Shell、SSH、Telnet 和串口。
-在设置页勾选「压缩终端历史」后对新建与已打开的终端生效；配置键为
-`terminal.historyCompression.enabled`，当前默认 **false**（实验性，性能发布门槛未达成）。
-关闭只停止新压缩，已有历史仍能回看、复制和搜索，不需要重新连接。
+项目面向 Windows、Linux 和 macOS。具体平台能力见 [MCP 使用说明](docs/MCP_Usage.md)
+和[架构文档](docs/architecture/README.md)；macOS 的 MCP 本地文件访问后端尚未实现。
 
-每个终端沿用约 1 GiB 的历史记账预算，不预分配，不恢复旧的行数限制。
-共享解码缓存最多 32 MiB（每终端 8 MiB），队列最多 32 项/16 MiB 源块；
-16 MiB 工作区包含每个获准 Core 的 3 MiB Parser 预留槽和 4 MiB worker 槽，
-初始参数最多批准 4 个终端同时创建压缩历史，其他终端保持原始存储并显示原因。
-状态栏显示驻留、节省和淘汰行数，提示解码错误与系统内存压力；提示中的总量是保守
-charge，不能当成 RSS。压缩不是落盘或完整保留承诺，达到预算仍淘汰最旧内容。
-实测、发布缺口和复测命令见 [实施记录](docs/architecture/LZ4_Scrollback_Implementation_Plan_2026-10-17.md)。
+## 使用说明
 
-LZ4 v1.10.0 完整上游源码位于 `third_party/lz4-1.10.0/`，无需下载；仅编译
-`lib/lz4.c`，BSD-2-Clause 库许可证随安装产物保存为 `LICENSE.lz4`。
+### 连接与文件传输
 
-## 快速开始
+在会话界面选择本地 Shell、SSH、Telnet 或串口并填写连接参数。
+SSH 会话可通过 SFTP 面板管理远端文件，也可打开系统资源监控面板。
+
+已连接的8数据位串口可从终端右键菜单打开“串口文件传输”，选择协议和发送文件
+或接收目录。在设备端启动对应收发程序后再开始传输，NovaTerm 不自动注入设备命令。
+XMODEM 接收可填写真实文件长度，留空时保留末包填充；YMODEM/ZMODEM 接收选择目录。
+已有接收文件不会被覆盖，接收目录需支持硬链接。
+
+### 历史与录制
+
+设置中的“压缩终端历史”为可选功能，默认关闭。关闭压缩后已有历史仍可回看、
+复制和搜索，无需重连；达到历史预算时仍会淘汰最旧内容。
+内存历史压缩不等于持久保存，需要保留接收流时可在主菜单“历史录制”中手动启停录制。
+
+### AI MCP 接入
+
+MCP 服务默认关闭，启用后默认地址为 `http://127.0.0.1:38973/mcp`。
+所有 AI 客户端共用统一 Bearer token 和权限，只访问已连接会话。
+新就绪连接默认开启读取、输入、提权选择和清空权限，用户可撤销；
+权限开启不代表该连接的提权适配器可用。
+
+文件传输使用完整路径，首次上传需要确认，相同路径组合可记忆；SFTP 默认不覆盖目标。
+启用 MCP 后可读取已有录制，录制本身仍由用户手动开启。
+客户端配置、工具说明和权限边界见 [MCP 使用说明](docs/MCP_Usage.md)。
+
+## 从源码构建
 
 ### 环境要求
 
-- Qt 6.8 或更高版本（`find_package(Qt6 6.8 REQUIRED)`）
-- CMake 3.20 或更高版本
-- 支持 C++17 的编译器（`CMAKE_CXX_STANDARD 17`）
-- Qt 组件：Widgets、Svg、ShaderTools、LinguistTools、SerialPort、Network、HttpServer、Sql；
-  默认启用测试时还需要 Test
-- 历史录制使用同一 Qt SDK 的 QSQLITE 驱动，运行/部署须包含 `sqldrivers/qsqlite` 插件。
-  主菜单「历史录制」由本机用户手动启停，默认关闭；录制不自动授权共享。
-  历史条目可独立选择 record 范围，向所有使用统一令牌的 AI 进行离线共享；三个历史 MCP 工具及权限说明见 [MCP 使用说明](docs/MCP_Usage.md)。
-- 对于Windows：需要Windows 10 1809或更高版本，以及 MSVC 2022
-- Linux/macOS 需要系统 OpenSSL 开发库；Windows 使用下方脚本预编译
-  vendored OpenSSL
-- 对于Linux/BSD：需要 Qt 的 **DBus** 组件（凭据存入 freedesktop Secret
-  Service，即 gnome-keyring / KWallet；`find_package` 里按平台条件加入），
-  运行时没有密钥环也能启动，但保存的 SSH 密码活不过进程重启
+- CMake 3.20+、Qt 6.8+、支持 C++17 的编译器。
+- Qt 组件：Widgets、Svg、ShaderTools、LinguistTools、SerialPort、Network、HttpServer、Sql；测试还需 Test。
+- Linux 另需 Qt DBus 和系统 OpenSSL 开发库；macOS 需 OpenSSL 开发库。
+- Windows 需 Windows 10 1809+、MSVC 2022，并预编译仓库内 OpenSSL。
+- 以下 Ninja 构建示例需要安装 Ninja。第三方源码随仓库提供。
 
-### Linux / macOS 编译
+### Linux / macOS
 
-以下命令均从仓库根目录运行。以单配置 Ninja 生成器为例（需要 Ninja）：
+从仓库根目录运行：
 
 ```bash
-cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
-cmake --build build
+cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="/path/to/Qt/6.8.3/platform"
+cmake --build build --parallel 4
 ```
 
-Qt SDK 默认前缀按宿主平台预置：Windows 为
-`C:/Programs/Qt/6.8.3/msvc2022_64`，Linux 为
-`/home/super/Qt/6.8.3/gcc_64/`，macOS 为 `/opt/Qt/6.8.3/macos`。
-首次配置时可追加 `-DCMAKE_PREFIX_PATH="/path/to/qt"` 指定本机安装位置。
-已有构建目录应继续使用原生成器；切换生成器时使用新目录。
+将 `CMAKE_PREFIX_PATH` 替换为本机 Qt SDK 路径。项目也提供按平台预置的路径，
+与本机一致时可以省略该参数。已有构建目录应继续使用原生成器；切换生成器请新建目录。
 
-### Windows 编译
+### Windows
 
-Windows平台使用ConPTY实现本地终端，需要Windows 10 1809+版本支持。
-
-首次构建前需先预编译 OpenSSL（一次性，幂等）：
+首次构建前运行 OpenSSL 预编译脚本，PATH 中需要 `perl.exe` 和 `nasm.exe`：
 
 ```bat
 scripts\build-OpenSSL-thirdparty.bat
 ```
 
-该脚本要求 PATH 中有 `perl.exe` 与 `nasm.exe`，产物落在
-`third_party/openssl-3.5.7/install/`。libssh、libvterm、libtelnet 与
-ElaWidgetTools 都随项目从源码构建，无需额外准备。
-
-在 **x64 Native Tools Command Prompt for VS 2022** 中，从仓库根目录运行：
+在 **x64 Native Tools Command Prompt for VS 2022** 中运行：
 
 ```bat
-cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
-cmake --build build
+cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="C:/path/to/Qt/6.8.3/msvc2022_64"
+cmake --build build --parallel 4
 ```
 
-Ninja 构建需要 MSVC 环境中的 `cl.exe` 和 Ninja 均在 PATH 上。也可使用
-Visual Studio 多配置生成器，此时构建须选择配置：
+也可使用 Visual Studio 多配置生成器：
 
 ```bat
-cmake -S . -B build-vs -G "Visual Studio 17 2022" -A x64
+cmake -S . -B build-vs -G "Visual Studio 17 2022" -A x64 -DCMAKE_PREFIX_PATH="C:/path/to/Qt/6.8.3/msvc2022_64"
 cmake --build build-vs --config Release
 ```
 
-`scripts/build-novaterm.bat` 写死了本机 Visual Studio 与构建目录路径，
-不适合作为通用构建入口，也不执行首次 CMake 配置或 OpenSSL 预编译。
-第三方源码均随仓库保存，无需 vcpkg、conan 或 FetchContent。
+`scripts/build-novaterm.bat` 含本机固定路径，不作为通用构建入口。
 
-### 配置文件与 Linux 安装包
+## 打包与安装
 
-全局设置默认保存在用户配置目录的 `NovaTerm/novaterm.json` 中。Linux 通常为
-`~/.config/NovaTerm/novaterm.json`，也遵循 `XDG_CONFIG_HOME`；Windows 为
-`%LOCALAPPDATA%\NovaTerm\novaterm.json`，macOS 为
-`~/Library/Preferences/NovaTerm/novaterm.json`。
-新目录中没有配置时，从默认设置开始，不读取或迁移可执行文件旁的旧
-`novaterm.json`，也不修改旧文件。后续启动直接读取用户目录中的配置。
-会话历史、凭据等仍由各自的存储服务管理。
-
-Linux 的 DEB/ZIP 包会包含 Qt 安装中的 `platforminputcontexts` 与
-`platformthemes` 插件，分别用于输入法接入和桌面主题集成；输入法服务仍由
-系统提供。构建后可运行以下命令生成两种包，配置时缺失插件目录会给出警告：
+先完成对应配置的构建，再从仓库根目录执行：
 
 ```bash
-cpack --config build/CPackConfig.cmake -G 'DEB;ZIP' -B build/packages
+cpack --config build/CPackConfig.cmake -C Release -B build/packages
 ```
 
-## 项目架构
+默认生成器按平台选择：
 
-项目采用分层架构设计，权威说明见 [统一架构总览](docs/ARCHITECTURE.md)。
-所有 Transport 的入站字节共用
-`ITransport::readyRead → SessionInputPump → TerminalCore::writeInput` 通路；
-Parser 单写，Renderer / Search 读取快照，跨线程队列有界。
-核心组件包括：
+| 平台 | 产物 | 安装方式 |
+| --- | --- | --- |
+| Linux | DEB、ZIP | 安装 DEB，或解压 ZIP 后运行包内启动程序 |
+| Windows | NSIS 安装程序、ZIP | 运行安装程序，或解压便携包；生成安装程序需安装 NSIS |
+| macOS | DMG、ZIP | 打开 DMG 安装应用，或使用解压后的应用包 |
 
-### 核心层 (`src/core/`)
+若使用 `build-vs` 等其他构建目录，将命令中的配置文件路径一并替换。
+也可用 `-G ZIP` 只生成压缩包，Linux 可用 `-G DEB` 只生成安装包。
+产物名称包含版本、平台和架构，保存在指定的输出目录。
 
-- `TerminalCore`：当前的 QObject 门面，管理解析线程、终端状态与快照发布
-- `ScreenBuffer`：屏幕缓冲区管理
-- `ScrollbackBuffer`：回滚缓冲区，支持分块存储和快照
-- `VTAdapter`：VT序列适配器
-- `SearchEngine`：异步搜索引擎
-
-核心去 Qt 化仍在进行：`TerminalCore`、`SearchEngine`、`ReflowEngine`
-尚依赖 Qt，`novaterm_core` 仍链接 Qt Core/Gui；不能将其当作无 Qt 库使用。
-
-### 传输层 (`src/transport/`)
-
-- `LocalShellTransport`：本地Shell传输
-- `SshTransport`：SSH连接传输
-- `SerialTransport`：串口传输
-- `TelnetTransport`：Telnet传输
-
-### 会话层 (`src/session/`)
-
-- `TerminalSession`：终端会话管理
-- `SessionDirectory`：MCP 使用的不持有所有权的会话目录，生命周期仍由各 TerminalView 管理
-- `SessionInputPump`：输入泵，处理数据流和背压
-- `SerialFileTransferController`：串口文件传输控制器，经 Session 的输入分流与出站独占机制接入协议库
-
-### 历史、录制与离线查询
-
-- `src/history/`：纯 C++ 内存终端历史/LZ4、后台预算与冷块读取，目标 `novaterm_history`。
-- `src/recording/`：持久接收流录制、块文件、SQLite 索引与保留策略，目标 `novaterm_history_recording`。
-- `src/historysearch/`：独立离线授权、分页读取、字面搜索与投影，目标 `novaterm_history_search`；通过读取端口注入源。
-- `src/resources/RecordingHistoryReadAdapter.h`：组合根使用的具体录制源适配；MCP 可以引用模块，模块不依赖 MCP。
-
-构建目标、现有接口和持久格式保持；职责和本轮验证见 [目录重构记录](docs/architecture/History_Module_Layout_2026-10-25.md)。
-
-### 协议与 MCP (`src/filetransfer/`、`src/capabilities/`、`src/mcp/`)
-
-- `src/filetransfer/`：不依赖 Qt 的 XMODEM/YMODEM/ZMODEM 协议引擎，可独立构建
-- `src/capabilities/`：共享能力目录、可信准入和类型化终端应用端口；外部 Agent 经 MCP 操作 SSH/UART，不内置 Agent 或诊断平台
-- `src/mcp/`：进程内 Qt HTTP Server、MCP wire 协议与授权；不再构建或启动独立 stdio 桥接
-
-启用 MCP 并导出统一配置后，HTTP 客户端使用 `type: "http"`、`url` 和
-`headers.Authorization: "Bearer <令牌>"`。Codex 配置使用 `url` 与
-`http_headers.Authorization`。旧配置中的 `command`、`args`、`env` 需要迁移；
-原 `novaterm-mcp` 可执行入口已删除。应用重启后默认 URL 保持稳定，可在启动应用前
-设置 `NOVATERM_MCP_HTTP_PORT` 覆盖端口；端口占用会明确报错，不自动换端口。
-
-### 渲染层 (`src/renderer/`)
-
-- `TerminalRenderer`：终端渲染器
-- `RenderScheduler`：渲染调度器
-- `GlyphAtlas`：字形图集管理
-- `FontManager`：字体管理
-
-### UI层 (`src/ui/`)
-
-- `TerminalView`：终端视图组件
-- `MainWindow`：主窗口
-- `SessionPage`：会话配置页面
-- `SettingsPage`：设置页面
-- `SftpPanel`：SFTP面板
-- `SystemMonitorPanel`：系统监控面板
-
-### UI 控件约定（约束）
-
-**改动 `src/ui/` 界面、新增或替换控件时，优先使用
-`third_party/ElaWidgetTools/` 提供的 Ela 控件**（`ElaPushButton`、`ElaLineEdit`、
-`ElaComboBox`、`ElaScrollArea`、`ElaScrollBar`、`ElaDialog`/`ElaContentDialog`、
-`ElaMessageBar`、`ElaTreeWidget`、`ElaText` 等），以保持 FluentUI 外观与主题
-（含深色模式）一致。只有 Ela 没有对应实现、或语义明显不匹配时才退回原生 Qt
-控件，且配色一律跟随 `QPalette` / 主题，不要硬编码颜色。
-
-配套注意（细节见 `AGENTS.md` 的「容易写错的地方」与「第三方依赖约定」）：
-
-- 不要给 Ela 控件再 `setStyleSheet()`，也不要改它的 `objectName` —— 两者都会
-  顶掉控件自带的 QSS；行高用 `setItemHeight()`、去边框用
-  `setIsFrameVisible(false)` 这类专用接口表达。
-- `ElaScrollArea` 构造时会把两个方向设为 `ScrollBarAlwaysOff`。需要可见滚动条
-  时必须在构造后显式设置 `setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded)`；
-  `SystemInformationDialog` 是该用法的回归范例。
-- 提示 / 确认框不要直接用 `QMessageBox` 或裸调 `ElaMessageBar` 静态方法，走
-  `NovaTerm::Ui::confirm()` / `warn()`（`src/ui/widgets/MessagePrompts.h`）：
-  它们已经正确处理了 `parent`（Ela 浮层对模态对话框需要传窗口一级，否则会落到
-  对话框背后）。
-- 为补齐能力而新增的 Ela 适配组件必须放在 `third_party/ElaWidgetTools/` 库内：
-  绘制依赖的 `DeveloperComponents/Ela*Style.h` 没有 `ELA_EXPORT`，放在 `src/`
-  里会直接链接失败。往该目录加文件后需显式重跑 `cmake -S . -B build`
-  （Ela 子项目的 `FILE(GLOB ...)` 没有 `CONFIGURE_DEPENDS`）。
-
-## 文档资源
-
-统一架构总览位于 `docs/ARCHITECTURE.md`，配套细节文档见 `docs/architecture/`（索引：[docs/architecture/README.md](docs/architecture/README.md)）：
-
-- [架构概述](docs/ARCHITECTURE.md)
-- [配置、Profile 与主题](docs/architecture/Configuration_Profile_Theme.md)
-- [渲染架构](docs/architecture/Rendering_Architecture.md)
-- [阶段路线图](docs/architecture/Development_Roadmap.md)
-- [各阶段实现文档](docs/architecture/stages/)
-- [AI MCP 使用说明](docs/MCP_Usage.md)
-- [MCP、诊断与 AI Agent 架构和阶段计划](docs/architecture/stages/P8_AI_MCP_Interface/README.md)
-- [开发与测试注意事项](AGENTS.md)
-
-配置、Profile 与主题文档包含目标设计，当前名称与实现需结合其对照表和源码
-阅读；文档冲突的处理规则见 [架构文档索引](docs/architecture/README.md)。
-
-## 目录结构
-
-```
-NovaTerm/
-├── src/
-│   ├── core/           # 终端核心功能
-│   ├── transport/      # 传输层实现
-│   ├── session/        # 会话管理
-│   ├── renderer/       # 渲染引擎
-│   ├── ui/             # 用户界面
-│   ├── service/        # 公共服务
-│   ├── credential/     # 凭据管理
-│   ├── profile/        # 配置管理
-│   ├── capabilities/   # 共享能力目录、准入与类型化端口
-│   ├── mcp/            # AI MCP 协议与授权
-│   ├── filetransfer/   # XMODEM/YMODEM/ZMODEM 协议库（不依赖 Qt）
-│   └── platform/       # 平台特定代码
-├── tools/              # novaterm-local-diag（固定本地诊断 helper）
-├── scripts/            # OpenSSL 预编译、MSVC 依赖兼容层等脚本
-├── tests/              # 测试代码
-├── docs/               # 文档
-├── resources/          # 资源文件
-└── third_party/        # 第三方依赖
-```
-
-## 测试
-
-SSH、Core 吞吐、异步 glyph 和 Agent 文本状态的历史验证方法及实测数据见
-[性能优化记录](docs/architecture/Performance_Optimization_2026-09-10.md)。
-Linux 可用 `novaterm_ssh_transport_check --local-ssh-check` 显式启动隔离本机
-SSH 验收（需要 sshd、ssh-keygen、ninja 和 c++；不修改用户 SSH 信任文件）。
-
-项目包含单元测试、集成测试和性能护栏，部分 UI 与真实设备路径仍需人工验收。
-`BUILD_TESTING` 与 `NOVATERM_BUILD_BENCHMARKS` 默认均为 ON。
-默认注册到 CTest 的测试按平台不同：
-**Linux 已核对 27 项、Windows 按条件预计 29 项**（含新增终端授权/凭据隔离、命令/路径与 SFTP
-安全目标；默认启用 benchmark 构建，实际以 `ctest -N` 为准）。2026-10-17
-Linux Debug 全部构建及 27/27 CTest 通过，耗时 178.00 秒；验证范围见 MCP实施与验收记录，这是本机成绩，
-不替代 Windows/macOS 验收。
-mcp/P1 增量后 Linux 当前注册 36 项、MCP 标签 16 项，其中新增四项有 `capabilities` 标签。
-能力运行期改动可先跑 `ctest --test-dir build -L capabilities --output-on-failure`；跨 MCP 接线跑 `-L mcp`。
-Debug/Release 构建与专项、历史全套范围见 [P1 实施记录](https://gitee.com/han-shao-jun/NovaTerm/blob/411ec15c36aa5ac56fddb204761fae830f785947/docs/architecture/stages/P8_AI_MCP_Interface/records/P1_Implementation_and_Verification.md)。
-`novaterm_conpty_tests`、`novaterm_terminal_session_tests` 仅 Windows，
-`novaterm_pty_tests` 仅 Linux。
-
-**日常只运行与改动相关的测试。** 测试注册数不代表已全部通过；仅在公共接口／
-数据布局变更、涉及三个以上模块、公共编译选项／Qt／第三方依赖变更或合并分支
-后运行全套。各模块覆盖关系与已知失败详见 [AGENTS.md](AGENTS.md)。
+Debian / Ubuntu 安装示例，将文件名替换为实际 DEB 产物：
 
 ```bash
-# 核对当前构建目录的注册项（不执行测试）
-ctest --test-dir build -N
-
-# 单配置 Ninja：运行相关测试（用 CTest 注册名）
-ctest --test-dir build -R '^novaterm_scrollback_tests$' --output-on-failure
-ctest --test-dir build -R '^novaterm_(renderer|renderer_p5)_tests$' --output-on-failure
-
-# core 标签包括 core、terminal_ops、scrollback 三项
-ctest --test-dir build -L core --output-on-failure
+sudo apt install ./build/packages/实际文件名.deb
+novaterm
 ```
 
-Visual Studio / Ninja Multi-Config 必须用 `-C` 选择已构建配置，否则会报
-"Test not available without configuration"。按上面的 Release 构建示例：
+更新安装不会自动重启已有实例；保存当前工作后重新启动以加载新程序。
+便携包需要完整解压，不能只拷贝单个可执行文件。Linux 包包含输入法及桌面主题插件，
+输入法服务仍由系统提供；历史录制需要包内 QSQLITE 插件。
 
-```bat
-ctest --test-dir build-vs -C Release -R "^novaterm_scrollback_tests$" --output-on-failure
-```
+## 配置与凭据
 
-确需全套时，可运行 `ctest --test-dir build --output-on-failure`，或使用
-`check` 目标（会构建相关目标并执行全套，多配置时传入对应 `--config`）：
+全局设置保存在用户配置目录的 `NovaTerm/novaterm.json`：
 
-```bash
-cmake --build build --target check
-# Visual Studio 示例
-cmake --build build-vs --config Release --target check
-```
+| 平台 | 默认位置 |
+| --- | --- |
+| Linux | `~/.config/NovaTerm/novaterm.json`，遵循 `XDG_CONFIG_HOME` |
+| Windows | `%LOCALAPPDATA%\NovaTerm\novaterm.json` |
+| macOS | `~/Library/Preferences/NovaTerm/novaterm.json` |
 
-环境前提：
+首次运行使用默认配置。会话历史和凭据由独立存储服务管理。
+Linux 凭据使用 freedesktop Secret Service（如 gnome-keyring / KWallet）；
+没有可用密钥环时仍可运行，但 SSH 密码不会持久保存到下次启动。
 
-- Windows 上运行测试需要 Qt 的 `bin` 目录在 PATH 中（构建输出目录只部署了
-  应用自身的运行时，不含 `Qt6Test.dll`）。offscreen 测试需要对应平台插件；
-  CMake 会尝试部署该插件，也可显式设置 `QT_PLUGIN_PATH` 指向 Qt 的 `plugins`。
-- 不要在 Windows 全套测试前全局设置 `QT_QPA_PLATFORM=offscreen`；
-  `novaterm_terminal_session_tests` 需要 D3D11，相关单测由 CMake 各自设置 offscreen。
-- `novaterm_session_tests` 会在 Linux/BSD 上读写真实密钥环
-  （freedesktop Secret Service）；没有 `org.freedesktop.secrets` 时相关用例
-  自动 `QSKIP`；没有默认集合时也会跳过。有可用密钥环时测试写入临时条目并删除。
-- 已知失败包括平台／环境问题及 Windows 串口文件发布用例失败，见
-  [AGENTS.md 的「已知测试失败」](AGENTS.md#已知测试失败不是回归别去追)。
+## 文档与参与
 
-串口 MCP 配置表单的回填、提交、历史保存与重连由
-`novaterm_session_panel_tests` 覆盖；运行配置装配由 `novaterm_session_tests`
-覆盖，假串口上的 MCP 授权/就绪/命令收尾由 `novaterm_mcp_tests` 覆盖。
+- [MCP 使用说明](docs/MCP_Usage.md)
+- [统一架构](docs/ARCHITECTURE.md)与[模块文档索引](docs/architecture/README.md)
+- [开发协作与测试指南](AGENTS.md)
+- [项目仓库与问题反馈](https://gitee.com/han-shao-jun/NovaTerm)
 
-Windows PowerShell 环境示例（Qt 安装路径按本机调整）：
-
-```powershell
-$env:PATH = "C:\Programs\Qt\6.8.3\msvc2022_64\bin;" + $env:PATH
-$env:QT_PLUGIN_PATH = "C:\Programs\Qt\6.8.3\msvc2022_64\plugins"
-ctest --test-dir build -R '^novaterm_renderer_tests$' --output-on-failure
-```
-
-部分 Windows 测试使用 WIN32 子系统，失败时 stdout 和 CTest 日志可能为空。
-可用 QTest 文件输出定位断言，例如单配置构建：
-
-```powershell
-& .\build\bin\novaterm_renderer_tests.exe -o build/renderer-tests.txt,txt
-Select-String -Path build/renderer-tests.txt -Pattern 'FAIL!|Totals'
-```
-
-多配置构建的可执行文件位于 `build-vs/bin/Release/`，需相应调整路径。
-
-### Windows 虚拟串口压力测试
-
-手工验收夹具覆盖 1M、3M、5M、8M 波特率，64 KiB／1 MiB／8 MiB 数据量，
-双向收发端切换、可见／隐藏窗口及 64 MiB 不限速突发。
-使用生产接收、解析与渲染通路，检查帧序号、CRC32、整流 SHA-256、队列收敛及
-解析后的末尾文本。需事先准备互连且未被占用的两个串口；不加入默认 CTest。
-构建与运行方法见 [串口压力夹具说明](tests/benchmarks/serial-stress/README.md)。
-本机虚拟串口的短测与长测结果、已复现的丢帧及定位对照见
-[串口压力验收报告](docs/architecture/Performance_Serial_Stress_2026-10-07.md)。
-
-### 渲染大文本测试
-
-Windows 大文本夹具的参数与文件 I/O 回归测试不启动 GPU：
-
-```bash
-cmake --build build --target novaterm_renderer_large_input_tests
-ctest --test-dir build -R '^novaterm_renderer_large_input_tests$' --output-on-failure
-```
-
-真实 GPU 测量手工运行 `novaterm_renderer_large_input_benchmark`，参数为结果 JSON
-路径、分块字节数（65536/262144）与可选 `--stable-timers`。
-构建与同机验收口径见[渲染验收报告](docs/architecture/Performance_Render_Rollback_2026-10-07.md)。
-
-### P9 独立协议测试（无需 Qt）
-
-```bash
-cmake -S src/filetransfer -B build/filetransfer -G Ninja -DCMAKE_BUILD_TYPE=Debug
-cmake --build build/filetransfer
-ctest --test-dir build/filetransfer --output-on-failure
-# 已配置根工程时，精确选择六项纯协议测试
-ctest --test-dir build -R '^novaterm_(filetransfer_(checksum_tests|support_tests|no_qt_link_check)|[xyz]modem_tests)$' --output-on-failure
-```
-
-`filetransfer` 标签还包含 `novaterm_serial_file_transfer_tests` 和
-`novaterm_serial_file_transfer_ui_tests`，因此根工程的 `-L filetransfer`
-会运行八项；串口接线改动可用 `-L serial` 选择这两项。
-多配置构建的协议测试同样需要 `-C` 选择已构建配置。
-
-独立库包含 XMODEM checksum/CRC/1K、标准 YMODEM batch、ZMODEM CRC16/32。
-XMODEM 未提供真实长度时保留末包填充；协议库不打开文件、不占用串口。
-外部 lrzsz 互通需要显式运行，使用方法及两个上游 CRC16 空文件缺陷跳过项见
-[P9 阶段文档](docs/architecture/stages/P9_File_Transfer_Protocols.md)。
-
-### 串口终端文件传输
-
-已连接的 8 数据位串口可在终端右键打开“串口文件传输”，在同一非模态窗口
-选择发送／接收和 XMODEM、YMODEM、ZMODEM。先选择好文件或目标，再在
-设备端启动相应收发程序，点击“开始”；程序不自动注入设备命令。
-
-XMODEM 接收可填写真实字节数，留空时保留末包填充；Y/Z 接收选择目录。
-已有目标不会被覆盖，接收目录需支持硬链接。窗口提供进度、取消与结果，
-取消时发送协议 CAN 序列并保留串口会话，收尾后可继续操作；传输错误仍按
-错误分类处理，实际断线才需要重连。
-Windows 已知失败、平台与真实 UART 文件验收范围见 P9 和 AGENTS。
+欢迎提交 Issue 和 Pull Request。代码贡献应遵循现有风格、完成相关验证并同步使用说明。
 
 ## 许可证
 
-本项目采用GPLv2+许可证开源，详见 [LICENSE](LICENSE) 文件。
-
-LZ4 v1.10.0 的 `lib/` 使用 BSD-2-Clause 许可证，完整源码树的其他文件默认使用
-GPL-2.0-or-later，个别文件以自身声明为准。上游许可说明见
-[LICENSE](third_party/lz4-1.10.0/LICENSE) 和
-[库许可证](third_party/lz4-1.10.0/lib/LICENSE)。源码固定于官方标签 `v1.10.0`，
-对应提交 `ebb370ca83af193212df4dcbadcc5d87bc0de2f0`，来源为
-[LZ4 官方仓库](https://github.com/lz4/lz4/tree/v1.10.0)。
-
-本次新增的 Qt HTTP Server 开源许可为 **GPL-3.0-only**，同时提供商业许可。
-本机 Qt 6.8.3 的 `include/QtHttpServer/qhttpserver.h` SPDX 标记与
-[Qt HTTP Server 官方许可说明](https://doc.qt.io/qt-6.8/qthttpserver-index.html#licenses)
-一致。采用开源 Qt HTTP Server 构建并分发的组合程序需遵守 GPLv3 的分发要求，
-包括提供相应源码及许可证材料，不能仅以 GPLv2 条款分发该构建。
-发行包附带 `LICENSE.GPL3`，安装器采用该许可文本；原 `LICENSE` 保留源码的
-GPLv2+ 授权依据。
-项目的 GPLv2+ 声明允许选择后续版本；具体发布方式与其他依赖的义务仍需核对，
-此记录不构成完整法律合规保证。商业 Qt 许可的适用范围需另行确认。
-
-## 贡献
-
-欢迎提交Issue和Pull Request。在提交代码前，请确保：
-
-1. 遵循现有代码风格
-2. 添加适当的单元测试
-3. 更新相关文档
-
-## 联系方式
-
-- 项目地址：[Gitee / NovaTerm](https://gitee.com/han-shao-jun/NovaTerm)
-- 问题反馈：请在Gitee Issues中提交
-
-### 历史后端独立验收
-
-`novaterm_history` 使用纯 C++17，包含生产存储、快照、codec、共享缓存和后台服务。
-它不链接 `novaterm_core` 或 Qt；这不代表整个 core 已去 Qt。Windows 先进入 MSVC
-x64 环境，再运行（Linux 可直接运行同一组 CMake/CTest 命令）：
-
-```sh
-cmake -S tests/history-noqt -B build/history-standalone -G Ninja -DCMAKE_BUILD_TYPE=Release
-cmake --build build/history-standalone --parallel 4
-ctest --test-dir build/history-standalone --output-on-failure
-```
-
-轻量测试 `novaterm_history_no_qt_link_check` 同时注册在主工程，标签为
-`unit;history;scrollback`。2026-10-19 Windows 实核 35 项，Release 34/35 通过；唯一失败为已记录的 ConPTY 句柄泄漏断言。详见实施记录，计数以当前配置为准。
-合成 OFF/ON 矩阵使用 `tests/benchmarks/history/lz4/run-matrix.py`，每个样本独立进程，
-输出种子、字段哈希、保留量、charge、RSS、追加/扫描耗时和读取 P95/P99。
-新增 schema 2 将生成/校验与追加/扫描计时分离，增加进程 CPU、冷读/热读、
-索引和空闲关闭指标，自动汇总中位数/范围及合成性能门槛。
-用法见 [基准说明](tests/benchmarks/history/lz4/README.md)，
-本次 72 样本结果见 [f662302 性能补充](tests/benchmarks/archive/lz4/history-f662302-2026-10-19/README.md)。
-它不等于真实串口或 GUI 性能验收，不自动占用端口。
-
-GUI 历史回看另有手工目标 `novaterm_history_gui_benchmark`：使用可见 QRhi 窗口，
-模拟热区滚轮、冷历史翻页、滚动条跳转和持续输入下回看，比较 OFF/默认压缩/
-256 KiB 小块/8 MiB 热区。`tests/benchmarks/history/lz4/run-gui-matrix.py` 串行运行
-各组三次独立进程，记录事件到完整目标内容帧提交的 P95/P99、正确内容更新间隔、
-请求合并、CPU 和内存成本。它不注册默认 CTest；必须使用真实桌面/GPU，
-帧提交时间不等于合成器或显示器呈现时间。用法同见上述基准说明。
-
-2026-10-21 三轮参数比较选用 512 KiB 块 / 2 MiB 热区，压缩仍默认关闭；
-固定旧参数对照可用 `on-reference`（512 KiB / 4 MiB）。选型、成本和默认调度
-复验见 [调参报告](tests/benchmarks/archive/lz4/history-gui-tuning-linux-2026-10-21/README.md)。
+项目源码采用 GPLv2+，详见 [LICENSE](LICENSE)。使用开源 Qt HTTP Server 构建并
+分发的组合程序需遵守 GPLv3 分发要求，发行包附带 [LICENSE.GPL3](LICENSE.GPL3)。
+LZ4 库采用 [BSD-2-Clause](third_party/lz4-1.10.0/lib/LICENSE)；
+其他依赖的许可见各自源码目录。
