@@ -11,14 +11,12 @@
 #include "transport/SerialTransport.h"
 #include "CapabilityAdmission.h"
 #include "capabilities/terminal/SearchCapabilities.h"
-#include "capabilities/terminal/LegacyTerminalMapping.h"
 #include "capabilities/McpCapabilityAdapter.h"
 #include "TerminalInteraction.h"
 #include "McpProtocol.h"
 #include "protocol/ToolCodec.h"
 #include "HistoryCapabilityAdapter.h"
 #include "ResourceComposition.h"
-#include "protocol/HistoryToolCodec.h"
 #include "CapabilityAdapter.h"
 #include "LogReadAdapter.h"
 #include "TerminalClearAdapter.h"
@@ -31,7 +29,6 @@
 #include "protocol/BackendEvents.h"
 #include "HttpMcpEndpoint.h"
 #include "session/SessionTerminalController.h"
-#include "session/SessionCommandFacade.h"
 #include "core/ThreadNaming.h"
 #include <QCoreApplication>
 #include <QDateTime>
@@ -67,12 +64,7 @@ QJsonObject error(const char* code, bool retryable = false, int retryAfter = 0)
 {
     return failure(QString::fromLatin1(code), QString::fromLatin1(code), retryable, retryAfter);
 }
-/** @brief 请求中的会话身份；list_sessions 没有会话。 */
-std::optional<SessionReference> requestSession(const ToolRequest& request)
-{
-    return sessionReference(request);
-}
-}
+} // namespace
 
 class Service::Impl
 {
@@ -89,17 +81,10 @@ public:
     };
     struct PendingRequest {
         QString connection, id, tool;
-        ToolRequest request;
-        std::optional<HistoryToolRequest> historyRequest;
-        std::optional<ClearRequest> clearRequest;
-        std::optional<WaitTextRequest> waitRequest;
-        std::optional<TerminalTaskRequest> taskRequest;
-        std::optional<FileTransferRequest> fileTransferRequest;
-        std::optional<SerialFileTransferRequest> serialFileTransferRequest;
-        QString receiptInputToken; // Internal guard captured after client approval, before server queueing.
-        QString requestState;
-        std::optional<ConfirmationAnswer> answer;
-        bool mrtr{false}, formElicitation{false};
+        ToolCall call;
+        QString receiptInputToken; ///< 入队前捕获的终端输入身份。
+        template<class Request> const Request* get() const { return std::get_if<Request>(&call); }
+        const ToolRequest& terminalRequest() const { return std::get<ToolRequest>(call); }
         qint64 deadline{0}, created{0};
         std::optional<Capabilities::InvocationContext> invocation;
         std::optional<Capabilities::InvocationLease> lease;
@@ -110,16 +95,18 @@ public:
         return found == requests.end() ? nullptr : found->second.get();
     }
     static std::optional<SessionReference> referenceOf(const PendingRequest& pending) {
-        // File permissions are independent from terminal reading. The transfer
-        // adapter checks its own current complete binding and four-way grants.
-        if (pending.fileTransferRequest || pending.serialFileTransferRequest) return std::nullopt;
-        if (pending.waitRequest) return SessionReference{pending.waitRequest->session, pending.waitRequest->epoch};
-        if (pending.taskRequest) return std::visit([](const auto& value) {
-            return SessionReference{value.session, value.epoch};
-        }, *pending.taskRequest);
-        if (pending.clearRequest) return SessionReference{pending.clearRequest->session, pending.clearRequest->epoch};
-        return requestSession(pending.request);
+        return std::visit([](const auto& request) -> std::optional<SessionReference> {
+            using T = std::decay_t<decltype(request)>;
+            if constexpr (std::is_same_v<T, ToolRequest>) return sessionReference(request);
+            else if constexpr (std::is_same_v<T, WaitTextRequest> || std::is_same_v<T, ClearRequest>)
+                return SessionReference{request.session, request.epoch};
+            else if constexpr (std::is_same_v<T, TerminalTaskRequest>)
+                return std::visit([](const auto& task) { return SessionReference{task.session, task.epoch}; }, request);
+            // 文件传输和历史读取使用各自的资源绑定与授权。
+            else return std::nullopt;
+        }, pending.call);
     }
+
     std::unique_ptr<PendingRequest> takeRequest(const QString& key) {
         const auto found = requests.find(key);
         if (found == requests.end()) return {};
@@ -294,44 +281,17 @@ public:
             if (pending) cancel(requestKey(connectionId, id), {}, false);
             return;
         }
-        const auto* historyCall = std::get_if<BackendHistoryCall>(&event);
-        const auto* clearCall = std::get_if<BackendClearCall>(&event);
-        const auto* waitCall = std::get_if<BackendWaitTextCall>(&event);
-        const auto* taskCall = std::get_if<BackendTaskCall>(&event);
-        const auto* transferCall = std::get_if<BackendFileTransferCall>(&event);
-        const auto* serialTransferCall = std::get_if<BackendSerialFileTransferCall>(&event);
-        BackendCall call;
-        if (serialTransferCall) {
-            call.id = serialTransferCall->id;
-            if (serialTransferCall->confirmationSupplied) { send(connectionId, id, error("COMMAND_CONFIRMATION_STALE")); return; }
-        } else if (transferCall) {
-            call.id = transferCall->id;
-            if (transferCall->confirmationSupplied) { send(connectionId, id, error("COMMAND_CONFIRMATION_STALE")); return; }
-        } else if (waitCall) {
-            call.id = waitCall->id;
-            if (waitCall->confirmationSupplied) { send(connectionId, id, error("COMMAND_CONFIRMATION_STALE")); return; }
-        } else if (taskCall) {
-            call.id = taskCall->id;
-            if (taskCall->confirmationSupplied) { send(connectionId, id, error("COMMAND_CONFIRMATION_STALE")); return; }
-        } else if (historyCall) {
-            call.id = historyCall->id;
-            if (historyCall->confirmationSupplied) { send(connectionId, id, error("COMMAND_CONFIRMATION_STALE")); return; }
-        } else if (clearCall) {
-            call.id = clearCall->id;
-            if (clearCall->confirmationSupplied) { send(connectionId, id, error("COMMAND_CONFIRMATION_STALE")); return; }
-        } else call = std::get<BackendCall>(event);
+        const auto& request = std::get<BackendCall>(event).request;
+        const auto* historyCall = std::get_if<HistoryToolRequest>(&request);
+        const auto* clearCall = std::get_if<ClearRequest>(&request);
+        const auto* waitCall = std::get_if<WaitTextRequest>(&request);
+        const auto* taskCall = std::get_if<TerminalTaskRequest>(&request);
         if (findRequest(requestKey(connectionId, id))) {
             io.closeConnection(connectionId);
             return;
         }
-        const auto name = serialTransferCall ? ToolCodec::toolName(ToolCall{serialTransferCall->request})
-            : transferCall ? ToolCodec::toolName(ToolCall{transferCall->request})
-            : waitCall ? QStringLiteral("novaterm_wait_text")
-            : taskCall ? ToolCodec::toolName(ToolCall{taskCall->request})
-            : clearCall ? QStringLiteral("novaterm_clear_terminal")
-            : historyCall ? HistoryToolCodec::toolName(historyCall->request) : ToolCodec::toolName(call.request);
+        const auto name = ToolCodec::toolName(request);
         ++requestCount;
-        auto request = call.request;
         if (scheduler.queuedCount(connectionId) >= Budget::MaxQueuedRequests) {
             ++rejectedCount;
             send(connectionId, id, error("BUSY", true, 250));
@@ -342,28 +302,16 @@ public:
         pending->connection = connectionId;
         pending->id = id;
         pending->tool = name;
-        if (historyCall) pending->historyRequest = historyCall->request;
-        if (clearCall) pending->clearRequest = clearCall->request;
-        if (waitCall) pending->waitRequest = waitCall->request;
-        if (taskCall) pending->taskRequest = taskCall->request;
-        if (transferCall) pending->fileTransferRequest = transferCall->request;
-        if (serialTransferCall) pending->serialFileTransferRequest = serialTransferCall->request;
-        pending->mrtr = call.mrtr;
-        pending->formElicitation = call.formElicitation;
-        pending->requestState = call.requestState;
-        pending->answer = call.answer;
-        if (pending->requestState.size() > 4096 || (!pending->mrtr
-            && (!pending->requestState.isEmpty() || pending->answer.has_value()))) {
-            send(connectionId, id, error("COMMAND_CONFIRMATION_STALE"));
-            return;
-        }
+        pending->call = request;
         pending->deadline = clock.elapsed() + 2000;
         if (clearCall) pending->deadline = clock.elapsed() + 5000;
         if (taskCall) pending->deadline = clock.elapsed() + 5000;
-        if (waitCall) pending->deadline = clock.elapsed() + waitCall->request.wait.count() + Budget::WireDeadlineMargin.count();
-        if (historyCall && std::holds_alternative<SearchHistoryRequest>(historyCall->request))
+        if (waitCall) pending->deadline = clock.elapsed() + waitCall->wait.count() + Budget::WireDeadlineMargin.count();
+        if (historyCall && std::holds_alternative<SearchHistoryRequest>(*historyCall))
             pending->deadline = clock.elapsed() + Budget::HistorySearchTimeout.count();
-        const auto waitMilliseconds = [](const ToolRequest& value, int fallback) {
+        const auto waitMilliseconds = [](const ToolCall& call, int fallback) {
+            const auto* value = std::get_if<ToolRequest>(&call);
+            if (!value) return fallback;
             return std::visit([fallback](const auto& request) -> int {
                 using Type = std::decay_t<decltype(request)>;
                 if constexpr (std::is_same_v<Type, ReadContextRequest>
@@ -373,13 +321,12 @@ public:
                 } else {
                     return fallback;
                 }
-            }, value);
+            }, *value);
         };
         if (name == "novaterm_interact_terminal" || name == "novaterm_request_elevation"
             || (name == "novaterm_read_context" && waitMilliseconds(request, -1) >= 0))
             pending->deadline = clock.elapsed() + waitMilliseconds(request, Budget::MaxTerminalWaitMs)
             + Budget::WireDeadlineMargin.count();
-        pending->request = std::move(request);
         pending->created = clock.elapsed();
         Capabilities::ResourceBinding resource{Capabilities::DirectoryBinding{}};
         if (const auto reference = referenceOf(*pending)) {
@@ -387,23 +334,21 @@ public:
             if (entry && entry->epoch == reference->epoch.str())
                 resource = capabilityBinding(access.grantSnapshot(ClientId{connection->client}, *entry).binding);
         }
-        if (historyCall) resource = history.binding(*pending->historyRequest);
+        if (historyCall) resource = history.binding(*historyCall);
         const auto version = historyCall ? history.accessVersion(connection->client, resource) : access.version(connection->client);
         pending->invocation = connection->capabilities->context(std::move(resource),
             version, Capabilities::OperationId{newId()},
             Capabilities::Clock::now() + std::chrono::milliseconds(pending->deadline - clock.elapsed()));
-        const bool directInput = pending->taskRequest
-            ? std::visit([](const auto& value) {
-                using T = std::decay_t<decltype(value)>;
-                if constexpr (std::is_same_v<T, StartTerminalTaskRequest>) return value.inputToken.isEmpty();
-                else return false;
-            }, *pending->taskRequest)
-            : std::visit([](const auto& value) {
-                using T = std::decay_t<decltype(value)>;
-                if constexpr (std::is_same_v<T, InteractTerminalRequest> || std::is_same_v<T, RequestElevationRequest>)
-                    return value.inputToken.isEmpty();
-                else return false;
-            }, pending->request);
+        const auto needsInputGuard = [](const auto& value) {
+            using T = std::decay_t<decltype(value)>;
+            if constexpr (std::is_same_v<T, StartTerminalTaskRequest>
+                || std::is_same_v<T, InteractTerminalRequest> || std::is_same_v<T, RequestElevationRequest>)
+                return value.inputToken.isEmpty();
+            else return false;
+        };
+        const auto* terminalCall = pending->get<ToolRequest>();
+        const bool directInput = taskCall ? std::visit(needsInputGuard, *taskCall)
+            : terminalCall && std::visit(needsInputGuard, *terminalCall);
         if (directInput) {
             const auto reference = referenceOf(*pending);
             if (!reference) { send(connectionId, id, error("SESSION_NOT_AVAILABLE")); return; }
@@ -545,7 +490,7 @@ public:
         for (const auto& key : requestKeys()) {
             auto* pending = findRequest(key);
             if (!pending || pending->deadline > clock.elapsed()) continue;
-            if ((pending = findRequest(key))) cancel(key, error("DEADLINE_EXCEEDED"), true);
+            cancel(key, error("DEADLINE_EXCEEDED"), true);
         }
         cleanup();
         if (requests.empty()) {
@@ -561,20 +506,9 @@ public:
     bool admit(PendingRequest* pending)
     {
         if (!pending->invocation) { complete(requestKey(pending->connection, pending->id), error("SESSION_NOT_AVAILABLE")); return false; }
-        auto capability = pending->clearRequest ? Capabilities::CapabilityId{"terminal.clear"}
-            : pending->waitRequest ? Capabilities::CapabilityId{"terminal.text.wait"}
-            : terminalCapability(pending->request);
-        if (pending->taskRequest) capability = Capabilities::CapabilityId{
-            std::holds_alternative<StartTerminalTaskRequest>(*pending->taskRequest) ? "terminal.task.start"
-            : std::holds_alternative<StopTerminalTaskRequest>(*pending->taskRequest) ? "terminal.task.stop" : "terminal.task.query"};
-        if (pending->serialFileTransferRequest) capability = Capabilities::CapabilityId{
-            std::holds_alternative<StartSerialFileUploadRequest>(*pending->serialFileTransferRequest) ? "serial.file.upload"
-            : std::holds_alternative<QuerySerialFileTransferRequest>(*pending->serialFileTransferRequest) ? "serial.file.query" : "serial.file.cancel"};
-        if (pending->fileTransferRequest) capability = Capabilities::CapabilityId{
-            std::holds_alternative<StartFileUploadRequest>(*pending->fileTransferRequest) ? "file.upload"
-            : std::holds_alternative<StartFileDownloadRequest>(*pending->fileTransferRequest) ? "file.transfer.download"
-            : std::holds_alternative<QueryFileTransferRequest>(*pending->fileTransferRequest) ? "file.transfer.query" : "file.transfer.cancel"};
-        auto result = capabilityDispatcher.admit(capability, *pending->invocation);
+        const auto definition = capabilityRegistry.findByMcpTool(pending->tool);
+        if (!definition) { complete(requestKey(pending->connection, pending->id), error("SESSION_NOT_AVAILABLE")); return false; }
+        auto result = capabilityDispatcher.admit(definition->id, *pending->invocation);
         if (const auto* reason = std::get_if<Capabilities::Rejection>(&result)) {
             complete(requestKey(pending->connection, pending->id),
                 ToolCodec::encodeFailure(capabilityError(*reason)));
@@ -644,20 +578,16 @@ public:
         pending = findRequest(key);
         if (!pending) return;
         if (pending->deadline <= clock.elapsed()) { complete(key, error("DEADLINE_EXCEEDED")); return; }
-        if (!pending->requestState.isEmpty() || pending->answer.has_value()) {
-            complete(key, error("COMMAND_CONFIRMATION_STALE"));
-            return;
-        }
         const auto connection = connections.value(pending->connection);
         if (!access.enabled()) { complete(key, error("MCP_DISABLED")); return; }
-        if (pending->serialFileTransferRequest) {
+        if (pending->get<SerialFileTransferRequest>()) {
             if (!admit(pending)) return;
-            if (const auto prior = serialFileTransfers->replay(connection.client, access.identityVersion(connection.client), *pending->serialFileTransferRequest)) {
+            if (const auto prior = serialFileTransfers->replay(connection.client, access.identityVersion(connection.client), *pending->get<SerialFileTransferRequest>())) {
                 if (const auto* failed = std::get_if<Error>(&*prior)) complete(key, ToolCodec::encodeFailure(*failed));
                 else complete(key, success(std::get<QJsonObject>(*prior)));
                 return;
             }
-            if (const auto* upload = std::get_if<StartSerialFileUploadRequest>(&*pending->serialFileTransferRequest)) {
+            if (const auto* upload = std::get_if<StartSerialFileUploadRequest>(&*pending->get<SerialFileTransferRequest>())) {
                 const auto saved = *upload;
                 const auto intent = uploadIntent(connection.client, pending->connection, saved.reference,
                     saved.localPath, saved.remoteName, saved.operationId, true, false);
@@ -665,19 +595,19 @@ public:
                 pending = findRequest(key); if (!pending) return;
             }
             const auto result = serialFileTransfers->call(connection.client, access.identityVersion(connection.client),
-                pending->connection, *pending->serialFileTransferRequest);
+                pending->connection, *pending->get<SerialFileTransferRequest>());
             if (const auto* failure = std::get_if<Error>(&result)) complete(key, ToolCodec::encodeFailure(*failure));
             else complete(key, success(std::get<QJsonObject>(result)));
             return;
         }
-        if (pending->fileTransferRequest) {
+        if (pending->get<FileTransferRequest>()) {
             if (!admit(pending)) return;
-            if (const auto prior = fileTransfers->replay(connection.client, access.identityVersion(connection.client), *pending->fileTransferRequest)) {
+            if (const auto prior = fileTransfers->replay(connection.client, access.identityVersion(connection.client), *pending->get<FileTransferRequest>())) {
                 if (const auto* failed = std::get_if<Error>(&*prior)) complete(key, ToolCodec::encodeFailure(*failed));
                 else complete(key, success(std::get<QJsonObject>(*prior)));
                 return;
             }
-            if (const auto* upload = std::get_if<StartFileUploadRequest>(&*pending->fileTransferRequest)) {
+            if (const auto* upload = std::get_if<StartFileUploadRequest>(&*pending->get<FileTransferRequest>())) {
                 const auto saved = *upload;
                 const auto intent = uploadIntent(connection.client, pending->connection, saved.reference,
                     saved.localPath, saved.remotePath, saved.operationId, false, saved.overwrite);
@@ -685,20 +615,20 @@ public:
                 pending = findRequest(key); if (!pending) return;
             }
             const auto result = fileTransfers->call(connection.client, access.identityVersion(connection.client),
-                pending->connection, *pending->fileTransferRequest);
+                pending->connection, *pending->get<FileTransferRequest>());
             if (const auto* failure = std::get_if<Error>(&result)) complete(key, ToolCodec::encodeFailure(*failure));
             else complete(key, success(std::get<QJsonObject>(result)));
             return;
         }
-        if (pending->historyRequest) {
+        if (pending->get<HistoryToolRequest>()) {
             const QPointer<Service> guard(q);
-            history.call(*pending->historyRequest, *pending->invocation, pending->cancelled, [this, guard, key](QJsonObject result) {
+            history.call(*pending->get<HistoryToolRequest>(), *pending->invocation, pending->cancelled, [this, guard, key](QJsonObject result) {
                 if (guard) complete(key, std::move(result));
             });
             return;
         }
-        if (!pending->clearRequest && !pending->waitRequest && !pending->taskRequest
-            && std::holds_alternative<ListSessionsRequest>(pending->request)) {
+        if (const auto* terminalRequest = pending->get<ToolRequest>();
+            terminalRequest && std::holds_alternative<ListSessionsRequest>(*terminalRequest)) {
             listSessions(pending);
             return;
         }
@@ -708,50 +638,46 @@ public:
         pending = findRequest(key);
         if (!pending) return;
         if (!entry || !connectedSession(*entry) || !access.canRead(connection.client, *entry)) {
-            complete(key, !pending->requestState.isEmpty()
-                ? error("COMMAND_CONFIRMATION_STALE")
-                : error("SESSION_NOT_AVAILABLE"));
+            complete(key, error("SESSION_NOT_AVAILABLE"));
             return;
         }
         if (entry->epoch != reference->epoch.str()) {
-            complete(key, !pending->requestState.isEmpty()
-                ? error("COMMAND_CONFIRMATION_STALE")
-                : error("STALE_SESSION_EPOCH"));
+            complete(key, error("STALE_SESSION_EPOCH"));
             return;
         }
-        if (pending->waitRequest || pending->taskRequest) {
+        if (pending->get<WaitTextRequest>() || pending->get<TerminalTaskRequest>()) {
             if (!admit(pending)) return;
             const QPointer<Service> guard(q);
             auto done = [this, guard, key](QJsonObject payload) { if (guard) complete(key, std::move(payload)); };
-            if (pending->waitRequest) textWaits->call(connection.client, key, *pending->waitRequest, std::move(done));
+            if (pending->get<WaitTextRequest>()) textWaits->call(connection.client, key, *pending->get<WaitTextRequest>(), std::move(done));
             else {
-                terminalTasks->call(connection.client, key, *pending->taskRequest, std::move(done), *pending->invocation, pending->receiptInputToken);
+                terminalTasks->call(connection.client, key, *pending->get<TerminalTaskRequest>(), std::move(done), *pending->invocation, pending->receiptInputToken);
             }
             return;
         }
-        if (pending->clearRequest) {
+        if (pending->get<ClearRequest>()) {
             if (!admit(pending)) return;
             const QPointer<Service> guard(q);
-            clears->call(connection.client, key, *pending->clearRequest, [this, guard, key](QJsonObject payload) {
+            clears->call(connection.client, key, *pending->get<ClearRequest>(), [this, guard, key](QJsonObject payload) {
                 if (guard) complete(key, std::move(payload));
             });
             return;
         }
-        const bool mutatingInteraction = std::holds_alternative<InteractTerminalRequest>(pending->request)
-            || std::holds_alternative<RequestElevationRequest>(pending->request);
+        const bool mutatingInteraction = std::holds_alternative<InteractTerminalRequest>(pending->terminalRequest())
+            || std::holds_alternative<RequestElevationRequest>(pending->terminalRequest());
         bool usesObservation = mutatingInteraction;
-        if (const auto* read = std::get_if<ReadContextRequest>(&pending->request)) {
+        if (const auto* read = std::get_if<ReadContextRequest>(&pending->terminalRequest())) {
             usesObservation = read->source != ContextSource::Log && (read->projection.has_value() || read->wait.has_value()
                 || read->waitFor.has_value() || read->expandToken.has_value()
                 || terminal->ownsCursor(connection.client,
                     read->sinceToken.value_or(QString{})));
-        } else if (const auto* search = std::get_if<SearchContextRequest>(&pending->request)) {
+        } else if (const auto* search = std::get_if<SearchContextRequest>(&pending->terminalRequest())) {
             usesObservation = terminal->ownsCapture(connection.client, search->capture.str());
         }
         if (usesObservation) {
             if (!admit(pending)) return;
             const QPointer<Service> guard(q);
-            const auto request = pending->request;
+            const auto request = pending->terminalRequest();
             terminal->call(connection.client, key, request,
                 [this, guard, key](QJsonObject value) {
                     if (guard)
@@ -759,13 +685,7 @@ public:
                 }, connection.key, *pending->invocation, InputReplayPolicy::Allow, {}, pending->receiptInputToken);
             return;
         }
-        if (entry->state == SessionState::Closing || entry->state == SessionState::Closed) {
-            complete(key, error("SESSION_CLOSED")); return;
-        }
-        if (entry->state != SessionState::Running && entry->state != SessionState::Failed) {
-            complete(key, error("SESSION_NOT_READY")); return;
-        }
-        if (std::holds_alternative<ReadContextRequest>(pending->request)) readContext(pending, *entry);
+        if (std::holds_alternative<ReadContextRequest>(pending->terminalRequest())) readContext(pending, *entry);
         else search(pending, *entry);
     }
 
@@ -773,11 +693,10 @@ public:
     {
         const auto key = requestKey(pending->connection, pending->id);
         const auto connection = connections.value(pending->connection);
-        const auto request = std::get<ListSessionsRequest>(pending->request);
+        const auto request = std::get<ListSessionsRequest>(pending->terminalRequest());
         const ReadUseCaseAdapter reads{{&access, &sessions, &observation, instance},
             capabilityDispatcher, *pending->invocation};
-        const auto result = reads.listSessions(connection.client, connection.key,
-            pending->formElicitation, request);
+        const auto result = reads.listSessions(connection.key, request);
         if (isError(result)) { complete(key, ToolCodec::encodeFailure(*errorIfAny(result))); return; }
         auto data = std::get<QJsonObject>(result);
         auto rows = data.value("sessions").toArray();
@@ -795,7 +714,7 @@ public:
     {
         const auto key = requestKey(pending->connection, pending->id);
         const auto connection = connections.value(pending->connection);
-        const auto request = std::get<ReadContextRequest>(pending->request);
+        const auto request = std::get<ReadContextRequest>(pending->terminalRequest());
         if (request.source == ContextSource::Log) {
             if (!admit(pending)) return;
             const auto result = readLogContext(access, sessions, instance, connection.client, logCursorKey, request);
@@ -805,7 +724,7 @@ public:
         }
         const ReadUseCaseAdapter reads{{&access, &sessions, &observation, instance},
             capabilityDispatcher, *pending->invocation};
-        const auto result = reads.readContext(entry, pending->connection, connection.client, connection.key, request);
+        const auto result = reads.readContext(entry, pending->connection, connection.key, request);
         if (isError(result)) { complete(key, ToolCodec::encodeFailure(*errorIfAny(result))); return; }
         complete(key, success(std::get<QJsonObject>(result)));
     }
@@ -813,7 +732,7 @@ public:
     void search(PendingRequest* pending, const SessionDirectory::Entry& entry)
     {
         const auto key = requestKey(pending->connection, pending->id);
-        const auto typed = std::get<SearchContextRequest>(pending->request);
+        const auto typed = std::get<SearchContextRequest>(pending->terminalRequest());
         const auto captured = observation.captures().find(typed.capture.str());
         if (!captured || captured->scope != CaptureScope::Connection || captured->owner != pending->connection
             || captured->session != entry.id || captured->epoch != entry.epoch
@@ -855,7 +774,7 @@ public:
                 complete(key, error("CAPTURE_NOT_AVAILABLE")); return;
             }
             const auto* domain = std::get_if<Result<Capabilities::Terminal::ContextSearchResult>>(&value);
-            if (!domain) { complete(key, error("SESSION_NOT_AVAILABLE")); return; }
+            if (!domain) { complete(key, ToolCodec::encodeFailure(capabilityError(std::get<Capabilities::Rejection>(value)))); return; }
             if (const auto* failure = errorIfAny(*domain)) { complete(key, ToolCodec::encodeFailure(*failure)); return; }
             const auto& result = std::get<Capabilities::Terminal::ContextSearchResult>(*domain);
             QJsonArray matches;

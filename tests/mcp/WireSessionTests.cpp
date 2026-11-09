@@ -41,6 +41,56 @@ class WireSessionTests final : public QObject
 {
     Q_OBJECT
 private slots:
+    void retiredRequestStateIsRejectedBeforeBackend_data() {
+        QTest::addColumn<QString>("tool");
+        QTest::newRow("terminal") << QString("novaterm_list_sessions");
+        QTest::newRow("history") << QString("novaterm_list_captures");
+    }
+    void retiredRequestStateIsRejectedBeforeBackend() {
+        QFETCH(QString, tool);
+        WireSession wire;
+        wire.setBackendAvailable(true);
+        QSignalSpy backend(&wire, &WireSession::backendEvent), packets(&wire, &WireSession::packet);
+        const QJsonObject meta{{"io.modelcontextprotocol/protocolVersion", "2026-07-28"},
+            {"io.modelcontextprotocol/clientCapabilities", QJsonObject{}}};
+        const QJsonObject params{{"name", tool}, {"arguments", QJsonObject{}},
+            {"requestState", "retired-state"}, {"_meta", meta}};
+        wire.receiveMessage(presentedRpc({{"jsonrpc", "2.0"}, {"id", 2},
+            {"method", "tools/call"}, {"params", params}}));
+        QVERIFY(backend.isEmpty());
+        QVERIFY(!wire.hasPendingCalls());
+        QCOMPARE(packets.size(), 1);
+        const auto reply = QJsonDocument::fromJson(packets.first().at(1).toByteArray()).object()
+            .value("result").toObject();
+        QCOMPARE(reply.value("resultType").toString(), QString("complete"));
+        QCOMPARE(reply.value("structuredContent").toObject().value("error").toObject()
+            .value("code").toString(), QString("COMMAND_CONFIRMATION_STALE"));
+    }
+    void ignoredConfirmationFieldsDoNotBlockCalls_data() {
+        QTest::addColumn<bool>("modern");
+        QTest::addColumn<QJsonValue>("state");
+        QTest::newRow("legacy-state") << false << QJsonValue("retired-state");
+        QTest::newRow("modern-empty") << true << QJsonValue("");
+        QTest::newRow("modern-non-string") << true << QJsonValue(42);
+    }
+    void ignoredConfirmationFieldsDoNotBlockCalls() {
+        QFETCH(bool, modern);
+        QFETCH(QJsonValue, state);
+        WireSession wire;
+        if (modern) wire.setBackendAvailable(true); else ready(wire);
+        QSignalSpy backend(&wire, &WireSession::backendEvent);
+        auto request = call(2);
+        auto params = request.value("params").toObject();
+        params.insert("requestState", state);
+        params.insert("inputResponses", QJsonObject{{"confirmed", true}});
+        if (modern) params.insert("_meta", QJsonObject{
+            {"io.modelcontextprotocol/protocolVersion", "2026-07-28"},
+            {"io.modelcontextprotocol/clientCapabilities", QJsonObject{}}});
+        request.insert("params", params);
+        wire.receiveMessage(presentedRpc(request));
+        QCOMPARE(backend.size(), 1);
+        QCOMPARE(backendOp(backend, 0), QString("call"));
+    }
     void missingPresentationNeverReachesBackend_data() {
         QTest::addColumn<bool>("modern");
         QTest::newRow("2025") << false; QTest::newRow("2026") << true;
@@ -98,7 +148,7 @@ private slots:
         QCOMPARE(backend.size(), 1);
         const auto event = backend.first().at(0).value<BackendEvent>();
         const auto* call = std::get_if<BackendCall>(&event); QVERIFY(call);
-        const auto* read = std::get_if<ReadContextRequest>(&call->request); QVERIFY(read);
+        const auto* read = std::get_if<ReadContextRequest>(&std::get<ToolRequest>(call->request)); QVERIFY(read);
         QVERIFY(read->session == SessionId{session}); QVERIFY(read->epoch == Epoch{"original-epoch"});
         QCOMPARE(read->source, ContextSource::Observation);
         wire.receiveBackend({{"op", "result"}, {"id", call->id}, {"payload", success({})}});
@@ -175,7 +225,7 @@ private slots:
         QVERIFY(backend.isEmpty());
         QVERIFY(!wire.hasPendingCalls());
     }
-    void serialTransferUsesIndependentBackendCall() {
+    void serialTransferPreservesTypedRequest() {
         WireSession wire; ready(wire); QSignalSpy backend(&wire, &WireSession::backendEvent);
         wire.receiveMessage(presentedRpc({{"jsonrpc", "2.0"}, {"id", 2}, {"method", "tools/call"},
             {"params", QJsonObject{{"name", "novaterm_query_serial_transfer"},
@@ -183,9 +233,8 @@ private slots:
         QCOMPARE(backend.size(), 1);
         const auto event = backend.first().at(0).value<BackendEvent>();
         QCOMPARE(backendEventKind(event), QString("call"));
-        const auto* transfer = std::get_if<BackendSerialFileTransferCall>(&event); QVERIFY(transfer);
-        QVERIFY(std::holds_alternative<QuerySerialFileTransferRequest>(transfer->request));
-        QVERIFY(!std::holds_alternative<BackendCall>(event));
+        const auto* transfer = std::get_if<BackendCall>(&event); QVERIFY(transfer);
+        QVERIFY(std::holds_alternative<QuerySerialFileTransferRequest>(std::get<SerialFileTransferRequest>(transfer->request)));
     }
     void retiredFileAuthorizationDirectoryNeverReachesBackend() {
         WireSession wire; ready(wire); QSignalSpy backend(&wire, &WireSession::backendEvent);
@@ -214,14 +263,13 @@ private slots:
         QVERIFY(a.contains("novaterm_query_task")); QVERIFY(a.contains("novaterm_stop_task"));
         QVERIFY(a.contains("after human takeover"));
     }
-    void historyCallsUseTheirOwnProtocolEvent() {
+    void historyCallsPreserveTypedRequest() {
         WireSession wire; ready(wire); QSignalSpy backend(&wire, &WireSession::backendEvent);
         wire.receiveMessage(presentedRpc({{"jsonrpc", "2.0"}, {"id", 2}, {"method", "tools/call"},
             {"params", QJsonObject{{"name", "novaterm_list_captures"}, {"arguments", QJsonObject{}}}}}), "history");
         QCOMPARE(backend.size(), 1); const auto event = backend.first().at(0).value<BackendEvent>();
-        const auto* history = std::get_if<BackendHistoryCall>(&event); QVERIFY(history);
-        QVERIFY(std::holds_alternative<ListCapturesRequest>(history->request));
-        QVERIFY(!std::holds_alternative<BackendCall>(event));
+        const auto* history = std::get_if<BackendCall>(&event); QVERIFY(history);
+        QVERIFY(std::holds_alternative<ListCapturesRequest>(std::get<HistoryToolRequest>(history->request)));
     }
     void historyResponsesWithoutRequestStateDoNotBecomeConfirmation() {
         WireSession wire; wire.setBackendAvailable(true); QSignalSpy backend(&wire, &WireSession::backendEvent);
@@ -231,7 +279,8 @@ private slots:
                 {"_meta", QJsonObject{{"io.modelcontextprotocol/protocolVersion", "2026-07-28"},
                     {"io.modelcontextprotocol/clientCapabilities", QJsonObject{}}}}}}}));
         QCOMPARE(backend.size(), 1); const auto event = backend.first().at(0).value<BackendEvent>();
-        const auto* history = std::get_if<BackendHistoryCall>(&event); QVERIFY(history); QVERIFY(!history->confirmationSupplied);
+        const auto* history = std::get_if<BackendCall>(&event); QVERIFY(history);
+        QVERIFY(std::holds_alternative<HistoryToolRequest>(history->request));
     }
     void retiredConfirmationOutputCannotPromptClient_data() {
         QTest::addColumn<bool>("modern");

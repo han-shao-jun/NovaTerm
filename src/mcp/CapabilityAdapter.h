@@ -2,7 +2,7 @@
  * @file CapabilityAdapter.h
  * @brief 运行时把 Session 事实转换成纯应用层 `CapabilityFacts`。
  *
- * 这是 Session 与应用能力模型之间的唯一适配点：连接类型、Profile 与终端
+ * 这是 Session 与应用能力模型之间的唯一适配点：连接类型与终端
  * 控制器分支只在这里出现，界面和业务查询不重复这些规则。
  */
 #pragma once
@@ -28,7 +28,10 @@ class ObservationService;
 
 /** @brief 解析当前客户端在该会话上的统一能力视图。 */
 [[nodiscard]] CapabilitySnapshot sessionCapabilities(const SessionDirectory::Entry& entry,
-    const QString& clientId, const AccessStore& access, bool humanConfirmation);
+    const QString& clientId, const AccessStore& access);
+
+/** @brief 将统一能力视图编码为工具返回的元数据。 */
+[[nodiscard]] QJsonObject capabilityMetadata(const CapabilitySnapshot& capability);
 
 /** @brief Session、观察服务与 MCP 令牌/结果编码的只读集成适配器。 */
 class ReadUseCaseAdapter final : public ReadSessionPort
@@ -43,17 +46,16 @@ public:
     };
 
     ReadUseCaseAdapter(Ports ports, Capabilities::CapabilityDispatcher&, const Capabilities::InvocationContext&);
-    [[nodiscard]] Result<QJsonObject> listSessions(const QString& client,
-        const QByteArray& key, bool formElicitation, const ListSessionsRequest& request) const;
+    [[nodiscard]] Result<QJsonObject> listSessions(const QByteArray& key, const ListSessionsRequest& request) const;
     [[nodiscard]] Result<QJsonObject> readContext(const SessionDirectory::Entry& entry,
-        const QString& owner, const QString& client, const QByteArray& key,
+        const QString& owner, const QByteArray& key,
         const ReadContextRequest& request) const;
 
 private:
     [[nodiscard]] quint64 directoryRevision() const override;
     [[nodiscard]] ClientAccessVersion accessVersion(const ClientId& client) const override;
     [[nodiscard]] QList<ReadSession> pageAfter(const ClientId& client, const SessionId& after,
-        int limit, bool humanConfirmation) const override;
+        int limit) const override;
     [[nodiscard]] Result<ContextSummary> readContext(const ContextQuery& query) const override;
     Ports _ports;
     Capabilities::CapabilityDispatcher& _dispatcher;

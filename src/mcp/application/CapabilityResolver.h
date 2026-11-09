@@ -9,7 +9,6 @@
 
 #include "mcp/contracts/Permissions.h"
 
-#include <QSet>
 #include <QString>
 #include <QStringList>
 
@@ -22,19 +21,6 @@ struct CapabilityFacts
     bool transportConnected{false};
     bool transportMatchesSession{false};
     bool generationMatches{false};
-    bool targetFingerprintPresent{false};
-
-    /** @brief 固定诊断的 Profile 与执行后端同时可用。 */
-    bool diagnosticsExecutorAvailable{false};
-    QSet<DiagnosticId> supportedDiagnostics;
-
-    /** @brief 交互终端通路可达；授权位另行判断。 */
-    bool interactiveReachable{false};
-    bool unverifiedPrompt{false};
-    /** @brief 无提示符目标由空闲静默窗收口（串口降级）；弱于提示符证据。 */
-    bool idleCompletion{false};
-    bool scriptProviderAvailable{false};
-
     bool transferLease{false};
     bool legacyTerminalBusy{false};
     QString terminalOwner; ///< 终端控制的所有者客户端 ID；空表示空闲。
@@ -46,7 +32,6 @@ struct CapabilityFacts
 struct CapabilityContext
 {
     ClientId client;
-    bool humanConfirmation{false};
     bool credentialUpdatePending{false};
 };
 
@@ -62,7 +47,6 @@ struct CapabilitySnapshot
     bool ownedByThisClient{false};
 
     bool shellIntegrationAvailable{false};
-    bool diagnosticsReady{false};
 
     /** @brief 当前没有可信提权适配器，执行侧恒为不可用。 */
     bool elevationAvailable{false};

@@ -41,7 +41,7 @@ mtime/ctime、uid/gid与初始摘要，防止同大小同时间戳改写被忽�
 
 ## 退役确认链路清理（0.2.118）
 
-旧命令/脚本的反向elicitation与input_required输出链路已删除。当前上传确认仍使用工具结果中的confirmation_required及confirmationToken/confirmed；不会启动旧Broker。迟到的旧确认回复不触发业务调用，旧requestState仍按现有规则拒绝。现行工具目录、规划功能和两代协议路由保持。
+旧命令/脚本的反向elicitation与input_required输出链路已删除。当前上传确认仍使用工具结果中的confirmation_required及confirmationToken/confirmed；不会启动旧Broker。迟到的旧确认回复不触发业务调用。2026请求携带非空字符串requestState时，在Wire入口返回COMMAND_CONFIRMATION_STALE，不进入业务队列；2025请求及空值、非字符串旧状态仍忽略，单独inputResponses不触发确认。现行工具目录、规划功能和两代协议路由保持。
 
 ## 当前接入与工具目录
 

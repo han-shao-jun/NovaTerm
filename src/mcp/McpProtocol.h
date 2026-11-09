@@ -39,6 +39,7 @@ inline constexpr auto WireDeadlineMargin = Budget::WireDeadlineMargin;
 inline constexpr const char* ProtocolVersion = "2025-11-25";
 
 [[nodiscard]] QString newId();
+/** @brief initialize/discover 共用的 Agent 调用流程与跨工具约束。 */
 [[nodiscard]] QString agentInstructions();
 [[nodiscard]] QByteArray randomBytes(int count = 32);
 [[nodiscard]] bool constantTimeEqual(const QByteArray& a, const QByteArray& b);

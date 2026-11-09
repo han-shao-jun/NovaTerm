@@ -1,66 +1,35 @@
 /**
  * @file BackendEvents.h
- * @brief Wire → 业务后端的类型化事件；不再使用内部 JSON `op` 总线。
+ * @brief Wire 向业务后端传递统一工具请求或取消事件。
  *
- * `BackendCall` / `BackendHistoryCall` 分别携带终端/历史工具参数；取消与确认结果只带
- * 关联 ID 与决定。响应方向仍由 WireSession 的 JSON-RPC 编码器处理。
+ * 协议确认兼容性在 Wire 边界处理，业务调度只接收已解码的工具参数。
  */
 #pragma once
 
-#include "mcp/contracts/ToolRequests.h"
-#include "HistoryToolRequest.h"
-#include "mcp/contracts/ClearRequest.h"
-#include "mcp/contracts/WaitTextRequest.h"
-#include "mcp/contracts/TerminalTaskRequest.h"
-#include "mcp/contracts/FileTransferRequest.h"
+#include "ToolCall.h"
 #include <QMetaType>
 #include <QString>
-
-#include <variant>
 
 namespace NovaTerm::Mcp {
 
 struct BackendCall
 {
     QString id;
-    ToolRequest request;
-    bool mrtr{false};
-    bool formElicitation{false};
-    QString requestState;
-    std::optional<ConfirmationAnswer> answer;
+    ToolCall request;
 };
 
 struct BackendCancel
 {
     QString id;
 };
-struct BackendHistoryCall {
-    QString id;
-    HistoryToolRequest request;
-    bool confirmationSupplied{false};
-};
-struct BackendClearCall { QString id; ClearRequest request; bool confirmationSupplied{false}; };
-struct BackendWaitTextCall { QString id; WaitTextRequest request; bool confirmationSupplied{false}; };
-struct BackendTaskCall { QString id; TerminalTaskRequest request; bool confirmationSupplied{false}; };
-struct BackendFileTransferCall { QString id; FileTransferRequest request; bool confirmationSupplied{false}; };
-struct BackendSerialFileTransferCall { QString id; SerialFileTransferRequest request; bool confirmationSupplied{false}; };
 
-using BackendEvent = std::variant<BackendCall, BackendHistoryCall, BackendClearCall, BackendWaitTextCall, BackendTaskCall, BackendFileTransferCall, BackendSerialFileTransferCall, BackendCancel>;
+using BackendEvent = std::variant<BackendCall, BackendCancel>;
 
 /** @brief 事件类别；仅用于日志与测试断言，不参与业务分派。 */
 [[nodiscard]] inline QString backendEventKind(const BackendEvent& event)
 {
-    return std::visit([](const auto& value) -> QString {
-        using Type = std::decay_t<decltype(value)>;
-        if constexpr (std::is_same_v<Type, BackendCall> || std::is_same_v<Type, BackendHistoryCall>
-            || std::is_same_v<Type, BackendClearCall> || std::is_same_v<Type, BackendWaitTextCall>
-            || std::is_same_v<Type, BackendTaskCall>
-            || std::is_same_v<Type, BackendFileTransferCall>
-            || std::is_same_v<Type, BackendSerialFileTransferCall>)
-            return QStringLiteral("call");
-        else
-            return QStringLiteral("cancel");
-    }, event);
+    return std::holds_alternative<BackendCall>(event)
+        ? QStringLiteral("call") : QStringLiteral("cancel");
 }
 
 } // namespace NovaTerm::Mcp

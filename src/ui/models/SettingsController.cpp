@@ -60,7 +60,7 @@ QVector<SessionPermissionRow> SettingsController::rows(const QString& clientId) 
         row.selection = grant.selection;
         row.revision = grant.revision;
         row.binding = grant.binding;
-        row.capability = sessionCapabilities(entry, clientId, access, false);
+        row.capability = sessionCapabilities(entry, clientId, access);
         row.localShell = entry.kind == TransportKind::LocalShell;
         if (entry.session) {
             auto* terminal = entry.session->terminalController();
@@ -125,7 +125,7 @@ SettingsController::Outcome SettingsController::submit(const SessionPermissionRo
     outcome.row.binding = grant.binding;
     outcome.row.clearTerminalSelectable = clearTerminalSelectable(*entry, grant.selection);
     outcome.row.capability = sessionCapabilities(
-        *entry, row.client.str(), _service->access(), false);
+        *entry, row.client.str(), _service->access());
     return outcome;
 }
 

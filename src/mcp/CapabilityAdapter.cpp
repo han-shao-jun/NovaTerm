@@ -5,9 +5,6 @@
 #include "McpProtocol.h"
 #include "ObservationService.h"
 
-#include "session/ISessionScriptProvider.h"
-#include "session/SessionCommandCoordinator.h"
-#include "session/SessionCommandFacade.h"
 #include "session/SessionInputArbiter.h"
 #include "session/SessionTerminalController.h"
 
@@ -37,30 +34,6 @@ CapabilityFacts capabilityFacts(const SessionDirectory::Entry& entry,
         && entry.session->transport() == entry.transport;
     facts.generationMatches = entry.session
         && entry.session->statistics().generation == entry.generation;
-    facts.targetFingerprintPresent = !entry.targetFingerprint.isEmpty();
-
-    auto* facade = entry.session ? entry.session->commandFacade() : nullptr;
-    const auto profile = facade ? facade->profile() : CommandPlatformProfile{};
-    facts.diagnosticsExecutorAvailable = facade && facade->isAvailable()
-        && profile.isAvailable();
-    for (const auto& id : profile.supportedCommandIds())
-        facts.supportedDiagnostics.insert(DiagnosticId{id});
-
-    auto* coordinator = entry.session ? entry.session->commandCoordinator() : nullptr;
-    facts.unverifiedPrompt = entry.kind == TransportKind::Ssh
-        && coordinator && coordinator->allowsUnverifiedPrompt();
-    facts.idleCompletion = entry.kind == TransportKind::Serial
-        && coordinator && coordinator->allowsIdleCompletion();
-    const bool trustedLocal = entry.kind == TransportKind::LocalShell
-        && coordinator && coordinator->hasTrustedProfile()
-        && coordinator->isPromptReady();
-    facts.interactiveReachable = facade && facade->isAvailable()
-        && !entry.targetFingerprint.isEmpty()
-        && (facade->capabilities().mode == CommandExecutionMode::InteractiveFramed
-            || facts.unverifiedPrompt || facts.idleCompletion || trustedLocal);
-    facts.scriptProviderAvailable = entry.session && entry.session->scriptProvider()
-        && entry.session->scriptProvider()->isAvailable();
-
     facts.transferLease = entry.session
         && entry.session->inputArbiter()->hasTransferLease();
     facts.legacyTerminalBusy = entry.session
@@ -75,15 +48,34 @@ CapabilityFacts capabilityFacts(const SessionDirectory::Entry& entry,
 }
 
 CapabilitySnapshot sessionCapabilities(const SessionDirectory::Entry& entry,
-    const QString& clientId, const AccessStore& access, bool humanConfirmation)
+    const QString& clientId, const AccessStore& access)
 {
     CapabilityContext context;
     context.client = ClientId{clientId};
-    context.humanConfirmation = humanConfirmation;
     context.credentialUpdatePending = access.credentialUpdatePending();
     return CapabilityResolver::resolve(
         access.grantSnapshot(context.client, entry),
         capabilityFacts(entry, access), context);
+}
+
+QJsonObject capabilityMetadata(const CapabilitySnapshot& capability)
+{
+    QJsonArray names;
+    for (const auto& name : capability.capabilities)
+        names.append(name);
+    return {{"capabilities", names},
+        {"permissions", QJsonObject{{"readOutput", capability.permissions.read},
+            {"clearTerminal", capability.permissions.clearTerminal},
+            {"terminalInput", capability.terminalInputAvailable},
+            {"useElevation", capability.terminalInputAvailable && capability.permissions.elevation}}},
+        {"availability", QJsonObject{{"inputAvailable", capability.terminalInputAvailable},
+            {"disabledReason", capability.terminalInputDisabledReason},
+            {"elevationAvailable", capability.elevationAvailable},
+            {"elevationDisabledReason", capability.elevationDisabledReason},
+            {"ownedByThisClient", capability.ownedByThisClient},
+            {"controlState", capability.terminalOwner.isEmpty() ? "idle" : "controlled"}}},
+        {"shellIntegration", QJsonObject{{"available", capability.shellIntegrationAvailable}}},
+        {"elevationMethods", QJsonArray{}}};
 }
 
 namespace {
@@ -113,26 +105,6 @@ ReadSession readSession(const SessionDirectory::Entry& entry)
     row.running = entry.state == SessionState::Running;
     row.visible = connectedSession(entry);
     return row;
-}
-
-QJsonObject capabilityMetadata(const CapabilitySnapshot& capability)
-{
-    QJsonArray names;
-    for (const auto& name : capability.capabilities)
-        names.append(name);
-    return {{"capabilities", names},
-        {"permissions", QJsonObject{{"readOutput", capability.permissions.read},
-            {"clearTerminal", capability.permissions.clearTerminal},
-            {"terminalInput", capability.terminalInputAvailable},
-            {"useElevation", capability.terminalInputAvailable && capability.permissions.elevation}}},
-        {"availability", QJsonObject{{"inputAvailable", capability.terminalInputAvailable},
-            {"disabledReason", capability.terminalInputDisabledReason},
-            {"elevationAvailable", capability.elevationAvailable},
-            {"elevationDisabledReason", capability.elevationDisabledReason},
-            {"ownedByThisClient", capability.ownedByThisClient},
-            {"controlState", capability.terminalOwner.isEmpty() ? "idle" : "controlled"}}},
-        {"shellIntegration", QJsonObject{{"available", capability.shellIntegrationAvailable}}},
-        {"elevationMethods", QJsonArray{}}};
 }
 
 Result<DirectoryCursor> directoryCursor(const QString& encoded, const QByteArray& key)
@@ -185,7 +157,7 @@ ClientAccessVersion ReadUseCaseAdapter::accessVersion(const ClientId& client) co
 }
 
 QList<ReadSession> ReadUseCaseAdapter::pageAfter(const ClientId& client,
-    const SessionId& after, int limit, bool humanConfirmation) const
+    const SessionId& after, int limit) const
 {
     const auto entries = _ports.sessions->pageAfter(after.str(), limit,
         [this, &client](const SessionDirectory::Entry& entry) {
@@ -194,7 +166,7 @@ QList<ReadSession> ReadUseCaseAdapter::pageAfter(const ClientId& client,
     QList<ReadSession> rows;
     for (const auto& entry : entries) {
         auto row = readSession(entry);
-        row.capabilities = sessionCapabilities(entry, client.str(), *_ports.access, humanConfirmation);
+        row.capabilities = sessionCapabilities(entry, client.str(), *_ports.access);
         rows.append(std::move(row));
     }
     return rows;
@@ -246,8 +218,7 @@ Result<ContextSummary> ReadUseCaseAdapter::readContext(const ContextQuery& query
     return summary;
 }
 
-Result<QJsonObject> ReadUseCaseAdapter::listSessions(const QString& client,
-    const QByteArray& key, bool formElicitation, const ListSessionsRequest& request) const
+Result<QJsonObject> ReadUseCaseAdapter::listSessions(const QByteArray& key, const ListSessionsRequest& request) const
 {
     std::optional<DirectoryCursor> cursor;
     if (request.cursor && !request.cursor->isEmpty()) {
@@ -255,10 +226,9 @@ Result<QJsonObject> ReadUseCaseAdapter::listSessions(const QString& client,
         if (const auto* error = errorIfAny(decoded)) return *error;
         cursor = std::get<DirectoryCursor>(decoded);
     }
-    Q_UNUSED(client);
     const Capabilities::Terminal::ReadCapabilities ports{_dispatcher, *this};
     const auto result = invokeRead(ports.sessions,
-        Capabilities::Terminal::SessionListQuery{request.limit, cursor, formElicitation}, _context);
+        Capabilities::Terminal::SessionListQuery{request.limit, cursor}, _context);
     if (const auto* error = errorIfAny(result)) return *error;
     const auto& page = std::get<SessionPage>(result);
     QJsonArray rows;
@@ -282,7 +252,7 @@ Result<QJsonObject> ReadUseCaseAdapter::listSessions(const QString& client,
 }
 
 Result<QJsonObject> ReadUseCaseAdapter::readContext(const SessionDirectory::Entry& entry,
-    const QString& owner, const QString& client, const QByteArray& key,
+    const QString& owner, const QByteArray& key,
     const ReadContextRequest& request) const
 {
     std::optional<ContextCursor> cursor;
@@ -299,7 +269,6 @@ Result<QJsonObject> ReadUseCaseAdapter::readContext(const SessionDirectory::Entr
     query.maxBytes = request.maxBytes.value_or(Budget::ObservationDefaultPayloadBytes);
     query.maxLines = request.maxLines.value_or(Budget::ObservationDefaultLines);
     query.cacheGeneration = entry.session->core()->cacheGeneration();
-    Q_UNUSED(client);
     const Capabilities::Terminal::ReadCapabilities ports{_dispatcher, *this};
     const auto result = invokeRead(ports.context, Capabilities::Terminal::ContextReadQuery{query, cursor}, _context);
     if (const auto* error = errorIfAny(result)) return *error;

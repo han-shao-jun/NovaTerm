@@ -94,7 +94,7 @@ public:
     [[nodiscard]] virtual quint64 directoryRevision() const = 0;
     [[nodiscard]] virtual ClientAccessVersion accessVersion(const ClientId& client) const = 0;
     [[nodiscard]] virtual QList<ReadSession> pageAfter(const ClientId& client,
-        const SessionId& after, int limit, bool humanConfirmation) const = 0;
+        const SessionId& after, int limit) const = 0;
     [[nodiscard]] virtual Result<ContextSummary> readContext(const ContextQuery& query) const = 0;
 };
 
@@ -104,7 +104,7 @@ public:
     explicit ReadUseCases(const ReadSessionPort& sessions);
 
     [[nodiscard]] Result<SessionPage> listSessions(const ClientId& client, int limit,
-        const std::optional<DirectoryCursor>& cursor, bool humanConfirmation) const;
+        const std::optional<DirectoryCursor>& cursor) const;
     [[nodiscard]] Result<ContextPage> readContext(const ClientId& client,
         ContextQuery query, const std::optional<ContextCursor>& cursor) const;
 

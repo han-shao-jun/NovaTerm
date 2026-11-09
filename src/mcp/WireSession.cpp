@@ -1,4 +1,4 @@
-/** @file WireSession.cpp @brief 与传输无关的 MCP 初始化、确认及请求关联。 */
+/** @file WireSession.cpp @brief 与传输无关的 MCP 初始化及请求关联。 */
 #include "WireSession.h"
 #include "McpProtocol.h"
 #include "protocol/ToolCodec.h"
@@ -62,9 +62,7 @@ public:
         QString wireId, tool;
         ToolCall typed;
         qint64 deadline{0};
-        QString requestState;
-        QJsonObject inputResponses;
-        bool mrtr{false}, formElicitation{false}, sent{false};
+        bool mrtr{false}, sent{false};
     };
     QJsonObject modernResult(QJsonObject result) const
     {
@@ -137,14 +135,6 @@ public:
                 ? params.value("protocolVersion").toString()
                 : requestMeta.value("io.modelcontextprotocol/protocolVersion").toString();
         _requestMrtr = !initializeRequest && requestedVersion == MrtrProtocolVersion;
-        _requestFormElicitation =
-            _requestMrtr ? requestMeta.value("io.modelcontextprotocol/clientCapabilities")
-                               .toObject()
-                               .value("elicitation")
-                               .toObject()
-                               .value("form")
-                               .isObject()
-                         : _legacyFormElicitation;
         if (!initializeRequest && !requestedVersion.isEmpty() &&
             requestedVersion != MrtrProtocolVersion && requestedVersion != ProtocolVersion) {
             output(unsupportedProtocolError(id, requestedVersion));
@@ -199,12 +189,6 @@ public:
                 return;
             }
             _negotiated = true;
-            _legacyFormElicitation = params.value("capabilities")
-                                         .toObject()
-                                         .value("elicitation")
-                                         .toObject()
-                                         .value("form")
-                                         .isObject();
             output(rpcResult(
                 id,
                 {{"protocolVersion", ProtocolVersion},
@@ -231,10 +215,7 @@ public:
             return;
         }
         const auto name = params.value("name").toString();
-        bool known = false;
-        for (const auto &tool : ToolCodec::catalog())
-            known |= tool.toObject().value("name") == name;
-        if (!known) {
+        if (!ToolCodec::isKnownTool(name)) {
             output(rpcError(id, -32602, "Unknown tool."));
             return;
         }
@@ -257,6 +238,11 @@ public:
         }
         if (_calls.size() >= Budget::MaxWireCalls) {
             output(rpcResult(id, toolResult(failure("BUSY", "Request queue is full.", true, 250))));
+            return;
+        }
+        // 退役确认只在协议入口拒绝，不进入业务队列或触发后端接线。
+        if (_requestMrtr && !params.value("requestState").toString().isEmpty()) {
+            output(rpcResult(id, toolResult(failure("COMMAND_CONFIRMATION_STALE", "COMMAND_CONFIRMATION_STALE"))));
             return;
         }
         qint64 budget = 2000;
@@ -284,12 +270,7 @@ public:
         call.tool = name;
         call.typed = std::get<ToolCall>(std::move(decoded));
         call.mrtr = _requestMrtr;
-        call.formElicitation = _requestFormElicitation;
         call.deadline = now() + budget + (_available ? 0 : 3000);
-        if (call.mrtr) {
-            call.requestState = params.value("requestState").toString();
-            call.inputResponses = params.value("inputResponses").toObject();
-        }
         _calls.insert(identifier, std::move(call));
         _timeouts.start();
         if (_available)
@@ -308,36 +289,7 @@ public:
                 continue;
             const auto call = _calls.value(id);
             _calls[id].sent = true;
-            if (const auto* transfer = std::get_if<FileTransferRequest>(&call.typed)) {
-                emit q->backendEvent(BackendFileTransferCall{call.wireId, *transfer, !call.requestState.isEmpty()});
-                continue;
-            }
-            if (const auto* serialTransfer = std::get_if<SerialFileTransferRequest>(&call.typed)) {
-                emit q->backendEvent(BackendSerialFileTransferCall{call.wireId, *serialTransfer, !call.requestState.isEmpty()});
-                continue;
-            }
-            if (const auto* wait = std::get_if<WaitTextRequest>(&call.typed)) {
-                emit q->backendEvent(BackendWaitTextCall{call.wireId, *wait, !call.requestState.isEmpty()});
-                continue;
-            }
-            if (const auto* task = std::get_if<TerminalTaskRequest>(&call.typed)) {
-                emit q->backendEvent(BackendTaskCall{call.wireId, *task, !call.requestState.isEmpty()});
-                continue;
-            }
-            if (const auto* clear = std::get_if<ClearRequest>(&call.typed)) {
-                emit q->backendEvent(BackendClearCall{call.wireId, *clear, !call.requestState.isEmpty()});
-                continue;
-            }
-            if (const auto* history = std::get_if<HistoryToolRequest>(&call.typed)) {
-                emit q->backendEvent(BackendHistoryCall{call.wireId, *history,
-                    !call.requestState.isEmpty()});
-                continue;
-            }
-            emit q->backendEvent(BackendCall{call.wireId, std::get<ToolRequest>(call.typed),
-                call.mrtr, call.formElicitation,
-                call.mrtr && !call.requestState.isEmpty() ? call.requestState : QString(),
-                call.mrtr && !call.requestState.isEmpty()
-                    ? ToolCodec::confirmationAnswer(call.inputResponses) : std::nullopt});
+            emit q->backendEvent(BackendCall{call.wireId, call.typed});
         }
     }
     void backend(const QJsonObject &message)
@@ -358,7 +310,7 @@ public:
     QTimer _timeouts;
     quint64 _nextId{0};
     bool _available{false}, _negotiated{false}, _initialized{false};
-    bool _legacyFormElicitation{false}, _requestMrtr{false}, _requestFormElicitation{false};
+    bool _requestMrtr{false};
 };
 WireSession::WireSession(QString prefix, QObject *parent, std::function<qint64()> monotonicClock)
     : QObject(parent), _impl(std::make_unique<Impl>(this, std::move(prefix), std::move(monotonicClock)))

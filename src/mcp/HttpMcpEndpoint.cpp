@@ -84,18 +84,6 @@ public:
                          [this, wire, peer](const BackendEvent &event) {
             if (const auto *call = std::get_if<BackendCall>(&event))
                 jobs.insert(peer + '/' + call->id, wire);
-            else if (const auto *history = std::get_if<BackendHistoryCall>(&event))
-                jobs.insert(peer + '/' + history->id, wire);
-            else if (const auto *clear = std::get_if<BackendClearCall>(&event))
-                jobs.insert(peer + '/' + clear->id, wire);
-            else if (const auto *wait = std::get_if<BackendWaitTextCall>(&event))
-                jobs.insert(peer + '/' + wait->id, wire);
-            else if (const auto *task = std::get_if<BackendTaskCall>(&event))
-                jobs.insert(peer + '/' + task->id, wire);
-            else if (const auto *transfer = std::get_if<BackendFileTransferCall>(&event))
-                jobs.insert(peer + '/' + transfer->id, wire);
-            else if (const auto *serialTransfer = std::get_if<BackendSerialFileTransferCall>(&event))
-                jobs.insert(peer + '/' + serialTransfer->id, wire);
             backend.receive(peer, event);
             if (const auto *cancel = std::get_if<BackendCancel>(&event))
                 jobs.remove(peer + '/' + cancel->id);

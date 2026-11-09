@@ -58,8 +58,6 @@ CapabilitySnapshot CapabilityResolver::resolve(const GrantSnapshot& grant,
     snapshot.ownedByThisClient = !facts.terminalOwner.isEmpty()
         && facts.terminalOwner == context.client.str();
     snapshot.shellIntegrationAvailable = facts.shellIntegrationAvailable;
-    snapshot.diagnosticsReady = facts.sessionRunning
-        && facts.diagnosticsExecutorAvailable && facts.targetFingerprintPresent;
 
     snapshot.capabilities = {QStringLiteral("read_context"),
         QStringLiteral("search_context")};

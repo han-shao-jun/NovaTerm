@@ -53,10 +53,6 @@ public:
     /** @brief 把 typed 动作编码回规范化 wire 形状；用于幂等摘要与提交。 */
     [[nodiscard]] static QJsonArray encodeActions(
         const std::vector<TerminalAction>& actions);
-
-    /** @brief 确认声明的唯一 JSON/MAC 边界，保持已有 requestState 格式。 */
-    [[nodiscard]] static ConfirmationAnswer confirmationAnswer(const QString& action, bool confirmed);
-    [[nodiscard]] static std::optional<ConfirmationAnswer> confirmationAnswer(const QJsonObject& responses);
 };
 
 } // namespace NovaTerm::Mcp

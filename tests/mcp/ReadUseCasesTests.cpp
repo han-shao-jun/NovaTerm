@@ -35,7 +35,7 @@ public:
     ClientAccessVersion accessVersion(const ClientId&) const override
     { return ClientAccessVersion{grant}; }
     QList<ReadSession> pageAfter(const ClientId&, const SessionId& after,
-        int limit, bool) const override
+        int limit) const override
     {
         ++pageCalls;
         if (changeDirectoryDuringPage) ++revision;
@@ -121,7 +121,7 @@ private slots:
         port.rows.insert(1, session("ab"));
         port.rows[1].visible = false;
         ReadUseCases reads{port};
-        const auto first = reads.listSessions(client, 2, std::nullopt, false);
+        const auto first = reads.listSessions(client, 2, std::nullopt);
         QVERIFY(!isError(first));
         const auto& page = std::get<SessionPage>(first);
         QCOMPARE(page.sessions.size(), 2);
@@ -131,7 +131,7 @@ private slots:
         QCOMPARE(page.next->after.str(), QStringLiteral("b"));
         QCOMPARE(page.next->directoryRevision, port.revision);
         QCOMPARE(page.next->accessVersion.value(), port.grant);
-        const auto second = reads.listSessions(client, 2, page.next, false);
+        const auto second = reads.listSessions(client, 2, page.next);
         QVERIFY(!isError(second));
         const auto& tail = std::get<SessionPage>(second);
         QCOMPARE(tail.sessions.size(), 1);
@@ -145,21 +145,21 @@ private slots:
         ReadUseCases reads{port};
         auto cursor = DirectoryCursor{SessionId{QStringLiteral("a")}, port.revision, ClientAccessVersion{port.grant}};
         ++port.revision;
-        auto result = reads.listSessions(client, 2, cursor, false);
+        auto result = reads.listSessions(client, 2, cursor);
         QVERIFY(isError(result));
         QCOMPARE(errorIfAny(result)->code, ErrorCode::CursorStale);
         QCOMPARE(port.pageCalls, 0);
         cursor.directoryRevision = port.revision;
         ++port.grant;
-        result = reads.listSessions(client, 2, cursor, false);
+        result = reads.listSessions(client, 2, cursor);
         QVERIFY(isError(result));
         QCOMPARE(errorIfAny(result)->code, ErrorCode::CursorStale);
         QCOMPARE(port.pageCalls, 0);
         port.changeDirectoryDuringPage = true;
-        result = reads.listSessions(client, 2, std::nullopt, false);
+        result = reads.listSessions(client, 2, std::nullopt);
         QVERIFY(isError(result));
         QCOMPARE(errorIfAny(result)->code, ErrorCode::CursorStale);
-        result = reads.listSessions(client, 0, std::nullopt, false);
+        result = reads.listSessions(client, 0, std::nullopt);
         QVERIFY(isError(result));
         QCOMPARE(errorIfAny(result)->code, ErrorCode::InvalidArgument);
     }

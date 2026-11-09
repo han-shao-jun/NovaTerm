@@ -132,33 +132,10 @@ public:
             [&entry] { return entry.session->tryTerminalContext(); }, nullptr, generation);
         return generation == entry.session->core()->cacheGeneration() ? base : nullptr;
     }
-    QJsonObject capabilities(const QString& client, const QString& id,
-                             bool humanConfirmation = false) {
+    QJsonObject capabilities(const QString& client, const QString& id) {
         const auto entry = sessions->find(id);
         if (!entry || !entry->session) return {};
-        const auto capability = sessionCapabilities(*entry, client, *access,
-            humanConfirmation);
-        QJsonArray capabilityNames;
-        for (const auto& name : capability.capabilities)
-            capabilityNames.append(name);
-        return {{"capabilities", capabilityNames},
-            {"permissions", QJsonObject{
-                    {"readOutput", capability.permissions.read},
-                    {"clearTerminal", capability.permissions.clearTerminal},
-                    {"terminalInput", capability.terminalInputAvailable},
-                    {"useElevation", capability.terminalInputAvailable
-                        && capability.permissions.elevation}}},
-            {"availability", QJsonObject{
-                {"inputAvailable", capability.terminalInputAvailable},
-                {"disabledReason", capability.terminalInputDisabledReason},
-                {"elevationAvailable", capability.elevationAvailable},
-                {"elevationDisabledReason", capability.elevationDisabledReason},
-                {"ownedByThisClient", capability.ownedByThisClient},
-                {"controlState", capability.terminalOwner.isEmpty()
-                    ? "idle" : "controlled"}}},
-            {"shellIntegration", QJsonObject{
-                {"available", capability.shellIntegrationAvailable}}},
-            {"elevationMethods", QJsonArray{}}}; // No unverified password-prompt adapter.
+        return capabilityMetadata(sessionCapabilities(*entry, client, *access));
     }
     std::optional<QJsonObject> token(const QString& encoded, const char* kind) const {
         const auto decoded = verifyToken(encoded, key);
@@ -185,7 +162,7 @@ public:
         facts.readyForCommand = ctrl->readyForCommand(); facts.integrated = ctrl->integrated();
         facts.pending = ctrl->pending();
         if (admission) {
-            const auto capability = sessionCapabilities(entry, client, *access, false);
+            const auto capability = sessionCapabilities(entry, client, *access);
             if (!capability.terminalInputDisabledReason.isEmpty())
                 facts.unavailable = errorCodeFromName(capability.terminalInputDisabledReason)
                     .value_or(ErrorCode::ControlInvalid);
@@ -879,9 +856,9 @@ std::optional<Error> TerminalInteraction::validateNewInput(const QString& client
         _impl->controlFacts(client, *entry));
 }
 QJsonObject TerminalInteraction::capabilities(const QString& client,
-    const QString& session, bool humanConfirmation)
+    const QString& session)
 {
-    return _impl->capabilities(client, session, humanConfirmation);
+    return _impl->capabilities(client, session);
 }
 bool TerminalInteraction::ownsCapture(const QString& client, const QString& capture) const {
     return _impl->observation->captures().ownedByClient(capture, client);

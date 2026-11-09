@@ -12,7 +12,7 @@ ReadCapabilities::ReadCapabilities(CapabilityDispatcher& dispatcher, const Mcp::
     : sessions(dispatcher, CapabilityId{"session.list"},
         [&port](SessionListQuery request, InvocationLease lease, auto done) {
             done(Mcp::ReadUseCases{port}.listSessions(Mcp::ClientId{lease.context().principal.value()},
-                request.limit, request.cursor, request.humanConfirmation));
+                request.limit, request.cursor));
         })
     , context(dispatcher, CapabilityId{"terminal.context.read"},
         [&port](ContextReadQuery request, InvocationLease lease, auto done) {

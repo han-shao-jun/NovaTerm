@@ -382,12 +382,19 @@ SFTP 的阻塞 worker 只持有共享状态、不可变连接参数和受生命�
 MCP 只提供 NovaTerm 进程拥有的 Streamable HTTP 入口；旧 stdio 程序及
 QLocalServer/QLocalSocket MCP 服务已删除。HTTP I/O worker 在 `nvterm-mcp-http`
 事件循环内拥有服务器与连接，GUI 线程保留授权、会话目录和作业调度。
+工具参数由 `ToolCodec` 解码为 `ToolCall`，通过统一 `BackendCall` 进入调度队列；
+`PendingRequest` 保留同一 variant，不再为每类工具维护并行的可选字段。
+能力准入复用目录的工具到能力映射，目录与观察输出共用能力元数据编码。
+旧确认状态在 Wire 入口拒绝，不传入业务层；上传的 `confirmationToken/confirmed`
+仍由独立上传确认流程处理。工具 description 只概括核心用途；initialize/discover 共用
+instructions，按选择、观察、执行、查询和文件传输组织调用流程，并集中说明预览字段、
+精确重试、上传确认和结果证据，避免各工具重复展开。
 脚本原文 2 MiB 与完整编码请求分开计额：请求最多 12 MiB + 256 KiB，
 响应保持 2 MiB；HTTP 原始交换、解析与排队共用 49.1875 MiB 输入额度。
 默认 URL 为 `http://127.0.0.1:38973/mcp`，应用重启后保持稳定；启动前可设置
 `NOVATERM_MCP_HTTP_PORT` 覆盖端口。只监听回环地址，每个请求核验 Bearer token、
 Host 与 Origin；端口冲突明确失败，不自动换端口或改投另一个实例。
-2025 协议用 initialize、`MCP-Session-Id` 与 SSE elicitation；TCP 断开不等于
+2025 协议用 initialize 与 `MCP-Session-Id`；旧 SSE elicitation 确认已退役，TCP 断开不等于
 取消，DELETE 结束协议会话。2026 使用无会话的每请求 metadata/MRTR，断流取消
 该请求；取消不证明目标命令已终止，未知结果仍用 `COMMAND_OUTCOME_UNKNOWN`。
 `clientConfiguration()` 导出 `{type:"http",url,headers:{Authorization:"Bearer …"}}`；

@@ -5,6 +5,20 @@
 #include <QStringList>
 
 namespace NovaTerm::Mcp::TestSupport {
+// 工具说明是 Agent 指引；兼容 fixture 继续锁定名称、参数、结果和注解。
+inline QJsonValue withoutToolDescriptions(const QJsonValue& value)
+{
+    if (value.isArray()) {
+        QJsonArray result;
+        for (const auto& item : value.toArray()) result.append(withoutToolDescriptions(item));
+        return result;
+    }
+    if (!value.isObject()) return value;
+    auto tool = value.toObject();
+    tool.remove("description");
+    return tool;
+}
+
 inline QJsonValue legacyObservationSchema(const QJsonValue& value)
 {
     if (value.isArray()) {
@@ -59,11 +73,6 @@ inline QJsonValue withDirectInputContract(const QJsonValue& value)
     token.insert("minLength", 1);
     token.insert("description", "Optional legacy observation token. Omit for direct admission after client approval. If supplied, it must remain valid; invalid or expired tokens never fall back to direct admission.");
     properties.insert("inputToken", token); input.insert("properties", properties); tool.insert("inputSchema", input);
-    auto description = tool.value("description").toString();
-    description.replace("Observe first, then use the returned inputToken to operate the explicitly authorized terminal.", "Observe the target for context, then omit inputToken for direct admission after client approval. A supplied legacy inputToken is strictly validated; it is never automatically refreshed.");
-    description.replace("Observe first and pass inputToken; never provide a password.", "Observe first for context; omit inputToken for direct admission, or supply a valid legacy token for observation-bound admission. Never provide a password.");
-    description.replace("latest inputToken and operationId.", "operationId. Omit inputToken for direct admission after client approval; any supplied legacy token remains strictly validated.");
-    tool.insert("description", description);
     return tool;
 }
 

@@ -33,8 +33,7 @@ public:
     /** @brief 新任务受理不能借用既有操作的精确重试分支。 */
     [[nodiscard]] std::optional<Error> validateNewInput(const QString& client,
         const SessionReference&, const QString& inputToken) const;
-    QJsonObject capabilities(const QString& client, const QString& session,
-                             bool humanConfirmation = false);
+    QJsonObject capabilities(const QString& client, const QString& session);
     bool ownsCapture(const QString& client, const QString& capture) const;
     bool ownsCursor(const QString& client, const QString& cursor) const;
     std::function<void()> onChanged;

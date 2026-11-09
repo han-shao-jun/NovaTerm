@@ -118,7 +118,6 @@ private slots:
     void capabilitiesFollowGrantsAndFacts();
     void terminalInputReasonOrderIsStable();
     void elevationReasonSeparatesGrantFromExecution();
-    void diagnosticsReadinessRequiresBackendAndTarget();
     void captureScopesKeepSeparateQuotas();
     void capturesExpireAndFilterByOwner();
     void snapshotStoreCoalescesWithinWindow();
@@ -502,12 +501,6 @@ void AuthorizationTests::capabilitiesFollowGrantsAndFacts()
     capabilityFacts.transportConnected = true;
     capabilityFacts.transportMatchesSession = true;
     capabilityFacts.generationMatches = true;
-    capabilityFacts.targetFingerprintPresent = true;
-    capabilityFacts.diagnosticsExecutorAvailable = true;
-    capabilityFacts.supportedDiagnostics.insert(DiagnosticId{QStringLiteral("os.uname")});
-    capabilityFacts.interactiveReachable = true;
-    capabilityFacts.scriptProviderAvailable = true;
-
     CapabilityContext context;
     context.client = ClientId{QStringLiteral("client-1")};
     auto snapshot = CapabilityResolver::resolve(read, capabilityFacts, context);
@@ -531,12 +524,6 @@ void AuthorizationTests::capabilitiesFollowGrantsAndFacts()
         change(PermissionKind::ScriptPublishAndInvoke, true, GrantRevision{3}), current);
     snapshot = CapabilityResolver::resolve(script, capabilityFacts, context);
     QVERIFY(!snapshot.capabilities.contains(QStringLiteral("run_script")));
-    QVERIFY(!snapshot.terminalInputAvailable);
-
-    capabilityFacts.unverifiedPrompt = true;
-    snapshot = CapabilityResolver::resolve(script, capabilityFacts, context);
-    QVERIFY(!snapshot.capabilities.contains(QStringLiteral("run_script")));
-    QVERIFY(!snapshot.capabilities.contains(QStringLiteral("run_command")));
     QVERIFY(!snapshot.terminalInputAvailable);
 }
 
@@ -613,30 +600,6 @@ void AuthorizationTests::elevationReasonSeparatesGrantFromExecution()
     QCOMPARE(snapshot.elevationGrantDisabledReason,
         QStringLiteral("CREDENTIAL_UPDATE_IN_PROGRESS"));
     QCOMPARE(snapshot.elevationDisabledReason, QStringLiteral("ELEVATION_ADAPTER_UNAVAILABLE"));
-}
-
-void AuthorizationTests::diagnosticsReadinessRequiresBackendAndTarget()
-{
-    FakePorts ports;
-    AuthorizationService service{ports.ports()};
-    const auto grant = apply(service, change(PermissionKind::ReadOutput, true), facts());
-    CapabilityFacts capabilityFacts;
-    capabilityFacts.sessionRunning = true;
-    capabilityFacts.diagnosticsExecutorAvailable = true;
-    capabilityFacts.targetFingerprintPresent = false;
-    CapabilityContext context;
-    context.client = ClientId{QStringLiteral("client-1")};
-    auto snapshot = CapabilityResolver::resolve(grant, capabilityFacts, context);
-    QVERIFY(!snapshot.diagnosticsReady);
-
-    capabilityFacts.targetFingerprintPresent = true;
-    capabilityFacts.diagnosticsExecutorAvailable = false;
-    snapshot = CapabilityResolver::resolve(grant, capabilityFacts, context);
-    QVERIFY(!snapshot.diagnosticsReady);
-
-    capabilityFacts.diagnosticsExecutorAvailable = true;
-    snapshot = CapabilityResolver::resolve(grant, capabilityFacts, context);
-    QVERIFY(snapshot.diagnosticsReady);
 }
 
 void AuthorizationTests::captureScopesKeepSeparateQuotas()

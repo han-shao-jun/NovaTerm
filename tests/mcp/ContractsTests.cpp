@@ -449,7 +449,7 @@ private slots:
         for (const auto& frozen : expected) {
             const auto old = frozen.toObject(); const auto name = old.value("name").toString();
             const auto tool = toolByName(name);
-            if (name != "novaterm_upload_serial_file") QCOMPARE(tool, old);
+            if (name != "novaterm_upload_serial_file") QCOMPARE(withoutToolDescriptions(tool), withoutToolDescriptions(old));
             QCOMPARE(transferResultSchema(tool), transferResultSchema(old));
             const auto data = transferResultSchema(tool);
             QVERIFY(!data.value("additionalProperties").toBool(true));
@@ -477,7 +477,7 @@ private slots:
             auto values = state.value("enum").toArray(); QVERIFY(!values.contains("downloading"));
             values.insert(3, "downloading"); state.insert("enum", values); fields.insert("state", state);
             data.insert("properties", fields); envelope.insert("data", data); output.insert("properties", envelope);
-            old.insert("outputSchema", output); QCOMPARE(tool, old);
+            old.insert("outputSchema", output); QCOMPARE(withoutToolDescriptions(tool), withoutToolDescriptions(old));
             QVERIFY(validateBusinessArguments(name, {{"transferId", OperationUuid}}).isEmpty());
             QVERIFY(isError(decodeBusinessCall(name, {{"transferId", "invalid"}})));
             QVERIFY(!validateBusinessArguments(name, {{"transferId", OperationUuid}, {"clientId", "other"}}).isEmpty());
@@ -489,12 +489,13 @@ private slots:
         const auto serial = toolByName("novaterm_upload_serial_file").value("description").toString();
         for (const auto& description : {sftp, serial}) {
             QVERIFY(description.contains("confirmation_required"));
-            QVERIFY(description.contains("Never auto-confirm"));
-            QVERIFY(description.contains("operationId"));
+            QVERIFY(description.contains("never auto-confirm"));
         }
-        QVERIFY(serial.contains("ZSKIP")); QVERIFY(serial.contains("automatically"));
-        QVERIFY(serial.contains("Prepare the receiver separately"));
-        QVERIFY(!serial.contains("explicitly release"));
+        const auto instructions = agentInstructions();
+        QVERIFY(instructions.contains("operationId"));
+        QVERIFY(instructions.contains("ZSKIP"));
+        QVERIFY(instructions.contains("Prepare the receiver separately"));
+        QVERIFY(instructions.contains("input control automatically"));
     }
     void workflowCatalogMatchesFrozenFixture()
     {
@@ -508,7 +509,7 @@ private slots:
         const auto document = QJsonDocument::fromJson(fixture.readAll(), &parseError);
         QVERIFY2(parseError.error == QJsonParseError::NoError, qPrintable(parseError.errorString()));
         QVERIFY(document.isArray());
-        QCOMPARE(legacyObservationSchema(workflow), withDirectInputContract(document.array()));
+        QCOMPARE(withoutToolDescriptions(legacyObservationSchema(workflow)), withoutToolDescriptions(withDirectInputContract(document.array())));
     }
     void workflowToolsAreBoundedAndIndependent()
     {
@@ -578,7 +579,7 @@ private slots:
         const auto document = QJsonDocument::fromJson(fixture.readAll(), &parseError);
         QVERIFY2(parseError.error == QJsonParseError::NoError, qPrintable(parseError.errorString()));
         QVERIFY(document.isObject());
-        QCOMPARE(toolByName("novaterm_clear_terminal"), document.object());
+        QCOMPARE(withoutToolDescriptions(toolByName("novaterm_clear_terminal")), withoutToolDescriptions(document.object()));
     }
     void logReadRequiresExplicitSourceAndStart();
     void catalogMatchesCompatibilityFixture();
@@ -649,11 +650,11 @@ void ContractsTests::catalogMatchesCompatibilityFixture()
         if (retiredTool(name)) continue;
         const auto current = toolByName(name);
         if (name != "novaterm_read_context") {
-            QCOMPARE(legacyObservationSchema(current), retainedSchema(previousTool)); continue;
+            QCOMPARE(withoutToolDescriptions(legacyObservationSchema(current)), withoutToolDescriptions(retainedSchema(previousTool))); continue;
         }
         QFile logFixture(QStringLiteral(NOVATERM_SOURCE_DIR "/tests/mcp/fixtures/read-context-clear-2026-10-25.json"));
         QVERIFY(logFixture.open(QIODevice::ReadOnly));
-        QCOMPARE(legacyObservationSchema(current), QJsonValue(QJsonDocument::fromJson(logFixture.readAll()).object()));
+        QCOMPARE(withoutToolDescriptions(legacyObservationSchema(current)), withoutToolDescriptions(QJsonDocument::fromJson(logFixture.readAll()).object()));
         QFile b1Fixture(QStringLiteral(NOVATERM_SOURCE_DIR "/tests/mcp/fixtures/read-context-log-2026-10-25.json"));
         QVERIFY(b1Fixture.open(QIODevice::ReadOnly));
         const auto b1 = QJsonDocument::fromJson(b1Fixture.readAll()).object();

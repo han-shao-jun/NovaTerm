@@ -6,7 +6,7 @@ namespace NovaTerm::Mcp {
 ReadUseCases::ReadUseCases(const ReadSessionPort& sessions) : _sessions(sessions) {}
 
 Result<SessionPage> ReadUseCases::listSessions(const ClientId& client, int limit,
-    const std::optional<DirectoryCursor>& cursor, bool humanConfirmation) const
+    const std::optional<DirectoryCursor>& cursor) const
 {
     // 同样供非 MCP 入口调用，不能依赖 wire Schema 提供有效页大小。
     if (limit < 1 || limit > 200)
@@ -17,7 +17,7 @@ Result<SessionPage> ReadUseCases::listSessions(const ClientId& client, int limit
         return Error{ErrorCode::CursorStale};
 
     const auto after = cursor ? cursor->after : SessionId{};
-    const auto rows = _sessions.pageAfter(client, after, limit + 1, humanConfirmation);
+    const auto rows = _sessions.pageAfter(client, after, limit + 1);
     if (revision != _sessions.directoryRevision() || grant != _sessions.accessVersion(client))
         return Error{ErrorCode::CursorStale};
 

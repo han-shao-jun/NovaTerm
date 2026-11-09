@@ -23,8 +23,6 @@
 
 namespace NovaTerm::Mcp {
 
-enum class ConfirmationAnswer { Accept, Decline, Cancel };
-
 /** @brief 读取投影模式；缺省语义由具体工具决定。 */
 enum class ProjectionMode
 {

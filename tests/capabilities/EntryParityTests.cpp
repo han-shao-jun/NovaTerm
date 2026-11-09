@@ -13,7 +13,7 @@ public:
     mutable M::ClientId observed;
     quint64 directoryRevision() const override { return 1; }
     M::ClientAccessVersion accessVersion(const M::ClientId&) const override { return M::ClientAccessVersion{1}; }
-    QList<M::ReadSession> pageAfter(const M::ClientId& client, const M::SessionId&, int, bool) const override {
+    QList<M::ReadSession> pageAfter(const M::ClientId& client, const M::SessionId&, int) const override {
         observed = client;
         M::ReadSession row;
         row.reference = {M::SessionId{"session"}, M::Epoch{"epoch"}};
