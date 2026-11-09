@@ -2893,8 +2893,7 @@ static sftp_limits_t sftp_limits_use_default(sftp_session sftp)
 
     limits->max_packet_length = 34000;
     /*
-     * NovaTerm local change: raise the fallback single-packet limits from the
-     * upstream 32 KiB.
+     * NovaTerm 本地改动：保留较大的读取请求，以维持已测下载吞吐。
      *
      * These defaults only apply when the server did NOT negotiate
      * limits@openssh.com, i.e. they are a client-side guess, not a constraint
@@ -2907,16 +2906,13 @@ static sftp_limits_t sftp_limits_use_default(sftp_session sftp)
      * has. Keeping the guess at 32 KiB made NovaTerm exactly 2x slower for
      * reasons that have nothing to do with the caller's buffer sizes.
      *
-     * 256 KiB matches the largest single SFTP packet in wide use (OpenSSH's
-     * sftp-server advertises exactly this) and matches NovaTerm's own
-     * TransferChunkBytes, so the request never exceeds the caller's buffer.
-     * Servers that cap their reply below this simply produce short reads,
-     * which the protocol and every client already handle. The extension is
-     * still preferred when available: sftp_init() only falls back here when
-     * the server said nothing.
+     * 读取请求本身很小，服务端可以返回短读；写入包则包含完整数据和
+     * 协议头。将 256 KiB 数据直接作为写入上限会超过旧版 OpenSSH 的
+     * 256 KiB 整包上限，使通道关闭并留下空临时文件。未协商时写入
+     * 恢复上游的保守值；支持 limits 扩展时仍优先使用服务端通告值。
      */
     limits->max_read_length = 256 * 1024;
-    limits->max_write_length = 256 * 1024;
+    limits->max_write_length = 32768;
 
     /*
      * For max-open-handles field openssh says :
