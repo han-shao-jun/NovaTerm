@@ -55,19 +55,17 @@ public:
         auto control = session._control;
         control->running = true;
         control->connected = true;
-        control->activeUploadRequestId = 7;
-        control->queuedUploadBytes = 11;
+        control->activeFileUpload = std::make_shared<SftpFileUploadControl>();
         const quint64 generation = control->generation;
         session._thread = QThread::create(
             [control, generation, &entered, &resume, &finished, &cancelled] {
                 entered.release();
                 resume.acquire();
-                cancelled = SftpSession::isUploadCancelled(control, 7);
+                cancelled = control->activeFileUpload->state.load()
+                    == SftpFileUploadControl::State::Cancelled;
                 {
                     QMutexLocker lock(&control->queueMutex);
-                    control->queuedUploadBytes -= 11;
-                    control->activeUploadRequestId = 0;
-                    control->cancelledUploadRequests.remove(7);
+                    control->activeFileUpload.reset();
                 }
                 SftpSession::postError(control, generation, QStringLiteral("late"));
                 SftpSession::finishWorker(control, generation);
@@ -120,16 +118,6 @@ public:
     static SftpFileUploadResult downloadWorker(sftp_session sftp, ssh_session ssh, const SftpFileUploadRequest& request)
     { return SftpSession::downloadAuthorizedFileWorker(sftp, ssh, request, [] { return false; },
         [](quint64, quint64) {}, [] {}); }
-
-    static bool finalize(const std::function<bool()>& cancelled,
-                         const std::function<bool()>& close,
-                         const std::function<bool()>& chmod,
-                         const std::function<bool()>& publish,
-                         const std::function<void()>& discard, QString& error)
-    {
-        return SftpSession::finalizeScriptUpload(
-            cancelled, close, chmod, publish, discard, error);
-    }
 };
 
 class SftpSessionSafetyTests final : public QObject
@@ -151,20 +139,6 @@ private slots:
         resume.release();
         QTRY_VERIFY(finished.load());
         QTRY_VERIFY(session.canStartConnection());
-    }
-    void workerExitSettlesQueuedScriptUpload()
-    {
-        SftpSession session;
-        auto worker = SftpSessionSafetyTestAccess::control(session);
-        worker->running = true; worker->connected = true;
-        QSignalSpy results(&session, &SftpSession::uploadBytesFinished);
-        QVERIFY(session.uploadBytes(778, QByteArray("queued"), QStringLiteral("/tmp/script")));
-        SftpSessionSafetyTestAccess::finishWorker(worker);
-        QTRY_COMPARE_WITH_TIMEOUT(results.size(), 1, 500);
-        QCOMPARE(results.first().at(0).toULongLong(), quint64(778));
-        QVERIFY(!results.first().at(2).toBool());
-        QCOMPARE(results.first().at(3).toString(), QStringLiteral("SESSION_NOT_AVAILABLE"));
-        QCOMPARE(worker->queuedUploadBytes, qsizetype(0));
     }
     void acceptedDirectoryRequestSettlesOnNaturalWorkerExit() {
         SftpSession session;
@@ -556,53 +530,16 @@ private slots:
         session.reset();
         QVERIFY(!control->receiver);
         QVERIFY(!control->running);
-        // Active bytes remain owned by the abandoned worker until it resumes.
-        QCOMPARE(control->queuedUploadBytes, qsizetype(11));
+        // 活动传输状态仍由被放弃的工作线程持有，恢复后才释放。
+        QVERIFY(control->activeFileUpload);
         resume.release();
         QTRY_VERIFY(finished.load());
         QVERIFY(cancelled.load());
-        QCOMPARE(control->queuedUploadBytes, qsizetype(0));
+        QVERIFY(!control->activeFileUpload);
         QVERIFY(!control->connected);
         control.reset();
         QTRY_VERIFY(worker.isNull());
         QTRY_VERIFY(lifetime.expired());
-    }
-
-    void cancellationAtPublicationBoundaries_data()
-    {
-        QTest::addColumn<QString>("cancelAt");
-        QTest::addColumn<bool>("published");
-        QTest::newRow("before-close") << QStringLiteral("before") << false;
-        QTest::newRow("during-close") << QStringLiteral("close") << false;
-        QTest::newRow("during-chmod") << QStringLiteral("chmod") << false;
-        QTest::newRow("during-rename") << QStringLiteral("rename") << true;
-        QTest::newRow("no-cancellation") << QString{} << true;
-    }
-
-    void cancellationAtPublicationBoundaries()
-    {
-        QFETCH(QString, cancelAt);
-        QFETCH(bool, published);
-        bool cancelled = cancelAt == QStringLiteral("before");
-        QStringList operations;
-        QString error;
-        const auto operation = [&](const QString& name) {
-            operations.append(name);
-            if (cancelAt == name)
-                cancelled = true;
-            return true;
-        };
-        const bool success = SftpSessionSafetyTestAccess::finalize(
-            [&] { return cancelled; },
-            [&] { return operation(QStringLiteral("close")); },
-            [&] { return operation(QStringLiteral("chmod")); },
-            [&] { return operation(QStringLiteral("rename")); },
-            [&] { operations.append(QStringLiteral("discard")); }, error);
-        QCOMPARE(success, published);
-        QCOMPARE(operations.contains(QStringLiteral("rename")), published);
-        QCOMPARE(operations.contains(QStringLiteral("discard")), !published);
-        QCOMPARE(operations.constFirst(), QStringLiteral("close"));
-        QCOMPARE(error, published ? QString{} : QStringLiteral("SCRIPT_UPLOAD_CANCELLED"));
     }
 
     void workerExitSettlesAcceptedFileUpload_data()
@@ -722,17 +659,6 @@ private slots:
         QCOMPARE(result.temporary, QStringLiteral("removed"));
         QCOMPARE(result.errorCode, QStringLiteral("TRANSFER_CANCELLED"));
     }
-
-    void failedRenameRetainsUnknownPublicationOutcome()
-    {
-        bool discarded = false;
-        QString error;
-        QVERIFY(!SftpSessionSafetyTestAccess::finalize(
-            [] { return false; }, [] { return true; }, [] { return true; },
-            [] { return false; }, [&] { discarded = true; }, error));
-        QVERIFY(discarded);
-        QCOMPARE(error, QStringLiteral("SCRIPT_PUBLICATION_OUTCOME_UNKNOWN"));
-    }
 };
 
 int main(int argc, char** argv)
@@ -757,11 +683,6 @@ int main(int argc, char** argv)
             [&](const QString&, const QVector<SftpFileInfo>&) { ++listed; });
         QObject::connect(&session, &SftpSession::operationFinished, &app,
             [&](const QString&, const QString&) { ++finished; });
-        QObject::connect(&session, &SftpSession::uploadBytesFinished, &app,
-            [&](quint64, const QString&, bool ok, const QString& error) {
-                if (ok) ++finished;
-                else { ++errors; lastError = error; }
-            });
         session.connectToHost(config, {}, app.arguments()[4]);
         QElapsedTimer clock; clock.start();
         while (!connections && !errors && clock.elapsed() < 10000) QTest::qWait(10);
@@ -769,9 +690,6 @@ int main(int argc, char** argv)
         if (scenario.startsWith("list-")) session.listDirectory("/");
         else if (scenario.startsWith("tree-")) session.downloadDirectory("/", localRoot + "/download");
         else if (scenario.startsWith("directory-")) session.uploadDirectory(localRoot + "/source", "/upload");
-        else if (scenario.startsWith("script-")) {
-            if (!session.uploadBytes(99, "fixture", "/upload")) return 4;
-        }
         else session.uploadFile(localRoot + "/source/file.bin", "/upload.bin");
         if (scenario.endsWith("cancel")) {
             while (!QFile::exists(localRoot + "/started") && clock.elapsed() < 5000) QTest::qWait(10);

@@ -2,8 +2,7 @@
  * @file Permissions.h
  * @brief 独立权限选择、授权快照与单项授权修改请求。
  *
- * 设计约束（2026-10-18 运行期重构设计 §4.3/§8）：读取、固定诊断、风险受控
- * 命令、脚本、完整终端输入与托管提权互不合并；界面与业务只提交带连接
+ * 读取、完整终端输入、托管提权与清屏分别授权；界面与业务只提交带连接
  * 绑定和预期行版本的单项修改，不再整组回写。
  */
 #pragma once
@@ -11,19 +10,12 @@
 #include "Identifiers.h"
 #include "SessionBinding.h"
 
-#include <QSet>
-
-#include <optional>
-
 namespace NovaTerm::Mcp {
 
-/** @brief 独立权限种类；固定诊断另带一个 `DiagnosticId`。 */
+/** @brief 现行 MCP 工具的独立权限种类。 */
 enum class PermissionKind
 {
     ReadOutput,
-    Diagnostic,
-    RiskControlledTerminalCommand,
-    ScriptPublishAndInvoke,
     FullTerminalInput,
     ManagedElevation,
     ClearTerminal,
@@ -33,9 +25,6 @@ enum class PermissionKind
 struct PermissionSelection
 {
     bool read{false};
-    QSet<DiagnosticId> diagnostics;
-    bool riskControlledCommand{false};
-    bool script{false};
     bool fullTerminalInput{false};
     bool elevation{false};
     bool clearTerminal{false}; ///< 仅清除本机终端缓存；完整输入授权不隐含此权限。
@@ -43,9 +32,6 @@ struct PermissionSelection
     friend bool operator==(const PermissionSelection& left, const PermissionSelection& right)
     {
         return left.read == right.read
-            && left.diagnostics == right.diagnostics
-            && left.riskControlledCommand == right.riskControlledCommand
-            && left.script == right.script
             && left.fullTerminalInput == right.fullTerminalInput
             && left.elevation == right.elevation
             && left.clearTerminal == right.clearTerminal;
@@ -95,7 +81,7 @@ struct AuthorizationError
  * @brief 一次只改一项的授权请求。
  *
  * `binding`/`expectedRevision` 来自界面快照；服务端用当前会话事实重验，
- * 不符即拒绝。`diagnostic` 仅在 `kind == Diagnostic` 时使用。
+ * 不符即拒绝。
  */
 struct PermissionChange
 {
@@ -103,7 +89,6 @@ struct PermissionChange
     SessionBinding binding;
     GrantRevision expectedRevision;
     PermissionKind kind{PermissionKind::ReadOutput};
-    std::optional<DiagnosticId> diagnostic;
     bool selected{false};
 };
 

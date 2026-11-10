@@ -3,7 +3,6 @@
 #include "mcp/CapabilityAdapter.h"
 #include "mcp/McpAccess.h"
 #include "mcp/McpService.h"
-#include "session/SessionCommandFacade.h"
 #include "session/SessionTerminalController.h"
 
 namespace NovaTerm::Ui {
@@ -82,8 +81,7 @@ QVector<SessionPermissionRow> SettingsController::rows(const QString& clientId) 
 }
 
 SettingsController::Outcome SettingsController::submit(const SessionPermissionRow& row,
-    NovaTerm::Mcp::PermissionKind kind,
-    std::optional<NovaTerm::Mcp::DiagnosticId> diagnostic, bool selected) const
+    NovaTerm::Mcp::PermissionKind kind, bool selected) const
 {
     Outcome outcome;
     if (!_service)
@@ -106,7 +104,6 @@ SettingsController::Outcome SettingsController::submit(const SessionPermissionRo
     change.binding = row.binding;
     change.expectedRevision = row.revision;
     change.kind = kind;
-    change.diagnostic = diagnostic;
     change.selected = selected;
     auto result = _service->access().changePermission(change, *entry);
     if (isError(result)) {

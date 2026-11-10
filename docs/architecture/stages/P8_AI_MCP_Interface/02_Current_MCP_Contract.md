@@ -282,6 +282,7 @@ Session ID、epoch、attachment、连接generation与目标身份共同约束实
 | 读取输出 | 允许read/search，但不授予任何输入/执行 |
 | 完整终端输入 | interact_terminal的text/key/paste等，新就绪连接默认开启，不逐条风险确认 |
 | 托管提权 | 依赖完整输入，新就绪连接默认开启；当前可信适配器为空，任何请求零取密/零输入 |
+| 清空终端 | 独立授权，只清本机终端缓存；新就绪连接默认开启，完整输入不隐含此权限 |
 
 授权选择、可信身份、执行就绪是不同事实：五类连接可保存已知权限，后端缺失仍不可执行。取消读取级联执行撤权；取消输入撤销提权；凭据变更撤销提权。旧UI行按绑定/行版本拒绝，不能将旧撤销意图改成新连接授权。
 令牌重置或总开关关闭使旧身份绑定与访问失效。每个新就绪连接默认开启四项会话权限；同连接内手动撤权保留，状态刷新不自动恢复。文件与历史许可不从终端默认选择推导。
@@ -289,7 +290,7 @@ Session ID、epoch、attachment、连接generation与目标身份共同约束实
 ### 3.1 线程、所有权与唯一数据通路
 
 View拥有Session，目录只保存弱引用；HTTP I/O不解引用Session。应用/授权/任务与Session操作在其所属线程串行，搜索worker只读有界不可变内容，不复用UI SearchEngine的可变搜索实例。
-出站：User/MCP→SessionInputArbiter→ITransport::write。入站：ITransport::readyRead→SessionInputPump→Framer剥离内部标记→TerminalCore→Renderer/回滚/上下文；同一入站流的有界事务片段供Coordinator形成完成证据。
+出站：User/MCP→SessionInputArbiter→ITransport::write。入站：ITransport::readyRead→SessionInputPump→Framer剥离内部标记→TerminalCore→Renderer/回滚/上下文；Coordinator仅维护提示符候选、静默窗和就绪证据，Controller负责现行输入与命令状态。
 Parser仍为单写；MCP不直接调用TerminalView输入、Core paste或具体Transport，不建立绕过终端模型的第二份日志。可信提示符证据只有Session EvidenceModel一个写入真源，静默/候选与用户输入代际不能由不同消费者独立复活。
 Serial/Telnet 的 Profile 显式描述提示符正则、CR/LF/CRLF 和回显，不自动探测。interact_terminal 的 command 动作要求提示符就绪，证据不足时可使用独立允许的 text/key/paste。提示符匹配不证明目标支持 POSIX 或能可信接收凭据；可靠行编辑上下文不足时保持未知。
 
@@ -440,10 +441,13 @@ maxBytes连下一个UTF-8字符都容不下返回TEXT_BUDGET_TOO_SMALL，不应�
 
 `novaterm_list_commands`、`novaterm_execute_command`、`novaterm_run_command`、
 `novaterm_run_script`不再注册、列出、解码或执行，直接调用得到JSON-RPC
-`-32602 / Unknown tool.`。终端领域请求由九项缩为五项，完整工具目录由30缩为26。
+`-32602 / Unknown tool.`。现行基础终端工具为五项，完整目录为二十项。
 保留工具的参数和资源授权不变；list_sessions不再报告上述能力或human_confirmation。
 旧授权选择不自动转换为完整输入。需要操作设备时使用已单独授权的终端交互/任务；
 文件传输和随后执行仍分别授权，旧脚本发布与风险扫描/人工确认执行通路不再提供。
+固定诊断、受控命令与脚本授权字段及保存目标的初始化接口已删除。旧Facade、Executor、
+ScriptProvider、本地诊断helper、SFTP脚本字节上传及其有界SSH exec接口均不再构建；
+当前输入和任务继续复用Controller/Framer/Arbiter。会话目录直接计算目标指纹，凭据核验复用同一入口。
 
 ## 8. 取消、控制权与未知结果
 
@@ -454,7 +458,7 @@ maxBytes连下一个UTF-8字符都容不下返回TEXT_BUDGET_TOO_SMALL，不应�
 
 ## 9. 输出封装与错误处理
 
-成功为schemaVersion=1、ok=true、data；失败为schemaVersion=1、ok=false、error，含code/message/retryable及可选retryAfterMs/details。具体各工具data/details按outputSchema，不把不同工具结果压成同一字段集合。
+成功为schemaVersion=1、ok=true、data；失败为schemaVersion=1、ok=false、error，含code/message/retryable及可选retryAfterMs。旧命令/脚本ExecutionErrorDetails与其schema已删除；现行终端结果中的command证据保持。具体各工具data按outputSchema，不把不同工具结果压成同一字段集合。
 MCP structuredContent与content.text来自同一份有界业务对象；最终预算按两份编码表示计算，不能分别采样。业务失败按实际wire投影标isError；非法JSON/JSON-RPC/未知方法或工具属于协议层错误。
 判断依据code/执行证据而非message；不回显token、完整脚本、异常栈、framing nonce。非零退出、工具故障、取消和outcome_unknown分别处理。
 
@@ -463,73 +467,12 @@ MCP structuredContent与content.text来自同一份有界业务对象；最终�
 | 参数/容量 | INVALID_ARGUMENT、BUSY、DEADLINE_EXCEEDED、RESPONSE_TOO_LARGE/RESPONSE_METADATA_LIMIT；只读可按retry提示有界等待 |
 | 目标/游标 | SESSION_NOT_AVAILABLE、STALE_SESSION_EPOCH、CURSOR_STALE、CAPTURE_EXPIRED/NOT_AVAILABLE；重新确认身份，不重发旧写操作 |
 | 输入 | CONTROL_INVALID、INPUT_TOKEN_EXPIRED、INPUT_ALREADY_SUBMITTED、INPUT_OUT_OF_ORDER、INPUT_SEQUENCE_CONFLICT、CONTEXT_NOT_READY；重新观察，不能换ID盲重试 |
-| 命令/确认 | COMMAND_PERMISSION_REQUIRED、COMMAND_CONFIRMATION_*、COMMAND_TICKET_*、COMMAND_OUTCOME_UNKNOWN、COMMAND_EXECUTION_QUARANTINED；按授权/证据处理 |
+| 命令/确认 | COMMAND_CONTEXT_CHANGED、COMMAND_OUTCOME_UNKNOWN；按当前执行证据处理。COMMAND_CONFIRMATION_STALE仅拒绝旧确认状态，不恢复旧执行入口 |
 | 凭据/提权 | TARGET_IDENTITY_UNVERIFIED、ELEVATION_ADAPTER_UNAVAILABLE、CREDENTIAL_UPDATE_IN_PROGRESS；不取密/不自动提权 |
 
-当前typed Errors.cpp映射的完整名称清单（不把历史APP_NOT_RUNNING/INSTANCE_SELECTION_REQUIRED等恢复为当前入口要求）：
-~~~text
-INVALID_ARGUMENT
-BUSY
-DEADLINE_EXCEEDED
-MCP_DISABLED
-APP_UNAVAILABLE
-RESPONSE_TOO_LARGE
-RESPONSE_METADATA_LIMIT
-SESSION_NOT_AVAILABLE
-SESSION_NOT_READY
-SESSION_CLOSED
-STALE_SESSION_EPOCH
-CURSOR_STALE
-CAPTURE_EXPIRED
-CAPTURE_NOT_AVAILABLE
-CONTEXT_NOT_READY
-TASK_NOT_AVAILABLE
-COMMAND_PERMISSION_REQUIRED
-COMMAND_POLICY_CHANGED
-COMMAND_PROFILE_UNAVAILABLE
-COMMAND_UNAVAILABLE
-COMMAND_NOT_ALLOWED
-COMMAND_IN_PROGRESS
-COMMAND_TICKET_EXPIRED
-COMMAND_TICKET_SCOPE_INVALID
-COMMAND_EXECUTION_QUARANTINED
-COMMAND_CONFIRMATION_EXPIRED
-COMMAND_CONFIRMATION_STALE
-COMMAND_CONFIRMATION_CANCELLED
-COMMAND_CONFIRMATION_DECLINED
-COMMAND_CONTEXT_CHANGED
-COMMAND_OUTPUT_LIMIT
-COMMAND_OUTCOME_UNKNOWN
-COMMAND_FAILED
-COMMAND_TIMEOUT
-COMMAND_SCRIPT_INVOCATION_INVALID
-COMMAND_SCRIPT_RISK_UNKNOWN
-TERMINAL_PERMISSION_REQUIRED
-TERMINAL_BUSY
-CONTROL_INVALID
-INPUT_BUSY
-INPUT_ALREADY_SUBMITTED
-INPUT_OUT_OF_ORDER
-INPUT_SEQUENCE_CONFLICT
-INPUT_TOKEN_EXPIRED
-TEXT_BUDGET_TOO_SMALL
-SCRIPT_PERMISSION_REQUIRED
-SCRIPT_PROVIDER_UNAVAILABLE
-SCRIPT_TARGET_INVALID
-SCRIPT_WRITE_FAILED
-SCRIPT_CANCELLED_BY_USER
-SCRIPT_PUBLICATION_OUTCOME_UNKNOWN
-SCRIPT_PUBLISHED_NOT_INVOKED
-ELEVATION_PERMISSION_REQUIRED
-ELEVATION_ADAPTER_UNAVAILABLE
-CLIENT_CONFIRMATION_UNAVAILABLE
-TARGET_IDENTITY_UNVERIFIED
-FILE_TRANSFER_BUSY
-CREDENTIAL_UPDATE_IN_PROGRESS
-SESSION_COMMAND_BUSY
-SESSION_COMMAND_NOT_READY
-~~~
-完整运行路径还应结合ToolCodec及HTTP/wire测试；这张typed清单不宣称覆盖所有传输层状态。
+当前类型化错误名称以 [Errors.cpp](../../../../src/mcp/contracts/Errors.cpp) 为准；
+无消费者的旧诊断、脚本、票据和保存目标错误映射已删除。完整运行路径还应结合
+ToolCodec及HTTP/wire测试，不从历史错误码推断当前存在对应工具。
 
 ## 10. 字节、时间与资源预算
 
@@ -540,8 +483,8 @@ SESSION_COMMAND_NOT_READY
 | capture | 连接4、客户端4/客户端scope全局32、TTL60000ms |
 | full/compact | full默认65536字节/256行、硬限262144/1024；compact4096/24、最终8192字节 |
 | 输入 | 1～64动作，总文本16384字节、编码65536；控制闲置续期60000ms |
-| 输出/脚本/记录 | 命令输出65536字节；脚本原文2097152字节；待发布8；每客户端执行记录32/总128 |
-| wire | 响应帧2MiB、待写队列4MiB；请求6×2MiB脚本+256KiB信封；wire余量5000ms |
+| 终端任务记录 | 每客户端32/总128，结果保留600000ms；任务输出引用终端日志 |
+| wire | 响应帧2MiB、待写队列4MiB；请求12MiB+256KiB信封；wire余量5000ms |
 | HTTP | Header16KiB、socket buffer16KiB、socket16、request32；单输出4MiB、全局8MiB；输入4×(请求上限+16KiB)+128KiB |
 
 请求预算不放宽响应；文本上限不是整个进程内存上限，必须另计JSON/DTO/队列/worker/临时编码。
@@ -550,8 +493,8 @@ HTTP input公式对应当前实现49.1875MiB，不将原档案旧IPC握手/执�
 
 ## 11. 兼容证明与历史差异
 
-- 九工具fixture逐对象相等，包括annotation、required/default、未知字段拒绝；参数边界由ContractsTests逐工具验证，不只数工具。
-- 2025/2026路由/确认/断流由WireSession/HTTP/endpoint验证；授权、输入、脚本、unknown/目标保护由MCP专项验证。
+- 当前目录及参数由ContractsTests逐工具验证，包括annotation、required/default、未知字段拒绝；历史fixture只对照仍保留的工具，不恢复已退役入口。
+- 2025/2026路由/确认/断流由WireSession/HTTP/endpoint验证；现行授权、输入、任务、未知结果与文件传输由MCP专项验证。
 - 旧P8中的五工具/七工具、stdio/IPC、多实例discovery、execute_command旧idempotentHint=true、旧Grant整组写入和双提示符模型均为历史，不作为新实现要求。
 - 原v0.6只有run_command/script，后续完整输入/提权加入后是九工具；工具存在不证明提权或所有后端可用。
 - 历史“最终结构验收”仅是当时迁移结论；后续结构和行为验证按 [当前实施顺序](01_Phases_and_Acceptance.md) 执行，不再沿用旧 P0/P1 计划。

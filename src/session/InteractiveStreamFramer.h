@@ -17,8 +17,6 @@
 enum class InteractiveStreamEventKind
 {
     PromptReady,
-    CommandStarted,
-    CommandFinished,
     CommandFinishedAtPrompt,
     ShellReset,
     FramingError,
@@ -48,27 +46,21 @@ class InteractiveStreamFramer final
 {
 public:
     void configure(InteractiveCommandProfile profile);
-    void reset(quint64 generation, QByteArray executionNonce = {});
+    void reset();
     /** @brief 为当前提示符开始一个新事务，不重置提示符状态。 */
-    void beginTransaction(QByteArray executionNonce,
-                          QByteArray echoSuffix = {});
-    [[nodiscard]] QByteArray endTransaction();
+    void beginTransaction();
+    void endTransaction();
     [[nodiscard]] InteractiveFrameResult consume(const QByteArray& bytes);
 
 private:
     [[nodiscard]] qsizetype partialPrefixLength() const;
-    [[nodiscard]] QByteArray filterEcho(const QByteArray& bytes);
     [[nodiscard]] std::optional<InteractiveStreamEvent> parseMarker(
         const QByteArray& body);
 
     InteractiveCommandProfile _profile;
     QRegularExpression _promptMatcher; ///< _profile.promptPattern 的编译结果
     QByteArray _pending;
-    QByteArray _executionNonce;
-    QByteArray _echoSuffix;
-    QByteArray _echoCandidate;
-    bool _suppressEchoUntilLineFeed{false};
-    quint64 _sessionGeneration{0};
+    bool _transactionActive{false};
     quint64 _promptGeneration{0};
     QByteArray _deviceLine;
     QByteArray _deviceControlTail;

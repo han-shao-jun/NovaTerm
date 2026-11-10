@@ -24,8 +24,8 @@ flowchart LR
 ```
 
 阶段编号表示默认落地顺序，不禁止无侵入的前期调研。任何阶段不得绕过前一阶段确立的数据所有权。
-P8 首期依赖 P4/P6 的有界文本与 Session 边界；受限 SSH 命令还需复用现有 exec
-通道，并与 P7 静态预取/慢查询仲裁，不恢复后台文件系统轮询。
+P8 依赖 P4/P6 的有界文本与 Session 边界；命令和任务复用已连接终端的
+Controller/Framer/Arbiter。旧诊断执行器及其有界 SSH exec 接口已删除，P7 的只读监控通道独立保留。
 
 P9 的协议库与测试独立于 P6/P8，先按 XMODEM → YMODEM → ZMODEM 实现。
 三个协议验收后再考虑依赖 P6 的串口接线；该接入不属于当前 P9 实施范围。
@@ -49,8 +49,9 @@ P9 的协议库与测试独立于 P6/P8，先按 XMODEM → YMODEM → ZMODEM �
 [P9 阶段文档](stages/P9_File_Transfer_Protocols.md)。
 
 **P8：AI MCP 接口**采用 Session 只读上下文与独立授权的输入/命令能力。
-[MCP当前接口契约](stages/P8_AI_MCP_Interface/02_Current_MCP_Contract.md)说明九终端工具与三历史工具的兼容基线；[实施与验收记录](stages/P8_AI_MCP_Interface/records/03_Implementation_and_Verification.md)保留历次结果及未收口目标；
-旧命令接口继续执行允许列表/风险确认，新版完整终端输入需单独明确授权且不逐条确认。
+[MCP当前接口契约](stages/P8_AI_MCP_Interface/02_Current_MCP_Contract.md)说明当前二十工具与保留接口的兼容边界；[实施与验收记录](stages/P8_AI_MCP_Interface/records/03_Implementation_and_Verification.md)保留历次结果及未收口目标；
+旧命令接口及其允许列表、风险确认和专属执行器已删除；现行完整输入不逐条确认，
+读取、输入、提权与清空四项授权在新就绪连接默认开启，用户可撤销。
 不向 MCP 开放密码读取，托管提权当前在取密/输入前拒绝。现有 P0～P7 状态不变。
 
 MCP 当前路线见 [总体架构](stages/P8_AI_MCP_Interface/00_Overall_Architecture.md)与[实施顺序](stages/P8_AI_MCP_Interface/01_Phases_and_Acceptance.md)。旧 mcp/P0～P8 方案已删除，B0～B4 专注外部 Agent 的 SSH/UART 开发调试闭环，不改变项目顶层阶段编号或历史验收事实。

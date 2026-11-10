@@ -36,10 +36,6 @@ struct FakePorts
             [this](const ClientId& id) { return clients.contains(id.str()); },
             [this](const ClientId&) { return ClientAccessVersion{version}; },
             [this](const ClientId&) { return ClientAccessVersion{++version}; },
-            [](const DiagnosticId& id) {
-                return id.str() == QLatin1String("os.uname")
-                    || id.str() == QLatin1String("system.uptime");
-            },
             [this] { return credentialPending; },
         };
     }
@@ -72,7 +68,6 @@ GrantFacts facts(const SessionBinding& value = binding(), bool running = true)
 
 PermissionChange change(PermissionKind kind, bool selected,
                         GrantRevision revision = GrantRevision{0},
-                        std::optional<DiagnosticId> diagnostic = std::nullopt,
                         SessionBinding value = binding())
 {
     PermissionChange result;
@@ -80,7 +75,6 @@ PermissionChange change(PermissionKind kind, bool selected,
     result.binding = value;
     result.expectedRevision = revision;
     result.kind = kind;
-    result.diagnostic = diagnostic;
     result.selected = selected;
     return result;
 }
@@ -100,7 +94,7 @@ class AuthorizationTests : public QObject
 {
     Q_OBJECT
 private slots:
-    void newSessionInitializationIsAtomicAndNeverOverwrites();
+    void sessionDefaultsRespectRevocationAndReconnect();
 
     void singleChangeAdvancesRowAndClientVersions();
     void clientIdentityGenerationIsIndependentAndNeverReused();
@@ -110,7 +104,6 @@ private slots:
     void readRevocationClearsExecutionPermissions();
     void fullInputImpliesReadAndRequiresLiveSession();
     void elevationRequiresFullInputAndIdleCredentials();
-    void diagnosticsMustBeKnownAndRequireRead();
     void reconnectHidesExecutionButKeepsRead();
     void clearTerminalRequiresIndependentLiveReadGrant();
     void clearTerminalRejectsStaleRowsAndResetsWithBinding();
@@ -127,35 +120,38 @@ private slots:
     void requestSchedulerEnforcesBudgetsAndCancellation();
 };
 
-void AuthorizationTests::newSessionInitializationIsAtomicAndNeverOverwrites()
+void AuthorizationTests::sessionDefaultsRespectRevocationAndReconnect()
 {
-    for (int invalid = 0; invalid < 12; ++invalid) {
-        FakePorts backing; AuthorizationService service(backing.ports());
-        auto current = facts(); PermissionSelection selection;
-        selection.read = true; selection.fullTerminalInput = true; selection.clearTerminal = true;
-        if (invalid == 1) selection.read = false;
-        if (invalid == 2) selection.script = true;
-        if (invalid == 3) selection.elevation = true;
-        if (invalid == 4) selection.riskControlledCommand = true;
-        if (invalid == 5) selection.diagnostics.insert(DiagnosticId{"os.uname"});
-        if (invalid == 6) current.sessionRunning = false;
-        if (invalid == 7) current.transportConnected = false;
-        if (invalid == 8) current.generationMatches = false;
-        if (invalid == 9) current.transportMatchesSession = false;
-        if (invalid == 10) backing.enabled = false;
-        if (invalid == 11) backing.clients.clear();
-        QCOMPARE(service.initializeSession(ClientId{"client-1"}, selection, current), invalid == 0);
+    for (int invalid = 0; invalid < 8; ++invalid) {
+        FakePorts backing;
+        AuthorizationService service(backing.ports());
+        auto current = facts();
+        if (invalid == 1) current.sessionRunning = false;
+        if (invalid == 2) current.transportConnected = false;
+        if (invalid == 3) current.generationMatches = false;
+        if (invalid == 4) current.transportMatchesSession = false;
+        if (invalid == 5) backing.enabled = false;
+        if (invalid == 6) backing.clients.clear();
+        if (invalid == 7) backing.credentialPending = true;
+        QCOMPARE(service.initializeDefaults(ClientId{"client-1"}, current), invalid == 0);
         QCOMPARE(service.size(), std::size_t(invalid == 0 ? 1 : 0));
-        QCOMPARE(backing.version, quint64(invalid == 0 ? 4 : 3));
+        QCOMPARE(backing.version, quint64(3));
         if (invalid == 0) {
-            QCOMPARE(service.snapshot(ClientId{"client-1"}, current).selection, selection);
-            const auto revoke = change(PermissionKind::ReadOutput, false, GrantRevision{1});
+            const auto defaults = service.snapshot(ClientId{"client-1"}, current);
+            QVERIFY(defaults.selection.read && defaults.selection.fullTerminalInput
+                && defaults.selection.elevation && defaults.selection.clearTerminal);
+            const auto revoke = change(PermissionKind::ReadOutput, false, defaults.revision);
             QVERIFY(!isError(service.change(revoke, current)));
-            QVERIFY(!service.initializeSession(ClientId{"client-1"}, selection, current));
+            QVERIFY(!service.initializeDefaults(ClientId{"client-1"}, current));
             QVERIFY(!service.snapshot(ClientId{"client-1"}, current).selection.read);
-            current.binding.attachment = AttachmentId{"replacement"};
-            QVERIFY(!service.initializeSession(ClientId{"client-1"}, selection, current));
-            QCOMPARE(backing.version, quint64(5));
+            current.binding.epoch = Epoch{"reconnected"};
+            current.binding.generation = Generation{6};
+            QVERIFY(service.initializeDefaults(ClientId{"client-1"}, current));
+            const auto reconnected = service.snapshot(ClientId{"client-1"}, current);
+            QVERIFY(reconnected.selection.read && reconnected.selection.fullTerminalInput
+                && reconnected.selection.elevation && reconnected.selection.clearTerminal);
+            QCOMPARE(reconnected.revision.value(), quint64(3));
+            QCOMPARE(backing.version, quint64(4));
         }
     }
 }
@@ -203,12 +199,12 @@ void AuthorizationTests::singleChangeAdvancesRowAndClientVersions()
     QCOMPARE(applied.accessVersion.value(), ports.version);
     QCOMPARE(applied.binding.epoch.str(), QStringLiteral("epoch-1"));
 
-    const auto risk = apply(service,
-        change(PermissionKind::RiskControlledTerminalCommand, true, GrantRevision{1}),
+    const auto input = apply(service,
+        change(PermissionKind::FullTerminalInput, true, GrantRevision{1}),
         current);
-    QCOMPARE(risk.revision.value(), 2u);
-    QVERIFY(risk.selection.read);
-    QVERIFY(risk.selection.riskControlledCommand);
+    QCOMPARE(input.revision.value(), 2u);
+    QVERIFY(input.selection.read);
+    QVERIFY(input.selection.fullTerminalInput);
     QCOMPARE(ports.version, quint64(5));
 }
 
@@ -269,7 +265,7 @@ void AuthorizationTests::clearTerminalRejectsStaleRowsAndResetsWithBinding()
     QVERIFY(isError(staleBinding));
     QCOMPARE(errorIfAny(staleBinding)->reason, AuthorizationRejection::StaleBinding);
     const auto rebound = apply(service, change(PermissionKind::ReadOutput, true,
-        clear.revision, std::nullopt, reconnected.binding), reconnected);
+        clear.revision, reconnected.binding), reconnected);
     QVERIFY(!rebound.selection.clearTerminal);
     auto replaced = reconnected;
     replaced.binding.attachment = AttachmentId{QStringLiteral("replacement")};
@@ -284,15 +280,15 @@ void AuthorizationTests::staleBindingAndRevisionAreRejected()
     apply(service, change(PermissionKind::ReadOutput, true), current);
 
     const auto staleBinding = service.change(
-        change(PermissionKind::ScriptPublishAndInvoke, true, GrantRevision{1},
-            std::nullopt, binding(QStringLiteral("session-1"), QStringLiteral("old-attach"))),
+        change(PermissionKind::FullTerminalInput, true, GrantRevision{1},
+            binding(QStringLiteral("session-1"), QStringLiteral("old-attach"))),
         current);
     QVERIFY(isError(staleBinding));
     QCOMPARE(errorIfAny(staleBinding)->reason, AuthorizationRejection::StaleBinding);
     QVERIFY(errorIfAny(staleBinding)->current.selection.read);
 
     const auto staleRevision = service.change(
-        change(PermissionKind::ScriptPublishAndInvoke, true, GrantRevision{0}), current);
+        change(PermissionKind::FullTerminalInput, true, GrantRevision{0}), current);
     QVERIFY(isError(staleRevision));
     QCOMPARE(errorIfAny(staleRevision)->reason, AuthorizationRejection::StaleRevision);
     QCOMPARE(errorIfAny(staleRevision)->current.revision.value(), 1u);
@@ -316,7 +312,7 @@ void AuthorizationTests::staleBindingRejectsEveryIdentityChange()
         auto current = original;
         changeBinding(current.binding);
         const auto rejected = service.change(change(PermissionKind::FullTerminalInput, false,
-            selected.revision, std::nullopt, original.binding), current);
+            selected.revision, original.binding), current);
         QVERIFY(isError(rejected));
         QCOMPARE(errorIfAny(rejected)->reason, AuthorizationRejection::StaleBinding);
         QVERIFY(!errorIfAny(rejected)->current.selection.fullTerminalInput);
@@ -355,24 +351,20 @@ void AuthorizationTests::readRevocationClearsExecutionPermissions()
     FakePorts ports;
     AuthorizationService service{ports.ports()};
     const auto current = facts();
-    apply(service, change(PermissionKind::ReadOutput, true), current);
-    apply(service, change(PermissionKind::ScriptPublishAndInvoke, true, GrantRevision{1}), current);
-    apply(service, change(PermissionKind::RiskControlledTerminalCommand, true,
-        GrantRevision{2}), current);
-    apply(service, change(PermissionKind::FullTerminalInput, true, GrantRevision{3}), current);
-    apply(service, change(PermissionKind::ManagedElevation, true, GrantRevision{4}), current);
-    const auto diagnostic = apply(service, change(PermissionKind::Diagnostic, true, GrantRevision{5},
-        DiagnosticId{QStringLiteral("os.uname")}), current);
-    QVERIFY(!diagnostic.selection.diagnostics.isEmpty());
+    const auto input = apply(service, change(PermissionKind::FullTerminalInput, true), current);
+    const auto elevation = apply(service,
+        change(PermissionKind::ManagedElevation, true, input.revision), current);
+    const auto clear = apply(service,
+        change(PermissionKind::ClearTerminal, true, elevation.revision), current);
+    QVERIFY(clear.selection.fullTerminalInput && clear.selection.elevation
+        && clear.selection.clearTerminal);
     const auto revoked = apply(service,
-        change(PermissionKind::ReadOutput, false, GrantRevision{6}), current);
+        change(PermissionKind::ReadOutput, false, clear.revision), current);
     QVERIFY(!revoked.selection.read);
-    QVERIFY(revoked.selection.diagnostics.isEmpty());
-    QVERIFY(!revoked.selection.riskControlledCommand);
-    QVERIFY(!revoked.selection.script);
     QVERIFY(!revoked.selection.fullTerminalInput);
     QVERIFY(!revoked.selection.elevation);
-    QCOMPARE(revoked.revision.value(), 7u);
+    QVERIFY(!revoked.selection.clearTerminal);
+    QCOMPARE(revoked.revision.value(), 4u);
 }
 
 void AuthorizationTests::fullInputImpliesReadAndRequiresLiveSession()
@@ -419,54 +411,29 @@ void AuthorizationTests::elevationRequiresFullInputAndIdleCredentials()
     QVERIFY(revokedInput.selection.read);
 }
 
-void AuthorizationTests::diagnosticsMustBeKnownAndRequireRead()
-{
-    FakePorts ports;
-    AuthorizationService service{ports.ports()};
-    const auto current = facts();
-    const auto beforeRead = service.change(
-        change(PermissionKind::Diagnostic, true, GrantRevision{0},
-            DiagnosticId{QStringLiteral("os.uname")}), current);
-    QVERIFY(isError(beforeRead));
-    QCOMPARE(errorIfAny(beforeRead)->reason, AuthorizationRejection::InvalidSelection);
-
-    apply(service, change(PermissionKind::ReadOutput, true), current);
-    const auto unknown = service.change(
-        change(PermissionKind::Diagnostic, true, GrantRevision{1},
-            DiagnosticId{QStringLiteral("file.delete")}), current);
-    QVERIFY(isError(unknown));
-    QCOMPARE(errorIfAny(unknown)->reason, AuthorizationRejection::InvalidSelection);
-
-    const auto known = apply(service,
-        change(PermissionKind::Diagnostic, true, GrantRevision{1},
-            DiagnosticId{QStringLiteral("os.uname")}), current);
-    QVERIFY(known.selection.diagnostics.contains(DiagnosticId{QStringLiteral("os.uname")}));
-}
-
 void AuthorizationTests::reconnectHidesExecutionButKeepsRead()
 {
     FakePorts ports;
     AuthorizationService service{ports.ports()};
     const auto original = facts();
     apply(service, change(PermissionKind::ReadOutput, true), original);
-    apply(service, change(PermissionKind::ScriptPublishAndInvoke, true, GrantRevision{1}),
-        original);
-    apply(service, change(PermissionKind::FullTerminalInput, true, GrantRevision{2}), original);
+    apply(service, change(PermissionKind::FullTerminalInput, true, GrantRevision{1}), original);
+    apply(service, change(PermissionKind::ManagedElevation, true, GrantRevision{2}), original);
 
     const auto reconnected = facts(binding(QStringLiteral("session-1"),
         QStringLiteral("attach-1"), QStringLiteral("epoch-2"), 6));
     const auto view = service.snapshot(ClientId{QStringLiteral("client-1")}, reconnected);
     QVERIFY(view.selection.read);
-    QVERIFY(!view.selection.script);
+    QVERIFY(!view.selection.elevation);
     QVERIFY(!view.selection.fullTerminalInput);
     QCOMPARE(view.revision.value(), 3u);
 
     // 新连接上的显式读取修改会重绑定，并保持执行类权限仍为未授权。
     const auto rebound = apply(service,
-        change(PermissionKind::ReadOutput, true, view.revision, std::nullopt,
+        change(PermissionKind::ReadOutput, true, view.revision,
             reconnected.binding), reconnected);
     QVERIFY(rebound.selection.read);
-    QVERIFY(!rebound.selection.script);
+    QVERIFY(!rebound.selection.elevation);
     QCOMPARE(rebound.revision.value(), 4u);
 }
 
@@ -507,24 +474,16 @@ void AuthorizationTests::capabilitiesFollowGrantsAndFacts()
     QCOMPARE(snapshot.capabilities,
         QStringList({"read_context", "search_context"}));
 
-    const auto withDiagnostic = apply(service,
-        change(PermissionKind::Diagnostic, true, GrantRevision{1},
-            DiagnosticId{QStringLiteral("os.uname")}), current);
-    snapshot = CapabilityResolver::resolve(withDiagnostic, capabilityFacts, context);
     QVERIFY(!snapshot.capabilities.contains(QStringLiteral("execute_command")));
-    QVERIFY(!snapshot.terminalInputAvailable);
-
-    const auto risk = apply(service,
-        change(PermissionKind::RiskControlledTerminalCommand, true, GrantRevision{2}), current);
-    snapshot = CapabilityResolver::resolve(risk, capabilityFacts, context);
     QVERIFY(!snapshot.capabilities.contains(QStringLiteral("run_command")));
-    QVERIFY(!snapshot.terminalInputAvailable);
-
-    const auto script = apply(service,
-        change(PermissionKind::ScriptPublishAndInvoke, true, GrantRevision{3}), current);
-    snapshot = CapabilityResolver::resolve(script, capabilityFacts, context);
     QVERIFY(!snapshot.capabilities.contains(QStringLiteral("run_script")));
     QVERIFY(!snapshot.terminalInputAvailable);
+
+    const auto input = apply(service,
+        change(PermissionKind::FullTerminalInput, true, read.revision), current);
+    snapshot = CapabilityResolver::resolve(input, capabilityFacts, context);
+    QVERIFY(snapshot.terminalInputAvailable);
+    QVERIFY(snapshot.capabilities.contains(QStringLiteral("terminal_interaction")));
 }
 
 void AuthorizationTests::terminalInputReasonOrderIsStable()

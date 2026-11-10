@@ -60,17 +60,15 @@ public:
         _silence.start(_silenceMs);
     }
 
-    /** @brief 非集成 Shell 的字节会取消候选；无活动命令时还清除就绪证据。 */
-    void noteBytes(bool shellIntegration, bool commandActive)
+    /** @brief 非集成 Shell 的字节会取消候选并清除就绪证据。 */
+    void noteBytes(bool shellIntegration)
     {
         if (shellIntegration)
             return;
         _silence.stop();
         _candidate = 0;
-        if (!commandActive) {
-            _prompt = 0;
-            _promptUser = currentUser();
-        }
+        _prompt = 0;
+        _promptUser = currentUser();
     }
 
     void invalidate()

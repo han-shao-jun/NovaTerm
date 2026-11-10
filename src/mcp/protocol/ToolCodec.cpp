@@ -190,15 +190,8 @@ const QJsonArray& ToolCodec::catalog()
     const auto state = enumeration({"created", "connecting", "running", "reconnecting", "failed", "closing", "closed"});
     const auto transport = enumeration({"local_shell", "ssh", "serial", "telnet", "custom"});
     const auto decimal = QJsonObject{{"type", "string"}, {"pattern", "^[0-9]+$"}};
-    const auto execution = object({{"executionId", text}, {"instanceId", text}, {"sessionId", text},
-        {"epoch", text}, {"commandId", text}, {"policyVersion", text},
-        {"status", enumeration({"completed", "failed", "timed_out", "cancelled", "unknown"})},
-        {"executionMayHaveStarted", boolean}, {"terminationConfirmed", boolean},
-        {"startedAt", nullableText}, {"finishedAt", nullableText},
-        {"exitCode", QJsonObject{{"type", QJsonArray{"integer", "null"}}}},
-        {"stdout", text}, {"stderr", text}, {"outputTruncated", boolean}});
     const auto resultError = schema({{"code", text}, {"message", text}, {"retryable", boolean},
-        {"retryAfterMs", unsignedInteger}, {"details", execution}}, {"code", "message", "retryable"});
+        {"retryAfterMs", unsignedInteger}}, {"code", "message", "retryable"});
     QHash<QString, QJsonObject> dataSchemas;
     auto sessionItem = object({{"sessionId", text}, {"epoch", text},
         {"state", state}, {"transport", transport}, {"displayName", text}, {"displayNameTruncated", boolean},
@@ -520,13 +513,10 @@ QString ToolCodec::validate(const QString& name, const QJsonObject& arguments)
         bool valid = validSchemaValue(value, rule);
         if (rule.value("type") == "string") {
             const auto text = value.toString();
-            if (it.key() == "sessionId" || it.key() == "operationId" || it.key() == "targetId")
+            if (it.key() == "sessionId" || it.key() == "operationId")
                 valid = valid && !QUuid(text).isNull() && QUuid(text).toString(QUuid::WithoutBraces) == text;
             if (it.key() == "query")
                 valid = valid && !text.contains('\n') && !text.contains('\r');
-            if (it.key() == "scriptContent")
-                valid = valid && !text.toUtf8().isEmpty()
-                    && text.toUtf8().size() <= Budget::MaxScriptBytes;
         }
         if (!valid)
             return QStringLiteral("Invalid argument: %1").arg(it.key());
@@ -843,24 +833,6 @@ QJsonObject ToolCodec::encodeFailure(const Error& error)
         {QStringLiteral("retryable"), error.retry && error.retry->retryable}};
     if (error.retry && error.retry->after.count() > 0)
         payload.insert(QStringLiteral("retryAfterMs"), int(error.retry->after.count()));
-    if (const auto* details = std::get_if<ExecutionErrorDetails>(&error.details)) {
-        QJsonObject object;
-        if (details->executionId)
-            object.insert(QStringLiteral("executionId"), *details->executionId);
-        if (details->targetPath)
-            object.insert(QStringLiteral("targetPath"), *details->targetPath);
-        if (details->published)
-            object.insert(QStringLiteral("published"), *details->published);
-        if (details->publicationMayHaveOccurred) {
-            object.insert(QStringLiteral("publicationMayHaveOccurred"),
-                *details->publicationMayHaveOccurred);
-        }
-        if (details->invocationStarted)
-            object.insert(QStringLiteral("invocationStarted"), *details->invocationStarted);
-        if (details->status)
-            object.insert(QStringLiteral("status"), *details->status);
-        payload.insert(QStringLiteral("details"), object);
-    }
     return {{QStringLiteral("schemaVersion"), 1}, {QStringLiteral("ok"), false},
         {QStringLiteral("error"), payload}};
 }

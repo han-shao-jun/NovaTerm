@@ -22,7 +22,6 @@ struct CapabilityFacts
     bool transportMatchesSession{false};
     bool generationMatches{false};
     bool transferLease{false};
-    bool legacyTerminalBusy{false};
     QString terminalOwner; ///< 终端控制的所有者客户端 ID；空表示空闲。
     bool shellIntegrationAvailable{false};
     bool elevationTargetVerified{false};

@@ -80,23 +80,11 @@ inline constexpr std::chrono::milliseconds TerminalInputTokenLifetime{120000};
 inline constexpr qsizetype MaxEncodedActionBytes = 64 * 1024;
 inline constexpr std::chrono::milliseconds CancelCompletionGrace{250};
 
-// --- 命令、确认与脚本 -----------------------------------------------------
-inline constexpr int CommandOutputBytes = 65536;
-inline constexpr std::chrono::milliseconds CommandTimeout{5000};
-inline constexpr std::chrono::milliseconds ConfirmationTimeout{60000};
-inline constexpr std::chrono::milliseconds ScriptWriteTimeout{120000};
-inline constexpr qsizetype MaxScriptBytes = 2 * 1024 * 1024;
-inline constexpr int MaxPendingScriptWrites = 8;
-inline constexpr int MaxExecutionRecordsPerClient = 32;
-inline constexpr int MaxExecutionRecords = 128;
-inline constexpr std::chrono::milliseconds ExecutionRecordRetention{600000};
-
 // --- 报文 ----------------------------------------------------------------
 inline constexpr qsizetype MaxFrameBytes = 2 * 1024 * 1024;
 inline constexpr qsizetype MaxOutputQueueBytes = 4 * 1024 * 1024;
-/** @brief JSON 字符串最坏每 UTF-8 字节展开为六字节；其余有界字段另留信封额度。 */
-inline constexpr qsizetype MaxRequestEnvelopeBytes = 256 * 1024;
-inline constexpr qsizetype MaxRequestBytes = 6 * MaxScriptBytes + MaxRequestEnvelopeBytes;
+/** @brief 保持现行 HTTP/JSON-RPC 请求上限，独立于已经删除的脚本发布能力。 */
+inline constexpr qsizetype MaxRequestBytes = 12 * 1024 * 1024 + 256 * 1024;
 inline constexpr std::chrono::milliseconds WireDeadlineMargin{5000};
 
 } // namespace NovaTerm::Mcp::Budget

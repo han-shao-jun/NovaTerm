@@ -64,8 +64,7 @@ public:
      * 旧行的撤销/授权写到新连接。
      */
     [[nodiscard]] Outcome submit(const SessionPermissionRow& row,
-        NovaTerm::Mcp::PermissionKind kind,
-        std::optional<NovaTerm::Mcp::DiagnosticId> diagnostic, bool selected) const;
+        NovaTerm::Mcp::PermissionKind kind, bool selected) const;
 
     // 本机接入配置入口；界面不再直接持有可变 AccessStore。
     [[nodiscard]] bool enabled() const;

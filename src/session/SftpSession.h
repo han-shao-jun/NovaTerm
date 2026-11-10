@@ -49,11 +49,6 @@ public:
     [[nodiscard]] quint64 requestDirectory(const QString& remotePath);
     void cancelDirectoryRequest(quint64 requestId);
     void uploadFile(const QString& localPath, const QString& remotePath);
-    /** @brief 将有界内存内容上传到远端文件；成功入队返回 true。 */
-    [[nodiscard]] bool uploadBytes(quint64 requestId, QByteArray content,
-                                   const QString& remotePath);
-    /** @brief 取消指定的内存上传，活动写入会在下一个分块边界停止。 */
-    void cancelUpload(quint64 requestId);
     /** @brief 兼容入口名：按 request.direction 将受授权上传或下载排入原工作线程。 */
     [[nodiscard]] bool uploadAuthorizedFile(const SftpFileUploadRequest& request);
     void uploadDirectory(const QString& localPath, const QString& remotePath);
@@ -85,8 +80,6 @@ signals:
     /** 递归删除扫描阶段 total 为 0、completed 为已发现条目数；删除阶段报告已删除数与总数。 */
     void directoryRemovalProgress(const QString& remotePath, quint64 completed,
                                   quint64 total, bool removing);
-    void uploadBytesFinished(quint64 requestId, const QString& remotePath,
-                             bool success, const QString& errorCode);
     void authorizedFileProgress(quint64 requestId, quint64 transferred, quint64 total);
     void authorizedFilePublicationReady(quint64 requestId);
     void authorizedFileFinished(const SftpFileUploadResult& result);
@@ -97,7 +90,6 @@ private:
     enum class CommandType {
         List,
         Upload,
-        UploadBytes,
         UploadAuthorizedFile,
         UploadDirectory,
         Download,
@@ -117,7 +109,6 @@ private:
         QString target;
         quint32 permissions{0};
         quint64 requestId{0};
-        QByteArray content{};
         SftpFileUploadRequest fileUpload{};
     };
 
@@ -132,11 +123,8 @@ private:
         QWaitCondition queueReady;
         QQueue<Command> commands;
         bool commandActive{false}; // queueMutex protects dequeue-to-completion, including blocking I/O.
-        QSet<quint64> cancelledUploadRequests;
         QSet<quint64> directoryRequests;
         QSet<quint64> cancelledDirectoryRequests;
-        qsizetype queuedUploadBytes{0};
-        quint64 activeUploadRequestId{0};
         std::shared_ptr<SftpFileUploadControl> activeFileUpload;
         // 锁只保护入队通知时的 receiver 生命周期；绝不跨阻塞 I/O 持锁。
         QMutex notificationMutex;
@@ -160,20 +148,6 @@ private:
                           quint64 generation, const QString& message);
     static void postDirectoryResult(const std::shared_ptr<WorkerControl>&,
         quint64 generation, quint64 requestId, SftpDirectoryResult);
-    [[nodiscard]] static bool isUploadCancelled(
-        const std::shared_ptr<WorkerControl>& control, quint64 requestId);
-    // 每次阻塞收尾后重查取消；成功发布后保持真实提交结果。
-    [[nodiscard]] static bool finalizeScriptUpload(
-        const std::function<bool()>& cancelled,
-        const std::function<bool()>& close,
-        const std::function<bool()>& makeExecutable,
-        const std::function<bool()>& publish,
-        const std::function<void()>& discard, QString& error);
-    [[nodiscard]] static bool uploadScriptBytes(
-        sftp_session_struct* sftp, ssh_session_struct* session,
-        const QString& remotePath, const QByteArray& content,
-        const std::function<bool()>& cancelled, QString& error);
-
     [[nodiscard]] static bool authorizedUploadOwners(const QVector<quint32>& owners);
     enum class AuthorizedPublication { Rejected, CreateNew, ReplaceExisting };
     [[nodiscard]] static AuthorizedPublication authorizedUploadPublication(
@@ -225,7 +199,6 @@ private:
     // 析构路径更有耐心，等满阻塞调用串行的最坏场景。
     static constexpr int TeardownDestructorWaitMs = 60000;
     static constexpr qsizetype MaxQueuedCommands = 256;
-    static constexpr qsizetype MaxQueuedUploadBytes = 2 * 1024 * 1024;
 
     std::shared_ptr<WorkerControl> _control;
     QThread* _thread{nullptr};

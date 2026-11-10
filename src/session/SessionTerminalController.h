@@ -76,7 +76,7 @@ public:
                 _operationStatus = QStringLiteral("failed");
                 if (_pendingStartsCommand && _commandActive) {
                     _commandActive = false; _commandState = QStringLiteral("unknown");
-                    if (_framer) { const auto remainder = _framer->endTransaction(); Q_UNUSED(remainder); }
+                    if (_framer) { _framer->endTransaction(); }
                 }
                 restorePrompt();
             } else {
@@ -139,7 +139,7 @@ public:
             _controlState = reason; ++_controlGeneration;
             if (_commandActive) {
                 _commandActive = false; _commandState = QStringLiteral("unknown");
-                if (_framer) { const auto remainder = _framer->endTransaction(); Q_UNUSED(remainder); }
+                if (_framer) { _framer->endTransaction(); }
             }
             if (_operationStatus == QStringLiteral("queued")) _operationStatus = QStringLiteral("interrupted");
             changed();
@@ -183,7 +183,7 @@ public:
             _commandState = QStringLiteral("submitted"); _exit.reset(); _terminated = false;
             _commandEvidence = _integrated ? QStringLiteral("shell_integration") : QStringLiteral("device_prompt");
             _commandActive = true;
-            if (_framer) _framer->beginTransaction(_execution.toLatin1());
+            if (_framer) _framer->beginTransaction();
         } else if (_integrated && !_commandActive) {
             const auto previousPending = _expectedPrompts;
             int submittedLines = 0;
@@ -222,10 +222,9 @@ public:
             if (submittedLines || _typedSincePrompt) clearCandidateCommand();
             if (!previousPending && submittedLines == 1 && submittedText
                 && !_typedSincePrompt && !_inputContextUncertain && _framer) {
-                // Merely arm framing. A record is created only when integration
-                // produces a correlated start/completion, not from the newline.
+                // 仅等待提示符完成证据；换行输入本身不创建命令记录。
                 _candidateExecution = QUuid::createUuid().toString(QUuid::WithoutBraces);
-                _framer->beginTransaction(_candidateExecution.toLatin1());
+                _framer->beginTransaction();
             }
         }
         _coordinator->invalidatePromptReadiness();
@@ -234,7 +233,7 @@ public:
             _pending = false; _operationStatus = QStringLiteral("failed");
             if (command) {
                 _commandActive = false; _commandState = QStringLiteral("unknown");
-                if (_framer) { const auto remainder = _framer->endTransaction(); Q_UNUSED(remainder); }
+                if (_framer) { _framer->endTransaction(); }
             }
             restorePrompt();
             changed(); return false;
@@ -249,12 +248,6 @@ public:
             ready(event.promptGeneration, std::nullopt, false); break;
         case InteractiveStreamEventKind::CommandFinishedAtPrompt:
             ready(event.promptGeneration, event.exitCode, true); break;
-        case InteractiveStreamEventKind::CommandFinished:
-            adoptCandidateCommand();
-            if (_commandActive) { finish(event.exitCode); changed(); } break;
-        case InteractiveStreamEventKind::CommandStarted:
-            adoptCandidateCommand();
-            if (_commandActive) { _commandState = QStringLiteral("running"); changed(); } break;
         case InteractiveStreamEventKind::ShellReset:
         case InteractiveStreamEventKind::FramingError:
             invalidatePromptEvidence();
@@ -323,7 +316,7 @@ private:
         _commandActive = false; _commandState = QStringLiteral("finished"); _terminated = true; _exit = code;
         _recentCommand = commandRecord();
         _commandRetention.start(std::chrono::milliseconds(std::chrono::minutes(10)));
-        if (_framer) { const auto remainder = _framer->endTransaction(); Q_UNUSED(remainder); }
+        if (_framer) { _framer->endTransaction(); }
     }
     QJsonObject commandRecord() const {
         return {{"state", _commandState}, {"executionId", _execution},
@@ -337,7 +330,7 @@ private:
     }
     void clearCandidateCommand() {
         if (!_candidateExecution.isEmpty() && _framer) {
-            const auto remainder = _framer->endTransaction(); Q_UNUSED(remainder);
+            _framer->endTransaction();
         }
         _candidateExecution.clear();
     }
@@ -356,7 +349,11 @@ private:
             }
         }
         if (completed) adoptCandidateCommand();
-        if (_commandActive && !_pending && _operationStatus == QStringLiteral("submitted"))
+        // 后续输入（如 Ctrl+C）仍在编码时，完成提示符必须先结束原命令，
+        // 使其任务输入守卫失效；尚未送出的新命令则不能被该提示符完成。
+        const bool completesExistingCommand = completed && _pending && !_pendingStartsCommand;
+        if (_commandActive && (completesExistingCommand
+            || (!_pending && _operationStatus == QStringLiteral("submitted"))))
             finish(completed ? code : std::nullopt);
         clearCandidateCommand();
         if (!_pending) _typedSincePrompt = false;

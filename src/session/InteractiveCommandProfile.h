@@ -17,10 +17,7 @@ struct InteractiveCommandProfile
     int promptSilenceMs{150};
     bool remoteEcho{true};
     bool shellIntegration{false};
-    bool requiresStartMarker{true};
-    bool allowUnverifiedPrompt{false}; ///< 无可信提示符时由命令内的结束标记收口。
-    bool allowIdleCompletion{false}; ///< 无提示符目标由空闲静默窗收口（串口降级）。
-    int idleQuietMs{3000}; ///< 空闲收尾静默窗；无输出兜底为 min(4×窗, 预算/2)。
+    bool allowUnverifiedPrompt{false}; ///< 仅被动观察标记，不将其作为可信 Shell 集成。
     qsizetype maxMarkerBytes{4096};
 
     /** @brief 配置是否满足有界解析的最低要求。 */

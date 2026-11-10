@@ -39,6 +39,8 @@ public:
     [[nodiscard]] quint64 revision() const noexcept { return _revision; }
     [[nodiscard]] static QString stateName(SessionState state);
     [[nodiscard]] static QString transportName(TransportKind kind);
+    /** @brief 从当前连接事实计算目标指纹，供目录绑定与凭据核验共用。 */
+    [[nodiscard]] static QString targetFingerprintFor(TerminalSession* session);
 signals:
     /** @brief 身份、状态或标题变化；调用方须重新验证授权和排队请求。 */
     void changed();

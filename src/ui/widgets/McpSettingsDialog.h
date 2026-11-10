@@ -29,7 +29,6 @@ private:
     bool applyPermission(QTreeWidgetItem* root,
                          const NovaTerm::Ui::SessionPermissionRow& row,
                          NovaTerm::Mcp::PermissionKind kind,
-                         std::optional<NovaTerm::Mcp::DiagnosticId> diagnostic,
                          bool selected);
     QPointer<NovaTerm::Mcp::Service> _service;
     std::unique_ptr<NovaTerm::Ui::SessionPermissionModel> _model;

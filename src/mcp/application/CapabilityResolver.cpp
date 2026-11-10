@@ -21,8 +21,7 @@ QString terminalInputReason(const GrantSnapshot& grant, const CapabilityFacts& f
         return QStringLiteral("SESSION_NOT_READY");
     if (facts.transferLease)
         return QStringLiteral("FILE_TRANSFER_BUSY");
-    if ((!facts.terminalOwner.isEmpty() && facts.terminalOwner != context.client.str())
-        || facts.legacyTerminalBusy)
+    if (!facts.terminalOwner.isEmpty() && facts.terminalOwner != context.client.str())
         return QStringLiteral("TERMINAL_BUSY");
     return {};
 }

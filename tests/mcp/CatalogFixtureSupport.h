@@ -5,6 +5,28 @@
 #include <QStringList>
 
 namespace NovaTerm::Mcp::TestSupport {
+// 历史目录快照保持原样；比较现行契约时去掉已退役执行工具的错误详情。
+inline QJsonValue withoutRetiredExecutionDetails(const QJsonValue& value)
+{
+    if (value.isArray()) {
+        QJsonArray result;
+        for (const auto& item : value.toArray()) result.append(withoutRetiredExecutionDetails(item));
+        return result;
+    }
+    if (!value.isObject()) return value;
+    auto object = value.toObject();
+    for (auto it = object.begin(); it != object.end(); ++it)
+        it.value() = withoutRetiredExecutionDetails(it.value());
+    auto properties = object.value("properties").toObject();
+    const auto details = properties.value("details").toObject().value("properties").toObject();
+    if (properties.contains("code") && properties.contains("retryable")
+        && details.contains("commandId") && details.contains("policyVersion")) {
+        properties.remove("details");
+        object.insert("properties", properties);
+    }
+    return object;
+}
+
 // 工具说明是 Agent 指引；兼容 fixture 继续锁定名称、参数、结果和注解。
 inline QJsonValue withoutToolDescriptions(const QJsonValue& value)
 {
@@ -14,7 +36,7 @@ inline QJsonValue withoutToolDescriptions(const QJsonValue& value)
         return result;
     }
     if (!value.isObject()) return value;
-    auto tool = value.toObject();
+    auto tool = withoutRetiredExecutionDetails(value).toObject();
     tool.remove("description");
     return tool;
 }

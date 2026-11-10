@@ -2,97 +2,67 @@
  *  @brief 会话目录的弱引用、连接 epoch 与私有目标指纹。
  */
 #include "SessionDirectory.h"
-#include "LocalSessionCommandExecutor.h"
-#include "InteractiveSessionCommandExecutor.h"
-#include "LocalSessionScriptProvider.h"
-#include "SshSessionScriptProvider.h"
-#include "ISessionScriptProvider.h"
-#include "SessionCommandFacade.h"
 #include "ShellIntegration.h"
-#include "SshSessionCommandExecutor.h"
 #include "transport/SshTransport.h"
-#include <QCoreApplication>
 #include <QCryptographicHash>
-#include <QDir>
+#include <QSysInfo>
 #include <QThread>
 
 #include <optional>
 
 namespace {
 QString uuid() { return QUuid::createUuid().toString(QUuid::WithoutBraces); }
-#if defined(Q_OS_WIN) || defined(Q_OS_LINUX)
-QString localDiagnosticHelperPath()
-{
-#ifdef Q_OS_WIN
-    constexpr auto name = "novaterm-local-diag.exe";
-#else
-    constexpr auto name = "novaterm-local-diag";
-#endif
-    return QDir(QCoreApplication::applicationDirPath()).filePath(QString::fromLatin1(name));
-}
-#endif
-std::unique_ptr<ISessionCommandExecutor> commandExecutor(
+QString targetFingerprint(
     TerminalSession* owner, ITransport* transport, TransportKind kind)
 {
+    const auto fingerprint = [](const QByteArray& identity) {
+        return QString::fromLatin1(
+            QCryptographicHash::hash(identity, QCryptographicHash::Sha256).toHex());
+    };
 #if defined(Q_OS_WIN) || defined(Q_OS_LINUX)
-    // 本地固定诊断始终走独立 helper，不占用当前交互终端输入。
-    if (kind == TransportKind::LocalShell)
-        return std::make_unique<LocalSessionCommandExecutor>(localDiagnosticHelperPath());
+    if (kind == TransportKind::LocalShell) {
+        const auto machineId = QSysInfo::machineUniqueId();
+        if (machineId.isEmpty()) return {};
+        // 保持已有本机凭据绑定的身份域，不再依赖诊断程序或执行器。
+#ifdef Q_OS_WIN
+        return fingerprint(machineId + '\0' + "windows-local-v1");
+#else
+        return fingerprint(machineId + '\0' + "linux-local-v1");
 #endif
+    }
+#endif
+    if (kind == TransportKind::Ssh) {
+        const auto* ssh = qobject_cast<SshTransport*>(transport);
+        if (!ssh || !ssh->isConnected()) return {};
+        const auto hostKey = ssh->serverHostKeyFingerprint();
+        const auto& config = ssh->sessionConfig();
+        if (hostKey.isEmpty() || config.username.contains(QChar::Null)) return {};
+        return fingerprint(hostKey.toUtf8() + '\0' + QByteArray::number(config.port)
+            + '\0' + config.username.trimmed().toUtf8());
+    }
     const auto interactiveProfile = owner
         ? ShellIntegration::profileFor(owner->runtimeConfig()) : std::nullopt;
-    if (interactiveProfile && !interactiveProfile->allowUnverifiedPrompt) {
-        QString identity;
-        if (kind == TransportKind::Ssh) {
-            auto* ssh = qobject_cast<SshTransport*>(transport);
-            if (ssh) {
-                SshSessionCommandExecutor probe(ssh);
-                identity = probe.targetFingerprint();
-            }
-        } else if (kind != TransportKind::LocalShell) {
-            const auto& values = owner->runtimeConfig().transport;
-            const QString endpoint = kind == TransportKind::Serial
-                ? values.value(QStringLiteral("portName")).toString()
-                : values.value(QStringLiteral("host")).toString()
-                    + QLatin1Char(':')
-                    + values.value(QStringLiteral("port")).toString();
-            const QByteArray source = (endpoint.isEmpty()
-                ? owner->id().toString(QUuid::WithoutBraces)
-                : endpoint).toUtf8();
-            identity = QString::fromLatin1(QCryptographicHash::hash(
-                source, QCryptographicHash::Sha256).toHex());
-        }
-        if (!identity.isEmpty()) {
-            return std::make_unique<InteractiveSessionCommandExecutor>(
-                owner->commandCoordinator(),
-                CommandPlatformProfile::interactiveFor(kind), identity);
-        }
-    }
-    if (kind == TransportKind::Ssh) {
-        auto* ssh = qobject_cast<SshTransport*>(transport);
-        return ssh ? std::make_unique<SshSessionCommandExecutor>(ssh) : nullptr;
-    }
-    return {};
-}
-
-std::unique_ptr<ISessionScriptProvider> scriptProvider(
-    TerminalSession* owner, ITransport* transport, TransportKind kind)
-{
-    if (!owner || !transport)
-        return {};
-    if (kind == TransportKind::LocalShell)
-        return std::make_unique<LocalSessionScriptProvider>();
-    if (kind == TransportKind::Ssh) {
-        auto* ssh = qobject_cast<SshTransport*>(transport);
-        const auto interactiveProfile = ShellIntegration::profileFor(owner->runtimeConfig());
-        if (ssh && interactiveProfile && !interactiveProfile->allowUnverifiedPrompt)
-            return std::make_unique<SshSessionScriptProvider>(ssh);
+    if (interactiveProfile && !interactiveProfile->allowUnverifiedPrompt
+        && kind != TransportKind::LocalShell) {
+        const auto& values = owner->runtimeConfig().transport;
+        const QString endpoint = kind == TransportKind::Serial
+            ? values.value(QStringLiteral("portName")).toString()
+            : values.value(QStringLiteral("host")).toString()
+                + QLatin1Char(':') + values.value(QStringLiteral("port")).toString();
+        return fingerprint((endpoint.isEmpty()
+            ? owner->id().toString(QUuid::WithoutBraces) : endpoint).toUtf8());
     }
     return {};
 }
 }
 
 SessionDirectory::SessionDirectory(QObject* parent) : QObject(parent) {}
+
+QString SessionDirectory::targetFingerprintFor(TerminalSession* session)
+{
+    return session ? targetFingerprint(session, session->transport(),
+        session->runtimeConfig().transportKind) : QString{};
+}
 
 void SessionDirectory::add(TerminalSession* session)
 {
@@ -151,24 +121,9 @@ void SessionDirectory::refresh(TerminalSession* session)
     const auto generation = session->statistics().generation;
     const auto kind = session->runtimeConfig().transportKind;
     const auto state = session->state();
-    const auto scriptProfile = kind == TransportKind::Ssh
-        ? ShellIntegration::profileFor(session->runtimeConfig()) : std::nullopt;
-    const bool scriptKindSupported = kind == TransportKind::LocalShell
-        || (kind == TransportKind::Ssh && session->transport()
-            && scriptProfile && !scriptProfile->allowUnverifiedPrompt
-            && qobject_cast<SshTransport*>(session->transport()));
-    const bool scriptBindingChanged = it->transport != session->transport()
-        || it->kind != kind
-        || (scriptKindSupported && !session->scriptProvider());
     const bool identityChanged = it->id != id || it->generation != generation
         || it->transport != session->transport();
-    if (identityChanged) {
-        session->commandFacade()->installExecutor(
-            commandExecutor(session, session->transport(), kind), generation);
-    }
-    if (scriptBindingChanged)
-        session->installScriptProvider(scriptProvider(session, session->transport(), kind));
-    const auto target = session->commandFacade()->targetFingerprint();
+    const auto target = targetFingerprintFor(session);
     const bool targetChanged = state == SessionState::Running && target != it->targetFingerprint;
     if (!identityChanged && !targetChanged && it->state == state && it->kind == kind)
         return;

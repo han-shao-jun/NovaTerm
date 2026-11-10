@@ -768,113 +768,6 @@ bool removeRemoteDirectoryRecursively(
 
 } // namespace
 
-bool SftpSession::uploadScriptBytes(
-    sftp_session sftp, ssh_session session, const QString& remotePath,
-    const QByteArray& content, const std::function<bool()>& cancelled,
-    QString& error)
-{
-    const QByteArray encodedTarget = remotePath.toUtf8();
-    SftpAttributesPtr existing{
-        sftp_lstat(sftp, encodedTarget.constData()), &sftp_attributes_free};
-    if (existing && (existing->type != SSH_FILEXFER_TYPE_REGULAR
-                     || isHardLinkFromLongName(existing.get()))) {
-        error = QStringLiteral("SCRIPT_TARGET_NOT_REGULAR");
-        return false;
-    }
-    if (cancelled()) {
-        error = QStringLiteral("SCRIPT_UPLOAD_CANCELLED");
-        return false;
-    }
-
-    const QString temporaryPath = temporaryRemotePath(remotePath);
-    const QByteArray encodedPath = temporaryPath.toUtf8();
-    SftpFilePtr remoteFile{
-        sftp_open(sftp, encodedPath.constData(),
-                  O_WRONLY | O_CREAT | O_EXCL, 0600),
-        &sftp_close};
-    if (!remoteFile) {
-        error = sftpError(sftp, session,
-            QStringLiteral("SCRIPT_WRITE_FAILED: %1").arg(remotePath));
-        return false;
-    }
-
-    qsizetype offset = 0;
-    while (offset < content.size()) {
-        if (cancelled()) {
-            error = QStringLiteral("SCRIPT_UPLOAD_CANCELLED");
-            sftp_close(remoteFile.release());
-            sftp_unlink(sftp, encodedPath.constData());
-            return false;
-        }
-        const qsizetype chunkSize = qMin(TransferChunkBytes,
-                                          content.size() - offset);
-        qsizetype chunkOffset = 0;
-        while (chunkOffset < chunkSize) {
-            if (cancelled()) {
-                error = QStringLiteral("SCRIPT_UPLOAD_CANCELLED");
-                sftp_close(remoteFile.release());
-                sftp_unlink(sftp, encodedPath.constData());
-                return false;
-            }
-            const int written = sftp_write(remoteFile.get(),
-                content.constData() + offset + chunkOffset,
-                static_cast<size_t>(chunkSize - chunkOffset));
-            if (written <= 0) {
-                error = sftpError(sftp, session,
-                    QStringLiteral("SCRIPT_WRITE_FAILED: %1").arg(remotePath));
-                sftp_close(remoteFile.release());
-                sftp_unlink(sftp, encodedPath.constData());
-                return false;
-            }
-            chunkOffset += written;
-        }
-        offset += chunkSize;
-    }
-
-    const auto checked = [&](int result) {
-        if (result == SSH_OK)
-            return true;
-        error = sftpError(sftp, session,
-            QStringLiteral("SCRIPT_WRITE_FAILED: %1").arg(remotePath));
-        return false;
-    };
-    return finalizeScriptUpload(cancelled,
-        [&] { return checked(sftp_close(remoteFile.release())); },
-        [&] { return checked(sftp_chmod(sftp, encodedPath.constData(), 0700)); },
-        [&] { return checked(sftp_rename(sftp, encodedPath.constData(),
-                                       encodedTarget.constData())); },
-        [&] { sftp_unlink(sftp, encodedPath.constData()); }, error);
-}
-
-bool SftpSession::finalizeScriptUpload(
-    const std::function<bool()>& cancelled,
-    const std::function<bool()>& close,
-    const std::function<bool()>& makeExecutable,
-    const std::function<bool()>& publish,
-    const std::function<void()>& discard, QString& error)
-{
-    // close 仍需执行以回收句柄；close/chmod 可能阻塞，返回后重查取消。
-    const auto cancelledBeforePublication = [&] {
-        if (!cancelled())
-            return false;
-        error = QStringLiteral("SCRIPT_UPLOAD_CANCELLED");
-        return true;
-    };
-    if (!close() || cancelledBeforePublication()
-        || !makeExecutable() || cancelledBeforePublication()) {
-        discard();
-        return false;
-    }
-    if (!publish()) {
-        // 服务端可能已经 rename，但连接在状态回复前中断；不能声称未发布。
-        error = QStringLiteral("SCRIPT_PUBLICATION_OUTCOME_UNKNOWN");
-        discard();
-        return false;
-    }
-    // rename 已成功：即使它阻塞期间收到取消，也必须报告实际发布成功。
-    return true;
-}
-
 SftpSession::WorkerControl::WorkerControl()
 {
     ssh_init();
@@ -968,14 +861,6 @@ void SftpSession::stopWorker(int waitMs)
     QList<quint64> cancelledDirectories;
     {
         QMutexLocker lock(&_control->queueMutex);
-        qsizetype queuedUploadBytes = 0;
-        for (const auto& command : std::as_const(_control->commands)) {
-            if (command.type == CommandType::UploadBytes)
-                queuedUploadBytes += command.content.size();
-        }
-        _control->queuedUploadBytes -= queuedUploadBytes;
-        if (_control->activeUploadRequestId != 0)
-            _control->cancelledUploadRequests.insert(_control->activeUploadRequestId);
         if (_control->activeFileUpload)
             _control->activeFileUpload->cancel();
         for (const auto& command : std::as_const(_control->commands)) {
@@ -1030,12 +915,6 @@ void SftpSession::stopWorker(int waitMs)
             }
             _thread = nullptr;
         }
-    }
-    if (!_workerAbandoned) {
-        QMutexLocker lock(&_control->queueMutex);
-        _control->cancelledUploadRequests.clear();
-        _control->queuedUploadBytes = 0;
-        _control->activeUploadRequestId = 0;
     }
 }
 
@@ -1111,71 +990,6 @@ void SftpSession::uploadFile(const QString& localPath,
                              const QString& remotePath)
 {
     enqueue({CommandType::Upload, localPath, remotePath});
-}
-
-bool SftpSession::uploadBytes(quint64 requestId, QByteArray content,
-                              const QString& remotePath)
-{
-    if (requestId == 0 || content.isEmpty()
-        || content.size() > MaxQueuedUploadBytes || remotePath.isEmpty()
-        || remotePath.contains(QChar::Null)
-        || !_control->running.load(std::memory_order_acquire)) {
-        return false;
-    }
-    QMutexLocker lock(&_control->queueMutex);
-    if (!_control->running.load(std::memory_order_acquire)
-        || _control->commands.size() >= MaxQueuedCommands
-        || _control->queuedUploadBytes + content.size() > MaxQueuedUploadBytes) {
-        return false;
-    }
-    Command command;
-    command.type = CommandType::UploadBytes;
-    command.target = remotePath;
-    command.requestId = requestId;
-    command.content = std::move(content);
-    _control->queuedUploadBytes += command.content.size();
-    _control->commands.enqueue(std::move(command));
-    _control->queueReady.wakeOne();
-    return true;
-}
-
-void SftpSession::cancelUpload(quint64 requestId)
-{
-    if (requestId == 0)
-        return;
-    QString cancelledPath;
-    bool removed = false;
-    {
-        QMutexLocker lock(&_control->queueMutex);
-        for (qsizetype index = 0; index < _control->commands.size(); ++index) {
-            const auto& command = _control->commands.at(index);
-            if (command.type != CommandType::UploadBytes
-                || command.requestId != requestId) {
-                continue;
-            }
-            cancelledPath = command.target;
-            _control->queuedUploadBytes -= command.content.size();
-            _control->commands.removeAt(index);
-            removed = true;
-            break;
-        }
-        if (!removed && _control->activeUploadRequestId == requestId)
-            _control->cancelledUploadRequests.insert(requestId);
-    }
-    if (removed) {
-        emit uploadBytesFinished(requestId, cancelledPath, false,
-                                 QStringLiteral("SCRIPT_UPLOAD_CANCELLED"));
-    }
-}
-
-bool SftpSession::isUploadCancelled(
-    const std::shared_ptr<WorkerControl>& control, quint64 requestId)
-{
-    if (!control->running.load(std::memory_order_acquire)) {
-        return true;
-    }
-    QMutexLocker lock(&control->queueMutex);
-    return control->cancelledUploadRequests.contains(requestId);
 }
 
 void SftpSession::uploadDirectory(const QString& localPath,
@@ -1264,7 +1078,6 @@ void SftpSession::finishWorker(const std::shared_ptr<WorkerControl>& control,
                               quint64 generation)
 {
     QVector<SftpFileUploadResult> unfinishedFiles;
-    QVector<QPair<quint64, QString>> unfinishedUploads;
     QList<quint64> unfinishedDirectories;
     {
         // Serialize natural exit with admission. Requests accepted before this
@@ -1276,12 +1089,6 @@ void SftpSession::finishWorker(const std::shared_ptr<WorkerControl>& control,
         control->directoryRequests.clear();
         control->cancelledDirectoryRequests.clear();
         for (auto it = control->commands.begin(); it != control->commands.end();) {
-            if (it->type == CommandType::UploadBytes) {
-                unfinishedUploads.append({it->requestId, it->target});
-                control->queuedUploadBytes -= it->content.size();
-                it = control->commands.erase(it);
-                continue;
-            }
             if (it->type != CommandType::UploadAuthorizedFile) { ++it; continue; }
             it->fileUpload.control->cancel();
             SftpFileUploadResult result;
@@ -1292,10 +1099,6 @@ void SftpSession::finishWorker(const std::shared_ptr<WorkerControl>& control,
         }
     }
     for (const auto& result : unfinishedFiles) postFileUploadResult(control, result);
-    for (const auto& upload : unfinishedUploads)
-        postNotification(control, generation, [upload](SftpSession& receiver) {
-            emit receiver.uploadBytesFinished(upload.first, upload.second, false, QStringLiteral("SESSION_NOT_AVAILABLE"));
-        });
     for (const auto request : unfinishedDirectories)
         postDirectoryResult(control, generation, request, {{}, {}, tr("SFTP disconnected."), false});
     postNotification(control, generation,
@@ -1436,8 +1239,6 @@ void SftpSession::workerMain(std::shared_ptr<WorkerControl> control,
             }
             command = control->commands.dequeue();
             control->commandActive = true;
-            if (command.type == CommandType::UploadBytes)
-                control->activeUploadRequestId = command.requestId;
             if (command.type == CommandType::UploadAuthorizedFile)
                 control->activeFileUpload = command.fileUpload.control;
         }
@@ -1714,29 +1515,6 @@ void SftpSession::workerMain(std::shared_ptr<WorkerControl> control,
             continue;
         }
 
-        if (command.type == CommandType::UploadBytes) {
-            QString error;
-            const bool succeeded = uploadScriptBytes(sftp.get(), session.get(),
-                command.target, command.content,
-                [control, requestId = command.requestId] {
-                    return isUploadCancelled(control, requestId);
-                }, error);
-            {
-                QMutexLocker lock(&control->queueMutex);
-                control->queuedUploadBytes -= command.content.size();
-                control->activeUploadRequestId = 0;
-                control->cancelledUploadRequests.remove(command.requestId);
-            }
-            const quint64 requestId = command.requestId;
-            const QString remotePath = command.target;
-            postNotification(control, generation,
-                [requestId, remotePath, succeeded, error](SftpSession& receiver) {
-                    emit receiver.uploadBytesFinished(requestId, remotePath,
-                        succeeded, error);
-                });
-            continue;
-        }
-
         if (command.type == CommandType::Upload) {
             QFile localFile(command.source);
             if (!localFile.open(QIODevice::ReadOnly)) {
@@ -1750,8 +1528,7 @@ void SftpSession::workerMain(std::shared_ptr<WorkerControl> control,
             // 最终路径会在中途失败或被取消时，把远端原有文件留成「只到了一半」
             // 的截断文件，且没有任何补救；更糟的是源文件在 offset 0 变得不可读
             // 时（网络盘掉线、权限变更），远端文件**已经被清零**。
-            // uploadRegularFile() 与 uploadScriptBytes() 早已是这个纪律，
-            // 只有这条单文件上传路径漏掉了。
+            // 与目录上传中的 uploadRegularFile() 使用相同的临时文件发布约定。
             const QByteArray temporaryPath =
                 temporaryRemotePath(command.target).toUtf8();
             // sftp_open() 的 accesstype 是本机 POSIX O_* 标志，libssh 会在内部

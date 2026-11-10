@@ -6,10 +6,7 @@
 #include "McpProtocol.h"
 #include "core/ThreadNaming.h"
 #include "mcp/application/CapabilityResolver.h"
-#include "session/SessionCommandFacade.h"
 #include "session/TerminalContextProvider.h"
-#include "session/LocalSessionCommandExecutor.h"
-#include "session/SshSessionCommandExecutor.h"
 #include "transport/SshTransport.h"
 #include "core/terminal/TerminalCore.h"
 #include <QCryptographicHash>
@@ -53,11 +50,6 @@ AccessStore::AccessStore(QString directory, std::unique_ptr<CredentialStore> cre
           [this](const ClientId& id) { return _clients.contains(id); },
           [this](const ClientId& id) { return _clients.version(id); },
           [this](const ClientId& id) { return _clients.advance(id); },
-          // 只兼容旧授权快照的已知ID；已退役工具不再消费这些选择，也不升级为输入授权。
-          [](const DiagnosticId& id) {
-              return id.str() == "system.identity" || id.str() == "system.uptime"
-                  || id.str() == "memory.summary" || id.str() == "filesystem.usage";
-          },
           [this] { return _credentialOperationPending; }}),
       _elevationFactory(std::move(elevationFactory))
 {
@@ -390,7 +382,7 @@ Result<GrantSnapshot, AuthorizationError> AccessStore::changePermission(
     emit revoked(change.client.str(), entry.id);
     emit changed();
     // 首次授予读取后提前排一次发布，缩短首个 read_context 的不可用窗口；
-    // 只翻转执行类授权时不占用发布请求（与旧 setGrant 的既有行为一致）。
+    // 只翻转执行类授权时不占用发布请求。
     if (!wasShared && change.kind == PermissionKind::ReadOutput && change.selected
         && entry.state == SessionState::Running
         && NovaTerm::publishedContextSnapshotEnabled() && entry.session->core()) {
@@ -403,17 +395,6 @@ bool AccessStore::canRead(const QString& clientId, const SessionDirectory::Entry
 {
     const auto row = grantRow(clientId, entry);
     return row && row->selection.read;
-}
-
-bool AccessStore::initializeSessionSharing(const ClientId& client, const PermissionSelection& selection,
-    const SessionDirectory::Entry& entry)
-{
-    if (!_authorization.initializeSession(client, selection, factsOf(entry))) return false;
-    emit revoked(client.str(), entry.id);
-    emit changed();
-    if (NovaTerm::publishedContextSnapshotEnabled() && entry.session && entry.session->core())
-        static_cast<void>(entry.session->core()->requestPublishedTerminalState());
-    return true;
 }
 
 quint64 AccessStore::tokenEpoch() const
@@ -433,33 +414,6 @@ bool AccessStore::initializeSessionDefaults(const SessionDirectory::Entry& entry
     if (NovaTerm::publishedContextSnapshotEnabled() && entry.session && entry.session->core())
         static_cast<void>(entry.session->core()->requestPublishedTerminalState());
     return true;
-}
-
-QSet<QString> AccessStore::commands(const QString& clientId, const SessionDirectory::Entry& entry) const
-{
-    QSet<QString> result;
-    const auto row = grantRow(clientId, entry);
-    if (!row || !row->selection.read || row->binding.epoch.str() != entry.epoch)
-        return result;
-    for (const auto& id : row->selection.diagnostics)
-        result.insert(id.str());
-    return result;
-}
-
-bool AccessStore::canRunCommand(
-    const QString& clientId, const SessionDirectory::Entry& entry) const
-{
-    const auto row = grantRow(clientId, entry);
-    return row && row->selection.read && row->binding.epoch.str() == entry.epoch
-        && row->selection.riskControlledCommand;
-}
-
-bool AccessStore::canRunScriptTask(
-    const QString& clientId, const SessionDirectory::Entry& entry) const
-{
-    const auto row = grantRow(clientId, entry);
-    return row && row->selection.read && row->binding.epoch.str() == entry.epoch
-        && row->selection.script;
 }
 
 bool AccessStore::canControlTerminal(const QString& clientId,
@@ -505,17 +459,14 @@ QString AccessStore::elevationReference(const SessionDirectory::Entry& entry,
         || entry.session->transport() != entry.transport || !entry.transport->isConnected()
         || entry.session->statistics().generation != entry.generation
         || entry.kind != entry.session->runtimeConfig().transportKind
-        || entry.targetFingerprint.isEmpty()) return {};
+        || entry.targetFingerprint.isEmpty()
+        || SessionDirectory::targetFingerprintFor(entry.session) != entry.targetFingerprint) return {};
     QByteArray identity = QSysInfo::machineUniqueId() + '\0' + QDir::homePath().toUtf8() + '\0';
     if (entry.kind == TransportKind::LocalShell) {
-        LocalSessionCommandExecutor local(QString{});
-        if (local.targetFingerprint() != entry.targetFingerprint) return {};
         identity += "local\0";
     } else if (entry.kind == TransportKind::Ssh) {
         auto* ssh = qobject_cast<SshTransport*>(entry.transport.data());
         if (!ssh || ssh->serverHostKeyFingerprint().isEmpty()) return {};
-        SshSessionCommandExecutor executor(ssh);
-        if (executor.targetFingerprint() != entry.targetFingerprint) return {};
         const auto& config = ssh->sessionConfig();
         if (config.host.isEmpty() || config.host.contains(QChar::Null)
             || config.username.trimmed().isEmpty() || config.username.contains(QChar::Null)) return {};

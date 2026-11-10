@@ -11,13 +11,11 @@
 #include "transfer/SerialFileTransferController.h"
 #include "transport/SerialTransport.h"
 
-#include "SessionCommandFacade.h"
 #include "SessionCommandCoordinator.h"
 #include "SessionInputArbiter.h"
 #include "SessionInputPump.h"
 #include "InteractiveStreamFramer.h"
 #include "ShellIntegration.h"
-#include "ISessionScriptProvider.h"
 #include "core/terminal/TerminalCore.h"
 
 #include <QDebug>
@@ -91,11 +89,10 @@ bool isLegalTransition(SessionState from, SessionState to)
 
 TerminalSession::TerminalSession(TerminalCore* core, QObject* parent)
     : QObject(parent)
-    , _commandFacade(std::make_unique<SessionCommandFacade>(this))
     , _inputArbiter(std::make_unique<SessionInputArbiter>(this))
     , _streamFramer(std::make_unique<InteractiveStreamFramer>())
     , _commandCoordinator(std::make_unique<SessionCommandCoordinator>(
-          _inputArbiter.get(), _streamFramer.get(), this))
+          _inputArbiter.get(), this))
     , _core(core)
 {
     if (_core) {
@@ -110,11 +107,10 @@ TerminalSession::TerminalSession(TerminalCore* core, QObject* parent)
 
 TerminalSession::TerminalSession(RuntimeConfig config, QObject* parent)
     : QObject(parent)
-    , _commandFacade(std::make_unique<SessionCommandFacade>(this))
     , _inputArbiter(std::make_unique<SessionInputArbiter>(this))
     , _streamFramer(std::make_unique<InteractiveStreamFramer>())
     , _commandCoordinator(std::make_unique<SessionCommandCoordinator>(
-          _inputArbiter.get(), _streamFramer.get(), this))
+          _inputArbiter.get(), this))
     , _config(std::move(config))
     , _ownedCore(std::make_unique<TerminalCore>(80, 24))
     , _core(_ownedCore.get())
@@ -141,12 +137,6 @@ bool TerminalSession::requestTerminalClear(quint64 operation, bool all, quint64 
 {
     return _core && _state == SessionState::Running && !_inputArbiter->hasTransferLease()
         && _core->requestClear(operation, all, expectedGeneration, std::move(cancelled));
-}
-
-void TerminalSession::installScriptProvider(
-    std::unique_ptr<ISessionScriptProvider> provider)
-{
-    _scriptProvider = std::move(provider);
 }
 
 void TerminalSession::attach(ITransport* transport, Ownership ownership)
@@ -184,10 +174,9 @@ void TerminalSession::attach(ITransport* transport, Ownership ownership,
         _streamFramer->configure(InteractiveCommandProfile{});
         _commandCoordinator->configure(InteractiveCommandProfile{});
     }
-    _commandFacade->reset(_statistics.generation);
     _inputArbiter->bind(transport, _statistics.generation);
-    _streamFramer->reset(_statistics.generation);
-    _commandCoordinator->reset(_statistics.generation);
+    _streamFramer->reset();
+    _commandCoordinator->reset();
     _manualDisconnect = false;
     _reconnectTimer.setSingleShot(true);
     QObject::disconnect(&_reconnectTimer, nullptr, this, nullptr);
@@ -243,10 +232,9 @@ void TerminalSession::rewireTransportSignals()
     _terminalController.reset();
     if (!_transport)
         return;
-    _commandFacade->reset(_statistics.generation);
     _inputArbiter->bind(_transport.data(), _statistics.generation);
-    _streamFramer->reset(_statistics.generation);
-    _commandCoordinator->reset(_statistics.generation);
+    _streamFramer->reset();
+    _commandCoordinator->reset();
     for (const auto& connection : std::as_const(_transportConnections))
         QObject::disconnect(connection);
     _transportConnections.clear();
@@ -384,7 +372,6 @@ bool TerminalSession::resetForReuse()
         return false;
     _sessionId = QUuid::createUuid();
     _contextProvider.reset();
-    _commandFacade->reset(0);
     _state = SessionState::Created;
     _statistics = {};
     _acceptsUserInput = true;
@@ -630,8 +617,7 @@ void TerminalSession::startPump()
     connect(_inputPump, &SessionInputPump::interactiveEvent, this,
             [this](const InteractiveStreamEvent& event) {
         if (event.kind == InteractiveStreamEventKind::ShellReset
-            || event.kind == InteractiveStreamEventKind::FramingError
-            || event.kind == InteractiveStreamEventKind::CommandStarted)
+            || event.kind == InteractiveStreamEventKind::FramingError)
         {
             emit receiveBoundary(_statistics.generation, QStringLiteral("environment_invalidated"));
         }
@@ -644,8 +630,6 @@ void TerminalSession::startPump()
     connect(_inputPump, &SessionInputPump::interactiveBytes,
             _commandCoordinator.get(),
             &SessionCommandCoordinator::handleInteractiveBytes);
-    connect(_commandCoordinator.get(), &SessionCommandCoordinator::visibleRemainder,
-            _inputPump, &SessionInputPump::forwardFramerRemainder);
     _inputPump->start();
 }
 
@@ -662,11 +646,9 @@ void TerminalSession::clearAttachment(bool requestDisconnect)
         QObject::disconnect(connection);
     _transportConnections.clear();
     _pendingTransportError.reset();
-    _commandFacade->reset(_statistics.generation);
     _inputArbiter->bind(nullptr, _statistics.generation);
-    _streamFramer->reset(_statistics.generation);
-    _commandCoordinator->reset(_statistics.generation);
-    _scriptProvider.reset();
+    _streamFramer->reset();
+    _commandCoordinator->reset();
     _fileTransfer.reset();
     _fileTransferLeaseId = 0;
     _fileTransferSessionGeneration = _fileTransferIoGeneration = 0;

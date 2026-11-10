@@ -60,19 +60,10 @@ target_link_libraries(novaterm_mcp_http PUBLIC novaterm_mcp_protocol Qt6::HttpSe
 target_link_libraries(novaterm_mcp_http PRIVATE novaterm_core)
 
 # Session 自动化组件独立于 MCP 协议/HTTP/UI；runtime 只做组合与适配。
-# 源文件仍在 src/session/（既有 Framer/Arbiter/Provider 不机械搬迁）。
+# 源文件仍在 src/session/（既有 Framer/Arbiter 不机械搬迁）。
 qt_add_library(novaterm_session_automation STATIC
     ${PROJECT_SOURCE_DIR}/src/session/SessionDirectory.cpp
     ${PROJECT_SOURCE_DIR}/src/session/SessionDirectory.h
-    ${PROJECT_SOURCE_DIR}/src/session/ISessionCommandExecutor.h
-    ${PROJECT_SOURCE_DIR}/src/session/CommandPlatformProfile.cpp
-    ${PROJECT_SOURCE_DIR}/src/session/CommandPlatformProfile.h
-    ${PROJECT_SOURCE_DIR}/src/session/LocalSessionCommandExecutor.cpp
-    ${PROJECT_SOURCE_DIR}/src/session/LocalSessionCommandExecutor.h
-    ${PROJECT_SOURCE_DIR}/src/session/SessionCommandFacade.cpp
-    ${PROJECT_SOURCE_DIR}/src/session/SessionCommandFacade.h
-    ${PROJECT_SOURCE_DIR}/src/session/SshSessionCommandExecutor.cpp
-    ${PROJECT_SOURCE_DIR}/src/session/SshSessionCommandExecutor.h
 )
 target_include_directories(novaterm_session_automation PUBLIC ${PROJECT_SOURCE_DIR}/src)
 target_link_libraries(novaterm_session_automation PUBLIC

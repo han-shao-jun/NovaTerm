@@ -36,9 +36,6 @@ CapabilityFacts capabilityFacts(const SessionDirectory::Entry& entry,
         && entry.session->statistics().generation == entry.generation;
     facts.transferLease = entry.session
         && entry.session->inputArbiter()->hasTransferLease();
-    facts.legacyTerminalBusy = entry.session
-        && entry.session->inputArbiter()->hasMcpLease()
-        && entry.session->terminalController()->owner().isEmpty();
     facts.terminalOwner = entry.session
         ? entry.session->terminalController()->owner() : QString{};
     facts.shellIntegrationAvailable = entry.session

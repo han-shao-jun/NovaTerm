@@ -2,7 +2,7 @@
 
 当前工作区进一步改为统一 MCP 接入与授权，移除保存目标四工具，仅暴露已经连接的会话，新就绪连接四项权限默认开启；具体迁移、验证轮次和边界见[统一接入记录](MCP_Shared_Access_2026-10-29.md)。
 
-2026-10-29 MCP现行入口为二十工具，旧诊断/命令/脚本四工具已退役，SFTP上传/下载提供可选overwrite、默认false，本覆盖阶段Windows软件验证已完成。Windows软件交付与B4实机验收分开；Linux安全读取源后端已实现；Linux安全写入及macOS文件后端仍未实现，托管提权继续unavailable且非本轮闭环前置。范围见[软件收口账本](stages/P8_AI_MCP_Interface/08_Software_Closeout.md)。
+MCP现行入口为二十工具，旧诊断/命令/脚本四工具及其授权字段、执行器、脚本发布后端和本地诊断helper已删除，现行输入复用Session终端控制器，SFTP上传/下载提供可选overwrite、默认false，本覆盖阶段Windows软件验证已完成。Windows软件交付与B4实机验收分开；Linux安全读取源后端已实现；Linux安全写入及macOS文件后端仍未实现，托管提权继续unavailable且非本轮闭环前置。范围见[软件收口账本](stages/P8_AI_MCP_Interface/08_Software_Closeout.md)。
 
 本阶段见[覆盖记录](stages/P8_AI_MCP_Interface/records/B3b_File_Overwrite_2026-10-28.md)，既往实现和分轮成绩见[验收档案](stages/P8_AI_MCP_Interface/records/README.md)。
 

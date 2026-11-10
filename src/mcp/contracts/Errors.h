@@ -16,7 +16,7 @@
 namespace NovaTerm::Mcp {
 
 /**
- * @brief 现有九工具协议暴露的错误码；名称即对外 `error.code` 文本。
+ * @brief 现行工具协议使用的错误码；名称即对外 `error.code` 文本。
  *
  * 新增错误码必须同时在这里登记，编码处只允许使用本枚举，禁止散落字符串。
  */
@@ -37,33 +37,10 @@ enum class ErrorCode {
     CaptureNotAvailable,
     ContextNotReady,
     TaskNotAvailable,
-    TargetDirectoryChanged,
-    TargetOpenPermissionRequired,
-    TargetOperationNotAvailable,
     TargetOperationConflict,
-    TargetOperationLimit,
-    TargetCloseNotAllowed,
-    TargetCloseBusy,
-    CommandPermissionRequired,
-    CommandPolicyChanged,
-    CommandProfileUnavailable,
-    CommandUnavailable,
-    CommandNotAllowed,
-    CommandInProgress,
-    CommandTicketExpired,
-    CommandTicketScopeInvalid,
-    CommandExecutionQuarantined,
-    CommandConfirmationExpired,
     CommandConfirmationStale,
-    CommandConfirmationCancelled,
-    CommandConfirmationDeclined,
     CommandContextChanged,
-    CommandOutputLimit,
     CommandOutcomeUnknown,
-    CommandFailed,
-    CommandTimeout,
-    CommandScriptInvocationInvalid,
-    CommandScriptRiskUnknown,
     TerminalPermissionRequired,
     TerminalBusy,
     ControlInvalid,
@@ -73,21 +50,11 @@ enum class ErrorCode {
     InputSequenceConflict,
     InputTokenExpired,
     TextBudgetTooSmall,
-    ScriptPermissionRequired,
-    ScriptProviderUnavailable,
-    ScriptTargetInvalid,
-    ScriptWriteFailed,
-    ScriptCancelledByUser,
-    ScriptPublicationOutcomeUnknown,
-    ScriptPublishedNotInvoked,
     ElevationPermissionRequired,
     ElevationAdapterUnavailable,
-    ClientConfirmationUnavailable,
     TargetIdentityUnverified,
     FileTransferBusy,
     CredentialUpdateInProgress,
-    SessionCommandBusy,
-    SessionCommandNotReady,
     PermissionDenied,
     EvidenceExpired,
     EvidenceLimit,
@@ -119,20 +86,6 @@ struct RetryHint
     std::chrono::milliseconds after{0};
 };
 
-/** @brief 命令/脚本终态错误携带的结构化详情。 */
-struct ExecutionErrorDetails
-{
-    std::optional<QString> executionId;
-    std::optional<QString> targetPath;
-    std::optional<bool> published;
-    std::optional<bool> publicationMayHaveOccurred;
-    std::optional<bool> invocationStarted;
-    std::optional<QString> status;
-};
-
-/** @brief 错误详情的判别联合；未设置时用 `std::monostate`。 */
-using ErrorDetails = std::variant<std::monostate, ExecutionErrorDetails>;
-
 /** @brief 业务错误值。 */
 struct Error
 {
@@ -149,7 +102,6 @@ struct Error
     ErrorCode code{ErrorCode::InvalidArgument};
     QString message; ///< 为空表示使用错误码名称，与历史 `error(code)` 一致。
     std::optional<RetryHint> retry;
-    ErrorDetails details;
 };
 
 /**

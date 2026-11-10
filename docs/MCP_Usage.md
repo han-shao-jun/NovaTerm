@@ -474,7 +474,7 @@ taskId/operationId查询或精确重试。更早的已受理输入ID在保留窗
 
 主界面保留统一接入开关、配置复制、令牌重置、已连接会话权限、接管和清除上传确认记忆，不再有客户端管理或保存目标表格。
 
-- **读取输出**：允许读取/搜索当前会话，；已有录制由统一MCP接入直接读取。
+- **读取输出**：允许读取/搜索当前会话；已有录制由统一MCP接入直接读取。
 - **允许执行命令**：允许所有持有统一令牌的 AI 输入文本、按键、粘贴和命令，不逐条确认。
 - **允许托管提权**：依赖完整输入；当前可信认证适配器不可用，勾选不代表能够执行提权。
 - **允许清空终端**：只影响本机显示/回滚，不停止设备程序、不删除独立历史录制。
@@ -484,7 +484,8 @@ taskId/operationId查询或精确重试。更早的已受理输入ID在保留窗
 `novaterm_list_commands`、`novaterm_execute_command`、`novaterm_run_command`、
 `novaterm_run_script` 已从工具目录、解码及执行接线中删除，直接调用返回未知工具。
 客户端应刷新工具目录；旧接口不会转发到权限更宽的新终端输入。旧多客户端授权不会合并；新统一接入按上述连接默认规则建立权限。原来的固定诊断/脚本/交互授权列、旧执行结果面板、
-“确认远端停止”和“解除暂停”入口已移除。
+“确认远端停止”和“解除暂停”入口已移除。旧授权字段及本地诊断 helper 也已删除，
+构建与安装不再生成 `novaterm-local-diag.exe`；当前操作始终使用已连接终端或文件传输工具。
 
 诊断或命令通过 `novaterm_read_context` 观察，再以 `novaterm_interact_terminal`
 操作已授权终端；长任务使用 `novaterm_start_task/query_task/stop_task`。
@@ -499,8 +500,8 @@ taskId/operationId查询或精确重试。更早的已受理输入ID在保留窗
 
 ## 构建与验证
 
-脚本原文最多 2 MiB（UTF-8）；编码后 HTTP JSON 请求最多 12 MiB + 256 KiB，
-用于容纳最坏的字符串转义和其余有界参数。响应仍最多 2 MiB，不随请求上限增大。
+编码后 HTTP JSON 请求最多 12 MiB + 256 KiB；各工具参数仍有各自的文本和数量上限。
+响应最多 2 MiB，不随请求上限增大。
 
 ### 串口交互命令配置
 
@@ -514,22 +515,19 @@ taskId/operationId查询或精确重试。更早的已受理输入ID在保留窗
 
 串口命令走当前终端的唯一输入通路；不额外探测设备、不自动发送测试命令。
 匹配到新提示符用于判断事务收尾，不保证设备支持 POSIX 命令或提供退出码。
-空闲收尾同样不证明命令已终止，仅在提示符规则留空时使用；需要验证完成时
-请配置提示符正则。串口当前没有脚本写入后端，也没有内置固定诊断模板。
+静默只能作为观察线索，不能证明命令已终止或成功。旧命令的空闲收尾通路已删除；
+当前提示符规则只为终端控制器提供就绪和完成证据。文件发送使用独立的串口传输工具。
 
 ### 自动化检查
 
 主程序运行不需要 Python，也不依赖额外的模型 SDK。
 
-Linux 已核对默认注册 27 项，Windows 按条件预计 29 项，包含新增交互授权/凭据
-隔离目标 `novaterm_mcp_access_interaction_tests`。本轮成绩见 MCP实施与验收记录的验证记录。
-2026-10-17 最终续作 Linux Debug 全部默认目标构建成功，27/27 CTest 通过，181.21 秒；
-MCP 七项 7/7，29.05 秒。日志为 `build/mcp-final-continuation-full-2026-10-17.log`
-及同名 JUnit XML。Windows/macOS 与真实设备/认证适配器未在本轮验收。
-注册数仍以配置后的 `ctest -N` 为准，历史成绩不代表其他机器或新改动也已通过。
+按改动范围构建当前测试目标，再运行相关测试；注册目标以 `tests/CMakeLists.txt`
+和配置后的 `ctest -N` 为准。历史成绩不代表当前源码或其他平台已通过，
+真实设备与认证适配器仍需单独验收。
 
 ```powershell
-cmake --build build/Release --target NovaTerm novaterm-local-diag novaterm_mcp_tests novaterm_mcp_wire_tests novaterm_mcp_http_tests novaterm_mcp_endpoint_tests novaterm_mcp_access_interaction_tests novaterm_sftp_session_safety_tests novaterm_command_safety_tests
+cmake --build build/Release --target NovaTerm novaterm_mcp_tests novaterm_mcp_contracts_tests novaterm_mcp_authorization_tests novaterm_mcp_wire_tests novaterm_mcp_http_tests novaterm_mcp_endpoint_tests novaterm_mcp_access_interaction_tests novaterm_sftp_session_safety_tests
 $env:Path = 'C:\Programs\Qt\6.8.3\msvc2022_64\bin;' + $env:Path
 $env:QT_PLUGIN_PATH = 'C:\Programs\Qt\6.8.3\msvc2022_64\plugins'
 ctest --test-dir build/Release -C Release -L mcp --output-on-failure

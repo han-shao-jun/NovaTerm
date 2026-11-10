@@ -19,13 +19,7 @@
 #include "mcp/McpProtocol.h"
 #include "mcp/protocol/ToolCodec.h"
 #include "renderer/TerminalRenderer.h"
-#include "session/CommandExecutionTypes.h"
-#include "session/ISessionCommandExecutor.h"
-#include "session/LocalDiagnosticProtocol.h"
-#include "session/LocalSessionCommandExecutor.h"
-#include "session/SshSessionScriptProvider.h"
-#include "session/SessionCommandFacade.h"
-#include "session/SessionCommandCoordinator.h"
+#include "session/SftpSession.h"
 #include "session/SessionInputArbiter.h"
 #include "session/SessionTerminalController.h"
 #include "session/ShellIntegration.h"
@@ -49,7 +43,6 @@
 #include <QJsonDocument>
 #include <QKeyEvent>
 #include <QLockFile>
-#include <QProcess>
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
 #include <QNetworkRequest>
@@ -67,6 +60,7 @@
 #include <QMutexLocker>
 #include <QDir>
 #include <QTextStream>
+#include <QSysInfo>
 #include <QTimer>
 #include <QTemporaryDir>
 #include <QTest>
@@ -74,7 +68,6 @@
 
 #include <algorithm>
 #include <chrono>
-#include <tuple>
 #include <utility>
 
 #ifdef Q_OS_WIN
@@ -113,25 +106,7 @@ public:
         transport._serverHostKeyFingerprint = QString(64, QLatin1Char('a'));
     }
     static int queued(SshTransport& transport) { return int(transport._commandQueue.size()); }
-    static QByteArray queuedCommand(SshTransport& transport)
-    {
-        return transport._commandQueue.isEmpty() ? QByteArray{} : transport._commandQueue.head().command;
-    }
-    static void finish(SshTransport& transport, bool confirmed, QByteArray output = "Linux test x86_64\n")
-    {
-        if (transport._commandQueue.isEmpty()) return;
-        const auto request = transport._commandQueue.dequeue();
-        CommandExecutionResult result;
-        result.requestId = request.requestId;
-        result.connectionGeneration = request.generation;
-        result.executionMayHaveStarted = true;
-        result.terminationConfirmed = confirmed;
-        result.outcome = confirmed ? CommandExecutionOutcome::Completed
-                                   : CommandExecutionOutcome::Disconnected;
-        if (confirmed) result.exitCode = 0;
-        result.standardOutput = output;
-        emit transport.boundedCommandFinished(result);
-    }
+    static void clearHostKey(SshTransport& transport) { transport._serverHostKeyFingerprint.clear(); }
 };
 
 class LocalFake final : public ITransport
@@ -154,149 +129,6 @@ public:
     }
     bool online{false}, reconnectable{false}, pauseSupported{false}, readPaused{false};
     QByteArray written;
-};
-
-class DelayedScriptProvider final : public ISessionScriptProvider
-{
-public:
-    [[nodiscard]] bool isAvailable() const override { return available; }
-    bool writeScript(const ScriptWriteRequest& request) override
-    {
-        if (_request.requestId != 0)
-            return false;
-        _request = request;
-        ++writeCount;
-        return true;
-    }
-    void cancelWrite(quint64 requestId) override
-    {
-        if (_request.requestId == requestId)
-            ++cancelCount;
-    }
-    void finish(bool success, const QString& errorCode = {})
-    {
-        const auto request = std::exchange(_request, ScriptWriteRequest{});
-        ScriptWriteResult result;
-        result.requestId = request.requestId;
-        result.success = success;
-        result.errorCode = errorCode;
-        result.resolvedTargetPath = QDir::cleanPath(QDir::isAbsolutePath(request.targetPath)
-            ? request.targetPath : QDir(request.workingDirectory).filePath(request.targetPath));
-        result.contentHash = QCryptographicHash::hash(request.content, QCryptographicHash::Sha256);
-        emit finished(result);
-    }
-
-    int writeCount{0};
-    int cancelCount{0};
-    bool available{true};
-
-private:
-    ScriptWriteRequest _request;
-};
-
-class TestCommandExecutor final : public ISessionCommandExecutor
-{
-public:
-    explicit TestCommandExecutor(
-        std::shared_ptr<QList<quint64>> cancelledRequests = {},
-        QObject* parent = nullptr)
-        : ISessionCommandExecutor(parent)
-        , _cancelledRequests(std::move(cancelledRequests))
-    {
-    }
-
-    [[nodiscard]] bool isAvailable() const override { return true; }
-    [[nodiscard]] CommandExecutorCapabilities capabilities() const override
-    {
-        return {CommandExecutionMode::Isolated, true, true, true};
-    }
-    [[nodiscard]] CommandPlatformProfile profile() const override
-    {
-        return CommandPlatformProfile::forTransport(TransportKind::LocalShell);
-    }
-    [[nodiscard]] QString targetFingerprint() const override
-    {
-        return QString(64, QLatin1Char('b'));
-    }
-    [[nodiscard]] bool execute(const CommandExecutionRequest& request) override
-    {
-        ++submissionCount;
-        lastRequest = request;
-        CommandExecutionResult result;
-        result.requestId = request.requestId;
-        result.outcome = CommandExecutionOutcome::Completed;
-        result.executionMayHaveStarted = true;
-        result.terminationConfirmed = true;
-        result.exitCode = 0;
-        result.standardOutput = QByteArrayLiteral("fixture executor\n");
-        if (beforeCompletion)
-            beforeCompletion();
-        if (finishSynchronously) {
-            emit finished(result);
-            return true;
-        }
-        QMetaObject::invokeMethod(this, [this, result] { emit finished(result); },
-                                  Qt::QueuedConnection);
-        return true;
-    }
-    void cancel(quint64 requestId) override
-    {
-        cancelledRequest = requestId;
-        if (_cancelledRequests)
-            _cancelledRequests->append(requestId);
-    }
-
-    int submissionCount{0};
-    bool finishSynchronously{false};
-    std::function<void()> beforeCompletion;
-    CommandExecutionRequest lastRequest;
-    quint64 cancelledRequest{0};
-
-private:
-    std::shared_ptr<QList<quint64>> _cancelledRequests;
-};
-
-struct PendingExecutorState
-{
-    int submissions{0};
-    QList<quint64> cancelledRequests;
-};
-
-class PendingCommandExecutor final : public ISessionCommandExecutor
-{
-public:
-    explicit PendingCommandExecutor(std::shared_ptr<PendingExecutorState> state,
-                                    QObject* parent = nullptr)
-        : ISessionCommandExecutor(parent)
-        , _state(std::move(state))
-    {
-    }
-
-    [[nodiscard]] bool isAvailable() const override { return true; }
-    [[nodiscard]] CommandExecutorCapabilities capabilities() const override
-    {
-        return {CommandExecutionMode::Isolated, true, true, true};
-    }
-    [[nodiscard]] CommandPlatformProfile profile() const override
-    {
-        return CommandPlatformProfile::forTransport(TransportKind::LocalShell);
-    }
-    [[nodiscard]] QString targetFingerprint() const override
-    {
-        return QString(64, QLatin1Char('c'));
-    }
-    [[nodiscard]] bool execute(const CommandExecutionRequest&) override
-    {
-        ++_state->submissions;
-        return true;
-    }
-    void cancel(quint64 requestId) override
-    {
-        _state->cancelledRequests.append(requestId);
-    }
-
-private:
-    std::shared_ptr<PendingExecutorState> _state;
 };
 
 class Host
@@ -532,33 +364,26 @@ struct Fixture
             static_cast<void>(NovaTerm::Mcp::TestSupport::setGrant(service.access(), client,
                 service.directory().entries().first(), false));
     }
-    DelayedScriptProvider* makeScriptUpload()
+    bool makeIntegratedLocal()
     {
         session.close(CloseMode::Abort);
-        if (!session.resetForReuse())
-            return nullptr;
+        if (!session.resetForReuse()) return false;
         RuntimeConfig runtime;
         runtime.transportKind = TransportKind::LocalShell;
         runtime.transport.insert(QStringLiteral("interactiveShellKind"), QStringLiteral("posix"));
         session.attach(&local, TerminalSession::Ownership::Borrowed, runtime);
-        static_cast<void>(session.start());
-        auto provider = std::make_unique<DelayedScriptProvider>();
-        auto* delayed = provider.get();
-        session.installScriptProvider(std::move(provider));
-        return delayed;
+        return session.start();
     }
     QJsonObject identity()
     {
         const auto entry = service.directory().entries().first();
         return {{"sessionId", entry.id}, {"epoch", entry.epoch}};
     }
-    bool enable(bool execute = false, bool interactive = false)
+    bool enable()
     {
-        QSet<QString> commands;
-        if (execute) commands = {"system.identity", "system.uptime", "memory.summary", "filesystem.usage"};
         return !client.isEmpty() && enableWithoutSessionPermissions()
-            && NovaTerm::Mcp::TestSupport::setGrant(service.access(), client, service.directory().entries().first(),
-                true, commands, interactive);
+            && NovaTerm::Mcp::TestSupport::setGrant(service.access(), client,
+                service.directory().entries().first(), true);
     }
     bool enableWithoutSessionPermissions()
     {
@@ -582,7 +407,7 @@ private slots:
     }
     void directInputQueueGuardsAndReplay() {
         QFETCH(QString, version); QFETCH(int, change);
-        Fixture f; QVERIFY(f.enable(false, true));
+        Fixture f; QVERIFY(f.enable());
         QVERIFY(TestSupport::setTerminalGrant(f.service.access(), f.client, f.service.directory().entries().first(), true));
         QVERIFY(f.service.access().canControlTerminal(f.client, f.service.directory().entries().first()));
         Host host; QVERIFY(host.start(f.runtime(), f.token(), {}, false, version));
@@ -663,6 +488,38 @@ private slots:
         const auto capabilities = sessions.value("data").toObject().value("sessions").toArray().first().toObject().value("capabilities").toArray();
         for (const auto* name : {"list_commands", "execute_command", "run_command", "run_script", "human_confirmation"})
             QVERIFY(!capabilities.contains(QString::fromLatin1(name)));
+    }
+    void directoryIdentityUsesCurrentConnectionFacts()
+    {
+        Fixture fixture;
+#if defined(Q_OS_WIN) || defined(Q_OS_LINUX)
+        const auto local = fixture.service.directory().entries().first();
+        const auto machineId = QSysInfo::machineUniqueId();
+        if (!machineId.isEmpty()) {
+#ifdef Q_OS_WIN
+            const QByteArray identity = machineId + '\0' + "windows-local-v1";
+#else
+            const QByteArray identity = machineId + '\0' + "linux-local-v1";
+#endif
+            QCOMPARE(local.targetFingerprint, QString::fromLatin1(
+                QCryptographicHash::hash(identity, QCryptographicHash::Sha256).toHex()));
+        }
+#endif
+        fixture.makeSsh();
+        const auto original = fixture.service.directory().entries().first();
+        const auto& config = fixture.ssh->sessionConfig();
+        const auto identity = fixture.ssh->serverHostKeyFingerprint().toUtf8() + '\0'
+            + QByteArray::number(config.port) + '\0' + config.username.trimmed().toUtf8();
+        QCOMPARE(original.targetFingerprint, QString::fromLatin1(
+            QCryptographicHash::hash(identity, QCryptographicHash::Sha256).toHex()));
+        QVERIFY(fixture.service.access().elevationTargetIdentityVerified(original));
+        fixture.service.directory().setDisplayTitle(&fixture.session, "renamed");
+        QCOMPARE(fixture.service.directory().entries().first().epoch, original.epoch);
+        SshTransportTestAccess::clearHostKey(*fixture.ssh);
+        QVERIFY(!fixture.service.access().elevationTargetIdentityVerified(original));
+        const auto unverified = fixture.service.directory().entries().first();
+        QVERIFY(unverified.targetFingerprint.isEmpty());
+        QVERIFY(unverified.epoch != original.epoch);
     }
     void settingsDialogUsesSharedAccess()
     {
@@ -1072,16 +929,9 @@ private slots:
     void protocolLifecycleAndOversizedInput();
     void instanceSelectionAndDisconnectStayExplicit();
     void ccSwitchConfigurationIsSingleServerObject();
-    void sessionCommandFacadeRoutesTrustedExecutors();
-    void sessionCommandFacadeCancelsRequestsBeforeRebinding();
-    void localDiagnosticHelperAcceptsOnlyFixedCommands();
-    void localSessionExecutorKeepsCommandsIsolatedAndBounded();
-    void localSessionDiagnosticsStayIsolatedWithTrustedProfile();
     void publishedSnapshotSwitchDefaultsToEnabled();
     void publishedSnapshotPreservesCaptureTime();
     void readGrantPrewarmsPublishedSnapshotOnlyOnce();
-    void interactiveGrantIsSeparateFromReadAndFixedCommands();
-    void retiredCommandSelectionsDoNotExposeTools();
 };
 
 void McpTests::logReadsPageAndBindClientEpochAndMode_data()
@@ -1155,7 +1005,7 @@ void McpTests::logReadsPageAndBindClientEpochAndMode()
     QCOMPARE(host.call("novaterm_read_context", args).value("data").toObject().value("status").toString(), QString("invalidated"));
     args.insert("sinceToken", invalid.value("earliestToken"));
     QVERIFY(host.call("novaterm_read_context", args).value("data").toObject().value("caughtUp").toBool());
-    QVERIFY(NovaTerm::Mcp::TestSupport::setGrant(f.service.access(), f.client, entry, false, {}));
+    QVERIFY(NovaTerm::Mcp::TestSupport::setGrant(f.service.access(), f.client, entry, false));
     QCOMPARE(host.call("novaterm_read_context", args).value("error").toObject().value("code").toString(), QString("SESSION_NOT_AVAILABLE"));
     QVERIFY(f.enable());
     QCOMPARE(host.call("novaterm_read_context", args).value("error").toObject().value("code").toString(), QString("CURSOR_STALE"));
@@ -1321,77 +1171,6 @@ void McpTests::historyOfflineAccessUsesUnifiedIdentity()
 }
 
 
-void McpTests::retiredCommandSelectionsDoNotExposeTools()
-{
-    Fixture fixture;
-    fixture.makeScriptUpload();
-    QVERIFY(fixture.enable());
-    const auto entry = fixture.service.directory().entries().first();
-    emit fixture.local.readyRead(QByteArrayLiteral("\x1b]633;NT;PROMPT;1;0\x07"));
-    QTRY_VERIFY(fixture.session.commandCoordinator()->isPromptReady());
-    QTRY_COMPARE(fixture.service.status(), QStringLiteral("Listening"));
-    Host host;
-    QVERIFY(host.start(fixture.runtime(), fixture.token()));
-    const auto capabilities = [&host] {
-        return host.call("novaterm_list_sessions").value("data").toObject()
-            .value("sessions").toArray().first().toObject().value("capabilities").toArray();
-    };
-
-    QVERIFY(NovaTerm::Mcp::TestSupport::setGrant(fixture.service.access(), fixture.client, entry,
-        true, {}, false, false, false));
-    QVERIFY(fixture.service.access().canRead(fixture.client, entry));
-    QVERIFY(!fixture.service.access().canRunCommand(fixture.client, entry));
-    QVERIFY(!fixture.service.access().canRunScriptTask(fixture.client, entry));
-    auto advertised = capabilities();
-    QVERIFY(!advertised.contains(QStringLiteral("run_command")));
-    QVERIFY(!advertised.contains(QStringLiteral("run_script")));
-
-    QVERIFY(NovaTerm::Mcp::TestSupport::setGrant(fixture.service.access(), fixture.client, entry,
-        true, {}, true, false, false));
-    QVERIFY(fixture.service.access().canRunCommand(fixture.client, entry));
-    QVERIFY(!fixture.service.access().canRunScriptTask(fixture.client, entry));
-    advertised = capabilities();
-    QVERIFY(!advertised.contains(QStringLiteral("run_command")));
-    QVERIFY(!advertised.contains(QStringLiteral("run_script")));
-
-    QVERIFY(NovaTerm::Mcp::TestSupport::setGrant(fixture.service.access(), fixture.client, entry,
-        true, {}, true, true, false));
-    QVERIFY(!fixture.service.access().canRunScriptTask(fixture.client, entry));
-    advertised = capabilities();
-    QVERIFY(!advertised.contains(QStringLiteral("run_command")));
-    QVERIFY(!advertised.contains(QStringLiteral("run_script")));
-
-    QVERIFY(NovaTerm::Mcp::TestSupport::setGrant(fixture.service.access(), fixture.client, entry,
-        true, {}, true, false, true));
-    QVERIFY(fixture.service.access().canRunScriptTask(fixture.client, entry));
-    advertised = capabilities();
-    QVERIFY(!advertised.contains(QStringLiteral("run_command")));
-    QVERIFY(!advertised.contains(QStringLiteral("run_script")));
-
-    QVERIFY(NovaTerm::Mcp::TestSupport::setGrant(fixture.service.access(), fixture.client, entry,
-        true, {}, false, false, true));
-    advertised = capabilities();
-    QVERIFY(!advertised.contains(QStringLiteral("run_command")));
-    QVERIFY(!advertised.contains(QStringLiteral("run_script")));
-}
-
-void McpTests::interactiveGrantIsSeparateFromReadAndFixedCommands()
-{
-    Fixture fixture;
-    QVERIFY(fixture.enable());
-    const auto entry = fixture.service.directory().entries().first();
-    QVERIFY(fixture.service.access().canRead(fixture.client, entry));
-    QVERIFY(!fixture.service.access().canRunCommand(fixture.client, entry));
-
-    QVERIFY(NovaTerm::Mcp::TestSupport::setGrant(fixture.service.access(), fixture.client, entry,
-                                             true, {}, true));
-    QVERIFY(fixture.service.access().canRunCommand(fixture.client, entry));
-    QVERIFY(fixture.service.access().commands(fixture.client, entry).isEmpty());
-    QVERIFY(NovaTerm::Mcp::TestSupport::setGrant(fixture.service.access(), fixture.client, entry,
-                                             true, {}, false));
-    QVERIFY(!fixture.service.access().canRunCommand(fixture.client, entry));
-}
-
 
 void McpTests::publishedSnapshotSwitchDefaultsToEnabled()
 {
@@ -1479,7 +1258,7 @@ void McpTests::readGrantPrewarmsPublishedSnapshotOnlyOnce()
     const auto before = fixture.core.publishedContextStatistics().requestCount;
     QVERIFY(NovaTerm::Mcp::TestSupport::setGrant(fixture.service.access(), fixture.client, entry, true));
     QCOMPARE(fixture.core.publishedContextStatistics().requestCount, before + 1);
-    QVERIFY(NovaTerm::Mcp::TestSupport::setGrant(fixture.service.access(), fixture.client, entry, true, {}, true, false, true));
+    QVERIFY(NovaTerm::Mcp::TestSupport::setGrant(fixture.service.access(), fixture.client, entry, true));
     QCOMPARE(fixture.core.publishedContextStatistics().requestCount, before + 1);
     QVERIFY(NovaTerm::Mcp::TestSupport::setGrant(fixture.service.access(), fixture.client, entry, true));
     QCOMPARE(fixture.core.publishedContextStatistics().requestCount, before + 1);
@@ -1493,228 +1272,6 @@ void McpTests::readGrantPrewarmsPublishedSnapshotOnlyOnce()
 }
 
 
-void McpTests::localSessionDiagnosticsStayIsolatedWithTrustedProfile()
-{
-#if defined(Q_OS_WIN) || defined(Q_OS_LINUX)
-    eApp->init();
-    qRegisterMetaType<CommandExecutionResult>();
-    RuntimeConfig runtime;
-    runtime.transportKind = TransportKind::LocalShell;
-    runtime.transport.insert(QStringLiteral("interactiveShellKind"),
-                             QStringLiteral("posix"));
-    TerminalSession session(runtime);
-    LocalFake transport;
-    session.attach(&transport, TerminalSession::Ownership::Borrowed,
-                   TransportKind::LocalShell);
-    QVERIFY(session.start());
-    SessionDirectory directory;
-    directory.add(&session);
-    auto* facade = session.commandFacade();
-    QVERIFY(facade && facade->isAvailable());
-    QCOMPARE(facade->capabilities().mode, CommandExecutionMode::Isolated);
-    QCOMPARE(facade->profile().version(),
-             CommandPlatformProfile::forTransport(TransportKind::LocalShell).version());
-    QSignalSpy finished{facade, &SessionCommandFacade::finished};
-    CommandExecutionRequest request;
-    request.requestId = 1;
-    request.commandId = QString(NovaTerm::LocalDiagnostic::SystemIdentity);
-    QVERIFY(facade->execute(request));
-    QTRY_COMPARE(finished.size(), 1);
-    QVERIFY(transport.written.isEmpty());
-
-#else
-    QSKIP("Local fixed diagnostics are not available on this platform.");
-#endif
-}
-
-void McpTests::localSessionExecutorKeepsCommandsIsolatedAndBounded()
-{
-    qRegisterMetaType<CommandExecutionResult>();
-    LocalFake interactiveTransport;
-    LocalSessionCommandExecutor executor{
-        QString::fromUtf8(NOVATERM_LOCAL_EXECUTOR_TEST_CHILD)};
-    QSignalSpy finished{&executor, &ISessionCommandExecutor::finished};
-
-    const auto run = [&](quint64 requestId, QStringView commandId,
-                         CommandExecutionLimits limits) -> CommandExecutionResult {
-        finished.clear();
-        CommandExecutionRequest request;
-        request.requestId = requestId;
-        request.limits = limits;
-        request.commandId = commandId.toString();
-        if (!executor.execute(request))
-            return {};
-        QElapsedTimer timer;
-        timer.start();
-        while (finished.count() == 0 && timer.elapsed() < 3000)
-            QTest::qWait(5);
-        return finished.count() == 1
-            ? qvariant_cast<CommandExecutionResult>(finished.takeFirst().at(0))
-            : CommandExecutionResult{};
-    };
-
-    const auto success = run(101, NovaTerm::LocalDiagnostic::SystemIdentity,
-                             {64, 5000});
-    QCOMPARE(success.requestId, quint64{101});
-    QCOMPARE(success.outcome, CommandExecutionOutcome::Completed);
-    QVERIFY(success.executionMayHaveStarted);
-    QVERIFY(success.terminationConfirmed);
-    QCOMPARE(success.exitCode, std::optional<int>{0});
-    QCOMPARE(success.standardOutput.trimmed(), QByteArray("fixture-ok"));
-
-    const auto failed = run(102, NovaTerm::LocalDiagnostic::SystemUptime,
-                            {64, 5000});
-    QCOMPARE(failed.requestId, quint64{102});
-    QCOMPARE(failed.outcome, CommandExecutionOutcome::Failed);
-    QVERIFY(failed.terminationConfirmed);
-    QCOMPARE(failed.exitCode, std::optional<int>{42});
-    QCOMPARE(failed.standardError.trimmed(), QByteArray("fixture-failed"));
-
-    const auto limited = run(103, NovaTerm::LocalDiagnostic::MemorySummary,
-                             {64, 5000});
-    QCOMPARE(limited.requestId, quint64{103});
-    QCOMPARE(limited.outcome, CommandExecutionOutcome::OutputLimit);
-    QVERIFY(limited.outputTruncated);
-    QVERIFY(limited.terminationConfirmed);
-    QVERIFY(limited.standardOutput.size() + limited.standardError.size() <= 64);
-
-    const auto timedOut = run(104, NovaTerm::LocalDiagnostic::FilesystemUsage,
-                              {64, 50});
-    QCOMPARE(timedOut.requestId, quint64{104});
-    QCOMPARE(timedOut.outcome, CommandExecutionOutcome::TimedOut);
-    QVERIFY(timedOut.executionMayHaveStarted);
-    QVERIFY(timedOut.terminationConfirmed);
-
-    finished.clear();
-    CommandExecutionRequest cancelledRequest;
-    cancelledRequest.requestId = 105;
-    cancelledRequest.limits = {64, 5000};
-    cancelledRequest.commandId = QString(NovaTerm::LocalDiagnostic::FilesystemUsage);
-    QVERIFY(executor.execute(cancelledRequest));
-    QVERIFY(!executor.execute(CommandExecutionRequest{
-        106, {}, {64, 1000},
-        QString(NovaTerm::LocalDiagnostic::SystemIdentity)}));
-    executor.cancel(105);
-    QTRY_COMPARE_WITH_TIMEOUT(finished.count(), 1, 3000);
-    const auto cancelled = qvariant_cast<CommandExecutionResult>(
-        finished.takeFirst().at(0));
-    QCOMPARE(cancelled.outcome, CommandExecutionOutcome::Cancelled);
-    QVERIFY(cancelled.terminationConfirmed);
-    QVERIFY(interactiveTransport.written.isEmpty());
-}
-
-void McpTests::localDiagnosticHelperAcceptsOnlyFixedCommands()
-{
-    const auto run = [](const QStringList& arguments) {
-        QProcess process;
-        process.start(QString::fromUtf8(NOVATERM_LOCAL_DIAG), arguments);
-        const bool started = process.waitForStarted(3000);
-        const bool finished = started && process.waitForFinished(5000);
-        return std::tuple{started, finished, process.exitStatus(),
-                          process.exitCode(), process.readAllStandardOutput(),
-                          process.readAllStandardError()};
-    };
-
-    const QStringList commands{
-        QString(NovaTerm::LocalDiagnostic::SystemIdentity),
-        QString(NovaTerm::LocalDiagnostic::SystemUptime),
-        QString(NovaTerm::LocalDiagnostic::MemorySummary),
-        QString(NovaTerm::LocalDiagnostic::FilesystemUsage),
-    };
-    for (const QString& command : commands) {
-        QVERIFY(NovaTerm::LocalDiagnostic::isKnownCommand(command));
-        const auto [started, finished, status, exitCode, output, error] =
-            run({command});
-        QVERIFY(started);
-        QVERIFY(finished);
-        QCOMPARE(status, QProcess::NormalExit);
-        QCOMPARE(exitCode, 0);
-        QVERIFY(!output.isEmpty());
-        QVERIFY(error.isEmpty());
-        QVERIFY(output.size() <= NovaTerm::LocalDiagnostic::MaxOutputBytes);
-    }
-
-    for (const QStringList& invalid : {
-             QStringList{QStringLiteral("unknown.command")},
-             QStringList{QString(NovaTerm::LocalDiagnostic::SystemIdentity),
-                         QStringLiteral("extra")},
-             QStringList{QStringLiteral("system.identity && whoami")},
-         }) {
-        const auto [started, finished, status, exitCode, output, error] =
-            run(invalid);
-        QVERIFY(started);
-        QVERIFY(finished);
-        QCOMPARE(status, QProcess::NormalExit);
-        QCOMPARE(exitCode, 2);
-        QVERIFY(output.isEmpty());
-        QVERIFY(!error.isEmpty());
-    }
-}
-
-void McpTests::sessionCommandFacadeCancelsRequestsBeforeRebinding()
-{
-    SessionCommandFacade facade;
-    auto cancelledRequests = std::make_shared<QList<quint64>>();
-    facade.installExecutor(
-        std::make_unique<TestCommandExecutor>(cancelledRequests), 1);
-    QVERIFY(facade.execute(CommandExecutionRequest{41, "fixed", {64, 1000}}));
-
-    facade.reset(2);
-
-    QCOMPARE(*cancelledRequests, QList<quint64>{41});
-}
-
-
-void McpTests::sessionCommandFacadeRoutesTrustedExecutors()
-{
-    SessionDirectory directory;
-    TerminalCore localCore{80, 24};
-    TerminalSession localSession{&localCore};
-    LocalFake local;
-    localSession.attach(&local, TerminalSession::Ownership::Borrowed,
-                        TransportKind::LocalShell);
-    directory.add(&localSession);
-    auto* localFacade = localSession.commandFacade();
-    QVERIFY(localFacade);
-#if defined(Q_OS_WIN) || defined(Q_OS_LINUX)
-    QVERIFY(localFacade->isAvailable());
-#ifdef Q_OS_WIN
-    QCOMPARE(localFacade->profile().version(), QStringLiteral("windows-local-v1"));
-#else
-    QCOMPARE(localFacade->profile().version(), QStringLiteral("linux-local-v1"));
-#endif
-#else
-    QVERIFY(!localFacade->isAvailable());
-#endif
-    QVERIFY(!localFacade->execute(CommandExecutionRequest{1, "fixed", {64, 1000}}));
-    QVERIFY(local.written.isEmpty());
-
-    TerminalCore sshCore{80, 24};
-    TerminalSession sshSession{&sshCore};
-    SshConfig config;
-    config.host = QStringLiteral("fixture.invalid");
-    config.username = QStringLiteral("fixture");
-    SshTransport ssh{config};
-    SshTransportTestAccess::connected(ssh);
-    sshSession.attach(&ssh, TerminalSession::Ownership::Borrowed,
-                      TransportKind::Ssh);
-    directory.add(&sshSession);
-    auto* sshFacade = sshSession.commandFacade();
-    QVERIFY(sshFacade);
-    QVERIFY(sshFacade->isAvailable());
-    const auto capabilities = sshFacade->capabilities();
-    QCOMPARE(capabilities.mode, CommandExecutionMode::Isolated);
-    QVERIFY(capabilities.reliableExitCode);
-    QVERIFY(capabilities.reliableTermination);
-    QVERIFY(capabilities.isolatedOutput);
-
-    QSignalSpy finished{sshFacade, &SessionCommandFacade::finished};
-    QVERIFY(sshFacade->execute(CommandExecutionRequest{2, "fixture-ok", {64, 1000}}));
-    QCOMPARE(SshTransportTestAccess::queued(ssh), 1);
-    QCOMPARE(SshTransportTestAccess::queuedCommand(ssh), QByteArray("fixture-ok"));
-    SshTransportTestAccess::finish(ssh, true);
-    QCOMPARE(finished.count(), 1);
-}
 
 void McpTests::protocolLifecycleAndOversizedInput()
 {
@@ -2707,134 +2264,11 @@ bool waitFor(const std::function<bool()>& condition, int milliseconds)
     return condition();
 }
 
-int sshLoopbackCheck(quint16 port)
-{
-    QTemporaryDir root;
-    SshConfig config;
-    config.host = "127.0.0.1";
-    config.port = port;
-    config.username = "fixture";
-    config.password = "fixture-only";
-    SshTransport transport(config);
-    SshTransportTestAccess::knownHosts(transport, root.filePath("known_hosts"));
-    QObject::connect(&transport, &SshTransport::hostKeyRequired, &transport, [&transport] { transport.acceptHostKey(); });
-    std::optional<CommandExecutionResult> result;
-    QObject::connect(&transport, &SshTransport::boundedCommandFinished, &transport,
-        [&](const CommandExecutionResult& received) { result = received; });
-    if (!transport.connectToHost() || !waitFor([&] { return transport.isConnected(); }, 10000)) {
-        std::fprintf(stderr, "Loopback SSH connection failed: %s\n", qPrintable(transport.errorString())); return 1;
-    }
-    int failures = 0;
-    const auto run = [&](quint64 id, const QByteArray& command,
-                         CommandExecutionLimits limits,
-                         CommandExecutionOutcome outcome) {
-        result.reset();
-        const bool submitted = transport.executeBoundedCommand(id, command, limits);
-        const bool received = waitFor([&] { return result && result->requestId == id; }, 6000);
-        const bool ok = submitted && received && result->outcome == outcome
-            && result->standardOutput.size() + result->standardError.size() <= limits.maxOutputBytes;
-        std::printf("loopback command %llu: %s\n", static_cast<unsigned long long>(id), ok ? "PASS" : "FAIL");
-        failures += !ok;
-    };
-    run(1, "fixture-ok", {64, 1000}, CommandExecutionOutcome::Completed);
-    if (!result || !result->terminationConfirmed || result->exitCode != 0) ++failures;
-    run(2, "fixture-nonzero", {64, 1000}, CommandExecutionOutcome::Failed);
-    if (!result || !result->terminationConfirmed || result->exitCode != 42) ++failures;
-    run(3, "fixture-limit", {64, 1000}, CommandExecutionOutcome::OutputLimit);
-    if (!result || !result->outputTruncated) ++failures;
-    run(4, "fixture-timeout", {64, 200}, CommandExecutionOutcome::TimedOut);
-    if (!result || result->terminationConfirmed || !result->executionMayHaveStarted) ++failures;
-
-    SshSessionScriptProvider scriptProvider(&transport);
-    QSignalSpy scriptFinished(&scriptProvider,
-        &ISessionScriptProvider::finished);
-    ScriptWriteRequest scriptRequest;
-    scriptRequest.requestId = 51;
-    scriptRequest.content = QByteArrayLiteral("#!/bin/sh\nprintf loopback-only\n");
-    scriptRequest.targetPath = QStringLiteral("/scripts/novaterm-loopback.sh");
-    scriptRequest.workingDirectory = QStringLiteral("/scripts");
-    if (!scriptProvider.writeScript(scriptRequest)
-        || !waitFor([&] { return scriptFinished.count() == 1; }, 15000)) {
-        std::fprintf(stderr, "Loopback SFTP script upload timed out.\n");
-        ++failures;
-    } else {
-        const auto uploaded = qvariant_cast<ScriptWriteResult>(
-            scriptFinished.takeFirst().front());
-        const bool ok = uploaded.requestId == scriptRequest.requestId
-            && uploaded.success
-            && uploaded.contentHash == QCryptographicHash::hash(
-                scriptRequest.content, QCryptographicHash::Sha256)
-            && uploaded.resolvedTargetPath == scriptRequest.targetPath;
-        if (!ok) {
-            std::fprintf(stderr, "loopback SFTP upload failed (success=%d, error=%s, target=%s)\n",
-                int(uploaded.success), qPrintable(uploaded.errorCode),
-                qPrintable(uploaded.resolvedTargetPath));
-        }
-        std::printf("loopback SFTP provider: %s\n", ok ? "PASS" : "FAIL");
-        failures += !ok;
-    }
-    {
-        SshTransport interactiveTransport(config);
-        SshTransportTestAccess::knownHosts(interactiveTransport,
-                                           root.filePath("known_hosts"));
-        QObject::connect(&interactiveTransport, &SshTransport::hostKeyRequired,
-            &interactiveTransport, [&interactiveTransport] {
-                interactiveTransport.acceptHostKey();
-            });
-        RuntimeConfig runtime;
-        runtime.transportKind = TransportKind::Ssh;
-        TerminalSession session(runtime);
-        session.attach(&interactiveTransport, TerminalSession::Ownership::Borrowed,
-                       TransportKind::Ssh);
-        const bool connected = session.start()
-            && waitFor([&] { return session.state() == SessionState::Running; }, 10000);
-        bool commandOk = false;
-        if (connected) {
-            Service service(root.filePath("state"), root.filePath("instances"),
-                            std::make_unique<MemoryCredentialStore>());
-            service.directory().add(&session);
-            const auto client = service.access().ensureAccess();
-            const bool enabled = !client.isEmpty() && service.access().setEnabled(true)
-                && waitFor([&] { return service.status() == QStringLiteral("Listening"); }, 1000);
-            const auto entry = service.directory().entries().first();
-            if (enabled && NovaTerm::Mcp::TestSupport::setGrant(service.access(), client, entry, true, {}, true)) {
-                Host host;
-                if (host.start(root.filePath("instances"),
-                    service.access().exportToken().value_or(QByteArray{}))) {
-                    const auto response = host.call("novaterm_run_command",
-                        QJsonObject{{"sessionId", entry.id}, {"epoch", entry.epoch},
-                            {"command", QStringLiteral("pwd")}, {"timeoutMs", 2000}});
-                    commandOk = response.value("ok").toBool()
-                        && response.value("data").toObject().value("stdout")
-                            .toString().contains(QStringLiteral("/fixture"));
-                    if (commandOk && session.core()->waitForIdle()) {
-                        QByteArray visible;
-                        for (const auto& line : session.core()->terminalState().viewport)
-                            visible += QByteArray::fromStdString(line.text);
-                        commandOk = visible.contains(QByteArrayLiteral("root# pwd"))
-                            && visible.contains(QByteArrayLiteral("/fixture"))
-                            && !visible.contains(QByteArrayLiteral("__nvterm"))
-                            && !visible.contains(QByteArrayLiteral("NT;END"));
-                    } else {
-                        commandOk = false;
-                    }
-                }
-            }
-        }
-        std::printf("loopback interactive pwd: %s\n", commandOk ? "PASS" : "FAIL");
-        failures += !commandOk;
-        session.close(CloseMode::Abort);
-    }
-    transport.disconnect();
-    std::printf("Loopback SSH result: %s\n", failures ? "FAIL" : "PASS");
-    return failures ? 1 : 0;
-}
-
-int interopFixture(QCoreApplication& application, const QString& configurationFile, bool holdCommands = false)
+int interopFixture(QCoreApplication& application, const QString& configurationFile)
 {
     Fixture fixture;
     fixture.makeSsh();
-    if (!fixture.enable(true)) return 1;
+    if (!fixture.enable()) return 1;
     if (!NovaTerm::Mcp::TestSupport::setTerminalGrant(fixture.service.access(), fixture.client,
             fixture.service.directory().entries().first(), true)) return 1;
     fixture.core.writeInput("SDK_READY\r\nbuild ok\r\nERROR sample\r\n");
@@ -2847,7 +2281,6 @@ int interopFixture(QCoreApplication& application, const QString& configurationFi
             exported = writePrivateJson(configurationFile, fixture.service.clientConfiguration());
             if (!exported) application.exit(1);
         }
-        if (!holdCommands && SshTransportTestAccess::queued(*fixture.ssh) > 0) SshTransportTestAccess::finish(*fixture.ssh, true);
         if (QFile::exists(configurationFile + ".stop")) application.quit();
     });
     timer.start();
@@ -3008,8 +2441,6 @@ void McpTests::settingsDialogRoundTripsTerminalPermissions()
     tree->topLevelItem(0)->setCheckState(3, Qt::Checked);
     QTRY_VERIFY(f.service.access().canControlTerminal(f.client, entry));
     QVERIFY(f.service.access().canRead(f.client, entry));
-    QVERIFY(!f.service.access().canRunCommand(f.client, entry));
-    QVERIFY(!f.service.access().canRunScriptTask(f.client, entry));
     QVERIFY(!f.service.access().canUseElevation(f.client, entry));
     QCoreApplication::processEvents();
     tree->topLevelItem(0)->setCheckState(4, Qt::Checked);
@@ -3202,7 +2633,7 @@ void McpTests::settingsDialogElevationCheckboxRequiresSupportedContext()
 void McpTests::terminalInteractionRequiresNewGrantAndDeduplicates()
 {
     Fixture f;
-    QVERIFY(f.enable(false, true));
+    QVERIFY(f.enable());
     Host host;
     QVERIFY(host.start(f.runtime(), f.token()));
     auto read = f.identity(); read.insert("responseMode", "compact");
@@ -3348,13 +2779,12 @@ void McpTests::elevationAvailabilityUsesIdentityNotConnectionType()
 void McpTests::settingsDialogKeepsPendingGrantsForEveryTerminal_data()
 {
     QTest::addColumn<int>("kind");
-    QTest::addColumn<bool>("backendReady");
+    QTest::addColumn<bool>("identityVerified");
 #if defined(Q_OS_WIN) || defined(Q_OS_LINUX)
     QTest::newRow("local-ready") << int(TransportKind::LocalShell) << true;
 #endif
-    QTest::newRow("local-backend-missing") << int(TransportKind::LocalShell) << false;
     QTest::newRow("ssh-ready") << int(TransportKind::Ssh) << true;
-    QTest::newRow("ssh-backend-missing") << int(TransportKind::Ssh) << false;
+    QTest::newRow("ssh-unverified-identity") << int(TransportKind::Ssh) << false;
     QTest::newRow("serial") << int(TransportKind::Serial) << false;
     QTest::newRow("telnet") << int(TransportKind::Telnet) << false;
     QTest::newRow("custom") << int(TransportKind::Custom) << false;
@@ -3362,7 +2792,7 @@ void McpTests::settingsDialogKeepsPendingGrantsForEveryTerminal_data()
 
 void McpTests::settingsDialogKeepsPendingGrantsForEveryTerminal()
 {
-    QFETCH(int, kind); QFETCH(bool, backendReady);
+    QFETCH(int, kind); QFETCH(bool, identityVerified);
     eApp->init();
     Fixture f;
     if (static_cast<TransportKind>(kind) == TransportKind::Ssh) f.makeSsh();
@@ -3371,7 +2801,7 @@ void McpTests::settingsDialogKeepsPendingGrantsForEveryTerminal()
         f.session.attach(&f.local, TerminalSession::Ownership::Borrowed, static_cast<TransportKind>(kind));
         QVERIFY(f.session.start());
     }
-    if (!backendReady) f.session.commandFacade()->reset(f.session.statistics().generation);
+    if (!identityVerified && f.ssh) SshTransportTestAccess::clearHostKey(*f.ssh);
     QVERIFY(f.enable());
     f.service.directory().setDisplayTitle(&f.session, QString::fromLatin1(QTest::currentDataTag()));
     const auto entry = f.service.directory().entries().first();
@@ -3394,7 +2824,7 @@ void McpTests::settingsDialogKeepsPendingGrantsForEveryTerminal()
     QVERIFY(!tree->topLevelItem(0)->text(4).isEmpty());
     QCOMPARE(tree->itemWidget(tree->topLevelItem(0),
         NovaTerm::Ui::SessionPermissionModel::index(
-            NovaTerm::Ui::SessionPermissionModel::Column::Credentials))->isEnabled(), backendReady);
+            NovaTerm::Ui::SessionPermissionModel::Column::Credentials))->isEnabled(), identityVerified);
     const auto preview = qEnvironmentVariable("NOVATERM_MCP_GRANT_PREVIEW");
     if (!preview.isEmpty()) {
         const auto previousTheme = eTheme->getThemeMode();
@@ -3421,12 +2851,11 @@ void McpTests::settingsDialogKeepsPendingGrantsForEveryTerminal()
     elevate.insert("method", "sudo"); elevate.insert("mode", "shell");
     const auto denied = host.call("novaterm_request_elevation", elevate);
     QVERIFY(!denied.value("ok").toBool());
-    if (!backendReady) QVERIFY(!f.service.access().setElevationCredential(entry, "sudo", "not-a-real-password"));
+    if (!identityVerified) QVERIFY(!f.service.access().setElevationCredential(entry, "sudo", "not-a-real-password"));
     QVERIFY(!f.service.access().hasElevationCredential(entry, "sudo"));
     QVERIFY(f.local.written.isEmpty());
     tree->topLevelItem(0)->setCheckState(2, Qt::Unchecked);
     QTRY_VERIFY(!f.service.access().canUseElevation(f.client, entry));
-    QVERIFY(f.service.access().commands(f.client, entry).isEmpty());
 }
 
 void McpTests::settingsDialogRejectsRowFromPreviousIdentity()
@@ -3680,7 +3109,7 @@ void McpTests::observationReportsConfigurationAndIoAvailability()
 void McpTests::terminalCommandCompletionAndReadinessAreSeparateFromOutput()
 {
     Fixture f;
-    QVERIFY(f.makeScriptUpload());
+    QVERIFY(f.makeIntegratedLocal());
     QVERIFY(f.enable());
     QVERIFY(NovaTerm::Mcp::TestSupport::setTerminalGrant(f.service.access(), f.client, f.service.directory().entries().first(), true));
     Host host; QVERIFY(host.start(f.runtime(), f.token()));
@@ -3906,7 +3335,7 @@ void McpTests::compactExpansionPreservesSourceGap()
 
 void McpTests::maximumTerminalCommandIncludesConfiguredLineEnding()
 {
-    Fixture f; QVERIFY(f.makeScriptUpload()); QVERIFY(f.enable());
+    Fixture f; QVERIFY(f.makeIntegratedLocal()); QVERIFY(f.enable());
     QVERIFY(NovaTerm::Mcp::TestSupport::setTerminalGrant(f.service.access(),
         f.client, f.service.directory().entries().first(), true));
     Host host; QVERIFY(host.start(f.runtime(), f.token()));
@@ -4013,14 +3442,9 @@ int main(int argc, char** argv)
     if (arguments.size() == 3 && arguments[1] == "--interop-fixture")
         return interopFixture(application, arguments[2]);
     if (arguments.size() == 3 && arguments[1] == "--shutdown-fixture")
-        return interopFixture(application, arguments[2], true);
+        return interopFixture(application, arguments[2]);
     if (arguments.size() == 3 && (arguments[1] == "--perf-fixture" || arguments[1] == "--perf-baseline"))
         return performanceFixture(application, arguments[2], arguments[1] == "--perf-fixture");
-    if (arguments.size() == 3 && arguments[1] == "--ssh-loopback-check") {
-        bool ok = false;
-        const auto port = arguments[2].toUShort(&ok);
-        return ok && port != 0 ? sshLoopbackCheck(port) : 1;
-    }
     McpTests tests;
     return QTest::qExec(&tests, argc, argv);
 }
@@ -4239,7 +3663,7 @@ void McpTests::clearTerminalIsExplicitIdempotentAndInvalidatesObservation()
     const auto entry = f.service.directory().entries().first();
     QVERIFY(NovaTerm::Mcp::TestSupport::setTerminalGrant(f.service.access(), f.client, entry, true));
     QVERIFY(NovaTerm::Mcp::TestSupport::applyOne(f.service.access(), f.client, entry,
-        PermissionKind::ClearTerminal, std::nullopt, true));
+        PermissionKind::ClearTerminal, true));
     Host host; QVERIFY(host.start(f.runtime(), f.token(), {}, false, version));
     auto legacyArgs = f.identity();
     const auto legacy = host.call("novaterm_read_context", legacyArgs).value("data").toObject();
@@ -4286,7 +3710,7 @@ void McpTests::clearTerminalIsExplicitIdempotentAndInvalidatesObservation()
     QVERIFY(fresh.value("ok").toBool());
     QVERIFY(!QJsonDocument(fresh).toJson().contains("OLD_HISTORY_0"));
     QVERIFY(NovaTerm::Mcp::TestSupport::applyOne(f.service.access(), f.client, entry,
-        PermissionKind::ClearTerminal, std::nullopt, false));
+        PermissionKind::ClearTerminal, false));
     QVERIFY(!retry.call("novaterm_clear_terminal", args).value("ok").toBool());
     QCOMPARE(f.core.scrollbackLineCount(), lines);
     QVERIFY(f.local.written.isEmpty());
@@ -4362,7 +3786,7 @@ void McpTests::clearAdapterTracksSessionObjectReuseAndDestruction()
         const auto entry = f.service.directory().find(session->id().toString(QUuid::WithoutBraces));
         return entry && NovaTerm::Mcp::TestSupport::setGrant(f.service.access(), f.client, *entry, true)
             && NovaTerm::Mcp::TestSupport::applyOne(f.service.access(), f.client, *entry,
-                PermissionKind::ClearTerminal, std::nullopt, true);
+                PermissionKind::ClearTerminal, true);
     };
     const auto key = randomBytes();
     TerminalClearAdapter adapter(f.service.access(), f.service.directory(), "test", key, nullptr);
@@ -4410,7 +3834,7 @@ void McpTests::clearTicketRejectsHumanTakeoverBeforeAdmission()
     Fixture f; QVERIFY(f.enable());
     const auto entry = f.service.directory().entries().first();
     QVERIFY(NovaTerm::Mcp::TestSupport::applyOne(f.service.access(), f.client, entry,
-        PermissionKind::ClearTerminal, std::nullopt, true));
+        PermissionKind::ClearTerminal, true));
     const auto key = randomBytes();
     TerminalClearAdapter adapter(f.service.access(), f.service.directory(), "test", key, nullptr);
     QVERIFY(f.core.waitForIdle());

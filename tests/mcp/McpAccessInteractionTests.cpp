@@ -544,14 +544,13 @@ void McpAccessInteractionTests::terminalPermissionRequiresExplicitGrantAndCurren
     const auto a = f.access.ensureAccess(), b = QStringLiteral("forged-access");
     auto entry = f.entry();
     QVERIFY(!NovaTerm::Mcp::TestSupport::setTerminalGrant(f.access, a, entry, true));
-    QVERIFY(NovaTerm::Mcp::TestSupport::setGrant(f.access, a, entry, true, {}, true, true, true));
-    QVERIFY(f.access.canRunCommand(a, entry));
+    QVERIFY(NovaTerm::Mcp::TestSupport::setGrant(f.access, a, entry, true));
     QVERIFY(!f.access.canControlTerminal(a, entry));
     QVERIFY(NovaTerm::Mcp::TestSupport::setTerminalGrant(f.access, a, entry, true));
     QVERIFY(f.access.canControlTerminal(a, entry));
     QVERIFY(!f.access.canControlTerminal(b, entry));
     QVERIFY(!f.access.canUseElevation(a, entry));
-    // Updating an old permission must not silently drop an explicit new grant.
+    // 更新读取权限不能撤销同一连接上的完整输入授权。
     QVERIFY(NovaTerm::Mcp::TestSupport::setGrant(f.access, a, entry, true));
     QVERIFY(f.access.canControlTerminal(a, entry));
     entry.epoch = "reconnected";
@@ -560,7 +559,7 @@ void McpAccessInteractionTests::terminalPermissionRequiresExplicitGrantAndCurren
     QVERIFY(NovaTerm::Mcp::TestSupport::setGrant(f.access, a, entry, true));
     QVERIFY(!f.access.canControlTerminal(a, entry));
     QVERIFY(NovaTerm::Mcp::TestSupport::setTerminalGrant(f.access, a, entry, true));
-    QVERIFY(!f.access.canRunCommand(a, entry));
+    QVERIFY(f.access.canControlTerminal(a, entry));
 }
 
 void McpAccessInteractionTests::readRevocationClearsNewPermissions()

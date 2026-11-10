@@ -1,16 +1,14 @@
-"""只监听回环的 SSH 协议夹具；返回固定输出，绝不执行真实 shell 命令。"""
+"""只监听回环的 SSH/SFTP 目录浏览夹具，不执行 shell 命令。"""
 from __future__ import annotations
 import os
 from pathlib import Path
 import posixpath
-import re
 import site
 import socket
 import subprocess
 import sys
 import tempfile
 import threading
-import time
 import logging
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -84,35 +82,6 @@ class SftpRoot(paramiko.SFTPServerInterface):
         except OSError:
             return paramiko.SFTP_FAILURE
 
-    def open(self, path, flags, attr):
-        try:
-            local = self._local(path)
-            descriptor = os.open(local, flags, 0o600)
-            if flags & os.O_WRONLY:
-                stream = os.fdopen(descriptor, "wb")
-            elif flags & os.O_RDWR:
-                stream = os.fdopen(descriptor, "r+b")
-            else:
-                stream = os.fdopen(descriptor, "rb")
-            handle = paramiko.SFTPHandle(flags)
-            handle.filename = path
-            if flags & os.O_WRONLY:
-                handle.writefile = stream
-            else:
-                handle.readfile = stream
-            return handle
-        except FileNotFoundError:
-            return paramiko.SFTP_NO_SUCH_FILE
-        except OSError:
-            return paramiko.SFTP_PERMISSION_DENIED
-
-    def chattr(self, path, attr):
-        try:
-            if attr.st_mode is not None:
-                os.chmod(self._local(path), attr.st_mode)
-            return paramiko.SFTP_OK
-        except OSError:
-            return paramiko.SFTP_FAILURE
 
 
 class Server(paramiko.ServerInterface):
@@ -129,69 +98,20 @@ class Server(paramiko.ServerInterface):
         return True
 
     def check_channel_shell_request(self, channel):
-        def shell():
-            pending = bytearray()
-            try:
-                channel.sendall(b"root# ")
-                while True:
-                    received = channel.recv(4096)
-                    if not received:
-                        return
-                    pending.extend(received)
-                    while b"\r" in pending:
-                        line, _, remainder = pending.partition(b"\r")
-                        pending = bytearray(remainder)
-                        marker = re.search(rb"NT;END;([0-9a-f-]+);%d", line)
-                        if not line.startswith(b"pwd;__nvterm_rc=$?;printf") or not marker:
-                            continue
-                        # 只模拟终端回显与结束证据，不解释或执行请求正文。
-                        channel.sendall(b"root# " + line + b"\r\n/fixture\r\n")
-                        channel.sendall(b"\x1b]633;NT;END;" + marker.group(1)
-                                        + b";0\x07root# ")
-            except (OSError, EOFError):
-                return
-        threading.Thread(target=shell, daemon=True).start()
-        return True
-
-    def check_channel_exec_request(self, channel, command):
-        def reply():
-            try:
-                # 让 Paramiko 先发送 exec 成功应答，再发布这次命令的数据和退出状态。
-                time.sleep(0.02)
-                if command == b"fixture-ok":
-                    channel.sendall(b"ok\n")
-                    channel.send_exit_status(0)
-                elif command == b"fixture-nonzero":
-                    channel.sendall_stderr(b"expected error\n")
-                    channel.send_exit_status(42)
-                elif command == b"fixture-limit":
-                    channel.sendall(b"x" * 1024)
-                    channel.send_exit_status(0)
-                elif command == b"fixture-timeout":
-                    return
-                else:
-                    channel.send_exit_status(127)
-                channel.close()
-            except (OSError, EOFError):
-                pass
-        threading.Thread(target=reply, daemon=True).start()
         return True
 
 
 def main():
     executable = Path(sys.argv[1] if len(sys.argv) > 1 else ROOT / "build/Release/bin/novaterm_mcp_tests.exe")
-    directory_check = len(sys.argv) > 2 and sys.argv[2] == "--directories"
     fixture_root = tempfile.TemporaryDirectory(prefix="novaterm-sftp-loopback-")
     sftp_root = Path(fixture_root.name)
-    (sftp_root / "scripts").mkdir()
-    if directory_check:
-        for directory in ("browser/a", "browser/b", "browser/带 空格", "browser/big"):
-            (sftp_root / directory).mkdir(parents=True, exist_ok=True)
-        (sftp_root / "browser/ordinary-file").write_text("not a directory", encoding="utf-8")
-        for index in range(1030):
-            (sftp_root / f"browser/big/d{index:04}").mkdir()
-        if os.name != "nt":
-            (sftp_root / "browser/link-a").symlink_to("a", target_is_directory=True)
+    for directory in ("browser/a", "browser/b", "browser/带 空格", "browser/big"):
+        (sftp_root / directory).mkdir(parents=True, exist_ok=True)
+    (sftp_root / "browser/ordinary-file").write_text("not a directory", encoding="utf-8")
+    for index in range(1030):
+        (sftp_root / f"browser/big/d{index:04}").mkdir()
+    if os.name != "nt":
+        (sftp_root / "browser/link-a").symlink_to("a", target_is_directory=True)
     listener = socket.socket()
     listener.bind(("127.0.0.1", 0))
     listener.listen(1)
@@ -231,7 +151,7 @@ def main():
     try:
         try:
             result = subprocess.run(
-                [str(executable), "--directory-loopback-check" if directory_check else "--ssh-loopback-check", str(listener.getsockname()[1])],
+                [str(executable), "--directory-loopback-check", str(listener.getsockname()[1])],
                 timeout=30, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                 creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
         except subprocess.TimeoutExpired as timeout:
@@ -246,14 +166,7 @@ def main():
             print(f"SSH fixture process exit: {result.returncode:#x}", file=sys.stderr)
         if result.returncode:
             raise SystemExit(result.returncode)
-        if directory_check:
-            print("loopback SFTP directory browse: PASS")
-            return
-        script = sftp_root / "scripts" / "novaterm-loopback.sh"
-        expected = b"#!/bin/sh\nprintf loopback-only\n"
-        if not script.exists() or script.read_bytes() != expected:
-            raise SystemExit("SFTP loopback script bytes did not match the accepted content")
-        print("loopback SFTP script upload: PASS")
+        print("loopback SFTP directory browse: PASS")
     finally:
         stop.set()
         listener.close()

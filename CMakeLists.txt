@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(NovaTerm VERSION 0.2.139 LANGUAGES CXX C)
+project(NovaTerm VERSION 0.2.140 LANGUAGES CXX C)
 
 # ═══════════════════════════════════════════════════════════════════
 #  1. 通用平台编译参数
@@ -362,17 +362,13 @@ list(FILTER SOURCES EXCLUDE REGEX "[/\\\\]src[/\\\\]resources[/\\\\]")
 list(FILTER SOURCES EXCLUDE REGEX "[/\\\\]src[/\\\\]filetransfer[/\\\\]")
 list(FILTER SOURCES EXCLUDE REGEX "[/\\\\]src[/\\\\]session[/\\\\]transfer[/\\\\]")
 list(FILTER SOURCES EXCLUDE REGEX "[/\\\\]SessionDirectory\\.(cpp|h)$")
-list(FILTER SOURCES EXCLUDE REGEX
-    "[/\\\\](CommandPlatformProfile|ISessionCommandExecutor|LocalSessionCommandExecutor|SessionCommandFacade|SshSessionCommandExecutor)\\.(cpp|h)$"
-)
-# Linux 主程序、诊断 helper 与私有运行库的安装目录，先于工具子目录定义。
+# Linux 主程序与私有运行库的安装目录。
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     set(_novaterm_linux_runtime_root "${CMAKE_INSTALL_LIBDIR}/novaterm")
     set(_novaterm_linux_bindir "${_novaterm_linux_runtime_root}/bin")
     set(_novaterm_linux_libdir "${_novaterm_linux_runtime_root}/lib")
     set(_novaterm_linux_pluginsdir "${_novaterm_linux_runtime_root}/plugins")
 endif()
-add_subdirectory(tools/novaterm-local-diag)
 add_subdirectory(src/capabilities)
 add_subdirectory(src/resources)
 add_subdirectory(src/mcp)
@@ -387,7 +383,6 @@ qt_add_executable(NovaTerm
     ${SOURCES}
     ${CMAKE_SOURCE_DIR}/resources/resources.qrc
 )
-add_dependencies(NovaTerm novaterm-local-diag)
 
 # 主程序与直接编译配色服务的测试使用同一份 JSON 模板。
 function(novaterm_add_scheme_resources target)

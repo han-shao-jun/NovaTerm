@@ -145,7 +145,7 @@ def main():
     executable = Path(sys.argv[1]).resolve()
     scenarios = sys.argv[2:] or ["list-unsafe", "list-limit", "tree-limit", "tree-depth",
         "list-cancel", "tree-cancel", "directory-write", "directory-close", "directory-rename",
-        "script-write", "file-rename", "tree-depth-boundary", "list-deadline"]
+        "file-rename", "tree-depth-boundary", "list-deadline"]
     results = [run(executable, scenario) for scenario in scenarios]
     print(f"passed={sum(results)} total={len(results)}")
     return 0 if all(results) else 1

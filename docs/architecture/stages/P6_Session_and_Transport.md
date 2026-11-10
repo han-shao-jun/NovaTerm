@@ -866,25 +866,23 @@ ZIP完整性检查通过，DEB与ZIP主程序逐字节一致，包内helper、SQ
 宿主机安装后核对无运行中的NovaTerm进程，未启动应用；下次启动加载新载荷。
 本阶段未重跑业务或板卡测试、未提交推送；前述测试仍属于各自修复验证轮次。
 
-## P8.6 Session 级交互命令与脚本写入边界（2026-09-25）
+## P8.6 Session 级终端输入与文件传输边界
 
-当前实现将 `SessionInputArbiter`、`InteractiveStreamFramer`、
-`SessionCommandCoordinator` 与 `SessionCommandFacade` 组合在既有 `TerminalSession` 中。
-用户输入代际改变时，缓存的 MCP prompt readiness 立即失效；活动 MCP Lease 被抢占时先停止
-后续 MCP 分块，再写入用户字节。交互 command/script invocation 仍由同一 Session 输入通路
-进入现有 `SessionInputPump` 与 `TerminalCore`，不得新增 Transport 写入旁路。
+现行 `TerminalSession` 组合 `SessionInputArbiter`、`InteractiveStreamFramer`、
+`SessionCommandCoordinator` 与 `SessionTerminalController`。Coordinator 仅维护提示符候选、
+静默窗和就绪证据；Controller 负责当前终端的输入、控制权及命令状态。
+用户输入代际改变时，提示符就绪证据立即失效；活动 MCP Lease 被抢占时先使
+尚未提交的 MCP 输入失效，再写入用户字节。MCP 命令和任务经 Core 编码、Arbiter 与原 Transport
+提交，入站仍走唯一 `SessionInputPump` 与 `TerminalCore`，不得新增输入或读取旁路。
 
-`SessionDirectory` 仍不拥有 Session；它按当前 `TransportKind`、Shell Profile 与活动 Transport
-安装 LocalShell 或 SSH `ISessionScriptProvider`。LocalShell provider 用 `QSaveFile` 写入请求
-指定路径；SSH provider 从活动 `SshTransport::sessionConfig()` 获取当前连接凭据，通过 SFTP
-字节接口写入并校验一致的 known_hosts 路径、主机密钥指纹和 SSH 连接代际。串口、Telnet、
-Custom 或缺少可信交互 Profile 的会话不安装脚本 provider。
+`SessionDirectory` 不拥有 Session；`targetFingerprintFor()` 从当前会话与活动 Transport
+直接计算目标指纹，McpAccess 凭据绑定复用同一核验入口。旧 `SessionCommandFacade`、
+命令 Executor 与 `ISessionScriptProvider` 已删除，不再为查询身份创建执行器或安装脚本后端。
 
-SSH SFTP 的脚本正文队列总量有 2 MiB 上限，SFTP 上传与终端 command 各自独立；上传完成后
-MCP 服务必须重验授权、epoch、Transport 目标、Profile、用户输入代际和提示符 generation，
-才可提交后续交互调用。脚本落盘不自动删除；用户输入会取消仍在途的 SFTP upload，任何写入
-或二次校验失败都不能提交调用命令。
-
+SFTP 文件上传下载继续复用原 `SftpSession` 队列与 worker，以及固定句柄的安全本地文件后端。
+旧 `uploadBytes`、`cancelUpload`、`uploadBytesFinished` 和专属脚本字节发布流程已删除。
+文件传输与随后执行分别受理；文件发布不自动注入命令，后续执行须使用当前连接的终端输入授权。
+旧诊断使用的有界 SSH exec 接口已删除，P7 系统资源监控的只读辅助通道独立保留。
 
 ## 2026-10-07：P9 串口文件传输接线
 

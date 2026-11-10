@@ -1,53 +1,29 @@
 /**
  * @file SessionCommandCoordinator.h
- * @brief Session 交互命令的提示符、Lease、捕获与完成状态机。
+ * @brief Session 提示符候选、静默窗与就绪证据。
  */
 #pragma once
 
-#include "CommandExecutionTypes.h"
 #include "InteractiveStreamFramer.h"
 #include "session/automation/TerminalEvidenceModel.h"
 
 #include <QByteArray>
 #include <QObject>
-#include <QTimer>
-
-#include <optional>
 
 class SessionInputArbiter;
 
-/** @brief 在 Session 层协调一条有界交互命令事务。 */
+/** @brief 在 Session 层维护当前提示符证据，供终端控制器读取。 */
 class SessionCommandCoordinator final : public QObject
 {
     Q_OBJECT
 public:
-    SessionCommandCoordinator(SessionInputArbiter* arbiter,
-                              InteractiveStreamFramer* framer,
-                              QObject* parent = nullptr);
+    explicit SessionCommandCoordinator(SessionInputArbiter* arbiter, QObject* parent = nullptr);
 
-    void reset(quint64 sessionGeneration);
+    void reset();
     void configure(InteractiveCommandProfile profile);
-    [[nodiscard]] bool submit(const CommandExecutionRequest& request);
-    void cancel(quint64 requestId);
-    void expire(quint64 requestId);
-    /** @brief 终端收到其他输入后废弃此前提示符证据，不影响活动命令。 */
+    /** @brief 终端收到其他输入后废弃此前提示符证据。 */
     void invalidatePromptReadiness();
     [[nodiscard]] bool isPromptReady() const noexcept;
-    /** @brief 当前 Session 是否安装了显式可信交互 Profile。 */
-    [[nodiscard]] bool hasTrustedProfile() const noexcept
-    {
-        return !_profile.allowUnverifiedPrompt
-            && (_profile.shellIntegration || !_profile.promptPattern.isEmpty());
-    }
-    [[nodiscard]] bool allowsUnverifiedPrompt() const noexcept
-    {
-        return _profile.allowUnverifiedPrompt;
-    }
-    /** @brief 当前 Profile 是否由空闲静默窗收口（串口无提示符降级）。 */
-    [[nodiscard]] bool allowsIdleCompletion() const noexcept
-    {
-        return _profile.allowIdleCompletion;
-    }
     [[nodiscard]] quint64 promptGeneration() const noexcept
     {
         return _evidence.promptGeneration();
@@ -66,32 +42,11 @@ public slots:
     void handleInteractiveBytes(const QByteArray& bytes);
 
 signals:
-    void finished(const CommandExecutionResult& result);
     /** @brief 候选提示符静默窗结束、成为可提交证据。 */
     void promptReady(quint64 generation);
-    /** @brief 将取消时尚未完成匹配的普通回显交还输入泵。 */
-    void visibleRemainder(const QByteArray& bytes);
 
 private:
-    [[nodiscard]] bool sendNextInputChunk();
-    void handlePreempted(quint64 executionId, bool executionMayHaveStarted);
-    void finish(CommandExecutionOutcome outcome, bool terminationConfirmed,
-                std::optional<int> exitCode = std::nullopt);
-
     SessionInputArbiter* _arbiter{nullptr};
-    InteractiveStreamFramer* _framer{nullptr};
-    QTimer _timeout;
-    QTimer _idleQuiet;
-    QTimer _noResponse;
     NovaTerm::Session::TerminalEvidenceModel _evidence;
-    InteractiveCommandProfile _profile;
-    std::optional<CommandExecutionRequest> _active;
-    QByteArray _pendingInput;
-    qsizetype _pendingInputOffset{0};
-    QByteArray _standardOutput;
-    quint64 _sessionGeneration{0};
-    bool _executionMayHaveStarted{false};
-    bool _commandStarted{false};
-    bool _outputTruncated{false};
-    static constexpr qsizetype InputChunkBytes = 512;
+    bool _shellIntegration{false};
 };

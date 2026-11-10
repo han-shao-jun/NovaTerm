@@ -10,13 +10,13 @@ G16本轮Windows显式覆盖与软件收尾已完成Windows软件验证；Linux�
 
 | 能力 | 当前依据 | 边界 |
 | --- | --- | --- |
-| 本地外部 Agent 接入 | 进程内 Streamable HTTP、Bearer、客户端独立授权；[现行契约](02_Current_MCP_Contract.md) | 应用和目标 Session 必须已存在；工具发现不等于工具可用 |
+| 本地外部 Agent 接入 | 进程内 Streamable HTTP、统一Bearer与四项会话授权；[现行契约](02_Current_MCP_Contract.md) | 应用和目标 Session 必须已存在；工具发现不等于工具可用 |
 | 选择 SSH/UART | SessionDirectory、显式 sessionId/epoch、权限与 availability | 不按活动标签隐式选目标，不自动建连 |
 | 查看屏幕及有界摘要 | TerminalContextProvider、ObservationService、read_context | 有过滤、去重及截断，不是完整终端日志 |
 | 增量观察和等待 | sinceToken/nextToken、ObservationState、attention/change/completion | 已有模型观察游标，不等同于逐行日志读取位置 |
 | 按键和文本输入 | interact_terminal 的 text/paste/key/line_ending/command/release | 完整输入需独立授权；command 有就绪约束，通用按键不要求 POSIX Shell |
 | 防止重复输入和人工抢占 | inputToken、operationId、replyToExecutionId、SessionInputArbiter | 本机已提交不证明设备收到；人工输入会使旧控制条件失效 |
-| 命令和脚本兼容能力 | run_command、run_script、CommandRuntime | 脚本发布限已有 LocalShell/SSH 路径，不是任意固件上传/烧录工具 |
+| 终端命令与任务 | interact_terminal、start_task/query_task/stop_task、SessionTerminalController | 复用当前终端；旧诊断、命令、脚本工具及其专属执行器、发布后端已删除 |
 | 独立离线资源读取 | 录制、共享、三个历史工具 | 可选已实现能力，不作为读取实时终端缓存的前置 |
 
 ## 2. 必须处理的观察缺口
@@ -36,13 +36,13 @@ G01～G03 是旧“有界摘要”目标与新“可靠读取终端缓存”目�
 
 | ID | 事实与证据 | 下一步 |
 | --- | --- | --- |
-| G07 UART 静默不是成功 | [SessionCommandCoordinator](../../../../src/session/SessionCommandCoordinator.cpp) 的 allowIdleCompletion 以静默/无响应结束；[测试](../../../../tests/mcp/McpTests.cpp) serialWithoutPromptCompletesByQuietWindow 覆盖该降级。现行结果无退出码，并提示未验证；terminationConfirmed 在该兼容路径为 true，不能单独当作远端进程终止证据 | 使用说明和输出证据等级一致：停止等待、完成命令、测试成功是三件事；对迟发错误、静默长任务验收，不靠闲置窗判成功 |
-| G08 SSH 未知输入位置 | 旧 run_command 允许无可信提示符的 SSH/POSIX 完成标记路径；[测试](../../../../tests/mcp/McpTests.cpp) unverifiedSshCommandUsesCurrentTerminal。结束标记不证明提交前处于空闲 Shell | 优先观察并使用带 inputToken/就绪约束的输入；核验 TUI、密码提示、未提交命令、嵌套 Shell，不盲发探测 Enter/Ctrl+C |
+| G07 UART 静默不是成功 | 旧Coordinator的allowIdleCompletion命令执行分支与对应测试已删除；Coordinator仅维护提示符证据，现行Controller/任务仍按可信事件区分完成与未知 | 对迟发错误、静默长任务继续做设备验收，不把观察到静默当成退出或成功 |
+| G08 SSH 未知输入位置 | 旧run_command及无可信提示符的完成标记执行路径已删除；当前command动作要求就绪，原始输入仍可能作用于TUI、密码提示或未提交命令 | 输入前观察目标与状态；核验TUI、嵌套Shell，不盲发探测Enter/Ctrl+C |
 | G09 断连与设备重启 | 现有授权/epoch 处理重连失效；但板子重启可能保持 UART 链路，同一 Session 可能从 Linux 转入 U-Boot | 分别测试链路重连、同链路重启和环境切换。SSH/UART 由用户明确配对，Agent 核对启动/固件标志；不能按标题或相同时间自动认定同一板子 |
 | G10 长任务与取消 | 单次 wait 最大 30 秒，已有持续等待、取消、unknown/目标保护和人工接管机制 | 长时观察采用多次有界等待；验证停止等待不会误发 Ctrl+C，取消命令不保证远端停止，不换 operationId 盲重放 |
-| G11 Agent 使用说明冲突 | [WireSession](../../../../src/mcp/WireSession.cpp) 两代握手 instructions 仍分别包含“非严格只读模板均需确认”和“仅单独授权固定诊断可执行”，与已有完整输入/普通命令路径不完全一致；工具说明已有观察建议 | 统一两代握手、工具描述和用户说明，覆盖日志书签、屏幕、缺口、清空和 UART 静默；用契约测试防止指令互相矛盾 |
+| G11 Agent 使用说明一致性 | 两代握手共用instructions，旧诊断允许列表及逐命令确认不再是现行授权；旧确认状态只返回拒绝，不进入业务层 | 保持工具描述、使用说明与当前四项授权一致；真实客户端提示和审批仍单独验收 |
 | G12 真机与性能证据不足 | 既有用例包含 SSH/Serial 替身和输入/授权回归，但不等于完整硬件闭环。串口压力历史记录显示驱动 RX 队列设置会影响丢帧 | 单独完成真实 SSH、UART 启动、双通道重启、缓存淘汰及高输出验收；区分设备/驱动丢字节、终端缓存淘汰和 MCP 投影截断 |
-| G13 工作区与发布基线不一致 | [P4 暂停记录](https://gitee.com/han-shao-jun/NovaTerm/blob/411ec15c36aa5ac56fddb204761fae830f785947/docs/architecture/stages/P8_AI_MCP_Interface/records/P4_Implementation_and_Verification.md) 记载未完成回归及串口完成标记失败；源码有两项诊断扩展，旧冻结契约为九终端工具加三历史工具 | 后续实施前固定基线并明确保留/隔离策略。此次文档删除不等于扩展已经从构建移除或已经发布 |
+| G13 工作区与发布基线 | 旧诊断helper、Facade/Executor、ScriptProvider、旧权限及SFTP脚本字节发布接口已从源码和构建接线删除；旧冻结fixture仅保留历史对照 | 当前源码变更不等于发布或B4验收；构建、测试与设备证据分别核实 |
 
 ## 4. Netcatty 对照补充（2026-10-25）
 
@@ -51,9 +51,9 @@ G01～G03 是旧“有界摘要”目标与新“可靠读取终端缓存”目�
 | ID | 对照依据与 NovaTerm 差距 | 补齐与验收 |
 | --- | --- | --- |
 | G14 条件等待 | Netcatty 的 electron/scripts/sessionOutputBuffer.cjs 提供 waitForText/Regex/Prompt，经 scripts_run 使用；NovaTerm read_context 当前只有 attention/change/completion，指定文本需调用方反复读取判断 | 复用缓存和屏幕的有界字面等待；旧文本、跨页匹配、扫描续接、清空/淘汰和取消都有明确语义，不引入脚本引擎 |
-| G15 长任务入口 | Netcatty terminal_start/poll/stop 返回任务状态、nextOffset/outputBaseOffset；其 execHandlers 明确拒绝 Serial 后台执行。NovaTerm 有执行状态和持续观察，但没有同样直接的任务查询接口 | 薄异步入口复用 CommandRuntime/Controller；SSH/UART 分别表达提交、完成证据和可停止能力；不能把 UART 静默当 exitCode=0 |
-| G16 文件交付 | Netcatty catalog/sftp.cjs 暴露单文件上传/下载等工具；NovaTerm 有传输/脚本能力，但当前 MCP run_script 不是任意二进制文件传输 | 单文件 SSH/SFTP、授权本地资源引用、覆盖策略、进度/取消及发布事实；不自动烧录，不开放任意本机路径 |
-| G17 目标连接 | Netcatty host_open 使用保存目标，优先复用连接，session_close 区分创建与复用的所有者；NovaTerm 当前 MCP 只能操作已存在的共享会话 | 只列和打开获准保存目标，配置版本/operationId 绑定，busy/认证待处理明确返回；不关闭复用的人类会话 |
+| G15 长任务入口 | Netcatty提供terminal_start/poll/stop；NovaTerm现已有start_task/query_task/stop_task，复用TerminalTasks与Controller，不依赖旧CommandRuntime | SSH/UART分别表达提交、完成证据和可停止能力；不能把UART静默当exitCode=0，真实设备仍待验收 |
+| G16 文件交付 | 当前MCP提供SFTP上传/下载与UART发送，复用已有owner及安全文件后端；旧run_script与专属脚本发布接口已删除 | 按现行路径确认、覆盖、进度/取消及发布事实验收；上传不自动执行或烧录 |
+| G17 目标连接 | 当前MCP只操作已连接会话；保存目标四工具和初始化授权接口已删除 | 用户先建立连接，Agent核对sessionId/epoch与真实目标；不恢复自动打开或关闭保存目标的旧工具 |
 
 G01～G03 对照补充：Netcatty components/Terminal.tsx 和 domain/terminalContextRead.ts 直接按 viewport/tail/head/lines 读取缓存，默认 80 行、上限 300 行；这比有界去重摘要更适于回查，但仍不是带清空代际的连续日志游标。NovaTerm 按 04 补稳定位置，不复制可随缓存淘汰移动的裸行号。
 

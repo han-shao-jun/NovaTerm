@@ -55,9 +55,6 @@ GrantSnapshot AuthorizationService::snapshot(const ClientId& client,
     view.revision = row->revision;
     view.selection = row->selection;
     if (!executionBindingMatches(row->binding, facts.binding)) {
-        view.selection.diagnostics.clear();
-        view.selection.riskControlledCommand = false;
-        view.selection.script = false;
         view.selection.fullTerminalInput = false;
         view.selection.elevation = false;
         view.selection.clearTerminal = false;
@@ -91,10 +88,7 @@ Result<GrantSnapshot, AuthorizationError> AuthorizationService::change(
     PermissionSelection selection = rowApplies ? row->selection : PermissionSelection{};
     if (rowApplies && !executionBindingMatches(row->binding, facts.binding)) {
         // 同一目标重连后，界面再次提交的修改以新连接为准：读取保留，
-        // 诊断/脚本/交互/完整输入/提权/清空必须重新授权。
-        selection.diagnostics.clear();
-        selection.riskControlledCommand = false;
-        selection.script = false;
+        // 完整输入、提权与清空必须重新授权。
         selection.fullTerminalInput = false;
         selection.elevation = false;
         selection.clearTerminal = false;
@@ -105,42 +99,10 @@ Result<GrantSnapshot, AuthorizationError> AuthorizationService::change(
     case PermissionKind::ReadOutput:
         selection.read = change.selected;
         if (!change.selected) {
-            selection.diagnostics.clear();
-            selection.riskControlledCommand = false;
-            selection.script = false;
             selection.fullTerminalInput = false;
             selection.elevation = false;
             selection.clearTerminal = false;
         }
-        break;
-    case PermissionKind::Diagnostic:
-        if (!selection.read || !change.diagnostic) {
-            invalid = AuthorizationRejection::InvalidSelection;
-            break;
-        }
-        if (change.selected) {
-            if (!_ports.knownDiagnostic || !_ports.knownDiagnostic(*change.diagnostic)) {
-                invalid = AuthorizationRejection::InvalidSelection;
-                break;
-            }
-            selection.diagnostics.insert(*change.diagnostic);
-        } else {
-            selection.diagnostics.remove(*change.diagnostic);
-        }
-        break;
-    case PermissionKind::RiskControlledTerminalCommand:
-        if (!selection.read) {
-            invalid = AuthorizationRejection::InvalidSelection;
-            break;
-        }
-        selection.riskControlledCommand = change.selected;
-        break;
-    case PermissionKind::ScriptPublishAndInvoke:
-        if (!selection.read) {
-            invalid = AuthorizationRejection::InvalidSelection;
-            break;
-        }
-        selection.script = change.selected;
         break;
     case PermissionKind::FullTerminalInput:
         if (change.selected) {
@@ -212,19 +174,6 @@ std::optional<GrantRow> AuthorizationService::row(const ClientId& client,
                                                   const SessionId& session) const
 {
     return _store.find(client, session);
-}
-
-bool AuthorizationService::initializeSession(const ClientId& client, const PermissionSelection& selection,
-    const GrantFacts& facts)
-{
-    if (!_ports.enabled || !_ports.enabled() || !_ports.knownClient || !_ports.knownClient(client)
-        || facts.binding.session.isEmpty() || !readyForInput(facts)
-        || _store.find(client, facts.binding.session) || !selection.read
-        || !selection.diagnostics.isEmpty() || selection.riskControlledCommand
-        || selection.script || selection.elevation) return false;
-    _store.save(client, facts.binding.session, {facts.binding, selection, GrantRevision{1}});
-    if (_ports.advanceClientVersion) static_cast<void>(_ports.advanceClientVersion(client));
-    return true;
 }
 
 void AuthorizationService::removeSession(const SessionId& session)

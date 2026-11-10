@@ -75,12 +75,6 @@ public:
 signals:
     /** @brief 用户即将写入终端；MCP 可先取消尚未完成的主机写入。 */
     void userInputStarted(quint64 userInputGeneration);
-    /**
-     * @brief 用户输入抢占了 MCP Lease。
-     * @param executionId 被抢占的执行 ID。
-     * @param executionMayHaveStarted 是否已经向 Transport 写过 MCP 字节。
-     */
-    void mcpPreempted(quint64 executionId, bool executionMayHaveStarted);
 
 private:
     void clearLease() noexcept;
@@ -91,6 +85,5 @@ private:
     quint64 _transferId{0};
     bool _transferActive{false};
     std::function<qint64(QByteArrayView)> _transferWriter;
-    bool _mcpBytesWritten{false};
     quint64 _userInputGeneration{0};
 };

@@ -2,7 +2,7 @@
  * @file AuthorizationService.h
  * @brief 单项授权事务：绑定校验、级联规则与行/客户端版本推进。
  *
- * 只依赖 contracts 与注入的真实边界（客户端登记、凭据状态、诊断目录）；
+ * 只依赖 contracts 与注入的真实边界（客户端登记、凭据状态）；
  * 不访问 Session、HTTP 或 Widgets，可配假端口独立测试。
  */
 #pragma once
@@ -33,7 +33,6 @@ struct AuthorizationPorts
     std::function<bool(const ClientId&)> knownClient;
     std::function<ClientAccessVersion(const ClientId&)> clientVersion;
     std::function<ClientAccessVersion(const ClientId&)> advanceClientVersion;
-    std::function<bool(const DiagnosticId&)> knownDiagnostic;
     std::function<bool()> credentialUpdatePending;
 };
 
@@ -50,8 +49,6 @@ public:
      */
     [[nodiscard]] Result<GrantSnapshot, AuthorizationError> change(
         const PermissionChange& change, const GrantFacts& facts);
-    /** Local saved-target rule: initialize one ready session only if no authorization row ever exists. */
-    [[nodiscard]] bool initializeSession(const ClientId&, const PermissionSelection&, const GrantFacts&);
     /** @brief 统一接入在每个新就绪连接上初始化默认权限，不覆盖当前连接的人工选择。 */
     [[nodiscard]] bool initializeDefaults(const ClientId&, const GrantFacts&);
 

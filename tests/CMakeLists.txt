@@ -156,13 +156,6 @@ add_subdirectory(resources)
 
     find_package(Qt${QT_VERSION_MAJOR} 6.8 REQUIRED COMPONENTS Test)
 
-    add_executable(novaterm_local_executor_test_child
-        mcp/LocalExecutorTestChild.cpp
-    )
-    set_target_properties(novaterm_local_executor_test_child PROPERTIES
-        WIN32_EXECUTABLE FALSE
-    )
-
     qt_add_executable(novaterm_mcp_tests
         mcp/McpTests.cpp
         ${PROJECT_SOURCE_DIR}/src/ui/widgets/McpSettingsDialog.cpp
@@ -173,11 +166,6 @@ add_subdirectory(resources)
         ${PROJECT_SOURCE_DIR}/src/ui/models/SettingsController.h
         ${PROJECT_SOURCE_DIR}/src/session/TerminalSession.cpp
         ${PROJECT_SOURCE_DIR}/src/session/TerminalSession.h
-        ${PROJECT_SOURCE_DIR}/src/session/ISessionScriptProvider.h
-        ${PROJECT_SOURCE_DIR}/src/session/LocalSessionScriptProvider.cpp
-        ${PROJECT_SOURCE_DIR}/src/session/LocalSessionScriptProvider.h
-        ${PROJECT_SOURCE_DIR}/src/session/SshSessionScriptProvider.cpp
-        ${PROJECT_SOURCE_DIR}/src/session/SshSessionScriptProvider.h
         ${PROJECT_SOURCE_DIR}/src/session/SftpSession.cpp
         ${PROJECT_SOURCE_DIR}/src/session/SftpSession.h
         ${PROJECT_SOURCE_DIR}/src/session/SessionInputPump.cpp
@@ -190,8 +178,6 @@ add_subdirectory(resources)
         ${PROJECT_SOURCE_DIR}/src/session/InteractiveStreamFramer.h
         ${PROJECT_SOURCE_DIR}/src/session/SessionCommandCoordinator.cpp
         ${PROJECT_SOURCE_DIR}/src/session/SessionCommandCoordinator.h
-        ${PROJECT_SOURCE_DIR}/src/session/InteractiveSessionCommandExecutor.cpp
-        ${PROJECT_SOURCE_DIR}/src/session/InteractiveSessionCommandExecutor.h
         ${PROJECT_SOURCE_DIR}/src/session/ShellIntegration.cpp
         ${PROJECT_SOURCE_DIR}/src/session/ShellIntegration.h
         ${PROJECT_SOURCE_DIR}/src/credential/CredentialStore.cpp
@@ -228,12 +214,6 @@ add_subdirectory(resources)
     if(WIN32)
         target_link_libraries(novaterm_mcp_tests PRIVATE ws2_32 crypt32 advapi32)
     endif()
-    target_compile_definitions(novaterm_mcp_tests PRIVATE
-        NOVATERM_LOCAL_DIAG="$<TARGET_FILE:novaterm-local-diag>"
-        NOVATERM_LOCAL_EXECUTOR_TEST_CHILD="$<TARGET_FILE:novaterm_local_executor_test_child>"
-    )
-    add_dependencies(novaterm_mcp_tests novaterm-local-diag
-        novaterm_local_executor_test_child)
     set_target_properties(novaterm_mcp_tests PROPERTIES WIN32_EXECUTABLE FALSE)
     add_test(NAME novaterm_mcp_tests COMMAND novaterm_mcp_tests)
     set_tests_properties(novaterm_mcp_tests PROPERTIES LABELS "mcp;p8" TIMEOUT 180
@@ -305,31 +285,10 @@ add_subdirectory(resources)
     add_test(NAME novaterm_sftp_session_safety_tests COMMAND novaterm_sftp_session_safety_tests)
     set_tests_properties(novaterm_sftp_session_safety_tests PROPERTIES LABELS "mcp;p8;security" TIMEOUT 30)
 
-    qt_add_executable(novaterm_command_safety_tests
-        mcp/CommandSafetyTests.cpp
-        ${PROJECT_SOURCE_DIR}/src/session/ISessionScriptProvider.h
-        ${PROJECT_SOURCE_DIR}/src/session/LocalSessionScriptProvider.cpp
-        ${PROJECT_SOURCE_DIR}/src/session/LocalSessionScriptProvider.h
-        ${PROJECT_SOURCE_DIR}/src/session/SshSessionScriptProvider.cpp
-        ${PROJECT_SOURCE_DIR}/src/session/SshSessionScriptProvider.h
-        ${PROJECT_SOURCE_DIR}/src/session/SftpSession.cpp
-        ${PROJECT_SOURCE_DIR}/src/session/SftpSession.h
-        ${PROJECT_SOURCE_DIR}/src/transport/SshTransport.cpp
-        ${PROJECT_SOURCE_DIR}/src/transport/SshTransport.h
-        ${PROJECT_SOURCE_DIR}/src/transport/SshMonitorProtocol.cpp
-        ${PROJECT_SOURCE_DIR}/src/transport/ITransport.h)
-    target_include_directories(novaterm_command_safety_tests PRIVATE ${PROJECT_SOURCE_DIR}/src)
-    target_link_libraries(novaterm_command_safety_tests PRIVATE
-        novaterm_core Qt6::Core Qt6::Network Qt6::Gui Qt6::SerialPort Qt6::Test
-        ssh::ssh OpenSSL::Crypto OpenSSL::SSL)
-    set_target_properties(novaterm_command_safety_tests PROPERTIES WIN32_EXECUTABLE FALSE)
-    add_test(NAME novaterm_command_safety_tests COMMAND novaterm_command_safety_tests)
-    set_tests_properties(novaterm_command_safety_tests PROPERTIES LABELS "mcp;p8;security" TIMEOUT 30)
     if(WIN32)
         target_link_libraries(novaterm_sftp_session_safety_tests PRIVATE ws2_32 crypt32)
-        target_link_libraries(novaterm_command_safety_tests PRIVATE ws2_32 crypt32)
     endif()
-    add_dependencies(check novaterm_sftp_session_safety_tests novaterm_command_safety_tests)
+    add_dependencies(check novaterm_sftp_session_safety_tests)
 
     add_executable(novaterm_core_tests
         ${CMAKE_CURRENT_SOURCE_DIR}/core/TerminalCoreTests.cpp
@@ -387,9 +346,6 @@ add_subdirectory(resources)
 
     qt_add_executable(novaterm_session_tests
         ${CMAKE_CURRENT_SOURCE_DIR}/session/SessionTests.cpp
-        ${PROJECT_SOURCE_DIR}/src/session/ISessionScriptProvider.h
-        ${PROJECT_SOURCE_DIR}/src/session/LocalSessionScriptProvider.cpp
-        ${PROJECT_SOURCE_DIR}/src/session/LocalSessionScriptProvider.h
         ${PROJECT_SOURCE_DIR}/src/session/LocalShellProfile.cpp
         ${PROJECT_SOURCE_DIR}/src/session/LocalShellProfile.h
         ${PROJECT_SOURCE_DIR}/src/credential/CredentialStore.cpp
@@ -406,17 +362,10 @@ add_subdirectory(resources)
         ${PROJECT_SOURCE_DIR}/src/session/InteractiveStreamFramer.h
         ${PROJECT_SOURCE_DIR}/src/session/SessionCommandCoordinator.cpp
         ${PROJECT_SOURCE_DIR}/src/session/SessionCommandCoordinator.h
-        ${PROJECT_SOURCE_DIR}/src/session/InteractiveSessionCommandExecutor.cpp
-        ${PROJECT_SOURCE_DIR}/src/session/InteractiveSessionCommandExecutor.h
         ${PROJECT_SOURCE_DIR}/src/session/ShellIntegration.cpp
         ${PROJECT_SOURCE_DIR}/src/session/ShellIntegration.h
         ${PROJECT_SOURCE_DIR}/src/session/SessionStore.cpp
         ${PROJECT_SOURCE_DIR}/src/session/SessionStore.h
-        ${PROJECT_SOURCE_DIR}/src/session/ISessionCommandExecutor.h
-        ${PROJECT_SOURCE_DIR}/src/session/CommandPlatformProfile.cpp
-        ${PROJECT_SOURCE_DIR}/src/session/CommandPlatformProfile.h
-        ${PROJECT_SOURCE_DIR}/src/session/SessionCommandFacade.cpp
-        ${PROJECT_SOURCE_DIR}/src/session/SessionCommandFacade.h
         ${PROJECT_SOURCE_DIR}/src/session/SessionTypes.h
         ${PROJECT_SOURCE_DIR}/src/session/TerminalSession.cpp
         ${PROJECT_SOURCE_DIR}/src/session/TerminalSession.h
@@ -674,15 +623,8 @@ add_subdirectory(resources)
             ${PROJECT_SOURCE_DIR}/src/session/InteractiveStreamFramer.h
             ${PROJECT_SOURCE_DIR}/src/session/SessionCommandCoordinator.cpp
             ${PROJECT_SOURCE_DIR}/src/session/SessionCommandCoordinator.h
-            ${PROJECT_SOURCE_DIR}/src/session/InteractiveSessionCommandExecutor.cpp
-            ${PROJECT_SOURCE_DIR}/src/session/InteractiveSessionCommandExecutor.h
             ${PROJECT_SOURCE_DIR}/src/session/ShellIntegration.cpp
             ${PROJECT_SOURCE_DIR}/src/session/ShellIntegration.h
-            ${PROJECT_SOURCE_DIR}/src/session/ISessionCommandExecutor.h
-            ${PROJECT_SOURCE_DIR}/src/session/CommandPlatformProfile.cpp
-            ${PROJECT_SOURCE_DIR}/src/session/CommandPlatformProfile.h
-            ${PROJECT_SOURCE_DIR}/src/session/SessionCommandFacade.cpp
-            ${PROJECT_SOURCE_DIR}/src/session/SessionCommandFacade.h
             ${PROJECT_SOURCE_DIR}/src/session/TerminalSession.cpp
             ${PROJECT_SOURCE_DIR}/src/session/TerminalSession.h
             ${PROJECT_SOURCE_DIR}/src/service/ConfigManager.cpp

@@ -20,12 +20,10 @@
 #include <optional>
 
 class SessionInputPump;
-class SessionCommandFacade;
 class SessionInputArbiter;
 class InteractiveStreamFramer;
 class SessionCommandCoordinator;
 class SessionTerminalController;
-class ISessionScriptProvider;
 class TerminalCore;
 class SerialFileTransferController;
 
@@ -88,12 +86,7 @@ public:
     /** @brief 传输层指针（未附加时为 nullptr）。 */
     [[nodiscard]] ITransport* transport() const { return _transport.data(); }
     [[nodiscard]] const SessionInputPump* inputPump() const noexcept { return _inputPump; }
-    /** @brief Session 级受限命令门面；具体 Executor 由编排层安装。 */
-    [[nodiscard]] SessionCommandFacade* commandFacade() const noexcept
-    {
-        return _commandFacade.get();
-    }
-    /** @brief Session 出站输入仲裁器；供受限交互命令门面使用。 */
+    /** @brief Session 出站输入仲裁器；统一协调人工输入、终端控制与文件传输。 */
     [[nodiscard]] SessionInputArbiter* inputArbiter() const noexcept
     {
         return _inputArbiter.get();
@@ -105,18 +98,10 @@ public:
         return _commandCoordinator.get();
     }
     SessionTerminalController* terminalController();
-    /** @brief 当前连接对应的 MCP 脚本写入 provider；不支持时返回 nullptr。 */
-    [[nodiscard]] ISessionScriptProvider* scriptProvider() const noexcept
-    {
-        return _scriptProvider.get();
-    }
     /** @brief 已连接的 8 位串口可提供文件传输入口，其他后端返回 false。 */
     [[nodiscard]] bool canTransferFiles() const;
     /** @brief 按需取得 Session 所有的传输控制器；非串口返回 nullptr。 */
     [[nodiscard]] SerialFileTransferController* serialFileTransfer();
-
-    /** @brief 由会话目录按当前 Transport 类型安装脚本 provider。 */
-    void installScriptProvider(std::unique_ptr<ISessionScriptProvider> provider);
 
     /**
      * @brief 附加传输层。
@@ -287,11 +272,9 @@ private:
     quint64 _fileTransferIoGeneration{0};
     quint64 _fileTransferLeaseId{0}; ///< 主动断开后暂停自动重连
     std::unique_ptr<TerminalContextProvider> _contextProvider;
-    std::unique_ptr<SessionCommandFacade> _commandFacade;
     std::unique_ptr<SessionInputArbiter> _inputArbiter;
     std::unique_ptr<InteractiveStreamFramer> _streamFramer;
     std::unique_ptr<SessionCommandCoordinator> _commandCoordinator;
-    std::unique_ptr<ISessionScriptProvider> _scriptProvider;
     bool transition(SessionState next);   ///< 状态机迁移（校验合法性）
     bool beginReconnect(bool automatic = false); ///< 进入重连状态并提交连接请求
     bool _automaticReconnectAttempt{false}; ///< 当前连接是否由自动重连触发

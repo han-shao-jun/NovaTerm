@@ -70,16 +70,13 @@ def run_case(fixture_exe, environment, directory_root, name, pending=False, cras
             sessions = response['result']['structuredContent']['data']['sessions']
             if pending:
                 identity = {key: sessions[0][key] for key in ('sessionId', 'epoch')}
-                _, _, response = post(settings, {'jsonrpc': '2.0', 'id': 3, 'method': 'tools/call',
-                    'params': {'name': 'novaterm_list_commands', 'arguments': identity}}, session)
-                catalog = response['result']['structuredContent']['data']
-                command = catalog['commands'][0]
-                arguments = {**identity, 'commandId': command['commandId'],
-                    'policyVersion': catalog['policyVersion'], 'commandTicket': command['commandTicket'],
-                    'arguments': {}}
+                arguments = {**identity, 'texts': ['NEVER_EXPECTED_SHUTDOWN_MARKER'],
+                    'match': 'any', 'source': 'screen', 'waitMs': 30000,
+                    '1_操作': '等待终端输出', '2_目标': sessions[0]['targetLabel'],
+                    '3_内容': '等待测试标记并验证应用关闭时的请求清理'}
                 exchange = post(settings, {'jsonrpc': '2.0', 'id': 4, 'method': 'tools/call',
-                    'params': {'name': 'novaterm_execute_command', 'arguments': arguments}}, session, read=False)
-                # 夹具保留未完成命令；客户端保持 HTTP 连接并不读取 SSE。
+                    'params': {'name': 'novaterm_wait_text', 'arguments': arguments}}, session, read=False)
+                # 当前等待请求保持未完成；客户端保持 HTTP 连接并不读取 SSE。
                 time.sleep(0.2)
                 if fixture.poll() is not None:
                     raise RuntimeError('Fixture exited before shutdown')

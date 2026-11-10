@@ -42,8 +42,8 @@ NovaTerm 是基于 Qt 6、libvterm 和 QRhi 的跨平台 GPU 终端。核心目�
 - **P7**：系统资源查询，SSH 远端资源监控面板与系统信息窗口已作为内置功能落地；
 - **P8**：AI MCP（Model Context Protocol）接口，提供 Session 只读上下文与独立授权的终端操作。
   [MCP当前接口契约](architecture/stages/P8_AI_MCP_Interface/02_Current_MCP_Contract.md)记录进程内 Streamable HTTP、
-  读取与命令工具、允许列表和分级授权；旧命令接口继续执行风险策略，新版完整输入
-  权限须另行授予，不逐条确认。凭据读取不向 MCP 开放，托管提权适配器尚不可用。
+  已连接会话的读取、终端交互、任务和文件传输；会话授权仅保留读取、完整输入、
+  托管提权与清空四项，新就绪连接默认开启，用户可逐项撤销。凭据读取不向 MCP 开放，托管提权适配器尚不可用。
   首期功能及 Windows 功能验证已完成；跨平台和完整性能验收状态见阶段文档。
 
 P9 的 XMODEM/YMODEM/ZMODEM 独立协议库已落地于 `src/filetransfer/`。
@@ -219,8 +219,8 @@ AI MCP 接入表格的会话列按常见主机名的字体宽度及树缩进初�
 权限委托沿用 Ela 主题色：可编辑空心强调色、已选实心强调色、不可编辑灰底灰框。
 托管提权的授权勾选按客户端输入授权、连接状态和凭据更新状态控制；可信身份与认证
 适配器是实际执行条件，不再阻止保存授权，未就绪原因显示在单元格/tooltip。
-未验证身份不能绑定凭据，无适配器仍不取密/发送密码。固定诊断展示完整已知授权
-目录，后端缺失不丢选择；MCP 执行目录仍按实际 Profile/后端/目标严格过滤。
+未验证身份不能绑定凭据，无适配器仍不取密/发送密码。授权模型与界面均只保留
+读取、完整输入、托管提权与清空，不再保存固定诊断、受控命令或脚本选择。
 按列拦截真正不可编辑的事件，不因某项不可用而锁住整行。
 
 ### 3.2 Application Services
@@ -330,34 +330,32 @@ Provider 按需在 Session 线程调用，返回独立值对象；它是 Session
 
 P8 的读取走 `TerminalSession::tryTerminalContext()` 与 Core 的 try-lock 文本快照；
 模型忙时返回 Busy，GUI 不等待 Parser。`SessionDirectory` 仅持弱引用并跟踪 epoch，
-不接管 View-owned 生命周期。`src/mcp/` 负责进程内 HTTP、分项授权、schema、预算、捕获、
-风险与脚本策略；`HttpMcpServer` 使用 Qt HTTP Server 处理 HTTP，`WireSession` 与
-共享 `ElicitationBroker` 适配 2025 elicitation 与 2026 MRTR，`HttpMcpEndpoint`
-在 GUI 线程关联 HTTP exchange 与授权上下文。固定诊断仍由受限
-Executor 执行；自由命令和脚本 invocation
-经 `TerminalSession` 的 `SessionInputArbiter`、`InteractiveStreamFramer` 与
-`SessionCommandCoordinator` 走唯一 Transport→Parser 字节通路，在终端 UI 可见。
-SSH/LocalShell 脚本正文由 Session 级 ScriptProvider 写入明确目标路径，不通过 Transport
-输入；用户输入优先，且访问权、确认和 epoch 在写入、注入前复核。脚本仍要求可信
-提示符；普通 SSH/POSIX 命令也可在没有提示符标记时经同一输入通路提交，使用隐藏的
-命令结束标记收口，但无法证明输入最初落在空闲 Shell。
+不接管 View-owned 生命周期。`src/mcp/` 负责进程内 HTTP、授权、schema、预算、捕获与任务。
+`HttpMcpServer` 使用 Qt HTTP Server 处理 HTTP，`WireSession` 适配两代协议，
+`HttpMcpEndpoint` 在 GUI 线程关联 HTTP exchange 与授权上下文。
+现行输入经 `SessionTerminalController`、`SessionInputArbiter` 与原 Transport 提交；
+`InteractiveStreamFramer` 解析集成标记，`SessionCommandCoordinator` 仅维护提示符候选、
+静默窗和就绪证据，不再执行旧命令或管理脚本发布。
+`SessionCommandFacade`、旧 Executor/ScriptProvider、本地诊断 helper 与其有界 SSH exec
+接口已删除；系统资源监控仍使用自己的只读采样通道。文件上传下载复用原 SFTP 队列与 worker，
+旧脚本字节发布接口已删除。需要执行上传后的文件时，由已授权终端显式输入命令。
+目标身份由 `SessionDirectory::targetFingerprintFor()` 直接计算，McpAccess 的凭据绑定
+复用同一核验入口，不再通过创建执行器获取指纹。
 
-2026-10-17 终端操作闭环增量：`SessionTerminalController` 由 Session 按需拥有，
+`SessionTerminalController` 由 Session 按需拥有，
 通过 Core 有界队列编码文本、按键、粘贴和设备行尾，再经唯一 Arbiter/Transport
 写入。普通用户输出、协议回复和 Agent 编码结果按 Parser 顺序发布；同一批次
 更早的用户输入会先触发抢占，DSR/DA 回复不会冒充用户输入。非空 Agent 输入
-同时失效新 Controller 和旧 Coordinator 的提示符证据，空输入保留原就绪状态。
+使 Coordinator 中的提示符证据失效，并由 Controller 跟踪输入状态，空输入保留原就绪状态。
 
 `TerminalInteraction` 负责客户端绑定的输入/观察令牌、最近操作去重、最多 32 个
-观察等待器及有界 capture；旧七工具加 `interact_terminal` / `request_elevation`
-为原九工具兼容基线；2026-10-23 增加三个独立授权的历史工具，P3 时共十二工具；B2 独立追加清空，当前十三项，见 02 契约与 B2 记录。新增 `terminalControl` 权限默认关闭，旧 `interactiveCommand` 不自动
-升级。compact 默认 4 KiB/24 行、最终含双份兼容内容的工具结果最多 8 KiB；
+观察等待器及有界 capture；当前二十工具覆盖终端、历史、等待/任务与文件传输，
+工具目录及四项会话授权以现行契约为准。compact 默认 4 KiB/24 行、最终含双份兼容内容的工具结果最多 8 KiB；
 省略内容用同一 capture 的 expandToken 分页，源缺口单独报告。无变化或普通滚屏
 到期不等于命令结束，完成状态只消费既有 Shell/设备事件。等待最多 30 秒，
 不阻塞 GUI；完整性能验收与设计差距见 MCP实施与验收记录。
 
-2026-10-31 输入判重补注：上述工具数量/权限为历史基线，现行20工具和统一授权以
-P8当前契约为准。共享`ObservationState`除最近Replay外，保留固定10分钟的已受理ID，
+输入判重由共享`ObservationState`除最近Replay外，保留固定10分钟的已受理ID，
 按client/session/epoch/grant/cacheGeneration隔离；control释放或后续输入不会遗忘旧ID。
 每作用域4096、全局16384条，满时拒绝新受理，不驱逐未过期记录；当前owner另留释放余量。
 `InputCapabilities`在副作用前预留，成功受理提交、失败回滚；弱引用回滚及QPointer存活检查
@@ -368,12 +366,6 @@ P8当前契约为准。共享`ObservationState`除最近Replay外，保留固定
 历史 P3 增量：录制接收流、只读原文/搜索、来源无关 Evidence 分别由 `novaterm_history_recording`、`novaterm_history_search`、`novaterm_evidence` 拥有。搜索只依赖异步记录端口和 Qt Core；Evidence 只见来源读取与授权端口，不链接 History/Session/诊断实现。MCP 集成层创建可信身份、装配 P1 准入及来源适配；UI 仅发本机共享/撤回意图。capture grant 不继承 Session grant，读取和搜索固定提交高水位，证据默认期限内存；完整性与页扫描 complete 分开。具体资源上限、原九工具兼容和未验收范围见 [P3 实施记录](https://gitee.com/han-shao-jun/NovaTerm/blob/411ec15c36aa5ac56fddb204761fae830f785947/docs/architecture/stages/P8_AI_MCP_Interface/records/P3_Implementation_and_Verification.md)。
 MCP 协议状态读取只查询引用元数据，不取密。当前可信认证适配器为空，托管提权
 在取密或输入前返回 `ELEVATION_ADAPTER_UNAVAILABLE`；保存密码不开放代填能力。
-
-脚本写入前预留持久目标事务；取消、撤权或断线后，该预留与路径锁保留至
-Provider 返回写入终态，不能以 RPC 已结束推断后台写盘已停止。确定发布但未调用
-时记录文件变化，结果未知或 Provider 消失时保留隔离保护。成功写入的原预留
-移交给调用命令，不在两个阶段之间释放。待回报上传最多 8 项，执行记录容量
-检查同时计入这些任务。手工解除保护须核对同一目标指纹与执行 ID。
 
 SFTP 的阻塞 worker 只持有共享状态、不可变连接参数和受生命周期保护的通知
 邮箱，不捕获 SftpSession。放弃超时线程后，其队列、取消记录及 libssh 租约继续
@@ -389,7 +381,7 @@ QLocalServer/QLocalSocket MCP 服务已删除。HTTP I/O worker 在 `nvterm-mcp-
 仍由独立上传确认流程处理。工具 description 只概括核心用途；initialize/discover 共用
 instructions，按选择、观察、执行、查询和文件传输组织调用流程，并集中说明预览字段、
 精确重试、上传确认和结果证据，避免各工具重复展开。
-脚本原文 2 MiB 与完整编码请求分开计额：请求最多 12 MiB + 256 KiB，
+HTTP JSON 请求最多 12 MiB + 256 KiB，
 响应保持 2 MiB；HTTP 原始交换、解析与排队共用 49.1875 MiB 输入额度。
 默认 URL 为 `http://127.0.0.1:38973/mcp`，应用重启后保持稳定；启动前可设置
 `NOVATERM_MCP_HTTP_PORT` 覆盖端口。只监听回环地址，每个请求核验 Bearer token、
@@ -634,7 +626,7 @@ src/
 ├── historysearch/       # 离线资源授权/读取/搜索/投影；端口注入数据源
 ├── resources/           # 共享事务/证据；具体录制源适配供组合根使用
 ├── capabilities/        # 目录、准入、类型化领域端口（无 HTTP/UI；Recipe/本机 Agent 原型已退役）
-├── mcp/                 # P8 Streamable HTTP、wire、授权、请求调度与固定诊断策略
+├── mcp/                 # P8 Streamable HTTP、wire、授权、终端任务与文件传输
 └── ui/                  # app/(MainWindow)、pages/、terminal/(TerminalView)、widgets/
 tests/
 ├── core/  renderer/  session/  transport/  mcp/  filetransfer/  history/  recording/  historysearch/
@@ -642,9 +634,6 @@ tests/
 └── benchmarks/
     ├── history/         # 独立进程 OFF/ON 合成语料及 JSON 矩阵
     └── serial-stress/   # Windows 手工串口压力验收、驱动队列对照与 WPR/xperf 采样
-tools/
-└── novaterm-local-diag/  # 固定本地诊断 helper
-
 third_party/
 └── lz4-1.10.0/          # LZ4 v1.10.0 完整上游源码；仅 lib/lz4.c 接入私有静态库
 ```

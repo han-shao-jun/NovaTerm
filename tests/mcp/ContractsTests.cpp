@@ -277,6 +277,13 @@ private slots:
         const auto decoded = decodeBusinessCall(name, args);
         QVERIFY2(!isError(decoded), qPrintable(validateBusinessArguments(name, args)));
     }
+    void retiredExecutionDetailsAreNotAdvertised()
+    {
+        const auto catalog = QJsonDocument(ToolCodec::catalog()).toJson(QJsonDocument::Compact);
+        QVERIFY(!catalog.contains("\"commandId\""));
+        QVERIFY(!catalog.contains("\"policyVersion\""));
+        QVERIFY(!catalog.contains("\"scriptContent\""));
+    }
     void retiredCommandToolsAreRejected_data()
     {
         QTest::addColumn<QString>("name");
@@ -434,7 +441,7 @@ private slots:
         QVERIFY(fixture.open(QIODevice::ReadOnly));
         const auto frozen = QJsonDocument::fromJson(fixture.readAll()).object();
         const auto tool = toolByName("novaterm_download_file");
-        QCOMPARE(tool.value("outputSchema"), frozen.value("outputSchema"));
+        QCOMPARE(tool.value("outputSchema"), withoutRetiredExecutionDetails(frozen.value("outputSchema")));
         QCOMPARE(tool.value("annotations"), frozen.value("annotations"));
         const auto input = tool.value("inputSchema").toObject().value("properties").toObject();
         QVERIFY(!input.contains("confirmed")); QVERIFY(!input.contains("confirmationToken"));
@@ -917,7 +924,7 @@ void ContractsTests::errorCodeMappingRoundTrips()
 {
     const QList<ErrorCode> codes{ErrorCode::InvalidArgument, ErrorCode::Busy,
         ErrorCode::DeadlineExceeded, ErrorCode::CommandConfirmationStale,
-        ErrorCode::ScriptPublicationOutcomeUnknown, ErrorCode::SessionCommandNotReady};
+        ErrorCode::TerminalPermissionRequired, ErrorCode::SessionNotReady};
     for (const auto code : codes) {
         const auto name = QString::fromLatin1(errorCodeName(code));
         QVERIFY(!name.isEmpty());

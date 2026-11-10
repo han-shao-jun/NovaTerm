@@ -24,17 +24,11 @@ inline constexpr qsizetype MaxTextBytes = Budget::MaxTextBytes;
 inline constexpr int MaxClients = Budget::MaxClients;
 inline constexpr int MaxActiveRequests = Budget::MaxActiveRequests;
 inline constexpr int MaxQueuedRequests = Budget::MaxQueuedRequests;
-inline constexpr int MaxCaptures = Budget::MaxCapturesPerConnection;
 inline constexpr int CaptureLifetimeMs = int(Budget::CaptureLifetime.count());
-inline constexpr int CommandOutputBytes = Budget::CommandOutputBytes;
 inline constexpr int MaxTerminalActions = Budget::MaxTerminalActions;
 inline constexpr qsizetype MaxTerminalActionTextBytes = Budget::MaxTerminalActionTextBytes;
 inline constexpr int MaxTerminalWaitMs = Budget::MaxTerminalWaitMs;
-inline constexpr qsizetype MaxScriptBytes = Budget::MaxScriptBytes;
-inline constexpr qsizetype MaxRequestEnvelopeBytes = Budget::MaxRequestEnvelopeBytes;
 inline constexpr qsizetype MaxRequestBytes = Budget::MaxRequestBytes;
-inline constexpr auto ConfirmationTimeout = Budget::ConfirmationTimeout;
-inline constexpr auto ScriptWriteTimeout = Budget::ScriptWriteTimeout;
 inline constexpr auto WireDeadlineMargin = Budget::WireDeadlineMargin;
 inline constexpr const char* ProtocolVersion = "2025-11-25";
 

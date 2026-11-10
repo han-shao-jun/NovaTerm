@@ -61,7 +61,6 @@ struct AttachmentIdTag;
 struct EpochTag;
 struct OperationIdTag;
 struct CaptureIdTag;
-struct DiagnosticIdTag;
 struct ExecutionIdTag;
 
 using ClientId = StrongId<ClientIdTag>;
@@ -74,7 +73,6 @@ using Epoch = StrongId<EpochTag>;
 using OperationId = StrongId<OperationIdTag>;
 using CaptureId = StrongId<CaptureIdTag>;
 using HistoryResourceId = StrongId<struct HistoryResourceIdTag>;
-using DiagnosticId = StrongId<DiagnosticIdTag>;
 using ExecutionId = StrongId<ExecutionIdTag>;
 
 /**
@@ -140,7 +138,7 @@ template <class Id>
 }
 
 /**
- * @brief 受控解析有界文本标识（epoch、capture、诊断 ID 等）。
+ * @brief 受控解析有界文本标识（epoch、capture 等）。
  * @param text 原始文本。
  * @param maxLength 允许的最大 UTF-16 长度，与 Schema 上限一致。
  */

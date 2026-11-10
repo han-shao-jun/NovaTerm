@@ -5,7 +5,6 @@
 #include "mcp/McpService.h"
 #include "mcp/CapabilityAdapter.h"
 #include "ui/models/SettingsController.h"
-#include "session/SessionCommandFacade.h"
 #include "session/SessionTerminalController.h"
 #include "ElaCheckBox.h"
 #include "ElaLineEdit.h"
@@ -287,10 +286,10 @@ McpSettingsDialog::McpSettingsDialog(NovaTerm::Mcp::Service* service, QWidget* p
                         root->setCheckState(current, Qt::Unchecked);
             }
             applied = applyPermission(root, *row,
-                NovaTerm::Mcp::PermissionKind::ReadOutput, std::nullopt, read);
+                NovaTerm::Mcp::PermissionKind::ReadOutput, read);
         } else {
             const auto kind = NovaTerm::Ui::SessionPermissionModel::permissionForColumn(column);
-            applied = kind && applyPermission(root, *row, *kind, std::nullopt,
+            applied = kind && applyPermission(root, *row, *kind,
                 root->checkState(column) == Qt::Checked);
         }
         if (!applied) {
@@ -412,12 +411,11 @@ void McpSettingsDialog::editElevationCredentials(const QString& sessionId)
 
 bool McpSettingsDialog::applyPermission(QTreeWidgetItem* root,
     const NovaTerm::Ui::SessionPermissionRow& row,
-    NovaTerm::Mcp::PermissionKind kind,
-    std::optional<NovaTerm::Mcp::DiagnosticId> diagnostic, bool selected)
+    NovaTerm::Mcp::PermissionKind kind, bool selected)
 {
     if (!_model || !_controller || !root)
         return false;
-    const auto outcome = _controller->submit(row, kind, diagnostic, selected);
+    const auto outcome = _controller->submit(row, kind, selected);
     if (outcome.status != NovaTerm::Ui::SettingsController::Status::Applied)
         return false;
     if (!_model->replaceRow(outcome.row))

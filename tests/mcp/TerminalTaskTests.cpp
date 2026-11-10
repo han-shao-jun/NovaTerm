@@ -528,7 +528,7 @@ private slots:
             [&ctrl, &stop, &injected] {
                 if (!injected && ctrl->pending() && ctrl->operation().value("id").toString() == stop.operation.str()) {
                     injected = true;
-                    ctrl->handleEvent({InteractiveStreamEventKind::CommandFinished, 0, 0, 0});
+                    ctrl->handleEvent({InteractiveStreamEventKind::CommandFinishedAtPrompt, 2, 0, 0});
                 }
             });
         static_cast<void>(f.call(stop)); QObject::disconnect(connection); QVERIFY(injected);
@@ -673,7 +673,7 @@ private slots:
         QTRY_COMPARE(f.transport.written, QByteArray("work\r"));
         if (completedCommand) {
             QVERIFY(controller->commandActive());
-            controller->handleEvent({InteractiveStreamEventKind::CommandFinished, 0, 7, 0});
+            controller->handleEvent({InteractiveStreamEventKind::CommandFinishedAtPrompt, 2, 7, 0});
             QCOMPARE(controller->observation(f.client).value("command").toObject()
                 .value("state").toString(), QString("finished"));
         }

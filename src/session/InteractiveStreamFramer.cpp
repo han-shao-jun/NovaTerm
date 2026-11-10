@@ -21,113 +21,32 @@ void InteractiveStreamFramer::configure(InteractiveCommandProfile profile)
     // 等于每个分片付两次 PCRE2 编译。
     _promptMatcher = QRegularExpression(_profile.promptPattern);
     _pending.clear();
-    _echoSuffix.clear();
-    _echoCandidate.clear();
-    _suppressEchoUntilLineFeed = false;
     _deviceLine.clear();
     _deviceControlTail.clear();
     _alternateScreen = false;
 }
 
-void InteractiveStreamFramer::reset(quint64 generation,
-                                    QByteArray executionNonce)
+void InteractiveStreamFramer::reset()
 {
-    _sessionGeneration = generation;
-    _executionNonce = std::move(executionNonce);
+    _transactionActive = false;
     _promptGeneration = 0;
     // _profile 不由 reset() 改动，但重连/重新接线都会走到这里，顺带让
     // 编译结果与 profile 保持同步，避免将来新增 profile 写入点时漏掉。
     _promptMatcher = QRegularExpression(_profile.promptPattern);
     _pending.clear();
-    _echoSuffix.clear();
-    _echoCandidate.clear();
-    _suppressEchoUntilLineFeed = false;
     _deviceLine.clear();
     _deviceControlTail.clear();
     _alternateScreen = false;
 }
 
-void InteractiveStreamFramer::beginTransaction(QByteArray executionNonce,
-                                               QByteArray echoSuffix)
+void InteractiveStreamFramer::beginTransaction()
 {
-    _executionNonce = std::move(executionNonce);
-    _echoSuffix = std::move(echoSuffix);
-    _echoCandidate.clear();
-    _suppressEchoUntilLineFeed = false;
+    _transactionActive = true;
 }
 
-QByteArray InteractiveStreamFramer::endTransaction()
+void InteractiveStreamFramer::endTransaction()
 {
-    QByteArray remainder = std::move(_echoCandidate);
-    _executionNonce.clear();
-    _echoSuffix.clear();
-    _echoCandidate.clear();
-    _suppressEchoUntilLineFeed = false;
-    return remainder;
-}
-
-QByteArray InteractiveStreamFramer::filterEcho(const QByteArray& bytes)
-{
-    if (_echoSuffix.isEmpty() && !_suppressEchoUntilLineFeed)
-        return bytes;
-    static constexpr qsizetype EchoDetectionPrefixBytes = 16;
-    static constexpr qsizetype MaxEchoEditBytes = 16;
-    const auto comparableCandidate = [this] {
-        QByteArray comparable;
-        comparable.reserve(_echoCandidate.size());
-        // 窄 PTY 的行编辑器会用回车/退格重绘，比较终端语义而非原始字节。
-        for (const char candidate : _echoCandidate) {
-            if (candidate == '\r')
-                continue;
-            if (candidate == '\b') {
-                if (!comparable.isEmpty())
-                    comparable.chop(1);
-                continue;
-            }
-            comparable.append(candidate);
-        }
-        return comparable;
-    };
-    QByteArray filtered;
-    filtered.reserve(bytes.size());
-    for (const char byte : bytes) {
-        if (_suppressEchoUntilLineFeed) {
-            if (byte == '\n') {
-                // 远端输入行已结束；补足 CR，避免下一行沿用命令末尾列号。
-                filtered.append(QByteArrayLiteral("\r\n"));
-                _suppressEchoUntilLineFeed = false;
-            }
-            continue;
-        }
-        if (_echoSuffix.isEmpty()) {
-            filtered.append(byte);
-            continue;
-        }
-        _echoCandidate.append(byte);
-        QByteArray comparable = comparableCandidate();
-        if (_echoSuffix.size() >= EchoDetectionPrefixBytes
-            && comparable.startsWith(_echoSuffix.left(EchoDetectionPrefixBytes))) {
-            // 辅助命令前缀已经唯一匹配，屏蔽当前输入行余下的回显。
-            // 窄 PTY 的整行重绘会破坏后缀剩余部分的字节匹配。
-            _echoCandidate.clear();
-            _echoSuffix.clear();
-            _suppressEchoUntilLineFeed = true;
-            continue;
-        }
-        while (!_echoCandidate.isEmpty()
-            && (_echoCandidate.size() > _echoSuffix.size() + MaxEchoEditBytes
-                || (!_echoSuffix.startsWith(comparable)
-                    && !comparable.isEmpty()))) {
-            filtered.append(_echoCandidate.at(0));
-            _echoCandidate.remove(0, 1);
-            comparable = comparableCandidate();
-        }
-        if (comparable == _echoSuffix) {
-            _echoCandidate.clear();
-            _echoSuffix.clear();
-        }
-    }
-    return filtered;
+    _transactionActive = false;
 }
 
 InteractiveFrameResult InteractiveStreamFramer::consume(
@@ -136,9 +55,7 @@ InteractiveFrameResult InteractiveStreamFramer::consume(
     InteractiveFrameResult result;
     if (bytes.isEmpty())
         return result;
-    const QByteArray filtered = filterEcho(bytes);
-    if (filtered.isEmpty())
-        return result;
+    const auto& filtered = bytes;
 
     if (!_profile.shellIntegration && _profile.promptPattern.isEmpty()) {
         result.visibleBytes = filtered;
@@ -262,30 +179,16 @@ std::optional<InteractiveStreamEvent> InteractiveStreamFramer::parseMarker(
                 return std::nullopt;
             exitCode = parsed;
         }
-        const bool completesCommand = !_executionNonce.isEmpty()
+        const bool completesCommand = _transactionActive
             && generation > _promptGeneration && exitCode.has_value();
         _promptGeneration = generation;
         if (completesCommand)
-            _executionNonce.clear();
+            _transactionActive = false;
         return InteractiveStreamEvent{
             completesCommand
                 ? InteractiveStreamEventKind::CommandFinishedAtPrompt
                 : InteractiveStreamEventKind::PromptReady,
             generation, exitCode};
-    }
-    if (fields.size() == 2 && fields.front() == QByteArrayLiteral("START")
-        && !_executionNonce.isEmpty() && fields.at(1) == _executionNonce) {
-        return InteractiveStreamEvent{InteractiveStreamEventKind::CommandStarted,
-                                      _promptGeneration, std::nullopt};
-    }
-    if (fields.size() == 3 && fields.front() == QByteArrayLiteral("END")
-        && !_executionNonce.isEmpty() && fields.at(1) == _executionNonce) {
-        bool ok = false;
-        const int exitCode = fields.at(2).toInt(&ok);
-        if (!ok)
-            return std::nullopt;
-        return InteractiveStreamEvent{InteractiveStreamEventKind::CommandFinished,
-                                      _promptGeneration, exitCode};
     }
     if (fields.size() == 1 && fields.front() == QByteArrayLiteral("RESET")) {
         _promptGeneration = 0;
