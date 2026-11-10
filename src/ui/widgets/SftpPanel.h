@@ -190,10 +190,10 @@ private:
     QString _lastUploadErrorDetail;
     QString _statusBeforeDrop;
     QString _statusAfterNextDirectoryList;
-    int _uploadTotal{0};
-    int _uploadCompleted{0};
-    int _uploadFailed{0};
-    int _uploadSkipped{0};
+    qsizetype _uploadTotal{0};
+    qsizetype _uploadCompleted{0};
+    qsizetype _uploadFailed{0};
+    qsizetype _uploadSkipped{0};
     int _deleteTotal{0};
     int _deleteCompleted{0};
     int _deleteFailed{0};

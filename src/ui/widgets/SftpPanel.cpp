@@ -1321,7 +1321,7 @@ void SftpPanel::queueUploads(const QStringList& localPaths)
     QQueue<UploadRequest> requests;
     QSet<QString> remotePaths;
     int overwriteCount = 0;
-    int skippedCount = 0;
+    qsizetype skippedCount = 0;
     for (const QString& localPath : localPaths) {
         const QFileInfo fileInfo(localPath);
         if (!fileInfo.exists() || fileInfo.isSymLink()
@@ -1394,7 +1394,7 @@ void SftpPanel::startNextUpload()
     _activeUploadLocalPath = request.localPath;
     _activeUploadRemotePath = request.remotePath;
     _activeTransferSize = request.size;
-    const int current = _uploadCompleted + _uploadFailed + 1;
+    const qsizetype current = _uploadCompleted + _uploadFailed + 1;
     _lastUploadLog = _uploadTotal > 1
         ? tr("Uploading: %1 (%2/%3)")
             .arg(QFileInfo(request.localPath).fileName())

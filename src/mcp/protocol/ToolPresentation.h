@@ -95,8 +95,8 @@ inline QJsonObject decorate(QJsonObject tool)
         properties.insert("3_内容", field(QString::fromUtf8(definition.action) + "; " + QString::fromUtf8(definition.detail)));
         properties.insert("2_目标", field("Copy targetLabel from list_sessions for the selected session: SSH must say ssh · concrete IP, serial must say the actual port (e.g. /dev/ttyUSB0 or COM3). Do not use displayName, nicknames or device-role names. If IP is unavailable, explicitly say so; never turn a hostname into an invented IP. For recordings use known capture name/ID. For task/transfer queries use previously observed context or the exact ID. Never guess or include tokens/passwords. For list tools say NovaTerm connected terminals/existing recordings."));
         auto required = input.value("required").toArray();
-        for (const auto* name : {"1_操作", "2_目标", "3_内容"})
-            if (!required.contains(name)) required.append(name);
+        for (const auto* fieldName : {"1_操作", "2_目标", "3_内容"})
+            if (!required.contains(fieldName)) required.append(fieldName);
         input.insert("required", required);
         input.insert("properties", properties);
         tool.insert("inputSchema", input);
