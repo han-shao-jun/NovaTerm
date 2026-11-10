@@ -100,6 +100,10 @@ flowchart TB
 
 ### 3.1 UI Layer
 
+主窗口标题栏在 Logo 右侧首先放置“＋”新建连接入口，其后平铺 SFTP、系统资源、
+设置、AI MCP、历史录制和关于图标；面板图标与 Dock 显隐状态同步。
+功能图标使用 Ela 控件及主题绘制，仅使用 Ela 悬停提示并支持语言切换，点击区域不参与窗口拖拽。
+
 历史会话树支持 Ctrl 多选、Shift 点击选择两端及中间会话，以及单选/多选的
 Enter/小键盘 Enter 重连、Delete 删除。范围选择使用 Qt ExtendedSelection，
 分组标题不可选中，只操作范围内的会话叶子。

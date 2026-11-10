@@ -1,10 +1,10 @@
 /**
  * @file   MainWindow.cpp
- * @brief  主窗口实现：菜单构建、会话对话框与语言切换。
+ * @brief  主窗口实现：标题栏动作、会话对话框与语言切换。
  *
- * 构建标题栏图标菜单，连接 TerminalPage 的会话请求信号弹出 SessionPage
+ * 构建标题栏平铺图标，连接 TerminalPage 的会话请求信号弹出 SessionPage
  * 对话框。语言切换经 LanguageManager::languageChanged 广播驱动 retranslateUi()
- * 刷新菜单文本 —— 与子面板/页面一致，不依赖顶层窗口的 LanguageChange 事件。
+ * 刷新动作提示 —— 与子面板/页面一致，不依赖顶层窗口的 LanguageChange 事件。
  */
 #include "MainWindow.h"
 #include "mcp/FileResourceAdapter.h"
@@ -1052,15 +1052,12 @@ void MainWindow::retranslateUi()
 {
     setWindowTitle(tr("NovaTerm"));
 
-    if (_menuTip) _menuTip->setToolTip(tr("Menu"));
     if (_newSessionTip) _newSessionTip->setToolTip(tr("New session"));
     if (_newSessionButton) {
         _newSessionButton->setAccessibleName(tr("New session"));
-        _newSessionButton->setToolTip(tr("New session"));
     }
 
-    // 重新翻译弹出菜单项
-    if (_actSession)  _actSession->setText(tr("Session"));
+    // 动作文本变化同步更新标题栏图标的提示与无障碍名称。
     if (_actSettings) _actSettings->setText(tr("Settings"));
     if (_actMcp) _actMcp->setText(tr("AI MCP access"));
     if (_actHistoryRecording) _actHistoryRecording->setText(tr("History recording"));
@@ -1167,26 +1164,9 @@ void MainWindow::initWindow()
                 [hideAppBarLabels](const QString&) { hideAppBarLabels(); });
     }
 
-    // ═══════════════════════════════════════════════════════════════
-    // 菜单图标，放置在 LeftArea 中使其位于 Logo 右侧。
-    //   • 悬停  → ElaToolTip "Menu"
-    //   • 点击  → 弹出 ElaMenu，包含会话、侧栏显隐、设置与关于
-    // ═══════════════════════════════════════════════════════════════
-    _menuButton = new ElaIconButton(ElaIconType::Bars, 18, 32, 32, this);
-    // ElaToolTip（非原生 QToolTip）：其背景使用主题的 PopupBase/PopupBorder
-    // 绘制，并已绑定 eTheme->themeModeChanged，因此自动跟随全局亮色/暗色主题。
-    _menuTip = new ElaToolTip(_menuButton);
-    _menuTip->setToolTip(tr("Menu"));
-
-    buildMainMenu();
-    connect(_menuButton, &QPushButton::clicked, this, [this]() {
-        _mainMenu->popup(_menuButton->mapToGlobal(QPoint(0, _menuButton->height() + 2)));
-    });
-
     _newSessionButton = new ElaIconButton(
         ElaIconType::Plus, 14, 32, 32, this);
     _newSessionButton->setAccessibleName(tr("New session"));
-    _newSessionButton->setToolTip(tr("New session"));
     _newSessionTip = new ElaToolTip(_newSessionButton);
     _newSessionTip->setToolTip(tr("New session"));
     buildNewSessionMenu();
@@ -1199,21 +1179,20 @@ void MainWindow::initWindow()
     customLayout->setContentsMargins(0, 0, 0, 0);
     customLayout->setSpacing(6);
 
-    // 应用 Logo，尺寸与 36px 菜单按钮匹配（26px 图标放在 26 宽的槽中，
-    // 使其左对齐，并由标题栏布局保持垂直居中）。
+    // 应用 Logo 与功能图标共用 32 px 标题栏高度。
     auto* logoLabel = new QLabel(customWidget);
     logoLabel->setPixmap(QIcon(":/icons/app_logo.svg").pixmap(26, 26));
     logoLabel->setFixedSize(26, 32);
     logoLabel->setAlignment(Qt::AlignCenter);
     customLayout->addWidget(logoLabel);
 
-    customLayout->addWidget(_menuButton);
     customLayout->addWidget(_newSessionButton);
+    buildTitleBarActions(customLayout);
     customLayout->addStretch();
     setCustomWidget(ElaAppBarType::LeftArea, customWidget, this, "processHitTest");
 
     _terminalPage = new TerminalPage(this, _historyRuntime);
-    // 菜单先于终端页创建，接收者就绪后再连接历史录制入口。
+    // 标题栏动作先于终端页创建，接收者就绪后再连接历史录制入口。
     connect(_actHistoryRecording, &QAction::triggered,
             _terminalPage, &TerminalPage::showHistoryRecording);
 
@@ -1467,9 +1446,9 @@ void MainWindow::initWindow()
     // 也必须恢复可见；该操作只改变显隐，不再调整已恢复的停靠结构。
     _sessionDock->setVisible(true);
 
-    // 顶栏菜单只管理可关闭的工具面板；快捷连接使用自身标题栏按钮折叠。
+    // 顶栏图标只管理可关闭的工具面板；快捷连接使用自身标题栏按钮折叠。
     const auto bindPanelAction = [](QAction* action, QDockWidget* dock) {
-        // 仅响应用户触发菜单项的操作。主窗口最小化时 Dock 会暂时发出
+        // 仅响应用户触发动作。主窗口最小化时 Dock 会暂时发出
         // visibilityChanged(false)，由此同步 QAction 的勾选状态不应再次
         // 反向隐藏 Dock，否则恢复窗口后面板会被误判为已由用户关闭。
         QObject::connect(action, &QAction::triggered, dock,
@@ -1673,39 +1652,49 @@ void MainWindow::updateDockResizeHighlight(const QPoint& position)
     _dockResizeHighlight->hide();
 }
 
-void MainWindow::buildMainMenu()
+void MainWindow::buildTitleBarActions(QHBoxLayout* layout)
 {
-    _mainMenu = new ElaMenu(this);
-    _mainMenu->setMenuItemHeight(27);
+    const auto addAction = [this, layout](ElaIconType::IconName icon,
+                                         const QString& text, bool checkable = false) {
+        auto* action = new QAction(text, this);
+        action->setCheckable(checkable);
+        action->setChecked(checkable);
+        auto* button = new ElaIconButton(icon, 18, 32, 32, layout->parentWidget());
+        button->setBorderRadius(4);
+        button->setFocusPolicy(Qt::NoFocus);
+        button->setCheckable(checkable);
+        auto* tip = new ElaToolTip(button);
+        const auto syncAction = [action, button, tip]() {
+            button->setEnabled(action->isEnabled());
+            button->setChecked(action->isChecked());
+            button->setIsSelected(action->isChecked());
+            button->setAccessibleName(action->text());
+            // ElaToolTip 独立处理悬停，不能再设置 QWidget 的原生提示。
+            tip->setToolTip(action->text());
+        };
+        connect(action, &QAction::changed, button, syncAction);
+        connect(button, &QPushButton::clicked, action, &QAction::trigger);
+        syncAction();
+        layout->addWidget(button);
+        _titleBarButtons.append(button);
+        return action;
+    };
 
-    // ── 会话：打开会话/连接选择器 ──
-    _actSession = _mainMenu->addElaIconAction(ElaIconType::Terminal, tr("Session"));
-    connect(_actSession, &QAction::triggered, this,
-            [this]() { showSessionDialog(); });
-
-    // 顶栏菜单仅管理可拖动的 SFTP 与资源监视面板。快捷连接面板通过
-    // 自身标题栏按钮折叠，中央终端则始终保留。
-    _mainMenu->addSeparator();
-    _toggleSftpPanelAction = _mainMenu->addElaIconAction(
-        ElaIconType::FolderArrowUp, tr("SFTP panel"));
-    _toggleSystemMonitorAction = _mainMenu->addElaIconAction(
-        ElaIconType::Gauge, tr("System resources panel"));
-    _toggleSftpPanelAction->setCheckable(true);
-    _toggleSystemMonitorAction->setCheckable(true);
-    _toggleSftpPanelAction->setChecked(true);
-    _toggleSystemMonitorAction->setChecked(true);
-
-    _mainMenu->addSeparator();
+    // Dock 的实际可见状态仍经 QAction 回写，关闭面板与恢复布局会同步图标。
+    _toggleSftpPanelAction = addAction(
+        ElaIconType::FolderArrowUp, tr("SFTP panel"), true);
+    _toggleSystemMonitorAction = addAction(
+        ElaIconType::Gauge, tr("System resources panel"), true);
 
     // ── 设置：ElaDialog 内嵌现有 SettingsPage ──
-    _actSettings = _mainMenu->addElaIconAction(ElaIconType::GearComplex, tr("Settings"));
+    _actSettings = addAction(ElaIconType::GearComplex, tr("Settings"));
     connect(_actSettings, &QAction::triggered, this, &MainWindow::showSettingsDialog);
-    _actMcp = _mainMenu->addElaIconAction(ElaIconType::Terminal, tr("AI MCP access"));
+    _actMcp = addAction(ElaIconType::Robot, tr("AI MCP access"));
     connect(_actMcp, &QAction::triggered, this, &MainWindow::showMcpSettingsDialog);
-    _actHistoryRecording = _mainMenu->addElaIconAction(ElaIconType::Terminal, tr("History recording"));
+    _actHistoryRecording = addAction(ElaIconType::ClockRotateLeft, tr("History recording"));
 
     // ── 关于：模态对话框（行为不变）──
-    _actAbout = _mainMenu->addElaIconAction(ElaIconType::CircleInfo, tr("About"));
+    _actAbout = addAction(ElaIconType::CircleInfo, tr("About"));
     connect(_actAbout, &QAction::triggered, this, &MainWindow::showAboutDialog);
 }
 
@@ -1744,12 +1733,13 @@ void MainWindow::buildNewSessionMenu()
 
 bool MainWindow::processHitTest()
 {
-    // 自定义区域中除菜单按钮外均可拖动。
-    if (!_menuButton)
-        return true;
-    return !ElaApplication::containsCursorToItem(_menuButton)
-        && (!_newSessionButton
-            || !ElaApplication::containsCursorToItem(_newSessionButton));
+    // 图标接收点击，其余空白区域仍可用于拖动窗口。
+    for (auto* button : _titleBarButtons) {
+        if (ElaApplication::containsCursorToItem(button))
+            return false;
+    }
+    return !_newSessionButton
+        || !ElaApplication::containsCursorToItem(_newSessionButton);
 }
 
 // ═══════════════════════════════════════════════════════════════════

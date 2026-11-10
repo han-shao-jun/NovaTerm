@@ -2,8 +2,8 @@
  * @file   MainWindow.h
  * @brief  无边框主窗口（ElaWindow）。
  *
- * 左侧导航栏已禁用；标题栏仅显示应用 Logo 和一个菜单按钮，其弹出菜单可
- * 导航至会话 / 设置 / 关于。设置和关于以对话框形式打开，而非导航页面。
+ * 左侧导航栏已禁用；标题栏显示应用 Logo、平铺功能图标和新建连接入口。
+ * 设置和关于以对话框形式打开，而非导航页面。
  * 持有终端页面并连接实时语言切换。
  */
 #pragma once
@@ -14,6 +14,7 @@
 #include <ElaMenu.h>
 #include <ElaToolTip.h>
 #include <QByteArray>
+#include <QList>
 #include <optional>
 #include "session/SessionTypes.h"
 
@@ -21,6 +22,7 @@ class ElaDialog;
 class ElaCheckBox;
 class QCloseEvent;
 class QDockWidget;
+class QHBoxLayout;
 class QLabel;
 class QShowEvent;
 class SessionPanel;
@@ -33,7 +35,7 @@ class QWidget;
 /**
  * @brief 无边框主窗口。
  *
- * 标题栏单图标 → 弹出菜单导航；会话/设置/关于均以对话框形式打开。
+ * 标题栏平铺面板开关与功能入口；会话/设置/关于均以对话框形式打开。
  */
 class MainWindow : public ElaWindow
 {
@@ -83,14 +85,11 @@ private:
     // 其标题/按钮/正文不能在每次语言切换时重新翻译，故集中在此刷新。
     void applyCloseDialogTexts();
 
-    // ── 标题栏菜单（单个图标 → 弹出菜单）──
-    ElaIconButton* _menuButton{nullptr};
+    // ── 标题栏平铺动作与新建连接菜单 ──
+    QList<ElaIconButton*> _titleBarButtons;
     ElaIconButton* _newSessionButton{nullptr};
-    ElaToolTip* _menuTip{nullptr};
     ElaToolTip* _newSessionTip{nullptr};
-    ElaMenu* _mainMenu{nullptr};
     ElaMenu* _newSessionMenu{nullptr};
-    QAction* _actSession{nullptr};
     QAction* _toggleSftpPanelAction{nullptr};
     QAction* _toggleSystemMonitorAction{nullptr};
     QAction* _actSettings{nullptr};
@@ -103,7 +102,7 @@ private:
     QAction* _serialSessionAction{nullptr};
     QAction* _telnetSessionAction{nullptr};
 
-    void buildMainMenu();
+    void buildTitleBarActions(QHBoxLayout* layout);
     void buildNewSessionMenu();
 
     // 主页面与四区布局：终端固定中央，会话固定左侧，SFTP/监视可停靠。
