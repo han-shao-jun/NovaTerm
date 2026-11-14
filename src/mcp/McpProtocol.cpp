@@ -393,7 +393,14 @@ bool writePrivateJson(const QString& path, const QJsonObject& object)
         return false;
     file.setPermissions(QFileDevice::ReadOwner | QFileDevice::WriteOwner);
     const auto bytes = QJsonDocument(object).toJson(QJsonDocument::Compact);
-    return file.write(bytes) == bytes.size() && file.commit() && secureFile(path);
+    if (file.write(bytes) != bytes.size() || !file.commit())
+        return false;
+    if (!secureFile(path)) {
+        // commit() 已替换目标；不能让未通过提交后安全检查的文件被后续读者信任。
+        static_cast<void>(QFile::remove(path));
+        return false;
+    }
+    return true;
 }
 std::optional<QJsonObject> readJson(const QString& path, qsizetype maximum)
 {
@@ -403,8 +410,18 @@ std::optional<QJsonObject> readJson(const QString& path, qsizetype maximum)
     const auto document = QJsonDocument::fromJson(file.read(maximum + 1));
     return document.isObject() ? std::optional<QJsonObject>(document.object()) : std::nullopt;
 }
+// 测试/便携场景可用 NOVATERM_MCP_STATE_DIR 覆盖 MCP 状态根目录。
+// 用户目录可能被安全软件禁止写入（未签名程序），此时仍可指向工作区等
+// 明确可写的位置；未设置时保持原有系统目录，不改变正式安装行为。
+QString stateRootOverride()
+{
+    return qEnvironmentVariable("NOVATERM_MCP_STATE_DIR").trimmed();
+}
 QString runtimeDirectory()
 {
+    const QString override = stateRootOverride();
+    if (!override.isEmpty())
+        return QDir(override).filePath(QStringLiteral("instances"));
     QString base = QStandardPaths::writableLocation(QStandardPaths::RuntimeLocation);
     if (base.isEmpty())
         base = QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation);
@@ -412,6 +429,9 @@ QString runtimeDirectory()
 }
 QString dataDirectory()
 {
+    const QString override = stateRootOverride();
+    if (!override.isEmpty())
+        return override;
     return QDir(QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation))
         .filePath(QStringLiteral("mcp"));
 }

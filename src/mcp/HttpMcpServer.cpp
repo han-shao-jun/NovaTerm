@@ -322,7 +322,9 @@ public:
                     responder.writeChunk(body);
             } else
                 responder.write(response.body, response.headers, Status(response.status));
-            const auto actual = qsizetype(peer->socket->bytesToWrite() - before);
+            // 本次写入期间 Qt 可能顺带刷出已有缓冲；负值/超量差值不能污染共享额度。
+            const auto actual = std::clamp<qsizetype>(
+                qsizetype(peer->socket->bytesToWrite() - before), 0, response.charge);
             {
                 std::lock_guard<std::mutex> lock(_queues->mutex);
                 auto it = _queues->credits.find(peer->id);
@@ -334,8 +336,10 @@ public:
                 }
             }
             if (response.final) {
+                // responder 析构可能同步拆除 socket handler，先保留自己的 QPointer。
+                const QPointer<GuardSocket> socket = peer->socket;
                 peer->responder.reset();
-                peer->socket->disconnectFromHost();
+                if (socket) socket->disconnectFromHost();
             }
         }
     }

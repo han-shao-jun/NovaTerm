@@ -42,7 +42,7 @@ setlocal EnableExtensions
 REM Resolve the project root from this script's location, so the script can
 REM be invoked from any working directory.
 for %%I in ("%~dp0..") do set "REPO=%%~fI"
-set "VS_ROOT=C:\Program Files (x86)\Microsoft Visual Studio"
+set "VS_ROOT=C:\Programs\MicrosoftVisualStudio"
 set "VCVARS="
 for /f "delims=" %%I in ('where /r "%VS_ROOT%" vcvarsall.bat 2^>nul') do if not defined VCVARS set "VCVARS=%%I"
 

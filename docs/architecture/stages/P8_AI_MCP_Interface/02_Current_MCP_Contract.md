@@ -258,7 +258,7 @@ B3基础恢复保留旧inputToken/replyToExecutionId/operationId保护、CR/LF/C
 - 每个请求校验Bearer、Host/Origin；MCP-Session-Id/clientInfo.name不能代替身份。客户端必须使用该实例导出的配置。
 - 不自动启动NovaTerm、新建终端、登录服务器或复活已删除的novaterm-mcp/LocalMcpServer。
 - 2025-11-25：initialize/initialized建立协议会话，后续带MCP-Session-Id；SSE承载响应；普通TCP断开不等于业务取消，DELETE结束会话。
-- 2026-07-28：server/discover、按请求_meta/协议能力；不创建2025式协议会话，请求流断开取消对应业务。
+- 2026-07-28：server/discover、按请求_meta/协议能力；不创建2025式协议会话，请求流断开取消对应业务；列表结果按CacheableResult带ttlMs/cacheScope，缺字段会被严格校验的客户端判为非法响应。
 - 两代wire适配调用同一业务用例；已退役工具不能通过旧确认状态恢复调用。
 - 保留string/number RPC ID类型；取消/重放/重复ID及已完成竞态由wire/endpoint测试约束，不把通信超时解释成远端已停止。
 

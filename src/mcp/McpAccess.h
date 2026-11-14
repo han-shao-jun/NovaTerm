@@ -56,6 +56,8 @@ public:
     [[nodiscard]] GrantSnapshot grantSnapshot(
         const ClientId& client, const SessionDirectory::Entry& entry) const;
     [[nodiscard]] bool initializeSessionDefaults(const SessionDirectory::Entry&);
+    /** @brief 会话从目录真正移除后回收运行期授权行；普通重连/换代不得调用。 */
+    void removeSessionGrant(const QString& sessionId);
     [[nodiscard]] bool canRead(const QString& clientId, const SessionDirectory::Entry& entry) const;
     [[nodiscard]] bool canControlTerminal(const QString& clientId,
                                           const SessionDirectory::Entry& entry) const;

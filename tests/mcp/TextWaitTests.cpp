@@ -176,6 +176,22 @@ private slots:
         QVERIFY(!data(*result).contains("nextToken"));
         QCOMPARE(f.observation.captureCount(), size_t{0});
     }
+    void screenWaitDoesNotMatchDisconnectedSnapshot()
+    {
+        Fixture f; f.output("before-target ");
+        auto request = f.request({"U-Boot>"}); request.source = WaitTextSource::Screen;
+        request.screenStart = ScreenWaitStart::Next;
+        request.wait = std::chrono::milliseconds{30000};
+        std::optional<QJsonObject> result;
+        f.waiter.call(f.client, "screen-disconnect", request, [&result](auto value) { result = value; });
+        QVERIFY(!result);
+        f.output("U-Boot> ");
+        f.transport.disconnect();
+        QTRY_VERIFY(result);
+        const auto status = data(*result).value("status").toString();
+        const auto error = result->value("error").toObject().value("code").toString();
+        QVERIFY(status == "invalidated" || error == "SESSION_NOT_AVAILABLE");
+    }
     void screenNextIgnoresBaselineAndNeverJoinsRevisions() {
         Fixture f; f.output("PASS");
         auto request = f.request(); request.source = WaitTextSource::Screen; request.screenStart = ScreenWaitStart::Next;

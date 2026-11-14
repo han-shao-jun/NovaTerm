@@ -243,6 +243,9 @@ async def check_modern(settings: dict) -> None:
         assert unsupported["error"]["data"]["requested"] == "2099-01-01"
         listed = await rpc("tools/list", {"_meta": metadata()})
         assert listed["result"]["resultType"] == "complete"
+        # 2026-07-28 的 ListToolsResult 继承 CacheableResult，ttlMs/cacheScope 必填。
+        assert listed["result"]["ttlMs"] == 0
+        assert listed["result"]["cacheScope"] in ("public", "private")
         assert len(listed["result"]["tools"]) == 20
         schemas = {tool["name"]: tool["outputSchema"] for tool in listed["result"]["tools"]}
         presentation_titles = {tool["name"]: tool["title"] for tool in listed["result"]["tools"]}

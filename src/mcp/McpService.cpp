@@ -202,6 +202,9 @@ public:
         });
         QObject::connect(&sessions, &SessionDirectory::invalidated, q, [this](const QString& id) {
             observation.removeSession(id);
+            // invalidated 也会在重连/换代时发出，此时读取授权应按 attachment 保留；
+            // 只有目录中已不存在该会话才真正回收授权行。
+            if (!sessions.find(id)) access.removeSessionGrant(id);
             const auto jobsCopy = requestKeys();
             for (const auto& key : jobsCopy) {
                 auto* pending = findRequest(key);

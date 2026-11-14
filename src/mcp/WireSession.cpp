@@ -207,7 +207,13 @@ public:
             return;
         }
         if (method == "tools/list") {
-            output(rpcResult(id, {{"tools", ToolCodec::catalog()}}));
+            QJsonObject result{{"tools", ToolCodec::catalog()}};
+            if (_requestMrtr) {
+                // 缺失会让严格校验的客户端在 tools/list 阶段直接断开连接。
+                result.insert("ttlMs", 0);
+                result.insert("cacheScope", "private");
+            }
+            output(rpcResult(id, result));
             return;
         }
         if (method != "tools/call") {

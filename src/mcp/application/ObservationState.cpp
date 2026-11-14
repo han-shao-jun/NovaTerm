@@ -217,13 +217,13 @@ Result<InputAdmission> ObservationState::prepareInput(const ClientId& client,
         return Error{ErrorCode::ContextNotReady};
     if (facts.pending)
         return Error{ErrorCode::InputBusy, {}, RetryHint{true, std::chrono::milliseconds(50)}};
+    if (!facts.owner.isEmpty() && facts.owner != client)
+        return Error{ErrorCode::TerminalBusy};
     if (!_inputs->room({client, request.session}, release && facts.owner == client))
         return Error{ErrorCode::Busy, "Recent input identity budget is full; no input was submitted."};
     if (release) return InputAdmission::Release;
     if (facts.controlledSessions >= Budget::MaxObservedControlSessions && facts.owner.isEmpty())
         return Error{ErrorCode::Busy};
-    if (!facts.owner.isEmpty() && facts.owner != client)
-        return Error{ErrorCode::TerminalBusy};
     return InputAdmission::Submit;
 }
 
@@ -372,7 +372,6 @@ void ObservationState::outputChanged(const SessionId& session, quint64 model)
 std::optional<ObservationWake> ObservationState::attention(const ObservationWait& wait, const QString& line)
 {
     auto& delivered = _hints[{wait.client, wait.session.session}];
-    if (delivered.size() >= 4) return std::nullopt;
     static const QRegularExpression prompt(QStringLiteral("(?i)(\\[[yn]/[yn]\\]|\\([yn]/[yn]\\)|(?:password|passphrase):\\s*$|(?:continue|proceed).{0,32}\\?|press .{0,32}key)"));
     static const QRegularExpression error(QStringLiteral("(?i)^(?:fatal error:|error:|traceback|panic:)|: fatal error:"));
     const auto reason = prompt.match(line).hasMatch() ? ObservationWake::AttentionCandidate
@@ -381,7 +380,10 @@ std::optional<ObservationWake> ObservationState::attention(const ObservationWait
     const auto fingerprint = QCryptographicHash::hash(
         (QString::number(int(reason)) + line).toUtf8(), QCryptographicHash::Sha256);
     if (delivered.contains(fingerprint)) return std::nullopt;
-    delivered.insert(fingerprint);
+    // 去重窗口保持有界但循环复用：同一会话已出现多个不同提示/错误后，
+    // 后续新提示仍必须能够唤醒，而不是让 attention 等待静默退化到期限。
+    if (delivered.size() >= Budget::MaxAttentionHints) delivered.removeFirst();
+    delivered.append(fingerprint);
     return reason;
 }
 

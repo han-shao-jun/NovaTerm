@@ -58,6 +58,13 @@ public:
         if (record->waiters.size() >= size_t(Budget::MaxWireCalls)) { done(Error{ErrorCode::Busy}); return false; }
         record->waiters.push_back({std::move(request), std::move(done)}); return true;
     }
+    /** @brief 撤回尚未等待任何调用方的预留记录；不得影响已有结果的行。 */
+    void discard(const std::shared_ptr<Record>& record) {
+        if (!record || record->result || !record->waiters.empty()) return;
+        for (auto it = _records.begin(); it != _records.end(); ++it) {
+            if (it.value() == record) { _records.erase(it); return; }
+        }
+    }
     void finish(quint64 id, Result<ClearCompletion> result) {
         for (const auto& record : _records) if (record->id == id && !record->result) {
             const auto keep = record;

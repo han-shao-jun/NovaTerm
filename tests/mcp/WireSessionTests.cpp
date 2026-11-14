@@ -575,8 +575,30 @@ private slots:
         wire.receiveMessage(presentedRpc({{"jsonrpc", "2.0"}, {"method", "notifications/initialized"}}));
         QVERIFY(wire.initialized());
         wire.receiveMessage(presentedRpc({{"jsonrpc", "2.0"}, {"id", 2}, {"method", "tools/list"}}), "catalog");
-        QCOMPARE(QJsonDocument::fromJson(packets.last().at(1).toByteArray()).object().value("result").toObject()
-            .value("tools").toArray().size(), 20);
+        const auto catalog = QJsonDocument::fromJson(packets.last().at(1).toByteArray()).object()
+            .value("result").toObject();
+        QCOMPARE(catalog.value("tools").toArray().size(), 20);
+        // 2025-11-25 的列表结果没有缓存提示字段，只在 2026-07-28 请求上补齐。
+        QVERIFY(!catalog.contains("ttlMs"));
+        QVERIFY(!catalog.contains("cacheScope"));
+    }
+    void modernCatalogCarriesCacheHints()
+    {
+        WireSession wire;
+        wire.setBackendAvailable(true);
+        QSignalSpy packets(&wire, &WireSession::packet);
+        const QJsonObject meta{{"io.modelcontextprotocol/protocolVersion", "2026-07-28"},
+            {"io.modelcontextprotocol/clientCapabilities", QJsonObject{}}};
+        wire.receiveMessage(presentedRpc({{"jsonrpc", "2.0"}, {"id", 2},
+            {"method", "tools/list"}, {"params", QJsonObject{{"_meta", meta}}}}), "modern-catalog");
+        QCOMPARE(packets.size(), 1);
+        const auto result = QJsonDocument::fromJson(packets.first().at(1).toByteArray()).object()
+            .value("result").toObject();
+        QCOMPARE(result.value("resultType").toString(), QString("complete"));
+        // 2026-07-28 的 CacheableResult 必填字段；严格客户端缺一个就判定响应非法。
+        QCOMPARE(result.value("ttlMs").toInt(-1), 0);
+        QCOMPARE(result.value("cacheScope").toString(), QString("private"));
+        QCOMPARE(result.value("tools").toArray().size(), 20);
     }
     void asynchronousResultKeepsExchangeRoute()
     {

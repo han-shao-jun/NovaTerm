@@ -68,7 +68,7 @@ void TerminalClearAdapter::call(const QString& client, const QString& requestKey
     const auto admitted = std::get<ClearOperations::Admission>(result);
     const auto record = admitted.record;
     const QPointer<TerminalClearAdapter> guard(this);
-    if (!_operations.wait(record, requestKey, [this, guard, client, request, grant, done = std::move(done)](auto value) {
+    const bool waiting = _operations.wait(record, requestKey, [this, guard, client, request, grant, done = std::move(done)](auto value) {
         if (!guard) return;
         const auto current = _sessions.find(request.session.str());
         if (!current || !current->session || current->epoch != request.epoch.str()
@@ -84,7 +84,13 @@ void TerminalClearAdapter::call(const QString& client, const QString& requestKey
             {request.session, request.epoch}, grant, _key, std::nullopt, completion.capturedAtMs, completion.ticketIssued,
             completion.userGeneration));
         done(success(data));
-    })) return; // Request budgets already bound concurrent waiters; no parser submission on overflow.
+    });
+    if (!waiting) {
+        // 等待额度在 Parser 提交前拒绝了本请求；只回收全新预留，
+        // 已有操作保留已挂接的等待者并继续独立执行。
+        if (admitted.fresh) _operations.discard(record);
+        return;
+    }
     if (!admitted.fresh) return;
     bool userValid = false;
     const auto user = ticket->value("user").toString().toULongLong(&userValid);

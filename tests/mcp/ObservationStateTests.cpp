@@ -7,6 +7,7 @@ class ObservationStateTests final : public QObject {
     Q_OBJECT
 private slots:
     void inputReplayAndGenerations();
+    void releaseRequiresCurrentOwner();
     void queuedAdmissionChecksCurrentClockAndBinding_data();
     void queuedAdmissionChecksCurrentClockAndBinding();
     void expiredAdmissionReportsTimingWithoutResubmission();
@@ -14,6 +15,7 @@ private slots:
     void waitReplacementAndBudget();
     void deadlineAndControlWake();
     void outputQuietWindow();
+    void attentionHintsRemainBoundedAndRecover();
     void cursorAndCaptureBinding();
     void cacheGenerationInvalidatesInputReplayCursorCaptureAndWait();
     void cacheGenerationBypassesSnapshotCoalescing();
@@ -144,6 +146,22 @@ void ObservationStateTests::inputReplayAndGenerations()
     QCOMPARE(state.validateInput(claims, client, facts)->code, ErrorCode::ControlInvalid);
     now = claims.expires;
     QCOMPARE(state.validateInput(claims, client, facts)->code, ErrorCode::InputTokenExpired);
+}
+
+void ObservationStateTests::releaseRequiresCurrentOwner()
+{
+    qint64 now = 100; ObservationState state{[&] { return now; }};
+    const ClientId client{"client"}; const ClientId owner{"owner"};
+    TerminalControlFacts facts;
+    facts.session = {SessionId{"session"}, Epoch{"epoch"}};
+    facts.owner = owner;
+    InteractTerminalRequest request;
+    request.session = facts.session.session; request.epoch = facts.session.epoch;
+    request.operation = OperationId{"release"}; request.actions = {ReleaseAction{}};
+    const auto claims = state.inputClaims(client, facts);
+    const auto rejected = state.prepareInput(client, request, claims, facts);
+    QVERIFY(isError(rejected));
+    QCOMPARE(errorIfAny(rejected)->code, ErrorCode::TerminalBusy);
 }
 
 void ObservationStateTests::historyHasFixedExpiryAndKeepsBindingIsolation()
@@ -318,6 +336,26 @@ void ObservationStateTests::outputQuietWindow()
     facts.session = wait.session; facts.model = 1;
     now = 149; QVERIFY(!state.evaluate(wait.request, facts));
     now = 150; QCOMPARE(state.evaluate(wait.request, facts)->wake, ObservationWake::OutputChanged);
+}
+void ObservationStateTests::attentionHintsRemainBoundedAndRecover()
+{
+    qint64 now = 0; ObservationState state{[&] { return now; }};
+    ObservationWait wait;
+    wait.client = ClientId{"c"}; wait.request = RequestId{"r"}; wait.session = {SessionId{"s"}, Epoch{"e"}};
+    ReadContextRequest read; read.wait = std::chrono::milliseconds{2000}; read.waitFor = WaitCondition::Attention;
+    wait.typed = read;
+    ObservationFacts facts; facts.available = facts.snapshotAvailable = facts.running = true;
+    facts.session = wait.session;
+    for (int i = 0; i <= Budget::MaxAttentionHints; ++i) {
+        state.outputChanged(wait.session.session, quint64(i + 1));
+        now += 200;
+        facts.model = quint64(i + 1);
+        facts.lastVisibleLine = QStringLiteral("Overwrite file? [y/n] option-%1").arg(i);
+        QVERIFY(!isError(state.admit(wait)));
+        const auto completed = state.evaluate(wait.request, facts);
+        QVERIFY(completed);
+        QCOMPARE(completed->wake, ObservationWake::AttentionCandidate);
+    }
 }
 void ObservationStateTests::cursorAndCaptureBinding()
 {

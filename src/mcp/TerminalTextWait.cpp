@@ -1,5 +1,6 @@
 /** @file TerminalTextWait.cpp @brief 有界文本匹配、观察续扫和失效交付。 */
 #include "TerminalTextWait.h"
+#include "CapabilityAdapter.h"
 #include "LogReadAdapter.h"
 #include "McpAccess.h"
 #include "McpProtocol.h"
@@ -90,6 +91,10 @@ public:
         const auto entry = sessions.find(state.request.session.str());
         if (!entry || !entry->session || !entry->session->core()
             || !access.canRead(state.client, *entry) || access.version(state.client) != state.grant)
+            return false;
+        // 屏幕匹配是活动屏幕事实。断线/重连中的会话仍可能暴露最后一次缓存视口，
+        // 不能把该过期快照伪装成成功的等待。
+        if (state.request.source == WaitTextSource::Screen && !connectedSession(*entry))
             return false;
         if (found) *found = *entry;
         return true;

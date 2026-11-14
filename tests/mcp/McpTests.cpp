@@ -2245,8 +2245,12 @@ void McpTests::unrelatedGroupOwnedDirectoryIsRejected()
     DWORD sidSize = sizeof(everyoneSid);
     QVERIFY(CreateWellKnownSid(WinWorldSid, nullptr, everyoneSid, &sidSize));
     auto native = QDir::toNativeSeparators(path).toStdWString();
-    QCOMPARE(SetNamedSecurityInfoW(native.data(), SE_FILE_OBJECT, OWNER_SECURITY_INFORMATION,
-        everyoneSid, nullptr, nullptr, nullptr), DWORD(ERROR_SUCCESS));
+    const auto setup = SetNamedSecurityInfoW(native.data(), SE_FILE_OBJECT, OWNER_SECURITY_INFORMATION,
+        everyoneSid, nullptr, nullptr, nullptr);
+    if (setup == ERROR_PRIVILEGE_NOT_HELD || setup == ERROR_NOT_ALL_ASSIGNED
+        || setup == ERROR_ACCESS_DENIED || setup == ERROR_INVALID_OWNER)
+        QSKIP("Creating a foreign group-owned fixture requires SeRestorePrivilege.");
+    QCOMPARE(setup, DWORD(ERROR_SUCCESS));
     // The production call must not rely on privileges enabled only for setup.
     QVERIFY(AdjustTokenPrivileges(token, FALSE, &previous, 0, nullptr, nullptr));
     QVERIFY(!secureDirectory(path));

@@ -577,6 +577,8 @@ private slots:
         }
         auto invalid = args; invalid.insert("scope", "screen");
         QVERIFY(!validateBusinessArguments("novaterm_clear_terminal", invalid).isEmpty());
+        invalid = args; invalid.insert("operationId", "not-a-uuid");
+        QVERIFY(isError(decodeBusinessCall("novaterm_clear_terminal", invalid)));
         invalid = args; invalid.insert("path", "C:/private");
         QVERIFY(!validateBusinessArguments("novaterm_clear_terminal", invalid).isEmpty());
         static_assert(std::variant_size_v<ToolRequest> == 5);

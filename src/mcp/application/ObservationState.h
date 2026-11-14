@@ -192,7 +192,7 @@ private:
     QHash<Scope, Replay> _replays;
     struct InputHistory;
     std::shared_ptr<InputHistory> _inputs;
-    QHash<Scope, QSet<QByteArray>> _hints;
+    QHash<Scope, QList<QByteArray>> _hints;
     QHash<SessionId, Activity> _activity;
 };
 

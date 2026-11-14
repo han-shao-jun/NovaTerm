@@ -334,8 +334,15 @@ void SerialFileTransfers::cancel(const std::shared_ptr<Record>& record)
     if (!record->active) return;
     if (!record->controller) { settle(record, "unknown", "SESSION_NOT_AVAILABLE"); return; }
     if (!record->ownerId) return;
-    if (current) static_cast<void>(record->controller->cancel(record->ownerId));
-    else static_cast<void>(record->controller->abort(record->ownerId, "Original UART binding changed"));
+    const bool accepted = current
+        ? record->controller->cancel(record->ownerId)
+        : record->controller->abort(record->ownerId, "Original UART binding changed");
+    if (!accepted) {
+        // 控制器已不再认识该传输（被复用/替换或已结束但无结果），
+        // 不能让记录永久保持忙碌。
+        if (record->error == "CANCELLED") record->error = "SESSION_NOT_AVAILABLE";
+        settle(record, "unknown", record->error);
+    }
 }
 void SerialFileTransfers::check()
 {

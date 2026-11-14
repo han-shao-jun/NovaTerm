@@ -60,6 +60,7 @@ inline constexpr int MaxCapturesPerClient = 4;
 inline constexpr int MaxCapturesGlobal = 32;
 inline constexpr std::chrono::milliseconds CaptureLifetime{60000};
 inline constexpr int MaxObservationWaiters = 32;
+inline constexpr int MaxAttentionHints = 4;
 inline constexpr int MaxObservedControlSessions = 32;
 inline constexpr std::chrono::milliseconds ControlIdleRenewal{60000};
 inline constexpr qsizetype MaxTextBytes = 256 * 1024;

@@ -309,6 +309,23 @@ private slots:
         QVERIFY(reply->rawHeader("Mcp-Session-Id").isEmpty());
         QVERIFY(h.messages.isEmpty());
     }
+    void modernCatalogCarriesCacheHints()
+    {
+        Harness h;
+        QVERIFY(h.start());
+        auto* reply = h.post({{"jsonrpc", "2.0"}, {"id", 4}, {"method", "tools/list"}}, {}, true);
+        QTRY_VERIFY(reply->isFinished());
+        QCOMPARE(status(reply), 200);
+        const auto result = QJsonDocument::fromJson(reply->readAll()).object()
+            .value("result").toObject();
+        QCOMPARE(result.value("resultType").toString(), QString("complete"));
+        // 2026-07-28 的列表结果必须带缓存提示，否则严格客户端会判定响应非法。
+        QCOMPARE(result.value("ttlMs").toInt(-1), 0);
+        QCOMPARE(result.value("cacheScope").toString(), QString("private"));
+        QCOMPARE(result.value("tools").toArray().size(), 20);
+        QVERIFY(h.messages.isEmpty());
+        reply->deleteLater();
+    }
     void legacySessionCannotBeUsedByOtherClient()
     {
         Harness h;

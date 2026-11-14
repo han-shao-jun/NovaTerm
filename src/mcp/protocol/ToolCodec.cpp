@@ -948,8 +948,11 @@ Result<ToolCall> ToolCodec::decodeCall(const QString& name, const QJsonObject& a
     if (name == "novaterm_clear_terminal") {
         const auto invalid = validate(name, arguments);
         if (!invalid.isEmpty()) return Error{ErrorCode::InvalidArgument, invalid};
-        return ToolCall{ClearRequest{SessionId{arguments.value("sessionId").toString()},
-            Epoch{arguments.value("epoch").toString()}, OperationId{arguments.value("operationId").toString()},
+        const auto reference = sessionReference(arguments);
+        const auto operation = parseUuidId<OperationId>(textArgument(arguments, "operationId"));
+        if (!reference || !operation)
+            return Error{ErrorCode::InvalidArgument, QStringLiteral("Invalid session identity or operationId.")};
+        return ToolCall{ClearRequest{reference->session, reference->epoch, *operation,
             arguments.value("scope") == "all", arguments.value("expectedGeneration").toString().toULongLong(),
             arguments.value("clearToken").toString()}};
     }

@@ -416,6 +416,13 @@ bool AccessStore::initializeSessionDefaults(const SessionDirectory::Entry& entry
     return true;
 }
 
+void AccessStore::removeSessionGrant(const QString& sessionId)
+{
+    if (sessionId.isEmpty()) return;
+    _authorization.removeSession(SessionId{sessionId});
+    emit changed();
+}
+
 bool AccessStore::canControlTerminal(const QString& clientId,
     const SessionDirectory::Entry& entry) const
 {

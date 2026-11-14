@@ -1162,18 +1162,30 @@ void SftpSession::workerMain(std::shared_ptr<WorkerControl> control,
     }
 
     // SFTP 只在对应终端已完成主机密钥确认后启动；独立连接必须得到相同结果。
-    // 若密钥此时未知或发生变化，拒绝继续，绝不在后台静默信任。
-    if (ssh_session_is_known_server(session.get()) != SSH_KNOWN_HOSTS_OK) {
+    // 若密钥发生变化、本机记录冲突或无法读取记录，一律拒绝，绝不在后台
+    // 静默信任。
+    //
+    // 终端已确认但 known_hosts 可能写不进去（只读、被占用或目录 ACL 受限），
+    // 此时本机记录仍是“未知”。这种情况只有在本连接服务端密钥与活动终端
+    // 已确认的指纹完全一致时才放行；没有指纹可核对时仍按未知处理。
+    const enum ssh_known_hosts_e knownState =
+        ssh_session_is_known_server(session.get());
+    const bool recorded = knownState == SSH_KNOWN_HOSTS_OK;
+    const bool unrecorded = knownState == SSH_KNOWN_HOSTS_UNKNOWN
+        || knownState == SSH_KNOWN_HOSTS_NOT_FOUND;
+    const QString fingerprint = serverFingerprint(session.get());
+    const bool pinned = !expectedHostKeyFingerprint.isEmpty()
+        && !fingerprint.isEmpty() && fingerprint == expectedHostKeyFingerprint;
+    if (!expectedHostKeyFingerprint.isEmpty() && !pinned) {
         postError(control, generation,
-            tr("The SFTP host key is not trusted or has changed. "
-               "Reconnect the SSH terminal and verify the host key."));
+            tr("The SFTP host key does not match the active SSH session."));
         ssh_disconnect(session.get());
         return;
     }
-    if (!expectedHostKeyFingerprint.isEmpty()
-        && serverFingerprint(session.get()) != expectedHostKeyFingerprint) {
+    if (!recorded && !(unrecorded && pinned)) {
         postError(control, generation,
-            tr("The SFTP host key does not match the active SSH session."));
+            tr("The SFTP host key is not trusted or has changed. "
+               "Reconnect the SSH terminal and verify the host key."));
         ssh_disconnect(session.get());
         return;
     }

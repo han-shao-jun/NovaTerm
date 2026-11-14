@@ -129,6 +129,7 @@ public:
         if (_owner.isEmpty() && reason == QStringLiteral("preempted")) {
             ++_controlGeneration; _controlState = reason; changed(); return;
         }
+        bool released = false;
         if (!_owner.isEmpty() && (client.isEmpty() || client == _owner)) {
             _arbiter->releaseMcpLease(_lease);
             _owner.clear(); _lease = 0; _idle.stop(); _pending = false;
@@ -142,9 +143,11 @@ public:
                 if (_framer) { _framer->endTransaction(); }
             }
             if (_operationStatus == QStringLiteral("queued")) _operationStatus = QStringLiteral("interrupted");
+            released = true;
             changed();
         }
-        if (!operation.isEmpty()) {
+        // 非 owner 的 release 是空操作，不能用它自己的 operationId 覆盖真实 owner 的执行事实。
+        if (released && !operation.isEmpty()) {
             _operation = operation; _operationStatus = QStringLiteral("submitted");
             _maySent = false; _acceptedActionCount = 1; changed();
         }

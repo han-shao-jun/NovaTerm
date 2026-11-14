@@ -8,6 +8,8 @@
  */
 #pragma once
 
+#include "mcp/contracts/Budget.h"
+
 #include <QHash>
 #include <QString>
 #include <QVector>
@@ -53,9 +55,9 @@ struct CaptureRecord
 
 struct CaptureQuotas
 {
-    int perConnection{4};
-    int perClient{4};
-    int clientScopeTotal{32};
+    int perConnection{Budget::MaxCapturesPerConnection};
+    int perClient{Budget::MaxCapturesPerClient};
+    int clientScopeTotal{Budget::MaxCapturesGlobal};
 };
 
 class CaptureStore

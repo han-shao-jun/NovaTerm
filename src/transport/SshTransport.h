@@ -154,6 +154,8 @@ private:
                      bool retryable = false);
     void emitReadyRead(const QByteArray& data);
     void emitSignal(void (SshTransport::*signal)());
+    /** @brief 投递一条非致命的传输告警到 GUI 线程，不改变连接状态。 */
+    void emitWarning(const QString& warning);
     void emitCommandFinished(quint64 requestId, QByteArray standardOutput,
                              QByteArray standardError, QString errorMessage);
     void emitResourceSampleFinished(quint64 requestId, QByteArray payload,

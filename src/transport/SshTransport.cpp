@@ -463,6 +463,14 @@ void SshTransport::emitSignal(void (SshTransport::*signal)())
     }, Qt::QueuedConnection);
 }
 
+void SshTransport::emitWarning(const QString& warning)
+{
+    // 与错误不同：告警不写入 _errorString，也不触发会话失败。
+    QMetaObject::invokeMethod(this, [this, warning]() {
+        emit warningOccurred(warning);
+    }, Qt::QueuedConnection);
+}
+
 void SshTransport::emitCommandFinished(quint64 requestId,
                                        QByteArray standardOutput,
                                        QByteArray standardError,
@@ -640,14 +648,20 @@ void SshTransport::workerMain(const std::shared_ptr<SshWorkerWakeup>& wakeup)
         }
 
         // 信任并写入 known_hosts（New 追加，Changed 更新）。
+        //
+        // 用户在上一步已显式确认过指纹，写盘只是持久化这次判定。写失败
+        // （known_hosts 只读、被其他进程独占、目录 ACL 受限等）时按 OpenSSH
+        // 的做法降级为“仅本次会话信任”并告警，不能因此中断已经获准的连接；
+        // 下一次连接会重新要求确认，不会静默跳过校验。
         if (ssh_session_update_known_hosts(session) != SSH_OK) {
-            reportError(tr("Failed to store the host key: %1")
-                            .arg(QString::fromUtf8(ssh_get_error(session))),
-                        TransportErrorCategory::HostKey);
-            ssh_key_free(serverKey);
-            ssh_disconnect(session);
-            ssh_free(session);
-            return;
+            emitWarning(tr("Host key for %1:%2 is trusted for this session only: "
+                           "cannot update %3 (%4). The next connection will ask "
+                           "again; check the file permissions or set a writable "
+                           "known_hosts path.")
+                            .arg(_config.host)
+                            .arg(_config.port)
+                            .arg(_knownHostsPath,
+                                 QString::fromUtf8(ssh_get_error(session))));
         }
     }
     {
